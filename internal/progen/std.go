@@ -95,7 +95,8 @@ func (g *Gen) bytesStmt() Stmt {
 }
 
 // sortStmt sorts a writable list with sort.by, ascending or descending,
-// or observes whether a list is sorted with sort.is_sorted.
+// or observes whether a list is sorted with sort.is_sorted, by asc or
+// desc, or by a closure comparing as they do (see closureCmp).
 func (g *Gen) sortStmt() Stmt {
 	desc := g.pick(2) == 0
 	cmp := "asc"
@@ -110,11 +111,33 @@ func (g *Gen) sortStmt() Stmt {
 		return g.newCollection()
 	}
 	l.Used = true
-	g.useSort(cmp)
+	if g.pick(2) == 0 {
+		// less is a scope parameter, so a closure may stand for the
+		// comparator; one that captured l would conflict with mut l.
+		g.imports["sort"] = true
+		cmp = closureCmp(desc, "")
+	} else {
+		g.useSort(cmp)
+	}
 	return simple(func(f *frame) {
 		lst := *f.get(l).List
 		slices.SortFunc(lst, func(a, b Value) int { return order(a, b, desc) })
 	}, "sort.by(mut "+l.Name+", "+cmp+")")
+}
+
+// closureCmp returns a closure comparing two int64s as asc does, or as
+// desc does when desc is set, which, when list names one, captures it and
+// reads its length, which is never negative, so the answer is the same.
+func closureCmp(desc bool, list string) string {
+	op := "<"
+	if desc {
+		op = ">"
+	}
+	cond := "a " + op + " b"
+	if list != "" {
+		cond = "len(" + list + ") >= 0 && " + cond
+	}
+	return "func(a int64, b int64) bool { return " + cond + " }"
 }
 
 // isSortedStmt observes sort.is_sorted of a list, with the comparator cmp.
@@ -124,7 +147,14 @@ func (g *Gen) isSortedStmt(cmp string, desc bool) Stmt {
 		return g.newCollection()
 	}
 	l.Used = true
-	g.useSort(cmp)
+	if g.pick(2) == 0 {
+		// A closure reading l beside l passed plainly borrows it twice,
+		// which is allowed.
+		g.imports["sort"] = true
+		cmp = closureCmp(desc, l.Name)
+	} else {
+		g.useSort(cmp)
+	}
 	return g.observe(Expr{
 		Text: "sort.is_sorted(" + l.Name + ", " + cmp + ")", T: boolType,
 		Eval: func(f *frame) Value {

@@ -320,7 +320,8 @@ Each type parameter takes its type from the arguments, in order:
   type parameter: the element of a list, an array or a view passed for a
   `list[T]` or a `[]T`, the value type of a map whose key type is the
   parameter's for a `map[K]T`, or a parameter's or a result's type of a
-  function value passed for a function type. The argument's shape must
+  function value, or of a closure, passed for a function type, scope
+  marks included. The argument's shape must
   match: `cannot use list[int64] as map[string]T in argument to size`.
 
 An untyped constant passed for a type parameter is an `int64`.

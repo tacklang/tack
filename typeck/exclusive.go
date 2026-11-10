@@ -226,7 +226,8 @@ func (known interval) single() bool {
 // checkListBorrows reports each argument of call, a method call's
 // receiver among them, that reads a list in place while another operand
 // of the same call, or a call nested in one, passes a place that may
-// overlap it as mut, with a note at that mut argument. A mut argument
+// overlap it as mut, or holds a closure that may write the variable it
+// starts from (see writersIn), with a note at that mut argument or write. A mut argument
 // inside the argument itself is in one of its indexes or slice bounds,
 // which checkIndexBorrows and checkSliceBorrows report. An
 // argument reads a list in place when it is an owned place, a list or a
@@ -254,17 +255,16 @@ func (c *Checker) checkListBorrows(call *ast.Call) {
 		if place == nil {
 			continue
 		}
-		for _, m := range mutArgsOutside(operands, i) {
-			if placesMayOverlap(place, m.X) {
-				borrowed, passed := c.text(place.Spanned()), c.text(m.X.Spanned())
+		for _, w := range writersOutside(operands, i) {
+			if placesMayOverlap(place, w.place) {
 				c.errorNotes(
 					arg.Spanned(),
-					[]diag.Diagnostic{note(m.Span, "passed as mut here")},
-					"cannot pass %s alongside mut %s in this call: a list is not copied for a call, "+
-						"and a mut argument must be the only way to reach %s during it",
-					borrowed,
-					passed,
-					passed,
+					[]diag.Diagnostic{w.note()},
+					"cannot pass %s alongside %s in this call: a list is not copied for a call, "+
+						"and %s during it",
+					c.text(place.Spanned()),
+					w.what(c),
+					w.only(c),
 				)
 				break
 			}
@@ -331,8 +331,9 @@ type pendingAssign struct {
 // checkCompareBorrows reports an operand of bin, a comparison of two
 // values holding lists, that is a place read in place, a list or a
 // struct or a union holding one (borrowedList), while the other operand
-// passes as mut, at any depth, a place that may overlap it, with a note
-// at that mut argument. Both operands are read where they are, as an
+// passes as mut, at any depth, a place that may overlap it, or holds a
+// closure that may write it (see writersIn), with a note at that mut
+// argument or write. Both operands are read where they are, as an
 // array's are not: an array is copied before the other operand runs (see
 // codegen/c), but a list is not copied to be compared, since copying one
 // would allocate, so a call in the other operand that grew it could free
@@ -344,17 +345,16 @@ func (c *Checker) checkCompareBorrows(bin *ast.Binary) {
 		if place == nil {
 			continue
 		}
-		for _, m := range mutArgsIn([]ast.Expr{operands[1-i]}) {
-			if placesMayOverlap(place, m.X) {
-				passed := c.text(m.X.Spanned())
+		for _, w := range writersIn([]ast.Expr{operands[1-i]}) {
+			if placesMayOverlap(place, w.place) {
 				c.errorNotes(
 					operand.Spanned(),
-					[]diag.Diagnostic{note(m.Span, "passed as mut here")},
-					"cannot compare %s alongside mut %s in the other operand: a list is not copied "+
-						"to be compared, and a mut argument must be the only way to reach %s during its call",
+					[]diag.Diagnostic{w.note()},
+					"cannot compare %s alongside %s in the other operand: a list is not copied "+
+						"to be compared, and %s during its call",
 					c.text(operand.Spanned()),
-					passed,
-					passed,
+					w.what(c),
+					w.only(c),
 				)
 				return
 			}
@@ -382,36 +382,36 @@ func (c *Checker) checkSliceBorrows(s *ast.Slice) bool {
 }
 
 // checkReadBorrows reports x, what an index or a slice reads, when it is
-// read in place and a mut argument in operands, at any depth, may overlap
-// it or what the view it is may point into, with a note at that mut
-// argument, and reports whether it did. verb, where and done word the
+// read in place and a mut argument in operands, at any depth, or a
+// closure in them that writes a variable (see writersIn), may overlap it
+// or what the view it is may point into, with a note at that mut argument
+// or write, and reports whether it did. verb, where and done word the
 // message: "index", "in its index" and "indexed" for an index. An operand
 // may be nil, a bound left out.
 func (c *Checker) checkReadBorrows(x ast.Expr, operands []ast.Expr, verb, where, done string) bool {
-	muts := mutArgsIn(operands)
-	if len(muts) == 0 {
+	ws := writersIn(operands)
+	if len(ws) == 0 {
 		return false
 	}
 	if place := c.borrowedList(x); place != nil {
-		for _, m := range muts {
-			if placesMayOverlap(place, m.X) {
-				passed := c.text(m.X.Spanned())
+		for _, w := range ws {
+			if placesMayOverlap(place, w.place) {
 				holder := "a list"
 				if c.table.IsMap(ast.TypeOf(x)) {
 					holder = "a map"
 				}
 				c.errorNotes(
 					x.Spanned(),
-					[]diag.Diagnostic{note(m.Span, "passed as mut here")},
-					"cannot %s %s alongside mut %s %s: %s is not copied to be %s, "+
-						"and a mut argument must be the only way to reach %s during its call",
+					[]diag.Diagnostic{w.note()},
+					"cannot %s %s alongside %s %s: %s is not copied to be %s, "+
+						"and %s during its call",
 					verb,
 					c.text(x.Spanned()),
-					passed,
+					w.what(c),
 					where,
 					holder,
 					done,
-					passed,
+					w.only(c),
 				)
 				return true
 			}
@@ -423,20 +423,19 @@ func (c *Checker) checkReadBorrows(x ast.Expr, operands []ast.Expr, verb, where,
 		return false
 	}
 	for _, place := range c.viewBorrows(call) {
-		for _, m := range muts {
-			if placesMayOverlap(place, m.X) {
-				passed := c.text(m.X.Spanned())
+		for _, w := range ws {
+			if placesMayOverlap(place, w.place) {
 				c.errorNotes(
 					x.Spanned(),
-					[]diag.Diagnostic{note(m.Span, "passed as mut here")},
-					"cannot %s %s alongside mut %s %s: the view it returns may point into %s, "+
-						"and a mut argument must be the only way to reach %s during its call",
+					[]diag.Diagnostic{w.note()},
+					"cannot %s %s alongside %s %s: the view it returns may point into %s, "+
+						"and %s during its call",
 					verb,
 					c.text(x.Spanned()),
-					passed,
+					w.what(c),
 					where,
 					c.text(place.Spanned()),
-					passed,
+					w.only(c),
 				)
 				return true
 			}
@@ -448,8 +447,9 @@ func (c *Checker) checkReadBorrows(x ast.Expr, operands []ast.Expr, verb, where,
 // checkAssignBorrows reports the target of the assignment being checked
 // when ix, an element of a list or a value of a map of type base on the
 // target's path, is assigned while the value passes as mut, at any depth,
-// that list or map or a place holding it, with a note at that mut
-// argument, and reports whether it did. The element is assigned in place,
+// that list or map or a place holding it, or holds a closure that writes
+// the variable it is in (see writersIn), with a note at that mut argument
+// or write, and reports whether it did. The element is assigned in place,
 // in the list's or the map's buffer, which such a call could move or free.
 // A mut argument inside it, an element or a field of one, may be passed:
 // it cannot move its own buffer. It reports nothing outside an
@@ -468,41 +468,22 @@ func (c *Checker) checkAssignBorrows(ix *ast.Index, base types.Type) bool {
 	if root == nil {
 		return false
 	}
-	for _, m := range mutArgsIn([]ast.Expr{a.value}) {
-		_, inside := path(m.X)
-		if !placesMayOverlap(ix.X, m.X) || len(inside) > len(steps) {
+	for _, w := range writersIn([]ast.Expr{a.value}) {
+		_, inside := path(w.place)
+		if !placesMayOverlap(ix.X, w.place) || len(inside) > len(steps) {
 			continue
 		}
-		passed := c.text(m.X.Spanned())
 		c.errorNotes(
 			a.target.Spanned(),
-			[]diag.Diagnostic{note(m.Span, "passed as mut here")},
-			"cannot assign to %s alongside mut %s in its value: %s, "+
-				"and a mut argument must be the only way to reach %s during its call",
+			[]diag.Diagnostic{w.note()},
+			"cannot assign to %s alongside %s in its value: %s, "+
+				"and %s during its call",
 			c.text(a.target.Spanned()),
-			passed,
+			w.what(c),
 			holder,
-			passed,
+			w.only(c),
 		)
 		return true
 	}
 	return false
-}
-
-// mutArgsIn returns the mut arguments in operands, at any depth, in order.
-// An operand may be nil.
-func mutArgsIn(operands []ast.Expr) []*ast.MutArg {
-	var muts []*ast.MutArg
-	for _, e := range operands {
-		if e == nil {
-			continue
-		}
-		ast.Walk(e, func(n ast.Node) bool {
-			if m, ok := n.(*ast.MutArg); ok {
-				muts = append(muts, m)
-			}
-			return true
-		})
-	}
-	return muts
 }

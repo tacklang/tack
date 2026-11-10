@@ -100,10 +100,20 @@
 // a semicolon after it, has it as its init statement. A ? starting a line follows nothing, since a semicolon is
 // inserted after the line before it, and is reported where it is.
 //
+// A parameter, of a function or of a function type, may start with one of
+// scope, mut and own; two of them together are reported at the second,
+// and scope before a result is reported too. A function literal,
+// func(params) results { body }, is an operand, an ast.FuncLit, its
+// parameters named as a function's are and its body a block, in which a
+// struct literal needs no parentheses even inside an if's header around
+// the literal; func followed by a name where an operand is starts a
+// declaration, and is reported as no value, and a literal followed by (
+// is reported as a closure called where it is written.
+//
 // A type is a name, an array type, [n]T, a view type, []T, a list type,
 // list[T], list being a keyword, a map type, map[K]V, map being one, or a
-// function type, func(A, mut B, own C) R, an ast.FuncType: its parameters'
-// types in parentheses, mut or own before one that is so, with commas between them,
+// function type, func(A, mut B, own C, scope D) R, an ast.FuncType: its parameters'
+// types in parentheses, mut, own or scope before one that is so, with commas between them,
 // none named, a name before a type reported, and none variadic, then its
 // results as a function's are written; a name and a type after one with
 // no results start the next parameter of a list it is written in, f func()

@@ -178,6 +178,12 @@ func (g *generator) traitsOf(e ast.Expr) traits {
 	}
 	var t traits
 	ast.Walk(e, func(n ast.Node) bool {
+		if _, isLit := n.(*ast.FuncLit); isLit {
+			// A closure's value is its function and the addresses of its
+			// captures, which nothing changes; its body runs only when the
+			// call it is passed to calls it.
+			return false
+		}
 		if x, isExpr := n.(ast.Expr); isExpr && x != e && g.frame != nil {
 			if known, ok := g.frame.traits[x]; ok {
 				t = t.or(known)
@@ -241,8 +247,9 @@ func (g *generator) changeable(id *ast.Ident) bool {
 }
 
 // mutated returns the variables and parameters body passes as mut, at any
-// depth, deferred code included, and the variables whose values it moves,
-// which a move empties.
+// depth, deferred code included, the variables whose values it moves,
+// which a move empties, and the captures a closure in it may write, which
+// the call the closure is passed to can change.
 func mutated(body []ast.Stmt) map[ast.Decl]bool {
 	found := make(map[ast.Decl]bool)
 	for _, stmt := range body {
@@ -255,6 +262,12 @@ func mutated(body []ast.Stmt) map[ast.Decl]bool {
 			case *ast.Ident:
 				if x.Move {
 					found[x.Def] = true
+				}
+			case *ast.FuncLit:
+				for _, cp := range x.Captures {
+					if cp.Write {
+						found[cp.Decl] = true
+					}
 				}
 			}
 			return true

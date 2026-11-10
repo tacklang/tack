@@ -78,6 +78,11 @@ type Checker struct {
 	// value.
 	fn *ast.Func
 
+	// scopeUse is the name of a scope parameter about to be checked where
+	// one may be: a call's callee, or an argument to a scope parameter. A
+	// name of one anywhere else is reported (see scopeElsewhere).
+	scopeUse *ast.Ident
+
 	// viewSlice is the slice about to be checked where a view may be: an
 	// argument to a view parameter, len's argument, or what another slice
 	// slices. A slice of an array or a view anywhere else is reported.

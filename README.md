@@ -1309,8 +1309,8 @@ section remains the description of the language.
   Failure of `noerror` is a Failure like any other.
 - sort. `std/sort` is written in Tack alone, with no C. `sort.by(mut l,
   less)` sorts the list `l` in place so that no element is less than the
-  one before it, by `less`, a `func(T, T) bool` reporting whether its
-  first argument goes before its second, as Go's `slices.SortFunc` does
+  one before it, by `less`, a scope `func(T, T) bool` reporting whether its
+  first argument goes before its second, a closure or a function, as Go's `slices.SortFunc` does
   with a less function in place of a comparison: `sort.by(mut words,
   shorter)`. It is generic over the element type, so a list of any type
   sorts, owned elements, lists and Texts, included. It is a heapsort,
@@ -1319,7 +1319,7 @@ section remains the description of the language.
   nothing and so returns no error, it moves elements only with `swap`,
   so an owned element is never copied or freed, and it makes O(n log n)
   comparisons in the worst case. It is not stable: equal elements may
-  change order. `sort.is_sorted(v, less)` reports whether no element of
+  change order. `sort.is_sorted(v, less)`, whose `less` is scope too, reports whether no element of
   the view `v` is less than the one before it, so a list, an array or a
   slice of either may be passed, and an empty or one-element view is
   sorted. For a sorted result `less` must be a strict weak ordering, as
@@ -1821,8 +1821,9 @@ section remains the description of the language.
   `double` or `bytes.equal`, is a value of its function type, written as
   a signature is, with types alone and commas between them,
   `func(int64) int64`, `func([]uint8, mut list[int64]) (int64, error)`,
-  `func()`: its parameters' types, `mut` before a `mut` one and `own`
-  before an `own` one, `func(own list[int64]) int64`, and its results, so
+  `func()`: its parameters' types, `mut` before a `mut` one, `own`
+  before an `own` one and `scope` before a `scope` one, `func(own
+  list[int64]) int64`, `func(scope func(int64))`, and its results, so
   a function taking a list as `own` is never a value of a type that
   borrows it, `cannot use func(own list[int64]) as func(list[int64]) in
   declaration of g`, nor the other way round. Two functions of one signature have one type, and nothing else
@@ -1855,9 +1856,8 @@ section remains the description of the language.
   and a generic function is only called, its type arguments inferred from
   the call`, an extern func and a method are no values; neither is a
   builtin, `cannot use the builtin len as a value; only a declared
-  function can be one`. There are no function literals and no closures,
-  `function literals are not supported; declare the function and use its
-  name as a value`. Nothing holding a function value crosses to C,
+  function can be one`. A function literal is a closure, which goes only
+  to a scope parameter (see closures). Nothing holding a function value crosses to C,
   `parameter f of extern func take cannot be func(): a function value does
   not cross to C`, and no package-level variable holds one,
   `package-level variable f cannot hold a function value`. In C every
@@ -1866,6 +1866,89 @@ section remains the description of the language.
   the type's ID, before calling it; a function of several results named as
   a value is a thunk that returns them in its function type's results
   struct.
+- Closures. A function literal, written as Go writes one, `func(a int64,
+  b int64) bool { return a < b }`, is a closure: its body reads and
+  writes the variables and parameters of the functions and closures it
+  is written in, its captures, by reference, never as a copy, so a write
+  in it is seen by the caller after the call and by the closure's next
+  run, and a read sees the value current when it runs. A closure is
+  second class: it can only be passed to a parameter marked `scope`,
+  written before the name as `mut` and `own` are, `func each(v []int64,
+  scope f func(int64))`, with no marker at the call. Anywhere else,
+  assigned, returned, stored in a field, an array, a list, a map or a
+  global, passed to a plain, generic or `any` parameter, it is `a closure
+  can only be passed to a scope parameter`, `run does not take f as
+  scope, and a closure can only be passed to a scope parameter`, and
+  called where it is written it is `a closure cannot be called where it
+  is written; it can only be passed to a scope parameter`. A scope
+  parameter is only called, `f(x)`, or passed to another scope
+  parameter, a nested closure's call included; anything else, `g := f`,
+  `return f`, `S{f: f}`, `append(mut l, f)`, `plain(f)`, is `f is a scope
+  parameter, which can only be called or passed to another scope
+  parameter`. So no value a closure makes outlives the call it is passed
+  to. A plain function value, a function's name or a local holding one,
+  may be passed to a scope parameter too, so `sort.by(mut l, less)` takes
+  a named function as before. `scope` is part of a function type,
+  `func(list[T], scope func(T, T) bool)`, and two function types are one
+  only with the same scope marks, `cannot use func(func()) as
+  func(scope func()) in assignment to g`, as an interface's method and a
+  type's must match. `scope` on a parameter that is not of a function
+  type is `parameter n cannot be scope: int64 is not a function type, and
+  only a function value can be scope; drop scope`, as in a function type;
+  `scope mut f` is `a parameter cannot be both scope and mut: a scope
+  parameter is only called or passed on to another scope parameter, never
+  assigned`, and `scope own f` the same of own; a variadic one, a result, `a result cannot be
+  scope; only a parameter can be scope`, and an extern func's parameter,
+  `parameter f of extern func take cannot be scope: a function value
+  does not cross to C`, are errors. `scope` is a keyword. A closure's
+  parameters follow a function's rules, `mut`, `own` and `scope` ones
+  included, but its signature must be a function type's: no variadic or
+  `any` parameter and no view result, `this closure has no function type:
+  its parameter xs is variadic, which no function type's can be`. Its type
+  must be the parameter's exactly, `cannot use func(int64) bool as func()
+  in argument to call`; a generic callee infers its type arguments from
+  it as from any argument. A `return` in it returns from the closure,
+  with the closure's results, `the closure declares no result, so it
+  cannot return a value`, and one with results must end in one, `the
+  closure must end in a return`; a `?` in it passes the error on as the
+  closure's, `cannot use ? in the closure, which returns no error`; a
+  `defer` in it runs when the closure returns; `break`, `continue` and
+  `fallthrough` cannot leave it. Closures nest: an inner one may capture
+  the outer one's parameters and captures, and a scope parameter of the
+  function it is written in, which it may call. For a call's rules every
+  capture is an argument of the call the closure is passed to, and a
+  borrow, read in place however small its type: a closure that only reads
+  `x` conflicts with `mut x` in the same call, unlike `f(mut x, x)` on a
+  copyable `x`, `cannot capture x in a closure alongside mut x in this
+  call: a closure reaches its captures in place, and a mut argument must
+  be the only way to reach x during the call`, and with another closure
+  of the call that writes it. A closure that writes a capture, assigning
+  it or a part of it or passing one as `mut`, which needs it to be a
+  mutable variable or a `mut` parameter as anywhere, counts as a mut
+  argument of the call for every rule one is under: nothing else in the
+  call may read it in place, `cannot pass l alongside a closure that
+  writes l in this call: a list is not copied for a call, and a closure
+  that writes l must be the only way to reach l during it`. A capture of
+  `p.y` is a capture of the whole `p`. A capture moved before the call is
+  a use after a move, one moved in the same call is `cannot use l
+  alongside own l in this call: ...`, and a closure cannot move its
+  captures, `a closure cannot move l, which it captures: the closure may
+  run more than once`; it frees none of them, while what it makes is
+  freed at each of its returns. A call that passes a closure writing `x`
+  ends the facts about `x`, as `mut x` does, and inside a closure no
+  fact from where it is written holds about a mutable variable, since the
+  closure runs later, possibly many times; facts about immutable
+  variables and plain parameters hold there (see docs/safety.md).
+  Recursion through scope parameters is allowed, and is the parked
+  stack-depth violation of docs/guarantees.md like any recursion. In C a
+  scope parameter is a `tack_scope`, a function pointer and an
+  environment pointer, which a call passes first,
+  `((tack_sfn_ID)f.fn)(f.env, x)`; a closure is a static function of its
+  own, `tack_closureN`, whose environment, `tack_envN`, a compound literal
+  on the caller's stack, holds a pointer to each capture, read and written
+  through it; a plain function value is passed through its type's adapter,
+  `tack_adapt_ID`, with a pointer to a copy of the value as its
+  environment.
 - The statements are a call, a `return`, `if`/`else` (which chains with
   `else if`), `switch`, `fallthrough`, `for`, `break`, `continue`, `defer`, `unreachable`, a variable declaration, a
   declaration of several results, an assignment, and `x++`/`x--`. A call

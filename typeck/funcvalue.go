@@ -64,8 +64,11 @@ func (c *Checker) funcType(ft *ast.FuncType) types.Type {
 		if p.Own {
 			typ = c.ownParamType(p, typ)
 		}
+		if p.Scope && !c.funcTypeScope(p, typ) {
+			typ = types.Invalid
+		}
 		ok = ok && typ != types.Invalid
-		params[i] = types.FuncParam{Type: typ, Mut: p.Mut, Own: p.Own}
+		params[i] = types.FuncParam{Type: typ, Mut: p.Mut, Own: p.Own, Scope: p.Scope}
 	}
 	results := make([]types.Type, len(ft.Results))
 	for i, r := range ft.Results {
@@ -137,7 +140,7 @@ func (c *Checker) funcValue(id *ast.Ident, fn *ast.Func) types.Type {
 		if p.Type == types.Invalid {
 			return types.Invalid
 		}
-		params[i] = types.FuncParam{Type: p.Type, Mut: p.Mut, Own: p.Own}
+		params[i] = types.FuncParam{Type: p.Type, Mut: p.Mut, Own: p.Own, Scope: c.scopeFits(p)}
 	}
 	for _, typ := range fn.ResultTypes {
 		if typ == types.Invalid {
@@ -180,7 +183,9 @@ func (c *Checker) notValue(fn *ast.Func) string {
 // its function's signature, through the stand-in it records in
 // call.Dynamic. id is read as any value is, before the arguments.
 func (c *Checker) dynamicCall(call *ast.Call, id *ast.Ident) {
+	c.scopeUse = id
 	typ := c.expr(id)
+	c.scopeUse = nil
 	if typ != types.Invalid && !c.table.IsFunc(typ) {
 		c.errorf(id.Span, "cannot call %s: it is %s, not a function", id.Qualified(),
 			c.typeName(typ))
@@ -199,6 +204,7 @@ func (c *Checker) dynamicCall(call *ast.Call, id *ast.Ident) {
 	}
 	c.checkExclusive(muts)
 	c.checkListBorrows(call)
+	c.checkCaptures(call)
 }
 
 // dynamicFunc returns the stand-in for a call through a value of the
@@ -215,6 +221,7 @@ func (c *Checker) dynamicFunc(typ types.Type) *ast.Func {
 	for i, p := range ps {
 		params[i] = &ast.Param{
 			Name: fmt.Sprintf("argument %d", i+1), Type: p.Type, Mut: p.Mut, Own: p.Own,
+			Scope: p.Scope,
 		}
 	}
 	fn := &ast.Func{

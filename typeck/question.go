@@ -211,12 +211,16 @@ func (c *Checker) proveQuestionContract(q *ast.Question) {
 	c.at = outer
 }
 
-// questionsIn returns every ? in e, at any depth, in source order.
+// questionsIn returns every ? in e, at any depth, in source order, but
+// those in the body of a closure, which return from the closure.
 func questionsIn(e ast.Expr) []*ast.Question {
 	var found []*ast.Question
 	ast.Walk(e, func(n ast.Node) bool {
-		if q, ok := n.(*ast.Question); ok {
-			found = append(found, q)
+		switch x := n.(type) {
+		case *ast.Question:
+			found = append(found, x)
+		case *ast.FuncLit:
+			return false
 		}
 		return true
 	})

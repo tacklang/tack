@@ -692,7 +692,7 @@ func orUntyped(recorded, untyped types.Type) types.Type {
 // expression, a composite literal, an element, a slice, a field or a type
 // assertion, the type it asserts, the one value a ? gives, the type of
 // the place a mut argument names or of the variable an own argument
-// names, or Invalid for any other expression.
+// names, a closure's function type, or Invalid for any other expression.
 func recordedType(expr Expr) types.Type {
 	switch e := expr.(type) {
 	case *Binary:
@@ -712,6 +712,8 @@ func recordedType(expr Expr) types.Type {
 	case *TypeAssert:
 		return e.Type
 	case *Question:
+		return e.Type
+	case *FuncLit:
 		return e.Type
 	default:
 		return types.Invalid
@@ -1224,4 +1226,61 @@ func ArgOperand(e Expr) Expr {
 	default:
 		return nil
 	}
+}
+
+// FuncLit is a function literal, a closure, written as Go writes one:
+// func(a int64, b int64) bool { ... }. Func holds it as a function with no
+// name, Closure set, whose Params, Results and Body are the literal's and
+// whose Span runs from the keyword func through the closing brace; its
+// parameters are declared in the literal's body, as a function's are in
+// its, and a return in the body returns from the closure alone. The body
+// may name the variables and parameters of the functions and closures it
+// is written in, its captures, which it reads and writes by reference,
+// never as a copy.
+//
+// A closure never escapes the call it is passed to: the type checker
+// allows one only as an argument to a parameter marked scope (see
+// Param.Scope), and reports one anywhere else.
+type FuncLit struct {
+	Func *Func
+
+	// Type is the closure's function type, which its parameters' types,
+	// mut, own or scope where they are so, and its results give, set by
+	// the type checker; Invalid before, and when a part was reported.
+	Type types.Type
+
+	// Captures are the variables and parameters declared outside the
+	// literal that its body names, in the order their first names are
+	// written, a nested closure's included, set by the type checker once
+	// it has checked the body; nil before, and for a literal it did not
+	// check.
+	Captures []*Capture `json:"-"`
+
+	Span Span // the keyword func through the closing brace
+}
+
+var _ Expr = (*FuncLit)(nil)
+
+// exprKey marks FuncLit as an Expr, sealing Expr to this package's types.
+func (f *FuncLit) exprKey() exprKey { return _exprKey }
+
+// astNode marks FuncLit as a Node, sealing Node to this package's types.
+func (f *FuncLit) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the keyword func through the
+// closing brace.
+func (f *FuncLit) Spanned() Span { return f.Span }
+
+// Capture is a variable or a parameter declared outside a closure that the
+// closure's body names: Decl, the *Var or *Param, and At, the first name
+// of it in the body. Write is whether the body, or a closure nested in it,
+// may change it: it assigns it, or a field or an element of it, increments
+// or decrements one, or passes one as mut, a mut receiver included; and
+// WriteAt is the first place that does, the target or the mut argument's
+// place, the zero Span when none does.
+type Capture struct {
+	Decl    Decl
+	At      Span
+	WriteAt Span
+	Write   bool
 }

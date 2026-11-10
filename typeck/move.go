@@ -176,6 +176,11 @@ type mover struct {
 
 	// deferring says whether deferred code is being followed.
 	deferring bool
+
+	// locals holds, for each closure whose body is being followed,
+	// innermost last, the variables and parameters declared in it, the
+	// only ones the closure may move (see funcLit).
+	locals []map[ast.Decl]bool
 }
 
 // ranged is a list a range loop around the point walks, place, and the
@@ -630,6 +635,8 @@ func (m *mover) expr(e ast.Expr, ctx useCtx, cur *flow) {
 		m.argument(x, cur)
 	case *ast.KeyValue:
 		m.expr(x.Value, ctx, cur)
+	case *ast.FuncLit:
+		m.funcLit(x, cur)
 	default:
 		for _, part := range readParts(e) {
 			m.expr(part, readCtx, cur)
@@ -836,11 +843,17 @@ func (m *mover) use(id *ast.Ident, cur *flow) {
 
 // canMove reports whether the value of v, named by id, can be moved where
 // id is, and reports why not when it cannot: a union pattern's binding
-// is never moved, deferred code cannot move a variable declared outside
-// it, and a range loop cannot move a list it walks, or anything holding
-// one.
+// is never moved, a closure cannot move a variable declared outside it,
+// deferred code cannot move a variable declared outside it, and a range
+// loop cannot move a list it walks, or anything holding one.
 func (m *mover) canMove(id *ast.Ident, v ast.Decl) bool {
 	if m.movesBinding(id) {
+		return false
+	}
+	if n := len(m.locals); n > 0 && !m.locals[n-1][v] {
+		m.errorNotes(id.Span, nil,
+			"a closure cannot move %s, which it captures: the closure may run more than once",
+			declName(v))
 		return false
 	}
 	if m.deferring && !m.deferLocals[v] {
@@ -1217,6 +1230,40 @@ func (m *mover) loopTwice(
 		out = join(out, join(start, end))
 	}
 	return out
+}
+
+// funcLit follows lit, a closure, where it is written, which is where its
+// captures are read: its body, from a copy of cur, as the body of a
+// function returning the closure's results, with no loop around it, so
+// that a name in it of a variable that may have been moved is a use after
+// a move, while what the body does leaves the code after it untouched.
+// The body runs only during the call lit is passed to, which returns
+// before anything after the call runs, and it cannot move a capture (see
+// canMove), so every capture is as it was when the call began each time
+// the body runs, and following it once is following every run. Its own
+// variables are declared afresh each run.
+func (m *mover) funcLit(lit *ast.FuncLit, cur *flow) {
+	locals := make(map[ast.Decl]bool)
+	for _, p := range lit.Func.Params {
+		locals[p] = true
+	}
+	for _, stmt := range lit.Func.Body {
+		ast.Walk(stmt, func(n ast.Node) bool {
+			switch d := n.(type) {
+			case *ast.Var:
+				locals[d] = true
+			case *ast.Param:
+				locals[d] = true
+			}
+			return true
+		})
+	}
+	outerFn, outerLoops, outerDeferring, outerDeferLocals := m.fn, m.loops, m.deferring, m.deferLocals
+	m.fn, m.loops, m.deferring, m.deferLocals = lit.Func, nil, false, nil
+	m.locals = append(m.locals, locals)
+	m.block(lit.Func.Body, cur.clone())
+	m.locals = m.locals[:len(m.locals)-1]
+	m.fn, m.loops, m.deferring, m.deferLocals = outerFn, outerLoops, outerDeferring, outerDeferLocals
 }
 
 // deferStmt follows a defer's body where it is written, from a copy of

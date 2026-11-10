@@ -165,17 +165,17 @@ it may stand for is in [Declarations and scope](05-declarations.md).
 
 ## Keywords and reserved names
 
-The following 38 keywords are reserved and may not be used as
+The following 39 keywords are reserved and may not be used as
 identifiers:
 
 ```text
-async        defer        from         list         range        union
-break        else         func         map          return       unreachable
-c_allocator  ensures      goto         mut          select       var
-case         extern       if           noerror      struct
-const        fallthrough  import       own          switch
-continue     false        interface    package      true
-default      for          lib          pub          type
+async        defer        from         list         range        type
+break        else         func         map          return       union
+c_allocator  ensures      goto         mut          scope        unreachable
+case         extern       if           noerror      select       var
+const        fallthrough  import       own          struct
+continue     false        interface    package      switch
+default      for          lib          pub          true
 ```
 
 Each is reserved everywhere, whether or not the grammar uses it at the

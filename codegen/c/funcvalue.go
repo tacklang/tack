@@ -60,17 +60,20 @@ func (g *generator) usesFuncTypes() bool {
 }
 
 // emitFuncPtr defines tack_fnptr, before any type that may hold one, when
-// the program has a function type.
+// the program has a function type, and then tack_scope, when it has a
+// scope parameter (see closure.go).
 func (g *generator) emitFuncPtr() {
 	if g.usesFuncTypes() {
 		g.buf.WriteString("typedef void (*" + funcPtr + ")(void);\n\n")
+		g.emitScopeType()
 	}
 }
 
 // emitFuncTypes defines, for every function type, after every other type,
 // which its parameters and results may be, the results struct of one with
 // several results and the pointer type a call through a value of it
-// converts the value to.
+// converts the value to, and, for one a scope value of is called, made or
+// adapted, its scope pointer type (see closure.go).
 func (g *generator) emitFuncTypes() {
 	table := g.prog.Types
 	for _, typ := range g.emittedTypes() {
@@ -87,10 +90,7 @@ func (g *generator) emitFuncTypes() {
 		}
 		params := make([]string, len(table.FuncParams(typ)))
 		for j, p := range table.FuncParams(typ) {
-			params[j] = g.cType(p.Type)
-			if p.Mut {
-				params[j] += " *"
-			}
+			params[j] = g.funcParamType(p)
 		}
 		list := strings.Join(params, ", ")
 		if len(params) == 0 {
@@ -103,6 +103,7 @@ func (g *generator) emitFuncTypes() {
 			g.funcPtrName(typ),
 			list,
 		)
+		g.emitScopeFn(typ)
 	}
 }
 

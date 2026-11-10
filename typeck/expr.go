@@ -54,7 +54,8 @@ func (c *Checker) exprAt(e ast.Expr) types.Type {
 // or variable's, or its function's, used as a value (see funcValue). A
 // package-level variable not checked yet, which a struct's
 // field may need first, is checked now. A variable held by an error cannot
-// be read before the error is checked (requireChecked).
+// be read before the error is checked (requireChecked). A scope parameter
+// is used only where scopeUse marks it.
 func (c *Checker) ident(id *ast.Ident) types.Type {
 	// The resolver reports a name bound to nothing, and the pipeline stops
 	// there; a tree that skipped it is reported here instead of passing as
@@ -72,14 +73,19 @@ func (c *Checker) ident(id *ast.Ident) types.Type {
 	if v, ok := id.Def.(*ast.Var); ok && c.globals[v] {
 		c.ensureGlobal(v, id.Span)
 	}
+	if c.isScopeParam(id) && c.scopeUse != id {
+		c.scopeElsewhere(id)
+		return types.Invalid
+	}
 	c.requireChecked(id)
 	return ast.TypeOf(id)
 }
 
 // compositeExpr checks a literal of an array or a struct, an element, a
 // slice, a field or a type assertion, and returns its type, or reports a
-// mut argument written where no mut parameter takes it, or a list type
-// written where a value is.
+// mut argument written where no mut parameter takes it, a list type
+// written where a value is, or a closure written anywhere but as an
+// argument to a scope parameter, which scopeArg checks.
 func (c *Checker) compositeExpr(e ast.Expr) types.Type {
 	switch x := e.(type) {
 	case *ast.CompositeLit:
@@ -98,6 +104,8 @@ func (c *Checker) compositeExpr(e ast.Expr) types.Type {
 		return c.typeValue(x, c.mapType(x))
 	case *ast.TypeAssert:
 		return c.typeAssert(x)
+	case *ast.FuncLit:
+		return c.funcLitElsewhere(x)
 	default:
 		c.errorf(e.Spanned(), "unsupported expression: %T", e)
 		return types.Invalid
@@ -250,6 +258,7 @@ func (c *Checker) checkNamedCall(call *ast.Call, id *ast.Ident) {
 	}
 	c.checkExclusive(muts)
 	c.checkListBorrows(call)
+	c.checkCaptures(call)
 	if fn, ok := id.Def.(*ast.Func); ok && isVariadic(params) {
 		c.checkPrintf(call, fn)
 	}

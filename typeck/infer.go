@@ -87,7 +87,9 @@ func (c *Checker) substitute(typ types.Type, args map[types.Type]types.Type) typ
 	case c.table.IsFunc(typ):
 		params := make([]types.FuncParam, len(c.table.FuncParams(typ)))
 		for i, p := range c.table.FuncParams(typ) {
-			params[i] = types.FuncParam{Type: c.substitute(p.Type, args), Mut: p.Mut, Own: p.Own}
+			params[i] = types.FuncParam{
+				Type: c.substitute(p.Type, args), Mut: p.Mut, Own: p.Own, Scope: p.Scope,
+			}
 		}
 		results := make([]types.Type, len(c.table.FuncResults(typ)))
 		for i, r := range c.table.FuncResults(typ) {

@@ -842,7 +842,7 @@ func (p *Parser) endReceiver(recv *ast.Param) (*ast.Param, []diag.Diagnostic) {
 		p.next()
 		return recv, nil
 	case tk.Kind() == lexer.Comma || tk.Kind() == lexer.Ident || isKeyword(tk, lexer.Mut) ||
-		isKeyword(tk, lexer.Own):
+		isKeyword(tk, lexer.Own) || isKeyword(tk, lexer.Scope):
 		return nil, []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  "method has multiple receivers",
@@ -919,8 +919,16 @@ func (p *Parser) parseEnsures(fn *ast.Func) []diag.Diagnostic {
 
 // parseResults parses a function's result types: one type name, or a
 // parenthesized, comma-separated list of them. A brace or semicolon instead
-// means the function returns nothing, and the result is empty.
+// means the function returns nothing, and the result is empty. scope
+// before the results, which marks only a parameter, is reported.
 func (p *Parser) parseResults() ([]ast.Expr, []diag.Diagnostic) {
+	if tk := p.peek(); isKeyword(tk, lexer.Scope) {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "a result cannot be scope; only a parameter can be scope",
+			Span:     p.span(tk),
+		}}
+	}
 	// A ... goes to parseType, which reports it, rather than being taken
 	// for a missing body.
 	if tk := p.peek(); p.startsType(tk) || tk.Kind() == lexer.Ellipsis {
@@ -1024,29 +1032,38 @@ func (p *Parser) parseParam(expected string) (*ast.Param, []diag.Diagnostic) {
 	return param, nil
 }
 
-// parseParamMode parses the mut or own a parameter may start with into
-// param. A parameter is a reference to its caller's variable or the owner
-// of its caller's value, never both, so mut and own together, in either
-// order, are reported at the second; one written twice is left for the
+// parseParamMode parses the scope, mut or own a parameter may start with
+// into param. A parameter is a reference to its caller's variable or the
+// owner of its caller's value, never both, so mut and own together, in
+// either order, are reported at the second. A scope parameter takes a
+// function value that it only calls or passes on, which it never assigns
+// and which owns nothing, so scope with mut or with own, in either order,
+// is reported at the second too. One written twice is left for the
 // parameter's name to report.
 func (p *Parser) parseParamMode(param *ast.Param) []diag.Diagnostic {
 	if !p.takeParamMode(param) {
 		return nil
 	}
-	if tk := p.peek(); isKeyword(tk, lexer.Mut) && param.Own ||
-		isKeyword(tk, lexer.Own) && param.Mut {
-		return []diag.Diagnostic{{
-			Severity: diag.Error,
-			Message: "a parameter cannot be both mut and own; " +
-				"an own parameter is moved into a mutable variable with mut x := p",
-			Span: p.span(tk),
-		}}
+	tk := p.peek()
+	var msg string
+	switch {
+	case isKeyword(tk, lexer.Mut) && param.Own || isKeyword(tk, lexer.Own) && param.Mut:
+		msg = "a parameter cannot be both mut and own; " +
+			"an own parameter is moved into a mutable variable with mut x := p"
+	case isKeyword(tk, lexer.Mut) && param.Scope || isKeyword(tk, lexer.Scope) && param.Mut:
+		msg = "a parameter cannot be both scope and mut: " +
+			"a scope parameter is only called or passed on to another scope parameter, never assigned"
+	case isKeyword(tk, lexer.Own) && param.Scope || isKeyword(tk, lexer.Scope) && param.Own:
+		msg = "a parameter cannot be both scope and own: " +
+			"a scope parameter is a function value, which owns nothing to move"
+	default:
+		return nil
 	}
-	return nil
+	return []diag.Diagnostic{{Severity: diag.Error, Message: msg, Span: p.span(tk)}}
 }
 
-// takeParamMode takes the next token into param when it is mut or own,
-// and reports whether it was.
+// takeParamMode takes the next token into param when it is scope, mut or
+// own, and reports whether it was.
 func (p *Parser) takeParamMode(param *ast.Param) bool {
 	tk := p.peek()
 	switch {
@@ -1054,6 +1071,8 @@ func (p *Parser) takeParamMode(param *ast.Param) bool {
 		param.Mut, param.MutSpan = true, p.span(tk)
 	case isKeyword(tk, lexer.Own):
 		param.Own, param.OwnSpan = true, p.span(tk)
+	case isKeyword(tk, lexer.Scope):
+		param.Scope, param.ScopeSpan = true, p.span(tk)
 	default:
 		return false
 	}
@@ -1061,14 +1080,16 @@ func (p *Parser) takeParamMode(param *ast.Param) bool {
 	return true
 }
 
-// startAtMode moves the start of param's span back to its mut or own,
-// when it has one.
+// startAtMode moves the start of param's span back to its scope, mut or
+// own, when it has one.
 func startAtMode(param *ast.Param) {
 	switch {
 	case param.Mut:
 		param.Span.Start = param.MutSpan.Start
 	case param.Own:
 		param.Span.Start = param.OwnSpan.Start
+	case param.Scope:
+		param.Span.Start = param.ScopeSpan.Start
 	}
 }
 
@@ -3161,7 +3182,9 @@ func (p *Parser) parseExpr(minPrec int) (ast.Expr, []diag.Diagnostic) {
 // literal, a name, a call, a parenthesised expression, a prefix operator
 // and its operand, or mut and an operand, which is only meaningful as a
 // call's argument; the type checker reports it anywhere else; own and an
-// operand, likewise; or a list
+// operand, likewise; a function literal (see parseFuncLit), and what
+// follows it but a call, which is reported here, as a call of a closure
+// where it is written; the type checker reports the rest; or a list
 // type, which only make's first argument may be (see parseListOperand).
 func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 	switch tk := p.peek(); {
@@ -3181,14 +3204,24 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 		return p.parseListOperand()
 	case isKeyword(tk, lexer.Map):
 		return p.parseTypeOperand(p.parseMapType)
+	case isKeyword(tk, lexer.Func) && p.peekNext().Kind() != lexer.LParen:
+		// A function literal's parameters follow its keyword; func and a
+		// name is a declaration, which no operand is.
+		return nil, []diag.Diagnostic{p.diagInvalidToken("value", tk)}
 	case isKeyword(tk, lexer.Func):
-		return nil, []diag.Diagnostic{
-			{
-				Severity: diag.Error,
-				Message:  "function literals are not supported; declare the function and use its name as a value",
-				Span:     p.span(tk),
-			},
+		lit, diags := p.parseFuncLit()
+		if lit == nil {
+			return nil, diags
 		}
+		if p.peek().Kind() == lexer.LParen {
+			return nil, []diag.Diagnostic{{
+				Severity: diag.Error,
+				Message: "a closure cannot be called where it is written; " +
+					"it can only be passed to a scope parameter",
+				Span: lit.Func.NameSpan,
+			}}
+		}
+		return p.parsePostfix(lit)
 	}
 
 	x, diags := p.parsePrimary()
@@ -3705,9 +3738,48 @@ func (p *Parser) parseMapType() (ast.Expr, []diag.Diagnostic) {
 	}, nil
 }
 
+// parseFuncLit parses a function literal, func(a T, b T) R { ... },
+// whose keyword is next: its parameters, each named, as a function's are
+// written, scope, mut or own before one included; its results, as a
+// function's are (see parseResults); and its body, in braces. The body is
+// a block of its own, so a struct literal in it needs no parentheses even
+// when the literal is in the header of an if, a for or a switch, which
+// the outer header's rule does not reach.
+func (p *Parser) parseFuncLit() (*ast.FuncLit, []diag.Diagnostic) {
+	if diags := p.nest(p.peek()); diags != nil {
+		return nil, diags
+	}
+	defer p.unnest()
+	kw := p.next()
+	params, diags := p.parseParams()
+	if diags != nil {
+		return nil, diags
+	}
+	results, diags := p.parseResults()
+	if diags != nil {
+		return nil, diags
+	}
+	restore := p.allowLits(true)
+	body, diags := p.parseBlock()
+	restore()
+	if diags != nil {
+		return nil, diags
+	}
+	span := ast.Span{File: p.fileID, Start: kw.OffsetStart(), End: p.lastEnd()}
+	fn := &ast.Func{
+		Params:   params,
+		Results:  results,
+		Body:     body,
+		NameSpan: p.span(kw),
+		Span:     span,
+		Closure:  true,
+	}
+	return &ast.FuncLit{Func: fn, Span: span}, nil
+}
+
 // parseFuncType parses a function type, func(A, mut B) R, whose keyword
-// is next: its parameters' types in parentheses, each with mut before it
-// when it is mut, separated by commas, and its results as a function's
+// is next: its parameters' types in parentheses, each with mut, own or
+// scope before it when it is so, separated by commas, and its results as a function's
 // are written (see parseResults), unless a name and a type follow, which
 // start the next parameter of a list it is a parameter's type in. A
 // parameter has no name, and no variadic parameter, ...T, is allowed;
@@ -3754,7 +3826,8 @@ func (p *Parser) parseFuncType() (ast.Expr, []diag.Diagnostic) {
 }
 
 // parseFuncTypeParam parses one parameter of a function type: its type,
-// with mut before it for a mut parameter, or own for an own one. A name
+// with mut before it for a mut parameter, own for an own one, or scope
+// for a scope one. A name
 // before the type, which a function type's parameters do not have, and a
 // ..., which would make the parameter variadic, are reported.
 func (p *Parser) parseFuncTypeParam() (*ast.Param, []diag.Diagnostic) {

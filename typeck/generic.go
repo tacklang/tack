@@ -519,7 +519,8 @@ func (c *Checker) methodFor(
 }
 
 // sameSig reports whether a and b have the same parameters, each of one
-// type and alike in being mut, own or variadic, and the same results. The
+// type and alike in being mut, own, scope or variadic, and the same
+// results. The
 // receivers are compared apart.
 func sameSig(a, b methodSig) bool {
 	if len(a.params) != len(b.params) || len(a.results) != len(b.results) {
@@ -527,7 +528,8 @@ func sameSig(a, b methodSig) bool {
 	}
 	for i, p := range a.params {
 		q := b.params[i]
-		if p.Type != q.Type || p.Mut != q.Mut || p.Own != q.Own || p.Variadic != q.Variadic {
+		if p.Type != q.Type || p.Mut != q.Mut || p.Own != q.Own || p.Scope != q.Scope ||
+			p.Variadic != q.Variadic {
 			return false
 		}
 	}
@@ -541,7 +543,7 @@ func sameSig(a, b methodSig) bool {
 
 // sigText writes s as a diagnostic shows a method's signature, without
 // its receiver or its parameters' names: func(mut Point, own Text,
-// ...string) (int64, error).
+// scope func(), ...string) (int64, error).
 func (c *Checker) sigText(s methodSig) string {
 	params := make([]string, len(s.params))
 	for i, p := range s.params {
@@ -552,6 +554,8 @@ func (c *Checker) sigText(s methodSig) string {
 			params[i] = "mut " + c.typeName(p.Type)
 		case p.Own:
 			params[i] = "own " + c.typeName(p.Type)
+		case p.Scope:
+			params[i] = "scope " + c.typeName(p.Type)
 		default:
 			params[i] = c.typeName(p.Type)
 		}

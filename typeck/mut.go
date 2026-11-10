@@ -31,6 +31,7 @@ type param struct {
 	typ      types.Type
 	mut      bool
 	own      bool
+	scope    bool
 	variadic bool
 }
 
@@ -58,6 +59,14 @@ func (c *Checker) calleeParams(id *ast.Ident) []param {
 // argument when arg is one passed to a mut parameter with nothing
 // reported, for the exclusivity check, and nil otherwise.
 func (c *Checker) checkArg(arg ast.Expr, p param, callee string) *ast.MutArg {
+	if p.scope {
+		c.scopeArg(arg, p, callee)
+		return nil
+	}
+	if lit, ok := arg.(*ast.FuncLit); ok {
+		c.funcLitToPlain(lit, p, callee)
+		return nil
+	}
 	if c.inference.mentionsAny(c, p.typ) {
 		return c.inferArg(arg, p, callee)
 	}
@@ -123,11 +132,15 @@ func (c *Checker) missingMut(arg ast.Expr, p param, callee string) {
 	)
 }
 
-// argExpr checks an argument of a call whose argument count is wrong,
-// which is matched with no parameter: only for errors of its own, so a
-// mut argument is not reported as passed to a plain parameter.
+// argExpr checks an argument of a call whose argument count is wrong, or
+// whose callee was reported, which is matched with no parameter: only for
+// errors of its own, so a mut argument is not reported as passed to a
+// plain parameter, and a closure, whose place is unknown, not at all.
 func (c *Checker) argExpr(arg ast.Expr) {
 	switch x := arg.(type) {
+	case *ast.FuncLit:
+		// With no parameter to pass it to, whether it may be passed, and
+		// what type its signature must have, is unknown.
 	case *ast.MutArg:
 		c.expr(x.X)
 	case *ast.OwnArg:

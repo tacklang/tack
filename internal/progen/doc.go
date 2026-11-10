@@ -38,7 +38,7 @@
 // returns one, as a statement, a binding or a value in an expression,
 // block-scoped defers, loops of a constant number of trips, if,
 // break, continue and early returns, the checked forms of division,
-// conversion, indexing, pop and map reads, std/bytes and std/sort, and a
+// conversion, indexing, pop and map reads, std/bytes and std/sort, whose less may be a closure, and a
 // generic function, rev, reversing a list with swap.
 //
 // # Valid by construction

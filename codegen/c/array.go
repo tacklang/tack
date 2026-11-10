@@ -256,14 +256,21 @@ func (g *generator) indexChanges(ix *ast.Index) bool {
 }
 
 // passesAsMut reports whether n passes decl, or a part of it, as a mut
-// argument anywhere within it.
+// argument anywhere within it, or holds a closure that may write it, which
+// the call it is passed to may run.
 func passesAsMut(n ast.Node, decl ast.Decl) bool {
 	found := false
 	ast.Walk(n, func(n ast.Node) bool {
-		if m, ok := n.(*ast.MutArg); ok {
-			if root := ast.Root(m.X); root != nil && root.Def == decl {
+		switch x := n.(type) {
+		case *ast.MutArg:
+			if root := ast.Root(x.X); root != nil && root.Def == decl {
 				found = true
 			}
+		case *ast.FuncLit:
+			for _, cp := range x.Captures {
+				found = found || cp.Write && cp.Decl == decl
+			}
+			return false
 		}
 		return !found
 	})

@@ -327,9 +327,8 @@ as a value: its parameter xs is variadic, which no function type's can
 be`, one with an `any` parameter, `cannot use show as a value: its
 parameter v is an any, which no function type's can be`, and one that
 returns a view, `cannot use head as a value: it returns a view, which
-no function type can`. There are no function literals and no closures: `function
-literals are not supported; declare the function and use its name as a
-value`. A call by a bare name calls the function or builtin of that
+no function type can`. A function literal is a closure, described
+below. A call by a bare name calls the function or builtin of that
 name, never a local holding a function value under that name, so such a
 local is `step calls the function step, not the function value of that
 name; rename one of them` where it is called. What a function type
@@ -350,6 +349,65 @@ func twice(f func(int32) int32, n int32) int32 {
 func main() {
     g := half
     exit(twice(g, 32))
+}
+```
+
+## Function literals
+
+A function literal is written as a function declaration is, without a
+name: `func(a int64, b int64) bool { return a < b }`. It is a closure:
+its body may name the variables and parameters of the functions and
+closures it is written in, its captures, and reads and writes them by
+reference, never as a copy. Its parameters follow a function's, `mut`,
+`own` and `scope` ones included, and are declared in its body, so none
+may reuse a name visible where it is written; its signature must be one
+a function type can say, `this closure has no function type: its
+parameter xs is variadic, which no function type's can be`. A `return`
+in it returns from the closure with the closure's results, one with
+results must end in a terminating statement, `the closure must end in a
+return`, a `?` in it passes an error on as the closure's, a `defer` in
+it runs when the closure returns, and no `break`, `continue` or
+`fallthrough` leaves it.
+
+A closure can only be an argument to a parameter marked `scope`; anywhere
+else it is `a closure can only be passed to a scope parameter`, or, for
+a parameter that is not `scope`, `run does not take f as scope, and a
+closure can only be passed to a scope parameter`, and called where it is
+written, `a closure cannot be called where it is written; it can only be
+passed to a scope parameter`. Its type, which its signature gives, must
+be the parameter's exactly, `cannot use func(int64) bool as func() in
+argument to call`; in a call to a generic function it gives the type
+arguments it mentions as any argument does ([Generics and
+interfaces](11-generics.md)). A `scope` parameter is used only as a
+call's callee or as an argument to another `scope` parameter, `f is a
+scope parameter, which can only be called or passed to another scope
+parameter`, so no value a closure makes outlives the call it is passed
+to. A plain function value may be passed to a `scope` parameter too. A
+closure runs only when the function it is passed to calls it, as many
+times as it does, and each run reads its captures as they are then;
+what the call's rules say of its captures is in [Ownership and
+memory](08-ownership.md#closures), and what a proof may assume in it in
+[Safety and proofs](10-safety.md).
+
+```tack run exit=14
+package main
+
+func each(v []int32, scope f func(int32)) {
+    for _, x := range v {
+        f(x)
+    }
+}
+
+func main() {
+    v := [4]int32{3, 4, 5, 9}
+    limit := 4
+    mut sum int32 = 0
+    each(v, func(x int32) {
+        if x > limit {
+            sum = sum +% x
+        }
+    })
+    exit(sum)
 }
 ```
 

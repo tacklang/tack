@@ -582,13 +582,20 @@ func (c *Checker) tagWriteOf(s *ast.Switch) tagWrite {
 }
 
 // passesMut reports whether any of values, at any depth, passes something
-// as mut.
+// as mut, or holds a closure that may write a capture, which the call it
+// is passed to may run.
 func passesMut(values []ast.Expr) bool {
 	found := false
 	for _, v := range values {
 		ast.Walk(v, func(n ast.Node) bool {
-			if _, ok := n.(*ast.MutArg); ok {
+			switch x := n.(type) {
+			case *ast.MutArg:
 				found = true
+			case *ast.FuncLit:
+				for _, cp := range x.Captures {
+					found = found || cp.Write
+				}
+				return false
 			}
 			return !found
 		})

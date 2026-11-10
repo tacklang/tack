@@ -95,7 +95,8 @@ func TestFuncTypeNesting(t *testing.T) {
 
 // TestRejectsFuncTypeShapes checks the function types the parser
 // reports: a parameter with a name, a variadic one, a missing comma, an
-// unclosed list, and a function literal.
+// unclosed list, and a function literal called where it is written, the
+// one place the parser rejects a literal (see closure_test.go).
 func TestRejectsFuncTypeShapes(t *testing.T) {
 	for _, tt := range []struct{ name, src, want string }{
 		{
@@ -115,8 +116,9 @@ func TestRejectsFuncTypeShapes(t *testing.T) {
 			"expected 'parameter name' found '{'",
 		},
 		{
-			"a function literal", "package main\n\nfunc main() {\n    f := func() {\n    }\n}\n",
-			"function literals are not supported; declare the function and use its name as a value",
+			"a function literal called where it is written",
+			"package main\n\nfunc main() {\n    f := func() {\n    }()\n}\n",
+			"a closure cannot be called where it is written; it can only be passed to a scope parameter",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

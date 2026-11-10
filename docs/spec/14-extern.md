@@ -76,6 +76,10 @@ main.tck:12:5: warning: declared and not used: h
 main.tck:12:10: error: cannot use now as a value: it is an extern func, and a function value does not cross to C
 ```
 
+An extern func's parameter is never `scope`, `parameter f of extern func
+take cannot be scope: a function value does not cross to C`, as no
+function value crosses to C.
+
 ## C names
 
 An extern func's C name is its Tack name unchanged, or the string

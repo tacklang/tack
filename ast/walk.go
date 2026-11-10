@@ -170,9 +170,20 @@ func walkExpr(e Expr, v Visitor) {
 	case *KeyValue:
 		Walk(e.Key, v)
 		Walk(e.Value, v)
+	case *FuncLit:
+		walkFuncLit(e, v)
 	default:
 		walkArrayExpr(e, v)
 	}
+}
+
+// walkFuncLit walks the children of a function literal: its parameters,
+// its results' types and then its body, the statements of its Func, which
+// is not visited itself.
+func walkFuncLit(e *FuncLit, v Visitor) {
+	walkAll(e.Func.Params, v)
+	walkAll(e.Func.Results, v)
+	walkAll(e.Func.Body, v)
 }
 
 // walkTypeExpr walks the children of a type as written: a struct's

@@ -457,8 +457,9 @@ func (c *Checker) viewBorrows(call *ast.Call) []ast.Expr {
 // checkViewBorrows reports each operand of call, a method call's receiver
 // among them, that is a call returning a view, or a slice of one, while
 // another operand of call, at any depth, passes as mut a place that may
-// overlap one the view may point into (viewBorrows), with a note at that
-// mut argument. The view is read in place during the call, as a list
+// overlap one the view may point into (viewBorrows), or holds a closure
+// that may write one (see writersIn), with a note at that mut argument or
+// write. The view is read in place during the call, as a list
 // borrowed by a plain argument is (see checkListBorrows), so the place
 // passed as mut would be reachable another way. A mut argument inside the
 // view's own call is that call's to check: it runs before the view is
@@ -470,47 +471,28 @@ func (c *Checker) checkViewBorrows(call *ast.Call) {
 		if inner == nil || appendedValue(call, i) {
 			continue
 		}
-		muts := mutArgsOutside(operands, i)
-		if len(muts) == 0 {
+		ws := writersOutside(operands, i)
+		if len(ws) == 0 {
 			continue
 		}
 	places:
 		for _, place := range c.viewBorrows(inner) {
-			for _, m := range muts {
-				if !placesMayOverlap(place, m.X) {
+			for _, w := range ws {
+				if !placesMayOverlap(place, w.place) {
 					continue
 				}
-				passed := c.text(m.X.Spanned())
 				c.errorNotes(
 					arg.Spanned(),
-					[]diag.Diagnostic{note(m.Span, "passed as mut here")},
-					"cannot pass %s alongside mut %s in this call: the view it returns may point into %s, "+
-						"and a mut argument must be the only way to reach %s during the call",
+					[]diag.Diagnostic{w.note()},
+					"cannot pass %s alongside %s in this call: the view it returns may point into %s, "+
+						"and %s during the call",
 					c.text(arg.Spanned()),
-					passed,
+					w.what(c),
 					c.text(place.Spanned()),
-					passed,
+					w.only(c),
 				)
 				break places
 			}
 		}
 	}
-}
-
-// mutArgsOutside returns the mut arguments of every operand but the one
-// at skip, at any depth, in order.
-func mutArgsOutside(operands []ast.Expr, skip int) []*ast.MutArg {
-	var muts []*ast.MutArg
-	for j, arg := range operands {
-		if j == skip {
-			continue
-		}
-		ast.Walk(arg, func(n ast.Node) bool {
-			if m, ok := n.(*ast.MutArg); ok {
-				muts = append(muts, m)
-			}
-			return true
-		})
-	}
-	return muts
 }

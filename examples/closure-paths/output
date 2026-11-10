@@ -1,0 +1,16 @@
+is_sorted takes a closure ok
+a defer in a closure runs when the closure returns ok
+a ? in a closure passes nothing on without an error ok
+a ? in a closure returns from the closure ok
+a closure of several results ok
+a plain function of several results for a scope parameter ok
+a closure with a mut parameter ok
+a closure's scope parameter called twice ok
+a closure with a scope parameter ok
+a function with a scope parameter called through a value ok
+a named function for a scope parameter ok
+a function value for a scope parameter ok
+a closure reads a payload bound in place ok
+a closure reads a range element ok
+recursion through a scope parameter, nested closures ok
+a closure through an interface's scope parameter ok

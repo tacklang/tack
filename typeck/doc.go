@@ -892,7 +892,19 @@
 // function type has no zero value, no ==, and never crosses to C or sits
 // in a global. A callee bound to a function, where a variable or a
 // parameter of its name holding a function value is visible (Ident.Hidden),
-// is reported. A list, a map, an
+// is reported. A function literal is a closure, allowed only as an
+// argument to a scope parameter, and a scope parameter is used only as a
+// callee or as an argument to another, so nothing a closure makes is
+// stored, returned or held (see closure.go). A closure's body is checked
+// where it is written, as a block of the function holding it but with its
+// own results, loops, defers and cases, and with only the facts about
+// variables nothing can write in force; its captures are recorded on it
+// and count as borrowed arguments of the call it is passed to, a capture
+// it writes as a mut argument (see checkCaptures and writersIn); a write
+// in it is a write where it is written, and a closure is a loop around its
+// body for whether a write reaches a use (see isLoop), with no branch in
+// it a keep, since its return leaves only it; move.go follows its body
+// where it is written and lets it move only its own variables. A list, a map, an
 // Allocator, a function value, and anything holding one, has no zero value; a list has
 // no ==, and no global holds one. A list owns its buffer, so it moves
 // rather than copies, which move.go checks after a body: a moved variable

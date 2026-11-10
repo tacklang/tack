@@ -207,6 +207,25 @@ type generator struct {
 	// made and not yet given to what takes them, which a ? that returns
 	// frees (see question.go).
 	pending []pendingFree
+
+	// closures holds every closure met so far, in the order met, which
+	// numbers them, and pendingClosures those whose bodies are yet to be
+	// lowered (see closure.go). captured maps each capture of the closure
+	// whose body is being lowered to its place in the closure's
+	// environment, and is nil outside one.
+	closures        []*closure
+	pendingClosures []*closure
+	captured        map[ast.Decl]int
+
+	// scopeFns holds the function types a scope value of is called, made
+	// or adapted, whose scope pointer types are defined, and adapters the
+	// function types whose plain values are passed to a scope parameter,
+	// each listed in adapterOrder in the order first met. scopeUsed is
+	// whether a function lowered so far has a scope parameter.
+	scopeFns     map[types.Type]bool
+	adapters     map[types.Type]bool
+	adapterOrder []types.Type
+	scopeUsed    bool
 }
 
 // generate lowers the program to its C translation unit. It first rejects
@@ -268,6 +287,8 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 	g.emitCNameMacro()
 	g.emitPrototypes()
 	g.emitThunks()
+	g.emitClosureDecls()
+	g.emitClosures()
 
 	for i, sig := range sigs {
 		g.emitFunc(sig, bodies[i])
@@ -919,10 +940,14 @@ func (g *generator) emitResultStruct(fn *ast.Func) {
 
 // resultsName is the name of the struct fn, a function with several
 // results, returns them in: tack_results_ and what follows tack_ in fn's
-// own name, as mangle gives it. It starts tack_results_ where a mangled
+// own name, as mangle gives it, or, for a closure, its function type's
+// results struct, which a call through a scope value reads. It starts tack_results_ where a mangled
 // name starts with tack_ and a digit, so it collides with none, and two are
 // told apart as mangled names are.
 func (g *generator) resultsName(fn *ast.Func) string {
+	if fn.Closure {
+		return g.funcResultsName(fn.Value)
+	}
 	return resultsOf(g.funcCName(fn))
 }
 
@@ -1075,9 +1100,14 @@ func (g *generator) signature(fn *ast.Func) string {
 	)
 }
 
-// paramType returns the C type param is passed as: its type's, or for a
-// mut parameter a pointer to it, the caller's variable.
+// paramType returns the C type param is passed as: its type's, for a mut
+// parameter a pointer to it, the caller's variable, and for a scope
+// parameter a tack_scope (see closure.go).
 func (g *generator) paramType(param *ast.Param) string {
+	if param.Scope {
+		g.scopeUsed = true
+		return scopeType
+	}
 	if param.Mut {
 		return g.cType(param.Type) + " *"
 	}
@@ -1100,13 +1130,17 @@ func (g *generator) resultType(fn *ast.Func) string {
 // generateFuncBody lowers fn's body, the outermost block of fn, as its
 // frame (see funcFrame), led by a (void) cast of each parameter the
 // lowered body never names (see unusedParams), and records what it names
-// (see noteNames).
+// (see noteNames), then lowers the closures it holds (see
+// flushClosures).
 func (g *generator) generateFuncBody(fn *ast.Func) ([]string, []diag.Diagnostic) {
 	body, diags := g.funcFrame(fn)
 	if len(diags) > 0 {
 		return nil, diags
 	}
 	g.noteNames(g.funcCName(fn), body)
+	if diags := g.flushClosures(); len(diags) > 0 {
+		return nil, diags
+	}
 	return append(unusedParams(fn, body), body...), nil
 }
 
@@ -2819,7 +2853,8 @@ func (g *generator) callExpr(name string, call *ast.Call) (string, []diag.Diagno
 // call by name renders them. The value is an operand evaluated first,
 // before the arguments, left to right, so an argument that changes the
 // variable holding it, through a mut argument, changes what a later call
-// calls but not this one.
+// calls but not this one. A scope parameter's value is called with its
+// environment first (see scopeCallee).
 func (g *generator) dynamicCall(call *ast.Call) (string, []diag.Diagnostic) {
 	fn := call.Dynamic
 	value, diags := g.expr(call.Fn, types.Invalid)
@@ -2832,6 +2867,16 @@ func (g *generator) dynamicCall(call *ast.Call) (string, []diag.Diagnostic) {
 	}
 	operands := append([]ast.Expr{call.Fn}, call.Args...)
 	rendered := append([]string{value}, args...)
+	if id, ok := call.Fn.(*ast.Ident); ok {
+		if p, isParam := id.Def.(*ast.Param); isParam && p.Scope {
+			ctypes := append([]string{scopeType}, g.argTypes(call, fn.Params)...)
+			build := func(ops []string) string {
+				callee, env := g.scopeCallee(fn.Value, ops[0])
+				return fmt.Sprintf("%s(%s)", callee, strings.Join(append([]string{env}, ops[1:]...), ", "))
+			}
+			return g.sequencedAs(operands, rendered, ctypes, build), nil
+		}
+	}
 	ctypes := append([]string{funcPtr}, g.argTypes(call, fn.Params)...)
 	build := func(ops []string) string {
 		return fmt.Sprintf("%s(%s)", g.dynamicCallee(fn.Value, ops[0]), strings.Join(ops[1:], ", "))
@@ -2976,6 +3021,9 @@ func (g *generator) identExpr(id *ast.Ident) (string, []diag.Diagnostic) {
 	case *ast.Var:
 		if id.Move {
 			return g.moveValue(def.Type, g.varRef(def)), nil
+		}
+		if ref, ok := g.captureRef(def); ok {
+			return ref, nil
 		}
 		if g.inPlace[def] {
 			return "(*" + varName(def.Name) + ")", nil
@@ -3292,8 +3340,13 @@ func paramName(name string) string { return "p_" + name }
 
 // paramRef is how the parameter param is read and written: by its C name,
 // or, for a mut parameter, through the pointer it is, (*p_x), which C's
-// postfix operators can follow as they follow a name.
+// postfix operators can follow as they follow a name, or, in a closure
+// capturing it, through the pointer its environment holds (see
+// captureRef).
 func (g *generator) paramRef(param *ast.Param) string {
+	if ref, ok := g.captureRef(param); ok {
+		return ref
+	}
 	if param.Mut {
 		return "(*" + paramName(param.Name) + ")"
 	}
@@ -3312,11 +3365,15 @@ func (g *generator) argument(e ast.Expr) (string, []diag.Diagnostic) {
 }
 
 // mutArg renders a mut argument as the address of the place it names: a
-// mut parameter passed on is the pointer it already holds, and any other
-// place, a variable, a field or an element, is &place. The checker has
+// mut parameter passed on is the pointer it already holds, a capture of
+// the closure being lowered the pointer its environment holds, and any
+// other place, a variable, a field or an element, is &place. The checker has
 // proven every index in the place in range.
 func (g *generator) mutArg(m *ast.MutArg) (string, []diag.Diagnostic) {
 	if id, ok := m.X.(*ast.Ident); ok {
+		if i, isCaptured := g.captured[id.Def]; isCaptured {
+			return fmt.Sprintf("tack_env->c%d", i), nil
+		}
 		if param, isParam := id.Def.(*ast.Param); isParam && param.Mut {
 			return paramName(param.Name), nil
 		}
@@ -3329,10 +3386,15 @@ func (g *generator) mutArg(m *ast.MutArg) (string, []diag.Diagnostic) {
 }
 
 // varRef is the C name of a variable: the mangled package-level name for a
-// global, the prefixed local name otherwise.
+// global, the prefixed local name otherwise, or, in a closure capturing
+// it, the variable through the pointer its environment holds (see
+// captureRef).
 func (g *generator) varRef(v *ast.Var) string {
 	if g.globals[v] {
 		return g.mangle(v, v.Name)
+	}
+	if ref, ok := g.captureRef(v); ok {
+		return ref
 	}
 	return varName(v.Name)
 }
@@ -3421,7 +3483,8 @@ func lowered(call *ast.Call) *ast.Call {
 // one either: after tack_, a mangled name has a digit, 1 to 9 since a path
 // part is never empty, and every other name starting tack_ (tack_string,
 // tack_builtin_print, tack_str0, tack_div_int8, tack_eq_3, tack_array_3, tack_results_...,
-// tack_fnptr, tack_fn_3, tack_fnres_3, tack_value_..., a library's tack_init_, and temporaries
+// tack_fnptr, tack_fn_3, tack_fnres_3, tack_value_..., tack_scope, tack_sfn_3,
+// tack_adapt_3, tack_closure0, tack_env0, a library's tack_init_, and temporaries
 // such as tack_r0) has a letter; locals and parameters
 // start v_ and p_.
 func (g *generator) mangle(decl ast.Decl, name string) string {

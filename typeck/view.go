@@ -36,6 +36,9 @@ func (c *Checker) paramType(param *ast.Param) types.Type {
 	if param.Own {
 		return c.ownParamType(param, typ)
 	}
+	if param.Scope {
+		return c.scopeParamType(param, typ)
+	}
 	return typ
 }
 

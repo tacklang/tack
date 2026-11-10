@@ -106,6 +106,10 @@ type Func struct {
 	// Method is whether the function is a method, declared with a
 	// receiver, which is Params[0].
 	Method bool `json:",omitempty"`
+
+	// Closure is whether the function is a function literal's, the Func
+	// of a FuncLit: it has no name, and its Value is the literal's type.
+	Closure bool `json:",omitempty"`
 }
 
 var _ Decl = (*Func)(nil)
@@ -140,6 +144,11 @@ func (f *Func) Spanned() Span { return f.Span }
 // written own p T takes its argument's value from the caller, who writes
 // own x and cannot use x again: Own is set, and OwnSpan is the own keyword;
 // the function owns the value, an immutable local it frees when it ends.
+// A parameter written scope f T, whose type T is a function type, takes a
+// function value that never outlives the call: the function can call it
+// and pass it on to another scope parameter, and nothing else, so it may
+// be a closure, which no other parameter can take: Scope is set, and
+// ScopeSpan is the scope keyword.
 // Any other parameter is an immutable copy of its argument.
 type Param struct {
 	TypeExpr     Expr // the type as written, e.g. *Ident{"int64"}; a variadic's element type
@@ -147,11 +156,13 @@ type Param struct {
 	NameSpan     Span
 	MutSpan      Span       `json:"-"`
 	OwnSpan      Span       `json:"-"`
+	ScopeSpan    Span       `json:"-"`
 	EllipsisSpan Span       `json:"-"`
-	Span         Span       // mut or own, if written, or the name, through the end of the type
+	Span         Span       // scope, mut or own, if written, or the name, through the end of the type
 	Type         types.Type // filled in by the type checker, Invalid before
 	Mut          bool       `json:",omitempty"`
 	Own          bool       `json:",omitempty"`
+	Scope        bool       `json:",omitempty"`
 	Variadic     bool       `json:",omitempty"`
 }
 

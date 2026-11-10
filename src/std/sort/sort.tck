@@ -13,7 +13,16 @@ package sort
 // it, and is_sorted(v, less) reports whether v already is, as Go's
 // slices.SortFunc and slices.IsSortedFunc do with a less function in
 // place of a comparison. less(a, b) reports whether a goes before b; for
-// a sorted result it must be a strict weak ordering, as Go asks.
+// a sorted result it must be a strict weak ordering, as Go asks. less is
+// a scope parameter in both, so it may be a closure, which reads what it
+// captures where it is written, as in
+//
+//     sort.by(mut l, func(a int64, b int64) bool {
+//         return down && a > b || !down && a < b
+//     })
+//
+// as well as a named function or a function value; sort only calls it,
+// and passes it on to its own helpers.
 //
 // by is a heapsort, with an insertion sort for lists of at most
 // insertion_max elements. It never recurses and holds a fixed number of
@@ -40,7 +49,7 @@ var insertion_max int64 = 12
 // by sorts l in place so that no element is less than the one before it,
 // by less, a heapsort for longer lists and an insertion sort for lists of
 // at most 12 elements. It is not stable.
-pub func by[T Any](mut l list[T], less func(T, T) bool) {
+pub func by[T Any](mut l list[T], scope less func(T, T) bool) {
     n := len(l)
     if n <= insertion_max {
         insertion(mut l, less)
@@ -68,7 +77,7 @@ pub func by[T Any](mut l list[T], less func(T, T) bool) {
 // including, end, swapping it with its greater child while that child is
 // greater than it. Each step goes at least one level down, so it ends
 // after about log2(end) steps whatever less answers.
-func sift_down[T Any](mut l list[T], less func(T, T) bool, root int64, end int64) {
+func sift_down[T Any](mut l list[T], scope less func(T, T) bool, root int64, end int64) {
     mut r := root
     for 0 <= r && r < len(l) && r < end {
         // 2 * r + 1 passes an int64 only for an r at or past 2^62,
@@ -92,7 +101,7 @@ func sift_down[T Any](mut l list[T], less func(T, T) bool, root int64, end int64
 // left and left + 1, of the heap held by v up to end: left + 1 when it is
 // in the heap and left is less than it, left otherwise, or -1 when left
 // is not in the heap either.
-func larger[T Any](v []T, less func(T, T) bool, left int64, end int64) int64 {
+func larger[T Any](v []T, scope less func(T, T) bool, left int64, end int64) int64 {
     if left < 0 || left >= end || left >= len(v) {
         return -1
     }
@@ -106,7 +115,7 @@ func larger[T Any](v []T, less func(T, T) bool, left int64, end int64) int64 {
 // insertion sorts l by less, moving each element back past those it is
 // less than by swapping neighbours. Each element moves back at most to
 // the start, so it ends after n * (n - 1) / 2 calls at most.
-func insertion[T Any](mut l list[T], less func(T, T) bool) {
+func insertion[T Any](mut l list[T], scope less func(T, T) bool) {
     for i := range len(l) {
         mut j := i
         for j > 0 {
@@ -124,7 +133,7 @@ func insertion[T Any](mut l list[T], less func(T, T) bool) {
 // is_sorted reports whether no element of v is less than the one before
 // it, by less, as Go's slices.IsSortedFunc does: an empty view and one of
 // a single element are sorted.
-pub func is_sorted[T Any](v []T, less func(T, T) bool) bool {
+pub func is_sorted[T Any](v []T, scope less func(T, T) bool) bool {
     for i := range len(v) {
         k := i - 1
         if k >= 0 && k < len(v) && less(v[i], v[k]) {

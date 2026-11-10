@@ -84,11 +84,15 @@ type funcType struct {
 // FuncParam is one parameter of a function type: its type, and whether
 // it is mut, a reference to the caller's place rather than a copy of its
 // value, or own, taking its caller's value, which the function then owns.
-// A parameter is never both.
+// A parameter is never both. Scope is whether it is scope, a function
+// value that never outlives the call, which may be a closure; only a
+// parameter whose type is a function type is, and never a mut or an own
+// one.
 type FuncParam struct {
-	Type Type
-	Mut  bool
-	Own  bool
+	Type  Type
+	Mut   bool
+	Own   bool
+	Scope bool
 }
 
 // mapKey identifies a map type by its key and value types.
@@ -207,7 +211,7 @@ func (t *Table) Func(params []FuncParam, results []Type) Type {
 }
 
 // funcKey writes out a function type's signature, the ID of each
-// parameter's type, marked when it is mut or own, then the ID of each result's,
+// parameter's type, marked when it is mut, own or scope, then the ID of each result's,
 // so that two signatures have one key exactly when they are alike.
 func funcKey(params []FuncParam, results []Type) string {
 	var b strings.Builder
@@ -217,6 +221,9 @@ func funcKey(params []FuncParam, results []Type) string {
 		}
 		if p.Own {
 			b.WriteByte('o')
+		}
+		if p.Scope {
+			b.WriteByte('s')
 		}
 		b.WriteString(strconv.Itoa(int(p.Type)))
 		b.WriteByte(',')
@@ -409,7 +416,7 @@ func (t *Table) substituteFunc(typ Type, fn *funcType) Type {
 	changed := false
 	params := make([]FuncParam, len(fn.params))
 	for i, p := range fn.params {
-		params[i] = FuncParam{Type: t.Bound(p.Type), Mut: p.Mut, Own: p.Own}
+		params[i] = FuncParam{Type: t.Bound(p.Type), Mut: p.Mut, Own: p.Own, Scope: p.Scope}
 		changed = changed || params[i].Type != p.Type
 	}
 	results := make([]Type, len(fn.results))
@@ -752,8 +759,8 @@ func (t *Table) compositeName(e entry, qualify func(typ Type, name string) strin
 }
 
 // funcName returns the name of the function type fn as NameWith writes
-// it: func, its parameters' types in parentheses, mut before a mut one and
-// own before an own one,
+// it: func, its parameters' types in parentheses, mut before a mut one,
+// own before an own one and scope before a scope one,
 // and its results, none, one alone, or several in parentheses.
 func (t *Table) funcName(fn *funcType, qualify func(typ Type, name string) string) string {
 	params := make([]string, len(fn.params))
@@ -764,6 +771,9 @@ func (t *Table) funcName(fn *funcType, qualify func(typ Type, name string) strin
 		}
 		if p.Own {
 			params[i] = "own " + params[i]
+		}
+		if p.Scope {
+			params[i] = "scope " + params[i]
 		}
 	}
 	name := "func(" + strings.Join(params, ", ") + ")"

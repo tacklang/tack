@@ -484,7 +484,18 @@
 // the value an operand evaluated before the arguments. A function of
 // several results named as a value is a thunk, tack_value_ and its name,
 // returning them in its function type's results struct, tack_fnres_ and
-// the type's ID (see funcvalue.go). An
+// the type's ID (see funcvalue.go). A scope parameter is a tack_scope, a
+// function pointer and an environment pointer, called as
+// ((tack_sfn_ID)f.fn)(f.env, args); a closure is a static function of its
+// own, tack_closureN, lowered once the body holding it is, as a frame of
+// its own, taking the environment first, a tack_envN struct of pointers
+// to its captures, which it reads and writes through, and which the call
+// passing it builds as a compound literal on the caller's stack; a plain
+// function value passed to a scope parameter goes through its type's
+// adapter, tack_adapt_ID (see closure.go). A closure's writes count as
+// the mut arguments of the call it is passed to for the order operands
+// are evaluated in (see mutated) and for when a viewed array is copied
+// (see viewCopies). An
 // element, a length, a
 // checked element, a range and a view of a list are lowered as a view's
 // are, but a list is written too, x.ptr[i] = v, and is ranged over in

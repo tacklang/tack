@@ -27,7 +27,7 @@ const stdPath = "std"
 // float and a float64 as its double.
 func (c *Checker) checkExtern(fn *ast.Func) {
 	maps := c.checkExternMaps(fn)
-	if c.checkExternOwn(fn) && c.checkExternFuncs(fn) && maps {
+	if c.checkExternOwn(fn) && c.checkExternScope(fn) && c.checkExternFuncs(fn) && maps {
 		c.checkExternLists(fn)
 		c.checkExternUnions(fn)
 		c.checkExternOwnedElems(fn)

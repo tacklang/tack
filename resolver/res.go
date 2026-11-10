@@ -1279,9 +1279,66 @@ func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 		return r.resolveKeyValue(x, sc)
 	case *ast.ListType, *ast.MapType, *ast.TypeAssert:
 		return r.resolveTyped(x, sc)
+	case *ast.FuncLit:
+		return r.resolveFuncLit(x, sc)
 	default:
 		return nil
 	}
+}
+
+// resolveFuncLit resolves a function literal written where sc is: its
+// parameters' and results' types where it is, then its parameters, in a
+// scope of their own nested in sc, and its body, as a block nested in
+// that. The body sees every name visible where the literal is written,
+// the variables and parameters of the functions and closures around it
+// among them, which are its captures. A parameter's name may not be one
+// visible there already, as a variable's may not, nor another
+// parameter's of the literal.
+func (r *pkgResolver) resolveFuncLit(lit *ast.FuncLit, sc *scope) []diag.Diagnostic {
+	fn := lit.Func
+	var diags []diag.Diagnostic
+	for _, param := range fn.Params {
+		diags = append(diags, r.resolveType(param.TypeExpr, sc)...)
+	}
+	for _, result := range fn.Results {
+		diags = append(diags, r.resolveType(result, sc)...)
+	}
+	params := newScope(sc)
+	for _, param := range fn.Params {
+		if clash := r.litParamClash(param, params); clash != nil {
+			diags = append(diags, clash...)
+			params.reject(param.Name)
+			continue
+		}
+		params.names[param.Name] = param
+	}
+	return append(diags, r.resolveBlock(fn.Body, params)...)
+}
+
+// litParamClash reports why param, a parameter of a function literal,
+// cannot be declared in params, the scope of the literal's parameters:
+// its name is reserved, visible where the literal is written, or another
+// parameter's. It returns nil when the name is free.
+func (r *pkgResolver) litParamClash(param *ast.Param, params *scope) []diag.Diagnostic {
+	if reserved := reservedName(param.Name, param.NameSpan); reserved != nil {
+		return reserved
+	}
+	if existing, dup := params.names[param.Name]; dup {
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "duplicate parameter name",
+			Span:     param.NameSpan,
+			Related: []diag.Diagnostic{{
+				Severity: diag.Note,
+				Message:  fmt.Sprintf("previous declaration of %s", param.Name),
+				Span:     nameSpan(existing),
+			}},
+		}}
+	}
+	if existing, visible := params.parent.lookup(param.Name); visible {
+		return []diag.Diagnostic{redeclared(param.Name, param.NameSpan, existing)}
+	}
+	return nil
 }
 
 // resolveOperand resolves the operand of e, a prefix operator, a mut

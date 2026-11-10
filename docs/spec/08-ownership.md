@@ -351,6 +351,32 @@ callee reaches a caller's list or map only through its arguments, and
 these rules cover every way a buffer could be moved or freed while
 something reads it.
 
+## Closures
+
+A closure passed to a call is, for the call's rules, its captures, each
+an argument of the call and a borrow, read in place whatever its type: a
+plain argument may be a copy, but a closure reaches the variable itself
+each time it runs. So a capture cannot be passed as `mut` in the same
+call, even one the closure only reads, `cannot capture x in a closure
+alongside mut x in this call: a closure reaches its captures in place,
+and a mut argument must be the only way to reach x during the call`, nor
+written by another closure of the call. A closure that writes a capture,
+assigning it or a part of it, or passing one as `mut`, counts as a `mut`
+argument of the call for every rule one is under: no other argument may
+read it in place, `cannot pass l alongside a closure that writes l in
+this call: a list is not copied for a call, and a closure that writes l
+must be the only way to reach l during it`, as no index or slice around
+the call may. A capture of a field or an element is a capture of the
+whole variable, and a nested closure's captures are its outer closure's
+too. Writing a capture needs a place that may be written, as anywhere.
+
+A closure cannot move a capture, `a closure cannot move l, which it
+captures: the closure may run more than once`, and a capture moved
+before the call, or in it, is a use after a move, or `cannot use l
+alongside own l in this call: ...`. A closure frees none of its
+captures; what it declares is freed at each of its returns, as a
+function's locals are, its `own` parameters included.
+
 ## Views and borrows
 
 A parameter written `v []T` is a read-only view of elements of type `T`.

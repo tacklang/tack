@@ -37,13 +37,18 @@ func (g *generator) hasLen(typ types.Type) bool {
 // argTypes returns the C type of each of call's arguments as callExpr
 // renders them: an argument's own type, a pointer to it for a mut
 // argument, or, for one passed to a view parameter, a spread among them,
-// the view's. A value for a variadic parameter is its own type, before it
-// is packed into the variadic's view (see packed).
+// the view's, and for one passed to a scope parameter a tack_scope. A
+// value for a variadic parameter is its own type, before it is packed
+// into the variadic's view (see packed).
 func (g *generator) argTypes(call *ast.Call, params []*ast.Param) []string {
 	out := make([]string, len(call.Args))
 	for i, a := range call.Args {
 		if p := g.viewParamAt(call, params, i); p != nil {
 			out[i] = g.cType(p.Type)
+			continue
+		}
+		if i < len(params) && params[i].Scope {
+			out[i] = scopeType
 			continue
 		}
 		out[i] = g.operandType(a)
@@ -149,7 +154,9 @@ func (g *generator) bytesView(conv *ast.Call, view types.Type) (string, []diag.D
 // call, must be copied for the view: it is part of a mutable global,
 // which any function can assign during the call, or call's arguments pass
 // a place as mut, directly or in a call nested in one, that may overlap
-// it, which the callee, or that nested call before it, could change.
+// it, which the callee, or that nested call before it, could change, or
+// hold a closure, at any depth, that may write the variable it is part
+// of, which the call the closure is passed to could run.
 // Places compare as paths, as the checker compares two mut arguments, but
 // more simply: two different fields never overlap, and two elements
 // always may. A copy where none was needed changes nothing a program can
@@ -162,8 +169,14 @@ func (g *generator) viewCopies(place ast.Expr, call *ast.Call) bool {
 	found := false
 	for _, a := range call.Args {
 		ast.Walk(a, func(n ast.Node) bool {
-			if m, ok := n.(*ast.MutArg); ok && mayOverlap(place, m.X) {
-				found = true
+			switch x := n.(type) {
+			case *ast.MutArg:
+				found = found || mayOverlap(place, x.X)
+			case *ast.FuncLit:
+				for _, cp := range x.Captures {
+					found = found || cp.Write && cp.Decl == root.Def
+				}
+				return false
 			}
 			return !found
 		})
@@ -214,7 +227,8 @@ func placePath(place ast.Expr) (ast.Decl, []string) {
 // they are passed to: one passed as a view, a spread included, by
 // viewArg, a view passed as any by viewArg too, as a view of its own
 // type, so an array it slices is copied when the call could change it,
-// and any other, a value for a variadic parameter included, as itself.
+// one passed to a scope parameter by scopeArg, and any other, a value for
+// a variadic parameter included, as itself.
 func (g *generator) callArgs(call *ast.Call, fn *ast.Func) ([]string, []diag.Diagnostic) {
 	params := paramsOf(fn)
 	args := make([]string, len(call.Args))
@@ -227,6 +241,8 @@ func (g *generator) callArgs(call *ast.Call, fn *ast.Func) ([]string, []diag.Dia
 		)
 		if p := g.viewParamAt(call, params, i); p != nil {
 			expr, diags = g.viewArg(a, p.Type, call)
+		} else if i < len(params) && params[i].Scope {
+			expr, diags = g.scopeArg(a, params[i].Type)
 		} else if typ := ast.TypeOf(a); g.prog.Types.IsView(typ) && g.boxesAt(call, params, i) {
 			expr, diags = g.viewArg(a, typ, call)
 		} else {

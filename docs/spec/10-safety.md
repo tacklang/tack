@@ -503,7 +503,19 @@ A write reaches the use when it can run before it:
   case the `default` falls into, directly or down a chain of
   `fallthrough`s, which runs after it;
 - a write in a case whose body ends in `fallthrough`, for the cases it
-  falls into, as for any code after it.
+  falls into, as for any code after it;
+- a write in a closure, for code after the call it is passed to, since
+  the call may run it, and, for code in the closure before the write, the
+  closure counting as a loop around its body, since a later run follows
+  an earlier one. A `return` in a closure leaves only the closure, so a
+  write before it reaches the code after the call.
+
+No fact in force where a closure is written holds in its body about a
+mutable variable or a `mut` parameter: the closure runs during the call
+it is passed to, later and possibly many times, after its own writes on
+earlier runs. A fact about an immutable variable or a plain parameter,
+which nothing writes, holds there, and the closure's own conditions give
+facts in it as anywhere.
 
 A write that runs only after the use does not end the fact. A call
 assigns its `mut` arguments only once they are all evaluated, and an
@@ -1089,8 +1101,8 @@ func main() {
 ## Stack depth
 
 No rule bounds the depth of the stack. Recursion is accepted, direct,
-mutual, or through function values, whose callee is known only when the
-call runs; so are large local arrays and large values passed or copied by
+mutual, through function values, whose callee is known only when the
+call runs, or through scope parameters and the closures passed to them; so are large local arrays and large values passed or copied by
 value. Each can run out of stack, which guarantee 4 forbids, and each is
 a known violation, parked (see [Known violations](#known-violations)).
 

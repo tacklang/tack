@@ -47,6 +47,10 @@
 // nor lib: its package exports a Tack function that calls it. It then walks each function body with that
 // function's parameters in scope, setting Ident.Def on every callee, and on
 // every parameter and variable reference and assignment target. A
+// function literal's parameter and result types are resolved where it is
+// written, its parameters declared in a scope of their own nested there,
+// none reusing a name visible there, and its body resolved inside that, so
+// it sees, and binds to, every variable and parameter around it. A
 // function's contract, Func.Ensures, is resolved first, with the
 // parameters in scope and nothing its body declares; which names it may
 // use is the type checker's to judge. A call whose

@@ -112,7 +112,14 @@
 // Func with the value's parameters and results, which Callee returns. A
 // callee bound to a function or a builtin records in Ident.Hidden a
 // variable or parameter of its name visible there, which the call passed
-// over.
+// over. A parameter written scope f F has Scope set. A function literal,
+// func(a T) R { ... }, is a FuncLit, an expression holding a Func with no
+// name, Closure set, whose parameters and body are the literal's; the
+// type checker records its type in FuncLit.Type and its Func's Value, and
+// the variables and parameters of the code around it its body names in
+// FuncLit.Captures. Walk visits a literal's parameters, results and body,
+// not its Func, so a pass that walks a function body walks the closures in
+// it as part of it.
 // A list type written list[T] is a ListType, and a map type written
 // map[K]V a MapType, wherever a type is written, and as an operand, as
 // make's first argument; the type checker records the type of a call to

@@ -99,6 +99,12 @@ const (
 	// after Unreachable for the same reason Unreachable comes after
 	// Ensures.
 	Fallthrough
+
+	// Scope marks a parameter of a function type whose value never
+	// escapes the call, scope f func(), the only parameter a closure can
+	// be passed to. It comes after Fallthrough for the same reason
+	// Fallthrough comes after Unreachable.
+	Scope
 )
 
 var keywordNames = map[KeywordType]string{
@@ -155,6 +161,8 @@ var keywordNames = map[KeywordType]string{
 	Unreachable: "unreachable",
 
 	Fallthrough: "fallthrough",
+
+	Scope: "scope",
 }
 
 // String returns the keyword as written in source.

@@ -58,6 +58,7 @@ func (c *Checker) checkMethodCall(call *ast.Call) {
 	}
 	c.checkExclusive(muts)
 	c.checkListBorrows(call)
+	c.checkCaptures(call)
 }
 
 // method checks the receiver of call, a method call whose callee is sel,
@@ -260,6 +261,7 @@ func (c *Checker) funcParams(ps []*ast.Param) []param {
 			typ:      p.Type,
 			mut:      p.Mut && !p.Variadic,
 			own:      p.Own && !p.Variadic,
+			scope:    p.Scope && !p.Variadic,
 			variadic: p.Variadic,
 		}
 	}
@@ -271,6 +273,9 @@ func (c *Checker) funcParams(ps []*ast.Param) []param {
 // typeName names it, so lexer.Token.kind for a method of another package's
 // type.
 func (c *Checker) displayName(fn *ast.Func) string {
+	if fn.Closure {
+		return "the closure"
+	}
 	if !fn.Method {
 		return fn.Name
 	}

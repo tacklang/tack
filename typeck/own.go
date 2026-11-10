@@ -249,14 +249,20 @@ func callPart(call *ast.Call, e ast.Expr) int {
 }
 
 // ownArgsIn returns every own argument in call, at any depth, whose
-// operand is a name, in the order they are written.
+// operand is a name, in the order they are written. One in the body of a
+// closure is no argument of call: it is an argument of a call the closure
+// makes when it runs, which that call checks, and a closure cannot move
+// its captures (see move.go).
 func ownArgsIn(call *ast.Call) []*ast.OwnArg {
 	var owns []*ast.OwnArg
 	ast.Walk(call, func(n ast.Node) bool {
-		if o, ok := n.(*ast.OwnArg); ok {
-			if _, named := o.X.(*ast.Ident); named {
-				owns = append(owns, o)
+		switch x := n.(type) {
+		case *ast.OwnArg:
+			if _, named := x.X.(*ast.Ident); named {
+				owns = append(owns, x)
 			}
+		case *ast.FuncLit:
+			return false
 		}
 		return true
 	})

@@ -318,7 +318,10 @@ may hold one.
 A function type is written as a function's signature is, with the types
 of its parameters alone and its results: `func(int64) int64`,
 `func([]uint8, mut list[int64]) (int64, error)`, `func()`. A `mut`
-parameter is written `mut T` and an `own` parameter `own T`. A function
+parameter is written `mut T`, an `own` parameter `own T` and a `scope`
+parameter, which takes a function value that does not outlive the call,
+`scope F`, `F` a function type: `func(list[int64], scope func(int64,
+int64) bool)`. A function
 type's parameters have no names; none is variadic, `any`, or a `mut`
 view; and it has no view result.
 
@@ -328,7 +331,9 @@ func, a method and a builtin are not values (see
 [Expressions](06-expressions.md)). A function
 value is copyable and owns nothing. It has no `==`, no order and no
 conversion, and cannot be passed as `any`, held by a package-level
-variable, or passed to C.
+variable, or passed to C. A closure, a function literal, is not a value
+of a function type that can be held: it can only be passed to a `scope`
+parameter (see [Expressions](06-expressions.md#function-literals)).
 
 ## Zero values
 
@@ -460,7 +465,7 @@ Two types are the same type when:
 - they are views, lists, or maps of the same element, key and value
   types;
 - they are function types with the same parameter types, each with the
-  same `mut` or `own` marker, and the same result types.
+  same `mut`, `own` or `scope` marker, and the same result types.
 
 A value of type `V` may be used where a value of type `T` is expected,
 in an assignment, an argument, a result, a field or element of a

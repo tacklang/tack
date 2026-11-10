@@ -421,14 +421,23 @@ A parameter is written in one of these forms:
 | `p T`        | `n int64`                  | an immutable copy of its argument                     |
 | `mut p T`    | `mut p Point`              | the caller's place, which the function may change     |
 | `own p T`    | `own t text.Text`          | the caller's value, moved into the function           |
+| `scope p F`  | `scope less func(T, T) bool` | a function value that does not outlive the call, a closure among them |
 | `p []T`      | `v []int64`                | a read-only view of the caller's elements             |
 | `p ...T`     | `nums ...int64`            | zero or more values, seen as a view `[]T`             |
 | `p any`      | `a any`                    | a value of a basic type or a view, as `any`           |
 
 What `mut`, `own` and views mean for the caller's value is described in
 [Ownership and memory](08-ownership.md), and `any` in
-[Types](04-types.md). As syntax: `mut` and `own` stand before the
-parameter's name, and a parameter is not both; a view's or a
+[Types](04-types.md), and `scope` in
+[Expressions](06-expressions.md#function-literals). As syntax: `scope`,
+`mut` and `own` stand before the parameter's name, and a parameter has
+at most one of them, `a parameter cannot be both scope and mut: a scope
+parameter is only called or passed on to another scope parameter, never
+assigned`; a `scope` parameter's type is a function type and it is not
+variadic, `parameter n cannot be scope: int64 is not a function type,
+and only a function value can be scope; drop scope`, and a result is
+never `scope`, `a result cannot be scope; only a parameter can be
+scope`; a view's or a
 variadic's element is not itself a view; only the last parameter may be
 variadic, `can only use ... with the final parameter`, and it is not
 `mut`. A view may be a function's result only when it is the only one.

@@ -56,7 +56,7 @@
 // types. A function type, func(A, mut B) R, the type of a value naming
 // a function, is added the first time it is seen and found by its
 // signature after that, its parameters' types, each with whether it is
-// mut or own (FuncParam), and its result types, so two functions of one
+// mut, own or scope (FuncParam), and its result types, so two functions of one
 // signature have one type; FuncParams and FuncResults give them. It is
 // copyable, owns nothing, has no zero value, and is a pointer in size.
 // A struct type is added once per declaration, so two structs

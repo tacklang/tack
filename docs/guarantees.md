@@ -45,7 +45,11 @@ marked parked.
   of stack. The fix is not decided yet. A call through a function value
   calls whichever function the value names when it runs, so recursion
   through values, a function passed itself or one that calls it, cannot be
-  found from the source by following names; the fix has to bound it too.
+  found from the source by following names; the fix has to bound it too,
+  and recursion through a scope parameter, a function passing a closure,
+  or its own scope parameter, to itself, likewise. A closure adds an
+  environment pointer and its captures' pointers to the frames such a
+  chain takes, nothing that grows with the depth by itself.
 - **Panic (4), parked.** A large local array, or a large value passed or
   copied by value, can overflow the stack with no recursion at all: a function with
   a 16 MB local array crashes. The same compile-time bound on call chains

@@ -1213,6 +1213,11 @@ type keepWalk struct {
 	jumps   map[ast.Stmt]jumpsOut
 	fallen  map[*ast.CaseClause]jumpsOut
 	work    *int
+
+	// lits holds the closures the walk is in, innermost last. A return in
+	// a closure leaves only the closure, and the call it is passed to goes
+	// on, so no branch in one is a keep.
+	lits []ast.Span
 }
 
 // jumpsOut says whether a statement holds a break, and whether it holds
@@ -1241,10 +1246,20 @@ func newKeepWalk(work *int) *keepWalk {
 // pushes the one whose branch n starts, if any, and records the branches
 // of n, an if, or the cases of n, a switch, that leave. A keep is pushed
 // only once the walk is in its branch, so every keep in the chain holds
-// n.
+// n. Inside a closure it records none, and pushes none, since none is
+// recorded there (see lits).
 func (w *keepWalk) visit(n ast.Node, span ast.Span, loops []ast.Span) *keep {
 	for w.top != nil && span.Start >= w.top.end {
 		w.top = w.top.parent
+	}
+	for len(w.lits) > 0 && span.Start >= w.lits[len(w.lits)-1].End {
+		w.lits = w.lits[:len(w.lits)-1]
+	}
+	if _, ok := n.(*ast.FuncLit); ok {
+		w.lits = append(w.lits, span)
+	}
+	if len(w.lits) > 0 {
+		return w.top
 	}
 	if stmt, ok := n.(ast.Stmt); ok {
 		if k, ok := w.pending[stmt]; ok {
@@ -1549,7 +1564,7 @@ func (c *Checker) indexWrites(region []ast.Node) writeIndex {
 		return true
 	}
 	for _, n := range region {
-		loops, keeps.top = nil, nil
+		loops, keeps.top, keeps.lits = nil, nil, nil
 		ast.Walk(n, visit)
 	}
 	return idx
@@ -1678,10 +1693,14 @@ func assignedTargets(n ast.Node) []ast.Expr {
 	}
 }
 
-// isLoop reports whether n is a loop, of either kind.
+// isLoop reports whether n is a loop, of either kind, or a closure, which
+// is one as far as a write in it reaching a use goes: the call it is
+// passed to may run it any number of times, so a write in its body can
+// reach code before it in the body, on a later run, as a write in a loop
+// can on a later pass.
 func isLoop(n ast.Node) bool {
 	switch n.(type) {
-	case *ast.For, *ast.ForRange:
+	case *ast.For, *ast.ForRange, *ast.FuncLit:
 		return true
 	default:
 		return false

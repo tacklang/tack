@@ -2387,8 +2387,9 @@ under `has` fail in turn, and checks the same.
 
 A function value, a function's name used as a value, `f := double`, is
 a pointer to a function the program declares, and nothing else can make
-one: there are no function literals, no conversions to a function type
-and no C function behind one. Its safety is two properties.
+one: a function literal is a closure, which is no function value (see
+closures below), there are no conversions to a function type, and no C
+function is behind one. Its safety is two properties.
 
 **A function value always names a function.** A function type has no
 zero value, so a variable of one is declared with its value,
@@ -2427,6 +2428,82 @@ violation of the no-panic guarantee, parked (see
 stores and calls function values with every kind of argument and result,
 makes every allocation fail in turn while appending them to a list, and
 checks that its allocator holds nothing after each group.
+
+## Closures
+
+A closure, a function literal, `func(a int64) bool { return a < limit }`,
+reads and writes the variables of the frame it is written in through
+pointers to them, so it is safe only while that frame lives, and its
+runs, later than where it is written and any number of times, must not
+make anything the checker proved there false. Its safety is three
+properties.
+
+**A closure never outlives the frame it captures.** A closure can only be
+passed to a parameter marked `scope`, anywhere else
+<!-- error: closure-returned -->`a closure can only be passed to a scope parameter`,
+and a scope parameter can only be called or passed to another scope
+parameter,
+<!-- error: scope-param-stored-in-local -->`f is a scope parameter, which can only be called or passed to another scope parameter`.
+No expression but those two names a value a closure made, so no
+variable, field, element, global, result, union payload, `any` or
+generic argument can hold one, and no `?`, return or defer can carry one
+out of the call: the callee and everything it calls return before the
+frame holding the captures does. No closure crosses to C,
+<!-- error: scope-extern-param -->`parameter f of extern func take cannot be scope: a function value does not cross to C`.
+In C a closure's environment is a compound literal on the caller's stack,
+which lives to the end of the block holding the call.
+
+**Every capture is a borrow of the call.** While the call a closure is
+passed to runs, the closure reaches its captures in place, so no other
+way of reaching them may change them: a capture cannot be passed as
+`mut` in the same call, even one the closure only reads and whose type is
+copied for a plain argument,
+<!-- error: closure-captures-mut-int-arg -->`cannot capture x in a closure alongside mut x in this call: a closure reaches its captures in place, and a mut argument must be the only way to reach x during the call`,
+nor written by another closure of the call
+(<!-- case: closure-two-closures-write -->), and a closure that writes a
+capture is a mut argument of the call for every rule one is under, so a
+list it writes cannot be borrowed by another argument,
+<!-- error: closure-writes-plain-list-arg -->`cannot pass l alongside a closure that writes l in this call: a list is not copied for a call, and a closure that writes l must be the only way to reach l during it`,
+nor indexed around a call holding it (<!-- case: closure-index-written-in-index -->).
+A capture of a field is one of its whole variable, and a nested
+closure's captures are its outer closure's too
+(<!-- case: closure-nested-capture-conflict -->). A capture moved before
+the call is a use after a move (<!-- case: closure-capture-moved-before-call -->),
+one moved in the same call is a use alongside an own argument
+(<!-- case: closure-capture-moved-in-same-call -->), and a closure cannot
+move a capture, since it may run again,
+<!-- error: closure-moves-capture -->`a closure cannot move l, which it captures: the closure may run more than once`;
+it frees none of them, and frees what it makes at each of its returns.
+
+**No proof outlives a closure's write, nor enters a closure.** A write in
+a closure is a write where the closure is written, which takes effect
+during the call that receives it, so the facts about what it writes end
+there, as a `mut` argument's do
+(<!-- case: closure-write-drops-loop-facts -->), and a return in the
+closure leaves only the closure, so a write before it still reaches the
+code after the call (<!-- case: closure-early-return-write-reaches -->).
+Inside the closure no fact from where it is written holds about a
+mutable variable or a `mut` parameter: the closure runs later than the
+fact was proven, possibly many times, after writes of its own on an
+earlier run (<!-- case: closure-body-fact-ended-by-itself -->). A fact
+about an immutable variable or a plain parameter, which nothing can
+write, holds in it. Facts the closure's own conditions give hold as
+anywhere, up to a write in it that can reach the use, a closure counting
+as a loop around its body. A call the closure makes cannot write its
+captures but through what it passes: a scope parameter of the enclosing
+function reaches nothing of that function, since its caller passed no
+capture of it alongside, and any other function reaches a caller's
+variable only as a `mut` argument. Recursion through a scope parameter
+is unbounded recursion like any other, parked (see
+[guarantees.md](guarantees.md)). `examples/closures` passes closures to
+functions, generic functions, methods and std/sort, nested four deep,
+writing their captures and making and freeing lists in them with every
+allocation failing in turn, and checks that its allocator holds nothing
+after each group. `examples/closure-paths` passes them with defers, ?,
+several results, mut and scope parameters of their own, through
+function values, adapters, payloads bound in place and an interface's
+method, and checks each result; it does not count the allocator's
+buffers.
 
 ## Contracts
 
