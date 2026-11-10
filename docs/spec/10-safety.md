@@ -200,6 +200,8 @@ A fact is in force in these places:
   count less one, or the length of what it ranges over less one;
 - a counting loop's body, for its variable, which is at least the value
   it starts from counting up, or at most it counting down;
+- a whole loop, its condition, post and body, for a bound the loop keeps
+  on a variable it writes (see below);
 - the right side of `&&`, by the left being true, and of `||`, by the
   left being false;
 - a `switch` case, as in the chain of ifs it stands for: a case proves in
@@ -220,6 +222,58 @@ known value, its post steps it by a known amount above zero, up or down,
 its condition bounds the variable on the side it moves towards, the step
 from that bound cannot wrap past the end of the variable's type, and
 neither its body nor its condition assigns the variable.
+
+A loop keeps a bound on a variable it writes, a local or a parameter of
+an integer type declared before the loop, when:
+
+- the bound holds where the loop starts, by a fact in force there or by
+  the known value the variable was last given, by its declaration, a
+  declaration without a value giving 0, or by a plain assignment, with no
+  write that can reach the loop in between. The bound is a known value
+  the variable is at or above, or at or below, or a difference with
+  another value a fact in force there relates it to, with no condition
+  that it not wrap;
+- the loop's init does not write the variable: the init runs after the
+  loop's start, and a loop whose init writes the variable keeps no bound
+  on it;
+- every write to the variable in the loop's condition, post and body,
+  inner loops and deferred code included, is `x++`, `x--`, `x += e`, `x
+  -= e` or `x = e`, and the facts in force at the write, with the bound
+  itself, prove
+  the value it stores within the bound, no step of it wrapping. A write
+  of any other form, a `mut` argument or an assignment of several values
+  keeps no bound;
+- nothing in the loop writes the other value of a difference, or the
+  string, view or list whose length it is.
+
+The bound then holds in the whole loop, on every pass, before and after
+every write, and is not in force after it. A bound one loop keeps does
+not count as a fact when deciding whether another bound is kept, and a
+loop inside eight others, each with a bound that held where it started
+on a variable it writes, keeps none.
+
+```tack run exit=3
+package main
+
+func count(s string) int64 {
+    mut n int64 = 0
+    mut i := 0
+    for i < len(s) && s[i] != '.' {
+        if s[i] == 'a' {
+            n++
+        }
+        i++
+    }
+    return n
+}
+
+func main() {
+    if count("banana.aa") == 3 && count("") == 0 {
+        exit(3)
+    }
+    exit(1)
+}
+```
 
 A fact about the length of a string, a view or a list proves that length
 as a divisor too: where `len(l) > 0` holds, `10 / len(l)` needs nothing

@@ -49,6 +49,58 @@ import (
 // declarations, signatures, struct fields, union cases, globals and the
 // contracts of ensures clauses.
 func (c *Checker) findCallees(fn *ast.Func) {
+	c.discardedPass(fn)
+}
+
+// firstPasses checks the body of fn first, before checkBody checks it
+// for good, as many times as it needs: once to find what each call whose
+// results a binding ties together calls, when a binding does (see
+// findCallees), and then once as a probe, when a loop writes a variable
+// declared before it (see findInvariants), so the probe sees the callees
+// the first found.
+func (c *Checker) firstPasses(fn *ast.Func) {
+	if c.everyBodyTwice || hasMethodBinding(fn) {
+		c.findCallees(fn)
+	}
+	if !c.neverProbe && (c.probeEveryBody || hasCounterLoop(fn)) {
+		c.findInvariants(fn)
+	}
+}
+
+// findInvariants checks the body of fn once as a probe, before checkBody
+// checks it for good, to find the bounds its loops keep (see
+// invariant.go): each loop's, recorded in c.invariants, is what the probe
+// exists to find, and what the check after it puts in force, as findCallees'
+// pass leaves the callees it finds. The probe is a discarded pass like
+// findCallees', and leaves no other trace, by the same argument; the
+// probe's own records, invFrames and starts, are empty once it has checked
+// the body, since every loop pops its frame and every block forgets the
+// known values it remembered. A body findCallees checks first is probed
+// after it, so the probe sees every call's callee as the check for good
+// does.
+//
+// Trusting what the probe found is sound for a reason that does not
+// depend on what the check after it proves. Each fact the probe uses at a
+// loop's start and at each write in the loop is in force there under the
+// same rules as in any single check, so it is true of every run of the
+// program at that point, whichever pass worked it out. The probe has no
+// fact the check for good lacks: it has every fact of a single check of
+// the body, since nothing it proves puts a fact in force, and none of the
+// bounds a loop keeps, which only add facts. So a bound the probe found a
+// loop keeps holds on entry and through every write on every run (see
+// invariant.go), and the check after it, which sees the same program,
+// cannot find otherwise; and when the program has an error, it is
+// rejected whatever the bound says.
+func (c *Checker) findInvariants(fn *ast.Func) {
+	c.probing = true
+	c.discardedPass(fn)
+	c.probing = false
+}
+
+// discardedPass checks the body of fn with what it reports dropped and
+// with records of its own, put back as they were after it (see
+// findCallees).
+func (c *Checker) discardedPass(fn *ast.Func) {
 	before, warned := len(c.diags), len(c.warnings)
 	outer := c.swapBodyRecords(newBodyRecords())
 	c.collectHolds(fn)

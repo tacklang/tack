@@ -62,12 +62,15 @@ const (
 	// guardEnsures is a call whose callee's contract gives facts about
 	// its arguments, for the rest of the block (see ensures.go).
 	guardEnsures
+	// guardInvariant is a loop keeping a bound on a variable it writes,
+	// for the whole loop (see invariant.go).
+	guardInvariant
 )
 
 // subject returns how a note names g.
 func (g *guard) subject() string {
 	switch g.kind {
-	case guardRange:
+	case guardRange, guardInvariant:
 		return "this loop"
 	case guardCount:
 		return "counting from this start"
@@ -165,7 +168,8 @@ type proof struct {
 }
 
 // explain returns the notes for the missing proof p: for each fact about
-// its variable that was dropped, the guard that gave it and what dropped
+// its variable that was dropped, unless a bound a loop keeps still says
+// all it said (see implies), the guard that gave it and what dropped
 // it, and then, if those facts would not have been enough, or none was
 // dropped, why the facts fall short. A guard's facts that one reason
 // dropped are explained only when one of them is relevant to p. A
@@ -173,11 +177,15 @@ type proof struct {
 // its own (see relationNotes).
 func (c *Checker) explain(p proof) []diag.Diagnostic {
 	var facts, dropped []fact
+	kept := c.keptBounds(p.about)
 	for f := range c.factsAbout(p.about) {
 		if f.relational() && !p.relations || f.diff != nil {
 			continue
 		}
 		f.drop = c.dropOf(f)
+		if f.drop != nil && kept.implies(f) {
+			continue
+		}
 		facts = append(facts, f)
 		if f.drop != nil {
 			dropped = append(dropped, f)
@@ -192,6 +200,38 @@ func (c *Checker) explain(p proof) []diag.Diagnostic {
 		notes = append(notes, p.weak(facts, true)...)
 	}
 	return notes
+}
+
+// keptBounds returns what the bounds a loop keeps on the subject k (see
+// invariant.go) say of it together. Such a bound never ends, and a
+// difference bound says nothing of k's own value.
+func (c *Checker) keptBounds(k factKey) interval {
+	var known interval
+	for f := range c.factsAbout(k) {
+		if f.guard != nil && f.guard.kind == guardInvariant {
+			known = known.narrow(f)
+		}
+	}
+	return known
+}
+
+// implies reports whether known says everything f does: f bounds its
+// subject only by values, and known bounds it at least as tightly on
+// each side f does, and keeps it from zero when f does. Such a fact, once
+// dropped, ends no proof: what it said still holds, so no note says it
+// ends, and no note describes it beside the facts in force.
+func (known interval) implies(f fact) bool {
+	if !f.lenOf.isZero() || f.relational() {
+		return false
+	}
+	return known.covers(f) && (!f.nonzero || known.excludesZero())
+}
+
+// covers reports whether known bounds a value at least as tightly as f
+// does, on each side f bounds it.
+func (known interval) covers(f fact) bool {
+	lo := !f.hasLo || known.hasLo && known.lo.Cmp(f.lo) >= 0
+	return lo && (!f.hasHi || known.hasHi && known.hi.Cmp(f.hi) <= 0)
 }
 
 // relevantDrops returns the dropped facts that came from a guard, and were
@@ -422,15 +462,16 @@ func (c *Checker) newExtent(of ast.Expr, unit string, n int64, known bool) exten
 }
 
 // indexProof returns the proof that the index i, a subject, is in range
-// for e, which proven checks. An unsigned i is never below 0, so only an
-// upper bound, by a value or by a length, can be missing, and a fact that
-// gives none, such as the lower bound a counting loop counts from, is not
-// relevant to it.
+// for e, which proven checks. An unsigned i is never below 0, and one the
+// facts in force keep at or above 0 is not either, so only an upper bound,
+// by a value or by a length, can be missing, and a fact that gives none,
+// such as the lower bound a counting loop counts from, is not relevant to
+// it.
 func (c *Checker) indexProof(i ast.Expr, e extent, proven func() bool) proof {
 	about, _ := c.subjectKey(i)
 	name := c.nameOf(i)
 	var relevant func(f fact) bool
-	if types.IsUnsigned(ast.TypeOf(i)) {
+	if types.IsUnsigned(ast.TypeOf(i)) || c.atLeastZero(i) {
 		relevant = func(f fact) bool { return f.hasHi || !f.lenOf.isZero() }
 	}
 	return proof{
@@ -453,6 +494,13 @@ func (c *Checker) indexProof(i ast.Expr, e extent, proven func() bool) proof {
 			return notes
 		},
 	}
+}
+
+// atLeastZero reports whether the facts in force keep i, an index that
+// is a subject, at or above 0 where it is used.
+func (c *Checker) atLeastZero(i ast.Expr) bool {
+	known := c.intervalOf(i)
+	return known.hasLo && !known.lo.IsNegative() || c.atLeast(i)
 }
 
 // typeInterval returns the bounds the type of e, a subject, gives it, none

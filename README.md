@@ -1907,6 +1907,15 @@ section remains the description of the language.
   `for { ... }` runs until something in its body leaves it. `break` leaves the
   innermost loop and `continue` starts its next iteration; either one outside
   a loop is an error. There are no labels.
+  A loop keeps a bound on a counter or a total it writes, declared before
+  it, which then holds in the whole loop on every pass: the bound holds
+  where the loop starts, by a fact or by the known value the variable was
+  last given (`mut i := 0`, `i = 0`), and every write to it in the loop is
+  `i++`, `i--`, `i += e`, `i -= e` or `i = e` storing a value the facts
+  at that write, with the bound, prove within it, no step wrapping. So
+  `mut i := 0` then `for i < len(s) { use(s[i]); i++ }` proves `s[i]`:
+  `i < len(s)` keeps `i++` from wrapping, so `i` stays at or above 0. The
+  bound is not in force after the loop; see [docs/safety.md](docs/safety.md).
 - Three-clause loops, `for init; cond; post { ... }`, as in Go. `init` runs
   once and may be any simple statement: a declaration, an assignment,
   `x++`/`x--`, or a call. `post` runs after each iteration, `continue`
@@ -2570,8 +2579,9 @@ section remains the description of the language.
   - in the statements after an `if` whose branch ends in `return`, `break`,
     `continue` or a call to `exit`, by what got past it, as in `if b == 0 {
     return 0 }` or `if b == 0 { exit(1) }`;
-  - in a loop's body, by its condition, and in a counting loop's body by
-    the value its variable starts from (see three-clause loops);
+  - in a loop's body, by its condition, in a counting loop's body by
+    the value its variable starts from (see three-clause loops), and in a
+    whole loop by a bound it keeps on a variable it writes (see loops);
   - in a `switch`, as in the chain of ifs it stands for (see switches),
     though a type switch, whose cases are types, proves nothing;
   - on the right of `&&` by its left side being true, and of `||` by its left

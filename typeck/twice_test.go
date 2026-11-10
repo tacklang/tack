@@ -46,12 +46,49 @@ func TestFirstPassLeavesNoTrace(t *testing.T) {
 	}
 }
 
+// TestProbeLeavesNoTrace checks every case of examples/invalid.txtar and
+// examples/warnings.txtar with every function body probed for the bounds
+// its loops keep, none of which is then put in force, and requires the
+// checker to report exactly what it reports with no body probed. The
+// probe exists to find those bounds; a difference is anything else it
+// left behind that the check after it reads.
+func TestProbeLeavesNoTrace(t *testing.T) {
+	for _, path := range []string{invalid.Path, invalid.WarningsPath} {
+		cases, err := invalid.Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range cases {
+			t.Run(c.Name, func(t *testing.T) {
+				_, never, checked := checkWith(c.Source, (*typeck.Checker).NeverProbe)
+				if !checked {
+					t.Skip("the lexer or the parser stops at the case before the checker")
+				}
+				_, probed, _ := checkWith(c.Source, (*typeck.Checker).ProbeEveryBodyKeepingNothing)
+				if got, want := listed(probed), listed(never); got != want {
+					t.Errorf("probed, the checker reports\n%s\nnot probed, it reports\n%s",
+						got, want)
+				}
+			})
+		}
+	}
+}
+
 // frontEnd lexes, parses, resolves and checks src as one file, whatever
 // the parser and the resolver report, checking every body twice when
 // twice is set, and returns the checker, what it reports and whether it
 // checked src at all: the lexer rejecting src, or the parser stopping
 // with no tree, ends the run before the checker.
 func frontEnd(src []byte, twice bool) (*typeck.Checker, []diag.Diagnostic, bool) {
+	if twice {
+		return checkWith(src, (*typeck.Checker).CheckEveryBodyTwice)
+	}
+	return checkWith(src, nil)
+}
+
+// checkWith is frontEnd with set, when not nil, called on the checker
+// before it checks src.
+func checkWith(src []byte, set func(*typeck.Checker)) (*typeck.Checker, []diag.Diagnostic, bool) {
 	f := &source.File{ID: source.FileID("test"), Filename: "main.tck", Data: src}
 	lex := lexer.New(f)
 	if diags := lex.Lex(); len(diags) > 0 {
@@ -65,8 +102,8 @@ func frontEnd(src []byte, twice bool) (*typeck.Checker, []diag.Diagnostic, bool)
 	prog.Errors = len(diags)
 	resolver.New(prog, stdtest.MustBuiltins()).Resolve()
 	c := typeck.New(prog, f, stdtest.MustBuiltins())
-	if twice {
-		c.CheckEveryBodyTwice()
+	if set != nil {
+		set(c)
 	}
 	return c, c.Check(), true
 }

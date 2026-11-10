@@ -237,6 +237,16 @@ type Checker struct {
 	// moved values among them, counts errors alone.
 	warnings []diag.Diagnostic
 
+	// invariants holds, for each loop the last probe found keeps a bound,
+	// the bounds it keeps, which the check after the probe puts in force;
+	// invFrames are the loops a probe is checking that may keep bounds,
+	// innermost last; and starts holds the known values the mutable
+	// variables in scope were last given, for the probe to start bounds
+	// from (see invariant.go).
+	invariants map[ast.Stmt][]fact
+	invFrames  []*invFrame
+	starts     []start
+
 	loops int // how many loops enclose the statement being checked
 
 	// prior is how many errors the stages before the checker reported
@@ -291,6 +301,16 @@ type Checker struct {
 	// that needs it, for a test to compare with checking each once (see
 	// findCallees).
 	everyBodyTwice bool
+
+	// probing is set while a body is checked as a probe, to find the
+	// bounds its loops keep (see invariant.go and invFrames).
+	probing bool
+
+	// probeEveryBody makes checkBody probe every body and keeps the check
+	// after the probe from putting in force any bound it found, and
+	// neverProbe makes it probe none, for a test to show that the probe
+	// leaves no trace but those bounds (see findInvariants).
+	probeEveryBody, neverProbe bool
 }
 
 // New returns a Checker for prog, which must already have been resolved,
@@ -330,6 +350,7 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 		sizeChecked: make(map[types.Type]bool),
 		contracts:   make(map[*ast.Func]*contract),
 		defers:      make(map[*ast.Func][]*ast.Defer),
+		invariants:  make(map[ast.Stmt][]fact),
 	}
 }
 
@@ -488,9 +509,7 @@ func (c *Checker) checkGlobals(decls []ast.Decl) {
 // then for good, with every tie known.
 func (c *Checker) checkBody(fn *ast.Func) {
 	c.body = fn.Body
-	if c.everyBodyTwice || hasMethodBinding(fn) {
-		c.findCallees(fn)
-	}
+	c.firstPasses(fn)
 	c.writesByDecl = make(map[ast.Decl][]funcWrite)
 	c.collectHolds(fn)
 	m, dead := c.mark(), c.dead
@@ -580,10 +599,12 @@ func (c *Checker) checkSimpleStmt(stmt ast.Stmt) {
 		c.checkVar(s)
 	case *ast.Assign:
 		c.checkAssign(s)
+		c.invariantWrite(s)
 	case *ast.IncDec:
 		c.readHeld(s.Target)
 		c.checkIntTarget(s.Target, s.Op())
 		c.checkErrorAssign(s, s.Target)
+		c.invariantWrite(s)
 	case *ast.MultiVar:
 		c.checkMultiVar(s)
 	case *ast.MultiAssign:
@@ -978,19 +999,21 @@ func (c *Checker) checkFor(loop *ast.For, fn *ast.Func) {
 	if loop.Init != nil {
 		c.checkSimpleStmt(loop.Init)
 	}
+	m := c.mark()
+	leave := c.enterLoop(loop)
 	if loop.Cond != nil {
 		c.checkCond(loop.Cond)
 	}
 	if loop.Post != nil {
 		c.checkSimpleStmt(loop.Post)
 	}
-	m := c.mark()
 	if loop.Cond != nil {
 		c.assumeLoop(loop)
 	}
 	c.loops++
 	c.checkBlock(loop.Body, fn)
 	c.loops--
+	leave()
 	c.release(m)
 }
 
@@ -1050,9 +1073,13 @@ func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
 	// in the body changes for every later pass, whether it comes before
 	// or after the use: they end at any write in the body.
 	facts := c.dropAssigned(c.rangeFacts(loop, got), stmtNodes(loop.Body))
+	m := c.mark()
+	leave := c.enterLoop(loop)
 	c.loops++
 	c.checkGuarded(loop.Body, &guard{span: header, kind: guardRange}, facts, fn)
 	c.loops--
+	leave()
+	c.release(m)
 }
 
 // rangeTypes returns the types a range over a value of type got gives its
@@ -1144,6 +1171,7 @@ func (c *Checker) checkStmts(body []ast.Stmt, fn *ast.Func) {
 	dead := c.dead
 	for i, stmt := range body {
 		c.checkStmt(stmt, fn)
+		c.recordStart(stmt, body[i+1:])
 		g, facts := c.afterFacts(stmt)
 		if g == nil {
 			g, facts = c.storedFacts(stmt)

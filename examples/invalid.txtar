@@ -1750,6 +1750,11 @@ arith-range-leaving-write-reaches/main.tck:13:18: error: index may be out of ran
 13 |	            if a[j + 1] == k {
    |	                 ^~~~~
 14 |	                return 1
+arith-range-leaving-write-reaches/main.tck:7:9: note: this loop bounds j, not j + 1; the bounds of its operands do not prove j + 1, or let a step of it wrap, so copy j + 1 into a variable and check it
+06 |	    if 0 <= j && j < 2 {
+07 |	        for k := range 2 {
+   |	        ^~~~~~~~~~~~~~~~
+08 |	            if c {
 
 -- arith-range-length-dead/main.tck --
 package main
@@ -7842,6 +7847,11 @@ ensures-for-init-call/main.tck:13:17: error: divisor d may be zero; check d != 0
 13 |	        if 10 / d == 0 {
    |	                ^
 14 |	            print("z\n")
+ensures-for-init-call/main.tck:12:5: note: this loop allows d == 0
+11 |	    mut i := 0
+12 |	    for nonzero(d); i < 2; i++ {
+   |	    ^~~~~~~~~~~~~~~~~~~~~
+13 |	        if 10 / d == 0 {
 
 -- ensures-for-post-call/main.tck --
 package main
@@ -18770,7 +18780,7 @@ leave-write-conservative-late-default/main.tck:19:19: error: index i may be out 
 19 |	            use(a[i])
    |	                  ^
 20 |	        case 1:
-leave-write-conservative-late-default/main.tck:13:5: note: this early exit proves 0 <= i && i < len(a) after it
+leave-write-conservative-late-default/main.tck:13:5: note: this early exit proves i < len(a) after it
 12 |	    mut i := at
 13 |	    if i < 0 || i >= len(a) {
    |	    ^~~~~~~~~~~~~~~~~~~~~~~
@@ -18819,7 +18829,7 @@ leave-write-continue-after-return/main.tck:12:15: error: index i may be out of r
 12 |	        use(a[i])
    |	              ^
 13 |	        if k == 1 {
-leave-write-continue-after-return/main.tck:8:5: note: this early exit proves 0 <= i && i < len(a) after it
+leave-write-continue-after-return/main.tck:8:5: note: this early exit proves i < len(a) after it
 07 |	    mut i := at
 08 |	    if i < 0 || i >= len(a) {
    |	    ^~~~~~~~~~~~~~~~~~~~~~~
@@ -18869,7 +18879,7 @@ leave-write-continue-in-else/main.tck:12:15: error: index i may be out of range;
 12 |	        use(a[i])
    |	              ^
 13 |	        if k == 1 {
-leave-write-continue-in-else/main.tck:8:5: note: this early exit proves 0 <= i && i < len(a) after it
+leave-write-continue-in-else/main.tck:8:5: note: this early exit proves i < len(a) after it
 07 |	    mut i := at
 08 |	    if i < 0 || i >= len(a) {
    |	    ^~~~~~~~~~~~~~~~~~~~~~~
@@ -18917,7 +18927,7 @@ leave-write-continue-in-if/main.tck:12:15: error: index i may be out of range; c
 12 |	        use(a[i])
    |	              ^
 13 |	        if k == 1 {
-leave-write-continue-in-if/main.tck:8:5: note: this early exit proves 0 <= i && i < len(a) after it
+leave-write-continue-in-if/main.tck:8:5: note: this early exit proves i < len(a) after it
 07 |	    mut i := at
 08 |	    if i < 0 || i >= len(a) {
    |	    ^~~~~~~~~~~~~~~~~~~~~~~
@@ -18967,7 +18977,7 @@ leave-write-continue-in-later-case/main.tck:12:15: error: index i may be out of 
 12 |	        use(a[i])
    |	              ^
 13 |	        if k == 1 {
-leave-write-continue-in-later-case/main.tck:8:5: note: this early exit proves 0 <= i && i < len(a) after it
+leave-write-continue-in-later-case/main.tck:8:5: note: this early exit proves i < len(a) after it
 07 |	    mut i := at
 08 |	    if i < 0 || i >= len(a) {
    |	    ^~~~~~~~~~~~~~~~~~~~~~~
@@ -19017,7 +19027,7 @@ leave-write-continue-in-switch/main.tck:12:15: error: index i may be out of rang
 12 |	        use(a[i])
    |	              ^
 13 |	        if k == 1 {
-leave-write-continue-in-switch/main.tck:8:5: note: this early exit proves 0 <= i && i < len(a) after it
+leave-write-continue-in-switch/main.tck:8:5: note: this early exit proves i < len(a) after it
 07 |	    mut i := at
 08 |	    if i < 0 || i >= len(a) {
    |	    ^~~~~~~~~~~~~~~~~~~~~~~
@@ -19245,7 +19255,7 @@ leave-write-defer-break/main.tck:13:19: error: index i may be out of range; chec
 13 |	            use(a[i])
    |	                  ^
 14 |	        }
-leave-write-defer-break/main.tck:8:5: note: this early exit proves 0 <= i && i < len(a) after it
+leave-write-defer-break/main.tck:8:5: note: this early exit proves i < len(a) after it
 07 |	    mut i := at
 08 |	    if i < 0 || i >= len(a) {
    |	    ^~~~~~~~~~~~~~~~~~~~~~~
@@ -19289,7 +19299,7 @@ leave-write-defer-continue/main.tck:10:19: error: index i may be out of range; c
 10 |	            use(a[i])
    |	                  ^
 11 |	        }
-leave-write-defer-continue/main.tck:8:9: note: this guard proves 0 <= i && i < len(a)
+leave-write-defer-continue/main.tck:8:9: note: this guard proves i < len(a)
 07 |	    mut i := 0
 08 |	    for 0 <= i && i < len(a) {
    |	        ^~~~~~~~~~~~~~~~~~~~
@@ -19425,7 +19435,7 @@ leave-write-else-continue-before/main.tck:12:15: error: index i may be out of ra
 12 |	        use(a[i])
    |	              ^
 13 |	        if k == 1 {
-leave-write-else-continue-before/main.tck:8:5: note: this early exit proves 0 <= i && i < len(a) after it
+leave-write-else-continue-before/main.tck:8:5: note: this early exit proves i < len(a) after it
 07 |	    mut i := at
 08 |	    if i < 0 || i >= len(a) {
    |	    ^~~~~~~~~~~~~~~~~~~~~~~
@@ -22829,6 +22839,1100 @@ loop-break-missing-return/main.tck:3:6: error: f must end in a return
 03 |	func f() int64 {
    |	     ^
 04 |	    for {
+
+-- loop-invariant-after-loop/main.tck --
+package main
+
+// A bound a loop keeps is not in force after it.
+func f() int64 {
+    mut a [10]int64
+    mut i := 0
+    for i < 3 {
+        i++
+    }
+    return a[i]
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-after-loop/expected --
+stage: typeck
+---
+
+loop-invariant-after-loop/main.tck:10:14: error: index i may be out of range; check 0 <= i && i < 10 first, or use v, ok := ...[i]
+09 |	    }
+10 |	    return a[i]
+   |	             ^
+11 |	}
+
+-- loop-invariant-condition-writes/main.tck --
+package main
+
+func next(mut i int64) int64 {
+    i++
+    return i
+}
+
+func f(s string) uint8 {
+    mut i := 0
+    mut b uint8 = 0
+    for next(mut i) < len(s) {
+        b = s[i]
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-condition-writes/expected --
+stage: typeck
+---
+
+loop-invariant-condition-writes/main.tck:12:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+11 |	    for next(mut i) < len(s) {
+12 |	        b = s[i]
+   |	              ^
+13 |	    }
+
+-- loop-invariant-defer-steps-down/main.tck --
+package main
+
+// The deferred code runs at the end of every pass and steps i down.
+func f(s string) uint8 {
+    mut i := 0
+    mut b uint8 = 0
+    mut n := 0
+    for n < 3 && i < len(s) {
+        defer {
+            i--
+        }
+        b = s[i]
+        n++
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-defer-steps-down/expected --
+stage: typeck
+---
+
+loop-invariant-defer-steps-down/main.tck:12:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+11 |	        }
+12 |	        b = s[i]
+   |	              ^
+13 |	        n++
+loop-invariant-defer-steps-down/main.tck:8:9: note: this guard proves i < len(s)
+07 |	    mut n := 0
+08 |	    for n < 3 && i < len(s) {
+   |	        ^~~~~~~~~~~~~~~~~~~
+09 |	        defer {
+loop-invariant-defer-steps-down/main.tck:10:13: note: but i is assigned here, so the proof ends
+09 |	        defer {
+10 |	            i--
+   |	            ^
+11 |	        }
+loop-invariant-defer-steps-down/main.tck:8:18: note: this guard would bound i only above; i may be negative
+07 |	    mut n := 0
+08 |	    for n < 3 && i < len(s) {
+   |	                 ^~~~~~~~~~
+09 |	        defer {
+
+-- loop-invariant-field/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+// A field of a mutable variable has no facts, so no loop keeps one.
+func f(s string) uint8 {
+    mut p := P{x: 0}
+    mut b uint8 = 0
+    for p.x < len(s) {
+        b = s[p.x]
+        p.x++
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-field/expected --
+stage: typeck
+---
+
+loop-invariant-field/main.tck:12:15: error: index may be out of range; use v, ok := ...[...]
+11 |	    for p.x < len(s) {
+12 |	        b = s[p.x]
+   |	              ^~~
+13 |	        p.x++
+loop-invariant-field/main.tck:11:9: note: this guard proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy p.x into a variable first
+10 |	    mut b uint8 = 0
+11 |	    for p.x < len(s) {
+   |	        ^~~~~~~~~~~~
+12 |	        b = s[p.x]
+
+-- loop-invariant-init-same-value/main.tck --
+package main
+
+// The init writes i, so the loop keeps no bound on it, though it stores
+// what i already holds.
+func f(s string) uint8 {
+    mut i := 0
+    mut b uint8 = 0
+    for i = 0; i < len(s); {
+        b = s[i]
+        i++
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-init-same-value/expected --
+stage: typeck
+---
+
+loop-invariant-init-same-value/main.tck:9:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+08 |	    for i = 0; i < len(s); {
+09 |	        b = s[i]
+   |	              ^
+10 |	        i++
+loop-invariant-init-same-value/main.tck:8:16: note: this guard bounds i only above; i may be negative
+07 |	    mut b uint8 = 0
+08 |	    for i = 0; i < len(s); {
+   |	               ^~~~~~~~~~
+09 |	        b = s[i]
+
+-- loop-invariant-init-writes/main.tck --
+package main
+
+// The init runs after the loop's start, so i = -1 there overrides the
+// start i := 0 gives.
+func f(s string) uint8 {
+    mut i := 0
+    mut b uint8 = 0
+    for i = -1; i < len(s); {
+        b = s[i]
+        i++
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-init-writes/expected --
+stage: typeck
+---
+
+loop-invariant-init-writes/main.tck:9:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+08 |	    for i = -1; i < len(s); {
+09 |	        b = s[i]
+   |	              ^
+10 |	        i++
+loop-invariant-init-writes/main.tck:8:17: note: this guard bounds i only above; i may be negative
+07 |	    mut b uint8 = 0
+08 |	    for i = -1; i < len(s); {
+   |	                ^~~~~~~~~~
+09 |	        b = s[i]
+
+-- loop-invariant-inner-loop/main.tck --
+package main
+
+// The inner loop steps i with nothing bounding it, so the outer loop
+// keeps nothing about i.
+func f(s string) uint8 {
+    mut i := 0
+    mut b uint8 = 0
+    for i < len(s) {
+        b = s[i]
+        mut k := 0
+        for k < 3 {
+            i++
+            k++
+        }
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-inner-loop/expected --
+stage: typeck
+---
+
+loop-invariant-inner-loop/main.tck:9:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+08 |	    for i < len(s) {
+09 |	        b = s[i]
+   |	              ^
+10 |	        mut k := 0
+loop-invariant-inner-loop/main.tck:8:9: note: this guard bounds i only above; i may be negative
+07 |	    mut b uint8 = 0
+08 |	    for i < len(s) {
+   |	        ^~~~~~~~~~
+09 |	        b = s[i]
+
+-- loop-invariant-int64-wraps/main.tck --
+package main
+
+// i += 2 from the largest int64 less 1 wraps, though i < the largest
+// int64 holds before it.
+func f() int64 {
+    a := [2]int64{1, 2}
+    mut i := 9223372036854775806
+    mut sum int64 = 0
+    for i < 9223372036854775807 {
+        sum += a[i - 9223372036854775806]
+        i += 2
+    }
+    return sum
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-int64-wraps/expected --
+stage: typeck
+---
+
+loop-invariant-int64-wraps/main.tck:10:18: error: index may be out of range; use v, ok := ...[...]
+09 |	    for i < 9223372036854775807 {
+10 |	        sum += a[i - 9223372036854775806]
+   |	                 ^~~~~~~~~~~~~~~~~~~~~~~
+11 |	        i += 2
+loop-invariant-int64-wraps/main.tck:9:9: note: this guard bounds i, not i - 9223372036854775806; the bounds of its operands do not prove i - 9223372036854775806, or let a step of it wrap, so copy i - 9223372036854775806 into a variable and check it
+08 |	    mut sum int64 = 0
+09 |	    for i < 9223372036854775807 {
+   |	        ^~~~~~~~~~~~~~~~~~~~~~~
+10 |	        sum += a[i - 9223372036854775806]
+
+-- loop-invariant-int8-wraps/main.tck --
+package main
+
+// i++ on an int8 with nothing bounding it above wraps from 127 to -128.
+func f() int64 {
+    mut a [128]int64
+    mut i int8 = 0
+    mut n := 0
+    mut sum int64 = 0
+    for n < 300 {
+        sum += a[i]
+        i++
+        n++
+    }
+    return sum
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-int8-wraps/expected --
+stage: typeck
+---
+
+loop-invariant-int8-wraps/main.tck:10:18: error: index i may be out of range; check 0 <= i && i < 128 first, or use v, ok := ...[i]
+09 |	    for n < 300 {
+10 |	        sum += a[i]
+   |	                 ^
+11 |	        i++
+
+-- loop-invariant-kept-upper-quiet/main.tck --
+package main
+
+// The loop keeps j <= 9, so the early exit's j < 10, which j-- ends, gets
+// no note; what is missing is a lower bound, which j > -5 does not give.
+func f(j0 int64) int64 {
+    mut a [10]int64
+    a[0] = 1
+    mut j := j0
+    if j > 9 {
+        return 0
+    }
+    mut s int64 = 0
+    for j > -5 {
+        s += a[j]
+        j--
+    }
+    return s
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-kept-upper-quiet/expected --
+stage: typeck
+---
+
+loop-invariant-kept-upper-quiet/main.tck:14:16: error: index j may be out of range; check 0 <= j && j < 10 first, or use v, ok := ...[j]
+13 |	    for j > -5 {
+14 |	        s += a[j]
+   |	               ^
+15 |	        j--
+loop-invariant-kept-upper-quiet/main.tck:13:9: note: this guard allows j == -4
+12 |	    mut s int64 = 0
+13 |	    for j > -5 {
+   |	        ^~~~~~
+14 |	        s += a[j]
+
+-- loop-invariant-length-changes/main.tck --
+package main
+
+// s changes in the loop, so j <= len(s) - 1 does not carry to the next
+// pass.
+func f() uint8 {
+    mut s := "hello"
+    mut j := len(s) - 1
+    mut b uint8 = 0
+    for j >= 0 {
+        b = s[j]
+        s = "a"
+        j--
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-length-changes/expected --
+stage: typeck
+---
+
+loop-invariant-length-changes/main.tck:10:15: error: index j may be out of range; check 0 <= j && j < len(s) first, or use v, ok := ...[j]
+09 |	    for j >= 0 {
+10 |	        b = s[j]
+   |	              ^
+11 |	        s = "a"
+
+-- loop-invariant-lower-by-relation/main.tck --
+package main
+
+// The loop keeps i at or above lo, which is at or above 0, so a lower
+// bound on i is no part of what t[i] lacks: no note says i > -1 ends.
+func f(s string, t string, lo int64) uint8 {
+    if lo < 0 {
+        return 0
+    }
+    mut i := lo
+    mut b uint8 = 0
+    for i < len(s) {
+        if i > -1 {
+            i++
+            b = t[i]
+        }
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-lower-by-relation/expected --
+stage: typeck
+---
+
+loop-invariant-lower-by-relation/main.tck:14:19: error: index i may be out of range; check 0 <= i && i < len(t) first, or use v, ok := ...[i]
+13 |	            i++
+14 |	            b = t[i]
+   |	                  ^
+15 |	        }
+loop-invariant-lower-by-relation/main.tck:11:9: note: this guard proves i < len(s)
+10 |	    mut b uint8 = 0
+11 |	    for i < len(s) {
+   |	        ^~~~~~~~~~
+12 |	        if i > -1 {
+loop-invariant-lower-by-relation/main.tck:13:13: note: but i is assigned here, so the proof ends
+12 |	        if i > -1 {
+13 |	            i++
+   |	            ^
+14 |	            b = t[i]
+loop-invariant-lower-by-relation/main.tck:11:9: note: this guard would bound i by the length of s, not t
+10 |	    mut b uint8 = 0
+11 |	    for i < len(s) {
+   |	        ^~~~~~~~~~
+12 |	        if i > -1 {
+
+-- loop-invariant-multiplied/main.tck --
+package main
+
+func f(s string) uint8 {
+    mut i := 1
+    mut b uint8 = 0
+    for i < len(s) {
+        b = s[i]
+        i *= 2
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-multiplied/expected --
+stage: typeck
+---
+
+loop-invariant-multiplied/main.tck:7:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+06 |	    for i < len(s) {
+07 |	        b = s[i]
+   |	              ^
+08 |	        i *= 2
+loop-invariant-multiplied/main.tck:6:9: note: this guard bounds i only above; i may be negative
+05 |	    mut b uint8 = 0
+06 |	    for i < len(s) {
+   |	        ^~~~~~~~~~
+07 |	        b = s[i]
+
+-- loop-invariant-mut-call/main.tck --
+package main
+
+func bump(mut i int64) {
+    i -= 5
+}
+
+// A call passing i as mut may store anything in it.
+func f(s string) uint8 {
+    mut i := 0
+    mut b uint8 = 0
+    for i < len(s) {
+        b = s[i]
+        bump(mut i)
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-mut-call/expected --
+stage: typeck
+---
+
+loop-invariant-mut-call/main.tck:12:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+11 |	    for i < len(s) {
+12 |	        b = s[i]
+   |	              ^
+13 |	        bump(mut i)
+loop-invariant-mut-call/main.tck:11:9: note: this guard bounds i only above; i may be negative
+10 |	    mut b uint8 = 0
+11 |	    for i < len(s) {
+   |	        ^~~~~~~~~~
+12 |	        b = s[i]
+
+-- loop-invariant-mutable-global/main.tck --
+package main
+
+mut g int8 = 0
+
+func h() {
+    g = -5
+}
+
+// A mutable global has no facts, so no loop keeps a bound on it: g = 0
+// would keep g at or above 0, but h changes g where the loop does not
+// write it.
+func f() int64 {
+    mut a [128]int64
+    a[0] = 1
+    g = 0
+    mut n := 0
+    mut s int64 = 0
+    for n < 3 {
+        s += a[g]
+        g = 0
+        h()
+        n++
+    }
+    return s
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-mutable-global/expected --
+stage: typeck
+---
+
+loop-invariant-mutable-global/main.tck:19:16: error: index g may be out of range; use v, ok := ...[g]
+18 |	    for n < 3 {
+19 |	        s += a[g]
+   |	               ^
+20 |	        g = 0
+loop-invariant-mutable-global/main.tck:3:5: note: g is a mutable global, so no check proves it; copy it into a local first
+02 |	
+03 |	mut g int8 = 0
+   |	    ^
+04 |	
+
+-- loop-invariant-negative-start/main.tck --
+package main
+
+func f(s string) uint8 {
+    mut i := -1
+    mut b uint8 = 0
+    for i < len(s) {
+        b = s[i]
+        i++
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-negative-start/expected --
+stage: typeck
+---
+
+loop-invariant-negative-start/main.tck:7:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+06 |	    for i < len(s) {
+07 |	        b = s[i]
+   |	              ^
+08 |	        i++
+loop-invariant-negative-start/main.tck:6:5: note: this loop allows i == -1
+05 |	    mut b uint8 = 0
+06 |	    for i < len(s) {
+   |	    ^~~~~~~~~~~~~~
+07 |	        b = s[i]
+
+-- loop-invariant-other-node-written/main.tck --
+package main
+
+// i >= lo is kept, but lo changes in the loop, so it no longer keeps i
+// at or above 0.
+func f(s string, start int64) uint8 {
+    mut lo := start
+    if lo < 0 {
+        return 0
+    }
+    mut i := lo
+    mut b uint8 = 0
+    for i < len(s) {
+        b = s[i]
+        i++
+        lo = -5
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-other-node-written/expected --
+stage: typeck
+---
+
+loop-invariant-other-node-written/main.tck:13:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+12 |	    for i < len(s) {
+13 |	        b = s[i]
+   |	              ^
+14 |	        i++
+loop-invariant-other-node-written/main.tck:12:9: note: this guard bounds i only above; i may be negative
+11 |	    mut b uint8 = 0
+12 |	    for i < len(s) {
+   |	        ^~~~~~~~~~
+13 |	        b = s[i]
+
+-- loop-invariant-post-breaks/main.tck --
+package main
+
+// i += 1 in the body keeps i at or above 0, but i -= 3 in the post does
+// not, so the loop keeps nothing.
+func f(s string) uint8 {
+    mut i := 0
+    mut b uint8 = 0
+    for ; i < len(s); i -= 3 {
+        b = s[i]
+        i += 1
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-post-breaks/expected --
+stage: typeck
+---
+
+loop-invariant-post-breaks/main.tck:9:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+08 |	    for ; i < len(s); i -= 3 {
+09 |	        b = s[i]
+   |	              ^
+10 |	        i += 1
+loop-invariant-post-breaks/main.tck:8:11: note: this guard bounds i only above; i may be negative
+07 |	    mut b uint8 = 0
+08 |	    for ; i < len(s); i -= 3 {
+   |	          ^~~~~~~~~~
+09 |	        b = s[i]
+
+-- loop-invariant-post-step/main.tck --
+package main
+
+// A post statement is checked without the condition's facts, so i++
+// there is not kept from wrapping.
+func f(s string) uint8 {
+    mut i := 0
+    mut b uint8 = 0
+    for ; i < len(s); i++ {
+        b = s[i]
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-post-step/expected --
+stage: typeck
+---
+
+loop-invariant-post-step/main.tck:9:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+08 |	    for ; i < len(s); i++ {
+09 |	        b = s[i]
+   |	              ^
+10 |	    }
+loop-invariant-post-step/main.tck:8:11: note: this guard bounds i only above; i may be negative
+07 |	    mut b uint8 = 0
+08 |	    for ; i < len(s); i++ {
+   |	          ^~~~~~~~~~
+09 |	        b = s[i]
+
+-- loop-invariant-reset-negative/main.tck --
+package main
+
+func f(s string) uint8 {
+    mut i := 0
+    mut b uint8 = 0
+    for i < len(s) {
+        b = s[i]
+        i = -1
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-reset-negative/expected --
+stage: typeck
+---
+
+loop-invariant-reset-negative/main.tck:7:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+06 |	    for i < len(s) {
+07 |	        b = s[i]
+   |	              ^
+08 |	        i = -1
+loop-invariant-reset-negative/main.tck:6:9: note: this guard bounds i only above; i may be negative
+05 |	    mut b uint8 = 0
+06 |	    for i < len(s) {
+   |	        ^~~~~~~~~~
+07 |	        b = s[i]
+
+-- loop-invariant-second-step/main.tck --
+package main
+
+// The second step is past the write that ends i < len(s), so nothing
+// keeps it from wrapping.
+func f(s string) uint8 {
+    mut i := 0
+    mut b uint8 = 0
+    for i < len(s) {
+        b = s[i]
+        i++
+        i++
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-second-step/expected --
+stage: typeck
+---
+
+loop-invariant-second-step/main.tck:9:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+08 |	    for i < len(s) {
+09 |	        b = s[i]
+   |	              ^
+10 |	        i++
+loop-invariant-second-step/main.tck:8:9: note: this guard bounds i only above; i may be negative
+07 |	    mut b uint8 = 0
+08 |	    for i < len(s) {
+   |	        ^~~~~~~~~~
+09 |	        b = s[i]
+
+-- loop-invariant-several-targets/main.tck --
+package main
+
+func two(i int64, k int64) (int64, int64) {
+    return i - 2, k + 1
+}
+
+// An assignment of several values keeps no bound.
+func f(s string) uint8 {
+    mut i := 0
+    mut k := 0
+    mut b uint8 = 0
+    for i < len(s) {
+        b = s[i]
+        i, k = two(i, k)
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-several-targets/expected --
+stage: typeck
+---
+
+loop-invariant-several-targets/main.tck:13:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+12 |	    for i < len(s) {
+13 |	        b = s[i]
+   |	              ^
+14 |	        i, k = two(i, k)
+loop-invariant-several-targets/main.tck:12:9: note: this guard bounds i only above; i may be negative
+11 |	    mut b uint8 = 0
+12 |	    for i < len(s) {
+   |	        ^~~~~~~~~~
+13 |	        b = s[i]
+
+-- loop-invariant-start-above-only/main.tck --
+package main
+
+// The early exit bounds i only above, so nothing keeps it at or above 0.
+func f(s string, i0 int64) uint8 {
+    mut i := i0
+    if i > 5 {
+        return 0
+    }
+    mut b uint8 = 0
+    for i < len(s) {
+        b = s[i]
+        i++
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-start-above-only/expected --
+stage: typeck
+---
+
+loop-invariant-start-above-only/main.tck:11:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+10 |	    for i < len(s) {
+11 |	        b = s[i]
+   |	              ^
+12 |	        i++
+loop-invariant-start-above-only/main.tck:6:5: note: this early exit proves i < 6 after it
+05 |	    mut i := i0
+06 |	    if i > 5 {
+   |	    ^~~~~~~~
+07 |	        return 0
+loop-invariant-start-above-only/main.tck:12:9: note: but i is assigned here, so the proof ends
+11 |	        b = s[i]
+12 |	        i++
+   |	        ^
+13 |	    }
+loop-invariant-start-above-only/main.tck:10:9: note: this guard would bound i only above; i may be negative
+09 |	    mut b uint8 = 0
+10 |	    for i < len(s) {
+   |	        ^~~~~~~~~~
+11 |	        b = s[i]
+
+-- loop-invariant-start-below-only/main.tck --
+package main
+
+// The early exit bounds j only below, so nothing keeps it below 4.
+func f(j0 int64) int64 {
+    mut a [4]int64
+    a[0] = 1
+    mut j := j0
+    if j < 0 {
+        return 0
+    }
+    mut s int64 = 0
+    for j > 0 {
+        j--
+        s += a[j]
+    }
+    return s
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-start-below-only/expected --
+stage: typeck
+---
+
+loop-invariant-start-below-only/main.tck:14:16: error: index j may be out of range; check 0 <= j && j < 4 first, or use v, ok := ...[j]
+13 |	        j--
+14 |	        s += a[j]
+   |	               ^
+15 |	    }
+
+-- loop-invariant-start-in-branch/main.tck --
+package main
+
+// i = 0 in a branch that falls through does not hold where the loop
+// starts when the branch is not taken.
+func f(s string, c bool, start int64) uint8 {
+    mut i := start
+    if c {
+        i = 0
+    }
+    mut b uint8 = 0
+    for i < len(s) {
+        b = s[i]
+        i++
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-start-in-branch/expected --
+stage: typeck
+---
+
+loop-invariant-start-in-branch/main.tck:12:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+11 |	    for i < len(s) {
+12 |	        b = s[i]
+   |	              ^
+13 |	        i++
+loop-invariant-start-in-branch/main.tck:11:9: note: this guard bounds i only above; i may be negative
+10 |	    mut b uint8 = 0
+11 |	    for i < len(s) {
+   |	        ^~~~~~~~~~
+12 |	        b = s[i]
+
+-- loop-invariant-start-may-wrap/main.tck --
+package main
+
+// i := j + 1 relates i to j only where j + 1 does not wrap, which nothing
+// at the loop's start proves, so the loop keeps no bound from it.
+func f(s string, j int64) uint8 {
+    if j < 0 {
+        return 0
+    }
+    mut i := j + 1
+    mut b uint8 = 0
+    for i < len(s) {
+        b = s[i]
+        i++
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-start-may-wrap/expected --
+stage: typeck
+---
+
+loop-invariant-start-may-wrap/main.tck:12:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+11 |	    for i < len(s) {
+12 |	        b = s[i]
+   |	              ^
+13 |	        i++
+loop-invariant-start-may-wrap/main.tck:11:9: note: this guard bounds i only above; i may be negative
+10 |	    mut b uint8 = 0
+11 |	    for i < len(s) {
+   |	        ^~~~~~~~~~
+12 |	        b = s[i]
+
+-- loop-invariant-start-overwritten/main.tck --
+package main
+
+func g() int64 {
+    return -3
+}
+
+// i = g() after the declaration ends the start i := 0 gives.
+func f(s string) uint8 {
+    mut i := 0
+    i = g()
+    mut b uint8 = 0
+    for i < len(s) {
+        b = s[i]
+        i++
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-start-overwritten/expected --
+stage: typeck
+---
+
+loop-invariant-start-overwritten/main.tck:13:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+12 |	    for i < len(s) {
+13 |	        b = s[i]
+   |	              ^
+14 |	        i++
+loop-invariant-start-overwritten/main.tck:12:9: note: this guard bounds i only above; i may be negative
+11 |	    mut b uint8 = 0
+12 |	    for i < len(s) {
+   |	        ^~~~~~~~~~
+13 |	        b = s[i]
+
+-- loop-invariant-step-down/main.tck --
+package main
+
+// i steps down in one branch, so nothing keeps it at or above 0.
+func f(s string, c bool) uint8 {
+    mut i := 0
+    mut b uint8 = 0
+    for i < len(s) {
+        b = s[i]
+        i += 1
+        if c {
+            i -= 2
+        }
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-step-down/expected --
+stage: typeck
+---
+
+loop-invariant-step-down/main.tck:8:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+07 |	    for i < len(s) {
+08 |	        b = s[i]
+   |	              ^
+09 |	        i += 1
+loop-invariant-step-down/main.tck:7:9: note: this guard bounds i only above; i may be negative
+06 |	    mut b uint8 = 0
+07 |	    for i < len(s) {
+   |	        ^~~~~~~~~~
+08 |	        b = s[i]
+
+-- loop-invariant-unknown-step/main.tck --
+package main
+
+// d may be negative.
+func f(s string, d int64) uint8 {
+    mut i := 0
+    mut b uint8 = 0
+    for i < len(s) {
+        b = s[i]
+        i += d
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-unknown-step/expected --
+stage: typeck
+---
+
+loop-invariant-unknown-step/main.tck:8:15: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+07 |	    for i < len(s) {
+08 |	        b = s[i]
+   |	              ^
+09 |	        i += d
+loop-invariant-unknown-step/main.tck:7:9: note: this guard bounds i only above; i may be negative
+06 |	    mut b uint8 = 0
+07 |	    for i < len(s) {
+   |	        ^~~~~~~~~~
+08 |	        b = s[i]
+
+-- loop-invariant-unsigned-wraps/main.tck --
+package main
+
+// j-- on a uint64 at 0 wraps to the largest uint64.
+func f() int64 {
+    mut a [5]int64
+    mut j uint64 = 4
+    mut k := 0
+    mut sum int64 = 0
+    for k < 10 {
+        sum += a[j]
+        j--
+        k++
+    }
+    return sum
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-unsigned-wraps/expected --
+stage: typeck
+---
+
+loop-invariant-unsigned-wraps/main.tck:10:18: error: index j may be out of range; check j < 5 first, or use v, ok := ...[j]
+09 |	    for k < 10 {
+10 |	        sum += a[j]
+   |	                 ^
+11 |	        j--
+
+-- loop-invariant-upper-ends/main.tck --
+package main
+
+// The loop keeps i >= 0, and the guard's i < len(s) ends at i++: the
+// note says that proof ends, and none says i may be negative.
+func f(s string) uint8 {
+    mut i := 0
+    mut n := 0
+    mut b uint8 = 0
+    for n < 3 {
+        if i < len(s) {
+            i++
+            b = s[i]
+        }
+        n++
+    }
+    return b
+}
+
+func main() {
+    print("")
+}
+-- loop-invariant-upper-ends/expected --
+stage: typeck
+---
+
+loop-invariant-upper-ends/main.tck:12:19: error: index i may be out of range; check 0 <= i && i < len(s) first, or use v, ok := ...[i]
+11 |	            i++
+12 |	            b = s[i]
+   |	                  ^
+13 |	        }
+loop-invariant-upper-ends/main.tck:10:12: note: this guard proves i < len(s)
+09 |	    for n < 3 {
+10 |	        if i < len(s) {
+   |	           ^~~~~~~~~~
+11 |	            i++
+loop-invariant-upper-ends/main.tck:11:13: note: but i is assigned here, so the proof ends
+10 |	        if i < len(s) {
+11 |	            i++
+   |	            ^
+12 |	            b = s[i]
 
 -- loop-non-bool-condition/main.tck --
 package main
@@ -29088,11 +30192,6 @@ note-would-allow/main.tck:7:18: note: but i is assigned here, so the proof ends
 06 |	    mut sum int64 = 0
 07 |	    for i <= 3 { i++; sum += a[i] }
    |	                 ^
-08 |	    code, fits := int32(sum)
-note-would-allow/main.tck:7:9: note: this guard would bound i only above; i may be negative
-06 |	    mut sum int64 = 0
-07 |	    for i <= 3 { i++; sum += a[i] }
-   |	        ^~~~~~
 08 |	    code, fits := int32(sum)
 note-would-allow/main.tck:7:9: note: this guard would allow i == 3, and a has 3 elements
 06 |	    mut sum int64 = 0
@@ -35988,11 +37087,6 @@ safety-no-proof-loop-assigns/main.tck:7:17: note: but i is assigned here, so the
 06 |	    mut sum int64 = 0
 07 |	    for i < 3 { i++; sum += a[i] }
    |	                ^
-08 |	    code, fits := int32(sum)
-safety-no-proof-loop-assigns/main.tck:7:9: note: this guard would bound i only above; i may be negative
-06 |	    mut sum int64 = 0
-07 |	    for i < 3 { i++; sum += a[i] }
-   |	        ^~~~~
 08 |	    code, fits := int32(sum)
 
 -- safety-no-proof-multi-value-case-out-of-range/main.tck --

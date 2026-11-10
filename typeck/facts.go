@@ -961,14 +961,16 @@ func (c *Checker) assume(g *guard, facts []fact, region []ast.Node) {
 	}
 }
 
-// mark records how many facts and guards are in force, for release.
+// mark records how many facts and guards are in force, and how many
+// known values the probe remembers (see recordStart), for release.
 type mark struct {
-	facts, guards int
+	facts, guards, starts int
 }
 
-// mark returns how many facts and guards are in force now.
+// mark returns how many facts and guards are in force now, and how many
+// known values the probe remembers.
 func (c *Checker) mark() mark {
-	return mark{len(c.active), len(c.guards)}
+	return mark{len(c.active), len(c.guards), len(c.starts)}
 }
 
 // dropAssigned returns facts with every one that region assigns the
@@ -999,13 +1001,14 @@ func stmtNodes(body []ast.Stmt) []ast.Node {
 }
 
 // release takes out of force every fact and guard assumed since m was
-// taken.
+// taken, and forgets every known value the probe remembered since.
 func (c *Checker) release(m mark) {
 	if len(c.active) != m.facts {
 		c.factGen++
 	}
 	c.active = c.active[:m.facts]
 	c.guards = c.guards[:m.guards]
+	c.starts = c.starts[:m.starts]
 }
 
 // assigned returns why the region idx indexes drops f: the first write

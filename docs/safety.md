@@ -313,6 +313,7 @@ A fact holds in these places:
 | a loop's body, by the loop's condition                                                             | `for ; d != 0; d-- { sum += 12 / d }`                                   |
 | a range loop's body, for its index                                                                 | `for i := range a { a[i] }`, `for i := range s { s[i] }`                |
 | a counting loop's body, for its variable                                                           | `for mut i := 0; i < len(a); i++ { a[i] }`                              |
+| a loop, for a bound it keeps on a variable it writes                                               | `mut i := 0` then `for i < len(a) { a[i]; i++ }`                        |
 | the right side of `&&`, by the left being true                                                     | `b != 0 && a / b > 1`                                                   |
 | the right side of `\|\|`, by the left being false                                                  | `b == 0 \|\| a / b > 1`                                                 |
 | a `switch` case, as in the chain of ifs it stands for                                              | `switch b { case 0: return 0 }` then `a / b`                            |
@@ -377,6 +378,92 @@ proves nothing about `i`. A target-width variable could wrap past
 <!-- case: unsafe-counting-loop-may-wrap -->`for mut i unsafe_size_t = 1; i <= 4294967295; i++ { q += 10 / i }`
 proves nothing about `i` either. An unsigned variable is never negative, so its
 condition alone bounds it from both sides.
+
+A loop also keeps a bound on a variable declared before it that it
+writes, a counter or a total, which then holds everywhere in the loop,
+its condition, its post and its body, on every pass, before and after
+each write. A loop keeps a bound when
+
+- the variable is a local or a parameter of an integer type, declared
+  before the loop, and not a mutable global or a field;
+- the bound holds where the loop starts: a fact in force there gives it,
+  or the known value the variable was last given, by its declaration
+  (`mut i := 0`, or `mut i int64`, which starts at 0) or by a plain
+  assignment (`i = 0`), with no write that can reach the loop in
+  between. A bound is a known value at or below the variable, at or above
+  it, or a difference with another value a fact relates it to, such as
+  `j <= len(s) - 1` after `mut j := len(s) - 1`;
+- the loop's init does not write the variable: the init runs after the
+  loop's start, so a loop whose init writes it keeps no bound on it, and
+  <!-- case: loop-invariant-init-same-value -->`for i = 0; i < len(s); { b = s[i]; i++ }`
+  reports `s[i]` even after `mut i := 0`;
+- every write to the variable in the loop, in its condition, post and
+  body, in an inner loop or in deferred code, is `i++`, `i--`, `i += e`,
+  `i -= e` or `i = e`, and the value it stores is proven within the
+  bound by the facts in force at the write, together with the bound
+  itself, with no step of it wrapping. So `i += 1` keeps `i >= 0` only
+  where something bounds `i` above, such as the condition `i < len(s)`
+  not yet ended by an earlier write, since the largest `int64` plus one
+  wraps to the least. A call passing the variable as `mut`, an assignment
+  of several values and any other operator keep nothing;
+- nothing in the loop writes the other value of a difference, nor the
+  string, view or list whose length it is.
+
+The bound is not in force after the loop. A write in a branch that
+leaves keeps a bound as any other write does, and a `continue` or a
+`break` changes nothing: every write keeps it, so it holds on every path.
+Facts that come from guards inside the loop count at a write as they do
+anywhere, but a bound a loop keeps does not help prove another bound,
+and a loop nested inside eight others, each with a bound that held where
+it started on a variable it writes, keeps none of its own.
+
+<!-- example: loop-invariants -->
+
+```tack
+func countUp(s string) int64 {
+    mut n int64 = 0
+    mut i := 0
+    for i < len(s) {
+        if s[i] == 'a' {
+            n++
+        }
+        i += 1
+    }
+    return n
+}
+```
+
+<!-- example: loop-invariants -->
+
+```tack
+func countDown(s string) int64 {
+    mut n int64 = 0
+    mut j := len(s) - 1
+    for j >= 0 {
+        if s[j] == 'a' {
+            n++
+        }
+        j--
+    }
+    return n
+}
+```
+
+A step down keeps a bound below only where the facts at it keep the
+result at or above that bound:
+<!-- case: loop-invariant-step-down -->`for i < len(s) { b = s[i]; i += 1; if c { i -= 2 } }`
+reports `s[i]`, since nothing at `i -= 2` keeps `i - 2` at or above 0,
+while the same step under `if c && i >= 2` keeps `i >= 0`, and the loop
+then proves `s[i]`. Nor does a step that may wrap keep a bound:
+<!-- case: loop-invariant-int8-wraps -->`mut i int8 = 0` stepped by
+`i++` with nothing bounding it above reaches 127 and then -128, and
+<!-- case: loop-invariant-second-step -->`i++` written twice in a row
+leaves the second step with no bound once the first has ended the
+condition's. A loop whose post statement steps the counter keeps no
+bound by it, since the post is checked without the condition's facts:
+<!-- case: loop-invariant-post-step -->`for ; i < len(s); i++ { b = s[i] }`
+reports `s[i]` where `i` is declared before the loop; declared in the
+init, it is a counting loop.
 
 A `switch` case proves inside its body what `tag == v1 || tag == v2 ...`
 proves when true, so `case 1, 2:` proves `1 <= tag && tag <= 2`, and
@@ -873,9 +960,17 @@ For `for i < 3 { i++; sum += a[i] }` the error is followed
 by <!-- note: safety-no-proof-loop-assigns -->`this guard proves i < 3`,
 under `i < 3`,
 then <!-- note: safety-no-proof-loop-assigns -->`but i is assigned here, so the proof ends`,
-under the `i` of `i++`,
-and <!-- note: safety-no-proof-loop-assigns -->`this guard would bound i only above; i may be negative`.
-An operation no guard mentions keeps its error alone.
+under the `i` of `i++`. No note says `i` may be negative: `i` starts at
+0 and only steps up below 3, so the loop keeps `i >= 0`. With `i <= 3`
+for its condition, a third note says what the condition would have
+allowed: <!-- note: note-would-allow -->`this guard would allow i == 3, and a has 3 elements`.
+An operation no guard mentions keeps its error alone. A guard whose fact
+a write ends, but whose bound a loop keeps anyway, gets no note, since
+what it proved still holds: in
+<!-- case: loop-invariant-start-below-only -->`for j > 0 { j--; s += a[j] }`,
+where `j` starts at or above 0, nothing says the proof of `j >= 0`
+ends, and nothing explains a lower bound on an index the facts already
+keep at or above 0.
 
 A conversion's notes say the same of the range it must stay within: for
 `int8(v)` under `if -129 < v && v <= 128` the error,

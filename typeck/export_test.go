@@ -28,3 +28,16 @@ func (c *Checker) ProverWork() ProverWork {
 func (c *Checker) CheckEveryBodyTwice() {
 	c.everyBodyTwice = true
 }
+
+// ProbeEveryBodyKeepingNothing makes c probe every function body for the
+// bounds its loops keep, and put none of them in force, so a test can
+// show the probe leaves no other trace (see findInvariants).
+func (c *Checker) ProbeEveryBodyKeepingNothing() {
+	c.probeEveryBody = true
+}
+
+// NeverProbe makes c probe no function body, so that no loop keeps a
+// bound (see findInvariants).
+func (c *Checker) NeverProbe() {
+	c.neverProbe = true
+}

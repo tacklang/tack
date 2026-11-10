@@ -236,7 +236,23 @@
 // counting loop, a three-clause loop that steps a variable it declares
 // from a known start by a known amount towards a bound its condition gives,
 // without wrapping, also tells its body the start bounds the variable
-// (counting.go). A
+// (counting.go). A loop also keeps a bound on a local or a parameter of
+// an integer type declared before it and written in it, put in force for
+// the whole loop with no ending (invariant.go): a known value it is at or
+// above or at or below, or a difference with another node, that holds at
+// the loop's start, by a fact or the known value the variable was last
+// given (recordStart), that the loop's init does not write, and that
+// every write to it in the loop's condition, post and body, x++, x--,
+// x += e, x -= e or x = e, keeps, the value it stores proven within the
+// bound, unwrapped, by the facts in force at the write and the bound
+// itself (keeps); nothing in the loop may write the other node. Whether
+// a write keeps a bound is known only once checking reaches it, so a body
+// with a loop that writes a variable declared before it is first checked
+// as a probe (findInvariants, a discarded pass like findCallees'), which
+// judges every write against the bounds each loop around it may keep and
+// records those each loop keeps for the check that counts. The probe's
+// facts are those of a single check, each true where it holds, so a bound
+// it finds kept holds on every run. A
 // switch proves what the chain of ifs it stands for does (switch.go): a
 // case is if v1 || v2 ..., in a tagless switch, or if tag == v1 || tag == v2
 // ..., in an expression switch, the default the final else, so a case with
@@ -252,7 +268,10 @@
 // (conversionProof), and a note on the
 // relations in force when they fall short (relationNotes). An unsigned index is
 // never negative, so a note never explains a lower bound on one, whether
-// missing or dropped. Every note's span is the code it is about, so its
+// missing or dropped, nor on an index the facts in force keep at or above
+// 0, a bound a loop keeps included; and a dropped fact whose every bound
+// a bound a loop keeps still gives is not explained at all, since what it
+// said still holds (see keptBounds). Every note's span is the code it is about, so its
 // text names no position. A fact a write
 // ends is kept in force for this, marked where it is asked about with
 // the write that ends it there, and every query that proves something

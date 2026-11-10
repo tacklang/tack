@@ -2046,6 +2046,49 @@ func TestBuiltArithmeticRangesPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// The loop-invariants example indexes by mutable counters and totals a
+// loop writes, with no checked form, proven by the bound each keeps on
+// every pass: counters stepping up from a start and down from one,
+// stepped in a branch that continues, in an inner loop, in a range
+// loop, in deferred code, set back to 0, a total grown by bounded
+// amounts, a mut parameter, a counter kept at or above another
+// variable, counters stepping up to the top of int64 and uint8, a
+// counter stepping down by 2, a bound kept below that bounds 2*j, a
+// level fallen by bounded amounts, and a counter stepping back under a
+// guard that keeps it at or above 0. Each
+// check runs its loop not at all, once, and to the ends of what it
+// reads, and prints its name and "ok", or "FAIL".
+func TestBuiltLoopInvariantsPassesEveryCheck(t *testing.T) {
+	bin := buildWithClang(t, "loop-invariants")
+	out, err := exec.CommandContext(t.Context(), bin).Output()
+	if err != nil {
+		t.Errorf("loop-invariants exited with %v, want status 0", err)
+	}
+	want := "a counter stepping up from 0 ok\n" +
+		"a counter stepping down from len(s) - 1 ok\n" +
+		"a condition that reads s[i] ok\n" +
+		"a counter stepped in a branch that continues and in an inner loop ok\n" +
+		"a counter set back to 0 in the body ok\n" +
+		"a total grown by bounded amounts ok\n" +
+		"a counter kept at or above 1 ok\n" +
+		"a counter kept at or above another variable ok\n" +
+		"a counter kept at or below 9 ok\n" +
+		"a uint64 counter stepping down to 0 ok\n" +
+		"a counter in a range loop ok\n" +
+		"a mut parameter ok\n" +
+		"a counter set back to 0 between loops ok\n" +
+		"a counter stepped in deferred code ok\n" +
+		"a counter stepping up to the largest int64 ok\n" +
+		"a uint8 counter stepping up to 255 ok\n" +
+		"a bound kept below bounding arithmetic ok\n" +
+		"a level fallen by bounded amounts ok\n" +
+		"a counter stepping down by 2 ok\n" +
+		"a counter stepping back under a guard ok\n"
+	if string(out) != want {
+		t.Errorf("loop-invariants printed\n%s\nwant\n%s", out, want)
+	}
+}
+
 // The ensures example calls functions whose ensures clauses prove facts
 // about their arguments: an error checked by a call, as a statement and
 // as a value and in a loop, a divisor, through a plain and a mut
