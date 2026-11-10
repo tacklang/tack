@@ -112,3 +112,18 @@ g[T Any](scope f func(T))`, `g(func(scope h func()) { h() })` is `cannot
 use func(scope func()) as func(func()) in argument to g`. It is too
 strict, never unsound: the call is rejected, and a closure whose
 parameters are not scope, or a non-generic callee, is unaffected.
+
+## A missing mut suggests passing an immutable variable as mut
+
+A call that passes a variable to a `mut` parameter without `mut` is
+told to `pass mut b`, even when `b` is immutable, where applying the
+fix fails because an immutable variable cannot be passed as `mut`.
+`Box.set(b, 1)` with `b := Box{}` shows it, and so does the same call
+to a plain function. The message should say that `b` must be declared
+`mut` as well.
+
+## Moving a union case built through its type says a field cannot move
+
+`own Expr.eof`, a union case built in place and passed to an `own`
+parameter, reports `a field cannot be moved on its own`, which is not
+what the expression is.
