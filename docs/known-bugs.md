@@ -53,6 +53,16 @@ the checker used to reject early pay this cost too: N leaving cases that
 each write inside a loop, followed by N uses, take about 11 seconds at
 N = 16000. Ordinary programs are far below these sizes.
 
+## An assignment's moves are checked value first, its target runs first
+
+The move checker follows a plain assignment's value before its target,
+while the C backend evaluates the target's indexes first (see
+examples/assign-order). A move inside a target index, as in
+`xs[take(own l)] = l[0]`, would then be checked in the wrong order. No
+accepted program reaches this today, since a call in an index is
+rejected as an index that may be out of range, but a later feature that
+lets one through would make it a use after move.
+
 ## A switch case that leaves on -1 proves nothing after the switch
 
 A switch whose `case -1:` returns does not prove `d != -1` in the code
