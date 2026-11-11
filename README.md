@@ -2054,8 +2054,11 @@ section remains the description of the language.
   of ifs it stands for proves: `if c1 {} else if c2 || c3 {} else {}` for
   a tagless switch, and the same with `x == v` for each value `v` of an
   expression switch, so `switch d { case 0: return 0 }` proves `d != 0`
-  after it, and a later case and the default see every earlier case's
-  values not matching. A case with several values proves what their `||`
+  after it, and so does every later case whose body leaves, while every
+  case tried before it leaves too: `case 0: return 0; case -1: return 1`
+  proves `d != 0` and `d != -1` after the switch, in either order. A
+  later case and the default see every earlier case's values not
+  matching. A case with several values proves what their `||`
   does inside its body: `case 1, 2:` proves the tag is between 1 and 2,
   and so not zero.
 - Fallthrough. `fallthrough`, a keyword reserved everywhere, as the last

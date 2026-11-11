@@ -616,8 +616,11 @@ func valueNodes(values []ast.Expr) []ast.Node {
 // switchAfterFactsBy returns the facts a switch gives the statements after
 // it in its block, as the chain of ifs it means does: its first case tried
 // is the if, and the rest of the chain its else. The facts come from that
-// first case, as an early exit, the guard returned, when one side of the
-// chain leaves and the other does not.
+// first case, the guard returned, when one side of the chain leaves and
+// the other does not: an early exit when the first case leaves, and a
+// case matching when it does not and the rest of the chain does. What
+// the later cases give, when the first leaves, comes from
+// switchChainFacts.
 func (c *Checker) switchAfterFacts(s *ast.Switch) (*guard, []fact) {
 	order := tryOrder(s)
 	if len(order) == 0 || order[0].Default {
@@ -630,7 +633,11 @@ func (c *Checker) switchAfterFacts(s *ast.Switch) (*guard, []fact) {
 	facts := exitFacts(firstLeaves, restLeaves, func(holds bool) []fact {
 		return c.caseFacts(s, order[0], holds)
 	})
-	return &guard{span: caseSpan(order[0]), kind: guardExit}, facts
+	kind := guardExit
+	if !firstLeaves {
+		kind = guardMatched
+	}
+	return &guard{span: caseSpan(order[0]), kind: kind}, facts
 }
 
 // caseSpan returns what a note about a case underlines: its keyword

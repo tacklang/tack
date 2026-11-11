@@ -260,7 +260,12 @@
 // switch proves what the chain of ifs it stands for does (switch.go): a
 // case is if v1 || v2 ..., in a tagless switch, or if tag == v1 || tag == v2
 // ..., in an expression switch, the default the final else, so a case with
-// several values proves the union of what each does. A case's body a
+// several values proves the union of what each does. The code after a
+// switch, as after an else-if chain, gets what each link gives as an early
+// exit while every link before it leaves (switchAfterFacts for the first,
+// chainFacts for the rest): a case that leaves, its values not matching,
+// and the first that does not, when every case after it leaves, its
+// values matching. A case's body a
 // fallthrough enters is reached by matching and by the fallthrough, and
 // gets what both give, joined as || joins its sides (joinFacts): matching
 // gives the facts in force where the switch starts, its values' and the
@@ -313,14 +318,11 @@
 // force there with each subject's type bounds leave some subject no value,
 // every side of a true || or a false && on the path to it, taken alone,
 // does so with the facts there, or the relations in force hold a cycle of
-// negative weight. Three kinds of fact count for that proof alone, kept
+// negative weight. Two kinds of fact count for that proof alone, kept
 // apart from the facts in force so no other proof changes (proofOnly): a
 // value ruled out, b != k for any k, which a switch's cases and an if
-// chain's false == give and only coverage asks about; the sides of a true
-// || or a false &&, beside the hull of them union gives; and what the
-// early exits of an else-if chain, or the cases of a switch with no
-// default whose every case leaves, one ending in a fallthrough leaving as
-// the case it enters does, give the code after it. Each is
+// chain's false == give and only coverage asks about; and the sides of a
+// true || or a false &&, beside the hull of them union gives. Each is
 // put in force with its region as any fact is, and the writes that could
 // end it are found only when an unreachable asks. A failed proof gets
 // notes on a guard comparing a field of a mutable variable or a mutable

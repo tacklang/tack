@@ -55,6 +55,11 @@ const (
 	// guardExit is an if or a switch whose branch leaves the block, for the
 	// rest of the block.
 	guardExit
+	// guardMatched is a switch case whose body does not leave, every
+	// other case that could reach past the switch leaving, for the rest
+	// of the block: the code after the switch is reached only through
+	// that case matching (see switchAfterFacts and switchChainFacts).
+	guardMatched
 	// guardStore is a declaration or an assignment relating what it stores
 	// to what it was computed from, for the rest of the block (see
 	// storedFacts).
@@ -92,7 +97,7 @@ func (g *guard) subject() string {
 		return "this loop"
 	case guardCount:
 		return "counting from this start"
-	case guardCase, guardLaterCase:
+	case guardCase, guardLaterCase, guardMatched:
 		return "this case"
 	case guardExit:
 		return "this early exit"
@@ -113,6 +118,8 @@ func (g *guard) where() string {
 		return " in its else branch"
 	case guardLaterCase:
 		return " in the cases after it"
+	case guardMatched:
+		return " after the switch"
 	case guardExit, guardStore, guardEnsures:
 		return " after it"
 	default:

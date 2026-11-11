@@ -29,15 +29,14 @@ import (
 //     a < b && b < a gives, which no values can satisfy (see
 //     relationsContradict).
 //
-// Besides the facts in force, the proof counts facts only it asks about,
-// each kept apart (see proofOnly): a value ruled out, which a long chain
-// of cases or ifs gives one of for each value it names; the sides of a
-// true || or a false &&, beside the hull of them the facts in force hold;
-// and what the early exits of an else-if chain, or the cases of a switch
-// with no default whose every case leaves, give the code after it (see
-// chainFacts). Each fact, of either kind, counts only where it
-// holds, as for any other proof (see holds), so a write that can reach the
-// place ends what it proved.
+// Besides the facts in force, among them what the early exits of an
+// else-if chain or the leaving cases of a switch give the code after it
+// (see chainFacts), the proof counts facts only it asks about, each kept
+// apart (see proofOnly): a value ruled out, which a long chain of cases or
+// ifs gives one of for each value it names; and the sides of a true || or
+// a false &&, beside the hull of them the facts in force hold. Each fact,
+// of either kind, counts only where it holds, as for any other proof (see
+// holds), so a write that can reach the place ends what it proved.
 
 // proofOnly is facts kept apart from the facts in force, which only the
 // proof of an unreachable place counts: with one side, facts that hold
@@ -108,15 +107,14 @@ func (c *Checker) keepApart(g *guard, f fact, region []ast.Node) bool {
 	}
 }
 
-// chainFacts keeps apart, for the proof of an unreachable place in rest,
-// the statements after stmt in its block, what an if chain or a switch
-// that stmt is gives the code after it when every branch that could reach
-// there has been ruled out. For an if whose then branch leaves and whose
-// else is one if, the code after the outer if is reached only past that
-// inner if, so whatever the inner if gives the code after it as an early
-// exit (see afterFacts) holds there too, in a region from the inner if's
-// branch that falls through on, and so on down the chain. For a switch
-// see switchChainFacts. The facts in force get only what they got before.
+// chainFacts puts in force, for rest, the statements after stmt in its
+// block, what an if chain or a switch that stmt is gives the code after it
+// past its first link, whose facts afterFacts gives. For an if whose then
+// branch leaves and whose else is one if, the code after the outer if is
+// reached only past that inner if, so whatever the inner if gives the code
+// after it as an early exit (see afterFacts) holds there too, in a region
+// from the inner if's branch that falls through on, and so on down the
+// chain. For a switch see switchChainFacts.
 //
 // With no statement after stmt there is nowhere the facts hold, and the
 // chain is not walked. So a link of a chain, alone in the else block of
@@ -140,51 +138,69 @@ func (c *Checker) chainFacts(stmt ast.Stmt, rest []ast.Stmt) {
 		if g == nil {
 			continue
 		}
-		c.keepFacts(g, facts, append(fallsThrough(s), stmtNodes(rest)...))
+		c.assume(g, facts, append(fallsThrough(s), stmtNodes(rest)...))
 	}
 }
 
-// switchChainFacts keeps apart, for rest, the statements after s, the
-// facts of every case of s being false, when s, an expression switch,
-// tagged or with no tag, has no default and every case's
-// body leaves: the code after it is then reached only when no case
-// matched, as past the else-if chain the switch means. Each case's facts
-// hold in a region of every case's values and rest, which takes in more
-// than the values tried after it, so it can only end them sooner.
+// switchChainFacts puts in force, for rest, the statements after s, an
+// expression switch, tagged or with no tag, what the cases after its
+// first, in the order tried, give them, as the else-if chain s means
+// does; the first case's facts come from switchAfterFacts. While every
+// case tried so far leaves, the code after s is reached only when none of
+// them matched, so the next case gives the facts of its values not
+// matching when its body leaves and the cases after it do not all leave
+// (see chainLeaves), and those of its values matching when its body does
+// not leave and the cases after it all do, which ends the walk. A case
+// ending in a fallthrough leaves when the case it enters does (see
+// leaves). The facts of a case not matching hold in a region of every
+// value tried after it and every later body that does not leave, then
+// rest; those of a case matching, in its body, then rest.
 func (c *Checker) switchChainFacts(s *ast.Switch, rest []ast.Stmt) {
-	if s.IsTypeSwitch() || s.Default() != nil || len(s.Cases) == 0 ||
-		(s.Tag != nil && c.table.IsUnion(ast.TypeOf(s.Tag))) {
+	if s.IsTypeSwitch() || (s.Tag != nil && c.table.IsUnion(ast.TypeOf(s.Tag))) {
 		return
 	}
-	for _, cl := range s.Cases {
-		if !leaves(cl.Body) {
-			return
+	order := tryOrder(s)
+	if len(order) < 2 {
+		return
+	}
+	// bodyLeaves[i] is whether order[i]'s body leaves, and restLeaves[i]
+	// whether the chain order[i:] does, which only one ending in a
+	// default can.
+	bodyLeaves := make([]bool, len(order))
+	restLeaves := make([]bool, len(order)+1)
+	all := order[len(order)-1].Default
+	for i := len(order) - 1; i >= 0; i-- {
+		bodyLeaves[i] = leaves(order[i].Body)
+		all = all && bodyLeaves[i]
+		restLeaves[i] = all
+	}
+	// The regions are suffixes of one slice: from[i] is where the values
+	// of order[i] start in it, and from[len(order)] where rest does.
+	var nodes []ast.Node
+	from := make([]int, len(order)+1)
+	for i := 1; i < len(order); i++ {
+		from[i] = len(nodes)
+		nodes = append(nodes, valueNodes(order[i].Values)...)
+		if !bodyLeaves[i] {
+			nodes = append(nodes, stmtNodes(order[i].Body)...)
 		}
 	}
-	var region []ast.Node
-	for _, cl := range s.Cases {
-		region = append(region, valueNodes(cl.Values)...)
-	}
-	region = append(region, stmtNodes(rest)...)
-	for _, cl := range s.Cases {
-		c.keepFacts(&guard{span: caseSpan(cl), kind: guardLaterCase}, c.caseFacts(s, cl, false), region)
-	}
-}
-
-// keepFacts keeps facts, which g gives for region, apart from the facts
-// in force, for the proof of an unreachable place alone: those carrying
-// sides or a value ruled out each as keepApart keeps it, and the rest
-// together, as one side.
-func (c *Checker) keepFacts(g *guard, facts []fact, region []ast.Node) {
-	var side []fact
-	for _, f := range facts {
-		if !c.keepApart(g, f, region) && !f.empty() {
-			f.guard = g
-			side = append(side, f)
+	from[len(order)] = len(nodes)
+	nodes = append(nodes, stmtNodes(rest)...)
+	for i := 1; i < len(order) && bodyLeaves[i-1] && !restLeaves[i]; i++ {
+		cl := order[i]
+		switch {
+		case bodyLeaves[i] && !restLeaves[i+1]:
+			if facts := c.caseFacts(s, cl, false); len(facts) > 0 {
+				g := &guard{span: caseSpan(cl), kind: guardExit}
+				c.assume(g, facts, nodes[from[i+1]:])
+			}
+		case !bodyLeaves[i] && restLeaves[i+1]:
+			if facts := c.caseFacts(s, cl, true); len(facts) > 0 {
+				g := &guard{span: caseSpan(cl), kind: guardMatched}
+				c.assume(g, facts, append(stmtNodes(cl.Body), stmtNodes(rest)...))
+			}
 		}
-	}
-	if len(side) > 0 {
-		c.proven = append(c.proven, proofOnly{sides: [][]fact{side}, region: region})
 	}
 }
 

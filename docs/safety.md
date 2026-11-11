@@ -486,10 +486,28 @@ init, it is a counting loop.
 A `switch` case proves inside its body what `tag == v1 || tag == v2 ...`
 proves when true, so `case 1, 2:` proves `1 <= tag && tag <= 2`, and
 `tag != 0`. Every later case, and the default, sees the earlier cases'
-values not matching. A type switch, `switch v := a.(type)`, proves
-nothing, since what an `any` holds is never known at compile time; a
-case's `v` is a variable like any other, so a check on it inside the case
-proves what that check proves.
+values not matching. The code after the switch knows what the chain of
+ifs gives after it: each case whose body leaves, tried while every case
+before it leaves too, gives there what its values not matching give, so
+`switch d { case 0: return 0; case -1: return -%n }` followed by `n / d`
+compiles, whichever order the two cases are in, as it does after
+`if d == 0 { return 0 } else if d == -1 { return -%n }`. A case that
+does not leave ends that: past it, the later cases prove nothing after
+the switch, even when they leave,
+<!-- case: division-overflow-case-after-matching -->`case 0: return 0; case 5: r = 1; case -1: return 1`
+reports `n / d` after it, and a case that does not leave proves nothing
+after the switch itself,
+<!-- case: division-overflow-case-stays -->`case -1: r = 1`,
+nor does one that falls into a case that does not leave,
+<!-- case: division-overflow-case-fallthrough -->`case -1: fallthrough; case 5: r = 1`.
+When the first case tried that does not leave is followed only by
+cases that leave, a default among them, the code after the switch is
+reached only through it, and sees its values matching.
+
+A type switch, `switch v := a.(type)`, proves nothing, since what an
+`any` holds is never known at compile time; a case's `v` is a variable
+like any other, so a check on it inside the case proves what that check
+proves.
 
 A case's body that a `fallthrough` enters is reached two ways: by
 matching, and by the case before it falling through, on which path
@@ -2637,10 +2655,12 @@ branch ending in it leaves. A place is proven when:
   on a `bool` naming `true` and `false` does too, while
   <!-- case: unreachable-switch-missing-value -->one on `d` from 0 to 3
   naming only 0, 1 and 2 does not. What the early exits of an `else if`
-  chain give the code after the chain counts too, and so does what a
-  `switch` with no `default` whose every case leaves gives the code
-  after it, reached only when no case matched, a case ending in
-  `fallthrough` leaving when the case it falls into does, so
+  chain give the code after the chain are facts in force like any
+  other, and so is what a `switch` whose cases leave gives the code
+  after it (see [Facts, and what gives them](#facts-and-what-gives-them)): one with no
+  `default` whose every case leaves is reached only when no case
+  matched, a case ending in `fallthrough` leaving when the case it falls
+  into does, so
   <!-- case: fallthrough-covering-falls-out -->one whose fallthrough
   enters a case that does not leave gives nothing, and a `bool` tested
   with `if b` and `if !b` holds 1 and 0;
@@ -2655,9 +2675,9 @@ branch ending in it leaves. A place is proven when:
   either, since a call gives no fact;
 - the relations there contradict, as `a < b && b < a` does.
 
-The values ruled out, the sides of a `||` or an `&&`, and what an else-if
-chain or such a switch gives after it count only for this proof: no other operation's
-proof reads them, and the facts in force are as before. Each fact counts
+The values ruled out and the sides of a `||` or an `&&` count only for
+this proof: no other operation's proof reads them, and the facts in
+force are as before. Each fact counts
 only where it holds, as for every proof, so a write that can reach the
 place ends it: in
 <!-- case: unreachable-or-true-written -->`if i < 0 || i > 4 { i = 2; unreachable }`

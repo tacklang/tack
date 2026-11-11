@@ -220,7 +220,11 @@ A fact is in force in these places:
   left being false;
 - a `switch` case, as in the chain of ifs it stands for: a case proves in
   its body what `tag == v1 || tag == v2 ...` proves when true, and every
-  later case and the default see the earlier values not matching; a type
+  later case and the default see the earlier values not matching; after
+  the switch, each case whose body leaves, tried while every case before
+  it leaves too, gives what its values not matching give, and when the
+  first case that does not leave is followed only by cases that leave, a
+  `default` among them, it gives what its values matching give; a type
   switch proves nothing;
 - a case's body that a `fallthrough` enters, which is reached both by
   matching and by the fallthrough: only what both give, joined as for a
@@ -1063,15 +1067,19 @@ the case here`. It is proven when a statement before it in a block
 around it leaves the block or terminates; when the facts in force there,
 with each variable's type bounds, leave some variable no value, its
 bounds crossing or every value between them ruled out by `!=`, a false
-`==` or the cases of a `switch`, together with what the early exits of
-an `else if` chain, or the cases of a `switch` with no `default` whose
-every case leaves, one ending in `fallthrough` leaving when the case it
-falls into does, give the code after it; when every side of a true
-`||` or a false `&&` on the path to it, each taken alone, leaves some
+`==` or the cases of a `switch`, those facts including what the early
+exits of an `else if` chain and the cases of a `switch` give the code
+after it: each link or case that leaves, while every one tried before it
+leaves too, its condition or values being false, a case ending in
+`fallthrough` leaving when the case it falls into does, and the first
+that does not leave, when every one after it leaves and a `default` or
+an `else` is among them, its condition or values being true; when
+every side of a true `||` or a false `&&` on the path to it, each taken
+alone, leaves some
 variable no value with the facts there, those arriving after the
 condition included; or when the relations in force contradict. The
-values ruled out, the sides of such a condition, and the facts an
-else-if chain or such a switch gives count only for this proof. Each fact counts only where it holds:
+values ruled out and the sides of such a condition count only for this
+proof. Each fact counts only where it holds:
 a write that can reach the place ends it.
 
 ```tack run exit=0
