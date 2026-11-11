@@ -223,10 +223,17 @@
 // block, each region's by a binary search (region.go), so n early exits
 // do not walk the rest of their block n times. Every write in the region
 // is kept with the fact, and judged at c.at, where checking has reached
-// (see reaches);
+// (see reaches); the writes of the rest of a block to one variable are
+// kept once, as one list, for the facts the block's statements put in
+// force over it, each holding the end of the list from its own rest's
+// first statement (sharedEnds, region.go), so n early exits that each
+// prove again what the code between them writes do not each keep the
+// writes after them;
 // a fact with more than a few such writes is judged through an index of
-// the positions each reaches, built once, so judging n writes at n uses
-// takes about n log n steps, not n times n (reach.go). A
+// the positions each reaches, built once, and the end of a shared list
+// through an index of the whole list, built once for every fact holding
+// part of it, so judging n writes at n uses takes about n log n steps,
+// not n times n (reach.go). A
 // counting loop's start and a range loop's bound are not proven again on
 // a later pass, so any write in their region ends them. A successful
 // append, its error proven 0, proves its list's length at least the count
@@ -682,7 +689,8 @@
 // out, each condition whose facts are worked out rather than taken from
 // the && or || chain kept, each node a region's writes are indexed
 // from, each write a fact's query judges and each step of the reach
-// index it reads, each operator or operand an arithmetic bound
+// index it reads, each write put in a fact's endings or a shared list of
+// them, each operator or operand an arithmetic bound
 // reads, each if, switch, fallthrough or loop whether it leaves or
 // terminates is worked out for, and each statement copied into a region
 // for the facts a statement before it gives, which the regions over the
@@ -964,7 +972,10 @@
 // stored, returned or held (see closure.go). A closure's body is checked
 // where it is written, as a block of the function holding it but with its
 // own results, loops, defers and cases, and with only the facts about
-// variables nothing can write in force; its captures are recorded on it
+// variables nothing can write in force, read in place among the facts
+// in force where it is written rather than copied into it, so a closure
+// after each of n early exits does not copy the facts in force n times
+// (see enterClosure); its captures are recorded on it
 // and count as borrowed arguments of the call it is passed to, a capture
 // it writes as a mut argument (see checkCaptures and writersIn); a write
 // in it is a write where it is written, and a closure is a loop around its

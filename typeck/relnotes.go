@@ -163,7 +163,7 @@ func (g *relGraph) failing(cond noWrap) (string, bool) {
 // compared reports whether a fact in scope, in force or dropped, names
 // both a and b.
 func (c *Checker) compared(a, b factKey) bool {
-	for _, f := range c.active {
+	for _, f := range c.inForce() {
 		keys := append([]factKey{f.about}, f.keys()...)
 		if slices.Contains(keys, a) && slices.Contains(keys, b) {
 			return true
@@ -174,7 +174,7 @@ func (c *Checker) compared(a, b factKey) bool {
 
 // isLength reports whether a fact in force uses k as a length.
 func (c *Checker) isLength(k factKey) bool {
-	for _, f := range c.active {
+	for _, f := range c.inForce() {
 		if f.lenOf == k || f.atMostLen == k || f.diff != nil &&
 			(f.diff.x == k && f.diff.xLen || f.diff.y == k && f.diff.yLen) {
 			return true

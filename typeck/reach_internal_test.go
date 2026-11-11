@@ -36,6 +36,30 @@ func TestReachIndexMatchesScanOnRandomEndings(t *testing.T) {
 	}
 }
 
+// TestSuffixIndexesMatchScanOnRandomEndings checks, on random lists of
+// endings asked about from random positions in them, at random positions
+// in random states of the checker, as TestReachIndexMatchesScanOnRandomEndings
+// does, that the indexes of a list shared by the facts over the rest of a
+// block find, among the endings from that position on, the one a scan of
+// them finds (see sharedReach).
+func TestSuffixIndexesMatchScanOnRandomEndings(t *testing.T) {
+	r := rand.New(rand.NewPCG(3, 4))
+	for trial := range 20000 {
+		list := randomEndings(r)
+		sh := &sharedEnds{list: list}
+		for range 20 {
+			c := &Checker{}
+			randomReachState(r, c)
+			from := r.IntN(len(list) + 1)
+			got, want := c.sharedReach(sh, from), c.scanReach(list[from:])
+			if got != want {
+				t.Fatalf("trial %d: from %d, at %d, defer %v, storing %v, late %v: the index finds %d, a scan %d\nendings %s",
+					trial, from, c.at, c.deferSpan, c.storing, c.lateDefaults, got, want, showEndings(list))
+			}
+		}
+	}
+}
+
 // reachRange is how far the random positions of
 // TestReachIndexMatchesScanOnRandomEndings run.
 const reachRange = 40

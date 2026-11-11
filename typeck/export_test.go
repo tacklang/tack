@@ -2,7 +2,7 @@ package typeck
 
 // ProverWork is how many steps a checker's provers took (see proverWork).
 type ProverWork struct {
-	Arithmetic, Relations, Indexed, Scanned, Locals, Conditions, Walked, Leaving, Judged, Reached, Ranged, Decided, Copied int
+	Arithmetic, Relations, Indexed, Scanned, Locals, Conditions, Walked, Leaving, Judged, Reached, Ranged, Decided, Copied, Ended int
 }
 
 // ProverWork returns how many steps c's provers have taken.
@@ -22,6 +22,7 @@ func (c *Checker) ProverWork() ProverWork {
 		w.ranged,
 		w.decided,
 		w.copied,
+		w.ended,
 	}
 }
 
@@ -89,6 +90,17 @@ func CheckRegions() (restore func()) {
 // the nodes walked grow with the regions times the block.
 func RegionOracle() bool {
 	return regionOracle
+}
+
+// CheckClosureView makes every read of the facts or guards in force in a
+// closure's body be checked against those a copy of them made as the
+// body is entered would hold, panicking on a difference (see
+// closureOracle), and returns the func that puts back what was set. A
+// test calling it must not run in parallel.
+func CheckClosureView() (restore func()) {
+	was := closureOracle
+	closureOracle = true
+	return func() { closureOracle = was }
 }
 
 // CheckFactIndex makes every query of the facts in force read their

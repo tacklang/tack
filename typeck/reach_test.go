@@ -28,14 +28,14 @@ type reachShape struct {
 // switch inside a loop, an else if chain, a loop holding ifs that write
 // and return, and straight-line code that writes j and proves it again
 // before each use, each early exit's fact keeping every write to j after
-// it, so it is measured only up to 4000.
+// it.
 var reachShapes = []reachShape{
 	{"switch", switchWrites, 16000},
 	{"switch writing in loops", switchLoopWrites, 16000},
 	{"switch in a loop", loopedSwitchWrites, 16000},
 	{"else if chain", elseIfWrites, 16000},
 	{"loop of leaving ifs", loopIfWrites, 16000},
-	{"straight line", straightWrites, 4000},
+	{"straight line", straightWrites, 16000},
 }
 
 // provenJ returns the lines that start every shape: j, a copy of i, and
@@ -147,27 +147,22 @@ func BenchmarkWriteReach(b *testing.B) {
 	}
 }
 
-// TestManyWritesAndUsesCheckQuickly checks that each shape but straight
-// line code, with thousands of writes to j in leaving branches or cases
-// and as many uses of a[j] after them, is checked in steps linear in its
-// writes and uses (see checkGrowth): the endings asked about, the steps
-// of the reach index built over them, and the keeps they are judged
-// against. Asking whether every write reaches every use, as a scan of a
-// fact's endings at each use does, would make them quadratic. Straight
-// line code proves j again before each use, and each early exit's fact
-// keeps every write to j after it and is asked about at every use after
-// it (see docs/known-bugs.md), so only the nodes walked for its writes
-// are bounded (see TestRegionsShareTheRestOfABlock). With
-// the oracle on, every query scans the endings too, so the test is
-// skipped.
+// TestManyWritesAndUsesCheckQuickly checks that each shape, with
+// thousands of writes to j and as many uses of a[j] after them, is
+// checked in steps linear in its writes and uses (see checkGrowth): the
+// endings asked about, the steps of the reach index built over them, the
+// keeps they are judged against, and the endings put in the facts'
+// endings. Asking whether every write reaches every use, as a scan of a
+// fact's endings at each use does, would make them quadratic, and so, in
+// straight line code, which proves j again before each use, would giving
+// each early exit's fact endings of its own for every write to j after
+// it, or indexing them for each (see sharedEnds). With the oracle on,
+// every query scans the endings too, so the test is skipped.
 func TestManyWritesAndUsesCheckQuickly(t *testing.T) {
 	if typeck.ReachOracle() {
 		t.Skip("the reach oracle scans every fact's endings at every query")
 	}
 	for _, shape := range reachShapes {
-		if shape.name == "straight line" {
-			continue
-		}
 		t.Run(shape.name, func(t *testing.T) {
 			diags, small := checkWork(t, inF(shape.lines(500)...))
 			if len(diags) > 0 {
@@ -178,7 +173,11 @@ func TestManyWritesAndUsesCheckQuickly(t *testing.T) {
 				t.Fatalf("got %d diagnostics, first %v", len(diags), diags[0])
 			}
 			checkGrowth(t, "steps finding the writes that reach a use", small.Reached, grown.Reached)
-			checkGrowth(t, "branches writes are judged against", small.Judged, grown.Judged)
+			if shape.name != "straight line" {
+				// Straight line code writes j in no leaving branch.
+				checkGrowth(t, "branches writes are judged against", small.Judged, grown.Judged)
+			}
+			checkGrowth(t, "endings put in facts' endings", small.Ended, grown.Ended)
 		})
 	}
 }
@@ -230,9 +229,9 @@ func storedUses(n int) []string {
 }
 
 // TestReachIndexMatchesScanOnPrograms checks every case of
-// examples/invalid.txtar and examples/warnings.txtar, every shape, and
+// examples/invalid.txtar and examples/warnings.txtar, every shape,
 // shapes whose uses are in deferred code, a late default and an
-// assignment's targets, each at sizes on both sides of the count of
+// assignment's targets, and the shared endings shapes, each at sizes on both sides of the count of
 // endings a scan answers for, with every query of a fact's endings read
 // through their index and checked against a scan of them (see
 // typeck.CheckReachIndex), which panics on a difference. Whether a
@@ -268,4 +267,5 @@ func TestReachIndexMatchesScanOnPrograms(t *testing.T) {
 			check(t, fmt.Sprintf("%s/%d", shape.name, n), []byte(inF(shape.lines(n)...)))
 		}
 	}
+	checkSharedShapes(t, check)
 }

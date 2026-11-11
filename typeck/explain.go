@@ -984,7 +984,7 @@ func (c *Checker) operandNotes(operand ast.Expr) []diag.Diagnostic {
 		}
 		seen = append(seen, k)
 		f, bounded := setting(
-			c.active,
+			c.factsInForce(),
 			func(f fact) bool {
 				return f.about == k && c.holds(f) && !f.relational() && !f.guard.silent()
 			},
@@ -1069,7 +1069,7 @@ func provenList() string {
 func (c *Checker) fieldNotes(path ast.Expr) []diag.Diagnostic {
 	for i := len(c.guards) - 1; i >= 0; i-- {
 		g := c.guards[i]
-		if g.cond == nil || !compares(g.cond, path) {
+		if g.cond == nil || !c.guardInForce(i) || !compares(g.cond, path) {
 			continue
 		}
 		return []diag.Diagnostic{note(g.cond.Spanned(), g.subject()+

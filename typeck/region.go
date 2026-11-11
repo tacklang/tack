@@ -39,10 +39,38 @@ import (
 // for, as indexWrites asks them when it walks a region, never when the
 // block was walked (see regionIndex).
 //
+// A block of n early exits that each prove again what the code between
+// them writes would still give n facts endings for the writes of the
+// rest of the block after each, n squared in all, and an index of each
+// fact's for the first query of it. So the endings of a rest's writes to
+// one declaration are judged once, for the facts that assume puts in
+// force (see sharedEnds): the first fact over a rest of the block that
+// asks for them has the writes to the declaration from the rest's first
+// statement on judged as restWrites and restDrop judge them, and every
+// fact over a rest from that statement or a later one takes, as a run
+// of its endings, the end of that list from the first write its rest
+// holds, sharing the list and its indexes (see reach.go).
+//
+// A judgment turns on the declaration and the write alone, never on the
+// fact asking, but on what the checker has recorded at the time, the
+// types throughList reads and the method factCallee names. Those are
+// recorded on a node as checking reaches it, and checking a statement
+// records them only on the nodes inside it, so between two facts put in
+// force over the rest of one block nothing the later one's rest holds is
+// reached: the block's statements are checked in order, and both facts
+// are put in force after checking the statement before their rest. So
+// what a write in the later rest was judged when the first fact asked is
+// what it would be judged when the later one does. A fact whose endings
+// are found later than it is put in force, as an unreachable place's
+// sides (see indexProven) and a known value's start (see startFact) are,
+// once checking has reached some of the rest's statements, never shares
+// them, and its rest's writes are judged then.
+//
 // An index that answered differently from a walk of the region could
 // keep a fact in force past a write that ends it, so when the tests set
 // regionOracle every query is checked against indexWrites over all of
-// the region's nodes.
+// the region's nodes, and a shared one also against the endings judged
+// for it alone.
 
 // regionOracle says to check every query of a region's writes against
 // an index of a walk of all the region's nodes, panicking on a
@@ -74,6 +102,23 @@ type blockRest struct {
 type blockRegion struct {
 	nodes  []ast.Node
 	writes map[ast.Decl][]blockWrite
+	ends   map[ast.Decl]*sharedEnds
+}
+
+// sharedEnds is the endings of the writes to one declaration in the
+// statements of a block from the one at from on, judged once, when the
+// first fact over a rest of the block from there asked for them, as
+// restWrites and restDrop judge them, and shared by every fact over a
+// rest from there or later (see region.go): list, in the order a walk
+// meets them, and nodes, the position in the block of the statement
+// holding each. byUse and byAt are indexes of list, built the first time
+// a query needs one (see reach.go).
+type sharedEnds struct {
+	from  int
+	list  []ending
+	nodes []int
+	byUse *suffixReach
+	byAt  *suffixAt
 }
 
 // blockWrite is a write a walk of a block found, as indexNode would
@@ -190,6 +235,7 @@ type regionIndex struct {
 	rest  blockRest
 	drops map[*blockWrite]*drop
 	r     region
+	share bool
 }
 
 // indexRegion returns the regionIndex of r, walking r's head, but not
@@ -200,6 +246,52 @@ func (c *Checker) indexRegion(r region) *regionIndex {
 		ri.head = c.indexWrites(r.head)
 	}
 	return ri
+}
+
+// indexAssumed returns indexRegion's regionIndex of r for the facts
+// assume puts in force over it now, whose endings of r's rest are shared
+// with the other facts over the rest of its block (see region.go).
+func (c *Checker) indexAssumed(r region) *regionIndex {
+	ri := c.indexRegion(r)
+	ri.share = true
+	return ri
+}
+
+// sharedRun returns the run of endings of ri's rest's writes to decl,
+// shared with the other facts over the rest of its block: the end of the
+// block's sharedEnds for decl from the first write ri's rest holds,
+// judged the first time a fact asks and kept. It returns nil when the
+// rest holds no such write, and ok false when the block's endings for
+// decl were judged from a statement after the rest's first, for the
+// rest's writes to be judged for ri alone.
+func (ri *regionIndex) sharedRun(decl ast.Decl) (run *endings, ok bool) {
+	if ri.rest.empty() {
+		return nil, true
+	}
+	blk := ri.rest.blk
+	sh := blk.ends[decl]
+	if sh == nil {
+		sh = &sharedEnds{from: ri.rest.from}
+		for w := range ri.restWrites(decl) {
+			ri.c.work.ended++
+			e := w.write
+			e.drop = ri.restDrop(w, decl)
+			sh.list = append(sh.list, endingOf(e))
+			sh.nodes = append(sh.nodes, w.node)
+		}
+		if blk.ends == nil {
+			blk.ends = make(map[ast.Decl]*sharedEnds)
+		}
+		blk.ends[decl] = sh
+	}
+	if ri.rest.from < sh.from {
+		return nil, false
+	}
+	from := sort.SearchInts(sh.nodes, ri.rest.from)
+	if from == len(sh.list) {
+		return nil, true
+	}
+	return &endings{list: sh.list[from:], shared: sh, from: from}, true
 }
 
 // restWrites returns the writes ri's rest makes to decl, in the order a
@@ -251,13 +343,19 @@ func (ri *regionIndex) restDrop(w *blockWrite, decl ast.Decl) *drop {
 
 // endings returns what writeIndex.endings does for f over every node of
 // ri's region, head then rest, checked against it when regionOracle is
-// set.
+// set, and, when ri shares its rest's endings, against those judged for
+// f alone.
 func (ri *regionIndex) endings(f fact) *endings {
-	got := ri.findEndings(f)
+	got := ri.findEndings(f, ri.share)
 	if regionOracle {
 		want := ri.c.indexWrites(ri.r.nodes()).endings(f)
 		if why := differentEndings(got, want); why != "" {
 			panic(fmt.Sprintf("typeck: a region's shared rest finds other writes than a walk of it: %s", why))
+		}
+		if ri.share {
+			if why := differentEndings(got, ri.findEndings(f, false)); why != "" {
+				panic(fmt.Sprintf("typeck: a block's shared endings differ from those judged for one fact: %s", why))
+			}
 		}
 	}
 	return got
@@ -265,9 +363,27 @@ func (ri *regionIndex) endings(f fact) *endings {
 
 // findEndings is endings without the check: for each declaration f's
 // keys name, once each, the writes to it in the head, then those in the
-// rest, nil when there are none.
-func (ri *regionIndex) findEndings(f fact) *endings {
-	var ends []ending
+// rest, as runs of f's own endings and, when share is set, runs of the
+// endings of the rest shared with every fact over it (see sharedRun),
+// nil when there are none. Each ending put in a run of f's own counts as
+// work.
+func (ri *regionIndex) findEndings(f fact, share bool) *endings {
+	var first, last *endings
+	var own []ending
+	link := func(run *endings) {
+		if first == nil {
+			first = run
+		} else {
+			last.next = run
+		}
+		last = run
+	}
+	flush := func() {
+		if len(own) > 0 {
+			link(&endings{list: own})
+			own = nil
+		}
+	}
 	var buf [7]factKey
 	var seenBuf [7]ast.Decl
 	seen := seenBuf[:0]
@@ -277,18 +393,27 @@ func (ri *regionIndex) findEndings(f fact) *endings {
 		}
 		seen = append(seen, k.decl)
 		for _, w := range ri.head[k.decl] {
-			ends = append(ends, endingOf(w))
+			ri.c.work.ended++
+			own = append(own, endingOf(w))
+		}
+		if share {
+			if run, ok := ri.sharedRun(k.decl); ok {
+				if run != nil {
+					flush()
+					link(run)
+				}
+				continue
+			}
 		}
 		for w := range ri.restWrites(k.decl) {
+			ri.c.work.ended++
 			e := w.write
 			e.drop = ri.restDrop(w, k.decl)
-			ends = append(ends, endingOf(e))
+			own = append(own, endingOf(e))
 		}
 	}
-	if len(ends) == 0 {
-		return nil
-	}
-	return &endings{list: ends}
+	flush()
+	return first
 }
 
 // endingOf returns the ending of w, a write in a writeIndex, or of a
@@ -307,13 +432,7 @@ func endingOf(w write) ending {
 // drop, the same loop, the same position, and keeps the same along the
 // chain, each with the same skip.
 func differentEndings(got, want *endings) string {
-	var g, w []ending
-	if got != nil {
-		g = got.list
-	}
-	if want != nil {
-		w = want.list
-	}
+	g, w := got.all(), want.all()
 	if (got == nil) != (want == nil) || len(g) != len(w) {
 		return fmt.Sprintf("%d endings, a walk finds %d", len(g), len(w))
 	}

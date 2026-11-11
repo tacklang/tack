@@ -313,7 +313,7 @@ func (c *Checker) factsAtSwitch(s *ast.Switch) []fact {
 // without a write to end it, for the code that joins it.
 func (c *Checker) factsHere() []fact {
 	var facts []fact
-	for _, f := range c.active {
+	for _, f := range c.inForce() {
 		if f.empty() || f.relational() || f.either != nil || !c.holds(f) {
 			continue
 		}

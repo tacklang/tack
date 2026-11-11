@@ -27,7 +27,7 @@ func guardedExits(n int) []string {
 // many uses after it as links.
 var regionShapes = []reachShape{
 	{"early exits", guardedExits, 16000},
-	{"straight line", straightWrites, 4000},
+	{"straight line", straightWrites, 16000},
 	{"else if chain", elseIfWrites, 16000},
 }
 
@@ -84,10 +84,12 @@ func BenchmarkRegions(b *testing.B) {
 
 // TestRegionIndexMatchesWalkOnPrograms checks every case of
 // examples/invalid.txtar and examples/warnings.txtar, and the region,
-// reach and leaving shapes, each at a few sizes, with every query of a
-// region's writes checked against an index of a walk of the region's
-// nodes, as each region was indexed before its rest was shared (see
-// typeck.CheckRegions), which panics on a difference. Whether a program
+// reach, leaving and shared endings shapes, each at a few sizes, with
+// every query of a region's writes checked against an index of a walk of
+// the region's nodes, as each region was indexed before its rest was
+// shared, and a fact's endings shared with others over the rest of its
+// block against those judged for it alone (see typeck.CheckRegions),
+// which panics on a difference. Whether a program
 // is accepted does not matter here, only that both find the same writes.
 func TestRegionIndexMatchesWalkOnPrograms(t *testing.T) {
 	defer typeck.CheckRegions()()
@@ -125,4 +127,5 @@ func TestRegionIndexMatchesWalkOnPrograms(t *testing.T) {
 			check(t, fmt.Sprintf("%s/%d", shape.name, n), []byte(inF(shape.lines(n)...)))
 		}
 	}
+	checkSharedShapes(t, check)
 }

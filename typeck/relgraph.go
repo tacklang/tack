@@ -57,7 +57,7 @@ func (c *Checker) relationIndex() *relIndex {
 	}
 	idx := &relIndex{gen: c.factGen, adj: make(map[factKey][]int), isLen: make(map[factKey]bool)}
 	var stored []int
-	for i, f := range c.active {
+	for i, f := range c.inForce() {
 		c.work.indexed++
 		switch {
 		case !f.inMap.isZero():
@@ -85,7 +85,7 @@ func (c *Checker) relationIndex() *relIndex {
 			continue
 		}
 		last[f.about] = true
-		if f.ends == nil || len(f.ends.list) <= reachScanLimit {
+		if f.ends == nil || f.ends.count() <= reachScanLimit {
 			idx.addStored(i, f)
 		}
 	}

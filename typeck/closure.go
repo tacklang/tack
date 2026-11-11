@@ -2,6 +2,7 @@ package typeck
 
 import (
 	"fmt"
+	"iter"
 	"slices"
 
 	"github.com/tacklang/tack/ast"
@@ -244,8 +245,8 @@ type closureState struct {
 	inRejectedDefer                       bool
 	clauses                               []clauseAt
 	active                                []fact
-	factsBy                               *subjectIndex
 	guards                                []*guard
+	outerFacts, outerGuards               int
 	proven                                []proofOnly
 	starts                                []start
 	invFrames                             []*invFrame
@@ -273,12 +274,27 @@ type closureState struct {
 // gave them. What the call it is an argument of is checking for itself,
 // an inference among it, is nothing the body's own expressions are part
 // of.
+//
+// The facts and guards in force where the closure is written stay where
+// they are, in active and guards, with the index of the facts by subject,
+// and those the body may not read are passed over as they are read (see
+// inForce), so entering a closure copies none of them: a block of n early
+// exits, each followed by a closure, would otherwise copy the facts in
+// force n times. The facts before outerFacts are the outer ones, and of
+// those, only the ones keepsInClosure keeps are in force in the body,
+// which kept lists as facts are put in force, and keptAt marks; the body
+// puts its own facts in force after them, and releases them before it
+// ends. So the facts in force in the body are those that were copied
+// into it before, in the same order, and the index, which holds the
+// outer facts the body may not read too, is kept in step with all of
+// them, and so is as current after the body as before it.
 func (c *Checker) enterClosure(lit *ast.FuncLit) closureState {
 	saved := closureState{
 		fn: c.fn, loops: c.loops, deferred: c.deferred, deferLoops: c.deferLoops,
 		dead: c.dead, at: c.at, inCoveredDefault: c.inCoveredDefault,
 		inRejectedDefer: c.inRejectedDefer, clauses: c.clauses,
-		active: c.active, factsBy: c.factsBy, guards: c.guards, proven: c.proven, starts: c.starts,
+		active: c.active, guards: c.guards, outerFacts: c.outerFacts, outerGuards: c.outerGuards,
+		proven: c.proven, starts: c.starts,
 		invFrames: c.invFrames, appends: c.appends, chain: c.chain, inference: c.inference,
 		viewSlice: c.viewSlice, checkedSlice: c.checkedSlice, viewCall: c.viewCall,
 		droppedCall: c.droppedCall, checkedTake: c.checkedTake, checkedIndex: c.checkedIndex,
@@ -290,18 +306,10 @@ func (c *Checker) enterClosure(lit *ast.FuncLit) closureState {
 	c.loops, c.deferred, c.deferLoops, c.dead, c.inCoveredDefault = 0, 0, 0, 0, 0
 	c.inRejectedDefer = false
 	c.clauses = nil
-	var active []fact
-	var guards []*guard
-	for _, f := range c.active {
-		if c.keepsInClosure(f) {
-			active = append(active, f)
-			if !slices.Contains(guards, f.guard) {
-				guards = append(guards, f.guard)
-			}
-		}
+	c.outerFacts, c.outerGuards = len(c.active), len(c.guards)
+	if closureOracle {
+		c.checkClosureView()
 	}
-	c.active, c.guards = active, guards
-	c.factsBy = nil
 	c.proven, c.starts, c.invFrames, c.appends = nil, nil, nil, nil
 	c.chain = chainFacts{}
 	c.inference = nil
@@ -317,14 +325,171 @@ func (c *Checker) leaveClosure(s closureState) {
 	c.fn = s.fn
 	c.loops, c.deferred, c.deferLoops, c.dead, c.at = s.loops, s.deferred, s.deferLoops, s.dead, s.at
 	c.inCoveredDefault, c.inRejectedDefer, c.clauses = s.inCoveredDefault, s.inRejectedDefer, s.clauses
+	c.unindexFacts(len(s.active))
 	c.active, c.guards, c.proven, c.starts = s.active, s.guards, s.proven, s.starts
-	c.factsBy = s.factsBy
+	c.popKept(len(s.active), len(s.guards))
+	c.outerFacts, c.outerGuards = s.outerFacts, s.outerGuards
 	c.invFrames, c.appends, c.chain, c.inference = s.invFrames, s.appends, s.chain, s.inference
 	c.viewSlice, c.checkedSlice, c.viewCall = s.viewSlice, s.checkedSlice, s.viewCall
 	c.droppedCall, c.checkedTake, c.checkedIndex = s.droppedCall, s.checkedTake, s.checkedIndex
 	c.checkedDivision, c.checkedArith, c.checkedAssert = s.checkedDivision, s.checkedArith, s.checkedAssert
 	c.assigning, c.passedOn, c.deferredOverflow, c.scopeUse = s.assigning, s.passedOn, s.deferredOverflow, s.scopeUse
 	c.factGen++
+}
+
+// pushKept records whether keepsInClosure keeps f, the fact just put in
+// force, last in active: in keptAt, in kept when it does, and for its
+// guard, the last, in guardKept.
+func (c *Checker) pushKept(f fact) {
+	keep := c.keepsInClosure(f)
+	c.keptAt = append(c.keptAt, keep)
+	if keep {
+		c.kept = append(c.kept, len(c.active)-1)
+		c.guardKept[len(c.guardKept)-1] = true
+	}
+}
+
+// popKept forgets what pushKept recorded for the facts from position
+// facts of active on, and for the guards from position guards on, as
+// release takes them out of force.
+func (c *Checker) popKept(facts, guards int) {
+	c.keptAt = c.keptAt[:facts]
+	for len(c.kept) > 0 && c.kept[len(c.kept)-1] >= facts {
+		c.kept = c.kept[:len(c.kept)-1]
+	}
+	c.guardKept = c.guardKept[:guards]
+}
+
+// inForce returns the facts in force, in order, with their positions in
+// active: every one, outside a closure's body, and in one, the outer
+// facts keepsInClosure keeps, found through kept, then the body's own
+// (see enterClosure). So reading the facts in force in a body reads no
+// more of them than a copy of them would have held. When the tests set
+// closureOracle, what a body reads is checked first (see
+// checkClosureView).
+func (c *Checker) inForce() iter.Seq2[int, fact] {
+	if closureOracle {
+		c.checkClosureView()
+	}
+	return c.viewFacts()
+}
+
+// viewFacts is inForce without the check.
+func (c *Checker) viewFacts() iter.Seq2[int, fact] {
+	return func(yield func(int, fact) bool) {
+		from := 0
+		if c.outerFacts > 0 {
+			for _, i := range c.kept {
+				if i >= c.outerFacts {
+					break
+				}
+				if !yield(i, c.active[i]) {
+					return
+				}
+			}
+			from = c.outerFacts
+		}
+		for i := from; i < len(c.active); i++ {
+			if !yield(i, c.active[i]) {
+				return
+			}
+		}
+	}
+}
+
+// factsInForce returns the facts in force, as inForce gives them, in a
+// slice: active itself outside a closure's body, and a copy in one.
+func (c *Checker) factsInForce() []fact {
+	if c.outerFacts == 0 {
+		return c.active
+	}
+	var out []fact
+	for _, f := range c.inForce() {
+		out = append(out, f)
+	}
+	return out
+}
+
+// factInForce reports whether the fact at position i of active is in
+// force: a fact of the closure's body being checked, or of none, or an
+// outer one keepsInClosure keeps (see enterClosure).
+func (c *Checker) factInForce(i int) bool {
+	return i >= c.outerFacts || c.keptAt[i]
+}
+
+// guardInForce reports whether the guard at position i of guards is in
+// force: one of the closure's body being checked, or of none, or an
+// outer one that gave a fact keepsInClosure keeps (see enterClosure).
+// When the tests set closureOracle, what a body reads is checked first
+// (see checkClosureView), once for each guard read.
+func (c *Checker) guardInForce(i int) bool {
+	if closureOracle {
+		c.checkClosureView()
+	}
+	return c.guardInView(i)
+}
+
+// guardInView is guardInForce without the check.
+func (c *Checker) guardInView(i int) bool {
+	return i >= c.outerGuards || c.guardKept[i]
+}
+
+// closureOracle says to check, whenever a closure's body reads the facts
+// or guards in force, that they are those a copy of them made as the
+// body is entered would hold, panicking on a difference (see
+// checkClosureView). It is set in a build with the tag tackfactoracle,
+// and by the tests that compare the two, which set it only while no
+// other test runs.
+var closureOracle = factOracle
+
+// checkClosureView panics when the facts or guards in force, as inForce,
+// factInForce and guardInForce read them, are not those entering the
+// closure being checked copied into its body before they were left in
+// place (see enterClosure): of the facts before outerFacts, those
+// keepsInClosure keeps, judged afresh, in order, then the body's own;
+// and of the guards before outerGuards, the guards of those facts, each
+// once, in the order the facts give them, then the body's own. The
+// facts of a closure nested in another are those keepsInClosure keeps
+// of the facts in force in the other, which are those it keeps of the
+// facts before the other's body and the other's own, so the same rule
+// holds for it with its own outerFacts and outerGuards. Outside a
+// closure's body every fact and guard is in force, and there is nothing
+// to check.
+func (c *Checker) checkClosureView() {
+	if c.outerFacts == 0 && c.outerGuards == 0 {
+		return
+	}
+	var want []int
+	var wantGuards []*guard
+	for i, f := range c.active {
+		if i >= c.outerFacts || c.keepsInClosure(f) {
+			want = append(want, i)
+		}
+		if i < c.outerFacts && c.keepsInClosure(f) && !slices.Contains(wantGuards, f.guard) {
+			wantGuards = append(wantGuards, f.guard)
+		}
+	}
+	var got []int
+	for i := range c.viewFacts() {
+		got = append(got, i)
+	}
+	if !slices.Equal(got, want) {
+		panic(fmt.Sprintf("typeck: a closure's body reads the facts at %v, a copy holds those at %v", got, want))
+	}
+	for i := range c.active {
+		if in := c.factInForce(i); in != slices.Contains(want, i) {
+			panic(fmt.Sprintf("typeck: a closure's body takes the fact at %d as in force: %v, a copy: %v", i, in, !in))
+		}
+	}
+	var gotGuards []*guard
+	for i, g := range c.guards[:c.outerGuards] {
+		if c.guardInView(i) {
+			gotGuards = append(gotGuards, g)
+		}
+	}
+	if !slices.Equal(gotGuards, wantGuards) {
+		panic(fmt.Sprintf("typeck: a closure's body reads %d outer guards, a copy holds %d", len(gotGuards), len(wantGuards)))
+	}
 }
 
 // keepsInClosure reports whether f, a fact in force where a closure is

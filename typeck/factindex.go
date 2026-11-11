@@ -6,17 +6,18 @@ import (
 	"maps"
 	"reflect"
 	"slices"
+	"sort"
 )
 
 // The facts in force, c.active, change only when assume pushes facts or
 // release pops them; supposing swaps in a copy that differs only in what
-// each fact's drop and ends say, and a closure's body swaps in the facts
-// that stay in force in it (see enterClosure) and puts the outer ones
-// back after. Most queries of them ask about one subject, and a function
-// with n facts in force and n such queries would read n facts for each
-// of them. So when more than scanLimit facts are in force, a query reads
-// c.factsBy instead: for each subject, the positions in c.active of the
-// facts about it, in increasing order.
+// each fact's drop and ends say, and a closure's body reads, of the
+// outer facts, only those that stay in force in it, and pushes and pops
+// its own after them (see enterClosure). Most queries of them ask about
+// one subject, and a function with n facts in force and n such queries
+// would read n facts for each of them. So when more than scanLimit facts
+// are in force, a query reads c.factsBy instead: for each subject, the
+// positions in c.active of the facts about it, in increasing order.
 //
 // The index is built from one scan of c.active the first time a query
 // needs it, and from then on kept in step with c.active: assume adds the
@@ -27,9 +28,12 @@ import (
 // with n, not with n times the facts in force, as it would were the index
 // built again whenever the facts change. supposing keeps every fact where
 // it was, about what it was, so the index holds for its copy as it is; a
-// closure's body starts with no index, which a query in it builds for its
-// own facts, and leaveClosure puts back the one it replaced, kept in step
-// with the outer facts it saved.
+// closure's body shares the index with the code around it, which holds
+// the outer facts not in force in the body too, and a query in the body
+// passes over those (see factsAt). A fact a newer one shadows says the
+// same of the same subjects, so the two stay in force in a body or not
+// together (see keepsInClosure), and the body reads the shadowing one
+// whenever it would have read the one shadowed.
 //
 // A block of n early exits that each prove the same of a variable, which
 // the code between them writes, puts n facts about it in force, all alike
@@ -106,7 +110,7 @@ func (c *Checker) factsAbout(k factKey) iter.Seq[fact] {
 	if indexOracle {
 		c.checkFactIndex()
 	}
-	return c.factsAt(idx.by[k])
+	return c.factsAt(k, idx.by[k])
 }
 
 // heldFactsAbout returns facts in force whose subject is k, as
@@ -123,19 +127,19 @@ func (c *Checker) heldFactsAbout(k factKey) iter.Seq[fact] {
 		c.checkFactIndex()
 	}
 	if c.factsEdited > 0 {
-		return c.factsAt(idx.by[k])
+		return c.factsAt(k, idx.by[k])
 	}
 	if indexOracle {
 		c.checkHeld(k)
 	}
-	return c.factsAt(idx.held[k])
+	return c.factsAt(k, idx.held[k])
 }
 
 // scanFactsAbout returns the facts in force whose subject is k, read by
 // a scan of every one.
 func (c *Checker) scanFactsAbout(k factKey) iter.Seq[fact] {
 	return func(yield func(fact) bool) {
-		for _, f := range c.active {
+		for _, f := range c.inForce() {
 			c.work.scanned++
 			if f.about == k && !yield(f) {
 				return
@@ -144,11 +148,33 @@ func (c *Checker) scanFactsAbout(k factKey) iter.Seq[fact] {
 	}
 }
 
-// factsAt returns the facts at the positions at of c.active, in order.
-func (c *Checker) factsAt(at []int) iter.Seq[fact] {
+// factsAt returns the facts in force at the positions at of c.active,
+// in order, those positions being some of the facts about k. In a
+// closure's body, the outer facts not in force there are passed over
+// (see enterClosure): every one of them when k names a variable some
+// code can write, since no fact about it is kept, found by a binary
+// search for the body's own, and otherwise each as it is read. When the
+// tests set closureOracle, what a body reads is checked first (see
+// checkClosureView).
+func (c *Checker) factsAt(k factKey, at []int) iter.Seq[fact] {
+	all := at
+	if c.outerFacts > 0 && !k.isZero() && !immutableDecl(k.decl) {
+		at = at[sort.SearchInts(at, c.outerFacts):]
+	}
+	if closureOracle {
+		c.checkClosureView()
+		for _, i := range all[:len(all)-len(at)] {
+			if c.factInForce(i) {
+				panic(fmt.Sprintf("typeck: a query about %v in a closure's body passes over the fact at %d, which is in force", k, i))
+			}
+		}
+	}
 	return func(yield func(fact) bool) {
 		for _, i := range at {
 			c.work.scanned++
+			if !c.factInForce(i) {
+				continue
+			}
 			if !yield(c.active[i]) {
 				return
 			}
@@ -223,7 +249,7 @@ func (idx *subjectIndex) push(c *Checker, i int) {
 		held := idx.held[k]
 		for s := len(held) - 1; s >= 0 && s >= len(held)-shadowScan; s-- {
 			c.work.scanned++
-			if shadows(g, c.active[held[s]]) {
+			if shadows(g, c.active[held[s]], &c.work.ended) {
 				h = hidden{held[s], s}
 				idx.held[k] = slices.Delete(held, s, s+1)
 				break
@@ -263,32 +289,64 @@ func (idx *subjectIndex) pop(c *Checker, i int) {
 // subject, says all f says wherever f holds: the two say the same (see
 // sameSaid), the sides of a condition neither, neither was dropped where
 // it was put in force, and every write that can end g can end f (see
-// endsWithin).
-func shadows(g, f fact) bool {
+// endsWithin), each ending compared counting as work.
+func shadows(g, f fact, work *int) bool {
 	return g.drop == nil && f.drop == nil && g.either == nil && f.either == nil &&
-		sameSaid(g, f) && endsWithin(g.ends, f.ends)
+		sameSaid(g, f) && endsWithin(g.ends, f.ends, work)
 }
 
 // endsWithin reports whether every one of the endings g is also one of
 // f, at the same place, in the same outermost loop and held by the same
 // leaving branches, which reaches c.at exactly when the other does (see
 // reaches), and the endings of g come in the order f's do: so g holds
-// wherever f does. It walks each list once.
-func endsWithin(g, f *endings) bool {
+// wherever f does. When the runs of both are shared, run by run, each of
+// g's the end of the same list as f's, no shorter, the answer is yes
+// without a look at them (see runsWithin); otherwise it walks each list
+// once, each ending compared counting as work. When the tests set
+// indexOracle, the answer without a look is checked against the walk.
+func endsWithin(g, f *endings, work *int) bool {
 	if g == nil || g == f {
 		return true
 	}
 	if f == nil {
 		return false
 	}
-	j := 0
-	for _, e := range g.list {
-		for j < len(f.list) && !sameEnding(e, f.list[j]) {
-			j++
+	if runsWithin(g, f) {
+		if indexOracle && !walkWithin(g.all(), f.all(), new(int)) {
+			panic("typeck: shared endings found within others are not, by a walk of them")
 		}
-		if j == len(f.list) {
+		return true
+	}
+	return walkWithin(g.all(), f.all(), work)
+}
+
+// runsWithin reports whether g and f, endings, have as many runs, and
+// each run of g is shared from the same list as f's, from the same
+// position in it or a later one: each run of g is then the end of f's,
+// so the endings of g are among f's, in f's order.
+func runsWithin(g, f *endings) bool {
+	for ; g != nil && f != nil; g, f = g.next, f.next {
+		if g.shared == nil || g.shared != f.shared || g.from < f.from {
 			return false
 		}
+	}
+	return g == nil && f == nil
+}
+
+// walkWithin reports whether every ending of g is one of f, as
+// sameEnding says, in f's order, walking each once, each ending of f
+// compared counting as work.
+func walkWithin(g, f []ending, work *int) bool {
+	j := 0
+	for _, e := range g {
+		for j < len(f) && !sameEnding(e, f[j]) {
+			*work++
+			j++
+		}
+		if j == len(f) {
+			return false
+		}
+		*work++
 		j++
 	}
 	return true
@@ -351,12 +409,12 @@ func (c *Checker) checkHeld(k factKey) {
 	}
 	for _, i := range idx.by[k] {
 		f := c.active[i]
-		if !c.holds(f) {
+		if !c.factInForce(i) || !c.holds(f) {
 			continue
 		}
 		found := slices.ContainsFunc(idx.held[k], func(j int) bool {
 			g := c.active[j]
-			return c.holds(g) && reflect.DeepEqual(said(g), said(f))
+			return c.factInForce(j) && c.holds(g) && reflect.DeepEqual(said(g), said(f))
 		})
 		if !found {
 			panic(fmt.Sprintf("typeck: the fact at %d about %v holds at %d, and no fact held about it says the same", i, k, c.at))

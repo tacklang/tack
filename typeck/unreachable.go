@@ -291,7 +291,7 @@ func (c *Checker) factsContradict(check bool) bool {
 		return into
 	}
 	var base []fact
-	for _, f := range c.active {
+	for _, f := range c.inForce() {
 		if c.holds(f) {
 			base = append(base, f)
 		}
@@ -418,7 +418,7 @@ func (c *Checker) keyInterval(k factKey) interval {
 // value satisfies.
 func (c *Checker) relationsContradict() bool {
 	var seen []factKey
-	for _, f := range c.active {
+	for _, f := range c.inForce() {
 		if !f.relational() || !c.holds(f) {
 			continue
 		}
@@ -452,8 +452,8 @@ func (c *Checker) unreachableNotes() []diag.Diagnostic {
 	var notes []diag.Diagnostic
 	var globals []*ast.Var
 	var guards []*guard
-	for _, g := range c.guards {
-		if g.cond == nil || slices.Contains(guards, g) {
+	for i, g := range c.guards {
+		if g.cond == nil || !c.guardInForce(i) || slices.Contains(guards, g) {
 			continue
 		}
 		guards = append(guards, g)
@@ -483,7 +483,7 @@ func (c *Checker) unreachableNotes() []diag.Diagnostic {
 func (c *Checker) droppedNotes() []diag.Diagnostic {
 	var order []factKey
 	byKey := make(map[factKey][]int)
-	for i, f := range c.active {
+	for i, f := range c.inForce() {
 		if f.relational() || f.hasNe || f.guard == nil ||
 			f.guard.silent() || f.guard.kind == guardInvariant ||
 			!types.IsInteger(keyType(f.about)) || c.dropOf(f) == nil {

@@ -27,12 +27,11 @@ func localExits(n int) []string {
 // facts in force for the rest of the block, measured for how a query
 // reads them: exits bounding one variable, exits each bounding a new
 // local, and straight-line code that writes j and proves it again before
-// each use, each exit's fact keeping every write to j after it, so it is
-// measured only up to 4000.
+// each use, each exit's fact keeping every write to j after it.
 var factShapes = []reachShape{
 	{"exits bounding n", guardedExits, 16000},
 	{"exits bounding new locals", localExits, 16000},
-	{"straight line", straightWrites, 4000},
+	{"straight line", straightWrites, 16000},
 }
 
 // closedLocals returns localExits with each local also read by a closure
@@ -47,6 +46,71 @@ func closedLocals(n int) []string {
 			"call(func() { if a["+v+"] > 0 { report() } })", "t +%= a["+v+"]")
 	}
 	return append(lines, "return t")
+}
+
+// closedWrites returns straightWrites with a closure passed to call
+// after each exit, whose body proves nothing about j, which is mutable,
+// so none of the facts in force where it is written are in force in it.
+// A program holding it needs call (see withCall).
+func closedWrites(n int) []string {
+	lines := provenJ()
+	for range n {
+		lines = append(lines, "j = i", "if j < 0 || j >= len(a) {", "return -1", "}",
+			"call(func() { if a[0] > 0 { report() } })", "t +%= a[j]")
+	}
+	return append(lines, "return t")
+}
+
+// closureShapes are the programs with a closure after each of many early
+// exits: one whose body keeps the facts in force about each exit's local,
+// and one whose body keeps none of the facts about j.
+var closureShapes = []reachShape{
+	{"closed locals", closedLocals, 16000},
+	{"closed writes", closedWrites, 16000},
+}
+
+// TestClosuresAfterExitsGrowLinearly checks that blocks of thousands of
+// early exits, each followed by a closure, are checked reading facts
+// linearly in the exits (see checkGrowth): a closure's body reads the
+// facts in force where it is written that stay in force in it in place,
+// through the index of them kept in step with them, rather than through
+// a copy of them and an index built again from it for each closure,
+// which would make the facts read quadratic.
+func TestClosuresAfterExitsGrowLinearly(t *testing.T) {
+	for _, shape := range closureShapes {
+		t.Run(shape.name, func(t *testing.T) {
+			diags, small := checkWork(t, withCall(shape.lines(500)...))
+			if len(diags) > 0 {
+				t.Fatalf("got %d diagnostics, first %v", len(diags), diags[0])
+			}
+			diags, grown := checkWork(t, withCall(shape.lines(2000)...))
+			if len(diags) > 0 {
+				t.Fatalf("got %d diagnostics, first %v", len(diags), diags[0])
+			}
+			checkGrowth(t, "facts read", small.Scanned, grown.Scanned)
+		})
+	}
+}
+
+// BenchmarkClosuresAfterExits times checking each closure shape at 1000,
+// 4000 and 16000 exits.
+func BenchmarkClosuresAfterExits(b *testing.B) {
+	for _, shape := range closureShapes {
+		for _, n := range []int{1000, 4000, 16000} {
+			if n > shape.most {
+				continue
+			}
+			src := withCall(shape.lines(n)...)
+			b.Run(shape.name+"/"+strconv.Itoa(n), func(b *testing.B) {
+				for range b.N {
+					_, c := checkerFor(b, src)
+					if diags := errorsOf(c.Check()); len(diags) > 0 {
+						b.Fatalf("got %d diagnostics, first %v", len(diags), diags[0])
+					}
+				}
+			})
+		}
+	}
 }
 
 // withCall returns the program inF makes of body, with call, which calls
@@ -105,8 +169,8 @@ var relatedExits = inF("j := i", "k := n % 100", "mut t int64 = 0", "if j < 0 ||
 
 // TestFactIndexMatchesScanOnPrograms checks every case of
 // examples/invalid.txtar and examples/warnings.txtar, and the fact,
-// region and reach shapes, and shapes with closures, loops, leaving
-// writes and an unproven use, each at a few sizes, with every query of
+// region and reach shapes, shapes with closures, loops, leaving writes
+// and an unproven use, and the shared endings shapes, each at a few sizes, with every query of
 // the facts in force reading their index and checking it, and what the
 // query of the facts not shadowed reads, against a scan of every fact
 // (see typeck.CheckFactIndex), which panics on a difference. Whether a
@@ -140,10 +204,65 @@ func TestFactIndexMatchesScanOnPrograms(t *testing.T) {
 	shapes = append(shapes, reachShapes...)
 	shapes = append(shapes,
 		reachShape{"closed locals", closedLocals, 0},
+		reachShape{"closed writes", closedWrites, 0},
+		reachShape{"nested closures", nestedClosures, 0},
 		reachShape{"looped writes", loopedWrites, 0},
 		reachShape{"leaving writes", leavingWrites, 0},
 		reachShape{"unproven writes", unprovenWrites, 0},
 	)
+	for _, shape := range shapes {
+		for _, n := range []int{1, 3, 9, 17, 40} {
+			check(t, fmt.Sprintf("%s/%d", shape.name, n), []byte(withCall(shape.lines(n)...)))
+		}
+	}
+	checkSharedShapes(t, check)
+}
+
+// nestedClosures returns closedLocals with a closure in each closure's
+// body, written after an early exit in it that bounds a local of the
+// body's own, and reading both that local and the outer one, so the
+// facts in force in the inner body are some of the outer body's, some of
+// which are of the function around both.
+func nestedClosures(n int) []string {
+	lines := provenJ()
+	for k := range n {
+		v := "v" + strconv.Itoa(k)
+		lines = append(lines, v+" := i", "if "+v+" < 0 || "+v+" >= len(a) {", "return -1", "}",
+			"call(func() { w := n", "if w < 0 || w >= len(a) { return }",
+			"call(func() { if a["+v+"] > a[w] && j > 0 { report() } }) })", "t +%= a["+v+"]")
+	}
+	return append(lines, "return t")
+}
+
+// TestClosureViewMatchesCopyOnPrograms checks every case of
+// examples/invalid.txtar and examples/warnings.txtar, and the closure
+// shapes, nested closures among them, each at a few sizes, with every
+// read of the facts or guards in force in a closure's body checked
+// against those a copy of them made as the body is entered would hold
+// (see typeck.CheckClosureView), which panics on a difference. Whether a
+// program is accepted does not matter here, only that both read the same
+// facts.
+func TestClosureViewMatchesCopyOnPrograms(t *testing.T) {
+	defer typeck.CheckClosureView()()
+	check := func(t *testing.T, name string, src []byte) {
+		t.Helper()
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("%s: %v", name, r)
+			}
+		}()
+		checkWith(src, nil)
+	}
+	for _, path := range []string{invalid.Path, invalid.WarningsPath} {
+		cases, err := invalid.Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range cases {
+			check(t, c.Name, c.Source)
+		}
+	}
+	shapes := append(closureShapes[:len(closureShapes):len(closureShapes)], reachShape{"nested closures", nestedClosures, 0})
 	for _, shape := range shapes {
 		for _, n := range []int{1, 3, 9, 17, 40} {
 			check(t, fmt.Sprintf("%s/%d", shape.name, n), []byte(withCall(shape.lines(n)...)))
@@ -159,6 +278,8 @@ func TestFactIndexMatchesScanOnPrograms(t *testing.T) {
 func TestFactShapesAreChecked(t *testing.T) {
 	for _, shape := range []reachShape{
 		{"closed locals", closedLocals, 0},
+		{"closed writes", closedWrites, 0},
+		{"nested closures", nestedClosures, 0},
 		{"looped writes", loopedWrites, 0},
 		{"leaving writes", leavingWrites, 0},
 	} {

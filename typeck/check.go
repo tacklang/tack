@@ -218,9 +218,19 @@ type Checker struct {
 
 	// active holds the facts in force where checking has reached, innermost
 	// last, and guards the guards they came from, with any guard in scope
-	// that gave none; see facts.go and explain.go.
-	active []fact
-	guards []*guard
+	// that gave none; see facts.go and explain.go. In a closure's body,
+	// those before outerFacts and outerGuards are the function's around
+	// it, and only those keepsInClosure keeps are in force (see
+	// inForce): keptAt says, for each fact, whether it keeps it, kept is
+	// the positions in active of those it does, in increasing order, and
+	// guardKept says, for each guard, whether it gave one it does.
+	active      []fact
+	guards      []*guard
+	keptAt      []bool
+	kept        []int
+	guardKept   []bool
+	outerFacts  int
+	outerGuards int
 
 	// proven holds the facts where checking has reached kept apart from
 	// active, which only the proof of an unreachable place asks about

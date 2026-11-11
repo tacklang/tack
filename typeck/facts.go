@@ -1053,6 +1053,7 @@ func (c *Checker) assume(g *guard, facts []fact, nodes []ast.Node) {
 // shared with the other regions over it (see region.go).
 func (c *Checker) assumeIn(g *guard, facts []fact, r region) {
 	c.guards = append(c.guards, g)
+	c.guardKept = append(c.guardKept, false)
 	c.factGen++
 	var idx *regionIndex
 	for _, f := range facts {
@@ -1064,11 +1065,12 @@ func (c *Checker) assumeIn(g *guard, facts []fact, r region) {
 		f.guard = g
 		if f.drop == nil {
 			if idx == nil {
-				idx = c.indexRegion(r)
+				idx = c.indexAssumed(r)
 			}
 			f.ends = idx.endings(f)
 		}
 		c.active = append(c.active, f)
+		c.pushKept(f)
 		c.indexFact()
 	}
 }
@@ -1127,6 +1129,7 @@ func (c *Checker) release(m mark) {
 	c.unindexFacts(m.facts)
 	c.active = c.active[:m.facts]
 	c.guards = c.guards[:m.guards]
+	c.popKept(m.facts, m.guards)
 	c.starts = c.starts[:m.starts]
 	c.proven = c.proven[:m.proven]
 }

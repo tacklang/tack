@@ -40,6 +40,26 @@ import (
 // (see atIndex). The first ending that reaches c.at is the earlier of the
 // two answers.
 //
+// The endings of the facts over the rest of one block are, for each
+// declaration, suffixes of one list, the writes to it in the rest from
+// the first statement any fact's region holds on (see sharedEnds). So a
+// run of a fact's endings may be such a suffix, from some position in
+// the list on, answered by indexes of the whole list built once for
+// every fact over the rest: the first ending at or after from that
+// reaches c.at. For the positions each ending reaches, each interval of
+// its reachSet is put in the few nodes of a segment tree over the pieces
+// between the cuts that cover it, as the position of the ending in the
+// list, and since the endings are taken in order each node's positions
+// are in increasing order. The first ending at or after from reaching
+// c.at is then the least, of the first at or after from in each node on
+// the path from c.at's piece to the root, each found by a binary search
+// (see suffixReach). For the endings whose own position lies in an
+// interval, each node of a segment tree over the endings sorted by
+// position holds the positions in the list of those it covers, in
+// increasing order, and the first at or after from in the interval is
+// the least of the first at or after from in each node the interval
+// splits into (see suffixAt).
+//
 // An index that answered differently from reaches could keep a fact in
 // force past a write that ends it, so when the tests set reachOracle
 // every query reads the index, however few endings there are, and checks
@@ -57,14 +77,47 @@ const reachScanLimit = 16
 var reachOracle = factOracle
 
 // endings is every write in a fact's region that may end it, in the order
-// writeIndex.endings gives them, with the indexes of them a query builds
+// writeIndex.endings gives them, as a chain of runs of them through next,
+// each run's list in order and every ending of a run before those of the
+// next. A run is the fact's own, with the indexes of it a query builds
 // the first time it needs one: byUse, for the positions each ending
-// reaches, and byAt, for where each ending is. A fact copied shares its
-// endings, and with them their indexes, since the endings never change.
+// reaches, and byAt, for where each ending is. Or it is shared: list is
+// shared.list from the position from on, and shared's indexes answer for
+// it (see sharedEnds). A run's list is never empty. A fact copied shares
+// its endings, and with them their indexes, since the endings never
+// change.
 type endings struct {
-	list  []ending
-	byUse *reachIndex
-	byAt  *atIndex
+	list   []ending
+	byUse  *reachIndex
+	byAt   *atIndex
+	shared *sharedEnds
+	from   int
+	next   *endings
+}
+
+// count returns how many endings es holds, in all its runs.
+func (es *endings) count() int {
+	n := 0
+	for run := es; run != nil; run = run.next {
+		n += len(run.list)
+	}
+	return n
+}
+
+// all returns every ending of es, its runs one after the other, in a
+// slice of their own when there is more than one run.
+func (es *endings) all() []ending {
+	if es == nil {
+		return nil
+	}
+	if es.next == nil {
+		return es.list
+	}
+	var out []ending
+	for run := es; run != nil; run = run.next {
+		out = append(out, run.list...)
+	}
+	return out
 }
 
 // ival is the positions lo through hi, both included; it is empty when lo
@@ -313,28 +366,32 @@ func (c *Checker) placed() []ival {
 }
 
 // firstReach returns the drop of the first of es that reaches c.at, or
-// nil when none does: by asking reaches of each in turn when there are
-// few, and otherwise through their indexes, built the first time they
-// are needed (see reach.go).
+// nil when none does: the first that reaches it in the first of es's runs
+// one does, every ending of a run coming before those of the next.
 func (c *Checker) firstReach(es *endings) *drop {
-	if es == nil {
-		return nil
-	}
-	var i int
-	if len(es.list) <= reachScanLimit && !reachOracle {
-		i = c.scanReach(es.list)
-	} else {
-		i = c.indexedReach(es)
-		if reachOracle {
-			if want := c.scanReach(es.list); i != want {
-				panic(fmt.Sprintf("typeck: the reach index finds ending %d at %d, a scan finds %d", i, c.at, want))
-			}
+	for run := es; run != nil; run = run.next {
+		if i := c.firstInRun(run); i >= 0 {
+			return run.list[i].drop
 		}
 	}
-	if i < 0 {
-		return nil
+	return nil
+}
+
+// firstInRun returns the position in run's list of the first ending that
+// reaches c.at, or -1 for none: by asking reaches of each in turn when
+// there are few, and otherwise through their indexes, built the first
+// time they are needed (see reach.go).
+func (c *Checker) firstInRun(run *endings) int {
+	if len(run.list) <= reachScanLimit && !reachOracle {
+		return c.scanReach(run.list)
 	}
-	return es.list[i].drop
+	i := c.indexedReach(run)
+	if reachOracle {
+		if want := c.scanReach(run.list); i != want {
+			panic(fmt.Sprintf("typeck: the reach index finds ending %d at %d, a scan finds %d", i, c.at, want))
+		}
+	}
+	return i
 }
 
 // scanReach returns the position in list of the first ending that
@@ -350,11 +407,15 @@ func (c *Checker) scanReach(list []ending) int {
 	return -1
 }
 
-// indexedReach returns what scanReach does, through the indexes of es:
-// the earlier of the first ending reaching c.at by c.at alone, and the
-// first lying where one reaches it by where it is, when deferred code,
-// an assignment's targets or a late default is being checked.
+// indexedReach returns what scanReach does, through the indexes of es,
+// a run of endings, or of the list it is shared from: the earlier of the
+// first ending reaching c.at by c.at alone, and the first lying where
+// one reaches it by where it is, when deferred code, an assignment's
+// targets or a late default is being checked.
 func (c *Checker) indexedReach(es *endings) int {
+	if es.shared != nil {
+		return c.sharedReach(es.shared, es.from)
+	}
 	if es.byUse == nil {
 		es.byUse = c.newReachIndex(es.list)
 	}
@@ -365,6 +426,199 @@ func (c *Checker) indexedReach(es *endings) int {
 		}
 		if i := es.byAt.first(v, &c.work.reached); i >= 0 && (best < 0 || i < best) {
 			best = i
+		}
+	}
+	return best
+}
+
+// sharedReach returns what indexedReach does for the endings of sh from
+// the position from on, as a position among them: through sh's indexes,
+// built the first time they are needed, the first ending at or after
+// from that reaches c.at by c.at alone, or that lies where one reaches
+// it by where it is.
+func (c *Checker) sharedReach(sh *sharedEnds, from int) int {
+	if sh.byUse == nil {
+		sh.byUse = c.newSuffixReach(sh.list)
+	}
+	best := sh.byUse.at(c.at, from, &c.work.reached)
+	for _, v := range c.placed() {
+		if sh.byAt == nil {
+			sh.byAt = c.newSuffixAt(sh.list)
+		}
+		if i := sh.byAt.first(v, from, &c.work.reached); i >= 0 && (best < 0 || i < best) {
+			best = i
+		}
+	}
+	if best < 0 {
+		return -1
+	}
+	return best - from
+}
+
+// suffixReach answers which ending of a list, at or after some position
+// in it, is the first to reach a position, when no deferred code,
+// assignment's targets or late default is being checked: cuts are the
+// positions, in increasing order, where the answer may change, as a
+// reachIndex's are, and tree a segment tree over the pieces between
+// them, tree[len(cuts)+j] piece j's leaf and tree[i] the parent of
+// tree[2i] and tree[2i+1], each node holding, in increasing order, the
+// position in the list of every ending one of whose intervals covers the
+// pieces under it, and is put there, not in a node above or below.
+type suffixReach struct {
+	cuts []int
+	tree [][]int
+}
+
+// newSuffixReach returns the suffixReach of list, from the reachSet of
+// each of its endings, each interval put in the nodes that cover its
+// pieces and no more, the fewest whose pieces make it up. Each ending,
+// each interval and each node an interval is put in counts as work.
+func (c *Checker) newSuffixReach(list []ending) *suffixReach {
+	sets := make([][]ival, len(list))
+	var cuts []int
+	for i, e := range list {
+		c.work.reached++
+		sets[i] = c.reachSet(e)
+		for _, v := range sets[i] {
+			cuts = append(cuts, v.lo)
+			if v.hi < math.MaxInt {
+				cuts = append(cuts, v.hi+1)
+			}
+		}
+	}
+	slices.Sort(cuts)
+	cuts = slices.Compact(cuts)
+	n := len(cuts)
+	tree := make([][]int, 2*n)
+	for i, set := range sets {
+		for _, v := range set {
+			c.work.reached++
+			from, _ := slices.BinarySearch(cuts, v.lo)
+			to := n
+			if v.hi < math.MaxInt {
+				to, _ = slices.BinarySearch(cuts, v.hi+1)
+			}
+			for lo, hi := from+n, to+n; lo < hi; lo, hi = lo/2, hi/2 {
+				c.work.reached++
+				if lo&1 == 1 {
+					tree[lo] = append(tree[lo], i)
+					lo++
+				}
+				if hi&1 == 1 {
+					hi--
+					tree[hi] = append(tree[hi], i)
+				}
+			}
+		}
+	}
+	return &suffixReach{cuts: cuts, tree: tree}
+}
+
+// at returns the position in the list of the first ending at or after
+// from that reaches the position at, or -1 for none: the least, over the
+// nodes from at's piece up to the root, of the first position at or
+// after from each holds. Each step of its searches counts as work.
+func (r *suffixReach) at(at, from int, work *int) int {
+	n := len(r.cuts)
+	j := sort.Search(n, func(i int) bool {
+		*work++
+		return r.cuts[i] > at
+	})
+	if j == 0 {
+		return -1
+	}
+	best := -1
+	for node := j - 1 + n; node >= 1; node /= 2 {
+		*work++
+		if i := firstFrom(r.tree[node], from, work); i >= 0 && (best < 0 || i < best) {
+			best = i
+		}
+	}
+	return best
+}
+
+// firstFrom returns the first of list, in increasing order, at or after
+// from, or -1 for none. Each step of its search counts as work.
+func firstFrom(list []int, from int, work *int) int {
+	k := sort.Search(len(list), func(i int) bool {
+		*work++
+		return list[i] >= from
+	})
+	if k == len(list) {
+		return -1
+	}
+	return list[k]
+}
+
+// suffixAt finds the first ending of a list, at or after some position
+// in it, whose own position lies in an interval: ats is where each
+// ending is, in increasing order, and tree a segment tree over them,
+// tree[len(ats)+k] the leaf of the k-th, and tree[i] the parent of
+// tree[2i] and tree[2i+1], each node holding the positions in the list
+// of the endings under it, in increasing order.
+type suffixAt struct {
+	ats  []int
+	tree [][]int
+}
+
+// newSuffixAt returns the suffixAt of list, each node's positions merged
+// from its children's. Each ending, and each position merged into a
+// node, counts as work.
+func (c *Checker) newSuffixAt(list []ending) *suffixAt {
+	n := len(list)
+	order := make([]int, n)
+	for i := range order {
+		c.work.reached++
+		order[i] = i
+	}
+	slices.SortStableFunc(order, func(a, b int) int { return cmp.Compare(list[a].at, list[b].at) })
+	ats := make([]int, n)
+	tree := make([][]int, 2*n)
+	for k, i := range order {
+		ats[k] = list[i].at
+		tree[n+k] = []int{i}
+	}
+	for i := n - 1; i > 0; i-- {
+		a, b := tree[2*i], tree[2*i+1]
+		merged := make([]int, 0, len(a)+len(b))
+		for len(a) > 0 || len(b) > 0 {
+			c.work.reached++
+			if len(b) == 0 || len(a) > 0 && a[0] < b[0] {
+				merged, a = append(merged, a[0]), a[1:]
+			} else {
+				merged, b = append(merged, b[0]), b[1:]
+			}
+		}
+		tree[i] = merged
+	}
+	return &suffixAt{ats: ats, tree: tree}
+}
+
+// first returns the least position in the list, at or after from, of an
+// ending whose own position lies in v, or -1 for none. Each step of its
+// searches counts as work.
+func (x *suffixAt) first(v ival, from int, work *int) int {
+	if v.lo > v.hi {
+		return -1
+	}
+	n := len(x.ats)
+	lo := sort.Search(n, func(i int) bool { *work++; return x.ats[i] >= v.lo })
+	hi := sort.Search(n, func(i int) bool { *work++; return x.ats[i] > v.hi })
+	best := -1
+	take := func(node int) {
+		if i := firstFrom(x.tree[node], from, work); i >= 0 && (best < 0 || i < best) {
+			best = i
+		}
+	}
+	for lo, hi = lo+n, hi+n; lo < hi; lo, hi = lo/2, hi/2 {
+		*work++
+		if lo&1 == 1 {
+			take(lo)
+			lo++
+		}
+		if hi&1 == 1 {
+			hi--
+			take(hi)
 		}
 	}
 	return best

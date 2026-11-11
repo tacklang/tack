@@ -24,7 +24,11 @@ package typeck
 // worked out, rather than remembered (see leavememo.go); and copied each
 // statement of a block put into a region facts hold in, once for the
 // block, and each node put in a region's head, before the rest of a
-// block every region over it shares (see region.go). They count work,
+// block every region over it shares (see region.go); and ended each
+// ending put in a fact's own endings, or judged into the endings of a
+// block's rest that the facts over it share (see sharedEnds), and each
+// ending compared to find whether one fact's endings are among
+// another's (see endsWithin). They count work,
 // not time, so a test can bound how checking grows with the program
 // checked, whatever else the machine is doing.
 type proverWork struct {
@@ -41,4 +45,5 @@ type proverWork struct {
 	ranged     int
 	decided    int
 	copied     int
+	ended      int
 }

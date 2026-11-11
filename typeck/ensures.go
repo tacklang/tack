@@ -481,11 +481,14 @@ func (c *Checker) provesDiff(d *diffBound) bool {
 	if c.relates(x, y, d.w) {
 		return true
 	}
-	return slices.ContainsFunc(c.active, func(g fact) bool {
+	for _, g := range c.inForce() {
 		o := g.diff
-		return o != nil && o.x == d.x && o.y == d.y && o.xLen == d.xLen && o.yLen == d.yLen &&
-			o.w.Cmp(d.w) <= 0 && everyCond(o.conds, d.conds) && c.holds(g)
-	})
+		if o != nil && o.x == d.x && o.y == d.y && o.xLen == d.xLen && o.yLen == d.yLen &&
+			o.w.Cmp(d.w) <= 0 && everyCond(o.conds, d.conds) && c.holds(g) {
+			return true
+		}
+	}
+	return false
 }
 
 // everyCond reports whether each of conds is one of within.
