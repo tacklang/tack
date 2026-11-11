@@ -222,7 +222,7 @@ var listErrorCases = []struct{ name, src, want string }{
 	{
 		"append to a borrowed list",
 		listing("err := append(mut l, 1)", "if err.code != 0 {", "    return 1", "}"),
-		"cannot pass mut l: l is immutable; declare it with mut",
+		"cannot pass mut l: l is immutable; declare it with mut in the signature",
 	},
 	{
 		"use after move",
@@ -361,7 +361,7 @@ var listErrorCases = []struct{ name, src, want string }{
 	{
 		"reserve a borrowed list",
 		listing("err := reserve(mut l, 1)", "if err.code != 0 {", "    return 1", "}"),
-		"cannot pass mut l: l is immutable; declare it with mut",
+		"cannot pass mut l: l is immutable; declare it with mut in the signature",
 	},
 	{
 		"range then reserve",

@@ -140,6 +140,20 @@ type Checker struct {
 	// place.
 	rangeKeys map[*ast.Var]bool
 
+	// bindings holds the local variables no declaration can make mut,
+	// each with what it is, as a message about passing it as mut names
+	// it: a range loop's variables, a type switch's, and the binding of
+	// a union's payload. A variable is the same kind in every pass over
+	// its body, so, unlike rangeBindings, it is not among the records the
+	// first pass over a body keeps apart (see bodyRecords).
+	bindings map[*ast.Var]string
+
+	// closureParams holds the parameters of closures, whose signature the
+	// parameter each closure is passed to fixes, so declaring one mut
+	// would not type-check. It is filled before a closure's body is
+	// checked and, as bindings, kept across passes.
+	closureParams map[*ast.Param]bool
+
 	// ownReported holds the names checkOwnExclusive has reported, so a
 	// call around the one that reported a name does not report it again.
 	ownReported map[ast.Span]bool
@@ -388,6 +402,8 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 		unionBindings: make(map[*ast.Var]ast.Expr),
 		rangeBindings: make(map[*ast.Var]ast.Expr),
 		rangeKeys:     make(map[*ast.Var]bool),
+		bindings:      make(map[*ast.Var]string),
+		closureParams: make(map[*ast.Param]bool),
 		ownReported:   make(map[ast.Span]bool),
 		tagWrites:     make(map[*ast.Switch]tagWrite),
 
@@ -1142,6 +1158,7 @@ func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
 	index, elem := c.rangeTypes(loop, got)
 	if loop.Var != nil {
 		loop.Var.Type = index
+		c.bindings[loop.Var] = rangeVar
 		if c.table.IsMap(got) && c.table.Owned(index) {
 			c.rangeBindings[loop.Var] = loop.X
 			c.rangeKeys[loop.Var] = true
@@ -1149,6 +1166,7 @@ func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
 	}
 	if loop.Elem != nil {
 		loop.Elem.Type = elem
+		c.bindings[loop.Elem] = rangeVar
 		c.anyLocal(loop.Elem)
 		if c.table.Owned(elem) {
 			c.rangeBindings[loop.Elem] = loop.X

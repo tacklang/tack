@@ -3552,6 +3552,68 @@ mod-uppercase/tack.mod:1:8: error: invalid module name Calc: use lowercase lette
    |	       ^~~~
 02 |	
 
+-- mut-missing-imported-global/tack.mod --
+module calc
+-- mut-missing-imported-global/shapes/shapes.tck --
+package shapes
+
+pub type Box struct {
+    pub v int64
+    pub a [2]int64
+}
+
+pub func (mut b Box) set(n int64) {
+    b.v = n
+}
+
+pub var Origin Box = Box{v: 0, a: [2]int64{0, 0}}
+-- mut-missing-imported-global/main.tck --
+package main
+
+import shapes from "calc/shapes"
+
+func store(mut b shapes.Box, n int64) {
+    b.v = n
+}
+
+func bump(mut n int64) {
+    n +%= 1
+}
+
+func main() {
+    store(shapes.Origin, 1)
+    bump(shapes.Origin.v)
+    bump(shapes.Origin.a[1])
+    shapes.Origin.set(1)
+}
+-- mut-missing-imported-global/expected --
+stage: typeck
+---
+
+mut-missing-imported-global/main.tck:14:11: error: store takes b as mut, but shapes.Origin is immutable; copy it into a mutable local
+13 |	func main() {
+14 |	    store(shapes.Origin, 1)
+   |	          ^~~~~~~~~~~~~
+15 |	    bump(shapes.Origin.v)
+
+mut-missing-imported-global/main.tck:15:10: error: bump takes n as mut, but shapes.Origin is immutable; copy it into a mutable local
+14 |	    store(shapes.Origin, 1)
+15 |	    bump(shapes.Origin.v)
+   |	         ^~~~~~~~~~~~~~~
+16 |	    bump(shapes.Origin.a[1])
+
+mut-missing-imported-global/main.tck:16:10: error: bump takes n as mut, but shapes.Origin is immutable; copy it into a mutable local
+15 |	    bump(shapes.Origin.v)
+16 |	    bump(shapes.Origin.a[1])
+   |	         ^~~~~~~~~~~~~~~~~~
+17 |	    shapes.Origin.set(1)
+
+mut-missing-imported-global/main.tck:17:5: error: shapes.Box.set takes its receiver as mut, but shapes.Origin is immutable; copy it into a mutable local
+16 |	    bump(shapes.Origin.a[1])
+17 |	    shapes.Origin.set(1)
+   |	    ^~~~~~~~~~~~~
+18 |	}
+
 -- no-tack-mod/main.tck --
 package main
 

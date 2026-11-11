@@ -655,18 +655,32 @@ section remains the description of the language.
   argument, as before. The call writes `mut` before the argument,
   `scale(mut b, 10)`, and only there: leaving it out for a `mut` parameter
   is an error, `scale takes p as mut; pass mut b`, and so is writing it
-  for a plain one, `count does not take t as mut; pass t`. What follows
-  `mut` must be a place the caller may change: a mutable local, a `mut`
-  parameter, a field of one, `mut b.lo`, or an element of one whose index
-  is proven in range (see arrays), `mut cells[i]`, nested in any way,
-  `mut w.rows[1].pts[j].y`. Anything else is an error: an immutable
-  variable or plain parameter, `cannot pass mut c: c is immutable; declare
-  it with mut`, an immutable global, `cannot pass mut limit: limit is
-  immutable; copy it into a mutable local`, a mutable global, `a mutable
-  global cannot be passed as mut; copy it into a local`, since any function
-  can reach one, a string's byte, `cannot pass mut s[0]: strings are
-  immutable`, and a value that is not a place, such as a call's result or
-  a literal, `only a variable, a field or an element can be passed as mut`.
+  for a plain one, `count does not take t as mut; pass t`. When the
+  argument could not be passed as `mut` either, the error says why and
+  what fixes it instead: `scale takes p as mut,
+  but b is immutable; declare it with mut, then pass mut b`, with a note
+  at `b`'s declaration. The reason and the fix are the ones writing `mut`
+  would get, below. A string's byte is told that `strings are immutable`,
+  and a range loop variable, a type switch variable or the binding of a
+  union's payload, none of which can be declared `mut`, gets no fix.
+  What follows `mut` must be a place the caller may change: a mutable
+  local, a `mut` parameter, a field of one, `mut b.lo`, or an element of
+  one whose index is proven in range (see arrays), `mut cells[i]`, nested
+  in any way, `mut w.rows[1].pts[j].y`. Anything else is an error: an immutable
+  variable, `cannot pass mut c: c is immutable; declare it with mut`,
+  with a note at its declaration, a plain parameter, `... declare it with
+  mut in the signature`, or, for a closure's, whose signature the call
+  fixes, `n is a closure parameter, whose type the call fixes; copy it
+  into a mutable local`, an immutable global, `cannot pass mut limit:
+  limit is immutable; copy it into a mutable local`, a mutable global,
+  `cannot pass mut g: g is a mutable global, which any function can
+  reach; copy it into a mutable local`, a range loop variable, `cannot
+  pass mut x: x is a range loop variable, which cannot be mut`, and so a
+  type switch variable and a union payload's binding, `n binds a union's
+  payload, which cannot be mut`, a string's byte, whatever holds the
+  string, `cannot pass mut s[0]: strings are immutable`, and a value
+  that is not a place, such as a call's result or a literal, `only a
+  variable, a field or an element can be passed as mut`.
   The argument's type must be the parameter's exactly, with no widening:
   passing a `mut int32` to `mut n int64` is `cannot use int32 as int64 in
   argument to bump`. A reference can never be stored or returned: there is
@@ -2326,7 +2340,7 @@ section remains the description of the language.
   cannot be redeclared`, `cannot use int64 as a name; it is a type`, and
   one its clause never reads is warned of, `declared and not used: n`. It cannot be
   assigned, `cannot assign to immutable variable n`, passed as `mut`,
-  `cannot pass mut n: n is immutable; declare it with mut`, or moved,
+  `cannot pass mut n: n binds a union's payload, which cannot be mut`, or moved,
   `cannot move l: it refers to a union's payload in place, and a payload
   cannot be moved out of a union`; and while it refers into the switched
   place, its clause cannot assign that place or anything holding it, pass
@@ -2400,8 +2414,9 @@ section remains the description of the language.
   value, `err := mut b.write(s)`, and `mut` covers what comes before the
   last `.name(`, so `mut w.out.write(s)` changes `w.out`. The receiver is
   then a place the caller may change, under every rule of a `mut`
-  argument: `cannot pass mut b: b is immutable; declare it with mut`, `a
-  mutable global cannot be passed as mut; copy it into a local`, and, for
+  argument: `cannot pass mut b: b is immutable; declare it with mut`,
+  `cannot pass mut g: g is a mutable global, which any function can
+  reach; copy it into a mutable local`, and, for
   a call's result, `only a variable, a field or an element can be passed
   as mut`. It is one of the call's `mut` arguments, which must not
   overlap, so `mut p.take(mut p)` is `p is passed as mut twice in this

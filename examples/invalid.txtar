@@ -5540,6 +5540,11 @@ closure-mut-pass-immutable-capture/main.tck:13:24: error: cannot pass mut x: x i
 13 |	    call(func() { bump(mut x) }) // ERROR
    |	                       ^~~~~
 14 |	    if x == 1 {
+closure-mut-pass-immutable-capture/main.tck:12:5: note: x is declared here
+11 |	func main() {
+12 |	    x := 1
+   |	    ^
+13 |	    call(func() { bump(mut x) }) // ERROR
 
 -- closure-mut-receiver-captured/main.tck --
 package main
@@ -16919,6 +16924,11 @@ generic-arg-mut-immutable/main.tck:27:19: error: cannot pass mut c: c is immutab
 27 |	    err := render(mut c, "x")
    |	                  ^~~~~
 28 |	    exit(err.code)
+generic-arg-mut-immutable/main.tck:26:5: note: c is declared here
+25 |	func main() {
+26 |	    c := Counter{n: 0}
+   |	    ^
+27 |	    err := render(mut c, "x")
 
 -- generic-arg-mut-twice/main.tck --
 package main
@@ -18410,11 +18420,16 @@ func main() {
 stage: typeck
 ---
 
-generic-mut-method-immutable/main.tck:9:12: error: cannot pass mut w: w is immutable; declare it with mut
+generic-mut-method-immutable/main.tck:9:12: error: cannot pass mut w: w is immutable; declare it with mut in the signature
 08 |	func f[W Writer](w W) error {
 09 |	    return mut w.write([]uint8("x"))
    |	           ^~~~~
 10 |	}
+generic-mut-method-immutable/main.tck:8:18: note: w is declared here
+07 |	
+08 |	func f[W Writer](w W) error {
+   |	                 ^
+09 |	    return mut w.write([]uint8("x"))
 
 -- generic-mut-method-without-mut/main.tck --
 package main
@@ -24260,6 +24275,11 @@ list-append-immutable/main.tck:5:19: error: cannot pass mut l: l is immutable; d
 05 |	    err := append(mut l, 1)
    |	                  ^~~~~
 06 |	    if err.code != 0 {
+list-append-immutable/main.tck:4:5: note: l is declared here
+03 |	func main() {
+04 |	    l := make(list[int64], c_allocator)
+   |	    ^
+05 |	    err := append(mut l, 1)
 
 -- list-append-mut-value/main.tck --
 package main
@@ -24359,11 +24379,16 @@ func main() {
 stage: typeck
 ---
 
-list-append-param/main.tck:4:19: error: cannot pass mut l: l is immutable; declare it with mut
+list-append-param/main.tck:4:19: error: cannot pass mut l: l is immutable; declare it with mut in the signature
 03 |	func f(l list[int64]) error {
 04 |	    return append(mut l, 1)
    |	                  ^~~~~
 05 |	}
+list-append-param/main.tck:3:8: note: l is declared here
+02 |	
+03 |	func f(l list[int64]) error {
+   |	       ^
+04 |	    return append(mut l, 1)
 
 -- list-append-spread-beside-values/main.tck --
 package main
@@ -25509,6 +25534,11 @@ list-reserve-immutable/main.tck:5:20: error: cannot pass mut l: l is immutable; 
 05 |	    err := reserve(mut l, 1)
    |	                   ^~~~~
 06 |	    if err.code != 0 {
+list-reserve-immutable/main.tck:4:5: note: l is declared here
+03 |	func main() {
+04 |	    l := make(list[int64], c_allocator)
+   |	    ^
+05 |	    err := reserve(mut l, 1)
 
 -- list-reserve-mut-count/main.tck --
 package main
@@ -29122,6 +29152,11 @@ method-expr-mut-immutable/main.tck:14:7: error: cannot pass mut b: b is immutabl
 14 |	    f(mut b, 1)
    |	      ^~~~~
 15 |	    if b.n == 1 {
+method-expr-mut-immutable/main.tck:13:5: note: b is declared here
+12 |	    f := Box.set
+13 |	    b := Box{n: 0}
+   |	    ^
+14 |	    f(mut b, 1)
 
 -- method-expr-mut-to-plain/main.tck --
 package main
@@ -29841,7 +29876,7 @@ func main() {
 stage: typeck
 ---
 
-method-mut-global/main.tck:16:5: error: a mutable global cannot be passed as mut; copy it into a local
+method-mut-global/main.tck:16:5: error: cannot pass mut g: g is a mutable global, which any function can reach; copy it into a mutable local
 15 |	func main() {
 16 |	    mut g.scale(2)
    |	    ^~~~~
@@ -29877,6 +29912,11 @@ method-mut-immutable/main.tck:13:5: error: cannot pass mut p: p is immutable; de
 13 |	    mut p.scale(2)
    |	    ^~~~~
 14 |	}
+method-mut-immutable/main.tck:12:5: note: p is declared here
+11 |	func main() {
+12 |	    p := P{x: 1}
+   |	    ^
+13 |	    mut p.scale(2)
 
 -- method-mut-mut/main.tck --
 package main
@@ -29992,17 +30032,27 @@ func main() {
 stage: typeck
 ---
 
-method-mut-plain-param/main.tck:12:5: error: cannot pass mut p: p is immutable; declare it with mut
+method-mut-plain-param/main.tck:12:5: error: cannot pass mut p: p is immutable; declare it with mut in the signature
 11 |	func f(p P) {
 12 |	    mut p.scale(2)
    |	    ^~~~~
 13 |	}
+method-mut-plain-param/main.tck:11:8: note: p is declared here
+10 |	
+11 |	func f(p P) {
+   |	       ^
+12 |	    mut p.scale(2)
 
-method-mut-plain-param/main.tck:16:5: error: cannot pass mut p: p is immutable; declare it with mut
+method-mut-plain-param/main.tck:16:5: error: cannot pass mut p: p is immutable; declare it with mut in the signature
 15 |	func (p P) g() {
 16 |	    mut p.scale(2)
    |	    ^~~~~
 17 |	}
+method-mut-plain-param/main.tck:15:7: note: p is declared here
+14 |	
+15 |	func (p P) g() {
+   |	      ^
+16 |	    mut p.scale(2)
 
 -- method-mut-ranged/main.tck --
 package main
@@ -32416,6 +32466,174 @@ mut-arg-type-mismatch/main.tck:9:14: error: cannot use int32 as int64 in argumen
    |	             ^~~~~
 10 |	}
 
+-- mut-binding-kinds/main.tck --
+package main
+
+type Box struct {
+    v int64
+}
+
+func (mut b Box) set(n int64) {
+    b.v = n
+}
+
+func bump(mut n int64) {
+    n +%= 1
+}
+
+type Shape union {
+    sq Box
+    none
+}
+
+func count(a any) {
+    switch t := a.(type) {
+    case int64:
+        bump(mut t)
+    default:
+    }
+}
+
+func main() {
+    bs := [2]Box{Box{v: 0}, Box{v: 0}}
+    for i, x := range bs {
+        bump(mut x.v)
+        bump(mut i)
+        mut x.set(1)
+    }
+    for k := range 3 {
+        bump(mut k)
+    }
+    s := Shape.sq(Box{v: 0})
+    switch s {
+    case sq(p):
+        bump(mut p.v)
+        mut p.set(1)
+    case none:
+    }
+    count(1)
+}
+-- mut-binding-kinds/expected --
+stage: typeck
+---
+
+mut-binding-kinds/main.tck:23:14: error: cannot pass mut t: t is a type switch variable, which cannot be mut
+22 |	    case int64:
+23 |	        bump(mut t)
+   |	             ^~~~~
+24 |	    default:
+
+mut-binding-kinds/main.tck:31:14: error: cannot pass mut x.v: x is a range loop variable, which cannot be mut
+30 |	    for i, x := range bs {
+31 |	        bump(mut x.v)
+   |	             ^~~~~~~
+32 |	        bump(mut i)
+
+mut-binding-kinds/main.tck:32:14: error: cannot pass mut i: i is a range loop variable, which cannot be mut
+31 |	        bump(mut x.v)
+32 |	        bump(mut i)
+   |	             ^~~~~
+33 |	        mut x.set(1)
+
+mut-binding-kinds/main.tck:33:9: error: cannot pass mut x: x is a range loop variable, which cannot be mut
+32 |	        bump(mut i)
+33 |	        mut x.set(1)
+   |	        ^~~~~
+34 |	    }
+
+mut-binding-kinds/main.tck:36:14: error: cannot pass mut k: k is a range loop variable, which cannot be mut
+35 |	    for k := range 3 {
+36 |	        bump(mut k)
+   |	             ^~~~~
+37 |	    }
+
+mut-binding-kinds/main.tck:41:14: error: cannot pass mut p.v: p binds a union's payload, which cannot be mut
+40 |	    case sq(p):
+41 |	        bump(mut p.v)
+   |	             ^~~~~~~
+42 |	        mut p.set(1)
+
+mut-binding-kinds/main.tck:42:9: error: cannot pass mut p: p binds a union's payload, which cannot be mut
+41 |	        bump(mut p.v)
+42 |	        mut p.set(1)
+   |	        ^~~~~
+43 |	    case none:
+
+-- mut-closure-param/main.tck --
+package main
+
+type Box struct {
+    v int64
+}
+
+func (mut b Box) set(n int64) {
+    b.v = n
+}
+
+func bump(mut n int64) {
+    n +%= 1
+}
+
+func each(scope f func(int64)) {
+    f(1)
+}
+
+func boxes(scope f func(Box)) {
+    f(Box{v: 0})
+}
+
+func main() {
+    each(func(n int64) {
+        bump(n)
+        bump(mut n)
+    })
+    boxes(func(b Box) {
+        bump(b.v)
+        bump(mut b.v)
+        b.set(1)
+        mut b.set(1)
+    })
+}
+-- mut-closure-param/expected --
+stage: typeck
+---
+
+mut-closure-param/main.tck:25:14: error: bump takes n as mut, but n is a closure parameter, whose type the call fixes; copy it into a mutable local
+24 |	    each(func(n int64) {
+25 |	        bump(n)
+   |	             ^
+26 |	        bump(mut n)
+
+mut-closure-param/main.tck:26:14: error: cannot pass mut n: n is a closure parameter, whose type the call fixes; copy it into a mutable local
+25 |	        bump(n)
+26 |	        bump(mut n)
+   |	             ^~~~~
+27 |	    })
+
+mut-closure-param/main.tck:29:14: error: bump takes n as mut, but b is a closure parameter, whose type the call fixes; copy it into a mutable local
+28 |	    boxes(func(b Box) {
+29 |	        bump(b.v)
+   |	             ^~~
+30 |	        bump(mut b.v)
+
+mut-closure-param/main.tck:30:14: error: cannot pass mut b.v: b is a closure parameter, whose type the call fixes; copy it into a mutable local
+29 |	        bump(b.v)
+30 |	        bump(mut b.v)
+   |	             ^~~~~~~
+31 |	        b.set(1)
+
+mut-closure-param/main.tck:31:9: error: Box.set takes its receiver as mut, but b is a closure parameter, whose type the call fixes; copy it into a mutable local
+30 |	        bump(mut b.v)
+31 |	        b.set(1)
+   |	        ^
+32 |	        mut b.set(1)
+
+mut-closure-param/main.tck:32:9: error: cannot pass mut b: b is a closure parameter, whose type the call fixes; copy it into a mutable local
+31 |	        b.set(1)
+32 |	        mut b.set(1)
+   |	        ^~~~~
+33 |	    })
+
 -- mut-exclusive-element-and-array/main.tck --
 package main
 
@@ -32723,6 +32941,11 @@ mut-field-of-immutable/main.tck:13:10: error: cannot pass mut c.x: c is immutabl
 13 |	    bump(mut c.x)
    |	         ^~~~~~~
 14 |	    code, fits := int32(c.x)
+mut-field-of-immutable/main.tck:12:5: note: c is declared here
+11 |	func main() {
+12 |	    c := Point{x: 1}
+   |	    ^
+13 |	    bump(mut c.x)
 
 -- mut-immutable-global/main.tck --
 package main
@@ -32772,6 +32995,11 @@ mut-immutable-local/main.tck:13:11: error: cannot pass mut c: c is immutable; de
 13 |	    scale(mut c, 2)
    |	          ^~~~~
 14 |	    code, fits := int32(c.x)
+mut-immutable-local/main.tck:12:5: note: c is declared here
+11 |	func main() {
+12 |	    c := Point{x: 1}
+   |	    ^
+13 |	    scale(mut c, 2)
 
 -- mut-immutable-param/main.tck --
 package main
@@ -32793,11 +33021,16 @@ func main() {
 stage: typeck
 ---
 
-mut-immutable-param/main.tck:8:10: error: cannot pass mut n: n is immutable; declare it with mut
+mut-immutable-param/main.tck:8:10: error: cannot pass mut n: n is immutable; declare it with mut in the signature
 07 |	func twice(n int64) int64 {
 08 |	    bump(mut n)
    |	         ^~~~~
 09 |	    return n
+mut-immutable-param/main.tck:7:12: note: n is declared here
+06 |	
+07 |	func twice(n int64) int64 {
+   |	           ^
+08 |	    bump(mut n)
 
 -- mut-index-changed-in-call/main.tck --
 package main
@@ -32867,6 +33100,369 @@ mut-missing/main.tck:13:11: error: scale takes p as mut; pass mut b
    |	          ^
 14 |	    code, fits := int32(b.x)
 
+-- mut-missing-immutable-global/main.tck --
+package main
+
+type Box struct {
+    v int64
+    a [2]int64
+}
+
+func (mut b Box) set(n int64) {
+    b.v = n
+}
+
+func store(mut b Box, n int64) {
+    b.v = n
+}
+
+func bump(mut n int64) {
+    n +%= 1
+}
+
+var origin Box = Box{v: 0, a: [2]int64{0, 0}}
+var limit int64 = 3
+
+func main() {
+    store(origin, 1)
+    bump(origin.v)
+    bump(origin.a[1])
+    bump(limit)
+    origin.set(1)
+}
+-- mut-missing-immutable-global/expected --
+stage: typeck
+---
+
+mut-missing-immutable-global/main.tck:24:11: error: store takes b as mut, but origin is immutable; copy it into a mutable local
+23 |	func main() {
+24 |	    store(origin, 1)
+   |	          ^~~~~~
+25 |	    bump(origin.v)
+
+mut-missing-immutable-global/main.tck:25:10: error: bump takes n as mut, but origin is immutable; copy it into a mutable local
+24 |	    store(origin, 1)
+25 |	    bump(origin.v)
+   |	         ^~~~~~~~
+26 |	    bump(origin.a[1])
+
+mut-missing-immutable-global/main.tck:26:10: error: bump takes n as mut, but origin is immutable; copy it into a mutable local
+25 |	    bump(origin.v)
+26 |	    bump(origin.a[1])
+   |	         ^~~~~~~~~~~
+27 |	    bump(limit)
+
+mut-missing-immutable-global/main.tck:27:10: error: bump takes n as mut, but limit is immutable; copy it into a mutable local
+26 |	    bump(origin.a[1])
+27 |	    bump(limit)
+   |	         ^~~~~
+28 |	    origin.set(1)
+
+mut-missing-immutable-global/main.tck:28:5: error: Box.set takes its receiver as mut, but origin is immutable; copy it into a mutable local
+27 |	    bump(limit)
+28 |	    origin.set(1)
+   |	    ^~~~~~
+29 |	}
+
+-- mut-missing-immutable-local/main.tck --
+package main
+
+type Box struct {
+    v int64
+    a [2]int64
+}
+
+func (mut b Box) set(n int64) {
+    b.v = n
+}
+
+func store(mut b Box, n int64) {
+    b.v = n
+}
+
+func bump(mut n int64) {
+    n +%= 1
+}
+
+func pair() (int64, int64) {
+    return 1, 2
+}
+
+func main() {
+    b := Box{v: 0, a: [2]int64{0, 0}}
+    var c Box = Box{v: 0, a: [2]int64{0, 0}}
+    _, r := pair()
+    d := [2]Box{Box{v: 0, a: [2]int64{0, 0}}, Box{v: 0, a: [2]int64{0, 0}}}
+    store(b, 1)
+    bump(b.v)
+    bump(b.a[1])
+    store(c, 1)
+    bump(r)
+    b.set(1)
+    d[1].set(1)
+}
+-- mut-missing-immutable-local/expected --
+stage: typeck
+---
+
+mut-missing-immutable-local/main.tck:29:11: error: store takes b as mut, but b is immutable; declare it with mut, then pass mut b
+28 |	    d := [2]Box{Box{v: 0, a: [2]int64{0, 0}}, Box{v: 0, a: [2]int64{0, 0}}}
+29 |	    store(b, 1)
+   |	          ^
+30 |	    bump(b.v)
+mut-missing-immutable-local/main.tck:25:5: note: b is declared here
+24 |	func main() {
+25 |	    b := Box{v: 0, a: [2]int64{0, 0}}
+   |	    ^
+26 |	    var c Box = Box{v: 0, a: [2]int64{0, 0}}
+
+mut-missing-immutable-local/main.tck:30:10: error: bump takes n as mut, but b is immutable; declare it with mut, then pass mut b.v
+29 |	    store(b, 1)
+30 |	    bump(b.v)
+   |	         ^~~
+31 |	    bump(b.a[1])
+mut-missing-immutable-local/main.tck:25:5: note: b is declared here
+24 |	func main() {
+25 |	    b := Box{v: 0, a: [2]int64{0, 0}}
+   |	    ^
+26 |	    var c Box = Box{v: 0, a: [2]int64{0, 0}}
+
+mut-missing-immutable-local/main.tck:31:10: error: bump takes n as mut, but b is immutable; declare it with mut, then pass mut b.a[1]
+30 |	    bump(b.v)
+31 |	    bump(b.a[1])
+   |	         ^~~~~~
+32 |	    store(c, 1)
+mut-missing-immutable-local/main.tck:25:5: note: b is declared here
+24 |	func main() {
+25 |	    b := Box{v: 0, a: [2]int64{0, 0}}
+   |	    ^
+26 |	    var c Box = Box{v: 0, a: [2]int64{0, 0}}
+
+mut-missing-immutable-local/main.tck:32:11: error: store takes b as mut, but c is immutable; declare it with mut, then pass mut c
+31 |	    bump(b.a[1])
+32 |	    store(c, 1)
+   |	          ^
+33 |	    bump(r)
+mut-missing-immutable-local/main.tck:26:9: note: c is declared here
+25 |	    b := Box{v: 0, a: [2]int64{0, 0}}
+26 |	    var c Box = Box{v: 0, a: [2]int64{0, 0}}
+   |	        ^
+27 |	    _, r := pair()
+
+mut-missing-immutable-local/main.tck:33:10: error: bump takes n as mut, but r is immutable; declare it with mut, then pass mut r
+32 |	    store(c, 1)
+33 |	    bump(r)
+   |	         ^
+34 |	    b.set(1)
+mut-missing-immutable-local/main.tck:27:8: note: r is declared here
+26 |	    var c Box = Box{v: 0, a: [2]int64{0, 0}}
+27 |	    _, r := pair()
+   |	       ^
+28 |	    d := [2]Box{Box{v: 0, a: [2]int64{0, 0}}, Box{v: 0, a: [2]int64{0, 0}}}
+
+mut-missing-immutable-local/main.tck:34:5: error: Box.set takes its receiver as mut, but b is immutable; declare it with mut, then call mut b.set(1)
+33 |	    bump(r)
+34 |	    b.set(1)
+   |	    ^
+35 |	    d[1].set(1)
+mut-missing-immutable-local/main.tck:25:5: note: b is declared here
+24 |	func main() {
+25 |	    b := Box{v: 0, a: [2]int64{0, 0}}
+   |	    ^
+26 |	    var c Box = Box{v: 0, a: [2]int64{0, 0}}
+
+mut-missing-immutable-local/main.tck:35:5: error: Box.set takes its receiver as mut, but d is immutable; declare it with mut, then call mut d[1].set(1)
+34 |	    b.set(1)
+35 |	    d[1].set(1)
+   |	    ^~~~
+36 |	}
+mut-missing-immutable-local/main.tck:28:5: note: d is declared here
+27 |	    _, r := pair()
+28 |	    d := [2]Box{Box{v: 0, a: [2]int64{0, 0}}, Box{v: 0, a: [2]int64{0, 0}}}
+   |	    ^
+29 |	    store(b, 1)
+
+-- mut-missing-immutable-param/main.tck --
+package main
+
+type Box struct {
+    v int64
+    a [2]int64
+}
+
+func (mut b Box) set(n int64) {
+    b.v = n
+}
+
+func store(mut b Box, n int64) {
+    b.v = n
+}
+
+func bump(mut n int64) {
+    n +%= 1
+}
+
+func (b Box) reset() {
+    store(b, 0)
+    b.set(0)
+}
+
+func update(b Box, n int64) {
+    store(b, n)
+    bump(b.v)
+    bump(b.a[1])
+    bump(n)
+    b.set(n)
+}
+
+func main() {
+    update(Box{v: 0, a: [2]int64{0, 0}}, 1)
+}
+-- mut-missing-immutable-param/expected --
+stage: typeck
+---
+
+mut-missing-immutable-param/main.tck:21:11: error: store takes b as mut, but b is immutable; declare it with mut in the signature, then pass mut b
+20 |	func (b Box) reset() {
+21 |	    store(b, 0)
+   |	          ^
+22 |	    b.set(0)
+mut-missing-immutable-param/main.tck:20:7: note: b is declared here
+19 |	
+20 |	func (b Box) reset() {
+   |	      ^
+21 |	    store(b, 0)
+
+mut-missing-immutable-param/main.tck:22:5: error: Box.set takes its receiver as mut, but b is immutable; declare it with mut in the signature, then call mut b.set(0)
+21 |	    store(b, 0)
+22 |	    b.set(0)
+   |	    ^
+23 |	}
+mut-missing-immutable-param/main.tck:20:7: note: b is declared here
+19 |	
+20 |	func (b Box) reset() {
+   |	      ^
+21 |	    store(b, 0)
+
+mut-missing-immutable-param/main.tck:26:11: error: store takes b as mut, but b is immutable; declare it with mut in the signature, then pass mut b
+25 |	func update(b Box, n int64) {
+26 |	    store(b, n)
+   |	          ^
+27 |	    bump(b.v)
+mut-missing-immutable-param/main.tck:25:13: note: b is declared here
+24 |	
+25 |	func update(b Box, n int64) {
+   |	            ^
+26 |	    store(b, n)
+
+mut-missing-immutable-param/main.tck:27:10: error: bump takes n as mut, but b is immutable; declare it with mut in the signature, then pass mut b.v
+26 |	    store(b, n)
+27 |	    bump(b.v)
+   |	         ^~~
+28 |	    bump(b.a[1])
+mut-missing-immutable-param/main.tck:25:13: note: b is declared here
+24 |	
+25 |	func update(b Box, n int64) {
+   |	            ^
+26 |	    store(b, n)
+
+mut-missing-immutable-param/main.tck:28:10: error: bump takes n as mut, but b is immutable; declare it with mut in the signature, then pass mut b.a[1]
+27 |	    bump(b.v)
+28 |	    bump(b.a[1])
+   |	         ^~~~~~
+29 |	    bump(n)
+mut-missing-immutable-param/main.tck:25:13: note: b is declared here
+24 |	
+25 |	func update(b Box, n int64) {
+   |	            ^
+26 |	    store(b, n)
+
+mut-missing-immutable-param/main.tck:29:10: error: bump takes n as mut, but n is immutable; declare it with mut in the signature, then pass mut n
+28 |	    bump(b.a[1])
+29 |	    bump(n)
+   |	         ^
+30 |	    b.set(n)
+mut-missing-immutable-param/main.tck:25:20: note: n is declared here
+24 |	
+25 |	func update(b Box, n int64) {
+   |	                   ^
+26 |	    store(b, n)
+
+mut-missing-immutable-param/main.tck:30:5: error: Box.set takes its receiver as mut, but b is immutable; declare it with mut in the signature, then call mut b.set(n)
+29 |	    bump(n)
+30 |	    b.set(n)
+   |	    ^
+31 |	}
+mut-missing-immutable-param/main.tck:25:13: note: b is declared here
+24 |	
+25 |	func update(b Box, n int64) {
+   |	            ^
+26 |	    store(b, n)
+
+-- mut-missing-mutable-global/main.tck --
+package main
+
+type Box struct {
+    v int64
+    a [2]int64
+}
+
+func (mut b Box) set(n int64) {
+    b.v = n
+}
+
+func store(mut b Box, n int64) {
+    b.v = n
+}
+
+func bump(mut n int64) {
+    n +%= 1
+}
+
+mut box Box = Box{v: 0, a: [2]int64{0, 0}}
+mut count int64 = 0
+
+func main() {
+    store(box, 1)
+    bump(box.v)
+    bump(box.a[1])
+    bump(count)
+    box.set(1)
+}
+-- mut-missing-mutable-global/expected --
+stage: typeck
+---
+
+mut-missing-mutable-global/main.tck:24:11: error: store takes b as mut, but box is a mutable global, which any function can reach; copy it into a mutable local
+23 |	func main() {
+24 |	    store(box, 1)
+   |	          ^~~
+25 |	    bump(box.v)
+
+mut-missing-mutable-global/main.tck:25:10: error: bump takes n as mut, but box is a mutable global, which any function can reach; copy it into a mutable local
+24 |	    store(box, 1)
+25 |	    bump(box.v)
+   |	         ^~~~~
+26 |	    bump(box.a[1])
+
+mut-missing-mutable-global/main.tck:26:10: error: bump takes n as mut, but box is a mutable global, which any function can reach; copy it into a mutable local
+25 |	    bump(box.v)
+26 |	    bump(box.a[1])
+   |	         ^~~~~~~~
+27 |	    bump(count)
+
+mut-missing-mutable-global/main.tck:27:10: error: bump takes n as mut, but count is a mutable global, which any function can reach; copy it into a mutable local
+26 |	    bump(box.a[1])
+27 |	    bump(count)
+   |	         ^~~~~
+28 |	    box.set(1)
+
+mut-missing-mutable-global/main.tck:28:5: error: Box.set takes its receiver as mut, but box is a mutable global, which any function can reach; copy it into a mutable local
+27 |	    bump(count)
+28 |	    box.set(1)
+   |	    ^~~
+29 |	}
+
 -- mut-missing-not-a-place/main.tck --
 package main
 
@@ -32894,6 +33490,205 @@ mut-missing-not-a-place/main.tck:16:11: error: scale takes p as mut; only a vari
 16 |	    scale(origin(), 10)
    |	          ^~~~~~~~
 17 |	}
+
+-- mut-missing-own-param/main.tck --
+package main
+
+type Bag struct {
+    items list[int64]
+    n int64
+}
+
+func (mut g Bag) add() {
+    g.n +%= 1
+}
+
+func fill(mut g Bag) {
+    g.n +%= 1
+}
+
+func bump(mut n int64) {
+    n +%= 1
+}
+
+func take(own g Bag) {
+    fill(g)
+    bump(g.n)
+    g.add()
+}
+
+func main() {
+    mut g := Bag{items: make(list[int64], c_allocator), n: 0}
+    take(own g)
+}
+-- mut-missing-own-param/expected --
+stage: typeck
+---
+
+mut-missing-own-param/main.tck:21:10: error: fill takes g as mut, but g is an own parameter, which is immutable; move it into a mutable variable with mut x := g
+20 |	func take(own g Bag) {
+21 |	    fill(g)
+   |	         ^
+22 |	    bump(g.n)
+
+mut-missing-own-param/main.tck:22:10: error: bump takes n as mut, but g is an own parameter, which is immutable; move it into a mutable variable with mut x := g
+21 |	    fill(g)
+22 |	    bump(g.n)
+   |	         ^~~
+23 |	    g.add()
+
+mut-missing-own-param/main.tck:23:5: error: Bag.add takes its receiver as mut, but g is an own parameter, which is immutable; move it into a mutable variable with mut x := g
+22 |	    bump(g.n)
+23 |	    g.add()
+   |	    ^
+24 |	}
+
+-- mut-missing-range-var/main.tck --
+package main
+
+type Box struct {
+    v int64
+    a [2]int64
+}
+
+func (mut b Box) set(n int64) {
+    b.v = n
+}
+
+func store(mut b Box, n int64) {
+    b.v = n
+}
+
+func bump(mut n int64) {
+    n +%= 1
+}
+
+func main() {
+    bs := [2]Box{Box{v: 0, a: [2]int64{0, 0}}, Box{v: 0, a: [2]int64{0, 0}}}
+    for i, x := range bs {
+        store(x, 1)
+        bump(x.v)
+        bump(x.a[1])
+        bump(i)
+        x.set(1)
+    }
+    for k := range 3 {
+        bump(k)
+    }
+}
+-- mut-missing-range-var/expected --
+stage: typeck
+---
+
+mut-missing-range-var/main.tck:23:15: error: store takes b as mut, but x is a range loop variable, which cannot be mut
+22 |	    for i, x := range bs {
+23 |	        store(x, 1)
+   |	              ^
+24 |	        bump(x.v)
+
+mut-missing-range-var/main.tck:24:14: error: bump takes n as mut, but x is a range loop variable, which cannot be mut
+23 |	        store(x, 1)
+24 |	        bump(x.v)
+   |	             ^~~
+25 |	        bump(x.a[1])
+
+mut-missing-range-var/main.tck:25:14: error: bump takes n as mut, but x is a range loop variable, which cannot be mut
+24 |	        bump(x.v)
+25 |	        bump(x.a[1])
+   |	             ^~~~~~
+26 |	        bump(i)
+
+mut-missing-range-var/main.tck:26:14: error: bump takes n as mut, but i is a range loop variable, which cannot be mut
+25 |	        bump(x.a[1])
+26 |	        bump(i)
+   |	             ^
+27 |	        x.set(1)
+
+mut-missing-range-var/main.tck:27:9: error: Box.set takes its receiver as mut, but x is a range loop variable, which cannot be mut
+26 |	        bump(i)
+27 |	        x.set(1)
+   |	        ^
+28 |	    }
+
+mut-missing-range-var/main.tck:30:14: error: bump takes n as mut, but k is a range loop variable, which cannot be mut
+29 |	    for k := range 3 {
+30 |	        bump(k)
+   |	             ^
+31 |	    }
+
+-- mut-missing-string-byte/main.tck --
+package main
+
+type Named struct {
+    name string
+}
+
+var title string = "ab"
+
+func bb(mut c uint8) {
+    c +%= 1
+}
+
+func param(p string) {
+    if len(p) > 0 {
+        bb(p[0])
+    }
+}
+
+func main() {
+    s := "ab"
+    mut m := "ab"
+    n := Named{name: "ab"}
+    a := [2]string{"ab", "cd"}
+    if len(s) > 0 && len(m) > 0 && len(n.name) > 0 && len(a[1]) > 0 && len(title) > 0 {
+        bb(s[0])
+        bb(m[0])
+        bb(n.name[0])
+        bb(a[1][0])
+        bb(title[0])
+    }
+    m = "cd"
+    param(m)
+}
+-- mut-missing-string-byte/expected --
+stage: typeck
+---
+
+mut-missing-string-byte/main.tck:15:12: error: bb takes c as mut, but strings are immutable
+14 |	    if len(p) > 0 {
+15 |	        bb(p[0])
+   |	           ^~~~
+16 |	    }
+
+mut-missing-string-byte/main.tck:25:12: error: bb takes c as mut, but strings are immutable
+24 |	    if len(s) > 0 && len(m) > 0 && len(n.name) > 0 && len(a[1]) > 0 && len(title) > 0 {
+25 |	        bb(s[0])
+   |	           ^~~~
+26 |	        bb(m[0])
+
+mut-missing-string-byte/main.tck:26:12: error: bb takes c as mut, but strings are immutable
+25 |	        bb(s[0])
+26 |	        bb(m[0])
+   |	           ^~~~
+27 |	        bb(n.name[0])
+
+mut-missing-string-byte/main.tck:27:12: error: bb takes c as mut, but strings are immutable
+26 |	        bb(m[0])
+27 |	        bb(n.name[0])
+   |	           ^~~~~~~~~
+28 |	        bb(a[1][0])
+
+mut-missing-string-byte/main.tck:28:12: error: bb takes c as mut, but strings are immutable
+27 |	        bb(n.name[0])
+28 |	        bb(a[1][0])
+   |	           ^~~~~~~
+29 |	        bb(title[0])
+
+mut-missing-string-byte/main.tck:29:12: error: bb takes c as mut, but strings are immutable
+28 |	        bb(a[1][0])
+29 |	        bb(title[0])
+   |	           ^~~~~~~~
+30 |	    }
 
 -- mut-missing-temporaries/main.tck --
 package main
@@ -32986,6 +33781,98 @@ mut-missing-temporaries/main.tck:43:9: error: run does not take r as scope, and 
    |	        ^~~~
 44 |	}
 
+-- mut-missing-type-switch-var/main.tck --
+package main
+
+func bump(mut n int64) {
+    n +%= 1
+}
+
+func count(a any) {
+    switch t := a.(type) {
+    case int64:
+        bump(t)
+    default:
+    }
+}
+
+func main() {
+    count(1)
+}
+-- mut-missing-type-switch-var/expected --
+stage: typeck
+---
+
+mut-missing-type-switch-var/main.tck:10:14: error: bump takes n as mut, but t is a type switch variable, which cannot be mut
+09 |	    case int64:
+10 |	        bump(t)
+   |	             ^
+11 |	    default:
+
+-- mut-missing-union-binding/main.tck --
+package main
+
+type Box struct {
+    v int64
+    a [2]int64
+}
+
+func (mut b Box) set(n int64) {
+    b.v = n
+}
+
+func store(mut b Box, n int64) {
+    b.v = n
+}
+
+func bump(mut n int64) {
+    n +%= 1
+}
+
+type Shape union {
+    sq Box
+    none
+}
+
+func main() {
+    s := Shape.sq(Box{v: 0, a: [2]int64{0, 0}})
+    switch s {
+    case sq(p):
+        store(p, 1)
+        bump(p.v)
+        bump(p.a[1])
+        p.set(1)
+    case none:
+    }
+}
+-- mut-missing-union-binding/expected --
+stage: typeck
+---
+
+mut-missing-union-binding/main.tck:29:15: error: store takes b as mut, but p binds a union's payload, which cannot be mut
+28 |	    case sq(p):
+29 |	        store(p, 1)
+   |	              ^
+30 |	        bump(p.v)
+
+mut-missing-union-binding/main.tck:30:14: error: bump takes n as mut, but p binds a union's payload, which cannot be mut
+29 |	        store(p, 1)
+30 |	        bump(p.v)
+   |	             ^~~
+31 |	        bump(p.a[1])
+
+mut-missing-union-binding/main.tck:31:14: error: bump takes n as mut, but p binds a union's payload, which cannot be mut
+30 |	        bump(p.v)
+31 |	        bump(p.a[1])
+   |	             ^~~~~~
+32 |	        p.set(1)
+
+mut-missing-union-binding/main.tck:32:9: error: Box.set takes its receiver as mut, but p binds a union's payload, which cannot be mut
+31 |	        bump(p.a[1])
+32 |	        p.set(1)
+   |	        ^
+33 |	    case none:
+
 -- mut-missing-union-built/main.tck --
 package main
 
@@ -33017,6 +33904,33 @@ mut-missing-union-built/main.tck:14:7: error: f takes e as mut; only a variable,
 14 |	    f(Expr.num(3))
    |	      ^~~~~~~~~~~
 15 |	}
+
+-- mut-missing-view-param/main.tck --
+package main
+
+func bump(mut n int64) {
+    n +%= 1
+}
+
+func first(v []int64) {
+    if len(v) > 0 {
+        bump(v[0])
+    }
+}
+
+func main() {
+    a := [2]int64{1, 2}
+    first(a[:])
+}
+-- mut-missing-view-param/expected --
+stage: typeck
+---
+
+mut-missing-view-param/main.tck:9:14: error: bump takes n as mut, but v is a read-only view
+08 |	    if len(v) > 0 {
+09 |	        bump(v[0])
+   |	             ^~~~
+10 |	    }
 
 -- mut-mut-arg/main.tck --
 package main
@@ -33055,7 +33969,7 @@ func main() {
 stage: typeck
 ---
 
-mut-mutable-global/main.tck:10:10: error: a mutable global cannot be passed as mut; copy it into a local
+mut-mutable-global/main.tck:10:10: error: cannot pass mut counter: counter is a mutable global, which any function can reach; copy it into a mutable local
 09 |	func main() {
 10 |	    bump(mut counter)
    |	         ^~~~~~~~~~~
@@ -33163,6 +34077,80 @@ mut-string-byte/main.tck:10:14: error: cannot pass mut s[0]: strings are immutab
 10 |	        bump(mut s[0])
    |	             ^~~~~~~~
 11 |	    }
+
+-- mut-string-byte-roots/main.tck --
+package main
+
+type Named struct {
+    name string
+}
+
+var title string = "ab"
+
+func bb(mut c uint8) {
+    c +%= 1
+}
+
+func param(p string) {
+    if len(p) > 0 {
+        bb(mut p[0])
+    }
+}
+
+func main() {
+    s := "ab"
+    mut m := "ab"
+    n := Named{name: "ab"}
+    a := [2]string{"ab", "cd"}
+    if len(s) > 0 && len(m) > 0 && len(n.name) > 0 && len(a[1]) > 0 && len(title) > 0 {
+        bb(mut s[0])
+        bb(mut m[0])
+        bb(mut n.name[0])
+        bb(mut a[1][0])
+        bb(mut title[0])
+    }
+    m = "cd"
+    param(m)
+}
+-- mut-string-byte-roots/expected --
+stage: typeck
+---
+
+mut-string-byte-roots/main.tck:15:12: error: cannot pass mut p[0]: strings are immutable
+14 |	    if len(p) > 0 {
+15 |	        bb(mut p[0])
+   |	           ^~~~~~~~
+16 |	    }
+
+mut-string-byte-roots/main.tck:25:12: error: cannot pass mut s[0]: strings are immutable
+24 |	    if len(s) > 0 && len(m) > 0 && len(n.name) > 0 && len(a[1]) > 0 && len(title) > 0 {
+25 |	        bb(mut s[0])
+   |	           ^~~~~~~~
+26 |	        bb(mut m[0])
+
+mut-string-byte-roots/main.tck:26:12: error: cannot pass mut m[0]: strings are immutable
+25 |	        bb(mut s[0])
+26 |	        bb(mut m[0])
+   |	           ^~~~~~~~
+27 |	        bb(mut n.name[0])
+
+mut-string-byte-roots/main.tck:27:12: error: cannot pass mut n.name[0]: strings are immutable
+26 |	        bb(mut m[0])
+27 |	        bb(mut n.name[0])
+   |	           ^~~~~~~~~~~~~
+28 |	        bb(mut a[1][0])
+
+mut-string-byte-roots/main.tck:28:12: error: cannot pass mut a[1][0]: strings are immutable
+27 |	        bb(mut n.name[0])
+28 |	        bb(mut a[1][0])
+   |	           ^~~~~~~~~~~
+29 |	        bb(mut title[0])
+
+mut-string-byte-roots/main.tck:29:12: error: cannot pass mut title[0]: strings are immutable
+28 |	        bb(mut a[1][0])
+29 |	        bb(mut title[0])
+   |	           ^~~~~~~~~~~~
+30 |	    }
 
 -- mut-unproven-index/main.tck --
 package main
@@ -39783,6 +40771,11 @@ pop-immutable/main.tck:5:18: error: cannot pass mut l: l is immutable; declare i
 05 |	    x, ok := pop(mut l)
    |	                 ^~~~~
 06 |	    if ok && x > 0 {
+pop-immutable/main.tck:4:5: note: l is declared here
+03 |	func main() {
+04 |	    l := make(list[int64], c_allocator)
+   |	    ^
+05 |	    x, ok := pop(mut l)
 
 -- pop-no-args/main.tck --
 package main
@@ -39837,11 +40830,16 @@ func main() {
 stage: typeck
 ---
 
-pop-not-mut/main.tck:5:18: error: pop takes l as mut; pass mut l
+pop-not-mut/main.tck:5:18: error: pop takes l as mut, but l is immutable; declare it with mut, then pass mut l
 04 |	    l := make(list[int64], c_allocator)
 05 |	    x, ok := pop(l)
    |	                 ^
 06 |	    if ok && x > 0 {
+pop-not-mut/main.tck:4:5: note: l is declared here
+03 |	func main() {
+04 |	    l := make(list[int64], c_allocator)
+   |	    ^
+05 |	    x, ok := pop(l)
 
 -- pop-ok-assigned/main.tck --
 package main
@@ -42960,6 +43958,11 @@ replace-immutable-local/main.tck:17:20: error: cannot pass mut x: x is immutable
 17 |	    return replace(mut x, 2)
    |	                   ^~~~~
 18 |	}
+replace-immutable-local/main.tck:16:5: note: x is declared here
+15 |	func f() int64 {
+16 |	    x := 1
+   |	    ^
+17 |	    return replace(mut x, 2)
 
 -- replace-immutable-param/main.tck --
 package main
@@ -42986,11 +43989,16 @@ func main() {
 stage: typeck
 ---
 
-replace-immutable-param/main.tck:16:20: error: cannot pass mut l: l is immutable; declare it with mut
+replace-immutable-param/main.tck:16:20: error: cannot pass mut l: l is immutable; declare it with mut in the signature
 15 |	func f(l list[int64]) list[int64] {
 16 |	    return replace(mut l, make(list[int64], c_allocator))
    |	                   ^~~~~
 17 |	}
+replace-immutable-param/main.tck:15:8: note: l is declared here
+14 |	
+15 |	func f(l list[int64]) list[int64] {
+   |	       ^
+16 |	    return replace(mut l, make(list[int64], c_allocator))
 
 -- replace-in-range/main.tck --
 package main
@@ -43275,7 +44283,7 @@ func main() {
 stage: typeck
 ---
 
-replace-pattern-binding/main.tck:18:24: error: cannot pass mut w: w is immutable; declare it with mut
+replace-pattern-binding/main.tck:18:24: error: cannot pass mut w: w binds a union's payload, which cannot be mut
 17 |	    case word(w):
 18 |	        return replace(mut w, make(list[uint8], c_allocator))
    |	                       ^~~~~
@@ -48477,11 +49485,16 @@ func main() {
 stage: typeck
 ---
 
-swap-not-mut/main.tck:6:14: error: swap takes l as mut; pass mut l
+swap-not-mut/main.tck:6:14: error: swap takes l as mut, but l is immutable; declare it with mut, then pass mut l
 05 |	    if len(l) > 1 {
 06 |	        swap(l, 0, 1)
    |	             ^
 07 |	    }
+swap-not-mut/main.tck:4:5: note: l is declared here
+03 |	func main() {
+04 |	    l := make(list[int64], c_allocator)
+   |	    ^
+05 |	    if len(l) > 1 {
 
 -- swap-ranged/main.tck --
 package main
@@ -50536,7 +51549,7 @@ func main() {
 stage: typeck
 ---
 
-union-method-mut-global/main.tck:15:5: error: a mutable global cannot be passed as mut; copy it into a local
+union-method-mut-global/main.tck:15:5: error: cannot pass mut g: g is a mutable global, which any function can reach; copy it into a mutable local
 14 |	func main() {
 15 |	    mut g.set()
    |	    ^~~~~
@@ -50567,6 +51580,11 @@ union-method-mut-immutable/main.tck:14:5: error: cannot pass mut e: e is immutab
 14 |	    mut e.set()
    |	    ^~~~~
 15 |	}
+union-method-mut-immutable/main.tck:13:5: note: e is declared here
+12 |	func main() {
+13 |	    e := Expr.int(1)
+   |	    ^
+14 |	    mut e.set()
 
 -- union-method-mut-matched/main.tck --
 package main
@@ -51076,7 +52094,7 @@ func main() {
 stage: typeck
 ---
 
-union-mut-binding/main.tck:15:14: error: cannot pass mut n: n is immutable; declare it with mut
+union-mut-binding/main.tck:15:14: error: cannot pass mut n: n binds a union's payload, which cannot be mut
 14 |	    case a(n):
 15 |	        bump(mut n)
    |	             ^~~~~

@@ -352,7 +352,17 @@
 // combination. An immutable variable, a plain parameter, an immutable or
 // mutable global, a string's byte and anything that is not a place are
 // reported, and so is mut written for a plain parameter, left out for a
-// mut one, or written anywhere but as a call's argument. The place's type
+// mut one, or written anywhere but as a call's argument. mut left out, by
+// an argument or a receiver, suggests writing it only when the argument
+// could then be passed as mut, and otherwise says why it cannot, with the
+// fix that makes it a place when there is one, as mut written gets them
+// (mutRootFix, and stringByte for a string's byte): declaring a local,
+// or a function's parameter in its signature, with mut, copying a global
+// or a closure's parameter, whose signature the call fixes, into a
+// mutable local, or moving an own parameter into a mutable variable; a
+// string's byte, a view parameter, the variables of a range loop and of
+// a type switch, and the binding of a union's payload, recorded in
+// bindings, never can be. The place's type
 // must be the parameter's exactly: no widening. No reference can be
 // stored or returned, since nothing but a call's argument may be mut x.
 // No two mut arguments of one call may overlap (exclusive.go): places

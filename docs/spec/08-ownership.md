@@ -203,7 +203,9 @@ and borrows](#views-and-borrows)).
 
 The caller writes `mut` before the argument, `scale(mut b, 3)`, and only
 there. Leaving it out for a `mut` parameter is `scale takes p as mut;
-pass mut b`, and writing it for a plain one is `count does not take t as
+pass mut b`, or, when `b` could not be passed as `mut` either, `scale
+takes p as mut, but b is immutable; declare it with mut, then pass mut
+b`, and writing it for a plain one is `count does not take t as
 mut; pass t`. What follows `mut` must be a place the caller may change: a
 mutable local, a `mut` parameter, a field of one, or an element of one
 whose index is proven in range, nested in any way. An immutable variable,

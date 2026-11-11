@@ -82,10 +82,26 @@ another way:
 - An immutable global passed as `mut` gets its own wording, `cannot pass
   mut limit: limit is immutable; copy it into a mutable local`, rather
   than the local's `declare it with mut`, which would lead to the mutable
-  global error.
+  global error. A mutable global gets `cannot pass mut g: g is a mutable
+  global, which any function can reach; copy it into a mutable local`.
 - Leaving `mut` out for a `mut` parameter suggests `pass mut b` when the
   argument is a variable, a field or an element, and otherwise says only
-  a place can be passed as `mut`.
+  a place can be passed as `mut`. When the argument could not be passed
+  as `mut` either, it says why, with the reason and fix writing `mut`
+  gets: both paths take them from stringByte for a string's byte and
+  from mutRootFix for the variable at the root otherwise. They are
+  `declare it with mut, then pass mut b` for an immutable local, with a
+  note at its declaration, `declare it with mut in the signature, then
+  pass mut b` for a plain parameter of a function, `n is a closure
+  parameter, whose type the call fixes; copy it into a mutable local`
+  for a closure's, `copy it into a mutable local` for a global, `move it
+  into a mutable variable with mut x := o` for an own parameter, and
+  nothing
+  for a string's byte, `strings are immutable`, whatever its root, a view
+  parameter, a range loop variable, a type switch variable or the
+  binding of a union's payload, `x is a range loop variable, which cannot
+  be mut`. A `mut` receiver left without `mut` gets the same, with `call
+  mut` for `pass mut`.
 - `mut x` counts as reading `x` for the unused-variable check.
 - Two indexes into one array are the same element when they are the same
   variable, or known values that are equal, or variables the facts pin to

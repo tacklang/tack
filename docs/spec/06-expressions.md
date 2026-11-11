@@ -269,12 +269,14 @@ error, `cannot use string as int64 in argument to f`.
 An argument to a `mut` parameter is written `mut x`, and `x` must be a
 place the caller may change. An argument to an `own` parameter that is a
 variable is written `own x`. `mut` and `own` are written only there:
-leaving `mut` out is `scale takes p as mut; pass mut b`, writing it for
-a plain parameter is `count does not take t as mut; pass t`, and `mut x`
-anywhere but as a call's argument is `mut x can only be passed to a mut
-parameter`; the same holds for `own`. What such an argument may be and
-what passing it does is described in [Ownership and
-memory](08-ownership.md). A spread, `f(v...)`, is the whole of the
+leaving `mut` out is `scale takes p as mut; pass mut b`, or, when `b`
+could not be passed as `mut` either, says why and what fixes it, `scale
+takes p as mut, but b is immutable; declare it with mut, then pass mut
+b`; writing it for a plain parameter is `count does not take t as mut;
+pass t`, and `mut x` anywhere but as a call's argument is `mut x can
+only be passed to a mut parameter`; the same holds for `own`. What such
+an argument may be and what passing it does is described in [Ownership
+and memory](08-ownership.md). A spread, `f(v...)`, is the whole of the
 variadic parameter: `cannot use ... in a call with other values for
 nums`, and in a call to a function that is not variadic `cannot use ...
 in a call to non-variadic f`.

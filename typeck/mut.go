@@ -1,7 +1,10 @@
 package typeck
 
 import (
+	"fmt"
+
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/types"
 )
 
@@ -114,8 +117,9 @@ func (c *Checker) mutToMut(m *ast.MutArg, p param, callee string) *ast.MutArg {
 }
 
 // missingMut reports arg, a plain argument passed to the mut parameter p
-// of callee: the fix is mut before it when it is a variable, a field or an
-// element, and otherwise a place in its stead.
+// of callee: the fix is mut before it when it is a mutable variable, a
+// field or an element, what argFix says when it is not, and otherwise a
+// place in its stead.
 func (c *Checker) missingMut(arg ast.Expr, p param, callee string) {
 	if !namesVariable(arg) {
 		c.errorf(arg.Spanned(),
@@ -123,24 +127,170 @@ func (c *Checker) missingMut(arg ast.Expr, p param, callee string) {
 			callee, p.name)
 		return
 	}
-	c.errorf(
-		arg.Spanned(),
-		"%s takes %s as mut; pass mut %s",
-		callee,
-		p.name,
-		c.text(arg.Spanned()),
-	)
+	fix := c.argFix(arg)
+	head := fmt.Sprintf("%s takes %s as mut", callee, p.name)
+	cure := "pass mut " + c.text(arg.Spanned())
+	c.errorNotes(arg.Spanned(), fix.notes, "%s", fix.message(head, cure))
+}
+
+// The bindings no declaration can make mut, as bindings records them:
+// each is what a message says of one, given its name.
+const (
+	rangeVar       = "%s is a range loop variable, which cannot be mut"
+	typeSwitchVar  = "%s is a type switch variable, which cannot be mut"
+	payloadBinding = "%s binds a union's payload, which cannot be mut"
+)
+
+// stringByte is what a message about passing a string's byte as mut says
+// of it: strings are immutable, whatever holds the string, so nothing
+// makes the byte a place.
+var stringByte = rootFix{problem: "strings are immutable"}
+
+// argFix returns what a message about passing e as mut, written with mut
+// or without, says of it: a string's byte is never a place, whatever its
+// root, and otherwise mutRootFix says it of the variable at e's root.
+func (c *Checker) argFix(e ast.Expr) rootFix {
+	if x, ok := e.(*ast.Index); ok && c.placeType(x.X) == types.String {
+		return stringByte
+	}
+	return c.mutRootFix(ast.Root(e))
+}
+
+// rootFix is what a message about an argument written without mut, where
+// mut is needed, says of the variable at its root. problem is why the
+// variable cannot be passed as mut, "" when it can; fix is what lets it,
+// "" when nothing can; and notes, set only when the fix is to declare the
+// variable with mut, after which mut still goes before the argument, is
+// a note at its declaration.
+type rootFix struct {
+	problem string
+	fix     string
+	notes   []diag.Diagnostic
+}
+
+// mutRootFix returns what a message about passing an argument as mut,
+// written with mut (placeName) or without (missingMut and
+// receiverWithoutMut), says of root, the variable or parameter at the
+// argument's root, so both say the same of it: paramFix says it of a
+// parameter and varFix of a variable. A name left unresolved, whose error
+// is already reported, can be passed as mut.
+func (c *Checker) mutRootFix(root *ast.Ident) rootFix {
+	switch def := root.Def.(type) {
+	case *ast.Param:
+		return c.paramFix(root, def)
+	case *ast.Var:
+		return c.varFix(root, def)
+	default:
+		return rootFix{}
+	}
+}
+
+// paramFix returns what mutRootFix says of def, the parameter root names:
+// a mut parameter can be passed as mut, and a plain one once declared
+// with mut in its signature, unless it is a closure's, whose signature
+// the call fixes, which is copied into a mutable local instead; an own
+// parameter is moved into a mutable variable first; a view parameter
+// cannot be passed as mut at all.
+func (c *Checker) paramFix(root *ast.Ident, def *ast.Param) rootFix {
+	switch {
+	case def.Mut:
+		return rootFix{}
+	case def.Own:
+		return rootFix{
+			problem: root.Name + " is an own parameter, which is immutable",
+			fix:     "move it into a mutable variable with mut x := " + root.Name,
+		}
+	case c.table.IsView(def.Type):
+		return rootFix{problem: root.Name + " is a read-only view"}
+	case c.closureParams[def]:
+		return rootFix{
+			problem: root.Name + " is a closure parameter, whose type the call fixes",
+			fix:     "copy it into a mutable local",
+		}
+	default:
+		return rootFix{
+			problem: root.Name + " is immutable",
+			fix:     "declare it with mut in the signature",
+			notes:   declaredHere(root.Name, def.NameSpan),
+		}
+	}
+}
+
+// varFix returns what mutRootFix says of def, the variable root names: a
+// mutable local can be passed as mut, and an immutable one once declared
+// with mut; a global is copied into a mutable local first, a mutable one
+// because any function can reach it; a binding no declaration can make mut (see
+// bindings) cannot be passed as mut at all.
+func (c *Checker) varFix(root *ast.Ident, def *ast.Var) rootFix {
+	kind := c.bindings[def]
+	switch {
+	case def.Mutable && c.globals[def]:
+		return rootFix{
+			problem: root.Qualified() + " is a mutable global, which any function can reach",
+			fix:     "copy it into a mutable local",
+		}
+	case def.Mutable:
+		return rootFix{}
+	case c.globals[def]:
+		return rootFix{
+			problem: root.Qualified() + " is immutable",
+			fix:     "copy it into a mutable local",
+		}
+	case kind != "":
+		return rootFix{problem: fmt.Sprintf(kind, root.Name)}
+	default:
+		return rootFix{
+			problem: root.Name + " is immutable",
+			fix:     "declare it with mut",
+			notes:   declaredHere(root.Name, def.NameSpan),
+		}
+	}
+}
+
+// placeMessage returns the message about text, a mut argument whose
+// place f says cannot be passed as mut: the problem, and its fix when
+// there is one.
+func (f rootFix) placeMessage(text string) string {
+	if f.fix == "" {
+		return "cannot pass " + text + ": " + f.problem
+	}
+	return "cannot pass " + text + ": " + f.problem + "; " + f.fix
+}
+
+// message returns the message about an argument written without mut,
+// where mut is needed, that starts with head, what takes it as mut, and
+// whose fix, when the root can be passed as mut, is cure, mut written
+// before it: cure alone when the root can be; the root's problem and its
+// fix, followed by cure when the fix is to declare the root with mut; and
+// the problem alone when nothing can make the root a place.
+func (f rootFix) message(head, cure string) string {
+	switch {
+	case f.problem == "":
+		return head + "; " + cure
+	case f.fix == "":
+		return head + ", but " + f.problem
+	case f.notes != nil:
+		return head + ", but " + f.problem + "; " + f.fix + ", then " + cure
+	default:
+		return head + ", but " + f.problem + "; " + f.fix
+	}
+}
+
+// declaredHere returns a note that the variable or parameter name is
+// declared at span, its name in its declaration.
+func declaredHere(name string, span ast.Span) []diag.Diagnostic {
+	return []diag.Diagnostic{note(span, name+" is declared here")}
 }
 
 // namesVariable reports whether e is a variable or a parameter, or a field
 // or an element of one, written as a name, a field or an element is. Only
-// such an argument can take mut, and it does when the variable is a
-// mutable local or parameter; a global, or an immutable variable, cannot
-// be passed as mut at all, which the suggestion does not yet say. A union
-// built in place, Expr.eof, a method named through its type, Pair.first,
-// and a function named are not, though each is written as a name or a
-// field is: the name at their root is a type or a function. A name left
-// unresolved, whose error is already reported, counts as a variable.
+// such an argument can take mut, which it does once the variable at its
+// root is a mutable local or a mut parameter; mutRootFix says what makes
+// it one, if anything can. A union built in place, Expr.eof, a method
+// named through its type, Pair.first, and a function named are not,
+// though each is written as a name or a field is: the name at their root
+// is a type or a function. A name left unresolved, whose error is already
+// reported, counts as a variable.
 func namesVariable(e ast.Expr) bool {
 	root := ast.Root(e)
 	if root == nil {
@@ -214,8 +364,16 @@ func (c *Checker) place(e ast.Expr, m *ast.MutArg) types.Type {
 // placeElement checks x, an element of the place the mut argument m
 // names, or of part of it, as place does, and returns its type: an
 // element of a place, whose index is proven in range. A string's byte is
-// reported, as strings are immutable.
+// reported, as strings are immutable, before anything about the string's
+// root, which no fix to the root could change; one whose string has no
+// type its declarations give is reported once its string is checked.
 func (c *Checker) placeElement(x *ast.Index, m *ast.MutArg) types.Type {
+	if c.placeType(x.X) == types.String {
+		c.expr(x.X)
+		c.expr(x.Index)
+		c.errorf(m.Span, "%s", stringByte.placeMessage(c.text(m.Span)))
+		return types.Invalid
+	}
 	base := c.place(x.X, m)
 	switch base {
 	case types.Invalid:
@@ -223,7 +381,7 @@ func (c *Checker) placeElement(x *ast.Index, m *ast.MutArg) types.Type {
 		return types.Invalid
 	case types.String:
 		c.expr(x.Index)
-		c.errorf(m.Span, "cannot pass %s: strings are immutable", c.text(m.Span))
+		c.errorf(m.Span, "%s", stringByte.placeMessage(c.text(m.Span)))
 		return types.Invalid
 	}
 	x.Type = c.element(x, base, true)
@@ -232,59 +390,21 @@ func (c *Checker) placeElement(x *ast.Index, m *ast.MutArg) types.Type {
 
 // placeName checks the variable or parameter id names, where a mut
 // argument m starts: a mutable local or a mut parameter, whose type it
-// returns. A mutable global, an immutable variable and a plain parameter
-// are reported, and give types.Invalid.
+// returns. Any other variable or parameter is reported as mutRootFix
+// says, and anything else as no place; each gives types.Invalid.
 func (c *Checker) placeName(id *ast.Ident, m *ast.MutArg) types.Type {
 	typ := c.ident(id)
-	switch def := id.Def.(type) {
-	case *ast.Param:
-		if def.Mut {
+	switch id.Def.(type) {
+	case *ast.Param, *ast.Var:
+		fix := c.mutRootFix(id)
+		if fix.problem == "" {
 			return typ
 		}
-		if def.Own {
-			c.errorf(m.Span, "cannot pass %s: %s is an own parameter, which is immutable; "+
-				"move it into a mutable variable with mut x := %s", c.text(m.Span), id.Name, id.Name)
-			return types.Invalid
-		}
-		if c.table.IsView(def.Type) {
-			c.readOnly(m.Span, "pass "+c.text(m.Span), id)
-			return types.Invalid
-		}
-		c.errorf(
-			m.Span,
-			"cannot pass %s: %s is immutable; declare it with mut",
-			c.text(m.Span),
-			id.Name,
-		)
-	case *ast.Var:
-		return c.placeVar(id, def, typ, m)
+		c.errorNotes(m.Span, fix.notes, "%s", fix.placeMessage(c.text(m.Span)))
 	default:
 		if typ != types.Invalid {
 			c.errorf(m.Span, "only a variable, a field or an element can be passed as mut")
 		}
-	}
-	return types.Invalid
-}
-
-// placeVar checks def, the variable id names, of type typ, where a mut
-// argument m starts: a mutable local, whose type it returns. A mutable
-// global and an immutable variable are reported, and give types.Invalid.
-func (c *Checker) placeVar(id *ast.Ident, def *ast.Var, typ types.Type, m *ast.MutArg) types.Type {
-	switch {
-	case def.Mutable && c.globals[def]:
-		c.errorf(m.Span, "a mutable global cannot be passed as mut; copy it into a local")
-	case def.Mutable:
-		return typ
-	case c.globals[def]:
-		c.errorf(m.Span, "cannot pass %s: %s is immutable; copy it into a mutable local",
-			c.text(m.Span), id.Qualified())
-	default:
-		c.errorf(
-			m.Span,
-			"cannot pass %s: %s is immutable; declare it with mut",
-			c.text(m.Span),
-			id.Name,
-		)
 	}
 	return types.Invalid
 }

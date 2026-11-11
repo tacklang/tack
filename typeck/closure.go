@@ -351,9 +351,13 @@ func (c *Checker) keepsInClosure(f fact) bool {
 
 // checkFuncLit checks the body of lit, a closure whose type is known,
 // where it is written (see enterClosure), that one with results ends in
-// a return, and then records its captures (see captures).
+// a return, and then records its captures (see captures). Its
+// parameters are recorded in closureParams first.
 func (c *Checker) checkFuncLit(lit *ast.FuncLit) {
 	fn := lit.Func
+	for _, p := range fn.Params {
+		c.closureParams[p] = true
+	}
 	saved := c.enterClosure(lit)
 	c.checkBlock(fn.Body, fn)
 	if fn.Results != nil && !blockTerminates(fn.Body) && len(ast.BadStmts(fn.Body)) == 0 {

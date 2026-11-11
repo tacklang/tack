@@ -329,6 +329,7 @@ func (c *Checker) checkBinding(
 	}
 	cl.Var.Type = uc.Type
 	c.unionBindings[cl.Var] = tag
+	c.bindings[cl.Var] = payloadBinding
 	return uc.Type != types.Invalid
 }
 

@@ -214,8 +214,9 @@ func (c *Checker) receiverWithMut(call *ast.Call, m *ast.MutArg, fn *ast.Func, c
 
 // receiverWithoutMut reports call, whose callee sel names fn, a method with
 // a mut receiver, called on a receiver written without mut: the fix is mut
-// before the call when the receiver is a variable, a field or an element,
-// and otherwise a place in its stead, a union built in place, Expr.eof,
+// before the call when the receiver is a mutable variable, a field or an
+// element, what argFix says when it is not, and
+// otherwise a place in its stead, a union built in place, Expr.eof,
 // included, though it is written as a field is.
 func (c *Checker) receiverWithoutMut(call *ast.Call, sel *ast.Selector, fn *ast.Func) {
 	if ast.Root(sel.X) == nil || builtInPlace(sel.X) {
@@ -226,8 +227,9 @@ func (c *Checker) receiverWithoutMut(call *ast.Call, sel *ast.Selector, fn *ast.
 		)
 		return
 	}
-	c.errorf(sel.X.Spanned(), "%s takes its receiver as mut; call mut %s",
-		c.displayName(fn), c.text(call.Span))
+	fix := c.argFix(sel.X)
+	head := c.displayName(fn) + " takes its receiver as mut"
+	c.errorNotes(sel.X.Spanned(), fix.notes, "%s", fix.message(head, "call mut "+c.text(call.Span)))
 }
 
 // builtInPlace reports whether e is, or is a field or an element of, a
