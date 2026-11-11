@@ -66,12 +66,6 @@ use func(scope func()) as func(func()) in argument to g`. It is too
 strict, never unsound: the call is rejected, and a closure whose
 parameters are not scope, or a non-generic callee, is unaffected.
 
-## Moving a union case built through its type says a field cannot move
-
-`own Expr.eof`, a union case built in place and passed to an `own`
-parameter, reports `a field cannot be moved on its own`, which is not
-what the expression is.
-
 ## The facts prove an assignment's target index after its value
 
 The fact checker proves a target index as if the assignment's value had

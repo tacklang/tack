@@ -38370,6 +38370,29 @@ own-borrowed-param/main.tck:7:14: error: cannot move p: it is a parameter, which
    |	             ^
 08 |	}
 
+-- own-call-result/main.tck --
+package main
+
+func fresh() list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func sink(own l list[int64]) {
+}
+
+func main() {
+    sink(own fresh())
+}
+-- own-call-result/expected --
+stage: typeck
+---
+
+own-call-result/main.tck:11:10: error: cannot pass own fresh(): only a variable can be passed as own; pass fresh() without own
+10 |	func main() {
+11 |	    sink(own fresh())
+   |	         ^~~~~~~~~~~
+12 |	}
+
 -- own-copyable-arg-in-generic-call/main.tck --
 package main
 
@@ -38524,6 +38547,33 @@ own-field/main.tck:12:10: error: cannot pass own s.l: a field cannot be moved on
    |	         ^~~~~~~
 13 |	}
 
+-- own-field-of-temporary/main.tck --
+package main
+
+type P struct {
+    l list[int64]
+}
+
+func fresh() P {
+    return P{l: make(list[int64], c_allocator)}
+}
+
+func sink(own l list[int64]) {
+}
+
+func main() {
+    sink(own fresh().l)
+}
+-- own-field-of-temporary/expected --
+stage: typeck
+---
+
+own-field-of-temporary/main.tck:15:10: error: cannot pass own fresh().l: a field cannot be moved on its own
+14 |	func main() {
+15 |	    sink(own fresh().l)
+   |	         ^~~~~~~~~~~~~
+16 |	}
+
 -- own-func-type-copyable/main.tck --
 package main
 
@@ -38639,6 +38689,30 @@ own-function-name/main.tck:10:10: error: cannot pass own helper: only a variable
 10 |	    sink(own helper)
    |	         ^~~~~~~~~~
 11 |	}
+
+-- own-global/main.tck --
+package main
+
+type Any interface {
+}
+
+func keep[T Any](own t T) {
+}
+
+var count int64 = 3
+
+func main() {
+    keep(own count)
+}
+-- own-global/expected --
+stage: typeck
+---
+
+own-global/main.tck:12:10: error: cannot pass own count: int64 owns no list or map, so it is copied; pass count
+11 |	func main() {
+12 |	    keep(own count)
+   |	         ^~~~~~~~~
+13 |	}
 
 -- own-in-nested-call/main.tck --
 package main
@@ -39453,6 +39527,29 @@ own-receiver/main.tck:7:7: error: a method cannot take its receiver as own; take
    |	      ^~~
 08 |	}
 
+-- own-struct-literal/main.tck --
+package main
+
+type P struct {
+    l list[int64]
+}
+
+func sink(own p P) {
+}
+
+func main() {
+    sink(own P{l: make(list[int64], c_allocator)})
+}
+-- own-struct-literal/expected --
+stage: typeck
+---
+
+own-struct-literal/main.tck:11:10: error: cannot pass own P{l: make(list[int64], c_allocator)}: only a variable can be passed as own; pass P{l: make(list[int64], c_allocator)} without own
+10 |	func main() {
+11 |	    sink(own P{l: make(list[int64], c_allocator)})
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+12 |	}
+
 -- own-temporary/main.tck --
 package main
 
@@ -39471,6 +39568,29 @@ own-temporary/main.tck:7:10: error: cannot pass own make(list[int64], c_allocato
 07 |	    sink(own make(list[int64], c_allocator))
    |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 08 |	}
+
+-- own-temporary-with-error/main.tck --
+package main
+
+func fresh(n int64) list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func sink(own l list[int64]) {
+}
+
+func main() {
+    sink(own fresh("x"))
+}
+-- own-temporary-with-error/expected --
+stage: typeck
+---
+
+own-temporary-with-error/main.tck:11:20: error: cannot use string as int64 in argument to fresh
+10 |	func main() {
+11 |	    sink(own fresh("x"))
+   |	                   ^~~
+12 |	}
 
 -- own-then-borrowed-in-one-call/main.tck --
 package main
@@ -39560,6 +39680,105 @@ own-twice-in-one-call/main.tck:8:10: note: t is passed as own here
 08 |	    both(own t, own t)
    |	         ^~~~~
 09 |	}
+
+-- own-union-case/main.tck --
+package main
+
+type Expr union {
+    num   int64
+    items list[int64]
+    eof
+}
+
+func sink(own e Expr) {
+}
+
+func main() {
+    sink(own Expr.eof)
+}
+-- own-union-case/expected --
+stage: typeck
+---
+
+own-union-case/main.tck:13:10: error: cannot pass own Expr.eof: only a variable can be passed as own; pass Expr.eof without own
+12 |	func main() {
+13 |	    sink(own Expr.eof)
+   |	         ^~~~~~~~~~~~
+14 |	}
+
+-- own-union-case-missing-payload/main.tck --
+package main
+
+type Expr union {
+    num   int64
+    items list[int64]
+    eof
+}
+
+func sink(own e Expr) {
+}
+
+func main() {
+    sink(own Expr.num)
+}
+-- own-union-case-missing-payload/expected --
+stage: typeck
+---
+
+own-union-case-missing-payload/main.tck:13:14: error: Expr.num needs its int64 payload, as in Expr.num(...)
+12 |	func main() {
+13 |	    sink(own Expr.num)
+   |	             ^~~~~~~~
+14 |	}
+
+-- own-union-case-payload/main.tck --
+package main
+
+type Expr union {
+    num   int64
+    items list[int64]
+    eof
+}
+
+func sink(own e Expr) {
+}
+
+func main() {
+    sink(own Expr.num(3))
+}
+-- own-union-case-payload/expected --
+stage: typeck
+---
+
+own-union-case-payload/main.tck:13:10: error: cannot pass own Expr.num(3): only a variable can be passed as own; pass Expr.num(3) without own
+12 |	func main() {
+13 |	    sink(own Expr.num(3))
+   |	         ^~~~~~~~~~~~~~~
+14 |	}
+
+-- own-unknown-field/main.tck --
+package main
+
+type S struct {
+    l list[int64]
+}
+
+func sink(own l list[int64]) {
+}
+
+func main() {
+    s := S{l: make(list[int64], c_allocator)}
+    sink(own s.m)
+}
+-- own-unknown-field/expected --
+stage: typeck
+---
+
+own-unknown-field/main.tck:12:16: error: S has no field m
+11 |	    s := S{l: make(list[int64], c_allocator)}
+12 |	    sink(own s.m)
+   |	               ^
+13 |	}
 
 -- own-used-after-move/main.tck --
 package main

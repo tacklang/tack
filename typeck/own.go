@@ -27,8 +27,8 @@ import (
 // A plain parameter borrows its value and a mut parameter's stays its
 // caller's, so neither can be passed as own (see move.go), and a field or
 // an element cannot be moved out of what holds it. A value no variable
-// holds, a call's result or a literal, is passed to an own parameter with
-// no own, since nothing else could use it again; and so is a value whose
+// holds, a call's result, a literal or a union's case built through its
+// type, is passed to an own parameter with no own, since nothing else could use it again; and so is a value whose
 // type owns nothing, which a generic function's own parameter may be
 // given, its type argument a copyable one: it is copied, and own on it is
 // reported. Passing a variable as own to a parameter that is not own, or
@@ -129,12 +129,20 @@ func (c *Checker) ownArg(arg ast.Expr, p param, callee string) (ast.Expr, bool) 
 // be: what follows own must be the name of a variable or a parameter, of
 // a type that owns something, since a value that owns nothing is copied.
 // A field, an element, a method named through its type and any other
-// value are reported, after checking them for errors of their own.
+// value are reported, after checking them for errors of their own, unless
+// they have one, which the own argument follows from. A union's case built through its type, Expr.eof, is written as a field
+// is, but no variable holds it, so it is reported as a call's result or
+// a literal is: passed with no own.
 func (c *Checker) ownName(o *ast.OwnArg) bool {
 	text := c.text(o.Span)
 	if _, isMethodExpr := ast.MethodExpr(o.X); isMethodExpr {
-		c.expr(o.X)
-		c.errorf(o.Span, "cannot pass %s: only a variable can be passed as own", text)
+		if c.soundOperand(o.X) {
+			c.errorf(o.Span, "cannot pass %s: only a variable can be passed as own", text)
+		}
+		return false
+	}
+	if _, _, _, built := ast.Construction(o.X); built {
+		c.temporaryOwn(o)
 		return false
 	}
 	switch x := o.X.(type) {
@@ -142,34 +150,57 @@ func (c *Checker) ownName(o *ast.OwnArg) bool {
 		switch x.Def.(type) {
 		case *ast.Var, *ast.Param:
 		default:
-			c.expr(x)
-			c.errorf(o.Span, "cannot pass %s: only a variable can be passed as own", text)
+			if c.soundOperand(x) {
+				c.errorf(o.Span, "cannot pass %s: only a variable can be passed as own", text)
+			}
 			return false
 		}
 		typ := declType(x.Def)
 		if typ != types.Invalid && !c.table.Owned(typ) {
-			c.expr(x)
-			c.errorf(o.Span, "cannot pass %s: %s owns no list or map, so it is copied; pass %s",
-				text, c.typeName(typ), x.Name)
+			if c.soundOperand(x) {
+				c.errorf(o.Span, "cannot pass %s: %s owns no list or map, so it is copied; pass %s",
+					text, c.typeName(typ), x.Qualified())
+			}
 			return false
 		}
 		return true
 	case *ast.Selector:
-		c.expr(x)
-		c.errorf(o.Span, "cannot pass %s: a field cannot be moved on its own", text)
+		if c.soundOperand(x) {
+			c.errorf(o.Span, "cannot pass %s: a field cannot be moved on its own", text)
+		}
 	case *ast.Index:
-		c.expr(x)
-		c.errorf(o.Span, "cannot pass %s: an element cannot be moved out of what holds it", text)
+		if c.soundOperand(x) {
+			c.errorf(o.Span, "cannot pass %s: an element cannot be moved out of what holds it", text)
+		}
 	default:
-		c.expr(x)
-		c.errorf(
-			o.Span,
-			"cannot pass %s: only a variable can be passed as own; pass %s without own",
-			text,
-			c.text(x.Spanned()),
-		)
+		c.temporaryOwn(o)
 	}
 	return false
+}
+
+// temporaryOwn reports o, an own argument whose operand is a value no
+// variable holds, a call's result, a literal or a union's case built in
+// place, after checking that value for errors of its own, unless it has
+// one: it is passed to an own parameter with no own.
+func (c *Checker) temporaryOwn(o *ast.OwnArg) {
+	if !c.soundOperand(o.X) {
+		return
+	}
+	c.errorf(
+		o.Span,
+		"cannot pass %s: only a variable can be passed as own; pass %s without own",
+		c.text(o.Span),
+		c.text(o.X.Spanned()),
+	)
+}
+
+// soundOperand checks e, what follows own in an argument that cannot be
+// passed as own, for errors of its own, and reports whether it has none
+// and a valid type. When it has one, what is wrong with the own argument
+// follows from it, and is not reported.
+func (c *Checker) soundOperand(e ast.Expr) bool {
+	before := len(c.diags)
+	return c.expr(e) != types.Invalid && len(c.diags) == before
 }
 
 // declType returns the type the variable or parameter d is declared with,

@@ -738,9 +738,11 @@ section remains the description of the language.
   a field cannot be moved on its own`, an element, `cannot pass own ls[0]:
   an element cannot be moved out of what holds it`, and a list being
   ranged over cannot be passed as `own`. A value no variable holds, a
-  call's result or a literal, is passed with no `own`, `failure(e,
-  text.new(alloc))`, and writing it is `cannot pass own g(): only a
-  variable can be passed as own; pass g() without own`. Leaving `own`
+  call's result, a literal or a union's case built through its type,
+  `Expr.eof`, is passed with no `own`, `failure(e, text.new(alloc))`,
+  and writing it is `cannot pass own g(): only a variable can be passed
+  as own; pass g() without own`, which is not reported when the value
+  has an error of its own. Leaving `own`
   out for a variable is `sink takes l as own; pass own t`, writing it for
   a parameter that is not own, the builtins' included, is `f does not
   take t as own; pass t`, and `own x` anywhere but as a call's argument is

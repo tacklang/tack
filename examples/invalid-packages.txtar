@@ -3647,6 +3647,66 @@ not-main-package/calc.tck:1:9: error: calc is not a main package
    |	        ^~~~
 02 |	
 
+-- own-imported-global/tack.mod --
+module calc
+-- own-imported-global/lexer/lexer.tck --
+package lexer
+
+pub var Count int64 = 1
+-- own-imported-global/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+type Any interface {
+}
+
+func keep[T Any](own t T) {
+}
+
+func main() {
+    keep(own lexer.Count)
+}
+-- own-imported-global/expected --
+stage: typeck
+---
+
+own-imported-global/main.tck:12:10: error: cannot pass own lexer.Count: int64 owns no list or map, so it is copied; pass lexer.Count
+11 |	func main() {
+12 |	    keep(own lexer.Count)
+   |	         ^~~~~~~~~~~~~~~
+13 |	}
+
+-- own-imported-union-case/tack.mod --
+module calc
+-- own-imported-union-case/lexer/lexer.tck --
+package lexer
+
+pub type Token union {
+    words list[string]
+    eof
+}
+-- own-imported-union-case/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func sink(own t lexer.Token) {
+}
+
+func main() {
+    sink(own lexer.Token.eof)
+}
+-- own-imported-union-case/expected --
+stage: typeck
+---
+
+own-imported-union-case/main.tck:9:10: error: cannot pass own lexer.Token.eof: only a variable can be passed as own; pass lexer.Token.eof without own
+08 |	func main() {
+09 |	    sink(own lexer.Token.eof)
+   |	         ^~~~~~~~~~~~~~~~~~~
+10 |	}
+
 -- package-misused/tack.mod --
 module calc
 -- package-misused/lexer/lexer.tck --
