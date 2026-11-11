@@ -320,7 +320,12 @@
 // call to the builtin exit leaves, as one ending in return, break or
 // continue does, since exit never returns (leaves), so an early exit may
 // end in one, and so does one ending in an unreachable statement, which
-// is proven never reached.
+// is proven never reached. Whether a block leaves, and whether a
+// statement terminates, is remembered for each if, switch, fallthrough
+// and loop once worked out (leavememo.go), since each link of an else if
+// chain is asked about at every link before it; an answer of no is
+// worked out again once a switch on a union is found to name every case
+// (Switch.Exhaustive), the one thing besides the syntax either reads.
 //
 // An unreachable statement must be proven unreachable (unreachable.go): a
 // block around it has already left or terminated (c.dead), the facts in
@@ -657,8 +662,10 @@
 // out, each condition whose facts are worked out rather than taken from
 // the && or || chain kept, each node a region's writes are indexed
 // from, each write a fact's query judges and each step of the reach
-// index it reads, and each operator or operand an arithmetic bound
-// reads. The
+// index it reads, each operator or operand an arithmetic bound
+// reads, each if, switch, fallthrough or loop whether it leaves or
+// terminates is worked out for, and each statement copied into a region
+// for the facts a statement before it gives. The
 // counts change nothing it checks;
 // the tests read them to bound how checking grows with a program, which,
 // unlike a time, does not depend on the machine's load.

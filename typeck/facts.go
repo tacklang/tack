@@ -1111,6 +1111,20 @@ func stmtNodes(body []ast.Stmt) []ast.Node {
 	return nodes
 }
 
+// joinRegion returns the region of head, then rest. With no head it is
+// rest itself, not a copy, so the regions of a block's statements can
+// share one slice of them (see checkStmts). No region is ever changed in
+// place, and appending to rest, whose length is its capacity when it is
+// a suffix of a block's region, copies it. Each node of rest copied
+// counts as work (see proverWork).
+func (c *Checker) joinRegion(head, rest []ast.Node) []ast.Node {
+	if len(head) == 0 {
+		return rest
+	}
+	c.work.copied += len(rest)
+	return append(head, rest...)
+}
+
 // release takes out of force every fact and guard assumed since m was
 // taken, and forgets every known value the probe remembered since.
 func (c *Checker) release(m mark) {
@@ -1826,8 +1840,16 @@ func (c *Checker) throughList(target ast.Expr) bool {
 // switch with a default, or on a union with every case named, whose cases
 // all leave, or a fallthrough into a case whose body leaves, which is
 // where the fallthrough goes on to. Like the terminating rule, it is
-// syntactic.
+// syntactic. The checker asks through Checker.leaves, which remembers
+// the answers (see leavememo.go).
 func leaves(body []ast.Stmt) bool {
+	return leavesBy(body, leaves)
+}
+
+// leavesBy is leaves with bodyLeaves deciding whether each block inside
+// body's last statement leaves, as leaves does, which the checker,
+// remembering what it found, passes (see Checker.leaves).
+func leavesBy(body []ast.Stmt, bodyLeaves func([]ast.Stmt) bool) bool {
 	if len(body) == 0 {
 		return false
 	}
@@ -1835,11 +1857,11 @@ func leaves(body []ast.Stmt) bool {
 	case *ast.Return, *ast.Break, *ast.Continue, *ast.Unreachable:
 		return true
 	case *ast.Fallthrough:
-		return s.Next != nil && leaves(s.Next.Body)
+		return s.Next != nil && bodyLeaves(s.Next.Body)
 	case *ast.If:
-		return leaves(s.Then) && leaves(s.Else)
+		return bodyLeaves(s.Then) && bodyLeaves(s.Else)
 	case *ast.Switch:
-		return switchLeaves(s)
+		return switchLeavesBy(s, bodyLeaves)
 	case *ast.ExprStmt:
 		return isExitStmt(s)
 	default:
@@ -1861,7 +1883,7 @@ func isExitStmt(s *ast.ExprStmt) bool {
 func (c *Checker) afterFacts(stmt ast.Stmt) (*guard, []fact) {
 	switch s := stmt.(type) {
 	case *ast.If:
-		thenLeaves, elseLeaves := leaves(s.Then), leaves(s.Else)
+		thenLeaves, elseLeaves := c.leaves(s.Then), c.leaves(s.Else)
 		if thenLeaves == elseLeaves {
 			return nil, nil
 		}
@@ -1883,10 +1905,10 @@ func (c *Checker) afterFacts(stmt ast.Stmt) (*guard, []fact) {
 // leave, or, when the rest of the chain leaves, the first case's body.
 // The region the facts hold in starts with it. A branch that leaves never
 // reaches the statements after, so what it assigns does not matter there.
-func fallsThrough(stmt ast.Stmt) []ast.Node {
+func (c *Checker) fallsThrough(stmt ast.Stmt) []ast.Node {
 	switch s := stmt.(type) {
 	case *ast.If:
-		if leaves(s.Then) {
+		if c.leaves(s.Then) {
 			return stmtNodes(s.Else)
 		}
 		return stmtNodes(s.Then)
@@ -1895,7 +1917,7 @@ func fallsThrough(stmt ast.Stmt) []ast.Node {
 		if len(order) == 0 {
 			return nil
 		}
-		if !leaves(order[0].Body) {
+		if !c.leaves(order[0].Body) {
 			return stmtNodes(order[0].Body)
 		}
 		var nodes []ast.Node
@@ -1903,7 +1925,7 @@ func fallsThrough(stmt ast.Stmt) []ast.Node {
 			for _, v := range cl.Values {
 				nodes = append(nodes, v)
 			}
-			if !leaves(cl.Body) {
+			if !c.leaves(cl.Body) {
 				nodes = append(nodes, stmtNodes(cl.Body)...)
 			}
 		}

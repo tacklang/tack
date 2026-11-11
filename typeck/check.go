@@ -347,6 +347,16 @@ type Checker struct {
 	// how checking grows with the program checked (see proverWork).
 	work proverWork
 
+	// leftBy remembers, for the last statement of a block, whether the
+	// block leaves, and endedBy, for a statement, whether it terminates,
+	// each for an if, a switch, a fallthrough or a loop, the statements
+	// whose answer asks about others. exhaustGen counts the switches
+	// found to name every case of their union, after which a no
+	// remembered before is worked out again (see leavememo.go).
+	leftBy     map[ast.Stmt]stmtAnswer
+	endedBy    map[ast.Stmt]stmtAnswer
+	exhaustGen int
+
 	// dead is how many blocks around the statement being checked have
 	// left before it, by a return, a break, a continue or a call to exit,
 	// so that it never runs (see ensures.go).
@@ -430,6 +440,9 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 		contracts:   make(map[*ast.Func]*contract),
 		defers:      make(map[*ast.Func][]*ast.Defer),
 		invariants:  make(map[ast.Stmt][]fact),
+
+		leftBy:  make(map[ast.Stmt]stmtAnswer),
+		endedBy: make(map[ast.Stmt]stmtAnswer),
 	}
 }
 
@@ -1284,8 +1297,15 @@ func (c *Checker) checkBlock(body []ast.Stmt, fn *ast.Func) {
 // rest of it the facts each gives the statements after it, leaving them
 // in force for the caller to release, and counting the block in c.dead
 // once a statement leaves it or ends in exit.
+//
+// The regions of what each statement gives the rest are suffixes of one
+// region of the whole block, copied only behind what an early exit
+// falls through to first (see joinRegion), so a block of n statements,
+// each giving facts, does not copy them n times.
 func (c *Checker) checkStmts(body []ast.Stmt, fn *ast.Func) {
 	dead := c.dead
+	nodes := stmtNodes(body)
+	c.work.copied += len(nodes)
 	for i, stmt := range body {
 		c.checkStmt(stmt, fn)
 		c.recordStart(stmt, body[i+1:])
@@ -1294,13 +1314,13 @@ func (c *Checker) checkStmts(body []ast.Stmt, fn *ast.Func) {
 			g, facts = c.storedFacts(stmt)
 		}
 		if g != nil {
-			c.assume(g, facts, append(fallsThrough(stmt), stmtNodes(body[i+1:])...))
+			c.assume(g, facts, c.joinRegion(c.fallsThrough(stmt), nodes[i+1:]))
 		}
 		if g, facts := c.contractFacts(stmt); g != nil {
-			c.assume(g, facts, stmtNodes(body[i+1:]))
+			c.assume(g, facts, nodes[i+1:])
 		}
-		c.chainFacts(stmt, body[i+1:])
-		if c.dead == dead && (leaves(body[i:i+1]) || terminates(stmt)) {
+		c.chainFacts(stmt, nodes[i+1:])
+		if c.dead == dead && (c.leaves(body[i:i+1]) || c.terminates(stmt)) {
 			c.dead++
 		}
 	}
@@ -2217,8 +2237,17 @@ func (c *Checker) compositeType(expr ast.Expr) (types.Type, bool) {
 // if only terminates when it has an else and both branches do, since
 // otherwise the condition being false falls through, and a switch likewise
 // only when it has a default and every case does. A loop only terminates
-// when it has no condition and no break leaves it, following Go.
+// when it has no condition and no break leaves it, following Go. The
+// checker asks through Checker.terminates, which remembers the answers
+// (see leavememo.go).
 func terminates(stmt ast.Stmt) bool {
+	return terminatesBy(stmt, blockTerminates)
+}
+
+// terminatesBy is terminates with blockEnds deciding whether each block
+// inside stmt terminates, as blockTerminates does, which the checker,
+// remembering what it found, passes (see Checker.terminates).
+func terminatesBy(stmt ast.Stmt, blockEnds func([]ast.Stmt) bool) bool {
 	switch s := stmt.(type) {
 	case *ast.Return, *ast.Unreachable:
 		return true
@@ -2227,11 +2256,11 @@ func terminates(stmt ast.Stmt) bool {
 	case *ast.ExprStmt:
 		return isExitStmt(s)
 	case *ast.If:
-		return len(s.Else) > 0 && blockTerminates(s.Then) && blockTerminates(s.Else)
+		return len(s.Else) > 0 && blockEnds(s.Then) && blockEnds(s.Else)
 	case *ast.For:
 		return s.Cond == nil && !breaks(s.Body)
 	case *ast.Switch:
-		return switchTerminates(s)
+		return switchTerminatesBy(s, blockEnds)
 	default:
 		return false
 	}

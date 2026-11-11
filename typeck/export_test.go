@@ -2,7 +2,7 @@ package typeck
 
 // ProverWork is how many steps a checker's provers took (see proverWork).
 type ProverWork struct {
-	Arithmetic, Relations, Indexed, Scanned, Locals, Conditions, Walked, Leaving, Judged, Reached, Ranged int
+	Arithmetic, Relations, Indexed, Scanned, Locals, Conditions, Walked, Leaving, Judged, Reached, Ranged, Decided, Copied int
 }
 
 // ProverWork returns how many steps c's provers have taken.
@@ -20,6 +20,8 @@ func (c *Checker) ProverWork() ProverWork {
 		w.judged,
 		w.reached,
 		w.ranged,
+		w.decided,
+		w.copied,
 	}
 }
 
@@ -51,6 +53,17 @@ func CheckReachIndex() (restore func()) {
 	was := reachOracle
 	reachOracle = true
 	return func() { reachOracle = was }
+}
+
+// CheckLeaving makes every answer the checker remembers for whether a
+// block leaves or a statement terminates be checked against one worked
+// out afresh, panicking on a difference (see leaveOracle), and returns
+// the func that puts back what was set. A test calling it must not run
+// in parallel.
+func CheckLeaving() (restore func()) {
+	was := leaveOracle
+	leaveOracle = true
+	return func() { leaveOracle = was }
 }
 
 // ReachOracle reports whether every query of a fact's endings is checked

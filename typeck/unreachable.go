@@ -108,19 +108,21 @@ func (c *Checker) keepApart(g *guard, f fact, region []ast.Node) bool {
 }
 
 // chainFacts puts in force, for rest, the statements after stmt in its
-// block, what an if chain or a switch that stmt is gives the code after it
-// past its first link, whose facts afterFacts gives. For an if whose then
-// branch leaves and whose else is one if, the code after the outer if is
-// reached only past that inner if, so whatever the inner if gives the code
-// after it as an early exit (see afterFacts) holds there too, in a region
-// from the inner if's branch that falls through on, and so on down the
-// chain. For a switch see switchChainFacts.
+// block as a region (see stmtNodes), what an if chain or a switch that
+// stmt is gives the code after it past its first link, whose facts
+// afterFacts gives. For an if whose then branch leaves and whose else is
+// one if, the code after the outer if is reached only past that inner if,
+// so whatever the inner if gives the code after it as an early exit (see
+// afterFacts) holds there too, in a region from the inner if's branch that
+// falls through on, and so on down the chain. For a switch see
+// switchChainFacts.
 //
 // With no statement after stmt there is nowhere the facts hold, and the
 // chain is not walked. So a link of a chain, alone in the else block of
-// the link before it, never walks the rest of the chain, which in a
-// chain of n links would take time n squared.
-func (c *Checker) chainFacts(stmt ast.Stmt, rest []ast.Stmt) {
+// the link before it, never walks the rest of the chain, which in a chain
+// of n links would take time n squared. Whether each link leaves is
+// remembered (see leavememo.go), so the walk looks at each link once.
+func (c *Checker) chainFacts(stmt ast.Stmt, rest []ast.Node) {
 	if len(rest) == 0 {
 		return
 	}
@@ -129,7 +131,7 @@ func (c *Checker) chainFacts(stmt ast.Stmt, rest []ast.Stmt) {
 		return
 	}
 	s, ok := stmt.(*ast.If)
-	for ok && leaves(s.Then) && len(s.Else) == 1 {
+	for ok && c.leaves(s.Then) && len(s.Else) == 1 {
 		s, ok = s.Else[0].(*ast.If)
 		if !ok {
 			return
@@ -138,24 +140,24 @@ func (c *Checker) chainFacts(stmt ast.Stmt, rest []ast.Stmt) {
 		if g == nil {
 			continue
 		}
-		c.assume(g, facts, append(fallsThrough(s), stmtNodes(rest)...))
+		c.assume(g, facts, c.joinRegion(c.fallsThrough(s), rest))
 	}
 }
 
-// switchChainFacts puts in force, for rest, the statements after s, an
-// expression switch, tagged or with no tag, what the cases after its
-// first, in the order tried, give them, as the else-if chain s means
-// does; the first case's facts come from switchAfterFacts. While every
-// case tried so far leaves, the code after s is reached only when none of
-// them matched, so the next case gives the facts of its values not
-// matching when its body leaves and the cases after it do not all leave
-// (see chainLeaves), and those of its values matching when its body does
-// not leave and the cases after it all do, which ends the walk. A case
-// ending in a fallthrough leaves when the case it enters does (see
-// leaves). The facts of a case not matching hold in a region of every
-// value tried after it and every later body that does not leave, then
-// rest; those of a case matching, in its body, then rest.
-func (c *Checker) switchChainFacts(s *ast.Switch, rest []ast.Stmt) {
+// switchChainFacts puts in force, for rest, the statements after s as a
+// region (see stmtNodes), s an expression switch, tagged or with no tag,
+// what the cases after its first, in the order tried, give them, as the
+// else-if chain s means does; the first case's facts come from
+// switchAfterFacts. While every case tried so far leaves, the code after s
+// is reached only when none of them matched, so the next case gives the
+// facts of its values not matching when its body leaves and the cases
+// after it do not all leave (see chainLeaves), and those of its values
+// matching when its body does not leave and the cases after it all do,
+// which ends the walk. A case ending in a fallthrough leaves when the case
+// it enters does (see leaves). The facts of a case not matching hold in a
+// region of every value tried after it and every later body that does not
+// leave, then rest; those of a case matching, in its body, then rest.
+func (c *Checker) switchChainFacts(s *ast.Switch, rest []ast.Node) {
 	if s.IsTypeSwitch() || (s.Tag != nil && c.table.IsUnion(ast.TypeOf(s.Tag))) {
 		return
 	}
@@ -170,7 +172,7 @@ func (c *Checker) switchChainFacts(s *ast.Switch, rest []ast.Stmt) {
 	restLeaves := make([]bool, len(order)+1)
 	all := order[len(order)-1].Default
 	for i := len(order) - 1; i >= 0; i-- {
-		bodyLeaves[i] = leaves(order[i].Body)
+		bodyLeaves[i] = c.leaves(order[i].Body)
 		all = all && bodyLeaves[i]
 		restLeaves[i] = all
 	}
@@ -186,7 +188,7 @@ func (c *Checker) switchChainFacts(s *ast.Switch, rest []ast.Stmt) {
 		}
 	}
 	from[len(order)] = len(nodes)
-	nodes = append(nodes, stmtNodes(rest)...)
+	nodes = append(nodes, rest...)
 	for i := 1; i < len(order) && bodyLeaves[i-1] && !restLeaves[i]; i++ {
 		cl := order[i]
 		switch {
@@ -198,7 +200,7 @@ func (c *Checker) switchChainFacts(s *ast.Switch, rest []ast.Stmt) {
 		case !bodyLeaves[i] && restLeaves[i+1]:
 			if facts := c.caseFacts(s, cl, true); len(facts) > 0 {
 				g := &guard{span: caseSpan(cl), kind: guardMatched}
-				c.assume(g, facts, append(stmtNodes(cl.Body), stmtNodes(rest)...))
+				c.assume(g, facts, append(stmtNodes(cl.Body), rest...))
 			}
 		}
 	}

@@ -626,7 +626,7 @@ func (c *Checker) switchAfterFacts(s *ast.Switch) (*guard, []fact) {
 	if len(order) == 0 || order[0].Default {
 		return nil, nil
 	}
-	firstLeaves, restLeaves := leaves(order[0].Body), chainLeaves(order[1:])
+	firstLeaves, restLeaves := c.leaves(order[0].Body), chainLeavesBy(order[1:], c.leaves)
 	if firstLeaves == restLeaves {
 		return nil, nil
 	}
@@ -654,11 +654,18 @@ func caseSpan(cl *ast.CaseClause) ast.Span {
 // chain of cases does (see chainLeaves), or s is a switch on a union
 // whose clauses name every case and whose every clause's body leaves.
 func switchLeaves(s *ast.Switch) bool {
+	return switchLeavesBy(s, leaves)
+}
+
+// switchLeavesBy is switchLeaves with bodyLeaves deciding whether each
+// case's body leaves, as leaves does, which the checker, remembering
+// what it found, passes (see Checker.leaves).
+func switchLeavesBy(s *ast.Switch, bodyLeaves func([]ast.Stmt) bool) bool {
 	if !s.Exhaustive {
-		return chainLeaves(tryOrder(s))
+		return chainLeavesBy(tryOrder(s), bodyLeaves)
 	}
 	for _, cl := range s.Cases {
-		if !leaves(cl.Body) {
+		if !bodyLeaves(cl.Body) {
 			return false
 		}
 	}
@@ -694,11 +701,18 @@ func chainLeavesBy(order []*ast.CaseClause, bodyLeaves func([]ast.Stmt) bool) bo
 // case counts as one, as in Go: the last case, which none may end, must
 // terminate itself.
 func switchTerminates(s *ast.Switch) bool {
+	return switchTerminatesBy(s, blockTerminates)
+}
+
+// switchTerminatesBy is switchTerminates with blockEnds deciding whether
+// each case's body terminates, as blockTerminates does, which the
+// checker, remembering what it found, passes (see Checker.terminates).
+func switchTerminatesBy(s *ast.Switch, blockEnds func([]ast.Stmt) bool) bool {
 	if s.Default() == nil && !s.Exhaustive {
 		return false
 	}
 	for _, cl := range s.Cases {
-		if !blockTerminates(cl.Body) {
+		if !blockEnds(cl.Body) {
 			return false
 		}
 	}

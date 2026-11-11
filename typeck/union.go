@@ -409,7 +409,7 @@ func (c *Checker) checkCoverage(s *ast.Switch, typ types.Type) bool {
 	case len(missing) > 0:
 		c.reportUncovered(s, typ, missing)
 	default:
-		s.Exhaustive = true
+		c.markExhaustive(s)
 	}
 	return len(missing) == 0
 }

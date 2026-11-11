@@ -19,7 +19,12 @@ package typeck
 // reachSet); and reached each ending a fact's query asks reaches about,
 // each ending, interval and piece a reach index of them is built from,
 // and each step of a query of one (see reach.go); and ranged each operator or operand an arithmetic
-// expression's bound reads (see rangeOf). They count work,
+// expression's bound reads (see rangeOf); and decided each if, switch,
+// fallthrough or loop for which whether it leaves or terminates is
+// worked out, rather than remembered (see leavememo.go); and copied each
+// statement of a block put into a region facts hold in, once for the
+// block, and again behind each branch an early exit falls through to
+// (see checkStmts and joinRegion). They count work,
 // not time, so a test can bound how checking grows with the program
 // checked, whatever else the machine is doing.
 type proverWork struct {
@@ -34,4 +39,6 @@ type proverWork struct {
 	judged     int
 	reached    int
 	ranged     int
+	decided    int
+	copied     int
 }
