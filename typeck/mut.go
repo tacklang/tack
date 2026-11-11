@@ -117,7 +117,7 @@ func (c *Checker) mutToMut(m *ast.MutArg, p param, callee string) *ast.MutArg {
 // of callee: the fix is mut before it when it is a variable, a field or an
 // element, and otherwise a place in its stead.
 func (c *Checker) missingMut(arg ast.Expr, p param, callee string) {
-	if ast.Root(arg) == nil {
+	if !namesVariable(arg) {
 		c.errorf(arg.Spanned(),
 			"%s takes %s as mut; only a variable, a field or an element can be passed as mut",
 			callee, p.name)
@@ -130,6 +130,28 @@ func (c *Checker) missingMut(arg ast.Expr, p param, callee string) {
 		p.name,
 		c.text(arg.Spanned()),
 	)
+}
+
+// namesVariable reports whether e is a variable or a parameter, or a field
+// or an element of one, written as a name, a field or an element is. Only
+// such an argument can take mut, and it does when the variable is a
+// mutable local or parameter; a global, or an immutable variable, cannot
+// be passed as mut at all, which the suggestion does not yet say. A union
+// built in place, Expr.eof, a method named through its type, Pair.first,
+// and a function named are not, though each is written as a name or a
+// field is: the name at their root is a type or a function. A name left
+// unresolved, whose error is already reported, counts as a variable.
+func namesVariable(e ast.Expr) bool {
+	root := ast.Root(e)
+	if root == nil {
+		return false
+	}
+	switch root.Def.(type) {
+	case *ast.Var, *ast.Param, *ast.BadDecl, nil:
+		return true
+	default:
+		return false
+	}
 }
 
 // argExpr checks an argument of a call whose argument count is wrong, or

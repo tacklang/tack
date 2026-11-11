@@ -32895,6 +32895,129 @@ mut-missing-not-a-place/main.tck:16:11: error: scale takes p as mut; only a vari
    |	          ^~~~~~~~
 17 |	}
 
+-- mut-missing-temporaries/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func (mut p P) set() {
+    p.x = 2
+}
+
+func origin() P {
+    return P{x: 0}
+}
+
+func two(mut n int64) {
+    n = 2
+}
+
+func g(mut p P) {
+    p.x = 1
+}
+
+func h(mut n int64) {
+    n = 1
+}
+
+func setter(mut s func(mut P)) {
+}
+
+func writer(mut w func(mut int64)) {
+}
+
+func run(mut r func()) {
+}
+
+func main() {
+    g(P{x: 1})
+    g(origin())
+    setter(P.set)
+    writer(two)
+    h(5)
+    h(int64(5))
+    run(func() { print("x") })
+}
+-- mut-missing-temporaries/expected --
+stage: typeck
+---
+
+mut-missing-temporaries/main.tck:37:7: error: g takes p as mut; only a variable, a field or an element can be passed as mut
+36 |	func main() {
+37 |	    g(P{x: 1})
+   |	      ^~~~~~~
+38 |	    g(origin())
+
+mut-missing-temporaries/main.tck:38:7: error: g takes p as mut; only a variable, a field or an element can be passed as mut
+37 |	    g(P{x: 1})
+38 |	    g(origin())
+   |	      ^~~~~~~~
+39 |	    setter(P.set)
+
+mut-missing-temporaries/main.tck:39:12: error: setter takes s as mut; only a variable, a field or an element can be passed as mut
+38 |	    g(origin())
+39 |	    setter(P.set)
+   |	           ^~~~~
+40 |	    writer(two)
+
+mut-missing-temporaries/main.tck:40:12: error: writer takes w as mut; only a variable, a field or an element can be passed as mut
+39 |	    setter(P.set)
+40 |	    writer(two)
+   |	           ^~~
+41 |	    h(5)
+
+mut-missing-temporaries/main.tck:41:7: error: h takes n as mut; only a variable, a field or an element can be passed as mut
+40 |	    writer(two)
+41 |	    h(5)
+   |	      ^
+42 |	    h(int64(5))
+
+mut-missing-temporaries/main.tck:42:7: error: h takes n as mut; only a variable, a field or an element can be passed as mut
+41 |	    h(5)
+42 |	    h(int64(5))
+   |	      ^~~~~~~~
+43 |	    run(func() { print("x") })
+
+mut-missing-temporaries/main.tck:43:9: error: run does not take r as scope, and a closure can only be passed to a scope parameter
+42 |	    h(int64(5))
+43 |	    run(func() { print("x") })
+   |	        ^~~~
+44 |	}
+
+-- mut-missing-union-built/main.tck --
+package main
+
+type Expr union {
+    num int64
+    eof
+}
+
+func f(mut e Expr) {
+    e = Expr.eof
+}
+
+func main() {
+    f(Expr.eof)
+    f(Expr.num(3))
+}
+-- mut-missing-union-built/expected --
+stage: typeck
+---
+
+mut-missing-union-built/main.tck:13:7: error: f takes e as mut; only a variable, a field or an element can be passed as mut
+12 |	func main() {
+13 |	    f(Expr.eof)
+   |	      ^~~~~~~~
+14 |	    f(Expr.num(3))
+
+mut-missing-union-built/main.tck:14:7: error: f takes e as mut; only a variable, a field or an element can be passed as mut
+13 |	    f(Expr.eof)
+14 |	    f(Expr.num(3))
+   |	      ^~~~~~~~~~~
+15 |	}
+
 -- mut-mut-arg/main.tck --
 package main
 

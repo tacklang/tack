@@ -15,15 +15,6 @@ arithmetic is: under `len(s) < len(t)`, `t[len(s)]` is rejected while
 `t[len(s) - 0]` is accepted, and under `len(s) <= 255`,
 `uint8(len(s))` is rejected while `uint8(len(s) + 0)` is accepted.
 
-## A union built in place passed to a mut parameter without mut
-
-`f(Expr.eof)`, where `f` takes a `mut` parameter, is `f takes e as mut;
-pass mut Expr.eof`, suggesting a fix that is itself rejected, since a
-union built in place is no place. The check reads `Expr.eof` as a field
-of a name. A `mut` receiver written without `mut`, `Expr.eof.set()`,
-already says `only a variable, a field or an element can be passed as
-mut` instead; the parameter's wording should too.
-
 ## A statement and a case on one line after a clause header fails to parse
 
 A clause whose header ends its line cannot have a statement followed by the
@@ -101,7 +92,9 @@ told to `pass mut b`, even when `b` is immutable, where applying the
 fix fails because an immutable variable cannot be passed as `mut`.
 `Box.set(b, 1)` with `b := Box{}` shows it, and so does the same call
 to a plain function. The message should say that `b` must be declared
-`mut` as well.
+`mut` as well. A mutable global gets the same `pass mut g`, though a
+global cannot be passed as `mut` at all and must be copied into a local
+first.
 
 ## Moving a union case built through its type says a field cannot move
 
