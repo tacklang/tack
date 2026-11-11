@@ -45,12 +45,3 @@ k := j; if k < len(t) { return s[k] } }`, with `s` a `[4]int64`, the error
 on `s[k]` is right, since `k < len(t)` does not bound `k` by 4, but the
 note `this guard bounds k only above; k may be negative` is false: `k >=
 0` holds from `j >= 0`.
-
-## The facts prove an assignment's target index after its value
-
-The fact checker proves a target index as if the assignment's value had
-already run, while the C backend evaluates the index first. So `if
-len(l) > 0 { a[l[0]] = take(own l) }`, with `l` a `list[uint8]` and `a`
-a `[256]int64`, is rejected as an index that may be out of range,
-though `l[0]` is read before the move. The rejection is safe, but it
-rejects a program whose order makes it valid.
