@@ -35,6 +35,10 @@ import (
 // passing it as mut, moving it, or assigning one of its fields or
 // elements. Assigning it whole makes it owned again; its old value, moved
 // or not, is freed first (see codegen/c), which a moved value makes a no-op.
+// An assignment is followed in the order the backend evaluates it: a
+// plain one's indexes, an array's or a list's, then its value, then its
+// store, which needs the variable its target is in usable and looks up a
+// map's key; a compound one's target read, then its value, then its store.
 //
 // A value of an owned type that no variable holds, a call's result, a
 // make or a struct literal, must be given an owner: it is only allowed as
@@ -368,18 +372,71 @@ func (m *mover) multiVar(s *ast.MultiVar, cur *flow) {
 	m.droppedResults(s.Value, blank, varSpans(s.Vars))
 }
 
-// assign follows an assignment: a compound one reads its target and its
-// value, and a plain one gives its value to its target (see
-// assignTarget), moving it when it is owned.
+// assign follows an assignment in the order the backend evaluates it. A
+// plain one evaluates the indexes on its target's path (see
+// targetIndexes), then its value, which it moves when it is owned, then
+// stores it (see storePlace), a variable assigned whole owning its new
+// value. A compound one, x op= v, reads x, then evaluates v, then stores
+// into x, which needs x's variable usable still.
 func (m *mover) assign(s *ast.Assign, cur *flow) {
+	m.rangeChange(s.Target, "assign")
 	if s.Op != ast.InvalidOp {
-		m.rangeChange(s.Target, "assign")
 		m.expr(s.Target, readCtx, cur)
 		m.expr(s.Value, readCtx, cur)
+		if _, whole := s.Target.(*ast.Ident); !whole {
+			m.storePlace(s.Target, cur)
+		}
 		return
 	}
+	id, whole := s.Target.(*ast.Ident)
+	if !whole {
+		m.targetIndexes(s.Target, cur)
+	}
 	m.value(s.Value, m.ctxFor(ast.TypeOf(s.Target)), cur)
-	m.assignTarget(s.Target, cur)
+	if !whole {
+		m.storePlace(s.Target, cur)
+		return
+	}
+	if v := m.ownedLocal(id); v != nil {
+		delete(cur.moved, v)
+	}
+}
+
+// targetIndexes follows the indexes on the path of target, a field or an
+// element being assigned, that the assignment evaluates before its value:
+// each index of an array's or a list's element, the outermost container's
+// first, as written. A map's key is read with the store (see storePlace).
+func (m *mover) targetIndexes(target ast.Expr, cur *flow) {
+	switch x := target.(type) {
+	case *ast.Selector:
+		m.targetIndexes(x.X, cur)
+	case *ast.Index:
+		m.targetIndexes(x.X, cur)
+		if !m.c.table.IsMap(ast.TypeOf(x.X)) {
+			m.expr(x.Index, readCtx, cur)
+		}
+	}
+}
+
+// storePlace follows the store into place, a field or an element, once
+// its assignment's value is evaluated: the variable place starts from
+// must be usable then, and each map key on the way is read, since the
+// store looks the value up by it then. An array's or a list's index was
+// evaluated before the value (see targetIndexes) and is not read again.
+func (m *mover) storePlace(place ast.Expr, cur *flow) {
+	switch x := place.(type) {
+	case *ast.Ident:
+		m.use(x, cur)
+	case *ast.Selector:
+		m.storePlace(x.X, cur)
+	case *ast.Index:
+		m.storePlace(x.X, cur)
+		if m.c.table.IsMap(ast.TypeOf(x.X)) {
+			m.expr(x.Index, readCtx, cur)
+		}
+	default:
+		m.expr(place, readCtx, cur)
+	}
 }
 
 // multiAssign follows an assignment of several values: its call, then

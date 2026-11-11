@@ -31117,6 +31117,101 @@ move-borrowed-param/main.tck:4:12: error: cannot move l: it is a parameter, whic
    |	           ^
 05 |	}
 
+-- move-compound-element/main.tck --
+package main
+
+func take(own l list[int64]) int64 {
+    return 3
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return
+    }
+    if len(l) > 0 {
+        l[0] +%= take(own l) // ERROR
+    }
+}
+-- move-compound-element/expected --
+stage: typeck
+---
+
+move-compound-element/main.tck:14:9: error: l is used after it was moved
+13 |	    if len(l) > 0 {
+14 |	        l[0] +%= take(own l) // ERROR
+   |	        ^
+15 |	    }
+move-compound-element/main.tck:14:27: note: l is moved here
+13 |	    if len(l) > 0 {
+14 |	        l[0] +%= take(own l) // ERROR
+   |	                          ^
+15 |	    }
+
+-- move-compound-field/main.tck --
+package main
+
+type Bag struct {
+    items list[int64]
+    n     int64
+}
+
+func take(own b Bag) int64 {
+    return 3
+}
+
+func main() {
+    mut b := Bag{items: make(list[int64], c_allocator), n: 0}
+    b.n +%= take(own b) // ERROR
+}
+-- move-compound-field/expected --
+stage: typeck
+---
+
+move-compound-field/main.tck:14:5: error: b is used after it was moved
+13 |	    mut b := Bag{items: make(list[int64], c_allocator), n: 0}
+14 |	    b.n +%= take(own b) // ERROR
+   |	    ^
+15 |	}
+move-compound-field/main.tck:14:22: note: b is moved here
+13 |	    mut b := Bag{items: make(list[int64], c_allocator), n: 0}
+14 |	    b.n +%= take(own b) // ERROR
+   |	                     ^
+15 |	}
+
+-- move-compound-map/main.tck --
+package main
+
+func take(own m map[int64]int64) int64 {
+    return 3
+}
+
+func main() {
+    mut m := make(map[int64]int64, c_allocator)
+    err := put(mut m, 1, 2)
+    if err.code != 0 {
+        return
+    }
+    if has(m, 1) {
+        m[1] +%= take(own m) // ERROR
+    }
+}
+-- move-compound-map/expected --
+stage: typeck
+---
+
+move-compound-map/main.tck:14:9: error: m is used after it was moved
+13 |	    if has(m, 1) {
+14 |	        m[1] +%= take(own m) // ERROR
+   |	        ^
+15 |	    }
+move-compound-map/main.tck:14:27: note: m is moved here
+13 |	    if has(m, 1) {
+14 |	        m[1] +%= take(own m) // ERROR
+   |	                          ^
+15 |	    }
+
 -- move-conditional-then-use/main.tck --
 package main
 

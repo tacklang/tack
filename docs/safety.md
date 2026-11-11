@@ -1948,7 +1948,14 @@ moves it before the default's body runs,
 reports <!-- error: move-switch-early-default -->`l is used after it was moved`
 at `len(l)`, with <!-- note: move-switch-early-default -->`l is moved here`
 at the value. A case the `default` falls into runs after it, so it
-cannot use `l` either.
+cannot use `l` either. An assignment evaluates its target's indexes
+before its value and stores into its target after it, and a compound
+assignment reads its target before its value, so a value that moves the
+variable its target is in moves it before the store:
+<!-- case: move-compound-element -->`l[0] +%= take(own l)` reports
+<!-- error: move-compound-element -->`l is used after it was moved` at the
+target, with <!-- note: move-compound-element -->`l is moved here` at the
+value, as a plain `l[0] = take(own l)` does.
 A parameter borrows its list, and a `mut` parameter refers to its
 caller's, so neither is moved, <!-- error: move-borrowed-param -->
 `cannot move l: it is a parameter, which borrows its caller's value`,

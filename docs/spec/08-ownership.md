@@ -71,7 +71,11 @@ Moves are followed in the order code runs: a `switch`'s `default` runs
 after every case's values are tried, wherever it is written, so a case
 value written after the default that moves a variable moves it before
 the default's body, which cannot use it, nor can any case the default
-falls into by `fallthrough`.
+falls into by `fallthrough`. An assignment evaluates the indexes in its
+target before its value, and stores after it ([Statements](07-statements.md)),
+so a move in an index comes before the value, and a move in the value
+comes before the store: `l[0] = take(own l)` and `l[0] +%= take(own l)`
+both use `l` after it was moved.
 
 ```tack error
 package main

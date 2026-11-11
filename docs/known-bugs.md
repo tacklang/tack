@@ -53,16 +53,6 @@ the checker used to reject early pay this cost too: N leaving cases that
 each write inside a loop, followed by N uses, take about 11 seconds at
 N = 16000. Ordinary programs are far below these sizes.
 
-## An assignment's moves are checked value first, its target runs first
-
-The move checker follows a plain assignment's value before its target,
-while the C backend evaluates the target's indexes first (see
-examples/assign-order). A move inside a target index, as in
-`xs[take(own l)] = l[0]`, would then be checked in the wrong order. No
-accepted program reaches this today, since a call in an index is
-rejected as an index that may be out of range, but a later feature that
-lets one through would make it a use after move.
-
 ## A switch case that leaves on -1 proves nothing after the switch
 
 A switch whose `case -1:` returns does not prove `d != -1` in the code
@@ -127,3 +117,12 @@ to a plain function. The message should say that `b` must be declared
 `own Expr.eof`, a union case built in place and passed to an `own`
 parameter, reports `a field cannot be moved on its own`, which is not
 what the expression is.
+
+## The facts prove an assignment's target index after its value
+
+The fact checker proves a target index as if the assignment's value had
+already run, while the C backend evaluates the index first. So `if
+len(l) > 0 { a[l[0]] = take(own l) }`, with `l` a `list[uint8]` and `a`
+a `[256]int64`, is rejected as an index that may be out of range,
+though `l[0]` is read before the move. The rejection is safe, but it
+rejects a program whose order makes it valid.
