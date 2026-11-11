@@ -219,7 +219,10 @@
 // the region that it lands in, and
 // for deferred code, which a return still runs (see keep and
 // leftBefore). Every write in the region is kept with the
-// fact, and judged at c.at, where checking has reached (see reaches). A
+// fact, and judged at c.at, where checking has reached (see reaches);
+// a fact with more than a few such writes is judged through an index of
+// the positions each reaches, built once, so judging n writes at n uses
+// takes about n log n steps, not n times n (reach.go). A
 // counting loop's start and a range loop's bound are not proven again on
 // a later pass, so any write in their region ends them. A successful
 // append, its error proven 0, proves its list's length at least the count
@@ -653,7 +656,9 @@
 // more than a few are (factindex.go), each local's known value worked
 // out, each condition whose facts are worked out rather than taken from
 // the && or || chain kept, each node a region's writes are indexed
-// from, and each operator or operand an arithmetic bound reads. The
+// from, each write a fact's query judges and each step of the reach
+// index it reads, and each operator or operand an arithmetic bound
+// reads. The
 // counts change nothing it checks;
 // the tests read them to bound how checking grows with a program, which,
 // unlike a time, does not depend on the machine's load.

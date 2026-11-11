@@ -15,17 +15,6 @@ arithmetic is: under `len(s) < len(t)`, `t[len(s)]` is rejected while
 `t[len(s) - 0]` is accepted, and under `len(s) <= 255`,
 `uint8(len(s))` is rejected while `uint8(len(s) + 0)` is accepted.
 
-## Checking writes before uses grows with writes times uses
-
-Deciding whether a write reaches a use scans every recorded write for each
-use, so a function with many writes and many uses of the same variable is
-checked in time that grows with their product. A `switch` with N cases that
-each write the variable and then return, followed by N uses, takes about 7
-seconds at N = 16000. Since leaving branches stopped ending facts, shapes
-the checker used to reject early pay this cost too: N leaving cases that
-each write inside a loop, followed by N uses, take about 11 seconds at
-N = 16000. Ordinary programs are far below these sizes.
-
 ## A proof does not follow a relation through a stored value
 
 The relations a proof chains leave out a stored value's bounds, so a
@@ -33,3 +22,19 @@ bound that reaches a variable only through one proves nothing. Under
 `mut n int64 = 2; if 0 <= i && i < 50 && i < n { return a[i] }`, with
 `a` a `[3]int64`, the index is rejected, though `i <= 1` makes it safe.
 The rejection is safe.
+
+## Long else-if chains and loops of leaving ifs check in quadratic time
+
+A long chain of `else if` links, or a loop holding many ifs that each
+leave, is checked in time that grows with the square of its length, even
+with a single use after it: about 6 seconds for 16000 links. The time is
+spent deciding which statements leave and gathering the chain's facts
+(`leaves`, `terminates`, `chainFacts`, `stmtNodes`), each of which walks
+the rest of the chain again.
+
+## Many early exits in one block check in quadratic time
+
+A block with many early exits, each an `if` that leaves, followed by more
+statements, is checked in time that grows with the square of its
+length, since indexing each exit's writes walks the rest of the block:
+about a second for 1000 exits and 20 seconds for 4000.

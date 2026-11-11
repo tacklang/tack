@@ -43,7 +43,7 @@ func checkTreeAll(t *testing.T, src string) (*ast.File, []diag.Diagnostic) {
 // checkerFor runs the front end through name resolution and returns the
 // resolved tree with a checker for it, not yet run. Earlier stages failing
 // aborts the test.
-func checkerFor(t *testing.T, src string) (*ast.File, *typeck.Checker) {
+func checkerFor(t testing.TB, src string) (*ast.File, *typeck.Checker) {
 	t.Helper()
 
 	f := &source.File{ID: "test", Filename: "case.tck", Data: []byte(src)}

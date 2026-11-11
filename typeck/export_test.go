@@ -2,7 +2,7 @@ package typeck
 
 // ProverWork is how many steps a checker's provers took (see proverWork).
 type ProverWork struct {
-	Arithmetic, Relations, Indexed, Scanned, Locals, Conditions, Walked, Leaving, Judged, Ranged int
+	Arithmetic, Relations, Indexed, Scanned, Locals, Conditions, Walked, Leaving, Judged, Reached, Ranged int
 }
 
 // ProverWork returns how many steps c's provers have taken.
@@ -18,6 +18,7 @@ func (c *Checker) ProverWork() ProverWork {
 		w.walked,
 		w.leaving,
 		w.judged,
+		w.reached,
 		w.ranged,
 	}
 }
@@ -40,4 +41,21 @@ func (c *Checker) ProbeEveryBodyKeepingNothing() {
 // bound (see findInvariants).
 func (c *Checker) NeverProbe() {
 	c.neverProbe = true
+}
+
+// CheckReachIndex makes every query of a fact's endings read their index,
+// however few there are, and check it against a scan of them, panicking
+// on a difference (see reachOracle), and returns the func that puts back
+// what was set. A test calling it must not run in parallel.
+func CheckReachIndex() (restore func()) {
+	was := reachOracle
+	reachOracle = true
+	return func() { reachOracle = was }
+}
+
+// ReachOracle reports whether every query of a fact's endings is checked
+// against a scan of them (see reachOracle), which makes the steps it
+// counts grow with the endings times the queries.
+func ReachOracle() bool {
+	return reachOracle
 }

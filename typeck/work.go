@@ -15,7 +15,10 @@ package typeck
 // and the breaks and continues out of them, and each keep a branch's
 // keep passes as it is linked (see keepWalk and keep.link); and judged
 // each such branch a write in one is judged against at a use (see
-// leftBefore); and ranged each operator or operand an arithmetic
+// leftBefore), or a keep a reach index's ending is built from (see
+// reachSet); and reached each ending a fact's query asks reaches about,
+// each ending, interval and piece a reach index of them is built from,
+// and each step of a query of one (see reach.go); and ranged each operator or operand an arithmetic
 // expression's bound reads (see rangeOf). They count work,
 // not time, so a test can bound how checking grows with the program
 // checked, whatever else the machine is doing.
@@ -29,5 +32,6 @@ type proverWork struct {
 	walked     int
 	leaving    int
 	judged     int
+	reached    int
 	ranged     int
 }

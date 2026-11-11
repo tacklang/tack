@@ -129,7 +129,7 @@ type fact struct {
 	inMap        factKey
 	diff         *diffBound
 	known        string
-	ends         []ending
+	ends         *endings
 	lo, hi, ne   constant.Int
 	hasLo, hasHi bool
 	hasNe        bool
@@ -148,17 +148,12 @@ func (c *Checker) holds(f fact) bool {
 
 // dropOf returns why f does not hold at c.at: the drop it was put in force
 // with, or else the first write in its region that reaches c.at, or nil
-// when it holds there.
+// when it holds there (see firstReach).
 func (c *Checker) dropOf(f fact) *drop {
 	if f.drop != nil {
 		return f.drop
 	}
-	for _, e := range f.ends {
-		if c.reaches(e) {
-			return e.drop
-		}
-	}
-	return nil
+	return c.firstReach(f.ends)
 }
 
 // empty reports whether f says nothing about its variable: no bound, not
@@ -1511,8 +1506,9 @@ type ending struct {
 // variable, or to the string whose length bounds it, or the subject a
 // relation bounds it by, or the map it is a key of, or either node of a
 // difference bound, a call passing any of them as mut included. Each
-// knows the outermost loop in the region that holds it.
-func (idx writeIndex) endings(f fact) []ending {
+// knows the outermost loop in the region that holds it. It returns nil
+// when there are none.
+func (idx writeIndex) endings(f fact) *endings {
 	if len(idx) == 0 {
 		return nil
 	}
@@ -1533,7 +1529,10 @@ func (idx writeIndex) endings(f fact) []ending {
 			ends = append(ends, ending{drop: w.drop, kept: w.kept, loop: loop, at: w.at})
 		}
 	}
-	return ends
+	if len(ends) == 0 {
+		return nil
+	}
+	return &endings{list: ends}
 }
 
 // writeIndex holds every write in a region, by the declaration it writes,
