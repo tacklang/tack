@@ -91,7 +91,7 @@ func TestClosureCasesRejectedWhereMarked(t *testing.T) {
 
 // closureCases is how many closure-... and scope-... cases
 // examples/invalid.txtar holds.
-const closureCases = 61
+const closureCases = 65
 
 // markedLines returns the 1-based numbers of the lines of src that end
 // with errorMarker.

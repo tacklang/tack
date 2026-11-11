@@ -508,6 +508,32 @@ func contains[T Any](v []T, x T, scope eq func(T, T) bool) bool {
     }) >= 0
 }
 
+// call_twice calls f twice.
+func call_twice(scope f func()) {
+    f()
+    f()
+}
+
+// kept returns x, a value of a type parameter it was given to own, so a
+// call whose type argument is a function type taking a scope parameter
+// gets back a function value of that type.
+func kept[T Any](own x T) T {
+    return x
+}
+
+// stash appends x, a value of a type parameter, to l.
+func stash[T Any](mut l list[T], own x T) error {
+    return append(mut l, x)
+}
+
+// drain pops every element of l, last first, and passes each to f.
+func drain[T Any](mut l list[T], scope f func(T)) {
+    for len(l) > 0 {
+        x := pop(mut l)
+        f(x)
+    }
+}
+
 // generics passes closures to generic functions, over int64 and over
 // Texts, and checks a closure in a generic function's body.
 func generics() {
@@ -539,6 +565,33 @@ func generics() {
     }) && !contains(v, 9, func(a int64, b int64) bool {
         return a == b
     }), "a closure inside a generic function")
+
+    // A type argument may be a function type taking a scope parameter: its
+    // values are plain function values, which a generic function stores,
+    // returns and pops, and a closure taking one plainly is a func(T).
+    mut n := 0
+    f := kept(call)
+    f(func() { n = n +% 1 })
+    mut fs := make(list[func(scope func())], c_allocator)
+    e1 := stash(mut fs, call)
+    e2 := stash(mut fs, call_twice)
+    e3 := stash(mut fs, f)
+    if e1.code != 0 || e2.code != 0 || e3.code != 0 {
+        check(false, "stash a function value")
+        return
+    }
+    mut order := make(list[int64], c_allocator)
+    drain(mut fs, func(g func(scope func())) {
+        before := n
+        g(func() { n = n +% 10 })
+        e := append(mut order, n -% before)
+        if e.code != 0 {
+            print("FAIL\n")
+        }
+    })
+    vals := [3]int64{10, 20, 10}
+    check(n == 41 && len(fs) == 0 && same(order, vals),
+        "a type argument of a function type with a scope parameter")
 }
 
 // Bag holds numbers in a list it owns.

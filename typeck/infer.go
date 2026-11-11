@@ -207,8 +207,12 @@ func (c *Checker) inferView(arg ast.Expr, p param, callee string) {
 // bindTypeArg). A part of want with no type parameter of the callee in it
 // is left for the argument's check to compare. A part got lacks, a list
 // where want has a map, a map of another key type, or a function type of
-// another arity or other mut parameters, is reported, as is a type
-// argument bindTypeArg rejects, and gives false.
+// another arity or other mut, own or scope parameters, is reported, as is
+// a type argument bindTypeArg rejects, and gives false. A scope mark, like
+// mut and own, belongs to a function type's parameter, never to the type a
+// type parameter stands for, so no type argument can supply one, and a
+// function type of other scope parameters is reported with want as
+// written.
 func (c *Checker) unify(arg ast.Expr, want, got types.Type, callee string) bool {
 	inf := c.inference
 	switch {
@@ -262,14 +266,15 @@ func (c *Checker) sameElemKind(want, got types.Type) bool {
 }
 
 // sameShape reports whether the function types a and b have as many
-// parameters, mut and own at the same positions, and as many results.
+// parameters, mut, own and scope at the same positions, and as many
+// results.
 func (c *Checker) sameShape(a, b types.Type) bool {
 	pa, pb := c.table.FuncParams(a), c.table.FuncParams(b)
 	if len(pa) != len(pb) || len(c.table.FuncResults(a)) != len(c.table.FuncResults(b)) {
 		return false
 	}
 	for i := range pa {
-		if pa[i].Mut != pb[i].Mut || pa[i].Own != pb[i].Own {
+		if pa[i].Mut != pb[i].Mut || pa[i].Own != pb[i].Own || pa[i].Scope != pb[i].Scope {
 			return false
 		}
 	}

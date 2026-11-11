@@ -32,6 +32,7 @@ a closure through two scope parameters that matches nothing ok
 a closure for a generic function's scope parameter ok
 a closure over Texts ok
 a closure inside a generic function ok
+a type argument of a function type with a scope parameter ok
 generics free once ok
 a closure for a mut method's scope parameter ok
 a closure for a method's scope parameter ok

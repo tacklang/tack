@@ -46,17 +46,6 @@ on `s[k]` is right, since `k < len(t)` does not bound `k` by 4, but the
 note `this guard bounds k only above; k may be negative` is false: `k >=
 0` holds from `j >= 0`.
 
-## A closure with a scope parameter cannot go to a generic scope parameter
-
-A closure that takes a scope parameter of its own cannot be passed to a
-generic function's `scope f func(T)`: inferring `T` from the closure's
-parameter type loses the parameter's scope mark, so `T` is the plain
-function type and the closure's type no longer matches. Given `func
-g[T Any](scope f func(T))`, `g(func(scope h func()) { h() })` is `cannot
-use func(scope func()) as func(func()) in argument to g`. It is too
-strict, never unsound: the call is rejected, and a closure whose
-parameters are not scope, or a non-generic callee, is unaffected.
-
 ## The facts prove an assignment's target index after its value
 
 The fact checker proves a target index as if the assignment's value had

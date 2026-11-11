@@ -2640,8 +2640,13 @@ section remains the description of the language.
   map whose key type is the parameter's for a `map[K]T`, or a parameter's
   or a result's type of a function value passed for a function type,
   whose shape must match, `cannot use list[int64] as map[string]T in
-  argument to size`. A type argument may be any type but a view, `cannot
-  use []int64 as T in argument to keep: a type argument cannot be a
+  argument to size`, a function type's with its `mut`, `own` and `scope`
+  parameters where the parameter's type has them, since a mark belongs
+  to its parameter and no type argument supplies one, `cannot use
+  func(scope func()) as func(T) in argument to g`; a type argument may
+  itself be a function type taking a scope parameter, `func(scope
+  func())`, whose values are plain function values. A type argument may
+  be any type but a view, `cannot use []int64 as T in argument to keep: a type argument cannot be a
   view`, an `any`, `cannot use any as T in argument to one: a type
   argument cannot be an any`, and a type made of a type parameter,
   `cannot use list[T] as U in argument to count: a type argument cannot

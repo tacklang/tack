@@ -46238,6 +46238,57 @@ scope-and-own/main.tck:3:14: error: a parameter cannot be both scope and own: a 
    |	             ^~~
 04 |	    f()
 
+-- scope-closure-to-generic-func-param/main.tck --
+package main
+
+// A scope mark belongs to a parameter of the function type, not to the
+// parameter's type, so no type argument for T makes func(T)'s parameter
+// scope, and a closure that takes a scope parameter is no func(T).
+
+type Any interface {
+}
+
+func g[T Any](scope f func(T)) {
+}
+
+func main() {
+    g(func(scope h func()) { h() }) // ERROR
+}
+-- scope-closure-to-generic-func-param/expected --
+stage: typeck
+---
+
+scope-closure-to-generic-func-param/main.tck:14:7: error: cannot use func(scope func()) as func(T) in argument to g
+13 |	func main() {
+14 |	    g(func(scope h func()) { h() }) // ERROR
+   |	      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+15 |	}
+
+-- scope-closure-to-generic-func-param-second/main.tck --
+package main
+
+// A scope mark on any parameter of the closure, not only the first, keeps
+// it from being a func(T, T).
+
+type Any interface {
+}
+
+func two[T Any](scope f func(T, T)) {
+}
+
+func main() {
+    two(func(a func(), scope b func()) { b() }) // ERROR
+}
+-- scope-closure-to-generic-func-param-second/expected --
+stage: typeck
+---
+
+scope-closure-to-generic-func-param-second/main.tck:13:9: error: cannot use func(func(), scope func()) as func(T, T) in argument to two
+12 |	func main() {
+13 |	    two(func(a func(), scope b func()) { b() }) // ERROR
+   |	        ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+14 |	}
+
 -- scope-extern-param/main.tck --
 package main
 
@@ -46454,6 +46505,30 @@ scope-param-in-struct-field/main.tck:8:15: error: f is a scope parameter, which 
    |	              ^
 09 |	    g := s.f
 
+-- scope-param-of-type-param/main.tck --
+package main
+
+// A type parameter is no function type, even where its type argument
+// would be one, so it cannot be scope.
+
+type Any interface {
+}
+
+func g[T Any](scope f T) { // ERROR
+}
+
+func main() {
+}
+-- scope-param-of-type-param/expected --
+stage: typeck
+---
+
+scope-param-of-type-param/main.tck:9:15: error: parameter f cannot be scope: T is not a function type, and only a function value can be scope; drop scope
+08 |	
+09 |	func g[T Any](scope f T) { // ERROR
+   |	              ^~~~~
+10 |	}
+
 -- scope-param-returned/main.tck --
 package main
 
@@ -46495,6 +46570,37 @@ scope-param-stored-in-local/main.tck:4:10: error: f is a scope parameter, which 
 04 |	    g := f // ERROR
    |	         ^
 05 |	    g()
+
+-- scope-param-to-generic-param/main.tck --
+package main
+
+// A type parameter's value can be stored and returned, so a scope
+// parameter cannot be passed for one.
+
+type Any interface {
+}
+
+func keep[T Any](own x T) T {
+    return x
+}
+
+func run(scope f func()) {
+    g := keep(f) // ERROR
+    g()
+}
+
+func main() {
+    run(func() { print("x") })
+}
+-- scope-param-to-generic-param/expected --
+stage: typeck
+---
+
+scope-param-to-generic-param/main.tck:14:15: error: f is a scope parameter, which can only be called or passed to another scope parameter
+13 |	func run(scope f func()) {
+14 |	    g := keep(f) // ERROR
+   |	              ^
+15 |	    g()
 
 -- scope-param-to-plain-param/main.tck --
 package main

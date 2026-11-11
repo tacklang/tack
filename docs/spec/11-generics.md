@@ -325,6 +325,13 @@ Each type parameter takes its type from the arguments, in order:
   function value, or of a closure, passed for a function type, scope
   marks included. The argument's shape must
   match: `cannot use list[int64] as map[string]T in argument to size`.
+  A function type's shape includes its `mut`, `own` and `scope`
+  parameters: a mark belongs to its parameter, not to the parameter's
+  type, so no type argument supplies one, and a closure taking a scope
+  parameter is no `func(T)`, `cannot use func(scope func()) as func(T)
+  in argument to g`. A type argument may itself be a function type
+  taking a scope parameter, `func(scope func())`; its values are plain
+  function values, stored and returned as any are.
 
 An untyped constant passed for a type parameter is an `int64`.
 
