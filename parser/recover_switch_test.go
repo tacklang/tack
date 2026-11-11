@@ -250,6 +250,30 @@ func main() {
     }
 }
 `, []clauseWant{bad(1), cased(1, 1), bad(1), def(2)}},
+	{"a damaged header after a statement and a ;", `package main
+
+func main() {
+    switch x {
+    case 1:
+        a(); csae 2: //E
+        b()
+    case 3:
+        c()
+    }
+}
+`, []clauseWant{cased(1, 0), bad(1), cased(1, 1)}},
+	{"a case's colon left out after a statement and a ;", `package main
+
+func main() {
+    switch x {
+    case 1:
+        a(); case 2 //E
+        b()
+    case 3:
+        c()
+    }
+}
+`, []clauseWant{cased(1, 1), bad(1), cased(1, 1)}},
 	{"a damaged clause of a switch in a clause", `package main
 
 func main() {
@@ -266,6 +290,88 @@ func main() {
     }
 }
 `, []clauseWant{cased(1, 1), cased(1, 1)}},
+}
+
+// statementBeforeCaseErrors are switches where a clause's statement,
+// on the line of the next case, fails: a line marked //E gets exactly
+// one error and every other line none, and the switch keeps every
+// clause, the failing one holding a bad statement for it and kinds
+// saying, clause by clause, whether each is a default.
+var statementBeforeCaseErrors = []struct {
+	name, src string
+	kinds     []bool
+}{
+	{"a statement's ; left out before a case on its line", `package main
+
+func main() {
+    switch x {
+    case 1:
+        a() case 2: //E
+        b()
+    case 3:
+        c()
+    }
+}
+`, []bool{false, false, false}},
+	{"a stray ; before a case on a statement's line", `package main
+
+func main() {
+    switch x {
+    default:
+        a(); ; case 2: //E
+        b()
+    case 3:
+        c()
+    }
+}
+`, []bool{true, false, false}},
+}
+
+// TestStatementErrorsBeforeACaseKeepTheClause checks each of
+// statementBeforeCaseErrors: the error is the statement's, its clause
+// ends at the case on its line, which starts a clause of its own, and
+// the clauses after it parse as they would with no damage.
+func TestStatementErrorsBeforeACaseKeepTheClause(t *testing.T) {
+	for _, tc := range statementBeforeCaseErrors {
+		t.Run(tc.name, func(t *testing.T) {
+			tree, diags := parse(t, tc.src)
+			checkErrorLines(t, tc.src, diags)
+			if tree == nil {
+				t.Fatal("no tree")
+			}
+			s := mainSwitch(t, tree)
+			if s == nil {
+				t.Fatal("the switch is not in main's body")
+			}
+			if len(s.Cases) != len(tc.kinds) {
+				t.Fatalf("%d clauses, want %d", len(s.Cases), len(tc.kinds))
+			}
+			for i, cl := range s.Cases {
+				if cl.Bad || cl.Default != tc.kinds[i] {
+					t.Errorf("clause %d is bad %v, default %v; want a good clause, default %v",
+						i, cl.Bad, cl.Default, tc.kinds[i])
+				}
+			}
+			if !hasBadStmt(s.Cases[0].Body) {
+				t.Errorf("the first clause holds no bad statement for its failed one")
+			}
+			for i, cl := range s.Cases[1:] {
+				if hasBadStmt(cl.Body) || len(cl.Body) != 1 {
+					t.Errorf("clause %d holds %d statements, some bad; want one good one", i+1, len(cl.Body))
+				}
+			}
+		})
+	}
+}
+
+// hasBadStmt reports whether any of body is a bad statement.
+func hasBadStmt(body []ast.Stmt) bool {
+	for _, stmt := range body {
+		if _, ok := stmt.(*ast.BadStmt); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // TestDamagedClausesKeepTheSwitch checks each of switchCases: the damaged

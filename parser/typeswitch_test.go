@@ -111,6 +111,30 @@ func TestParsesTypeSwitches(t *testing.T) {
 	}
 }
 
+// TestParsesTypeSwitchClausesSharingALine checks a type switch whose
+// clause headers end their lines, each followed by a line holding the
+// clause's statements, a ; and the next clause's header: every clause is
+// its own, with the types and statements written for it.
+func TestParsesTypeSwitchClausesSharingALine(t *testing.T) {
+	src := "    switch v := a.(type) {\n    case int64:\n        f(); g(); case string, bool:\n" +
+		"        h(); default:\n        i()\n    }"
+	s := firstSwitch(t, src)
+	want := []struct {
+		types string
+		body  int
+	}{{"int64", 2}, {"string,bool", 1}, {"", 1}}
+	if len(s.Cases) != len(want) {
+		t.Fatalf("%d clauses, want %d", len(s.Cases), len(want))
+	}
+	for i, cl := range s.Cases {
+		if got := caseTypes(t, cl); got != want[i].types || len(cl.Body) != want[i].body {
+			t.Errorf("case %d = %q with %d statements, want %q with %d",
+				i, got, len(cl.Body), want[i].types, want[i].body)
+		}
+		checkCaseVar(t, i, cl, s.Bind)
+	}
+}
+
 // caseTypes renders the types a case names, joined by commas.
 func caseTypes(t *testing.T, cl *ast.CaseClause) string {
 	t.Helper()

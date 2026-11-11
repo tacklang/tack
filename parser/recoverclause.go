@@ -18,9 +18,11 @@ import (
 // A clause's body ends where the next clause starts, at a case or a
 // default, and also at a line that can only be a damaged header (see
 // atDamagedHeader): one ending in a colon, as csae 2: or type string:
-// does. Its statements then go to a bad clause of their own rather than
-// into the body of the clause before, where a type switch's variable
-// would have that clause's type and each use of it be reported again.
+// does, short of a case or default on it, as in f(); case 2:, which
+// starts the next clause there. Its statements then go to a bad clause
+// of their own rather than into the body of the clause before, where a
+// type switch's variable would have that clause's type and each use of
+// it be reported again.
 //
 // The header's skip covers its first error, or the token after the skip
 // does, as for every bad node. A header that went on past the switch to
@@ -127,8 +129,11 @@ func nestStep(k lexer.TokenKind) int {
 // body, starts a line that can only be a clause's header, damaged: its
 // last token is a colon outside every parenthesis, bracket and brace
 // opened on the line, which ends no statement's line, and it does not
-// start with case or default, which end the body anyway. The line is read
-// once, at the statement that starts it.
+// start with case or default, which end the body anyway. Only the line's
+// tokens before its first case or default outside every parenthesis,
+// bracket and brace count: one there starts the next clause, so in
+// f(); case 2: the colon is that clause's, and the line before it is
+// statements. The line is read once, at the statement that starts it.
 func (p *Parser) atDamagedHeader() bool {
 	if !p.atLineStart() || p.atClauseEnd() {
 		return false
@@ -139,6 +144,9 @@ func (p *Parser) atDamagedHeader() bool {
 		tk := p.tok(i)
 		if tk.Kind() == lexer.Semi && inserted(tk) {
 			continue
+		}
+		if depth == 0 && (isKeyword(tk, lexer.Case) || isKeyword(tk, lexer.Default)) {
+			break
 		}
 		depth = max(depth+nestStep(tk.Kind()), 0)
 		last, lastDepth = tk.Kind(), depth

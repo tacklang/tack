@@ -15,15 +15,6 @@ arithmetic is: under `len(s) < len(t)`, `t[len(s)]` is rejected while
 `t[len(s) - 0]` is accepted, and under `len(s) <= 255`,
 `uint8(len(s))` is rejected while `uint8(len(s) + 0)` is accepted.
 
-## A statement and a case on one line after a clause header fails to parse
-
-A clause whose header ends its line cannot have a statement followed by the
-next case on the following line. In a `switch`, `case 1:` on its own line
-followed by `exit(3); case 2:` on the next is `expected 'case or default'
-found 'exit'`, pointing at `exit`, and a `default:` header does the same.
-The same clauses written on one line, `case 1: exit(3); case 2: exit(4)`,
-parse.
-
 ## Checking writes before uses grows with writes times uses
 
 Deciding whether a write reaches a use scans every recorded write for each
