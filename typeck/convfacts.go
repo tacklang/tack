@@ -13,8 +13,9 @@ import (
 // A conversion T(x) of an integer that is neither a constant, nor a known
 // value, nor of a type that widens to T compiles in its plain form when
 // the facts in force where it is written prove x a value of T: x is a
-// subject, a variable or a path below an immutable one, or arithmetic on
-// such values (see arith.go), as an index or a divisor must be to be
+// subject, a variable or a path below an immutable one, the length of a
+// string, view or list subject, or arithmetic on such values (see
+// arith.go), as an index or a divisor must be to be
 // proven, and its type and the facts about it keep it within T's range,
 // or the relations in force do, for a bound they do not give (see
 // factsFit). The facts are the ones an index's proof asks about, from the
@@ -27,12 +28,12 @@ import (
 // target-width x's own type bounds it at its widest, a 64-bit target's
 // (see typeInterval), so a proof holds whatever its width.
 
-// factsFit reports whether the facts in force prove x, a subject or
-// arithmetic of an integer type, a value of the integer type to on every
-// target: at or above to's smallest value and at or below its largest one
-// there (see portableBounds), by the bounds x's type and the facts give
-// it (see operandRange), or, for a query's term, by the relations in
-// force (see atLeastBy and atMostOf).
+// factsFit reports whether the facts in force prove x, a subject, a
+// length or arithmetic of an integer type, a value of the integer type to
+// on every target: at or above to's smallest value and at or below its
+// largest one there (see portableBounds), by the bounds x's type, or a
+// length's range, and the facts give it (see operandRange), or, for a
+// query's term, by the relations in force (see atLeastBy and atMostOf).
 func (c *Checker) factsFit(x ast.Expr, to types.Type) bool {
 	known, ok := c.operandRange(x)
 	if !ok {
@@ -77,9 +78,12 @@ func (c *Checker) conversionError(call *ast.Call, from, to types.Type) {
 	case c.isSubject(arg):
 		msg += "; check " + fitCheck(arg, c.nameOf(arg), to) + " first" + orUse(form, true)
 		notes = c.explain(c.conversionProof(arg, to))
+	case c.isLengthSubject(arg):
+		msg += orUse(form, false)
+		notes = c.explain(c.conversionProof(arg, to))
 	default:
 		msg += orUse(form, false)
-		notes = c.operandNotes(arg, false)
+		notes = c.operandNotes(arg)
 	}
 	c.errorNotes(call.Span, notes, "%s", msg)
 }
@@ -108,16 +112,16 @@ func fitCheck(x ast.Expr, name string, to types.Type) string {
 	}
 }
 
-// conversionProof returns the proof that the subject x is a value of the
-// integer type to (see factsFit). A fact is relevant to it when it bounds
-// x on a side x's type leaves open, and a fact that bounds x short of
-// to's range on that side is the one a note points at: it allows the
-// value it stops at.
+// conversionProof returns the proof that the subject or length x is a
+// value of the integer type to (see factsFit). A fact is relevant to it
+// when it bounds x on a side x's type, or a length's range, leaves open,
+// and a fact that bounds x short of to's range on that side is the one a
+// note points at: it allows the value it stops at.
 func (c *Checker) conversionProof(x ast.Expr, to types.Type) proof {
-	about, _ := c.subjectKey(x)
-	name := c.nameOf(x)
+	about, _ := c.noteKey(x)
+	name := c.noteName(x)
 	lo, hi := portableBounds(to)
-	own := typeInterval(x)
+	own := c.ownInterval(x)
 	needLo, needHi := own.lo.Cmp(lo) < 0, own.hi.Cmp(hi) > 0
 	return proof{
 		about:     about,
@@ -131,6 +135,9 @@ func (c *Checker) conversionProof(x ast.Expr, to types.Type) proof {
 			known := own
 			for _, f := range facts {
 				known = known.narrow(f)
+			}
+			if known.empty() {
+				return nil
 			}
 			var notes []diag.Diagnostic
 			if known.lo.Cmp(lo) < 0 {
@@ -161,7 +168,7 @@ func (c *Checker) appendSideNote(
 	v, limit constant.Int,
 	would, lower bool,
 ) []diag.Diagnostic {
-	name := c.nameOf(x)
+	name := c.noteName(x)
 	setsV := func(f fact) bool { return f.hasHi && f.hi.Cmp(v) == 0 }
 	other := func(f fact) bool { return f.hasLo }
 	side, past := "below", "above "

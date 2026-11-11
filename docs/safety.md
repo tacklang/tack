@@ -206,10 +206,21 @@ is assigned to, as any constant does, and is an `int64` in a declaration.
 A proof is about a **name**, the divisor, index, slice bound or converted
 value written as a variable or parameter, a **field or element of an
 immutable variable or parameter**, such as `p.d`, `p.inner.d`, `p.a[1]`
-or `p.a[k]` with `k` immutable, or **arithmetic** on those, `+`, `-` and
-`*` on two integers and unary `-` on one (see [Arithmetic](#arithmetic)).
-Anything else, such as a call, `i / 2`, `i << 1`, or a field of a mutable
-variable or a `mut` parameter, is proven only when it is a known value.
+or `p.a[k]` with `k` immutable, the **length** of a string, view or list
+one, `len(s)`, or **arithmetic** on those, `+`, `-` and `*` on two
+integers and unary `-` on one (see [Arithmetic](#arithmetic)). A length
+is bounded as it is as an operand of arithmetic, so it is proven
+wherever the same length plus 0 is: under `len(s) < len(t)`, `t[len(s)]`
+is proven, as `t[len(s) - 0]` is, and under `len(s) <= 255`, so is
+`uint8(len(s))`. A write to the string, view or list ends its length's
+facts, for the length alone and in arithmetic alike: an assignment
+(<!-- case: length-fact-assign-ends -->), passing it as `mut`
+(<!-- case: length-fact-mut-ends -->), an append
+(<!-- case: length-fact-append-ends -->) and a pop
+(<!-- case: length-fact-pop-ends -->), though a pop never makes a list
+longer. Anything else, such as a call other than `len`, `i / 2`,
+`i << 1`, or a field of a mutable variable or a `mut` parameter, is
+proven only when it is a known value.
 Arithmetic that could overflow is not proven, and is an error itself:
 <!-- case: conversion-fact-expression -->`uint64(-v)` under `v < 0` is
 not, since `-v` overflows for the least `int64`.
@@ -659,6 +670,10 @@ When one link is missing from a
 chain that would prove an index, a note names it:
 <!-- case: relation-missing-link -->`if 0 <= i && i < n { a[i] }` gets
 <!-- note: relation-missing-link -->`i < n holds here; check n <= len(a) too`.
+A link the relations in force show can never hold is not named: under
+`0 <= i && i < len(s)`, <!-- case: note-length-link-refuted -->`t[len(s)]`
+gets no note to check `i < len(t) - 9223372036854775807`, which `i >= 0`
+rules out.
 
 ### Arithmetic
 
@@ -778,7 +793,10 @@ and a guard that bounds one of its names is pointed at by
 <!-- note: arith-range-sum-reaches-end -->`this guard bounds i, not i + j; the bounds of its operands do not prove i + j, or let a step of it overflow, so copy i + j into a variable and check it`.
 An operand the checker does not read through, as one holding a call, a
 `/` or a `^`, gets
-<!-- note: arith-range-call-inside -->`this guard bounds i, not i + one(); only a known value, a name, a field or element of an immutable variable, or +, -, * or unary - on those or on len of a string, view or list one, is proven, so copy i + one() into a variable and check it`.
+<!-- note: arith-range-call-inside -->`this guard bounds i, not i + one(); only a known value, a name, a field or element of an immutable variable, len of a string, view or list one, or +, -, * or unary - on those, is proven, so copy i + one() into a variable and check it`.
+A guard on a length is named the same way: under `if len(s) < 10`,
+<!-- case: note-length-arith -->`10 / (len(s) + 0)` gets
+<!-- note: note-length-arith -->`this guard bounds len(s), not len(s) + 0; the bounds of its operands do not prove len(s) + 0, or let a step of it overflow, so copy len(s) + 0 into a variable and check it`.
 
 ### Where a fact holds
 
@@ -1060,7 +1078,7 @@ A variable gets no such note either, for the rest of its function,
 once a fact related it to another variable, on either side, whether or
 not that fact still holds: a comparison, `k >= j` or `i < n`, or a
 store, `mut k int64 = j` or `k := j - 1`. A bound by a length, such as
-`i < len(s)`, is not such a relation. Nor does a variable get one once a
+`i < len(s)`, is not such a relation for `i`. Nor does a variable get one once a
 `||` that is true, or an `&&` that is false, constrained it on several
 sides. Notes follow neither relations nor sides, so under
 `if j >= 0 { if k >= j { ... } }`,
@@ -1072,7 +1090,11 @@ left only for a variable whose facts compare it with known values and
 lengths, and even then a note that names a value a `!=` rules out is
 left out:
 <!-- case: note-excluded-index -->`if k >= -1 { if k != -1 { if k < 50 { return a[k] } } }`
-gets no note that the guard allows `k == -1`. A note on what the facts
+gets no note that the guard allows `k == -1`. Nor does a note say what
+the facts allow where no value meets them: under `n > 60 && n < 50`,
+<!-- case: note-dead-guard-index -->`a[n]` reports the index alone, as
+do a slice bound (<!-- case: note-dead-guard-slice -->) and a conversion
+(<!-- case: note-dead-guard-conversion -->) under such a guard. A note on what the facts
 would allow counts the facts a write ended too. The notes on which
 guard's proof a write ended stay in every case. A proof does not follow
 a relation through a stored value, so
@@ -1101,6 +1123,29 @@ was given does not hold. For
 with a `uint16` `n`, which keeps the post's `i++` within a 32-bit
 target, the error stands alone, because what is missing is a bound below
 `len(a)`.
+
+A length, `len(s)`, gets the notes a variable does, its facts being
+about the length of `s`, though its error names no check: under
+`if len(s) < 10`, <!-- case: note-length-divisor -->`10 / len(s)` gets
+<!-- note: note-length-divisor -->`this guard allows len(s) == 0`, under
+`if len(s) <= 3`, <!-- case: note-length-index -->`a[len(s)]`, with `a`
+a `[3]int64`, gets
+<!-- note: note-length-index -->`this guard allows len(s) == 3, and a has 3 elements`,
+and a write to `s` that ends the guard's proof gets the notes on which
+guard's proof it ended (<!-- case: note-length-dropped -->). A length is
+never negative, so, as for an unsigned index, no note explains a lower
+bound on it. A length a fact ties to another value, by a relation, a
+bound of that value by the length, `i < len(s)`, or a store, `n :=
+len(s)`, gets no note on what the facts allow, for the rest of its
+function, since notes do not follow the tie:
+<!-- case: note-length-related -->`if 0 <= i && i < len(s) && len(s) < 10 { return 10 / len(s) }`
+reports the divisor alone, `0 <= i && i < len(s)` keeping `len(s)` at 1
+or more. A note that names a value a `!=` rules out is left out, as for
+a variable (<!-- case: note-length-excluded -->), and so is one where no
+length meets the facts (<!-- case: note-dead-guard-index-length -->). A length of a field of
+a mutable variable, or of a mutable global, gets the note a guard on
+the field, or the global's declaration, gets
+(<!-- case: note-length-mutable-field -->, <!-- case: note-length-mutable-global -->).
 
 Other notes point at a counting loop's step that could leave its
 variable's type; at a guard on a field of a mutable variable, or on the length of
@@ -1658,7 +1703,10 @@ proves nothing, as
 <!-- case: conversion-fact-uint64-off-by-one -->`if u <= 9223372036854775808`
 shows. A guard on a name bounds arithmetic on it too (see
 [Arithmetic](#arithmetic)), so `uint64(-(v + 1))` is proven under
-`v < 0`, but a guard on an expression bounds nothing.
+`v < 0`, but a guard on an expression bounds nothing. A guard on a
+length bounds the length, alone or in arithmetic, and a length is never
+negative: `uint8(len(s))` is proven under `len(s) <= 255`, and
+`uint64(len(s))` needs no guard.
 
 A known value is converted as a constant is, whatever its type:
 

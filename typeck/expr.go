@@ -825,6 +825,8 @@ func (c *Checker) requireNonzero(divisor ast.Expr, withOk bool) bool {
 // before any mention of the checked form, and the notes that explain it.
 // A subject, a variable or a path below an immutable one, gets the check
 // that would prove it, except a mutable global, which no check proves.
+// The length of a string, view or list subject gets the notes a subject
+// does, with no check in the error.
 func (c *Checker) divisorError(divisor ast.Expr) (string, []diag.Diagnostic) {
 	if v, ok := c.mutableGlobal(divisor); ok {
 		return "divisor " + c.operandName(divisor) + " may be zero", globalNote(v)
@@ -834,7 +836,10 @@ func (c *Checker) divisorError(divisor ast.Expr) (string, []diag.Diagnostic) {
 		return "divisor " + name + " may be zero; check " + name + " != 0 first",
 			c.explain(c.divisorProof(divisor))
 	}
-	return "divisor may be zero", c.operandNotes(divisor, true)
+	if c.isLengthSubject(divisor) {
+		return "divisor may be zero", c.explain(c.divisorProof(divisor))
+	}
+	return "divisor may be zero", c.operandNotes(divisor)
 }
 
 // operandName returns how an error names a divisor or an index: by its

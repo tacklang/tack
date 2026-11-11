@@ -299,7 +299,7 @@ func (c *Checker) lowest(b ast.Expr) (constant.Int, bool) {
 // highest returns the greatest value the bound b can have where it is
 // used, when there is one: its known value, and otherwise what its type,
 // and for a subject, arithmetic or a length the facts in force, give it
-// (see operandRange and leafRange).
+// (see operandRange).
 func (c *Checker) highest(b ast.Expr) (constant.Int, bool) {
 	if v, ok := c.knownValue(b); ok {
 		return v, true
@@ -307,9 +307,6 @@ func (c *Checker) highest(b ast.Expr) (constant.Int, bool) {
 	known := typeInterval(b)
 	if r, ok := c.operandRange(b); ok {
 		known = r
-	}
-	if _, isLen := c.stringLen(b); isLen {
-		known, _ = c.leafRange(b)
 	}
 	return known.hi, known.hasHi
 }
@@ -322,7 +319,7 @@ func (c *Checker) highest(b ast.Expr) (constant.Int, bool) {
 // or a subject, arithmetic or the length of a string, view or list
 // subject the relations in force put at most len(x), or a known length.
 // Such a length is bounded as an operand of arithmetic is (see
-// leafRange), so len(s) is proven wherever len(s) + 0 is.
+// operandRange), so len(s) is proven wherever len(s) + 0 is.
 func (c *Checker) withinLen(b, x ast.Expr) bool {
 	limit := c.minLen(x)
 	if n, ok := c.extentOf(x); ok {
@@ -335,9 +332,6 @@ func (c *Checker) withinLen(b, x ast.Expr) bool {
 		return true
 	}
 	known, ok := c.operandRange(b)
-	if _, isLen := c.stringLen(b); isLen {
-		known, ok = c.leafRange(b)
-	}
 	if !ok {
 		return false
 	}
@@ -629,12 +623,12 @@ func (c *Checker) sliceNotes(s *ast.Slice, need sliceNeed) []diag.Diagnostic {
 
 // boundNotes returns the notes that explain why the bound b of s is not
 // proven at least 0, when lower is set, or at most the length of what s
-// slices otherwise: for a subject, what the guards in scope prove about
-// it, as for an index; for a known value past 0, what they prove about
-// the length; and for anything else, why a guard on a variable in it
-// proves nothing.
+// slices otherwise: for a subject or the length of one, what the guards
+// in scope prove about it, as for an index; for a known value past 0,
+// what they prove about the length; and for anything else, why a guard
+// on a variable in it proves nothing.
 func (c *Checker) boundNotes(s *ast.Slice, b ast.Expr, lower bool) []diag.Diagnostic {
-	if c.isSubject(b) {
+	if c.isSubject(b) || c.isLengthSubject(b) {
 		n, known := c.extentOf(s.X)
 		unit := "byte"
 		if ast.TypeOf(s.X) != types.String {
@@ -651,7 +645,7 @@ func (c *Checker) boundNotes(s *ast.Slice, b ast.Expr, lower bool) []diag.Diagno
 	if _, isKnown := c.knownValue(b); isKnown && !lower && c.isSubject(s.X) {
 		return c.explain(c.lengthProof(s.X, func() bool { return c.withinLen(b, s.X) }))
 	}
-	return c.operandNotes(b, true)
+	return c.operandNotes(b)
 }
 
 // uniqueNotes returns notes without repeats, the first of each kept: a
@@ -669,12 +663,12 @@ func uniqueNotes(notes []diag.Diagnostic) []diag.Diagnostic {
 	return out
 }
 
-// boundProof returns the proof that the bound b, a subject, is at least 0,
-// when lower is set, or at most the length of e, when upper is: e is a
-// slice's extent, which a bound may reach.
+// boundProof returns the proof that the bound b, a subject or a length,
+// is at least 0, when lower is set, or at most the length of e, when
+// upper is: e is a slice's extent, which a bound may reach.
 func (c *Checker) boundProof(b ast.Expr, e extent, lower, upper bool) proof {
-	about, _ := c.subjectKey(b)
-	name := c.nameOf(b)
+	about, _ := c.noteKey(b)
+	name := c.noteName(b)
 	proven := func() bool {
 		return (!lower || c.notNegative(b)) && (!upper || c.withinLen(b, e.of))
 	}
@@ -684,9 +678,12 @@ func (c *Checker) boundProof(b ast.Expr, e extent, lower, upper bool) proof {
 		relations: true,
 		claim:     func(facts []fact) string { return describe(name, facts) },
 		weak: func(facts []fact, would bool) []diag.Diagnostic {
-			known := typeInterval(b)
+			known := c.ownInterval(b)
 			for _, f := range facts {
 				known = known.narrow(f)
+			}
+			if known.empty() {
+				return nil
 			}
 			var notes []diag.Diagnostic
 			if n, ok := c.lowerNote(b, facts, known, would); lower && ok {

@@ -1370,7 +1370,7 @@ arith-range-call-inside/main.tck:10:18: error: index may be out of range; use v,
 10 |	        return a[i + one()]
    |	                 ^~~~~~~~~
 11 |	    }
-arith-range-call-inside/main.tck:9:8: note: this guard bounds i, not i + one(); only a known value, a name, a field or element of an immutable variable, or +, -, * or unary - on those or on len of a string, view or list one, is proven, so copy i + one() into a variable and check it
+arith-range-call-inside/main.tck:9:8: note: this guard bounds i, not i + one(); only a known value, a name, a field or element of an immutable variable, len of a string, view or list one, or +, -, * or unary - on those, is proven, so copy i + one() into a variable and check it
 08 |	    a := [3]int64{1, 2, 3}
 09 |	    if 0 <= i && i < 2 {
    |	       ^~~~~~~~~~~~~~~
@@ -1425,7 +1425,7 @@ arith-range-complement/main.tck:6:18: error: index may be out of range; use v, o
 06 |	        return a[^i]
    |	                 ^~
 07 |	    }
-arith-range-complement/main.tck:5:8: note: this guard bounds i, not ^i; only a known value, a name, a field or element of an immutable variable, or +, -, * or unary - on those or on len of a string, view or list one, is proven, so copy ^i into a variable and check it
+arith-range-complement/main.tck:5:8: note: this guard bounds i, not ^i; only a known value, a name, a field or element of an immutable variable, len of a string, view or list one, or +, -, * or unary - on those, is proven, so copy ^i into a variable and check it
 04 |	    a := [4]int64{1, 2, 3, 4}
 05 |	    if -3 <= i && i <= 0 {
    |	       ^~~~~~~~~~~~~~~~~
@@ -1454,7 +1454,7 @@ arith-range-division-inside/main.tck:6:18: error: index may be out of range; use
 06 |	        return a[i / 1 + 1]
    |	                 ^~~~~~~~~
 07 |	    }
-arith-range-division-inside/main.tck:5:8: note: this guard bounds i, not i / 1 + 1; only a known value, a name, a field or element of an immutable variable, or +, -, * or unary - on those or on len of a string, view or list one, is proven, so copy i / 1 + 1 into a variable and check it
+arith-range-division-inside/main.tck:5:8: note: this guard bounds i, not i / 1 + 1; only a known value, a name, a field or element of an immutable variable, len of a string, view or list one, or +, -, * or unary - on those, is proven, so copy i / 1 + 1 into a variable and check it
 04 |	    a := [3]int64{1, 2, 3}
 05 |	    if 0 <= i && i < 2 {
    |	       ^~~~~~~~~~~~~~~
@@ -1853,6 +1853,11 @@ arith-range-length-divisor/main.tck:5:21: error: divisor may be zero; use q, ok 
 05 |	        return 10 / len(s)
    |	                    ^~~~~~
 06 |	    }
+arith-range-length-divisor/main.tck:4:8: note: this guard allows len(s) == 0
+03 |	func f(s string) int64 {
+04 |	    if len(s) < 10 {
+   |	       ^~~~~~~~~~~
+05 |	        return 10 / len(s)
 
 -- arith-range-length-divisor-dead/main.tck --
 package main
@@ -1898,6 +1903,11 @@ arith-range-length-divisor-zero/main.tck:7:21: error: divisor may be zero; use q
 07 |	        return 10 / len(s)
    |	                    ^~~~~~
 08 |	    }
+arith-range-length-divisor-zero/main.tck:4:8: note: this guard allows len(s) == 0
+03 |	func f(s string) int64 {
+04 |	    if len(s) > 0 {
+   |	       ^~~~~~~~~~
+05 |	        return 1
 
 -- arith-range-length-past-known/main.tck --
 package main
@@ -1919,6 +1929,11 @@ arith-range-length-past-known/main.tck:5:21: error: slice bound ... may be out o
 05 |	        print("abc"[:len(w)])
    |	                    ^~~~~~~
 06 |	    }
+arith-range-length-past-known/main.tck:4:8: note: this guard allows len(w) == 4, and the string has 3 bytes
+03 |	func f(w string) {
+04 |	    if len(w) <= 4 {
+   |	       ^~~~~~~~~~~
+05 |	        print("abc"[:len(w)])
 
 -- arith-range-length-plus-one/main.tck --
 package main
@@ -1993,6 +2008,11 @@ arith-range-length-top/main.tck:6:18: error: index may be out of range; use v, o
 06 |	        return a[len(s) - 2147483647]
    |	                 ^~~~~~~~~~~~~~~~~~~
 07 |	    }
+arith-range-length-top/main.tck:5:8: note: this guard bounds len(s), not len(s) - 2147483647; the bounds of its operands do not prove len(s) - 2147483647, or let a step of it overflow, so copy len(s) - 2147483647 into a variable and check it
+04 |	    a := [2]int64{1, 2}
+05 |	    if len(s) >= 2147483647 {
+   |	       ^~~~~~~~~~~~~~~~~~~~
+06 |	        return a[len(s) - 2147483647]
 
 -- arith-range-length-write-between/main.tck --
 package main
@@ -7893,78 +7913,6 @@ conversion-fact-later-case/main.tck:7:10: note: this case allows v == 300
 07 |	    case v > 300:
    |	         ^~~~~~~
 08 |	        return 1
-
--- conversion-fact-length/main.tck --
-package main
-
-func f(s string) uint8 {
-    if len(s) <= 255 {
-        return uint8(len(s))
-    }
-    return 0
-}
-
-func main() {
-    if f("ab") == 0 {
-        exit(1)
-    }
-}
--- conversion-fact-length/expected --
-stage: typeck
----
-
-conversion-fact-length/main.tck:5:16: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
-04 |	    if len(s) <= 255 {
-05 |	        return uint8(len(s))
-   |	               ^~~~~~~~~~~~~
-06 |	    }
-
--- conversion-fact-length-relation/main.tck --
-package main
-
-func f(s string, n int64) uint8 {
-    if len(s) <= n && n <= 255 {
-        return uint8(len(s))
-    }
-    return 0
-}
-
-func main() {
-    if f("ab", 5) == 0 {
-        exit(1)
-    }
-}
--- conversion-fact-length-relation/expected --
-stage: typeck
----
-
-conversion-fact-length-relation/main.tck:5:16: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
-04 |	    if len(s) <= n && n <= 255 {
-05 |	        return uint8(len(s))
-   |	               ^~~~~~~~~~~~~
-06 |	    }
-
--- conversion-fact-length-unsigned/main.tck --
-package main
-
-func f(s string) uint64 {
-    return uint64(len(s))
-}
-
-func main() {
-    if f("ab") == 0 {
-        exit(1)
-    }
-}
--- conversion-fact-length-unsigned/expected --
-stage: typeck
----
-
-conversion-fact-length-unsigned/main.tck:4:12: error: converting int64 to uint64 can fail; use v, ok := uint64(...)
-03 |	func f(s string) uint64 {
-04 |	    return uint64(len(s))
-   |	           ^~~~~~~~~~~~~~
-05 |	}
 
 -- conversion-fact-loop-write/main.tck --
 package main
@@ -24566,6 +24514,310 @@ len-of-integer/main.tck:5:14: error: len expects an array, a string, a view, a l
    |	             ^
 06 |	}
 
+-- length-fact-append-ends/main.tck --
+package main
+
+// A successful append grows l, so it ends what the guards proved about
+// its length, for len(l) alone and in arithmetic alike: the index is past
+// t when l had been one shorter than t, and the conversion is out of
+// range when l had held 255 values.
+func index(t string) int64 {
+    mut l := make(list[int64], c_allocator)
+    if len(l) < len(t) {
+        err := append(mut l, 1)
+        if err.code != 0 {
+            return 0
+        }
+        return int64(t[len(l)]) +% int64(t[len(l) - 0])
+    }
+    return 0
+}
+
+func narrow(mut l list[int64]) uint8 {
+    if len(l) <= 255 {
+        err := append(mut l, 1)
+        if err.code != 0 {
+            return 0
+        }
+        return uint8(len(l)) +% uint8(len(l) + 0)
+    }
+    return 0
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if index("a") == 0 && narrow(mut l) == 0 {
+        exit(1)
+    }
+}
+-- length-fact-append-ends/expected --
+stage: typeck
+---
+
+length-fact-append-ends/main.tck:14:24: error: index may be out of range; use v, ok := ...[...]
+13 |	        }
+14 |	        return int64(t[len(l)]) +% int64(t[len(l) - 0])
+   |	                       ^~~~~~
+15 |	    }
+
+length-fact-append-ends/main.tck:14:44: error: index may be out of range; use v, ok := ...[...]
+13 |	        }
+14 |	        return int64(t[len(l)]) +% int64(t[len(l) - 0])
+   |	                                           ^~~~~~~~~~
+15 |	    }
+
+length-fact-append-ends/main.tck:25:16: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
+24 |	        }
+25 |	        return uint8(len(l)) +% uint8(len(l) + 0)
+   |	               ^~~~~~~~~~~~~
+26 |	    }
+length-fact-append-ends/main.tck:20:8: note: this guard proves len(l) < 256
+19 |	func narrow(mut l list[int64]) uint8 {
+20 |	    if len(l) <= 255 {
+   |	       ^~~~~~~~~~~~~
+21 |	        err := append(mut l, 1)
+length-fact-append-ends/main.tck:21:23: note: but l is passed as mut to append here, so the proof ends
+20 |	    if len(l) <= 255 {
+21 |	        err := append(mut l, 1)
+   |	                      ^~~~~
+22 |	        if err.code != 0 {
+
+length-fact-append-ends/main.tck:25:33: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
+24 |	        }
+25 |	        return uint8(len(l)) +% uint8(len(l) + 0)
+   |	                                ^~~~~~~~~~~~~~~~~
+26 |	    }
+
+-- length-fact-assign-ends/main.tck --
+package main
+
+// Assigning s ends what the guards proved about its length, for len(s)
+// alone and in arithmetic alike.
+func index(t string, u string) int64 {
+    mut s := ""
+    if len(s) < len(t) {
+        s = u
+        return int64(t[len(s)]) +% int64(t[len(s) - 0])
+    }
+    return 0
+}
+
+func narrow(u string) uint8 {
+    mut s := ""
+    if len(s) <= 255 {
+        s = u
+        return uint8(len(s)) +% uint8(len(s) + 0)
+    }
+    return 0
+}
+
+func main() {
+    if index("ab", "abc") == 0 && narrow("abc") == 0 {
+        exit(1)
+    }
+}
+-- length-fact-assign-ends/expected --
+stage: typeck
+---
+
+length-fact-assign-ends/main.tck:9:24: error: index may be out of range; use v, ok := ...[...]
+08 |	        s = u
+09 |	        return int64(t[len(s)]) +% int64(t[len(s) - 0])
+   |	                       ^~~~~~
+10 |	    }
+
+length-fact-assign-ends/main.tck:9:44: error: index may be out of range; use v, ok := ...[...]
+08 |	        s = u
+09 |	        return int64(t[len(s)]) +% int64(t[len(s) - 0])
+   |	                                           ^~~~~~~~~~
+10 |	    }
+
+length-fact-assign-ends/main.tck:18:16: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
+17 |	        s = u
+18 |	        return uint8(len(s)) +% uint8(len(s) + 0)
+   |	               ^~~~~~~~~~~~~
+19 |	    }
+length-fact-assign-ends/main.tck:16:8: note: this guard proves len(s) < 256
+15 |	    mut s := ""
+16 |	    if len(s) <= 255 {
+   |	       ^~~~~~~~~~~~~
+17 |	        s = u
+length-fact-assign-ends/main.tck:17:9: note: but s is assigned here, so the proof ends
+16 |	    if len(s) <= 255 {
+17 |	        s = u
+   |	        ^
+18 |	        return uint8(len(s)) +% uint8(len(s) + 0)
+
+length-fact-assign-ends/main.tck:18:33: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
+17 |	        s = u
+18 |	        return uint8(len(s)) +% uint8(len(s) + 0)
+   |	                                ^~~~~~~~~~~~~~~~~
+19 |	    }
+
+-- length-fact-mut-ends/main.tck --
+package main
+
+// grow makes s six bytes long.
+func grow(mut s string) {
+    s = "abcdef"
+}
+
+// Passing s as mut ends what the guards proved about its length, for
+// len(s) alone and in arithmetic alike.
+func index(t string) int64 {
+    mut s := ""
+    if len(s) < len(t) {
+        grow(mut s)
+        return int64(t[len(s)]) +% int64(t[len(s) - 0])
+    }
+    return 0
+}
+
+func narrow() uint8 {
+    mut s := ""
+    if len(s) <= 255 {
+        grow(mut s)
+        return uint8(len(s)) +% uint8(len(s) + 0)
+    }
+    return 0
+}
+
+func main() {
+    if index("ab") == 0 && narrow() == 0 {
+        exit(1)
+    }
+}
+-- length-fact-mut-ends/expected --
+stage: typeck
+---
+
+length-fact-mut-ends/main.tck:14:24: error: index may be out of range; use v, ok := ...[...]
+13 |	        grow(mut s)
+14 |	        return int64(t[len(s)]) +% int64(t[len(s) - 0])
+   |	                       ^~~~~~
+15 |	    }
+
+length-fact-mut-ends/main.tck:14:44: error: index may be out of range; use v, ok := ...[...]
+13 |	        grow(mut s)
+14 |	        return int64(t[len(s)]) +% int64(t[len(s) - 0])
+   |	                                           ^~~~~~~~~~
+15 |	    }
+
+length-fact-mut-ends/main.tck:23:16: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
+22 |	        grow(mut s)
+23 |	        return uint8(len(s)) +% uint8(len(s) + 0)
+   |	               ^~~~~~~~~~~~~
+24 |	    }
+length-fact-mut-ends/main.tck:21:8: note: this guard proves len(s) < 256
+20 |	    mut s := ""
+21 |	    if len(s) <= 255 {
+   |	       ^~~~~~~~~~~~~
+22 |	        grow(mut s)
+length-fact-mut-ends/main.tck:22:14: note: but s is passed as mut to grow here, so the proof ends
+21 |	    if len(s) <= 255 {
+22 |	        grow(mut s)
+   |	             ^~~~~
+23 |	        return uint8(len(s)) +% uint8(len(s) + 0)
+
+length-fact-mut-ends/main.tck:23:33: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
+22 |	        grow(mut s)
+23 |	        return uint8(len(s)) +% uint8(len(s) + 0)
+   |	                                ^~~~~~~~~~~~~~~~~
+24 |	    }
+
+-- length-fact-pop-ends/main.tck --
+package main
+
+// A pop writes l, so it ends what the guards proved about its length,
+// for len(l) alone and in arithmetic alike, though a pop never makes a
+// list longer: a write to a list ends every fact about its length.
+func index(mut l list[int64], t string) int64 {
+    if len(l) < len(t) {
+        pop(mut l)
+        return int64(t[len(l)]) +% int64(t[len(l) - 0])
+    }
+    return 0
+}
+
+func narrow(mut l list[int64]) uint8 {
+    if len(l) <= 255 {
+        pop(mut l)
+        return uint8(len(l)) +% uint8(len(l) + 0)
+    }
+    return 0
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if index(mut l, "a") == 0 && narrow(mut l) == 0 {
+        exit(1)
+    }
+}
+-- length-fact-pop-ends/expected --
+stage: typeck
+---
+
+length-fact-pop-ends/main.tck:9:24: error: index may be out of range; use v, ok := ...[...]
+08 |	        pop(mut l)
+09 |	        return int64(t[len(l)]) +% int64(t[len(l) - 0])
+   |	                       ^~~~~~
+10 |	    }
+
+length-fact-pop-ends/main.tck:9:44: error: index may be out of range; use v, ok := ...[...]
+08 |	        pop(mut l)
+09 |	        return int64(t[len(l)]) +% int64(t[len(l) - 0])
+   |	                                           ^~~~~~~~~~
+10 |	    }
+
+length-fact-pop-ends/main.tck:17:16: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
+16 |	        pop(mut l)
+17 |	        return uint8(len(l)) +% uint8(len(l) + 0)
+   |	               ^~~~~~~~~~~~~
+18 |	    }
+length-fact-pop-ends/main.tck:15:8: note: this guard proves len(l) < 256
+14 |	func narrow(mut l list[int64]) uint8 {
+15 |	    if len(l) <= 255 {
+   |	       ^~~~~~~~~~~~~
+16 |	        pop(mut l)
+length-fact-pop-ends/main.tck:16:13: note: but l is passed as mut to pop here, so the proof ends
+15 |	    if len(l) <= 255 {
+16 |	        pop(mut l)
+   |	            ^~~~~
+17 |	        return uint8(len(l)) +% uint8(len(l) + 0)
+
+length-fact-pop-ends/main.tck:17:33: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
+16 |	        pop(mut l)
+17 |	        return uint8(len(l)) +% uint8(len(l) + 0)
+   |	                                ^~~~~~~~~~~~~~~~~
+18 |	    }
+
+-- length-index-own-length/main.tck --
+package main
+
+// A string's own length is never an index into it, whatever bounds the
+// length.
+func f(s string) int64 {
+    if len(s) > 0 && len(s) < 10 {
+        return int64(s[len(s)])
+    }
+    return 0
+}
+
+func main() {
+    if f("ab") == 0 {
+        exit(1)
+    }
+}
+-- length-index-own-length/expected --
+stage: typeck
+---
+
+length-index-own-length/main.tck:7:24: error: index may be out of range; use v, ok := ...[...]
+06 |	    if len(s) > 0 && len(s) < 10 {
+07 |	        return int64(s[len(s)])
+   |	                       ^~~~~~
+08 |	    }
+
 -- list-allocator-checked-index/main.tck --
 package main
 
@@ -35932,6 +36184,163 @@ note-copied-index-twice/main.tck:10:22: error: index m may be out of range; chec
    |	                     ^
 11 |	        }
 
+-- note-dead-guard-conversion/main.tck --
+package main
+
+// No value meets the guard, so no note may say it allows one.
+func f(v int64) uint8 {
+    if v > 300 && v < 260 {
+        return uint8(v)
+    }
+    return 0
+}
+
+func main() {
+    if f(5) == 0 {
+        exit(1)
+    }
+}
+-- note-dead-guard-conversion/expected --
+stage: typeck
+---
+
+note-dead-guard-conversion/main.tck:6:16: error: converting int64 to uint8 can fail; check 0 <= v && v <= 255 first, or use v, ok := uint8(...)
+05 |	    if v > 300 && v < 260 {
+06 |	        return uint8(v)
+   |	               ^~~~~~~~
+07 |	    }
+
+-- note-dead-guard-conversion-length/main.tck --
+package main
+
+// No length meets the guard, so no note may say it allows one.
+func f(v []int64) uint8 {
+    if len(v) > 300 && len(v) < 260 {
+        return uint8(len(v))
+    }
+    return 0
+}
+
+func main() {
+    a := [2]int64{1, 2}
+    if f(a[:]) == 0 {
+        exit(1)
+    }
+}
+-- note-dead-guard-conversion-length/expected --
+stage: typeck
+---
+
+note-dead-guard-conversion-length/main.tck:6:16: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
+05 |	    if len(v) > 300 && len(v) < 260 {
+06 |	        return uint8(len(v))
+   |	               ^~~~~~~~~~~~~
+07 |	    }
+
+-- note-dead-guard-index/main.tck --
+package main
+
+// No value meets the guard, so no note may say it allows one.
+func f(a [3]int64, n int64) int64 {
+    if n > 60 && n < 50 {
+        return a[n]
+    }
+    return 0
+}
+
+func main() {
+    if f([3]int64{1, 2, 3}, 1) == 0 {
+        exit(1)
+    }
+}
+-- note-dead-guard-index/expected --
+stage: typeck
+---
+
+note-dead-guard-index/main.tck:6:18: error: index n may be out of range; check 0 <= n && n < 3 first, or use v, ok := ...[n]
+05 |	    if n > 60 && n < 50 {
+06 |	        return a[n]
+   |	                 ^
+07 |	    }
+
+-- note-dead-guard-index-length/main.tck --
+package main
+
+// No length meets the guard, so no note may say it allows one.
+func f(a [3]int64, s string) int64 {
+    if len(s) > 60 && len(s) < 50 {
+        return a[len(s)]
+    }
+    return 0
+}
+
+func main() {
+    if f([3]int64{1, 2, 3}, "ab") == 0 {
+        exit(1)
+    }
+}
+-- note-dead-guard-index-length/expected --
+stage: typeck
+---
+
+note-dead-guard-index-length/main.tck:6:18: error: index may be out of range; use v, ok := ...[...]
+05 |	    if len(s) > 60 && len(s) < 50 {
+06 |	        return a[len(s)]
+   |	                 ^~~~~~
+07 |	    }
+
+-- note-dead-guard-slice/main.tck --
+package main
+
+// No value meets the guard, so no note may say it allows one.
+func f(n int64) string {
+    if n <= 4 && n >= 10 {
+        return "abc"[:n]
+    }
+    return ""
+}
+
+func main() {
+    if f(2) == "" {
+        exit(1)
+    }
+}
+-- note-dead-guard-slice/expected --
+stage: typeck
+---
+
+note-dead-guard-slice/main.tck:6:22: error: slice bound n may be out of range; check n <= 3 first, or use v, ok := ...[:n]
+05 |	    if n <= 4 && n >= 10 {
+06 |	        return "abc"[:n]
+   |	                     ^~
+07 |	    }
+
+-- note-dead-guard-slice-length/main.tck --
+package main
+
+// No length meets the guard, so no note may say it allows one.
+func f(s string) string {
+    if len(s) <= 4 && len(s) >= 10 {
+        return "abc"[:len(s)]
+    }
+    return ""
+}
+
+func main() {
+    if f("ab") == "" {
+        exit(1)
+    }
+}
+-- note-dead-guard-slice-length/expected --
+stage: typeck
+---
+
+note-dead-guard-slice-length/main.tck:6:22: error: slice bound ... may be out of range; use v, ok := ...[:...]
+05 |	    if len(s) <= 4 && len(s) >= 10 {
+06 |	        return "abc"[:len(s)]
+   |	                     ^~~~~~~
+07 |	    }
+
 -- note-early-exit-upper-bound-only/main.tck --
 package main
 
@@ -36498,6 +36907,519 @@ note-later-case-assigned/main.tck:9:9: note: but d is assigned here, so the proo
 09 |	        d = 0
    |	        ^
 10 |	        return 10 / d
+
+-- note-length-arith/main.tck --
+package main
+
+// The guard bounds len(s) below 10, which keeps len(s) + 0 no further
+// from zero than len(s): its operand's bounds do not prove the divisor.
+func f(s string) int64 {
+    if len(s) < 10 {
+        return 10 / (len(s) + 0)
+    }
+    return 0
+}
+
+func main() {
+    if f("ab") == 0 {
+        exit(1)
+    }
+}
+-- note-length-arith/expected --
+stage: typeck
+---
+
+note-length-arith/main.tck:7:22: error: divisor may be zero; use q, ok := ... / ...
+06 |	    if len(s) < 10 {
+07 |	        return 10 / (len(s) + 0)
+   |	                     ^~~~~~~~~~
+08 |	    }
+note-length-arith/main.tck:6:8: note: this guard bounds len(s), not len(s) + 0; the bounds of its operands do not prove len(s) + 0, or let a step of it overflow, so copy len(s) + 0 into a variable and check it
+05 |	func f(s string) int64 {
+06 |	    if len(s) < 10 {
+   |	       ^~~~~~~~~~~
+07 |	        return 10 / (len(s) + 0)
+
+-- note-length-arith-unread/main.tck --
+package main
+
+// The checker does not read through /, so the guard on len(s) proves
+// nothing about len(s) / 2.
+func f(s string) int64 {
+    if len(s) >= 2 {
+        return 10 / (len(s) / 2)
+    }
+    return 0
+}
+
+func main() {
+    if f("ab") == 0 {
+        exit(1)
+    }
+}
+-- note-length-arith-unread/expected --
+stage: typeck
+---
+
+note-length-arith-unread/main.tck:7:22: error: divisor may be zero; use q, ok := ... / ...
+06 |	    if len(s) >= 2 {
+07 |	        return 10 / (len(s) / 2)
+   |	                     ^~~~~~~~~~
+08 |	    }
+note-length-arith-unread/main.tck:6:8: note: this guard bounds len(s), not len(s) / 2; only a known value, a name, a field or element of an immutable variable, len of a string, view or list one, or +, -, * or unary - on those, is proven, so copy len(s) / 2 into a variable and check it
+05 |	func f(s string) int64 {
+06 |	    if len(s) >= 2 {
+   |	       ^~~~~~~~~~~
+07 |	        return 10 / (len(s) / 2)
+
+-- note-length-conversion/main.tck --
+package main
+
+// The guard allows len(s) == 256, one past uint8.
+func f(s string) uint8 {
+    if len(s) <= 256 {
+        return uint8(len(s))
+    }
+    return 0
+}
+
+func main() {
+    if f("ab") == 0 {
+        exit(1)
+    }
+}
+-- note-length-conversion/expected --
+stage: typeck
+---
+
+note-length-conversion/main.tck:6:16: error: converting int64 to uint8 can fail; use v, ok := uint8(...)
+05 |	    if len(s) <= 256 {
+06 |	        return uint8(len(s))
+   |	               ^~~~~~~~~~~~~
+07 |	    }
+note-length-conversion/main.tck:5:8: note: this guard allows len(s) == 256
+04 |	func f(s string) uint8 {
+05 |	    if len(s) <= 256 {
+   |	       ^~~~~~~~~~~~~
+06 |	        return uint8(len(s))
+
+-- note-length-conversion-one-side/main.tck --
+package main
+
+// The guard bounds len(v) only below, so it may be past int8.
+func f(v []int64) int8 {
+    if len(v) > 5 {
+        return int8(len(v))
+    }
+    return 0
+}
+
+func main() {
+    a := [6]int64{1, 2, 3, 4, 5, 6}
+    if f(a[:]) == 0 {
+        exit(1)
+    }
+}
+-- note-length-conversion-one-side/expected --
+stage: typeck
+---
+
+note-length-conversion-one-side/main.tck:6:16: error: converting int64 to int8 can fail; use v, ok := int8(...)
+05 |	    if len(v) > 5 {
+06 |	        return int8(len(v))
+   |	               ^~~~~~~~~~~~
+07 |	    }
+note-length-conversion-one-side/main.tck:5:8: note: this guard bounds len(v) only below; len(v) may be above 127
+04 |	func f(v []int64) int8 {
+05 |	    if len(v) > 5 {
+   |	       ^~~~~~~~~~
+06 |	        return int8(len(v))
+
+-- note-length-divisor/main.tck --
+package main
+
+// The guard bounds len(s) only above, and allows it to be 0.
+func f(s string) int64 {
+    if len(s) < 10 {
+        return 10 / len(s)
+    }
+    return 0
+}
+
+func main() {
+    if f("ab") == 0 {
+        exit(1)
+    }
+}
+-- note-length-divisor/expected --
+stage: typeck
+---
+
+note-length-divisor/main.tck:6:21: error: divisor may be zero; use q, ok := ... / ...
+05 |	    if len(s) < 10 {
+06 |	        return 10 / len(s)
+   |	                    ^~~~~~
+07 |	    }
+note-length-divisor/main.tck:5:8: note: this guard allows len(s) == 0
+04 |	func f(s string) int64 {
+05 |	    if len(s) < 10 {
+   |	       ^~~~~~~~~~~
+06 |	        return 10 / len(s)
+
+-- note-length-dropped/main.tck --
+package main
+
+// The guard proved len(s) < 3, which the assignment ends.
+func f(a [3]int64, u string) int64 {
+    mut s := ""
+    if len(s) < 3 {
+        s = u
+        return a[len(s)]
+    }
+    return 0
+}
+
+func main() {
+    if f([3]int64{1, 2, 3}, "ab") == 0 {
+        exit(1)
+    }
+}
+-- note-length-dropped/expected --
+stage: typeck
+---
+
+note-length-dropped/main.tck:8:18: error: index may be out of range; use v, ok := ...[...]
+07 |	        s = u
+08 |	        return a[len(s)]
+   |	                 ^~~~~~
+09 |	    }
+note-length-dropped/main.tck:6:8: note: this guard proves len(s) < 3
+05 |	    mut s := ""
+06 |	    if len(s) < 3 {
+   |	       ^~~~~~~~~~
+07 |	        s = u
+note-length-dropped/main.tck:7:9: note: but s is assigned here, so the proof ends
+06 |	    if len(s) < 3 {
+07 |	        s = u
+   |	        ^
+08 |	        return a[len(s)]
+
+-- note-length-dropped-would/main.tck --
+package main
+
+// The guard proved len(s) <= 3, which the assignment ends, and would
+// have allowed len(s) == 3 even so.
+func f(a [3]int64, u string) int64 {
+    mut s := ""
+    if len(s) <= 3 {
+        s = u
+        return a[len(s)]
+    }
+    return 0
+}
+
+func main() {
+    if f([3]int64{1, 2, 3}, "ab") == 0 {
+        exit(1)
+    }
+}
+-- note-length-dropped-would/expected --
+stage: typeck
+---
+
+note-length-dropped-would/main.tck:9:18: error: index may be out of range; use v, ok := ...[...]
+08 |	        s = u
+09 |	        return a[len(s)]
+   |	                 ^~~~~~
+10 |	    }
+note-length-dropped-would/main.tck:7:8: note: this guard proves len(s) < 4
+06 |	    mut s := ""
+07 |	    if len(s) <= 3 {
+   |	       ^~~~~~~~~~~
+08 |	        s = u
+note-length-dropped-would/main.tck:8:9: note: but s is assigned here, so the proof ends
+07 |	    if len(s) <= 3 {
+08 |	        s = u
+   |	        ^
+09 |	        return a[len(s)]
+note-length-dropped-would/main.tck:7:8: note: this guard would allow len(s) == 3, and a has 3 elements
+06 |	    mut s := ""
+07 |	    if len(s) <= 3 {
+   |	       ^~~~~~~~~~~
+08 |	        s = u
+
+-- note-length-excluded/main.tck --
+package main
+
+// len(s) != 5 rules out the value len(s) <= 5 stops at, so no note may
+// say the guard allows len(s) == 5.
+func f(a [5]int64, s string) int64 {
+    if len(s) <= 5 {
+        if len(s) != 5 {
+            return a[len(s)]
+        }
+    }
+    return 0
+}
+
+func main() {
+    if f([5]int64{1, 2, 3, 4, 5}, "ab") == 0 {
+        exit(1)
+    }
+}
+-- note-length-excluded/expected --
+stage: typeck
+---
+
+note-length-excluded/main.tck:8:22: error: index may be out of range; use v, ok := ...[...]
+07 |	        if len(s) != 5 {
+08 |	            return a[len(s)]
+   |	                     ^~~~~~
+09 |	        }
+
+-- note-length-index/main.tck --
+package main
+
+// The guard allows len(s) == 3, and a has 3 elements.
+func f(a [3]int64, s string) int64 {
+    if len(s) <= 3 {
+        return a[len(s)]
+    }
+    return 0
+}
+
+func main() {
+    if f([3]int64{1, 2, 3}, "ab") == 0 {
+        exit(1)
+    }
+}
+-- note-length-index/expected --
+stage: typeck
+---
+
+note-length-index/main.tck:6:18: error: index may be out of range; use v, ok := ...[...]
+05 |	    if len(s) <= 3 {
+06 |	        return a[len(s)]
+   |	                 ^~~~~~
+07 |	    }
+note-length-index/main.tck:5:8: note: this guard allows len(s) == 3, and a has 3 elements
+04 |	func f(a [3]int64, s string) int64 {
+05 |	    if len(s) <= 3 {
+   |	       ^~~~~~~~~~~
+06 |	        return a[len(s)]
+
+-- note-length-link/main.tck --
+package main
+
+// len(s) < n holds, and n <= len(t) would complete the chain.
+func f(s string, t string, n int64) int64 {
+    if len(s) < n {
+        return int64(t[len(s)])
+    }
+    return 0
+}
+
+func main() {
+    if f("a", "ab", 2) == 0 {
+        exit(1)
+    }
+}
+-- note-length-link/expected --
+stage: typeck
+---
+
+note-length-link/main.tck:6:24: error: index may be out of range; use v, ok := ...[...]
+05 |	    if len(s) < n {
+06 |	        return int64(t[len(s)])
+   |	                       ^~~~~~
+07 |	    }
+note-length-link/main.tck:6:24: note: len(s) < n holds here; check n <= len(t) too
+05 |	    if len(s) < n {
+06 |	        return int64(t[len(s)])
+   |	                       ^~~~~~
+07 |	    }
+
+-- note-length-link-refuted/main.tck --
+package main
+
+// len(s) <= i + 9223372036854775807 holds, but under 0 <= i the check
+// i < len(t) - 9223372036854775807 that would complete it never can, so
+// no note names it.
+func f(s string, t string, i int64) int64 {
+    if 0 <= i && i < len(s) {
+        return int64(t[len(s)])
+    }
+    return 0
+}
+
+func main() {
+    if f("a", "ab", 0) == 0 {
+        exit(1)
+    }
+}
+-- note-length-link-refuted/expected --
+stage: typeck
+---
+
+note-length-link-refuted/main.tck:8:24: error: index may be out of range; use v, ok := ...[...]
+07 |	    if 0 <= i && i < len(s) {
+08 |	        return int64(t[len(s)])
+   |	                       ^~~~~~
+09 |	    }
+
+-- note-length-mutable-field/main.tck --
+package main
+
+type P struct {
+    s string
+}
+
+// A field of a mutable variable never carries a fact, nor does its
+// length.
+func f(a [3]int64, mut p P) int64 {
+    if len(p.s) < 3 {
+        return a[len(p.s)]
+    }
+    return 0
+}
+
+func main() {
+    mut p := P{s: "ab"}
+    if f([3]int64{1, 2, 3}, mut p) == 0 {
+        exit(1)
+    }
+}
+-- note-length-mutable-field/expected --
+stage: typeck
+---
+
+note-length-mutable-field/main.tck:11:18: error: index may be out of range; use v, ok := ...[...]
+10 |	    if len(p.s) < 3 {
+11 |	        return a[len(p.s)]
+   |	                 ^~~~~~~~
+12 |	    }
+note-length-mutable-field/main.tck:10:8: note: this guard proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy p.s into a variable first
+09 |	func f(a [3]int64, mut p P) int64 {
+10 |	    if len(p.s) < 3 {
+   |	       ^~~~~~~~~~~~
+11 |	        return a[len(p.s)]
+
+-- note-length-mutable-global/main.tck --
+package main
+
+mut g string = "ab"
+
+// A mutable global never carries a fact, nor does its length.
+func f(a [3]int64) int64 {
+    if len(g) < 3 {
+        return a[len(g)]
+    }
+    return 0
+}
+
+func main() {
+    if f([3]int64{1, 2, 3}) == 0 {
+        exit(1)
+    }
+}
+-- note-length-mutable-global/expected --
+stage: typeck
+---
+
+note-length-mutable-global/main.tck:8:18: error: index may be out of range; use v, ok := ...[...]
+07 |	    if len(g) < 3 {
+08 |	        return a[len(g)]
+   |	                 ^~~~~~
+09 |	    }
+note-length-mutable-global/main.tck:3:5: note: g is a mutable global, so no check proves it; copy it into a local first
+02 |	
+03 |	mut g string = "ab"
+   |	    ^
+04 |	
+
+-- note-length-related/main.tck --
+package main
+
+// 0 <= i && i < len(s) keeps len(s) at 1 or more, which the notes do
+// not follow, so no note may say the guard allows len(s) == 0.
+func f(s string, i int64) int64 {
+    if 0 <= i && i < len(s) && len(s) < 10 {
+        return 10 / len(s)
+    }
+    return 0
+}
+
+func main() {
+    if f("ab", 0) == 0 {
+        exit(1)
+    }
+}
+-- note-length-related/expected --
+stage: typeck
+---
+
+note-length-related/main.tck:7:21: error: divisor may be zero; use q, ok := ... / ...
+06 |	    if 0 <= i && i < len(s) && len(s) < 10 {
+07 |	        return 10 / len(s)
+   |	                    ^~~~~~
+08 |	    }
+
+-- note-length-slice-known/main.tck --
+package main
+
+// The guard allows len(s) == 4, and the string has 3 bytes.
+func f(s string) string {
+    if len(s) < 5 {
+        return "abc"[:len(s)]
+    }
+    return ""
+}
+
+func main() {
+    if f("ab") == "" {
+        exit(1)
+    }
+}
+-- note-length-slice-known/expected --
+stage: typeck
+---
+
+note-length-slice-known/main.tck:6:22: error: slice bound ... may be out of range; use v, ok := ...[:...]
+05 |	    if len(s) < 5 {
+06 |	        return "abc"[:len(s)]
+   |	                     ^~~~~~~
+07 |	    }
+note-length-slice-known/main.tck:5:8: note: this guard allows len(s) == 4, and the string has 3 bytes
+04 |	func f(s string) string {
+05 |	    if len(s) < 5 {
+   |	       ^~~~~~~~~~
+06 |	        return "abc"[:len(s)]
+
+-- note-link-refuted/main.tck --
+package main
+
+// The plain-variable form of note-length-link-refuted: no note.
+func f(t string, i int64, j int64) int64 {
+    if 0 <= i && i < j {
+        return int64(t[j])
+    }
+    return 0
+}
+
+func main() {
+    if f("ab", 0, 1) == 0 {
+        exit(1)
+    }
+}
+-- note-link-refuted/expected --
+stage: typeck
+---
+
+note-link-refuted/main.tck:6:24: error: index j may be out of range; check 0 <= j && j < len(t) first, or use v, ok := ...[j]
+05 |	    if 0 <= i && i < j {
+06 |	        return int64(t[j])
+   |	                       ^
+07 |	    }
 
 -- note-multi-target/main.tck --
 package main

@@ -372,19 +372,22 @@ func (c *Checker) requireInRange(ix *ast.Index, typ types.Type, n int64, write b
 // notes that explain it. A subject, a variable or a path below an
 // immutable one, gets the check that would prove it, below bound, with no
 // lower bound for an unsigned one, except a mutable global, which no check
-// proves; explain gives the notes for a subject. An index inside an
-// element being bound with ok is also explained.
+// proves; explain gives the notes for a subject, and for the length of a
+// string, view or list subject, which gets no check in the error. An
+// index inside an element being bound with ok is also explained.
 func (c *Checker) indexError(
 	ix *ast.Index,
 	bound string,
 	explain func(i ast.Expr) []diag.Diagnostic,
 ) (string, []diag.Diagnostic) {
-	msg, notes := "index may be out of range", c.operandNotes(ix.Index, false)
+	msg, notes := "index may be out of range", c.operandNotes(ix.Index)
 	isSubject := c.isSubject(ix.Index)
 	name := c.nameOf(ix.Index)
 	switch v, isGlobal := c.mutableGlobal(ix.Index); {
 	case isGlobal:
 		msg, notes = "index "+c.operandName(ix.Index)+" may be out of range", globalNote(v)
+	case c.isLengthSubject(ix.Index):
+		notes = explain(ix.Index)
 	case isSubject && bound == "":
 		msg, notes = "index "+name+" may be out of range", explain(ix.Index)
 	case isSubject:

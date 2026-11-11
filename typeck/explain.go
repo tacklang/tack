@@ -463,11 +463,11 @@ func below(name string, hi constant.Int) string {
 	return name + " <= " + hi.String()
 }
 
-// divisorProof returns the proof that the divisor e, a subject, is not
-// zero.
+// divisorProof returns the proof that the divisor e, a subject or a
+// length, is not zero.
 func (c *Checker) divisorProof(e ast.Expr) proof {
-	about, _ := c.subjectKey(e)
-	name := c.nameOf(e)
+	about, _ := c.noteKey(e)
+	name := c.noteName(e)
 	return proof{
 		about:  about,
 		proven: func() bool { return c.nonzero(e) },
@@ -482,8 +482,16 @@ func (c *Checker) divisorProof(e ast.Expr) proof {
 			return describe(name, facts)
 		},
 		weak: func(facts []fact, would bool) []diag.Diagnostic {
+			// The facts allow e == 0 only where its bounds, its type's or
+			// a length's narrowed by them, hold 0: under len(s) <= -1, a
+			// length's bounds hold no value at all, and none the note
+			// could name.
+			known := c.ownInterval(e)
+			for _, f := range facts {
+				known = known.narrow(f)
+			}
 			zero := constant.Int{}
-			if len(facts) == 0 || c.rulesOut(e, zero) {
+			if len(facts) == 0 || known.excludesZero() || c.rulesOut(e, zero) {
 				return nil
 			}
 			f := facts[len(facts)-1]
@@ -524,15 +532,15 @@ func (c *Checker) newExtent(of ast.Expr, unit string, n int64, known bool) exten
 	return extent{of: of, label: label, unit: unit, n: n, known: known}
 }
 
-// indexProof returns the proof that the index i, a subject, is in range
-// for e, which proven checks. An unsigned i is never below 0, and one the
-// facts in force keep at or above 0 is not either, so only an upper bound,
-// by a value or by a length, can be missing, and a fact that gives none,
-// such as the lower bound a counting loop counts from, is not relevant to
-// it.
+// indexProof returns the proof that the index i, a subject or a length,
+// is in range for e, which proven checks. An unsigned i is never below 0,
+// nor is a length, and one the facts in force keep at or above 0 is not
+// either, so only an upper bound, by a value or by a length, can be
+// missing, and a fact that gives none, such as the lower bound a counting
+// loop counts from, is not relevant to it.
 func (c *Checker) indexProof(i ast.Expr, e extent, proven func() bool) proof {
-	about, _ := c.subjectKey(i)
-	name := c.nameOf(i)
+	about, _ := c.noteKey(i)
+	name := c.noteName(i)
 	var relevant func(f fact) bool
 	if types.IsUnsigned(ast.TypeOf(i)) || c.atLeastZero(i) {
 		relevant = func(f fact) bool { return f.hasHi || !f.lenOf.isZero() }
@@ -543,9 +551,12 @@ func (c *Checker) indexProof(i ast.Expr, e extent, proven func() bool) proof {
 		relevant: relevant,
 		claim:    func(facts []fact) string { return describe(name, facts) },
 		weak: func(facts []fact, would bool) []diag.Diagnostic {
-			known := typeInterval(i)
+			known := c.ownInterval(i)
 			for _, f := range facts {
 				known = known.narrow(f)
+			}
+			if known.empty() {
+				return nil
 			}
 			var notes []diag.Diagnostic
 			if n, ok := c.lowerNote(i, facts, known, would); ok {
@@ -560,9 +571,9 @@ func (c *Checker) indexProof(i ast.Expr, e extent, proven func() bool) proof {
 }
 
 // atLeastZero reports whether the facts in force keep i, an index that
-// is a subject, at or above 0 where it is used.
+// is a subject or a length, at or above 0 where it is used.
 func (c *Checker) atLeastZero(i ast.Expr) bool {
-	known := c.intervalOf(i)
+	known := c.noteInterval(i)
 	return known.hasLo && !known.lo.IsNegative() || c.atLeast(i)
 }
 
@@ -578,6 +589,62 @@ func typeInterval(e ast.Expr) interval {
 	return known
 }
 
+// empty reports whether known holds no value, its lower bound above its
+// upper one, as under n > 60 && n < 50: the facts then allow no value a
+// note could name, and no note says what they allow.
+func (known interval) empty() bool {
+	return known.hasLo && known.hasHi && known.lo.Cmp(known.hi) > 0
+}
+
+// isLengthSubject reports whether e is the length of a string, view or
+// list subject, len(s), whose facts are about s's length (see subject).
+// A note explains it as it explains a subject.
+func (c *Checker) isLengthSubject(e ast.Expr) bool {
+	_, ok := c.stringLen(e)
+	return ok
+}
+
+// noteKey returns the key the facts a note explains about e are under: a
+// subject's own (see subjectKey), or, for the length of a string, view or
+// list subject s, the key of s, under which the facts about its length
+// are.
+func (c *Checker) noteKey(e ast.Expr) (factKey, bool) {
+	if k, ok := c.stringLen(e); ok {
+		return k, true
+	}
+	return c.subjectKey(e)
+}
+
+// noteName returns how a note names e: a subject as nameOf does, and the
+// length of a string, view or list subject s as len(s).
+func (c *Checker) noteName(e ast.Expr) string {
+	if s, ok := lenArg(e); ok && c.isLengthSubject(e) {
+		return "len(" + c.nameOf(s) + ")"
+	}
+	return c.nameOf(e)
+}
+
+// ownInterval returns the bounds e, a subject or a length, has before
+// any fact narrows them: its type's (see typeInterval), or, for a length,
+// the range of any length, which is never negative (see lengthRange).
+func (c *Checker) ownInterval(e ast.Expr) interval {
+	if c.isLengthSubject(e) {
+		return lengthRange()
+	}
+	return typeInterval(e)
+}
+
+// noteInterval returns what is known about the value of e, a subject or
+// a length, where it is used: a subject's interval (see intervalOf), or a
+// length's bound (see leafRange).
+func (c *Checker) noteInterval(e ast.Expr) interval {
+	if c.isLengthSubject(e) {
+		known, _ := c.leafRange(e)
+		return known
+	}
+	return c.intervalOf(e)
+}
+
 // lowerNote explains why the facts about the index i, which with its
 // type's bounds give known, do not keep it at or above 0: the fact that
 // set the lower bound allows a negative value, or no fact gives a lower
@@ -587,7 +654,7 @@ func (c *Checker) lowerNote(i ast.Expr, facts []fact, known interval, would bool
 	if known.hasLo && !known.lo.IsNegative() {
 		return diag.Diagnostic{}, false
 	}
-	name := c.nameOf(i)
+	name := c.noteName(i)
 	if f, ok := setting(
 		facts,
 		func(f fact) bool { return f.hasLo && f.lo.Cmp(known.lo) == 0 },
@@ -624,7 +691,7 @@ func (c *Checker) upperNote(
 	e extent,
 	would bool,
 ) (diag.Diagnostic, bool) {
-	name := c.nameOf(i)
+	name := c.noteName(i)
 	if !e.known {
 		return c.otherLenNote(name, facts, e, would)
 	}
@@ -694,15 +761,16 @@ func lengthNote(f fact, name, other string, e extent, would bool) diag.Diagnosti
 }
 
 // lenOfOther returns the name of x when src is a comparison of the index
-// i with len(x), x being a subject other than of.
+// i, a subject or a length, with len(x), x being a subject other than of
+// and other than the one whose length i is.
 func (c *Checker) lenOfOther(src ast.Expr, i, of ast.Expr) (string, bool) {
 	cmp, ok := src.(*ast.Binary)
 	if !ok || !cmp.Op.IsComparison() {
 		return "", false
 	}
-	ik, _ := c.subjectKey(i)
+	ik, _ := c.noteKey(i)
 	side := cmp.Y
-	if k, isSubject := c.subjectKey(cmp.Y); isSubject && k == ik {
+	if k, isSubject := c.noteKey(cmp.Y); isSubject && k == ik {
 		side = cmp.X
 	}
 	x, ok := lenArg(side)
@@ -729,41 +797,75 @@ func lenArg(e ast.Expr) (ast.Expr, bool) {
 // force, relates to another variable, a length aside, and each subject of
 // every side f carries when it carries several: no claim about such a
 // subject is literally true unless it follows the relation or the sides,
-// which notes do not.
+// which notes do not. A length a relation ties to another value is
+// recorded too, under the key of the string, view or list it is the
+// length of (see noteKey), though the other value is not: 0 <= i && i <
+// len(s) keeps len(s) at 1 or more, which a claim about len(s) must not
+// leave out, while a bound by a length is no relation for a claim about
+// i.
 func (c *Checker) noteRelated(f fact) {
-	mark := func(k factKey) {
+	switch {
+	case f.either != nil && len(f.either.sides) > 1:
+		for _, side := range f.either.sides {
+			for _, s := range side {
+				c.markRelated(s.about)
+				c.noteRelated(s)
+			}
+		}
+	case !f.atMost.isZero():
+		c.markRelated(f.about, f.atMost)
+	case f.diff != nil && !f.diff.xLen && !f.diff.yLen && !f.diff.x.isZero() && !f.diff.y.isZero():
+		c.markRelated(f.diff.x, f.diff.y)
+	default:
+		c.markRelated(tiedLengths(f)...)
+	}
+}
+
+// markRelated records each of keys in c.relatedSubjects, but the zero
+// key, which names nothing.
+func (c *Checker) markRelated(keys ...factKey) {
+	for _, k := range keys {
 		if k.isZero() {
-			return
+			continue
 		}
 		if c.relatedSubjects == nil {
 			c.relatedSubjects = make(map[factKey]bool)
 		}
 		c.relatedSubjects[k] = true
 	}
+}
+
+// tiedLengths returns the lengths f, a fact of one side, ties to another
+// value, each as the key of the string, view or list it is the length
+// of: the length bounding a subject, i < len(s) or i <= len(s), and each
+// length in a relation between two values, len(s) <= n or len(s) <=
+// len(t). A length bounded by a known value is tied to nothing.
+func tiedLengths(f fact) []factKey {
 	switch {
-	case f.either != nil && len(f.either.sides) > 1:
-		for _, side := range f.either.sides {
-			for _, s := range side {
-				mark(s.about)
-				c.noteRelated(s)
-			}
-		}
-	case !f.atMost.isZero():
-		mark(f.about)
-		mark(f.atMost)
-	case f.diff != nil && !f.diff.xLen && !f.diff.yLen && !f.diff.x.isZero() && !f.diff.y.isZero():
-		mark(f.diff.x)
-		mark(f.diff.y)
+	case !f.lenOf.isZero():
+		return []factKey{f.lenOf}
+	case !f.atMostLen.isZero():
+		return []factKey{f.atMostLen}
+	case f.diff == nil || f.diff.x.isZero() || f.diff.y.isZero():
+		return nil
 	}
+	var keys []factKey
+	if f.diff.xLen {
+		keys = append(keys, f.diff.x)
+	}
+	if f.diff.yLen {
+		keys = append(keys, f.diff.y)
+	}
+	return keys
 }
 
 // rulesOut reports whether a fact in force that holds rules the value v
-// out for the subject e, e != v, or e != 0 for 0: a note that says e may
-// be v would then be false. Notes describe no such fact, and a b != k
-// that gives nothing else is a proof-only fact (see keepApart), so those
-// are looked at too.
+// out for the subject or length e, e != v, or e != 0 for 0: a note that
+// says e may be v would then be false. Notes describe no such fact, and a
+// b != k that gives nothing else is a proof-only fact (see keepApart), so
+// those are looked at too.
 func (c *Checker) rulesOut(e ast.Expr, v constant.Int) bool {
-	k, ok := c.subjectKey(e)
+	k, ok := c.noteKey(e)
 	if !ok {
 		return false
 	}
@@ -849,84 +951,112 @@ func globalNote(v *ast.Var) []diag.Diagnostic {
 }
 
 // operandNotes explains why operand, a divisor, an index, a slice's bound
-// or a converted value that is not a subject, is not proven, lenAlone
-// saying whether its use proves the length of a string, view or list
-// subject on its own, as a divisor's and a slice bound's does: a field of
-// a mutable variable a guard in scope compares, which never carries a
-// fact, or an expression using a variable a guard bounds. Arithmetic the
-// checker reads through (see arithmeticShape) gets a note that its
-// operands' bounds fall short or let a step overflow; anything else gets one
-// that lists what is proven for its use (see provenList). A length gets
-// no note, alone or in arithmetic (see nameNote), and a stored value's
-// fact (see guardValue) is never the one a note names.
-func (c *Checker) operandNotes(operand ast.Expr, lenAlone bool) []diag.Diagnostic {
-	if _, ok := operand.(*ast.Selector); ok {
-		return c.fieldNotes(operand)
+// or a converted value that is neither a subject nor the length of one,
+// is not proven: a field of a mutable variable a guard in scope compares,
+// which never carries a fact, nor does its length; a mutable global, or
+// its length, which no check proves; or an expression using a variable,
+// or the length of a string, view or list subject, a guard bounds.
+// Arithmetic the checker reads through (see arithmeticShape) gets a note
+// that its operands' bounds fall short or let a step overflow; anything
+// else gets one that lists what is proven (see provenList). A stored
+// value's fact (see guardValue) is never the one a note names.
+func (c *Checker) operandNotes(operand ast.Expr) []diag.Diagnostic {
+	if notes, ok := c.neverFactNotes(operand); ok {
+		return notes
 	}
 	if _, known := c.knownValue(operand); known {
 		return nil
 	}
 	readable := c.arithmeticShape(operand)
 	var notes []diag.Diagnostic
-	var seen []ast.Decl
+	var seen []factKey
 	ast.Walk(operand, func(n ast.Node) bool {
-		id, ok := n.(*ast.Ident)
-		if !ok || slices.Contains(seen, id.Def) {
+		k, name, ok := c.boundedLeaf(n)
+		if !ok {
 			return true
 		}
-		seen = append(seen, id.Def)
+		if slices.Contains(seen, k) {
+			return false
+		}
+		seen = append(seen, k)
 		f, bounded := setting(
 			c.active,
 			func(f fact) bool {
-				return f.about == declKey(id.Def) && c.holds(f) && !f.relational() &&
-					!f.guard.silent()
+				return f.about == k && c.holds(f) && !f.relational() && !f.guard.silent()
 			},
 		)
 		if bounded {
-			notes = append(notes, c.nameNote(f, id, operand, readable, lenAlone)...)
+			notes = append(notes, c.nameNote(f, name, operand, readable))
 		}
-		return true
+		return false
 	})
 	return notes
 }
 
-// nameNote returns the note at f's guard, which bounds id, a name in
-// operand, saying that it bounds id and not operand: operand's bounds
-// fall short or let a step wrap, when readable says operand is arithmetic
-// the checker reads through, or else only what provenList lists for its
-// use is proven. A fact about a string, a view or a list is about its
-// length, which gets no note.
-func (c *Checker) nameNote(
-	f fact,
-	id *ast.Ident,
-	operand ast.Expr,
-	readable, lenAlone bool,
-) []diag.Diagnostic {
-	if _, isLen := c.stringVar(id); isLen {
-		return nil
+// neverFactNotes returns the notes for operand when it, or the string,
+// view or list whose length it is, can never carry a fact, and true: a
+// field of a mutable variable or a mut parameter, which gets the note at
+// a guard comparing it (see fieldNotes), or the length of a mutable
+// global, which gets the note at its declaration. It returns false for
+// anything else.
+func (c *Checker) neverFactNotes(operand ast.Expr) ([]diag.Diagnostic, bool) {
+	path := operand
+	if x, ok := lenArg(operand); ok {
+		if g, isGlobal := c.mutableGlobal(x); isGlobal {
+			return globalNote(g), true
+		}
+		path = x
 	}
+	if _, ok := path.(*ast.Selector); ok {
+		return c.fieldNotes(path), true
+	}
+	return nil, false
+}
+
+// boundedLeaf returns the key and the name of n, a node inside an operand,
+// when a fact about it is one a note on the operand may name: a name of
+// anything but a string, a view or a list, or the length of a string,
+// view or list subject, len(s), whose facts are under the key of s (see
+// noteKey). A string, view or list named anywhere else, such as s in
+// s[0], is no such leaf, since its facts are about its length.
+func (c *Checker) boundedLeaf(n ast.Node) (factKey, string, bool) {
+	if e, ok := n.(ast.Expr); ok && c.isLengthSubject(e) {
+		k, _ := c.noteKey(e)
+		return k, c.noteName(e), true
+	}
+	id, ok := n.(*ast.Ident)
+	if !ok {
+		return factKey{}, "", false
+	}
+	if _, isLen := c.stringVar(id); isLen {
+		return factKey{}, "", false
+	}
+	return declKey(id.Def), id.Qualified(), true
+}
+
+// nameNote returns the note at f's guard, which bounds name, a name or a
+// length in operand, saying that it bounds name and not operand: operand's
+// bounds fall short or let a step wrap, when readable says operand is
+// arithmetic the checker reads through, or else only what provenList
+// lists is proven.
+func (c *Checker) nameNote(f fact, name string, operand ast.Expr, readable bool) diag.Diagnostic {
 	expr := c.text(operand.Spanned())
-	why := "; only " + provenList(lenAlone) + ", is proven, so copy "
+	why := "; only " + provenList() + ", is proven, so copy "
 	if readable {
 		why = "; the bounds of its operands do not prove " + expr +
 			", or let a step of it overflow, so copy "
 	}
-	return []diag.Diagnostic{note(f.guard.span, f.guard.subject()+" bounds "+id.Qualified()+
-		", not "+expr+why+expr+" into a variable and check it")}
+	return note(f.guard.span, f.guard.subject()+" bounds "+name+
+		", not "+expr+why+expr+" into a variable and check it")
 }
 
-// provenList returns what a note lists as proven for an operand: a known
-// value, a name, a path below an immutable one, and arithmetic on those
-// or on the length of a string, view or list one, and, when lenAlone says
-// the use proves such a length on its own, as a divisor and a slice's
-// bound do, that length alone too.
-func provenList(lenAlone bool) string {
-	if lenAlone {
-		return "a known value, a name, a field or element of an immutable variable, " +
-			"len of a string, view or list one, or +, -, * or unary - on those"
-	}
+// provenList returns what a note lists as proven for a divisor, an index,
+// a slice's bound or a converted value: a known value, a name, a path
+// below an immutable one, the length of a string, view or list one, and
+// arithmetic on those.
+func provenList() string {
 	return "a known value, a name, a field or element of an immutable variable, " +
-		"or +, -, * or unary - on those or on len of a string, view or list one"
+		"len of a string, view or list one, or +, -, * or unary - on those"
 }
 
 // fieldNotes returns the note for the field path, such as p.d, of a

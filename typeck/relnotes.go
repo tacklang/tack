@@ -73,7 +73,8 @@ func (c *Checker) middle(k factKey, x, y linTerm) bool {
 
 // linkAfter returns the link note for a relation known from x to a third
 // subject m, found last first, which m - y <= w - (what is known of x - m)
-// would complete.
+// would complete, when g does not prove that check can never hold (see
+// refutes).
 func (c *Checker) linkAfter(g *relGraph, x, y linTerm, w constant.Int) (string, bool) {
 	for i := len(g.nodes) - 1; i >= 0; i-- {
 		m := g.nodes[i]
@@ -81,7 +82,7 @@ func (c *Checker) linkAfter(g *relGraph, x, y linTerm, w constant.Int) (string, 
 		if !known || !c.middle(m, x, y) {
 			continue
 		}
-		if link, ok := w.Sub(constant.FromInt64(d)); ok {
+		if link, ok := w.Sub(constant.FromInt64(d)); ok && !g.refutes(m, y.node, link) {
 			return relationText(x.node, m, x.isLen, false, constant.FromInt64(d)) +
 				" holds here; check " + relationText(m, y.node, false, y.isLen, link) + " too", true
 		}
@@ -91,7 +92,8 @@ func (c *Checker) linkAfter(g *relGraph, x, y linTerm, w constant.Int) (string, 
 
 // linkBefore returns the link note for a relation known from a third
 // subject m to y, found last first, with m compared to x somewhere in
-// scope, which x - m <= w - (what is known of m - y) would complete.
+// scope, which x - m <= w - (what is known of m - y) would complete, when
+// g does not prove that check can never hold (see refutes).
 func (c *Checker) linkBefore(g *relGraph, x, y linTerm, w constant.Int) (string, bool) {
 	for i := len(g.nodes) - 1; i >= 0; i-- {
 		m := g.nodes[i]
@@ -99,12 +101,24 @@ func (c *Checker) linkBefore(g *relGraph, x, y linTerm, w constant.Int) (string,
 		if !known || !c.middle(m, x, y) || !c.compared(x.node, m) {
 			continue
 		}
-		if link, ok := w.Sub(constant.FromInt64(d)); ok {
+		if link, ok := w.Sub(constant.FromInt64(d)); ok && !g.refutes(x.node, m, link) {
 			return relationText(m, y.node, false, y.isLen, constant.FromInt64(d)) +
 				" holds here; check " + relationText(x.node, m, x.isLen, false, link) + " too", true
 		}
 	}
 	return "", false
+}
+
+// refutes reports whether g proves that a - b <= w can never hold, by
+// proving b - a <= -w - 1: a check a link note names must be one that
+// could hold, and under 0 <= i && i < len(s), no i < len(t) -
+// 9223372036854775807 can, every length being at most the largest int64.
+func (g *relGraph) refutes(a, b factKey, w constant.Int) bool {
+	neg, ok := w.Neg()
+	if ok {
+		neg, ok = neg.Sub(constant.FromInt64(1))
+	}
+	return ok && g.proves(b, a, neg)
 }
 
 // wrapping returns the side condition, written as a check, that keeps the
@@ -195,19 +209,19 @@ func relationText(x, y factKey, xLen, yLen bool, w constant.Int) string {
 }
 
 // indexRelationNotes returns the notes that explain why the relations in
-// force do not prove the index i, a subject, in range for x, an array,
-// string, view or list: for each bound its own facts do not prove, at
-// least 0 and below x's length, what relationNotes says (see lower and
-// upperRelationNotes).
+// force do not prove the index i, a subject or a length, in range for x,
+// an array, string, view or list: for each bound its own facts do not
+// prove, at least 0 and below x's length, what relationNotes says (see
+// lower and upperRelationNotes).
 func (c *Checker) indexRelationNotes(i, x ast.Expr) []diag.Diagnostic {
 	notes := c.lowerRelationNotes(i)
 	return uniqueNotes(append(notes, c.upperRelationNotes(i, x, constant.FromInt64(-1))...))
 }
 
-// lowerRelationNotes returns relationNotes for the subject b at least 0,
-// when neither its own bounds nor the relations prove it.
+// lowerRelationNotes returns relationNotes for the subject or length b at
+// least 0, when neither its own bounds nor the relations prove it.
 func (c *Checker) lowerRelationNotes(b ast.Expr) []diag.Diagnostic {
-	if known := c.intervalOf(b); known.hasLo && !known.lo.IsNegative() {
+	if known := c.noteInterval(b); known.hasLo && !known.lo.IsNegative() {
 		return nil
 	}
 	t, ok := c.queryTerm(b)
@@ -217,9 +231,9 @@ func (c *Checker) lowerRelationNotes(b ast.Expr) []diag.Diagnostic {
 	return c.relationNotes(zeroTerm(), t, constant.Int{}, b.Spanned())
 }
 
-// upperRelationNotes returns relationNotes for the subject b at most the
-// length of x plus w, a known length or len(x) for a subject x, when
-// neither b's own bounds nor the relations prove it.
+// upperRelationNotes returns relationNotes for the subject or length b at
+// most the length of x plus w, a known length or len(x) for a subject x,
+// when neither b's own bounds nor the relations prove it.
 func (c *Checker) upperRelationNotes(b, x ast.Expr, w constant.Int) []diag.Diagnostic {
 	t, ok := c.queryTerm(b)
 	if !ok {
@@ -227,7 +241,7 @@ func (c *Checker) upperRelationNotes(b, x ast.Expr, w constant.Int) []diag.Diagn
 	}
 	if n, known := c.extentOf(x); known {
 		limit, fits := constant.FromInt64(n).Add(w)
-		if hi := c.intervalOf(b); !fits || hi.hasHi && hi.hi.Cmp(limit) <= 0 {
+		if hi := c.noteInterval(b); !fits || hi.hasHi && hi.hi.Cmp(limit) <= 0 {
 			return nil
 		}
 		return c.relationNotes(t, zeroTerm(), limit, b.Spanned())

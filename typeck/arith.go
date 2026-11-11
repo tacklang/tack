@@ -61,15 +61,21 @@ func isWrapping(e ast.Expr) bool {
 }
 
 // operandRange returns what is known about the value of e where it is
-// used, when e is a subject, arithmetic (see isArithmetic) or a wrapping
-// operator, and false for anything else: a subject's interval (see
-// intervalOf), arithmetic's bound (see rangeOf), or, for a wrapping
-// operator and for arithmetic with none, its type's bounds,
-// which every value of it lies within, wrapped or not, so that the
-// relations in force may still prove more.
+// used, when e is a subject, the length of a string, view or list
+// subject, arithmetic (see isArithmetic) or a wrapping operator, and
+// false for anything else: a subject's interval (see intervalOf), a
+// length's bound, the one it has as an operand of arithmetic (see
+// leafRange), so that len(s) is proven wherever len(s) + 0 is,
+// arithmetic's bound (see rangeOf), or, for a wrapping operator and for
+// arithmetic with none, its type's bounds, which every value of it lies
+// within, wrapped or not, so that the relations in force may still prove
+// more.
 func (c *Checker) operandRange(e ast.Expr) (interval, bool) {
 	if c.isSubject(e) {
 		return c.intervalOf(e), true
+	}
+	if _, ok := c.stringLen(e); ok {
+		return c.leafRange(e)
 	}
 	if isWrapping(e) {
 		return typeInterval(e), true

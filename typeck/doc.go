@@ -307,7 +307,14 @@
 // follow neither, nor one a stored value's fact holds about (heldValue);
 // and one that names a value the facts rule out, by its bounds or by a
 // !=, is left out (rulesOut), a note on what they would allow being
-// checked with the dropped facts counted. Every note's span is the code it is about, so its
+// checked with the dropped facts counted. The length of a string, view or
+// list subject, len(s), is explained as a subject is, its facts being
+// under the key of s (noteKey), named len(s) (noteName) and never
+// negative (ownInterval); a length a fact ties to another value, a
+// relation, a bound i < len(s) or a store n := len(s), gets no note on
+// what the facts allow (noteRelated). Where no value meets the facts, no
+// note says what they allow (interval.empty), and a link note names no
+// check the relations in force show can never hold (refutes). Every note's span is the code it is about, so its
 // text names no position. A fact a write
 // ends is kept in force for this, marked where it is asked about with
 // the write that ends it there, and every query that proves something
@@ -603,9 +610,12 @@
 // clause about one, a mut receiver's field included, gives none.
 //
 // An index, a slice's bound, a divisor or a conversion's operand may be
-// arithmetic, not only a subject (arith.go): +, - or * on two integers,
-// or unary - on one, each operand a known value, a subject, the length of
-// a string, view or list subject, or such arithmetic, is bounded by
+// the length of a string, view or list subject, bounded as it is as an
+// operand of arithmetic, so len(s) is proven wherever len(s) + 0 is
+// (operandRange), or arithmetic, not only a subject (arith.go): +, - or *
+// on two integers, or unary - on one, each operand a known value, a
+// subject, the length of a string, view or list subject, or such
+// arithmetic, is bounded by
 // working its operation out exactly on its operands' bounds, each from
 // its type and the facts in force (intervalOf) or, for a length, from
 // minLen to maxLen, or the largest int64 when the facts give no upper
@@ -812,7 +822,8 @@
 //   - a conversion T(x) converts an integer to an integer type, and only
 //     where it cannot fail: a constant or a known value, as knownValue
 //     computes it, that fits T, a type that widens to T, or a subject, a
-//     variable or a path below an immutable one, that the facts in force
+//     variable or a path below an immutable one, or the length of one,
+//     that the facts in force
 //     keep within T's range on every target, 0 to types.PortableMax for
 //     a target-width T, by its own bounds or through the relations in
 //     force (factsFit, convfacts.go), or arithmetic on those whose bound

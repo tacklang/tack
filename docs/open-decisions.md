@@ -58,12 +58,11 @@ These points about it were settled by the implementation:
 - The note for a guard that proves nothing about a field now says why, `a
   field of a mutable variable or a mut parameter never carries a fact`,
   and the note for an operand that is not proven says `only a known
-  value, a name, a field or element of an immutable variable, or +, -, *
-  or unary - on those or on len of a string, view or list one, is
-  proven`, with `len` of one alone listed too for a divisor and a
-  slice's bound, which prove such a length on its own, or, for such
-  arithmetic, that the bounds of its operands do not prove it, or let a
-  step of it overflow.
+  value, a name, a field or element of an immutable variable, len of a
+  string, view or list one, or +, -, * or unary - on those, is proven`,
+  since such a length alone is proven as a divisor, a slice's bound, an
+  index and a converted value, or, for such arithmetic, that the bounds
+  of its operands do not prove it, or let a step of it overflow.
 
 ## Mut parameters
 

@@ -3221,7 +3221,10 @@ section remains the description of the language.
   string, view or list variable, or such arithmetic itself, is bounded
   by its operands' bounds, worked out exactly: under `0 <= i && i < 4 &&
   0 <= j && j < 4`, `a[i + j]` of a `[7]T` and `a[2*i + 1]` of an `[8]T`
-  compile. An operation that could leave its type, for some values its
+  compile. A length alone is bounded as it is in arithmetic, so it is
+  proven wherever the same length plus 0 is: under `len(s) < len(t)`,
+  `t[len(s)]` compiles, and under `len(s) < 3`, so does `a[len(s)]` of a
+  `[3]T`; a write to the string, view or list ends its length's facts. An operation that could leave its type, for some values its
   operands' bounds allow, gives no bound, nor does any arithmetic holding
   it, and is an error itself: under `v >= 0`, `v + 1` overflows for the
   largest `int64`, and an operation of a target-width type counts only
@@ -3326,12 +3329,14 @@ section remains the description of the language.
   allowed only where it cannot fail: `x` is a constant, or a known value (see
   division), that is a value of `T`, as `uint8(x)` after `x := 5` or
   `int8('a')`, `x` is of a type that widens to `T`, or `x` is a name, a
-  field or element of an immutable variable, or arithmetic on those (see
-  indexing), that the facts in force keep within `T`'s range, as an
-  index's are kept within a length:
+  field or element of an immutable variable, `len` of a string, view or
+  list one, or arithmetic on those (see indexing), that the facts in
+  force keep within `T`'s range, as an index's are kept within a length:
   `uint64(v)` under `if v >= 0`, `int32(v)` under
   `if -2147483648 <= v && v <= 2147483647`, `int64(u)` for a `uint64` `u`
-  under `if u <= 9223372036854775807`. The facts come from the same guards,
+  under `if u <= 9223372036854775807`, `uint8(len(s))` under
+  `if len(s) <= 255`, and `uint64(len(s))` always, a length never being
+  negative. The facts come from the same guards,
   early exits, loops, cases, contracts and relations as an index's, and
   the same writes end them; a field of a mutable variable has none.
   Arithmetic is bounded as an index's is, so `uint64(-(v + 1))` is

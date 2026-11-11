@@ -956,8 +956,8 @@ var otherCauseCases = []noteCase{
 		[]wantNote{
 			{
 				"this guard bounds i, not i / 2 + 1; only a known value, a name, a field or element of an " +
-					"immutable variable, or +, -, * or unary - on those or on len of a string, view or list " +
-					"one, is proven, so copy i / 2 + 1 into a variable and check it",
+					"immutable variable, len of a string, view or list one, or +, -, * or unary - on those, " +
+					"is proven, so copy i / 2 + 1 into a variable and check it",
 				"0 <= i && i < 3",
 				4,
 				8,
@@ -1064,15 +1064,22 @@ func TestNoOtherNoteWithoutAGuard(t *testing.T) {
 
 // unprovenLengths are programs whose one error is a length of a string, a
 // view or a list that is not proven, alone or in arithmetic, as a
-// divisor, a slice's bound or bounds, an index or a converted value,
-// whatever guards bound it.
+// divisor, a slice's bound or bounds, an index or a converted value, and
+// that no note is true of: no fact in force bounds it on the side the use
+// needs, the fact a note would name is a relation to another value, or
+// the facts would make what a note says false, as when no length meets
+// them, or a check a link note would name can never hold (see
+// lengthNoteCases for those that get one).
 var unprovenLengths = []string{
+	inF2("w string", "if len(w) <= 4 && len(w) >= 10 {", "    print(\"abc\"[:len(w)])", "}"),
+	inF2("s string", "a := [3]int64{1, 2, 3}", "if len(s) > 60 && len(s) < 50 {",
+		"    return a[len(s)]", "}"),
+	inF2("v []int64", "if len(v) > 300 && len(v) < 260 {", "    return int64(uint8(len(v)))", "}"),
+	inF2("s string, t string, i int64", "if 0 <= i && i < len(s) {",
+		"    return int64(t[len(s)])", "}"),
 	inF2("t string, s string", "if len(s) < 5 {", "    print(t[:len(s)])", "}"),
 	inF2("t string, s string", "if len(s) < 5 {", "    print(t[len(s):])", "}"),
-	inF2("w string", "if len(w) <= 4 {", "    print(\"abc\"[:len(w)])", "}"),
 	inF2("w string", "if len(w) >= 1 {", "    print(\"abc\"[:len(w)])", "}"),
-	inF2("s string, t string", "mut v := s", "if len(v) > 0 {", "    return 1", "}", "v = t",
-		"if len(v) < 10 {", "    return 10 / len(v)", "}"),
 	inF2("s string, t0 string", "mut t := t0", "if len(s) < 5 {", "    t = \"x\"",
 		"    print(t[:len(s)])", "}"),
 	inF2(
@@ -1093,17 +1100,6 @@ var unprovenLengths = []string{
 	inF2("s string, u string", "if len(u) <= len(s) {", "    if len(u) < 5 {",
 		"        print(s[len(s):len(u)])", "    }", "}"),
 	inF2(
-		"s string",
-		"a := [4]int64{1, 2, 3, 4}",
-		"if len(s) < 3 {",
-		"    return a[len(s) * 2]",
-		"}",
-	),
-	"package main\n\nfunc cap4(mut l list[int64]) ensures len(l) <= 4 {\n" +
-		"    if len(l) > 4 {\n        exit(1)\n    }\n}\n\n" +
-		"func f() {\n    mut l := make(list[int64], c_allocator)\n    cap4(mut l)\n" +
-		"    print(\"abc\"[:len(l)])\n}\n\nfunc main() {\n}\n",
-	inF2(
 		"t string, s string, u string",
 		"if len(s) < 5 {",
 		"    if len(u) < 5 && len(u) <= len(t) {",
@@ -1113,44 +1109,26 @@ var unprovenLengths = []string{
 	),
 	inF2("t string, s string, u string", "if len(s) < 5 && len(u) < 5 && len(u) <= len(t) {",
 		"    print(t[len(s):len(u)])", "}"),
-	inF2(
-		"s string",
-		"if len(s) > 0 {",
-		"    return 1",
-		"} else {",
-		"    return 10 / len(s)",
-		"}",
-	),
-	inF2("a [3]int64, s string", "if len(s) < 3 {", "    return a[len(s)]", "}"),
-	inF2("s string", "if len(s) < 10 {", "    return 10 / len(s)", "}"),
 	inF2("s string", "if len(s) <= -1 {", "    return 10 / len(s)", "}"),
 	inF2("s string, u string", "if len(s) > 5 && len(s) < 2 && len(u) < 5 {",
 		"    print(\"abcde\"[len(s):len(u)])", "}"),
-	inF2("w string", "if len(w) <= 4 && len(w) >= 10 {", "    print(\"abc\"[:len(w)])", "}"),
-	inF2("s string", "a := [4]int64{1, 2, 3, 4}", "if len(s) > 5 && len(s) < 2 {",
-		"    return a[len(s) * -1]", "}"),
 	inF2("s string, t0 string", "mut t := t0", "if len(s) < 5 && len(s) <= len(t) {",
 		"    t = \"x\"", "    print(t[:len(s)])", "}"),
-	inF2("s string", "mut t := s", "if len(t) < 10 {", "    t = s", "    return 10 / len(t)", "}"),
 	inF2("s string", "if s == \"abc\" {", "    return 10 / len(s)", "}"),
 	inF2("t string, s string", "mut v := t", "if len(s) < 5 && len(s) <= len(v) {",
 		"    v = \"\"", "    print(v[:len(s)])", "}"),
 	inF2("t string, s string, u string", "mut a := s",
 		"if len(a) < 5 && len(u) < 5 && len(u) <= len(t) && len(a) <= len(u) {",
 		"    a = \"zzzzzz\"", "    print(t[len(a):len(u)])", "}"),
-	inF2("t string, w string", "mut v := w", "if len(v) <= 9 {", "    v = t",
-		"    if len(v) >= 1 {", "        print(\"abc\"[:len(v)])", "    }", "}"),
 	inF2("t string, s string", "mut v := t", "if len(s) < 5 && len(v) > 9 {",
 		"    v = \"\"", "    print(v[:len(s)])", "}"),
 	inF2("t string, s string", "mut v := t", "if len(v) <= len(s) && len(s) < 5 {",
 		"    v = \"\"", "    print(v[:len(s)])", "}"),
-	inF2("t string, w string", "mut v := w", "if len(v) <= 3 {",
-		"    v = t", "    if len(v) >= 1 {", "        print(\"abc\"[:len(v)])", "    }", "}"),
 }
 
-// TestUnprovenLengthsGetNoNote checks that a length that is not proven
-// keeps its error alone, and that a slice of a mutable global past a
-// length gets only the global's note.
+// TestUnprovenLengthsGetNoNote checks that a length that is not proven,
+// and that no note is true of, keeps its error alone, and that a slice of
+// a mutable global past a length gets only the global's note.
 func TestUnprovenLengthsGetNoNote(t *testing.T) {
 	for _, src := range unprovenLengths {
 		diags := check(t, src)
@@ -1168,6 +1146,112 @@ func TestUnprovenLengthsGetNoNote(t *testing.T) {
 		!strings.HasPrefix(diags[0].Related[0].Message, "g is a mutable global") {
 		t.Errorf("%q: got %v, want one error with only the global's note", src, diags)
 	}
+}
+
+// TestLengthNotes checks that a length that is not proven, alone or in
+// arithmetic, gets the notes a variable would: what a guard allows it,
+// which guard's proof a write ended, and that a guard bounds it and not
+// arithmetic on it.
+func TestLengthNotes(t *testing.T) {
+	runNoteCases(t, lengthNoteCases)
+}
+
+const (
+	divLen     = "divisor may be zero; use q, ok := ... / ..."
+	sliceToLen = "slice bound ... may be out of range; use v, ok := ...[:...]"
+	indexLen   = "index may be out of range; use v, ok := ...[...]"
+)
+
+// lengthNoteCases are programs whose length of a string, view or list is
+// not proven, with the notes its error gets.
+var lengthNoteCases = []noteCase{
+	{
+		"a slice bound past a known string",
+		inF2("w string", "if len(w) <= 4 {", "    print(\"abc\"[:len(w)])", "}"),
+		sliceToLen,
+		[]wantNote{{"this guard allows len(w) == 4, and the string has 3 bytes", "len(w) <= 4", 4, 8}},
+	},
+	{
+		"a divisor bounded only above",
+		inF2("s string", "if len(s) < 10 {", "    return 10 / len(s)", "}"),
+		divLen,
+		[]wantNote{{"this guard allows len(s) == 0", "len(s) < 10", 4, 8}},
+	},
+	{
+		"a divisor in an else branch",
+		inF2("s string", "if len(s) > 0 {", "    return 1", "} else {", "    return 10 / len(s)", "}"),
+		divLen,
+		[]wantNote{{"this guard allows len(s) == 0", "len(s) > 0", 4, 8}},
+	},
+	{
+		"a divisor whose early exit an assignment ends",
+		inF2("s string, t string", "mut v := s", "if len(v) > 0 {", "    return 1", "}", "v = t",
+			"if len(v) < 10 {", "    return 10 / len(v)", "}"),
+		divLen,
+		[]wantNote{
+			{"this early exit proves len(v) < 1 after it", "if len(v) > 0", 5, 5},
+			assignedHere("v", 8, 5),
+			{"this guard would allow len(v) == 0", "len(v) < 10", 9, 8},
+		},
+	},
+	{
+		"a divisor whose guard an assignment ends",
+		inF2("s string", "mut t := s", "if len(t) < 10 {", "    t = s", "    return 10 / len(t)", "}"),
+		divLen,
+		[]wantNote{
+			{"this guard proves len(t) < 10", "len(t) < 10", 5, 8},
+			assignedHere("t", 6, 9),
+			{"this guard would allow len(t) == 0", "len(t) < 10", 5, 8},
+		},
+	},
+	{
+		"a slice bound whose guard an assignment ends, short still",
+		inF2("t string, w string", "mut v := w", "if len(v) <= 9 {", "    v = t",
+			"    if len(v) >= 1 {", "        print(\"abc\"[:len(v)])", "    }", "}"),
+		sliceToLen,
+		[]wantNote{
+			{"this guard proves len(v) < 10", "len(v) <= 9", 5, 8},
+			assignedHere("v", 6, 9),
+			{"this guard would allow len(v) == 9, and the string has 3 bytes", "len(v) <= 9", 5, 8},
+		},
+	},
+	{
+		"a slice bound whose guard an assignment ends",
+		inF2("t string, w string", "mut v := w", "if len(v) <= 3 {",
+			"    v = t", "    if len(v) >= 1 {", "        print(\"abc\"[:len(v)])", "    }", "}"),
+		sliceToLen,
+		[]wantNote{{"this guard proves len(v) < 4", "len(v) <= 3", 5, 8}, assignedHere("v", 6, 9)},
+	},
+	{
+		"a slice bound a contract allows past a known string",
+		"package main\n\nfunc cap4(mut l list[int64]) ensures len(l) <= 4 {\n" +
+			"    if len(l) > 4 {\n        exit(1)\n    }\n}\n\n" +
+			"func f() {\n    mut l := make(list[int64], c_allocator)\n    cap4(mut l)\n" +
+			"    print(\"abc\"[:len(l)])\n}\n\nfunc main() {\n}\n",
+		sliceToLen,
+		[]wantNote{{"this call allows len(l) == 4, and the string has 3 bytes", "cap4(mut l)", 11, 5}},
+	},
+	{
+		"a product of a length",
+		inF2("s string", "a := [4]int64{1, 2, 3, 4}", "if len(s) < 3 {", "    return a[len(s) * 2]", "}"),
+		indexLen,
+		[]wantNote{{
+			"this guard bounds len(s), not len(s) * 2; the bounds of its operands do not prove " +
+				"len(s) * 2, or let a step of it overflow, so copy len(s) * 2 into a variable and check it",
+			"len(s) < 3", 5, 8,
+		}},
+	},
+	{
+		"a product of a length no guard meets",
+		inF2("s string", "a := [4]int64{1, 2, 3, 4}", "if len(s) > 5 && len(s) < 2 {",
+			"    return a[len(s) * -1]", "}"),
+		indexLen,
+		[]wantNote{{
+			"this guard bounds len(s), not len(s) * -1; the bounds of its operands do not prove " +
+				"len(s) * -1, or let a step of it overflow, so copy len(s) * -1 into a variable and check it",
+			"len(s) > 5 && len(s) < 2", 5, 8,
+		}},
+	},
 }
 
 // TestPhantomFactsProveNothing checks that a fact that would hold but for

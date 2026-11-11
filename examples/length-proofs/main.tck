@@ -1,0 +1,165 @@
+package main
+
+// A length, len(s) of a string, view or list, is proven as an index, a
+// slice's bound, a divisor or a converted value by the same bounds and
+// relations that prove it inside arithmetic, len(s) + 0: the facts about
+// its length, and the relations that tie it to other values. A length is
+// never negative, so only its upper bound needs a proof as an index, and
+// only its lower one, at least 1, as a divisor.
+//
+// Every check prints its name and "ok", or "FAIL", and runs each function
+// at the edges of what its guard allows and just past them, where a proof
+// that let too much through would read out of range, convert a value
+// that does not fit, or divide by zero.
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// at reads the byte of t at len(s) when s is shorter than t.
+func at(s string, t string) int64 {
+    if len(s) < len(t) {
+        return int64(t[len(s)])
+    }
+    return -1
+}
+
+// through reads the byte of t at len(s) when len(s) < n and n <= len(t),
+// a chain of relations through n.
+func through(s string, t string, n int64) int64 {
+    if len(s) < n && n <= len(t) {
+        return int64(t[len(s)])
+    }
+    return -1
+}
+
+// inView reads v at the length of s when s is shorter than v.
+func inView(s string, v []int64) int64 {
+    if len(s) < len(v) {
+        return v[len(s)]
+    }
+    return -1
+}
+
+// inArray reads a three-element array at len(s) when len(s) < 3.
+func inArray(s string) int64 {
+    a := [3]int64{10, 20, 30}
+    if len(s) < 3 {
+        return a[len(s)]
+    }
+    return -1
+}
+
+// inList appends 4, 5 and 6 to an empty list and reads it at len(s) when
+// s is shorter than the list.
+func inList(s string) int64 {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, 4, 5, 6)
+    if err.code != 0 {
+        return -2
+    }
+    if len(s) < len(l) {
+        return l[len(s)]
+    }
+    return -1
+}
+
+// narrowed converts the length of v to uint8 when it is at most 255.
+func narrowed(v []uint8) int64 {
+    if len(v) <= 255 {
+        return int64(uint8(len(v)))
+    }
+    return -1
+}
+
+// narrowedBy converts the length of v to uint8 when n bounds it at 255.
+func narrowedBy(v []uint8, n int64) int64 {
+    if len(v) <= n && n <= 255 {
+        return int64(uint8(len(v)))
+    }
+    return -1
+}
+
+// signed converts the length of v to int8 when it is below 128.
+func signed(v []uint8) int64 {
+    if len(v) < 128 {
+        return int64(int8(len(v)))
+    }
+    return -1
+}
+
+// unsigned converts len(s) to uint64, which needs no guard: a length is
+// never negative.
+func unsigned(s string) uint64 {
+    return uint64(len(s))
+}
+
+// prefix returns t up to the length of s when s is no longer than t.
+func prefix(s string, t string) string {
+    if len(s) <= len(t) {
+        return t[:len(s)]
+    }
+    return "-"
+}
+
+// suffix returns t from the length of s when s is no longer than t.
+func suffix(s string, t string) string {
+    if len(s) <= len(t) {
+        return t[len(s):]
+    }
+    return "-"
+}
+
+// share divides 100 by len(s) when s is not empty.
+func share(s string) int64 {
+    if len(s) > 0 {
+        return 100 / len(s)
+    }
+    return -1
+}
+
+func main() {
+    mut bytes [256]uint8
+    bytes[255] = 9
+
+    check(at("", "abc") == 97 && at("ab", "abc") == 99 && at("abc", "abc") == -1 &&
+        at("abcd", "abc") == -1 && at("", "") == -1,
+        "t[len(s)] under len(s) < len(t)")
+    check(through("ab", "abc", 3) == 99 && through("ab", "abc", 4) == -1 &&
+        through("abc", "abc", 3) == -1 && through("", "a", 1) == 97 &&
+        through("", "", 0) == -1,
+        "t[len(s)] under len(s) < n && n <= len(t)")
+    view := [3]int64{7, 8, 9}
+    check(inView("", view[:]) == 7 && inView("ab", view[:]) == 9 &&
+        inView("abc", view[:]) == -1 && inView("", view[0:0]) == -1,
+        "v[len(s)] under len(s) < len(v)")
+    check(inArray("") == 10 && inArray("ab") == 30 && inArray("abc") == -1,
+        "a[len(s)] under len(s) < 3")
+    check(inList("") == 4 && inList("ab") == 6 && inList("abc") == -1,
+        "l[len(s)] under len(s) < len(l)")
+    check(narrowed(bytes[:0]) == 0 && narrowed(bytes[:255]) == 255 &&
+        narrowed(bytes[:]) == -1,
+        "uint8(len(v)) under len(v) <= 255")
+    check(narrowedBy(bytes[:255], 255) == 255 && narrowedBy(bytes[:255], 254) == -1 &&
+        narrowedBy(bytes[:], 256) == -1 && narrowedBy(bytes[:0], 0) == 0,
+        "uint8(len(v)) under len(v) <= n && n <= 255")
+    check(signed(bytes[:127]) == 127 && signed(bytes[:128]) == -1 &&
+        signed(bytes[:0]) == 0,
+        "int8(len(v)) under len(v) < 128")
+    check(unsigned("") == 0 && unsigned("abc") == 3,
+        "uint64(len(s))")
+    check(prefix("ab", "xyz") == "xy" && prefix("xyz", "xyz") == "xyz" &&
+        prefix("", "xyz") == "" && prefix("abcd", "xyz") == "-",
+        "t[:len(s)] under len(s) <= len(t)")
+    check(suffix("ab", "xyz") == "z" && suffix("xyz", "xyz") == "" &&
+        suffix("abcd", "xyz") == "-",
+        "t[len(s):] under len(s) <= len(t)")
+    check(share("a") == 100 && share("abc") == 33 && share("") == -1,
+        "100 / len(s) under len(s) > 0")
+}
