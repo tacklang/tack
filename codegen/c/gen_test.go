@@ -696,6 +696,14 @@ func buildStrict(t *testing.T, src string) string {
 // extra flags as well, and returns the binary's path.
 func buildWith(t *testing.T, src string, flags ...string) string {
 	t.Helper()
+	return buildCWith(t, generate(t, src), flags...)
+}
+
+// buildCWith compiles code, C the backend generated, edited or not, as
+// buildWith compiles a program's C: with std's C, clang's warnings as
+// errors and the extra flags. It returns the binary's path.
+func buildCWith(t *testing.T, code string, flags ...string) string {
+	t.Helper()
 
 	e := c.New()
 	if _, err := exec.LookPath("clang"); err != nil {
@@ -706,7 +714,7 @@ func buildWith(t *testing.T, src string, flags ...string) string {
 	csrc := filepath.Join(dir, "out"+e.Ext())
 	bin := filepath.Join(dir, "prog")
 
-	if err := os.WriteFile(csrc, []byte(generate(t, src)), 0o644); err != nil {
+	if err := os.WriteFile(csrc, []byte(code), 0o644); err != nil {
 		t.Fatalf("writing generated C: %v", err)
 	}
 
@@ -715,11 +723,11 @@ func buildWith(t *testing.T, src string, flags ...string) string {
 	// driver compile passes (clangFlags), is left out on purpose: these
 	// builds run the generated C as it runs compiled without the flag, as
 	// --emit output may be, on the loop lowering alone.
-	args := append([]string{"-std=c11", "-Wall", "-Wextra", "-Werror"}, flags...)
+	args := append(slices.Clone(strictCFlags), flags...)
 	args = append(args, "-I", stdtest.IncludeDir(), "-o", bin, csrc)
 	cmd := exec.Command("clang", append(args, stdtest.RuntimeCFiles()...)...)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("generated C did not compile cleanly: %v\n%s\n%s", err, out, generate(t, src))
+		t.Fatalf("generated C did not compile cleanly: %v\n%s\n%s", err, out, code)
 	}
 	return bin
 }

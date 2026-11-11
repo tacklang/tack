@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -39,7 +40,7 @@ func buildExtern(t *testing.T, src, csrc string) string {
 			t.Fatal(err)
 		}
 	}
-	strict := []string{"-std=c11", "-Wall", "-Wextra", "-Werror", "-I", stdtest.IncludeDir()}
+	strict := append(slices.Clone(strictCFlags), "-I", stdtest.IncludeDir())
 	header := filepath.Join(dir, c.HeaderName)
 	obj := filepath.Join(dir, "helpers.o")
 	bin := filepath.Join(dir, "prog")

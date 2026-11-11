@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -40,9 +41,7 @@ func buildExternWith(t *testing.T, src, csrc string, flags ...string) string {
 	writeFile(t, filepath.Join(dir, "program.c"), string(out))
 	writeFile(t, filepath.Join(dir, c.HeaderName), string(c.New().Header(prog)))
 	writeFile(t, filepath.Join(dir, "helpers.c"), csrc)
-	strict := append(
-		[]string{"-std=c11", "-Wall", "-Wextra", "-Werror", "-I", stdtest.IncludeDir()},
-		flags...)
+	strict := append(append(slices.Clone(strictCFlags), "-I", stdtest.IncludeDir()), flags...)
 	obj := filepath.Join(dir, "helpers.o")
 	bin := filepath.Join(dir, "prog")
 	for _, args := range [][]string{
@@ -455,11 +454,10 @@ func TestListGrowFunction(t *testing.T) {
 	main := filepath.Join(dir, "main.c")
 	writeFile(t, main, listGrowTest)
 	bin := filepath.Join(dir, "grow")
-	args := []string{
-		"-std=c11", "-Wall", "-Wextra", "-Werror", "-O1",
-		"-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+	args := append(slices.Clone(strictCFlags),
+		"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
 		"-I", stdtest.IncludeDir(), "-o", bin, main, stdtest.RuntimeCFile("list.c"),
-	}
+	)
 	if out, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
 		t.Fatalf("clang: %v\n%s", err, out)
 	}

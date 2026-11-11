@@ -3,6 +3,7 @@ package c_test
 import (
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -222,11 +223,10 @@ func TestTakeMacros(t *testing.T) {
 	main := filepath.Join(dir, "main.c")
 	writeFile(t, main, takeMacrosTest)
 	bin := filepath.Join(dir, "take")
-	args := []string{
-		"-std=c11", "-Wall", "-Wextra", "-Werror", "-O1",
-		"-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+	args := append(slices.Clone(strictCFlags),
+		"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
 		"-I", stdtest.IncludeDir(), "-o", bin, main, stdtest.RuntimeCFile("list.c"),
-	}
+	)
 	if out, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
 		t.Fatalf("clang: %v\n%s", err, out)
 	}

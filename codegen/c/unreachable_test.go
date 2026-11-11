@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"testing"
 
@@ -51,9 +52,9 @@ func TestUnreachableAborts(t *testing.T) {
 	writeFile(t, main, unreachableAbortTest+
 		"\nint64_t never(void) {\n    TACK_UNREACHABLE(\"dir/main.tck:9\");\n}\n")
 	bin := filepath.Join(dir, "abort")
-	args := []string{"-std=c11", "-Wall", "-Wextra", "-Werror", "-Wreturn-type",
+	args := append(slices.Clone(strictCFlags), "-Wreturn-type",
 		"-I", stdtest.IncludeDir(), "-o", bin, main,
-		stdtest.RuntimeCFile("unreachable.c"), stdtest.RuntimeCFile("list.c")}
+		stdtest.RuntimeCFile("unreachable.c"), stdtest.RuntimeCFile("list.c"))
 	if out, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
 		t.Fatalf("clang: %v\n%s", err, out)
 	}

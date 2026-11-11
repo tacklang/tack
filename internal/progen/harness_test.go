@@ -35,11 +35,17 @@ const maxFailRuns = 40
 // always false, as x < 3 && x > 5, written as is in C (see
 // TestFindingOverlapCompareWarns). -fno-finite-loops, which every build
 // the driver runs passes, is left out on purpose, so these builds check
-// the C backend's loop lowering on its own.
+// the C backend's loop lowering on its own. -fstrict-flex-arrays=3 makes
+// clang take only a struct member declared [] to be a flexible array, so
+// the undefined behavior sanitizer checks every index into an array,
+// which Tack lowers to a struct whose last member is a C array: without
+// it a read past the array is not reported (see codegen/c's
+// TestSanitizersCatchIndexPastAnArray).
 var sanitize = []string{
 	"-std=c11", "-Wall", "-Wextra", "-Werror",
 	"-Wno-tautological-overlap-compare",
 	"-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+	"-fstrict-flex-arrays=3",
 }
 
 // frontEnd compiles src, the program main.tck, through the loader, the

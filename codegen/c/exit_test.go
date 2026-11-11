@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -280,7 +281,7 @@ func TestAllocatorTracksEveryBuffer(t *testing.T) {
 	main := filepath.Join(dir, "main.c")
 	writeFile(t, main, allocatorTest)
 	bin := filepath.Join(dir, "alloc")
-	args := append([]string{"-std=c11", "-Wall", "-Wextra", "-Werror"}, sanitizers...)
+	args := append(slices.Clone(strictCFlags), sanitizers...)
 	args = append(args, "-I", stdtest.IncludeDir(), "-o", bin, main,
 		stdtest.RuntimeCFile("list.c"))
 	if out, err := exec.Command("clang", args...).CombinedOutput(); err != nil {

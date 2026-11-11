@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -90,8 +91,7 @@ func buildProgram(t testing.TB, prog *ast.Program, csrc string, flags ...string)
 	// Every warning is an error: a function of an imported package the
 	// program never calls, std/fmt's println, is generated declared
 	// unused, which C then does not report.
-	strict := append([]string{"-std=c11", "-Wall", "-Wextra", "-Werror"},
-		flags...)
+	strict := append(slices.Clone(strictCFlags), flags...)
 	strict = append(strict, "-I", stdtest.IncludeDir())
 	// A C file sees the C library the driver gives it: clang's default
 	// mode declares POSIX's names beside C11's, as _DEFAULT_SOURCE does
@@ -459,12 +459,11 @@ int main(void) {
 }
 `)
 	bin := filepath.Join(dir, "harness")
-	args := []string{
-		"-std=c11", "-Wall", "-Wextra", "-Werror", "-O1",
-		"-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+	args := append(slices.Clone(strictCFlags),
+		"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
 		"-I", dir, "-I", stdtest.IncludeDir(), "-o", bin, harness,
 		filepath.Join(stdtest.Dir(), "fmt", "printf.c"),
-	}
+	)
 	if msg, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
 		t.Fatalf("clang: %v\n%s", err, msg)
 	}
