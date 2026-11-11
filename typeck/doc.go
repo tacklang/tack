@@ -53,8 +53,10 @@
 // [n]T that denotes it, or at a struct's or union's name, and only when
 // none of its parts is too large itself, since that part was reported
 // where it was made; no use of it, and no type holding it, is reported
-// again. The size of an array type met before every struct's fields are
-// resolved is checked once they are; any met later, at once. Once every
+// again. A first use in a damaged body whose report is dropped does not
+// count: the next use is reported instead (see invalid.go). The size of
+// an array type met before every struct's fields are resolved is checked
+// once they are; any met later, at once. Once every
 // global is checked, the globals are added up in program order, package
 // by package as the loader lists them, each after the packages it
 // imports and the main package last, each package's files in the byte

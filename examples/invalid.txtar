@@ -45129,6 +45129,412 @@ single-file-import/main.tck:5:17: error: cannot import ../lexer: a single file c
    |	                ^~~~~~~~~~
 06 |	
 
+-- size-after-damaged-body/main.tck --
+package main
+
+func f() {
+    y := )
+    mut a [1152921504606846976]int64
+    a[0] = 1
+}
+
+func main() {
+    mut b [1152921504606846976]int64
+    b[0] = 1
+    if b[0] == 1 {
+        print("one\n")
+    }
+}
+-- size-after-damaged-body/expected --
+stage: parse+typeck
+---
+
+size-after-damaged-body/main.tck:4:10: error: expected 'value' found ')'
+03 |	func f() {
+04 |	    y := )
+   |	         ^
+05 |	    mut a [1152921504606846976]int64
+
+size-after-damaged-body/main.tck:5:9: warning: declared and not used: a
+04 |	    y := )
+05 |	    mut a [1152921504606846976]int64
+   |	        ^
+06 |	    a[0] = 1
+
+size-after-damaged-body/main.tck:10:11: error: array type [1152921504606846976]int64 is too large: it holds 9223372036854775808 bytes, more than the 2^31 a value may hold
+09 |	func main() {
+10 |	    mut b [1152921504606846976]int64
+   |	          ^~~~~~~~~~~~~~~~~~~~~~~~~~
+11 |	    b[0] = 1
+
+-- size-after-damaged-body-before-bad/main.tck --
+package main
+
+func f() {
+    mut a [1152921504606846976]int64
+    y := )
+    a[0] = 1
+}
+
+func main() {
+    mut b [1152921504606846976]int64
+    b[0] = 1
+    if b[0] == 1 {
+        print("one\n")
+    }
+}
+-- size-after-damaged-body-before-bad/expected --
+stage: parse+typeck
+---
+
+size-after-damaged-body-before-bad/main.tck:4:11: error: array type [1152921504606846976]int64 is too large: it holds 9223372036854775808 bytes, more than the 2^31 a value may hold
+03 |	func f() {
+04 |	    mut a [1152921504606846976]int64
+   |	          ^~~~~~~~~~~~~~~~~~~~~~~~~~
+05 |	    y := )
+
+size-after-damaged-body-before-bad/main.tck:5:10: error: expected 'value' found ')'
+04 |	    mut a [1152921504606846976]int64
+05 |	    y := )
+   |	         ^
+06 |	    a[0] = 1
+
+-- size-after-damaged-body-decls/main.tck --
+package main
+
+func f() {
+    y := )
+    mut a [1152921504606846976]int64
+    mut b [2147483649]uint8
+    mut c [2147483650]uint8
+    a[0] = 1
+    b[0] = 1
+    c[0] = 1
+}
+
+type S struct {
+    a [1152921504606846976]int64
+}
+
+mut g [2147483649]uint8
+
+func h(p [2147483650]uint8) uint8 {
+    return p[0]
+}
+
+func main() {
+    mut s S
+    s.a[0] = 1
+    if s.a[0] == 1 && g[0] == 0 {
+        print("one\n")
+    }
+}
+-- size-after-damaged-body-decls/expected --
+stage: parse+typeck
+---
+
+size-after-damaged-body-decls/main.tck:4:10: error: expected 'value' found ')'
+03 |	func f() {
+04 |	    y := )
+   |	         ^
+05 |	    mut a [1152921504606846976]int64
+
+size-after-damaged-body-decls/main.tck:5:9: warning: declared and not used: a
+04 |	    y := )
+05 |	    mut a [1152921504606846976]int64
+   |	        ^
+06 |	    mut b [2147483649]uint8
+
+size-after-damaged-body-decls/main.tck:6:9: warning: declared and not used: b
+05 |	    mut a [1152921504606846976]int64
+06 |	    mut b [2147483649]uint8
+   |	        ^
+07 |	    mut c [2147483650]uint8
+
+size-after-damaged-body-decls/main.tck:7:9: warning: declared and not used: c
+06 |	    mut b [2147483649]uint8
+07 |	    mut c [2147483650]uint8
+   |	        ^
+08 |	    a[0] = 1
+
+size-after-damaged-body-decls/main.tck:14:7: error: array type [1152921504606846976]int64 is too large: it holds 9223372036854775808 bytes, more than the 2^31 a value may hold
+13 |	type S struct {
+14 |	    a [1152921504606846976]int64
+   |	      ^~~~~~~~~~~~~~~~~~~~~~~~~~
+15 |	}
+
+size-after-damaged-body-decls/main.tck:17:7: error: array type [2147483649]uint8 is too large: it holds 2147483649 bytes, more than the 2^31 a value may hold
+16 |	
+17 |	mut g [2147483649]uint8
+   |	      ^~~~~~~~~~~~~~~~~
+18 |	
+
+size-after-damaged-body-decls/main.tck:19:10: error: array type [2147483650]uint8 is too large: it holds 2147483650 bytes, more than the 2^31 a value may hold
+18 |	
+19 |	func h(p [2147483650]uint8) uint8 {
+   |	         ^~~~~~~~~~~~~~~~~
+20 |	    return p[0]
+
+-- size-after-damaged-body-defer/main.tck --
+package main
+
+func f() {
+    y := )
+    defer {
+        mut a [1152921504606846976]int64
+        a[0] = 1
+    }
+}
+
+func main() {
+    mut b [1152921504606846976]int64
+    b[0] = 1
+    if b[0] == 1 {
+        print("one\n")
+    }
+}
+-- size-after-damaged-body-defer/expected --
+stage: parse+typeck
+---
+
+size-after-damaged-body-defer/main.tck:4:10: error: expected 'value' found ')'
+03 |	func f() {
+04 |	    y := )
+   |	         ^
+05 |	    defer {
+
+size-after-damaged-body-defer/main.tck:6:13: warning: declared and not used: a
+05 |	    defer {
+06 |	        mut a [1152921504606846976]int64
+   |	            ^
+07 |	        a[0] = 1
+
+size-after-damaged-body-defer/main.tck:12:11: error: array type [1152921504606846976]int64 is too large: it holds 9223372036854775808 bytes, more than the 2^31 a value may hold
+11 |	func main() {
+12 |	    mut b [1152921504606846976]int64
+   |	          ^~~~~~~~~~~~~~~~~~~~~~~~~~
+13 |	    b[0] = 1
+
+-- size-after-damaged-body-good-first/main.tck --
+package main
+
+func main() {
+    mut b [1152921504606846976]int64
+    b[0] = 1
+    if b[0] == 1 {
+        print("one\n")
+    }
+}
+
+func f() {
+    y := )
+    mut a [1152921504606846976]int64
+    a[0] = 1
+}
+-- size-after-damaged-body-good-first/expected --
+stage: parse+typeck
+---
+
+size-after-damaged-body-good-first/main.tck:4:11: error: array type [1152921504606846976]int64 is too large: it holds 9223372036854775808 bytes, more than the 2^31 a value may hold
+03 |	func main() {
+04 |	    mut b [1152921504606846976]int64
+   |	          ^~~~~~~~~~~~~~~~~~~~~~~~~~
+05 |	    b[0] = 1
+
+size-after-damaged-body-good-first/main.tck:12:10: error: expected 'value' found ')'
+11 |	func f() {
+12 |	    y := )
+   |	         ^
+13 |	    mut a [1152921504606846976]int64
+
+size-after-damaged-body-good-first/main.tck:13:9: warning: declared and not used: a
+12 |	    y := )
+13 |	    mut a [1152921504606846976]int64
+   |	        ^
+14 |	    a[0] = 1
+
+-- size-after-damaged-body-list-map/main.tck --
+package main
+
+func f() {
+    y := )
+    mut l := make(list[[2147483649]uint8], c_allocator)
+    mut m := make(map[int64][2147483650]uint8, c_allocator)
+    l.clear()
+    m.clear()
+}
+
+func main() {
+    mut l := make(list[[2147483649]uint8], c_allocator)
+    mut m := make(map[int64][2147483650]uint8, c_allocator)
+    if len(l) == 0 && len(m) == 0 {
+        print("empty\n")
+    }
+}
+-- size-after-damaged-body-list-map/expected --
+stage: parse+typeck
+---
+
+size-after-damaged-body-list-map/main.tck:4:10: error: expected 'value' found ')'
+03 |	func f() {
+04 |	    y := )
+   |	         ^
+05 |	    mut l := make(list[[2147483649]uint8], c_allocator)
+
+size-after-damaged-body-list-map/main.tck:12:24: error: array type [2147483649]uint8 is too large: it holds 2147483649 bytes, more than the 2^31 a value may hold
+11 |	func main() {
+12 |	    mut l := make(list[[2147483649]uint8], c_allocator)
+   |	                       ^~~~~~~~~~~~~~~~~
+13 |	    mut m := make(map[int64][2147483650]uint8, c_allocator)
+
+size-after-damaged-body-list-map/main.tck:13:29: error: array type [2147483650]uint8 is too large: it holds 2147483650 bytes, more than the 2^31 a value may hold
+12 |	    mut l := make(list[[2147483649]uint8], c_allocator)
+13 |	    mut m := make(map[int64][2147483650]uint8, c_allocator)
+   |	                            ^~~~~~~~~~~~~~~~~
+14 |	    if len(l) == 0 && len(m) == 0 {
+
+-- size-after-damaged-body-nested-bad/main.tck --
+package main
+
+func f(n int64) {
+    if n > 0 {
+        y := )
+    }
+    mut a [1152921504606846976]int64
+    a[0] = 1
+}
+
+func main() {
+    mut b [1152921504606846976]int64
+    b[0] = 1
+    if b[0] == 1 {
+        print("one\n")
+    }
+}
+-- size-after-damaged-body-nested-bad/expected --
+stage: parse+typeck
+---
+
+size-after-damaged-body-nested-bad/main.tck:5:14: error: expected 'value' found ')'
+04 |	    if n > 0 {
+05 |	        y := )
+   |	             ^
+06 |	    }
+
+size-after-damaged-body-nested-bad/main.tck:7:9: warning: declared and not used: a
+06 |	    }
+07 |	    mut a [1152921504606846976]int64
+   |	        ^
+08 |	    a[0] = 1
+
+size-after-damaged-body-nested-bad/main.tck:12:11: error: array type [1152921504606846976]int64 is too large: it holds 9223372036854775808 bytes, more than the 2^31 a value may hold
+11 |	func main() {
+12 |	    mut b [1152921504606846976]int64
+   |	          ^~~~~~~~~~~~~~~~~~~~~~~~~~
+13 |	    b[0] = 1
+
+-- size-after-damaged-body-then-damaged/main.tck --
+package main
+
+func f() {
+    y := )
+    mut a [1152921504606846976]int64
+    a[0] = 1
+}
+
+func g() {
+    mut a [1152921504606846976]int64
+    z := )
+    a[0] = 1
+}
+
+func main() {
+    print("one\n")
+}
+-- size-after-damaged-body-then-damaged/expected --
+stage: parse+typeck
+---
+
+size-after-damaged-body-then-damaged/main.tck:4:10: error: expected 'value' found ')'
+03 |	func f() {
+04 |	    y := )
+   |	         ^
+05 |	    mut a [1152921504606846976]int64
+
+size-after-damaged-body-then-damaged/main.tck:5:9: warning: declared and not used: a
+04 |	    y := )
+05 |	    mut a [1152921504606846976]int64
+   |	        ^
+06 |	    a[0] = 1
+
+size-after-damaged-body-then-damaged/main.tck:10:11: error: array type [1152921504606846976]int64 is too large: it holds 9223372036854775808 bytes, more than the 2^31 a value may hold
+09 |	func g() {
+10 |	    mut a [1152921504606846976]int64
+   |	          ^~~~~~~~~~~~~~~~~~~~~~~~~~
+11 |	    z := )
+
+size-after-damaged-body-then-damaged/main.tck:11:10: error: expected 'value' found ')'
+10 |	    mut a [1152921504606846976]int64
+11 |	    z := )
+   |	         ^
+12 |	    a[0] = 1
+
+-- size-after-damaged-body-twice/main.tck --
+package main
+
+func f() {
+    y := )
+    mut a [1152921504606846976]int64
+    a[0] = 1
+}
+
+func g() {
+    z := )
+    mut a [1152921504606846976]int64
+    a[0] = 1
+}
+
+func main() {
+    mut b [1152921504606846976]int64
+    b[0] = 1
+    if b[0] == 1 {
+        print("one\n")
+    }
+}
+-- size-after-damaged-body-twice/expected --
+stage: parse+typeck
+---
+
+size-after-damaged-body-twice/main.tck:4:10: error: expected 'value' found ')'
+03 |	func f() {
+04 |	    y := )
+   |	         ^
+05 |	    mut a [1152921504606846976]int64
+
+size-after-damaged-body-twice/main.tck:5:9: warning: declared and not used: a
+04 |	    y := )
+05 |	    mut a [1152921504606846976]int64
+   |	        ^
+06 |	    a[0] = 1
+
+size-after-damaged-body-twice/main.tck:10:10: error: expected 'value' found ')'
+09 |	func g() {
+10 |	    z := )
+   |	         ^
+11 |	    mut a [1152921504606846976]int64
+
+size-after-damaged-body-twice/main.tck:11:9: warning: declared and not used: a
+10 |	    z := )
+11 |	    mut a [1152921504606846976]int64
+   |	        ^
+12 |	    a[0] = 1
+
+size-after-damaged-body-twice/main.tck:16:11: error: array type [1152921504606846976]int64 is too large: it holds 9223372036854775808 bytes, more than the 2^31 a value may hold
+15 |	func main() {
+16 |	    mut b [1152921504606846976]int64
+   |	          ^~~~~~~~~~~~~~~~~~~~~~~~~~
+17 |	    b[0] = 1
+
 -- size-array-boundary/main.tck --
 package main
 

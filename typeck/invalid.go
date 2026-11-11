@@ -67,12 +67,14 @@ func (c *Checker) unboundCall(call *ast.Call) bool {
 // first of them first, dropping what is reported in fn after it (see the
 // comment at the top of the file), errors and warnings alike. What
 // checking the body reports outside fn, about a declaration it needed, is
-// kept.
+// kept. The size checks made where reports are dropped are forgotten with
+// them, so a type too large written there is reported at its next use.
 func (c *Checker) checkDamagedBody(fn *ast.Func, first *ast.BadStmt) {
 	before, warned := len(c.diags), len(c.warnings)
 	c.checkBody(fn)
 	c.diags = keptBefore(c.diags, before, fn, first)
 	c.warnings = keptBefore(c.warnings, warned, fn, first)
+	c.forgetSizesAfter(fn, first)
 	c.reportBad(first.Span)
 }
 
@@ -86,12 +88,18 @@ func keptBefore(
 ) []diag.Diagnostic {
 	kept := diags[:from]
 	for _, d := range diags[from:] {
-		if d.Span.File != first.Span.File || d.Span.Start < first.Span.Start ||
-			d.Span.Start >= fn.Span.End {
+		if !afterBad(d.Span, fn, first) {
 			kept = append(kept, d)
 		}
 	}
 	return kept
+}
+
+// afterBad reports whether span starts in fn at or after first, its first
+// bad statement, where what is reported is dropped.
+func afterBad(span ast.Span, fn *ast.Func, first *ast.BadStmt) bool {
+	return span.File == first.Span.File && span.Start >= first.Span.Start &&
+		span.Start < fn.Span.End
 }
 
 // findLostMethods records the methods each package's bad declarations may

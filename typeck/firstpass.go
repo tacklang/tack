@@ -115,9 +115,10 @@ func (c *Checker) discardedPass(fn *ast.Func) {
 // own, so that none of it reaches the second pass.
 type bodyRecords struct {
 	// ownReported and sizeChecked say what has been reported: a name
-	// passed alongside an own of it, and a type checked for its size.
+	// passed alongside an own of it, and a type checked for its size,
+	// with the site it was checked at.
 	ownReported map[ast.Span]bool
-	sizeChecked map[types.Type]bool
+	sizeChecked map[types.Type]ast.Span
 
 	// knownVars, knownBinaries, tagWrites and writesByDecl remember what
 	// working something out found.
@@ -142,7 +143,7 @@ type bodyRecords struct {
 func newBodyRecords() bodyRecords {
 	return bodyRecords{
 		ownReported:   make(map[ast.Span]bool),
-		sizeChecked:   make(map[types.Type]bool),
+		sizeChecked:   make(map[types.Type]ast.Span),
 		knownVars:     make(map[*ast.Var]knownResult),
 		knownBinaries: make(map[*ast.Binary]knownBinary),
 		tagWrites:     make(map[*ast.Switch]tagWrite),

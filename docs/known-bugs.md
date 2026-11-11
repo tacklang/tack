@@ -55,16 +55,6 @@ on `s[k]` is right, since `k < len(t)` does not bound `k` by 4, but the
 note `this guard bounds k only above; k may be negative` is false: `k >=
 0` holds from `j >= 0`.
 
-## A function with a syntax error hides a size error in a later function
-
-When a function's body fails to parse, an array type in it that is too
-large stops the same type being reported in a later function. A file
-whose first function holds `y := )` and then `mut a
-[1152921504606846976]int64`, and whose `main` declares `mut b
-[1152921504606846976]int64`, reports only the syntax error, without
-`array type ... is too large` for `b`. The file is still rejected, by the
-syntax error, so no program runs with the type.
-
 ## A closure with a scope parameter cannot go to a generic scope parameter
 
 A closure that takes a scope parameter of its own cannot be passed to a

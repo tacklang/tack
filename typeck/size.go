@@ -17,7 +17,8 @@ import (
 // declaration, and only when none of its parts, an array's element, a
 // struct's fields or a union's payloads, is too large itself, since the
 // part was reported where it was made. Every later use of the type is
-// left alone.
+// left alone, but for a use after one in a damaged body whose report was
+// dropped (see checkDamagedBody), which is checked as if first.
 //
 // Sizes can only be known once every struct's fields and every union's
 // cases are, so an array type met while they are being resolved is held
@@ -67,13 +68,14 @@ func (c *Checker) checkTypeSizes() {
 }
 
 // checkSize reports site's type at site's span when it is too large and
-// none of its parts is, unless it has already been reported.
+// none of its parts is, unless it has already been checked. A check whose
+// report a damaged body dropped does not count (see forgetSizesAfter).
 func (c *Checker) checkSize(site sizeSite) {
 	typ := site.typ
-	if c.sizeChecked[typ] {
+	if _, ok := c.sizeChecked[typ]; ok {
 		return
 	}
-	c.sizeChecked[typ] = true
+	c.sizeChecked[typ] = site.span
 	size := c.table.Size(typ)
 	if !size.TooLarge() {
 		return
@@ -89,6 +91,18 @@ func (c *Checker) checkSize(site sizeSite) {
 	}
 	c.errorf(site.span, "%s is too large: it holds %s bytes, more than the 2^31 a value may hold",
 		what, sizeText(size))
+}
+
+// forgetSizesAfter forgets the size checks made in fn at or after first,
+// its first bad statement, whose reports checkDamagedBody drops, so that
+// the next use of each type, elsewhere, is checked and reported in their
+// place.
+func (c *Checker) forgetSizesAfter(fn *ast.Func, first *ast.BadStmt) {
+	for typ, span := range c.sizeChecked {
+		if afterBad(span, fn, first) {
+			delete(c.sizeChecked, typ)
+		}
+	}
 }
 
 // sizeParts returns the types typ is made of whose sizes add up to its

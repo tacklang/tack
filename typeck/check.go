@@ -242,9 +242,10 @@ type Checker struct {
 
 	// pendingSizes holds the array types met before every struct's and
 	// union's size can be known, and sizeChecked the types whose sizes
-	// have been checked (see size.go).
+	// have been checked, each with the span of the site it was checked
+	// at (see size.go).
 	pendingSizes []sizeSite
-	sizeChecked  map[types.Type]bool
+	sizeChecked  map[types.Type]ast.Span
 
 	// contracts holds the contract each function's ensures clause gives,
 	// for every function that has one that checked, and defers every
@@ -402,7 +403,7 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 		standIns:   make(map[standInKey]*ast.Func),
 		dynamics:   make(map[types.Type]*ast.Func),
 
-		sizeChecked: make(map[types.Type]bool),
+		sizeChecked: make(map[types.Type]ast.Span),
 		contracts:   make(map[*ast.Func]*contract),
 		defers:      make(map[*ast.Func][]*ast.Defer),
 		invariants:  make(map[ast.Stmt][]fact),
