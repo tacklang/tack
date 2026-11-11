@@ -29,12 +29,15 @@
 // exactly once.
 //
 // Semicolons are inserted automatically, following Go's rule: at a newline,
-// before a comment, and at the end of input, a Semi token is added if the
+// at a line comment, and at the end of input, a Semi token is added if the
 // preceding token is an identifier, a literal, ++ or --, the postfix ?, a
 // closing bracket, or one of the keywords break, continue, return,
 // unreachable, fallthrough, true, false, noerror and c_allocator, so a
-// line may end in f()?. An inserted Semi covers no bytes. The token stream always ends
-// with an EOF token.
+// line may end in f()?. An inserted Semi covers no bytes. One a line
+// comment calls for comes right after the comment token and sits where the
+// comment's first line ends, at its newline or at the end of the input, the
+// place it has when the line holds no comment, so a diagnostic about it does
+// not move with a comment. The token stream always ends with an EOF token.
 //
 // ? is a token of its own, Question, the postfix operator that passes a
 // call's error on; it starts no longer token.
@@ -71,7 +74,10 @@
 // is an integer and then a float, .8, which the parser reports.
 //
 // The lexer guarantees that tokens appear in source order, never overlap, and
-// never extend past the end of the input. It checks this before returning and
+// never extend past the end of the input, with one exception: the Semi after
+// a line comment of several merged lines sits at the newline ending the
+// first, inside the comment's span. It covers no bytes, and the token after
+// it starts past the comment. The lexer checks this before returning and
 // panics if it fails, since a violation is a bug in the lexer, not in the
 // program being compiled.
 //

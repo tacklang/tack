@@ -57,8 +57,10 @@
 // Comment tokens are set apart before parsing, so the grammar never sees
 // them and a comment is accepted at every token boundary. A line comment
 // ends at a newline, and the lexer has already inserted the semicolon that
-// newline calls for, so a comment parses exactly as a newline in its place
-// would. The comments are kept, in source order, in File.Comments.
+// newline calls for, at the newline itself, so a comment parses exactly as a
+// newline in its place would, and an error about that semicolon is placed
+// where it is with no comment. The comments are kept, in source order, in
+// File.Comments.
 //
 // The parser is recursive descent, with expressions parsed by precedence
 // climbing using Go's operator precedence (from loosest: ||, &&, the

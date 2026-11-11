@@ -19546,6 +19546,46 @@ hello-underscore-ident/main.tck:4:5: error: undefined: print_
    |	    ^~~~~~
 05 |	}
 
+-- implied-semicolon-after-comment/main.tck --
+package main
+
+// The line ends in a comment, so the semicolon the line end implies, and
+// the error about it, sit at the newline after the comment, where they sit
+// with no comment.
+func main() {
+    exit(42 // c
+    )
+}
+-- implied-semicolon-after-comment/expected --
+stage: parse
+---
+
+implied-semicolon-after-comment/main.tck:7:17: error: expected ',' found ';'
+06 |	func main() {
+07 |	    exit(42 // c
+   |	                ^
+08 |	    )
+
+-- implied-semicolon-after-merged-comment/main.tck --
+package main
+
+// The comment runs on into the next line, so the two lines are one comment,
+// but the semicolon is still implied at the newline that ends the first.
+func main() {
+    exit(42 // c
+    // d
+    )
+}
+-- implied-semicolon-after-merged-comment/expected --
+stage: parse
+---
+
+implied-semicolon-after-merged-comment/main.tck:6:17: error: expected ',' found ';'
+05 |	func main() {
+06 |	    exit(42 // c
+   |	                ^
+07 |	    // d
+
 -- incdec-immutable/main.tck --
 package main
 

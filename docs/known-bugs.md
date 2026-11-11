@@ -15,15 +15,6 @@ arithmetic is: under `len(s) < len(t)`, `t[len(s)]` is rejected while
 `t[len(s) - 0]` is accepted, and under `len(s) <= 255`,
 `uint8(len(s))` is rejected while `uint8(len(s) + 0)` is accepted.
 
-## A diagnostic at an implied semicolon points at a trailing comment
-
-When a line ends in a comment, a parse error about the semicolon that the
-line end implies is placed at the comment rather than at the newline. In
-`exit(42 // c` followed by a newline and `)`, the error points at the `//`,
-while the same source without the comment points at the newline. The
-comment-as-newline sweep in `parser/comment_test.go` compares diagnostics by
-message only because of this.
-
 ## A union built in place passed to a mut parameter without mut
 
 `f(Expr.eof)`, where `f` takes a `mut` parameter, is `f takes e as mut;

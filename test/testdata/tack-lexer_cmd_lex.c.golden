@@ -851,6 +851,7 @@ static bool tack_12_tack_2dlexer5_lexer8_operator(tack_12_tack_2dlexer5_lexer5_L
 static void tack_12_tack_2dlexer5_lexer7_comment(tack_12_tack_2dlexer5_lexer5_Lexer * p_l) {
     const int64_t v_start = (*p_l).f_pos;
     (*p_l).f_pos = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)2));
+    int64_t v_firstEnd = (-1);
     for (;;) {
         if (!((*p_l).f_pos < ((*p_l).f_src).len)) {
             break;
@@ -859,6 +860,9 @@ static void tack_12_tack_2dlexer5_lexer7_comment(tack_12_tack_2dlexer5_lexer5_Le
         if (v_n == 0) {
             (*p_l).f_pos = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)1));
             continue;
+        }
+        if (v_firstEnd < 0) {
+            v_firstEnd = (*p_l).f_pos;
         }
         int64_t v_next = ((int64_t)((uint64_t)(*p_l).f_pos + (uint64_t)v_n));
         for (;;) {
@@ -872,8 +876,11 @@ static void tack_12_tack_2dlexer5_lexer7_comment(tack_12_tack_2dlexer5_lexer5_Le
         }
         (*p_l).f_pos = ((int64_t)((uint64_t)v_next + (uint64_t)2));
     }
-    tack_12_tack_2dlexer5_lexer7_addSemi(p_l, v_start);
+    if (v_firstEnd < 0) {
+        v_firstEnd = (*p_l).f_pos;
+    }
     tack_12_tack_2dlexer5_lexer3_add(p_l, tack_12_tack_2dlexer5_lexer11_KindComment, 0, v_start, (*p_l).f_pos, false);
+    tack_12_tack_2dlexer5_lexer7_addSemi(p_l, v_firstEnd);
 }
 
 static void tack_12_tack_2dlexer5_lexer12_blockComment(tack_12_tack_2dlexer5_lexer5_Lexer * p_l) {

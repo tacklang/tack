@@ -179,13 +179,16 @@ func checkEndsInEOF(t *testing.T, src string, toks []lexer.Token) {
 
 // checkTokenOrder fails the test unless toks is a non-empty run of tokens
 // inside src, in order, not overlapping, with exactly one EOF at the end of
-// the input.
+// the input. The one token that may start inside the token before it is an
+// inserted semicolon right after a line comment of several lines, which
+// sits at the newline ending the comment's first line; the token after it
+// must still start past the comment.
 func checkTokenOrder(t *testing.T, src string, toks []lexer.Token) {
 	t.Helper()
 
 	checkEndsInEOF(t, src, toks)
 
-	n := len(src)
+	n, end := len(src), 0
 	for i := range toks {
 		tok := &toks[i]
 		if tok.OffsetStart() < 0 || tok.OffsetStart() > tok.OffsetEnd() || tok.OffsetEnd() > n {
@@ -194,10 +197,22 @@ func checkTokenOrder(t *testing.T, src string, toks []lexer.Token) {
 		if tok.Kind() == lexer.EOF && i != len(toks)-1 {
 			t.Errorf("%q: EOF at index %d of %d", src, i, len(toks))
 		}
-		if i > 0 && tok.OffsetStart() < toks[i-1].OffsetEnd() {
+		if i > 0 && tok.OffsetStart() < end && !semiInComment(src, toks[i-1], *tok) {
 			t.Errorf("%q: token %s overlaps %s", src, tok.String(), toks[i-1].String())
 		}
+		end = max(end, tok.OffsetEnd())
 	}
+}
+
+// semiInComment reports whether tok is an inserted semicolon that sits
+// inside comment, the line comment before it, at a newline that ends one of
+// the comment's lines.
+func semiInComment(src string, comment, tok lexer.Token) bool {
+	at := tok.OffsetStart()
+	return tok.Kind() == lexer.Semi && at == tok.OffsetEnd() &&
+		comment.Kind() == lexer.Comment &&
+		comment.OffsetStart() < at && at < comment.OffsetEnd() &&
+		(strings.HasPrefix(src[at:], "\n") || strings.HasPrefix(src[at:], "\r\n"))
 }
 
 // checkDiagSpans fails the test if a diagnostic's span is inverted or reaches
@@ -455,7 +470,7 @@ var tokenKindCases = []struct {
 	{"raw string then tokens on its last line", "`a\nb` + c", "string + ident <semi> EOF"},
 	{"comment marker inside a raw string", "`// c` x", "string ident <semi> EOF"},
 	{"written semicolon", "x;", "ident ; EOF"},
-	{"semicolon before a trailing comment", "x // c\n", "ident <semi> comment EOF"},
+	{"semicolon after a trailing comment", "x // c\n", "ident comment <semi> EOF"},
 	{"block comment on one line is a space", "x /* c */ + y", "ident comment + ident <semi> EOF"},
 	{
 		"block comment on one line before a newline",
@@ -477,7 +492,7 @@ var tokenKindCases = []struct {
 	{
 		"block then line comment",
 		"x /* a */ // b\ny",
-		"ident comment <semi> comment ident <semi> EOF",
+		"ident comment comment <semi> ident <semi> EOF",
 	},
 	{
 		"block comment spanning crlf lines",
@@ -500,7 +515,7 @@ var tokenKindCases = []struct {
 	{"question spaced and doubled", "f() ? ?", "ident ( ) ? ? <semi> EOF"},
 	{"question before a selector", "f()?.b[2]", "ident ( ) ? . ident [ int ] <semi> EOF"},
 	{"question at a line's end gets a semicolon", "f()?\ng()", "ident ( ) ? <semi> ident ( ) <semi> EOF"},
-	{"question before a comment gets a semicolon", "f()? // c\n", "ident ( ) ? <semi> comment EOF"},
+	{"question before a comment gets a semicolon", "f()? // c\n", "ident ( ) ? comment <semi> EOF"},
 	{"question alone", "?", "? <semi> EOF"},
 	{"question before a call", "?f()", "? ident ( ) <semi> EOF"},
 	{"define", "x := 1", "ident := int <semi> EOF"},
@@ -513,7 +528,7 @@ var tokenKindCases = []struct {
 	{"a run of crlfs gets one semicolon", "x\r\n\r\n\r\ny", "ident <semi> ident <semi> EOF"},
 	{"crlf and lf mixed", "x\n\r\n\ny\r\n", "ident <semi> ident <semi> EOF"},
 	{"operator before crlf gets none", "+\r\nx", "+ ident <semi> EOF"},
-	{"comment before crlf", "x // c\r\ny", "ident <semi> comment ident <semi> EOF"},
+	{"comment before crlf", "x // c\r\ny", "ident comment <semi> ident <semi> EOF"},
 	{"string before crlf", "\"s\"\r\n'c'\r\n", "string <semi> char <semi> EOF"},
 	{
 		"crlf inside a raw string gets none",
@@ -686,6 +701,54 @@ func TestCRLFOffsetsAndPositions(t *testing.T) {
 	}
 }
 
+// TestSemicolonAfterCommentOffsets pins where the semicolon a line end
+// implies sits when a line comment ends the line: at the newline, or at the
+// end of the input, as with no comment, after the comment token. For a
+// comment of several lines it is the newline ending the first, inside the
+// comment's span, and the token after the comment still starts a line.
+func TestSemicolonAfterCommentOffsets(t *testing.T) {
+	cases := []struct {
+		src  string
+		want []tokenSpan
+	}{
+		{"x // c\ny", []tokenSpan{
+			{lexer.Ident, 0, 1}, {lexer.Comment, 2, 6}, {lexer.Semi, 6, 6},
+			{lexer.Ident, 7, 8}, {lexer.Semi, 8, 8}, {lexer.EOF, 8, 8},
+		}},
+		{"x // c", []tokenSpan{
+			{lexer.Ident, 0, 1}, {lexer.Comment, 2, 6}, {lexer.Semi, 6, 6}, {lexer.EOF, 6, 6},
+		}},
+		{"x // c\r\ny", []tokenSpan{
+			{lexer.Ident, 0, 1}, {lexer.Comment, 2, 6}, {lexer.Semi, 6, 6},
+			{lexer.Ident, 8, 9}, {lexer.Semi, 9, 9}, {lexer.EOF, 9, 9},
+		}},
+		{"x // c\n  // d\ny", []tokenSpan{
+			{lexer.Ident, 0, 1}, {lexer.Comment, 2, 13}, {lexer.Semi, 6, 6},
+			{lexer.Ident, 14, 15}, {lexer.Semi, 15, 15}, {lexer.EOF, 15, 15},
+		}},
+		{"x // c\r\n// d\r\n// e", []tokenSpan{
+			{lexer.Ident, 0, 1}, {lexer.Comment, 2, 18}, {lexer.Semi, 6, 6}, {lexer.EOF, 18, 18},
+		}},
+		{"x + // c\ny", []tokenSpan{
+			{lexer.Ident, 0, 1}, {lexer.Add, 2, 3}, {lexer.Comment, 4, 8},
+			{lexer.Ident, 9, 10}, {lexer.Semi, 10, 10}, {lexer.EOF, 10, 10},
+		}},
+	}
+	for _, tt := range cases {
+		t.Run(tt.src, func(t *testing.T) {
+			out := lex(t, tt.src)
+			checkInvariants(t, tt.src, out)
+			checkOffsets(t, out.tokens, tt.want)
+			for i := range out.tokens {
+				if tok := &out.tokens[i]; tok.Kind() == lexer.Ident && tok.OffsetStart() > 0 &&
+					!tok.StartsLine() {
+					t.Errorf("%s after the comment does not start a line", tok.String())
+				}
+			}
+		})
+	}
+}
+
 // commentSpanCases pin the byte range of the one comment token in each
 // source, with and without a newline after it.
 var commentSpanCases = []struct {
@@ -763,10 +826,10 @@ var commentGroupCases = []struct {
 	{"// a\n\n// b\n// c", "comment comment EOF", []commentTok{{"a", 0, 4}, {"b\nc", 6, 15}}},
 	{
 		"x // a\n\n// b\ny",
-		"ident <semi> comment comment ident <semi> EOF",
+		"ident comment <semi> comment ident <semi> EOF",
 		[]commentTok{{"a", 2, 6}, {"b", 8, 12}},
 	},
-	{"x // a\n\ny", "ident <semi> comment ident <semi> EOF", []commentTok{{"a", 2, 6}}},
+	{"x // a\n\ny", "ident comment <semi> ident <semi> EOF", []commentTok{{"a", 2, 6}}},
 	{"    // a\n    // b", "comment EOF", []commentTok{{"a\nb", 4, 17}}},
 	{"// a\n    // b", "comment EOF", []commentTok{{"a\nb", 0, 13}}},
 	{"    // a\n// b", "comment EOF", []commentTok{{"a\nb", 4, 13}}},
@@ -784,7 +847,7 @@ var commentGroupCases = []struct {
 	{"// a\n  / b", "comment / ident <semi> EOF", []commentTok{{"a", 0, 4}}},
 	{
 		"x // a\n    // b\ny",
-		"ident <semi> comment ident <semi> EOF",
+		"ident comment <semi> ident <semi> EOF",
 		[]commentTok{{"a\nb", 2, 15}},
 	},
 }

@@ -234,17 +234,24 @@ func operator(mut l Lexer) bool {
 
 // comment lexes a line comment, or a run of them on consecutive lines,
 // however each is indented, as one token that ends before the last line's
-// end. A semicolon goes before it if the token before can end a
-// statement; the line end after it inserts none, since a comment cannot
-// end a statement.
+// end. A semicolon goes after it if the token before can end a
+// statement, at the end of the comment's first line, its line end or the
+// end of the source, where a line with no comment puts it, so an error
+// about it is placed the same either way. For a run of several lines that
+// place is inside the comment token. The line end after the comment
+// inserts no second semicolon.
 func comment(mut l Lexer) {
     start := l.pos
     l.pos +%= 2
+    mut firstEnd := -1
     for l.pos < len(l.src) {
         n := newlineAt(l.src, l.pos)
         if n == 0 {
             l.pos +%= 1
             continue
+        }
+        if firstEnd < 0 {
+            firstEnd = l.pos
         }
         mut next := l.pos +% n
         for byteAt(l.src, next) == ' ' || byteAt(l.src, next) == '\t' {
@@ -255,8 +262,11 @@ func comment(mut l Lexer) {
         }
         l.pos = next +% 2
     }
-    addSemi(mut l, start)
+    if firstEnd < 0 {
+        firstEnd = l.pos
+    }
     add(mut l, KindComment, 0, start, l.pos, false)
+    addSemi(mut l, firstEnd)
 }
 
 // blockComment lexes a block comment, from "/*" to the "*/" that closes

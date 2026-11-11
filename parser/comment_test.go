@@ -199,36 +199,17 @@ func parseDirect(t *testing.T, src string) (out parsed) {
 	out.file, out.diags = parser.NewParser(f.ID, lex.Tokens()).Parse()
 	if out.file != nil {
 		out.file.Comments = nil
-		clearBadSpans(out.file)
 	}
 	return out
-}
-
-// clearBadSpans zeroes the span of every bad node in file. A bad node
-// spans the text skipped after an error, which, like the error, may start
-// at the semicolon a line ending implies, and that semicolon sits at a
-// comment that ends the line, where it sits at the newline otherwise.
-func clearBadSpans(file *ast.File) {
-	for _, d := range file.Decls {
-		ast.Walk(d, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.BadDecl:
-				x.Span = ast.Span{}
-			case *ast.BadStmt:
-				x.Span = ast.Span{}
-			}
-			return true
-		})
-	}
 }
 
 // checkCommentActsAsNewlineFast checks the property checkCommentActsAsNewline
 // checks, at offset at in src, but compares the two parses deeply on the
 // trees themselves (see sameTree). Because sweepNewline is as long as
-// sweepComment, the trees' spans line up and are compared too. Diagnostics
-// are compared by message only, as in checkCommentActsAsNewline: the
-// semicolon a line ending implies is placed at the comment when there is
-// one, so a diagnostic about it moves with the comment.
+// sweepComment, the trees' spans line up and are compared too, and so are
+// the diagnostics, spans included: the semicolon a line end implies sits at
+// the line end whether a comment ends the line or not, so a diagnostic
+// about it does not move with the comment.
 func checkCommentActsAsNewlineFast(t *testing.T, src string, at int) {
 	t.Helper()
 
@@ -238,10 +219,10 @@ func checkCommentActsAsNewlineFast(t *testing.T, src string, at int) {
 		return
 	}
 	if !sameTree(withNewline.file, withComment.file) ||
-		!sameTree(diagMessages(withNewline.diags), diagMessages(withComment.diags)) {
+		!sameTree(withNewline.diags, withComment.diags) {
 		t.Errorf("a comment at offset %d parses differently from a newline there\n"+
 			"newline: %v\ncomment: %v\nsource:\n%s",
-			at, diagMessages(withNewline.diags), diagMessages(withComment.diags),
+			at, withNewline.diags, withComment.diags,
 			src[:at]+sweepComment+src[at:])
 	}
 }
@@ -391,6 +372,56 @@ func TestCommentDoesNotWidenSpans(t *testing.T) {
 	call := fn.Body[0].(*ast.ExprStmt).X
 	if got := src[call.Spanned().Start:call.Spanned().End]; got != "exit(0)" {
 		t.Errorf("call span covers %q, want %q", got, "exit(0)")
+	}
+}
+
+// impliedSemicolonCases are sources whose error is about the semicolon a
+// line end implies, each written with a comment ending that line and with
+// spaces as long as the comment in its place, so both put the line end at
+// the same offset.
+var impliedSemicolonCases = []struct {
+	name, withComment, withSpaces string
+}{
+	{
+		"line comment",
+		"package main\nfunc main() {\n    exit(42 // c\n    )\n}\n",
+		"package main\nfunc main() {\n    exit(42     \n    )\n}\n",
+	},
+	{
+		"merged line comments",
+		"package main\nfunc main() {\n    exit(42 // c\n    // d\n    )\n}\n",
+		"package main\nfunc main() {\n    exit(42     \n    // d\n    )\n}\n",
+	},
+	{
+		"crlf line end",
+		"package main\r\nfunc main() {\r\n    exit(42 // c\r\n    )\r\n}\r\n",
+		"package main\r\nfunc main() {\r\n    exit(42     \r\n    )\r\n}\r\n",
+	},
+	{
+		"end of input",
+		"package main\nfunc main() {\n    exit(42 // c",
+		"package main\nfunc main() {\n    exit(42     ",
+	},
+}
+
+// TestImpliedSemicolonAfterCommentIsAtLineEnd checks an error about the
+// semicolon a line end implies sits where it does with no comment ending
+// the line: at the line end, not at the comment.
+func TestImpliedSemicolonAfterCommentIsAtLineEnd(t *testing.T) {
+	for _, tt := range impliedSemicolonCases {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseDirect(t, tt.withComment)
+			want := parseDirect(t, tt.withSpaces)
+			if got.lexFails || want.lexFails {
+				t.Fatalf("lexing failed: with comment %v, with spaces %v", got.lexFails, want.lexFails)
+			}
+			if len(want.diags) == 0 {
+				t.Fatalf("the source without the comment is accepted; the case tests nothing")
+			}
+			if !reflect.DeepEqual(got.diags, want.diags) {
+				t.Errorf("with a comment: %v\nwithout: %v", got.diags, want.diags)
+			}
+		})
 	}
 }
 

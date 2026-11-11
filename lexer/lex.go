@@ -143,20 +143,31 @@ func (l *Lexer) handleToken() bool {
 }
 
 // checkTokens panics if the token stream breaks the lexer's own invariants:
-// tokens must not overlap and must not extend past the end of the file. A
-// failure here is a bug in the lexer, not a user error.
+// tokens must be in source order, must not overlap and must not extend past
+// the end of the file. The one token allowed to start before the end of the
+// one before it is the empty semicolon inserted after a line comment of
+// several lines, which sits inside the comment, at the end of its first
+// line (see handleComment); the token after it must still start at or
+// after the comment's end. A failure here is a bug in the lexer, not a
+// user error.
 func (l *Lexer) checkTokens() {
 	data := l.file.Data
+	end := 0
 	for i := range l.tokens {
-		if i > 0 && l.tokens[i].offStart < l.tokens[i-1].offEnd {
+		tk := &l.tokens[i]
+		inComment := i > 0 && tk.kind == Semi && tk.offStart == tk.offEnd &&
+			l.tokens[i-1].kind == Comment &&
+			l.tokens[i-1].offStart < tk.offStart && tk.offStart < l.tokens[i-1].offEnd
+		if tk.offStart < end && !inComment {
 			panic(
 				fmt.Sprintf(
 					"tokens are overlapping: [%d:%d]",
-					l.tokens[i].offStart,
-					l.tokens[i-1].offEnd,
+					tk.offStart,
+					end,
 				),
 			)
 		}
+		end = max(end, tk.offEnd)
 		if l.tokens[i].offEnd > len(data) {
 			panic(
 				fmt.Sprintf(
@@ -767,9 +778,14 @@ func (l *Lexer) checkLeadingZero(text string, start int) {
 // each line is indented, and its value joins them with newlines, each line
 // with its surrounding space trimmed. A blank line, empty or holding only
 // spaces and tabs, ends the comment, as it ends a comment group in Go, so
-// comment lines separated by one become separate tokens. A semicolon is inserted before the comment if
-// the preceding token can end a statement; the newlines after it are left to
-// Lex, which inserts none since a comment cannot end a statement.
+// comment lines separated by one become separate tokens. A semicolon is
+// inserted after the comment if the preceding token can end a statement,
+// placed at the end of the comment's first line, where the line's newline
+// or the end of the input is: the same place a line with no comment puts
+// it. For a comment of several lines that place is inside the comment's
+// span, the one case where a token starts before the end of the token
+// before it (see checkTokens). The newlines after the comment are left to
+// Lex, which inserts no second semicolon.
 func (l *Lexer) handleComment() bool {
 	start, data := l.pos, l.file.Data
 
@@ -789,8 +805,12 @@ func (l *Lexer) handleComment() bool {
 	// here, so a blank line always ends the comment. The indentation is not
 	// written to the value, which trims it anyway.
 	var val strings.Builder
+	firstEnd := -1
 	for l.pos < len(data) {
 		if n := l.newlineAt(l.pos); n > 0 {
+			if firstEnd < 0 {
+				firstEnd = l.pos
+			}
 			next := l.pos + n
 			for next < len(data) && (data[next] == ' ' || data[next] == '\t') {
 				next++
@@ -808,8 +828,11 @@ func (l *Lexer) handleComment() bool {
 		l.pos++
 	}
 
-	l.addSemi(start)
+	if firstEnd < 0 {
+		firstEnd = l.pos
+	}
 	l.addToken(Comment, trimCommentLines(val.String()), start, l.pos)
+	l.addSemi(firstEnd)
 
 	return true
 }
