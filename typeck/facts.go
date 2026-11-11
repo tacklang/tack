@@ -1055,6 +1055,7 @@ func (c *Checker) assume(g *guard, facts []fact, region []ast.Node) {
 	c.factGen++
 	var idx writeIndex
 	for _, f := range facts {
+		c.noteRelated(f)
 		if f.empty() {
 			c.keepApart(g, f, region)
 			continue

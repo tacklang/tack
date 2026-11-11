@@ -53,6 +53,13 @@ type Checker struct {
 	// the proofs that arithmetic does not overflow ask for.
 	typedRelations bool
 
+	// relatedSubjects holds the subjects that, in the function being checked so
+	// far, took part in a relation to another variable or in a proof-only
+	// fact of several sides (see noteRelated), whether or not it still
+	// holds. A note on what the facts allow such a subject is left out
+	// (see explain).
+	relatedSubjects map[factKey]bool
+
 	// checkedIndex is the element whose value is being bound with ok, which
 	// needs no proof that its index is in range.
 	checkedIndex *ast.Index
@@ -588,6 +595,7 @@ func (c *Checker) checkBody(fn *ast.Func) {
 	c.writesByDecl = make(map[ast.Decl][]funcWrite)
 	c.collectHolds(fn)
 	m, dead := c.mark(), c.dead
+	c.relatedSubjects = nil
 	c.checkStmts(fn.Body, fn)
 	c.reportUnread(fn.Body)
 	end, outer := fn.Span, c.at

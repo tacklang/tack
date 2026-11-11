@@ -1051,14 +1051,33 @@ that `i` may be negative, which a note says, one more says what the
 condition would have allowed: <!-- note: note-would-allow -->`this guard would allow i == 3, and a has 3 elements`.
 A variable a statement stored a value in gets no note on what the facts
 allow it while the fact that store gives holds, whatever the value: a
-known one, `mut i int64 = 5`; one of known bounds, `i++` or `n = q * 1`;
-or one related to another variable, `mut k int64 = j` or `k := j - 1`.
-Notes do not describe such facts, so a claim that left one out could be
-untrue: under `mut i int64 = 70`,
+known one, `mut i int64 = 5`, or one of known bounds, `i++` or
+`n = q * 1`. Notes do not describe such facts, so a claim that left one
+out could be untrue: under `mut i int64 = 70`,
 <!-- case: note-value-fact-upper -->`if i < 50 { return a[i] }` reports
-the index alone, and so does `mut k int64 = j; if k < 50 { a[k] }`. The
-`i++` above is why the case uses `i +%= 1`. The notes on which guard's
-proof a write ended stay.
+the index alone. The `i++` above is why the case uses `i +%= 1`.
+A variable gets no such note either, for the rest of its function,
+once a fact related it to another variable, on either side, whether or
+not that fact still holds: a comparison, `k >= j` or `i < n`, or a
+store, `mut k int64 = j` or `k := j - 1`. A bound by a length, such as
+`i < len(s)`, is not such a relation. Nor does a variable get one once a
+`||` that is true, or an `&&` that is false, constrained it on several
+sides. Notes follow neither relations nor sides, so under
+`if j >= 0 { if k >= j { ... } }`,
+<!-- case: note-related-index -->`if k < len(t) { return s[k] }`, with
+`s` a `[4]int64`, reports the index alone, and so does
+<!-- case: note-related-dropped-index -->`mut n int64 = 2; if 0 <= i && i < 50 && i < n { n = 100; return a[i] }`,
+where the write ends `i < n` but `i <= 1` still holds. Such notes are
+left only for a variable whose facts compare it with known values and
+lengths, and even then a note that names a value a `!=` rules out is
+left out:
+<!-- case: note-excluded-index -->`if k >= -1 { if k != -1 { if k < 50 { return a[k] } } }`
+gets no note that the guard allows `k == -1`. A note on what the facts
+would allow counts the facts a write ended too. The notes on which
+guard's proof a write ended stay in every case. A proof does not follow
+a relation through a stored value, so
+<!-- case: note-related-stored-index -->`mut n int64 = 2; if 0 <= i && i < 50 && i < n { return a[i] }`,
+with `a` a `[3]int64`, is rejected, though `i <= 1` there.
 An operation no guard mentions keeps its error alone. A guard whose fact
 a write ends, but whose bound a loop keeps anyway, gets no note, since
 what it proved still holds: in

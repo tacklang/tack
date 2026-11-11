@@ -203,8 +203,10 @@ type proof struct {
 func (c *Checker) explain(p proof) []diag.Diagnostic {
 	// A stored value's fact is never described, so where one holds about
 	// the subject, no note says what the facts allow, which would have to
-	// count it; the notes on which guard's proof a write ended stay.
-	held := c.heldValue(p.about)
+	// count it; the notes on which guard's proof a write ended stay. The
+	// same goes for a subject that took part in a relation, or in the
+	// sides of a || (see noteRelated), which a claim cannot follow.
+	held := c.heldValue(p.about) || c.relatedSubjects[p.about]
 	var facts, dropped []fact
 	kept := c.keptBounds(p.about)
 	for f := range c.factsAbout(p.about) {
@@ -230,10 +232,15 @@ func (c *Checker) explain(p proof) []diag.Diagnostic {
 		return p.weak(facts, false)
 	}
 	notes := dropNotes(dropped, p.claim)
-	if !c.supposing(p.proven) {
-		if !held {
+	if !c.supposing(p.proven) && !held {
+		// What the facts would fall short of is said with the dropped
+		// facts counted, so whatever a note checks against the facts in
+		// force, such as a relation that refutes it, is checked under the
+		// same supposition.
+		c.supposing(func() bool {
 			notes = append(notes, p.weak(facts, true)...)
-		}
+			return false
+		})
 	}
 	return notes
 }
@@ -475,7 +482,8 @@ func (c *Checker) divisorProof(e ast.Expr) proof {
 			return describe(name, facts)
 		},
 		weak: func(facts []fact, would bool) []diag.Diagnostic {
-			if len(facts) == 0 {
+			zero := constant.Int{}
+			if len(facts) == 0 || c.rulesOut(e, zero) {
 				return nil
 			}
 			f := facts[len(facts)-1]
@@ -540,7 +548,7 @@ func (c *Checker) indexProof(i ast.Expr, e extent, proven func() bool) proof {
 				known = known.narrow(f)
 			}
 			var notes []diag.Diagnostic
-			if n, ok := lowerNote(name, facts, known, would); ok {
+			if n, ok := c.lowerNote(i, facts, known, would); ok {
 				notes = append(notes, n)
 			}
 			if n, ok := c.upperNote(i, facts, known, e, would); ok {
@@ -570,18 +578,23 @@ func typeInterval(e ast.Expr) interval {
 	return known
 }
 
-// lowerNote explains why the facts about the index called name, which with
-// its type's bounds give known, do not keep it at or above 0: the fact
-// that set the lower bound allows a negative value, or no fact gives a
-// lower bound while one gives an upper.
-func lowerNote(name string, facts []fact, known interval, would bool) (diag.Diagnostic, bool) {
+// lowerNote explains why the facts about the index i, which with its
+// type's bounds give known, do not keep it at or above 0: the fact that
+// set the lower bound allows a negative value, or no fact gives a lower
+// bound while one gives an upper. A value a != rules out is not one a
+// note names (see rulesOut).
+func (c *Checker) lowerNote(i ast.Expr, facts []fact, known interval, would bool) (diag.Diagnostic, bool) {
 	if known.hasLo && !known.lo.IsNegative() {
 		return diag.Diagnostic{}, false
 	}
+	name := c.nameOf(i)
 	if f, ok := setting(
 		facts,
 		func(f fact) bool { return f.hasLo && f.lo.Cmp(known.lo) == 0 },
 	); ok {
+		if c.rulesOut(i, known.lo) {
+			return diag.Diagnostic{}, false
+		}
 		msg := f.guard.subject() + " " + verb(
 			"allows",
 			"allow",
@@ -602,7 +615,8 @@ func lowerNote(name string, facts []fact, known interval, would bool) (diag.Diag
 // upperNote explains why the facts about the index i, which with its
 // type's bounds give known, do not keep it below the length of e: the fact
 // that set the upper bound allows a value past the end, or bounds i by the
-// length of something else.
+// length of something else. A value a != rules out is not one a note
+// names (see rulesOut).
 func (c *Checker) upperNote(
 	i ast.Expr,
 	facts []fact,
@@ -627,6 +641,9 @@ func (c *Checker) upperNote(
 	}
 	if other, ok := c.lenOfOther(f.src, i, e.of); ok {
 		return lengthNote(f, name, other, e, would), true
+	}
+	if c.rulesOut(i, known.hi) {
+		return diag.Diagnostic{}, false
 	}
 	msg := f.guard.subject() + " " + verb(
 		"allows",
@@ -706,6 +723,69 @@ func lenArg(e ast.Expr) (ast.Expr, bool) {
 		return nil, false
 	}
 	return call.Args[0], true
+}
+
+// noteRelated records in c.relatedSubjects each subject f, a fact being put in
+// force, relates to another variable, a length aside, and each subject of
+// every side f carries when it carries several: no claim about such a
+// subject is literally true unless it follows the relation or the sides,
+// which notes do not.
+func (c *Checker) noteRelated(f fact) {
+	mark := func(k factKey) {
+		if k.isZero() {
+			return
+		}
+		if c.relatedSubjects == nil {
+			c.relatedSubjects = make(map[factKey]bool)
+		}
+		c.relatedSubjects[k] = true
+	}
+	switch {
+	case f.either != nil && len(f.either.sides) > 1:
+		for _, side := range f.either.sides {
+			for _, s := range side {
+				mark(s.about)
+				c.noteRelated(s)
+			}
+		}
+	case !f.atMost.isZero():
+		mark(f.about)
+		mark(f.atMost)
+	case f.diff != nil && !f.diff.xLen && !f.diff.yLen && !f.diff.x.isZero() && !f.diff.y.isZero():
+		mark(f.diff.x)
+		mark(f.diff.y)
+	}
+}
+
+// rulesOut reports whether a fact in force that holds rules the value v
+// out for the subject e, e != v, or e != 0 for 0: a note that says e may
+// be v would then be false. Notes describe no such fact, and a b != k
+// that gives nothing else is a proof-only fact (see keepApart), so those
+// are looked at too.
+func (c *Checker) rulesOut(e ast.Expr, v constant.Int) bool {
+	k, ok := c.subjectKey(e)
+	if !ok {
+		return false
+	}
+	out := func(f fact) bool {
+		return f.about == k && (f.out && f.ne.Cmp(v) == 0 || f.nonzero && v.IsZero()) && c.holds(f)
+	}
+	for f := range c.factsAbout(k) {
+		if out(f) {
+			return true
+		}
+	}
+	for i := range c.proven {
+		r := &c.proven[i]
+		if len(r.sides) != 1 {
+			continue
+		}
+		c.indexProven(r)
+		if slices.ContainsFunc(r.sides[0], out) {
+			return true
+		}
+	}
+	return false
 }
 
 // setting returns the innermost of facts for which match holds: the one

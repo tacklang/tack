@@ -26,22 +26,10 @@ the checker used to reject early pay this cost too: N leaving cases that
 each write inside a loop, followed by N uses, take about 11 seconds at
 N = 16000. Ordinary programs are far below these sizes.
 
-## A note ignores a bound that comes through a relation
+## A proof does not follow a relation through a stored value
 
-A note about what a guard allows names the guard's own bound and misses
-a tighter one that reaches the variable through a relation to another
-variable with a known value. `mut k int64 = 1; if d >= k && d < 100 {
-return x / d }` notes `this guard allows d == 0`, though `d >= 1`, and
-`mut lo int64 = 0; if lo <= i && i < 50 { return a[i] }` notes that `i`
-may be negative. Under `mut n int64 = 2; if 0 <= i && i < 50 && i < n {
-return a[i] }`, with `a` a `[3]int64`, the note `this guard allows i ==
-49` is false and the index is rejected, though `i <= 1` makes it safe.
-
-## A note says a copied index may be negative when it is not
-
-A guard on a variable copied from another one can get a note that says
-the copy may be negative though its source was checked. In `if j >= 0 {
-k := j; if k < len(t) { return s[k] } }`, with `s` a `[4]int64`, the error
-on `s[k]` is right, since `k < len(t)` does not bound `k` by 4, but the
-note `this guard bounds k only above; k may be negative` is false: `k >=
-0` holds from `j >= 0`.
+The relations a proof chains leave out a stored value's bounds, so a
+bound that reaches a variable only through one proves nothing. Under
+`mut n int64 = 2; if 0 <= i && i < 50 && i < n { return a[i] }`, with
+`a` a `[3]int64`, the index is rejected, though `i <= 1` makes it safe.
+The rejection is safe.

@@ -134,10 +134,10 @@ func (c *Checker) conversionProof(x ast.Expr, to types.Type) proof {
 			}
 			var notes []diag.Diagnostic
 			if known.lo.Cmp(lo) < 0 {
-				notes = appendSideNote(notes, facts, name, known.lo, lo, would, true)
+				notes = c.appendSideNote(notes, facts, x, known.lo, lo, would, true)
 			}
 			if known.hi.Cmp(hi) > 0 {
-				notes = appendSideNote(notes, facts, name, known.hi, hi, would, false)
+				notes = c.appendSideNote(notes, facts, x, known.hi, hi, would, false)
 			}
 			return notes
 		},
@@ -145,21 +145,23 @@ func (c *Checker) conversionProof(x ast.Expr, to types.Type) proof {
 }
 
 // appendSideNote appends to notes the note that explains why the facts
-// about the subject called name, which with its type's bounds give v as
+// about the subject x, called name, which with its type's bounds give v as
 // its lowest value, when lower is set, or its highest, do not keep it at
 // or above, or at or below, the limit to's range sets on that side: the
 // innermost fact that set v allows name == v, or else the innermost one
 // that bounds name on the other side only bounds it there. A bound by
 // another value (see bindsOther) is one from above, so on that side,
 // where relations may have taken part, no note is given beyond the first.
-// Without either, notes are returned as they are.
-func appendSideNote(
+// Without either, notes are returned as they are. A v a != rules out is
+// not one a note names (see rulesOut).
+func (c *Checker) appendSideNote(
 	notes []diag.Diagnostic,
 	facts []fact,
-	name string,
+	x ast.Expr,
 	v, limit constant.Int,
 	would, lower bool,
 ) []diag.Diagnostic {
+	name := c.nameOf(x)
 	setsV := func(f fact) bool { return f.hasHi && f.hi.Cmp(v) == 0 }
 	other := func(f fact) bool { return f.hasLo }
 	side, past := "below", "above "
@@ -169,6 +171,9 @@ func appendSideNote(
 		side, past = "above", "below "
 	}
 	if f, ok := setting(facts, setsV); ok {
+		if c.rulesOut(x, v) {
+			return notes
+		}
 		msg := f.guard.subject() + " " + verb(
 			"allows",
 			"allow",

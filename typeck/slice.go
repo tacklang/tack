@@ -689,7 +689,7 @@ func (c *Checker) boundProof(b ast.Expr, e extent, lower, upper bool) proof {
 				known = known.narrow(f)
 			}
 			var notes []diag.Diagnostic
-			if n, ok := lowerNote(name, facts, known, would); lower && ok {
+			if n, ok := c.lowerNote(b, facts, known, would); lower && ok {
 				notes = append(notes, n)
 			}
 			if n, ok := c.upperNote(b, facts, known, e, would); upper && ok {

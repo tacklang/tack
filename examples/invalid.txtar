@@ -7859,11 +7859,6 @@ conversion-fact-irrelevant-drop/main.tck:7:16: error: converting int64 to uint64
 07 |	        return uint64(w)
    |	               ^~~~~~~~~
 08 |	    }
-conversion-fact-irrelevant-drop/main.tck:5:8: note: this guard bounds w only above; w may be below 0
-04 |	    mut w := v
-05 |	    if w < 10 {
-   |	       ^~~~~~
-06 |	        w = same(v)
 
 -- conversion-fact-later-case/main.tck --
 package main
@@ -8178,11 +8173,6 @@ conversion-fact-or-too-weak/main.tck:5:16: error: converting int64 to uint64 can
 05 |	        return uint64(v)
    |	               ^~~~~~~~~
 06 |	    }
-conversion-fact-or-too-weak/main.tck:4:8: note: this guard allows v == -1
-03 |	func f(v int64) uint64 {
-04 |	    if v >= 0 || v == -1 {
-   |	       ^~~~~~~~~~~~~~~~~
-05 |	        return uint64(v)
 
 -- conversion-fact-range-past/main.tck --
 package main
@@ -8239,11 +8229,6 @@ conversion-fact-relation-no-lower/main.tck:5:16: error: converting int64 to uint
 05 |	        return uint8(i)
    |	               ^~~~~~~~
 06 |	    }
-conversion-fact-relation-no-lower/main.tck:4:8: note: this guard bounds i only above; i may be below 0
-03 |	func f(i int64, j int64) uint8 {
-04 |	    if i <= j && j < 10 {
-   |	       ^~~~~~
-05 |	        return uint8(i)
 
 -- conversion-fact-relation-too-weak/main.tck --
 package main
@@ -8454,11 +8439,6 @@ conversion-fact-would-allow/main.tck:6:9: note: but w is assigned here, so the p
 06 |	        w = same(v)
    |	        ^
 07 |	        return uint64(w)
-conversion-fact-would-allow/main.tck:5:8: note: this guard would allow w == -1
-04 |	    mut w := v
-05 |	    if w >= -1 {
-   |	       ^~~~~~~
-06 |	        w = same(v)
 
 -- defer-assign/main.tck --
 package main
@@ -26866,11 +26846,6 @@ loop-invariant-kept-upper-quiet/main.tck:14:17: error: index j may be out of ran
 14 |	        s +%= a[j]
    |	                ^
 15 |	        j--
-loop-invariant-kept-upper-quiet/main.tck:13:9: note: this guard allows j == -4
-12 |	    mut s int64 = 0
-13 |	    for j > -5 {
-   |	        ^~~~~~
-14 |	        s +%= a[j]
 
 -- loop-invariant-length-changes/main.tck --
 package main
@@ -27120,11 +27095,6 @@ loop-invariant-other-node-written/main.tck:13:15: error: index i may be out of r
 13 |	        b = s[i]
    |	              ^
 14 |	        i++
-loop-invariant-other-node-written/main.tck:12:9: note: this guard bounds i only above; i may be negative
-11 |	    mut b uint8 = 0
-12 |	    for i < len(s) {
-   |	        ^~~~~~~~~~
-13 |	        b = s[i]
 
 -- loop-invariant-post-breaks/main.tck --
 package main
@@ -27338,11 +27308,6 @@ loop-invariant-start-above-only/main.tck:12:9: note: but i is assigned here, so 
 12 |	        i++
    |	        ^
 13 |	    }
-loop-invariant-start-above-only/main.tck:10:9: note: this guard would bound i only above; i may be negative
-09 |	    mut b uint8 = 0
-10 |	    for i < len(s) {
-   |	        ^~~~~~~~~~
-11 |	        b = s[i]
 
 -- loop-invariant-start-below-only/main.tck --
 package main
@@ -27406,11 +27371,6 @@ loop-invariant-start-in-branch/main.tck:12:15: error: index i may be out of rang
 12 |	        b = s[i]
    |	              ^
 13 |	        i++
-loop-invariant-start-in-branch/main.tck:11:9: note: this guard bounds i only above; i may be negative
-10 |	    mut b uint8 = 0
-11 |	    for i < len(s) {
-   |	        ^~~~~~~~~~
-12 |	        b = s[i]
 
 -- loop-invariant-start-may-wrap/main.tck --
 package main
@@ -35825,6 +35785,153 @@ note-case-assigned/main.tck:7:9: note: but d is assigned here, so the proof ends
    |	        ^
 08 |	        return 10 / d
 
+-- note-copied-index/main.tck --
+package main
+
+// k == j and j >= 0 keep k at or above 0, so no note may say k may be
+// negative; k < len(t) does not bound k by 4, so the error stands.
+func f(s [4]int64, t string, j int64) int64 {
+    if j >= 0 {
+        k := j
+        if k < len(t) {
+            return s[k]
+        }
+    }
+    return 0
+}
+
+func main() {
+    code, fits := int32(f([4]int64{1, 2, 3, 4}, "ab", 1))
+    if fits { exit(code) }
+}
+-- note-copied-index/expected --
+stage: typeck
+---
+
+note-copied-index/main.tck:9:22: error: index k may be out of range; check 0 <= k && k < 4 first, or use v, ok := ...[k]
+08 |	        if k < len(t) {
+09 |	            return s[k]
+   |	                     ^
+10 |	        }
+
+-- note-copied-index-from-one/main.tck --
+package main
+
+// k == j and j >= 1 keep k above 0, so no note may say k may be negative.
+func f(s [4]int64, t string, j int64) int64 {
+    if j >= 1 {
+        k := j
+        if k < len(t) {
+            return s[k]
+        }
+    }
+    return 0
+}
+
+func main() {
+    code, fits := int32(f([4]int64{1, 2, 3, 4}, "ab", 1))
+    if fits { exit(code) }
+}
+-- note-copied-index-from-one/expected --
+stage: typeck
+---
+
+note-copied-index-from-one/main.tck:8:22: error: index k may be out of range; check 0 <= k && k < 4 first, or use v, ok := ...[k]
+07 |	        if k < len(t) {
+08 |	            return s[k]
+   |	                     ^
+09 |	        }
+
+-- note-copied-index-plus-zero/main.tck --
+package main
+
+// k == j + 0 and j >= 0 keep k at or above 0, so no note may say k may be
+// negative.
+func f(s [4]int64, t string, j int64) int64 {
+    if j >= 0 {
+        k := j + 0
+        if k < len(t) {
+            return s[k]
+        }
+    }
+    return 0
+}
+
+func main() {
+    code, fits := int32(f([4]int64{1, 2, 3, 4}, "ab", 1))
+    if fits { exit(code) }
+}
+-- note-copied-index-plus-zero/expected --
+stage: typeck
+---
+
+note-copied-index-plus-zero/main.tck:9:22: error: index k may be out of range; check 0 <= k && k < 4 first, or use v, ok := ...[k]
+08 |	        if k < len(t) {
+09 |	            return s[k]
+   |	                     ^
+10 |	        }
+
+-- note-copied-index-source-written/main.tck --
+package main
+
+// j is written after the guard j >= 0, so k, its copy, may be negative,
+// which a note may say.
+func f(s [4]int64, t string, j0 int64, n int64) int64 {
+    mut j int64 = j0
+    if j >= 0 {
+        j = n
+        k := j
+        if k < len(t) {
+            return s[k]
+        }
+    }
+    return 0
+}
+
+func main() {
+    code, fits := int32(f([4]int64{1, 2, 3, 4}, "ab", 1, 2))
+    if fits { exit(code) }
+}
+-- note-copied-index-source-written/expected --
+stage: typeck
+---
+
+note-copied-index-source-written/main.tck:11:22: error: index k may be out of range; check 0 <= k && k < 4 first, or use v, ok := ...[k]
+10 |	        if k < len(t) {
+11 |	            return s[k]
+   |	                     ^
+12 |	        }
+
+-- note-copied-index-twice/main.tck --
+package main
+
+// m == k, k == j and j >= 0 keep m at or above 0, so no note may say m
+// may be negative.
+func f(s [4]int64, t string, j int64) int64 {
+    if j >= 0 {
+        k := j
+        m := k
+        if m < len(t) {
+            return s[m]
+        }
+    }
+    return 0
+}
+
+func main() {
+    code, fits := int32(f([4]int64{1, 2, 3, 4}, "ab", 1))
+    if fits { exit(code) }
+}
+-- note-copied-index-twice/expected --
+stage: typeck
+---
+
+note-copied-index-twice/main.tck:10:22: error: index m may be out of range; check 0 <= m && m < 4 first, or use v, ok := ...[m]
+09 |	        if m < len(t) {
+10 |	            return s[m]
+   |	                     ^
+11 |	        }
+
 -- note-early-exit-upper-bound-only/main.tck --
 package main
 
@@ -35853,6 +35960,59 @@ note-early-exit-upper-bound-only/main.tck:4:8: note: this early exit bounds i on
 04 |	    if i >= 3 {
    |	       ^~~~~~
 05 |	        return 0
+
+-- note-either-conversion/main.tck --
+package main
+
+// The || rules out v == -129, so no note may say a guard allows it.
+func f(v int32) int8 {
+    if v >= -129 && v < 50 {
+        if v < -129 || v > -129 {
+            return int8(v)
+        }
+    }
+    return 0
+}
+
+func main() {
+    exit(int32(f(2)))
+}
+-- note-either-conversion/expected --
+stage: typeck
+---
+
+note-either-conversion/main.tck:7:20: error: converting int32 to int8 can fail; check -128 <= v && v <= 127 first, or use v, ok := int8(...)
+06 |	        if v < -129 || v > -129 {
+07 |	            return int8(v)
+   |	                   ^~~~~~~
+08 |	        }
+
+-- note-either-index/main.tck --
+package main
+
+// The || rules out k == -1, so no note may say a guard allows it.
+func f(a [3]int64, k int64) int64 {
+    if k >= -1 && k < 50 {
+        if k < -1 || k > -1 {
+            return a[k]
+        }
+    }
+    return 0
+}
+
+func main() {
+    code, fits := int32(f([3]int64{1, 2, 3}, 1))
+    if fits { exit(code) }
+}
+-- note-either-index/expected --
+stage: typeck
+---
+
+note-either-index/main.tck:7:22: error: index k may be out of range; check 0 <= k && k < 3 first, or use v, ok := ...[k]
+06 |	        if k < -1 || k > -1 {
+07 |	            return a[k]
+   |	                     ^
+08 |	        }
 
 -- note-else-branch-assigned/main.tck --
 package main
@@ -35886,6 +36046,149 @@ note-else-branch-assigned/main.tck:8:9: note: but d is assigned here, so the pro
 08 |	        d -%= 1
    |	        ^
 09 |	        code, fits := int32(10 / d)
+
+-- note-excluded-conversion-lower/main.tck --
+package main
+
+// v != -129 rules out the value v >= -129 stops at, so no note may say
+// the guard allows v == -129.
+func f(v int32) int8 {
+    if v >= -129 && v != -129 {
+        return int8(v)
+    }
+    return 0
+}
+
+func main() {
+    exit(int32(f(2)))
+}
+-- note-excluded-conversion-lower/expected --
+stage: typeck
+---
+
+note-excluded-conversion-lower/main.tck:7:16: error: converting int32 to int8 can fail; check -128 <= v && v <= 127 first, or use v, ok := int8(...)
+06 |	    if v >= -129 && v != -129 {
+07 |	        return int8(v)
+   |	               ^~~~~~~
+08 |	    }
+note-excluded-conversion-lower/main.tck:6:8: note: this guard bounds v only below; v may be above 127
+05 |	func f(v int32) int8 {
+06 |	    if v >= -129 && v != -129 {
+   |	       ^~~~~~~~~
+07 |	        return int8(v)
+
+-- note-excluded-conversion-upper/main.tck --
+package main
+
+// v != 999 rules out the value v < 1000 stops at, so no note may say the
+// guard allows v == 999.
+func f(v int32) int8 {
+    if v != 999 && v < 1000 {
+        return int8(v)
+    }
+    return 0
+}
+
+func main() {
+    exit(int32(f(2)))
+}
+-- note-excluded-conversion-upper/expected --
+stage: typeck
+---
+
+note-excluded-conversion-upper/main.tck:7:16: error: converting int32 to int8 can fail; check -128 <= v && v <= 127 first, or use v, ok := int8(...)
+06 |	    if v != 999 && v < 1000 {
+07 |	        return int8(v)
+   |	               ^~~~~~~
+08 |	    }
+note-excluded-conversion-upper/main.tck:6:20: note: this guard bounds v only above; v may be below -128
+05 |	func f(v int32) int8 {
+06 |	    if v != 999 && v < 1000 {
+   |	                   ^~~~~~~~
+07 |	        return int8(v)
+
+-- note-excluded-index/main.tck --
+package main
+
+// k != -1 rules out the value k >= -1 stops at, so no note may say the
+// guard allows k == -1; k < 50 does allow k == 49, which a note says.
+func f(a [3]int64, k int64) int64 {
+    if k >= -1 {
+        if k != -1 {
+            if k < 50 {
+                return a[k]
+            }
+        }
+    }
+    return 0
+}
+
+func main() {
+    code, fits := int32(f([3]int64{1, 2, 3}, 1))
+    if fits { exit(code) }
+}
+-- note-excluded-index/expected --
+stage: typeck
+---
+
+note-excluded-index/main.tck:9:26: error: index k may be out of range; check 0 <= k && k < 3 first, or use v, ok := ...[k]
+08 |	            if k < 50 {
+09 |	                return a[k]
+   |	                         ^
+10 |	            }
+note-excluded-index/main.tck:8:16: note: this guard allows k == 49, and a has 3 elements
+07 |	        if k != -1 {
+08 |	            if k < 50 {
+   |	               ^~~~~~
+09 |	                return a[k]
+
+-- note-excluded-would-index/main.tck --
+package main
+
+// Without the write, k != -1 would rule out the value k >= -1 stops at,
+// so no note may say the guard would allow k == -1; k < 50 would allow
+// k == 49, which a note says.
+func f(a [3]int64, k0 int64) int64 {
+    mut k int64 = 0
+    if k0 > 0 { k = 7 }
+    mut sum int64 = 0
+    for k >= -1 && k < 50 {
+        if k != -1 {
+            k +%= 1
+            sum +%= a[k]
+        }
+    }
+    return sum
+}
+
+func main() {
+    code, fits := int32(f([3]int64{1, 2, 3}, 1))
+    if fits { exit(code) }
+}
+-- note-excluded-would-index/expected --
+stage: typeck
+---
+
+note-excluded-would-index/main.tck:13:23: error: index k may be out of range; check 0 <= k && k < 3 first, or use v, ok := ...[k]
+12 |	            k +%= 1
+13 |	            sum +%= a[k]
+   |	                      ^
+14 |	        }
+note-excluded-would-index/main.tck:10:9: note: this guard proves -1 <= k && k < 50
+09 |	    mut sum int64 = 0
+10 |	    for k >= -1 && k < 50 {
+   |	        ^~~~~~~~~~~~~~~~~
+11 |	        if k != -1 {
+note-excluded-would-index/main.tck:12:13: note: but k is assigned here, so the proof ends
+11 |	        if k != -1 {
+12 |	            k +%= 1
+   |	            ^
+13 |	            sum +%= a[k]
+note-excluded-would-index/main.tck:10:20: note: this guard would allow k == 49, and a has 3 elements
+09 |	    mut sum int64 = 0
+10 |	    for k >= -1 && k < 50 {
+   |	                   ^~~~~~
+11 |	        if k != -1 {
 
 -- note-field-early-exit/main.tck --
 package main
@@ -36414,6 +36717,571 @@ note-other-string/main.tck:4:18: note: this guard bounds i by the length of t, n
 04 |	    if 0 <= i && i < len(t) {
    |	                 ^~~~~~~~~~
 05 |	        return s[i]
+
+-- note-related-conversion/main.tck --
+package main
+
+// v >= j and j >= 0 keep v at or above 0, so no note may say v may be
+// below -128.
+func f(j int32, v int32) int8 {
+    if j >= 0 {
+        if v >= j {
+            if v < 1000 {
+                return int8(v)
+            }
+        }
+    }
+    return 0
+}
+
+func main() {
+    exit(int32(f(1, 2)))
+}
+-- note-related-conversion/expected --
+stage: typeck
+---
+
+note-related-conversion/main.tck:9:24: error: converting int32 to int8 can fail; check -128 <= v && v <= 127 first, or use v, ok := int8(...)
+08 |	            if v < 1000 {
+09 |	                return int8(v)
+   |	                       ^~~~~~~
+10 |	            }
+
+-- note-related-conversion-upper/main.tck --
+package main
+
+// v <= j and j <= 200 keep v at or below 200, so no note may say the
+// guard allows v == 999.
+func f(j int32, v int32) int8 {
+    if j <= 200 {
+        if v <= j {
+            if v > -100 && v < 1000 {
+                return int8(v)
+            }
+        }
+    }
+    return 0
+}
+
+func main() {
+    exit(int32(f(1, 2)))
+}
+-- note-related-conversion-upper/expected --
+stage: typeck
+---
+
+note-related-conversion-upper/main.tck:9:24: error: converting int32 to int8 can fail; check -128 <= v && v <= 127 first, or use v, ok := int8(...)
+08 |	            if v > -100 && v < 1000 {
+09 |	                return int8(v)
+   |	                       ^~~~~~~
+10 |	            }
+
+-- note-related-divisor/main.tck --
+package main
+
+// b >= j and j >= 1 keep b above 0, so no note may say the guard allows
+// b == 0.
+func f(j int64, b int64) int64 {
+    if j >= 1 {
+        if b >= j {
+            if b < 10 {
+                return 10 / b
+            }
+        }
+    }
+    return 0
+}
+
+func main() {
+    code, fits := int32(f(1, 2))
+    if fits { exit(code) }
+}
+-- note-related-divisor/expected --
+stage: typeck
+---
+
+note-related-divisor/main.tck:9:29: error: divisor b may be zero; check b != 0 first, or use q, ok := ... / b
+08 |	            if b < 10 {
+09 |	                return 10 / b
+   |	                            ^
+10 |	            }
+
+-- note-related-dropped-divisor/main.tck --
+package main
+
+// d >= k still holds of the value k had, so no note may say what the
+// guard allows d, though the write to k ends the relation.
+func f(x int64, d int64) int64 {
+    mut k int64 = 1
+    if d >= k && d < 100 {
+        k = 0
+        return x / d
+    }
+    return k
+}
+
+func main() {
+    code, fits := int32(f(4, 2))
+    if fits { exit(code) }
+}
+-- note-related-dropped-divisor/expected --
+stage: typeck
+---
+
+note-related-dropped-divisor/main.tck:9:20: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+08 |	        k = 0
+09 |	        return x / d
+   |	                   ^
+10 |	    }
+
+-- note-related-dropped-divisor-would/main.tck --
+package main
+
+// Without the write, d >= k and k == 1 would keep d above 0, so no note
+// may say what the guard would allow d.
+func f(c bool, x int64, d0 int64, n int64) int64 {
+    mut k int64 = 1
+    mut d int64 = d0
+    if d >= k && d < 100 {
+        if c {
+            d = n
+        }
+        return x / d
+    }
+    return k
+}
+
+func main() {
+    code, fits := int32(f(false, 4, 2, 3))
+    if fits { exit(code) }
+}
+-- note-related-dropped-divisor-would/expected --
+stage: typeck
+---
+
+note-related-dropped-divisor-would/main.tck:12:20: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+11 |	        }
+12 |	        return x / d
+   |	                   ^
+13 |	    }
+note-related-dropped-divisor-would/main.tck:8:8: note: this guard proves d < 100
+07 |	    mut d int64 = d0
+08 |	    if d >= k && d < 100 {
+   |	       ^~~~~~~~~~~~~~~~~
+09 |	        if c {
+note-related-dropped-divisor-would/main.tck:10:13: note: but d is assigned here, so the proof ends
+09 |	        if c {
+10 |	            d = n
+   |	            ^
+11 |	        }
+
+-- note-related-dropped-index/main.tck --
+package main
+
+// i < n still holds of the value n had, so no note may say what the
+// guard allows i, though the write to n ends the relation.
+func f(a [3]int64, i int64) int64 {
+    mut n int64 = 2
+    if 0 <= i && i < 50 && i < n {
+        n = 100
+        return a[i]
+    }
+    return n
+}
+
+func main() {
+    code, fits := int32(f([3]int64{1, 2, 3}, 1))
+    if fits { exit(code) }
+}
+-- note-related-dropped-index/expected --
+stage: typeck
+---
+
+note-related-dropped-index/main.tck:9:18: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+08 |	        n = 100
+09 |	        return a[i]
+   |	                 ^
+10 |	    }
+
+-- note-related-dropped-index-source/main.tck --
+package main
+
+// i < j and j < 3 still hold of the value j had, so no note may say what
+// the guard allows i, though the write to j ends the relation.
+func f(a [3]int64, i int64, j0 int64) int64 {
+    mut j int64 = j0
+    if j < 3 && i >= 0 && i < 50 && i < j {
+        j = 100
+        return a[i]
+    }
+    return j
+}
+
+func main() {
+    code, fits := int32(f([3]int64{1, 2, 3}, 1, 2))
+    if fits { exit(code) }
+}
+-- note-related-dropped-index-source/expected --
+stage: typeck
+---
+
+note-related-dropped-index-source/main.tck:9:18: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+08 |	        j = 100
+09 |	        return a[i]
+   |	                 ^
+10 |	    }
+
+-- note-related-either-divisor/main.tck --
+package main
+
+// d == j, and the || keeps j from 0, so no note may say the guard allows
+// d == 0.
+func f(x int64, j int64, d int64) int64 {
+    if j >= 1 || j <= -1 {
+        if d == j && d < 10 {
+            return x / d
+        }
+    }
+    return 0
+}
+
+func main() {
+    code, fits := int32(f(4, 2, 2))
+    if fits { exit(code) }
+}
+-- note-related-either-divisor/expected --
+stage: typeck
+---
+
+note-related-either-divisor/main.tck:8:24: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+07 |	        if d == j && d < 10 {
+08 |	            return x / d
+   |	                       ^
+09 |	        }
+
+-- note-related-index/main.tck --
+package main
+
+// k >= j and j >= 0 keep k at or above 0, so no note may say k may be
+// negative; the note that k < len(t) bounds k by the wrong length stays.
+func f(s [4]int64, t string, j int64, k int64) int64 {
+    if j >= 0 {
+        if k >= j {
+            if k < len(t) {
+                return s[k]
+            }
+        }
+    }
+    return 0
+}
+
+func main() {
+    code, fits := int32(f([4]int64{1, 2, 3, 4}, "ab", 1, 1))
+    if fits { exit(code) }
+}
+-- note-related-index/expected --
+stage: typeck
+---
+
+note-related-index/main.tck:9:26: error: index k may be out of range; check 0 <= k && k < 4 first, or use v, ok := ...[k]
+08 |	            if k < len(t) {
+09 |	                return s[k]
+   |	                         ^
+10 |	            }
+
+-- note-related-index-lower-value/main.tck --
+package main
+
+// k >= j and j >= -2 keep k at or above -2, so no note may say the guard
+// allows k == -5; k < 50 does allow k == 49, which a note says.
+func f(a [3]int64, j int64, k int64) int64 {
+    if j >= -2 {
+        if k >= j {
+            if k >= -5 && k < 50 {
+                return a[k]
+            }
+        }
+    }
+    return 0
+}
+
+func main() {
+    code, fits := int32(f([3]int64{1, 2, 3}, 1, 1))
+    if fits { exit(code) }
+}
+-- note-related-index-lower-value/expected --
+stage: typeck
+---
+
+note-related-index-lower-value/main.tck:9:26: error: index k may be out of range; check 0 <= k && k < 3 first, or use v, ok := ...[k]
+08 |	            if k >= -5 && k < 50 {
+09 |	                return a[k]
+   |	                         ^
+10 |	            }
+
+-- note-related-index-upper/main.tck --
+package main
+
+// k <= j and j < 10 keep k below 10, so no note may say the guard allows
+// k == 49.
+func f(a [3]int64, j int64, k int64) int64 {
+    if j < 10 {
+        if k <= j {
+            if k >= 0 && k < 50 {
+                return a[k]
+            }
+        }
+    }
+    return 0
+}
+
+func main() {
+    code, fits := int32(f([3]int64{1, 2, 3}, 1, 1))
+    if fits { exit(code) }
+}
+-- note-related-index-upper/expected --
+stage: typeck
+---
+
+note-related-index-upper/main.tck:9:26: error: index k may be out of range; check 0 <= k && k < 3 first, or use v, ok := ...[k]
+08 |	            if k >= 0 && k < 50 {
+09 |	                return a[k]
+   |	                         ^
+10 |	            }
+
+-- note-related-joined-conversion/main.tck --
+package main
+
+// v >= k, and k is 0 or 5, so no note may say v may be below -128.
+func f(c bool, v int32) int8 {
+    mut k int32 = 0
+    if c {
+        k = 5
+    }
+    if v >= k && v < 1000 {
+        return int8(v)
+    }
+    return 0
+}
+
+func main() {
+    exit(int32(f(false, 2)))
+}
+-- note-related-joined-conversion/expected --
+stage: typeck
+---
+
+note-related-joined-conversion/main.tck:10:16: error: converting int32 to int8 can fail; check -128 <= v && v <= 127 first, or use v, ok := int8(...)
+09 |	    if v >= k && v < 1000 {
+10 |	        return int8(v)
+   |	               ^~~~~~~
+11 |	    }
+
+-- note-related-stored-divisor/main.tck --
+package main
+
+// d >= k and k == 1, a stored value, keep d above 0, so no note may say
+// the guard allows d == 0.
+func f(x int64, d int64) int64 {
+    mut k int64 = 1
+    if d >= k && d < 100 {
+        return x / d
+    }
+    return 0
+}
+
+func main() {
+    code, fits := int32(f(4, 2))
+    if fits { exit(code) }
+}
+-- note-related-stored-divisor/expected --
+stage: typeck
+---
+
+note-related-stored-divisor/main.tck:8:20: error: divisor d may be zero; check d != 0 first, or use q, ok := ... / d
+07 |	    if d >= k && d < 100 {
+08 |	        return x / d
+   |	                   ^
+09 |	    }
+
+-- note-related-stored-index/main.tck --
+package main
+
+// i < n and n == 2, a stored value, keep i below 2, so no note may say
+// the guard allows i == 49. The index stays rejected: a proof does not
+// chain through a stored value.
+func f(a [3]int64, i int64) int64 {
+    mut n int64 = 2
+    if 0 <= i && i < 50 && i < n {
+        return a[i]
+    }
+    return 0
+}
+
+func main() {
+    code, fits := int32(f([3]int64{1, 2, 3}, 1))
+    if fits { exit(code) }
+}
+-- note-related-stored-index/expected --
+stage: typeck
+---
+
+note-related-stored-index/main.tck:9:18: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+08 |	    if 0 <= i && i < 50 && i < n {
+09 |	        return a[i]
+   |	                 ^
+10 |	    }
+
+-- note-related-stored-lower/main.tck --
+package main
+
+// lo <= i and lo == 0, a stored value, keep i at or above 0, so no note
+// may say i may be negative; i < 50 does allow i == 49, which a note says.
+func f(a [3]int64, i int64) int64 {
+    mut lo int64 = 0
+    if lo <= i && i < 50 {
+        return a[i]
+    }
+    return 0
+}
+
+func main() {
+    code, fits := int32(f([3]int64{1, 2, 3}, 1))
+    if fits { exit(code) }
+}
+-- note-related-stored-lower/expected --
+stage: typeck
+---
+
+note-related-stored-lower/main.tck:8:18: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+07 |	    if lo <= i && i < 50 {
+08 |	        return a[i]
+   |	                 ^
+09 |	    }
+
+-- note-related-would-divisor/main.tck --
+package main
+
+// Without the write, b >= j and j >= 1 would keep b above 0, so no note
+// may say the guard would allow b == 0.
+func f(j int64, b0 int64) int64 {
+    mut b int64 = b0
+    mut sum int64 = 0
+    if j >= 1 && j < 10 {
+        for b >= j && b < 10 {
+            b +%= 1
+            sum +%= 10 / b
+        }
+    }
+    return sum
+}
+
+func main() {
+    code, fits := int32(f(1, 2))
+    if fits { exit(code) }
+}
+-- note-related-would-divisor/expected --
+stage: typeck
+---
+
+note-related-would-divisor/main.tck:11:26: error: divisor b may be zero; check b != 0 first, or use q, ok := ... / b
+10 |	            b +%= 1
+11 |	            sum +%= 10 / b
+   |	                         ^
+12 |	        }
+note-related-would-divisor/main.tck:9:13: note: this guard proves b < 10
+08 |	    if j >= 1 && j < 10 {
+09 |	        for b >= j && b < 10 {
+   |	            ^~~~~~~~~~~~~~~~
+10 |	            b +%= 1
+note-related-would-divisor/main.tck:10:13: note: but b is assigned here, so the proof ends
+09 |	        for b >= j && b < 10 {
+10 |	            b +%= 1
+   |	            ^
+11 |	            sum +%= 10 / b
+
+-- note-related-would-index/main.tck --
+package main
+
+// Without the write, k >= j and j >= 0 would keep k at or above 0, so no
+// note may say k would be negative.
+func f(s [4]int64, t string, j int64, k0 int64) int64 {
+    mut k int64 = k0
+    mut sum int64 = 0
+    if j >= 0 && j < 10 {
+        for k >= j && k < len(t) {
+            k +%= 1
+            sum +%= s[k]
+        }
+    }
+    return sum
+}
+
+func main() {
+    code, fits := int32(f([4]int64{1, 2, 3, 4}, "ab", 1, 1))
+    if fits { exit(code) }
+}
+-- note-related-would-index/expected --
+stage: typeck
+---
+
+note-related-would-index/main.tck:11:23: error: index k may be out of range; check 0 <= k && k < 4 first, or use v, ok := ...[k]
+10 |	            k +%= 1
+11 |	            sum +%= s[k]
+   |	                      ^
+12 |	        }
+note-related-would-index/main.tck:9:13: note: this guard proves k < len(t)
+08 |	    if j >= 0 && j < 10 {
+09 |	        for k >= j && k < len(t) {
+   |	            ^~~~~~~~~~~~~~~~~~~~
+10 |	            k +%= 1
+note-related-would-index/main.tck:10:13: note: but k is assigned here, so the proof ends
+09 |	        for k >= j && k < len(t) {
+10 |	            k +%= 1
+   |	            ^
+11 |	            sum +%= s[k]
+
+-- note-related-would-index-at-most/main.tck --
+package main
+
+// Without the write, k >= j and j >= 0 would keep k at or above 0, so no
+// note may say k would be negative; k <= 3 would allow k == 3, which a
+// note says.
+func f(s [3]int64, j int64, k0 int64) int64 {
+    mut k int64 = k0
+    mut sum int64 = 0
+    if j >= 0 && j < 10 {
+        for k >= j && k <= 3 {
+            k +%= 1
+            sum +%= s[k]
+        }
+    }
+    return sum
+}
+
+func main() {
+    code, fits := int32(f([3]int64{1, 2, 3}, 1, 1))
+    if fits { exit(code) }
+}
+-- note-related-would-index-at-most/expected --
+stage: typeck
+---
+
+note-related-would-index-at-most/main.tck:12:23: error: index k may be out of range; check 0 <= k && k < 3 first, or use v, ok := ...[k]
+11 |	            k +%= 1
+12 |	            sum +%= s[k]
+   |	                      ^
+13 |	        }
+note-related-would-index-at-most/main.tck:10:13: note: this guard proves k < 4
+09 |	    if j >= 0 && j < 10 {
+10 |	        for k >= j && k <= 3 {
+   |	            ^~~~~~~~~~~~~~~~
+11 |	            k +%= 1
+note-related-would-index-at-most/main.tck:11:13: note: but k is assigned here, so the proof ends
+10 |	        for k >= j && k <= 3 {
+11 |	            k +%= 1
+   |	            ^
+12 |	            sum +%= s[k]
 
 -- note-two-guards/main.tck --
 package main
@@ -43829,11 +44697,6 @@ relation-cap/main.tck:8:18: error: index v69 may be out of range; check 0 <= v69
 08 |	        return a[v69] +% a[v0]
    |	                 ^~~
 09 |	    }
-relation-cap/main.tck:7:897: note: this guard bounds v69 only above; v69 may be negative
-06 |	func f(a []int64, v0 int64, v1 int64, v2 int64, v3 int64, v4 int64, v5 int64, v6 int64, v7 int64, v8 int64, v9 int64, v10 int64, v11 int64, v12 int64, v13 int64, v14 int64, v15 int64, v16 int64, v17 int64, v18 int64, v19 int64, v20 int64, v21 int64, v22 int64, v23 int64, v24 int64, v25 int64, v26 int64, v27 int64, v28 int64, v29 int64, v30 int64, v31 int64, v32 int64, v33 int64, v34 int64, v35 int64, v36 int64, v37 int64, v38 int64, v39 int64, v40 int64, v41 int64, v42 int64, v43 int64, v44 int64, v45 int64, v46 int64, v47 int64, v48 int64, v49 int64, v50 int64, v51 int64, v52 int64, v53 int64, v54 int64, v55 int64, v56 int64, v57 int64, v58 int64, v59 int64, v60 int64, v61 int64, v62 int64, v63 int64, v64 int64, v65 int64, v66 int64, v67 int64, v68 int64, v69 int64) int64 {
-07 |	    if 0 <= v0 && v0 < v1 && v1 < v2 && v2 < v3 && v3 < v4 && v4 < v5 && v5 < v6 && v6 < v7 && v7 < v8 && v8 < v9 && v9 < v10 && v10 < v11 && v11 < v12 && v12 < v13 && v13 < v14 && v14 < v15 && v15 < v16 && v16 < v17 && v17 < v18 && v18 < v19 && v19 < v20 && v20 < v21 && v21 < v22 && v22 < v23 && v23 < v24 && v24 < v25 && v25 < v26 && v26 < v27 && v27 < v28 && v28 < v29 && v29 < v30 && v30 < v31 && v31 < v32 && v32 < v33 && v33 < v34 && v34 < v35 && v35 < v36 && v36 < v37 && v37 < v38 && v38 < v39 && v39 < v40 && v40 < v41 && v41 < v42 && v42 < v43 && v43 < v44 && v44 < v45 && v45 < v46 && v46 < v47 && v47 < v48 && v48 < v49 && v49 < v50 && v50 < v51 && v51 < v52 && v52 < v53 && v53 < v54 && v54 < v55 && v55 < v56 && v56 < v57 && v57 < v58 && v58 < v59 && v59 < v60 && v60 < v61 && v61 < v62 && v62 < v63 && v63 < v64 && v64 < v65 && v65 < v66 && v66 < v67 && v67 < v68 && v68 < v69 && v69 < len(a) {
-   |	                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                ^~~~~~~~~~~~
-08 |	        return a[v69] +% a[v0]
 relation-cap/main.tck:8:18: note: the checker follows at most 64 related values from here, so relations further along are not used; check 0 <= v69 directly
 07 |	    if 0 <= v0 && v0 < v1 && v1 < v2 && v2 < v3 && v3 < v4 && v4 < v5 && v5 < v6 && v6 < v7 && v7 < v8 && v8 < v9 && v9 < v10 && v10 < v11 && v11 < v12 && v12 < v13 && v13 < v14 && v14 < v15 && v15 < v16 && v16 < v17 && v17 < v18 && v18 < v19 && v19 < v20 && v20 < v21 && v21 < v22 && v22 < v23 && v23 < v24 && v24 < v25 && v25 < v26 && v26 < v27 && v27 < v28 && v28 < v29 && v29 < v30 && v30 < v31 && v31 < v32 && v32 < v33 && v33 < v34 && v34 < v35 && v35 < v36 && v36 < v37 && v37 < v38 && v38 < v39 && v39 < v40 && v40 < v41 && v41 < v42 && v42 < v43 && v43 < v44 && v44 < v45 && v45 < v46 && v46 < v47 && v47 < v48 && v48 < v49 && v49 < v50 && v50 < v51 && v51 < v52 && v52 < v53 && v53 < v54 && v54 < v55 && v55 < v56 && v56 < v57 && v57 < v58 && v58 < v59 && v59 < v60 && v60 < v61 && v61 < v62 && v62 < v63 && v63 < v64 && v64 < v65 && v65 < v66 && v66 < v67 && v67 < v68 && v68 < v69 && v69 < len(a) {
 08 |	        return a[v69] +% a[v0]

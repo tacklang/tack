@@ -298,7 +298,13 @@
 // missing or dropped, nor on an index the facts in force keep at or above
 // 0, a bound a loop keeps included; and a dropped fact whose every bound
 // a bound a loop keeps still gives is not explained at all, since what it
-// said still holds (see keptBounds). Every note's span is the code it is about, so its
+// said still holds (see keptBounds). No note says what the facts allow a
+// subject that, earlier in its function, a relation tied to another
+// variable or the sides of a || constrained (noteRelated), since notes
+// follow neither, nor one a stored value's fact holds about (heldValue);
+// and one that names a value the facts rule out, by its bounds or by a
+// !=, is left out (rulesOut), a note on what they would allow being
+// checked with the dropped facts counted. Every note's span is the code it is about, so its
 // text names no position. A fact a write
 // ends is kept in force for this, marked where it is asked about with
 // the write that ends it there, and every query that proves something
