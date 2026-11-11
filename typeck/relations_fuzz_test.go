@@ -15,6 +15,13 @@ import (
 // on every combination of values near the edges of each type, with Tack's
 // semantics, arithmetic wrapping at its type's width and comparisons by
 // value, asserting the index is in range wherever the guard holds.
+//
+// A program may also declare a mutable n holding a known value, which its
+// terms and its index may name, so that a proof chains through a stored
+// value's bounds, and write n another known value before the guard,
+// after it, or both, the guard perhaps in a loop of two passes, where a
+// write after it reaches the second pass's guard by the back edge. The
+// oracle runs the passes as Tack does, n taking each value as written.
 
 // fuzzVar is a parameter of the fuzzed function: its name, its type, and
 // the values it is tried with.
@@ -70,11 +77,19 @@ var (
 	fuzzOps   = []string{"<", "<=", ">", ">=", "==", "!="}
 )
 
-// fuzzTerm is a value of the fuzzed program: a parameter, len(a) or a
+// fuzzStoredConst are the known values n is given.
+var fuzzStoredConst = []string{"-1", "0", "1", "2", "3", "4", "128", "9223372036854775807"}
+
+// fuzzStored is the value of v naming n, the mutable variable holding a
+// stored value; its value is the last of the values a term is evaluated
+// with (see valueAt).
+const fuzzStored = -3
+
+// fuzzTerm is a value of the fuzzed program: a parameter, len(a), n or a
 // constant, plus or minus a constant.
 type fuzzTerm struct {
 	c     string
-	v     int // index in fuzzVars, -1 for len(a), -2 for a constant alone
+	v     int // index in fuzzVars, -1 for len(a), -2 for a constant alone, fuzzStored for n
 	op    byte
 	first bool // the constant written first, c + v
 }
@@ -122,6 +137,8 @@ func (t fuzzTerm) text() string {
 	case -2:
 		return t.c
 	case -1:
+	case fuzzStored:
+		base = "n"
 	default:
 		base = fuzzVars[t.v].name
 	}
@@ -140,7 +157,7 @@ func (t fuzzTerm) typ() string {
 	switch t.v {
 	case -2:
 		return ""
-	case -1:
+	case -1, fuzzStored:
 		return "int64"
 	}
 	return fuzzVars[t.v].typ
@@ -163,14 +180,18 @@ func wrap(v *big.Int, typ string) *big.Int {
 	return w
 }
 
-// valueAt returns t's value given each parameter's value, vals, and len(a).
+// valueAt returns t's value given each parameter's value, vals, followed
+// by n's, and len(a).
 func (t fuzzTerm) valueAt(vals []*big.Int, n *big.Int) *big.Int {
 	c, _ := new(big.Int).SetString(t.c, 10)
 	if t.v == -2 {
 		return c
 	}
 	base := n
-	if t.v >= 0 {
+	switch {
+	case t.v == fuzzStored:
+		base = vals[len(fuzzVars)]
+	case t.v >= 0:
 		base = vals[t.v]
 	}
 	switch t.op {
@@ -209,12 +230,17 @@ func (c fuzzCmp) holds(vals []*big.Int, n *big.Int) bool {
 
 // fuzzProgram is a fuzzed function: its guard, the conjunction of cmps,
 // the term stored in k when stored is set, and the index, k or the
-// parameter index.
+// parameter index, or n when indexN is set. When mut is set, n is declared
+// holding start, written before when before is set and after when after
+// is, and the guard is in a loop of two passes when loop is set.
 type fuzzProgram struct {
 	cmps   []fuzzCmp
 	k      fuzzTerm
 	stored bool
 	index  int
+
+	mut, loop, before, after, indexN bool
+	start, beforeV, afterV           string
 }
 
 // readProgram reads a program from data.
@@ -235,7 +261,34 @@ func readProgram(data []byte) fuzzProgram {
 		}
 	}
 	p.index = r.next(len(fuzzVars))
+	// The bytes past those of a program with no n read as 0, which
+	// leaves n out, so earlier seeds keep their programs.
+	if p.mut = r.next(2) == 1; p.mut {
+		p.readStored(r)
+	}
 	return p
+}
+
+// readStored reads what p does with n: its known values, where it is
+// written, whether the guard is in a loop, and which terms, and whether
+// the index, name n.
+func (p *fuzzProgram) readStored(r *fuzzReader) {
+	p.start = fuzzStoredConst[r.next(len(fuzzStoredConst))]
+	shape := r.next(8)
+	p.loop, p.before, p.after = shape&1 != 0, shape&2 != 0, shape&4 != 0
+	p.beforeV = fuzzStoredConst[r.next(len(fuzzStoredConst))]
+	p.afterV = fuzzStoredConst[r.next(len(fuzzStoredConst))]
+	for i := range p.cmps {
+		for _, t := range []*fuzzTerm{&p.cmps[i].l, &p.cmps[i].r} {
+			if r.next(3) == 0 {
+				t.v = fuzzStored
+			}
+		}
+	}
+	if p.stored && r.next(3) == 0 {
+		p.k.v = fuzzStored
+	}
+	p.indexN = !p.stored && r.next(3) == 0
 }
 
 // source writes p as a Tack program.
@@ -254,9 +307,26 @@ func (p fuzzProgram) source() string {
 		body = "        k := " + p.k.text() + "\n"
 		index = "k"
 	}
+	if p.indexN {
+		index = "n"
+	}
+	guard := "    if " + strings.Join(conds, " && ") + " {\n" + body +
+		"        return a[" + index + "]\n    }\n"
+	if !p.mut {
+		return "package main\n\nfunc f(a []int64, " + strings.Join(params, ", ") + ") int64 {\n" +
+			guard + "    return 0\n}\n\nfunc main() {\n}\n"
+	}
+	if p.before {
+		guard = "    n = " + p.beforeV + "\n" + guard
+	}
+	if p.after {
+		guard += "    n = " + p.afterV + "\n"
+	}
+	if p.loop {
+		guard = "    for range 2 {\n" + guard + "    }\n"
+	}
 	return "package main\n\nfunc f(a []int64, " + strings.Join(params, ", ") + ") int64 {\n" +
-		"    if " + strings.Join(conds, " && ") + " {\n" + body +
-		"        return a[" + index + "]\n    }\n    return 0\n}\n\nfunc main() {\n}\n"
+		"    mut n int64 = " + p.start + "\n" + guard + "    return n\n}\n\nfunc main() {\n}\n"
 }
 
 // counterexample returns the values for which p's guard holds and its
@@ -287,17 +357,56 @@ func (p fuzzProgram) counterexample() []*big.Int {
 	return found
 }
 
-// outOfRange reports whether p's guard holds for the parameters' values
-// vals and len(a) n while its index is out of range.
+// outOfRange reports whether, for the parameters' values vals and len(a)
+// n, p reaches its index with the guard holding and the index out of
+// range, running each pass of its loop, n taking each value as written,
+// until the guard holds and the function returns.
 func (p fuzzProgram) outOfRange(vals []*big.Int, n *big.Int) bool {
+	if !p.mut {
+		return p.indexOut(append(vals[:len(vals):len(vals)], nil), n)
+	}
+	env := append(vals[:len(vals):len(vals)], bigs(p.start)[0])
+	passes := 1
+	if p.loop {
+		passes = 2
+	}
+	for range passes {
+		if p.before {
+			env[len(fuzzVars)] = bigs(p.beforeV)[0]
+		}
+		if p.guardHolds(env, n) {
+			return p.indexOut(env, n)
+		}
+		if p.after {
+			env[len(fuzzVars)] = bigs(p.afterV)[0]
+		}
+	}
+	return false
+}
+
+// guardHolds reports whether p's guard holds for env, the parameters'
+// values followed by n's, and len(a) n.
+func (p fuzzProgram) guardHolds(env []*big.Int, n *big.Int) bool {
 	for _, c := range p.cmps {
-		if !c.holds(vals, n) {
+		if !c.holds(env, n) {
 			return false
 		}
 	}
-	idx := vals[p.index]
-	if p.stored {
-		idx = p.k.valueAt(vals, n)
+	return true
+}
+
+// indexOut reports whether p's index is out of range, for env, the
+// parameters' values followed by n's, and len(a) n, once its guard holds.
+func (p fuzzProgram) indexOut(env []*big.Int, n *big.Int) bool {
+	if !p.guardHolds(env, n) {
+		return false
+	}
+	idx := env[p.index]
+	switch {
+	case p.stored:
+		idx = p.k.valueAt(env, n)
+	case p.indexN:
+		idx = env[len(fuzzVars)]
 	}
 	return idx.Sign() < 0 || idx.Cmp(n) >= 0
 }
@@ -313,6 +422,16 @@ func FuzzRelationsAreSound(f *testing.F) {
 		{4, 0, 3, 1, 1, 0, 0}, // the int8 wrap
 		{5, 2, 0, 0, 1, 1, 1, 5, 2, 2, 3},
 		{1, 3, 0, 2, 3, 1, 0, 0, 4, 1, 0, 3, 1, 5},
+		// 0 <= x && x < n && 2 <= len(a), n stored as 2: written nowhere,
+		// written 128 after the guard in a loop, which the back edge
+		// brings to the second pass, written 128 before it, and written 2
+		// before it and 128 after it in a loop.
+		{2, 0, 0, 0, 1, 2, 0, 2, 0, 0, 2, 0, 0, 0, 2, 1, 1, 0, 0, 0, 1, 3, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1},
+		{2, 0, 0, 0, 1, 2, 0, 2, 0, 0, 2, 0, 0, 0, 2, 1, 1, 0, 0, 0, 1, 3, 5, 0, 6, 1, 1, 1, 0, 1, 1, 1},
+		{2, 0, 0, 0, 1, 2, 0, 2, 0, 0, 2, 0, 0, 0, 2, 1, 1, 0, 0, 0, 1, 3, 2, 6, 0, 1, 1, 1, 0, 1, 1, 1},
+		{2, 0, 0, 0, 1, 2, 0, 2, 0, 0, 2, 0, 0, 0, 2, 1, 1, 0, 0, 0, 1, 3, 7, 3, 6, 1, 1, 1, 0, 1, 1, 1},
+		// a[n] under 3 <= x && x <= len(a), n stored as 2.
+		{1, 0, 0, 3, 1, 2, 0, 2, 0, 1, 1, 0, 0, 0, 1, 3, 0, 0, 0, 1, 1, 1, 1, 0},
 	}
 	for _, s := range seeds {
 		f.Add(s)

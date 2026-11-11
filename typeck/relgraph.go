@@ -56,17 +56,52 @@ func (c *Checker) relationIndex() *relIndex {
 		return c.relIdx
 	}
 	idx := &relIndex{gen: c.factGen, adj: make(map[factKey][]int), isLen: make(map[factKey]bool)}
+	var stored []int
 	for i, f := range c.active {
 		c.work.indexed++
-		// A stored value's bounds (see guardValue) stay out of the
-		// graph: they prove what they prove through the variable's own
-		// interval, and a note on a missing link would name them.
-		if f.inMap.isZero() && !f.guard.silent() {
+		switch {
+		case !f.inMap.isZero():
+			// A key being in a map bounds no difference.
+		case storedBounds(f):
+			stored = append(stored, i)
+		case !f.guard.silent():
 			idx.addFact(i, f)
+		}
+	}
+	// Only the last stored value's fact about a node is added, and only
+	// one with at most reachScanLimit writes that may end it: each such
+	// fact put in force later lies in the region of an earlier one, after
+	// a write that ends the earlier one there, and asking whether a fact
+	// with more endings holds builds an index of them (see reach.go),
+	// which, for every value a variable is given in a deep nest of blocks
+	// each writing it again, would take time growing with the square of
+	// the nest. Leaving a fact out only proves less, so neither rests on
+	// anything for soundness.
+	last := make(map[factKey]bool, len(stored))
+	for _, i := range slices.Backward(stored) {
+		c.work.indexed++
+		f := c.active[i]
+		if last[f.about] {
+			continue
+		}
+		last[f.about] = true
+		if f.ends == nil || len(f.ends.list) <= reachScanLimit {
+			idx.addStored(i, f)
 		}
 	}
 	c.relIdx = idx
 	return idx
+}
+
+// storedBounds reports whether f is a stored value's bounds (see
+// guardValue). The graph takes them as it takes any other fact's, as
+// edges that count only where f holds (see holdsAt), so a write that ends
+// f, in the code it reaches, ends them too, by the same endings. They are
+// listed at the variable's node alone (see addStored), so a query reaches
+// one only from that node: a query's own node, or one other edges lead
+// to, never a node no other fact names that a query passes 0 to find.
+func storedBounds(f fact) bool {
+	return f.guard != nil && f.guard.kind == guardValue
 }
 
 // addFact adds the edges of f, the fact at index i of the facts in force:
@@ -123,6 +158,36 @@ func (idx *relIndex) add(e relEdge, w constant.Int) {
 	e.w = v
 	idx.adj[e.from] = append(idx.adj[e.from], len(idx.edges))
 	idx.adj[e.to] = append(idx.adj[e.to], len(idx.edges))
+	idx.edges = append(idx.edges, e)
+}
+
+// addStored adds the edges of the bounds f, a stored value's fact at
+// index i of the facts in force, puts on its value, against 0, each
+// listed at f's node alone, not at 0's. A query takes one only once it
+// has reached that node, which it does on any path through the edge
+// without passing 0: the path meets 0 once, so the part of it on the
+// node's other side runs from the node to a query's node by other edges.
+// So leaving them off 0's list loses no path, and keeps a query that
+// reaches 0 from looking at every value its function stored.
+func (idx *relIndex) addStored(i int, f fact) {
+	zero := factKey{}
+	if f.hasHi {
+		idx.addAt(f.about, relEdge{from: f.about, to: zero, fact: i}, f.hi)
+	}
+	if lo, ok := f.lo.Neg(); f.hasLo && ok {
+		idx.addAt(f.about, relEdge{from: zero, to: f.about, fact: i}, lo)
+	}
+}
+
+// addAt adds the edge e, of weight w, when w fits an int64, listed at the
+// node k alone.
+func (idx *relIndex) addAt(k factKey, e relEdge, w constant.Int) {
+	v, ok := weight(w)
+	if !ok {
+		return
+	}
+	e.w = v
+	idx.adj[k] = append(idx.adj[k], len(idx.edges))
 	idx.edges = append(idx.edges, e)
 }
 
@@ -187,6 +252,7 @@ func (c *Checker) relationGraph(x, y factKey, xLen, yLen bool) *relGraph {
 		holds: make(map[int]bool, 4*relationCap), used: make(map[int]bool, 4*relationCap),
 		ranged: make(map[factKey]bool), lens: idx.lens, x: x, y: y, xLen: xLen, yLen: yLen,
 		edges: make([]relEdge, 0, 4*relationCap), typed: c.typedRelations,
+		plain: c.plainRelations,
 	}
 	for _, q := range []factKey{x, y} {
 		if b.isLen(q) && !idx.isLen[q] {
@@ -222,6 +288,10 @@ type graphBuilder struct {
 	// typed says the graph counts each variable's type's bounds as edges
 	// to 0 (see typeRange).
 	typed bool
+
+	// plain says the graph leaves out a stored value's bounds (see
+	// storedBounds and Checker.plainRelations).
+	plain bool
 }
 
 // isLen reports whether k is a length: one the facts use as one, or a
@@ -304,7 +374,7 @@ func (b *graphBuilder) takeEdges(u factKey) {
 	for _, ei := range b.idx.adj[u] {
 		b.g.count(1)
 		e := b.idx.edges[ei]
-		if b.used[ei] || !b.holdsAt(e.fact) {
+		if b.used[ei] || b.plain && storedBounds(b.c.active[e.fact]) || !b.holdsAt(e.fact) {
 			continue
 		}
 		other := e.to

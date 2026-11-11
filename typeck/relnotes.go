@@ -19,8 +19,12 @@ import (
 // it but for its condition (see wrapping); or that one link is missing
 // from a chain that would prove it (see linkNote). It returns none when
 // nothing is so. Each says what holds and what to check, which a stored
-// value's fact, left out of the graph, cannot make untrue.
+// value's fact, left out of the graph the notes ask (see
+// Checker.plainRelations), cannot make untrue: the graph the proof asked
+// holds every edge this one does, so it did not prove x - y <= w either.
 func (c *Checker) relationNotes(x, y linTerm, w constant.Int, span ast.Span) []diag.Diagnostic {
+	c.plainRelations = true
+	defer func() { c.plainRelations = false }()
 	g, w, ok := c.query(x, y, w)
 	if !ok || g == nil || g.proves(x.node, y.node, w) {
 		return nil

@@ -3206,7 +3206,13 @@ section remains the description of the language.
   than `j` and `n := len(a)` is `len(a)`, until a write to either can
   reach the use. A statement storing a known value in a mutable
   variable, `mut n := 0` or `n = 5`, or a value of known bounds, `n++`
-  included, puts the variable within them for the rest of its block. A
+  included, puts the variable within them for the rest of its block,
+  until a write to it can reach the use, and relations chain through
+  those bounds: under `mut n int64 = 2`, `0 <= i && i < n` proves `a[i]`
+  of a `[3]T`, and `3 <= j && j <= len(a)` proves `a[n]`. A chain counts
+  the bounds only while the rest of the block holds at most 16 writes to
+  the variable, a closure's included; with 17 or more, they prove only
+  what they prove of the variable alone. A
   relation through `x + c` or `x - c` counts only where the other facts
   in force keep the step within `x`'s type, which the step needs to
   compile anyway: in `0 <= i && i + 1 < len(a)`, `i + 1` is an error, as

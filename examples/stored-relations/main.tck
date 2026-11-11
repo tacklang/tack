@@ -1,0 +1,173 @@
+package main
+
+// Relations through a stored value. A statement storing a known value,
+// or a value of known bounds, puts its variable within them until the
+// next write to it that can reach the use, and a proof chains those
+// bounds with the relations in force: under mut n int64 = 2, i < n keeps
+// i at or below 1, which an index into a [3]int64 needs. The bound ends
+// where the fact ends, so a write between the store and the use, one a
+// loop's back edge brings round, one in a closure, a mut call or a
+// defer, and one in a single branch each leave the index rejected; those
+// are cases of examples/invalid.txtar.
+//
+// Every check prints its name and "ok", or "FAIL", and runs each function
+// one below, at, and one past every bound, and at int64's extremes.
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// call calls f once.
+func call(scope f func()) {
+    f()
+}
+
+// reported reads a[i] through i < n, n holding the known value 2.
+func reported(a [3]int64, i int64) int64 {
+    mut n int64 = 2
+    if 0 <= i && i < 50 && i < n {
+        return a[i]
+    }
+    return -1
+}
+
+// ranged reads a[i] through i < n, n an immutable variable whose value
+// is not known but whose bounds are: x % 2 + 1 lies in 0 through 2.
+func ranged(a [3]int64, i int64, x int64) int64 {
+    n := x % 2 + 1
+    if 0 <= i && i < n {
+        return a[i]
+    }
+    return -1
+}
+
+// rewritten reads a[i] through i < n, n written twice before the guard,
+// the last write the one whose value counts, and another variable
+// written and a closure reading n between the store and the use.
+func rewritten(a [3]int64, i int64) int64 {
+    mut n int64 = 100
+    n = 3
+    mut other int64 = 0
+    other = n
+    call(func() { other = other +% n })
+    if 0 <= i && i < n && other >= 0 {
+        return a[i]
+    }
+    return -1
+}
+
+// stepped reads a[i] through i < n, n given its bounds by two steps.
+func stepped(a [3]int64, i int64) int64 {
+    mut n int64 = 0
+    n++
+    n++
+    if 0 <= i && i < n {
+        return a[i]
+    }
+    return -1
+}
+
+// inLoop reads a[i] in each pass of a loop through i < n, n stored
+// before the use in the same pass, so no write reaches the use by the
+// back edge without the store coming first.
+func inLoop(a [3]int64, i int64) int64 {
+    mut n int64 = 0
+    mut s int64 = 0
+    for mut k int64 = 0; k < 4; k++ {
+        n = k % 3
+        if 0 <= i && i < n {
+            s = s +% a[i]
+        }
+    }
+    return s
+}
+
+// overLoop reads a[i] in a loop through i < n, n stored before the loop
+// and written nowhere in it.
+func overLoop(a [3]int64, i int64) int64 {
+    mut n int64 = 3
+    mut s int64 = 0
+    for mut k int64 = 0; k < 2; k++ {
+        if 0 <= i && i < n {
+            s = s +% a[i]
+        }
+    }
+    return s
+}
+
+// both reads a[i] through lo <= i && i < hi, lo and hi each holding a
+// known value: the chain runs through two stored values.
+func both(a [3]int64, i int64) int64 {
+    mut lo int64 = 0
+    mut hi int64 = 3
+    if lo <= i && i < hi {
+        return a[i]
+    }
+    return -1
+}
+
+// through reads a[i] through i < j && j < n, n holding the known value
+// 3, which keeps i at or below 1.
+func through(a [2]int64, i int64, j int64) int64 {
+    mut n int64 = 3
+    if 0 <= i && i < j && j < n {
+        return a[i]
+    }
+    return -1
+}
+
+// derived reads a[i] through i < m, m := n - 1 relating m to n, and n
+// holding the known value 3: m is 2, so i is at most 1.
+func derived(a [2]int64, i int64) int64 {
+    mut n int64 = 3
+    m := n - 1
+    if 0 <= i && i < m {
+        return a[i]
+    }
+    return -1
+}
+
+// ownNode reads a[n] through 3 <= j && j <= len(a), n holding the known
+// value 2, which no other fact names: the query's own node carries it.
+func ownNode(a []int64, j int64) int64 {
+    mut n int64 = 2
+    if 3 <= j && j <= len(a) {
+        return a[n]
+    }
+    return -1
+}
+
+func main() {
+    a := [3]int64{10, 20, 30}
+    b := [2]int64{7, 8}
+    max := 9223372036854775807
+    min := -9223372036854775807 - 1
+
+    check(reported(a, 0) == 10 && reported(a, 1) == 20, "reported")
+    check(reported(a, 2) == -1 && reported(a, -1) == -1 && reported(a, 49) == -1, "reported outside")
+    check(reported(a, max) == -1 && reported(a, min) == -1, "reported edges")
+    check(ranged(a, 0, 0) == 10 && ranged(a, 1, 1) == 20 && ranged(a, 1, 3) == 20, "ranged")
+    check(ranged(a, 0, -1) == -1 && ranged(a, 1, 0) == -1 && ranged(a, 2, 1) == -1, "ranged outside")
+    check(ranged(a, 1, max) == 20 && ranged(a, 0, min) == 10 && ranged(a, 1, min) == -1, "ranged edges")
+    check(rewritten(a, 2) == 30 && rewritten(a, 0) == 10, "rewritten")
+    check(rewritten(a, 3) == -1 && rewritten(a, -1) == -1 && rewritten(a, max) == -1, "rewritten outside")
+    check(stepped(a, 1) == 20 && stepped(a, 2) == -1 && stepped(a, min) == -1, "stepped")
+    check(inLoop(a, 0) == 20 && inLoop(a, 1) == 20 && inLoop(a, 2) == 0, "in loop")
+    check(inLoop(a, -1) == 0 && inLoop(a, max) == 0, "in loop edges")
+    check(overLoop(a, 2) == 60 && overLoop(a, 3) == 0 && overLoop(a, -1) == 0, "over loop")
+    check(both(a, 0) == 10 && both(a, 2) == 30, "both")
+    check(both(a, -1) == -1 && both(a, 3) == -1 && both(a, max) == -1 && both(a, min) == -1, "both outside")
+    check(through(b, 0, 1) == 7 && through(b, 1, 2) == 8, "through")
+    check(through(b, 1, 1) == -1 && through(b, 2, 3) == -1 && through(b, -1, 0) == -1, "through outside")
+    check(through(b, max, max) == -1 && through(b, min, min) == -1, "through edges")
+    check(derived(b, 0) == 7 && derived(b, 1) == 8, "derived")
+    check(ownNode(a[:], 3) == 30 && ownNode(a[0:2], 3) == -1 && ownNode(a[:], 2) == -1, "own node")
+    check(ownNode(a[:], 4) == -1 && ownNode(a[0:0], 0) == -1 && ownNode(a[:], max) == -1, "own node edges")
+    check(derived(b, 2) == -1 && derived(b, -1) == -1 && derived(b, max) == -1, "derived outside")
+}

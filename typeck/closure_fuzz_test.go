@@ -17,7 +17,11 @@ import (
 // its scope parameter zero, one or two times, to down, which passes its
 // own scope parameter on to run, and two at a time to run2, which calls
 // both in turn, the second naming only k, since it cannot reach an i the
-// first may write. The shapes are those where
+// first may write. A mutable bound n, stored as 4 and written back to 4
+// or out to 9, gives guards that prove i in range only through a stored
+// value, i < n chained with n == 4, which must end where a write to n
+// can reach as any other fact does; a write of 5 to i puts it past the
+// end, where only n == 9 lets such a guard through. The shapes are those where
 // a closure's runs, coming later than where it is written and repeating,
 // change what holds: a closure that writes i and a use after its call
 // that relies on a fact from before it, which the write ends; a closure
@@ -51,6 +55,10 @@ const (
 	cGuardK              // if 0 <= k && k < 4 { body }
 	cLeaveK              // if k < 0 || k >= 4 { return }
 	cRun2                // run2(n, func() { body }, func() { other }), other naming no i
+	cNIn                 // n = 4
+	cNOut                // n = 9
+	cGuardN              // if 0 <= i && i < n { body }, proven only through n's stored value
+	cBig                 // i = 5
 	cKinds
 )
 
@@ -68,9 +76,9 @@ type cStmt struct {
 }
 
 // cGen generates programs, numbering their checks. noI, while set, keeps
-// i out of what it generates: the second closure of a cRun2 cannot
-// capture i, which the first may write, since two closures of one call
-// cannot both reach a variable one of them writes.
+// i and n out of what it generates: the second closure of a cRun2 cannot
+// capture i or n, which the first may write, since two closures of one
+// call cannot both reach a variable one of them writes.
 type cGen struct {
 	rng *rand.Rand
 	ids int
@@ -97,7 +105,8 @@ func (g *cGen) stmt(depth int, inClosure bool) cStmt {
 	if g.noI {
 		k = []cKind{cUseK, cGuardK, cLeaveK, cLoop, cRun}[g.rng.IntN(5)]
 	}
-	if depth == 0 && k != cUse && k != cOut && k != cIn && k != cUseK && k != cLeaveK {
+	if depth == 0 && k != cUse && k != cOut && k != cIn && k != cUseK && k != cLeaveK &&
+		k != cNIn && k != cNOut && k != cBig {
 		k = []cKind{cUse, cOut, cIn, cUseK}[g.rng.IntN(4)]
 		if g.noI {
 			k = cUseK
@@ -119,7 +128,7 @@ func (g *cGen) stmt(depth int, inClosure bool) cStmt {
 	case cUse:
 		g.ids++
 		return cStmt{kind: cUse, id: g.ids}
-	case cGuard, cWhen, cLoop:
+	case cGuard, cWhen, cLoop, cGuardN:
 		return cStmt{kind: k, body: g.block(depth-1, 3, inClosure)}
 	case cReturn:
 		return cStmt{kind: cLeave}
@@ -185,15 +194,22 @@ func (r *cRender) stmt(s cStmt, ind int) {
 		r.line(ind, "i = -1")
 	case cIn:
 		r.line(ind, "i = 2")
+	case cNIn:
+		r.line(ind, "n = 4")
+	case cNOut:
+		r.line(ind, "n = 9")
+	case cBig:
+		r.line(ind, "i = 5")
 	case cReturn:
 		r.line(ind, "return")
 	case cLeave:
 		r.line(ind, "if i < 0 || i >= 4 {")
 		r.line(ind+1, "return")
 		r.line(ind, "}")
-	case cGuard, cWhen, cLoop:
+	case cGuard, cWhen, cLoop, cGuardN:
 		head := map[cKind]string{
 			cGuard: "if 0 <= i && i < 4 {", cWhen: "if i == 0 {", cLoop: "for range 2 {",
+			cGuardN: "if 0 <= i && i < n {",
 		}[s.kind]
 		r.line(ind, head)
 		r.block(s.body, ind+1)
@@ -222,18 +238,20 @@ func renderClosureProgram(body []cStmt) (string, map[int]int) {
 	r.line(1, "a := [4]int64{0, 1, 2, 3}")
 	r.line(1, "mut i := start")
 	r.line(1, "k := start -% 1")
+	r.line(1, "mut n int64 = 4")
 	r.block(body, 1)
-	r.line(1, "if i == 7 && k == 7 && len(a) == 4 {")
+	r.line(1, "if i == 7 && k == 7 && n == 7 && len(a) == 4 {")
 	r.line(2, `print("x")`)
 	r.line(1, "}")
 	r.b.WriteString("}\n\nfunc main() {\n    for s := range 4 {\n        g(s)\n    }\n}\n")
 	return r.b.String(), r.at
 }
 
-// cOracle is the oracle's state running a program.
+// cOracle is the oracle's state running a program: the values of i, k
+// and n, and the checks run out of range.
 type cOracle struct {
-	i, k int
-	bad  map[int]bool
+	i, k, n int
+	bad     map[int]bool
 }
 
 // block runs body and reports whether a return ended it.
@@ -273,12 +291,22 @@ func (o *cOracle) stmt(s cStmt) bool {
 		o.i = -1
 	case cIn:
 		o.i = 2
+	case cNIn:
+		o.n = 4
+	case cNOut:
+		o.n = 9
+	case cBig:
+		o.i = 5
 	case cReturn:
 		return true
 	case cLeave:
 		return o.i < 0 || o.i >= 4
 	case cGuard:
 		if 0 <= o.i && o.i < 4 {
+			return o.block(s.body)
+		}
+	case cGuardN:
+		if 0 <= o.i && o.i < o.n {
 			return o.block(s.body)
 		}
 	case cWhen:
@@ -304,7 +332,7 @@ func (o *cOracle) stmt(s cStmt) bool {
 func closureViolations(body []cStmt) map[int]bool {
 	o := &cOracle{bad: map[int]bool{}}
 	for start := range 4 {
-		o.i, o.k = start, start-1
+		o.i, o.k, o.n = start, start-1, 4
 		o.block(body)
 	}
 	return o.bad
@@ -394,12 +422,36 @@ var closureCases = map[string][]cStmt{
 		{kind: cLeave},
 		{kind: cRun, n: 2, body: []cStmt{{kind: cUse, id: 1}, {kind: cOut}}},
 	},
+	"a closure's write to n ends its stored value after the call": {
+		{kind: cBig},
+		{kind: cRun, n: 1, body: []cStmt{{kind: cNOut}}},
+		{kind: cGuardN, body: []cStmt{{kind: cUse, id: 1}}},
+	},
+	"a closure's write to n ends its stored value on the closure's next run": {
+		{kind: cBig},
+		{kind: cRun, n: 2, body: []cStmt{
+			{kind: cGuardN, body: []cStmt{{kind: cUse, id: 1}}},
+			{kind: cNOut},
+		}},
+	},
+	"a write to n in a loop ends its stored value by the back edge": {
+		{kind: cBig},
+		{kind: cLoop, body: []cStmt{
+			{kind: cGuardN, body: []cStmt{{kind: cUse, id: 1}}},
+			{kind: cNOut},
+		}},
+	},
+	"a write to n before a closure's return reaches the use after the call": {
+		{kind: cRun, n: 1, body: []cStmt{{kind: cWhen, body: []cStmt{{kind: cNOut}, {kind: cBig}, {kind: cReturn}}}}},
+		{kind: cGuardN, body: []cStmt{{kind: cUse, id: 1}}},
+	},
 }
 
 // closureKept are programs whose every check is in range, by a fact
 // about the immutable k from outside a closure, which nothing can write
 // and so holds in it, alone, beside a closure that writes i in the same
-// call, and through a scope parameter passed down: the checker must
+// call, and through a scope parameter passed down, or by i < n and n's
+// stored value, with no write to n reaching the use: the checker must
 // accept each.
 var closureKept = map[string][]cStmt{
 	"an immutable variable's fact enters a closure": {
@@ -413,6 +465,17 @@ var closureKept = map[string][]cStmt{
 	"an early exit's fact about k enters a closure passed down": {
 		{kind: cLeaveK},
 		{kind: cRun, n: 2, down: true, body: []cStmt{{kind: cUseK, id: 1}, {kind: cOut}}},
+	},
+	"n's stored value proves i < n in range": {
+		{kind: cBig},
+		{kind: cGuardN, body: []cStmt{{kind: cUse, id: 1}}},
+	},
+	"n stored again in a closure proves i < n after its write": {
+		{kind: cRun, n: 2, body: []cStmt{
+			{kind: cNOut},
+			{kind: cNIn},
+			{kind: cGuardN, body: []cStmt{{kind: cUse, id: 1}}},
+		}},
 	},
 }
 
@@ -431,7 +494,7 @@ func TestClosureWritesAreSound(t *testing.T) {
 			t.Fatalf("%s: the oracle finds a check out of range", name)
 		}
 		if rejected := checkClosureProgram(t, name, body); len(rejected) > 0 {
-			t.Errorf("%s: checks %v rejected, though a fact about k proves them", name, rejected)
+			t.Errorf("%s: checks %v rejected, though the facts in force prove them", name, rejected)
 		}
 	}
 	for seed := range uint64(closureSeeds) {

@@ -591,6 +591,33 @@ in the rest of its block: after `k := j - 1`, `k` is one less than `j`,
 and after `n := len(a)`, `n` is `len(a)`. A relation ends where a fact
 does, at a write to either of its values that can reach the use.
 
+A chain also runs through a stored value's bounds: a statement storing a
+known value in a mutable variable, `mut n int64 = 2` or `n = 2`, or a
+value of known bounds, `n := x % 2 + 1` or `n++`, puts the variable
+within them for the rest of its block, and a relation to the variable
+carries them on. So under `mut n int64 = 2`,
+`if 0 <= i && i < n { return a[i] }`, with `a` a `[3]int64`, compiles,
+since `i <= 1` there, and so does `if 3 <= j && j <= len(a) { return a[n] }`,
+since `len(a) >= 3` there. A chain counts the bounds only while the rest
+of the block holds at most 16 writes to the variable, before the use or
+after it, each counted where it is written: an assignment, a step or a
+`mut` argument, and each write in the body of a closure the block
+holds. With 17 or more, the bounds prove what they prove of the
+variable alone, and nothing through a relation. The bounds end where the stored value's fact does,
+at a write to the variable that can reach the use: a write between the
+store and the use (<!-- case: stored-relation-write-between -->`n = x`,
+or <!-- case: stored-relation-write-known-between -->`n = 5`, which
+stores a value the index does not allow), one in a loop's body after
+the use, which reaches it by the back edge
+(<!-- case: stored-relation-loop-back-edge -->), in a closure
+called before it (<!-- case: stored-relation-closure-write -->), a
+`mut` call (<!-- case: stored-relation-mut-call -->), a defer that runs
+first (<!-- case: stored-relation-defer-write -->), a write after a
+`defer` whose code reads the index, which runs at the function's end
+(<!-- case: stored-relation-write-before-defer-runs -->), or a write in
+one branch (<!-- case: stored-relation-one-branch -->), each leaves the
+index rejected.
+
 <!-- example: relations -->
 
 ```tack
@@ -1096,10 +1123,12 @@ the facts allow where no value meets them: under `n > 60 && n < 50`,
 do a slice bound (<!-- case: note-dead-guard-slice -->) and a conversion
 (<!-- case: note-dead-guard-conversion -->) under such a guard. A note on what the facts
 would allow counts the facts a write ended too. The notes on which
-guard's proof a write ended stay in every case. A proof does not follow
-a relation through a stored value, so
-<!-- case: note-related-stored-index -->`mut n int64 = 2; if 0 <= i && i < 50 && i < n { return a[i] }`,
-with `a` a `[3]int64`, is rejected, though `i <= 1` there.
+guard's proof a write ended stay in every case. Nor does a note on a
+missing link follow a stored value's bounds, so it names only a check
+the code was making: under `mut n int64 = 2`,
+<!-- case: note-related-stored-index -->`if 0 <= i && i < 50 && i < n { return a[i] }`,
+with `a` a `[1]int64`, reports the index alone, and no note says the
+guard allows `i == 49`.
 An operation no guard mentions keeps its error alone. A guard whose fact
 a write ends, but whose bound a loop keeps anyway, gets no note, since
 what it proved still holds: in

@@ -1,0 +1,21 @@
+reported ok
+reported outside ok
+reported edges ok
+ranged ok
+ranged outside ok
+ranged edges ok
+rewritten ok
+rewritten outside ok
+stepped ok
+in loop ok
+in loop edges ok
+over loop ok
+both ok
+both outside ok
+through ok
+through outside ok
+through edges ok
+derived ok
+own node ok
+own node edges ok
+derived outside ok

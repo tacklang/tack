@@ -3,14 +3,6 @@
 Bugs found and not yet fixed. Each is fixed in its own change, with a failing
 test first, and removed from this list when it lands.
 
-## A proof does not follow a relation through a stored value
-
-The relations a proof chains leave out a stored value's bounds, so a
-bound that reaches a variable only through one proves nothing. Under
-`mut n int64 = 2; if 0 <= i && i < 50 && i < n { return a[i] }`, with
-`a` a `[3]int64`, the index is rejected, though `i <= 1` makes it safe.
-The rejection is safe.
-
 ## Many early exits check in quadratic time
 
 A block with many early exits, each an `if` that leaves and puts a fact

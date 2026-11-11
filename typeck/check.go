@@ -53,6 +53,12 @@ type Checker struct {
 	// the proofs that arithmetic does not overflow ask for.
 	typedRelations bool
 
+	// plainRelations, while set, has a query's graph leave out a stored
+	// value's bounds (see storedBounds), which the notes on a missing
+	// proof ask for: a link through one would name a check that follows
+	// from a value the code just stored, not one it was making.
+	plainRelations bool
+
 	// relatedSubjects holds the subjects that, in the function being checked so
 	// far, took part in a relation to another variable or in a proof-only
 	// fact of several sides (see noteRelated), whether or not it still

@@ -654,8 +654,11 @@
 // one (storedFacts, put in force by checkBlock for the rest of the block).
 // A statement storing a known value in a mutable variable, or a value of
 // known bounds, a step included, puts the variable within them for the
-// rest of the block (rangeStored); those facts, guardValue's, stay out of
-// the graph and out of notes.
+// rest of the block (rangeStored); those facts, guardValue's, join the
+// graph as bounds against 0 at a node another fact names, counting only
+// where they hold, so they end at the same writes as the variable's own
+// interval (storedBounds), and stay out of every note, the graph the
+// notes on a missing link ask included (plainRelations).
 // A bound through x + c carries the condition that x lies where the sum
 // stays in its type, which the overflow proof asks of the sum anyway (stepBounds' bounds, so a
 // target-width type's top is types.PortableMax), and counts only once the

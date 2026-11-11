@@ -23419,17 +23419,6 @@ leave-write-ensures-return-glued/main.tck:3:48: note: ensured here
    |	                                               ^~~~~~
 04 |	    if i < 0 || i >= len(a) {
 
-leave-write-ensures-return-glued/main.tck:9:9: error: g ensures i < len(a), which may not hold at this return
-08 |	        i = -1
-09 |	        return}
-   |	        ^~~~~~
-10 |	}
-leave-write-ensures-return-glued/main.tck:3:58: note: ensured here
-02 |	
-03 |	func g(mut i int64, a []int64, k bool) ensures 0 <= i && i < len(a) {
-   |	                                                         ^~~~~~~~~~
-04 |	    if i < 0 || i >= len(a) {
-
 -- leave-write-falls-through/main.tck --
 package main
 
@@ -38030,9 +38019,9 @@ note-related-stored-divisor/main.tck:8:20: error: divisor d may be zero; check d
 package main
 
 // i < n and n == 2, a stored value, keep i below 2, so no note may say
-// the guard allows i == 49. The index stays rejected: a proof does not
-// chain through a stored value.
-func f(a [3]int64, i int64) int64 {
+// the guard allows i == 49. The index stays rejected, since a has 1
+// element and i may be 1.
+func f(a [1]int64, i int64) int64 {
     mut n int64 = 2
     if 0 <= i && i < 50 && i < n {
         return a[i]
@@ -38041,14 +38030,14 @@ func f(a [3]int64, i int64) int64 {
 }
 
 func main() {
-    code, fits := int32(f([3]int64{1, 2, 3}, 1))
+    code, fits := int32(f([1]int64{1}, 0))
     if fits { exit(code) }
 }
 -- note-related-stored-index/expected --
 stage: typeck
 ---
 
-note-related-stored-index/main.tck:9:18: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+note-related-stored-index/main.tck:9:18: error: index i may be out of range; check 0 <= i && i < 1 first, or use v, ok := ...[i]
 08 |	    if 0 <= i && i < 50 && i < n {
 09 |	        return a[i]
    |	                 ^
@@ -51058,6 +51047,277 @@ spread-with-values/main.tck:8:12: error: cannot use ... in a call with other val
 08 |	    f("x", 1, 2, a...)
    |	           ^~~~~~~~~~
 09 |	}
+
+-- stored-relation-closure-write/main.tck --
+package main
+
+// call runs body, which writes n, so n == 2 ends at the call.
+func call(scope body func()) {
+    body()
+}
+
+func f(a [3]int64, i int64) int64 {
+    mut n int64 = 2
+    call(func() { n = 100 })
+    if 0 <= i && i < n {
+        return a[i]
+    }
+    return -1
+}
+
+func main() {
+    code, fits := int32(f([3]int64{1, 2, 3}, 1))
+    if fits { exit(code) }
+}
+-- stored-relation-closure-write/expected --
+stage: typeck
+---
+
+stored-relation-closure-write/main.tck:12:18: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+11 |	    if 0 <= i && i < n {
+12 |	        return a[i]
+   |	                 ^
+13 |	    }
+
+-- stored-relation-defer-write/main.tck --
+package main
+
+func use(v int64) {
+}
+
+// Defers run last first, so the second, writing n, runs before the
+// first, which reads a[i] under i < n.
+func f(a [3]int64, i int64) {
+    mut n int64 = 2
+    defer {
+        if 0 <= i && i < n {
+            use(a[i])
+        }
+    }
+    defer { n = 100 }
+}
+
+func main() {
+    f([3]int64{1, 2, 3}, 1)
+}
+-- stored-relation-defer-write/expected --
+stage: typeck
+---
+
+stored-relation-defer-write/main.tck:12:19: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+11 |	        if 0 <= i && i < n {
+12 |	            use(a[i])
+   |	                  ^
+13 |	        }
+
+-- stored-relation-loop-back-edge/main.tck --
+package main
+
+// n = 100, after the use in the loop's body, reaches the use by the back
+// edge, so n == 2 holds only in the first pass and proves nothing.
+func f(a [3]int64, i int64) int64 {
+    mut n int64 = 2
+    mut s int64 = 0
+    for mut k int64 = 0; k < 3; k++ {
+        if 0 <= i && i < n {
+            s = s +% a[i]
+        }
+        n = 100
+    }
+    return s
+}
+
+func main() {
+    code, fits := int32(f([3]int64{1, 2, 3}, 1))
+    if fits { exit(code) }
+}
+-- stored-relation-loop-back-edge/expected --
+stage: typeck
+---
+
+stored-relation-loop-back-edge/main.tck:10:24: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+09 |	        if 0 <= i && i < n {
+10 |	            s = s +% a[i]
+   |	                       ^
+11 |	        }
+
+-- stored-relation-mut-call/main.tck --
+package main
+
+// bump may write n, which it takes as mut, so n == 2 ends at the call.
+func bump(mut n int64) {
+    n = 100
+}
+
+func f(a [3]int64, i int64) int64 {
+    mut n int64 = 2
+    bump(mut n)
+    if 0 <= i && i < n {
+        return a[i]
+    }
+    return -1
+}
+
+func main() {
+    code, fits := int32(f([3]int64{1, 2, 3}, 1))
+    if fits { exit(code) }
+}
+-- stored-relation-mut-call/expected --
+stage: typeck
+---
+
+stored-relation-mut-call/main.tck:12:18: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+11 |	    if 0 <= i && i < n {
+12 |	        return a[i]
+   |	                 ^
+13 |	    }
+
+-- stored-relation-one-branch/main.tck --
+package main
+
+// n = 100 in one branch reaches the use, so n == 2 does not hold there.
+func f(a [3]int64, i int64, c bool) int64 {
+    mut n int64 = 2
+    if c {
+        n = 100
+    }
+    if 0 <= i && i < n {
+        return a[i]
+    }
+    return -1
+}
+
+func main() {
+    code, fits := int32(f([3]int64{1, 2, 3}, 1, true))
+    if fits { exit(code) }
+}
+-- stored-relation-one-branch/expected --
+stage: typeck
+---
+
+stored-relation-one-branch/main.tck:10:18: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+09 |	    if 0 <= i && i < n {
+10 |	        return a[i]
+   |	                 ^
+11 |	    }
+
+-- stored-relation-own-node-branch/main.tck --
+package main
+
+// n = 9 in one branch reaches the use, so n == 2 does not hold at a[n],
+// though 3 <= j && j <= len(a) keeps len(a) at or above 3.
+func f(a []int64, j int64, c bool) int64 {
+    mut n int64 = 2
+    if c {
+        n = 9
+    }
+    if 3 <= j && j <= len(a) {
+        return a[n]
+    }
+    return -1
+}
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    code, fits := int32(f(a[:], 3, true))
+    if fits { exit(code) }
+}
+-- stored-relation-own-node-branch/expected --
+stage: typeck
+---
+
+stored-relation-own-node-branch/main.tck:11:18: error: index n may be out of range; check 0 <= n && n < len(a) first, or use v, ok := ...[n]
+10 |	    if 3 <= j && j <= len(a) {
+11 |	        return a[n]
+   |	                 ^
+12 |	    }
+
+-- stored-relation-write-before-defer-runs/main.tck --
+package main
+
+func use(v int64) {
+}
+
+// The deferred block runs when f returns, after n = 100, so n == 2 does
+// not hold in it.
+func f(a [3]int64, i int64) {
+    mut n int64 = 2
+    defer {
+        if 0 <= i && i < n {
+            use(a[i])
+        }
+    }
+    n = 100
+}
+
+func main() {
+    f([3]int64{1, 2, 3}, 1)
+}
+-- stored-relation-write-before-defer-runs/expected --
+stage: typeck
+---
+
+stored-relation-write-before-defer-runs/main.tck:12:19: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+11 |	        if 0 <= i && i < n {
+12 |	            use(a[i])
+   |	                  ^
+13 |	        }
+
+-- stored-relation-write-between/main.tck --
+package main
+
+// n = x, between the store of 2 in n and the use, ends n == 2, so i < n
+// keeps i below nothing the index needs.
+func f(a [3]int64, i int64, x int64) int64 {
+    mut n int64 = 2
+    n = x
+    if 0 <= i && i < n {
+        return a[i]
+    }
+    return -1
+}
+
+func main() {
+    code, fits := int32(f([3]int64{1, 2, 3}, 1, 2))
+    if fits { exit(code) }
+}
+-- stored-relation-write-between/expected --
+stage: typeck
+---
+
+stored-relation-write-between/main.tck:9:18: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+08 |	    if 0 <= i && i < n {
+09 |	        return a[i]
+   |	                 ^
+10 |	    }
+
+-- stored-relation-write-known-between/main.tck --
+package main
+
+// n = 5, between the store of 2 in n and the use, ends n == 2 and
+// starts n == 5, under which i < n allows i == 4.
+func f(a [3]int64, i int64) int64 {
+    mut n int64 = 2
+    n = 5
+    if 0 <= i && i < n {
+        return a[i]
+    }
+    return -1
+}
+
+func main() {
+    code, fits := int32(f([3]int64{1, 2, 3}, 1))
+    if fits { exit(code) }
+}
+-- stored-relation-write-known-between/expected --
+stage: typeck
+---
+
+stored-relation-write-known-between/main.tck:9:18: error: index i may be out of range; check 0 <= i && i < 3 first, or use v, ok := ...[i]
+08 |	    if 0 <= i && i < n {
+09 |	        return a[i]
+   |	                 ^
+10 |	    }
 
 -- string-arithmetic/main.tck --
 package main
