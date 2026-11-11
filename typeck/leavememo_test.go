@@ -67,21 +67,19 @@ func unionChain(n int) string {
 // of the else before it, so working out afresh at every link whether it
 // leaves or terminates walks the rest of the chain, and copying the rest
 // of a loop's body for each early exit in it copies it once an exit;
-// either makes them quadratic. An else if chain with as many uses after
-// it as links still copies the uses once a link, the region of each
-// link's facts starting with the next link (see chainFacts), so only its
-// answers worked out are bounded.
+// either makes them quadratic, as copying the uses after an else if
+// chain into the region of each link's facts, which starts with the next
+// link (see chainFacts), would.
 func TestLeavingIsWorkedOutOnce(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		lines  func(n int) []string
-		copies bool
+		name  string
+		lines func(n int) []string
 	}{
-		{"else if chain", leavingElseIfs, true},
-		{"else if chain with as many uses", elseIfWrites, false},
-		{"loop of leaving ifs", oneUseLoopIfs, true},
-		{"loop of leaving ifs with as many uses", loopIfWrites, true},
-		{"terminating else if chain", endingElseIfs, true},
+		{"else if chain", leavingElseIfs},
+		{"else if chain with as many uses", elseIfWrites},
+		{"loop of leaving ifs", oneUseLoopIfs},
+		{"loop of leaving ifs with as many uses", loopIfWrites},
+		{"terminating else if chain", endingElseIfs},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			diags, small := checkWork(t, inF(tc.lines(500)...))
@@ -93,9 +91,7 @@ func TestLeavingIsWorkedOutOnce(t *testing.T) {
 				t.Fatalf("got %d diagnostics, first %v", len(diags), diags[0])
 			}
 			checkGrowth(t, "answers of leaving or terminating worked out", small.Decided, grown.Decided)
-			if tc.copies {
-				checkGrowth(t, "statements copied into regions", small.Copied, grown.Copied)
-			}
+			checkGrowth(t, "statements copied into regions", small.Copied, grown.Copied)
 		})
 	}
 }

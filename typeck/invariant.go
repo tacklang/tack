@@ -73,11 +73,12 @@ type invCand struct {
 }
 
 // start is a known value a mutable variable was last given, as the fact
-// f, holding in region, the rest of the block that gave it, and, once a
+// f, holding in region, the rest of the block that gave it, shared with
+// the other regions over it (see region.go), and, once a
 // loop's start has asked about it, ended, f with every write in region
 // that may end it (see startFact).
 type start struct {
-	region []ast.Node
+	region region
 	ended  *fact
 	f      fact
 }
@@ -335,7 +336,7 @@ func constantBound(e relEdge, w constant.Int) fact {
 // a bound only on one that can have facts (see counterVar). rest is the rest of the block after stmt, which a write
 // in ends it. Only the probe takes candidate bounds, so only the probe
 // remembers.
-func (c *Checker) recordStart(stmt ast.Stmt, rest []ast.Stmt) {
+func (c *Checker) recordStart(stmt ast.Stmt, rest blockRest) {
 	if !c.probing {
 		return
 	}
@@ -350,7 +351,7 @@ func (c *Checker) recordStart(stmt ast.Stmt, rest []ast.Stmt) {
 		}
 	}
 	f := fact{about: declKey(decl), lo: v, hi: v, hasLo: true, hasHi: true}
-	c.starts = append(c.starts, start{f: f, region: stmtNodes(rest)})
+	c.starts = append(c.starts, start{f: f, region: region{rest: rest}})
 }
 
 // storedValue returns the variable stmt gives a value whole and that
@@ -378,7 +379,7 @@ func storedValue(stmt ast.Stmt) (ast.Decl, ast.Expr, bool) {
 func (c *Checker) startFact(s *start) fact {
 	if s.ended == nil {
 		f := s.f
-		f.ends = c.indexWrites(s.region).endings(f)
+		f.ends = c.indexRegion(s.region).endings(f)
 		s.ended = &f
 	}
 	return *s.ended

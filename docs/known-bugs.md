@@ -11,15 +11,21 @@ bound that reaches a variable only through one proves nothing. Under
 `a` a `[3]int64`, the index is rejected, though `i <= 1` makes it safe.
 The rejection is safe.
 
-## Many early exits, or a long else-if chain with many uses after it, check in quadratic time
+## Many early exits check in quadratic time
 
-A block with many early exits, each an `if` that leaves, followed by more
-statements, is checked in time that grows with the square of its
-length, since indexing each exit's writes walks the rest of the block:
-about a second for 1000 exits and 30 seconds for 4000. A long chain of
-`else if` links followed by as many statements is quadratic for the same
-reason: the region each link's facts hold in is the next link followed by
-the rest of the block, so the rest is copied once a link: about 2.1
-seconds for 16000 links with 16000 uses after them. Both come from each
-exit or link getting a region of its own over the rest of the block,
-copied or walked once for each.
+A block with many early exits, each an `if` that leaves and puts a fact
+in force for the rest of the block, followed by
+more statements, is checked in time that grows with the square of the
+exits. The exits' regions share the rest of the block, walked once for
+its writes (`typeck/region.go`), but each exit changes the facts in
+force, so the next query rebuilds the index of them by subject from
+every fact in force (`factIndex` in `typeck/factindex.go`), and each
+query about a variable reads every fact about it: about 0.2 seconds
+for 4000 exits bounding `n` and 2.8 seconds for 16000, and, through the
+driver, about 5 seconds for 4000 exits that each bound a new local and
+a minute for 16000, since the rebuild does not depend on the variable. When the
+statements after the exits also write the variable, as straight-line
+code that assigns `j` and proves it again before each use does, each
+exit's fact also keeps every write to `j` after it, and each use judges
+every earlier exit's fact against them, so 4000 such exits take about 10
+seconds.

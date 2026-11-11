@@ -1298,28 +1298,29 @@ func (c *Checker) checkBlock(body []ast.Stmt, fn *ast.Func) {
 // in force for the caller to release, and counting the block in c.dead
 // once a statement leaves it or ends in exit.
 //
-// The regions of what each statement gives the rest are suffixes of one
-// region of the whole block, copied only behind what an early exit
-// falls through to first (see joinRegion), so a block of n statements,
-// each giving facts, does not copy them n times.
+// The regions of what each statement gives the rest all end in the rest
+// of the block, which they share, behind what an early exit falls
+// through to first, and whose writes are found once for all of them (see
+// region.go), so a block of n statements, each giving facts, is neither
+// copied nor walked n times.
 func (c *Checker) checkStmts(body []ast.Stmt, fn *ast.Func) {
 	dead := c.dead
-	nodes := stmtNodes(body)
-	c.work.copied += len(nodes)
+	blk := c.newBlockRegion(body)
 	for i, stmt := range body {
 		c.checkStmt(stmt, fn)
-		c.recordStart(stmt, body[i+1:])
+		rest := blk.restFrom(i + 1)
+		c.recordStart(stmt, rest)
 		g, facts := c.afterFacts(stmt)
 		if g == nil {
 			g, facts = c.storedFacts(stmt)
 		}
 		if g != nil {
-			c.assume(g, facts, c.joinRegion(c.fallsThrough(stmt), nodes[i+1:]))
+			c.assumeIn(g, facts, c.regionOf(c.fallsThrough(stmt), rest))
 		}
 		if g, facts := c.contractFacts(stmt); g != nil {
-			c.assume(g, facts, nodes[i+1:])
+			c.assumeIn(g, facts, region{rest: rest})
 		}
-		c.chainFacts(stmt, nodes[i+1:])
+		c.chainFacts(stmt, rest)
 		if c.dead == dead && (c.leaves(body[i:i+1]) || c.terminates(stmt)) {
 			c.dead++
 		}

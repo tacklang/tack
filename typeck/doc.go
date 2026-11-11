@@ -218,8 +218,12 @@
 // continue, or that of a case it falls into, can reach from the loop in
 // the region that it lands in, and
 // for deferred code, which a return still runs (see keep and
-// leftBefore). Every write in the region is kept with the
-// fact, and judged at c.at, where checking has reached (see reaches);
+// leftBefore). The regions of the facts a block's statements give the
+// rest of it share that rest, whose writes are found in one walk of the
+// block, each region's by a binary search (region.go), so n early exits
+// do not walk the rest of their block n times. Every write in the region
+// is kept with the fact, and judged at c.at, where checking has reached
+// (see reaches);
 // a fact with more than a few such writes is judged through an index of
 // the positions each reaches, built once, so judging n writes at n uses
 // takes about n log n steps, not n times n (reach.go). A
@@ -675,7 +679,8 @@
 // index it reads, each operator or operand an arithmetic bound
 // reads, each if, switch, fallthrough or loop whether it leaves or
 // terminates is worked out for, and each statement copied into a region
-// for the facts a statement before it gives. The
+// for the facts a statement before it gives, which the regions over the
+// rest of a block share rather than copy (region.go). The
 // counts change nothing it checks;
 // the tests read them to bound how checking grows with a program, which,
 // unlike a time, does not depend on the machine's load.

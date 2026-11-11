@@ -46,7 +46,7 @@ import (
 // proof first asks about them (see indexProven).
 type proofOnly struct {
 	sides  [][]fact
-	region []ast.Node
+	region region
 	// indexed is whether every fact's ends have been found.
 	indexed bool
 }
@@ -87,7 +87,7 @@ func (c *Checker) dropSides(e *eitherFacts, region []ast.Node) *eitherFacts {
 // keepApart records facts, the content of f, an empty fact put in force
 // from g for region, as proof-only facts, when it has any: the sides it
 // carries, or the value it rules out. It reports whether f had any.
-func (c *Checker) keepApart(g *guard, f fact, region []ast.Node) bool {
+func (c *Checker) keepApart(g *guard, f fact, r region) bool {
 	switch {
 	case f.drop != nil:
 		return f.either != nil || f.out
@@ -96,11 +96,11 @@ func (c *Checker) keepApart(g *guard, f fact, region []ast.Node) bool {
 		for i, side := range f.either.sides {
 			sides[i] = guarded(g, side)
 		}
-		c.proven = append(c.proven, proofOnly{sides: sides, region: region})
+		c.proven = append(c.proven, proofOnly{sides: sides, region: r})
 		return true
 	case f.out:
 		f.guard = g
-		c.proven = append(c.proven, proofOnly{sides: [][]fact{{f}}, region: region})
+		c.proven = append(c.proven, proofOnly{sides: [][]fact{{f}}, region: r})
 		return true
 	default:
 		return false
@@ -108,10 +108,11 @@ func (c *Checker) keepApart(g *guard, f fact, region []ast.Node) bool {
 }
 
 // chainFacts puts in force, for rest, the statements after stmt in its
-// block as a region (see stmtNodes), what an if chain or a switch that
-// stmt is gives the code after it past its first link, whose facts
-// afterFacts gives. For an if whose then branch leaves and whose else is
-// one if, the code after the outer if is reached only past that inner if,
+// block, shared with the other regions over them (see region.go), what
+// an if chain or a switch that stmt is gives the code after it past its
+// first link, whose facts afterFacts gives. For an if whose then branch
+// leaves and whose else is one if, the code after the outer if is
+// reached only past that inner if,
 // so whatever the inner if gives the code after it as an early exit (see
 // afterFacts) holds there too, in a region from the inner if's branch that
 // falls through on, and so on down the chain. For a switch see
@@ -122,8 +123,8 @@ func (c *Checker) keepApart(g *guard, f fact, region []ast.Node) bool {
 // the link before it, never walks the rest of the chain, which in a chain
 // of n links would take time n squared. Whether each link leaves is
 // remembered (see leavememo.go), so the walk looks at each link once.
-func (c *Checker) chainFacts(stmt ast.Stmt, rest []ast.Node) {
-	if len(rest) == 0 {
+func (c *Checker) chainFacts(stmt ast.Stmt, rest blockRest) {
+	if rest.empty() {
 		return
 	}
 	if sw, ok := stmt.(*ast.Switch); ok {
@@ -140,13 +141,14 @@ func (c *Checker) chainFacts(stmt ast.Stmt, rest []ast.Node) {
 		if g == nil {
 			continue
 		}
-		c.assume(g, facts, c.joinRegion(c.fallsThrough(s), rest))
+		c.assumeIn(g, facts, c.regionOf(c.fallsThrough(s), rest))
 	}
 }
 
-// switchChainFacts puts in force, for rest, the statements after s as a
-// region (see stmtNodes), s an expression switch, tagged or with no tag,
-// what the cases after its first, in the order tried, give them, as the
+// switchChainFacts puts in force, for rest, the statements after s,
+// shared with the other regions over them (see region.go), s an
+// expression switch, tagged or with no tag, what the cases after its
+// first, in the order tried, give them, as the
 // else-if chain s means does; the first case's facts come from
 // switchAfterFacts. While every case tried so far leaves, the code after s
 // is reached only when none of them matched, so the next case gives the
@@ -157,7 +159,7 @@ func (c *Checker) chainFacts(stmt ast.Stmt, rest []ast.Node) {
 // it enters does (see leaves). The facts of a case not matching hold in a
 // region of every value tried after it and every later body that does not
 // leave, then rest; those of a case matching, in its body, then rest.
-func (c *Checker) switchChainFacts(s *ast.Switch, rest []ast.Node) {
+func (c *Checker) switchChainFacts(s *ast.Switch, rest blockRest) {
 	if s.IsTypeSwitch() || (s.Tag != nil && c.table.IsUnion(ast.TypeOf(s.Tag))) {
 		return
 	}
@@ -176,8 +178,9 @@ func (c *Checker) switchChainFacts(s *ast.Switch, rest []ast.Node) {
 		all = all && bodyLeaves[i]
 		restLeaves[i] = all
 	}
-	// The regions are suffixes of one slice: from[i] is where the values
-	// of order[i] start in it, and from[len(order)] where rest does.
+	// The regions' heads are suffixes of one slice, each followed by
+	// rest: from[i] is where the values of order[i] start in it, and
+	// from[len(order)] its end.
 	var nodes []ast.Node
 	from := make([]int, len(order)+1)
 	for i := 1; i < len(order); i++ {
@@ -188,19 +191,19 @@ func (c *Checker) switchChainFacts(s *ast.Switch, rest []ast.Node) {
 		}
 	}
 	from[len(order)] = len(nodes)
-	nodes = append(nodes, rest...)
+	c.work.copied += len(nodes)
 	for i := 1; i < len(order) && bodyLeaves[i-1] && !restLeaves[i]; i++ {
 		cl := order[i]
 		switch {
 		case bodyLeaves[i] && !restLeaves[i+1]:
 			if facts := c.caseFacts(s, cl, false); len(facts) > 0 {
 				g := &guard{span: caseSpan(cl), kind: guardExit}
-				c.assume(g, facts, nodes[from[i+1]:])
+				c.assumeIn(g, facts, region{head: nodes[from[i+1]:], rest: rest})
 			}
 		case !bodyLeaves[i] && restLeaves[i+1]:
 			if facts := c.caseFacts(s, cl, true); len(facts) > 0 {
 				g := &guard{span: caseSpan(cl), kind: guardMatched}
-				c.assume(g, facts, append(stmtNodes(cl.Body), rest...))
+				c.assumeIn(g, facts, c.regionOf(stmtNodes(cl.Body), rest))
 			}
 		}
 	}
@@ -222,7 +225,7 @@ func (c *Checker) indexProven(r *proofOnly) {
 		return
 	}
 	r.indexed = true
-	idx := c.indexWrites(r.region)
+	idx := c.indexRegion(r.region)
 	for _, side := range r.sides {
 		for i := range side {
 			if side[i].drop == nil {

@@ -72,3 +72,21 @@ func CheckLeaving() (restore func()) {
 func ReachOracle() bool {
 	return reachOracle
 }
+
+// CheckRegions makes every query of the writes in a region whose rest is
+// shared with others be checked against an index of a walk of all its
+// nodes, panicking on a difference (see regionOracle), and returns the
+// func that puts back what was set. A test calling it must not run in
+// parallel.
+func CheckRegions() (restore func()) {
+	was := regionOracle
+	regionOracle = true
+	return func() { regionOracle = was }
+}
+
+// RegionOracle reports whether every query of a region's writes is
+// checked against a walk of all its nodes (see regionOracle), which makes
+// the nodes walked grow with the regions times the block.
+func RegionOracle() bool {
+	return regionOracle
+}

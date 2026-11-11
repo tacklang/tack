@@ -1045,20 +1045,26 @@ func negate(op ast.BinaryOp) ast.BinaryOp {
 // before they are put in force (see dropAssigned). A fact that already
 // carries a drop, such as one a later part of its own condition ends (see
 // factsFrom), keeps it.
-func (c *Checker) assume(g *guard, facts []fact, region []ast.Node) {
+func (c *Checker) assume(g *guard, facts []fact, nodes []ast.Node) {
+	c.assumeIn(g, facts, region{head: nodes})
+}
+
+// assumeIn is assume for a region that may end in the rest of a block,
+// shared with the other regions over it (see region.go).
+func (c *Checker) assumeIn(g *guard, facts []fact, r region) {
 	c.guards = append(c.guards, g)
 	c.factGen++
-	var idx writeIndex
+	var idx *regionIndex
 	for _, f := range facts {
 		c.noteRelated(f)
 		if f.empty() {
-			c.keepApart(g, f, region)
+			c.keepApart(g, f, r)
 			continue
 		}
 		f.guard = g
 		if f.drop == nil {
 			if idx == nil {
-				idx = c.indexWrites(region)
+				idx = c.indexRegion(r)
 			}
 			f.ends = idx.endings(f)
 		}
@@ -1109,20 +1115,6 @@ func stmtNodes(body []ast.Stmt) []ast.Node {
 		nodes[i] = stmt
 	}
 	return nodes
-}
-
-// joinRegion returns the region of head, then rest. With no head it is
-// rest itself, not a copy, so the regions of a block's statements can
-// share one slice of them (see checkStmts). No region is ever changed in
-// place, and appending to rest, whose length is its capacity when it is
-// a suffix of a block's region, copies it. Each node of rest copied
-// counts as work (see proverWork).
-func (c *Checker) joinRegion(head, rest []ast.Node) []ast.Node {
-	if len(head) == 0 {
-		return rest
-	}
-	c.work.copied += len(rest)
-	return append(head, rest...)
 }
 
 // release takes out of force every fact and guard assumed since m was
@@ -1536,11 +1528,7 @@ func (idx writeIndex) endings(f fact) *endings {
 		}
 		seen = append(seen, k.decl)
 		for _, w := range idx[k.decl] {
-			var loop ast.Span
-			if len(w.loops) > 0 {
-				loop = w.loops[0]
-			}
-			ends = append(ends, ending{drop: w.drop, kept: w.kept, loop: loop, at: w.at})
+			ends = append(ends, endingOf(w))
 		}
 	}
 	if len(ends) == 0 {
@@ -1562,8 +1550,22 @@ type writeIndex map[ast.Decl][]write
 // order, with the same loops.
 func (c *Checker) indexWrites(region []ast.Node) writeIndex {
 	idx := make(writeIndex)
+	c.walkWrites(region, func(_ int, n ast.Node, at write) {
+		c.indexNode(idx, n, at)
+	})
+	return idx
+}
+
+// walkWrites walks each of nodes on its own, the loops and the keeps
+// around a node found within the one walked from alone, and calls each
+// with the position in nodes of the one walked from, every node met, and
+// a write holding the loops around that node, the keeps holding it, and
+// where its writes take effect, for indexNode to add its writes to.
+// Each node met counts as walked (see proverWork).
+func (c *Checker) walkWrites(nodes []ast.Node, each func(i int, n ast.Node, at write)) {
 	var loops []ast.Span
 	keeps := newKeepWalk(&c.work.leaving)
+	var i int
 	visit := func(n ast.Node) bool {
 		c.work.walked++
 		span := n.Spanned()
@@ -1574,14 +1576,13 @@ func (c *Checker) indexWrites(region []ast.Node) writeIndex {
 			loops = append(loops[:len(loops):len(loops)], span)
 		}
 		kept := keeps.visit(n, span, loops)
-		c.indexNode(idx, n, write{kept: kept, loops: loops, at: span.End})
+		each(i, n, write{kept: kept, loops: loops, at: span.End})
 		return true
 	}
-	for _, n := range region {
+	for i = range nodes {
 		loops, keeps.top, keeps.lits = nil, nil, nil
-		ast.Walk(n, visit)
+		ast.Walk(nodes[i], visit)
 	}
-	return idx
 }
 
 // indexNode adds to idx the writes the node n makes, as eachWrite finds

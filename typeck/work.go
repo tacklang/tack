@@ -23,8 +23,8 @@ package typeck
 // fallthrough or loop for which whether it leaves or terminates is
 // worked out, rather than remembered (see leavememo.go); and copied each
 // statement of a block put into a region facts hold in, once for the
-// block, and again behind each branch an early exit falls through to
-// (see checkStmts and joinRegion). They count work,
+// block, and each node put in a region's head, before the rest of a
+// block every region over it shares (see region.go). They count work,
 // not time, so a test can bound how checking grows with the program
 // checked, whatever else the machine is doing.
 type proverWork struct {

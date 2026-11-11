@@ -27,8 +27,8 @@ type reachShape struct {
 // j and return, the same with each write in a loop in its case, the same
 // switch inside a loop, an else if chain, a loop holding ifs that write
 // and return, and straight-line code that writes j and proves it again
-// before each use, which indexes the writes of each early exit's region
-// apart, and so is measured only up to 4000.
+// before each use, each early exit's fact keeping every write to j after
+// it, so it is measured only up to 4000.
 var reachShapes = []reachShape{
 	{"switch", switchWrites, 16000},
 	{"switch writing in loops", switchLoopWrites, 16000},
@@ -154,9 +154,10 @@ func BenchmarkWriteReach(b *testing.B) {
 // of the reach index built over them, and the keeps they are judged
 // against. Asking whether every write reaches every use, as a scan of a
 // fact's endings at each use does, would make them quadratic. Straight
-// line code proves j again before each use, and each early exit's region
-// is indexed for its writes apart, which the nodes walked bound (see
-// TestLongLeavingChainsCheckQuickly), not the endings asked about. With
+// line code proves j again before each use, and each early exit's fact
+// keeps every write to j after it and is asked about at every use after
+// it (see docs/known-bugs.md), so only the nodes walked for its writes
+// are bounded (see TestRegionsShareTheRestOfABlock). With
 // the oracle on, every query scans the endings too, so the test is
 // skipped.
 func TestManyWritesAndUsesCheckQuickly(t *testing.T) {
