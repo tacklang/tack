@@ -324,7 +324,11 @@ func (c *Checker) supposing(proven func() bool) bool {
 			c.active[i].drop, c.active[i].ends = nil, nil
 		}
 	}
-	defer func() { c.active = saved }()
+	c.factsEdited++
+	defer func() {
+		c.active = saved
+		c.factsEdited--
+	}()
 	return proven()
 }
 

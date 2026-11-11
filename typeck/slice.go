@@ -382,7 +382,7 @@ func (c *Checker) related(a, b ast.Expr, rel func(f fact, k factKey) bool) bool 
 	if !okA || !okB {
 		return false
 	}
-	for f := range c.factsAbout(ak) {
+	for f := range c.heldFactsAbout(ak) {
 		if c.holds(f) && rel(f, bk) {
 			return true
 		}

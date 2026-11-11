@@ -675,7 +675,10 @@
 // arithmetic operator worked out, each edge a relation query looks at,
 // each fact read into the index, and each fact a query about one
 // subject reads, through an index of the facts in force by subject once
-// more than a few are (factindex.go), each local's known value worked
+// more than a few are, kept in step with them as they are pushed and
+// popped, which leaves out, for a query of what the facts that hold
+// say, a fact a newer one alike shadows, holding wherever it does
+// (factindex.go), each local's known value worked
 // out, each condition whose facts are worked out rather than taken from
 // the && or || chain kept, each node a region's writes are indexed
 // from, each write a fact's query judges and each step of the reach

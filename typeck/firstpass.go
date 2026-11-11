@@ -37,8 +37,10 @@ import (
 //   - holding, which collectHolds makes anew for the second pass;
 //   - defers, each function's defers, found from its syntax alone and
 //     the same whichever pass finds them;
-//   - factGen, which only grows, so that no index of facts built in the
-//     first pass, factsBy or relIdx, is taken as current in the second;
+//   - factGen, which only grows, so that no index of relations built in
+//     the first pass, relIdx, is taken as current in the second, and
+//     factsBy, the index of the facts in force, which is kept in step
+//     with them and so is as current after the pass as before it;
 //   - work, the provers' steps, which the first pass did take;
 //   - the state of the check in progress, the facts in force and the
 //     guards among them, the loops and defers around the statement, dead

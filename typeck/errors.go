@@ -484,7 +484,7 @@ func (c *Checker) errorCodeKey(e ast.Expr) (factKey, bool) {
 func (c *Checker) noError(errDecl ast.Decl) bool {
 	known := codeInterval()
 	k := factKey{decl: errDecl, path: ".code"}
-	for f := range c.factsAbout(k) {
+	for f := range c.heldFactsAbout(k) {
 		if c.holds(f) {
 			known = known.narrow(f)
 		}
@@ -613,7 +613,7 @@ func (c *Checker) errorProof(errDecl ast.Decl) proof {
 func (c *Checker) okTrue(okDecl ast.Decl) bool {
 	var known interval
 	k := declKey(okDecl)
-	for f := range c.factsAbout(k) {
+	for f := range c.heldFactsAbout(k) {
 		if c.holds(f) {
 			known = known.narrow(f)
 		}

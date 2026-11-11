@@ -3,21 +3,19 @@
 Bugs found and not yet fixed. Each is fixed in its own change, with a failing
 test first, and removed from this list when it lands.
 
-## Many early exits check in quadratic time
+## Early exits that each keep every later write check in quadratic time
 
-A block with many early exits, each an `if` that leaves and puts a fact
-in force for the rest of the block, followed by
-more statements, is checked in time that grows with the square of the
-exits. The exits' regions share the rest of the block, walked once for
-its writes (`typeck/region.go`), but each exit changes the facts in
-force, so the next query rebuilds the index of them by subject from
-every fact in force (`factIndex` in `typeck/factindex.go`), and each
-query about a variable reads every fact about it: about 0.2 seconds
-for 4000 exits bounding `n` and 2.8 seconds for 16000, and, through the
-driver, about 5 seconds for 4000 exits that each bound a new local and
-a minute for 16000, since the rebuild does not depend on the variable. When the
-statements after the exits also write the variable, as straight-line
-code that assigns `j` and proves it again before each use does, each
-exit's fact also keeps every write to `j` after it, and each use judges
-every earlier exit's fact against them, so 4000 such exits take about 10
-seconds.
+A block of early exits, each proving again what the code between them
+writes, as straight-line code that assigns `j` and proves it again
+before each use does, is checked in time that grows with the square of
+the exits. Each exit's fact keeps every write to `j` after it, so its
+endings are gathered from the rest of the block and, at its first
+query, indexed for reach (`findEndings` in `typeck/region.go`,
+`newReachIndex` in `typeck/reach.go`), once for each exit: about 0.3
+seconds for 1000 such exits and 5.4 seconds for 4000. A query about `j`
+reads only the newest of the exits' facts (`heldFactsAbout` in
+`typeck/factindex.go`), so judging them is no longer the cost; sharing
+the rest's endings between the facts over it would be. A closure after
+each of many exits is quadratic too, since entering one copies every
+fact in force that stays in force in its body (`enterClosure` in
+`typeck/closure.go`).

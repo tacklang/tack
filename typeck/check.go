@@ -229,8 +229,15 @@ type Checker struct {
 
 	// factsBy indexes the facts in force by their subject, when many are:
 	// the positions in active of each subject's facts, in increasing
-	// order, as they were at factsGen (see factindex.go).
-	factsBy map[factKey][]int
+	// order, built the first time a query needs it and kept in step with
+	// active from then on, or nil before then (see factindex.go).
+	factsBy *subjectIndex
+
+	// factsEdited counts the calls of supposing and provenWithout in
+	// progress, each of which has swapped in facts whose drops and endings
+	// are cleared, so no fact in force may be taken as shadowed by another
+	// (see factindex.go).
+	factsEdited int
 
 	// relIdx is the index of the relations the facts in force give, built
 	// for the generation of them it records (see factGen and relgraph.go).
@@ -345,9 +352,6 @@ type Checker struct {
 	// factGen counts the changes to active: each assume, and each release
 	// that takes facts out of force.
 	factGen int
-
-	// factsGen is the factGen factsBy was built at.
-	factsGen int
 
 	// work counts the steps the provers take, for the tests that bound
 	// how checking grows with the program checked (see proverWork).

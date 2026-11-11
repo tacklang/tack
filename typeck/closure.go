@@ -244,6 +244,7 @@ type closureState struct {
 	inRejectedDefer                       bool
 	clauses                               []clauseAt
 	active                                []fact
+	factsBy                               *subjectIndex
 	guards                                []*guard
 	proven                                []proofOnly
 	starts                                []start
@@ -277,7 +278,7 @@ func (c *Checker) enterClosure(lit *ast.FuncLit) closureState {
 		fn: c.fn, loops: c.loops, deferred: c.deferred, deferLoops: c.deferLoops,
 		dead: c.dead, at: c.at, inCoveredDefault: c.inCoveredDefault,
 		inRejectedDefer: c.inRejectedDefer, clauses: c.clauses,
-		active: c.active, guards: c.guards, proven: c.proven, starts: c.starts,
+		active: c.active, factsBy: c.factsBy, guards: c.guards, proven: c.proven, starts: c.starts,
 		invFrames: c.invFrames, appends: c.appends, chain: c.chain, inference: c.inference,
 		viewSlice: c.viewSlice, checkedSlice: c.checkedSlice, viewCall: c.viewCall,
 		droppedCall: c.droppedCall, checkedTake: c.checkedTake, checkedIndex: c.checkedIndex,
@@ -300,6 +301,7 @@ func (c *Checker) enterClosure(lit *ast.FuncLit) closureState {
 		}
 	}
 	c.active, c.guards = active, guards
+	c.factsBy = nil
 	c.proven, c.starts, c.invFrames, c.appends = nil, nil, nil, nil
 	c.chain = chainFacts{}
 	c.inference = nil
@@ -316,6 +318,7 @@ func (c *Checker) leaveClosure(s closureState) {
 	c.loops, c.deferred, c.deferLoops, c.dead, c.at = s.loops, s.deferred, s.deferLoops, s.dead, s.at
 	c.inCoveredDefault, c.inRejectedDefer, c.clauses = s.inCoveredDefault, s.inRejectedDefer, s.clauses
 	c.active, c.guards, c.proven, c.starts = s.active, s.guards, s.proven, s.starts
+	c.factsBy = s.factsBy
 	c.invFrames, c.appends, c.chain, c.inference = s.invFrames, s.appends, s.chain, s.inference
 	c.viewSlice, c.checkedSlice, c.viewCall = s.viewSlice, s.checkedSlice, s.viewCall
 	c.droppedCall, c.checkedTake, c.checkedIndex = s.droppedCall, s.checkedTake, s.checkedIndex

@@ -148,7 +148,7 @@ func (c *Checker) minLen(s ast.Expr) constant.Int {
 		return constant.Int{}
 	}
 	var least interval
-	for f := range c.factsAbout(k) {
+	for f := range c.heldFactsAbout(k) {
 		if c.holds(f) {
 			least = least.narrow(f)
 		}
@@ -175,7 +175,7 @@ func (c *Checker) maxLen(s ast.Expr) (constant.Int, bool) {
 		return constant.Int{}, false
 	}
 	var most interval
-	for f := range c.factsAbout(k) {
+	for f := range c.heldFactsAbout(k) {
 		if c.holds(f) {
 			most = most.narrow(f)
 		}
@@ -191,7 +191,7 @@ func (c *Checker) belowLen(i, s ast.Expr) bool {
 	if !okI || !okS {
 		return false
 	}
-	for f := range c.factsAbout(ik) {
+	for f := range c.heldFactsAbout(ik) {
 		if f.lenOf == sk && c.holds(f) {
 			return true
 		}

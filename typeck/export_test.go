@@ -90,3 +90,14 @@ func CheckRegions() (restore func()) {
 func RegionOracle() bool {
 	return regionOracle
 }
+
+// CheckFactIndex makes every query of the facts in force read their
+// index, however few there are, and check it, and what a query of the
+// facts not shadowed reads, against a scan of every fact, panicking on a
+// difference (see indexOracle), and returns the func that puts back what
+// was set. A test calling it must not run in parallel.
+func CheckFactIndex() (restore func()) {
+	was := indexOracle
+	indexOracle = true
+	return func() { indexOracle = was }
+}

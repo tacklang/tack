@@ -541,7 +541,11 @@ func (c *Checker) provenWithout(at []int) bool {
 	for _, i := range at {
 		c.active[i].drop, c.active[i].ends = nil, nil
 	}
-	defer func() { c.active = saved }()
+	c.factsEdited++
+	defer func() {
+		c.active = saved
+		c.factsEdited--
+	}()
 	return c.unreachableProven()
 }
 

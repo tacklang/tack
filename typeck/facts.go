@@ -221,7 +221,7 @@ func (c *Checker) intervalOf(e ast.Expr) interval {
 	if !ok {
 		return known
 	}
-	for f := range c.factsAbout(k) {
+	for f := range c.heldFactsAbout(k) {
 		if c.holds(f) {
 			known = known.narrow(f)
 		}
@@ -1069,6 +1069,7 @@ func (c *Checker) assumeIn(g *guard, facts []fact, r region) {
 			f.ends = idx.endings(f)
 		}
 		c.active = append(c.active, f)
+		c.indexFact()
 	}
 }
 
@@ -1123,6 +1124,7 @@ func (c *Checker) release(m mark) {
 	if len(c.active) != m.facts {
 		c.factGen++
 	}
+	c.unindexFacts(m.facts)
 	c.active = c.active[:m.facts]
 	c.guards = c.guards[:m.guards]
 	c.starts = c.starts[:m.starts]

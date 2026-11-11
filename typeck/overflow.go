@@ -919,7 +919,7 @@ func (c *Checker) excludes(e ast.Expr, v constant.Int) bool {
 	if !ok {
 		return false
 	}
-	for f := range c.factsAbout(k) {
+	for f := range c.heldFactsAbout(k) {
 		if f.hasNe && f.ne.Cmp(v) == 0 && c.holds(f) {
 			return true
 		}

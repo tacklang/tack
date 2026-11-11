@@ -518,7 +518,7 @@ func (c *Checker) provesBounds(cf clauseFact) bool {
 // provesMember reports whether a fact in force says what f, a key's
 // being in a map, does: the same key in the same map.
 func (c *Checker) provesMember(f fact) bool {
-	for g := range c.factsAbout(f.about) {
+	for g := range c.heldFactsAbout(f.about) {
 		if g.inMap == f.inMap && g.known == f.known && c.holds(g) {
 			return true
 		}
@@ -532,7 +532,7 @@ func (c *Checker) provesMember(f fact) bool {
 // is ruled out.
 func (c *Checker) knownOf(cf clauseFact) interval {
 	known := cf.base
-	for g := range c.factsAbout(cf.fact.about) {
+	for g := range c.heldFactsAbout(cf.fact.about) {
 		if g.inMap.isZero() && c.holds(g) {
 			known = known.narrow(g)
 		}
