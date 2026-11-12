@@ -642,7 +642,9 @@
 // way. == calls tack_eq_ and its ID, which compares the tags, then the
 // payloads of the case both hold. A union holding a list is freed by
 // tack_free_ and its ID, which frees what its case's payload holds, and a
-// struct holding one frees it through that helper. Every tack_eq_ and
+// struct holding one frees it through that helper; a union that owns
+// nothing has no tack_free_, and nothing that holds one, an arena, a
+// pool, a list or a result, frees it. Every tack_eq_ and
 // tack_free_ takes const pointers to the values it reads, so a helper
 // calling the helper of a type nested in its own uses one small frame
 // whatever the size of the values, and a thousand types nested one in

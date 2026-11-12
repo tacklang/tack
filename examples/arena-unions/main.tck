@@ -1,0 +1,543 @@
+package main
+
+import text from "std/text"
+
+// Unions in arenas and pools, the shape a syntax tree takes: a union
+// whose cases own nothing, one whose cases are all empty, one holding a
+// list and a Text, one holding a struct holding a list, and unions nested
+// in unions, owned and not. Each is an arena's sentinel and elements,
+// added one at a time and all at once, read and written through ids,
+// ranged over and dropped, and a pool's elements, inserted, read through
+// a proven handle, taken out by the checked remove and freed by the
+// statement one. A union that owns nothing is also a function's result
+// taken through ? and assigned with an error, and an add or insert that
+// fails out of memory frees an owned union it was given.
+//
+// Every check that allocates runs in a function of its own, and main
+// asserts after each that c_allocator's count of live buffers is back to
+// zero, so a leak or a double free shows. Every check prints its name and
+// "ok", or "FAIL".
+
+// live returns how many buffers c_allocator holds, in C.
+extern("arena_unions_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("arena_unions_fail_after") func fail_after(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that c_allocator holds no buffer, name saying after what.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// Node is a union whose cases own nothing: one with a payload, one
+// without.
+type Node union {
+    num int64
+    bad
+}
+
+// Empty is a union whose every case is empty.
+type Empty union {
+    red
+    green
+    blue
+}
+
+// Owner is a union holding a list in one case and a Text in another.
+type Owner union {
+    items list[int64]
+    name text.Text
+    leaf
+}
+
+// Bag is a struct holding a list beside a count.
+type Bag struct {
+    items list[int64]
+    n int64
+}
+
+// Boxed is a union holding a struct that holds a list.
+type Boxed union {
+    bag Bag
+    none
+}
+
+// Outer nests an owned union and a union owning nothing in a union.
+type Outer union {
+    inner Owner
+    plain Node
+    nothing
+}
+
+// Flat nests unions owning nothing in a union, which owns nothing either.
+type Flat union {
+    node Node
+    color Empty
+}
+
+// numbers gives a list of n numbers, 1 to n; a list shorter than n when
+// an append fails.
+func numbers(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i +% 1)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+// numOf gives the payload of a Node.num, or -1 for Node.bad.
+func numOf(n Node) int64 {
+    switch n {
+    case num(v):
+        return v
+    case bad:
+        return -1
+    }
+}
+
+// shade gives 0, 1 or 2 for red, green or blue.
+func shade(e Empty) int64 {
+    switch e {
+    case red:
+        return 0
+    case green:
+        return 1
+    case blue:
+        return 2
+    }
+}
+
+// size gives how many numbers an Owner holds, its Text's length for a
+// name, or -1 for a leaf.
+func size(o Owner) int64 {
+    switch o {
+    case items(l):
+        return len(l)
+    case name(t):
+        return t.len()
+    case leaf:
+        return -1
+    }
+}
+
+// bagSize gives the length of a Boxed bag's list plus its count, or -1
+// for none.
+func bagSize(b Boxed) int64 {
+    switch b {
+    case bag(g):
+        return len(g.items) +% g.n
+    case none:
+        return -1
+    }
+}
+
+// outerSize gives size of an inner Owner, numOf of a plain Node plus
+// 100, or -2 for nothing.
+func outerSize(o Outer) int64 {
+    switch o {
+    case inner(i):
+        return size(i)
+    case plain(n):
+        return numOf(n) +% 100
+    case nothing:
+        return -2
+    }
+}
+
+// flatOf gives numOf of a node, or shade of a color plus 10.
+func flatOf(f Flat) int64 {
+    switch f {
+    case node(n):
+        return numOf(n)
+    case color(c):
+        return shade(c) +% 10
+    }
+}
+
+// sumNodes gives the sum of numOf of each element of v times its place,
+// counted from 1, so a change of order shows.
+func sumNodes(v []Node) int64 {
+    mut t int64 = 0
+    for i, n := range v {
+        t = t +% (i +% 1) *% numOf(n)
+    }
+    return t
+}
+
+// sumEmpties gives the sum of shade of each element of v times its place,
+// counted from 1.
+func sumEmpties(v []Empty) int64 {
+    mut t int64 = 0
+    for i, e := range v {
+        t = t +% (i +% 1) *% shade(e)
+    }
+    return t
+}
+
+// sumOwners gives the sum of size of each element of v times its place,
+// counted from 1.
+func sumOwners(v []Owner) int64 {
+    mut t int64 = 0
+    for i, o := range v {
+        t = t +% (i +% 1) *% size(o)
+    }
+    return t
+}
+
+// sumBoxes gives the sum of bagSize of each element of v times its
+// place, counted from 1.
+func sumBoxes(v []Boxed) int64 {
+    mut t int64 = 0
+    for i, b := range v {
+        t = t +% (i +% 1) *% bagSize(b)
+    }
+    return t
+}
+
+// sumOuters gives the sum of outerSize of each element of v times its
+// place, counted from 1.
+func sumOuters(v []Outer) int64 {
+    mut t int64 = 0
+    for i, o := range v {
+        t = t +% (i +% 1) *% outerSize(o)
+    }
+    return t
+}
+
+// sumFlats gives the sum of flatOf of each element of v times its place,
+// counted from 1.
+func sumFlats(v []Flat) int64 {
+    mut t int64 = 0
+    for i, f := range v {
+        t = t +% (i +% 1) *% flatOf(f)
+    }
+    return t
+}
+
+// named gives an Owner.name holding s, or a leaf when it cannot be made.
+func named(s string) Owner {
+    t, err := text.from_bytes([]uint8(s), c_allocator)
+    if err.code != 0 {
+        return Owner.leaf
+    }
+    return Owner.name(t)
+}
+
+// mk gives Node.num(n) and no error for n at least 0, and Node.bad and an
+// error for a negative n.
+func mk(n int64) (Node, error) {
+    if n < 0 {
+        return Node.bad, error{code: 2, msg: "negative"}
+    }
+    return Node.num(n), noerror
+}
+
+// viaQuestion takes mk(n) through ?, giving its payload doubled.
+func viaQuestion(n int64) (int64, error) {
+    x := mk(n)?
+    return numOf(x) *% 2, noerror
+}
+
+// testNodes checks an arena of a union owning nothing: its sentinel, add,
+// add_all, reads and a write through ids, a range, and drop.
+func testNodes() {
+    mut a := make(arena[Node], Node.bad, c_allocator)
+    e, err := add(mut a, Node.num(7))
+    if err.code != 0 {
+        check(false, "an arena of Node adds")
+        return
+    }
+    s, err2 := add_all(mut a, Node.num(8), Node.bad, Node.num(9))
+    if err2.code != 0 {
+        check(false, "an arena of Node adds all")
+        return
+    }
+    mut z id[Node]
+    check(numOf(a[e]) == 7 && numOf(a[z]) == -1 && len(a) == 5, "an arena of Node reads its ids and its sentinel")
+    check(len(a[s]) == 3 && sumNodes(a[s]) == 33, "an arena of Node reads its span")
+    a[e] = Node.bad
+    check(numOf(a[e]) == -1, "an arena of Node is written through an id")
+    mut t int64 = 0
+    for _, n := range a {
+        t = t +% numOf(n)
+    }
+    check(t == 14, "an arena of Node ranges")
+    drop(own a)
+    check(live() == 0, "drop frees an arena of Node")
+}
+
+// testNodeResults checks a union owning nothing as a result: through ?,
+// passing and failing, and assigned beside an error.
+func testNodeResults() {
+    d, e1 := viaQuestion(4)
+    _, e2 := viaQuestion(-1)
+    check(e1.code == 0 && d == 8 && e2.code == 2, "a Node through ?")
+    mut x Node = Node.bad
+    mut err error = noerror
+    x, err = mk(5)
+    check(err.code == 0 && numOf(x) == 5, "a Node assigned beside an error")
+    x, err = mk(-3)
+    check(err.code == 2, "a Node reassigned beside a failing error")
+}
+
+// testEmpties checks an arena and a pool of a union whose every case is
+// empty.
+func testEmpties() {
+    mut a := make(arena[Empty], Empty.red, c_allocator)
+    g, e1 := add(mut a, Empty.green)
+    s, e2 := add_all(mut a, Empty.blue, Empty.green)
+    if e1.code != 0 || e2.code != 0 {
+        check(false, "an arena of Empty adds")
+        return
+    }
+    mut z id[Empty]
+    check(shade(a[g]) == 1 && shade(a[z]) == 0 && len(a[s]) == 2 && sumEmpties(a[s]) == 4,
+        "an arena of Empty reads its ids and span")
+
+    mut p := make(pool[Empty], c_allocator)
+    h, e3 := insert(mut p, Empty.blue)
+    k, e4 := insert(mut p, Empty.red)
+    if e3.code != 0 || e4.code != 0 {
+        check(false, "a pool of Empty inserts")
+        return
+    }
+    mut read int64 = -1
+    if has(p, h) {
+        read = shade(p[h])
+        p[h] = Empty.green
+    }
+    remove(mut p, k)
+    check(read == 2 && len(p) == 1 && !has(p, k), "a pool of Empty reads, writes and removes")
+    drop(own a)
+    drop(own p)
+}
+
+// testNodePool checks a pool of a union owning nothing: insert, a proven
+// read and write, the checked remove, and the statement remove.
+func testNodePool() {
+    mut p := make(pool[Node], c_allocator)
+    h, e1 := insert(mut p, Node.num(3))
+    k, e2 := insert(mut p, Node.bad)
+    if e1.code != 0 || e2.code != 0 {
+        check(false, "a pool of Node inserts")
+        return
+    }
+    mut read int64 = 0
+    if has(p, h) {
+        read = numOf(p[h])
+        p[h] = Node.num(30)
+    }
+    check(read == 3, "a pool of Node reads through a proven handle")
+    x, ok := remove(mut p, h)
+    _, again := remove(mut p, h)
+    check(ok && !again && numOf(x) == 30, "a pool of Node removes by the checked form")
+    remove(mut p, k)
+    check(len(p) == 0 && !has(p, k), "a pool of Node removes by the statement")
+}
+
+// testOwners checks an arena of a union holding a list and a Text: its
+// sentinel owned, adds of each case, a write through an id freeing the
+// value it replaces, a range, and the arena freed at its block's end.
+func testOwners() {
+    mut a := make(arena[Owner], Owner.items(numbers(2)), c_allocator)
+    e, e1 := add(mut a, Owner.items(numbers(3)))
+    n, e2 := add(mut a, named("hello"))
+    s, e3 := add_all(mut a, Owner.leaf, named("ab"), Owner.items(numbers(1)))
+    if e1.code != 0 || e2.code != 0 || e3.code != 0 {
+        check(false, "an arena of Owner adds")
+        return
+    }
+    mut z id[Owner]
+    check(size(a[z]) == 2 && size(a[e]) == 3 && size(a[n]) == 5 &&
+        len(a[s]) == 3 && sumOwners(a[s]) == 6,
+        "an arena of Owner reads every case")
+    before := live()
+    a[e] = Owner.leaf
+    check(live() == before -% 1 && size(a[e]) == -1, "a write through an id frees the Owner it replaces")
+    mut t int64 = 0
+    for _, o := range a {
+        t = t +% size(o)
+    }
+    check(t == 8, "an arena of Owner ranges")
+}
+
+// testOwnerPool checks a pool of a union holding a list and a Text: the
+// statement remove frees an element at once, the checked one moves it
+// out, and drop frees the rest.
+func testOwnerPool() {
+    mut p := make(pool[Owner], c_allocator)
+    h, e1 := insert(mut p, Owner.items(numbers(4)))
+    k, e2 := insert(mut p, named("xyz"))
+    m, e3 := insert(mut p, Owner.items(numbers(2)))
+    if e1.code != 0 || e2.code != 0 || e3.code != 0 {
+        check(false, "a pool of Owner inserts")
+        return
+    }
+    mut read int64 = 0
+    if has(p, k) {
+        read = size(p[k])
+    }
+    before := live()
+    remove(mut p, h)
+    check(read == 3 && live() == before -% 1 && !has(p, h), "a pool of Owner frees what remove takes")
+    x, ok := remove(mut p, k)
+    check(ok && size(x) == 3 && live() == before -% 1, "a pool of Owner moves out by the checked remove")
+    if ok {
+        drop(own x)
+    }
+    drop(own p)
+    check(live() == 0 && m == m, "drop frees a pool of Owner")
+}
+
+// testBoxes checks an arena and a pool of a union holding a struct that
+// holds a list.
+func testBoxes() {
+    mut a := make(arena[Boxed], Boxed.none, c_allocator)
+    e, e1 := add(mut a, Boxed.bag(Bag{items: numbers(3), n: 10}))
+    s, e2 := add_all(mut a, Boxed.bag(Bag{items: numbers(1), n: 0}), Boxed.none)
+    if e1.code != 0 || e2.code != 0 {
+        check(false, "an arena of Boxed adds")
+        return
+    }
+    mut z id[Boxed]
+    check(bagSize(a[z]) == -1 && bagSize(a[e]) == 13 && len(a[s]) == 2 && sumBoxes(a[s]) == -1,
+        "an arena of Boxed reads every case")
+    before := live()
+    a[e] = Boxed.none
+    check(live() == before -% 1, "a write through an id frees the Boxed it replaces")
+
+    mut p := make(pool[Boxed], c_allocator)
+    h, e3 := insert(mut p, Boxed.bag(Bag{items: numbers(2), n: 1}))
+    k, e4 := insert(mut p, Boxed.bag(Bag{items: numbers(5), n: 0}))
+    if e3.code != 0 || e4.code != 0 {
+        check(false, "a pool of Boxed inserts")
+        return
+    }
+    mut read int64 = 0
+    if has(p, h) {
+        read = bagSize(p[h])
+    }
+    held := live()
+    remove(mut p, h)
+    x, ok := remove(mut p, k)
+    check(read == 3 && ok && bagSize(x) == 5 && live() == held -% 1, "a pool of Boxed removes both ways")
+    drop(own a)
+    check(live() == held -% 1 -% 2, "drop frees an arena of Boxed")
+}
+
+// testNested checks arenas and pools of unions nested in unions: Outer,
+// which owns what an Owner owns, and Flat, which owns nothing.
+func testNested() {
+    mut a := make(arena[Outer], Outer.inner(Owner.items(numbers(1))), c_allocator)
+    e, e1 := add(mut a, Outer.inner(named("four")))
+    s, e2 := add_all(mut a, Outer.plain(Node.num(5)), Outer.nothing, Outer.inner(Owner.leaf))
+    if e1.code != 0 || e2.code != 0 {
+        check(false, "an arena of Outer adds")
+        return
+    }
+    mut z id[Outer]
+    check(outerSize(a[z]) == 1 && outerSize(a[e]) == 4 && len(a[s]) == 3 &&
+        sumOuters(a[s]) == 98, "an arena of Outer reads every case")
+    before := live()
+    a[e] = Outer.plain(Node.bad)
+    check(live() == before -% 1 && outerSize(a[e]) == 99, "a write through an id frees the Outer it replaces")
+
+    mut f := make(arena[Flat], Flat.color(Empty.blue), c_allocator)
+    g, e3 := add(mut f, Flat.node(Node.num(6)))
+    t, e4 := add_all(mut f, Flat.node(Node.bad), Flat.color(Empty.green))
+    if e3.code != 0 || e4.code != 0 {
+        check(false, "an arena of Flat adds")
+        return
+    }
+    mut zf id[Flat]
+    check(flatOf(f[zf]) == 12 && flatOf(f[g]) == 6 && len(f[t]) == 2 && sumFlats(f[t]) == 21,
+        "an arena of Flat reads every case")
+
+    mut p := make(pool[Outer], c_allocator)
+    h, e5 := insert(mut p, Outer.inner(Owner.items(numbers(3))))
+    k, e6 := insert(mut p, Outer.plain(Node.num(1)))
+    if e5.code != 0 || e6.code != 0 {
+        check(false, "a pool of Outer inserts")
+        return
+    }
+    held := live()
+    remove(mut p, h)
+    x, ok := remove(mut p, k)
+    check(live() == held -% 1 && ok && outerSize(x) == 101, "a pool of Outer removes both ways")
+
+    mut q := make(pool[Flat], c_allocator)
+    j, e7 := insert(mut q, Flat.color(Empty.red))
+    if e7.code != 0 {
+        check(false, "a pool of Flat inserts")
+        return
+    }
+    mut read int64 = 0
+    if has(q, j) {
+        read = flatOf(q[j])
+    }
+    remove(mut q, j)
+    check(read == 10 && len(q) == 0, "a pool of Flat reads and removes")
+    drop(own f)
+    drop(own a)
+    drop(own p)
+    drop(own q)
+}
+
+// testOutOfMemory checks that an add, an add_all and an insert refused
+// by c_allocator free the owned unions they were given and leave the
+// arena or pool as it was.
+func testOutOfMemory() {
+    mut a := make(arena[Owner], Owner.leaf, c_allocator)
+    one := Owner.items(numbers(2))
+    two := named("gone")
+    held := live()
+    fail_after(0)
+    _, e1 := add(mut a, one)
+    _, e2 := add_all(mut a, two, Owner.leaf)
+    fail_after(-1)
+    check(e1.code == 1 && e2.code == 1 && len(a) == 1 && live() == held -% 2,
+        "a refused add and add_all free the Owners they were given")
+
+    mut p := make(pool[Boxed], c_allocator)
+    b := Boxed.bag(Bag{items: numbers(3), n: 0})
+    held2 := live()
+    fail_after(0)
+    _, e3 := insert(mut p, b)
+    fail_after(-1)
+    check(e3.code == 1 && len(p) == 0 && live() == held2 -% 1, "a refused insert frees the Boxed it was given")
+}
+
+func main() {
+    testNodes()
+    freed("an arena of Node frees everything")
+    testNodeResults()
+    freed("Node results free everything")
+    testEmpties()
+    freed("an arena and a pool of Empty free everything")
+    testNodePool()
+    freed("a pool of Node frees everything")
+    testOwners()
+    freed("an arena of Owner frees everything")
+    testOwnerPool()
+    freed("a pool of Owner frees everything")
+    testBoxes()
+    freed("an arena and a pool of Boxed free everything")
+    testNested()
+    freed("arenas and pools of nested unions free everything")
+    testOutOfMemory()
+    freed("refused adds and inserts free everything")
+}

@@ -492,16 +492,23 @@ func (g *generator) moveValue(typ types.Type, ref string) string {
 }
 
 // frees returns the C statements, each ending in a semicolon, that free
-// the value of the owned type typ held at the place ref: a list's buffer,
-// through its allocator, after each element it holds when they are owned,
-// through the list's tack_free_ (see emitListFree), an arena's elements
-// and sentinel, through its tack_free_ (see emitArenaFree), a pool's live
-// elements and slots, through its tack_free_ (see emitPoolFree), each list a
-// struct holds, last field first, at any depth, or what the case a union holds
-// holds, through its tack_free_ (see union.go). Each is a call, an
-// expression, so they can be joined into a loop's post statement.
+// the value of type typ held at the place ref, when it owns any: a
+// list's buffer, through its allocator, after each element it holds when
+// they are owned, through the list's tack_free_ (see emitListFree), an
+// arena's elements and sentinel, through its tack_free_ (see
+// emitArenaFree), a pool's live elements and slots, through its
+// tack_free_ (see emitPoolFree), each list a struct holds, last field
+// first, at any depth, or what the case a union holds holds, through its
+// tack_free_ (see union.go). Each is a call, an expression, so they can
+// be joined into a loop's post statement. A type that owns nothing gives
+// none, whatever it is: callers pass element, result and target types
+// without asking, and a union that owns nothing has no tack_free_ to
+// call (see emitFrees).
 func (g *generator) frees(typ types.Type, ref string) []string {
 	table := g.prog.Types
+	if !g.owned(typ) {
+		return nil
+	}
 	if table.IsUnion(typ) || table.IsMap(typ) || table.IsArena(typ) || table.IsPool(typ) ||
 		table.IsList(typ) && g.owned(table.Elem(typ)) {
 		return []string{fmt.Sprintf("%s(&%s);", g.freeName(typ), ref)}
