@@ -21,7 +21,8 @@ import text from "std/text"
 // reads its standard input, which is empty, one that writes more to both
 // than a pipe holds, one that reads the environment, one killed by a
 // signal, and programs that do not exist, and makes run fail for want of
-// memory at each of its allocations. Each check is
+// memory at each of its allocations. It renames files and directories,
+// and makes rename fail each way the OS refuses it. Each check is
 // printed, ok or FAIL, and c_allocator's count of live buffers, read
 // through live.c, is checked to be back to 0 after each group.
 
@@ -31,6 +32,20 @@ extern("os_live") func live() int64
 // failAfter makes c_allocator fail every allocation after the next n, or
 // none again when n is negative, in C.
 extern("os_fail_after") func failAfter(n int64)
+
+// note writes s to the standard error, in C, which the example's tests
+// do not compare, so a check skipped on this machine says so without
+// changing the output.
+extern("os_note") func note(s string)
+
+// symlink makes a symbolic link at path that points to target, which
+// need not exist, and returns 0, or the errno negated, in C.
+extern("os_symlink") func symlink(target []uint8, path []uint8) int64
+
+// otherFs reports, in C, 1 when /dev/shm is a directory this process may
+// write in, on another file system than dir, so renaming between them
+// crosses file systems, and 0 otherwise.
+extern("os_other_fs") func otherFs(dir []uint8) int64
 
 // check prints name and whether cond held.
 func check(cond bool, name string) {
@@ -393,6 +408,157 @@ func descriptors(dir []uint8) {
     check(ok, "1000 rounds of each leave no descriptor open")
 }
 
+// gone reports whether nothing is at p: reading it fails as a missing
+// file does.
+func gone(p []uint8) bool {
+    return osError(readErr(p), "No such file or directory")
+}
+
+// tidy removes each of names in dir, in order, those already gone
+// included, and reports whether every one that was there is gone. It is
+// deferred by a group of checks, so what the group made is removed on
+// every path out of it, an early return's too.
+func tidy(dir []uint8, names ...string) bool {
+    mut ok := true
+    for _, name := range names {
+        p, e := join(dir, name)
+        if e.code != 0 {
+            ok = false
+            continue
+        }
+        r := os.remove_path(p)
+        if r.code != 0 && !osError(r, "No such file or directory") {
+            ok = false
+        }
+    }
+    return ok
+}
+
+// renames renames files, directories and links in dir: a file to a new
+// name, onto a file that exists, which it replaces, onto itself, which
+// changes nothing, into another directory and back, a symbolic link,
+// which moves the link and not its target, and a directory onto an
+// empty one, which it replaces; and makes rename fail: a missing source,
+// a missing directory to rename into, a directory onto a file, a file
+// onto a directory, a directory into its own subdirectory, a directory
+// onto one that is not empty, a file onto another file system, when
+// /dev/shm is one, empty paths, paths too long for the OS, and a 0 byte
+// in either path, each failure leaving both paths as they were. It
+// removes everything it made, on every path.
+func renames(dir []uint8) {
+    defer {
+        check(tidy(dir, "rd2/kept", "rd2/rd", "rd/r4", "rd/sub", "rl", "rl2", "r1", "r2", "r3", "rd2", "rd"), "remove what rename made")
+    }
+    r1, e0 := join(dir, "r1")
+    r2, e1 := join(dir, "r2")
+    r3, e2 := join(dir, "r3")
+    rd, e3 := join(dir, "rd")
+    r4, e4 := join(dir, "rd/r4")
+    rd2, e5 := join(dir, "rd2")
+    kept, e6 := join(dir, "rd2/kept")
+    missing, e7 := join(dir, "missing")
+    into_missing, e8 := join(dir, "missing/r")
+    rl, e9 := join(dir, "rl")
+    rl2, e10 := join(dir, "rl2")
+    rd_sub, e11 := join(dir, "rd/sub")
+    if e0.code != 0 || e1.code != 0 || e2.code != 0 || e3.code != 0 || e4.code != 0 || e5.code != 0 || e6.code != 0 || e7.code != 0 || e8.code != 0 || e9.code != 0 || e10.code != 0 || e11.code != 0 {
+        check(false, "join rename paths")
+        return
+    }
+    base := live()
+    w0 := os.write_file(r1, []uint8("one"))
+    n0 := os.rename(r1, r2)
+    check(w0.code == 0 && n0.code == 0 && gone(r1) && readsBack(r2, []uint8("one")), "rename a file to a new name")
+    w1 := os.write_file(r3, []uint8("three"))
+    n1 := os.rename(r2, r3)
+    check(w1.code == 0 && n1.code == 0 && gone(r2) && readsBack(r3, []uint8("one")), "rename onto a file replaces it")
+    n2 := os.rename(r3, r3)
+    check(n2.code == 0 && readsBack(r3, []uint8("one")), "rename onto itself changes nothing")
+    m0 := os.make_dir(rd)
+    n3 := os.rename(r3, r4)
+    check(m0.code == 0 && n3.code == 0 && gone(r3) && readsBack(r4, []uint8("one")), "rename into another directory")
+    n4 := os.rename(r4, r1)
+    check(n4.code == 0 && gone(r4) && readsBack(r1, []uint8("one")), "rename out of it again")
+
+    l0 := symlink([]uint8("r1"), rl)
+    n5 := os.rename(rl, rl2)
+    check(l0 == 0 && n5.code == 0 && gone(rl) && readsBack(rl2, []uint8("one")) && readsBack(r1, []uint8("one")), "rename a link moves the link")
+    n6 := os.rename(r1, r2)
+    // With its target renamed away, the link reaches nothing: it was the
+    // link that moved, not a copy of the file.
+    check(n6.code == 0 && gone(rl2), "and not its target")
+    n7 := os.rename(r2, r1)
+    check(n7.code == 0 && readsBack(rl2, []uint8("one")), "the link reaches its target again")
+
+    n8 := os.rename(missing, r2)
+    check(osError(n8, "No such file or directory") && gone(r2), "rename of a missing file")
+    n9 := os.rename(r1, into_missing)
+    check(osError(n9, "No such file or directory") && readsBack(r1, []uint8("one")), "rename into a missing directory")
+    n10 := os.rename(rd, r1)
+    check(osError(n10, "Not a directory") && readsBack(r1, []uint8("one")), "rename of a directory onto a file")
+    n11 := os.rename(r1, rd)
+    check(osError(n11, "Is a directory") && readsBack(r1, []uint8("one")), "rename of a file onto a directory")
+    n12 := os.rename(rd, rd_sub)
+    check(osError(n12, "Invalid argument") && gone(rd_sub) && listErr(rd).code == 0, "rename of a directory into its own subdirectory")
+    m1 := os.make_dir(rd2)
+    w2 := os.write_file(kept, []uint8("kept"))
+    n13 := os.rename(rd, rd2)
+    // POSIX lets rename refuse a directory onto one that is not empty
+    // with ENOTEMPTY or EEXIST: ext4, tmpfs and APFS give the first, XFS
+    // the second.
+    full := osError(n13, "Directory not empty") || osError(n13, "File exists")
+    check(m1.code == 0 && w2.code == 0 && full && readsBack(kept, []uint8("kept")), "rename of a directory onto one that is not empty")
+    check(live() == base, "rename allocates nothing")
+    r_kept := os.remove_path(kept)
+    n14 := os.rename(rd, rd2)
+    names, e12 := os.list_dir(dir, c_allocator)
+    if e12.code != 0 {
+        check(false, "list_dir after renaming a directory")
+        return
+    }
+    mut has_rd2 := false
+    mut has_rd := false
+    for _, n := range names {
+        has_rd2 = has_rd2 || n.equal([]uint8("rd2"))
+        has_rd = has_rd || n.equal([]uint8("rd"))
+    }
+    check(r_kept.code == 0 && n14.code == 0 && has_rd2 && !has_rd, "rename a directory onto an empty one replaces it")
+
+    // Across file systems: /dev/shm, a tmpfs on Linux, when it is one
+    // other than dir's. Elsewhere the check is skipped, saying so on the
+    // standard error, so the output is the same on every machine.
+    if otherFs(dir) == 1 {
+        n15 := os.rename(r1, []uint8("/dev/shm/tack-os-example-exdev"))
+        check(osError(n15, "Cross-device link") && readsBack(r1, []uint8("one")), "rename onto another file system")
+    } else {
+        note("skipped: rename onto another file system, for want of a second one\n")
+        check(true, "rename onto another file system")
+    }
+
+    n16 := os.rename([]uint8(""), r2)
+    n17 := os.rename(r1, []uint8(""))
+    check(osError(n16, "No such file or directory") && osError(n17, "No such file or directory") && readsBack(r1, []uint8("one")), "rename of an empty path")
+    long, e13 := bytes.repeat([]uint8("a"), 5000, c_allocator)
+    if e13.code != 0 {
+        check(false, "a long path")
+        return
+    }
+    n18 := os.rename(long, r2)
+    n19 := os.rename(r1, long)
+    check(osError(n18, "File name too long") && osError(n19, "File name too long") && readsBack(r1, []uint8("one")), "rename of a path too long")
+    mut nul_from, j0 := join(dir, "r1")
+    mut nul_to, j1 := join(dir, "r2")
+    if j0.code != 0 || j1.code != 0 {
+        check(false, "join 0 byte paths")
+        return
+    }
+    a0 := append(mut nul_from, 0, 'x')
+    a1 := append(mut nul_to, 0, 'x')
+    n20 := os.rename(nul_from, r2)
+    n21 := os.rename(r1, nul_to)
+    check(a0.code == 0 && a1.code == 0 && nulError(n20) && nulError(n21) && readsBack(r1, []uint8("one")) && gone(r2), "rename of a path with a 0 byte")
+}
+
 // command returns parts as a list of Texts, the arguments of a run.
 func command(parts ...string) (list[text.Text], error) {
     mut l := make(list[text.Text], c_allocator)
@@ -594,6 +760,8 @@ func main() {
     check(live() == 1, "process failures freed")
     childDescriptors()
     check(live() == 1, "child descriptors freed")
+    renames(d.bytes())
+    check(live() == 1, "renames freed")
     cleanup(d.bytes())
 }
 

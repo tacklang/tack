@@ -389,6 +389,7 @@ extern int64_t tack_3_std2_os8_c_5fread(int32_t p_fd, tack_list_22 * p_l) TACK_C
 extern int64_t tack_3_std2_os9_c_5fwrite(int32_t p_fd, tack_view_24 p_data) TACK_C_NAME("tack_os_write");
 extern int64_t tack_3_std2_os10_c_5fremove(tack_view_24 p_path) TACK_C_NAME("tack_os_remove");
 extern int64_t tack_3_std2_os14_c_5fmake_5fdir(tack_view_24 p_path) TACK_C_NAME("tack_os_make_dir");
+extern int64_t tack_3_std2_os10_c_5frename(tack_view_24 p_old_path, tack_view_24 p_new_path) TACK_C_NAME("tack_os_rename");
 extern int64_t tack_3_std2_os14_c_5flist_5fdir(tack_view_24 p_path, tack_list_22 * p_names) TACK_C_NAME("tack_os_list_dir");
 extern int64_t tack_3_std2_os21_c_5fmake_5ftemp_5fdir(tack_list_22 * p_tmpl) TACK_C_NAME("tack_os_make_temp_dir");
 extern int64_t tack_3_std2_os7_c_5fenv(tack_view_24 p_name, tack_list_22 * p_value) TACK_C_NAME("tack_os_env");
@@ -408,6 +409,7 @@ __attribute__((unused)) static tack_results_3_std2_os11_read_5ffile tack_3_std2_
 __attribute__((unused)) static tack_error tack_3_std2_os12_write_5ffile(tack_view_24 p_path, tack_view_24 p_data);
 __attribute__((unused)) static tack_error tack_3_std2_os13_remove_5fpath(tack_view_24 p_path);
 __attribute__((unused)) static tack_error tack_3_std2_os10_make_5fdir(tack_view_24 p_path);
+__attribute__((unused)) static tack_error tack_3_std2_os6_rename(tack_view_24 p_old_path, tack_view_24 p_new_path);
 static bool tack_3_std2_os8_is_5fdot(tack_view_24 p_name);
 static bool tack_3_std2_os4_less(tack_view_24 p_a, tack_view_24 p_b);
 static tack_view_24 tack_3_std2_os9_name_5fat(tack_view_24 p_buf, tack_view_27 p_starts, tack_view_27 p_ends, int64_t p_k);
@@ -967,6 +969,17 @@ static tack_error tack_3_std2_os10_make_5fdir(tack_view_24 p_path) {
         return tack_3_std2_os10_nul_5fpath;
     }
     const int64_t v_r = tack_3_std2_os14_c_5fmake_5fdir(p_path);
+    if (v_r < 0) {
+        return tack_3_std2_os9_c_5ferror(((int64_t)(0 - (uint64_t)v_r)));
+    }
+    return (tack_error){};
+}
+
+static tack_error tack_3_std2_os6_rename(tack_view_24 p_old_path, tack_view_24 p_new_path) {
+    if (tack_3_std2_os9_has_5fnul(p_old_path) || tack_3_std2_os9_has_5fnul(p_new_path)) {
+        return tack_3_std2_os10_nul_5fpath;
+    }
+    const int64_t v_r = tack_3_std2_os10_c_5frename(p_old_path, p_new_path);
     if (v_r < 0) {
         return tack_3_std2_os9_c_5ferror(((int64_t)(0 - (uint64_t)v_r)));
     }

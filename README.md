@@ -55,8 +55,8 @@ package written in Tack alone, searches byte views and formats integers
 and repeats bytes into lists, and `std/text`, also in Tack alone, holds
 growing bytes in a `Text`, compares and hashes them, and lends them out
 as a view. `std/os` reads the program's arguments and environment,
-reads, writes, lists and removes files and directories, and runs other
-programs, through C that makes one system call at a time, and
+reads, writes, lists, renames and removes files and directories, and
+runs other programs, through C that makes one system call at a time, and
 `std/path`, in Tack alone, cleans, splits and joins slash-separated
 paths as Go's `path` package does, `std/conv`, in Tack alone,
 parses integers as Go's `strconv.ParseInt` and `ParseUint` do, and
@@ -1232,7 +1232,11 @@ section remains the description of the language.
   truncates it and writes all of `data`; `os.make_dir(path)` makes one
   directory, mode 0755, and no parents; `os.remove_path(path)` removes a
   file or an empty directory, named `remove_path` because `remove` is a
-  builtin; and `d, err := os.make_temp_dir(alloc)` makes a new directory,
+  builtin; `os.rename(old_path, new_path)` renames a file or a
+  directory with `rename(2)`, replacing a file, or an empty directory,
+  at `new_path` at once, and moves nothing between file systems, which
+  is `error{code: 3, msg: "Cross-device link"}`; and `d, err :=
+  os.make_temp_dir(alloc)` makes a new directory,
   mode 0700, in `$TMPDIR`, or `/tmp`, named `tack-` and six characters,
   which the caller removes. `status, err := os.run(argv, mut out, mut
   err_out, alloc)` runs the program `argv[0]` names, looked up on `PATH`

@@ -42,6 +42,7 @@ int64_t tack_os_read(int32_t /* fd */, tack_list_uint8 * /* l */); // extern fun
 int64_t tack_os_write(int32_t /* fd */, tack_view_uint8 /* data */); // extern func c_write(fd int32, data []uint8) int64
 int64_t tack_os_remove(tack_view_uint8 /* path */); // extern func c_remove(path []uint8) int64
 int64_t tack_os_make_dir(tack_view_uint8 /* path */); // extern func c_make_dir(path []uint8) int64
+int64_t tack_os_rename(tack_view_uint8 /* old_path */, tack_view_uint8 /* new_path */); // extern func c_rename(old_path []uint8, new_path []uint8) int64
 int64_t tack_os_list_dir(tack_view_uint8 /* path */, tack_list_uint8 * /* names */); // extern func c_list_dir(path []uint8, mut names list[uint8]) int64
 int64_t tack_os_make_temp_dir(tack_list_uint8 * /* tmpl */); // extern func c_make_temp_dir(mut tmpl list[uint8]) int64
 int64_t tack_os_env(tack_view_uint8 /* name */, tack_list_uint8 * /* value */); // extern func c_env(name []uint8, mut value list[uint8]) int64
@@ -57,5 +58,8 @@ tack_error tack_os_error(int64_t /* e */); // extern func c_error(e int64) error
 // package main
 int64_t os_live(void); // extern func live() int64
 void os_fail_after(int64_t /* n */); // extern func failAfter(n int64)
+void os_note(tack_string /* s */); // extern func note(s string)
+int64_t os_symlink(tack_view_uint8 /* target */, tack_view_uint8 /* path */); // extern func symlink(target []uint8, path []uint8) int64
+int64_t os_other_fs(tack_view_uint8 /* dir */); // extern func otherFs(dir []uint8) int64
 
 #endif

@@ -67,5 +67,27 @@ run failing for want of memory at each allocation leaves the outputs as they wer
 process failures freed ok
 100 runs leave no descriptor open ok
 child descriptors freed ok
+rename a file to a new name ok
+rename onto a file replaces it ok
+rename onto itself changes nothing ok
+rename into another directory ok
+rename out of it again ok
+rename a link moves the link ok
+and not its target ok
+the link reaches its target again ok
+rename of a missing file ok
+rename into a missing directory ok
+rename of a directory onto a file ok
+rename of a file onto a directory ok
+rename of a directory into its own subdirectory ok
+rename of a directory onto one that is not empty ok
+rename allocates nothing ok
+rename a directory onto an empty one replaces it ok
+rename onto another file system ok
+rename of an empty path ok
+rename of a path too long ok
+rename of a path with a 0 byte ok
+remove what rename made ok
+renames freed ok
 remove files and an empty directory ok
 remove the temporary directory ok

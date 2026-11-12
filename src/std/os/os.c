@@ -160,6 +160,22 @@ int64_t tack_os_make_dir(tack_view_uint8 path) {
     return 0;
 }
 
+int64_t tack_os_rename(tack_view_uint8 old_path, tack_view_uint8 new_path) {
+    char old_buf[path_max];
+    char new_buf[path_max];
+    int e = c_path(old_path, old_buf);
+    if (e == 0) {
+        e = c_path(new_path, new_buf);
+    }
+    if (e != 0) {
+        return -e;
+    }
+    if (rename(old_buf, new_buf) != 0) {
+        return -errno;
+    }
+    return 0;
+}
+
 int64_t tack_os_list_dir(tack_view_uint8 path, tack_list_uint8 *names) {
     char buf[path_max];
     int e = c_path(path, buf);

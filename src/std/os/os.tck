@@ -86,6 +86,10 @@ extern("tack_os_remove") func c_remove(path []uint8) int64
 // the errno negated.
 extern("tack_os_make_dir") func c_make_dir(path []uint8) int64
 
+// c_rename renames the file or directory old_path to new_path, with C's
+// rename, and returns 0, or the errno negated.
+extern("tack_os_rename") func c_rename(old_path []uint8, new_path []uint8) int64
+
 // c_list_dir appends the name of every entry of the directory path,
 // each followed by a 0, to names, in the order the OS gives them, "."
 // and ".." included, and returns 0, or the errno negated: ENOMEM when
@@ -313,6 +317,34 @@ pub func make_dir(path []uint8) error {
         return nul_path
     }
     r := c_make_dir(path)
+    if r < 0 {
+        return c_error(-%r)
+    }
+    return noerror
+}
+
+// rename renames the file or directory at old_path to new_path, with
+// rename(2), and returns no error. What is at new_path, a file when
+// old_path is a file or an empty directory when it is a directory, is
+// replaced, at once: there is no moment with nothing at new_path.
+// Renaming a path onto itself changes nothing, and a symbolic link is
+// renamed itself, not the file it points to. It moves nothing between
+// file systems: two paths on different ones are error{code: 3, msg:
+// "Cross-device link"}. A missing old_path, or a missing directory to
+// rename into, is error{code: 3, msg: "No such file or directory"}, a
+// directory onto a file error{code: 3, msg: "Not a directory"}, a file
+// onto a directory error{code: 3, msg: "Is a directory"}, a directory
+// into itself or a directory below it error{code: 3, msg: "Invalid
+// argument"}, and a directory onto one that is not empty error{code: 3,
+// msg: "Directory not empty"}, or "File exists" on some file systems. A
+// 0 byte in either path is error{code: 4, msg: "path contains a NUL
+// byte"}, and the OS sees neither path. On an error nothing has been
+// renamed.
+pub func rename(old_path []uint8, new_path []uint8) error {
+    if has_nul(old_path) || has_nul(new_path) {
+        return nul_path
+    }
+    r := c_rename(old_path, new_path)
     if r < 0 {
         return c_error(-%r)
     }

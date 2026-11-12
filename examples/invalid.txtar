@@ -42946,6 +42946,24 @@ os-remove-is-remove-path/main.tck:6:12: error: undefined: os.remove
    |	           ^~~~~~~~~
 07 |	    if err.code != 0 {
 
+-- os-rename-dropped/main.tck --
+package main
+
+import os from "std/os"
+
+func main() {
+    os.rename([]uint8("a"), []uint8("b"))
+}
+-- os-rename-dropped/expected --
+stage: typeck
+---
+
+os-rename-dropped/main.tck:6:5: error: the error os.rename returns cannot be discarded; bind it, as in err := os.rename(...)
+05 |	func main() {
+06 |	    os.rename([]uint8("a"), []uint8("b"))
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+07 |	}
+
 -- os-reserved-argv/main.tck --
 package main
 
