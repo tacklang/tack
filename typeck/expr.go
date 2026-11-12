@@ -242,7 +242,7 @@ func notOneValue(fn *ast.Func, name string) string {
 // checkArg), or to a variadic one (see checkVariadicCall), that no two of
 // its mut arguments overlap (see checkExclusive), that none reads a list
 // another one passes as mut (see checkListBorrows), and, for std/fmt's
-// printf and eprintf, a known format against the values (see
+// printf, eprintf and appendf, a known format against the values (see
 // checkPrintf). Its result, if any, is the caller's to use or discard.
 func (c *Checker) checkCall(call *ast.Call) {
 	if call.Receiver() != nil {

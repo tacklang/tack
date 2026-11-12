@@ -10,8 +10,9 @@ import (
 	"github.com/tacklang/tack/types"
 )
 
-// std/fmt's printf, and eprintf, its twin for standard error, take a
-// format and ...any (see formatFuncs). When the format is a string
+// std/fmt's printf, eprintf, its twin for standard error, and appendf,
+// which appends to a list[uint8] after it, take a format and ...any (see
+// formatFuncs). When the format is a string
 // the checker knows (see knownString), a literal or an immutable variable
 // holding one, every verb in it is checked against the value it takes, as
 // Go's vet checks fmt.Printf and clang's -Wformat checks C's printf, and
@@ -21,8 +22,8 @@ import (
 // known only at run time and is not checked against its verb, and a call
 // that spreads a view, printf(f, args...), passes a number of values known
 // only at run time, so only its verbs are checked. A format the checker
-// does not know is not checked at all: printf's C writes each mistake
-// into the output instead, as Go's fmt does.
+// does not know is not checked at all: printf's C, and appendf's Tack,
+// write each mistake into the output instead, as Go's fmt does.
 //
 // The format is read exactly as printf's C reads it, byte by byte: a %
 // starts a verb, and the verb is the UTF-8 sequence after it, whose
@@ -37,12 +38,14 @@ import (
 // formatFuncs the checker checks the format of.
 const stdFmt = "std/fmt"
 
-// formatFuncs are the functions of std/fmt that take a printf format as
-// their first parameter and its values as the rest, each checked the
-// same way. A message about a call names the function called, so a
-// mistake in an eprintf format reads "eprintf verb %d does not take
-// string".
-var formatFuncs = map[string]bool{"printf": true, "eprintf": true}
+// formatFuncs are the functions of std/fmt that take a printf format and
+// its values, each checked the same way, mapped to the index of the
+// format among their parameters: the values are every argument after
+// it. printf and eprintf take the format first, and appendf takes it
+// after the list it appends to. A message about a call names the
+// function called, so a mistake in an eprintf format reads "eprintf verb
+// %d does not take string".
+var formatFuncs = map[string]int{"printf": 0, "eprintf": 0, "appendf": 1}
 
 // checkPrintf checks call, a call to fn, when fn is one of std/fmt's
 // formatFuncs and its format is a string the checker knows: see
@@ -50,14 +53,15 @@ var formatFuncs = map[string]bool{"printf": true, "eprintf": true}
 // the format when it is about the format itself, and a format with more
 // values than verbs at the values left over.
 func (c *Checker) checkPrintf(call *ast.Call, fn *ast.Func) {
-	if !c.isFormatFunc(fn) || len(call.Args) == 0 {
+	at, ok := c.formatParam(fn)
+	if !ok || len(call.Args) <= at {
 		return
 	}
-	format, ok := c.knownString(call.Args[0])
+	format, ok := c.knownString(call.Args[at])
 	if !ok {
 		return
 	}
-	values := call.Args[1:]
+	values := call.Args[at+1:]
 	var valueTypes []types.Type
 	if !call.Spread {
 		valueTypes = make([]types.Type, len(values))
@@ -68,7 +72,7 @@ func (c *Checker) checkPrintf(call *ast.Call, fn *ast.Func) {
 	for _, p := range checkFormat(fn.Name, format, valueTypes, !call.Spread, c.typeName, c.isBytes) {
 		switch {
 		case p.value < 0:
-			c.errorf(call.Args[0].Spanned(), "%s", p.message)
+			c.errorf(call.Args[at].Spanned(), "%s", p.message)
 		default:
 			c.errorf(spanOf(values[p.value:p.value+max(p.values, 1)]), "%s", p.message)
 		}
@@ -81,10 +85,18 @@ func (c *Checker) isBytes(typ types.Type) bool {
 	return c.table.IsView(typ) && c.table.Elem(typ) == types.Uint8
 }
 
-// isFormatFunc reports whether fn is one of std/fmt's formatFuncs.
-func (c *Checker) isFormatFunc(fn *ast.Func) bool {
+// formatParam returns the index of the format among fn's parameters,
+// and whether fn is one of std/fmt's formatFuncs.
+func (c *Checker) formatParam(fn *ast.Func) (int, bool) {
+	if fn == nil || fn.Method {
+		return 0, false
+	}
+	at, ok := formatFuncs[fn.Name]
 	pkg := c.declPkg[fn]
-	return fn != nil && !fn.Method && formatFuncs[fn.Name] && pkg != nil && pkg.Path == stdFmt
+	if !ok || pkg == nil || pkg.Path != stdFmt {
+		return 0, false
+	}
+	return at, true
 }
 
 // formatProblem is one mistake checkFormat finds: its message, and the

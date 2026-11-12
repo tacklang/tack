@@ -590,7 +590,9 @@ section remains the description of the language.
   whose `pub func printf(format string, args ...any)` writes formatted
   text (see printf), and whose `pub func write(b []uint8)` writes bytes
   (see write), each to standard output, with a twin for standard error,
-  `eprintln`, `eprintf` and `ewrite` (see standard error),
+  `eprintln`, `eprintf` and `ewrite` (see standard error), and whose
+  `pub func appendf(mut out list[uint8], format string, args ...any)
+  error` appends printf's output to a list instead (see appendf),
   [`bytes`](src/std/bytes/bytes.tck), which reads byte views and builds
   byte lists (see bytes), and
   [`text`](src/std/text/text.tck), whose `Text` owns growing bytes (see
@@ -1157,8 +1159,9 @@ section remains the description of the language.
   ending the format. printf writes through the same C `stdout` as
   `print`, so the two interleave in call order, formats integers itself,
   never calling C's `printf`, and reports no error. Only `std/fmt`'s
-  `printf` and `eprintf` have their format checked: a function of any
-  other package named `printf` or `eprintf` is an ordinary function.
+  `printf`, `eprintf` and `appendf` have their format checked: a
+  function of any other package named `printf`, `eprintf` or `appendf`
+  is an ordinary function.
 - write. `fmt.write(b)`, from `std/fmt`, writes exactly the bytes of `b`
   to standard output, each as it is, `0` and `0xff` included, and nothing
   else: no newline and no formatting. Its parameter is a view, `b []uint8`,
@@ -1189,6 +1192,32 @@ section remains the description of the language.
   either stream. Like print, none reports an error: a closed descriptor or
   a failed write loses the bytes, and a pipe with no reader raises
   `SIGPIPE`, as it does for print.
+- appendf. `err := fmt.appendf(mut out, format, args...)`, from
+  `std/fmt`, appends to the end of the list `out` exactly the bytes
+  `fmt.printf(format, args...)` would write: the same verbs on the same
+  types, the same floats, and the same Go-style markers for the mistakes
+  of a format the compiler does not know. Its signature follows Go's
+  `fmt.Appendf`; its output is printf's, not Go's.
+  A known format is checked as printf's is, each message naming
+  appendf, `appendf verb %d does not take string`, `unknown appendf verb
+  %q`, `appendf format ends in a lone %` and `appendf format has 2 verbs
+  but 1 argument`, the format being its second argument. It is all or
+  nothing: it returns no error, or, when `out` cannot grow to hold the
+  whole output, the builtin append's, `error{code: 1, msg: "out of
+  memory"}`, with `out` left exactly as it was, every byte the call had
+  appended popped back off. Its error cannot be discarded, as append's
+  cannot. A view of `out` itself cannot be passed beside `mut out`,
+  `cannot pass b alongside mut b in this call`, as for any call. It is
+  written in Tack, a type switch over each `any`, with std/bytes'
+  integer appends and std/conv's `append_float`, the algorithm printf's
+  C uses for floats; a test builds every verb on every type an `any`
+  holds through both and compares them byte for byte. Keeping it in
+  `std/fmt`, under the name `fmt.appendf`, has a cost for every program
+  that imports `std/fmt`, whether or not it calls appendf: it generates
+  about 3000 more lines of C, for std/conv, std/bytes, std/utf8 and
+  std/unicode, and links `list.c`, so a compile at `-O0` goes from about
+  0.20s to 0.245s and the text of a binary at `-O2` from about 11.4K to
+  15.4K.
 - bytes. `std/bytes` is written in Tack alone, with no C: its views go
   in and its lists come out. Its read functions take `[]uint8` views, so
   a `list[uint8]`, an array or a slice of either, or a string's bytes,

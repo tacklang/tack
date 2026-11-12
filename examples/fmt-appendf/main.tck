@@ -1,0 +1,283 @@
+package main
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+
+// std/fmt's appendf formats into a list[uint8]: format with each verb
+// replaced by the next argument, appended to the end of the list,
+// written exactly as printf writes it, every verb,
+// every type an any holds, and every marker for a mistake in a format
+// the compiler does not know. It returns no error, or, when the list
+// cannot grow, the builtin append's error{code: 1, msg: "out of
+// memory"}, and then leaves the list exactly as it was: all of the
+// output is appended, or none of it.
+//
+// Each case below was written from printf's documented behavior, which
+// follows Go's fmt where the two agree, but not everywhere: Go's
+// untyped constants are int, not int64, Go writes a slice's elements,
+// and Go's %c takes any integer. codegen/c/appendf_test.go checks appendf
+// against printf byte for byte, over every verb and every type. A failed
+// case prints what it got; each group prints ok when all its cases held.
+
+// Tack has no way to make c_allocator fail or to read its count of
+// live buffers, so this example's C, in live.c, does both.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("appendf_live") func live() int64
+
+// failAfter makes c_allocator fail every allocation after the next n, or
+// none again when n is negative, in C.
+extern("appendf_fail_after") func failAfter(n int64)
+
+// fails counts the cases that did not hold.
+mut fails int64 = 0
+
+// check prints name and whether no case failed since the count was
+// last read, and resets the count.
+func check(name string) {
+    print(name)
+    if fails == 0 {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+    fails = 0
+}
+
+// got checks that e is no error and that b holds exactly want, then
+// empties b for the next case.
+func got(mut b list[uint8], e error, want string) {
+    if e.code != 0 {
+        fails +%= 1
+        fmt.printf("appendf gave error %d, want %s\n", e.code, want)
+    } else if !bytes.equal(b, []uint8(want)) {
+        fails +%= 1
+        print("appendf gave ")
+        fmt.write(b)
+        fmt.printf(", want %s\n", want)
+    }
+    for len(b) > 0 {
+        pop(mut b)
+    }
+}
+
+// show appends format with args to b, a format the compiler does not
+// know, so each mistake in it is written into the output.
+func show(mut b list[uint8], format string, args ...any) error {
+    return fmt.appendf(mut b, format, args...)
+}
+
+// neg returns -x, so negative zero is made at run time.
+func neg(x float64) float64 {
+    return -x
+}
+
+// verbs covers each verb on the types it takes, every integer type at
+// its edges, and %%.
+func verbs() {
+    mut b := make(list[uint8], c_allocator)
+    got(mut b, fmt.appendf(mut b, ""), "")
+    got(mut b, fmt.appendf(mut b, "plain"), "plain")
+    got(mut b, fmt.appendf(mut b, "%d|%x|%v", 255, 255, 255), "255|ff|255")
+    got(mut b, fmt.appendf(mut b, "%d %x", int64(-9223372036854775807 - 1), int64(-9223372036854775807 - 1)),
+        "-9223372036854775808 -8000000000000000")
+    got(mut b, fmt.appendf(mut b, "%d %x", int64(9223372036854775807), int64(9223372036854775807)),
+        "9223372036854775807 7fffffffffffffff")
+    got(mut b, fmt.appendf(mut b, "%d %x", uint64(18446744073709551615), uint64(18446744073709551615)),
+        "18446744073709551615 ffffffffffffffff")
+    got(mut b, fmt.appendf(mut b, "%d %x %d %x", int8(-128), int8(-128), int8(127), int8(-1)), "-128 -80 127 -1")
+    got(mut b, fmt.appendf(mut b, "%d %d %d", int16(-32768), int32(-2147483648), uint16(65535)),
+        "-32768 -2147483648 65535")
+    got(mut b, fmt.appendf(mut b, "%v %v", uint32(4294967295), uint8(0)), "4294967295 0")
+    got(mut b, fmt.appendf(mut b, "%d %x", unsafe_size_t(4294967295), unsafe_uintptr_t(48879)), "4294967295 beef")
+    got(mut b, fmt.appendf(mut b, "%d", 0), "0")
+    got(mut b, fmt.appendf(mut b, "%s|%v|%s|", "hi", "there", ""), "hi|there||")
+    got(mut b, fmt.appendf(mut b, "%t %v", true, false), "true false")
+    got(mut b, fmt.appendf(mut b, "%c%c%c", 'a', uint8(0), uint8(255)), "a\x00\xff")
+    got(mut b, fmt.appendf(mut b, "%s", "a\x00b"), "a\x00b")
+    got(mut b, fmt.appendf(mut b, "%%|%%%d|100%%", 7), "%|%7|100%")
+    check("verbs")
+}
+
+// floats covers %g %e %f and %v on both float types, NaN, the
+// infinities and negative zero.
+func floats() {
+    mut b := make(list[uint8], c_allocator)
+    zero := 0.0
+    got(mut b, fmt.appendf(mut b, "%g %e %f %v", 0.1, 0.1, 0.1, 0.1), "0.1 1.000000e-01 0.100000 0.1")
+    got(mut b, fmt.appendf(mut b, "%v %v %v", 1e6, 5e-324, 123456.0), "1e+06 5e-324 123456")
+    got(mut b, fmt.appendf(mut b, "%v %e", 1.7976931348623157e308, 1.7976931348623157e308),
+        "1.7976931348623157e+308 1.797693e+308")
+    got(mut b, fmt.appendf(mut b, "%v %g %f", float32(0.1), float32(16777216.0), float32(0.5)),
+        "0.1 1.6777216e+07 0.500000")
+    got(mut b, fmt.appendf(mut b, "%v %v %v", zero / zero, 1.0 / zero, -1.0 / zero), "NaN +Inf -Inf")
+    got(mut b, fmt.appendf(mut b, "%e %f", zero / zero, 1.0 / zero), "NaN +Inf")
+    got(mut b, fmt.appendf(mut b, "%v %e %f", neg(zero), neg(zero), neg(zero)), "-0 -0.000000e+00 -0.000000")
+    got(mut b, fmt.appendf(mut b, "%f %e", 0.0000001, 1e-100), "0.000000 1.000000e-100")
+    got(mut b, fmt.appendf(mut b, "%f", 1e20), "100000000000000000000.000000")
+    check("floats")
+}
+
+// views covers a []uint8 from a list, an array and a string's bytes,
+// empty ones, and a view of another type, which no verb takes.
+func views() {
+    mut b := make(list[uint8], c_allocator)
+    mut src := make(list[uint8], c_allocator)
+    e := append(mut src, 'x', 0, 'y')
+    if e.code != 0 {
+        fails +%= 1
+        print("append failed\n")
+        return
+    }
+    arr := [3]uint8{'a', 'b', 'c'}
+    nums := [2]int64{1, 2}
+    got(mut b, fmt.appendf(mut b, "%s|%v|%s", src[:], arr[1:], arr[0:0]), "x\x00y|bc|")
+    got(mut b, show(mut b, "%v|%s", nums[:], nums[:]), "%!v([]int64)|%!s([]int64)")
+    got(mut b, show(mut b, "|", arr[:], nums[:]), "|%!(EXTRA []uint8=abc, []int64)")
+    check("views")
+}
+
+// markers covers every mistake a format the compiler does not know can
+// hold, each written into the output as printf writes it.
+func markers() {
+    mut b := make(list[uint8], c_allocator)
+    got(mut b, show(mut b, "%d|", "hi"), "%!d(string=hi)|")
+    got(mut b, show(mut b, "%s|", 5), "%!s(int64=5)|")
+    got(mut b, show(mut b, "%t|", 'a'), "%!t(uint8=97)|")
+    got(mut b, show(mut b, "%c|", 5), "%!c(int64=5)|")
+    got(mut b, show(mut b, "%x|", false), "%!x(bool=false)|")
+    got(mut b, show(mut b, "%d|", 1.5), "%!d(float64=1.5)|")
+    got(mut b, show(mut b, "%e|", float32(0.5)), "5.000000e-01|")
+    got(mut b, show(mut b, "%f|", 7), "%!f(int64=7)|")
+    got(mut b, show(mut b, "%d %d|", 1), "1 %!d(MISSING)|")
+    got(mut b, show(mut b, "%z|"), "%!z(MISSING)|")
+    got(mut b, show(mut b, "%z|", 1), "%!z(int64=1)|")
+    got(mut b, show(mut b, "%é|", true), "%!é(bool=true)|")
+    got(mut b, show(mut b, "|", 1, "a", true, int16(-2)), "|%!(EXTRA int64=1, string=a, bool=true, int16=-2)")
+    got(mut b, show(mut b, "", 1), "%!(EXTRA int64=1)")
+    got(mut b, show(mut b, "100%"), "100%!(NOVERB)")
+    got(mut b, show(mut b, "%"), "%!(NOVERB)")
+    got(mut b, show(mut b, "%\xe4", 1), "%!\xe4(int64=1)")
+    check("markers")
+}
+
+// long covers a long string and a list already long, appended to.
+func long() {
+    mut big := make(list[uint8], c_allocator)
+    for mut i := 0; i < 100000; i++ {
+        e := append(mut big, 'q')
+        if e.code != 0 {
+            fails +%= 1
+            print("append failed\n")
+            return
+        }
+    }
+    mut b := make(list[uint8], c_allocator)
+    e := fmt.appendf(mut b, "<%s>", big[:])
+    if e.code != 0 || len(b) != 100002 || b[0] != '<' || b[100001] != '>' || !bytes.equal(b[1:100001], big[:]) {
+        fails +%= 1
+        fmt.printf("a long string appended to %d bytes, error %d\n", len(b), e.code)
+    }
+    e2 := fmt.appendf(mut b, "%d", 42)
+    if e2.code != 0 || len(b) != 100004 || b[100002] != '4' || b[100003] != '2' {
+        fails +%= 1
+        fmt.printf("appending to a long list gave %d bytes, error %d\n", len(b), e2.code)
+    }
+    check("long")
+}
+
+// equal reports whether b holds exactly want.
+func equal(b []uint8, want string) bool {
+    return bytes.equal(b, []uint8(want))
+}
+
+// failing makes c_allocator fail under appendf: the error is the builtin
+// append's, error{code: 1, msg: "out of memory"}, and the list is left
+// exactly as it was, whatever part of the output had been appended. A
+// list's first buffer holds 4 bytes, so one holding "ab" has room for two
+// more bytes and no more. One holding "xy" that the call grows once,
+// and then cannot grow again, is left holding "xy", its old buffer or
+// the grown one, the same bytes either way.
+func failing() {
+    mut b := make(list[uint8], c_allocator)
+    failAfter(0)
+    e := fmt.appendf(mut b, "%s", "x")
+    failAfter(-1)
+    if e.code != 1 || e.msg != "out of memory" || len(b) != 0 || live() != 0 {
+        fails +%= 1
+        fmt.printf("appendf into an empty list gave %d, left %d bytes\n", e.code, len(b))
+    }
+    e1 := append(mut b, 'a', 'b')
+    if e1.code != 0 {
+        fails +%= 1
+        print("append failed\n")
+        return
+    }
+    failAfter(0)
+    e2 := fmt.appendf(mut b, "%s%s", "cd", "efg")
+    e3 := fmt.appendf(mut b, "x%dy", 12345)
+    e4 := fmt.appendf(mut b, "%e", 1.0)
+    e5 := fmt.appendf(mut b, "%v", 0.25)
+    e6 := show(mut b, "%d", "no")
+    e7 := show(mut b, "|", 1)
+    e8 := show(mut b, "%")
+    e9 := fmt.appendf(mut b, "%c%%", 'c')
+    e10 := fmt.appendf(mut b, "%d", 1)
+    failAfter(-1)
+    if e2.code != 1 || e3.code != 1 || e4.code != 1 || e5.code != 1 || e6.code != 1 || e7.code != 1 ||
+        e8.code != 1 || e9.code != 0 || e10.code != 1 || !equal(b, "abc%") {
+        fails +%= 1
+        fmt.printf("appendf into a full list gave %d %d %d %d %d %d %d %d %d, left ",
+            e2.code, e3.code, e4.code, e5.code, e6.code, e7.code, e8.code, e9.code, e10.code)
+        fmt.write(b)
+        print("\n")
+    }
+    failAfter(1)
+    mut c := make(list[uint8], c_allocator)
+    e11 := fmt.appendf(mut c, "%s %s %s", "0123456789", "0123456789", "0123456789")
+    failAfter(-1)
+    if e11.code != 1 || len(c) != 0 {
+        fails +%= 1
+        fmt.printf("appendf past one growth gave %d, left %d bytes\n", e11.code, len(c))
+    }
+    mut d := make(list[uint8], c_allocator)
+    e12 := append(mut d, 'x', 'y')
+    if e12.code != 0 {
+        fails +%= 1
+        print("append failed\n")
+        return
+    }
+    failAfter(1)
+    e13 := fmt.appendf(mut d, "%s|%d|%s", "0123456789", 42, "0123456789")
+    failAfter(-1)
+    if e13.code != 1 || e13.msg != "out of memory" || !equal(d, "xy") {
+        fails +%= 1
+        fmt.printf("appendf into a list that grew once, then failed, gave %d, left ", e13.code)
+        fmt.write(d)
+        print("\n")
+    }
+    e14 := fmt.appendf(mut d, "%s|%d|%s", "0123456789", 42, "0123456789")
+    if e14.code != 0 || !equal(d, "xy0123456789|42|0123456789") {
+        fails +%= 1
+        print("appendf after the failure gave ")
+        fmt.write(d)
+        print("\n")
+    }
+    drop(own b)
+    drop(own c)
+    drop(own d)
+    if live() != 0 {
+        fails +%= 1
+        print("a buffer was not freed\n")
+    }
+    check("appendf out of memory")
+}
+
+func main() {
+    verbs()
+    floats()
+    views()
+    markers()
+    long()
+    failing()
+}

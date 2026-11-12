@@ -1296,6 +1296,251 @@ any-view-result-alongside-mut/main.tck:16:7: note: passed as mut here
    |	      ^~~~~
 17 |	}
 
+-- appendf-d-string/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    mut b := make(list[uint8], c_allocator)
+    e := fmt.appendf(mut b, "%d\n", "five")
+    if e.code != 0 {
+        exit(1)
+    }
+}
+-- appendf-d-string/expected --
+stage: typeck
+---
+
+appendf-d-string/main.tck:7:37: error: appendf verb %d does not take string
+06 |	    mut b := make(list[uint8], c_allocator)
+07 |	    e := fmt.appendf(mut b, "%d\n", "five")
+   |	                                    ^~~~~~
+08 |	    if e.code != 0 {
+
+-- appendf-error-discarded/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    mut b := make(list[uint8], c_allocator)
+    fmt.appendf(mut b, "%d", 1)
+}
+-- appendf-error-discarded/expected --
+stage: typeck
+---
+
+appendf-error-discarded/main.tck:7:5: error: the error fmt.appendf returns cannot be discarded; bind it, as in err := fmt.appendf(...)
+06 |	    mut b := make(list[uint8], c_allocator)
+07 |	    fmt.appendf(mut b, "%d", 1)
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+08 |	}
+
+-- appendf-extra/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    mut b := make(list[uint8], c_allocator)
+    e := fmt.appendf(mut b, "%d\n", 1, 2, 3)
+    if e.code != 0 {
+        exit(1)
+    }
+}
+-- appendf-extra/expected --
+stage: typeck
+---
+
+appendf-extra/main.tck:7:40: error: appendf format has 1 verb but 3 arguments
+06 |	    mut b := make(list[uint8], c_allocator)
+07 |	    e := fmt.appendf(mut b, "%d\n", 1, 2, 3)
+   |	                                       ^~~~
+08 |	    if e.code != 0 {
+
+-- appendf-f-int/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    mut b := make(list[uint8], c_allocator)
+    e := fmt.appendf(mut b, "%f\n", 7)
+    if e.code != 0 {
+        exit(1)
+    }
+}
+-- appendf-f-int/expected --
+stage: typeck
+---
+
+appendf-f-int/main.tck:7:37: error: appendf verb %f does not take int64
+06 |	    mut b := make(list[uint8], c_allocator)
+07 |	    e := fmt.appendf(mut b, "%f\n", 7)
+   |	                                    ^
+08 |	    if e.code != 0 {
+
+-- appendf-known-variable/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    mut b := make(list[uint8], c_allocator)
+    format := "%s\n"
+    e := fmt.appendf(mut b, format, 1)
+    if e.code != 0 {
+        exit(1)
+    }
+}
+-- appendf-known-variable/expected --
+stage: typeck
+---
+
+appendf-known-variable/main.tck:8:37: error: appendf verb %s does not take int64
+07 |	    format := "%s\n"
+08 |	    e := fmt.appendf(mut b, format, 1)
+   |	                                    ^
+09 |	    if e.code != 0 {
+
+-- appendf-lone-percent/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    mut b := make(list[uint8], c_allocator)
+    e := fmt.appendf(mut b, "100%")
+    if e.code != 0 {
+        exit(1)
+    }
+}
+-- appendf-lone-percent/expected --
+stage: typeck
+---
+
+appendf-lone-percent/main.tck:7:29: error: appendf format ends in a lone %
+06 |	    mut b := make(list[uint8], c_allocator)
+07 |	    e := fmt.appendf(mut b, "100%")
+   |	                            ^~~~~~
+08 |	    if e.code != 0 {
+
+-- appendf-missing/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    mut b := make(list[uint8], c_allocator)
+    e := fmt.appendf(mut b, "%d and %d\n", 1)
+    if e.code != 0 {
+        exit(1)
+    }
+}
+-- appendf-missing/expected --
+stage: typeck
+---
+
+appendf-missing/main.tck:7:29: error: appendf format has 2 verbs but 1 argument
+06 |	    mut b := make(list[uint8], c_allocator)
+07 |	    e := fmt.appendf(mut b, "%d and %d\n", 1)
+   |	                            ^~~~~~~~~~~~~
+08 |	    if e.code != 0 {
+
+-- appendf-spread-unknown-verb/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func f(mut b list[uint8], args ...any) error {
+    return fmt.appendf(mut b, "%y\n", args...)
+}
+
+func main() {
+}
+-- appendf-spread-unknown-verb/expected --
+stage: typeck
+---
+
+appendf-spread-unknown-verb/main.tck:6:31: error: unknown appendf verb %y
+05 |	func f(mut b list[uint8], args ...any) error {
+06 |	    return fmt.appendf(mut b, "%y\n", args...)
+   |	                              ^~~~~~
+07 |	}
+
+-- appendf-unknown-verb/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    mut b := make(list[uint8], c_allocator)
+    e := fmt.appendf(mut b, "%q\n", 1)
+    if e.code != 0 {
+        exit(1)
+    }
+}
+-- appendf-unknown-verb/expected --
+stage: typeck
+---
+
+appendf-unknown-verb/main.tck:7:29: error: unknown appendf verb %q
+06 |	    mut b := make(list[uint8], c_allocator)
+07 |	    e := fmt.appendf(mut b, "%q\n", 1)
+   |	                            ^~~~~~
+08 |	    if e.code != 0 {
+
+-- appendf-view-int64/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    mut b := make(list[uint8], c_allocator)
+    a := [2]int64{1, 2}
+    e := fmt.appendf(mut b, "%v\n", a[:])
+    if e.code != 0 {
+        exit(1)
+    }
+}
+-- appendf-view-int64/expected --
+stage: typeck
+---
+
+appendf-view-int64/main.tck:8:37: error: appendf verb %v does not take []int64
+07 |	    a := [2]int64{1, 2}
+08 |	    e := fmt.appendf(mut b, "%v\n", a[:])
+   |	                                    ^~~~
+09 |	    if e.code != 0 {
+
+-- appendf-view-of-out/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    mut b := make(list[uint8], c_allocator)
+    e := fmt.appendf(mut b, "%s", b[:])
+    if e.code != 0 {
+        exit(1)
+    }
+}
+-- appendf-view-of-out/expected --
+stage: typeck
+---
+
+appendf-view-of-out/main.tck:7:35: error: cannot pass b alongside mut b in this call: a list is not copied for a call, and a mut argument must be the only way to reach b during it
+06 |	    mut b := make(list[uint8], c_allocator)
+07 |	    e := fmt.appendf(mut b, "%s", b[:])
+   |	                                  ^~~~
+08 |	    if e.code != 0 {
+appendf-view-of-out/main.tck:7:22: note: passed as mut here
+06 |	    mut b := make(list[uint8], c_allocator)
+07 |	    e := fmt.appendf(mut b, "%s", b[:])
+   |	                     ^~~~~
+08 |	    if e.code != 0 {
+
 -- arena-add-all-own-span/main.tck --
 package main
 

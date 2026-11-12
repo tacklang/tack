@@ -119,3 +119,18 @@ func TestOtherEprintfIsNotChecked(t *testing.T) {
 		t.Errorf("got %v, want no diagnostics", diags)
 	}
 }
+
+// TestOtherAppendfIsNotChecked checks a function named appendf outside
+// std/fmt is a function like any other, whose format is not read, as
+// TestOtherPrintfIsNotChecked does for printf, whether its format is
+// its first parameter or its second, as std/fmt's is.
+func TestOtherAppendfIsNotChecked(t *testing.T) {
+	for _, src := range []string{
+		"package main\n\nfunc appendf(f string, args ...any) {\n}\n\nfunc main() {\n    appendf(\"%d %q\", \"x\")\n}\n",
+		"package main\n\nfunc appendf(n int64, f string, args ...any) {\n}\n\nfunc main() {\n    appendf(1, \"%d %q\", \"x\")\n}\n",
+	} {
+		if _, diags := checkTree(t, src); len(diags) > 0 {
+			t.Errorf("got %v, want no diagnostics", diags)
+		}
+	}
+}

@@ -13,6 +13,13 @@ package fmt
 // package's C files. All three write through C's stdout, as print does,
 // so their output interleaves in the order of the calls.
 //
+// appendf formats as printf does, byte for byte, but appends the output
+// to a list[uint8] instead of writing it, a signature like Go's
+// fmt.Appendf with printf's output, all or nothing, and returns the builtin append's error when the list cannot
+// grow. It is written in Tack, in appendf.tck, with a type switch over
+// each any, std/bytes' integer appends and std/conv's append_float, the
+// same algorithm as printf.c's floats; printf and eprintf stay in C.
+//
 // eprintln, eprintf and ewrite are their twins for standard error: each
 // does exactly what its twin does, but writes through C's stderr, so
 // their output interleaves with each other's in the order of the calls,

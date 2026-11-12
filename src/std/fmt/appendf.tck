@@ -1,0 +1,483 @@
+package fmt
+
+import bytes from "std/bytes"
+import conv from "std/conv"
+
+// appendf, in Tack: printf's formatting, appended to a list[uint8]
+// rather than written to a stream. It reads the format exactly as
+// printf.c's format_to does, byte by byte, a % starting a verb that is
+// the UTF-8 sequence after it, as long as its first byte says (see
+// split_verb), and writes every verb, value and marker exactly as
+// printf.c writes it: integers through std/bytes' append_int,
+// append_uint and append_hex, and floats through std/conv's
+// append_float, the same algorithm as printf.c's out_float, which the
+// tests check against each other.
+//
+// Every piece is appended to the end of out as it is made. The first
+// append that fails stops the call, which then pops every byte the call
+// appended, so out is left exactly as it was, and returns that append's
+// error, the builtin append's out of memory, which append_float and
+// std/bytes' appends give too.
+//
+// No index or slice here needs a guard that does not hold: the format is
+// consumed from its front, each piece cut from what is left at a place
+// find_percent's contract bounds, so every bound is proven.
+
+// appendf appends format to out with each verb in it replaced by the
+// next of args, formatted as the verb says, and every other byte as it
+// is, exactly as printf writes the same format and args to standard
+// output: the same verbs, the same checking of a format the compiler
+// knows, its messages naming appendf, "appendf verb %d does not take
+// string", and the same Go-style markers for the mistakes of one it does
+// not, %!d(string=hi), %!d(MISSING), %!(EXTRA int64=5) and %!(NOVERB)
+// (see printf). Its signature follows Go's fmt.Appendf, but its output
+// is printf's, which differs from Go's in places (see printf). It returns no error, or, when
+// out cannot grow to hold the whole of the output, the builtin append's
+// error, error{code: 1, msg: "out of memory"}, and then leaves out
+// exactly as it was: all of the output is appended, or none of it.
+pub func appendf(mut out list[uint8], format string, args ...any) error {
+    start := len(out)
+    e := format_into(mut out, format, args)
+    if e.code != 0 {
+        for len(out) > start {
+            pop(mut out)
+        }
+        return e
+    }
+    return noerror
+}
+
+// format_into appends format, its verbs replaced by args, to out, as
+// appendf does, but leaves whatever it appended before a failed append
+// in place, for appendf to take back out. rest is what is left of the
+// format to read, each verb taking args[next] while there is one.
+func format_into(mut out list[uint8], format string, args []any) error {
+    mut next int64 = 0
+    mut rest := format
+    for len(rest) > 0 {
+        mut k int64 = 0
+        find_percent(rest, mut k)
+        e := append(mut out, []uint8(rest[:k])...)
+        if e.code != 0 {
+            return e
+        }
+        if k >= len(rest) {
+            break
+        }
+        if k >= len(rest) - 1 {
+            e1 := put_str(mut out, "%!(NOVERB)")
+            if e1.code != 0 {
+                return e1
+            }
+            break
+        }
+        verb, after := split_verb(rest[k + 1:])
+        rest = after
+        if verb == "%" {
+            e2 := append(mut out, '%')
+            if e2.code != 0 {
+                return e2
+            }
+            continue
+        }
+        if next < 0 || next >= len(args) {
+            e3 := put_marker_start(mut out, verb)
+            if e3.code != 0 {
+                return e3
+            }
+            e4 := put_str(mut out, "MISSING)")
+            if e4.code != 0 {
+                return e4
+            }
+            continue
+        }
+        if takes(verb, args[next]) {
+            e5 := put_verb(mut out, verb, args[next])
+            if e5.code != 0 {
+                return e5
+            }
+        } else {
+            e6 := put_marker_start(mut out, verb)
+            if e6.code != 0 {
+                return e6
+            }
+            e7 := put_typed(mut out, args[next])
+            if e7.code != 0 {
+                return e7
+            }
+            e8 := append(mut out, ')')
+            if e8.code != 0 {
+                return e8
+            }
+        }
+        next++
+    }
+    if next >= 0 && next < len(args) {
+        return put_extra(mut out, args[next:])
+    }
+    return noerror
+}
+
+// find_percent sets k to the place of the first % in s, or to len(s)
+// when s holds none.
+func find_percent(s string, mut k int64) ensures 0 <= k && k <= len(s) {
+    k = len(s)
+    for p, c := range s {
+        if c == '%' {
+            k = p
+            return
+        }
+    }
+}
+
+// split_verb returns the verb s starts with, and the bytes of s after
+// it: the UTF-8 sequence s[0] starts, 2, 3 or 4 bytes for a leading
+// byte and 1 for any other, but no more bytes than s has, as printf.c's
+// verb_len reads it. The bytes after the first are not checked, so a
+// verb that is not valid UTF-8 is still read whole, as printf reads it.
+// An empty s, which no caller passes, is no verb and nothing after it.
+func split_verb(s string) (string, string) {
+    if len(s) == 0 {
+        return "", ""
+    }
+    c := s[0]
+    mut n int64 = 1
+    if c >= 0xf8 {
+        n = 1
+    } else if c >= 0xf0 {
+        n = 4
+    } else if c >= 0xe0 {
+        n = 3
+    } else if c >= 0xc0 {
+        n = 2
+    }
+    if n >= 4 && len(s) >= 4 {
+        return s[:4], s[4:]
+    }
+    if n >= 3 && len(s) >= 3 {
+        return s[:3], s[3:]
+    }
+    if n >= 2 && len(s) >= 2 {
+        return s[:2], s[2:]
+    }
+    return s[:1], s[1:]
+}
+
+// put_str appends the bytes of s to out.
+func put_str(mut out list[uint8], s string) error {
+    return append(mut out, []uint8(s)...)
+}
+
+// put_marker_start appends the start of the marker for verb, %! and the
+// verb, then (.
+func put_marker_start(mut out list[uint8], verb string) error {
+    e := put_str(mut out, "%!")
+    if e.code != 0 {
+        return e
+    }
+    e1 := put_str(mut out, verb)
+    if e1.code != 0 {
+        return e1
+    }
+    return append(mut out, '(')
+}
+
+// put_extra appends the marker for arguments no verb took, extra, which
+// holds at least one: %!(EXTRA, then each as put_typed writes it, a
+// comma and a space between two, then ).
+func put_extra(mut out list[uint8], extra []any) error {
+    e := put_str(mut out, "%!(EXTRA ")
+    if e.code != 0 {
+        return e
+    }
+    for k, a := range extra {
+        if k > 0 {
+            e1 := put_str(mut out, ", ")
+            if e1.code != 0 {
+                return e1
+            }
+        }
+        e2 := put_typed(mut out, a)
+        if e2.code != 0 {
+            return e2
+        }
+    }
+    return append(mut out, ')')
+}
+
+// takes reports whether verb is one printf knows that takes a's type:
+// %d and %x an integer, %s a string or a []uint8, %t a bool, %c a uint8,
+// %e %f and %g a float, and %v any type an any holds but a view of a
+// type other than uint8.
+func takes(verb string, a any) bool {
+    if len(verb) != 1 {
+        return false
+    }
+    switch verb[0] {
+    case 'd', 'x':
+        switch a.(type) {
+        case int8, int16, int32, int64, uint8, uint16, uint32, uint64, unsafe_size_t, unsafe_uintptr_t:
+            return true
+        }
+    case 's':
+        switch a.(type) {
+        case string, []uint8:
+            return true
+        }
+    case 't':
+        switch a.(type) {
+        case bool:
+            return true
+        }
+    case 'c':
+        switch a.(type) {
+        case uint8:
+            return true
+        }
+    case 'e', 'f', 'g':
+        switch a.(type) {
+        case float32, float64:
+            return true
+        }
+    case 'v':
+        return takes_value(a)
+    }
+    return false
+}
+
+// takes_value reports whether %v takes a's type: every type an any
+// holds but a view of a type other than uint8.
+func takes_value(a any) bool {
+    switch a.(type) {
+    case []bool, []int8, []int16, []int32, []int64, []uint16, []uint32, []uint64,
+        []unsafe_size_t, []unsafe_uintptr_t, []string, []float32, []float64:
+        return false
+    }
+    return true
+}
+
+// put_verb appends a as verb says, for a verb that takes a's type (see
+// takes); for any other it appends nothing.
+func put_verb(mut out list[uint8], verb string, a any) error {
+    if len(verb) != 1 {
+        return noerror
+    }
+    switch verb[0] {
+    case 'd':
+        return put_int(mut out, a, false)
+    case 'x':
+        return put_int(mut out, a, true)
+    case 's':
+        return put_bytes(mut out, a)
+    case 't':
+        switch v := a.(type) {
+        case bool:
+            return put_bool(mut out, v)
+        }
+    case 'c':
+        switch v := a.(type) {
+        case uint8:
+            return append(mut out, v)
+        }
+    case 'v':
+        return put_value(mut out, a)
+    case 'g':
+        return put_float(mut out, a, 'g', -1)
+    case 'e':
+        return put_float(mut out, a, 'e', 6)
+    case 'f':
+        return put_float(mut out, a, 'f', 6)
+    }
+    return noerror
+}
+
+// put_int appends a, an integer of any type, in decimal, or in lowercase
+// hexadecimal when hex says so, with a - before a negative one; for any
+// other type it appends nothing.
+func put_int(mut out list[uint8], a any, hex bool) error {
+    switch v := a.(type) {
+    case int8:
+        return put_signed(mut out, v, hex)
+    case int16:
+        return put_signed(mut out, v, hex)
+    case int32:
+        return put_signed(mut out, v, hex)
+    case int64:
+        return put_signed(mut out, v, hex)
+    case uint8:
+        return put_unsigned(mut out, v, hex)
+    case uint16:
+        return put_unsigned(mut out, v, hex)
+    case uint32:
+        return put_unsigned(mut out, v, hex)
+    case uint64:
+        return put_unsigned(mut out, v, hex)
+    case unsafe_size_t:
+        return put_unsigned(mut out, v, hex)
+    case unsafe_uintptr_t:
+        return put_unsigned(mut out, v, hex)
+    }
+    return noerror
+}
+
+// put_signed appends v in decimal, or in lowercase hexadecimal when hex
+// says so, with a - before a negative v: -1 is -1 in hexadecimal too, as
+// Go writes it, not ff.
+func put_signed(mut out list[uint8], v int64, hex bool) error {
+    if !hex {
+        return bytes.append_int(mut out, v)
+    }
+    if v >= 0 {
+        return bytes.append_hex(mut out, uint64(v))
+    }
+    e := append(mut out, '-')
+    if e.code != 0 {
+        return e
+    }
+    // -(v + 1) is an int64 for every negative v, the smallest included,
+    // and one less than v's magnitude, which is at most 2^63, so adding
+    // the 1 back never wraps a uint64.
+    return bytes.append_hex(mut out, uint64(-(v + 1)) +% 1)
+}
+
+// put_unsigned appends v in decimal, or in lowercase hexadecimal when
+// hex says so.
+func put_unsigned(mut out list[uint8], v uint64, hex bool) error {
+    if hex {
+        return bytes.append_hex(mut out, v)
+    }
+    return bytes.append_uint(mut out, v)
+}
+
+// put_bool appends b as true or false.
+func put_bool(mut out list[uint8], b bool) error {
+    if b {
+        return put_str(mut out, "true")
+    }
+    return put_str(mut out, "false")
+}
+
+// put_bytes appends the bytes of a, a string or a []uint8; for any
+// other type it appends nothing.
+func put_bytes(mut out list[uint8], a any) error {
+    switch v := a.(type) {
+    case string:
+        return put_str(mut out, v)
+    case []uint8:
+        return append(mut out, v...)
+    }
+    return noerror
+}
+
+// put_float appends a, a float32 or a float64, as std/conv's
+// append_float writes it in format with prec digits, a negative prec
+// giving the fewest that read back as a; for any other type it appends
+// nothing. A float32 is written as the float32 it is: widened to a
+// float64, which holds it exactly, and written with bit size 32.
+func put_float(mut out list[uint8], a any, format uint8, prec int64) error {
+    switch v := a.(type) {
+    case float32:
+        return conv.append_float(mut out, float64(v), format, prec, 32)
+    case float64:
+        return conv.append_float(mut out, v, format, prec, 64)
+    }
+    return noerror
+}
+
+// put_value appends a as %v writes it: %t for a bool, %s for a string or
+// a []uint8, %g for a float and %d for an integer; for a view of any
+// other type it appends nothing.
+func put_value(mut out list[uint8], a any) error {
+    switch v := a.(type) {
+    case bool:
+        return put_bool(mut out, v)
+    case string, []uint8:
+        return put_bytes(mut out, v)
+    case float32, float64:
+        return put_float(mut out, v, 'g', -1)
+    }
+    return put_int(mut out, a, false)
+}
+
+// put_typed appends what a marker shows of a: its type's name, then =
+// and a as %v writes it, or the name alone for a type %v does not take,
+// a view of any type but uint8.
+func put_typed(mut out list[uint8], a any) error {
+    e := put_str(mut out, type_name(a))
+    if e.code != 0 {
+        return e
+    }
+    if !takes_value(a) {
+        return noerror
+    }
+    e1 := append(mut out, '=')
+    if e1.code != 0 {
+        return e1
+    }
+    return put_value(mut out, a)
+}
+
+// type_name returns the Tack name of the type a holds, as printf.c's
+// type_name gives it. An any holds one of the types below, every basic
+// type and a view of each, and nothing else.
+func type_name(a any) string {
+    switch a.(type) {
+    case bool:
+        return "bool"
+    case int8:
+        return "int8"
+    case int16:
+        return "int16"
+    case int32:
+        return "int32"
+    case int64:
+        return "int64"
+    case uint8:
+        return "uint8"
+    case uint16:
+        return "uint16"
+    case uint32:
+        return "uint32"
+    case uint64:
+        return "uint64"
+    case unsafe_size_t:
+        return "unsafe_size_t"
+    case unsafe_uintptr_t:
+        return "unsafe_uintptr_t"
+    case string:
+        return "string"
+    case float32:
+        return "float32"
+    case float64:
+        return "float64"
+    case []bool:
+        return "[]bool"
+    case []int8:
+        return "[]int8"
+    case []int16:
+        return "[]int16"
+    case []int32:
+        return "[]int32"
+    case []int64:
+        return "[]int64"
+    case []uint8:
+        return "[]uint8"
+    case []uint16:
+        return "[]uint16"
+    case []uint32:
+        return "[]uint32"
+    case []uint64:
+        return "[]uint64"
+    case []unsafe_size_t:
+        return "[]unsafe_size_t"
+    case []unsafe_uintptr_t:
+        return "[]unsafe_uintptr_t"
+    case []string:
+        return "[]string"
+    case []float32:
+        return "[]float32"
+    case []float64:
+        return "[]float64"
+    }
+    return "invalid"
+}

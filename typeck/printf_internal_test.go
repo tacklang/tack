@@ -156,23 +156,26 @@ func TestCheckFormat(t *testing.T) {
 }
 
 // TestCheckFormatNamesTheCall checks the problems checkFormat finds in
-// each of formatCases for a call to eprintf are printf's, but with each
-// message naming eprintf where printf's names printf.
+// each of formatCases for a call to eprintf, and to appendf, are
+// printf's, but with each message naming the function called where
+// printf's names printf.
 func TestCheckFormatNamesTheCall(t *testing.T) {
-	for _, tt := range formatCases {
-		t.Run(tt.name, func(t *testing.T) {
-			got := checkFormat("eprintf", tt.format, tt.values, !tt.spread, nameOf, isBytesType)
-			want := slices.Clone(tt.want)
-			for i := range want {
-				if strings.Count(want[i].message, "printf") != 1 {
-					t.Fatalf("message %q names printf other than once", want[i].message)
+	for _, called := range []string{"eprintf", "appendf"} {
+		for _, tt := range formatCases {
+			t.Run(called+"/"+tt.name, func(t *testing.T) {
+				got := checkFormat(called, tt.format, tt.values, !tt.spread, nameOf, isBytesType)
+				want := slices.Clone(tt.want)
+				for i := range want {
+					if strings.Count(want[i].message, "printf") != 1 {
+						t.Fatalf("message %q names printf other than once", want[i].message)
+					}
+					want[i].message = strings.Replace(want[i].message, "printf", called, 1)
 				}
-				want[i].message = strings.Replace(want[i].message, "printf", "eprintf", 1)
-			}
-			if !slices.Equal(got, want) {
-				t.Errorf("got %+v, want %+v", got, want)
-			}
-		})
+				if !slices.Equal(got, want) {
+					t.Errorf("got %+v, want %+v", got, want)
+				}
+			})
+		}
 	}
 }
 
