@@ -11,6 +11,82 @@ internal/invalid documents the format; go test ./test -run
 TestInvalidPackages checks every case, and -update rewrites the expected
 sections.
 
+-- arena-exposes/tack.mod --
+module calc
+-- arena-exposes/geo/geo.tck --
+package geo
+
+type secret struct {
+    n int64
+}
+
+pub type Store struct {
+    pub items arena[secret]
+    pub first id[secret]
+    pub run span[secret]
+}
+
+pub func Make() arena[secret] {
+    mut none secret
+    return make(arena[secret], none, c_allocator)
+}
+
+pub func First(l list[id[secret]]) {
+}
+
+lib func All(f func(span[secret])) {
+}
+
+pub func Nothing() {
+}
+-- arena-exposes/main.tck --
+package main
+
+import geo from "calc/geo"
+
+func main() {
+    geo.Nothing()
+}
+-- arena-exposes/expected --
+stage: typeck
+---
+
+arena-exposes/geo/geo.tck:8:15: error: pub field items of Store exposes secret, which is not pub
+07 |	pub type Store struct {
+08 |	    pub items arena[secret]
+   |	              ^~~~~~~~~~~~~
+09 |	    pub first id[secret]
+
+arena-exposes/geo/geo.tck:9:15: error: pub field first of Store exposes secret, which is not pub
+08 |	    pub items arena[secret]
+09 |	    pub first id[secret]
+   |	              ^~~~~~~~~~
+10 |	    pub run span[secret]
+
+arena-exposes/geo/geo.tck:10:13: error: pub field run of Store exposes secret, which is not pub
+09 |	    pub first id[secret]
+10 |	    pub run span[secret]
+   |	            ^~~~~~~~~~~~
+11 |	}
+
+arena-exposes/geo/geo.tck:13:17: error: pub function Make exposes secret, which is not pub
+12 |	
+13 |	pub func Make() arena[secret] {
+   |	                ^~~~~~~~~~~~~
+14 |	    mut none secret
+
+arena-exposes/geo/geo.tck:18:18: error: pub function First exposes secret, which is not pub
+17 |	
+18 |	pub func First(l list[id[secret]]) {
+   |	                 ^~~~~~~~~~~~~~~~
+19 |	}
+
+arena-exposes/geo/geo.tck:21:16: error: lib function All exposes secret, which is not lib or pub
+20 |	
+21 |	lib func All(f func(span[secret])) {
+   |	               ^~~~~~~~~~~~~~~~~~
+22 |	}
+
 -- assign-imported-immutable/tack.mod --
 module calc
 -- assign-imported-immutable/lexer/lexer.tck --

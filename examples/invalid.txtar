@@ -1909,6 +1909,61 @@ arena-extern-span-field/main.tck:8:20: error: parameter r of extern func take ca
    |	                   ^~~
 09 |	
 
+-- arena-func-value/main.tck --
+package main
+
+type Hooks struct {
+    on arena[func()]
+}
+
+mut g arena[func()]
+
+extern("ext_take") func take(a arena[func()])
+
+extern("ext_give") func give() Hooks
+
+func main() {
+}
+-- arena-func-value/expected --
+stage: typeck
+---
+
+arena-func-value/main.tck:7:5: warning: declared and not used: g
+06 |	
+07 |	mut g arena[func()]
+   |	    ^
+08 |	
+
+arena-func-value/main.tck:7:5: error: package-level variable g cannot hold a function value
+06 |	
+07 |	mut g arena[func()]
+   |	    ^
+08 |	
+
+arena-func-value/main.tck:9:32: error: parameter a of extern func take cannot be arena[func()]: an arena does not cross to C
+08 |	
+09 |	extern("ext_take") func take(a arena[func()])
+   |	                               ^~~~~~~~~~~~~
+10 |	
+
+arena-func-value/main.tck:9:32: error: parameter a of extern func take cannot be arena[func()]: a function value does not cross to C
+08 |	
+09 |	extern("ext_take") func take(a arena[func()])
+   |	                               ^~~~~~~~~~~~~
+10 |	
+
+arena-func-value/main.tck:11:32: error: extern func give cannot return Hooks: an arena does not cross to C
+10 |	
+11 |	extern("ext_give") func give() Hooks
+   |	                               ^~~~~
+12 |	
+
+arena-func-value/main.tck:11:32: error: extern func give cannot return Hooks: a function value does not cross to C
+10 |	
+11 |	extern("ext_give") func give() Hooks
+   |	                               ^~~~~
+12 |	
+
 -- arena-global/main.tck --
 package main
 
@@ -2330,6 +2385,25 @@ arena-pop/main.tck:6:22: error: pop expects a list, got arena[int64]
    |	                     ^
 07 |	    if ok {
 
+-- arena-range-binding-moved/main.tck --
+package main
+
+func main() {
+    a := make(arena[list[int64]], make(list[int64], c_allocator), c_allocator)
+    for _, l := range a {
+        drop(own l)
+    }
+}
+-- arena-range-binding-moved/expected --
+stage: typeck
+---
+
+arena-range-binding-moved/main.tck:6:18: error: cannot move l: it refers to an element of a in place, and an element cannot be moved out of an arena
+05 |	    for _, l := range a {
+06 |	        drop(own l)
+   |	                 ^
+07 |	    }
+
 -- arena-range-view-field/main.tck --
 package main
 
@@ -2745,6 +2819,41 @@ arena-span-wrong-type/main.tck:9:26: error: cannot index arena[int64] with span[
 09 |	        exit(int32(len(a[s])))
    |	                         ^
 10 |	    }
+
+-- arena-struct-closure-alongside/main.tck --
+package main
+
+type Store struct {
+    a arena[int64]
+}
+
+func look(s Store, scope f func()) {
+    f()
+}
+
+func main() {
+    mut s := Store{a: make(arena[int64], 0, c_allocator)}
+    look(s, func() {
+        _, err := add(mut s.a, 1)
+        if err.code != 0 {
+            exit(1)
+        }
+    })
+}
+-- arena-struct-closure-alongside/expected --
+stage: typeck
+---
+
+arena-struct-closure-alongside/main.tck:13:10: error: cannot pass s alongside a closure that writes s in this call: Store, which holds an arena, is not copied for a call, and a closure that writes s must be the only way to reach s during it
+12 |	    mut s := Store{a: make(arena[int64], 0, c_allocator)}
+13 |	    look(s, func() {
+   |	         ^
+14 |	        _, err := add(mut s.a, 1)
+arena-struct-closure-alongside/main.tck:14:27: note: s is written here, in a closure
+13 |	    look(s, func() {
+14 |	        _, err := add(mut s.a, 1)
+   |	                          ^~~
+15 |	        if err.code != 0 {
 
 -- arena-swap/main.tck --
 package main
@@ -4564,6 +4673,45 @@ array-literal-key/main.tck:4:31: error: keys are not allowed in an array literal
 04 |	    a := [3]int64{0: 1, 1: 2, 2: 3}
    |	                              ^~~~
 05 |	    code, fits := int32(a[0])
+
+-- array-map-element/main.tck --
+package main
+
+type Index struct {
+    m map[int64]int64
+}
+
+func main() {
+    a := [1]map[int64]int64{make(map[int64]int64, c_allocator)}
+    b := [1]Index{Index{m: make(map[int64]int64, c_allocator)}}
+}
+-- array-map-element/expected --
+stage: typeck
+---
+
+array-map-element/main.tck:8:5: warning: declared and not used: a
+07 |	func main() {
+08 |	    a := [1]map[int64]int64{make(map[int64]int64, c_allocator)}
+   |	    ^
+09 |	    b := [1]Index{Index{m: make(map[int64]int64, c_allocator)}}
+
+array-map-element/main.tck:8:10: error: an array cannot hold map[int64]int64: its elements are copied, and a map cannot be
+07 |	func main() {
+08 |	    a := [1]map[int64]int64{make(map[int64]int64, c_allocator)}
+   |	         ^~~~~~~~~~~~~~~~~~
+09 |	    b := [1]Index{Index{m: make(map[int64]int64, c_allocator)}}
+
+array-map-element/main.tck:9:5: warning: declared and not used: b
+08 |	    a := [1]map[int64]int64{make(map[int64]int64, c_allocator)}
+09 |	    b := [1]Index{Index{m: make(map[int64]int64, c_allocator)}}
+   |	    ^
+10 |	}
+
+array-map-element/main.tck:9:10: error: an array cannot hold Index: its elements are copied, and Index, which holds a map, cannot be
+08 |	    a := [1]map[int64]int64{make(map[int64]int64, c_allocator)}
+09 |	    b := [1]Index{Index{m: make(map[int64]int64, c_allocator)}}
+   |	         ^~~~~~~~
+10 |	}
 
 -- array-ordering/main.tck --
 package main
@@ -7364,7 +7512,7 @@ func main() {
 stage: typeck
 ---
 
-closure-receiver-written/main.tck:15:5: error: cannot pass bag alongside a closure that writes bag in this call: a list is not copied for a call, and a closure that writes bag must be the only way to reach bag during it
+closure-receiver-written/main.tck:15:5: error: cannot pass bag alongside a closure that writes bag in this call: Bag, which holds a list, is not copied for a call, and a closure that writes bag must be the only way to reach bag during it
 14 |	    mut bag := Bag{items: make(list[int64], c_allocator)}
 15 |	    bag.each(func(n int64) { e := append(mut bag.items, n); print(e.msg) }) // ERROR
    |	    ^~~
@@ -19458,7 +19606,7 @@ func main() {
 stage: typeck
 ---
 
-generic-arg-borrow-alongside-mut/main.tck:12:17: error: cannot pass w alongside mut w in this call: a list is not copied for a call, and a mut argument must be the only way to reach w during it
+generic-arg-borrow-alongside-mut/main.tck:12:17: error: cannot pass w alongside mut w in this call: W, a type parameter, which may hold a list, is not copied for a call, and a mut argument must be the only way to reach w during it
 11 |	func f[W Writer](mut w W) {
 12 |	    pair(mut w, w)
    |	                ^
@@ -30882,6 +31030,51 @@ main-with-result/main.tck:3:13: error: main function must not declare a result
    |	            ^~~~~
 04 |	    return 7
 
+-- map-alongside-mut/main.tck --
+package main
+
+type Index struct {
+    m map[int64]int64
+}
+
+func f(mut a map[int64]int64, b map[int64]int64) {
+}
+
+func g(mut a Index, b Index) {
+}
+
+func main() {
+    mut m := make(map[int64]int64, c_allocator)
+    f(mut m, m)
+    mut x := Index{m: make(map[int64]int64, c_allocator)}
+    g(mut x, x)
+}
+-- map-alongside-mut/expected --
+stage: typeck
+---
+
+map-alongside-mut/main.tck:15:14: error: cannot pass m alongside mut m in this call: a map is not copied for a call, and a mut argument must be the only way to reach m during it
+14 |	    mut m := make(map[int64]int64, c_allocator)
+15 |	    f(mut m, m)
+   |	             ^
+16 |	    mut x := Index{m: make(map[int64]int64, c_allocator)}
+map-alongside-mut/main.tck:15:7: note: passed as mut here
+14 |	    mut m := make(map[int64]int64, c_allocator)
+15 |	    f(mut m, m)
+   |	      ^~~~~
+16 |	    mut x := Index{m: make(map[int64]int64, c_allocator)}
+
+map-alongside-mut/main.tck:17:14: error: cannot pass x alongside mut x in this call: Index, which holds a map, is not copied for a call, and a mut argument must be the only way to reach x during it
+16 |	    mut x := Index{m: make(map[int64]int64, c_allocator)}
+17 |	    g(mut x, x)
+   |	             ^
+18 |	}
+map-alongside-mut/main.tck:17:7: note: passed as mut here
+16 |	    mut x := Index{m: make(map[int64]int64, c_allocator)}
+17 |	    g(mut x, x)
+   |	      ^~~~~
+18 |	}
+
 -- map-assign-borrow/main.tck --
 package main
 
@@ -33297,7 +33490,7 @@ func main() {
 stage: typeck
 ---
 
-method-list-borrow/main.tck:15:5: error: cannot pass b alongside mut b in this call: a list is not copied for a call, and a mut argument must be the only way to reach b during it
+method-list-borrow/main.tck:15:5: error: cannot pass b alongside mut b in this call: B, which holds a list, is not copied for a call, and a mut argument must be the only way to reach b during it
 14 |	    mut b := B{buf: make(list[int64], c_allocator)}
 15 |	    b.peek(mut b)
    |	    ^
@@ -33308,7 +33501,7 @@ method-list-borrow/main.tck:15:12: note: passed as mut here
    |	           ^~~~~
 16 |	    mut b.fill(b)
 
-method-list-borrow/main.tck:16:16: error: cannot pass b alongside mut b in this call: a list is not copied for a call, and a mut argument must be the only way to reach b during it
+method-list-borrow/main.tck:16:16: error: cannot pass b alongside mut b in this call: B, which holds a list, is not copied for a call, and a mut argument must be the only way to reach b during it
 15 |	    b.peek(mut b)
 16 |	    mut b.fill(b)
    |	               ^
@@ -48217,6 +48410,41 @@ pool-reserve/main.tck:5:24: error: reserve expects a list or an arena, got pool[
    |	                       ^
 06 |	    if err.code != 0 {
 
+-- pool-struct-closure-alongside/main.tck --
+package main
+
+type Store struct {
+    p pool[int64]
+}
+
+func look(s Store, scope f func()) {
+    f()
+}
+
+func main() {
+    mut s := Store{p: make(pool[int64], c_allocator)}
+    look(s, func() {
+        _, err := insert(mut s.p, 1)
+        if err.code != 0 {
+            exit(1)
+        }
+    })
+}
+-- pool-struct-closure-alongside/expected --
+stage: typeck
+---
+
+pool-struct-closure-alongside/main.tck:13:10: error: cannot pass s alongside a closure that writes s in this call: Store, which holds a pool, is not copied for a call, and a closure that writes s must be the only way to reach s during it
+12 |	    mut s := Store{p: make(pool[int64], c_allocator)}
+13 |	    look(s, func() {
+   |	         ^
+14 |	        _, err := insert(mut s.p, 1)
+pool-struct-closure-alongside/main.tck:14:30: note: s is written here, in a closure
+13 |	    look(s, func() {
+14 |	        _, err := insert(mut s.p, 1)
+   |	                             ^~~
+15 |	        if err.code != 0 {
+
 -- pool-temporary/main.tck --
 package main
 
@@ -59561,7 +59789,7 @@ func main() {
 stage: typeck
 ---
 
-union-method-mut-alongside/main.tck:13:16: error: cannot pass v alongside mut v in this call: a list is not copied for a call, and a mut argument must be the only way to reach v during it
+union-method-mut-alongside/main.tck:13:16: error: cannot pass v alongside mut v in this call: Value, which holds a list, is not copied for a call, and a mut argument must be the only way to reach v during it
 12 |	    mut v := Value.none
 13 |	    mut v.fill(v)
    |	               ^

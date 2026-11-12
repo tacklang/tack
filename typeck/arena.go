@@ -324,9 +324,10 @@ func isRefConversion(call *ast.Call) bool {
 // borrowHolder names what place, read in place, is borrowed from, for an
 // error about a borrow: "an arena" when it is an arena, an element of
 // one or a span's view of one, "a pool" when it is a pool or an element
-// of one, and otherwise what, the holder the caller names, "a list" or
-// "a map".
-func (c *Checker) borrowHolder(place ast.Expr, what string) string {
+// of one, and otherwise what its own type is, an owned one, as
+// ownedPhrase names it: "a list", "a map", or a struct, a union or a type
+// parameter that holds or may hold one, "Stack, which holds a list,".
+func (c *Checker) borrowHolder(place ast.Expr) string {
 	typ := ast.TypeOf(place)
 	if ix, ok := place.(*ast.Index); ok {
 		if x := ast.TypeOf(ix.X); c.table.IsArena(x) || c.table.IsPool(x) {
@@ -339,7 +340,7 @@ func (c *Checker) borrowHolder(place ast.Expr, what string) string {
 	case c.table.IsPool(typ):
 		return "a pool"
 	}
-	return what
+	return c.ownedPhrase(typ)
 }
 
 // arenaKind names typ when it is an arena, an id or a span type, "an

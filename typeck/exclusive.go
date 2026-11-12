@@ -265,7 +265,7 @@ func (c *Checker) checkListBorrows(call *ast.Call) {
 						"and %s during it",
 					c.text(place.Spanned()),
 					w.what(c),
-					c.borrowHolder(place, "a list"),
+					c.borrowHolder(place),
 					w.only(c),
 				)
 				break
@@ -402,11 +402,7 @@ func (c *Checker) checkReadBorrows(x ast.Expr, operands []ast.Expr, verb, where,
 	if place := c.borrowedList(x); place != nil {
 		for _, w := range ws {
 			if placesMayOverlap(place, w.place) {
-				holder := "a list"
-				if c.table.IsMap(ast.TypeOf(x)) {
-					holder = "a map"
-				}
-				holder = c.borrowHolder(x, holder)
+				holder := c.borrowHolder(place)
 				c.errorNotes(
 					x.Spanned(),
 					[]diag.Diagnostic{w.note()},

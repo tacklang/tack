@@ -866,7 +866,7 @@ func (m *mover) movesBinding(id *ast.Ident) bool {
 
 // rangePart returns what v, a variable of a range loop over x that refers
 // into it in place, refers to, a key or an element, and what x is, a map,
-// a pool, a view or a list, as a message names them.
+// a pool, an arena, a view or a list, as a message names them.
 func (c *Checker) rangePart(v *ast.Var, x ast.Expr) (part, holder string) {
 	typ := ast.TypeOf(x)
 	switch {
@@ -876,6 +876,8 @@ func (c *Checker) rangePart(v *ast.Var, x ast.Expr) (part, holder string) {
 		return "an element", "a map"
 	case c.table.IsPool(typ):
 		return "an element", "a pool"
+	case c.table.IsArena(typ):
+		return "an element", "an arena"
 	case c.table.IsView(typ):
 		return "an element", "a view"
 	default:

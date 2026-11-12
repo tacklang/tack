@@ -2,6 +2,7 @@ package c_test
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -256,6 +257,70 @@ func TestArenaFreedAtExit(t *testing.T) {
 					t.Errorf("wrote %q and exited %d, want %q and %d", out, code, end, tc.code)
 				}
 			})
+		})
+	}
+}
+
+// arenaOrderSrc reads an arena in the operands of a struct literal before
+// an add or an add_all to it in a later operand, which C's initializer
+// list leaves unordered: the length and the element an id past the end
+// names, the sentinel's slot, must be read as they were before the add.
+const arenaOrderSrc = `package main
+
+type Added struct {
+    n int64
+    v int64
+    i id[int64]
+}
+
+type Spanned struct {
+    n int64
+    v int64
+    s span[int64]
+}
+
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+func run() error {
+    mut a := make(arena[int64], 7, c_allocator)
+    mut b := make(arena[int64], 0, c_allocator)
+    far := add(mut b, 0)?
+    p := Added{n: len(a), v: a[far], i: add(mut a, 9)?}
+    check(p.n == 1 && p.v == 7 && p.i == far && a[far] == 9, "add after reads")
+    second := add(mut b, 0)?
+    farther := add_all(mut b, 0, 0)?
+    q := Spanned{n: len(a), v: a[second], s: add_all(mut a, 5, 6)?}
+    check(q.n == 2 && q.v == 7 && len(a[q.s]) == 2 && a[second] == 5, "add_all after reads")
+    check(len(b[farther]) == 2, "spans of b")
+    return error{code: 0, msg: ""}
+}
+
+func main() {
+    err := run()
+    check(err.code == 0, "no error")
+}
+`
+
+// TestArenaAddsRunAfterEarlierOperands builds arenaOrderSrc under each of
+// sanitizerFlags and checks that each operand read before an add or an
+// add_all saw the arena as it was: the C holds those operands in
+// temporaries, in order, since an add changes the arena's length and the
+// slot an id past its end names, and may move its buffer.
+func TestArenaAddsRunAfterEarlierOperands(t *testing.T) {
+	_, run, found := strings.Cut(generate(t, arenaOrderSrc), "tack_4_main3_run(void) {")
+	if !found || strings.Count(run, "tack_o") < 4 {
+		t.Errorf("run holds no operands in order:\n%s", run)
+	}
+	for _, flags := range sanitizerFlags {
+		t.Run(filepath.Join(flags...), func(t *testing.T) {
+			runChecks(t, buildWithStdAndC(t, arenaOrderSrc, "", flags...), 4)
 		})
 	}
 }

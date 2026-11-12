@@ -2336,7 +2336,7 @@ one no variable holds must be given one,
 <!-- error: generic-dropped-result -->`stuck returns S, which may hold a list and cannot be discarded; bind it to a variable`;
 it has no zero value, <!-- error: generic-zero-value -->`z needs a value: S has no zero value`;
 it is never borrowed alongside a `mut` argument of itself,
-<!-- error: generic-arg-borrow-alongside-mut -->`cannot pass w alongside mut w in this call: a list is not copied for a call, and a mut argument must be the only way to reach w during it`;
+<!-- error: generic-arg-borrow-alongside-mut -->`cannot pass w alongside mut w in this call: W, a type parameter, which may hold a list, is not copied for a call, and a mut argument must be the only way to reach w during it`;
 and it is no element of an array, whose elements are copied,
 <!-- error: generic-array -->`an array cannot hold S: its elements are copied, and S, a type parameter, which may hold a list, cannot be`.
 A list, a view, a map's value and a function type may hold one, whose

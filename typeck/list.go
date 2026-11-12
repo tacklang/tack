@@ -122,8 +122,9 @@ func (c *Checker) notCopyable(holder string, elem types.Type, at ast.Span) {
 
 // ownedPhrase names what makes typ, an owned type, owned, for a
 // diagnostic: "a list" for a list, "an arena" for an arena, "a pool" for
-// a pool, and "T, which holds a list,", "T, which holds an arena," or "T,
-// which holds a pool," for an array or a struct holding one.
+// a pool, "a map" for a map, and "T, which holds a list,", "T, which
+// holds an arena,", "T, which holds a pool," or "T, which holds a map,"
+// for an array, a struct or a union holding one.
 func (c *Checker) ownedPhrase(typ types.Type) string {
 	if c.table.IsList(typ) {
 		return "a list"
@@ -134,6 +135,9 @@ func (c *Checker) ownedPhrase(typ types.Type) string {
 	if c.table.IsPool(typ) {
 		return "a pool"
 	}
+	if c.table.IsMap(typ) {
+		return "a map"
+	}
 	if c.table.HoldsArena(typ) {
 		return c.typeName(typ) + ", which holds an arena,"
 	}
@@ -142,6 +146,9 @@ func (c *Checker) ownedPhrase(typ types.Type) string {
 	}
 	if c.table.IsTypeParam(typ) {
 		return c.typeName(typ) + ", a type parameter, which may hold a list,"
+	}
+	if !c.table.HoldsList(typ) {
+		return c.typeName(typ) + ", which holds a map,"
 	}
 	return c.typeName(typ) + ", which holds a list,"
 }
