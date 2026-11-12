@@ -43,6 +43,20 @@ import (
 // hold where its shadow does not: while either is checking, a query
 // judges every edge, and no fact pushed is linked.
 //
+// A block of n early exits that each relate new locals puts n facts in
+// force that no other shadows, one bound on each local against 0, so 0
+// has n chains, every one holding. A query whose graph reaches 0 can
+// take only relationCap nodes, so it walks 0's chains in the order of
+// their oldest edges, which is the order of their slots in heads and
+// lower than any edge of a later chain, taking each edge found once no
+// chain not yet walked can hold a lower one, and stops walking once the
+// graph is full (see graphBuilder.takeHeld). From then on it can take
+// only edges to the nodes it holds, which pairs lists, for each node and
+// another, as the slots in heads of the chains between the two, and it
+// judges, of the other chains, only as many as it needs to know whether
+// one holds, which caps the graph. So it takes the same edges, in the
+// same order, and is capped alike, as one that walked every chain.
+//
 // A closure's body reads, of the facts in force where it is written, only
 // those keepsInClosure keeps, then its own (see enterClosure). So the
 // first closure entered where there is an index gives that index a
@@ -78,7 +92,9 @@ var relationOracle = factOracle
 // relindex.go): edges, every one, in the order of the facts that give
 // them; adj, for each node, the edges that touch it of every fact but a
 // stored value's, in that order; heads, for each node, the newest edge of
-// each chain of links among those (see relEdge.prev); stored, for each
+// each chain of links among those (see relEdge.prev); pairs, for each
+// node and another, the slots in the first's heads of the chains between
+// the two, in order; stored, for each
 // node, the stored values' facts about it, as positions in facts; about,
 // for each subject, the positions in facts of the facts about it no newer
 // one shadows, the ones a fact pushed may shadow; facts, every fact
@@ -92,6 +108,7 @@ type relIndex struct {
 	kept      *relIndex
 	adj       map[factKey][]int
 	heads     map[factKey][]int
+	pairs     map[relPair][]int
 	stored    map[factKey][]int
 	about     map[factKey][]int
 	lenCount  map[factKey]int
@@ -99,6 +116,11 @@ type relIndex struct {
 	facts     []relFact
 	lens      []factKey
 	relations int
+}
+
+// relPair is a node and another, or itself, a key of relIndex.pairs.
+type relPair struct {
+	at, other factKey
 }
 
 // relFact is a fact the index holds: at, its position in c.active, and
@@ -124,8 +146,8 @@ type relFact struct {
 // newRelIndex returns an index holding no fact.
 func newRelIndex() *relIndex {
 	return &relIndex{
-		adj: make(map[factKey][]int), heads: make(map[factKey][]int), stored: make(map[factKey][]int),
-		about: make(map[factKey][]int), lenCount: make(map[factKey]int),
+		adj: make(map[factKey][]int), heads: make(map[factKey][]int), pairs: make(map[relPair][]int),
+		stored: make(map[factKey][]int), about: make(map[factKey][]int), lenCount: make(map[factKey]int),
 	}
 }
 
@@ -305,11 +327,16 @@ func (idx *relIndex) push(c *Checker, i int) {
 		if rf.hid.at >= 0 {
 			idx.link(&e, ei, idx.facts[rf.hid.at].from+k)
 		} else {
+			e.root = ei
 			e.headFrom = len(idx.heads[e.from])
 			idx.heads[e.from] = append(idx.heads[e.from], ei)
+			fromPair := relPair{e.from, e.to}
+			idx.pairs[fromPair] = append(idx.pairs[fromPair], e.headFrom)
 			if e.to != e.from {
 				e.headTo = len(idx.heads[e.to])
 				idx.heads[e.to] = append(idx.heads[e.to], ei)
+				toPair := relPair{e.to, e.from}
+				idx.pairs[toPair] = append(idx.pairs[toPair], e.headTo)
 			}
 		}
 		idx.edges = append(idx.edges, e)
@@ -317,13 +344,13 @@ func (idx *relIndex) push(c *Checker, i int) {
 }
 
 // link makes e, the edge to be put at ei, stand for prev, the same edge
-// of the fact e's shadows, in heads: e takes prev's slots there, and
-// prev becomes the one before it in its chain. A fact shadowed says the
-// same as the fact shadowing it, so the two give the same edges in the
+// of the fact e's shadows, in heads: e takes prev's slots there, and its
+// chain's oldest edge, and prev becomes the one before it in its chain.
+// A fact shadowed says the same as the fact shadowing it, so the two give the same edges in the
 // same order, the k-th of one the k-th of the other.
 func (idx *relIndex) link(e *relEdge, ei, prev int) {
 	p := idx.edges[prev]
-	e.prev, e.headFrom, e.headTo = prev, p.headFrom, p.headTo
+	e.prev, e.root, e.headFrom, e.headTo = prev, p.root, p.headFrom, p.headTo
 	idx.heads[e.from][e.headFrom] = ei
 	if e.to != e.from {
 		idx.heads[e.to][e.headTo] = ei
@@ -360,8 +387,12 @@ func (idx *relIndex) pop(i int) {
 			}
 			if e.to != e.from {
 				idx.heads[e.to] = idx.heads[e.to][:len(idx.heads[e.to])-1]
+				toPair := relPair{e.to, e.from}
+				idx.pairs[toPair] = idx.pairs[toPair][:len(idx.pairs[toPair])-1]
 			}
 			idx.heads[e.from] = idx.heads[e.from][:len(idx.heads[e.from])-1]
+			fromPair := relPair{e.from, e.to}
+			idx.pairs[fromPair] = idx.pairs[fromPair][:len(idx.pairs[fromPair])-1]
 		}
 		held := idx.about[rf.about]
 		held = held[:len(held)-1]
@@ -614,6 +645,7 @@ func (c *Checker) checkRelationIndex() {
 	for k := range idx.stored {
 		nodes[k] = true
 	}
+	idx.checkPairs()
 	for k := range nodes {
 		var got, want []edgeSaid
 		for e := range idx.edgesAt(k) {
@@ -624,6 +656,41 @@ func (c *Checker) checkRelationIndex() {
 		}
 		if !reflect.DeepEqual(got, want) {
 			panic(fmt.Sprintf("typeck: the relation index gives %v the edges %v, a scan %v", k, got, want))
+		}
+	}
+}
+
+// checkPairs panics when idx.pairs does not list, for each node and
+// another, the slots in the first's heads of the chains between the two,
+// in order, and nothing else, or when an edge of a chain does not have
+// its head's nodes and oldest edge.
+func (idx *relIndex) checkPairs() {
+	want := make(map[relPair][]int)
+	for k, heads := range idx.heads {
+		for slot, h := range heads {
+			head := idx.edges[h]
+			other := head.to
+			if other == k {
+				other = head.from
+			}
+			p := relPair{k, other}
+			want[p] = append(want[p], slot)
+			for ei := h; ei >= 0; ei = idx.edges[ei].prev {
+				e := idx.edges[ei]
+				if e.from != head.from || e.to != head.to || e.root != head.root || e.prev < 0 && e.root != ei {
+					panic(fmt.Sprintf("typeck: the relation index chains the edge %d, %v, at %v under the head %v", ei, e, k, head))
+				}
+			}
+		}
+	}
+	for p, slots := range idx.pairs {
+		if !slices.Equal(slots, want[p]) {
+			panic(fmt.Sprintf("typeck: the relation index pairs %v at the slots %v, its heads at %v", p, slots, want[p]))
+		}
+	}
+	for p, slots := range want {
+		if len(idx.pairs[p]) != len(slots) {
+			panic(fmt.Sprintf("typeck: the relation index pairs %v at the slots %v, its heads at %v", p, idx.pairs[p], slots))
 		}
 	}
 }

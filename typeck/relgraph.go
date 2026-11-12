@@ -1,6 +1,7 @@
 package typeck
 
 import (
+	"container/heap"
 	"math"
 	"slices"
 
@@ -19,15 +20,16 @@ import (
 // where conds hold. fact is the index in c.active of the fact it comes
 // from, or -1 for a length's range, which always holds. In the index of
 // the relations in force (see relindex.go), prev is the same edge of the
-// fact that fact shadows, or -1, and headFrom and headTo the edge's
-// slots, or the slots of the edge it stands for, in the heads of its
-// nodes.
+// fact that fact shadows, or -1, root the oldest edge of its chain, and
+// headFrom and headTo the edge's slots, or the slots of the edge it
+// stands for, in the heads of its nodes.
 type relEdge struct {
 	from, to         factKey
 	conds            []noWrap
 	w                int64
 	fact             int
 	prev             int
+	root             int
 	headFrom, headTo int
 }
 
@@ -258,7 +260,7 @@ func (b *graphBuilder) typeRange(u factKey) {
 // takeEdges takes every edge of the index that holds from u, a node found,
 // to a node the graph has room for, each once, in the order the index
 // lists them: from the index a scan built, judging every one, and
-// otherwise those holdingAt finds, then the stored value's bounds the
+// otherwise those takeHeld takes, then the stored value's bounds the
 // graph takes at u, unless it leaves them out.
 func (b *graphBuilder) takeEdges(u factKey) {
 	if b.scan != nil {
@@ -272,11 +274,7 @@ func (b *graphBuilder) takeEdges(u factKey) {
 		}
 		return
 	}
-	for _, ei := range b.holdingAt(u) {
-		if !b.used[ei] {
-			b.take(u, ei, b.idx.edges[ei])
-		}
-	}
+	b.takeHeld(u)
 	if b.plain {
 		return
 	}
@@ -303,11 +301,156 @@ func (b *graphBuilder) take(u factKey, ei int, e relEdge) {
 	}
 }
 
-// holdingAt returns the edges at u, of every fact but a stored value's,
-// whose facts hold where the query is asked, in the order the index
-// lists them (see relIndex.holdingAt).
-func (b *graphBuilder) holdingAt(u factKey) []int {
-	return b.idx.holdingAt(b.c, u, b.holdsAt, b.g.steps)
+// takeHeld takes the edges at u, of every fact but a stored value's,
+// whose facts hold where the query is asked, each to a node the graph
+// has room for and not taken before, in the order the index lists them,
+// as taking every edge relIndex.holdingAt finds would, judging only the
+// edges that can change what it takes (see relindex.go). While
+// supposing or provenWithout is checking, it takes those holdingAt
+// finds. Otherwise it walks u's chains in the order of their slots,
+// each from its newest edge while the facts hold, keeping the edges
+// found in pend, and takes each edge kept once it is lower than the
+// oldest edge of every chain not yet walked: no edge of those can come
+// before it. Once the graph is full, it stops walking, and the edges
+// that hold of the chains left can only be taken when they lead to a
+// node of the graph, or cap it when they lead elsewhere (see takeRest).
+func (b *graphBuilder) takeHeld(u factKey) {
+	idx := b.idx
+	if b.c.factsEdited > 0 {
+		for _, ei := range idx.holdingAt(b.c, u, b.holdsAt, b.g.steps) {
+			if !b.used[ei] {
+				b.take(u, ei, idx.edges[ei])
+			}
+		}
+		return
+	}
+	heads := idx.heads[u]
+	var pend edgeHeap
+	s := 0
+	for ; s < len(heads) && len(b.g.nodes) < relationCap; s++ {
+		b.collectChain(heads[s], &pend)
+		next := math.MaxInt
+		if s+1 < len(heads) {
+			next = idx.edges[heads[s+1]].root
+		}
+		for len(pend) > 0 && pend[0] < next {
+			ei := heap.Pop(&pend).(int)
+			if !b.used[ei] {
+				b.take(u, ei, idx.edges[ei])
+			}
+		}
+	}
+	if s < len(heads) {
+		b.takeRest(u, heads, s, pend)
+	}
+}
+
+// collectChain adds to pend the edges of the chain whose newest edge is
+// h, from it while their facts hold, counting a step for each edge
+// judged.
+func (b *graphBuilder) collectChain(h int, pend *edgeHeap) {
+	for ei := h; ei >= 0; ei = b.idx.edges[ei].prev {
+		b.g.count(1)
+		if !b.holdsAt(b.idx.edges[ei].fact) {
+			return
+		}
+		heap.Push(pend, ei)
+	}
+}
+
+// takeRest takes, for takeHeld, once the graph is full, the edges that
+// hold at u of pend and of the chains at heads[s:], not walked, as
+// taking every one of them in order would: those to a node of the graph,
+// not taken before, in the order the index lists them, after marking the
+// graph capped when any other holds. A full graph gains no node, so an
+// edge to a node outside it is never taken, and only whether one holds
+// matters. The chains to the graph's nodes are found from pairs, unless
+// there are no more chains left than nodes, when each is looked at; a
+// chain to another node is judged only from its newest edge, which holds
+// when any of its edges does, and only until one holds, unless the graph
+// is capped already. Each chain looked at counts a step.
+func (b *graphBuilder) takeRest(u factKey, heads []int, s int, pend edgeHeap) {
+	idx := b.idx
+	out := []int(pend)
+	if len(heads)-s <= len(b.g.nodes) {
+		for _, h := range heads[s:] {
+			b.g.count(1)
+			if _, in := b.g.index[idx.edges[h].other(u)]; in {
+				out = b.chainHeld(h, out)
+			} else if !b.g.capped && b.holdsAt(idx.edges[h].fact) {
+				b.g.capped = true
+			}
+		}
+	} else {
+		for _, w := range b.g.nodes {
+			slots := idx.pairs[relPair{u, w}]
+			first, _ := slices.BinarySearch(slots, s)
+			for _, slot := range slots[first:] {
+				b.g.count(1)
+				out = b.chainHeld(heads[slot], out)
+			}
+		}
+		for t := s; t < len(heads) && !b.g.capped; t++ {
+			b.g.count(1)
+			e := idx.edges[heads[t]]
+			if _, in := b.g.index[e.other(u)]; !in && b.holdsAt(e.fact) {
+				b.g.capped = true
+			}
+		}
+	}
+	slices.Sort(out)
+	for _, ei := range out {
+		if !b.used[ei] {
+			b.take(u, ei, idx.edges[ei])
+		}
+	}
+}
+
+// chainHeld returns out with the edges of the chain whose newest edge is
+// h added, from it while their facts hold, counting a step for each edge
+// judged.
+func (b *graphBuilder) chainHeld(h int, out []int) []int {
+	for ei := h; ei >= 0; ei = b.idx.edges[ei].prev {
+		b.g.count(1)
+		if !b.holdsAt(b.idx.edges[ei].fact) {
+			break
+		}
+		out = append(out, ei)
+	}
+	return out
+}
+
+// other returns the node of e that is not u, or u for an edge from u to
+// itself.
+func (e relEdge) other(u factKey) factKey {
+	if e.to == u {
+		return e.from
+	}
+	return e.to
+}
+
+// edgeHeap is a heap of edges, by their positions in the index, the
+// lowest first (see container/heap).
+type edgeHeap []int
+
+// Len returns how many edges the heap holds.
+func (h edgeHeap) Len() int { return len(h) }
+
+// Less reports whether the edge at i comes before the one at j.
+func (h edgeHeap) Less(i, j int) bool { return h[i] < h[j] }
+
+// Swap swaps the edges at i and j.
+func (h edgeHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
+
+// Push adds x, an edge, at the end of the heap.
+func (h *edgeHeap) Push(x any) { *h = append(*h, x.(int)) }
+
+// Pop takes the edge at the end of the heap off it and returns it.
+func (h *edgeHeap) Pop() any {
+	old := *h
+	x := old[len(old)-1]
+	*h = old[:len(old)-1]
+	return x
 }
 
 // holdsAt reports whether the fact at index i of the facts in force holds

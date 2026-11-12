@@ -676,7 +676,10 @@
 // with one of those a closure's body keeps for it to read, which links
 // each fact to the older
 // one alike it shadows, so a query judges, of a run of such facts, only
-// the newest that hold and the one before them. It takes shortest paths
+// the newest that hold and the one before them, and, once its graph is
+// full, only the edges to the graph's nodes, found through an index of
+// the chains between each two nodes, and as many others as tell whether
+// one caps it. It takes shortest paths
 // by Bellman and Ford; it only proves less for what it leaves out, and its
 // int64 weights never wrap. Relations end as facts do: a writeIndex's
 // endings take in every node a fact names. explain leaves them out, and relationNotes says

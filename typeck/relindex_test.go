@@ -40,6 +40,57 @@ func closedRelated(n int) []string {
 	return append(lines, "return t")
 }
 
+// relatedLocals returns j proven, then n times two new locals copied from
+// i and n, an early exit proving the first below the second and the
+// second at most len(a), and a use of a through the first: every exit's
+// bounds on its own locals against 0 stay in force after it, so the node
+// 0 of each use's graph has edges to every local before it.
+func relatedLocals(n int) []string {
+	lines := provenJ()
+	for k := range n {
+		v, w := "v"+strconv.Itoa(k), "w"+strconv.Itoa(k)
+		lines = append(lines, v+" := i", w+" := n", "if "+v+" < 0 || "+w+" > len(a) || "+v+" >= "+w+" {", "return -1", "}",
+			"t +%= a["+v+"]")
+	}
+	return append(lines, "return t")
+}
+
+// relatedUse returns a new local copied from i, an early exit proving it
+// below d and d at most len(a), and a use of a through it, which only a
+// query of the relations in force proves, its graph reaching 0 through
+// the local's bound. Every node the graph finds before 0 is related only
+// to nodes found before it, so only 0's other edges can cap it.
+func relatedUse() []string {
+	return []string{"v := i", "if v < 0 || d > len(a) || v >= d {", "return -1", "}", "t +%= a[v]"}
+}
+
+// boundLocals returns j proven, then n new locals given by pair, each
+// proven at least 0 by an early exit, and relatedUse: 0 has a chain for
+// each local, which no other fact names, so a query whose graph fills
+// before it has walked them all is capped only by those it has not
+// walked.
+func boundLocals(n int) []string {
+	lines := provenJ()
+	for k := range n {
+		v := "u" + strconv.Itoa(k)
+		lines = append(lines, v+", _ := pair()", "if "+v+" < 0 {", "return -1", "}")
+	}
+	return append(append(lines, relatedUse()...), "return t")
+}
+
+// interleavedChains returns j proven, then p and k read from a, each
+// proven at least 0, then n times p written and proven at least 0 again,
+// then relatedUse: 0's chain of p's bounds against it starts before k's,
+// and its newest edge, the one that holds, comes after k's, so the
+// query, which reaches p and k through 0 alone, takes k's edge first.
+func interleavedChains(n int) []string {
+	lines := append(provenJ(), "mut p := a[0]", "if p < 0 {", "return -1", "}", "k := a[1]", "if k < 0 {", "return -1", "}")
+	for range n {
+		lines = append(lines, "p = a[0]", "if p < 0 {", "return -1", "}")
+	}
+	return append(append(lines, relatedUse()...), "t +%= k + p", "return t")
+}
+
 // relatedLoops returns relatedWrites with each pair of writes in a loop,
 // so that every exit's relation keeps endings in loops of its region.
 func relatedLoops(n int) []string {
@@ -54,24 +105,27 @@ func relatedLoops(n int) []string {
 // relationShapes are the programs with many early exits, each proving a
 // relation between variables the code before it writes, measured for
 // how the queries of the relations grow: straight-line code, the same
-// with a closure after each exit, and with each pair of writes in a
-// loop.
+// with a closure after each exit, with each pair of writes in a loop,
+// and with new locals related at each exit in place of the writes.
 var relationShapes = []programShape{
 	{"related writes", func(n int) string { return inF(relatedWrites(n)...) }},
+	{"related locals", func(n int) string { return inF(relatedLocals(n)...) }},
 	{"related writes with closures", func(n int) string { return withCall(relatedClosures(n)...) }},
 	{"related writes in loops", func(n int) string { return inF(relatedLoops(n)...) }},
 }
 
 // TestRelatedExitsGrowLinearly checks that each of relationShapes, with
-// thousands of early exits each proving j below k after writing both, is
-// checked in steps linear in its exits (see checkGrowth): the facts read
-// into the index of the relations in force, which is kept in step with
-// the facts as they are pushed and popped, and the edges the queries look
-// at, which, of the facts alike that each exit puts in force, judge only
-// the newest that hold and the one before them. Building the index again
-// from every fact in force after each exit, or judging every edge a
-// query reaches, would make them quadratic. With the relation oracle on,
-// every query scans every fact in force too, so the test is skipped.
+// thousands of early exits each proving one variable below another after
+// writing or declaring both, is checked in steps linear in its exits (see
+// checkGrowth): the facts read into the index of the relations in force,
+// which is kept in step with the facts as they are pushed and popped, and
+// the edges the queries look at, which, of the facts alike that each exit
+// puts in force, judge only the newest that hold and the one before them,
+// and, once a query's graph is full, only the edges to its nodes and as
+// many others as tell whether one caps it. Building the index again from
+// every fact in force after each exit, or judging every edge a query
+// reaches, would make them quadratic. With the relation oracle on, every
+// query scans every fact in force too, so the test is skipped.
 func TestRelatedExitsGrowLinearly(t *testing.T) {
 	if typeck.RelationOracle() || typeck.ReachOracle() {
 		t.Skip("the oracles scan every fact in force and its endings at every query")
@@ -96,12 +150,13 @@ func TestRelatedExitsGrowLinearly(t *testing.T) {
 // TestClosuresAfterRelatedExitsIndexLinearly checks that closedRelated,
 // with thousands of early exits each relating two new locals, each
 // followed by a closure whose body asks the relations in force about
-// them, reads facts into the indexes of the relations linearly in its
-// exits (see checkGrowth): each body reads the index of the facts that
-// stay in force in it, kept in step with the facts in force, rather than
-// one built from a scan of every one of them for each closure. The edges
-// its queries look at still grow with the square of the exits (see
-// docs/known-bugs.md), so they are not bounded here.
+// them, reads facts into the indexes of the relations, and takes steps
+// of the relation queries, linearly in its exits (see checkGrowth): each
+// body reads the index of the facts that stay in force in it, kept in
+// step with the facts in force, rather than one built from a scan of
+// every one of them for each closure, and each query, whose graph
+// reaches 0 and so the bound of every exit on its own local against 0,
+// stops judging them once its graph is full (see graphBuilder.takeHeld).
 func TestClosuresAfterRelatedExitsIndexLinearly(t *testing.T) {
 	if typeck.RelationOracle() || typeck.ReachOracle() {
 		t.Skip("the oracles scan every fact in force and its endings at every query")
@@ -115,6 +170,7 @@ func TestClosuresAfterRelatedExitsIndexLinearly(t *testing.T) {
 		t.Fatalf("got %d diagnostics, first %v", len(diags), diags[0])
 	}
 	checkGrowth(t, "facts indexed", small.Indexed, grown.Indexed)
+	checkGrowth(t, "relation steps", small.Relations, grown.Relations)
 }
 
 // BenchmarkRelatedExits times checking each of relationShapes at 1000,
@@ -180,6 +236,11 @@ func TestRelationIndexMatchesScanOnPrograms(t *testing.T) {
 	}
 	for _, n := range []int{1, 3, 9, 17, 40, 70} {
 		check(t, fmt.Sprintf("related locals read in closures/%d", n), []byte(withCall(closedRelated(n)...)))
+	}
+	for _, n := range []int{1, 3, 9, 17, 40, 70, 140, 200} {
+		check(t, fmt.Sprintf("related locals/%d", n), []byte(inF(relatedLocals(n)...)))
+		check(t, fmt.Sprintf("bound locals/%d", n), []byte(inF(boundLocals(n)...)))
+		check(t, fmt.Sprintf("interleaved chains/%d", n), []byte(inF(interleavedChains(n)...)))
 	}
 	shapes := append(factShapes[:len(factShapes):len(factShapes)], regionShapes...)
 	shapes = append(shapes, reachShapes...)
