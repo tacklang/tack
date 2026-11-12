@@ -1,0 +1,235 @@
+package main
+
+import bytes from "std/bytes"
+import sha256 from "std/sha256"
+
+// std/sha256 computes SHA-256 as FIPS 180-4 defines it and Go's
+// crypto/sha256 computes it: sum hashes a view at once, and a Digest
+// hashes bytes written to it in any number of pieces. Each check below
+// prints ok when it held and FAIL when it did not.
+//
+// The expected digests are the FIPS 180-4 examples, the empty message's
+// and a million 'a's, written in hex; codegen/c/sha256_test.go checks
+// every one against Go's crypto/sha256 again, so they are not copied from
+// std/sha256's output.
+
+// empty is the SHA-256 of no bytes.
+var empty = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+// abc is the SHA-256 of "abc", FIPS 180-4's one-block example.
+var abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+
+// msg448 is the 448-bit message of FIPS 180-4's two-block example: 56
+// bytes, one too many for the length to follow in the first block.
+var msg448 = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+
+// sum448 is the SHA-256 of msg448.
+var sum448 = "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+
+// msg896 is the 896-bit message of FIPS 180-4's long example: 112
+// bytes, again one too many for the length to fit a second block.
+var msg896 = "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"
+
+// sum896 is the SHA-256 of msg896.
+var sum896 = "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1"
+
+// million_a is the SHA-256 of 1,000,000 bytes of 'a'.
+var million_a = "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
+
+// hex_digits holds the lowercase hexadecimal digits, digit d at index d.
+var hex_digits = "0123456789abcdef"
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// digit returns the hex digit of v, from 0 to 15, or '?', which no
+// expected digest holds, so a wrong v fails the check it is part of. A
+// shift or a mask gives the checker no bound, so the index is checked.
+func digit(v uint8) uint8 {
+    c, ok := hex_digits[v]
+    if !ok {
+        return '?'
+    }
+    return c
+}
+
+// hex returns d in lowercase hex, two digits a byte, most significant
+// digit first, as Go's hex.EncodeToString writes it.
+func hex(d [32]uint8) [64]uint8 {
+    mut out [64]uint8
+    for i := range 32 {
+        c := d[i]
+        out[2 * i] = digit(c >> 4)
+        out[2 * i + 1] = digit(c & 0xf)
+    }
+    return out
+}
+
+// is reports whether d, in hex, is want.
+func is(d [32]uint8, want string) bool {
+    h := hex(d)
+    return bytes.equal(h, []uint8(want))
+}
+
+// streamed returns the SHA-256 of s written to a new Digest in pieces of
+// n bytes, the last one shorter when n does not divide len(s).
+func streamed(s []uint8, n int64) [32]uint8 {
+    mut d := sha256.new()
+    write_from(mut d, s, 0, n)
+    return d.sum()
+}
+
+// write_from writes s[start:] to d in pieces of n bytes, the last one
+// shorter when n does not divide what is left; an n of 0 or less writes
+// it in one piece.
+func write_from(mut d sha256.Digest, s []uint8, start int64, n int64) {
+    mut i := start
+    for i >= 0 && i < len(s) {
+        i = piece(mut d, s, i, n)
+    }
+}
+
+// piece writes the piece of s from i to d, n bytes, or all of s[i:] when
+// fewer are left or n is 0 or less, and returns where the next piece
+// starts. An i outside s writes nothing and returns len(s).
+func piece(mut d sha256.Digest, s []uint8, i int64, n int64) int64 {
+    if i < 0 || i > len(s) {
+        return len(s)
+    }
+    // i +% n wraps only past the largest int64, and the check after it
+    // takes the rest in one piece then, as for an n of 0 or less.
+    stop := i +% n
+    if stop > i && stop <= len(s) {
+        mut d.write(s[i:stop])
+        return stop
+    }
+    mut d.write(s[i:])
+    return len(s)
+}
+
+// vectors checks sum on the FIPS 180-4 examples.
+func vectors() {
+    check(is(sha256.sum([]uint8("")), empty), "empty")
+    check(is(sha256.sum([]uint8("abc")), abc), "abc")
+    check(is(sha256.sum([]uint8(msg448)), sum448), "448-bit")
+    check(is(sha256.sum([]uint8(msg896)), sum896), "896-bit")
+}
+
+// pieces checks that a Digest gives sum's digest however the message is
+// cut: byte by byte, in pieces of every size from 1 to past its length,
+// and in one piece; and that a new Digest, written nothing, gives the
+// empty message's.
+func pieces() {
+    d := sha256.new()
+    mut ok := is(d.sum(), empty)
+    ok = ok && is(streamed([]uint8(""), 1), empty)
+    for n := range 120 {
+        size := int64(n) + 1
+        ok = ok && is(streamed([]uint8("abc"), size), abc)
+        ok = ok && is(streamed([]uint8(msg448), size), sum448)
+        ok = ok && is(streamed([]uint8(msg896), size), sum896)
+    }
+    check(ok, "pieces")
+}
+
+// million checks the SHA-256 of a million 'a's, written as a thousand
+// pieces of a thousand bytes each, so 15625 blocks pass through the
+// compression function, and as pieces of 999 and of 4097 bytes, which
+// cross block boundaries at every offset.
+func million() {
+    mut a [4097]uint8
+    for i := range len(a) {
+        a[i] = 'a'
+    }
+    mut d := sha256.new()
+    for range 1000 {
+        mut d.write(a[:1000])
+    }
+    check(is(d.sum(), million_a), "million a")
+    check(is(million_in(a, 999), million_a), "million a in 999s")
+    check(is(million_in(a, 4097), million_a), "million a in 4097s")
+}
+
+// million_in returns the SHA-256 of a million 'a's written in pieces of
+// n bytes, taken from a, all 'a's, the last piece shorter. An n of 0 or
+// less, or past len(a), gives the hash of nothing, which fails the check.
+func million_in(a []uint8, n int64) [32]uint8 {
+    mut e := sha256.new()
+    if n <= 0 || n > len(a) {
+        return e.sum()
+    }
+    mut left int64 = 1000000
+    for left > 0 {
+        if left >= n {
+            mut e.write(a[:n])
+            left -= n
+        } else if left > 0 {
+            // left > 0 again, as the loop's test does not reach here
+            // past left -= n for the checker.
+            mut e.write(a[:left])
+            left = 0
+        }
+    }
+    return e.sum()
+}
+
+// after_sum checks that sum leaves a Digest as it was, as Go's Sum does:
+// summing twice gives one digest, and writing after a sum goes on from
+// the bytes written before it, so "abc" summed and then followed by the
+// rest of msg448 hashes as msg448.
+func after_sum() {
+    mut d := sha256.new()
+    mut d.write([]uint8("abcd"))
+    first := d.sum()
+    check(first == d.sum(), "sum twice")
+    write_from(mut d, []uint8(msg448), 4, 0)
+    check(is(d.sum(), sum448), "write after sum")
+    mut d.write([]uint8(""))
+    check(is(d.sum(), sum448), "write nothing")
+}
+
+// copies checks that a Digest is a value: a copy goes on from where its
+// source was without changing it.
+func copies() {
+    mut d := sha256.new()
+    mut d.write([]uint8("ab"))
+    mut e := d
+    mut e.write([]uint8("c"))
+    check(is(e.sum(), abc), "copy goes on")
+    mut d.write([]uint8("c"))
+    check(is(d.sum(), abc), "source unchanged")
+}
+
+// zero checks that a Digest declared without new, its zero value,
+// hashes exactly as one from new does: summed with nothing written, after
+// one write, written in pieces, and copied before its first write, the
+// copy and the source each going on alone.
+func zero() {
+    mut d sha256.Digest
+    check(is(d.sum(), empty), "zero sum")
+    mut e := d
+    mut d.write([]uint8("abc"))
+    check(is(d.sum(), abc), "zero one write")
+    mut f sha256.Digest
+    write_from(mut f, []uint8(msg896), 0, 7)
+    check(is(f.sum(), sum896), "zero in pieces")
+    check(is(e.sum(), empty), "zero copy unchanged")
+    write_from(mut e, []uint8(msg448), 0, 13)
+    check(is(e.sum(), sum448), "zero copy goes on")
+}
+
+func main() {
+    vectors()
+    pieces()
+    million()
+    after_sum()
+    copies()
+    zero()
+}

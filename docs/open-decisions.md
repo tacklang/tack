@@ -1365,3 +1365,44 @@ consistency and could go another way:
   std/unicode, std/conv's included, all counted toward its globals.
   Clang drops a table no code reaches, so only the classes a program
   calls reach its binary.
+
+## std/sha256
+
+`std/sha256` computes SHA-256 as Go's `crypto/sha256` does, for a
+build cache keyed by SHA-256 as `tack/cache.go` keys its own. These
+points were settled by consistency and could go another way:
+
+- The package is `std/sha256`, as in Go, with no `std/crypto` or
+  `std/hash` above it and no interface a hash satisfies: Tack has no
+  `hash.Hash`, so a Digest is a concrete type.
+- The API mirrors Go's `sha256.Sum256` and `sha256.New`: `sum(data
+  []uint8) [32]uint8`, `new() Digest`, `(mut d Digest) write(data
+  []uint8)` and `(d Digest) sum() [32]uint8`. `write` returns nothing,
+  as it cannot fail, where Go's returns an `(int, error)` that is
+  always `len(p), nil`; `sum` returns the array rather than appending
+  to a slice, as Go's `Sum(b)` does. There is no `reset`, `size`,
+  `block_size`, SHA-224, marshaling of the state, or constant for the
+  digest's size; a caller writes `[32]uint8`, and `new()` again resets.
+- A `Digest` is a plain value, 120 bytes, not owned: copying one
+  copies its state, which Go spells `Clone`.
+- The zero `Digest`, declared without `new`, is a `Digest` of no bytes,
+  since Tack lets any struct be declared without a constructor, where
+  Go's `crypto/sha256` exports no `Digest` type to declare: a private
+  `started` field, false only in the zero value, makes `write` and
+  `sum` load the initial hash value first. `new()` stays
+  as a convenience, the zero value started. The alternative, a
+  `Digest` that cannot be declared without `new`, would need a way to
+  forbid a type's zero value, which Tack has not.
+- The length of the message is counted in bytes in a `uint64` that
+  wraps, and written in bits as that count shifted left by 3, as Go
+  does, so a message of 2^61 bytes or more hashes with its bit length
+  modulo 2^64. FIPS 180-4 defines no hash of a message that long; the
+  alternative, rejecting such a write, would need `write` to return an
+  error. No test reaches that length; the code follows Go's line for
+  line there.
+- Nothing writes a digest in hex. A build cache keyed as
+  `tack/cache.go` keys it writes `hex.EncodeToString` of a digest, and
+  std has no function that writes a byte view in hex: `std/bytes`'
+  `append_hex` writes a `uint64` with no leading zeros. Where such a
+  function belongs, `std/bytes`, a `std/hex` as Go's `encoding/hex`,
+  or `std/conv`, and its name, is open.

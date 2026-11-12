@@ -5,9 +5,9 @@ compiler, written from scratch in Go.
 
 It is a learning project, built to understand how a compiler works end to end
 rather than to be used for anything. There is no runtime, a standard library
-of ten packages, `std/fmt`, `std/bytes`, `std/text`, `std/os`,
-`std/path`, `std/conv`, `std/errors`, `std/sort`, `std/utf8` and
-`std/unicode`, and no intermediate representation.
+of eleven packages, `std/fmt`, `std/bytes`, `std/text`, `std/os`,
+`std/path`, `std/conv`, `std/errors`, `std/sort`, `std/utf8`,
+`std/unicode` and `std/sha256`, and no intermediate representation.
 
 Every program the compiler accepts is held to four guarantees: no
 out-of-bounds access, no memory leak, no use-after-free and no panic. They
@@ -67,7 +67,8 @@ run time in a `Failure`, and `std/sort`, in Tack alone, sorts a list
 in place by a less function. `std/utf8`, in Tack alone, decodes and
 encodes UTF-8 as Go's `unicode/utf8` does, and `std/unicode`, in Tack
 alone, classifies runes as Go's `unicode` does, from tables generated
-from Go's own.
+from Go's own. `std/sha256`, in Tack alone, computes SHA-256 as Go's
+`crypto/sha256` does, at once or over bytes written in pieces.
 
 `exit` is a global builtin as a stand-in for a future `os.Exit`, after which
 the global goes away. `std/os` does not have one yet, so `exit` stays.
@@ -597,8 +598,10 @@ section remains the description of the language.
   `Failure` carries a message made at run time beside an error (see
   errors), [`sort`](src/std/sort/sort.tck), which sorts lists
   (see sort), [`utf8`](src/std/utf8/utf8.tck), which decodes and
-  encodes UTF-8 (see utf8), and [`unicode`](src/std/unicode/unicode.tck),
-  which classifies runes (see unicode).
+  encodes UTF-8 (see utf8), [`unicode`](src/std/unicode/unicode.tck),
+  which classifies runes (see unicode), and
+  [`sha256`](src/std/sha256/sha256.tck), which hashes bytes (see
+  sha256).
   A std package follows every rule a package of the program's module
   does. Its `pub` names are usable from every package, its private names
   only from itself, `hidden is not pub in package std/util`, and its `lib`
@@ -1474,6 +1477,26 @@ section remains the description of the language.
   five in the generated C, all counted toward the program's globals;
   clang drops a table no code reaches, so only the classes a program
   calls reach its binary.
+- sha256. `std/sha256` is written in Tack alone, with no C, allocates
+  nothing and cannot fail. `sha256.sum(data)` returns the SHA-256 of the
+  `[]uint8` view `data` as a `[32]uint8`, exactly Go's
+  `sha256.Sum256`. A `Digest` hashes bytes written in pieces, as Go's
+  `sha256.New()` does: `mut d := sha256.new()` makes one of no bytes,
+  `mut d.write(data)` adds bytes, and `d.sum()` returns the SHA-256 of
+  every byte written so far without changing `d`, so it can be written
+  further and summed again, as Go's `Sum` allows. Writing a message in
+  any pieces gives the digest of writing it at once. A `Digest` is a
+  value of 120 bytes, its fields private: a copy holds the same
+  state and goes on from it alone. Its zero value, `mut d
+  sha256.Digest` without `new`, is a `Digest` of no bytes as `new()`'s
+  is, and hashes alike: `write` and `sum` load the initial hash value
+  into one not yet started. The algorithm's additions modulo
+  2^32 are `+%` on `uint32`, and the message length is counted in
+  bytes in a `uint64` that wraps, as Go's is, so a message of 2^61 bytes
+  or more is hashed with its length in bits modulo 2^64, which FIPS
+  180-4 leaves undefined. Nothing writes a digest in hex; `std/bytes`'
+  `append_hex` writes a `uint64` without leading zeros, which is not
+  a digest's form.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`
