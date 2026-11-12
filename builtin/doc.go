@@ -21,13 +21,16 @@
 // one by name, Called finds the one a resolved call calls, and Used lists
 // those a resolved program calls anywhere, each once, in Funcs' order.
 //
-// len, make, append, reserve, pop, remove, swap, replace, put, delete, has
-// and drop are generic: a parameter of each accepts more than one type, which
-// no Tack declaration describes, so the type checker checks each itself
-// and the C backend lowers each in place. Generic lists them, Names lists
-// every builtin function's name, and ParamNames gives any one's parameter
-// names. Types and Values list the builtin types and values, true, false,
-// noerror and c_allocator, which are keywords.
+// len, make, append, reserve, pop, remove, swap, replace, put, delete, has,
+// drop, add, add_all, insert and fields are generic: a parameter of each
+// accepts more than one type, which no Tack declaration describes, so the
+// type checker checks each itself and the C backend lowers each in place;
+// fields takes a type, which the parser reads as a fields loop's
+// ast.FieldsOf. Generic lists them, Names lists every builtin function's
+// name, and ParamNames gives any one's parameter names. Types and Values
+// list the builtin types and values, true, false, noerror and
+// c_allocator, which are keywords, and Constraints the builtin
+// constraints, Data, which IsConstraint tells by name.
 //
 // # The runtime
 //
@@ -53,8 +56,8 @@
 //
 // builtin.tck, built into the compiler, declares every builtin type,
 // value and function, with a doc comment each, the generic functions with
-// stand-in types, Elem, Key, Sized and ListType, which no program can
-// name. It is documentation only: it is never resolved, checked or
+// stand-in types, Elem, Key, Sized, ListType and StructType, which no
+// program can name, and the builtin constraint Data as an interface. It is documentation only: it is never resolved, checked or
 // compiled, and a test keeps it one to one with what the compiler
 // implements. Source returns it, and Doc returns it parsed, once, in the
 // parser's builtin mode (see parser.NewBuiltinParser), the only mode in

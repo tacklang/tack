@@ -21,7 +21,7 @@ import (
 // standIns are the types the builtins' file declares for documentation
 // only, which no program can name: what a generic builtin's parameter
 // accepts, which no Tack type says.
-var standIns = []string{"Elem", "Key", "Sized", "ListType"}
+var standIns = []string{"Elem", "Key", "Sized", "ListType", "StructType"}
 
 // doc returns the builtins' file, parsed, failing t if it does not parse.
 func doc(t *testing.T) *builtin.DocFile {
@@ -65,9 +65,10 @@ func checkOneEach(t *testing.T, kind string, got, want []string) {
 
 // The builtins' file and the compiler agree one to one: every builtin
 // function the compiler implements is declared there exactly once, with
-// its parameters' names, in order; every builtin value is a var and every
-// builtin type a type declared exactly once; and the file declares nothing
-// else but the stand-in types, each an interface, and imports nothing.
+// its parameters' names, in order; every builtin value is a var, every
+// builtin type a type and every builtin constraint an interface declared
+// exactly once; and the file declares nothing else but the stand-in
+// types, each an interface, and imports nothing.
 func TestDocFileMatchesTheCompiler(t *testing.T) {
 	d := doc(t)
 	if d.Tree.Package != "builtin" {
@@ -76,10 +77,11 @@ func TestDocFileMatchesTheCompiler(t *testing.T) {
 	if len(d.Tree.Imports) > 0 {
 		t.Errorf("builtin.tck imports %d packages, want none", len(d.Tree.Imports))
 	}
-	funcs, vars, typeNames := docDecls(t, d)
+	funcs, vars, typeNames, constraints := docDecls(t, d)
 	checkOneEach(t, "func", funcs, builtin.Default().Names())
 	checkOneEach(t, "var", vars, builtin.Values())
 	checkOneEach(t, "type", typeNames, builtin.Types())
+	checkOneEach(t, "constraint", constraints, builtin.Constraints())
 	for _, name := range standIns {
 		if _, ok := d.Decl(name); !ok {
 			t.Errorf("builtin.tck does not declare stand-in %s", name)
@@ -87,11 +89,12 @@ func TestDocFileMatchesTheCompiler(t *testing.T) {
 	}
 }
 
-// docDecls returns the names of the functions, vars and types, stand-ins
-// aside, d declares, checking each function (see checkFunc), that no var
-// has a value or is mut, and that each stand-in is an interface, and
-// reporting anything else declared.
-func docDecls(t *testing.T, d *builtin.DocFile) (funcs, vars, typeNames []string) {
+// docDecls returns the names of the functions, vars, types and
+// constraints, stand-ins aside, d declares, checking each function (see
+// checkFunc), that no var has a value or is mut, and that each stand-in
+// and each constraint is an interface, and reporting anything else
+// declared.
+func docDecls(t *testing.T, d *builtin.DocFile) (funcs, vars, typeNames, constraints []string) {
 	t.Helper()
 	for _, decl := range d.Tree.Decls {
 		switch x := decl.(type) {
@@ -104,16 +107,36 @@ func docDecls(t *testing.T, d *builtin.DocFile) (funcs, vars, typeNames []string
 				t.Errorf("builtin.tck declares var %s with a value or as mut", x.Name)
 			}
 		case *ast.TypeDecl:
-			if !slices.Contains(standIns, x.Name) {
+			switch kind := typeKind(t, x); kind {
+			case "constraint":
+				constraints = append(constraints, x.Name)
+			case "type":
 				typeNames = append(typeNames, x.Name)
-			} else if _, ok := x.TypeExpr.(*ast.InterfaceType); !ok {
-				t.Errorf("stand-in %s is not an interface", x.Name)
 			}
 		default:
 			t.Errorf("builtin.tck declares %T, which is no builtin", decl)
 		}
 	}
-	return funcs, vars, typeNames
+	return funcs, vars, typeNames, constraints
+}
+
+// typeKind returns what td, a type the builtins' file declares, is: a
+// constraint or a stand-in, each checked to be an interface, or a type.
+func typeKind(t *testing.T, td *ast.TypeDecl) string {
+	t.Helper()
+	kind := "type"
+	switch {
+	case builtin.IsConstraint(td.Name):
+		kind = "constraint"
+	case slices.Contains(standIns, td.Name):
+		kind = "stand-in"
+	default:
+		return kind
+	}
+	if _, ok := td.TypeExpr.(*ast.InterfaceType); !ok {
+		t.Errorf("%s %s is not an interface", kind, td.Name)
+	}
+	return kind
 }
 
 // checkFunc checks fn, a function the builtins' file declares: it has no

@@ -418,6 +418,9 @@ func (c *Checker) placeElement(x *ast.Index, m *ast.MutArg) types.Type {
 // says, and anything else as no place; each gives types.Invalid.
 func (c *Checker) placeName(id *ast.Ident, m *ast.MutArg) types.Type {
 	typ := c.ident(id)
+	if c.fieldVar(id) != nil {
+		return types.Invalid // reported as no value
+	}
 	switch id.Def.(type) {
 	case *ast.Param, *ast.Var:
 		fix := c.mutRootFix(id)

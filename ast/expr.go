@@ -1156,11 +1156,21 @@ type Field struct {
 // a method expression (see MethodExpr): the method as a function value,
 // whose Type is its function type and Method the method, or, as a Call's
 // Fn, the method called with its receiver as the first argument.
+//
+// X.[f], written in a fields loop's body, is the field f of X, where f is
+// the loop's variable (see FieldsOf): Field is then the name f, which the
+// resolver binds to that variable, Name is "[f]", which no field's name
+// can be, so that a pass comparing fields by name never takes it for a
+// named one, and NameSpan spans the brackets and the name. Type is the
+// type parameter of the loop's FieldsOf.Field.
 type Selector struct {
 	X        Expr
 	Name     string
-	NameSpan Span // just the field name
-	Span     Span // the start of X through the field name
+	NameSpan Span // just the field name, or the brackets and the name of X.[f]
+	Span     Span // the start of X through the field name, or the closing bracket
+
+	// Field is f in X.[f], and nil for a field named as written.
+	Field *Ident `json:",omitempty"`
 
 	// Type is the field's type, set by the type checker, or a method
 	// expression's function type.

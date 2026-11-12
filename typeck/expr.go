@@ -68,6 +68,9 @@ func (c *Checker) ident(id *ast.Ident) types.Type {
 	if c.unbound(id) {
 		return types.Invalid
 	}
+	if c.fieldVar(id) != nil {
+		return c.fieldVarValue(id)
+	}
 	if fn, ok := id.Def.(*ast.Func); ok {
 		return c.funcValue(id, fn)
 	}
@@ -118,6 +121,8 @@ func (c *Checker) compositeExpr(e ast.Expr) types.Type {
 		return c.typeAssert(x)
 	case *ast.FuncLit:
 		return c.funcLitElsewhere(x)
+	case *ast.FieldsOf:
+		return c.fieldsElsewhere(x)
 	default:
 		c.errorf(e.Spanned(), "unsupported expression: %T", e)
 		return types.Invalid

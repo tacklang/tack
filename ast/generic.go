@@ -9,7 +9,7 @@ import "github.com/tacklang/tack/types"
 // interface, as written. It is a declaration so that a name written as a
 // type can be bound to it, as one is to a TypeDecl.
 type TypeParam struct {
-	Constraint Expr // the constraint as written: an interface's name, qualified or not
+	Constraint Expr // the constraint as written: an interface's name, qualified or not, or Data
 
 	// Iface is the interface Constraint names, set by the type checker;
 	// it is nil before, and when the constraint was reported. It is left
@@ -24,6 +24,12 @@ type TypeParam struct {
 	// Type is the type the parameter stands for in its function, one of
 	// its own in the type table, set by the type checker; Invalid before.
 	Type types.Type
+
+	// Data is set, by the type checker, on a type parameter constrained by
+	// the builtin constraint Data, whose Iface is nil; and on the type
+	// parameter a fields loop gives v.[f] (see FieldsOf.Field), which no
+	// function declares.
+	Data bool `json:",omitempty"`
 
 	// Implicit is set on a type parameter no one wrote: the type checker
 	// makes one for a parameter whose whole type is an interface, func

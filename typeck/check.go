@@ -322,6 +322,14 @@ type Checker struct {
 	standIns   map[standInKey]*ast.Func
 	inference  *inference
 
+	// fieldLoops maps each fields loop's variable to what the loop ranges
+	// over, and fieldLoop is what loops was in the body of the innermost
+	// fields loop around the statement being checked, 0 outside one, so
+	// a break or a continue that would leave it is reported (see
+	// data.go).
+	fieldLoops map[*ast.Var]*ast.FieldsOf
+	fieldLoop  int
+
 	// dynamics holds the stand-in for calls through values of each
 	// function type (see dynamicFunc).
 	dynamics map[types.Type]*ast.Func
@@ -469,6 +477,7 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 		structPkg: make(map[types.Type]*ast.Package),
 
 		typeParams: make(map[types.Type]*ast.TypeParam),
+		fieldLoops: make(map[*ast.Var]*ast.FieldsOf),
 		standIns:   make(map[standInKey]*ast.Func),
 		dynamics:   make(map[types.Type]*ast.Func),
 
@@ -1229,6 +1238,10 @@ func (c *Checker) assumeLoop(loop *ast.For) {
 // over one is reported. What it ranges over may be a call returning a
 // view, or a span's view of an arena.
 func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
+	if fo, ok := loop.X.(*ast.FieldsOf); ok {
+		c.checkFieldsLoop(loop, fo, fn)
+		return
+	}
 	c.allowViewCall(loop.X)
 	got := c.valueOf(loop.X, c.expr(loop.X))
 	index, elem := c.rangeTypes(loop, got)
@@ -1416,6 +1429,9 @@ func (c *Checker) checkInLoop(span ast.Span, keyword string) {
 		c.errorf(span, "%s is not in a loop", keyword)
 	case c.deferred > 0 && c.loops == c.deferLoops:
 		c.errorf(span, "cannot %s out of a defer", keyword)
+	case c.loops == c.fieldLoop:
+		c.errorf(span, "%s is not allowed in a fields loop, whose body runs once for each field",
+			keyword)
 	}
 }
 
@@ -2174,6 +2190,8 @@ func targetName(target ast.Expr) string {
 	root := ast.Root(target)
 	sel, isField := target.(*ast.Selector)
 	switch {
+	case isField && sel.Field != nil && root != nil:
+		return reflectPath(sel)
 	case isField && root == nil:
 		return "field " + sel.Name
 	case isField:
@@ -2185,6 +2203,22 @@ func targetName(target ast.Expr) string {
 		return root.Name
 	}
 	return "an element of " + root.Name
+}
+
+// reflectPath writes e, a place whose last step is a fields loop's field,
+// v.[f], as a message names it: its variable and every field after it,
+// an element written [...], a.b[...].[f].
+func reflectPath(e ast.Expr) string {
+	switch x := e.(type) {
+	case *ast.Ident:
+		return x.Name
+	case *ast.Selector:
+		return reflectPath(x.X) + "." + x.Name
+	case *ast.Index:
+		return reflectPath(x.X) + "[...]"
+	default:
+		return "..."
+	}
 }
 
 // checkCompound checks a compound assignment whose value has type got: the
@@ -2267,6 +2301,10 @@ func (c *Checker) declaredType(expr ast.Expr) types.Type {
 		return typ
 	}
 	if c.unbound(id) {
+		return types.Invalid
+	}
+	if isDataName(id) {
+		c.errorf(id.Span, "%s is a constraint; it can only constrain a type parameter", id.Name)
 		return types.Invalid
 	}
 	typ, known := types.Lookup(id.Name)

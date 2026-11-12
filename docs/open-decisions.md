@@ -805,6 +805,28 @@ the rules already there, rather than decided, and could go another way:
 - The instances are recorded on the Program and on every file, as the
   type table is, so a program rebuilt from one checked file has them.
 
+## Data and fields loops
+
+`Data` and `for f := range fields(T)` follow the reflection design,
+stage 1. Settled during review: `Data` checks every field of a struct,
+private ones included, so a type is `Data` or not whichever package
+asks; `fields(T)` lists a field by its own mark, uncapped by its
+struct's visibility, so a field of package main may be `pub` or `lib`
+for that alone; and `f.index` is the position among the fields listed,
+from 0. Still open:
+
+- A function that needs only a type must still take a value of it, since
+  a type parameter is inferred only from the arguments, and the value is
+  then unread, which warns, and `_` is no parameter name. Options: allow
+  `_` as a parameter name, keep the warning off for a parameter whose
+  type is a type parameter, or let a type be passed, `count[T]()`.
+- Nothing builds a value of a field's type yet: `v.[f] = x` needs one
+  from elsewhere than another field, since `dst.[f] = src.[f]` moves a
+  field out of `src`, which is reported. A generic helper that returns a
+  value of its type parameter, taken out of a list or a map it was given,
+  does type-check, so the assignment is reachable today; `make` for
+  `Data` (stage 3) is what makes it practical.
+
 ## Unions
 
 Unions follow the decisions recorded in the README: named cases with one

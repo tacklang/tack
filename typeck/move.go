@@ -1016,9 +1016,11 @@ func (m *mover) rangeChange(place ast.Expr, what string) bool {
 	return false
 }
 
-// prefixOf reports whether the place a is b or holds it: both start from
-// the same variable or parameter, and each step of a is b's step at the
-// same depth, a field of the same name or an element at any index.
+// prefixOf reports whether the place a may be b or hold it: both start
+// from the same variable or parameter, and each step of a is b's step at
+// the same depth, a field of the same name, a field of a fields loop,
+// v.[f], on either side, which may be any field, or an element at any
+// index.
 func prefixOf(a, b ast.Expr) bool {
 	rootA, stepsA := path(a)
 	rootB, stepsB := path(b)
@@ -1027,7 +1029,7 @@ func prefixOf(a, b ast.Expr) bool {
 	}
 	for i, s := range stepsA {
 		if (s.index == nil) != (stepsB[i].index == nil) ||
-			s.index == nil && s.field != stepsB[i].field {
+			s.index == nil && !sameField(s, stepsB[i]) {
 			return false
 		}
 	}

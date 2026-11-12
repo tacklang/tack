@@ -343,8 +343,9 @@ The file declares each builtin type as itself, `type int32 int32`, `error`
 as its struct of `code` and `msg`, the values `true`, `false`, `noerror`
 and `c_allocator` as `var`s, and each function without a body, the generic
 ones in real syntax, `func pop[T Elem](mut l list[T]) T`, with stand-in
-types, `Elem`, `Key`, `Sized` and `ListType`, for what no Tack type can
-say. Those forms parse only in that file, which the compiler parses in a
+types, `Elem`, `Key`, `Sized`, `ListType` and `StructType`, for what no
+Tack type can say, and the builtin constraint `Data` as an interface.
+Those forms parse only in that file, which the compiler parses in a
 builtin mode no program can turn on: anywhere else `var true bool` and
 `type int32 int32` stay syntax errors, and a function without a body
 stays `function f has no body; only an extern func is declared without
@@ -393,8 +394,10 @@ declares no extern func and has no list links none of the runtime and
 none of the C library it calls.
 
 `len`, `make`, `append`, `reserve`, `pop`, `remove`, `swap`, `replace`,
-`put`, `delete`, `has`, `drop`, `add`, `add_all` and `insert` are generic: the type
-checker checks each itself and the C backend lowers each in place. Builtins that are wanted
+`put`, `delete`, `has`, `drop`, `add`, `add_all`, `insert` and `fields`
+are generic: the type checker checks each itself and the C backend
+lowers each in place; `fields(T)` takes a type and is only ranged over
+(see Data and fields loops). Builtins that are wanted
 but not implemented go in [`builtin/PLANNED.md`](builtin/PLANNED.md),
 beside `builtin.tck`.
 
@@ -539,9 +542,10 @@ section remains the description of the language.
   see is an error where it is named, `lex is not pub in package
   calc/lexer`, or `isDigit is lib in module calc and cannot be used from
   module other`. A struct's fields are private by default too, each made
-  `pub` or `lib` on its own, `pub kind int64`, and a field is never more
-  visible than its struct. Reading or writing a field another package
-  cannot see, by `=`, a compound assignment, `++` or `--`, is `end is not
+  `pub` or `lib` on its own, `pub kind int64`, and a field, when named,
+  is never more visible than its struct; a fields loop goes by the
+  field's own mark instead (see Data and fields loops). Reading or
+  writing a field another package cannot see, by `=`, a compound assignment, `++` or `--`, is `end is not
   pub in lexer.Token`, and since a literal names every field, a literal of
   a struct with any such field is an error there too, `cannot write a
   lexer.Token literal outside package lexer: field end is not pub` (`fields
@@ -561,9 +565,11 @@ section remains the description of the language.
   binary of Expr` for the others). A `pub` or `lib` global is never warned of as
   unused, since the packages that read it may not be in the program; a
   private one still is. `main` packages cannot be imported, so `pub` and
-  `lib` mean nothing there and are errors wherever written, on a
-  declaration or a field: `pub has no effect in package main, which no
-  package can import`. Locals and parameters take neither keyword. A
+  `lib` mean nothing on a declaration there and are errors: `pub has no
+  effect in package main, which no package can import`. A field of a
+  struct of package main may be marked `pub` or `lib`, for fields loops
+  alone, which list it by its mark (see Data and fields loops). Locals
+  and parameters take neither keyword. A
   method is `pub` or `lib` as a function is, `pub func (t Token) Kind()
   int64`, and like a field is never more visible than its type; calling
   one another package cannot see is `hidden is not pub in lexer.Token`, or
@@ -3113,10 +3119,11 @@ section remains the description of the language.
 - Generic functions. `func render[W Writer](mut w W, s string) error`
   declares type parameters, in brackets after the name, each a name and
   its constraint, an interface, plain or qualified, `[A Writer, B
-  sink.Sink]`, with commas between them optional as between parameters.
+  sink.Sink]`, or the builtin constraint `Data` (see Data and fields
+  loops), with commas between them optional as between parameters.
   Each is a type within its function, its signature and its body, which
   stands for whichever type a call passes. Every type
-  parameter needs an interface for its constraint: `type parameter W has
+  parameter needs an interface or `Data` for its constraint: `type parameter W has
   no constraint; write the interface it must satisfy after it, as in [W
   Writer]`, and anything else, a struct, a basic type, `any` among them,
   a view or another type parameter, is `Point is not an interface; the
@@ -3234,6 +3241,69 @@ section remains the description of the language.
   away. A type parameter's value is passed and moved as its type
   argument's would be, so in an instance whose type argument holds no
   list a move is a copy, and nothing is freed.
+- Data and fields loops. `Data` is a builtin constraint, `func deep[T
+  Data](v T) int64`, which a type satisfies when it is plain data: `bool`,
+  an integer or a float type, `text.Text`, a `list[E]` whose `E` is
+  `Data`, a `map[text.Text]V` whose `V` is, or a struct whose every field
+  is, private ones included, so a type is `Data` or not whichever package
+  asks. Anything else is reported at the call,
+  naming the field, element or value type deepest in it that is not,
+  `S does not satisfy Data: field a of In is Allocator, which is not
+  Data`, `geo.Pool does not satisfy Data: field s of geo.Pool is string,
+  which is not Data` for a private field, `list[string] does not satisfy Data: the element type of
+  list[string] is string, which is not Data`, `map[int64]int64 does not
+  satisfy Data: the key type of map[int64]int64 is int64, and a Data
+  map's key is text.Text`, `[2]int64 does not satisfy Data: an array is
+  not Data`, so no `string`, union, array, view, `any`, function value,
+  arena, pool, id, span, handle, `Allocator` or `error`, and a type
+  parameter only when it is constrained by `Data` too, `T does not
+  satisfy Data: T is constrained by Any, not Data`. A value of one has no
+  method, `T.[f] has no method size: its constraint Data has none`, no
+  field and no `==`, as any type parameter's, and satisfies an
+  interface only when it asks for no method, `T.[f] does not satisfy
+  Sizer: its constraint Data has no method size`. `Data` is a builtin
+  name, `cannot use Data as a name; it is a builtin constraint`, and no
+  type, `Data is a constraint; it can only constrain a type parameter`.
+  `for f := range fields(T) { ... }` runs its body once for each field of
+  `T`, a type parameter constrained by `Data` or a struct type that is
+  `Data`, `cannot range over the fields of int64: it is not a struct`,
+  `cannot range over the fields of T: it is constrained by Any, not
+  Data`, in declaration order. It lists the fields whose own mark lets
+  the package that declares the function see them: every field, in the
+  struct's own package; a `pub` field, anywhere; a `lib` field, within its
+  module. A field's mark counts here whatever its struct's visibility, so
+  a private struct's `pub` fields are listed by another package: the loop
+  only gets the type from a caller who can name it. So a function of
+  `std/text` lists `text.Text`'s list and one of any other package none of
+  it, and a basic type, a list or a map has none. `f` is no value, `f is a field of a
+  fields loop, not a value; use f.name, f.index or v.[f]`: `f.name` is the
+  field's name, a `string`, `f.index` its position among the fields
+  listed, from 0, an `int64` whose value the checker does not know, and
+  `v.[f]` the field `f` of `v`, a value of type `T`, `v is T, and e is a
+  field of U`, `i is not a fields loop's variable; v.[f] takes the f of
+  for f := range fields(T)`. `v.[f]` is a place, read in place, assigned
+  where `v` can be, `cannot assign to field of parameter v`, passed as
+  `mut` where `v` can be, and never moved out of `v`, `cannot move src.[f]
+  out of src: a field cannot be moved on its own`; its type is a type
+  parameter of the loop's own, written `T.[f]`, constrained by `Data`,
+  which `v.[f]` of every `v` of type `T` shares. It may be any of `v`'s
+  fields, so two `mut` arguments that may be one field are reported, `v.[f]
+  and v.[e] may be one field, and both are passed as mut in this call`,
+  as is `p.[f]` beside `p.x`. The body is checked once, as a loop body
+  that may run any number of times, whatever types calls pass, so `break`
+  and `continue` are reported, `break is not allowed in a fields loop,
+  whose body runs once for each field`, and `return`, `?` and `defer`
+  work as in any loop body. `fields(T)` is only ranged over, `fields(Point)
+  can only be ranged over: for f := range fields(Point) { ... }`, and
+  `fields` is a builtin name, which no function may take. In C the loop is
+  unrolled in each instance, one block per field, in which `v.[f]` is
+  that field's member and `f.name` and `f.index` constants, its locals
+  freed and its defers run at the block's end as any block's; a type with
+  no fields gives no block. An assignment to a field, `v.[f] = x`, needs
+  a value of the field's type from somewhere other than another field,
+  since `dst.[f] = src.[f]` moves a field out of `src`, which is
+  reported: a generic function that returns one, taken out of a list it
+  was given, does, and `make` for `Data` is still to come.
 - Package-level variables. `var` and `mut` declarations may also appear
   outside any function, where `:=` is not allowed. A package-level variable is
   initialized with a constant expression, which the compiler computes:

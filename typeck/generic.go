@@ -17,12 +17,14 @@ import (
 //
 // A generic function, func render[W Writer](mut w W, s string) error,
 // declares type parameters, each a type of its own in the table (see
-// types.Table.TypeParam) constrained by an interface. Its body is checked
-// once, against the constraints, never per call: a value of a type
-// parameter has the constraint's methods, called as a struct's are, and
-// nothing else, no field, no ==, no zero value and no any, and it is owned
-// as a list is, since it may stand for a struct holding one, so it moves
-// rather than copies and a parameter of one borrows. So whatever a call
+// types.Table.TypeParam) constrained by an interface, or by the builtin
+// constraint Data, which asks for no method and is closed (see data.go).
+// Its body is checked once, against the constraints, never per call: a
+// value of a type parameter has the constraint's methods, called as a
+// struct's are, and nothing else, no field, no ==, no zero value and no
+// any, and it is owned as a list is, since it may stand for a struct
+// holding one, so it moves rather than copies and a parameter of one
+// borrows. So whatever a call
 // passes, a body that checked once is right for it, int64 as much as a
 // struct holding a list. A list, a view, a map's value and a function
 // type may be made of one, and a result may be one: a body makes a value
@@ -147,14 +149,17 @@ func implicitTypeParams(fn *ast.Func) {
 }
 
 // resolveTypeParams gives each type parameter of fn a type of its own and
-// finds the interface its constraint names, reporting a constraint that
-// names anything else. It runs before fn's parameter types are resolved,
-// which may name the type parameters.
+// finds the interface its constraint names, or marks it constrained by
+// Data, reporting a constraint that names anything else. It runs before
+// fn's parameter types are resolved, which may name the type parameters.
 func (c *Checker) resolveTypeParams(fn *ast.Func) {
 	for _, tp := range fn.TypeParams {
 		tp.Type = c.table.TypeParam(tp.Name)
 		c.typeParams[tp.Type] = tp
-		tp.Iface = c.constraint(tp)
+		tp.Data = isDataName(tp.Constraint)
+		if !tp.Data {
+			tp.Iface = c.constraint(tp)
+		}
 	}
 }
 
@@ -248,6 +253,11 @@ type standInKey struct {
 // constraint that was reported has none, and nothing more is reported.
 func (c *Checker) typeParamMethod(typ types.Type, sel *ast.Selector) *ast.Func {
 	tp := c.typeParams[typ]
+	if tp != nil && tp.Data {
+		c.errorf(sel.NameSpan, "%s has no method %s: its constraint Data has none",
+			tp.Name, sel.Name)
+		return nil
+	}
 	if tp == nil || tp.Iface == nil {
 		return nil
 	}
@@ -346,6 +356,9 @@ func (c *Checker) bindTypeArg(arg ast.Expr, tp, got types.Type, callee string) b
 	if param.Iface != nil && !c.satisfies(at, got, param.Iface) {
 		return false
 	}
+	if param.Data && !c.satisfiesData(at, got) {
+		return false
+	}
 	c.inference.args[tp] = got
 	return true
 }
@@ -438,7 +451,7 @@ type methodSig struct {
 // cannot be seen, which another package might.
 func (c *Checker) unsatisfied(typ types.Type, iface *ast.TypeDecl) (why string, here bool) {
 	tp := c.typeParams[typ]
-	if tp != nil && tp.Iface == nil {
+	if tp != nil && tp.Iface == nil && !tp.Data {
 		// Its constraint was reported; nothing is known of its methods.
 		return "", false
 	}
@@ -494,6 +507,9 @@ func (c *Checker) methodFor(
 	tp *ast.TypeParam,
 	name string,
 ) (have methodSig, owner, why string, here bool) {
+	if tp != nil && tp.Data {
+		return methodSig{}, "", fmt.Sprintf("its constraint Data has no method %s", name), false
+	}
 	if tp != nil {
 		m := tp.Iface.Interface().Method(name)
 		if m == nil {

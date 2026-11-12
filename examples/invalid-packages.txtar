@@ -174,6 +174,60 @@ clause-mismatch-at-root/other.tck:1:9: error: package other does not match its d
    |	        ^~~~~
 02 |	
 
+-- data-private-field-other-package/tack.mod --
+module q1
+-- data-private-field-other-package/geo/geo.tck --
+package geo
+
+pub type Pool struct {
+    pub n int64
+    s     string
+}
+
+pub func mk() Pool {
+    return Pool{n: 1, s: "secret"}
+}
+
+pub func deep[T Data](v T) int64 {
+    mut n := 0
+    for f := range fields(T) {
+        n = n +% 1 +% deep(v.[f])
+    }
+    return n
+}
+
+pub func names[T Data](v T) {
+    for f := range fields(T) {
+        print(f.name)
+        print("\n")
+    }
+}
+-- data-private-field-other-package/main.tck --
+package main
+
+import geo from "q1/geo"
+
+func main() {
+    p := geo.mk()
+    geo.names(p)
+    if geo.deep(p) == 2 { print("two\n") } else { print("other\n") }
+}
+-- data-private-field-other-package/expected --
+stage: typeck
+---
+
+data-private-field-other-package/main.tck:7:15: error: geo.Pool does not satisfy Data: field s of geo.Pool is string, which is not Data
+06 |	    p := geo.mk()
+07 |	    geo.names(p)
+   |	              ^
+08 |	    if geo.deep(p) == 2 { print("two\n") } else { print("other\n") }
+
+data-private-field-other-package/main.tck:8:17: error: geo.Pool does not satisfy Data: field s of geo.Pool is string, which is not Data
+07 |	    geo.names(p)
+08 |	    if geo.deep(p) == 2 { print("two\n") } else { print("other\n") }
+   |	                ^
+09 |	}
+
 -- dir-builtin-func-name/tack.mod --
 module calc
 -- dir-builtin-func-name/.target --
@@ -5608,18 +5662,6 @@ vis-in-main/main.tck:3:1: error: pub has no effect in package main, which no pac
 03 |	pub type Point struct {
    |	^~~
 04 |	    pub x int64
-
-vis-in-main/main.tck:4:5: error: pub has no effect in package main, which no package can import
-03 |	pub type Point struct {
-04 |	    pub x int64
-   |	    ^~~
-05 |	    lib y int64
-
-vis-in-main/main.tck:5:5: error: lib has no effect in package main, which no package can import
-04 |	    pub x int64
-05 |	    lib y int64
-   |	    ^~~
-06 |	    z int64
 
 vis-in-main/main.tck:9:1: error: lib has no effect in package main, which no package can import
 08 |	

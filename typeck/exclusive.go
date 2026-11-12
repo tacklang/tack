@@ -47,6 +47,9 @@ const (
 	// mayOverlap is two places that may share an element, at indexes not
 	// known to differ.
 	mayOverlap
+	// mayBeField is two places that may be one field, one of them a field
+	// of a fields loop, v.[f], which is any of its struct's fields.
+	mayBeField
 )
 
 // checkExclusive reports each of muts, the mut arguments of one call
@@ -97,6 +100,10 @@ func (c *Checker) reportOverlap(earlier, later *ast.MutArg, how overlap) {
 			second,
 			first,
 		)
+	case mayBeField:
+		c.errorNotes(later.Span, notes,
+			"%s and %s may be one field, and both are passed as mut in this call; "+only,
+			first, second, second)
 	default:
 		c.errorNotes(later.Span, notes,
 			"%s and %s may overlap, and both are passed as mut in this call; "+
@@ -106,10 +113,19 @@ func (c *Checker) reportOverlap(earlier, later *ast.MutArg, how overlap) {
 }
 
 // step is one step of a place's path: a field, by name, or an element, by
-// its index.
+// its index. A field of a fields loop, v.[f], is any field of its struct,
+// so reflect says it may be any other field at its depth.
 type step struct {
-	index ast.Expr // nil for a field
-	field string
+	index   ast.Expr // nil for a field
+	field   string
+	reflect bool
+}
+
+// sameField reports whether a and b, two fields at the same depth of two
+// paths from one variable, may be one field: they have one name, or one
+// of them is a field of a fields loop, which may be any.
+func sameField(a, b step) bool {
+	return a.field == b.field || a.reflect || b.reflect
 }
 
 // path returns the variable or parameter a place starts from, and the
@@ -119,7 +135,7 @@ func path(place ast.Expr) (ast.Decl, []step) {
 	for {
 		switch x := place.(type) {
 		case *ast.Selector:
-			steps = append(steps, step{field: x.Name})
+			steps = append(steps, step{field: x.Name, reflect: x.Field != nil})
 			place = x.X
 		case *ast.Index:
 			steps = append(steps, step{index: x.Index})
@@ -143,7 +159,7 @@ func (c *Checker) overlapOf(a, b ast.Expr) overlap {
 	if rootA == nil || rootA != rootB {
 		return disjoint
 	}
-	maybe := false
+	maybe, maybeField := false, false
 	n := min(len(stepsA), len(stepsB))
 	for i := range n {
 		switch c.stepOverlap(stepsA[i], stepsB[i]) {
@@ -151,9 +167,13 @@ func (c *Checker) overlapOf(a, b ast.Expr) overlap {
 			return disjoint
 		case mayOverlap:
 			maybe = true
+		case mayBeField:
+			maybeField = true
 		}
 	}
 	switch {
+	case maybeField:
+		return mayBeField
 	case maybe:
 		return mayOverlap
 	case len(stepsA) == len(stepsB):
@@ -166,13 +186,17 @@ func (c *Checker) overlapOf(a, b ast.Expr) overlap {
 }
 
 // stepOverlap returns how two steps at the same depth of two paths from
-// one variable relate: same, disjoint, or mayOverlap for two indexes not
-// known to be equal or to differ. A field and an index never meet at one
-// depth, since the value there has one type.
+// one variable relate: same, disjoint, mayOverlap for two indexes not
+// known to be equal or to differ, or mayBeField for two fields, one of
+// them a fields loop's, v.[f], that are not the same one. A field and an
+// index never meet at one depth, since the value there has one type.
 func (c *Checker) stepOverlap(a, b step) overlap {
 	if a.index == nil || b.index == nil {
-		if a.field == b.field {
+		switch {
+		case a.field == b.field:
 			return same
+		case sameField(a, b):
+			return mayBeField
 		}
 		return disjoint
 	}
@@ -311,7 +335,8 @@ func (c *Checker) borrowedList(arg ast.Expr) ast.Expr {
 
 // placesMayOverlap reports whether the places a and b may share memory:
 // they start from the same variable or parameter, and no field of one
-// differs from the other's at the same depth. Two elements always may.
+// differs from the other's at the same depth, a field of a fields loop
+// differing from none. Two elements always may.
 func placesMayOverlap(a, b ast.Expr) bool {
 	rootA, stepsA := path(a)
 	rootB, stepsB := path(b)
@@ -319,7 +344,7 @@ func placesMayOverlap(a, b ast.Expr) bool {
 		return false
 	}
 	for i := range min(len(stepsA), len(stepsB)) {
-		if stepsA[i].index == nil && stepsB[i].index == nil && stepsA[i].field != stepsB[i].field {
+		if stepsA[i].index == nil && stepsB[i].index == nil && !sameField(stepsA[i], stepsB[i]) {
 			return false
 		}
 	}

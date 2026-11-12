@@ -34,7 +34,9 @@ import (
 // makes each of its type parameters stand for a struct or union type:
 // every question about a bound type parameter is then answered about its
 // type, so code that asks the Table what a type is lowers the instance as
-// it would a function written with that type. Unbind ends it.
+// it would a function written with that type. Unbind ends it. BindMore
+// adds to the binding in force, as a fields loop's body is lowered for
+// each field, and puts it back after.
 type Table struct {
 	ids   map[array]Type  // each array type's ID, by its shape
 	views map[Type]Type   // each view type's ID, by its element type
@@ -439,6 +441,42 @@ func (t *Table) Bind(args map[Type]Type) {
 func (t *Table) Unbind() {
 	t.bound = nil
 	t.substituted = nil
+}
+
+// BindMore adds args to the binding in force, if any, as Bind would bind
+// both, args replacing what either binds alike, and returns what puts the
+// binding back as it was, which the caller must call before the binding
+// in force is replaced or ended. Bindings it adds nest: a fields loop's
+// body is lowered with its type parameter bound to each field's type in
+// turn, inside an instance whose type parameters are bound already.
+func (t *Table) BindMore(args map[Type]Type) (restore func()) {
+	oldBound, oldSubstituted := t.bound, t.substituted
+	merged := make(map[Type]Type, len(oldBound)+len(args))
+	for k, v := range oldBound {
+		merged[k] = v
+	}
+	for k, v := range args {
+		merged[k] = v
+	}
+	t.bound = merged
+	t.substituted = make(map[Type]Type)
+	return func() {
+		t.bound, t.substituted = oldBound, oldSubstituted
+	}
+}
+
+// Binding returns a copy of the binding in force, nil when none is, so
+// what is lowered later, a closure's body, can be lowered under it again
+// (see BindMore).
+func (t *Table) Binding() map[Type]Type {
+	if t.bound == nil {
+		return nil
+	}
+	b := make(map[Type]Type, len(t.bound))
+	for k, v := range t.bound {
+		b[k] = v
+	}
+	return b
 }
 
 // Bound returns the type typ stands for: the type Bind bound it to, for a

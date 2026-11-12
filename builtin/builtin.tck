@@ -116,6 +116,24 @@ type span span
 // and so does a range over p, for its handle, in its body.
 type handle handle
 
+// Constraints
+
+// Data constrains a type parameter to plain data, [T Data]: a bool, an
+// integer or a float type, text.Text, a list[E] whose E is Data, a
+// map[text.Text]V whose V is Data, or a struct whose every field is Data,
+// private ones included, so a type is Data or not whichever package asks.
+// Nothing else is: no
+// string, which is only ever a literal, no union, array, view, any, id,
+// span, handle, arena, pool, function value or Allocator, and no type
+// parameter constrained by an interface. A call that binds T to a type
+// that is not Data is an error naming the field, element or value type
+// deepest in it that is not. A value of a type parameter constrained by
+// Data has no method, no field and no ==, and is borrowed, moved and freed
+// as any type parameter's value is; a fields loop walks its fields (see
+// fields). Data is a builtin name, which no program can declare.
+type Data interface {
+}
+
 // Values
 
 // true is the bool that holds.
@@ -159,6 +177,31 @@ func exit(code int32)
 // v. The length of an array, and of a string literal, is a constant; a
 // view's, a list's, an arena's or a pool's is never known.
 func len(v Sized) int64
+
+// fields(T) is what a fields loop ranges over, its only use: T is a type
+// parameter constrained by Data, or a struct type that is Data, and
+//
+//     for f := range fields(T) {
+//         ...
+//     }
+//
+// runs its body once for each field of the type T stands for whose own
+// mark lets the package declaring the function holding the loop see it,
+// in declaration order: every field in the struct's own package, a pub
+// field anywhere, a lib field within its module, whatever the struct's
+// visibility; and not at all for a type with none, a basic type, a list,
+// a map or text.Text outside std/text. f is no value: it cannot be stored,
+// passed or returned, only used as f.name, the field's name, a string, as
+// f.index, the field's position among those the loop runs for, from 0, an
+// int64, and as v.[f], the field f of v, a value of type T. v.[f] is a
+// place, read, assigned and passed as mut as any field of v is, and a
+// field cannot be moved on its own; its type is a type parameter of the
+// loop's own, constrained by Data, which v.[f] of every v of type T
+// shares. The body is checked once, as a loop body that may run any
+// number of times, so what it may do does not depend on the fields, and
+// it may not break or continue the loop; return, ? and defer work in it
+// as in any loop body, a defer running at the end of each field's pass.
+func fields(t StructType)
 
 // make returns an empty list of elements of type T, written make(list[T],
 // alloc), or an empty map, make(map[K]V, alloc), which grows through alloc
@@ -302,4 +345,9 @@ type Sized interface {
 // ListType stands for a list, a map, an arena or a pool type written where
 // a value goes, as make(list[int64], c_allocator) does.
 type ListType interface {
+}
+
+// StructType stands for a struct type, or a type parameter constrained by
+// Data, written where a value goes, as fields(T) does.
+type StructType interface {
 }

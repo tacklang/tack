@@ -171,7 +171,7 @@ func (g *generator) viewCopies(place ast.Expr, call *ast.Call) bool {
 		ast.Walk(a, func(n ast.Node) bool {
 			switch x := n.(type) {
 			case *ast.MutArg:
-				found = found || mayOverlap(place, x.X)
+				found = found || g.mayOverlap(place, x.X)
 			case *ast.FuncLit:
 				for _, cp := range x.Captures {
 					found = found || cp.Write && cp.Decl == root.Def
@@ -187,9 +187,9 @@ func (g *generator) viewCopies(place ast.Expr, call *ast.Call) bool {
 // mayOverlap reports whether the places a and b may share memory: they
 // start from the same variable or parameter, and no field of one differs
 // from the other's at the same depth.
-func mayOverlap(a, b ast.Expr) bool {
-	rootA, stepsA := placePath(a)
-	rootB, stepsB := placePath(b)
+func (g *generator) mayOverlap(a, b ast.Expr) bool {
+	rootA, stepsA := g.placePath(a)
+	rootB, stepsB := g.placePath(b)
 	if rootA == nil || rootA != rootB {
 		return false
 	}
@@ -203,13 +203,14 @@ func mayOverlap(a, b ast.Expr) bool {
 
 // placePath returns the variable or parameter a place starts from, and
 // a step for each field and element after it, outermost first: a field's
-// name, or "" for an element.
-func placePath(place ast.Expr) (ast.Decl, []string) {
+// name, the one a fields loop's v.[f] stands for in the block being
+// lowered among them, or "" for an element.
+func (g *generator) placePath(place ast.Expr) (ast.Decl, []string) {
 	var steps []string
 	for {
 		switch x := place.(type) {
 		case *ast.Selector:
-			steps = append(steps, x.Name)
+			steps = append(steps, g.fieldName(x))
 			place = x.X
 		case *ast.Index:
 			steps = append(steps, "")

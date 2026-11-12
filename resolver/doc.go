@@ -10,8 +10,9 @@
 // module (ast.Package.Module). Anything else is reported, name is not pub
 // in package path, or name is lib in module a and cannot be used from
 // module b. In package main, which nothing can import, pub and lib are
-// reported wherever written, on a declaration or a field; elsewhere, a mut
-// global may be neither. A global that is pub or lib is never reported as
+// reported on a declaration; a field may take either, which only says
+// which packages' fields loops list it. Elsewhere, a mut global may be
+// neither. A global that is pub or lib is never reported as
 // unused, since packages that may read it may not be in the program. The
 // visibility of fields, and of the types a declaration exposes, is the
 // type checker's to judge.
@@ -172,6 +173,11 @@
 // signature, which may name them, and its body, in which a parameter or
 // local cannot reuse one's name. A type parameter is a type: a name bound
 // to one is reported as a value, called or assigned, as a type's name is.
+// Data, the builtin constraint, binds to nothing, as a basic type's name
+// does, and no declaration, parameter or local may take its name. In
+// fields(T), T is resolved as a type, and in v.[f], v as a value and f as
+// a name read, which the type checker requires to be a fields loop's
+// variable.
 //
 // Each block is a scope: a function's parameters come next, its body is
 // nested in that, and each branch of an if, and each case of a switch, is

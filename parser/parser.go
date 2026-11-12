@@ -1406,6 +1406,9 @@ func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 		lexer.ShiftRightAssign:
 		return p.parseAssign()
 	case lexer.LParen:
+		if n == 0 && p.atFieldsOf() {
+			return p.parseFieldsOfStmt()
+		}
 		return p.parseCallLike(tk, n, postfixed)
 	case lexer.Inc, lexer.Dec:
 		return p.parseIncDec()
@@ -1417,6 +1420,18 @@ func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 		}
 		return nil, []diag.Diagnostic{p.diagInvalidToken("statement", tk)}
 	}
+}
+
+// parseFieldsOfStmt parses a statement that starts with fields(T), which
+// the caller has seen is next, as the expression it starts, so the type
+// checker reports fields(T) where it is not ranged over as it does any
+// other expression.
+func (p *Parser) parseFieldsOfStmt() (ast.Stmt, []diag.Diagnostic) {
+	x, diags := p.parseOperand()
+	if x == nil {
+		return nil, diags
+	}
+	return &ast.ExprStmt{X: x, Span: p.extent(x)}, nil
 }
 
 // parseQuestionStmt parses a statement that starts with the name tk and
@@ -1514,11 +1529,11 @@ func (p *Parser) badTarget(tk *lexer.Token) []diag.Diagnostic {
 
 // afterTarget returns the token after the name n places ahead and every
 // bracketed index, field selection and type assertion that follows it,
-// a[i].x[j].(T), so a statement that starts with an element or a field
-// can be told apart by what comes after it. The brackets and parentheses
-// are matched, so an index may hold brackets of its own. A period not
-// followed by a name or an opening parenthesis ends the target, and is
-// what is returned.
+// a[i].x[j].(T) or v.[f], so a statement that starts with an element or a
+// field can be told apart by what comes after it. The brackets and
+// parentheses are matched, so an index may hold brackets of its own. A
+// period not followed by a name, an opening parenthesis or an opening
+// bracket ends the target, and is what is returned.
 func (p *Parser) afterTarget(n int) *lexer.Token {
 	k := n + 1
 	for {
@@ -1531,6 +1546,8 @@ func (p *Parser) afterTarget(n int) *lexer.Token {
 				k += 2
 			case lexer.LParen:
 				k = p.afterGroup(k+1, lexer.LParen, lexer.RParen)
+			case lexer.LBrack:
+				k = p.afterGroup(k+1, lexer.LBrack, lexer.RBrack)
 			default:
 				return p.peekAt(k)
 			}
@@ -1573,14 +1590,17 @@ func (p *Parser) atMethodCall(n int) bool {
 }
 
 // afterSelection returns how many places ahead the token after the period
-// k places ahead, and the name or the parenthesized type assertion after
-// it, is, or -1 when neither follows the period.
+// k places ahead, and the name, the parenthesized type assertion or the
+// bracketed field variable after it, x.[f], is, or -1 when none follows
+// the period.
 func (p *Parser) afterSelection(k int) int {
 	switch p.peekAt(k + 1).Kind() {
 	case lexer.Ident:
 		return k + 2
 	case lexer.LParen:
 		return p.afterGroup(k+1, lexer.LParen, lexer.RParen)
+	case lexer.LBrack:
+		return p.afterGroup(k+1, lexer.LBrack, lexer.RBrack)
 	default:
 		return -1
 	}
@@ -3414,6 +3434,9 @@ func (p *Parser) parsePrimary() (ast.Expr, []diag.Diagnostic) {
 		return nil, p.typeArgsError(n)
 	}
 
+	if n == 0 && p.atFieldsOf() {
+		return p.parseFieldsOf()
+	}
 	if p.peek().Kind() == lexer.Ident && p.peekAt(n+1).Kind() == lexer.LParen {
 		return p.parseCallOperand()
 	}
@@ -3422,6 +3445,48 @@ func (p *Parser) parsePrimary() (ast.Expr, []diag.Diagnostic) {
 		return p.parseQualified(), nil
 	}
 	return p.parseLiteral()
+}
+
+// fieldsName is the name of the builtin fields, which fields(T) calls
+// with a type, not a value.
+const fieldsName = "fields"
+
+// atFieldsOf reports whether the next tokens start fields(T): the name
+// fields and an opening parenthesis. A call by that name always calls the
+// builtin, which nothing can redeclare, so this is it wherever it is.
+func (p *Parser) atFieldsOf() bool {
+	tk := p.peek()
+	return tk.Kind() == lexer.Ident && lexer.ValueChecked[string](tk) == fieldsName &&
+		p.peekAt(1).Kind() == lexer.LParen
+}
+
+// parseFieldsOf parses fields(T), whose T is a type, which the caller has
+// seen starts next (see ast.FieldsOf). Whether it is ranged over, and what
+// T is, is the type checker's to judge.
+func (p *Parser) parseFieldsOf() (ast.Expr, []diag.Diagnostic) {
+	name := p.next()
+	if diags := p.nestAt(lexer.LParen); diags != nil {
+		return nil, diags
+	}
+	defer p.unnest()
+	p.next() // the opening parenthesis
+	if tk := p.peek(); tk.Kind() == lexer.RParen {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message: "fields is a builtin, which takes a type, as in for f := range fields(T); " +
+				"a call by that name always calls it",
+			Span: ast.Span{File: p.fileID, Start: name.OffsetStart(), End: tk.OffsetEnd()},
+		}}
+	}
+	typ, diags := p.parseType()
+	if typ == nil {
+		return nil, diags
+	}
+	if ok, diags := p.expect(lexer.RParen); !ok {
+		return nil, diags
+	}
+	span := ast.Span{File: p.fileID, Start: name.OffsetStart(), End: p.peekPrev().OffsetEnd()}
+	return &ast.FieldsOf{TypeExpr: typ, Span: span}, nil
 }
 
 // noteLostImportLit records the name that starts the next tokens as an
@@ -3475,9 +3540,12 @@ func (p *Parser) parsePostfix(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 		case lexer.LBrack:
 			x, diags = p.parseIndex(x)
 		case lexer.Period:
-			if p.peekNext().Kind() == lexer.LParen {
+			switch p.peekNext().Kind() {
+			case lexer.LParen:
 				x, diags = p.parseTypeAssert(x)
-			} else {
+			case lexer.LBrack:
+				x, diags = p.parseFieldSelector(x)
+			default:
 				x, diags = p.parseSelector(x)
 			}
 		default:
@@ -3592,6 +3660,30 @@ func (p *Parser) parseSelector(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 		return nil, diags
 	}
 	return call, nil
+}
+
+// parseFieldSelector parses x.[f], the field f of x, after x, from the
+// period: f is a name, which only a fields loop's variable can rightly be
+// (see ast.Selector). Whether it is one is the resolver's and the type
+// checker's to judge.
+func (p *Parser) parseFieldSelector(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
+	p.next() // the period
+	open := p.next()
+	name, diags := p.parseIdent("field variable")
+	if name == nil {
+		return nil, diags
+	}
+	if ok, diags := p.expect(lexer.RBrack); !ok {
+		return nil, diags
+	}
+	end := p.peekPrev().OffsetEnd()
+	return &ast.Selector{
+		X:        x,
+		Name:     "[" + name.Name + "]",
+		NameSpan: ast.Span{File: p.fileID, Start: open.OffsetStart(), End: end},
+		Span:     ast.Span{File: p.fileID, Start: p.extent(x).Start, End: end},
+		Field:    name,
+	}, nil
 }
 
 // parseTypeAssert parses a type assertion after x, from the period: x.(T),

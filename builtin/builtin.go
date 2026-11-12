@@ -102,8 +102,11 @@ type genericFunc struct {
 // as own, a variable of any type that owns something; add takes any arena
 // and a value of its element type; add_all takes any arena and any number
 // of values of its element type, or a view of them spread; and insert
-// takes any pool and a value of its element type. The type checker checks
-// each of them itself, and the C backend lowers each in place.
+// takes any pool and a value of its element type; and fields takes a
+// type, not a value, which the parser reads as a fields loop's
+// ast.FieldsOf rather than as a call, so no call ever binds to it. The
+// type checker checks each of them itself, and the C backend lowers each
+// in place.
 var generic = []genericFunc{
 	{"len", []string{"v"}},
 	{"make", []string{"t", "alloc"}},
@@ -120,6 +123,7 @@ var generic = []genericFunc{
 	{"add", []string{"a", "v"}},
 	{"add_all", []string{"a", "elems"}},
 	{"insert", []string{"p", "v"}},
+	{"fields", []string{"t"}},
 }
 
 // Generic returns the names of the builtins the type checker checks
@@ -145,6 +149,27 @@ func ParamNames(name string) ([]string, bool) {
 		}
 	}
 	return nil, false
+}
+
+// constraints holds the names of the builtin constraints: Data, which a
+// type satisfies when it is plain data, a bool, a number, a list of Data
+// elements, a map from text.Text to Data values, or a struct whose fields
+// are Data (see typeck's data.go).
+var constraints = []string{"Data"}
+
+// Constraints returns the names of the builtin constraints, each of which
+// constrains a type parameter without an interface declaring it, and no
+// program can declare a name of.
+func Constraints() []string { return constraints }
+
+// IsConstraint reports whether name is a builtin constraint's.
+func IsConstraint(name string) bool {
+	for _, c := range constraints {
+		if c == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Values returns the names of the builtin values, true, false, noerror

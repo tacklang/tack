@@ -175,6 +175,8 @@ func walkExpr(e Expr, v Visitor) {
 		Walk(e.Value, v)
 	case *FuncLit:
 		walkFuncLit(e, v)
+	case *FieldsOf:
+		Walk(e.TypeExpr, v)
 	default:
 		walkArrayExpr(e, v)
 	}

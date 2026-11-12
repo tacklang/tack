@@ -104,7 +104,12 @@
 // for. A type made of a type parameter, list[T], []T, map[K]T or a
 // function type, stands then for the type made the same way of what its
 // parts stand for, which Bound adds to the Table if it has not yet, so an
-// instance's list[T] is its caller's list[int64]. HasTypeParam says which
+// instance's list[T] is its caller's list[int64]. BindMore adds bindings
+// to the one in force, nesting, as the backend binds a fields loop's type
+// parameter to each field's type in turn inside an instance, and returns
+// what restores the binding it found, the types its parts stood for
+// included; Binding copies the binding in force, so code lowered later,
+// a closure's body, is lowered under it again. HasTypeParam says which
 // types are or are made of a type parameter nothing binds. The checker
 // never binds one.
 //

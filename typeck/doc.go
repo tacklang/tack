@@ -1142,6 +1142,29 @@
 // recorded once in Program.Instances and every file's File.Instances, up
 // to MaxInstances, past which the call needing another is reported.
 //
+// Data and fields loops (data.go). A constraint may be the builtin Data,
+// closed: a call binding a type parameter constrained by it checks the
+// type is plain data, a bool, a number, text.Text, a list or a
+// map[text.Text]V of Data, or a struct whose fields are all Data, private
+// ones included, naming the part deepest in it that is not. for f :=
+// range fields(T) ranges over the fields of T, a type parameter
+// constrained by Data or a struct type that is Data, and its body is
+// checked once, as a range loop's is, with no facts of its own, v.[f]
+// being a field of v of the loop's own type parameter
+// (ast.FieldsOf.Field), constrained by Data, and f usable only as f.name,
+// f.index and v.[f]; a break or continue leaving it is reported. v.[f] is
+// a place as any field is, a Selector whose Field is f, so the rules for
+// fields hold of it as written: it is never moved on its own, assigned
+// and passed as mut only where v can be, and a write through it writes
+// v, which carries no facts, being mutable. Where places are compared,
+// for exclusivity and for what a range loop or a switch holds, it may be
+// any field of its struct (see sameField). Once the instances are found,
+// each fields loop records the fields it lists for every type its T
+// stands for (instance.go), those whose own mark, uncapped by the
+// struct's visibility, lets the package declaring its function see them,
+// and each local its body names from outside it is marked
+// ast.Var.Unrolled.
+//
 // Before any of this, Check records the program's types.Table on
 // Program.Types and on every file's File.Types, and every diagnostic names
 // a type through it, so a type is always named by the compilation that gave

@@ -17,6 +17,15 @@ import (
 // written by hand needs.
 const MaxInstances = 10000
 
+// MaxUnrolled is the most bodies of fields loops a program's lowered code
+// may hold, counted as each instance unrolls each loop, once for each
+// field it lists, a loop nested in another once for each field of each:
+// k loops nested over a struct of n fields are n^k bodies, which no
+// instance limit bounds, so a few lines could otherwise make more code
+// than any compiler could produce in a reasonable time. Like
+// MaxInstances, it is far beyond what a program written by hand needs.
+const MaxUnrolled = 10000
+
 // instance is an instance of a generic function being found: the
 // function and its type arguments, struct or union types all.
 type instance struct {
@@ -30,6 +39,10 @@ type instances struct {
 	c     *Checker
 	seen  map[instanceKey]bool
 	found []instance
+
+	// unrolled counts the fields loop bodies walked so far, each one the
+	// backend lowers (see MaxUnrolled).
+	unrolled int
 }
 
 // instantiate records on the program, in Program.Instances, and on every
@@ -39,9 +52,12 @@ type instances struct {
 // the instance's type arguments in place of its type parameters. A
 // generic function no call reaches has no instance. Each instance is
 // recorded once, in the order it is first found, however many calls need
-// it. A type parameter is passed on only whole, never inside a type made
-// of it (see notTypeArg), so every type argument is a type some code that
-// is not generic writes, and the instances are finite;
+// it. A fields loop's body is walked once for each field it lists, with
+// its type parameter standing for the field's type, and the fields are
+// recorded on the loop (see unroll). A type parameter is passed on only
+// whole, never inside a type made of it (see notTypeArg), so every type
+// argument is a type some code that is not generic writes, or a field's
+// type of one, and the instances are finite;
 // past MaxInstances the call that would add another is reported, and
 // nothing more is looked for. Nothing is instantiated in a program with
 // errors, which is not compiled.
@@ -87,16 +103,87 @@ func (s *instances) record() {
 // nil for a function that is not generic. It stops, and returns false, as
 // soon as one would be one too many.
 func (s *instances) walk(fn *ast.Func, bound map[types.Type]types.Type) bool {
+	return s.walkStmts(fn, fn.Body, bound)
+}
+
+// walkStmts is walk for stmts, statements of fn's body. A fields loop
+// among them, at any depth, has the fields it lists for the type it
+// ranges over under bound recorded (see recordFields), and its body is
+// walked once for each of them, with the loop's type parameter bound to
+// the field's type, as the backend lowers it.
+func (s *instances) walkStmts(
+	fn *ast.Func,
+	stmts []ast.Stmt,
+	bound map[types.Type]types.Type,
+) bool {
 	ok := true
-	for _, stmt := range fn.Body {
+	for _, stmt := range stmts {
 		ast.Walk(stmt, func(n ast.Node) bool {
-			if call, isCall := n.(*ast.Call); isCall && call.TypeArgs != nil && ok {
+			if !ok {
+				return false
+			}
+			if loop, fo, isFields := ast.FieldsLoop(n); isFields {
+				ok = s.unroll(fn, loop, fo, bound)
+				return false
+			}
+			if call, isCall := n.(*ast.Call); isCall && call.TypeArgs != nil {
 				ok = s.add(call, bound)
 			}
 			return ok
 		})
 	}
 	return ok
+}
+
+// unroll records the fields loop, a fields loop of fn ranging over fo,
+// lists for the type it ranges over under bound, and walks its body once
+// for each, with fo.Field bound to the field's type, in a copy of bound.
+// It reports, and returns false, when a body would be one too many for
+// MaxUnrolled, or a call in the body one instance too many.
+func (s *instances) unroll(
+	fn *ast.Func,
+	loop *ast.ForRange,
+	fo *ast.FieldsOf,
+	bound map[types.Type]types.Type,
+) bool {
+	typ := fo.Type
+	if to, ok := bound[typ]; ok {
+		typ = to
+	}
+	fields := s.c.recordFields(fn, fo, typ)
+	all := s.c.table.Fields(typ)
+	for _, i := range fields {
+		if s.unrolled == MaxUnrolled {
+			s.c.errorf(fo.Span, "unrolling the fields loop over %s makes more than %d bodies "+
+				"of fields loops, the most a program may have",
+				s.c.typeName(typ), MaxUnrolled)
+			return false
+		}
+		s.unrolled++
+		inner := make(map[types.Type]types.Type, len(bound)+1)
+		for k, v := range bound {
+			inner[k] = v
+		}
+		inner[fo.Field] = all[i].Type
+		if !s.walkStmts(fn, loop.Body, inner) {
+			return false
+		}
+	}
+	return true
+}
+
+// recordFields records on fo, a fields loop of fn, the fields it lists
+// for typ, a type its T stands for, and returns them: those of typ's
+// fields whose own mark lets the package declaring fn see them (see
+// visibleFields), in declaration order, and none
+// when typ is no struct.
+func (c *Checker) recordFields(fn *ast.Func, fo *ast.FieldsOf, typ types.Type) []int {
+	if fields, ok := fo.FieldsFor(typ); ok {
+		return fields
+	}
+	fields := c.visibleFields(typ, c.declPkg[fn])
+	fo.Record(typ, fields)
+	return fields
 }
 
 // add records the instance call needs, its type arguments under bound,

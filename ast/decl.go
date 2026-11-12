@@ -222,6 +222,13 @@ type Var struct {
 	// call by its name that passed over it, which a warning that it is
 	// unused points at, or nil.
 	UnusedDeferred bool `json:"-"`
+
+	// Unrolled says the type checker found the variable, a local, named
+	// in the body of a fields loop it is declared outside, which the
+	// backend lowers once for each field, and not at all for a type with
+	// none, which may leave the variable named nowhere in C, so a backend
+	// can tell its own compiler the declaration may go unused.
+	Unrolled bool `json:"-"`
 }
 
 // A variable is a declaration so that an Ident can point at it through Def,

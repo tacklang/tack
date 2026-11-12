@@ -268,6 +268,11 @@ func (c *Checker) selector(sel *ast.Selector) types.Type {
 	if _, isMethodExpr := ast.MethodExpr(sel); isMethodExpr {
 		return c.methodExpr(sel)
 	}
+	if id, ok := sel.X.(*ast.Ident); ok && sel.Field == nil {
+		if fo := c.fieldVar(id); fo != nil {
+			return c.fieldMember(sel, fo)
+		}
+	}
 	sel.Type = c.field(sel, c.valueOf(sel.X, c.expr(sel.X)))
 	return sel.Type
 }
@@ -277,6 +282,9 @@ func (c *Checker) selector(sel *ast.Selector) types.Type {
 // package being checked. A method of base named without a call is
 // reported as such: there are no method values.
 func (c *Checker) field(sel *ast.Selector, base types.Type) types.Type {
+	if sel.Field != nil {
+		return c.reflectField(sel, base)
+	}
 	if base == types.Invalid {
 		return types.Invalid
 	}
@@ -320,6 +328,11 @@ func (c *Checker) noField(sel *ast.Selector, base types.Type) {
 // variable, or an element or field of one, since a struct follows its
 // variable as an array does. It returns the field's type.
 func (c *Checker) fieldTarget(sel *ast.Selector) (types.Type, bool) {
+	if id, isName := sel.X.(*ast.Ident); isName && sel.Field == nil && c.fieldVar(id) != nil {
+		c.errorf(sel.Span, "cannot assign to %s: the name and index of a fields loop's field "+
+			"cannot be assigned", c.text(sel.Span))
+		return types.Invalid, false
+	}
 	base, ok := c.containerTarget(sel.X, "field")
 	if !ok {
 		return types.Invalid, false

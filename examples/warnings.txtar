@@ -37,6 +37,31 @@ any-switch-unused-binding/main.tck:4:12: warning: declared and not used: v
    |	           ^
 05 |	    case int64:
 
+-- fields-unused-var/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    mut n := 0
+    for f := range fields(Point) {
+        n +%= 1
+    }
+    if n == 2 {
+        print("two\n")
+    }
+}
+-- fields-unused-var/expected --
+
+fields-unused-var/main.tck:10:9: warning: declared and not used: f
+09 |	    mut n := 0
+10 |	    for f := range fields(Point) {
+   |	        ^
+11 |	        n +%= 1
+
 -- func-value-hidden-unused/main.tck --
 package main
 

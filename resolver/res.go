@@ -459,6 +459,13 @@ func reservedName(name string, span ast.Span) []diag.Diagnostic {
 			Span:     span,
 		}}
 	}
+	if builtin.IsConstraint(name) {
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("cannot use %s as a name; it is a builtin constraint", name),
+			Span:     span,
+		}}
+	}
 	return nil
 }
 
@@ -952,7 +959,11 @@ func (r *pkgResolver) resolveTarget(target ast.Expr, sc *scope) []diag.Diagnosti
 		diags := r.resolveTarget(t.X, sc)
 		return append(diags, r.resolveExpr(t.Index, sc)...)
 	case *ast.Selector:
-		return r.resolveTarget(t.X, sc)
+		diags := r.resolveTarget(t.X, sc)
+		if t.Field != nil {
+			diags = append(diags, r.resolveIdent(t.Field, sc)...)
+		}
+		return diags
 	case *ast.Slice:
 		// A slice is never a place; the type checker says so, once
 		// everything in it is bound.
@@ -1318,6 +1329,8 @@ func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 		return r.resolveTyped(x, sc)
 	case *ast.FuncLit:
 		return r.resolveFuncLit(x, sc)
+	case *ast.FieldsOf:
+		return r.resolveType(x.TypeExpr, sc)
 	default:
 		return nil
 	}
@@ -1383,6 +1396,9 @@ func (r *pkgResolver) litParamClash(param *ast.Param, params *scope) []diag.Diag
 // whose operand names a type, Expr.eof or Pair.first, binds it to the
 // type (see bindTypeOperand).
 func (r *pkgResolver) resolveOperand(e ast.Expr, sc *scope) []diag.Diagnostic {
+	if sel, ok := e.(*ast.Selector); ok && sel.Field != nil {
+		return append(r.resolveExpr(sel.X, sc), r.resolveIdent(sel.Field, sc)...)
+	}
 	if sel, ok := e.(*ast.Selector); ok {
 		if isType, diags := r.bindTypeOperand(sel.X, sc); isType {
 			return diags
@@ -1526,7 +1542,7 @@ func (r *pkgResolver) resolveTypeName(id *ast.Ident, sc *scope) []diag.Diagnosti
 // bindTypeName does resolveTypeName's work for an unqualified name,
 // reporting every problem with it.
 func (r *pkgResolver) bindTypeName(id *ast.Ident, sc *scope) []diag.Diagnostic {
-	if _, isBasic := types.Lookup(id.Name); isBasic {
+	if _, isBasic := types.Lookup(id.Name); isBasic || builtin.IsConstraint(id.Name) {
 		return nil
 	}
 	if types.Reserved(id.Name) {

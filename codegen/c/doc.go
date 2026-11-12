@@ -275,6 +275,18 @@
 // parameter, which may hold a list; where its type argument holds none,
 // the move is a plain copy and the variable is left as it is.
 //
+// A fields loop is unrolled (fields.go): its body is lowered once for
+// each field the checker recorded the loop lists for the type its T
+// stands for, each time as a C block of its own, with the loop's type
+// parameter bound to the field's type on top of the instance's binding
+// (types.Table.BindMore), so v.[f] is that field's member, f.name the
+// field's name, pooled, and f.index its position, a literal. Each block
+// frees its locals and runs its defers at its end, as any block; a type
+// with no fields lowers to nothing, so a local named only in the body is
+// declared with __attribute__((unused)) (ast.Var.Unrolled). A closure in
+// the body is lowered under the binding and the fields in force where
+// it is met.
+//
 // A view, []T, lowers to a C struct of a pointer to const elements and a
 // length, tack_view_ and the type's ID, defined after its element type,
 // the layout of tack_string, so a view's element is x.ptr[i], its length

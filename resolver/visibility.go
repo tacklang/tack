@@ -22,19 +22,19 @@ func visibilityOf(decl ast.Decl) (ast.Visibility, ast.Span) {
 	}
 }
 
-// checkVisibility reports every pub or lib the package cannot have: any at
-// all in package main, which no package can import, so that the keyword
-// would mean nothing, one on a mut global, which only its own package may
-// change, and one on an extern func, which its package wraps instead.
+// checkVisibility reports every pub or lib the package cannot have: any on
+// a declaration in package main, which no package can import, so that the
+// keyword would mean nothing, one on a mut global, which only its own
+// package may change, and one on an extern func, which its package wraps
+// instead. A field of a struct of package main may be pub or lib: no
+// package names it, but its mark says which packages' fields loops list
+// it (see typeck's data.go).
 func (r *pkgResolver) checkVisibility() []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, decl := range r.pkg.Decls() {
 		vis, span := visibilityOf(decl)
 		if vis != ast.Private {
 			diags = append(diags, r.visibilityProblems(decl, vis, span)...)
-		}
-		if td, ok := decl.(*ast.TypeDecl); ok && r.pkg.Name == mainPackage {
-			diags = append(diags, fieldsVisibleInMain(td)...)
 		}
 	}
 	return diags
@@ -70,22 +70,6 @@ func (r *pkgResolver) visibilityProblems(
 func isExtern(decl ast.Decl) bool {
 	fn, ok := decl.(*ast.Func)
 	return ok && fn.Extern
-}
-
-// fieldsVisibleInMain reports every field of td, a type of package main,
-// that is pub or lib.
-func fieldsVisibleInMain(td *ast.TypeDecl) []diag.Diagnostic {
-	st, ok := td.TypeExpr.(*ast.StructType)
-	if !ok {
-		return nil
-	}
-	var diags []diag.Diagnostic
-	for _, f := range st.Fields {
-		if f.Vis != ast.Private {
-			diags = append(diags, visibleInMain(f.Vis, f.VisSpan))
-		}
-	}
-	return diags
 }
 
 // visibleInMain reports the keyword giving vis, at span, in package main.

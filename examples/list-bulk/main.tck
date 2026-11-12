@@ -325,9 +325,9 @@ func order() {
     check(e.code == 0 && n == 3 && holds(l, 1, 2, 3), "values evaluated once, in order")
 }
 
-// fields appends to and reserves a list a struct holds, spreading the
+// in_fields appends to and reserves a list a struct holds, spreading the
 // struct's own array into it.
-func fields() {
+func in_fields() {
     mut h := Holder{seed: [3]int64{1, 2, 3}, items: make(list[int64], c_allocator)}
     e1 := reserve(mut h.items, 6)
     e2 := append(mut h.items, h.seed...)
@@ -374,7 +374,7 @@ func main() {
     freed("failing freed")
     order()
     freed("order freed")
-    fields()
+    in_fields()
     freed("fields freed")
     check(deferred() == 2, "deferred result")
     freed("deferred freed")

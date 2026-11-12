@@ -52,7 +52,13 @@
 // an extern func are reported; whether a constraint is an interface is
 // the type checker's to judge. A call is never written with type
 // arguments: a name followed by brackets and then a parenthesis, f[T](x),
-// is reported, since nothing else takes that shape.
+// is reported, since nothing else takes that shape. fields( starts
+// fields(T), an ast.FieldsOf whose T is parsed as a type, wherever an
+// expression or a statement starts, since a call by that name always
+// calls the builtin; for f := range fields(T) is a range loop over one.
+// After any operand, .[f] is the field f of it, a Selector whose Field is
+// the name f and whose Name is "[f]"; whether f is a fields loop's
+// variable is the resolver's and the type checker's to judge.
 //
 // Comment tokens are set apart before parsing, so the grammar never sees
 // them and a comment is accepted at every token boundary. A line comment

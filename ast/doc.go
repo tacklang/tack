@@ -58,6 +58,11 @@
 // A Fallthrough ending a case's body links, by Next, to the clause of
 // the same switch written after that case, which the parser sets; Walk
 // does not follow the link.
+// A fields loop is a ForRange whose X is a FieldsOf, fields(T), which the
+// type checker gives FieldsOf.Type, FieldsOf.Field and FieldsOf.Unrolled;
+// v.[f] in its body is a Selector whose Field is f, the loop's variable,
+// which Walk does not visit, and a TypeParam constrained by the builtin
+// Data has TypeParam.Data set (see fields.go).
 // A Defer holds the statements of its defer { ... } as a body, a block of
 // their own, which may hold another Defer; the checker rejects that.
 // A Region holds the statements of its region r { ... } as a body, a block

@@ -370,11 +370,14 @@ func (g *generator) selectorExpr(sel *ast.Selector) (string, []diag.Diagnostic) 
 		}
 		return g.funcValueRef(sel.Method), nil
 	}
+	if v, ok, diags := g.fieldMember(sel); ok {
+		return v, diags
+	}
 	base, diags := g.expr(sel.X, types.Invalid)
 	if len(diags) > 0 {
 		return "", diags
 	}
-	member := memberName(ast.TypeOf(sel.X), sel.Name)
+	member := g.member(sel)
 	switch sel.X.(type) {
 	case *ast.Ident, *ast.Index, *ast.Selector, *ast.Call:
 		return base + "." + member, nil

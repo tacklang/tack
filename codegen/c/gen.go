@@ -120,6 +120,7 @@ func (backend) Generate(prog *ast.Program, builtins *builtin.Set) ([]byte, []dia
 		structs:  make(map[types.Type]*ast.TypeDecl),
 		inPlace:  make(map[*ast.Var]bool),
 		thunked:  make(map[*ast.Func]bool),
+		reflect:  make(map[*ast.Var]reflectField),
 	}
 	for _, pkg := range prog.Packages {
 		for _, decl := range pkg.Decls() {
@@ -168,6 +169,11 @@ type generator struct {
 	// refer to, read through it: the payloads a switch on a union binds
 	// (see union.go).
 	inPlace map[*ast.Var]bool
+
+	// reflect holds, for each fields loop whose body is being lowered,
+	// the field its variable stands for in the block being lowered (see
+	// fields.go).
+	reflect map[*ast.Var]reflectField
 
 	// thunks are the functions of several results named as values, in
 	// the order first met, whose thunks are written after the
@@ -444,6 +450,9 @@ func (g *generator) collectStrings() {
 		case *ast.MultiAssign:
 			g.poolCheckedZero(x.Value)
 		case *ast.ForRange:
+			if fo, ok := x.X.(*ast.FieldsOf); ok {
+				g.poolFieldNames(fo)
+			}
 			ast.Walk(x.X, visit)
 			for _, stmt := range x.Body {
 				ast.Walk(stmt, visit)
@@ -1616,6 +1625,9 @@ func (g *generator) generateForRange(
 	loop *ast.ForRange,
 	fn *ast.Func,
 ) ([]string, []diag.Diagnostic) {
+	if fo, ok := loop.X.(*ast.FieldsOf); ok {
+		return g.fieldsLoop(loop, fo, fn)
+	}
 	steps, place, diags := g.exprSteps(loop.X, false)
 	if len(diags) > 0 {
 		return nil, diags
@@ -2082,7 +2094,7 @@ func (g *generator) targetRef(target ast.Expr) (string, []diag.Diagnostic) {
 		if len(diags) > 0 {
 			return "", diags
 		}
-		return base + "." + memberName(ast.TypeOf(t.X), t.Name), nil
+		return base + "." + g.member(t), nil
 	}
 	return "", []diag.Diagnostic{{
 		Severity: diag.Error,
@@ -3504,10 +3516,12 @@ func varName(name string) string { return "v_" + name }
 
 // declName returns the C name of the local v as its declaration writes
 // it: with __attribute__((unused)) after it when the front end warned
-// that v is never read (see ast.Var.Unused), so a strict C build does not
-// make that warning an error. Every other local is declared as it was.
+// that v is never read (see ast.Var.Unused), or found it named in a
+// fields loop's body, which may be lowered to nothing (see
+// ast.Var.Unrolled), so a strict C build does not make that warning an
+// error. Every other local is declared as it was.
 func declName(v *ast.Var) string {
-	if v.Unused {
+	if v.Unused || v.Unrolled {
 		return varName(v.Name) + " __attribute__((unused))"
 	}
 	return varName(v.Name)

@@ -74,17 +74,21 @@ func (g *generator) adapterName(typ types.Type) string {
 // closure is a closure met while lowering a body, to be lowered once that
 // body is: lit, its C name and its environment struct's name, the C type
 // of each capture's pointer, in order, and typ, its function type as the
-// type arguments bound where it was met make it; and, once its body is
-// lowered (see generateClosure), sig, its C function's signature, and
+// type arguments bound where it was met make it; bound and reflect, the
+// binding in force and the fields the fields loops around it stand for
+// where it was met, which its body is lowered under; and, once its body
+// is lowered (see generateClosure), sig, its C function's signature, and
 // lines, that function's body.
 type closure struct {
-	lit   *ast.FuncLit
-	name  string
-	env   string
-	ptrs  []string
-	typ   types.Type
-	sig   string
-	lines []string
+	lit     *ast.FuncLit
+	name    string
+	env     string
+	ptrs    []string
+	typ     types.Type
+	bound   map[types.Type]types.Type
+	reflect map[*ast.Var]reflectField
+	sig     string
+	lines   []string
 }
 
 // usesScope reports whether the program has a scope parameter, of a
@@ -207,10 +211,15 @@ func (g *generator) scopeArg(arg ast.Expr, typ types.Type) (string, []diag.Diagn
 func (g *generator) closureValue(lit *ast.FuncLit) string {
 	n := len(g.closures)
 	cl := &closure{
-		lit:  lit,
-		name: fmt.Sprintf("tack_closure%d", n),
-		env:  fmt.Sprintf("tack_env%d", n),
-		typ:  g.prog.Types.Bound(lit.Type),
+		lit:     lit,
+		name:    fmt.Sprintf("tack_closure%d", n),
+		env:     fmt.Sprintf("tack_env%d", n),
+		typ:     g.prog.Types.Bound(lit.Type),
+		bound:   g.prog.Types.Binding(),
+		reflect: make(map[*ast.Var]reflectField, len(g.reflect)),
+	}
+	for v, r := range g.reflect {
+		cl.reflect[v] = r
 	}
 	g.closures = append(g.closures, cl)
 	g.pendingClosures = append(g.pendingClosures, cl)
@@ -299,7 +308,8 @@ func (g *generator) flushClosures() []diag.Diagnostic {
 }
 
 // generateClosure lowers the body of cl as the body of its C function,
-// with each capture read through the environment: a closure with
+// under the binding and the fields loops' fields in force where cl was
+// met, with each capture read through the environment: a closure with
 // captures first converts the environment it is passed to a pointer to
 // its environment struct, tack_env, and one with none casts it to void,
 // as it does each parameter its body never names (see unusedParams). It
@@ -307,12 +317,17 @@ func (g *generator) flushClosures() []diag.Diagnostic {
 // (see noteNames).
 func (g *generator) generateClosure(cl *closure) []diag.Diagnostic {
 	fn := cl.lit.Func
-	outer := g.captured
+	outer, outerReflect := g.captured, g.reflect
 	g.captured = make(map[ast.Decl]int, len(cl.lit.Captures))
 	for i, cp := range cl.lit.Captures {
 		g.captured[cp.Decl] = i
 	}
-	defer func() { g.captured = outer }()
+	g.reflect = cl.reflect
+	restore := g.prog.Types.BindMore(cl.bound)
+	defer func() {
+		restore()
+		g.captured, g.reflect = outer, outerReflect
+	}()
 	body, diags := g.funcFrame(fn)
 	if len(diags) > 0 {
 		return diags

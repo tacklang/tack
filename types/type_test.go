@@ -646,3 +646,58 @@ func TestFuncTypeShapes(t *testing.T) {
 			table.HasZero(holder), table.Owned(holder))
 	}
 }
+
+// BindMore nests: it adds to the binding in force, an inner binding of a
+// type parameter replacing an outer one, and a type made of one standing
+// for the type made of what it stands for; and what it returns puts the
+// binding back as it was, outer bindings and all, down to none. Binding
+// copies the binding in force, which a later change does not touch.
+func TestBindMoreNestsAndRestores(t *testing.T) {
+	tab := types.NewTable()
+	outer, inner := tab.TypeParam("T"), tab.TypeParam("T.[f]")
+	listInner := tab.List(inner)
+	if tab.Binding() != nil {
+		t.Fatal("a new table has a binding")
+	}
+	tab.Bind(map[types.Type]types.Type{outer: types.Int64})
+	saved := tab.Binding()
+	restoreInner := tab.BindMore(map[types.Type]types.Type{inner: types.Bool})
+	expectBound(t, "nested", tab, map[types.Type]types.Type{
+		outer: types.Int64, inner: types.Bool, listInner: tab.List(types.Bool),
+	})
+	restoreAgain := tab.BindMore(map[types.Type]types.Type{inner: types.String})
+	expectBound(t, "rebound", tab, map[types.Type]types.Type{
+		outer: types.Int64, inner: types.String, listInner: tab.List(types.String),
+	})
+	restoreAgain()
+	expectBound(t, "restored once", tab, map[types.Type]types.Type{
+		outer: types.Int64, inner: types.Bool, listInner: tab.List(types.Bool),
+	})
+	restoreInner()
+	expectBound(t, "restored twice", tab, map[types.Type]types.Type{
+		outer: types.Int64, inner: inner, listInner: listInner,
+	})
+	if len(saved) != 1 || saved[outer] != types.Int64 {
+		t.Errorf("Binding copied %v", saved)
+	}
+	tab.Unbind()
+	restore := tab.BindMore(map[types.Type]types.Type{inner: types.Int32})
+	expectBound(t, "added to none", tab,
+		map[types.Type]types.Type{outer: outer, inner: types.Int32})
+	restore()
+	if tab.Binding() != nil {
+		t.Errorf("restoring to no binding leaves %v", tab.Binding())
+	}
+	expectBound(t, "restored to none", tab, map[types.Type]types.Type{outer: outer, inner: inner})
+}
+
+// expectBound checks each type in want stands for its value in tab.
+func expectBound(t *testing.T, when string, tab *types.Table, want map[types.Type]types.Type) {
+	t.Helper()
+	for typ, to := range want {
+		if got := tab.Bound(typ); got != to {
+			t.Errorf("%s: %s stands for %s, want %s",
+				when, tab.Name(typ), tab.Name(got), tab.Name(to))
+		}
+	}
+}

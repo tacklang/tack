@@ -10435,6 +10435,429 @@ conversion-fact-would-allow/main.tck:6:9: note: but w is assigned here, so the p
    |	        ^
 07 |	        return uint64(w)
 
+-- data-array/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g[T Data](v T) {
+}
+
+func main() {
+    a := [2]int64{1, 2}
+    g(a)
+}
+-- data-array/expected --
+stage: typeck
+---
+
+data-array/main.tck:13:7: error: [2]int64 does not satisfy Data: an array is not Data
+12 |	    a := [2]int64{1, 2}
+13 |	    g(a)
+   |	      ^
+14 |	}
+
+-- data-as-type/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    var x Data
+}
+-- data-as-type/expected --
+stage: typeck
+---
+
+data-as-type/main.tck:9:9: warning: declared and not used: x
+08 |	func main() {
+09 |	    var x Data
+   |	        ^
+10 |	}
+
+data-as-type/main.tck:9:9: error: immutable variable x needs a value
+08 |	func main() {
+09 |	    var x Data
+   |	        ^
+10 |	}
+
+data-as-type/main.tck:9:11: error: Data is a constraint; it can only constrain a type parameter
+08 |	func main() {
+09 |	    var x Data
+   |	          ^~~~
+10 |	}
+
+-- data-compare/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g[T Data](v T, w T) bool {
+    for f := range fields(T) {
+        if v.[f] != w.[f] {
+            return false
+        }
+    }
+    return true
+}
+
+func main() {
+    g(Point{x: 1, y: 2}, Point{x: 1, y: 2})
+}
+-- data-compare/expected --
+stage: typeck
+---
+
+data-compare/main.tck:10:12: error: operator != is not defined on T.[f]
+09 |	    for f := range fields(T) {
+10 |	        if v.[f] != w.[f] {
+   |	           ^~~~~~~~~~~~~~
+11 |	            return false
+
+-- data-func-field/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+type S struct {
+    f func() int64
+}
+
+func one() int64 {
+    return 1
+}
+
+func g[T Data](v T) {
+}
+
+func main() {
+    g(S{f: one})
+}
+-- data-func-field/expected --
+stage: typeck
+---
+
+data-func-field/main.tck:20:7: error: S does not satisfy Data: field f of S is func() int64, which is not Data
+19 |	func main() {
+20 |	    g(S{f: one})
+   |	      ^~~~~~~~~
+21 |	}
+
+-- data-interface-methods/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+type Sizer interface {
+    size() int64
+}
+
+func s[T Sizer](v T) int64 {
+    return v.size()
+}
+
+func g[T Data](v T) {
+    for f := range fields(T) {
+        s(v.[f])
+    }
+}
+
+func main() {
+    g(Point{x: 1, y: 2})
+}
+-- data-interface-methods/expected --
+stage: typeck
+---
+
+data-interface-methods/main.tck:18:11: error: T.[f] does not satisfy Sizer: its constraint Data has no method size
+17 |	    for f := range fields(T) {
+18 |	        s(v.[f])
+   |	          ^~~~~
+19 |	    }
+
+-- data-interface-param/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+type Any interface {
+}
+
+func g[T Data](v T) {
+}
+
+func h[T Any](v T) {
+    g(v)
+}
+
+func main() {
+    h(Point{x: 1, y: 2})
+}
+-- data-interface-param/expected --
+stage: typeck
+---
+
+data-interface-param/main.tck:15:7: error: T does not satisfy Data: T is constrained by Any, not Data
+14 |	func h[T Any](v T) {
+15 |	    g(v)
+   |	      ^
+16 |	}
+
+-- data-list-element/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g[T Data](v T) {
+}
+
+func main() {
+    g(make(list[string], c_allocator))
+}
+-- data-list-element/expected --
+stage: typeck
+---
+
+data-list-element/main.tck:12:7: error: list[string] does not satisfy Data: the element type of list[string] is string, which is not Data
+11 |	func main() {
+12 |	    g(make(list[string], c_allocator))
+   |	      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+13 |	}
+
+-- data-local-name/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    Data := 3
+    print("x")
+}
+-- data-local-name/expected --
+stage: resolve
+---
+
+data-local-name/main.tck:9:5: error: cannot use Data as a name; it is a builtin constraint
+08 |	func main() {
+09 |	    Data := 3
+   |	    ^~~~
+10 |	    print("x")
+
+-- data-map-key/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g[T Data](v T) {
+}
+
+func main() {
+    g(make(map[int64]int64, c_allocator))
+}
+-- data-map-key/expected --
+stage: typeck
+---
+
+data-map-key/main.tck:12:7: error: map[int64]int64 does not satisfy Data: the key type of map[int64]int64 is int64, and a Data map's key is text.Text
+11 |	func main() {
+12 |	    g(make(map[int64]int64, c_allocator))
+   |	      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+13 |	}
+
+-- data-method/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g[T Data](v T) {
+    for f := range fields(T) {
+        v.[f].size()
+    }
+}
+
+func main() {
+    g(Point{x: 1, y: 2})
+}
+-- data-method/expected --
+stage: typeck
+---
+
+data-method/main.tck:10:15: error: T.[f] has no method size: its constraint Data has none
+09 |	    for f := range fields(T) {
+10 |	        v.[f].size()
+   |	              ^~~~
+11 |	    }
+
+-- data-nested-field/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+type In struct {
+    a Allocator
+}
+
+type S struct {
+    in In
+}
+
+func g[T Data](v T) {
+}
+
+func main() {
+    g(S{in: In{a: c_allocator}})
+}
+-- data-nested-field/expected --
+stage: typeck
+---
+
+data-nested-field/main.tck:20:7: error: S does not satisfy Data: field a of In is Allocator, which is not Data
+19 |	func main() {
+20 |	    g(S{in: In{a: c_allocator}})
+   |	      ^~~~~~~~~~~~~~~~~~~~~~~~~
+21 |	}
+
+-- data-param-type/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g(d Data) {
+}
+
+func main() {
+}
+-- data-param-type/expected --
+stage: typeck
+---
+
+data-param-type/main.tck:8:10: error: Data is a constraint; it can only constrain a type parameter
+07 |	
+08 |	func g(d Data) {
+   |	         ^~~~
+09 |	}
+
+-- data-redeclared/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+type Data struct {
+    a int64
+}
+
+func main() {
+}
+-- data-redeclared/expected --
+stage: resolve
+---
+
+data-redeclared/main.tck:8:6: error: cannot use Data as a name; it is a builtin constraint
+07 |	
+08 |	type Data struct {
+   |	     ^~~~
+09 |	    a int64
+
+-- data-string-field/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+type S struct {
+    s string
+}
+
+func g[T Data](v T) {
+}
+
+func main() {
+    g(S{s: "a"})
+}
+-- data-string-field/expected --
+stage: typeck
+---
+
+data-string-field/main.tck:16:7: error: S does not satisfy Data: field s of S is string, which is not Data
+15 |	func main() {
+16 |	    g(S{s: "a"})
+   |	      ^~~~~~~~~
+17 |	}
+
+-- data-union-field/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+type U union {
+    a
+    b int64
+}
+
+type S struct {
+    u U
+}
+
+func g[T Data](v T) {
+}
+
+func main() {
+    g(S{u: U.a})
+}
+-- data-union-field/expected --
+stage: typeck
+---
+
+data-union-field/main.tck:21:7: error: S does not satisfy Data: field u of S is U, which is not Data
+20 |	func main() {
+21 |	    g(S{u: U.a})
+   |	      ^~~~~~~~~
+22 |	}
+
 -- defer-assign/main.tck --
 package main
 
@@ -18274,6 +18697,1403 @@ field-fact-weak-guard/main.tck:8:8: note: this guard bounds p.i only above; p.i 
 08 |	    if p.i < 3 {
    |	       ^~~~~~~
 09 |	        return a[p.i]
+
+-- fields-assign-list-ranged/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+type Holder struct {
+    l list[int64]
+}
+
+func h[T Data](mut v T) {
+}
+
+func main() {
+    mut s := Holder{l: make(list[int64], c_allocator)}
+    for _, x := range s.l {
+        for f := range fields(Holder) {
+            h(mut s.[f])
+        }
+    }
+}
+-- fields-assign-list-ranged/expected --
+stage: typeck
+---
+
+fields-assign-list-ranged/main.tck:17:12: warning: declared and not used: x
+16 |	    mut s := Holder{l: make(list[int64], c_allocator)}
+17 |	    for _, x := range s.l {
+   |	           ^
+18 |	        for f := range fields(Holder) {
+
+fields-assign-list-ranged/main.tck:19:19: error: s.l is being ranged over, so this loop cannot pass mut s.[f]
+18 |	        for f := range fields(Holder) {
+19 |	            h(mut s.[f])
+   |	                  ^~~~~
+20 |	        }
+
+-- fields-assign-param/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g[T Data](v T, w T) {
+    for f := range fields(T) {
+        v.[f] = w.[f]
+    }
+}
+
+func main() {
+    g(Point{x: 1, y: 2}, Point{x: 1, y: 2})
+}
+-- fields-assign-param/expected --
+stage: typeck
+---
+
+fields-assign-param/main.tck:10:9: error: cannot assign to field of parameter v
+09 |	    for f := range fields(T) {
+10 |	        v.[f] = w.[f]
+   |	        ^
+11 |	    }
+
+-- fields-assign-value-type/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    mut p := Point{x: 1, y: 2}
+    for f := range fields(Point) {
+        p.[f] = 3
+    }
+}
+-- fields-assign-value-type/expected --
+stage: typeck
+---
+
+fields-assign-value-type/main.tck:9:9: warning: declared and not used: p
+08 |	func main() {
+09 |	    mut p := Point{x: 1, y: 2}
+   |	        ^
+10 |	    for f := range fields(Point) {
+
+fields-assign-value-type/main.tck:11:17: error: cannot use int64 as Point.[f] in assignment to p.[f]
+10 |	    for f := range fields(Point) {
+11 |	        p.[f] = 3
+   |	                ^
+12 |	    }
+
+-- fields-break/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g[T Data](v T) {
+    for f := range fields(T) {
+        print(f.name)
+        break
+    }
+}
+
+func main() {
+    g(Point{x: 1, y: 2})
+}
+-- fields-break/expected --
+stage: typeck
+---
+
+fields-break/main.tck:11:9: error: break is not allowed in a fields loop, whose body runs once for each field
+10 |	        print(f.name)
+11 |	        break
+   |	        ^~~~~
+12 |	    }
+
+-- fields-break-closure/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func run(scope f func()) {
+    f()
+}
+
+func main() {
+    for f := range fields(Point) {
+        run(func() {
+            print(f.name)
+            break
+        })
+    }
+}
+-- fields-break-closure/expected --
+stage: typeck
+---
+
+fields-break-closure/main.tck:16:13: error: break is not in a loop
+15 |	            print(f.name)
+16 |	            break
+   |	            ^~~~~
+17 |	        })
+
+-- fields-break-uncalled/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+// A generic function's body is checked once, whether or not anything
+// calls it, so a break in its fields loop is reported with no call.
+func g[T Data](v T) {
+    for f := range fields(T) {
+        print(f.name)
+        break
+    }
+}
+
+func main() {
+}
+-- fields-break-uncalled/expected --
+stage: typeck
+---
+
+fields-break-uncalled/main.tck:13:9: error: break is not allowed in a fields loop, whose body runs once for each field
+12 |	        print(f.name)
+13 |	        break
+   |	        ^~~~~
+14 |	    }
+
+-- fields-called-local/main.tck --
+package main
+
+func hello() {
+    print("hello\n")
+}
+
+func main() {
+    fields := hello
+    fields()
+}
+-- fields-called-local/expected --
+stage: parse
+---
+
+fields-called-local/main.tck:9:5: error: fields is a builtin, which takes a type, as in for f := range fields(T); a call by that name always calls it
+08 |	    fields := hello
+09 |	    fields()
+   |	    ^~~~~~~~
+10 |	}
+
+-- fields-continue/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g[T Data](v T) {
+    for f := range fields(T) {
+        print(f.name)
+        continue
+    }
+}
+
+func main() {
+    g(Point{x: 1, y: 2})
+}
+-- fields-continue/expected --
+stage: typeck
+---
+
+fields-continue/main.tck:11:9: error: continue is not allowed in a fields loop, whose body runs once for each field
+10 |	        print(f.name)
+11 |	        continue
+   |	        ^~~~~~~~
+12 |	    }
+
+-- fields-copy-moves/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func copy_fields[T Data](mut dst T, src T) {
+    for f := range fields(T) {
+        dst.[f] = src.[f]
+    }
+}
+
+func main() {
+    mut p := Point{x: 1, y: 2}
+    copy_fields(mut p, Point{x: 3, y: 4})
+}
+-- fields-copy-moves/expected --
+stage: typeck
+---
+
+fields-copy-moves/main.tck:10:19: error: cannot move src.[f] out of src: a field cannot be moved on its own
+09 |	    for f := range fields(T) {
+10 |	        dst.[f] = src.[f]
+   |	                  ^~~~~~~
+11 |	    }
+
+-- fields-data-constraint/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    for f := range fields(Data) {
+        print(f.name)
+    }
+}
+-- fields-data-constraint/expected --
+stage: typeck
+---
+
+fields-data-constraint/main.tck:9:27: error: Data is a constraint; it can only constrain a type parameter
+08 |	func main() {
+09 |	    for f := range fields(Data) {
+   |	                          ^~~~
+10 |	        print(f.name)
+
+-- fields-drop-field/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g[T Data](mut v T) {
+    for f := range fields(T) {
+        drop(own v.[f])
+    }
+}
+
+func main() {
+    mut p := Point{x: 1, y: 2}
+    g(mut p)
+}
+-- fields-drop-field/expected --
+stage: typeck
+---
+
+fields-drop-field/main.tck:10:18: error: cannot drop v.[f]: a field cannot be moved on its own; take it out with replace
+09 |	    for f := range fields(T) {
+10 |	        drop(own v.[f])
+   |	                 ^~~~~
+11 |	    }
+
+-- fields-elsewhere/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    x := fields(Point)
+}
+-- fields-elsewhere/expected --
+stage: typeck
+---
+
+fields-elsewhere/main.tck:9:5: warning: declared and not used: x
+08 |	func main() {
+09 |	    x := fields(Point)
+   |	    ^
+10 |	}
+
+fields-elsewhere/main.tck:9:10: error: fields(Point) can only be ranged over: for f := range fields(Point) { ... }
+08 |	func main() {
+09 |	    x := fields(Point)
+   |	         ^~~~~~~~~~~~~
+10 |	}
+
+-- fields-error-type/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    for f := range fields(error) {
+        print(f.name)
+    }
+}
+-- fields-error-type/expected --
+stage: typeck
+---
+
+fields-error-type/main.tck:9:27: error: error does not satisfy Data: field msg of error is string, which is not Data
+08 |	func main() {
+09 |	    for f := range fields(error) {
+   |	                          ^~~~~
+10 |	        print(f.name)
+
+-- fields-field-of-field/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g[T Data](v T) {
+    for f := range fields(T) {
+        x := v.[f].x
+    }
+}
+
+func main() {
+    g(Point{x: 1, y: 2})
+}
+-- fields-field-of-field/expected --
+stage: typeck
+---
+
+fields-field-of-field/main.tck:10:9: warning: declared and not used: x
+09 |	    for f := range fields(T) {
+10 |	        x := v.[f].x
+   |	        ^
+11 |	    }
+
+fields-field-of-field/main.tck:10:20: error: T.[f] has no field x: a type parameter has only its constraint's methods
+09 |	    for f := range fields(T) {
+10 |	        x := v.[f].x
+   |	                   ^
+11 |	    }
+
+-- fields-index-assigned/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    for f := range fields(Point) {
+        f.index = 3
+        f.name += 1
+    }
+}
+-- fields-index-assigned/expected --
+stage: typeck
+---
+
+fields-index-assigned/main.tck:9:9: warning: declared and not used: f
+08 |	func main() {
+09 |	    for f := range fields(Point) {
+   |	        ^
+10 |	        f.index = 3
+
+fields-index-assigned/main.tck:10:9: error: cannot assign to f.index: the name and index of a fields loop's field cannot be assigned
+09 |	    for f := range fields(Point) {
+10 |	        f.index = 3
+   |	        ^~~~~~~
+11 |	        f.name += 1
+
+fields-index-assigned/main.tck:11:9: error: cannot assign to f.name: the name and index of a fields loop's field cannot be assigned
+10 |	        f.index = 3
+11 |	        f.name += 1
+   |	        ^~~~~~
+12 |	    }
+
+-- fields-index-overflow/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    for f := range fields(Point) {
+        n := f.index + 1
+        print(f.name)
+    }
+}
+-- fields-index-overflow/expected --
+stage: typeck
+---
+
+fields-index-overflow/main.tck:10:9: warning: declared and not used: n
+09 |	    for f := range fields(Point) {
+10 |	        n := f.index + 1
+   |	        ^
+11 |	        print(f.name)
+
+fields-index-overflow/main.tck:10:14: error: f.index + 1 may overflow int64; bound f.index first, or use v, ok := f.index + 1, or f.index +% 1 to wrap
+09 |	    for f := range fields(Point) {
+10 |	        n := f.index + 1
+   |	             ^~~~~~~~~~~
+11 |	        print(f.name)
+
+-- fields-interface-constrained/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+type Any interface {
+}
+
+func g[T Any](v T) {
+    for f := range fields(T) {
+        print(f.name)
+    }
+}
+
+func main() {
+    g(Point{x: 1, y: 2})
+}
+-- fields-interface-constrained/expected --
+stage: typeck
+---
+
+fields-interface-constrained/main.tck:12:27: error: cannot range over the fields of T: it is constrained by Any, not Data
+11 |	func g[T Any](v T) {
+12 |	    for f := range fields(T) {
+   |	                          ^
+13 |	        print(f.name)
+
+-- fields-move/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g[T Data](own v T) {
+    for f := range fields(T) {
+        x := v.[f]
+        drop(own x)
+    }
+}
+
+func main() {
+    g(own Point{x: 1, y: 2})
+}
+-- fields-move/expected --
+stage: typeck
+---
+
+fields-move/main.tck:10:14: error: cannot move v.[f] out of v: a field cannot be moved on its own
+09 |	    for f := range fields(T) {
+10 |	        x := v.[f]
+   |	             ^~~~~
+11 |	        drop(own x)
+
+fields-move/main.tck:16:7: error: cannot pass own Point{x: 1, y: 2}: only a variable can be passed as own; pass Point{x: 1, y: 2} without own
+15 |	func main() {
+16 |	    g(own Point{x: 1, y: 2})
+   |	      ^~~~~~~~~~~~~~~~~~~~~
+17 |	}
+
+-- fields-mut-named-field/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func h[A Data, B Data](mut a A, mut b B) {
+}
+
+func main() {
+    mut p := Point{x: 1, y: 2}
+    for f := range fields(Point) {
+        h(mut p.[f], mut p.x)
+    }
+}
+-- fields-mut-named-field/expected --
+stage: typeck
+---
+
+fields-mut-named-field/main.tck:14:22: error: p.[f] and p.x may be one field, and both are passed as mut in this call; a mut argument must be the only way to reach p.x during the call
+13 |	    for f := range fields(Point) {
+14 |	        h(mut p.[f], mut p.x)
+   |	                     ^~~~~~~
+15 |	    }
+fields-mut-named-field/main.tck:14:11: note: first passed as mut here
+13 |	    for f := range fields(Point) {
+14 |	        h(mut p.[f], mut p.x)
+   |	          ^~~~~~~~~
+15 |	    }
+
+-- fields-mut-not-mut/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func h[T Data](mut v T) {
+}
+
+func g[T Data](v T) {
+    for f := range fields(T) {
+        h(mut v.[f])
+    }
+}
+
+func main() {
+    g(Point{x: 1, y: 2})
+}
+-- fields-mut-not-mut/expected --
+stage: typeck
+---
+
+fields-mut-not-mut/main.tck:13:11: error: cannot pass mut v.[f]: v is immutable; declare it with mut in the signature
+12 |	    for f := range fields(T) {
+13 |	        h(mut v.[f])
+   |	          ^~~~~~~~~
+14 |	    }
+fields-mut-not-mut/main.tck:11:16: note: v is declared here
+10 |	
+11 |	func g[T Data](v T) {
+   |	               ^
+12 |	    for f := range fields(T) {
+
+-- fields-mut-twice/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func h[A Data, B Data](mut a A, mut b B) {
+}
+
+func g[T Data](mut v T) {
+    for f := range fields(T) {
+        h(mut v.[f], mut v.[f])
+    }
+}
+
+func main() {
+    mut p := Point{x: 1, y: 2}
+    g(mut p)
+}
+-- fields-mut-twice/expected --
+stage: typeck
+---
+
+fields-mut-twice/main.tck:13:22: error: v.[f] is passed as mut twice in this call; a mut argument must be the only way to reach v.[f] during the call
+12 |	    for f := range fields(T) {
+13 |	        h(mut v.[f], mut v.[f])
+   |	                     ^~~~~~~~~
+14 |	    }
+fields-mut-twice/main.tck:13:11: note: first passed as mut here
+12 |	    for f := range fields(T) {
+13 |	        h(mut v.[f], mut v.[f])
+   |	          ^~~~~~~~~
+14 |	    }
+
+-- fields-mut-two-loops/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func h[A Data, B Data](mut a A, mut b B) {
+}
+
+func g[T Data](mut v T) {
+    for f := range fields(T) {
+        for e := range fields(T) {
+            h(mut v.[f], mut v.[e])
+        }
+    }
+}
+
+func main() {
+    mut p := Point{x: 1, y: 2}
+    g(mut p)
+}
+-- fields-mut-two-loops/expected --
+stage: typeck
+---
+
+fields-mut-two-loops/main.tck:14:26: error: v.[f] and v.[e] may be one field, and both are passed as mut in this call; a mut argument must be the only way to reach v.[e] during the call
+13 |	        for e := range fields(T) {
+14 |	            h(mut v.[f], mut v.[e])
+   |	                         ^~~~~~~~~
+15 |	        }
+fields-mut-two-loops/main.tck:14:15: note: first passed as mut here
+13 |	        for e := range fields(T) {
+14 |	            h(mut v.[f], mut v.[e])
+   |	              ^~~~~~~~~
+15 |	        }
+
+-- fields-mut-whole/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func h[A Data, B Data](mut a A, mut b B) {
+}
+
+func g[T Data](mut v T) {
+    for f := range fields(T) {
+        h(mut v, mut v.[f])
+    }
+}
+
+func main() {
+    mut p := Point{x: 1, y: 2}
+    g(mut p)
+}
+-- fields-mut-whole/expected --
+stage: typeck
+---
+
+fields-mut-whole/main.tck:13:18: error: v.[f] is part of v, and both are passed as mut in this call; a mut argument must be the only way to reach v.[f] during the call
+12 |	    for f := range fields(T) {
+13 |	        h(mut v, mut v.[f])
+   |	                 ^~~~~~~~~
+14 |	    }
+fields-mut-whole/main.tck:13:11: note: first passed as mut here
+12 |	    for f := range fields(T) {
+13 |	        h(mut v, mut v.[f])
+   |	          ^~~~~
+14 |	    }
+
+-- fields-non-struct/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    for f := range fields(int64) {
+        print(f.name)
+    }
+}
+-- fields-non-struct/expected --
+stage: typeck
+---
+
+fields-non-struct/main.tck:9:27: error: cannot range over the fields of int64: it is not a struct
+08 |	func main() {
+09 |	    for f := range fields(int64) {
+   |	                          ^~~~~
+10 |	        print(f.name)
+
+-- fields-non-struct-list/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    for f := range fields(list[int64]) {
+        print(f.name)
+    }
+}
+-- fields-non-struct-list/expected --
+stage: typeck
+---
+
+fields-non-struct-list/main.tck:9:27: error: cannot range over the fields of list[int64]: it is not a struct
+08 |	func main() {
+09 |	    for f := range fields(list[int64]) {
+   |	                          ^~~~~~~~~~~
+10 |	        print(f.name)
+
+-- fields-not-data-struct/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+type S struct {
+    s string
+}
+
+func main() {
+    for f := range fields(S) {
+        print(f.name)
+    }
+}
+-- fields-not-data-struct/expected --
+stage: typeck
+---
+
+fields-not-data-struct/main.tck:13:27: error: S does not satisfy Data: field s of S is string, which is not Data
+12 |	func main() {
+13 |	    for f := range fields(S) {
+   |	                          ^
+14 |	        print(f.name)
+
+-- fields-not-field-var/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func h[T Data](v T) {
+}
+
+func g[T Data](v T) {
+    for i := range 3 {
+        h(v.[i])
+    }
+}
+
+func main() {
+    g(Point{x: 1, y: 2})
+}
+-- fields-not-field-var/expected --
+stage: typeck
+---
+
+fields-not-field-var/main.tck:13:14: error: i is not a fields loop's variable; v.[f] takes the f of for f := range fields(T)
+12 |	    for i := range 3 {
+13 |	        h(v.[i])
+   |	             ^
+14 |	    }
+
+-- fields-number-field/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    p := Point{x: 1, y: 2}
+    for f := range fields(Point) {
+        x := p.[0]
+    }
+}
+-- fields-number-field/expected --
+stage: parse
+---
+
+fields-number-field/main.tck:11:17: error: expected 'field variable' found '0'
+10 |	    for f := range fields(Point) {
+11 |	        x := p.[0]
+   |	                ^
+12 |	    }
+
+-- fields-other-loop/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g[T Data, U Data](v T, u U) {
+    for f := range fields(T) {
+        for e := range fields(U) {
+            h(v.[e])
+            h(u.[e])
+            h(v.[f])
+        }
+    }
+}
+
+func h[T Data](v T) {
+}
+
+func main() {
+    g(Point{x: 1, y: 2}, Point{x: 1, y: 2})
+}
+-- fields-other-loop/expected --
+stage: typeck
+---
+
+fields-other-loop/main.tck:11:15: error: v is T, and e is a field of U
+10 |	        for e := range fields(U) {
+11 |	            h(v.[e])
+   |	              ^~~~~
+12 |	            h(u.[e])
+
+-- fields-other-type/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g[T Data, U Data](v T, u U) {
+    for f := range fields(T) {
+        h(u.[f])
+    }
+}
+
+func h[T Data](v T) {
+}
+
+func main() {
+    g(Point{x: 1, y: 2}, Point{x: 1, y: 2})
+}
+-- fields-other-type/expected --
+stage: typeck
+---
+
+fields-other-type/main.tck:10:11: error: u is U, and f is a field of T
+09 |	    for f := range fields(T) {
+10 |	        h(u.[f])
+   |	          ^~~~~
+11 |	    }
+
+-- fields-own-field/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func h[T Data](own v T) {
+}
+
+func g[T Data](mut v T) {
+    for f := range fields(T) {
+        h(own v.[f])
+    }
+}
+
+func main() {
+    mut p := Point{x: 1, y: 2}
+    g(mut p)
+}
+-- fields-own-field/expected --
+stage: typeck
+---
+
+fields-own-field/main.tck:13:11: error: cannot pass own v.[f]: a field cannot be moved on its own
+12 |	    for f := range fields(T) {
+13 |	        h(own v.[f])
+   |	          ^~~~~~~~~
+14 |	    }
+
+-- fields-redeclared/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func fields(n int64) int64 {
+    return n
+}
+
+func main() {
+}
+-- fields-redeclared/expected --
+stage: resolve
+---
+
+fields-redeclared/main.tck:8:6: error: duplicate declaration of builtin function
+07 |	
+08 |	func fields(n int64) int64 {
+   |	     ^~~~~~
+09 |	    return n
+
+-- fields-statement/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    fields(Point)
+}
+-- fields-statement/expected --
+stage: typeck
+---
+
+fields-statement/main.tck:9:5: error: fields(Point) can only be ranged over: for f := range fields(Point) { ... }
+08 |	func main() {
+09 |	    fields(Point)
+   |	    ^~~~~~~~~~~~~
+10 |	}
+
+-- fields-two-vars/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    for i, f := range fields(Point) {
+        print(f.name)
+    }
+}
+-- fields-two-vars/expected --
+stage: typeck
+---
+
+fields-two-vars/main.tck:9:9: warning: declared and not used: i
+08 |	func main() {
+09 |	    for i, f := range fields(Point) {
+   |	        ^
+10 |	        print(f.name)
+
+fields-two-vars/main.tck:9:9: error: assignment mismatch: 2 variables but range over fields(Point) gives 1 value
+08 |	func main() {
+09 |	    for i, f := range fields(Point) {
+   |	        ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+10 |	        print(f.name)
+
+-- fields-type-operand/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g[T Data](v T) {
+    for f := range fields(T) {
+        x := T.[f]
+    }
+}
+
+func main() {
+    g(Point{x: 1, y: 2})
+}
+-- fields-type-operand/expected --
+stage: resolve
+---
+
+fields-type-operand/main.tck:10:14: error: cannot use T as a value; it is a type
+09 |	    for f := range fields(T) {
+10 |	        x := T.[f]
+   |	             ^
+11 |	    }
+
+-- fields-unclosed-field/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    p := Point{x: 1, y: 2}
+    for f := range fields(Point) {
+        x := p.[f
+    }
+}
+-- fields-unclosed-field/expected --
+stage: parse
+---
+
+fields-unclosed-field/main.tck:11:18: error: expected ']' found ';'
+10 |	    for f := range fields(Point) {
+11 |	        x := p.[f
+   |	                 ^
+12 |	    }
+
+-- fields-unknown-type/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    for f := range fields(Nope) {
+        print(f.name)
+    }
+}
+-- fields-unknown-type/expected --
+stage: typeck
+---
+
+fields-unknown-type/main.tck:9:27: error: unknown type: Nope
+08 |	func main() {
+09 |	    for f := range fields(Nope) {
+   |	                          ^~~~
+10 |	        print(f.name)
+
+-- fields-unroll-limit/main.tck --
+package main
+
+// Five loops nested over ten fields are 100000 bodies, past the limit.
+type P struct {
+    f0 int64
+    f1 int64
+    f2 int64
+    f3 int64
+    f4 int64
+    f5 int64
+    f6 int64
+    f7 int64
+    f8 int64
+    f9 int64
+}
+
+func main() {
+    for v0 := range fields(P) {
+        for v1 := range fields(P) {
+            for v2 := range fields(P) {
+                for v3 := range fields(P) {
+                    for v4 := range fields(P) {
+                        print(v4.name)
+                    }
+                }
+            }
+        }
+    }
+}
+-- fields-unroll-limit/expected --
+stage: typeck
+---
+
+fields-unroll-limit/main.tck:18:9: warning: declared and not used: v0
+17 |	func main() {
+18 |	    for v0 := range fields(P) {
+   |	        ^~
+19 |	        for v1 := range fields(P) {
+
+fields-unroll-limit/main.tck:19:13: warning: declared and not used: v1
+18 |	    for v0 := range fields(P) {
+19 |	        for v1 := range fields(P) {
+   |	            ^~
+20 |	            for v2 := range fields(P) {
+
+fields-unroll-limit/main.tck:19:25: error: unrolling the fields loop over P makes more than 10000 bodies of fields loops, the most a program may have
+18 |	    for v0 := range fields(P) {
+19 |	        for v1 := range fields(P) {
+   |	                        ^~~~~~~~~
+20 |	            for v2 := range fields(P) {
+
+fields-unroll-limit/main.tck:20:17: warning: declared and not used: v2
+19 |	        for v1 := range fields(P) {
+20 |	            for v2 := range fields(P) {
+   |	                ^~
+21 |	                for v3 := range fields(P) {
+
+fields-unroll-limit/main.tck:21:21: warning: declared and not used: v3
+20 |	            for v2 := range fields(P) {
+21 |	                for v3 := range fields(P) {
+   |	                    ^~
+22 |	                    for v4 := range fields(P) {
+
+-- fields-var-assigned/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    for f := range fields(Point) {
+        f = f
+    }
+}
+-- fields-var-assigned/expected --
+stage: typeck
+---
+
+fields-var-assigned/main.tck:10:9: error: cannot assign to immutable variable f
+09 |	    for f := range fields(Point) {
+10 |	        f = f
+   |	        ^
+11 |	    }
+
+fields-var-assigned/main.tck:10:13: error: f is a field of a fields loop, not a value; use f.name, f.index or v.[f]
+09 |	    for f := range fields(Point) {
+10 |	        f = f
+   |	            ^
+11 |	    }
+
+-- fields-var-in-call-arg-type/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func h[T Data](v T) {
+}
+
+func g[T Data](v T) {
+    for f := range fields(T) {
+        h(f.name)
+        h(f)
+    }
+}
+
+func main() {
+    g(Point{x: 1, y: 2})
+}
+-- fields-var-in-call-arg-type/expected --
+stage: typeck
+---
+
+fields-var-in-call-arg-type/main.tck:13:11: error: string does not satisfy Data: a string is not Data
+12 |	    for f := range fields(T) {
+13 |	        h(f.name)
+   |	          ^~~~~~
+14 |	        h(f)
+
+fields-var-in-call-arg-type/main.tck:14:11: error: f is a field of a fields loop, not a value; use f.name, f.index or v.[f]
+13 |	        h(f.name)
+14 |	        h(f)
+   |	          ^
+15 |	    }
+
+-- fields-var-member/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g[T Data](v T) {
+    for f := range fields(T) {
+        print(f.kind)
+    }
+}
+
+func main() {
+    g(Point{x: 1, y: 2})
+}
+-- fields-var-member/expected --
+stage: typeck
+---
+
+fields-var-member/main.tck:10:17: error: f has no kind: a field of a fields loop has only name and index
+09 |	    for f := range fields(T) {
+10 |	        print(f.kind)
+   |	                ^~~~
+11 |	    }
+
+-- fields-var-method/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    for f := range fields(Point) {
+        f.name()
+    }
+}
+-- fields-var-method/expected --
+stage: typeck
+---
+
+fields-var-method/main.tck:10:9: error: f is a field of a fields loop, not a value; use f.name, f.index or v.[f]
+09 |	    for f := range fields(Point) {
+10 |	        f.name()
+   |	        ^
+11 |	    }
+
+-- fields-var-mut/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func h(mut n int64) {
+}
+
+func g[T Data](v T) {
+    for f := range fields(T) {
+        h(mut f)
+    }
+}
+
+func main() {
+    g(Point{x: 1, y: 2})
+}
+-- fields-var-mut/expected --
+stage: typeck
+---
+
+fields-var-mut/main.tck:13:15: error: f is a field of a fields loop, not a value; use f.name, f.index or v.[f]
+12 |	    for f := range fields(T) {
+13 |	        h(mut f)
+   |	              ^
+14 |	    }
+
+-- fields-var-outside/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func main() {
+    p := Point{x: 1, y: 2}
+    for f := range fields(Point) {
+        print(f.name)
+    }
+    x := p.[f]
+}
+-- fields-var-outside/expected --
+stage: resolve
+---
+
+fields-var-outside/main.tck:13:13: error: undefined: f
+12 |	    }
+13 |	    x := p.[f]
+   |	            ^
+14 |	}
+
+-- fields-var-passed/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func h(n int64) {
+}
+
+func g[T Data](v T) {
+    for f := range fields(T) {
+        h(f)
+    }
+}
+
+func main() {
+    g(Point{x: 1, y: 2})
+}
+-- fields-var-passed/expected --
+stage: typeck
+---
+
+fields-var-passed/main.tck:13:11: error: f is a field of a fields loop, not a value; use f.name, f.index or v.[f]
+12 |	    for f := range fields(T) {
+13 |	        h(f)
+   |	          ^
+14 |	    }
+
+-- fields-var-returned/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g[T Data](v T) int64 {
+    for f := range fields(T) {
+        return f
+    }
+    return 0
+}
+
+func main() {
+    g(Point{x: 1, y: 2})
+}
+-- fields-var-returned/expected --
+stage: typeck
+---
+
+fields-var-returned/main.tck:10:16: error: f is a field of a fields loop, not a value; use f.name, f.index or v.[f]
+09 |	    for f := range fields(T) {
+10 |	        return f
+   |	               ^
+11 |	    }
+
+-- fields-var-stored/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+func g[T Data](v T) {
+    for f := range fields(T) {
+        x := f
+    }
+}
+
+func main() {
+    g(Point{x: 1, y: 2})
+}
+-- fields-var-stored/expected --
+stage: typeck
+---
+
+fields-var-stored/main.tck:10:9: warning: declared and not used: x
+09 |	    for f := range fields(T) {
+10 |	        x := f
+   |	        ^
+11 |	    }
+
+fields-var-stored/main.tck:10:14: error: f is a field of a fields loop, not a value; use f.name, f.index or v.[f]
+09 |	    for f := range fields(T) {
+10 |	        x := f
+   |	             ^
+11 |	    }
 
 -- float-array-length/main.tck --
 package main
@@ -59935,25 +61755,6 @@ struct-field-untyped-literal/main.tck:12:18: error: a literal without a type nee
    |	                 ^~~~~~
 13 |	    code, fits := int32(l.a.x)
 
--- struct-field-visibility/main.tck --
-package main
-
-type Point struct {
-    pub x int64
-}
-
-func main() {
-}
--- struct-field-visibility/expected --
-stage: resolve
----
-
-struct-field-visibility/main.tck:4:5: error: pub has no effect in package main, which no package can import
-03 |	type Point struct {
-04 |	    pub x int64
-   |	    ^~~
-05 |	}
-
 -- struct-literal-bad-key/main.tck --
 package main
 
@@ -69480,18 +71281,6 @@ vis-in-main-file/main.tck:3:1: error: pub has no effect in package main, which n
 03 |	pub type Point struct {
    |	^~~
 04 |	    pub x int64
-
-vis-in-main-file/main.tck:4:5: error: pub has no effect in package main, which no package can import
-03 |	pub type Point struct {
-04 |	    pub x int64
-   |	    ^~~
-05 |	    lib y int64
-
-vis-in-main-file/main.tck:5:5: error: lib has no effect in package main, which no package can import
-04 |	    pub x int64
-05 |	    lib y int64
-   |	    ^~~
-06 |	}
 
 vis-in-main-file/main.tck:8:1: error: pub has no effect in package main, which no package can import
 07 |	

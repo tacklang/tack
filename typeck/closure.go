@@ -263,6 +263,7 @@ func (c *Checker) funcLitType(lit *ast.FuncLit) types.Type {
 type closureState struct {
 	fn                                    *ast.Func
 	loops, deferred, deferLoops, dead, at int
+	fieldLoop                             int
 	inCoveredDefault                      int
 	inRejectedDefer                       bool
 	clauses                               []clauseAt
@@ -317,7 +318,7 @@ type closureState struct {
 func (c *Checker) enterClosure(lit *ast.FuncLit) closureState {
 	saved := closureState{
 		fn: c.fn, loops: c.loops, deferred: c.deferred, deferLoops: c.deferLoops,
-		dead: c.dead, at: c.at, inCoveredDefault: c.inCoveredDefault,
+		fieldLoop: c.fieldLoop, dead: c.dead, at: c.at, inCoveredDefault: c.inCoveredDefault,
 		inRejectedDefer: c.inRejectedDefer, clauses: c.clauses,
 		active: c.active, guards: c.guards, outerFacts: c.outerFacts, outerGuards: c.outerGuards,
 		relIdx: c.relIdx, proven: c.proven, starts: c.starts,
@@ -330,6 +331,7 @@ func (c *Checker) enterClosure(lit *ast.FuncLit) closureState {
 	}
 	c.fn = lit.Func
 	c.loops, c.deferred, c.deferLoops, c.dead, c.inCoveredDefault = 0, 0, 0, 0, 0
+	c.fieldLoop = 0
 	c.inRejectedDefer = false
 	c.clauses = nil
 	c.outerFacts, c.outerGuards = len(c.active), len(c.guards)
@@ -352,6 +354,7 @@ func (c *Checker) enterClosure(lit *ast.FuncLit) closureState {
 func (c *Checker) leaveClosure(s closureState) {
 	c.fn = s.fn
 	c.loops, c.deferred, c.deferLoops, c.dead, c.at = s.loops, s.deferred, s.deferLoops, s.dead, s.at
+	c.fieldLoop = s.fieldLoop
 	c.inCoveredDefault, c.inRejectedDefer, c.clauses = s.inCoveredDefault, s.inRejectedDefer, s.clauses
 	c.unindexFacts(len(s.active))
 	c.relIdx = s.relIdx
@@ -595,7 +598,9 @@ func (c *Checker) captures(lit *ast.FuncLit) []*ast.Capture {
 		switch d := id.Def.(type) {
 		case *ast.Param:
 		case *ast.Var:
-			if c.globals[d] {
+			// A fields loop's variable is no variable the closure can
+			// point to: the backend lowers each use of it in place.
+			if c.globals[d] || c.fieldLoops[d] != nil {
 				return nil
 			}
 		default:
