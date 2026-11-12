@@ -8,7 +8,7 @@ BIN := bin/tack
 BUILTIN_DOC := builtin/builtin.tck
 RUNTIME_HEADER := builtin/runtime/tack/tack.h
 
-.PHONY: build install install-std std-copies test fmt lint
+.PHONY: build install install-std std-copies test fuzz-progen fmt lint
 
 # build compiles the compiler into $(BIN).
 build:
@@ -53,6 +53,19 @@ std-copies:
 # that compile and run generated C, which need clang on PATH.
 test:
 	go test -race ./...
+
+# FUZZTIME is how long `make fuzz-progen` fuzzes for.
+FUZZTIME := 10m
+
+# fuzz-progen fuzzes FuzzGenerated, which builds each generated program
+# with clang under the sanitizers and runs it, for $(FUZZTIME). It caps
+# minimizing a new input at 20 executions: by default the fuzz engine
+# spends up to 60 seconds minimizing each input that finds new coverage,
+# and an execution here is two sanitizer builds and up to 42 runs, so
+# the run would spend most of its time minimizing, showing 0 execs/sec.
+fuzz-progen:
+	go test ./internal/progen -run '^$$' -fuzz '^FuzzGenerated$$' -fuzztime $(FUZZTIME) \
+		-fuzzminimizetime=20x
 
 # fmt rewrites Go sources in place with the formatters enabled in
 # .golangci.yml.

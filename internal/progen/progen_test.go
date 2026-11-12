@@ -170,6 +170,14 @@ func TestFeatureCoverage(t *testing.T) {
 // the input is a change to the program's structure, and puts it through
 // every oracle (see check). A rejected program fails too: it is a
 // generator bug, or a compiler that rejects a valid program.
+//
+// Run it with -fuzzminimizetime=20x, as make fuzz-progen does. By
+// default the fuzz engine spends up to 60 seconds minimizing each input
+// that finds new coverage, and one execution here is two clang builds
+// under the sanitizers and up to 42 runs of a sanitized binary, so with
+// the default a run spends most of its time minimizing and shows 0
+// execs/sec, looking stalled. Capping minimization at 20 executions
+// keeps it fuzzing.
 func FuzzGenerated(f *testing.F) {
 	for seed := range uint64(8) {
 		f.Add(seedBytes(seed, 64+int(seed)*48))

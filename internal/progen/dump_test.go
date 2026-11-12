@@ -37,11 +37,14 @@ func TestTrace(t *testing.T) {
 	if rejected != "" {
 		t.Fatal(rejected)
 	}
-	bin, err := build(t.TempDir(), "-O0", prog, csrc, header)
+	bin, csrcPath, err := build(t.TempDir(), "-O0", prog, csrc, header)
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, _, _ := runBin(bin, "")
+	out, _, _, err := runBin(bin, csrcPath, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	got := strings.Split(strings.TrimSpace(out), "\n")
 	for i, w := range want {
 		if i >= len(got) || got[i] != strconv.FormatInt(w, 10) {

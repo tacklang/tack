@@ -1,8 +1,8 @@
 package progen_test
 
 import (
+	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -28,10 +28,10 @@ func strictC(t *testing.T, src string) string {
 	if err := os.WriteFile(path, csrc, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command("clang", "-std=c11", "-Wall", "-Wextra", "-Werror", "-fsyntax-only",
-		"-I", stdtest.IncludeDir(), path).CombinedOutput()
+	out, err := clang(path, "-std=c11", "-Wall", "-Wextra", "-Werror", "-fsyntax-only",
+		"-I", stdtest.IncludeDir(), path)
 	if err != nil {
-		return string(out)
+		return fmt.Sprintf("%v\n%s", err, out)
 	}
 	return ""
 }
