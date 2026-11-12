@@ -61,6 +61,7 @@ call at a time, and
 `std/path`, in Tack alone, cleans, splits and joins slash-separated
 paths as Go's `path` package does, `std/conv`, in Tack alone,
 parses integers as Go's `strconv.ParseInt` and `ParseUint` do, and
+quotes strings as `strconv.Quote` does, and
 `std/errors`, in Tack alone, pairs an error with a message made at
 run time in a `Failure`, and `std/sort`, in Tack alone, sorts a list
 in place by a less function. `std/utf8`, in Tack alone, decodes and
@@ -589,7 +590,8 @@ section remains the description of the language.
   system and runs programs (see os), and
   [`path`](src/std/path/path.tck), which cleans, splits and joins paths
   (see path), [`conv`](src/std/conv/conv.tck), which parses
-  integers and floats and writes floats (see conv), [`errors`](src/std/errors/errors.tck), whose
+  integers and floats and writes floats and quoted strings (see conv),
+  [`errors`](src/std/errors/errors.tck), whose
   `Failure` carries a message made at run time beside an error (see
   errors), [`sort`](src/std/sort/sort.tck), which sorts lists
   (see sort), [`utf8`](src/std/utf8/utf8.tck), which decodes and
@@ -1311,8 +1313,8 @@ section remains the description of the language.
   of memory, `error{code: 1, msg: "out of memory"}`, freeing what it
   made.
 - conv. `std/conv` is written in Tack alone, with no C, allocates
-  nothing, and parses integers exactly as Go's `strconv.ParseInt` and
-  `strconv.ParseUint` do, ported from Go's own code. `v, err :=
+  nothing but what its append functions append, and parses integers
+  exactly as Go's `strconv.ParseInt` and `strconv.ParseUint` do, ported from Go's own code. `v, err :=
   conv.parse_int(s, base, bit_size)` gives an `int64` and `u, err :=
   conv.parse_uint(s, base, bit_size)` a `uint64`, from `s`, a `[]uint8`
   view, so `[]uint8("42")`, a Text's `t.bytes()`, a list or an array can
@@ -1358,6 +1360,23 @@ section remains the description of the language.
   work exactly on a decimal of up to 800 digits, as Go's slow path does,
   in Tack alone, and printf's C uses the same algorithm; the tests check
   both against Go and against each other.
+  `err := conv.append_quote(mut out, s)` appends the `[]uint8` view `s`
+  to `out` as a double-quoted Go string literal, exactly as Go's
+  `strconv.Quote` writes it, as `tack --lex` shows a token's value:
+  decoded by std/utf8, a rune std/unicode's `is_print` holds for kept as
+  it is, a `"` and a `\` after a `\`, `\a \b \f \n \r \t \v` for those
+  bytes, `\x` and two lowercase hexadecimal digits for any other byte
+  below 0x20, for 0x7f and for each byte that is not UTF-8, and `\u` and
+  four digits for any other rune below U+10000 and `\U` and eight for
+  the rest, so the bytes `a`, a tab and 0xff are written `"a\t\xff"`,
+  `é` as `"é"` and U+00A0 as `"\u00a0"`. It gives no error, or `error{code: 1, msg: "out of
+  memory"}` leaving `out` as it was: it counts the size first and makes
+  room for all of it before writing any. std/conv imports std/utf8 and
+  std/unicode for it, so the unicode tables are in the C of every
+  program that imports std/conv, and count toward its globals, but clang
+  drops a table no code reaches: only `is_print`'s, about 6 KB, reaches
+  the binary of a program that quotes, and none that of one that does
+  not.
 - errors. `std/errors` is written in Tack alone, with no C. An error's
   message is a literal, so what only the run knows, the name that was
   undefined or the path that could not be opened, cannot be in it;

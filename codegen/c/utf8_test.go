@@ -382,9 +382,10 @@ func runExample(t *testing.T, bin string) string {
 	return string(out)
 }
 
-// utf8Sanitizers are the flags every build of utf8Program takes: the
-// address and undefined behavior sanitizers, every finding fatal, so
-// std/utf8 and std/unicode read no view or table past its end and overflow nothing C counts as
+// utf8Sanitizers are the flags every build of utf8Program and
+// quoteProgram takes: the address and undefined behavior sanitizers,
+// every finding fatal, so std/utf8, std/unicode and std/conv's quoting
+// read no view or table past its end and overflow nothing C counts as
 // undefined, on every input the tests give them.
 var utf8Sanitizers = []string{
 	"-O1",

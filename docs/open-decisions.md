@@ -1230,6 +1230,23 @@ settled by consistency and could go another way:
 - Every behavior is Go's, checked against Go 1.27.1's
   `internal/strconv/atoi.go` and its tests, ported into examples/conv,
   and against `strconv` on random and fuzzed inputs.
+- `append_quote(mut out list[uint8], s []uint8) error` is Go's
+  `strconv.Quote`, for the quoting `tack --lex` needs, as an append
+  function, as `append_float` is, rather than one returning a Text.
+  There is no `quote_rune`, `quote_to_ascii`, `quote_to_graphic` or
+  `unquote` yet. It is all or nothing: it counts the size and reserves
+  it first, as `append_float` does, and its error is the builtin
+  append's, `error{code: 1, msg: "out of memory"}`.
+- std/conv imports std/utf8 and std/unicode for it, so the unicode
+  tables, about 18 KB, are in the C of every program importing
+  std/conv and count toward its globals. Clang drops a table no code
+  reaches, so only `is_print`'s, about 6 KB, reaches the binary of a
+  program that quotes, and none that of one that does not; splitting
+  std/conv, or moving the quoting to a package of its own, would save
+  no binary size, only generated C and the globals count.
+- Printable is std/unicode's `is_print`, Go's `unicode.IsPrint`, which
+  Go's `strconv.IsPrint`, the function `Quote` asks, equals; a test
+  checks the two agree over every rune.
 
 ## std/errors
 
@@ -1345,6 +1362,6 @@ consistency and could go another way:
 - Each class is a sorted array of runs of consecutive runes, searched by
   halves, without Go's strides or its Latin-1 table: about 18 KB of
   globals for the five in the C of every program importing
-  std/unicode, all counted toward its globals.
+  std/unicode, std/conv's included, all counted toward its globals.
   Clang drops a table no code reaches, so only the classes a program
   calls reach its binary.

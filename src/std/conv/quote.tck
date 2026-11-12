@@ -1,0 +1,159 @@
+package conv
+
+import unicode from "std/unicode"
+import utf8 from "std/utf8"
+
+// Bytes as a Go string literal, as Go's strconv.Quote writes them, to
+// the byte: append_quote is a port of Go's appendQuotedWith and
+// appendEscapedRune, for a double quote, with neither ASCIIonly nor
+// graphicOnly.
+//
+// The bytes are decoded as UTF-8 by std/utf8, one rune or one bad byte
+// at a time, and each written as Go writes it:
+//
+//   - a byte that starts no valid encoding, which decode gives as U+FFFD
+//     of width 1, as \x and its two lowercase hexadecimal digits;
+//   - a double quote and a backslash after a backslash;
+//   - a printable rune, std/unicode's is_print, which is Go's IsPrint, as
+//     it is, encoded again by std/utf8's append_rune as Go's AppendRune
+//     encodes it, which gives back its bytes, its only valid encoding;
+//   - \a \b \f \n \r \t \v for U+0007 to U+000D;
+//   - any other rune below U+0020, and U+007F, as \x and two digits;
+//   - any other rune below U+10000 as \u and four digits, and the rest,
+//     which are all valid, as decode gives no other, as \U and eight.
+
+// lower_hex holds the lowercase hexadecimal digits, digit d at index d.
+var lower_hex = "0123456789abcdef"
+
+// hex_digit returns the lowercase hexadecimal digit of the low four bits
+// of v. Its index is always 0 to 15, but a bitwise operator gives the
+// checker no bound, so the read is in the checked form, whose ok is
+// always true.
+func hex_digit(v int32) uint8 {
+    c, ok := lower_hex[v & 0xF]
+    if !ok {
+        return '0'
+    }
+    return c
+}
+
+// quote_piece takes the first rune of s, which is not empty, or its first
+// byte when that starts no valid encoding, and returns how many bytes
+// append_quote writes for it, how many bytes of s it stands for, and,
+// when write is true, appends those bytes to out, all of them or, with
+// the builtin append's error, none. With write false out is left as it
+// is and the error is always noerror, so one function decides both the
+// size append_quote reserves and what it writes, and the two never
+// differ.
+func quote_piece(mut out list[uint8], s []uint8, write bool) (int64, int64, error) {
+    r, w := utf8.decode(s)
+    mut e := noerror
+    if w == 1 && r == 0xFFFD {
+        c := at(s, 0)
+        if write {
+            e = append(mut out, '\\', 'x', hex_digit(c >> 4), hex_digit(c))
+        }
+        return 4, 1, e
+    }
+    if r == '"' || r == '\\' {
+        if write {
+            e = append(mut out, '\\', uint8(r))
+        }
+        return 2, 1, e
+    }
+    if unicode.is_print(r) {
+        // r is valid, so append_rune writes it as the w bytes decode
+        // read, its one valid encoding, as Go's utf8.AppendRune does.
+        if write {
+            e = utf8.append_rune(mut out, r)
+        }
+        return w, w, e
+    }
+    mut letter uint8 = 0
+    switch r {
+    case 0x07:
+        letter = 'a'
+    case 0x08:
+        letter = 'b'
+    case 0x0C:
+        letter = 'f'
+    case 0x0A:
+        letter = 'n'
+    case 0x0D:
+        letter = 'r'
+    case 0x09:
+        letter = 't'
+    case 0x0B:
+        letter = 'v'
+    }
+    if letter != 0 {
+        if write {
+            e = append(mut out, '\\', letter)
+        }
+        return 2, w, e
+    }
+    if r < ' ' || r == 0x7F {
+        if write {
+            e = append(mut out, '\\', 'x', hex_digit(r >> 4), hex_digit(r))
+        }
+        return 4, w, e
+    }
+    if r < 0x10000 {
+        if write {
+            e = append(mut out, '\\', 'u', hex_digit(r >> 12), hex_digit(r >> 8), hex_digit(r >> 4), hex_digit(r))
+        }
+        return 6, w, e
+    }
+    if write {
+        e = append(mut out, '\\', 'U', hex_digit(r >> 28), hex_digit(r >> 24), hex_digit(r >> 20),
+            hex_digit(r >> 16), hex_digit(r >> 12), hex_digit(r >> 8), hex_digit(r >> 4), hex_digit(r))
+    }
+    return 10, w, e
+}
+
+// append_quote appends s to out as a double-quoted Go string literal, as
+// Go's strconv.Quote writes it (see the comment at the top of this
+// file): "" for an empty s, and at most 4 bytes for each byte of s, as
+// \xff is for a byte that is not UTF-8, besides the two quotes. It returns no error, or error{code: 1,
+// msg: "out of memory"} when out cannot grow to hold the whole literal,
+// and leaves out exactly as it was then: the size is counted first and
+// room made for all of it before any of it is written, so no append
+// after that can fail.
+pub func append_quote(mut out list[uint8], s []uint8) error {
+    // i only grows, by a width from 1 to 4 that quote_piece took from
+    // s[i:], so it stays from 0 to len(s), and i +% w never wraps; the
+    // checker does not follow that through the loop, so each loop's
+    // condition tests i >= 0, which always holds, to prove s[i:]. The
+    // size is in the checked form, as nothing bounds it but s's length.
+    mut size int64 = 2
+    mut i int64 = 0
+    for i >= 0 && i < len(s) {
+        n, w, e0 := quote_piece(mut out, s[i:], false)
+        if e0.code != 0 {
+            return e0
+        }
+        next, fits := size + n
+        if !fits {
+            return out_of_memory
+        }
+        size = next
+        i +%= w
+    }
+    e := reserve(mut out, size)
+    if e.code != 0 {
+        return e
+    }
+    e1 := append(mut out, '"')
+    if e1.code != 0 {
+        return e1
+    }
+    i = 0
+    for i >= 0 && i < len(s) {
+        _, w, e2 := quote_piece(mut out, s[i:], true)
+        if e2.code != 0 {
+            return e2
+        }
+        i +%= w
+    }
+    return append(mut out, '"')
+}
