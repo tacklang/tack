@@ -147,9 +147,30 @@ var formatCases = []struct {
 func TestCheckFormat(t *testing.T) {
 	for _, tt := range formatCases {
 		t.Run(tt.name, func(t *testing.T) {
-			got := checkFormat(tt.format, tt.values, !tt.spread, nameOf, isBytesType)
+			got := checkFormat("printf", tt.format, tt.values, !tt.spread, nameOf, isBytesType)
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("got %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestCheckFormatNamesTheCall checks the problems checkFormat finds in
+// each of formatCases for a call to eprintf are printf's, but with each
+// message naming eprintf where printf's names printf.
+func TestCheckFormatNamesTheCall(t *testing.T) {
+	for _, tt := range formatCases {
+		t.Run(tt.name, func(t *testing.T) {
+			got := checkFormat("eprintf", tt.format, tt.values, !tt.spread, nameOf, isBytesType)
+			want := slices.Clone(tt.want)
+			for i := range want {
+				if strings.Count(want[i].message, "printf") != 1 {
+					t.Fatalf("message %q names printf other than once", want[i].message)
+				}
+				want[i].message = strings.Replace(want[i].message, "printf", "eprintf", 1)
+			}
+			if !slices.Equal(got, want) {
+				t.Errorf("got %+v, want %+v", got, want)
 			}
 		})
 	}
@@ -200,11 +221,11 @@ func FuzzCheckFormat(f *testing.F) {
 		for i, k := range kinds {
 			values[i] = types.Type(int(k) % 16)
 		}
-		checkValueProblems(t, checkFormat(format, values, true, nameOf, isBytesType), len(values))
-		checkFormatOnly(t, "a spread", checkFormat(format, nil, false, nameOf, isBytesType))
+		checkValueProblems(t, checkFormat("printf", format, values, true, nameOf, isBytesType), len(values))
+		checkFormatOnly(t, "a spread", checkFormat("printf", format, nil, false, nameOf, isBytesType))
 		verbs, _ := formatVerbs(format)
 		anys := slices.Repeat([]types.Type{types.Any}, len(verbs))
-		checkFormatOnly(t, "one any per verb", checkFormat(format, anys, true, nameOf, isBytesType))
+		checkFormatOnly(t, "one any per verb", checkFormat("printf", format, anys, true, nameOf, isBytesType))
 	})
 }
 

@@ -549,12 +549,14 @@
 // or any; it gives no facts, and is otherwise checked as a switch, its
 // default last.
 //
-// A call to std/fmt's printf, checked in printf.go, has its format read
-// when it is a known string (knownString): every verb against the value
-// it takes, an unknown verb, a % ending the format, and the number of
-// values against the number of verbs, each mistake an error at the value
-// or the format. A value of type any matches every verb, and a spread is
-// checked for its verbs only. Any other format is printf's C's to handle.
+// A call to std/fmt's printf, or to eprintf, its twin for standard error
+// (formatFuncs), checked in printf.go, has its format read when it is a
+// known string (knownString): every verb against the value it takes, an
+// unknown verb, a % ending the format, and the number of values against
+// the number of verbs, each mistake an error at the value or the format,
+// its message naming the function called. A value of type any matches
+// every verb, and a spread is checked for its verbs only. Any other
+// format is printf's C's to handle.
 //
 // An error, checked in errors.go, is types.Error, a struct no declaration
 // gives, of code, an int32, and msg, a string, code 0 being no error: it
@@ -794,8 +796,8 @@
 //     and then values of the element type or one spread (variadic.go); a
 //     mut parameter takes mut x, where x is a place of exactly its type,
 //     and only a mut parameter does (mut.go); an any parameter takes a
-//     value of a basic type, a view of one or an any (any.go); and std/fmt's printf a
-//     known format its values match (printf.go);
+//     value of a basic type, a view of one or an any (any.go); and std/fmt's printf
+//     and eprintf a known format its values match (printf.go);
 //   - a type assertion is bound with ok, on an any, to a basic type an any
 //     can hold, a view only being a type switch's case, and .(type) is
 //     only a switch's tag (assert.go);

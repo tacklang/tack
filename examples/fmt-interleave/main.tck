@@ -1,0 +1,54 @@
+package main
+
+import fmt from "std/fmt"
+
+// Standard output and standard error sent to the same place, a pipe or a
+// file, and the bytes of the two arriving there in the order of the
+// calls, checked against this directory's combined: every write to
+// standard error flushes standard output before it, so what print,
+// println, printf and write left in C's buffer for stdout is ahead of
+// it, and standard error after it, so nothing of it is left behind. A
+// stdout write with no newline, which no buffering mode hands over on
+// its own, comes before each of ewrite, eprintln and eprintf, an empty
+// ewrite, and one of a format the compiler does not know; a stdout write
+// of 9000 bytes, more than C's buffer, comes before a stderr write too.
+
+// eshow passes f, a format the compiler does not know, on to eprintf.
+func eshow(f string, args ...any) {
+    fmt.eprintf(f, args...)
+}
+
+// filled returns a list of n bytes, each c, or an empty list when it
+// cannot be made.
+func filled(n int64, c uint8) list[uint8] {
+    mut l := make(list[uint8], c_allocator)
+    for range n {
+        e := append(mut l, c)
+        if e.code != 0 {
+            print("append failed\n")
+            return l
+        }
+    }
+    return l
+}
+
+func main() {
+    print("o1 ")
+    fmt.ewrite([]uint8("e1\n"))
+    fmt.println("o2")
+    fmt.eprintln("e2")
+    fmt.printf("o%d ", 3)
+    fmt.eprintf("e%d\n", 3)
+    fmt.write([]uint8("o4 "))
+    empty := make(list[uint8], c_allocator)
+    fmt.ewrite(empty)
+    fmt.eprintln("e4")
+    print("o5 ")
+    eshow("e%d%z\n", 5)
+    l := filled(9000, 'b')
+    fmt.write(l)
+    fmt.eprintln("")
+    fmt.printf("%s", "o6")
+    fmt.eprintln(" e6")
+    print("o7\n")
+}

@@ -1,0 +1,114 @@
+package main
+
+import fmt from "std/fmt"
+
+// Writing to standard error with std/fmt's ewrite, eprintln and eprintf,
+// interleaved with print, println, printf and write: each stream gets its
+// own calls' output in call order, checked against this directory's
+// output, for standard output, and stderr, for standard error. Then the
+// empty writes, which write nothing but eprintln's newline, bytes 0x00
+// and 0xff, every verb, the markers of a format the compiler does not
+// know, and formatted pieces of 509, 511, 512 and 513 bytes, eprintf
+// gathering up to 512: "509:" then 509 bytes is 513, one past it. Last,
+// a list of 1 MiB, written to standard error with ewrite and then with
+// eprintf's %s, whose bytes the test checks rather than a golden: byte i
+// of it is i % 251.
+
+// eshow passes f, a format the compiler does not know, on to eprintf.
+func eshow(f string, args ...any) {
+    fmt.eprintf(f, args...)
+}
+
+// filled returns a list of n bytes, each c, or an empty list when it
+// cannot be made.
+func filled(n int64, c uint8) list[uint8] {
+    mut l := make(list[uint8], c_allocator)
+    for range n {
+        e := append(mut l, c)
+        if e.code != 0 {
+            print("append failed\n")
+            return l
+        }
+    }
+    return l
+}
+
+// big writes a list of n bytes to standard error, byte i being i % 251,
+// with ewrite and then with eprintf.
+func big(n int64) {
+    mut l := make(list[uint8], c_allocator)
+    err := reserve(mut l, n)
+    if err.code != 0 {
+        print("reserve failed\n")
+        return
+    }
+    for i := range n {
+        v, ok := uint8(i % 251)
+        if !ok {
+            print("conversion failed\n")
+            return
+        }
+        e := append(mut l, v)
+        if e.code != 0 {
+            print("append failed\n")
+            return
+        }
+    }
+    fmt.ewrite(l)
+    fmt.eprintf("%s", l[:])
+}
+
+func main() {
+    print("out 1\n")
+    fmt.eprintln("err 1")
+    fmt.println("out 2")
+    fmt.eprintf("err %d\n", 2)
+    fmt.printf("out %d\n", 3)
+    fmt.ewrite([]uint8("err 3\n"))
+    fmt.write([]uint8("out 4\n"))
+    fmt.eprintln("err 4")
+
+    print("a ")
+    fmt.ewrite([]uint8("b "))
+    fmt.printf("%s ", "c")
+    fmt.eprintf("%s ", "d")
+    fmt.write([]uint8("e"))
+    fmt.eprintln("f")
+    fmt.println("")
+
+    empty := make(list[uint8], c_allocator)
+    fmt.ewrite(empty)
+    none := [0]uint8{}
+    fmt.ewrite(none)
+    fmt.ewrite([]uint8(""))
+    fmt.eprintf("")
+    eshow("")
+    fmt.eprintf("%s", "")
+    fmt.eprintln("")
+    fmt.eprintln("empties wrote one newline")
+
+    raw := [6]uint8{0, 255, 0, 128, 255, '\n'}
+    fmt.ewrite(raw)
+    fmt.ewrite(raw[1:2])
+    fmt.eprintln("a\x00b\xffc")
+    fmt.eprintf("%s|%c|%c\n", raw[:2], uint8(0), uint8(255))
+
+    fmt.eprintf("%d %x %s %t %c %v %g %e %f %%\n",
+        int64(-9223372036854775807 - 1), -255, "s", true, 'c', uint64(18446744073709551615), 0.1, 1.0, 0.5)
+
+    eshow("%d|", "hi")
+    eshow("%d %d|", 1)
+    eshow("%z|", 1)
+    eshow("|", 1, "a")
+    eshow("|%")
+    fmt.eprintln("")
+
+    for _, n := range [4]int64{509, 511, 512, 513} {
+        l := filled(n, 'z')
+        fmt.eprintf("%d:%s\n", n, l[:])
+    }
+
+    print("out done\n")
+    fmt.eprintln("err done")
+    big(1048576)
+}

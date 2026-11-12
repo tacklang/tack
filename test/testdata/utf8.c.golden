@@ -84,79 +84,80 @@ static const unsigned char tack_str1[15] = {105, 110, 116, 101, 114, 110, 97, 10
 static const unsigned char tack_str2[15] = {110, 101, 103, 97, 116, 105, 118, 101, 32, 99, 111, 117, 110, 116, 0};
 static const unsigned char tack_str3[14] = {111, 117, 116, 32, 111, 102, 32, 109, 101, 109, 111, 114, 121, 0};
 static const unsigned char tack_str4[2] = {10, 0};
-static const unsigned char tack_str5[5] = {32, 111, 107, 10, 0};
-static const unsigned char tack_str6[7] = {32, 70, 65, 73, 76, 10, 0};
-static const unsigned char tack_str7[4] = {37, 120, 32, 0};
-static const unsigned char tack_str8[11] = {100, 101, 99, 111, 100, 101, 32, 111, 102, 32, 0};
-static const unsigned char tack_str9[26] = {103, 97, 118, 101, 32, 37, 120, 44, 32, 37, 100, 44, 32, 119, 97, 110, 116, 32, 37, 120, 44, 32, 37, 100, 10, 0};
-static const unsigned char tack_str10[1] = {0};
-static const unsigned char tack_str11[2] = {0, 0};
-static const unsigned char tack_str12[2] = {97, 0};
-static const unsigned char tack_str13[2] = {127, 0};
-static const unsigned char tack_str14[3] = {97, 98, 0};
-static const unsigned char tack_str15[3] = {194, 128, 0};
-static const unsigned char tack_str16[3] = {223, 191, 0};
-static const unsigned char tack_str17[3] = {195, 169, 0};
-static const unsigned char tack_str18[4] = {224, 160, 128, 0};
-static const unsigned char tack_str19[4] = {237, 159, 191, 0};
-static const unsigned char tack_str20[4] = {238, 128, 128, 0};
-static const unsigned char tack_str21[4] = {239, 191, 189, 0};
-static const unsigned char tack_str22[4] = {239, 191, 191, 0};
-static const unsigned char tack_str23[7] = {228, 184, 150, 231, 149, 140, 0};
-static const unsigned char tack_str24[5] = {240, 144, 128, 128, 0};
-static const unsigned char tack_str25[5] = {244, 143, 191, 191, 0};
-static const unsigned char tack_str26[5] = {240, 159, 152, 128, 0};
-static const unsigned char tack_str27[2] = {128, 0};
-static const unsigned char tack_str28[2] = {191, 0};
-static const unsigned char tack_str29[3] = {192, 128, 0};
-static const unsigned char tack_str30[3] = {193, 191, 0};
-static const unsigned char tack_str31[4] = {224, 159, 191, 0};
-static const unsigned char tack_str32[5] = {240, 143, 191, 191, 0};
-static const unsigned char tack_str33[5] = {245, 128, 128, 128, 0};
-static const unsigned char tack_str34[2] = {255, 0};
-static const unsigned char tack_str35[2] = {254, 0};
-static const unsigned char tack_str36[4] = {237, 160, 128, 0};
-static const unsigned char tack_str37[4] = {237, 191, 191, 0};
-static const unsigned char tack_str38[5] = {244, 144, 128, 128, 0};
-static const unsigned char tack_str39[2] = {194, 0};
-static const unsigned char tack_str40[3] = {224, 160, 0};
-static const unsigned char tack_str41[4] = {240, 144, 128, 0};
-static const unsigned char tack_str42[3] = {194, 97, 0};
-static const unsigned char tack_str43[4] = {224, 160, 97, 0};
-static const unsigned char tack_str44[5] = {240, 144, 128, 97, 0};
-static const unsigned char tack_str45[5] = {240, 144, 128, 192, 0};
-static const unsigned char tack_str46[7] = {100, 101, 99, 111, 100, 101, 0};
-static const unsigned char tack_str47[10] = {118, 97, 108, 105, 100, 32, 111, 102, 32, 0};
-static const unsigned char tack_str48[9] = {103, 97, 118, 101, 32, 37, 116, 10, 0};
-static const unsigned char tack_str49[6] = {104, 101, 108, 108, 111, 0};
-static const unsigned char tack_str50[11] = {97, 195, 169, 228, 184, 150, 240, 159, 152, 128, 0};
-static const unsigned char tack_str51[5] = {128, 97, 98, 99, 0};
-static const unsigned char tack_str52[7] = {97, 98, 192, 128, 99, 100, 0};
-static const unsigned char tack_str53[6] = {97, 98, 99, 228, 184, 0};
-static const unsigned char tack_str54[6] = {118, 97, 108, 105, 100, 0};
-static const unsigned char tack_str55[15] = {97, 112, 112, 101, 110, 100, 32, 102, 97, 105, 108, 101, 100, 10, 0};
-static const unsigned char tack_str56[31] = {97, 112, 112, 101, 110, 100, 95, 114, 117, 110, 101, 40, 37, 120, 41, 32, 103, 97, 118, 101, 32, 101, 114, 114, 111, 114, 32, 37, 100, 10, 0};
-static const unsigned char tack_str57[22] = {97, 112, 112, 101, 110, 100, 95, 114, 117, 110, 101, 40, 37, 120, 41, 32, 103, 97, 118, 101, 32, 0};
-static const unsigned char tack_str58[12] = {97, 112, 112, 101, 110, 100, 95, 114, 117, 110, 101, 0};
-static const unsigned char tack_str59[55] = {97, 112, 112, 101, 110, 100, 95, 114, 117, 110, 101, 32, 105, 110, 116, 111, 32, 97, 110, 32, 101, 109, 112, 116, 121, 32, 108, 105, 115, 116, 32, 103, 97, 118, 101, 32, 37, 100, 44, 32, 108, 101, 102, 116, 32, 37, 100, 32, 98, 121, 116, 101, 115, 10, 0};
-static const unsigned char tack_str60[5] = {97, 98, 195, 169, 0};
-static const unsigned char tack_str61[53] = {97, 112, 112, 101, 110, 100, 95, 114, 117, 110, 101, 32, 105, 110, 116, 111, 32, 97, 32, 102, 117, 108, 108, 32, 108, 105, 115, 116, 32, 103, 97, 118, 101, 32, 37, 100, 32, 37, 100, 32, 37, 100, 32, 37, 100, 44, 32, 108, 101, 102, 116, 32, 0};
-static const unsigned char tack_str62[24] = {97, 32, 98, 117, 102, 102, 101, 114, 32, 119, 97, 115, 32, 110, 111, 116, 32, 102, 114, 101, 101, 100, 10, 0};
-static const unsigned char tack_str63[26] = {97, 112, 112, 101, 110, 100, 95, 114, 117, 110, 101, 32, 111, 117, 116, 32, 111, 102, 32, 109, 101, 109, 111, 114, 121, 0};
-static const unsigned char tack_str64[20] = {97, 112, 112, 101, 110, 100, 95, 114, 117, 110, 101, 32, 102, 97, 105, 108, 101, 100, 10, 0};
-static const unsigned char tack_str65[30] = {114, 111, 117, 110, 100, 32, 116, 114, 105, 112, 32, 111, 102, 32, 37, 120, 32, 103, 97, 118, 101, 32, 37, 120, 44, 32, 37, 100, 10, 0};
-static const unsigned char tack_str66[29] = {101, 110, 99, 111, 100, 105, 110, 103, 32, 111, 102, 32, 37, 120, 32, 105, 115, 32, 110, 111, 116, 32, 118, 97, 108, 105, 100, 10, 0};
-static const unsigned char tack_str67[11] = {114, 111, 117, 110, 100, 32, 116, 114, 105, 112, 0};
-static const unsigned char tack_str68[6] = {45, 45, 45, 45, 45, 0};
-static const unsigned char tack_str69[6] = {112, 103, 45, 45, 45, 0};
-static const unsigned char tack_str70[6] = {112, 103, 108, 45, 45, 0};
-static const unsigned char tack_str71[6] = {112, 103, 45, 100, 45, 0};
-static const unsigned char tack_str72[6] = {112, 103, 45, 45, 115, 0};
-static const unsigned char tack_str73[6] = {45, 103, 45, 45, 115, 0};
-static const unsigned char tack_str74[6] = {45, 45, 45, 45, 115, 0};
-static const unsigned char tack_str75[6] = {63, 63, 63, 63, 63, 0};
-static const unsigned char tack_str76[31] = {99, 108, 97, 115, 115, 101, 115, 32, 111, 102, 32, 37, 120, 32, 97, 114, 101, 32, 37, 115, 44, 32, 119, 97, 110, 116, 32, 37, 115, 10, 0};
-static const unsigned char tack_str77[8] = {99, 108, 97, 115, 115, 101, 115, 0};
+static const unsigned char tack_str5[4] = {37, 115, 10, 0};
+static const unsigned char tack_str6[5] = {32, 111, 107, 10, 0};
+static const unsigned char tack_str7[7] = {32, 70, 65, 73, 76, 10, 0};
+static const unsigned char tack_str8[4] = {37, 120, 32, 0};
+static const unsigned char tack_str9[11] = {100, 101, 99, 111, 100, 101, 32, 111, 102, 32, 0};
+static const unsigned char tack_str10[26] = {103, 97, 118, 101, 32, 37, 120, 44, 32, 37, 100, 44, 32, 119, 97, 110, 116, 32, 37, 120, 44, 32, 37, 100, 10, 0};
+static const unsigned char tack_str11[1] = {0};
+static const unsigned char tack_str12[2] = {0, 0};
+static const unsigned char tack_str13[2] = {97, 0};
+static const unsigned char tack_str14[2] = {127, 0};
+static const unsigned char tack_str15[3] = {97, 98, 0};
+static const unsigned char tack_str16[3] = {194, 128, 0};
+static const unsigned char tack_str17[3] = {223, 191, 0};
+static const unsigned char tack_str18[3] = {195, 169, 0};
+static const unsigned char tack_str19[4] = {224, 160, 128, 0};
+static const unsigned char tack_str20[4] = {237, 159, 191, 0};
+static const unsigned char tack_str21[4] = {238, 128, 128, 0};
+static const unsigned char tack_str22[4] = {239, 191, 189, 0};
+static const unsigned char tack_str23[4] = {239, 191, 191, 0};
+static const unsigned char tack_str24[7] = {228, 184, 150, 231, 149, 140, 0};
+static const unsigned char tack_str25[5] = {240, 144, 128, 128, 0};
+static const unsigned char tack_str26[5] = {244, 143, 191, 191, 0};
+static const unsigned char tack_str27[5] = {240, 159, 152, 128, 0};
+static const unsigned char tack_str28[2] = {128, 0};
+static const unsigned char tack_str29[2] = {191, 0};
+static const unsigned char tack_str30[3] = {192, 128, 0};
+static const unsigned char tack_str31[3] = {193, 191, 0};
+static const unsigned char tack_str32[4] = {224, 159, 191, 0};
+static const unsigned char tack_str33[5] = {240, 143, 191, 191, 0};
+static const unsigned char tack_str34[5] = {245, 128, 128, 128, 0};
+static const unsigned char tack_str35[2] = {255, 0};
+static const unsigned char tack_str36[2] = {254, 0};
+static const unsigned char tack_str37[4] = {237, 160, 128, 0};
+static const unsigned char tack_str38[4] = {237, 191, 191, 0};
+static const unsigned char tack_str39[5] = {244, 144, 128, 128, 0};
+static const unsigned char tack_str40[2] = {194, 0};
+static const unsigned char tack_str41[3] = {224, 160, 0};
+static const unsigned char tack_str42[4] = {240, 144, 128, 0};
+static const unsigned char tack_str43[3] = {194, 97, 0};
+static const unsigned char tack_str44[4] = {224, 160, 97, 0};
+static const unsigned char tack_str45[5] = {240, 144, 128, 97, 0};
+static const unsigned char tack_str46[5] = {240, 144, 128, 192, 0};
+static const unsigned char tack_str47[7] = {100, 101, 99, 111, 100, 101, 0};
+static const unsigned char tack_str48[10] = {118, 97, 108, 105, 100, 32, 111, 102, 32, 0};
+static const unsigned char tack_str49[9] = {103, 97, 118, 101, 32, 37, 116, 10, 0};
+static const unsigned char tack_str50[6] = {104, 101, 108, 108, 111, 0};
+static const unsigned char tack_str51[11] = {97, 195, 169, 228, 184, 150, 240, 159, 152, 128, 0};
+static const unsigned char tack_str52[5] = {128, 97, 98, 99, 0};
+static const unsigned char tack_str53[7] = {97, 98, 192, 128, 99, 100, 0};
+static const unsigned char tack_str54[6] = {97, 98, 99, 228, 184, 0};
+static const unsigned char tack_str55[6] = {118, 97, 108, 105, 100, 0};
+static const unsigned char tack_str56[15] = {97, 112, 112, 101, 110, 100, 32, 102, 97, 105, 108, 101, 100, 10, 0};
+static const unsigned char tack_str57[31] = {97, 112, 112, 101, 110, 100, 95, 114, 117, 110, 101, 40, 37, 120, 41, 32, 103, 97, 118, 101, 32, 101, 114, 114, 111, 114, 32, 37, 100, 10, 0};
+static const unsigned char tack_str58[22] = {97, 112, 112, 101, 110, 100, 95, 114, 117, 110, 101, 40, 37, 120, 41, 32, 103, 97, 118, 101, 32, 0};
+static const unsigned char tack_str59[12] = {97, 112, 112, 101, 110, 100, 95, 114, 117, 110, 101, 0};
+static const unsigned char tack_str60[55] = {97, 112, 112, 101, 110, 100, 95, 114, 117, 110, 101, 32, 105, 110, 116, 111, 32, 97, 110, 32, 101, 109, 112, 116, 121, 32, 108, 105, 115, 116, 32, 103, 97, 118, 101, 32, 37, 100, 44, 32, 108, 101, 102, 116, 32, 37, 100, 32, 98, 121, 116, 101, 115, 10, 0};
+static const unsigned char tack_str61[5] = {97, 98, 195, 169, 0};
+static const unsigned char tack_str62[53] = {97, 112, 112, 101, 110, 100, 95, 114, 117, 110, 101, 32, 105, 110, 116, 111, 32, 97, 32, 102, 117, 108, 108, 32, 108, 105, 115, 116, 32, 103, 97, 118, 101, 32, 37, 100, 32, 37, 100, 32, 37, 100, 32, 37, 100, 44, 32, 108, 101, 102, 116, 32, 0};
+static const unsigned char tack_str63[24] = {97, 32, 98, 117, 102, 102, 101, 114, 32, 119, 97, 115, 32, 110, 111, 116, 32, 102, 114, 101, 101, 100, 10, 0};
+static const unsigned char tack_str64[26] = {97, 112, 112, 101, 110, 100, 95, 114, 117, 110, 101, 32, 111, 117, 116, 32, 111, 102, 32, 109, 101, 109, 111, 114, 121, 0};
+static const unsigned char tack_str65[20] = {97, 112, 112, 101, 110, 100, 95, 114, 117, 110, 101, 32, 102, 97, 105, 108, 101, 100, 10, 0};
+static const unsigned char tack_str66[30] = {114, 111, 117, 110, 100, 32, 116, 114, 105, 112, 32, 111, 102, 32, 37, 120, 32, 103, 97, 118, 101, 32, 37, 120, 44, 32, 37, 100, 10, 0};
+static const unsigned char tack_str67[29] = {101, 110, 99, 111, 100, 105, 110, 103, 32, 111, 102, 32, 37, 120, 32, 105, 115, 32, 110, 111, 116, 32, 118, 97, 108, 105, 100, 10, 0};
+static const unsigned char tack_str68[11] = {114, 111, 117, 110, 100, 32, 116, 114, 105, 112, 0};
+static const unsigned char tack_str69[6] = {45, 45, 45, 45, 45, 0};
+static const unsigned char tack_str70[6] = {112, 103, 45, 45, 45, 0};
+static const unsigned char tack_str71[6] = {112, 103, 108, 45, 45, 0};
+static const unsigned char tack_str72[6] = {112, 103, 45, 100, 45, 0};
+static const unsigned char tack_str73[6] = {112, 103, 45, 45, 115, 0};
+static const unsigned char tack_str74[6] = {45, 103, 45, 45, 115, 0};
+static const unsigned char tack_str75[6] = {45, 45, 45, 45, 115, 0};
+static const unsigned char tack_str76[6] = {63, 63, 63, 63, 63, 0};
+static const unsigned char tack_str77[31] = {99, 108, 97, 115, 115, 101, 115, 32, 111, 102, 32, 37, 120, 32, 97, 114, 101, 32, 37, 115, 44, 32, 119, 97, 110, 116, 32, 37, 115, 10, 0};
+static const unsigned char tack_str78[8] = {99, 108, 97, 115, 115, 101, 115, 0};
 
 void tack_builtin_print(tack_string);
 
@@ -234,6 +235,11 @@ static void tack_3_std3_fmt6_printf(tack_string p_format, tack_view_27 p_args);
 extern void tack_3_std3_fmt7_cprintf(tack_string p_format, tack_view_27 p_args) TACK_C_NAME("tack_fmt_printf");
 __attribute__((unused)) static void tack_3_std3_fmt5_write(tack_view_25 p_b);
 extern void tack_3_std3_fmt6_cwrite(tack_view_25 p_b) TACK_C_NAME("tack_fmt_write");
+__attribute__((unused)) static void tack_3_std3_fmt8_eprintln(tack_string p_s);
+static void tack_3_std3_fmt7_eprintf(tack_string p_format, tack_view_27 p_args);
+extern void tack_3_std3_fmt8_ceprintf(tack_string p_format, tack_view_27 p_args) TACK_C_NAME("tack_fmt_eprintf");
+__attribute__((unused)) static void tack_3_std3_fmt6_ewrite(tack_view_25 p_b);
+extern void tack_3_std3_fmt7_cewrite(tack_view_25 p_b) TACK_C_NAME("tack_fmt_ewrite");
 static bool tack_3_std7_unicode9_in_5fruns(int32_t p_r, tack_view_28 p_t);
 static bool tack_3_std7_unicode10_is_5fprint(int32_t p_r);
 static bool tack_3_std7_unicode12_is_5fgraphic(int32_t p_r);
@@ -524,6 +530,18 @@ static void tack_3_std3_fmt5_write(tack_view_25 p_b) {
     tack_3_std3_fmt6_cwrite(p_b);
 }
 
+static void tack_3_std3_fmt8_eprintln(tack_string p_s) {
+    tack_3_std3_fmt7_eprintf((tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}, (tack_view_27){(const tack_any[1]){(tack_any){TACK_TYPE_STRING, &p_s}}, 1});
+}
+
+static void tack_3_std3_fmt7_eprintf(tack_string p_format, tack_view_27 p_args) {
+    tack_3_std3_fmt8_ceprintf(p_format, p_args);
+}
+
+static void tack_3_std3_fmt6_ewrite(tack_view_25 p_b) {
+    tack_3_std3_fmt7_cewrite(p_b);
+}
+
 static bool tack_3_std7_unicode9_in_5fruns(int32_t p_r, tack_view_28 p_t) {
     if ((p_r < 0) || (p_r > tack_3_std7_unicode10_max_5frune)) {
         return false;
@@ -695,9 +713,9 @@ static uint8_t tack_3_std4_utf89_byte_5fof(int32_t p_v) {
 static void tack_4_main5_check(tack_string p_name) {
     tack_builtin_print(p_name);
     if (tack_4_main5_fails == 0) {
-        tack_builtin_print((tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
-    } else {
         tack_builtin_print((tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
+    } else {
+        tack_builtin_print((tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
     }
     tack_4_main5_fails = 0;
 }
@@ -710,7 +728,7 @@ static void tack_4_main4_show(tack_view_25 p_b) {
                 break;
             }
             const uint8_t v_c = tack_r45.ptr[tack_k46];
-            tack_3_std3_fmt6_printf((tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)}, (tack_view_27){(const tack_any[1]){(tack_any){TACK_TYPE_UINT8, &v_c}}, 1});
+            tack_3_std3_fmt6_printf((tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)}, (tack_view_27){(const tack_any[1]){(tack_any){TACK_TYPE_UINT8, &v_c}}, 1});
         }
     }
 }
@@ -721,31 +739,30 @@ static void tack_4_main7_decodes(tack_string p_s, int32_t p_want, int64_t p_widt
     const int64_t v_w = tack_r47.r1;
     if ((v_r != p_want) || (v_w != p_width)) {
         tack_4_main5_fails = ((int64_t)((uint64_t)tack_4_main5_fails + (uint64_t)1));
-        tack_builtin_print((tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)});
+        tack_builtin_print((tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
         tack_4_main4_show((tack_view_25){p_s.ptr, p_s.len});
-        tack_3_std3_fmt6_printf((tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)}, (tack_view_27){(const tack_any[4]){(tack_any){TACK_TYPE_INT32, &v_r}, (tack_any){TACK_TYPE_INT64, &v_w}, (tack_any){TACK_TYPE_INT32, &p_want}, (tack_any){TACK_TYPE_INT64, &p_width}}, 4});
+        tack_3_std3_fmt6_printf((tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, (tack_view_27){(const tack_any[4]){(tack_any){TACK_TYPE_INT32, &v_r}, (tack_any){TACK_TYPE_INT64, &v_w}, (tack_any){TACK_TYPE_INT32, &p_want}, (tack_any){TACK_TYPE_INT64, &p_width}}, 4});
     }
 }
 
 static void tack_4_main8_decoding(void) {
-    tack_4_main7_decodes((tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, tack_4_main12_rune_5ferror, 0);
-    tack_4_main7_decodes((tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)}, 0, 1);
-    tack_4_main7_decodes((tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)}, 97, 1);
-    tack_4_main7_decodes((tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)}, 127, 1);
-    tack_4_main7_decodes((tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)}, 97, 1);
-    tack_4_main7_decodes((tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)}, 128, 2);
-    tack_4_main7_decodes((tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, 2047, 2);
-    tack_4_main7_decodes((tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)}, 233, 2);
-    tack_4_main7_decodes((tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)}, 2048, 3);
-    tack_4_main7_decodes((tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)}, 55295, 3);
-    tack_4_main7_decodes((tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)}, 57344, 3);
-    tack_4_main7_decodes((tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)}, 65533, 3);
-    tack_4_main7_decodes((tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)}, 65535, 3);
-    tack_4_main7_decodes((tack_string){tack_str23, TACK_C_STR_LEN(tack_str23)}, 19990, 3);
-    tack_4_main7_decodes((tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)}, 65536, 4);
-    tack_4_main7_decodes((tack_string){tack_str25, TACK_C_STR_LEN(tack_str25)}, 1114111, 4);
-    tack_4_main7_decodes((tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)}, 128512, 4);
-    tack_4_main7_decodes((tack_string){tack_str27, TACK_C_STR_LEN(tack_str27)}, tack_4_main12_rune_5ferror, 1);
+    tack_4_main7_decodes((tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)}, tack_4_main12_rune_5ferror, 0);
+    tack_4_main7_decodes((tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)}, 0, 1);
+    tack_4_main7_decodes((tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)}, 97, 1);
+    tack_4_main7_decodes((tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)}, 127, 1);
+    tack_4_main7_decodes((tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)}, 97, 1);
+    tack_4_main7_decodes((tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)}, 128, 2);
+    tack_4_main7_decodes((tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)}, 2047, 2);
+    tack_4_main7_decodes((tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)}, 233, 2);
+    tack_4_main7_decodes((tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)}, 2048, 3);
+    tack_4_main7_decodes((tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)}, 55295, 3);
+    tack_4_main7_decodes((tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)}, 57344, 3);
+    tack_4_main7_decodes((tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)}, 65533, 3);
+    tack_4_main7_decodes((tack_string){tack_str23, TACK_C_STR_LEN(tack_str23)}, 65535, 3);
+    tack_4_main7_decodes((tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)}, 19990, 3);
+    tack_4_main7_decodes((tack_string){tack_str25, TACK_C_STR_LEN(tack_str25)}, 65536, 4);
+    tack_4_main7_decodes((tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)}, 1114111, 4);
+    tack_4_main7_decodes((tack_string){tack_str27, TACK_C_STR_LEN(tack_str27)}, 128512, 4);
     tack_4_main7_decodes((tack_string){tack_str28, TACK_C_STR_LEN(tack_str28)}, tack_4_main12_rune_5ferror, 1);
     tack_4_main7_decodes((tack_string){tack_str29, TACK_C_STR_LEN(tack_str29)}, tack_4_main12_rune_5ferror, 1);
     tack_4_main7_decodes((tack_string){tack_str30, TACK_C_STR_LEN(tack_str30)}, tack_4_main12_rune_5ferror, 1);
@@ -764,33 +781,34 @@ static void tack_4_main8_decoding(void) {
     tack_4_main7_decodes((tack_string){tack_str43, TACK_C_STR_LEN(tack_str43)}, tack_4_main12_rune_5ferror, 1);
     tack_4_main7_decodes((tack_string){tack_str44, TACK_C_STR_LEN(tack_str44)}, tack_4_main12_rune_5ferror, 1);
     tack_4_main7_decodes((tack_string){tack_str45, TACK_C_STR_LEN(tack_str45)}, tack_4_main12_rune_5ferror, 1);
-    tack_4_main5_check((tack_string){tack_str46, TACK_C_STR_LEN(tack_str46)});
+    tack_4_main7_decodes((tack_string){tack_str46, TACK_C_STR_LEN(tack_str46)}, tack_4_main12_rune_5ferror, 1);
+    tack_4_main5_check((tack_string){tack_str47, TACK_C_STR_LEN(tack_str47)});
 }
 
 static void tack_4_main6_valids(tack_string p_s, bool p_want) {
     bool tack_a48;
     if (tack_3_std4_utf85_valid((tack_view_25){p_s.ptr, p_s.len}) != p_want) {
         tack_4_main5_fails = ((int64_t)((uint64_t)tack_4_main5_fails + (uint64_t)1));
-        tack_builtin_print((tack_string){tack_str47, TACK_C_STR_LEN(tack_str47)});
+        tack_builtin_print((tack_string){tack_str48, TACK_C_STR_LEN(tack_str48)});
         tack_4_main4_show((tack_view_25){p_s.ptr, p_s.len});
-        tack_3_std3_fmt6_printf((tack_string){tack_str48, TACK_C_STR_LEN(tack_str48)}, (tack_view_27){(const tack_any[1]){(tack_a48 = !p_want, (tack_any){TACK_TYPE_BOOL, &tack_a48})}, 1});
+        tack_3_std3_fmt6_printf((tack_string){tack_str49, TACK_C_STR_LEN(tack_str49)}, (tack_view_27){(const tack_any[1]){(tack_a48 = !p_want, (tack_any){TACK_TYPE_BOOL, &tack_a48})}, 1});
     }
 }
 
 static void tack_4_main10_validating(void) {
-    tack_4_main6_valids((tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)}, true);
-    tack_4_main6_valids((tack_string){tack_str49, TACK_C_STR_LEN(tack_str49)}, true);
     tack_4_main6_valids((tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)}, true);
     tack_4_main6_valids((tack_string){tack_str50, TACK_C_STR_LEN(tack_str50)}, true);
-    tack_4_main6_valids((tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)}, true);
-    tack_4_main6_valids((tack_string){tack_str25, TACK_C_STR_LEN(tack_str25)}, true);
-    tack_4_main6_valids((tack_string){tack_str34, TACK_C_STR_LEN(tack_str34)}, false);
-    tack_4_main6_valids((tack_string){tack_str51, TACK_C_STR_LEN(tack_str51)}, false);
+    tack_4_main6_valids((tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)}, true);
+    tack_4_main6_valids((tack_string){tack_str51, TACK_C_STR_LEN(tack_str51)}, true);
+    tack_4_main6_valids((tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)}, true);
+    tack_4_main6_valids((tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)}, true);
+    tack_4_main6_valids((tack_string){tack_str35, TACK_C_STR_LEN(tack_str35)}, false);
     tack_4_main6_valids((tack_string){tack_str52, TACK_C_STR_LEN(tack_str52)}, false);
     tack_4_main6_valids((tack_string){tack_str53, TACK_C_STR_LEN(tack_str53)}, false);
-    tack_4_main6_valids((tack_string){tack_str36, TACK_C_STR_LEN(tack_str36)}, false);
-    tack_4_main6_valids((tack_string){tack_str38, TACK_C_STR_LEN(tack_str38)}, false);
-    tack_4_main5_check((tack_string){tack_str54, TACK_C_STR_LEN(tack_str54)});
+    tack_4_main6_valids((tack_string){tack_str54, TACK_C_STR_LEN(tack_str54)}, false);
+    tack_4_main6_valids((tack_string){tack_str37, TACK_C_STR_LEN(tack_str37)}, false);
+    tack_4_main6_valids((tack_string){tack_str39, TACK_C_STR_LEN(tack_str39)}, false);
+    tack_4_main5_check((tack_string){tack_str55, TACK_C_STR_LEN(tack_str55)});
 }
 
 static void tack_4_main7_encodes(int32_t p_r, tack_string p_want) {
@@ -799,18 +817,18 @@ static void tack_4_main7_encodes(int32_t p_r, tack_string p_want) {
     const tack_error v_e = (TACK_LIST_APPEND(&v_b, 120) ? (tack_error){} : (tack_error){1, {tack_str3, TACK_C_STR_LEN(tack_str3)}});
     if (v_e.code != 0) {
         tack_4_main5_fails = ((int64_t)((uint64_t)tack_4_main5_fails + (uint64_t)1));
-        tack_builtin_print((tack_string){tack_str55, TACK_C_STR_LEN(tack_str55)});
+        tack_builtin_print((tack_string){tack_str56, TACK_C_STR_LEN(tack_str56)});
         goto tack_defer1_1;
     }
     const tack_error v_e2 = tack_3_std4_utf813_append_5frune(&v_b, p_r);
     if (v_e2.code != 0) {
         tack_4_main5_fails = ((int64_t)((uint64_t)tack_4_main5_fails + (uint64_t)1));
-        tack_3_std3_fmt6_printf((tack_string){tack_str56, TACK_C_STR_LEN(tack_str56)}, (tack_view_27){(const tack_any[2]){(tack_any){TACK_TYPE_INT32, &p_r}, (tack_a49 = v_e2.code, (tack_any){TACK_TYPE_INT32, &tack_a49})}, 2});
+        tack_3_std3_fmt6_printf((tack_string){tack_str57, TACK_C_STR_LEN(tack_str57)}, (tack_view_27){(const tack_any[2]){(tack_any){TACK_TYPE_INT32, &p_r}, (tack_a49 = v_e2.code, (tack_any){TACK_TYPE_INT32, &tack_a49})}, 2});
         goto tack_defer1_1;
     }
     if ((((v_b).len < 1) || (v_b.ptr[0] != 120)) || !tack_3_std5_bytes5_equal(tack_slice_from_25((tack_view_25){v_b.ptr, v_b.len}, (int64_t)1), (tack_view_25){p_want.ptr, p_want.len})) {
         tack_4_main5_fails = ((int64_t)((uint64_t)tack_4_main5_fails + (uint64_t)1));
-        tack_3_std3_fmt6_printf((tack_string){tack_str57, TACK_C_STR_LEN(tack_str57)}, (tack_view_27){(const tack_any[1]){(tack_any){TACK_TYPE_INT32, &p_r}}, 1});
+        tack_3_std3_fmt6_printf((tack_string){tack_str58, TACK_C_STR_LEN(tack_str58)}, (tack_view_27){(const tack_any[1]){(tack_any){TACK_TYPE_INT32, &p_r}}, 1});
         tack_4_main4_show((tack_view_25){v_b.ptr, v_b.len});
         tack_builtin_print((tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
     }
@@ -819,24 +837,24 @@ static void tack_4_main7_encodes(int32_t p_r, tack_string p_want) {
 }
 
 static void tack_4_main8_encoding(void) {
-    tack_4_main7_encodes(0, (tack_string){tack_str11, TACK_C_STR_LEN(tack_str11)});
-    tack_4_main7_encodes(97, (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
-    tack_4_main7_encodes(127, (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)});
-    tack_4_main7_encodes(128, (tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)});
-    tack_4_main7_encodes(2047, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)});
-    tack_4_main7_encodes(2048, (tack_string){tack_str18, TACK_C_STR_LEN(tack_str18)});
-    tack_4_main7_encodes(55295, (tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)});
-    tack_4_main7_encodes(55296, (tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)});
-    tack_4_main7_encodes(57343, (tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)});
-    tack_4_main7_encodes(57344, (tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)});
-    tack_4_main7_encodes(65535, (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)});
-    tack_4_main7_encodes(65536, (tack_string){tack_str24, TACK_C_STR_LEN(tack_str24)});
-    tack_4_main7_encodes(1114111, (tack_string){tack_str25, TACK_C_STR_LEN(tack_str25)});
-    tack_4_main7_encodes(1114112, (tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)});
-    tack_4_main7_encodes((-1), (tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)});
-    tack_4_main7_encodes((-2147483648), (tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)});
-    tack_4_main7_encodes(2147483647, (tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)});
-    tack_4_main5_check((tack_string){tack_str58, TACK_C_STR_LEN(tack_str58)});
+    tack_4_main7_encodes(0, (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)});
+    tack_4_main7_encodes(97, (tack_string){tack_str13, TACK_C_STR_LEN(tack_str13)});
+    tack_4_main7_encodes(127, (tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)});
+    tack_4_main7_encodes(128, (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)});
+    tack_4_main7_encodes(2047, (tack_string){tack_str17, TACK_C_STR_LEN(tack_str17)});
+    tack_4_main7_encodes(2048, (tack_string){tack_str19, TACK_C_STR_LEN(tack_str19)});
+    tack_4_main7_encodes(55295, (tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)});
+    tack_4_main7_encodes(55296, (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)});
+    tack_4_main7_encodes(57343, (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)});
+    tack_4_main7_encodes(57344, (tack_string){tack_str21, TACK_C_STR_LEN(tack_str21)});
+    tack_4_main7_encodes(65535, (tack_string){tack_str23, TACK_C_STR_LEN(tack_str23)});
+    tack_4_main7_encodes(65536, (tack_string){tack_str25, TACK_C_STR_LEN(tack_str25)});
+    tack_4_main7_encodes(1114111, (tack_string){tack_str26, TACK_C_STR_LEN(tack_str26)});
+    tack_4_main7_encodes(1114112, (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)});
+    tack_4_main7_encodes((-1), (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)});
+    tack_4_main7_encodes((-2147483648), (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)});
+    tack_4_main7_encodes(2147483647, (tack_string){tack_str22, TACK_C_STR_LEN(tack_str22)});
+    tack_4_main5_check((tack_string){tack_str59, TACK_C_STR_LEN(tack_str59)});
 }
 
 static void tack_4_main7_failing(void) {
@@ -852,12 +870,12 @@ static void tack_4_main7_failing(void) {
     tack_4_main9_failAfter((-1));
     if ((((v_e.code != 1) || (tack_compare_strings(v_e.msg, (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}) != 0)) || ((v_b).len != 0)) || (tack_4_main4_live() != 0)) {
         tack_4_main5_fails = ((int64_t)((uint64_t)tack_4_main5_fails + (uint64_t)1));
-        tack_3_std3_fmt6_printf((tack_string){tack_str59, TACK_C_STR_LEN(tack_str59)}, (tack_view_27){(const tack_any[2]){(tack_a50 = v_e.code, (tack_any){TACK_TYPE_INT32, &tack_a50}), (tack_a51 = (v_b).len, (tack_any){TACK_TYPE_INT64, &tack_a51})}, 2});
+        tack_3_std3_fmt6_printf((tack_string){tack_str60, TACK_C_STR_LEN(tack_str60)}, (tack_view_27){(const tack_any[2]){(tack_a50 = v_e.code, (tack_any){TACK_TYPE_INT32, &tack_a50}), (tack_a51 = (v_b).len, (tack_any){TACK_TYPE_INT64, &tack_a51})}, 2});
     }
     const tack_error v_e1 = (TACK_LIST_APPEND_N(&v_b, ((const uint8_t[2]){97, 98}), 2) ? (tack_error){} : (tack_error){1, {tack_str3, TACK_C_STR_LEN(tack_str3)}});
     if (v_e1.code != 0) {
         tack_4_main5_fails = ((int64_t)((uint64_t)tack_4_main5_fails + (uint64_t)1));
-        tack_builtin_print((tack_string){tack_str55, TACK_C_STR_LEN(tack_str55)});
+        tack_builtin_print((tack_string){tack_str56, TACK_C_STR_LEN(tack_str56)});
         goto tack_defer2_1;
     }
     tack_4_main9_failAfter(0);
@@ -866,9 +884,9 @@ static void tack_4_main7_failing(void) {
     const tack_error v_e4 = tack_3_std4_utf813_append_5frune(&v_b, 233);
     const tack_error v_e5 = tack_3_std4_utf813_append_5frune(&v_b, 99);
     tack_4_main9_failAfter((-1));
-    if (((((v_e2.code != 1) || (v_e3.code != 1)) || (v_e4.code != 0)) || (v_e5.code != 1)) || !tack_3_std5_bytes5_equal((tack_view_25){v_b.ptr, v_b.len}, (tack_view_25){tack_str60, TACK_C_STR_LEN(tack_str60)})) {
+    if (((((v_e2.code != 1) || (v_e3.code != 1)) || (v_e4.code != 0)) || (v_e5.code != 1)) || !tack_3_std5_bytes5_equal((tack_view_25){v_b.ptr, v_b.len}, (tack_view_25){tack_str61, TACK_C_STR_LEN(tack_str61)})) {
         tack_4_main5_fails = ((int64_t)((uint64_t)tack_4_main5_fails + (uint64_t)1));
-        tack_3_std3_fmt6_printf((tack_string){tack_str61, TACK_C_STR_LEN(tack_str61)}, (tack_view_27){(const tack_any[4]){(tack_a52 = v_e2.code, (tack_any){TACK_TYPE_INT32, &tack_a52}), (tack_a53 = v_e3.code, (tack_any){TACK_TYPE_INT32, &tack_a53}), (tack_a54 = v_e4.code, (tack_any){TACK_TYPE_INT32, &tack_a54}), (tack_a55 = v_e5.code, (tack_any){TACK_TYPE_INT32, &tack_a55})}, 4});
+        tack_3_std3_fmt6_printf((tack_string){tack_str62, TACK_C_STR_LEN(tack_str62)}, (tack_view_27){(const tack_any[4]){(tack_a52 = v_e2.code, (tack_any){TACK_TYPE_INT32, &tack_a52}), (tack_a53 = v_e3.code, (tack_any){TACK_TYPE_INT32, &tack_a53}), (tack_a54 = v_e4.code, (tack_any){TACK_TYPE_INT32, &tack_a54}), (tack_a55 = v_e5.code, (tack_any){TACK_TYPE_INT32, &tack_a55})}, 4});
         tack_4_main4_show((tack_view_25){v_b.ptr, v_b.len});
         tack_builtin_print((tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
     }
@@ -876,9 +894,9 @@ static void tack_4_main7_failing(void) {
     v_b = (tack_list_26){};
     if (tack_4_main4_live() != 0) {
         tack_4_main5_fails = ((int64_t)((uint64_t)tack_4_main5_fails + (uint64_t)1));
-        tack_builtin_print((tack_string){tack_str62, TACK_C_STR_LEN(tack_str62)});
+        tack_builtin_print((tack_string){tack_str63, TACK_C_STR_LEN(tack_str63)});
     }
-    tack_4_main5_check((tack_string){tack_str63, TACK_C_STR_LEN(tack_str63)});
+    tack_4_main5_check((tack_string){tack_str64, TACK_C_STR_LEN(tack_str64)});
     tack_defer2_1: ;
     tack_list_free_(v_b.ptr, v_b.cap, sizeof (uint8_t), _Alignof (uint8_t), v_b.alloc);
 }
@@ -900,7 +918,7 @@ static void tack_4_main12_round_5ftrip(void) {
             const tack_error v_e = tack_3_std4_utf813_append_5frune(&v_b, v_r);
             if (v_e.code != 0) {
                 tack_4_main5_fails = ((int64_t)((uint64_t)tack_4_main5_fails + (uint64_t)1));
-                tack_builtin_print((tack_string){tack_str64, TACK_C_STR_LEN(tack_str64)});
+                tack_builtin_print((tack_string){tack_str65, TACK_C_STR_LEN(tack_str65)});
                 goto tack_defer3_1;
             }
             const tack_results_3_std4_utf86_decode tack_r57 = tack_3_std4_utf86_decode((tack_view_25){v_b.ptr, v_b.len});
@@ -909,17 +927,17 @@ static void tack_4_main12_round_5ftrip(void) {
             const bool v_surrogate = ((v_r >= 55296) && (v_r <= 57343));
             if ((v_surrogate && ((v_got != tack_4_main12_rune_5ferror) || (v_w != 3))) || (!v_surrogate && ((v_got != v_r) || (v_w != (v_b).len)))) {
                 tack_4_main5_fails = ((int64_t)((uint64_t)tack_4_main5_fails + (uint64_t)1));
-                tack_3_std3_fmt6_printf((tack_string){tack_str65, TACK_C_STR_LEN(tack_str65)}, (tack_view_27){(const tack_any[3]){(tack_any){TACK_TYPE_INT32, &v_r}, (tack_any){TACK_TYPE_INT32, &v_got}, (tack_any){TACK_TYPE_INT64, &v_w}}, 3});
+                tack_3_std3_fmt6_printf((tack_string){tack_str66, TACK_C_STR_LEN(tack_str66)}, (tack_view_27){(const tack_any[3]){(tack_any){TACK_TYPE_INT32, &v_r}, (tack_any){TACK_TYPE_INT32, &v_got}, (tack_any){TACK_TYPE_INT64, &v_w}}, 3});
                 goto tack_defer3_1;
             }
             if (!tack_3_std4_utf85_valid((tack_view_25){v_b.ptr, v_b.len})) {
                 tack_4_main5_fails = ((int64_t)((uint64_t)tack_4_main5_fails + (uint64_t)1));
-                tack_3_std3_fmt6_printf((tack_string){tack_str66, TACK_C_STR_LEN(tack_str66)}, (tack_view_27){(const tack_any[1]){(tack_any){TACK_TYPE_INT32, &v_r}}, 1});
+                tack_3_std3_fmt6_printf((tack_string){tack_str67, TACK_C_STR_LEN(tack_str67)}, (tack_view_27){(const tack_any[1]){(tack_any){TACK_TYPE_INT32, &v_r}}, 1});
                 goto tack_defer3_1;
             }
         }
     }
-    tack_4_main5_check((tack_string){tack_str67, TACK_C_STR_LEN(tack_str67)});
+    tack_4_main5_check((tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
     tack_defer3_1: ;
     tack_list_free_(v_b.ptr, v_b.cap, sizeof (uint8_t), _Alignof (uint8_t), v_b.alloc);
 }
@@ -949,86 +967,86 @@ static tack_string tack_4_main7_classes(int32_t p_r) {
     {
         const tack_array_31 tack_s58 = v_out;
         if (tack_eq_31(&tack_s58, &(tack_array_31){{45, 45, 45, 45, 45}})) {
-            return (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)};
-        } else if (tack_eq_31(&tack_s58, &(tack_array_31){{112, 103, 45, 45, 45}})) {
             return (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)};
-        } else if (tack_eq_31(&tack_s58, &(tack_array_31){{112, 103, 108, 45, 45}})) {
+        } else if (tack_eq_31(&tack_s58, &(tack_array_31){{112, 103, 45, 45, 45}})) {
             return (tack_string){tack_str70, TACK_C_STR_LEN(tack_str70)};
-        } else if (tack_eq_31(&tack_s58, &(tack_array_31){{112, 103, 45, 100, 45}})) {
+        } else if (tack_eq_31(&tack_s58, &(tack_array_31){{112, 103, 108, 45, 45}})) {
             return (tack_string){tack_str71, TACK_C_STR_LEN(tack_str71)};
-        } else if (tack_eq_31(&tack_s58, &(tack_array_31){{112, 103, 45, 45, 115}})) {
+        } else if (tack_eq_31(&tack_s58, &(tack_array_31){{112, 103, 45, 100, 45}})) {
             return (tack_string){tack_str72, TACK_C_STR_LEN(tack_str72)};
-        } else if (tack_eq_31(&tack_s58, &(tack_array_31){{45, 103, 45, 45, 115}})) {
+        } else if (tack_eq_31(&tack_s58, &(tack_array_31){{112, 103, 45, 45, 115}})) {
             return (tack_string){tack_str73, TACK_C_STR_LEN(tack_str73)};
-        } else if (tack_eq_31(&tack_s58, &(tack_array_31){{45, 45, 45, 45, 115}})) {
+        } else if (tack_eq_31(&tack_s58, &(tack_array_31){{45, 103, 45, 45, 115}})) {
             return (tack_string){tack_str74, TACK_C_STR_LEN(tack_str74)};
+        } else if (tack_eq_31(&tack_s58, &(tack_array_31){{45, 45, 45, 45, 115}})) {
+            return (tack_string){tack_str75, TACK_C_STR_LEN(tack_str75)};
         }
     }
-    return (tack_string){tack_str75, TACK_C_STR_LEN(tack_str75)};
+    return (tack_string){tack_str76, TACK_C_STR_LEN(tack_str76)};
 }
 
 static void tack_4_main7_classed(int32_t p_r, tack_string p_want) {
     const tack_string v_got = tack_4_main7_classes(p_r);
     if (tack_compare_strings(v_got, p_want) != 0) {
         tack_4_main5_fails = ((int64_t)((uint64_t)tack_4_main5_fails + (uint64_t)1));
-        tack_3_std3_fmt6_printf((tack_string){tack_str76, TACK_C_STR_LEN(tack_str76)}, (tack_view_27){(const tack_any[3]){(tack_any){TACK_TYPE_INT32, &p_r}, (tack_any){TACK_TYPE_STRING, &v_got}, (tack_any){TACK_TYPE_STRING, &p_want}}, 3});
+        tack_3_std3_fmt6_printf((tack_string){tack_str77, TACK_C_STR_LEN(tack_str77)}, (tack_view_27){(const tack_any[3]){(tack_any){TACK_TYPE_INT32, &p_r}, (tack_any){TACK_TYPE_STRING, &v_got}, (tack_any){TACK_TYPE_STRING, &p_want}}, 3});
     }
 }
 
 static void tack_4_main11_classifying(void) {
-    tack_4_main7_classed(0, (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
-    tack_4_main7_classed(9, (tack_string){tack_str74, TACK_C_STR_LEN(tack_str74)});
-    tack_4_main7_classed(10, (tack_string){tack_str74, TACK_C_STR_LEN(tack_str74)});
-    tack_4_main7_classed(11, (tack_string){tack_str74, TACK_C_STR_LEN(tack_str74)});
-    tack_4_main7_classed(12, (tack_string){tack_str74, TACK_C_STR_LEN(tack_str74)});
-    tack_4_main7_classed(13, (tack_string){tack_str74, TACK_C_STR_LEN(tack_str74)});
-    tack_4_main7_classed(31, (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
-    tack_4_main7_classed(32, (tack_string){tack_str72, TACK_C_STR_LEN(tack_str72)});
-    tack_4_main7_classed(33, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
-    tack_4_main7_classed(48, (tack_string){tack_str71, TACK_C_STR_LEN(tack_str71)});
-    tack_4_main7_classed(57, (tack_string){tack_str71, TACK_C_STR_LEN(tack_str71)});
-    tack_4_main7_classed(65, (tack_string){tack_str70, TACK_C_STR_LEN(tack_str70)});
-    tack_4_main7_classed(122, (tack_string){tack_str70, TACK_C_STR_LEN(tack_str70)});
-    tack_4_main7_classed(95, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
-    tack_4_main7_classed(127, (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
-    tack_4_main7_classed(133, (tack_string){tack_str74, TACK_C_STR_LEN(tack_str74)});
-    tack_4_main7_classed(159, (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
-    tack_4_main7_classed(160, (tack_string){tack_str73, TACK_C_STR_LEN(tack_str73)});
-    tack_4_main7_classed(170, (tack_string){tack_str70, TACK_C_STR_LEN(tack_str70)});
-    tack_4_main7_classed(173, (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
-    tack_4_main7_classed(178, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
-    tack_4_main7_classed(181, (tack_string){tack_str70, TACK_C_STR_LEN(tack_str70)});
-    tack_4_main7_classed(233, (tack_string){tack_str70, TACK_C_STR_LEN(tack_str70)});
-    tack_4_main7_classed(247, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
-    tack_4_main7_classed(255, (tack_string){tack_str70, TACK_C_STR_LEN(tack_str70)});
-    tack_4_main7_classed(256, (tack_string){tack_str70, TACK_C_STR_LEN(tack_str70)});
-    tack_4_main7_classed(768, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
-    tack_4_main7_classed(1632, (tack_string){tack_str71, TACK_C_STR_LEN(tack_str71)});
-    tack_4_main7_classed(5760, (tack_string){tack_str73, TACK_C_STR_LEN(tack_str73)});
-    tack_4_main7_classed(8192, (tack_string){tack_str73, TACK_C_STR_LEN(tack_str73)});
-    tack_4_main7_classed(8203, (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
-    tack_4_main7_classed(8232, (tack_string){tack_str74, TACK_C_STR_LEN(tack_str74)});
-    tack_4_main7_classed(8233, (tack_string){tack_str74, TACK_C_STR_LEN(tack_str74)});
-    tack_4_main7_classed(8239, (tack_string){tack_str73, TACK_C_STR_LEN(tack_str73)});
-    tack_4_main7_classed(12288, (tack_string){tack_str73, TACK_C_STR_LEN(tack_str73)});
-    tack_4_main7_classed(19990, (tack_string){tack_str70, TACK_C_STR_LEN(tack_str70)});
-    tack_4_main7_classed(55296, (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
-    tack_4_main7_classed(57343, (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
-    tack_4_main7_classed(57344, (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
-    tack_4_main7_classed(65279, (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
-    tack_4_main7_classed(65296, (tack_string){tack_str71, TACK_C_STR_LEN(tack_str71)});
-    tack_4_main7_classed(65533, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
-    tack_4_main7_classed(65535, (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
-    tack_4_main7_classed(120782, (tack_string){tack_str71, TACK_C_STR_LEN(tack_str71)});
-    tack_4_main7_classed(128512, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
-    tack_4_main7_classed(131072, (tack_string){tack_str70, TACK_C_STR_LEN(tack_str70)});
-    tack_4_main7_classed(917505, (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
-    tack_4_main7_classed(1114111, (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
-    tack_4_main7_classed(1114112, (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
-    tack_4_main7_classed((-1), (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
-    tack_4_main7_classed((-2147483648), (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
-    tack_4_main7_classed(2147483647, (tack_string){tack_str68, TACK_C_STR_LEN(tack_str68)});
-    tack_4_main5_check((tack_string){tack_str77, TACK_C_STR_LEN(tack_str77)});
+    tack_4_main7_classed(0, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
+    tack_4_main7_classed(9, (tack_string){tack_str75, TACK_C_STR_LEN(tack_str75)});
+    tack_4_main7_classed(10, (tack_string){tack_str75, TACK_C_STR_LEN(tack_str75)});
+    tack_4_main7_classed(11, (tack_string){tack_str75, TACK_C_STR_LEN(tack_str75)});
+    tack_4_main7_classed(12, (tack_string){tack_str75, TACK_C_STR_LEN(tack_str75)});
+    tack_4_main7_classed(13, (tack_string){tack_str75, TACK_C_STR_LEN(tack_str75)});
+    tack_4_main7_classed(31, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
+    tack_4_main7_classed(32, (tack_string){tack_str73, TACK_C_STR_LEN(tack_str73)});
+    tack_4_main7_classed(33, (tack_string){tack_str70, TACK_C_STR_LEN(tack_str70)});
+    tack_4_main7_classed(48, (tack_string){tack_str72, TACK_C_STR_LEN(tack_str72)});
+    tack_4_main7_classed(57, (tack_string){tack_str72, TACK_C_STR_LEN(tack_str72)});
+    tack_4_main7_classed(65, (tack_string){tack_str71, TACK_C_STR_LEN(tack_str71)});
+    tack_4_main7_classed(122, (tack_string){tack_str71, TACK_C_STR_LEN(tack_str71)});
+    tack_4_main7_classed(95, (tack_string){tack_str70, TACK_C_STR_LEN(tack_str70)});
+    tack_4_main7_classed(127, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
+    tack_4_main7_classed(133, (tack_string){tack_str75, TACK_C_STR_LEN(tack_str75)});
+    tack_4_main7_classed(159, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
+    tack_4_main7_classed(160, (tack_string){tack_str74, TACK_C_STR_LEN(tack_str74)});
+    tack_4_main7_classed(170, (tack_string){tack_str71, TACK_C_STR_LEN(tack_str71)});
+    tack_4_main7_classed(173, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
+    tack_4_main7_classed(178, (tack_string){tack_str70, TACK_C_STR_LEN(tack_str70)});
+    tack_4_main7_classed(181, (tack_string){tack_str71, TACK_C_STR_LEN(tack_str71)});
+    tack_4_main7_classed(233, (tack_string){tack_str71, TACK_C_STR_LEN(tack_str71)});
+    tack_4_main7_classed(247, (tack_string){tack_str70, TACK_C_STR_LEN(tack_str70)});
+    tack_4_main7_classed(255, (tack_string){tack_str71, TACK_C_STR_LEN(tack_str71)});
+    tack_4_main7_classed(256, (tack_string){tack_str71, TACK_C_STR_LEN(tack_str71)});
+    tack_4_main7_classed(768, (tack_string){tack_str70, TACK_C_STR_LEN(tack_str70)});
+    tack_4_main7_classed(1632, (tack_string){tack_str72, TACK_C_STR_LEN(tack_str72)});
+    tack_4_main7_classed(5760, (tack_string){tack_str74, TACK_C_STR_LEN(tack_str74)});
+    tack_4_main7_classed(8192, (tack_string){tack_str74, TACK_C_STR_LEN(tack_str74)});
+    tack_4_main7_classed(8203, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
+    tack_4_main7_classed(8232, (tack_string){tack_str75, TACK_C_STR_LEN(tack_str75)});
+    tack_4_main7_classed(8233, (tack_string){tack_str75, TACK_C_STR_LEN(tack_str75)});
+    tack_4_main7_classed(8239, (tack_string){tack_str74, TACK_C_STR_LEN(tack_str74)});
+    tack_4_main7_classed(12288, (tack_string){tack_str74, TACK_C_STR_LEN(tack_str74)});
+    tack_4_main7_classed(19990, (tack_string){tack_str71, TACK_C_STR_LEN(tack_str71)});
+    tack_4_main7_classed(55296, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
+    tack_4_main7_classed(57343, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
+    tack_4_main7_classed(57344, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
+    tack_4_main7_classed(65279, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
+    tack_4_main7_classed(65296, (tack_string){tack_str72, TACK_C_STR_LEN(tack_str72)});
+    tack_4_main7_classed(65533, (tack_string){tack_str70, TACK_C_STR_LEN(tack_str70)});
+    tack_4_main7_classed(65535, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
+    tack_4_main7_classed(120782, (tack_string){tack_str72, TACK_C_STR_LEN(tack_str72)});
+    tack_4_main7_classed(128512, (tack_string){tack_str70, TACK_C_STR_LEN(tack_str70)});
+    tack_4_main7_classed(131072, (tack_string){tack_str71, TACK_C_STR_LEN(tack_str71)});
+    tack_4_main7_classed(917505, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
+    tack_4_main7_classed(1114111, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
+    tack_4_main7_classed(1114112, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
+    tack_4_main7_classed((-1), (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
+    tack_4_main7_classed((-2147483648), (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
+    tack_4_main7_classed(2147483647, (tack_string){tack_str69, TACK_C_STR_LEN(tack_str69)});
+    tack_4_main5_check((tack_string){tack_str78, TACK_C_STR_LEN(tack_str78)});
 }
 
 static void tack_4_main4_main(void) {

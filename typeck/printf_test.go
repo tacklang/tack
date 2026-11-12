@@ -109,3 +109,13 @@ func TestOtherPrintfIsNotChecked(t *testing.T) {
 		t.Errorf("got %v, want no diagnostics", diags)
 	}
 }
+
+// TestOtherEprintfIsNotChecked checks a function named eprintf outside
+// std/fmt is a function like any other, whose format is not read, as
+// TestOtherPrintfIsNotChecked does for printf.
+func TestOtherEprintfIsNotChecked(t *testing.T) {
+	src := "package main\n\nfunc eprintf(f string, args ...any) {\n}\n\nfunc main() {\n    eprintf(\"%d %q\", \"x\")\n}\n"
+	if _, diags := checkTree(t, src); len(diags) > 0 {
+		t.Errorf("got %v, want no diagnostics", diags)
+	}
+}

@@ -583,8 +583,10 @@ section remains the description of the language.
   println(s string)` writes `s` and then a newline, `fmt.println("hi")`,
   whose `pub func printf(format string, args ...any)` writes formatted
   text (see printf), and whose `pub func write(b []uint8)` writes bytes
-  (see write), [`bytes`](src/std/bytes/bytes.tck), which reads byte
-  views and builds byte lists (see bytes), and
+  (see write), each to standard output, with a twin for standard error,
+  `eprintln`, `eprintf` and `ewrite` (see standard error),
+  [`bytes`](src/std/bytes/bytes.tck), which reads byte views and builds
+  byte lists (see bytes), and
   [`text`](src/std/text/text.tck), whose `Text` owns growing bytes (see
   text), [`os`](src/std/os/os.tck), which reaches the operating
   system and runs programs (see os), and
@@ -1145,8 +1147,8 @@ section remains the description of the language.
   ending the format. printf writes through the same C `stdout` as
   `print`, so the two interleave in call order, formats integers itself,
   never calling C's `printf`, and reports no error. Only `std/fmt`'s
-  `printf` has its format checked: a function of any other package named
-  `printf` is an ordinary function.
+  `printf` and `eprintf` have their format checked: a function of any
+  other package named `printf` or `eprintf` is an ordinary function.
 - write. `fmt.write(b)`, from `std/fmt`, writes exactly the bytes of `b`
   to standard output, each as it is, `0` and `0xff` included, and nothing
   else: no newline and no formatting. Its parameter is a view, `b []uint8`,
@@ -1157,6 +1159,26 @@ section remains the description of the language.
   write goes through the same C `stdout` as `print` and `printf`, with one
   `fwrite`, so the three interleave in call order, and like them it
   reports no error.
+- standard error. `std/fmt`'s `pub func eprintln(s string)`, `pub func
+  eprintf(format string, args ...any)` and `pub func ewrite(b []uint8)`
+  are `println`, `printf` and `write` for standard error: each writes
+  exactly what its twin writes, through C's `stderr`, so the three
+  interleave with each other in call order. eprintf's format is checked
+  as printf's is, each message naming the function called, `eprintf verb
+  %d does not take string`, `unknown eprintf verb %q`, `eprintf format
+  ends in a lone %` and `eprintf format has 2 verbs but 1 argument`, and
+  a format the compiler does not know gets printf's markers. glibc
+  leaves `stderr` unbuffered (C requires only that it not be fully
+  buffered), so eprintf gathers a call's output, up to 512 bytes at a
+  time, and hands it over at once, one write for a short call, and every
+  byte before the call returns; eprintln is eprintf with `"%s\n"`. Every
+  write to standard error flushes both ways around it: standard output
+  first, as C++ ties `cerr` to `cout`, and standard error after, so
+  where both streams reach one pipe, file or terminal, `2>&1`, their
+  bytes arrive in the order of the calls, however the C library buffers
+  either stream. Like print, none reports an error: a closed descriptor or
+  a failed write loses the bytes, and a pipe with no reader raises
+  `SIGPIPE`, as it does for print.
 - bytes. `std/bytes` is written in Tack alone, with no C: its views go
   in and its lists come out. Its read functions take `[]uint8` views, so
   a `list[uint8]`, an array or a slice of either, or a string's bytes,

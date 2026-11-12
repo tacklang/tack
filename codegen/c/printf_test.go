@@ -208,6 +208,47 @@ func TestFmtWriteExampleIsSanitizerClean(t *testing.T) {
 	})
 }
 
+// TestFmtStderrExampleIsSanitizerClean builds examples/fmt-stderr with
+// clang's warnings as errors and the address and undefined behavior
+// sanitizers on, std/fmt's C included, so an empty view's null pointer
+// handed to fwrite, a read past a view, or a piece written past the end
+// of the buffer eprintf gathers its output in, fails the run, and checks
+// it writes its output to standard output and its stderr, then the 1 MiB
+// list twice, to standard error. A sanitizer's report would go to
+// standard error too, so it also fails the comparison.
+func TestFmtStderrExampleIsSanitizerClean(t *testing.T) {
+	dir := filepath.Join("..", "..", "examples", "fmt-stderr")
+	src := readFile(t, filepath.Join(dir, "main.tck"))
+	want := readFile(t, filepath.Join(dir, "output"))
+	wantErr := readFile(t, filepath.Join(dir, "stderr"))
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildWithStd(t, src, flags...)
+		var stderr strings.Builder
+		cmd := exec.Command(bin)
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("fmt-stderr failed: %v\n%.4000s", err, stderr.String())
+		}
+		if string(out) != want {
+			t.Errorf("fmt-stderr wrote\n%q\nwant\n%q", out, want)
+		}
+		const big = 1 << 20
+		errOut := stderr.String()
+		if len(errOut) != len(wantErr)+2*big {
+			t.Fatalf("fmt-stderr wrote %d bytes to stderr, want %d", len(errOut), len(wantErr)+2*big)
+		}
+		if errOut[:len(wantErr)] != wantErr {
+			t.Errorf("fmt-stderr wrote to stderr\n%q\nwant\n%q", errOut[:len(wantErr)], wantErr)
+		}
+		for i := range 2 * big {
+			if got := errOut[len(wantErr)+i]; got != byte(i%big%251) {
+				t.Fatalf("byte %d of the large writes is %#x, want %#x", i, got, byte(i%big%251))
+			}
+		}
+	})
+}
+
 // TestBytesExampleIsSanitizerClean builds examples/bytes, its C file and
 // std's C with clang's warnings as errors and the address and undefined
 // behavior sanitizers on, every finding fatal, and checks it writes

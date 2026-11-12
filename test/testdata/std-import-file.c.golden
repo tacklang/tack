@@ -17,7 +17,8 @@ typedef struct {
 } tack_view_21;
 
 static const unsigned char tack_str0[2] = {10, 0};
-static const unsigned char tack_str1[15] = {115, 105, 110, 103, 108, 101, 32, 102, 105, 108, 101, 32, 111, 107, 0};
+static const unsigned char tack_str1[4] = {37, 115, 10, 0};
+static const unsigned char tack_str2[15] = {115, 105, 110, 103, 108, 101, 32, 102, 105, 108, 101, 32, 111, 107, 0};
 
 void tack_builtin_print(tack_string);
 
@@ -30,6 +31,11 @@ __attribute__((unused)) static void tack_3_std3_fmt6_printf(tack_string p_format
 extern void tack_3_std3_fmt7_cprintf(tack_string p_format, tack_view_20 p_args) TACK_C_NAME("tack_fmt_printf");
 __attribute__((unused)) static void tack_3_std3_fmt5_write(tack_view_21 p_b);
 extern void tack_3_std3_fmt6_cwrite(tack_view_21 p_b) TACK_C_NAME("tack_fmt_write");
+__attribute__((unused)) static void tack_3_std3_fmt8_eprintln(tack_string p_s);
+static void tack_3_std3_fmt7_eprintf(tack_string p_format, tack_view_20 p_args);
+extern void tack_3_std3_fmt8_ceprintf(tack_string p_format, tack_view_20 p_args) TACK_C_NAME("tack_fmt_eprintf");
+__attribute__((unused)) static void tack_3_std3_fmt6_ewrite(tack_view_21 p_b);
+extern void tack_3_std3_fmt7_cewrite(tack_view_21 p_b) TACK_C_NAME("tack_fmt_ewrite");
 static void tack_4_main4_main(void);
 
 static void tack_3_std3_fmt7_println(tack_string p_s) {
@@ -45,8 +51,20 @@ static void tack_3_std3_fmt5_write(tack_view_21 p_b) {
     tack_3_std3_fmt6_cwrite(p_b);
 }
 
+static void tack_3_std3_fmt8_eprintln(tack_string p_s) {
+    tack_3_std3_fmt7_eprintf((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}, (tack_view_20){(const tack_any[1]){(tack_any){TACK_TYPE_STRING, &p_s}}, 1});
+}
+
+static void tack_3_std3_fmt7_eprintf(tack_string p_format, tack_view_20 p_args) {
+    tack_3_std3_fmt8_ceprintf(p_format, p_args);
+}
+
+static void tack_3_std3_fmt6_ewrite(tack_view_21 p_b) {
+    tack_3_std3_fmt7_cewrite(p_b);
+}
+
 static void tack_4_main4_main(void) {
-    tack_3_std3_fmt7_println((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)});
+    tack_3_std3_fmt7_println((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
 }
 
 int tack_argc_;

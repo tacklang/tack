@@ -1,0 +1,62 @@
+package main
+
+import fmt from "std/fmt"
+
+// Ending with exit right after writing to both streams: every byte
+// written before the exit reaches its stream, standard output's checked
+// against this directory's output and standard error's against stderr,
+// and the status is 3. Standard output gets more than C's stdio buffers
+// before the exit, mixed from print, println, printf and write, so what
+// is still buffered at the exit is flushed by it; standard error's last
+// call before the exit is an eprintf whose format ends in a lone %, which
+// leaves the formatter by its early way out, and whose output must still
+// arrive whole. The format comes through eshow, so the compiler does not
+// know it and accepts its mistakes. The exit is made two calls down from
+// main; that exit frees what is still held is examples/exit-frees' to
+// check.
+
+// eshow passes f, a format the compiler does not know, on to eprintf.
+func eshow(f string, args ...any) {
+    fmt.eprintf(f, args...)
+}
+
+// filled returns a list of n bytes, each c, or an empty list when it
+// cannot be made.
+func filled(n int64, c uint8) list[uint8] {
+    mut l := make(list[uint8], c_allocator)
+    for range n {
+        e := append(mut l, c)
+        if e.code != 0 {
+            print("append failed\n")
+            return l
+        }
+    }
+    return l
+}
+
+// finish writes to both streams and exits with status 3.
+func finish(l []uint8) {
+    fmt.printf("%d:%s\n", len(l), l)
+    eshow("err last %d %")
+    exit(3)
+}
+
+// deeper passes l on to finish.
+func deeper(l []uint8) {
+    fmt.write([]uint8("deeper\n"))
+    fmt.ewrite([]uint8("err deeper\n"))
+    finish(l)
+}
+
+func main() {
+    print("out 1\n")
+    fmt.eprintln("err 1")
+    fmt.println("out 2")
+    fmt.eprintf("err %d\n", 2)
+    l := filled(5000, 'q')
+    fmt.printf("%s\n", l[:])
+    fmt.write(l)
+    print("\n")
+    deeper(l[:])
+    print("not reached\n")
+}

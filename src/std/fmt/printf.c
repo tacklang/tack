@@ -1,16 +1,19 @@
-// printf: std/fmt's formatted printing, the body of fmt.printf. Its
-// arguments arrive as a view of tack_any values, each a type id and a
-// pointer to a value of that type, valid for the call only: they are read
-// through std's tack.h unpack helpers, which check the id first, and
-// never written or kept.
+// printf: std/fmt's formatted printing, the body of fmt.printf and of
+// fmt.eprintf, which differ only in their stream, stdout or stderr: one
+// formatter writes to a sink, the stream and, for stderr, a buffer the
+// call's output is gathered in (see sink). Its arguments arrive as a
+// view of tack_any values, each a type id and a pointer to a value of
+// that type, valid for the call only: they are read through std's tack.h
+// unpack helpers, which check the id first, and never written or kept.
 //
 // The format is read byte by byte. A % starts a verb, which is the UTF-8
 // sequence after it, as long as its first byte says, so an unknown verb
 // that is not ASCII is written back whole; the compiler's check of a
 // known format reads it the same way. Integers are formatted here, into a
 // buffer on the stack, rather than by C's printf, so the only thing taken
-// from the C library is the one function that writes bytes, out: a target
-// with no C library replaces that alone.
+// from the C library is fwrite, which out and flush alone call, and the
+// fflush of stdout and of stderr eprintf makes around its output: a
+// target with no C library replaces those alone.
 //
 // Every mistake in the format is written into the output, as Go's fmt
 // writes it, and none is undefined: %!d(string=hi) for a verb given a
@@ -40,25 +43,69 @@
 
 #include "tack.h"
 
-// out writes the n bytes at p to standard output, nothing for n == 0, so
-// p may then be null, as a zero string's bytes are.
-static void out(const unsigned char *p, int64_t n) {
-    if (n > 0) {
-        fwrite(p, 1, (size_t)n, stdout);
+// sink is where one call's output goes: the stream f, and, when buf is
+// not null, buf, cap bytes on the caller's stack, whose first n are bytes
+// not yet handed to f. A call's output is gathered for stderr, which
+// glibc leaves unbuffered (C requires only that it not be fully
+// buffered), so a short call reaches it in one write rather than one for
+// each piece; it is not for stdout, which C buffers already, so printf
+// hands stdout exactly the pieces it always has, and its frame holds no
+// buffer. Every call flushes its sink before it returns, so no byte of
+// one call is held past it.
+typedef struct {
+    FILE *f;
+    unsigned char *buf;
+    int64_t cap;
+    int64_t n;
+} sink;
+
+// gather_cap is the size of the buffer eprintf gathers its output in.
+enum { gather_cap = 512 };
+
+// flush hands the bytes gathered in o to its stream, and empties it.
+static void flush(sink *o) {
+    if (o->n > 0) {
+        fwrite(o->buf, 1, (size_t)o->n, o->f);
+        o->n = 0;
     }
+}
+
+// out writes the n bytes at p to o, nothing for n == 0, so p may then be
+// null, as a zero string's bytes are. Gathering, bytes that do not fit
+// in what is left of the buffer flush it first, and n bytes that do not
+// fit in the whole of it go to the stream at once.
+static void out(sink *o, const unsigned char *p, int64_t n) {
+    if (n <= 0) {
+        return;
+    }
+    if (o->buf == NULL) {
+        fwrite(p, 1, (size_t)n, o->f);
+        return;
+    }
+    if (n > o->cap - o->n) {
+        flush(o);
+        if (n >= o->cap) {
+            fwrite(p, 1, (size_t)n, o->f);
+            return;
+        }
+    }
+    for (int64_t i = 0; i < n; i++) {
+        o->buf[o->n + i] = p[i];
+    }
+    o->n += n;
 }
 
 // out_part writes the bytes of s from from up to to. The pointer is moved
 // only when there is something to write, since a zero string's is null,
 // which C does not let even 0 be added to.
-static void out_part(tack_string s, int64_t from, int64_t to) {
+static void out_part(sink *o, tack_string s, int64_t from, int64_t to) {
     if (to > from) {
-        out(s.ptr + from, to - from);
+        out(o, s.ptr + from, to - from);
     }
 }
 
-// out_lit writes the string literal lit.
-#define out_lit(lit) out((const unsigned char *)(lit), (int64_t)(sizeof (lit) - 1))
+// out_lit writes the string literal lit to o.
+#define out_lit(o, lit) out((o), (const unsigned char *)(lit), (int64_t)(sizeof (lit) - 1))
 
 // type_name returns the Tack name of the type id, or "invalid" for an id
 // that is no type's.
@@ -100,17 +147,17 @@ static const char *type_name(uint32_t id) {
 }
 
 // out_cstr writes the zero-terminated s.
-static void out_cstr(const char *s) {
+static void out_cstr(sink *o, const char *s) {
     int64_t n = 0;
     while (s[n] != 0) {
         n++;
     }
-    out((const unsigned char *)s, n);
+    out(o, (const unsigned char *)s, n);
 }
 
 // out_uint writes v in base 10 or 16, lowercase, after a - when negative
 // is true. 20 digits hold the largest uint64_t in base 10, 16 in base 16.
-static void out_uint(uint64_t v, unsigned base, bool negative) {
+static void out_uint(sink *o, uint64_t v, unsigned base, bool negative) {
     static const char digits[] = "0123456789abcdef";
     unsigned char buf[21];
     int i = (int)sizeof buf;
@@ -121,22 +168,22 @@ static void out_uint(uint64_t v, unsigned base, bool negative) {
     if (negative) {
         buf[--i] = '-';
     }
-    out(buf + i, (int64_t)sizeof buf - i);
+    out(o, buf + i, (int64_t)sizeof buf - i);
 }
 
 // out_int writes a, an integer of any type, in base, and reports whether
 // a held an integer. A negative value's magnitude is taken as 0 - its bits
 // in uint64_t, which is right for the smallest int64_t too, whose
 // magnitude no int64_t holds.
-static bool out_int(tack_any a, unsigned base) {
+static bool out_int(sink *o, tack_any a, unsigned base) {
     int64_t s;
     uint64_t u;
     if (tack_any_signed(a, &s)) {
-        out_uint(s < 0 ? 0 - (uint64_t)s : (uint64_t)s, base, s < 0);
+        out_uint(o, s < 0 ? 0 - (uint64_t)s : (uint64_t)s, base, s < 0);
         return true;
     }
     if (tack_any_unsigned(a, &u)) {
-        out_uint(u, base, false);
+        out_uint(o, u, base, false);
         return true;
     }
     return false;
@@ -145,15 +192,15 @@ static bool out_int(tack_any a, unsigned base) {
 // out_bytes writes the bytes of a, a []uint8 or a string, and reports
 // whether a held one of those. A view's pointer is null when it has no
 // elements, which out never moves.
-static bool out_bytes(tack_any a) {
+static bool out_bytes(sink *o, tack_any a) {
     tack_string s;
     if (TACK_ANY_IS(a, VIEW_UINT8)) {
         tack_view_uint8 b = *(const tack_view_uint8 *)a.ptr;
-        out(b.ptr, b.len);
+        out(o, b.ptr, b.len);
         return true;
     }
     if (tack_any_string(a, &s)) {
-        out(s.ptr, s.len);
+        out(o, s.ptr, s.len);
         return true;
     }
     return false;
@@ -411,58 +458,58 @@ static void round_shortest(decimal *d, uint64_t mant, int exp, int mantbits, int
 }
 
 // out_zeros writes n zeros.
-static void out_zeros(int n) {
+static void out_zeros(sink *o, int n) {
     for (int i = 0; i < n; i++) {
-        out_lit("0");
+        out_lit(o, "0");
     }
 }
 
 // out_e writes d with prec digits after the point and an exponent, as
 // %e does: -d.ddddde±dd, the exponent of at least two digits, 0 having
 // exponent 0.
-static void out_e(const decimal *d, bool neg, int prec) {
+static void out_e(sink *o, const decimal *d, bool neg, int prec) {
     if (neg) {
-        out_lit("-");
+        out_lit(o, "-");
     }
-    out(d->nd != 0 ? d->d : (const unsigned char *)"0", 1);
+    out(o, d->nd != 0 ? d->d : (const unsigned char *)"0", 1);
     if (prec > 0) {
-        out_lit(".");
+        out_lit(o, ".");
         int m = d->nd < prec + 1 ? d->nd : prec + 1;
         if (m > 1) {
-            out(d->d + 1, m - 1);
+            out(o, d->d + 1, m - 1);
         }
-        out_zeros(prec + 1 - (m > 1 ? m : 1));
+        out_zeros(o, prec + 1 - (m > 1 ? m : 1));
     }
     int exp = d->nd == 0 ? 0 : d->dp - 1;
     if (exp < 0) {
-        out_lit("e-");
+        out_lit(o, "e-");
         exp = -exp;
     } else {
-        out_lit("e+");
+        out_lit(o, "e+");
     }
     if (exp >= 100) {
-        out_uint((uint64_t)exp, 10, false);
+        out_uint(o, (uint64_t)exp, 10, false);
     } else {
         unsigned char two[2] = {(unsigned char)('0' + exp / 10), (unsigned char)('0' + exp % 10)};
-        out(two, 2);
+        out(o, two, 2);
     }
 }
 
 // out_f writes d with prec digits after the point, as %f does:
 // -ddd.dddddd, the integer part 0 when it has no digit.
-static void out_f(const decimal *d, bool neg, int prec) {
+static void out_f(sink *o, const decimal *d, bool neg, int prec) {
     if (neg) {
-        out_lit("-");
+        out_lit(o, "-");
     }
     if (d->dp > 0) {
         int m = d->nd < d->dp ? d->nd : d->dp;
-        out(d->d, m);
-        out_zeros(d->dp - m);
+        out(o, d->d, m);
+        out_zeros(o, d->dp - m);
     } else {
-        out_lit("0");
+        out_lit(o, "0");
     }
     if (prec > 0) {
-        out_lit(".");
+        out_lit(o, ".");
         int lz = -d->dp > 0 ? -d->dp : 0;
         if (lz > prec) {
             lz = prec;
@@ -472,11 +519,11 @@ static void out_f(const decimal *d, bool neg, int prec) {
         if (m > prec - lz) {
             m = prec - lz;
         }
-        out_zeros(lz);
+        out_zeros(o, lz);
         if (m > 0) {
-            out(d->d + off, m);
+            out(o, d->d + off, m);
         }
-        out_zeros(prec - lz - m);
+        out_zeros(o, prec - lz - m);
     }
 }
 
@@ -485,7 +532,7 @@ static void out_f(const decimal *d, bool neg, int prec) {
 // the fewest that read back as v, as Go's strconv.AppendFloat writes it:
 // %g as %e when its exponent is below -4 or at least the precision, 6 for
 // the shortest form, and as %f otherwise.
-static void out_float(double v, bool f32, unsigned char fmt, int prec) {
+static void out_float(sink *o, double v, bool f32, unsigned char fmt, int prec) {
     uint64_t bits;
     int mantbits;
     int expbits;
@@ -514,11 +561,11 @@ static void out_float(double v, bool f32, unsigned char fmt, int prec) {
     uint64_t mant = bits & ((UINT64_C(1) << mantbits) - 1);
     if (exp == (1 << expbits) - 1) {
         if (mant != 0) {
-            out_lit("NaN");
+            out_lit(o, "NaN");
         } else if (neg) {
-            out_lit("-Inf");
+            out_lit(o, "-Inf");
         } else {
-            out_lit("+Inf");
+            out_lit(o, "+Inf");
         }
         return;
     }
@@ -556,23 +603,23 @@ static void out_float(double v, bool f32, unsigned char fmt, int prec) {
         }
     }
     if (fmt == 'e') {
-        out_e(&d, neg, prec);
+        out_e(o, &d, neg, prec);
     } else {
-        out_f(&d, neg, prec);
+        out_f(o, &d, neg, prec);
     }
 }
 
 // out_float_any writes a, a float32 or a float64, as out_float does in
 // the format fmt with prec digits, and reports whether a held a float.
-static bool out_float_any(tack_any a, unsigned char fmt, int prec) {
+static bool out_float_any(sink *o, tack_any a, unsigned char fmt, int prec) {
     float f;
     double d;
     if (tack_any_float32(a, &f)) {
-        out_float(f, true, fmt, prec);
+        out_float(o, f, true, fmt, prec);
         return true;
     }
     if (tack_any_float64(a, &d)) {
-        out_float(d, false, fmt, prec);
+        out_float(o, d, false, fmt, prec);
         return true;
     }
     return false;
@@ -580,23 +627,23 @@ static bool out_float_any(tack_any a, unsigned char fmt, int prec) {
 
 // out_value writes a as %v does, and reports whether a held a type %v
 // takes: every basic type an any can hold, and a []uint8.
-static bool out_value(tack_any a) {
+static bool out_value(sink *o, tack_any a) {
     bool b;
-    if (out_float_any(a, 'g', -1)) {
+    if (out_float_any(o, a, 'g', -1)) {
         return true;
     }
     if (tack_any_bool(a, &b)) {
         if (b) {
-            out_lit("true");
+            out_lit(o, "true");
         } else {
-            out_lit("false");
+            out_lit(o, "false");
         }
         return true;
     }
-    if (out_bytes(a)) {
+    if (out_bytes(o, a)) {
         return true;
     }
-    return out_int(a, 10);
+    return out_int(o, a, 10);
 }
 
 // takes_value reports whether %v takes a's type, without writing it.
@@ -607,34 +654,34 @@ static bool takes_value(tack_any a) {
 
 // out_verb writes a as the verb at v, n bytes long, says, and reports
 // whether the verb is one printf knows and takes a's type.
-static bool out_verb(const unsigned char *v, int64_t n, tack_any a) {
+static bool out_verb(sink *o, const unsigned char *v, int64_t n, tack_any a) {
     uint8_t c;
     if (n != 1) {
         return false;
     }
     switch (v[0]) {
     case 'd':
-        return out_int(a, 10);
+        return out_int(o, a, 10);
     case 'x':
-        return out_int(a, 16);
+        return out_int(o, a, 16);
     case 's':
-        return out_bytes(a);
+        return out_bytes(o, a);
     case 't':
-        return TACK_ANY_IS(a, BOOL) && out_value(a);
+        return TACK_ANY_IS(a, BOOL) && out_value(o, a);
     case 'c':
         if (!tack_any_uint8(a, &c)) {
             return false;
         }
-        out(&c, 1);
+        out(o, &c, 1);
         return true;
     case 'v':
-        return out_value(a);
+        return out_value(o, a);
     case 'g':
-        return out_float_any(a, 'g', -1);
+        return out_float_any(o, a, 'g', -1);
     case 'e':
-        return out_float_any(a, 'e', 6);
+        return out_float_any(o, a, 'e', 6);
     case 'f':
-        return out_float_any(a, 'f', 6);
+        return out_float_any(o, a, 'f', 6);
     default:
         return false;
     }
@@ -643,11 +690,11 @@ static bool out_verb(const unsigned char *v, int64_t n, tack_any a) {
 // out_typed writes a's type name, then = and a as %v writes it, or the
 // name alone for a type %v does not take, invalid for an id that is no
 // type's: what a marker shows of a value.
-static void out_typed(tack_any a) {
-    out_cstr(type_name(a.type));
+static void out_typed(sink *o, tack_any a) {
+    out_cstr(o, type_name(a.type));
     if (takes_value(a)) {
-        out_lit("=");
-        out_value(a);
+        out_lit(o, "=");
+        out_value(o, a);
     }
 }
 
@@ -668,7 +715,9 @@ static int64_t verb_len(unsigned char b, int64_t n) {
     return len < n ? len : n;
 }
 
-void tack_fmt_printf(tack_string format, tack_view_any args) {
+// format_to writes format, its verbs replaced by args, to o, and flushes
+// o: the body of printf and eprintf alike.
+static void format_to(sink *o, tack_string format, tack_view_any args) {
     const unsigned char *f = format.ptr;
     int64_t next = 0;  // the argument the next verb takes
     int64_t start = 0; // the first byte not written yet
@@ -678,10 +727,10 @@ void tack_fmt_printf(tack_string format, tack_view_any args) {
             i++;
             continue;
         }
-        out_part(format, start, i);
+        out_part(o, format, start, i);
         i++;
         if (i == format.len) {
-            out_lit("%!(NOVERB)");
+            out_lit(o, "%!(NOVERB)");
             start = i;
             break;
         }
@@ -690,33 +739,55 @@ void tack_fmt_printf(tack_string format, tack_view_any args) {
         i += n;
         start = i;
         if (n == 1 && verb[0] == '%') {
-            out_lit("%");
+            out_lit(o, "%");
             continue;
         }
         if (next >= args.len) {
-            out_lit("%!");
-            out(verb, n);
-            out_lit("(MISSING)");
+            out_lit(o, "%!");
+            out(o, verb, n);
+            out_lit(o, "(MISSING)");
             continue;
         }
         tack_any a = args.ptr[next++];
-        if (!out_verb(verb, n, a)) {
-            out_lit("%!");
-            out(verb, n);
-            out_lit("(");
-            out_typed(a);
-            out_lit(")");
+        if (!out_verb(o, verb, n, a)) {
+            out_lit(o, "%!");
+            out(o, verb, n);
+            out_lit(o, "(");
+            out_typed(o, a);
+            out_lit(o, ")");
         }
     }
-    out_part(format, start, i);
+    out_part(o, format, start, i);
     if (next < args.len) {
-        out_lit("%!(EXTRA ");
+        out_lit(o, "%!(EXTRA ");
         for (int64_t k = next; k < args.len; k++) {
             if (k > next) {
-                out_lit(", ");
+                out_lit(o, ", ");
             }
-            out_typed(args.ptr[k]);
+            out_typed(o, args.ptr[k]);
         }
-        out_lit(")");
+        out_lit(o, ")");
     }
+    flush(o);
+}
+
+// tack_fmt_printf is printf's body: format to stdout, each piece handed
+// to it as it is made.
+void tack_fmt_printf(tack_string format, tack_view_any args) {
+    sink o = {.f = stdout, .buf = NULL, .cap = 0, .n = 0};
+    format_to(&o, format, args);
+}
+
+// tack_fmt_eprintf is eprintf's body: format to stderr, gathered so a
+// short call is one write, flushing both ways around it: stdout first, so
+// what was written to it before the call is ahead of the call's output
+// where both streams reach one place, and stderr after, so nothing of
+// the call is left for a later stdout write to overtake, however the C
+// library buffers stderr.
+void tack_fmt_eprintf(tack_string format, tack_view_any args) {
+    fflush(stdout);
+    unsigned char buf[gather_cap];
+    sink o = {.f = stderr, .buf = buf, .cap = gather_cap, .n = 0};
+    format_to(&o, format, args);
+    fflush(stderr);
 }

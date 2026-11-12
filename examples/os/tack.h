@@ -39,6 +39,8 @@ typedef struct {
 // package std/fmt
 void tack_fmt_printf(tack_string /* format */, tack_view_any /* args */); // extern func cprintf(format string, args ...any)
 void tack_fmt_write(tack_view_uint8 /* b */); // extern func cwrite(b []uint8)
+void tack_fmt_eprintf(tack_string /* format */, tack_view_any /* args */); // extern func ceprintf(format string, args ...any)
+void tack_fmt_ewrite(tack_view_uint8 /* b */); // extern func cewrite(b []uint8)
 
 // package std/os
 int64_t tack_os_open(tack_view_uint8 /* path */, int32_t /* mode */); // extern func c_open(path []uint8, mode int32) int64

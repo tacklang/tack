@@ -13485,6 +13485,173 @@ ensures-write-after-call/main.tck:17:5: note: but d is assigned here, so the pro
    |	    ^
 18 |	    use(10 / d)
 
+-- eprintf-d-string/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.eprintf("%d\n", "five")
+}
+-- eprintf-d-string/expected --
+stage: typeck
+---
+
+eprintf-d-string/main.tck:6:25: error: eprintf verb %d does not take string
+05 |	func main() {
+06 |	    fmt.eprintf("%d\n", "five")
+   |	                        ^~~~~~
+07 |	}
+
+-- eprintf-extra/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.eprintf("%d\n", 1, 2, 3)
+}
+-- eprintf-extra/expected --
+stage: typeck
+---
+
+eprintf-extra/main.tck:6:28: error: eprintf format has 1 verb but 3 arguments
+05 |	func main() {
+06 |	    fmt.eprintf("%d\n", 1, 2, 3)
+   |	                           ^~~~
+07 |	}
+
+-- eprintf-known-variable/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    format := "%s\n"
+    fmt.eprintf(format, 1)
+}
+-- eprintf-known-variable/expected --
+stage: typeck
+---
+
+eprintf-known-variable/main.tck:7:25: error: eprintf verb %s does not take int64
+06 |	    format := "%s\n"
+07 |	    fmt.eprintf(format, 1)
+   |	                        ^
+08 |	}
+
+-- eprintf-lone-percent/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.eprintf("100%")
+}
+-- eprintf-lone-percent/expected --
+stage: typeck
+---
+
+eprintf-lone-percent/main.tck:6:17: error: eprintf format ends in a lone %
+05 |	func main() {
+06 |	    fmt.eprintf("100%")
+   |	                ^~~~~~
+07 |	}
+
+-- eprintf-missing/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.eprintf("%d and %d\n", 1)
+}
+-- eprintf-missing/expected --
+stage: typeck
+---
+
+eprintf-missing/main.tck:6:17: error: eprintf format has 2 verbs but 1 argument
+05 |	func main() {
+06 |	    fmt.eprintf("%d and %d\n", 1)
+   |	                ^~~~~~~~~~~~~
+07 |	}
+
+-- eprintf-spread-unknown-verb/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func f(args ...any) {
+    fmt.eprintf("%y\n", args...)
+}
+
+func main() {
+}
+-- eprintf-spread-unknown-verb/expected --
+stage: typeck
+---
+
+eprintf-spread-unknown-verb/main.tck:6:17: error: unknown eprintf verb %y
+05 |	func f(args ...any) {
+06 |	    fmt.eprintf("%y\n", args...)
+   |	                ^~~~~~
+07 |	}
+
+-- eprintf-unknown-verb/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.eprintf("%q\n", 1)
+}
+-- eprintf-unknown-verb/expected --
+stage: typeck
+---
+
+eprintf-unknown-verb/main.tck:6:17: error: unknown eprintf verb %q
+05 |	func main() {
+06 |	    fmt.eprintf("%q\n", 1)
+   |	                ^~~~~~
+07 |	}
+
+-- eprintf-view-int64/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    a := [2]int64{1, 2}
+    fmt.eprintf("%v\n", a[:])
+}
+-- eprintf-view-int64/expected --
+stage: typeck
+---
+
+eprintf-view-int64/main.tck:7:25: error: eprintf verb %v does not take []int64
+06 |	    a := [2]int64{1, 2}
+07 |	    fmt.eprintf("%v\n", a[:])
+   |	                        ^~~~
+08 |	}
+
+-- eprintln-bytes/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.eprintln([]uint8("hi"))
+}
+-- eprintln-bytes/expected --
+stage: typeck
+---
+
+eprintln-bytes/main.tck:6:18: error: []uint8(...) can only be passed to a []uint8 parameter
+05 |	func main() {
+06 |	    fmt.eprintln([]uint8("hi"))
+   |	                 ^~~~~~~~~~~~~
+07 |	}
+
 -- error-arithmetic/main.tck --
 package main
 
@@ -15199,6 +15366,24 @@ escape-hex-short/main.tck:6:11: error: Invalid escape sequence "\\x7"
 06 |	    c := '\x7'
    |	          ^~~
 07 |	    exit(c)
+
+-- ewrite-string/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.ewrite("hi\n")
+}
+-- ewrite-string/expected --
+stage: typeck
+---
+
+ewrite-string/main.tck:6:16: error: cannot use string as []uint8 in argument to fmt.ewrite; view its bytes with []uint8("hi\n")
+05 |	func main() {
+06 |	    fmt.ewrite("hi\n")
+   |	               ^~~~~~
+07 |	}
 
 -- exit-call-not-leaving/main.tck --
 package main

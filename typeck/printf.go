@@ -10,7 +10,8 @@ import (
 	"github.com/tacklang/tack/types"
 )
 
-// std/fmt's printf takes a format and ...any. When the format is a string
+// std/fmt's printf, and eprintf, its twin for standard error, take a
+// format and ...any (see formatFuncs). When the format is a string
 // the checker knows (see knownString), a literal or an immutable variable
 // holding one, every verb in it is checked against the value it takes, as
 // Go's vet checks fmt.Printf and clang's -Wformat checks C's printf, and
@@ -33,16 +34,23 @@ import (
 // %!v([]int64) for it, as for any verb given a value it does not take.
 
 // stdFmt is the import path of the standard library's fmt package, whose
-// printf the checker checks the format of.
+// formatFuncs the checker checks the format of.
 const stdFmt = "std/fmt"
 
-// checkPrintf checks call, a call to fn, when fn is std/fmt's printf and
-// its format is a string the checker knows: see checkFormat. Each problem
-// is reported at the value it is about, or at the format when it is about
-// the format itself, and a format with more values than verbs at the
-// values left over.
+// formatFuncs are the functions of std/fmt that take a printf format as
+// their first parameter and its values as the rest, each checked the
+// same way. A message about a call names the function called, so a
+// mistake in an eprintf format reads "eprintf verb %d does not take
+// string".
+var formatFuncs = map[string]bool{"printf": true, "eprintf": true}
+
+// checkPrintf checks call, a call to fn, when fn is one of std/fmt's
+// formatFuncs and its format is a string the checker knows: see
+// checkFormat. Each problem is reported at the value it is about, or at
+// the format when it is about the format itself, and a format with more
+// values than verbs at the values left over.
 func (c *Checker) checkPrintf(call *ast.Call, fn *ast.Func) {
-	if !c.isPrintf(fn) || len(call.Args) == 0 {
+	if !c.isFormatFunc(fn) || len(call.Args) == 0 {
 		return
 	}
 	format, ok := c.knownString(call.Args[0])
@@ -57,7 +65,7 @@ func (c *Checker) checkPrintf(call *ast.Call, fn *ast.Func) {
 			valueTypes[i] = ast.TypeOf(v)
 		}
 	}
-	for _, p := range checkFormat(format, valueTypes, !call.Spread, c.typeName, c.isBytes) {
+	for _, p := range checkFormat(fn.Name, format, valueTypes, !call.Spread, c.typeName, c.isBytes) {
 		switch {
 		case p.value < 0:
 			c.errorf(call.Args[0].Spanned(), "%s", p.message)
@@ -73,10 +81,10 @@ func (c *Checker) isBytes(typ types.Type) bool {
 	return c.table.IsView(typ) && c.table.Elem(typ) == types.Uint8
 }
 
-// isPrintf reports whether fn is std/fmt's printf.
-func (c *Checker) isPrintf(fn *ast.Func) bool {
+// isFormatFunc reports whether fn is one of std/fmt's formatFuncs.
+func (c *Checker) isFormatFunc(fn *ast.Func) bool {
 	pkg := c.declPkg[fn]
-	return fn != nil && !fn.Method && fn.Name == "printf" && pkg != nil && pkg.Path == stdFmt
+	return fn != nil && !fn.Method && formatFuncs[fn.Name] && pkg != nil && pkg.Path == stdFmt
 }
 
 // formatProblem is one mistake checkFormat finds: its message, and the
@@ -88,7 +96,8 @@ type formatProblem struct {
 	values  int
 }
 
-// checkFormat returns the mistakes in format, a printf format, given to
+// checkFormat returns the mistakes in format, a printf format given to
+// the function called, whose name each message starts with, with
 // values of the types valueTypes, in the order they appear, a mismatch
 // between the number of verbs and of values last. When counted is false
 // the values are a spread, whose number and types are not known, so only
@@ -96,6 +105,7 @@ type formatProblem struct {
 // at run time, or of types.Invalid, already reported, matches every verb.
 // name names a type in a message, and bytes says which type is []uint8.
 func checkFormat(
+	called string,
 	format string,
 	valueTypes []types.Type,
 	counted bool,
@@ -109,20 +119,20 @@ func checkFormat(
 		if counted && value < len(valueTypes) {
 			typ = valueTypes[value]
 		}
-		if p, bad := verbProblem(verb, value, typ, name, bytes); bad {
+		if p, bad := verbProblem(called, verb, value, typ, name, bytes); bad {
 			problems = append(problems, p)
 		}
 	}
 	if lone {
 		problems = append(problems, formatProblem{
-			message: "printf format ends in a lone %",
+			message: called + " format ends in a lone %",
 			value:   -1,
 		})
 	}
 	if n := len(verbs); counted && n != len(valueTypes) {
 		p := formatProblem{
-			message: fmt.Sprintf("printf format has %d %s but %d %s",
-				n, plural(n, "verb"), len(valueTypes), plural(len(valueTypes), "argument")),
+			message: fmt.Sprintf("%s format has %d %s but %d %s",
+				called, n, plural(n, "verb"), len(valueTypes), plural(len(valueTypes), "argument")),
 			value: -1,
 		}
 		if len(valueTypes) > n {
@@ -155,10 +165,12 @@ func formatVerbs(format string) (verbs []string, lone bool) {
 }
 
 // verbProblem returns the mistake in verb, the format's verb number value,
-// given a value of type typ, and whether there is one: a verb printf does
-// not know, or one that does not take typ. types.Invalid and types.Any
-// match every verb. bytes says which type is []uint8.
+// given a value of type typ in a call to called, which its message names,
+// and whether there is one: a verb printf does not know, or one that does
+// not take typ. types.Invalid and types.Any match every verb. bytes says
+// which type is []uint8.
 func verbProblem(
+	called string,
 	verb string,
 	value int,
 	typ types.Type,
@@ -168,12 +180,12 @@ func verbProblem(
 	accepts, known := verbTakes(verb, bytes)
 	switch {
 	case !known:
-		return formatProblem{message: "unknown printf verb " + showVerb(verb), value: -1}, true
+		return formatProblem{message: "unknown " + called + " verb " + showVerb(verb), value: -1}, true
 	case typ == types.Invalid || typ == types.Any || accepts(typ):
 		return formatProblem{}, false
 	default:
 		return formatProblem{
-			message: fmt.Sprintf("printf verb %%%s does not take %s", verb, name(typ)),
+			message: fmt.Sprintf("%s verb %%%s does not take %s", called, verb, name(typ)),
 			value:   value,
 			values:  1,
 		}, true

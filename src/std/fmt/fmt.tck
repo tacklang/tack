@@ -1,7 +1,7 @@
 package fmt
 
-// Package fmt writes text and bytes to standard output. A program imports
-// it as
+// Package fmt writes text and bytes to standard output, and to standard
+// error. A program imports it as
 //
 //     import fmt from "std/fmt"
 //
@@ -12,6 +12,17 @@ package fmt
 // compiles and links with every program that imports fmt, as it does any
 // package's C files. All three write through C's stdout, as print does,
 // so their output interleaves in the order of the calls.
+//
+// eprintln, eprintf and ewrite are their twins for standard error: each
+// does exactly what its twin does, but writes through C's stderr, so
+// their output interleaves with each other's in the order of the calls,
+// as the stdout ones' does. Each flushes both ways around its write:
+// C's stdout first, as C++ ties cerr to cout, and C's stderr after, so
+// where both streams reach one pipe, file or terminal, their bytes
+// arrive in the order of the calls, however the C library buffers
+// either stream. Like print, none reports an error: a closed descriptor
+// or a failed write loses the bytes, and a pipe with no reader raises
+// SIGPIPE, as it does for print.
 
 // println writes s to standard output exactly as given, then a newline,
 // "\n". println("") writes the newline alone. Like print, it reports no
@@ -86,3 +97,37 @@ pub func write(b []uint8) {
 
 // cwrite is write's body, in C: tack_fmt_write in write.c.
 extern("tack_fmt_write") func cwrite(b []uint8)
+
+// eprintln writes s to standard error exactly as given, then a newline,
+// as println does to standard output, and through the same C as eprintf:
+// eprintln("") writes the newline alone. It reports no error.
+pub func eprintln(s string) {
+    eprintf("%s\n", s)
+}
+
+// eprintf writes format with its verbs replaced by args to standard
+// error, exactly as printf writes it to standard output: the same verbs,
+// the same checking of a format the compiler knows, and the same markers
+// for the mistakes of one it does not. It flushes C's stdout, writes
+// through C's stderr, then flushes it, so the output of it, eprintln and
+// ewrite interleaves in the order of the calls, with standard output's
+// too where both streams reach one place, and it reports no error.
+pub func eprintf(format string, args ...any) {
+    ceprintf(format, args...)
+}
+
+// ceprintf is eprintf's body, in C: tack_fmt_eprintf in printf.c.
+extern("tack_fmt_eprintf") func ceprintf(format string, args ...any)
+
+// ewrite writes the bytes of b to standard error exactly, each as it is,
+// as write does to standard output: a view of no bytes writes nothing,
+// though both streams are still flushed. It flushes C's stdout, writes
+// through C's stderr, then flushes it, so the output of it, eprintln and
+// eprintf interleaves in the order of the calls, with standard output's
+// too where both streams reach one place, and it reports no error.
+pub func ewrite(b []uint8) {
+    cewrite(b)
+}
+
+// cewrite is ewrite's body, in C: tack_fmt_ewrite in write.c.
+extern("tack_fmt_ewrite") func cewrite(b []uint8)

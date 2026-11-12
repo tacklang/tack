@@ -2463,6 +2463,202 @@ func TestBuiltFmtWriteWritesItsOutput(t *testing.T) {
 	}
 }
 
+// fmtStderrBig is the number of bytes examples/fmt-stderr writes to
+// standard error twice at the end, from one list[uint8], once with ewrite
+// and once with eprintf's %s: 1 MiB, byte i being i % 251.
+const fmtStderrBig = 1 << 20
+
+// checkFmtStderrErr reports whether errOut is exactly what
+// examples/fmt-stderr writes to standard error: want, its stderr file,
+// then fmtStderrBig bytes twice, byte i of each being i % 251. It reports
+// the first difference rather than dumping two mebibytes.
+func checkFmtStderrErr(t *testing.T, errOut, want string) {
+	t.Helper()
+	if len(errOut) != len(want)+2*fmtStderrBig {
+		t.Fatalf("wrote %d bytes to stderr, want %d", len(errOut), len(want)+2*fmtStderrBig)
+	}
+	if errOut[:len(want)] != want {
+		t.Errorf("wrote to stderr\n%q\nwant\n%q", errOut[:len(want)], want)
+	}
+	for i := range 2 * fmtStderrBig {
+		if got := errOut[len(want)+i]; got != byte(i%fmtStderrBig%251) {
+			t.Fatalf("byte %d of the large writes is %#x, want %#x", i, got, byte(i%fmtStderrBig%251))
+		}
+	}
+}
+
+// runBuiltStreams runs cmd, its standard error going to errTo, or
+// captured when errTo is nil, and returns what it wrote to
+// standard output, what it wrote to standard error when captured, and
+// its exit status.
+func runBuiltStreams(t *testing.T, cmd *exec.Cmd, errTo *os.File) (string, string, int) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	if errTo != nil {
+		cmd.Stderr = errTo
+	} else {
+		cmd.Stderr = &stderr
+	}
+	err := cmd.Run()
+	var exitErr *exec.ExitError
+	switch {
+	case err == nil:
+		return stdout.String(), stderr.String(), 0
+	case errors.As(err, &exitErr):
+		return stdout.String(), stderr.String(), exitErr.ExitCode()
+	default:
+		t.Fatalf("running %s: %v", cmd.Path, err)
+		return "", "", 0
+	}
+}
+
+// TestBuiltFmtStderrWritesBothStreams builds examples/fmt-stderr, which
+// writes to standard error with std/fmt's ewrite, eprintln and eprintf
+// interleaved with writes to standard output, at every optimization level,
+// and checks each binary writes exactly examples/fmt-stderr/output to
+// standard output and examples/fmt-stderr/stderr, then the 1 MiB list
+// twice, to standard error, each stream in its own calls' order: empty
+// writes writing nothing, bytes 0x00 and 0xff as they are, every verb,
+// the markers of a format the compiler does not know, and pieces around
+// 512 bytes. It then runs each binary with standard error closed and with
+// standard error /dev/full, which fails every write, and checks the
+// program still writes its standard output exactly and exits 0: like
+// print, the stderr functions report no error, and a write that fails
+// with EBADF or ENOSPC ends nothing. A pipe with no reader is not one of
+// these: the write raises SIGPIPE, as print's does.
+func TestBuiltFmtStderrWritesBothStreams(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "fmt-stderr", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantErr, err := os.ReadFile(filepath.Join(examplesDir, "fmt-stderr", "stderr"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "fmt-stderr")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("fmt-stderr"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			out, errOut, code := runBuiltStreams(t, exec.CommandContext(t.Context(), bin), nil)
+			if out != string(want) || code != 0 {
+				t.Errorf("wrote\n%q\nand exited %d, want\n%q\nand 0", out, code, want)
+			}
+			checkFmtStderrErr(t, errOut, string(wantErr))
+
+			closed := exec.CommandContext(t.Context(), "sh", "-c", `exec "$0" 2>&-`, bin)
+			if out, _, code := runBuiltStreams(t, closed, nil); out != string(want) || code != 0 {
+				t.Errorf("with stderr closed, wrote\n%q\nand exited %d, want\n%q\nand 0", out, code, want)
+			}
+
+			full, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
+			if err != nil {
+				t.Skipf("no /dev/full: %v", err)
+			}
+			defer full.Close()
+			out, _, code = runBuiltStreams(t, exec.CommandContext(t.Context(), bin), full)
+			if out != string(want) || code != 0 {
+				t.Errorf("with stderr /dev/full, wrote\n%q\nand exited %d, want\n%q\nand 0", out, code, want)
+			}
+		})
+	}
+}
+
+// TestBuiltFmtStreamsInOnePlaceKeepCallOrder builds examples/fmt-interleave
+// at every optimization level and runs each binary with standard output
+// and standard error both one pipe, and then both one regular file, and
+// checks the bytes there are exactly examples/fmt-interleave/combined, in
+// the order of the calls: every write to standard error flushes standard
+// output before it and standard error after it, a stdout write with no
+// newline and one larger than C's buffer included.
+func TestBuiltFmtStreamsInOnePlaceKeepCallOrder(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "fmt-interleave", "combined"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "fmt-interleave")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("fmt-interleave"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+
+			// One writer for both makes os/exec give the two one pipe.
+			var both bytes.Buffer
+			cmd := exec.CommandContext(t.Context(), bin)
+			cmd.Stdout, cmd.Stderr = &both, &both
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("running %s: %v", bin, err)
+			}
+			if both.String() != string(want) {
+				t.Errorf("one pipe got\n%q\nwant\n%q", both.String(), want)
+			}
+
+			f, err := os.Create(filepath.Join(t.TempDir(), "both"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			cmd = exec.CommandContext(t.Context(), bin)
+			cmd.Stdout, cmd.Stderr = f, f
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("running %s: %v", bin, err)
+			}
+			got, err := os.ReadFile(f.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != string(want) {
+				t.Errorf("one file got\n%q\nwant\n%q", got, want)
+			}
+		})
+	}
+}
+
+// TestBuiltFmtExitFlushesBothStreams builds examples/fmt-exit at every
+// optimization level and checks each binary writes exactly its output to
+// standard output and its stderr to standard error, captured apart, and
+// exits with status 3: every byte written before an exit reaches its
+// stream, past C's buffer on stdout and through printf's early way out
+// on stderr.
+func TestBuiltFmtExitFlushesBothStreams(t *testing.T) {
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skip("clang not on PATH")
+	}
+	want, err := os.ReadFile(filepath.Join(examplesDir, "fmt-exit", "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantErr, err := os.ReadFile(filepath.Join(examplesDir, "fmt-exit", "stderr"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, opt := range codegen.Opts {
+		t.Run(string(opt), func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "fmt-exit")
+			r := runTack(t, "-O"+string(opt), "--out", bin, example("fmt-exit"))
+			if r.code != exitOK || r.stderr != "" {
+				t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+			}
+			out, errOut, code := runBuiltStreams(t, exec.CommandContext(t.Context(), bin), nil)
+			if out != string(want) || errOut != string(wantErr) || code != 3 {
+				t.Errorf("wrote\n%q\nand\n%q\nand exited %d, want\n%q\nand\n%q\nand 3",
+					out, errOut, code, want, wantErr)
+			}
+		})
+	}
+}
+
 // TestBuiltBytesPassesEveryCheck builds examples/bytes, which imports
 // std/bytes, a std package written in Tack alone, at every optimization
 // level and checks each binary writes exactly examples/bytes/output, every
