@@ -184,8 +184,15 @@ of the language uses them yet. `asm` is not a keyword.
 
 The names of the builtin types are not keywords but identifiers, and
 are reserved: none may be declared, read or assigned as a name, nor used
-as the name of a struct, a field or a method; they are written only as
-types and in conversions. They are
+as the name of a struct, a union's case or a type parameter; they are
+written only as types and in conversions. A field and a method are the
+exception: either may be named like a builtin type, or like a builtin
+function, `span`, `int64`, `len` or `add`, since a field is written only
+after `.` or as a struct literal's key, `t.span` or `Token{span: 4}`, and
+a method only after `.`, `t.int64()` or `Token.int64`, where no type or
+builtin can be written. A keyword stays reserved there too: a field
+named `list` is `expected 'field name' found 'list'`. The builtin type
+names are
 
 ```text
 int8     int16    int32    int64    unsafe_size_t      float32   string   any

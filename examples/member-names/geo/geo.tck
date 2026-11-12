@@ -1,0 +1,38 @@
+package geo
+
+// Package geo declares, for the main package of examples/member-names to
+// use from another package, a struct whose pub fields are named like
+// builtin types and builtin functions, and methods named like builtin
+// types, so that every one is reached through another package's value.
+
+// Token is a run of source: span, len and string are pub fields named like
+// builtins, and id is a private one, which only geo reads.
+pub type Token struct {
+    pub span   int64
+    pub len    int64
+    pub string string
+    id         int64
+}
+
+// New returns the Token of n bytes from start, numbered k.
+pub func New(start int64, n int64, k int64) Token {
+    return Token{span: start, len: n, string: "tok", id: k}
+}
+
+// int64 returns where t ends: a method named like a builtin type, reading
+// fields named like builtins.
+pub func (t Token) int64() int64 {
+    return t.span +% t.len
+}
+
+// handle returns t's private id field: a method named like a builtin
+// type, the only way another package reads that field.
+pub func (t Token) handle() int64 {
+    return t.id
+}
+
+// append lengthens t by n, through a mut method named like a builtin
+// function, writing a field named like one.
+pub func (mut t Token) append(n int64) {
+    t.len +%= n
+}

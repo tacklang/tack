@@ -305,9 +305,30 @@ not a type cannot be written as one.
 
 A struct declaration lists the struct's fields, one per line or
 separated by `;`, each a name and a type. `struct {}` has no fields and
-is allowed. A field's name is unique within its struct and is neither
-`_` nor the name of a builtin type. A field may be `pub` or `lib`
+is allowed. A field's name is unique within its struct and is not `_`
+or a keyword. It may be any builtin's name, a builtin type's, `span`,
+`id`, `handle`, `int64` or `string`, or a builtin function's, `len`,
+`add` or `insert`: a field is written only after `.`, `t.span`, or as a
+struct literal's key, `Token{span: 4}`, where neither a type nor a
+builtin can be written, so it never hides one, and `len(t.len)` still
+calls the builtin on the field. A field may be `pub` or `lib`
 ([Visibility](#visibility)).
+
+```tack run exit=4
+package main
+
+type Token struct {
+    span int16
+    len  string
+}
+
+func main() {
+    t := Token{span: 4, len: "abc"}
+    if len(t.len) == 3 {
+        exit(int32(t.span))
+    }
+}
+```
 
 A field may have any type, another struct or an array of one included,
 except a type that holds the struct itself, directly, through other
@@ -340,9 +361,11 @@ func main() {
 A union declaration lists the union's cases, one per line or separated
 by `;`, each a name and the type of its payload, or a name alone for a
 case with no payload. `union {}` has no cases and so no value. A case's
-name is unique within its union, `duplicate case name`, follows a
-field's naming rule, and has no visibility and no tag value of its
-own. A payload may have any type a field may, under a field's rules:
+name is unique within its union, `duplicate case name`, and has no
+visibility and no tag value of its own. It may be a builtin function's
+name, `len`, but unlike a field's not a builtin type's, `cannot use span
+as a name; it is a type`: a switch's clause writes a case bare, `case
+len(n)`, where a switch on an `any` writes a type. A payload may have any type a field may, under a field's rules:
 an array length in it names no variable, `array length in a union's
 case must not name variable n`. A union that holds itself, directly or
 through a struct, an array or another union, is `invalid recursive
@@ -518,8 +541,10 @@ receiver follows a parameter's rules for its name. A plain receiver is
 a plain parameter; a `mut` receiver is a `mut` parameter.
 
 A method's name is in its type's namespace. It may share a name with a
-function, a global, `main` or a builtin, but not with a field of its
-struct, `len is already declared as a field of Builder`, a case of its
+function, a global, `main` or a builtin, a builtin type's included, as
+a field's may, `func (s Span) int64() int64`, since it is only ever
+written after `.`. It may not be `_` or a keyword, nor share one with a
+field of its struct, `len is already declared as a field of Builder`, a case of its
 union, `int is already declared as a case of Expr`, or another method
 of its type, `Builder.len is already declared`. A method has a body:
 it cannot be extern, `a method cannot be extern; declare an extern

@@ -621,7 +621,8 @@
 // A struct type lowers to a typedef'd C struct named like a package-level
 // name of its package, tack_4_main5_Point, since the two share a namespace, with one member
 // per field, in order, named f_ and the field's name, so a field may be
-// called int or while. A struct with no fields holds one char member, since
+// called int or while, or like a Tack builtin, int64 or len, f_int64 and
+// f_len never clashing with a C type, macro or function. A struct with no fields holds one char member, since
 // C has no empty struct, and nothing reads it. A literal is a compound
 // literal with a designated initializer for each field, in the order the
 // literal names them, a field read or write is x.f_name, and == calls a

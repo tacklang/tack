@@ -83,7 +83,7 @@ func (r *pkgResolver) resolveInterfaces() []diag.Diagnostic {
 		seen := make(map[string]*ast.IfaceMethod)
 		for _, m := range td.Interface().Methods {
 			diags = append(diags, r.resolveIfaceMethod(m, sc)...)
-			if reserved := reservedName(m.Name, m.NameSpan); reserved != nil {
+			if reserved := memberName(m.Name, m.NameSpan); reserved != nil {
 				diags = append(diags, reserved...)
 				continue
 			}

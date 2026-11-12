@@ -83,11 +83,11 @@ func (r *pkgResolver) receiverType(fn *ast.Func) (*ast.TypeDecl, []diag.Diagnost
 }
 
 // methodClash reports why fn, a method of td, cannot be declared: its name
-// is reserved, as a field's would be, or is already a field's of td, a
-// struct, a case's of td, a union, or another method's of td. It returns
-// nil when the name is free.
+// is _, which a field's cannot be either (see memberName), or is already a
+// field's of td, a struct, a case's of td, a union, or another method's of
+// td. It returns nil when the name is free.
 func methodClash(fn *ast.Func, td *ast.TypeDecl) []diag.Diagnostic {
-	if reserved := reservedName(fn.Name, fn.NameSpan); reserved != nil {
+	if reserved := memberName(fn.Name, fn.NameSpan); reserved != nil {
 		return reserved
 	}
 	if st, ok := td.TypeExpr.(*ast.StructType); ok {

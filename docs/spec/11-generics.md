@@ -34,7 +34,8 @@ variadic or an `any` parameter may appear, and an error result is last.
 Its parameters are named, no two alike and none `_` or a type's name;
 since no body can see them, they may otherwise share a name with
 anything. A method's name is in its interface's namespace, follows a
-field's naming rule, and is declared once in it.
+field's naming rule, so it may be a builtin's, `span() int64`, and is
+declared once in it.
 
 An interface holds methods only. It has no fields, `an interface cannot
 have fields; it holds only methods`, embeds no other interface,

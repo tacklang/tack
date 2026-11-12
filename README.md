@@ -1856,8 +1856,9 @@ section remains the description of the language.
 - Arenas. `arena[T]` is an owned, append-only store of elements of type
   `T`: `arena` is a keyword, as `list` is, and `id` and `span` are
   builtin type names, reserved as `int64` is, so no variable, parameter,
-  function, type, field or method may take one, `cannot use span as a
-  name; it is a type`, and `id` alone is `id needs its element type, as
+  function, type or union case may take one, `cannot use span as a
+  name; it is a type`, though a field or a method may, as it may be
+  named like any builtin, and `id` alone is `id needs its element type, as
   in id[int64]`. `make(arena[T], sentinel, alloc)` makes one holding only
   `sentinel`, moved in as its element at id 0; it allocates nothing, so
   it cannot fail, and without the sentinel it is `make expects 3
@@ -2502,7 +2503,14 @@ section remains the description of the language.
   one. Each declaration is a type of its own, even with the same fields as
   another. Field names are a namespace of their own, one per struct: a
   field may share a name with anything outside its struct, but not with
-  another of its fields, and `_` and the type names cannot name a field. An
+  another of its fields. `_` and the keywords cannot name a field, but any
+  builtin's name can, a builtin type's, `span`, `id`, `handle`, `int64`,
+  `string`, or a builtin function's, `len`, `add`, `insert`: a field is
+  written only after `.`, `t.span`, or as a literal's key, `Token{span:
+  4}`, where no type or builtin can be, so `len(t.len)` calls the builtin
+  on a field named `len`. In C a field's name is prefixed, `f_int64`, so
+  none clashes; a field of a struct `tack.h` declares keeps its name
+  there, so one named `bool`, a C keyword, is an error. An
   array length in a field's type is a constant expression that names no
   variable: literals, character literals, arithmetic on them and `len` of
   a string literal, as in `[len("abc") * 2]int64`. A length naming any
@@ -2571,8 +2579,10 @@ section remains the description of the language.
   as `eof`. `union` is a keyword. A case's name is in its union's
   namespace, as a field's is in its struct's: it may share a name with
   anything outside its union, a type, a variable or a function included,
-  and follows a field's naming rule, `cannot use string as a name; it is
-  a type`, `cannot use _ as a name`, once in its union, `duplicate case
+  and is neither `_`, `cannot use _ as a name`, nor, unlike a field, a
+  builtin type's name, `cannot use string as a name; it is a type`, since
+  a switch's clause writes a case bare, `case len(n)`, where a switch on
+  an `any` writes types; it is once in its union, `duplicate case
   name`, with a note at the first. A payload's type may be any a field
   may have, a struct, an array, a list or another union included, under
   a field's rules: an array length in it names no variable, `array length
@@ -2741,7 +2751,8 @@ section remains the description of the language.
   case, `Expr.pos` always names a method, and `e.m()` always calls one,
   or with another method of it,
   `Builder.len is already declared`, and it follows a field's naming
-  rule. A method named through its type, `Builder.write` or
+  rule, so it may be named like a builtin type too, `func (s Span)
+  int64() int64`, called `s.int64()` and named `Span.int64`. A method named through its type, `Builder.write` or
   `lexer.Token.Kind`, is a method expression: a function value whose
   first parameter is the receiver, so `func (p Pair) has(x int64) bool`
   gives a `func(Pair, int64) bool`, a `mut` receiver a `mut` first
@@ -2820,7 +2831,8 @@ section remains the description of the language.
   variadic or an `any` parameter included, and an error result is last,
   `error must be the last result of Parser.parse`. `interface {}` asks for
   nothing, and every struct and union type satisfies it. A method's name
-  is in its interface's namespace, follows a field's naming rule, and is declared
+  is in its interface's namespace, follows a field's naming rule, a
+  builtin type's name allowed, `span() int64`, and is declared
   once, `Writer.write is already declared`; its parameters are named, no
   two alike. An interface holds methods only: `an interface cannot have
   fields; it holds only methods`, `embedded interfaces are not
@@ -3768,7 +3780,8 @@ section remains the description of the language.
   `unsafe_uintptr_t`, `string`, `bool` and `error`, are
   reserved like keywords: they can be written only as types and in
   conversions, never declared, read or assigned as names, nor used as a
-  struct's or a field's name. `_` on its own is
+  struct's or a union case's name; a field or a method, written only
+  after `.` or as a literal's key, may take one. `_` on its own is
   not a name: it only discards a result in a
   binding of several, as in `_, r := divmod(7, 2)` or `q, _ = divmod(7, 2)`,
   and may appear there more than once, or one of a range loop's two

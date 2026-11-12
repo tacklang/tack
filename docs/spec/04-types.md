@@ -225,7 +225,13 @@ struct declaration is a type of its own, distinct from every other, even
 one with the same fields (see [Declarations and
 scope](05-declarations.md)). A field's type is any type but a view or
 `any`, and a struct cannot hold itself, directly, through other structs
-or arrays, or through a list.
+or arrays, or through a list. A field's name is any identifier but `_`,
+a builtin's or a builtin type's included, `span span[Node]` or `len
+string`, since a field is written only after `.` or as a literal's key
+(see [Lexical elements](02-lexical.md#keywords-and-reserved-names)); in C a field is
+emitted with a prefix, so no name can clash there, but a field of a
+struct `tack.h` declares keeps its name, and one that is a C keyword,
+`bool` among them, is an error.
 
 A struct is a value, like an array: assigning, passing or returning one
 copies it, unless it holds an owned value (see [Lists](#lists)), and it

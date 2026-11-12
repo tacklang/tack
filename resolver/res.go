@@ -395,13 +395,15 @@ func (r *pkgResolver) resolveStructs() []diag.Diagnostic {
 }
 
 // resolveFields resolves the fields of one struct type, in sc, the scope
-// of the file declaring it.
+// of the file declaring it. A field may be named like any builtin, type or
+// function, since it is reached only after a dot or as a literal's key
+// (see memberName).
 func (r *pkgResolver) resolveFields(st *ast.StructType, sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	seen := make(map[string]*ast.Field, len(st.Fields))
 	for _, f := range st.Fields {
 		diags = append(diags, r.resolveType(f.TypeExpr, sc)...)
-		if reserved := reservedName(f.Name, f.NameSpan); reserved != nil {
+		if reserved := memberName(f.Name, f.NameSpan); reserved != nil {
 			diags = append(diags, reserved...)
 			continue
 		}
@@ -427,6 +429,19 @@ func (r *pkgResolver) resolveFields(st *ast.StructType, sc *scope) []diag.Diagno
 // discards a result in a binding of several.
 func blankName(span ast.Span) diag.Diagnostic {
 	return diag.Diagnostic{Severity: diag.Error, Message: "cannot use _ as a name", Span: span}
+}
+
+// memberName reports, if name is not one a field or a method may have,
+// why not: only _, which discards and names nothing. A builtin type's name
+// is reserved for every other declaration, but a member is written only
+// after a dot, x.span or T.span, or as a struct literal's key, {span: s},
+// where no type or builtin can be written, so a member's name never hides
+// one. It returns nil for any other name.
+func memberName(name string, span ast.Span) []diag.Diagnostic {
+	if name == ast.Blank {
+		return []diag.Diagnostic{blankName(span)}
+	}
+	return nil
 }
 
 // reservedName reports, if name is not one a declaration may have, why not:

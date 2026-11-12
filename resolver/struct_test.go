@@ -196,12 +196,9 @@ var structNameErrors = []struct {
 		[]string{"duplicate field name"},
 	},
 	{"a field named _", "type P struct { _ int64 }", "", []string{"cannot use _ as a name"}},
-	{
-		"a field named like a basic type",
-		"type P struct { uint8 uint8 }",
-		"",
-		[]string{"cannot use uint8 as a name; it is a type"},
-	},
+	// A field is reached only after a dot or as a literal's key, so it may
+	// be named like a builtin type.
+	{"a field named like a basic type", "type P struct { uint8 uint8 }", "", nil},
 	{
 		"an undefined name in a field length",
 		"type P struct { a [k]int64 }",

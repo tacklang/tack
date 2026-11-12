@@ -22452,27 +22452,6 @@ handle-arithmetic/main.tck:9:10: error: operator + is not defined on handle[int6
    |	         ^
 10 |	    if has(p, g) {
 
--- handle-as-field-name/main.tck --
-package main
-
-// Assumption: a field may not be named handle, as the existing rule says
-// of every builtin type name; letting fields use them is still open.
-type Enemy struct {
-    handle int64
-}
-
-func main() {
-}
--- handle-as-field-name/expected --
-stage: resolve
----
-
-handle-as-field-name/main.tck:6:5: error: cannot use handle as a name; it is a type
-05 |	type Enemy struct {
-06 |	    handle int64
-   |	    ^~~~~~
-07 |	}
-
 -- handle-as-func-name/main.tck --
 package main
 
@@ -31976,6 +31955,301 @@ map-value-moved/main.tck:7:14: error: cannot move m[k] out of m: a value cannot 
    |	             ^~~~
 08 |	        code, fits := int32(len(l))
 
+-- member-blank-field/main.tck --
+package main
+
+// A field may be named like any builtin, but not _, which names nothing.
+type P struct {
+    _ int64
+}
+
+func main() {
+}
+-- member-blank-field/expected --
+stage: resolve
+---
+
+member-blank-field/main.tck:5:5: error: cannot use _ as a name
+04 |	type P struct {
+05 |	    _ int64
+   |	    ^
+06 |	}
+
+-- member-extern-field-bool/main.tck --
+package main
+
+// A field may be named bool, but not in a struct tack.h declares, since
+// C's bool is a keyword there.
+type Wire struct {
+    int64 int64
+    bool  bool
+}
+
+extern func f(w Wire)
+
+func main() {
+}
+-- member-extern-field-bool/expected --
+stage: codegen
+---
+
+member-extern-field-bool/main.tck:7:5: error: field bool of type Wire cannot be named bool in C: it is a C keyword
+06 |	    int64 int64
+07 |	    bool  bool
+   |	    ^~~~
+08 |	}
+
+-- member-field-len-proves-nothing/main.tck --
+package main
+
+// A field named len is a field, not the builtin: i < s.len bounds i by
+// the field's value, which says nothing of the list's length.
+type S struct {
+    items list[int64]
+    len   int64
+}
+
+func get(s S, i int64) int64 {
+    if i >= 0 && i < s.len {
+        return s.items[i]
+    }
+    return 0
+}
+
+func main() {
+}
+-- member-field-len-proves-nothing/expected --
+stage: typeck
+---
+
+member-field-len-proves-nothing/main.tck:12:24: error: index i may be out of range; check 0 <= i && i < len(s.items) first, or use v, ok := ...[i]
+11 |	    if i >= 0 && i < s.len {
+12 |	        return s.items[i]
+   |	                       ^
+13 |	    }
+member-field-len-proves-nothing/main.tck:12:24: note: i < s.len holds here; check s.len <= len(s.items) too
+11 |	    if i >= 0 && i < s.len {
+12 |	        return s.items[i]
+   |	                       ^
+13 |	    }
+
+-- member-field-method-clash/main.tck --
+package main
+
+// A method named like a builtin type still may not share its name with a
+// field of its type.
+type T struct {
+    span int64
+}
+
+func (t T) span() int64 {
+    return t.span
+}
+
+func main() {
+}
+-- member-field-method-clash/expected --
+stage: resolve
+---
+
+member-field-method-clash/main.tck:9:12: error: span is already declared as a field of T
+08 |	
+09 |	func (t T) span() int64 {
+   |	           ^~~~
+10 |	    return t.span
+member-field-method-clash/main.tck:6:5: note: previous declaration of span
+05 |	type T struct {
+06 |	    span int64
+   |	    ^~~~
+07 |	}
+
+-- member-field-not-in-scope/main.tck --
+package main
+
+// A field named int64 is reached only through a value: written bare in a
+// method, int64 is the type.
+type W struct {
+    int64 int64
+}
+
+func (w W) get() int64 {
+    return int64
+}
+
+func main() {
+}
+-- member-field-not-in-scope/expected --
+stage: resolve
+---
+
+member-field-not-in-scope/main.tck:10:12: error: cannot use int64 as a value; it is a type
+09 |	func (w W) get() int64 {
+10 |	    return int64
+   |	           ^~~~~
+11 |	}
+
+-- member-keyword-field/main.tck --
+package main
+
+// list is a keyword, which no field may be named.
+type P struct {
+    list int64
+}
+
+func main() {
+}
+-- member-keyword-field/expected --
+stage: parse
+---
+
+member-keyword-field/main.tck:5:5: error: expected 'field name' found 'list'
+04 |	type P struct {
+05 |	    list int64
+   |	    ^
+06 |	}
+
+-- member-keyword-interface-method/main.tck --
+package main
+
+// map is a keyword, which no interface's method may be named.
+type I interface {
+    map() int64
+}
+
+func main() {
+}
+-- member-keyword-interface-method/expected --
+stage: parse
+---
+
+member-keyword-interface-method/main.tck:5:5: error: expected 'method name' found 'map'
+04 |	type I interface {
+05 |	    map() int64
+   |	    ^
+06 |	}
+
+-- member-keyword-method/main.tck --
+package main
+
+// region is a keyword, which no method may be named.
+type P struct {
+    n int64
+}
+
+func (p P) region() int64 {
+    return p.n
+}
+
+func main() {
+}
+-- member-keyword-method/expected --
+stage: parse
+---
+
+member-keyword-method/main.tck:8:12: error: expected 'method name' found 'region'
+07 |	
+08 |	func (p P) region() int64 {
+   |	           ^
+09 |	    return p.n
+
+-- member-literal-key-type-name/main.tck --
+package main
+
+// A builtin type's name as a literal's key is a field's name like any
+// other: P has no field int64.
+type P struct {
+    n int64
+}
+
+func main() {
+    p := P{n: 1, int64: 1}
+    if p.n == 1 {
+        print("one")
+    }
+}
+-- member-literal-key-type-name/expected --
+stage: typeck
+---
+
+member-literal-key-type-name/main.tck:10:18: error: P has no field int64
+09 |	func main() {
+10 |	    p := P{n: 1, int64: 1}
+   |	                 ^~~~~
+11 |	    if p.n == 1 {
+
+-- member-local-named-like-field/main.tck --
+package main
+
+// A field may be named int64, but a local still may not.
+type W struct {
+    int64 int64
+}
+
+func main() {
+    w := W{int64: 1}
+    int64 := w.int64
+    exit(int32(int64))
+}
+-- member-local-named-like-field/expected --
+stage: resolve
+---
+
+member-local-named-like-field/main.tck:10:5: error: cannot use int64 as a name; it is a type
+09 |	    w := W{int64: 1}
+10 |	    int64 := w.int64
+   |	    ^~~~~
+11 |	    exit(int32(int64))
+
+-- member-method-expr-missing/main.tck --
+package main
+
+// A method named like a builtin type is named through its type only when
+// the type has it.
+type P struct {
+    n int64
+}
+
+func (p P) span() int64 {
+    return p.n
+}
+
+func main() {
+    f := P.int64
+    exit(int32(f(P{n: 1})))
+}
+-- member-method-expr-missing/expected --
+stage: typeck
+---
+
+member-method-expr-missing/main.tck:14:12: error: P has no method int64
+13 |	func main() {
+14 |	    f := P.int64
+   |	           ^~~~~
+15 |	    exit(int32(f(P{n: 1})))
+
+-- member-union-case-type-name/main.tck --
+package main
+
+// A union's case may not be named like a builtin type, as a field may:
+// a switch's clause writes the case bare, as an any's switch writes a
+// type.
+type U union {
+    span int64
+    none
+}
+
+func main() {
+}
+-- member-union-case-type-name/expected --
+stage: resolve
+---
+
+member-union-case-type-name/main.tck:7:5: error: cannot use span as a name; it is a type
+06 |	type U union {
+07 |	    span int64
+   |	    ^~~~
+08 |	    none
+
 -- method-all-blank/main.tck --
 package main
 
@@ -34161,29 +34435,6 @@ method-name-twice/main.tck:7:12: note: previous declaration of P.f
 06 |	
 07 |	func (p P) f() int64 {
    |	           ^
-08 |	    return p.x
-
--- method-name-type/main.tck --
-package main
-
-type P struct {
-    x int64
-}
-
-func (p P) int64() int64 {
-    return p.x
-}
-
-func main() {
-}
--- method-name-type/expected --
-stage: resolve
----
-
-method-name-type/main.tck:7:12: error: cannot use int64 as a name; it is a type
-06 |	
-07 |	func (p P) int64() int64 {
-   |	           ^~~~~
 08 |	    return p.x
 
 -- method-no-body/main.tck --
@@ -57861,52 +58112,6 @@ sort-by-wrong-less/main.tck:15:20: error: cannot use int32 as T in argument to s
    |	                   ^~~~~~~
 16 |	    print("")
 
--- span-as-field/main.tck --
-package main
-
-// Assumption: a field cannot be named span under the existing rule for
-// builtin type names, until the open question on letting fields and
-// methods use them is ruled.
-type Token struct {
-    span int64
-}
-
-func main() {
-}
--- span-as-field/expected --
-stage: resolve
----
-
-span-as-field/main.tck:7:5: error: cannot use span as a name; it is a type
-06 |	type Token struct {
-07 |	    span int64
-   |	    ^~~~
-08 |	}
-
--- span-as-method/main.tck --
-package main
-
-// A method cannot be named span either.
-type Token struct {
-    n int64
-}
-
-func (t Token) span() int64 {
-    return t.n
-}
-
-func main() {
-}
--- span-as-method/expected --
-stage: resolve
----
-
-span-as-method/main.tck:8:16: error: cannot use span as a name; it is a type
-07 |	
-08 |	func (t Token) span() int64 {
-   |	               ^~~~
-09 |	    return t.n
-
 -- span-as-name/main.tck --
 package main
 
@@ -64789,39 +64994,6 @@ unsafe-mismatch-uintptr/main.tck:4:12: error: mismatched types unsafe_size_t and
 04 |	    return s + p
    |	           ^~~~~
 05 |	}
-
--- unsafe-name-field/main.tck --
-package main
-
-type Buffer struct {
-    unsafe_size_t uint64
-}
-
-func main() {
-    b := Buffer{}
-    exit(b.unsafe_size_t)
-}
--- unsafe-name-field/expected --
-stage: resolve+typeck
----
-
-unsafe-name-field/main.tck:4:5: error: cannot use unsafe_size_t as a name; it is a type
-03 |	type Buffer struct {
-04 |	    unsafe_size_t uint64
-   |	    ^~~~~~~~~~~~~
-05 |	}
-
-unsafe-name-field/main.tck:8:10: error: Buffer literal is missing field unsafe_size_t
-07 |	func main() {
-08 |	    b := Buffer{}
-   |	         ^~~~~~~~
-09 |	    exit(b.unsafe_size_t)
-
-unsafe-name-field/main.tck:9:10: error: cannot use uint64 as int32 in argument to exit
-08 |	    b := Buffer{}
-09 |	    exit(b.unsafe_size_t)
-   |	         ^~~~~~~~~~~~~~~
-10 |	}
 
 -- unsafe-name-struct/main.tck --
 package main

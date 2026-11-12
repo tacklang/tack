@@ -60,8 +60,9 @@
 // as any type's are, and leaves Call.Conv to the type checker, which
 // builds the view type, and so does a conversion to an id, a span or a
 // handle type, id[T](n), which the type checker reports. Type
-// names are reserved like keywords: nothing may be declared with one, and
-// one is never read, called or assigned as a name; id, span and handle
+// names are reserved like keywords: nothing may be declared with one but
+// a field or a method (see memberName), and one is never read, called or
+// assigned as a name; id, span and handle
 // are type names too, written only with an element type, so each alone as
 // a type is reported. A callee that
 // names a builtin is bound to a nil *ast.Func, since builtins have no
@@ -98,14 +99,17 @@
 // in it is bound too, to a global if it names one, and the type checker
 // then reports it, since a field's length names no variable. Field names are a namespace of their own, one per struct, so
 // a field may share a name with anything outside it, but not with another
-// field of its struct, and the reserved names are reserved for fields too.
-// A field selection, p.x, and a key in a struct literal, x: v, name a field
-// the type checker finds through the type of what holds it, so neither is
-// bound here.
+// field of its struct. A field may be named like any builtin, a builtin
+// type's name included, span or int64, and is never _: a field selection,
+// p.x, and a key in a struct literal, x: v, are the only places a field's
+// name is written, and they name a field the type checker finds through
+// the type of what holds it, so neither is bound here and neither can be
+// read as a type or a builtin.
 //
 // A union's cases are resolved with the structs' fields: each payload's
-// type, and each case's name, which follows a field's rule, reserved
-// names excluded, once per union. A selector whose operand names a type,
+// type, and each case's name, which is not reserved, unlike a field's,
+// since a switch's clause writes it bare, case int64(n), where a switch on
+// an any writes types, and is declared once per union. A selector whose operand names a type,
 // plain or qualified, builds a union's case, Expr.int(5) or ast.Expr.eof,
 // or names a method of the type, a method expression, Pair.first or
 // lexer.Token.Kind, used as a value or called (see ast.MethodExpr): the
@@ -141,7 +145,8 @@
 // declared in the package; a type of another package, an interface, a
 // basic type, an array, a view or a list is reported, and a name bound to
 // nothing is left for the type checker to report as an unknown type. A
-// method's name follows a field's rule, and may not be a field's of its
+// method's name follows a field's rule, a builtin type's allowed, since a
+// method is written only after a dot, and may not be a field's of its
 // struct, a case's of its union, or another method's of its type, so a
 // union's method and its cases, Expr.int(5) built through the type and
 // e.m() called on a value, never share a name. An extern method is
@@ -156,7 +161,7 @@
 // as a type binds to; where it may be written is the type checker's to
 // judge. Its methods' parameter and result types are resolved in its
 // file's scope; a method's name is in its interface's namespace, follows
-// a field's naming rule and is declared once, and its parameters are
+// a field's naming rule, a builtin type's allowed, and is declared once, and its parameters are
 // named once each, none reserved, but may share names with anything
 // else, since a method of an interface has no body that could see them.
 // A generic function's type parameters form a scope of their own,

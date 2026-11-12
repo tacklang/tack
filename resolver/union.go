@@ -10,9 +10,11 @@ import (
 
 // resolveUnions resolves the cases of every union type declared: each
 // payload's type, which may name any type, and each case's name, which
-// follows a field's rule: it is not reserved, and not another case's of
-// the union, but may share a name with anything outside it, since case
-// names are a namespace of their own, one per union.
+// is not reserved, and not another case's of the union, but may share a
+// name with anything outside it, since case names are a namespace of
+// their own, one per union. Unlike a field's, a case's name may not be a
+// builtin type's: a switch's clause writes it bare, case int64(n), where
+// a switch on an any writes types.
 func (r *pkgResolver) resolveUnions() []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, decl := range r.pkg.Decls() {
