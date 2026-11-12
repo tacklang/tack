@@ -258,8 +258,9 @@ type Checker struct {
 	// (see factindex.go).
 	factsEdited int
 
-	// relIdx is the index of the relations the facts in force give, built
-	// for the generation of them it records (see factGen and relgraph.go).
+	// relIdx is the index of the relations the facts in force give, kept
+	// in step with them once built, or nil until a query needs it; a
+	// closure's body reads its own (see relindex.go).
 	relIdx *relIndex
 
 	// holding is what the bindings of errors in the function being checked

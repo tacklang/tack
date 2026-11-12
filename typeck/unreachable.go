@@ -483,6 +483,11 @@ func (c *Checker) unreachableNotes() []diag.Diagnostic {
 func (c *Checker) droppedNotes() []diag.Diagnostic {
 	var order []factKey
 	byKey := make(map[factKey][]int)
+	// The facts chosen here are cleared by provenWithout per subject. The
+	// relation index's shadow chains stay sound under that only because
+	// every fact of a subject is cleared together, invariant facts aside,
+	// which have no endings; filtering on another guard kind here would
+	// break that (see relindex.go).
 	for i, f := range c.inForce() {
 		if f.relational() || f.hasNe || f.guard == nil ||
 			f.guard.silent() || f.guard.kind == guardInvariant ||

@@ -106,10 +106,9 @@ var sharedShapes = []programShape{
 // an error whose notes name what ended a shared fact, one whose endings
 // of a value ruled out are found later than the exit's other facts',
 // one whose facts alike share the endings of different blocks, and one
-// whose uses are in deferred code, for the oracle tests to check. The relation's program is not measured for how
-// its checking grows: each exit changes the relations in force, and the
-// index of them is built again from every fact in force (see
-// docs/known-bugs.md).
+// whose uses are in deferred code, for the oracle tests to check. The
+// relation's program is measured for how its checking grows with the
+// other programs whose exits each prove a relation (see relationShapes).
 var sharedOracleShapes = append(sharedShapes[:len(sharedShapes):len(sharedShapes)],
 	programShape{"related writes", func(n int) string { return inF(relatedWrites(n)...) }},
 	programShape{"unproven method writes", func(n int) string { return withMethod(unprovenMethodWrites(n)...) }},

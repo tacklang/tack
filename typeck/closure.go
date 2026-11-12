@@ -269,6 +269,7 @@ type closureState struct {
 	active                                []fact
 	guards                                []*guard
 	outerFacts, outerGuards               int
+	relIdx                                *relIndex
 	proven                                []proofOnly
 	starts                                []start
 	invFrames                             []*invFrame
@@ -309,14 +310,17 @@ type closureState struct {
 // ends. So the facts in force in the body are those that were copied
 // into it before, in the same order, and the index, which holds the
 // outer facts the body may not read too, is kept in step with all of
-// them, and so is as current after the body as before it.
+// them, and so is as current after the body as before it. The index of
+// the relations in force is set aside instead, and put back as the body
+// is left: the body reads the one it keeps of the facts keepsInClosure
+// keeps (see relindex.go).
 func (c *Checker) enterClosure(lit *ast.FuncLit) closureState {
 	saved := closureState{
 		fn: c.fn, loops: c.loops, deferred: c.deferred, deferLoops: c.deferLoops,
 		dead: c.dead, at: c.at, inCoveredDefault: c.inCoveredDefault,
 		inRejectedDefer: c.inRejectedDefer, clauses: c.clauses,
 		active: c.active, guards: c.guards, outerFacts: c.outerFacts, outerGuards: c.outerGuards,
-		proven: c.proven, starts: c.starts,
+		relIdx: c.relIdx, proven: c.proven, starts: c.starts,
 		invFrames: c.invFrames, appends: c.appends, chain: c.chain, inference: c.inference,
 		viewSlice: c.viewSlice, checkedSlice: c.checkedSlice, viewCall: c.viewCall,
 		droppedCall: c.droppedCall, checkedTake: c.checkedTake, checkedIndex: c.checkedIndex,
@@ -329,6 +333,7 @@ func (c *Checker) enterClosure(lit *ast.FuncLit) closureState {
 	c.inRejectedDefer = false
 	c.clauses = nil
 	c.outerFacts, c.outerGuards = len(c.active), len(c.guards)
+	c.relIdx = c.bodyRelations(saved.relIdx)
 	if closureOracle {
 		c.checkClosureView()
 	}
@@ -349,6 +354,7 @@ func (c *Checker) leaveClosure(s closureState) {
 	c.loops, c.deferred, c.deferLoops, c.dead, c.at = s.loops, s.deferred, s.deferLoops, s.dead, s.at
 	c.inCoveredDefault, c.inRejectedDefer, c.clauses = s.inCoveredDefault, s.inRejectedDefer, s.clauses
 	c.unindexFacts(len(s.active))
+	c.relIdx = s.relIdx
 	c.active, c.guards, c.proven, c.starts = s.active, s.guards, s.proven, s.starts
 	c.popKept(len(s.active), len(s.guards))
 	c.outerFacts, c.outerGuards = s.outerFacts, s.outerGuards

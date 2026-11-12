@@ -1,6 +1,9 @@
 package typeck
 
 import (
+	"fmt"
+	"reflect"
+
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/constant"
 	"github.com/tacklang/tack/types"
@@ -292,14 +295,38 @@ func (c *Checker) boundsOf(v ast.Decl) []*invCand {
 // relations in force at c.at give against the constant 0, and, for each
 // other node they relate k to with no condition that a step not wrap, the
 // tightest difference bound from k to it and from it to k, in the order
-// the relations first name them.
+// the relations first name them. It reads the edges at k whose facts
+// hold, as the index finds them (see relIndex.heldAt), each edge looked
+// at counting as a relation step; when the tests set relationOracle, the
+// answer is checked against one from every edge at k, each judged.
 func (c *Checker) edgeBounds(k factKey, known interval) (interval, []*diffBound) {
+	idx := c.relationIndex()
+	holds := func(i int) bool { return c.holds(c.active[i]) }
+	gotKnown, gotDiffs := c.boundsOver(idx, idx.heldAt(c, k, holds, &c.work.relations), known)
+	if relationOracle {
+		var all []relEdge
+		for e := range idx.edgesAt(k) {
+			if holds(e.fact) {
+				all = append(all, e)
+			}
+		}
+		wantKnown, wantDiffs := c.boundsOver(idx, all, known)
+		if !reflect.DeepEqual(gotKnown, wantKnown) || !reflect.DeepEqual(gotDiffs, wantDiffs) {
+			panic(fmt.Sprintf("typeck: the edges held at %v bound it %v %v, every edge judged %v %v",
+				k, gotKnown, gotDiffs, wantKnown, wantDiffs))
+		}
+	}
+	return gotKnown, gotDiffs
+}
+
+// boundsOver returns known narrowed, and the difference bounds, as
+// edgeBounds does, from edges, the edges at its node whose facts hold,
+// in the order the index lists them.
+func (c *Checker) boundsOver(idx *relIndex, edges []relEdge, known interval) (interval, []*diffBound) {
 	at := map[[2]factKey]int{}
 	var diffs []*diffBound
-	idx := c.relationIndex()
-	for _, ei := range idx.adj[k] {
-		e := idx.edges[ei]
-		if e.from == e.to || len(e.conds) > 0 || !c.holds(c.active[e.fact]) {
+	for _, e := range edges {
+		if e.from == e.to || len(e.conds) > 0 {
 			continue
 		}
 		w := constant.FromInt64(e.w)
@@ -307,7 +334,7 @@ func (c *Checker) edgeBounds(k factKey, known interval) (interval, []*diffBound)
 			known = known.narrow(constantBound(e, w))
 			continue
 		}
-		d := &diffBound{x: e.from, y: e.to, w: w, xLen: idx.isLen[e.from], yLen: idx.isLen[e.to]}
+		d := &diffBound{x: e.from, y: e.to, w: w, xLen: idx.isLength(e.from), yLen: idx.isLength(e.to)}
 		s := [2]factKey{e.from, e.to}
 		if i, seen := at[s]; !seen {
 			at[s] = len(diffs)

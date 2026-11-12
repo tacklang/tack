@@ -670,10 +670,14 @@
 // stays in its type, which the overflow proof asks of the sum anyway (stepBounds' bounds, so a
 // target-width type's top is types.PortableMax), and counts only once the
 // other bounds prove it. A query (relates) builds a graph of the bounds
-// that hold at c.at from an index of the facts by node, rebuilt when the
-// facts in force change (factGen), finding at most relationCap nodes
-// breadth first from the query's two, and takes shortest paths by
-// Bellman and Ford; it only proves less for what it leaves out, and its
+// that hold at c.at, finding at most relationCap nodes breadth first
+// from the query's two, from an index of the facts by node (relindex.go),
+// kept in step with the facts in force as they are pushed and popped,
+// with one of those a closure's body keeps for it to read, which links
+// each fact to the older
+// one alike it shadows, so a query judges, of a run of such facts, only
+// the newest that hold and the one before them. It takes shortest paths
+// by Bellman and Ford; it only proves less for what it leaves out, and its
 // int64 weights never wrap. Relations end as facts do: a writeIndex's
 // endings take in every node a fact names. explain leaves them out, and relationNotes says
 // what a chain lacks: a missing link between two values, the condition

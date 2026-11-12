@@ -3,17 +3,17 @@
 Bugs found and not yet fixed. Each is fixed in its own change, with a failing
 test first, and removed from this list when it lands.
 
-## Early exits that each prove a relation in quadratic time
+## Early exits that each relate new locals in quadratic time
 
-A block of early exits, each proving again a relation between variables
-the code between them writes, as `j = i`, `k = n`, then
-`if j < 0 || k > len(a) || j >= k { return -1 }` before each use of
-`a[j]` does, is checked in time that grows with the square of the exits:
-about 1 second for 1000 such exits and 18 for 4000. Each exit changes the
-facts in force, so the next query of the relations builds their index
-again from every fact in force (`relationIndex` in `typeck/relgraph.go`),
-and the graph a query builds judges every relation in force about the
-variables it reaches, one for each exit, though only the newest holds
-(`holdsAt` in `typeck/relgraph.go`), where a query of one subject reads
-only facts a newer one does not shadow (`heldFactsAbout` in
-`typeck/factindex.go`).
+A block of early exits, each relating two new locals, as `v := i`,
+`w := n`, then `if v < 0 || w > len(a) || v >= w { return -1 }` before a
+use of `a[v]`, is checked in time that grows with the square of the
+exits: about 0.4 seconds for 1000 such exits and 6 for 4000. Each use
+asks the relations in force, and the graph it builds reaches 0 through
+the bound on `v`, where the bound every exit put on its own local
+against 0 still holds, one for each exit, so the query judges every one
+of them (`holdingAt` in `typeck/relindex.go`), though the graph keeps at
+most `relationCap` nodes. The index of the relations is kept in step
+with the facts in force, and a closure's body after each exit reads the
+one kept for it, so only the edges a query looks at grow this way (see
+`TestClosuresAfterRelatedExitsIndexLinearly`).

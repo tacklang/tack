@@ -215,18 +215,21 @@ func (c *Checker) scanFactIndex(counted bool) map[factKey][]int {
 	return idx
 }
 
-// indexFact adds c.active's last fact, just pushed, to c.factsBy, when
-// there is an index to keep.
+// indexFact adds c.active's last fact, just pushed, to c.factsBy, and to
+// the index of the relations in force, c.relIdx, when there is an index
+// to keep.
 func (c *Checker) indexFact() {
 	if c.factsBy != nil {
 		c.factsBy.push(c, len(c.active)-1)
 	}
+	c.indexRelation()
 }
 
 // unindexFacts takes the facts of c.active from the one at n on, about
-// to be popped, out of c.factsBy, when there is an index to keep, last
-// first.
+// to be popped, out of c.factsBy, and out of the index of the relations
+// in force, c.relIdx, when there is an index to keep, last first.
 func (c *Checker) unindexFacts(n int) {
+	c.unindexRelations(n)
 	if c.factsBy == nil {
 		return
 	}

@@ -113,3 +113,22 @@ func CheckFactIndex() (restore func()) {
 	indexOracle = true
 	return func() { indexOracle = was }
 }
+
+// CheckRelationIndex makes every query of the relations in force check
+// their index, kept in step with the facts in force, against one a scan
+// of them builds, and the graph it builds against the one that index
+// gives, panicking on a difference (see relationOracle), and returns the
+// func that puts back what was set. A test calling it must not run in
+// parallel.
+func CheckRelationIndex() (restore func()) {
+	was := relationOracle
+	relationOracle = true
+	return func() { relationOracle = was }
+}
+
+// RelationOracle reports whether every query of the relations in force
+// is checked against a scan of the facts in force (see relationOracle),
+// which makes the facts read grow with the facts times the queries.
+func RelationOracle() bool {
+	return relationOracle
+}

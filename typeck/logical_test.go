@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tacklang/tack/typeck"
 	"github.com/tacklang/tack/types"
 )
 
@@ -183,8 +184,12 @@ func chainProgram(op string, n int) string {
 // it into the next, some of them ended by a mut argument, are checked in
 // steps linear in their terms (see checkGrowth): each term's facts are
 // found once, not again at every operator above it, and each right side's
-// writes are indexed once.
+// writes are indexed once. With the region oracle on, every query walks
+// its region too, so the test is skipped.
 func TestLongLogicalChainsCheckQuickly(t *testing.T) {
+	if typeck.RegionOracle() {
+		t.Skip("the region oracle walks every region it checks")
+	}
 	const n = 1000
 	for _, op := range []string{"&&", "||"} {
 		t.Run(op, func(t *testing.T) {
