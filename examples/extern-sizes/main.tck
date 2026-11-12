@@ -15,8 +15,8 @@ extern func marker() unsafe_uintptr_t
 // isMarker reports whether p is the address marker returned.
 extern func isMarker(p unsafe_uintptr_t) bool
 
-// span returns a Span of n bytes at marker's address.
-extern func span(n unsafe_size_t) Span
+// spanOf returns a Span of n bytes at marker's address, span in C.
+extern("span") func spanOf(n unsafe_size_t) Span
 
 // lengths returns the elements of a and their count, in C.
 extern func lengths(a [2]unsafe_size_t) (unsafe_size_t, unsafe_size_t)
@@ -44,7 +44,7 @@ func main() {
     p := marker()
     check(isMarker(p) && !isMarker(p +% 1), "uintptr_t round trip")
 
-    s := span(24)
+    s := spanOf(24)
     check(s.len == 24 && s.addr == p, "struct of both types")
 
     total, count := lengths([2]unsafe_size_t{40, 2})

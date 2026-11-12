@@ -3,8 +3,8 @@ package main
 // Every extern func below is written in C, in helpers.c, which the driver
 // compiles and links with this file because it is in the same directory.
 
-// add returns a + b, wrapping as Tack's own +% does.
-extern func add(a int64, b int64) int64
+// addInts returns a + b, wrapping as Tack's own +% does, add in C.
+extern("add") func addInts(a int64, b int64) int64
 
 // flip returns !b.
 extern func flip(b bool) bool
@@ -47,8 +47,8 @@ func check(ok bool, name string, status int32) {
 }
 
 func main() {
-    check(add(40, 2) == 42, "add", 1)
-    check(add(9223372036854775807, 1) == -9223372036854775807 - 1, "add wraps", 2)
+    check(addInts(40, 2) == 42, "add", 1)
+    check(addInts(9223372036854775807, 1) == -9223372036854775807 - 1, "add wraps", 2)
     check(flip(true) == false && flip(false), "flip", 3)
     check(both(true, true) && !both(true, false) && !both(false, true), "both", 4)
     check(widen(-128) == -128 && widen(127) == 127, "widen", 5)

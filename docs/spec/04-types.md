@@ -313,6 +313,87 @@ A map is owned, as a list is, and nests in lists, structs, unions and
 other maps. It has no `==` and no order, and no package-level variable
 may hold one.
 
+## Arenas, ids and spans
+
+`arena[T]` is an owned, append-only store of elements of type `T`, which
+may be any type, an owned one or a type parameter included. `arena` is a
+keyword. An arena is made with `make(arena[T], sentinel, alloc)`, which
+places `sentinel` at id 0 and allocates nothing, and grows only, through
+`add` and `add_all` (see [Builtins](13-builtins.md#arena-operations)):
+nothing removes, pops, swaps, slices or shrinks its elements while it
+lives. It is owned as a list is, has no zero value, no `==` and no
+literal, is no global, cannot be passed as `any` and does not cross to C.
+A type cannot hold an arena of itself, since an arena holds its sentinel
+by value.
+
+`id[T]` names one element of an `arena[T]`, and `span[T]` a run of
+consecutive ones, a start and a length. `id` and `span` are builtin type
+names, written only with an element type. Each is 32 bits, a span's
+start and length each, copyable, comparable with `==` and `!=`, and may
+be a map's key; neither has an order or arithmetic, and neither converts
+to or from an integer, so no id names a slot but one `add` gave or the
+sentinel's. An id's zero value is 0, the sentinel's id, and a span's the
+empty span. A type may hold an id or a span of itself. Ids and spans of
+two element types are two types.
+
+`a[e]` is the element the id `e` names, a place (see
+[Expressions](06-expressions.md)), read with no proof: an id at or past
+`len(a)`, the zero id, and an id of another arena past this one's end
+all name the sentinel. `a[s]` is a read-only view of the span's elements,
+empty when the span is not wholly in `a`.
+
+```tack run exit=0
+package main
+
+type Node struct {
+    value int64
+    next  id[Node]
+}
+
+func main() {
+    mut none id[Node]
+    mut nodes := make(arena[Node], Node{value: -1, next: none}, c_allocator)
+    first, err := add(mut nodes, Node{value: 1, next: none})
+    if err.code != 0 {
+        exit(1)
+    }
+    second, err2 := add(mut nodes, Node{value: 2, next: first})
+    if err2.code != 0 {
+        exit(1)
+    }
+    mut sum int64 = 0
+    mut at := second
+    for at != none {
+        sum = sum +% nodes[at].value
+        at = nodes[at].next
+    }
+    if sum != 3 || len(nodes) != 3 || nodes[none].value != -1 {
+        exit(2)
+    }
+    exit(0)
+}
+```
+
+An integer indexes no arena, and an id converts from no integer:
+
+```tack error
+package main
+
+func main() {
+    a := make(arena[int64], 0, c_allocator)
+    n := 3
+    e := id[int64](n)
+    if a[0] == a[e] {
+        exit(1)
+    }
+}
+```
+
+```diagnostics
+main.tck:6:10: error: cannot convert int64 to id[int64]
+main.tck:7:10: error: cannot index arena[int64] with int64; index it with an id[int64]
+```
+
 ## Function types
 
 A function type is written as a function's signature is, with the types
@@ -345,11 +426,14 @@ zero value. The zero values are:
 - `false` for `bool`;
 - the empty string, `""`, for `string`;
 - `noerror` for `error`;
+- 0, the sentinel's id, for an `id[T]`, and the empty span for a
+  `span[T]`;
 - for an array, every element at its type's zero value, and for a
   struct, every field at its type's zero value.
 
-A list, a map, an `Allocator`, a union and a function type have no zero
-value, and neither does a struct or an array that holds one of them: a
+A list, a map, an arena, an `Allocator`, a union and a function type have
+no zero value, and neither does a struct or an array that holds one of
+them: a
 variable of such a type must be given a value, `l needs a value:
 list[int64] has no zero value`. A view and an `any` have no zero value
 either; no variable of either type is declared without one.
@@ -561,7 +645,9 @@ any types compare by value (see [Comparisons](03-arithmetic.md#comparisons)).
 | structs                   | when every field's type is         | no      |
 | unions                    | when every payload's type is       | no      |
 | lists                     | when the element type is           | no      |
+| ids and spans             | yes                                | no      |
 | views, maps, `any`        | no                                 | no      |
+| arenas                    | no                                 | no      |
 | `Allocator`               | no                                 | no      |
 | function types            | no                                 | no      |
 
@@ -596,5 +682,5 @@ main.tck:12:12: error: operator == is not defined on []int64
 
 A value is copyable when assigning, passing or returning it copies it,
 and owned when doing so moves it (see [Ownership and
-memory](08-ownership.md)). The owned types are lists, maps, and structs
-and unions that hold one; every other type is copyable.
+memory](08-ownership.md)). The owned types are lists, maps, arenas, and
+structs and unions that hold one; every other type is copyable.

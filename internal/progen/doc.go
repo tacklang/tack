@@ -32,7 +32,9 @@
 // arrays, structs, unions with switches, expression switches, tagged and
 // with no tag, whose cases may end in fallthrough, lists and maps with
 // every builtin on them (make, append, pop, put, delete, has, swap, len, range
-// and drop),
+// and drop), arenas of int64s, made with a sentinel and grown by add and
+// add_all, their elements read through an id, the zero id and a span's
+// view, ranged over,
 // views, function values and parameters of function types, methods with
 // plain and mut receivers, called on a receiver or through their struct,
 // S.m(r, args), and those with a plain receiver named as values, S.m,

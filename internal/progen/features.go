@@ -102,3 +102,50 @@ func (g *Gen) dropStmt() Stmt {
 	v.Moved = true
 	return simple(func(*frame) {}, "drop(own "+v.Name+")")
 }
+
+// arenaStmt makes an arena of int64s from a sentinel, adds a value to it
+// with add and two with add_all, each an int64 operand naming no list or
+// map, evaluated in order, and, once both errors are checked, observes
+// the element its id names, the sentinel the zero id names, its length
+// and the span's, and each element of the span's view, ranged over. Its
+// variables are its own, which no other statement names; it allocates,
+// so it is never in deferred code. No run the interpreter checks fails
+// to allocate, so the interpreter always takes the branch.
+func (g *Gen) arenaStmt() Stmt {
+	if g.inDefer || g.noLists {
+		return g.obsStmt()
+	}
+	g.noLists = true
+	vals := make([]Expr, 4)
+	for i := range vals {
+		vals[i] = g.intOperand(Int64, 1)
+	}
+	g.noLists = false
+	a, e, errE, s := g.name("a"), g.name("e"), g.name("err"), g.name("s")
+	errS, z, v := g.name("err"), g.name("z"), g.name("v")
+	lines := []string{
+		"mut " + a + " := make(arena[int64], " + vals[0].Text + ", c_allocator)",
+		e + ", " + errE + " := add(mut " + a + ", " + vals[1].Text + ")",
+		s + ", " + errS + " := add_all(mut " + a + ", " + vals[2].Text + ", " + vals[3].Text + ")",
+		"mut " + z + " id[int64]",
+		"if " + errE + ".code == 0 && " + errS + ".code == 0 {",
+		"    obs(" + a + "[" + e + "])",
+		"    obs(" + a + "[" + z + "])",
+		"    obs(len(" + a + ") +% len(" + a + "[" + s + "]))",
+		"    for _, " + v + " := range " + a + "[" + s + "] {",
+		"        obs(" + v + ")",
+		"    }",
+		"}",
+	}
+	return simple(func(f *frame) {
+		vs := make([]int64, len(vals))
+		for i, x := range vals {
+			vs[i] = asInt64(x.Eval(f).Bits)
+		}
+		f.m.observe(vs[1])
+		f.m.observe(vs[0])
+		f.m.observe(6)
+		f.m.observe(vs[2])
+		f.m.observe(vs[3])
+	}, lines...)
+}

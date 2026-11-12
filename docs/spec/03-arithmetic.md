@@ -251,7 +251,7 @@ Without the guards, neither compiles:
 ```tack error
 package main
 
-func add(a int64, b int64) int64 {
+func sum(a int64, b int64) int64 {
     return a + b
 }
 

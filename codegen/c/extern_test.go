@@ -142,7 +142,7 @@ func TestExternNamedLikeGeneratedCode(t *testing.T) {
 // with its Tack declaration in a comment.
 func TestHeaderDeclaresEveryExternFunc(t *testing.T) {
 	src := "package main\n\n" +
-		"extern func add(a int64, b int64) int64\n" +
+		"extern func sum(a int64, b int64) int64\n" +
 		"func helper() {}\n" +
 		"extern func flip(b bool) bool\n" +
 		"extern func tick()\n\n" +
@@ -154,7 +154,7 @@ func TestHeaderDeclaresEveryExternFunc(t *testing.T) {
 		"#ifndef TACK_H\n#define TACK_H\n\n" +
 		"#include <stdbool.h>\n#include <stdint.h>\n\n" +
 		"// package main\n" +
-		"int64_t add(int64_t /* a */, int64_t /* b */); // extern func add(a int64, b int64) int64\n" +
+		"int64_t sum(int64_t /* a */, int64_t /* b */); // extern func sum(a int64, b int64) int64\n" +
 		"bool flip(bool /* b */); // extern func flip(b bool) bool\n" +
 		"void tick(void); // extern func tick()\n\n" +
 		"#endif\n"

@@ -26,7 +26,7 @@ var corners = [2]Point{{x: 1, y: 1}, Point{y: 2, x: 2}}
 
 mut counter Point
 
-func add(p Point, q Point) Point {
+func addPoints(p Point, q Point) Point {
     return Point{x: p.x +% q.x, y: p.y +% q.y}
 }
 
@@ -51,14 +51,14 @@ func main() {
     }
 
     // Passing copies, and a function can return a struct.
-    if bump(q) != 2 || q.x != 1 || add(p, q).y != 4 {
+    if bump(q) != 2 || q.x != 1 || addPoints(p, q).y != 4 {
         exit(2)
     }
 
     // Several results, nested literals and fields in any order.
     l := Line{a: Point{x: 1, y: 2}, b: Point{y: 4, x: 3}}
     a, b := split(l)
-    if add(a, b) != (Point{x: 4, y: 6}) || a == b {
+    if addPoints(a, b) != (Point{x: 4, y: 6}) || a == b {
         exit(3)
     }
 

@@ -127,10 +127,15 @@
 // FuncLit.Captures. Walk visits a literal's parameters, results and body,
 // not its Func, so a pass that walks a function body walks the closures in
 // it as part of it.
-// A list type written list[T] is a ListType, and a map type written
-// map[K]V a MapType, wherever a type is written, and as an operand, as
-// make's first argument; the type checker records the type of a call to
-// make, append, reserve, pop, remove, replace, put or delete on Call.Type, and marks a name
+// A list type written list[T] is a ListType, a map type written
+// map[K]V a MapType, and an arena type written arena[T] an ArenaType,
+// wherever a type is written, and as an operand, as make's first
+// argument; an id or a span type, id[T] or span[T], is a RefType, as a
+// type and as an operand, where a conversion to one, id[T](n), which the
+// type checker reports, is a Call whose Fn is the RefType. The type
+// checker records the type of a call to make, append, reserve, pop,
+// remove, replace, put, delete, add or add_all on Call.Type, the two
+// results of add and add_all in Call.ResultTypes, and marks a name
 // whose use moves its variable's value with Ident.Move. c_allocator is a
 // CAllocatorLit.
 // A view type written []T is a ViewType, wherever a type is written; the

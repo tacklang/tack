@@ -97,7 +97,8 @@ func (g *generator) compositeLit(lit *ast.CompositeLit) (string, []diag.Diagnost
 }
 
 // indexExpr renders an element read, x.e[i], a map's value under a proven
-// key (see mapElementExpr), or a string's byte or a
+// key (see mapElementExpr), an arena's element or a span's view of one
+// (see arenaIndexExpr), or a string's byte or a
 // view's element, x.ptr[i].
 // The checker has proven the index in range. x is parenthesized unless it is
 // a name, an element, a field or a call, which C's postfix operators
@@ -105,6 +106,9 @@ func (g *generator) compositeLit(lit *ast.CompositeLit) (string, []diag.Diagnost
 func (g *generator) indexExpr(ix *ast.Index) (string, []diag.Diagnostic) {
 	if g.prog.Types.IsMap(ast.TypeOf(ix.X)) {
 		return g.mapElementExpr(ix)
+	}
+	if g.prog.Types.IsArena(ast.TypeOf(ix.X)) {
+		return g.arenaIndexExpr(ix)
 	}
 	base, diags := g.expr(ix.X, types.Invalid)
 	if len(diags) > 0 {
@@ -132,7 +136,8 @@ func (g *generator) indexExpr(ix *ast.Index) (string, []diag.Diagnostic) {
 // lenValue renders a len other than of a string literal: the length of a
 // string, read from it, or the constant length of an array, written after
 // the array itself, cast to void, so a call in it still runs and a variable
-// in it still counts as used.
+// in it still counts as used, or an arena's, its list's and one for its
+// sentinel.
 func (g *generator) lenValue(call *ast.Call) (string, []diag.Diagnostic) {
 	arg := call.Args[0]
 	v, diags := g.expr(arg, types.Invalid)
@@ -141,6 +146,10 @@ func (g *generator) lenValue(call *ast.Call) (string, []diag.Diagnostic) {
 	}
 	if typ := ast.TypeOf(arg); g.prog.Types.IsArray(typ) {
 		return fmt.Sprintf("((void)%s, (int64_t)%d)", v, g.prog.Types.Len(typ)), nil
+	}
+	if g.prog.Types.IsArena(ast.TypeOf(arg)) {
+		// The sentinel is no element of the list.
+		return fmt.Sprintf("((%s).elems.len + 1)", v), nil
 	}
 	return fmt.Sprintf("(%s).len", v), nil
 }

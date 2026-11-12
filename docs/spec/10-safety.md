@@ -27,7 +27,7 @@ and many more examples.
 Every program the compiler accepts keeps four guarantees:
 
 1. No out-of-bounds access: it never reads or writes outside the memory
-   an array, a list, a view or a string holds.
+   an array, a list, an arena, a view or a string holds.
 2. No memory leak: everything it allocates is freed before the process
    ends, however it ends, `exit` included. The stack and static storage
    are excluded.
@@ -984,6 +984,46 @@ the error names only what is missing: `slice bounds i:j may be out of
 range; check i <= j first, or use v, ok := ...[i:j]`. Only a string's
 slice has the checked form, which gives `""` and `false` when the bounds
 are out of range.
+
+### Arena lookups
+
+An arena's element, `a[e]`, and a span's view of one, `a[s]`, cannot
+fail, so they need no proof and have no checked form, `the checked form
+cannot read an element of an arena: every id names one, the sentinel for
+an id the arena did not give; use a[e]`. An arena only grows, so an id
+it gave stays below its length for as long as it lives; an id that is
+not, at or past `len(a)`, the zero id, or one of another arena past this
+one's end, names the sentinel, at id 0, which the arena holds from
+`make` on, before its first `add` too. A span not wholly in `a` is an
+empty view. Both are logic errors the program cannot detect, and
+neither reads or writes memory the arena does not own: every lookup is
+clamped, in 64 bits, to an element the arena holds. An id has no
+conversion from an integer, so nothing forges one. A fact about an
+element, `a[e] != 0`, holds as one about an array's element does, only
+while neither `a` nor `e` can change.
+
+```tack run exit=0
+package main
+
+func main() {
+    mut small := make(arena[int64], -1, c_allocator)
+    mut big := make(arena[int64], 0, c_allocator)
+    mut far id[int64]
+    for i := range 10 {
+        e, err := add(mut big, i)
+        if err.code != 0 {
+            exit(1)
+        }
+        far = e
+    }
+    small[far] = 7
+    mut z id[int64]
+    if small[far] != 7 || small[z] != 7 || len(small) != 1 {
+        exit(2)
+    }
+    exit(0)
+}
+```
 
 ### Map keys
 

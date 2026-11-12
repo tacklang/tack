@@ -297,19 +297,19 @@ any local of the name ([Function values](#function-values)).
 ```tack error
 package main
 
-func id(n int32) int32 {
+func same(n int32) int32 {
     return n
 }
 
 func main() {
     n := 3
-    exit(n(2) + id(1, 2))
+    exit(n(2) + same(1, 2))
 }
 ```
 
 ```diagnostics
 main.tck:9:10: error: cannot call n: it is int64, not a function
-main.tck:9:17: error: id expects 1 argument(s), got 2
+main.tck:9:17: error: same expects 1 argument(s), got 2
 ```
 
 ## Function values
@@ -707,13 +707,13 @@ func parse(s string) (int64, error) {
     return len(s), noerror
 }
 
-func add(a int64, b int64) int64 {
-    print("add\n")
+func sum(a int64, b int64) int64 {
+    print("sum\n")
     return a +% b
 }
 
 func both(a string, b string) (int64, error) {
-    return add(parse(a)?, parse(b)?), noerror
+    return sum(parse(a)?, parse(b)?), noerror
 }
 
 func main() {
@@ -727,7 +727,7 @@ func main() {
 ```
 
 ```output
-add
+sum
 ```
 
 ## Order of evaluation

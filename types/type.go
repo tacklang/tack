@@ -132,6 +132,32 @@ func Names() []string {
 	return names
 }
 
+// refNames are the builtin types written as a name and an element type,
+// id[T] and span[T]: an arena's ids and spans of an element type. Lookup
+// finds neither, since neither name is a type alone, but both are
+// reserved as a basic type's name is (see Reserved).
+var refNames = []string{"id", "span"}
+
+// RefNames returns the names of the builtin types written with an
+// element type, id[T] and span[T], in that order.
+func RefNames() []string { return refNames }
+
+// Reserved reports whether name is a builtin type's: a basic type's,
+// which Lookup finds, or id or span, written with an element type. No
+// declaration, struct field or method may take one as its name, and none
+// is read or assigned as a value.
+func Reserved(name string) bool {
+	if _, ok := Lookup(name); ok {
+		return true
+	}
+	for _, n := range refNames {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
 // InAny reports whether a value of type t can be passed as any: t is one
 // of the fourteen basic types a value can have, every integer type, bool,
 // string, float32 and float64. An array, a view, a list, a struct, error,

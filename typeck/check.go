@@ -108,6 +108,10 @@ type Checker struct {
 	// reported (see viewresult.go).
 	viewCall *ast.Call
 
+	// viewSpan is the span's view of an arena, a[s], about to be checked
+	// where a view may be: anywhere viewCall may be.
+	viewSpan *ast.Index
+
 	// assigning is the assignment whose target is being checked, nil
 	// otherwise: an element of a list it assigns is checked against the
 	// mut arguments of its value (see checkAssignBorrows).
@@ -895,6 +899,10 @@ func (c *Checker) multiResults(
 		c.viewConversionElsewhere(call)
 		return nil, false
 	}
+	if isRefConversion(call) {
+		c.refConversion(call, call.Fn.(*ast.RefType))
+		return nil, false
+	}
 
 	return c.callResults(call, want, span)
 }
@@ -1028,6 +1036,10 @@ func (c *Checker) callResults(call *ast.Call, want int, span ast.Span) ([]types.
 			return nil, false
 		}
 		results = []types.Type{typ}
+		if call.ResultTypes != nil {
+			// add or add_all, which give two.
+			results = call.ResultTypes
+		}
 	} else {
 		c.checkCall(call)
 	}
@@ -1086,7 +1098,7 @@ func (c *Checker) discard(e ast.Expr) {
 		return
 	}
 	if call, ok := e.(*ast.Call); ok && call.Conv == types.Invalid &&
-		c.genericCall(call) == nil && !isViewConversion(call) {
+		c.genericCall(call) == nil && !isViewConversion(call) && !isRefConversion(call) {
 		c.checkCall(call)
 		return
 	}
@@ -1190,9 +1202,11 @@ func (c *Checker) assumeLoop(loop *ast.For) {
 // gives the index an int64 and the element the array's or view's element
 // type, or a string's byte, a uint8; or over a map, which gives the key
 // its key type, referring to the key in place when it is owned, and the
-// element its value type. An integer gives only one value, so an element variable
+// element its value type; or over an arena, which gives the index an id
+// of its element type, the sentinel's first, and the element its element
+// type. An integer gives only one value, so an element variable
 // over one is reported. What it ranges over may be a call returning a
-// view.
+// view, or a span's view of an arena.
 func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
 	c.allowViewCall(loop.X)
 	got := c.valueOf(loop.X, c.expr(loop.X))
@@ -1252,6 +1266,8 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 		return types.Int64, c.table.Elem(got)
 	case c.table.IsMap(got):
 		return c.table.Key(got), c.table.Elem(got)
+	case c.table.IsArena(got):
+		return c.table.ID(c.table.Elem(got)), c.table.Elem(got)
 	case got == types.String:
 		return types.Int64, types.Uint8
 	default:
@@ -1262,7 +1278,7 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 
 // rangeFacts returns what a range loop's body knows about its index
 // variable, a range over a value of type got, other than a map, whose key
-// is no index and gets no fact: it is at least 0, and below
+// is no index and gets no fact, and an arena, whose ids are no integers: it is at least 0, and below
 // the count or the length when that is known. A count's is known when it is
 // a known value, an array's always, and a string's when it is a known
 // string, a literal or an immutable variable holding one.
@@ -1276,7 +1292,7 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 // n, which checkForRange keeps only while the body never assigns n: the
 // loop counts to the value n had when it began.
 func (c *Checker) rangeFacts(loop *ast.ForRange, got types.Type) []fact {
-	if loop.Var == nil || loop.Var.Name == ast.Blank || c.table.IsMap(got) {
+	if loop.Var == nil || loop.Var.Name == ast.Blank || c.table.IsMap(got) || c.table.IsArena(got) {
 		return nil
 	}
 	f := fact{about: declKey(loop.Var), hasLo: true}
@@ -1477,8 +1493,8 @@ func (c *Checker) checkGlobal(v *ast.Var) {
 }
 
 // badGlobalType reports v, a package-level variable, when its type holds a
-// function value, a list or a map, which no global may, and returns
-// whether it did.
+// function value, a list, a map or an arena, which no global may, and
+// returns whether it did.
 func (c *Checker) badGlobalType(v *ast.Var) bool {
 	if c.holdsFunc(v.Type, make(map[types.Type]bool)) {
 		c.noGlobalFunc(v)
@@ -1488,7 +1504,10 @@ func (c *Checker) badGlobalType(v *ast.Var) bool {
 		return false
 	}
 	held := "a list"
-	if !c.table.HoldsList(v.Type) {
+	switch {
+	case c.table.HoldsArena(v.Type):
+		held = "an arena"
+	case !c.table.HoldsList(v.Type):
 		held = "a map"
 	}
 	c.errorf(v.NameSpan, "package-level variable %s cannot hold %s", v.Name, held)
@@ -2199,7 +2218,8 @@ func (c *Checker) checkNumberTarget(target ast.Expr, op string, floats bool) (ty
 // declaredType returns the type a type expression denotes, reporting a type it
 // does not know and returning types.Invalid for it. A name denotes a basic
 // type, or the struct type the resolver bound it to, list[T] a list
-// type, map[K]V a map type, and func(A) R a function type. A view type and any
+// type, map[K]V a map type, arena[T], id[T] and span[T] an arena, an id
+// and a span type, and func(A) R a function type. A view type and any
 // are reported, since only a parameter may have one, or, for a view, a
 // result; paramType gives a parameter's and resultType a result's.
 func (c *Checker) declaredType(expr ast.Expr) types.Type {
@@ -2231,8 +2251,8 @@ func (c *Checker) declaredType(expr ast.Expr) types.Type {
 }
 
 // compositeType returns the type expr denotes when it is an array, a
-// view, a list, a map or a function type, as declaredType says, and
-// whether it is one.
+// view, a list, a map, an arena, an id, a span or a function type, as
+// declaredType says, and whether it is one.
 func (c *Checker) compositeType(expr ast.Expr) (types.Type, bool) {
 	switch t := expr.(type) {
 	case *ast.ArrayType:
@@ -2243,6 +2263,10 @@ func (c *Checker) compositeType(expr ast.Expr) (types.Type, bool) {
 		return c.listType(t), true
 	case *ast.MapType:
 		return c.mapType(t), true
+	case *ast.ArenaType:
+		return c.arenaType(t), true
+	case *ast.RefType:
+		return c.refType(t), true
 	case *ast.FuncType:
 		return c.funcType(t), true
 	default:

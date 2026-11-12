@@ -82,6 +82,14 @@ func (t *Table) layout(typ Type, visiting map[Type]bool) Size {
 		return t.structSize(errorFields, visiting)
 	case t.IsView(typ), t.IsList(typ), t.IsMap(typ), t.IsFunc(typ):
 		return t.handleSize(typ)
+	case t.IsID(typ):
+		return Size{Bytes: 4, Align: 4} // a uint32_t
+	case t.IsSpan(typ):
+		return Size{Bytes: 8, Align: 8} // a uint64_t: the start, then the length
+	case t.IsArena(typ):
+		// A list of its elements, then its sentinel, inline.
+		acc := place(Size{Bytes: 32, Align: 8}, t.size(t.Elem(typ), visiting))
+		return padTo(acc, acc.Align)
 	case t.IsArray(typ):
 		elem := t.size(t.Elem(typ), visiting)
 		// An array type's length is never negative (see Array), and one

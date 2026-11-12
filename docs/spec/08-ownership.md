@@ -21,13 +21,13 @@ to C belongs in [Extern C](14-extern.md).
 
 Every value is either copyable or owned.
 
-A value is *owned* when its type holds a list or a map: a list, a map, a
-struct with a field that holds one, directly or through another struct
+A value is *owned* when its type holds a list, a map or an arena: a
+list, a map, an arena, a struct with a field that holds one, directly or through another struct
 or a union, a union with a case whose payload holds one, and, inside a
 generic function, a value of a type parameter, whatever type a call
 gives it. Every other value is *copyable*: the integers, the floats,
-`bool`, `string`, `error`, `Allocator`, function values, and arrays and
-structs of copyable values.
+`bool`, `string`, `error`, `Allocator`, function values, an arena's ids
+and spans, and arrays and structs of copyable values.
 
 A copyable value is copied wherever it is declared, assigned, passed,
 returned or stored, and the copy is independent of the original. A
@@ -36,7 +36,8 @@ one, which shares the bytes it is cut from, never allocates and is never
 freed.
 
 An owned value has exactly one owner at a time, a variable, a parameter
-that took it with `own`, or the list, map, struct or union that holds it.
+that took it with `own`, or the list, map, arena, struct or union that
+holds it.
 The owner frees it, and nothing else does. An owned value is never
 copied; where a copyable value would be copied, it is moved (see
 [Moves](#moves)).
@@ -46,10 +47,11 @@ with a value: `mut l list[int64]` is `l needs a value: list[int64] has no
 zero value`. An array cannot hold an owned element, since its elements
 are copied: `an array cannot hold list[int64]: its elements are copied,
 and a list cannot be`; the same holds for a variadic parameter. No
-package-level variable may hold a list or a map, `package-level variable
-g cannot hold a list`, `package-level variable g cannot hold a map`, so a
-function reaches a list or a map only through its parameters and its own
-locals. No type may hold itself through a list or a map: `invalid
+package-level variable may hold a list, a map or an arena,
+`package-level variable g cannot hold a list`, `package-level variable g
+cannot hold a map`, `package-level variable g cannot hold an arena`, so a
+function reaches one only through its parameters and its own locals. No
+type may hold itself through a list, a map or an arena: `invalid
 recursive type Tree: a type cannot hold itself, even through a list`.
 
 ## Moves
@@ -395,16 +397,25 @@ in place:
   mut l in its index: a list is not copied to be indexed, ...`;
 - a slice whose bounds do: `cannot slice l alongside mut l in its bounds:
   ...`;
-- a value assigned to an element of a list, or to a value in a map, that
-  passes the list or map, or anything holding it, as `mut`: `cannot
-  assign to l[0] alongside mut l in its value: an element is assigned in
-  place in its list, ...`; a `mut` argument inside the list, one of its
-  elements, may be passed;
+- a value assigned to an element of a list or an arena, or to a value in
+  a map, that passes the list, arena or map, or anything holding it, as
+  `mut`: `cannot assign to l[0] alongside mut l in its value: an element
+  is assigned in place in its list, ...`, `... in its arena, ...` for an
+  arena's; a `mut` argument inside the list, one of its elements, may be
+  passed;
+- an element of an arena, or a part of one, passed as `mut` while
+  another operand passes the arena, or anything holding it, as `mut`, at
+  any depth: `cannot pass mut a[e] alongside mut a in this call: an arena
+  is not copied for a call, ...`, since the element's address is taken
+  first and growing the arena may move it; a list's element so passed
+  loses the proof of its index instead;
 - a comparison of two lists, or of values holding them, where one operand
   passes the other as `mut`: `cannot compare a alongside mut a in the
   other operand: ...`;
 - a view a call returns, which may point into every argument of its call
-  that is not `mut` and holds data, the receiver included: `cannot pass
+  that is not `mut` and holds data, a list, a map, an arena, an array, a
+  struct, a union, a view or a type parameter's value, the receiver
+  included: `cannot pass
   t.bytes() alongside mut t in this call: the view it returns may point
   into t, ...`.
 
@@ -518,7 +529,15 @@ these; a union pattern's binding or a range loop's element variable that
 refers into one of these; or a call returning a view whose arguments are
 all such places. An array is returned only when it is reached through an
 element of a list or a view, since a plain array parameter is the
-function's own copy.
+function's own copy. A range over an arena gives its sentinel first,
+which the arena holds inline, so an array reached through a range
+loop's element over an arena, or through a union pattern's binding
+inside one, counts as reached through an element of a list or a view
+only when the arena itself is: a plain arena parameter, a field of a
+plain parameter holding one, and an element of another arena are the
+function's own copy, `cannot return a view of x.arr: the function holds
+its own copy of a, ...`. An arena's element, `a[e]`, is never one, since
+an id may name the sentinel.
 
 ```tack run exit=6
 package main
@@ -679,10 +698,70 @@ func main() {
 }
 ```
 
+## Arenas
+
+An `arena[T]` owns a list of its elements and its sentinel, the element
+at id 0, held in the arena itself, and frees them all when it is freed:
+its elements last first, then its sentinel. `make(arena[T], sentinel,
+alloc)` moves the sentinel in and allocates nothing. It moves as a list
+does, and nests in lists, maps, structs, unions and other arenas.
+
+`add(mut a, v)` and `add_all(mut a, ...)` move their values in, growing
+the list all at once, before writing anything: when the allocator cannot
+grow it, or the arena would hold more than 2^32 - 1 elements, its
+sentinel among them, each returns an error, leaves the arena as it was
+and frees the values it was given, so nothing is lost. Nothing takes an
+element out of an arena while it lives: `cannot move a[e] out of a: an
+element cannot be moved out of an arena`, and no element is dropped or
+popped. `a[e] = v` moves `v` in, then frees the element it replaces,
+and `old := replace(mut a[e], new)` takes one out with `new` left in its
+place. A range binding of an owned element refers to it in place.
+
+An id holds no memory, so an id outlives nothing: it stays valid for as
+long as its arena lives, and names the sentinel in any other. What reads
+an arena in place, an element, a range over it or a span's view of it,
+`a[s]`, is a borrow of the arena, and `add`, which may move its list's
+buffer, takes it as `mut`: the exclusive access rules stop both in one
+call, `cannot pass a[s] alongside mut a in this call: an arena is not
+copied for a call, and a mut argument must be the only way to reach a
+during it`, and a range from growing what it walks, `a is being ranged
+over, so this loop cannot pass mut a`. A closure that reads an arena it
+captures borrows it as any capture is borrowed.
+
+```tack run exit=0
+package main
+
+func numbers(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func main() {
+    mut a := make(arena[list[int64]], numbers(0), c_allocator)
+    e, err := add(mut a, numbers(2))
+    if err.code != 0 {
+        exit(1)
+    }
+    grown := append(mut a[e], 7)
+    old := replace(mut a[e], numbers(5))
+    if grown.code != 0 || len(old) != 3 || len(a[e]) != 5 {
+        exit(2)
+    }
+    drop(own a)
+    exit(0)
+}
+```
+
 ## Allocators
 
-An `Allocator` is an opaque handle on an allocator: a list or a map holds
-the one it was made with, grows through it, and is freed through it. An
+An `Allocator` is an opaque handle on an allocator: a list, a map or an
+arena holds the one it was made with, grows through it, and is freed through it. An
 `Allocator` is copyable; copying it copies the handle, not the
 allocator. The `Allocator` type's other properties, and `c_allocator`,
 are described in [Types](04-types.md).

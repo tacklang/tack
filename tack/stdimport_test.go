@@ -70,15 +70,15 @@ func stdHome(t *testing.T, files map[string]string) string {
 }
 
 // utilStd is a std of two packages besides the builtins: util, whose
-// extern func add is C, in util.c, behind a pub func, with a lib func and
+// extern func sum is C, in util.c, behind a pub func, with a lib func and
 // a private one the lib func calls, so std stays free of warnings; and
 // text, which imports std/util and uses its lib func, as a package of std
 // may.
 func utilStd() map[string]string {
 	return map[string]string{
 		"util/util.tck": "package util\n\n" +
-			"extern(\"std_util_add\") func add(a int64, b int64) int64\n\n" +
-			"pub func Sum(a int64, b int64) int64 {\n    return add(a, b)\n}\n\n" +
+			"extern(\"std_util_add\") func sum(a int64, b int64) int64\n\n" +
+			"pub func Sum(a int64, b int64) int64 {\n    return sum(a, b)\n}\n\n" +
 			"lib func secret() int64 {\n    return 6 +% hidden()\n}\n\n" +
 			"func hidden() int64 {\n    return 1\n}\n",
 		"util/util.c": "#include \"tack.h\"\n\n" +
@@ -177,7 +177,7 @@ func TestCustomStdExternWithoutC(t *testing.T) {
 	)
 	assertDiagnostics(t, r)
 	want := filepath.Join(home, "src", "std", "util", "util.tck") +
-		":3:29: error: extern func add has no C definition in package util"
+		":3:29: error: extern func sum has no C definition in package util"
 	if !strings.Contains(r.stderr, want) {
 		t.Errorf("stderr does not contain %q:\n%s", want, r.stderr)
 	}

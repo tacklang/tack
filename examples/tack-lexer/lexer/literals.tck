@@ -21,7 +21,7 @@ func quoted(mut l Lexer) {
         }
         l.pos +%= 1
     }
-    add(mut l, KindString, 0, start, l.pos, true)
+    emit(mut l, KindString, 0, start, l.pos, true)
     if !closed {
         fail(mut l, start, l.pos, "unterminated string")
     }
@@ -39,7 +39,7 @@ func raw(mut l Lexer) {
     if closed {
         l.pos +%= 1
     }
-    add(mut l, KindString, 0, start, l.pos, true)
+    emit(mut l, KindString, 0, start, l.pos, true)
     if !closed {
         fail(mut l, start, l.pos, "unterminated string")
     }
@@ -73,7 +73,7 @@ func char(mut l Lexer) {
         return
     }
     l.pos +%= 1
-    add(mut l, KindChar, 0, start, l.pos, true)
+    emit(mut l, KindChar, 0, start, l.pos, true)
 }
 
 // tooLong recovers from a character literal starting at start that holds

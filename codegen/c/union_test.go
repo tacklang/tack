@@ -515,8 +515,8 @@ func flip(mut m M) {
 }
 
 type Box struct {
-    m  M
-    id int64
+    m   M
+    key int64
 }
 
 func main() {
@@ -550,9 +550,9 @@ func main() {
     if describe(f) != 0 {
         bad +%= 1
     }
-    mut b := Box{m: M.small(1), id: 1}
+    mut b := Box{m: M.small(1), key: 1}
     b.m = M.small(9)
-    if describe(b.m) != 9 || b.id != 1 {
+    if describe(b.m) != 9 || b.key != 1 {
         bad +%= 1
     }
     mut total := 0

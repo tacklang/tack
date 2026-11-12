@@ -27,7 +27,7 @@ needed.
 ## Declaring an extern function
 
 ```tack fragment
-extern func add(a int64, b int64) int64
+extern func sum(a int64, b int64) int64
 extern("c_twice") func twice(x int64) int64
 ```
 

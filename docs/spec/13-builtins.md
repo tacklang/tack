@@ -3,7 +3,8 @@
 This chapter describes every builtin function, with its signature,
 what it does and when it fails: `print`, `exit`, `len`, `make`, the list
 operations (`append`, its spread form, `reserve`, `pop`, `remove` and
-the rest), the map operations, `drop`, and the generic builtins. It follows
+the rest), the map operations, `drop`, the arena operations (`add` and
+`add_all`), and the generic builtins. It follows
 [builtin/builtin.tck](../../builtin/builtin.tck), which documents each
 builtin in the compiler's own source. `true`, `false`, `noerror` and
 `c_allocator` are keywords, not builtins: `noerror` belongs in
@@ -18,16 +19,17 @@ types belong in [Types](04-types.md).
 A builtin function is declared by no source file and needs no import:
 every file of every package can call it by its bare name. Its signature
 is given here as [builtin/builtin.tck](../../builtin/builtin.tck) gives
-it. Some builtins take any list, map or type, which no Tack declaration
-can say exactly; their signatures use stand-in types, which no program
+it. Some builtins take any list, map, arena or type, which no Tack
+declaration can say exactly; their signatures use stand-in types, which no program
 can name:
 
-- `Elem` stands for any type: a list's element, a map's value, a place.
+- `Elem` stands for any type: a list's or an arena's element, a map's
+  value, a place.
 - `Key` stands for any type a map key can have: one with `==`.
-- `Sized` stands for any array, view or list, of any element type, or a
-  string.
-- `ListType` stands for a list type written where a value goes, as
-  `make(list[int64], c_allocator)` does.
+- `Sized` stands for any array, view, list or arena, of any element
+  type, a map, or a string.
+- `ListType` stands for a list, a map or an arena type written where a
+  value goes, as `make(list[int64], c_allocator)` does.
 
 ## Print
 
@@ -105,13 +107,12 @@ main.tck:4:10: error: constant 3000000000 overflows int32
 
 `func len(v Sized) int64`
 
-`len` returns the number of elements of the array, view or list `v`, or
-the number of bytes of the string `v`. The length of an array, and of a
-string literal, is a constant; a view's or a list's is never known.
-`len(m)` of a map `m` is the number of keys it holds; `builtin.tck`'s
-`len` and `Sized` do not yet say so, and are not yet aligned with
-this. Anything else is
-`len expects an array, a string, a view, a list or a map, got int64`.
+`len` returns the number of elements of the array, view, list or arena
+`v`, an arena's sentinel among them, the number of keys of the map `v`,
+or the number of bytes of the string `v`. The length of an array, and of
+a string literal, is a constant; a view's, a list's or an arena's is
+never known. Anything else is `len expects an array, a string, a view, a
+list, a map or an arena, got int64`.
 
 ```tack run exit=8
 package main
@@ -137,9 +138,13 @@ func main() {
 `make(list[T], alloc)`, which grows through `alloc` and is freed
 through it when its owner's block ends. It allocates nothing, so it
 cannot fail. Written `make(map[K]V, alloc)`, it returns an empty map in
-the same way. Its first argument is the type as written, `make takes a
-list or a map type, as in make(list[int64], c_allocator)`, and it takes
-no capacity, `make expects 2 argument(s), got 3`.
+the same way. Written `make(arena[T], sentinel, alloc)`, it returns an
+arena holding only `sentinel`, which it moves in as the element at id 0,
+and allocates nothing either; without the sentinel it is `make expects 3
+argument(s), got 2`. Its first argument is the type as written, `make
+takes a list, a map or an arena type, as in make(list[int64],
+c_allocator)`, and it takes no capacity, `make expects 2 argument(s),
+got 3`.
 
 ## List operations
 
@@ -204,8 +209,11 @@ is at least its length plus `n`, and returns no error; its length and
 elements never change, and `n` of 0 does nothing. A negative `n` returns
 `error{code: 2, msg: "negative count"}`, and one the allocator cannot
 make room for `error{code: 1, msg: "out of memory"}`, each leaving `l`
-as it was. Its error cannot be discarded. A negative constant `n` is an
-error:
+as it was. Its error cannot be discarded. `l` may be an arena,
+`reserve(mut a, n)`, which also returns `error{code: 1, msg: "out of
+memory"}` when `a` could not hold `n` more without passing 2^32 - 1
+elements, its sentinel among them; anything else is `reserve expects a
+list or an arena, got [3]int64`. A negative constant `n` is an error:
 
 ```tack error
 package main
@@ -432,10 +440,67 @@ func main() {
 main.tck:5:14: error: cannot drop n: int64 owns no list or map, so there is nothing to free; remove the drop
 ```
 
+## Arena operations
+
+Each arena operation takes its arena as `mut`, as a list operation takes
+its list; anything but an arena is `add expects an arena, got
+list[int64]`.
+
+### add
+
+`func add[T Elem](mut a arena[T], v T) (id[T], error)`
+
+`add` moves `v` into `a` as its new last element and returns its id,
+which names it for as long as `a` lives, and no error. When the
+allocator cannot grow `a`, or `a` would then hold more than 2^32 - 1
+elements, its sentinel among them, it returns the zero id and
+`error{code: 1, msg: "out of memory"}`, leaving `a` as it was and
+freeing `v`. Its two results are bound together, `e, err := add(mut a,
+v)` or `add(mut a, v)?`: the id cannot be read before the error is
+checked, the error cannot be discarded, `the error add returns cannot
+be discarded; bind it, as in _, err := add(...)`, and it gives no one
+value, `add returns 2 values`.
+
+### add_all
+
+`func add_all[T Elem](mut a arena[T], elems ...T) (span[T], error)`
+
+`add_all` moves its values into `a`, in order, as its new last elements,
+all or none, and returns their span, from the first one's id, and no
+error; with no values it adds nothing and returns the empty span. It
+fails as `add` does, returning the empty span, leaving `a` as it was and
+freeing every value it was given. It takes any number of values,
+`add_all(mut a, x, y)`, or a view spread whole, `add_all(mut a, v...)`,
+whose elements are copied, so not a view of an owned element type, and
+never a span's view of `a` itself, which `add_all` may move.
+
+```tack run exit=6
+package main
+
+func total(v []int64) int64 {
+    mut t int64 = 0
+    for _, x := range v {
+        t = t +% x
+    }
+    return t
+}
+
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    s, err := add_all(mut a, 1, 2, 3)
+    if err.code != 0 {
+        exit(1)
+    }
+    if len(a[s]) == 3 && total(a[s]) == 6 {
+        exit(6)
+    }
+}
+```
+
 ## Generic builtins
 
 `len`, `make`, `append`, `reserve`, `pop`, `remove`, `swap`, `replace`,
-`put`, `delete`, `has` and `drop` are generic: each is checked by the compiler
+`put`, `delete`, `has`, `drop`, `add` and `add_all` are generic: each is checked by the compiler
 itself, against the argument types of each call, as the signatures
 above describe with their stand-in types. Their type arguments are
 never written, as no generic function's are (see [Generics and

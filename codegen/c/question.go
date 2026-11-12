@@ -110,7 +110,7 @@ func (g *generator) questionExpr(q *ast.Question, value bool) (string, string, [
 // expression that gives it, and how many results the call has, its error
 // included.
 func (g *generator) questioned(call *ast.Call) (ctype, init string, n int, diags []diag.Diagnostic) {
-	if fn := ast.Callee(call); fn != nil {
+	if fn := ast.Callee(call); fn != nil || isBuiltin(call, "add") || isBuiltin(call, "add_all") {
 		n = len(ast.CallResults(call))
 	}
 	if n <= 1 {

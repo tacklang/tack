@@ -246,6 +246,7 @@ func (known interval) single() bool {
 func (c *Checker) checkListBorrows(call *ast.Call) {
 	c.checkOwnExclusive(call)
 	c.checkViewBorrows(call)
+	c.checkMutArenaElements(call)
 	operands := call.Operands()
 	for i, arg := range operands {
 		if appendedValue(call, i) {
@@ -260,10 +261,11 @@ func (c *Checker) checkListBorrows(call *ast.Call) {
 				c.errorNotes(
 					arg.Spanned(),
 					[]diag.Diagnostic{w.note()},
-					"cannot pass %s alongside %s in this call: a list is not copied for a call, "+
+					"cannot pass %s alongside %s in this call: %s is not copied for a call, "+
 						"and %s during it",
 					c.text(place.Spanned()),
 					w.what(c),
+					c.borrowHolder(place, "a list"),
 					w.only(c),
 				)
 				break
@@ -273,19 +275,20 @@ func (c *Checker) checkListBorrows(call *ast.Call) {
 }
 
 // appendedValue reports whether the operand at i of call is a value a call
-// to append adds, not a spread, which is copied, or moved when it is
+// to append, add or add_all adds, not a spread, which is copied, or moved when it is
 // owned, and so no borrow: a move out of a list's element is reported as
 // one (see move.go). The value replace stores is checked as a borrow, so
 // an owned one that may overlap the place, replace(mut l, l), is
 // reported.
 func appendedValue(call *ast.Call, i int) bool {
-	return (isAppend(call) && !call.Spread || isPut(call)) && i > 0
+	return ((isAppend(call) || addsToArena(call)) && !call.Spread || isPut(call)) && i > 0
 }
 
 // borrowedList returns the place arg reads a list from in place, when it
 // does: arg itself, a place of an owned type, or what a slice of a list
-// slices, at any depth of slices. It returns nil for anything else, a mut
-// argument included.
+// slices, at any depth of slices, or the arena a span's view of one is
+// of, a[s], whose elements are read where the arena holds them. It
+// returns nil for anything else, a mut argument included.
 func (c *Checker) borrowedList(arg ast.Expr) ast.Expr {
 	if _, isMut := arg.(*ast.MutArg); isMut {
 		return nil
@@ -296,6 +299,9 @@ func (c *Checker) borrowedList(arg ast.Expr) ast.Expr {
 			break
 		}
 		arg = s.X
+	}
+	if c.isSpanView(arg) && ast.Root(arg) != nil {
+		return arg
 	}
 	if ast.Root(arg) == nil || !c.table.Owned(ast.TypeOf(arg)) {
 		return nil
@@ -400,6 +406,7 @@ func (c *Checker) checkReadBorrows(x ast.Expr, operands []ast.Expr, verb, where,
 				if c.table.IsMap(ast.TypeOf(x)) {
 					holder = "a map"
 				}
+				holder = c.borrowHolder(x, holder)
 				c.errorNotes(
 					x.Spanned(),
 					[]diag.Diagnostic{w.note()},
@@ -445,8 +452,8 @@ func (c *Checker) checkReadBorrows(x ast.Expr, operands []ast.Expr, verb, where,
 }
 
 // checkAssignBorrows reports the target of the assignment being checked
-// when ix, an element of a list or a value of a map of type base on the
-// target's path, is assigned while the value passes as mut, at any depth,
+// when ix, an element of a list or an arena or a value of a map of type
+// base on the target's path, is assigned while the value passes as mut, at any depth,
 // that list or map or a place holding it, or holds a closure that writes
 // the variable it is in (see writersIn), with a note at that mut argument
 // or write, and reports whether it did. The element is assigned in place,
@@ -457,12 +464,15 @@ func (c *Checker) checkReadBorrows(x ast.Expr, operands []ast.Expr, verb, where,
 func (c *Checker) checkAssignBorrows(ix *ast.Index, base types.Type) bool {
 	a := c.assigning
 	isMap := c.table.IsMap(base)
-	if a == nil || !c.table.IsList(base) && !isMap {
+	if a == nil || !c.table.IsList(base) && !isMap && !c.table.IsArena(base) {
 		return false
 	}
 	holder := "an element is assigned in place in its list"
-	if isMap {
+	switch {
+	case isMap:
 		holder = "a value is assigned in place in its map"
+	case c.table.IsArena(base):
+		holder = "an element is assigned in place in its arena"
 	}
 	root, steps := path(ix.X)
 	if root == nil {

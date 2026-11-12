@@ -174,8 +174,9 @@
 // parameters, which Tack allows, as a callback or a generic function ignoring
 // one does, starts with (void)p_x; for it, so C's unused-parameter
 // warning never fires (see unusedParams). A function, an instance, a map
-// type's has, at, put or take helper, a list's, a map's or a union's free
-// helper, a division, remainder, shift or slice helper, or a global that
+// type's has, at, put or take helper, an arena type's at, span, add,
+// add_all or reserve helper, a list's, a map's, an arena's or a union's
+// free helper, a division, remainder, shift or slice helper, or a global that
 // no other function's lowered body names, a function of std the program
 // never calls among them, is declared with __attribute__((unused)), so
 // C's unused-function and unused-variable warnings never fire either (see
@@ -488,7 +489,20 @@
 // over one lower through them (see maps.go). Where the C starts a map
 // before Tack gives it one, a function's result, or the value a checked
 // pop or delete gives when there is none, it is a zeroed struct, an
-// empty map no code reads (see zeroValue). A function value is a
+// empty map no code reads (see zeroValue). An arena lowers to a struct
+// of its own per element type, a list of its elements but the sentinel
+// and the sentinel inline, so make allocates nothing; an id is a
+// uint32_t and a span a uint64_t, its start low and its length high.
+// Per arena type, after every free they call, its at helper clamps an id
+// to an element the list holds or to the sentinel, in 64 bits, its span
+// helper gives a span's view or the empty one, and its add, add_all and
+// reserve helpers grow the list, after tack_arena_room_, the runtime's,
+// says the arena may hold that many more, giving out of memory, the
+// arena unchanged and its values freed, when it may not; add and add_all
+// give a tack_arena_added_ or a tack_arena_spanned_, read field by field
+// as a results struct is. Its tack_free_ frees the list, its elements
+// last first, then the sentinel; a range over one walks the ids from 0
+// through the at helper (see arena.go). A function value is a
 // tack_fnptr, one C function pointer type for every function type,
 // defined before any type that may hold one, so a struct may hold one
 // that takes the struct; a function named as a value is a pointer of its

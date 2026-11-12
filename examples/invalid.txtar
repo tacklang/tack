@@ -1296,6 +1296,1660 @@ any-view-result-alongside-mut/main.tck:16:7: note: passed as mut here
    |	      ^~~~~
 17 |	}
 
+-- arena-add-all-own-span/main.tck --
+package main
+
+// A span's view of an arena reads it in place, so it cannot be spread
+// into add_all on the same arena, which may move its buffer.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    s, err := add_all(mut a, 1, 2)
+    if err.code == 0 {
+        _, err2 := add_all(mut a, a[s]...)
+        if err2.code != 0 {
+            exit(1)
+        }
+    }
+}
+-- arena-add-all-own-span/expected --
+stage: typeck
+---
+
+arena-add-all-own-span/main.tck:9:35: error: cannot pass a[s] alongside mut a in this call: an arena is not copied for a call, and a mut argument must be the only way to reach a during it
+08 |	    if err.code == 0 {
+09 |	        _, err2 := add_all(mut a, a[s]...)
+   |	                                  ^~~~
+10 |	        if err2.code != 0 {
+arena-add-all-own-span/main.tck:9:28: note: passed as mut here
+08 |	    if err.code == 0 {
+09 |	        _, err2 := add_all(mut a, a[s]...)
+   |	                           ^~~~~
+10 |	        if err2.code != 0 {
+
+-- arena-add-all-read-before-check/main.tck --
+package main
+
+// The span add_all gives is held by its error until the error is checked.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    s, err := add_all(mut a, 1, 2)
+    if len(a[s]) == 2 {
+        exit(2)
+    }
+    if err.code != 0 {
+        exit(1)
+    }
+}
+-- arena-add-all-read-before-check/expected --
+stage: typeck
+---
+
+arena-add-all-read-before-check/main.tck:7:14: error: s cannot be read before err is checked; check err.code == 0 first
+06 |	    s, err := add_all(mut a, 1, 2)
+07 |	    if len(a[s]) == 2 {
+   |	             ^
+08 |	        exit(2)
+
+-- arena-add-all-spread-owned/main.tck --
+package main
+
+// A spread copies its view's elements, and an owned element cannot be
+// copied.
+func numbers() list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func give(mut a arena[list[int64]], v []list[int64]) error {
+    _, err := add_all(mut a, v...)
+    return err
+}
+
+func main() {
+}
+-- arena-add-all-spread-owned/expected --
+stage: typeck
+---
+
+arena-add-all-spread-owned/main.tck:10:30: error: cannot spread v into add_all: its elements would be copied, and a list cannot be
+09 |	func give(mut a arena[list[int64]], v []list[int64]) error {
+10 |	    _, err := add_all(mut a, v...)
+   |	                             ^
+11 |	    return err
+
+-- arena-add-as-value/main.tck --
+package main
+
+// Arena operations stay builtins, with no method values (addendum).
+func main() {
+    f := add
+}
+-- arena-add-as-value/expected --
+stage: resolve
+---
+
+arena-add-as-value/main.tck:5:10: error: cannot use the builtin add as a value; only a declared function can be one
+04 |	func main() {
+05 |	    f := add
+   |	         ^~~
+06 |	}
+
+-- arena-add-error-dropped/main.tck --
+package main
+
+// Assumption: add's error cannot be dropped, as append's cannot.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    add(mut a, 1)
+}
+-- arena-add-error-dropped/expected --
+stage: typeck
+---
+
+arena-add-error-dropped/main.tck:6:5: error: the error add returns cannot be discarded; bind it, as in _, err := add(...)
+05 |	    mut a := make(arena[int64], 0, c_allocator)
+06 |	    add(mut a, 1)
+   |	    ^~~~~~~~~~~~~
+07 |	}
+
+-- arena-add-not-arena/main.tck --
+package main
+
+// add grows an arena; a list grows through append.
+func main() {
+    mut l := make(list[int64], c_allocator)
+    _, err := add(mut l, 1)
+    if err.code != 0 {
+        exit(1)
+    }
+}
+-- arena-add-not-arena/expected --
+stage: typeck
+---
+
+arena-add-not-arena/main.tck:6:23: error: add expects an arena, got list[int64]
+05 |	    mut l := make(list[int64], c_allocator)
+06 |	    _, err := add(mut l, 1)
+   |	                      ^
+07 |	    if err.code != 0 {
+
+-- arena-add-not-mut/main.tck --
+package main
+
+// Assumption: add takes its arena as mut, as append takes its list.
+func main() {
+    a := make(arena[int64], 0, c_allocator)
+    _, err := add(a, 1)
+    exit(int32(err.code))
+}
+-- arena-add-not-mut/expected --
+stage: typeck
+---
+
+arena-add-not-mut/main.tck:6:19: error: add takes a as mut, but a is immutable; declare it with mut, then pass mut a
+05 |	    a := make(arena[int64], 0, c_allocator)
+06 |	    _, err := add(a, 1)
+   |	                  ^
+07 |	    exit(int32(err.code))
+arena-add-not-mut/main.tck:5:5: note: a is declared here
+04 |	func main() {
+05 |	    a := make(arena[int64], 0, c_allocator)
+   |	    ^
+06 |	    _, err := add(a, 1)
+
+-- arena-add-one-value/main.tck --
+package main
+
+// add gives an id and an error, which cannot be used as one value.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    e := add(mut a, 1)
+    if a[e] == 1 {
+        exit(1)
+    }
+}
+-- arena-add-one-value/expected --
+stage: typeck
+---
+
+arena-add-one-value/main.tck:6:10: error: add returns 2 values
+05 |	    mut a := make(arena[int64], 0, c_allocator)
+06 |	    e := add(mut a, 1)
+   |	         ^~~~~~~~~~~~~
+07 |	    if a[e] == 1 {
+
+-- arena-add-own-element/main.tck --
+package main
+
+// add moves its value in, and an owned element cannot be moved out of its
+// arena.
+func numbers() list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func main() {
+    mut a := make(arena[list[int64]], numbers(), c_allocator)
+    e, err := add(mut a, numbers())
+    if err.code == 0 {
+        _, err2 := add(mut a, a[e])
+        if err2.code != 0 {
+            exit(1)
+        }
+    }
+}
+-- arena-add-own-element/expected --
+stage: typeck
+---
+
+arena-add-own-element/main.tck:13:31: error: cannot move a[e] out of a: an element cannot be moved out of an arena
+12 |	    if err.code == 0 {
+13 |	        _, err2 := add(mut a, a[e])
+   |	                              ^~~~
+14 |	        if err2.code != 0 {
+
+-- arena-add-read-before-check/main.tck --
+package main
+
+// The id add gives is held by its error until the error is checked.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    e, err := add(mut a, 1)
+    a[e] = 3
+    if err.code != 0 {
+        exit(1)
+    }
+}
+-- arena-add-read-before-check/expected --
+stage: typeck
+---
+
+arena-add-read-before-check/main.tck:7:7: error: e cannot be read before err is checked; check err.code == 0 first
+06 |	    e, err := add(mut a, 1)
+07 |	    a[e] = 3
+   |	      ^
+08 |	    if err.code != 0 {
+
+-- arena-add-while-ranging/main.tck --
+package main
+
+// A range over an arena reads it in place, and add may move its buffer.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    for _, v := range a {
+        _, err := add(mut a, v)
+        if err.code != 0 {
+            exit(1)
+        }
+    }
+}
+-- arena-add-while-ranging/expected --
+stage: typeck
+---
+
+arena-add-while-ranging/main.tck:7:27: error: a is being ranged over, so this loop cannot pass mut a
+06 |	    for _, v := range a {
+07 |	        _, err := add(mut a, v)
+   |	                          ^
+08 |	        if err.code != 0 {
+
+-- arena-add-while-ranging-span/main.tck --
+package main
+
+// A range over a span's view reads the arena in place, and add may move
+// its buffer.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    s, err := add_all(mut a, 1, 2, 3)
+    if err.code != 0 {
+        exit(1)
+    }
+    for _, v := range a[s] {
+        _, errV := add(mut a, v)
+        if errV.code != 0 {
+            exit(1)
+        }
+    }
+}
+-- arena-add-while-ranging-span/expected --
+stage: typeck
+---
+
+arena-add-while-ranging-span/main.tck:12:28: error: a is being ranged over, so this loop cannot pass mut a
+11 |	    for _, v := range a[s] {
+12 |	        _, errV := add(mut a, v)
+   |	                           ^
+13 |	        if errV.code != 0 {
+
+-- arena-add-wrong-type/main.tck --
+package main
+
+// add takes a value of the arena's element type.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    _, err := add(mut a, "x")
+    exit(int32(err.code))
+}
+-- arena-add-wrong-type/expected --
+stage: typeck
+---
+
+arena-add-wrong-type/main.tck:6:26: error: cannot use string as int64 in argument to add
+05 |	    mut a := make(arena[int64], 0, c_allocator)
+06 |	    _, err := add(mut a, "x")
+   |	                         ^~~
+07 |	    exit(int32(err.code))
+
+-- arena-any/main.tck --
+package main
+
+// An arena is not passed as any.
+func f(x any) {
+}
+
+func main() {
+    a := make(arena[int64], 0, c_allocator)
+    f(a)
+}
+-- arena-any/expected --
+stage: typeck
+---
+
+arena-any/main.tck:9:7: error: cannot pass arena[int64] as any: only the builtin types and views of them can be passed as any for now
+08 |	    a := make(arena[int64], 0, c_allocator)
+09 |	    f(a)
+   |	      ^
+10 |	}
+
+-- arena-assign-alongside-mut/main.tck --
+package main
+
+// The element is assigned in place, and grow may move the buffer it is
+// in.
+func grow(mut a arena[int64]) int64 {
+    _, err := add(mut a, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    mut z id[int64]
+    a[z] = grow(mut a)
+}
+-- arena-assign-alongside-mut/expected --
+stage: typeck
+---
+
+arena-assign-alongside-mut/main.tck:16:5: error: cannot assign to a[z] alongside mut a in its value: an element is assigned in place in its arena, and a mut argument must be the only way to reach a during its call
+15 |	    mut z id[int64]
+16 |	    a[z] = grow(mut a)
+   |	    ^~~~
+17 |	}
+arena-assign-alongside-mut/main.tck:16:17: note: passed as mut here
+15 |	    mut z id[int64]
+16 |	    a[z] = grow(mut a)
+   |	                ^~~~~
+17 |	}
+
+-- arena-assign-field-alongside-mut/main.tck --
+package main
+
+// A field of an element is assigned in place, and grow may move the
+// buffer the element is in.
+type P struct {
+    x int64
+}
+
+func grow(mut a arena[P]) int64 {
+    _, err := add(mut a, P{x: 1})
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func main() {
+    mut a := make(arena[P], P{x: 0}, c_allocator)
+    mut z id[P]
+    a[z].x = grow(mut a)
+}
+-- arena-assign-field-alongside-mut/expected --
+stage: typeck
+---
+
+arena-assign-field-alongside-mut/main.tck:20:5: error: cannot assign to a[z].x alongside mut a in its value: an element is assigned in place in its arena, and a mut argument must be the only way to reach a during its call
+19 |	    mut z id[P]
+20 |	    a[z].x = grow(mut a)
+   |	    ^~~~~~
+21 |	}
+arena-assign-field-alongside-mut/main.tck:20:19: note: passed as mut here
+19 |	    mut z id[P]
+20 |	    a[z].x = grow(mut a)
+   |	                  ^~~~~
+21 |	}
+
+-- arena-checked-element/main.tck --
+package main
+
+// Every id names an element, the sentinel for one the arena did not give,
+// so an element has no checked form.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    e, err := add(mut a, 1)
+    if err.code == 0 {
+        v, ok := a[e]
+        if ok && v == 1 {
+            exit(1)
+        }
+    }
+}
+-- arena-checked-element/expected --
+stage: typeck
+---
+
+arena-checked-element/main.tck:9:18: error: the checked form cannot read an element of an arena: every id names one, the sentinel for an id the arena did not give; use a[e]
+08 |	    if err.code == 0 {
+09 |	        v, ok := a[e]
+   |	                 ^~~~
+10 |	        if ok && v == 1 {
+
+-- arena-closure-alongside-mut/main.tck --
+package main
+
+// A closure that reads an arena captures it in place, which conflicts
+// with the arena passed as mut in the same call.
+func run(mut a arena[int64], scope f func()) {
+    f()
+}
+
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    mut z id[int64]
+    mut x int64 = 0
+    run(mut a, func() {
+        x = a[z]
+    })
+    if x == 1 {
+        exit(1)
+    }
+}
+-- arena-closure-alongside-mut/expected --
+stage: typeck
+---
+
+arena-closure-alongside-mut/main.tck:14:13: error: cannot capture a in a closure alongside mut a in this call: a closure reaches its captures in place, and a mut argument must be the only way to reach a during the call
+13 |	    run(mut a, func() {
+14 |	        x = a[z]
+   |	            ^
+15 |	    })
+arena-closure-alongside-mut/main.tck:13:9: note: passed as mut here
+12 |	    mut x int64 = 0
+13 |	    run(mut a, func() {
+   |	        ^~~~~
+14 |	        x = a[z]
+
+-- arena-delete/main.tck --
+package main
+
+// delete is not an arena operation: an arena only grows.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    e, err := add(mut a, 1)
+    if err.code == 0 {
+        delete(mut a, e)
+    }
+}
+-- arena-delete/expected --
+stage: typeck
+---
+
+arena-delete/main.tck:8:20: error: delete expects a map, got arena[int64]
+07 |	    if err.code == 0 {
+08 |	        delete(mut a, e)
+   |	                   ^
+09 |	    }
+
+-- arena-drop-element/main.tck --
+package main
+
+// An element cannot be moved out of its arena, so it cannot be dropped.
+func numbers() list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func main() {
+    mut a := make(arena[list[int64]], numbers(), c_allocator)
+    e, err := add(mut a, numbers())
+    if err.code == 0 {
+        drop(own a[e])
+    }
+}
+-- arena-drop-element/expected --
+stage: typeck
+---
+
+arena-drop-element/main.tck:12:18: error: cannot drop a[e]: an element cannot be moved out of an arena
+11 |	    if err.code == 0 {
+12 |	        drop(own a[e])
+   |	                 ^~~~
+13 |	    }
+
+-- arena-element-alongside-mut/main.tck --
+package main
+
+// An owned element borrowed in place cannot be passed beside the arena
+// as mut, since add may move the buffer it lives in.
+func numbers() list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func grow(mut a arena[list[int64]], l list[int64]) {
+}
+
+func main() {
+    mut a := make(arena[list[int64]], numbers(), c_allocator)
+    e, err := add(mut a, numbers())
+    if err.code == 0 {
+        grow(mut a, a[e])
+    }
+}
+-- arena-element-alongside-mut/expected --
+stage: typeck
+---
+
+arena-element-alongside-mut/main.tck:16:21: error: cannot pass a[e] alongside mut a in this call: an arena is not copied for a call, and a mut argument must be the only way to reach a during it
+15 |	    if err.code == 0 {
+16 |	        grow(mut a, a[e])
+   |	                    ^~~~
+17 |	    }
+arena-element-alongside-mut/main.tck:16:14: note: passed as mut here
+15 |	    if err.code == 0 {
+16 |	        grow(mut a, a[e])
+   |	             ^~~~~
+17 |	    }
+
+-- arena-equal/main.tck --
+package main
+
+// An arena has no ==.
+func main() {
+    a := make(arena[int64], 0, c_allocator)
+    b := make(arena[int64], 0, c_allocator)
+    if a == b {
+        exit(1)
+    }
+}
+-- arena-equal/expected --
+stage: typeck
+---
+
+arena-equal/main.tck:7:8: error: operator == is not defined on arena[int64]
+06 |	    b := make(arena[int64], 0, c_allocator)
+07 |	    if a == b {
+   |	       ^~~~~~
+08 |	        exit(1)
+
+-- arena-extern-id-result/main.tck --
+package main
+
+// An id does not cross to C.
+extern func first() id[int64]
+
+func main() {
+}
+-- arena-extern-id-result/expected --
+stage: typeck
+---
+
+arena-extern-id-result/main.tck:4:21: error: extern func first cannot return id[int64]: an id does not cross to C
+03 |	// An id does not cross to C.
+04 |	extern func first() id[int64]
+   |	                    ^~~~~~~~~
+05 |	
+
+-- arena-extern-param/main.tck --
+package main
+
+// An arena does not cross to C (D21). Assumption: the wording is a
+// map's.
+extern func take(a arena[int64])
+
+func main() {
+}
+-- arena-extern-param/expected --
+stage: typeck
+---
+
+arena-extern-param/main.tck:5:20: error: parameter a of extern func take cannot be arena[int64]: an arena does not cross to C
+04 |	// map's.
+05 |	extern func take(a arena[int64])
+   |	                   ^~~~~~~~~~~~
+06 |	
+
+-- arena-extern-span-field/main.tck --
+package main
+
+// A span does not cross to C, held in a struct or alone.
+type Run struct {
+    s span[int64]
+}
+
+extern func take(r Run)
+
+func main() {
+}
+-- arena-extern-span-field/expected --
+stage: typeck
+---
+
+arena-extern-span-field/main.tck:8:20: error: parameter r of extern func take cannot be Run: a span does not cross to C
+07 |	
+08 |	extern func take(r Run)
+   |	                   ^~~
+09 |	
+
+-- arena-global/main.tck --
+package main
+
+// No package-level variable holds an arena.
+mut g arena[int64]
+
+func main() {
+    if len(g) > 1 {
+        print("y")
+    }
+}
+-- arena-global/expected --
+stage: typeck
+---
+
+arena-global/main.tck:4:5: error: package-level variable g cannot hold an arena
+03 |	// No package-level variable holds an arena.
+04 |	mut g arena[int64]
+   |	    ^
+05 |	
+
+-- arena-id-arithmetic/main.tck --
+package main
+
+// Assumption: an id has no arithmetic, since it converts to no integer
+// (D8) and only == and != are given to it.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    e, err := add(mut a, 1)
+    if err.code == 0 {
+        f := e + 1
+        exit(int32(a[f]))
+    }
+}
+-- arena-id-arithmetic/expected --
+stage: typeck
+---
+
+arena-id-arithmetic/main.tck:9:14: error: operator + is not defined on id[int64]
+08 |	    if err.code == 0 {
+09 |	        f := e + 1
+   |	             ^
+10 |	        exit(int32(a[f]))
+
+-- arena-id-literal/main.tck --
+package main
+
+// An integer constant is no id (D8). Assumption: the wording is
+// assignment's, as for any other type an integer is not.
+func main() {
+    a := make(arena[int64], 0, c_allocator)
+    var e id[int64] = 1
+    if a[e] == 1 {
+        exit(1)
+    }
+}
+-- arena-id-literal/expected --
+stage: typeck
+---
+
+arena-id-literal/main.tck:7:23: error: cannot use int64 as id[int64] in declaration of e
+06 |	    a := make(arena[int64], 0, c_allocator)
+07 |	    var e id[int64] = 1
+   |	                      ^
+08 |	    if a[e] == 1 {
+
+-- arena-id-order/main.tck --
+package main
+
+// Assumption: ids have no order; the design gives them == and != only.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    e1, err1 := add(mut a, 1)
+    e2, err2 := add(mut a, 2)
+    if err1.code == 0 && err2.code == 0 && e1 < e2 {
+        exit(1)
+    }
+}
+-- arena-id-order/expected --
+stage: typeck
+---
+
+arena-id-order/main.tck:8:44: error: operator < is not defined on id[int64]
+07 |	    e2, err2 := add(mut a, 2)
+08 |	    if err1.code == 0 && err2.code == 0 && e1 < e2 {
+   |	                                           ^~~~~~~
+09 |	        exit(1)
+
+-- arena-id-to-int/main.tck --
+package main
+
+// An id converts to no integer (D8).
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    e, err := add(mut a, 1)
+    if err.code == 0 {
+        exit(int32(e))
+    }
+}
+-- arena-id-to-int/expected --
+stage: typeck
+---
+
+arena-id-to-int/main.tck:8:14: error: cannot convert id[int64] to int32
+07 |	    if err.code == 0 {
+08 |	        exit(int32(e))
+   |	             ^~~~~~~~
+09 |	    }
+
+-- arena-id-wrong-type/main.tck --
+package main
+
+// An id of one element type does not index an arena of another.
+func main() {
+    a := make(arena[int64], 0, c_allocator)
+    mut b := make(arena[string], "", c_allocator)
+    e, err := add(mut b, "x")
+    if err.code == 0 {
+        exit(int32(a[e]))
+    }
+}
+-- arena-id-wrong-type/expected --
+stage: typeck
+---
+
+arena-id-wrong-type/main.tck:9:22: error: cannot index arena[int64] with id[string]
+08 |	    if err.code == 0 {
+09 |	        exit(int32(a[e]))
+   |	                     ^
+10 |	    }
+
+-- arena-index-int/main.tck --
+package main
+
+// An arena is indexed by an id of its element type, never an integer
+// (D8). Assumption: the wording names the id type to use.
+func main() {
+    a := make(arena[int64], 0, c_allocator)
+    exit(int32(a[0]))
+}
+-- arena-index-int/expected --
+stage: typeck
+---
+
+arena-index-int/main.tck:7:18: error: cannot index arena[int64] with int64; index it with an id[int64]
+06 |	    a := make(arena[int64], 0, c_allocator)
+07 |	    exit(int32(a[0]))
+   |	                 ^
+08 |	}
+
+-- arena-int-to-id/main.tck --
+package main
+
+// No integer converts to an id (D8), so no id names a slot no add gave
+// but through the clamp.
+func main() {
+    a := make(arena[int64], 0, c_allocator)
+    n := 3
+    e := id[int64](n)
+    exit(int32(a[e]))
+}
+-- arena-int-to-id/expected --
+stage: typeck
+---
+
+arena-int-to-id/main.tck:8:10: error: cannot convert int64 to id[int64]
+07 |	    n := 3
+08 |	    e := id[int64](n)
+   |	         ^~~~~~~~~~~~
+09 |	    exit(int32(a[e]))
+
+-- arena-keyword-field/main.tck --
+package main
+
+type Pool struct {
+    arena int64
+}
+
+func main() {
+}
+-- arena-keyword-field/expected --
+stage: parse
+---
+
+arena-keyword-field/main.tck:4:5: error: expected 'field name' found 'arena'
+03 |	type Pool struct {
+04 |	    arena int64
+   |	    ^
+05 |	}
+
+-- arena-keyword-func/main.tck --
+package main
+
+func arena() {
+}
+
+func main() {
+}
+-- arena-keyword-func/expected --
+stage: parse
+---
+
+arena-keyword-func/main.tck:3:6: error: expected 'function name' found 'arena'
+02 |	
+03 |	func arena() {
+   |	     ^
+04 |	}
+
+-- arena-keyword-global/main.tck --
+package main
+
+var arena int64 = 1
+
+func main() {
+}
+-- arena-keyword-global/expected --
+stage: parse
+---
+
+arena-keyword-global/main.tck:3:5: error: expected 'variable name' found 'arena'
+02 |	
+03 |	var arena int64 = 1
+   |	    ^
+04 |	
+
+-- arena-keyword-local/main.tck --
+package main
+
+func main() {
+    arena := 1
+}
+-- arena-keyword-local/expected --
+stage: parse
+---
+
+arena-keyword-local/main.tck:4:5: error: expected 'statement' found 'arena'
+03 |	func main() {
+04 |	    arena := 1
+   |	    ^
+05 |	}
+
+-- arena-keyword-param/main.tck --
+package main
+
+func f(arena int64) {
+}
+
+func main() {
+}
+-- arena-keyword-param/expected --
+stage: parse
+---
+
+arena-keyword-param/main.tck:3:8: error: expected 'parameter name' found 'arena'
+02 |	
+03 |	func f(arena int64) {
+   |	       ^
+04 |	}
+
+-- arena-keyword-type/main.tck --
+package main
+
+type arena struct {
+}
+
+func main() {
+}
+-- arena-keyword-type/expected --
+stage: parse
+---
+
+arena-keyword-type/main.tck:3:6: error: expected 'type name' found 'arena'
+02 |	
+03 |	type arena struct {
+   |	     ^
+04 |	}
+
+-- arena-literal/main.tck --
+package main
+
+// An arena is made by make, never written as a literal.
+func main() {
+    a := arena[int64]{}
+    if len(a) == 1 {
+        exit(1)
+    }
+}
+-- arena-literal/expected --
+stage: typeck
+---
+
+arena-literal/main.tck:5:10: error: arena[int64] cannot be written as a literal; only arrays and structs can
+04 |	func main() {
+05 |	    a := arena[int64]{}
+   |	         ^~~~~~~~~~~~~~
+06 |	    if len(a) == 1 {
+
+-- arena-make-no-sentinel/main.tck --
+package main
+
+// make of an arena takes its sentinel, placed at id 0, before the
+// allocator (D6).
+func main() {
+    a := make(arena[int64], c_allocator)
+    exit(int32(len(a)))
+}
+-- arena-make-no-sentinel/expected --
+stage: typeck
+---
+
+arena-make-no-sentinel/main.tck:6:10: error: make expects 3 argument(s), got 2
+05 |	func main() {
+06 |	    a := make(arena[int64], c_allocator)
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+07 |	    exit(int32(len(a)))
+
+-- arena-make-wrong-sentinel/main.tck --
+package main
+
+// The sentinel is a value of the element type.
+func main() {
+    a := make(arena[int64], "none", c_allocator)
+    exit(int32(len(a)))
+}
+-- arena-make-wrong-sentinel/expected --
+stage: typeck
+---
+
+arena-make-wrong-sentinel/main.tck:5:29: error: cannot use string as int64 in argument to make
+04 |	func main() {
+05 |	    a := make(arena[int64], "none", c_allocator)
+   |	                            ^~~~~~
+06 |	    exit(int32(len(a)))
+
+-- arena-move-element/main.tck --
+package main
+
+// An owned element is never moved out of its arena (D9). Assumption: the
+// wording is a list's, without pop or remove, which an arena lacks.
+func numbers() list[int64] {
+    return make(list[int64], c_allocator)
+}
+
+func main() {
+    mut a := make(arena[list[int64]], numbers(), c_allocator)
+    e, err := add(mut a, numbers())
+    if err.code == 0 {
+        l := a[e]
+        if len(l) == 1 {
+            exit(1)
+        }
+    }
+}
+-- arena-move-element/expected --
+stage: typeck
+---
+
+arena-move-element/main.tck:13:14: error: cannot move a[e] out of a: an element cannot be moved out of an arena
+12 |	    if err.code == 0 {
+13 |	        l := a[e]
+   |	             ^~~~
+14 |	        if len(l) == 1 {
+
+-- arena-mut-element-alongside-grow/main.tck --
+package main
+
+// The element's address is taken before the next argument runs, which
+// may move the arena's buffer.
+func grow(mut a arena[int64]) int64 {
+    _, err := add(mut a, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func set(mut x int64, y int64) {
+    x = y
+}
+
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    mut z id[int64]
+    set(mut a[z], grow(mut a))
+}
+-- arena-mut-element-alongside-grow/expected --
+stage: typeck
+---
+
+arena-mut-element-alongside-grow/main.tck:20:9: error: cannot pass mut a[z] alongside mut a in this call: an arena is not copied for a call, and a mut argument must be the only way to reach a during it
+19 |	    mut z id[int64]
+20 |	    set(mut a[z], grow(mut a))
+   |	        ^~~~~~~~
+21 |	}
+arena-mut-element-alongside-grow/main.tck:20:24: note: passed as mut here
+19 |	    mut z id[int64]
+20 |	    set(mut a[z], grow(mut a))
+   |	                       ^~~~~
+21 |	}
+
+-- arena-pop/main.tck --
+package main
+
+// pop is not an arena operation: an arena only grows.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    x, ok := pop(mut a)
+    if ok {
+        exit(int32(x))
+    }
+}
+-- arena-pop/expected --
+stage: typeck
+---
+
+arena-pop/main.tck:6:22: error: pop expects a list, got arena[int64]
+05 |	    mut a := make(arena[int64], 0, c_allocator)
+06 |	    x, ok := pop(mut a)
+   |	                     ^
+07 |	    if ok {
+
+-- arena-range-view-field/main.tck --
+package main
+
+// An arena held in a plain struct parameter is the function's own copy,
+// sentinel and all.
+type B struct {
+    l   list[int64]
+    arr [4]int64
+}
+
+func sum(v []int64) int64 {
+    mut t int64 = 0
+    for _, x := range v {
+        t = t +% x
+    }
+    return t
+}
+
+type S struct {
+    a arena[B]
+}
+
+func first(s S, v []int64) []int64 {
+    for _, x := range s.a {
+        return x.arr
+    }
+    return v
+}
+
+func main() {
+    s := S{a: make(arena[B], B{l: make(list[int64], c_allocator), arr: [4]int64{1, 2, 3, 4}}, c_allocator)}
+    w := [2]int64{5, 6}
+    if sum(first(s, w[:])) == 10 {
+        exit(1)
+    }
+}
+-- arena-range-view-field/expected --
+stage: typeck
+---
+
+arena-range-view-field/main.tck:24:16: error: cannot return a view of x.arr: the function holds its own copy of s, and so of the array, which ends when it returns; an array is returned as a view only when it is reached through an element of a list or a view
+23 |	    for _, x := range s.a {
+24 |	        return x.arr
+   |	               ^~~~~
+25 |	    }
+
+-- arena-range-view-nested/main.tck --
+package main
+
+// An arena that is an element of an arena parameter may be its
+// sentinel, the function's own copy, so a range over it gives no view.
+type B struct {
+    l   list[int64]
+    arr [4]int64
+}
+
+func sum(v []int64) int64 {
+    mut t int64 = 0
+    for _, x := range v {
+        t = t +% x
+    }
+    return t
+}
+
+func first(aa arena[arena[B]], e id[arena[B]], v []int64) []int64 {
+    for _, x := range aa[e] {
+        return x.arr
+    }
+    return v
+}
+
+func main() {
+    s := B{l: make(list[int64], c_allocator), arr: [4]int64{1, 2, 3, 4}}
+    aa := make(arena[arena[B]], make(arena[B], s, c_allocator), c_allocator)
+    mut z id[arena[B]]
+    w := [2]int64{5, 6}
+    if sum(first(aa, z, w[:])) == 10 {
+        exit(1)
+    }
+}
+-- arena-range-view-nested/expected --
+stage: typeck
+---
+
+arena-range-view-nested/main.tck:20:16: error: cannot return a view of x.arr: the function holds its own copy of aa, and so of the array, which ends when it returns; an array is returned as a view only when it is reached through an element of a list or a view
+19 |	    for _, x := range aa[e] {
+20 |	        return x.arr
+   |	               ^~~~~
+21 |	    }
+
+-- arena-range-view-param/main.tck --
+package main
+
+// A range over an arena gives its sentinel first, which a plain arena
+// parameter holds in the function's own copy, so no view of it is
+// returned.
+type B struct {
+    l   list[int64]
+    arr [4]int64
+}
+
+func sum(v []int64) int64 {
+    mut t int64 = 0
+    for _, x := range v {
+        t = t +% x
+    }
+    return t
+}
+
+func first(a arena[B], v []int64) []int64 {
+    for _, x := range a {
+        return x.arr
+    }
+    return v
+}
+
+func main() {
+    a := make(arena[B], B{l: make(list[int64], c_allocator), arr: [4]int64{1, 2, 3, 4}}, c_allocator)
+    w := [2]int64{5, 6}
+    if sum(first(a, w[:])) == 10 {
+        exit(1)
+    }
+}
+-- arena-range-view-param/expected --
+stage: typeck
+---
+
+arena-range-view-param/main.tck:21:16: error: cannot return a view of x.arr: the function holds its own copy of a, and so of the array, which ends when it returns; an array is returned as a view only when it is reached through an element of a list or a view
+20 |	    for _, x := range a {
+21 |	        return x.arr
+   |	               ^~~~~
+22 |	    }
+
+-- arena-range-view-union/main.tck --
+package main
+
+// A union's payload bound in a range over an arena parameter may be in
+// the sentinel, the function's own copy.
+type B struct {
+    l   list[int64]
+    arr [4]int64
+}
+
+func sum(v []int64) int64 {
+    mut t int64 = 0
+    for _, x := range v {
+        t = t +% x
+    }
+    return t
+}
+
+type U union {
+    arr [4]int64
+    l   list[int64]
+}
+
+func first(a arena[U], v []int64) []int64 {
+    for _, u := range a {
+        switch u {
+        case arr(x):
+            return x
+        default:
+        }
+    }
+    return v
+}
+
+func main() {
+    a := make(arena[U], U.arr([4]int64{1, 2, 3, 4}), c_allocator)
+    w := [2]int64{5, 6}
+    if sum(first(a, w[:])) == 10 {
+        exit(1)
+    }
+}
+-- arena-range-view-union/expected --
+stage: typeck
+---
+
+arena-range-view-union/main.tck:27:20: error: cannot return a view of x: the function holds its own copy of a, and so of the array, which ends when it returns; an array is returned as a view only when it is reached through an element of a list or a view
+26 |	        case arr(x):
+27 |	            return x
+   |	                   ^
+28 |	        default:
+
+-- arena-recursive/main.tck --
+package main
+
+// An arena holds its sentinel by value, so a type cannot hold an arena of
+// itself, as it cannot hold a list of itself.
+type Node struct {
+    kids arena[Node]
+}
+
+func main() {
+}
+-- arena-recursive/expected --
+stage: typeck
+---
+
+arena-recursive/main.tck:5:6: error: invalid recursive type Node: a type cannot hold itself, even through an arena
+04 |	// itself, as it cannot hold a list of itself.
+05 |	type Node struct {
+   |	     ^~~~
+06 |	    kids arena[Node]
+arena-recursive/main.tck:6:5: note: Node refers to Node
+05 |	type Node struct {
+06 |	    kids arena[Node]
+   |	    ^~~~~~~~~~~~~~~~
+07 |	}
+
+-- arena-remove/main.tck --
+package main
+
+// remove is not an arena operation: an arena only grows.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    e, err := add(mut a, 1)
+    if err.code == 0 {
+        remove(mut a, e)
+    }
+}
+-- arena-remove/expected --
+stage: typeck
+---
+
+arena-remove/main.tck:8:20: error: remove expects a list, got arena[int64]
+07 |	    if err.code == 0 {
+08 |	        remove(mut a, e)
+   |	                   ^
+09 |	    }
+
+arena-remove/main.tck:8:23: error: cannot use id[int64] as int64 in argument to remove
+07 |	    if err.code == 0 {
+08 |	        remove(mut a, e)
+   |	                      ^
+09 |	    }
+
+-- arena-replace-alongside-grow/main.tck --
+package main
+
+// replace takes the element's address before its value is computed, and
+// grow may move the arena's buffer in between.
+func grow(mut a arena[int64]) int64 {
+    _, err := add(mut a, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    mut z id[int64]
+    x := replace(mut a[z], grow(mut a))
+    if x == 0 {
+        exit(1)
+    }
+}
+-- arena-replace-alongside-grow/expected --
+stage: typeck
+---
+
+arena-replace-alongside-grow/main.tck:16:18: error: cannot pass mut a[z] alongside mut a in this call: an arena is not copied for a call, and a mut argument must be the only way to reach a during it
+15 |	    mut z id[int64]
+16 |	    x := replace(mut a[z], grow(mut a))
+   |	                 ^~~~~~~~
+17 |	    if x == 0 {
+arena-replace-alongside-grow/main.tck:16:33: note: passed as mut here
+15 |	    mut z id[int64]
+16 |	    x := replace(mut a[z], grow(mut a))
+   |	                                ^~~~~
+17 |	    if x == 0 {
+
+-- arena-reserve-negative/main.tck --
+package main
+
+// Assumption: a negative constant count is an error, as for a list's
+// reserve.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    err := reserve(mut a, -1)
+    exit(int32(err.code))
+}
+-- arena-reserve-negative/expected --
+stage: typeck
+---
+
+arena-reserve-negative/main.tck:7:27: error: reserve count must not be negative, got -1
+06 |	    mut a := make(arena[int64], 0, c_allocator)
+07 |	    err := reserve(mut a, -1)
+   |	                          ^~
+08 |	    exit(int32(err.code))
+
+-- arena-slice/main.tck --
+package main
+
+// An arena cannot be sliced; a span is its only run of elements.
+func main() {
+    a := make(arena[int64], 0, c_allocator)
+    v := a[0:1]
+    exit(int32(len(v)))
+}
+-- arena-slice/expected --
+stage: typeck
+---
+
+arena-slice/main.tck:6:10: error: cannot slice arena[int64]
+05 |	    a := make(arena[int64], 0, c_allocator)
+06 |	    v := a[0:1]
+   |	         ^
+07 |	    exit(int32(len(v)))
+
+-- arena-span-alongside-mut/main.tck --
+package main
+
+// A span's view borrows the arena in place, so it cannot be passed beside
+// the arena as mut.
+func grow(mut a arena[int64], v []int64) {
+}
+
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    s, err := add_all(mut a, 1, 2)
+    if err.code == 0 {
+        grow(mut a, a[s])
+    }
+}
+-- arena-span-alongside-mut/expected --
+stage: typeck
+---
+
+arena-span-alongside-mut/main.tck:12:21: error: cannot pass a[s] alongside mut a in this call: an arena is not copied for a call, and a mut argument must be the only way to reach a during it
+11 |	    if err.code == 0 {
+12 |	        grow(mut a, a[s])
+   |	                    ^~~~
+13 |	    }
+arena-span-alongside-mut/main.tck:12:14: note: passed as mut here
+11 |	    if err.code == 0 {
+12 |	        grow(mut a, a[s])
+   |	             ^~~~~
+13 |	    }
+
+-- arena-span-stored/main.tck --
+package main
+
+// A span's view is a view, which no variable may hold.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    s, err := add_all(mut a, 1, 2)
+    if err.code == 0 {
+        v := a[s]
+        if len(v) == 2 {
+            exit(1)
+        }
+    }
+}
+-- arena-span-stored/expected --
+stage: typeck
+---
+
+arena-span-stored/main.tck:8:14: error: a[s] is a view, []int64, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned
+07 |	    if err.code == 0 {
+08 |	        v := a[s]
+   |	             ^~~~
+09 |	        if len(v) == 2 {
+
+-- arena-span-write/main.tck --
+package main
+
+// A span's view is read-only.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    mut b := make(arena[int64], 0, c_allocator)
+    s, err := add_all(mut a, 1, 2)
+    if err.code == 0 {
+        b[s] = 3
+    }
+}
+-- arena-span-write/expected --
+stage: typeck
+---
+
+arena-span-write/main.tck:6:9: warning: declared and not used: b
+05 |	    mut a := make(arena[int64], 0, c_allocator)
+06 |	    mut b := make(arena[int64], 0, c_allocator)
+   |	        ^
+07 |	    s, err := add_all(mut a, 1, 2)
+
+arena-span-write/main.tck:9:9: error: b[s] is a view, []int64, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned
+08 |	    if err.code == 0 {
+09 |	        b[s] = 3
+   |	        ^~~~
+10 |	    }
+
+-- arena-span-wrong-type/main.tck --
+package main
+
+// A span of one element type does not view an arena of another.
+func main() {
+    a := make(arena[int64], 0, c_allocator)
+    mut b := make(arena[uint8], 0, c_allocator)
+    s, err := add_all(mut b, 1, 2)
+    if err.code == 0 {
+        exit(int32(len(a[s])))
+    }
+}
+-- arena-span-wrong-type/expected --
+stage: typeck
+---
+
+arena-span-wrong-type/main.tck:9:26: error: cannot index arena[int64] with span[uint8]
+08 |	    if err.code == 0 {
+09 |	        exit(int32(len(a[s])))
+   |	                         ^
+10 |	    }
+
+-- arena-swap/main.tck --
+package main
+
+// swap is not an arena operation (D7): an arena never reorders, so an id
+// it gave keeps naming the same element.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    e1, err1 := add(mut a, 1)
+    e2, err2 := add(mut a, 2)
+    if err1.code == 0 && err2.code == 0 {
+        swap(mut a, e1, e2)
+    }
+}
+-- arena-swap/expected --
+stage: typeck
+---
+
+arena-swap/main.tck:10:18: error: swap expects a list, got arena[int64]
+09 |	    if err1.code == 0 && err2.code == 0 {
+10 |	        swap(mut a, e1, e2)
+   |	                 ^
+11 |	    }
+
+arena-swap/main.tck:10:21: error: cannot use id[int64] as int64 in argument to swap
+09 |	    if err1.code == 0 && err2.code == 0 {
+10 |	        swap(mut a, e1, e2)
+   |	                    ^~
+11 |	    }
+
+arena-swap/main.tck:10:25: error: cannot use id[int64] as int64 in argument to swap
+09 |	    if err1.code == 0 && err2.code == 0 {
+10 |	        swap(mut a, e1, e2)
+   |	                        ^~
+11 |	    }
+
+-- arena-temporary/main.tck --
+package main
+
+// An arena no variable holds has no owner to free it.
+func fresh() arena[int64] {
+    return make(arena[int64], 7, c_allocator)
+}
+
+func main() {
+    mut z id[int64]
+    if fresh()[z] == 7 {
+        exit(1)
+    }
+}
+-- arena-temporary/expected --
+stage: typeck
+---
+
+arena-temporary/main.tck:10:8: error: cannot use a temporary arena[int64] here; store it in a variable first
+09 |	    mut z id[int64]
+10 |	    if fresh()[z] == 7 {
+   |	       ^~~~~~~
+11 |	        exit(1)
+
+-- arena-type-value/main.tck --
+package main
+
+// An arena type is no value.
+func main() {
+    x := arena[int64]
+}
+-- arena-type-value/expected --
+stage: typeck
+---
+
+arena-type-value/main.tck:5:5: warning: declared and not used: x
+04 |	func main() {
+05 |	    x := arena[int64]
+   |	    ^
+06 |	}
+
+arena-type-value/main.tck:5:10: error: cannot use arena[int64] as a value; it is a type
+04 |	func main() {
+05 |	    x := arena[int64]
+   |	         ^~~~~~~~~~~~
+06 |	}
+
+-- arena-use-after-drop/main.tck --
+package main
+
+// A dropped arena is moved from, so it cannot be used.
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    drop(own a)
+    if len(a) == 1 {
+        exit(1)
+    }
+}
+-- arena-use-after-drop/expected --
+stage: typeck
+---
+
+arena-use-after-drop/main.tck:7:12: error: a is used after it was moved
+06 |	    drop(own a)
+07 |	    if len(a) == 1 {
+   |	           ^
+08 |	        exit(1)
+arena-use-after-drop/main.tck:6:14: note: a is moved here
+05 |	    mut a := make(arena[int64], 0, c_allocator)
+06 |	    drop(own a)
+   |	             ^
+07 |	    if len(a) == 1 {
+
+-- arena-view-result-alongside-mut/main.tck --
+package main
+
+// The view get returns points into a, which use grows before it reads
+// the view.
+func get(a arena[int64], s span[int64]) []int64 {
+    return a[s]
+}
+
+func use(v []int64, mut a arena[int64]) int64 {
+    _, err := add(mut a, 5)
+    if err.code != 0 {
+        return 0
+    }
+    mut t int64 = 0
+    for _, x := range v {
+        t = t +% x
+    }
+    return t
+}
+
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    s, err := add_all(mut a, 1, 2)
+    if err.code != 0 {
+        exit(1)
+    }
+    if use(get(a, s), mut a) == 0 {
+        exit(1)
+    }
+}
+-- arena-view-result-alongside-mut/expected --
+stage: typeck
+---
+
+arena-view-result-alongside-mut/main.tck:27:12: error: cannot pass get(a, s) alongside mut a in this call: the view it returns may point into a, and a mut argument must be the only way to reach a during the call
+26 |	    }
+27 |	    if use(get(a, s), mut a) == 0 {
+   |	           ^~~~~~~~~
+28 |	        exit(1)
+arena-view-result-alongside-mut/main.tck:27:23: note: passed as mut here
+26 |	    }
+27 |	    if use(get(a, s), mut a) == 0 {
+   |	                      ^~~~~
+28 |	        exit(1)
+
+-- arena-view-result-range/main.tck --
+package main
+
+// The view get returns points into its plain arena argument, so a range
+// over it cannot grow that arena, which may move its buffer.
+func get(a arena[int64], s span[int64]) []int64 {
+    return a[s]
+}
+
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    s, err := add_all(mut a, 1, 2)
+    if err.code != 0 {
+        exit(1)
+    }
+    for _, v := range get(a, s) {
+        _, e := add(mut a, v)
+        if e.code != 0 {
+            exit(1)
+        }
+    }
+}
+-- arena-view-result-range/expected --
+stage: typeck
+---
+
+arena-view-result-range/main.tck:16:25: error: get(a, s) is being ranged over, and the view it returns may point into a, so this loop cannot pass mut a
+15 |	    for _, v := range get(a, s) {
+16 |	        _, e := add(mut a, v)
+   |	                        ^
+17 |	        if e.code != 0 {
+
+-- arena-zero-value/main.tck --
+package main
+
+// An arena has no zero value.
+func main() {
+    mut a arena[int64]
+    exit(int32(len(a)))
+}
+-- arena-zero-value/expected --
+stage: typeck
+---
+
+arena-zero-value/main.tck:5:9: error: a needs a value: arena[int64] has no zero value
+04 |	func main() {
+05 |	    mut a arena[int64]
+   |	        ^
+06 |	    exit(int32(len(a)))
+
 -- arg-count/main.tck --
 package main
 
@@ -13835,11 +15489,11 @@ extern-c-name-bad/main.tck:15:8: error: extern func accented cannot be named "é
 -- extern-c-name-duplicate/main.tck --
 package main
 
-extern("add") func plus(a int64, b int64) int64
+extern("tot") func plus(a int64, b int64) int64
 
-extern func add(a int64, b int64) int64
+extern func tot(a int64, b int64) int64
 
-extern("add") func sum(a int64, b int64) int64
+extern("tot") func sum(a int64, b int64) int64
 
 func main() {
 }
@@ -13847,25 +15501,25 @@ func main() {
 stage: typeck
 ---
 
-extern-c-name-duplicate/main.tck:5:13: error: extern funcs add and plus both have the C name add
+extern-c-name-duplicate/main.tck:5:13: error: extern funcs tot and plus both have the C name tot
 04 |	
-05 |	extern func add(a int64, b int64) int64
+05 |	extern func tot(a int64, b int64) int64
    |	            ^~~
 06 |	
 extern-c-name-duplicate/main.tck:3:20: note: extern func plus is declared here
 02 |	
-03 |	extern("add") func plus(a int64, b int64) int64
+03 |	extern("tot") func plus(a int64, b int64) int64
    |	                   ^~~~
 04 |	
 
-extern-c-name-duplicate/main.tck:7:8: error: extern funcs sum and plus both have the C name add
+extern-c-name-duplicate/main.tck:7:8: error: extern funcs sum and plus both have the C name tot
 06 |	
-07 |	extern("add") func sum(a int64, b int64) int64
+07 |	extern("tot") func sum(a int64, b int64) int64
    |	       ^~~~~
 08 |	
 extern-c-name-duplicate/main.tck:3:20: note: extern func plus is declared here
 02 |	
-03 |	extern("add") func plus(a int64, b int64) int64
+03 |	extern("tot") func plus(a int64, b int64) int64
    |	                   ^~~~
 04 |	
 
@@ -14467,15 +16121,15 @@ extern-with-body/main.tck:3:23: error: extern func f cannot have a body; its bod
 -- extern-wrong-call/main.tck --
 package main
 
-extern func add(a int64, b int64) int64
+extern func sum(a int64, b int64) int64
 
 extern func flag() bool
 
 func main() {
-    print(add(1, 2))
-    code, fits := int32(add(1))
+    print(sum(1, 2))
+    code, fits := int32(sum(1))
     if fits { exit(code) }
-    if add(1, 2) {
+    if sum(1, 2) {
     }
     exit(flag())
 }
@@ -14485,19 +16139,19 @@ stage: typeck
 
 extern-wrong-call/main.tck:8:11: error: cannot use int64 as string in argument to print
 07 |	func main() {
-08 |	    print(add(1, 2))
+08 |	    print(sum(1, 2))
    |	          ^~~~~~~~~
-09 |	    code, fits := int32(add(1))
+09 |	    code, fits := int32(sum(1))
 
-extern-wrong-call/main.tck:9:25: error: add expects 2 argument(s), got 1
-08 |	    print(add(1, 2))
-09 |	    code, fits := int32(add(1))
+extern-wrong-call/main.tck:9:25: error: sum expects 2 argument(s), got 1
+08 |	    print(sum(1, 2))
+09 |	    code, fits := int32(sum(1))
    |	                        ^~~~~~
 10 |	    if fits { exit(code) }
 
 extern-wrong-call/main.tck:11:8: error: condition must be a bool, got int64
 10 |	    if fits { exit(code) }
-11 |	    if add(1, 2) {
+11 |	    if sum(1, 2) {
    |	       ^~~~~~~~~
 12 |	    }
 
@@ -19001,7 +20655,7 @@ func main() {
 stage: typeck
 ---
 
-generic-len/main.tck:8:16: error: len expects an array, a string, a view, a list or a map, got S
+generic-len/main.tck:8:16: error: len expects an array, a string, a view, a list, a map or an arena, got S
 07 |	func f[S Sizer](s S) int64 {
 08 |	    return len(s)
    |	               ^
@@ -20641,6 +22295,138 @@ hello-underscore-ident/main.tck:4:5: error: undefined: print_
    |	    ^~~~~~
 05 |	}
 
+-- id-as-func-name/main.tck --
+package main
+
+// id is a reserved builtin type name (addendum).
+func id() {
+}
+
+func main() {
+}
+-- id-as-func-name/expected --
+stage: resolve
+---
+
+id-as-func-name/main.tck:4:6: error: cannot use id as a name; it is a type
+03 |	// id is a reserved builtin type name (addendum).
+04 |	func id() {
+   |	     ^~
+05 |	}
+
+-- id-as-name/main.tck --
+package main
+
+// id is a reserved builtin type name (addendum).
+func main() {
+    id := 1
+    exit(int32(id))
+}
+-- id-as-name/expected --
+stage: resolve
+---
+
+id-as-name/main.tck:5:5: error: cannot use id as a name; it is a type
+04 |	func main() {
+05 |	    id := 1
+   |	    ^~
+06 |	    exit(int32(id))
+
+-- id-as-type-name/main.tck --
+package main
+
+// id is a reserved builtin type name (addendum).
+type id struct {
+    n int64
+}
+
+func main() {
+}
+-- id-as-type-name/expected --
+stage: resolve
+---
+
+id-as-type-name/main.tck:4:6: error: cannot use id as a name; it is a type
+03 |	// id is a reserved builtin type name (addendum).
+04 |	type id struct {
+   |	     ^~
+05 |	    n int64
+
+-- id-as-value/main.tck --
+package main
+
+// id is a type, so no name reads it.
+func main() {
+    x := id
+}
+-- id-as-value/expected --
+stage: resolve
+---
+
+id-as-value/main.tck:5:10: error: cannot use id as a value; it is a type
+04 |	func main() {
+05 |	    x := id
+   |	         ^~
+06 |	}
+
+-- id-call/main.tck --
+package main
+
+// id is a type only with its element type, and no id is made of an
+// integer.
+func main() {
+    e := id(3)
+}
+-- id-call/expected --
+stage: resolve
+---
+
+id-call/main.tck:6:10: error: cannot call id; it is a type
+05 |	func main() {
+06 |	    e := id(3)
+   |	         ^~
+07 |	}
+
+-- id-composite-literal/main.tck --
+package main
+
+// An id is given by add, never written as a literal.
+func main() {
+    e := id[int64]{}
+}
+-- id-composite-literal/expected --
+stage: typeck
+---
+
+id-composite-literal/main.tck:5:5: warning: declared and not used: e
+04 |	func main() {
+05 |	    e := id[int64]{}
+   |	    ^
+06 |	}
+
+id-composite-literal/main.tck:5:10: error: id[int64] cannot be written as a literal; only arrays and structs can
+04 |	func main() {
+05 |	    e := id[int64]{}
+   |	         ^~~~~~~~~~~
+06 |	}
+
+-- id-without-element/main.tck --
+package main
+
+// id is written with the element type of the arena it indexes.
+func main() {
+    mut e id
+}
+-- id-without-element/expected --
+stage: resolve
+---
+
+id-without-element/main.tck:5:11: error: id needs its element type, as in id[int64]
+04 |	func main() {
+05 |	    mut e id
+   |	          ^~
+06 |	}
+
 -- implied-semicolon-after-comment/main.tck --
 package main
 
@@ -20936,13 +22722,13 @@ func grow(mut l list[int64]) int64 {
     return 1
 }
 
-func id(n int64) int64 {
+func same(n int64) int64 {
     return n
 }
 
 func main() {
     mut l := make(list[int64], c_allocator)
-    c, ok := l[id(id(grow(mut l)) -% 1)]
+    c, ok := l[same(same(grow(mut l)) -% 1)]
     if ok {
         if c > 5 {
             exit(1)
@@ -20955,13 +22741,13 @@ stage: typeck
 
 index-borrow-nested-call/main.tck:17:14: error: cannot index l alongside mut l in its index: a list is not copied to be indexed, and a mut argument must be the only way to reach l during its call
 16 |	    mut l := make(list[int64], c_allocator)
-17 |	    c, ok := l[id(id(grow(mut l)) -% 1)]
+17 |	    c, ok := l[same(same(grow(mut l)) -% 1)]
    |	             ^
 18 |	    if ok {
-index-borrow-nested-call/main.tck:17:27: note: passed as mut here
+index-borrow-nested-call/main.tck:17:31: note: passed as mut here
 16 |	    mut l := make(list[int64], c_allocator)
-17 |	    c, ok := l[id(id(grow(mut l)) -% 1)]
-   |	                          ^~~~~
+17 |	    c, ok := l[same(same(grow(mut l)) -% 1)]
+   |	                              ^~~~~
 18 |	    if ok {
 
 -- index-borrow-own-element/main.tck --
@@ -25293,7 +27079,7 @@ func main() {
 stage: typeck
 ---
 
-len-of-integer/main.tck:5:14: error: len expects an array, a string, a view, a list or a map, got int64
+len-of-integer/main.tck:5:14: error: len expects an array, a string, a view, a list, a map or an arena, got int64
 04 |	    n := 7
 05 |	    exit(len(n))
    |	             ^
@@ -26253,6 +28039,45 @@ list-array-of-lists/main.tck:4:11: error: an array cannot hold list[int64]: its 
    |	          ^~~~~~~~~~~~~~
 05 |	    print("x")
 
+-- list-assign-field-alongside-mut/main.tck --
+package main
+
+// A field of an element is assigned in place, and grow may move the
+// buffer the element is in.
+type P struct {
+    x int64
+}
+
+func grow(mut l list[P]) int64 {
+    err := append(mut l, P{x: 1})
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func main() {
+    mut l := make(list[P], c_allocator)
+    err := append(mut l, P{x: 0})
+    if err.code == 0 && len(l) > 0 {
+        l[0].x = grow(mut l)
+    }
+}
+-- list-assign-field-alongside-mut/expected --
+stage: typeck
+---
+
+list-assign-field-alongside-mut/main.tck:21:9: error: cannot assign to l[0].x alongside mut l in its value: an element is assigned in place in its list, and a mut argument must be the only way to reach l during its call
+20 |	    if err.code == 0 && len(l) > 0 {
+21 |	        l[0].x = grow(mut l)
+   |	        ^~~~~~
+22 |	    }
+list-assign-field-alongside-mut/main.tck:21:23: note: passed as mut here
+20 |	    if err.code == 0 && len(l) > 0 {
+21 |	        l[0].x = grow(mut l)
+   |	                      ^~~~~
+22 |	    }
+
 -- list-borrow-alongside-mut/main.tck --
 package main
 
@@ -26795,7 +28620,7 @@ func main() {
 stage: typeck
 ---
 
-list-make-not-type/main.tck:5:15: error: make takes a list or a map type, as in make(list[int64], c_allocator)
+list-make-not-type/main.tck:5:15: error: make takes a list, a map or an arena type, as in make(list[int64], c_allocator)
 04 |	    n := 3
 05 |	    l := make(n, c_allocator)
    |	              ^
@@ -26873,6 +28698,48 @@ list-read-before-error-check/main.tck:10:12: error: l cannot be read before err 
 10 |	    if len(l) > 0 {
    |	           ^
 11 |	        print("y")
+
+-- list-replace-alongside-grow/main.tck --
+package main
+
+// grow may move l's buffer, so nothing proves l[0] once it has run.
+func grow(mut l list[int64]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, 0)
+    if err.code == 0 && len(l) > 0 {
+        x := replace(mut l[0], grow(mut l))
+        if x == 0 {
+            exit(1)
+        }
+    }
+}
+-- list-replace-alongside-grow/expected --
+stage: typeck
+---
+
+list-replace-alongside-grow/main.tck:16:28: error: index 0 may be out of range; check len(l) > 0 first
+15 |	    if err.code == 0 && len(l) > 0 {
+16 |	        x := replace(mut l[0], grow(mut l))
+   |	                           ^
+17 |	        if x == 0 {
+list-replace-alongside-grow/main.tck:15:8: note: this guard proves len(l) >= 1
+14 |	    err := append(mut l, 0)
+15 |	    if err.code == 0 && len(l) > 0 {
+   |	       ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+16 |	        x := replace(mut l[0], grow(mut l))
+list-replace-alongside-grow/main.tck:16:37: note: but l is passed as mut to grow here, so the proof ends
+15 |	    if err.code == 0 && len(l) > 0 {
+16 |	        x := replace(mut l[0], grow(mut l))
+   |	                                    ^~~~~
+17 |	        if x == 0 {
 
 -- list-reserve-count-overflow/main.tck --
 package main
@@ -27130,7 +28997,7 @@ func main() {
 stage: typeck
 ---
 
-list-reserve-not-list/main.tck:5:24: error: reserve expects a list, got [3]int64
+list-reserve-not-list/main.tck:5:24: error: reserve expects a list or an arena, got [3]int64
 04 |	    mut a [3]int64
 05 |	    err := reserve(mut a, 1)
    |	                       ^
@@ -27408,6 +29275,72 @@ list-variadic-of-lists/main.tck:3:14: error: a variadic parameter cannot hold li
 03 |	func f(ls ...list[int64]) {
    |	             ^~~~~~~~~~~
 04 |	}
+
+-- list-view-result-alongside-mut/main.tck --
+package main
+
+// The view first returns points into l, which use grows before it reads
+// the view.
+func first(l list[int64]) []int64 {
+    return l
+}
+
+func use(v []int64, mut l list[int64]) int64 {
+    err := append(mut l, 5)
+    if err.code != 0 {
+        return 0
+    }
+    return len(v)
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    if use(first(l), mut l) == 0 {
+        exit(1)
+    }
+}
+-- list-view-result-alongside-mut/expected --
+stage: typeck
+---
+
+list-view-result-alongside-mut/main.tck:19:12: error: cannot pass first(l) alongside mut l in this call: the view it returns may point into l, and a mut argument must be the only way to reach l during the call
+18 |	    mut l := make(list[int64], c_allocator)
+19 |	    if use(first(l), mut l) == 0 {
+   |	           ^~~~~~~~
+20 |	        exit(1)
+list-view-result-alongside-mut/main.tck:19:22: note: passed as mut here
+18 |	    mut l := make(list[int64], c_allocator)
+19 |	    if use(first(l), mut l) == 0 {
+   |	                     ^~~~~
+20 |	        exit(1)
+
+-- list-view-result-range/main.tck --
+package main
+
+// The view first returns points into its plain list argument, so a range
+// over it cannot grow that list.
+func first(l list[int64]) []int64 {
+    return l
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    for _, v := range first(l) {
+        err := append(mut l, v)
+        if err.code != 0 {
+            exit(1)
+        }
+    }
+}
+-- list-view-result-range/expected --
+stage: typeck
+---
+
+list-view-result-range/main.tck:12:27: error: first(l) is being ranged over, and the view it returns may point into l, so this loop cannot pass mut l
+11 |	    for _, v := range first(l) {
+12 |	        err := append(mut l, v)
+   |	                          ^
+13 |	        if err.code != 0 {
 
 -- list-view-temporary/main.tck --
 package main
@@ -45923,14 +47856,14 @@ func divide(a int64, b int64) (int64, int64, error) {
     return a / b, a % b, noerror
 }
 
-func add(a int64, b int64) int64 {
+func sum(a int64, b int64) int64 {
     return a +% b
 }
 
 // divide(7, 2)? gives two values, which cannot be passed straight to
 // another call, as a call with several results cannot.
 func f() (int64, error) {
-    return add(divide(7, 2)?), noerror
+    return sum(divide(7, 2)?), noerror
 }
 
 func main() {
@@ -45945,15 +47878,15 @@ func main() {
 stage: typeck
 ---
 
-question-several-as-argument/main.tck:20:12: error: add expects 2 argument(s), got 1
+question-several-as-argument/main.tck:20:12: error: sum expects 2 argument(s), got 1
 19 |	func f() (int64, error) {
-20 |	    return add(divide(7, 2)?), noerror
+20 |	    return sum(divide(7, 2)?), noerror
    |	           ^~~~~~~~~~~~~~~~~~
 21 |	}
 
 question-several-as-argument/main.tck:20:16: error: divide(7, 2)? gives 2 values
 19 |	func f() (int64, error) {
-20 |	    return add(divide(7, 2)?), noerror
+20 |	    return sum(divide(7, 2)?), noerror
    |	               ^~~~~~~~~~~~~
 21 |	}
 
@@ -51444,6 +53377,107 @@ sort-by-wrong-less/main.tck:15:20: error: cannot use int32 as T in argument to s
 15 |	    sort.by(mut l, shorter)
    |	                   ^~~~~~~
 16 |	    print("")
+
+-- span-as-field/main.tck --
+package main
+
+// Assumption: a field cannot be named span under the existing rule for
+// builtin type names, until the open question on letting fields and
+// methods use them is ruled.
+type Token struct {
+    span int64
+}
+
+func main() {
+}
+-- span-as-field/expected --
+stage: resolve
+---
+
+span-as-field/main.tck:7:5: error: cannot use span as a name; it is a type
+06 |	type Token struct {
+07 |	    span int64
+   |	    ^~~~
+08 |	}
+
+-- span-as-method/main.tck --
+package main
+
+// A method cannot be named span either.
+type Token struct {
+    n int64
+}
+
+func (t Token) span() int64 {
+    return t.n
+}
+
+func main() {
+}
+-- span-as-method/expected --
+stage: resolve
+---
+
+span-as-method/main.tck:8:16: error: cannot use span as a name; it is a type
+07 |	
+08 |	func (t Token) span() int64 {
+   |	               ^~~~
+09 |	    return t.n
+
+-- span-as-name/main.tck --
+package main
+
+// span is a reserved builtin type name (addendum).
+func main() {
+    span := 1
+    exit(int32(span))
+}
+-- span-as-name/expected --
+stage: resolve
+---
+
+span-as-name/main.tck:5:5: error: cannot use span as a name; it is a type
+04 |	func main() {
+05 |	    span := 1
+   |	    ^~~~
+06 |	    exit(int32(span))
+
+-- span-as-param/main.tck --
+package main
+
+// span is a reserved builtin type name (addendum).
+func f(span int64) int64 {
+    return span
+}
+
+func main() {
+}
+-- span-as-param/expected --
+stage: resolve
+---
+
+span-as-param/main.tck:4:8: error: cannot use span as a name; it is a type
+03 |	// span is a reserved builtin type name (addendum).
+04 |	func f(span int64) int64 {
+   |	       ^~~~
+05 |	    return span
+
+-- span-assign/main.tck --
+package main
+
+// span is a type, so nothing assigns it.
+func main() {
+    span = 1
+}
+-- span-assign/expected --
+stage: resolve
+---
+
+span-assign/main.tck:5:5: error: cannot assign to span; it is a type
+04 |	func main() {
+05 |	    span = 1
+   |	    ^~~~
+06 |	}
 
 -- spread-alone/main.tck --
 package main
@@ -58233,12 +60267,12 @@ unsafe-index-view/main.tck:4:14: error: index p may be out of range; check p < l
 -- unsafe-mismatch-int64/main.tck --
 package main
 
-func add(s unsafe_size_t, n int64) int64 {
+func sum(s unsafe_size_t, n int64) int64 {
     return s + n
 }
 
 func main() {
-    code, fits := int32(add(1, 2))
+    code, fits := int32(sum(1, 2))
     if fits { exit(code) }
 }
 -- unsafe-mismatch-int64/expected --
@@ -58246,7 +60280,7 @@ stage: typeck
 ---
 
 unsafe-mismatch-int64/main.tck:4:12: error: mismatched types unsafe_size_t and int64 in +
-03 |	func add(s unsafe_size_t, n int64) int64 {
+03 |	func sum(s unsafe_size_t, n int64) int64 {
 04 |	    return s + n
    |	           ^~~~~
 05 |	}
@@ -58254,12 +60288,12 @@ unsafe-mismatch-int64/main.tck:4:12: error: mismatched types unsafe_size_t and i
 -- unsafe-mismatch-uintptr/main.tck --
 package main
 
-func add(s unsafe_size_t, p unsafe_uintptr_t) uint64 {
+func sum(s unsafe_size_t, p unsafe_uintptr_t) uint64 {
     return s + p
 }
 
 func main() {
-    if add(1, 2) == 3 {
+    if sum(1, 2) == 3 {
         exit(1)
     }
 }
@@ -58268,7 +60302,7 @@ stage: typeck
 ---
 
 unsafe-mismatch-uintptr/main.tck:4:12: error: mismatched types unsafe_size_t and unsafe_uintptr_t in +
-03 |	func add(s unsafe_size_t, p unsafe_uintptr_t) uint64 {
+03 |	func sum(s unsafe_size_t, p unsafe_uintptr_t) uint64 {
 04 |	    return s + p
    |	           ^~~~~
 05 |	}
@@ -58607,7 +60641,7 @@ func main() {
 stage: typeck
 ---
 
-unused-stmt-len-invalid/main.tck:4:9: error: len expects an array, a string, a view, a list or a map, got int64
+unused-stmt-len-invalid/main.tck:4:9: error: len expects an array, a string, a view, a list, a map or an arena, got int64
 03 |	func main() {
 04 |	    len(5)
    |	        ^

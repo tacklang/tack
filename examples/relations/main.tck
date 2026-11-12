@@ -160,8 +160,8 @@ func pair(a []int64, p Pair) int64 {
     return -1
 }
 
-// span slices a[i:k] through i <= j <= k <= len(a).
-func span(a []int64, i int64, j int64, k int64) int64 {
+// spanLen slices a[i:k] through i <= j <= k <= len(a).
+func spanLen(a []int64, i int64, j int64, k int64) int64 {
     if 0 <= i && i <= j && j <= k && k <= len(a) {
         return len(a[i:k])
     }
@@ -311,8 +311,8 @@ func main() {
     check(counted(arr[:], 3) == 40 && counted(arr[:], 4) == -1 && counted(arr[0:0], 0) == -1, "counted")
     check(lastOf(arr[:]) == 40 && lastOf(arr[0:0]) == -1, "last of")
     check(pair(arr[:], Pair{lo: 1, hi: 4}) == 20 && pair(arr[:], Pair{lo: 1, hi: 5}) == -1, "pair")
-    check(span(arr[:], 1, 2, 4) == 3 && span(arr[:], 0, 0, 0) == 0 && span(arr[:], 2, 1, 4) == -1, "span")
-    check(span(arr[:], 0, 4, 5) == -1 && span(arr[0:0], 0, 0, 0) == 0, "span edges")
+    check(spanLen(arr[:], 1, 2, 4) == 3 && spanLen(arr[:], 0, 0, 0) == 0 && spanLen(arr[:], 2, 1, 4) == -1, "span")
+    check(spanLen(arr[:], 0, 4, 5) == -1 && spanLen(arr[0:0], 0, 0, 0) == 0, "span edges")
     check(tail(arr[:], 4) == 1 && tail(arr[:], 1) == 4 && tail(arr[:], 0) == -1 && tail(arr[:], 5) == -1, "tail")
     check(byteBefore("tack", 3) == 99 && byteBefore("tack", 4) == -1 && byteBefore("", 0) == -1, "byte before")
     sorted := [5]int64{1, 3, 5, 7, 9}

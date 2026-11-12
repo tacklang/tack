@@ -88,6 +88,7 @@ var keywords = [...]spelling{
     {text: "unreachable", ends: true},
     {text: "fallthrough", ends: true},
     {text: "scope", ends: false},
+    {text: "arena", ends: false},
 }
 
 // operators are every operator and punctuation token, longest first, so

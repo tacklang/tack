@@ -256,7 +256,7 @@ type closureState struct {
 	inference                             *inference
 	viewSlice, checkedSlice               *ast.Slice
 	viewCall, droppedCall, checkedTake    *ast.Call
-	checkedIndex                          *ast.Index
+	checkedIndex, viewSpan                *ast.Index
 	checkedDivision                       *ast.Binary
 	checkedArith                          ast.Expr
 	checkedAssert                         *ast.TypeAssert
@@ -301,7 +301,7 @@ func (c *Checker) enterClosure(lit *ast.FuncLit) closureState {
 		droppedCall: c.droppedCall, checkedTake: c.checkedTake, checkedIndex: c.checkedIndex,
 		checkedDivision: c.checkedDivision, checkedArith: c.checkedArith,
 		checkedAssert: c.checkedAssert, assigning: c.assigning, passedOn: c.passedOn,
-		deferredOverflow: c.deferredOverflow, scopeUse: c.scopeUse,
+		deferredOverflow: c.deferredOverflow, scopeUse: c.scopeUse, viewSpan: c.viewSpan,
 	}
 	c.fn = lit.Func
 	c.loops, c.deferred, c.deferLoops, c.dead, c.inCoveredDefault = 0, 0, 0, 0, 0
@@ -317,6 +317,7 @@ func (c *Checker) enterClosure(lit *ast.FuncLit) closureState {
 	c.viewSlice, c.checkedSlice, c.viewCall, c.droppedCall, c.checkedTake = nil, nil, nil, nil, nil
 	c.checkedIndex, c.checkedDivision, c.checkedArith, c.checkedAssert = nil, nil, nil, nil
 	c.assigning, c.passedOn, c.deferredOverflow, c.scopeUse = nil, nil, nil, nil
+	c.viewSpan = nil
 	c.factGen++
 	return saved
 }
@@ -335,6 +336,7 @@ func (c *Checker) leaveClosure(s closureState) {
 	c.droppedCall, c.checkedTake, c.checkedIndex = s.droppedCall, s.checkedTake, s.checkedIndex
 	c.checkedDivision, c.checkedArith, c.checkedAssert = s.checkedDivision, s.checkedArith, s.checkedAssert
 	c.assigning, c.passedOn, c.deferredOverflow, c.scopeUse = s.assigning, s.passedOn, s.deferredOverflow, s.scopeUse
+	c.viewSpan = s.viewSpan
 	c.factGen++
 }
 

@@ -1589,6 +1589,9 @@ func (g *generator) generateForRange(
 	if isMap {
 		return g.mapRange(loop, x, body), nil
 	}
+	if g.prog.Types.IsArena(xType) {
+		return g.arenaRange(loop, addr, body), nil
+	}
 	if !types.IsInteger(xType) {
 		return g.collectionRange(loop, x, addr, body), nil
 	}
@@ -2060,6 +2063,9 @@ func (g *generator) elementRef(ix *ast.Index) (string, []diag.Diagnostic) {
 	if g.prog.Types.IsList(ast.TypeOf(ix.X)) {
 		return fmt.Sprintf("%s.ptr[%s]", base, index), nil
 	}
+	if g.prog.Types.IsArena(ast.TypeOf(ix.X)) {
+		return g.arenaElementRef(ix, base, index), nil
+	}
 	return fmt.Sprintf("%s.e[%s]", base, index), nil
 }
 
@@ -2385,11 +2391,14 @@ func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic)
 }
 
 // callValues lowers a, b := f(): the call, held as its results struct,
-// read field by field, or the checked form of pop or remove (see
-// takeValues).
+// read field by field, the checked form of pop or remove (see
+// takeValues), or a call to add or add_all (see addValues).
 func (g *generator) callValues(c *ast.Call) (multiSource, []diag.Diagnostic) {
 	if isBuiltin(c, "pop") || isBuiltin(c, "remove") {
 		return g.takeValues(c)
+	}
+	if isBuiltin(c, "add") || isBuiltin(c, "add_all") {
+		return g.addValues(c)
 	}
 	if isBuiltin(c, "delete") {
 		return g.deleteValues(c)
@@ -2740,7 +2749,7 @@ func bounds(typ types.Type) (lo, hi constant.Int) {
 func (g *generator) zeroValue(typ types.Type) string {
 	table := g.prog.Types
 	if g.isComposite(typ) || table.IsList(typ) || table.IsMap(typ) || table.IsView(typ) ||
-		typ == types.Allocator || typ == types.Any {
+		table.IsArena(typ) || typ == types.Allocator || typ == types.Any {
 		return fmt.Sprintf("(%s){}", g.cType(typ))
 	}
 	switch typ {
@@ -3291,6 +3300,15 @@ func (g *generator) cType(typ types.Type) string {
 	}
 	if g.prog.Types.IsMap(typ) {
 		return g.mapName(typ)
+	}
+	if g.prog.Types.IsArena(typ) {
+		return g.arenaName(typ)
+	}
+	if g.prog.Types.IsID(typ) {
+		return "uint32_t"
+	}
+	if g.prog.Types.IsSpan(typ) {
+		return "uint64_t"
 	}
 	if g.prog.Types.IsFunc(typ) {
 		return funcPtr

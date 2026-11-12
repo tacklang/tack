@@ -49,6 +49,7 @@ func (g *generator) emitTypes() {
 		}
 	}
 	g.emitFrees()
+	g.emitArenas()
 	g.emitMaps()
 }
 
@@ -84,8 +85,9 @@ func (g *generator) hasEqualityHelper(typ types.Type) bool {
 }
 
 // parts returns the types a value of type typ is made of: an array's, a
-// view's or a list's element type, a map's key and value types, a
-// struct's field types, or a union's payloads' types, in order.
+// view's or a list's element type, a map's key and value types, an
+// arena's list of its elements and its element type, a struct's field
+// types, or a union's payloads' types, in order.
 func (g *generator) parts(typ types.Type) []types.Type {
 	table := g.prog.Types
 	if table.IsArray(typ) || table.IsView(typ) || table.IsList(typ) {
@@ -93,6 +95,9 @@ func (g *generator) parts(typ types.Type) []types.Type {
 	}
 	if table.IsMap(typ) {
 		return []types.Type{table.Key(typ), table.Elem(typ)}
+	}
+	if table.IsArena(typ) {
+		return []types.Type{g.arenaList(typ), table.Elem(typ)}
 	}
 	if table.IsUnion(typ) {
 		return g.payloads(typ)
@@ -114,7 +119,8 @@ func (g *generator) parts(typ types.Type) []types.Type {
 func (g *generator) emitTypeDef(typ types.Type, defined map[types.Type]bool) {
 	table := g.prog.Types
 	if defined[typ] || typ == types.Error ||
-		!g.isComposite(typ) && !table.IsView(typ) && !table.IsList(typ) && !table.IsMap(typ) {
+		!g.isComposite(typ) && !table.IsView(typ) && !table.IsList(typ) && !table.IsMap(typ) &&
+			!table.IsArena(typ) {
 		return
 	}
 	defined[typ] = true
@@ -135,6 +141,8 @@ func (g *generator) emitDef(typ types.Type) {
 		g.emitListDef(typ)
 	case table.IsMap(typ):
 		g.emitMapDef(typ)
+	case table.IsArena(typ):
+		g.emitArenaDef(typ)
 	case table.IsArray(typ):
 		g.emitArrayDef(typ)
 	case table.IsUnion(typ):

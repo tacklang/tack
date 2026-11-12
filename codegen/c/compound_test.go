@@ -46,7 +46,7 @@ var compoundRuntimeCases = []struct {
 	},
 	{
 		"global from a function",
-		"package main\n\nmut total int64\n\nfunc add(n int64) {\n    total +%= n\n}\n\nfunc main() {\n    add(3)\n    add(4)\n    code, fits := int32(total)\n    if fits { exit(code) }\n}\n",
+		"package main\n\nmut total int64\n\nfunc sum(n int64) {\n    total +%= n\n}\n\nfunc main() {\n    sum(3)\n    sum(4)\n    code, fits := int32(total)\n    if fits { exit(code) }\n}\n",
 		7,
 	},
 	{

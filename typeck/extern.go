@@ -22,7 +22,8 @@ const stdPath = "std"
 // tack_, which the generated C's own names do. Every type can cross to C,
 // and a mut parameter crosses as a pointer, except a list, or a struct or
 // an array holding one, which crosses only by mut or as a view (see
-// checkExternLists), and a map, which never does (see checkExternMaps);
+// checkExternLists), and a map, an arena, an id or a span, which never
+// does (see checkExternMaps);
 // and no parameter is own (see checkExternOwn). A float32 crosses as C's
 // float and a float64 as its double.
 func (c *Checker) checkExtern(fn *ast.Func) {
@@ -66,30 +67,33 @@ func (c *Checker) checkCName(fn *ast.Func) {
 }
 
 // checkExternMaps reports each parameter and each result of fn, an extern
-// func, whose type is or holds a map, at any depth, through a struct, an
-// array, a union, a list or a view, and returns whether there was none:
-// how a map is laid out for C is not settled, so none crosses.
+// func, whose type is or holds a map, an arena, an id or a span, at any
+// depth, through a struct, an array, a union, a list or a view, and
+// returns whether there was none: how a map is laid out for C is not
+// settled, and no arena, id or span crosses at all, so none crosses.
 func (c *Checker) checkExternMaps(fn *ast.Func) bool {
 	clean := true
 	for _, p := range fn.Params {
-		if c.holdsMap(p.Type, make(map[types.Type]bool)) {
+		if held := c.uncrossable(p.Type, make(map[types.Type]bool)); held != "" {
 			c.errorf(
 				p.TypeExpr.Spanned(),
-				"parameter %s of extern func %s cannot be %s: a map does not cross to C",
+				"parameter %s of extern func %s cannot be %s: %s does not cross to C",
 				p.Name,
 				fn.Name,
 				c.typeName(p.Type),
+				held,
 			)
 			clean = false
 		}
 	}
 	for i, typ := range fn.ResultTypes {
-		if c.holdsMap(typ, make(map[types.Type]bool)) {
+		if held := c.uncrossable(typ, make(map[types.Type]bool)); held != "" {
 			c.errorf(
 				fn.Results[i].Spanned(),
-				"extern func %s cannot return %s: a map does not cross to C",
+				"extern func %s cannot return %s: %s does not cross to C",
 				fn.Name,
 				c.typeName(typ),
+				held,
 			)
 			clean = false
 		}
@@ -97,24 +101,28 @@ func (c *Checker) checkExternMaps(fn *ast.Func) bool {
 	return clean
 }
 
-// holdsMap reports whether typ is a map type, or holds one, at any depth,
-// through a struct, an array, a union, a list or a view. seen holds the
-// structs and unions already being looked at.
-func (c *Checker) holdsMap(typ types.Type, seen map[types.Type]bool) bool {
+// uncrossable returns what typ is or holds that never crosses to C, at
+// any depth, through a struct, an array, a union, a list or a view: "a
+// map", "an arena", "an id" or "a span", the first found, or "" when it
+// holds none. seen holds the structs and unions already being looked at.
+func (c *Checker) uncrossable(typ types.Type, seen map[types.Type]bool) string {
+	if held := c.arenaKind(typ); held != "" {
+		return held
+	}
 	switch {
 	case c.table.IsMap(typ):
-		return true
+		return "a map"
 	case c.table.IsArray(typ), c.table.IsList(typ), c.table.IsView(typ):
-		return c.holdsMap(c.table.Elem(typ), seen)
+		return c.uncrossable(c.table.Elem(typ), seen)
 	case (c.table.IsStruct(typ) || c.table.IsUnion(typ)) && !seen[typ]:
 		seen[typ] = true
 		for _, part := range c.partTypes(typ) {
-			if c.holdsMap(part, seen) {
-				return true
+			if held := c.uncrossable(part, seen); held != "" {
+				return held
 			}
 		}
 	}
-	return false
+	return ""
 }
 
 // checkExternUnions reports each parameter and each result of fn, an

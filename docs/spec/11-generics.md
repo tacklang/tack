@@ -393,12 +393,16 @@ A type parameter cannot be the element of an array or a variadic
 parameter, `a variadic parameter cannot hold S: its elements are
 copied, and S, a type parameter, which may hold a list, cannot be`, nor
 a map's key, `cannot use T as a map key: a map's key cannot be a type
-parameter`. A list, a view, a map's value and a function type may be
-made of one, in a signature and in a body, `make(list[T], alloc)`
-included. Their elements are owned: read in place, moved in by `append`
-and `put`, moved out by `pop`, `remove` and `delete`, reordered by
-`swap`, and never copied out, `cannot move l[0] out of l: an element
-cannot be moved out of a list; take it out with pop or remove`.
+parameter`. A list, a view, a map's value, an arena, an id, a span and
+a function type may be made of one, in a signature and in a body,
+`make(list[T], alloc)` and `make(arena[T], sentinel, alloc)` included,
+and `map[id[T]]V` too, an id being a key whatever its element type.
+Their elements are owned: read in place, moved in by `append`, `put`,
+`add` and `add_all`, moved out by `pop`, `remove` and `delete`,
+reordered by `swap`, and never copied out, `cannot move l[0] out of l:
+an element cannot be moved out of a list; take it out with pop or
+remove`. An arena of a type parameter is read through its ids as any
+arena is, with no proof, whatever type an instance gives it.
 
 A generic function gets a value of a type parameter by moving one out
 of a list with `pop` or `remove`, or out of a map with `delete`, by

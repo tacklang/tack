@@ -1,0 +1,695 @@
+package main
+
+// Arenas: arena[T], an append-only store made with a sentinel at id 0;
+// id[T], an index into one, read and written with no proof; and span[T],
+// a run of its elements read as a view. An id at or past an arena's
+// length, from another arena or from no add at all, reads and writes the
+// sentinel's slot, and a span not wholly in range is an empty view, so
+// no lookup leaves memory the arena owns, before its first add as after
+// it. An arena is owned as a list is: moved, held in structs, passed as
+// mut and own, freed with its elements when its owner's block ends,
+// through ? and with defers, in generic code and under closures, and at
+// once by drop.
+//
+// Every check that allocates runs in a function of its own, and main
+// asserts after each group that c_allocator's count of live buffers is
+// back to zero, so a leak or a double free shows. Every check prints its
+// name and "ok", or "FAIL".
+
+// live returns how many buffers c_allocator holds, in C.
+extern("arenas_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("arenas_fail_after") func fail_after(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that c_allocator holds no buffer, name saying after what.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// Any asks for no method, so every type satisfies it.
+type Any interface {
+}
+
+// numbers gives a list of n numbers, 1 to n; a list shorter than n when
+// an append fails.
+func numbers(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i +% 1)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+// total sums a view of numbers.
+func total(v []int64) int64 {
+    mut t int64 = 0
+    for _, x := range v {
+        t = t +% x
+    }
+    return t
+}
+
+// fill adds 1 to n to a, which it grows as mut, and gives the id of the
+// last one, or the zero id when n is not positive.
+func fill(mut a arena[int64], n int64) (id[int64], error) {
+    mut last id[int64]
+    for i := range n {
+        e, err := add(mut a, i +% 1)
+        if err.code != 0 {
+            return last, err
+        }
+        last = e
+    }
+    return last, noerror
+}
+
+// bigger gives an arena of the sentinel -1 and the n numbers 100 to
+// 100 + n - 1, the source of ids and spans foreign to a smaller arena.
+func bigger(n int64) arena[int64] {
+    mut b := make(arena[int64], -1, c_allocator)
+    for i := range n {
+        _, err := add(mut b, 100 +% i)
+        if err.code != 0 {
+            return b
+        }
+    }
+    return b
+}
+
+// lastOf gives the id of a's last element, found by ranging over it.
+func lastOf(a arena[int64]) id[int64] {
+    mut last id[int64]
+    for i := range a {
+        last = i
+    }
+    return last
+}
+
+// testSentinel checks the sentinel alone, before any add: make
+// allocates nothing, the arena's length counts the sentinel, and every
+// id, the zero id or one from another arena, reads and writes the
+// sentinel's slot without reading past anything.
+func testSentinel() {
+    mut a := make(arena[int64], -1, c_allocator)
+    mut z id[int64]
+    check(live() == 0 && len(a) == 1 && a[z] == -1, "make holds only the sentinel and allocates nothing")
+    b := bigger(5)
+    far := lastOf(b)
+    mut sum int64 = 0
+    mut n int64 = 0
+    for i := range b {
+        sum = sum +% a[i]
+        n = n +% 1
+    }
+    check(n == 6 && sum == -6 && a[far] == -1, "every id of another arena reads a sentinel-only arena's sentinel")
+    a[far] = 9
+    check(a[z] == 9 && len(a) == 1, "a write through an id past the end, before the first add, writes the sentinel")
+    e, err := add(mut a, 5)
+    if err.code != 0 {
+        check(false, "the sentinel written before the first add survives it")
+        return
+    }
+    check(a[z] == 9 && a[e] == 5 && a[far] == 9 && len(a) == 2 && e != z,
+        "the sentinel written before the first add survives it")
+}
+
+// testAdd checks add, reading and writing through ids, ranging over an
+// arena and ids from another arena, in range and past the end.
+func testAdd() {
+    mut a := make(arena[int64], 0, c_allocator)
+    mut z id[int64]
+    e1, err1 := add(mut a, 10)
+    e2, err2 := add(mut a, 20)
+    e3, err3 := add(mut a, 30)
+    if err1.code != 0 || err2.code != 0 || err3.code != 0 {
+        check(false, "add gives distinct ids, each reading its value")
+        return
+    }
+    copied := e1
+    check(a[e1] == 10 && a[e2] == 20 && a[e3] == 30 && len(a) == 4 &&
+        e1 != e2 && e2 != e3 && e1 != z && copied == e1,
+        "add gives distinct ids, each reading its value")
+    a[e2] = a[e2] +% 5
+    a[e3] = 33
+    check(a[e1] == 10 && a[e2] == 25 && a[e3] == 33 && a[z] == 0, "writing through an id")
+    mut sum int64 = 0
+    mut n int64 = 0
+    mut same := true
+    for i, v := range a {
+        sum = sum +% v
+        n = n +% 1
+        same = same && a[i] == v
+    }
+    check(n == 4 && sum == 68 && same, "a range gives every id, the sentinel's first, with its element")
+    b := bigger(3)
+    mut f id[int64]
+    mut k int64 = 0
+    for i := range b {
+        if k == 2 {
+            f = i
+        }
+        k = k +% 1
+    }
+    check(b[f] == 101 && a[f] == 25, "an id of another arena in range reads this arena's slot")
+    c := bigger(9)
+    far := lastOf(c)
+    check(a[far] == 0, "an id past the end reads the sentinel")
+    a[far] = -7
+    check(a[z] == -7 && a[e1] == 10 && a[e2] == 25 && a[e3] == 33 && len(a) == 4,
+        "an id past the end writes the sentinel and nothing else")
+}
+
+// testSpans checks add_all, a span's view, its length and range, the
+// empty span, spans of another arena and span equality.
+func testSpans() {
+    mut a := make(arena[int64], 0, c_allocator)
+    _, err0 := add(mut a, 7)
+    s, err := add_all(mut a, 1, 2, 3)
+    if err0.code != 0 || err.code != 0 {
+        check(false, "add_all gives a span of its values, in order")
+        return
+    }
+    mut sum int64 = 0
+    mut ordered := true
+    mut prev int64 = 0
+    for _, v := range a[s] {
+        sum = sum +% v
+        ordered = ordered && v == prev +% 1
+        prev = v
+    }
+    check(len(a[s]) == 3 && sum == 6 && ordered && total(a[s]) == 6 && len(a) == 5,
+        "add_all gives a span of its values, in order")
+    l := numbers(4)
+    t, errT := add_all(mut a, l...)
+    if errT.code != 0 {
+        check(false, "add_all takes a spread view")
+        return
+    }
+    kept := s
+    check(len(a[t]) == 4 && total(a[t]) == 10 && len(a) == 9 && len(l) == 4 && s != t && kept == s,
+        "add_all takes a spread view")
+    mut es span[int64]
+    check(len(a[es]) == 0 && total(a[es]) == 0, "the zero span is empty")
+    // Assumption: add_all given no values adds nothing and gives an
+    // empty span, as append given none does nothing.
+    none, errN := add_all(mut a)
+    if errN.code != 0 {
+        check(false, "add_all of nothing gives an empty span")
+        return
+    }
+    check(len(a[none]) == 0 && len(a) == 9, "add_all of nothing gives an empty span")
+    mut b := bigger(2)
+    whole, errW := add_all(mut b, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+    tail, errTail := add_all(mut b, 5, 5)
+    if errW.code != 0 || errTail.code != 0 {
+        check(false, "a span past the end is an empty view")
+        return
+    }
+    check(len(b[whole]) == 10 && len(a[whole]) == 0 && len(a[tail]) == 0 && total(a[tail]) == 0,
+        "a span past the end is an empty view")
+    mut c := make(arena[int64], 0, c_allocator)
+    _, errC := fill(mut c, 10)
+    if errC.code != 0 {
+        check(false, "a span partly past the end is an empty view")
+        return
+    }
+    // whole runs from id 3 to id 12, c's last id being 10.
+    check(len(c[whole]) == 0 && len(c) == 11, "a span partly past the end is an empty view")
+    mut d := make(arena[int64], 0, c_allocator)
+    _, errD := fill(mut d, 12)
+    if errD.code != 0 {
+        check(false, "a span of another arena ending at the last id views this arena's elements")
+        return
+    }
+    // d holds 1 to 12 at ids 1 to 12, so whole, ids 3 to 12, views 3 to 12.
+    check(len(d[whole]) == 10 && total(d[whole]) == 75 && len(d) == 13,
+        "a span of another arena ending at the last id views this arena's elements")
+}
+
+// testReserve checks reserve, and add and add_all when c_allocator
+// refuses: an error, the arena unchanged. A fresh arena holds no buffer,
+// so its first add or reserve must ask for one; a big add_all must ask
+// for more than three adds left room for.
+func testReserve() {
+    mut a := make(arena[int64], -1, c_allocator)
+    mut z id[int64]
+    fail_after(0)
+    _, errAdd := add(mut a, 1)
+    _, errAll := add_all(mut a, 1, 2, 3)
+    errRes := reserve(mut a, 10)
+    errZero := reserve(mut a, 0)
+    fail_after(-1)
+    check(errAdd.code == 1 && errAll.code == 1 && errRes.code == 1 && errZero.code == 0 &&
+        len(a) == 1 && a[z] == -1,
+        "add, add_all and reserve that cannot grow fail and leave the arena as it was")
+    // Assumption: reserve makes room for n more elements past len(a),
+    // as a list's reserve does, so the adds it made room for allocate
+    // nothing.
+    errR := reserve(mut a, 3)
+    fail_after(0)
+    _, e1 := add(mut a, 10)
+    _, e2 := add_all(mut a, 20, 30)
+    fail_after(-1)
+    check(errR.code == 0 && e1.code == 0 && e2.code == 0 && len(a) == 4,
+        "reserve makes room for the adds after it")
+    // Assumption: a negative count at run time is error code 2, as a
+    // list's reserve gives.
+    neg := zero() -% 2
+    errNeg := reserve(mut a, neg)
+    check(errNeg.code == 2 && len(a) == 4, "reserve of a negative count fails")
+    mut b := make(arena[int64], 0, c_allocator)
+    _, errB := fill(mut b, 3)
+    many := numbers(100000)
+    fail_after(0)
+    _, errBig := add_all(mut b, many...)
+    fail_after(-1)
+    mut sum int64 = 0
+    for _, v := range b {
+        sum = sum +% v
+    }
+    check(errB.code == 0 && len(many) == 100000 && errBig.code == 1 && len(b) == 4 && sum == 6,
+        "an add_all that cannot grow adds nothing")
+}
+
+// testOwned checks an arena of lists: elements grown, passed, replaced
+// and assigned in place, an owned sentinel, and an add that fails
+// freeing what it was given.
+func testOwned() {
+    mut a := make(arena[list[int64]], numbers(2), c_allocator)
+    mut z id[list[int64]]
+    check(live() == 1 && len(a) == 1 && len(a[z]) == 2, "an owned sentinel is held by the arena")
+    e, err := add(mut a, numbers(3))
+    if err.code != 0 {
+        check(false, "an owned element is grown and read in place")
+        return
+    }
+    errA := append(mut a[e], 4)
+    check(errA.code == 0 && len(a[e]) == 4 && total(a[e]) == 10, "an owned element is grown and read in place")
+    before := live()
+    a[e] = numbers(5)
+    check(live() == before && len(a[e]) == 5, "assigning an element frees the one it replaces")
+    old := replace(mut a[e], numbers(1))
+    check(len(old) == 5 && len(a[e]) == 1, "replace takes an element out with another in its place")
+    o, errO := listArena(4)
+    if errO.code != 0 {
+        check(false, "an id past the end grows the owned sentinel")
+        return
+    }
+    mut far id[list[int64]]
+    for i := range o {
+        far = i
+    }
+    errS := append(mut a[far], 9)
+    check(errS.code == 0 && len(a[z]) == 3 && len(a) == 2, "an id past the end grows the owned sentinel")
+    // A fresh arena holds no buffer, so its first add_all must ask for one.
+    mut c := make(arena[list[int64]], numbers(0), c_allocator)
+    l := numbers(6)
+    m := numbers(2)
+    held := live()
+    fail_after(0)
+    _, errF := add_all(mut c, l, m)
+    fail_after(-1)
+    check(errF.code == 1 && live() == held -% 2 && len(c) == 1 && len(a) == 2,
+        "an add_all that fails frees the values it was given")
+}
+
+// Node is a node of a list linked through an arena: plain data, an id
+// naming another node of the same arena and a span of numbers in a
+// second one. Assumption: a type may hold an id of itself,
+// since an id holds no element; the design's AST pattern needs it.
+type Node struct {
+    value int64
+    next  id[Node]
+    kids  span[int64]
+}
+
+// Graph holds an arena of nodes, the numbers their spans name, and the
+// last node added.
+type Graph struct {
+    nodes   arena[Node]
+    numbers arena[int64]
+    last    id[Node]
+}
+
+// newGraph gives a Graph holding only its sentinels.
+func newGraph() Graph {
+    mut none id[Node]
+    mut empty span[int64]
+    return Graph{
+        nodes:   make(arena[Node], Node{value: -1, next: none, kids: empty}, c_allocator),
+        numbers: make(arena[int64], 0, c_allocator),
+        last:    none,
+    }
+}
+
+// link adds a node of value v, with n kids 1 to n, after g's last.
+func link(mut g Graph, v int64, n int64) error {
+    l := numbers(n)
+    kids, errK := add_all(mut g.numbers, l...)
+    if errK.code != 0 {
+        return errK
+    }
+    e, err := add(mut g.nodes, Node{value: v, next: g.last, kids: kids})
+    if err.code != 0 {
+        return err
+    }
+    g.last = e
+    return noerror
+}
+
+// walk sums the values of the nodes from g's last back to the sentinel,
+// at most limit of them, and the kids of each.
+func walk(g Graph, limit int64) int64 {
+    mut none id[Node]
+    mut sum int64 = 0
+    mut at := g.last
+    mut n int64 = 0
+    for at != none && n < limit {
+        sum = sum +% g.nodes[at].value +% total(g.numbers[g.nodes[at].kids])
+        at = g.nodes[at].next
+        n = n +% 1
+    }
+    return sum
+}
+
+// consume takes an arena of lists, which it owns and frees, and gives
+// the sum of its elements' lengths.
+func consume(own a arena[list[int64]]) int64 {
+    mut n int64 = 0
+    for _, l := range a {
+        n = n +% len(l)
+    }
+    return n
+}
+
+// listArena gives an arena of an empty sentinel and n lists, 1 to n long.
+func listArena(n int64) (arena[list[int64]], error) {
+    mut a := make(arena[list[int64]], numbers(0), c_allocator)
+    for i := range n {
+        _, err := add(mut a, numbers(i +% 1))
+        if err.code != 0 {
+            return a, err
+        }
+    }
+    return a, noerror
+}
+
+// testStructs checks arenas held in structs, linked by ids, passed as
+// mut and as own, returned and moved.
+func testStructs() {
+    mut g := newGraph()
+    e1 := link(mut g, 1, 1)
+    e2 := link(mut g, 2, 2)
+    e3 := link(mut g, 3, 0)
+    check(e1.code == 0 && e2.code == 0 && e3.code == 0 && len(g.nodes) == 4 && walk(g, 10) == 10,
+        "nodes linked by ids in an arena held in a struct")
+    h := g
+    check(walk(h, 10) == 10 && len(h.numbers) == 4, "a struct holding an arena is moved")
+    mut a := make(arena[int64], 0, c_allocator)
+    last, err := fill(mut a, 5)
+    if err.code != 0 {
+        check(false, "an arena grown through a mut parameter")
+        return
+    }
+    check(len(a) == 6 && a[last] == 5, "an arena grown through a mut parameter")
+    la, errL := listArena(4)
+    if errL.code != 0 {
+        check(false, "an arena returned and passed as own")
+        return
+    }
+    held := live()
+    n := consume(own la)
+    check(n == 10 && live() == held -% 5, "an arena returned and passed as own is freed by its owner")
+}
+
+// push adds x, which it owns, to a, in generic code.
+func push[T Any](mut a arena[T], own x T) (id[T], error) {
+    e, err := add(mut a, x)
+    return e, err
+}
+
+// count gives how many elements a holds, the sentinel included.
+func count[T Any](a arena[T]) int64 {
+    return len(a)
+}
+
+// fresh makes an arena of T whose sentinel is s, in generic code.
+func fresh[T Any](own s T) arena[T] {
+    return make(arena[T], s, c_allocator)
+}
+
+// ids counts the ids a range over a gives.
+func ids[T Any](a arena[T]) int64 {
+    mut n int64 = 0
+    for range a {
+        n = n +% 1
+    }
+    return n
+}
+
+// zero gives 0, an int64 a generic call takes as its own argument.
+func zero() int64 {
+    return 0
+}
+
+// testGeneric checks arenas of a type parameter, instantiated with
+// int64 and with a list.
+func testGeneric() {
+    mut a := fresh(zero())
+    e, err := push(mut a, 42)
+    if err.code != 0 {
+        check(false, "a generic arena of int64")
+        return
+    }
+    check(a[e] == 42 && count(a) == 2 && ids(a) == 2, "a generic arena of int64")
+    mut b := fresh(numbers(1))
+    f, errF := push(mut b, numbers(3))
+    if errF.code != 0 {
+        check(false, "a generic arena of lists")
+        return
+    }
+    check(len(b[f]) == 3 && count(b) == 2 && ids(b) == 2, "a generic arena of lists")
+}
+
+// testMaps checks ids and spans as map keys.
+func testMaps() {
+    mut a := make(arena[int64], 0, c_allocator)
+    mut z id[int64]
+    e1, err1 := add(mut a, 1)
+    e2, err2 := add(mut a, 2)
+    if err1.code != 0 || err2.code != 0 {
+        check(false, "an id is a map key")
+        return
+    }
+    mut m := make(map[id[int64]]int64, c_allocator)
+    p1 := put(mut m, e1, 10)
+    p2 := put(mut m, e2, 20)
+    p3 := put(mut m, e1, 11)
+    v, ok := m[z]
+    mut viaHas int64 = 0
+    if has(m, e2) {
+        viaHas = m[e2]
+    }
+    w, okW := m[e1]
+    check(p1.code == 0 && p2.code == 0 && p3.code == 0 && len(m) == 2 && !ok && v == 0 &&
+        viaHas == 20 && okW && w == 11, "an id is a map key")
+    s, errS := add_all(mut a, 3, 4)
+    if errS.code != 0 {
+        check(false, "a span is a map key")
+        return
+    }
+    mut es span[int64]
+    mut sm := make(map[span[int64]]int64, c_allocator)
+    q1 := put(mut sm, s, 7)
+    q2 := put(mut sm, es, 0)
+    x, okX := sm[s]
+    check(q1.code == 0 && q2.code == 0 && len(sm) == 2 && okX && x == 7, "a span is a map key")
+}
+
+// twice calls f twice.
+func twice(scope f func()) {
+    f()
+    f()
+}
+
+// attempt calls f and gives its error.
+func attempt(scope f func() error) error {
+    return f()
+}
+
+// testClosures checks closures that read an arena they capture, grow
+// it through a mut capture, and pass a failing add on with ?.
+func testClosures() {
+    mut a := make(arena[int64], 0, c_allocator)
+    e, err := add(mut a, 4)
+    if err.code != 0 {
+        check(false, "a closure reads a captured arena")
+        return
+    }
+    mut sum int64 = 0
+    twice(func() {
+        sum = sum +% a[e] +% len(a)
+    })
+    check(sum == 12, "a closure reads a captured arena")
+    mut failed := false
+    mut last id[int64]
+    twice(func() {
+        n, errN := add(mut a, 8)
+        if errN.code != 0 {
+            failed = true
+        } else {
+            last = n
+        }
+    })
+    check(!failed && len(a) == 4 && a[last] == 8 && last != e, "a closure grows a captured arena")
+    // A fresh arena holds no buffer, so its first add must ask for one.
+    mut c := make(arena[int64], 0, c_allocator)
+    fail_after(0)
+    errQ := attempt(func() error {
+        last = add(mut c, 9)?
+        return noerror
+    })
+    fail_after(-1)
+    check(errQ.code == 1 && len(c) == 1 && a[last] == 8, "a closure passes a failing add on with ?")
+}
+
+// counted gives a list of n numbers, 1 to n, or the error of the
+// append that could not grow it.
+func counted(n int64) (list[int64], error) {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i +% 1)
+        if err.code != 0 {
+            return l, err
+        }
+    }
+    return l, noerror
+}
+
+// built makes an arena of an empty sentinel and n lists, 1 to n long,
+// through a ? on each list and on each add, then one list of 2, and gives that list's length plus the
+// arena's; a defer records the arena's length as the function ends.
+func built(n int64, mut seen int64) (int64, error) {
+    mut a := make(arena[list[int64]], numbers(0), c_allocator)
+    defer {
+        seen = len(a)
+    }
+    mut last id[list[int64]]
+    for i := range n {
+        last = add(mut a, counted(i +% 1)?)?
+    }
+    e := add(mut a, counted(2)?)?
+    return len(a[e]) +% len(a) +% len(a[last]) -% n, noerror
+}
+
+// testQuestion checks ? on add, the arena and every list it holds freed
+// on every failing path, c_allocator refusing each request in turn, and
+// a defer reading the arena first.
+func testQuestion() {
+    mut seen int64 = 0
+    r, err := built(3, mut seen)
+    check(err.code == 0 && r == 7 && seen == 5, "? passes a successful add's id on, the defer reading the arena")
+    freed("an arena built through ? freed")
+    mut failures int64 = 0
+    mut passes int64 = 0
+    mut wrong int64 = 0
+    mut leaked int64 = 0
+    for k := range 400 {
+        seen = 0
+        fail_after(k)
+        v, errK := built(20, mut seen)
+        fail_after(-1)
+        if errK.code == 0 {
+            passes = passes +% 1
+            if v != 24 || seen != 22 {
+                wrong = wrong +% 1
+            }
+        } else {
+            failures = failures +% 1
+            if errK.code != 1 || seen < 1 || seen > 21 {
+                wrong = wrong +% 1
+            }
+        }
+        if live() != 0 {
+            leaked = leaked +% 1
+        }
+    }
+    check(failures > 0 && passes > 0 && wrong == 0 && leaked == 0,
+        "a failing add's ? frees the arena and its lists, through the defer, at every refusal")
+}
+
+// dropIt takes an arena of lists, which it owns, drops it, and gives its
+// length and how many buffers c_allocator holds once it is dropped.
+func dropIt(own a arena[list[int64]]) (int64, int64) {
+    n := len(a)
+    drop(own a)
+    return n, live()
+}
+
+// testDrop checks drop of an arena, which frees its buffer, every
+// element it holds and its sentinel at once, before its block ends: of a
+// local, of a sentinel-only arena, of an own parameter, and of a struct
+// holding arenas.
+func testDrop() {
+    mut a := make(arena[list[int64]], numbers(2), c_allocator)
+    _, e1 := add(mut a, numbers(3))
+    _, e2 := add(mut a, numbers(4))
+    if e1.code != 0 || e2.code != 0 {
+        check(false, "drop frees an arena, its elements and its sentinel at once")
+        return
+    }
+    held := live()
+    drop(own a)
+    check(held == 4 && live() == 0, "drop frees an arena, its elements and its sentinel at once")
+    b := make(arena[list[int64]], numbers(5), c_allocator)
+    heldB := live()
+    drop(own b)
+    check(heldB == 1 && live() == 0, "drop frees a sentinel-only arena's owned sentinel")
+    c, errC := listArena(3)
+    if errC.code != 0 {
+        check(false, "drop frees an arena passed as own")
+        return
+    }
+    n, after := dropIt(own c)
+    check(n == 4 && after == 0, "drop frees an arena passed as own")
+    mut g := newGraph()
+    errG := link(mut g, 1, 3)
+    heldG := live()
+    drop(own g)
+    check(errG.code == 0 && heldG == 2 && live() == 0, "drop frees a struct's arenas")
+}
+
+func main() {
+    freed("nothing live at the start")
+    testSentinel()
+    testAdd()
+    testSpans()
+    testReserve()
+    freed("sentinels, adds, spans and reserves freed")
+    testOwned()
+    freed("an arena of lists freed with every element")
+    testStructs()
+    testGeneric()
+    freed("arenas in structs, parameters and generic code freed")
+    testMaps()
+    testClosures()
+    freed("arenas under maps and closures freed")
+    testQuestion()
+    testDrop()
+    freed("nothing live at the end")
+}

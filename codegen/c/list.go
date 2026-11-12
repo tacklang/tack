@@ -123,9 +123,13 @@ func isBuiltin(call *ast.Call, name string) bool {
 }
 
 // makeValue renders make(list[T], alloc) as an empty list of its type
-// holding the allocator, which allocates nothing, and make(map[K]V,
-// alloc) as an empty map (see makeMap).
+// holding the allocator, which allocates nothing, make(map[K]V, alloc)
+// as an empty map (see makeMap), and make(arena[T], sentinel, alloc) as
+// an arena holding only its sentinel (see makeArena).
 func (g *generator) makeValue(call *ast.Call) (string, []diag.Diagnostic) {
+	if g.prog.Types.IsArena(call.Type) {
+		return g.makeArena(call)
+	}
 	alloc, diags := g.expr(call.Args[1], types.Allocator)
 	if len(diags) > 0 {
 		return "", diags
@@ -291,7 +295,9 @@ func (g *generator) appendBuild(call *ast.Call, elem types.Type, ops []string) s
 // not grow or len + n overflows, which leaves the list as it was. n is
 // read twice, so it is held in a temporary first unless it is pure; a
 // constant n, which the checker has made sure is not negative, is not
-// tested.
+// tested. An arena's reserve is its reserve helper, which fails too when
+// the arena could not then hold n more without passing 2^32 - 1 elements
+// (see emitArenaAdds).
 func (g *generator) reserveValue(call *ast.Call) (string, []diag.Diagnostic) {
 	m, ok := call.Args[0].(*ast.MutArg)
 	if !ok {
@@ -310,9 +316,13 @@ func (g *generator) reserveValue(call *ast.Call) (string, []diag.Diagnostic) {
 		return "", diags
 	}
 	none, oom := g.zeroValue(types.Error), g.listError(outOfMemoryCode, outOfMemory)
+	grow := "TACK_LIST_RESERVE"
+	if typ := ast.TypeOf(m.X); g.prog.Types.IsArena(typ) {
+		grow = g.arenaHelper("reserve", typ)
+	}
 	build := func(ops []string) string {
 		if g.constCount(call) {
-			return fmt.Sprintf("(TACK_LIST_RESERVE(%s, %s) ? %s : %s)", ops[0], ops[1], none, oom)
+			return fmt.Sprintf("(%s(%s, %s) ? %s : %s)", grow, ops[0], ops[1], none, oom)
 		}
 		count, hold := ops[1], ""
 		if !g.pure(call.Args[1]) {
@@ -320,8 +330,17 @@ func (g *generator) reserveValue(call *ast.Call) (string, []diag.Diagnostic) {
 			g.frame.temps = append(g.frame.temps, fmt.Sprintf("int64_t %s;", count))
 			hold = fmt.Sprintf("%s = %s, ", count, ops[1])
 		}
-		return fmt.Sprintf("(%s%s < 0 ? %s : TACK_LIST_RESERVE(%s, %s) ? %s : %s)",
-			hold, count, g.listError(negativeCountCode, negativeCount), ops[0], count, none, oom)
+		return fmt.Sprintf(
+			"(%s%s < 0 ? %s : %s(%s, %s) ? %s : %s)",
+			hold,
+			count,
+			g.listError(negativeCountCode, negativeCount),
+			grow,
+			ops[0],
+			count,
+			none,
+			oom,
+		)
 	}
 	return g.sequencedAs(call.Args, []string{place, n},
 		[]string{g.operandType(m), "int64_t"}, build), nil
@@ -471,13 +490,15 @@ func (g *generator) moveValue(typ types.Type, ref string) string {
 // frees returns the C statements, each ending in a semicolon, that free
 // the value of the owned type typ held at the place ref: a list's buffer,
 // through its allocator, after each element it holds when they are owned,
-// through the list's tack_free_ (see emitListFree), each list a struct
-// holds, last field first, at any depth, or what the case a union holds
+// through the list's tack_free_ (see emitListFree), an arena's elements
+// and sentinel, through its tack_free_ (see emitArenaFree), each list a
+// struct holds, last field first, at any depth, or what the case a union holds
 // holds, through its tack_free_ (see union.go). Each is a call, an
 // expression, so they can be joined into a loop's post statement.
 func (g *generator) frees(typ types.Type, ref string) []string {
 	table := g.prog.Types
-	if table.IsUnion(typ) || table.IsMap(typ) || table.IsList(typ) && g.owned(table.Elem(typ)) {
+	if table.IsUnion(typ) || table.IsMap(typ) || table.IsArena(typ) ||
+		table.IsList(typ) && g.owned(table.Elem(typ)) {
 		return []string{fmt.Sprintf("%s(&%s);", g.freeName(typ), ref)}
 	}
 	if table.IsList(typ) {

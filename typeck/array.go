@@ -174,8 +174,15 @@ func (c *Checker) arrayElem(e ast.Expr, elem types.Type) {
 // index checks an element read as a value, x[i], and returns its type. x
 // may be a call returning a view.
 func (c *Checker) index(ix *ast.Index) types.Type {
+	viewOK := c.viewSpan == ix
+	c.viewSpan = nil
 	c.allowViewCall(ix.X)
-	ix.Type = c.element(ix, c.expr(ix.X), false)
+	base := c.expr(ix.X)
+	if c.table.IsArena(base) {
+		ix.Type = c.arenaIndex(ix, base, viewOK)
+		return ix.Type
+	}
+	ix.Type = c.element(ix, base, false)
 	return ix.Type
 }
 
@@ -199,6 +206,10 @@ func (c *Checker) element(ix *ast.Index, base types.Type, write bool) types.Type
 		// A key is used as the map's key type, an untyped constant
 		// taking it, as a value assigned does.
 		return c.mapElement(ix, base, idx, write)
+	}
+	if c.table.IsArena(base) {
+		// Only an id names an element; a span's view is never written.
+		return c.arenaElement(ix, base, idx, false)
 	}
 	idx = c.valueOf(ix.Index, idx)
 	if base == types.Invalid {
@@ -415,8 +426,10 @@ func inBounds(i ast.Expr, name, bound string) string {
 }
 
 // lenCall checks a call to the builtin len, which takes one array, string,
-// view, list or map, a slice of an array, a view or a list included, and
-// gives an int64, a map's being how many keys it holds. The length of an array, and of a string
+// view, list, map or arena, a slice of an array, a view or a list and a
+// span's view of an arena included, and gives an int64, a map's being how
+// many keys it holds and an arena's how many elements, its sentinel
+// among them. The length of an array, and of a string
 // literal, is a constant, recorded on the call, unless working it out runs
 // a call, which it must then still make; a view's or a list's is never known, as a
 // string parameter's is not. A call whose arguments are wrong, or whose
@@ -440,7 +453,8 @@ func (c *Checker) lenCall(call *ast.Call) types.Type {
 		if !hasCall(arg) {
 			call.Const = constant.FromInt64(c.table.Len(got))
 		}
-	case got == types.String, c.table.IsView(got), c.table.IsList(got), c.table.IsMap(got):
+	case got == types.String, c.table.IsView(got), c.table.IsList(got), c.table.IsMap(got),
+		c.table.IsArena(got):
 		if lit, ok := arg.(*ast.StrLit); ok {
 			call.Const = constant.FromInt64(int64(len(lit.Value)))
 		}
@@ -448,7 +462,7 @@ func (c *Checker) lenCall(call *ast.Call) types.Type {
 		if got = c.valueOf(arg, got); got != types.Invalid {
 			c.errorf(
 				arg.Spanned(),
-				"len expects an array, a string, a view, a list or a map, got %s",
+				"len expects an array, a string, a view, a list, a map or an arena, got %s",
 				c.typeName(got),
 			)
 		}
@@ -472,10 +486,10 @@ func hasCall(e ast.Expr) bool {
 }
 
 // comparable reports whether values of type typ support == and !=: every
-// integer, bool and string, an array or a list whose elements do, a
-// struct whose fields all do, which a struct with none does, and a union
-// whose payloads all do, which a union with none does. A view does not,
-// nor an Allocator or an any.
+// integer, bool and string, an id and a span, an array or a list whose
+// elements do, a struct whose fields all do, which a struct with none
+// does, and a union whose payloads all do, which a union with none does.
+// A view does not, nor an arena, an Allocator or an any.
 func (c *Checker) comparable(typ types.Type) bool {
 	return c.comparableIn(typ, make(map[types.Type]bool))
 }
@@ -485,7 +499,7 @@ func (c *Checker) comparable(typ types.Type) bool {
 // itself, which is reported elsewhere, cannot loop.
 func (c *Checker) comparableIn(typ types.Type, seen map[types.Type]bool) bool {
 	switch {
-	case types.IsNumeric(typ), typ == types.Bool, typ == types.String:
+	case types.IsNumeric(typ), typ == types.Bool, typ == types.String, c.table.IsRef(typ):
 		return true
 	case c.table.IsArray(typ), c.table.IsList(typ):
 		return c.comparableIn(c.table.Elem(typ), seen)

@@ -10,7 +10,7 @@
 #include <stdint.h>
 
 // package main
-int64_t add(int64_t /* a */, int64_t /* b */); // extern func add(a int64, b int64) int64
+int64_t add(int64_t /* a */, int64_t /* b */); // extern func addInts(a int64, b int64) int64
 bool flip(bool /* b */); // extern func flip(b bool) bool
 bool both(bool /* a */, bool /* b */); // extern func both(a bool, b bool) bool
 int64_t widen(int8_t /* x */); // extern func widen(x int8) int64

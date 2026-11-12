@@ -135,12 +135,13 @@ type Instance struct {
 // through every type made of one; before the checker records those, a
 // result that is a whole type parameter is replaced by the type in
 // Call.TypeArgs, or by Invalid when it inferred none, which it has
-// reported. It returns nil for a call to a builtin or a conversion, which
-// have no callee.
+// reported. For a call to a builtin or a conversion, which have no
+// callee, it returns Call.ResultTypes, which the checker records only for
+// add and add_all, and is nil for any other.
 func CallResults(call *Call) []types.Type {
 	fn := Callee(call)
 	if fn == nil {
-		return nil
+		return call.ResultTypes
 	}
 	if !fn.Generic() {
 		return fn.ResultTypes

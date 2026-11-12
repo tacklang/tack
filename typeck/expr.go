@@ -83,8 +83,8 @@ func (c *Checker) ident(id *ast.Ident) types.Type {
 
 // compositeExpr checks a literal of an array or a struct, an element, a
 // slice, a field or a type assertion, and returns its type, or reports a
-// mut argument written where no mut parameter takes it, a list type
-// written where a value is, or a closure written anywhere but as an
+// mut argument written where no mut parameter takes it, a list, a map, an
+// arena, an id or a span type written where a value is, or a closure written anywhere but as an
 // argument to a scope parameter, which scopeArg checks.
 func (c *Checker) compositeExpr(e ast.Expr) types.Type {
 	switch x := e.(type) {
@@ -102,6 +102,10 @@ func (c *Checker) compositeExpr(e ast.Expr) types.Type {
 		return c.listTypeValue(x)
 	case *ast.MapType:
 		return c.typeValue(x, c.mapType(x))
+	case *ast.ArenaType:
+		return c.typeValue(x, c.arenaType(x))
+	case *ast.RefType:
+		return c.typeValue(x, c.refType(x))
 	case *ast.TypeAssert:
 		return c.typeAssert(x)
 	case *ast.FuncLit:
@@ -152,7 +156,14 @@ func (c *Checker) callValue(call *ast.Call) types.Type {
 		return typ
 	}
 	if generic := c.genericCall(call); generic != nil {
-		return generic(call)
+		typ := generic(call)
+		if typ != types.Invalid && addsToArena(call) && c.droppedCall != call {
+			// add and add_all give two values, the id or span and an error.
+			id, _ := call.Fn.(*ast.Ident)
+			c.errorf(call.Spanned(), "%s returns 2 values", id.Name)
+			return types.Invalid
+		}
+		return typ
 	}
 	c.checkCall(call)
 	if isValueCall(call) && call.Dynamic == nil {
@@ -173,7 +184,8 @@ func (c *Checker) callValue(call *ast.Call) types.Type {
 }
 
 // specialCallValue checks call when it calls no function: when it builds a
-// union, converts a value, to a view type or another, or calls a name
+// union, converts a value, to a view type, an id or a span type, which it
+// reports, or another, or calls a name
 // bound to ast.Unbound (see unboundCall). It returns the call's type, and
 // whether call was one of those.
 func (c *Checker) specialCallValue(call *ast.Call) (types.Type, bool) {
@@ -182,6 +194,9 @@ func (c *Checker) specialCallValue(call *ast.Call) (types.Type, bool) {
 		return c.construction(call), true
 	case isViewConversion(call):
 		return c.viewConversionElsewhere(call), true
+	case isRefConversion(call):
+		c.refConversion(call, call.Fn.(*ast.RefType))
+		return types.Invalid, true
 	case call.Conv != types.Invalid:
 		return c.conversion(call), true
 	case c.unboundCall(call):

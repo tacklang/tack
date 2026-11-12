@@ -1,8 +1,8 @@
 // The C every Tack program shares: the string type and the macros that
 // build strings, the error type and the macros that build errors,
 // any, its type ids and the helpers that read one, and the allocator
-// handle and the macros that read and grow a list, and the abort an
-// unreachable statement lowers to,
+// handle and the macros that read and grow a list, what an arena's add
+// gives and its limit, and the abort an unreachable statement lowers to,
 // defined here once for the generated source, the C files of the standard
 // library and a program's own C files alike. Each
 // includes it as <tack/tack.h>, and the driver compiles each with this
@@ -509,5 +509,39 @@ extern char **tack_argv_;
     tack_xlp_->len--; \
     tack_xv_; \
 })
+
+// A Tack arena, arena[T], is a struct of its own per element type, which
+// only the generated source defines and reads: a list of every element
+// but the sentinel, and the sentinel, held inline. An id, id[T], is a
+// uint32_t, and a span, span[T], a uint64_t, its start in the low 32 bits
+// and its length in the high 32. No arena, id or span crosses to C.
+
+// tack_arena_added_ is what the generated source's add gives: the new
+// element's id and an error, as a function's results struct holds them.
+typedef struct {
+    uint32_t r0;
+    tack_error r1;
+} tack_arena_added_;
+
+// tack_arena_spanned_ is what the generated source's add_all gives: the
+// span of the new elements and an error.
+typedef struct {
+    uint64_t r0;
+    tack_error r1;
+} tack_arena_spanned_;
+
+// tack_arena_room_ reports whether an arena of len elements, its
+// sentinel among them, can take n more without holding more than
+// 4294967295, 2^32 - 1, or the lower limit tack_arena_limit_ set, so
+// every id and span start fits a uint32_t. It is false for a negative len
+// or n. The generated source asks it before every add, add_all and
+// reserve; C must not.
+bool tack_arena_room_(int64_t len, int64_t n);
+
+// tack_arena_limit_ makes the most elements an arena may hold n, its
+// sentinel among them, or 2^32 - 1 again when n is negative or more than
+// that, for tests of what reaching the limit does without allocating
+// 2^32 elements.
+void tack_arena_limit_(int64_t n);
 
 #endif

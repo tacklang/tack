@@ -105,6 +105,11 @@ const (
 	// be passed to. It comes after Fallthrough for the same reason
 	// Fallthrough comes after Unreachable.
 	Scope
+
+	// Arena starts an arena type, arena[T], as list starts a list type:
+	// an append-only store whose ids index it with no proof. It comes
+	// after Scope for the same reason Scope comes after Fallthrough.
+	Arena
 )
 
 var keywordNames = map[KeywordType]string{
@@ -163,6 +168,8 @@ var keywordNames = map[KeywordType]string{
 	Fallthrough: "fallthrough",
 
 	Scope: "scope",
+
+	Arena: "arena",
 }
 
 // String returns the keyword as written in source.

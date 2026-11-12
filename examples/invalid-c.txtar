@@ -16,14 +16,14 @@ main.tck
 -- c-defines-main/main.tck --
 package main
 
-extern func add(a int64, b int64) int64
+extern func sum(a int64, b int64) int64
 
 func main() {
-    code, fits := int32(add(40, 2))
+    code, fits := int32(sum(40, 2))
     if fits { exit(code) }
 }
 -- c-defines-main/helpers.c --
-int64_t add(int64_t a, int64_t b) {
+int64_t sum(int64_t a, int64_t b) {
     return a + b;
 }
 
@@ -64,14 +64,14 @@ main.tck
 -- c-syntax-error/main.tck --
 package main
 
-extern func add(a int64, b int64) int64
+extern func sum(a int64, b int64) int64
 
 func main() {
-    code, fits := int32(add(40, 2))
+    code, fits := int32(sum(40, 2))
     if fits { exit(code) }
 }
 -- c-syntax-error/helpers.c --
-int64_t add(int64_t a, int64_t b) {
+int64_t sum(int64_t a, int64_t b) {
     return a + b
 }
 -- c-syntax-error/expected --
@@ -83,10 +83,10 @@ package main
 
 import util from "calc/util"
 
-extern func add(a int64, b int64) int64
+extern func sum(a int64, b int64) int64
 
 func main() {
-    code, fits := int32(add(util.Two(), 40))
+    code, fits := int32(sum(util.Two(), 40))
     if fits { exit(code) }
 }
 -- definition-in-another-package/util/util.tck --
@@ -96,14 +96,14 @@ pub func Two() int64 {
     return 2
 }
 -- definition-in-another-package/util/util.c --
-int64_t add(int64_t a, int64_t b) {
+int64_t sum(int64_t a, int64_t b) {
     return a + b;
 }
 -- definition-in-another-package/expected --
 
-definition-in-another-package/main.tck:5:13: error: extern func add has no C definition in package main
+definition-in-another-package/main.tck:5:13: error: extern func sum has no C definition in package main
 04 |	
-05 |	extern func add(a int64, b int64) int64
+05 |	extern func sum(a int64, b int64) int64
    |	            ^~~
 06 |	
 
@@ -112,37 +112,37 @@ main.tck
 -- duplicate-definition/main.tck --
 package main
 
-extern func add(a int64, b int64) int64
+extern func sum(a int64, b int64) int64
 
 func main() {
-    code, fits := int32(add(40, 2))
+    code, fits := int32(sum(40, 2))
     if fits { exit(code) }
 }
 -- duplicate-definition/a.c --
-int64_t add(int64_t a, int64_t b) {
+int64_t sum(int64_t a, int64_t b) {
     return a + b;
 }
 -- duplicate-definition/b.c --
-int64_t add(int64_t a, int64_t b) {
+int64_t sum(int64_t a, int64_t b) {
     return b + a;
 }
 -- duplicate-definition/expected --
-tack: two C files define add: duplicate-definition/a.c and duplicate-definition/b.c
+tack: two C files define sum: duplicate-definition/a.c and duplicate-definition/b.c
 -- duplicate-helper/.target --
 main.tck
 -- duplicate-helper/main.tck --
 package main
 
-extern func add(a int64, b int64) int64
+extern func sum(a int64, b int64) int64
 
 func main() {
-    code, fits := int32(add(40, 2))
+    code, fits := int32(sum(40, 2))
     if fits { exit(code) }
 }
 -- duplicate-helper/a.c --
 int counter = 0;
 
-int64_t add(int64_t a, int64_t b) {
+int64_t sum(int64_t a, int64_t b) {
     return a + b;
 }
 -- duplicate-helper/b.c --
@@ -154,18 +154,18 @@ main.tck
 -- empty-c-file/main.tck --
 package main
 
-extern func add(a int64, b int64) int64
+extern func sum(a int64, b int64) int64
 
 func main() {
-    code, fits := int32(add(40, 2))
+    code, fits := int32(sum(40, 2))
     if fits { exit(code) }
 }
 -- empty-c-file/empty.c --
 -- empty-c-file/expected --
 
-empty-c-file/main.tck:3:13: error: extern func add has no C definition in package main
+empty-c-file/main.tck:3:13: error: extern func sum has no C definition in package main
 02 |	
-03 |	extern func add(a int64, b int64) int64
+03 |	extern func sum(a int64, b int64) int64
    |	            ^~~
 04 |	
 
@@ -174,7 +174,7 @@ main.tck
 -- missing-definition/main.tck --
 package main
 
-extern func add(a int64, b int64) int64
+extern func sum(a int64, b int64) int64
 
 extern func flip(b bool) bool
 
@@ -182,7 +182,7 @@ extern func unused()
 
 func main() {
     if flip(false) {
-        code, fits := int32(add(40, 2))
+        code, fits := int32(sum(40, 2))
         if fits { exit(code) }
     }
 }
@@ -203,9 +203,9 @@ missing-definition/main.tck:7:13: warning: declared and not used: unused
 08 |	
 
 
-missing-definition/main.tck:3:13: error: extern func add has no C definition in package main
+missing-definition/main.tck:3:13: error: extern func sum has no C definition in package main
 02 |	
-03 |	extern func add(a int64, b int64) int64
+03 |	extern func sum(a int64, b int64) int64
    |	            ^~~
 04 |	
 
@@ -229,16 +229,16 @@ func main() {
 -- missing-in-library/util/util.tck --
 package util
 
-extern func add(a int64, b int64) int64
+extern func sum(a int64, b int64) int64
 
 pub func Sum(a int64, b int64) int64 {
-    return add(a, b)
+    return sum(a, b)
 }
 -- missing-in-library/expected --
 
-missing-in-library/util/util.tck:3:13: error: extern func add has no C definition in package util
+missing-in-library/util/util.tck:3:13: error: extern func sum has no C definition in package util
 02 |	
-03 |	extern func add(a int64, b int64) int64
+03 |	extern func sum(a int64, b int64) int64
    |	            ^~~
 04 |	
 
@@ -266,17 +266,17 @@ main.tck
 -- no-c-files/main.tck --
 package main
 
-extern func add(a int64, b int64) int64
+extern func sum(a int64, b int64) int64
 
 func main() {
-    code, fits := int32(add(40, 2))
+    code, fits := int32(sum(40, 2))
     if fits { exit(code) }
 }
 -- no-c-files/expected --
 
-no-c-files/main.tck:3:13: error: extern func add has no C definition in package main
+no-c-files/main.tck:3:13: error: extern func sum has no C definition in package main
 02 |	
-03 |	extern func add(a int64, b int64) int64
+03 |	extern func sum(a int64, b int64) int64
    |	            ^~~
 04 |	
 
@@ -285,14 +285,14 @@ main.tck
 -- signature-mismatch/main.tck --
 package main
 
-extern func add(a int64, b int64) int64
+extern func sum(a int64, b int64) int64
 
 func main() {
-    code, fits := int32(add(40, 2))
+    code, fits := int32(sum(40, 2))
     if fits { exit(code) }
 }
 -- signature-mismatch/helpers.c --
-int32_t add(int32_t a) {
+int32_t sum(int32_t a) {
     return a + 2;
 }
 -- signature-mismatch/expected --
@@ -302,14 +302,14 @@ main.tck
 -- static-definition/main.tck --
 package main
 
-extern func add(a int64, b int64) int64
+extern func sum(a int64, b int64) int64
 
 func main() {
-    code, fits := int32(add(40, 2))
+    code, fits := int32(sum(40, 2))
     if fits { exit(code) }
 }
 -- static-definition/helpers.c --
-static int64_t add(int64_t a, int64_t b) {
+static int64_t sum(int64_t a, int64_t b) {
     return a + b;
 }
 -- static-definition/expected --

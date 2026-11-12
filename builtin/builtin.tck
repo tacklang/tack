@@ -4,8 +4,8 @@
 // as code. It exists so editors can show each builtin's documentation and
 // go to its declaration. Changing a copy of it changes nothing.
 //
-// Some builtins take any list, map or type, which no Tack declaration can
-// say exactly. Their declarations below use stand-in types, Elem, Key,
+// Some builtins take any list, map, arena or type, which no Tack
+// declaration can say exactly. Their declarations below use stand-in types, Elem, Key,
 // Sized and ListType, declared at the end of this file for documentation
 // only; no program can name them.
 package builtin
@@ -82,6 +82,21 @@ type error struct {
 // freed through. It is copyable, and has no zero value, no order and no ==.
 type Allocator Allocator
 
+// id is written id[T]: an index into an arena[T], naming one of its
+// elements, given by add. It is 32 bits, copyable, has == and != and may
+// be a map's key, but has no order and no arithmetic, and converts to and
+// from no integer. Its zero value is the sentinel's id, 0. An arena reads
+// and writes the element an id names with no proof: an id at or past the
+// arena's length, which may come from another arena, names its sentinel.
+type id id
+
+// span is written span[T]: a run of consecutive elements of an arena[T],
+// its start and its length, each 32 bits, given by add_all. It is
+// copyable, has == and != and may be a map's key, and its zero value is
+// the empty span. a[s] is a read-only view of the span's elements, empty
+// when the span is not wholly in a.
+type span span
+
 // Values
 
 // true is the bool that holds.
@@ -110,14 +125,18 @@ func print(s string)
 // status 112.
 func exit(code int32)
 
-// len returns the number of elements of the array, view or list v, or the
+// len returns the number of elements of the array, view, list or arena v,
+// an arena's sentinel among them, the number of keys of the map v, or the
 // number of bytes of the string v. The length of an array, and of a string
-// literal, is a constant; a view's or a list's is never known.
+// literal, is a constant; a view's, a list's or an arena's is never
+// known.
 func len(v Sized) int64
 
 // make returns an empty list of elements of type T, written make(list[T],
-// alloc), which grows through alloc and is freed through it when its
-// owner's block ends. It allocates nothing, so it cannot fail.
+// alloc), or an empty map, make(map[K]V, alloc), which grows through alloc
+// and is freed through it when its owner's block ends. make(arena[T],
+// sentinel, alloc) returns an arena holding only sentinel, which it moves
+// in, as its element at id 0. Each allocates nothing, so it cannot fail.
 func make(t ListType, alloc Allocator) ListType
 
 // append appends elems to the end of l, in order, growing its buffer
@@ -134,7 +153,9 @@ func append[T Elem](mut l list[T], elems ...T) error
 // never change, and n of 0 does nothing. A negative n returns
 // error{code: 2, msg: "negative count"}, and one the allocator cannot make
 // room for error{code: 1, msg: "out of memory"}, each leaving l as it was.
-// Its error cannot be discarded.
+// l may be an arena, reserve(mut a, n), which then fails too when a could
+// not hold n more without passing 2^32 - 1 elements. Its error cannot be
+// discarded.
 func reserve[T Elem](mut l list[T], n int64) error
 
 // pop moves the last element of l out of it and returns it, leaving l one
@@ -196,9 +217,28 @@ func has[K Key, V Elem](m map[K]V, k K) bool
 // that owns nothing. It is only a statement; it has no value.
 func drop[T Elem](own x T)
 
+// add moves v into a as its new last element and returns its id, which
+// names it for as long as a lives, and no error; or, when the allocator
+// cannot grow a, or a would hold more than 2^32 - 1 elements, its
+// sentinel among them, the zero id and error{code: 1, msg: "out of
+// memory"}, leaving a as it was and freeing v. The id cannot be read
+// until the error is checked, and the error cannot be discarded.
+func add[T Elem](mut a arena[T], v T) (id[T], error)
+
+// add_all moves elems into a, in order, as its new last elements, all or
+// none, and returns their span and no error; or, as add fails, the empty
+// span and error{code: 1, msg: "out of memory"}, leaving a as it was and
+// freeing what it was given. It takes any number of values, none
+// included, which give the empty span, or a view spread whole,
+// add_all(mut a, v...), whose elements are copied, so not one of an owned
+// element type, and never a view of a itself. The span cannot be read
+// until the error is checked, and the error cannot be discarded.
+func add_all[T Elem](mut a arena[T], elems ...T) (span[T], error)
+
 // Stand-ins, for documentation only
 
-// Elem stands for any type: a list's element, a map's value, a place.
+// Elem stands for any type: a list's or an arena's element, a map's
+// value, a place.
 type Elem interface {
 }
 
@@ -206,12 +246,12 @@ type Elem interface {
 type Key interface {
 }
 
-// Sized stands for any array, view or list, of any element type, or a
-// string.
+// Sized stands for any array, view, list or arena, of any element type, a
+// map, or a string.
 type Sized interface {
 }
 
-// ListType stands for a list type written where a value goes, as
-// make(list[int64], c_allocator) does.
+// ListType stands for a list, a map or an arena type written where a value
+// goes, as make(list[int64], c_allocator) does.
 type ListType interface {
 }

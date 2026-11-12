@@ -63,7 +63,7 @@ func mark(d int64) int64 {
     return d
 }
 
-func add(a int64, b int64) int64 {
+func sum(a int64, b int64) int64 {
     return a +% b
 }
 
@@ -72,7 +72,7 @@ func main() {
     first := f(reassign(mut f))
     second := f(3)
     check(first == 6 && second == 9, "the value read before its arguments")
-    g := add
+    g := sum
     check(g(mark(1), mark(2)) == 3 && order == 12, "arguments left to right")
 }
 `

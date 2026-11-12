@@ -53,7 +53,13 @@
 // so []int64 and [3]int64 are two types. A list type, list[T], an owned,
 // growable list of elements of type T, is added and found by its element
 // type in the same way, and a map type, map[K]V, by its key and value
-// types. A function type, func(A, mut B) R, the type of a value naming
+// types. An arena type, arena[T], an owned, append-only store of elements
+// of type T, is added and found by its element type too, with list[T] and
+// []T, which its lowering and its spans' views use (Arena); and so are an
+// id type, id[T], and a span type, span[T], which name one element of an
+// arena[T] and a run of them, hold none, are copyable and have a zero
+// value. id and span are reserved as the basic types' names are, though
+// neither names a type alone (Reserved, RefNames). A function type, func(A, mut B) R, the type of a value naming
 // a function, is added the first time it is seen and found by its
 // signature after that, its parameters' types, each with whether it is
 // mut, own or scope (FuncParam), and its result types, so two functions of one
@@ -69,14 +75,15 @@
 // not check that a struct or a union does not contain itself; the type
 // checker does.
 //
-// Owned says which types own memory they must free: a list, and an
-// array, a struct or a union holding one at any depth, a union through
+// Owned says which types own memory they must free: a list, a map, an
+// arena, and an array, a struct or a union holding one at any depth, a union through
 // any of its cases' payloads. A value of such a type moves rather than
 // copies. HasZero says which types have a zero value: every type but a
-// list, a map, an Allocator, a union, none of whose cases is one a
+// list, a map, an arena, an Allocator, a union, none of whose cases is one a
 // variable could start as, a function type, no function being the one a
 // value starts as, and an array or a struct holding any of them.
-// HoldsUnion says which types are or hold a union.
+// HoldsUnion says which types are or hold a union, and HoldsArena which
+// are or hold an arena.
 // A type parameter, one of a generic function's, is a type of its own,
 // added once for each declared, named by its name, which is no array,
 // struct, view or list; it may stand for a struct holding a list, so it

@@ -126,13 +126,13 @@ func buildInvalidC(t *testing.T, c invalid.TreeCase) string {
 	return r.stderr[i+1:]
 }
 
-// addProgram is a single-file program whose one extern func, add, its C
-// file defines, and which exits with add(40, 2).
-const addProgram = "package main\n\nextern func add(a int64, b int64) int64\n\n" +
-	"func main() {\n    code, fits := int32(add(40, 2))\n    if fits { exit(code) }\n}\n"
+// sumProgram is a single-file program whose one extern func, sum, its C
+// file defines, and which exits with sum(40, 2).
+const sumProgram = "package main\n\nextern func sum(a int64, b int64) int64\n\n" +
+	"func main() {\n    code, fits := int32(sum(40, 2))\n    if fits { exit(code) }\n}\n"
 
-// addC defines add for addProgram.
-const addC = "int64_t add(int64_t a, int64_t b) {\n    return a + b;\n}\n"
+// sumC defines sum for sumProgram.
+const sumC = "int64_t sum(int64_t a, int64_t b) {\n    return a + b;\n}\n"
 
 // buildIn builds main.tck, in dir, from dir, and returns the result and
 // the binary's path.
@@ -154,8 +154,8 @@ func buildIn(t *testing.T, dir string) (result, string) {
 // beside it, which includes it by name, then compiles and links.
 func TestEmitHeaderWritesTackH(t *testing.T) {
 	dir := writeDir(t, map[string]string{
-		"main.tck":  addProgram,
-		"helpers.c": "#include \"tack.h\"\n\n" + addC,
+		"main.tck":  sumProgram,
+		"helpers.c": "#include \"tack.h\"\n\n" + sumC,
 	})
 	r := runTack(t, "--emit-header", filepath.Join(dir, "main.tck"))
 	if r.code != exitOK || r.stdout != "" || r.stderr != "" {
@@ -165,8 +165,8 @@ func TestEmitHeaderWritesTackH(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(header), "int64_t add(int64_t /* a */, int64_t /* b */);") {
-		t.Errorf("tack.h does not declare add:\n%s", header)
+	if !strings.Contains(string(header), "int64_t sum(int64_t /* a */, int64_t /* b */);") {
+		t.Errorf("tack.h does not declare sum:\n%s", header)
 	}
 	if r, bin := buildIn(t, dir); r.code != exitOK {
 		t.Fatalf("build: exit %d, stderr %q", r.code, r.stderr)
@@ -184,9 +184,9 @@ func TestEmitHeaderWritesEveryPackageWithC(t *testing.T) {
 		"tack.mod": "module calc\n",
 		"cmd/main.tck": "package main\n\nimport util from \"calc/util\"\nimport plain from \"calc/plain\"\n\n" +
 			"func main() {\n    code, fits := int32(util.Sum(40, plain.Two()))\n    if fits { exit(code) }\n}\n",
-		"util/util.tck": "package util\n\nextern func add(a int64, b int64) int64\n\n" +
-			"pub func Sum(a int64, b int64) int64 {\n    return add(a, b)\n}\n",
-		"util/util.c":     addC,
+		"util/util.tck": "package util\n\nextern func sum(a int64, b int64) int64\n\n" +
+			"pub func Sum(a int64, b int64) int64 {\n    return sum(a, b)\n}\n",
+		"util/util.c":     sumC,
 		"plain/plain.tck": "package plain\n\npub func Two() int64 {\n    return 2\n}\n",
 	})
 	r := runTack(t, "--emit-header", filepath.Join(dir, "cmd"))
@@ -217,7 +217,7 @@ func TestEmitHeaderOfABadProgram(t *testing.T) {
 // instead of printing a dump, still cannot be combined with --out or a
 // dump flag.
 func TestEmitHeaderUsageErrors(t *testing.T) {
-	path := writeSource(t, []byte(addProgram))
+	path := writeSource(t, []byte(sumProgram))
 	assertUsageError(t, runTack(t, "--emit-header", "--out", "x", path), "--out cannot be combined")
 	assertUsageError(t, runTack(t, "--emit-header", "--emit", path), "cannot be combined")
 }
@@ -225,7 +225,7 @@ func TestEmitHeaderUsageErrors(t *testing.T) {
 // TestEmitHeaderUnwritable checks a tack.h that cannot be written is a
 // failure that names it.
 func TestEmitHeaderUnwritable(t *testing.T) {
-	dir := writeDir(t, map[string]string{"main.tck": addProgram})
+	dir := writeDir(t, map[string]string{"main.tck": sumProgram})
 	if err := os.Mkdir(filepath.Join(dir, "tack.h"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -234,14 +234,14 @@ func TestEmitHeaderUnwritable(t *testing.T) {
 
 // TestStaleHeaderBesideCFileIsIgnored checks a build compiles C files
 // against the tack.h it generates, not one left beside them by an earlier
-// --emit-header: here the stale one declares add with other types, and a C
+// --emit-header: here the stale one declares sum with other types, and a C
 // file that includes it by name still builds against the fresh one.
 func TestStaleHeaderBesideCFileIsIgnored(t *testing.T) {
 	dir := writeDir(t, map[string]string{
-		"main.tck": addProgram,
+		"main.tck": sumProgram,
 		"tack.h": "#ifndef TACK_H\n#define TACK_H\n#include <stdint.h>\n" +
-			"int32_t add(int32_t);\n#endif\n",
-		"helpers.c": "#include \"tack.h\"\n\n" + addC,
+			"int32_t sum(int32_t);\n#endif\n",
+		"helpers.c": "#include \"tack.h\"\n\n" + sumC,
 	})
 	r, bin := buildIn(t, dir)
 	if r.code != exitOK {
@@ -257,11 +257,11 @@ func TestStaleHeaderBesideCFileIsIgnored(t *testing.T) {
 // not match its extern func is caught.
 func TestCFileWithoutTheHeaderIsStillChecked(t *testing.T) {
 	dir := writeDir(t, map[string]string{
-		"main.tck":  addProgram,
-		"helpers.c": "#include <stdint.h>\n\nint32_t add(int32_t a) {\n    return a;\n}\n",
+		"main.tck":  sumProgram,
+		"helpers.c": "#include <stdint.h>\n\nint32_t sum(int32_t a) {\n    return a;\n}\n",
 	})
 	r, _ := buildIn(t, dir)
-	if r.code != exitFailure || !strings.Contains(r.stderr, "conflicting types for 'add'") ||
+	if r.code != exitFailure || !strings.Contains(r.stderr, "conflicting types for 'sum'") ||
 		!strings.HasSuffix(
 			r.stderr,
 			"tack: cannot compile helpers.c: clang failed: exit status 1\n",
@@ -279,9 +279,9 @@ func TestCFileWithoutTheHeaderIsStillChecked(t *testing.T) {
 // C source, it hands it to clang.
 func TestNonUTF8CSourceBuilds(t *testing.T) {
 	dir := writeDir(t, map[string]string{
-		"main.tck": addProgram,
+		"main.tck": sumProgram,
 		"helpers.c": "// \xff\xfe not UTF-8\nstatic const char *junk = \"\x80\xc3\";\n" +
-			"int64_t add(int64_t a, int64_t b) {\n    return a + b + (junk[0] != 0) - 1;\n}\n",
+			"int64_t sum(int64_t a, int64_t b) {\n    return a + b + (junk[0] != 0) - 1;\n}\n",
 	})
 	r, bin := buildIn(t, dir)
 	if r.code != exitOK {
@@ -297,10 +297,10 @@ func TestNonUTF8CSourceBuilds(t *testing.T) {
 // definitions at all, or only comments, is fine beside one that has them.
 func TestHelperCFilesAndUnusedDefinitions(t *testing.T) {
 	dir := writeDir(t, map[string]string{
-		"main.tck": addProgram,
+		"main.tck": sumProgram,
 		"a.c": "static int64_t twice(int64_t x) { return 2 * x; }\n" +
 			"int64_t half(int64_t x) { return x / 2; }\n" +
-			"int64_t add(int64_t a, int64_t b) { return half(twice(a)) + b; }\n",
+			"int64_t sum(int64_t a, int64_t b) { return half(twice(a)) + b; }\n",
 		"b.c":     "",
 		"c.c":     "// nothing here\n",
 		".skip.c": "this is not C and is never compiled\n",
@@ -318,7 +318,7 @@ func TestHelperCFilesAndUnusedDefinitions(t *testing.T) {
 // a program beside a C file whose name starts with -, which clang could
 // read as an option, and names the file.
 func TestCFileNamedLikeAnOptionIsRejected(t *testing.T) {
-	dir := writeDir(t, map[string]string{"main.tck": addProgram, "-fplugin=x.c": addC})
+	dir := writeDir(t, map[string]string{"main.tck": sumProgram, "-fplugin=x.c": sumC})
 	tmp := isolateTemp(t)
 	r := runTack(t, "--out", filepath.Join(t.TempDir(), "bin"), filepath.Join(dir, "main.tck"))
 	assertFailure(t, r, "file -fplugin=x.c")
@@ -328,7 +328,7 @@ func TestCFileNamedLikeAnOptionIsRejected(t *testing.T) {
 // TestOutNamedLikeAnOption checks an --out that starts with - is written
 // as a file, not passed to clang as an option.
 func TestOutNamedLikeAnOption(t *testing.T) {
-	dir := writeDir(t, map[string]string{"main.tck": addProgram, "helpers.c": addC})
+	dir := writeDir(t, map[string]string{"main.tck": sumProgram, "helpers.c": sumC})
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skip("clang not on PATH")
 	}

@@ -62,14 +62,17 @@ func (c *Checker) slice(s *ast.Slice) types.Type {
 
 // allowView marks e, when it is a slice or a call, as written where a
 // view may be, so that checking it does not report it as a view out of
-// place: a slice of an array, a view or a list, or a call that returns a
-// view (see viewCallValue).
+// place: a slice of an array, a view or a list, a call that returns a
+// view (see viewCallValue), or a span's view of an arena (see
+// arenaElement).
 func (c *Checker) allowView(e ast.Expr) {
 	switch x := e.(type) {
 	case *ast.Slice:
 		c.viewSlice = x
 	case *ast.Call:
 		c.viewCall = x
+	case *ast.Index:
+		c.viewSpan = x
 	}
 }
 

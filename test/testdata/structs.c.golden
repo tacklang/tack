@@ -60,12 +60,12 @@ typedef struct {
     tack_4_main5_Point r1;
 } tack_results_4_main5_split;
 
-static tack_4_main5_Point tack_4_main3_add(tack_4_main5_Point p_p, tack_4_main5_Point p_q);
+static tack_4_main5_Point tack_4_main9_addPoints(tack_4_main5_Point p_p, tack_4_main5_Point p_q);
 static tack_results_4_main5_split tack_4_main5_split(tack_4_main4_Line p_l);
 static int64_t tack_4_main4_bump(tack_4_main5_Point p_p);
 static void tack_4_main4_main(void);
 
-static tack_4_main5_Point tack_4_main3_add(tack_4_main5_Point p_p, tack_4_main5_Point p_q) {
+static tack_4_main5_Point tack_4_main9_addPoints(tack_4_main5_Point p_p, tack_4_main5_Point p_q) {
     return (tack_4_main5_Point){.f_x = ((int64_t)((uint64_t)p_p.f_x + (uint64_t)p_q.f_x)), .f_y = ((int64_t)((uint64_t)p_p.f_y + (uint64_t)p_q.f_y))};
 }
 
@@ -87,14 +87,14 @@ static void tack_4_main4_main(void) {
     if ((v_q.f_x != 1) || (v_p.f_x != 10)) {
         tack_builtin_exit(1);
     }
-    if (((tack_4_main4_bump(v_q) != 2) || (v_q.f_x != 1)) || (tack_4_main3_add(v_p, v_q).f_y != 4)) {
+    if (((tack_4_main4_bump(v_q) != 2) || (v_q.f_x != 1)) || (tack_4_main9_addPoints(v_p, v_q).f_y != 4)) {
         tack_builtin_exit(2);
     }
     const tack_4_main4_Line v_l = (tack_4_main4_Line){.f_a = (tack_4_main5_Point){.f_x = 1, .f_y = 2}, .f_b = (tack_4_main5_Point){.f_y = 4, .f_x = 3}};
     const tack_results_4_main5_split tack_r0 = tack_4_main5_split(v_l);
     const tack_4_main5_Point v_a = tack_r0.r0;
     const tack_4_main5_Point v_b = tack_r0.r1;
-    if ((!tack_eq_21((tack_q1 = tack_4_main3_add(v_a, v_b), &tack_q1), &(tack_4_main5_Point){.f_x = 4, .f_y = 6})) || (tack_eq_21(&v_a, &v_b))) {
+    if ((!tack_eq_21((tack_q1 = tack_4_main9_addPoints(v_a, v_b), &tack_q1), &(tack_4_main5_Point){.f_x = 4, .f_y = 6})) || (tack_eq_21(&v_a, &v_b))) {
         tack_builtin_exit(3);
     }
     tack_4_main4_Line v_ml = v_l;

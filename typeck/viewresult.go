@@ -100,10 +100,15 @@ func (c *Checker) viewCallValue(call *ast.Call, typ types.Type, allowed bool) ty
 }
 
 // allowViewCall marks e, when it is a call, as written where a view it
-// returns may be: what an index indexes, or what a range ranges over.
+// returns may be: what an index indexes, or what a range ranges over; and
+// e, when it is an element, as written where a span's view of an arena
+// may be, which is the same place.
 func (c *Checker) allowViewCall(e ast.Expr) {
-	if call, ok := e.(*ast.Call); ok {
-		c.viewCall = call
+	switch x := e.(type) {
+	case *ast.Call:
+		c.viewCall = x
+	case *ast.Index:
+		c.viewSpan = x
 	}
 }
 
@@ -274,7 +279,11 @@ func (c *Checker) paramRoot(e ast.Expr) (string, bool) {
 // callerMemory reports whether the array place e, rooted in a parameter,
 // is stored in its caller's data: reached through an element of a list or
 // a view, whose elements its caller holds, a range loop's element over an
-// owned one being one. A parameter of any other type is its function's
+// owned one being one, but for one over an arena, which is in the
+// caller's data only where its arena is (see boundIn). An arena's element,
+// a[e], does not count by itself: an id may name the sentinel, which the
+// arena holds inline, so it is in the caller's data only where the arena
+// is. A parameter of any other type is its function's
 // own copy, and so is every field and array element inside it, and a
 // union pattern's binding is a payload of what its switch matches, which
 // is followed in its place.
@@ -303,29 +312,45 @@ func (c *Checker) callerMemory(e ast.Expr) bool {
 // boundIn says, for id, the root of an array place, where the place's
 // storage is found: in the caller's data, inCaller, when id is a range
 // loop's element in place, an element of a list or a view; in next, what
-// its switch matches, when it is a union pattern's binding; and in the
-// function's own copy otherwise, when it returns neither.
+// its switch matches, when it is a union pattern's binding, or the arena
+// a range loop over one walks, when it is that loop's element in place;
+// and in the function's own copy otherwise, when it returns neither. An
+// arena's range gives its sentinel first, which the arena holds inline,
+// so an element of one is in the caller's data only where the arena
+// itself is, an element of a list or a view: a plain arena parameter, or
+// a field of one, is the function's own copy, sentinel and all.
 func (c *Checker) boundIn(id *ast.Ident) (next ast.Expr, inCaller bool) {
 	v, isVar := id.Def.(*ast.Var)
 	if !isVar {
 		return nil, false
 	}
-	if _, inPlace := c.rangeBindings[v]; inPlace {
+	if x, inPlace := c.rangeBindings[v]; inPlace {
+		if c.table.IsArena(ast.TypeOf(x)) {
+			return x, false
+		}
 		return nil, true
 	}
 	return c.unionBindings[v], false
 }
 
 // ownerName returns the name of the parameter e, a place, is rooted in,
-// through any union pattern's binding to what its switch matches.
+// through any union pattern's binding to what its switch matches, and any
+// range loop's element over an arena to the arena (see boundIn).
 func (c *Checker) ownerName(e ast.Expr) string {
 	root := ast.Root(e)
 	for {
 		v, ok := root.Def.(*ast.Var)
-		if !ok || c.unionBindings[v] == nil {
+		if !ok {
 			return root.Name
 		}
-		next := ast.Root(c.unionBindings[v])
+		in := c.unionBindings[v]
+		if x, inPlace := c.rangeBindings[v]; inPlace && c.table.IsArena(ast.TypeOf(x)) {
+			in = x
+		}
+		if in == nil {
+			return root.Name
+		}
+		next := ast.Root(in)
 		if next == nil {
 			return root.Name
 		}
@@ -403,14 +428,14 @@ func (c *Checker) borrowedArg(call *ast.Call, p *ast.Param, arg ast.Expr) *viewP
 
 // holdsData reports whether a value of type typ may hold data a view can
 // point into, which a call returning a view borrows: a view, a list, a
-// map, an array, a struct but error, a union, or a type parameter, which
-// may stand for any of them.
+// map, an arena, an array, a struct but error, a union, or a type
+// parameter, which may stand for any of them.
 func (c *Checker) holdsData(typ types.Type) bool {
 	switch {
 	case typ == types.Error:
 		return false
-	case c.table.IsView(typ), c.table.IsList(typ), c.table.IsMap(typ), c.table.IsArray(typ),
-		c.table.IsStruct(typ), c.table.IsUnion(typ), c.table.IsTypeParam(typ):
+	case c.table.IsView(typ), c.table.IsList(typ), c.table.IsMap(typ), c.table.IsArena(typ),
+		c.table.IsArray(typ), c.table.IsStruct(typ), c.table.IsUnion(typ), c.table.IsTypeParam(typ):
 		return true
 	default:
 		return false

@@ -23,7 +23,7 @@ static const unsigned char tack_str12[18] = {110, 101, 115, 116, 101, 100, 32, 1
 void tack_builtin_print(tack_string);
 
 static void tack_4_main5_check(bool p_cond, tack_string p_name);
-static int64_t tack_4_main3_add(int64_t p_a, int64_t p_b);
+static int64_t tack_4_main4_plus(int64_t p_a, int64_t p_b);
 static void tack_4_main4_main(void);
 
 static void tack_4_main5_check(bool p_cond, tack_string p_name) {
@@ -35,7 +35,7 @@ static void tack_4_main5_check(bool p_cond, tack_string p_name) {
     }
 }
 
-static int64_t tack_4_main3_add(int64_t p_a, int64_t p_b) {
+static int64_t tack_4_main4_plus(int64_t p_a, int64_t p_b) {
     return ((int64_t)((uint64_t)p_a + (uint64_t)p_b));
 }
 
@@ -49,8 +49,8 @@ static void tack_4_main4_main(void) {
     int64_t v_w = 0;
     v_w = 6;
     tack_4_main5_check((v_w == 6), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
-    tack_4_main5_check((tack_4_main3_add(1, 2) == 3), (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
-    tack_4_main5_check((tack_4_main3_add(1, 2) == 3), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
+    tack_4_main5_check((tack_4_main4_plus(1, 2) == 3), (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
+    tack_4_main5_check((tack_4_main4_plus(1, 2) == 3), (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
     tack_4_main5_check(true, (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)});
     const int64_t v_v = 3;
     tack_4_main5_check((v_v == 3), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});

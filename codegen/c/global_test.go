@@ -124,8 +124,8 @@ var globalRuntimeCases = []struct {
 	},
 	{
 		"global and local together",
-		"package main\n\nmut total int64\n\nfunc add(n int64) {\n    total = total +% n\n}\n\n" +
-			"func main() {\n    step := 5\n    add(step)\n    add(step * 2)\n    code, fits := int32(total)\n    if fits { exit(code) }\n}\n", "", 15,
+		"package main\n\nmut total int64\n\nfunc sum(n int64) {\n    total = total +% n\n}\n\n" +
+			"func main() {\n    step := 5\n    sum(step)\n    sum(step * 2)\n    code, fits := int32(total)\n    if fits { exit(code) }\n}\n", "", 15,
 	},
 }
 

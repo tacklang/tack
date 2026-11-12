@@ -28,7 +28,7 @@ typedef struct {
 size_t sizeOfSpan(void); // extern func sizeOfSpan() unsafe_size_t
 uintptr_t marker(void); // extern func marker() unsafe_uintptr_t
 bool isMarker(uintptr_t /* p */); // extern func isMarker(p unsafe_uintptr_t) bool
-Span span(size_t /* n */); // extern func span(n unsafe_size_t) Span
+Span span(size_t /* n */); // extern func spanOf(n unsafe_size_t) Span
 tack_results_lengths lengths(tack_array_2_unsafe_size_t /* a */); // extern func lengths(a [2]unsafe_size_t) (unsafe_size_t, unsafe_size_t)
 void halve(size_t * /* n */); // extern func halve(mut n unsafe_size_t)
 size_t largest(void); // extern func largest() unsafe_size_t

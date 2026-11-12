@@ -431,12 +431,13 @@ func blankName(span ast.Span) diag.Diagnostic {
 
 // reservedName reports, if name is not one a declaration may have, why not:
 // _ only discards a result, and a type name is reserved like a keyword, for
-// writing types and conversions. It returns nil for any other name.
+// writing types and conversions, id and span among them, which are
+// written with an element type. It returns nil for any other name.
 func reservedName(name string, span ast.Span) []diag.Diagnostic {
 	if name == ast.Blank {
 		return []diag.Diagnostic{blankName(span)}
 	}
-	if _, isType := types.Lookup(name); isType {
+	if types.Reserved(name) {
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  fmt.Sprintf("cannot use %s as a name; it is a type", name),
@@ -967,7 +968,7 @@ func (r *pkgResolver) bindTargetName(target *ast.Ident, sc *scope) []diag.Diagno
 			{Severity: diag.Error, Message: "cannot assign to _", Span: target.Span},
 		}
 	}
-	if _, isType := types.Lookup(target.Name); isType {
+	if types.Reserved(target.Name) {
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  fmt.Sprintf("cannot assign to %s; it is a type", target.Name),
@@ -1280,7 +1281,7 @@ func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 		return r.resolveLit(x, sc)
 	case *ast.KeyValue:
 		return r.resolveKeyValue(x, sc)
-	case *ast.ListType, *ast.MapType, *ast.TypeAssert:
+	case *ast.ListType, *ast.MapType, *ast.ArenaType, *ast.RefType, *ast.TypeAssert:
 		return r.resolveTyped(x, sc)
 	case *ast.FuncLit:
 		return r.resolveFuncLit(x, sc)
@@ -1448,6 +1449,10 @@ func (r *pkgResolver) resolveType(typ ast.Expr, sc *scope) []diag.Diagnostic {
 		return r.resolveType(t.Elem, sc)
 	case *ast.ListType:
 		return r.resolveType(t.Elem, sc)
+	case *ast.ArenaType:
+		return r.resolveType(t.Elem, sc)
+	case *ast.RefType:
+		return r.resolveType(t.Elem, sc)
 	case *ast.MapType, *ast.FuncType:
 		var diags []diag.Diagnostic
 		for _, part := range typeParts(t) {
@@ -1489,6 +1494,13 @@ func (r *pkgResolver) bindTypeName(id *ast.Ident, sc *scope) []diag.Diagnostic {
 	if _, isBasic := types.Lookup(id.Name); isBasic {
 		return nil
 	}
+	if types.Reserved(id.Name) {
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("%s needs its element type, as in %s[int64]", id.Name, id.Name),
+			Span:     id.Span,
+		}}
+	}
 	decl, visible, rejected := sc.lookupUse(id.Name)
 	if rejected {
 		id.Def = ast.Unbound
@@ -1518,7 +1530,8 @@ func (r *pkgResolver) bindTypeName(id *ast.Ident, sc *scope) []diag.Diagnostic {
 // resolveCall binds a call's callee to the function or builtin it names, or
 // records the type a conversion converts to, and resolves its arguments. A
 // conversion to a view type, []uint8(s), has its type's names bound, and
-// the type checker records the type it converts to. A method call has its
+// the type checker records the type it converts to, as does a conversion
+// to an id or a span type, id[T](n), which it reports. A method call has its
 // receiver resolved as a value, or as a mut argument; the method itself is
 // found by the type checker, from the receiver's type. A callee written
 // through a type, Expr.int(5) or Pair.first(p), has the type bound (see
@@ -1535,7 +1548,7 @@ func (r *pkgResolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 			break
 		}
 		diags = r.settle(fn, r.bindCallee(fn, call, sc), sc)
-	case *ast.ViewType:
+	case *ast.ViewType, *ast.RefType:
 		diags = r.resolveType(fn, sc)
 	case *ast.Selector:
 		if isType, typeDiags := r.bindTypeOperand(fn.X, sc); isType {
@@ -1568,6 +1581,14 @@ func (r *pkgResolver) bindCallee(ident *ast.Ident, call *ast.Call, sc *scope) []
 		// binds to no declaration; the type checker reads Conv instead.
 		call.Conv = typ
 		return nil
+	}
+	if types.Reserved(ident.Name) {
+		// id or span, a type only with its element type.
+		return []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  fmt.Sprintf("cannot call %s; it is a type", ident.Name),
+			Span:     ident.Span,
+		}}
 	}
 	if r.bindCalled(ident, sc) {
 		return nil
@@ -1657,7 +1678,7 @@ func (r *pkgResolver) bindIdent(id *ast.Ident, sc *scope) []diag.Diagnostic {
 			{Severity: diag.Error, Message: "cannot use _ as a value", Span: id.Span},
 		}
 	}
-	if _, isType := types.Lookup(id.Name); isType {
+	if types.Reserved(id.Name) {
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  fmt.Sprintf("cannot use %s as a value; it is a type", id.Name),

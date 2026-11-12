@@ -40,7 +40,7 @@ pub func Lex(mut l Lexer, src string) {
         }
     }
     addSemi(mut l, l.pos)
-    add(mut l, KindEOF, 0, l.pos, l.pos, false)
+    emit(mut l, KindEOF, 0, l.pos, l.pos, false)
 }
 
 // newlines skips a run of line ends and inserts a semicolon at the first
@@ -62,10 +62,10 @@ func ident(mut l Lexer) {
     k := keyword(l.src, start, l.pos)
     w, isKeyword := keywords[k]
     if isKeyword {
-        add(mut l, KindKeyword, k, start, l.pos, w.ends)
+        emit(mut l, KindKeyword, k, start, l.pos, w.ends)
         return
     }
-    add(mut l, KindIdent, 0, start, l.pos, true)
+    emit(mut l, KindIdent, 0, start, l.pos, true)
 }
 
 // keyword returns the index in keywords of the keyword src[start:end]
@@ -114,7 +114,7 @@ func number(mut l Lexer) {
         } else if !separated(l.src, start, l.pos, start +% 2) {
             fail(mut l, start, l.pos, "_ must separate successive digits")
         }
-        add(mut l, KindInt, 0, start, l.pos, true)
+        emit(mut l, KindInt, 0, start, l.pos, true)
         return
     }
     mut isFloat := false
@@ -152,9 +152,9 @@ func number(mut l Lexer) {
         fail(mut l, start, l.pos, "integer literal has a leading zero")
     }
     if isFloat {
-        add(mut l, KindFloat, 0, start, l.pos, true)
+        emit(mut l, KindFloat, 0, start, l.pos, true)
     } else {
-        add(mut l, KindInt, 0, start, l.pos, true)
+        emit(mut l, KindInt, 0, start, l.pos, true)
     }
 }
 
@@ -224,7 +224,7 @@ func separated(src string, start int64, end int64, first int64) bool {
 func operator(mut l Lexer) bool {
     for i, op := range operators {
         if hasPrefixAt(l.src, l.pos, op.text) {
-            add(mut l, KindOp, i, l.pos, l.pos +% len(op.text), op.ends)
+            emit(mut l, KindOp, i, l.pos, l.pos +% len(op.text), op.ends)
             l.pos +%= len(op.text)
             return true
         }
@@ -265,7 +265,7 @@ func comment(mut l Lexer) {
     if firstEnd < 0 {
         firstEnd = l.pos
     }
-    add(mut l, KindComment, 0, start, l.pos, false)
+    emit(mut l, KindComment, 0, start, l.pos, false)
     addSemi(mut l, firstEnd)
 }
 
@@ -299,7 +299,7 @@ func blockComment(mut l Lexer) {
     if lines {
         addSemi(mut l, start)
     }
-    add(mut l, KindComment, 0, start, l.pos, false)
+    emit(mut l, KindComment, 0, start, l.pos, false)
     if depth > 0 {
         fail(mut l, start, l.pos, "block comment not terminated")
     }

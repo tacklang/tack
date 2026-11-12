@@ -122,13 +122,13 @@ func (c *Checker) questionCall(q *ast.Question) ([]types.Type, bool) {
 }
 
 // notCalling reports whether call, as written, calls no function: it
-// builds a union, Expr.int(5), or converts a value, int8(x) or
-// []uint8(s).
+// builds a union, Expr.int(5), or converts a value, int8(x), []uint8(s)
+// or id[T](n), which is reported.
 func notCalling(call *ast.Call) bool {
 	if _, _, _, built := ast.Construction(call); built {
 		return true
 	}
-	return call.Conv != types.Invalid || isViewConversion(call)
+	return call.Conv != types.Invalid || isViewConversion(call) || isRefConversion(call)
 }
 
 // questionedResults checks call, the call a ? follows, and returns every
@@ -159,6 +159,9 @@ func (c *Checker) questionedResults(call *ast.Call) ([]types.Type, string, bool)
 			return nil, "", false
 		case typ == types.Invalid:
 			return nil, name, true
+		case call.ResultTypes != nil:
+			// add or add_all, which give two.
+			return call.ResultTypes, name, true
 		}
 		return []types.Type{typ}, name, true
 	}

@@ -8,7 +8,7 @@
 // unreachable is a keyword that is a statement of its own, so it is never
 // a name, and so is fallthrough. scope is reserved everywhere too, though
 // only a parameter, in a function's signature or in a function type, uses
-// it.
+// it. arena is a keyword like list, starting an arena type, arena[T].
 //
 // The lexer works on bytes, not runes. Identifiers are ASCII letters, digits
 // and underscores; any other byte outside a literal or comment is reported as

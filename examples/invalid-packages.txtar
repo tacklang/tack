@@ -387,16 +387,16 @@ package main
 
 import util from "calc/util"
 
-extern func add(a int64, b int64) int64
+extern func sum(a int64, b int64) int64
 
 func main() {
-    code, fits := int32(add(util.Two(), 40))
+    code, fits := int32(sum(util.Two(), 40))
     if fits { exit(code) }
 }
 -- extern-c-name-duplicate-packages/util/util.tck --
 package util
 
-extern("add") func plus(a int64, b int64) int64
+extern("sum") func plus(a int64, b int64) int64
 
 pub func Two() int64 {
     return plus(1, 1)
@@ -405,14 +405,14 @@ pub func Two() int64 {
 stage: typeck
 ---
 
-extern-c-name-duplicate-packages/main.tck:5:13: error: extern funcs add and util.plus both have the C name add
+extern-c-name-duplicate-packages/main.tck:5:13: error: extern funcs sum and util.plus both have the C name sum
 04 |	
-05 |	extern func add(a int64, b int64) int64
+05 |	extern func sum(a int64, b int64) int64
    |	            ^~~
 06 |	
 extern-c-name-duplicate-packages/util/util.tck:3:20: note: extern func util.plus is declared here
 02 |	
-03 |	extern("add") func plus(a int64, b int64) int64
+03 |	extern("sum") func plus(a int64, b int64) int64
    |	                   ^~~~
 04 |	
 
@@ -494,12 +494,12 @@ package main
 import util from "calc/util"
 
 func main() {
-    util.add(1, 2)
+    util.sum(1, 2)
 }
 -- extern-visible/util/util.tck --
 package util
 
-pub extern func add(a int64, b int64) int64
+pub extern func sum(a int64, b int64) int64
 
 lib extern("sub") func minus(a int64, b int64) int64
 -- extern-visible/expected --
@@ -508,7 +508,7 @@ stage: resolve
 
 extern-visible/util/util.tck:3:1: error: an extern func cannot be pub; export a Tack function that calls it
 02 |	
-03 |	pub extern func add(a int64, b int64) int64
+03 |	pub extern func sum(a int64, b int64) int64
    |	^~~
 04 |	
 
@@ -4537,7 +4537,7 @@ package util
 pub mut Count int64 = 0
 lib mut Total int64 = 0
 
-pub extern("std_util_add") func add(a int64, b int64) int64
+pub extern("std_util_add") func sum(a int64, b int64) int64
 lib extern("std_util_sub") func sub(a int64, b int64) int64
 -- std-package-rules/main.tck --
 package main
@@ -4565,12 +4565,12 @@ std-package-rules/.std/util/util.tck:4:1: error: a mut variable cannot be lib; e
 
 std-package-rules/.std/util/util.tck:6:1: error: an extern func cannot be pub; export a Tack function that calls it
 05 |	
-06 |	pub extern("std_util_add") func add(a int64, b int64) int64
+06 |	pub extern("std_util_add") func sum(a int64, b int64) int64
    |	^~~
 07 |	lib extern("std_util_sub") func sub(a int64, b int64) int64
 
 std-package-rules/.std/util/util.tck:7:1: error: an extern func cannot be lib; export a Tack function that calls it
-06 |	pub extern("std_util_add") func add(a int64, b int64) int64
+06 |	pub extern("std_util_add") func sum(a int64, b int64) int64
 07 |	lib extern("std_util_sub") func sub(a int64, b int64) int64
    |	^~~
 08 |	

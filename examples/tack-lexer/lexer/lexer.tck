@@ -55,10 +55,10 @@ pub func Count(mut l Lexer) int64 {
     return l.n
 }
 
-// add appends a token, or sets overflow when toks is full. The count is
+// emit appends a token, or sets overflow when toks is full. The count is
 // copied into n first: a field of a mut parameter never carries a fact, so
 // only a local can be proven in range for the write.
-func add(mut l Lexer, kind int64, sub int64, start int64, end int64, ends bool) {
+func emit(mut l Lexer, kind int64, sub int64, start int64, end int64, ends bool) {
     n := l.n
     if n < 0 || n >= len(l.toks) {
         l.overflow = true
@@ -80,7 +80,7 @@ func addSemi(mut l Lexer, pos int64) {
         last--
     }
     if last >= 0 && last < len(l.toks) && l.toks[last].ends {
-        add(mut l, KindSemi, 0, pos, pos, false)
+        emit(mut l, KindSemi, 0, pos, pos, false)
     }
 }
 

@@ -150,6 +150,8 @@ func (c *Checker) dropPlace(x ast.Expr) bool {
 			holder = "a view, which only borrows it"
 		case c.table.IsMap(typ):
 			what, holder = "a value", "a map; take it out with delete"
+		case c.table.IsArena(typ):
+			holder = "an arena"
 		}
 		c.errorf(x.Span, "cannot drop %s: %s cannot be moved out of %s", text, what, holder)
 		return false

@@ -566,14 +566,17 @@ func (m *mover) droppedResults(value ast.Expr, blank []bool, spans []ast.Span) {
 }
 
 // droppedName names typ, an owned type, in an error about dropping one,
-// and says it cannot be: a list or a map by its type, and anything
-// holding one by its type and what it holds.
+// and says it cannot be: a list, a map or an arena by its type, and
+// anything holding one by its type and what it holds.
 func (c *Checker) droppedName(typ types.Type) string {
-	if c.table.IsList(typ) || c.table.IsMap(typ) {
+	if c.table.IsList(typ) || c.table.IsMap(typ) || c.table.IsArena(typ) {
 		return c.typeName(typ) + ", which cannot be discarded"
 	}
 	if c.table.IsTypeParam(typ) {
 		return c.typeName(typ) + ", which may hold a list and cannot be discarded"
+	}
+	if c.table.HoldsArena(typ) {
+		return c.typeName(typ) + ", which holds an arena and cannot be discarded"
 	}
 	if !c.table.HoldsList(typ) {
 		return c.typeName(typ) + ", which holds a map and cannot be discarded"
@@ -750,6 +753,8 @@ func (m *mover) element(x *ast.Index, ctx useCtx, cur *flow) {
 			holder = "a view, which only borrows it"
 		case m.c.table.IsMap(typ):
 			what, holder = "a value", "a map; take it out with delete"
+		case m.c.table.IsArena(typ):
+			holder = "an arena"
 		}
 		m.errorNotes(x.Span, nil, "cannot move %s out of %s: %s cannot be moved out of %s",
 			m.c.text(x.Span), m.c.text(x.X.Spanned()), what, holder)
@@ -1021,11 +1026,14 @@ func prefixOf(a, b ast.Expr) bool {
 // receiver first, then, for one of an owned type, that its result has an
 // owner. A plain receiver is read as a plain argument is, borrowed, so a
 // temporary of an owned type is one no variable owns; a value passed to
-// an own parameter, appended to a list of an owned type, or stored by
-// replace, or a key and a value put into a map, is moved into it.
+// an own parameter, appended to a list of an owned type, added to an
+// arena, the sentinel an arena is made with, or stored by replace, or a
+// key and a value put into a map, is moved into it.
 func (m *mover) call(call *ast.Call, ctx useCtx, cur *flow) {
 	params := m.callParams(call)
-	moved := m.appendsOwned(call) || isReplace(call) || isPut(call)
+	moved := m.appendsOwned(call) || isReplace(call) || isPut(call) ||
+		addsToArena(call) && !call.Spread
+	sentinel := isMake(call) && len(call.Args) == 3
 	for i, arg := range call.Operands() {
 		if madeType(arg) {
 			continue
@@ -1034,7 +1042,7 @@ func (m *mover) call(call *ast.Call, ctx useCtx, cur *flow) {
 		switch {
 		case i < len(params) && params[i].view:
 			argCtx = viewCtx
-		case i < len(params) && params[i].own, moved && i > 0:
+		case i < len(params) && params[i].own, moved && i > 0, sentinel && i == 1:
 			argCtx = moveCtx
 		}
 		m.expr(arg, argCtx, cur)
@@ -1066,7 +1074,7 @@ type argMode struct {
 // callParams says, for each operand of call, a method call's receiver
 // first, how it is passed (see argMode), append's included.
 func (m *mover) callParams(call *ast.Call) []argMode {
-	if isAppend(call) {
+	if isAppend(call) || isAddAll(call) {
 		return appendViews(call)
 	}
 	fn := ast.Callee(call)
@@ -1088,8 +1096,8 @@ func (m *mover) callParams(call *ast.Call) []argMode {
 	return modes
 }
 
-// appendViews says, for each argument of call, a call to append, how it is
-// passed: only a spread, its last argument, is a view.
+// appendViews says, for each argument of call, a call to append or
+// add_all, how it is passed: only a spread, its last argument, is a view.
 func appendViews(call *ast.Call) []argMode {
 	modes := make([]argMode, len(call.Args))
 	if call.Spread && len(call.Args) > 0 {
@@ -1215,17 +1223,21 @@ func (m *mover) forStmt(loop *ast.For, cur flow) flow {
 }
 
 // rangeStmt follows a range loop from cur: what it ranges over, once,
-// then its body twice, during which a list or a map it walks cannot be
-// changed,
+// then its body twice, during which a list, a map or an arena it walks,
+// or the arena a span's view it walks is of, cannot be changed,
 // and nor can any place a view a call returns, which it walks, may point
 // into.
 func (m *mover) rangeStmt(loop *ast.ForRange, cur flow) flow {
 	m.expr(loop.X, readCtx, &cur)
 	n := len(m.ranging)
 	defer func() { m.ranging = m.ranging[:n] }()
+	if ix, ok := loop.X.(*ast.Index); ok && m.c.isSpanView(ix) && ast.Root(ix.X) != nil {
+		// A span's view reads its arena in place, which add may move.
+		m.ranging = append(m.ranging, ranged{place: ix.X})
+	}
 	if typ := ast.TypeOf(
 		loop.X,
-	); (m.c.table.IsList(typ) || m.c.table.IsMap(typ)) &&
+	); (m.c.table.IsList(typ) || m.c.table.IsMap(typ) || m.c.table.IsArena(typ)) &&
 		ast.Root(loop.X) != nil {
 		r := ranged{place: loop.X}
 		for _, v := range []*ast.Var{loop.Var, loop.Elem} {

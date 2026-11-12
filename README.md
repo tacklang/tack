@@ -372,8 +372,8 @@ includes only those three, and a program that calls neither builtin, and
 has no list, links neither body and none of the C library they call.
 
 `len`, `make`, `append`, `reserve`, `pop`, `remove`, `swap`, `replace`,
-`put`, `delete`, `has` and `drop` are generic: the type checker checks each
-itself and the C backend lowers each in place. Builtins that are wanted
+`put`, `delete`, `has`, `drop`, `add` and `add_all` are generic: the type
+checker checks each itself and the C backend lowers each in place. Builtins that are wanted
 but not implemented go in [`builtin/PLANNED.md`](builtin/PLANNED.md),
 beside `builtin.tck`.
 
@@ -1539,9 +1539,10 @@ section remains the description of the language.
   passed as `mut`, so it must be a mutable local, a `mut` parameter or a
   field of one: `append(l, 1)` is `append takes l as mut; pass mut l`,
   and anything but a list `append expects a list, got [3]int64`, and the
-  same for reserve. `make`
-  takes the list type as written, `make takes a list or a map type, as in
-  make(list[int64], c_allocator)`, and no capacity yet, `make expects 2
+  same for reserve, which takes an arena too, `reserve expects a list or
+  an arena, got [3]int64`. `make`
+  takes the list type as written, `make takes a list, a map or an arena
+  type, as in make(list[int64], c_allocator)`, and no capacity yet, `make expects 2
   argument(s), got 3`; a list type anywhere else a value is wanted is
   `cannot use list[int64] as a value; it is a type`, and
   `list[int64]{1, 2}` is `list[int64] cannot be written as a literal;
@@ -1852,6 +1853,78 @@ section remains the description of the language.
   delete marks its entry and slot deleted, which the next growth, all or
   nothing, compacts away. Keys hash deterministically, field by field and
   element by element.
+- Arenas. `arena[T]` is an owned, append-only store of elements of type
+  `T`: `arena` is a keyword, as `list` is, and `id` and `span` are
+  builtin type names, reserved as `int64` is, so no variable, parameter,
+  function, type, field or method may take one, `cannot use span as a
+  name; it is a type`, and `id` alone is `id needs its element type, as
+  in id[int64]`. `make(arena[T], sentinel, alloc)` makes one holding only
+  `sentinel`, moved in as its element at id 0; it allocates nothing, so
+  it cannot fail, and without the sentinel it is `make expects 3
+  argument(s), got 2`. `e, err := add(mut a, v)` moves `v` in as the last
+  element and gives its `id[T]`; `s, err := add_all(mut a, x, y)` or
+  `add_all(mut a, l...)` adds its values in order, all or none, and gives
+  their `span[T]`, the empty span for none. Each fails with
+  `error{code: 1, msg: "out of memory"}` when the allocator cannot grow
+  the arena or it would hold more than 2^32 - 1 elements, its sentinel
+  among them, leaving it as it was and freeing what it was given; the
+  error cannot be discarded, `the error add returns cannot be discarded;
+  bind it, as in _, err := add(...)`, the id or span cannot be read
+  before it is checked, and `add` used as one value is `add returns 2
+  values`. `reserve(mut a, n)` makes room for `n` more, as a list's does,
+  failing too past the limit. `a[e]` is the element `e` names, with no
+  proof: a place, read in place, its fields read and written, assigned,
+  which frees the element it replaces, passed as `mut` or to `replace`,
+  but never moved out, `cannot move a[e] out of a: an element cannot be
+  moved out of an arena`, nor dropped, nor read with the checked form,
+  `the checked form cannot read an element of an arena: every id names
+  one, the sentinel for an id the arena did not give; use a[e]`. An id at
+  or past `len(a)`, which may come from another arena of the same `T`,
+  and the zero id, name the sentinel: a logic error the program cannot
+  detect, never a read or write of memory the arena does not own. `a[s]`
+  is a read-only view of the span's elements, under every rule of a view
+  a call returns, passed to a view parameter, given to `len`, indexed,
+  sliced, ranged over or returned from a function that takes `a` as a
+  plain parameter, `a[s] is a view, []int64, which can only be passed to
+  a view parameter, given to len, indexed, sliced, ranged over or
+  returned` anywhere else; a span not wholly in `a` is an empty view.
+  `len(a)` counts the sentinel, and `for e, v := range a` gives every id,
+  the sentinel's first, with its element, bound in place when it is
+  owned; since the sentinel is inline, a view of an array reached
+  through such a binding is returned only when the arena is itself an
+  element of a list or a view, `cannot return a view of x.arr: the
+  function holds its own copy of a, ...` for a plain arena parameter. An id and a span are copyable, 32-bit each, the span a start and
+  a length, with `==` and `!=`, a zero value and a place as a map's key,
+  but no order, `operator < is not defined on id[int64]`, no arithmetic,
+  and no conversion to or from an integer, `cannot convert int64 to
+  id[int64]`; an `int64` indexes no arena, `cannot index arena[int64]
+  with int64; index it with an id[int64]`, nor does an id or a span of
+  another element type, `cannot index arena[int64] with id[string]`. A
+  type may hold an id or a span of itself, as an AST's nodes do, but not
+  an arena of itself, `invalid recursive type Node: a type cannot hold
+  itself, even through an arena`. An arena moves as a list does, nests in
+  lists, maps, structs, unions, arenas and generic code as `arena[T]`, is
+  borrowed by a plain parameter and grown through a `mut` one, and is
+  freed with its owner, its elements last first, then its sentinel, at
+  its block's end, a `drop`, a `?`, `exit` or an abort. Since `add` may
+  move its buffer, nothing may read it in place while it grows: `a is
+  being ranged over, so this loop cannot pass mut a`, over the arena or a
+  span's view of it, and `cannot pass a[s] alongside mut a in this call:
+  an arena is not copied for a call, and a mut argument must be the only
+  way to reach a during it`, an element in place or a closure capturing
+  `a` alike. A fact checked of an element, `a[e] != 0`, holds only while
+  neither the arena nor the id can change, as for an array's element. An
+  arena has no zero value, no `==`, no literal, no `pop`, `remove`,
+  `swap`, `delete` or slice, `swap expects a list, got arena[int64]`, is
+  no global, `package-level variable g cannot hold an arena`, no `any`,
+  and neither it nor an id or a span crosses to C, `parameter a of extern
+  func take cannot be arena[int64]: an arena does not cross to C`. `add`
+  and `add_all` are builtins with no value, as every builtin is. In C an
+  arena is a struct of its own per element type, a list of its elements
+  but the sentinel and the sentinel inline; an id is a `uint32_t`, a span
+  a `uint64_t`, its start in the low half and its length in the high,
+  and every lookup clamps in 64 bits to the list or the sentinel, so an
+  arena before its first `add` reads no buffer at all.
 - Allocators. `Allocator` is a builtin type: an opaque handle on an
   allocator, which a list holds, grows through and is freed through. It
   is copyable, a local, a parameter, a result, a field, an array's or a

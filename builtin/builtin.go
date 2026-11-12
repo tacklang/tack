@@ -91,14 +91,17 @@ type genericFunc struct {
 }
 
 // generic holds the builtins whose parameters no Tack type can describe:
-// len takes any array, view, list or string; make takes a list type;
-// append takes any list and any number of values of its element type, or
-// a view of them spread; reserve takes any list and a count; pop takes
+// len takes any array, view, list, arena or string; make takes a list, a
+// map or an arena type; append takes any list and any number of values of
+// its element type, or a view of them spread; reserve takes any list or
+// arena and a count; pop takes
 // any list; remove takes any list and an index; swap takes any list and
 // two indexes; replace takes a place of any type and a value of it; put
 // takes any map, a key and a value; delete and has take any map and a
-// key; and drop takes, as own, a variable of any type that owns
-// something. The type checker checks each of them itself, and the C
+// key; drop takes, as own, a variable of any type that owns
+// something; add takes any arena and a value of its element type; and
+// add_all takes any arena and any number of values of its element type,
+// or a view of them spread. The type checker checks each of them itself, and the C
 // backend lowers each in place.
 var generic = []genericFunc{
 	{"len", []string{"v"}},
@@ -113,6 +116,8 @@ var generic = []genericFunc{
 	{"delete", []string{"m", "k"}},
 	{"has", []string{"m", "k"}},
 	{"drop", []string{"x"}},
+	{"add", []string{"a", "v"}},
+	{"add_all", []string{"a", "elems"}},
 }
 
 // Generic returns the names of the builtins the type checker checks
@@ -151,16 +156,18 @@ func Values() []string {
 }
 
 // Types returns the names of the builtin types, every type a program
-// names without declaring it.
-func Types() []string { return types.Names() }
+// names without declaring it: the basic types, then id and span, written
+// with an element type.
+func Types() []string { return append(types.Names(), types.RefNames()...) }
 
 // ListSymbols holds the C functions of the runtime that the generated C
 // of a program with lists calls: the one that grows a list's buffer,
 // through tack.h's TACK_LIST_APPEND, TACK_LIST_APPEND_N and
-// TACK_LIST_RESERVE, and the one that frees it. No builtin declares them,
+// TACK_LIST_RESERVE, the one that frees it, and the one that says whether
+// an arena, whose elements are a list's, may grow. No builtin declares them,
 // so a program that uses lists needs the runtime objects that define them
 // linked whether or not it calls a builtin.
-var ListSymbols = []string{"tack_list_grow_", "tack_list_free_"}
+var ListSymbols = []string{"tack_list_grow_", "tack_list_free_", "tack_arena_room_"}
 
 // UnreachableSymbol is the C function of the runtime that the abort an
 // unreachable statement lowers to calls, through tack.h's
@@ -184,9 +191,9 @@ func UsesUnreachable(prog *ast.Program) bool {
 }
 
 // UsesLists reports whether prog, which must have been type-checked, has
-// a list or a map type anywhere, whose values its generated C grows and
-// frees through ListSymbols: a map's entries and slots are buffers as a
-// list's is.
+// a list, an arena or a map type anywhere, whose values its generated C
+// grows and frees through ListSymbols: an arena's elements are a list's,
+// and a map's entries and slots are buffers as a list's is.
 func UsesLists(prog *ast.Program) bool {
 	table := prog.Types
 	for i := range table.Count() {

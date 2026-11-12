@@ -121,11 +121,18 @@ func (c *Checker) notCopyable(holder string, elem types.Type, at ast.Span) {
 }
 
 // ownedPhrase names what makes typ, an owned type, owned, for a
-// diagnostic: "a list" for a list, and "T, which holds a list," for an
-// array or a struct holding one.
+// diagnostic: "a list" for a list, "an arena" for an arena, and "T,
+// which holds a list," or "T, which holds an arena," for an array or a
+// struct holding one.
 func (c *Checker) ownedPhrase(typ types.Type) string {
 	if c.table.IsList(typ) {
 		return "a list"
+	}
+	if c.table.IsArena(typ) {
+		return "an arena"
+	}
+	if c.table.HoldsArena(typ) {
+		return c.typeName(typ) + ", which holds an arena,"
 	}
 	if c.table.IsTypeParam(typ) {
 		return c.typeName(typ) + ", a type parameter, which may hold a list,"
@@ -174,8 +181,15 @@ func isTake(
 // makeCall checks a call to make, make(list[T], alloc) or make(map[K]V,
 // alloc), records the type it makes on the call and returns it. It takes
 // the list or map type, as written, and an Allocator to grow it through; a capacity is not taken
-// yet. Anything else is reported, and gives types.Invalid.
+// yet. make(arena[T], sentinel, alloc) takes the arena's sentinel between
+// them (see makeArena). Anything else is reported, and gives
+// types.Invalid.
 func (c *Checker) makeCall(call *ast.Call) types.Type {
+	if len(call.Args) > 0 {
+		if at, ok := call.Args[0].(*ast.ArenaType); ok {
+			return c.makeArena(call, c.arenaType(at))
+		}
+	}
 	if !c.checkArity(call, "make", 2) {
 		for _, arg := range call.Args {
 			if madeType(arg) {
@@ -189,7 +203,7 @@ func (c *Checker) makeCall(call *ast.Call) types.Type {
 	if !madeType(call.Args[0]) {
 		c.argExpr(call.Args[0])
 		c.errorf(call.Args[0].Spanned(),
-			"make takes a list or a map type, as in make(list[int64], c_allocator)")
+			"make takes a list, a map or an arena type, as in make(list[int64], c_allocator)")
 		c.argExpr(call.Args[1])
 		return types.Invalid
 	}
@@ -203,11 +217,11 @@ func (c *Checker) makeCall(call *ast.Call) types.Type {
 	return typ
 }
 
-// madeType reports whether e is a type make can make: a list type or a
-// map type, as written.
+// madeType reports whether e is a type make can make: a list type, a map
+// type or an arena type, as written.
 func madeType(e ast.Expr) bool {
 	switch e.(type) {
-	case *ast.ListType, *ast.MapType:
+	case *ast.ListType, *ast.MapType, *ast.ArenaType:
 		return true
 	default:
 		return false
@@ -238,7 +252,7 @@ func (c *Checker) appendCall(call *ast.Call) types.Type {
 	before := len(c.diags)
 	elem := c.listTarget(call.Args[0], "append")
 	if call.Spread {
-		c.appendSpread(call.Args[1], elem)
+		c.appendSpread(call.Args[1], elem, "append")
 		if len(c.diags) == before && c.table.Owned(elem) {
 			c.errorf(
 				call.Args[1].Spanned(),
@@ -261,14 +275,15 @@ func (c *Checker) appendCall(call *ast.Call) types.Type {
 	return types.Error
 }
 
-// appendSpread checks arg, the view a call to append spreads, v..., into
-// its variadic parameter, elems, of type []T for the list's element type
-// elem, as a spread into any variadic is checked; only a spread adds the
-// view type []T to the table. When elem is unknown, which was reported,
-// arg is checked only for errors of its own.
-func (c *Checker) appendSpread(arg ast.Expr, elem types.Type) {
+// appendSpread checks arg, the view a call to builtin, append or add_all,
+// spreads, v..., into its variadic parameter, elems, of type []T for the
+// list's or the arena's element type elem, as a spread into any variadic
+// is checked; only a spread adds the view type []T to the table. When
+// elem is unknown, which was reported, arg is checked only for errors of
+// its own.
+func (c *Checker) appendSpread(arg ast.Expr, elem types.Type, builtin string) {
 	if elem != types.Invalid {
-		c.checkArg(arg, param{name: "elems", typ: c.table.View(elem), variadic: true}, "append")
+		c.checkArg(arg, param{name: "elems", typ: c.table.View(elem), variadic: true}, builtin)
 		return
 	}
 	if conv, ok := arg.(*ast.Call); ok && isViewConversion(conv) {
@@ -280,7 +295,7 @@ func (c *Checker) appendSpread(arg ast.Expr, elem types.Type) {
 
 // reserveCall checks a call to reserve, err := reserve(mut l, n), records
 // its type, error, on the call and returns it. Its first argument is the
-// list to make room in, passed as mut as append's is, and its second the
+// list or the arena to make room in, passed as mut as append's is, and its second the
 // number of elements to make room for, usable as an int64, which must not
 // be negative when it is known: a constant, or a value the checker knows.
 // Anything else is reported, and gives types.Invalid. Like append's, its
@@ -421,8 +436,9 @@ func (c *Checker) takeResults(call *ast.Call, want int, span ast.Span) ([]types.
 
 // listTarget checks arg, the list a call to builtin, append, reserve, pop
 // or remove, grows or takes from, which must be passed as mut, mut l, and
-// be a place of a list type, and returns the list's element type,
-// types.Invalid when anything was reported.
+// be a place of a list type, or, for reserve, of an arena type, and
+// returns the list's or the arena's element type, types.Invalid when
+// anything was reported.
 func (c *Checker) listTarget(arg ast.Expr, builtin string) types.Type {
 	m, isMut := arg.(*ast.MutArg)
 	if !isMut {
@@ -434,6 +450,11 @@ func (c *Checker) listTarget(arg ast.Expr, builtin string) types.Type {
 	switch {
 	case got == types.Invalid:
 		return types.Invalid
+	case builtin == "reserve" && c.table.IsArena(got):
+		return c.table.Elem(got)
+	case builtin == "reserve" && !c.table.IsList(got):
+		c.errorf(m.X.Spanned(), "reserve expects a list or an arena, got %s", c.typeName(got))
+		return types.Invalid
 	case !c.table.IsList(got):
 		c.errorf(m.X.Spanned(), "%s expects a list, got %s", builtin, c.typeName(got))
 		return types.Invalid
@@ -443,9 +464,11 @@ func (c *Checker) listTarget(arg ast.Expr, builtin string) types.Type {
 }
 
 // genericCall returns the checker of the generic builtin call calls, len,
-// make, append, reserve, pop, remove, swap, replace, put, delete, has or
-// drop, each of which checks its own arguments and gives one value, but
-// swap and drop, which give none, or nil when call calls none of them.
+// make, append, reserve, pop, remove, swap, replace, put, delete, has,
+// drop, add or add_all, each of which checks its own arguments and gives
+// one value, but swap and drop, which give none, and add and add_all,
+// which give two, the first of which the checker returns (see
+// builtinResults), or nil when call calls none of them.
 func (c *Checker) genericCall(call *ast.Call) func(*ast.Call) types.Type {
 	switch {
 	case isLen(call):
@@ -462,6 +485,10 @@ func (c *Checker) genericCall(call *ast.Call) func(*ast.Call) types.Type {
 		return c.hasKeyCall
 	case isDrop(call):
 		return c.dropCall
+	case isAdd(call):
+		return c.addCall
+	case isAddAll(call):
+		return c.addAllCall
 	default:
 		return c.listCall(call)
 	}

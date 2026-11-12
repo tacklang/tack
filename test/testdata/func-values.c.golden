@@ -456,7 +456,7 @@ extern void tack_4_main12_fail_5fafter(int64_t p_n) TACK_C_NAME("fv_fail_after")
 static void tack_4_main5_check(bool p_cond, tack_string p_name);
 static int64_t tack_4_main6_double(int64_t p_x);
 static int64_t tack_4_main6_square(int64_t p_x);
-static int64_t tack_4_main3_add(int64_t p_a, int64_t p_b);
+static int64_t tack_4_main7_addInts(int64_t p_a, int64_t p_b);
 static int64_t tack_4_main3_sub(int64_t p_a, int64_t p_b);
 static int64_t tack_4_main5_apply(tack_fnptr p_f, int64_t p_x);
 static int64_t tack_4_main5_twice(tack_fnptr p_f, int64_t p_x);
@@ -1149,7 +1149,7 @@ static int64_t tack_4_main6_square(int64_t p_x) {
     return ((int64_t)((uint64_t)p_x * (uint64_t)p_x));
 }
 
-static int64_t tack_4_main3_add(int64_t p_a, int64_t p_b) {
+static int64_t tack_4_main7_addInts(int64_t p_a, int64_t p_b) {
     return ((int64_t)((uint64_t)p_a + (uint64_t)p_b));
 }
 
@@ -1167,7 +1167,7 @@ static int64_t tack_4_main5_twice(tack_fnptr p_f, int64_t p_x) {
 
 static tack_fnptr tack_4_main4_pick(tack_string p_op) {
     if (tack_compare_strings(p_op, (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)}) == 0) {
-        return ((tack_fnptr)(tack_fn_27){tack_4_main3_add});
+        return ((tack_fnptr)(tack_fn_27){tack_4_main7_addInts});
     }
     return ((tack_fnptr)(tack_fn_27){tack_4_main3_sub});
 }
@@ -1288,7 +1288,7 @@ static void tack_4_main6_stored(void) {
     tack_string tack_o88;
     tack_fnptr tack_o89;
     tack_list_29 tack_o90;
-    const tack_4_main2_Op v_op = (tack_4_main2_Op){.f_name = (tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)}, .f_run = ((tack_fnptr)(tack_fn_27){tack_4_main3_add})};
+    const tack_4_main2_Op v_op = (tack_4_main2_Op){.f_name = (tack_string){tack_str14, TACK_C_STR_LEN(tack_str14)}, .f_run = ((tack_fnptr)(tack_fn_27){tack_4_main7_addInts})};
     const tack_fnptr v_run = v_op.f_run;
     const tack_array_41 v_ops = (tack_array_41){{v_op, (tack_4_main2_Op){.f_name = (tack_string){tack_str15, TACK_C_STR_LEN(tack_str15)}, .f_run = ((tack_fnptr)(tack_fn_27){tack_4_main3_sub})}}};
     const tack_array_42 v_fs = (tack_array_42){{((tack_fnptr)(tack_fn_28){tack_4_main6_double}), ((tack_fnptr)(tack_fn_28){tack_4_main6_square}), ((tack_fnptr)(tack_fn_28){tack_4_main6_double})}};
@@ -1307,14 +1307,14 @@ static void tack_4_main6_stored(void) {
     tack_list_29 v_steps = ((tack_list_29){.alloc = TACK_C_ALLOCATOR});
     const tack_error v_e1 = (TACK_LIST_APPEND_N(&v_steps, ((const tack_fnptr[2]){((tack_fnptr)(tack_fn_28){tack_4_main6_square}), ((tack_fnptr)(tack_fn_28){tack_4_main6_double})}), 2) ? (tack_error){} : (tack_error){1, {tack_str3, TACK_C_STR_LEN(tack_str3)}});
     tack_map_43 v_byName = ((tack_map_43){.alloc = TACK_C_ALLOCATOR});
-    const tack_error v_e2 = (tack_o84 = &v_byName, tack_o85 = (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)}, tack_o86 = ((tack_fnptr)(tack_fn_27){tack_4_main3_add}), tack_mput_43(tack_o84, tack_o85, tack_o86) ? (tack_error){} : (tack_error){1, {tack_str3, TACK_C_STR_LEN(tack_str3)}});
+    const tack_error v_e2 = (tack_o84 = &v_byName, tack_o85 = (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)}, tack_o86 = ((tack_fnptr)(tack_fn_27){tack_4_main7_addInts}), tack_mput_43(tack_o84, tack_o85, tack_o86) ? (tack_error){} : (tack_error){1, {tack_str3, TACK_C_STR_LEN(tack_str3)}});
     const tack_error v_e3 = (tack_o87 = &v_byName, tack_o88 = (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)}, tack_o89 = ((tack_fnptr)(tack_fn_27){tack_4_main3_sub}), tack_mput_43(tack_o87, tack_o88, tack_o89) ? (tack_error){} : (tack_error){1, {tack_str3, TACK_C_STR_LEN(tack_str3)}});
     int64_t v_got = 0;
     if (tack_mhas_43(&(v_byName), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)})) {
         const tack_fnptr v_minus = (*tack_mat_43(&(v_byName), (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)}));
         v_got = ((tack_fn_27)v_minus)(10, 4);
     }
-    tack_4_main7_Machine v_m = (tack_4_main7_Machine){.f_steps = (tack_o90 = v_steps, v_steps = (tack_list_29){}, tack_o90), .f_last = ((tack_fnptr)(tack_fn_27){tack_4_main3_add})};
+    tack_4_main7_Machine v_m = (tack_4_main7_Machine){.f_steps = (tack_o90 = v_steps, v_steps = (tack_list_29){}, tack_o90), .f_last = ((tack_fnptr)(tack_fn_27){tack_4_main7_addInts})};
     v_m.f_last = ((tack_fnptr)(tack_fn_27){tack_4_main3_sub});
     const tack_fnptr v_last = v_m.f_last;
     tack_4_main5_check((((((tack_fn_27)v_run)(2, 3) == 5) && (((tack_fn_27)v_second)(2, 3) == (-1))) && (v_acc == 8)), (tack_string){tack_str16, TACK_C_STR_LEN(tack_str16)});

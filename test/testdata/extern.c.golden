@@ -28,7 +28,7 @@ _Noreturn void tack_builtin_exit(int32_t);
 #define TACK_C_XSTR(x) TACK_C_STR(x)
 #define TACK_C_NAME(name) __asm__(TACK_C_XSTR(__USER_LABEL_PREFIX__) name)
 
-extern int64_t tack_4_main3_add(int64_t p_a, int64_t p_b) TACK_C_NAME("add");
+extern int64_t tack_4_main7_addInts(int64_t p_a, int64_t p_b) TACK_C_NAME("add");
 extern bool tack_4_main4_flip(bool p_b) TACK_C_NAME("flip");
 extern bool tack_4_main4_both(bool p_a, bool p_b) TACK_C_NAME("both");
 extern int64_t tack_4_main5_widen(int8_t p_x) TACK_C_NAME("widen");
@@ -53,8 +53,8 @@ static void tack_4_main5_check(bool p_ok, tack_string p_name, int32_t p_status) 
 }
 
 static void tack_4_main4_main(void) {
-    tack_4_main5_check((tack_4_main3_add(40, 2) == 42), (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}, 1);
-    tack_4_main5_check((tack_4_main3_add(9223372036854775807, 1) == (-9223372036854775807 - 1)), (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}, 2);
+    tack_4_main5_check((tack_4_main7_addInts(40, 2) == 42), (tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)}, 1);
+    tack_4_main5_check((tack_4_main7_addInts(9223372036854775807, 1) == (-9223372036854775807 - 1)), (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}, 2);
     tack_4_main5_check(((tack_4_main4_flip(true) == false) && tack_4_main4_flip(false)), (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)}, 3);
     tack_4_main5_check(((tack_4_main4_both(true, true) && !tack_4_main4_both(true, false)) && !tack_4_main4_both(false, true)), (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}, 4);
     tack_4_main5_check(((tack_4_main5_widen((-128)) == (-128)) && (tack_4_main5_widen(127) == 127)), (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}, 5);

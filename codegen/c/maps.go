@@ -132,7 +132,7 @@ func (g *generator) emitHashOf(typ types.Type, hashed map[types.Type]bool) {
 	}
 	hashed[typ] = true
 	table := g.prog.Types
-	if typ != types.String && !types.IsInteger(typ) && typ != types.Bool {
+	if typ != types.String && !types.IsInteger(typ) && typ != types.Bool && !table.IsRef(typ) {
 		for _, part := range g.hashedParts(typ) {
 			g.emitHashOf(part, hashed)
 		}
@@ -142,6 +142,10 @@ func (g *generator) emitHashOf(typ types.Type, hashed map[types.Type]bool) {
 	switch {
 	case typ == types.Bool, types.IsInteger(typ), typ == types.String:
 		g.buf.WriteString(basicHash(typ))
+	case table.IsID(typ):
+		g.buf.WriteString(basicHash(types.Uint32))
+	case table.IsSpan(typ):
+		g.buf.WriteString(basicHash(types.Uint64))
 	case table.IsArray(typ), table.IsList(typ):
 		g.emitSequenceHash(typ)
 	case table.IsUnion(typ):

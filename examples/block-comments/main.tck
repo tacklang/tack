@@ -17,8 +17,8 @@ func check(cond bool, name string) {
     }
 }
 
-// add returns a plus b.
-func add(a int64, /* the second */ b int64) int64 {
+// plus returns a plus b.
+func plus(a int64, /* the second */ b int64) int64 {
     return /* the sum */ a +% b
 }
 
@@ -43,8 +43,8 @@ func main() {
     newline */ w = 6
     check(w == 6, "a comment spanning lines acts as a newline")
 
-    check(add(1, /* b */ 2) == 3, "inside an argument list")
-    check(add(1, /* a comment
+    check(plus(1, /* b */ 2) == 3, "inside an argument list")
+    check(plus(1, /* a comment
         over lines after a comma */ 2) == 3, "spanning lines after a comma")
 
     check(8 / /* the divisor */ 2 == 4, "after a division")

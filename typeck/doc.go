@@ -954,7 +954,23 @@
 // does, delete gives its value only with ok or as a
 // statement, as pop's checked form does (isTake), a range binds its key
 // and value, in place when owned (rangeBindings), and locks the map as a
-// list's range does, and len(m) is never known. A function type,
+// list's range does, and len(m) is never known. An arena, arena[T],
+// checked in arena.go, is owned as a list is, its T anything a list's
+// element can be, made with its sentinel at id 0 and grown only, by add
+// and add_all, whose id or span and error are two results recorded in
+// Call.ResultTypes, the id or span held by the error, and by reserve;
+// a[e] for an id of its element type is a place with no proof, and a[s]
+// for a span a view, allowed wherever a view a call returns is
+// (viewSpan), which borrows the arena, so exclusive.go keeps it, an
+// element in place and a closure capturing the arena from any call that
+// passes the arena as mut, and move.go keeps a range over it or over a
+// span's view of it from growing it. An id and a span, id[T] and span[T],
+// are comparable, copyable map keys with zero values and no order,
+// arithmetic or conversion; no type holds itself through an arena, which
+// holds its sentinel by value, but one may hold an id or a span of
+// itself, and none of the three crosses to C. A fact about an arena's
+// element is one about a place below the arena and its id, holding while
+// neither can change. A function type,
 // func(A, mut B) R, checked in funcvalue.go, is the type of a value
 // naming a function: a function's name used as a value, or a method
 // named through its type, its type recorded in Func.Value, unless the
@@ -982,7 +998,7 @@
 // body for whether a write reaches a use (see isLoop), with no branch in
 // it a keep, since its return leaves only it; move.go follows its body
 // where it is written and lets it move only its own variables. A list, a map, an
-// Allocator, a function value, and anything holding one, has no zero value; a list has
+// arena, an Allocator, a function value, and anything holding one, has no zero value; a list has
 // no ==, and no global holds one. A list owns its buffer, so it moves
 // rather than copies, which move.go checks after a body: a moved variable
 // is not used again until it is assigned, a parameter that is not own and

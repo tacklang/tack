@@ -3,7 +3,8 @@
 #include <tack/tack.h>
 
 // The C of lists: the allocators a list grows and is freed through, and
-// the functions std's tack.h declares for them. A list's buffer is only
+// the functions std's tack.h declares for them, and the limit on an
+// arena's length, whose elements are a list's. A list's buffer is only
 // ever obtained, grown and given back here, so every unchecked step of a
 // list's memory is in this file.
 //
@@ -234,4 +235,21 @@ int64_t tack_c_allocator_live_(void) {
 
 void tack_c_allocator_fail_after_(int64_t n) {
     c_grants = n < 0 ? -1 : n;
+}
+
+// arenaMax is the most elements an arena may hold, its sentinel among
+// them: 2^32 - 1, so every id, below it, fits a uint32_t, or less while a
+// test has lowered it (see tack_arena_limit_).
+#define ARENA_MAX 4294967295u
+static uint64_t arenaMax = ARENA_MAX;
+
+bool tack_arena_room_(int64_t len, int64_t n) {
+    if (len < 0 || n < 0 || (uint64_t)len > arenaMax) {
+        return false;
+    }
+    return (uint64_t)n <= arenaMax - (uint64_t)len;
+}
+
+void tack_arena_limit_(int64_t n) {
+    arenaMax = n < 0 || (uint64_t)n > ARENA_MAX ? ARENA_MAX : (uint64_t)n;
 }
