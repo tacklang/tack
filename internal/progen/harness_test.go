@@ -41,10 +41,15 @@ const maxFailRuns = 40
 // which Tack lowers to a struct whose last member is a C array: without
 // it a read past the array is not reported (see codegen/c's
 // TestSanitizersCatchIndexPastAnArray).
+// -fsanitize-address-use-after-return=always makes the address sanitizer
+// report a read through a pointer into a function's frame after the
+// function returns whatever ASAN_OPTIONS says (see codegen/c's
+// TestSanitizersCatchUseAfterReturn).
 var sanitize = []string{
 	"-std=c11", "-Wall", "-Wextra", "-Werror",
 	"-Wno-tautological-overlap-compare",
-	"-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+	"-fsanitize=address,undefined", "-fsanitize-address-use-after-return=always",
+	"-fno-sanitize-recover=all",
 	"-fstrict-flex-arrays=3",
 }
 

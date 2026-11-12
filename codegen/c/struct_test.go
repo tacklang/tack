@@ -343,9 +343,11 @@ func TestStructsAtRuntime(t *testing.T) {
 // order.
 func TestEqualOperandsExampleIsSanitizerClean(t *testing.T) {
 	src := readFile(t, filepath.Join("..", "..", "examples", "equal-operands", "main.tck"))
-	if _, status := runStatus(t, buildWith(t, src, sanitizers...)); status != 23 {
-		t.Errorf("equal-operands exited %d, want 23", status)
-	}
+	atO0Too(t, sanitizers, func(t *testing.T, flags []string) {
+		if _, status := runStatus(t, buildWith(t, src, flags...)); status != 23 {
+			t.Errorf("equal-operands exited %d, want 23", status)
+		}
+	})
 }
 
 // A chain of structs hundreds deep, each holding the next, lowers to C

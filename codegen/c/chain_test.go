@@ -113,7 +113,7 @@ func TestLongElseIfChainsRun(t *testing.T) {
 		n     int
 	}{
 		{[]string{"-O0"}, 10000},
-		{[]string{"-O0", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"}, 10000},
+		{[]string{"-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, 10000},
 	} {
 		t.Run(fmt.Sprintf("%d %s", tc.n, strings.Join(tc.flags, " ")), func(t *testing.T) {
 			prog := compileWithStd(t, chainProgram(tc.n))

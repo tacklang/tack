@@ -11,7 +11,7 @@ import (
 // repeats a defer, or reads past a proof, is caught at run time.
 var fallthroughBuilds = [][]string{
 	{"-O2"},
-	{"-O0", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+	{"-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
 	sanitizers,
 }
 

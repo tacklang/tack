@@ -154,22 +154,22 @@ func TestPathExampleIsSanitizerClean(t *testing.T) {
 	if strings.Contains(want, "FAIL") {
 		t.Fatal("examples/path/output expects a check to fail")
 	}
-	bin := buildWithStdAndC(
-		t,
-		src,
-		csrc,
-		"-O1",
-		"-fsanitize=address,undefined",
-		"-fno-sanitize-recover=all",
-	)
-	var stderr strings.Builder
-	cmd := exec.Command(bin)
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("path failed: %v\n%s\nstderr:\n%s", err, out, stderr.String())
-	}
-	if string(out) != want {
-		t.Errorf("path wrote\n%q\nwant\n%q", out, want)
-	}
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildWithStdAndC(
+			t,
+			src,
+			csrc,
+			flags...,
+		)
+		var stderr strings.Builder
+		cmd := exec.Command(bin)
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("path failed: %v\n%s\nstderr:\n%s", err, out, stderr.String())
+		}
+		if string(out) != want {
+			t.Errorf("path wrote\n%q\nwant\n%q", out, want)
+		}
+	})
 }

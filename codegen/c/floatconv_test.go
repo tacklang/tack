@@ -18,7 +18,7 @@ import (
 // out-of-range float to an integer in -fsanitize=undefined, every finding
 // fatal.
 var floatSanitizers = []string{
-	"-fsanitize=address,undefined,float-cast-overflow", "-fno-sanitize-recover=all",
+	"-fsanitize=address,undefined,float-cast-overflow", useAfterReturn, "-fno-sanitize-recover=all",
 }
 
 // TestFloatExamplesAreSanitizerClean builds examples/floats,
@@ -217,8 +217,9 @@ func TestFloatToIntMatchesGo(t *testing.T) {
 	for _, bits := range []int{64, 32} {
 		t.Run(fmt.Sprintf("float%d", bits), func(t *testing.T) {
 			src := floatConvProgram(bits, edgeValues(bits, 200, rng))
-			bin := buildWithStd(t, src, append([]string{"-O1"}, floatSanitizers...)...)
-			checkWrites(t, bin, "done\n")
+			atO0Too(t, append([]string{"-O1"}, floatSanitizers...), func(t *testing.T, flags []string) {
+				checkWrites(t, buildWithStd(t, src, flags...), "done\n")
+			})
 		})
 	}
 }

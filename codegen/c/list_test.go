@@ -84,15 +84,15 @@ func exampleFiles(t *testing.T, dir, cfile string) (src, csrc string) {
 // example's own count of live buffers checks after every check.
 func TestListsExampleIsSanitizerClean(t *testing.T) {
 	src, csrc := exampleFiles(t, "lists", "live.c")
-	bin := buildExternWith(
-		t,
-		src,
-		csrc,
-		"-O1",
-		"-fsanitize=address,undefined",
-		"-fno-sanitize-recover=all",
-	)
-	runChecks(t, bin, listsWant)
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildExternWith(
+			t,
+			src,
+			csrc,
+			flags...,
+		)
+		runChecks(t, bin, listsWant)
+	})
 }
 
 // TestListBulkExampleIsSanitizerClean builds examples/list-bulk, its C
@@ -103,15 +103,15 @@ func TestListsExampleIsSanitizerClean(t *testing.T) {
 // count no buffer can hold, asks the allocator for memory it cannot give.
 func TestListBulkExampleIsSanitizerClean(t *testing.T) {
 	src, csrc := exampleFiles(t, "list-bulk", "bulk.c")
-	bin := buildExternWith(
-		t,
-		src,
-		csrc,
-		"-O1",
-		"-fsanitize=address,undefined",
-		"-fno-sanitize-recover=all",
-	)
-	runChecks(t, bin, listBulkWant)
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildExternWith(
+			t,
+			src,
+			csrc,
+			flags...,
+		)
+		runChecks(t, bin, listBulkWant)
+	})
 }
 
 // TestExternListsExampleIsWarningFree builds examples/extern-lists with
@@ -122,8 +122,9 @@ func TestListBulkExampleIsSanitizerClean(t *testing.T) {
 func TestExternListsExampleIsWarningFree(t *testing.T) {
 	src, csrc := exampleFiles(t, "extern-lists", "lists.c")
 	runChecks(t, buildExternWith(t, src, csrc), externListsWant)
-	runChecks(t, buildExternWith(t, src, csrc, "-O1", "-fsanitize=address,undefined",
-		"-fno-sanitize-recover=all"), externListsWant)
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		runChecks(t, buildExternWith(t, src, csrc, flags...), externListsWant)
+	})
 }
 
 // listCText is a program whose generated C listCases check.
@@ -270,15 +271,17 @@ func main() {
     }
 }
 `
-	bin := buildWith(t, src, "-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all")
-	out, err := exec.Command(bin).Output()
-	if err != nil || string(out) != "ok\n" {
-		t.Errorf("printed %q, %v; want ok", out, err)
-	}
-	got := generate(t, src)
-	if strings.Count(got, "int tack_next") < 2 {
-		t.Errorf("the deferred body has no next variable of its own:\n%s", got)
-	}
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildWith(t, src, flags...)
+		out, err := exec.Command(bin).Output()
+		if err != nil || string(out) != "ok\n" {
+			t.Errorf("printed %q, %v; want ok", out, err)
+		}
+		got := generate(t, src)
+		if strings.Count(got, "int tack_next") < 2 {
+			t.Errorf("the deferred body has no next variable of its own:\n%s", got)
+		}
+	})
 }
 
 // listGrowTest is a C program that drives std's list functions directly,
@@ -454,14 +457,16 @@ func TestListGrowFunction(t *testing.T) {
 	main := filepath.Join(dir, "main.c")
 	writeFile(t, main, listGrowTest)
 	bin := filepath.Join(dir, "grow")
-	args := append(slices.Clone(strictCFlags),
-		"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
-		"-I", stdtest.IncludeDir(), "-o", bin, main, stdtest.RuntimeCFile("list.c"),
-	)
-	if out, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
-		t.Fatalf("clang: %v\n%s", err, out)
-	}
-	runChecks(t, bin, 32)
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		args := append(slices.Clone(strictCFlags), flags...)
+		args = append(args,
+			"-I", stdtest.IncludeDir(), "-o", bin, main, stdtest.RuntimeCFile("list.c"),
+		)
+		if out, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
+			t.Fatalf("clang: %v\n%s", err, out)
+		}
+		runChecks(t, bin, 32)
+	})
 }
 
 // TestListsCompileFor32Bits compiles examples/lists' generated C, and
@@ -557,14 +562,15 @@ func TestBulkAppendLowering(t *testing.T) {
 		}
 	}
 	runChecks(t, buildWith(t, bulkCText), 1)
-	runChecks(t, buildWith(t, bulkCText, "-O1", "-fsanitize=address,undefined",
-		"-fno-sanitize-recover=all"), 1)
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		runChecks(t, buildWith(t, bulkCText, flags...), 1)
 
-	constOnly := strings.Replace(bulkCText, "reserve(mut l, n -% 4)", "reserve(mut l, 0)", 1)
-	constOnly = strings.Replace(constOnly, "e5.code == 2", "e5.code == 0", 1)
-	if got := generate(t, constOnly); strings.Contains(got, " < 0 ? (tack_error){2") ||
-		strings.Contains(got, "{110, 101, 103, 97, 116, 105, 118, 101") {
-		t.Errorf("a constant count is tested, or negative count pooled:\n%s", got)
-	}
-	runChecks(t, buildWith(t, constOnly), 1)
+		constOnly := strings.Replace(bulkCText, "reserve(mut l, n -% 4)", "reserve(mut l, 0)", 1)
+		constOnly = strings.Replace(constOnly, "e5.code == 2", "e5.code == 0", 1)
+		if got := generate(t, constOnly); strings.Contains(got, " < 0 ? (tack_error){2") ||
+			strings.Contains(got, "{110, 101, 103, 97, 116, 105, 118, 101") {
+			t.Errorf("a constant count is tested, or negative count pooled:\n%s", got)
+		}
+		runChecks(t, buildWith(t, constOnly), 1)
+	})
 }

@@ -25,34 +25,34 @@ func TestOsExampleIsSanitizerClean(t *testing.T) {
 	if strings.Contains(want, "FAIL") {
 		t.Fatal("examples/os/output expects a check to fail")
 	}
-	bin := buildWithStdAndC(
-		t,
-		src,
-		csrc,
-		"-O1",
-		"-fsanitize=address,undefined",
-		"-fno-sanitize-recover=all",
-	)
-	tmp := t.TempDir()
-	var env []string
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "TACK_OS_EXAMPLE") && !strings.HasPrefix(kv, "TMPDIR=") {
-			env = append(env, kv)
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildWithStdAndC(
+			t,
+			src,
+			csrc,
+			flags...,
+		)
+		tmp := t.TempDir()
+		var env []string
+		for _, kv := range os.Environ() {
+			if !strings.HasPrefix(kv, "TACK_OS_EXAMPLE") && !strings.HasPrefix(kv, "TMPDIR=") {
+				env = append(env, kv)
+			}
 		}
-	}
-	var stderr strings.Builder
-	cmd := exec.Command("sh", "-c", `ulimit -n 64 && exec "$0" "$@"`, bin, "one", "", "two words")
-	env = append(env, "TACK_OS_EXAMPLE=set by the test", "TACK_OS_EXAMPLE_EMPTY=", "TMPDIR="+tmp)
-	cmd.Env = env
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("os failed: %v\n%s\nstderr:\n%s", err, out, stderr.String())
-	}
-	if string(out) != want {
-		t.Errorf("os wrote\n%q\nwant\n%q", out, want)
-	}
-	if left, _ := os.ReadDir(tmp); len(left) != 0 {
-		t.Errorf("left %d entries in TMPDIR, the first %s", len(left), left[0].Name())
-	}
+		var stderr strings.Builder
+		cmd := exec.Command("sh", "-c", `ulimit -n 64 && exec "$0" "$@"`, bin, "one", "", "two words")
+		env = append(env, "TACK_OS_EXAMPLE=set by the test", "TACK_OS_EXAMPLE_EMPTY=", "TMPDIR="+tmp)
+		cmd.Env = env
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("os failed: %v\n%s\nstderr:\n%s", err, out, stderr.String())
+		}
+		if string(out) != want {
+			t.Errorf("os wrote\n%q\nwant\n%q", out, want)
+		}
+		if left, _ := os.ReadDir(tmp); len(left) != 0 {
+			t.Errorf("left %d entries in TMPDIR, the first %s", len(left), left[0].Name())
+		}
+	})
 }

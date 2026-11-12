@@ -140,7 +140,7 @@ func TestUnionMethodsBuildStrictlyAndRun(t *testing.T) {
 	bin := buildWith(
 		t,
 		unionMethodsSrc,
-		"-fsanitize=address,undefined",
+		"-fsanitize=address,undefined", useAfterReturn,
 		"-fno-sanitize-recover=all",
 	)
 	out, err := exec.Command(bin).Output()

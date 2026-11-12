@@ -306,33 +306,35 @@ func specialInputs() []string {
 // checks every line is what Go's strconv and fmt give, and that printf's
 // C and append_float's Tack wrote each value the same way.
 func TestFloatFormattingMatchesGo(t *testing.T) {
-	bin := buildWithStd(t, floatFmtProgram, append([]string{"-O1"}, floatSanitizers...)...)
 	inputs := floatFmtInputs(rand.New(rand.NewPCG(7, 8)))
-	const batch = 100
-	for start := 0; start < len(inputs); start += batch {
-		chunk := inputs[start:min(start+batch, len(inputs))]
-		out, err := exec.Command(bin, chunk...).Output()
-		if err != nil {
-			t.Fatalf("float program failed: %v\n%s", err, out)
-		}
-		got := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
-		if len(got) != len(chunk) {
-			t.Fatalf("wrote %d lines for %d inputs", len(got), len(chunk))
-		}
-		for i, s := range chunk {
-			checkCAgreesWithTack(t, s, got[i])
-			if want := floatFmtWant(s); got[i] != want {
-				t.Errorf("%q: got\n%s\nwant\n%s", s, got[i], want)
+	atO0Too(t, append([]string{"-O1"}, floatSanitizers...), func(t *testing.T, flags []string) {
+		bin := buildWithStd(t, floatFmtProgram, flags...)
+		const batch = 100
+		for start := 0; start < len(inputs); start += batch {
+			chunk := inputs[start:min(start+batch, len(inputs))]
+			out, err := exec.Command(bin, chunk...).Output()
+			if err != nil {
+				t.Fatalf("float program failed: %v\n%s", err, out)
+			}
+			got := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
+			if len(got) != len(chunk) {
+				t.Fatalf("wrote %d lines for %d inputs", len(got), len(chunk))
+			}
+			for i, s := range chunk {
+				checkCAgreesWithTack(t, s, got[i])
+				if want := floatFmtWant(s); got[i] != want {
+					t.Errorf("%q: got\n%s\nwant\n%s", s, got[i], want)
+				}
 			}
 		}
-	}
+	})
 	t.Logf("%d inputs", len(inputs))
 }
 
 // FuzzFloatFormattingMatchesGo parses the fuzz engine's strings with
-// floatFmtProgram, built with floatSanitizers, and checks each line is
-// what Go's strconv and fmt give, and that printf's C and append_float's
-// Tack agree.
+// floatFmtProgram, built with floatSanitizers at -O0 and at -O1, and
+// checks each line is what Go's strconv and fmt give, and that printf's
+// C and append_float's Tack agree.
 func FuzzFloatFormattingMatchesGo(f *testing.F) {
 	for _, s := range []string{
 		"0", "-0", "0.1", "1e23", "5e-324", "1.7976931348623157e308", "1e400", "NaN", "-Inf",
@@ -340,19 +342,24 @@ func FuzzFloatFormattingMatchesGo(f *testing.F) {
 	} {
 		f.Add(s)
 	}
-	bin := buildWithStd(f, floatFmtProgram, append([]string{"-O1"}, floatSanitizers...)...)
+	var bins []string
+	for _, level := range []string{"-O0", "-O1"} {
+		bins = append(bins, buildWithStd(f, floatFmtProgram, append([]string{level}, floatSanitizers...)...))
+	}
 	f.Fuzz(func(t *testing.T, s string) {
 		if strings.IndexByte(s, 0) >= 0 {
 			t.Skip("a program's argument cannot hold a 0 byte")
 		}
-		out, err := exec.Command(bin, s).Output()
-		if err != nil {
-			t.Fatalf("float program failed on %q: %v\n%s", s, err, out)
-		}
-		got := strings.TrimSuffix(string(out), "\n")
-		checkCAgreesWithTack(t, s, got)
-		if want := floatFmtWant(s); got != want {
-			t.Errorf("%q: got\n%s\nwant\n%s", s, got, want)
+		for _, bin := range bins {
+			out, err := exec.Command(bin, s).Output()
+			if err != nil {
+				t.Fatalf("float program failed on %q: %v\n%s", s, err, out)
+			}
+			got := strings.TrimSuffix(string(out), "\n")
+			checkCAgreesWithTack(t, s, got)
+			if want := floatFmtWant(s); got != want {
+				t.Errorf("%q: got\n%s\nwant\n%s", s, got, want)
+			}
 		}
 	})
 }

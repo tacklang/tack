@@ -25,8 +25,8 @@ func TestClosuresExampleIsSanitizerClean(t *testing.T) {
 	}
 	for _, flags := range [][]string{
 		{"-O2"},
-		{"-O0", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
-		{"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+		{"-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
+		{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
 	} {
 		t.Run(filepath.Join(flags...), func(t *testing.T) {
 			out, code := runStatus(t, buildWithStdAndC(t, src, csrc, flags...))

@@ -147,7 +147,7 @@ func main() {
 // with clang's warnings as errors and its address and undefined behavior
 // sanitizers, and checks every check it prints passes.
 func TestGenericsBuildStrictlyAndRun(t *testing.T) {
-	bin := buildWith(t, genericsSrc, "-fsanitize=address,undefined", "-fno-sanitize-recover=all")
+	bin := buildWith(t, genericsSrc, "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all")
 	out, err := exec.Command(bin).Output()
 	if err != nil {
 		t.Fatalf("running: %v\n%s", err, out)

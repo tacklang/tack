@@ -20,8 +20,8 @@ func TestOwnParamsExampleIsSanitizerClean(t *testing.T) {
 	src, csrc := exampleFiles(t, "own-params", "live.c")
 	for _, flags := range [][]string{
 		{"-O2"},
-		{"-O0", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
-		{"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+		{"-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
+		{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
 	} {
 		t.Run(filepath.Join(flags...), func(t *testing.T) {
 			runChecks(t, buildWithStdAndC(t, src, csrc, flags...), 31)
@@ -40,8 +40,10 @@ func TestOwnExitExampleIsSanitizerClean(t *testing.T) {
 	if strings.Contains(want, "FAIL") {
 		t.Fatal("examples/own-exit/output expects a check to fail")
 	}
-	out, code := runStatus(t, buildWithStdAndC(t, src, csrc, sanitizers...))
-	if out != want || code != 3 {
-		t.Errorf("wrote\n%s\nand exited %d, want\n%s\nand 3", out, code, want)
-	}
+	atO0Too(t, sanitizers, func(t *testing.T, flags []string) {
+		out, code := runStatus(t, buildWithStdAndC(t, src, csrc, flags...))
+		if out != want || code != 3 {
+			t.Errorf("wrote\n%s\nand exited %d, want\n%s\nand 3", out, code, want)
+		}
+	})
 }

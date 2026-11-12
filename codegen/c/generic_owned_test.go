@@ -17,8 +17,8 @@ func TestGenericsOwnedExampleIsSanitizerClean(t *testing.T) {
 	src, csrc := exampleFiles(t, "generics-owned", "live.c")
 	for _, flags := range [][]string{
 		{"-O2"},
-		{"-O0", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
-		{"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+		{"-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
+		{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
 	} {
 		t.Run(filepath.Join(flags...), func(t *testing.T) {
 			runChecks(t, buildWithStdAndC(t, src, csrc, flags...), 11)
@@ -138,6 +138,7 @@ func main() {
 // TestOwnedTypeParamShapes builds ownedShapes with the address and
 // undefined behavior sanitizers and checks all its checks pass.
 func TestOwnedTypeParamShapes(t *testing.T) {
-	runChecks(t, buildWithStdAndC(t, ownedShapes, "", "-O1", "-fsanitize=address,undefined",
-		"-fno-sanitize-recover=all"), 5)
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		runChecks(t, buildWithStdAndC(t, ownedShapes, "", flags...), 5)
+	})
 }

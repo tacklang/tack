@@ -27,15 +27,17 @@ func TestOwnedListsExampleIsSanitizerClean(t *testing.T) {
 	if strings.Contains(want, "FAIL") {
 		t.Fatal("examples/owned-lists/output expects a check to fail")
 	}
-	bin := buildWithStdAndC(t, src, csrc,
-		"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all")
-	out, err := exec.Command(bin).Output()
-	if err != nil {
-		t.Fatalf("owned-lists failed: %v\n%s", err, out)
-	}
-	if string(out) != want {
-		t.Errorf("owned-lists wrote\n%s\nwant\n%s", out, want)
-	}
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildWithStdAndC(t, src, csrc,
+			flags...)
+		out, err := exec.Command(bin).Output()
+		if err != nil {
+			t.Fatalf("owned-lists failed: %v\n%s", err, out)
+		}
+		if string(out) != want {
+			t.Errorf("owned-lists wrote\n%s\nwant\n%s", out, want)
+		}
+	})
 }
 
 // ownedCText holds lists of owned elements in the ways the lowering
@@ -129,17 +131,17 @@ func TestOwnedListLowering(t *testing.T) {
 	if !strings.Contains(got, "tack_free_") || strings.Count(got, "static void tack_free_") != 1 {
 		t.Errorf("want one free helper, for list[list[int64]], called where l is freed:\n%s", got)
 	}
-	runChecks(
-		t,
-		buildWith(
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		runChecks(
 			t,
-			ownedCText,
-			"-O1",
-			"-fsanitize=address,undefined",
-			"-fno-sanitize-recover=all",
-		),
-		4,
-	)
+			buildWith(
+				t,
+				ownedCText,
+				flags...,
+			),
+			4,
+		)
+	})
 }
 
 // takeMacrosTest drives std's TACK_LIST_POP and TACK_LIST_REMOVE from C,
@@ -223,12 +225,14 @@ func TestTakeMacros(t *testing.T) {
 	main := filepath.Join(dir, "main.c")
 	writeFile(t, main, takeMacrosTest)
 	bin := filepath.Join(dir, "take")
-	args := append(slices.Clone(strictCFlags),
-		"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
-		"-I", stdtest.IncludeDir(), "-o", bin, main, stdtest.RuntimeCFile("list.c"),
-	)
-	if out, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
-		t.Fatalf("clang: %v\n%s", err, out)
-	}
-	runChecks(t, bin, 10)
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		args := append(slices.Clone(strictCFlags), flags...)
+		args = append(args,
+			"-I", stdtest.IncludeDir(), "-o", bin, main, stdtest.RuntimeCFile("list.c"),
+		)
+		if out, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
+			t.Fatalf("clang: %v\n%s", err, out)
+		}
+		runChecks(t, bin, 10)
+	})
 }

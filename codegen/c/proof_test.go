@@ -20,7 +20,8 @@ func TestProofRulesExampleIsSanitizerClean(t *testing.T) {
 	src, csrc := exampleFiles(t, "proof-rules", "live.c")
 	for _, flags := range [][]string{
 		{"-O2"},
-		{"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+		{"-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
+		{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
 	} {
 		t.Run(filepath.Join(flags...), func(t *testing.T) {
 			runChecks(t, buildWithStdAndC(t, src, csrc, flags...), 17)

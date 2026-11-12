@@ -237,20 +237,20 @@ func TestMixedCompareExampleIsSanitizerClean(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bin := buildWith(
-		t,
-		string(src),
-		"-O1",
-		"-fsanitize=address,undefined",
-		"-fno-sanitize-recover=all",
-	)
-	out, err := exec.Command(bin).Output()
-	if err != nil {
-		t.Fatalf("mixed-compare failed: %v\n%s", err, out)
-	}
-	if strings.Contains(string(out), "FAIL") || strings.Count(string(out), " ok\n") != 8 {
-		t.Errorf("mixed-compare printed\n%s", out)
-	}
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildWith(
+			t,
+			string(src),
+			flags...,
+		)
+		out, err := exec.Command(bin).Output()
+		if err != nil {
+			t.Fatalf("mixed-compare failed: %v\n%s", err, out)
+		}
+		if strings.Contains(string(out), "FAIL") || strings.Count(string(out), " ok\n") != 8 {
+			t.Errorf("mixed-compare printed\n%s", out)
+		}
+	})
 }
 
 // TestComparedTypesCoverEveryEdge keeps the table the comparison program

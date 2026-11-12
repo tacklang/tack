@@ -15,8 +15,8 @@ const questionFormsWant = 15
 // finding fatal.
 var sanitizerFlags = [][]string{
 	{"-O2"},
-	{"-O0", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
-	{"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+	{"-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
+	{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
 }
 
 // TestQuestionExampleIsSanitizerClean builds examples/question, its C

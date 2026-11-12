@@ -205,9 +205,11 @@ func main() {
 // undefined behavior sanitizers, every finding fatal, and checks every
 // check it prints passed.
 func TestUnionsAreSanitizerClean(t *testing.T) {
-	bin := buildExternWith(t, unionsSanitized, unionsLiveC,
-		"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all")
-	runChecks(t, bin, 10)
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildExternWith(t, unionsSanitized, unionsLiveC,
+			flags...)
+		runChecks(t, bin, 10)
+	})
 }
 
 // TestUnionsCompileWarningFree builds unionsSanitized with clang's
@@ -321,12 +323,14 @@ func deepUnions(depth int) string {
 // and its list freed once, by the outermost's free helper calling each
 // inner one's.
 func TestDeeplyNestedUnions(t *testing.T) {
-	bin := buildExternWith(t, deepUnions(60), unionsLiveC,
-		"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all")
-	out, err := exec.Command(bin).Output()
-	if err != nil || string(out) != "ok\n" {
-		t.Errorf("printed %q, err %v, want ok", out, err)
-	}
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildExternWith(t, deepUnions(60), unionsLiveC,
+			flags...)
+		out, err := exec.Command(bin).Output()
+		if err != nil || string(out) != "ok\n" {
+			t.Errorf("printed %q, err %v, want ok", out, err)
+		}
+	})
 }
 
 // unionPlaces switches on unions held in every kind of place, and on a
@@ -602,7 +606,8 @@ func main() {
 func TestUnionPayloadsOfEveryKind(t *testing.T) {
 	for _, bin := range []string{
 		buildStrict(t, unionMisc),
-		buildWith(t, unionMisc, "-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"),
+		buildWith(t, unionMisc, "-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"),
+		buildWith(t, unionMisc, "-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"),
 	} {
 		out, err := exec.Command(bin).Output()
 		if err != nil || string(out) != "ok\n" {

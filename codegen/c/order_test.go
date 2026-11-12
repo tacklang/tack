@@ -233,7 +233,8 @@ func TestAssignOrderExampleRunsAtEveryLevel(t *testing.T) {
 		{"-O1"},
 		{"-O2"},
 		{"-O3"},
-		{"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+		{"-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
+		{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
 	} {
 		t.Run(filepath.Join(flags...), func(t *testing.T) {
 			runChecks(t, buildWithStd(t, src, flags...), 7)

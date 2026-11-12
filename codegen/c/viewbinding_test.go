@@ -21,7 +21,7 @@ func TestViewBindingsExampleIsSanitizerClean(t *testing.T) {
 				t,
 				src,
 				level,
-				"-fsanitize=address,undefined",
+				"-fsanitize=address,undefined", useAfterReturn,
 				"-fno-sanitize-recover=all",
 			)
 			runChecks(t, bin, 6)

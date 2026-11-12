@@ -20,7 +20,8 @@ func TestLengthProofsExampleIsSanitizerClean(t *testing.T) {
 	src := readFile(t, filepath.Join("..", "..", "examples", "length-proofs", "main.tck"))
 	for _, flags := range [][]string{
 		{"-O2"},
-		{"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+		{"-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
+		{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
 	} {
 		t.Run(filepath.Join(flags...), func(t *testing.T) {
 			runChecks(t, buildWithStd(t, src, flags...), lengthProofsWant)

@@ -62,7 +62,7 @@ func TestViewResultsExampleIsSanitizerClean(t *testing.T) {
 	prog := compileExampleDir(t, "view-results")
 	for _, opt := range []string{"-O0", "-O2"} {
 		t.Run(opt, func(t *testing.T) {
-			bin := buildProgram(t, prog, "", opt, "-fsanitize=address,undefined",
+			bin := buildProgram(t, prog, "", opt, "-fsanitize=address,undefined", useAfterReturn,
 				"-fno-sanitize-recover=all")
 			out, err := exec.Command(bin).Output()
 			if err != nil {
@@ -191,13 +191,14 @@ func TestViewResultLowering(t *testing.T) {
 // passes: each use of a view a call returns calls it exactly once, and
 // reads only what it points into.
 func TestViewResultsCallOnceAndRunClean(t *testing.T) {
-	bin := buildWith(t, viewResultCText, "-O1", "-fsanitize=address,undefined",
-		"-fno-sanitize-recover=all")
-	out, err := exec.Command(bin).Output()
-	if err != nil {
-		t.Fatalf("view results failed: %v\n%s", err, out)
-	}
-	if strings.Contains(string(out), "FAIL") || strings.Count(string(out), " ok\n") != 9 {
-		t.Errorf("view results printed\n%s", out)
-	}
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildWith(t, viewResultCText, flags...)
+		out, err := exec.Command(bin).Output()
+		if err != nil {
+			t.Fatalf("view results failed: %v\n%s", err, out)
+		}
+		if strings.Contains(string(out), "FAIL") || strings.Count(string(out), " ok\n") != 9 {
+			t.Errorf("view results printed\n%s", out)
+		}
+	})
 }

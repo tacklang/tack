@@ -233,16 +233,16 @@ func main() {
 // pointer at the wrong type or of the empty any would stop it, and checks
 // every check passes.
 func TestTypeSwitchesRunUnderSanitizers(t *testing.T) {
-	bin := buildWith(
-		t,
-		typeSwitchChecks,
-		"-O1",
-		"-fsanitize=address,undefined",
-		"-fno-sanitize-recover=all",
-	)
-	if out, err := exec.Command(bin).CombinedOutput(); err != nil {
-		t.Errorf("running: %v\n%s", err, out)
-	}
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildWith(
+			t,
+			typeSwitchChecks,
+			flags...,
+		)
+		if out, err := exec.Command(bin).CombinedOutput(); err != nil {
+			t.Errorf("running: %v\n%s", err, out)
+		}
+	})
 }
 
 // typeSwitchDefers is a program whose type switches' cases defer code
@@ -300,14 +300,14 @@ func main() {
 // TestTypeSwitchDefersRunUnderSanitizers builds typeSwitchDefers under the
 // sanitizers and checks each defer read its case's variable when it ran.
 func TestTypeSwitchDefersRunUnderSanitizers(t *testing.T) {
-	bin := buildWith(
-		t,
-		typeSwitchDefers,
-		"-O1",
-		"-fsanitize=address,undefined",
-		"-fno-sanitize-recover=all",
-	)
-	if out, err := exec.Command(bin).CombinedOutput(); err != nil {
-		t.Errorf("running: %v\n%s", err, out)
-	}
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildWith(
+			t,
+			typeSwitchDefers,
+			flags...,
+		)
+		if out, err := exec.Command(bin).CombinedOutput(); err != nil {
+			t.Errorf("running: %v\n%s", err, out)
+		}
+	})
 }

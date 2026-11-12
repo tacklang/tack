@@ -169,7 +169,7 @@ func TestDeepLiteralsRun(t *testing.T) {
 	prog := compileWithStd(t, deepLiteralProgram(deepLiteralLevels))
 	for _, flags := range [][]string{
 		{"-O0"},
-		{"-O0", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+		{"-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
 	} {
 		t.Run(strings.Join(flags, " "), func(t *testing.T) {
 			runChecks(t, buildProgram(t, prog, "", flags...), deepLiteralChecks)

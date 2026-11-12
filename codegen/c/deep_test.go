@@ -441,7 +441,7 @@ func bigDeepProgram(t *testing.T) *ast.Program {
 
 // optLevels are the ways TestDeepExpressionsExampleRuns builds the
 // example: every optimization level, and with the address and undefined
-// behavior sanitizers, every finding fatal.
+// behavior sanitizers at -O0 and -O1, every finding fatal.
 var optLevels = [][]string{
 	{"-O0"},
 	{"-O1"},
@@ -449,7 +449,8 @@ var optLevels = [][]string{
 	{"-O3"},
 	{"-Os"},
 	{"-Oz"},
-	{"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+	{"-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
+	{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
 }
 
 // TestDeepExpressionsExampleRuns builds examples/deep-expressions each way
@@ -480,20 +481,22 @@ func TestDeepExpressionsExampleIsGenerated(t *testing.T) {
 
 // TestDeepExpressionsRun builds deepProgram's program at bigSizes, far
 // past what C's parser could take before, at -O0, -O2 and with the
-// address and undefined behavior sanitizers, every finding fatal, and
+// address and undefined behavior sanitizers at -O0 and -O1, every finding
+// fatal, and
 // checks every check passes: clang sees no expression nested deeper than
 // it can parse, and the values, wrapping and order are Tack's. Every
 // other level is built from the example (see
 // TestDeepExpressionsExampleRuns).
 func TestDeepExpressionsRun(t *testing.T) {
 	if testing.Short() {
-		t.Skip("builds a large program three times")
+		t.Skip("builds a large program four times")
 	}
 	prog := bigDeepProgram(t)
 	for _, flags := range [][]string{
 		{"-O0"},
 		{"-O2"},
-		{"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+		{"-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
+		{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
 	} {
 		t.Run(strings.Join(flags, " "), func(t *testing.T) {
 			start := time.Now()

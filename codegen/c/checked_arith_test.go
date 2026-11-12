@@ -21,17 +21,19 @@ func runArithmeticExample(t *testing.T, name string) {
 	if strings.Contains(want, "FAIL") {
 		t.Fatalf("examples/%s/output expects a check to fail", name)
 	}
-	bin := buildWithStd(t, src, "-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all")
-	var stderr strings.Builder
-	cmd := exec.Command(bin)
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("%s failed: %v\n%s\nstderr:\n%s", name, err, out, stderr.String())
-	}
-	if string(out) != want {
-		t.Errorf("%s wrote\n%q\nwant\n%q", name, out, want)
-	}
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildWithStd(t, src, flags...)
+		var stderr strings.Builder
+		cmd := exec.Command(bin)
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("%s failed: %v\n%s\nstderr:\n%s", name, err, out, stderr.String())
+		}
+		if string(out) != want {
+			t.Errorf("%s wrote\n%q\nwant\n%q", name, out, want)
+		}
+	})
 }
 
 // TestCheckedArithmeticExampleIsSanitizerClean runs examples/checked-arithmetic:

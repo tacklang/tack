@@ -174,7 +174,7 @@ func TestThousandNestedTypes(t *testing.T) {
 	src := nestProgram(1000)
 	for _, flags := range [][]string{
 		{"-O0"},
-		{"-O0", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+		{"-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
 	} {
 		t.Run(strings.Join(flags, " "), func(t *testing.T) {
 			runChecks(t, buildWithStdAndC(t, src, nestLive, flags...), 6)

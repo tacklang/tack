@@ -1,7 +1,9 @@
 package c_test
 
 import (
+	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -19,6 +21,16 @@ import (
 // written without it; in a build without the sanitizers it changes
 // nothing a program in bounds can observe.
 var strictCFlags = []string{"-std=c11", "-Wall", "-Wextra", "-Werror", "-fstrict-flex-arrays=3"}
+
+// useAfterReturn follows -fsanitize=address in every build that turns the
+// address sanitizer on. It gives every function's locals and parameters a
+// frame of their own, poisoned once the function returns, so a read
+// through a pointer into them after the return is reported whatever
+// ASAN_OPTIONS says: without it the check runs only while
+// detect_stack_use_after_return is on, which a run's environment can
+// turn off (see TestSanitizersCatchUseAfterReturn). It is not in
+// strictCFlags, since clang takes it only with -fsanitize=address.
+const useAfterReturn = "-fsanitize-address-use-after-return=always"
 
 // strayIndexSrc reads its [3]int64 parameter at an index the type checker
 // proves in range; TestSanitizersCatchIndexPastAnArray edits the C it
@@ -56,7 +68,7 @@ func TestSanitizersCatchIndexPastAnArray(t *testing.T) {
 	code = strings.Replace(code, read, "p_a.e[p_i + 48]", 1)
 
 	for _, flags := range [][]string{
-		{"-O0", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+		{"-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
 		sanitizers,
 	} {
 		t.Run(flags[0], func(t *testing.T) {
@@ -70,4 +82,109 @@ func TestSanitizersCatchIndexPastAnArray(t *testing.T) {
 			}
 		})
 	}
+}
+
+// danglingViewC returns a view of its by-value array parameter, which
+// ends with the call, and reads through it after the call returns, as
+// accepted Tack code must never do: with no argument through dangling,
+// which clang may inline, and with one through danglingOutOfLine, which it
+// may not.
+const danglingViewC = `#include <stdint.h>
+#include <stdio.h>
+
+typedef struct {
+    int64_t e[3];
+} array3;
+
+typedef struct {
+    int64_t *ptr;
+    int64_t len;
+} view;
+
+static view dangling(array3 a) {
+    return (view){a.e, 3};
+}
+
+__attribute__((noinline)) static view danglingOutOfLine(array3 a) {
+    return (view){a.e, 3};
+}
+
+int main(int argc, char **argv) {
+    (void)argv;
+    const array3 a = {{1, 2, 3}};
+    view v = argc > 1 ? danglingOutOfLine(a) : dangling(a);
+    printf("%lld\n", (long long)v.ptr[2]);
+    return 0;
+}
+`
+
+// TestSanitizersCatchUseAfterReturn builds danglingViewC under the
+// sanitizer builds the runtime tests use and checks the address sanitizer
+// stops the program at the read through the dangling view: the out of
+// line call at -O0, -O1 and -O2, the inlinable one at -O0. The program
+// runs with detect_stack_use_after_return=0 in ASAN_OPTIONS, so the
+// catch holds only because the builds take useAfterReturn, which turns
+// the check on whatever the environment says. At -O1 and above clang
+// inlines dangling and folds its parameter into the caller's array,
+// which lives on, so no build can catch that read; that is why every
+// sanitizer build runs at -O0 as well (see atO0Too).
+func TestSanitizersCatchUseAfterReturn(t *testing.T) {
+	cases := []struct {
+		name   string
+		levels []string
+		args   []string
+	}{
+		{"inlinable", []string{"-O0"}, nil},
+		{"out of line", []string{"-O0", "-O1", "-O2"}, []string{"out-of-line"}},
+	}
+	for _, tc := range cases {
+		for _, level := range tc.levels {
+			t.Run(tc.name+"/"+level, func(t *testing.T) {
+				flags := append([]string{level}, sanitizers[1:]...)
+				cmd := exec.Command(buildCWith(t, danglingViewC, flags...), tc.args...)
+				cmd.Env = append(os.Environ(), "ASAN_OPTIONS=detect_stack_use_after_return=0")
+				out, err := cmd.CombinedOutput()
+				if err == nil {
+					t.Fatalf("the program read through a dangling view and exited 0:\n%s", out)
+				}
+				const want = "AddressSanitizer: stack-use-after-return"
+				if !strings.Contains(string(out), want) {
+					t.Errorf("output does not report %q: %v\n%s", want, err, out)
+				}
+			})
+		}
+	}
+}
+
+// atO0Too runs check in a subtest under flags and, when flags build above
+// -O0, in a subtest before it under the same flags at -O0, named for the
+// level each builds at. At -O1 and above clang inlines a small function
+// and can fold its by-value parameter into the caller's copy, which
+// lives on, so a pointer into the parameter kept past the call reads live
+// memory and the address sanitizer has nothing to report; at -O0 the
+// parameter is the callee's own and the read is reported (see
+// TestSanitizersCatchUseAfterReturn). Every build that turns the address
+// sanitizer on at a higher level runs through atO0Too, or lists an -O0
+// row of its own.
+func atO0Too(t *testing.T, flags []string, check func(t *testing.T, flags []string)) {
+	t.Helper()
+	runs := [][]string{flags}
+	if i := slices.IndexFunc(flags, isLevel); i >= 0 && flags[i] != "-O0" {
+		o0 := slices.Clone(flags)
+		o0[i] = "-O0"
+		runs = [][]string{o0, flags}
+	}
+	for _, run := range runs {
+		level := "-O0"
+		if i := slices.IndexFunc(run, isLevel); i >= 0 {
+			level = run[i]
+		}
+		t.Run(level, func(t *testing.T) { check(t, run) })
+	}
+}
+
+// isLevel reports whether flag is one of clang's optimization levels, as
+// -O0 or -O2.
+func isLevel(flag string) bool {
+	return strings.HasPrefix(flag, "-O")
 }

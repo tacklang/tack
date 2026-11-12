@@ -144,14 +144,16 @@ func printfExample(t *testing.T) (src, want string) {
 // pointer moved, fails the run, and checks it writes exactly its output.
 func TestPrintfExampleIsSanitizerClean(t *testing.T) {
 	src, want := printfExample(t)
-	bin := buildWithStd(t, src, "-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all")
-	out, err := exec.Command(bin).Output()
-	if err != nil {
-		t.Fatalf("printf failed: %v\n%s", err, out)
-	}
-	if string(out) != want {
-		t.Errorf("printf wrote\n%q\nwant\n%q", out, want)
-	}
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildWithStd(t, src, flags...)
+		out, err := exec.Command(bin).Output()
+		if err != nil {
+			t.Fatalf("printf failed: %v\n%s", err, out)
+		}
+		if string(out) != want {
+			t.Errorf("printf wrote\n%q\nwant\n%q", out, want)
+		}
+	})
 }
 
 // TestAnyViewsExampleIsSanitizerClean builds examples/any-views with
@@ -164,14 +166,16 @@ func TestAnyViewsExampleIsSanitizerClean(t *testing.T) {
 	dir := filepath.Join("..", "..", "examples", "any-views")
 	src := readFile(t, filepath.Join(dir, "main.tck"))
 	want := readFile(t, filepath.Join(dir, "output"))
-	bin := buildWithStd(t, src, "-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all")
-	out, err := exec.Command(bin).Output()
-	if err != nil {
-		t.Fatalf("any-views failed: %v\n%s", err, out)
-	}
-	if string(out) != want {
-		t.Errorf("any-views wrote\n%q\nwant\n%q", out, want)
-	}
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildWithStd(t, src, flags...)
+		out, err := exec.Command(bin).Output()
+		if err != nil {
+			t.Fatalf("any-views failed: %v\n%s", err, out)
+		}
+		if string(out) != want {
+			t.Errorf("any-views wrote\n%q\nwant\n%q", out, want)
+		}
+	})
 }
 
 // TestFmtWriteExampleIsSanitizerClean builds examples/fmt-write with
@@ -183,23 +187,25 @@ func TestFmtWriteExampleIsSanitizerClean(t *testing.T) {
 	dir := filepath.Join("..", "..", "examples", "fmt-write")
 	src := readFile(t, filepath.Join(dir, "main.tck"))
 	want := readFile(t, filepath.Join(dir, "output"))
-	bin := buildWithStd(t, src, "-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all")
-	out, err := exec.Command(bin).Output()
-	if err != nil {
-		t.Fatalf("fmt-write failed: %v", err)
-	}
-	const big = 1 << 20
-	if len(out) != len(want)+big {
-		t.Fatalf("fmt-write wrote %d bytes, want %d", len(out), len(want)+big)
-	}
-	if string(out[:len(want)]) != want {
-		t.Errorf("fmt-write wrote\n%q\nwant\n%q", out[:len(want)], want)
-	}
-	for i := range big {
-		if got := out[len(want)+i]; got != byte(i%251) {
-			t.Fatalf("byte %d of the large write is %#x, want %#x", i, got, byte(i%251))
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildWithStd(t, src, flags...)
+		out, err := exec.Command(bin).Output()
+		if err != nil {
+			t.Fatalf("fmt-write failed: %v", err)
 		}
-	}
+		const big = 1 << 20
+		if len(out) != len(want)+big {
+			t.Fatalf("fmt-write wrote %d bytes, want %d", len(out), len(want)+big)
+		}
+		if string(out[:len(want)]) != want {
+			t.Errorf("fmt-write wrote\n%q\nwant\n%q", out[:len(want)], want)
+		}
+		for i := range big {
+			if got := out[len(want)+i]; got != byte(i%251) {
+				t.Fatalf("byte %d of the large write is %#x, want %#x", i, got, byte(i%251))
+			}
+		}
+	})
 }
 
 // TestBytesExampleIsSanitizerClean builds examples/bytes, its C file and
@@ -220,25 +226,25 @@ func TestBytesExampleIsSanitizerClean(t *testing.T) {
 	if strings.Contains(want, "FAIL") {
 		t.Fatal("examples/bytes/output expects a check to fail")
 	}
-	bin := buildWithStdAndC(
-		t,
-		src,
-		csrc,
-		"-O1",
-		"-fsanitize=address,undefined",
-		"-fno-sanitize-recover=all",
-	)
-	var stderr strings.Builder
-	cmd := exec.Command(bin)
-	cmd.Env = append(os.Environ(), "ASAN_OPTIONS=allocator_may_return_null=1")
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("bytes failed: %v\n%s\nstderr:\n%s", err, out, stderr.String())
-	}
-	if string(out) != want {
-		t.Errorf("bytes wrote\n%q\nwant\n%q", out, want)
-	}
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildWithStdAndC(
+			t,
+			src,
+			csrc,
+			flags...,
+		)
+		var stderr strings.Builder
+		cmd := exec.Command(bin)
+		cmd.Env = append(os.Environ(), "ASAN_OPTIONS=allocator_may_return_null=1")
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("bytes failed: %v\n%s\nstderr:\n%s", err, out, stderr.String())
+		}
+		if string(out) != want {
+			t.Errorf("bytes wrote\n%q\nwant\n%q", out, want)
+		}
+	})
 }
 
 // intCase is one integer printf is given: its Tack type, the Tack
@@ -394,20 +400,20 @@ func TestPrintfMarkersMatchGo(t *testing.T) {
 		want.WriteString(mc.goal + "\n")
 	}
 	src.WriteString("}\n")
-	bin := buildWithStd(
-		t,
-		src.String(),
-		"-O1",
-		"-fsanitize=address,undefined",
-		"-fno-sanitize-recover=all",
-	)
-	out, err := exec.Command(bin).Output()
-	if err != nil {
-		t.Fatalf("running: %v", err)
-	}
-	if string(out) != want.String() {
-		t.Errorf("got\n%s\nwant\n%s", out, want.String())
-	}
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		bin := buildWithStd(
+			t,
+			src.String(),
+			flags...,
+		)
+		out, err := exec.Command(bin).Output()
+		if err != nil {
+			t.Fatalf("running: %v", err)
+		}
+		if string(out) != want.String() {
+			t.Errorf("got\n%s\nwant\n%s", out, want.String())
+		}
+	})
 }
 
 // harnessHeader stands in for a program's tack.h for a C file that calls
@@ -459,28 +465,30 @@ int main(void) {
 }
 `)
 	bin := filepath.Join(dir, "harness")
-	args := append(slices.Clone(strictCFlags),
-		"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
-		"-I", dir, "-I", stdtest.IncludeDir(), "-o", bin, harness,
-		filepath.Join(stdtest.Dir(), "fmt", "printf.c"),
-	)
-	if msg, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
-		t.Fatalf("clang: %v\n%s", err, msg)
-	}
-	out, err := exec.Command(bin).Output()
-	if err != nil {
-		t.Fatalf("harness failed: %v\n%s", err, out)
-	}
-	want := "%!d(invalid) %!v(invalid) 5|" +
-		"|%!(EXTRA invalid, invalid)" +
-		"%!(EXTRA int64=5)" +
-		"%!d(MISSING)" +
-		"|[] [%!v([]int64)] %!v(invalid) %!v(MISSING)" +
-		"|%!(EXTRA []uint8=, []int64, invalid, []uint8=)" +
-		"|1.5 %!d(float32=0.5)"
-	if string(out) != want {
-		t.Errorf("got %q, want %q", out, want)
-	}
+	atO0Too(t, []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}, func(t *testing.T, flags []string) {
+		args := append(slices.Clone(strictCFlags), flags...)
+		args = append(args,
+			"-I", dir, "-I", stdtest.IncludeDir(), "-o", bin, harness,
+			filepath.Join(stdtest.Dir(), "fmt", "printf.c"),
+		)
+		if msg, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
+			t.Fatalf("clang: %v\n%s", err, msg)
+		}
+		out, err := exec.Command(bin).Output()
+		if err != nil {
+			t.Fatalf("harness failed: %v\n%s", err, out)
+		}
+		want := "%!d(invalid) %!v(invalid) 5|" +
+			"|%!(EXTRA invalid, invalid)" +
+			"%!(EXTRA int64=5)" +
+			"%!d(MISSING)" +
+			"|[] [%!v([]int64)] %!v(invalid) %!v(MISSING)" +
+			"|%!(EXTRA []uint8=, []int64, invalid, []uint8=)" +
+			"|1.5 %!d(float32=0.5)"
+		if string(out) != want {
+			t.Errorf("got %q, want %q", out, want)
+		}
+	})
 }
 
 // anyHelpersUse calls every unpack helper of std's tack.h, and

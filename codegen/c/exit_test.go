@@ -12,8 +12,10 @@ import (
 )
 
 // sanitizers are clang's flags for the address and undefined behavior
-// sanitizers, every finding fatal.
-var sanitizers = []string{"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"}
+// sanitizers at -O1, every finding fatal, a read through a pointer into
+// a returned function's frame among them; a test builds with them
+// through atO0Too, so it runs at -O0 as well.
+var sanitizers = []string{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"}
 
 // runStatus runs bin and returns what it wrote to stdout and its exit
 // status, failing the test when it could not be run at all.
@@ -46,10 +48,12 @@ func TestExitFreesExampleIsSanitizerClean(t *testing.T) {
 	if strings.Contains(want, "FAIL") {
 		t.Fatal("examples/exit-frees/output expects a check to fail")
 	}
-	out, code := runStatus(t, buildWithStdAndC(t, src, csrc, sanitizers...))
-	if out != want || code != 3 {
-		t.Errorf("wrote\n%s\nand exited %d, want\n%s\nand 3", out, code, want)
-	}
+	atO0Too(t, sanitizers, func(t *testing.T, flags []string) {
+		out, code := runStatus(t, buildWithStdAndC(t, src, csrc, flags...))
+		if out != want || code != 3 {
+			t.Errorf("wrote\n%s\nand exited %d, want\n%s\nand 3", out, code, want)
+		}
+	})
 }
 
 // exitPathPrelude declares the hooks of examples/exit-frees/live.c, whose
@@ -107,10 +111,12 @@ func TestNothingLiveAtProcessEndOnEveryPath(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			src := exitPathPrelude + "func main() {\n" + tc.main + "}\n"
-			out, code := runStatus(t, buildWithStdAndC(t, src, csrc, sanitizers...))
-			if out != end || code != tc.code {
-				t.Errorf("wrote %q and exited %d, want %q and %d", out, code, end, tc.code)
-			}
+			atO0Too(t, sanitizers, func(t *testing.T, flags []string) {
+				out, code := runStatus(t, buildWithStdAndC(t, src, csrc, flags...))
+				if out != end || code != tc.code {
+					t.Errorf("wrote %q and exited %d, want %q and %d", out, code, end, tc.code)
+				}
+			})
 		})
 	}
 }
@@ -277,15 +283,17 @@ func TestAllocatorTracksEveryBuffer(t *testing.T) {
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skipf("%v", err)
 	}
-	dir := t.TempDir()
-	main := filepath.Join(dir, "main.c")
-	writeFile(t, main, allocatorTest)
-	bin := filepath.Join(dir, "alloc")
-	args := append(slices.Clone(strictCFlags), sanitizers...)
-	args = append(args, "-I", stdtest.IncludeDir(), "-o", bin, main,
-		stdtest.RuntimeCFile("list.c"))
-	if out, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
-		t.Fatalf("clang: %v\n%s", err, out)
-	}
-	runChecks(t, bin, 9)
+	atO0Too(t, sanitizers, func(t *testing.T, flags []string) {
+		dir := t.TempDir()
+		main := filepath.Join(dir, "main.c")
+		writeFile(t, main, allocatorTest)
+		bin := filepath.Join(dir, "alloc")
+		args := append(slices.Clone(strictCFlags), flags...)
+		args = append(args, "-I", stdtest.IncludeDir(), "-o", bin, main,
+			stdtest.RuntimeCFile("list.c"))
+		if out, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
+			t.Fatalf("clang: %v\n%s", err, out)
+		}
+		runChecks(t, bin, 9)
+	})
 }

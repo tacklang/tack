@@ -250,10 +250,12 @@ func TestArenaFreedAtExit(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			src := exitPathPrelude + "type Holder struct {\n    a arena[int64]\n}\n\n" +
 				"func main() {\n" + tc.main + "}\n"
-			out, code := runStatus(t, buildWithStdAndC(t, src, csrc, sanitizers...))
-			if out != end || code != tc.code {
-				t.Errorf("wrote %q and exited %d, want %q and %d", out, code, end, tc.code)
-			}
+			atO0Too(t, sanitizers, func(t *testing.T, flags []string) {
+				out, code := runStatus(t, buildWithStdAndC(t, src, csrc, flags...))
+				if out != end || code != tc.code {
+					t.Errorf("wrote %q and exited %d, want %q and %d", out, code, end, tc.code)
+				}
+			})
 		})
 	}
 }

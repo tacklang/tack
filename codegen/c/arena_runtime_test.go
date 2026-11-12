@@ -275,26 +275,28 @@ func main() {
 // by SIGABRT: the abort releases every allocator, as exit does, and an
 // arena's buffers are its allocator's.
 func TestArenaFreedAtUnreachable(t *testing.T) {
-	bin := buildWithStdAndC(t, arenaAbortSrc, arenaAbortC, sanitizers...)
-	cmd := exec.CommandContext(t.Context(), bin)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	err := cmd.Run()
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) {
-		t.Fatalf("ran with %v, want an abort", err)
-	}
-	status, ok := exitErr.Sys().(syscall.WaitStatus)
-	if !ok || !status.Signaled() || status.Signal() != syscall.SIGABRT {
-		t.Errorf("ended with %v, want SIGABRT", exitErr)
-	}
-	if want := "held\nlive 0\n"; stdout.String() != want {
-		t.Errorf(
-			"stdout %q, want %q: the abort did not free every arena's buffers",
-			stdout.String(),
-			want,
-		)
-	}
+	atO0Too(t, sanitizers, func(t *testing.T, flags []string) {
+		bin := buildWithStdAndC(t, arenaAbortSrc, arenaAbortC, flags...)
+		cmd := exec.CommandContext(t.Context(), bin)
+		var stdout bytes.Buffer
+		cmd.Stdout = &stdout
+		err := cmd.Run()
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("ran with %v, want an abort", err)
+		}
+		status, ok := exitErr.Sys().(syscall.WaitStatus)
+		if !ok || !status.Signaled() || status.Signal() != syscall.SIGABRT {
+			t.Errorf("ended with %v, want SIGABRT", exitErr)
+		}
+		if want := "held\nlive 0\n"; stdout.String() != want {
+			t.Errorf(
+				"stdout %q, want %q: the abort did not free every arena's buffers",
+				stdout.String(),
+				want,
+			)
+		}
+	})
 }
 
 // arenaBorrowMain runs, as accepted programs, the safe forms of what an

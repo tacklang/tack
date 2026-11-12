@@ -18,8 +18,8 @@ func TestMapsExampleIsSanitizerClean(t *testing.T) {
 	src, csrc := exampleFiles(t, "maps", "live.c")
 	for _, flags := range [][]string{
 		{"-O2"},
-		{"-O0", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
-		{"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+		{"-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
+		{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
 	} {
 		t.Run(filepath.Join(flags...), func(t *testing.T) {
 			runChecks(t, buildWithStdAndC(t, src, csrc, flags...), 19)
@@ -39,8 +39,8 @@ func TestMapHasExampleIsSanitizerClean(t *testing.T) {
 	src, csrc := exampleFiles(t, "map-has", "live.c")
 	for _, flags := range [][]string{
 		{"-O2"},
-		{"-O0", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
-		{"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+		{"-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
+		{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
 	} {
 		t.Run(filepath.Join(flags...), func(t *testing.T) {
 			runChecks(t, buildWithStdAndC(t, src, csrc, flags...), 16)
@@ -59,8 +59,8 @@ func TestMapZeroExampleIsSanitizerClean(t *testing.T) {
 	src, csrc := exampleFiles(t, "map-zero", "live.c")
 	for _, flags := range [][]string{
 		{"-O2"},
-		{"-O0", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
-		{"-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"},
+		{"-O0", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
+		{"-O1", "-fsanitize=address,undefined", useAfterReturn, "-fno-sanitize-recover=all"},
 	} {
 		t.Run(filepath.Join(flags...), func(t *testing.T) {
 			runChecks(t, buildWithStdAndC(t, src, csrc, flags...), 9)
@@ -166,7 +166,7 @@ func TestMapCompositeKeysFindEqualKeys(t *testing.T) {
 					t,
 					compositeKeys,
 					level,
-					"-fsanitize=address,undefined",
+					"-fsanitize=address,undefined", useAfterReturn,
 					"-fno-sanitize-recover=all",
 				),
 				6,
