@@ -1,0 +1,6 @@
+decode ok
+valid ok
+append_rune ok
+append_rune out of memory ok
+round trip ok
+classes ok

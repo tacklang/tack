@@ -1,0 +1,93 @@
+package unicode
+
+// Package unicode classifies runes as Go's unicode package does. A
+// program imports it as
+//
+//     import unicode from "std/unicode"
+//
+// and the compiler reads it from $TACK_HOME/src/std/unicode, or
+// ~/.tack/src/std/unicode, as it reads std/bytes. It is written in Tack
+// alone, with no C, allocates nothing and cannot fail.
+//
+// A rune is an int32, as in std/utf8. is_print, is_graphic, is_letter,
+// is_digit and is_space each answer for any int32 exactly as Go's
+// unicode.IsPrint, IsGraphic, IsLetter, IsDigit and IsSpace do, Latin-1
+// included, and false for a negative value or one past 0x10FFFF, which
+// is no rune. The surrogates, unassigned runes and private-use runes are
+// in no class.
+//
+// The tables are in tables.tck, which internal/unicodegen writes from
+// the Go unicode package that ran it, `make unicode-tables`, and names
+// that package's Unicode version; a test fails while the committed file
+// differs from what the installed Go would write. Each class is an array
+// of runs of consecutive runes, a first rune and a last, in ascending
+// order, searched by halves: at most 10 steps for a class of 741 runs.
+
+// max_rune is the largest rune, U+10FFFF.
+var max_rune int32 = 0x10FFFF
+
+// in_runs reports whether r is in one of the runs of t: t holds pairs,
+// each a first rune and a last, in ascending order with a gap between
+// each two, as tables.tck writes them. It searches by halves over the
+// pairs, lo to hi being those still in question.
+//
+// lo and hi stay from 0 to len(t) / 2, and mid between them, so 2 * mid
+// + 1 is below len(t) and no step wraps; nothing proves that to the
+// checker, so the arithmetic wraps, +% and *%, and the reads are in the
+// checked form, whose ok is always true.
+func in_runs(r int32, t []int32) bool {
+    if r < 0 || r > max_rune {
+        return false
+    }
+    mut lo int64 = 0
+    mut hi int64 = len(t) / 2
+    for lo < hi {
+        mid := lo +% (hi -% lo) / 2
+        first, ok := t[mid *% 2]
+        last, ok2 := t[mid *% 2 +% 1]
+        if !ok || !ok2 {
+            return false
+        }
+        if r < first {
+            hi = mid
+        } else if r > last {
+            lo = mid +% 1
+        } else {
+            return true
+        }
+    }
+    return false
+}
+
+// is_print reports whether r is printable, as Go's unicode.IsPrint does:
+// a letter, mark, number, punctuation or symbol, or U+0020, the one
+// space it counts. strconv's quoting keeps such a rune as it is.
+pub func is_print(r int32) bool {
+    return in_runs(r, print_runs)
+}
+
+// is_graphic reports whether r is graphic, as Go's unicode.IsGraphic
+// does: what is_print holds for, and every space of category Zs, such
+// as U+00A0 and U+3000.
+pub func is_graphic(r int32) bool {
+    return in_runs(r, graphic_runs)
+}
+
+// is_letter reports whether r is a letter, category L, as Go's
+// unicode.IsLetter does.
+pub func is_letter(r int32) bool {
+    return in_runs(r, letter_runs)
+}
+
+// is_digit reports whether r is a decimal digit, category Nd, as Go's
+// unicode.IsDigit does: '0' to '9', and the digits of other scripts.
+pub func is_digit(r int32) bool {
+    return in_runs(r, digit_runs)
+}
+
+// is_space reports whether r is white space, as Go's unicode.IsSpace
+// does: '\t', '\n', '\v', '\f', '\r', ' ', U+0085, U+00A0, and the other
+// runes of the White_Space property.
+pub func is_space(r int32) bool {
+    return in_runs(r, space_runs)
+}

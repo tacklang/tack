@@ -1299,3 +1299,52 @@ go another way:
   order the package does not specify. Nothing detects such a function.
 - There is no `sort.reverse`, no key function, no binary search and no
   sorting of views (a view is read-only).
+
+## std/utf8
+
+`std/utf8` follows Go's `unicode/utf8` for what `tack --lex`'s quoting
+needs. These points were settled by consistency and could go another
+way:
+
+- The package is `std/utf8`, a new one, in Tack alone, and a rune is an
+  `int32`, as in Go; Tack has no `rune` type or alias.
+- The functions are `decode(s []uint8) (int32, int64)`, `valid(s
+  []uint8) bool` and `append_rune(mut out list[uint8], r int32) error`:
+  views in, a list out, as std/bytes and std/conv take them, and the
+  width an `int64`, as a length is. There is no `decode_last`,
+  `rune_len`, `rune_count`, `full_rune`, `valid_rune` or encoding into
+  an array yet, and no `pub` constant for U+FFFD, U+10FFFF or the
+  largest width: a caller writes `0xFFFD`.
+- Invalid input decodes as Go's does, 0xFFFD and width 1, and an empty
+  view as 0xFFFD and width 0. A caller tells invalid input from U+FFFD
+  written out by the width, as in Go; there is no error result.
+- `append_rune` is all or nothing, as the builtin append is, and its
+  error is the builtin's, `error{code: 1, msg: "out of memory"}`.
+
+## std/unicode
+
+`std/unicode` classifies runes as Go's `unicode` package does, from
+tables generated from Go's own. These points were settled by
+consistency and could go another way:
+
+- It is a package of its own, `std/unicode`, as in Go, rather than part
+  of std/utf8: classification and encoding are separate concerns, and a
+  program that only decodes does not carry the tables.
+- The functions are `is_print`, `is_graphic`, `is_letter`, `is_digit`
+  and `is_space`, each `(r int32) bool`, the classes the compiler's own
+  Go asks of `unicode` today. There is no `is_upper`, `is_lower`,
+  `is_punct`, `is_mark`, `is_number`, `is_control`, `to_upper`,
+  `to_lower`, no general categories, scripts or properties as tables,
+  and no `pub` Unicode version, though the generated file names it.
+- The tables follow the Go that generates them. `internal/unicodegen`
+  writes them by asking Go's `unicode.IsPrint` and the others of every
+  rune, so Go's Latin-1 rules are folded in; a test fails while the
+  committed file differs from what the installed Go writes, so a Go
+  upgrade that changes Unicode is caught and the tables are regenerated
+  with `make unicode-tables`. Unicode is 17.0.0 today, Go 1.27's.
+- Each class is a sorted array of runs of consecutive runes, searched by
+  halves, without Go's strides or its Latin-1 table: about 18 KB of
+  globals for the five in the C of every program importing
+  std/unicode, all counted toward its globals.
+  Clang drops a table no code reaches, so only the classes a program
+  calls reach its binary.

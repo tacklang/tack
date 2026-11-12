@@ -8,7 +8,7 @@ BIN := bin/tack
 BUILTIN_DOC := builtin/builtin.tck
 RUNTIME_HEADER := builtin/runtime/tack/tack.h
 
-.PHONY: build install install-std std-copies test fuzz-progen fmt lint
+.PHONY: build install install-std std-copies unicode-tables test fuzz-progen fmt lint
 
 # build compiles the compiler into $(BIN).
 build:
@@ -48,6 +48,13 @@ install-std:
 std-copies:
 	cp $(BUILTIN_DOC) src/std/builtin/builtin.tck
 	cp $(RUNTIME_HEADER) src/std/include/tack/tack.h
+
+# unicode-tables rewrites std/unicode's tables, src/std/unicode/tables.tck,
+# from the unicode package of the Go that runs it. A test of
+# internal/unicodegen fails while the committed file differs from what
+# that Go would write.
+unicode-tables:
+	go run ./internal/unicodegen src/std/unicode/tables.tck
 
 # test runs every test in the module, including the golden tests and the tests
 # that compile and run generated C, which need clang on PATH.
