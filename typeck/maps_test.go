@@ -80,7 +80,7 @@ func TestRejectsMaps(t *testing.T) {
 		},
 		{
 			"a dropped put", mapProgram("mut m map[int64]int64", "put(mut m, 1, 2)"),
-			"the error put returns cannot be dropped; bind it, as in err := put(...)",
+			"the error put returns cannot be discarded; bind it, as in err := put(...)",
 		},
 		{
 			"a range changing its map", mapProgram("mut m map[int64]int64", "for k := range m {", "    delete(mut m, k)", "}"),

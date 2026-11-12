@@ -16,7 +16,7 @@ import (
 //
 //   - the error is its last result: an error anywhere else in a result
 //     list is reported where it is written (checkErrorLast);
-//   - a call's error cannot be dropped: a call statement that returns
+//   - a call's error cannot be discarded: a call statement that returns
 //     one, and a binding that puts _ where the error goes, are reported
 //     (droppedError, checkErrorBinding);
 //   - the other results a binding takes beside the error, v in
@@ -159,7 +159,7 @@ func (c *Checker) checkErrorLast(fn *ast.Func) {
 // droppedError reports e, a call statement, when its callee returns an
 // error, which a call statement drops, with the binding that would keep
 // it: err := f(...), with a name for each result before the error that
-// cannot be dropped either, x, y, z, then x4, x5 and so on, in order, and
+// cannot be discarded either, x, y, z, then x4, x5 and so on, in order, and
 // a _ for each other (see bindingNames). append and reserve return an
 // error alone, which their calls check: one whose arguments were wrong
 // has no type, and is not reported again.
@@ -172,7 +172,7 @@ func (c *Checker) droppedError(e ast.Expr) {
 		if call.Type == types.Error {
 			id, _ := call.Fn.(*ast.Ident)
 			c.errorf(call.Spanned(),
-				"the error %s returns cannot be dropped; bind it, as in err := %s(...)",
+				"the error %s returns cannot be discarded; bind it, as in err := %s(...)",
 				id.Name, id.Name)
 		}
 		return
@@ -186,7 +186,9 @@ func (c *Checker) droppedError(e ast.Expr) {
 	if len(results) != len(fn.ResultTypes) {
 		results = fn.ResultTypes
 	}
-	c.errorf(call.Spanned(), "the error %s returns cannot be dropped; bind it, as in %s := %s(...)",
+	c.errorf(
+		call.Spanned(),
+		"the error %s returns cannot be discarded; bind it, as in %s := %s(...)",
 		name, c.bindingNames(results), c.callText(call))
 }
 
@@ -224,7 +226,7 @@ func (c *Checker) checkErrorBinding(value ast.Expr, blank []bool, spans []ast.Sp
 		c.checkOkBinding(value.(*ast.Call), name, blank, spans)
 	case blank[len(blank)-1]:
 		c.errorf(spans[len(spans)-1],
-			"the error %s returns cannot be dropped; bind it to a variable instead of _", name)
+			"the error %s returns cannot be discarded; bind it to a variable instead of _", name)
 	}
 }
 
@@ -234,7 +236,7 @@ func (c *Checker) checkErrorBinding(value ast.Expr, blank []bool, spans []ast.Sp
 // slice, a conversion, a type assertion, or pop, remove or delete. The ok
 // is the check the checked form exists for, and dropping it reads a value
 // that may be the zero value standing in for one there is not, as an
-// error cannot be dropped. Binding both to _ is its own error (see
+// error cannot be discarded. Binding both to _ is its own error (see
 // nothingBound), and a pop, remove or delete whose element cannot be read
 // until its ok is checked says so instead (see checkOkBinding).
 func (c *Checker) checkOkDropped(value ast.Expr, blank []bool, spans []ast.Span) {
@@ -246,7 +248,7 @@ func (c *Checker) checkOkDropped(value ast.Expr, blank []bool, spans []ast.Span)
 	}
 	c.errorf(
 		spans[1],
-		"the ok %s gives cannot be dropped; bind it to a variable instead of _",
+		"the ok %s gives cannot be discarded; bind it to a variable instead of _",
 		c.text(value.Spanned()),
 	)
 }
@@ -289,7 +291,7 @@ func (c *Checker) checkOkBinding(call *ast.Call, name string, blank []bool, span
 	case !blank[0] && blank[1] && !c.table.HasZero(elem):
 		c.errorf(
 			spans[1],
-			"the ok %s returns cannot be dropped: %s cannot be read until it is checked; "+
+			"the ok %s returns cannot be discarded: %s cannot be read until it is checked; "+
 				"bind it to a variable instead of _",
 			name,
 			c.text(spans[0]),

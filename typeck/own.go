@@ -61,7 +61,7 @@ func (c *Checker) ownParamType(param *ast.Param, typ types.Type) types.Type {
 			"an any cannot be an own parameter: it only borrows the value it holds")
 	case !c.table.Owned(typ):
 		c.errorf(param.OwnSpan,
-			"%s cannot be an own parameter: it owns no list or map, so it is copied; drop own",
+			"%s cannot be an own parameter: it owns no list or map, so it is copied; remove own",
 			c.typeName(typ))
 	default:
 		return typ

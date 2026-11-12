@@ -12,7 +12,8 @@ import (
 // one (types.Table.Owned), has one owner, the variable holding it, which
 // frees it when its block ends. So it is never copied: assigning it,
 // declaring a variable with it, returning it or writing it as a struct
-// literal's field, or passing it to an own parameter, moves it, and the
+// literal's field, passing it to an own parameter, or dropping it,
+// drop(own x), which frees it at once (see drop.go), moves it, and the
 // variable it came from cannot be used again until it is assigned a new
 // value. An own parameter owns its value as a local variable does, and is
 // followed as one, though it is never assigned. A plain parameter of an
@@ -569,15 +570,15 @@ func (m *mover) droppedResults(value ast.Expr, blank []bool, spans []ast.Span) {
 // holding one by its type and what it holds.
 func (c *Checker) droppedName(typ types.Type) string {
 	if c.table.IsList(typ) || c.table.IsMap(typ) {
-		return c.typeName(typ) + ", which cannot be dropped"
+		return c.typeName(typ) + ", which cannot be discarded"
 	}
 	if c.table.IsTypeParam(typ) {
-		return c.typeName(typ) + ", which may hold a list and cannot be dropped"
+		return c.typeName(typ) + ", which may hold a list and cannot be discarded"
 	}
 	if !c.table.HoldsList(typ) {
-		return c.typeName(typ) + ", which holds a map and cannot be dropped"
+		return c.typeName(typ) + ", which holds a map and cannot be discarded"
 	}
-	return c.typeName(typ) + ", which holds a list and cannot be dropped"
+	return c.typeName(typ) + ", which holds a list and cannot be discarded"
 }
 
 // exprStmt follows e, an expression statement, which drops its value, or

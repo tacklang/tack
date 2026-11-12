@@ -3,7 +3,7 @@
 This chapter describes every builtin function, with its signature,
 what it does and when it fails: `print`, `exit`, `len`, `make`, the list
 operations (`append`, its spread form, `reserve`, `pop`, `remove` and
-the rest), the map operations, and the generic builtins. It follows
+the rest), the map operations, `drop`, and the generic builtins. It follows
 [builtin/builtin.tck](../../builtin/builtin.tck), which documents each
 builtin in the compiler's own source. `true`, `false`, `noerror` and
 `c_allocator` are keywords, not builtins: `noerror` belongs in
@@ -158,7 +158,7 @@ overflow an `int64`, returns `error{code: 1, msg: "out of memory"}` and
 leaves `l` as it was, all or nothing. It takes any number of values,
 none included, `append(mut l, a, b, c)`, or a view spread whole,
 `append(mut l, v...)`, never a view of `l` itself. Its error cannot be
-dropped.
+discarded.
 
 ```tack run exit=4
 package main
@@ -180,7 +180,7 @@ func main() {
 }
 ```
 
-A call that drops the error is an error:
+A call that discards the error is an error:
 
 ```tack error
 package main
@@ -192,7 +192,7 @@ func main() {
 ```
 
 ```diagnostics
-main.tck:5:5: error: the error append returns cannot be dropped; bind it, as in err := append(...)
+main.tck:5:5: error: the error append returns cannot be discarded; bind it, as in err := append(...)
 ```
 
 ### reserve
@@ -204,7 +204,7 @@ is at least its length plus `n`, and returns no error; its length and
 elements never change, and `n` of 0 does nothing. A negative `n` returns
 `error{code: 2, msg: "negative count"}`, and one the allocator cannot
 make room for `error{code: 1, msg: "out of memory"}`, each leaving `l`
-as it was. Its error cannot be dropped. A negative constant `n` is an
+as it was. Its error cannot be discarded. A negative constant `n` is an
 error:
 
 ```tack error
@@ -233,7 +233,7 @@ plain form, `x := pop(mut l)`, needs `len(l) > 0` proven where it is
 written (see [Safety and proofs](10-safety.md)). Its checked form, `x,
 ok := pop(mut l)`, may be written anywhere: `ok` is false for an empty
 list, which is left as it was. Written as a statement, `pop(mut l)`
-drops the last element when there is one.
+discards the last element when there is one.
 
 ### remove
 
@@ -243,7 +243,7 @@ drops the last element when there is one.
 element after it down one place, so the rest keep their order. Its
 plain form needs `i` proven in range for `l`; its checked form, `x, ok
 := remove(mut l, i)`, may be written anywhere, `ok` being false for an
-`i` out of range. Written as a statement it drops element `i` only when
+`i` out of range. Written as a statement it discards element `i` only when
 `i` is in range.
 
 ```tack run exit=6
@@ -341,7 +341,7 @@ frees, keeping `k`'s position in `m`'s order; or at the end of the order
 when `k` is new. When the allocator cannot grow `m` it returns
 `error{code: 1, msg: "out of memory"}`, leaves `m` exactly as it was,
 and frees `k` and `v`. `k` and `v` are moved in. Its error cannot be
-dropped.
+discarded.
 
 ### delete
 
@@ -382,10 +382,60 @@ func main() {
 }
 ```
 
+## Drop
+
+`func drop[T Elem](own x T)`
+
+`drop` frees `x` at once, exactly as the end of its block would, and
+leaves it moved from, so its block's end frees nothing more. `x` is a
+local variable or an own parameter whose type owns something, written
+`own x`; what may be dropped, and why a field, an element, a borrowed
+parameter or a value that owns nothing may not, is in [Ownership and
+memory](08-ownership.md#drop). It returns no value, so it is only a
+statement.
+
+```tack run exit=3
+package main
+
+type Bag struct {
+    items list[int64]
+    more  list[int64]
+}
+
+func main() {
+    mut b := Bag{items: make(list[int64], c_allocator), more: make(list[int64], c_allocator)}
+    err := append(mut b.items, 1, 2, 3)
+    if err.code != 0 {
+        exit(1)
+    }
+    n := len(b.items)
+    drop(own b)
+    if n == 3 {
+        exit(3)
+    }
+}
+```
+
+A value that owns nothing is an error, since there would be nothing to
+free:
+
+```tack error
+package main
+
+func main() {
+    n := 4
+    drop(own n)
+}
+```
+
+```diagnostics
+main.tck:5:14: error: cannot drop n: int64 owns no list or map, so there is nothing to free; remove the drop
+```
+
 ## Generic builtins
 
 `len`, `make`, `append`, `reserve`, `pop`, `remove`, `swap`, `replace`,
-`put`, `delete` and `has` are generic: each is checked by the compiler
+`put`, `delete`, `has` and `drop` are generic: each is checked by the compiler
 itself, against the argument types of each call, as the signatures
 above describe with their stand-in types. Their type arguments are
 never written, as no generic function's are (see [Generics and

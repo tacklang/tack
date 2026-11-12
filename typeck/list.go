@@ -284,7 +284,7 @@ func (c *Checker) appendSpread(arg ast.Expr, elem types.Type) {
 // number of elements to make room for, usable as an int64, which must not
 // be negative when it is known: a constant, or a value the checker knows.
 // Anything else is reported, and gives types.Invalid. Like append's, its
-// error cannot be dropped.
+// error cannot be discarded.
 func (c *Checker) reserveCall(call *ast.Call) types.Type {
 	if !c.checkArity(call, "reserve", 2) {
 		for _, arg := range call.Args {
@@ -443,9 +443,9 @@ func (c *Checker) listTarget(arg ast.Expr, builtin string) types.Type {
 }
 
 // genericCall returns the checker of the generic builtin call calls, len,
-// make, append, reserve, pop, remove, swap, replace, put, delete or has,
-// each of which checks its own arguments and gives one value, but swap,
-// which gives none, or nil when call calls none of them.
+// make, append, reserve, pop, remove, swap, replace, put, delete, has or
+// drop, each of which checks its own arguments and gives one value, but
+// swap and drop, which give none, or nil when call calls none of them.
 func (c *Checker) genericCall(call *ast.Call) func(*ast.Call) types.Type {
 	switch {
 	case isLen(call):
@@ -460,6 +460,8 @@ func (c *Checker) genericCall(call *ast.Call) func(*ast.Call) types.Type {
 		return c.deleteCall
 	case isHas(call):
 		return c.hasKeyCall
+	case isDrop(call):
+		return c.dropCall
 	default:
 		return c.listCall(call)
 	}

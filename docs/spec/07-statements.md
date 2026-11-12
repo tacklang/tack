@@ -49,20 +49,20 @@ diagnostic.
 
 A call may stand alone as a statement: a call of a function, a function
 value, a method or a builtin, `print("hi\n")`, `mut b.write(s)`. The
-call is made and its results, if any, are dropped. A call whose results
-cannot be dropped is an error: one whose last result is an error, which
+call is made and its results, if any, are discarded. A call whose results
+cannot be discarded is an error: one whose last result is an error, which
 [Errors](09-errors.md) describes, and one whose result holds a list or a
 map, which nothing would free, `Value.items returns Value, which holds
-a list and cannot be dropped; bind it to a variable`, `make` among them.
-A call returning a view, as a statement, makes the call and drops the
+a list and cannot be discarded; bind it to a variable`, `make` among them.
+A call returning a view, as a statement, makes the call and discards the
 view.
 
 A call with a `?` after it may stand alone too, `check(n)?`, passing
 the call's error on ([Expressions](06-expressions.md#the--operator)).
-It drops what the `?` gives under the same rules: nothing, for a call
+It discards what the `?` gives under the same rules: nothing, for a call
 returning an error alone, or the call's other results, which a value
 holding a list or a map cannot be, `numbers()? gives list[int64], which
-cannot be dropped; bind it to a variable`. A `mut` receiver is written
+cannot be discarded; bind it to a variable`. A `mut` receiver is written
 as for any call, `mut c.bump(n)?`.
 
 A call, or a `?` on one, may be written in parentheses as a statement,
@@ -90,7 +90,7 @@ A call that only gives a value, a conversion, `len`, or a union's
 construction with a payload, is warned of, `int8(5) is not used`,
 `len(s) is not used` or `Expr.int(5) is not used`, even when an
 argument is a call, as in `int8(f())`. It still runs: it is evaluated,
-the calls in its arguments with it, and its value dropped. One with an
+the calls in its arguments with it, and its value discarded. One with an
 error of its own, such as a conversion that can fail, is reported for
 that error alone. Today the compiler warns of these statements;
 docs/open-decisions.md records them as rejected, and the two are not
@@ -240,7 +240,7 @@ error. A checked form, `v, ok := a[i]`, is bound with the same
 statements ([Safety and proofs](10-safety.md)). A call with several
 results cannot be used as one value, passed to another call or returned
 whole as another function's results; it can be made as a statement,
-dropping its results, unless its last result is an error
+discarding its results, unless its last result is an error
 ([Errors](09-errors.md)).
 
 ```tack run exit=6

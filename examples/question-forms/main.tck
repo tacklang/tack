@@ -59,7 +59,7 @@ func builtins(n int64) (int64, error) {
 }
 
 // Ruled: a ? statement may drop a copyable result, under a call
-// statement's rules; a list or an owned value still cannot be dropped.
+// statement's rules; a list or an owned value still cannot be discarded.
 func discard(n int64) error {
     fallible(n)?
     return noerror

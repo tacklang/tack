@@ -227,33 +227,33 @@ const heldAlone = "err holds the error that came with v, so only a binding that 
 var errorRejectedCases = []struct{ name, src, want string }{
 	{
 		"call statement", errorProgram(`parse("1")`),
-		"the error parse returns cannot be dropped; bind it, as in _, err := parse(...)",
+		"the error parse returns cannot be discarded; bind it, as in _, err := parse(...)",
 	},
 	{
 		"call statement of three results", errorProgram("divide(1, 2)"),
-		"the error divide returns cannot be dropped; bind it, as in _, _, err := divide(...)",
+		"the error divide returns cannot be discarded; bind it, as in _, _, err := divide(...)",
 	},
 	{
 		"call statement with an owned result",
 		ownedErrorProgram("owned()"),
-		"the error owned returns cannot be dropped; bind it, as in x, _, err := owned(...)",
+		"the error owned returns cannot be discarded; bind it, as in x, _, err := owned(...)",
 	},
 	{
 		"call statement with owned results around a copyable one",
 		ownedErrorProgram("several()"),
-		"the error several returns cannot be dropped; bind it, as in x, _, y, z, x4, err := several(...)",
+		"the error several returns cannot be discarded; bind it, as in x, _, y, z, x4, err := several(...)",
 	},
 	{
 		"call statement of an error alone", errorProgram("ready()"),
-		"the error ready returns cannot be dropped; bind it, as in err := ready(...)",
+		"the error ready returns cannot be discarded; bind it, as in err := ready(...)",
 	},
 	{
 		"blank error", errorProgram(`v, _ := parse("1")`, "use(v)"),
-		"the error parse returns cannot be dropped; bind it to a variable instead of _",
+		"the error parse returns cannot be discarded; bind it to a variable instead of _",
 	},
 	{
 		"every name blank", errorProgram(`_, _, _ := divide(1, 2)`),
-		"the error divide returns cannot be dropped; bind it to a variable instead of _",
+		"the error divide returns cannot be discarded; bind it to a variable instead of _",
 	},
 	{
 		"unchecked",

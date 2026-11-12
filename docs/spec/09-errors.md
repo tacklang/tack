@@ -3,7 +3,7 @@
 This chapter describes how a program reports and handles failure: the
 `error` value's code and message, `noerror`, returning an error alone or
 last among several results, the rule that an error must be checked
-before the values beside it are used and may not be dropped, what drops
+before the values beside it are used and may not be discarded, what discards
 one (`_` where it goes, and a variable holding it that is never read,
 which is reported as a drop, not as an unused name), checking it in
 `if`, `switch` and loops, propagation, by a return or the postfix `?`,
@@ -19,7 +19,7 @@ proofs](10-safety.md).
 Tack has no exceptions and no runtime error. A function that can fail
 says so in its signature by returning an `error`, and the compiler holds
 its callers to three rules: the error is the last result, it is never
-dropped, and the results beside it are not read until it is checked.
+discarded, and the results beside it are not read until it is checked.
 The rules are the compiler's; at run time an error is a plain value.
 Several points of these rules are recorded as open questions in
 [open-decisions.md](../open-decisions.md#errors), and may change.
@@ -56,7 +56,7 @@ an error alone, under the same rules.
 
 A call returning an error alone is a value like any other: it may be
 passed, returned or compared, `if check() == noerror`, and doing so uses
-the error rather than dropping it. A call with several results is bound
+the error rather than discarding it. A call with several results is bound
 with `v, err := f()` or assigned with `v, err = f()`.
 
 ## Checking an error
@@ -153,11 +153,11 @@ A variable bound beside two errors, at two bindings, needs both checked.
 
 ## Dropping an error
 
-An error cannot be dropped. A call statement whose callee returns an
-error is `the error f returns cannot be dropped; bind it, as in err :=
+An error cannot be discarded. A call statement whose callee returns an
+error is `the error f returns cannot be discarded; bind it, as in err :=
 f(...)` when the error is its only result, and `... bind it, as in _, err
 := f(...)` when results come before it. Where a result beside the error
-cannot be dropped either, a list or a value holding one, the suggestion
+cannot be discarded either, a list or a value holding one, the suggestion
 names it rather than `_`, with `x`, `y` and `z` in order, then `x4` and
 on: `bind it, as in x, err := bytes.repeat(...)`.
 
@@ -177,13 +177,13 @@ func main() {
 ```
 
 ```diagnostics
-main.tck:11:5: error: the error check returns cannot be dropped; bind it, as in err := check(...)
+main.tck:11:5: error: the error check returns cannot be discarded; bind it, as in err := check(...)
 ```
 
 `_` where the error goes, a binding of nothing but `_` included, is `the
-error f returns cannot be dropped; bind it to a variable instead of _`.
+error f returns cannot be discarded; bind it to a variable instead of _`.
 
-A variable holding an error that nothing ever reads drops it as surely.
+A variable holding an error that nothing ever reads discards it as surely.
 After `err := f()`, `v, err := f()` or `err = f()`, and the same for
 `append`, `reserve` and `put`, an `err` never read is `the error f
 returns is never checked: err is not read`, reported at its name, in

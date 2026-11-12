@@ -215,6 +215,14 @@
 // free a no-op. In an instance of a generic function whose type argument
 // owns nothing, there is no free and a move is a copy.
 //
+// drop(own x), a statement, lowers to the free x's block would emit at
+// its end, the same helpers in the same order, a struct's fields last
+// first and a list's elements last first before its buffer, then x
+// emptied, v_x = (T){}, so the free still on the block's cleanup chain,
+// and every defer, ?, break and return that runs it, frees nothing (see
+// drop.go). In an instance whose type argument owns nothing, a drop is no
+// statement at all.
+//
 // A method, of a struct or a union, is a C function of its own taking its
 // receiver first, a mut receiver as a pointer, as a mut parameter is. A
 // method call, x.m(args) or mut x.m(args), is lowered as the call of that

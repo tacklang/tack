@@ -7,7 +7,7 @@ import (
 	"github.com/tacklang/tack/diag"
 )
 
-// Unread errors and oks. An error, like an ok, cannot be dropped: binding
+// Unread errors and oks. An error, like an ok, cannot be discarded: binding
 // it to _ is an error (see checkErrorBinding and checkOkDropped), and so
 // is binding it to a variable nothing ever reads, which drops it as
 // surely. The resolver finds which variables are never read; one a call

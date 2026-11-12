@@ -385,7 +385,7 @@ copies; a parameter of one borrows its argument and cannot be moved,
 moved local cannot be used; a temporary must be stored, `cannot use a
 temporary S here; store it in a variable first`; it has no zero value,
 `z needs a value: S has no zero value`; and a result of one cannot be
-dropped, `stuck returns S, which may hold a list and cannot be dropped;
+discarded, `stuck returns S, which may hold a list and cannot be discarded;
 bind it to a variable`. An instance whose type argument is `int64`
 follows the same rules; there a move is a copy.
 

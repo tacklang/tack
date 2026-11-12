@@ -2,7 +2,7 @@ package main
 
 // Errors are returned values. An error is a code and a message, code 0
 // meaning no error, and is the last result of a function that returns
-// one. A call's error cannot be dropped, and the results that came with
+// one. A call's error cannot be discarded, and the results that came with
 // it cannot be read until it is checked: until the code is known to be 0.
 
 // notFound is a sentinel error, compared with ==.

@@ -21,8 +21,8 @@
 // one by name, Called finds the one a resolved call calls, and Used lists
 // those a resolved program calls anywhere, each once, in Funcs' order.
 //
-// len, make, append, reserve, pop, remove, swap, replace, put, delete and
-// has are generic: a parameter of each accepts more than one type, which
+// len, make, append, reserve, pop, remove, swap, replace, put, delete, has
+// and drop are generic: a parameter of each accepts more than one type, which
 // no Tack declaration describes, so the type checker checks each itself
 // and the C backend lowers each in place. Generic lists them, Names lists
 // every builtin function's name, and ParamNames gives any one's parameter

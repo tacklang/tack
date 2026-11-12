@@ -100,7 +100,8 @@ func (c *Checker) scopeParamType(param *ast.Param, typ types.Type) types.Type {
 			param.Name)
 	case !c.table.IsFunc(typ):
 		c.errorf(param.ScopeSpan,
-			"parameter %s cannot be scope: %s is not a function type, and only a function value can be scope; drop scope",
+			"parameter %s cannot be scope: %s is not a function type, "+
+				"and only a function value can be scope; remove scope",
 			param.Name, c.typeName(typ))
 	}
 	return typ
@@ -122,7 +123,7 @@ func (c *Checker) funcTypeScope(p *ast.Param, typ types.Type) bool {
 		return true
 	}
 	c.errorf(p.ScopeSpan,
-		"a function type's parameter cannot be scope unless it is a function type, and %s is not; drop scope",
+		"a function type's parameter cannot be scope unless it is a function type, and %s is not; remove scope",
 		c.typeName(typ))
 	return false
 }

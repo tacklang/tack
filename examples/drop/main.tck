@@ -1,0 +1,457 @@
+package main
+
+// drop(own x) frees x at once, as the end of its block would, and leaves
+// x moved from: nothing frees it again. Each check counts c_allocator's
+// live buffers before and after a drop, so a drop that freed nothing, or
+// freed late, at its block's end, shows; and main asserts, after every
+// check, that the count is back to what it was, so a value freed twice
+// or never shows too, as the sanitizers would show it.
+//
+// What is dropped: lists, lists of lists, structs and unions holding
+// lists, maps of lists, own parameters, and a type parameter's value in
+// a generic function, whose instance for a type that owns nothing drops
+// nothing, and a closure's own parameter. Where: in loops, before break
+// and continue, in branches, in a switch's case, in a closure, in
+// deferred code, before a ?, before unreachable, and before exit, after
+// which live.c checks, as the process ends, that nothing is live. Every
+// check prints its name and "ok", or "FAIL".
+
+// live returns how many buffers c_allocator holds, in C.
+extern("drop_live") func live() int64
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// numbers gives a list of n numbers, 1 to n, which holds a buffer unless
+// n is 0 or it could not grow.
+func numbers(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i +% 1)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+// Bag holds two lists, freed last first.
+type Bag struct {
+    name  int64
+    items list[int64]
+    more  list[int64]
+}
+
+// Point owns nothing.
+type Point struct {
+    x int64
+    y int64
+}
+
+// Shape holds a list in one of its cases.
+type Shape union {
+    dot
+    path list[int64]
+}
+
+// Any asks for no method, so every type satisfies it.
+type Any interface {
+}
+
+// bad is the error fallible fails with.
+var bad = error{code: 7, msg: "bad"}
+
+// fallible gives n, or bad when n is negative.
+func fallible(n int64) (int64, error) {
+    if n < 0 {
+        return 0, bad
+    }
+    return n, noerror
+}
+
+// dropList drops a list of three numbers, one buffer, which is freed at
+// once.
+func dropList() {
+    base := live()
+    l := numbers(3)
+    check(live() == base +% 1 && len(l) == 3, "list held")
+    drop(own l)
+    check(live() == base, "list dropped")
+}
+
+// dropEmpty drops a list that never grew, which holds no buffer.
+func dropEmpty() {
+    base := live()
+    l := make(list[int64], c_allocator)
+    drop(own l)
+    check(live() == base, "empty list dropped")
+}
+
+// dropLists drops a list of lists, its own buffer and each non-empty
+// list's.
+func dropLists() {
+    base := live()
+    mut ll := make(list[list[int64]], c_allocator)
+    err := append(mut ll, numbers(2), numbers(0), numbers(5))
+    check(err.code == 0 && live() == base +% 3, "list of lists held")
+    drop(own ll)
+    check(live() == base, "list of lists dropped")
+}
+
+// dropDeep drops a list of maps of lists.
+func dropDeep() {
+    base := live()
+    mut lm := make(list[map[int64]list[int64]], c_allocator)
+    mut m := make(map[int64]list[int64], c_allocator)
+    e1 := put(mut m, 1, numbers(2))
+    e2 := put(mut m, 2, numbers(3))
+    e3 := append(mut lm, m)
+    check(e1.code == 0 && e2.code == 0 && e3.code == 0 && live() > base +% 2, "list of maps held")
+    drop(own lm)
+    check(live() == base, "list of maps dropped")
+}
+
+// dropStruct drops a struct holding two lists.
+func dropStruct() {
+    base := live()
+    b := Bag{name: 1, items: numbers(2), more: numbers(4)}
+    check(live() == base +% 2 && b.name == 1, "struct held")
+    drop(own b)
+    check(live() == base, "struct dropped")
+}
+
+// dropUnion drops a union whose case holds a list, and one whose case
+// holds nothing.
+func dropUnion() {
+    base := live()
+    s := Shape.path(numbers(3))
+    d := Shape.dot
+    check(live() == base +% 1, "union held")
+    drop(own s)
+    check(live() == base, "union dropped")
+    drop(own d)
+    check(live() == base, "empty union case dropped")
+}
+
+// dropMap drops a map whose values are lists.
+func dropMap() {
+    base := live()
+    mut m := make(map[string]list[int64], c_allocator)
+    e1 := put(mut m, "a", numbers(2))
+    e2 := put(mut m, "b", numbers(1))
+    check(e1.code == 0 && e2.code == 0 && live() > base +% 2, "map held")
+    drop(own m)
+    check(live() == base, "map dropped")
+}
+
+// dropParam drops its own parameter, which then has nothing left for the
+// function's end to free, and reports whether the drop freed it at once.
+func dropParam(own l list[list[int64]], base int64) bool {
+    drop(own l)
+    return live() == base
+}
+
+// dropParams passes a list of lists to dropParam, which owns and drops
+// it.
+func dropParams() {
+    base := live()
+    mut ll := make(list[list[int64]], c_allocator)
+    err := append(mut ll, numbers(3), numbers(4))
+    check(err.code == 0 && dropParam(own ll, base), "own parameter dropped")
+    check(live() == base, "own parameter freed once")
+}
+
+// dropMoved drops a value moved into a new variable, which owns it.
+func dropMoved() {
+    base := live()
+    l := numbers(2)
+    mut m := l
+    err := append(mut m, 9)
+    check(err.code == 0 && live() == base +% 1, "moved list held")
+    drop(own m)
+    check(live() == base, "moved list dropped")
+}
+
+// dropAndReuse drops a variable, then gives it a new value, which its
+// block's end frees.
+func dropAndReuse() {
+    base := live()
+    mut l := numbers(2)
+    drop(own l)
+    check(live() == base, "dropped before reuse")
+    l = numbers(3)
+    check(len(l) == 3 && live() == base +% 1, "reused after drop")
+}
+
+// dropInLoop drops a list declared in a loop's body, every iteration.
+func dropInLoop() {
+    base := live()
+    mut ok := true
+    for i := range 5 {
+        l := numbers(i +% 1)
+        ok = ok && live() == base +% 1
+        drop(own l)
+        ok = ok && live() == base
+    }
+    check(ok, "dropped in a loop")
+}
+
+// dropOuterInLoop drops a list declared before a loop, and assigns it a
+// new one before the next iteration reaches the drop again.
+func dropOuterInLoop() {
+    base := live()
+    mut ok := true
+    mut l := numbers(1)
+    for i := range 4 {
+        drop(own l)
+        ok = ok && live() == base
+        l = numbers(i +% 2)
+    }
+    check(ok && len(l) == 5 && live() == base +% 1, "outer list dropped in a loop")
+}
+
+// dropBreak drops a list and then breaks out of the loop, which frees
+// nothing more.
+func dropBreak() {
+    base := live()
+    for i := range 3 {
+        l := numbers(i +% 1)
+        if i == 1 {
+            drop(own l)
+            break
+        }
+    }
+    check(live() == base, "dropped before break")
+}
+
+// dropBranch drops l only when k holds; the block's end frees it when it
+// does not.
+func dropBranch(k bool) bool {
+    base := live()
+    l := numbers(3)
+    if k {
+        drop(own l)
+    }
+    if k {
+        return live() == base
+    }
+    return live() == base +% 1
+}
+
+// dropEitherBranch drops l on one branch and moves it into m on the
+// other.
+func dropEitherBranch(k bool) bool {
+    base := live()
+    l := numbers(3)
+    mut m := numbers(0)
+    if k {
+        drop(own l)
+    } else {
+        m = l
+    }
+    if k {
+        return live() == base && len(m) == 0
+    }
+    return live() == base +% 1 && len(m) == 3
+}
+
+// dropInSwitch drops l in the cases for 1 and for any n but 2, and
+// leaves it to its block's end for 2.
+func dropInSwitch(n int64) bool {
+    base := live()
+    l := numbers(2)
+    switch n {
+    case 1:
+        drop(own l)
+        return live() == base
+    case 2:
+        return live() == base +% 1
+    default:
+        drop(own l)
+        return live() == base
+    }
+}
+
+// run calls f.
+func run(scope f func()) {
+    f()
+}
+
+// dropInClosure drops a list a closure declares, each time it runs.
+func dropInClosure() {
+    base := live()
+    mut ok := true
+    run(func() {
+        l := numbers(2)
+        drop(own l)
+        ok = live() == base
+    })
+    check(ok, "dropped in a closure")
+}
+
+// applyOwn calls f with l, which f owns.
+func applyOwn(scope f func(own list[int64]) int64, own l list[int64]) int64 {
+    return f(own l)
+}
+
+// dropClosureParam drops a closure's own parameter.
+func dropClosureParam() {
+    base := live()
+    mut ok := false
+    l := numbers(2)
+    n := applyOwn(func(own k list[int64]) int64 {
+        m := len(k)
+        drop(own k)
+        ok = live() == base
+        return m
+    }, own l)
+    check(ok && n == 2 && live() == base, "closure's own parameter dropped")
+}
+
+// dropContinue drops a list on every other iteration and continues,
+// and leaves the others to the end of the body.
+func dropContinue() {
+    base := live()
+    mut ok := true
+    for i := range 4 {
+        x := numbers(i +% 1)
+        if i % 2 == 0 {
+            drop(own x)
+            ok = ok && live() == base
+            continue
+        }
+        ok = ok && live() == base +% 1
+    }
+    check(ok && live() == base, "dropped before continue")
+}
+
+// dropBeforeDefer drops a list in a block whose defer, which runs when
+// the block ends, sees it already freed.
+func dropBeforeDefer(base int64) {
+    defer {
+        check(live() == base, "dropped before the defer runs")
+    }
+    l := numbers(3)
+    drop(own l)
+}
+
+// dropInDefer drops a list deferred code declares.
+func dropInDefer(base int64) {
+    defer {
+        d := numbers(2)
+        drop(own d)
+        check(live() == base, "dropped in a defer")
+    }
+}
+
+// dropBeforeQuestion drops a list, then a ? returns early, which frees
+// the dropped list no second time and frees the list held beside it.
+func dropBeforeQuestion(k int64) (int64, error) {
+    l := numbers(3)
+    kept := numbers(2)
+    drop(own l)
+    n := fallible(k)?
+    return n +% len(kept), noerror
+}
+
+// dropBeforeUnreachable drops a list in a block whose next statement is
+// a proven unreachable.
+func dropBeforeUnreachable() {
+    base := live()
+    for i := range 3 {
+        l := numbers(i +% 1)
+        drop(own l)
+        if i < 0 {
+            unreachable
+        }
+    }
+    check(live() == base, "dropped before unreachable")
+}
+
+// discard drops t in a generic function. For a T that owns nothing, the
+// instance drops nothing.
+func discard[T Any](own t T) {
+    drop(own t)
+}
+
+// discardMoved moves t into a local and drops the local.
+func discardMoved[T Any](own t T, base int64) bool {
+    u := t
+    drop(own u)
+    return live() == base
+}
+
+// dropGeneric drops values of a type parameter, one holding lists and
+// two holding none.
+func dropGeneric() {
+    base := live()
+    b := Bag{name: 2, items: numbers(1), more: numbers(2)}
+    discard(own b)
+    check(live() == base, "generic drop of a struct holding lists")
+    l := numbers(4)
+    check(discardMoved(own l, base), "generic drop of a list")
+    discard(Point{x: 1, y: 2})
+    discard(7)
+    check(live() == base, "generic drop of values owning nothing")
+}
+
+// held checks that nothing allocated is still live, name saying after
+// what.
+func held(base int64, name string) {
+    check(live() == base, name)
+}
+
+func main() {
+    base := live()
+    dropList()
+    held(base, "after list")
+    dropEmpty()
+    dropLists()
+    held(base, "after list of lists")
+    dropDeep()
+    dropStruct()
+    dropUnion()
+    dropMap()
+    held(base, "after map")
+    dropParams()
+    dropMoved()
+    dropAndReuse()
+    held(base, "after reuse")
+    dropInLoop()
+    dropOuterInLoop()
+    held(base, "after outer loop")
+    dropBreak()
+    check(dropBranch(true), "dropped in a branch taken")
+    check(dropBranch(false), "not dropped in a branch not taken")
+    held(base, "after branches")
+    check(dropEitherBranch(true), "dropped on one branch")
+    check(dropEitherBranch(false), "moved on the other branch")
+    held(base, "after either branch")
+    check(dropInSwitch(1) && dropInSwitch(2) && dropInSwitch(3), "dropped in a switch")
+    held(base, "after switch")
+    dropInClosure()
+    dropClosureParam()
+    dropContinue()
+    dropBeforeDefer(base)
+    dropInDefer(base)
+    held(base, "after defers")
+    _, err := dropBeforeQuestion(-1)
+    check(err.code == 7 && live() == base, "dropped before a ? that returns")
+    n, err2 := dropBeforeQuestion(1)
+    check(err2.code == 0 && n == 3 && live() == base, "dropped before a ? that passes")
+    dropBeforeUnreachable()
+    dropGeneric()
+    held(base, "after generics")
+    l := numbers(4)
+    kept := numbers(2)
+    drop(own l)
+    check(live() == base +% 1 && len(kept) == 2, "dropped before exit")
+    exit(0)
+}

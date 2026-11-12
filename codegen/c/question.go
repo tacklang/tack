@@ -152,7 +152,7 @@ func (g *generator) questionStmt(q *ast.Question) ([]string, []diag.Diagnostic) 
 		if g.owned(typ) {
 			return nil, []diag.Diagnostic{{
 				Severity: diag.Error,
-				Message:  "internal error: a dropped value owns what it holds",
+				Message:  "internal error: a discarded value owns what it holds",
 				Span:     q.Span,
 			}}
 		}

@@ -96,9 +96,10 @@ type genericFunc struct {
 // a view of them spread; reserve takes any list and a count; pop takes
 // any list; remove takes any list and an index; swap takes any list and
 // two indexes; replace takes a place of any type and a value of it; put
-// takes any map, a key and a value; and delete and has take any map and a
-// key. The type checker checks each of them itself, and the C backend
-// lowers each in place.
+// takes any map, a key and a value; delete and has take any map and a
+// key; and drop takes, as own, a variable of any type that owns
+// something. The type checker checks each of them itself, and the C
+// backend lowers each in place.
 var generic = []genericFunc{
 	{"len", []string{"v"}},
 	{"make", []string{"t", "alloc"}},
@@ -111,6 +112,7 @@ var generic = []genericFunc{
 	{"put", []string{"m", "k", "v"}},
 	{"delete", []string{"m", "k"}},
 	{"has", []string{"m", "k"}},
+	{"drop", []string{"x"}},
 }
 
 // Generic returns the names of the builtins the type checker checks

@@ -356,7 +356,7 @@ var listErrorCases = []struct{ name, src, want string }{
 	{
 		"reserve dropped",
 		listing("reserve(mut m, 1)"),
-		"the error reserve returns cannot be dropped; bind it, as in err := reserve(...)",
+		"the error reserve returns cannot be discarded; bind it, as in err := reserve(...)",
 	},
 	{
 		"reserve a borrowed list",

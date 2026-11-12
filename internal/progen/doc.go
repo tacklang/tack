@@ -31,7 +31,8 @@
 // bitwise operators and shifts, comparisons across types, bools, strings,
 // arrays, structs, unions with switches, expression switches, tagged and
 // with no tag, whose cases may end in fallthrough, lists and maps with
-// every builtin on them (make, append, pop, put, delete, has, swap, len and range),
+// every builtin on them (make, append, pop, put, delete, has, swap, len, range
+// and drop),
 // views, function values and parameters of function types, methods with
 // plain and mut receivers, called on a receiver or through their struct,
 // S.m(r, args), and those with a plain receiver named as values, S.m,
@@ -56,8 +57,8 @@
 // proves in its body and gives the division after the call; a constant is never the only operand of arithmetic,
 // so the compiler never computes one that overflows; a list or a map is
 // never copied, a list passed as mut or own is named by no other argument,
-// a variable moved by own is never used again and is never moved in a
-// loop it was declared outside; a collection being ranged over, a loop's
+// a variable moved by own or dropped is never used again and is never
+// moved in a loop it was declared outside; a collection being ranged over, a loop's
 // counter and a switch's union are never written; a value a call returned
 // with an error is read only where the error is proven checked; deferred
 // code allocates nothing, reads no list and never leaves its block; and

@@ -56,7 +56,7 @@ func TestRejectsDroppedOks(t *testing.T) {
 				lines = append(lines, "x, _ "+op+" "+f.form, "use(x)")
 				src := okProgram(withSetup(f.setup, lines...)...)
 				_, diags := checkTree(t, src)
-				want := "the ok " + f.form + " gives cannot be dropped; bind it to a variable instead of _"
+				want := "the ok " + f.form + " gives cannot be discarded; bind it to a variable instead of _"
 				if len(diags) != 1 || diags[0].Message != want {
 					t.Fatalf("got %v, want only %q", diags, want)
 				}
@@ -111,7 +111,7 @@ func TestDroppedOkPrecedence(t *testing.T) {
 			"an element with no zero value",
 			"package main\n\nfunc f(mut l list[Allocator]) {\n    x, _ := pop(mut l)\n    use(x)\n}\n\n" +
 				"func use(a Allocator) {\n}\n\nfunc main() {\n}\n",
-			"the ok pop returns cannot be dropped: x cannot be read until it is checked; " +
+			"the ok pop returns cannot be discarded: x cannot be read until it is checked; " +
 				"bind it to a variable instead of _",
 		},
 	} {

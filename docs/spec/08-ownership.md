@@ -2,7 +2,7 @@
 
 This chapter describes the memory model: which values own memory, how a
 value is copied or moved, when a moved-from variable may no longer be
-used, `own` parameters and arguments, `mut` parameters and receivers and
+used, `own` parameters and arguments, `drop`, `mut` parameters and receivers and
 the rule that a `mut` argument is the only way to reach its place during
 the call, views and the borrows they make (view parameters and view
 results, and the conversion of a string to a view of its bytes,
@@ -110,8 +110,8 @@ An owned value that no variable holds, a call's result or `make`'s, must
 be given an owner where it is made: as the value of a declaration, an
 assignment, a return, a binding of several results, or a struct
 literal's field. Anywhere else it is `cannot use a temporary list[int64]
-here; store it in a variable first`, and a call statement that drops one
-is `make returns list[int64], which cannot be dropped; bind it to a
+here; store it in a variable first`, and a call statement that discards one
+is `make returns list[int64], which cannot be discarded; bind it to a
 variable`, or `... bind it to a variable instead of _` where a binding
 gives it `_`.
 
@@ -172,7 +172,7 @@ parameter that is not own is `f does not take t as own; pass t`; and
 an own parameter`.
 
 An own parameter's type must own something: `int64 cannot be an own
-parameter: it owns no list or map, so it is copied; drop own`. A type
+parameter: it owns no list or map, so it is copied; remove own`. A type
 parameter may be one; a call whose type argument owns nothing passes a
 copy, with no `own`. A view, an `any`, a variadic parameter, a method's
 receiver and an extern func's parameter cannot be own, and `mut own` is
@@ -191,6 +191,72 @@ An `ensures` clause cannot name an own parameter (see [Safety and
 proofs](10-safety.md#contracts)), and a view a function returns cannot
 point into one, since it is freed as the function returns (see [View
 results](#view-results)).
+
+## Drop
+
+`drop(own x)` frees the value of `x` where it is written, exactly as the
+end of its block would, and leaves `x` moved from. It is a statement and
+gives no value, `drop returns no value` anywhere else, and to every rule
+of this chapter it is a move of `x` into a call that frees it: a later
+use is `x is used after it was moved`, a second drop is the same, and a
+drop is subject to every rule of a move and of an own argument, in
+loops, defers, closures and ranges alike. A drop is no write, so the
+facts about `x` need nothing more: `x` is read again only once it is
+assigned a new value, and the assignment ends every fact about it,
+`len(x)` included.
+
+```tack run exit=0
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, 1, 2, 3)
+    if err.code != 0 {
+        exit(1)
+    }
+    drop(own l)
+    l = make(list[int64], c_allocator)
+    if len(l) != 0 {
+        exit(2)
+    }
+}
+```
+
+What follows `own` is a local variable or an own parameter whose type
+owns something. `own` is required: `drop(l)` is `drop takes x as own;
+pass own l`. A plain or a `mut` parameter does not own its value and is
+not moved, `cannot move l: it is a parameter, which borrows its caller's
+value`. A view only borrows, `cannot drop v: a view only borrows what it
+points into`, and a value whose type owns nothing would have nothing to
+free: `cannot drop n: int64 owns no list or map, so there is nothing to
+free; remove the drop`. A field or an element is never moved out of what
+holds it, so neither is dropped, `cannot drop b.items: a field cannot be
+moved on its own; take it out with replace`, `cannot drop ll[0]: an
+element cannot be moved out of a list; take it out with pop or remove`,
+and `pop`, `remove` and `delete` written as a statement, or `replace`,
+free one instead. Anything but a variable is `cannot drop numbers():
+only a variable can be dropped`.
+
+```tack error
+package main
+
+func main() {
+    l := make(list[int64], c_allocator)
+    drop(own l)
+    if len(l) == 0 {
+        exit(1)
+    }
+}
+```
+
+```diagnostics
+main.tck:6:12: error: l is used after it was moved
+main.tck:5:14: note: l is moved here
+```
+
+Inside a generic function, `drop(own t)` of a value of a type parameter
+is allowed, since its type argument may own something, and an instance
+whose type argument owns nothing drops nothing.
 
 ## Mut parameters and receivers
 
@@ -519,7 +585,7 @@ or returned on from a function returning a view. Anywhere else, stored,
 assigned, compared, converted or printed with `print`, it is `t.bytes()
 is a view, []uint8, which can only be passed to a view parameter, given
 to len, indexed, sliced, ranged over or returned`. As a call statement
-the view is dropped, borrowing nothing past the statement. It borrows
+the view is discarded, borrowing nothing past the statement. It borrows
 every argument of its call that is not `mut` and holds data, under the
 rules of [Exclusive access](#exclusive-access).
 
@@ -548,13 +614,13 @@ them, and is an error.
 replaces. `append` moves each value it is given into the list, and when
 the buffer cannot grow it frees those values, so nothing is lost.
 `pop(mut l)` and `remove(mut l, i)` move an element out, to its new
-owner, and copy and allocate nothing. Written as a statement, each drops
+owner, and copy and allocate nothing. Written as a statement, each discards
 and frees the element it takes when there is one. A checked `pop` or
 `remove` that finds no element leaves the list as it was; when the
 element type has no zero value, the element variable then holds nothing
 to free and cannot be read until `ok` is checked true. An owned element
 bound to `_` would never be freed: `pop returns list[int64], which cannot
-be dropped; bind it to a variable instead of _`. `swap(mut l, i, j)`
+be discarded; bind it to a variable instead of _`. `swap(mut l, i, j)`
 exchanges two elements in place, moving, copying and freeing nothing.
 `old := replace(mut l[i], new)` takes an element out with `new` left in
 its place.
@@ -642,6 +708,8 @@ written after the declaration still reads the variable.
 - A list frees its elements, and a map its keys and values, when it is
   freed, as a struct frees its fields, last first, and a union what its
   case holds.
+- `drop(own x)` frees `x` where it is written, and its block's end then
+  frees nothing more, as for any variable moved from.
 - Written as a statement, `pop`, `remove` and `delete` free what they
   take, and `replace(mut place, new)` is an assignment, which frees the
   old value.

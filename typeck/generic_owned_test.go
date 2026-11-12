@@ -99,8 +99,8 @@ func TestRejectsOwnedTypeParams(t *testing.T) {
 		},
 		{
 			"a dropped T", "func get[T Any](mut l list[T], mk func() T) T {\n    if len(l) > 0 {\n        return pop(mut l)\n" +
-				"    }\n    return mk()\n}\n\nfunc drop[T Any](mut l list[T], mk func() T) {\n    get(mut l, mk)\n}",
-			"get returns T, which may hold a list and cannot be dropped; bind it to a variable",
+				"    }\n    return mk()\n}\n\nfunc toss[T Any](mut l list[T], mk func() T) {\n    get(mut l, mk)\n}",
+			"get returns T, which may hold a list and cannot be discarded; bind it to a variable",
 		},
 		{"a T compared", "func same[T Any](a T, b T) bool {\n    return a == b\n}", "operator == is not defined on T"},
 		{

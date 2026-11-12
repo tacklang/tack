@@ -126,7 +126,7 @@ func make(t ListType, alloc Allocator) ListType
 // overflow an int64, returns error{code: 1, msg: "out of memory"} and
 // leaves l as it was, all or nothing. It takes any number of values, none
 // included, append(mut l, a, b, c), or a view spread whole, append(mut l,
-// v...), never a view of l itself. Its error cannot be dropped.
+// v...), never a view of l itself. Its error cannot be discarded.
 func append[T Elem](mut l list[T], elems ...T) error
 
 // reserve makes room in l for n more elements, so that its capacity is at
@@ -134,7 +134,7 @@ func append[T Elem](mut l list[T], elems ...T) error
 // never change, and n of 0 does nothing. A negative n returns
 // error{code: 2, msg: "negative count"}, and one the allocator cannot make
 // room for error{code: 1, msg: "out of memory"}, each leaving l as it was.
-// Its error cannot be dropped.
+// Its error cannot be discarded.
 func reserve[T Elem](mut l list[T], n int64) error
 
 // pop moves the last element of l out of it and returns it, leaving l one
@@ -142,14 +142,14 @@ func reserve[T Elem](mut l list[T], n int64) error
 // x := pop(mut l), needs len(l) > 0 proven where it is written. Its
 // checked form, x, ok := pop(mut l), may be written anywhere: ok is false
 // for an empty list, which is left as it was. Written as a statement,
-// pop(mut l) drops the last element when there is one.
+// pop(mut l) discards the last element when there is one.
 func pop[T Elem](mut l list[T]) T
 
 // remove moves element i of l out of it and returns it, moving every
 // element after it down one place, so the rest keep their order. Its plain
 // form needs i proven in range for l; its checked form, x, ok :=
 // remove(mut l, i), may be written anywhere, ok being false for an i out of
-// range. Written as a statement it drops element i only when i is in range.
+// range. Written as a statement it discards element i only when i is in range.
 func remove[T Elem](mut l list[T], i int64) T
 
 // swap swaps elements i and j of l in place; i equal to j leaves l as it
@@ -170,7 +170,7 @@ func replace[T Elem](mut place T, new T) T
 // keeping k's position in m's order; or at the end of the order when k is
 // new. When the allocator cannot grow m it returns error{code: 1, msg:
 // "out of memory"}, leaves m exactly as it was, and frees k and v. k and v
-// are moved in. Its error cannot be dropped.
+// are moved in. Its error cannot be discarded.
 func put[K Key, V Elem](mut m map[K]V, k K, v V) error
 
 // delete takes the value under k out of m, moving it, and frees the key m
@@ -184,6 +184,17 @@ func delete[K Key, V Elem](mut m map[K]V, k K) (V, bool)
 // assigned in place. The proof ends at any write to m that can reach the
 // use.
 func has[K Key, V Elem](m map[K]V, k K) bool
+
+// drop frees x at once, exactly as the end of its block would, and leaves
+// it moved from: a later use is a use after a move, until x is assigned a
+// new value, and the end of its block frees nothing more. x is a local
+// variable or an own parameter whose type owns something, written own x;
+// a field or an element cannot be dropped, since it cannot be moved out
+// of what holds it, and a value that owns nothing is an error, since there
+// is nothing to free. In a generic function, drop(own t) of a type
+// parameter's value is allowed, and drops nothing for a type argument
+// that owns nothing. It is only a statement; it has no value.
+func drop[T Elem](own x T)
 
 // Stand-ins, for documentation only
 

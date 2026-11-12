@@ -368,7 +368,7 @@ func main() {
 stage: typeck
 ---
 
-error-imported/main.tck:6:5: error: the error num.Parse returns cannot be dropped; bind it, as in _, err := num.Parse(...)
+error-imported/main.tck:6:5: error: the error num.Parse returns cannot be discarded; bind it, as in _, err := num.Parse(...)
 05 |	func main() {
 06 |	    num.Parse("1")
    |	    ^~~~~~~~~~~~~~
@@ -536,10 +536,10 @@ pub func Apply(f func(int64) secret) int64 {
 }
 
 pub func Pick() func(list[map[int64]secret]) {
-    return drop
+    return toss
 }
 
-func drop(l list[map[int64]secret]) {
+func toss(l list[map[int64]secret]) {
 }
 
 pub func Nothing() {
@@ -572,7 +572,7 @@ func-value-exposes/geo/geo.tck:15:17: error: pub function Pick exposes secret, w
 14 |	
 15 |	pub func Pick() func(list[map[int64]secret]) {
    |	                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
-16 |	    return drop
+16 |	    return toss
 
 -- func-value-not-pub/tack.mod --
 module calc

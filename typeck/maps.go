@@ -25,7 +25,7 @@ import (
 // of the order, growing m's buffers, when k is new. It allocates only for
 // a new key, and when it cannot, the error is error{code: 1, msg: "out of
 // memory"}, m is left as it was, and k and v are freed, as append frees
-// the values it cannot add. Its error cannot be dropped. k and v are moved
+// the values it cannot add. Its error cannot be discarded. k and v are moved
 // in, as append's values are.
 //
 // v, ok := m[k] reads the value under k, a copy, and ok is whether k is

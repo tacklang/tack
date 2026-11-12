@@ -66,7 +66,7 @@ Code generation, which can find errors of its own, runs only when the
 earlier stages reported no error but those [Recovery](#recovery) names,
 so its errors are reported only then. A
 warning reports code that is suspicious, not wrong: a variable declared
-and never read, an import never used, a value computed and dropped.
+and never read, an import never used, a value computed and discarded.
 Warnings are reported beside errors, as the example under
 [Errors](#errors) shows.
 
@@ -216,7 +216,7 @@ These problems stop the stages after them, so that nothing is reported
 past them but what the earlier stages found:
 
 - an error in lexing a file, since what the lexer cannot read is
-  dropped, and what follows would only report errors that come from it;
+  discarded, and what follows would only report errors that come from it;
 - nesting past the limit (see [Source and lexical
   elements](02-lexical.md)), after which parsing the file stops;
 - a package clause that is missing or cannot be parsed;

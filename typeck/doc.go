@@ -926,7 +926,7 @@
 // append grows one passed as mut, by any number of values or a spread
 // view as a variadic takes them, reserve makes room in one passed as mut
 // for a count that is not a negative constant, each returning an error
-// that cannot be dropped, pop and remove take an element out of one
+// that cannot be discarded, pop and remove take an element out of one
 // passed as mut, the plain form with a proof that it is there, the
 // checked form, x, ok := pop(mut l), with none, its x held by its ok when
 // the element type has no zero value, as a result is by the error beside
@@ -991,7 +991,12 @@
 // and that nothing else in a call names a variable passed as own), a list
 // no variable holds is given an owner where it is
 // made, a defer reads no list moved later in its block and moves none
-// declared outside it, and a range over a list cannot change it. A list
+// declared outside it, and a range over a list cannot change it.
+// drop(own x) is such a move, into a call that frees x at once (drop.go,
+// which reports a field, an element, a value that owns nothing and
+// anything but a variable), so move.go follows it as every other own
+// argument, and no fact rule is its own: x is read again only once it is
+// assigned, which ends every fact about it. A list
 // read in place by one argument cannot share a call with a mut argument
 // that may overlap it (exclusive.go). An index or a slice reads its list
 // in place too, so its own index or bounds cannot pass as mut a place

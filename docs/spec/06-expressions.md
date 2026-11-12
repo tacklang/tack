@@ -631,7 +631,7 @@ type `T`, exactly: an `int8` passed as `any` is not an `int64`. It has
 only the checked form, `v, ok := a.(T)`, or `v, ok = a.(T)`, in which
 `v` is the value when `a` holds a `T` and `T`'s zero value when it does
 not, and `ok` says which. The rules every checked form follows, that it
-is the whole value bound and that `ok` is not dropped, are described in
+is the whole value bound and that `ok` is not discarded, are described in
 [Safety and proofs](10-safety.md). Anywhere else, an assertion is `a
 type assertion needs two results; write v, ok := a.(int64)`.
 

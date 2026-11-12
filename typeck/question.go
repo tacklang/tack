@@ -27,7 +27,7 @@ import (
 // b := f()? or a, b = f()?. The error is never one of them, so nothing
 // the ? gives is held by an error, and no check is needed before reading
 // it. A ? written as a statement drops what it gives, under the rules of
-// a call statement: a value of an owned type cannot be dropped (see
+// a call statement: a value of an owned type cannot be discarded (see
 // move.go).
 
 // question checks q, a ? whose one value is used, and returns that
@@ -144,11 +144,11 @@ func (c *Checker) questionedResults(call *ast.Call) ([]types.Type, string, bool)
 	}
 	if generic := c.genericCall(call); generic != nil {
 		before := len(c.diags)
-		// swap, the one generic builtin with no value, reports its use as
-		// one unless it is a statement's call; a ? on it is reported below,
-		// as on any call that returns no error.
+		// swap and drop, the generic builtins with no value, report a use
+		// as one unless it is a statement's call; a ? on either is
+		// reported below, as on any call that returns no error.
 		outer := c.droppedCall
-		if isSwap(call) {
+		if givesNoValue(call) {
 			c.droppedCall = call
 		}
 		typ := generic(call)

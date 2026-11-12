@@ -53,7 +53,7 @@ var blankMisuseCases = []struct {
 	{
 		"range binds nothing",
 		"func main() {\n    for _, _ := range \"ab\" {\n    }\n}\n",
-		"every name is _, so nothing is bound; drop the names and :=",
+		"every name is _, so nothing is bound; remove the names and :=",
 		"_, _",
 	},
 	{

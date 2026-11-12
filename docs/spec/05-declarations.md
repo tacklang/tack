@@ -11,7 +11,7 @@ shadowing, which names may not be redeclared, and visibility (`pub`,
 the unused-name rules: which declared names, imports among them, are
 reported when never used, and whether each report is a warning or an
 error. A variable holding an error that is never read is not one of
-them: it drops the error, which [Errors](09-errors.md) describes, and a
+them: it discards the error, which [Errors](09-errors.md) describes, and a
 variable holding an `ok` that is never read leaves its checked form
 unchecked, which [Safety and proofs](10-safety.md) describes. What a
 parameter form means for ownership and aliasing belongs in [Ownership
@@ -103,8 +103,8 @@ main.tck:4:10: error: undefined: z
   where it discards the result in its position, and may be written more
   than once;
 - as the value of a checked form, `_, ok := a[i]`, which discards
-  the value; never as its `ok`, which `v, _ := a[i]` would drop, `the ok
-  a[i] gives cannot be dropped; bind it to a variable instead of _`
+  the value; never as its `ok`, which `v, _ := a[i]` would discard, `the ok
+  a[i] gives cannot be discarded; bind it to a variable instead of _`
   ([Safety and proofs](10-safety.md));
 - as the first of a range clause's two names, `for _, x := range a`.
 
@@ -115,7 +115,7 @@ written with `mut`, or name a parameter, a field, a union case, a
 type, a function or a package-level variable: each is an error,
 `cannot use _ as a name`, `cannot use _ as a value` where it is read,
 as in `print(_)`, or `cannot assign to _`. `_` where a call's error result
-goes drops that error, which [Errors](09-errors.md) describes.
+goes discards that error, which [Errors](09-errors.md) describes.
 
 ```tack run exit=1
 package main
@@ -437,7 +437,7 @@ at most one of them, `a parameter cannot be both scope and mut: a scope
 parameter is only called or passed on to another scope parameter, never
 assigned`; a `scope` parameter's type is a function type and it is not
 variadic, `parameter n cannot be scope: int64 is not a function type,
-and only a function value can be scope; drop scope`, and a result is
+and only a function value can be scope; remove scope`, and a result is
 never `scope`, `a result cannot be scope; only a parameter can be
 scope`; a view's or a
 variadic's element is not itself a view; only the last parameter may be

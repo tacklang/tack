@@ -9,7 +9,7 @@ the guard rule and what must be proven for each, known values, facts
 and what gives them, relations between variables, where a fact holds
 and what ends it, contracts (`ensures`), the checked forms
 `v, ok := ...` the language has, which turn a failure into a value, the
-rule that an `ok` may not be dropped or left unread, and the operations
+rule that an `ok` may not be discarded or left unread, and the operations
 that have no checked form, what the prover does not accept, what proves
 an `unreachable` place, and the
 depth of the stack, which no rule bounds yet. It also lists the known
@@ -839,13 +839,13 @@ instead (see [Ownership and memory](08-ownership.md#lists)).
 
 ### The ok
 
-The `ok` is the check itself, and it may not be dropped. `_` may take the
+The `ok` is the check itself, and it may not be discarded. `_` may take the
 value, `_, ok := m[k]`, but never the `ok`: `v, _ := m[1]` is `the ok
-m[1] gives cannot be dropped; bind it to a variable instead of _`, and
+m[1] gives cannot be discarded; bind it to a variable instead of _`, and
 so for every checked form, each named as written. Both names `_` is
 `every name is _, so nothing is bound`.
 
-An `ok` bound to a variable that nothing ever reads is dropped as surely,
+An `ok` bound to a variable that nothing ever reads is discarded as surely,
 and is an error at its name: `the ok m[1] gives is never checked: ok is
 not read`, or, for `pop`, `remove` and `delete`, `the ok pop returns is
 never checked: ok is not read`. Only a variable never read at all is
@@ -1056,7 +1056,7 @@ main.tck:4:12: error: converting int64 to uint8 can fail; check 0 <= x && x <= 2
 
 The values bound beside an error are read only where the facts in force
 prove the error's code is 0; that rule, and the rule that an error is
-never dropped, are in [Errors](09-errors.md).
+never discarded, are in [Errors](09-errors.md).
 
 ## Unreachable places
 

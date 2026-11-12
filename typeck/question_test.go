@@ -113,7 +113,7 @@ var questionRejectedCases = []struct{ name, src, want string }{
 	{
 		"a list dropped",
 		questionProgram("func f() error {\n    numbers()?\n    return noerror\n}\n"),
-		"numbers()? gives list[int64], which cannot be dropped; bind it to a variable",
+		"numbers()? gives list[int64], which cannot be discarded; bind it to a variable",
 	},
 	{
 		"a list lent",

@@ -216,7 +216,7 @@ Diagnostics and errors go to stderr. The exit status is 0 on success, 1 when
 the program has errors or the build fails, and 2 when the command line is
 wrong. A warning, `warning:` where an error says `error:`, is something
 suspicious that stops nothing: a variable declared and never read, an
-import never used, a value computed and dropped. A program with only
+import never used, a value computed and discarded. A program with only
 warnings builds, dumps and runs as one with none does, its warnings
 printed on stderr and its exit status 0.
 
@@ -372,7 +372,7 @@ includes only those three, and a program that calls neither builtin, and
 has no list, links neither body and none of the C library they call.
 
 `len`, `make`, `append`, `reserve`, `pop`, `remove`, `swap`, `replace`,
-`put`, `delete` and `has` are generic: the type checker checks each
+`put`, `delete`, `has` and `drop` are generic: the type checker checks each
 itself and the C backend lowers each in place. Builtins that are wanted
 but not implemented go in [`builtin/PLANNED.md`](builtin/PLANNED.md),
 beside `builtin.tck`.
@@ -750,7 +750,7 @@ section remains the description of the language.
   `replace` move what they store with no `own`, as before. An own
   parameter's type must own something, a list, a map, a struct, an array
   or a union holding one, or a type parameter: `int64 cannot be an own
-  parameter: it owns no list or map, so it is copied; drop own`, `Allocator`
+  parameter: it owns no list or map, so it is copied; remove own`, `Allocator`
   and a function type alike, and a view, an `any`, a variadic parameter, a
   method's receiver, `a method cannot take its receiver as own; take it as
   a plain or a mut receiver`, and an extern func's parameter, `parameter l
@@ -782,6 +782,41 @@ section remains the description of the language.
   evaluated, and the callee's block frees the parameter at every exit,
   which an emptied one, moved on, makes a no-op. `exit` in the callee
   frees it as it frees every buffer.
+- Drop. `drop(own x)` frees `x` at once, exactly as the end of its block
+  would, and leaves it moved from: it is a statement, `drop returns no
+  value` anywhere else, and to the checker it is a move of `x` into a
+  call that frees it. So a use after it is `x is used after it was
+  moved`, with a note at the drop, and a use after a drop on some paths
+  only is `x is used after it may have been moved`; a drop is allowed on
+  some paths only, the block's end freeing `x` on the others. A drop
+  twice is the use after a move, and a drop in a loop the next iteration
+  reaches again, of a variable a defer reads later, `l is moved after this defer, which reads
+  it when its block ends`, in deferred code of a variable declared
+  outside it, in a closure of a capture, `a closure cannot move l, which
+  it captures: the closure may run more than once`, and of a list being
+  ranged over, or of a range's or a union pattern's binding into one, are
+  each the error a move is. Assigning `x` a new value makes it usable
+  again, and ends every fact about it, `len(x)` included, so a proof or
+  a loop's bound that read it does not hold past the assignment. `x` is a
+  local variable or an own parameter whose type owns something, written
+  with `own`: `drop(l)` is `drop takes x as own; pass own l`, a plain
+  parameter `cannot move l: it is a parameter, which borrows its caller's
+  value`, a `mut` one `cannot move l: it is a mut parameter, whose value
+  stays its caller's`, a view `cannot drop v: a view only borrows what it
+  points into`, a type that owns nothing `cannot drop n: int64 owns no
+  list or map, so there is nothing to free; remove the drop`, a field
+  `cannot drop b.items: a field cannot be moved on its own; take it out
+  with replace`, an element `cannot drop ll[0]: an element cannot be
+  moved out of a list; take it out with pop or remove`, a map's value
+  `... take it out with delete`, and anything but a variable `cannot drop
+  numbers(): only a variable can be dropped`. In a generic function,
+  `drop(own t)` of a type parameter's value is allowed, and an instance
+  whose type argument owns nothing drops nothing. `drop` is a builtin's
+  name, so no function may be declared with it. In C a drop is the free
+  the block's end would emit, the same helpers in the same order, a
+  struct's fields and a list's elements last first, then the variable
+  emptied, so the block's end, a defer, `?`, `break` or `return` frees it
+  no second time.
 - Views. A parameter written `v []T`, as in `func sum(v []int64) int64`, is
   a read-only view of elements of type `T`: one function takes arrays of
   any length. An array `[N]T` of exactly the element type passes to it as
@@ -881,7 +916,7 @@ section remains the description of the language.
   with `print`, or passed as a field's value, it is `t.bytes() is a view,
   []uint8, which can only be passed to a view parameter, given to len,
   indexed, sliced, ranged over or returned`. Written as a statement,
-  `t.bytes()`, the call is made and its view dropped, as any call's result
+  `t.bytes()`, the call is made and its view discarded, as any call's result
   may be, borrowing nothing past the statement. The view may point into every argument of
   its call that is not `mut` and holds data, a list, an array, a struct,
   a union, a type parameter's value or a view, the receiver included, and
@@ -1010,7 +1045,7 @@ section remains the description of the language.
   as an `int64`, is one. It is a checked form, as `q, ok := a / b`, `v, ok
   := a[i]` and `v, ok := T(x)` are, under the same rules: the value may
   be `_`, `_, ok := a.(T)`, but not the `ok`, `the ok a.(T) gives cannot
-  be dropped; bind it to a variable instead of _`, each may have its own `mut`, `v, ok
+  be discarded; bind it to a variable instead of _`, each may have its own `mut`, `v, ok
   = a.(T)` assigns existing mutable variables, `T` widening to `v`'s type,
   and it must be the whole value, `the checked form must be the whole
   value: v, ok := a.(int64), then compute v + 1`. There is no one-value
@@ -1140,9 +1175,9 @@ section remains the description of the language.
   that `alloc` cannot give, `error{code: 1, msg: "out of memory"}`. Only
   a function that makes a new list takes an `Allocator`. The errors and
   the list follow the rules every call does: `bytes.append_int(mut b, 1)`
-  alone is `the error bytes.append_int returns cannot be dropped; bind
+  alone is `the error bytes.append_int returns cannot be discarded; bind
   it, as in err := bytes.append_int(...)`, `_, err := bytes.repeat(...)`
-  is `bytes.repeat returns list[uint8], which cannot be dropped; bind it
+  is `bytes.repeat returns list[uint8], which cannot be discarded; bind it
   to a variable instead of _`, and the list cannot be read before the
   error is checked. Bytes are bytes: nothing in it knows UTF-8.
 - text. `std/text` is written in Tack alone, with no C. Its `pub type
@@ -1159,7 +1194,7 @@ section remains the description of the language.
   `error{code: 1, msg: "out of memory"}` and the Text is empty, having
   allocated nothing; as for any result beside an error, `t` cannot be
   read before `err` is checked, and `_` cannot drop it, `text.from_bytes
-  returns text.Text, which holds a list and cannot be dropped; bind it to
+  returns text.Text, which holds a list and cannot be discarded; bind it to
   a variable instead of _`. `t.len()` is the number of bytes,
   `t.equal(s)` whether `t` holds exactly the bytes of the view `s`, so
   `t.equal([]uint8("if"))` compares against a literal, and `t.hash()`
@@ -1227,9 +1262,9 @@ section remains the description of the language.
   descriptor is opened close-on-exec and closed before the function
   returns, on every path, and every child run starts is waited for. The results follow the rules every call does:
   `_, err := os.read_file(...)` is `os.read_file returns list[uint8],
-  which cannot be dropped; bind it to a variable instead of _`, and
+  which cannot be discarded; bind it to a variable instead of _`, and
   `os.write_file(p, d)` alone is `the error os.write_file returns cannot
-  be dropped; bind it, as in err := os.write_file(...)`. The program's
+  be discarded; bind it, as in err := os.write_file(...)`. The program's
   arguments reach std/os through the generated C main, which stores
   `argc` and `argv` in two globals (see
   [docs/extern.md](docs/extern.md#program-arguments)).
@@ -1375,14 +1410,14 @@ section remains the description of the language.
   or not, `noerror` and a literal being constant expressions. It has no
   order, no conversion, and cannot be passed as `any`. Three rules hold
   for a call to a function that returns an error:
-  - Its error cannot be dropped. A call statement is `the error f returns
-    cannot be dropped; bind it, as in _, err := f(...)`, where a result
-    that cannot be dropped either, a list or a value holding one, is named
+  - Its error cannot be discarded. A call statement is `the error f returns
+    cannot be discarded; bind it, as in _, err := f(...)`, where a result
+    that cannot be discarded either, a list or a value holding one, is named
     rather than `_`, `x`, `y` and `z` in order, then `x4` and on: `bind it,
     as in x, err := bytes.repeat(...)`. `_` where the
     error goes, a binding of nothing but `_` included, is `the error f
-    returns cannot be dropped; bind it to a variable instead of _`, and a
-    variable holding it that nothing ever reads drops it as surely: after
+    returns cannot be discarded; bind it to a variable instead of _`, and a
+    variable holding it that nothing ever reads discards it as surely: after
     `err := f()`, `v, err := f()` or `err = f()`, and the same for append,
     reserve and put, an `err` never read is `the error f returns is never
     checked: err is not read`, at its name, not the warning that it is
@@ -1455,9 +1490,9 @@ section remains the description of the language.
   main, which returns no error`, or `... whose last result is int64, not
   error`; in deferred code `cannot return from a defer with ?`; in a
   package-level variable's value `cannot use ? outside a function`. A
-  `?` statement drops what it gives under a call statement's rules: a
-  copyable value is dropped, a list is `numbers()? gives list[int64],
-  which cannot be dropped; bind it to a variable`. A list a `?` gives is
+  `?` statement discards what it gives under a call statement's rules: a
+  copyable value is discarded, a list is `numbers()? gives list[int64],
+  which cannot be discarded; bind it to a variable`. A list a `?` gives is
   a temporary like a call's: it may be moved into a variable, a field or
   an `own` parameter, but not lent to a plain one, `cannot use a
   temporary list[int64] here; store it in a variable first`. Every fact
@@ -1499,7 +1534,7 @@ section remains the description of the language.
   overflows the length, `error{code: 1, msg: "out of memory"}`, each
   leaving `l` as it was. Tack has no way to read the capacity. The
   errors of both follow the three error rules: `append(mut l, 1)` alone
-  is `the error append returns cannot be dropped; bind it, as in err :=
+  is `the error append returns cannot be discarded; bind it, as in err :=
   append(...)`, and `reserve(mut l, 1)` the same for reserve. The list is
   passed as `mut`, so it must be a mutable local, a `mut` parameter or a
   field of one: `append(l, 1)` is `append takes l as mut; pass mut l`,
@@ -1575,11 +1610,11 @@ section remains the description of the language.
   pop gives beside its ok; bind it to a local variable`, `ok` is assigned
   only by a binding that assigns `x` too, `ok says whether pop gave x, so
   only a binding that also assigns x can assign it`, `mut ok` included,
-  and it is never `_`, `the ok pop returns cannot be dropped: x cannot be
+  and it is never `_`, `the ok pop returns cannot be discarded: x cannot be
   read until it is checked; bind it to a variable instead of _`. An owned
   element bound to `_` would never be freed, `pop returns list[int64],
-  which cannot be dropped; bind it to a variable instead of _`; a copyable one
-  may be dropped. The plain forms, `x := pop(mut l)` and `x := remove(mut
+  which cannot be discarded; bind it to a variable instead of _`; a copyable one
+  may be discarded. The plain forms, `x := pop(mut l)` and `x := remove(mut
   l, i)`, are allowed only where `len(l) > 0`, or `i` in range for `l`,
   is proven, as an index is: `pop may find l empty; check len(l) > 0
   first, or use x, ok := pop(mut l)`, `index i may be out of range; check
@@ -1587,7 +1622,7 @@ section remains the description of the language.
   call passes `l` as `mut`, which ends every fact about `len(l)` for what
   runs after it, but not for the call itself, which checks before it
   writes, so `if len(l) > 0 { x := pop(mut l) }` compiles. Written as a
-  statement, `pop(mut l)` and `remove(mut l, i)` need no proof: they drop
+  statement, `pop(mut l)` and `remove(mut l, i)` need no proof: they discard
   the element when there is one, freeing it when it is owned, and leave
   `l` as it was otherwise; this is the way to discard an element, since
   `_, _ = pop(mut l)` is `every name is _, so nothing is bound; make the
@@ -1695,7 +1730,7 @@ section remains the description of the language.
   results or a struct literal's field it is `cannot use a temporary
   list[int64] here; store it in a variable first`, or `cannot view a
   temporary list; store it in a variable first` for a view, and a call
-  that drops one is `make returns list[int64], which cannot be dropped;
+  that discards one is `make returns list[int64], which cannot be discarded;
   bind it to a variable`, or with `instead of _` where a binding puts `_`.
   Assigning a variable that holds a list frees the old list once the new
   value is computed, which may read it. A list is freed where its block
@@ -1752,7 +1787,7 @@ section remains the description of the language.
   last first, then its buffer; `pop` and `remove` are std's
   `TACK_LIST_POP` and `TACK_LIST_REMOVE`, the checked forms and the
   statements testing the length first, a statement then freeing an owned
-  element it drops; and a range binding of an owned element is a pointer to
+  element it discards; and a range binding of an owned element is a pointer to
   it. [docs/safety.md](docs/safety.md#lists) has every rule and
   diagnostic.
 - Maps. `map[K]V` holds values of type `V` by keys of type `K`, owned,
@@ -1772,7 +1807,7 @@ section remains the description of the language.
   `k` is new, growing `m`'s buffers through its allocator. A put that
   cannot grow them returns `error{code: 1, msg: "out of memory"}`, leaves
   `m` as it was and frees `k` and `v`, as `append` frees what it cannot
-  add; its error cannot be dropped, and `k` and `v` are moved in. `v, ok
+  add; its error cannot be discarded, and `k` and `v` are moved in. `v, ok
   := m[k]` copies the value under `k`, or gives `V`'s zero value and
   `false` when `k` is not in `m`; it cannot read an owned value, which it
   would copy, `the checked form cannot read a value of type Bag: it would
@@ -1912,7 +1947,7 @@ section remains the description of the language.
   func(scope func()) in assignment to g`, as an interface's method and a
   type's must match. `scope` on a parameter that is not of a function
   type is `parameter n cannot be scope: int64 is not a function type, and
-  only a function value can be scope; drop scope`, as in a function type;
+  only a function value can be scope; remove scope`, as in a function type;
   `scope mut f` is `a parameter cannot be both scope and mut: a scope
   parameter is only called or passed on to another scope parameter, never
   assigned`, and `scope own f` the same of own; a variadic one, a result, `a result cannot be
@@ -1974,11 +2009,11 @@ section remains the description of the language.
   conversion or `len`, as a union built does, is warned of, `int8(5) is
   not used` or `len(s) is not used`, even when an argument is a call,
   `int8(f())`, which Go makes an error. It still runs: it is evaluated,
-  its arguments' calls with it, and its value dropped. One with an error
+  its arguments' calls with it, and its value discarded. One with an error
   of its own, a conversion that can fail among them, is reported for that
   alone, and one whose value holds a list, which nothing would free, is
   an error, `Value.items returns Value, which holds a list and cannot be
-  dropped; bind it to a variable`. A function that declares a result must end in a terminating
+  discarded; bind it to a variable`. A function that declares a result must end in a terminating
   statement: a return, an if whose branches all terminate, a `switch` with a
   `default`, or on a union naming every one of its cases, whose cases all
   terminate, a case ending in `fallthrough` counting as one, as in Go, a
@@ -2488,7 +2523,7 @@ section remains the description of the language.
   no implicit receiver, and methods call each other, and themselves,
   whatever the order of their declarations. A method follows every rule
   of a function: its results, an error returned last that its callers
-  must check, `the error Builder.write returns cannot be dropped; bind
+  must check, `the error Builder.write returns cannot be discarded; bind
   it, as in err := mut b.write(...)`, defers, lists and moves, so a
   receiver is never moved, `any` and variadic parameters, a spread, and
   forwarding a variadic to `fmt.printf`; a diagnostic names a method by
@@ -2629,8 +2664,8 @@ section remains the description of the language.
   len(l) > 0 { return pop(mut l) }; return mk() }`, or by taking one as
   an own parameter, `func push[T Any](mut l list[T], own x T) error`
   (see own parameters). A plain parameter is never moved, `cannot move x:
-  it is a parameter, which borrows its caller's value`, and a result of one cannot be dropped, `stuck returns S, which
-  may hold a list and cannot be dropped; bind it to a variable`. A call is written as any call, `render(mut f,
+  it is a parameter, which borrows its caller's value`, and a result of one cannot be discarded, `stuck returns S, which
+  may hold a list and cannot be discarded; bind it to a variable`. A call is written as any call, `render(mut f,
   "x")`; type arguments are never written, `cannot write type arguments;
   they are inferred from the arguments, as in render(...)`. Each type
   parameter is given its type from the arguments, in order: the type of
@@ -2870,14 +2905,14 @@ section remains the description of the language.
   `ok` reports whether it divided, and `q` is the result, or `0`. The division must be the whole value:
   `q, ok := a / b + 1` is an error that suggests `q, ok := a / b`, then
   `q + 1`. Both operands are always evaluated. Its `ok` cannot be
-  dropped, as an error cannot: `q, _ := a / b`, or `= a / b`, is `the ok
-  a / b gives cannot be dropped; bind it to a variable instead of _`, and
+  discarded, as an error cannot: `q, _ := a / b`, or `= a / b`, is `the ok
+  a / b gives cannot be discarded; bind it to a variable instead of _`, and
   so is `_` in the `ok` of every checked form, an index, `m[k]`, a
   string's slice, a conversion, a type assertion, `pop`, `remove` and
-  `delete`, each named as written: `the ok m[1] gives cannot be dropped;
+  `delete`, each named as written: `the ok m[1] gives cannot be discarded;
   ...`; an `ok` bound to a variable nothing ever reads is too, `the ok
   m[1] gives is never checked: ok is not read`, or for `pop`, `remove`
-  and `delete`, `the ok pop returns is never checked: ok is not read`. The value may be dropped, `_, ok := m[k]`, and both cannot be,
+  and `delete`, `the ok pop returns is never checked: ok is not read`. The value may be discarded, `_, ok := m[k]`, and both cannot be,
   `every name is _, so nothing is bound`. Where the
   divisor is proven not zero the two-value form is allowed too, and `ok` is
   always `true` (see [docs/vet.md](docs/vet.md)). A divisor is proven
@@ -3479,7 +3514,7 @@ section remains the description of the language.
   assigned anywhere else, cannot be `mut`, and a binding whose every name is
   `_` is an error, since the call can be made on its own, or the loop
   written without names; for a call that returns an error, it is the
-  error dropped (see errors).
+  error discarded (see errors).
 - String literals may contain any bytes except a newline or a double quote,
   and are emitted as raw bytes, so UTF-8 passes through unchanged. A
   backslash starts an escape: `\a \b \f \v \n \t \r \\ \"`, as in Go, or

@@ -1218,7 +1218,7 @@ func (r *pkgResolver) declareRangeVars(loop *ast.ForRange, sc *scope) []diag.Dia
 	if loop.Var.Name == ast.Blank && loop.Elem.Name == ast.Blank {
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
-			Message:  "every name is _, so nothing is bound; drop the names and :=",
+			Message:  "every name is _, so nothing is bound; remove the names and :=",
 			Span: ast.Span{
 				File:  loop.Var.Span.File,
 				Start: loop.Var.Span.Start,

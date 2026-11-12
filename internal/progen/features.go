@@ -83,3 +83,22 @@ func (g *Gen) swapStmt() Stmt {
 	}, "swap(mut "+l.Name+", "+i.Name+", "+j.Name+")")
 	return ifOf(cond, []Stmt{sw}, nil, false)
 }
+
+// dropStmt returns drop(own v), for a list or a map v that a move may
+// take where generation is, as an own argument's (see passable): no plain
+// parameter, nothing frozen, ranged over or declared outside a loop
+// around the drop, and not in deferred code. It frees v at once, which
+// live's check at the end of main and the sanitizers watch, so v is moved
+// from then on and named by no later statement; the interpreter has
+// nothing to do.
+func (g *Gen) dropStmt() Stmt {
+	v := g.choose(g.visible(func(v *Var) bool {
+		return v.T.owned() && (!v.Param || v.Own) && !g.frozen[v] && v.Loops == g.loops && !g.inDefer
+	}))
+	if v == nil {
+		return g.newCollection()
+	}
+	v.Used = true
+	v.Moved = true
+	return simple(func(*frame) {}, "drop(own "+v.Name+")")
+}

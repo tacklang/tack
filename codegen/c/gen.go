@@ -2079,9 +2079,10 @@ func (g *generator) generateIncDec(s *ast.IncDec) ([]string, []diag.Diagnostic) 
 
 // generateExprStmt lowers an expression statement: a call to a named
 // function or a method, pop and remove among them, which drop what they
-// take (see dropTake), and replace, which drops the value it moves out
-// (see dropReplace); or an expression that only gives a value, which the
-// type checker warns about (see droppedValue).
+// take (see dropTake), replace, which drops the value it moves out (see
+// dropReplace), and drop, which frees its operand (see dropStmt); or an
+// expression that only gives a value, which the type checker warns about
+// (see droppedValue).
 func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagnostic) {
 	if q, ok := stmt.X.(*ast.Question); ok {
 		return g.questionStmt(q)
@@ -2112,6 +2113,9 @@ func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagn
 	}
 	if isBuiltin(call, "swap") {
 		return g.swapStmt(call)
+	}
+	if isBuiltin(call, "drop") {
+		return g.dropStmt(call)
 	}
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {
@@ -2145,7 +2149,7 @@ func (g *generator) droppedValue(e ast.Expr) ([]string, []diag.Diagnostic) {
 	if g.owned(typ) {
 		return nil, []diag.Diagnostic{{
 			Severity: diag.Error,
-			Message:  "internal error: a dropped value owns what it holds",
+			Message:  "internal error: a discarded value owns what it holds",
 			Span:     e.Spanned(),
 		}}
 	}

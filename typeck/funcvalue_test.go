@@ -120,7 +120,7 @@ func TestAcceptsFuncValues(t *testing.T) {
 // TestRejectsFuncValues checks that a call through a function value
 // keeps every rule a call by name keeps: a proof ends at a mut argument,
 // a list cannot be read and passed as mut, ranged over and changed, or
-// its element moved, an owned result cannot be dropped, a value held by
+// its element moved, an owned result cannot be discarded, a value held by
 // an error or an ok cannot be read before it is checked, and a function
 // type gives no zero value and no ==.
 func TestRejectsFuncValues(t *testing.T) {
@@ -135,8 +135,8 @@ func TestRejectsFuncValues(t *testing.T) {
 			"must be the only way to reach l during it"},
 		{"a range changing its list", funcProgram("mut l list[int64]",
 			"push := grow", "for _, x := range l {", "    err := push(mut l, x)", "    if err.code != 0 {", "    }", "}"), "l is being ranged over, so this loop cannot pass mut l"},
-		{"an owned result dropped", funcProgram("", "mk := fresh", "mk()"), "mk returns list[int64], which cannot be dropped; bind it to a variable"},
-		{"an owned result bound to _", funcProgram("", "two := pair", "_, err := two()", "if err.code != 0 {", "}"), "two returns list[int64], which cannot be dropped; bind it to a variable instead of _"},
+		{"an owned result dropped", funcProgram("", "mk := fresh", "mk()"), "mk returns list[int64], which cannot be discarded; bind it to a variable"},
+		{"an owned result bound to _", funcProgram("", "two := pair", "_, err := two()", "if err.code != 0 {", "}"), "two returns list[int64], which cannot be discarded; bind it to a variable instead of _"},
 		{"a result read before its error is checked", funcProgram("",
 			"two := pair", "l, err := two()", "if len(l) > 0 {", "}", "if err.code != 0 {", "}"), "l cannot be read before err is checked; check err.code == 0 first"},
 		{"a popped value read before ok", funcProgram("mut l list[func(int64) int64]",

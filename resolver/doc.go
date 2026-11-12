@@ -76,7 +76,7 @@
 // func(A) R, are bound as any type's are. The builtins are those of the builtin.Set New
 // is given, print and exit, which the compiler implements, and the generic
 // ones, len, make, append, reserve, pop, remove, swap, replace, put,
-// delete and has.
+// delete, has and drop.
 //
 // Package-level variables and types share one namespace with functions and
 // builtins, and form the outermost scope, enclosing every function, so a

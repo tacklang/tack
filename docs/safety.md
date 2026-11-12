@@ -115,14 +115,14 @@ The details:
   assign to existing mutable variables, under the rules for assigning
   several results.
 - **`_` discards the value, never the `ok`**, as in
-  `_, fits := uint8(v)`. The `ok` is the check itself, and dropping it
+  `_, fits := uint8(v)`. The `ok` is the check itself, and discarding it
   would read a zero value standing in for one there is not, so
   <!-- case: ok-dropped-map-index-define -->`v, _ := m[1]` is
-  <!-- error: ok-dropped-map-index-define -->`the ok m[1] gives cannot be dropped; bind it to a variable instead of _`,
+  <!-- error: ok-dropped-map-index-define -->`the ok m[1] gives cannot be discarded; bind it to a variable instead of _`,
   and so is `_` in the `ok` of every checked form, with `=` as with `:=`:
-  <!-- error: ok-dropped-division-assign -->`the ok n / d gives cannot be dropped; bind it to a variable instead of _`,
-  <!-- error: ok-dropped-conversion-define -->`the ok uint8(n) gives cannot be dropped; bind it to a variable instead of _`,
-  <!-- error: ok-dropped-pop-define -->`the ok pop(mut l) gives cannot be dropped; bind it to a variable instead of _`.
+  <!-- error: ok-dropped-division-assign -->`the ok n / d gives cannot be discarded; bind it to a variable instead of _`,
+  <!-- error: ok-dropped-conversion-define -->`the ok uint8(n) gives cannot be discarded; bind it to a variable instead of _`,
+  <!-- error: ok-dropped-pop-define -->`the ok pop(mut l) gives cannot be discarded; bind it to a variable instead of _`.
 - **Exactly two names.** One name is the plain form, which then needs its
   proof. Three or more are an
   error: <!-- error: safety-checked-three-names-division -->
@@ -1948,14 +1948,14 @@ reports <!-- error: error-assign-alone -->
 with <!-- note: error-assign-alone -->`err is bound beside v here`.
 A variable bound beside two errors, at two bindings, needs both checked.
 
-An error cannot be dropped either. A call statement whose callee returns
+An error cannot be discarded either. A call statement whose callee returns
 one
-is <!-- error: error-dropped-call -->`the error parse returns cannot be dropped; bind it, as in _, err := parse(...)`,
-naming a result that cannot be dropped either, as a list cannot, in place of its `_`,
-<!-- error: bytes-repeat-dropped -->`the error bytes.repeat returns cannot be dropped; bind it, as in x, err := bytes.repeat(...)`,
+is <!-- error: error-dropped-call -->`the error parse returns cannot be discarded; bind it, as in _, err := parse(...)`,
+naming a result that cannot be discarded either, as a list cannot, in place of its `_`,
+<!-- error: bytes-repeat-dropped -->`the error bytes.repeat returns cannot be discarded; bind it, as in x, err := bytes.repeat(...)`,
 and `_` in its
 place <!-- error: error-dropped-blank -->
-`the error parse returns cannot be dropped; bind it to a variable instead of _`.
+`the error parse returns cannot be discarded; bind it to a variable instead of _`.
 A function's error is its last
 result: <!-- error: error-not-last -->`error must be the last result of f`.
 
@@ -2082,7 +2082,7 @@ owned one that may overlap the place is
 A list that no variable holds, a call's result or `make`'s, must be given
 one, or it would never be freed:
 <!-- error: move-temporary-len -->`cannot use a temporary list[int64] here; store it in a variable first`,
-<!-- error: move-dropped-make -->`make returns list[int64], which cannot be dropped; bind it to a variable`.
+<!-- error: move-dropped-make -->`make returns list[int64], which cannot be discarded; bind it to a variable`.
 No package-level variable may hold a list, <!-- error: list-global -->`package-level variable g cannot hold a list`.
 
 The frees are where the compiler puts them, at the end of the owner's
@@ -2288,9 +2288,9 @@ if len(l) > 0 {
 
 reports the second with <!-- note: pop-guard-ends-at-pop -->`but l is passed as mut to pop here, so the proof ends`.
 A `pop` or a `remove` written as a statement, `pop(mut l)` or
-`remove(mut l, i)`, needs no proof: it drops the element when there is
+`remove(mut l, i)`, needs no proof: it discards the element when there is
 one, freeing it when it is owned, and does nothing otherwise, so it is
-how a program drops an element; binding both results to `_`,
+how a program discards an element; binding both results to `_`,
 `_, _ = pop(mut l)`,
 is <!-- error: pop-results-all-blank -->`every name is _, so nothing is bound; make the call on its own`.
 The checked forms, `x, ok := pop(mut l)` and `x, ok := remove(mut
@@ -2306,10 +2306,10 @@ holds in a region never assigning `ok`, and `ok` is assigned only with
 `x`,
 <!-- error: pop-ok-assigned -->`ok says whether pop gave x, so only a binding that also assigns x can assign it`,
 so a check is always about the element `x` holds. An owned element is
-never dropped,
-<!-- error: pop-owned-dropped -->`pop returns list[int64], which cannot be dropped; bind it to a variable instead of _`,
+never discarded,
+<!-- error: pop-owned-dropped -->`pop returns list[int64], which cannot be discarded; bind it to a variable instead of _`,
 and neither is the `ok` that guards one,
-<!-- error: pop-ok-dropped -->`the ok pop returns cannot be dropped: x cannot be read until it is checked; bind it to a variable instead of _`.
+<!-- error: pop-ok-dropped -->`the ok pop returns cannot be discarded: x cannot be read until it is checked; bind it to a variable instead of _`.
 `examples/owned-lists` counts the buffers its allocator holds after
 lists of lists, of structs and of unions are built, read and matched in
 place, grown, replaced, popped and removed at every edge, nested three
@@ -2333,7 +2333,7 @@ argument, <!-- error: generic-copy-param -->`cannot move s: it is a parameter, w
 a moved one cannot be used, <!-- error: generic-use-after-move -->`x is used after it was moved`;
 one no variable holds must be given one,
 <!-- error: generic-temporary -->`cannot use a temporary S here; store it in a variable first`,
-<!-- error: generic-dropped-result -->`stuck returns S, which may hold a list and cannot be dropped; bind it to a variable`;
+<!-- error: generic-dropped-result -->`stuck returns S, which may hold a list and cannot be discarded; bind it to a variable`;
 it has no zero value, <!-- error: generic-zero-value -->`z needs a value: S has no zero value`;
 it is never borrowed alongside a `mut` argument of itself,
 <!-- error: generic-arg-borrow-alongside-mut -->`cannot pass w alongside mut w in this call: a list is not copied for a call, and a mut argument must be the only way to reach w during it`;
@@ -2476,8 +2476,8 @@ and one assigned cannot be computed by a call that changes the map,
 and value in; replacing a value frees the old one, and the key given is
 freed in favour of the one the map holds; a `put` that cannot grow the
 map frees both and leaves the map as it was, and its error cannot be
-dropped,
-<!-- error: map-put-dropped -->`the error put returns cannot be dropped; bind it, as in err := put(...)`.
+discarded,
+<!-- error: map-put-dropped -->`the error put returns cannot be discarded; bind it, as in err := put(...)`.
 `delete` moves the value out and frees the key, or, as a statement,
 frees the value too. A key moved into a map cannot be used after,
 <!-- error: map-key-moved -->`k is used after it was moved`.
@@ -2534,7 +2534,7 @@ checked against them exactly as a call to a function of that signature
 is: `mut` arguments, which end every proof about their places and never
 overlap (<!-- case: func-value-mut-overlap -->), views, a list never
 read and passed as `mut` at once, moves, owned results that cannot be
-dropped, and errors that cannot be either (<!-- case: func-value-dropped-error -->). No proof depends on which
+discarded, and errors that cannot be either (<!-- case: func-value-dropped-error -->). No proof depends on which
 function a call calls, only on what its arguments let it change, so
 nothing the checker proves is lost to a call through a value. A function
 type says no more than its values can be called with, so a generic
