@@ -1468,3 +1468,76 @@ consistency and could go another way:
   reflection. A signed form needs a ruling on how a negative value's
   bits are written, as Tack has no conversion that reinterprets them,
   and a float form on whether NaN's bits are kept.
+
+## std/big
+
+`std/big`'s API was ruled as the lead's recommendation, the lead's call
+(2026-11-12), overrulable: signed integers of any size in a `pub
+type Int struct` with a private sign and a private `list[uint64]`
+magnitude, little-endian and normalized, zero never negative; every
+constructor and every operation that makes a value taking `scope alloc
+Allocator` and returning a new `Int`; `from_int64`, `from_uint64`,
+`parse`, `format`, `sub`, `mul`, `neg`, `abs`, `div_mod`, truncated as
+Go's `QuoRem`, `shl` and `shr`, arithmetic as Go's `Rsh`, `cmp`,
+`sign`, `is_zero` and the checked `to_int64` and `to_uint64`; Tack
+alone, schoolbook algorithms and no recursion. These points were
+settled as the lead's call (2026-11-12), overrulable, or by
+consistency, and could go another way:
+
+- Addition is `plus`, not `add`, which is the builtin that adds to an
+  arena, so a package-level `add` is `duplicate declaration of builtin
+  function`. `sub` and `mul` keep their names, so the three do not
+  match; `sum`, or `plus`, `minus` and `times`, would be the
+  alternatives.
+- The errors reuse std's codes: std/conv's 6 `"invalid syntax"` and 8
+  `"invalid base"` from `parse` and `format`, the builtin reserve's 2
+  `"negative count"` for a negative shift count, and a new code, 10,
+  `"division by zero"`, for `div_mod` by zero, the first code after
+  std/conv's 9. The errors are not `pub` globals, as std/conv's are not.
+- `parse` checks as `conv.parse_int` does: an empty input is a syntax
+  error whatever the base, then the base, then the digits. It takes no
+  prefix, underscore or space, Go's `SetString` with a base that is not
+  0; there is no base 0. Leading zeros are taken, and `-0` is 0.
+- `format(mut out list[uint8], x Int, base int64) error` appends, as
+  `conv.append_float` does, rather than returning a Text; it is not
+  `append`, a builtin. It takes no `Allocator`, so it works out the
+  digits in `out` itself, past its bytes, reserving `x`'s bit length
+  divided by the floor of the base's log 2, a byte more and one for a
+  sign, and pops what it did not use. `out`'s capacity may so be over
+  its length afterwards by the ratio of the base's log 2 to its floor,
+  worked out, not measured: about 1.58 times the digits in base 3, the
+  worst, 1.11 in base 10, 1.03 in base 36, and a byte or two in a
+  power of two's base.
+- Every function that makes an `Int` allocates once for each nonzero
+  `Int` it returns, reserved at its largest before it is written, and
+  nothing for a zero, so a refused allocation leaves nothing allocated.
+  `div_mod`'s remainder is the exception: when `|x|` is at least `|y|`
+  it is allocated, after the quotient, before it is known, since the
+  long division works in it, so a remainder of zero, as in
+  `div_mod(y, y)`, still allocates. Allocating it only when it comes
+  out nonzero would need a second buffer to work in.
+  `parse` reserves for `n` digits `n / 10 + 1` words, which may be a
+  word or two over what the value needs.
+- Beside an error every `Int` returned is zero, though no caller can
+  read it before checking the error.
+- Division is long division one bit at a time, in time proportional to
+  the dividend's bits times the divisor's words, 64 times Knuth's
+  algorithm D's word steps; multiplication is the schoolbook one, with
+  no Karatsuba; format and parse go one digit at a time, in time
+  proportional to the square of the length. They were chosen to be
+  plainly correct; faster algorithms can replace them behind the same
+  API.
+- Tack has no 128-bit integer and no truncating conversion: a product
+  of two words is made from 32-bit halves, each taken with a checked
+  conversion whose `ok` is always true, as `std/sha256`'s `byte_of`
+  takes a byte. A few such checks the algorithms make true, a carry's
+  bound or a length that cannot overflow, return `error{code: 2, msg:
+  "internal error"}`, which no input reaches, as std/bytes' do.
+- Left out until asked for: bitwise operations (and, or, xor, not and
+  bit tests, which Go defines on two's complement for negatives), powers
+  and modular powers, greatest common divisors and modular inverses,
+  square roots, `Euclidean` division as Go's `DivMod`, conversion to
+  and from floats, and rationals, as Go's `big.Rat`, and arbitrary
+  precision floats, as Go's `big.Float`. There is no `set`, `copy`,
+  method syntax or in-place form either: each operation makes a new
+  `Int`, so a loop accumulating one allocates on each step.

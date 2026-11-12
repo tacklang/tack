@@ -1,0 +1,986 @@
+package big
+
+// Package big holds signed integers of any size, as Go's math/big holds
+// them in a big.Int. A program imports it as
+//
+//     import big from "std/big"
+//
+// and the compiler reads it from $TACK_HOME/src/std/big, or
+// ~/.tack/src/std/big, as it reads std/bytes. It is written in Tack
+// alone, with no C.
+//
+// An Int is a sign and a magnitude, a list[uint64] of 64-bit words,
+// least significant first, in fields no other package can name. The
+// magnitude has no high zero words, so zero holds no words at all, and
+// zero is never negative: every function here keeps that form, and
+// relies on it. An Int owns its words, as a list does: it moves rather
+// than copies, has no zero value, and frees its words when its owner's
+// block ends.
+//
+// Every function that makes an Int takes the Allocator it is made
+// through, as scope, so it may be a region's, and makes a new Int,
+// leaving its operands as they were: from_int64, from_uint64, parse,
+// plus, sub, mul, neg, abs, div_mod, shl and shr. Each allocates one
+// buffer for each Int it returns that is not zero, reserved at the
+// largest the result can be before it is written, and nothing for a
+// zero, with one exception: div_mod, when |x| is at least |y|, makes
+// its quotient's buffer and then its remainder's, which it works in,
+// so it allocates the remainder's even when the remainder is zero, as
+// div_mod(y, y) does. When the allocator cannot give a buffer, the
+// error is the builtin append's, error{code: 1, msg: "out of memory"},
+// and nothing is left allocated. The queries, cmp, sign and is_zero,
+// and the checked conversions, to_int64 and to_uint64, allocate nothing
+// and cannot fail. format appends to a list, all or nothing.
+//
+// The errors, beside out of memory:
+//
+//   - error{code: 6, msg: "invalid syntax"} and error{code: 8, msg:
+//     "invalid base"}, std/conv's, from parse and format.
+//   - error{code: 2, msg: "negative count"}, the builtin reserve's, from
+//     shl and shr given a negative count.
+//   - error{code: 10, msg: "division by zero"}, from div_mod.
+//
+// Beside an error, every Int a function returns is zero, though no
+// caller can read it before checking the error.
+//
+// The algorithms are the schoolbook ones, chosen to be plainly correct
+// rather than fast: addition and subtraction word by word with a carry,
+// multiplication in time proportional to the product of the operands'
+// lengths, division one bit of the quotient at a time, in time
+// proportional to the dividend's bits times the divisor's words, and
+// format and parse one digit at a time. Nothing recurses.
+//
+// Tack has no 128-bit integer, so a product of two words is made from
+// their 32-bit halves, as mac shows, each partial product and sum of
+// halves proven to fit a uint64 by the halves' type. The wrapping
+// operators stand only where a word's arithmetic is defined modulo 2^64:
+// the sum or difference of two words and a carry, whose carry out is
+// found by comparing, each commented where it is. A few checks the
+// algorithms make true but the compiler cannot prove return
+// error{code: 2, msg: "internal error"}, which no input reaches.
+
+// out_of_memory is the builtin append's error, which an Int that cannot
+// be made returns.
+var out_of_memory = error{code: 1, msg: "out of memory"}
+
+// negative_count is the builtin reserve's error for a negative count,
+// which shl and shr return for a negative shift.
+var negative_count = error{code: 2, msg: "negative count"}
+
+// internal is the error of a check the algorithms make true, which no
+// input reaches.
+var internal = error{code: 2, msg: "internal error"}
+
+// syntax is std/conv's error for text that is not an integer.
+var syntax = error{code: 6, msg: "invalid syntax"}
+
+// bad_base is std/conv's error for a base that is not 2 to 36.
+var bad_base = error{code: 8, msg: "invalid base"}
+
+// division_by_zero is div_mod's error for a divisor of zero.
+var division_by_zero = error{code: 10, msg: "division by zero"}
+
+// digit_chars holds the digits of every base to 36, lowercase.
+var digit_chars = "0123456789abcdefghijklmnopqrstuvwxyz"
+
+// Int is a signed integer of any size.
+pub type Int struct {
+    // neg is true for a value below zero, and never for zero.
+    neg bool
+    // mag is the magnitude, in 64-bit words, least significant first,
+    // with no high zero words: zero holds none.
+    mag list[uint64]
+}
+
+// zero returns an Int of 0, which holds no words and so allocates
+// nothing.
+func zero(scope alloc Allocator) Int {
+    return Int{neg: false, mag: make(list[uint64], alloc)}
+}
+
+// make_int returns the Int whose magnitude is mag, which has no high
+// zero words, and which is negative when neg is and mag is not zero.
+func make_int(neg bool, own mag list[uint64]) Int {
+    return Int{neg: neg && len(mag) > 0, mag: mag}
+}
+
+// trim pops the high zero words of m, so it is a magnitude.
+func trim(mut m list[uint64]) {
+    for len(m) > 0 {
+        if m[len(m) - 1] != 0 {
+            return
+        }
+        pop(mut m)
+    }
+}
+
+// at returns word i of m, or 0 when m has no word i: a magnitude's
+// words past its last are zero.
+func at(m []uint64, i int64) uint64 {
+    w, ok := m[i]
+    if !ok {
+        return 0
+    }
+    return w
+}
+
+// low returns the low 32 bits of v. v & 0xFFFFFFFF is always a uint32,
+// but a bitwise operator gives the checker no bound, so the conversion
+// is in the checked form, whose ok is always true.
+func low(v uint64) uint32 {
+    h, ok := uint32(v & 0xFFFFFFFF)
+    if !ok {
+        return 0
+    }
+    return h
+}
+
+// high returns the high 32 bits of v. v >> 32 is always a uint32, but a
+// shift gives the checker no bound, so the conversion is in the checked
+// form, whose ok is always true.
+func high(v uint64) uint32 {
+    h, ok := uint32(v >> 32)
+    if !ok {
+        return 0
+    }
+    return h
+}
+
+// mac returns x * y + z + c, which is below 2^128, as its high word and
+// its low word. It works in 32-bit halves, as long multiplication does
+// in base 2^32, x0 and x1 the halves of x, low first, and the same for
+// the others: each column's partial product of two halves and the
+// halves added to it are at most (2^32 - 1)^2 + 2 * (2^32 - 1), which is
+// 2^64 - 1, so every sum below fits a uint64, as the halves' types
+// prove, and none wraps.
+func mac(x uint64, y uint64, z uint64, c uint64) (uint64, uint64) {
+    x0 := low(x)
+    x1 := high(x)
+    y0 := low(y)
+    y1 := high(y)
+    z0 := low(z)
+    z1 := high(z)
+    c0 := low(c)
+    c1 := high(c)
+    // Column 0, worth 1: x0 * y0 + z0 + c0 is r0 and a carry, k.
+    p := uint64(x0) * uint64(y0) + uint64(z0) + uint64(c0)
+    r0 := low(p)
+    k := high(p)
+    // Column 1, worth 2^32: x1 * y0 + x0 * y1 + z1 + c1 + k, in two
+    // sums that each fit, m and then n, which give r1 and carry mh + nh.
+    m := uint64(x1) * uint64(y0) + uint64(z1) + uint64(k)
+    ml := low(m)
+    mh := high(m)
+    n := uint64(x0) * uint64(y1) + uint64(ml) + uint64(c1)
+    r1 := low(n)
+    nh := high(n)
+    // Column 2, worth 2^64: x1 * y1 and column 1's carries, the high
+    // word whole, as the product is below 2^128.
+    hi := uint64(x1) * uint64(y1) + uint64(mh) + uint64(nh)
+    return hi, uint64(r1) << 32 | uint64(r0)
+}
+
+// cmp_mag returns -1, 0 or 1 as the magnitude a is less than, equal to
+// or greater than b. A longer magnitude is greater, as neither has high
+// zero words; one as long is compared from its top word down.
+func cmp_mag(a []uint64, b []uint64) int64 {
+    if len(a) != len(b) {
+        if len(a) < len(b) {
+            return -1
+        }
+        return 1
+    }
+    mut i := len(a) - 1
+    for i >= 0 && i < len(a) && i < len(b) {
+        x := a[i]
+        y := b[i]
+        if x != y {
+            if x < y {
+                return -1
+            }
+            return 1
+        }
+        i--
+    }
+    return 0
+}
+
+// add_mag returns the magnitude a + b, through alloc. a is at least as
+// long as b, and the sum is at most a word longer, which is reserved
+// first, so it allocates once.
+func add_mag(a []uint64, b []uint64, scope alloc Allocator) (list[uint64], error) {
+    mut z := make(list[uint64], alloc)
+    size, fits := len(a) + 1
+    if !fits {
+        return z, out_of_memory
+    }
+    reserve(mut z, size)?
+    mut carry uint64 = 0
+    for i, x := range a {
+        y := at(b, i)
+        // A word of the sum is x + y + carry modulo 2^64, by definition,
+        // and the carry out is whether either addition wrapped.
+        s := x +% y
+        t := s +% carry
+        if s < x || t < s {
+            carry = 1
+        } else {
+            carry = 0
+        }
+        append(mut z, t)?
+    }
+    if carry != 0 {
+        append(mut z, carry)?
+    }
+    return z, noerror
+}
+
+// sub_mag returns the magnitude a - b, through alloc, with no high zero
+// words. a is at least b, so the difference is no longer than a, which
+// is reserved first, so it allocates once.
+func sub_mag(a []uint64, b []uint64, scope alloc Allocator) (list[uint64], error) {
+    mut z := make(list[uint64], alloc)
+    reserve(mut z, len(a))?
+    mut borrow uint64 = 0
+    for i, x := range a {
+        y := at(b, i)
+        // A word of the difference is x - y - borrow modulo 2^64, by
+        // definition, and the borrow out is whether either subtraction
+        // wrapped.
+        d := x -% y
+        t := d -% borrow
+        if x < y || d < borrow {
+            borrow = 1
+        } else {
+            borrow = 0
+        }
+        append(mut z, t)?
+    }
+    if borrow != 0 {
+        return z, internal
+    }
+    trim(mut z)
+    return z, noerror
+}
+
+// mul_mag returns the magnitude a * b, through alloc, with no high zero
+// words. The product is at most as long as a and b together, which is
+// reserved first and zeroed, so it allocates once; each word of a then
+// adds its product with b into it, from the word's own place, as long
+// multiplication does.
+func mul_mag(a []uint64, b []uint64, scope alloc Allocator) (list[uint64], error) {
+    mut z := make(list[uint64], alloc)
+    size, fits := len(a) + len(b)
+    if !fits {
+        return z, out_of_memory
+    }
+    reserve(mut z, size)?
+    for range size {
+        append(mut z, 0)?
+    }
+    for i, x := range a {
+        // Row i adds x * b to z from word i; z[i + len(b)] is still zero
+        // before it, so its last carry is stored there.
+        mut carry uint64 = 0
+        mut j := 0
+        mut k := i
+        for j >= 0 && j < len(b) && k >= 0 && k < len(z) {
+            hi, lo := mac(x, b[j], z[k], carry)
+            z[k] = lo
+            carry = hi
+            j++
+            k++
+        }
+        if j != len(b) || k < 0 || k >= len(z) {
+            return z, internal
+        }
+        z[k] = carry
+    }
+    trim(mut z)
+    return z, noerror
+}
+
+// at_least reports whether the words of r, read as a number, are at
+// least the magnitude b. r may have high zero words and be longer than
+// b; words past either's last are zero.
+func at_least(r []uint64, b []uint64) bool {
+    mut i := len(r) - 1
+    if len(b) > len(r) {
+        i = len(b) - 1
+    }
+    for i >= 0 {
+        x := at(r, i)
+        y := at(b, i)
+        if x != y {
+            return x > y
+        }
+        i--
+    }
+    return true
+}
+
+// div_mag returns the quotient and the remainder of the magnitudes a and
+// b, b not zero, each through alloc and with no high zero words. A
+// dividend less than the divisor is the remainder, and the quotient
+// zero. Otherwise it is long division in base 2: the remainder, which
+// is below 2b and so fits a word longer than b, takes each bit of a,
+// from the top, and gives b back whenever it holds b, which sets that
+// bit of the quotient. Each list is reserved first, so each allocates
+// once: the quotient's, then the remainder's, which is allocated even
+// when the remainder comes out zero.
+func div_mag(a []uint64, b []uint64, scope alloc Allocator) (list[uint64], list[uint64], error) {
+    mut q := make(list[uint64], alloc)
+    mut r := make(list[uint64], alloc)
+    if cmp_mag(a, b) < 0 {
+        append(mut r, a...)?
+        return q, r, noerror
+    }
+    reserve(mut q, len(a))?
+    for range len(a) {
+        append(mut q, 0)?
+    }
+    rsize, fits := len(b) + 1
+    if !fits {
+        return q, r, out_of_memory
+    }
+    reserve(mut r, rsize)?
+    for range rsize {
+        append(mut r, 0)?
+    }
+    mut i := len(a) - 1
+    for i >= 0 && i < len(a) && i < len(q) {
+        w := a[i]
+        for k := range 64 {
+            shift := uint64(63 - k)
+            // r = r * 2 + the next bit of a, in place.
+            mut c := w >> shift & 1
+            for j, rw := range r {
+                r[j] = rw << 1 | c
+                c = rw >> 63
+            }
+            if at_least(r, b) {
+                // r = r - b, in place; r is at least b, so nothing is
+                // borrowed past its top. Each word is the difference
+                // modulo 2^64, by definition, and the borrow out
+                // whether either subtraction wrapped.
+                mut borrow uint64 = 0
+                for j, rw := range r {
+                    bw := at(b, j)
+                    d := rw -% bw
+                    t := d -% borrow
+                    if rw < bw || d < borrow {
+                        borrow = 1
+                    } else {
+                        borrow = 0
+                    }
+                    r[j] = t
+                }
+                q[i] = q[i] | uint64(1) << shift
+            }
+        }
+        i--
+    }
+    trim(mut q)
+    trim(mut r)
+    return q, r, noerror
+}
+
+// copy_int returns a new Int through alloc holding x's magnitude, and
+// negative when neg is and x is not zero.
+func copy_int(x Int, neg bool, scope alloc Allocator) (Int, error) {
+    mut m := make(list[uint64], alloc)
+    append(mut m, x.mag...)?
+    return make_int(neg, own m), noerror
+}
+
+// from_magnitude returns the Int of magnitude v, negative when neg is and
+// v is not zero, through alloc: one word, or none for zero.
+func from_magnitude(v uint64, neg bool, scope alloc Allocator) (Int, error) {
+    mut m := make(list[uint64], alloc)
+    if v != 0 {
+        append(mut m, v)?
+    }
+    return make_int(neg, own m), noerror
+}
+
+// from_int64 returns v as an Int, made through alloc, and no error, or,
+// when alloc cannot give its word, error{code: 1, msg: "out of memory"}.
+// 0 holds no word and allocates nothing.
+pub func from_int64(v int64, scope alloc Allocator) (Int, error) {
+    if v >= 0 {
+        return from_magnitude(uint64(v), false, alloc)?, noerror
+    }
+    // -(v + 1) is an int64 for every negative v, the smallest included,
+    // and one less than v's magnitude, which is at most 2^63 and so a
+    // uint64.
+    m := uint64(-(v + 1))
+    magnitude, fits := m + 1
+    if !fits {
+        return zero(alloc), internal
+    }
+    return from_magnitude(magnitude, true, alloc)?, noerror
+}
+
+// from_uint64 returns v as an Int, made through alloc, and no error, or,
+// when alloc cannot give its word, error{code: 1, msg: "out of memory"}.
+// 0 holds no word and allocates nothing.
+pub func from_uint64(v uint64, scope alloc Allocator) (Int, error) {
+    return from_magnitude(v, false, alloc)?, noerror
+}
+
+// to_int64 returns x as an int64 and true, or 0 and false when x is
+// below -2^63 or above 2^63 - 1.
+pub func to_int64(x Int) (int64, bool) {
+    if len(x.mag) == 0 {
+        return 0, true
+    }
+    if len(x.mag) != 1 {
+        return 0, false
+    }
+    w := x.mag[0]
+    if !x.neg {
+        if w > 9223372036854775807 {
+            return 0, false
+        }
+        return int64(w), true
+    }
+    if w == 0 {
+        return 0, true
+    }
+    // x is -w: ^(w - 1) is -(w - 1) - 1, which is -w, and holds w up to
+    // 2^63, the smallest int64's magnitude, with no negation of its own.
+    t := w - 1
+    if t > 9223372036854775807 {
+        return 0, false
+    }
+    return ^int64(t), true
+}
+
+// to_uint64 returns x as a uint64 and true, or 0 and false when x is
+// negative or above 2^64 - 1.
+pub func to_uint64(x Int) (uint64, bool) {
+    if x.neg {
+        return 0, false
+    }
+    if len(x.mag) == 0 {
+        return 0, true
+    }
+    if len(x.mag) != 1 {
+        return 0, false
+    }
+    return x.mag[0], true
+}
+
+// cmp returns -1, 0 or 1 as x is less than, equal to or greater than y.
+pub func cmp(x Int, y Int) int64 {
+    if x.neg != y.neg {
+        if x.neg {
+            return -1
+        }
+        return 1
+    }
+    if x.neg {
+        // Both are negative: the greater magnitude is the lesser value.
+        return cmp_mag(y.mag, x.mag)
+    }
+    return cmp_mag(x.mag, y.mag)
+}
+
+// sign returns -1, 0 or 1 as x is negative, zero or positive.
+pub func sign(x Int) int64 {
+    if len(x.mag) == 0 {
+        return 0
+    }
+    if x.neg {
+        return -1
+    }
+    return 1
+}
+
+// is_zero reports whether x is 0.
+pub func is_zero(x Int) bool {
+    return len(x.mag) == 0
+}
+
+// neg returns -x, made through alloc; -0 is 0. Its only error is
+// error{code: 1, msg: "out of memory"}.
+pub func neg(x Int, scope alloc Allocator) (Int, error) {
+    return copy_int(x, !x.neg, alloc)?, noerror
+}
+
+// abs returns the absolute value of x, made through alloc. Its only
+// error is error{code: 1, msg: "out of memory"}.
+pub func abs(x Int, scope alloc Allocator) (Int, error) {
+    return copy_int(x, false, alloc)?, noerror
+}
+
+// combine returns the sum of the magnitude x, negative when xneg, and the
+// magnitude y, negative when yneg, through alloc. Equal signs add the
+// magnitudes; opposite ones subtract the smaller from the larger, whose
+// sign the result takes, and equal magnitudes give zero.
+func combine(x []uint64, xneg bool, y []uint64, yneg bool, scope alloc Allocator) (Int, error) {
+    if len(x) == 0 && len(y) == 0 {
+        return zero(alloc), noerror
+    }
+    if xneg == yneg {
+        if len(x) >= len(y) {
+            z := add_mag(x, y, alloc)?
+            return make_int(xneg, own z), noerror
+        }
+        z := add_mag(y, x, alloc)?
+        return make_int(xneg, own z), noerror
+    }
+    c := cmp_mag(x, y)
+    if c == 0 {
+        return zero(alloc), noerror
+    }
+    if c > 0 {
+        z := sub_mag(x, y, alloc)?
+        return make_int(xneg, own z), noerror
+    }
+    z := sub_mag(y, x, alloc)?
+    return make_int(yneg, own z), noerror
+}
+
+// plus returns x + y, made through alloc. Its only error is
+// error{code: 1, msg: "out of memory"}. The name is not add, which is
+// the builtin that adds to an arena.
+pub func plus(x Int, y Int, scope alloc Allocator) (Int, error) {
+    return combine(x.mag, x.neg, y.mag, y.neg, alloc)?, noerror
+}
+
+// sub returns x - y, made through alloc. Its only error is
+// error{code: 1, msg: "out of memory"}.
+pub func sub(x Int, y Int, scope alloc Allocator) (Int, error) {
+    return combine(x.mag, x.neg, y.mag, !y.neg, alloc)?, noerror
+}
+
+// mul returns x * y, made through alloc. Its only error is
+// error{code: 1, msg: "out of memory"}. A zero operand gives zero,
+// allocating nothing.
+pub func mul(x Int, y Int, scope alloc Allocator) (Int, error) {
+    if len(x.mag) == 0 || len(y.mag) == 0 {
+        return zero(alloc), noerror
+    }
+    z := mul_mag(x.mag, y.mag, alloc)?
+    return make_int(x.neg != y.neg, own z), noerror
+}
+
+// div_mod returns the quotient x / y truncated toward zero and the
+// remainder x - y * (x / y), which has x's sign or is zero, each made
+// through alloc, as Go's QuoRem gives them: 7 and -2 give -3 and 1, -7
+// and 2 give -3 and -1. A y of zero is error{code: 10, msg: "division by
+// zero"}; the other error is error{code: 1, msg: "out of memory"}, with
+// neither Int left allocated. When |x| is below |y| the quotient is zero
+// and allocates nothing, and the remainder, x, allocates once unless x
+// is zero; otherwise it allocates the quotient, then the remainder,
+// which it allocates even when it comes out zero.
+pub func div_mod(x Int, y Int, scope alloc Allocator) (Int, Int, error) {
+    if len(y.mag) == 0 {
+        return zero(alloc), zero(alloc), division_by_zero
+    }
+    q, r := div_mag(x.mag, y.mag, alloc)?
+    return make_int(x.neg != y.neg, own q), make_int(x.neg, own r), noerror
+}
+
+// shl returns x * 2^n, made through alloc, as Go's Lsh does, for a
+// negative x too. A negative n is error{code: 2, msg: "negative
+// count"}; a result too large to hold, or one alloc cannot give,
+// error{code: 1, msg: "out of memory"}. Zero shifted is zero, by any n
+// that is not negative, allocating nothing.
+pub func shl(x Int, n int64, scope alloc Allocator) (Int, error) {
+    if n < 0 {
+        return zero(alloc), negative_count
+    }
+    if len(x.mag) == 0 {
+        return zero(alloc), noerror
+    }
+    u := uint64(n)
+    bits := u % 64
+    words, ok := int64(u / 64)
+    if !ok || bits > 63 {
+        return zero(alloc), internal
+    }
+    mut z := make(list[uint64], alloc)
+    grown, fits := len(x.mag) + words
+    if !fits {
+        return zero(alloc), out_of_memory
+    }
+    size, fits2 := grown + 1
+    if !fits2 {
+        return zero(alloc), out_of_memory
+    }
+    reserve(mut z, size)?
+    for range words {
+        append(mut z, 0)?
+    }
+    // A shift by 64 - bits, 64 when bits is 0, leaves 0, as Tack shifts
+    // every bit out at the width.
+    mut carry uint64 = 0
+    for _, w := range x.mag {
+        append(mut z, w << bits | carry)?
+        carry = w >> (64 - bits)
+    }
+    append(mut z, carry)?
+    trim(mut z)
+    return make_int(x.neg, own z), noerror
+}
+
+// shr returns x / 2^n rounded toward negative infinity, made through
+// alloc, as Go's Rsh does: an arithmetic shift, so -5 shifted by 1 is
+// -3, and a negative x shifted past its every bit is -1. A negative n is
+// error{code: 2, msg: "negative count"}; the other error is error{code:
+// 1, msg: "out of memory"}. A zero result allocates nothing.
+pub func shr(x Int, n int64, scope alloc Allocator) (Int, error) {
+    if n < 0 {
+        return zero(alloc), negative_count
+    }
+    if len(x.mag) == 0 {
+        return zero(alloc), noerror
+    }
+    u := uint64(n)
+    bits := u % 64
+    words_u := u / 64
+    words, ok := int64(words_u)
+    if words_u >= len(x.mag) || ok && words == len(x.mag) - 1 && x.mag[words] >> bits == 0 {
+        // Every set bit is shifted out: what is left is 0, or -1 for a
+        // negative x, whose lost bits round it down. Zero is made
+        // without allocating.
+        if x.neg {
+            return from_magnitude(1, true, alloc)?, noerror
+        }
+        return zero(alloc), noerror
+    }
+    if !ok || bits > 63 || words < 0 || words >= len(x.mag) {
+        return zero(alloc), internal
+    }
+    // A negative x rounds down, so its magnitude rounds up: by one when
+    // any bit shifted out is set.
+    mut lost := false
+    if x.neg {
+        for i, w := range x.mag {
+            if i < words && w != 0 {
+                lost = true
+            }
+        }
+        // The mask holds the low bits of word words that are shifted
+        // out, none when bits is 0.
+        if x.mag[words] & ^(^uint64(0) << bits) != 0 {
+            lost = true
+        }
+    }
+    mut z := make(list[uint64], alloc)
+    rest := len(x.mag) - words
+    size, fits := rest + 1
+    if !fits {
+        return zero(alloc), internal
+    }
+    reserve(mut z, size)?
+    // A shift by 64 - bits, 64 when bits is 0, leaves 0, as Tack shifts
+    // every bit out at the width.
+    for i, w := range x.mag {
+        if i >= words {
+            next := at(x.mag, i + 1)
+            append(mut z, w >> bits | next << (64 - bits))?
+        }
+    }
+    trim(mut z)
+    if lost {
+        mut carried := true
+        for j, w := range z {
+            if carried {
+                if w < 18446744073709551615 {
+                    z[j] = w + 1
+                    carried = false
+                } else {
+                    z[j] = 0
+                }
+            }
+        }
+        if carried {
+            append(mut z, 1)?
+        }
+    }
+    return make_int(x.neg, own z), noerror
+}
+
+// digit returns the value of c as a digit, 0 to 35, its letters in
+// either case, or 36 when c is no digit of any base to 36.
+func digit(c uint8) uint64 {
+    if c >= '0' && c <= '9' {
+        return c - '0'
+    }
+    // c | 0x20 is c in lowercase when c is a letter, and no letter when
+    // c is not one, as std/conv's lower is.
+    l := c | 0x20
+    if l >= 'a' && l <= 'z' {
+        return l - 'a' + 10
+    }
+    return 36
+}
+
+// mul_add sets the magnitude m to m * f + a, in place, growing it by a
+// word when the carry out of its top is not zero.
+func mul_add(mut m list[uint64], f uint64, a uint64) error {
+    mut carry := a
+    for j, w := range m {
+        hi, lo := mac(w, f, carry, 0)
+        m[j] = lo
+        carry = hi
+    }
+    if carry != 0 {
+        return append(mut m, carry)
+    }
+    return noerror
+}
+
+// parse returns the integer s holds in base, made through alloc: an
+// optional sign, + or -, and one or more digits of base, which is 2 to
+// 36, digits past 9 being the letters a to z in either case, as Go's
+// SetString takes them with a base that is not 0. No prefix, underscore
+// or space is taken; leading zeros are, and -0 is 0. The errors are
+// std/conv's: an empty s, a lone sign, or a byte that is not a digit of
+// base, error{code: 6, msg: "invalid syntax"}, and a base outside 2 to
+// 36, error{code: 8, msg: "invalid base"}, checked after an empty s and
+// before the digits, as conv.parse_int checks them; and error{code: 1,
+// msg: "out of memory"}. A value of zero allocates nothing; any other
+// allocates once.
+pub func parse(s []uint8, base int64, scope alloc Allocator) (Int, error) {
+    if len(s) == 0 {
+        return zero(alloc), syntax
+    }
+    if base < 2 || base > 36 {
+        return zero(alloc), bad_base
+    }
+    ub := uint64(base)
+    first := s[0]
+    negative := first == '-'
+    mut start := 0
+    if first == '+' || negative {
+        start = 1
+    }
+    if start >= len(s) {
+        return zero(alloc), syntax
+    }
+    // Every byte is checked before anything is allocated, and the first
+    // that is not a zero found, so a zero allocates nothing.
+    mut lead := len(s)
+    for i, c := range s {
+        if i >= start {
+            if digit(c) >= ub {
+                return zero(alloc), syntax
+            }
+            if lead == len(s) && c != '0' {
+                lead = i
+            }
+        }
+    }
+    mut m := make(list[uint64], alloc)
+    if lead == len(s) {
+        return make_int(false, own m), noerror
+    }
+    // A digit is less than 6 bits, as 36 is below 2^6, so n digits fit
+    // in 6n bits, at most n / 10 + 1 words.
+    n, fits0 := len(s) - lead
+    if !fits0 {
+        return zero(alloc), internal
+    }
+    words, fits := n / 10 + 1
+    if !fits {
+        return zero(alloc), out_of_memory
+    }
+    reserve(mut m, words)?
+    // Digits are gathered into acc, a number below mult, base to the
+    // count of digits in it, while mult times base fits a word, and then
+    // multiplied into m at once.
+    mut acc uint64 = 0
+    mut mult uint64 = 1
+    for i, c := range s {
+        if i >= lead {
+            mut next, fits2 := mult * ub
+            if !fits2 {
+                mul_add(mut m, mult, acc)?
+                acc = 0
+                mult = 1
+                next = ub
+            }
+            // acc is below mult, so acc * base + d is below next, which
+            // fits.
+            times, fits3 := acc * ub
+            if !fits3 {
+                return zero(alloc), internal
+            }
+            sum, fits4 := times + digit(c)
+            if !fits4 {
+                return zero(alloc), internal
+            }
+            acc = sum
+            mult = next
+        }
+    }
+    mul_add(mut m, mult, acc)?
+    trim(mut m)
+    return make_int(negative, own m), noerror
+}
+
+// truncate pops bytes off out until it holds n.
+func truncate(mut out list[uint8], n int64) {
+    for len(out) > n {
+        pop(mut out)
+    }
+}
+
+// format appends x to out in base, 2 to 36, with lowercase digits past
+// 9, no leading zeros, a - before a negative x and no prefix: 0 is "0",
+// and 255 in base 16 is "ff". It returns no error, or error{code: 8, msg:
+// "invalid base"} for a base outside 2 to 36, or error{code: 1, msg:
+// "out of memory"} when out cannot grow to hold the digits, and then
+// leaves out exactly as it was, all or nothing. It allocates nothing but
+// out's growth, reserved once: x's bit length divided by the bits a
+// digit of base holds at least, the floor of base's log 2, and a byte
+// more, and one for a sign.
+//
+// The digits are worked out in out itself, past its bytes: as numbers
+// 0 to base - 1, least significant first, each 32 bits of x, from the
+// top, multiplying them by 2^32 and adding in; then reversed and written
+// as characters. The bytes reserved past the digits are popped, so out
+// ends just after them.
+pub func format(mut out list[uint8], x Int, base int64) error {
+    if base < 2 || base > 36 {
+        return bad_base
+    }
+    ub := uint64(base)
+    if len(x.mag) == 0 {
+        return append(mut out, '0')
+    }
+    start := len(out)
+    // per is the bits a digit holds at least: the floor of base's log 2.
+    mut per int64 = 1
+    if base >= 32 {
+        per = 5
+    } else if base >= 16 {
+        per = 4
+    } else if base >= 8 {
+        per = 3
+    } else if base >= 4 {
+        per = 2
+    }
+    // nbits is x's bit length: 64 for each word below the top, and the
+    // top word's own, which is not zero, so a digit is reserved for no
+    // high zero bit.
+    top_word := x.mag[len(x.mag) - 1]
+    mut top_bits int64 = 0
+    for k := range 64 {
+        if top_word >> uint64(k) != 0 {
+            top_bits = k + 1
+        }
+    }
+    below, fits0 := (len(x.mag) - 1) * 64
+    nbits, fits := below + top_bits
+    if !fits0 || !fits {
+        return out_of_memory
+    }
+    count, divided := nbits / per
+    if !divided {
+        return internal
+    }
+    mut sign int64 = 0
+    if x.neg {
+        sign = 1
+    }
+    digits, fits1 := count + 1
+    places, fits2 := digits + sign
+    if !fits1 || !fits2 {
+        return out_of_memory
+    }
+    err := reserve(mut out, places)
+    if err.code != 0 {
+        return err
+    }
+    for range places {
+        e := append(mut out, 0)
+        if e.code != 0 {
+            truncate(mut out, start)
+            return e
+        }
+    }
+    // The digits are out[first:top], least significant first.
+    first, fits3 := start + sign
+    if !fits3 {
+        truncate(mut out, start)
+        return internal
+    }
+    mut top := first
+    mut i := len(x.mag) - 1
+    for i >= 0 && i < len(x.mag) {
+        w := x.mag[i]
+        for h := range 2 {
+            mut half := high(w)
+            if h == 1 {
+                half = low(w)
+            }
+            // digits = digits * 2^32 + half. A digit is below base, at
+            // most 35, so a carry that starts below 2^32 stays at most
+            // 35 * 2^32, and each digit times 2^32 plus it fits a word.
+            mut carry uint64 = half
+            mut p := first
+            for p >= 0 && p < top && p < len(out) {
+                if carry > 150323855360 {
+                    truncate(mut out, start)
+                    return internal
+                }
+                v := uint64(out[p]) * 4294967296 + carry
+                d, ok := uint8(v % ub)
+                if !ok {
+                    truncate(mut out, start)
+                    return internal
+                }
+                out[p] = d
+                carry = v / ub
+                p++
+            }
+            for carry > 0 {
+                d, ok := uint8(carry % ub)
+                if !ok || top < 0 || top >= len(out) {
+                    truncate(mut out, start)
+                    return internal
+                }
+                out[top] = d
+                carry = carry / ub
+                top++
+            }
+        }
+        i--
+    }
+    if top < 1 || top <= first || top > len(out) {
+        truncate(mut out, start)
+        return internal
+    }
+    // Most significant first, as characters.
+    mut lo := first
+    mut hi := top - 1
+    for lo >= 0 && lo < hi && hi >= 1 && hi < len(out) {
+        swap(mut out, lo, hi)
+        lo++
+        hi--
+    }
+    mut p := first
+    for p >= 0 && p < top && p < len(out) {
+        ch, ok := digit_chars[out[p]]
+        if !ok {
+            truncate(mut out, start)
+            return internal
+        }
+        out[p] = ch
+        p++
+    }
+    if x.neg {
+        if start < 0 || start >= len(out) {
+            truncate(mut out, start)
+            return internal
+        }
+        out[start] = '-'
+    }
+    truncate(mut out, top)
+    return noerror
+}

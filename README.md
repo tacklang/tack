@@ -5,10 +5,10 @@ compiler, written from scratch in Go.
 
 It is a learning project, built to understand how a compiler works end to end
 rather than to be used for anything. There is no runtime, a standard library
-of thirteen packages, `std/fmt`, `std/bytes`, `std/text`, `std/os`,
+of fourteen packages, `std/fmt`, `std/bytes`, `std/text`, `std/os`,
 `std/path`, `std/conv`, `std/errors`, `std/sort`, `std/utf8`,
-`std/unicode`, `std/sha256`, `std/hex` and `std/binary`, and no
-intermediate representation.
+`std/unicode`, `std/sha256`, `std/hex`, `std/binary` and `std/big`,
+and no intermediate representation.
 
 Every program the compiler accepts is held to four guarantees: no
 out-of-bounds access, no memory leak, no use-after-free and no panic. They
@@ -71,9 +71,10 @@ alone, classifies runes as Go's `unicode` does, from tables generated
 from Go's own. `std/sha256`, in Tack alone, computes SHA-256 as Go's
 `crypto/sha256` does, at once or over bytes written in pieces,
 `std/hex`, in Tack alone, writes bytes in hexadecimal as Go's
-`encoding/hex` does, and `std/binary`, in Tack alone, writes and reads
+`encoding/hex` does, `std/binary`, in Tack alone, writes and reads
 unsigned integers as big- and little-endian bytes as Go's
-`encoding/binary` does.
+`encoding/binary` does, and `std/big`, in Tack alone, holds signed
+integers of any size, as Go's `math/big` does.
 
 `exit` is a global builtin as a stand-in for a future `os.Exit`, after which
 the global goes away. `std/os` does not have one yet, so `exit` stays.
@@ -617,8 +618,10 @@ section remains the description of the language.
   which classifies runes (see unicode),
   [`sha256`](src/std/sha256/sha256.tck), which hashes bytes (see
   sha256), [`hex`](src/std/hex/hex.tck), which writes bytes in
-  hexadecimal (see hex), and [`binary`](src/std/binary/binary.tck),
-  which writes and reads integers as bytes (see binary).
+  hexadecimal (see hex), [`binary`](src/std/binary/binary.tck),
+  which writes and reads integers as bytes (see binary), and
+  [`big`](src/std/big/big.tck), which holds integers of any size (see
+  big).
   A std package follows every rule a package of the program's module
   does. Its `pub` names are usable from every package, its private names
   only from itself, `hidden is not pub in package std/util`, and its `lib`
@@ -1570,6 +1573,48 @@ section remains the description of the language.
   unread; a `b` shorter than N/8 bytes gives `0` and `false`, where
   Go's panics. There are no signed, float or 8-bit forms, no
   variable-length integers and no reading or writing of structs.
+- big. `std/big` is written in Tack alone, with no C. Its `pub type Int
+  struct` is a signed integer of any size: a sign and a magnitude, a
+  `list[uint64]` of words, least significant first, with no high zero
+  words, both private, so zero holds no words and is never negative. An
+  `Int` owns its words, as a list does: it moves, has no zero value and
+  frees its words when its block ends. Every function that makes one
+  takes the `Allocator` it is made through, as `scope`, and makes a new
+  `Int`, leaving its operands as they were: `from_int64(v, alloc)` and
+  `from_uint64(v, alloc)`; `parse(s, base, alloc)`, of a `[]uint8`
+  view in base 2 to 36, with one optional sign, digits past 9 in either
+  case and no prefix, underscore or space, as Go's `SetString` with a
+  base that is not 0; `plus`, `sub` and `mul` of two, named `plus`
+  since `add` is a builtin; `neg` and `abs`; `div_mod(x, y, alloc)`,
+  giving the quotient truncated toward zero and the remainder with
+  `x`'s sign, as Go's `QuoRem` does; and `shl(x, n, alloc)` and
+  `shr(x, n, alloc)`, by an `int64` count, `shr` rounding toward
+  negative infinity as Go's `Rsh` does, so `-5` shifted right by 1 is
+  `-3`. Each returns `(Int, error)`, or `(Int, Int, error)` for
+  `div_mod`, and allocates once for each `Int` it returns that is not
+  zero, and nothing for a zero, but for `div_mod`'s remainder: when
+  `|x|` is at least `|y|`, `div_mod` allocates the quotient and then
+  the remainder, which it works in, even when the remainder comes out
+  zero, as in `div_mod(y, y)`; when the allocator cannot give it, the
+  error is the builtin append's, `error{code: 1, msg: "out of memory"}`,
+  and nothing is left allocated. The other errors are std/conv's
+  `error{code: 6, msg: "invalid syntax"}` and `error{code: 8, msg:
+  "invalid base"}` from `parse` and `format`, the builtin reserve's
+  `error{code: 2, msg: "negative count"}` for a negative shift, and
+  `error{code: 10, msg: "division by zero"}` from `div_mod`.
+  `format(mut out, x, base)` appends `x` to a `list[uint8]` in base 2
+  to 36, lowercase, with a `-` before a negative `x`, all or nothing,
+  reserving once. `cmp(x, y)`, giving -1, 0 or 1, `sign(x)`,
+  `is_zero(x)`, and the checked `to_int64(x)` and `to_uint64(x)`,
+  giving the value and whether it fits, allocate nothing and cannot
+  fail. The algorithms are the schoolbook ones, and nothing recurses:
+  multiplication in time proportional to the product of the lengths,
+  division one bit of the quotient at a time, format and parse one
+  digit at a time. A product of two words is made from their 32-bit
+  halves, since Tack has no 128-bit integer, and the wrapping operators
+  stand only for a word's sum or difference modulo 2^64. There are no
+  bitwise operations, powers, modular powers, greatest common
+  divisors, rationals or floats yet.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`
