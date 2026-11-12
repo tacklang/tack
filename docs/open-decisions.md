@@ -1400,9 +1400,35 @@ points were settled by consistency and could go another way:
   alternative, rejecting such a write, would need `write` to return an
   error. No test reaches that length; the code follows Go's line for
   line there.
-- Nothing writes a digest in hex. A build cache keyed as
-  `tack/cache.go` keys it writes `hex.EncodeToString` of a digest, and
-  std has no function that writes a byte view in hex: `std/bytes`'
-  `append_hex` writes a `uint64` with no leading zeros. Where such a
-  function belongs, `std/bytes`, a `std/hex` as Go's `encoding/hex`,
-  or `std/conv`, and its name, is open.
+- std/sha256 writes no digest in hex. A build cache keyed as
+  `tack/cache.go` keys it writes `hex.EncodeToString` of a digest,
+  which `std/hex`'s `append_encode` now does (see std/hex).
+
+## std/hex
+
+`std/hex` writes bytes in hexadecimal as Go's `encoding/hex` does, for
+a build cache that names its entries by a SHA-256 digest in hex, as
+`tack/cache.go`'s `hexSum` does. It is a package of its own, as in Go,
+rather than a function of `std/bytes` or `std/conv`. These points were
+settled by consistency and could go another way:
+
+- The one function is `append_encode(mut out list[uint8], b []uint8)
+  error`, Go's `hex.AppendEncode`, named as std names Go's `AppendX`
+  functions, `utf8.append_rune` for `AppendRune` and
+  `conv.append_quote` for `AppendQuote`. Go's `hex.Encode`, which
+  writes into a slice of the right length rather than appending, has no
+  form here, so the shorter `encode` would be free too.
+- It is all or nothing, as `utf8.append_rune` and `conv.append_quote`
+  are: room for every digit is reserved first, so a failure leaves
+  `out` as it was, with the builtin append's error. `2 * len(b)` past
+  the largest `int64` gives the same error, as append's length overflow
+  does; no memory holds such a view.
+- The digits are lowercase only, as Go's are; there is no uppercase
+  form, `EncodeToString`, which needs a string made at run time, or
+  `Dump`.
+- There is no decoding, Go's `hex.Decode`, `DecodeString` and
+  `AppendDecode`. Decoding has an error to define: Go's
+  `InvalidByteError` names the bad byte, and `ErrLength` an odd length,
+  and whether a failed decode leaves `out` as it was, or appends the
+  bytes before the bad one as Go's `Decode` does, is open, with the
+  error codes it would give.

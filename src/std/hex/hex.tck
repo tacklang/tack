@@ -1,0 +1,72 @@
+package hex
+
+// Package hex writes bytes in hexadecimal as Go's encoding/hex does. A
+// program imports it as
+//
+//     import hex from "std/hex"
+//
+// and the compiler reads it from $TACK_HOME/src/std/hex, or
+// ~/.tack/src/std/hex, as it reads std/bytes. It is written in Tack
+// alone, with no C, and allocates nothing but what append_encode
+// appends.
+//
+// append_encode appends each byte of a []uint8 view to a list[uint8] as
+// two lowercase hexadecimal digits, the high four bits first, so a view
+// of n bytes gives 2n digits and an empty one none, exactly as Go's
+// hex.AppendEncode appends and hex.EncodeToString writes them. A
+// SHA-256 digest from std/sha256 is written as Go writes one with
+// hex.EncodeToString: append_encode(mut out, sum[:]) gives its 64
+// digits.
+//
+// append_encode is all or nothing: room for every digit is made with
+// one reserve before any is written, so when the list cannot grow it is
+// left exactly as it was, with the builtin append's error. There is no
+// decoding, no uppercase form and no Dump.
+
+// lower_hex holds the lowercase hexadecimal digits, digit d at index d.
+var lower_hex = "0123456789abcdef"
+
+// out_of_memory is the builtin append's error, which append_encode
+// returns when the number of digits would not fit an int64, as append
+// does when a list's length would overflow.
+var out_of_memory = error{code: 1, msg: "out of memory"}
+
+// digit returns the lowercase hexadecimal digit of the low four bits of
+// v. Its index is always 0 to 15, but a bitwise operator gives the
+// checker no bound, so the read is in the checked form, whose ok is
+// always true.
+func digit(v uint8) uint8 {
+    c, ok := lower_hex[v & 0xF]
+    if !ok {
+        return '0'
+    }
+    return c
+}
+
+// append_encode appends b to out in hexadecimal, two lowercase digits
+// for each byte, the high four bits first, as Go's hex.AppendEncode
+// does. It returns no error, or, when out cannot grow to hold every
+// digit, error{code: 1, msg: "out of memory"}, the builtin append's,
+// and leaves out exactly as it was: room for all 2 * len(b) digits is
+// made first, so no append after that can fail. An empty b appends
+// nothing and cannot fail.
+pub func append_encode(mut out list[uint8], b []uint8) error {
+    // 2 * len(b) overflows only for a view of more than 2^62 bytes,
+    // which no memory holds; it is in the checked form, as nothing else
+    // bounds it.
+    size, fits := len(b) * 2
+    if !fits {
+        return out_of_memory
+    }
+    e := reserve(mut out, size)
+    if e.code != 0 {
+        return e
+    }
+    for _, c := range b {
+        e2 := append(mut out, digit(c >> 4), digit(c))
+        if e2.code != 0 {
+            return e2
+        }
+    }
+    return noerror
+}

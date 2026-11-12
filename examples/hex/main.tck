@@ -1,0 +1,196 @@
+package main
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import hex from "std/hex"
+import sha256 from "std/sha256"
+
+// std/hex writes bytes in hexadecimal as Go's encoding/hex does:
+// append_encode appends each byte of a view to a list as two lowercase
+// digits, the high four bits first, as Go's hex.AppendEncode and
+// EncodeToString write them, all of it or, when the list cannot grow,
+// none of it.
+//
+// Each expected string below was written from what Go gives for the
+// same bytes; codegen/c/hex_test.go checks append_encode against Go
+// again, over every byte value and random inputs. A failed case prints
+// what it got; each group prints ok when all its cases held.
+
+// Tack has no way to make c_allocator fail or to read its count of
+// live buffers, so this example's C, in live.c, does both.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("hex_live") func live() int64
+
+// failAfter makes c_allocator fail every allocation after the next n, or
+// none again when n is negative, in C.
+extern("hex_fail_after") func failAfter(n int64)
+
+// every_byte is every byte value from 0 to 255, in order, in hex, as
+// Go's hex.EncodeToString writes them.
+var every_byte = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+
+// abc_sum is the SHA-256 of "abc", FIPS 180-4's one-block example, as
+// Go's hex.EncodeToString writes it.
+var abc_sum = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+
+// fails counts the cases that did not hold.
+mut fails int64 = 0
+
+// check prints name and whether no case failed since the count was
+// last read, and resets the count.
+func check(name string) {
+    print(name)
+    if fails == 0 {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+    fails = 0
+}
+
+// encodes checks that hex.append_encode of b appends want to a list
+// already holding prefix, and leaves prefix in place before it.
+func encodes(prefix string, b []uint8, want string) {
+    mut out := make(list[uint8], c_allocator)
+    e := append(mut out, []uint8(prefix)...)
+    if e.code != 0 {
+        fails +%= 1
+        print("append failed\n")
+        return
+    }
+    e2 := hex.append_encode(mut out, b)
+    if e2.code != 0 {
+        fails +%= 1
+        fmt.printf("append_encode gave error %d\n", e2.code)
+        return
+    }
+    n := len(prefix)
+    if len(out) < n || !bytes.equal(out[:n], []uint8(prefix)) || !bytes.equal(out[n:], []uint8(want)) {
+        fails +%= 1
+        print("append_encode gave ")
+        fmt.write(out)
+        fmt.printf(", want %s%s\n", prefix, want)
+    }
+}
+
+// encoding covers an empty view, one byte at each edge, the digits
+// either side of 9, every byte value in one view, bytes after a list
+// already holding some, and a digest, the bytes std/hex is written for.
+func encoding() {
+    encodes("", []uint8(""), "")
+    encodes("x", []uint8(""), "")
+    encodes("", []uint8("\x00"), "00")
+    encodes("", []uint8("\x09"), "09")
+    encodes("", []uint8("\x0a"), "0a")
+    encodes("", []uint8("\x0f"), "0f")
+    encodes("", []uint8("\x10"), "10")
+    encodes("", []uint8("\x7f"), "7f")
+    encodes("", []uint8("\x80"), "80")
+    encodes("", []uint8("\xa0"), "a0")
+    encodes("", []uint8("\xff"), "ff")
+    encodes("", []uint8("abc"), "616263")
+    encodes("ab", []uint8("\xde\xad\xbe\xef"), "deadbeef")
+    encodes("", []uint8("\x00\x00\x00"), "000000")
+    mut all [256]uint8
+    for i := range 256 {
+        all[i] = uint8(i)
+    }
+    encodes("", all[:], every_byte)
+    encodes("::", all[:], every_byte)
+    sum := sha256.sum([]uint8("abc"))
+    encodes("", sum[:], abc_sum)
+    check("append_encode")
+}
+
+// repeated_cases checks that append_encode of many bytes, a list of
+// 100000 bytes cycling through every value, gives 200000 digits, each
+// pair the encoding of its byte, and that encoding it again onto the
+// same list doubles it.
+func repeated_cases() {
+    mut b := make(list[uint8], c_allocator)
+    for mut i int64 = 0; i < 100000; i++ {
+        c, ok := uint8(i % 256)
+        e := append(mut b, c)
+        if !ok || e.code != 0 {
+            fails +%= 1
+            print("append failed\n")
+            return
+        }
+    }
+    mut out := make(list[uint8], c_allocator)
+    e := hex.append_encode(mut out, b)
+    if e.code != 0 || len(out) != 200000 {
+        fails +%= 1
+        fmt.printf("append_encode of 100000 bytes gave error %d and %d digits\n", e.code, len(out))
+        return
+    }
+    for mut i int64 = 0; i < 200000; i++ {
+        got, ok := out[i]
+        want, ok2 := every_byte[i % 512]
+        if !ok || !ok2 || got != want {
+            fails +%= 1
+            fmt.printf("digit %d is %c\n", i, got)
+            return
+        }
+    }
+    e2 := hex.append_encode(mut out, b)
+    if e2.code != 0 || len(out) != 400000 || !bytes.equal(out[:200000], out[200000:]) {
+        fails +%= 1
+        fmt.printf("append_encode again gave error %d and %d digits\n", e2.code, len(out))
+    }
+}
+
+// repeated runs repeated_cases and prints whether they held, after
+// any of them returns early.
+func repeated() {
+    repeated_cases()
+    check("append_encode 100000 bytes")
+}
+
+// failing makes c_allocator fail under append_encode: the error is the
+// builtin append's, and the list is left exactly as it was, every digit
+// or none appended. A list's first buffer holds 4 bytes, so one holding
+// "ab" has room for the 2 digits of one byte and not the 4 of two.
+func failing() {
+    mut out := make(list[uint8], c_allocator)
+    failAfter(0)
+    e := hex.append_encode(mut out, []uint8("\x01"))
+    failAfter(-1)
+    if e.code != 1 || e.msg != "out of memory" || len(out) != 0 || live() != 0 {
+        fails +%= 1
+        fmt.printf("append_encode into an empty list gave %d, left %d bytes\n", e.code, len(out))
+    }
+    e1 := append(mut out, 'a', 'b')
+    if e1.code != 0 {
+        fails +%= 1
+        print("append failed\n")
+        return
+    }
+    failAfter(0)
+    e2 := hex.append_encode(mut out, []uint8("\x01\x02"))
+    e3 := hex.append_encode(mut out, []uint8(every_byte))
+    e4 := hex.append_encode(mut out, []uint8("\xc3"))
+    e5 := hex.append_encode(mut out, []uint8("\x04"))
+    e6 := hex.append_encode(mut out, []uint8(""))
+    failAfter(-1)
+    if e2.code != 1 || e3.code != 1 || e4.code != 0 || e5.code != 1 || e6.code != 0 ||
+        !bytes.equal(out, []uint8("abc3")) {
+        fails +%= 1
+        fmt.printf("append_encode into a full list gave %d %d %d %d %d, left ", e2.code, e3.code, e4.code, e5.code, e6.code)
+        fmt.write(out)
+        print("\n")
+    }
+    drop(own out)
+    if live() != 0 {
+        fails +%= 1
+        print("a buffer was not freed\n")
+    }
+    check("append_encode out of memory")
+}
+
+func main() {
+    encoding()
+    repeated()
+    failing()
+}

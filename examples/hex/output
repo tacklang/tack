@@ -1,0 +1,3 @@
+append_encode ok
+append_encode 100000 bytes ok
+append_encode out of memory ok

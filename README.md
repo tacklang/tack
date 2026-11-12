@@ -5,9 +5,10 @@ compiler, written from scratch in Go.
 
 It is a learning project, built to understand how a compiler works end to end
 rather than to be used for anything. There is no runtime, a standard library
-of eleven packages, `std/fmt`, `std/bytes`, `std/text`, `std/os`,
+of twelve packages, `std/fmt`, `std/bytes`, `std/text`, `std/os`,
 `std/path`, `std/conv`, `std/errors`, `std/sort`, `std/utf8`,
-`std/unicode` and `std/sha256`, and no intermediate representation.
+`std/unicode`, `std/sha256` and `std/hex`, and no intermediate
+representation.
 
 Every program the compiler accepts is held to four guarantees: no
 out-of-bounds access, no memory leak, no use-after-free and no panic. They
@@ -68,7 +69,9 @@ in place by a less function. `std/utf8`, in Tack alone, decodes and
 encodes UTF-8 as Go's `unicode/utf8` does, and `std/unicode`, in Tack
 alone, classifies runes as Go's `unicode` does, from tables generated
 from Go's own. `std/sha256`, in Tack alone, computes SHA-256 as Go's
-`crypto/sha256` does, at once or over bytes written in pieces.
+`crypto/sha256` does, at once or over bytes written in pieces, and
+`std/hex`, in Tack alone, writes bytes in hexadecimal as Go's
+`encoding/hex` does.
 
 `exit` is a global builtin as a stand-in for a future `os.Exit`, after which
 the global goes away. `std/os` does not have one yet, so `exit` stays.
@@ -599,9 +602,10 @@ section remains the description of the language.
   errors), [`sort`](src/std/sort/sort.tck), which sorts lists
   (see sort), [`utf8`](src/std/utf8/utf8.tck), which decodes and
   encodes UTF-8 (see utf8), [`unicode`](src/std/unicode/unicode.tck),
-  which classifies runes (see unicode), and
+  which classifies runes (see unicode),
   [`sha256`](src/std/sha256/sha256.tck), which hashes bytes (see
-  sha256).
+  sha256), and [`hex`](src/std/hex/hex.tck), which writes bytes in
+  hexadecimal (see hex).
   A std package follows every rule a package of the program's module
   does. Its `pub` names are usable from every package, its private names
   only from itself, `hidden is not pub in package std/util`, and its `lib`
@@ -1494,9 +1498,22 @@ section remains the description of the language.
   2^32 are `+%` on `uint32`, and the message length is counted in
   bytes in a `uint64` that wraps, as Go's is, so a message of 2^61 bytes
   or more is hashed with its length in bits modulo 2^64, which FIPS
-  180-4 leaves undefined. Nothing writes a digest in hex; `std/bytes`'
-  `append_hex` writes a `uint64` without leading zeros, which is not
-  a digest's form.
+  180-4 leaves undefined. `std/hex`'s `append_encode` writes a digest
+  in hex, as Go's `hex.EncodeToString` does (see hex).
+- hex. `std/hex` is written in Tack alone, with no C, and allocates
+  nothing but what it appends. `err := hex.append_encode(mut out, b)`
+  appends each byte of the `[]uint8` view `b` to the list `out` as two
+  lowercase hexadecimal digits, the high four bits first, exactly as
+  Go's `hex.AppendEncode` appends and `hex.EncodeToString` writes them:
+  `2 * len(b)` digits, none for an empty `b`, so
+  `hex.append_encode(mut out, sum[:])` of a `sha256.sum` gives its 64
+  digits. It gives no error, or `error{code: 1, msg: "out of memory"}`
+  leaving `out` as it was, every digit appended or none: room for all
+  of them is reserved before any is written. Its name is Go's
+  `AppendEncode` as std spells Go's `AppendX`, as `utf8.append_rune`
+  and `conv.append_quote` are. There is no decoding and no uppercase
+  form. `std/bytes`' `append_hex` is another
+  thing: it writes one `uint64` as a number, without leading zeros.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`
