@@ -128,7 +128,8 @@ extern("tack_os_pipe") func c_pipe(mut fds [2]int32) int64
 // looks it up on PATH: flat holds argc arguments, the program's name
 // first, each followed by a 0. The child reads /dev/null as its standard
 // input, writes its standard output to out and its standard error to
-// err, and starts with the process's environment. It returns the child's
+// err, and starts with the process's environment and SIGPIPE's default
+// action. It returns the child's
 // process id, or the errno negated: E2BIG for more than 8192 arguments.
 extern("tack_os_spawn") func c_spawn(flat []uint8, argc int64, out int32, err int32) int64
 
@@ -262,7 +263,9 @@ pub func read_file(path []uint8, scope alloc Allocator) (list[uint8], error) {
 // signal interrupted, and closes the file on every path; a failed close,
 // which can mean the bytes did not reach the file, is an error. On an
 // error the file may have been created or truncated, and hold some of
-// data: nothing makes the write all or nothing.
+// data: nothing makes the write all or nothing. A pipe with no reader is
+// error{code: 3, msg: "Broken pipe"}: the program ignores SIGPIPE, so the
+// write fails rather than end the process.
 pub func write_file(path []uint8, data []uint8) error {
     if has_nul(path) {
         return nul_path
@@ -645,7 +648,8 @@ func wait_for(pid int64) int64 {
 // status, 0 to 255, and no error. argv[0] names the program, looked up on
 // PATH when it holds no /, and argv, argv[0] included, is what the child
 // is given as its arguments. The child starts with this process's
-// environment, reads /dev/null as its standard input, and writes its
+// environment and SIGPIPE's default action, which this process ignores,
+// reads /dev/null as its standard input, and writes its
 // standard output and its standard error to pipes, which run reads at
 // once, whichever has something, until both reach their ends, so
 // neither can fill and block the child; it then appends all the child

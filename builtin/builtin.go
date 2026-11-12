@@ -197,6 +197,37 @@ func UsesUnreachable(prog *ast.Program) bool {
 	return found
 }
 
+// StartSymbol and EndSymbol are the C functions of the runtime that the
+// generated C's main of a program that RunsC calls, the first before
+// anything else, which ignores SIGPIPE, and the second once Tack's main
+// has returned, which flushes stdout and ends the process with status
+// 141 when its pipe has no reader. No builtin declares them, so such a
+// program needs the runtime object that defines them linked whichever
+// builtins it calls.
+const (
+	StartSymbol = "tack_start_"
+	EndSymbol   = "tack_end_"
+)
+
+// RunsC reports whether prog, which must have been resolved, runs any C
+// beyond its generated C, which writes to no descriptor but the abort of
+// an unreachable: whether it calls a builtin of s, each of which has a C
+// body, or declares an extern func, in any package, std's included. The
+// generated C's main of such a program, and of no other, calls
+// StartSymbol and EndSymbol, so a program with no C to write anything
+// links none of the runtime for them.
+func (s *Set) RunsC(prog *ast.Program) bool {
+	if len(s.Used(prog)) > 0 {
+		return true
+	}
+	for _, d := range prog.Decls() {
+		if fn, ok := d.(*ast.Func); ok && fn.Extern {
+			return true
+		}
+	}
+	return false
+}
+
 // UsesLists reports whether prog, which must have been type-checked, has
 // a list, an arena, a pool or a map type anywhere, whose values its
 // generated C grows and frees through ListSymbols: an arena's elements

@@ -511,6 +511,9 @@ int main(void) {
 		args = append(args,
 			"-I", dir, "-I", stdtest.IncludeDir(), "-o", bin, harness,
 			filepath.Join(stdtest.Dir(), "fmt", "printf.c"),
+			// printf.c hands a failed write to process.c, which frees
+			// through list.c's allocators.
+			stdtest.RuntimeCFile("process.c"), stdtest.RuntimeCFile("list.c"),
 		)
 		if msg, err := exec.Command("clang", args...).CombinedOutput(); err != nil {
 			t.Fatalf("clang: %v\n%s", err, msg)

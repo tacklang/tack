@@ -1040,7 +1040,11 @@ func (g *generator) emitFunc(sig string, body []string) {
 // it has stored its argc and argv in tack_argc_ and tack_argv_, the
 // globals the runtime's tack.h declares and this source defines, for std/os to
 // read, and given each global too deep for a C initializer its value (see
-// deepGlobal).
+// deepGlobal). In a program that runs C beyond this source
+// (builtin.Set.RunsC), it first calls the runtime's tack_start_, which
+// ignores SIGPIPE, and after Tack's main returns tack_end_, which flushes
+// stdout and ends the process with status 141 when its pipe has no
+// reader, as a write that finds it so does.
 //
 // A library, checked with --check, has no Tack main and so no C main; the
 // statements that would give its globals their values are written as the
@@ -1063,13 +1067,20 @@ func (g *generator) emitEntryPoint() {
 		g.buf.WriteString("}\n")
 		return
 	}
+	runsC := g.builtins.RunsC(g.prog)
 	g.buf.WriteString("int tack_argc_;\nchar **tack_argv_;\n\n")
 	g.buf.WriteString("int main(int argc, char **argv) {\n")
+	if runsC {
+		g.buf.WriteString("    " + builtin.StartSymbol + "();\n")
+	}
 	g.buf.WriteString("    tack_argc_ = argc;\n    tack_argv_ = argv;\n")
 	for _, init := range g.globalInits {
 		g.buf.WriteString("    " + init + "\n")
 	}
 	fmt.Fprintf(&g.buf, "    %s();\n", g.mangle(nil, "main"))
+	if runsC {
+		g.buf.WriteString("    " + builtin.EndSymbol + "();\n")
+	}
 	g.buf.WriteString("    return 0;\n")
 	g.buf.WriteString("}\n")
 }

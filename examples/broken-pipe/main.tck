@@ -1,0 +1,279 @@
+package main
+
+// Writing to a pipe with no reader. A write to standard output or
+// standard error that fails with EPIPE ends the program as exit(141)
+// does: every buffer every allocator holds is freed, no defer runs, and
+// the status is 141, 128 + SIGPIPE's 13. Each case is a function the
+// first argument names; the test runs it with the stream it breaks a
+// pipe whose reader has closed, before the start or after reading a
+// line, and checks the status, what reached the other stream, and the
+// lines on descriptor 3, the report pipe live.c writes to.
+//
+// The cases that write forever, print, println, printf, write, eprintln,
+// eprintf and ewrite, hold lists in two frames when the write fails, and
+// printf makes one more on each pass, and defer a note that must never
+// reach descriptor 3. The stderr ones print "start" to standard output
+// first, which their first write to standard error flushes ahead of it.
+// region writes forever from inside two nested regions, whose chunks
+// the end must give back. big makes one write larger than C's stdio
+// buffer. return writes less
+// than C's buffer and returns from main, so the broken pipe is found by
+// the flush after main; its defer runs, since its function returned.
+// exit writes as return does and calls exit(3): exit's own flush finds
+// the broken pipe and the status is 141, not 3.
+//
+// Writes to any other descriptor keep failing with EPIPE as an error:
+// write-file writes to descriptor 4, the test's pipe with no reader, by
+// os.write_file through /dev/fd/4, and prints the error it returns. child
+// runs a pipeline through os.run whose first command, yes, writes into
+// a pipe head has closed: a child starts with SIGPIPE's default action,
+// so yes dies of it and the shell reports 141. wide makes every write to
+// standard output fail without setting errno, which it leaves EPIPE: no
+// write takes that for its own failure, and the program exits 0.
+
+import fmt from "std/fmt"
+import os from "std/os"
+import text from "std/text"
+
+// live returns how many buffers c_allocator holds, in C.
+extern("pipe_live") func live() int64
+
+// wide makes standard output wide-oriented, which fails every write of
+// bytes to it without setting errno, and sets errno to EPIPE, in C.
+extern("pipe_wide") func wide()
+
+// note writes s to descriptor 3, the test's report pipe, in C.
+extern("pipe_note") func note(s []uint8)
+
+// numbers returns a list of n numbers, 1 to n, beside the error of making
+// it.
+func numbers(n int64) (list[int64], error) {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i + 1)
+        if err.code != 0 {
+            return l, err
+        }
+    }
+    return l, noerror
+}
+
+// filled returns a list of n bytes, each c, beside the error of making
+// it.
+func filled(n int64, c uint8) (list[uint8], error) {
+    mut l := make(list[uint8], c_allocator)
+    for range n {
+        err := append(mut l, c)
+        if err.code != 0 {
+            return l, err
+        }
+    }
+    return l, noerror
+}
+
+// forever writes to the stream the case named name breaks, forever,
+// holding a list grown past its first buffer and deferring a note that
+// ending through the broken pipe must not run.
+func forever(name text.Text) {
+    l, err := numbers(100)
+    if err.code != 0 || live() != 4 {
+        print("lists FAIL\n")
+        exit(2)
+    }
+    defer {
+        note([]uint8("defer ran\n"))
+    }
+    switch {
+    case name.equal([]uint8("print")):
+        for {
+            print("y\n")
+        }
+    case name.equal([]uint8("println")):
+        for {
+            fmt.println("y")
+        }
+    case name.equal([]uint8("printf")):
+        for {
+            t, e := numbers(3)
+            if e.code != 0 {
+                exit(2)
+            }
+            fmt.printf("%d %d\n", len(l), len(t))
+        }
+    case name.equal([]uint8("write")):
+        for {
+            fmt.write([]uint8("y\n"))
+        }
+    case name.equal([]uint8("eprintln")):
+        print("start\n")
+        for {
+            fmt.eprintln("y")
+        }
+    case name.equal([]uint8("eprintf")):
+        print("start\n")
+        for {
+            fmt.eprintf("%d\n", len(l))
+        }
+    case name.equal([]uint8("ewrite")):
+        print("start\n")
+        for {
+            fmt.ewrite([]uint8("y\n"))
+        }
+    default:
+        print("no such case\n")
+        exit(2)
+    }
+}
+
+// inRegion writes forever from inside two nested regions, each holding a
+// list made through it, so the end through the broken pipe must give
+// back the regions' chunks and the region table, which no block's end
+// ever does here.
+func inRegion() {
+    region outer {
+        mut a := make(list[int64], outer)
+        region inner {
+            mut b := make(list[int64], inner)
+            for i := range 1000 {
+                ea := append(mut a, i)
+                eb := append(mut b, i)
+                if ea.code != 0 || eb.code != 0 {
+                    exit(2)
+                }
+            }
+            for {
+                fmt.printf("%d %d\n", len(a), len(b))
+            }
+        }
+    }
+}
+
+// big writes 70000 bytes at once, more than C's stdio buffer.
+func big() {
+    b, err := filled(70000, 'b')
+    if err.code != 0 {
+        exit(2)
+    }
+    defer {
+        note([]uint8("defer ran\n"))
+    }
+    fmt.write(b)
+    print("big returned\n")
+    exit(4)
+}
+
+// buffered writes a few short lines, less than C's stdio buffer holds,
+// so none reaches the pipe before the stream is flushed. It returns, so
+// its defer runs.
+func buffered() {
+    defer {
+        note([]uint8("buffered's defer ran\n"))
+    }
+    print("one\n")
+    fmt.println("two")
+    fmt.printf("%d\n", 3)
+    fmt.write([]uint8("four\n"))
+}
+
+// exits writes as buffered does, then exits with status 3, its own
+// defer not run.
+func exits() {
+    l, err := numbers(10)
+    if err.code != 0 || len(l) != 10 {
+        exit(2)
+    }
+    defer {
+        note([]uint8("defer ran\n"))
+    }
+    buffered()
+    exit(3)
+}
+
+// writeFile writes to /dev/fd/4 with os.write_file and prints the error
+// it returns, then exits 0.
+func writeFile() {
+    e := os.write_file([]uint8("/dev/fd/4"), []uint8("x"))
+    fmt.printf("write_file %d %s\n", e.code, e.msg)
+}
+
+// command returns parts as a list of Texts, the arguments of a run.
+func command(parts ...string) (list[text.Text], error) {
+    mut l := make(list[text.Text], c_allocator)
+    for _, p := range parts {
+        t, e := text.from_bytes([]uint8(p), c_allocator)
+        if e.code != 0 {
+            return l, e
+        }
+        e2 := append(mut l, t)
+        if e2.code != 0 {
+            return l, e2
+        }
+    }
+    return l, noerror
+}
+
+// child runs yes into head -c 1 through sh and prints the run's status
+// and what the shell wrote to standard error: yes's own status.
+func child() {
+    c, e := command("sh", "-c", "(yes; echo $? >&2) | head -c 1 >/dev/null")
+    if e.code != 0 {
+        exit(2)
+    }
+    mut out := make(list[uint8], c_allocator)
+    mut errOut := make(list[uint8], c_allocator)
+    s, e2 := os.run(c, mut out, mut errOut, c_allocator)
+    if e2.code != 0 {
+        fmt.printf("run failed: %s\n", e2.msg)
+        return
+    }
+    fmt.printf("child %d %d ", s, len(out))
+    fmt.write(errOut)
+}
+
+// stale writes to a standard output whose every write fails without
+// setting errno, which an earlier call left EPIPE: the writes lose their
+// bytes and end nothing, since the stale EPIPE is no write's, and the
+// program exits 0.
+func stale() {
+    wide()
+    print("lost\n")
+    fmt.println("lost")
+    fmt.printf("%d\n", 1)
+    fmt.write([]uint8("lost\n"))
+    exit(0)
+}
+
+// run runs the case named name.
+func run(name text.Text) {
+    switch {
+    case name.equal([]uint8("big")):
+        big()
+    case name.equal([]uint8("region")):
+        inRegion()
+    case name.equal([]uint8("return")):
+        buffered()
+    case name.equal([]uint8("exit")):
+        exits()
+    case name.equal([]uint8("write-file")):
+        writeFile()
+    case name.equal([]uint8("child")):
+        child()
+    case name.equal([]uint8("wide")):
+        stale()
+    default:
+        forever(name)
+    }
+}
+
+func main() {
+    args, err := os.args(c_allocator)
+    if err.code != 0 || len(args) != 2 {
+        print("one case name, please\n")
+        exit(2)
+    }
+    for i, arg := range args {
+        if i == 1 {
+            run(arg)
+        }
+    }
+}

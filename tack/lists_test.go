@@ -186,8 +186,10 @@ func TestBuiltSizeLimitsWritesItsOutput(t *testing.T) {
 
 // A C file of the program that calls a function std defines, a tack_ name
 // only std may give, links the std object defining it, even in a program
-// with no list and no builtin call; one that calls none links no std
-// object.
+// with no list and no builtin call. Either way the program declares an
+// extern func, so it runs C beyond its generated C, and its main calls
+// the process's start and end, which link process.c and the list.c it
+// needs, as a broken pipe has every allocator free what it holds.
 func TestStdObjectsLinkedForProgramC(t *testing.T) {
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skip("clang not on PATH")
@@ -201,9 +203,13 @@ func TestStdObjectsLinkedForProgramC(t *testing.T) {
 		{
 			"calls std",
 			"#include <tack/tack.h>\n#include \"tack.h\"\nint64_t live(void) { return tack_c_allocator_live_(); }\n",
-			[]string{"c0.o", "std-list.o"},
+			[]string{"c0.o", "std-list.o", "std-process.o"},
 		},
-		{"calls nothing", "#include \"tack.h\"\nint64_t live(void) { return 0; }\n", []string{"c0.o"}},
+		{
+			"calls nothing",
+			"#include \"tack.h\"\nint64_t live(void) { return 0; }\n",
+			[]string{"c0.o", "std-list.o", "std-process.o"},
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := writeDir(t, map[string]string{"main.tck": main, "live.c": tt.c})

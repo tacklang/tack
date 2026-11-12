@@ -22,8 +22,14 @@
 // tack_os_open and tack_os_pipe return, which std/os's Tack closes, and
 // each is opened close-on-exec, so no child a later call starts inherits
 // it. The one thing here the C library may allocate for itself is
-// tack_os_spawn's posix_spawn_file_actions_t, which it destroys on every
-// path.
+// tack_os_spawn's posix_spawn_file_actions_t and posix_spawnattr_t, which
+// it destroys on every path.
+//
+// The runtime ignores SIGPIPE, so a write here to a pipe with no reader
+// fails with EPIPE, an error returned, rather than kill the process. An
+// ignored signal stays ignored across exec, so tack_os_spawn sets SIGPIPE
+// back to its default action in the child, which then behaves as it
+// would started from a shell: yes writing into a closed pipe dies of it.
 //
 // The calls are POSIX.1-2008's, which the C library declares in the mode
 // the driver compiles every C file in, clang's default. The file cannot
@@ -36,6 +42,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
+#include <signal.h>
 #include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -292,6 +299,21 @@ int64_t tack_os_pipe(tack_array_2_int32 *fds) {
     return 0;
 }
 
+// sigpipe_default makes a child started with attr begin with SIGPIPE's
+// default action, though this process ignores it, and returns 0, or the
+// errno of the call that failed.
+static int sigpipe_default(posix_spawnattr_t *attr) {
+    sigset_t sigs;
+    if (sigemptyset(&sigs) != 0 || sigaddset(&sigs, SIGPIPE) != 0) {
+        return errno;
+    }
+    int e = posix_spawnattr_setsigdefault(attr, &sigs);
+    if (e == 0) {
+        e = posix_spawnattr_setflags(attr, POSIX_SPAWN_SETSIGDEF);
+    }
+    return e;
+}
+
 int64_t tack_os_spawn(tack_view_uint8 flat, int64_t argc, int32_t out, int32_t err) {
     if (argc < 1 || argc > max_args) {
         return -E2BIG;
@@ -311,12 +333,21 @@ int64_t tack_os_spawn(tack_view_uint8 flat, int64_t argc, int32_t out, int32_t e
         return -EINVAL;
     }
     argv[n] = NULL;
-    posix_spawn_file_actions_t fa;
-    int e = posix_spawn_file_actions_init(&fa);
+    posix_spawnattr_t attr;
+    int e = posix_spawnattr_init(&attr);
     if (e != 0) {
         return -e;
     }
-    e = posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", O_RDONLY, 0);
+    posix_spawn_file_actions_t fa;
+    e = posix_spawn_file_actions_init(&fa);
+    if (e != 0) {
+        posix_spawnattr_destroy(&attr);
+        return -e;
+    }
+    e = sigpipe_default(&attr);
+    if (e == 0) {
+        e = posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", O_RDONLY, 0);
+    }
     if (e == 0) {
         e = posix_spawn_file_actions_adddup2(&fa, out, 1);
     }
@@ -325,9 +356,10 @@ int64_t tack_os_spawn(tack_view_uint8 flat, int64_t argc, int32_t out, int32_t e
     }
     pid_t pid = 0;
     if (e == 0) {
-        e = posix_spawnp(&pid, argv[0], &fa, NULL, argv, environ);
+        e = posix_spawnp(&pid, argv[0], &fa, &attr, argv, environ);
     }
     posix_spawn_file_actions_destroy(&fa);
+    posix_spawnattr_destroy(&attr);
     if (e != 0) {
         return -e;
     }

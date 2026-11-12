@@ -363,9 +363,11 @@ void tack_list_free_(void *ptr, int64_t cap, size_t elem, size_t align, tack_all
 
 // tack_allocators_release_all_ makes every allocator free every buffer it
 // has given out and not had back, allocating nothing. exit calls it just
-// before it ends the process, so no buffer outlives the program even
-// though exit runs no defers; nothing else may, since every list still
-// holding one of those buffers is left pointing at freed memory.
+// before it ends the process, as do tack_stdio_failed_, before the end a
+// broken pipe makes, and the abort of an unreachable, so no buffer
+// outlives the program even though none of them runs defers; nothing
+// else may, since every list still holding one of those buffers is left
+// pointing at freed memory.
 void tack_allocators_release_all_(void);
 
 // TACK_UNREACHABLE(at) ends the process at an unreachable statement, at
@@ -382,6 +384,38 @@ void tack_allocators_release_all_(void);
 // every buffer it still holds, as exit does, and aborts. Only
 // TACK_UNREACHABLE calls it.
 _Noreturn void tack_unreachable_(const char *msg);
+
+// tack_start_ ignores SIGPIPE, so a write to a pipe with no reader fails
+// with EPIPE rather than kill the process with nothing freed. The
+// generated C's main calls it first, in a program that runs any C beyond
+// its own: one that calls print or exit, or declares an extern func,
+// std's included; nothing else may.
+void tack_start_(void);
+
+// tack_end_ flushes stdout, ending the process as tack_stdio_failed_
+// does when the flush fails with EPIPE. The generated C's main calls it
+// once Tack's main has returned, wherever it calls tack_start_; nothing
+// else may.
+void tack_end_(void);
+
+// tack_stdio_failed_ is called right after a write or a flush of C's
+// stdout or stderr fails, with errno as the failure left it; the caller
+// sets errno to 0 just before the call, so a failure that sets no errno,
+// as fwrite on a wide-oriented stream does, is not taken for an earlier
+// call's EPIPE. When errno
+// is EPIPE, the stream's pipe has no reader, and it ends the process as
+// exit(141) does: every allocator frees every buffer it still holds, no
+// defer runs, and the status is 141, 128 plus SIGPIPE's 13. Otherwise it
+// returns, and the bytes are lost. print, exit and std/fmt's C call it;
+// a write to any other descriptor must not, since its EPIPE is an error
+// for the program to see.
+void tack_stdio_failed_(void);
+
+// tack_ending_ marks the process as ending, so that tack_stdio_failed_,
+// reached again from a destructor or atexit handler while C's exit runs,
+// returns rather than call exit inside exit. exit calls it; nothing else
+// may.
+void tack_ending_(void);
 
 // tack_c_allocator_live_ returns how many buffers c_allocator has given
 // out and not had back, for tests that check every list is freed.

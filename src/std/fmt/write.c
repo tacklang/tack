@@ -14,19 +14,38 @@
 // is written as it is, 0 and 0xff included, and none is added. A view of
 // nothing may have a null pointer, which C does not let fwrite take even
 // with nothing to write, so an empty view writes nothing, though ewrite
-// still flushes both streams. Like print, neither reports an error: what the
-// stream does with the bytes is not checked, so a closed descriptor or a
-// failed write loses them, and a pipe with no reader raises SIGPIPE, as
-// it does for print. A partial or interrupted write is left to C's
-// stdio, as print leaves it.
+// still flushes both streams. Like print, neither reports an error: a
+// write or flush of either stream that fails is handed to
+// tack_stdio_failed_, which ends the process as exit(141) does when the
+// stream's pipe has no reader, as print's failures are, and otherwise
+// loses the bytes, as for a closed descriptor. errno is cleared before
+// each call, so a failure that sets none, as fwrite on a wide-oriented
+// stream, is not taken for an earlier call's EPIPE. A partial or interrupted
+// write is left to C's stdio, as print leaves it.
+#include <errno.h>
 #include <stdio.h>
+
+#include <tack/tack.h>
 
 #include "tack.h"
 
-// put writes the bytes of b to f, nothing for an empty view.
+// put writes the bytes of b to f, nothing for an empty view, handing a
+// failure to tack_stdio_failed_.
 static void put(tack_view_uint8 b, FILE *f) {
-    if (b.len > 0) {
-        fwrite(b.ptr, 1, (size_t)b.len, f);
+    if (b.len <= 0) {
+        return;
+    }
+    errno = 0;
+    if (fwrite(b.ptr, 1, (size_t)b.len, f) < (size_t)b.len) {
+        tack_stdio_failed_();
+    }
+}
+
+// flush flushes f, handing a failure to tack_stdio_failed_.
+static void flush(FILE *f) {
+    errno = 0;
+    if (fflush(f) == EOF) {
+        tack_stdio_failed_();
     }
 }
 
@@ -35,7 +54,7 @@ void tack_fmt_write(tack_view_uint8 b) {
 }
 
 void tack_fmt_ewrite(tack_view_uint8 b) {
-    fflush(stdout);
+    flush(stdout);
     put(b, stderr);
-    fflush(stderr);
+    flush(stderr);
 }

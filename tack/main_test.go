@@ -2526,7 +2526,8 @@ func runBuiltStreams(t *testing.T, cmd *exec.Cmd, errTo *os.File) (string, strin
 // program still writes its standard output exactly and exits 0: like
 // print, the stderr functions report no error, and a write that fails
 // with EBADF or ENOSPC ends nothing. A pipe with no reader is not one of
-// these: the write raises SIGPIPE, as print's does.
+// these: the write ends the program as exit(141) does, as print's does,
+// which TestBuiltBrokenPipeEndsLikeExit checks.
 func TestBuiltFmtStderrWritesBothStreams(t *testing.T) {
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skip("clang not on PATH")

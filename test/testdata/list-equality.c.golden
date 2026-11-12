@@ -997,8 +997,10 @@ int tack_argc_;
 char **tack_argv_;
 
 int main(int argc, char **argv) {
+    tack_start_();
     tack_argc_ = argc;
     tack_argv_ = argv;
     tack_4_main4_main();
+    tack_end_();
     return 0;
 }

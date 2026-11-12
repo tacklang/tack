@@ -60,7 +60,11 @@
 //   - the globals tack_argc_ and tack_argv_, which the runtime's tack.h declares,
 //     and a C main, int main(int argc, char **argv), that stores its
 //     arguments in them, for std/os to read, calls the Tack main and
-//     returns 0. A library, a program whose last package is not a main
+//     returns 0; in a program that runs C beyond this source, one calling
+//     a builtin or declaring an extern func (builtin.Set.RunsC), it calls
+//     the runtime's tack_start_ first, which ignores SIGPIPE, and
+//     tack_end_ after the Tack main, which flushes stdout and ends the
+//     process with status 141 when its pipe has no reader. A library, a program whose last package is not a main
 //     package, which only the driver's --check makes, has neither; the
 //     statements its C main would run first are the body of an unused
 //     static function, tack_init_, when there are any.

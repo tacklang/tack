@@ -28,12 +28,14 @@ package fmt
 // where both streams reach one pipe, file or terminal, their bytes
 // arrive in the order of the calls, however the C library buffers
 // either stream. Like print, none reports an error: a closed descriptor
-// or a failed write loses the bytes, and a pipe with no reader raises
-// SIGPIPE, as it does for print.
+// or a failed write loses the bytes, and a write to a pipe with no
+// reader, on either stream, ends the process as exit(141) does, as it
+// does for print: every allocator frees every buffer it still holds, no
+// defer runs, and the status is 141.
 
 // println writes s to standard output exactly as given, then a newline,
 // "\n". println("") writes the newline alone. Like print, it reports no
-// error: what standard output does with the bytes is not checked.
+// error, and a pipe with no reader ends the process as exit(141) does.
 pub func println(s string) {
     print(s)
     print("\n")

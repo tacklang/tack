@@ -162,26 +162,30 @@
 // or ELF, with debug/macho and debug/elf, so no tool beyond clang is
 // needed, for the external symbols it defines.
 //
-// When the program calls a builtin, has a list type, whose generated C
-// grows and frees lists through the runtime's list.c, or has a C file
-// whose object leaves undefined a symbol starting tack_, which only the
-// runtime can define, or holds an unreachable statement, whose abort the
-// runtime's unreachable.c defines, every C file of the runtime, exit.c,
-// list.c, print.c and unreachable.c, is compiled there too, to std-<name>.o, with the backend's
+// When the program calls a builtin, declares an extern func, whose
+// program's C main then calls the runtime's process.c, has a list type,
+// whose generated C grows and frees lists through the runtime's list.c,
+// or has a C file whose object leaves undefined a symbol starting tack_,
+// which only the runtime can define, or holds an unreachable statement,
+// whose abort the runtime's unreachable.c defines, every C file of the
+// runtime, exit.c, list.c, print.c, process.c and unreachable.c, is compiled there too, to std-<name>.o, with the backend's
 // CompileStdCmd: CompileCmd's flags and level, with the runtime's include
 // directory on the include path in place of the program's tack.h. Messages
 // name a runtime file <runtime>/<name>, such as <runtime>/print.c, since
 // the path it is written to is a temporary one. Each std
 // object's symbols, defined and undefined, are read the same way, and the
 // objects linked are chosen as a linker takes an archive's members: those
-// defining a builtin the program calls, the abort of a program holding an
+// defining a builtin the program calls, the process's start and end its
+// C main calls when it runs C beyond its generated C, the abort of a
+// program holding an
 // unreachable, the list functions of a program with lists, and a tack_ symbol a C file of the program leaves undefined,
 // and in turn those defining a symbol
 // an object already chosen leaves undefined; a symbol no std object
 // defines, the C library's, is left to the linker. No ar is run and no
 // archive written. A program that needs none of these compiles no std file and
 // links no std object, so it does not link the C library code print and
-// exit call. A builtin the program calls that no runtime object defines,
+// exit call: one calling no builtin, declaring no extern func and having
+// no list. A builtin the program calls that no runtime object defines,
 // which only a broken compiler can have, is "tack: builtin print has no C
 // definition: the runtime defines no tack_builtin_print".
 //

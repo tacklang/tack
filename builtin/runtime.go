@@ -26,9 +26,10 @@ type RuntimeFile struct {
 }
 
 // RuntimeCFiles returns the runtime's C files, in the byte order of their
-// names: exit.c, list.c, print.c and unreachable.c, the bodies of the
-// builtins with a C body, of lists, and of an unreachable's abort. The driver writes them where it compiles them and
-// links the objects a program needs.
+// names: exit.c, list.c, print.c, process.c and unreachable.c, the bodies
+// of the builtins with a C body, of lists, of the process's start and
+// end, and of an unreachable's abort. The driver writes them where it
+// compiles them and links the objects a program needs.
 func RuntimeCFiles() []RuntimeFile {
 	names, err := fs.Glob(runtimeFS, "runtime/*.c")
 	if err != nil {

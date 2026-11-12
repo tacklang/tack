@@ -49979,6 +49979,94 @@ printf-x-string/main.tck:6:32: error: printf verb %x does not take string
    |	                               ^~~~
 07 |	}
 
+-- process-reserved-end/main.tck --
+package main
+
+type tack_end_ struct {
+    x int64
+}
+
+extern func f(p tack_end_)
+
+func main() {
+    f(tack_end_{x: 1})
+}
+-- process-reserved-end/expected --
+stage: codegen
+---
+
+process-reserved-end/main.tck:3:6: error: type tack_end_ of package main cannot be named tack_end_ in tack.h: that is a tack.h process function
+02 |	
+03 |	type tack_end_ struct {
+   |	     ^~~~~~~~~
+04 |	    x int64
+
+-- process-reserved-ending/main.tck --
+package main
+
+type tack_ending_ struct {
+    x int64
+}
+
+extern func f(p tack_ending_)
+
+func main() {
+    f(tack_ending_{x: 1})
+}
+-- process-reserved-ending/expected --
+stage: codegen
+---
+
+process-reserved-ending/main.tck:3:6: error: type tack_ending_ of package main cannot be named tack_ending_ in tack.h: that is a tack.h process function
+02 |	
+03 |	type tack_ending_ struct {
+   |	     ^~~~~~~~~~~~
+04 |	    x int64
+
+-- process-reserved-start/main.tck --
+package main
+
+type tack_start_ struct {
+    x int64
+}
+
+extern func f(p tack_start_)
+
+func main() {
+    f(tack_start_{x: 1})
+}
+-- process-reserved-start/expected --
+stage: codegen
+---
+
+process-reserved-start/main.tck:3:6: error: type tack_start_ of package main cannot be named tack_start_ in tack.h: that is a tack.h process function
+02 |	
+03 |	type tack_start_ struct {
+   |	     ^~~~~~~~~~~
+04 |	    x int64
+
+-- process-reserved-stdio-failed/main.tck --
+package main
+
+type tack_stdio_failed_ struct {
+    x int64
+}
+
+extern func f(p tack_stdio_failed_)
+
+func main() {
+    f(tack_stdio_failed_{x: 1})
+}
+-- process-reserved-stdio-failed/expected --
+stage: codegen
+---
+
+process-reserved-stdio-failed/main.tck:3:6: error: type tack_stdio_failed_ of package main cannot be named tack_stdio_failed_ in tack.h: that is a tack.h process function
+02 |	
+03 |	type tack_stdio_failed_ struct {
+   |	     ^~~~~~~~~~~~~~~~~~
+04 |	    x int64
+
 -- proof-append-then-pop/main.tck --
 package main
 

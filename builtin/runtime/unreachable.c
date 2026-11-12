@@ -9,6 +9,10 @@
 // frees every allocator's buffers, as exit does, so nothing the program
 // allocated outlives it, and aborts, running no defers. It never returns,
 // which _Noreturn tells C: a function with a result may end in it.
+//
+// The fputs is not checked, nor handed to tack_stdio_failed_: this is the
+// abort of a compiler bug, which ends the process with abort whatever the
+// write did, a broken pipe included.
 _Noreturn void tack_unreachable_(const char *msg) {
     fputs(msg, stderr);
     tack_allocators_release_all_();

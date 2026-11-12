@@ -23,8 +23,9 @@
 // allocator's to free.
 //
 // Every allocator keeps track of every buffer it has given out and not
-// had back, and can free them all at once: exit calls
-// tack_allocators_release_all_ before it ends the process, so nothing a
+// had back, and can free them all at once: exit, the end a broken pipe
+// makes (tack_stdio_failed_) and the abort of an unreachable call
+// tack_allocators_release_all_ before they end the process, so nothing a
 // program allocated outlives it, whatever still held it. A region's
 // chunks, and the region table, are c_allocator's buffers, so c_allocator
 // frees them then, and they have no other owner to free them twice.

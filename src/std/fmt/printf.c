@@ -11,9 +11,13 @@
 // that is not ASCII is written back whole; the compiler's check of a
 // known format reads it the same way. Integers are formatted here, into a
 // buffer on the stack, rather than by C's printf, so the only thing taken
-// from the C library is fwrite, which out and flush alone call, and the
-// fflush of stdout and of stderr eprintf makes around its output: a
-// target with no C library replaces those alone.
+// from the C library is fwrite, which put alone calls, and the fflush of
+// stdout and of stderr eprintf makes around its output: a target with no
+// C library replaces those alone. A write or flush that fails is handed
+// to tack_stdio_failed_, which ends the process as exit(141) does when
+// the stream's pipe has no reader, and otherwise loses the bytes; errno
+// is cleared before each call, so a failure that sets none is not taken
+// for an earlier call's EPIPE.
 //
 // Every mistake in the format is written into the output, as Go's fmt
 // writes it, and none is undefined: %!d(string=hi) for a verb given a
@@ -37,6 +41,7 @@
 // no C library and no locale; std/conv's append_float is the same
 // algorithm in Tack, and the tests check the two against each other and
 // against Go.
+#include <errno.h>
 #include <stdio.h>
 
 #include <tack/tack.h>
@@ -62,11 +67,28 @@ typedef struct {
 // gather_cap is the size of the buffer eprintf gathers its output in.
 enum { gather_cap = 512 };
 
+// put writes the n bytes at p, n more than 0, to o's stream, handing a
+// failure to tack_stdio_failed_.
+static void put(sink *o, const unsigned char *p, int64_t n) {
+    errno = 0;
+    if (fwrite(p, 1, (size_t)n, o->f) < (size_t)n) {
+        tack_stdio_failed_();
+    }
+}
+
 // flush hands the bytes gathered in o to its stream, and empties it.
 static void flush(sink *o) {
     if (o->n > 0) {
-        fwrite(o->buf, 1, (size_t)o->n, o->f);
+        put(o, o->buf, o->n);
         o->n = 0;
+    }
+}
+
+// flush_stream flushes f, handing a failure to tack_stdio_failed_.
+static void flush_stream(FILE *f) {
+    errno = 0;
+    if (fflush(f) == EOF) {
+        tack_stdio_failed_();
     }
 }
 
@@ -79,13 +101,13 @@ static void out(sink *o, const unsigned char *p, int64_t n) {
         return;
     }
     if (o->buf == NULL) {
-        fwrite(p, 1, (size_t)n, o->f);
+        put(o, p, n);
         return;
     }
     if (n > o->cap - o->n) {
         flush(o);
         if (n >= o->cap) {
-            fwrite(p, 1, (size_t)n, o->f);
+            put(o, p, n);
             return;
         }
     }
@@ -785,9 +807,9 @@ void tack_fmt_printf(tack_string format, tack_view_any args) {
 // the call is left for a later stdout write to overtake, however the C
 // library buffers stderr.
 void tack_fmt_eprintf(tack_string format, tack_view_any args) {
-    fflush(stdout);
+    flush_stream(stdout);
     unsigned char buf[gather_cap];
     sink o = {.f = stderr, .buf = buf, .cap = gather_cap, .n = 0};
     format_to(&o, format, args);
-    fflush(stderr);
+    flush_stream(stderr);
 }

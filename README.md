@@ -355,8 +355,9 @@ generated C declares each builtin the program calls with a prototype,
 `void tack_builtin_print(tack_string);`, and `exit`'s as never returning,
 `_Noreturn void tack_builtin_exit(int32_t);`, as its body is, so a C
 function with a result may end in a call to it. Their bodies, `print.c`
-and `exit.c`, and `list.c`, which holds the functions that grow and free a
-list's buffer, which the generated C calls, and `c_allocator`'s, are the
+and `exit.c`, `list.c`, which holds the functions that grow and free a
+list's buffer, which the generated C calls, and `c_allocator`'s, and
+`process.c`, which holds the process's start and end, are the
 runtime's C files, in [`builtin/runtime`](builtin/runtime), embedded in
 the compiler too, beside the runtime header, `<tack/tack.h>`. That header
 is the one definition of what every program's C shares, `tack_string` and
@@ -376,12 +377,19 @@ build cache, and links only those that define a builtin the program calls,
 the list functions when it has a list type, the abort of an `unreachable`
 when it holds one, `unreachable.c`, a function one of its C files
 calls, and those that define what those objects need in turn, as a linker
-takes an archive's members; `exit` needs `list.c` too, since it has every
-allocator free what it still holds. So the generated C includes only
+takes an archive's members. A program that calls a builtin or declares
+an extern func, std's included, runs C beyond its generated C, and its C
+`main` calls `process.c`'s `tack_start_` first, which ignores `SIGPIPE`,
+and `tack_end_` once Tack's `main` returns, which flushes standard output
+(see broken pipes); `print`, `exit` and `std/fmt`'s C call `process.c`
+when a write fails, and `process.c` needs `list.c`, since a broken pipe
+has every allocator free what it still holds, as `exit` does. So the
+generated C includes only
 `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` if it uses `unsafe_size_t`,
 which a freestanding C implementation has, and `<tack/tack.h>`, which
-includes only those three, and a program that calls neither builtin, and
-has no list, links neither body and none of the C library they call.
+includes only those three, and a program that calls neither builtin,
+declares no extern func and has no list links none of the runtime and
+none of the C library it calls.
 
 `len`, `make`, `append`, `reserve`, `pop`, `remove`, `swap`, `replace`,
 `put`, `delete`, `has`, `drop`, `add`, `add_all` and `insert` are generic: the type
@@ -1190,8 +1198,8 @@ section remains the description of the language.
   where both streams reach one pipe, file or terminal, `2>&1`, their
   bytes arrive in the order of the calls, however the C library buffers
   either stream. Like print, none reports an error: a closed descriptor or
-  a failed write loses the bytes, and a pipe with no reader raises
-  `SIGPIPE`, as it does for print.
+  a failed write loses the bytes, and a pipe with no reader ends the
+  program as `exit(141)` does, as it does for print (see broken pipes).
 - appendf. `err := fmt.appendf(mut out, format, args...)`, from
   `std/fmt`, appends to the end of the list `out` exactly the bytes
   `fmt.printf(format, args...)` would write: the same verbs on the same
@@ -1320,7 +1328,9 @@ section remains the description of the language.
   err_out, alloc)` runs the program `argv[0]` names, looked up on `PATH`
   through `posix_spawnp`, with `argv` as its arguments, this process's
   environment, and `/dev/null` as its standard input, and waits for it.
-  It reads the child's standard output and standard error from two
+  The child starts with `SIGPIPE`'s default action, though the program
+  ignores it (see broken pipes), so `yes` writing into a closed pipe
+  dies of it, as it would started from a shell. It reads the child's standard output and standard error from two
   pipes at once, whichever has something, so neither fills and blocks
   the child, then appends each to `out` and `err_out`, and returns the
   exit status, 0 to 255, a status other than 0 being no error. `alloc`
@@ -3854,7 +3864,28 @@ section remains the description of the language.
   used as a name, and both are constant expressions, as is `noerror`, a
   keyword too (see errors).
 - `print` takes one string and writes exactly its bytes to standard output,
-  adding no newline; a line ends where the string has a `\n`.
+  adding no newline; a line ends where the string has a `\n`. It reports
+  no error: a closed descriptor or a failed write loses the bytes, except
+  a broken pipe, which ends the program.
+- Broken pipes. A program ignores `SIGPIPE`, so a write to a pipe or
+  socket with no reader fails with `EPIPE` rather than kill the process
+  with nothing freed. A write to standard output or standard error that
+  fails so, from `print` or `std/fmt`'s `println`, `printf`, `write`,
+  `eprintln`, `eprintf` or `ewrite`, ends the program as `exit(141)`
+  does: every allocator frees every buffer it still holds, no defer
+  runs, and the status is 141, 128 plus `SIGPIPE`'s 13, what a shell
+  reports for a process `SIGPIPE` killed, so `prog | head -1` ends
+  `prog` once a write after `head` exits reaches the pipe, a loop
+  printing forever included. Standard output is buffered, so the broken pipe may only be
+  found when the buffer is flushed: by a later write, by `exit`, whose
+  status is then 141 whatever it was asked for, or once `main` returns,
+  when its defers have run, and the status is 141, not 0. A write to any
+  other descriptor gets `EPIPE` as an error the program sees, `error{code:
+  3, msg: "Broken pipe"}` from `os.write_file`, as does extern C's own
+  write, and a child `os.run` starts begins with `SIGPIPE`'s default
+  action. A program with no C to
+  run, one that calls neither builtin and declares no extern func, std's
+  included, writes nothing, and does none of this.
 - `exit` takes an `int32`, or an integer that widens to one
   (`int8`, `int16`, `uint8`, `uint16`), and terminates the process with that
   status, without running any pending defer. It never returns, so a call
@@ -3869,7 +3900,9 @@ section remains the description of the language.
   `v, ok := int32(x)`. A constant outside `int32` is an error, as
   `exit(3000000000)` is. Only the low bits of the status reach the
   operating system, the low 8 on Linux and macOS, so `exit(70000)` ends
-  with status 112.
+  with status 112. `exit` flushes standard output first, and when that
+  finds a pipe with no reader the status is 141 instead (see broken
+  pipes).
 - Integer constants. A literal, and any expression made only of literals and
   operators, is a constant with no type of its own: it is computed exactly,
   and takes the type of where it is used, the type it is assigned, passed or

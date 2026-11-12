@@ -31,10 +31,14 @@
 //
 // # The runtime
 //
-// RuntimeCFiles are the runtime's C files: exit.c, list.c, print.c and
-// unreachable.c, the bodies of print and exit, ordinary non-static
-// functions under their C names, the abort an unreachable statement
-// lowers to (UnreachableSymbol), and the allocators and the grow and free functions of lists,
+// RuntimeCFiles are the runtime's C files: exit.c, list.c, print.c,
+// process.c and unreachable.c, the bodies of print and exit, ordinary
+// non-static functions under their C names, the abort an unreachable
+// statement lowers to (UnreachableSymbol), the process's start and end,
+// which the C main of a program that RunsC calls (StartSymbol and
+// EndSymbol), the first ignoring SIGPIPE, and the end a write to stdout
+// or stderr that fails with EPIPE makes, as exit(141) does, which print,
+// exit and std/fmt's C reach through tack_stdio_failed_, and the allocators and the grow and free functions of lists,
 // with the check of an arena's length limit and its testing hook, and a
 // pool's tags, the generation its new slots start at and the limit on its
 // slots, with their testing hooks, ListSymbols among them. RuntimeHeader is <tack/tack.h>, which every C

@@ -134,14 +134,23 @@ var c_allocator Allocator
 // Functions
 
 // print writes s to standard output exactly as given, adding no newline.
+// It reports no error: a closed descriptor or a failed write loses the
+// bytes. A write to a pipe with no reader, which fails with EPIPE since
+// the program ignores SIGPIPE, ends the process as exit(141) does: every
+// allocator frees every buffer it still holds, no defer runs, and the
+// status is 141, 128 plus SIGPIPE's 13. Standard output is buffered, so
+// the broken pipe may only be found by a later write, by exit, or by the
+// flush once main returns, which end the process the same way.
 func print(s string)
 
 // exit ends the process immediately with the given status. Pending defers
 // do not run, in the calling function or any other, but before the
 // process ends every allocator frees every buffer it still holds, so no
-// list outlives the program. Only the low bits of the status reach the
-// operating system, the low 8 on Linux and macOS, so exit(70000) ends with
-// status 112.
+// list outlives the program. It flushes standard output first, and when
+// that finds a pipe with no reader the status is 141, as print's broken
+// pipe ends the process, whatever code was. Only the low bits of the
+// status reach the operating system, the low 8 on Linux and macOS, so
+// exit(70000) ends with status 112.
 func exit(code int32)
 
 // len returns the number of elements of the array, view, list or arena v,
