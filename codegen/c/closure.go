@@ -99,12 +99,19 @@ func (g *generator) usesScope() bool {
 			continue
 		}
 		for _, p := range table.FuncParams(typ) {
-			if p.Scope {
+			if p.Scope && table.IsFunc(p.Type) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// scopeFunc reports whether p is a scope parameter of a function type,
+// which is passed as a tack_scope; a scope Allocator is passed as any
+// Allocator is.
+func (g *generator) scopeFunc(p *ast.Param) bool {
+	return p.Scope && g.prog.Types.IsFunc(p.Type)
 }
 
 // emitScopeType defines tack_scope, after tack_fnptr, when the program
@@ -128,11 +135,12 @@ func (g *generator) scopeFnParams(typ types.Type) []string {
 }
 
 // funcParamType returns the C type a parameter p of a function type is
-// passed as: a scope value for a scope one, a pointer to its type's for a
-// mut one, and its type's otherwise.
+// passed as: a scope value for a scope one of a function type, a pointer
+// to its type's for a mut one, and its type's otherwise, a scope
+// Allocator's among them.
 func (g *generator) funcParamType(p types.FuncParam) string {
 	switch {
-	case p.Scope:
+	case p.Scope && g.prog.Types.IsFunc(p.Type):
 		return scopeType
 	case p.Mut:
 		return g.cType(p.Type) + " *"
@@ -170,7 +178,7 @@ func (g *generator) scopeArg(arg ast.Expr, typ types.Type) (string, []diag.Diagn
 		return g.closureValue(lit), nil
 	}
 	if id, ok := arg.(*ast.Ident); ok {
-		if p, isParam := id.Def.(*ast.Param); isParam && p.Scope {
+		if p, isParam := id.Def.(*ast.Param); isParam && g.scopeFunc(p) {
 			return g.identExpr(id)
 		}
 	}
@@ -228,7 +236,7 @@ func (g *generator) capturePtrType(cp *ast.Capture) string {
 	switch d := cp.Decl.(type) {
 	case *ast.Param:
 		ctype = g.cType(d.Type)
-		if d.Scope {
+		if g.scopeFunc(d) {
 			ctype = scopeType
 		}
 	case *ast.Var:

@@ -25,7 +25,10 @@
 // String: a Table reports it as a struct with those fields, fixed, in
 // that order, though it never adds it, so it has no entry and no
 // SetFields changes it. Allocator, Allocator, is an opaque handle on an
-// allocator, copyable, with no zero value, no order and no ==. IsInteger, IsUnsigned
+// allocator, copyable, with no zero value, no order and no ==; it is 8
+// bytes, a 16-bit index and a 48-bit generation, each saturating in the
+// runtime rather than wrapping. A function type's parameter may be scope when
+// its type is a function type or Allocator (FuncParam.Scope). IsInteger, IsUnsigned
 // and Bits describe the integer types, and Widens says which can be used
 // as which without a conversion: every value of the one must be a value of
 // the other.

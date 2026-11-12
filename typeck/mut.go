@@ -36,13 +36,23 @@ type param struct {
 	own      bool
 	scope    bool
 	variadic bool
+
+	// sig is whether it is a parameter of a function's signature, a
+	// method's or a function type's, and not one of a builtin, and extern
+	// whether that function is an extern func; a message about a scope
+	// allocator passed to it says so (see scopeAllocToPlain).
+	sig, extern bool
 }
 
 // calleeParams returns the parameters of the function or builtin id
 // names, none when it names neither.
 func (c *Checker) calleeParams(id *ast.Ident) []param {
 	if fn, ok := id.Def.(*ast.Func); ok && fn != nil {
-		return c.funcParams(fn.Params)
+		params := c.funcParams(fn.Params)
+		for i := range params {
+			params[i].extern = fn.Extern
+		}
+		return params
 	}
 	fn, _ := c.builtins.Lookup(id.Name)
 	params := make([]param, len(fn.Params))
@@ -68,6 +78,10 @@ func (c *Checker) checkArg(arg ast.Expr, p param, callee string) *ast.MutArg {
 	}
 	if lit, ok := arg.(*ast.FuncLit); ok {
 		c.funcLitToPlain(lit, p, callee)
+		return nil
+	}
+	if id, ok := arg.(*ast.Ident); ok && p.sig && c.isScopeAlloc(id) {
+		c.scopeAllocToPlain(id, p, callee)
 		return nil
 	}
 	if c.inference.mentionsAny(c, p.typ) {
@@ -307,9 +321,19 @@ func namesVariable(e ast.Expr) bool {
 // argExpr checks an argument of a call whose argument count is wrong, or
 // whose callee was reported, which is matched with no parameter: only for
 // errors of its own, so a mut argument is not reported as passed to a
-// plain parameter, and a closure, whose place is unknown, not at all.
+// plain parameter, a closure, whose place is unknown, not at all, and a
+// scope allocator, a region's or a scope Allocator parameter, not as
+// passed where none may go, since where it goes is unknown too.
 func (c *Checker) argExpr(arg ast.Expr) {
 	switch x := arg.(type) {
+	case *ast.Ident:
+		if c.isScopeAlloc(x) {
+			c.scopeUse = x
+			c.expr(x)
+			c.scopeUse = nil
+			return
+		}
+		c.expr(arg)
 	case *ast.FuncLit:
 		// With no parameter to pass it to, whether it may be passed, and
 		// what type its signature must have, is unknown.

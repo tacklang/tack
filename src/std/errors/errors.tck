@@ -56,7 +56,7 @@ pub func new(err error, own detail text.Text) Failure {
 // Failure keeps err and its detail is empty, having allocated nothing:
 // the error is what matters, and a caller that must know tests
 // f.detail.len().
-pub func from_bytes(err error, s []uint8, alloc Allocator) Failure {
+pub func from_bytes(err error, s []uint8, scope alloc Allocator) Failure {
     t, e := text.from_bytes(s, alloc)
     if e.code != 0 {
         return Failure{err: err, detail: text.new(alloc)}

@@ -312,17 +312,21 @@ static inline bool tack_any_unsigned(tack_any a, uint64_t *v) {
 // A Tack Allocator, passed by value: an opaque handle on one of the
 // allocators std's C keeps, the index of its entry and the generation of
 // that entry, so a handle to an allocator that has ended can be told from
-// one to its successor. c_allocator, the one there is today, is index 0,
-// generation 0, and lowers to C's malloc, realloc and free. A list holds
-// the handle of the allocator it grows and is freed through. C never
-// makes one, changes one or reads its fields.
+// one to its successor: a 16-bit index, then a 48-bit generation, its
+// high 16 bits and its low 32. c_allocator is index 0, generation 0, and
+// lowers to C's malloc, realloc and free; each open region is an entry
+// of its own, its generation one that no region opened before it took
+// (see tack_region_push_). A list holds the handle of the allocator it
+// grows and is freed through. C never makes one, changes one or reads its
+// fields.
 typedef struct {
-    uint32_t index;
-    uint32_t gen;
+    uint16_t index;
+    uint16_t gen_high;
+    uint32_t gen_low;
 } tack_allocator;
 
 // TACK_C_ALLOCATOR is c_allocator.
-#define TACK_C_ALLOCATOR ((tack_allocator){0, 0})
+#define TACK_C_ALLOCATOR ((tack_allocator){0, 0, 0})
 
 // A Tack list, list[T], is a struct of its own per element type, which
 // the program's tack.h defines, tack_list_int64 for list[int64]:
@@ -387,6 +391,40 @@ int64_t tack_c_allocator_live_(void);
 // for memory and refuse every one after them, or refuse none again when
 // n is negative, for tests of what a failed allocation does.
 void tack_c_allocator_fail_after_(int64_t n);
+
+// tack_region_push_ opens a region, the innermost one, and returns its
+// allocator, which hands out memory from chunks it takes from
+// c_allocator, giving each back only when the region is popped. Opening
+// one allocates nothing, but the region table, which holds an entry for
+// each open region, may grow, through c_allocator; when it cannot, when
+// the region would be 65534 or more deep, so its 16-bit index would not
+// fit, or once every 48-bit generation a region can take has been taken,
+// the region opens with the dead handle, which no entry ever matches, so
+// every allocation through it fails. It never fails otherwise. The generated
+// source calls it where a region's block starts; C must not.
+tack_allocator tack_region_push_(void);
+
+// tack_region_pop_ ends a, the innermost open region, which
+// tack_region_push_ gave: it gives back every chunk the region took, and
+// the region table once no region is open, so a handle a still held
+// matches no entry. For the dead handle it only counts the region ended.
+// The generated source calls it as a region's block is left, after the
+// block's defers and frees; C must not.
+void tack_region_pop_(tack_allocator a);
+
+// tack_region_generation_near_max_ makes the regions opened after it
+// take generations counting up from 2^48 - 1 - left, so left of them
+// open before one would take 2^48 - 1, the dead handle's generation,
+// and that one and every one after it open with the dead handle, for
+// tests of what reaching the last generation does without opening 2^48
+// regions.
+void tack_region_generation_near_max_(uint64_t left);
+
+// tack_region_limit_ makes regions opened n or more deep, counting from
+// 0, open with the dead handle, or only those 65534 or more deep again
+// when n is negative or more than that, for tests of what reaching the
+// deepest index does without opening 65534 regions.
+void tack_region_limit_(int64_t n);
 
 // tack_argc_ and tack_argv_ are the argc and argv C's main was given,
 // which the generated main stores before it calls Tack's main, and which

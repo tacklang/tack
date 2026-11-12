@@ -987,7 +987,25 @@
 // over and keeps its elements from being moved out. A handle, handle[T],
 // is comparable, a copyable map key with a zero value and no order,
 // arithmetic or conversion; no type holds itself through a pool, but one
-// may hold a handle of itself, and neither crosses to C. A function type,
+// may hold a handle of itself, and neither crosses to C. A region,
+// region r { ... }, checked in scopealloc.go, is a block of its function
+// whose name is an immutable Allocator, recorded in Checker.regions; it
+// terminates, leaves and holds a break or continue exactly as its body
+// does (terminatesBy, leavesBy, breaks, heldJumps), the move checker
+// follows its body as a block, and its body's facts end with it. Its
+// allocator is second class, as a scope parameter of a function type is,
+// and so is a parameter written scope a Allocator: either is used only
+// as make's allocator (allocArg), as an argument to a scope Allocator
+// parameter (scopeAllocArg), or as a closure's capture, and reported
+// anywhere else (scopeAllocElsewhere, scopeAllocToPlain), an extern func
+// declaring none (checkExternScope). Once a body is checked with nothing
+// reported, escape.go checks the escape rule in it, when it holds a
+// region: every variable gets a home, the depth of regions it is declared
+// at, and a mark, the depth of the innermost region a value it may hold
+// came from, found by walking the body until no mark rises; then every
+// return, assignment and call is checked against those marks, so no value
+// from a region reaches a place declared outside the region's block, a
+// mut parameter, a global or a result. A function type,
 // func(A, mut B) R, checked in funcvalue.go, is the type of a value
 // naming a function: a function's name used as a value, or a method
 // named through its type, its type recorded in Func.Value, unless the

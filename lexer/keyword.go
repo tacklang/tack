@@ -116,6 +116,11 @@ const (
 	// handles that a removal makes stale. It comes after Arena for the
 	// same reason Arena comes after Scope.
 	Pool
+
+	// Region starts a region statement, region r { ... }, which opens an
+	// allocator, r, that lives for its block. It comes after Pool for the
+	// same reason Pool comes after Arena.
+	Region
 )
 
 var keywordNames = map[KeywordType]string{
@@ -178,6 +183,8 @@ var keywordNames = map[KeywordType]string{
 	Arena: "arena",
 
 	Pool: "pool",
+
+	Region: "region",
 }
 
 // String returns the keyword as written in source.

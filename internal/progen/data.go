@@ -24,13 +24,14 @@ func init() {
 		(*Gen).dropStmt,
 		(*Gen).arenaStmt,
 		(*Gen).poolStmt,
+		(*Gen).regionStmt,
 	}
 }
 
 // dataNames name dataKinds, in order, for Program.Stats.
 var dataNames = []string{
 	"new-collection", "guarded-read", "guarded-write", "checked-read", "append", "pop", "put",
-	"map-read", "delete", "has", "range", "swap", "drop", "arena", "pool",
+	"map-read", "delete", "has", "range", "swap", "drop", "arena", "pool", "region",
 }
 
 // dataStmt returns a statement on a collection.

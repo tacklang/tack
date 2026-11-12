@@ -18,7 +18,8 @@ import (
 // although a write can reach it, among generated programs built from the
 // shapes where a write in a branch that leaves is set aside (see keep in
 // facts.go): branches ending in continue, break, return or exit at
-// several depths, branches ending in further ifs and switches, loops
+// several depths, regions around such branches, whose bodies run once, in
+// place, branches ending in further ifs and switches, loops
 // inside such branches inside loops, a break and a continue in one
 // branch, defers, exit in deferred code, chains of else ifs, switches on
 // an integer, on a union with and without a default, on an index, and
@@ -90,6 +91,7 @@ const (
 	lIf                    // if c1 { } else if c2 { } ... else { }
 	lSwitch                // switch, on k, u, a[i], or with no tag
 	lLoop                  // a loop
+	lRegion                // region _ { body }, which runs body once, in place
 	lRaw                   // text written out as it is, which the oracle does not run
 )
 
@@ -403,6 +405,11 @@ func (g *lGen) stmt(depth int, sc lScope) lStmt {
 		inner := sc
 		inner.inLoop, inner.inDefer = false, true
 		return lStmt{kind: lDefer, body: g.block(depth+1, inner, 1+g.rng.IntN(2))}
+	case r < 0.82:
+		// A region's body is a block run once, in place, so a break,
+		// continue or return in it acts as one in a branch does, and a
+		// write in it reaches what one in a branch would.
+		return lStmt{kind: lRegion, body: g.branch(depth, sc)}
 	default:
 		return g.loopStmt(depth, sc, 1+g.rng.IntN(3))
 	}
@@ -712,6 +719,8 @@ func (r *lRun) stmt(s lStmt, defers *[][]lStmt) lFlow {
 		return r.switchStmt(s)
 	case lLoop:
 		return r.loop(s)
+	case lRegion:
+		return r.block(s.body)
 	}
 	return flowNormal
 }
@@ -1076,6 +1085,9 @@ func (t *lText) stmt(s lStmt, ind int, style lStyle) {
 		t.switchStmt(s, ind, style)
 	case lLoop:
 		t.loop(s, ind, style)
+	case lRegion:
+		t.src.WriteString("region _ ")
+		t.block(s.body, ind, style)
 	}
 }
 

@@ -36,6 +36,11 @@ type Parser struct {
 	// has, after which nothing nests further (see nest).
 	tooDeep *diag.Diagnostic
 
+	// regionNamed is set once region was reported written as a name, as in
+	// region := 3, after which region where an operand is stands for that
+	// name, so its uses are not reported again (see diagNoRegionName).
+	regionNamed bool
+
 	// errAt holds where each error of errs starts, as a span with no
 	// end, so a second one there is found at once (see recorded).
 	errAt map[ast.Span]bool
@@ -1325,7 +1330,7 @@ func simpleStmtSpan(stmt ast.Stmt) *ast.Span {
 // that holds blocks is parsed by parseBlockStmt.
 func (p *Parser) parseKeywordStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 	switch tk.Value() {
-	case lexer.If, lexer.For, lexer.Switch, lexer.Defer:
+	case lexer.If, lexer.For, lexer.Switch, lexer.Defer, lexer.Region:
 		return p.parseBlockStmt(tk)
 	case lexer.Return:
 		return p.parseReturn()
@@ -1349,9 +1354,11 @@ func (p *Parser) parseKeywordStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic)
 }
 
 // parseBlockStmt parses a statement that starts with keyword tk and holds
-// blocks: an if, a loop, a switch or a defer.
+// blocks: an if, a loop, a switch, a defer or a region.
 func (p *Parser) parseBlockStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 	switch tk.Value() {
+	case lexer.Region:
+		return p.parseRegion()
 	case lexer.If:
 		return p.parseIf()
 	case lexer.For:
@@ -2764,6 +2771,71 @@ func (p *Parser) parseDefer() (*ast.Defer, []diag.Diagnostic) {
 	return stmt, nil
 }
 
+// parseRegion parses a region statement, region r { ... }, through the
+// semicolon that ends it, which may be left out before a closing brace.
+// r is a Var with no type and no value, spanning its name, as a range
+// loop's variables are.
+func (p *Parser) parseRegion() (*ast.Region, []diag.Diagnostic) {
+	tk := p.next() // the region keyword
+
+	name := p.peek()
+	if name.Kind() != lexer.Ident {
+		return nil, []diag.Diagnostic{p.diagNoRegionName(tk, name)}
+	}
+	p.next()
+	if p.peek().Kind() != lexer.LCurl {
+		return nil, []diag.Diagnostic{p.diagNoRegionBlock(p.peek())}
+	}
+	nameSpan := p.span(name)
+	text, _ := name.Value().(string)
+	stmt := &ast.Region{
+		Var:  &ast.Var{Name: text, NameSpan: nameSpan, Span: nameSpan},
+		Span: p.span(tk),
+	}
+	body, diags := p.parseBlock()
+	if body == nil {
+		return nil, diags
+	}
+	stmt.Body = body
+	if ok, semiDiags := p.expect(lexer.Semi); !ok && p.peek().Kind() != lexer.RCurl {
+		return nil, semiDiags
+	}
+	stmt.Span.End = p.lastEnd()
+	return stmt, nil
+}
+
+// diagNoRegionName reports name, the token after kw, a region keyword,
+// for not being the region's name. It spans kw, since region written
+// where a name is, region := 3, is the likelier mistake than a region
+// left unnamed, and region is a keyword that can never be a name. Once
+// it is reported as a name, it is taken as one where an operand is, so a
+// use of that name later is not reported too.
+func (p *Parser) diagNoRegionName(kw, name *lexer.Token) diag.Diagnostic {
+	const msg = "region is a keyword and cannot be a name; a region is written region r { ... }"
+	if name.Kind() == lexer.LCurl {
+		return p.diag(
+			diag.Error,
+			"a region needs a name: region r { ... }",
+			kw.OffsetStart(),
+			kw.OffsetEnd(),
+		)
+	}
+	p.regionNamed = true
+	return p.diag(diag.Error, msg, kw.OffsetStart(), kw.OffsetEnd())
+}
+
+// diagNoRegionBlock reports tk, the token after a region's name, for not
+// opening its block. It spans tk, or at the end of the file the point
+// after the name.
+func (p *Parser) diagNoRegionBlock(tk *lexer.Token) diag.Diagnostic {
+	const msg = "a region's name must be followed by a block: region r { ... }"
+	if tk.Kind() == lexer.EOF {
+		end := p.lastEnd()
+		return p.diag(diag.Error, msg, end, end)
+	}
+	return p.diag(diag.Error, msg, tk.OffsetStart(), tk.OffsetEnd())
+}
+
 // diagNoDeferBlock reports tk, the token after a defer keyword, for not
 // opening a block. It spans tk, or at the end of the file the point after
 // the keyword.
@@ -3216,6 +3288,9 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 		return p.parseTypeOperand(p.parseArenaType)
 	case isKeyword(tk, lexer.Pool):
 		return p.parseTypeOperand(p.parsePoolType)
+	case isKeyword(tk, lexer.Region) && p.regionNamed:
+		p.next()
+		return &ast.Ident{Name: "region", Span: p.span(tk)}, nil
 	case p.atRefType():
 		return p.parseRefOperand()
 	case isKeyword(tk, lexer.Func) && p.peekNext().Kind() != lexer.LParen:

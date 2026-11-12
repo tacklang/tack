@@ -85,12 +85,15 @@ type deferScope struct {
 	loop    bool
 }
 
-// cleanup is one entry of a block's cleanup chain: a defer, d, or the free
+// cleanup is one entry of a block's cleanup chain: a defer, d, the free
 // of an owned local, free, which is lowered as if a defer freeing it were
-// written right after its declaration (see list.go).
+// written right after its declaration (see list.go), or pop, the C
+// statement that ends a region, the first entry of its body's chain, so
+// it runs after every other (see generateRegion).
 type cleanup struct {
 	d    *ast.Defer
 	free *freeEntry
+	pop  string
 }
 
 // deferFrame is what the generator knows about the function body being
@@ -271,6 +274,10 @@ func (g *generator) chain(
 		entry := sc.entries[j-1]
 		if entry.free != nil {
 			lines = append(lines, entry.free.lower(g)...)
+			continue
+		}
+		if entry.pop != "" {
+			lines = append(lines, entry.pop)
 			continue
 		}
 		got, diags := g.deferred(entry.d, fn)

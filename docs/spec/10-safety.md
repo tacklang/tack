@@ -1092,6 +1092,29 @@ func main() {
 }
 ```
 
+### Region memory
+
+What is made through a region's allocator is given back when the
+region's block ends, so the checker keeps every value that may hold it
+inside that block (see [Ownership and memory](08-ownership.md)): no
+return, assignment, store or call carries a value from a region to a
+place that outlives its block, and the allocator itself only goes to
+`make`, to a scope `Allocator` parameter and into a closure, so no
+callee keeps it. No run reads a region's memory after its end, then,
+and every region's end frees what it took, once, after its block's
+defers and frees, by whatever path the block is left; `exit`, and an
+`unreachable` reached, free it with every buffer `c_allocator` holds.
+Allocation through a region fails as a value, `error{code: 1, msg:
+"out of memory"}`, never as an abort: when `c_allocator` cannot give a
+chunk, and when the region opened with a handle no allocator matches,
+because the runtime could not grow its table of open regions, the region
+is 65534 or more deep, past what its 16-bit index holds, or every 48-bit
+generation has been taken: both saturate rather than wrap, so no handle
+ever matches a region it was not given by. A handle that outlived its region,
+which only C could keep, matches no allocator either: every region takes
+a generation of its own, so growing through it fails and freeing through
+it does nothing.
+
 ### Map keys
 
 `m[k]` reads or writes the value under `k` only where `has(m, k)` proves

@@ -203,7 +203,7 @@ func (c *Checker) makeArena(call *ast.Call, typ types.Type) types.Type {
 		c.argExpr(call.Args[1])
 	}
 	alloc := call.Args[2]
-	c.use(alloc, c.expr(alloc), types.Allocator, "in argument to make")
+	c.use(alloc, c.allocArg(alloc), types.Allocator, "in argument to make")
 	if len(c.diags) > before || typ == types.Invalid {
 		return types.Invalid
 	}

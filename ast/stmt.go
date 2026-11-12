@@ -457,3 +457,30 @@ func (d *Defer) astNode() nodeKey { return _nodeKey }
 // Spanned returns the source range from the 'defer' keyword through the
 // deferred block's closing brace.
 func (d *Defer) Spanned() Span { return d.Span }
+
+// Region is a region statement, region r { ... }: it opens an allocator
+// that lives for its block, binds it to Var, an immutable variable of type
+// Allocator declared at the start of Body, runs Body once, in place, and
+// gives back every buffer the allocator handed out when Body is left,
+// whichever way it is left, after Body's defers and frees. Var is never
+// nil; its Value and TypeExpr are, since nothing is written for them, and
+// its Name may be _, which binds nothing. What may be done with the
+// allocator, and with what is made through it, is the type checker's to
+// say.
+type Region struct {
+	Var  *Var
+	Body []Stmt
+	Span Span // 'region' keyword through the closing brace
+}
+
+var _ Stmt = (*Region)(nil)
+
+// stmtKey marks Region as a Stmt, sealing Stmt to this package's types.
+func (r *Region) stmtKey() stmtKey { return _stmtKey }
+
+// astNode marks Region as a Node, sealing Node to this package's types.
+func (r *Region) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the 'region' keyword through the
+// closing brace.
+func (r *Region) Spanned() Span { return r.Span }

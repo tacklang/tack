@@ -1102,9 +1102,10 @@ func (g *generator) signature(fn *ast.Func) string {
 
 // paramType returns the C type param is passed as: its type's, for a mut
 // parameter a pointer to it, the caller's variable, and for a scope
-// parameter a tack_scope (see closure.go).
+// parameter of a function type a tack_scope (see closure.go); a scope
+// Allocator is a tack_allocator, as any Allocator is.
 func (g *generator) paramType(param *ast.Param) string {
-	if param.Scope {
+	if g.scopeFunc(param) {
 		g.scopeUsed = true
 		return scopeType
 	}
@@ -1194,22 +1195,54 @@ func isIdentByte(b byte) bool {
 
 // generateBlock lowers a block of fn other than a loop's body; see block.
 func (g *generator) generateBlock(body []ast.Stmt, fn *ast.Func) ([]string, []diag.Diagnostic) {
-	return g.block(body, fn, false)
+	return g.block(body, fn, false, nil)
 }
 
 // generateLoopBody lowers the body of a loop of fn, the block a break or
 // continue leaves; see block.
 func (g *generator) generateLoopBody(body []ast.Stmt, fn *ast.Func) ([]string, []diag.Diagnostic) {
-	return g.block(body, fn, true)
+	return g.block(body, fn, true, nil)
+}
+
+// generateRegion lowers s, a region of fn, as a C block that opens the
+// region, binding its allocator to a const local, then runs the body, a
+// block whose cleanup chain starts with the region's pop: every way out
+// of the body, falling off its end, a return, a ?, a break or a
+// continue, runs the body's defers and frees, then pops the region,
+// which gives back every chunk it took. exit pops nothing, and the
+// allocators' release_all gives the chunks back, as c_allocator's
+// buffers. A region named _ gets a temporary for its allocator.
+func (g *generator) generateRegion(s *ast.Region, fn *ast.Func) ([]string, []diag.Diagnostic) {
+	name := varName(s.Var.Name)
+	if s.Var.Name == ast.Blank {
+		name = g.temp("region")
+	}
+	pop := &cleanup{pop: fmt.Sprintf("tack_region_pop_(%s);", name)}
+	body, diags := g.block(s.Body, fn, false, pop)
+	if len(diags) > 0 {
+		return nil, diags
+	}
+	lines := []string{"{", fmt.Sprintf("    const tack_allocator %s = tack_region_push_();", name)}
+	lines = append(lines, indent(body)...)
+	return append(lines, "}"), nil
 }
 
 // block lowers a block of fn, in a deferScope of its own, loop being
 // whether it is a loop's body. It ends in the cleanup chain of the defers
 // it reaches and the owned locals it declares, and, for fn's body, the
 // first block a frame opens, fn's own parameters, which falling off its
-// end runs and its exits jump into.
-func (g *generator) block(body []ast.Stmt, fn *ast.Func, loop bool) ([]string, []diag.Diagnostic) {
+// end runs and its exits jump into. first, when not nil, is the chain's
+// first entry, a region's pop, which runs after every other.
+func (g *generator) block(
+	body []ast.Stmt,
+	fn *ast.Func,
+	loop bool,
+	first *cleanup,
+) ([]string, []diag.Diagnostic) {
 	sc := &deferScope{loop: loop}
+	if first != nil {
+		sc.entries = append(sc.entries, *first)
+	}
 	g.scopes = append(g.scopes, sc)
 	defer func() { g.scopes = g.scopes[:len(g.scopes)-1] }()
 	if g.frame != nil && g.frame.owner != nil {
@@ -1255,6 +1288,9 @@ func (g *generator) generateStmt(stmt ast.Stmt, fn *ast.Func) ([]string, []diag.
 
 	case *ast.Defer:
 		return nil, g.addDefer(x)
+
+	case *ast.Region:
+		return g.generateRegion(x, fn)
 
 	case *ast.Break:
 		return g.generateJump("break;"), nil
@@ -2900,7 +2936,7 @@ func (g *generator) dynamicCall(call *ast.Call) (string, []diag.Diagnostic) {
 	operands := append([]ast.Expr{call.Fn}, call.Args...)
 	rendered := append([]string{value}, args...)
 	if id, ok := call.Fn.(*ast.Ident); ok {
-		if p, isParam := id.Def.(*ast.Param); isParam && p.Scope {
+		if p, isParam := id.Def.(*ast.Param); isParam && g.scopeFunc(p) {
 			ctypes := append([]string{scopeType}, g.argTypes(call, fn.Params)...)
 			build := func(ops []string) string {
 				callee, env := g.scopeCallee(fn.Value, ops[0])

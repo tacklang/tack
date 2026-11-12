@@ -183,7 +183,11 @@
 // the defer is written, so it sees only the names declared before it, though
 // it runs later, and a variable it reads counts as read. A loop is a scope of its own, holding any variable its init
 // statement or range declares, with the body nested in it. What a range
-// loop ranges over is resolved outside that scope. A variable is visible from its declaration to the end of its block,
+// loop ranges over is resolved outside that scope. A region, region r
+// { ... }, is a scope of its own too, holding r, an immutable variable,
+// with the body nested in it, so nothing after the region can name r; r
+// is reported unused, as a range loop's variable is, when the body never
+// reads it, and _ binds nothing. A variable is visible from its declaration to the end of its block,
 // and its value is resolved before it is declared, so it cannot refer to
 // itself. The variables a, b := f() declares are declared in order after f()
 // is resolved, as if each were declared on its own, and the targets of

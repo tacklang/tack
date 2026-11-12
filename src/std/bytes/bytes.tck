@@ -23,8 +23,8 @@ package bytes
 // memory"} and b is left exactly as it was, its length, its capacity and
 // its bytes.
 //
-// repeat makes a new list, through the Allocator it is given, and returns
-// it beside an error. No other function takes an allocator: the append
+// repeat makes a new list, through the Allocator it is given, as scope, so
+// it may be a region's, and returns it beside an error. No other function takes an allocator: the append
 // functions grow b through the allocator b was made with.
 //
 // Bytes are bytes: nothing here knows UTF-8, so every byte, 0x00 and
@@ -254,7 +254,7 @@ pub func append_hex(mut b list[uint8], v uint64) error {
 // n is error{code: 2, msg: "negative count"}, and a length that
 // overflows an int64, or that alloc cannot give, error{code: 1, msg:
 // "out of memory"}.
-pub func repeat(s []uint8, n int64, alloc Allocator) (list[uint8], error) {
+pub func repeat(s []uint8, n int64, scope alloc Allocator) (list[uint8], error) {
     mut out := make(list[uint8], alloc)
     if n < 0 {
         return out, error{code: 2, msg: "negative count"}

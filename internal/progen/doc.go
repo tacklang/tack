@@ -36,7 +36,8 @@
 // add_all, their elements read through an id, the zero id and a span's
 // view, ranged over, pools of int64s, grown by insert, their elements read
 // through a handle has proves, a stale handle's checked form, a range and
-// both forms of remove,
+// both forms of remove, regions around blocks of any of these, through
+// which lists, a list of lists among them, are made in nested regions,
 // views, function values and parameters of function types, methods with
 // plain and mut receivers, called on a receiver or through their struct,
 // S.m(r, args), and those with a plain receiver named as values, S.m,

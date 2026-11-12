@@ -178,7 +178,7 @@ it is an extern func, and a function value does not cross to C`.
 | an `args ...T` parameter    | `tack_view_<T>`, as for `[]T`: the values the call passed, in order, or the view it spread; `ptr` null and `len` 0 for no values                                                     |
 | an `a any` parameter        | `tack_any`: `uint32_t type; const void *ptr;`, by value; `type` one of the ids below, `ptr` pointing at a value of that type, a view's struct for a view, valid only during the call |
 | an `args ...any` parameter  | `tack_view_any`: `const tack_any *ptr; int64_t len;`, the view of anys a variadic is                                                                                                 |
-| `Allocator`                 | `tack_allocator`: `uint32_t index; uint32_t gen;`, by value, an opaque handle                                                                                                        |
+| `Allocator`                 | `tack_allocator`: `uint16_t index; uint16_t gen_high; uint32_t gen_low;`, by value, an opaque handle                                                                                 |
 | a `mut l list[T]` parameter | `tack_list_<T> *`: `T *ptr; int64_t len; int64_t cap; tack_allocator alloc;`, a pointer to the caller's list, valid only during the call                                             |
 
 `tack.h` includes `<stdbool.h>` and `<stdint.h>`, `<stddef.h>` when a
@@ -389,11 +389,17 @@ fails rather than wraps when the buffer's size would not fit a `size_t`
 or a `ptrdiff_t`, when the alignment is more than the allocator gives,
 or when the handle is no allocator's; C never calls either directly.
 
-An `Allocator` is `tack_allocator`, `{uint32_t index; uint32_t gen;}`,
-an opaque handle: the index of one of the allocators the runtime's C keeps and
-that entry's generation, so a handle to an allocator that has ended can
+An `Allocator` is `tack_allocator`, `{uint16_t index; uint16_t gen_high;
+uint32_t gen_low;}`, 8 bytes, an opaque handle: the 16-bit index of one
+of the allocators the runtime's C keeps and that entry's 48-bit
+generation, which saturates rather than wraps, so a handle to an allocator that has ended can
 be told from one to its successor. `c_allocator` is `TACK_C_ALLOCATOR`,
 index 0, generation 0, which lowers to `malloc`, `realloc` and `free`.
+A region's allocator never reaches C, since no extern func can take a
+scope `Allocator`, but a list made through a region holds its handle,
+which matches no allocator once the region has ended: C keeps no list
+past the call, and growing or freeing through such a handle does
+nothing harmful.
 For tests, `tack_c_allocator_live_()` returns how many buffers
 `c_allocator` has given out and not had back, and
 `tack_c_allocator_fail_after_(n)` makes it grant the next `n` requests

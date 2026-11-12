@@ -138,7 +138,10 @@ func main() {
 
 `make` returns an empty list of elements of type `T`, written
 `make(list[T], alloc)`, which grows through `alloc` and is freed
-through it when its owner's block ends. It allocates nothing, so it
+through it when its owner's block ends. `alloc` may be any `Allocator`,
+a region's or a scope `Allocator` parameter's among them, which `make`
+is one of the few places to take (see [Ownership and
+memory](08-ownership.md)). It allocates nothing, so it
 cannot fail. Written `make(map[K]V, alloc)`, it returns an empty map in
 the same way. Written `make(arena[T], sentinel, alloc)`, it returns an
 arena holding only `sentinel`, which it moves in as the element at id 0,

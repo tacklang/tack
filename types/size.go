@@ -216,7 +216,7 @@ var basicSizes = map[Type]Size{
 	UnsafeUintptr: {Bytes: 8, Align: 8},
 	String:        {Bytes: 16, Align: 8},
 	Any:           {Bytes: 16, Align: 8},
-	Allocator:     {Bytes: 8, Align: 4},
+	Allocator:     {Bytes: 8, Align: 4}, // a 16-bit index and a 48-bit generation
 	Float32:       {Bytes: 4, Align: 4},
 	Float64:       {Bytes: 8, Align: 8},
 }

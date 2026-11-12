@@ -1,0 +1,713 @@
+package main
+
+import bytes from "std/bytes"
+import text from "std/text"
+
+// Regions: region r { ... } opens an allocator, r, that lives for its
+// block. Lists and maps made through r take their memory from chunks
+// that r takes from c_allocator, and the end of the block gives every
+// chunk back in one step, by any way out: falling off its end, break,
+// continue, return and ?, after the block's defers. r is second class:
+// it goes only to a scope Allocator parameter, and no value made through
+// it leaves the block, while copyable values computed from them do.
+//
+// A region's chunks are c_allocator's buffers, so c_allocator's count of
+// live buffers shows them: each check reads it before a region, inside
+// it and after it. The region table may hold a buffer of its own once a
+// region has been opened, so main opens one first and every check
+// compares against the count after it, base. Every check prints its name
+// and "ok", or "FAIL"; the last ends the process by exit inside nested
+// regions, after which live.c checks, as the process ends, that nothing
+// is live.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("regions_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("regions_fail_after") func fail_after(n int64)
+
+// csum sums a view in C.
+extern("regions_sum") func csum(v []int64) int64
+
+// cpush appends x to l in C, growing it through its allocator, and
+// reports whether it could.
+extern("regions_push") func cpush(mut l list[int64], x int64) bool
+
+// base is how many buffers c_allocator holds with no region open, once
+// the first region has been opened and closed.
+mut base int64 = 0
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// same checks c_allocator holds what it held at base, name saying after
+// what.
+func same(name string) {
+    check(live() == base, name)
+}
+
+// total sums a view of numbers.
+func total(v []int64) int64 {
+    mut t int64 = 0
+    for _, x := range v {
+        t = t +% x
+    }
+    return t
+}
+
+// fillIn gives a list of the n numbers 1 to n made through a, shorter
+// when an append fails.
+func fillIn(n int64, scope a Allocator) list[int64] {
+    mut l := make(list[int64], a)
+    for i := range n {
+        err := append(mut l, i +% 1)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+// failIf gives an error of code 5 when bad holds, and noerror otherwise.
+func failIf(bad bool) error {
+    if bad {
+        return error{code: 5, msg: "asked to fail"}
+    }
+    return noerror
+}
+
+// valueOr gives n, or an error of code 6 when bad holds.
+func valueOr(n int64, bad bool) (int64, error) {
+    if bad {
+        return 0, error{code: 6, msg: "no value"}
+    }
+    return n, noerror
+}
+
+// testLists checks lists, a list of lists and a map made through r: they
+// grow, two of them in turn so neither is always the region's last
+// buffer, hold every element, and are freed in one step at the block's
+// end.
+func testLists() {
+    before := live()
+    mut inside int64 = 0
+    mut sum int64 = 0
+    region r {
+        mut a := make(list[int64], r)
+        mut b := make(list[int64], r)
+        mut bad int64 = 0
+        for i := range 1000 {
+            ea := append(mut a, i)
+            eb := append(mut b, i +% i)
+            if ea.code != 0 || eb.code != 0 {
+                bad = bad +% 1
+            }
+        }
+        mut ll := make(list[list[int64]], r)
+        for i := range 50 {
+            e := append(mut ll, fillIn(i, r))
+            if e.code != 0 {
+                bad = bad +% 1
+            }
+        }
+        mut inner int64 = 0
+        for _, l := range ll {
+            inner = inner +% total(l)
+        }
+        mut m := make(map[int64]int64, r)
+        for i := range 500 {
+            e := put(mut m, i, i +% 7)
+            if e.code != 0 {
+                bad = bad +% 1
+            }
+        }
+        mut hits int64 = 0
+        for i := range 500 {
+            v, ok := m[i]
+            if ok && v == i +% 7 {
+                hits = hits +% 1
+            }
+        }
+        mut ml := make(map[int64]list[int64], r)
+        for i := range 20 {
+            e := put(mut ml, i, fillIn(i, r))
+            if e.code != 0 {
+                bad = bad +% 1
+            }
+        }
+        mut mlSum int64 = 0
+        for _, v := range ml {
+            mlSum = mlSum +% total(v)
+        }
+        inside = live()
+        sum = total(a) +% total(b)
+        // inner sums k(k+1)/2 for k from 0 to 49, mlSum for k from 0 to 19.
+        check(bad == 0 && len(a) == 1000 && len(b) == 1000 && len(ll) == 50 && inner == 20825 &&
+            len(m) == 500 && hits == 500 && len(ml) == 20 && mlSum == 1330,
+            "lists, a list of lists and maps made through a region hold every element")
+    }
+    check(before == base && inside > before && sum == 1498500, "a region's lists take chunks from c_allocator")
+    same("a region's lists and maps are freed in one step at its end")
+}
+
+// testBig checks a list through a region bigger than any chunk a region
+// would take by default, and one grown by a million appends.
+func testBig() {
+    mut sum int64 = 0
+    mut n int64 = 0
+    region r {
+        l := fillIn(1000000, r)
+        n = len(l)
+        sum = total(l)
+    }
+    check(n == 1000000 && sum == 500000500000, "a list through a region grows past a chunk's size")
+    same("a big list's chunks are freed at the region's end")
+}
+
+// Stats owns nothing, so a region's values can be summed into it and it
+// leaves the region.
+type Stats struct {
+    n   int64
+    sum int64
+}
+
+// sumOf gives the sum of 1 to n, computed from a list made through a
+// region the function ends in: a region block terminates when its body
+// does, so no return follows it.
+func sumOf(n int64) int64 {
+    region r {
+        l := fillIn(n, r)
+        return total(l)
+    }
+}
+
+// statsOf gives the length and sum of a list made through a region, as a
+// struct that owns nothing.
+func statsOf(n int64) Stats {
+    mut s := Stats{n: 0, sum: 0}
+    region r {
+        l := fillIn(n, r)
+        s = Stats{n: len(l), sum: total(l)}
+    }
+    return s
+}
+
+// keptOutside gives a list made through c_allocator inside a region,
+// holding the sum of a list made through the region: a value no
+// expression given r made is not from r, so it may be returned.
+// Assumption: a list made inside a region through c_allocator is not from
+// the region and may leave it.
+func keptOutside(n int64) list[int64] {
+    region r {
+        tmp := fillIn(n, r)
+        mut out := make(list[int64], c_allocator)
+        e := append(mut out, total(tmp))
+        if e.code != 0 {
+            return out
+        }
+        return out
+    }
+}
+
+// testCopyOut checks that copyable values computed inside a region leave
+// it: integers assigned to outer variables, a struct, a string, and
+// results returned from inside the region.
+func testCopyOut() {
+    mut n int64 = 0
+    mut word string = "outside"
+    region r {
+        l := fillIn(10, r)
+        n = total(l)
+        word = "inside"
+    }
+    s := statsOf(100)
+    check(n == 55 && word == "inside" && s.n == 100 && s.sum == 5050 && sumOf(20) == 210,
+        "copyable values computed in a region leave it")
+    same("copying values out of a region leaves nothing live")
+    kept := keptOutside(10)
+    held := live()
+    check(len(kept) == 1 && total(kept) == 55 && held == base +% 1,
+        "a list made through c_allocator inside a region outlives it")
+    drop(own kept)
+    same("the list kept from inside a region is freed by drop")
+}
+
+// deep opens a region at each of depth levels, a list through each, and
+// checks each level's list is whole once the levels inside it have
+// ended, counting the levels that are not in bad.
+func deep(depth int64, levels int64, mut bad int64) {
+    if depth >= levels {
+        return
+    }
+    region r {
+        l := fillIn(depth +% 1, r)
+        deep(depth +% 1, levels, mut bad)
+        if len(l) != depth +% 1 || total(l) != (depth +% 1) *% (depth +% 2) / 2 {
+            bad = bad +% 1
+        }
+    }
+}
+
+// testNested checks a region inside a region: values from the outer one
+// used freely inside the inner one, an outer list grown inside the inner
+// one surviving its end, the inner one's chunks given back at its end,
+// and regions nested 200 deep through recursion.
+func testNested() {
+    mut inR int64 = 0
+    mut inS int64 = 0
+    mut afterS int64 = 0
+    mut outerSum int64 = 0
+    mut innerSum int64 = 0
+    region r {
+        mut a := fillIn(10, r)
+        inR = live()
+        region s {
+            b := fillIn(1000, s)
+            innerSum = total(b) +% total(a)
+            inS = live()
+        }
+        afterS = live()
+        region s2 {
+            c := fillIn(100, s2)
+            for _, x := range c {
+                e := append(mut a, x)
+                if e.code != 0 {
+                    outerSum = -1
+                }
+            }
+        }
+        if outerSum == 0 {
+            outerSum = total(a)
+        }
+    }
+    check(inS > inR && afterS == inR && innerSum == 500555,
+        "an inner region's chunks are given back at its end, the outer one's kept")
+    check(outerSum == 5105, "an outer region's list grown inside an inner region outlives the inner one")
+    same("nested regions free everything at their ends")
+    mut bad int64 = 0
+    deep(0, 200, mut bad)
+    check(bad == 0, "regions nested 200 deep keep each level's list")
+    same("regions nested 200 deep free everything")
+}
+
+// testLoop checks a region in a loop: each pass takes its chunks and
+// gives them back, so 100000 passes hold no more than the first, and
+// break and continue out of a region give its chunks back too.
+func testLoop() {
+    mut first int64 = -1
+    mut grew int64 = 0
+    for pass := range 100000 {
+        region r {
+            l := fillIn(64, r)
+            n := live()
+            if pass == 0 {
+                first = n
+            } else if n != first {
+                grew = grew +% 1
+            }
+            if total(l) != 2080 {
+                grew = grew +% 1
+            }
+        }
+    }
+    check(first > base && grew == 0, "a region in a loop holds the same chunks on every pass")
+    same("a region in a loop gives its chunks back every pass")
+    mut seen int64 = 0
+    mut leftover int64 = 0
+    for i := range 10 {
+        region r {
+            l := fillIn(5, r)
+            if i == 3 {
+                continue
+            }
+            if i == 7 {
+                break
+            }
+            seen = seen +% total(l)
+        }
+        if live() != base {
+            leftover = leftover +% 1
+        }
+    }
+    check(seen == 90 && leftover == 0, "continue out of a region gives its chunks back")
+    same("break out of a region gives its chunks back")
+}
+
+// findIn returns the first i below n for which the numbers 1 to i, made
+// through a region, sum to want, returning from inside the region.
+func findIn(n int64, want int64) int64 {
+    for i := range n {
+        region r {
+            l := fillIn(i, r)
+            if total(l) == want {
+                return i
+            }
+        }
+    }
+    return -1
+}
+
+// sumOrFail makes the numbers 1 to n through a region, records how many
+// buffers are live inside it and when its defer runs, then fails with a
+// ? when bad holds, or returns their sum from inside the region.
+func sumOrFail(n int64, bad bool, mut inside int64, mut atDefer int64) (int64, error) {
+    region r {
+        l := fillIn(n, r)
+        defer {
+            atDefer = live()
+        }
+        inside = live()
+        failIf(bad)?
+        k := valueOr(total(l), bad)?
+        return k, noerror
+    }
+}
+
+// nestedFail fails with a ? from inside two nested regions.
+func nestedFail(mut inside int64) error {
+    region r {
+        a := fillIn(3, r)
+        region s {
+            b := fillIn(300, s)
+            inside = live()
+            failIf(total(a) +% total(b) > 0)?
+        }
+    }
+    return noerror
+}
+
+// testExits checks return and ? from inside regions: the region's chunks
+// are given back before the function returns, after the region's
+// defers, which still see them.
+func testExits() {
+    check(findIn(20, 45) == 9, "return from inside a region in a loop gives the right value")
+    same("return from inside a region gives its chunks back")
+    mut inside int64 = 0
+    mut atDefer int64 = 0
+    v, err := sumOrFail(10, false, mut inside, mut atDefer)
+    check(err.code == 0 && v == 55 && inside > base && atDefer == inside,
+        "a return from inside a region runs its defers while its chunks are held")
+    same("a return with a value from inside a region gives its chunks back")
+    inside = 0
+    atDefer = 0
+    _, err2 := sumOrFail(10, true, mut inside, mut atDefer)
+    check(err2.code == 5 && inside > base && atDefer == inside, "a ? from inside a region passes its error on")
+    same("a ? from inside a region gives its chunks back")
+    inside = 0
+    err3 := nestedFail(mut inside)
+    check(err3.code == 5 && inside > base, "a ? from inside nested regions passes its error on")
+    same("a ? from inside nested regions gives every chunk back")
+}
+
+// deferInside records, from a defer inside a region, how many buffers are
+// live and what the region's list sums to when the defer runs.
+func deferInside(mut atDefer int64, mut sumAtDefer int64) {
+    region r {
+        mut l := fillIn(20, r)
+        defer {
+            atDefer = live()
+            sumAtDefer = total(l)
+        }
+        e := append(mut l, 1000)
+        if e.code != 0 {
+            sumAtDefer = -1
+        }
+    }
+}
+
+// deferOutside records, from a defer written before a region, how many
+// buffers are live when it runs, after the region has ended.
+func deferOutside(mut afterPop int64) {
+    defer {
+        afterPop = live()
+    }
+    region r {
+        l := fillIn(20, r)
+        if total(l) != 210 {
+            afterPop = -1
+        }
+    }
+}
+
+// testDefer checks defers and regions: a defer inside a region runs
+// before its chunks are given back, reading its lists, one outside runs
+// after, and defers inside a region in a loop run on every pass,
+// continue included.
+func testDefer() {
+    mut atDefer int64 = 0
+    mut sumAtDefer int64 = 0
+    deferInside(mut atDefer, mut sumAtDefer)
+    check(atDefer > base && sumAtDefer == 1210, "a defer inside a region runs before the region ends")
+    same("a region with a defer gives its chunks back")
+    mut afterPop int64 = 0
+    deferOutside(mut afterPop)
+    check(afterPop == base, "a defer written before a region runs after the region ends")
+    mut ran int64 = 0
+    for i := range 4 {
+        region r {
+            l := fillIn(i +% 1, r)
+            defer {
+                ran = ran +% total(l)
+            }
+            if i == 1 {
+                continue
+            }
+        }
+    }
+    check(ran == 20, "a defer inside a region in a loop runs on every pass")
+    same("defers inside regions in a loop leave nothing live")
+}
+
+// testFallthrough checks a region in a switch case that falls through
+// after it: the region ends with the case's body.
+func testFallthrough(k int64) int64 {
+    mut got int64 = 0
+    switch k {
+    case 1:
+        region r {
+            l := fillIn(3, r)
+            got = total(l)
+        }
+        fallthrough
+    case 2:
+        got = got +% 100
+    default:
+        got = -1
+    }
+    return got
+}
+
+// testStd checks std functions given a region's allocator, which they
+// take as scope Allocator.
+// Assumption: text.from_bytes and bytes.repeat take their allocator as
+// scope alloc Allocator, as std functions that only allocate through
+// their allocator become.
+func testStd() {
+    mut tlen int64 = 0
+    mut same6 := false
+    mut rlen int64 = 0
+    mut rcount int64 = 0
+    mut errs int64 = 0
+    region r {
+        t, e := text.from_bytes([]uint8("region"), r)
+        if e.code != 0 {
+            errs = errs +% 1
+        } else {
+            tlen = t.len()
+            same6 = t.equal([]uint8("region"))
+        }
+        rep, e2 := bytes.repeat([]uint8("ab"), 50, r)
+        if e2.code != 0 {
+            errs = errs +% 1
+        } else {
+            rlen = len(rep)
+            rcount = bytes.count(rep, []uint8("ab"))
+        }
+    }
+    check(errs == 0 && tlen == 6 && same6 && rlen == 100 && rcount == 50,
+        "std functions taking a scope Allocator allocate through a region")
+    same("what std made through a region is freed at its end")
+}
+
+// each calls f with 0 to n - 1.
+func each(n int64, scope f func(int64)) {
+    for i := range n {
+        f(i)
+    }
+}
+
+// withAlloc calls f with a.
+// Assumption: a function type may take a scope Allocator parameter, and
+// a closure may declare one.
+func withAlloc(scope a Allocator, scope f func(scope Allocator) int64) int64 {
+    return f(a)
+}
+
+// testClosures checks closures and a region: one capturing r passed to a
+// scope parameter, making lists through it, and one given r through a
+// scope Allocator parameter of its own.
+func testClosures() {
+    mut fromCapture int64 = 0
+    mut fromParam int64 = 0
+    region r {
+        mut sum int64 = 0
+        each(5, func(i int64) {
+            l := fillIn(i +% 1, r)
+            sum = sum +% total(l)
+        })
+        fromCapture = sum
+        fromParam = withAlloc(r, func(scope a Allocator) int64 {
+            l := fillIn(7, a)
+            return total(l)
+        })
+    }
+    check(fromCapture == 35 && fromParam == 28, "closures make lists through a region, captured or passed as scope")
+    same("lists closures made through a region are freed")
+}
+
+// testExtern checks a region's lists crossing to C as mut and as a view:
+// C appends to one through the list's own allocator, the region.
+func testExtern() {
+    mut viewSum int64 = 0
+    mut pushed := false
+    mut after int64 = 0
+    region r {
+        mut l := fillIn(10, r)
+        viewSum = csum(l)
+        pushed = true
+        for i := range 1000 {
+            if !cpush(mut l, i) {
+                pushed = false
+            }
+        }
+        after = total(l)
+    }
+    check(viewSum == 55 && pushed && after == 499555, "a region's list crosses to C as a view and as mut")
+    same("a list C grew through a region is freed at the region's end")
+}
+
+// testFail checks c_allocator refusing a region's chunks: an allocation
+// through the region then fails with code 1, leaving its list as it was,
+// and succeeds again once c_allocator grants requests.
+func testFail() {
+    mut e1 int32 = 0
+    mut e2 int32 = 0
+    mut firstLen int64 = 0
+    mut failed int64 = 0
+    mut other int64 = 0
+    mut okN int64 = 0
+    mut l2Len int64 = 0
+    mut l2Sum int64 = 0
+    region r {
+        mut l := make(list[int64], r)
+        fail_after(0)
+        a := append(mut l, 1)
+        fail_after(-1)
+        b := append(mut l, 2)
+        e1 = a.code
+        e2 = b.code
+        firstLen = total(l) +% len(l)
+        mut l2 := fillIn(10, r)
+        fail_after(0)
+        for i := range 1000000 {
+            e := append(mut l2, i)
+            if e.code == 1 {
+                failed = failed +% 1
+            } else if e.code == 0 {
+                okN = okN +% 1
+            } else {
+                other = other +% 1
+            }
+        }
+        fail_after(-1)
+        l2Len = len(l2)
+        l2Sum = total(l2)
+    }
+    check(e1 == 1 && e2 == 0 && firstLen == 3,
+        "an allocation through a region that c_allocator refuses fails with code 1")
+    // l2 holds 1 to 10 and then 0 to okN - 1.
+    check(failed > 0 && other == 0 && l2Len == 10 +% okN && l2Sum == 55 +% okN *% (okN -% 1) / 2,
+        "a region that cannot take another chunk fails appends and keeps what it held")
+    same("a region whose chunks were refused frees what it took")
+}
+
+// probeDeep opens regions depth after depth, up to levels, and at each
+// depth first opens one more with c_allocator refusing every request,
+// then lets it grant them again from inside: a region whose table could
+// not grow opened with the dead handle, so every allocation through it
+// fails, while one that needed no grow allocates. It counts the dead
+// ones in dead, and in bad every level whose own list was not whole once
+// the levels inside it ended.
+func probeDeep(depth int64, levels int64, mut dead int64, mut bad int64) {
+    if depth >= levels {
+        return
+    }
+    fail_after(0)
+    region p {
+        fail_after(-1)
+        mut l := make(list[int64], p)
+        e := append(mut l, depth)
+        if e.code == 1 {
+            dead = dead +% 1
+        } else if e.code != 0 {
+            bad = bad +% 1
+        }
+    }
+    region r {
+        l := fillIn(depth +% 1, r)
+        probeDeep(depth +% 1, levels, mut dead, mut bad)
+        if len(l) != depth +% 1 {
+            bad = bad +% 1
+        }
+    }
+}
+
+// testTableGrow checks a region opened when the region table cannot grow:
+// it gets the dead handle, its allocations fail with code 1 even after
+// c_allocator grants requests again, its end only lowers the depth, and
+// the regions opened after it at the same depth work.
+// Assumption: the region table starts with room for fewer than 2048
+// regions, so opening them one inside another makes it grow, through
+// c_allocator, at least once.
+func testTableGrow() {
+    mut dead int64 = 0
+    mut bad int64 = 0
+    probeDeep(0, 2048, mut dead, mut bad)
+    check(dead > 0 && bad == 0, "a region the table cannot grow for opens dead, and the next one works")
+    same("dead regions and the regions around them free everything")
+}
+
+// endInside ends the process by exit inside three nested regions, each
+// holding lists, one of them grown past several chunks: exit runs no
+// defer and no region's end, and release_all gives every chunk back
+// once, which live.c checks as the process ends.
+func endInside() {
+    region r {
+        a := fillIn(100, r)
+        region s {
+            b := fillIn(100000, s)
+            mut m := make(map[int64]list[int64], s)
+            e := put(mut m, 1, fillIn(50, r))
+            region t {
+                c := fillIn(10, t)
+                defer {
+                    print("a defer ran at exit FAIL\n")
+                }
+                check(e.code == 0 && total(a) +% total(b) +% total(c) == 5000055105 && live() > base,
+                    "exit inside nested regions holding lists")
+                exit(0)
+            }
+        }
+    }
+}
+
+func main() {
+    region w {
+        l := fillIn(3, w)
+        check(total(l) == 6, "a first region makes a list")
+    }
+    base = live()
+    testLists()
+    testBig()
+    testCopyOut()
+    testNested()
+    testLoop()
+    testExits()
+    testDefer()
+    check(testFallthrough(1) == 106 && testFallthrough(2) == 100, "a region in a case that falls through after it")
+    same("a region in a case that falls through frees its chunks")
+    testStd()
+    testClosures()
+    testExtern()
+    testFail()
+    testTableGrow()
+    endInside()
+}

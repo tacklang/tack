@@ -262,6 +262,14 @@
 // statement a switch does not have, and mut on the name as a range loop's
 // is.
 //
+// A region is region, a name and a block in braces, region r { ... },
+// parsed as a Region whose Var is the name, with no type or value. region
+// followed by anything but a name is reported at the keyword as "region
+// is a keyword and cannot be a name; a region is written region r { ...
+// }", the likelier mistake being region used as a name, region := 3, and
+// a name followed by anything but a block as "a region's name must be
+// followed by a block: region r { ... }".
+//
 // A defer is defer and then a block in braces, which may hold any
 // statements. Anything else after defer, a lone call or assignment
 // included, is reported as "defer must be followed by a block: defer

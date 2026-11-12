@@ -29,9 +29,10 @@ import (
 // gives one but the closure and the scope parameter themselves. A plain
 // function value may be passed to a scope parameter. scope is part of a
 // function type, func(scope func()), and two types are one only with the
-// same scope marks; a parameter whose type is not a function type, a mut
-// or an own one, a variadic one, a result and an extern func's parameter
-// cannot be scope (see scopeParamType).
+// same scope marks; a parameter whose type is neither a function type nor
+// Allocator, a mut or an own one, a variadic one, a result and an extern
+// func's parameter cannot be scope (see scopeParamType). A scope
+// Allocator follows rules of its own (see scopealloc.go).
 //
 // A closure's body is checked where it is written, as a block of the
 // function holding it, with these differences (see checkFuncLit):
@@ -88,20 +89,22 @@ import (
 
 // scopeParamType returns typ, the type param, a parameter marked scope,
 // is declared with, once it has checked that scope fits it: its type is
-// a function type, and it is not variadic. A misfit is reported, and
-// param is then taken as a plain parameter (see scopeFits), so its uses
-// are not reported again.
+// a function type or Allocator, and it is not variadic. A misfit is
+// reported, and param is then taken as a plain parameter (see
+// scopeFits), so its uses are not reported again.
 func (c *Checker) scopeParamType(param *ast.Param, typ types.Type) types.Type {
 	switch {
 	case typ == types.Invalid:
 	case param.Variadic:
+		c.errorf(
+			param.ScopeSpan,
+			"parameter %s cannot be both variadic and scope: a scope parameter takes one function value or Allocator",
+			param.Name,
+		)
+	case !c.table.IsFunc(typ) && typ != types.Allocator:
 		c.errorf(param.ScopeSpan,
-			"parameter %s cannot be both variadic and scope: a scope parameter takes one function value",
-			param.Name)
-	case !c.table.IsFunc(typ):
-		c.errorf(param.ScopeSpan,
-			"parameter %s cannot be scope: %s is not a function type, "+
-				"and only a function value can be scope; remove scope",
+			"parameter %s cannot be scope: %s is not a function type or Allocator, "+
+				"and only a function value or an Allocator can be scope; remove scope",
 			param.Name, c.typeName(typ))
 	}
 	return typ
@@ -109,37 +112,50 @@ func (c *Checker) scopeParamType(param *ast.Param, typ types.Type) types.Type {
 
 // scopeFits reports whether p is a scope parameter scope fits, as
 // scopeParamType checks: one marked scope that is not variadic, whose
-// type is a function type. A parameter it does not fit was reported, and
-// is taken as a plain one.
+// type is a function type or Allocator. A parameter it does not fit was
+// reported, and is taken as a plain one.
 func (c *Checker) scopeFits(p *ast.Param) bool {
-	return p.Scope && !p.Variadic && c.table.IsFunc(p.Type)
+	return p.Scope && !p.Variadic && (c.table.IsFunc(p.Type) || p.Type == types.Allocator)
 }
 
 // funcTypeScope reports whether p, a parameter of a function type marked
-// scope, whose type is typ, may be: typ is a function type. A parameter
-// that may not is reported.
+// scope, whose type is typ, may be: typ is a function type or Allocator.
+// A parameter that may not is reported.
 func (c *Checker) funcTypeScope(p *ast.Param, typ types.Type) bool {
-	if typ == types.Invalid || c.table.IsFunc(typ) {
+	if typ == types.Invalid || c.table.IsFunc(typ) || typ == types.Allocator {
 		return true
 	}
 	c.errorf(p.ScopeSpan,
-		"a function type's parameter cannot be scope unless it is a function type, and %s is not; remove scope",
+		"a function type's parameter cannot be scope unless it is a function type or Allocator, "+
+			"and %s is not; remove scope",
 		c.typeName(typ))
 	return false
 }
 
 // checkExternScope reports each parameter of fn, an extern func, that is
 // marked scope, and returns whether there was none: a function value does
-// not cross to C, a closure least of all.
+// not cross to C, a closure least of all, and a scope Allocator would be
+// how a region's allocator crossed, which it never does.
 func (c *Checker) checkExternScope(fn *ast.Func) bool {
 	clean := true
 	for _, p := range fn.Params {
-		if p.Scope {
-			c.errorf(p.ScopeSpan,
-				"parameter %s of extern func %s cannot be scope: a function value does not cross to C",
-				p.Name, fn.Name)
-			clean = false
+		if !p.Scope {
+			continue
 		}
+		clean = false
+		if p.Type == types.Allocator {
+			c.errorf(
+				p.ScopeSpan,
+				"parameter %s of extern func %s cannot be scope: a region's allocator never crosses to C, "+
+					"and c_allocator crosses as a plain Allocator; remove scope",
+				p.Name,
+				fn.Name,
+			)
+			continue
+		}
+		c.errorf(p.ScopeSpan,
+			"parameter %s of extern func %s cannot be scope: a function value does not cross to C",
+			p.Name, fn.Name)
 	}
 	return clean
 }
@@ -150,10 +166,15 @@ func (c *Checker) checkExternScope(fn *ast.Func) bool {
 // included, and when p's type mentions a type parameter of a generic
 // callee whose call is being inferred, arg's type gives it its type
 // arguments first, as any argument's does. A closure's body is checked
-// once its type is known. A parameter whose type was reported, or is no
-// function type, which its scope mark was reported for, takes anything
-// without a further report.
+// once its type is known. A scope Allocator parameter takes any
+// Allocator, a region's and a scope one among them (see scopeAllocArg).
+// A parameter whose type was reported, or is no function type, which its
+// scope mark was reported for, takes anything without a further report.
 func (c *Checker) scopeArg(arg ast.Expr, p param, callee string) {
+	if p.typ == types.Allocator {
+		c.scopeAllocArg(arg, p, callee)
+		return
+	}
 	if p.typ == types.Invalid || !c.table.IsFunc(p.typ) {
 		// The parameter's scope or its type was reported where it is
 		// declared, and nothing that follows from it is reported here: a
@@ -621,11 +642,12 @@ func (c *Checker) funcLitToPlain(lit *ast.FuncLit, p param, callee string) {
 		callee, p.name)
 }
 
-// isScopeParam reports whether id names a scope parameter that scope
-// fits (see scopeFits).
+// isScopeParam reports whether id names a scope parameter of a function
+// type that scope fits (see scopeFits); a scope Allocator parameter is
+// a scope allocator instead (see isScopeAlloc).
 func (c *Checker) isScopeParam(id *ast.Ident) bool {
 	p, ok := id.Def.(*ast.Param)
-	return ok && c.scopeFits(p)
+	return ok && c.scopeFits(p) && c.table.IsFunc(p.Type)
 }
 
 // scopeElsewhere reports id, a name of a scope parameter, used anywhere

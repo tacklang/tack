@@ -20,8 +20,12 @@ import text from "std/text"
 // 4, msg: "path contains a NUL byte"} or "name contains a NUL byte". Text
 // the OS gives back, an argument, a variable's value, a directory's
 // names, is a text.Text, and a file's bytes a list[uint8]; each function
-// that returns one takes the Allocator it is made through, and no other
-// does.
+// that returns one takes the Allocator it is made through, as scope, so it
+// may be a region's, and no other does. run takes its output lists as
+// mut beside its allocator, so a region's allocator goes to it only with
+// lists of that region's block: given one with lists declared outside the
+// block, the call is rejected, since the escape rule cannot tell that run
+// keeps nothing from the region in them.
 //
 // Every byte from the OS lands in a list Tack owns, appended by C
 // through the list's own allocator, so Tack frees it. When an allocation
@@ -158,7 +162,7 @@ func part(s []uint8, a int64, b int64) []uint8 {
 // it was run, first, then each argument, an empty one included, in
 // order. It fails only for want of memory, returning an empty list and
 // freeing what it had made.
-pub func args(alloc Allocator) (list[text.Text], error) {
+pub func args(scope alloc Allocator) (list[text.Text], error) {
     empty := make(list[text.Text], alloc)
     mut out := make(list[text.Text], alloc)
     for i := range c_argc() {
@@ -185,7 +189,7 @@ pub func args(alloc Allocator) (list[text.Text], error) {
 // true. A name holding a 0 byte is error{code: 4, msg: "name contains a
 // NUL byte"}; otherwise it fails only for want of memory. On an error the
 // Text is empty and the bool false.
-pub func env(name []uint8, alloc Allocator) (text.Text, bool, error) {
+pub func env(name []uint8, scope alloc Allocator) (text.Text, bool, error) {
     if has_nul(name) {
         return text.new(alloc), false, nul_name
     }
@@ -209,7 +213,7 @@ pub func env(name []uint8, alloc Allocator) (text.Text, bool, error) {
 // signal interrupted, and closes the file on every path. On an error,
 // the OS's or out of memory, the list is empty and what had been read is
 // freed. A directory is error{code: 3, msg: "Is a directory"}.
-pub func read_file(path []uint8, alloc Allocator) (list[uint8], error) {
+pub func read_file(path []uint8, scope alloc Allocator) (list[uint8], error) {
     empty := make(list[uint8], alloc)
     if has_nul(path) {
         return empty, nul_path
@@ -350,7 +354,7 @@ func name_at(buf []uint8, starts []int64, ends []int64, k int64) []uint8 {
 // starts[k] up to ends[k] for each k, ordered by their bytes, through a
 // merge sort, bottom up, which is stable and takes O(n log n)
 // comparisons. It fails only for want of memory.
-func sort_names(buf []uint8, starts []int64, ends []int64, alloc Allocator) (list[int64], error) {
+func sort_names(buf []uint8, starts []int64, ends []int64, scope alloc Allocator) (list[int64], error) {
     n := len(starts)
     mut src := make(list[int64], alloc)
     e0 := reserve(mut src, n)
@@ -430,7 +434,7 @@ func sort_names(buf []uint8, starts []int64, ends []int64, alloc Allocator) (lis
 // OS, without "." and "..". On an error, the OS's or out of memory, the
 // list is empty and what had been made is freed. A file is error{code:
 // 3, msg: "Not a directory"}.
-pub func list_dir(path []uint8, alloc Allocator) (list[text.Text], error) {
+pub func list_dir(path []uint8, scope alloc Allocator) (list[text.Text], error) {
     empty := make(list[text.Text], alloc)
     if has_nul(path) {
         return empty, nul_path
@@ -501,7 +505,7 @@ func append_temp_base(mut tmpl list[uint8], dir []uint8) error {
 // and six characters mkdtemp picks. The caller removes it. On an error,
 // the OS's or out of memory, the Text is empty and no directory is left
 // behind.
-pub func make_temp_dir(alloc Allocator) (text.Text, error) {
+pub func make_temp_dir(scope alloc Allocator) (text.Text, error) {
     dir, set, e0 := env([]uint8("TMPDIR"), alloc)
     if e0.code != 0 {
         return text.new(alloc), e0
@@ -593,7 +597,7 @@ func wait_for(pid int64) int64 {
 // still writing gets EPIPE, or dies of SIGPIPE, and ends; it does not
 // kill it, and a child that never ends keeps run waiting, as it would
 // without the error.
-pub func run(argv []text.Text, mut out list[uint8], mut err_out list[uint8], alloc Allocator) (int64, error) {
+pub func run(argv []text.Text, mut out list[uint8], mut err_out list[uint8], scope alloc Allocator) (int64, error) {
     if len(argv) == 0 {
         return -1, error{code: 4, msg: "argv is empty"}
     }

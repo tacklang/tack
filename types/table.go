@@ -110,9 +110,10 @@ type funcType struct {
 // it is mut, a reference to the caller's place rather than a copy of its
 // value, or own, taking its caller's value, which the function then owns.
 // A parameter is never both. Scope is whether it is scope, a function
-// value that never outlives the call, which may be a closure; only a
-// parameter whose type is a function type is, and never a mut or an own
-// one.
+// value that never outlives the call, which may be a closure, or an
+// Allocator that does not, which may be a region's; only a parameter
+// whose type is a function type or Allocator is, and never a mut or an
+// own one.
 type FuncParam struct {
 	Type  Type
 	Mut   bool

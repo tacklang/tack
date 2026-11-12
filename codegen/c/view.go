@@ -47,7 +47,7 @@ func (g *generator) argTypes(call *ast.Call, params []*ast.Param) []string {
 			out[i] = g.cType(p.Type)
 			continue
 		}
-		if i < len(params) && params[i].Scope {
+		if i < len(params) && g.scopeFunc(params[i]) {
 			out[i] = scopeType
 			continue
 		}
@@ -241,7 +241,7 @@ func (g *generator) callArgs(call *ast.Call, fn *ast.Func) ([]string, []diag.Dia
 		)
 		if p := g.viewParamAt(call, params, i); p != nil {
 			expr, diags = g.viewArg(a, p.Type, call)
-		} else if i < len(params) && params[i].Scope {
+		} else if i < len(params) && g.scopeFunc(params[i]) {
 			expr, diags = g.scopeArg(a, params[i].Type)
 		} else if typ := ast.TypeOf(a); g.prog.Types.IsView(typ) && g.boxesAt(call, params, i) {
 			expr, diags = g.viewArg(a, typ, call)

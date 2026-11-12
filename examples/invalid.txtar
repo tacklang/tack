@@ -50832,6 +50832,1874 @@ raw-string-unterminated/main.tck:4:11: error: unterminated string
    |	          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 05 |	that is never closed)
 
+-- region-allocator-array/main.tck --
+package main
+
+// Assumption: an array element is a store, as a field or a list element
+// is.
+
+func main() {
+    region r {
+        arr := [1]Allocator{r}
+        l := make(list[int64], arr[0])
+        print("")
+        if len(l) != 0 {
+            exit(1)
+        }
+    }
+}
+-- region-allocator-array/expected --
+stage: typeck
+---
+
+region-allocator-array/main.tck:8:29: error: r is a region's allocator, which can only be given to make or passed to a scope Allocator parameter
+07 |	    region r {
+08 |	        arr := [1]Allocator{r}
+   |	                            ^
+09 |	        l := make(list[int64], arr[0])
+region-allocator-array/main.tck:7:5: note: region r is opened here, and everything made through r is given back when its block ends
+06 |	func main() {
+07 |	    region r {
+   |	    ^~~~~~~~
+08 |	        arr := [1]Allocator{r}
+
+-- region-allocator-callee-reported/main.tck --
+package main
+
+// r goes where an error was already reported, which is the only one.
+
+func main() {
+    mut outer := make(list[int64], c_allocator)
+    m := make(map[int64]func(scope Allocator, mut list[int64]), c_allocator)
+    region r {
+        f, ok := m[1]
+        if ok {
+            f(r, mut outer)
+        }
+    }
+    if len(outer) != 0 {
+        exit(1)
+    }
+}
+-- region-allocator-callee-reported/expected --
+stage: typeck
+---
+
+region-allocator-callee-reported/main.tck:9:9: error: the checked form cannot read a value of type func(scope Allocator, mut list[int64]): it has no zero value to give when the key is not in the map; check has(m, 1) first
+08 |	    region r {
+09 |	        f, ok := m[1]
+   |	        ^~~~~~~~~~~~~
+10 |	        if ok {
+
+-- region-allocator-closure-plain-param/main.tck --
+package main
+
+func run(f func()) {
+    f()
+}
+
+func main() {
+    region r {
+        run(func() {
+            l := make(list[int64], r)
+            if len(l) != 0 {
+                exit(1)
+            }
+        })
+    }
+}
+-- region-allocator-closure-plain-param/expected --
+stage: typeck
+---
+
+region-allocator-closure-plain-param/main.tck:9:13: error: run does not take f as scope, and a closure can only be passed to a scope parameter
+08 |	    region r {
+09 |	        run(func() {
+   |	            ^~~~
+10 |	            l := make(list[int64], r)
+
+-- region-allocator-copy-local/main.tck --
+package main
+
+// Assumption: a copy of r into a local is a store, as g := f is for a
+// scope parameter.
+
+func main() {
+    region r {
+        a := r
+        l := make(list[int64], a)
+        if len(l) != 0 {
+            exit(1)
+        }
+    }
+}
+-- region-allocator-copy-local/expected --
+stage: typeck
+---
+
+region-allocator-copy-local/main.tck:8:14: error: r is a region's allocator, which can only be given to make or passed to a scope Allocator parameter
+07 |	    region r {
+08 |	        a := r
+   |	             ^
+09 |	        l := make(list[int64], a)
+region-allocator-copy-local/main.tck:7:5: note: region r is opened here, and everything made through r is given back when its block ends
+06 |	func main() {
+07 |	    region r {
+   |	    ^~~~~~~~
+08 |	        a := r
+
+-- region-allocator-extern/main.tck --
+package main
+
+extern("c_take") func take(a Allocator)
+
+func main() {
+    take(c_allocator)
+    region r {
+        take(r)
+    }
+}
+-- region-allocator-extern/expected --
+stage: typeck
+---
+
+region-allocator-extern/main.tck:8:14: error: r is a region's allocator, which never crosses to C, and take is an extern func
+07 |	    region r {
+08 |	        take(r)
+   |	             ^
+09 |	    }
+region-allocator-extern/main.tck:7:5: note: region r is opened here, and everything made through r is given back when its block ends
+06 |	    take(c_allocator)
+07 |	    region r {
+   |	    ^~~~~~~~
+08 |	        take(r)
+
+-- region-allocator-extern-scope/main.tck --
+package main
+
+extern("c_take") func take(scope a Allocator)
+
+func main() {
+}
+-- region-allocator-extern-scope/expected --
+stage: typeck
+---
+
+region-allocator-extern-scope/main.tck:3:28: error: parameter a of extern func take cannot be scope: a region's allocator never crosses to C, and c_allocator crosses as a plain Allocator; remove scope
+02 |	
+03 |	extern("c_take") func take(scope a Allocator)
+   |	                           ^~~~~
+04 |	
+
+-- region-allocator-field/main.tck --
+package main
+
+type Holder struct {
+    a Allocator
+}
+
+func main() {
+    region r {
+        h := Holder{a: r}
+        l := make(list[int64], h.a)
+        if len(l) != 0 {
+            exit(1)
+        }
+    }
+}
+-- region-allocator-field/expected --
+stage: typeck
+---
+
+region-allocator-field/main.tck:9:24: error: r is a region's allocator, which can only be given to make or passed to a scope Allocator parameter
+08 |	    region r {
+09 |	        h := Holder{a: r}
+   |	                       ^
+10 |	        l := make(list[int64], h.a)
+region-allocator-field/main.tck:8:5: note: region r is opened here, and everything made through r is given back when its block ends
+07 |	func main() {
+08 |	    region r {
+   |	    ^~~~~~~~
+09 |	        h := Holder{a: r}
+
+-- region-allocator-global/main.tck --
+package main
+
+mut g Allocator = c_allocator
+
+func main() {
+    region r {
+        g = r
+    }
+    l := make(list[int64], g)
+    if len(l) != 0 {
+        exit(1)
+    }
+}
+-- region-allocator-global/expected --
+stage: typeck
+---
+
+region-allocator-global/main.tck:7:13: error: r is a region's allocator, which can only be given to make or passed to a scope Allocator parameter
+06 |	    region r {
+07 |	        g = r
+   |	            ^
+08 |	    }
+region-allocator-global/main.tck:6:5: note: region r is opened here, and everything made through r is given back when its block ends
+05 |	func main() {
+06 |	    region r {
+   |	    ^~~~~~~~
+07 |	        g = r
+
+-- region-allocator-list/main.tck --
+package main
+
+func main() {
+    region r {
+        mut as := make(list[Allocator], c_allocator)
+        err := append(mut as, r)
+        if err.code != 0 {
+            exit(1)
+        }
+    }
+}
+-- region-allocator-list/expected --
+stage: typeck
+---
+
+region-allocator-list/main.tck:6:31: error: r is a region's allocator, which can only be given to make or passed to a scope Allocator parameter
+05 |	        mut as := make(list[Allocator], c_allocator)
+06 |	        err := append(mut as, r)
+   |	                              ^
+07 |	        if err.code != 0 {
+region-allocator-list/main.tck:4:5: note: region r is opened here, and everything made through r is given back when its block ends
+03 |	func main() {
+04 |	    region r {
+   |	    ^~~~~~~~
+05 |	        mut as := make(list[Allocator], c_allocator)
+
+-- region-allocator-make-reported/main.tck --
+package main
+
+// r goes where an error was already reported, which is the only one.
+
+type Box struct {
+    n int64
+}
+
+func main() {
+    region r {
+        a := make(arena[Box], r)
+        if len(a) != 1 {
+            exit(1)
+        }
+    }
+}
+-- region-allocator-make-reported/expected --
+stage: typeck
+---
+
+region-allocator-make-reported/main.tck:11:14: error: make expects 3 argument(s), got 2
+10 |	    region r {
+11 |	        a := make(arena[Box], r)
+   |	             ^~~~~~~~~~~~~~~~~~~
+12 |	        if len(a) != 1 {
+
+-- region-allocator-map/main.tck --
+package main
+
+func main() {
+    region r {
+        mut m := make(map[int64]Allocator, c_allocator)
+        err := put(mut m, 1, r)
+        if err.code != 0 {
+            exit(1)
+        }
+    }
+}
+-- region-allocator-map/expected --
+stage: typeck
+---
+
+region-allocator-map/main.tck:6:30: error: r is a region's allocator, which can only be given to make or passed to a scope Allocator parameter
+05 |	        mut m := make(map[int64]Allocator, c_allocator)
+06 |	        err := put(mut m, 1, r)
+   |	                             ^
+07 |	        if err.code != 0 {
+region-allocator-map/main.tck:4:5: note: region r is opened here, and everything made through r is given back when its block ends
+03 |	func main() {
+04 |	    region r {
+   |	    ^~~~~~~~
+05 |	        mut m := make(map[int64]Allocator, c_allocator)
+
+-- region-allocator-outer-local/main.tck --
+package main
+
+func main() {
+    mut a Allocator = c_allocator
+    region r {
+        a = r
+    }
+    l := make(list[int64], a)
+    if len(l) != 0 {
+        exit(1)
+    }
+}
+-- region-allocator-outer-local/expected --
+stage: typeck
+---
+
+region-allocator-outer-local/main.tck:6:13: error: r is a region's allocator, which can only be given to make or passed to a scope Allocator parameter
+05 |	    region r {
+06 |	        a = r
+   |	            ^
+07 |	    }
+region-allocator-outer-local/main.tck:5:5: note: region r is opened here, and everything made through r is given back when its block ends
+04 |	    mut a Allocator = c_allocator
+05 |	    region r {
+   |	    ^~~~~~~~
+06 |	        a = r
+
+-- region-allocator-plain-param/main.tck --
+package main
+
+func take(a Allocator) int64 {
+    l := make(list[int64], a)
+    return len(l)
+}
+
+func main() {
+    region r {
+        n := take(r)
+        if n != 0 {
+            exit(1)
+        }
+    }
+}
+-- region-allocator-plain-param/expected --
+stage: typeck
+---
+
+region-allocator-plain-param/main.tck:10:19: error: take does not take a as scope, and a region's allocator can only be passed to a scope parameter
+09 |	    region r {
+10 |	        n := take(r)
+   |	                  ^
+11 |	        if n != 0 {
+region-allocator-plain-param/main.tck:9:5: note: region r is opened here, and everything made through r is given back when its block ends
+08 |	func main() {
+09 |	    region r {
+   |	    ^~~~~~~~
+10 |	        n := take(r)
+
+-- region-allocator-return/main.tck --
+package main
+
+func f() Allocator {
+    region r {
+        return r
+    }
+}
+
+func main() {
+    l := make(list[int64], f())
+    if len(l) != 0 {
+        exit(1)
+    }
+}
+-- region-allocator-return/expected --
+stage: typeck
+---
+
+region-allocator-return/main.tck:5:16: error: r is a region's allocator, which can only be given to make or passed to a scope Allocator parameter
+04 |	    region r {
+05 |	        return r
+   |	               ^
+06 |	    }
+region-allocator-return/main.tck:4:5: note: region r is opened here, and everything made through r is given back when its block ends
+03 |	func f() Allocator {
+04 |	    region r {
+   |	    ^~~~~~~~
+05 |	        return r
+
+-- region-allocator-scope-param-global/main.tck --
+package main
+
+mut g Allocator = c_allocator
+
+func keep(scope a Allocator) {
+    g = a
+}
+
+func main() {
+    region r {
+        keep(r)
+    }
+}
+-- region-allocator-scope-param-global/expected --
+stage: typeck
+---
+
+region-allocator-scope-param-global/main.tck:3:5: warning: declared and not used: g
+02 |	
+03 |	mut g Allocator = c_allocator
+   |	    ^
+04 |	
+
+region-allocator-scope-param-global/main.tck:6:9: error: a is a scope Allocator parameter, which can only be given to make or passed to another scope parameter
+05 |	func keep(scope a Allocator) {
+06 |	    g = a
+   |	        ^
+07 |	}
+
+-- region-allocator-scope-param-return/main.tck --
+package main
+
+func pass(scope a Allocator) Allocator {
+    return a
+}
+
+func main() {
+    region r {
+        l := make(list[int64], pass(r))
+        if len(l) != 0 {
+            exit(1)
+        }
+    }
+}
+-- region-allocator-scope-param-return/expected --
+stage: typeck
+---
+
+region-allocator-scope-param-return/main.tck:4:12: error: a is a scope Allocator parameter, which can only be given to make or passed to another scope parameter
+03 |	func pass(scope a Allocator) Allocator {
+04 |	    return a
+   |	           ^
+05 |	}
+
+-- region-as-func-name/main.tck --
+package main
+
+func region() {
+}
+
+func main() {
+}
+-- region-as-func-name/expected --
+stage: parse
+---
+
+region-as-func-name/main.tck:3:6: error: expected 'function name' found 'region'
+02 |	
+03 |	func region() {
+   |	     ^
+04 |	}
+
+-- region-as-name/main.tck --
+package main
+
+func main() {
+    region := 3
+    if region != 3 {
+        exit(1)
+    }
+}
+-- region-as-name/expected --
+stage: parse
+---
+
+region-as-name/main.tck:4:5: error: region is a keyword and cannot be a name; a region is written region r { ... }
+03 |	func main() {
+04 |	    region := 3
+   |	    ^~~~~~
+05 |	    if region != 3 {
+
+-- region-closure-mut-param/main.tck --
+package main
+
+func apply(mut l list[list[int64]], scope f func(mut list[list[int64]])) {
+    f(mut l)
+}
+
+func main() {
+    region r {
+        mut inner := make(list[list[int64]], r)
+        apply(mut inner, func(mut p list[list[int64]]) {
+            err := append(mut p, make(list[int64], r))
+            if err.code != 0 {
+                exit(1)
+            }
+        })
+    }
+}
+-- region-closure-mut-param/expected --
+stage: typeck
+---
+
+region-closure-mut-param/main.tck:11:34: error: cannot append a value of type list[int64] holding memory from region r to p: p is a mut parameter, which lives outside every region
+10 |	        apply(mut inner, func(mut p list[list[int64]]) {
+11 |	            err := append(mut p, make(list[int64], r))
+   |	                                 ^~~~~~~~~~~~~~~~~~~~
+12 |	            if err.code != 0 {
+region-closure-mut-param/main.tck:8:5: note: region r is opened here, and everything made through r is given back when its block ends
+07 |	func main() {
+08 |	    region r {
+   |	    ^~~~~~~~
+09 |	        mut inner := make(list[list[int64]], r)
+
+-- region-closure-result/main.tck --
+package main
+
+func run(scope f func() list[int64]) int64 {
+    l := f()
+    return len(l)
+}
+
+func main() {
+    region r {
+        n := run(func() list[int64] {
+            return make(list[int64], r)
+        })
+        if n != 0 {
+            exit(1)
+        }
+    }
+}
+-- region-closure-result/expected --
+stage: typeck
+---
+
+region-closure-result/main.tck:11:20: error: cannot return a value of type list[int64] holding memory from region r from a closure: a closure's results count as outside every region
+10 |	        n := run(func() list[int64] {
+11 |	            return make(list[int64], r)
+   |	                   ^~~~~~~~~~~~~~~~~~~~
+12 |	        })
+region-closure-result/main.tck:9:5: note: region r is opened here, and everything made through r is given back when its block ends
+08 |	func main() {
+09 |	    region r {
+   |	    ^~~~~~~~
+10 |	        n := run(func() list[int64] {
+
+-- region-closure-writes-outer/main.tck --
+package main
+
+func each(n int64, scope f func(int64)) {
+    for i := range n {
+        f(i)
+    }
+}
+
+func main() {
+    mut outer := make(list[list[int64]], c_allocator)
+    region r {
+        each(3, func(i int64) {
+            err := append(mut outer, make(list[int64], r))
+            if err.code != 0 || i < 0 {
+                exit(1)
+            }
+        })
+    }
+    if len(outer) != 3 {
+        exit(1)
+    }
+}
+-- region-closure-writes-outer/expected --
+stage: typeck
+---
+
+region-closure-writes-outer/main.tck:13:38: error: cannot append a value of type list[int64] holding memory from region r to outer: outer is declared outside the block of region r
+12 |	        each(3, func(i int64) {
+13 |	            err := append(mut outer, make(list[int64], r))
+   |	                                     ^~~~~~~~~~~~~~~~~~~~
+14 |	            if err.code != 0 || i < 0 {
+region-closure-writes-outer/main.tck:11:5: note: region r is opened here, and everything made through r is given back when its block ends
+10 |	    mut outer := make(list[list[int64]], c_allocator)
+11 |	    region r {
+   |	    ^~~~~~~~
+12 |	        each(3, func(i int64) {
+
+-- region-escape-add-outer-arena/main.tck --
+package main
+
+func main() {
+    mut a := make(arena[list[int64]], make(list[int64], c_allocator), c_allocator)
+    region r {
+        _, err := add(mut a, make(list[int64], r))
+        if err.code != 0 {
+            exit(1)
+        }
+    }
+    if len(a) != 2 {
+        exit(1)
+    }
+}
+-- region-escape-add-outer-arena/expected --
+stage: typeck
+---
+
+region-escape-add-outer-arena/main.tck:6:30: error: cannot add a value of type list[int64] holding memory from region r to a: a is declared outside the block of region r
+05 |	    region r {
+06 |	        _, err := add(mut a, make(list[int64], r))
+   |	                             ^~~~~~~~~~~~~~~~~~~~
+07 |	        if err.code != 0 {
+region-escape-add-outer-arena/main.tck:5:5: note: region r is opened here, and everything made through r is given back when its block ends
+04 |	    mut a := make(arena[list[int64]], make(list[int64], c_allocator), c_allocator)
+05 |	    region r {
+   |	    ^~~~~~~~
+06 |	        _, err := add(mut a, make(list[int64], r))
+
+-- region-escape-append-outer/main.tck --
+package main
+
+func main() {
+    mut outer := make(list[list[int64]], c_allocator)
+    region r {
+        err := append(mut outer, make(list[int64], r))
+        if err.code != 0 {
+            exit(1)
+        }
+    }
+    if len(outer) != 1 {
+        exit(1)
+    }
+}
+-- region-escape-append-outer/expected --
+stage: typeck
+---
+
+region-escape-append-outer/main.tck:6:34: error: cannot append a value of type list[int64] holding memory from region r to outer: outer is declared outside the block of region r
+05 |	    region r {
+06 |	        err := append(mut outer, make(list[int64], r))
+   |	                                 ^~~~~~~~~~~~~~~~~~~~
+07 |	        if err.code != 0 {
+region-escape-append-outer/main.tck:5:5: note: region r is opened here, and everything made through r is given back when its block ends
+04 |	    mut outer := make(list[list[int64]], c_allocator)
+05 |	    region r {
+   |	    ^~~~~~~~
+06 |	        err := append(mut outer, make(list[int64], r))
+
+-- region-escape-assign-outer/main.tck --
+package main
+
+func main() {
+    mut outer := make(list[int64], c_allocator)
+    region r {
+        outer = make(list[int64], r)
+    }
+    if len(outer) != 0 {
+        exit(1)
+    }
+}
+-- region-escape-assign-outer/expected --
+stage: typeck
+---
+
+region-escape-assign-outer/main.tck:6:17: error: cannot assign a value of type list[int64] holding memory from region r to outer: outer is declared outside the block of region r
+05 |	    region r {
+06 |	        outer = make(list[int64], r)
+   |	                ^~~~~~~~~~~~~~~~~~~~
+07 |	    }
+region-escape-assign-outer/main.tck:5:5: note: region r is opened here, and everything made through r is given back when its block ends
+04 |	    mut outer := make(list[int64], c_allocator)
+05 |	    region r {
+   |	    ^~~~~~~~
+06 |	        outer = make(list[int64], r)
+
+-- region-escape-call-mut-field/main.tck --
+package main
+
+type Holder struct {
+    l list[list[int64]]
+}
+
+func fill(mut l list[list[int64]], scope a Allocator) error {
+    return append(mut l, make(list[int64], a))
+}
+
+func main() {
+    mut h := Holder{l: make(list[list[int64]], c_allocator)}
+    region r {
+        e := fill(mut h.l, r)
+        if e.code != 0 {
+            exit(1)
+        }
+    }
+    if len(h.l) != 1 {
+        exit(1)
+    }
+}
+-- region-escape-call-mut-field/expected --
+stage: typeck
+---
+
+region-escape-call-mut-field/main.tck:14:19: error: cannot pass mut h.l to fill alongside r, the allocator of region r: the call could keep memory from region r in h.l, and h.l is part of h, which is declared outside the block of region r
+13 |	    region r {
+14 |	        e := fill(mut h.l, r)
+   |	                  ^~~~~~~
+15 |	        if e.code != 0 {
+region-escape-call-mut-field/main.tck:13:5: note: region r is opened here, and everything made through r is given back when its block ends
+12 |	    mut h := Holder{l: make(list[list[int64]], c_allocator)}
+13 |	    region r {
+   |	    ^~~~~~~~
+14 |	        e := fill(mut h.l, r)
+
+-- region-escape-call-mut-outer/main.tck --
+package main
+
+func fill(mut l list[list[int64]], scope a Allocator) error {
+    return append(mut l, make(list[int64], a))
+}
+
+func main() {
+    mut outer := make(list[list[int64]], c_allocator)
+    region r {
+        err := fill(mut outer, r)
+        if err.code != 0 {
+            exit(1)
+        }
+    }
+    if len(outer) != 1 {
+        exit(1)
+    }
+}
+-- region-escape-call-mut-outer/expected --
+stage: typeck
+---
+
+region-escape-call-mut-outer/main.tck:10:21: error: cannot pass mut outer to fill alongside r, the allocator of region r: the call could keep memory from region r in outer, and outer is declared outside the block of region r
+09 |	    region r {
+10 |	        err := fill(mut outer, r)
+   |	                    ^~~~~~~~~
+11 |	        if err.code != 0 {
+region-escape-call-mut-outer/main.tck:9:5: note: region r is opened here, and everything made through r is given back when its block ends
+08 |	    mut outer := make(list[list[int64]], c_allocator)
+09 |	    region r {
+   |	    ^~~~~~~~
+10 |	        err := fill(mut outer, r)
+
+-- region-escape-call-plain-arg/main.tck --
+package main
+
+// A plain argument from a region counts alongside an outer mut one,
+// though the callee only borrows it: the rule does not look into callees.
+
+func count(mut out list[list[int64]], l list[int64]) int64 {
+    return len(out) +% len(l)
+}
+
+func main() {
+    mut outer := make(list[list[int64]], c_allocator)
+    region r {
+        l := make(list[int64], r)
+        if count(mut outer, l) != 0 {
+            exit(1)
+        }
+    }
+}
+-- region-escape-call-plain-arg/expected --
+stage: typeck
+---
+
+region-escape-call-plain-arg/main.tck:14:18: error: cannot pass mut outer to count alongside a value of type list[int64] holding memory from region r: the call could keep memory from region r in outer, and outer is declared outside the block of region r
+13 |	        l := make(list[int64], r)
+14 |	        if count(mut outer, l) != 0 {
+   |	                 ^~~~~~~~~
+15 |	            exit(1)
+region-escape-call-plain-arg/main.tck:12:5: note: region r is opened here, and everything made through r is given back when its block ends
+11 |	    mut outer := make(list[list[int64]], c_allocator)
+12 |	    region r {
+   |	    ^~~~~~~~
+13 |	        l := make(list[int64], r)
+
+-- region-escape-call-result/main.tck --
+package main
+
+func fillIn(n int64, scope a Allocator) list[int64] {
+    mut l := make(list[int64], a)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func main() {
+    mut outer := make(list[int64], c_allocator)
+    region r {
+        outer = fillIn(3, r)
+    }
+    if len(outer) != 3 {
+        exit(1)
+    }
+}
+-- region-escape-call-result/expected --
+stage: typeck
+---
+
+region-escape-call-result/main.tck:17:17: error: cannot assign a value of type list[int64] holding memory from region r to outer: outer is declared outside the block of region r
+16 |	    region r {
+17 |	        outer = fillIn(3, r)
+   |	                ^~~~~~~~~~~~
+18 |	    }
+region-escape-call-result/main.tck:16:5: note: region r is opened here, and everything made through r is given back when its block ends
+15 |	    mut outer := make(list[int64], c_allocator)
+16 |	    region r {
+   |	    ^~~~~~~~
+17 |	        outer = fillIn(3, r)
+
+-- region-escape-call-two-muts/main.tck --
+package main
+
+func trade(mut a list[list[int64]], mut b list[list[int64]]) {
+    t := replace(mut a, make(list[list[int64]], c_allocator))
+    old := replace(mut b, t)
+    a = old
+}
+
+func main() {
+    mut outer := make(list[list[int64]], c_allocator)
+    region r {
+        mut inner := make(list[list[int64]], r)
+        trade(mut inner, mut outer)
+    }
+    if len(outer) != 0 {
+        exit(1)
+    }
+}
+-- region-escape-call-two-muts/expected --
+stage: typeck
+---
+
+region-escape-call-two-muts/main.tck:13:26: error: cannot pass mut outer to trade alongside a value of type list[list[int64]] holding memory from region r: the call could keep memory from region r in outer, and outer is declared outside the block of region r
+12 |	        mut inner := make(list[list[int64]], r)
+13 |	        trade(mut inner, mut outer)
+   |	                         ^~~~~~~~~
+14 |	    }
+region-escape-call-two-muts/main.tck:11:5: note: region r is opened here, and everything made through r is given back when its block ends
+10 |	    mut outer := make(list[list[int64]], c_allocator)
+11 |	    region r {
+   |	    ^~~~~~~~
+12 |	        mut inner := make(list[list[int64]], r)
+
+-- region-escape-closure-inner-region/main.tck --
+package main
+
+func each(n int64, scope f func(int64)) {
+    for i := range n {
+        f(i)
+    }
+}
+
+func main() {
+    mut keep := make(list[list[int64]], c_allocator)
+    each(2, func(i int64) {
+        region r {
+            e := append(mut keep, make(list[int64], r))
+            if e.code != 0 || i < 0 {
+                exit(1)
+            }
+        }
+    })
+    if len(keep) != 2 {
+        exit(1)
+    }
+}
+-- region-escape-closure-inner-region/expected --
+stage: typeck
+---
+
+region-escape-closure-inner-region/main.tck:13:35: error: cannot append a value of type list[int64] holding memory from region r to keep: keep is declared outside the block of region r
+12 |	        region r {
+13 |	            e := append(mut keep, make(list[int64], r))
+   |	                                  ^~~~~~~~~~~~~~~~~~~~
+14 |	            if e.code != 0 || i < 0 {
+region-escape-closure-inner-region/main.tck:12:9: note: region r is opened here, and everything made through r is given back when its block ends
+11 |	    each(2, func(i int64) {
+12 |	        region r {
+   |	        ^~~~~~~~
+13 |	            e := append(mut keep, make(list[int64], r))
+
+-- region-escape-closure-own-param/main.tck --
+package main
+
+func run(own l list[int64], scope f func(own list[int64])) {
+    f(own l)
+}
+
+func main() {
+    mut keep := make(list[int64], c_allocator)
+    region r {
+        l := make(list[int64], r)
+        run(own l, func(own x list[int64]) {
+            keep = x
+        })
+    }
+    if len(keep) != 0 {
+        exit(1)
+    }
+}
+-- region-escape-closure-own-param/expected --
+stage: typeck
+---
+
+region-escape-closure-own-param/main.tck:11:20: error: cannot pass a closure that writes keep to run alongside a value of type list[int64] holding memory from region r: the call could keep memory from region r in keep, and keep is declared outside the block of region r
+10 |	        l := make(list[int64], r)
+11 |	        run(own l, func(own x list[int64]) {
+   |	                   ^~~~
+12 |	            keep = x
+region-escape-closure-own-param/main.tck:9:5: note: region r is opened here, and everything made through r is given back when its block ends
+08 |	    mut keep := make(list[int64], c_allocator)
+09 |	    region r {
+   |	    ^~~~~~~~
+10 |	        l := make(list[int64], r)
+
+-- region-escape-generic-call/main.tck --
+package main
+
+func push[T Any](mut l list[T], own v T) error {
+    return append(mut l, v)
+}
+
+type Any interface {
+}
+
+func main() {
+    mut outer := make(list[list[int64]], c_allocator)
+    region r {
+        l := make(list[int64], r)
+        e := push(mut outer, own l)
+        if e.code != 0 {
+            exit(1)
+        }
+    }
+    if len(outer) != 1 {
+        exit(1)
+    }
+}
+-- region-escape-generic-call/expected --
+stage: typeck
+---
+
+region-escape-generic-call/main.tck:14:19: error: cannot pass mut outer to push alongside a value of type list[int64] holding memory from region r: the call could keep memory from region r in outer, and outer is declared outside the block of region r
+13 |	        l := make(list[int64], r)
+14 |	        e := push(mut outer, own l)
+   |	                  ^~~~~~~~~
+15 |	        if e.code != 0 {
+region-escape-generic-call/main.tck:12:5: note: region r is opened here, and everything made through r is given back when its block ends
+11 |	    mut outer := make(list[list[int64]], c_allocator)
+12 |	    region r {
+   |	    ^~~~~~~~
+13 |	        l := make(list[int64], r)
+
+-- region-escape-inner-region/main.tck --
+package main
+
+func main() {
+    region r {
+        mut kept := make(list[int64], r)
+        region s {
+            kept = make(list[int64], s)
+        }
+        if len(kept) != 0 {
+            exit(1)
+        }
+    }
+}
+-- region-escape-inner-region/expected --
+stage: typeck
+---
+
+region-escape-inner-region/main.tck:7:20: error: cannot assign a value of type list[int64] holding memory from region s to kept: kept is declared outside the block of region s
+06 |	        region s {
+07 |	            kept = make(list[int64], s)
+   |	                   ^~~~~~~~~~~~~~~~~~~~
+08 |	        }
+region-escape-inner-region/main.tck:6:9: note: region s is opened here, and everything made through s is given back when its block ends
+05 |	        mut kept := make(list[int64], r)
+06 |	        region s {
+   |	        ^~~~~~~~
+07 |	            kept = make(list[int64], s)
+
+-- region-escape-loop-later-move/main.tck --
+package main
+
+func main() {
+    mut outer := make(list[list[int64]], c_allocator)
+    region r {
+        mut t := make(list[list[int64]], c_allocator)
+        for i := range 2 {
+            if i == 1 {
+                outer = t
+                t = make(list[list[int64]], c_allocator)
+            }
+            e := append(mut t, make(list[int64], r))
+            if e.code != 0 {
+                exit(1)
+            }
+        }
+    }
+    if len(outer) != 1 {
+        exit(1)
+    }
+}
+-- region-escape-loop-later-move/expected --
+stage: typeck
+---
+
+region-escape-loop-later-move/main.tck:9:25: error: cannot assign a value of type list[list[int64]] holding memory from region r to outer: outer is declared outside the block of region r
+08 |	            if i == 1 {
+09 |	                outer = t
+   |	                        ^
+10 |	                t = make(list[list[int64]], c_allocator)
+region-escape-loop-later-move/main.tck:5:5: note: region r is opened here, and everything made through r is given back when its block ends
+04 |	    mut outer := make(list[list[int64]], c_allocator)
+05 |	    region r {
+   |	    ^~~~~~~~
+06 |	        mut t := make(list[list[int64]], c_allocator)
+
+-- region-escape-map-outer/main.tck --
+package main
+
+func main() {
+    mut m := make(map[int64]list[int64], c_allocator)
+    region r {
+        err := put(mut m, 1, make(list[int64], r))
+        if err.code != 0 {
+            exit(1)
+        }
+    }
+    if len(m) != 1 {
+        exit(1)
+    }
+}
+-- region-escape-map-outer/expected --
+stage: typeck
+---
+
+region-escape-map-outer/main.tck:6:30: error: cannot put a value of type list[int64] holding memory from region r in m: m is declared outside the block of region r
+05 |	    region r {
+06 |	        err := put(mut m, 1, make(list[int64], r))
+   |	                             ^~~~~~~~~~~~~~~~~~~~
+07 |	        if err.code != 0 {
+region-escape-map-outer/main.tck:5:5: note: region r is opened here, and everything made through r is given back when its block ends
+04 |	    mut m := make(map[int64]list[int64], c_allocator)
+05 |	    region r {
+   |	    ^~~~~~~~
+06 |	        err := put(mut m, 1, make(list[int64], r))
+
+-- region-escape-map-returned/main.tck --
+package main
+
+func f() map[int64]int64 {
+    region r {
+        return make(map[int64]int64, r)
+    }
+}
+
+func main() {
+    m := f()
+    if len(m) != 0 {
+        exit(1)
+    }
+}
+-- region-escape-map-returned/expected --
+stage: typeck
+---
+
+region-escape-map-returned/main.tck:5:16: error: cannot return a value of type map[int64]int64 holding memory from region r: the region gives its memory back when its block ends
+04 |	    region r {
+05 |	        return make(map[int64]int64, r)
+   |	               ^~~~~~~~~~~~~~~~~~~~~~~~
+06 |	    }
+region-escape-map-returned/main.tck:4:5: note: region r is opened here, and everything made through r is given back when its block ends
+03 |	func f() map[int64]int64 {
+04 |	    region r {
+   |	    ^~~~~~~~
+05 |	        return make(map[int64]int64, r)
+
+-- region-escape-moved-in/main.tck --
+package main
+
+func main() {
+    mut outer := make(list[list[int64]], c_allocator)
+    region r {
+        mut inner := make(list[list[int64]], c_allocator)
+        err := append(mut inner, make(list[int64], r))
+        if err.code != 0 {
+            exit(1)
+        }
+        outer = inner
+    }
+    if len(outer) != 1 {
+        exit(1)
+    }
+}
+-- region-escape-moved-in/expected --
+stage: typeck
+---
+
+region-escape-moved-in/main.tck:11:17: error: cannot assign a value of type list[list[int64]] holding memory from region r to outer: outer is declared outside the block of region r
+10 |	        }
+11 |	        outer = inner
+   |	                ^~~~~
+12 |	    }
+region-escape-moved-in/main.tck:5:5: note: region r is opened here, and everything made through r is given back when its block ends
+04 |	    mut outer := make(list[list[int64]], c_allocator)
+05 |	    region r {
+   |	    ^~~~~~~~
+06 |	        mut inner := make(list[list[int64]], c_allocator)
+
+-- region-escape-multi-assign/main.tck --
+package main
+
+import text from "std/text"
+
+func main() {
+    mut outer := text.new(c_allocator)
+    mut err error = noerror
+    region r {
+        outer, err = text.from_bytes([]uint8("x"), r)
+    }
+    if err.code != 0 || outer.len() != 1 {
+        exit(1)
+    }
+}
+-- region-escape-multi-assign/expected --
+stage: typeck
+---
+
+region-escape-multi-assign/main.tck:9:22: error: cannot assign a value of type text.Text holding memory from region r to outer: outer is declared outside the block of region r
+08 |	    region r {
+09 |	        outer, err = text.from_bytes([]uint8("x"), r)
+   |	                     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+10 |	    }
+region-escape-multi-assign/main.tck:8:5: note: region r is opened here, and everything made through r is given back when its block ends
+07 |	    mut err error = noerror
+08 |	    region r {
+   |	    ^~~~~~~~
+09 |	        outer, err = text.from_bytes([]uint8("x"), r)
+
+-- region-escape-mut-param/main.tck --
+package main
+
+func f(mut out list[list[int64]]) error {
+    region r {
+        err := append(mut out, make(list[int64], r))
+        if err.code != 0 {
+            return err
+        }
+    }
+    return noerror
+}
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    err := f(mut l)
+    if err.code != 0 || len(l) != 1 {
+        exit(1)
+    }
+}
+-- region-escape-mut-param/expected --
+stage: typeck
+---
+
+region-escape-mut-param/main.tck:5:32: error: cannot append a value of type list[int64] holding memory from region r to out: out is a mut parameter, which lives outside every region
+04 |	    region r {
+05 |	        err := append(mut out, make(list[int64], r))
+   |	                               ^~~~~~~~~~~~~~~~~~~~
+06 |	        if err.code != 0 {
+region-escape-mut-param/main.tck:4:5: note: region r is opened here, and everything made through r is given back when its block ends
+03 |	func f(mut out list[list[int64]]) error {
+04 |	    region r {
+   |	    ^~~~~~~~
+05 |	        err := append(mut out, make(list[int64], r))
+
+-- region-escape-mut-receiver/main.tck --
+package main
+
+type Bag struct {
+    items list[list[int64]]
+}
+
+func (mut b Bag) take(own l list[int64]) error {
+    return append(mut b.items, l)
+}
+
+func main() {
+    mut b := Bag{items: make(list[list[int64]], c_allocator)}
+    region r {
+        e := mut b.take(make(list[int64], r))
+        if e.code != 0 {
+            exit(1)
+        }
+    }
+    if len(b.items) != 1 {
+        exit(1)
+    }
+}
+-- region-escape-mut-receiver/expected --
+stage: typeck
+---
+
+region-escape-mut-receiver/main.tck:14:14: error: cannot pass mut b to Bag.take alongside a value of type list[int64] holding memory from region r: the call could keep memory from region r in b, and b is declared outside the block of region r
+13 |	    region r {
+14 |	        e := mut b.take(make(list[int64], r))
+   |	             ^~~~~
+15 |	        if e.code != 0 {
+region-escape-mut-receiver/main.tck:13:5: note: region r is opened here, and everything made through r is given back when its block ends
+12 |	    mut b := Bag{items: make(list[list[int64]], c_allocator)}
+13 |	    region r {
+   |	    ^~~~~~~~
+14 |	        e := mut b.take(make(list[int64], r))
+
+-- region-escape-outer-field/main.tck --
+package main
+
+type Holder struct {
+    l list[int64]
+}
+
+func main() {
+    mut h := Holder{l: make(list[int64], c_allocator)}
+    region r {
+        h.l = make(list[int64], r)
+    }
+    if len(h.l) != 0 {
+        exit(1)
+    }
+}
+-- region-escape-outer-field/expected --
+stage: typeck
+---
+
+region-escape-outer-field/main.tck:10:15: error: cannot assign a value of type list[int64] holding memory from region r to h.l: h.l is part of h, which is declared outside the block of region r
+09 |	    region r {
+10 |	        h.l = make(list[int64], r)
+   |	              ^~~~~~~~~~~~~~~~~~~~
+11 |	    }
+region-escape-outer-field/main.tck:9:5: note: region r is opened here, and everything made through r is given back when its block ends
+08 |	    mut h := Holder{l: make(list[int64], c_allocator)}
+09 |	    region r {
+   |	    ^~~~~~~~
+10 |	        h.l = make(list[int64], r)
+
+-- region-escape-own-chain/main.tck --
+package main
+
+func pass(own l list[int64]) list[int64] {
+    return l
+}
+
+func main() {
+    mut outer := make(list[list[int64]], c_allocator)
+    region r {
+        l := make(list[int64], r)
+        m := pass(own l)
+        e := append(mut outer, pass(own m))
+        if e.code != 0 {
+            exit(1)
+        }
+    }
+}
+-- region-escape-own-chain/expected --
+stage: typeck
+---
+
+region-escape-own-chain/main.tck:12:32: error: cannot append a value of type list[int64] holding memory from region r to outer: outer is declared outside the block of region r
+11 |	        m := pass(own l)
+12 |	        e := append(mut outer, pass(own m))
+   |	                               ^~~~~~~~~~~
+13 |	        if e.code != 0 {
+region-escape-own-chain/main.tck:9:5: note: region r is opened here, and everything made through r is given back when its block ends
+08 |	    mut outer := make(list[list[int64]], c_allocator)
+09 |	    region r {
+   |	    ^~~~~~~~
+10 |	        l := make(list[int64], r)
+
+-- region-escape-own-result/main.tck --
+package main
+
+func keep(own l list[int64]) list[int64] {
+    return l
+}
+
+func main() {
+    mut outer := make(list[int64], c_allocator)
+    region r {
+        inner := make(list[int64], r)
+        outer = keep(own inner)
+    }
+    if len(outer) != 0 {
+        exit(1)
+    }
+}
+-- region-escape-own-result/expected --
+stage: typeck
+---
+
+region-escape-own-result/main.tck:11:17: error: cannot assign a value of type list[int64] holding memory from region r to outer: outer is declared outside the block of region r
+10 |	        inner := make(list[int64], r)
+11 |	        outer = keep(own inner)
+   |	                ^~~~~~~~~~~~~~~
+12 |	    }
+region-escape-own-result/main.tck:9:5: note: region r is opened here, and everything made through r is given back when its block ends
+08 |	    mut outer := make(list[int64], c_allocator)
+09 |	    region r {
+   |	    ^~~~~~~~
+10 |	        inner := make(list[int64], r)
+
+-- region-escape-popped-union/main.tck --
+package main
+
+type U union {
+    n int64
+    l list[int64]
+}
+
+func main() {
+    mut outer := make(list[U], c_allocator)
+    region r {
+        mut us := make(list[U], r)
+        e := append(mut us, U.l(make(list[int64], r)))
+        if e.code != 0 {
+            exit(1)
+        }
+        for len(us) > 0 {
+            u, ok := pop(mut us)
+            if ok {
+                e2 := append(mut outer, u)
+                if e2.code != 0 {
+                    exit(1)
+                }
+            }
+        }
+    }
+}
+-- region-escape-popped-union/expected --
+stage: typeck
+---
+
+region-escape-popped-union/main.tck:19:41: error: cannot append a value of type U holding memory from region r to outer: outer is declared outside the block of region r
+18 |	            if ok {
+19 |	                e2 := append(mut outer, u)
+   |	                                        ^
+20 |	                if e2.code != 0 {
+region-escape-popped-union/main.tck:10:5: note: region r is opened here, and everything made through r is given back when its block ends
+09 |	    mut outer := make(list[U], c_allocator)
+10 |	    region r {
+   |	    ^~~~~~~~
+11 |	        mut us := make(list[U], r)
+
+-- region-escape-question-result/main.tck --
+package main
+
+func mk(scope a Allocator) (list[int64], error) {
+    return make(list[int64], a), noerror
+}
+
+func f(mut out list[list[int64]]) error {
+    region r {
+        l := mk(r)?
+        e := append(mut out, l)
+        if e.code != 0 {
+            return e
+        }
+    }
+    return noerror
+}
+
+func main() {
+    mut l := make(list[list[int64]], c_allocator)
+    e := f(mut l)
+    if e.code != 0 {
+        exit(1)
+    }
+}
+-- region-escape-question-result/expected --
+stage: typeck
+---
+
+region-escape-question-result/main.tck:10:30: error: cannot append a value of type list[int64] holding memory from region r to out: out is a mut parameter, which lives outside every region
+09 |	        l := mk(r)?
+10 |	        e := append(mut out, l)
+   |	                             ^
+11 |	        if e.code != 0 {
+region-escape-question-result/main.tck:8:5: note: region r is opened here, and everything made through r is given back when its block ends
+07 |	func f(mut out list[list[int64]]) error {
+08 |	    region r {
+   |	    ^~~~~~~~
+09 |	        l := mk(r)?
+
+-- region-escape-replace-outer/main.tck --
+package main
+
+type Holder struct {
+    l list[int64]
+}
+
+func main() {
+    mut h := Holder{l: make(list[int64], c_allocator)}
+    region r {
+        old := replace(mut h.l, make(list[int64], r))
+        if len(old) != 0 {
+            exit(1)
+        }
+    }
+    if len(h.l) != 0 {
+        exit(1)
+    }
+}
+-- region-escape-replace-outer/expected --
+stage: typeck
+---
+
+region-escape-replace-outer/main.tck:10:33: error: cannot replace the value of h.l with a value of type list[int64] holding memory from region r: h.l is part of h, which is declared outside the block of region r
+09 |	    region r {
+10 |	        old := replace(mut h.l, make(list[int64], r))
+   |	                                ^~~~~~~~~~~~~~~~~~~~
+11 |	        if len(old) != 0 {
+region-escape-replace-outer/main.tck:9:5: note: region r is opened here, and everything made through r is given back when its block ends
+08 |	    mut h := Holder{l: make(list[int64], c_allocator)}
+09 |	    region r {
+   |	    ^~~~~~~~
+10 |	        old := replace(mut h.l, make(list[int64], r))
+
+-- region-escape-return/main.tck --
+package main
+
+func f() list[int64] {
+    region r {
+        return make(list[int64], r)
+    }
+}
+
+func main() {
+    l := f()
+    if len(l) != 0 {
+        exit(1)
+    }
+}
+-- region-escape-return/expected --
+stage: typeck
+---
+
+region-escape-return/main.tck:5:16: error: cannot return a value of type list[int64] holding memory from region r: the region gives its memory back when its block ends
+04 |	    region r {
+05 |	        return make(list[int64], r)
+   |	               ^~~~~~~~~~~~~~~~~~~~
+06 |	    }
+region-escape-return/main.tck:4:5: note: region r is opened here, and everything made through r is given back when its block ends
+03 |	func f() list[int64] {
+04 |	    region r {
+   |	    ^~~~~~~~
+05 |	        return make(list[int64], r)
+
+-- region-escape-return-struct/main.tck --
+package main
+
+type Holder struct {
+    l list[int64]
+}
+
+func f() Holder {
+    region r {
+        return Holder{l: make(list[int64], r)}
+    }
+}
+
+func main() {
+    h := f()
+    if len(h.l) != 0 {
+        exit(1)
+    }
+}
+-- region-escape-return-struct/expected --
+stage: typeck
+---
+
+region-escape-return-struct/main.tck:9:16: error: cannot return a value of type Holder holding memory from region r: the region gives its memory back when its block ends
+08 |	    region r {
+09 |	        return Holder{l: make(list[int64], r)}
+   |	               ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+10 |	    }
+region-escape-return-struct/main.tck:8:5: note: region r is opened here, and everything made through r is given back when its block ends
+07 |	func f() Holder {
+08 |	    region r {
+   |	    ^~~~~~~~
+09 |	        return Holder{l: make(list[int64], r)}
+
+-- region-escape-scope-func-allocator/main.tck --
+package main
+
+func f(scope g func(scope Allocator)) {
+    region r {
+        g(r)
+    }
+}
+
+func main() {
+    mut outer := make(list[int64], c_allocator)
+    f(func(scope a Allocator) {
+        outer = make(list[int64], a)
+        e := append(mut outer, 42)
+        if e.code != 0 { exit(1) }
+    })
+    mut sum int64 = 0
+    for _, v := range outer {
+        sum = sum +% v
+    }
+    if sum == 42 { print("read 42 from freed region memory\n") } else { print("read other\n") }
+}
+-- region-escape-scope-func-allocator/expected --
+stage: typeck
+---
+
+region-escape-scope-func-allocator/main.tck:5:11: error: cannot pass r, the allocator of region r, to g, a scope parameter: the closure behind it could keep memory from region r in anything it captures
+04 |	    region r {
+05 |	        g(r)
+   |	          ^
+06 |	    }
+region-escape-scope-func-allocator/main.tck:4:5: note: region r is opened here, and everything made through r is given back when its block ends
+03 |	func f(scope g func(scope Allocator)) {
+04 |	    region r {
+   |	    ^~~~~~~~
+05 |	        g(r)
+
+-- region-escape-scope-func-captured/main.tck --
+package main
+
+func h(own l list[int64], scope k func(own list[int64])) {
+    k(own l)
+}
+
+func f(scope g func(own list[int64])) {
+    region r {
+        l := make(list[int64], r)
+        h(own l, func(own x list[int64]) {
+            g(own x)
+        })
+    }
+}
+
+func main() {
+    mut outer := make(list[int64], c_allocator)
+    f(func(own x list[int64]) {
+        outer = x
+    })
+    if len(outer) != 0 {
+        exit(1)
+    }
+}
+-- region-escape-scope-func-captured/expected --
+stage: typeck
+---
+
+region-escape-scope-func-captured/main.tck:10:11: error: cannot pass a value of type list[int64] holding memory from region r to h alongside g, a scope parameter: the closure behind it could keep memory from region r in anything it captures
+09 |	        l := make(list[int64], r)
+10 |	        h(own l, func(own x list[int64]) {
+   |	          ^~~~~
+11 |	            g(own x)
+region-escape-scope-func-captured/main.tck:8:5: note: region r is opened here, and everything made through r is given back when its block ends
+07 |	func f(scope g func(own list[int64])) {
+08 |	    region r {
+   |	    ^~~~~~~~
+09 |	        l := make(list[int64], r)
+
+-- region-escape-scope-func-in-closure/main.tck --
+package main
+
+func f(scope g func(own list[int64])) {
+    region r {
+        each(func() {
+            mut l := make(list[int64], r)
+            e := append(mut l, 42)
+            if e.code != 0 { exit(1) }
+            g(own l)
+        })
+    }
+}
+
+func each(scope h func()) {
+    h()
+}
+
+func main() {
+    mut outer := make(list[int64], c_allocator)
+    f(func(own x list[int64]) {
+        outer = x
+    })
+    mut sum int64 = 0
+    for _, v := range outer {
+        sum = sum +% v
+    }
+    if sum == 42 { print("read 42\n") } else { print("read other\n") }
+}
+-- region-escape-scope-func-in-closure/expected --
+stage: typeck
+---
+
+region-escape-scope-func-in-closure/main.tck:9:15: error: cannot pass a value of type list[int64] holding memory from region r to g, a scope parameter: the closure behind it could keep memory from region r in anything it captures
+08 |	            if e.code != 0 { exit(1) }
+09 |	            g(own l)
+   |	              ^~~~~
+10 |	        })
+region-escape-scope-func-in-closure/main.tck:4:5: note: region r is opened here, and everything made through r is given back when its block ends
+03 |	func f(scope g func(own list[int64])) {
+04 |	    region r {
+   |	    ^~~~~~~~
+05 |	        each(func() {
+
+-- region-escape-scope-func-mut/main.tck --
+package main
+
+func f(scope g func(mut list[list[int64]])) {
+    region r {
+        mut ll := make(list[list[int64]], r)
+        mut l := make(list[int64], r)
+        e := append(mut l, 42)
+        e2 := append(mut ll, l)
+        if e.code != 0 || e2.code != 0 { exit(1) }
+        g(mut ll)
+    }
+}
+
+func main() {
+    mut outer := make(list[int64], c_allocator)
+    f(func(mut x list[list[int64]]) {
+        y, ok := pop(mut x)
+        if ok {
+            outer = y
+        }
+    })
+    mut sum int64 = 0
+    for _, v := range outer {
+        sum = sum +% v
+    }
+    if sum == 42 { print("read 42 from freed region memory\n") } else { print("read other\n") }
+}
+-- region-escape-scope-func-mut/expected --
+stage: typeck
+---
+
+region-escape-scope-func-mut/main.tck:10:11: error: cannot pass a value of type list[list[int64]] holding memory from region r to g, a scope parameter: the closure behind it could keep memory from region r in anything it captures
+09 |	        if e.code != 0 || e2.code != 0 { exit(1) }
+10 |	        g(mut ll)
+   |	          ^~~~~~
+11 |	    }
+region-escape-scope-func-mut/main.tck:4:5: note: region r is opened here, and everything made through r is given back when its block ends
+03 |	func f(scope g func(mut list[list[int64]])) {
+04 |	    region r {
+   |	    ^~~~~~~~
+05 |	        mut ll := make(list[list[int64]], r)
+
+-- region-escape-scope-func-own/main.tck --
+package main
+
+func f(scope g func(own list[int64])) {
+    region r {
+        mut l := make(list[int64], r)
+        e := append(mut l, 42)
+        if e.code != 0 { exit(1) }
+        g(own l)
+    }
+}
+
+func main() {
+    mut outer := make(list[int64], c_allocator)
+    f(func(own x list[int64]) {
+        outer = x
+    })
+    mut sum int64 = 0
+    for _, v := range outer {
+        sum = sum +% v
+    }
+    if sum == 42 { print("read 42 from freed region memory\n") } else { print("read other\n") }
+}
+-- region-escape-scope-func-own/expected --
+stage: typeck
+---
+
+region-escape-scope-func-own/main.tck:8:11: error: cannot pass a value of type list[int64] holding memory from region r to g, a scope parameter: the closure behind it could keep memory from region r in anything it captures
+07 |	        if e.code != 0 { exit(1) }
+08 |	        g(own l)
+   |	          ^~~~~
+09 |	    }
+region-escape-scope-func-own/main.tck:4:5: note: region r is opened here, and everything made through r is given back when its block ends
+03 |	func f(scope g func(own list[int64])) {
+04 |	    region r {
+   |	    ^~~~~~~~
+05 |	        mut l := make(list[int64], r)
+
+-- region-escape-scope-func-passed-on/main.tck --
+package main
+
+func h(own l list[int64], scope g func(own list[int64])) {
+    g(own l)
+}
+
+func f(scope g func(own list[int64])) {
+    region r {
+        l := make(list[int64], r)
+        h(own l, g)
+    }
+}
+
+func main() {
+    mut outer := make(list[int64], c_allocator)
+    f(func(own x list[int64]) {
+        outer = x
+    })
+    if len(outer) != 0 {
+        exit(1)
+    }
+}
+-- region-escape-scope-func-passed-on/expected --
+stage: typeck
+---
+
+region-escape-scope-func-passed-on/main.tck:10:11: error: cannot pass a value of type list[int64] holding memory from region r to h alongside g, a scope parameter: the closure behind it could keep memory from region r in anything it captures
+09 |	        l := make(list[int64], r)
+10 |	        h(own l, g)
+   |	          ^~~~~
+11 |	    }
+region-escape-scope-func-passed-on/main.tck:8:5: note: region r is opened here, and everything made through r is given back when its block ends
+07 |	func f(scope g func(own list[int64])) {
+08 |	    region r {
+   |	    ^~~~~~~~
+09 |	        l := make(list[int64], r)
+
+-- region-escape-std-result/main.tck --
+package main
+
+import text from "std/text"
+
+func main() {
+    mut outer := text.new(c_allocator)
+    region r {
+        t, err := text.from_bytes([]uint8("x"), r)
+        if err.code != 0 {
+            exit(1)
+        }
+        outer = t
+    }
+    if outer.len() != 1 {
+        exit(1)
+    }
+}
+-- region-escape-std-result/expected --
+stage: typeck
+---
+
+region-escape-std-result/main.tck:12:17: error: cannot assign a value of type text.Text holding memory from region r to outer: outer is declared outside the block of region r
+11 |	        }
+12 |	        outer = t
+   |	                ^
+13 |	    }
+region-escape-std-result/main.tck:7:5: note: region r is opened here, and everything made through r is given back when its block ends
+06 |	    mut outer := text.new(c_allocator)
+07 |	    region r {
+   |	    ^~~~~~~~
+08 |	        t, err := text.from_bytes([]uint8("x"), r)
+
+-- region-escape-union/main.tck --
+package main
+
+type U union {
+    n int64
+    l list[int64]
+}
+
+func main() {
+    mut u := U.n(0)
+    region r {
+        u = U.l(make(list[int64], r))
+    }
+    switch u {
+    case n(x):
+        if x != 0 {
+            exit(1)
+        }
+    case l(v):
+        if len(v) != 0 {
+            exit(1)
+        }
+    }
+}
+-- region-escape-union/expected --
+stage: typeck
+---
+
+region-escape-union/main.tck:11:13: error: cannot assign a value of type U holding memory from region r to u: u is declared outside the block of region r
+10 |	    region r {
+11 |	        u = U.l(make(list[int64], r))
+   |	            ^~~~~~~~~~~~~~~~~~~~~~~~~
+12 |	    }
+region-escape-union/main.tck:10:5: note: region r is opened here, and everything made through r is given back when its block ends
+09 |	    mut u := U.n(0)
+10 |	    region r {
+   |	    ^~~~~~~~
+11 |	        u = U.l(make(list[int64], r))
+
+-- region-fallthrough-inside/main.tck --
+package main
+
+func main() {
+    n := 1
+    switch n {
+    case 1:
+        region r {
+            l := make(list[int64], r)
+            if len(l) != 0 {
+                exit(1)
+            }
+            fallthrough
+        }
+    case 2:
+        print("2\n")
+    default:
+    }
+}
+-- region-fallthrough-inside/expected --
+stage: typeck
+---
+
+region-fallthrough-inside/main.tck:12:13: error: fallthrough must be the last statement of a case
+11 |	            }
+12 |	            fallthrough
+   |	            ^~~~~~~~~~~
+13 |	        }
+
+-- region-missing-return/main.tck --
+package main
+
+// Assumption: the error is the existing missing-return one, since a
+// region block terminates exactly when its body does.
+
+func f(b bool) int64 {
+    region r {
+        l := make(list[int64], r)
+        if b {
+            return len(l)
+        }
+    }
+}
+
+func main() {
+    if f(true) != 0 {
+        exit(1)
+    }
+}
+-- region-missing-return/expected --
+stage: typeck
+---
+
+region-missing-return/main.tck:6:6: error: f must end in a return
+05 |	
+06 |	func f(b bool) int64 {
+   |	     ^
+07 |	    region r {
+
 -- relation-append/main.tck --
 package main
 
@@ -53437,7 +55305,7 @@ func main() {
 stage: typeck
 ---
 
-scope-func-type-non-function/main.tck:3:19: error: a function type's parameter cannot be scope unless it is a function type, and int64 is not; remove scope
+scope-func-type-non-function/main.tck:3:19: error: a function type's parameter cannot be scope unless it is a function type or Allocator, and int64 is not; remove scope
 02 |	
 03 |	func apply(g func(scope int64)) { // ERROR
    |	                  ^~~~~
@@ -53494,7 +55362,7 @@ func main() {
 stage: typeck
 ---
 
-scope-non-function-param/main.tck:6:8: error: parameter n cannot be scope: int64 is not a function type, and only a function value can be scope; remove scope
+scope-non-function-param/main.tck:6:8: error: parameter n cannot be scope: int64 is not a function type or Allocator, and only a function value or an Allocator can be scope; remove scope
 05 |	
 06 |	func f(scope n int64) int64 { // ERROR
    |	       ^~~~~
@@ -53641,7 +55509,7 @@ func main() {
 stage: typeck
 ---
 
-scope-param-of-type-param/main.tck:9:15: error: parameter f cannot be scope: T is not a function type, and only a function value can be scope; remove scope
+scope-param-of-type-param/main.tck:9:15: error: parameter f cannot be scope: T is not a function type or Allocator, and only a function value or an Allocator can be scope; remove scope
 08 |	
 09 |	func g[T Any](scope f T) { // ERROR
    |	              ^~~~~
@@ -53805,7 +55673,7 @@ func main() {
 stage: typeck
 ---
 
-scope-variadic/main.tck:3:10: error: parameter fs cannot be both variadic and scope: a scope parameter takes one function value
+scope-variadic/main.tck:3:10: error: parameter fs cannot be both variadic and scope: a scope parameter takes one function value or Allocator
 02 |	
 03 |	func all(scope fs ...func()) { // ERROR
    |	         ^~~~~

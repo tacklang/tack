@@ -284,6 +284,9 @@ func (m *mover) stmt(stmt ast.Stmt, cur flow) flow {
 	case *ast.Defer:
 		m.deferStmt(s, cur)
 		return cur
+	case *ast.Region:
+		// Its body runs once, in place, as a block of its own.
+		return m.block(s.Body, cur)
 	case *ast.Break, *ast.Continue:
 		return m.jump(s, cur)
 	case *ast.Unreachable:

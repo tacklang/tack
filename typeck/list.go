@@ -223,7 +223,7 @@ func (c *Checker) makeCall(call *ast.Call) types.Type {
 	}
 	typ := c.declaredType(call.Args[0])
 	alloc := call.Args[1]
-	if !c.use(alloc, c.expr(alloc), types.Allocator, "in argument to make") ||
+	if !c.use(alloc, c.allocArg(alloc), types.Allocator, "in argument to make") ||
 		typ == types.Invalid {
 		return types.Invalid
 	}

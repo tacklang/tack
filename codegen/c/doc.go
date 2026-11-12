@@ -225,6 +225,18 @@
 // drop.go). In an instance whose type argument owns nothing, a drop is no
 // statement at all.
 //
+// A region, region r { ... }, is a C block that opens the region,
+// const tack_allocator v_r = tack_region_push_();, then lowers the body as
+// a block whose cleanup chain starts with the region's pop,
+// tack_region_pop_(v_r);, a cleanup entry of its own, so every exit from
+// the body, a return, a ?, a break or a continue, routes through it after
+// the body's defers and frees, and falling off the end runs it last (see
+// generateRegion). A region named _ binds a temporary. r is an ordinary
+// local after that: make given it stores it in the list, and a closure
+// capturing it holds a pointer to it, as to any capture. A scope Allocator
+// parameter is a tack_allocator, as any Allocator is; only a scope
+// parameter of a function type is a tack_scope (see scopeFunc).
+//
 // A method, of a struct or a union, is a C function of its own taking its
 // receiver first, a mut receiver as a pointer, as a mut parameter is. A
 // method call, x.m(args) or mut x.m(args), is lowered as the call of that

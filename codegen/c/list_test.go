@@ -333,7 +333,7 @@ int main(void) {
     p = tack_list_grow_(0, 0, 1, 8, 4096, TACK_C_ALLOCATOR, &cap);
     check(p == 0 && cap == 7, "alignment past malloc's fails");
 
-    tack_allocator stale = {0, 1}, none = {9, 0};
+    tack_allocator stale = {0, 0, 1}, none = {9, 0, 0};
     p = tack_list_grow_(0, 0, 1, 8, 8, stale, &cap);
     check(p == 0 && tack_list_grow_(0, 0, 1, 8, 8, none, &cap) == 0, "no allocator fails");
 

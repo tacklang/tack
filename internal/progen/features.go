@@ -93,7 +93,8 @@ func (g *Gen) swapStmt() Stmt {
 // nothing to do.
 func (g *Gen) dropStmt() Stmt {
 	v := g.choose(g.visible(func(v *Var) bool {
-		return v.T.owned() && (!v.Param || v.Own) && !g.frozen[v] && v.Loops == g.loops && !g.inDefer
+		return v.T.owned() && (!v.Param || v.Own) && !g.frozen[v] && v.Loops == g.loops &&
+			!g.inDefer
 	}))
 	if v == nil {
 		return g.newCollection()
@@ -202,4 +203,59 @@ func (g *Gen) poolStmt() Stmt {
 		f.m.observe(v1)
 		f.m.observe(0)
 	}, lines...)
+}
+
+// regionStmt opens a region around a block of any statements, so every
+// way out of that block, a return, a break, a continue, a ? and falling
+// off its end, the block's defers and frees on the way, passes the
+// region's end; then, if the block falls through, makes a list of int64s
+// through the region, appends two values to it, each an int64 operand
+// naming no list or map, evaluated in order, and, once both errors are
+// checked, sums them by a range into a local of the region, then opens a
+// region inside it holding a list of lists through the inner region, to
+// which it appends a list made through the outer one, observes that
+// list's length, 1, and, after the inner region, the sum. Its variables
+// are its own, which no other statement names, so nothing the block does
+// can move a value from the region out of it; it allocates, so it is
+// never in deferred code. No run the interpreter checks fails to
+// allocate, so the interpreter always takes the branches.
+func (g *Gen) regionStmt() Stmt {
+	if g.inDefer || g.noLists {
+		return g.obsStmt()
+	}
+	r, q := g.name("r"), g.name("q")
+	inner := g.block()
+	g.noLists = true
+	vals := []Expr{g.intOperand(Int64, 1), g.intOperand(Int64, 1)}
+	g.noLists = false
+	s, l, errA, errB, w := g.name("s"), g.name("l"), g.name("err"), g.name("err"), g.name("w")
+	k, errK := g.name("k"), g.name("err")
+	lines := []string{
+		"mut " + s + " int64 = 0",
+		"mut " + l + " := make(list[int64], " + r + ")",
+		errA + " := append(mut " + l + ", " + vals[0].Text + ")",
+		errB + " := append(mut " + l + ", " + vals[1].Text + ")",
+		"if " + errA + ".code == 0 && " + errB + ".code == 0 {",
+		"    for _, " + w + " := range " + l + " {",
+		"        " + s + " = " + s + " +% " + w,
+		"    }",
+		"}",
+		"region " + q + " {",
+		"    mut " + k + " := make(list[list[int64]], " + q + ")",
+		"    " + errK + " := append(mut " + k + ", make(list[int64], " + r + "))",
+		"    if " + errK + ".code == 0 {",
+		"        obs(len(" + k + "))",
+		"    }",
+		"}",
+		"obs(" + s + ")",
+	}
+	tail := simple(func(f *frame) {
+		v0, v1 := asInt64(vals[0].Eval(f).Bits), asInt64(vals[1].Eval(f).Bits)
+		f.m.observe(1)
+		f.m.observe(v0 + v1)
+	}, lines...)
+	inner = append(inner, tail)
+	return Stmt{Lines: indent("region "+r+" {", inner), Exec: func(f *frame) ctrl {
+		return execBlock(f, inner)
+	}}
 }

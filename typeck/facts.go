@@ -1396,9 +1396,9 @@ func (w *keepWalk) jumpsIn(body []ast.Stmt) jumpsOut {
 }
 
 // jumpsOf returns the jumpsOut of stmt, remembering it for an if, a
-// switch or a defer, the statements that hold others a break or continue
-// acting outside them may be in (see heldJumps). A loop holds none that
-// act outside it.
+// switch, a defer or a region, the statements that hold others a break or
+// continue acting outside them may be in (see heldJumps). A loop holds
+// none that act outside it.
 func (w *keepWalk) jumpsOf(stmt ast.Stmt) jumpsOut {
 	*w.work++
 	switch stmt.(type) {
@@ -1406,7 +1406,7 @@ func (w *keepWalk) jumpsOf(stmt ast.Stmt) jumpsOut {
 		return jumpsOut{breaks: true}
 	case *ast.Continue:
 		return jumpsOut{continues: true}
-	case *ast.If, *ast.Switch, *ast.Defer:
+	case *ast.If, *ast.Switch, *ast.Defer, *ast.Region:
 		if j, ok := w.jumps[stmt]; ok {
 			return j
 		}
@@ -1418,9 +1418,9 @@ func (w *keepWalk) jumpsOf(stmt ast.Stmt) jumpsOut {
 	}
 }
 
-// heldJumps returns the jumpsOut of the statements stmt, an if, a switch
-// or a defer, holds: an if's branches, a switch's cases' bodies, or a
-// defer's body.
+// heldJumps returns the jumpsOut of the statements stmt, an if, a switch,
+// a defer or a region, holds: an if's branches, a switch's cases' bodies,
+// a defer's body or a region's.
 func (w *keepWalk) heldJumps(stmt ast.Stmt) jumpsOut {
 	switch s := stmt.(type) {
 	case *ast.If:
@@ -1432,6 +1432,8 @@ func (w *keepWalk) heldJumps(stmt ast.Stmt) jumpsOut {
 		}
 		return j
 	case *ast.Defer:
+		return w.jumpsIn(s.Body)
+	case *ast.Region:
 		return w.jumpsIn(s.Body)
 	default:
 		return jumpsOut{}
@@ -1844,8 +1846,8 @@ func (c *Checker) throughList(target ast.Expr) bool {
 // leaves reports whether a block always leaves the code around it before
 // its end: its last statement is a return, a break, a continue, a call
 // to exit, which never returns, an unreachable, which is proven never
-// reached, an if whose branches both leave, a
-// switch with a default, or on a union with every case named, whose cases
+// reached, an if whose branches both leave, a region whose body leaves,
+// which runs once, in place, a switch with a default, or on a union with every case named, whose cases
 // all leave, or a fallthrough into a case whose body leaves, which is
 // where the fallthrough goes on to. Like the terminating rule, it is
 // syntactic. The checker asks through Checker.leaves, which remembers
@@ -1870,6 +1872,8 @@ func leavesBy(body []ast.Stmt, bodyLeaves func([]ast.Stmt) bool) bool {
 		return bodyLeaves(s.Then) && bodyLeaves(s.Else)
 	case *ast.Switch:
 		return switchLeavesBy(s, bodyLeaves)
+	case *ast.Region:
+		return bodyLeaves(s.Body)
 	case *ast.ExprStmt:
 		return isExitStmt(s)
 	default:

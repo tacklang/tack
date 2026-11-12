@@ -91,9 +91,10 @@ type Checker struct {
 	// value.
 	fn *ast.Func
 
-	// scopeUse is the name of a scope parameter about to be checked where
-	// one may be: a call's callee, or an argument to a scope parameter. A
-	// name of one anywhere else is reported (see scopeElsewhere).
+	// scopeUse is the name of a scope parameter or a scope allocator about
+	// to be checked where one may be: a call's callee, an argument to a
+	// scope parameter, or make's allocator. A name of one anywhere else is
+	// reported (see scopeElsewhere and scopeAllocElsewhere).
 	scopeUse *ast.Ident
 
 	// viewSlice is the slice about to be checked where a view may be: an
@@ -164,6 +165,10 @@ type Checker struct {
 	// its body, so, unlike rangeBindings, it is not among the records the
 	// first pass over a body keeps apart (see bodyRecords).
 	bindings map[*ast.Var]string
+
+	// regions holds the region each region's allocator, its name, is the
+	// allocator of (see checkRegion).
+	regions map[*ast.Var]*ast.Region
 
 	// closureParams holds the parameters of closures, whose signature the
 	// parameter each closure is passed to fixes, so declaring one mut
@@ -444,6 +449,7 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 		rangeBindings: make(map[*ast.Var]ast.Expr),
 		rangeKeys:     make(map[*ast.Var]bool),
 		bindings:      make(map[*ast.Var]string),
+		regions:       make(map[*ast.Var]*ast.Region),
 		closureParams: make(map[*ast.Param]bool),
 		ownReported:   make(map[ast.Span]bool),
 		tagWrites:     make(map[*ast.Switch]tagWrite),
@@ -572,6 +578,7 @@ func (c *Checker) Check() []diag.Diagnostic {
 
 // checkFunc checks fn once every signature is known: an extern func's C
 // side, or any other's body, and then that no moved value is used in it,
+// and that nothing made through a region outlives it (see escape.go),
 // when the body had nothing else reported. An extern method, which the
 // resolver reported, is not checked, and a body with bad statements is
 // checked as checkDamagedBody says.
@@ -588,6 +595,9 @@ func (c *Checker) checkFunc(fn *ast.Func) {
 		c.checkBody(fn)
 		if len(c.diags) == before {
 			c.checkMoves(fn)
+		}
+		if len(c.diags) == before {
+			c.checkEscapes(fn)
 		}
 	}
 }
@@ -691,6 +701,9 @@ func (c *Checker) checkStmtAt(stmt ast.Stmt, fn *ast.Func) {
 
 	case *ast.Defer:
 		c.checkDefer(s, fn)
+
+	case *ast.Region:
+		c.checkRegion(s, fn)
 
 	case *ast.Break:
 		c.checkInLoop(s.Span, "break")
@@ -2292,7 +2305,8 @@ func (c *Checker) compositeType(expr ast.Expr) (types.Type, bool) {
 // A return terminates, and so does a call to exit, which never returns,
 // an unreachable, which the checker proves is never reached, and, as in
 // Go, a fallthrough that ends a case other than its switch's last, which
-// goes on into the next case's body (see switchTerminates). An
+// goes on into the next case's body (see switchTerminates). A region
+// terminates when its body does, since the body runs once, in place. An
 // if only terminates when it has an else and both branches do, since
 // otherwise the condition being false falls through, and a switch likewise
 // only when it has a default and every case does. A loop only terminates
@@ -2320,20 +2334,26 @@ func terminatesBy(stmt ast.Stmt, blockEnds func([]ast.Stmt) bool) bool {
 		return s.Cond == nil && !breaks(s.Body)
 	case *ast.Switch:
 		return switchTerminatesBy(s, blockEnds)
+	case *ast.Region:
+		return blockEnds(s.Body)
 	default:
 		return false
 	}
 }
 
 // breaks reports whether body holds a break that leaves the loop body
-// belongs to: one directly in it or inside an if or a switch, which a
-// break does not leave, but not one inside a nested loop, which leaves only
-// that loop.
+// belongs to: one directly in it or inside an if, a switch or a region,
+// which a break does not leave, but not one inside a nested loop, which
+// leaves only that loop.
 func breaks(body []ast.Stmt) bool {
 	for _, stmt := range body {
 		switch s := stmt.(type) {
 		case *ast.Break:
 			return true
+		case *ast.Region:
+			if breaks(s.Body) {
+				return true
+			}
 		case *ast.If:
 			if breaks(s.Then) || breaks(s.Else) {
 				return true

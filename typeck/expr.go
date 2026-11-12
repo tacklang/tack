@@ -55,7 +55,8 @@ func (c *Checker) exprAt(e ast.Expr) types.Type {
 // package-level variable not checked yet, which a struct's
 // field may need first, is checked now. A variable held by an error cannot
 // be read before the error is checked (requireChecked). A scope parameter
-// is used only where scopeUse marks it.
+// is used only where scopeUse marks it, and so is a scope allocator, a
+// region's or a scope Allocator parameter (see isScopeAlloc).
 func (c *Checker) ident(id *ast.Ident) types.Type {
 	// The resolver reports a name bound to nothing, and the pipeline stops
 	// there; a tree that skipped it is reported here instead of passing as
@@ -75,6 +76,10 @@ func (c *Checker) ident(id *ast.Ident) types.Type {
 	}
 	if c.isScopeParam(id) && c.scopeUse != id {
 		c.scopeElsewhere(id)
+		return types.Invalid
+	}
+	if c.isScopeAlloc(id) && c.scopeUse != id {
+		c.scopeAllocElsewhere(id)
 		return types.Invalid
 	}
 	c.requireChecked(id)

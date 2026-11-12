@@ -2020,11 +2020,113 @@ section remains the description of the language.
   removed by a checked `pop` or `remove` cannot be read until its `ok`
   is checked (see lists); it has no `==` and no
   order, and cannot be passed as `any`. `c_allocator`, a keyword like
-  `noerror`, is the one `Allocator` there is: it lowers to C's `malloc`,
-  `realloc` and `free`, and is a constant expression, so `var a =
-  c_allocator` is a global. In C an `Allocator` is a `tack_allocator`,
-  the index of an allocator std's C keeps and its generation, and
-  `c_allocator` is `TACK_C_ALLOCATOR`, index 0 and generation 0.
+  `noerror`, lowers to C's `malloc`, `realloc` and `free`, and is a
+  constant expression, so `var a = c_allocator` is a global; the only
+  other allocators are regions', which are second class (see regions).
+  In C an `Allocator` is a `tack_allocator`, 8 bytes, the 16-bit index of
+  an allocator std's C keeps and its 48-bit generation, and `c_allocator`
+  is `TACK_C_ALLOCATOR`, index 0 and generation 0.
+- Regions. `region r { ... }` opens an allocator, `r`, that lives for its
+  block: `region` is a keyword, a statement of its own, `region is a
+  keyword and cannot be a name; a region is written region r { ... }`,
+  and `r` an immutable `Allocator` declared at the block's start, which
+  may be `_` and is `declared and not used: r` when never read. What is
+  made through `r`, by `make(list[T], r)` or a function given `r`, takes
+  its memory from chunks of at least 64 KiB the region takes from
+  `c_allocator`, bumping through the newest; the last buffer handed out
+  grows in place, its chunk with it when it is the chunk's only one, and
+  freeing it hands its bytes out again, while freeing any other does
+  nothing until the region ends. The block is left as any block is, by
+  falling off its end, `return`, `?`, `break` or `continue`, its defers
+  and frees run, and then the region ends, giving every chunk back in one
+  step; `exit` and an `unreachable` reached run no region's end, and
+  `c_allocator`'s release frees the chunks as its own buffers. A region
+  terminates when its body does, so `func f() int64 { region r { return
+  1 } }` needs no return after it, and no `fallthrough` leaves one: one
+  inside a region in a case is not its case's last statement,
+  `fallthrough must be the last statement of a case`, while a switch
+  written wholly inside a region falls through between its own cases as
+  anywhere. Opening a region takes no chunk and cannot fail, though it
+  may grow the region table through `c_allocator`, and an allocation
+  through it that `c_allocator` refuses a chunk for fails with
+  `error{code: 1, msg: "out of memory"}`, the list unchanged. The open
+  regions are a stack, the region table, which starts with room for 16
+  and doubles through `c_allocator`, made when the first region opens
+  and freed when the last one ends. A region's handle is its depth plus 1
+  in 16 bits and a generation of its own in 48, from one counter, and
+  both saturate: a region opened when the table cannot grow, 65534 or
+  more deep, or once the counter has reached its last value, so no
+  generation is ever taken twice, gets the dead handle, which matches no
+  allocator, so every allocation through it fails with code 1 and its end
+  only counts it ended. `r` is second class, as a
+  scope parameter of a function type is: it is only given to `make`,
+  passed to a parameter written `scope a Allocator`, of a function, a
+  method or a function type, `func(scope Allocator) int64`, or captured
+  by a closure, which goes to a scope parameter itself; anywhere else,
+  `a := r`, `g = r`, `return r`, `Holder{a: r}`, `[1]Allocator{r}`,
+  `append(mut as, r)`, it is `r is a region's allocator, which can only
+  be given to make or passed to a scope Allocator parameter`, with a note
+  at the region, `region r is opened here, and everything made through r
+  is given back when its block ends`; to a plain parameter, `take does
+  not take a as scope, and a region's allocator can only be passed to a
+  scope parameter`, and to an extern func's, `r is a region's allocator,
+  which never crosses to C, and take is an extern func`. A scope
+  `Allocator` parameter is under the same rule in its function, `a is a
+  scope Allocator parameter, which can only be given to make or passed to
+  another scope parameter`, takes any `Allocator`, `c_allocator`
+  included, and is never an extern func's, `parameter a of extern func
+  take cannot be scope: a region's allocator never crosses to C, and
+  c_allocator crosses as a plain Allocator; remove scope`. std's
+  functions that only allocate through the allocator they are given take
+  it as scope: `text.new`, `text.from_bytes`, `errors.from_bytes`,
+  `bytes.repeat`, `path.base`, `path.dir`, `path.clean`, `path.join`,
+  `os.args`, `os.env`, `os.read_file`, `os.list_dir`, `os.make_temp_dir`
+  and `os.run`. A value whose type owns memory is from `r` when it was
+  made inside the block by an expression given `r`, by a call with `r` or
+  a value from `r` among its operands, a closure capturing either among
+  them, or is a variable such a value was declared with, assigned to,
+  moved, appended, put, added or inserted into, or passed as `mut` to a
+  call alongside; and it may not reach anything that outlives the block:
+  `cannot return a value of type list[int64] holding memory from region
+  r: the region gives its memory back when its block ends`, from a
+  closure `... from a closure: a closure's results count as outside every
+  region`, `cannot assign a value of type list[int64] holding memory from
+  region r to outer: outer is declared outside the block of region r`,
+  `cannot append ... to outer: ...`, `cannot put ... in m: ...`, `cannot
+  add ... to a: ...`, `cannot replace the value of h.l with ...: h.l is
+  part of h, which is declared outside the block of region r`, a `mut`
+  parameter, a closure's included, `out is a mut parameter, which lives
+  outside every region`, and a call taking one, or `r`, alongside a `mut`
+  argument that owns memory declared outside, or a closure writing such
+  a variable, `cannot pass mut outer to fill alongside r, the allocator
+  of region r: the call could keep memory from region r in outer, and
+  outer is declared outside the block of region r`, `cannot pass a
+  closure that writes keep to run alongside ...`, each with the note.
+  A scope parameter of a function type is the caller's closure, which
+  may write anything it captures, so a call through one, or one passing
+  it on, by name or captured in a closure, takes neither `r` nor a value
+  from `r`, in any position: `cannot pass a value of type list[int64]
+  holding memory from region r to g, a scope parameter: the closure
+  behind it could keep memory from region r in anything it captures`,
+  or `... to h alongside g, a scope parameter: ...`; values not from the
+  region go to it freely.
+  So `os.run(argv, mut out, mut err_out, r)` with lists declared outside
+  the region is rejected, as any call given `r` beside an outer `mut`
+  list is. Integers, bools, strings, ids, spans and handles computed
+  from a region's values leave it freely, as does a list made through
+  `c_allocator` inside it, and a closure that captures `r` may write the
+  region's own variables. Regions nest: an inner region's values may not
+  reach the outer region's variables declared outside it, `cannot assign
+  a value of type list[int64] holding memory from region s to kept: kept
+  is declared outside the block of region s`, and the outer one's are
+  used freely inside it. The rule is checked within one function and is
+  conservative: a variable ever given a value from `r` counts as from
+  `r` throughout its scope, and an operand of a call counts whether or
+  not the callee keeps it, but for one passed as a view, to a view
+  parameter or spread, `append(mut out, l...)`, which owns nothing, so a
+  region's elements are copied out that way. In C, `region r` is a block that opens with
+  `const tack_allocator r = tack_region_push_();` and whose cleanup chain
+  starts with `tack_region_pop_(r);`, so it runs after every other.
 - Function values. A function's name used anywhere but as a call's callee,
   `double` or `bytes.equal`, is a value of its function type, written as
   a signature is, with types alone and commas between them,
@@ -2103,8 +2205,9 @@ section remains the description of the language.
   only with the same scope marks, `cannot use func(func()) as
   func(scope func()) in assignment to g`, as an interface's method and a
   type's must match. `scope` on a parameter that is not of a function
-  type is `parameter n cannot be scope: int64 is not a function type, and
-  only a function value can be scope; remove scope`, as in a function type;
+  type or `Allocator` (see regions) is `parameter n cannot be scope:
+  int64 is not a function type or Allocator, and only a function value or
+  an Allocator can be scope; remove scope`, as in a function type;
   `scope mut f` is `a parameter cannot be both scope and mut: a scope
   parameter is only called or passed on to another scope parameter, never
   assigned`, and `scope own f` the same of own; a variadic one, a result, `a result cannot be

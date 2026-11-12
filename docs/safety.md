@@ -2549,6 +2549,95 @@ checked form moves it out. An element is never moved out otherwise,
 `examples/pools` checks each of these with c_allocator's count of live
 buffers, under the address and undefined behavior sanitizers.
 
+## Regions
+
+A region, `region r { ... }`, is an allocator that lives for its block:
+what is made through `r` takes its memory from chunks the region takes
+from `c_allocator`, and the block's end gives every chunk back in one
+step, after the block's defers and frees, however the block is left.
+Its safety is three properties.
+
+**Nothing made through a region outlives its block.** A value whose type
+owns memory is from `r` when an expression given `r` made it inside the
+block, a call with `r` or a value from `r` among its operands or a
+closure capturing one of them, or when it is a variable such a value was
+declared with, assigned to, moved, appended, put, added or inserted
+into, or passed as `mut` to a call alongside. Such a value is never
+returned,
+<!-- error: region-escape-return -->`cannot return a value of type list[int64] holding memory from region r: the region gives its memory back when its block ends`,
+from a closure either, whose results count as outside every region
+(<!-- case: region-closure-result -->); never assigned to a variable
+declared outside the block, or a field or an element of one,
+<!-- error: region-escape-assign-outer -->`cannot assign a value of type list[int64] holding memory from region r to outer: outer is declared outside the block of region r`,
+a `mut` parameter's included, a closure's too
+(<!-- case: region-closure-mut-param -->); never appended, put, added,
+inserted or given to `replace` into an outer place,
+<!-- error: region-escape-append-outer -->`cannot append a value of type list[int64] holding memory from region r to outer: outer is declared outside the block of region r`;
+and no call takes one, or `r`, alongside an outer `mut` place that owns
+memory, or a closure that writes one, since the callee could store one
+into the other, but as a view, to a view parameter or spread, which
+keeps nothing, while a list passed plainly still counts, though the
+callee only borrows it, since the rule does not look into callees
+(<!-- case: region-escape-call-plain-arg -->),
+<!-- error: region-escape-call-mut-outer -->`cannot pass mut outer to fill alongside r, the allocator of region r: the call could keep memory from region r in outer, and outer is declared outside the block of region r`.
+A scope parameter of a function type is a closure of the caller's,
+which may write anything it captures, and no call site in the function
+shows what, so neither `r` nor a value from `r` goes to a call through
+one, in any position, own, mut, plain or as a scope `Allocator`,
+<!-- error: region-escape-scope-func-own -->`cannot pass a value of type list[int64] holding memory from region r to g, a scope parameter: the closure behind it could keep memory from region r in anything it captures`,
+nor to a call that passes one on, by name or captured in a closure
+(<!-- case: region-escape-scope-func-passed-on -->); values that are
+not from the region go to one freely. Named functions, std's, methods
+and plain function values keep the rule above: none captures anything.
+Each comes with a note at the region,
+<!-- note: region-escape-return -->`region r is opened here, and everything made through r is given back when its block ends`.
+Regions nest, and an inner region's values do not reach the outer
+region's variables declared outside the inner one
+(<!-- case: region-escape-inner-region -->). The rule is checked per
+function against every mark a variable is ever given, so a loop cannot
+carry a value from a region past an earlier check
+(<!-- case: region-escape-loop-later-move -->). Values that own nothing,
+integers, bools, strings, ids, spans and handles, and lists made through
+`c_allocator`, leave a region freely.
+
+**A region's allocator never outlives its block.** `r` is second class:
+it is only given to `make`, passed to a `scope a Allocator` parameter or
+captured by a closure, which only goes to a scope parameter itself;
+anywhere else,
+<!-- error: region-allocator-copy-local -->`r is a region's allocator, which can only be given to make or passed to a scope Allocator parameter`,
+and a scope `Allocator` parameter is under the same rule in its
+function,
+<!-- error: region-allocator-scope-param-global -->`a is a scope Allocator parameter, which can only be given to make or passed to another scope parameter`,
+so no callee keeps it past the call. It never reaches C,
+<!-- error: region-allocator-extern -->`r is a region's allocator, which never crosses to C, and take is an extern func`,
+since no extern func can take a scope `Allocator`
+(<!-- case: region-allocator-extern-scope -->); a list made through a
+region still crosses as `mut` or as a view, and C, which must not keep
+it, grows it through the region. A handle on a region that ended, which
+only C could keep, matches no allocator: every region takes a 48-bit
+generation of its own, so growing through one fails and freeing through
+one does nothing. The generation and the 16-bit depth index both
+saturate: a region opened once the counter is at its last value, or
+65534 or more deep, gets the dead handle, which no region ever holds, so
+no handle matches a region it was not given by.
+
+**Every chunk has exactly one owner.** Every way out of a region's block
+runs its end, after the block's defers and frees: falling off it,
+`return`, `?`, `break` and `continue`. No `fallthrough` leaves one, since
+one inside a region in a case is not that case's last statement
+(<!-- case: region-fallthrough-inside -->), while a switch written wholly
+inside a region falls through between its own cases as anywhere. A
+region's end frees its chunks,
+and the region table once no region is open; `exit` and an `unreachable`
+reached run no region's end, and `c_allocator` frees the chunks and the
+table then, as its own buffers, which nothing else frees. Allocation
+never aborts: a chunk `c_allocator` refuses, a table that cannot grow,
+a depth past the index and a generation counter at its last value each
+fail an allocation with
+`error{code: 1, msg: "out of memory"}`, the list as it was.
+`examples/regions` checks each of these with c_allocator's count of live
+buffers, under the address, undefined behavior and leak sanitizers.
+
 ## Function values
 
 A function value, a function's name used as a value, `f := double`, is

@@ -1023,7 +1023,8 @@ func nameSpan(decl ast.Decl) ast.Span {
 
 // resolveStmt binds every name a statement mentions, and declares any
 // variable it introduces in sc. Each branch of an if, each case of a
-// switch, a loop's body, and what a defer defers, is a block of its own.
+// switch, a loop's body, what a defer defers, and a region's body, is a
+// block of its own.
 func (r *pkgResolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 	switch s := stmt.(type) {
 	case *ast.Return:
@@ -1042,9 +1043,26 @@ func (r *pkgResolver) resolveStmt(stmt ast.Stmt, sc *scope) []diag.Diagnostic {
 		return r.resolveSwitch(s, sc)
 	case *ast.Defer:
 		return r.resolveBlock(s.Body, sc)
+	case *ast.Region:
+		return r.resolveRegion(s, sc)
 	default:
 		return r.resolveSimpleStmt(stmt, sc)
 	}
+}
+
+// resolveRegion resolves a region: its name, a variable of the region's
+// own scope unless it is _, which binds nothing, and its body, a block
+// nested in that scope, so the body can name the region's allocator and
+// nothing after the region can. A name never read is reported as a range
+// loop's variable is.
+func (r *pkgResolver) resolveRegion(s *ast.Region, sc *scope) []diag.Diagnostic {
+	inner := newScope(sc)
+	var diags []diag.Diagnostic
+	if s.Var.Name != ast.Blank {
+		diags = r.declareVar(s.Var, inner)
+	}
+	diags = append(diags, r.resolveBlock(s.Body, inner)...)
+	return append(diags, r.unused(inner)...)
 }
 
 // resolveSwitch resolves a switch: its tag and every case value where the

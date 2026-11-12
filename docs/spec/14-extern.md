@@ -78,7 +78,14 @@ main.tck:12:10: error: cannot use now as a value: it is an extern func, and a fu
 
 An extern func's parameter is never `scope`, `parameter f of extern func
 take cannot be scope: a function value does not cross to C`, as no
-function value crosses to C.
+function value crosses to C, nor a scope `Allocator`, `parameter a of
+extern func take cannot be scope: a region's allocator never crosses to
+C, and c_allocator crosses as a plain Allocator; remove scope`. So a
+region's allocator, which only a scope parameter takes, never reaches C,
+`r is a region's allocator, which never crosses to C, and take is an
+extern func`; a list made through one still crosses as a `mut`
+parameter or as a view, and C grows it through the region with
+`TACK_LIST_APPEND`, as any list through its own allocator.
 
 ## C names
 
@@ -203,7 +210,7 @@ two say.
 | an `args ...T` parameter    | `tack_view_T`, as for `[]T`: the values the call passed, in order, or the view it spread; `ptr` null and `len` 0 for no values         |
 | an `a any` parameter        | `tack_any`: `uint32_t type; const void *ptr;`, by value                                                                                |
 | an `args ...any` parameter  | `tack_view_any`: `const tack_any *ptr; int64_t len;`                                                                                   |
-| `Allocator`                 | `tack_allocator`: `uint32_t index; uint32_t gen;`, by value, an opaque handle                                                          |
+| `Allocator`                 | `tack_allocator`: `uint16_t index; uint16_t gen_high; uint32_t gen_low;`, by value, an opaque handle                                   |
 | a `mut l list[T]` parameter | `tack_list_T *`: `T *ptr; int64_t len; int64_t cap; tack_allocator alloc;`, a pointer to the caller's list, valid only during the call |
 
 A view crosses only into C: an extern func cannot return one, `extern
@@ -372,7 +379,9 @@ func f cannot be S, which holds one: ...`.
   first. Neither allocates or frees.
 
 An `Allocator` is a `tack_allocator`, an opaque handle; `c_allocator` is
-`TACK_C_ALLOCATOR`.
+`TACK_C_ALLOCATOR`. A region's handle never reaches C, but a list made
+through a region holds it, so C must not keep a list past the call, as
+for any list: once the region ends, its handle matches no allocator.
 
 The rules C must keep for a list are under [The trust
 boundary](#the-trust-boundary).

@@ -80,6 +80,12 @@ type error struct {
 
 // Allocator is an opaque handle on an allocator, which a list grows and is
 // freed through. It is copyable, and has no zero value, no order and no ==.
+// A region's allocator, the name of region r { ... }, is one too, but
+// second class: it is only given to make, passed to a parameter written
+// scope a Allocator, or captured by a closure, and such a parameter is
+// under the same rule in its function. Any Allocator may be passed to a
+// scope one. An extern func cannot take one as scope, so a region's
+// allocator never reaches C.
 type Allocator Allocator
 
 // id is written id[T]: an index into an arena[T], naming one of its
@@ -122,7 +128,7 @@ var false bool
 var noerror error
 
 // c_allocator is the Allocator that lowers to C's malloc, realloc and
-// free, the one Allocator there is.
+// free. The only other allocators are regions', whose chunks it gives.
 var c_allocator Allocator
 
 // Functions
@@ -150,7 +156,8 @@ func len(v Sized) int64
 // and is freed through it when its owner's block ends. make(arena[T],
 // sentinel, alloc) returns an arena holding only sentinel, which it moves
 // in, as its element at id 0, and make(pool[T], alloc) an empty pool with
-// a tag of its own. Each allocates nothing, so it cannot fail.
+// a tag of its own. Each allocates nothing, so it cannot fail. alloc may
+// be a region's allocator, or a scope Allocator parameter.
 func make(t ListType, alloc Allocator) ListType
 
 // append appends elems to the end of l, in order, growing its buffer

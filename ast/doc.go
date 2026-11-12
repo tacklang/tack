@@ -60,6 +60,10 @@
 // does not follow the link.
 // A Defer holds the statements of its defer { ... } as a body, a block of
 // their own, which may hold another Defer; the checker rejects that.
+// A Region holds the statements of its region r { ... } as a body, a block
+// of their own, and r as a Var with no type or value written, which the
+// resolver declares at the body's start and the checker gives the type
+// Allocator; Walk visits the Var, then the body.
 // A BadDecl or a BadStmt stands for a declaration or a statement the
 // parser could not parse, which it reported and skipped (see bad.go); a
 // BadDecl keeps the name it was declaring, when the parser got that far.

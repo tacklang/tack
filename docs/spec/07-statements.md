@@ -7,7 +7,8 @@ blocks, expression statements, assignments and compound assignments,
 switches on `any`, switches on a union's cases, the loop forms (`for
 cond`, three-clause loops, `range` over integers, arrays, strings,
 views, lists and maps), `break` and `continue`, `return`, `defer` and
-its block scope, `unreachable`, and terminating statements: which statements
+its block scope, `unreachable`, `region` and the block its allocator
+lives for, and terminating statements: which statements
 terminate, a call to `exit` among them, and that a function with
 results must end in one. It also names which statements cannot stand
 alone. Declarations inside a body belong in [Declarations and
@@ -894,6 +895,84 @@ second
 first
 ```
 
+## Region statements
+
+```text
+region r { ... }
+```
+
+A `region` statement opens an allocator that lives for its block, binds
+it to `r`, an immutable variable of type `Allocator` declared at the
+start of the block, runs the block once, in place, and gives back every
+buffer the allocator handed out when the block is left, by any path:
+falling off its end, or a `return`, a `?`, a `break` or a `continue`
+that leaves it, through any number of nested blocks. The region ends
+after the block's defers and frees, as a defer written first in the
+block would: they still see what was made through it. `region` is a
+keyword, so it is never a name, `region is a keyword and cannot be a
+name; a region is written region r { ... }`. The name may be `_`, which
+binds nothing; one never read is `declared and not used: r`, a warning,
+as for a range loop's variable. The parent of every region is
+`c_allocator` today.
+
+Opening a region cannot fail and takes no chunk, though it may grow
+the runtime's table of open regions through `c_allocator`, the first
+region opened making it: the first allocation through the region takes
+its first chunk, and one that cannot be
+taken fails with `error{code: 1, msg: "out of memory"}`, as any
+allocation does. A region opened when the runtime cannot grow its table
+of open regions, 65534 or more regions deep, or once every 48-bit
+generation a region can take has been taken, gets a handle that matches
+no allocator, so every allocation
+through it fails the same way, and its end does nothing more. `exit`
+runs no region's end; what the regions took is freed before the process
+ends (see [Ownership and memory](08-ownership.md)). What may be done
+with `r`, and with what is made through it, is in [Ownership and
+memory](08-ownership.md).
+
+A `fallthrough` cannot leave a region: one inside a region's block is
+not the last statement of its case, `fallthrough must be the last
+statement of a case`, while a switch written wholly inside the block
+falls through between its own cases as anywhere.
+
+```tack run exit=0
+package main
+
+func sum(n int64) int64 {
+    region r {
+        mut l := make(list[int64], r)
+        for i := range n {
+            err := append(mut l, i)
+            if err.code != 0 {
+                return -1
+            }
+        }
+        mut s int64 = 0
+        for _, v := range l {
+            s = s +% v
+        }
+        return s
+    }
+}
+
+func main() {
+    for i := range 3 {
+        region r {
+            l := make(list[int64], r)
+            if i == 1 {
+                continue
+            }
+            if len(l) != 0 {
+                exit(1)
+            }
+        }
+    }
+    if sum(5) != 10 {
+        exit(2)
+    }
+}
+```
+
 ## Terminating statements
 
 A terminating statement is one of:
@@ -912,7 +991,9 @@ A terminating statement is one of:
    `default`, whose every clause's body ends in a terminating statement;
 6. a `for` loop with no condition, `for { ... }` or a three-clause loop
    whose `cond` is left out, that no `break` leaves. A `break` inside a
-   `switch` in the loop leaves it; one inside a nested loop does not.
+   `switch` or a region in the loop leaves it; one inside a nested loop
+   does not;
+7. a `region` statement whose block ends in a terminating statement.
 
 A block ends in a terminating statement when its last statement is one.
 A function that declares a result must end in a terminating statement,

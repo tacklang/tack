@@ -17,8 +17,8 @@ import bytes from "std/bytes"
 // read-only view bytes returns, in place, with no copy: it can be passed
 // to fmt.write, to std/bytes' functions or to any []uint8 parameter.
 //
-// new and from_bytes take the Allocator a Text grows through; no other
-// function or method takes one. append and append_byte grow it, all or
+// new and from_bytes take the Allocator a Text grows through, as scope, so
+// it may be a region's; no other function or method takes one. append and append_byte grow it, all or
 // nothing as the builtin append is: when the list cannot grow, the error
 // is error{code: 1, msg: "out of memory"} and the Text is left exactly as
 // it was, its length and its bytes.
@@ -40,7 +40,7 @@ pub type Text struct {
 
 // new returns an empty Text that grows through alloc. It allocates
 // nothing until bytes are appended, so it cannot fail.
-pub func new(alloc Allocator) Text {
+pub func new(scope alloc Allocator) Text {
     return Text{b: make(list[uint8], alloc)}
 }
 
@@ -50,7 +50,7 @@ pub func new(alloc Allocator) Text {
 // nothing. When alloc cannot give the buffer, the error is error{code: 1,
 // msg: "out of memory"} and the Text is empty, having allocated nothing;
 // it must still be bound, as every Text must.
-pub func from_bytes(s []uint8, alloc Allocator) (Text, error) {
+pub func from_bytes(s []uint8, scope alloc Allocator) (Text, error) {
     mut b := make(list[uint8], alloc)
     err := append(mut b, s...)
     return Text{b: b}, err

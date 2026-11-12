@@ -7,7 +7,8 @@ the rule that a `mut` argument is the only way to reach its place during
 the call, views and the borrows they make (view parameters and view
 results, and the conversion of a string to a view of its bytes,
 `[]uint8(s)`), lists and maps as owners, allocators and what a list or
-map holds of one, when memory is freed (end of scope, reassignment,
+map holds of one, regions and the escape rule that keeps what is made
+through one inside its block, when memory is freed (end of scope, reassignment,
 `defer`, early return), and what `exit` frees before the process ends.
 It is the chapter that shows guarantees 2 and 3 (no leak, no
 use-after-free) hold. The types themselves belong in
@@ -841,12 +842,152 @@ An `Allocator` is an opaque handle on an allocator: a list, a map, an
 arena or a pool holds the one it was made with, grows through it, and is freed through it. An
 `Allocator` is copyable; copying it copies the handle, not the
 allocator. The `Allocator` type's other properties, and `c_allocator`,
-are described in [Types](04-types.md).
+are described in [Types](04-types.md); a region's allocator, which is
+second class, below.
+
+## Regions
+
+A region statement, `region r { ... }`, opens an allocator, `r`, that
+lives for its block (see [Statements](07-statements.md)): what is made
+through `r`, by `make` given `r` or by a function given `r` for a scope
+`Allocator` parameter, takes its memory from chunks the region takes from
+`c_allocator`, and the end of the block gives every chunk back in one
+step, however the block is left. Each owned value made through `r` is
+still freed by its owner, as any is, which costs almost nothing, so a
+value from a region is freed exactly once, as any value is.
+
+`r` is second class, as a scope parameter of a function type is: it can
+only be given to `make` as its allocator, passed to a parameter written
+`scope a Allocator`, or captured by a closure, which can only be passed
+to a scope parameter. Anywhere else, copied into a local, assigned,
+returned, put in a field, an array, a list, a map or a global, it is `r
+is a region's allocator, which can only be given to make or passed to a
+scope Allocator parameter`; passed to a plain `Allocator` parameter it is
+`take does not take a as scope, and a region's allocator can only be
+passed to a scope parameter`, and to an extern func's, `r is a region's
+allocator, which never crosses to C, and take is an extern func`. A
+scope `Allocator` parameter is under the same rule in its function, `a
+is a scope Allocator parameter, which can only be given to make or
+passed to another scope parameter`, so no callee keeps a region's
+allocator past the call. Any `Allocator` may be passed to one,
+`c_allocator` included.
+
+A value is from `r` when its type owns memory and it may hold memory `r`
+handed out: it was made inside `r`'s block by an expression given `r`,
+a call with `r`, or a value from `r`, among its operands, a method
+call's receiver and a closure's captures included, or it is a variable a
+value from `r` was declared with, assigned to, moved, appended, put,
+added or inserted into, or passed as `mut` to a call alongside. A value
+from `r` may not reach anything that lives longer than `r`'s block:
+
+- it is not returned, from the function or from a closure, whose results
+  live outside every region, `cannot return a value of type list[int64]
+  holding memory from region r: the region gives its memory back when
+  its block ends`;
+- it is not assigned to a variable declared outside the block, or to a
+  field or an element of one, a parameter's included, `cannot assign a
+  value of type list[int64] holding memory from region r to outer: outer
+  is declared outside the block of region r`;
+- it is not appended, put, added, inserted or given to `replace` into a
+  place declared outside the block, `cannot append a value of type
+  list[int64] holding memory from region r to outer: outer is declared
+  outside the block of region r`;
+- no call takes it, or `r`, together with a `mut` argument whose type
+  owns memory declared outside the block, or a closure that writes such a
+  variable, since the callee could store one into the other, `cannot pass
+  mut outer to fill alongside r, the allocator of region r: the call
+  could keep memory from region r in outer, and outer is declared outside
+  the block of region r`;
+- no call through a scope parameter of a function type takes it, or `r`,
+  in any position, nor does a call that passes such a parameter on, by
+  name or captured in a closure: the closure behind it is the caller's
+  and may write anything it captures, `cannot pass a value of type
+  list[int64] holding memory from region r to g, a scope parameter: the
+  closure behind it could keep memory from region r in anything it
+  captures`. Named functions, methods and plain function values capture
+  nothing, and keep the rule above.
+
+Each of these has a note at the region, `region r is opened here, and
+everything made through r is given back when its block ends`. Values
+that own nothing are never from a region, so an integer, a bool, a
+string, an id, a span or a handle computed from one leaves freely, and a
+list made through `c_allocator` inside a region is not from it. Regions
+nest: inside a region `s` in `r`, values from `r` may be used freely,
+and values from `s` may not reach a place of `r`'s block declared
+outside `s`'s. The rule is checked within one function, and needs no
+annotation on any other: a callee given `r` sees a scope `Allocator`,
+and what it makes through it leaves it only through its results and its
+`mut` arguments, which the call's rules cover. An operand passed as a
+view, to a view parameter or spread, `append(mut out, l...)`, owns
+nothing, as any view, so the elements of a list from `r` are copied out
+that way. The rule is conservative: a variable that is ever given a
+value from `r` counts as from `r` everywhere in its scope, before that
+point included, and any other operand counts whether or not the callee
+keeps it.
+
+```tack run exit=0
+package main
+
+func fill(n int64, scope a Allocator) list[int64] {
+    mut l := make(list[int64], a)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func main() {
+    mut total int64 = 0
+    region r {
+        l := fill(10, r)
+        for _, v := range l {
+            total = total +% v
+        }
+    }
+    if total != 45 {
+        exit(1)
+    }
+}
+```
+
+A list made through a region appended to one declared outside it is
+the escape the rule stops:
+
+```tack error
+package main
+
+func main() {
+    mut outer := make(list[list[int64]], c_allocator)
+    region r {
+        err := append(mut outer, make(list[int64], r))
+        if err.code != 0 {
+            exit(1)
+        }
+    }
+    if len(outer) != 1 {
+        exit(1)
+    }
+}
+```
+
+```diagnostics
+main.tck:6:34: error: cannot append a value of type list[int64] holding memory from region r to outer: outer is declared outside the block of region r
+main.tck:5:5: note: region r is opened here, and everything made through r is given back when its block ends
+```
+
+`exit` inside a region, or an `unreachable` reached in one, runs no
+region's end: the chunks are `c_allocator`'s buffers, which it frees
+before the process ends, as it frees every buffer it holds.
 
 ## When memory is freed
 
 An owned local variable is freed where its block ends, however the block is left: by
-falling off its end, `return`, `break` or `continue`. The free runs as if
+falling off its end, `return`, `break` or `continue`. A region's end runs
+after every free and defer of its block, so they all still see what was
+made through it. The free runs as if
 a defer freeing the variable were written right after its declaration, so
 frees and defers run together, last first, by position, and a defer
 written after the declaration still reads the variable.

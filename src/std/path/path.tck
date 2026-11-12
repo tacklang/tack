@@ -18,7 +18,7 @@ import text from "std/text"
 //
 // ext returns a view of the path it is given, its last element's
 // extension. base, dir, clean and join return a text.Text, made through
-// the Allocator they are given, since what they give is not always part
+// the Allocator they are given, as scope, so it may be a region's, since what they give is not always part
 // of what they were given: base("") is ".", and dir("a/./b/c") is "a/b",
 // cleaned. Each of those fails only for want of memory, with
 // error{code: 1, msg: "out of memory"} and an empty Text, freeing what it
@@ -69,7 +69,7 @@ pub func ext(p []uint8) []uint8 {
 
 // text_of returns a Text made through alloc holding the bytes of b, and
 // no error, or an empty Text and the error of making it.
-func text_of(b []uint8, alloc Allocator) (text.Text, error) {
+func text_of(b []uint8, scope alloc Allocator) (text.Text, error) {
     t, e := text.from_bytes(b, alloc)
     if e.code != 0 {
         return text.new(alloc), e
@@ -80,7 +80,7 @@ func text_of(b []uint8, alloc Allocator) (text.Text, error) {
 // base returns the last element of p, its trailing slashes removed:
 // base("a/b/") is "b". A path of slashes alone is "/", and an empty one
 // ".".
-pub func base(p []uint8, alloc Allocator) (text.Text, error) {
+pub func base(p []uint8, scope alloc Allocator) (text.Text, error) {
     if len(p) == 0 {
         t, e := text_of([]uint8("."), alloc)
         if e.code != 0 {
@@ -114,7 +114,7 @@ pub func base(p []uint8, alloc Allocator) (text.Text, error) {
 // dir("a/b/c") is "a/b", dir("a") is ".", and dir("/") is "/". The
 // trailing slashes of what is left are dropped by the cleaning, so it
 // ends in a slash only when it is "/".
-pub func dir(p []uint8, alloc Allocator) (text.Text, error) {
+pub func dir(p []uint8, scope alloc Allocator) (text.Text, error) {
     mut i := len(p)
     for i > 0 && at(p, i - 1) != '/' {
         i--
@@ -222,7 +222,7 @@ func clean_into(mut out list[uint8], p []uint8) error {
 // clean returns the shortest path that names what p does, by Go's
 // path.Clean rules (see clean_into): clean("a//b/./c/..") is "a/b",
 // clean("/../a") is "/a", clean("../a") is "../a", and clean("") is ".".
-pub func clean(p []uint8, alloc Allocator) (text.Text, error) {
+pub func clean(p []uint8, scope alloc Allocator) (text.Text, error) {
     mut out := make(list[uint8], alloc)
     e := clean_into(mut out, p)
     if e.code != 0 {
@@ -240,7 +240,7 @@ pub func clean(p []uint8, alloc Allocator) (text.Text, error) {
 // "../xyz") is "a/xyz", an empty element is left out, so join("a", "")
 // is "a", and two empty ones give an empty Text, not ".", allocating
 // nothing.
-pub func join(a []uint8, b []uint8, alloc Allocator) (text.Text, error) {
+pub func join(a []uint8, b []uint8, scope alloc Allocator) (text.Text, error) {
     if len(a) == 0 && len(b) == 0 {
         return text.new(alloc), noerror
     }

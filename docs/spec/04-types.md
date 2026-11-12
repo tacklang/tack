@@ -179,10 +179,15 @@ local, a parameter, a result, a field, an array's or a list's element or
 a global. It has no zero value, no `==` and no order, and cannot be
 passed as `any`.
 
-`c_allocator` is a keyword, and the one value of type `Allocator` there
-is: the allocator that lowers to C's `malloc`, `realloc` and `free`. It
-is a constant expression, so a package-level variable may be initialized
-with it.
+`c_allocator` is a keyword, the allocator that lowers to C's `malloc`,
+`realloc` and `free`. It is a constant expression, so a package-level
+variable may be initialized with it. The only other allocators are
+regions' (see [Statements](07-statements.md)): a region's allocator is
+an `Allocator` too, but second class, given only to `make` or passed to
+a parameter written `scope a Allocator`, which is under the same rule in
+its function (see [Ownership and memory](08-ownership.md)). Any
+`Allocator` may be passed to a scope one. An `Allocator` is 8 bytes, a
+16-bit index and a 48-bit generation.
 
 ## Arrays
 
@@ -489,7 +494,7 @@ of its parameters alone and its results: `func(int64) int64`,
 parameter is written `mut T`, an `own` parameter `own T` and a `scope`
 parameter, which takes a function value that does not outlive the call,
 `scope F`, `F` a function type: `func(list[int64], scope func(int64,
-int64) bool)`. A function
+int64) bool)`, or an `Allocator` that does not, `scope Allocator`. A function
 type's parameters have no names; none is variadic, `any`, or a `mut`
 view; and it has no view result.
 
