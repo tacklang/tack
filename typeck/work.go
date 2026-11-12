@@ -28,7 +28,9 @@ package typeck
 // ending put in a fact's own endings, or judged into the endings of a
 // block's rest that the facts over it share (see sharedEnds), and each
 // ending compared to find whether one fact's endings are among
-// another's (see endsWithin). They count work,
+// another's (see endsWithin); and rebuilt each query's graph built again
+// keeping edges alike, as its search did not settle (see buildGraph).
+// They count work,
 // not time, so a test can bound how checking grows with the program
 // checked, whatever else the machine is doing.
 type proverWork struct {
@@ -46,4 +48,5 @@ type proverWork struct {
 	decided    int
 	copied     int
 	ended      int
+	rebuilt    int
 }

@@ -263,6 +263,11 @@ type Checker struct {
 	// closure's body reads its own (see relindex.go).
 	relIdx *relIndex
 
+	// plainEnds is a set a query's graph takes, cleared, to find the
+	// edges alike to those it has taken, and gives back once built, so
+	// that each query does not make its own (see graphBuilder.taken).
+	plainEnds map[edgeEnds]bool
+
 	// holding is what the bindings of errors in the function being checked
 	// tie together; see errors.go.
 	holding holding

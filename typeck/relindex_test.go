@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/tacklang/tack/internal/invalid"
@@ -54,6 +55,93 @@ func relatedLocals(n int) []string {
 	}
 	return append(lines, "return t")
 }
+
+// boundParam returns j proven, then n times a new local copied from i, an
+// early exit proving it below the parameter d and d at most len(a), and a
+// use of a through the local: d is never written, so every exit's bound
+// d <= 4 holds wherever the first does, each linked to the one before it,
+// and each use's graph reaches d and every one of those bounds, alike.
+func boundParam(n int) []string {
+	lines := provenJ()
+	for k := range n {
+		v := "v" + strconv.Itoa(k)
+		lines = append(lines, v+" := i", "if "+v+" < 0 || d > len(a) || "+v+" >= d {", "return -1", "}", "t +%= a["+v+"]")
+	}
+	return append(lines, "return t")
+}
+
+// contradictedUses returns boundLocals' 70 locals, each proven at least
+// 0, then boundParam with each use under a guard that contradicts the
+// bound every exit puts on d, d <= 4: each use's graph holds a cycle of
+// negative weight, so its search does not settle, and the query answers
+// from the graph keeping every edge alike, which takes each exit's bound
+// on d, folded into the first's (see relIndex.fold), and, as 0's chains
+// to the locals fill the graph before it reaches d, takes them once it
+// is full (see graphBuilder.takeRest).
+func contradictedUses(n int) []string {
+	lines := provenJ()
+	for k := range 70 {
+		u := "u" + strconv.Itoa(k)
+		lines = append(lines, u+", _ := pair()", "if "+u+" < 0 {", "return -1", "}")
+	}
+	for k := range n {
+		v := "v" + strconv.Itoa(k)
+		lines = append(lines, v+" := i", "if "+v+" < 0 || d > len(a) || "+v+" >= d {", "return -1", "}",
+			"if d > 5 { t +%= a["+v+"] }")
+	}
+	return append(lines, "return t")
+}
+
+// leftBound returns boundParam on m, a mutable copy of d, each exit
+// followed by a branch that writes m and leaves: every exit's bound
+// m <= 4 holds after the branch, which ends only the older ones, and only
+// in the branch, so each shadows the one before it without holding at
+// the same places, is linked to it rather than folded, and each use's
+// graph takes every one of those bounds, alike, and drops all but the
+// first (see graphBuilder.add).
+func leftBound(n int) []string {
+	lines := append(provenJ(), "mut m := d")
+	for k := range n {
+		v := "v" + strconv.Itoa(k)
+		lines = append(lines, v+" := i", "if "+v+" < 0 || m > len(a) || "+v+" >= m {", "return -1", "}",
+			"if "+v+" == 3 {", "m = 2", "return -1", "}", "t +%= a["+v+"]")
+	}
+	return append(lines, "return t")
+}
+
+// repeatedConditions is a program whose graph for a query about w takes
+// the relation x + 3 <= v twice, an edge with the condition that x + 3
+// does not wrap, among bounds near the least int64: the graph keeping
+// every edge admits the first copy and leaves the second pending, judged
+// once the first has joined. A graph that kept one copy of an edge with
+// conditions would have no edge pending, and so no note naming one (see
+// relGraph.wrapping).
+const repeatedConditions = `package main
+
+func f(w int64, v int64, x int64, a [4]int64) int64 {
+    if w > -9223372036854775807 {
+        return -1
+    }
+    if v > w {
+        return -1
+    }
+    if x > v {
+        return -1
+    }
+    if x + 3 > v {
+        return -1
+    }
+    if x + 3 > v {
+        return -1
+    }
+    return a[w]
+}
+
+func main() {
+    code, fits := int32(f(1, 1, 1, [4]int64{1, 2, 3, 4}))
+    if fits { exit(code) }
+}
+`
 
 // relatedUse returns a new local copied from i, an early exit proving it
 // below d and d at most len(a), and a use of a through it, which only a
@@ -106,12 +194,14 @@ func relatedLoops(n int) []string {
 // relation between variables the code before it writes, measured for
 // how the queries of the relations grow: straight-line code, the same
 // with a closure after each exit, with each pair of writes in a loop,
-// and with new locals related at each exit in place of the writes.
+// with new locals related at each exit in place of the writes, and with
+// a new local at each exit related to a parameter each exit bounds alike.
 var relationShapes = []programShape{
 	{"related writes", func(n int) string { return inF(relatedWrites(n)...) }},
 	{"related locals", func(n int) string { return inF(relatedLocals(n)...) }},
 	{"related writes with closures", func(n int) string { return withCall(relatedClosures(n)...) }},
 	{"related writes in loops", func(n int) string { return inF(relatedLoops(n)...) }},
+	{"bound parameter", func(n int) string { return inF(boundParam(n)...) }},
 }
 
 // TestRelatedExitsGrowLinearly checks that each of relationShapes, with
@@ -121,10 +211,15 @@ var relationShapes = []programShape{
 // which is kept in step with the facts as they are pushed and popped, and
 // the edges the queries look at, which, of the facts alike that each exit
 // puts in force, judge only the newest that hold and the one before them,
-// and, once a query's graph is full, only the edges to its nodes and as
-// many others as tell whether one caps it. Building the index again from
-// every fact in force after each exit, or judging every edge a query
-// reaches, would make them quadratic. With the relation oracle on, every
+// of those that hold exactly where an older one does only that one (see
+// relIndex.fold), and, once a query's graph is full, only the edges to
+// its nodes and as many others as tell whether one caps it; and the
+// endings compared,
+// which a fact pushed compares with those of the one it shadows, to
+// fold it, only when they are as many. Building the index again from
+// every fact in force after each exit, judging every edge a query
+// reaches, or walking the endings of every fact shadowed would make them
+// quadratic. With the relation oracle on, every
 // query scans every fact in force too, so the test is skipped.
 func TestRelatedExitsGrowLinearly(t *testing.T) {
 	if typeck.RelationOracle() || typeck.ReachOracle() {
@@ -143,6 +238,7 @@ func TestRelatedExitsGrowLinearly(t *testing.T) {
 			checkGrowth(t, "facts indexed", small.Indexed, grown.Indexed)
 			checkGrowth(t, "relation steps", small.Relations, grown.Relations)
 			checkGrowth(t, "facts read", small.Scanned, grown.Scanned)
+			checkGrowth(t, "endings compared", small.Ended, grown.Ended)
 		})
 	}
 }
@@ -171,6 +267,59 @@ func TestClosuresAfterRelatedExitsIndexLinearly(t *testing.T) {
 	}
 	checkGrowth(t, "facts indexed", small.Indexed, grown.Indexed)
 	checkGrowth(t, "relation steps", small.Relations, grown.Relations)
+}
+
+// lowBounds returns, in g, which takes a list a, n locals copied from a
+// parameter, each proven above a negative bound of its own, then i
+// proven below n, at most len(a), and n uses of a[i]: each use's graph
+// reaches 0, the length's range, from len(a) to 0 of the largest int64,
+// and the locals' bounds, edges of positive weight out of 0, so a search
+// sums past an int64 though the facts can all be true. A program holding
+// it needs g's call (see withList).
+func lowBounds(n int) []string {
+	lines := []string{"mut t int64 = 0"}
+	for k := range n {
+		v := "k" + strconv.Itoa(k)
+		lines = append(lines, v+" := d", "if "+v+" < "+strconv.Itoa(-1-k)+" || "+v+" > 100 { return -1 }")
+	}
+	lines = append(lines, "if i < 0 || i >= n || n > len(a) { return -1 }")
+	for range n {
+		lines = append(lines, "t +%= a[i]")
+	}
+	return append(lines, "return t")
+}
+
+// withList returns body as the body of g, which takes a list a and the
+// parameters inF's f takes but for its array, and a call of it from f.
+func withList(body ...string) string {
+	return inF("return g(a[:], n, d, i)") + "\nfunc g(a []int64, n int64, d int64, i int64) int64 {\n    " +
+		strings.Join(body, "\n    ") + "\n}\n"
+}
+
+// TestConsistentGraphsAreNotRebuilt checks that no query builds its graph
+// again keeping edges alike (see buildGraph) where the facts can all be
+// true, in lowBounds, whose searches sum past an int64, and in each of
+// relationShapes, while contradictedUses, whose searches each reach a
+// cycle of negative weight, builds them again, so the count is seen to
+// count: a query that left out no edge answers from its own graph, which
+// is the one keeping them.
+func TestConsistentGraphsAreNotRebuilt(t *testing.T) {
+	srcs := map[string]string{"low bounds": withList(lowBounds(300)...)}
+	for _, shape := range relationShapes {
+		srcs[shape.name] = shape.src(300)
+	}
+	for name, src := range srcs {
+		diags, work := checkWork(t, src)
+		if len(diags) > 0 {
+			t.Fatalf("%s: got %d diagnostics, first %v", name, len(diags), diags[0])
+		}
+		if work.Rebuilt != 0 {
+			t.Errorf("%s: %d graphs built again", name, work.Rebuilt)
+		}
+	}
+	if _, work := checkWork(t, inF(contradictedUses(30)...)); work.Rebuilt == 0 {
+		t.Errorf("contradicted uses: no graph built again")
+	}
 }
 
 // BenchmarkRelatedExits times checking each of relationShapes at 1000,
@@ -229,6 +378,7 @@ func TestRelationIndexMatchesScanOnPrograms(t *testing.T) {
 		check(t, name, []byte(src))
 	}
 	check(t, "related exits", []byte(relatedExits))
+	check(t, "repeated conditions", []byte(repeatedConditions))
 	for _, shape := range relationShapes {
 		for _, n := range []int{1, 3, 9, 17, 40} {
 			check(t, fmt.Sprintf("%s/%d", shape.name, n), []byte(shape.src(n)))
@@ -241,6 +391,8 @@ func TestRelationIndexMatchesScanOnPrograms(t *testing.T) {
 		check(t, fmt.Sprintf("related locals/%d", n), []byte(inF(relatedLocals(n)...)))
 		check(t, fmt.Sprintf("bound locals/%d", n), []byte(inF(boundLocals(n)...)))
 		check(t, fmt.Sprintf("interleaved chains/%d", n), []byte(inF(interleavedChains(n)...)))
+		check(t, fmt.Sprintf("left bound/%d", n), []byte(inF(leftBound(n)...)))
+		check(t, fmt.Sprintf("contradicted uses/%d", n), []byte(inF(contradictedUses(n)...)))
 	}
 	shapes := append(factShapes[:len(factShapes):len(factShapes)], regionShapes...)
 	shapes = append(shapes, reachShapes...)

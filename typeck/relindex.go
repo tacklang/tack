@@ -3,6 +3,7 @@ package typeck
 import (
 	"fmt"
 	"iter"
+	"maps"
 	"reflect"
 	"slices"
 
@@ -42,6 +43,18 @@ import (
 // provenWithout clear what ends some facts, so a fact shadowed could
 // hold where its shadow does not: while either is checking, a query
 // judges every edge, and no fact pushed is linked.
+//
+// A block of n early exits that each put the same bound on a variable
+// nothing writes puts n facts alike in force, each shadowing the one
+// before it and every one holding wherever the first does, so a chain of
+// them would hold n edges alike, all held, and a query would walk every
+// one, though its graph keeps only the first of edges alike (see
+// graphBuilder.add). So a fact g pushed that shadows f, where every
+// ending of f is also one of g, which then hold at the same places, and
+// whose edges have no condition, has its edges folded into f's (see
+// fold): they head no chain and are on none, a query walking the chain
+// finds f's, the first of the two, and a graph keeping edges alike takes
+// g's after f's (see folds).
 //
 // A block of n early exits that each relate new locals puts n facts in
 // force that no other shadows, one bound on each local against 0, so 0
@@ -94,7 +107,8 @@ var relationOracle = factOracle
 // stored value's, in that order; heads, for each node, the newest edge of
 // each chain of links among those (see relEdge.prev); pairs, for each
 // node and another, the slots in the first's heads of the chains between
-// the two, in order; stored, for each
+// the two, in order; folds, for each edge on a chain, the edges folded
+// into it, in order (see fold); stored, for each
 // node, the stored values' facts about it, as positions in facts; about,
 // for each subject, the positions in facts of the facts about it no newer
 // one shadows, the ones a fact pushed may shadow; facts, every fact
@@ -111,6 +125,7 @@ type relIndex struct {
 	pairs     map[relPair][]int
 	stored    map[factKey][]int
 	about     map[factKey][]int
+	folds     map[int][]int
 	lenCount  map[factKey]int
 	edges     []relEdge
 	facts     []relFact
@@ -148,6 +163,7 @@ func newRelIndex() *relIndex {
 	return &relIndex{
 		adj: make(map[factKey][]int), heads: make(map[factKey][]int), pairs: make(map[relPair][]int),
 		stored: make(map[factKey][]int), about: make(map[factKey][]int), lenCount: make(map[factKey]int),
+		folds: make(map[int][]int),
 	}
 }
 
@@ -318,13 +334,29 @@ func (idx *relIndex) push(c *Checker, i int) {
 			}
 		}
 	}
+	// A fact that shadows another whose endings are all its own holds
+	// exactly where that one does, so its edges are folded into those of
+	// the other's chains rather than heading them (see fold). Its endings
+	// are among the other's, so the two have the same only when they have
+	// as many, which is checked first: a newer fact usually has fewer, and
+	// walking the older one's at each push would take time growing with
+	// the square of the facts.
+	// A fact giving an edge with conditions is never folded: a graph
+	// keeps every edge with conditions (see graphBuilder.add).
+	same := false
+	if rf.hid.at >= 0 && !slices.ContainsFunc(es, func(e relEdge) bool { return len(e.conds) > 0 }) {
+		hid := c.active[idx.facts[rf.hid.at].at].ends
+		same = hid.count() == f.ends.count() && endsWithin(hid, f.ends, &c.work.ended)
+	}
 	idx.about[f.about] = append(held, len(idx.facts))
 	idx.facts = append(idx.facts, rf)
 	for k, e := range es {
 		ei := len(idx.edges)
 		idx.adj[e.from] = append(idx.adj[e.from], ei)
 		idx.adj[e.to] = append(idx.adj[e.to], ei)
-		if rf.hid.at >= 0 {
+		if same {
+			idx.fold(&e, ei, idx.facts[rf.hid.at].from+k)
+		} else if rf.hid.at >= 0 {
 			idx.link(&e, ei, idx.facts[rf.hid.at].from+k)
 		} else {
 			e.root = ei
@@ -346,15 +378,46 @@ func (idx *relIndex) push(c *Checker, i int) {
 // link makes e, the edge to be put at ei, stand for prev, the same edge
 // of the fact e's shadows, in heads: e takes prev's slots there, and its
 // chain's oldest edge, and prev becomes the one before it in its chain.
-// A fact shadowed says the same as the fact shadowing it, so the two give the same edges in the
-// same order, the k-th of one the k-th of the other.
+// A fact shadowed says the same as the fact shadowing it, so the two
+// give the same edges in the same order, the k-th of one the k-th of the
+// other. When prev is folded,
+// e stands for the edge prev is folded into, whose fact holds exactly
+// where prev's does, so e's holds wherever that one's does too.
 func (idx *relIndex) link(e *relEdge, ei, prev int) {
+	prev = idx.unfolded(prev)
 	p := idx.edges[prev]
 	e.prev, e.root, e.headFrom, e.headTo = prev, p.root, p.headFrom, p.headTo
 	idx.heads[e.from][e.headFrom] = ei
 	if e.to != e.from {
 		idx.heads[e.to][e.headTo] = ei
 	}
+}
+
+// fold makes e, the edge to be put at ei, folded into prev, the same
+// edge of the fact e's shadows, or the edge prev is folded into: e's
+// fact shadows prev's, and every ending of prev's fact is one of e's, so
+// the two hold at the same places, and prev, alike and before e in the
+// order the index lists edges, is the one a query takes of the two (see
+// graphBuilder.add). So e heads no chain and is on none, and a query
+// walking a chain of n facts alike that hold at the same places, as n
+// early exits that each bound a variable nothing writes give, judges one
+// of them, not n. e stays on the lists of its nodes in adj, as the
+// edges a query judging every one, and a scan, find, and is listed under
+// prev in folds, for a graph keeping edges alike to take after prev.
+func (idx *relIndex) fold(e *relEdge, ei, prev int) {
+	prev = idx.unfolded(prev)
+	p := idx.edges[prev]
+	e.prev, e.root, e.headFrom, e.headTo = prev, p.root, -1, -1
+	idx.folds[prev] = append(idx.folds[prev], ei)
+}
+
+// unfolded returns ei, an edge of the index, or, when it is folded, the
+// edge on a chain it is folded into, which is never folded itself.
+func (idx *relIndex) unfolded(ei int) int {
+	if idx.edges[ei].folded() {
+		return idx.edges[ei].prev
+	}
+	return ei
 }
 
 // pop takes the fact at position i of c.active, the last, out of idx,
@@ -378,6 +441,14 @@ func (idx *relIndex) pop(i int) {
 			e := idx.edges[ei]
 			idx.adj[e.to] = idx.adj[e.to][:len(idx.adj[e.to])-1]
 			idx.adj[e.from] = idx.adj[e.from][:len(idx.adj[e.from])-1]
+			if e.folded() {
+				if f := idx.folds[e.prev]; len(f) == 1 {
+					delete(idx.folds, e.prev)
+				} else {
+					idx.folds[e.prev] = f[:len(f)-1]
+				}
+				continue
+			}
 			if e.prev >= 0 {
 				idx.heads[e.from][e.headFrom] = e.prev
 				if e.to != e.from {
@@ -662,8 +733,10 @@ func (c *Checker) checkRelationIndex() {
 
 // checkPairs panics when idx.pairs does not list, for each node and
 // another, the slots in the first's heads of the chains between the two,
-// in order, and nothing else, or when an edge of a chain does not have
-// its head's nodes and oldest edge.
+// in order, and nothing else, when an edge of a chain does not have its
+// head's nodes and oldest edge, when a folded edge is not alike to an
+// older edge on a chain, with no condition, or when idx.folds does not
+// list, under each edge, the edges folded into it, in order.
 func (idx *relIndex) checkPairs() {
 	want := make(map[relPair][]int)
 	for k, heads := range idx.heads {
@@ -683,6 +756,19 @@ func (idx *relIndex) checkPairs() {
 			}
 		}
 	}
+	folds := make(map[int][]int)
+	for ei, e := range idx.edges {
+		if !e.folded() {
+			continue
+		}
+		if p := idx.edges[e.prev]; e.prev >= ei || p.folded() || !alikeEdges(p, e) || len(e.conds) > 0 {
+			panic(fmt.Sprintf("typeck: the relation index folds the edge %d, %v, into %d, %v", ei, e, e.prev, p))
+		}
+		folds[e.prev] = append(folds[e.prev], ei)
+	}
+	if !maps.EqualFunc(folds, idx.folds, slices.Equal) {
+		panic(fmt.Sprintf("typeck: the relation index lists the folds %v, its edges %v", idx.folds, folds))
+	}
 	for p, slots := range idx.pairs {
 		if !slices.Equal(slots, want[p]) {
 			panic(fmt.Sprintf("typeck: the relation index pairs %v at the slots %v, its heads at %v", p, slots, want[p]))
@@ -697,14 +783,34 @@ func (idx *relIndex) checkPairs() {
 
 // checkGraph panics when g, the graph a query about x and y built from
 // the relation index, is not the one a scan of the facts in force and a
-// judgment of every edge at every node build: the same nodes, in the
-// same order, the same edges admitted and pending, in the same order,
-// and capped alike. The two then give every answer alike.
+// judgment of every edge at every node build, which keeps edges alike,
+// with every edge with no condition alike to one before it left out,
+// unless g keeps them too (see firstAlike): the same nodes, in the same
+// order, the same edges taken, admitted and pending, in the same order,
+// and capped alike. A graph keeps every edge with conditions, so its
+// pending ones are the scan's, and admit judges them alike, in the same
+// order, wherever the two find the same bounds. checkGraph then keeps
+// the scan's graph as g.old, against which every bound found in g is
+// checked (see relGraph.sameDist), so that dropping edges alike is seen
+// to change no answer, not only the graph.
 func (c *Checker) checkGraph(g *relGraph, x, y factKey, xLen, yLen bool) {
 	want := c.buildGraph(nil, c.scanRelations(), x, y, xLen, yLen, new(int))
 	if want == nil {
 		panic(fmt.Sprintf("typeck: a query about %v and %v built a graph from the relation index, and a scan finds no relation", x, y))
 	}
+	if !g.sameGraph(want) {
+		panic(fmt.Sprintf("typeck: a query about %v and %v built the graph %v %v %v %v from the relation index, and %v %v %v %v from a scan",
+			x, y, g.nodes, g.admitted, g.pending, g.capped, want.nodes, want.admitted, want.pending, want.capped))
+	}
+	g.old = want
+}
+
+// sameGraph reports whether g is want, a graph keeping every edge alike,
+// as checkGraph compares them: the same nodes, in the same order, the
+// same edges taken, admitted and pending, in the same order, with every
+// edge with no condition alike to one before it left out of want's
+// unless g keeps them too, and capped alike.
+func (g *relGraph) sameGraph(want *relGraph) bool {
 	saids := func(es []relEdge) []edgeSaid {
 		out := make([]edgeSaid, len(es))
 		for i, e := range es {
@@ -712,12 +818,35 @@ func (c *Checker) checkGraph(g *relGraph, x, y factKey, xLen, yLen bool) {
 		}
 		return out
 	}
-	if !slices.Equal(g.nodes, want.nodes) || g.capped != want.capped ||
-		!reflect.DeepEqual(saids(g.admitted), saids(want.admitted)) ||
-		!reflect.DeepEqual(saids(g.pending), saids(want.pending)) {
-		panic(fmt.Sprintf("typeck: a query about %v and %v built the graph %v %v %v %v from the relation index, and %v %v %v %v from a scan",
-			x, y, g.nodes, g.admitted, g.pending, g.capped, want.nodes, want.admitted, want.pending, want.capped))
+	taken, admitted, pending := want.taken, want.admitted, want.pending
+	if !g.alike {
+		taken, admitted, pending = firstAlike(taken), firstAlike(admitted), firstAlike(pending)
 	}
+	return slices.Equal(g.nodes, want.nodes) && g.capped == want.capped &&
+		reflect.DeepEqual(saids(g.admitted), saids(admitted)) &&
+		reflect.DeepEqual(saids(g.taken), saids(taken)) &&
+		reflect.DeepEqual(saids(g.pending), saids(pending))
+}
+
+// alikeEdges reports whether a and b are alike: from the same node, to
+// the same node, of the same weight, under the same conditions, which
+// for the edges a graph leaves out are none (see graphBuilder.add).
+func alikeEdges(a, b relEdge) bool {
+	return a.from == b.from && a.to == b.to && a.w == b.w && slices.Equal(a.conds, b.conds)
+}
+
+// firstAlike returns es with every edge with no condition alike to one
+// before it left out: from the same node, to the same node, of the same
+// weight, whatever fact gives each, as a graph leaves them out (see
+// graphBuilder.add).
+func firstAlike(es []relEdge) []relEdge {
+	var out []relEdge
+	for _, e := range es {
+		if len(e.conds) > 0 || !slices.ContainsFunc(out, func(o relEdge) bool { return alikeEdges(o, e) }) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // holdingAt returns the edges at u, of every fact but a stored value's,
@@ -725,10 +854,11 @@ func (c *Checker) checkGraph(g *relGraph, x, y factKey, xLen, yLen bool) {
 // position in c.active, in the order the index lists them. Of each chain
 // of linked edges in u's heads, the facts that hold are the newest, up
 // to the first that does not (see relindex.go), so it walks each chain
-// from its newest edge only while they hold. While supposing or
+// from its newest edge only while they hold, which leaves out the edges
+// folded into those it finds (see fold). While supposing or
 // provenWithout is checking, what ends the facts is not what it was, so
-// it judges every edge at u instead. Each edge looked at counts a step in
-// steps, when it is set.
+// it judges every edge at u instead, folded edges among them. Each edge
+// looked at counts a step in steps, when it is set.
 func (idx *relIndex) holdingAt(c *Checker, u factKey, holds func(int) bool, steps *int) []int {
 	var out []int
 	looked := 0
@@ -759,9 +889,13 @@ func (idx *relIndex) holdingAt(c *Checker, u factKey, holds func(int) bool, step
 
 // heldAt returns the edges the index gives the node k whose facts hold
 // where a query is asked, as holds judges each, in the order edgesAt
-// lists them: those holdingAt finds, then the stored value's bounds the
-// graph takes at k. Each edge looked at counts a step in steps, when it
-// is set.
+// lists them, but for the edges folded into another (see fold): those
+// holdingAt finds, then the stored value's bounds the graph takes at k.
+// An edge folded into another holds exactly where that one does and is
+// alike to it, with no condition, so it narrows no bound the other does
+// not, and edgeBounds, which takes the tightest bound of each kind, finds
+// the same bounds without it, as its oracle checks against every edge
+// at k. Each edge looked at counts a step in steps, when it is set.
 func (idx *relIndex) heldAt(c *Checker, k factKey, holds func(int) bool, steps *int) []relEdge {
 	var out []relEdge
 	for _, ei := range idx.holdingAt(c, k, holds, steps) {

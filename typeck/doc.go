@@ -679,12 +679,27 @@
 // the newest that hold and the one before them, and, once its graph is
 // full, only the edges to the graph's nodes, found through an index of
 // the chains between each two nodes, and as many others as tell whether
-// one caps it. It takes shortest paths
-// by Bellman and Ford; it only proves less for what it leaves out, and its
-// int64 weights never wrap. Relations end as facts do: a writeIndex's
-// endings take in every node a fact names. explain leaves them out, and relationNotes says
-// what a chain lacks: a missing link between two values, the condition
-// that rules out a wrap, or the cap. The checker counts the steps its
+// one caps it. A fact giving edges with no condition that shadows one
+// whose endings are all its own holds exactly where that one does, so
+// its edges are folded into the other's and head no chain, and a run of
+// n early exits that each bound a variable nothing writes gives a query
+// one edge, not n. A graph keeps the first of the edges alike with no
+// condition it takes, from and to the same nodes, of the same weight, and
+// drops the rest; it keeps every edge with conditions, which admit
+// judges one by one. It takes shortest paths by Bellman and Ford; it
+// only proves less for what it leaves out, and its int64 weights never
+// wrap. Edges alike change no shortest path, but where a cycle of
+// negative weight, of facts that cannot all be true, keeps a search from
+// settling in as many rounds as the graph has nodes, the bounds it finds
+// depend on how many edges each round follows, and in what order, so a
+// graph that dropped some sums its bounds in 128 bits, and one that
+// reaches such a cycle, or a bound past an int64, answers from the graph
+// of the same query keeping every edge alike, and every answer is the
+// one it would be with them; a graph that dropped none is that graph.
+// Relations end as facts do: a writeIndex's endings take in every node a
+// fact names. explain leaves them out, and relationNotes says what a
+// chain lacks: a missing link between two values, the condition that
+// rules out a wrap, or the cap. The checker counts the steps its
 // provers take (proverWork, in work.go): each known value of an
 // arithmetic operator worked out, each edge a relation query looks at,
 // each fact read into the index, and each fact a query about one
