@@ -934,6 +934,76 @@ func out_zeros(mut b list[uint8], n int64, mut failed bool) {
     }
 }
 
+// out_reserve makes room in b for n more bytes, unless an append has
+// failed already, which failed says, and says so when it cannot: when n
+// did not fit an int64, which fits says, or the allocator refuses. Room
+// made at once is what keeps a precision past what memory holds from
+// growing b a byte at a time until the process is killed; once it is
+// made, no append of those n bytes can fail.
+func out_reserve(mut b list[uint8], n int64, fits bool, mut failed bool) {
+    if failed {
+        return
+    }
+    if !fits {
+        failed = true
+        return
+    }
+    e := reserve(mut b, n)
+    if e.code != 0 {
+        failed = true
+    }
+}
+
+// e_size returns the number of bytes put_e appends for a value with
+// sign neg, prec digits after the point and decimal exponent exp, and
+// whether that number fits an int64: the sign, the first digit, the
+// point and prec digits when prec is above 0, the format, the
+// exponent's sign and its two or three digits.
+func e_size(neg bool, prec int64, exp int64) (int64, bool) {
+    mut n := 5
+    if neg {
+        n = 6
+    }
+    if exp >= 100 || exp <= -100 {
+        n +%= 1
+    }
+    if prec <= 0 {
+        return n, true
+    }
+    // n is at most 7.
+    digits, fits := prec + n
+    if !fits {
+        return 0, false
+    }
+    total, fits2 := digits + 1
+    return total, fits2
+}
+
+// f_size returns the number of bytes put_f appends for a value with sign
+// neg, its point dp digits from its first digit and prec digits after
+// the point, and whether that number fits an int64: the sign, the dp
+// digits before the point, or a 0 when dp is 0 or less, and the point
+// and prec digits when prec is above 0.
+func f_size(neg bool, dp int64, prec int64) (int64, bool) {
+    mut n := 1
+    if dp > 0 {
+        n = dp
+    }
+    if neg {
+        // dp is within 2000 of 0 (see decimal).
+        n +%= 1
+    }
+    if prec <= 0 {
+        return n, true
+    }
+    digits, fits := prec + n
+    if !fits {
+        return 0, false
+    }
+    total, fits2 := digits + 1
+    return total, fits2
+}
+
 // least returns the smaller of x and y.
 func least(x int64, y int64) int64 {
     if x < y {
@@ -952,8 +1022,19 @@ func most(x int64, y int64) int64 {
 
 // put_e appends d with prec digits after the point and an exponent, as
 // Go's fmtEFG writes %e: -d.ddde±dd, the exponent of at least two digits,
-// 0 having exponent 0.
+// 0 having exponent 0. It makes room for all of it first, as
+// out_reserve does.
 func put_e(mut b list[uint8], mut d decimal, neg bool, prec int64, format uint8, mut failed bool) {
+    // The point is within 2000 of 0 (see decimal).
+    mut exp := d.dp -% 1
+    if d.nd == 0 {
+        exp = 0
+    }
+    size, sized := e_size(neg, prec, exp)
+    out_reserve(mut b, size, sized, mut failed)
+    if failed {
+        return
+    }
     if neg {
         out_byte(mut b, '-', mut failed)
     }
@@ -981,11 +1062,6 @@ func put_e(mut b list[uint8], mut d decimal, neg bool, prec int64, format uint8,
         out_zeros(mut b, digits -% i, mut failed)
     }
     out_byte(mut b, format, mut failed)
-    // The point is within 2000 of 0 (see decimal).
-    mut exp := d.dp -% 1
-    if d.nd == 0 {
-        exp = 0
-    }
     if exp < 0 {
         out_byte(mut b, '-', mut failed)
         exp = 0 -% exp
@@ -1004,8 +1080,14 @@ func put_e(mut b list[uint8], mut d decimal, neg bool, prec int64, format uint8,
 }
 
 // put_f appends d with prec digits after the point, as Go's fmtEFG
-// writes %f: -ddd.ddd, the integer part 0 when it has no digit.
+// writes %f: -ddd.ddd, the integer part 0 when it has no digit. It
+// makes room for all of it first, as out_reserve does.
 func put_f(mut b list[uint8], mut d decimal, neg bool, prec int64, mut failed bool) {
+    size, sized := f_size(neg, d.dp, prec)
+    out_reserve(mut b, size, sized, mut failed)
+    if failed {
+        return
+    }
     if neg {
         out_byte(mut b, '-', mut failed)
     }
@@ -1090,7 +1172,10 @@ func put_digits(mut b list[uint8], mut d decimal, neg bool, prec int64, format u
 // rounds to, and any other as the float64 it is. NaN is NaN, the
 // infinities +Inf and -Inf, and negative zero has its sign; an unknown
 // format is written as % and it. It returns no error, or, when b cannot
-// grow, error{code: 1, msg: "out of memory"}, leaving b as it was.
+// grow, error{code: 1, msg: "out of memory"}, leaving b as it was. It
+// makes room in b for the whole of what it writes before writing any of
+// it, so a precision whose digits memory cannot hold, or an int64 cannot
+// count, fails at once, rather than growing b toward that size.
 pub func append_float(mut b list[uint8], f float64, format uint8, prec int64, bit_size int64) error {
     start := len(b)
     mut failed := false

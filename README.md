@@ -1332,7 +1332,10 @@ section remains the description of the language.
   as Go's `strconv.AppendFloat` does, `format` being `'e'`, `'E'`, `'f'`,
   `'g'` or `'G'` and `prec` the digits after the point, or in all for
   `g`, `-1` meaning the fewest that read back as `f`; it gives no error,
-  or `error{code: 1, msg: "out of memory"}` leaving `b` as it was. Both
+  or `error{code: 1, msg: "out of memory"}` leaving `b` as it was,
+  making room for the whole result before writing any of it, so a
+  precision too large for memory fails at once instead of growing `b`
+  toward it. Both
   work exactly on a decimal of up to 800 digits, as Go's slow path does,
   in Tack alone, and printf's C uses the same algorithm; the tests check
   both against Go and against each other.

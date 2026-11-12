@@ -1,15 +1,19 @@
 package c_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
 	"math/big"
 	"math/rand/v2"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // floatFmtProgram parses each of its arguments with std/conv's
@@ -362,4 +366,139 @@ func FuzzFloatFormattingMatchesGo(f *testing.F) {
 			}
 		}
 	})
+}
+
+// floatHugeProgram writes its first argument, parsed as a float64, with
+// std/conv's append_float, in the format its second argument's first
+// byte names and with the precision its third, parsed as an int64, gives,
+// into a list holding x already. It writes the error's code, the list's
+// length, a |, and then the list when it holds at most 4096 bytes.
+const floatHugeProgram = `package main
+
+import conv from "std/conv"
+import fmt from "std/fmt"
+import os from "std/os"
+
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 || len(args) != 4 {
+        print("bad arguments\n")
+        return
+    }
+    mut v := 0.0
+    mut format := 'e'
+    mut prec := 0
+    for i, a := range args {
+        if i == 1 {
+            x, e1 := conv.parse_float(a.bytes(), 64)
+            if e1.code != 0 {
+                print("bad value\n")
+                return
+            }
+            v = x
+        } else if i == 2 {
+            for _, c := range a.bytes() {
+                format = c
+                break
+            }
+        } else if i == 3 {
+            p, e2 := conv.parse_int(a.bytes(), 10, 64)
+            if e2.code != 0 {
+                print("bad precision\n")
+                return
+            }
+            prec = p
+        }
+    }
+    mut b := make(list[uint8], c_allocator)
+    e3 := append(mut b, 'x')
+    if e3.code != 0 {
+        print("out of memory\n")
+        return
+    }
+    e4 := conv.append_float(mut b, v, format, prec, 64)
+    fmt.printf("%d %d|", e4.code, len(b))
+    if len(b) <= 4096 {
+        fmt.write(b[:])
+    }
+    print("\n")
+}
+`
+
+// TestFloatPrecisionFailsPromptlyPastMemory builds floatHugeProgram, with
+// floatSanitizers at -O0 and -O1 and without them at -O2, and runs it on
+// precisions no list can hold the digits of, 10^12, the largest int64
+// and one below it, in every format. %e and %f write a byte for each
+// place, so append_float must refuse them with error{code: 1}, leaving
+// the list as it was, and do so at once, without growing toward the
+// size first; %g writes no more digits than the value has, so it must
+// write what Go's strconv writes for it. Precisions that fit, from 0 to
+// 1100, must write what Go's strconv writes, byte for byte, the room
+// made first changing nothing. Each run gets 60 seconds and must
+// stay under 1 GiB; the address sanitizer's malloc is told to return
+// null, as the real one does, rather than abort on a size it refuses.
+func TestFloatPrecisionFailsPromptlyPastMemory(t *testing.T) {
+	values := []string{"0", "0.5", "-1.5", "123456.789", "1e300", "-5e-324"}
+	precs := []int64{1_000_000_000_000, math.MaxInt64, math.MaxInt64 - 1}
+	builds := map[string][]string{
+		"sanitized-O0": append([]string{"-O0"}, floatSanitizers...),
+		"sanitized-O1": append([]string{"-O1"}, floatSanitizers...),
+		"plain-O2":     {"-O2"},
+	}
+	for name, flags := range builds {
+		t.Run(name, func(t *testing.T) {
+			bin := buildWithStd(t, floatHugeProgram, flags...)
+			for _, s := range values {
+				v, err := strconv.ParseFloat(s, 64)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, format := range []byte("eEfgG") {
+					for _, prec := range precs {
+						want := "1 1|x"
+						if format == 'g' || format == 'G' {
+							// Go's strconv makes room for prec bytes up
+							// front, so it is asked for 1100 digits: a
+							// float64 has under 800 significant digits and
+							// an exponent under 309, so %g writes the same
+							// for every precision past 1100.
+							out := "x" + strconv.FormatFloat(v, format, 1100, 64)
+							want = fmt.Sprintf("0 %d|%s", len(out), out)
+						}
+						runHuge(t, bin, s, format, prec, want)
+					}
+					for _, prec := range []int64{0, 1, 2, 5, 17, 100, 767, 1100} {
+						out := "x" + strconv.FormatFloat(v, format, int(prec), 64)
+						runHuge(t, bin, s, format, prec, fmt.Sprintf("0 %d|%s", len(out), out))
+					}
+				}
+			}
+		})
+	}
+}
+
+// runHuge runs bin, floatHugeProgram built, on s, format and prec, and
+// checks it writes want and a newline within 60 seconds, its peak
+// resident memory under 1 GiB.
+func runHuge(t *testing.T, bin, s string, format byte, prec int64, want string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, s, string(format), strconv.FormatInt(prec, 10))
+	cmd.Env = append(os.Environ(), "ASAN_OPTIONS=allocator_may_return_null=1")
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	start := time.Now()
+	out, err := cmd.Output()
+	took := time.Since(start)
+	if err != nil {
+		t.Errorf("%s %c %d: %v after %v\n%s\nstderr:\n%s", s, format, prec, err, took, out, stderr.String())
+		return
+	}
+	if got := strings.TrimSuffix(string(out), "\n"); got != want {
+		t.Errorf("%s %c %d: wrote %q, want %q", s, format, prec, got, want)
+	}
+	if ru, ok := cmd.ProcessState.SysUsage().(*syscall.Rusage); ok && ru.Maxrss >= 1<<20 {
+		t.Errorf("%s %c %d: peak resident memory %d KiB, want under 1 GiB", s, format, prec, ru.Maxrss)
+	}
 }

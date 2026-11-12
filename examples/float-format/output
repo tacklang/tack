@@ -16,6 +16,7 @@ NaN NaN NaN NaN
 append_float, shortest ok
 append_float, with a precision ok
 append_float, NaN and infinity ok
+append_float, a precision past what memory holds ok
 parse_float ok
 parse_float rounds correctly ok
 parse_float in bit size 32 ok
