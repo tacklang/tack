@@ -393,16 +393,23 @@ A type parameter cannot be the element of an array or a variadic
 parameter, `a variadic parameter cannot hold S: its elements are
 copied, and S, a type parameter, which may hold a list, cannot be`, nor
 a map's key, `cannot use T as a map key: a map's key cannot be a type
-parameter`. A list, a view, a map's value, an arena, an id, a span and
-a function type may be made of one, in a signature and in a body,
-`make(list[T], alloc)` and `make(arena[T], sentinel, alloc)` included,
-and `map[id[T]]V` too, an id being a key whatever its element type.
-Their elements are owned: read in place, moved in by `append`, `put`,
-`add` and `add_all`, moved out by `pop`, `remove` and `delete`,
+parameter`. A list, a view, a map's value, an arena, an id, a span, a
+pool, a handle and a function type may be made of one, in a signature
+and in a body, `make(list[T], alloc)`, `make(arena[T], sentinel, alloc)`
+and `make(pool[T], alloc)` included, and `map[id[T]]V` and
+`map[handle[T]]V` too, an id or a handle being a key whatever its
+element type. Their elements are owned: read in place, moved in by
+`append`, `put`, `add`, `add_all` and `insert`, moved out by `pop`,
+`remove` and `delete`,
 reordered by `swap`, and never copied out, `cannot move l[0] out of l:
 an element cannot be moved out of a list; take it out with pop or
 remove`. An arena of a type parameter is read through its ids as any
-arena is, with no proof, whatever type an instance gives it.
+arena is, with no proof, whatever type an instance gives it. A pool of a
+type parameter is read through a handle `has` proves live, as any pool
+is, and its checked form, `v, ok := p[h]`, cannot read an element of a
+type parameter, which may be owned: `the checked form cannot read an
+element of type T: it would copy it out of p; check has(p, h) first and
+use p[h] in place`.
 
 A generic function gets a value of a type parameter by moving one out
 of a list with `pop` or `remove`, or out of a map with `delete`, by

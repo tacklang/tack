@@ -970,7 +970,24 @@
 // holds its sentinel by value, but one may hold an id or a span of
 // itself, and none of the three crosses to C. A fact about an arena's
 // element is one about a place below the arena and its id, holding while
-// neither can change. A function type,
+// neither can change. A pool, pool[T], checked in pool.go, is owned as a
+// list is, its T anything a list's element can be, made empty, grown by
+// insert, whose handle and error are two results recorded in
+// Call.ResultTypes, the handle held by the error, and shrunk by remove,
+// whose checked form and statement isTake covers as a list's remove; a
+// pool's has gives the fact a map's has does (memberFact), its inMap the
+// pool, which writes to the pool end but writes to an element do not
+// (throughList), and which enters a closure only for a pool no closure
+// can write (keepsInClosure); p[h] is a place only under that fact, and
+// the checked form reads only a copyable element with a zero value; a
+// range over a pool gives its body the fact for its handle
+// (poolRangeFacts). A
+// pool borrows as a list does in exclusive.go, its element assigned in
+// place (checkAssignBorrows), and move.go locks it while it is ranged
+// over and keeps its elements from being moved out. A handle, handle[T],
+// is comparable, a copyable map key with a zero value and no order,
+// arithmetic or conversion; no type holds itself through a pool, but one
+// may hold a handle of itself, and neither crosses to C. A function type,
 // func(A, mut B) R, checked in funcvalue.go, is the type of a value
 // naming a function: a function's name used as a value, or a method
 // named through its type, its type recorded in Func.Value, unless the
@@ -998,7 +1015,7 @@
 // body for whether a write reaches a use (see isLoop), with no branch in
 // it a keep, since its return leaves only it; move.go follows its body
 // where it is written and lets it move only its own variables. A list, a map, an
-// arena, an Allocator, a function value, and anything holding one, has no zero value; a list has
+// arena, a pool, an Allocator, a function value, and anything holding one, has no zero value; a list has
 // no ==, and no global holds one. A list owns its buffer, so it moves
 // rather than copies, which move.go checks after a body: a moved variable
 // is not used again until it is assigned, a parameter that is not own and

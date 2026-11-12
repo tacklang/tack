@@ -19,7 +19,8 @@ import (
 // by SetFields, so a struct can have a field of a type declared after it. A
 // view type, []T, is added the first time it is seen, like an array, and
 // found again by its element type, and so are a list type, list[T], an
-// arena type, arena[T], an id type, id[T], and a span type, span[T], a
+// arena type, arena[T], an id type, id[T], a span type, span[T], a pool
+// type, pool[T], and a handle type, handle[T], a
 // map type, map[K]V, by its key and value types, and a function type,
 // func(A, mut B) R, by its parameters, each a type and whether it is
 // mut, and its results. Error
@@ -42,8 +43,9 @@ type Table struct {
 	funcs map[string]Type // each function type's ID, by its signature (see funcKey)
 
 	// arenas, refIDs and spans hold each arena, id and span type's ID,
-	// by its element type.
-	arenas, refIDs, spans map[Type]Type
+	// by its element type, and pools and handles each pool and handle
+	// type's.
+	arenas, refIDs, spans, pools, handles map[Type]Type
 
 	// bound maps each type parameter Bind bound to the type it stands
 	// for; it is nil when nothing is bound. substituted keeps, while it
@@ -64,7 +66,8 @@ type Table struct {
 }
 
 // entry is one type a Table added: an array, with its shape, a view, a
-// list, an arena, an id or a span, with its element type in arr.elem, a
+// list, an arena, an id, a span, a pool or a handle, with its element type
+// in arr.elem, a
 // map, with its value type in arr.elem and its key type in key, a struct, with its name and fields, a
 // union, with its name and cases, a function type, with its signature,
 // or a type parameter, with its name.
@@ -78,20 +81,22 @@ type entry struct {
 	view   bool
 	list   bool
 	mapped bool
-	ref    refKind // an arena's, an id's or a span's, refNone for any other
+	ref    refKind // an arena's, an id's, a span's, a pool's or a handle's, refNone for any other
 }
 
-// refKind says which of the types made of an arena's element type an
-// entry is: an arena, an id or a span, with its element type in arr.elem,
-// or none of them.
+// refKind says which of the types made of an arena's or a pool's element
+// type an entry is: an arena, an id, a span, a pool or a handle, with its
+// element type in arr.elem, or none of them.
 type refKind int
 
-// The kinds of types made of an arena's element type.
+// The kinds of types made of an arena's or a pool's element type.
 const (
 	refNone refKind = iota
 	refArena
 	refID
 	refSpan
+	refPool
+	refHandle
 )
 
 // funcType is a function type's signature: its parameters, in order, and
@@ -158,14 +163,16 @@ type Case struct {
 // NewTable returns a Table that knows the basic types.
 func NewTable() *Table {
 	return &Table{
-		ids:    make(map[array]Type),
-		views:  make(map[Type]Type),
-		lists:  make(map[Type]Type),
-		maps:   make(map[mapKey]Type),
-		funcs:  make(map[string]Type),
-		arenas: make(map[Type]Type),
-		refIDs: make(map[Type]Type),
-		spans:  make(map[Type]Type),
+		ids:     make(map[array]Type),
+		views:   make(map[Type]Type),
+		lists:   make(map[Type]Type),
+		maps:    make(map[mapKey]Type),
+		funcs:   make(map[string]Type),
+		arenas:  make(map[Type]Type),
+		refIDs:  make(map[Type]Type),
+		spans:   make(map[Type]Type),
+		pools:   make(map[Type]Type),
+		handles: make(map[Type]Type),
 	}
 }
 
@@ -240,6 +247,28 @@ func (t *Table) Span(elem Type) Type {
 	}
 	id := t.add(entry{arr: array{elem: elem}, ref: refSpan})
 	t.spans[elem] = id
+	return id
+}
+
+// Pool returns the type of owned pools of elements of type elem,
+// pool[elem], adding it if the Table does not have it yet.
+func (t *Table) Pool(elem Type) Type {
+	if id, ok := t.pools[elem]; ok {
+		return id
+	}
+	id := t.add(entry{arr: array{elem: elem}, ref: refPool})
+	t.pools[elem] = id
+	return id
+}
+
+// Handle returns the type of handles of elements of type elem in a pool,
+// handle[elem], adding it if the Table does not have it yet.
+func (t *Table) Handle(elem Type) Type {
+	if id, ok := t.handles[elem]; ok {
+		return id
+	}
+	id := t.add(entry{arr: array{elem: elem}, ref: refHandle})
+	t.handles[elem] = id
 	return id
 }
 
@@ -455,8 +484,8 @@ func (t *Table) substitute(typ Type) Type {
 	}
 }
 
-// substituteElem returns typ, a view, a list, an arena, an id, a span or
-// an array whose entry is
+// substituteElem returns typ, a view, a list, an arena, an id, a span, a
+// pool, a handle or an array whose entry is
 // e, with its element type replaced by what it stands for, or typ itself
 // when that is its own.
 func (t *Table) substituteElem(typ Type, e entry) Type {
@@ -474,6 +503,10 @@ func (t *Table) substituteElem(typ Type, e entry) Type {
 		return t.ID(elem)
 	case e.ref == refSpan:
 		return t.Span(elem)
+	case e.ref == refPool:
+		return t.Pool(elem)
+	case e.ref == refHandle:
+		return t.Handle(elem)
 	default:
 		return t.Array(elem, e.arr.n)
 	}
@@ -595,6 +628,18 @@ func (t *Table) IsRef(typ Type) bool {
 	return t.IsID(typ) || t.IsSpan(typ)
 }
 
+// IsPool reports whether typ is a pool type, pool[T].
+func (t *Table) IsPool(typ Type) bool {
+	e, ok := t.entry(typ)
+	return ok && e.ref == refPool
+}
+
+// IsHandle reports whether typ is a handle type, handle[T].
+func (t *Table) IsHandle(typ Type) bool {
+	e, ok := t.entry(typ)
+	return ok && e.ref == refHandle
+}
+
 // Buffered reports whether typ is a list or an arena type, each of which
 // owns a buffer of its elements that growing it may move.
 func (t *Table) Buffered(typ Type) bool {
@@ -652,12 +697,12 @@ func (t *Table) IsStruct(typ Type) bool {
 // them in C: code, which is 0 when there is no error, and msg.
 var errorFields = []Field{{Name: "code", Type: Int32}, {Name: "msg", Type: String}}
 
-// Elem returns the element type of the array, view, list, arena, id or
-// span type typ, or the value type of the map type typ, or Invalid if typ
-// is none of them.
+// Elem returns the element type of the array, view, list, arena, id,
+// span, pool or handle type typ, or the value type of the map type typ, or
+// Invalid if typ is none of them.
 func (t *Table) Elem(typ Type) Type {
 	if !t.IsArray(typ) && !t.IsView(typ) && !t.IsList(typ) && !t.IsMap(typ) && !t.IsArena(typ) &&
-		!t.IsRef(typ) {
+		!t.IsRef(typ) && !t.IsPool(typ) && !t.IsHandle(typ) {
 		return Invalid
 	}
 	e, _ := t.entry(typ)
@@ -700,7 +745,8 @@ func (t *Table) Field(typ Type, name string) (Field, int, bool) {
 
 // Owned reports whether a value of type typ owns memory it must free: a
 // list, which owns its buffer, an arena, which owns its buffer and its
-// sentinel, a map, which owns its buffers, keys and
+// sentinel, a pool, which owns its buffer and its live elements, a map,
+// which owns its buffers, keys and
 // values, or an array, a struct or a union holding
 // one, directly or through other arrays, structs and unions, a union
 // holding one when any of its cases' payloads does. A value of an owned
@@ -708,23 +754,25 @@ func (t *Table) Field(typ Type, name string) (Field, int, bool) {
 // ends.
 func (t *Table) Owned(typ Type) bool {
 	owns := func(typ Type) bool {
-		return t.IsList(typ) || t.IsArena(typ) || t.IsMap(typ) || t.IsTypeParam(typ)
+		return t.IsList(typ) || t.IsArena(typ) || t.IsPool(typ) || t.IsMap(typ) ||
+			t.IsTypeParam(typ)
 	}
 	return t.holds(typ, owns, make(map[Type]bool))
 }
 
 // HasZero reports whether type typ has a zero value, which a variable
 // declared without a value starts from: every type but a list, an
-// arena, a map, an Allocator, a union, a function type, and an array or a
-// struct holding any of them. An arena needs its sentinel; an id's zero
-// value is the sentinel's id and a span's the empty span. An empty list or map still needs an allocator to grow
+// arena, a pool, a map, an Allocator, a union, a function type, and an
+// array or a struct holding any of them. An arena needs its sentinel; an
+// id's zero value is the sentinel's id, a span's the empty span, and a
+// handle's one no pool gives. An empty list, pool or map still needs an allocator to grow
 // through, no Allocator stands for none, no case of a union is the one a
 // variable starts as, and no function is the one a function value starts
 // as.
 func (t *Table) HasZero(typ Type) bool {
 	noZero := func(typ Type) bool {
-		return typ == Allocator || t.IsList(typ) || t.IsArena(typ) || t.IsMap(typ) ||
-			t.IsTypeParam(typ) || t.IsUnion(typ) || t.IsFunc(typ)
+		return typ == Allocator || t.IsList(typ) || t.IsArena(typ) || t.IsPool(typ) ||
+			t.IsMap(typ) || t.IsTypeParam(typ) || t.IsUnion(typ) || t.IsFunc(typ)
 	}
 	return !t.holds(typ, noZero, make(map[Type]bool))
 }
@@ -741,6 +789,13 @@ func (t *Table) HoldsList(typ Type) bool {
 // unions.
 func (t *Table) HoldsArena(typ Type) bool {
 	return t.holds(typ, t.IsArena, make(map[Type]bool))
+}
+
+// HoldsPool reports whether typ is a pool type, or an array, a struct or
+// a union holding one, directly or through other arrays, structs and
+// unions.
+func (t *Table) HoldsPool(typ Type) bool {
+	return t.holds(typ, t.IsPool, make(map[Type]bool))
 }
 
 // HoldsUnion reports whether typ is a union type, or an array or a struct
@@ -809,7 +864,8 @@ func Added(i int) Type { return numBasic + Type(i) }
 // Name returns a type's name as a program writes it, for diagnostics: a
 // basic type's own name, [n]elem for an array, []elem for a view,
 // list[elem] for a list, arena[elem], id[elem] and span[elem] for an
-// arena, an id and a span, map[key]value for a map, func(A, mut B) (R, S)
+// arena, an id and a span, pool[elem] and handle[elem] for a pool and a
+// handle, map[key]value for a map, func(A, mut B) (R, S)
 // for a function type, or a struct or union type's declared name. A type the Table does not know, including one from another Table,
 // is named "invalid" rather than guessed at. A nil Table knows the basic
 // types.
@@ -869,6 +925,10 @@ func (t *Table) compositeName(e entry, qualify func(typ Type, name string) strin
 		return "id[" + t.NameWith(e.arr.elem, qualify) + "]"
 	case e.ref == refSpan:
 		return "span[" + t.NameWith(e.arr.elem, qualify) + "]"
+	case e.ref == refPool:
+		return "pool[" + t.NameWith(e.arr.elem, qualify) + "]"
+	case e.ref == refHandle:
+		return "handle[" + t.NameWith(e.arr.elem, qualify) + "]"
 	case e.mapped:
 		return "map[" + t.NameWith(e.key, qualify) + "]" + t.NameWith(e.arr.elem, qualify)
 	case e.fn != nil:

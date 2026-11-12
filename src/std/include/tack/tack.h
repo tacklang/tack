@@ -2,7 +2,9 @@
 // build strings, the error type and the macros that build errors,
 // any, its type ids and the helpers that read one, and the allocator
 // handle and the macros that read and grow a list, what an arena's add
-// gives and its limit, and the abort an unreachable statement lowers to,
+// gives and its limit, a pool's handle, what its insert gives, its tags,
+// its slots' first generation and its limit, and the abort an
+// unreachable statement lowers to,
 // defined here once for the generated source, the C files of the standard
 // library and a program's own C files alike. Each
 // includes it as <tack/tack.h>, and the driver compiles each with this
@@ -543,5 +545,70 @@ bool tack_arena_room_(int64_t len, int64_t n);
 // that, for tests of what reaching the limit does without allocating
 // 2^32 elements.
 void tack_arena_limit_(int64_t n);
+
+// A Tack pool, pool[T], is a struct of its own per element type, which
+// only the generated source defines and reads: a buffer of slots, each an
+// element, its generation and whether it is live, the number of live
+// elements, the first free slot and the pool's tag. A handle, handle[T],
+// is a tack_handle_ whatever T is. No pool or handle crosses to C.
+
+// tack_handle_ names an element of a pool: its slot's index, the slot's
+// generation when the element was inserted, and the tag of the pool that
+// gave it. A lookup finds the element only while all three match, so a
+// handle whose element was removed, or that another pool gave, finds
+// none. The zeroed handle has tag 0, which no pool has, so it finds none.
+typedef struct {
+    uint32_t index;
+    uint32_t gen;
+    uint32_t tag;
+} tack_handle_;
+
+// tack_handle_eq_ reports whether a and b are one handle: the same index,
+// generation and tag. The generated source compares handles with it.
+static inline bool tack_handle_eq_(tack_handle_ a, tack_handle_ b) {
+    return a.index == b.index && a.gen == b.gen && a.tag == b.tag;
+}
+
+// tack_pool_inserted_ is what the generated source's insert gives: the
+// new element's handle and an error, as a function's results struct
+// holds them.
+typedef struct {
+    tack_handle_ r0;
+    tack_error r1;
+} tack_pool_inserted_;
+
+// tack_pool_tag_ returns the tag of a pool being made: the next of a
+// counter that starts at 1 and stops at 4294967295, 2^32 - 1, which every
+// pool made after it is reached shares, so it never returns 0 and never
+// fails. The generated source calls it in every make of a pool; C must
+// not.
+uint32_t tack_pool_tag_(void);
+
+// tack_pool_next_tag_ makes n the tag the next pool made takes, for tests
+// of what reaching the counter's last value does without making 2^32
+// pools; n is clamped to 1 to 4294967295.
+void tack_pool_next_tag_(int64_t n);
+
+// tack_pool_gen0_ returns the generation a pool's slot starts at when the
+// pool grows to make it: 0, or what tack_pool_first_gen_ set. The
+// generated source calls it for every slot it adds; C must not.
+uint32_t tack_pool_gen0_(void);
+
+// tack_pool_first_gen_ makes n the generation every slot a pool grows
+// from then on starts at, for tests of what a generation's last value
+// does without 2^32 removals; n is clamped to 0 to 4294967295.
+void tack_pool_first_gen_(int64_t n);
+
+// tack_pool_room_ reports whether a pool of len slots can grow one more
+// without holding more than 4294967295, 2^32 - 1, or the lower limit
+// tack_pool_limit_ set, so every slot's index fits a uint32_t. It is false
+// for a negative len. The generated source asks it before an insert grows
+// a pool; C must not.
+bool tack_pool_room_(int64_t len);
+
+// tack_pool_limit_ makes the most slots a pool may hold n, or 2^32 - 1
+// again when n is negative or more than that, for tests of what reaching
+// the limit does without allocating 2^32 slots.
+void tack_pool_limit_(int64_t n);
 
 #endif

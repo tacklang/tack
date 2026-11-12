@@ -86,6 +86,13 @@ func (t *Table) layout(typ Type, visiting map[Type]bool) Size {
 		return Size{Bytes: 4, Align: 4} // a uint32_t
 	case t.IsSpan(typ):
 		return Size{Bytes: 8, Align: 8} // a uint64_t: the start, then the length
+	case t.IsHandle(typ):
+		// A slot index, a generation and a pool tag, each a uint32_t.
+		return Size{Bytes: 12, Align: 4}
+	case t.IsPool(typ):
+		// Its slots' pointer, length, capacity and Allocator, how many
+		// are live, the first free slot and its tag.
+		return Size{Bytes: 48, Align: 8}
 	case t.IsArena(typ):
 		// A list of its elements, then its sentinel, inline.
 		acc := place(Size{Bytes: 32, Align: 8}, t.size(t.Elem(typ), visiting))

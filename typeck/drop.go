@@ -152,6 +152,8 @@ func (c *Checker) dropPlace(x ast.Expr) bool {
 			what, holder = "a value", "a map; take it out with delete"
 		case c.table.IsArena(typ):
 			holder = "an arena"
+		case c.table.IsPool(typ):
+			holder = "a pool; take it out with remove"
 		}
 		c.errorf(x.Span, "cannot drop %s: %s cannot be moved out of %s", text, what, holder)
 		return false

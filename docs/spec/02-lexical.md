@@ -165,17 +165,17 @@ it may stand for is in [Declarations and scope](05-declarations.md).
 
 ## Keywords and reserved names
 
-The following 40 keywords are reserved and may not be used as
+The following 41 keywords are reserved and may not be used as
 identifiers:
 
 ```text
-arena        default      for        lib      pub     true
-async        defer        from       list     range   type
-break        else         func       map      return  union
-c_allocator  ensures      goto       mut      scope   unreachable
-case         extern       if         noerror  select  var
-const        fallthrough  import     own      struct
-continue     false        interface  package  switch
+arena        default      for        lib      pool    switch
+async        defer        from       list     pub     true
+break        else         func       map      range   type
+c_allocator  ensures      goto       mut      return  union
+case         extern       if         noerror  scope   unreachable
+const        fallthrough  import     own      select  var
+continue     false        interface  package  struct
 ```
 
 Each is reserved everywhere, whether or not the grammar uses it at the
@@ -193,8 +193,10 @@ uint8    uint16   uint32   uint64   unsafe_uintptr_t   float64   bool     error
 Allocator
 ```
 
-and `id` and `span`, which are written only with an element type,
-`id[T]` and `span[T]` (see [Types](04-types.md#arenas-ids-and-spans)).
+and `id`, `span` and `handle`, which are written only with an element
+type, `id[T]`, `span[T]` and `handle[T]` (see
+[Types](04-types.md#arenas-ids-and-spans) and
+[Types](04-types.md#pools-and-handles)).
 
 [Types](04-types.md) describes what each names, and [Declarations and
 scope](05-declarations.md) which other names may not be declared where.

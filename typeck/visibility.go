@@ -148,10 +148,12 @@ func (c *Checker) fieldExposure(td *ast.TypeDecl) {
 
 // exposure reports typ, written at at in the declaration what, whose
 // visibility is vis, if it is or holds a struct or union type less
-// visible than vis, as an array's, a view's or a list's element, a
-// map's key or value, or a function type's parameter or result.
+// visible than vis, as an array's, a view's, a list's, a pool's or a
+// handle's element, a map's key or value, or a function type's parameter
+// or result.
 func (c *Checker) exposure(vis ast.Visibility, what string, typ types.Type, at ast.Span) {
-	for c.table.IsArray(typ) || c.table.IsView(typ) || c.table.IsList(typ) {
+	for c.table.IsArray(typ) || c.table.IsView(typ) || c.table.IsList(typ) || c.table.IsPool(typ) ||
+		c.table.IsHandle(typ) {
 		typ = c.table.Elem(typ)
 	}
 	if c.table.IsMap(typ) || c.table.IsFunc(typ) {

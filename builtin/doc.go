@@ -35,8 +35,9 @@
 // unreachable.c, the bodies of print and exit, ordinary non-static
 // functions under their C names, the abort an unreachable statement
 // lowers to (UnreachableSymbol), and the allocators and the grow and free functions of lists,
-// with the check of an arena's length limit and its testing hook,
-// ListSymbols among them. RuntimeHeader is <tack/tack.h>, which every C
+// with the check of an arena's length limit and its testing hook, and a
+// pool's tags, the generation its new slots start at and the limit on its
+// slots, with their testing hooks, ListSymbols among them. RuntimeHeader is <tack/tack.h>, which every C
 // file of a program and of std includes. The driver writes them to each
 // build's own temporary directory and compiles against that copy, linking
 // the runtime objects a program needs (see command tack); UsesLists says

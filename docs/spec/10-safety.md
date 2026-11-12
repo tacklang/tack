@@ -27,7 +27,7 @@ and many more examples.
 Every program the compiler accepts keeps four guarantees:
 
 1. No out-of-bounds access: it never reads or writes outside the memory
-   an array, a list, an arena, a view or a string holds.
+   an array, a list, an arena, a pool, a view or a string holds.
 2. No memory leak: everything it allocates is freed before the process
    ends, however it ends, `exit` included. The stack and static storage
    are excluded.
@@ -106,6 +106,7 @@ where it is written, to be ones for which it cannot fail:
 | `s[i]`, `v[i]`, `l[i]`       | `0 <= i` and `i < len(x)`                                                    |
 | `x[i:j]`                     | `0 <= i`, `i <= j` and `j <= len(x)`                                         |
 | `m[k]`                       | `has(m, k)`                                                                  |
+| `p[h]` on a pool             | `has(p, h)`                                                                  |
 | `pop(mut l)`                 | `len(l) > 0`                                                                 |
 | `remove(mut l, i)`           | `0 <= i` and `i < len(l)`                                                    |
 | `swap(mut l, i, j)`          | `0 <= i`, `i < len(l)`, `0 <= j` and `j < len(l)`                            |
@@ -189,7 +190,8 @@ give facts are:
 - `has(m, k)`, which proves `k` is in `m`, when `m` is a variable or a
   parameter, or a field or element of one declared without `mut`, and `k`
   is a constant, or a variable or parameter declared without `mut`, or a
-  field of one;
+  field of one; and `has(p, h)` of a pool, which proves `h` names a live
+  element of `p`, under the same conditions on `p` and `h`;
 - a comparison of two values that are not both known, which gives a
   relation (see [Relations](#relations));
 - `c1 && c2` when true, which gives the facts of both sides; `c1 || c2`
@@ -494,6 +496,9 @@ moving it; writing an element of a list ends no fact about its length,
 and assigning a whole array ends none about its indexes. For a fact from
 `has(m, k)` it is a write to `m`: `put`, `delete` of any key, an
 assignment, or a `mut` argument; writing a value `m` holds ends none.
+For one from `has(p, h)` of a pool it is a write to `p`: `insert`,
+`remove` of any handle, an assignment, or a `mut` argument; writing an
+element `p` holds ends none.
 
 A write reaches the use when it can run before it:
 
@@ -1020,6 +1025,68 @@ func main() {
     mut z id[int64]
     if small[far] != 7 || small[z] != 7 || len(small) != 1 {
         exit(2)
+    }
+    exit(0)
+}
+```
+
+### Pool lookups
+
+A pool's element, `p[h]`, is read or written only where `has(p, h)`
+proves `h` names a live element of `p`, as a map's value is: `handle h
+may not be live in p; check has(p, h) first, or use v, ok := p[h]`, and
+for an assignment, or an element no checked form reads, without the
+checked form. The proof is the only one: `has` is the only operation
+that gives it, and it holds as a map's does, while neither `p` nor `h`
+can change. It ends at any write to `p` that can reach the use, an
+`insert`, a `remove` of any handle, an assignment of `p`, a `mut`
+argument, a closure that writes `p` passed to a call, or the back edge of
+a loop that writes `p`, but not at a write to an element, which changes
+no slot. `p` must be a variable or a parameter, or a field or an element
+of one declared without `mut`, and `h` a variable or parameter declared
+without `mut`, or a field of one. A fact about a pool a closure can
+write, a mutable one, does not hold inside the closure. A range over a
+pool, `for h, v := range p` or `for h := range p`, puts the same fact
+about its handle in force in its body, as a list range puts its index in
+range: the range locks `p`, so nothing in the body can insert into or
+remove from it, and the fact ends at any write to `p` or `h` in the body
+as a list range's facts do.
+
+The checked form, `v, ok := p[h]`, needs no proof: it copies the element
+and `true`, or gives the element type's zero value and `false`, so it
+cannot read an owned element, a type parameter's included, nor one of a
+type with no zero value. `remove(mut p, h)`, as a statement or in its
+checked form, needs no proof either. Every lookup that needs no proof
+compares the handle's tag with the pool's, its slot with the pool's
+slots and its generation with the slot's, and finds nothing unless all
+three match and the slot is live, so a stale handle, one of another pool
+or the zero handle never reads or writes memory, freed or not. A pool
+never gives its slots back while it lives, and a slot whose generation
+would wrap is never used again, so no stale handle ever matches. A
+handle has no conversion from an integer, so nothing forges one.
+
+```tack run exit=0
+package main
+
+func main() {
+    mut small := make(pool[int64], c_allocator)
+    mut big := make(pool[int64], c_allocator)
+    mut far handle[int64]
+    for i := range 10 {
+        h, err := insert(mut big, i)
+        if err.code != 0 {
+            exit(1)
+        }
+        far = h
+    }
+    one, err := insert(mut small, 7)
+    if err.code != 0 {
+        exit(2)
+    }
+    v, found := small[far]
+    remove(mut small, far)
+    if found || v != 0 || has(small, far) || !has(small, one) || len(small) != 1 {
+        exit(3)
     }
     exit(0)
 }

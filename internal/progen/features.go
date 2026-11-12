@@ -149,3 +149,57 @@ func (g *Gen) arenaStmt() Stmt {
 		f.m.observe(vs[3])
 	}, lines...)
 }
+
+// poolStmt makes a pool of int64s and inserts two values with insert,
+// each an int64 operand naming no list or map, evaluated in order, and,
+// once both errors are checked, observes the first through its handle,
+// which has proves live, removes it with the statement form, observes
+// the checked form of its now stale handle, which gives 0, the pool's
+// length, each element of a range over it, the second taken out with the
+// checked remove, and the length again. Its variables are its own, which
+// no other statement names; it allocates, so it is never in deferred
+// code. No run the interpreter checks fails to allocate, so the
+// interpreter always takes the branch.
+func (g *Gen) poolStmt() Stmt {
+	if g.inDefer || g.noLists {
+		return g.obsStmt()
+	}
+	g.noLists = true
+	vals := []Expr{g.intOperand(Int64, 1), g.intOperand(Int64, 1)}
+	g.noLists = false
+	p, a, errA, b, errB := g.name("p"), g.name("h"), g.name("err"), g.name("h"), g.name("err")
+	x, found, w, y, ok := g.name("x"), g.name("ok"), g.name("w"), g.name("y"), g.name("ok")
+	lines := []string{
+		"mut " + p + " := make(pool[int64], c_allocator)",
+		a + ", " + errA + " := insert(mut " + p + ", " + vals[0].Text + ")",
+		b + ", " + errB + " := insert(mut " + p + ", " + vals[1].Text + ")",
+		"if " + errA + ".code == 0 && " + errB + ".code == 0 {",
+		"    if has(" + p + ", " + a + ") {",
+		"        obs(" + p + "[" + a + "])",
+		"    }",
+		"    remove(mut " + p + ", " + a + ")",
+		"    " + x + ", " + found + " := " + p + "[" + a + "]",
+		"    if !" + found + " {",
+		"        obs(" + x + ")",
+		"    }",
+		"    obs(len(" + p + "))",
+		"    for _, " + w + " := range " + p + " {",
+		"        obs(" + w + ")",
+		"    }",
+		"    " + y + ", " + ok + " := remove(mut " + p + ", " + b + ")",
+		"    if " + ok + " {",
+		"        obs(" + y + ")",
+		"    }",
+		"    obs(len(" + p + "))",
+		"}",
+	}
+	return simple(func(f *frame) {
+		v0, v1 := asInt64(vals[0].Eval(f).Bits), asInt64(vals[1].Eval(f).Bits)
+		f.m.observe(v0)
+		f.m.observe(0)
+		f.m.observe(1)
+		f.m.observe(v1)
+		f.m.observe(v1)
+		f.m.observe(0)
+	}, lines...)
+}

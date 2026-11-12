@@ -254,12 +254,13 @@ func (c *Checker) mapElement(ix *ast.Index, base, idx types.Type, write bool) ty
 // isHas reports whether call calls has.
 func isHas(call *ast.Call) bool { return isBuiltinCall(call, "has") }
 
-// hasKeyCall checks a call to has, has(m, k), records its type, bool, on
-// the call and returns it. Its first argument is the map, read in place,
-// as len reads one, and its second the key, usable as the map's key type
-// and borrowed, not moved, when owned. Tested as a condition, it proves k
-// is in m (see memberFact). Anything else is reported, and gives
-// types.Invalid.
+// hasKeyCall checks a call to has, has(m, k) or has(p, h), records its
+// type, bool, on the call and returns it. Its first argument is the map or
+// the pool, read in place, as len reads one, and its second the key,
+// usable as the map's key type and borrowed, not moved, when owned, or the
+// handle, usable as a handle of the pool's element type. Tested as a
+// condition, it proves k is in m, or h live in p (see memberFact).
+// Anything else is reported, and gives types.Invalid.
 func (c *Checker) hasKeyCall(call *ast.Call) types.Type {
 	if !c.checkArity(call, "has", 2) {
 		for _, arg := range call.Args {
@@ -268,18 +269,12 @@ func (c *Checker) hasKeyCall(call *ast.Call) types.Type {
 		return types.Invalid
 	}
 	before := len(c.diags)
-	typ := c.expr(call.Args[0])
-	if typ != types.Invalid && !c.table.IsMap(typ) {
-		if typ = c.valueOf(call.Args[0], typ); typ != types.Invalid {
-			c.errorf(call.Args[0].Spanned(), "has expects a map, got %s", c.typeName(typ))
-		}
-		typ = types.Invalid
-	}
-	if typ == types.Invalid {
+	key := c.hasTarget(call.Args[0], c.expr(call.Args[0]))
+	if key == types.Invalid {
 		c.argExpr(call.Args[1])
 		return types.Invalid
 	}
-	c.checkArg(call.Args[1], param{name: "k", typ: c.table.Key(typ)}, "has")
+	c.checkArg(call.Args[1], param{name: "k", typ: key}, "has")
 	c.checkListBorrows(call)
 	if len(c.diags) > before {
 		return types.Invalid
@@ -289,11 +284,13 @@ func (c *Checker) hasKeyCall(call *ast.Call) types.Type {
 }
 
 // memberFact returns the fact has(m, k), call, gives when it is true: that
-// k is in m. m must be a subject (see keyOf) and k a key that cannot
-// change (see memberOf); a call to has on anything else gives none. The
-// fact ends at any write to m that can reach its use, a put, a delete, an
-// assignment or a mut argument, but not one to a value m holds, which
-// changes none of its keys (see writes).
+// k is in m, or, for a pool, has(p, h), that h names a live element of p.
+// m must be a subject (see keyOf) and k a key that cannot change (see
+// memberOf); a call to has on anything else gives none. The fact ends at
+// any write to m that can reach its use, a put, a delete, an insert, a
+// remove, an assignment or a mut argument, but not one to a value m
+// holds, which changes none of its keys and no pool's slots (see
+// writes).
 func (c *Checker) memberFact(call *ast.Call) []fact {
 	if call.Type != types.Bool || len(call.Args) != 2 {
 		return nil
@@ -358,21 +355,29 @@ func (c *Checker) provenIn(m, k ast.Expr) bool {
 }
 
 // memberNotes returns the notes that explain why the key of ix, m[k], is
-// not proven in m: for each has that proved it but whose proof a write
-// ended, the guard and the write; or, when m is a map or the key one has
-// cannot prove anything about, that.
+// not proven in m, or the handle of p[h] live in p: for each has that
+// proved it but whose proof a write ended, the guard and the write; or,
+// when m is a map or a pool, or the key or handle, one has cannot prove
+// anything about, that.
 func (c *Checker) memberNotes(ix *ast.Index) []diag.Diagnostic {
+	pool := c.table.IsPool(ast.TypeOf(ix.X))
 	if _, ok := c.keyOf(ix.X); !ok {
-		return []diag.Diagnostic{
-			note(ix.X.Spanned(), "has proves a key only in a map that is a variable "+
-				"or a parameter, or a field or an element of one declared without mut"),
+		msg := "has proves a key only in a map that is a variable " +
+			"or a parameter, or a field or an element of one declared without mut"
+		if pool {
+			msg = "has proves a handle only in a pool that is a variable " +
+				"or a parameter, or a field or an element of one declared without mut"
 		}
+		return []diag.Diagnostic{note(ix.X.Spanned(), msg)}
 	}
 	if _, _, ok := c.memberOf(ix.Index); !ok {
-		return []diag.Diagnostic{
-			note(ix.Index.Spanned(), "has proves only a key that cannot change: "+
-				"a constant, a variable or parameter declared without mut, or a field of one"),
+		msg := "has proves only a key that cannot change: " +
+			"a constant, a variable or parameter declared without mut, or a field of one"
+		if pool {
+			msg = "has proves only a handle that cannot change: " +
+				"a variable or parameter declared without mut, or a field of one"
 		}
+		return []diag.Diagnostic{note(ix.Index.Spanned(), msg)}
 	}
 	var dropped []fact
 	for _, f := range c.memberFacts(ix) {
@@ -381,7 +386,11 @@ func (c *Checker) memberNotes(ix *ast.Index) []diag.Diagnostic {
 		}
 	}
 	key, m := c.text(ix.Index.Spanned()), c.text(ix.X.Spanned())
-	return dropNotes(dropped, func([]fact) string { return key + " is in " + m })
+	claim := key + " is in " + m
+	if pool {
+		claim = key + " is live in " + m
+	}
+	return dropNotes(dropped, func([]fact) string { return claim })
 }
 
 // mapResults checks m[k], ix, a value of type value bound to want names,

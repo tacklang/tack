@@ -1592,6 +1592,9 @@ func (g *generator) generateForRange(
 	if g.prog.Types.IsArena(xType) {
 		return g.arenaRange(loop, addr, body), nil
 	}
+	if g.prog.Types.IsPool(xType) {
+		return g.poolRange(loop, addr, body), nil
+	}
 	if !types.IsInteger(xType) {
 		return g.collectionRange(loop, x, addr, body), nil
 	}
@@ -2066,6 +2069,9 @@ func (g *generator) elementRef(ix *ast.Index) (string, []diag.Diagnostic) {
 	if g.prog.Types.IsArena(ast.TypeOf(ix.X)) {
 		return g.arenaElementRef(ix, base, index), nil
 	}
+	if g.prog.Types.IsPool(ast.TypeOf(ix.X)) {
+		return g.poolElementRef(ix, base, index), nil
+	}
 	return fmt.Sprintf("%s.e[%s]", base, index), nil
 }
 
@@ -2107,6 +2113,9 @@ func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagn
 
 	if call.Receiver() != nil || call.Method != nil {
 		return g.generateCall("", call)
+	}
+	if g.isPoolRemove(call) {
+		return g.dropPoolRemove(call)
 	}
 	if isBuiltin(call, "pop") || isBuiltin(call, "remove") {
 		return g.dropTake(call)
@@ -2392,13 +2401,20 @@ func (g *generator) multiValues(value ast.Expr) (multiSource, []diag.Diagnostic)
 
 // callValues lowers a, b := f(): the call, held as its results struct,
 // read field by field, the checked form of pop or remove (see
-// takeValues), or a call to add or add_all (see addValues).
+// takeValues), or of a pool's remove (see poolTakeValues), or a call to
+// add, add_all or insert (see addValues and insertValues).
 func (g *generator) callValues(c *ast.Call) (multiSource, []diag.Diagnostic) {
+	if g.isPoolRemove(c) {
+		return g.poolTakeValues(c)
+	}
 	if isBuiltin(c, "pop") || isBuiltin(c, "remove") {
 		return g.takeValues(c)
 	}
 	if isBuiltin(c, "add") || isBuiltin(c, "add_all") {
 		return g.addValues(c)
+	}
+	if isBuiltin(c, "insert") {
+		return g.insertValues(c)
 	}
 	if isBuiltin(c, "delete") {
 		return g.deleteValues(c)
@@ -2749,7 +2765,8 @@ func bounds(typ types.Type) (lo, hi constant.Int) {
 func (g *generator) zeroValue(typ types.Type) string {
 	table := g.prog.Types
 	if g.isComposite(typ) || table.IsList(typ) || table.IsMap(typ) || table.IsView(typ) ||
-		table.IsArena(typ) || typ == types.Allocator || typ == types.Any {
+		table.IsArena(typ) || table.IsPool(typ) || table.IsHandle(typ) || typ == types.Allocator ||
+		typ == types.Any {
 		return fmt.Sprintf("(%s){}", g.cType(typ))
 	}
 	switch typ {
@@ -3098,6 +3115,9 @@ func (g *generator) binaryOf(bin *ast.Binary, left, right string) string {
 	if ast.TypeOf(bin.X) == types.String {
 		return stringComparison(bin.Op, left, right)
 	}
+	if g.prog.Types.IsHandle(ast.TypeOf(bin.X)) {
+		return handleComparison(bin.Op, left, right)
+	}
 	if isIntComparison(bin) {
 		return intComparison(bin.Op, ast.TypeOf(bin.X), ast.TypeOf(bin.Y), left, right)
 	}
@@ -3309,6 +3329,12 @@ func (g *generator) cType(typ types.Type) string {
 	}
 	if g.prog.Types.IsSpan(typ) {
 		return "uint64_t"
+	}
+	if g.prog.Types.IsPool(typ) {
+		return g.poolName(typ)
+	}
+	if g.prog.Types.IsHandle(typ) {
+		return handleType
 	}
 	if g.prog.Types.IsFunc(typ) {
 		return funcPtr

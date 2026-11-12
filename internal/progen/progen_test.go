@@ -141,7 +141,7 @@ func TestFeatureCoverage(t *testing.T) {
 		"func value var": `mut fv`, "error result": `, error\) \{`, "error check": `\.code != 0 \{`,
 		"defer": `defer \{`, "generic rev": `rev\(mut`, "sort.by": `sort\.by\(`,
 		"is_sorted": `sort\.is_sorted\(`, "bytes": `bytes\.`, "union switch": `switch `,
-		"map put": `put\(mut`, "swap": `swap\(mut`, "drop": `drop\(own`, "arena": `add_all\(mut`, "parse_int": `conv\.parse_int\(`,
+		"map put": `put\(mut`, "swap": `swap\(mut`, "drop": `drop\(own`, "arena": `add_all\(mut`, "pool": `insert\(mut`, "parse_int": `conv\.parse_int\(`,
 		"text": `text\.from_bytes\(`, "errors.Failure": `errors\.from_bytes\(`,
 		"iface generic": `\]\(x T\)`, "array slice": `[a-z][0-9]+\[[0-9]+:[0-9]+\]`,
 		"string order": `[a-z][0-9]+ (<|<=|>|>=) "`, "has proof": `if has\(`,

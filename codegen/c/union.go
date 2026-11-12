@@ -139,8 +139,8 @@ func freeNameOf(typ types.Type) string {
 }
 
 // emitFrees writes tack_free_ for every union type that holds a list,
-// every list type whose elements are owned, every map type and every
-// arena type, each after those of the
+// every list type whose elements are owned, every map type, every arena
+// type and every pool type, each after those of the
 // types its payloads or elements, and the fields of those, hold, which
 // it calls.
 func (g *generator) emitFrees() {
@@ -164,6 +164,8 @@ func (g *generator) emitFrees() {
 			g.emitMapFree(typ)
 		case table.IsArena(typ):
 			g.emitArenaFree(typ)
+		case table.IsPool(typ):
+			g.emitPoolFree(typ)
 		}
 	}
 	for _, typ := range g.emittedTypes() {

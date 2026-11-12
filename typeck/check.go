@@ -1037,7 +1037,7 @@ func (c *Checker) callResults(call *ast.Call, want int, span ast.Span) ([]types.
 		}
 		results = []types.Type{typ}
 		if call.ResultTypes != nil {
-			// add or add_all, which give two.
+			// add, add_all or insert, which give two.
 			results = call.ResultTypes
 		}
 	} else {
@@ -1204,7 +1204,9 @@ func (c *Checker) assumeLoop(loop *ast.For) {
 // its key type, referring to the key in place when it is owned, and the
 // element its value type; or over an arena, which gives the index an id
 // of its element type, the sentinel's first, and the element its element
-// type. An integer gives only one value, so an element variable
+// type; or over a pool, which gives the index the handle of each live
+// element and the element its element type. An integer gives only one
+// value, so an element variable
 // over one is reported. What it ranges over may be a call returning a
 // view, or a span's view of an arena.
 func (c *Checker) checkForRange(loop *ast.ForRange, fn *ast.Func) {
@@ -1268,6 +1270,8 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 		return c.table.Key(got), c.table.Elem(got)
 	case c.table.IsArena(got):
 		return c.table.ID(c.table.Elem(got)), c.table.Elem(got)
+	case c.table.IsPool(got):
+		return c.table.Handle(c.table.Elem(got)), c.table.Elem(got)
 	case got == types.String:
 		return types.Int64, types.Uint8
 	default:
@@ -1278,7 +1282,9 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 
 // rangeFacts returns what a range loop's body knows about its index
 // variable, a range over a value of type got, other than a map, whose key
-// is no index and gets no fact, and an arena, whose ids are no integers: it is at least 0, and below
+// is no index and gets no fact, an arena, whose ids are no integers, and
+// a pool, whose handle gets the fact has gives (see poolRangeFacts): it
+// is at least 0, and below
 // the count or the length when that is known. A count's is known when it is
 // a known value, an array's always, and a string's when it is a known
 // string, a literal or an immutable variable holding one.
@@ -1294,6 +1300,9 @@ func (c *Checker) rangeTypes(loop *ast.ForRange, got types.Type) (index, elem ty
 func (c *Checker) rangeFacts(loop *ast.ForRange, got types.Type) []fact {
 	if loop.Var == nil || loop.Var.Name == ast.Blank || c.table.IsMap(got) || c.table.IsArena(got) {
 		return nil
+	}
+	if c.table.IsPool(got) {
+		return c.poolRangeFacts(loop)
 	}
 	f := fact{about: declKey(loop.Var), hasLo: true}
 	one := constant.FromInt64(1)
@@ -1493,8 +1502,8 @@ func (c *Checker) checkGlobal(v *ast.Var) {
 }
 
 // badGlobalType reports v, a package-level variable, when its type holds a
-// function value, a list, a map or an arena, which no global may, and
-// returns whether it did.
+// function value, a list, a map, an arena or a pool, which no global
+// may, and returns whether it did.
 func (c *Checker) badGlobalType(v *ast.Var) bool {
 	if c.holdsFunc(v.Type, make(map[types.Type]bool)) {
 		c.noGlobalFunc(v)
@@ -1507,6 +1516,8 @@ func (c *Checker) badGlobalType(v *ast.Var) bool {
 	switch {
 	case c.table.HoldsArena(v.Type):
 		held = "an arena"
+	case c.table.HoldsPool(v.Type):
+		held = "a pool"
 	case !c.table.HoldsList(v.Type):
 		held = "a map"
 	}
@@ -2219,7 +2230,8 @@ func (c *Checker) checkNumberTarget(target ast.Expr, op string, floats bool) (ty
 // does not know and returning types.Invalid for it. A name denotes a basic
 // type, or the struct type the resolver bound it to, list[T] a list
 // type, map[K]V a map type, arena[T], id[T] and span[T] an arena, an id
-// and a span type, and func(A) R a function type. A view type and any
+// and a span type, pool[T] and handle[T] a pool and a handle type, and
+// func(A) R a function type. A view type and any
 // are reported, since only a parameter may have one, or, for a view, a
 // result; paramType gives a parameter's and resultType a result's.
 func (c *Checker) declaredType(expr ast.Expr) types.Type {
@@ -2251,8 +2263,8 @@ func (c *Checker) declaredType(expr ast.Expr) types.Type {
 }
 
 // compositeType returns the type expr denotes when it is an array, a
-// view, a list, a map, an arena, an id, a span or a function type, as
-// declaredType says, and whether it is one.
+// view, a list, a map, an arena, a pool, an id, a span, a handle or a
+// function type, as declaredType says, and whether it is one.
 func (c *Checker) compositeType(expr ast.Expr) (types.Type, bool) {
 	switch t := expr.(type) {
 	case *ast.ArrayType:
@@ -2265,6 +2277,8 @@ func (c *Checker) compositeType(expr ast.Expr) (types.Type, bool) {
 		return c.mapType(t), true
 	case *ast.ArenaType:
 		return c.arenaType(t), true
+	case *ast.PoolType:
+		return c.poolType(t), true
 	case *ast.RefType:
 		return c.refType(t), true
 	case *ast.FuncType:

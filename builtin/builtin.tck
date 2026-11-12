@@ -4,7 +4,7 @@
 // as code. It exists so editors can show each builtin's documentation and
 // go to its declaration. Changing a copy of it changes nothing.
 //
-// Some builtins take any list, map, arena or type, which no Tack
+// Some builtins take any list, map, arena, pool or type, which no Tack
 // declaration can say exactly. Their declarations below use stand-in types, Elem, Key,
 // Sized and ListType, declared at the end of this file for documentation
 // only; no program can name them.
@@ -97,6 +97,19 @@ type id id
 // when the span is not wholly in a.
 type span span
 
+// handle is written handle[T]: one element of a pool[T], given by insert:
+// its slot, the slot's generation and the pool's tag, 32 bits each. It
+// is copyable, has == and != and may be a map's key, but has no order and
+// no arithmetic, and converts to and from no integer. Its zero value is a
+// handle no pool gives. Removing the element moves its slot's generation
+// on, and a slot whose generation would wrap is never used again, so a
+// handle never names another element; nor does one from another pool,
+// whose tag differs, except that past 2^32 - 2 pools made, later pools
+// share the last tag and may accept each other's handles, a logic limit,
+// never a read of memory a pool does not hold. has(p, h) proves it live,
+// and so does a range over p, for its handle, in its body.
+type handle handle
+
 // Values
 
 // true is the bool that holds.
@@ -126,17 +139,18 @@ func print(s string)
 func exit(code int32)
 
 // len returns the number of elements of the array, view, list or arena v,
-// an arena's sentinel among them, the number of keys of the map v, or the
-// number of bytes of the string v. The length of an array, and of a string
-// literal, is a constant; a view's, a list's or an arena's is never
-// known.
+// an arena's sentinel among them, the number of live elements of the pool
+// v, the number of keys of the map v, or the number of bytes of the string
+// v. The length of an array, and of a string literal, is a constant; a
+// view's, a list's, an arena's or a pool's is never known.
 func len(v Sized) int64
 
 // make returns an empty list of elements of type T, written make(list[T],
 // alloc), or an empty map, make(map[K]V, alloc), which grows through alloc
 // and is freed through it when its owner's block ends. make(arena[T],
 // sentinel, alloc) returns an arena holding only sentinel, which it moves
-// in, as its element at id 0. Each allocates nothing, so it cannot fail.
+// in, as its element at id 0, and make(pool[T], alloc) an empty pool with
+// a tag of its own. Each allocates nothing, so it cannot fail.
 func make(t ListType, alloc Allocator) ListType
 
 // append appends elems to the end of l, in order, growing its buffer
@@ -171,6 +185,12 @@ func pop[T Elem](mut l list[T]) T
 // form needs i proven in range for l; its checked form, x, ok :=
 // remove(mut l, i), may be written anywhere, ok being false for an i out of
 // range. Written as a statement it discards element i only when i is in range.
+// l may be a pool, remove(mut p, h), which moves out the element the
+// handle h names: v, ok := remove(mut p, h) gives it and true, or, when h
+// names no live element of p, the element type's zero value and false,
+// leaving p as it was; written as a statement, remove(mut p, h) frees the
+// element when there is one. Neither needs a proof, and a pool's remove
+// has no plain form.
 func remove[T Elem](mut l list[T], i int64) T
 
 // swap swaps elements i and j of l in place; i equal to j leaves l as it
@@ -203,7 +223,10 @@ func delete[K Key, V Elem](mut m map[K]V, k K) (V, bool)
 // has reports whether k is in m. Tested as a condition it proves k is in m
 // where the condition holds, so m[k] is then a place that can be read and
 // assigned in place. The proof ends at any write to m that can reach the
-// use.
+// use. m may be a pool, has(p, h), which reports whether the handle h
+// names a live element of p and, tested as a condition, proves it, so
+// p[h] is a place in the same way, until any insert, remove, assignment
+// or mut use of p that can reach the use.
 func has[K Key, V Elem](m map[K]V, k K) bool
 
 // drop frees x at once, exactly as the end of its block would, and leaves
@@ -235,10 +258,19 @@ func add[T Elem](mut a arena[T], v T) (id[T], error)
 // until the error is checked, and the error cannot be discarded.
 func add_all[T Elem](mut a arena[T], elems ...T) (span[T], error)
 
+// insert moves v into p and returns its handle, which names it until it is
+// removed, and no error, taking a slot an earlier remove freed when there
+// is one, and otherwise growing p through its allocator; or, when it
+// cannot grow p, or p would hold more than 2^32 - 1 slots, the zero handle
+// and error{code: 1, msg: "out of memory"}, leaving p as it was and
+// freeing v. The handle cannot be read until the error is checked, and
+// the error cannot be discarded.
+func insert[T Elem](mut p pool[T], v T) (handle[T], error)
+
 // Stand-ins, for documentation only
 
-// Elem stands for any type: a list's or an arena's element, a map's
-// value, a place.
+// Elem stands for any type: a list's, an arena's or a pool's element, a
+// map's value, a place.
 type Elem interface {
 }
 
@@ -246,12 +278,12 @@ type Elem interface {
 type Key interface {
 }
 
-// Sized stands for any array, view, list or arena, of any element type, a
-// map, or a string.
+// Sized stands for any array, view, list, arena or pool, of any element
+// type, a map, or a string.
 type Sized interface {
 }
 
-// ListType stands for a list, a map or an arena type written where a value
-// goes, as make(list[int64], c_allocator) does.
+// ListType stands for a list, a map, an arena or a pool type written where
+// a value goes, as make(list[int64], c_allocator) does.
 type ListType interface {
 }

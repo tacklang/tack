@@ -240,8 +240,8 @@ type Handler union {
     none
 }
 
-// handle runs h on x, or gives x back when h holds none.
-func handle(h Handler, x int64) int64 {
+// dispatch runs h on x, or gives x back when h holds none.
+func dispatch(h Handler, x int64) int64 {
     switch h {
     case call(f):
         return f(x)
@@ -252,7 +252,7 @@ func handle(h Handler, x int64) int64 {
 
 // unions keeps function values in a union's payload.
 func unions() {
-    check(handle(Handler.call(square), 4) == 16 && handle(Handler.none, 4) == 4,
+    check(dispatch(Handler.call(square), 4) == 16 && dispatch(Handler.none, 4) == 4,
         "a union's payload")
 }
 

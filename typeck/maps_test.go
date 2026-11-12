@@ -234,7 +234,7 @@ func TestRejectsHas(t *testing.T) {
 				"if has(m, k) {", "    b := m[k]", "    if len(b.items) > 0 {", "    }", "}"),
 			"cannot move m[k] out of m: a value cannot be moved out of a map; take it out with delete",
 		},
-		{"has of a list", mapProgram("l list[int64]", "if has(l, 0) {", "}"), "has expects a map, got list[int64]"},
+		{"has of a list", mapProgram("l list[int64]", "if has(l, 0) {", "}"), "has expects a map or a pool, got list[int64]"},
 		{"has of one argument", mapProgram("m map[int64]int64", "if has(m) {", "}"), "has expects 2 argument(s), got 1"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

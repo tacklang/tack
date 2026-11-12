@@ -133,17 +133,18 @@ func Names() []string {
 }
 
 // refNames are the builtin types written as a name and an element type,
-// id[T] and span[T]: an arena's ids and spans of an element type. Lookup
-// finds neither, since neither name is a type alone, but both are
-// reserved as a basic type's name is (see Reserved).
-var refNames = []string{"id", "span"}
+// id[T], span[T] and handle[T]: an arena's ids and spans and a pool's
+// handles of an element type. Lookup finds none, since no name of them is
+// a type alone, but each is reserved as a basic type's name is (see
+// Reserved).
+var refNames = []string{"id", "span", "handle"}
 
 // RefNames returns the names of the builtin types written with an
-// element type, id[T] and span[T], in that order.
+// element type, id[T], span[T] and handle[T], in that order.
 func RefNames() []string { return refNames }
 
 // Reserved reports whether name is a builtin type's: a basic type's,
-// which Lookup finds, or id or span, written with an element type. No
+// which Lookup finds, or id, span or handle, written with an element type. No
 // declaration, struct field or method may take one as its name, and none
 // is read or assigned as a value.
 func Reserved(name string) bool {

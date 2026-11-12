@@ -114,9 +114,10 @@
 //
 // A type is a name, an array type, [n]T, a view type, []T, a list type,
 // list[T], list being a keyword, a map type, map[K]V, map being one, an
-// arena type, arena[T], arena being one, an id or a span type, id[T] or
-// span[T], an ast.RefType, id and span being reserved names, so either
-// followed by a bracket is always one, or a
+// arena type, arena[T], arena being one, a pool type, pool[T], pool
+// being one, an id, a span or a handle type, id[T], span[T] or
+// handle[T], an ast.RefType, id, span and handle being reserved names, so
+// each followed by a bracket is always one, or a
 // function type, func(A, mut B, own C, scope D) R, an ast.FuncType: its parameters'
 // types in parentheses, mut, own or scope before one that is so, with commas between them,
 // none named, a name before a type reported, and none variadic, then its
@@ -124,10 +125,11 @@
 // no results start the next parameter of a list it is written in, f func()
 // n int64. Nested to any depth; in an array literal, [...]T leaves the length to the
 // elements. Where a type is allowed is the type checker's to judge, so a
-// view type is parsed wherever a type is. A list, a map or an arena type
-// is parsed where an operand is too, as a ListType, a MapType or an
-// ArenaType, which make's first argument is, and so is an id or a span
-// type, followed by parentheses a conversion, id[int64](n), a Call whose
+// view type is parsed wherever a type is. A list, a map, an arena or a
+// pool type is parsed where an operand is too, as a ListType, a MapType,
+// an ArenaType or a PoolType, which make's first argument is, and so is
+// an id, a span or a handle type, followed by parentheses a conversion,
+// id[int64](n), a Call whose
 // Fn is the RefType, which the type checker reports; and one
 // followed by braces is a literal, which the type checker reports, as it
 // does a list type anywhere else a value is wanted. func where an operand

@@ -3,8 +3,10 @@
 #include <tack/tack.h>
 
 // The C of lists: the allocators a list grows and is freed through, and
-// the functions std's tack.h declares for them, and the limit on an
-// arena's length, whose elements are a list's. A list's buffer is only
+// the functions std's tack.h declares for them, the limit on an arena's
+// length, whose elements are a list's, and a pool's tags, the generation
+// its slots start at and the limit on its slots, which a list's buffer
+// holds. A list's buffer is only
 // ever obtained, grown and given back here, so every unchecked step of a
 // list's memory is in this file.
 //
@@ -252,4 +254,48 @@ bool tack_arena_room_(int64_t len, int64_t n) {
 
 void tack_arena_limit_(int64_t n) {
     arenaMax = n < 0 || (uint64_t)n > ARENA_MAX ? ARENA_MAX : (uint64_t)n;
+}
+
+// poolTag is the tag the next pool made takes: it starts at 1, so no pool
+// has tag 0, the zero handle's, and stops at POOL_MAX, which every pool
+// made after it is reached shares, so making a pool never fails (see
+// tack_pool_next_tag_).
+#define POOL_MAX 4294967295u
+static uint32_t poolTag = 1;
+
+uint32_t tack_pool_tag_(void) {
+    uint32_t tag = poolTag;
+    if (poolTag < POOL_MAX) {
+        poolTag++;
+    }
+    return tag;
+}
+
+void tack_pool_next_tag_(int64_t n) {
+    poolTag = n < 1 ? 1 : (uint64_t)n > POOL_MAX ? POOL_MAX : (uint32_t)n;
+}
+
+// poolGen0 is the generation a pool's new slot starts at: 0, or more while
+// a test has raised it (see tack_pool_first_gen_).
+static uint32_t poolGen0 = 0;
+
+uint32_t tack_pool_gen0_(void) {
+    return poolGen0;
+}
+
+void tack_pool_first_gen_(int64_t n) {
+    poolGen0 = n < 0 ? 0 : (uint64_t)n > POOL_MAX ? POOL_MAX : (uint32_t)n;
+}
+
+// poolMax is the most slots a pool may hold: 2^32 - 1, so every index,
+// below it, fits a uint32_t, or less while a test has lowered it (see
+// tack_pool_limit_).
+static uint64_t poolMax = POOL_MAX;
+
+bool tack_pool_room_(int64_t len) {
+    return len >= 0 && (uint64_t)len < poolMax;
+}
+
+void tack_pool_limit_(int64_t n) {
+    poolMax = n < 0 || (uint64_t)n > POOL_MAX ? POOL_MAX : (uint64_t)n;
 }

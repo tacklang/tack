@@ -121,9 +121,9 @@ func (c *Checker) notCopyable(holder string, elem types.Type, at ast.Span) {
 }
 
 // ownedPhrase names what makes typ, an owned type, owned, for a
-// diagnostic: "a list" for a list, "an arena" for an arena, and "T,
-// which holds a list," or "T, which holds an arena," for an array or a
-// struct holding one.
+// diagnostic: "a list" for a list, "an arena" for an arena, "a pool" for
+// a pool, and "T, which holds a list,", "T, which holds an arena," or "T,
+// which holds a pool," for an array or a struct holding one.
 func (c *Checker) ownedPhrase(typ types.Type) string {
 	if c.table.IsList(typ) {
 		return "a list"
@@ -131,8 +131,14 @@ func (c *Checker) ownedPhrase(typ types.Type) string {
 	if c.table.IsArena(typ) {
 		return "an arena"
 	}
+	if c.table.IsPool(typ) {
+		return "a pool"
+	}
 	if c.table.HoldsArena(typ) {
 		return c.typeName(typ) + ", which holds an arena,"
+	}
+	if c.table.HoldsPool(typ) {
+		return c.typeName(typ) + ", which holds a pool,"
 	}
 	if c.table.IsTypeParam(typ) {
 		return c.typeName(typ) + ", a type parameter, which may hold a list,"
@@ -169,18 +175,19 @@ func returnsListError(
 }
 
 // isTake reports whether call calls pop or remove, the generic builtins
-// that move an element out of a list, or delete, which moves a value out
-// of a map: each gives what it took and, in its checked form, whether
-// there was one.
+// that move an element out of a list, or, remove, out of a pool, or
+// delete, which moves a value out of a map: each gives what it took and,
+// in its checked form, whether there was one.
 func isTake(
 	call *ast.Call,
 ) bool {
 	return isBuiltinCall(call, "pop") || isBuiltinCall(call, "remove") || isDelete(call)
 }
 
-// makeCall checks a call to make, make(list[T], alloc) or make(map[K]V,
-// alloc), records the type it makes on the call and returns it. It takes
-// the list or map type, as written, and an Allocator to grow it through; a capacity is not taken
+// makeCall checks a call to make, make(list[T], alloc), make(map[K]V,
+// alloc) or make(pool[T], alloc), records the type it makes on the call
+// and returns it. It takes the list, map or pool type, as written, and an
+// Allocator to grow it through; a capacity is not taken
 // yet. make(arena[T], sentinel, alloc) takes the arena's sentinel between
 // them (see makeArena). Anything else is reported, and gives
 // types.Invalid.
@@ -203,7 +210,7 @@ func (c *Checker) makeCall(call *ast.Call) types.Type {
 	if !madeType(call.Args[0]) {
 		c.argExpr(call.Args[0])
 		c.errorf(call.Args[0].Spanned(),
-			"make takes a list, a map or an arena type, as in make(list[int64], c_allocator)")
+			"make takes a list, a map, an arena or a pool type, as in make(list[int64], c_allocator)")
 		c.argExpr(call.Args[1])
 		return types.Invalid
 	}
@@ -218,10 +225,10 @@ func (c *Checker) makeCall(call *ast.Call) types.Type {
 }
 
 // madeType reports whether e is a type make can make: a list type, a map
-// type or an arena type, as written.
+// type, an arena type or a pool type, as written.
 func madeType(e ast.Expr) bool {
 	switch e.(type) {
-	case *ast.ListType, *ast.MapType, *ast.ArenaType:
+	case *ast.ListType, *ast.MapType, *ast.ArenaType, *ast.PoolType:
 		return true
 	default:
 		return false
@@ -351,7 +358,8 @@ func (c *Checker) popCall(call *ast.Call) types.Type {
 
 // removeCall checks a call to remove, x := remove(mut l, i) or x, ok :=
 // remove(mut l, i), records the type of the element it gives on the call
-// and returns it. Its first argument is the list to take element i of,
+// and returns it; one whose first argument is a pool removes by a handle
+// instead (see poolRemove). Its first argument is the list to take element i of,
 // passed as mut as append's is, and its second the index, usable as an
 // int64, as reserve's count is. The plain form needs i proven in range
 // for l, as l[i] does; the checked form, the call c.checkedTake is, needs
@@ -369,6 +377,14 @@ func (c *Checker) removeCall(call *ast.Call) types.Type {
 	}
 	before := len(c.diags)
 	elem := c.listTarget(call.Args[0], "remove")
+	if m, isMut := call.Args[0].(*ast.MutArg); isMut && c.table.IsPool(ast.TypeOf(m.X)) {
+		return c.poolRemove(call, ast.TypeOf(m.X))
+	}
+	if c.table.IsPool(ast.TypeOf(call.Args[0])) {
+		// Reported as not mut; its handle is no list's index.
+		c.argExpr(call.Args[1])
+		return types.Invalid
+	}
 	i := call.Args[1]
 	c.checkArg(i, param{name: "i", typ: types.Int64}, "remove")
 	if len(c.diags) > before || elem == types.Invalid {
@@ -436,14 +452,19 @@ func (c *Checker) takeResults(call *ast.Call, want int, span ast.Span) ([]types.
 
 // listTarget checks arg, the list a call to builtin, append, reserve, pop
 // or remove, grows or takes from, which must be passed as mut, mut l, and
-// be a place of a list type, or, for reserve, of an arena type, and
-// returns the list's or the arena's element type, types.Invalid when
-// anything was reported.
+// be a place of a list type, or, for reserve, of an arena type, or, for
+// remove, of a pool type, and returns the list's, the arena's or the
+// pool's element type, types.Invalid when anything was reported. A pool
+// passed to remove without mut is told so by its parameter's name, p.
 func (c *Checker) listTarget(arg ast.Expr, builtin string) types.Type {
 	m, isMut := arg.(*ast.MutArg)
 	if !isMut {
-		c.expr(arg)
-		c.missingMut(arg, param{name: "l"}, builtin)
+		name := "l"
+		if c.table.IsPool(c.expr(arg)) && builtin == "remove" {
+			// A pool's remove names its parameter p, as insert does.
+			name = "p"
+		}
+		c.missingMut(arg, param{name: name}, builtin)
 		return types.Invalid
 	}
 	got := c.place(m.X, m)
@@ -455,6 +476,11 @@ func (c *Checker) listTarget(arg ast.Expr, builtin string) types.Type {
 	case builtin == "reserve" && !c.table.IsList(got):
 		c.errorf(m.X.Spanned(), "reserve expects a list or an arena, got %s", c.typeName(got))
 		return types.Invalid
+	case builtin == "remove" && c.table.IsPool(got):
+		return c.table.Elem(got)
+	case builtin == "remove" && !c.table.IsList(got):
+		c.errorf(m.X.Spanned(), "remove expects a list or a pool, got %s", c.typeName(got))
+		return types.Invalid
 	case !c.table.IsList(got):
 		c.errorf(m.X.Spanned(), "%s expects a list, got %s", builtin, c.typeName(got))
 		return types.Invalid
@@ -465,10 +491,10 @@ func (c *Checker) listTarget(arg ast.Expr, builtin string) types.Type {
 
 // genericCall returns the checker of the generic builtin call calls, len,
 // make, append, reserve, pop, remove, swap, replace, put, delete, has,
-// drop, add or add_all, each of which checks its own arguments and gives
-// one value, but swap and drop, which give none, and add and add_all,
-// which give two, the first of which the checker returns (see
-// builtinResults), or nil when call calls none of them.
+// drop, add, add_all or insert, each of which checks its own arguments
+// and gives one value, but swap and drop, which give none, and add,
+// add_all and insert, which give two, the first of which the checker
+// returns (see callResults), or nil when call calls none of them.
 func (c *Checker) genericCall(call *ast.Call) func(*ast.Call) types.Type {
 	switch {
 	case isLen(call):
@@ -489,6 +515,8 @@ func (c *Checker) genericCall(call *ast.Call) func(*ast.Call) types.Type {
 		return c.addCall
 	case isAddAll(call):
 		return c.addAllCall
+	case isInsert(call):
+		return c.insertCall
 	default:
 		return c.listCall(call)
 	}

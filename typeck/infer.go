@@ -21,15 +21,15 @@ import (
 // passes its arguments as.
 
 // mentions reports whether the type parameter tp is typ, or a part of it:
-// an array's, a view's, a list's, an arena's, an id's or a span's
-// element, a map's key or value, or a function type's parameter or
-// result, at any depth.
+// an array's, a view's, a list's, an arena's, an id's, a span's, a
+// pool's or a handle's element, a map's key or value, or a function
+// type's parameter or result, at any depth.
 func (c *Checker) mentions(typ, tp types.Type) bool {
 	switch {
 	case typ == tp:
 		return true
 	case c.table.IsArray(typ), c.table.IsView(typ), c.table.IsList(typ), c.table.IsArena(typ),
-		c.table.IsRef(typ):
+		c.table.IsRef(typ), c.table.IsPool(typ), c.table.IsHandle(typ):
 		return c.mentions(c.table.Elem(typ), tp)
 	case c.table.IsMap(typ), c.table.IsFunc(typ):
 		for _, part := range c.funcParts(typ) {
@@ -67,8 +67,8 @@ func (inf *inference) complete(c *Checker, typ types.Type) bool {
 }
 
 // substitute returns typ with each type parameter args has a type for
-// replaced by it, through every array, view, list, arena, id, span, map
-// and function type
+// replaced by it, through every array, view, list, arena, id, span, pool,
+// handle, map and function type
 // typ is made of, adding each type it makes to the table. A type
 // parameter args has no type for is left as it is.
 func (c *Checker) substitute(typ types.Type, args map[types.Type]types.Type) types.Type {
@@ -88,6 +88,10 @@ func (c *Checker) substitute(typ types.Type, args map[types.Type]types.Type) typ
 		return c.table.ID(c.substitute(c.table.Elem(typ), args))
 	case c.table.IsSpan(typ):
 		return c.table.Span(c.substitute(c.table.Elem(typ), args))
+	case c.table.IsPool(typ):
+		return c.table.Pool(c.substitute(c.table.Elem(typ), args))
+	case c.table.IsHandle(typ):
+		return c.table.Handle(c.substitute(c.table.Elem(typ), args))
 	case c.table.IsMap(typ):
 		return c.table.Map(
 			c.substitute(c.table.Key(typ), args),
@@ -260,8 +264,8 @@ func (c *Checker) matchingParts(want, got types.Type) (wants, gots []types.Type,
 }
 
 // sameElemKind reports whether want and got are two lists, two views, two
-// arenas, two ids, two spans, or two maps of one key type, whose elements
-// or values unify matches.
+// arenas, two ids, two spans, two pools, two handles, or two maps of one
+// key type, whose elements or values unify matches.
 func (c *Checker) sameElemKind(want, got types.Type) bool {
 	switch {
 	case c.table.IsList(want):
@@ -272,6 +276,10 @@ func (c *Checker) sameElemKind(want, got types.Type) bool {
 		return c.table.IsID(got)
 	case c.table.IsSpan(want):
 		return c.table.IsSpan(got)
+	case c.table.IsPool(want):
+		return c.table.IsPool(got)
+	case c.table.IsHandle(want):
+		return c.table.IsHandle(got)
 	case c.table.IsView(want):
 		return c.table.IsView(got)
 	case c.table.IsMap(want):

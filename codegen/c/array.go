@@ -44,7 +44,8 @@ func (g *generator) emitArrayEquality(typ types.Type) {
 	}
 	l, r := "a->"+field+"[i]", "b->"+field+"[i]"
 	differ := l + " != " + r
-	if elem := table.Elem(typ); g.hasEqualityHelper(elem) || elem == types.String {
+	if elem := table.Elem(typ); g.hasEqualityHelper(elem) || elem == types.String ||
+		table.IsHandle(elem) {
 		differ = "!" + g.equalExpr(elem, l, r)
 	}
 	fmt.Fprintf(
@@ -110,6 +111,9 @@ func (g *generator) indexExpr(ix *ast.Index) (string, []diag.Diagnostic) {
 	if g.prog.Types.IsArena(ast.TypeOf(ix.X)) {
 		return g.arenaIndexExpr(ix)
 	}
+	if g.prog.Types.IsPool(ast.TypeOf(ix.X)) {
+		return g.poolElementExpr(ix)
+	}
 	base, diags := g.expr(ix.X, types.Invalid)
 	if len(diags) > 0 {
 		return "", diags
@@ -151,6 +155,10 @@ func (g *generator) lenValue(call *ast.Call) (string, []diag.Diagnostic) {
 		// The sentinel is no element of the list.
 		return fmt.Sprintf("((%s).elems.len + 1)", v), nil
 	}
+	if g.prog.Types.IsPool(ast.TypeOf(arg)) {
+		// Its live elements, not its slots.
+		return fmt.Sprintf("(%s).count", v), nil
+	}
 	return fmt.Sprintf("(%s).len", v), nil
 }
 
@@ -177,6 +185,9 @@ func (g *generator) arrayComparison(bin *ast.Binary, left, right string) string 
 func (g *generator) indexValues(ix *ast.Index) (multiSource, []diag.Diagnostic) {
 	if g.prog.Types.IsMap(ast.TypeOf(ix.X)) {
 		return g.lookupValues(ix)
+	}
+	if g.prog.Types.IsPool(ast.TypeOf(ix.X)) {
+		return g.poolLookupValues(ix)
 	}
 	steps, place, diags := g.exprSteps(ix.X, false)
 	if len(diags) > 0 {

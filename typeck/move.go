@@ -566,10 +566,10 @@ func (m *mover) droppedResults(value ast.Expr, blank []bool, spans []ast.Span) {
 }
 
 // droppedName names typ, an owned type, in an error about dropping one,
-// and says it cannot be: a list, a map or an arena by its type, and
-// anything holding one by its type and what it holds.
+// and says it cannot be: a list, a map, an arena or a pool by its type,
+// and anything holding one by its type and what it holds.
 func (c *Checker) droppedName(typ types.Type) string {
-	if c.table.IsList(typ) || c.table.IsMap(typ) || c.table.IsArena(typ) {
+	if c.table.IsList(typ) || c.table.IsMap(typ) || c.table.IsArena(typ) || c.table.IsPool(typ) {
 		return c.typeName(typ) + ", which cannot be discarded"
 	}
 	if c.table.IsTypeParam(typ) {
@@ -577,6 +577,9 @@ func (c *Checker) droppedName(typ types.Type) string {
 	}
 	if c.table.HoldsArena(typ) {
 		return c.typeName(typ) + ", which holds an arena and cannot be discarded"
+	}
+	if c.table.HoldsPool(typ) {
+		return c.typeName(typ) + ", which holds a pool and cannot be discarded"
 	}
 	if !c.table.HoldsList(typ) {
 		return c.typeName(typ) + ", which holds a map and cannot be discarded"
@@ -743,8 +746,8 @@ func (m *mover) selector(x *ast.Selector, ctx useCtx, cur *flow) {
 }
 
 // element follows an element read in ctx: moving one of an owned type
-// out of its list, map or view is an error, since the list or the map
-// owns it, and what is indexed and the index are read.
+// out of its list, map, arena, pool or view is an error, since what it is
+// in owns it, and what is indexed and the index are read.
 func (m *mover) element(x *ast.Index, ctx useCtx, cur *flow) {
 	if ctx == moveCtx && m.c.table.Owned(x.Type) {
 		what, holder := "an element", "a list; take it out with pop or remove"
@@ -755,6 +758,8 @@ func (m *mover) element(x *ast.Index, ctx useCtx, cur *flow) {
 			what, holder = "a value", "a map; take it out with delete"
 		case m.c.table.IsArena(typ):
 			holder = "an arena"
+		case m.c.table.IsPool(typ):
+			holder = "a pool; take it out with remove"
 		}
 		m.errorNotes(x.Span, nil, "cannot move %s out of %s: %s cannot be moved out of %s",
 			m.c.text(x.Span), m.c.text(x.X.Spanned()), what, holder)
@@ -861,7 +866,7 @@ func (m *mover) movesBinding(id *ast.Ident) bool {
 
 // rangePart returns what v, a variable of a range loop over x that refers
 // into it in place, refers to, a key or an element, and what x is, a map,
-// a view or a list, as a message names them.
+// a pool, a view or a list, as a message names them.
 func (c *Checker) rangePart(v *ast.Var, x ast.Expr) (part, holder string) {
 	typ := ast.TypeOf(x)
 	switch {
@@ -869,6 +874,8 @@ func (c *Checker) rangePart(v *ast.Var, x ast.Expr) (part, holder string) {
 		return "a key", "a map"
 	case c.table.IsMap(typ):
 		return "an element", "a map"
+	case c.table.IsPool(typ):
+		return "an element", "a pool"
 	case c.table.IsView(typ):
 		return "an element", "a view"
 	default:
@@ -1032,7 +1039,7 @@ func prefixOf(a, b ast.Expr) bool {
 func (m *mover) call(call *ast.Call, ctx useCtx, cur *flow) {
 	params := m.callParams(call)
 	moved := m.appendsOwned(call) || isReplace(call) || isPut(call) ||
-		addsToArena(call) && !call.Spread
+		givesWithError(call) && !call.Spread
 	sentinel := isMake(call) && len(call.Args) == 3
 	for i, arg := range call.Operands() {
 		if madeType(arg) {
@@ -1223,7 +1230,7 @@ func (m *mover) forStmt(loop *ast.For, cur flow) flow {
 }
 
 // rangeStmt follows a range loop from cur: what it ranges over, once,
-// then its body twice, during which a list, a map or an arena it walks,
+// then its body twice, during which a list, a map, an arena or a pool it walks,
 // or the arena a span's view it walks is of, cannot be changed,
 // and nor can any place a view a call returns, which it walks, may point
 // into.
@@ -1237,7 +1244,8 @@ func (m *mover) rangeStmt(loop *ast.ForRange, cur flow) flow {
 	}
 	if typ := ast.TypeOf(
 		loop.X,
-	); (m.c.table.IsList(typ) || m.c.table.IsMap(typ) || m.c.table.IsArena(typ)) &&
+	); (m.c.table.IsList(typ) || m.c.table.IsMap(typ) || m.c.table.IsArena(typ) ||
+		m.c.table.IsPool(typ)) &&
 		ast.Root(loop.X) != nil {
 		r := ranged{place: loop.X}
 		for _, v := range []*ast.Var{loop.Var, loop.Elem} {

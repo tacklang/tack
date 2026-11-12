@@ -1,7 +1,7 @@
 package main
 
 // A function can state, after its results, facts it ensures about its
-// parameters when it returns: func handle(err error) ensures err.code ==
+// parameters when it returns: func must(err error) ensures err.code ==
 // 0. The compiler proves the clause on every path that returns, each
 // return and the end of the body, a path ending in exit never returning,
 // and a call that is a statement of its own, or the whole value of a
@@ -38,16 +38,16 @@ func parse(s string) (int64, error) {
     return n, noerror
 }
 
-// handle ends the program with err's code when err is an error, so it
+// must ends the program with err's code when err is an error, so it
 // returns only when err holds none.
-func handle(err error) ensures err.code == 0 {
+func must(err error) ensures err.code == 0 {
     if err.code != 0 {
         print(err.msg)
         exit(err.code)
     }
 }
 
-// checked returns 1 for no error, after handling err as handle does.
+// checked returns 1 for no error, after handling err as must does.
 func checked(err error) int64 ensures err.code == 0 {
     if err.code == 0 {
         return 1
@@ -259,8 +259,8 @@ func deferring(d int64) ensures d != 0 {
 // the error is none.
 func errors() {
     n, err := parse("42")
-    handle(err)
-    check(n == 42, "handle")
+    must(err)
+    check(n == 42, "must")
 
     m, errM := parse("7")
     one := checked(errM)
@@ -269,10 +269,10 @@ func errors() {
     mut total int64 = 0
     for _, s := range [3]string{"1", "20", "300"} {
         v, e := parse(s)
-        handle(e)
+        must(e)
         total +%= v
     }
-    check(total == 321, "handle in a loop")
+    check(total == 321, "must in a loop")
 }
 
 // divisors divides by values a call has ensured are not zero.

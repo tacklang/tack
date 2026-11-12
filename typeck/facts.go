@@ -1813,21 +1813,23 @@ func declName(decl ast.Decl) string {
 
 // writes reports whether assigning to target changes decl: target is decl
 // itself, or an element or a field of it, but not an element of a list or
-// a value of a map, or a part of one, which changes no variable a fact can
-// be about: a list's element and a map's value are never subjects, and
-// writing one changes no list's length and no map's keys.
+// a pool or a value of a map, or a part of one, which changes no variable
+// a fact can be about: a list's or a pool's element and a map's value are
+// never subjects, and writing one changes no list's length, no pool's
+// live handles and no map's keys.
 func (c *Checker) writes(target ast.Expr, decl ast.Decl) bool {
 	root := ast.Root(target)
 	return root != nil && root.Def == decl && !c.throughList(target)
 }
 
 // throughList reports whether target, a place, is an element of a list or
-// a value of a map, or a field or an element of one, at any depth.
+// a pool or a value of a map, or a field or an element of one, at any
+// depth.
 func (c *Checker) throughList(target ast.Expr) bool {
 	for {
 		switch x := target.(type) {
 		case *ast.Index:
-			if typ := ast.TypeOf(x.X); c.table.IsList(typ) || c.table.IsMap(typ) {
+			if typ := ast.TypeOf(x.X); c.table.IsList(typ) || c.table.IsMap(typ) || c.table.IsPool(typ) {
 				return true
 			}
 			target = x.X

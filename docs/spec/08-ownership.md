@@ -21,13 +21,14 @@ to C belongs in [Extern C](14-extern.md).
 
 Every value is either copyable or owned.
 
-A value is *owned* when its type holds a list, a map or an arena: a
-list, a map, an arena, a struct with a field that holds one, directly or through another struct
+A value is *owned* when its type holds a list, a map, an arena or a
+pool: a list, a map, an arena, a pool, a struct with a field that holds
+one, directly or through another struct
 or a union, a union with a case whose payload holds one, and, inside a
 generic function, a value of a type parameter, whatever type a call
 gives it. Every other value is *copyable*: the integers, the floats,
 `bool`, `string`, `error`, `Allocator`, function values, an arena's ids
-and spans, and arrays and structs of copyable values.
+and spans, a pool's handles, and arrays and structs of copyable values.
 
 A copyable value is copied wherever it is declared, assigned, passed,
 returned or stored, and the copy is independent of the original. A
@@ -36,7 +37,7 @@ one, which shares the bytes it is cut from, never allocates and is never
 freed.
 
 An owned value has exactly one owner at a time, a variable, a parameter
-that took it with `own`, or the list, map, arena, struct or union that
+that took it with `own`, or the list, map, arena, pool, struct or union that
 holds it.
 The owner frees it, and nothing else does. An owned value is never
 copied; where a copyable value would be copied, it is moved (see
@@ -47,11 +48,12 @@ with a value: `mut l list[int64]` is `l needs a value: list[int64] has no
 zero value`. An array cannot hold an owned element, since its elements
 are copied: `an array cannot hold list[int64]: its elements are copied,
 and a list cannot be`; the same holds for a variadic parameter. No
-package-level variable may hold a list, a map or an arena,
+package-level variable may hold a list, a map, an arena or a pool,
 `package-level variable g cannot hold a list`, `package-level variable g
-cannot hold a map`, `package-level variable g cannot hold an arena`, so a
-function reaches one only through its parameters and its own locals. No
-type may hold itself through a list, a map or an arena: `invalid
+cannot hold a map`, `package-level variable g cannot hold an arena`,
+`package-level variable g cannot hold a pool`, so a function reaches one
+only through its parameters and its own locals. No type may hold itself
+through a list, a map, an arena or a pool: `invalid
 recursive type Tree: a type cannot hold itself, even through a list`.
 
 ## Moves
@@ -397,12 +399,12 @@ in place:
   mut l in its index: a list is not copied to be indexed, ...`;
 - a slice whose bounds do: `cannot slice l alongside mut l in its bounds:
   ...`;
-- a value assigned to an element of a list or an arena, or to a value in
-  a map, that passes the list, arena or map, or anything holding it, as
-  `mut`: `cannot assign to l[0] alongside mut l in its value: an element
-  is assigned in place in its list, ...`, `... in its arena, ...` for an
-  arena's; a `mut` argument inside the list, one of its elements, may be
-  passed;
+- a value assigned to an element of a list, an arena or a pool, or to a
+  value in a map, that passes the list, arena, pool or map, or anything
+  holding it, as `mut`: `cannot assign to l[0] alongside mut l in its
+  value: an element is assigned in place in its list, ...`, `... in its
+  arena, ...` for an arena's, `... in its pool, ...` for a pool's; a
+  `mut` argument inside the list, one of its elements, may be passed;
 - an element of an arena, or a part of one, passed as `mut` while
   another operand passes the arena, or anything holding it, as `mut`, at
   any depth: `cannot pass mut a[e] alongside mut a in this call: an arena
@@ -413,7 +415,7 @@ in place:
   passes the other as `mut`: `cannot compare a alongside mut a in the
   other operand: ...`;
 - a view a call returns, which may point into every argument of its call
-  that is not `mut` and holds data, a list, a map, an arena, an array, a
+  that is not `mut` and holds data, a list, a map, an arena, a pool, an array, a
   struct, a union, a view or a type parameter's value, the receiver
   included: `cannot pass
   t.bytes() alongside mut t in this call: the view it returns may point
@@ -528,7 +530,7 @@ field or an element of one, the receiver included; a slice of any of
 these; a union pattern's binding or a range loop's element variable that
 refers into one of these; or a call returning a view whose arguments are
 all such places. An array is returned only when it is reached through an
-element of a list or a view, since a plain array parameter is the
+element of a list, a pool or a view, since a plain array parameter is the
 function's own copy. A range over an arena gives its sentinel first,
 which the arena holds inline, so an array reached through a range
 loop's element over an arena, or through a union pattern's binding
@@ -758,10 +760,85 @@ func main() {
 }
 ```
 
+## Pools
+
+A `pool[T]` owns a buffer of slots and the live elements in them, and
+frees them all when it is freed: its live elements last first, then the
+buffer. `make(pool[T], alloc)` allocates nothing. It moves as a list
+does, and nests in lists, maps, structs, unions, arenas and other pools.
+
+`insert(mut p, v)` moves `v` in, into a slot an earlier remove freed or a
+new one: when there is none and the allocator cannot grow the buffer, or
+the pool would hold more than 2^32 - 1 slots, it returns an error,
+leaves the pool as it was and frees `v`, so nothing is lost. `v, ok :=
+remove(mut p, h)` moves the element out, to its new owner, and written
+as a statement `remove(mut p, h)` frees it at once; either way the slot
+stays in the buffer, which a pool never gives back while it lives, so a
+stale handle never reaches freed memory. Nothing else takes an element
+out of a pool: `cannot move p[h] out of p: an element cannot be moved out
+of a pool; take it out with remove`, and no element is dropped, `cannot
+drop p[h]: ...`. Where `has(p, h)` proves `h` live, `p[h] = v` moves `v`
+in, then frees the element it replaces, and `old := replace(mut p[h],
+new)` takes one out with `new` left in its place. The checked form, `v,
+ok := p[h]`, copies, so it cannot read an owned element. A range binding
+of an owned element refers to it in place.
+
+A handle holds no memory, so a handle outlives nothing: it names its
+element while the element is in its pool, and nothing once it is
+removed or the pool is gone. What reads a pool in place, an element or a
+range over it, is a borrow of the pool, and `insert` and `remove`, which
+may move its buffer or free an element, take it as `mut`: the exclusive
+access rules stop both in one call, `cannot pass p[h] alongside mut p in
+this call: a pool is not copied for a call, and a mut argument must be
+the only way to reach p during it`, and a range from changing what it
+walks, `p is being ranged over, so this loop cannot pass mut p`. A
+closure that reads a pool it captures borrows it as any capture is
+borrowed.
+
+```tack run exit=0
+package main
+
+func numbers(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+func main() {
+    mut p := make(pool[list[int64]], c_allocator)
+    h, err := insert(mut p, numbers(2))
+    if err.code != 0 {
+        exit(1)
+    }
+    if has(p, h) {
+        grown := append(mut p[h], 7)
+        old := replace(mut p[h], numbers(5))
+        if grown.code != 0 || len(old) != 3 || len(p[h]) != 5 {
+            exit(2)
+        }
+    }
+    remove(mut p, h)
+    v, ok := remove(mut p, h)
+    if ok && len(v) >= 0 {
+        exit(3)
+    }
+    if len(p) != 0 {
+        exit(4)
+    }
+    drop(own p)
+    exit(0)
+}
+```
+
 ## Allocators
 
-An `Allocator` is an opaque handle on an allocator: a list, a map or an
-arena holds the one it was made with, grows through it, and is freed through it. An
+An `Allocator` is an opaque handle on an allocator: a list, a map, an
+arena or a pool holds the one it was made with, grows through it, and is freed through it. An
 `Allocator` is copyable; copying it copies the handle, not the
 allocator. The `Allocator` type's other properties, and `c_allocator`,
 are described in [Types](04-types.md).
@@ -784,16 +861,17 @@ written after the declaration still reads the variable.
 - Assigning a variable, an element of a list or a value in a map frees
   the old value once the new one is computed, so the new value may read
   the old.
-- A list frees its elements, and a map its keys and values, when it is
-  freed, as a struct frees its fields, last first, and a union what its
-  case holds.
+- A list frees its elements, a map its keys and values, and a pool its
+  live elements, when it is freed, as a struct frees its fields, last
+  first, and a union what its case holds.
 - `drop(own x)` frees `x` where it is written, and its block's end then
   frees nothing more, as for any variable moved from.
 - Written as a statement, `pop`, `remove` and `delete` free what they
-  take, and `replace(mut place, new)` is an assignment, which frees the
-  old value.
-- `append` and `put` free the values they were given when they cannot
-  grow, and `put` frees a replaced value and a duplicate key.
+  take, a pool's `remove` included, and `replace(mut place, new)` is an
+  assignment, which frees the old value.
+- `append`, `put`, `add`, `add_all` and `insert` free the values they were
+  given when they cannot grow, and `put` frees a replaced value and a
+  duplicate key.
 
 So every owned value is freed exactly once, by its one owner, and no
 value is read after it is freed or moved.

@@ -132,7 +132,8 @@ func (g *generator) emitHashOf(typ types.Type, hashed map[types.Type]bool) {
 	}
 	hashed[typ] = true
 	table := g.prog.Types
-	if typ != types.String && !types.IsInteger(typ) && typ != types.Bool && !table.IsRef(typ) {
+	if typ != types.String && !types.IsInteger(typ) && typ != types.Bool && !table.IsRef(typ) &&
+		!table.IsHandle(typ) {
 		for _, part := range g.hashedParts(typ) {
 			g.emitHashOf(part, hashed)
 		}
@@ -146,6 +147,9 @@ func (g *generator) emitHashOf(typ types.Type, hashed map[types.Type]bool) {
 		g.buf.WriteString(basicHash(types.Uint32))
 	case table.IsSpan(typ):
 		g.buf.WriteString(basicHash(types.Uint64))
+	case table.IsHandle(typ):
+		g.buf.WriteString("    return tack_mix_(((uint64_t)k->index | (uint64_t)k->gen << 32) ^ " +
+			"tack_mix_((uint64_t)k->tag));\n")
 	case table.IsArray(typ), table.IsList(typ):
 		g.emitSequenceHash(typ)
 	case table.IsUnion(typ):
@@ -663,10 +667,14 @@ func (g *generator) keyTypes() []types.Type {
 }
 
 // hasValue lowers has(m, k), m and k evaluated in order, to a call to
-// the map type's has helper on m's address (see emitMapLookups). The
-// checker makes m a place, since a map that is a temporary has no owner.
+// the map type's has helper on m's address (see emitMapLookups), or
+// has(p, h) on a pool as poolHasValue does. The checker makes m a place,
+// since a map that is a temporary has no owner.
 func (g *generator) hasValue(call *ast.Call) (string, []diag.Diagnostic) {
 	m, key := call.Args[0], call.Args[1]
+	if g.prog.Types.IsPool(ast.TypeOf(m)) {
+		return g.poolHasValue(call)
+	}
 	rendered, diags := g.mapOperands(m, key)
 	if len(diags) > 0 {
 		return "", diags

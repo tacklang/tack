@@ -279,11 +279,12 @@ func mutated(body []ast.Stmt) map[ast.Decl]bool {
 // changesList reports whether call calls append, pop or remove, the
 // builtins that change a list's length, swap, which changes what two of
 // its elements hold, replace, which changes what its place holds, a
-// list's length among it, or put or delete, which change a map.
+// list's length among it, put or delete, which change a map, or insert,
+// which changes a pool, as remove does.
 func changesList(call *ast.Call) bool {
 	return isBuiltin(call, "append") || isBuiltin(call, "pop") || isBuiltin(call, "remove") ||
 		isBuiltin(call, "swap") || isBuiltin(call, "replace") || isBuiltin(call, "put") ||
-		isBuiltin(call, "delete")
+		isBuiltin(call, "delete") || isBuiltin(call, "insert")
 }
 
 // callsFunc reports whether evaluating e calls a Tack function, a method

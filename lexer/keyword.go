@@ -110,6 +110,12 @@ const (
 	// an append-only store whose ids index it with no proof. It comes
 	// after Scope for the same reason Scope comes after Fallthrough.
 	Arena
+
+	// Pool starts a pool type, pool[T], as arena starts an arena type: a
+	// store whose elements can be removed one at a time, named by
+	// handles that a removal makes stale. It comes after Arena for the
+	// same reason Arena comes after Scope.
+	Pool
 )
 
 var keywordNames = map[KeywordType]string{
@@ -170,6 +176,8 @@ var keywordNames = map[KeywordType]string{
 	Scope: "scope",
 
 	Arena: "arena",
+
+	Pool: "pool",
 }
 
 // String returns the keyword as written in source.

@@ -83,16 +83,16 @@ func returnsError(call *ast.Call) (*ast.Func, bool) {
 
 // errorCall returns the name, as calleeName gives it, of the function
 // value calls, when value is a call to a function or a method whose last
-// result is an error and which returns want results, or to add or
-// add_all, which return an id or a span and an error.
+// result is an error and which returns want results, or to add, add_all
+// or insert, which return an id, a span or a handle and an error.
 func (c *Checker) errorCall(value ast.Expr, want int) (string, bool) {
 	call, ok := value.(*ast.Call)
 	if !ok {
 		return "", false
 	}
-	if addsToArena(call) {
+	if givesWithError(call) {
 		// Known before the call is checked, as a function's results are,
-		// so a binding of it holds its id or span from the start.
+		// so a binding of it holds its id, span or handle from the start.
 		id, _ := call.Fn.(*ast.Ident)
 		return id.Name, want == 2
 	}
@@ -168,9 +168,10 @@ func (c *Checker) checkErrorLast(fn *ast.Func) {
 // it: err := f(...), with a name for each result before the error that
 // cannot be discarded either, x, y, z, then x4, x5 and so on, in order, and
 // a _ for each other (see bindingNames). append and reserve return an
-// error alone, and add and add_all an id or a span and an error, which
-// their calls check: one whose arguments were wrong has no type, and is
-// not reported again.
+// error alone, and add, add_all and insert an id, a span or a handle and
+// an error, which their calls check: one whose arguments were wrong has no
+// type, and is not reported again. insert's handle is what it is called
+// for, so its binding names it.
 func (c *Checker) droppedError(e ast.Expr) {
 	call, ok := e.(*ast.Call)
 	if !ok {
@@ -185,12 +186,16 @@ func (c *Checker) droppedError(e ast.Expr) {
 		}
 		return
 	}
-	if addsToArena(call) {
+	if givesWithError(call) {
 		if call.ResultTypes != nil {
 			id, _ := call.Fn.(*ast.Ident)
+			first := "_"
+			if isInsert(call) {
+				first = "h"
+			}
 			c.errorf(call.Spanned(),
-				"the error %s returns cannot be discarded; bind it, as in _, err := %s(...)",
-				id.Name, id.Name)
+				"the error %s returns cannot be discarded; bind it, as in %s, err := %s(...)",
+				id.Name, first, id.Name)
 		}
 		return
 	}

@@ -2555,7 +2555,7 @@ func main() {
 stage: typeck
 ---
 
-arena-remove/main.tck:8:20: error: remove expects a list, got arena[int64]
+arena-remove/main.tck:8:20: error: remove expects a list or a pool, got arena[int64]
 07 |	    if err.code == 0 {
 08 |	        remove(mut a, e)
    |	                   ^
@@ -12145,17 +12145,17 @@ func parse(s string) (int64, error) {
     return 1, noerror
 }
 
-func handle(err error) ensures err.code == 0 {
+func must(err error) ensures err.code == 0 {
     if err.code != 0 {
         exit(err.code)
     }
 }
 
-// handle checks a copy of the error, not the one bound beside v.
+// must checks a copy of the error, not the one bound beside v.
 func main() {
     v, err := parse("1")
     e2 := err
-    handle(e2)
+    must(e2)
     use(v)
 }
 -- ensures-copied-error/expected --
@@ -12163,7 +12163,7 @@ stage: typeck
 ---
 
 ensures-copied-error/main.tck:25:9: error: v cannot be read before err is checked; check err.code == 0 first
-24 |	    handle(e2)
+24 |	    must(e2)
 25 |	    use(v)
    |	        ^
 26 |	}
@@ -20655,7 +20655,7 @@ func main() {
 stage: typeck
 ---
 
-generic-len/main.tck:8:16: error: len expects an array, a string, a view, a list, a map or an arena, got S
+generic-len/main.tck:8:16: error: len expects an array, a string, a view, a list, a map, an arena or a pool, got S
 07 |	func f[S Sizer](s S) int64 {
 08 |	    return len(s)
    |	               ^
@@ -22262,6 +22262,264 @@ guard-string-length-short/main.tck:5:18: error: index 1 may be out of range; che
 05 |	        return s[1]
    |	                 ^
 06 |	    }
+
+-- handle-alone/main.tck --
+package main
+
+func f(h handle) {
+}
+
+func main() {
+}
+-- handle-alone/expected --
+stage: resolve
+---
+
+handle-alone/main.tck:3:10: error: handle needs its element type, as in handle[int64]
+02 |	
+03 |	func f(h handle) {
+   |	         ^~~~~~
+04 |	}
+
+-- handle-arithmetic/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    g := h + 1
+    if has(p, g) {
+    }
+}
+-- handle-arithmetic/expected --
+stage: typeck
+---
+
+handle-arithmetic/main.tck:9:10: error: operator + is not defined on handle[int64]
+08 |	    }
+09 |	    g := h + 1
+   |	         ^
+10 |	    if has(p, g) {
+
+-- handle-as-field-name/main.tck --
+package main
+
+// Assumption: a field may not be named handle, as the existing rule says
+// of every builtin type name; letting fields use them is still open.
+type Enemy struct {
+    handle int64
+}
+
+func main() {
+}
+-- handle-as-field-name/expected --
+stage: resolve
+---
+
+handle-as-field-name/main.tck:6:5: error: cannot use handle as a name; it is a type
+05 |	type Enemy struct {
+06 |	    handle int64
+   |	    ^~~~~~
+07 |	}
+
+-- handle-as-func-name/main.tck --
+package main
+
+func handle() {
+}
+
+func main() {
+}
+-- handle-as-func-name/expected --
+stage: resolve
+---
+
+handle-as-func-name/main.tck:3:6: error: cannot use handle as a name; it is a type
+02 |	
+03 |	func handle() {
+   |	     ^~~~~~
+04 |	}
+
+-- handle-as-name/main.tck --
+package main
+
+func main() {
+    handle := 1
+    if handle > 0 {
+    }
+}
+-- handle-as-name/expected --
+stage: resolve
+---
+
+handle-as-name/main.tck:4:5: error: cannot use handle as a name; it is a type
+03 |	func main() {
+04 |	    handle := 1
+   |	    ^~~~~~
+05 |	    if handle > 0 {
+
+-- handle-as-type-name/main.tck --
+package main
+
+type handle struct {
+    x int64
+}
+
+func main() {
+}
+-- handle-as-type-name/expected --
+stage: resolve
+---
+
+handle-as-type-name/main.tck:3:6: error: cannot use handle as a name; it is a type
+02 |	
+03 |	type handle struct {
+   |	     ^~~~~~
+04 |	    x int64
+
+-- handle-called/main.tck --
+package main
+
+func main() {
+    x := handle(1)
+    if x > 0 {
+    }
+}
+-- handle-called/expected --
+stage: resolve
+---
+
+handle-called/main.tck:4:10: error: cannot call handle; it is a type
+03 |	func main() {
+04 |	    x := handle(1)
+   |	         ^~~~~~
+05 |	    if x > 0 {
+
+-- handle-from-int/main.tck --
+package main
+
+// Assumption: handle[int64](n) parses as a conversion, which is then
+// rejected, rather than being a syntax error.
+func main() {
+    p := make(pool[int64], c_allocator)
+    n := 3
+    h := handle[int64](n)
+    if has(p, h) {
+    }
+}
+-- handle-from-int/expected --
+stage: typeck
+---
+
+handle-from-int/main.tck:8:10: error: cannot convert int64 to handle[int64]
+07 |	    n := 3
+08 |	    h := handle[int64](n)
+   |	         ^~~~~~~~~~~~~~~~
+09 |	    if has(p, h) {
+
+-- handle-from-other-handle/main.tck --
+package main
+
+// Assumption: as handle-from-int, handle[int64](h) parses as a
+// conversion, rejected between element types.
+func main() {
+    p := make(pool[int64], c_allocator)
+    mut q := make(pool[string], c_allocator)
+    h, err := insert(mut q, "a")
+    if err.code != 0 {
+        return
+    }
+    g := handle[int64](h)
+    if has(p, g) {
+    }
+}
+-- handle-from-other-handle/expected --
+stage: typeck
+---
+
+handle-from-other-handle/main.tck:12:10: error: cannot convert handle[string] to handle[int64]
+11 |	    }
+12 |	    g := handle[int64](h)
+   |	         ^~~~~~~~~~~~~~~~
+13 |	    if has(p, g) {
+
+-- handle-increment/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    a, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    mut h := a
+    h++
+    if h == a {
+    }
+}
+-- handle-increment/expected --
+stage: typeck
+---
+
+handle-increment/main.tck:10:5: error: operator ++ is not defined on handle[int64]
+09 |	    mut h := a
+10 |	    h++
+   |	    ^
+11 |	    if h == a {
+
+-- handle-order/main.tck --
+package main
+
+// Assumption: handles have == and != but no order, as the design lists
+// only ==.
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    a, e1 := insert(mut p, 1)
+    if e1.code != 0 {
+        return
+    }
+    b, e2 := insert(mut p, 2)
+    if e2.code != 0 {
+        return
+    }
+    if a < b {
+    }
+}
+-- handle-order/expected --
+stage: typeck
+---
+
+handle-order/main.tck:15:8: error: operator < is not defined on handle[int64]
+14 |	    }
+15 |	    if a < b {
+   |	       ^~~~~
+16 |	    }
+
+-- handle-to-int/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    n := int64(h)
+    if n > 0 {
+    }
+}
+-- handle-to-int/expected --
+stage: typeck
+---
+
+handle-to-int/main.tck:9:10: error: cannot convert handle[int64] to int64
+08 |	    }
+09 |	    n := int64(h)
+   |	         ^~~~~~~~
+10 |	    if n > 0 {
 
 -- hello-digit-ident/main.tck --
 package main
@@ -27079,7 +27337,7 @@ func main() {
 stage: typeck
 ---
 
-len-of-integer/main.tck:5:14: error: len expects an array, a string, a view, a list, a map or an arena, got int64
+len-of-integer/main.tck:5:14: error: len expects an array, a string, a view, a list, a map, an arena or a pool, got int64
 04 |	    n := 7
 05 |	    exit(len(n))
    |	             ^
@@ -28620,7 +28878,7 @@ func main() {
 stage: typeck
 ---
 
-list-make-not-type/main.tck:5:15: error: make takes a list, a map or an arena type, as in make(list[int64], c_allocator)
+list-make-not-type/main.tck:5:15: error: make takes a list, a map, an arena or a pool type, as in make(list[int64], c_allocator)
 04 |	    n := 3
 05 |	    l := make(n, c_allocator)
    |	              ^
@@ -30957,7 +31215,7 @@ func main() {
 stage: typeck
 ---
 
-map-has-not-map/main.tck:5:12: error: has expects a map, got list[int64]
+map-has-not-map/main.tck:5:12: error: has expects a map or a pool, got list[int64]
 04 |	    l := make(list[int64], c_allocator)
 05 |	    if has(l, 0) {
    |	           ^
@@ -45865,6 +46123,2135 @@ path-join-dropped/main.tck:6:5: error: the error path.join returns cannot be dis
    |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 07 |	}
 
+-- pool-add/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    _, err := add(mut p, 1)
+    if err.code != 0 {
+    }
+}
+-- pool-add/expected --
+stage: typeck
+---
+
+pool-add/main.tck:5:23: error: add expects an arena, got pool[int64]
+04 |	    mut p := make(pool[int64], c_allocator)
+05 |	    _, err := add(mut p, 1)
+   |	                      ^
+06 |	    if err.code != 0 {
+
+-- pool-alongside-mut/main.tck --
+package main
+
+func f(q pool[int64], mut p pool[int64]) {
+}
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    f(p, mut p)
+}
+-- pool-alongside-mut/expected --
+stage: typeck
+---
+
+pool-alongside-mut/main.tck:8:7: error: cannot pass p alongside mut p in this call: a pool is not copied for a call, and a mut argument must be the only way to reach p during it
+07 |	    mut p := make(pool[int64], c_allocator)
+08 |	    f(p, mut p)
+   |	      ^
+09 |	}
+pool-alongside-mut/main.tck:8:10: note: passed as mut here
+07 |	    mut p := make(pool[int64], c_allocator)
+08 |	    f(p, mut p)
+   |	         ^~~~~
+09 |	}
+
+-- pool-as-any/main.tck --
+package main
+
+func f(a any) {
+}
+
+func main() {
+    p := make(pool[int64], c_allocator)
+    f(p)
+}
+-- pool-as-any/expected --
+stage: typeck
+---
+
+pool-as-any/main.tck:8:7: error: cannot pass pool[int64] as any: only the builtin types and views of them can be passed as any for now
+07 |	    p := make(pool[int64], c_allocator)
+08 |	    f(p)
+   |	      ^
+09 |	}
+
+-- pool-as-func-name/main.tck --
+package main
+
+// Assumption: a keyword as a function's name is a parse error naming
+// what was expected, as for every other keyword.
+func pool() {
+}
+
+func main() {
+}
+-- pool-as-func-name/expected --
+stage: parse
+---
+
+pool-as-func-name/main.tck:5:6: error: expected 'function name' found 'pool'
+04 |	// what was expected, as for every other keyword.
+05 |	func pool() {
+   |	     ^
+06 |	}
+
+-- pool-as-name/main.tck --
+package main
+
+func main() {
+    mut pool := 1
+}
+-- pool-as-name/expected --
+stage: parse
+---
+
+pool-as-name/main.tck:4:9: error: expected 'variable name' found 'pool'
+03 |	func main() {
+04 |	    mut pool := 1
+   |	        ^
+05 |	}
+
+-- pool-as-param-name/main.tck --
+package main
+
+// Assumption: as pool-as-func-name, for a parameter.
+func f(pool int64) {
+}
+
+func main() {
+}
+-- pool-as-param-name/expected --
+stage: parse
+---
+
+pool-as-param-name/main.tck:4:8: error: expected 'parameter name' found 'pool'
+03 |	// Assumption: as pool-as-func-name, for a parameter.
+04 |	func f(pool int64) {
+   |	       ^
+05 |	}
+
+-- pool-assign-alongside-mut/main.tck --
+package main
+
+func grow(mut p pool[int64]) int64 {
+    return 0
+}
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    if has(p, h) {
+        p[h] = grow(mut p)
+    }
+}
+-- pool-assign-alongside-mut/expected --
+stage: typeck
+---
+
+pool-assign-alongside-mut/main.tck:14:9: error: cannot assign to p[h] alongside mut p in its value: an element is assigned in place in its pool, and a mut argument must be the only way to reach p during its call
+13 |	    if has(p, h) {
+14 |	        p[h] = grow(mut p)
+   |	        ^~~~
+15 |	    }
+pool-assign-alongside-mut/main.tck:14:21: note: passed as mut here
+13 |	    if has(p, h) {
+14 |	        p[h] = grow(mut p)
+   |	                    ^~~~~
+15 |	    }
+
+-- pool-assign-unproven/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    p[h] = 2
+}
+-- pool-assign-unproven/expected --
+stage: typeck
+---
+
+pool-assign-unproven/main.tck:9:7: error: handle h may not be live in p; check has(p, h) first
+08 |	    }
+09 |	    p[h] = 2
+   |	      ^
+10 |	}
+
+-- pool-builtin-value/main.tck --
+package main
+
+func main() {
+    f := insert
+    print(f)
+}
+-- pool-builtin-value/expected --
+stage: resolve
+---
+
+pool-builtin-value/main.tck:4:10: error: cannot use the builtin insert as a value; only a declared function can be one
+03 |	func main() {
+04 |	    f := insert
+   |	         ^~~~~~
+05 |	    print(f)
+
+-- pool-checked-generic/main.tck --
+package main
+
+type Any interface {
+}
+
+// Assumption: the checked form is rejected on a type parameter's element,
+// since an instance may own memory.
+func peek[T Any](p pool[T], h handle[T]) bool {
+    _, ok := p[h]
+    return ok
+}
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    if peek(p, h) {
+    }
+}
+-- pool-checked-generic/expected --
+stage: typeck
+---
+
+pool-checked-generic/main.tck:9:5: error: the checked form cannot read an element of type T: it would copy it out of p; check has(p, h) first and use p[h] in place
+08 |	func peek[T Any](p pool[T], h handle[T]) bool {
+09 |	    _, ok := p[h]
+   |	    ^~~~~~~~~~~~~
+10 |	    return ok
+
+-- pool-checked-no-zero/main.tck --
+package main
+
+// Assumption: "copyable-only" also leaves out a copyable T with no zero
+// value, as the checked form of a list's element does.
+func main() {
+    mut p := make(pool[Allocator], c_allocator)
+    h, err := insert(mut p, c_allocator)
+    if err.code != 0 {
+        return
+    }
+    a, ok := p[h]
+    if ok {
+        l := make(list[int64], a)
+        if len(l) > 0 {
+        }
+    }
+}
+-- pool-checked-no-zero/expected --
+stage: typeck
+---
+
+pool-checked-no-zero/main.tck:11:5: error: the checked form cannot read an element of type Allocator: it has no zero value to give when the handle is stale; check has(p, h) first
+10 |	    }
+11 |	    a, ok := p[h]
+   |	    ^~~~~~~~~~~~~
+12 |	    if ok {
+
+-- pool-checked-ok-discarded/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    v, _ := p[h]
+    if v > 0 {
+    }
+}
+-- pool-checked-ok-discarded/expected --
+stage: typeck
+---
+
+pool-checked-ok-discarded/main.tck:9:8: error: the ok p[h] gives cannot be discarded; bind it to a variable instead of _
+08 |	    }
+09 |	    v, _ := p[h]
+   |	       ^
+10 |	    if v > 0 {
+
+-- pool-checked-owned/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[list[int64]], c_allocator)
+    h, err := insert(mut p, make(list[int64], c_allocator))
+    if err.code != 0 {
+        return
+    }
+    v, ok := p[h]
+    if ok && len(v) > 0 {
+    }
+}
+-- pool-checked-owned/expected --
+stage: typeck
+---
+
+pool-checked-owned/main.tck:9:5: error: the checked form cannot read an element of type list[int64]: it would copy it out of p; check has(p, h) first and use p[h] in place
+08 |	    }
+09 |	    v, ok := p[h]
+   |	    ^~~~~~~~~~~~~
+10 |	    if ok && len(v) > 0 {
+
+-- pool-checked-struct-owned/main.tck --
+package main
+
+type Bag struct {
+    items list[int64]
+}
+
+func main() {
+    mut p := make(pool[Bag], c_allocator)
+    h, err := insert(mut p, Bag{items: make(list[int64], c_allocator)})
+    if err.code != 0 {
+        return
+    }
+    v, ok := p[h]
+    if ok && len(v.items) > 0 {
+    }
+}
+-- pool-checked-struct-owned/expected --
+stage: typeck
+---
+
+pool-checked-struct-owned/main.tck:13:5: error: the checked form cannot read an element of type Bag: it would copy it out of p; check has(p, h) first and use p[h] in place
+12 |	    }
+13 |	    v, ok := p[h]
+   |	    ^~~~~~~~~~~~~
+14 |	    if ok && len(v.items) > 0 {
+
+-- pool-closure-alongside-mut/main.tck --
+package main
+
+func both(mut p pool[int64], scope f func()) {
+    f()
+}
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    mut n := 0
+    both(mut p, func() {
+        n = len(p)
+    })
+    code, fits := int32(n)
+    if fits { exit(code) }
+}
+-- pool-closure-alongside-mut/expected --
+stage: typeck
+---
+
+pool-closure-alongside-mut/main.tck:11:17: error: cannot capture p in a closure alongside mut p in this call: a closure reaches its captures in place, and a mut argument must be the only way to reach p during the call
+10 |	    both(mut p, func() {
+11 |	        n = len(p)
+   |	                ^
+12 |	    })
+pool-closure-alongside-mut/main.tck:10:10: note: passed as mut here
+09 |	    mut n := 0
+10 |	    both(mut p, func() {
+   |	         ^~~~~
+11 |	        n = len(p)
+
+-- pool-compare/main.tck --
+package main
+
+func main() {
+    p := make(pool[int64], c_allocator)
+    q := make(pool[int64], c_allocator)
+    if p == q {
+    }
+}
+-- pool-compare/expected --
+stage: typeck
+---
+
+pool-compare/main.tck:6:8: error: operator == is not defined on pool[int64]
+05 |	    q := make(pool[int64], c_allocator)
+06 |	    if p == q {
+   |	       ^~~~~~
+07 |	    }
+
+-- pool-delete/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    delete(mut p, h)
+}
+-- pool-delete/expected --
+stage: typeck
+---
+
+pool-delete/main.tck:9:16: error: delete expects a map, got pool[int64]
+08 |	    }
+09 |	    delete(mut p, h)
+   |	               ^
+10 |	}
+
+-- pool-drop-element/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[list[int64]], c_allocator)
+    h, err := insert(mut p, make(list[int64], c_allocator))
+    if err.code != 0 {
+        return
+    }
+    if has(p, h) {
+        drop(own p[h])
+    }
+}
+-- pool-drop-element/expected --
+stage: typeck
+---
+
+pool-drop-element/main.tck:10:18: error: cannot drop p[h]: an element cannot be moved out of a pool; take it out with remove
+09 |	    if has(p, h) {
+10 |	        drop(own p[h])
+   |	                 ^~~~
+11 |	    }
+
+-- pool-element-alongside-mut/main.tck --
+package main
+
+func f(x list[int64], mut p pool[list[int64]]) {
+}
+
+func main() {
+    mut p := make(pool[list[int64]], c_allocator)
+    h, err := insert(mut p, make(list[int64], c_allocator))
+    if err.code != 0 {
+        return
+    }
+    if has(p, h) {
+        f(p[h], mut p)
+    }
+}
+-- pool-element-alongside-mut/expected --
+stage: typeck
+---
+
+pool-element-alongside-mut/main.tck:13:11: error: cannot pass p[h] alongside mut p in this call: a pool is not copied for a call, and a mut argument must be the only way to reach p during it
+12 |	    if has(p, h) {
+13 |	        f(p[h], mut p)
+   |	          ^~~~
+14 |	    }
+pool-element-alongside-mut/main.tck:13:17: note: passed as mut here
+12 |	    if has(p, h) {
+13 |	        f(p[h], mut p)
+   |	                ^~~~~
+14 |	    }
+
+-- pool-element-mut-alongside-closure/main.tck --
+package main
+
+func f(mut x int64, scope g func()) {
+    g()
+}
+
+// The closure removes the element f is given in place, so the proof
+// ends at the call, and the closure cannot be passed beside it either.
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    if has(p, h) {
+        f(mut p[h], func() {
+            remove(mut p, h)
+        })
+    }
+}
+-- pool-element-mut-alongside-closure/expected --
+stage: typeck
+---
+
+pool-element-mut-alongside-closure/main.tck:16:17: error: handle h may not be live in p; check has(p, h) first
+15 |	    if has(p, h) {
+16 |	        f(mut p[h], func() {
+   |	                ^
+17 |	            remove(mut p, h)
+pool-element-mut-alongside-closure/main.tck:15:8: note: this guard proves h is live in p
+14 |	    }
+15 |	    if has(p, h) {
+   |	       ^~~~~~~~~
+16 |	        f(mut p[h], func() {
+pool-element-mut-alongside-closure/main.tck:17:20: note: but p is passed as mut to remove here, so the proof ends
+16 |	        f(mut p[h], func() {
+17 |	            remove(mut p, h)
+   |	                   ^~~~~
+18 |	        })
+
+pool-element-mut-alongside-closure/main.tck:17:24: error: cannot capture p in a closure alongside mut p[h] in this call: a closure reaches its captures in place, and a mut argument must be the only way to reach p[h] during the call
+16 |	        f(mut p[h], func() {
+17 |	            remove(mut p, h)
+   |	                       ^
+18 |	        })
+pool-element-mut-alongside-closure/main.tck:16:11: note: passed as mut here
+15 |	    if has(p, h) {
+16 |	        f(mut p[h], func() {
+   |	          ^~~~~~~~
+17 |	            remove(mut p, h)
+
+-- pool-extern-handle-param/main.tck --
+package main
+
+// Assumption: a handle does not cross to C either; D21 leaves pools out
+// of extern C, and a handle is only meaningful beside its pool.
+extern("f") func f(h handle[int64])
+
+func main() {
+}
+-- pool-extern-handle-param/expected --
+stage: typeck
+---
+
+pool-extern-handle-param/main.tck:5:22: error: parameter h of extern func f cannot be handle[int64]: a handle does not cross to C
+04 |	// of extern C, and a handle is only meaningful beside its pool.
+05 |	extern("f") func f(h handle[int64])
+   |	                     ^~~~~~~~~~~~~
+06 |	
+
+-- pool-extern-param/main.tck --
+package main
+
+extern("f") func f(p pool[int64])
+
+func main() {
+}
+-- pool-extern-param/expected --
+stage: typeck
+---
+
+pool-extern-param/main.tck:3:22: error: parameter p of extern func f cannot be pool[int64]: a pool does not cross to C
+02 |	
+03 |	extern("f") func f(p pool[int64])
+   |	                     ^~~~~~~~~~~
+04 |	
+
+-- pool-extern-result/main.tck --
+package main
+
+extern("f") func f() handle[int64]
+
+func main() {
+}
+-- pool-extern-result/expected --
+stage: typeck
+---
+
+pool-extern-result/main.tck:3:22: error: extern func f cannot return handle[int64]: a handle does not cross to C
+02 |	
+03 |	extern("f") func f() handle[int64]
+   |	                     ^~~~~~~~~~~~~
+04 |	
+
+-- pool-field-extern-param/main.tck --
+package main
+
+type World struct {
+    p pool[int64]
+}
+
+extern("f") func f(mut w World)
+
+func main() {
+}
+-- pool-field-extern-param/expected --
+stage: typeck
+---
+
+pool-field-extern-param/main.tck:7:26: error: parameter w of extern func f cannot be World: a pool does not cross to C
+06 |	
+07 |	extern("f") func f(mut w World)
+   |	                         ^~~~~
+08 |	
+
+-- pool-generic-wrong-handle/main.tck --
+package main
+
+type Any interface {
+}
+
+func live[T Any](p pool[T], h handle[T]) bool {
+    return has(p, h)
+}
+
+func main() {
+    p := make(pool[int64], c_allocator)
+    mut q := make(pool[string], c_allocator)
+    g, e := insert(mut q, "a")
+    if e.code != 0 {
+        return
+    }
+    if live(p, g) {
+    }
+}
+-- pool-generic-wrong-handle/expected --
+stage: typeck
+---
+
+pool-generic-wrong-handle/main.tck:17:16: error: cannot use handle[string] as handle[int64] in argument to live
+16 |	    }
+17 |	    if live(p, g) {
+   |	               ^
+18 |	    }
+
+-- pool-global/main.tck --
+package main
+
+mut g pool[int64]
+
+func main() {
+    if len(g) > 0 {
+    }
+}
+-- pool-global/expected --
+stage: typeck
+---
+
+pool-global/main.tck:3:5: error: package-level variable g cannot hold a pool
+02 |	
+03 |	mut g pool[int64]
+   |	    ^
+04 |	
+
+-- pool-has-closure-writes/main.tck --
+package main
+
+func run(scope f func()) {
+    f()
+}
+
+// A call passing a closure that writes p ends the facts about p, as mut p
+// does.
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    if has(p, h) {
+        run(func() {
+            remove(mut p, h)
+        })
+        code, fits := int32(p[h])
+        if fits { exit(code) }
+    }
+}
+-- pool-has-closure-writes/expected --
+stage: typeck
+---
+
+pool-has-closure-writes/main.tck:19:31: error: handle h may not be live in p; check has(p, h) first, or use v, ok := p[h]
+18 |	        })
+19 |	        code, fits := int32(p[h])
+   |	                              ^
+20 |	        if fits { exit(code) }
+pool-has-closure-writes/main.tck:15:8: note: this guard proves h is live in p
+14 |	    }
+15 |	    if has(p, h) {
+   |	       ^~~~~~~~~
+16 |	        run(func() {
+pool-has-closure-writes/main.tck:17:20: note: but p is passed as mut to remove here, so the proof ends
+16 |	        run(func() {
+17 |	            remove(mut p, h)
+   |	                   ^~~~~
+18 |	        })
+
+-- pool-has-ended-by-assign/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    if has(p, h) {
+        p = make(pool[int64], c_allocator)
+        code, fits := int32(p[h])
+        if fits { exit(code) }
+    }
+}
+-- pool-has-ended-by-assign/expected --
+stage: typeck
+---
+
+pool-has-ended-by-assign/main.tck:11:31: error: handle h may not be live in p; check has(p, h) first, or use v, ok := p[h]
+10 |	        p = make(pool[int64], c_allocator)
+11 |	        code, fits := int32(p[h])
+   |	                              ^
+12 |	        if fits { exit(code) }
+pool-has-ended-by-assign/main.tck:9:8: note: this guard proves h is live in p
+08 |	    }
+09 |	    if has(p, h) {
+   |	       ^~~~~~~~~
+10 |	        p = make(pool[int64], c_allocator)
+pool-has-ended-by-assign/main.tck:10:9: note: but p is assigned here, so the proof ends
+09 |	    if has(p, h) {
+10 |	        p = make(pool[int64], c_allocator)
+   |	        ^
+11 |	        code, fits := int32(p[h])
+
+-- pool-has-ended-by-checked-remove/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    a, e1 := insert(mut p, 1)
+    if e1.code != 0 {
+        return
+    }
+    b, e2 := insert(mut p, 2)
+    if e2.code != 0 {
+        return
+    }
+    if has(p, a) {
+        v, ok := remove(mut p, b)
+        if ok && v > 0 {
+            code, fits := int32(p[a])
+            if fits { exit(code) }
+        }
+    }
+}
+-- pool-has-ended-by-checked-remove/expected --
+stage: typeck
+---
+
+pool-has-ended-by-checked-remove/main.tck:16:35: error: handle a may not be live in p; check has(p, a) first, or use v, ok := p[a]
+15 |	        if ok && v > 0 {
+16 |	            code, fits := int32(p[a])
+   |	                                  ^
+17 |	            if fits { exit(code) }
+pool-has-ended-by-checked-remove/main.tck:13:8: note: this guard proves a is live in p
+12 |	    }
+13 |	    if has(p, a) {
+   |	       ^~~~~~~~~
+14 |	        v, ok := remove(mut p, b)
+pool-has-ended-by-checked-remove/main.tck:14:25: note: but p is passed as mut to remove here, so the proof ends
+13 |	    if has(p, a) {
+14 |	        v, ok := remove(mut p, b)
+   |	                        ^~~~~
+15 |	        if ok && v > 0 {
+
+-- pool-has-ended-by-insert/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    if has(p, h) {
+        _, e2 := insert(mut p, 2)
+        if e2.code != 0 {
+            return
+        }
+        code, fits := int32(p[h])
+        if fits { exit(code) }
+    }
+}
+-- pool-has-ended-by-insert/expected --
+stage: typeck
+---
+
+pool-has-ended-by-insert/main.tck:14:31: error: handle h may not be live in p; check has(p, h) first, or use v, ok := p[h]
+13 |	        }
+14 |	        code, fits := int32(p[h])
+   |	                              ^
+15 |	        if fits { exit(code) }
+pool-has-ended-by-insert/main.tck:9:8: note: this guard proves h is live in p
+08 |	    }
+09 |	    if has(p, h) {
+   |	       ^~~~~~~~~
+10 |	        _, e2 := insert(mut p, 2)
+pool-has-ended-by-insert/main.tck:10:25: note: but p is passed as mut to insert here, so the proof ends
+09 |	    if has(p, h) {
+10 |	        _, e2 := insert(mut p, 2)
+   |	                        ^~~~~
+11 |	        if e2.code != 0 {
+
+-- pool-has-ended-by-loop/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    if has(p, h) {
+        for i := range 3 {
+            code, fits := int32(p[h])
+            if fits && code == 9 { exit(code) }
+            remove(mut p, h)
+            _, e2 := insert(mut p, i)
+            if e2.code != 0 {
+                return
+            }
+        }
+    }
+}
+-- pool-has-ended-by-loop/expected --
+stage: typeck
+---
+
+pool-has-ended-by-loop/main.tck:11:35: error: handle h may not be live in p; check has(p, h) first, or use v, ok := p[h]
+10 |	        for i := range 3 {
+11 |	            code, fits := int32(p[h])
+   |	                                  ^
+12 |	            if fits && code == 9 { exit(code) }
+pool-has-ended-by-loop/main.tck:9:8: note: this guard proves h is live in p
+08 |	    }
+09 |	    if has(p, h) {
+   |	       ^~~~~~~~~
+10 |	        for i := range 3 {
+pool-has-ended-by-loop/main.tck:13:20: note: but p is passed as mut to remove here, so the proof ends
+12 |	            if fits && code == 9 { exit(code) }
+13 |	            remove(mut p, h)
+   |	                   ^~~~~
+14 |	            _, e2 := insert(mut p, i)
+
+-- pool-has-ended-by-mut-call/main.tck --
+package main
+
+func touch(mut p pool[int64]) {
+}
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    if has(p, h) {
+        touch(mut p)
+        code, fits := int32(p[h])
+        if fits { exit(code) }
+    }
+}
+-- pool-has-ended-by-mut-call/expected --
+stage: typeck
+---
+
+pool-has-ended-by-mut-call/main.tck:14:31: error: handle h may not be live in p; check has(p, h) first, or use v, ok := p[h]
+13 |	        touch(mut p)
+14 |	        code, fits := int32(p[h])
+   |	                              ^
+15 |	        if fits { exit(code) }
+pool-has-ended-by-mut-call/main.tck:12:8: note: this guard proves h is live in p
+11 |	    }
+12 |	    if has(p, h) {
+   |	       ^~~~~~~~~
+13 |	        touch(mut p)
+pool-has-ended-by-mut-call/main.tck:13:15: note: but p is passed as mut to touch here, so the proof ends
+12 |	    if has(p, h) {
+13 |	        touch(mut p)
+   |	              ^~~~~
+14 |	        code, fits := int32(p[h])
+
+-- pool-has-ended-by-remove/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    a, e1 := insert(mut p, 1)
+    if e1.code != 0 {
+        return
+    }
+    b, e2 := insert(mut p, 2)
+    if e2.code != 0 {
+        return
+    }
+    if has(p, a) {
+        remove(mut p, b)
+        code, fits := int32(p[a])
+        if fits { exit(code) }
+    }
+}
+-- pool-has-ended-by-remove/expected --
+stage: typeck
+---
+
+pool-has-ended-by-remove/main.tck:15:31: error: handle a may not be live in p; check has(p, a) first, or use v, ok := p[a]
+14 |	        remove(mut p, b)
+15 |	        code, fits := int32(p[a])
+   |	                              ^
+16 |	        if fits { exit(code) }
+pool-has-ended-by-remove/main.tck:13:8: note: this guard proves a is live in p
+12 |	    }
+13 |	    if has(p, a) {
+   |	       ^~~~~~~~~
+14 |	        remove(mut p, b)
+pool-has-ended-by-remove/main.tck:14:16: note: but p is passed as mut to remove here, so the proof ends
+13 |	    if has(p, a) {
+14 |	        remove(mut p, b)
+   |	               ^~~~~
+15 |	        code, fits := int32(p[a])
+
+-- pool-has-ended-by-remove-same/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    if has(p, h) {
+        remove(mut p, h)
+        p[h] = 3
+    }
+}
+-- pool-has-ended-by-remove-same/expected --
+stage: typeck
+---
+
+pool-has-ended-by-remove-same/main.tck:11:11: error: handle h may not be live in p; check has(p, h) first
+10 |	        remove(mut p, h)
+11 |	        p[h] = 3
+   |	          ^
+12 |	    }
+pool-has-ended-by-remove-same/main.tck:9:8: note: this guard proves h is live in p
+08 |	    }
+09 |	    if has(p, h) {
+   |	       ^~~~~~~~~
+10 |	        remove(mut p, h)
+pool-has-ended-by-remove-same/main.tck:10:16: note: but p is passed as mut to remove here, so the proof ends
+09 |	    if has(p, h) {
+10 |	        remove(mut p, h)
+   |	               ^~~~~
+11 |	        p[h] = 3
+
+-- pool-has-handle-reassigned/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    a, e1 := insert(mut p, 1)
+    if e1.code != 0 {
+        return
+    }
+    b, e2 := insert(mut p, 2)
+    if e2.code != 0 {
+        return
+    }
+    mut h := a
+    if has(p, h) {
+        h = b
+        code, fits := int32(p[h])
+        if fits { exit(code) }
+    }
+}
+-- pool-has-handle-reassigned/expected --
+stage: typeck
+---
+
+pool-has-handle-reassigned/main.tck:16:31: error: handle h may not be live in p; check has(p, h) first, or use v, ok := p[h]
+15 |	        h = b
+16 |	        code, fits := int32(p[h])
+   |	                              ^
+17 |	        if fits { exit(code) }
+pool-has-handle-reassigned/main.tck:16:31: note: has proves only a handle that cannot change: a variable or parameter declared without mut, or a field of one
+15 |	        h = b
+16 |	        code, fits := int32(p[h])
+   |	                              ^
+17 |	        if fits { exit(code) }
+
+-- pool-has-int/main.tck --
+package main
+
+func main() {
+    p := make(pool[int64], c_allocator)
+    if has(p, 0) {
+    }
+}
+-- pool-has-int/expected --
+stage: typeck
+---
+
+pool-has-int/main.tck:5:15: error: cannot use int64 as handle[int64] in argument to has
+04 |	    p := make(pool[int64], c_allocator)
+05 |	    if has(p, 0) {
+   |	              ^
+06 |	    }
+
+-- pool-has-into-closure/main.tck --
+package main
+
+func run(scope f func()) {
+    f()
+}
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    mut x := 0
+    if has(p, h) {
+        run(func() {
+            x = p[h]
+        })
+    }
+    code, fits := int32(x)
+    if fits { exit(code) }
+}
+-- pool-has-into-closure/expected --
+stage: typeck
+---
+
+pool-has-into-closure/main.tck:16:19: error: handle h may not be live in p; check has(p, h) first, or use v, ok := p[h]
+15 |	        run(func() {
+16 |	            x = p[h]
+   |	                  ^
+17 |	        })
+
+-- pool-has-into-closure-mut-param/main.tck --
+package main
+
+func run(scope f func()) {
+    f()
+}
+
+func set(mut p pool[int64], h handle[int64]) {
+    if has(p, h) {
+        run(func() {
+            p[h] = 5
+        })
+    }
+}
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    set(mut p, h)
+}
+-- pool-has-into-closure-mut-param/expected --
+stage: typeck
+---
+
+pool-has-into-closure-mut-param/main.tck:10:15: error: handle h may not be live in p; check has(p, h) first
+09 |	        run(func() {
+10 |	            p[h] = 5
+   |	              ^
+11 |	        })
+
+-- pool-has-mut-field/main.tck --
+package main
+
+type World struct {
+    p pool[int64]
+}
+
+// A field of a mut parameter can change in ways has does not track.
+func get(mut w World, h handle[int64]) int64 {
+    if has(w.p, h) {
+        return w.p[h]
+    }
+    return 0
+}
+
+func main() {
+    mut w := World{p: make(pool[int64], c_allocator)}
+    mut z handle[int64]
+    if get(mut w, z) > 0 {
+    }
+}
+-- pool-has-mut-field/expected --
+stage: typeck
+---
+
+pool-has-mut-field/main.tck:10:20: error: handle h may not be live in w.p; check has(w.p, h) first, or use v, ok := w.p[h]
+09 |	    if has(w.p, h) {
+10 |	        return w.p[h]
+   |	                   ^
+11 |	    }
+pool-has-mut-field/main.tck:10:16: note: has proves a handle only in a pool that is a variable or a parameter, or a field or an element of one declared without mut
+09 |	    if has(w.p, h) {
+10 |	        return w.p[h]
+   |	               ^~~
+11 |	    }
+
+-- pool-has-negated/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    if !has(p, h) {
+        code, fits := int32(p[h])
+        if fits { exit(code) }
+    }
+}
+-- pool-has-negated/expected --
+stage: typeck
+---
+
+pool-has-negated/main.tck:10:31: error: handle h may not be live in p; check has(p, h) first, or use v, ok := p[h]
+09 |	    if !has(p, h) {
+10 |	        code, fits := int32(p[h])
+   |	                              ^
+11 |	        if fits { exit(code) }
+
+-- pool-has-not-pool/main.tck --
+package main
+
+// Assumption: has names both of the containers it proves for.
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    l := make(list[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    if has(l, h) {
+    }
+}
+-- pool-has-not-pool/expected --
+stage: typeck
+---
+
+pool-has-not-pool/main.tck:11:12: error: has expects a map or a pool, got list[int64]
+10 |	    }
+11 |	    if has(l, h) {
+   |	           ^
+12 |	    }
+
+-- pool-has-other-handle/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    a, e1 := insert(mut p, 1)
+    if e1.code != 0 {
+        return
+    }
+    b, e2 := insert(mut p, 2)
+    if e2.code != 0 {
+        return
+    }
+    if has(p, a) {
+        code, fits := int32(p[b])
+        if fits { exit(code) }
+    }
+}
+-- pool-has-other-handle/expected --
+stage: typeck
+---
+
+pool-has-other-handle/main.tck:14:31: error: handle b may not be live in p; check has(p, b) first, or use v, ok := p[b]
+13 |	    if has(p, a) {
+14 |	        code, fits := int32(p[b])
+   |	                              ^
+15 |	        if fits { exit(code) }
+
+-- pool-has-other-pool/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    q := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    if has(p, h) {
+        code, fits := int32(q[h])
+        if fits { exit(code) }
+    }
+}
+-- pool-has-other-pool/expected --
+stage: typeck
+---
+
+pool-has-other-pool/main.tck:11:31: error: handle h may not be live in q; check has(q, h) first, or use v, ok := q[h]
+10 |	    if has(p, h) {
+11 |	        code, fits := int32(q[h])
+   |	                              ^
+12 |	        if fits { exit(code) }
+
+-- pool-has-wrong-handle/main.tck --
+package main
+
+func main() {
+    p := make(pool[int64], c_allocator)
+    mut q := make(pool[string], c_allocator)
+    h, err := insert(mut q, "a")
+    if err.code != 0 {
+        return
+    }
+    if has(p, h) {
+    }
+}
+-- pool-has-wrong-handle/expected --
+stage: typeck
+---
+
+pool-has-wrong-handle/main.tck:10:15: error: cannot use handle[string] as handle[int64] in argument to has
+09 |	    }
+10 |	    if has(p, h) {
+   |	              ^
+11 |	    }
+
+-- pool-index-alongside-mut/main.tck --
+package main
+
+func f(mut p pool[int64], h handle[int64]) handle[int64] {
+    return h
+}
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    if has(p, h) {
+        x := p[f(mut p, h)]
+        if x > 0 {
+        }
+    }
+}
+-- pool-index-alongside-mut/expected --
+stage: typeck
+---
+
+pool-index-alongside-mut/main.tck:14:14: error: cannot index p alongside mut p in its index: a pool is not copied to be indexed, and a mut argument must be the only way to reach p during its call
+13 |	    if has(p, h) {
+14 |	        x := p[f(mut p, h)]
+   |	             ^
+15 |	        if x > 0 {
+pool-index-alongside-mut/main.tck:14:18: note: passed as mut here
+13 |	    if has(p, h) {
+14 |	        x := p[f(mut p, h)]
+   |	                 ^~~~~
+15 |	        if x > 0 {
+
+-- pool-index-int/main.tck --
+package main
+
+func main() {
+    p := make(pool[int64], c_allocator)
+    v, ok := p[0]
+    if ok && v > 0 {
+    }
+}
+-- pool-index-int/expected --
+stage: typeck
+---
+
+pool-index-int/main.tck:5:16: error: cannot use int64 as handle[int64] to index pool[int64]
+04 |	    p := make(pool[int64], c_allocator)
+05 |	    v, ok := p[0]
+   |	               ^
+06 |	    if ok && v > 0 {
+
+-- pool-index-unproven/main.tck --
+package main
+
+// Assumption: an unproven p[h] is an error for a copyable T too, as an
+// unproven m[k] is; the design names the owned case only.
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    x := p[h]
+    code, fits := int32(x)
+    if fits { exit(code) }
+}
+-- pool-index-unproven/expected --
+stage: typeck
+---
+
+pool-index-unproven/main.tck:11:12: error: handle h may not be live in p; check has(p, h) first, or use v, ok := p[h]
+10 |	    }
+11 |	    x := p[h]
+   |	           ^
+12 |	    code, fits := int32(x)
+
+-- pool-index-unproven-owned/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[list[int64]], c_allocator)
+    h, err := insert(mut p, make(list[int64], c_allocator))
+    if err.code != 0 {
+        return
+    }
+    code, fits := int32(len(p[h]))
+    if fits { exit(code) }
+}
+-- pool-index-unproven-owned/expected --
+stage: typeck
+---
+
+pool-index-unproven-owned/main.tck:9:31: error: handle h may not be live in p; check has(p, h) first
+08 |	    }
+09 |	    code, fits := int32(len(p[h]))
+   |	                              ^
+10 |	    if fits { exit(code) }
+
+-- pool-index-wrong-handle/main.tck --
+package main
+
+func main() {
+    p := make(pool[int64], c_allocator)
+    mut q := make(pool[string], c_allocator)
+    h, err := insert(mut q, "a")
+    if err.code != 0 {
+        return
+    }
+    v, ok := p[h]
+    if ok && v > 0 {
+    }
+}
+-- pool-index-wrong-handle/expected --
+stage: typeck
+---
+
+pool-index-wrong-handle/main.tck:10:16: error: cannot use handle[string] as handle[int64] to index pool[int64]
+09 |	    }
+10 |	    v, ok := p[h]
+   |	               ^
+11 |	    if ok && v > 0 {
+
+-- pool-insert-arity/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    _, err := insert(mut p)
+    if err.code != 0 {
+    }
+}
+-- pool-insert-arity/expected --
+stage: typeck
+---
+
+pool-insert-arity/main.tck:5:15: error: insert expects 2 argument(s), got 1
+04 |	    mut p := make(pool[int64], c_allocator)
+05 |	    _, err := insert(mut p)
+   |	              ^~~~~~~~~~~~~
+06 |	    if err.code != 0 {
+
+-- pool-insert-error-blank/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, _ := insert(mut p, 1)
+    if has(p, h) {
+    }
+}
+-- pool-insert-error-blank/expected --
+stage: typeck
+---
+
+pool-insert-error-blank/main.tck:5:8: error: the error insert returns cannot be discarded; bind it to a variable instead of _
+04 |	    mut p := make(pool[int64], c_allocator)
+05 |	    h, _ := insert(mut p, 1)
+   |	       ^
+06 |	    if has(p, h) {
+
+-- pool-insert-error-dropped/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    insert(mut p, 1)
+}
+-- pool-insert-error-dropped/expected --
+stage: typeck
+---
+
+pool-insert-error-dropped/main.tck:5:5: error: the error insert returns cannot be discarded; bind it, as in h, err := insert(...)
+04 |	    mut p := make(pool[int64], c_allocator)
+05 |	    insert(mut p, 1)
+   |	    ^~~~~~~~~~~~~~~~
+06 |	}
+
+-- pool-insert-handle-before-err/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if has(p, h) {
+    }
+    if err.code != 0 {
+        return
+    }
+}
+-- pool-insert-handle-before-err/expected --
+stage: typeck
+---
+
+pool-insert-handle-before-err/main.tck:6:15: error: h cannot be read before err is checked; check err.code == 0 first
+05 |	    h, err := insert(mut p, 1)
+06 |	    if has(p, h) {
+   |	              ^
+07 |	    }
+
+-- pool-insert-into-arena/main.tck --
+package main
+
+func main() {
+    mut a := make(arena[int64], 0, c_allocator)
+    _, err := insert(mut a, 1)
+    if err.code != 0 {
+    }
+}
+-- pool-insert-into-arena/expected --
+stage: typeck
+---
+
+pool-insert-into-arena/main.tck:5:26: error: insert expects a pool, got arena[int64]
+04 |	    mut a := make(arena[int64], 0, c_allocator)
+05 |	    _, err := insert(mut a, 1)
+   |	                         ^
+06 |	    if err.code != 0 {
+
+-- pool-insert-not-mut/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(p, 1)
+    if err.code != 0 {
+        return
+    }
+    if has(p, h) {
+    }
+}
+-- pool-insert-not-mut/expected --
+stage: typeck
+---
+
+pool-insert-not-mut/main.tck:5:22: error: insert takes p as mut; pass mut p
+04 |	    mut p := make(pool[int64], c_allocator)
+05 |	    h, err := insert(p, 1)
+   |	                     ^
+06 |	    if err.code != 0 {
+
+-- pool-insert-not-pool/main.tck --
+package main
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    _, err := insert(mut l, 1)
+    if err.code != 0 {
+    }
+}
+-- pool-insert-not-pool/expected --
+stage: typeck
+---
+
+pool-insert-not-pool/main.tck:5:26: error: insert expects a pool, got list[int64]
+04 |	    mut l := make(list[int64], c_allocator)
+05 |	    _, err := insert(mut l, 1)
+   |	                         ^
+06 |	    if err.code != 0 {
+
+-- pool-insert-one-value/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h := insert(mut p, 1)
+    if has(p, h) {
+    }
+}
+-- pool-insert-one-value/expected --
+stage: typeck
+---
+
+pool-insert-one-value/main.tck:5:10: error: insert returns 2 values
+04 |	    mut p := make(pool[int64], c_allocator)
+05 |	    h := insert(mut p, 1)
+   |	         ^~~~~~~~~~~~~~~~
+06 |	    if has(p, h) {
+
+-- pool-insert-wrong-type/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, "a")
+    if err.code != 0 {
+        return
+    }
+    if has(p, h) {
+    }
+}
+-- pool-insert-wrong-type/expected --
+stage: typeck
+---
+
+pool-insert-wrong-type/main.tck:5:29: error: cannot use string as int64 in argument to insert
+04 |	    mut p := make(pool[int64], c_allocator)
+05 |	    h, err := insert(mut p, "a")
+   |	                            ^~~
+06 |	    if err.code != 0 {
+
+-- pool-literal/main.tck --
+package main
+
+func main() {
+    p := pool[int64]{}
+    if len(p) > 0 {
+    }
+}
+-- pool-literal/expected --
+stage: typeck
+---
+
+pool-literal/main.tck:4:10: error: pool[int64] cannot be written as a literal; only arrays and structs can
+03 |	func main() {
+04 |	    p := pool[int64]{}
+   |	         ^~~~~~~~~~~~~
+05 |	    if len(p) > 0 {
+
+-- pool-make-arity/main.tck --
+package main
+
+func main() {
+    p := make(pool[int64])
+    if len(p) > 0 {
+    }
+}
+-- pool-make-arity/expected --
+stage: typeck
+---
+
+pool-make-arity/main.tck:4:10: error: make expects 2 argument(s), got 1
+03 |	func main() {
+04 |	    p := make(pool[int64])
+   |	         ^~~~~~~~~~~~~~~~~
+05 |	    if len(p) > 0 {
+
+-- pool-make-discarded/main.tck --
+package main
+
+func main() {
+    make(pool[int64], c_allocator)
+}
+-- pool-make-discarded/expected --
+stage: typeck
+---
+
+pool-make-discarded/main.tck:4:5: error: make returns pool[int64], which cannot be discarded; bind it to a variable
+03 |	func main() {
+04 |	    make(pool[int64], c_allocator)
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+05 |	}
+
+-- pool-map-key/main.tck --
+package main
+
+func main() {
+    m := make(map[pool[int64]]int64, c_allocator)
+    if len(m) > 0 {
+    }
+}
+-- pool-map-key/expected --
+stage: typeck
+---
+
+pool-map-key/main.tck:4:19: error: cannot use pool[int64] as a map key: it has no ==
+03 |	func main() {
+04 |	    m := make(map[pool[int64]]int64, c_allocator)
+   |	                  ^~~~~~~~~~~
+05 |	    if len(m) > 0 {
+
+-- pool-method-call/main.tck --
+package main
+
+// Assumption: pool operations are builtins only, so p.insert is no
+// method.
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    err := mut p.insert(1)
+    if err.code != 0 {
+    }
+}
+-- pool-method-call/expected --
+stage: typeck
+---
+
+pool-method-call/main.tck:7:18: error: pool[int64] has no method insert
+06 |	    mut p := make(pool[int64], c_allocator)
+07 |	    err := mut p.insert(1)
+   |	                 ^~~~~~
+08 |	    if err.code != 0 {
+
+-- pool-move-out/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[list[int64]], c_allocator)
+    h, err := insert(mut p, make(list[int64], c_allocator))
+    if err.code != 0 {
+        return
+    }
+    if has(p, h) {
+        l := p[h]
+        if len(l) > 0 {
+        }
+    }
+}
+-- pool-move-out/expected --
+stage: typeck
+---
+
+pool-move-out/main.tck:10:14: error: cannot move p[h] out of p: an element cannot be moved out of a pool; take it out with remove
+09 |	    if has(p, h) {
+10 |	        l := p[h]
+   |	             ^~~~
+11 |	        if len(l) > 0 {
+
+-- pool-moved/main.tck --
+package main
+
+func main() {
+    p := make(pool[int64], c_allocator)
+    q := p
+    if len(p) > 0 && len(q) > 0 {
+    }
+}
+-- pool-moved/expected --
+stage: typeck
+---
+
+pool-moved/main.tck:6:12: error: p is used after it was moved
+05 |	    q := p
+06 |	    if len(p) > 0 && len(q) > 0 {
+   |	           ^
+07 |	    }
+pool-moved/main.tck:5:10: note: p is moved here
+04 |	    p := make(pool[int64], c_allocator)
+05 |	    q := p
+   |	         ^
+06 |	    if len(p) > 0 && len(q) > 0 {
+
+-- pool-no-zero/main.tck --
+package main
+
+func main() {
+    mut p pool[int64]
+    if len(p) == 0 {
+    }
+}
+-- pool-no-zero/expected --
+stage: typeck
+---
+
+pool-no-zero/main.tck:4:9: error: p needs a value: pool[int64] has no zero value
+03 |	func main() {
+04 |	    mut p pool[int64]
+   |	        ^
+05 |	    if len(p) == 0 {
+
+-- pool-pop/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    x, ok := pop(mut p)
+    if ok && x > 0 {
+    }
+}
+-- pool-pop/expected --
+stage: typeck
+---
+
+pool-pop/main.tck:5:22: error: pop expects a list, got pool[int64]
+04 |	    mut p := make(pool[int64], c_allocator)
+05 |	    x, ok := pop(mut p)
+   |	                     ^
+06 |	    if ok && x > 0 {
+
+-- pool-range-assign-owned/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[list[int64]], c_allocator)
+    for k, l := range p {
+        if len(l) > 0 && has(p, k) {
+            p[k] = make(list[int64], c_allocator)
+        }
+    }
+}
+-- pool-range-assign-owned/expected --
+stage: typeck
+---
+
+pool-range-assign-owned/main.tck:7:13: error: p is being ranged over, and l refers into it, so this loop cannot assign p[k]
+06 |	        if len(l) > 0 && has(p, k) {
+07 |	            p[k] = make(list[int64], c_allocator)
+   |	            ^~~~
+08 |	        }
+
+-- pool-range-closure-mut/main.tck --
+package main
+
+func run(scope f func()) {
+    f()
+}
+
+// A range's fact about a mut pool does not enter a closure, as no fact
+// about a mutable variable does.
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    _, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    mut s := 0
+    for h := range p {
+        run(func() {
+            s +%= p[h]
+        })
+    }
+    if s > 0 {
+    }
+}
+-- pool-range-closure-mut/expected --
+stage: typeck
+---
+
+pool-range-closure-mut/main.tck:18:21: error: handle h may not be live in p; check has(p, h) first, or use v, ok := p[h]
+17 |	        run(func() {
+18 |	            s +%= p[h]
+   |	                    ^
+19 |	        })
+
+-- pool-range-handle-assigned/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    _, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    mut z handle[int64]
+    for h := range p {
+        h = z
+        if p[h] > 0 {
+        }
+    }
+}
+-- pool-range-handle-assigned/expected --
+stage: typeck
+---
+
+pool-range-handle-assigned/main.tck:11:9: error: cannot assign to immutable variable h
+10 |	    for h := range p {
+11 |	        h = z
+   |	        ^
+12 |	        if p[h] > 0 {
+
+pool-range-handle-assigned/main.tck:12:14: error: handle h may not be live in p; check has(p, h) first, or use v, ok := p[h]
+11 |	        h = z
+12 |	        if p[h] > 0 {
+   |	             ^
+13 |	        }
+pool-range-handle-assigned/main.tck:10:5: note: this loop proves h is live in p
+09 |	    mut z handle[int64]
+10 |	    for h := range p {
+   |	    ^~~~~~~~~~~~~~~~
+11 |	        h = z
+pool-range-handle-assigned/main.tck:11:9: note: but h is assigned here, so the proof ends
+10 |	    for h := range p {
+11 |	        h = z
+   |	        ^
+12 |	        if p[h] > 0 {
+
+-- pool-range-handle-copied/main.tck --
+package main
+
+// A range proves its own handle only; a mut copy of it can change.
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    _, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    for h := range p {
+        mut g := h
+        g = h
+        x := p[g]
+        if x > 0 {
+        }
+    }
+}
+-- pool-range-handle-copied/expected --
+stage: typeck
+---
+
+pool-range-handle-copied/main.tck:13:16: error: handle g may not be live in p; check has(p, g) first, or use v, ok := p[g]
+12 |	        g = h
+13 |	        x := p[g]
+   |	               ^
+14 |	        if x > 0 {
+pool-range-handle-copied/main.tck:13:16: note: has proves only a handle that cannot change: a variable or parameter declared without mut, or a field of one
+12 |	        g = h
+13 |	        x := p[g]
+   |	               ^
+14 |	        if x > 0 {
+
+-- pool-range-insert/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    for _, v := range p {
+        _, err := insert(mut p, v)
+        if err.code != 0 {
+            return
+        }
+    }
+}
+-- pool-range-insert/expected --
+stage: typeck
+---
+
+pool-range-insert/main.tck:6:30: error: p is being ranged over, so this loop cannot pass mut p
+05 |	    for _, v := range p {
+06 |	        _, err := insert(mut p, v)
+   |	                             ^
+07 |	        if err.code != 0 {
+
+-- pool-range-move/main.tck --
+package main
+
+func main() {
+    p := make(pool[list[int64]], c_allocator)
+    for _, l := range p {
+        m := l
+        if len(m) > 0 {
+        }
+    }
+}
+-- pool-range-move/expected --
+stage: typeck
+---
+
+pool-range-move/main.tck:6:14: error: cannot move l: it refers to an element of p in place, and an element cannot be moved out of a pool
+05 |	    for _, l := range p {
+06 |	        m := l
+   |	             ^
+07 |	        if len(m) > 0 {
+
+-- pool-range-other-pool/main.tck --
+package main
+
+// A range's handle is proven in the pool it ranges over, not in one a
+// range nested in it ranges over.
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    _, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    q := make(pool[int64], c_allocator)
+    for h := range p {
+        for g := range q {
+            x := q[h] +% q[g]
+            if x > 0 {
+            }
+        }
+    }
+}
+-- pool-range-other-pool/expected --
+stage: typeck
+---
+
+pool-range-other-pool/main.tck:14:20: error: handle h may not be live in q; check has(q, h) first, or use v, ok := q[h]
+13 |	        for g := range q {
+14 |	            x := q[h] +% q[g]
+   |	                   ^
+15 |	            if x > 0 {
+
+-- pool-range-remove/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    for h, v := range p {
+        if v > 0 {
+            remove(mut p, h)
+        }
+    }
+}
+-- pool-range-remove/expected --
+stage: typeck
+---
+
+pool-range-remove/main.tck:7:24: error: p is being ranged over, so this loop cannot pass mut p
+06 |	        if v > 0 {
+07 |	            remove(mut p, h)
+   |	                       ^
+08 |	        }
+
+-- pool-recursive/main.tck --
+package main
+
+// A pool holds its elements, so a type cannot hold a pool of itself;
+// a handle of itself it may hold.
+type Node struct {
+    kids pool[Node]
+}
+
+func main() {
+}
+-- pool-recursive/expected --
+stage: typeck
+---
+
+pool-recursive/main.tck:5:6: error: invalid recursive type Node: a type cannot hold itself, even through a pool
+04 |	// a handle of itself it may hold.
+05 |	type Node struct {
+   |	     ^~~~
+06 |	    kids pool[Node]
+pool-recursive/main.tck:6:5: note: Node refers to Node
+05 |	type Node struct {
+06 |	    kids pool[Node]
+   |	    ^~~~~~~~~~~~~~~
+07 |	}
+
+-- pool-remove-not-mut/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    remove(p, h)
+}
+-- pool-remove-not-mut/expected --
+stage: typeck
+---
+
+pool-remove-not-mut/main.tck:9:12: error: remove takes p as mut; pass mut p
+08 |	    }
+09 |	    remove(p, h)
+   |	           ^
+10 |	}
+
+-- pool-remove-ok-discarded/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[list[int64]], c_allocator)
+    h, err := insert(mut p, make(list[int64], c_allocator))
+    if err.code != 0 {
+        return
+    }
+    v, _ := remove(mut p, h)
+    if len(v) > 0 {
+    }
+}
+-- pool-remove-ok-discarded/expected --
+stage: typeck
+---
+
+pool-remove-ok-discarded/main.tck:9:8: error: the ok remove returns cannot be discarded: v cannot be read until it is checked; bind it to a variable instead of _
+08 |	    }
+09 |	    v, _ := remove(mut p, h)
+   |	       ^
+10 |	    if len(v) > 0 {
+
+-- pool-remove-one-name/main.tck --
+package main
+
+// Assumption: a pool's remove has no one-name form, as a map's delete
+// has none; the design lists the statement and the two-name forms only.
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        return
+    }
+    v := remove(mut p, h)
+    code, fits := int32(v)
+    if fits { exit(code) }
+}
+-- pool-remove-one-name/expected --
+stage: typeck
+---
+
+pool-remove-one-name/main.tck:11:10: error: remove gives the element and whether the handle was live; use v, ok := remove(mut p, h)
+10 |	    }
+11 |	    v := remove(mut p, h)
+   |	         ^~~~~~~~~~~~~~~~
+12 |	    code, fits := int32(v)
+
+-- pool-remove-owned-discarded/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[list[int64]], c_allocator)
+    h, err := insert(mut p, make(list[int64], c_allocator))
+    if err.code != 0 {
+        return
+    }
+    _, ok := remove(mut p, h)
+    if ok {
+    }
+}
+-- pool-remove-owned-discarded/expected --
+stage: typeck
+---
+
+pool-remove-owned-discarded/main.tck:9:5: error: remove returns list[int64], which cannot be discarded; bind it to a variable instead of _
+08 |	    }
+09 |	    _, ok := remove(mut p, h)
+   |	    ^
+10 |	    if ok {
+
+-- pool-remove-read-before-ok/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[list[int64]], c_allocator)
+    h, err := insert(mut p, make(list[int64], c_allocator))
+    if err.code != 0 {
+        return
+    }
+    v, ok := remove(mut p, h)
+    if len(v) > 0 && ok {
+    }
+}
+-- pool-remove-read-before-ok/expected --
+stage: typeck
+---
+
+pool-remove-read-before-ok/main.tck:10:12: error: v cannot be read before ok is checked; check that ok is true first
+09 |	    v, ok := remove(mut p, h)
+10 |	    if len(v) > 0 && ok {
+   |	           ^
+11 |	    }
+
+-- pool-remove-wrong-handle/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    mut q := make(pool[string], c_allocator)
+    h, err := insert(mut q, "a")
+    if err.code != 0 {
+        return
+    }
+    remove(mut p, h)
+}
+-- pool-remove-wrong-handle/expected --
+stage: typeck
+---
+
+pool-remove-wrong-handle/main.tck:10:19: error: cannot use handle[string] as handle[int64] in argument to remove
+09 |	    }
+10 |	    remove(mut p, h)
+   |	                  ^
+11 |	}
+
+-- pool-reserve/main.tck --
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    err := reserve(mut p, 1)
+    if err.code != 0 {
+    }
+}
+-- pool-reserve/expected --
+stage: typeck
+---
+
+pool-reserve/main.tck:5:24: error: reserve expects a list or an arena, got pool[int64]
+04 |	    mut p := make(pool[int64], c_allocator)
+05 |	    err := reserve(mut p, 1)
+   |	                       ^
+06 |	    if err.code != 0 {
+
+-- pool-temporary/main.tck --
+package main
+
+func main() {
+    if len(make(pool[int64], c_allocator)) > 0 {
+    }
+}
+-- pool-temporary/expected --
+stage: typeck
+---
+
+pool-temporary/main.tck:4:12: error: cannot use a temporary pool[int64] here; store it in a variable first
+03 |	func main() {
+04 |	    if len(make(pool[int64], c_allocator)) > 0 {
+   |	           ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+05 |	    }
+
+-- pool-type-as-value/main.tck --
+package main
+
+func main() {
+    x := pool[int64]
+    if x == 0 {
+    }
+}
+-- pool-type-as-value/expected --
+stage: typeck
+---
+
+pool-type-as-value/main.tck:4:10: error: cannot use pool[int64] as a value; it is a type
+03 |	func main() {
+04 |	    x := pool[int64]
+   |	         ^~~~~~~~~~~
+05 |	    if x == 0 {
+
 -- pop-all-blank/main.tck --
 package main
 
@@ -60641,7 +63028,7 @@ func main() {
 stage: typeck
 ---
 
-unused-stmt-len-invalid/main.tck:4:9: error: len expects an array, a string, a view, a list, a map or an arena, got int64
+unused-stmt-len-invalid/main.tck:4:9: error: len expects an array, a string, a view, a list, a map, an arena or a pool, got int64
 03 |	func main() {
 04 |	    len(5)
    |	        ^

@@ -474,7 +474,7 @@ static int64_t tack_4_main5_depth(tack_4_main4_Node p_n);
 static void tack_4_main6_visits(void);
 static int64_t tack_4_main4_none(tack_4_main4_Node p_n);
 static void tack_4_main5_reset(tack_4_main4_Node * p_n);
-static int64_t tack_4_main6_handle(tack_4_main7_Handler p_h, int64_t p_x);
+static int64_t tack_4_main8_dispatch(tack_4_main7_Handler p_h, int64_t p_x);
 static void tack_4_main6_unions(void);
 static int64_t tack_4_main11_Rect_2earea(tack_4_main4_Rect p_r);
 static void tack_4_main8_generics(void);
@@ -1346,7 +1346,7 @@ static void tack_4_main5_reset(tack_4_main4_Node * p_n) {
     (*p_n).f_visit = ((tack_fnptr)(tack_fn_30){tack_4_main4_none});
 }
 
-static int64_t tack_4_main6_handle(tack_4_main7_Handler p_h, int64_t p_x) {
+static int64_t tack_4_main8_dispatch(tack_4_main7_Handler p_h, int64_t p_x) {
     {
         const tack_4_main7_Handler *const tack_s91 = &p_h;
         if (tack_s91->tag == 0) {
@@ -1359,7 +1359,7 @@ static int64_t tack_4_main6_handle(tack_4_main7_Handler p_h, int64_t p_x) {
 }
 
 static void tack_4_main6_unions(void) {
-    tack_4_main5_check(((tack_4_main6_handle(((tack_4_main7_Handler){.tag = 0, .u.c_call = ((tack_fnptr)(tack_fn_28){tack_4_main6_square})}), 4) == 16) && (tack_4_main6_handle(((tack_4_main7_Handler){.tag = 1}), 4) == 4)), (tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)});
+    tack_4_main5_check(((tack_4_main8_dispatch(((tack_4_main7_Handler){.tag = 0, .u.c_call = ((tack_fnptr)(tack_fn_28){tack_4_main6_square})}), 4) == 16) && (tack_4_main8_dispatch(((tack_4_main7_Handler){.tag = 1}), 4) == 4)), (tack_string){tack_str20, TACK_C_STR_LEN(tack_str20)});
 }
 
 static int64_t tack_4_main11_Rect_2earea(tack_4_main4_Rect p_r) {

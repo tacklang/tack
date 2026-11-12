@@ -372,7 +372,7 @@ includes only those three, and a program that calls neither builtin, and
 has no list, links neither body and none of the C library they call.
 
 `len`, `make`, `append`, `reserve`, `pop`, `remove`, `swap`, `replace`,
-`put`, `delete`, `has`, `drop`, `add` and `add_all` are generic: the type
+`put`, `delete`, `has`, `drop`, `add`, `add_all` and `insert` are generic: the type
 checker checks each itself and the C backend lowers each in place. Builtins that are wanted
 but not implemented go in [`builtin/PLANNED.md`](builtin/PLANNED.md),
 beside `builtin.tck`.
@@ -646,7 +646,7 @@ section remains the description of the language.
   function written with a receiver before its name, `func (b Builder)
   len() int64`, is a method of a struct type (see methods). A contract,
   `ensures` and a condition, may come after the results, before the body,
-  `func handle(err error) ensures err.code == 0 { ... }` (see contracts).
+  `func must(err error) ensures err.code == 0 { ... }` (see contracts).
 - Mut parameters. A parameter written `mut p T`, as in `func scale(mut p
   Point, k int64)`, is a mutable reference to the caller's variable for the
   duration of the call: inside, `p`, `p.x` and `p.cells[i]` read and write
@@ -1437,7 +1437,7 @@ section remains the description of the language.
     ... }` in its branch, the `else` of `if err.code != 0` in that
     branch, a `switch err.code` in its `case 0:`, `err.code == 0 &&`
     on its right, and a call to a function whose contract ensures it,
-    `handle(err)` after `func handle(err error) ensures err.code == 0`
+    `must(err)` after `func must(err error) ensures err.code == 0`
     (see contracts). Like any fact it holds up to the first write to `err`
     that can reach the read, so binding a new error to it ends it for
     every read after the binding, and a branch ending in `exit` leaves,
@@ -1541,8 +1541,8 @@ section remains the description of the language.
   and anything but a list `append expects a list, got [3]int64`, and the
   same for reserve, which takes an arena too, `reserve expects a list or
   an arena, got [3]int64`. `make`
-  takes the list type as written, `make takes a list, a map or an arena
-  type, as in make(list[int64], c_allocator)`, and no capacity yet, `make expects 2
+  takes the list type as written, `make takes a list, a map, an arena or
+  a pool type, as in make(list[int64], c_allocator)`, and no capacity yet, `make expects 2
   argument(s), got 3`; a list type anywhere else a value is wanted is
   `cannot use list[int64] as a value; it is a type`, and
   `list[int64]{1, 2}` is `list[int64] cannot be written as a literal;
@@ -1925,6 +1925,90 @@ section remains the description of the language.
   a `uint64_t`, its start in the low half and its length in the high,
   and every lookup clamps in 64 bits to the list or the sentinel, so an
   arena before its first `add` reads no buffer at all.
+- Pools. `pool[T]` is an owned store of elements of type `T`, any one of
+  which can be removed on its own: `pool` is a keyword, as `arena` is,
+  and `handle` is a builtin type name, reserved as `id` is, `cannot use
+  handle as a name; it is a type`, `handle needs its element type, as in
+  handle[int64]`. `make(pool[T], alloc)` makes an empty one, which
+  allocates nothing and cannot fail, however many pools were made before
+  it. `h, err := insert(mut p, v)` moves `v` in and gives its
+  `handle[T]`, taking a slot an earlier remove freed when there is one
+  and growing the pool otherwise; it fails with `error{code: 1, msg: "out
+  of memory"}` when the allocator cannot grow the pool or it would hold
+  more than 2^32 - 1 slots, leaving it as it was and freeing `v`. The
+  error cannot be discarded, `the error insert returns cannot be
+  discarded; bind it, as in h, err := insert(...)`, the handle cannot be
+  read before it is checked, `h cannot be read before err is checked;
+  check err.code == 0 first`, and `insert` used as one value is `insert
+  returns 2 values`. `has(p, h)` reports whether `h` names a live element
+  of `p`, and tested as a condition proves it, as `has(m, k)` proves a
+  map's key, with the same conditions on `p` and `h`; `p[h]` is then a
+  place, read in place, its fields read and written, assigned, which
+  frees the element it replaces, passed as `mut`, appended to or given to
+  `replace`, never moved out, `cannot move p[h] out of p: an element
+  cannot be moved out of a pool; take it out with remove`, nor dropped.
+  The proof is the only one there is, and it ends at any `insert`, any
+  `remove`, an assignment of `p`, a `mut` argument of it, a closure that
+  writes it passed to a call, and a loop's back edge that reaches one,
+  but not at a write to an element; a fact about a mutable pool does not
+  enter a closure, one about an immutable pool does. Unproven, `p[h]` is
+  `handle h may not be live in p; check has(p, h) first, or use v, ok :=
+  p[h]`, for any element type, and assigned, `handle h may not be live
+  in p; check has(p, h) first`. `v, ok := p[h]` copies the element, or
+  gives the zero value and `false`, so it reads only a copyable element
+  with a zero value, `the checked form cannot read an element of type
+  list[int64]: it would copy it out of p; check has(p, h) first and use
+  p[h] in place`, a type parameter's included. `v, ok := remove(mut p,
+  h)` moves the element out, or gives the zero value, or nothing to read
+  for a type with none, and `false`; written as a statement, `remove(mut
+  p, h)` frees the element at once; neither needs a proof, a handle that
+  names nothing removing nothing, and there is no one-name form, `remove
+  gives the element and whether the handle was live; use v, ok :=
+  remove(mut p, h)`. `len(p)` counts the live elements, and `for h, v :=
+  range p` gives every live one's handle and element, bound in place
+  when it is owned, the pool locked, `p is being ranged over, so this
+  loop cannot pass mut p`; where `has(p, h)` could prove the handle, `p`
+  a variable or a parameter, or a field or an element of one declared
+  without `mut`, the body knows it for its handle, as a list range's body
+  knows its index in range, so `p[h]` needs no check there, a closure
+  over a mutable pool aside; a range over `w.p` with `w` a `mut`
+  parameter gives no such fact. A removed slot's 32-bit generation moves on,
+  so a handle to the element is stale from then on, even once the slot
+  holds another, and a slot whose generation would wrap is retired,
+  never used again, checked before the increment; each pool has a 32-bit
+  tag, from a counter that starts at 1 and stops at its last value, so a
+  handle from another pool, or the zero handle, names nothing either,
+  except that past 2^32 - 2 pools made, later pools share the last tag
+  and may accept each other's handles: a logic limit, never a read of
+  memory a pool does not hold.
+  A stale, foreign or zero handle is a value every lookup reports, never
+  a read or write of memory: the pool never gives a slot back while it
+  lives. A handle is copyable, three 32-bit parts, with `==` and `!=`, a
+  zero value, a map's key and a switch's tag, but no order, `operator <
+  is not defined on handle[int64]`, no arithmetic, and no conversion,
+  `cannot convert int64 to handle[int64]`; a type may hold a handle of
+  itself, but not a pool of itself, `invalid recursive type Node: a type
+  cannot hold itself, even through a pool`. A pool moves as a list does,
+  nests in lists, maps, structs, unions, arenas, pools and generic code as
+  `pool[T]`, is borrowed by a plain parameter and changed through a `mut`
+  one, `cannot pass p[h] alongside mut p in this call: a pool is not
+  copied for a call, and a mut argument must be the only way to reach p
+  during it`, and is freed with its owner, its live elements last first,
+  then its slots, at its block's end, a `drop`, a `?` or `exit`. It has
+  no zero value, no `==`, no literal, no `pop`, `swap`, `delete`,
+  `reserve` or slice, is no global, `package-level variable g cannot hold
+  a pool`, no `any`, and neither it nor a handle crosses to C, `parameter
+  p of extern func f cannot be pool[int64]: a pool does not cross to C`,
+  `... a handle does not cross to C`. `insert` is a builtin with no value,
+  as every builtin is, and a pool has no methods, `pool[int64] has no
+  method insert`. In C a pool is a struct of its own per element type, a
+  buffer of slots, each its element, its generation, the next free slot
+  and whether it is live, laid out first as a list's buffer is, then the
+  count of live elements, the first free slot and the tag; a handle is
+  the runtime's `tack_handle_`, compared with `tack_handle_eq_`; every
+  lookup but a proven one compares the tag, the slot against the slots'
+  count, liveness and the generation before it reads the slot, and a
+  proven one reads it directly.
 - Allocators. `Allocator` is a builtin type: an opaque handle on an
   allocator, which a list holds, grows through and is freed through. It
   is copyable, a local, a parameter, a result, a field, an array's or a
@@ -3093,7 +3177,7 @@ section remains the description of the language.
   such as a two-value form whose `ok` is always `true`.
 - Contracts. A function may state, after its results and before its
   body, facts it ensures about its parameters whenever it returns:
-  `func handle(err error) ensures err.code == 0`, `func nonzero(d int64)
+  `func must(err error) ensures err.code == 0`, `func nonzero(d int64)
   ensures d != 0`, `func inside(i int64, l []int64) ensures 0 <= i && i
   < len(l)`, `func need(m map[int64]int64, k int64) ensures has(m, k)`.
   `ensures` is a keyword. The clause states what an `if`'s condition
@@ -3427,9 +3511,11 @@ section remains the description of the language.
   the number of bytes of a string, a known value for a known string (see
   division), `len(v)` the number of elements of a view or a list, never
   known but for a slice at known bounds, and `len(m)` the number of keys
-  of a map, never known and carrying no facts; each is an `int64`.
-  Anything else is `len expects an array, a string, a view, a list or a
-  map, got int64`.
+  of a map, never known and carrying no facts, `len(a)` of an arena its
+  elements, its sentinel among them, and `len(p)` of a pool its live
+  elements, neither known; each is an `int64`. Anything else is `len
+  expects an array, a string, a view, a list, a map, an arena or a pool,
+  got int64`.
 - A value of one integer type can be used where another is expected, with
   no conversion, when every value of the first is a value of the second: a
   signed type in a wider signed one, and an unsigned type in a wider type of

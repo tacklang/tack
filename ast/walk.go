@@ -241,7 +241,8 @@ func walkOperand(e Expr, v Visitor) {
 }
 
 // walkArrayExpr walks the children of an array type, a view type, a list
-// type, an arena type, an id or a span type, a composite literal, an
+// type, an arena or a pool type, an id, a span or a handle type, a
+// composite literal, an
 // element or a slice. A part that is left out is
 // nil, and skipped.
 func walkArrayExpr(e Expr, v Visitor) {
@@ -256,6 +257,8 @@ func walkArrayExpr(e Expr, v Visitor) {
 	case *ListType:
 		Walk(e.Elem, v)
 	case *ArenaType:
+		Walk(e.Elem, v)
+	case *PoolType:
 		Walk(e.Elem, v)
 	case *RefType:
 		Walk(e.Elem, v)

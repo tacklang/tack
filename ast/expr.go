@@ -70,8 +70,9 @@ type Call struct {
 	// parameters replaced by the call's type argument, through every list,
 	// view, map and function type made of one, as the type checker found
 	// them once it inferred every type argument. ResultTypes also holds
-	// the two results of a call to add or add_all, the id or span it
-	// gives and an error, the only builtins that give two. Both are nil
+	// the two results of a call to add, add_all or insert, the id, span
+	// or handle it gives and an error, the only builtins that give two
+	// and an error. Both are nil
 	// for any other call, and for one whose inference was reported.
 	ParamTypes  []types.Type `json:",omitempty"`
 	ResultTypes []types.Type `json:",omitempty"`
@@ -889,14 +890,37 @@ func (a *ArenaType) astNode() nodeKey { return _nodeKey }
 // closing bracket.
 func (a *ArenaType) Spanned() Span { return a.Span }
 
-// RefType is a type naming elements of an arena, as written: id[Elem],
-// one element of an arena[Elem], or span[Elem], a run of them. Name is
-// "id" or "span", a builtin type's name, which is reserved, so a name
-// followed by a bracket is always one of these, as a type and as an
-// operand, where a conversion to one, id[int64](n), calls it. It never
-// has a value of its own.
+// PoolType is a pool type as written, pool[Elem]: an owned store of
+// elements of type Elem that can be removed one at a time, named by
+// handles. Like ArenaType it is an expression only so it can stand where
+// a type is written, and as make's first argument, make(pool[int64],
+// c_allocator); it never has a value of its own.
+type PoolType struct {
+	Elem Expr // the element type as written
+	Span Span // the keyword pool through the closing bracket
+}
+
+var _ Expr = (*PoolType)(nil)
+
+// exprKey marks PoolType as an Expr, sealing Expr to this package's types.
+func (p *PoolType) exprKey() exprKey { return _exprKey }
+
+// astNode marks PoolType as a Node, sealing Node to this package's types.
+func (p *PoolType) astNode() nodeKey { return _nodeKey }
+
+// Spanned returns the source range from the keyword pool through the
+// closing bracket.
+func (p *PoolType) Spanned() Span { return p.Span }
+
+// RefType is a type naming elements of an arena or a pool, as written:
+// id[Elem], one element of an arena[Elem], span[Elem], a run of them, or
+// handle[Elem], one element of a pool[Elem]. Name is "id", "span" or
+// "handle", a builtin type's name, which is reserved, so a name followed
+// by a bracket is always one of these, as a type and as an operand, where
+// a conversion to one, id[int64](n), calls it. It never has a value of
+// its own.
 type RefType struct {
-	Name     string // "id" or "span"
+	Name     string // "id", "span" or "handle"
 	Elem     Expr   // the element type as written
 	NameSpan Span   // the name alone
 	Span     Span   // the name through the closing bracket

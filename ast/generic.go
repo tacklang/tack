@@ -137,7 +137,7 @@ type Instance struct {
 // Call.TypeArgs, or by Invalid when it inferred none, which it has
 // reported. For a call to a builtin or a conversion, which have no
 // callee, it returns Call.ResultTypes, which the checker records only for
-// add and add_all, and is nil for any other.
+// add, add_all and insert, and is nil for any other.
 func CallResults(call *Call) []types.Type {
 	fn := Callee(call)
 	if fn == nil {

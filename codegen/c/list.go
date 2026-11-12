@@ -124,8 +124,9 @@ func isBuiltin(call *ast.Call, name string) bool {
 
 // makeValue renders make(list[T], alloc) as an empty list of its type
 // holding the allocator, which allocates nothing, make(map[K]V, alloc)
-// as an empty map (see makeMap), and make(arena[T], sentinel, alloc) as
-// an arena holding only its sentinel (see makeArena).
+// as an empty map (see makeMap), make(arena[T], sentinel, alloc) as
+// an arena holding only its sentinel (see makeArena), and make(pool[T],
+// alloc) as a pool with no slots and a tag of its own (see makePool).
 func (g *generator) makeValue(call *ast.Call) (string, []diag.Diagnostic) {
 	if g.prog.Types.IsArena(call.Type) {
 		return g.makeArena(call)
@@ -136,6 +137,9 @@ func (g *generator) makeValue(call *ast.Call) (string, []diag.Diagnostic) {
 	}
 	if g.prog.Types.IsMap(call.Type) {
 		return g.makeMap(call, alloc), nil
+	}
+	if g.prog.Types.IsPool(call.Type) {
+		return g.makePool(call, alloc), nil
 	}
 	return fmt.Sprintf("((%s){.alloc = %s})", g.listName(call.Type), alloc), nil
 }
@@ -491,13 +495,14 @@ func (g *generator) moveValue(typ types.Type, ref string) string {
 // the value of the owned type typ held at the place ref: a list's buffer,
 // through its allocator, after each element it holds when they are owned,
 // through the list's tack_free_ (see emitListFree), an arena's elements
-// and sentinel, through its tack_free_ (see emitArenaFree), each list a
+// and sentinel, through its tack_free_ (see emitArenaFree), a pool's live
+// elements and slots, through its tack_free_ (see emitPoolFree), each list a
 // struct holds, last field first, at any depth, or what the case a union holds
 // holds, through its tack_free_ (see union.go). Each is a call, an
 // expression, so they can be joined into a loop's post statement.
 func (g *generator) frees(typ types.Type, ref string) []string {
 	table := g.prog.Types
-	if table.IsUnion(typ) || table.IsMap(typ) || table.IsArena(typ) ||
+	if table.IsUnion(typ) || table.IsMap(typ) || table.IsArena(typ) || table.IsPool(typ) ||
 		table.IsList(typ) && g.owned(table.Elem(typ)) {
 		return []string{fmt.Sprintf("%s(&%s);", g.freeName(typ), ref)}
 	}

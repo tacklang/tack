@@ -277,8 +277,8 @@ func (c *Checker) paramRoot(e ast.Expr) (string, bool) {
 }
 
 // callerMemory reports whether the array place e, rooted in a parameter,
-// is stored in its caller's data: reached through an element of a list or
-// a view, whose elements its caller holds, a range loop's element over an
+// is stored in its caller's data: reached through an element of a list, a
+// pool or a view, whose elements its caller holds, a range loop's element over an
 // owned one being one, but for one over an arena, which is in the
 // caller's data only where its arena is (see boundIn). An arena's element,
 // a[e], does not count by itself: an id may name the sentinel, which the
@@ -291,7 +291,8 @@ func (c *Checker) callerMemory(e ast.Expr) bool {
 	for {
 		switch x := e.(type) {
 		case *ast.Index:
-			if base := ast.TypeOf(x.X); c.table.IsList(base) || c.table.IsView(base) {
+			if base := ast.TypeOf(x.X); c.table.IsList(base) || c.table.IsView(base) ||
+				c.table.IsPool(base) {
 				return true
 			}
 			e = x.X
@@ -311,7 +312,7 @@ func (c *Checker) callerMemory(e ast.Expr) bool {
 
 // boundIn says, for id, the root of an array place, where the place's
 // storage is found: in the caller's data, inCaller, when id is a range
-// loop's element in place, an element of a list or a view; in next, what
+// loop's element in place, an element of a list, a pool or a view; in next, what
 // its switch matches, when it is a union pattern's binding, or the arena
 // a range loop over one walks, when it is that loop's element in place;
 // and in the function's own copy otherwise, when it returns neither. An
@@ -428,14 +429,15 @@ func (c *Checker) borrowedArg(call *ast.Call, p *ast.Param, arg ast.Expr) *viewP
 
 // holdsData reports whether a value of type typ may hold data a view can
 // point into, which a call returning a view borrows: a view, a list, a
-// map, an arena, an array, a struct but error, a union, or a type
+// map, an arena, a pool, an array, a struct but error, a union, or a type
 // parameter, which may stand for any of them.
 func (c *Checker) holdsData(typ types.Type) bool {
 	switch {
 	case typ == types.Error:
 		return false
 	case c.table.IsView(typ), c.table.IsList(typ), c.table.IsMap(typ), c.table.IsArena(typ),
-		c.table.IsArray(typ), c.table.IsStruct(typ), c.table.IsUnion(typ), c.table.IsTypeParam(typ):
+		c.table.IsPool(typ), c.table.IsArray(typ), c.table.IsStruct(typ), c.table.IsUnion(typ),
+		c.table.IsTypeParam(typ):
 		return true
 	default:
 		return false

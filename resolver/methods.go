@@ -135,7 +135,8 @@ func memberClash(fn *ast.Func, td *ast.TypeDecl, what string, prev ast.Span) []d
 
 // typeText returns a type written as a receiver's, for a diagnostic: a
 // name as written, qualified or not, and an array, a view, a list, an
-// arena, an id, a span, a map or a function type by its kind.
+// arena, a pool, an id, a span, a handle, a map or a function type by its
+// kind.
 func typeText(typ ast.Expr) string {
 	switch t := typ.(type) {
 	case *ast.Ident:
@@ -150,9 +151,14 @@ func typeText(typ ast.Expr) string {
 		return "a map type"
 	case *ast.ArenaType:
 		return "an arena type"
+	case *ast.PoolType:
+		return "a pool type"
 	case *ast.RefType:
-		if t.Name == "id" {
+		switch t.Name {
+		case "id":
 			return "an id type"
+		case "handle":
+			return "a handle type"
 		}
 		return "a span type"
 	case *ast.FuncType:

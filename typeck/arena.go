@@ -61,16 +61,20 @@ func (c *Checker) arenaType(at *ast.ArenaType) types.Type {
 	return c.table.Arena(elem)
 }
 
-// refType returns the id or span type a written id[T] or span[T] denotes,
-// adding it to the table. Its element type may be any type an arena's
-// may: an id holds no element, so a struct may hold an id of itself.
+// refType returns the id, span or handle type a written id[T], span[T] or
+// handle[T] denotes, adding it to the table. Its element type may be any
+// type an arena's or a pool's may: an id or a handle holds no element, so
+// a struct may hold an id or a handle of itself.
 func (c *Checker) refType(rt *ast.RefType) types.Type {
 	elem := c.declaredType(rt.Elem)
 	if elem == types.Invalid {
 		return types.Invalid
 	}
-	if rt.Name == "id" {
+	switch rt.Name {
+	case "id":
 		return c.table.ID(elem)
+	case "handle":
+		return c.table.Handle(elem)
 	}
 	return c.table.Span(elem)
 }
@@ -293,9 +297,10 @@ func (c *Checker) isSpanView(e ast.Expr) bool {
 	return ok && c.table.IsArena(ast.TypeOf(ix.X)) && c.table.IsSpan(ast.TypeOf(ix.Index))
 }
 
-// refConversion reports call, a conversion to an id or a span type rt,
-// id[T](n), which converts nothing: no id or span is made of an integer,
-// or of anything else, so none names a slot no add gave. Its arguments
+// refConversion reports call, a conversion to an id, a span or a handle
+// type rt, id[T](n), which converts nothing: no id, span or handle is made
+// of an integer, or of anything else, so none names a slot no add or
+// insert gave. Its arguments
 // are checked for errors of their own first.
 func (c *Checker) refConversion(call *ast.Call, rt *ast.RefType) {
 	typ := c.refType(rt)
@@ -309,8 +314,8 @@ func (c *Checker) refConversion(call *ast.Call, rt *ast.RefType) {
 	}
 }
 
-// isRefConversion reports whether call converts to an id or a span type,
-// id[T](n).
+// isRefConversion reports whether call converts to an id, a span or a
+// handle type, id[T](n).
 func isRefConversion(call *ast.Call) bool {
 	_, ok := call.Fn.(*ast.RefType)
 	return ok
@@ -318,14 +323,21 @@ func isRefConversion(call *ast.Call) bool {
 
 // borrowHolder names what place, read in place, is borrowed from, for an
 // error about a borrow: "an arena" when it is an arena, an element of
-// one or a span's view of one, and otherwise what, the holder the caller
-// names, "a list" or "a map".
+// one or a span's view of one, "a pool" when it is a pool or an element
+// of one, and otherwise what, the holder the caller names, "a list" or
+// "a map".
 func (c *Checker) borrowHolder(place ast.Expr, what string) string {
-	if c.table.IsArena(ast.TypeOf(place)) {
-		return "an arena"
+	typ := ast.TypeOf(place)
+	if ix, ok := place.(*ast.Index); ok {
+		if x := ast.TypeOf(ix.X); c.table.IsArena(x) || c.table.IsPool(x) {
+			typ = x
+		}
 	}
-	if ix, ok := place.(*ast.Index); ok && c.table.IsArena(ast.TypeOf(ix.X)) {
+	switch {
+	case c.table.IsArena(typ):
 		return "an arena"
+	case c.table.IsPool(typ):
+		return "a pool"
 	}
 	return what
 }

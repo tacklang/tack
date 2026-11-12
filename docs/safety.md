@@ -2504,6 +2504,51 @@ methods on values under `has`, in maps held by variables, fields, union
 payloads, range loops and other maps, makes every allocation of an append
 under `has` fail in turn, and checks the same.
 
+## Pools
+
+A pool, `pool[T]`, owns its slots and the live elements in them, and is
+owned, moved and freed as a map is. Its handles hold no memory.
+
+**A handle is never assumed live.** `has(p, h)` proves a handle as
+`has(m, k)` proves a key, under the same rules on what `p` and `h` may
+be, and is the only proof there is; `p[h]` anywhere else
+is <!-- error: pool-index-unproven -->`handle h may not be live in p; check has(p, h) first, or use v, ok := p[h]`,
+whatever the element type, and the checked form reads only a copyable
+element with a zero value,
+<!-- error: pool-checked-owned -->`the checked form cannot read an element of type list[int64]: it would copy it out of p; check has(p, h) first and use p[h] in place`.
+The proof ends at any write to `p` that can reach the use, an `insert`,
+<!-- note: pool-has-ended-by-insert -->`but p is passed as mut to insert here, so the proof ends`,
+a `remove` of any handle (<!-- case: pool-has-ended-by-remove -->), an
+assignment (<!-- case: pool-has-ended-by-assign -->), a `mut` argument
+(<!-- case: pool-has-ended-by-mut-call -->), a closure that writes `p`
+(<!-- case: pool-has-closure-writes -->) and a loop's back edge
+(<!-- case: pool-has-ended-by-loop -->), but not at a write to an
+element. A fact about a mutable pool does not enter a closure
+(<!-- case: pool-has-into-closure -->). A range over a pool proves its
+own handle live in its body while it locks the pool,
+<!-- note: pool-range-handle-assigned -->`this loop proves h is live in p`,
+and the lock keeps it so,
+<!-- error: pool-range-remove -->`p is being ranged over, so this loop cannot pass mut p`.
+
+**A stale handle reaches nothing.** Every lookup that needs no proof,
+the checked form, `has` and both forms of `remove`, compares the
+handle's tag, slot, the slot's liveness and its generation before it
+reads the slot, so a removed element's handle, one from another pool and
+the zero handle find nothing. A pool never gives a slot back while it
+lives, `remove` moves the slot's generation on, and a slot whose
+generation would wrap is retired, never reused, so no stale handle ever
+matches again. Past 2^32 - 2 pools made, later pools share the last tag
+and may accept each other's handles: a logic limit, never a read of
+memory a pool does not hold.
+
+**Nothing is freed twice or kept after it is freed.** `insert` moves its
+value in, and one that cannot grow the pool frees it and leaves the pool
+as it was. `remove` as a statement frees the element at once; its
+checked form moves it out. An element is never moved out otherwise,
+<!-- error: pool-move-out -->`cannot move p[h] out of p: an element cannot be moved out of a pool; take it out with remove`.
+`examples/pools` checks each of these with c_allocator's count of live
+buffers, under the address and undefined behavior sanitizers.
+
 ## Function values
 
 A function value, a function's name used as a value, `f := double`, is
@@ -2636,7 +2681,7 @@ each call, so a contract is a proof split in two, never a promise:
 <!-- example: ensures -->
 
 ```tack
-func handle(err error) ensures err.code == 0 {
+func must(err error) ensures err.code == 0 {
     if err.code != 0 {
         print(err.msg)
         exit(err.code)
@@ -2648,8 +2693,8 @@ func handle(err error) ensures err.code == 0 {
 
 ```tack
     n, err := parse("42")
-    handle(err)
-    check(n == 42, "handle")
+    must(err)
+    check(n == 42, "must")
 ```
 
 **The clause is facts, and only facts.** It holds what an `if`'s

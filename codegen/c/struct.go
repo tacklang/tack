@@ -50,6 +50,7 @@ func (g *generator) emitTypes() {
 	}
 	g.emitFrees()
 	g.emitArenas()
+	g.emitPools()
 	g.emitMaps()
 }
 
@@ -86,8 +87,8 @@ func (g *generator) hasEqualityHelper(typ types.Type) bool {
 
 // parts returns the types a value of type typ is made of: an array's, a
 // view's or a list's element type, a map's key and value types, an
-// arena's list of its elements and its element type, a struct's field
-// types, or a union's payloads' types, in order.
+// arena's list of its elements and its element type, a pool's element
+// type, a struct's field types, or a union's payloads' types, in order.
 func (g *generator) parts(typ types.Type) []types.Type {
 	table := g.prog.Types
 	if table.IsArray(typ) || table.IsView(typ) || table.IsList(typ) {
@@ -98,6 +99,9 @@ func (g *generator) parts(typ types.Type) []types.Type {
 	}
 	if table.IsArena(typ) {
 		return []types.Type{g.arenaList(typ), table.Elem(typ)}
+	}
+	if table.IsPool(typ) {
+		return []types.Type{table.Elem(typ)}
 	}
 	if table.IsUnion(typ) {
 		return g.payloads(typ)
@@ -120,7 +124,7 @@ func (g *generator) emitTypeDef(typ types.Type, defined map[types.Type]bool) {
 	table := g.prog.Types
 	if defined[typ] || typ == types.Error ||
 		!g.isComposite(typ) && !table.IsView(typ) && !table.IsList(typ) && !table.IsMap(typ) &&
-			!table.IsArena(typ) {
+			!table.IsArena(typ) && !table.IsPool(typ) {
 		return
 	}
 	defined[typ] = true
@@ -143,6 +147,8 @@ func (g *generator) emitDef(typ types.Type) {
 		g.emitMapDef(typ)
 	case table.IsArena(typ):
 		g.emitArenaDef(typ)
+	case table.IsPool(typ):
+		g.emitPoolDef(typ)
 	case table.IsArray(typ):
 		g.emitArrayDef(typ)
 	case table.IsUnion(typ):
@@ -250,10 +256,13 @@ func (g *generator) emitStructEquality(typ types.Type) {
 // each a place an equality helper reads through its pointers, are equal:
 // the type's equality helper, given their addresses, for an array, a
 // struct, a union or a list, the string comparison helper giving zero for
-// a string, and C's == otherwise.
+// a string, tack_handle_eq_ for a handle, and C's == otherwise.
 func (g *generator) equalExpr(typ types.Type, l, r string) string {
 	if g.hasEqualityHelper(typ) {
 		return fmt.Sprintf("%s(&%s, &%s)", g.equalityName(typ), l, r)
+	}
+	if g.prog.Types.IsHandle(typ) {
+		return fmt.Sprintf("tack_handle_eq_(%s, %s)", l, r)
 	}
 	if typ == types.String {
 		return stringComparison(ast.Eq, l, r)

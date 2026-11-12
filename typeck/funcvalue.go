@@ -294,14 +294,14 @@ func (c *Checker) hiddenValue(id *ast.Ident) {
 }
 
 // holdsFunc reports whether typ is a function type, or holds one, at any
-// depth, through a struct, an array, a union, a list, a view or a map's
-// key or value. seen holds the structs and unions already being looked
-// at.
+// depth, through a struct, an array, a union, a list, a view, a pool or
+// a map's key or value. seen holds the structs and unions already being
+// looked at.
 func (c *Checker) holdsFunc(typ types.Type, seen map[types.Type]bool) bool {
 	switch {
 	case c.table.IsFunc(typ):
 		return true
-	case c.table.IsArray(typ), c.table.IsList(typ), c.table.IsView(typ):
+	case c.table.IsArray(typ), c.table.IsList(typ), c.table.IsView(typ), c.table.IsPool(typ):
 		return c.holdsFunc(c.table.Elem(typ), seen)
 	case c.table.IsMap(typ):
 		return c.holdsFunc(c.table.Key(typ), seen) || c.holdsFunc(c.table.Elem(typ), seen)

@@ -1095,7 +1095,7 @@ func startAtMode(param *ast.Param) {
 }
 
 // startsType reports whether tk can start a type: a name, an array type's
-// bracket, list, map, arena, func, or struct, which parseType reports, since a
+// bracket, list, map, arena, pool, func, or struct, which parseType reports, since a
 // struct type can only be declared.
 func (p *Parser) startsType(tk *lexer.Token) bool {
 	switch tk.Kind() {
@@ -1103,7 +1103,7 @@ func (p *Parser) startsType(tk *lexer.Token) bool {
 		return true
 	case lexer.Keyword:
 		return tk.Value() == lexer.Struct || tk.Value() == lexer.List ||
-			tk.Value() == lexer.Union || tk.Value() == lexer.Arena ||
+			tk.Value() == lexer.Union || tk.Value() == lexer.Arena || tk.Value() == lexer.Pool ||
 			tk.Value() == lexer.Map || tk.Value() == lexer.Func
 	default:
 		return false
@@ -1141,8 +1141,9 @@ func (p *Parser) parseType() (ast.Expr, []diag.Diagnostic) {
 }
 
 // compositeType returns the parser of the type that starts with the next
-// token when it is an array or a view type's bracket, list, map, arena or
-// func, or id or span and a bracket, and nil for any other.
+// token when it is an array or a view type's bracket, list, map, arena,
+// pool or func, or id, span or handle and a bracket, and nil for any
+// other.
 func (p *Parser) compositeType() func() (ast.Expr, []diag.Diagnostic) {
 	switch tk := p.peek(); {
 	case tk.Kind() == lexer.LBrack:
@@ -1153,6 +1154,8 @@ func (p *Parser) compositeType() func() (ast.Expr, []diag.Diagnostic) {
 		return p.parseMapType
 	case isKeyword(tk, lexer.Arena):
 		return p.parseArenaType
+	case isKeyword(tk, lexer.Pool):
+		return p.parsePoolType
 	case isKeyword(tk, lexer.Func):
 		return p.parseFuncType
 	case p.atRefType():
@@ -3211,6 +3214,8 @@ func (p *Parser) parseOperand() (ast.Expr, []diag.Diagnostic) {
 		return p.parseTypeOperand(p.parseMapType)
 	case isKeyword(tk, lexer.Arena):
 		return p.parseTypeOperand(p.parseArenaType)
+	case isKeyword(tk, lexer.Pool):
+		return p.parseTypeOperand(p.parsePoolType)
 	case p.atRefType():
 		return p.parseRefOperand()
 	case isKeyword(tk, lexer.Func) && p.peekNext().Kind() != lexer.LParen:
@@ -3736,8 +3741,26 @@ func (p *Parser) parseArenaType() (ast.Expr, []diag.Diagnostic) {
 	}, nil
 }
 
-// atRefType reports whether the next tokens are id or span and an opening
-// bracket, the start of an id or a span type: the builtin types written
+// parsePoolType parses a pool type, pool[T], whose keyword is next.
+func (p *Parser) parsePoolType() (ast.Expr, []diag.Diagnostic) {
+	if diags := p.nest(p.peek()); diags != nil {
+		return nil, diags
+	}
+	defer p.unnest()
+	kw := p.next()
+	elem, diags := p.parseBracketedType()
+	if elem == nil {
+		return nil, diags
+	}
+	return &ast.PoolType{
+		Elem: elem,
+		Span: ast.Span{File: p.fileID, Start: kw.OffsetStart(), End: p.peekPrev().OffsetEnd()},
+	}, nil
+}
+
+// atRefType reports whether the next tokens are id, span or handle and an
+// opening bracket, the start of an id, a span or a handle type: the
+// builtin types written
 // as a name and an element type in brackets (types.RefNames), whose names
 // are reserved, so neither is ever a variable's, and a bracket after one
 // always starts its element type.
@@ -3748,8 +3771,8 @@ func (p *Parser) atRefType() bool {
 		p.peekAt(1).Kind() == lexer.LBrack
 }
 
-// parseRefType parses an id or a span type, id[T] or span[T], whose name
-// is next.
+// parseRefType parses an id, a span or a handle type, id[T], span[T] or
+// handle[T], whose name is next.
 func (p *Parser) parseRefType() (ast.Expr, []diag.Diagnostic) {
 	if diags := p.nest(p.peek()); diags != nil {
 		return nil, diags
@@ -3772,11 +3795,12 @@ func (p *Parser) parseRefType() (ast.Expr, []diag.Diagnostic) {
 	}, nil
 }
 
-// parseRefOperand parses an id or a span type written where an operand
-// is: followed by a conversion's argument in parentheses, id[int64](n),
-// as a view type may be, a call whose Fn is the type, or by braces, a
-// literal of it, or alone, each of which the type checker reports, since
-// no id or span is made but by add and add_all.
+// parseRefOperand parses an id, a span or a handle type written where an
+// operand is: followed by a conversion's argument in parentheses,
+// id[int64](n), as a view type may be, a call whose Fn is the type, or by
+// braces, a literal of it, or alone, each of which the type checker
+// reports, since no id or span is made but by add and add_all, and no
+// handle but by insert.
 func (p *Parser) parseRefOperand() (ast.Expr, []diag.Diagnostic) {
 	typ, diags := p.parseRefType()
 	if typ == nil {
@@ -3792,8 +3816,9 @@ func (p *Parser) parseRefOperand() (ast.Expr, []diag.Diagnostic) {
 	return p.parseTypeOperand(func() (ast.Expr, []diag.Diagnostic) { return typ, nil })
 }
 
-// parseBracketedType parses a type in brackets, [T], an arena's, an id's
-// or a span's element type, whose opening bracket is next, and returns T.
+// parseBracketedType parses a type in brackets, [T], an arena's, a
+// pool's, an id's, a span's or a handle's element type, whose opening
+// bracket is next, and returns T.
 func (p *Parser) parseBracketedType() (ast.Expr, []diag.Diagnostic) {
 	if ok, diags := p.expect(lexer.LBrack); !ok {
 		return nil, diags

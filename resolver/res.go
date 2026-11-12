@@ -1281,7 +1281,7 @@ func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 		return r.resolveLit(x, sc)
 	case *ast.KeyValue:
 		return r.resolveKeyValue(x, sc)
-	case *ast.ListType, *ast.MapType, *ast.ArenaType, *ast.RefType, *ast.TypeAssert:
+	case *ast.ListType, *ast.MapType, *ast.ArenaType, *ast.PoolType, *ast.RefType, *ast.TypeAssert:
 		return r.resolveTyped(x, sc)
 	case *ast.FuncLit:
 		return r.resolveFuncLit(x, sc)
@@ -1451,6 +1451,8 @@ func (r *pkgResolver) resolveType(typ ast.Expr, sc *scope) []diag.Diagnostic {
 		return r.resolveType(t.Elem, sc)
 	case *ast.ArenaType:
 		return r.resolveType(t.Elem, sc)
+	case *ast.PoolType:
+		return r.resolveType(t.Elem, sc)
 	case *ast.RefType:
 		return r.resolveType(t.Elem, sc)
 	case *ast.MapType, *ast.FuncType:
@@ -1583,7 +1585,7 @@ func (r *pkgResolver) bindCallee(ident *ast.Ident, call *ast.Call, sc *scope) []
 		return nil
 	}
 	if types.Reserved(ident.Name) {
-		// id or span, a type only with its element type.
+		// id, span or handle, a type only with its element type.
 		return []diag.Diagnostic{{
 			Severity: diag.Error,
 			Message:  fmt.Sprintf("cannot call %s; it is a type", ident.Name),

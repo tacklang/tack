@@ -58,12 +58,12 @@
 // declaration, and the resolver records the type in Call.Conv instead. A
 // conversion to a view type, []uint8(s), has the names in its type bound
 // as any type's are, and leaves Call.Conv to the type checker, which
-// builds the view type, and so does a conversion to an id or a span
-// type, id[T](n), which the type checker reports. Type
+// builds the view type, and so does a conversion to an id, a span or a
+// handle type, id[T](n), which the type checker reports. Type
 // names are reserved like keywords: nothing may be declared with one, and
-// one is never read, called or assigned as a name; id and span are type
-// names too, written only with an element type, so either alone as a type
-// is reported. A callee that
+// one is never read, called or assigned as a name; id, span and handle
+// are type names too, written only with an element type, so each alone as
+// a type is reported. A callee that
 // names a builtin is bound to a nil *ast.Func, since builtins have no
 // declaration in the tree. A callee is bound to the function or builtin
 // of its name first, even where a variable or parameter of that name is

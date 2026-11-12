@@ -2105,9 +2105,9 @@ func TestBuiltEnsuresPassesEveryCheck(t *testing.T) {
 	if err != nil {
 		t.Errorf("ensures exited with %v, want status 0", err)
 	}
-	want := "handle ok\n" +
+	want := "must ok\n" +
 		"checked as a value ok\n" +
-		"handle in a loop ok\n" +
+		"must in a loop ok\n" +
 		"nonzero ok\n" +
 		"fix through mut ok\n" +
 		"fix leaves a nonzero value ok\n" +

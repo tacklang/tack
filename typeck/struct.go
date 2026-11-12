@@ -181,11 +181,11 @@ type core struct {
 
 // structsIn returns the struct or union types a value of type typ holds
 // at its core: typ itself if it is a struct or a union, or the element
-// type of an array, a list or an arena, or the key and value types of a
-// map, at any depth, of an array of lists of maps included, that is one;
-// via says what was on the way already, and each core keeps the first
-// list, arena or map on its way. An id or a span holds no element, so a
-// type may hold an id or a span of itself. error is a struct no declaration gives, which holds
+// type of an array, a list, an arena or a pool, or the key and value
+// types of a map, at any depth, of an array of lists of maps included,
+// that is one; via says what was on the way already, and each core keeps
+// the first list, arena, pool or map on its way. An id, a span or a
+// handle holds no element, so a type may hold one of itself. error is a struct no declaration gives, which holds
 // no other struct, so it is not one here.
 func (c *Checker) structsIn(typ types.Type, via string) []core {
 	switch {
@@ -204,6 +204,11 @@ func (c *Checker) structsIn(typ types.Type, via string) []core {
 		// in a list.
 		if via == "" {
 			via = "an arena"
+		}
+		return c.structsIn(c.table.Elem(typ), via)
+	case c.table.IsPool(typ):
+		if via == "" {
+			via = "a pool"
 		}
 		return c.structsIn(c.table.Elem(typ), via)
 	case c.table.IsArray(typ):

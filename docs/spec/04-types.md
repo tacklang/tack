@@ -394,6 +394,93 @@ main.tck:6:10: error: cannot convert int64 to id[int64]
 main.tck:7:10: error: cannot index arena[int64] with int64; index it with an id[int64]
 ```
 
+## Pools and handles
+
+`pool[T]` is an owned store of elements of type `T`, which may be any
+type, an owned one or a type parameter included, any one of which can be
+removed on its own. `pool` is a keyword. A pool is made empty with
+`make(pool[T], alloc)`, which allocates nothing, and changes through
+`insert` and `remove` (see [Builtins](13-builtins.md#pool-operations)).
+It is owned as a list is, has no zero value, no `==` and no literal, is
+no global, cannot be passed as `any` and does not cross to C. A type
+cannot hold a pool of itself.
+
+`handle[T]` names one element of a `pool[T]`. `handle` is a builtin type
+name, written only with an element type. A handle is a slot, the slot's
+generation and the pool's tag, 32 bits each: copyable, comparable with
+`==` and `!=`, and a map's key, with no order or arithmetic and no
+conversion to or from an integer, so no handle names a slot but one
+`insert` gave. Its zero value names no element of any pool. A type may
+hold a handle of itself. Handles of two element types are two types.
+
+Removing an element moves its slot's generation on, so every handle to
+it is stale from then on: it names no element, even once the slot holds
+another. A slot whose generation would wrap past 2^32 - 1 is never used
+again. Every pool has a tag, so a handle from another pool names no
+element of it either, except that past 2^32 - 2 pools made, later pools
+share the last tag and may accept each other's handles, a logic limit,
+never a read of memory a pool does not hold. `has(p, h)` reports whether `h` names a live
+element of `p`, and proves it as `has(m, k)` proves a map's key (see
+[Safety](10-safety.md#pool-lookups)); `p[h]` is then a place, and
+anywhere else a read needs the checked form, `v, ok := p[h]`; a range
+over `p` proves each handle it gives live in its body. `len(p)` is how
+many live elements `p` holds.
+
+```tack run exit=0
+package main
+
+type Node struct {
+    value int64
+    next  handle[Node]
+}
+
+func main() {
+    mut none handle[Node]
+    mut nodes := make(pool[Node], c_allocator)
+    first, err := insert(mut nodes, Node{value: 1, next: none})
+    if err.code != 0 {
+        exit(1)
+    }
+    second, err2 := insert(mut nodes, Node{value: 2, next: first})
+    if err2.code != 0 {
+        exit(1)
+    }
+    mut sum int64 = 0
+    if has(nodes, second) {
+        sum = nodes[second].value
+    }
+    remove(mut nodes, first)
+    if has(nodes, first) || len(nodes) != 1 || sum != 2 {
+        exit(2)
+    }
+    exit(0)
+}
+```
+
+A handle converts from no integer, and needs `has` before it is read:
+
+```tack error
+package main
+
+func main() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 1)
+    if err.code != 0 {
+        exit(1)
+    }
+    n := 3
+    g := handle[int64](n)
+    if p[h] == 1 && has(p, g) {
+        exit(1)
+    }
+}
+```
+
+```diagnostics
+main.tck:10:10: error: cannot convert int64 to handle[int64]
+main.tck:11:10: error: handle h may not be live in p; check has(p, h) first, or use v, ok := p[h]
+```
+
 ## Function types
 
 A function type is written as a function's signature is, with the types
@@ -428,10 +515,11 @@ zero value. The zero values are:
 - `noerror` for `error`;
 - 0, the sentinel's id, for an `id[T]`, and the empty span for a
   `span[T]`;
+- a handle no pool gives, which names no element, for a `handle[T]`;
 - for an array, every element at its type's zero value, and for a
   struct, every field at its type's zero value.
 
-A list, a map, an arena, an `Allocator`, a union and a function type have
+A list, a map, an arena, a pool, an `Allocator`, a union and a function type have
 no zero value, and neither does a struct or an array that holds one of
 them: a
 variable of such a type must be given a value, `l needs a value:
@@ -645,9 +733,9 @@ any types compare by value (see [Comparisons](03-arithmetic.md#comparisons)).
 | structs                   | when every field's type is         | no      |
 | unions                    | when every payload's type is       | no      |
 | lists                     | when the element type is           | no      |
-| ids and spans             | yes                                | no      |
+| ids, spans and handles    | yes                                | no      |
 | views, maps, `any`        | no                                 | no      |
-| arenas                    | no                                 | no      |
+| arenas and pools          | no                                 | no      |
 | `Allocator`               | no                                 | no      |
 | function types            | no                                 | no      |
 
@@ -682,5 +770,5 @@ main.tck:12:12: error: operator == is not defined on []int64
 
 A value is copyable when assigning, passing or returning it copies it,
 and owned when doing so moves it (see [Ownership and
-memory](08-ownership.md)). The owned types are lists, maps, arenas, and
+memory](08-ownership.md)). The owned types are lists, maps, arenas, pools, and
 structs and unions that hold one; every other type is copyable.

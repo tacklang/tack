@@ -307,7 +307,8 @@ func (g *generator) caseTest(
 // valueTest renders, without parentheses around the whole, the C test of
 // one case value v: the condition itself in a tagless switch, and whether
 // the tag, held in tagRef, equals v in an expression switch, as == compares
-// them: two integers by value (see intTest).
+// them: two integers by value (see intTest), and two handles by
+// tack_handle_eq_.
 func (g *generator) valueTest(
 	s *ast.Switch,
 	tagRef string,
@@ -334,6 +335,8 @@ func (g *generator) valueTest(
 		), nil
 	case typ == types.String:
 		return fmt.Sprintf("%s(%s, %s) == 0", stringCompareName, tagRef, value), nil
+	case g.prog.Types.IsHandle(typ):
+		return fmt.Sprintf("tack_handle_eq_(%s, %s)", tagRef, value), nil
 	case types.IsInteger(typ):
 		return g.intTest(typ, tagRef, v, value), nil
 	default:
