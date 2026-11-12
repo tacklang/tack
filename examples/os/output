@@ -89,5 +89,22 @@ rename of a path too long ok
 rename of a path with a 0 byte ok
 remove what rename made ok
 renames freed ok
+stat a file ok
+stat an empty file ok
+stat a directory ok
+stat follows a link to a file ok
+stat follows a link to a directory ok
+stat of a broken link ok
+stat of a link to itself ok
+stat a sparse file of 5 GiB ok
+stat a sparse file as large as the file system allows ok
+stat of a missing path ok
+stat through a file ok
+stat of an empty path ok
+stat allocates nothing ok
+stat of a path too long ok
+stat of a path with a 0 byte ok
+remove what stat looked at ok
+stats freed ok
 remove files and an empty directory ok
 remove the temporary directory ok

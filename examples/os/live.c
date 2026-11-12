@@ -2,12 +2,14 @@
 // tack.h declares and std's C defines, so the example can assert that
 // every list std/os made or grew was freed exactly once, and make an
 // allocation fail on purpose; a note on the standard error for a check
-// the machine cannot run; and what its rename checks need that
-// std/os does not do: making a symbolic link, and finding a second file
-// system to rename across.
+// the machine cannot run; and what its rename and stat checks need that
+// std/os does not do: making a symbolic link, finding a second file
+// system to rename across, setting a file's size, and finding whether
+// a file larger than the disk can be made safely.
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -74,4 +76,37 @@ int64_t os_other_fs(tack_view_uint8 dir) {
         return 0;
     }
     return 1;
+}
+
+int64_t os_truncate(tack_view_uint8 path, int64_t size) {
+    char p[4096];
+    int e = c_str(path, p, sizeof p);
+    if (e != 0) {
+        return -e;
+    }
+    if (truncate(p, (off_t)size) != 0) {
+        return -errno;
+    }
+    return 0;
+}
+
+// probe_size is how large os_sparse makes its probe file, and
+// probe_most how many bytes of disk the probe may take for its file
+// system to count as making holes.
+enum { probe_size = 1 << 20, probe_most = 1 << 16 };
+
+int64_t os_sparse(tack_view_uint8 path) {
+    struct rlimit rl;
+    if (getrlimit(RLIMIT_FSIZE, &rl) != 0 || rl.rlim_cur != RLIM_INFINITY) {
+        return 0;
+    }
+    char p[4096];
+    if (c_str(path, p, sizeof p) != 0 || truncate(p, probe_size) != 0) {
+        return 0;
+    }
+    struct stat st;
+    if (stat(p, &st) != 0 || st.st_size != probe_size) {
+        return 0;
+    }
+    return (int64_t)st.st_blocks * 512 < probe_most;
 }

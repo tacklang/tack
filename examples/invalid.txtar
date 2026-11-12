@@ -42860,6 +42860,27 @@ os-extern-private/main.tck:6:8: error: c_argc is not pub in package std/os
    |	       ^~~~~~~~~
 07 |	        exit(1)
 
+-- os-info-literal/main.tck --
+package main
+
+import os from "std/os"
+
+func main() {
+    i := os.Info{length: 1, directory: false}
+    if i.size() != 1 {
+        exit(1)
+    }
+}
+-- os-info-literal/expected --
+stage: typeck
+---
+
+os-info-literal/main.tck:6:10: error: cannot write a os.Info literal outside package os: fields length, directory are not pub
+05 |	func main() {
+06 |	    i := os.Info{length: 1, directory: false}
+   |	         ^~~~~~~
+07 |	    if i.size() != 1 {
+
 -- os-path-string-arg/main.tck --
 package main
 
@@ -43086,6 +43107,27 @@ os-run-status-unchecked/main.tck:11:8: error: status cannot be read before err i
 11 |	    if status != 0 || err.code != 0 {
    |	       ^~~~~~
 12 |	        exit(1)
+
+-- os-stat-unchecked/main.tck --
+package main
+
+import os from "std/os"
+
+func main() {
+    info, err := os.stat([]uint8("a"))
+    if info.is_dir() || err.code != 0 {
+        exit(1)
+    }
+}
+-- os-stat-unchecked/expected --
+stage: typeck
+---
+
+os-stat-unchecked/main.tck:7:8: error: info cannot be read before err is checked; check err.code == 0 first
+06 |	    info, err := os.stat([]uint8("a"))
+07 |	    if info.is_dir() || err.code != 0 {
+   |	       ^~~~
+08 |	        exit(1)
 
 -- os-write-file-dropped/main.tck --
 package main

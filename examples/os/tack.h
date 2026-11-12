@@ -28,6 +28,11 @@ typedef struct {
 } tack_list_uint8;
 
 typedef struct {
+    int64_t length;
+    bool directory;
+} os_Info;
+
+typedef struct {
     int32_t e[2];
 } tack_array_2_int32;
 
@@ -43,6 +48,7 @@ int64_t tack_os_write(int32_t /* fd */, tack_view_uint8 /* data */); // extern f
 int64_t tack_os_remove(tack_view_uint8 /* path */); // extern func c_remove(path []uint8) int64
 int64_t tack_os_make_dir(tack_view_uint8 /* path */); // extern func c_make_dir(path []uint8) int64
 int64_t tack_os_rename(tack_view_uint8 /* old_path */, tack_view_uint8 /* new_path */); // extern func c_rename(old_path []uint8, new_path []uint8) int64
+int64_t tack_os_stat(tack_view_uint8 /* path */, os_Info * /* info */); // extern func c_stat(path []uint8, mut info Info) int64
 int64_t tack_os_list_dir(tack_view_uint8 /* path */, tack_list_uint8 * /* names */); // extern func c_list_dir(path []uint8, mut names list[uint8]) int64
 int64_t tack_os_make_temp_dir(tack_list_uint8 * /* tmpl */); // extern func c_make_temp_dir(mut tmpl list[uint8]) int64
 int64_t tack_os_env(tack_view_uint8 /* name */, tack_list_uint8 * /* value */); // extern func c_env(name []uint8, mut value list[uint8]) int64
@@ -60,6 +66,8 @@ int64_t os_live(void); // extern func live() int64
 void os_fail_after(int64_t /* n */); // extern func failAfter(n int64)
 void os_note(tack_string /* s */); // extern func note(s string)
 int64_t os_symlink(tack_view_uint8 /* target */, tack_view_uint8 /* path */); // extern func symlink(target []uint8, path []uint8) int64
+int64_t os_truncate(tack_view_uint8 /* path */, int64_t /* size */); // extern func truncate(path []uint8, size int64) int64
+int64_t os_sparse(tack_view_uint8 /* path */); // extern func sparse(path []uint8) int64
 int64_t os_other_fs(tack_view_uint8 /* dir */); // extern func otherFs(dir []uint8) int64
 
 #endif

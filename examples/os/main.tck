@@ -22,7 +22,10 @@ import text from "std/text"
 // than a pipe holds, one that reads the environment, one killed by a
 // signal, and programs that do not exist, and makes run fail for want of
 // memory at each of its allocations. It renames files and directories,
-// and makes rename fail each way the OS refuses it. Each check is
+// and makes rename fail each way the OS refuses it, and stats files,
+// directories, symbolic links, broken ones included, and, where the
+// file system makes holes, sparse files of 5 GiB and more, made through
+// live.c. Each check is
 // printed, ok or FAIL, and c_allocator's count of live buffers, read
 // through live.c, is checked to be back to 0 after each group.
 
@@ -41,6 +44,17 @@ extern("os_note") func note(s string)
 // symlink makes a symbolic link at path that points to target, which
 // need not exist, and returns 0, or the errno negated, in C.
 extern("os_symlink") func symlink(target []uint8, path []uint8) int64
+
+// truncate sets the size of the file at path to size, which past its end
+// leaves a hole, and returns 0, or the errno negated, in C.
+extern("os_truncate") func truncate(path []uint8, size int64) int64
+
+// sparse reports, in C, 1 when files may be made far larger than the
+// disk here: the process has no limit on a file's size, which would kill
+// it with SIGXFSZ, and the file at path, which must exist, set to 1 MiB,
+// takes under 64 KiB of disk, so its file system makes holes; and 0
+// otherwise. It leaves the file at 1 MiB.
+extern("os_sparse") func sparse(path []uint8) int64
 
 // otherFs reports, in C, 1 when /dev/shm is a directory this process may
 // write in, on another file system than dir, so renaming between them
@@ -559,6 +573,140 @@ func renames(dir []uint8) {
     check(a0.code == 0 && a1.code == 0 && nulError(n20) && nulError(n21) && readsBack(r1, []uint8("one")) && gone(r2), "rename of a path with a 0 byte")
 }
 
+// statErr returns the error stat gives for p; the Info beside it cannot
+// be read unless there is none.
+func statErr(p []uint8) error {
+    _, e := os.stat(p)
+    return e
+}
+
+// stats stats files, directories and symbolic links in dir: a file's
+// size, an empty file, a directory, a link to each, which stat follows,
+// and, where files may be made sparse with no limit on their size, one
+// of 5 GiB, past what 32 bits hold, and the largest the file system
+// allows up to 2^40; and makes stat fail: a missing path, a path through
+// a file, a broken link, a link to itself, an empty path, a path too
+// long for the OS, and a 0 byte in a path. It allocates nothing, and
+// removes everything it made, on every path.
+func stats(dir []uint8) {
+    defer {
+        check(tidy(dir, "s-link-file", "s-link-dir", "s-link-broken", "s-link-loop", "s-big", "s-empty", "s.txt", "s-dir"), "remove what stat looked at")
+    }
+    f, e0 := join(dir, "s.txt")
+    empty, e1 := join(dir, "s-empty")
+    sub, e2 := join(dir, "s-dir")
+    to_file, e3 := join(dir, "s-link-file")
+    to_dir, e4 := join(dir, "s-link-dir")
+    broken, e5 := join(dir, "s-link-broken")
+    looped, e6 := join(dir, "s-link-loop")
+    big, e7 := join(dir, "s-big")
+    missing, e8 := join(dir, "missing")
+    through, e9 := join(dir, "s.txt/x")
+    if e0.code != 0 || e1.code != 0 || e2.code != 0 || e3.code != 0 || e4.code != 0 || e5.code != 0 || e6.code != 0 || e7.code != 0 || e8.code != 0 || e9.code != 0 {
+        check(false, "join stat paths")
+        return
+    }
+    base := live()
+    w0 := os.write_file(f, []uint8("hello\x00\xff"))
+    i0, e10 := os.stat(f)
+    if w0.code != 0 || e10.code != 0 {
+        check(false, "stat a file")
+        return
+    }
+    check(i0.size() == 7 && !i0.is_dir(), "stat a file")
+    w1 := os.write_file(empty, []uint8(""))
+    i1, e11 := os.stat(empty)
+    if w1.code != 0 || e11.code != 0 {
+        check(false, "stat an empty file")
+        return
+    }
+    check(i1.size() == 0 && !i1.is_dir(), "stat an empty file")
+    m0 := os.make_dir(sub)
+    i2, e12 := os.stat(sub)
+    if m0.code != 0 || e12.code != 0 {
+        check(false, "stat a directory")
+        return
+    }
+    check(i2.is_dir(), "stat a directory")
+
+    l0 := symlink([]uint8("s.txt"), to_file)
+    i3, e13 := os.stat(to_file)
+    if l0 != 0 || e13.code != 0 {
+        check(false, "stat a link to a file")
+        return
+    }
+    check(i3.size() == 7 && !i3.is_dir(), "stat follows a link to a file")
+    l1 := symlink([]uint8("s-dir"), to_dir)
+    i4, e14 := os.stat(to_dir)
+    if l1 != 0 || e14.code != 0 {
+        check(false, "stat a link to a directory")
+        return
+    }
+    check(i4.is_dir(), "stat follows a link to a directory")
+    l2 := symlink([]uint8("s-nothing"), broken)
+    e15 := statErr(broken)
+    check(l2 == 0 && osError(e15, "No such file or directory"), "stat of a broken link")
+    l3 := symlink([]uint8("s-link-loop"), looped)
+    e16 := statErr(looped)
+    check(l3 == 0 && osError(e16, "Too many levels of symbolic links"), "stat of a link to itself")
+
+    // Sizes past the disk, made as holes: only where sparse finds files
+    // may be, so no file system without holes is filled and no limit on
+    // a file's size kills the process. Elsewhere both checks are skipped,
+    // saying so on the standard error, so the output is the same on every
+    // machine.
+    w2 := os.write_file(big, []uint8("x"))
+    if w2.code == 0 && sparse(big) == 1 {
+        t0 := truncate(big, 5368709120)
+        i5, e17 := os.stat(big)
+        if t0 != 0 || e17.code != 0 {
+            check(false, "stat a 5 GiB file")
+            return
+        }
+        check(i5.size() == 5368709120 && !i5.is_dir(), "stat a sparse file of 5 GiB")
+        // The largest size up to 2^40 the file system lets a file have,
+        // found by halving until truncate takes one: stat reports exactly
+        // what was set.
+        mut want int64 = 1099511627776
+        for want > 5368709120 && truncate(big, want) != 0 {
+            want = want / 2
+        }
+        i6, e18 := os.stat(big)
+        if e18.code != 0 {
+            check(false, "stat the largest file")
+            return
+        }
+        check(i6.size() == want && want > 5368709120, "stat a sparse file as large as the file system allows")
+    } else {
+        note("skipped: stat of sparse files of 5 GiB and more, which this file system or limit does not allow safely\n")
+        check(w2.code == 0, "stat a sparse file of 5 GiB")
+        check(w2.code == 0, "stat a sparse file as large as the file system allows")
+    }
+
+    e19 := statErr(missing)
+    check(osError(e19, "No such file or directory"), "stat of a missing path")
+    e20 := statErr(through)
+    check(osError(e20, "Not a directory"), "stat through a file")
+    e21 := statErr([]uint8(""))
+    check(osError(e21, "No such file or directory"), "stat of an empty path")
+    check(live() == base, "stat allocates nothing")
+    long, e22 := bytes.repeat([]uint8("a"), 5000, c_allocator)
+    if e22.code != 0 {
+        check(false, "a long path")
+        return
+    }
+    e23 := statErr(long)
+    check(osError(e23, "File name too long"), "stat of a path too long")
+    mut nul, e24 := join(dir, "s.txt")
+    if e24.code != 0 {
+        check(false, "join a 0 byte path")
+        return
+    }
+    a0 := append(mut nul, 0, 'x')
+    e25 := statErr(nul)
+    check(a0.code == 0 && nulError(e25), "stat of a path with a 0 byte")
+}
+
 // command returns parts as a list of Texts, the arguments of a run.
 func command(parts ...string) (list[text.Text], error) {
     mut l := make(list[text.Text], c_allocator)
@@ -762,6 +910,8 @@ func main() {
     check(live() == 1, "child descriptors freed")
     renames(d.bytes())
     check(live() == 1, "renames freed")
+    stats(d.bytes())
+    check(live() == 1, "stats freed")
     cleanup(d.bytes())
 }
 

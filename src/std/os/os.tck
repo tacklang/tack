@@ -90,6 +90,11 @@ extern("tack_os_make_dir") func c_make_dir(path []uint8) int64
 // rename, and returns 0, or the errno negated.
 extern("tack_os_rename") func c_rename(old_path []uint8, new_path []uint8) int64
 
+// c_stat fills info with what stat(2) reports of the file at path,
+// following symbolic links, and returns 0, or the errno negated; on a
+// failure info is left as it was.
+extern("tack_os_stat") func c_stat(path []uint8, mut info Info) int64
+
 // c_list_dir appends the name of every entry of the directory path,
 // each followed by a 0, to names, in the order the OS gives them, "."
 // and ".." included, and returns 0, or the errno negated: ENOMEM when
@@ -349,6 +354,47 @@ pub func rename(old_path []uint8, new_path []uint8) error {
         return c_error(-%r)
     }
     return noerror
+}
+
+// Info is what stat reports of a file, read through its methods. Its
+// fields are private, so no program outside os builds an Info, and
+// fields added to it later break none that reads one.
+pub type Info struct {
+    // length is the file's size in bytes, as size returns it.
+    length int64
+    // directory is whether the file is a directory.
+    directory bool
+}
+
+// size returns the file's length in bytes: for a regular file, how many
+// its contents hold, holes of a sparse file included; for anything
+// else, what the OS reports, which POSIX leaves unspecified.
+pub func (i Info) size() int64 {
+    return i.length
+}
+
+// is_dir reports whether the file is a directory.
+pub func (i Info) is_dir() bool {
+    return i.directory
+}
+
+// stat returns what the OS reports of the file at path, with stat(2),
+// and no error. It follows symbolic links, so a link reports the file it
+// points to, and a link to nothing is error{code: 3, msg: "No such file
+// or directory"}, as a missing path is; a chain of links too long, or a
+// loop of them, is error{code: 3, msg: "Too many levels of symbolic
+// links"}, and a path through a file error{code: 3, msg: "Not a
+// directory"}. On an error the Info's size is 0 and is_dir false.
+pub func stat(path []uint8) (Info, error) {
+    mut info Info
+    if has_nul(path) {
+        return info, nul_path
+    }
+    r := c_stat(path, mut info)
+    if r < 0 {
+        return info, c_error(-%r)
+    }
+    return info, noerror
 }
 
 // is_dot reports whether name is "." or "..".

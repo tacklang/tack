@@ -176,6 +176,27 @@ int64_t tack_os_rename(tack_view_uint8 old_path, tack_view_uint8 new_path) {
     return 0;
 }
 
+// st_size is an off_t, a signed integer type, which an int64_t holds
+// every value of on every target os builds for; the assertions prove it,
+// so tack_os_stat's conversion is exact and never wraps.
+_Static_assert((off_t)-1 < 0, "off_t is signed");
+_Static_assert(sizeof(off_t) <= sizeof(int64_t), "an int64_t holds every off_t");
+
+int64_t tack_os_stat(tack_view_uint8 path, os_Info *info) {
+    char buf[path_max];
+    int e = c_path(path, buf);
+    if (e != 0) {
+        return -e;
+    }
+    struct stat st;
+    if (stat(buf, &st) != 0) {
+        return -errno;
+    }
+    info->length = (int64_t)st.st_size;
+    info->directory = S_ISDIR(st.st_mode);
+    return 0;
+}
+
 int64_t tack_os_list_dir(tack_view_uint8 path, tack_list_uint8 *names) {
     char buf[path_max];
     int e = c_path(path, buf);
