@@ -5,10 +5,10 @@ compiler, written from scratch in Go.
 
 It is a learning project, built to understand how a compiler works end to end
 rather than to be used for anything. There is no runtime, a standard library
-of twelve packages, `std/fmt`, `std/bytes`, `std/text`, `std/os`,
+of thirteen packages, `std/fmt`, `std/bytes`, `std/text`, `std/os`,
 `std/path`, `std/conv`, `std/errors`, `std/sort`, `std/utf8`,
-`std/unicode`, `std/sha256` and `std/hex`, and no intermediate
-representation.
+`std/unicode`, `std/sha256`, `std/hex` and `std/binary`, and no
+intermediate representation.
 
 Every program the compiler accepts is held to four guarantees: no
 out-of-bounds access, no memory leak, no use-after-free and no panic. They
@@ -69,9 +69,11 @@ in place by a less function. `std/utf8`, in Tack alone, decodes and
 encodes UTF-8 as Go's `unicode/utf8` does, and `std/unicode`, in Tack
 alone, classifies runes as Go's `unicode` does, from tables generated
 from Go's own. `std/sha256`, in Tack alone, computes SHA-256 as Go's
-`crypto/sha256` does, at once or over bytes written in pieces, and
+`crypto/sha256` does, at once or over bytes written in pieces,
 `std/hex`, in Tack alone, writes bytes in hexadecimal as Go's
-`encoding/hex` does.
+`encoding/hex` does, and `std/binary`, in Tack alone, writes and reads
+unsigned integers as big- and little-endian bytes as Go's
+`encoding/binary` does.
 
 `exit` is a global builtin as a stand-in for a future `os.Exit`, after which
 the global goes away. `std/os` does not have one yet, so `exit` stays.
@@ -604,8 +606,9 @@ section remains the description of the language.
   encodes UTF-8 (see utf8), [`unicode`](src/std/unicode/unicode.tck),
   which classifies runes (see unicode),
   [`sha256`](src/std/sha256/sha256.tck), which hashes bytes (see
-  sha256), and [`hex`](src/std/hex/hex.tck), which writes bytes in
-  hexadecimal (see hex).
+  sha256), [`hex`](src/std/hex/hex.tck), which writes bytes in
+  hexadecimal (see hex), and [`binary`](src/std/binary/binary.tck),
+  which writes and reads integers as bytes (see binary).
   A std package follows every rule a package of the program's module
   does. Its `pub` names are usable from every package, its private names
   only from itself, `hidden is not pub in package std/util`, and its `lib`
@@ -1514,6 +1517,20 @@ section remains the description of the language.
   and `conv.append_quote` are. There is no decoding and no uppercase
   form. `std/bytes`' `append_hex` is another
   thing: it writes one `uint64` as a number, without leading zeros.
+- binary. `std/binary` is written in Tack alone, with no C, and
+  allocates nothing but what it appends. For N of 16, 32 and 64, `err
+  := binary.append_uintN_be(mut out, v)` appends the N/8 bytes of the
+  `uintN` `v` to the list `out`, the most significant first, and
+  `append_uintN_le` the least significant first, exactly as Go's
+  `binary.BigEndian.AppendUintN` and `LittleEndian.AppendUintN` do;
+  each gives no error, or `error{code: 1, msg: "out of memory"}`
+  leaving `out` as it was, every byte appended or none. `v, ok :=
+  binary.uintN_be(b)` and `uintN_le` read a `uintN` from the first N/8
+  bytes of the `[]uint8` view `b`, exactly as Go's `BigEndian.UintN`
+  and `LittleEndian.UintN` do, and `true`, leaving any bytes past those
+  unread; a `b` shorter than N/8 bytes gives `0` and `false`, where
+  Go's panics. There are no signed, float or 8-bit forms, no
+  variable-length integers and no reading or writing of structs.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`

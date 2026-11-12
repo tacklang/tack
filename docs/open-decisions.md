@@ -1432,3 +1432,39 @@ settled by consistency and could go another way:
   and whether a failed decode leaves `out` as it was, or appends the
   bytes before the bad one as Go's `Decode` does, is open, with the
   error codes it would give.
+
+## std/binary
+
+`std/binary` writes and reads unsigned integers as bytes as Go's
+`encoding/binary` does with its `BigEndian` and `LittleEndian` byte
+orders, for a build cache that writes each field's length as 8
+big-endian bytes, as `tack/cache.go`'s `keyHash.field` does, and a
+driver that reads ELF and Mach-O headers. These points were settled by
+consistency and could go another way:
+
+- The API is twelve functions, for N of 16, 32 and 64:
+  `append_uintN_be(mut out list[uint8], v uintN) error` and
+  `append_uintN_le`, Go's `BigEndian.AppendUintN` and
+  `LittleEndian.AppendUintN`, and `uintN_be(b []uint8) (uintN, bool)`
+  and `uintN_le`, Go's `BigEndian.UintN` and `LittleEndian.UintN`. The
+  byte order is a suffix of the name, as Tack has no interface value to
+  stand for Go's `ByteOrder`; a `ByteOrder` type, or `be` and `le` as
+  packages or prefixes, are other spellings.
+- The appends are all or nothing, as `utf8.append_rune` is: the bytes
+  are written into a local array first and added with one append, so a
+  failure leaves `out` as it was, with the builtin append's error.
+- A reader of a view shorter than N/8 bytes gives `0` and `false`, the
+  checked style of `v, ok := s[i]` and `v, ok := T(x)`, where Go's
+  panics. Bytes past the first N/8 are not read, as Go's are not, so a
+  longer view is not an error; a form that needs the view to be exactly
+  N/8 bytes long is not given.
+- There is no `PutUintN`, which writes into a slice of the right
+  length rather than appending; a caller writing into the middle of a
+  buffer has no form here.
+- There are no signed forms, `int16` to `int64`, no float forms, which
+  Go reaches through `math.Float64bits`, which Tack has not, no 8-bit
+  form, which is a byte, no variable-length integers, Go's `Uvarint`
+  and `AppendUvarint`, and no `Read` or `Write` of structs, which needs
+  reflection. A signed form needs a ruling on how a negative value's
+  bits are written, as Tack has no conversion that reinterprets them,
+  and a float form on whether NaN's bits are kept.

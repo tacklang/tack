@@ -1,0 +1,186 @@
+package binary
+
+// Package binary writes and reads unsigned integers as bytes, in
+// big-endian and little-endian order, as Go's encoding/binary does with
+// its BigEndian and LittleEndian byte orders. A program imports it as
+//
+//     import binary from "std/binary"
+//
+// and the compiler reads it from $TACK_HOME/src/std/binary, or
+// ~/.tack/src/std/binary, as it reads std/bytes. It is written in Tack
+// alone, with no C, and allocates nothing but what its append functions
+// append.
+//
+// For N of 16, 32 and 64:
+//
+//   - append_uintN_be and append_uintN_le append the N/8 bytes of a
+//     uintN to a list[uint8], most significant byte first for _be and
+//     least significant first for _le, as Go's BigEndian.AppendUintN
+//     and LittleEndian.AppendUintN do. Each is all or nothing: the bytes
+//     are written into a local array first and added with one append, so
+//     when the list cannot grow it is left exactly as it was, with the
+//     builtin append's error.
+//   - uintN_be and uintN_le read a uintN from the first N/8 bytes of a
+//     []uint8 view, in the same orders, as Go's BigEndian.UintN and
+//     LittleEndian.UintN do, and true; bytes past those are not read. A
+//     view shorter than N/8 bytes gives 0 and false, where Go's panics,
+//     as a checked read of an index does.
+//
+// There are no signed or float forms, no 8-bit form, no variable-length
+// encoding, and no reading or writing of structs.
+
+// low returns the low 8 bits of v. v & 0xFF is always 0 to 0xFF, so the
+// conversion always holds, but a bitwise operator gives the checker no
+// bound, so it is in the checked form, whose ok is always true. A
+// uint16 or uint32 widens to the uint64 parameter.
+func low(v uint64) uint8 {
+    b, ok := uint8(v & 0xFF)
+    if !ok {
+        return 0
+    }
+    return b
+}
+
+// append_uint16_be appends v to out as 2 bytes, the most significant
+// first, as Go's binary.BigEndian.AppendUint16 does. It returns no
+// error, or the builtin append's error{code: 1, msg: "out of memory"},
+// leaving out exactly as it was.
+pub func append_uint16_be(mut out list[uint8], v uint16) error {
+    mut buf [2]uint8
+    buf[0] = low(v >> 8)
+    buf[1] = low(v)
+    return append(mut out, buf...)
+}
+
+// append_uint16_le appends v to out as 2 bytes, the least significant
+// first, as Go's binary.LittleEndian.AppendUint16 does. It returns no
+// error, or the builtin append's error{code: 1, msg: "out of memory"},
+// leaving out exactly as it was.
+pub func append_uint16_le(mut out list[uint8], v uint16) error {
+    mut buf [2]uint8
+    buf[0] = low(v)
+    buf[1] = low(v >> 8)
+    return append(mut out, buf...)
+}
+
+// append_uint32_be appends v to out as 4 bytes, the most significant
+// first, as Go's binary.BigEndian.AppendUint32 does. It returns no
+// error, or the builtin append's error{code: 1, msg: "out of memory"},
+// leaving out exactly as it was.
+pub func append_uint32_be(mut out list[uint8], v uint32) error {
+    mut buf [4]uint8
+    buf[0] = low(v >> 24)
+    buf[1] = low(v >> 16)
+    buf[2] = low(v >> 8)
+    buf[3] = low(v)
+    return append(mut out, buf...)
+}
+
+// append_uint32_le appends v to out as 4 bytes, the least significant
+// first, as Go's binary.LittleEndian.AppendUint32 does. It returns no
+// error, or the builtin append's error{code: 1, msg: "out of memory"},
+// leaving out exactly as it was.
+pub func append_uint32_le(mut out list[uint8], v uint32) error {
+    mut buf [4]uint8
+    buf[0] = low(v)
+    buf[1] = low(v >> 8)
+    buf[2] = low(v >> 16)
+    buf[3] = low(v >> 24)
+    return append(mut out, buf...)
+}
+
+// append_uint64_be appends v to out as 8 bytes, the most significant
+// first, as Go's binary.BigEndian.AppendUint64 does. It returns no
+// error, or the builtin append's error{code: 1, msg: "out of memory"},
+// leaving out exactly as it was.
+pub func append_uint64_be(mut out list[uint8], v uint64) error {
+    mut buf [8]uint8
+    buf[0] = low(v >> 56)
+    buf[1] = low(v >> 48)
+    buf[2] = low(v >> 40)
+    buf[3] = low(v >> 32)
+    buf[4] = low(v >> 24)
+    buf[5] = low(v >> 16)
+    buf[6] = low(v >> 8)
+    buf[7] = low(v)
+    return append(mut out, buf...)
+}
+
+// append_uint64_le appends v to out as 8 bytes, the least significant
+// first, as Go's binary.LittleEndian.AppendUint64 does. It returns no
+// error, or the builtin append's error{code: 1, msg: "out of memory"},
+// leaving out exactly as it was.
+pub func append_uint64_le(mut out list[uint8], v uint64) error {
+    mut buf [8]uint8
+    buf[0] = low(v)
+    buf[1] = low(v >> 8)
+    buf[2] = low(v >> 16)
+    buf[3] = low(v >> 24)
+    buf[4] = low(v >> 32)
+    buf[5] = low(v >> 40)
+    buf[6] = low(v >> 48)
+    buf[7] = low(v >> 56)
+    return append(mut out, buf...)
+}
+
+// uint16_be returns the uint16 in the first 2 bytes of b, the most
+// significant first, as Go's binary.BigEndian.Uint16 does, and true; or
+// 0 and false when b holds fewer than 2 bytes.
+pub func uint16_be(b []uint8) (uint16, bool) {
+    if len(b) < 2 {
+        return 0, false
+    }
+    return uint16(b[0]) << 8 | uint16(b[1]), true
+}
+
+// uint16_le returns the uint16 in the first 2 bytes of b, the least
+// significant first, as Go's binary.LittleEndian.Uint16 does, and true;
+// or 0 and false when b holds fewer than 2 bytes.
+pub func uint16_le(b []uint8) (uint16, bool) {
+    if len(b) < 2 {
+        return 0, false
+    }
+    return uint16(b[0]) | uint16(b[1]) << 8, true
+}
+
+// uint32_be returns the uint32 in the first 4 bytes of b, the most
+// significant first, as Go's binary.BigEndian.Uint32 does, and true; or
+// 0 and false when b holds fewer than 4 bytes.
+pub func uint32_be(b []uint8) (uint32, bool) {
+    if len(b) < 4 {
+        return 0, false
+    }
+    return uint32(b[0]) << 24 | uint32(b[1]) << 16 | uint32(b[2]) << 8 | uint32(b[3]), true
+}
+
+// uint32_le returns the uint32 in the first 4 bytes of b, the least
+// significant first, as Go's binary.LittleEndian.Uint32 does, and true;
+// or 0 and false when b holds fewer than 4 bytes.
+pub func uint32_le(b []uint8) (uint32, bool) {
+    if len(b) < 4 {
+        return 0, false
+    }
+    return uint32(b[0]) | uint32(b[1]) << 8 | uint32(b[2]) << 16 | uint32(b[3]) << 24, true
+}
+
+// uint64_be returns the uint64 in the first 8 bytes of b, the most
+// significant first, as Go's binary.BigEndian.Uint64 does, and true; or
+// 0 and false when b holds fewer than 8 bytes.
+pub func uint64_be(b []uint8) (uint64, bool) {
+    if len(b) < 8 {
+        return 0, false
+    }
+    return uint64(b[0]) << 56 | uint64(b[1]) << 48 | uint64(b[2]) << 40 | uint64(b[3]) << 32 |
+        uint64(b[4]) << 24 | uint64(b[5]) << 16 | uint64(b[6]) << 8 | uint64(b[7]), true
+}
+
+// uint64_le returns the uint64 in the first 8 bytes of b, the least
+// significant first, as Go's binary.LittleEndian.Uint64 does, and true;
+// or 0 and false when b holds fewer than 8 bytes.
+pub func uint64_le(b []uint8) (uint64, bool) {
+    if len(b) < 8 {
+        return 0, false
+    }
+    return uint64(b[0]) | uint64(b[1]) << 8 | uint64(b[2]) << 16 | uint64(b[3]) << 24 |
+        uint64(b[4]) << 32 | uint64(b[5]) << 40 | uint64(b[6]) << 48 | uint64(b[7]) << 56, true
+}

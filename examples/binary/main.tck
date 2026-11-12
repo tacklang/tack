@@ -1,0 +1,354 @@
+package main
+
+import binary from "std/binary"
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+
+// std/binary writes and reads unsigned integers as bytes, big-endian
+// and little-endian, as Go's encoding/binary does with BigEndian and
+// LittleEndian: append_uintN_be and append_uintN_le append the N/8
+// bytes of a uintN to a list, all or nothing, as Go's AppendUintN does,
+// and uintN_be and uintN_le read a uintN from the first N/8 bytes of a
+// view, giving false, and 0, for a view shorter than that, where Go's
+// UintN panics.
+//
+// Each expected value below was written from what Go gives for the same
+// bytes; codegen/c/binary_test.go checks every function against Go
+// again, over edge values, every byte value and random inputs. A failed
+// case prints what it got; each group prints ok when all its cases
+// held.
+
+// Tack has no way to make c_allocator fail or to read its count of
+// live buffers, so this example's C, in live.c, does both.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("binary_live") func live() int64
+
+// failAfter makes c_allocator fail every allocation after the next n, or
+// none again when n is negative, in C.
+extern("binary_fail_after") func failAfter(n int64)
+
+// fails counts the cases that did not hold.
+mut fails int64 = 0
+
+// check prints name and whether no case failed since the count was
+// last read, and resets the count.
+func check(name string) {
+    print(name)
+    if fails == 0 {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+    fails = 0
+}
+
+// show prints the bytes of b in hexadecimal, each followed by a space.
+func show(b []uint8) {
+    for _, c := range b {
+        fmt.printf("%x ", c)
+    }
+}
+
+// wrote checks that e is no error and that out holds "x" and then want,
+// the bytes an append wrote after that prefix, and names the append
+// that failed.
+func wrote(name string, out []uint8, e error, want string) {
+    if e.code != 0 || len(out) < 1 || out[0] != 'x' || !bytes.equal(out[1:], []uint8(want)) {
+        fails +%= 1
+        fmt.printf("%s gave error %d and ", name, e.code)
+        show(out)
+        print("\n")
+    }
+}
+
+// start returns a list holding "x", for an append to write after.
+func start() list[uint8] {
+    mut out := make(list[uint8], c_allocator)
+    e := append(mut out, 'x')
+    if e.code != 0 {
+        fails +%= 1
+        print("append failed\n")
+    }
+    return out
+}
+
+// writes16 checks append_uint16_be and append_uint16_le of v.
+func writes16(v uint16, be string, le string) {
+    mut out := start()
+    e := binary.append_uint16_be(mut out, v)
+    wrote("append_uint16_be", out, e, be)
+    mut out2 := start()
+    e2 := binary.append_uint16_le(mut out2, v)
+    wrote("append_uint16_le", out2, e2, le)
+}
+
+// writes32 checks append_uint32_be and append_uint32_le of v.
+func writes32(v uint32, be string, le string) {
+    mut out := start()
+    e := binary.append_uint32_be(mut out, v)
+    wrote("append_uint32_be", out, e, be)
+    mut out2 := start()
+    e2 := binary.append_uint32_le(mut out2, v)
+    wrote("append_uint32_le", out2, e2, le)
+}
+
+// writes64 checks append_uint64_be and append_uint64_le of v.
+func writes64(v uint64, be string, le string) {
+    mut out := start()
+    e := binary.append_uint64_be(mut out, v)
+    wrote("append_uint64_be", out, e, be)
+    mut out2 := start()
+    e2 := binary.append_uint64_le(mut out2, v)
+    wrote("append_uint64_le", out2, e2, le)
+}
+
+// writing covers 0, 1, the largest value, the high bit alone, a value
+// whose bytes all differ, so a byte out of place shows, and one with
+// every byte 0x80 or above.
+func writing() {
+    writes16(0, "\x00\x00", "\x00\x00")
+    writes16(1, "\x00\x01", "\x01\x00")
+    writes16(0x0102, "\x01\x02", "\x02\x01")
+    writes16(0x8000, "\x80\x00", "\x00\x80")
+    writes16(0xfedc, "\xfe\xdc", "\xdc\xfe")
+    writes16(65535, "\xff\xff", "\xff\xff")
+    writes32(0, "\x00\x00\x00\x00", "\x00\x00\x00\x00")
+    writes32(1, "\x00\x00\x00\x01", "\x01\x00\x00\x00")
+    writes32(0x01020304, "\x01\x02\x03\x04", "\x04\x03\x02\x01")
+    writes32(0x80000000, "\x80\x00\x00\x00", "\x00\x00\x00\x80")
+    writes32(0xfedcba98, "\xfe\xdc\xba\x98", "\x98\xba\xdc\xfe")
+    writes32(4294967295, "\xff\xff\xff\xff", "\xff\xff\xff\xff")
+    writes64(0, "\x00\x00\x00\x00\x00\x00\x00\x00", "\x00\x00\x00\x00\x00\x00\x00\x00")
+    writes64(1, "\x00\x00\x00\x00\x00\x00\x00\x01", "\x01\x00\x00\x00\x00\x00\x00\x00")
+    writes64(0x0102030405060708, "\x01\x02\x03\x04\x05\x06\x07\x08", "\x08\x07\x06\x05\x04\x03\x02\x01")
+    writes64(0x8000000000000000, "\x80\x00\x00\x00\x00\x00\x00\x00", "\x00\x00\x00\x00\x00\x00\x00\x80")
+    writes64(0xfedcba9876543210, "\xfe\xdc\xba\x98\x76\x54\x32\x10", "\x10\x32\x54\x76\x98\xba\xdc\xfe")
+    writes64(18446744073709551615, "\xff\xff\xff\xff\xff\xff\xff\xff", "\xff\xff\xff\xff\xff\xff\xff\xff")
+    check("append")
+}
+
+// reads16 checks that uint16_be and uint16_le of s give be and le, and
+// true.
+func reads16(s string, be uint16, le uint16) {
+    v, ok := binary.uint16_be([]uint8(s))
+    v2, ok2 := binary.uint16_le([]uint8(s))
+    if !ok || v != be || !ok2 || v2 != le {
+        fails +%= 1
+        print("uint16 of ")
+        show([]uint8(s))
+        fmt.printf("gave %x %t, %x %t\n", v, ok, v2, ok2)
+    }
+}
+
+// reads32 checks that uint32_be and uint32_le of s give be and le, and
+// true.
+func reads32(s string, be uint32, le uint32) {
+    v, ok := binary.uint32_be([]uint8(s))
+    v2, ok2 := binary.uint32_le([]uint8(s))
+    if !ok || v != be || !ok2 || v2 != le {
+        fails +%= 1
+        print("uint32 of ")
+        show([]uint8(s))
+        fmt.printf("gave %x %t, %x %t\n", v, ok, v2, ok2)
+    }
+}
+
+// reads64 checks that uint64_be and uint64_le of s give be and le, and
+// true.
+func reads64(s string, be uint64, le uint64) {
+    v, ok := binary.uint64_be([]uint8(s))
+    v2, ok2 := binary.uint64_le([]uint8(s))
+    if !ok || v != be || !ok2 || v2 != le {
+        fails +%= 1
+        print("uint64 of ")
+        show([]uint8(s))
+        fmt.printf("gave %x %t, %x %t\n", v, ok, v2, ok2)
+    }
+}
+
+// reading covers the values writing writes, read back, and views
+// longer than a value, whose bytes past the first N/8 are not read.
+func reading() {
+    reads16("\x00\x00", 0, 0)
+    reads16("\x00\x01", 1, 0x0100)
+    reads16("\x01\x02", 0x0102, 0x0201)
+    reads16("\x80\x00", 0x8000, 0x0080)
+    reads16("\xff\xff", 65535, 65535)
+    reads16("\x01\x02\x03", 0x0102, 0x0201)
+    reads16("\xab\xcd\xff\xff\xff\xff\xff\xff\xff\xff", 0xabcd, 0xcdab)
+    reads32("\x00\x00\x00\x00", 0, 0)
+    reads32("\x01\x02\x03\x04", 0x01020304, 0x04030201)
+    reads32("\x80\x00\x00\x00", 0x80000000, 0x00000080)
+    reads32("\xff\xff\xff\xff", 4294967295, 4294967295)
+    reads32("\xfe\xdc\xba\x98\x00", 0xfedcba98, 0x98badcfe)
+    reads64("\x00\x00\x00\x00\x00\x00\x00\x00", 0, 0)
+    reads64("\x01\x02\x03\x04\x05\x06\x07\x08", 0x0102030405060708, 0x0807060504030201)
+    reads64("\x80\x00\x00\x00\x00\x00\x00\x00", 0x8000000000000000, 0x0000000000000080)
+    reads64("\xff\xff\xff\xff\xff\xff\xff\xff", 18446744073709551615, 18446744073709551615)
+    reads64("\xfe\xdc\xba\x98\x76\x54\x32\x10\xaa", 0xfedcba9876543210, 0x1032547698badcfe)
+    check("read")
+}
+
+// short16 checks that uint16_be and uint16_le of s, which is too short
+// for them, give 0 and false.
+func short16(s string) {
+    v, ok := binary.uint16_be([]uint8(s))
+    v2, ok2 := binary.uint16_le([]uint8(s))
+    if ok || v != 0 || ok2 || v2 != 0 {
+        fails +%= 1
+        fmt.printf("uint16 of %d bytes gave %x %t, %x %t\n", len(s), v, ok, v2, ok2)
+    }
+}
+
+// short32 checks that uint32_be and uint32_le of s, which is too short
+// for them, give 0 and false.
+func short32(s string) {
+    v, ok := binary.uint32_be([]uint8(s))
+    v2, ok2 := binary.uint32_le([]uint8(s))
+    if ok || v != 0 || ok2 || v2 != 0 {
+        fails +%= 1
+        fmt.printf("uint32 of %d bytes gave %x %t, %x %t\n", len(s), v, ok, v2, ok2)
+    }
+}
+
+// short64 checks that uint64_be and uint64_le of s, which is too short
+// for them, give 0 and false.
+func short64(s string) {
+    v, ok := binary.uint64_be([]uint8(s))
+    v2, ok2 := binary.uint64_le([]uint8(s))
+    if ok || v != 0 || ok2 || v2 != 0 {
+        fails +%= 1
+        fmt.printf("uint64 of %d bytes gave %x %t, %x %t\n", len(s), v, ok, v2, ok2)
+    }
+}
+
+// shorts covers every length short of each width, from the empty view
+// to one byte short, of bytes that are not 0, so a reader that read
+// them anyway would give a value that is not 0.
+func shorts() {
+    short16("")
+    short16("\xff")
+    short32("")
+    short32("\xff")
+    short32("\xff\xff")
+    short32("\xff\xff\xff")
+    short64("")
+    short64("\xff")
+    short64("\xff\xff")
+    short64("\xff\xff\xff")
+    short64("\xff\xff\xff\xff")
+    short64("\xff\xff\xff\xff\xff")
+    short64("\xff\xff\xff\xff\xff\xff")
+    short64("\xff\xff\xff\xff\xff\xff\xff")
+    check("short view")
+}
+
+// lengths_cases writes a length as tack/cache.go's keyHash.field does, 8
+// bytes big-endian before the bytes it counts, for a field of every
+// length from 0 to 300, and reads each length back from the list.
+func lengths_cases() {
+    mut out := make(list[uint8], c_allocator)
+    for mut n uint64 = 0; n <= 300; n++ {
+        e := binary.append_uint64_be(mut out, n)
+        if e.code != 0 {
+            fails +%= 1
+            print("append_uint64_be failed\n")
+            return
+        }
+        for mut k uint64 = 0; k < n; k++ {
+            e2 := append(mut out, 'f')
+            if e2.code != 0 {
+                fails +%= 1
+                print("append failed\n")
+                return
+            }
+        }
+    }
+    mut i int64 = 0
+    for mut n uint64 = 0; n <= 300; n++ {
+        if i < 0 || i > len(out) {
+            fails +%= 1
+            fmt.printf("length %d is at %d, past the list\n", n, i)
+            return
+        }
+        got, ok := binary.uint64_be(out[i:])
+        if !ok || got != n {
+            fails +%= 1
+            fmt.printf("length %d read back as %d, %t\n", n, got, ok)
+            return
+        }
+        // got is n, at most 300, so the step is at most 308 and i +%
+        // never wraps.
+        i +%= 8 +% int64(n)
+    }
+    if i != len(out) {
+        fails +%= 1
+        fmt.printf("read %d bytes of %d\n", i, len(out))
+    }
+}
+
+// lengths runs lengths_cases and prints whether they held, after any
+// of them returns early.
+func lengths() {
+    lengths_cases()
+    check("lengths")
+}
+
+// failing makes c_allocator fail under every append: the error is the
+// builtin append's, and the list is left exactly as it was, every byte
+// of the value or none appended. A list's first buffer holds 4 bytes,
+// so one holding "ab" has room for a uint16 and not a uint32.
+func failing() {
+    mut out := make(list[uint8], c_allocator)
+    failAfter(0)
+    e1 := binary.append_uint16_be(mut out, 0x0102)
+    e2 := binary.append_uint16_le(mut out, 0x0102)
+    e3 := binary.append_uint32_be(mut out, 0x01020304)
+    e4 := binary.append_uint32_le(mut out, 0x01020304)
+    e5 := binary.append_uint64_be(mut out, 0x0102030405060708)
+    e6 := binary.append_uint64_le(mut out, 0x0102030405060708)
+    failAfter(-1)
+    if e1.code != 1 || e2.code != 1 || e3.code != 1 || e4.code != 1 || e5.code != 1 || e6.code != 1 ||
+        e1.msg != "out of memory" || len(out) != 0 || live() != 0 {
+        fails +%= 1
+        fmt.printf("appends into an empty list gave %d %d %d %d %d %d, left %d bytes\n",
+            e1.code, e2.code, e3.code, e4.code, e5.code, e6.code, len(out))
+    }
+    e := append(mut out, 'a', 'b')
+    if e.code != 0 {
+        fails +%= 1
+        print("append failed\n")
+        return
+    }
+    failAfter(0)
+    f1 := binary.append_uint64_be(mut out, 0x0102030405060708)
+    f2 := binary.append_uint64_le(mut out, 0x0102030405060708)
+    f3 := binary.append_uint32_be(mut out, 0x01020304)
+    f4 := binary.append_uint32_le(mut out, 0x01020304)
+    f5 := binary.append_uint16_le(mut out, 0x0102)
+    f6 := binary.append_uint16_be(mut out, 0x0102)
+    failAfter(-1)
+    if f1.code != 1 || f2.code != 1 || f3.code != 1 || f4.code != 1 || f5.code != 0 || f6.code != 1 ||
+        !bytes.equal(out, []uint8("ab\x02\x01")) {
+        fails +%= 1
+        fmt.printf("appends into a full list gave %d %d %d %d %d %d, left ",
+            f1.code, f2.code, f3.code, f4.code, f5.code, f6.code)
+        show(out)
+        print("\n")
+    }
+    drop(own out)
+    if live() != 0 {
+        fails +%= 1
+        print("a buffer was not freed\n")
+    }
+    check("append out of memory")
+}
+
+func main() {
+    writing()
+    reading()
+    shorts()
+    lengths()
+    failing()
+}
