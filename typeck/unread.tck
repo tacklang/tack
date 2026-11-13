@@ -1,0 +1,82 @@
+package typeck
+
+import ast from "tack/ast"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import text from "std/text"
+
+// Unread variables, Go's unread.go. The resolver finds which variables
+// are never read, and leaves to the checker one a call or a binding of
+// several names gave its value (see ast.Var's unused_deferred), which
+// Go reports as an error when it holds an error or an ok and as declared
+// and not used otherwise. Every value that holds an error or an ok, a
+// call or a checked form, is one the port declines, so here each such
+// variable is declared and not used.
+
+// report_unread reports each variable of body, in the tree unit, the
+// resolver left to be reported, Go's reportUnread, in the order Go's
+// walk meets them: declared and not used, a warning, with the resolver's
+// note at a call by its name that passed over it.
+func (mut c Checker) report_unread(unit int64, body ast.Nodes) error {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    mut i := count_items(c.prog.trees, unit, body) -% 1
+    for i >= 0 {
+        append(mut stack, item_at(c.prog.trees, unit, body, i).node)?
+        i -%= 1
+    }
+    for len(stack) > 0 {
+        top, ok := pop(mut stack)
+        if !ok {
+            return noerror
+        }
+        k := Key{unit: unit, node: top}
+        switch kind_at(c.prog.trees, k) {
+        case var_decl(v):
+            if v.unused_deferred {
+                mut c.warn_unused_var(k, v)?
+            }
+        default:
+        }
+        clear_nodes(mut kids)
+        children_of(c.prog.trees, unit, top, mut kids)?
+        mut j := len(kids) -% 1
+        for j >= 0 {
+            kid, has := kids[j]
+            if has {
+                append(mut stack, kid)?
+            }
+            j -%= 1
+        }
+    }
+    return noerror
+}
+
+// warn_unused_var warns that the variable k, v, is declared and not
+// used, as the resolver does, with a note at the call by its name that
+// passed over it, if one did, Go's warnUnusedVar.
+func (mut c Checker) warn_unused_var(k Key, v ast.Var) error {
+    if c.suppressing {
+        return noerror
+    }
+    mut m := msg()
+    fmt.appendf(mut m, "declared and not used: %s", text_at(c.prog.trees, c.none, k.unit, v.name)[:])?
+    t := text.from_bytes(m, c_allocator)?
+    mut d := diag.new_error(own t, v.name_span, c_allocator)
+    d.severity = diag.warning
+    d.unused = true
+    if v.hidden_call.set {
+        callee := Key{unit: v.hidden_call.unit, node: v.hidden_call.node}
+        nm, _ := ident_at(c.prog.trees, callee)
+        mut kind := "function"
+        if nm.def.kind == ast.def_builtin {
+            kind = "builtin"
+        }
+        mut n := msg()
+        fmt.appendf(mut n, "this call calls the %s %s, not the variable; rename one of them", kind, text_at(c.prog.trees, c.none, k.unit, v.name)[:])?
+        nt := text.from_bytes(n, c_allocator)?
+        append(mut d.related, diag.Related{message: nt, marker: text.new(c_allocator), span: span_at(c.prog.trees, callee), severity: diag.note})?
+    }
+    append(mut c.warnings, d)?
+    return noerror
+}

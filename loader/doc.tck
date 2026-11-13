@@ -12,11 +12,11 @@ package loader
 // It is the front of the pipeline: it takes what the command line names,
 // a single file (file), a directory (dir) or an import path (path), and
 // produces a Program, its packages each after those it imports and the
-// main package last, along with the source.Set every later stage renders
-// its diagnostics against. With Loader.stop set to stage_lex or
-// stage_parse it stops after that stage, having read only the target's
-// own files, and the Result holds their tokens or trees instead, for a
-// dump.
+// main package last, a library's with no main package, along with the
+// source.Set every later stage renders its diagnostics against. With
+// Loader.stop set to stage_lex or stage_parse it stops after that stage,
+// having read only the target's own files, and the Result holds their
+// tokens or trees instead, for a dump.
 //
 // Files. Go reads through an FS interface, the host's or an fs.FS a test
 // gives; the driver reads only the host's, so the port reads the host's
@@ -61,9 +61,20 @@ package loader
 // port has neither package types nor builtin yet, so their names are
 // listed here (see names.tck).
 //
-// Libraries and test mode. Go's Loader.Lib, the driver's --check, and
-// its test mode, tack test's, are not ported yet: the driver comes with
-// them, at the end of the port.
+// Libraries. Go's Loader.Lib, which the driver's --check sets, is
+// Loader.library (see lib.tck): a directory or import path holding no
+// main package loads every package at or below it that is not a main
+// package, each with what it imports, as one program with no main
+// package. Go walks the directories below the target by recursion; the
+// port keeps a list of the directories still to scan, which visits
+// them, and meets any failure, in Go's order, and adds each package as
+// a root of the Graph, whose Frame says so, so finishing it binds no
+// import. Go's isModuleRoot needs only the names in a directory; the
+// port reads them with read_dir, which lstats each entry, so an entry
+// that cannot be looked at is unworded there too.
+//
+// Test mode. Go's Loader.TestMain, tack test's, is not ported yet: the
+// driver comes with it, at the end of the port.
 //
 // Invariants. A Result has a program, or diagnostics, or both, unless
 // loading was stopped at Loader.stop or failed. A program's errors is

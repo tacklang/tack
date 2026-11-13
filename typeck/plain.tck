@@ -1,0 +1,70 @@
+package typeck
+
+import types from "tack/types"
+
+// plain_type reports whether a value of typ is one whose checks the
+// port's body check covers: a number, a bool or a string, or an array,
+// a struct or a union made only of those, at any depth, or a type
+// already reported, invalid. A list, a map, an arena, a pool, an id, a
+// span, a handle, a view, any, error, an Allocator, a function type and
+// a type parameter, or anything holding one, is not: the checks of their
+// values are later stages'. The answer for each type is remembered, and
+// the types it is made of are walked with a stack of their own, so a
+// chain of structs each holding the next is walked in a bounded stack.
+func (mut c Checker) plain_type(typ types.Type) (bool, error) {
+    known, seen := c.plain_types[typ.number()]
+    if seen {
+        return known, noerror
+    }
+    mut stack := make(list[types.Type], c_allocator)
+    mut visited := make(map[int64]bool, c_allocator)
+    append(mut stack, typ)?
+    mut plain := true
+    for plain && len(stack) > 0 {
+        t, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        _, been := visited[t.number()]
+        if been {
+            continue
+        }
+        put(mut visited, t.number(), true)?
+        prior, has := c.plain_types[t.number()]
+        if has {
+            plain = prior
+            continue
+        }
+        if t == types.invalid || t == types.untyped_int || t == types.untyped_float || types.is_numeric(t) || t == types.bool_type || t == types.string_type {
+            continue
+        }
+        if t == types.any_type || t == types.error_type || t == types.allocator {
+            plain = false
+            continue
+        }
+        if c.table.is_array(t) {
+            append(mut stack, c.table.elem_of(t))?
+            continue
+        }
+        if c.table.is_union(t) {
+            for _, uc := range c.table.cases(t) {
+                if uc.payload {
+                    append(mut stack, uc.typ)?
+                }
+            }
+            continue
+        }
+        if c.table.is_struct(t) && !c.table.is_list(t) && !c.table.is_map(t) && !c.table.is_arena(t) && !c.table.is_pool(t) && !c.table.is_ref(t) && !c.table.is_view(t) && !c.table.is_func(t) && !c.table.is_type_param(t) {
+            for i := range c.table.field_count(t) {
+                ft, has_ft := c.table.field_type(t, i)
+                if has_ft {
+                    append(mut stack, ft)?
+                }
+            }
+            continue
+        }
+        plain = false
+    }
+    put(mut c.plain_types, typ.number(), plain)?
+    return plain, noerror
+}

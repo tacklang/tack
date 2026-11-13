@@ -6,6 +6,7 @@ import bytes from "std/bytes"
 import diag from "tack/diag"
 import fmt from "std/fmt"
 import source from "tack/source"
+import text from "std/text"
 import types from "tack/types"
 
 // Names and their nodes.
@@ -357,7 +358,7 @@ func check_main(mut r Res) error {
         if r.main_optional {
             return noerror
         }
-        return missing_main(mut r)
+        return report_missing_main(mut r)
     }
     switch kind_at(r.prog.trees, main_fn.unit, main_fn.node) {
     case func_decl(fid):
@@ -391,12 +392,66 @@ func check_main(mut r Res) error {
     return noerror
 }
 
-// missing_main reports the package being resolved, a main package, as
-// declaring no main function, at the start of its first file.
-func missing_main(mut r Res) error {
+// report_missing_main reports the package being resolved, a main
+// package, as declaring no main function, at the start of its first
+// file, Go's missingMain.
+func report_missing_main(mut r Res) error {
     mut m := new_msg()
     fmt.appendf(mut m, "main function not found")?
     return error_at(mut r, first_file_span(r.prog.packages, r.prog.trees, r.pkg), own m)
+}
+
+// missing_main reports a main package of prog that declares no main
+// function, as resolve does without main_optional, Go's MissingMain, so
+// that a caller that sets main_optional can report the problem and
+// still check the program on. A method named main is not a main
+// function. A bad declaration that may have been main, one named main
+// or one that got to no name, hides it. A program whose last package is
+// not a main package, a library, or that has no package, has none to
+// report.
+pub func missing_main(prog ast.Program) (list[diag.Diagnostic], error) {
+    mut diags := make(list[diag.Diagnostic], c_allocator)
+    last := len(prog.packages) -% 1
+    if last < 0 || last >= len(prog.packages) {
+        return diags, noerror
+    }
+    if !main_name_is(prog.packages, last) || may_declare_main(prog, last) {
+        return diags, noerror
+    }
+    m := text.from_bytes([]uint8("main function not found"), c_allocator)?
+    append(mut diags, diag.new_error(own m, first_file_span(prog.packages, prog.trees, last), c_allocator))?
+    return diags, noerror
+}
+
+// may_declare_main reports whether the package k of prog declares a
+// main function, or has a bad declaration that may have been one, named
+// main or with no name, which the parser reported, Go's mayDeclareMain.
+func may_declare_main(prog ast.Program, k int64) bool {
+    if k < 0 || k >= len(prog.packages) {
+        return false
+    }
+    first := prog.packages[k].first
+    count := prog.packages[k].count
+    for unit, t := range prog.trees {
+        if unit < first || unit -% first >= count {
+            continue
+        }
+        for _, d := range t.decls {
+            switch t.nodes[d].k {
+            case func_decl(fid):
+                fn := t.funcs[fid]
+                if bytes.equal(t.text(fn.name), []uint8("main")) && !fn.method {
+                    return true
+                }
+            case bad_decl(bd):
+                if len(t.text(bd.name)) == 0 || bytes.equal(t.text(bd.name), []uint8("main")) && !bd.method {
+                    return true
+                }
+            default:
+            }
+        }
+    }
+    return false
 }
 
 // main_outside_main reports every package-level declaration named main

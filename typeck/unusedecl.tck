@@ -1,0 +1,192 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+
+// Unused declarations, Go's unusedecl.go: a private function or method,
+// a private type, and a parameter nothing reads is warned of, declared
+// and not used, when the program has no error. A function is used when
+// a name outside its own body names it; a type when a name outside its
+// own declaration and its methods does; a method when a call outside it
+// calls it or a method expression names it, both of which the port
+// declines, as it does every instance of a generic function. Exempt:
+// anything pub or lib, func main of package main, the receiver, a
+// parameter named _, and the parameters of a function used as a value
+// or with no body.
+
+// Usage is what check_unused_decls finds is used, Go's usage: the
+// functions and types, the parameters read, the functions used as
+// values, and the names that are a call's callee.
+type Usage struct {
+    used map[Key]bool
+    read map[Key]bool
+    value map[Key]bool
+    callees map[Key]bool
+}
+
+// check_unused_decls warns of every private function and type, and
+// every parameter, nothing uses, when the program has no error, Go's
+// checkUnusedDecls.
+pub func (mut c Checker) check_unused_decls() error {
+    if c.prior > 0 || len(c.diags) > 0 {
+        return noerror
+    }
+    mut u := Usage{
+        used: make(map[Key]bool, c_allocator),
+        read: make(map[Key]bool, c_allocator),
+        value: make(map[Key]bool, c_allocator),
+        callees: make(map[Key]bool, c_allocator),
+    }
+    for i := range count_decls(c.prog) {
+        mut c.walk_decl_uses(decl_at(c.prog, i), mut u)?
+    }
+    for i := range count_decls(c.prog) {
+        mut c.warn_unused(decl_at(c.prog, i), u)?
+    }
+    return noerror
+}
+
+// walk_decl_uses records in u what the declaration d uses, leaving out
+// its uses of itself, Go's walkDecl: a function's of itself, and a
+// type's, or one of its methods', of that type.
+func (mut c Checker) walk_decl_uses(d Key, mut u Usage) error {
+    mut own_func := no_key()
+    mut own_type := no_key()
+    mut roots := make(list[id[ast.Node]], c_allocator)
+    append(mut roots, d.node)?
+    switch kind_at(c.prog.trees, d) {
+    case func_decl:
+        fn := func_of(c.prog.trees, d)
+        own_func = d
+        if fn.recv_type.kind == ast.def_type {
+            own_type = key_of_def(fn.recv_type)
+        }
+        if !ast.is_none(fn.contract) {
+            append(mut roots, fn.contract)?
+        }
+    case type_decl:
+        own_type = d
+    default:
+    }
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for _, r := range roots {
+        append(mut stack, r)?
+        for len(stack) > 0 {
+            top, ok := pop(mut stack)
+            if !ok {
+                break
+            }
+            k := Key{unit: d.unit, node: top}
+            switch kind_at(c.prog.trees, k) {
+            case call(cl):
+                _, is_id := ident_at(c.prog.trees, sub(k, cl.fn))
+                if is_id {
+                    put(mut u.callees, sub(k, cl.fn), true)?
+                }
+            case ident(nm):
+                _, cleared := c.pattern_cleared[k]
+                if !cleared {
+                    mut c.ident_use(k, nm, own_func, own_type, mut u)?
+                }
+            default:
+            }
+            clear_nodes(mut kids)
+            children_of(c.prog.trees, d.unit, top, mut kids)?
+            mut j := len(kids) -% 1
+            for j >= 0 {
+                kid, has := kids[j]
+                if has {
+                    append(mut stack, kid)?
+                }
+                j -%= 1
+            }
+        }
+    }
+    return noerror
+}
+
+// ident_use records in u what the name nm, at k, names as used, unless
+// it is own_func or own_type, the declaration it is in, Go's
+// usage.ident: a function, and whether as a value, a type, or a
+// parameter, read.
+func (mut c Checker) ident_use(k Key, nm ast.Ident, own_func Key, own_type Key, mut u Usage) error {
+    def := key_of_def(nm.def)
+    if nm.def.kind == ast.def_func {
+        if def != own_func {
+            put(mut u.used, def, true)?
+        }
+        _, callee := u.callees[k]
+        if !callee {
+            put(mut u.value, def, true)?
+        }
+    } else if nm.def.kind == ast.def_type {
+        if def != own_type {
+            put(mut u.used, def, true)?
+        }
+    } else if nm.def.kind == ast.def_param {
+        put(mut u.read, def, true)?
+    }
+    return noerror
+}
+
+// warn_unused warns of the declaration d when it is private and unused,
+// or of each of its parameters nothing reads when it is a function whose
+// signature is its own, Go's warnUnused.
+func (mut c Checker) warn_unused(d Key, u Usage) error {
+    switch kind_at(c.prog.trees, d) {
+    case func_decl:
+        fn := func_of(c.prog.trees, d)
+        if fn.vis != ast.vis_private {
+            return noerror
+        }
+        _, used := u.used[d]
+        if !used && !c.is_main_func(d, fn) {
+            mut m := msg()
+            append(mut m, []uint8("declared and not used: ")...)?
+            mut c.display_name(d, mut m)?
+            return mut c.unusedf(fn.name_span, own m)
+        }
+        _, as_value := u.value[d]
+        if as_value || fn.no_body {
+            return noerror
+        }
+        n := count_items(c.prog.trees, d.unit, fn.params)
+        for i := range n {
+            if i == 0 && fn.method {
+                continue
+            }
+            p := item_at(c.prog.trees, d.unit, fn.params, i)
+            _, read := u.read[p]
+            mut name := msg()
+            append(mut name, name_of(c.prog.trees, c.none, p)...)?
+            if !read && !bytes_equal(name, []uint8("_")) {
+                mut m := msg()
+                fmt.appendf(mut m, "declared and not used: %s", name[:])?
+                mut c.unusedf(param_of(c.prog.trees, p).name_span, own m)?
+            }
+        }
+    case type_decl(td):
+        _, used := u.used[d]
+        if td.vis == ast.vis_private && !used {
+            mut m := msg()
+            fmt.appendf(mut m, "declared and not used: %s", text_at(c.prog.trees, c.none, d.unit, td.name)[:])?
+            mut c.unusedf(td.name_span, own m)?
+        }
+    default:
+    }
+    return noerror
+}
+
+// is_main_func reports whether the function d, fn, is the main function
+// of package main, Go's isMainFunc.
+func (c Checker) is_main_func(d Key, fn ast.Func) bool {
+    p, ok := c.unit_pkg[d.unit]
+    if !ok || fn.method {
+        return false
+    }
+    if p < 0 || p >= len(c.prog.packages) {
+        return false
+    }
+    return c.prog.packages[p].name.equal([]uint8("main")) && bytes_equal(text_at(c.prog.trees, c.none, d.unit, fn.name), []uint8("main"))
+}

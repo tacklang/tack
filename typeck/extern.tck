@@ -1,0 +1,424 @@
+package typeck
+
+import ast from "tack/ast"
+import bytes from "std/bytes"
+import cname from "tack/cname"
+import conv from "std/conv"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// Extern funcs, Go's checkExtern (extern.go): an extern func's body is C,
+// so only its declaration is checked: its C name, and the types that
+// cross to C, every one but a map, an arena, an id, a span, a pool, a
+// handle, a function value and a union, and a list only as a mut
+// parameter or a view, with no own and no scope parameter. Each walk of
+// a type keeps its own stack, since a chain of structs held by value is
+// as long as its source makes it.
+
+// check_extern checks the declaration of the extern func d, Go's
+// checkExtern.
+func (mut c Checker) check_extern(d Key) error {
+    fn := func_of(c.prog.trees, d)
+    maps := mut c.check_extern_maps(d, fn)?
+    own_ok := mut c.check_extern_own(d, fn)?
+    if own_ok {
+        scope_ok := mut c.check_extern_scope(d, fn)?
+        if scope_ok {
+            funcs_ok := mut c.check_extern_funcs(d, fn)?
+            if funcs_ok && maps {
+                mut c.check_extern_lists(d, fn)?
+                mut c.check_extern_unions(d, fn)?
+                mut c.check_extern_owned_elems(d, fn)?
+            }
+        }
+    }
+    return mut c.check_cname(d, fn)
+}
+
+// extern_noun appends how a message about the extern func d, fn, names
+// its parameter i and the func: "parameter x of extern func f".
+func (mut c Checker) extern_noun(mut out list[uint8], d Key, fn ast.Func, i int64) error {
+    mut c.param_noun(mut out, Sig{unit: d.unit, params: fn.params, i: i, recv: false})?
+    fmt.appendf(mut out, " of extern func %s", text_at(c.prog.trees, c.none, d.unit, fn.name)[:])?
+    return noerror
+}
+
+// param_type_span returns the span of the type the parameter p is
+// written with.
+func param_type_span(trees []ast.File, p Key) source.Span {
+    return span_at(trees, sub(p, param_of(trees, p).type_expr))
+}
+
+// check_extern_maps reports each parameter and result of the extern
+// func d, fn, whose type is or holds what never crosses to C, Go's
+// checkExternMaps, and returns whether there was none.
+func (mut c Checker) check_extern_maps(d Key, fn ast.Func) (bool, error) {
+    mut clean := true
+    for i := range count_items(c.prog.trees, d.unit, fn.params) {
+        p := item_at(c.prog.trees, d.unit, fn.params, i)
+        typ := decl_type_of(c.decl_types, p)
+        held := mut c.uncrossable(typ)?
+        if len(held) > 0 {
+            mut m := msg()
+            mut c.extern_noun(mut m, d, fn, i)?
+            n := mut c.type_name(typ)?
+            fmt.appendf(mut m, " cannot be %s: %s does not cross to C", n[:], held)?
+            mut c.errorf(param_type_span(c.prog.trees, p), own m)?
+            clean = false
+        }
+    }
+    n, _ := results_count(c.result_count, d)
+    for i := range n {
+        typ := result_of(c.results, d, i)
+        held := mut c.uncrossable(typ)?
+        if len(held) > 0 {
+            nm := mut c.type_name(typ)?
+            mut m := msg()
+            fmt.appendf(mut m, "extern func %s cannot return %s: %s does not cross to C", text_at(c.prog.trees, c.none, d.unit, fn.name)[:], nm[:], held)?
+            mut c.errorf(span_at(c.prog.trees, item_at(c.prog.trees, d.unit, fn.results, i)), own m)?
+            clean = false
+        }
+    }
+    return clean, noerror
+}
+
+// uncrossable returns what typ is or holds that never crosses to C, the
+// first found in Go's order, or "", Go's uncrossable.
+func (mut c Checker) uncrossable(typ types.Type) (string, error) {
+    mut seen := make(map[int64]bool, c_allocator)
+    mut stack := make(list[types.Type], c_allocator)
+    mut parts := make(list[types.Type], c_allocator)
+    append(mut stack, typ)?
+    for len(stack) > 0 {
+        t := pop(mut stack)
+        if c.table.is_arena(t) {
+            return "an arena", noerror
+        }
+        if c.table.is_id(t) {
+            return "an id", noerror
+        }
+        if c.table.is_span(t) {
+            return "a span", noerror
+        }
+        if c.table.is_pool(t) {
+            return "a pool", noerror
+        }
+        if c.table.is_handle(t) {
+            return "a handle", noerror
+        }
+        if c.table.is_map(t) {
+            return "a map", noerror
+        }
+        if c.table.is_array(t) || c.table.is_list(t) || c.table.is_view(t) {
+            append(mut stack, c.table.elem_of(t))?
+            continue
+        }
+        if c.table.is_struct(t) || c.table.is_union(t) {
+            _, was := seen[t.number()]
+            if was {
+                continue
+            }
+            put(mut seen, t.number(), true)?
+            for len(parts) > 0 {
+                pop(mut parts)
+            }
+            mut c.part_types(t, mut parts)?
+            mut j := len(parts) -% 1
+            for j >= 0 {
+                pt, ok := parts[j]
+                if ok {
+                    append(mut stack, pt)?
+                }
+                j -%= 1
+            }
+        }
+    }
+    return "", noerror
+}
+
+// check_extern_own reports each own parameter of the extern func d, fn,
+// Go's checkExternOwn, and returns whether there was none.
+func (mut c Checker) check_extern_own(d Key, fn ast.Func) (bool, error) {
+    mut ok := true
+    for i := range count_items(c.prog.trees, d.unit, fn.params) {
+        param := param_of(c.prog.trees, item_at(c.prog.trees, d.unit, fn.params, i))
+        if param.is_own {
+            mut m := msg()
+            mut c.extern_noun(mut m, d, fn, i)?
+            fmt.appendf(mut m, " cannot be own: C is not held to free what it is given")?
+            mut c.errorf(param.own_span, own m)?
+            ok = false
+        }
+    }
+    return ok, noerror
+}
+
+// check_extern_scope reports each scope parameter of the extern func d,
+// fn, Go's checkExternScope, and returns whether there was none.
+func (mut c Checker) check_extern_scope(d Key, fn ast.Func) (bool, error) {
+    mut clean := true
+    for i := range count_items(c.prog.trees, d.unit, fn.params) {
+        p := item_at(c.prog.trees, d.unit, fn.params, i)
+        param := param_of(c.prog.trees, p)
+        if !param.is_scope {
+            continue
+        }
+        clean = false
+        mut m := msg()
+        mut c.extern_noun(mut m, d, fn, i)?
+        if decl_type_of(c.decl_types, p) == types.allocator {
+            fmt.appendf(mut m, " cannot be scope: a region's allocator never crosses to C, and c_allocator crosses as a plain Allocator; remove scope")?
+        } else {
+            fmt.appendf(mut m, " cannot be scope: a function value does not cross to C")?
+        }
+        mut c.errorf(param.scope_span, own m)?
+    }
+    return clean, noerror
+}
+
+// check_extern_funcs reports each parameter and result of the extern
+// func d, fn, whose type holds a function value, Go's checkExternFuncs,
+// and returns whether there was none.
+func (mut c Checker) check_extern_funcs(d Key, fn ast.Func) (bool, error) {
+    mut clean := true
+    for i := range count_items(c.prog.trees, d.unit, fn.params) {
+        p := item_at(c.prog.trees, d.unit, fn.params, i)
+        typ := decl_type_of(c.decl_types, p)
+        holds := mut c.holds_func(typ)?
+        if holds {
+            mut m := msg()
+            mut c.extern_noun(mut m, d, fn, i)?
+            n := mut c.type_name(typ)?
+            fmt.appendf(mut m, " cannot be %s: a function value does not cross to C", n[:])?
+            mut c.errorf(param_type_span(c.prog.trees, p), own m)?
+            clean = false
+        }
+    }
+    n, _ := results_count(c.result_count, d)
+    for i := range n {
+        typ := result_of(c.results, d, i)
+        holds := mut c.holds_func(typ)?
+        if holds {
+            nm := mut c.type_name(typ)?
+            mut m := msg()
+            fmt.appendf(mut m, "extern func %s cannot return %s: a function value does not cross to C", text_at(c.prog.trees, c.none, d.unit, fn.name)[:], nm[:])?
+            mut c.errorf(span_at(c.prog.trees, item_at(c.prog.trees, d.unit, fn.results, i)), own m)?
+            clean = false
+        }
+    }
+    return clean, noerror
+}
+
+// crosses_union reports whether typ is or holds a union, through a
+// struct, an array, a view or a list, Go's crossesUnion.
+func (mut c Checker) crosses_union(typ types.Type) (bool, error) {
+    mut t := typ
+    for c.table.is_view(t) || c.table.is_list(t) {
+        t = c.table.elem_of(t)
+    }
+    r := c.table.holds_union(t)?
+    return r, noerror
+}
+
+// owned_type_name appends how an error names typ, an owned type, Go's
+// ownedTypeName: a list by its type, anything else holding one by its
+// type and what it holds.
+func (mut c Checker) owned_type_name(typ types.Type, mut out list[uint8]) error {
+    n := mut c.type_name(typ)?
+    append(mut out, n[:]...)?
+    if !c.table.is_list(typ) {
+        append(mut out, []uint8(", which holds a list")...)?
+    }
+    return noerror
+}
+
+// check_extern_lists reports each plain parameter and each result of
+// the extern func d, fn, of an owned type, Go's checkExternLists.
+func (mut c Checker) check_extern_lists(d Key, fn ast.Func) error {
+    for i := range count_items(c.prog.trees, d.unit, fn.params) {
+        p := item_at(c.prog.trees, d.unit, fn.params, i)
+        typ := decl_type_of(c.decl_types, p)
+        owned := c.table.owned(typ)?
+        crosses := mut c.crosses_union(typ)?
+        if !param_of(c.prog.trees, p).is_mut && owned && !crosses {
+            mut m := msg()
+            mut c.extern_noun(mut m, d, fn, i)?
+            append(mut m, []uint8(" cannot be ")...)?
+            mut c.owned_type_name(typ, mut m)?
+            append(mut m, []uint8(": a list crosses to C only as a mut parameter, or as a view")...)?
+            mut c.errorf(param_type_span(c.prog.trees, p), own m)?
+        }
+    }
+    n, _ := results_count(c.result_count, d)
+    for i := range n {
+        typ := result_of(c.results, d, i)
+        owned := c.table.owned(typ)?
+        crosses := mut c.crosses_union(typ)?
+        if owned && !crosses {
+            mut m := msg()
+            fmt.appendf(mut m, "extern func %s cannot return ", text_at(c.prog.trees, c.none, d.unit, fn.name)[:])?
+            mut c.owned_type_name(typ, mut m)?
+            append(mut m, []uint8(": a list crosses to C only as a mut parameter, or as a view")...)?
+            mut c.errorf(span_at(c.prog.trees, item_at(c.prog.trees, d.unit, fn.results, i)), own m)?
+        }
+    }
+    return noerror
+}
+
+// check_extern_unions reports each parameter and each result of the
+// extern func d, fn, whose type is or holds a union, Go's
+// checkExternUnions and externUnion.
+func (mut c Checker) check_extern_unions(d Key, fn ast.Func) error {
+    for i := range count_items(c.prog.trees, d.unit, fn.params) {
+        p := item_at(c.prog.trees, d.unit, fn.params, i)
+        typ := decl_type_of(c.decl_types, p)
+        crosses := mut c.crosses_union(typ)?
+        if crosses {
+            mut m := msg()
+            mut c.extern_noun(mut m, d, fn, i)?
+            append(mut m, []uint8(" cannot be ")...)?
+            mut c.union_name(typ, mut m)?
+            mut c.errorf(param_type_span(c.prog.trees, p), own m)?
+        }
+    }
+    n, _ := results_count(c.result_count, d)
+    for i := range n {
+        typ := result_of(c.results, d, i)
+        crosses := mut c.crosses_union(typ)?
+        if crosses {
+            mut m := msg()
+            fmt.appendf(mut m, "extern func %s cannot return ", text_at(c.prog.trees, c.none, d.unit, fn.name)[:])?
+            mut c.union_name(typ, mut m)?
+            mut c.errorf(span_at(c.prog.trees, item_at(c.prog.trees, d.unit, fn.results, i)), own m)?
+        }
+    }
+    return noerror
+}
+
+// union_name appends typ's name as externUnion's error ends with it.
+func (mut c Checker) union_name(typ types.Type, mut out list[uint8]) error {
+    n := mut c.type_name(typ)?
+    append(mut out, n[:]...)?
+    if !c.table.is_union(typ) {
+        append(mut out, []uint8(", which holds a union")...)?
+    }
+    append(mut out, []uint8(": a union cannot cross to C yet")...)?
+    return noerror
+}
+
+// check_extern_owned_elems reports each parameter of the extern func d,
+// fn, that would cross as a list or a view whose elements are owned, Go's
+// checkExternOwnedElems.
+func (mut c Checker) check_extern_owned_elems(d Key, fn ast.Func) error {
+    for i := range count_items(c.prog.trees, d.unit, fn.params) {
+        p := item_at(c.prog.trees, d.unit, fn.params, i)
+        typ := decl_type_of(c.decl_types, p)
+        owned := c.table.owned(typ)?
+        crosses := mut c.crosses_union(typ)?
+        if !param_of(c.prog.trees, p).is_mut && owned || crosses {
+            continue
+        }
+        holds := mut c.holds_owned_elems(typ)?
+        if !holds {
+            continue
+        }
+        mut m := msg()
+        mut c.extern_noun(mut m, d, fn, i)?
+        n := mut c.type_name(typ)?
+        fmt.appendf(mut m, " cannot be %s", n[:])?
+        if !c.table.is_list(typ) && !c.table.is_view(typ) {
+            append(mut m, []uint8(", which holds one")...)?
+        }
+        append(mut m, []uint8(": a list or a view whose elements hold lists cannot cross to C yet")...)?
+        mut c.errorf(param_type_span(c.prog.trees, p), own m)?
+    }
+    return noerror
+}
+
+// holds_owned_elems reports whether typ is a list or a view whose
+// element type is owned, or holds one, at any depth, through a struct,
+// an array, a list or a view, Go's holdsOwnedElems.
+func (mut c Checker) holds_owned_elems(typ types.Type) (bool, error) {
+    mut seen := make(map[int64]bool, c_allocator)
+    mut stack := make(list[types.Type], c_allocator)
+    append(mut stack, typ)?
+    for len(stack) > 0 {
+        t := pop(mut stack)
+        if c.table.is_view(t) || c.table.is_list(t) {
+            elem := c.table.elem_of(t)
+            owned := c.table.owned(elem)?
+            if owned {
+                return true, noerror
+            }
+            append(mut stack, elem)?
+        } else if c.table.is_array(t) {
+            append(mut stack, c.table.elem_of(t))?
+        } else if c.table.is_struct(t) && t != types.error_type {
+            _, was := seen[t.number()]
+            if was {
+                continue
+            }
+            put(mut seen, t.number(), true)?
+            for i := range c.table.field_count(t) {
+                ft, ok := c.table.field_type(t, i)
+                if ok {
+                    append(mut stack, ft)?
+                }
+            }
+        }
+    }
+    return false, noerror
+}
+
+// check_cname reports the C name of the extern func d, fn, when C cannot
+// declare it, or the generated C or std uses it, Go's checkCName.
+func (mut c Checker) check_cname(d Key, fn ast.Func) error {
+    mut at := fn.name_span
+    if fn.cname_span != ast.unset_span() && fn.cname_span.end > fn.cname_span.start {
+        at = fn.cname_span
+    }
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, d.unit, fn.cname)...)?
+    mut tack_name := msg()
+    append(mut tack_name, text_at(c.prog.trees, c.none, d.unit, fn.name)...)?
+    mut m := msg()
+    if !cname.is_ident(name) {
+        fmt.appendf(mut m, "extern func %s cannot be named ", tack_name[:])?
+        conv.append_quote(mut m, name)?
+        fmt.appendf(mut m, " in C: it is not a C identifier")?
+    } else if cname.is_keyword(name) {
+        fmt.appendf(mut m, "extern func %s cannot be named %s in C: it is a C keyword", tack_name[:], name[:])?
+    } else if bytes_equal(name, []uint8("main")) && !c.extern_main(d, fn) {
+        fmt.appendf(mut m, "extern func %s cannot be named main in C: the program's C main is the one that runs Tack's", tack_name[:])?
+    } else if bytes.has_prefix(name, []uint8("tack_")) && !c.in_std(d) {
+        fmt.appendf(mut m, "extern func %s cannot be named %s in C: names starting tack_ are reserved for the standard library", tack_name[:], name[:])?
+    } else {
+        return noerror
+    }
+    return mut c.errorf(at, own m)
+}
+
+// extern_main reports whether the extern func d, fn, is the main
+// function of package main, which the resolver reported, after it has
+// run, Go's externMain.
+func (c Checker) extern_main(d Key, fn ast.Func) bool {
+    p, ok := c.unit_pkg[d.unit]
+    if !ok || c.prior == 0 || fn.method {
+        return false
+    }
+    if p < 0 || p >= len(c.prog.packages) {
+        return false
+    }
+    return bytes_equal(text_at(c.prog.trees, c.none, d.unit, fn.name), []uint8("main")) && c.prog.packages[p].name.equal([]uint8("main"))
+}
+
+// in_std reports whether the declaration d is in a package of the
+// standard library, Go's inStd: its import path is std or under it.
+func (c Checker) in_std(d Key) bool {
+    p, ok := c.unit_pkg[d.unit]
+    if !ok || p < 0 || p >= len(c.prog.packages) {
+        return false
+    }
+    return c.prog.packages[p].path.equal([]uint8("std")) || bytes.has_prefix(c.prog.packages[p].path.bytes(), []uint8("std/"))
+}

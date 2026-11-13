@@ -25,12 +25,15 @@ type Seen struct {
 // Frame is a package whose imports are being loaded, Go's call of
 // loadImports for it: the package, the position of the next import to
 // load, its file and its import in that file, and the Seen that stands
-// for it, -1 for the main package's.
+// for it, -1 for the main package's. root says it is one of a library's
+// own packages, Go's addRoot, which no import names, so finishing it
+// binds no import.
 type Frame struct {
     pkg Package
     file int64
     imp int64
     seen int64
+    root bool
 }
 
 // Graph loads the packages a program's main package imports, directly
@@ -77,7 +80,7 @@ func new_graph(l Loader, has_mod bool, own mod Module, own main Package) (Graph,
     mn := text_of(main.name.bytes(), l.alloc)?
     mp2 := text_of(main.path.bytes(), l.alloc)?
     mut stack := make(list[Frame], l.alloc)
-    append(mut stack, Frame{pkg: main, file: 0, imp: 0, seen: -1})?
+    append(mut stack, Frame{pkg: main, file: 0, imp: 0, seen: -1, root: false})?
     mut paths := make(list[text.Text], l.alloc)
     append(mut paths, mp2)?
     return Graph{
@@ -133,7 +136,8 @@ func main_of(own f Frame) Package {
 
 // step loads the next import of the innermost package being loaded, or
 // finishes that package when it has none left, and reports whether the
-// main package, the outermost, has none left. The innermost frame is
+// main package, the outermost, has none left, or a library's package,
+// also the outermost, was finished. The innermost frame is
 // taken off the stack while its import is loaded, and put back, with
 // the package that import names pushed after it when that is to be
 // loaded next.
@@ -143,6 +147,10 @@ func (mut g Graph) step(l Loader, mut res Result) (bool, error) {
         return true, noerror
     }
     if fr.file >= len(fr.pkg.files) || fr.file < 0 {
+        if fr.root {
+            mut g.finish_frame(own fr)?
+            return true, noerror
+        }
         if len(g.stack) == 0 {
             append(mut g.stack, fr)?
             return true, noerror
@@ -208,12 +216,17 @@ func (mut g Graph) step(l Loader, mut res Result) (bool, error) {
 // off the stack, all of whose imports are loaded: it becomes the next of
 // the program's packages, as Go's loadPackage appends it to order once
 // loadImports returns, and the import that named it, in the package
-// below it on the stack, is bound to it.
+// below it on the stack, is bound to it, unless it is a library's own
+// package, which no import names.
 func (mut g Graph) finish_frame(own fr Frame) error {
     index := len(g.order)
+    root := fr.root
     set_seen(mut g.seen, fr.seen, false, index)
     pop(mut g.paths)
     append(mut g.order, main_of(own fr))?
+    if root {
+        return noerror
+    }
     mut below, has := pop(mut g.stack)
     if has {
         append(mut below.pkg.imports, index)?
@@ -258,7 +271,7 @@ func (g Graph) find(p []uint8) int64 {
 // first time and its files load, the import being bound once it is
 // finished.
 func (mut g Graph) load(l Loader, mut res Result, from_mod []uint8, p []uint8, sp source.Span) (int64, Frame, bool, error) {
-    none := Frame{pkg: new_package(l.alloc), file: 0, imp: 0, seen: -1}
+    none := Frame{pkg: new_package(l.alloc), file: 0, imp: 0, seen: -1, root: false}
     mut msg := make(list[uint8], l.alloc)
     mod, bad := g.module_of(l, mut msg, from_mod, p)?
     if bad {
@@ -302,10 +315,10 @@ func (mut g Graph) cannot_import_main(l Loader, p []uint8, sp source.Span) error
 // which has not been looked at and is g.seen[k], Go's loadPackage up to
 // its call of loadImports: it reads and parses the package's files and
 // checks their clauses, and, when all is well, returns its Frame, to be
-// pushed so its imports are loaded next, and true. A package that cannot be loaded is
-// reported, or stops loading, and false is returned.
+// pushed so its imports are loaded next, and true. A package that
+// cannot be loaded is reported, or stops loading, and false is returned.
 func (mut g Graph) load_package(l Loader, mut res Result, own mod Module, p []uint8, sp source.Span, k int64) (Frame, bool, error) {
-    none := Frame{pkg: new_package(l.alloc), file: 0, imp: 0, seen: -1}
+    none := Frame{pkg: new_package(l.alloc), file: 0, imp: 0, seen: -1, root: false}
     mut msg := make(list[uint8], l.alloc)
     dir, bad_dir := mod.dir_of(p, mut msg, l.alloc)?
     if bad_dir {
@@ -352,7 +365,7 @@ func (mut g Graph) load_package(l Loader, mut res Result, own mod Module, p []ui
     mut pkg.module.append(mod.name.bytes())?
     mut pkg.dir.append(dir.bytes())?
     pkg.c_files = c_files
-    return Frame{pkg: pkg, file: 0, imp: 0, seen: k}, true, noerror
+    return Frame{pkg: pkg, file: 0, imp: 0, seen: k, root: false}, true, noerror
 }
 
 // module_of returns the module whose package p, imported by a package

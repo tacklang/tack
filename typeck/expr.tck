@@ -231,14 +231,28 @@ func (mut c Checker) expr_node(k Key) (types.Type, error) {
     case bool_lit:
         return types.bool_type, noerror
     case noerror_lit:
+        if c.in_body {
+            // An error's value in a body is S2b's to check.
+            return types.invalid, not_ported
+        }
         return types.error_type, noerror
     case c_allocator_lit:
+        if c.in_body {
+            // An Allocator's value in a body is S2b's to check.
+            return types.invalid, not_ported
+        }
         return types.allocator, noerror
     case ident(nm):
         typ := mut c.ident(k, nm)?
         return typ, noerror
     case call(cl):
         typ := mut c.call_value(k, cl)?
+        if c.in_body {
+            plain := mut c.plain_type(typ)?
+            if !plain {
+                return types.invalid, not_ported
+            }
+        }
         return typ, noerror
     case binary(b):
         x := mut c.expr(sub(k, b.x))?
@@ -315,10 +329,24 @@ func (mut c Checker) ident(k Key, nm ast.Ident) (types.Type, error) {
                 return types.invalid, e
             }
         }
-        return decl_type_of(c.decl_types, v), noerror
+        typ := decl_type_of(c.decl_types, v)
+        if c.in_body {
+            plain := mut c.plain_type(typ)?
+            if !plain {
+                return types.invalid, not_ported
+            }
+        }
+        return typ, noerror
     }
     if nm.def.kind == ast.def_param {
-        return decl_type_of(c.decl_types, key_of_def(nm.def)), noerror
+        typ := decl_type_of(c.decl_types, key_of_def(nm.def))
+        if c.in_body {
+            plain := mut c.plain_type(typ)?
+            if !plain {
+                return types.invalid, not_ported
+            }
+        }
+        return typ, noerror
     }
     return types.invalid, noerror
 }

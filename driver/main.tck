@@ -17,47 +17,64 @@ import typeck from "tack/typeck"
 
 // Package main is the driver of the Tack compiler written in Tack, the
 // tack command. It takes the command line the Go compiler takes and, so
-// far, does what that compiler does for four: it answers --backends; it
+// far, does what that compiler does for five: it answers --backends; it
 // dumps the tokens, --lex, or the syntax trees, --ast, of a single file,
 // of the package in a directory, or of the package with an import path
 // in the module found from the current directory, or reports their
-// errors; and for --res it loads the program in full, with the standard
+// errors; for --res it loads the program in full, with the standard
 // library, resolves it (see package resolver) and writes the resolved
 // tree, a single file's as Go's driver takes it, the first tree of the
 // program's first package, and a package's as the whole program, or the
 // diagnostics, the loader's and the resolver's together, when any is an
-// error, the warnings among them written beside a dump. Anything else it
-// does not do yet, and says so in the form the differential harness in
-// tackc/porttest reads: on standard error,
+// error, the warnings among them written beside a dump; and for --check,
+// without a dump flag, it loads the target as Go's executeCheck does, a
+// directory or import path holding no main package as a library (see
+// package loader), resolves it with a missing main function allowed and
+// reported apart, type-checks it (see package typeck), and reports every
+// diagnostic when any stage found an error, exit status 1. Anything else
+// it does not do yet, and says so in the form the differential harness
+// in tackc/porttest reads: on standard error,
 //
 //     tack: not implemented in the port: <what>
 //
 // and exit status 3, which the harness counts as a skip unless the stage
-// is one it requires.
+// is one it requires. --check declines so when no stage before the
+// backend finds an error, since Go goes on to the C backend then, which
+// the port does not have; when the type checker meets what it does not
+// check yet; when a dump flag comes with it; and when the target may be
+// std/builtin or its builtin.tck, which Go compares with the compiler's
+// own copy of the builtins' documentation instead of checking it.
 //
-// The command line is read as Go's flag package reads it, as far as the
-// dumps need: flags, each starting with - or --, come first and stop at
-// the first argument that is not one, or after --, and the rest are the
-// inputs. The flags read are -lex, -ast and -res, with one dash or two;
-// any other flag, -lex= with a value among them, is not implemented,
-// named in the line above. The usage errors such a command line can make
-// are reported as Go's driver reports them, with exit status 2: two
-// dumps asked for, no input, several, an empty name, and a flag of bad
-// syntax, such as ---lex.
+// The command line is read as Go's flag package reads it: flags, each
+// starting with - or --, come first and stop at the first argument that
+// is not one, or after --, and the rest are the inputs. The flags read
+// are -lex, -ast, -res and -check, with one dash or two, and the ones
+// that take a value, -max-errors and its old name -max-diags, an int as
+// Go's strconv.ParseInt reads it with base 0, and -out, a path, each
+// given after = or as the next argument. Any other flag, -lex= with a
+// value among them, is not implemented, named in the line above, as is
+// a build, which -out without -check asks for. The usage errors such a
+// command line can make are reported as Go's driver reports them, with
+// exit status 2, in Go's order: a flag of bad syntax, such as ---lex, a
+// value flag with no value or a value that is no int, an error limit
+// below 0, named as the flag that set it, -max-diags when it was given,
+// two dumps asked for, no input, several, an empty name, and -out with
+// -check, with a dump, or missing when neither is given.
 //
 // The target is loaded as Go's loadWith loads it (see package loader):
 // a directory as its package, a name that is no file and looks like an
 // import path as one, and anything else as a single file. A file is
-// lexed and, for --ast, parsed, the parse going past at most ten syntax
-// errors, the default of --max-errors, which the port does not read yet;
-// errors are reported, ten at most, or the dump written as Go's driver
-// writes it: a single file's tokens, or its tree as JSON that decodes to
-// the same value (see package ast), several files' tokens each after a
-// header line naming the file, and several trees as a list, with Go's
-// encoder's refusal of a tree nested too deeply, exit status 1. A failure
-// to read what is named is reported as Go reports it, tack: and the
-// loader's error, exit status 1, or, when the port cannot word it as Go
-// would, as not implemented. The current directory is found as Go's
+// lexed and, for --ast, parsed, the parse stopping past --max-errors
+// syntax errors, ten by default, or going on past every one for 0;
+// errors are reported, as many at most, followed by a line saying more
+// were left out, or the dump written as Go's driver writes it: a
+// single file's tokens, or its tree as JSON that decodes to the same
+// value (see package ast), several files' tokens each after a header
+// line naming the file, and several trees as a list, with Go's
+// encoder's refusal of a tree nested too deeply, exit status 1. A
+// failure to read what is named is reported as Go reports it, tack: and
+// the loader's error, exit status 1, or, when the port cannot word it as
+// Go would, as not implemented. The current directory is found as Go's
 // os.Getwd finds it, $PWD when it names the same directory as ., and
 // getcwd otherwise; the standard library as Go's findStd finds it, from
 // $TACK_HOME or the home directory.
@@ -69,11 +86,10 @@ import typeck from "tack/typeck"
 // the Go loader gives: the directories, C files, error count, import
 // bindings and load diagnostics --res does not show, until the builds
 // check them. --port-types, the port's too, resolves the program and
-// type-checks it as far as the port's checker goes, its declaration
-// phase, and writes what it finds as flat JSON (see package typeck),
-// which tackc's porttest compares with Go's checker run in process; what
-// the checker does not do yet is answered as not implemented, naming
-// --port-types.
+// type-checks it as far as the port's checker goes, and writes what it
+// finds as flat JSON (see package typeck), which tackc's porttest
+// compares with Go's checker run in process; what the checker does not
+// do yet is answered as not implemented, naming --port-types.
 
 // exit_ok means the requested work was done.
 var exit_ok int32 = 0
@@ -90,7 +106,7 @@ var exit_usage int32 = 2
 var not_implemented int32 = 3
 
 // default_max_errors is how many errors the driver reports when
-// --max-errors is not given, which the port does not read yet.
+// --max-errors is not given.
 var default_max_errors int64 = 10
 
 // main lists the backends for a command line of --backends alone, runs
@@ -175,19 +191,41 @@ var dump_types = Dump{n: 5}
 // own, last.
 var dump_flags = [5]string{"--lex", "--ast", "--res", "--port-loaded", "--port-types"}
 
+// Flags holds what the flags of a command line set, Go's flagValues as
+// far as the port reads them: whether each of dump_flags was given,
+// --check, whether --out names a path, Go's outBin != "", the values of
+// --max-errors and --max-diags, and whether --max-diags was given, which
+// makes its value the limit, as Go's fs.Visit finds it.
+type Flags struct {
+    asked [5]bool
+    check bool
+    has_out bool
+    max_errors int64
+    max_diags int64
+    diags_set bool
+}
+
 // run carries out the command line a, the program's name and its
-// arguments, and returns the exit status: the dump asked for, of the one
-// file, directory or import path named after the flags, or a usage
-// error, or not implemented for anything else. It returns an error only
-// when an allocation failed.
+// arguments, and returns the exit status: the dump asked for, or the
+// check, of the one file, directory or import path named after the
+// flags, or a usage error, or not implemented for anything else. The
+// flags are read as Go's flag package reads them (see the package
+// comment), and then checked in the order Go's parseArgs checks them.
+// It returns an error only when an allocation failed.
 func run(a []text.Text) (int32, error) {
     // rest holds the index in a of each argument after the flags.
     mut rest := make(list[int64], c_allocator)
-    // asked holds whether each of dump_flags was given.
     mut asked [5]bool
+    mut fl := Flags{asked: asked, check: false, has_out: false, max_errors: default_max_errors, max_diags: default_max_errors, diags_set: false}
     mut flags_done := false
+    // skip says the argument is the value of the flag before it.
+    mut skip := false
     for i, s := range a {
         if i == 0 {
+            continue
+        }
+        if skip {
+            skip = false
             continue
         }
         if flags_done {
@@ -204,32 +242,38 @@ func run(a []text.Text) (int32, error) {
             flags_done = true
             continue
         }
-        mut name int64 = 1
+        mut start int64 = 1
         second, has_second := s.bytes()[1]
         if has_second && second == '-' {
-            name = 2
+            start = 2
         }
-        c, has := s.bytes()[name]
+        c, has := s.bytes()[start]
         if !has || c == '-' || c == '=' {
             mut msg := make(list[uint8], c_allocator)
             fmt.appendf(mut msg, "bad flag syntax: %s", s.bytes())?
             return usage(msg), noerror
         }
-        mut known := false
-        for k, f := range dump_flags {
-            if s.len() == name +% len(f) -% 2 && is_flag(s.bytes(), []uint8(f)) && k >= 0 && k < len(asked) {
-                asked[k] = true
-                known = true
-            }
+        code, stop, value_next := read_flag(mut fl, a, i, s.bytes(), start)?
+        if stop {
+            return code, noerror
         }
-        if !known {
-            return unimplemented(s.bytes()), noerror
-        }
+        skip = value_next
+    }
+    mut limit := fl.max_errors
+    mut limit_name := "--max-errors"
+    if fl.diags_set {
+        limit = fl.max_diags
+        limit_name = "--max-diags"
+    }
+    if limit < 0 {
+        mut msg := make(list[uint8], c_allocator)
+        fmt.appendf(mut msg, "%s must be 0 or more, got %d", limit_name, limit)?
+        return usage(msg), noerror
     }
     mut count int64 = 0
     mut d := Dump{n: 0}
     mut names := make(list[uint8], c_allocator)
-    for k, on := range asked {
+    for k, on := range fl.asked {
         if !on {
             continue
         }
@@ -250,33 +294,127 @@ func run(a []text.Text) (int32, error) {
         append(mut names, []uint8(" cannot be combined; pick one")...)?
         return usage(names), noerror
     }
-    if count == 0 {
-        for i, s := range a {
-            if i == 1 {
-                return unimplemented(s.bytes()), noerror
-            }
-        }
-        return unimplemented([]uint8("(no arguments)")), noerror
-    }
-    code, e := dump_command(a, rest, d)
+    code, e := command(a, rest, fl, d, limit)
     return code, e
 }
 
-// is_flag reports whether arg, a flag of one dash or two whose name is
-// as long as flag's, is flag, written with two dashes: whether arg ends
-// in flag's name.
-func is_flag(arg []uint8, flag []uint8) bool {
-    if len(flag) < 2 {
-        return false
+// read_flag reads arg, the argument at index i of a, a flag whose name
+// starts at start, past its dashes, into fl, as Go's flag package reads
+// one: its name runs to the first = after its first byte, and its value,
+// when there is an =, from there to the end, or, for a flag that takes
+// one and has no =, is the next argument. It returns true, with the
+// exit status, when the command line ends here, as a usage error or not
+// implemented, and otherwise whether the next argument was taken as the
+// value.
+func read_flag(mut fl Flags, a []text.Text, i int64, arg []uint8, start int64) (int32, bool, bool, error) {
+    mut end := len(arg)
+    for j, b := range arg {
+        if j > start && b == '=' {
+            end = j
+            break
+        }
     }
-    return bytes.has_suffix(arg, flag[2:])
+    mut vstart := end
+    if end < len(arg) {
+        vstart = end +% 1
+    }
+    if start < 0 || start > end || end > len(arg) || vstart < 0 || vstart > len(arg) {
+        // start is below len(arg), end at most len(arg) and vstart past
+        // end only when end is below len(arg), so this does not happen.
+        return unimplemented(arg), true, false, noerror
+    }
+    code, stop, value_next := read_named(mut fl, a, i, arg, arg[start:end], end < len(arg), arg[vstart:])?
+    return code, stop, value_next, noerror
 }
 
-// dump_command carries out a command line, a, asking for the dump d,
-// whose arguments after the flags are the ones at the indexes rest
-// holds: the one input, as Go's fileArg checks it, then what the dump
-// gives for it.
-func dump_command(a []text.Text, rest []int64, d Dump) (int32, error) {
+// read_named is read_flag for arg, whose name is name and whose value,
+// when has_value says it has an =, is value.
+func read_named(mut fl Flags, a []text.Text, i int64, arg []uint8, name []uint8, has_value bool, value []uint8) (int32, bool, bool, error) {
+    if is_value_flag(name) {
+        if has_value {
+            code, done := apply_value(mut fl, name, value)?
+            return code, done, false, noerror
+        }
+        k := i +% 1
+        if k < 0 || k >= len(a) {
+            mut msg := make(list[uint8], c_allocator)
+            fmt.appendf(mut msg, "flag needs an argument: -%s", name)?
+            return usage(msg), true, false, noerror
+        }
+        code, done := apply_value(mut fl, name, a[k].bytes())?
+        return code, done, true, noerror
+    }
+    if has_value {
+        // A value given to a flag that takes none, -lex=true among
+        // them, is not read yet.
+        return unimplemented(arg), true, false, noerror
+    }
+    if bytes.equal(name, []uint8("check")) {
+        fl.check = true
+        return exit_ok, false, false, noerror
+    }
+    for k, f := range dump_flags {
+        if flag_is(name, f) && k >= 0 && k < len(fl.asked) {
+            fl.asked[k] = true
+            return exit_ok, false, false, noerror
+        }
+    }
+    return unimplemented(arg), true, false, noerror
+}
+
+// is_value_flag reports whether name is the name of a flag the port
+// reads that takes a value: --max-errors, --max-diags or --out.
+func is_value_flag(name []uint8) bool {
+    return bytes.equal(name, []uint8("max-errors")) || bytes.equal(name, []uint8("max-diags")) || bytes.equal(name, []uint8("out"))
+}
+
+// apply_value sets the flag name, one is_value_flag accepts, to value,
+// in fl, as Go's flag package sets it: --out to a path, which names one
+// when it is not empty, and --max-errors or --max-diags to an int, read
+// as Go's strconv.ParseInt reads it with base 0 and 64 bits. A value
+// that is no int is Go's usage error, which it writes, returning its
+// exit status and true; otherwise it returns false.
+func apply_value(mut fl Flags, name []uint8, value []uint8) (int32, bool, error) {
+    if bytes.equal(name, []uint8("out")) {
+        fl.has_out = len(value) > 0
+        return exit_ok, false, noerror
+    }
+    n, err := conv.parse_int(value, 0, 64)
+    if err.code != 0 {
+        mut msg := make(list[uint8], c_allocator)
+        append(mut msg, []uint8("invalid value ")...)?
+        conv.append_quote(mut msg, value)?
+        fmt.appendf(mut msg, " for flag -%s: ", name)?
+        if err.code == 7 {
+            append(mut msg, []uint8("value out of range")...)?
+        } else {
+            append(mut msg, []uint8("parse error")...)?
+        }
+        return usage(msg), true, noerror
+    }
+    if bytes.equal(name, []uint8("max-diags")) {
+        fl.max_diags = n
+        fl.diags_set = true
+    } else {
+        fl.max_errors = n
+    }
+    return exit_ok, false, noerror
+}
+
+// flag_is reports whether name, a flag's name without its dashes, is
+// flag's, written with two dashes.
+func flag_is(name []uint8, flag string) bool {
+    return len(name) +% 2 == len(flag) && bytes.has_suffix([]uint8(flag), name)
+}
+
+// command carries out a command line, a, whose flags set fl and ask for
+// the dump d, with the error limit max_errors, and whose arguments
+// after the flags are the ones at the indexes rest holds: the one
+// input, as Go's fileArg checks it, the flags checked together, as Go's
+// checkCombination checks them, and then the check or the dump. A
+// build, which the port cannot do, and a check with a dump are not
+// implemented.
+func command(a []text.Text, rest []int64, fl Flags, d Dump, max_errors int64) (int32, error) {
     if len(rest) == 0 {
         return usage([]uint8("no input file")), noerror
     }
@@ -297,12 +435,32 @@ func dump_command(a []text.Text, rest []int64, d Dump) (int32, error) {
     k := rest[0]
     if k < 0 || k >= len(a) {
         // rest holds indexes of a, so this does not happen.
-        return unimplemented([]uint8(flag_name(d))), noerror
+        return unimplemented([]uint8("(no input)")), noerror
     }
     if a[k].len() == 0 {
         return usage([]uint8("input file name is empty")), noerror
     }
-    code, e := dump_target(a[k].bytes(), d)
+    no_dump := d.n == 0
+    if fl.check && fl.has_out {
+        return usage([]uint8("--out cannot be combined with --check, which builds nothing")), noerror
+    }
+    if !fl.check && no_dump && !fl.has_out {
+        return usage([]uint8("--out is required to build a binary")), noerror
+    }
+    if !fl.check && !no_dump && fl.has_out {
+        return usage([]uint8("--out cannot be combined with a dump flag, which prints instead of building")), noerror
+    }
+    if fl.check {
+        if !no_dump {
+            return unimplemented([]uint8("--check")), noerror
+        }
+        code, e := check_target(a[k].bytes(), max_errors)
+        return code, e
+    }
+    if no_dump {
+        return unimplemented([]uint8("--out")), noerror
+    }
+    code, e := dump_target(a[k].bytes(), d, max_errors)
     return code, e
 }
 
@@ -335,21 +493,23 @@ func failed(f loader.Fail, d Dump) (int32, error) {
     return exit_failure, noerror
 }
 
-// dump_target writes the dump d of target, as Go's execute does: for
+// dump_target writes the dump d of target, with the error limit
+// max_errors, as Go's execute does: for
 // --res, the standard library is found first, and the target loaded in
 // full, as Go's load loads it, and resolved when it is a program (see
 // res_dump), or its diagnostics reported; for --lex and --ast, loading stops
 // after that stage, having read only the target's own files, and the
 // dump is written, or the target's errors. It returns the exit status.
-func dump_target(target []uint8, d Dump) (int32, error) {
+func dump_target(target []uint8, d Dump, max_errors int64) (int32, error) {
     mut l := loader.Loader{
         stop: loader.stage_none,
-        max_errors: default_max_errors,
+        max_errors: max_errors,
         builtins: false,
         has_std: false,
         std_dir: text.new(c_allocator),
         relative: false,
         cwd: text.new(c_allocator),
+        library: false,
         alloc: c_allocator,
     }
     if d == dump_lex {
@@ -393,7 +553,7 @@ func dump_target(target []uint8, d Dump) (int32, error) {
     }
     if d == dump_res {
         if res.has_program {
-            code, e := res_dump(mut res, single)
+            code, e := res_dump(mut res, single, max_errors)
             return code, e
         }
         if !diag.has_errors(res.diags) {
@@ -402,7 +562,7 @@ func dump_target(target []uint8, d Dump) (int32, error) {
         }
     }
     if diag.has_errors(res.diags) {
-        out := render_diagnostics(res.files, res.diags, default_max_errors)?
+        out := render_diagnostics(res.files, res.diags, max_errors)?
         fmt.ewrite(out)
         return exit_failure, noerror
     }
@@ -542,6 +702,7 @@ func no_result() loader.Result {
         std_dir: text.new(c_allocator),
         relative: false,
         cwd: text.new(c_allocator),
+        library: false,
         alloc: c_allocator,
     }
     return l.empty_result()
@@ -679,9 +840,9 @@ func find_std() (text.Text, loader.Fail, error) {
 // otherwise the warnings, on standard error, and the resolved tree, the
 // first tree of the first package for a single file, as Go's
 // resolvedDump takes it, and the whole program otherwise, or Go's
-// encoder's refusal of a tree nested too deeply. It returns the exit
-// status.
-func res_dump(mut res loader.Result, single bool) (int32, error) {
+// encoder's refusal of a tree nested too deeply, the diagnostics
+// rendered with the error limit max_errors. It returns the exit status.
+func res_dump(mut res loader.Result, single bool, max_errors int64) (int32, error) {
     prog := program_of(mut res.program.packages, res.program.errors)?
     resolved, mut diags := resolver.resolve(own prog, builtin.default_set(), false)?
     mut all := replace(mut res.diags, make(list[diag.Diagnostic], c_allocator))
@@ -689,7 +850,7 @@ func res_dump(mut res loader.Result, single bool) (int32, error) {
         append(mut all, replace(mut diags[i], make(diag.Diagnostic, c_allocator)))?
     }
     if diag.has_errors(all) {
-        out := render_diagnostics(res.files, all, default_max_errors)?
+        out := render_diagnostics(res.files, all, max_errors)?
         fmt.ewrite(out)
         return exit_failure, noerror
     }
@@ -713,7 +874,7 @@ func res_dump(mut res loader.Result, single bool) (int32, error) {
         return exit_failure, noerror
     }
     if len(all) > 0 {
-        w := render_diagnostics(res.files, all, default_max_errors)?
+        w := render_diagnostics(res.files, all, max_errors)?
         fmt.ewrite(w)
     }
     with_trailing_newline(mut out)?
@@ -724,15 +885,17 @@ func res_dump(mut res loader.Result, single bool) (int32, error) {
 // types_dump writes the --port-types dump of the program res holds:
 // resolved, then checked as far as the type checker goes (see package
 // typeck), whatever the stages before reported, as Go's checker runs
-// whatever they reported, and its findings written as flat JSON. What
-// the checker does not do yet is answered as not implemented.
+// whatever they reported, and its findings written as flat JSON (see
+// typeck's check_types): when only the function bodies are beyond the
+// port's checker, what its declaration phase found; what the checker
+// does not do yet before then is answered as not implemented.
 func types_dump(mut res loader.Result) (int32, error) {
     prog := program_of(mut res.program.packages, res.program.errors)?
     resolved, mut diags := resolver.resolve(own prog, builtin.default_set(), false)?
     drop(own diags)
     files := replace(mut res.files, source.new_set(c_allocator))
     mut c := typeck.new_checker(own resolved, own files)?
-    e := mut c.check()
+    e := mut c.check_types()
     if e.code == typeck.not_ported.code {
         return unimplemented([]uint8("--port-types")), noerror
     }
@@ -742,6 +905,145 @@ func types_dump(mut res loader.Result) (int32, error) {
     out := mut c.write_dump()?
     fmt.write(out)
     return exit_ok, noerror
+}
+
+// check_failed answers f, a failure Go's driver reports as an error,
+// for --check, as failed does for a dump: tack: and its text, exit
+// status 1, or, for one the port cannot word, not implemented, naming
+// --check and what f says.
+func check_failed(f loader.Fail) (int32, error) {
+    if f.unworded {
+        mut msg := make(list[uint8], c_allocator)
+        append(mut msg, []uint8("--check")...)?
+        append(mut msg, f.msg...)?
+        return unimplemented(msg), noerror
+    }
+    fmt.eprintf("tack: %s\n", f.msg[:])
+    return exit_failure, noerror
+}
+
+// check_target carries out --check, without a dump, for target, with
+// the error limit max_errors, as Go's executeCheck does: the standard
+// library is found, the target loaded in full as a library when it is a
+// directory or import path holding no main package (see loader.Loader's
+// lib), and the program checked (see check_program). A target that may
+// be std/builtin or its builtin.tck, which Go compares with the
+// compiler's own copy instead, is not implemented (see may_be_builtin_doc).
+func check_target(target []uint8, max_errors int64) (int32, error) {
+    std_dir, sf := find_std()?
+    if sf.failed {
+        code, e := check_failed(sf)
+        return code, e
+    }
+    if may_be_builtin_doc(target)? {
+        return unimplemented([]uint8("--check")), noerror
+    }
+    mut l := loader.Loader{
+        stop: loader.stage_none,
+        max_errors: max_errors,
+        builtins: true,
+        has_std: true,
+        std_dir: std_dir,
+        relative: false,
+        cwd: text.new(c_allocator),
+        library: true,
+        alloc: c_allocator,
+    }
+    mut res, _, f := load_with(mut l, target)?
+    if f.failed {
+        code, e := check_failed(f)
+        return code, e
+    }
+    code, e := check_program(mut res, max_errors)
+    return code, e
+}
+
+// may_be_builtin_doc reports whether target could be what Go's
+// checkBuiltinDoc takes apart from the loader: the directory
+// std/builtin of a module std, or its builtin.tck, directly or through a
+// symbolic link. Go resolves the links and asks which module the
+// directory is in; the port cannot resolve a link, so it answers true
+// for every target that could be one, which is then not implemented,
+// and false only where Go's answer is surely no: a target, made
+// absolute as Go's filepath.Abs makes it, that cannot be looked at; a
+// directory holding no builtin.tck; and a file that is no symbolic link
+// and is not named builtin.tck.
+func may_be_builtin_doc(target []uint8) (bool, error) {
+    abs, af := abs_path(target)?
+    if af.failed {
+        return false, noerror
+    }
+    info, err := os.stat(abs.bytes())
+    if err.code != 0 {
+        return false, noerror
+    }
+    if info.is_dir() {
+        doc := path.join(abs.bytes(), []uint8("builtin.tck"), c_allocator)?
+        _, doc_err := os.stat(doc.bytes())
+        return !loader.is_enoent(doc_err), noerror
+    }
+    base := path.base(abs.bytes(), c_allocator)?
+    if base.equal([]uint8("builtin.tck")) {
+        return true, noerror
+    }
+    link, link_err := os.lstat(abs.bytes())
+    return link_err.code != 0 || !os.same_file(link, info), noerror
+}
+
+// check_program checks the program res holds, loaded in full, with the
+// error limit max_errors, as Go's checkProgram and executeCheck do. No
+// program leaves the loader's diagnostics, rendered, exit status 1 when
+// one is an error, and otherwise written as warnings, exit status 0. A
+// program is resolved with a missing main function allowed, which is
+// reported apart (see resolver.missing_main), and then type-checked;
+// when the loader, the resolver or the type checker found an error,
+// the missing main and every diagnostic are rendered, exit status 1.
+// Otherwise Go goes on to the C backend, which the port does not have,
+// so the check is not implemented, as is a program the type checker
+// cannot check yet.
+func check_program(mut res loader.Result, max_errors int64) (int32, error) {
+    mut all := replace(mut res.diags, make(list[diag.Diagnostic], c_allocator))
+    if !res.has_program {
+        if len(all) > 0 {
+            out := render_diagnostics(res.files, all, max_errors)?
+            fmt.ewrite(out)
+        }
+        if diag.has_errors(all) {
+            return exit_failure, noerror
+        }
+        return exit_ok, noerror
+    }
+    prog := program_of(mut res.program.packages, res.program.errors)?
+    mut missing := resolver.missing_main(prog)?
+    resolved, mut rdiags := resolver.resolve(own prog, builtin.default_set(), true)?
+    for i := range len(rdiags) {
+        append(mut all, replace(mut rdiags[i], make(diag.Diagnostic, c_allocator)))?
+    }
+    files := replace(mut res.files, source.new_set(c_allocator))
+    mut c := typeck.new_checker(own resolved, own files)?
+    e := mut c.check()
+    if e.code == typeck.not_ported.code {
+        return unimplemented([]uint8("--check")), noerror
+    }
+    if e.code != 0 {
+        return exit_failure, e
+    }
+    mut tdiags := mut c.take_diags()?
+    for i := range len(tdiags) {
+        append(mut all, replace(mut tdiags[i], make(diag.Diagnostic, c_allocator)))?
+    }
+    checked, back := mut c.take_program()
+    drop(own checked)
+    if !diag.has_errors(all) {
+        // Go runs the C backend here, which the port does not have.
+        return unimplemented([]uint8("--check")), noerror
+    }
+    for i := range len(all) {
+        append(mut missing, replace(mut all[i], make(diag.Diagnostic, c_allocator)))?
+    }
+    out := render_diagnostics(back, missing, max_errors)?
+    fmt.ewrite(out)
+    return exit_failure, noerror
 }
 
 // program_of returns the program the loader built, of packages, taken

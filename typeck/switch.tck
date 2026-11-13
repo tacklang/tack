@@ -1,0 +1,690 @@
+package typeck
+
+import ast from "tack/ast"
+import conv from "std/conv"
+import fmt from "std/fmt"
+import text from "std/text"
+import types from "tack/types"
+
+// Switches, Go's switch.go and the switch on a union of union.go. An
+// expression switch is checked as the chain of ifs it means: its tag,
+// then each case's values and body in the order tried, the default
+// last; the facts each case gives the next are left to the stages that
+// port them. A switch on a union matches its cases instead. A type
+// switch is declined, as any is, and a switch on a type parameter, as
+// generics are.
+
+// check_switch checks the switch k in the function being checked, Go's
+// checkSwitch.
+func (mut c Checker) check_switch(k Key, s ast.Switch) error {
+    if s.on_type {
+        return not_ported
+    }
+    tag := sub(k, s.tag)
+    switch kind_at(c.prog.trees, tag) {
+    case type_assert:
+        return not_ported
+    default:
+    }
+    mut tag_type := types.invalid
+    if !ast.is_none(s.tag) {
+        t := mut c.expr(tag)?
+        tag_type = mut c.value_of(tag, t)?
+        plain := mut c.plain_type(tag_type)?
+        if !plain {
+            return not_ported
+        }
+    }
+    if c.table.is_union(tag_type) {
+        return mut c.check_union_switch(k, s, tag_type)
+    }
+    if tag_type != types.invalid {
+        tag_type = mut c.switch_tag_type(tag, tag_type)?
+    }
+    return mut c.check_switch_chain(k, s, tag_type)
+}
+
+// check_switch_chain checks the cases of the expression switch k, s,
+// whose tag has type tag_type, Go's loop over tryOrder in checkSwitch:
+// every case with values in source order, then the default; and then the
+// bodies a fallthrough enters, in source order, Go's checkFallenInto.
+func (mut c Checker) check_switch_chain(k Key, s ast.Switch, tag_type types.Type) error {
+    mut seen := make(map[CaseKey]Key, c_allocator)
+    n := count_items(c.prog.trees, k.unit, s.cases)
+    mut entered := make(map[Key]bool, c_allocator)
+    for i := range n {
+        f := last_stmt(c.prog.trees, item_at(c.prog.trees, k.unit, s.cases, i))
+        next, linked := c.fall_next[f]
+        if linked {
+            put(mut entered, next, true)?
+        }
+    }
+    mut def := no_key()
+    for i := range n {
+        cl := item_at(c.prog.trees, k.unit, s.cases, i)
+        if is_default(c.prog.trees, cl) {
+            if is_no_key(def) {
+                def = cl
+            }
+            continue
+        }
+        mut c.check_case(s, tag_type, cl, entered, mut seen)?
+    }
+    if !is_no_key(def) {
+        mut c.check_case(s, tag_type, def, entered, mut seen)?
+    }
+    for i := range n {
+        cl := item_at(c.prog.trees, k.unit, s.cases, i)
+        _, in := entered[cl]
+        if in {
+            mut c.check_case_body(cl, false)?
+        }
+    }
+    return noerror
+}
+
+// check_case checks one case of the expression switch s, cl: its
+// values, then its body, unless a fallthrough enters it, whose body is
+// checked after every case's values.
+func (mut c Checker) check_case(s ast.Switch, tag_type types.Type, cl Key, entered map[Key]bool, mut seen map[CaseKey]Key) error {
+    mut c.check_case_values(s, tag_type, cl, mut seen)?
+    _, in := entered[cl]
+    if in {
+        return noerror
+    }
+    return mut c.check_case_body(cl, false)
+}
+
+// is_default reports whether the clause cl is a switch's default.
+func is_default(trees []ast.File, cl Key) bool {
+    switch kind_at(trees, cl) {
+    case case_clause(c):
+        return c.is_default
+    default:
+        return false
+    }
+}
+
+// clause_of returns the CaseClause the case_clause node cl holds.
+func clause_of(trees []ast.File, cl Key) ast.CaseClause {
+    switch kind_at(trees, cl) {
+    case case_clause(c):
+        return c
+    default:
+        mut z ast.CaseClause
+        return z
+    }
+}
+
+// check_case_body checks the body of the clause cl with cl recorded as
+// the innermost case being checked, of a switch on a union when
+// on_union says so, Go's inClause around checkGuarded.
+func (mut c Checker) check_case_body(cl Key, on_union bool) error {
+    body := clause_of(c.prog.trees, cl).body
+    append(mut c.body.clauses, ClauseAt{cl: cl, on_union: on_union, deferred: c.body.deferred})?
+    e := mut c.check_block(cl.unit, body)
+    pop(mut c.body.clauses)
+    return e
+}
+
+// CaseKey identifies a constant case value for finding duplicates, Go's
+// caseKey: an integer's known value, a bool constant's, true or false,
+// or a string literal's bytes quoted, told apart by str.
+type CaseKey struct {
+    key text.Text
+    str bool
+}
+
+// check_case_values checks each value of the clause cl of the switch
+// s, whose tag has type tag_type, left to right, Go's checkCaseValues:
+// in a tagless switch each must be a bool; in an expression switch each
+// must compare with the tag, and must not repeat a constant value seen
+// earlier in the switch.
+func (mut c Checker) check_case_values(s ast.Switch, tag_type types.Type, cl Key, mut seen map[CaseKey]Key) error {
+    values := clause_of(c.prog.trees, cl).values
+    for i := range count_items(c.prog.trees, cl.unit, values) {
+        v := item_at(c.prog.trees, cl.unit, values, i)
+        if ast.is_none(s.tag) {
+            mut c.check_cond(v)?
+            continue
+        }
+        unresolved := mut c.unresolved_case(v, tag_type)?
+        if unresolved {
+            continue
+        }
+        ok := mut c.check_case_value(tag_type, v)?
+        if ok {
+            mut c.check_duplicate(v, mut seen)?
+        }
+    }
+    return noerror
+}
+
+// check_case_value checks a value v of an expression switch whose tag
+// has type tag_type, under the rules of ==, Go's checkCaseValue, and
+// reports whether it can be compared with the tag.
+func (mut c Checker) check_case_value(tag_type types.Type, v Key) (bool, error) {
+    t := mut c.expr(v)?
+    if tag_type == types.invalid || t == types.invalid {
+        return false, noerror
+    }
+    got := mut c.untyped_as(v, t, tag_type)?
+    if got == types.invalid {
+        return false, noerror
+    }
+    if types.is_integer(tag_type) && types.is_integer(got) {
+        return true, noerror
+    }
+    mut common := types.invalid
+    if types.widens(tag_type, got) {
+        common = got
+    } else if types.widens(got, tag_type) {
+        common = tag_type
+    } else {
+        a := mut c.type_name(tag_type)?
+        b := mut c.type_name(got)?
+        mut m := msg()
+        fmt.appendf(mut m, "mismatched types %s and %s in switch case", a[:], b[:])?
+        mut c.errorf(span_at(c.prog.trees, v), own m)?
+        return false, noerror
+    }
+    sup := mut c.supports(common, ast.op_eq)?
+    if !sup {
+        n := mut c.type_name(common)?
+        mut m := msg()
+        fmt.appendf(mut m, "operator == is not defined on %s", n[:])?
+        mut c.errorf(span_at(c.prog.trees, v), own m)?
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// check_duplicate reports v, a case value of an expression switch, when
+// it is a constant equal to one seen earlier in the switch, with a note
+// at that one, and otherwise records it in seen, Go's checkDuplicate.
+func (mut c Checker) check_duplicate(v Key, mut seen map[CaseKey]Key) error {
+    key, ok := mut c.case_key_of(v)?
+    if !ok {
+        return noerror
+    }
+    prev, dup := seen[key]
+    if !dup {
+        put(mut seen, key, v)?
+        return noerror
+    }
+    mut m := msg()
+    fmt.appendf(mut m, "duplicate case %s in switch", key.key.bytes())?
+    mut c.errorf(span_at(c.prog.trees, v), own m)?
+    mut n := msg()
+    fmt.appendf(mut n, "previous case")?
+    return mut c.note_last(span_at(c.prog.trees, prev), own n)
+}
+
+// case_key_of returns the key of the case value v, if it is a constant,
+// Go's caseKeyOf.
+func (mut c Checker) case_key_of(v Key) (CaseKey, bool, error) {
+    mut out := msg()
+    switch kind_at(c.prog.trees, v) {
+    case str_lit(s):
+        conv.append_quote(mut out, text_at(c.prog.trees, c.none, v.unit, s))?
+        t := text.from_bytes(out, c_allocator)?
+        return CaseKey{key: t, str: true}, true, noerror
+    default:
+    }
+    if mut c.type_of(v) == types.bool_type {
+        b, ok := mut c.fold(v)?
+        if ok && b.kind == cv_bool {
+            if b.b {
+                append(mut out, []uint8("true")...)?
+            } else {
+                append(mut out, []uint8("false")...)?
+            }
+            t := text.from_bytes(out, c_allocator)?
+            return CaseKey{key: t, str: false}, true, noerror
+        }
+        return CaseKey{key: text.new(c_allocator), str: false}, false, noerror
+    }
+    i, known := mut c.known_value(v)?
+    if !known {
+        return CaseKey{key: text.new(c_allocator), str: false}, false, noerror
+    }
+    i.append_string(mut out)?
+    t := text.from_bytes(out, c_allocator)?
+    return CaseKey{key: t, str: false}, true, noerror
+}
+
+// switch_tag_type returns tag_type, the type of tag, a switch's tag
+// other than a union, when a switch can compare it with its cases, and
+// invalid otherwise, having reported why, Go's switchTagType.
+func (mut c Checker) switch_tag_type(tag Key, tag_type types.Type) (types.Type, error) {
+    ok := mut c.comparable(tag_type)?
+    if !ok {
+        n := mut c.type_name(tag_type)?
+        mut m := msg()
+        fmt.appendf(mut m, "operator == is not defined on %s", n[:])?
+        mut c.errorf(span_at(c.prog.trees, tag), own m)?
+        return types.invalid, noerror
+    }
+    owned := c.table.owned(tag_type)?
+    if owned {
+        n := mut c.type_name(tag_type)?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot switch on %s, which holds a list; compare it with == in an if instead", n[:])?
+        mut c.errorf(span_at(c.prog.trees, tag), own m)?
+        return types.invalid, noerror
+    }
+    return tag_type, noerror
+}
+
+// unresolved_case reports v, a value of a case of an expression switch
+// whose tag, of type tag_type, is no union, when the resolver left any
+// of it as a union's pattern, Go's unresolvedCase, and reports whether v
+// was such a value, which is then checked no further.
+func (mut c Checker) unresolved_case(v Key, tag_type types.Type) (bool, error) {
+    switch kind_at(c.prog.trees, v) {
+    case ident(nm):
+        if len(text_at(c.prog.trees, c.none, v.unit, nm.pkg)) > 0 || nm.def.is_value() {
+            return false, noerror
+        }
+        if tag_type != types.invalid {
+            mut c.unresolved_value(v, nm)?
+        }
+        return true, noerror
+    case call(cl):
+        fnk := sub(v, cl.fn)
+        fnm, is_name := ident_at(c.prog.trees, fnk)
+        if !is_name || len(text_at(c.prog.trees, c.none, v.unit, fnm.pkg)) > 0 || cl.spread {
+            return false, noerror
+        }
+        callee_bad := !fnm.def.is_func() && cl.conv == types.invalid
+        mut is_bind := false
+        mut arg := no_key()
+        if count_items(c.prog.trees, v.unit, cl.args) == 1 {
+            arg = item_at(c.prog.trees, v.unit, cl.args, 0)
+            anm, is_arg := ident_at(c.prog.trees, arg)
+            is_bind = is_arg && len(text_at(c.prog.trees, c.none, v.unit, anm.pkg)) == 0 && !anm.def.is_value()
+        }
+        if !callee_bad && !is_bind {
+            return false, noerror
+        }
+        if tag_type == types.invalid {
+            return true, noerror
+        }
+        if callee_bad && cl.conv == types.invalid {
+            mut m := msg()
+            mut nm_text := msg()
+            append(mut nm_text, text_at(c.prog.trees, c.none, v.unit, fnm.name)...)?
+            if fnm.def.kind == ast.def_type || fnm.def.kind == ast.def_type_param {
+                fmt.appendf(mut m, "cannot call %s; it is a type", nm_text[:])?
+            } else if fnm.def.kind == ast.def_import {
+                fmt.appendf(mut m, "%s is a package, not a function", nm_text[:])?
+            } else {
+                fmt.appendf(mut m, "undefined: %s", nm_text[:])?
+            }
+            mut c.errorf(span_at(c.prog.trees, fnk), own m)?
+        }
+        if is_bind {
+            anm, _ := ident_at(c.prog.trees, arg)
+            mut c.unresolved_value(arg, anm)?
+            return true, noerror
+        }
+        for i := range count_items(c.prog.trees, v.unit, cl.args) {
+            mut c.discard(item_at(c.prog.trees, v.unit, cl.args, i))?
+        }
+        return true, noerror
+    default:
+        return false, noerror
+    }
+}
+
+// unresolved_value reports nm, at k, a name of a pattern used as a
+// value, as the resolver reports a value, Go's unresolvedValue.
+func (mut c Checker) unresolved_value(k Key, nm ast.Ident) error {
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, k.unit, nm.name)...)?
+    mut m := msg()
+    _, is_type := types.lookup(name)
+    if nm.def.kind == ast.def_type || nm.def.kind == ast.def_type_param {
+        fmt.appendf(mut m, "cannot use %s as a value; it is a type", name[:])?
+    } else if nm.def.kind == ast.def_import {
+        fmt.appendf(mut m, "%s is a package, not a value", name[:])?
+    } else if bytes_equal(name, []uint8("_")) {
+        fmt.appendf(mut m, "cannot use _ as a value")?
+    } else if is_type {
+        fmt.appendf(mut m, "cannot use %s as a value; it is a type", name[:])?
+    } else {
+        fmt.appendf(mut m, "undefined: %s", name[:])?
+    }
+    return mut c.errorf(span_at(c.prog.trees, k), own m)
+}
+
+// Pattern is a case value of a switch on a union, Go's ast.CasePattern:
+// the name of the case it names and the name it binds, or no key, and
+// whether the value is a pattern at all.
+type CasePat struct {
+    name Key
+    bind Key
+    ok bool
+}
+
+// case_pattern returns what the value v is as a pattern, Go's
+// ast.CasePattern: a name not qualified and not _, or a name and one
+// name in parentheses, neither qualified, with no spread.
+func (mut c Checker) case_pattern(v Key) CasePat {
+    switch kind_at(c.prog.trees, v) {
+    case ident(nm):
+        if len(text_at(c.prog.trees, c.none, v.unit, nm.pkg)) > 0 || bytes_equal(text_at(c.prog.trees, c.none, v.unit, nm.name), []uint8("_")) {
+            return CasePat{name: no_key(), bind: no_key(), ok: false}
+        }
+        return CasePat{name: v, bind: no_key(), ok: true}
+    case call(cl):
+        fnk := sub(v, cl.fn)
+        fnm, is_name := ident_at(c.prog.trees, fnk)
+        if !is_name || len(text_at(c.prog.trees, c.none, v.unit, fnm.pkg)) > 0 || count_items(c.prog.trees, v.unit, cl.args) != 1 || cl.spread {
+            return CasePat{name: no_key(), bind: no_key(), ok: false}
+        }
+        arg := item_at(c.prog.trees, v.unit, cl.args, 0)
+        anm, is_arg := ident_at(c.prog.trees, arg)
+        if !is_arg || len(text_at(c.prog.trees, c.none, v.unit, anm.pkg)) > 0 {
+            return CasePat{name: no_key(), bind: no_key(), ok: false}
+        }
+        return CasePat{name: fnk, bind: arg, ok: true}
+    default:
+        return CasePat{name: no_key(), bind: no_key(), ok: false}
+    }
+}
+
+// check_union_switch checks a switch on the union typ, Go's
+// checkUnionSwitch: its coverage, then each clause in the order tried,
+// its patterns and its body, and a clause's variable nothing reads.
+func (mut c Checker) check_union_switch(k Key, s ast.Switch, typ types.Type) error {
+    tag := sub(k, s.tag)
+    resolved := mut c.resolve_cases(typ, span_at(c.prog.trees, tag))?
+    if !resolved {
+        return noerror
+    }
+    covered := mut c.check_coverage(k, s, typ)?
+    mut seen := make(map[text.Text]Key, c_allocator)
+    n := count_items(c.prog.trees, k.unit, s.cases)
+    mut def := no_key()
+    for i := range n {
+        cl := item_at(c.prog.trees, k.unit, s.cases, i)
+        if is_default(c.prog.trees, cl) {
+            if is_no_key(def) {
+                def = cl
+            }
+            continue
+        }
+        mut c.union_clause(typ, cl, covered, mut seen)?
+    }
+    if !is_no_key(def) {
+        mut c.union_clause(typ, def, covered, mut seen)?
+    }
+    return noerror
+}
+
+// union_clause checks one clause cl of a switch on the union typ whose
+// patterns cover every case when covered says so: its patterns, a
+// default that never runs, its body, and its variable when nothing
+// reads it.
+func (mut c Checker) union_clause(typ types.Type, cl Key, covered bool, mut seen map[text.Text]Key) error {
+    mut c.check_patterns(typ, cl, mut seen)?
+    clause := clause_of(c.prog.trees, cl)
+    if clause.is_default && covered {
+        // Go goes on to check the body with inCoveredDefault counted,
+        // which only an unreachable reads; the port declines that.
+        n := mut c.type_name(typ)?
+        mut m := msg()
+        fmt.appendf(mut m, "every case of %s is already covered, so this default never runs", n[:])?
+        mut c.errorf(span_at(c.prog.trees, cl), own m)?
+    }
+    mut c.check_case_body(cl, true)?
+    if ast.is_none(clause.var_node) {
+        return noerror
+    }
+    vk := sub(cl, clause.var_node)
+    if decl_type_of(c.decl_types, vk) == types.invalid {
+        return noerror
+    }
+    read := mut c.reads(cl.unit, clause.body, vk)?
+    if read {
+        return noerror
+    }
+    v := var_of(c.prog.trees, vk)
+    mut m := msg()
+    fmt.appendf(mut m, "declared and not used: %s", text_at(c.prog.trees, c.none, vk.unit, v.name)[:])?
+    return mut c.unusedf(v.name_span, own m)
+}
+
+// reads reports whether a name in body, in the tree unit, at any depth,
+// refers to the variable v, Go's reads.
+func (mut c Checker) reads(unit int64, body ast.Nodes, v Key) (bool, error) {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for i := range count_items(c.prog.trees, unit, body) {
+        append(mut stack, item_at(c.prog.trees, unit, body, i).node)?
+    }
+    for len(stack) > 0 {
+        top, ok := pop(mut stack)
+        if !ok {
+            return false, noerror
+        }
+        k := Key{unit: unit, node: top}
+        nm, is_id := ident_at(c.prog.trees, k)
+        if is_id && nm.def.kind == ast.def_var && key_of_def(nm.def) == v {
+            _, cleared := c.pattern_cleared[k]
+            if !cleared {
+                return true, noerror
+            }
+        }
+        clear_nodes(mut kids)
+        children_of(c.prog.trees, unit, top, mut kids)?
+        for _, kid := range kids {
+            append(mut stack, kid)?
+        }
+    }
+    return false, noerror
+}
+
+// check_patterns checks the values of the clause cl of a switch on the
+// union typ, each a pattern naming one of its cases, none named earlier
+// in the switch, Go's checkPatterns, and gives the variable the clause
+// binds, if any, its payload's type.
+func (mut c Checker) check_patterns(typ types.Type, cl Key, mut seen map[text.Text]Key) error {
+    clause := clause_of(c.prog.trees, cl)
+    mut bound := false
+    nv := count_items(c.prog.trees, cl.unit, clause.values)
+    for i := range nv {
+        v := item_at(c.prog.trees, cl.unit, clause.values, i)
+        p := mut c.case_pattern(v)
+        if !p.ok {
+            n := mut c.type_name(typ)?
+            mut m := msg()
+            fmt.appendf(mut m, "a case of a switch on %s names one of its cases, as in case ", n[:])?
+            mut c.example_pattern(typ, mut m)?
+            mut c.errorf(span_at(c.prog.trees, v), own m)?
+            continue
+        }
+        switch kind_at(c.prog.trees, v) {
+        case call:
+            put(mut c.conv_cleared, v, true)?
+        default:
+        }
+        put(mut c.pattern_cleared, p.name, true)?
+        nm, _ := ident_at(c.prog.trees, p.name)
+        mut name := msg()
+        append(mut name, text_at(c.prog.trees, c.none, p.name.unit, nm.name)...)?
+        uc, _, found := c.table.find_case(typ, name)
+        if !found {
+            n := mut c.type_name(typ)?
+            mut m := msg()
+            fmt.appendf(mut m, "%s has no case %s", n[:], name[:])?
+            mut c.errorf(span_at(c.prog.trees, p.name), own m)?
+            continue
+        }
+        mut c.not_twice(name, v, mut seen)?
+        if !is_no_key(p.bind) {
+            b := mut c.check_binding(cl, clause, uc, name, p.bind, nv)?
+            bound = b || bound
+        }
+    }
+    if !ast.is_none(clause.var_node) && !bound {
+        mut c.set_decl_type(sub(cl, clause.var_node), types.invalid)?
+    }
+    return noerror
+}
+
+// example_pattern appends the pattern an error suggests for the union
+// typ, Go's examplePattern.
+func (mut c Checker) example_pattern(typ types.Type, mut out list[uint8]) error {
+    first, ok := c.table.cases(typ)[0]
+    if !ok {
+        append(mut out, []uint8("eof")...)?
+        return noerror
+    }
+    append(mut out, c.table.text(first.name.start, first.name.end)...)?
+    if first.payload {
+        append(mut out, []uint8("(v)")...)?
+    }
+    return noerror
+}
+
+// not_twice reports v, a pattern naming the case name, when an
+// earlier pattern of the switch named it too, with a note at that one,
+// and otherwise records it, Go's notTwice.
+func (mut c Checker) not_twice(name []uint8, v Key, mut seen map[text.Text]Key) error {
+    t := text.from_bytes(name, c_allocator)?
+    prev, dup := seen[t]
+    if !dup {
+        put(mut seen, t, v)?
+        return noerror
+    }
+    mut m := msg()
+    fmt.appendf(mut m, "%s appears twice in this switch", name[:])?
+    mut c.errorf(span_at(c.prog.trees, v), own m)?
+    mut n := msg()
+    fmt.appendf(mut n, "previous case")?
+    return mut c.note_last(span_at(c.prog.trees, prev), own n)
+}
+
+// check_binding checks bind, the binding of a pattern naming uc, the
+// case called name, in the clause cl, which has nv values, Go's
+// checkBinding, gives the clause's variable the payload's type, and
+// reports whether it did.
+func (mut c Checker) check_binding(cl Key, clause ast.CaseClause, uc types.Case, name []uint8, bind Key, nv int64) (bool, error) {
+    bnm, _ := ident_at(c.prog.trees, bind)
+    mut bname := msg()
+    append(mut bname, text_at(c.prog.trees, c.none, bind.unit, bnm.name)...)?
+    bsp := span_at(c.prog.trees, bind)
+    mut m := msg()
+    if !uc.payload {
+        fmt.appendf(mut m, "%s has no payload to bind; write case %s", name[:], name[:])?
+        mut c.errorf(bsp, own m)?
+        return false, noerror
+    }
+    if bytes_equal(bname, []uint8("_")) {
+        fmt.appendf(mut m, "every name is _, so nothing is bound; write case %s", name[:])?
+        mut c.errorf(bsp, own m)?
+        return false, noerror
+    }
+    if nv > 1 {
+        fmt.appendf(mut m, "a clause naming several cases binds nothing; write %s, or give %s(%s) a clause of its own", name[:], name[:], bname[:])?
+        mut c.errorf(bsp, own m)?
+        return false, noerror
+    }
+    _, is_type := types.lookup(bname)
+    if is_type {
+        fmt.appendf(mut m, "cannot use %s as a name; it is a type", bname[:])?
+        mut c.errorf(bsp, own m)?
+        return false, noerror
+    }
+    if !bnm.def.is_none() {
+        if bnm.def.kind == ast.def_import {
+            fmt.appendf(mut m, "%s is an imported package and cannot be redeclared", bname[:])?
+            mut c.errorf(bsp, own m)?
+            return false, noerror
+        }
+        if bnm.def.kind == ast.def_unbound || bnm.def.kind == ast.def_builtin {
+            // Go notes the span of what the name is bound to, which a
+            // builtin or nothing has none of in the port's tree.
+            return false, not_ported
+        }
+        fmt.appendf(mut m, "%s is already declared", bname[:])?
+        mut c.errorf(bsp, own m)?
+        mut n := msg()
+        fmt.appendf(mut n, "previous declaration of %s", bname[:])?
+        return false, mut c.note_last(name_span_of(c.prog.trees, key_of_def(bnm.def)), own n)
+    }
+    if ast.is_none(clause.var_node) {
+        return false, noerror
+    }
+    plain := mut c.plain_type(uc.typ)?
+    if !plain {
+        return false, not_ported
+    }
+    mut c.set_decl_type(sub(cl, clause.var_node), uc.typ)?
+    return uc.typ != types.invalid, noerror
+}
+
+// check_coverage reports the switch k, s, on the union typ, when its
+// patterns neither cover every case nor does it have a default, listing
+// the cases it misses, at its header, Go's checkCoverage; it records
+// that it covers every case without a default, Go's Exhaustive, and
+// reports whether its patterns cover every case.
+func (mut c Checker) check_coverage(k Key, s ast.Switch, typ types.Type) (bool, error) {
+    mut named := make(map[text.Text]bool, c_allocator)
+    mut has_default := false
+    mut bad := false
+    for i := range count_items(c.prog.trees, k.unit, s.cases) {
+        cl := item_at(c.prog.trees, k.unit, s.cases, i)
+        clause := clause_of(c.prog.trees, cl)
+        has_default = has_default || clause.is_default
+        bad = bad || clause.bad
+        for j := range count_items(c.prog.trees, cl.unit, clause.values) {
+            p := mut c.case_pattern(item_at(c.prog.trees, cl.unit, clause.values, j))
+            if p.ok {
+                nm, _ := ident_at(c.prog.trees, p.name)
+                t := text.from_bytes(text_at(c.prog.trees, c.none, p.name.unit, nm.name), c_allocator)?
+                put(mut named, t, true)?
+            }
+        }
+    }
+    mut missing := msg()
+    mut count int64 = 0
+    for _, uc := range c.table.cases(typ) {
+        mut name := msg()
+        append(mut name, c.table.text(uc.name.start, uc.name.end)...)?
+        t := text.from_bytes(name, c_allocator)?
+        _, has := named[t]
+        if !has {
+            if count > 0 {
+                append(mut missing, []uint8(", ")...)?
+            }
+            append(mut missing, name...)?
+            count +%= 1
+        }
+    }
+    if has_default {
+        return count == 0, noerror
+    }
+    if count == 0 {
+        put(mut c.exhaustive, k, true)?
+        return true, noerror
+    }
+    if bad {
+        return false, noerror
+    }
+    mut header := span_at(c.prog.trees, k)
+    header.end = span_at(c.prog.trees, sub(k, s.tag)).end
+    n := mut c.type_name(typ)?
+    mut m := msg()
+    mut word := "case"
+    mut pronoun := "it"
+    if count > 1 {
+        word = "cases"
+        pronoun = "them"
+    }
+    fmt.appendf(mut m, "switch on %s misses %s %s; cover %s or add a default", n[:], word, missing[:], pronoun)?
+    mut c.errorf(header, own m)?
+    return false, noerror
+}

@@ -1,0 +1,361 @@
+package loader
+
+import bytes from "std/bytes"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import lexer from "tack/lexer"
+import modfile from "tack/modfile"
+import parser from "tack/parser"
+import path from "std/path"
+import source from "tack/source"
+import text from "std/text"
+
+// Libraries, Go's lib.go: with Loader.library set, a directory that holds no
+// main package is loaded as a library, every package at or below it.
+
+// is_lib reports whether a directory is to be loaded as a library, Go's
+// isLib: l.library is set, and reading the directory's Tack files, files,
+// found none, f, or found a package other than main. A failure the port
+// cannot word is no library: it is answered as it is.
+func (l Loader) is_lib(files []source.File, f Fail) (bool, error) {
+    if !l.library {
+        return false, noerror
+    }
+    if f.failed {
+        return f.no_tack && !f.unworded, noerror
+    }
+    name, ok := clause_name(files, l.alloc)?
+    return ok && !name.equal([]uint8(main_package)), noerror
+}
+
+// load_lib loads, into res, the library at dir in mod, taken over, Go's
+// loadLib: every package in a directory at or below dir, in the byte
+// order of their paths, that is not a main package, with everything
+// each imports, as one Program whose packages are each listed after
+// those it imports. A directory whose name starts with a dot is left
+// out, with everything below it, as is one holding a tack.mod of its
+// own, another module's root, and std/builtin, which only holds a copy
+// of the builtins' documentation. A main package is left out too. files
+// and c_files, taken over, are dir's own, already read, when has_read
+// says so.
+//
+// No package to load is a failure, saying whether there were only main
+// packages. With l.stop set, res gets the tokens or trees of every
+// package loaded as the library's own, and none of what they import.
+func (l Loader) load_lib(mut res Result, own mod Module, dir []uint8, own files list[source.File], own c_files list[text.Text], has_read bool) (Fail, error) {
+    mut dirs, saw_tests, f := l.package_dirs(dir)?
+    if f.failed {
+        return f, noerror
+    }
+    mut g := new_lib_graph(l, own mod)?
+    mut own_files := files
+    mut own_c := c_files
+    mut unread := has_read
+    mut loaded_any := false
+    mut saw_main := false
+    for i := range len(dirs) {
+        d := replace(mut dirs[i], text.new(l.alloc))
+        p := g.mod.path_of(d.bytes(), l.alloc)?
+        if p.equal([]uint8(builtin_path)) {
+            // std/builtin holds a copy of the builtins' documentation,
+            // built into the compiler, which is never compiled; it is no
+            // package to check.
+            continue
+        }
+        mut use_read := false
+        if unread && bytes.equal(d.bytes(), dir) {
+            use_read = true
+            unread = false
+        }
+        rf := replace(mut own_files, make(list[source.File], l.alloc))
+        rc := replace(mut own_c, make(list[text.Text], l.alloc))
+        is_main, af := mut g.add_dir(l, mut res, d.bytes(), p.bytes(), own rf, own rc, use_read)?
+        if af.failed {
+            return af, noerror
+        }
+        saw_main = saw_main || is_main
+        loaded_any = loaded_any || !is_main
+        if g.abort.failed {
+            return replace(mut g.abort, no_fail(l.alloc)), noerror
+        }
+        if g.stopped {
+            // The package, or one it imports, failed to lex, or left
+            // nothing to load, which is reported; there is no program.
+            diags := replace(mut g.diags, make(list[diag.Diagnostic], l.alloc))
+            report(mut res, stage_load, own diags)?
+            return no_fail(l.alloc), noerror
+        }
+    }
+    if !loaded_any {
+        nf := l.no_library(dir, saw_main, saw_tests)?
+        return nf, noerror
+    }
+    mut g.finish_lib(l, mut res)?
+    return no_fail(l.alloc), noerror
+}
+
+// new_lib_graph returns a Graph for a library in mod, taken over, which
+// has no main package: its packages are added as roots (see add_root).
+func new_lib_graph(l Loader, own mod Module) (Graph, error) {
+    mut std := no_module(l.alloc)
+    if l.has_std {
+        std = l.std_module()?
+    }
+    return Graph{
+        has_mod: true,
+        mod: mod,
+        has_std: l.has_std,
+        std: std,
+        main_path: text.new(l.alloc),
+        main_name: text.new(l.alloc),
+        seen: make(list[Seen], l.alloc),
+        stack: make(list[Frame], l.alloc),
+        paths: make(list[text.Text], l.alloc),
+        order: make(list[Package], l.alloc),
+        diags: make(list[diag.Diagnostic], l.alloc),
+        stopped: false,
+        abort: no_fail(l.alloc),
+    }, noerror
+}
+
+// finish_lib records in res what g, once every package of the library
+// it loads is added, found, Go's finishLib: the program, the
+// diagnostics found loading it, or both, as finish gives a program's,
+// the program counting the diagnostics in its errors; or only the
+// diagnostics when no package could be loaded at all; or neither when
+// loading stopped at l.stop, having recorded what was asked for.
+func (mut g Graph) finish_lib(l Loader, mut res Result) error {
+    diags := replace(mut g.diags, make(list[diag.Diagnostic], l.alloc))
+    report(mut res, stage_load, own diags)?
+    if l.stop == stage_none && len(g.order) > 0 {
+        packages := replace(mut g.order, make(list[Package], l.alloc))
+        res.program = Program{packages: packages, errors: len(res.diags)}
+        res.has_program = true
+    }
+    return noerror
+}
+
+// add_dir adds the package in the directory d, whose import path is p,
+// to the library g loads, as add_root does, unless an earlier package
+// imports it and so loaded it already, or it is a main package, which
+// it reports, Go's addDir. files and c_files, taken over, are d's own,
+// already read, when has_read says so; otherwise they are read here, a
+// failure to read them returned.
+func (mut g Graph) add_dir(l Loader, mut res Result, d []uint8, p []uint8, own files list[source.File], own c_files list[text.Text], has_read bool) (bool, Fail, error) {
+    loading, _, seen := seen_state(g.seen, g.find(p))
+    if seen && !loading {
+        return false, no_fail(l.alloc), noerror
+    }
+    mut fs := files
+    mut cs := c_files
+    if !has_read {
+        read, read_c, f := l.read_package_files(res, d)?
+        if f.failed {
+            return false, f, noerror
+        }
+        fs = read
+        cs = read_c
+    }
+    name, ok := clause_name(fs, l.alloc)?
+    if ok && name.equal([]uint8(main_package)) {
+        return true, no_fail(l.alloc), noerror
+    }
+    mut g.add_root(l, mut res, d, p, own fs, own cs)?
+    return false, no_fail(l.alloc), noerror
+}
+
+// add_root loads the package whose files, read from the directory d,
+// are files, with the C files c_files, both taken over, as one of a
+// library's own, with import path p, and everything it imports, Go's
+// addRoot. Syntax errors in its files are recorded, and it is added with
+// bad nodes where they were. It is not added when its files fail to
+// lex, or leave nothing to load, which sets g.stopped, as a package it
+// imports failing to does; when loading stops at l.stop, having
+// recorded them; or when its package clauses are wrong, which is
+// recorded in g.diags.
+func (mut g Graph) add_root(l Loader, mut res Result, d []uint8, p []uint8, own files list[source.File], own c_files list[text.Text]) error {
+    mut pkg, ok := l.parse_package(mut res, own files)?
+    if !ok {
+        // Stopping at l.stop goes on to the next package; a failure to
+        // load stops loading, as it does for an import.
+        g.stopped = l.stop == stage_none
+        return noerror
+    }
+    mut diags := l.check_clauses(d, p, pkg)?
+    if len(diags) > 0 {
+        for i := range len(diags) {
+            append(mut g.diags, replace(mut diags[i], make(diag.Diagnostic, l.alloc)))?
+        }
+        return noerror
+    }
+    mut pkg.path.append(p)?
+    mut pkg.module.append(g.mod.name.bytes())?
+    mut pkg.dir.append(d)?
+    pkg.c_files = c_files
+    pt := text_of(p, l.alloc)?
+    append(mut g.seen, Seen{path: pt, loading: true, index: -1})?
+    k := len(g.seen) -% 1
+    on_stack := text_of(p, l.alloc)?
+    append(mut g.paths, on_stack)?
+    append(mut g.stack, Frame{pkg: pkg, file: 0, imp: 0, seen: k, root: true})?
+    for !g.stopped && !g.abort.failed {
+        done := mut g.step(l, mut res)?
+        if done {
+            break
+        }
+    }
+    return noerror
+}
+
+// no_library returns the failure for a library at dir with no package
+// to load, Go's noLibrary: none at all, which says so when saw_tests
+// says test files were found, as read_package_files's failure does, or,
+// when saw_main says so, only main packages.
+func (l Loader) no_library(dir []uint8, saw_main bool, saw_tests bool) (Fail, error) {
+    mut msg := make(list[uint8], l.alloc)
+    shown := l.display(dir)?
+    if saw_main {
+        fmt.appendf(mut msg, "no library package in %s or below; check a main package by naming its directory", shown.bytes())?
+        return fail_with(own msg), noerror
+    }
+    if saw_tests {
+        fmt.appendf(mut msg, "no .tck files other than test files in %s or below", shown.bytes())?
+    } else {
+        fmt.appendf(mut msg, "no .tck files in %s or below", shown.bytes())?
+    }
+    mut nf := fail_with(own msg)
+    nf.no_tack = true
+    return nf, noerror
+}
+
+// package_dirs returns dir and every directory below it, in the byte
+// order of their paths, that holds a Tack file, leaving out a directory
+// whose name starts with a dot and one below dir holding a tack.mod,
+// with everything below either, and std's root, which is a module of
+// its own, Go's packageDirs. It also reports whether any directory it
+// looked in holds a test file. Go recurses down the tree; here a list
+// of the directories still to scan stands for its stack, each
+// directory's subdirectories pushed in reverse so the first is scanned
+// next, which visits them, and meets any failure, in Go's order.
+func (l Loader) package_dirs(dir []uint8) (list[text.Text], bool, Fail, error) {
+    mut dirs := make(list[text.Text], l.alloc)
+    mut tests := false
+    mut todo := make(list[text.Text], l.alloc)
+    start := text_of(dir, l.alloc)?
+    append(mut todo, start)?
+    for len(todo) > 0 {
+        d, has := pop(mut todo)
+        if !has {
+            break
+        }
+        mut scan, f := l.scan_dir(d.bytes())?
+        if f.failed {
+            return make(list[text.Text], l.alloc), false, f, noerror
+        }
+        tests = tests || scan.has_tests
+        mut subs := replace(mut scan.subs, make(list[text.Text], l.alloc))
+        n := len(subs)
+        for j := range n {
+            k := n -% 1 -% j
+            if k >= 0 && k < len(subs) {
+                append(mut todo, replace(mut subs[k], text.new(l.alloc)))?
+            }
+        }
+        if scan.has_tack {
+            append(mut dirs, d)?
+        }
+    }
+    return dirs, tests, no_fail(l.alloc), noerror
+}
+
+// DirScan is what scan_dir finds in one directory, Go's dirScan: the
+// paths of the directories in it to look in for more, whether it holds
+// a Tack file of a package (see is_package_file), and whether it holds a
+// test file.
+type DirScan struct {
+    subs list[text.Text]
+    has_tack bool
+    has_tests bool
+}
+
+// scan_dir reads the directory dir and reports what it holds, Go's
+// scanDir: whether it holds a Tack file of a package, a test file not
+// counting, whether it holds a test file, and the paths of the
+// directories in it to look in for more, in byte order, those whose
+// names do not start with a dot and that are not a module's root. A
+// name starting with a dot is left out, a test file's included.
+func (l Loader) scan_dir(dir []uint8) (DirScan, Fail, error) {
+    mut scan := DirScan{subs: make(list[text.Text], l.alloc), has_tack: false, has_tests: false}
+    entries, f := read_dir(dir, l.alloc)?
+    if f.failed {
+        w := l.cannot_read_dir(dir, own f)?
+        return scan, w, noerror
+    }
+    // read_dir gives the entries sorted by name, so subs is in byte
+    // order.
+    for _, e := range entries {
+        if bytes.has_prefix(e.name.bytes(), []uint8(".")) {
+            continue
+        }
+        if !e.dir {
+            scan.has_tack = scan.has_tack || is_package_file(e.name.bytes())
+            scan.has_tests = scan.has_tests || is_test_file(e.name.bytes())
+            continue
+        }
+        sub := path.join(dir, e.name.bytes(), l.alloc)?
+        nested, nf := l.is_module_root(sub.bytes())?
+        if nf.failed {
+            return DirScan{subs: make(list[text.Text], l.alloc), has_tack: false, has_tests: false}, nf, noerror
+        }
+        if !nested {
+            append(mut scan.subs, sub)?
+        }
+    }
+    return scan, no_fail(l.alloc), noerror
+}
+
+// is_module_root reports whether the directory d is the root of a
+// module, Go's isModuleRoot: it holds a tack.mod, or it is std's root.
+func (l Loader) is_module_root(d []uint8) (bool, Fail, error) {
+    if l.is_std_root(d)? {
+        return true, no_fail(l.alloc), noerror
+    }
+    entries, f := read_dir(d, l.alloc)?
+    if f.failed {
+        w := l.cannot_read_dir(d, own f)?
+        return false, w, noerror
+    }
+    for _, e := range entries {
+        if e.name.equal([]uint8(modfile.name)) {
+            return true, no_fail(l.alloc), noerror
+        }
+    }
+    return false, no_fail(l.alloc), noerror
+}
+
+// clause_name returns the name the first of files, the files of one
+// package, gives in its package clause, lexing and parsing it apart from
+// any Result, Go's clauseName. Errors elsewhere in the file do not hide
+// the clause: the lexer drops what it cannot read and the parser
+// recovers, so a library with a syntax error is still a library, its
+// errors reported when the package is loaded. It returns false when no
+// clause can be found. It lexes a copy of the file, since lexing takes
+// the file over to record its line starts.
+func clause_name(files []source.File, alloc Allocator) (text.Text, bool, error) {
+    for _, f := range files {
+        mut data := make(list[uint8], alloc)
+        append(mut data, f.data...)?
+        name := text_of(f.filename.bytes(), alloc)?
+        mut c := source.new_file(f.id, own name, own data, alloc)
+        toks, lex_diags := lexer.lex(mut c, alloc)?
+        drop(own lex_diags)
+        tree, has_tree, parse_diags := parser.parse(f.id, own toks, 0, alloc)?
+        drop(own parse_diags)
+        if !has_tree || len(tree.text(tree.package_name)) == 0 {
+            return text.new(alloc), false, noerror
+        }
+        t := text_of(tree.text(tree.package_name), alloc)?
+        return t, true, noerror
+    }
+    return text.new(alloc), false, noerror
+}

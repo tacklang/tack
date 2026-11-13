@@ -1,0 +1,296 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import types from "tack/types"
+
+// The nodes of the --port-types dump, written once bodies are checked:
+// every node of every tree, each tree's declarations in order and each
+// node before the nodes it holds, in the order Go's ast.Walk visits them
+// (see ast.children), with what the checker recorded on it. A case
+// clause, a field and a union's case, nodes here but parts of their
+// node in Go, are left out, as Go's walk visits no node for them.
+//
+// Each node is an object of its kind, Go's type name; its type, Go's
+// ast.TypeOf of an expression and the Type of a variable or a
+// parameter, 0 for anything else; its constant, the Const of a binary, a
+// unary, a call or a variable, as the dump writes a constant (see
+// write_const), null for anything else; the type a call converts to,
+// conv; the type a name was narrowed to, narrowed; whether a switch on a
+// union names every case, exhaustive; and whether a variable is one a
+// fields loop unrolled, unrolled. A switch on a type parameter's
+// TypeCases, and what a fields loop unrolled, are generics', which the
+// port declines, and are not written.
+
+// write_nodes appends the nodes of every tree to out, as a list.
+func (mut c Checker) write_nodes(mut out list[uint8]) error {
+    append(mut out, '[')?
+    mut first := true
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for u := range len(c.prog.trees) {
+        clear_nodes(mut stack)
+        mut i := tree_decl_count(c.prog.trees, u) -% 1
+        for i >= 0 {
+            append(mut stack, tree_decl(c.prog.trees, u, i))?
+            i -%= 1
+        }
+        for len(stack) > 0 {
+            top, ok := pop(mut stack)
+            if !ok {
+                break
+            }
+            k := Key{unit: u, node: top}
+            name := node_kind_name(c.prog.trees, k)
+            if len(name) > 0 {
+                if !first {
+                    append(mut out, ',')?
+                }
+                first = false
+                mut c.write_node(mut out, k, name)?
+            }
+            clear_nodes(mut kids)
+            children_of(c.prog.trees, u, top, mut kids)?
+            mut j := len(kids) -% 1
+            for j >= 0 {
+                kid, has := kids[j]
+                if has {
+                    append(mut stack, kid)?
+                }
+                j -%= 1
+            }
+        }
+    }
+    append(mut out, ']')?
+    return noerror
+}
+
+// tree_decl_count returns how many declarations the tree unit has.
+func tree_decl_count(trees []ast.File, unit int64) int64 {
+    if unit < 0 || unit >= len(trees) {
+        return 0
+    }
+    return len(trees[unit].decls)
+}
+
+// tree_decl returns the i'th declaration of the tree unit, or the
+// sentinel.
+func tree_decl(trees []ast.File, unit int64, i int64) id[ast.Node] {
+    mut z id[ast.Node]
+    if unit < 0 || unit >= len(trees) {
+        return z
+    }
+    d, ok := trees[unit].decls[i]
+    if !ok {
+        return z
+    }
+    return d
+}
+
+// write_node appends the object of the node k, of the kind name.
+func (mut c Checker) write_node(mut out list[uint8], k Key, name string) error {
+    mut typ := types.invalid
+    mut conv := types.invalid
+    mut has_const := false
+    mut cv := no_const()
+    mut exhaustive := false
+    switch kind_at(c.prog.trees, k) {
+    case var_decl:
+        typ = decl_type_of(c.decl_types, k)
+        v, ok := c.var_consts[k]
+        has_const = ok
+        cv = v
+    case param_decl:
+        typ = decl_type_of(c.decl_types, k)
+    case call(cl):
+        _, cleared := c.conv_cleared[k]
+        if !cleared {
+            conv = cl.conv
+        }
+        typ = mut c.node_type(k)
+        v, ok := c.consts[k]
+        has_const = ok
+        cv = v
+    case binary, unary:
+        typ = mut c.node_type(k)
+        v, ok := c.consts[k]
+        has_const = ok
+        cv = v
+    case switch_stmt:
+        _, ex := c.exhaustive[k]
+        exhaustive = ex
+    default:
+        if is_expr_kind(c.prog.trees, k) {
+            typ = mut c.node_type(k)
+        }
+    }
+    fmt.appendf(mut out, "{\"kind\":\"%s\",\"type\":%d,\"const\":", name, typ.number())?
+    if has_const {
+        mut c.write_const(mut out, cv)?
+    } else {
+        append(mut out, []uint8("null")...)?
+    }
+    fmt.appendf(mut out, ",\"conv\":%d,\"narrowed\":0,\"exhaustive\":", conv.number())?
+    write_bool(mut out, exhaustive)?
+    fmt.appendf(mut out, ",\"unrolled\":false}")?
+    return noerror
+}
+
+// node_type returns the type of the expression k as Go's ast.TypeOf
+// gives it once checking is done: as type_of does, but for a name a
+// switch on a union took as a pattern, which Go unbinds, and a call it
+// took as one, whose conversion Go forgets.
+func (mut c Checker) node_type(k Key) types.Type {
+    _, cleared := c.pattern_cleared[k]
+    if cleared {
+        return types.invalid
+    }
+    switch kind_at(c.prog.trees, k) {
+    case call(cl):
+        _, conv_gone := c.conv_cleared[k]
+        if conv_gone && cl.conv != types.invalid {
+            return node_type_of(c.node_types, k)
+        }
+    default:
+    }
+    return mut c.type_of(k)
+}
+
+// is_expr_kind reports whether the node k is an expression, a type as
+// written among them, Go's ast.Expr.
+func is_expr_kind(trees []ast.File, k Key) bool {
+    switch kind_at(trees, k) {
+    case call, ident, str_lit, float_lit, int_lit, char_lit, bool_lit, noerror_lit, c_allocator_lit, binary, unary, type_assert, array_type, view_type, list_type, arena_type, pool_type, ref_type, map_type, func_type, composite_lit, index, slice, struct_type, selector, question, key_value, mut_arg, own_arg, func_lit, fields_of, interface_type, struct_case, union_type:
+        return true
+    default:
+        return false
+    }
+}
+
+// node_kind_name returns the name of the Go type of the node k, or ""
+// for a node of the port's that is none of Go's (see the comment at the
+// top of the file).
+func node_kind_name(trees []ast.File, k Key) string {
+    switch kind_at(trees, k) {
+    case func_decl:
+        return "Func"
+    case param_decl:
+        return "Param"
+    case var_decl:
+        return "Var"
+    case import_decl:
+        return "Import"
+    case type_decl:
+        return "TypeDecl"
+    case bad_decl:
+        return "BadDecl"
+    case type_param:
+        return "TypeParam"
+    case iface_method:
+        return "IfaceMethod"
+    case expr_stmt:
+        return "ExprStmt"
+    case return_stmt:
+        return "Return"
+    case if_stmt:
+        return "If"
+    case assign:
+        return "Assign"
+    case for_stmt:
+        return "For"
+    case break_stmt:
+        return "Break"
+    case continue_stmt:
+        return "Continue"
+    case unreachable_stmt:
+        return "Unreachable"
+    case fallthrough_stmt:
+        return "Fallthrough"
+    case inc_dec:
+        return "IncDec"
+    case multi_var:
+        return "MultiVar"
+    case multi_assign:
+        return "MultiAssign"
+    case for_range:
+        return "ForRange"
+    case switch_stmt:
+        return "Switch"
+    case defer_stmt:
+        return "Defer"
+    case region_stmt:
+        return "Region"
+    case bad_stmt:
+        return "BadStmt"
+    case call:
+        return "Call"
+    case ident:
+        return "Ident"
+    case str_lit:
+        return "StrLit"
+    case float_lit:
+        return "FloatLit"
+    case int_lit:
+        return "IntLit"
+    case char_lit:
+        return "CharLit"
+    case bool_lit:
+        return "BoolLit"
+    case noerror_lit:
+        return "NoErrorLit"
+    case c_allocator_lit:
+        return "CAllocatorLit"
+    case binary:
+        return "Binary"
+    case unary:
+        return "Unary"
+    case type_assert:
+        return "TypeAssert"
+    case array_type:
+        return "ArrayType"
+    case view_type:
+        return "ViewType"
+    case list_type:
+        return "ListType"
+    case arena_type:
+        return "ArenaType"
+    case pool_type:
+        return "PoolType"
+    case ref_type:
+        return "RefType"
+    case map_type:
+        return "MapType"
+    case func_type:
+        return "FuncType"
+    case composite_lit:
+        return "CompositeLit"
+    case index:
+        return "Index"
+    case slice:
+        return "Slice"
+    case struct_type:
+        return "StructType"
+    case selector:
+        return "Selector"
+    case question:
+        return "Question"
+    case key_value:
+        return "KeyValue"
+    case mut_arg:
+        return "MutArg"
+    case own_arg:
+        return "OwnArg"
+    case func_lit:
+        return "FuncLit"
+    case fields_of:
+        return "FieldsOf"
+    case interface_type:
+        return "InterfaceType"
+    case struct_case:
+        return "StructCase"
+    case union_type:
+        return "UnionType"
+    default:
+        return ""
+    }
+}

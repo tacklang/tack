@@ -88,6 +88,13 @@ pub type Loader struct {
     // otherwise names are shown as they are.
     pub relative bool
     pub cwd text.Text
+    // library, Go's Lib, makes dir and path load a directory that holds no
+    // main package as a library instead of rejecting it: every package
+    // at or below it in its module that is not a main package, with
+    // everything they import, in one Program with no main package (see
+    // load_lib). A directory holding a main package loads as it does
+    // without library. The driver sets it for --check.
+    pub library bool
     // alloc is what everything a load makes is made through.
     pub alloc Allocator
 }
@@ -322,9 +329,15 @@ pub func (l Loader) path(cwd []uint8, import_path []uint8) (Result, Fail, error)
 
 // load_main loads the package in dir, whose import path is import_path
 // in mod, as the main package of a program, into res, with every
-// package it imports, Go's loadMain without a library.
+// package it imports, Go's loadMain. With l.library set, a directory with
+// no Tack files, or whose files make a package other than main, is
+// loaded as a library instead (see load_lib).
 func (l Loader) load_main(mut res Result, own mod Module, dir []uint8, import_path []uint8) (Fail, error) {
     files, c_files, f := l.read_package_files(res, dir)?
+    if l.is_lib(files, f)? {
+        lf := l.load_lib(mut res, own mod, dir, own files, own c_files, !f.failed)?
+        return lf, noerror
+    }
     if f.failed {
         return f, noerror
     }

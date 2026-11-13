@@ -1,0 +1,149 @@
+package typeck
+
+import ast from "tack/ast"
+
+// Whether a block ends in a terminating statement, Go's terminates and
+// blockTerminates (check.go), which say whether a function declaring a
+// result ends in a return. The rule is syntactic, but for a call of the
+// builtin exit and a switch on a union whose clauses name every case
+// (see check_coverage). An else if is the last statement of the else of
+// the link before it, so a chain of them is walked in a loop; only the
+// nesting the source writes recurses.
+
+// block_terminates reports whether control cannot fall out of the
+// bottom of body, in the tree unit, Go's blockTerminates: whether its
+// last statement terminates. An empty body falls out.
+func (mut c Checker) block_terminates(unit int64, body ast.Nodes) (bool, error) {
+    n := count_items(c.prog.trees, unit, body)
+    if n == 0 {
+        return false, noerror
+    }
+    r := mut c.terminates(item_at(c.prog.trees, unit, body, n -% 1))?
+    return r, noerror
+}
+
+// terminates reports whether the statement k is a terminating one, Go's
+// terminates: a return; a fallthrough into the next case; a call of the
+// builtin exit; an if with an else whose branches both terminate; a loop
+// with no condition that no break leaves; a switch with a default, or on
+// a union naming every case, whose every case terminates; a region whose
+// body does.
+func (mut c Checker) terminates(k Key) (bool, error) {
+    mut cur := k
+    for {
+        switch kind_at(c.prog.trees, cur) {
+        case return_stmt, unreachable_stmt:
+            return true, noerror
+        case fallthrough_stmt:
+            _, linked := c.fall_next[cur]
+            return linked, noerror
+        case expr_stmt(s):
+            return is_exit_call(c.prog.trees, c.none, sub(cur, s.x)), noerror
+        case if_stmt(s):
+            if count_items(c.prog.trees, cur.unit, s.else_body) == 0 {
+                return false, noerror
+            }
+            then := mut c.block_terminates(cur.unit, s.then)?
+            if !then {
+                return false, noerror
+            }
+            n := count_items(c.prog.trees, cur.unit, s.else_body)
+            cur = item_at(c.prog.trees, cur.unit, s.else_body, n -% 1)
+        case for_stmt(s):
+            if !ast.is_none(s.cond) {
+                return false, noerror
+            }
+            b := mut c.breaks(cur.unit, s.body)?
+            return !b, noerror
+        case switch_stmt(s):
+            _, exhaustive := c.exhaustive[cur]
+            mut has_default := false
+            for i := range count_items(c.prog.trees, cur.unit, s.cases) {
+                has_default = has_default || is_default(c.prog.trees, item_at(c.prog.trees, cur.unit, s.cases, i))
+            }
+            if !has_default && !exhaustive {
+                return false, noerror
+            }
+            for i := range count_items(c.prog.trees, cur.unit, s.cases) {
+                cl := item_at(c.prog.trees, cur.unit, s.cases, i)
+                t := mut c.block_terminates(cl.unit, clause_of(c.prog.trees, cl).body)?
+                if !t {
+                    return false, noerror
+                }
+            }
+            return true, noerror
+        case region_stmt(s):
+            r := mut c.block_terminates(cur.unit, s.body)?
+            return r, noerror
+        default:
+            return false, noerror
+        }
+    }
+    return false, noerror
+}
+
+// is_exit_call reports whether k is a call of the builtin exit, which
+// never returns, Go's isExit.
+func is_exit_call(trees []ast.File, none []uint8, k Key) bool {
+    switch kind_at(trees, k) {
+    case call(cl):
+        nm, ok := ident_at(trees, sub(k, cl.fn))
+        return ok && nm.def.kind == ast.def_builtin && bytes_equal(text_at(trees, none, k.unit, nm.name), []uint8("exit"))
+    default:
+        return false
+    }
+}
+
+// breaks reports whether body, in the tree unit, holds a break that
+// leaves the loop body belongs to, Go's breaks: one directly in it or
+// inside an if, a switch or a region, but not one inside a nested loop.
+func (mut c Checker) breaks(unit int64, body ast.Nodes) (bool, error) {
+    for i := range count_items(c.prog.trees, unit, body) {
+        k := item_at(c.prog.trees, unit, body, i)
+        b := mut c.stmt_breaks(k)?
+        if b {
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// stmt_breaks reports whether the statement k is a break, or an if, a
+// switch or a region holding one that leaves the loop around k, an else
+// if chain walked in a loop.
+func (mut c Checker) stmt_breaks(k Key) (bool, error) {
+    mut cur := k
+    for {
+        switch kind_at(c.prog.trees, cur) {
+        case break_stmt:
+            return true, noerror
+        case region_stmt(s):
+            r := mut c.breaks(cur.unit, s.body)?
+            return r, noerror
+        case if_stmt(s):
+            t := mut c.breaks(cur.unit, s.then)?
+            if t {
+                return true, noerror
+            }
+            n := count_items(c.prog.trees, cur.unit, s.else_body)
+            if n == 1 {
+                cur = item_at(c.prog.trees, cur.unit, s.else_body, 0)
+                continue
+            }
+            r := mut c.breaks(cur.unit, s.else_body)?
+            return r, noerror
+        case switch_stmt(s):
+            for i := range count_items(c.prog.trees, cur.unit, s.cases) {
+                cl := item_at(c.prog.trees, cur.unit, s.cases, i)
+                b := mut c.breaks(cl.unit, clause_of(c.prog.trees, cl).body)?
+                if b {
+                    return true, noerror
+                }
+            }
+            return false, noerror
+        default:
+            return false, noerror
+        }
+    }
+    return false, noerror
+}

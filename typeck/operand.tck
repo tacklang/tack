@@ -777,8 +777,9 @@ func (mut c Checker) index_of(k Key, ix ast.Index, base types.Type) (types.Type,
 }
 
 // selector checks a field read as a value, x.f, whose x is a name, or a
-// union built from a case with no payload, Go's selector. A method named
-// through its type, and a fields loop's field, are a body's.
+// union built from a case with no payload, Go's selector, or a name
+// selected through a type (see method_expr). A fields loop's field is
+// declined.
 func (mut c Checker) selector(k Key, s ast.Selector) (types.Type, error) {
     _, _, built := construction(c.prog.trees, c.none, k)
     if built {
@@ -788,9 +789,9 @@ func (mut c Checker) selector(k Key, s ast.Selector) (types.Type, error) {
     if !ast.is_none(s.field) {
         return types.invalid, not_ported
     }
-    nm, _ := ident_at(c.prog.trees, sub(k, s.x))
-    if nm.def.kind == ast.def_type || nm.def.kind == ast.def_type_param {
-        return types.invalid, not_ported
+    if type_operand(c.prog.trees, c.none, sub(k, s.x)) {
+        typ := mut c.method_expr(k, s)?
+        return typ, noerror
     }
     x := mut c.expr(sub(k, s.x))?
     base := mut c.value_of(sub(k, s.x), x)?

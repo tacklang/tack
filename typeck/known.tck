@@ -128,8 +128,9 @@ func (mut c Checker) known_value(k Key) (constant.Int, bool, error) {
 }
 
 // known_var returns the value of the variable nm names, when it is an
-// immutable global with a computed integer value, Go's knownVar before
-// bodies: no local is known yet.
+// immutable global with a computed integer value or an immutable local
+// whose initializer's value is known, Go's knownVar: a local's is worked
+// out when it is declared (see note_known_local).
 func (mut c Checker) known_var(nm ast.Ident) (constant.Int, bool) {
     if nm.def.kind != ast.def_var {
         return constant.from_int64(0), false
@@ -141,6 +142,10 @@ func (mut c Checker) known_var(nm ast.Ident) (constant.Int, bool) {
     k, ok := c.var_consts[v]
     if ok && k.kind == cv_int {
         return k.i, true
+    }
+    local, noted := c.known_locals[v]
+    if noted && local.ok {
+        return local.value, true
     }
     return constant.from_int64(0), false
 }
@@ -353,28 +358,108 @@ func (mut c Checker) known_slice(s Key) (Const, bool, error) {
 
 // known_arithmetic computes arithmetic on two known values, exactly, and
 // keeps the result only if it is a value of the expression's type, Go's
-// knownArithmetic, remembering the answer for a typed binary.
+// knownArithmetic, remembering the answer for a typed binary. Go
+// recurses into the left operand, which a chain of operators makes as
+// deep as its source, so here the walk goes down the chain in a loop to
+// the first link whose value is decided without its operands (see
+// link_known), and works each link's value out on the way back up; only
+// a right operand, which nests as deeply as the parser lets it, recurses.
 func (mut c Checker) known_arithmetic(k Key, b ast.Binary) (constant.Int, bool, error) {
+    first := mut c.link_known(k, b)?
+    if first.done {
+        return first.value, first.ok, noerror
+    }
+    mut links := make(list[Key], c_allocator)
+    append(mut links, k)?
+    mut x := sub(k, b.x)
+    mut value := constant.from_int64(0)
+    mut ok := false
+    for {
+        switch kind_at(c.prog.trees, x) {
+        case binary(xb):
+            if types.is_float(mut c.type_of(x)) {
+                break
+            }
+            v, is_const := mut c.const_value(x)
+            if is_const {
+                value = v
+                ok = true
+                break
+            }
+            st := mut c.link_known(x, xb)?
+            if st.done {
+                value = st.value
+                ok = st.ok
+                break
+            }
+            append(mut links, x)?
+            x = sub(x, xb.x)
+            continue
+        default:
+            v, known := mut c.known_value(x)?
+            value = v
+            ok = known
+        }
+        break
+    }
+    mut i := len(links) -% 1
+    for i >= 0 {
+        l, has := links[i]
+        i -%= 1
+        if !has {
+            continue
+        }
+        lb := binary_at(c.prog.trees, l)
+        y, ok_y := mut c.known_value(sub(l, lb.y))?
+        typ := node_type_of(c.node_types, l)
+        mut r := constant.from_int64(0)
+        mut r_ok := false
+        if ok && ok_y {
+            r, r_ok = known_step(lb.op, value, y, typ)
+        }
+        if typ != types.invalid && typ != types.untyped_int {
+            put(mut c.known_binaries, l, KnownBinary{value: r, ok: r_ok, typ: typ})?
+        }
+        value = r
+        ok = r_ok
+    }
+    return value, ok, noerror
+}
+
+// LinkKnown is what link_known found: whether a binary's value is
+// decided without working out its operands, and the value if so.
+type LinkKnown struct {
+    done bool
+    value constant.Int
+    ok bool
+}
+
+// link_known reports whether the value of the binary b at k is decided
+// without its operands, Go's knownArithmetic before it recurses: an
+// operator that is no integer's has none, and a typed binary's value
+// worked out before is remembered.
+func (mut c Checker) link_known(k Key, b ast.Binary) (LinkKnown, error) {
     if !is_integer_op(b.op) {
-        return constant.from_int64(0), false, noerror
+        return LinkKnown{done: true, value: constant.from_int64(0), ok: false}, noerror
     }
     typ := node_type_of(c.node_types, k)
     typed := typ != types.invalid && typ != types.untyped_int
     known, seen := c.known_binaries[k]
     if typed && seen && known.typ == typ {
-        return known.value, known.ok, noerror
+        return LinkKnown{done: true, value: known.value, ok: known.ok}, noerror
     }
-    x, ok_x := mut c.known_value(sub(k, b.x))?
-    y, ok_y := mut c.known_value(sub(k, b.y))?
-    mut value := constant.from_int64(0)
-    mut ok := false
-    if ok_x && ok_y {
-        value, ok = known_step(b.op, x, y, typ)
+    return LinkKnown{done: false, value: constant.from_int64(0), ok: false}, noerror
+}
+
+// binary_at returns the Binary the binary node k holds.
+func binary_at(trees []ast.File, k Key) ast.Binary {
+    switch kind_at(trees, k) {
+    case binary(b):
+        return b
+    default:
+        mut z ast.Binary
+        return z
     }
-    if typed {
-        put(mut c.known_binaries, k, KnownBinary{value: value, ok: ok, typ: typ})?
-    }
-    return value, ok, noerror
 }
 
 // known_step computes a op b, exactly, for the arithmetic, bitwise, shift

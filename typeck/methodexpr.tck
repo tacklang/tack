@@ -1,0 +1,97 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import types from "tack/types"
+
+// Method expressions, Go's methodexpr.go: a method named through its
+// type, Pair.first, is the method as a function value, which is the
+// generics' and closures' stage's, S7, and declined; what Go reports of
+// a name selected through a type that names no method is reported here.
+
+// type_operand reports whether x names a type rather than a value, Go's
+// ast.TypeOperand: a name bound to a type's declaration or a type
+// parameter, or a basic type's name, which binds to nothing.
+func type_operand(trees []ast.File, none []uint8, x Key) bool {
+    nm, ok := ident_at(trees, x)
+    if !ok {
+        return false
+    }
+    if nm.def.kind == ast.def_type || nm.def.kind == ast.def_type_param {
+        return true
+    }
+    if !nm.def.is_none() || len(text_at(trees, none, x.unit, nm.pkg)) > 0 {
+        return false
+    }
+    _, basic := types.lookup(text_at(trees, none, x.unit, nm.name))
+    return basic
+}
+
+// method_expr checks the method expression s at k used as a value, Go's
+// methodExpr: one that names a method is a function value, declined;
+// one that names none is reported, as Go's namedMethod reports it, and
+// its type is invalid.
+func (mut c Checker) method_expr(k Key, s ast.Selector) (types.Type, error) {
+    x := sub(k, s.x)
+    nm, _ := ident_at(c.prog.trees, x)
+    written := mut c.source_text(span_at(c.prog.trees, x))?
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, k.unit, s.name)...)?
+    if nm.def.is_none() {
+        typ, _ := types.lookup(written[:])
+        _, _, is_field := c.table.find_field(typ, name[:])
+        mut m := msg()
+        if is_field {
+            fmt.appendf(mut m, "%s is a field of %s, not a method; only a method can be named through its type", name[:], written[:])?
+        } else {
+            fmt.appendf(mut m, "%s has no method %s", written[:], name[:])?
+        }
+        mut c.errorf(s.name_span, own m)?
+        return types.invalid, noerror
+    }
+    if nm.def.kind != ast.def_type {
+        // A type parameter's methods: generics, S7.
+        return types.invalid, not_ported
+    }
+    d := key_of_def(nm.def)
+    if is_interface_decl(c.prog.trees, d) {
+        whole := mut c.source_text(span_at(c.prog.trees, k))?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot use %s as a value: %s is an interface; only a struct or union type's methods are values", whole[:], written[:])?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    }
+    typ := decl_type_of(c.decl_types, d)
+    if typ == types.invalid {
+        return types.invalid, noerror
+    }
+    if has_method_in(c.prog.trees, c.none, d, name[:]) {
+        // The method as a value, or one the package cannot see: S7's.
+        return types.invalid, not_ported
+    }
+    if c.table.is_struct(typ) {
+        ok := mut c.resolve_fields(typ, span_at(c.prog.trees, k))?
+        if ok {
+            _, _, is_field := c.table.find_field(typ, name[:])
+            if is_field {
+                n := mut c.type_name(typ)?
+                mut m := msg()
+                fmt.appendf(mut m, "%s is a field of %s, not a method; only a method can be named through its type", name[:], n[:])?
+                mut c.errorf(s.name_span, own m)?
+                return types.invalid, noerror
+            }
+        }
+    }
+    if mut c.lost_method_of(typ, name[:]) {
+        return types.invalid, noerror
+    }
+    n := mut c.type_name(typ)?
+    mut m := msg()
+    if c.table.is_union(typ) {
+        fmt.appendf(mut m, "%s has no case or method %s", n[:], name[:])?
+    } else {
+        fmt.appendf(mut m, "%s has no method %s", n[:], name[:])?
+    }
+    mut c.errorf(s.name_span, own m)?
+    return types.invalid, noerror
+}
