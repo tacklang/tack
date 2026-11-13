@@ -49,19 +49,25 @@ func (h sliceHelper) name() string {
 	return "tack_slice_" + t
 }
 
-// sliceHelpers lists each helper the program's slices call, a slice bound
-// with ok included, by type and then with a high bound before without, so
-// the helpers are emitted the same way every time.
+// useSlice returns the helper s, a slice being lowered, calls, as the
+// binding in force makes its type, and records it as one the program
+// calls. A slice in a generic function's body is lowered once for each
+// instance, so its type is the instance's, never one made of an unbound
+// type parameter, and a slice in code that is never lowered, a case of a
+// switch on a type parameter no instance runs, calls none.
+func (g *generator) useSlice(typ types.Type, s *ast.Slice) sliceHelper {
+	h := sliceHelper{typ: g.prog.Types.Bound(typ), from: s.Hi == nil}
+	g.slices[h] = true
+	return h
+}
+
+// sliceHelpers lists each helper the lowered slices call (see useSlice),
+// a slice bound with ok included, by type and then with a high bound
+// before without, so the helpers are emitted the same way every time.
+// Every body is lowered before it is called.
 func (g *generator) sliceHelpers() []sliceHelper {
-	used := make(map[sliceHelper]bool)
-	g.walk(func(n ast.Node) bool {
-		if s, ok := n.(*ast.Slice); ok {
-			used[sliceHelper{typ: s.Type, from: s.Hi == nil}] = true
-		}
-		return true
-	})
-	helpers := make([]sliceHelper, 0, len(used))
-	for h := range used {
+	helpers := make([]sliceHelper, 0, len(g.slices))
+	for h := range g.slices {
 		helpers = append(helpers, h)
 	}
 	slices.SortFunc(helpers, func(a, b sliceHelper) int {
@@ -117,7 +123,7 @@ func (g *generator) sliceExpr(s *ast.Slice, call *ast.Call) (string, []diag.Diag
 	if len(diags) > 0 {
 		return "", diags
 	}
-	h := sliceHelper{typ: s.Type, from: s.Hi == nil}
+	h := g.useSlice(s.Type, s)
 	return g.sequencedAs(operands, rendered, ctypes, func(ops []string) string {
 		args := []string{ops[0], "0"}
 		for i, b := range operands[1:] {
@@ -208,7 +214,7 @@ func (g *generator) sliceValues(s *ast.Slice) (multiSource, []diag.Diagnostic) {
 		src.temps = append(src.temps, multiTemp{typ: g.cType(ast.TypeOf(b)), init: rendered[i+1]})
 	}
 	zero := g.zeroValue(types.String)
-	h := sliceHelper{typ: types.String, from: s.Hi == nil}
+	h := g.useSlice(types.String, s)
 	src.field = func(tmps []string, i int) string {
 		x, lo, hi := tmps[0], "0", ""
 		args := []string{x}

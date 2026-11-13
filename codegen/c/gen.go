@@ -121,6 +121,9 @@ func (backend) Generate(prog *ast.Program, builtins *builtin.Set) ([]byte, []dia
 		inPlace:  make(map[*ast.Var]bool),
 		thunked:  make(map[*ast.Func]bool),
 		reflect:  make(map[*ast.Var]reflectField),
+		slices:   make(map[sliceHelper]bool),
+
+		equalities: make(map[types.Type]bool),
 	}
 	for _, pkg := range prog.Packages {
 		for _, decl := range pkg.Decls() {
@@ -174,6 +177,15 @@ type generator struct {
 	// the field its variable stands for in the block being lowered (see
 	// fields.go).
 	reflect map[*ast.Var]reflectField
+
+	// slices holds each helper the slices lowered so far call (see
+	// useSlice), equalities each type whose equality helper the code
+	// lowered so far calls (see useEquality), and comparesText whether
+	// it compares two strings, so only what lowered code calls is
+	// emitted.
+	slices       map[sliceHelper]bool
+	equalities   map[types.Type]bool
+	comparesText bool
 
 	// thunks are the functions of several results named as values, in
 	// the order first met, whose thunks are written after the
@@ -535,7 +547,7 @@ func (g *generator) emitConstantPool(builtins []builtin.Func, globals []global) 
 		g.emitFloatNarrowing()
 	}
 
-	// Each slice helper is emitted only when the program slices its type,
+	// Each slice helper is emitted only when lowered code slices its type,
 	// with or without a high bound.
 	for _, h := range g.sliceHelpers() {
 		g.emitSliceHelper(h)
@@ -3175,6 +3187,7 @@ func (g *generator) binaryOf(bin *ast.Binary, left, right string) string {
 		return g.arrayComparison(bin, left, right)
 	}
 	if ast.TypeOf(bin.X) == types.String {
+		g.comparesText = true
 		return stringComparison(bin.Op, left, right)
 	}
 	if g.prog.Types.IsHandle(ast.TypeOf(bin.X)) {

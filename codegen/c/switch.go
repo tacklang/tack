@@ -333,11 +333,12 @@ func (g *generator) valueTest(
 	case g.isComposite(typ):
 		return fmt.Sprintf(
 			"%s(&%s, %s)",
-			g.equalityName(typ),
+			g.useEquality(typ),
 			tagRef,
 			g.addressOf(v, typ, value),
 		), nil
 	case typ == types.String:
+		g.comparesText = true
 		return fmt.Sprintf("%s(%s, %s) == 0", stringCompareName, tagRef, value), nil
 	case g.prog.Types.IsHandle(typ):
 		return fmt.Sprintf("tack_handle_eq_(%s, %s)", tagRef, value), nil
@@ -366,19 +367,6 @@ func (g *generator) intTest(typ types.Type, tagRef string, v ast.Expr, value str
 		rendered = test([]string{value})
 	}
 	return rendered[1 : len(rendered)-1]
-}
-
-// switchCompares returns the type of the tag when n is an expression
-// switch that compares its tag with at least one value, with ==, so that
-// the type's equality helper, or the string comparison helper, is
-// emitted. A type switch compares type ids, and needs neither, and a
-// switch on a type parameter compares nothing at run time.
-func switchCompares(n ast.Node) (types.Type, bool) {
-	s, ok := n.(*ast.Switch)
-	if !ok || s.Tag == nil || !hasValues(s) || s.IsTypeSwitch() || s.OnType {
-		return types.Invalid, false
-	}
-	return ast.TypeOf(s.Tag), true
 }
 
 // paramSwitch lowers s, a switch in fn on a type parameter, as the body

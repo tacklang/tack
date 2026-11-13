@@ -41,10 +41,10 @@
 //     tack_string, TACK_C_STR_LEN, tack_error, tack_any and its type ids,
 //     which includes only those three;
 //   - a C struct for every array, view, list, struct and union type, then
-//     tack_compare_strings if the program compares strings, directly or
-//     inside an array, a struct or a union, then an equality helper for
-//     every array, list, struct and union type == compares, and every one
-//     of those types they are made of, then a free helper
+//     tack_compare_strings if the lowered code compares strings, directly
+//     or inside an array, a struct or a union, then an equality helper for
+//     every array, list, struct and union type == compares in lowered code,
+//     and every one of those types they are made of, then a free helper
 //     for every union type that holds a list and every list type whose
 //     elements are owned;
 //   - the string pool: every distinct string the program uses, each as a
@@ -385,11 +385,15 @@
 //
 // A slice, x[i:j], is a call to a helper for its type, tack_slice_string
 // or tack_slice_N for the view type N, or tack_slice_from_ either when j is
-// left out and the helper reads the length itself; each is emitted only
-// when the program uses it. The helper moves the pointer by i only when i
-// is not 0, so the null pointer of a zero string in a zeroed struct, or of
-// its bytes' view, is never moved, which C leaves undefined even by 0; any
-// i past 0 is at most a length that is not 0, so the pointer is not null.
+// left out and the helper reads the length itself, N the view type an
+// instance's binding makes the slice's; each is emitted only when the
+// lowered code calls it, so a slice in code never lowered, a generic
+// function no call instantiates or a case no instance runs, asks for no
+// helper, of a type C may have no name for. The helper moves the pointer
+// by i only when i is not 0, so the null pointer of a zero string in a
+// zeroed struct, or of its bytes' view, is never moved, which C leaves
+// undefined even by 0; any i past 0 is at most a length that is not 0, so
+// the pointer is not null.
 // An array is viewed whole first, (tack_view_N){place.e, n}, and copied
 // first under the rule for a view argument when the slice is one. What is
 // sliced and the bounds are the helper's arguments, sequenced left to

@@ -32,10 +32,11 @@ func (g *generator) emitStringCompare() {
 	g.buf.WriteString("}\n\n")
 }
 
-// comparesStrings reports whether the program compares two strings, with
-// any operator, keys a map by strings, whose helpers compare its keys, or
-// compares an array or a struct, among compared, that holds a string,
-// whose equality helper then compares strings in turn.
+// comparesStrings reports whether the lowered code compares two strings,
+// with any operator (see comparesText), keys a map by strings, whose
+// helpers compare its keys, or compares an array or a struct, among
+// compared, that holds a string, whose equality helper then compares
+// strings in turn.
 func (g *generator) comparesStrings(compared map[types.Type]bool) bool {
 	if slices.Contains(g.keyTypes(), types.String) {
 		return true
@@ -47,18 +48,7 @@ func (g *generator) comparesStrings(compared map[types.Type]bool) bool {
 			}
 		}
 	}
-	found := false
-	g.walk(func(n ast.Node) bool {
-		if bin, ok := n.(*ast.Binary); ok && bin.Op.IsComparison() &&
-			ast.TypeOf(bin.X) == types.String {
-			found = true
-		}
-		if typ, ok := switchCompares(n); ok && typ == types.String {
-			found = true
-		}
-		return !found
-	})
-	return found
+	return g.comparesText
 }
 
 // stringComparison renders l op r, two strings compared with op, as the

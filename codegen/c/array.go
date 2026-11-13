@@ -167,7 +167,7 @@ func (g *generator) lenValue(call *ast.Call) (string, []diag.Diagnostic) {
 // addresses (see addressOf), parenthesized as every comparison is.
 func (g *generator) arrayComparison(bin *ast.Binary, left, right string) string {
 	typ := ast.TypeOf(bin.X)
-	eq := fmt.Sprintf("%s(%s, %s)", g.equalityName(typ),
+	eq := fmt.Sprintf("%s(%s, %s)", g.useEquality(typ),
 		g.addressOf(bin.X, typ, left), g.addressOf(bin.Y, typ, right))
 	if bin.Op == ast.Ne {
 		return "(!" + eq + ")"

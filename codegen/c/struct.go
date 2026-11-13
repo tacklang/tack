@@ -175,21 +175,26 @@ func (g *generator) emitStructDef(typ types.Type) {
 }
 
 // comparedTypes returns every array, struct, union and list type the
-// program compares with == or !=, and every such type they are made of,
-// which their helpers compare in turn. emitTypes adds the key types of
-// maps, whose helpers compare keys.
+// lowered code compares with == or != (see useEquality), and every such
+// type they are made of, which their helpers compare in turn. emitTypes
+// adds the key types of maps, whose helpers compare keys. Every body is
+// lowered before it is called, so code never lowered, a generic function
+// no call instantiates or a case of a switch on a type parameter no
+// instance runs, asks for no helper.
 func (g *generator) comparedTypes() map[types.Type]bool {
 	compared := make(map[types.Type]bool)
-	g.walk(func(n ast.Node) bool {
-		if bin, ok := n.(*ast.Binary); ok && (bin.Op == ast.Eq || bin.Op == ast.Ne) {
-			g.markCompared(ast.TypeOf(bin.X), compared)
-		}
-		if typ, ok := switchCompares(n); ok && !g.isUnionSwitch(n.(*ast.Switch)) {
-			g.markCompared(typ, compared)
-		}
-		return true
-	})
+	for typ := range g.equalities {
+		g.markCompared(typ, compared)
+	}
 	return compared
+}
+
+// useEquality returns the name of the equality helper of the type typ
+// stands for, as the binding in force makes it, and records that the
+// lowered code calls it (see comparedTypes).
+func (g *generator) useEquality(typ types.Type) string {
+	g.equalities[g.prog.Types.Bound(typ)] = true
+	return g.equalityName(typ)
 }
 
 // markCompared records in compared that values of typ, and of every type

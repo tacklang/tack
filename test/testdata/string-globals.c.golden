@@ -6,16 +6,6 @@ stage: ok
 #include <stdint.h>
 #include <tack/tack.h>
 
-static int tack_compare_strings(tack_string a, tack_string b) {
-    int64_t n = a.len < b.len ? a.len : b.len;
-    for (int64_t i = 0; i < n; i++) {
-        if (a.ptr[i] != b.ptr[i]) {
-            return a.ptr[i] < b.ptr[i] ? -1 : 1;
-        }
-    }
-    return (a.len > b.len) - (a.len < b.len);
-}
-
 static const unsigned char tack_str0[4] = {97, 98, 99, 0};
 static const unsigned char tack_str1[4] = {97, 98, 100, 0};
 static const unsigned char tack_str2[1] = {0};

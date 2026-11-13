@@ -28,29 +28,6 @@ typedef struct {
     int64_t e[2];
 } tack_array_24;
 
-static int tack_compare_strings(tack_string a, tack_string b) {
-    int64_t n = a.len < b.len ? a.len : b.len;
-    for (int64_t i = 0; i < n; i++) {
-        if (a.ptr[i] != b.ptr[i]) {
-            return a.ptr[i] < b.ptr[i] ? -1 : 1;
-        }
-    }
-    return (a.len > b.len) - (a.len < b.len);
-}
-
-static bool tack_eq_20(const tack_4_main5_Point *a, const tack_4_main5_Point *b) {
-    return a->f_x == b->f_x && a->f_y == b->f_y;
-}
-
-static bool tack_eq_23(const tack_array_23 *a, const tack_array_23 *b) {
-    for (int64_t i = 0; i < 3; i++) {
-        if (!(tack_compare_strings(a->e[i], b->e[i]) == 0)) {
-            return false;
-        }
-    }
-    return true;
-}
-
 static const unsigned char tack_str0[5] = {122, 101, 114, 111, 0};
 static const unsigned char tack_str1[4] = {111, 110, 101, 0};
 static const unsigned char tack_str2[4] = {116, 119, 111, 0};
