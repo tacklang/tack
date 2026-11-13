@@ -90,6 +90,11 @@
 //     whose --check output holds the backend's errors, and on those
 //     with no error before the backend, warnings aside, whose --check
 //     output the backend decides too (see Type checker stages).
+//   - probes runs the same on each program of testdata/probes, the
+//     probes of reviews that found the port giving other output than
+//     Go where no case of the corpus did, each kept so that it stays
+//     covered; TestProbesPairStack runs them again with the port's stack
+//     held to pairStack KB.
 //   - check-clean runs the same on each package input that is no case of
 //     an archive: the examples, std and the port's driver. Go accepts
 //     nearly all of them and runs its backend on each it accepts, so
@@ -282,12 +287,13 @@
 // TestTypes checks what the port's type checker finds, for every input
 // of the corpus, single files and packages, the port's own driver among
 // them, that the Go compiler accepts with no error, and for every case
-// of check-decls, check-core and check-calls, the type checker's cases
-// whose stage is S1, the declarations, S2a, statements and expressions,
-// or S2b, calls and containers, and of check-own, S6, ownership, once
-// check-own is in required.txt (until S3 to S5 are ported, some cases of
-// check-own, which also need the facts or the arithmetic, are declined:
-// a case is of the highest stage it needs, and S6 orders after them):
+// of check-decls, check-core, check-calls and check-facts, the type
+// checker's cases whose stage is S1, the declarations, S2a, statements
+// and expressions, S2b, calls and containers, or S3, facts, and of
+// check-own, S6, ownership, once check-own is in required.txt (until S4
+// and S5 are ported, some cases of check-own, which also need the
+// arithmetic or the loops, are declined: a case is of the highest stage
+// it needs, and S6 orders after them):
 // each loaded, resolved and checked in process by this module's loader,
 // resolver and checker, typeck.New(...).Check(), as --port-types checks
 // it, whatever the stages before reported. Any other input of the corpus
@@ -318,9 +324,9 @@
 // port that answers --port-types is not implemented skips, unless
 // types-decls, the check's name, is in
 // required.txt, as it is, where then it fails. An input whose Go typed
-// tree's stage is S1, S2a or S2b (see Type checker stages), or S6 once
-// check-own is in required.txt, must dump in the phase "bodies" when
-// types-bodies is in required.txt, as it is: the port's body check
+// tree's stage is S1, S2a, S2b or S3 (see Type checker stages), or S6
+// once check-own is in required.txt, must dump in the phase "bodies"
+// when types-bodies is in required.txt, as it is: the port's body check
 // covers every such input. TestTypesDeep runs the
 // same check on declaration chains a hundred thousand links long, which
 // have no nesting limit and which Go's checker walks with a frame a
@@ -336,9 +342,14 @@
 // compares its cases, on bodies nested as deeply as the parser allows,
 // in every statement that holds a block and in parenthesized, negated
 // and array literal expressions, and on chains a hundred thousand links
-// long, else ifs, statements, && chains, locals each the next's value,
-// an else if chain each of whose branches returns, and a selector down a
-// chain of structs each holding the next; and on calls: calls, method
+// long, else ifs, statements, && chains, in a value and in an if's
+// condition, locals each the next's value, an else if chain each of whose
+// branches returns, early exits each giving the rest of their block a
+// fact, an else if chain each of whose conditions gives the next link a
+// fact, and a selector down a chain of structs each holding the next,
+// and an else if chain of early exits each giving the statement after it
+// a fact, two thousand links long, which Go's checker takes time
+// quadratic in; and on calls: calls, method
 // calls, calls of a method expression and struct literals nested in each
 // other's arguments as deeply as the parser allows, with an invalid or an
 // untyped constant at the bottom too, chains of method calls ten thousand
@@ -371,19 +382,26 @@
 // receiver, a call of a method expression, an operator's left and right
 // operands, !, parentheses, an array literal's element and a struct
 // literal's field read back, a union's payload, a ?, a value passed as
-// any, a conversion, and a value tested in an if and a switch; and of
-// values that own a list, a call and a method call taking one as own,
-// a call taking another variable as own beside it, a struct literal's
-// owned field, and replace, each with a place of its own. swap and drop
-// give no value, and nest in nothing. Each pair
-// runs as a valid nest and as one with a value of the wrong type at its
-// bottom, under --check, compared as check-core compares its cases, and
-// as a nest in a program Go accepts, under --port-types, compared as
+// any, a conversion, a value tested in an if and a switch, the right
+// side of an && and of an || whose left side gives it a fact, and an
+// element whose index the facts around it prove in range; and of values
+// that own a list, a call and a method call taking one as own, a call
+// taking another variable as own beside it, a struct literal's owned
+// field, and replace, each with a place of its own. swap and drop give
+// no value, and nest in nothing. Each pair
+// runs as a valid nest, as one with a value of the wrong type at its
+// bottom and as one with an untyped constant there, under --check,
+// compared as check-core compares its cases, and under --port-types,
+// compared as TestTypes compares a case of the type checker's, and as a
+// nest in a program Go accepts, under --port-types, compared as
 // TestTypes compares it in the phase "bodies", the port's stack held to
 // deepStack KB, and each --check nest again at pairStack KB, 3.5 MB:
 // every level of every construct must cost the port's checker less than
 // that over the nesting limit, which leaves half a megabyte of deepStack
-// for what later stages add.
+// for what later stages add. Four pairs, an || whose
+// facts an && around it asks for and the && it holds, are nested a
+// quarter as deeply: Go's checker takes time cubic in their depth, and
+// each of their routes is nested to the limit in its other pairs.
 //
 // # Deep nesting
 //

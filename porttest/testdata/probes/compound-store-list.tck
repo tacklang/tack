@@ -1,0 +1,18 @@
+package main
+
+func bump(mut i int64) float64 {
+    i = 7
+    return 1.0
+}
+
+func main() {
+    mut xs := make(list[float64], c_allocator)
+    mut i := 0
+    i = 0
+    if 0 <= i && i < len(xs) {
+        xs[i] += bump(mut i)
+    }
+    if 0 <= i && i < len(xs) {
+        xs[i] = bump(mut i)
+    }
+}

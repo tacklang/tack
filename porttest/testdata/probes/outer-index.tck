@@ -1,0 +1,14 @@
+package main
+
+func use(v int64) {
+}
+
+func f(a [4]int64, b [4]int64, i int64) {
+    v, ok := a[b[i]]
+    if ok {
+        use(v)
+    }
+}
+
+func main() {
+}

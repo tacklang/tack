@@ -1,0 +1,10 @@
+package main
+
+func main() {
+    mut xs := make(list[int64], c_allocator)
+    ys := make(list[int64], c_allocator)
+    err := append(mut xs, ys...)
+    if err.code != 0 { return }
+    x := 1
+    x = 2
+}

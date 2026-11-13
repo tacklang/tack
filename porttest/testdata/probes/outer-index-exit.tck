@@ -1,0 +1,40 @@
+package main
+
+func use(v int64) {
+}
+
+func f(a [4]int64, i int64, k bool) {
+    if i < 0 {
+        exit(1)
+    }
+    if i > 3 {
+        if k {
+            exit(2)
+        } else {
+            return
+        }
+    }
+    use(a[i])
+    if i == 2 {
+        exit(3)
+    } else if i == 1 {
+        exit(4)
+    }
+    use(a[i])
+    switch {
+    case k:
+        exit(5)
+    default:
+    }
+    use(a[i])
+    for k {
+        if i == 0 {
+            exit(0)
+        }
+        use(a[i])
+    }
+    use(a[5])
+}
+
+func main() {
+}

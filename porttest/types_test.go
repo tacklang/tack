@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"math"
+	"math/big"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,6 +17,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"unsafe"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/builtin"
@@ -32,7 +34,7 @@ const typesCheck = "types-decls"
 
 // bodiesCheck is the name in required.txt of TestTypes's check that the
 // port checks every body of an input whose Go typed tree's stage is S1,
-// S2a or S2b (see treeStage): its dump must be of the phase "bodies".
+// S2a, S2b or S3 (see treeStage): its dump must be of the phase "bodies".
 const bodiesCheck = "types-bodies"
 
 // TestTypes checks what the port's type checker finds, so far in its
@@ -67,6 +69,10 @@ func TestTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	facts, err := checkInputs(stageFacts)
+	if err != nil {
+		t.Fatal(err)
+	}
 	owns, err := checkInputs(stageOwn)
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +87,8 @@ func TestTypes(t *testing.T) {
 		}{
 			{"single", singles, true}, {"packages", pkgs, true},
 			{"check-decls", decls, false}, {"check-core", core, false},
-			{"check-calls", calls, false}, {"check-own", owns, false},
+			{"check-calls", calls, false}, {"check-facts", facts, false},
+			{"check-own", owns, false},
 		} {
 			if group.name == checkStageInfo[stageOwn].stage && !env.required[group.name] {
 				// A declined case's errors are its bodies', which the
@@ -162,12 +169,12 @@ func checkTypes(t *testing.T, in input, portBin string, clean bool) (bool, []str
 }
 
 // bodiesStage reports whether stage, a Go typed tree's (see treeStage),
-// is one whose every body the port's body check covers: S1, S2a or S2b,
-// and S6, ownership, ported beside S3 to S5, once check-own is in
-// required.txt: until then some of its inputs need the facts, and the
-// port declines them.
+// is one whose every body the port's body check covers: S1, S2a, S2b or
+// S3, and S6, ownership, once check-own is in required.txt: until then
+// some of its inputs need the arithmetic or the loops, and the port
+// declines them.
 func bodiesStage(stage checkStage) bool {
-	return stage <= stageCalls || stage == stageOwn && env.required[checkStageInfo[stageOwn].stage]
+	return stage <= stageFacts || stage == stageOwn && env.required[checkStageInfo[stageOwn].stage]
 }
 
 // typesDiff returns how got, the port's dump, differs from want, Go's,
@@ -518,8 +525,9 @@ func typeList(ts []types.Type) []any {
 	return out
 }
 
-// constEntry returns the dump's form of a global's computed value, as
-// the port's typeck/dump.tck describes it.
+// constEntry returns the dump's form of a global's computed value, or
+// of an operator's constant, as the port's typeck/dump.tck describes it:
+// an untyped float's exact value in lowest terms (see floatRat).
 func constEntry(v any) any {
 	switch x := v.(type) {
 	case nil:
@@ -544,6 +552,8 @@ func constEntry(v any) any {
 		return map[string]any{"list": items}
 	case ast.UnionConst:
 		return map[string]any{"union": x.Case, "payload": constEntry(x.Payload)}
+	case constant.Float:
+		return map[string]any{"float": floatRat(x).RatString()}
 	default:
 		return map[string]any{"unknown": fmt.Sprintf("%T", v)}
 	}
@@ -684,4 +694,17 @@ func TestTypesDeep(t *testing.T) {
 			}
 		})
 	}
+}
+
+// floatRat returns the exact value an untyped float constant holds. The
+// type keeps it in an unexported *big.Rat, nil for zero, and has no
+// accessor for it, constant being frozen, so it is read through reflect;
+// it is never written.
+func floatRat(x constant.Float) *big.Rat {
+	v := reflect.ValueOf(&x).Elem().Field(0)
+	r := *(**big.Rat)(unsafe.Pointer(v.UnsafeAddr()))
+	if r == nil {
+		return new(big.Rat)
+	}
+	return r
 }

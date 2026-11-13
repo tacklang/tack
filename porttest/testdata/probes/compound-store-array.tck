@@ -1,0 +1,18 @@
+package main
+
+func bump(mut i int64) float64 {
+    i = 7
+    return 1.0
+}
+
+func main() {
+    mut xs := [4]float64{1.0, 2.0, 3.0, 4.0}
+    mut i := 0
+    i = 0
+    if 0 <= i && i < 4 {
+        xs[i] += bump(mut i)
+    }
+    if 0 <= i && i < 4 {
+        xs[i] = bump(mut i)
+    }
+}
