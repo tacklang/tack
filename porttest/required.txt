@@ -1,0 +1,5 @@
+# The stages the port must implement, one name a line. A stage named here
+# fails, instead of skipping, when the port answers that it is not
+# implemented, so a stage the port implements cannot quietly stop
+# working. A stage is added once the port implements it.
+backends

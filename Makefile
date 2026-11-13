@@ -8,7 +8,7 @@ BIN := bin/tack
 BUILTIN_DOC := builtin/builtin.tck
 RUNTIME_HEADER := builtin/runtime/tack/tack.h
 
-.PHONY: build install install-std std-copies unicode-tables test fuzz-progen fmt lint
+.PHONY: build install install-std std-copies unicode-tables test port-test fuzz-progen fmt lint
 
 # build compiles the compiler into $(BIN).
 build:
@@ -60,6 +60,17 @@ unicode-tables:
 # that compile and run generated C, which need clang on PATH.
 test:
 	go test -race ./...
+
+# port-test checks the Tack compiler written in Tack, the port, against
+# this one, stage by stage, with the tests of porttest. The port's source
+# tree is $TACK_PORT, ../tack by default; TACK_PORT_BIN names a built
+# port instead, and TACK_GO a built Go compiler, relative paths taken
+# from this directory. Stages the port does not implement yet skip unless
+# porttest/required.txt names them. TestPort runs only with
+# TACK_PORT_TEST=1 and -count=1: go test cannot see a change to the port
+# or to the binaries, so a cached result could pass a broken port.
+port-test:
+	TACK_PORT_TEST=1 go test -count=1 ./porttest
 
 # FUZZTIME is how long `make fuzz-progen` fuzzes for.
 FUZZTIME := 10m

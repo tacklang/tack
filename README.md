@@ -97,6 +97,7 @@ make install     # installs tack into $GOBIN, or $GOPATH/bin if unset, and std
 make install-std # installs only the standard library, src/std
 make unicode-tables # regenerates std/unicode's tables from Go's unicode
 make test        # runs go test -race ./...
+make port-test   # checks the Tack port in ../tack against this compiler
 ```
 
 The compiler needs its standard library, `src/std`, installed beside it:
