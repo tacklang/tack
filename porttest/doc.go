@@ -201,7 +201,10 @@
 // one does; S2b with a call that is no conversion, a mut or own
 // argument, a type assertion, a ? or a value or type of a list, map,
 // arena, pool, view, id, span, handle, any or error; S3 with an index or
-// a divisor that is not a constant; S4 with integer arithmetic, a unary
+// a divisor that is not a constant, or a read of a variable that a
+// binding of an error holds, or that the ok of a checked pop or remove
+// holds, which Go's checker allows only once the facts in force prove
+// the error or the ok checked; S4 with integer arithmetic, a unary
 // operator or a compound assignment with no constant value, an
 // increment or decrement, a slice, a conversion of a value whose type
 // does not widen to the target's, or a conversion in its checked form;
@@ -279,8 +282,9 @@
 // TestTypes checks what the port's type checker finds, for every input
 // of the corpus, single files and packages, the port's own driver among
 // them, that the Go compiler accepts with no error, and for every case
-// of check-decls and check-core, the type checker's cases whose stage is
-// S1, the declarations, or S2a, statements and expressions:
+// of check-decls, check-core and check-calls, the type checker's cases
+// whose stage is S1, the declarations, S2a, statements and expressions,
+// or S2b, calls and containers:
 // each loaded, resolved and checked in process by this module's loader,
 // resolver and checker, typeck.New(...).Check(), as --port-types checks
 // it, whatever the stages before reported. Any other input of the corpus
@@ -310,7 +314,7 @@
 // port that answers --port-types is not implemented skips, unless
 // types-decls, the check's name, is in
 // required.txt, as it is, where then it fails. An input whose Go typed
-// tree's stage is S1 or S2a (see Type checker stages) must dump in the
+// tree's stage is S1, S2a or S2b (see Type checker stages) must dump in the
 // phase "bodies" when types-bodies is in required.txt, as it is: the
 // port's body check covers every such input. TestTypesDeep runs the
 // same check on declaration chains a hundred thousand links long, which
@@ -329,9 +333,35 @@
 // and array literal expressions, and on chains a hundred thousand links
 // long, else ifs, statements, && chains, locals each the next's value,
 // an else if chain each of whose branches returns, and a selector down a
-// chain of structs each holding the next; each ends in an error, so the
-// backend decides nothing. The port runs with its stack held to
-// deepStack KB, as TestPort does.
+// chain of structs each holding the next; and on calls: calls, method
+// calls, calls of a method expression and struct literals nested in each
+// other's arguments as deeply as the parser allows, with an invalid or an
+// untyped constant at the bottom too, chains of method calls ten thousand
+// links long, as long as Go's checker, which takes time quadratic in
+// one, checks in seconds, on a name bound to nothing and with a missing
+// method too, an argument list a hundred thousand values long, of the
+// wrong type too, a field chain as long passed as mut and assigned, and a
+// printf whose format has as many verbs, run with a std whose fmt holds
+// only the format functions, which the port's checker can check. Each
+// ends in an error, so the backend decides nothing, and most hold a
+// function with the same shape and no error too, whose moves Go's
+// checkFunc then follows; chains of method calls each followed by a ?
+// are among them. The port runs with its stack held to deepStack KB, as
+// TestPort does.
+//
+// TestCheckDeepPairs nests every ordered pair of a family of
+// constructs an expression nests in, alternating, as deeply as the
+// parser allows: a call's argument, a method call's argument and
+// receiver, a call of a method expression, an operator's left and right
+// operands, !, parentheses, an array literal's element and a struct
+// literal's field read back, a union's payload, a ?, a value passed as
+// any, a conversion, and a value tested in an if and a switch. Each pair
+// runs as a valid nest and as one with a value of the wrong type at its
+// bottom, under --check, compared as check-core compares its cases, and
+// as a nest in a program Go accepts, under --port-types, compared as
+// TestTypes compares it in the phase "bodies", the port's stack held to
+// deepStack KB: every level of every construct must cost the port's
+// checker less than that over the nesting limit.
 //
 // # Deep nesting
 //

@@ -31,8 +31,8 @@ import (
 const typesCheck = "types-decls"
 
 // bodiesCheck is the name in required.txt of TestTypes's check that the
-// port checks every body of an input whose Go typed tree's stage is S1
-// or S2a (see treeStage): its dump must be of the phase "bodies".
+// port checks every body of an input whose Go typed tree's stage is S1,
+// S2a or S2b (see treeStage): its dump must be of the phase "bodies".
 const bodiesCheck = "types-bodies"
 
 // TestTypes checks what the port's type checker finds, so far in its
@@ -63,6 +63,10 @@ func TestTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	calls, err := checkInputs(stageCalls)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var clean, all, bodies atomic.Int64
 	var assumed sync.Map
 	t.Run("corpus", func(t *testing.T) {
@@ -73,6 +77,7 @@ func TestTypes(t *testing.T) {
 		}{
 			{"single", singles, true}, {"packages", pkgs, true},
 			{"check-decls", decls, false}, {"check-core", core, false},
+			{"check-calls", calls, false},
 		} {
 			t.Run(group.name, func(t *testing.T) {
 				for _, in := range group.ins {
@@ -109,8 +114,8 @@ func TestTypes(t *testing.T) {
 // which clean says must be of a program Go accepts, and reports whether
 // in is an input of the check, the kinds of judgment the port's dump
 // says it assumed, and the dump's phase. The port must check every body
-// of an input whose Go typed tree's stage is S1 or S2a, all of which its
-// body check covers, when types-bodies is required.
+// of an input whose Go typed tree's stage is S1, S2a or S2b, all of which
+// its body check covers, when types-bodies is required.
 func checkTypes(t *testing.T, in input, portBin string, clean bool) (bool, []string, string) {
 	t.Helper()
 	want, stage, ok := goTypes(t, in, clean)
@@ -139,7 +144,7 @@ func checkTypes(t *testing.T, in input, portBin string, clean bool) (bool, []str
 	if err := json.Unmarshal(port.stdout, &dump); err != nil {
 		t.Errorf("reading what the port assumed: %v", err)
 	}
-	if stage <= stageCore && dump.Phase != "bodies" && env.required[bodiesCheck] {
+	if stage <= stageCalls && dump.Phase != "bodies" && env.required[bodiesCheck] {
 		t.Errorf("%s is required, and Go's typed tree is %s's, but the port's dump is of the phase %q",
 			bodiesCheck, stage, dump.Phase)
 	}

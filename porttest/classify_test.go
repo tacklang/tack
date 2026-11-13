@@ -960,16 +960,46 @@ func walkTree(prog *tackast.Program, keep func(file string) bool) *treeWalk {
 		return w
 	}
 	w.table = prog.Types
+	globals := map[tackast.Decl]bool{}
+	for _, d := range prog.Decls() {
+		globals[d] = true
+	}
 	for _, pkg := range prog.Packages {
 		for _, f := range pkg.Files {
 			if !keep(string(f.Span.File)) {
 				continue
 			}
 			w.callees = map[*tackast.Ident]bool{}
+			w.held = map[tackast.Decl]bool{}
+			w.written = map[*tackast.Ident]bool{}
 			tackast.Walk(f, func(n tackast.Node) bool {
-				if call, ok := n.(*tackast.Call); ok {
-					if id, ok := call.Fn.(*tackast.Ident); ok {
+				switch x := n.(type) {
+				case *tackast.Call:
+					if id, ok := x.Fn.(*tackast.Ident); ok {
 						w.callees[id] = true
+					}
+				case *tackast.MultiVar:
+					targets := make([]tackast.Decl, len(x.Vars))
+					for i, v := range x.Vars {
+						if v.Name != tackast.Blank {
+							targets[i] = v
+						}
+					}
+					w.hold(x.Value, targets)
+				case *tackast.MultiAssign:
+					targets := make([]tackast.Decl, len(x.Targets))
+					for i, t := range x.Targets {
+						if id, ok := t.(*tackast.Ident); ok {
+							w.written[id] = true
+							if v, ok := id.Def.(*tackast.Var); ok && !globals[v] {
+								targets[i] = v
+							}
+						}
+					}
+					w.hold(x.Value, targets)
+				case *tackast.Assign:
+					if id, ok := x.Target.(*tackast.Ident); ok && x.Op == tackast.InvalidOp {
+						w.written[id] = true
 					}
 				}
 				return true
@@ -986,6 +1016,12 @@ type treeWalk struct {
 	table *types.Table
 	// callees are the names called in the file walked.
 	callees map[*tackast.Ident]bool
+	// held are the variables of the file walked that a binding of an
+	// error, or of a checked pop or remove's ok, holds, which reading
+	// needs the facts in force (see hold); written are the names a plain
+	// assignment or a binding writes whole, which read nothing.
+	held    map[tackast.Decl]bool
+	written map[*tackast.Ident]bool
 	// why names what set stage.
 	why string
 	// stage is the highest stage found so far.
@@ -1319,10 +1355,66 @@ func ownBuiltin(call *tackast.Call) (string, bool) {
 	return id.Name, ok && fn == nil
 }
 
+// hold records the variables a binding of value to targets, the local
+// variable each name goes to or nil, holds, as Go's collectHolds and
+// hold tie them: every one but the last, when value is a call whose
+// last result is an error and that gives one result for each target,
+// or add, add_all or insert bound to two names; and the element of a
+// checked pop, remove or delete bound with its ok, when its type has no
+// zero value, as Go's okHeld says. Reading one of them is checked
+// against the facts in force (Go's requireChecked), which is S3's.
+func (w *treeWalk) hold(value tackast.Expr, targets []tackast.Decl) {
+	call, ok := value.(*tackast.Call)
+	if !ok || call.Conv != types.Invalid || len(targets) < 2 {
+		return
+	}
+	name, builtin := builtinName(call)
+	errorTie := false
+	switch {
+	case builtin && (name == "add" || name == "add_all" || name == "insert"):
+		errorTie = len(targets) == 2
+	case builtin && (name == "pop" || name == "remove" || name == "delete"):
+		if len(targets) == 2 && targets[1] != nil {
+			if v, ok := targets[0].(*tackast.Var); ok && v.Type != types.Invalid &&
+				w.table != nil && !w.table.HasZero(v.Type) {
+				w.held[v] = true
+			}
+		}
+		return
+	default:
+		if fn := tackast.Callee(call); fn != nil {
+			rs := tackast.CallResults(call)
+			errorTie = len(rs) == len(targets) && rs[len(rs)-1] == types.Error
+		}
+	}
+	if !errorTie || targets[len(targets)-1] == nil {
+		return
+	}
+	for _, t := range targets[:len(targets)-1] {
+		if t != nil {
+			w.held[t] = true
+		}
+	}
+}
+
+// builtinName returns the name of the builtin call calls, and whether it
+// calls one.
+func builtinName(call *tackast.Call) (string, bool) {
+	id, ok := call.Fn.(*tackast.Ident)
+	if !ok || id.Pkg != "" {
+		return "", false
+	}
+	fn, ok := id.Def.(*tackast.Func)
+	return id.Name, ok && fn == nil
+}
+
 // ident raises the walk's stage for a name used as a function value: a
 // function's name anywhere but as a callee, whether or not the checker
 // let it be one, or a name whose type is a function type.
 func (w *treeWalk) ident(id *tackast.Ident) {
+	if id.Def != nil && w.held[id.Def] && !w.written[id] {
+		w.raise(stageFacts, "a read of a variable an error or an ok holds")
+	}
 	switch d := id.Def.(type) {
 	case *tackast.Func:
 		if d != nil && !w.callees[id] {
