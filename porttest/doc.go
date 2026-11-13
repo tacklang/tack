@@ -80,10 +80,21 @@
 //   - lex-packages runs --lex on each package of the corpus.
 //   - ast-packages runs --ast on each.
 //   - res-packages runs --res on each.
+//   - check-decls, check-core, check-calls, check-facts, check-arith,
+//     check-loops, check-own and check-generic run --check --max-errors 0,
+//     every error reported, on the cases of the type checker's of S1,
+//     S2a, S2b, S3, S4, S5, S6 and S7, the stages the type checker is
+//     ported in (see Type checker stages).
+//   - check-backend runs the same on the cases the backend rejects,
+//     whose --check output holds the backend's errors (see Type checker
+//     stages).
+//   - check-clean runs the same on each package input that is no case of
+//     an archive: the examples, std and the port's driver.
 //
-// backends and the lex stages compare standard output, standard error
-// and the exit status byte for byte. The ast and res stages compare
-// standard error and the exit status byte for byte, and decode both
+// backends, the lex stages and the check stages compare standard
+// output, standard error and the exit status byte for byte. The ast and
+// res stages compare standard error and the exit status byte for byte,
+// and decode both
 // standard outputs as JSON, numbers kept as their text, and compare the
 // values.
 // That comparison ignores white space between tokens, the order of an
@@ -121,6 +132,103 @@
 // port's own driver, ./driver run from the port's source tree when it is
 // there, the largest program of all, which imports the whole port and
 // most of std.
+//
+// # Type checker stages
+//
+// The type checker is ported in stages, each needing the ones before
+// it: S1 the declarations, S2a statements and expressions, S2b calls and
+// containers, S3 facts, S4 arithmetic and relations, S5 loops and
+// contracts, S6 ownership and S7 generics and closures. Its cases are
+// every case of examples/invalid.txtar, examples/invalid-packages.txtar,
+// examples/warnings.txtar and examples/warnings-packages.txtar whose
+// program Go's --check loads, and so type checks, whatever the stage
+// that reports its errors: a resolve case, a parse case whose tree the
+// parser recovered, a case the backend rejects. Each is run as the other
+// stages run its archive's cases, but for a case with a std of its own,
+// its .std, which runs with TACK_HOME set to a directory beside the
+// archives' whose src/std holds that std, as test/ loads it in place of
+// the repository's. Each is the case of one check stage, the first whose
+// port can pass it: the higher of two stages, worked out in process at
+// the start of the run, the same each time. A case the backend rejects,
+// whose expected stage is codegen, is check-backend's instead, whatever
+// its two stages: --check shows the backend's errors, which the port
+// gives only once its backend is ported, so check-backend is required
+// at M7 and not before.
+//
+// The first is that of its messages. Every string literal, and every
+// string built with + from literals and calls of fmt.Sprintf, of the
+// non-test files of typeck is harvested with go/parser when the tests
+// run, a format's verbs taken as any text, and given the stage of the
+// file it is in, or of the function, by its receiver's type and its
+// name, for the files split between stages: check.go, expr.go,
+// extern.go, struct.go, union.go, list.go, maps.go and closure.go, and
+// the declaration phase's helpers in files of later stages, which the
+// port of S1 carries, view.go's paramType and plainParamType,
+// viewresult.go's resultType and generic.go's resolveInterfaces,
+// implicitTypeParams and resolveTypeParams; the rest of generic.go,
+// instantiation, constraints and type arguments, is S7. A file
+// of typeck with no stage fails the harvest, and a function the split
+// names that its file does not declare fails TestTypeckFilesStaged.
+// The packages outside the checker whose diagnostics --check shows,
+// lexer, parser, loader, modfile, resolver, constant and the backend's,
+// are harvested too, as a stage of their own below S1. A literal with
+// no two letters in a row, as "%s: %s", is no template. Each message,
+// warning and note of the case's expected output is matched against
+// them: of the templates that match the whole of it, those that fix the
+// most of its text decide, and when no template does, those found
+// within it that together fix the most of it without overlapping, for
+// a message built from pieces, as an error with advice appended; a
+// template a piece may be needs six literal bytes, a space and two
+// words, or one in ten bytes, so that a name is no piece. When those
+// that decide are of several stages, the message is of the highest, and
+// when none matches, of S7. TestClassifyCounts fails for every message
+// no template matches.
+//
+// The second is that of Go's typed tree of the case, the case's own
+// files loaded as --check loads them, as a library may be, resolved and
+// checked: S1 when no function has a statement in its body, S2a when
+// one does; S2b with a call that is no conversion, a mut or own
+// argument, a type assertion, a ? or a value or type of a list, map,
+// arena, pool, view, id, span, handle, any or error; S3 with an index or
+// a divisor that is not a constant; S4 with integer arithmetic, a unary
+// operator or a compound assignment with no constant value, an
+// increment or decrement, a slice, a conversion of a value whose type
+// does not widen to the target's, or a conversion in its checked form;
+// S5 with a counter loop, a three-clause loop whose init declares a
+// mutable variable, any loop that writes an integer declared before it,
+// whose bounds its invariants carry, an ensures clause or unreachable;
+// S6 with an owned parameter or variable, a region, a call with two mut
+// arguments or more, a call of drop or swap, or a function whose result
+// is a view; and S7 with type parameters or arguments, a fields loop,
+// a function literal, a function type, a function's name anywhere but
+// as a callee, whether the checker accepted it as a value or not, a
+// value of a function type or a call of one. Where an error
+// leaves a type unknown, an operator that could be an integer's counts
+// as one.
+//
+// TestClassifyCounts logs how many cases each stage has, and what set
+// their stages; TestClassifyHandChecked checks the stages of cases read
+// by hand, and TestClassifyDeterministic that classifying twice agrees.
+// They need no compiler and run in every go test ./porttest. None of
+// the check stages is in required.txt until the port's --check passes
+// it.
+//
+// TestCheckExpected runs the Go compiler on every check case as the
+// stages run it and checks that it gives the archive's expected output,
+// as test/ made it, so the command line the port is compared on is the
+// one the archive was made with. A file of a case's own std is named by
+// Go below its TACK_HOME, and is compared under the archive's name for
+// it. The cases for which the driver's --check differs from test/'s
+// pipeline by design are listed in checkDiffers, with why: for a
+// program the backend rejects it shows the warnings with the backend's
+// errors, it needs no main, and it names std by its absolute path. The
+// test fails when a listed case stops differing. Like TestPort it runs
+// only with TACK_PORT_TEST=1 and -count.
+//
+// The 16 type checker cases of examples/invalid-tests.txtar are no
+// check case: their diagnostics need a package's tests loaded, which
+// --check cannot ask for. They are compared when tack test is ported,
+// at M8.
 //
 // # Loading
 //
