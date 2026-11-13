@@ -1,0 +1,1004 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// The moves of a body, Go's checkMoves (move.go), for a body in which no
+// variable and no parameter owns what it holds. Go's mover follows which
+// owned variables each path has moved, and reports a use after a move;
+// with none to move, what it follows is the same on every path, and
+// what it reports is only what each value's context says of it: a
+// value of an owned type dropped by a statement or bound to _, one moved
+// out of a field or an element, a temporary given no owner, and a place
+// a switch on a union binds in place being changed by its clause. So
+// the port follows the body once, in Go's order, and reports those. A
+// body with an owned variable or parameter is S6's, and declined before
+// it is checked (see check_body); so is a range over a list, a map, an
+// arena or a pool, whose walk the mover tracks too.
+
+// The contexts a value is used in, Go's useCtx: read where it is, moved
+// into a new owner, or read through a view parameter.
+var ctx_read uint8 = 0
+var ctx_move uint8 = 1
+var ctx_view uint8 = 2
+
+// Matched is a place a switch on a union matches whose clause being
+// followed binds bind to the payload it holds, in place, Go's matched.
+type Matched struct {
+    place Key
+    bind Key
+}
+
+// check_moves follows the body of the function d, Go's checkMoves, once
+// nothing else was reported in it.
+func (mut c Checker) check_moves(d Key) error {
+    fn := func_of(c.prog.trees, d)
+    old := replace(mut c.matching, make(list[Matched], c_allocator))
+    drop(own old)
+    c.mv_fn = d
+    return mut c.mv_block(d.unit, fn.body)
+}
+
+// owned_locals reports whether the body body of the tree unit declares a
+// variable of an owned type, at any depth, which the port declines.
+func (mut c Checker) owned_locals(unit int64, body ast.Nodes) (bool, error) {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for i := range count_items(c.prog.trees, unit, body) {
+        append(mut stack, item_at(c.prog.trees, unit, body, i).node)?
+    }
+    for len(stack) > 0 {
+        top, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        k := Key{unit: unit, node: top}
+        switch kind_at(c.prog.trees, k) {
+        case var_decl:
+            owned := c.table.owned(decl_type_of(c.decl_types, k))?
+            if owned {
+                return true, noerror
+            }
+        default:
+        }
+        clear_nodes(mut kids)
+        children_of(c.prog.trees, unit, top, mut kids)?
+        for _, kid := range kids {
+            append(mut stack, kid)?
+        }
+    }
+    return false, noerror
+}
+
+// mv_block follows the statements of a block, Go's block.
+func (mut c Checker) mv_block(unit int64, body ast.Nodes) error {
+    for i := range count_items(c.prog.trees, unit, body) {
+        mut c.mv_stmt(item_at(c.prog.trees, unit, body, i))?
+    }
+    return noerror
+}
+
+// mv_stmt follows one statement, Go's stmt; an else if is followed as
+// the next link of a loop.
+func (mut c Checker) mv_stmt(k Key) error {
+    switch kind_at(c.prog.trees, k) {
+    case return_stmt(s):
+        for i := range count_items(c.prog.trees, k.unit, s.values) {
+            v := item_at(c.prog.trees, k.unit, s.values, i)
+            mut ctx := ctx_read
+            if i < mut c.callee_result_count(c.mv_fn) && c.table.is_view(result_of(c.results, c.mv_fn, i)) {
+                ctx = ctx_view
+            } else {
+                ctx = mut c.ctx_for(mut c.type_of(v))?
+            }
+            mut c.mv_expr(v, ctx)?
+        }
+        return noerror
+    case if_stmt(s):
+        mut cur := k
+        mut st := s
+        for {
+            mut c.mv_expr(sub(cur, st.cond), ctx_read)?
+            mut c.mv_block(cur.unit, st.then)?
+            if count_items(c.prog.trees, cur.unit, st.else_body) == 1 {
+                next := item_at(c.prog.trees, cur.unit, st.else_body, 0)
+                switch kind_at(c.prog.trees, next) {
+                case if_stmt(es):
+                    cur = next
+                    st = es
+                    continue
+                default:
+                }
+            }
+            return mut c.mv_block(cur.unit, st.else_body)
+        }
+        return noerror
+    case switch_stmt(s):
+        return mut c.mv_switch(k, s)
+    case for_stmt(s):
+        if !ast.is_none(s.init) {
+            mut c.mv_simple(sub(k, s.init))?
+        }
+        if !ast.is_none(s.cond) {
+            mut c.mv_expr(sub(k, s.cond), ctx_read)?
+        }
+        mut c.mv_block(k.unit, s.body)?
+        if !ast.is_none(s.post) {
+            mut c.mv_simple(sub(k, s.post))?
+        }
+        return noerror
+    case for_range(s):
+        x := sub(k, s.x)
+        mut c.mv_expr(x, ctx_read)?
+        t := mut c.type_of(x)
+        if c.table.is_list(t) || c.table.is_map(t) || c.table.is_arena(t) || c.table.is_pool(t) {
+            if !is_no_key(root_ident(c.prog.trees, x)) {
+                return not_ported
+            }
+        }
+        switch kind_at(c.prog.trees, x) {
+        case call, index:
+            if c.table.is_view(t) {
+                return not_ported
+            }
+        default:
+        }
+        return mut c.mv_block(k.unit, s.body)
+    case defer_stmt(s):
+        return mut c.mv_block(k.unit, s.body)
+    case region_stmt:
+        return not_ported
+    case break_stmt, continue_stmt, unreachable_stmt, fallthrough_stmt, bad_stmt:
+        return noerror
+    default:
+        return mut c.mv_simple(k)
+    }
+}
+
+// mv_switch follows a switch, Go's switchStmt: its tag, then each case's
+// values in the order tried, but a type switch's and a union switch's,
+// which read nothing, and then each body in source order, a clause
+// binding a payload of a place in place followed with the place matched.
+func (mut c Checker) mv_switch(k Key, s ast.Switch) error {
+    mut on_union := false
+    tag := sub(k, s.tag)
+    type_switch := mut c.is_type_switch(k, s)
+    if !ast.is_none(s.tag) {
+        mut c.mv_expr(tag, ctx_read)?
+        tt := mut c.type_of(tag)
+        on_union = c.table.is_union(tt) && !type_switch
+    }
+    n := count_items(c.prog.trees, k.unit, s.cases)
+    if !type_switch && !on_union {
+        mut def := no_key()
+        for i := range n {
+            cl := item_at(c.prog.trees, k.unit, s.cases, i)
+            if is_default(c.prog.trees, cl) {
+                if is_no_key(def) {
+                    def = cl
+                }
+                continue
+            }
+            mut c.mv_values(cl)?
+        }
+        if !is_no_key(def) {
+            mut c.mv_values(def)?
+        }
+    }
+    for i := range n {
+        cl := item_at(c.prog.trees, k.unit, s.cases, i)
+        clause := clause_of(c.prog.trees, cl)
+        mut bound := false
+        if on_union && !ast.is_none(clause.var_node) && !is_no_key(root_ident(c.prog.trees, tag)) {
+            _, b := c.union_bound[sub(cl, clause.var_node)]
+            bound = b
+        }
+        if bound {
+            append(mut c.matching, Matched{place: tag, bind: sub(cl, clause.var_node)})?
+        }
+        e := mut c.mv_block(cl.unit, clause.body)
+        if bound {
+            pop(mut c.matching)
+        }
+        if e.code != 0 {
+            return e
+        }
+    }
+    return noerror
+}
+
+// mv_values follows the values of the case cl, read.
+func (mut c Checker) mv_values(cl Key) error {
+    clause := clause_of(c.prog.trees, cl)
+    for i := range count_items(c.prog.trees, cl.unit, clause.values) {
+        mut c.mv_expr(item_at(c.prog.trees, cl.unit, clause.values, i), ctx_read)?
+    }
+    return noerror
+}
+
+// mv_simple follows a statement that holds no other, Go's simpleStmt.
+func (mut c Checker) mv_simple(k Key) error {
+    switch kind_at(c.prog.trees, k) {
+    case var_decl(v):
+        if !ast.is_none(v.value) {
+            ctx := mut c.ctx_for(decl_type_of(c.decl_types, k))?
+            mut c.mv_expr(sub(k, v.value), ctx)?
+        }
+        return noerror
+    case multi_var(m):
+        value := sub(k, m.value)
+        mut c.mv_binding(value)?
+        n := count_items(c.prog.trees, k.unit, m.vars)
+        mut blank := make(list[bool], c_allocator)
+        mut spans := make(list[source.Span], c_allocator)
+        for i := range n {
+            v := item_at(c.prog.trees, k.unit, m.vars, i)
+            append(mut blank, bytes_equal(name_of(c.prog.trees, c.none, v), []uint8("_")))?
+            append(mut spans, name_span_of(c.prog.trees, v))?
+        }
+        return mut c.mv_dropped_results(value, blank, spans)
+    case assign(a):
+        target := sub(k, a.target)
+        value := sub(k, a.value)
+        mut c.mv_range_change(target, "assign")?
+        _, whole := ident_at(c.prog.trees, target)
+        if a.op != ast.op_invalid {
+            mut c.mv_expr(target, ctx_read)?
+            mut c.mv_expr(value, ctx_read)?
+            if !whole {
+                mut c.mv_store_place(target)?
+            }
+            return noerror
+        }
+        if !whole {
+            mut c.mv_target_indexes(target)?
+        }
+        ctx := mut c.ctx_for(mut c.type_of(target))?
+        mut c.mv_expr(value, ctx)?
+        if !whole {
+            mut c.mv_store_place(target)?
+        }
+        return noerror
+    case multi_assign(m):
+        value := sub(k, m.value)
+        mut c.mv_binding(value)?
+        n := count_items(c.prog.trees, k.unit, m.targets)
+        mut blank := make(list[bool], c_allocator)
+        mut spans := make(list[source.Span], c_allocator)
+        for i := range n {
+            t := item_at(c.prog.trees, k.unit, m.targets, i)
+            b := is_blank(c.prog.trees, c.none, t)
+            append(mut blank, b)?
+            append(mut spans, span_at(c.prog.trees, t))?
+            if !b {
+                mut c.mv_range_change(t, "assign")?
+                _, whole := ident_at(c.prog.trees, t)
+                if !whole {
+                    mut c.mv_place_parts(t)?
+                }
+            }
+        }
+        return mut c.mv_dropped_results(value, blank, spans)
+    case inc_dec(s):
+        target := sub(k, s.target)
+        mut c.mv_range_change(target, "assign")?
+        return mut c.mv_expr(target, ctx_read)
+    case expr_stmt(s):
+        return mut c.mv_expr_stmt(sub(k, s.x))
+    default:
+        return noerror
+    }
+}
+
+// ctx_for returns the context a value of type typ is given to a
+// variable, a result or a field in, Go's ctxFor.
+func (mut c Checker) ctx_for(typ types.Type) (uint8, error) {
+    owned := c.table.owned(typ)?
+    if owned {
+        return ctx_move, noerror
+    }
+    return ctx_read, noerror
+}
+
+// mv_binding follows the value of a binding of several results, Go's
+// binding: a call or a ? after one, whose results the binding takes.
+func (mut c Checker) mv_binding(value Key) error {
+    switch kind_at(c.prog.trees, value) {
+    case call:
+        return mut c.mv_call(value, ctx_move)
+    case question:
+        return mut c.mv_question(value, ctx_move)
+    default:
+        return mut c.mv_expr(value, ctx_read)
+    }
+}
+
+// mv_question follows the ? k used in ctx, Go's question: the call it
+// follows, then the value it gives, which must have an owner.
+func (mut c Checker) mv_question(k Key, ctx uint8) error {
+    mut x := no_key()
+    switch kind_at(c.prog.trees, k) {
+    case question(inner):
+        x = sub(k, inner)
+    default:
+        return noerror
+    }
+    switch kind_at(c.prog.trees, x) {
+    case call:
+        if mut c.questioned(x) {
+            mut c.mv_call(x, ctx_move)?
+            return mut c.mv_temporary(k, ctx)
+        }
+    default:
+    }
+    return mut c.mv_expr(x, ctx_read)
+}
+
+// questioned reports whether x, what a ? follows, is a call Go's
+// ast.Questioned gives: one that calls something, no union built or
+// conversion.
+func (mut c Checker) questioned(x Key) bool {
+    switch kind_at(c.prog.trees, x) {
+    case call:
+        return !mut c.not_calling(x)
+    default:
+        return false
+    }
+}
+
+// mv_given_results appends the types of what value, a call or a ? after
+// one, gives, and its message's start to what, Go's givenResults, and
+// reports whether they are known.
+func (mut c Checker) mv_given_results(value Key, mut what list[uint8], mut out list[types.Type]) (bool, error) {
+    switch kind_at(c.prog.trees, value) {
+    case question(inner):
+        if !mut c.questioned(sub(value, inner)) {
+            return false, noerror
+        }
+        t := mut c.source_text(span_at(c.prog.trees, value))?
+        append(mut what, t[:]...)?
+        append(mut what, []uint8(" gives")...)?
+        mut n int64 = 0
+        qn, has_n := c.question_counts[value]
+        if has_n {
+            n = qn
+        }
+        for i := range n {
+            qt, has_qt := c.question_types[RKey{unit: value.unit, node: value.node, i: i}]
+            if has_qt {
+                append(mut out, qt)?
+            }
+        }
+        return true, noerror
+    case call:
+        fn := mut c.callee_of(value)
+        if is_no_key(fn) {
+            return false, noerror
+        }
+        named := mut c.callee_name(value, mut what)?
+        if !named {
+            return false, noerror
+        }
+        append(mut what, []uint8(" returns")...)?
+        for i := range mut c.callee_result_count(fn) {
+            append(mut out, result_of(c.results, fn, i))?
+        }
+        return true, noerror
+    default:
+        return false, noerror
+    }
+}
+
+// mv_dropped_results reports each result of value bound to _ that is
+// owned, Go's droppedResults.
+func (mut c Checker) mv_dropped_results(value Key, blank []bool, spans []source.Span) error {
+    mut what := msg()
+    mut results := make(list[types.Type], c_allocator)
+    ok := mut c.mv_given_results(value, mut what, mut results)?
+    if !ok || len(results) != len(blank) {
+        return noerror
+    }
+    for i, typ := range results {
+        b := bool_at(blank, i)
+        owned := c.table.owned(typ)?
+        if b && owned {
+            mut name := msg()
+            mut c.dropped_name(typ, mut name)?
+            sp := span_in(spans, i)
+            mut m := msg()
+            fmt.appendf(mut m, "%s %s; bind it to a variable instead of _", what[:], name[:])?
+            mut c.errorf(sp, own m)?
+        }
+    }
+    return noerror
+}
+
+// dropped_name appends the name of typ, an owned type, in an error about
+// dropping one, Go's droppedName.
+func (mut c Checker) dropped_name(typ types.Type, mut out list[uint8]) error {
+    n := mut c.type_name(typ)?
+    append(mut out, n[:]...)?
+    if c.table.is_list(typ) || c.table.is_map(typ) || c.table.is_arena(typ) || c.table.is_pool(typ) {
+        append(mut out, []uint8(", which cannot be discarded")...)?
+        return noerror
+    }
+    if c.table.is_type_param(typ) {
+        return not_ported
+    }
+    a := c.table.holds_arena(typ)?
+    if a {
+        append(mut out, []uint8(", which holds an arena and cannot be discarded")...)?
+        return noerror
+    }
+    p := c.table.holds_pool(typ)?
+    if p {
+        append(mut out, []uint8(", which holds a pool and cannot be discarded")...)?
+        return noerror
+    }
+    l := c.table.holds_list(typ)?
+    if !l {
+        append(mut out, []uint8(", which holds a map and cannot be discarded")...)?
+        return noerror
+    }
+    append(mut out, []uint8(", which holds a list and cannot be discarded")...)?
+    return noerror
+}
+
+// mv_expr_stmt follows e, an expression statement, Go's exprStmt: a value
+// of an owned type it drops is reported.
+func (mut c Checker) mv_expr_stmt(e Key) error {
+    switch kind_at(c.prog.trees, e) {
+    case question:
+        mut c.mv_question(e, ctx_move)?
+        mut what := msg()
+        mut results := make(list[types.Type], c_allocator)
+        ok := mut c.mv_given_results(e, mut what, mut results)?
+        if !ok {
+            return noerror
+        }
+        for _, typ := range results {
+            owned := c.table.owned(typ)?
+            if owned {
+                mut name := msg()
+                mut c.dropped_name(typ, mut name)?
+                mut m := msg()
+                fmt.appendf(mut m, "%s %s; bind it to a variable", what[:], name[:])?
+                return mut c.errorf(span_at(c.prog.trees, e), own m)
+            }
+        }
+        return noerror
+    case call:
+    default:
+        return mut c.mv_expr(e, ctx_read)
+    }
+    mut c.mv_call(e, ctx_move)?
+    if mut c.is_take(e) || is_builtin_call(c.prog.trees, c.none, e, "replace") {
+        return noerror
+    }
+    mut results := make(list[types.Type], c_allocator)
+    append(mut results, mut c.type_of(e))?
+    mut name := msg()
+    _, _, built := construction(c.prog.trees, c.none, e)
+    if built {
+        mut c.call_text(e, mut name)?
+    } else {
+        named := mut c.callee_name(e, mut name)?
+        if named {
+            fn := mut c.callee_of(e)
+            if !is_no_key(fn) {
+                clear_types(mut results)
+                for i := range mut c.callee_result_count(fn) {
+                    append(mut results, result_of(c.results, fn, i))?
+                }
+            }
+        } else {
+            append(mut name, []uint8("make")...)?
+        }
+    }
+    for _, typ := range results {
+        owned := c.table.owned(typ)?
+        if owned {
+            mut what := msg()
+            mut c.dropped_name(typ, mut what)?
+            mut m := msg()
+            fmt.appendf(mut m, "%s returns %s; bind it to a variable", name[:], what[:])?
+            return mut c.errorf(span_at(c.prog.trees, e), own m)
+        }
+    }
+    return noerror
+}
+
+// mv_target_indexes follows the indexes on the path of target, a field
+// or an element being assigned, that the assignment evaluates before its
+// value, Go's targetIndexes: each index of an array's or a list's
+// element, the outermost container's first. The path is walked in a
+// loop, however long.
+func (mut c Checker) mv_target_indexes(target Key) error {
+    mut chain := make(list[Key], c_allocator)
+    place_chain(c.prog.trees, target, mut chain)?
+    mut i := len(chain) -% 1
+    for i >= 0 {
+        p := key_in(chain, i)
+        i -%= 1
+        switch kind_at(c.prog.trees, p) {
+        case index(ix):
+            xt := mut c.type_of(sub(p, ix.x))
+            if !c.table.is_map(xt) {
+                mut c.mv_expr(sub(p, ix.index), ctx_read)?
+            }
+        default:
+        }
+    }
+    return noerror
+}
+
+// place_chain appends to out the fields and elements on place's path,
+// place itself first, and then what the path starts from, Go's
+// recursion through x.X of a selector or an index.
+func place_chain(trees []ast.File, place Key, mut out list[Key]) error {
+    mut k := place
+    for {
+        append(mut out, k)?
+        switch kind_at(trees, k) {
+        case selector(s):
+            k = sub(k, s.x)
+        case index(ix):
+            k = sub(k, ix.x)
+        default:
+            return noerror
+        }
+    }
+    return noerror
+}
+
+// mv_store_place follows the store into place, a field or an element,
+// once its assignment's value is evaluated, Go's storePlace: what the
+// path starts from, when it is no name, and then each map key on it,
+// the innermost first.
+func (mut c Checker) mv_store_place(place Key) error {
+    mut chain := make(list[Key], c_allocator)
+    place_chain(c.prog.trees, place, mut chain)?
+    mut i := len(chain) -% 1
+    for i >= 0 {
+        p := key_in(chain, i)
+        i -%= 1
+        switch kind_at(c.prog.trees, p) {
+        case ident, selector:
+        case index(ix):
+            xt := mut c.type_of(sub(p, ix.x))
+            if c.table.is_map(xt) {
+                mut c.mv_expr(sub(p, ix.index), ctx_read)?
+            }
+        default:
+            mut c.mv_expr(p, ctx_read)?
+        }
+    }
+    return noerror
+}
+
+// mv_place_parts follows a field or an element being assigned or passed
+// as mut, Go's placeParts: what the path starts from, when it is no
+// name, and then every index on it, the innermost first.
+func (mut c Checker) mv_place_parts(place Key) error {
+    mut chain := make(list[Key], c_allocator)
+    place_chain(c.prog.trees, place, mut chain)?
+    mut i := len(chain) -% 1
+    for i >= 0 {
+        p := key_in(chain, i)
+        i -%= 1
+        switch kind_at(c.prog.trees, p) {
+        case ident, selector:
+        case index(ix):
+            mut c.mv_expr(sub(p, ix.index), ctx_read)?
+        default:
+            mut c.mv_expr(p, ctx_read)?
+        }
+    }
+    return noerror
+}
+
+// mv_range_change reports place, which the statement being followed
+// changes as what says, when a clause of a switch on a union around it
+// binds a payload of a place it is, or holds, in place, Go's
+// rangeChange: no range loop the mover tracks is followed here (see
+// mv_stmt).
+func (mut c Checker) mv_range_change(place Key, what string) error {
+    mut i int64 = 0
+    for i < len(c.matching) {
+        mt := matched_in(c.matching, i)
+        i +%= 1
+        is_prefix := prefix_of(c.prog.trees, c.none, place, mt.place)?
+        if !is_prefix {
+            continue
+        }
+        a := mut c.source_text(span_at(c.prog.trees, mt.place))?
+        b := mut c.source_text(span_at(c.prog.trees, place))?
+        mut m := msg()
+        fmt.appendf(mut m, "%s is being matched, and %s refers into it, so this case cannot %s %s", a[:], name_of(c.prog.trees, c.none, mt.bind), what, b[:])?
+        return mut c.errorf(span_at(c.prog.trees, place), own m)
+    }
+    return noerror
+}
+
+// PathStep is one step of a place's path from its variable, Go's step: a
+// field's name, or an element at an index, with whether a field is one
+// of a fields loop.
+type PathStep struct {
+    is_index bool
+    name Key
+    reflect bool
+}
+
+// place_path appends the steps of place's path to out, outermost first,
+// Go's path, and returns what its variable is bound to, and whether it
+// starts from a name bound to something.
+func place_path(trees []ast.File, place Key, mut out list[PathStep]) (ast.Def, bool, error) {
+    mut k := place
+    mut rev := make(list[PathStep], c_allocator)
+    for {
+        switch kind_at(trees, k) {
+        case selector(s):
+            append(mut rev, PathStep{is_index: false, name: k, reflect: !ast.is_none(s.field)})?
+            k = sub(k, s.x)
+        case index(ix):
+            append(mut rev, PathStep{is_index: true, name: k, reflect: false})?
+            k = sub(k, ix.x)
+        case ident(nm):
+            mut i := len(rev) -% 1
+            for i >= 0 {
+                st := step_in(rev, i)
+                append(mut out, st)?
+                i -%= 1
+            }
+            return nm.def, !nm.def.is_none(), noerror
+        default:
+            return ast.no_def(), false, noerror
+        }
+    }
+    return ast.no_def(), false, noerror
+}
+
+// prefix_of reports whether the place a may be b or hold it, Go's
+// prefixOf.
+func prefix_of(trees []ast.File, none []uint8, a Key, b Key) (bool, error) {
+    mut sa := make(list[PathStep], c_allocator)
+    mut sb := make(list[PathStep], c_allocator)
+    ra, oka := place_path(trees, a, mut sa)?
+    rb, okb := place_path(trees, b, mut sb)?
+    if !oka || !okb || ra != rb || len(sa) > len(sb) {
+        return false, noerror
+    }
+    for i, s := range sa {
+        t := step_in(sb, i)
+        if s.is_index != t.is_index {
+            return false, noerror
+        }
+        if !s.is_index && !s.reflect && !t.reflect {
+            if !bytes_equal(selector_name(trees, none, s.name), selector_name(trees, none, t.name)) {
+                return false, noerror
+            }
+        }
+    }
+    return true, noerror
+}
+
+// selector_name returns the name the selector k selects.
+func selector_name(trees []ast.File, none []uint8, k Key) []uint8 {
+    s := selector_of(trees, k)
+    return text_at(trees, none, k.unit, s.name)
+}
+
+// MvFrame is an expression the mover is following, Go's recursion in
+// expr: the node, the context it is used in, how far it got, and, for a
+// call or a literal, where its operands and their contexts start in the
+// walk's lists and how many there are.
+type MvFrame struct {
+    k Key
+    ctx uint8
+    step int64
+    base int64
+    n int64
+    as_call bool
+}
+
+// mv_expr follows e, used in ctx, Go's expr, with a stack of its own, so
+// that a chain of any length, of fields, elements, method calls or
+// operators, is followed in a bounded stack. Each node is followed as
+// Go's recursion follows it: what it reports of itself before or after
+// its operands, and each operand in the context it is used in.
+func (mut c Checker) mv_expr(e Key, ctx uint8) error {
+    return mut c.mv_walk(e, ctx, false)
+}
+
+// mv_walk is mv_expr, but that e, when as_call says so, is followed as
+// Go's call follows a call, even one that builds a union, whose
+// payload is then an operand passed to no parameter, read.
+func (mut c Checker) mv_walk(e Key, ctx uint8, as_call bool) error {
+    mut st := make(list[MvFrame], c_allocator)
+    mut ops := make(list[Key], c_allocator)
+    mut ctxs := make(list[uint8], c_allocator)
+    append(mut st, MvFrame{k: e, ctx: ctx, step: 0, base: 0, n: 0, as_call: as_call})?
+    for len(st) > 0 {
+        mut f, ok := pop(mut st)
+        if !ok {
+            break
+        }
+        k := f.k
+        _, _, built := construction(c.prog.trees, c.none, k)
+        if built && !f.as_call {
+            if f.step == 0 {
+                f.step = 1
+                append(mut st, f)?
+                switch kind_at(c.prog.trees, k) {
+                case call(cl):
+                    if count_items(c.prog.trees, k.unit, cl.args) == 1 {
+                        p := item_at(c.prog.trees, k.unit, cl.args, 0)
+                        pctx := mut c.ctx_for(mut c.type_of(p))?
+                        append(mut st, MvFrame{k: p, ctx: pctx, step: 0, base: 0, n: 0, as_call: false})?
+                    }
+                default:
+                }
+                continue
+            }
+            mut c.mv_temporary(k, f.ctx)?
+            continue
+        }
+        switch kind_at(c.prog.trees, k) {
+        case ident(nm):
+            mut c.mv_ident(k, nm, f.ctx)?
+        case selector(s):
+            if f.ctx == ctx_move {
+                et := mut c.type_of(k)
+                owned := c.table.owned(et)?
+                if owned {
+                    a := mut c.source_text(span_at(c.prog.trees, k))?
+                    b := mut c.source_text(span_at(c.prog.trees, sub(k, s.x)))?
+                    mut m := msg()
+                    fmt.appendf(mut m, "cannot move %s out of %s: a field cannot be moved on its own", a[:], b[:])?
+                    mut c.errorf(span_at(c.prog.trees, k), own m)?
+                }
+            }
+            append(mut st, MvFrame{k: sub(k, s.x), ctx: ctx_read, step: 0, base: 0, n: 0, as_call: false})?
+        case index(ix):
+            if f.step == 0 {
+                if f.ctx == ctx_move {
+                    et := mut c.type_of(k)
+                    owned := c.table.owned(et)?
+                    if owned {
+                        return not_ported
+                    }
+                }
+                f.step = 1
+                append(mut st, f)?
+                append(mut st, MvFrame{k: sub(k, ix.x), ctx: ctx_read, step: 0, base: 0, n: 0, as_call: false})?
+            } else {
+                append(mut st, MvFrame{k: sub(k, ix.index), ctx: ctx_read, step: 0, base: 0, n: 0, as_call: false})?
+            }
+        case call, composite_lit:
+            if f.step == 0 {
+                f.base = len(ops)
+                mut c.mv_operands(k, mut ops, mut ctxs)?
+                f.n = len(ops) -% f.base
+            }
+            if f.step < f.n {
+                i := f.base +% f.step
+                f.step +%= 1
+                append(mut st, f)?
+                a := key_in(ops, i)
+                b, has_b := ctxs[i]
+                mut actx := ctx_read
+                if has_b {
+                    actx = b
+                }
+                append(mut st, MvFrame{k: a, ctx: actx, step: 0, base: 0, n: 0, as_call: false})?
+                continue
+            }
+            for len(ops) > f.base {
+                pop(mut ops)
+                pop(mut ctxs)
+            }
+            mut c.mv_temporary(k, f.ctx)?
+        case question(inner):
+            x := sub(k, inner)
+            if f.step == 0 {
+                if mut c.questioned(x) {
+                    f.step = 1
+                    append(mut st, f)?
+                    append(mut st, MvFrame{k: x, ctx: ctx_move, step: 0, base: 0, n: 0, as_call: false})?
+                } else {
+                    append(mut st, MvFrame{k: x, ctx: ctx_read, step: 0, base: 0, n: 0, as_call: false})?
+                }
+                continue
+            }
+            mut c.mv_temporary(k, f.ctx)?
+        case mut_arg(x):
+            mut c.mv_range_change(sub(k, x), "pass mut")?
+            mut c.mv_place_parts(sub(k, x))?
+        case own_arg(x):
+            append(mut st, MvFrame{k: sub(k, x), ctx: ctx_move, step: 0, base: 0, n: 0, as_call: false})?
+        case key_value(kv):
+            append(mut st, MvFrame{k: sub(k, kv.value), ctx: f.ctx, step: 0, base: 0, n: 0, as_call: false})?
+        case func_lit:
+            return not_ported
+        case slice(s):
+            mut parts := make(list[Key], c_allocator)
+            append(mut parts, sub(k, s.x))?
+            if !ast.is_none(s.lo) {
+                append(mut parts, sub(k, s.lo))?
+            }
+            if !ast.is_none(s.hi) {
+                append(mut parts, sub(k, s.hi))?
+            }
+            mut j := len(parts) -% 1
+            for j >= 0 {
+                append(mut st, MvFrame{k: key_in(parts, j), ctx: ctx_read, step: 0, base: 0, n: 0, as_call: false})?
+                j -%= 1
+            }
+        case binary(b):
+            append(mut st, MvFrame{k: sub(k, b.y), ctx: ctx_read, step: 0, base: 0, n: 0, as_call: false})?
+            append(mut st, MvFrame{k: sub(k, b.x), ctx: ctx_read, step: 0, base: 0, n: 0, as_call: false})?
+        case unary(u):
+            append(mut st, MvFrame{k: sub(k, u.x), ctx: ctx_read, step: 0, base: 0, n: 0, as_call: false})?
+        case type_assert(a):
+            append(mut st, MvFrame{k: sub(k, a.x), ctx: ctx_read, step: 0, base: 0, n: 0, as_call: false})?
+        default:
+        }
+    }
+    return noerror
+}
+
+// mv_ident follows the name k, nm, used in ctx, Go's ident: with no
+// variable that owns what it holds, only a parameter of an owned type
+// moved is reported, which borrows its caller's value.
+func (mut c Checker) mv_ident(k Key, nm ast.Ident, ctx uint8) error {
+    if ctx != ctx_move || nm.def.kind != ast.def_param {
+        return noerror
+    }
+    d := key_of_def(nm.def)
+    owned := c.table.owned(decl_type_of(c.decl_types, d))?
+    if !owned {
+        return noerror
+    }
+    mut m := msg()
+    if param_of(c.prog.trees, d).is_mut {
+        fmt.appendf(mut m, "cannot move %s: it is a mut parameter, whose value stays its caller's", text_at(c.prog.trees, c.none, k.unit, nm.name))?
+    } else {
+        fmt.appendf(mut m, "cannot move %s: it is a parameter, which borrows its caller's value", text_at(c.prog.trees, c.none, k.unit, nm.name))?
+    }
+    return mut c.errorf(span_at(c.prog.trees, k), own m)
+}
+
+// mv_call follows the call k used in ctx, Go's call: its operands, a
+// method call's receiver first, each in the context its parameter gives
+// it, then, for one of an owned type, that its result has an owner.
+func (mut c Checker) mv_call(k Key, ctx uint8) error {
+    return mut c.mv_walk(k, ctx, true)
+}
+
+// mv_operands appends to ops what the call or the literal k passes or
+// holds, in order, and to ctxs the context each is used in, Go's call's
+// loop over call.Operands() and literal's over its elements.
+func (mut c Checker) mv_operands(k Key, mut ops list[Key], mut ctxs list[uint8]) error {
+    switch kind_at(c.prog.trees, k) {
+    case composite_lit(lit):
+        lt := mut c.type_of(k)
+        for i := range count_items(c.prog.trees, k.unit, lit.elems) {
+            el := item_at(c.prog.trees, k.unit, lit.elems, i)
+            switch kind_at(c.prog.trees, el) {
+            case key_value(kv):
+                mut fctx := ctx_read
+                key := sub(el, kv.key)
+                knm, is_name := ident_at(c.prog.trees, key)
+                if is_name {
+                    ft, _, found := c.table.find_field(lt, text_at(c.prog.trees, c.none, key.unit, knm.name))
+                    if found {
+                        fctx = mut c.ctx_for(ft)?
+                    }
+                }
+                append(mut ops, sub(el, kv.value))?
+                append(mut ctxs, fctx)?
+            default:
+                append(mut ops, el)?
+                append(mut ctxs, ctx_read)?
+            }
+        }
+        return noerror
+    case call:
+    default:
+        return noerror
+    }
+    cl := call_of(c.prog.trees, k)
+    mut all := make(list[Key], c_allocator)
+    recv := mut c.receiver_of(k)
+    if !is_no_key(recv) {
+        append(mut all, recv)?
+    }
+    nargs := count_items(c.prog.trees, k.unit, cl.args)
+    for i := range nargs {
+        append(mut all, item_at(c.prog.trees, k.unit, cl.args, i))?
+    }
+    is_append := is_builtin_call(c.prog.trees, c.none, k, "append")
+    is_add_all := is_builtin_call(c.prog.trees, c.none, k, "add_all")
+    appends_owned := mut c.appends_owned(k)?
+    moved := appends_owned || is_builtin_call(c.prog.trees, c.none, k, "replace") || is_builtin_call(c.prog.trees, c.none, k, "put") || mut c.gives_with_error(k) && !cl.spread
+    sentinel := is_builtin_call(c.prog.trees, c.none, k, "make") && nargs == 3
+    fn := mut c.callee_of(k)
+    nparams := count_items(c.prog.trees, fn.unit, func_params_nodes(c.prog.trees, fn))
+    for i, arg := range all {
+        if mut c.made_type(arg) {
+            continue
+        }
+        mut view := false
+        mut own_p := false
+        if is_append || is_add_all {
+            view = cl.spread && i == len(all) -% 1
+        } else if !is_no_key(fn) && i < nparams {
+            p := item_at(c.prog.trees, fn.unit, func_params_nodes(c.prog.trees, fn), i)
+            param := param_of(c.prog.trees, p)
+            view = c.table.is_view(decl_type_of(c.decl_types, p)) && (!param.variadic || cl.spread)
+            own_p = param.is_own
+        }
+        mut actx := ctx_read
+        if view {
+            actx = ctx_view
+        } else if own_p || moved && i > 0 || sentinel && i == 1 {
+            actx = ctx_move
+        }
+        append(mut ops, arg)?
+        append(mut ctxs, actx)?
+    }
+    return noerror
+}
+
+// func_params_nodes returns the parameters of the function d, or none.
+func func_params_nodes(trees []ast.File, d Key) ast.Nodes {
+    switch kind_at(trees, d) {
+    case func_decl(fid):
+        if d.unit >= 0 && d.unit < len(trees) {
+            return trees[d.unit].funcs[fid].params
+        }
+    default:
+    }
+    mut z ast.Nodes
+    return z
+}
+
+// appends_owned reports whether the call k is a call to append of
+// values, not a spread, onto a list of an owned type, Go's appendsOwned.
+func (mut c Checker) appends_owned(k Key) (bool, error) {
+    cl := call_of(c.prog.trees, k)
+    if !is_builtin_call(c.prog.trees, c.none, k, "append") || cl.spread || count_items(c.prog.trees, k.unit, cl.args) == 0 {
+        return false, noerror
+    }
+    first := item_at(c.prog.trees, k.unit, cl.args, 0)
+    switch kind_at(c.prog.trees, first) {
+    case mut_arg(x):
+        l := mut c.type_of(sub(first, x))
+        if !c.table.is_list(l) {
+            return false, noerror
+        }
+        o := c.table.owned(c.table.elem_of(l))?
+        return o, noerror
+    default:
+        return false, noerror
+    }
+}
+
+// mv_temporary reports e, a value no variable holds, used in ctx, when
+// it is of an owned type and ctx gives it no owner, Go's temporary.
+func (mut c Checker) mv_temporary(e Key, ctx uint8) error {
+    typ := mut c.type_of(e)
+    owned := c.table.owned(typ)?
+    if ctx == ctx_move || !owned {
+        return noerror
+    }
+    if ctx == ctx_view && c.table.is_list(typ) {
+        return noerror
+    }
+    n := mut c.type_name(typ)?
+    mut m := msg()
+    fmt.appendf(mut m, "cannot use a temporary %s here; store it in a variable first", n[:])?
+    return mut c.errorf(span_at(c.prog.trees, e), own m)
+}

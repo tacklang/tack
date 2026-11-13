@@ -16,9 +16,7 @@ func (mut c Checker) check_global(v Key) error {
     has_value := !ast.is_none(var_node.value)
     shape := mut c.global_shape(value, has_value)?
     if shape & shape_question != 0 {
-        // Go reports each ? at its mark, which the port does not find
-        // yet.
-        return not_ported
+        mut c.global_questions(value)?
     }
     if shape & shape_func != 0 {
         mut m := msg()
@@ -67,6 +65,42 @@ func (mut c Checker) check_global(v Key) error {
         return noerror
     }
     put(mut c.var_consts, v, folded)?
+    return noerror
+}
+
+// global_questions reports every ? in value, a global's initializer, at
+// any depth, in the order Go's walk meets them, but those in a closure,
+// Go's loop over questionsIn in checkGlobal: no function holds them.
+func (mut c Checker) global_questions(value Key) error {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, value.node)?
+    for len(stack) > 0 {
+        top, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        k := sub(value, top)
+        switch kind_at(c.prog.trees, k) {
+        case question:
+            mut m := msg()
+            fmt.appendf(mut m, "cannot use ? outside a function")?
+            mut c.errorf(mut c.question_mark(k), own m)?
+        case func_lit:
+            continue
+        default:
+        }
+        clear_nodes(mut kids)
+        children_of(c.prog.trees, value.unit, top, mut kids)?
+        mut j := len(kids) -% 1
+        for j >= 0 {
+            kid, has := kids[j]
+            if has {
+                append(mut stack, kid)?
+            }
+            j -%= 1
+        }
+    }
     return noerror
 }
 
@@ -301,8 +335,9 @@ func zero_const(typ types.Type) Const {
 }
 
 // The bits of a global's shape, what its initializer is before it is
-// checked: it holds a ?, it names a function as a value (Go's
-// globalFuncValue), it is a constant expression (Go's isConstant).
+// checked: it holds a ?, each reported (see global_questions), it names
+// a function as a value (Go's globalFuncValue), it is a constant
+// expression (Go's isConstant).
 var shape_question uint8 = 1
 var shape_func uint8 = 2
 var shape_constant uint8 = 4
@@ -323,15 +358,14 @@ func (mut c Checker) global_shape(value Key, has_value bool) (uint8, error) {
     q := has_question(c.prog.trees, value)?
     if q {
         shape = shape | shape_question
+    }
+    f := names_func(c.prog.trees, c.none, value)?
+    if f {
+        shape = shape | shape_func
     } else {
-        f := names_func(c.prog.trees, c.none, value)?
-        if f {
-            shape = shape | shape_func
-        } else {
-            k := mut c.is_constant(value)?
-            if k {
-                shape = shape | shape_constant
-            }
+        k := mut c.is_constant(value)?
+        if k {
+            shape = shape | shape_constant
         }
     }
     put(mut c.global_shapes, value, shape)?

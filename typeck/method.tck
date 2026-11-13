@@ -1,0 +1,422 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import types from "tack/types"
+
+// Method calls, Go's method.go, and calls of a method named through its
+// type, Go's checkMethodExprCall and namedMethod (methodexpr.go). A call
+// finds its method by the type of what it is called on, which is
+// checked first; the receiver is a parameter, passed first, mut when the
+// method takes it as mut, and the arguments are then checked against
+// the method's other parameters as a function's are.
+
+// check_method_call checks the method call k, x.m(args) or mut
+// x.m(args), Go's checkMethodCall: its receiver, which gives the type
+// the method is found on, the method, recorded as the call's, and then
+// the arguments against the method's parameters after its receiver.
+// Finding the method and checking the arguments are each a function of
+// its own, called for a method expression's call too, so neither is
+// inlined into the other's frame: a method call nested in another's
+// argument then costs little stack (see check_value_call).
+func (mut c Checker) check_method_call(k Key) error {
+    fn, recv_mut := mut c.find_method(k, false)?
+    return mut c.method_args(k, fn, recv_mut, false)
+}
+
+// find_method returns the method the call k calls, Go's method for a
+// method call and namedMethod for a call of a method expression, as
+// through says, and the receiver when it is a mut argument passed to a
+// mut receiver with nothing reported; no method, reported, when there
+// is none to call.
+func (mut c Checker) find_method(k Key, through bool) (Key, Key, error) {
+    cl := call_of(c.prog.trees, k)
+    f := sub(k, cl.fn)
+    s := selector_of(c.prog.trees, f)
+    if through {
+        fn := mut c.named_method(f, s, true)?
+        return fn, no_key(), noerror
+    }
+    fn, recv_mut := mut c.method(k, f, s)?
+    return fn, recv_mut, noerror
+}
+
+// method_args checks the arguments of the call k of the method fn, no
+// key when none was found, Go's rest of checkMethodCall, or of
+// checkMethodExprCall when through says the call names the method
+// through its type and passes the receiver first.
+func (mut c Checker) method_args(k Key, fn Key, recv_mut Key, through bool) error {
+    if is_no_key(fn) {
+        return mut c.arg_exprs(k)
+    }
+    put(mut c.call_method, k, fn)?
+    mut first int64 = 1
+    mut shift int64 = 0
+    if through {
+        first = 0
+        shift = 1
+    }
+    params := mut c.func_params(fn, first, through)?
+    mut name := msg()
+    mut c.display_name(fn, mut name)?
+    mut muts, counted := mut c.check_args(k, name, params)?
+    if !counted {
+        return noerror
+    }
+    if !is_no_key(recv_mut) {
+        append(mut muts, recv_mut)?
+    }
+    mut c.check_exclusive(muts)?
+    mut c.check_list_borrows(k)?
+    if is_variadic(params) {
+        mut c.check_printf(k, fn, shift)?
+    }
+    return noerror
+}
+
+// method checks the receiver of the method call k, whose callee is the
+// selector f, s, and returns the method of its type s names, and the
+// receiver when it is a mut argument passed to a mut receiver with
+// nothing reported, Go's method. It returns no method when the receiver
+// had an error, or its type has no such method, or one the package being
+// checked cannot see, each reported.
+func (mut c Checker) method(k Key, f Key, s ast.Selector) (Key, Key, error) {
+    recv := sub(f, s.x)
+    typ, checked := mut c.receiver_type(recv)?
+    if typ == types.invalid {
+        return no_key(), no_key(), noerror
+    }
+    fn := mut c.method_of(typ, f, s)?
+    mut is_mut := false
+    mut place := no_key()
+    switch kind_at(c.prog.trees, recv) {
+    case mut_arg(x):
+        is_mut = true
+        place = sub(recv, x)
+    default:
+    }
+    if is_no_key(fn) {
+        if is_mut && !checked {
+            mut c.expr(place)?
+        }
+        return no_key(), no_key(), noerror
+    }
+    recv_mut := mut c.takes_mut_receiver(fn)
+    if recv_mut && is_mut {
+        m := mut c.mut_receiver(recv, place, checked)?
+        return fn, m, noerror
+    }
+    if recv_mut {
+        mut c.receiver_without_mut(k, recv, fn)?
+    } else if is_mut {
+        mut c.receiver_with_mut(k, recv, place, fn, checked)?
+    }
+    return fn, no_key(), noerror
+}
+
+// takes_mut_receiver reports whether the method fn takes its receiver as
+// mut, Go's fn.Recv().Mut.
+func (mut c Checker) takes_mut_receiver(fn Key) bool {
+    f := func_of(c.prog.trees, fn)
+    if count_items(c.prog.trees, fn.unit, f.params) == 0 {
+        return false
+    }
+    return param_of(c.prog.trees, item_at(c.prog.trees, fn.unit, f.params, 0)).is_mut
+}
+
+// mut_receiver checks the receiver mut x, m, of a call to a method with
+// a mut receiver, as a mut argument's place, unless checked says
+// receiver_type has, Go's mutReceiver, and returns m when nothing was
+// reported.
+func (mut c Checker) mut_receiver(m Key, x Key, checked bool) (Key, error) {
+    mut c.check_error_mut(m)?
+    if !checked {
+        t := mut c.place(x, m)?
+        if t == types.invalid {
+            return no_key(), noerror
+        }
+    }
+    return m, noerror
+}
+
+// receiver_type returns the type of recv, a method call's receiver, and
+// whether checking it has reported everything about it, Go's
+// receiverType: a plain receiver is checked as a value; a mut one whose
+// place's type its declarations give is not checked yet, and any other
+// is checked as a mut argument's place.
+func (mut c Checker) receiver_type(recv Key) (types.Type, bool, error) {
+    switch kind_at(c.prog.trees, recv) {
+    case mut_arg(x):
+        place := sub(recv, x)
+        t := mut c.place_type(place)
+        if t != types.invalid {
+            return t, false, noerror
+        }
+        p := mut c.place(place, recv)?
+        return p, true, noerror
+    default:
+        if c.recv_given == recv {
+            // The receiver was checked as a link of a spine (see expr).
+            c.recv_given = no_key()
+            v := mut c.value_of(recv, c.recv_type)?
+            return v, true, noerror
+        }
+        t := mut c.expr(recv)?
+        v := mut c.value_of(recv, t)?
+        return v, true, noerror
+    }
+}
+
+// method_named returns the method called name of the type declared at
+// td, Go's TypeDecl.Method, or no key.
+func method_named(trees []ast.File, none []uint8, td Key, name []uint8) Key {
+    if td.unit < 0 || td.unit >= len(trees) {
+        return no_key()
+    }
+    decl := type_decl_of(trees, td)
+    for _, m := range trees[td.unit].defs[decl.methods] {
+        mk := key_of_def(m)
+        if bytes_equal(name_of(trees, none, mk), name) {
+            return mk
+        }
+    }
+    return no_key()
+}
+
+// method_of returns the method the selector f, s, names of a value of
+// type typ, Go's methodOf, reporting a type with no such method, a
+// field named instead, and a method the package being checked cannot
+// see. A type parameter's methods are S7's, and declined, as is a field
+// holding a function value.
+func (mut c Checker) method_of(typ types.Type, f Key, s ast.Selector) (Key, error) {
+    if c.table.is_type_param(typ) {
+        return no_key(), not_ported
+    }
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, f.unit, s.name)...)?
+    td := decl_of_type(c.structs, c.unions, typ)
+    mut fn := no_key()
+    if !is_no_key(td) {
+        fn = method_named(c.prog.trees, c.none, td, name)
+    }
+    if is_no_key(fn) {
+        ft, _, is_field := c.table.find_field(typ, name)
+        if is_field {
+            if c.table.is_func(ft) {
+                return no_key(), not_ported
+            }
+            n := mut c.type_name(typ)?
+            mut m := msg()
+            fmt.appendf(mut m, "%s is a field of %s, not a method; a field cannot be called", name[:], n[:])?
+            mut c.errorf(s.name_span, own m)?
+            return no_key(), noerror
+        }
+        if !mut c.lost_method_of(typ, name) {
+            n := mut c.type_name(typ)?
+            mut m := msg()
+            fmt.appendf(mut m, "%s has no method %s", n[:], name[:])?
+            mut c.errorf(s.name_span, own m)?
+        }
+        return no_key(), noerror
+    }
+    mut why := msg()
+    hidden := mut c.hidden_method(fn, mut why)?
+    if hidden {
+        mut c.errorf(s.name_span, own why)?
+        return no_key(), noerror
+    }
+    return fn, noerror
+}
+
+// hidden_method reports whether the code being checked may not call the
+// method fn, its visibility capped by its type's, Go's hiddenMethod
+// being non-empty, and appends why to out.
+func (mut c Checker) hidden_method(fn Key, mut out list[uint8]) (bool, error) {
+    f := func_of(c.prog.trees, fn)
+    owner, has_owner := c.unit_pkg[fn.unit]
+    if !has_owner || c.pkg < 0 || f.recv_type.is_none() {
+        return false, noerror
+    }
+    rt := key_of_def(f.recv_type)
+    vis := f.vis.capped(type_decl_of(c.prog.trees, rt).vis)
+    if owner == c.pkg || vis == ast.vis_pub {
+        return false, noerror
+    }
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, fn.unit, f.name)...)?
+    if vis == ast.vis_lib {
+        mut a := msg()
+        append_pkg(c.prog.packages, owner, 2, mut a)?
+        mut b := msg()
+        append_pkg(c.prog.packages, c.pkg, 2, mut b)?
+        if bytes_equal(a[:], b[:]) {
+            return false, noerror
+        }
+        lib_message(name, a[:], b[:], mut out)?
+        return true, noerror
+    }
+    n := mut c.type_name(decl_type_of(c.decl_types, rt))?
+    fmt.appendf(mut out, "%s is not pub in %s", name[:], n[:])?
+    return true, noerror
+}
+
+// lib_message appends the message for name, a lib name of the module
+// owner, used from the module user, Go's ast.LibMessage.
+func lib_message(name []uint8, owner []uint8, user []uint8, mut out list[uint8]) error {
+    if len(user) == 0 {
+        fmt.appendf(mut out, "%s is lib in module %s and cannot be used from a single file, which has no module", name[:], owner)?
+        return noerror
+    }
+    fmt.appendf(mut out, "%s is lib in module %s and cannot be used from module %s", name[:], owner, user)?
+    return noerror
+}
+
+// receiver_with_mut reports the receiver mut x, m, of the call k to fn,
+// a method whose receiver is plain, after checking x unless checked says
+// receiver_type has, Go's receiverWithMut: the fix is to leave out mut.
+func (mut c Checker) receiver_with_mut(k Key, m Key, x Key, fn Key, checked bool) error {
+    if !checked {
+        mut c.expr(x)?
+    }
+    mut plain := span_at(c.prog.trees, k)
+    plain.start = span_at(c.prog.trees, x).start
+    t := mut c.source_text(plain)?
+    mut msg1 := msg()
+    mut c.display_name(fn, mut msg1)?
+    fmt.appendf(mut msg1, " does not take its receiver as mut; call %s", t[:])?
+    return mut c.errorf(span_at(c.prog.trees, m), own msg1)
+}
+
+// receiver_without_mut reports the call k, whose receiver recv is
+// written without mut, of fn, a method with a mut receiver, Go's
+// receiverWithoutMut.
+func (mut c Checker) receiver_without_mut(k Key, recv Key, fn Key) error {
+    sp := span_at(c.prog.trees, recv)
+    if is_no_key(root_ident(c.prog.trees, recv)) || built_in_place(c.prog.trees, c.none, recv) {
+        mut m := msg()
+        mut c.display_name(fn, mut m)?
+        fmt.appendf(mut m, " takes its receiver as mut; only a variable, a field or an element can be passed as mut")?
+        return mut c.errorf(sp, own m)
+    }
+    f := mut c.arg_fix(recv)?
+    mut head := msg()
+    mut c.display_name(fn, mut head)?
+    append(mut head, []uint8(" takes its receiver as mut")...)?
+    t := mut c.source_text(span_at(c.prog.trees, k))?
+    mut cure := msg()
+    fmt.appendf(mut cure, "call mut %s", t[:])?
+    mut m := msg()
+    fix_message(f, head, cure, mut m)?
+    return mut c.fix_error(sp, own m, f)
+}
+
+// built_in_place reports whether e is, or is a field or an element of, a
+// union built in place, Go's builtInPlace.
+func built_in_place(trees []ast.File, none []uint8, e Key) bool {
+    mut k := e
+    for {
+        _, _, built := construction(trees, none, k)
+        if built {
+            return true
+        }
+        switch kind_at(trees, k) {
+        case index(ix):
+            k = sub(k, ix.x)
+        case selector(s):
+            k = sub(k, s.x)
+        default:
+            return false
+        }
+    }
+    return false
+}
+
+// check_method_expr_call checks the call k whose callee f is a method
+// expression, Pair.first(p), Go's checkMethodExprCall: a call of the
+// method f names, recorded as the call's, its arguments checked against
+// every one of the method's parameters, the receiver first.
+func (mut c Checker) check_method_expr_call(k Key, _ Key) error {
+    fn, recv_mut := mut c.find_method(k, true)?
+    return mut c.method_args(k, fn, recv_mut, true)
+}
+
+// named_method returns the method the method expression f, s, names,
+// called when called says so, Go's namedMethod, or no key after
+// reporting why it names none. A type parameter's are S7's, and
+// declined.
+func (mut c Checker) named_method(f Key, s ast.Selector, called bool) (Key, error) {
+    x := sub(f, s.x)
+    nm, _ := ident_at(c.prog.trees, x)
+    written := mut c.source_text(span_at(c.prog.trees, x))?
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, f.unit, s.name)...)?
+    if nm.def.is_none() {
+        typ, _ := types.lookup(written[:])
+        _, _, is_field := c.table.find_field(typ, name)
+        mut m := msg()
+        if is_field {
+            fmt.appendf(mut m, "%s is a field of %s, not a method; only a method can be named through its type", name[:], written[:])?
+        } else {
+            fmt.appendf(mut m, "%s has no method %s", written[:], name[:])?
+        }
+        mut c.errorf(s.name_span, own m)?
+        return no_key(), noerror
+    }
+    if nm.def.kind == ast.def_type_param {
+        return no_key(), not_ported
+    }
+    if nm.def.kind != ast.def_type {
+        return no_key(), noerror
+    }
+    d := key_of_def(nm.def)
+    if is_interface_decl(c.prog.trees, d) {
+        whole := mut c.source_text(span_at(c.prog.trees, f))?
+        mut m := msg()
+        if called {
+            fmt.appendf(mut m, "cannot call %s: %s is an interface; only a struct or union type's methods can be called through their type", whole[:], written[:])?
+        } else {
+            fmt.appendf(mut m, "cannot use %s as a value: %s is an interface; only a struct or union type's methods are values", whole[:], written[:])?
+        }
+        mut c.errorf(span_at(c.prog.trees, f), own m)?
+        return no_key(), noerror
+    }
+    typ := decl_type_of(c.decl_types, d)
+    if typ == types.invalid {
+        return no_key(), noerror
+    }
+    fn := method_named(c.prog.trees, c.none, d, name)
+    if !is_no_key(fn) {
+        mut why := msg()
+        hidden := mut c.hidden_method(fn, mut why)?
+        if hidden {
+            mut c.errorf(s.name_span, own why)?
+            return no_key(), noerror
+        }
+        return fn, noerror
+    }
+    if c.table.is_struct(typ) {
+        ok := mut c.resolve_fields(typ, span_at(c.prog.trees, f))?
+        if ok {
+            _, _, is_field := c.table.find_field(typ, name)
+            if is_field {
+                n := mut c.type_name(typ)?
+                mut m := msg()
+                fmt.appendf(mut m, "%s is a field of %s, not a method; only a method can be named through its type", name[:], n[:])?
+                mut c.errorf(s.name_span, own m)?
+                return no_key(), noerror
+            }
+        }
+    }
+    if mut c.lost_method_of(typ, name) {
+        return no_key(), noerror
+    }
+    n := mut c.type_name(typ)?
+    mut m := msg()
+    if c.table.is_union(typ) {
+        fmt.appendf(mut m, "%s has no case or method %s", n[:], name[:])?
+    } else {
+        fmt.appendf(mut m, "%s has no method %s", n[:], name[:])?
+    }
+    mut c.errorf(s.name_span, own m)?
+    return no_key(), noerror
+}

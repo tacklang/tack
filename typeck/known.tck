@@ -42,6 +42,10 @@ func (mut c Checker) type_of(k Key) types.Type {
         if cl.conv != types.invalid {
             return cl.conv
         }
+        vc, viewed := c.view_convs[k]
+        if viewed {
+            return vc
+        }
         t := node_type_of(c.node_types, k)
         if t != types.invalid {
             return t
@@ -49,7 +53,15 @@ func (mut c Checker) type_of(k Key) types.Type {
         if is_len_call(c.prog.trees, c.none, k) {
             return types.int64_type
         }
+        fn := mut c.callee_of(k)
+        if !is_no_key(fn) && mut c.callee_result_count(fn) == 1 {
+            return result_of(c.results, fn, 0)
+        }
         return types.invalid
+    case mut_arg(x):
+        return mut c.type_of(sub(k, x))
+    case own_arg(x):
+        return mut c.type_of(sub(k, x))
     default:
         return node_type_of(c.node_types, k)
     }
@@ -107,8 +119,8 @@ func (mut c Checker) known_value(k Key) (constant.Int, bool, error) {
     case binary(b):
         r, known := mut c.known_arithmetic(k, b)?
         return r, known, noerror
-    case call(cl):
-        r, known := mut c.known_call(k, cl)?
+    case call:
+        r, known := mut c.known_call(k)?
         return r, known, noerror
     case selector, index:
         part, ok_part := mut c.fold_part(k)?
@@ -188,7 +200,8 @@ func (mut c Checker) known_unary(k Key, u ast.Unary) (constant.Int, bool, error)
 // known_call returns the value of a call when it is known, Go's
 // knownCall: a conversion of a known value that fits its type, or len of
 // a known string or of a slice of one at known bounds.
-func (mut c Checker) known_call(k Key, cl ast.Call) (constant.Int, bool, error) {
+func (mut c Checker) known_call(k Key) (constant.Int, bool, error) {
+    cl := call_of(c.prog.trees, k)
     if cl.conv != types.invalid {
         if count_items(c.prog.trees, k.unit, cl.args) != 1 || !types.is_integer(cl.conv) {
             return constant.from_int64(0), false, noerror
@@ -236,26 +249,36 @@ func (mut c Checker) known_string(k Key) (Const, bool, error) {
     case slice:
         v, ok := mut c.known_slice(k)?
         return v, ok, noerror
-    case ident(nm):
-        if nm.def.kind != ast.def_var {
-            return no_const(), false, noerror
+    case ident:
+        // A chain of locals each initialized with the next is followed in
+        // a loop, to the first value that is no such local.
+        mut x := k
+        for {
+            nm, is_id := ident_at(c.prog.trees, x)
+            if !is_id {
+                break
+            }
+            if nm.def.kind != ast.def_var {
+                return no_const(), false, noerror
+            }
+            v := key_of_def(nm.def)
+            var_node := var_of(c.prog.trees, v)
+            if var_node.mutable || decl_type_of(c.decl_types, v) != types.string_type {
+                return no_const(), false, noerror
+            }
+            cv, ok := c.var_consts[v]
+            if ok && cv.kind == cv_str {
+                return cv, true, noerror
+            }
+            // A local's initializer is followed; a global's value is its
+            // Const, computed before anything reads it.
+            _, global := c.globals[v]
+            if ast.is_none(var_node.value) || global {
+                return no_const(), false, noerror
+            }
+            x = sub(v, var_node.value)
         }
-        v := key_of_def(nm.def)
-        var_node := var_of(c.prog.trees, v)
-        if var_node.mutable || decl_type_of(c.decl_types, v) != types.string_type {
-            return no_const(), false, noerror
-        }
-        cv, ok := c.var_consts[v]
-        if ok && cv.kind == cv_str {
-            return cv, true, noerror
-        }
-        // A local's initializer would be followed here; a global's
-        // value is its Const, computed before anything reads it.
-        _, global := c.globals[v]
-        if ast.is_none(var_node.value) || global {
-            return no_const(), false, noerror
-        }
-        r, known := mut c.known_string(sub(v, var_node.value))?
+        r, known := mut c.known_string(x)?
         return r, known, noerror
     default:
         return no_const(), false, noerror

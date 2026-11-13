@@ -3,8 +3,10 @@ package typeck
 // Package typeck is the type checker, a port of the Go compiler's
 // package typeck: so far its declaration phase, everything Go's
 // Checker.Check does before it checks the first function body
-// (check.go:557-603), and the statements and expressions of the bodies
-// that need none of the later stages (check.go:604-618, see body.tck).
+// (check.go:557-603), and the bodies (check.go:604-618, see body.tck),
+// their statements and expressions, the calls in them and the values of
+// lists, maps, arenas, pools, views, any and error they pass (see
+// call.tck), as far as none needs a later stage.
 // It takes a resolved program and the source files its spans point
 // into, both taken over and given back, and gives every struct and union
 // type its ID, its fields and its cases, every global its type and its
@@ -17,18 +19,19 @@ package typeck
 // name. Then it checks every body, every extern func's C side, the bad
 // declarations and the declarations nothing uses, its errors, and then
 // its warnings, given back by take_diags.
-//
+
 // The types are added to a types.Table in Go's order, so each gets the
 // ID Go gives it: what the --port-types dump shows, which tackc's
 // porttest compares with Go's checker run in process. What the checker
 // finds is kept beside the tree, in maps keyed by node (see Checker),
 // rather than written into nodes as Go writes it.
 //
-// A body is checked without the facts, moves and escapes Go keeps
-// beside it, which decide only the proofs and the ownership later
-// stages port: every construct that would need one is declined before it
-// could make a difference (see body.tck), so a body that checks is one
-// whose every report is the port's too. check_types keeps what the
+// A body is checked without the facts and escapes Go keeps beside it,
+// and its moves are followed only where no variable owns what it holds:
+// those decide the proofs and the ownership later stages port, and every
+// construct that would need one is declined before it could make a
+// difference (see body.tck), so a body that checks is one whose every
+// report is the port's too. check_types keeps what the
 // declaration phase found when only a body is declined, for
 // --port-types, whose dump says how far the checker got.
 //
@@ -52,3 +55,24 @@ package typeck
 // long as it likes, of operators, of fields and elements, of structs
 // held by value, keeps its own stack too, so a program of any length
 // checks within a bounded stack.
+//
+// # Stack discipline
+//
+// The parser lets an expression nest about a thousand levels deep, and
+// the port must check every such input within a 4 MB stack, so a level
+// of nesting, whatever construct it is, a call's argument, an element, a
+// ?, an operator, may cost less than 4 KB of frames in all. The checks
+// keep to that by construction: a chain of operators, of fields and
+// elements, of method calls and of ?s is a spine, walked in a loop, and
+// a binary operator's right operand is a spine of its own pushed on
+// body_expr's stack (see expr), so neither recurses at all; a value
+// nests in another through a few small frames, the check's work before
+// and after its part done by functions of their own, which return
+// before the part is checked (see field_key, question_error_last,
+// find_method and method_args); and a fold or a walk of the moves keeps
+// a stack of its own (see fold_run and mv_walk). The generated C gives
+// every temporary of a function a slot for the whole call, so what
+// matters is what a frame on the recursion's path holds, which the
+// structure above keeps small whatever clang inlines into it.
+// porttest's TestCheckDeepPairs checks the budget, nesting every pair
+// of constructs as deeply as the parser allows at 4 MB.

@@ -3,6 +3,7 @@ package typeck
 import ast from "tack/ast"
 import constant from "tack/constant"
 import diag from "tack/diag"
+import fmt from "std/fmt"
 import source from "tack/source"
 import text from "std/text"
 import types from "tack/types"
@@ -91,6 +92,9 @@ pub type Checker struct {
     files source.Set
     table types.Table
     pub tests bool
+    // dumping says check runs for the --port-types dump (see
+    // check_types), which shows what Go adds to the tree.
+    dumping bool
 
     diags list[diag.Diagnostic]
     // warnings holds the warnings, Go's c.warnings, reported after the
@@ -190,7 +194,7 @@ pub type Checker struct {
     // values, Go's knownVars, the switches on a union that name every
     // case, Go's Exhaustive, the names and calls a switch on a union
     // took as patterns, whose binding and conversion Go then clears, and
-    // which types plain_type found plain.
+    // which types supported_type found supported.
     body BodyState
     in_body bool
     fall_next map[Key]Key
@@ -199,6 +203,63 @@ pub type Checker struct {
     pattern_cleared map[Key]bool
     conv_cleared map[Key]bool
     plain_types map[int64]bool
+
+    // The calls (see call.tck): the method each method call and each
+    // call of a method expression calls, Go's Call.Method; the type a
+    // conversion to a view records, Go's Conv of one; the bindings no
+    // declaration can make mut, Go's bindings; the call, slice or element
+    // written where a view may be, Go's viewCall, viewSlice and viewSpan;
+    // the assertion and the pop or remove bound with ok, Go's
+    // checkedAssert and checkedTake; the call written as a statement,
+    // Go's droppedCall; and the names reported alongside an own argument,
+    // Go's ownReported.
+    call_method map[Key]Key
+    view_convs map[Key]types.Type
+    bindings map[Key]uint8
+    view_call Key
+    view_slice Key
+    view_span Key
+    checked_assert Key
+    checked_take Key
+    dropped_call Key
+    own_reported map[source.Span]bool
+    // site_args holds the testing.Site argument Go puts among each
+    // call's arguments (see pass_site).
+    site_args map[Key]SiteArg
+    // recv_given is a method call's receiver that the walk of a spine
+    // has checked already, as recv_type (see expr and receiver_type).
+    recv_given Key
+    recv_type types.Type
+
+    // The errors (see errors.tck): the ties the bindings of the body
+    // being checked make, in order, the ok variables among the holders
+    // with the call that bound each, which variables are held and which
+    // hold, what each unread variable holds, Go's holders, and the
+    // values the return being checked passes on beside their error, Go's
+    // passedOn.
+    ties list[HoldTie]
+    oks map[Key]Key
+    held_any map[Key]bool
+    holder_any map[Key]bool
+    holders map[Key]HolderAt
+    passed_on map[Key]Key
+
+    // The ?s (see question.tck): how many values each gives, and their
+    // types, Go's Question.Results.
+    question_counts map[Key]int64
+    question_types map[RKey]types.Type
+
+    // The moves (see mover.tck): the function whose body is followed,
+    // the places switched on around the point whose clause binds a
+    // payload of them in place, and the clause variables a switch on a
+    // union bound, Go's unionBindings.
+    mv_fn Key
+    matching list[Matched]
+    union_bound map[Key]bool
+
+    // body_owns says whether the body being checked holds an own
+    // argument, whose call checks check_own_exclusive.
+    body_owns bool
 
     // How far check got: decls_done once the declaration phase is,
     // with how many types the table and how many errors the checker had
@@ -235,6 +296,7 @@ pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error
         files: files,
         table: t,
         tests: false,
+        dumping: false,
         diags: make(list[diag.Diagnostic], c_allocator),
         warnings: make(list[diag.Diagnostic], c_allocator),
         assumed: make(list[text.Text], c_allocator),
@@ -292,6 +354,31 @@ pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error
         pattern_cleared: make(map[Key]bool, c_allocator),
         conv_cleared: make(map[Key]bool, c_allocator),
         plain_types: make(map[int64]bool, c_allocator),
+        call_method: make(map[Key]Key, c_allocator),
+        view_convs: make(map[Key]types.Type, c_allocator),
+        bindings: make(map[Key]uint8, c_allocator),
+        view_call: no_key(),
+        view_slice: no_key(),
+        view_span: no_key(),
+        checked_assert: no_key(),
+        checked_take: no_key(),
+        dropped_call: no_key(),
+        own_reported: make(map[source.Span]bool, c_allocator),
+        site_args: make(map[Key]SiteArg, c_allocator),
+        recv_given: no_key(),
+        recv_type: types.invalid,
+        ties: make(list[HoldTie], c_allocator),
+        oks: make(map[Key]Key, c_allocator),
+        held_any: make(map[Key]bool, c_allocator),
+        holder_any: make(map[Key]bool, c_allocator),
+        holders: make(map[Key]HolderAt, c_allocator),
+        passed_on: make(map[Key]Key, c_allocator),
+        question_counts: make(map[Key]int64, c_allocator),
+        question_types: make(map[RKey]types.Type, c_allocator),
+        mv_fn: no_key(),
+        matching: make(list[Matched], c_allocator),
+        union_bound: make(map[Key]bool, c_allocator),
+        body_owns: false,
         decls_done: false,
         decl_type_count: 0,
         decl_error_count: 0,
@@ -423,6 +510,7 @@ pub func (mut c Checker) check() error {
 // so with its phase (see write_dump); a decline before then is
 // not_ported, as is any from check.
 pub func (mut c Checker) check_types() error {
+    c.dumping = true
     e := mut c.check()
     if e.code == not_ported.code && c.decls_done {
         return noerror
@@ -601,6 +689,18 @@ func (mut c Checker) errorf(sp source.Span, own msg list[uint8]) error {
     d := diag.new_error(own m, sp, c_allocator)
     append(mut c.diags, d)?
     return noerror
+}
+
+// report reports an error at sp saying format with args as fmt.appendf
+// writes them, as errorf does. The message is built here, out of the
+// caller's frame: a check that recurses into what it checks, an operand,
+// an argument or an element, keeps its frame small by reporting through
+// this, which matters for a body nested as deeply as the parser allows
+// (see the stack discipline in doc.tck).
+func (mut c Checker) report(sp source.Span, format string, args ...any) error {
+    mut m := msg()
+    fmt.appendf(mut m, format, args...)?
+    return mut c.errorf(sp, own m)
 }
 
 // note_last adds to the last diagnostic a note at sp saying msg, taken

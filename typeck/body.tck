@@ -10,24 +10,27 @@ import types from "tack/types"
 // The bodies: Go's checkFunc and checkBody, and the statements they
 // check (check.go, defer.go, invalid.go). The port checks a body as Go's
 // pipeline does, statement by statement in source order, but without
-// the facts, the regions, the moves and the escapes Go keeps beside it:
-// those decide only proofs and ownership, which later stages port, and
-// every construct that needs one is declined, not_ported, before it
-// could make a difference. So a body that checks is one in which Go's
-// facts, moves and escapes report nothing, and what the port reports is
-// all Go reports.
+// the facts, the regions and the escapes Go keeps beside it: those
+// decide only proofs and ownership, which later stages port, and every
+// construct that needs one is declined, not_ported, before it could make
+// a difference. So a body that checks is one in which Go's facts and
+// escapes report nothing, and what the port reports is all Go reports.
+// The moves Go checks after a body with nothing reported the port
+// follows for a body none of whose variables owns what it holds (see
+// mover.tck), and declines for any other.
 //
-// What is declined, and the stage that owns it: a call of anything but
-// a conversion, len or a union's case, a ?, a mut or own argument, a
-// type assertion, and a value of a list, map, arena, pool, view, id,
-// span, handle, any, error or Allocator type (S2b); a binding of several
-// names but where Go reports it at once; a loop whose init declares a
-// mutable variable, or one that writes a variable declared before it, an
-// ensures clause, unreachable, and an increment, a decrement or an integer
-// compound assignment (S4, S5); a region (S6); and a type parameter, a
-// function used as a value, a closure, a fields loop and a switch on a
-// type parameter (S7). Anything Go's checkFunc does after the body, its
-// moves and escapes, reports nothing for a body none of that is in.
+// What is declined, and the stage that owns it: a read of a variable an
+// error or an ok holds, a plain pop or remove, an element, a division
+// and a slice not of a constant string, all of which need the facts in
+// force (S3); integer arithmetic, an increment, a decrement, an integer
+// compound assignment and a conversion of a value not known (S4); a loop
+// that writes a variable declared before it, an ensures clause and
+// unreachable (S5); a region, an own or scope parameter, two mut
+// arguments, a borrow of anything owned alongside a call's other
+// arguments, the builtins that change a map, an arena or a pool, and a
+// variable that owns what it holds once the moves are followed (S6);
+// and a type parameter, a function value, a closure, a fields loop and
+// a switch on a type parameter (S7).
 //
 // A chain of else ifs, which nests an if in the else of the one before
 // for every link, is checked in a loop, as is a statement list; only
@@ -48,11 +51,12 @@ type BodyState struct {
 }
 
 // ClauseAt is a switch case whose body is being checked, Go's clauseAt:
-// the clause, whether its switch is on a union, on_union, and how many
-// defers were around it.
+// the clause, whether its switch is on a union, on_union, or a type
+// switch, on_type, and how many defers were around it.
 type ClauseAt struct {
     cl Key
     on_union bool
+    on_type bool
     deferred int64
 }
 
@@ -78,10 +82,10 @@ func (mut c Checker) check_bodies() error {
 
 // check_func checks the function d once every signature is known, Go's
 // checkFunc: an extern func's C side, or any other's body, and a body
-// with bad statements as check_damaged_body says. Go then checks the
-// moves and escapes of a body that had nothing else reported, which for
-// the bodies the port checks report nothing (see the comment at the top
-// of the file).
+// with bad statements as check_damaged_body says. A body that had
+// nothing else reported then has its moves checked (see check_moves);
+// one with a variable or a parameter that owns what it holds is S6's,
+// and declined there. Its escapes concern regions, which are declined.
 func (mut c Checker) check_func(d Key) error {
     fn := func_of(c.prog.trees, d)
     if fn.is_extern && fn.method && c.prior > 0 {
@@ -95,7 +99,25 @@ func (mut c Checker) check_func(d Key) error {
     if !is_no_key(first) {
         return mut c.check_damaged_body(d, first)
     }
-    return mut c.check_body(d)
+    before := len(c.diags)
+    mut c.check_body(d)?
+    if len(c.diags) != before {
+        return noerror
+    }
+    owned := mut c.owned_locals(d.unit, fn.body)?
+    if owned {
+        return not_ported
+    }
+    for i := range count_items(c.prog.trees, d.unit, fn.params) {
+        p := item_at(c.prog.trees, d.unit, fn.params, i)
+        if param_of(c.prog.trees, p).is_own {
+            o := c.table.owned(decl_type_of(c.decl_types, p))?
+            if o {
+                return not_ported
+            }
+        }
+    }
+    return mut c.check_moves(d)
 }
 
 // first_bad_stmt returns the first bad statement of body, in the tree
@@ -214,11 +236,13 @@ func (mut c Checker) check_bad_decls() error {
     return noerror
 }
 
-// check_body checks the body of d, Go's checkBody: each statement, then
-// the variables nothing read, and then that it ends in a return when it
-// declares a result. What a body Go checks twice, first to find what its
-// calls call or to probe its loops, the port declines before it starts
-// (see body_declined).
+// check_body checks the body of d, Go's checkBody: a first pass when a
+// binding ties together the results of a method call (see
+// discarded_pass), then what its bindings of errors tie together (see
+// collect_holds), each statement, the variables nothing read, and then
+// that it ends in a return when it declares a result. A body Go probes
+// for its loops' bounds the port declines before it starts (see
+// body_declined).
 func (mut c Checker) check_body(d Key) error {
     fn := func_of(c.prog.trees, d)
     declined := mut c.body_declined(d, fn)?
@@ -236,7 +260,18 @@ func (mut c Checker) check_body(d Key) error {
     })
     was := c.in_body
     c.in_body = true
-    mut e := mut c.check_stmts(d.unit, fn.body)
+    c.body_owns = mut c.holds_own_arg(d.unit, fn.body)?
+    mut e := noerror
+    binds := mut c.has_method_binding(d.unit, fn.body)?
+    if binds {
+        e = mut c.discarded_pass(d.unit, fn.body)
+    }
+    if e.code == 0 {
+        e = mut c.collect_holds(d.unit, fn.body)
+    }
+    if e.code == 0 {
+        e = mut c.check_stmts(d.unit, fn.body)
+    }
     if e.code == 0 {
         e = mut c.report_unread(d.unit, fn.body)
     }
@@ -260,12 +295,123 @@ func (mut c Checker) check_body(d Key) error {
     return mut c.errorf(fn.name_span, own m)
 }
 
+// has_method_binding reports whether body, in the tree unit, binds the
+// results of a method call or of a call of a method expression, at any
+// depth, Go's hasMethodBinding: which method either calls is known only
+// once its receiver or its type is checked.
+func (mut c Checker) has_method_binding(unit int64, body ast.Nodes) (bool, error) {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for i := range count_items(c.prog.trees, unit, body) {
+        append(mut stack, item_at(c.prog.trees, unit, body, i).node)?
+    }
+    for len(stack) > 0 {
+        top, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        k := Key{unit: unit, node: top}
+        mut value := no_key()
+        switch kind_at(c.prog.trees, k) {
+        case multi_var(m):
+            value = sub(k, m.value)
+        case multi_assign(m):
+            value = sub(k, m.value)
+        default:
+        }
+        switch kind_at(c.prog.trees, value) {
+        case call(cl):
+            if !is_no_key(mut c.receiver_of(value)) || is_value_call(c.prog.trees, value) || mut c.is_method_expr(sub(value, cl.fn)) {
+                return true, noerror
+            }
+        default:
+        }
+        clear_nodes(mut kids)
+        children_of(c.prog.trees, unit, top, mut kids)?
+        for _, kid := range kids {
+            append(mut stack, kid)?
+        }
+    }
+    return false, noerror
+}
+
+// holds_own_arg reports whether body, in the tree unit, holds an own
+// argument at any depth, whose calls check_own_exclusive checks.
+func (mut c Checker) holds_own_arg(unit int64, body ast.Nodes) (bool, error) {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for i := range count_items(c.prog.trees, unit, body) {
+        append(mut stack, item_at(c.prog.trees, unit, body, i).node)?
+    }
+    for len(stack) > 0 {
+        top, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        k := Key{unit: unit, node: top}
+        switch kind_at(c.prog.trees, k) {
+        case own_arg:
+            return true, noerror
+        default:
+        }
+        clear_nodes(mut kids)
+        children_of(c.prog.trees, unit, top, mut kids)?
+        for _, kid := range kids {
+            append(mut stack, kid)?
+        }
+    }
+    return false, noerror
+}
+
+// discarded_pass checks body, in the tree unit, once before the check
+// for good, with what it reports dropped and with records of its own,
+// put back as they were after it, Go's discardedPass (see findCallees):
+// what it leaves is each method call's method, which collect_holds then
+// reads, and what the check for good records again.
+func (mut c Checker) discarded_pass(unit int64, body ast.Nodes) error {
+    before := len(c.diags)
+    warned := len(c.warnings)
+    own_r := replace(mut c.own_reported, make(map[source.Span]bool, c_allocator))
+    sizes := replace(mut c.size_checked, make(map[int64]source.Span, c_allocator))
+    locals := replace(mut c.known_locals, make(map[Key]KnownLocal, c_allocator))
+    bins := replace(mut c.known_binaries, make(map[Key]KnownBinary, c_allocator))
+    hs := replace(mut c.holders, make(map[Key]HolderAt, c_allocator))
+    mut e := mut c.collect_holds(unit, body)
+    if e.code == 0 {
+        e = mut c.check_block(unit, body)
+    }
+    old_r := replace(mut c.own_reported, own_r)
+    drop(own old_r)
+    old_s := replace(mut c.size_checked, sizes)
+    drop(own old_s)
+    old_l := replace(mut c.known_locals, locals)
+    drop(own old_l)
+    old_b := replace(mut c.known_binaries, bins)
+    drop(own old_b)
+    old_h := replace(mut c.holders, hs)
+    drop(own old_h)
+    for len(c.diags) > before {
+        d, ok := pop(mut c.diags)
+        if ok {
+            drop(own d)
+        }
+    }
+    for len(c.warnings) > warned {
+        w, ok := pop(mut c.warnings)
+        if ok {
+            drop(own w)
+        }
+    }
+    return e
+}
+
 // body_declined reports whether the port declines the body of d, fn,
 // before checking it: a function with type parameters or an ensures
-// clause, or whose signature has a type the port does not check values
-// of (see plain_type), or whose body Go checks more than once, a
-// binding of a call's results or a loop that writes a variable declared
-// before it (see firstPasses).
+// clause, one with an own or a scope parameter, one whose signature has
+// a function type or a type parameter (see supported_type) or a view
+// result, which are later stages', or whose body Go probes for its
+// loops' bounds, a loop that writes a variable declared before it (see
+// firstPasses).
 func (mut c Checker) body_declined(d Key, fn ast.Func) (bool, error) {
     if count_items(c.prog.trees, d.unit, fn.type_params) > 0 || !ast.is_none(fn.contract) {
         return true, noerror
@@ -273,18 +419,19 @@ func (mut c Checker) body_declined(d Key, fn ast.Func) (bool, error) {
     for i := range count_items(c.prog.trees, d.unit, fn.params) {
         p := item_at(c.prog.trees, d.unit, fn.params, i)
         param := param_of(c.prog.trees, p)
-        if param.is_own || param.is_scope || param.variadic {
+        if param.is_own || param.is_scope {
             return true, noerror
         }
-        plain := mut c.plain_type(decl_type_of(c.decl_types, p))?
-        if !plain {
+        ok := mut c.supported_type(decl_type_of(c.decl_types, p))?
+        if !ok {
             return true, noerror
         }
     }
     n, _ := results_count(c.result_count, d)
     for i := range n {
-        plain := mut c.plain_type(result_of(c.results, d, i))?
-        if !plain {
+        rt := result_of(c.results, d, i)
+        ok := mut c.supported_type(rt)?
+        if !ok || c.table.is_view(rt) {
             return true, noerror
         }
     }
@@ -293,15 +440,16 @@ func (mut c Checker) body_declined(d Key, fn ast.Func) (bool, error) {
 }
 
 // loop_writes_outer reports whether a loop in body, in the tree unit,
-// assigns, increments, decrements or binds a name declared before it,
-// a parameter or a variable, Go's hasCounterLoop, or binds several names
-// at all, which the port declines anyway; Go probes such a body first.
+// assigns, increments or decrements a name declared before it, a
+// parameter or a variable, Go's hasCounterLoop: Go probes such a body
+// first, which is S5's.
 func (mut c Checker) loop_writes_outer(unit int64, body ast.Nodes) (bool, error) {
     // loops holds the spans of the loops around the node being looked
     // at, innermost last.
     mut loops := make(list[source.Span], c_allocator)
     mut stack := make(list[id[ast.Node]], c_allocator)
     mut kids := make(list[id[ast.Node]], c_allocator)
+    mut targets := make(list[Key], c_allocator)
     mut i := count_items(c.prog.trees, unit, body) -% 1
     for i >= 0 {
         append(mut stack, item_at(c.prog.trees, unit, body, i).node)?
@@ -321,19 +469,24 @@ func (mut c Checker) loop_writes_outer(unit int64, body ast.Nodes) (bool, error)
             }
             pop(mut loops)
         }
-        mut target := no_key()
+        clear_keys(mut targets)
         switch kind_at(c.prog.trees, k) {
         case for_stmt, for_range, func_lit:
             append(mut loops, sp)?
         case assign(a):
-            target = sub(k, a.target)
+            append(mut targets, sub(k, a.target))?
         case inc_dec(s):
-            target = sub(k, s.target)
-        case multi_var, multi_assign:
-            return true, noerror
+            append(mut targets, sub(k, s.target))?
+        case multi_assign(m):
+            for j := range count_items(c.prog.trees, unit, m.targets) {
+                append(mut targets, item_at(c.prog.trees, unit, m.targets, j))?
+            }
         default:
         }
-        if !is_no_key(target) && len(loops) > 0 {
+        for _, target := range targets {
+            if len(loops) == 0 {
+                break
+            }
             nm, is_id := ident_at(c.prog.trees, target)
             last, has_last := loops[len(loops) -% 1]
             if is_id && has_last && declared_before(c.prog.trees, nm.def, last.start) {
@@ -562,6 +715,8 @@ func (mut c Checker) check_fallthrough(k Key) error {
     _, linked := c.fall_next[k]
     if c.body.deferred > in.deferred {
         fmt.appendf(mut m, "cannot fall through out of a defer")?
+    } else if in.on_type {
+        fmt.appendf(mut m, "cannot fall through in a type switch")?
     } else if in.on_union {
         fmt.appendf(mut m, "cannot fall through in a switch on a union")?
     } else if last != k {
@@ -604,13 +759,15 @@ func values_span(trees []ast.File, unit int64, values ast.Nodes) source.Span {
 // check_results checks that the return k carries one value for each
 // result the function declares, each usable as that result's type, Go's
 // checkResults; a wrong count is one error, and then no value is
-// compared with a result.
+// compared with a result. The values a return passes on beside the
+// error that holds them may be read unchecked (see note_pass_on).
 func (mut c Checker) check_results(k Key, s ast.Return) error {
     fnk := c.body.fn
     fn := func_of(c.prog.trees, fnk)
     got := count_items(c.prog.trees, k.unit, s.values)
     want := count_items(c.prog.trees, fnk.unit, fn.results)
     if got == want {
+        mut c.note_pass_on(k, s, fnk)?
         for i := range got {
             v := item_at(c.prog.trees, k.unit, s.values, i)
             rt := result_of(c.results, fnk, i)
@@ -623,6 +780,8 @@ func (mut c Checker) check_results(k Key, s ast.Return) error {
             mut c.display_name(fnk, mut ctx)?
             mut c.use(v, t, rt, ctx)?
         }
+        old := replace(mut c.passed_on, make(map[Key]Key, c_allocator))
+        drop(own old)
         return noerror
     }
     for i := range got {
@@ -676,10 +835,10 @@ func (mut c Checker) check_for(k Key, s ast.For) error {
     return e
 }
 
-// check_for_range checks a range loop, Go's checkForRange, over an
-// integer, an array or a string; a range over anything else that holds
-// values, a list, a map, an arena, a pool or a view, is declined, as is
-// a fields loop, and one over a type that holds none is reported.
+// check_for_range checks a range loop, Go's checkForRange: what it
+// ranges over, the types it gives its variables (see range_types), and
+// its body, inside which break and continue are allowed. A fields loop
+// is S7's, and declined.
 func (mut c Checker) check_for_range(k Key, s ast.ForRange) error {
     x := sub(k, s.x)
     switch kind_at(c.prog.trees, x) {
@@ -687,6 +846,7 @@ func (mut c Checker) check_for_range(k Key, s ast.ForRange) error {
         return not_ported
     default:
     }
+    mut c.allow_view_call(x)
     t := mut c.expr(x)?
     got := mut c.value_of(x, t)?
     mut index := types.invalid
@@ -703,14 +863,21 @@ func (mut c Checker) check_for_range(k Key, s ast.ForRange) error {
             mut c.errorf(sp, own m)?
         }
         index = got
-    } else if c.table.is_array(got) {
+    } else if c.table.is_array(got) || c.table.is_view(got) || c.table.is_list(got) {
         index = types.int64_type
+        elem = c.table.elem_of(got)
+    } else if c.table.is_map(got) {
+        index = c.table.key_of(got)
+        elem = c.table.elem_of(got)
+    } else if c.table.is_arena(got) {
+        index = mut c.table.id_of(c.table.elem_of(got))?
+        elem = c.table.elem_of(got)
+    } else if c.table.is_pool(got) {
+        index = mut c.table.handle_of(c.table.elem_of(got))?
         elem = c.table.elem_of(got)
     } else if got == types.string_type {
         index = types.int64_type
         elem = types.uint8_type
-    } else if c.table.is_view(got) || c.table.is_list(got) || c.table.is_map(got) || c.table.is_arena(got) || c.table.is_pool(got) {
-        return not_ported
     } else {
         n := mut c.type_name(got)?
         mut m := msg()
@@ -718,19 +885,36 @@ func (mut c Checker) check_for_range(k Key, s ast.ForRange) error {
         mut c.errorf(span_at(c.prog.trees, x), own m)?
     }
     if !ast.is_none(s.var_node) {
-        mut c.set_decl_type(sub(k, s.var_node), index)?
+        vk := sub(k, s.var_node)
+        mut c.set_decl_type(vk, index)?
+        put(mut c.bindings, vk, bind_range)?
     }
     if has_elem {
-        plain := mut c.plain_type(elem)?
-        if !plain {
+        ek := sub(k, s.elem)
+        ok := mut c.supported_type(elem)?
+        if !ok {
             return not_ported
         }
-        mut c.set_decl_type(sub(k, s.elem), elem)?
+        mut c.set_decl_type(ek, elem)?
+        put(mut c.bindings, ek, bind_range)?
+        mut c.any_local(ek, var_of(c.prog.trees, ek))?
     }
     c.body.loops +%= 1
     e := mut c.check_block(k.unit, s.body)
     c.body.loops -%= 1
     return e
+}
+
+// allow_view_call marks e, when it is a call or an element, as written
+// where a view it returns may be, Go's allowViewCall.
+func (mut c Checker) allow_view_call(e Key) {
+    switch kind_at(c.prog.trees, e) {
+    case call:
+        c.view_call = e
+    case index:
+        c.view_span = e
+    default:
+    }
 }
 
 // check_simple_stmt checks a statement that holds no other statement,
@@ -756,84 +940,273 @@ func (mut c Checker) check_simple_stmt(k Key) error {
 }
 
 // check_expr_stmt checks the expression x written as a statement, Go's
-// case of *ast.ExprStmt: one that only gives a value, a union built, a
-// conversion or len, is checked and its value reported as not used, and
-// any other is checked for what is inside it; a ? and a call are
-// declined.
+// case of *ast.ExprStmt: a ? is checked as one; one that only gives a
+// value, a union built, a conversion or len, is checked and its value
+// reported as not used; any other is checked as a call statement, whose
+// error cannot be dropped.
 func (mut c Checker) check_expr_stmt(x Key) error {
     switch kind_at(c.prog.trees, x) {
     case question:
-        return not_ported
-    default:
-    }
-    _, _, built := construction(c.prog.trees, c.none, x)
-    mut only := built
-    switch kind_at(c.prog.trees, x) {
-    case call(cl):
-        only = only || cl.conv != types.invalid || is_len_call(c.prog.trees, c.none, x)
-    default:
-    }
-    if !only {
-        return mut c.discard(x)
-    }
-    before := len(c.diags)
-    t := mut c.expr(x)?
-    if t == types.invalid || len(c.diags) != before {
+        mut results := make(list[types.Type], c_allocator)
+        mut c.check_question(x, mut results)?
         return noerror
+    default:
     }
-    sp := span_at(c.prog.trees, x)
-    src := mut c.source_text(sp)?
-    mut m := msg()
-    fmt.appendf(mut m, "%s is not used", src[:])?
-    return mut c.unusedf(sp, own m)
+    if mut c.only_value(x) {
+        before := len(c.diags)
+        t := mut c.expr(x)?
+        if t == types.invalid || len(c.diags) != before {
+            return noerror
+        }
+        sp := span_at(c.prog.trees, x)
+        src := mut c.source_text(sp)?
+        mut m := msg()
+        fmt.appendf(mut m, "%s is not used", src[:])?
+        return mut c.unusedf(sp, own m)
+    }
+    outer := c.dropped_call
+    switch kind_at(c.prog.trees, x) {
+    case call:
+        c.dropped_call = x
+    default:
+        c.dropped_call = no_key()
+    }
+    e := mut c.discard(x)
+    c.dropped_call = outer
+    if e.code != 0 {
+        return e
+    }
+    return mut c.dropped_error(x)
+}
+
+// only_value reports whether e, written as a statement, does nothing but
+// give a value, Go's onlyValue: a union built, a conversion, or a call
+// of len.
+func (mut c Checker) only_value(e Key) bool {
+    _, _, built := construction(c.prog.trees, c.none, e)
+    if built {
+        return true
+    }
+    switch kind_at(c.prog.trees, e) {
+    case call(cl):
+        return cl.conv != types.invalid || is_len_call(c.prog.trees, c.none, e)
+    default:
+        return false
+    }
 }
 
 // check_multi checks a binding of several names, the targets of an
 // assignment when assign says so and the variables of a declaration
-// otherwise, of value, Go's checkMultiVar and checkMultiAssign as far as
-// Go reports the value at once, a single value that is none of the
-// forms that give several, as an assignment mismatch. Any other value is
-// declined: each is a later stage's.
+// otherwise, of value, Go's checkMultiVar and checkMultiAssign: the
+// values value gives (see multi_results), each name's type or target,
+// and what dropping or tying its results says.
 func (mut c Checker) check_multi(k Key, value Key, names ast.Nodes, assign bool) error {
+    want := count_items(c.prog.trees, k.unit, names)
+    mut first := msg()
+    mut second := msg()
+    if want == 2 {
+        a := item_at(c.prog.trees, k.unit, names, 0)
+        b := item_at(c.prog.trees, k.unit, names, 1)
+        if assign {
+            ta := mut c.source_text(span_at(c.prog.trees, a))?
+            append(mut first, ta[:]...)?
+            tb := mut c.source_text(span_at(c.prog.trees, b))?
+            append(mut second, tb[:]...)?
+        } else {
+            append(mut first, name_of(c.prog.trees, c.none, a)...)?
+            append(mut second, name_of(c.prog.trees, c.none, b)...)?
+        }
+    }
+    mut results := make(list[types.Type], c_allocator)
+    ok := mut c.multi_results(value, want, span_at(c.prog.trees, k), mut results)?
+    mut blank := make(list[bool], c_allocator)
+    mut spans := make(list[source.Span], c_allocator)
+    if !assign {
+        if !ok {
+            return noerror
+        }
+        for i := range want {
+            v := item_at(c.prog.trees, k.unit, names, i)
+            t := type_at(results, i)
+            sup := mut c.supported_type(t)?
+            if !sup {
+                return not_ported
+            }
+            mut c.set_decl_type(v, t)?
+            mut c.any_local(v, var_of(c.prog.trees, v))?
+            append(mut blank, bytes_equal(name_of(c.prog.trees, c.none, v), []uint8("_")))?
+            append(mut spans, name_span_of(c.prog.trees, v))?
+        }
+        mut c.check_error_binding(value, blank, spans)?
+        mut c.check_ok_dropped(value, blank, spans)?
+        mut c.nothing_bound(value, blank, span_at(c.prog.trees, k))?
+        return mut c.note_holder(item_at(c.prog.trees, k.unit, names, want -% 1), value, want)
+    }
+    // seen holds what each name assigned so far is bound to, Go's map of
+    // Decls, in which every name bound to nothing is one key.
+    mut seen := make(map[ast.Def]bool, c_allocator)
+    for i := range want {
+        target := item_at(c.prog.trees, k.unit, names, i)
+        mut got := types.invalid
+        if ok {
+            got = type_at(results, i)
+        }
+        mut c.check_multi_target(target, got, mut seen)?
+    }
+    if !ok {
+        return noerror
+    }
+    for i := range want {
+        t := item_at(c.prog.trees, k.unit, names, i)
+        append(mut blank, is_blank(c.prog.trees, c.none, t))?
+        append(mut spans, span_at(c.prog.trees, t))?
+    }
+    mut c.check_error_binding(value, blank, spans)?
+    mut c.check_ok_dropped(value, blank, spans)?
+    mut c.nothing_bound(value, blank, span_at(c.prog.trees, k))?
+    mut c.note_target_holder(item_at(c.prog.trees, k.unit, names, want -% 1), value, want)?
+    switch kind_at(c.prog.trees, k) {
+    case multi_assign(m):
+        mut c.check_error_targets(k, m)?
+    default:
+    }
+    for i := range want {
+        t := item_at(c.prog.trees, k.unit, names, i)
+        if !is_blank(c.prog.trees, c.none, t) {
+            mut c.check_error_assign(k, t)?
+        }
+    }
+    return noerror
+}
+
+// check_multi_target checks one target of an assignment of several
+// values whose value gives got in the target's position, invalid when
+// the value is wrong, Go's checkMultiTarget: seen holds the variables
+// already named, each of which may be named only once.
+func (mut c Checker) check_multi_target(target Key, got types.Type, mut seen map[ast.Def]bool) error {
+    if is_blank(c.prog.trees, c.none, target) {
+        return noerror
+    }
+    nm, is_id := ident_at(c.prog.trees, target)
+    if is_id {
+        _, twice := seen[nm.def]
+        if twice {
+            mut t := msg()
+            fmt.appendf(mut t, "%s is assigned more than once", text_at(c.prog.trees, c.none, target.unit, nm.name)[:])?
+            return mut c.errorf(span_at(c.prog.trees, target), own t)
+        }
+        put(mut seen, nm.def, true)?
+    }
+    typ, ok := mut c.assignable(target)?
+    if !ok || typ == types.invalid || got == types.invalid || types.widens(got, typ) {
+        return noerror
+    }
+    a := mut c.type_name(got)?
+    b := mut c.type_name(typ)?
+    mut tn := msg()
+    mut c.target_name(target, mut tn)?
+    mut m := msg()
+    fmt.appendf(mut m, "cannot use %s as %s in assignment to %s", a[:], b[:], tn[:])?
+    return mut c.errorf(span_at(c.prog.trees, target), own m)
+}
+
+// multi_results checks value, bound to want names, Go's multiResults, and
+// appends the type of each value it gives to out, reporting whether it
+// gives exactly want: a call, a ? after one, a type assertion or a
+// checked pop or remove. A division, an index, a slice, arithmetic and
+// a conversion, whose checked forms need proofs, are declined; any other
+// value is one, reported as such.
+func (mut c Checker) multi_results(value Key, want int64, sp source.Span, mut out list[types.Type]) (bool, error) {
     switch kind_at(c.prog.trees, value) {
-    case call, question, binary, unary, index, slice, type_assert:
-        return not_ported
+    case question:
+        ok := mut c.question_results(value, want, sp, mut out)?
+        return ok, noerror
+    case binary, unary, index, slice:
+        return false, not_ported
+    case type_assert(a):
+        ok := mut c.assert_results(value, a, want, sp, mut out)?
+        return ok, noerror
+    case call(cl):
+        if mut c.is_take(value) {
+            ok := mut c.take_results(value, want, sp, mut out)?
+            return ok, noerror
+        }
+        if cl.conv != types.invalid {
+            return false, not_ported
+        }
+        switch kind_at(c.prog.trees, sub(value, cl.fn)) {
+        case view_type:
+            mut c.view_conversion_elsewhere(value)?
+            return false, noerror
+        case ref_type(rt):
+            mut c.ref_conversion(value, rt)?
+            return false, noerror
+        default:
+        }
+        ok := mut c.call_results(value, want, sp, mut out)?
+        return ok, noerror
     default:
     }
     has := mut c.has_fallible(value)?
     if has {
-        return not_ported
+        return false, not_ported
     }
-    want := count_items(c.prog.trees, k.unit, names)
     mut c.expr(value)?
     mut m := msg()
     fmt.appendf(mut m, "assignment mismatch: %d variables but 1 value", want)?
-    mut c.errorf(span_at(c.prog.trees, k), own m)?
-    if !assign {
-        return noerror
-    }
-    // seen holds what each name assigned so far is bound to, Go's map of
-    // Defs, in which every name bound to nothing is one key.
-    mut seen := make(map[ast.Def]bool, c_allocator)
-    for i := range want {
-        target := item_at(c.prog.trees, k.unit, names, i)
-        nm, is_id := ident_at(c.prog.trees, target)
-        if is_id && bytes_equal(text_at(c.prog.trees, c.none, target.unit, nm.name), []uint8("_")) {
-            continue
+    mut c.errorf(sp, own m)?
+    return false, noerror
+}
+
+// call_results checks the call k bound to want names covering sp, Go's
+// callResults: its callee must declare exactly that many results. A
+// generic builtin gives its one value, and any other builtin none.
+func (mut c Checker) call_results(k Key, want int64, sp source.Span, mut out list[types.Type]) (bool, error) {
+    mut results := make(list[types.Type], c_allocator)
+    gt, generic := mut c.generic_call(k)?
+    if generic {
+        if gt == types.invalid {
+            return false, noerror
         }
-        if is_id {
-            _, twice := seen[nm.def]
-            if twice {
-                mut t := msg()
-                fmt.appendf(mut t, "%s is assigned more than once", text_at(c.prog.trees, c.none, target.unit, nm.name)[:])?
-                mut c.errorf(span_at(c.prog.trees, target), own t)?
-                continue
-            }
-            put(mut seen, nm.def, true)?
-        }
-        mut c.assignable(target)?
+        append(mut results, gt)?
+    } else {
+        mut c.check_call(k)?
     }
-    return noerror
+    mut name := msg()
+    named := mut c.callee_name(k, mut name)?
+    if !named {
+        return false, noerror
+    }
+    if is_value_call(c.prog.trees, k) {
+        return false, noerror
+    }
+    fn := mut c.callee_of(k)
+    if !is_no_key(fn) {
+        clear_types(mut results)
+        for i := range mut c.callee_result_count(fn) {
+            append(mut results, result_of(c.results, fn, i))?
+        }
+    }
+    got := len(results)
+    mut m := msg()
+    if got == 0 {
+        fmt.appendf(mut m, "assignment mismatch: %d variables but %s returns no value", want, name[:])?
+        mut c.errorf(sp, own m)?
+        return false, noerror
+    }
+    if got != want {
+        mut word := "values"
+        if got == 1 {
+            word = "value"
+        }
+        fmt.appendf(mut m, "assignment mismatch: %d variables but %s returns %d %s", want, name[:], got, word)?
+        mut c.errorf(sp, own m)?
+        return false, noerror
+    }
+    for _, t := range results {
+        append(mut out, t)?
+    }
+    return true, noerror
 }
 
 // has_fallible reports whether value holds, outside any call, a
@@ -872,15 +1245,16 @@ func (mut c Checker) has_fallible(value Key) (bool, error) {
 
 // check_local_var checks a variable declared in a body, Go's checkVar
 // for a local: its declared type if it has one, otherwise its value's,
-// an untyped constant being an int64, and never a view. A value must be
-// usable as the declared type, and only a mutable variable whose type
-// has a zero value may leave out its value.
+// an untyped constant being an int64, never a view and never a mutable
+// any. A value must be usable as the declared type, and only a mutable
+// variable whose type has a zero value may leave out its value. A
+// function type or a type parameter is S7's, and declined.
 func (mut c Checker) check_local_var(k Key, v ast.Var) error {
     mut declared := types.invalid
     if !ast.is_none(v.type_expr) {
         declared = mut c.declared_type(sub(k, v.type_expr))?
-        plain := mut c.plain_type(declared)?
-        if !plain {
+        ok := mut c.supported_type(declared)?
+        if !ok {
             return not_ported
         }
     }
@@ -905,13 +1279,25 @@ func (mut c Checker) check_local_var(k Key, v ast.Var) error {
     }
     value := sub(k, v.value)
     got := mut c.expr(value)?
+    mut c.note_holder(k, value, 1)?
     if ast.is_none(v.type_expr) {
         typ := mut c.value_of(value, got)?
-        plain := mut c.plain_type(typ)?
-        if !plain {
+        ok := mut c.supported_type(typ)?
+        if !ok {
             return not_ported
         }
         mut c.set_decl_type(k, typ)?
+        reported := mut c.any_local(k, v)?
+        if reported {
+            return noerror
+        }
+        if c.table.is_view(typ) {
+            n := mut c.type_name(typ)?
+            mut m := msg()
+            fmt.appendf(mut m, "cannot declare %s as %s; a view can only be the type of a parameter or of a result", name[:], n[:])?
+            mut c.errorf(v.name_span, own m)?
+            return mut c.set_decl_type(k, types.invalid)
+        }
         return mut c.note_known_local(k, v)
     }
     mut ctx := msg()
@@ -938,23 +1324,26 @@ func (mut c Checker) note_known_local(k Key, v ast.Var) error {
 // check_assign checks an assignment, Go's checkAssign: its value, then
 // its target, which must be one an assignment can write, of a type the
 // value is usable as; a compound assignment's target must be a number
-// the operator updates (see check_compound).
+// the operator updates (see check_compound). An error variable that
+// holds others may be assigned only with them (see check_error_assign).
 func (mut c Checker) check_assign(k Key, a ast.Assign) error {
     value := sub(k, a.value)
     target := sub(k, a.target)
     got := mut c.expr(value)?
     if a.op != ast.op_invalid {
-        return mut c.check_compound(k, a, got)
+        mut c.read_held(target)?
+        mut c.check_compound(k, a, got)?
+        return mut c.check_error_assign(k, target)
     }
     typ, ok := mut c.assignable(target)?
-    if !ok {
-        return noerror
+    if ok {
+        mut ctx := msg()
+        append(mut ctx, []uint8("in assignment to ")...)?
+        mut c.target_name(target, mut ctx)?
+        mut c.use(value, got, typ, ctx)?
     }
-    mut ctx := msg()
-    append(mut ctx, []uint8("in assignment to ")...)?
-    mut c.target_name(target, mut ctx)?
-    mut c.use(value, got, typ, ctx)?
-    return noerror
+    mut c.note_target_holder(target, value, 1)?
+    return mut c.check_error_assign(k, target)
 }
 
 // check_compound checks a compound assignment whose value has type got,
@@ -987,10 +1376,19 @@ func (mut c Checker) check_compound(k Key, a ast.Assign, got types.Type) error {
 }
 
 // assignable checks that target can be assigned, Go's assignable: a
-// mutable variable or a mut parameter, or a field of one; an element is
-// declined, since its index needs proving, a later stage's work. It
-// returns the type target holds and whether it can be assigned.
+// mutable variable or a mut parameter, or a field of one; a view, or any
+// part of one, is read-only; an element is declined, since its index
+// needs proving, a later stage's work. It returns the type target holds
+// and whether it can be assigned.
 func (mut c Checker) assignable(target Key) (types.Type, bool, error) {
+    root, is_view := mut c.view_root(target)
+    if is_view {
+        t := mut c.source_text(span_at(c.prog.trees, target))?
+        mut what := msg()
+        fmt.appendf(mut what, "assign to %s", t[:])?
+        mut c.read_only(span_at(c.prog.trees, target), what, root)?
+        return types.invalid, false, noerror
+    }
     switch kind_at(c.prog.trees, target) {
     case ident(nm):
         if nm.def.kind == ast.def_param {
@@ -1015,8 +1413,8 @@ func (mut c Checker) assignable(target Key) (types.Type, bool, error) {
                 return types.invalid, false, noerror
             }
             typ := decl_type_of(c.decl_types, d)
-            plain := mut c.plain_type(typ)?
-            if !plain {
+            ok := mut c.supported_type(typ)?
+            if !ok {
                 return types.invalid, false, not_ported
             }
             return typ, true, noerror
@@ -1028,7 +1426,11 @@ func (mut c Checker) assignable(target Key) (types.Type, bool, error) {
     case index:
         return types.invalid, false, not_ported
     case slice:
-        return types.invalid, false, not_ported
+        t := mut c.source_text(span_at(c.prog.trees, target))?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot assign to %s: a slice is not a place", t[:])?
+        mut c.errorf(span_at(c.prog.trees, target), own m)?
+        return types.invalid, false, noerror
     default:
         if c.prior == 0 {
             mut m := msg()
@@ -1041,18 +1443,41 @@ func (mut c Checker) assignable(target Key) (types.Type, bool, error) {
 
 // field_target checks a field being assigned, x.f, at k, Go's
 // fieldTarget: x must be a mutable variable or a mut parameter, or a
-// field of one. It returns the field's type.
-func (mut c Checker) field_target(k Key, s ast.Selector) (types.Type, bool, error) {
-    if !ast.is_none(s.field) {
-        return types.invalid, false, not_ported
+// field of one, and the fields down to it are checked in a loop, the
+// innermost first, as Go's recursion through containerTarget checks
+// them. It returns the field's type. A field of a fields loop is S7's.
+func (mut c Checker) field_target(k Key, _ ast.Selector) (types.Type, bool, error) {
+    mut chain := make(list[Key], c_allocator)
+    mut cur := k
+    for {
+        switch kind_at(c.prog.trees, cur) {
+        case selector(cs):
+            if !ast.is_none(cs.field) {
+                return types.invalid, false, not_ported
+            }
+            append(mut chain, cur)?
+            cur = sub(cur, cs.x)
+            continue
+        default:
+        }
+        break
     }
-    base, ok := mut c.container_target(sub(k, s.x))?
+    mut base, ok := mut c.container_target(cur)?
     if !ok {
         return types.invalid, false, noerror
     }
-    typ := mut c.field(k, s, base)?
-    mut c.set_node_type(k, typ)?
-    return typ, typ != types.invalid, noerror
+    mut i := len(chain) -% 1
+    for i >= 0 {
+        sk := key_in(chain, i)
+        i -%= 1
+        typ := mut c.field(sk, selector_of(c.prog.trees, sk), base)?
+        mut c.set_node_type(sk, typ)?
+        if typ == types.invalid {
+            return types.invalid, false, noerror
+        }
+        base = typ
+    }
+    return base, true, noerror
 }
 
 // container_target checks x, which holds a field being assigned, Go's

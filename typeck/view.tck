@@ -1,0 +1,283 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// Views, any and variadics as a call passes them, Go's view.go, any.go
+// and variadic.go: an argument to a view parameter, to an any one, and
+// the values a variadic parameter takes one by one or spread whole.
+
+// allow_view marks e, when it is a slice, a call or an element, as
+// written where a view may be, Go's allowView.
+func (mut c Checker) allow_view(e Key) {
+    switch kind_at(c.prog.trees, e) {
+    case slice:
+        c.view_slice = e
+    case call:
+        c.view_call = e
+    case index:
+        c.view_span = e
+    default:
+    }
+}
+
+// view_arg checks arg, passed to a plain parameter of the view type want
+// in a call to callee, Go's viewArg: a conversion []uint8(s) of a string,
+// a view of the same type, or an array or a list of exactly its element
+// type that is a place.
+func (mut c Checker) view_arg(arg Key, want types.Type, callee list[uint8]) error {
+    mut got := types.invalid
+    mut conv := false
+    switch kind_at(c.prog.trees, arg) {
+    case call(acl):
+        switch kind_at(c.prog.trees, sub(arg, acl.fn)) {
+        case view_type:
+            got = mut c.view_conversion(arg)?
+            conv = true
+        default:
+        }
+    default:
+    }
+    if !conv {
+        mut c.allow_view(arg)
+        t := mut c.expr(arg)?
+        got = mut c.value_of(arg, t)?
+    }
+    mut ctx := msg()
+    fmt.appendf(mut ctx, "in argument to %s", callee[:])?
+    if conv {
+        mut c.use(arg, got, want, ctx)?
+        return noerror
+    }
+    if got == types.invalid {
+        return noerror
+    }
+    if got == types.string_type && c.table.elem_of(want) == types.uint8_type {
+        n := mut c.type_name(want)?
+        t := mut c.source_text(span_at(c.prog.trees, arg))?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot use string as %s in argument to %s; view its bytes with []uint8(%s)", n[:], callee[:], t[:])?
+        return mut c.errorf(span_at(c.prog.trees, arg), own m)
+    }
+    if (c.table.is_array(got) || c.table.is_list(got)) && c.table.elem_of(got) == c.table.elem_of(want) {
+        if !is_place(c.prog.trees, arg) {
+            mut word := "array"
+            if c.table.is_list(got) {
+                word = "list"
+            }
+            mut m := msg()
+            fmt.appendf(mut m, "cannot view a temporary %s; store it in a variable first", word)?
+            mut c.errorf(span_at(c.prog.trees, arg), own m)?
+        }
+        return noerror
+    }
+    mut c.use(arg, got, want, ctx)?
+    return noerror
+}
+
+// is_place reports whether e is a place a view can point into, Go's
+// isPlace: a variable or a parameter, or a field or an element of one.
+func is_place(trees []ast.File, e Key) bool {
+    nm, ok := ident_at(trees, root_ident(trees, e))
+    return ok && (nm.def.kind == ast.def_var || nm.def.kind == ast.def_param)
+}
+
+// view_conversion checks the conversion to a view type k, []uint8(s),
+// passed to a view parameter, records the view type on it and returns
+// it, Go's viewConversion: it takes one argument, a string, and only
+// []uint8 is a type it converts to.
+func (mut c Checker) view_conversion(k Key) (types.Type, error) {
+    cl := call_of(c.prog.trees, k)
+    vt := sub(k, cl.fn)
+    mut to := types.invalid
+    switch kind_at(c.prog.trees, vt) {
+    case view_type(elem):
+        to = mut c.view_type(vt, elem)?
+    default:
+    }
+    written := mut c.source_text(span_at(c.prog.trees, vt))?
+    ok := mut c.check_arity(k, written, 1)?
+    if !ok {
+        mut c.arg_exprs(k)?
+        return types.invalid, noerror
+    }
+    arg := item_at(c.prog.trees, k.unit, cl.args, 0)
+    t := mut c.expr(arg)?
+    src := mut c.value_of(arg, t)?
+    if src == types.invalid || to == types.invalid {
+        return types.invalid, noerror
+    }
+    if src == types.string_type && c.table.elem_of(to) == types.uint8_type {
+        put(mut c.view_convs, k, to)?
+        return to, noerror
+    }
+    a := mut c.type_name(src)?
+    b := mut c.type_name(to)?
+    mut m := msg()
+    if src == types.string_type {
+        fmt.appendf(mut m, "cannot convert string to %s; a string's bytes are viewed as []uint8", b[:])?
+    } else if c.table.is_array(src) && c.table.elem_of(src) == c.table.elem_of(to) {
+        fmt.appendf(mut m, "cannot convert %s to %s; pass the array itself to a view parameter", a[:], b[:])?
+    } else {
+        fmt.appendf(mut m, "cannot convert %s to %s", a[:], b[:])?
+    }
+    mut c.errorf(span_at(c.prog.trees, k), own m)?
+    return types.invalid, noerror
+}
+
+// view_conversion_elsewhere reports the conversion to a view type k used
+// anywhere but as an argument to a view parameter, after checking it,
+// Go's viewConversionElsewhere.
+func (mut c Checker) view_conversion_elsewhere(k Key) (types.Type, error) {
+    cl := call_of(c.prog.trees, k)
+    t := mut c.view_conversion(k)?
+    if t != types.invalid {
+        w := mut c.source_text(span_at(c.prog.trees, sub(k, cl.fn)))?
+        mut m := msg()
+        fmt.appendf(mut m, "%s(...) can only be passed to a %s parameter", w[:], w[:])?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+    }
+    return types.invalid, noerror
+}
+
+// view_root returns the name of the view parameter target is part of,
+// and whether it is one, Go's viewRoot.
+func (mut c Checker) view_root(target Key) (Key, bool) {
+    root := root_ident(c.prog.trees, target)
+    nm, ok := ident_at(c.prog.trees, root)
+    if !ok || nm.def.kind != ast.def_param {
+        return root, false
+    }
+    return root, c.table.is_view(decl_type_of(c.decl_types, key_of_def(nm.def)))
+}
+
+// read_only reports what, assigning to or passing as mut a part of the
+// view root, at sp, Go's readOnly: a view is read-only.
+func (mut c Checker) read_only(sp source.Span, what list[uint8], root Key) error {
+    nm, _ := ident_at(c.prog.trees, root)
+    mut m := msg()
+    fmt.appendf(mut m, "cannot %s: %s is a read-only view", what[:], text_at(c.prog.trees, c.none, root.unit, nm.name))?
+    return mut c.errorf(sp, own m)
+}
+
+// any_arg checks arg, passed to an any parameter or as a value of an
+// ...any one, Go's anyArg: a value of a basic type, an untyped constant,
+// an any passed on, or a view of a basic type.
+func (mut c Checker) any_arg(arg Key) error {
+    mut c.allow_view(arg)
+    t := mut c.expr(arg)?
+    got := mut c.value_of(arg, t)?
+    if got == types.invalid || got == types.any_type || c.table.in_any_of(got) {
+        return noerror
+    }
+    n := mut c.type_name(got)?
+    mut m := msg()
+    fmt.appendf(mut m, "cannot pass %s as any: only the builtin types and views of them can be passed as any for now", n[:])?
+    return mut c.errorf(span_at(c.prog.trees, arg), own m)
+}
+
+// any_local reports v, a local variable that takes its type from its
+// value, when that type is any and v is mutable, Go's anyLocal, and
+// returns whether it did, the variable's type then invalid.
+func (mut c Checker) any_local(k Key, v ast.Var) (bool, error) {
+    if decl_type_of(c.decl_types, k) != types.any_type || !v.mutable {
+        return false, noerror
+    }
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, k.unit, v.name)...)?
+    if bytes_equal(name, []uint8("_")) {
+        return false, noerror
+    }
+    mut m := msg()
+    fmt.appendf(mut m, "cannot declare mut %s as any; an any variable cannot be reassigned", name[:])?
+    mut c.errorf(v.name_span, own m)?
+    mut c.set_decl_type(k, types.invalid)?
+    return true, noerror
+}
+
+// check_variadic_call checks the call k to callee, whose parameters
+// params end in a variadic one, Go's checkVariadicCall: one argument for
+// each fixed parameter, then any number of values for the variadic, or
+// a spread alone. It returns the mut arguments passed to mut parameters
+// with nothing reported.
+func (mut c Checker) check_variadic_call(k Key, callee list[uint8], params []ArgParam) (list[Key], error) {
+    cl := call_of(c.prog.trees, k)
+    mut muts := make(list[Key], c_allocator)
+    nfixed := len(params) -% 1
+    last := param_in(params, nfixed)
+    ok := mut c.check_variadic_arity(k, callee, nfixed, last)?
+    if !ok {
+        mut c.arg_exprs(k)?
+        return muts, noerror
+    }
+    for i := range nfixed {
+        p, has := params[i]
+        if !has {
+            continue
+        }
+        m := mut c.check_arg(item_at(c.prog.trees, k.unit, cl.args, i), p, callee)?
+        if !is_no_key(m) {
+            append(mut muts, m)?
+        }
+    }
+    if cl.spread {
+        mut c.check_arg(item_at(c.prog.trees, k.unit, cl.args, nfixed), last, callee)?
+        return muts, noerror
+    }
+    mut value := last
+    value.is_mut = false
+    value.is_own = false
+    value.is_scope = false
+    value.variadic = false
+    value.sig = false
+    value.is_extern = false
+    value.site = false
+    value.site_callee = false
+    value.typ = types.invalid
+    if last.typ != types.invalid {
+        value.typ = c.table.elem_of(last.typ)
+    }
+    mut i := nfixed
+    for i < count_items(c.prog.trees, k.unit, cl.args) {
+        mut c.check_arg(item_at(c.prog.trees, k.unit, cl.args, i), value, callee)?
+        i +%= 1
+    }
+    return muts, noerror
+}
+
+// check_variadic_arity reports the call k to callee passing too few
+// arguments for its nfixed fixed parameters, or a spread after more than
+// one argument per fixed parameter, Go's checkVariadicArity, and returns
+// whether the count was right.
+func (mut c Checker) check_variadic_arity(k Key, callee list[uint8], nfixed int64, last ArgParam) (bool, error) {
+    cl := call_of(c.prog.trees, k)
+    n := count_items(c.prog.trees, k.unit, cl.args)
+    mut m := msg()
+    mut site := ""
+    if last.site_callee {
+        site = ", not counting its testing.Site"
+    }
+    if !cl.spread && n < nfixed {
+        fmt.appendf(mut m, "%s expects at least %d argument(s), got %d%s", callee[:], nfixed, n, site)?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return false, noerror
+    }
+    if cl.spread && n -% 1 < nfixed {
+        t := mut c.source_text(span_at(c.prog.trees, item_at(c.prog.trees, k.unit, cl.args, n -% 1)))?
+        fmt.appendf(mut m, "%s expects %d argument(s) before %s..., got %d%s", callee[:], nfixed, t[:], n -% 1, site)?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return false, noerror
+    }
+    if cl.spread && n -% 1 > nfixed {
+        mut extra := span_at(c.prog.trees, item_at(c.prog.trees, k.unit, cl.args, nfixed))
+        extra.end = cl.ellipsis_span.end
+        mut pname := msg()
+        mut c.arg_param_name(last, mut pname)?
+        fmt.appendf(mut m, "cannot use ... in a call with other values for %s", pname[:])?
+        mut c.errorf(extra, own m)?
+        return false, noerror
+    }
+    return true, noerror
+}

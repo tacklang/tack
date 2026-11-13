@@ -8,15 +8,14 @@ import text from "std/text"
 // Unread variables, Go's unread.go. The resolver finds which variables
 // are never read, and leaves to the checker one a call or a binding of
 // several names gave its value (see ast.Var's unused_deferred), which
-// Go reports as an error when it holds an error or an ok and as declared
-// and not used otherwise. Every value that holds an error or an ok, a
-// call or a checked form, is one the port declines, so here each such
-// variable is declared and not used.
+// Go reports as an error when it holds an error or an ok (see
+// note_holder) and as declared and not used otherwise.
 
 // report_unread reports each variable of body, in the tree unit, the
 // resolver left to be reported, Go's reportUnread, in the order Go's
-// walk meets them: declared and not used, a warning, with the resolver's
-// note at a call by its name that passed over it.
+// walk meets them: an error when it holds an error or an ok, never
+// checked, and otherwise declared and not used, a warning, with the
+// resolver's note at a call by its name that passed over it.
 func (mut c Checker) report_unread(unit int64, body ast.Nodes) error {
     mut stack := make(list[id[ast.Node]], c_allocator)
     mut kids := make(list[id[ast.Node]], c_allocator)
@@ -34,7 +33,16 @@ func (mut c Checker) report_unread(unit int64, body ast.Nodes) error {
         switch kind_at(c.prog.trees, k) {
         case var_decl(v):
             if v.unused_deferred {
-                mut c.warn_unused_var(k, v)?
+                h, holds := c.holders[k]
+                if holds {
+                    mut what := msg()
+                    mut c.holder_text(h.value, h.n, mut what)?
+                    mut m := msg()
+                    fmt.appendf(mut m, "%s is never checked: %s is not read", what[:], text_at(c.prog.trees, c.none, k.unit, v.name))?
+                    mut c.errorf(v.name_span, own m)?
+                } else {
+                    mut c.warn_unused_var(k, v)?
+                }
             }
         default:
         }

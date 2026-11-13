@@ -1,0 +1,99 @@
+package typeck
+
+import ast from "tack/ast"
+import source from "tack/source"
+import types from "tack/types"
+
+// Reads of an element that may not be there, each giving the zero value
+// of its type for an index out of range, for the lists the call checks
+// keep: a caller that indexes within its list's length never sees it.
+
+// type_at returns l[i], or invalid.
+func type_at(l []types.Type, i int64) types.Type {
+    t, ok := l[i]
+    if !ok {
+        return types.invalid
+    }
+    return t
+}
+
+// bool_at returns l[i], or false.
+func bool_at(l []bool, i int64) bool {
+    b, ok := l[i]
+    return ok && b
+}
+
+// span_in returns l[i], or an unset span.
+func span_in(l []source.Span, i int64) source.Span {
+    sp, ok := l[i]
+    if !ok {
+        return ast.unset_span()
+    }
+    return sp
+}
+
+// byte_at returns l[i], or 0.
+func byte_at(l []uint8, i int64) uint8 {
+    b, ok := l[i]
+    if !ok {
+        return 0
+    }
+    return b
+}
+
+// key_in returns l[i], or no key.
+func key_in(l []Key, i int64) Key {
+    k, ok := l[i]
+    if !ok {
+        return no_key()
+    }
+    return k
+}
+
+// param_in returns l[i], or a builtin's plain parameter of no type.
+func param_in(l []ArgParam, i int64) ArgParam {
+    p, ok := l[i]
+    if !ok {
+        return arg_param("", types.invalid)
+    }
+    return p
+}
+
+// tie_in returns l[i], or a tie of nothing.
+func tie_in(l []HoldTie, i int64) HoldTie {
+    t, ok := l[i]
+    if !ok {
+        return HoldTie{err: no_key(), v: no_key(), span: ast.unset_span()}
+    }
+    return t
+}
+
+// matched_in returns l[i], or a match of nothing.
+func matched_in(l []Matched, i int64) Matched {
+    m, ok := l[i]
+    if !ok {
+        return Matched{place: no_key(), bind: no_key()}
+    }
+    return m
+}
+
+// step_in returns l[i], or a field step of no node.
+func step_in(l []PathStep, i int64) PathStep {
+    s, ok := l[i]
+    if !ok {
+        return PathStep{is_index: false, name: no_key(), reflect: false}
+    }
+    return s
+}
+
+// call_of returns the Call the call node k holds, a copy, or a zero one
+// for any other node.
+func call_of(trees []ast.File, k Key) ast.Call {
+    switch kind_at(trees, k) {
+    case call(cl):
+        return cl
+    default:
+        mut z ast.Call
+        return z
+    }
+}

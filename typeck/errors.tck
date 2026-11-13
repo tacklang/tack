@@ -1,0 +1,841 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// Errors, Go's errors.go: an error is a function's last result, a call's
+// error cannot be discarded, and what a binding takes beside an error is
+// held by the error's variable until the facts in force prove it checked.
+// Which variables an error holds is collected before a body is checked
+// (see collect_holds); a read of one that is held needs the facts, S3's,
+// and is declined, but where Go's answer needs none (see
+// require_checked).
+
+// HoldTie is one tie a binding of an error, or of a checked pop or
+// remove's ok, makes, Go's holding.first: err, the error's or the ok's
+// variable, holds v, first tied by the binding at span. The ties are
+// kept in the order they were first made, which is the order Go's
+// heldBy and holds list them in.
+type HoldTie struct {
+    err Key
+    v Key
+    span source.Span
+}
+
+// HolderAt is what an unread variable holds, Go's holders: the value
+// bound to it and how many names it was bound with (see holder_text).
+type HolderAt struct {
+    value Key
+    n int64
+}
+
+// returns_error returns the function the call k calls when it is one
+// whose last result is an error, Go's returnsError.
+func (mut c Checker) returns_error(k Key) (Key, bool) {
+    switch kind_at(c.prog.trees, k) {
+    case call(cl):
+        if cl.conv != types.invalid {
+            return no_key(), false
+        }
+    default:
+        return no_key(), false
+    }
+    fn := mut c.callee_of(k)
+    if is_no_key(fn) {
+        return no_key(), false
+    }
+    n := mut c.callee_result_count(fn)
+    if n == 0 {
+        return no_key(), false
+    }
+    return fn, result_of(c.results, fn, n -% 1) == types.error_type
+}
+
+// gives_with_error reports whether the call k calls add, add_all or
+// insert, which give an id, a span or a handle and an error, Go's
+// givesWithError.
+func (mut c Checker) gives_with_error(k Key) bool {
+    return is_builtin_call(c.prog.trees, c.none, k, "add") || is_builtin_call(c.prog.trees, c.none, k, "add_all") || is_builtin_call(c.prog.trees, c.none, k, "insert")
+}
+
+// returns_list_error reports whether the call k calls append, reserve or
+// put, the builtins that return an error, Go's returnsListError.
+func (mut c Checker) returns_list_error(k Key) bool {
+    return is_builtin_call(c.prog.trees, c.none, k, "append") || is_builtin_call(c.prog.trees, c.none, k, "reserve") || is_builtin_call(c.prog.trees, c.none, k, "put")
+}
+
+// is_take reports whether the call k calls pop, remove or delete, Go's
+// isTake.
+func (mut c Checker) is_take(k Key) bool {
+    return is_builtin_call(c.prog.trees, c.none, k, "pop") || is_builtin_call(c.prog.trees, c.none, k, "remove") || is_builtin_call(c.prog.trees, c.none, k, "delete")
+}
+
+// error_call reports whether value is a call to a function or a method
+// whose last result is an error and which returns want results, or to
+// add, add_all or insert bound to two names, Go's errorCall.
+func (mut c Checker) error_call(value Key, want int64) bool {
+    switch kind_at(c.prog.trees, value) {
+    case call:
+    default:
+        return false
+    }
+    if mut c.gives_with_error(value) {
+        return want == 2
+    }
+    fn, ok := mut c.returns_error(value)
+    return ok && mut c.callee_result_count(fn) == want
+}
+
+// holder_call reports whether a binding of want names to value ties its
+// last name to the others, Go's holderCall, and whether that is a checked
+// pop or remove's ok, is_ok.
+func (mut c Checker) holder_call(value Key, want int64) (bool, bool) {
+    if mut c.error_call(value, want) {
+        return false, true
+    }
+    switch kind_at(c.prog.trees, value) {
+    case call:
+        if want == 2 && mut c.is_take(value) {
+            return true, true
+        }
+    default:
+    }
+    return false, false
+}
+
+// holder_name appends the name of what value, a holder call (see
+// holder_call), calls, as calleeName gives it or the builtin's name.
+func (mut c Checker) holder_name(value Key, mut out list[uint8]) error {
+    name, builtin := builtin_name(c.prog.trees, c.none, value)?
+    if builtin {
+        append(mut out, name...)?
+        return noerror
+    }
+    switch kind_at(c.prog.trees, value) {
+    case call:
+        mut c.callee_name(value, mut out)?
+    default:
+    }
+    return noerror
+}
+
+// is_local reports whether e is the name of a local variable, Go's
+// isLocal.
+func (mut c Checker) is_local(e Key) bool {
+    nm, ok := ident_at(c.prog.trees, e)
+    if !ok || nm.def.kind != ast.def_var {
+        return false
+    }
+    _, global := c.globals[key_of_def(nm.def)]
+    return !global
+}
+
+// local_decl returns the local variable e names, or no key, Go's
+// localDecl.
+func (mut c Checker) local_decl(e Key) Key {
+    if !mut c.is_local(e) {
+        return no_key()
+    }
+    nm, _ := ident_at(c.prog.trees, e)
+    return key_of_def(nm.def)
+}
+
+// collect_holds records, before the body body of the tree unit is
+// checked, what every binding in it of a call that returns an error ties
+// together, Go's collectHolds.
+func (mut c Checker) collect_holds(unit int64, body ast.Nodes) error {
+    clear_ties(mut c.ties)
+    old_oks := replace(mut c.oks, make(map[Key]Key, c_allocator))
+    drop(own old_oks)
+    old_held := replace(mut c.held_any, make(map[Key]bool, c_allocator))
+    drop(own old_held)
+    old_holder := replace(mut c.holder_any, make(map[Key]bool, c_allocator))
+    drop(own old_holder)
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    mut i := count_items(c.prog.trees, unit, body) -% 1
+    for i >= 0 {
+        append(mut stack, item_at(c.prog.trees, unit, body, i).node)?
+        i -%= 1
+    }
+    mut targets := make(list[Key], c_allocator)
+    for len(stack) > 0 {
+        top, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        k := Key{unit: unit, node: top}
+        switch kind_at(c.prog.trees, k) {
+        case multi_var(m):
+            clear_keys(mut targets)
+            for j := range count_items(c.prog.trees, unit, m.vars) {
+                v := item_at(c.prog.trees, unit, m.vars, j)
+                if bytes_equal(name_of(c.prog.trees, c.none, v), []uint8("_")) {
+                    append(mut targets, no_key())?
+                } else {
+                    append(mut targets, v)?
+                }
+            }
+            mut c.hold(sub(k, m.value), targets, span_at(c.prog.trees, k))?
+        case multi_assign(m):
+            clear_keys(mut targets)
+            for j := range count_items(c.prog.trees, unit, m.targets) {
+                append(mut targets, mut c.local_decl(item_at(c.prog.trees, unit, m.targets, j)))?
+            }
+            mut c.hold(sub(k, m.value), targets, span_at(c.prog.trees, k))?
+        default:
+        }
+        clear_nodes(mut kids)
+        children_of(c.prog.trees, unit, top, mut kids)?
+        mut j := len(kids) -% 1
+        for j >= 0 {
+            kid, has := kids[j]
+            if has {
+                append(mut stack, kid)?
+            }
+            j -%= 1
+        }
+    }
+    return noerror
+}
+
+// clear_ties empties l, keeping what it holds allocated.
+func clear_ties(mut l list[HoldTie]) {
+    for len(l) > 0 {
+        pop(mut l)
+    }
+}
+
+// clear_keys empties l, keeping what it holds allocated.
+func clear_keys(mut l list[Key]) {
+    for len(l) > 0 {
+        pop(mut l)
+    }
+}
+
+// hold records what a binding at sp of value to targets, the local
+// variable each result goes to or no key, ties together, Go's hold.
+func (mut c Checker) hold(value Key, targets []Key, sp source.Span) error {
+    is_ok, ok := mut c.holder_call(value, len(targets))
+    if !ok {
+        return noerror
+    }
+    err, has := targets[len(targets) -% 1]
+    if !has || is_no_key(err) {
+        return noerror
+    }
+    if is_ok {
+        put(mut c.oks, err, value)?
+    }
+    for i := range len(targets) -% 1 {
+        v, has_v := targets[i]
+        if !has_v || is_no_key(v) {
+            continue
+        }
+        mut seen := false
+        for _, t := range c.ties {
+            if t.err == err && t.v == v {
+                seen = true
+                break
+            }
+        }
+        if !seen {
+            append(mut c.ties, HoldTie{err: err, v: v, span: sp})?
+            put(mut c.held_any, v, true)?
+            put(mut c.holder_any, err, true)?
+        }
+    }
+    return noerror
+}
+
+// ok_held reports whether v, a variable bound beside the ok of a checked
+// pop or remove, is held by it, Go's okHeld: its type has no zero value.
+func (mut c Checker) ok_held(v Key) (bool, error) {
+    switch kind_at(c.prog.trees, v) {
+    case var_decl:
+        t := decl_type_of(c.decl_types, v)
+        if t == types.invalid {
+            return false, noerror
+        }
+        z := c.table.has_zero(t)?
+        return !z, noerror
+    default:
+        return false, noerror
+    }
+}
+
+// held_vars appends to out the variables the holder err holds now, Go's
+// heldVars of holds[err]: all of them for an error, and for an ok those
+// ok_held says it holds.
+func (mut c Checker) held_vars(err Key, mut out list[Key]) error {
+    _, holds := c.holder_any[err]
+    if !holds {
+        return noerror
+    }
+    _, is_ok := c.oks[err]
+    mut i int64 = 0
+    for i < len(c.ties) {
+        t := tie_in(c.ties, i)
+        i +%= 1
+        if t.err != err {
+            continue
+        }
+        if is_ok {
+            h := mut c.ok_held(t.v)?
+            if !h {
+                continue
+            }
+        }
+        append(mut out, t.v)?
+    }
+    return noerror
+}
+
+// require_checked checks a read of the variable the name k, nm, names,
+// Go's requireChecked: when an error variable holds it, whether the
+// facts in force prove that error no error is S3's, and declined, but
+// where Go needs no fact: an ok holding a variable whose type has a zero
+// value, which is read freely, and a value a return passes on beside the
+// error holding it.
+func (mut c Checker) require_checked(k Key, nm ast.Ident) error {
+    if nm.def.is_none() {
+        return noerror
+    }
+    v := key_of_def(nm.def)
+    _, held := c.held_any[v]
+    if !held {
+        return noerror
+    }
+    mut i int64 = 0
+    for i < len(c.ties) {
+        t := tie_in(c.ties, i)
+        i +%= 1
+        if t.v != v {
+            continue
+        }
+        _, is_ok := c.oks[t.err]
+        if is_ok {
+            h := mut c.ok_held(v)?
+            if !h {
+                continue
+            }
+            return not_ported
+        }
+        passed, was := c.passed_on[k]
+        if was && passed == t.err {
+            continue
+        }
+        return not_ported
+    }
+    return noerror
+}
+
+// note_pass_on records the values the return k, s, of the function fnk
+// passes on beside the error that holds them, Go's passOn: when the
+// function's last result is an error and the return returns there a
+// local error variable, each other value that is a variable it holds,
+// returned whole as a result that is not a view.
+func (mut c Checker) note_pass_on(k Key, s ast.Return, fnk Key) error {
+    old := replace(mut c.passed_on, make(map[Key]Key, c_allocator))
+    drop(own old)
+    n := count_items(c.prog.trees, k.unit, s.values)
+    last := n -% 1
+    if last < 1 || result_of(c.results, fnk, last) != types.error_type {
+        return noerror
+    }
+    ev := item_at(c.prog.trees, k.unit, s.values, last)
+    enm, is_id := ident_at(c.prog.trees, ev)
+    if !is_id || enm.def.is_none() {
+        return noerror
+    }
+    err := key_of_def(enm.def)
+    _, is_ok := c.oks[err]
+    if is_ok {
+        return noerror
+    }
+    for i := range last {
+        v := item_at(c.prog.trees, k.unit, s.values, i)
+        vnm, v_id := ident_at(c.prog.trees, v)
+        if !v_id || vnm.def.is_none() || c.table.is_view(result_of(c.results, fnk, i)) {
+            continue
+        }
+        vd := key_of_def(vnm.def)
+        for _, t := range c.ties {
+            if t.err == err && t.v == vd {
+                put(mut c.passed_on, v, err)?
+                break
+            }
+        }
+    }
+    return noerror
+}
+
+// read_held checks the target of a compound assignment, which reads the
+// variable it is part of, as require_checked checks a read, Go's
+// readHeld.
+func (mut c Checker) read_held(target Key) error {
+    root := root_ident(c.prog.trees, target)
+    nm, ok := ident_at(c.prog.trees, root)
+    if !ok {
+        return noerror
+    }
+    return mut c.require_checked(root, nm)
+}
+
+// check_error_assign reports target, assigned by the statement k, when
+// it is or is part of an error variable that holds others and k is not
+// a binding that assigns every one of them along with it, Go's
+// checkErrorAssign.
+func (mut c Checker) check_error_assign(k Key, target Key) error {
+    root := root_ident(c.prog.trees, target)
+    nm, ok := ident_at(c.prog.trees, root)
+    if !ok || nm.def.is_none() {
+        return noerror
+    }
+    err := key_of_def(nm.def)
+    mut held := make(list[Key], c_allocator)
+    mut c.held_vars(err, mut held)?
+    if len(held) == 0 {
+        return noerror
+    }
+    switch kind_at(c.prog.trees, k) {
+    case multi_assign(m):
+        n := count_items(c.prog.trees, k.unit, m.targets)
+        if target == item_at(c.prog.trees, k.unit, m.targets, n -% 1) && target == root {
+            missing := mut c.unassigned(k, m, held)?
+            if len(missing) == 0 {
+                return noerror
+            }
+            prefix := msg()
+            return mut c.held_assigned(span_at(c.prog.trees, target), err, missing, prefix)
+        }
+    default:
+    }
+    prefix := msg()
+    return mut c.held_assigned(span_at(c.prog.trees, target), err, held, prefix)
+}
+
+// unassigned returns the variables of held that the binding k, m, whose
+// last target is an error variable, does not assign, Go's unassigned:
+// all of them when its value is not a holder call.
+func (mut c Checker) unassigned(k Key, m ast.MultiAssign, held []Key) (list[Key], error) {
+    mut out := make(list[Key], c_allocator)
+    n := count_items(c.prog.trees, k.unit, m.targets)
+    _, holder := mut c.holder_call(sub(k, m.value), n)
+    for _, v := range held {
+        mut assigned := false
+        if holder {
+            for i := range n -% 1 {
+                if mut c.local_decl(item_at(c.prog.trees, k.unit, m.targets, i)) == v {
+                    assigned = true
+                }
+            }
+        }
+        if !assigned {
+            append(mut out, v)?
+        }
+    }
+    return out, noerror
+}
+
+// check_error_mut reports the mut argument m when it passes an error
+// variable that holds others, or part of one, Go's checkErrorMut.
+func (mut c Checker) check_error_mut(m Key) error {
+    mut x := no_key()
+    switch kind_at(c.prog.trees, m) {
+    case mut_arg(inner):
+        x = sub(m, inner)
+    default:
+        return noerror
+    }
+    root := root_ident(c.prog.trees, x)
+    nm, ok := ident_at(c.prog.trees, root)
+    if !ok || nm.def.is_none() {
+        return noerror
+    }
+    err := key_of_def(nm.def)
+    mut held := make(list[Key], c_allocator)
+    mut c.held_vars(err, mut held)?
+    if len(held) == 0 {
+        return noerror
+    }
+    t := mut c.source_text(span_at(c.prog.trees, m))?
+    mut prefix := msg()
+    fmt.appendf(mut prefix, "cannot pass %s: ", t[:])?
+    return mut c.held_assigned(span_at(c.prog.trees, m), err, held, prefix)
+}
+
+// held_assigned reports an assignment at sp to err, an error variable
+// that holds the variables missing, Go's heldAssigned, with a note at
+// the binding that first tied it to the first of them, prefix starting
+// the message.
+func (mut c Checker) held_assigned(sp source.Span, err Key, missing []Key, prefix list[uint8]) error {
+    mut names := msg()
+    for i, v := range missing {
+        if i > 0 {
+            if i == len(missing) -% 1 {
+                append(mut names, []uint8(" and ")...)?
+            } else {
+                append(mut names, []uint8(", ")...)?
+            }
+        }
+        append(mut names, name_of(c.prog.trees, c.none, v)...)?
+    }
+    first := key_in(missing, 0)
+    mut at := ast.unset_span()
+    for _, t := range c.ties {
+        if t.err == err && t.v == first {
+            at = t.span
+            break
+        }
+    }
+    mut ename := msg()
+    append(mut ename, name_of(c.prog.trees, c.none, err)...)?
+    mut m := msg()
+    append(mut m, prefix[:]...)?
+    ok_call, is_ok := c.oks[err]
+    if is_ok {
+        mut bname := msg()
+        mut c.holder_name(ok_call, mut bname)?
+        fmt.appendf(mut m, "%s says whether %s gave %s, so only a binding that also assigns %s can assign it", ename[:], bname[:], names[:], names[:])?
+    } else {
+        fmt.appendf(mut m, "%s holds the error that came with %s, so only a binding that also assigns %s can assign it", ename[:], names[:], names[:])?
+    }
+    mut c.errorf(sp, own m)?
+    mut note := msg()
+    fmt.appendf(mut note, "%s is bound beside %s here", ename[:], name_of(c.prog.trees, c.none, first))?
+    return mut c.note_last(at, own note)
+}
+
+// dropped_error reports e, a call statement, when its callee returns an
+// error, which a call statement drops, with the binding that would keep
+// it, Go's droppedError.
+func (mut c Checker) dropped_error(e Key) error {
+    switch kind_at(c.prog.trees, e) {
+    case call:
+        if mut c.returns_list_error(e) {
+            if node_type_of(c.node_types, e) == types.error_type {
+                name, _ := builtin_name(c.prog.trees, c.none, e)?
+                mut m := msg()
+                fmt.appendf(mut m, "the error %s returns cannot be discarded; bind it, as in err := %s(...)", name[:], name[:])?
+                mut c.errorf(span_at(c.prog.trees, e), own m)?
+            }
+            return noerror
+        }
+        if mut c.gives_with_error(e) {
+            return not_ported
+        }
+        fn, ok := mut c.returns_error(e)
+        if !ok {
+            return noerror
+        }
+        mut name := msg()
+        mut c.callee_name(e, mut name)?
+        mut names := msg()
+        mut c.binding_names(fn, mut names)?
+        mut text := msg()
+        mut c.call_text(e, mut text)?
+        mut m := msg()
+        fmt.appendf(mut m, "the error %s returns cannot be discarded; bind it, as in %s := %s(...)", name[:], names[:], text[:])?
+        return mut c.errorf(span_at(c.prog.trees, e), own m)
+    default:
+        return noerror
+    }
+}
+
+// binding_names appends the targets of a binding that keeps every result
+// of the function fn, whose last is an error, Go's bindingNames: err
+// for the error, a name for each result before it that is owned, x, y
+// and z, then x4, x5 and so on, and _ for each other.
+func (mut c Checker) binding_names(fn Key, mut out list[uint8]) error {
+    n := mut c.callee_result_count(fn)
+    mut owned_n int64 = 0
+    for i := range n -% 1 {
+        owned := c.table.owned(result_of(c.results, fn, i))?
+        if !owned {
+            append(mut out, []uint8("_, ")...)?
+            continue
+        }
+        owned_n +%= 1
+        if owned_n == 1 {
+            append(mut out, []uint8("x, ")...)?
+        } else if owned_n == 2 {
+            append(mut out, []uint8("y, ")...)?
+        } else if owned_n == 3 {
+            append(mut out, []uint8("z, ")...)?
+        } else {
+            fmt.appendf(mut out, "x%d, ", owned_n)?
+        }
+    }
+    append(mut out, []uint8("err")...)?
+    return noerror
+}
+
+// check_error_binding reports a binding of value, whose results checked
+// as valid, that drops an error, blank saying which targets are _ and
+// spans where each is written, Go's checkErrorBinding.
+func (mut c Checker) check_error_binding(value Key, blank []bool, spans []source.Span) error {
+    is_ok, ok := mut c.holder_call(value, len(blank))
+    if !ok {
+        return noerror
+    }
+    mut name := msg()
+    mut c.holder_name(value, mut name)?
+    if is_ok {
+        return mut c.check_ok_binding(value, name, blank, spans)
+    }
+    last := bool_at(blank, len(blank) -% 1)
+    if last {
+        sp := span_in(spans, len(spans) -% 1)
+        mut m := msg()
+        fmt.appendf(mut m, "the error %s returns cannot be discarded; bind it to a variable instead of _", name[:])?
+        return mut c.errorf(sp, own m)
+    }
+    return noerror
+}
+
+// check_ok_dropped reports a binding of value, a checked form, that
+// keeps its value and drops its ok, Go's checkOkDropped.
+func (mut c Checker) check_ok_dropped(value Key, blank []bool, spans []source.Span) error {
+    b0 := bool_at(blank, 0)
+    b1 := bool_at(blank, 1)
+    if len(blank) != 2 || b0 || !b1 || !mut c.is_checked_form(value) {
+        return noerror
+    }
+    switch kind_at(c.prog.trees, value) {
+    case call:
+        if mut c.is_take(value) {
+            vt := mut c.type_of(value)
+            z := c.table.has_zero(vt)?
+            if !z {
+                return noerror
+            }
+        }
+    default:
+    }
+    t := mut c.source_text(span_at(c.prog.trees, value))?
+    sp := span_in(spans, 1)
+    mut m := msg()
+    fmt.appendf(mut m, "the ok %s gives cannot be discarded; bind it to a variable instead of _", t[:])?
+    return mut c.errorf(sp, own m)
+}
+
+// is_checked_form reports whether value is a checked form, giving a
+// value and an ok, Go's isCheckedForm.
+func (mut c Checker) is_checked_form(value Key) bool {
+    switch kind_at(c.prog.trees, value) {
+    case binary(b):
+        return b.op == ast.op_div || b.op == ast.op_rem || b.op == ast.op_add || b.op == ast.op_sub || b.op == ast.op_mul
+    case unary(u):
+        return u.op == ast.unary_neg
+    case index, slice, type_assert:
+        return true
+    case call(cl):
+        return cl.conv != types.invalid || mut c.is_take(value)
+    default:
+        return false
+    }
+}
+
+// check_ok_binding reports a checked pop or remove, value, calling name,
+// whose binding drops what it should not, Go's checkOkBinding.
+func (mut c Checker) check_ok_binding(value Key, name list[uint8], blank []bool, spans []source.Span) error {
+    elem := mut c.type_of(value)
+    b0 := bool_at(blank, 0)
+    b1 := bool_at(blank, 1)
+    owned := c.table.owned(elem)?
+    if b0 && owned {
+        sp := span_in(spans, 0)
+        mut what := msg()
+        mut c.dropped_name(elem, mut what)?
+        mut m := msg()
+        fmt.appendf(mut m, "%s returns %s; bind it to a variable instead of _", name[:], what[:])?
+        return mut c.errorf(sp, own m)
+    }
+    z := c.table.has_zero(elem)?
+    if !b0 && b1 && !z {
+        s0 := span_in(spans, 0)
+        sp := span_in(spans, 1)
+        t := mut c.source_text(s0)?
+        mut m := msg()
+        fmt.appendf(mut m, "the ok %s returns cannot be discarded: %s cannot be read until it is checked; bind it to a variable instead of _", name[:], t[:])?
+        return mut c.errorf(sp, own m)
+    }
+    return noerror
+}
+
+// check_error_targets checks the targets of the assignment of several
+// results k, m, when its value is a holder call that binds a result
+// beside the error, Go's checkErrorTargets: every one must go to a
+// local variable.
+func (mut c Checker) check_error_targets(k Key, m ast.MultiAssign) error {
+    n := count_items(c.prog.trees, k.unit, m.targets)
+    value := sub(k, m.value)
+    is_ok, ok := mut c.holder_call(value, n)
+    if !ok {
+        return noerror
+    }
+    mut name := msg()
+    mut c.holder_name(value, mut name)?
+    if is_ok {
+        return mut c.check_ok_targets(k, m, name)
+    }
+    last := n -% 1
+    mut beside := msg()
+    mut count int64 = 0
+    for i := range last {
+        t := item_at(c.prog.trees, k.unit, m.targets, i)
+        if is_blank(c.prog.trees, c.none, t) {
+            continue
+        }
+        if count > 0 {
+            append(mut beside, []uint8(", ")...)?
+        }
+        w := mut c.source_text(span_at(c.prog.trees, t))?
+        append(mut beside, w[:]...)?
+        count +%= 1
+    }
+    if count == 0 {
+        return noerror
+    }
+    for i := range last {
+        t := item_at(c.prog.trees, k.unit, m.targets, i)
+        if !is_blank(c.prog.trees, c.none, t) && !mut c.is_local(t) {
+            w := mut c.source_text(span_at(c.prog.trees, t))?
+            mut msg1 := msg()
+            fmt.appendf(mut msg1, "%s cannot take a result of %s beside its error; bind it to a local variable", w[:], name[:])?
+            mut c.errorf(span_at(c.prog.trees, t), own msg1)?
+        }
+    }
+    et := item_at(c.prog.trees, k.unit, m.targets, last)
+    if !is_blank(c.prog.trees, c.none, et) && !mut c.is_local(et) {
+        w := mut c.source_text(span_at(c.prog.trees, et))?
+        mut msg1 := msg()
+        fmt.appendf(mut msg1, "%s cannot take the error of %s beside %s; bind it to a local variable", w[:], name[:], beside[:])?
+        mut c.errorf(span_at(c.prog.trees, et), own msg1)?
+    }
+    return noerror
+}
+
+// check_ok_targets checks the targets of the assignment k, m, of a
+// checked pop or remove calling name whose element has no zero value,
+// Go's checkOkTargets.
+func (mut c Checker) check_ok_targets(k Key, m ast.MultiAssign, name list[uint8]) error {
+    elem := item_at(c.prog.trees, k.unit, m.targets, 0)
+    okt := item_at(c.prog.trees, k.unit, m.targets, 1)
+    vt := mut c.type_of(sub(k, m.value))
+    z := c.table.has_zero(vt)?
+    if is_blank(c.prog.trees, c.none, elem) || z {
+        return noerror
+    }
+    et := mut c.source_text(span_at(c.prog.trees, elem))?
+    if !mut c.is_local(elem) {
+        mut msg1 := msg()
+        fmt.appendf(mut msg1, "%s cannot take the element %s gives beside its ok; bind it to a local variable", et[:], name[:])?
+        mut c.errorf(span_at(c.prog.trees, elem), own msg1)?
+    }
+    if !is_blank(c.prog.trees, c.none, okt) && !mut c.is_local(okt) {
+        w := mut c.source_text(span_at(c.prog.trees, okt))?
+        mut msg1 := msg()
+        fmt.appendf(mut msg1, "%s cannot take the ok of %s beside %s; bind it to a local variable", w[:], name[:], et[:])?
+        mut c.errorf(span_at(c.prog.trees, okt), own msg1)?
+    }
+    return noerror
+}
+
+// is_blank reports whether e is the name _, Go's ast.IsBlank.
+func is_blank(trees []ast.File, none []uint8, e Key) bool {
+    nm, ok := ident_at(trees, e)
+    return ok && bytes_equal(text_at(trees, none, e.unit, nm.name), []uint8("_"))
+}
+
+// nothing_bound reports a binding at sp of value, a method call or a
+// call of a method expression whose results checked as valid, that
+// binds nothing, every name _, when the callee returns no error, Go's
+// nothingBound.
+func (mut c Checker) nothing_bound(value Key, blank []bool, sp source.Span) error {
+    switch kind_at(c.prog.trees, value) {
+    case call(cl):
+        if is_no_key(mut c.receiver_of(value)) && !mut c.is_method_expr(sub(value, cl.fn)) {
+            return noerror
+        }
+    default:
+        return noerror
+    }
+    for _, b := range blank {
+        if !b {
+            return noerror
+        }
+    }
+    _, is_error := mut c.returns_error(value)
+    if is_error {
+        return noerror
+    }
+    mut m := msg()
+    fmt.appendf(mut m, "every name is _, so nothing is bound; make the call on its own")?
+    return mut c.errorf(sp, own m)
+}
+
+// note_holder records what the variable v holds when the resolver left
+// it to be reported unread, value bound to it with n names, Go's
+// noteHolder: an error or an ok (see holder_text).
+func (mut c Checker) note_holder(v Key, value Key, n int64) error {
+    switch kind_at(c.prog.trees, v) {
+    case var_decl(vd):
+        if !vd.unused_deferred {
+            return noerror
+        }
+    default:
+        return noerror
+    }
+    mut what := msg()
+    holds := mut c.holder_text(value, n, mut what)?
+    if holds {
+        put(mut c.holders, v, HolderAt{value: value, n: n})?
+    }
+    return noerror
+}
+
+// note_target_holder records what target, a name assigned value with n
+// names, holds, Go's noteTargetHolder.
+func (mut c Checker) note_target_holder(target Key, value Key, n int64) error {
+    nm, ok := ident_at(c.prog.trees, target)
+    if !ok || nm.def.kind != ast.def_var {
+        return noerror
+    }
+    return mut c.note_holder(key_of_def(nm.def), value, n)
+}
+
+// holder_text appends what the last of n names bound to value holds,
+// when it holds an error or an ok, Go's holderText, and reports whether
+// it does.
+func (mut c Checker) holder_text(value Key, n int64, mut out list[uint8]) (bool, error) {
+    switch kind_at(c.prog.trees, value) {
+    case call:
+        if n == 1 && mut c.returns_list_error(value) {
+            name, _ := builtin_name(c.prog.trees, c.none, value)?
+            fmt.appendf(mut out, "the error %s returns", name[:])?
+            return true, noerror
+        }
+        if mut c.error_call(value, n) {
+            mut name := msg()
+            mut c.holder_name(value, mut name)?
+            fmt.appendf(mut out, "the error %s returns", name[:])?
+            return true, noerror
+        }
+        if n == 2 && mut c.is_take(value) {
+            name, _ := builtin_name(c.prog.trees, c.none, value)?
+            fmt.appendf(mut out, "the ok %s returns", name[:])?
+            return true, noerror
+        }
+    default:
+    }
+    if n == 2 && mut c.is_checked_form(value) {
+        t := mut c.source_text(span_at(c.prog.trees, value))?
+        fmt.appendf(mut out, "the ok %s gives", t[:])?
+        return true, noerror
+    }
+    return false, noerror
+}

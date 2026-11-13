@@ -1,0 +1,205 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// Asking an any which type it holds, Go's assert.go: a type assertion,
+// x.(T), only ever bound with ok, and a type switch, switch v :=
+// x.(type), which tries its cases' types top to bottom and binds v in
+// each. Nothing about what an any holds is known at compile time, so
+// neither gives facts.
+
+// asserted_type returns the type expr names, written in a type
+// assertion or as a type switch's case, reporting one an any can never
+// hold, Go's assertedType.
+func (mut c Checker) asserted_type(expr Key) (types.Type, error) {
+    mut typ := types.invalid
+    if is_any_name(c.prog.trees, c.none, expr) {
+        typ = types.any_type
+    } else {
+        switch kind_at(c.prog.trees, expr) {
+        case view_type(elem):
+            typ = mut c.view_type(expr, elem)?
+        default:
+            typ = mut c.declared_type(expr)?
+        }
+    }
+    if typ == types.invalid || c.table.in_any_of(typ) {
+        return typ, noerror
+    }
+    n := mut c.type_name(typ)?
+    mut m := msg()
+    fmt.appendf(mut m, "an any never holds %s: only the builtin types and views of them can be passed as any for now", n[:])?
+    mut c.errorf(span_at(c.prog.trees, expr), own m)?
+    return types.invalid, noerror
+}
+
+// assert_operand checks x, the operand of a type assertion or of a type
+// switch's tag, which must be an any, Go's assertOperand, and reports
+// whether it is one.
+func (mut c Checker) assert_operand(x Key) (bool, error) {
+    t := mut c.expr(x)?
+    got := mut c.value_of(x, t)?
+    if got == types.invalid {
+        return false, noerror
+    }
+    if got != types.any_type {
+        w := mut c.source_text(span_at(c.prog.trees, x))?
+        n := mut c.type_name(got)?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot assert on %s: it is %s, not any", w[:], n[:])?
+        mut c.errorf(span_at(c.prog.trees, x), own m)?
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// type_assert checks the type assertion k, a, and returns the type of
+// its value, which it records on k, Go's typeAssert: x.(T) gives T when
+// it is the assertion bound with ok, and is reported anywhere else, as
+// is x.(type) anywhere but a type switch's tag and a T that is a view.
+func (mut c Checker) type_assert(k Key, a ast.TypeAssert) (types.Type, error) {
+    mut c.set_node_type(k, types.invalid)?
+    if ast.is_none(a.type_expr) {
+        mut c.expr(sub(k, a.x))?
+        mut m := msg()
+        fmt.appendf(mut m, ".(type) can only be the tag of a switch")?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    }
+    is_any := mut c.assert_operand(sub(k, a.x))?
+    typ := mut c.asserted_type(sub(k, a.type_expr))?
+    if !is_any || typ == types.invalid {
+        return types.invalid, noerror
+    }
+    if c.table.is_view(typ) {
+        n := mut c.type_name(typ)?
+        w := mut c.source_text(span_at(c.prog.trees, sub(k, a.x)))?
+        mut m := msg()
+        fmt.appendf(mut m, "a type assertion cannot give %s, a view; ask with a type switch, as in switch v := %s.(type)", n[:], w[:])?
+        mut c.errorf(span_at(c.prog.trees, sub(k, a.type_expr)), own m)?
+        return types.invalid, noerror
+    }
+    if k != c.checked_assert {
+        w := mut c.source_text(span_at(c.prog.trees, k))?
+        mut m := msg()
+        fmt.appendf(mut m, "a type assertion needs two results; write v, ok := %s", w[:])?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    }
+    mut c.set_node_type(k, typ)?
+    return typ, noerror
+}
+
+// assert_results checks the type assertion k, a, bound to want names,
+// which must be two, Go's assertResults: the value and whether it
+// matched.
+func (mut c Checker) assert_results(k Key, a ast.TypeAssert, want int64, sp source.Span, mut out list[types.Type]) (bool, error) {
+    outer := c.checked_assert
+    c.checked_assert = k
+    typ := mut c.type_assert(k, a)?
+    c.checked_assert = outer
+    if typ == types.invalid {
+        return false, noerror
+    }
+    if want != 2 {
+        mut m := msg()
+        fmt.appendf(mut m, "assignment mismatch: %d variables but a type assertion gives 2 values", want)?
+        mut c.errorf(sp, own m)?
+        return false, noerror
+    }
+    append(mut out, typ)?
+    append(mut out, types.bool_type)?
+    return true, noerror
+}
+
+// is_type_switch reports whether the switch s is a type switch, its tag
+// x.(type), Go's IsTypeSwitch.
+func (mut c Checker) is_type_switch(k Key, s ast.Switch) bool {
+    switch kind_at(c.prog.trees, sub(k, s.tag)) {
+    case type_assert(a):
+        return ast.is_none(a.type_expr)
+    default:
+        return false
+    }
+}
+
+// check_type_switch checks the type switch k, s, Go's checkTypeSwitch:
+// the any it asks about, then each case in the order tried, the types it
+// names and its body, with the case's variable, if the switch binds one,
+// of the case's one type, or any. A type named twice is reported at the
+// second, with a note at the first.
+func (mut c Checker) check_type_switch(k Key, s ast.Switch) error {
+    tag := sub(k, s.tag)
+    mut x := no_key()
+    switch kind_at(c.prog.trees, tag) {
+    case type_assert(a):
+        x = sub(tag, a.x)
+    default:
+    }
+    is_any := mut c.assert_operand(x)?
+    mut seen := make(map[int64]Key, c_allocator)
+    n := count_items(c.prog.trees, k.unit, s.cases)
+    mut def := no_key()
+    for i := range n {
+        cl := item_at(c.prog.trees, k.unit, s.cases, i)
+        if is_default(c.prog.trees, cl) {
+            if is_no_key(def) {
+                def = cl
+            }
+            continue
+        }
+        mut c.type_clause(cl, is_any, mut seen)?
+    }
+    if !is_no_key(def) {
+        mut c.type_clause(def, is_any, mut seen)?
+    }
+    return noerror
+}
+
+// type_clause checks one clause cl of a type switch, Go's loop body in
+// checkTypeSwitch: its types, its variable's type and then its body.
+func (mut c Checker) type_clause(cl Key, is_any bool, mut seen map[int64]Key) error {
+    clause := clause_of(c.prog.trees, cl)
+    mut one := types.invalid
+    nv := count_items(c.prog.trees, cl.unit, clause.values)
+    for i := range nv {
+        v := item_at(c.prog.trees, cl.unit, clause.values, i)
+        typ := mut c.asserted_type(v)?
+        if i == 0 {
+            one = typ
+        }
+        if typ == types.invalid {
+            continue
+        }
+        prev, dup := seen[typ.number()]
+        if !dup {
+            put(mut seen, typ.number(), v)?
+            continue
+        }
+        tn := mut c.type_name(typ)?
+        mut m := msg()
+        fmt.appendf(mut m, "%s appears twice in this type switch", tn[:])?
+        mut c.errorf(span_at(c.prog.trees, v), own m)?
+        mut note := msg()
+        fmt.appendf(mut note, "previous case")?
+        mut c.note_last(span_at(c.prog.trees, prev), own note)?
+    }
+    if !ast.is_none(clause.var_node) {
+        vk := sub(cl, clause.var_node)
+        mut vt := types.any_type
+        if !is_any || clause.bad {
+            vt = types.invalid
+        } else if !clause.is_default && nv == 1 {
+            vt = one
+        }
+        mut c.set_decl_type(vk, vt)?
+        put(mut c.bindings, vk, bind_type_switch)?
+    }
+    append(mut c.body.clauses, ClauseAt{cl: cl, on_union: false, on_type: true, deferred: c.body.deferred})?
+    e := mut c.check_block(cl.unit, clause.body)
+    pop(mut c.body.clauses)
+    return e
+}

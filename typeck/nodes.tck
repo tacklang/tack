@@ -26,13 +26,13 @@ import types from "tack/types"
 func (mut c Checker) write_nodes(mut out list[uint8]) error {
     append(mut out, '[')?
     mut first := true
-    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut stack := make(list[DumpItem], c_allocator)
     mut kids := make(list[id[ast.Node]], c_allocator)
     for u := range len(c.prog.trees) {
-        clear_nodes(mut stack)
+        clear_items(mut stack)
         mut i := tree_decl_count(c.prog.trees, u) -% 1
         for i >= 0 {
-            append(mut stack, tree_decl(c.prog.trees, u, i))?
+            append(mut stack, DumpItem{node: tree_decl(c.prog.trees, u, i), site: false})?
             i -%= 1
         }
         for len(stack) > 0 {
@@ -40,7 +40,11 @@ func (mut c Checker) write_nodes(mut out list[uint8]) error {
             if !ok {
                 break
             }
-            k := Key{unit: u, node: top}
+            k := Key{unit: u, node: top.node}
+            if top.site {
+                mut c.write_site_arg(mut out, k)?
+                continue
+            }
             name := node_kind_name(c.prog.trees, k)
             if len(name) > 0 {
                 if !first {
@@ -50,18 +54,80 @@ func (mut c Checker) write_nodes(mut out list[uint8]) error {
                 mut c.write_node(mut out, k, name)?
             }
             clear_nodes(mut kids)
-            children_of(c.prog.trees, u, top, mut kids)?
-            mut j := len(kids) -% 1
+            children_of(c.prog.trees, u, top.node, mut kids)?
+            mut at int64 = -1
+            sa, has_site := c.site_args[k]
+            if has_site {
+                switch kind_at(c.prog.trees, k) {
+                case call(cl):
+                    at = 1 +% count_items(c.prog.trees, u, cl.type_args) +% sa.index
+                default:
+                }
+            }
+            mut j := len(kids)
             for j >= 0 {
-                kid, has := kids[j]
-                if has {
-                    append(mut stack, kid)?
+                if j == at {
+                    append(mut stack, DumpItem{node: top.node, site: true})?
+                }
+                if j < len(kids) {
+                    kid, has := kids[j]
+                    if has {
+                        append(mut stack, DumpItem{node: kid, site: false})?
+                    }
                 }
                 j -%= 1
             }
         }
     }
     append(mut out, ']')?
+    return noerror
+}
+
+// DumpItem is a node the dump has yet to write, or, site set, the
+// testing.Site argument Go put among the arguments of the call node (see
+// SiteArg).
+type DumpItem struct {
+    node id[ast.Node]
+    site bool
+}
+
+// clear_items empties l, keeping what it holds allocated.
+func clear_items(mut l list[DumpItem]) {
+    for len(l) > 0 {
+        pop(mut l)
+    }
+}
+
+// write_site_arg appends the nodes of the testing.Site argument Go put
+// among the arguments of the call k, Go's passSite: the Site parameter
+// of the function the call is in, a name, or a literal of the Site type
+// whose four fields hold the call's place, as siteLit builds it.
+func (mut c Checker) write_site_arg(mut out list[uint8], k Key) error {
+    sa, has := c.site_args[k]
+    if !has {
+        return noerror
+    }
+    if !is_no_key(sa.param) {
+        fmt.appendf(mut out, ",{\"kind\":\"Ident\",\"type\":%d,\"const\":null,\"conv\":0,\"narrowed\":0,\"exhaustive\":false,\"unrolled\":false}", decl_type_of(c.decl_types, sa.param).number())?
+        return noerror
+    }
+    write_plain_node(mut out, "CompositeLit", sa.typ.number())?
+    for i := range 4 {
+        write_plain_node(mut out, "KeyValue", 0)?
+        write_plain_node(mut out, "Ident", 0)?
+        if i == 0 || i == 3 {
+            write_plain_node(mut out, "StrLit", types.string_type.number())?
+        } else {
+            write_plain_node(mut out, "IntLit", types.int64_type.number())?
+        }
+    }
+    return noerror
+}
+
+// write_plain_node appends, after a comma, the dump's object of a node of
+// the kind name and type typ, with nothing else recorded on it.
+func write_plain_node(mut out list[uint8], name string, typ int64) error {
+    fmt.appendf(mut out, ",{\"kind\":\"%s\",\"type\":%d,\"const\":null,\"conv\":0,\"narrowed\":0,\"exhaustive\":false,\"unrolled\":false}", name, typ)?
     return noerror
 }
 
@@ -106,6 +172,10 @@ func (mut c Checker) write_node(mut out list[uint8], k Key, name string) error {
         _, cleared := c.conv_cleared[k]
         if !cleared {
             conv = cl.conv
+        }
+        vc, viewed := c.view_convs[k]
+        if viewed {
+            conv = vc
         }
         typ = mut c.node_type(k)
         v, ok := c.consts[k]

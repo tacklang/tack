@@ -1,0 +1,241 @@
+package constant
+
+import big from "std/big"
+
+// The decimal form of a float constant in a diagnostic, Go's
+// constant.Float.String: big.Float's Text('g', 10) of the value rounded
+// to a 64-bit mantissa, as math/big's ftoa.go writes it. The rounded
+// value is written out exactly in decimal, rounded to 10 significant
+// digits, ties to even, and then written like %e for an exponent below
+// -4 or of at least the digits kept, and like %f otherwise.
+
+// Decimal is a value's decimal digits, most significant first, with no
+// trailing zeros, and the position of the decimal point, Go's decimal:
+// the value is 0.digits * 10^exp.
+type Decimal struct {
+    digits list[uint8]
+    exp int64
+}
+
+// append_string appends x as Go's String writes it.
+pub func (x Float) append_string(mut out list[uint8], scope alloc Allocator) error {
+    r := round(x, 64, -4611686018427387904, 4611686018427387904, alloc)?
+    if r.neg {
+        append(mut out, '-')?
+    }
+    mut d := Decimal{digits: make(list[uint8], alloc), exp: 0}
+    if r.q != 0 {
+        decimal_of(r.q, r.e, mut d, alloc)?
+    }
+    round_digits(mut d, 10)?
+    return format_g(d, 10, mut out)
+}
+
+// decimal_of sets d to the exact decimal digits of q * 2^e, q above 0,
+// Go's decimal.init.
+func decimal_of(q uint64, e int64, mut d Decimal, scope alloc Allocator) error {
+    mut m := q
+    mut shift := e
+    for shift < 0 && m & 1 == 0 {
+        m = m >> 1
+        shift +%= 1
+    }
+    mut n := big.from_uint64(m, alloc)?
+    mut point_shift int64 = 0
+    if shift > 0 {
+        n = big.shl(n, shift, alloc)?
+    } else if shift < 0 {
+        p := pow5(-%shift, alloc)?
+        n = big.mul(n, p, alloc)?
+        point_shift = shift
+    }
+    big.format(mut d.digits, n, 10)?
+    d.exp = len(d.digits) +% point_shift
+    trim_zeros(mut d)
+    return noerror
+}
+
+// pow5 returns 5^k, k not negative.
+func pow5(k int64, scope alloc Allocator) (big.Int, error) {
+    mut result := big.from_int64(1, alloc)?
+    mut base := big.from_int64(5, alloc)?
+    mut e := k
+    for e > 0 {
+        if e & 1 == 1 {
+            result = big.mul(result, base, alloc)?
+        }
+        e = e >> 1
+        if e > 0 {
+            base = big.mul(base, base, alloc)?
+        }
+    }
+    return result, noerror
+}
+
+// trim_zeros cuts the trailing zeros off d's digits, Go's trim.
+func trim_zeros(mut d Decimal) {
+    for len(d.digits) > 0 {
+        last, ok := d.digits[len(d.digits) -% 1]
+        if !ok || last != '0' {
+            break
+        }
+        pop(mut d.digits)
+    }
+    if len(d.digits) == 0 {
+        d.exp = 0
+    }
+}
+
+// digit_at returns d's i'th digit, or '0' past its end, Go's decimal.at.
+func digit_at(d Decimal, i int64) uint8 {
+    b, ok := d.digits[i]
+    if !ok {
+        return '0'
+    }
+    return b
+}
+
+// round_digits rounds d to at most n digits, ties to even, Go's
+// decimal.round.
+func round_digits(mut d Decimal, n int64) error {
+    if n < 0 || n >= len(d.digits) {
+        return noerror
+    }
+    mut up := digit_at(d, n) >= '5'
+    if digit_at(d, n) == '5' && n +% 1 == len(d.digits) {
+        up = n > 0 && (digit_at(d, n -% 1) -% '0') & 1 != 0
+    }
+    if !up {
+        for len(d.digits) > n {
+            pop(mut d.digits)
+        }
+        trim_zeros(mut d)
+        return noerror
+    }
+    mut i := n
+    for i > 0 && digit_at(d, i -% 1) >= '9' {
+        i -%= 1
+    }
+    if i == 0 {
+        for len(d.digits) > 0 {
+            pop(mut d.digits)
+        }
+        append(mut d.digits, '1')?
+        d.exp +%= 1
+        return noerror
+    }
+    for len(d.digits) > i {
+        pop(mut d.digits)
+    }
+    last := digit_at(d, i -% 1)
+    pop(mut d.digits)
+    append(mut d.digits, last +% 1)?
+    return noerror
+}
+
+// format_g appends d as Go's 'g' format with precision prec writes it.
+func format_g(d Decimal, prec int64, mut out list[uint8]) error {
+    n := len(d.digits)
+    mut eprec := prec
+    if eprec > n && n >= d.exp {
+        eprec = n
+    }
+    exp := d.exp -% 1
+    if exp < -4 || exp >= eprec {
+        mut p := prec
+        if p > n {
+            p = n
+        }
+        return format_e(d, p -% 1, mut out)
+    }
+    mut p := prec
+    if p > d.exp {
+        p = n
+    }
+    mut frac := p -% d.exp
+    if frac < 0 {
+        frac = 0
+    }
+    return format_f(d, frac, mut out)
+}
+
+// format_e appends d as %e with prec digits after the point, Go's fmtE.
+func format_e(d Decimal, prec int64, mut out list[uint8]) error {
+    append(mut out, digit_at(d, 0))?
+    if prec > 0 {
+        append(mut out, '.')?
+        mut i int64 = 1
+        for i <= prec {
+            append(mut out, digit_at(d, i))?
+            i +%= 1
+        }
+    }
+    append(mut out, 'e')?
+    mut exp int64 = 0
+    if len(d.digits) > 0 {
+        exp = d.exp -% 1
+    }
+    if exp < 0 {
+        append(mut out, '-')?
+        exp = -%exp
+    } else {
+        append(mut out, '+')?
+    }
+    if exp < 10 {
+        append(mut out, '0')?
+    }
+    mut digits := make(list[uint8], c_allocator)
+    if exp == 0 {
+        append(mut digits, '0')?
+    }
+    for exp > 0 {
+        append(mut digits, '0' +% uint8_of(exp % 10))?
+        exp = exp / 10
+    }
+    mut j := len(digits) -% 1
+    for j >= 0 {
+        append(mut out, digit_byte(digits, j))?
+        j -%= 1
+    }
+    return noerror
+}
+
+// uint8_of returns v, a digit from 0 to 9, as a uint8.
+func uint8_of(v int64) uint8 {
+    b, ok := uint8(v)
+    if !ok {
+        return 0
+    }
+    return b
+}
+
+// digit_byte returns l[i], or '0'.
+func digit_byte(l []uint8, i int64) uint8 {
+    b, ok := l[i]
+    if !ok {
+        return '0'
+    }
+    return b
+}
+
+// format_f appends d as %f with prec digits after the point, Go's fmtF.
+func format_f(d Decimal, prec int64, mut out list[uint8]) error {
+    if d.exp > 0 {
+        mut i int64 = 0
+        for i < d.exp {
+            append(mut out, digit_at(d, i))?
+            i +%= 1
+        }
+    } else {
+        append(mut out, '0')?
+    }
+    if prec > 0 {
+        append(mut out, '.')?
+        mut i int64 = 0
+        for i < prec {
+            append(mut out, digit_at(d, d.exp +% i))?
+            i +%= 1
+        }
+    }
+    return noerror
+}

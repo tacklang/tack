@@ -121,8 +121,49 @@ func (mut c Checker) spine_operand(k Key) Key {
             return no_key()
         }
         return sub(k, s.x)
+    case call:
+        // A method call's plain receiver is the first thing its check
+        // checks, as a value (see receiver_type), so a chain of method
+        // calls is a spine too.
+        if !c.in_body {
+            return no_key()
+        }
+        return mut c.spine_receiver(k)
+    case unary(u):
+        // A unary operator checks its operand first, as a value.
+        return sub(k, u.x)
+    case question(inner):
+        // So is the receiver of the method call a ? follows, which the
+        // ? checks first too (see question_call), so that a chain of
+        // f()?.g()? links is one spine.
+        if !c.in_body {
+            return no_key()
+        }
+        x := sub(k, inner)
+        switch kind_at(c.prog.trees, x) {
+        case call:
+            if mut c.not_calling(x) {
+                return no_key()
+            }
+            return mut c.spine_receiver(x)
+        default:
+            return no_key()
+        }
     default:
         return no_key()
+    }
+}
+
+// spine_receiver returns the receiver of the call k when it is a method
+// call's plain receiver that is no name, the operand a spine walks down
+// into, or no key.
+func (mut c Checker) spine_receiver(k Key) Key {
+    recv := mut c.receiver_of(k)
+    switch kind_at(c.prog.trees, recv) {
+    case mut_arg, ident:
+        return no_key()
+    default:
+        return recv
     }
 }
 
@@ -135,6 +176,10 @@ func (mut c Checker) spine_operand(k Key) Key {
 // adding up many others each needing a chain of its own checks in time
 // linear in their number.
 func (mut c Checker) expr(k Key) (types.Type, error) {
+    if c.in_body {
+        typ := mut c.body_expr(k)?
+        return typ, noerror
+    }
     c.depth +%= 1
     mut links := make(list[Key], c_allocator)
     mut typ := types.invalid
@@ -180,6 +225,112 @@ func (mut c Checker) expr(k Key) (types.Type, error) {
     return typ, noerror
 }
 
+// ExprSpine is a spine body_expr is checking: where its links start in
+// the walk's list of them, how many are left to finish, and the type of
+// the operand the next one finishes.
+type ExprSpine struct {
+    base int64
+    left int64
+    typ types.Type
+}
+
+// body_expr is expr in a body, where no check is suspended: the right
+// operand of a binary operator is checked as a spine of its own, pushed
+// on the walk's stack of spines rather than recursed into, and its type
+// finishes the operator once that spine is done. So operators nested in
+// each other's right operand, and in what a call nested in one passes,
+// cost no frame of their own.
+func (mut c Checker) body_expr(k Key) (types.Type, error) {
+    mut links := make(list[Key], c_allocator)
+    mut spines := make(list[ExprSpine], c_allocator)
+    first := mut c.start_spine(k, mut links)?
+    append(mut spines, first)?
+    for {
+        top := len(spines) -% 1
+        sp, has := spines[top]
+        if !has {
+            break
+        }
+        if sp.left == 0 {
+            pop(mut spines)
+            for len(links) > sp.base {
+                pop(mut links)
+            }
+            if len(spines) == 0 {
+                return sp.typ, noerror
+            }
+            // The spine was a binary's right operand: finish the binary.
+            parent := len(spines) -% 1
+            mut up, has_up := spines[parent]
+            if !has_up {
+                break
+            }
+            l := key_in(links, up.base +% up.left -% 1)
+            typ := mut c.binary(l, binary_at(c.prog.trees, l), up.typ, sp.typ)?
+            mut c.set_node_type(l, typ)?
+            up.left -%= 1
+            up.typ = typ
+            if parent >= 0 && parent < len(spines) {
+                spines[parent] = up
+            }
+            continue
+        }
+        l := key_in(links, sp.base +% sp.left -% 1)
+        switch kind_at(c.prog.trees, l) {
+        case binary(b):
+            mut c.binary_clause(l, b)?
+            next := mut c.start_spine(sub(l, b.y), mut links)?
+            append(mut spines, next)?
+            continue
+        default:
+        }
+        typ := mut c.finish_link(l, sp.typ)?
+        mut cur := sp
+        cur.left -%= 1
+        cur.typ = typ
+        if top >= 0 && top < len(spines) {
+            spines[top] = cur
+        }
+    }
+    return types.invalid, noerror
+}
+
+// start_spine walks down the spine k is the top of, appending its links
+// to links, checks its last link's operand, and returns the spine.
+func (mut c Checker) start_spine(k Key, mut links list[Key]) (ExprSpine, error) {
+    base := len(links)
+    mut x := k
+    mut next := mut c.spine_operand(x)
+    for !is_no_key(next) {
+        append(mut links, x)?
+        x = next
+        next = mut c.spine_operand(x)
+    }
+    mut typ := types.invalid
+    switch kind_at(c.prog.trees, x) {
+    case call:
+        // A call, a ? and a literal are checked from here directly, not
+        // through expr_node, whose frame then stays off the stack of a
+        // value nested in a call's argument, a ? or an element.
+        typ = mut c.call_value(x)?
+        ok := mut c.supported_type(typ)?
+        if !ok {
+            return ExprSpine{base: base, left: 0, typ: types.invalid}, not_ported
+        }
+    case question:
+        typ = mut c.question(x)?
+        ok := mut c.supported_type(typ)?
+        if !ok {
+            return ExprSpine{base: base, left: 0, typ: types.invalid}, not_ported
+        }
+    case composite_lit(lit):
+        typ = mut c.composite_lit(x, lit)?
+    default:
+        typ = mut c.expr_node(x)?
+    }
+    return ExprSpine{base: base, left: len(links) -% base, typ: typ}, noerror
+}
+
 // SpineState is where the check of a spine was suspended: its links,
 // how many of them, from the last, are left to finish, and the type of
 // the operand the next one finishes.
@@ -194,7 +345,13 @@ type SpineState struct {
 func (mut c Checker) finish_link(l Key, x types.Type) (types.Type, error) {
     switch kind_at(c.prog.trees, l) {
     case binary(b):
-        typ := mut c.binary(l, b, x)?
+        mut c.binary_clause(l, b)?
+        y := mut c.expr(sub(l, b.y))?
+        typ := mut c.binary(l, b, x, y)?
+        mut c.set_node_type(l, typ)?
+        return typ, noerror
+    case unary(u):
+        typ := mut c.unary(l, u, x)?
         mut c.set_node_type(l, typ)?
         return typ, noerror
     case selector(s):
@@ -208,6 +365,32 @@ func (mut c Checker) finish_link(l Key, x types.Type) (types.Type, error) {
         return typ, noerror
     case slice(s):
         typ := mut c.slice_of(l, s, x)?
+        return typ, noerror
+    case call:
+        c.recv_given = mut c.receiver_of(l)
+        c.recv_type = x
+        typ, e := mut c.call_value(l)
+        c.recv_given = no_key()
+        if e.code != 0 {
+            return types.invalid, e
+        }
+        ok := mut c.supported_type(typ)?
+        if !ok {
+            return types.invalid, not_ported
+        }
+        return typ, noerror
+    case question(inner):
+        c.recv_given = mut c.receiver_of(sub(l, inner))
+        c.recv_type = x
+        typ, e := mut c.question(l)
+        c.recv_given = no_key()
+        if e.code != 0 {
+            return types.invalid, e
+        }
+        ok := mut c.supported_type(typ)?
+        if !ok {
+            return types.invalid, not_ported
+        }
         return typ, noerror
     default:
         return types.invalid, not_ported
@@ -231,36 +414,31 @@ func (mut c Checker) expr_node(k Key) (types.Type, error) {
     case bool_lit:
         return types.bool_type, noerror
     case noerror_lit:
-        if c.in_body {
-            // An error's value in a body is S2b's to check.
-            return types.invalid, not_ported
-        }
         return types.error_type, noerror
     case c_allocator_lit:
-        if c.in_body {
-            // An Allocator's value in a body is S2b's to check.
-            return types.invalid, not_ported
-        }
         return types.allocator, noerror
     case ident(nm):
         typ := mut c.ident(k, nm)?
         return typ, noerror
-    case call(cl):
-        typ := mut c.call_value(k, cl)?
+    case call:
+        typ := mut c.call_value(k)?
         if c.in_body {
-            plain := mut c.plain_type(typ)?
-            if !plain {
+            ok := mut c.supported_type(typ)?
+            if !ok {
                 return types.invalid, not_ported
             }
         }
         return typ, noerror
     case binary(b):
         x := mut c.expr(sub(k, b.x))?
-        typ := mut c.binary(k, b, x)?
+        mut c.binary_clause(k, b)?
+        y := mut c.expr(sub(k, b.y))?
+        typ := mut c.binary(k, b, x, y)?
         mut c.set_node_type(k, typ)?
         return typ, noerror
     case unary(u):
-        typ := mut c.unary(k, u)?
+        x := mut c.expr(sub(k, u.x))?
+        typ := mut c.unary(k, u, x)?
         mut c.set_node_type(k, typ)?
         return typ, noerror
     case composite_lit(lit):
@@ -278,18 +456,64 @@ func (mut c Checker) expr_node(k Key) (types.Type, error) {
         typ := mut c.selector(k, s)?
         return typ, noerror
     default:
+    }
+    if !c.in_body {
         // A ?, a mut or own argument, a type written as a value, a type
-        // assertion, a closure, fields(T): only a body has them, or Go
-        // reports them in a way the port does not word yet.
+        // assertion, a closure, fields(T): a declaration's check meets
+        // them only where Go reports them in a way the port does not
+        // word there.
         return types.invalid, not_ported
     }
+    switch kind_at(c.prog.trees, k) {
+    case question:
+        typ := mut c.question(k)?
+        ok := mut c.supported_type(typ)?
+        if !ok {
+            return types.invalid, not_ported
+        }
+        return typ, noerror
+    case type_assert(a):
+        typ := mut c.type_assert(k, a)?
+        return typ, noerror
+    case mut_arg, own_arg:
+        typ := mut c.arg_elsewhere(k)?
+        return typ, noerror
+    case list_type(elem):
+        lt := mut c.list_type(sub(k, elem))?
+        return types.invalid, mut c.type_value(k, lt)
+    case map_type, arena_type, pool_type, ref_type:
+        t := mut c.declared_type(k)?
+        return types.invalid, mut c.type_value(k, t)
+    case array_type, view_type, struct_type, interface_type, union_type, key_value:
+        mut m := msg()
+        fmt.appendf(mut m, "unsupported expression: *ast.%s", node_kind_name(c.prog.trees, k))?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    default:
+        // A closure, a function type and fields(T) are S7's.
+        return types.invalid, not_ported
+    }
+}
+
+// type_value reports a type, typ, written at k where a value is wanted,
+// Go's typeValue and listTypeValue, when it is valid.
+func (mut c Checker) type_value(k Key, typ types.Type) error {
+    if typ == types.invalid {
+        return noerror
+    }
+    n := mut c.type_name(typ)?
+    mut m := msg()
+    fmt.appendf(mut m, "cannot use %s as a value; it is a type", n[:])?
+    return mut c.errorf(span_at(c.prog.trees, k), own m)
 }
 
 // ident checks a name used as a value and returns its type, Go's ident:
 // a variable's or a parameter's. A package-level variable not checked
 // yet is checked now, or its check suspended (see ensure_global), and
 // then this name is where the check of the global naming it goes on
-// from.
+// from. A variable an error holds needs the error checked first (see
+// require_checked). A function used as a value, a scope parameter and a
+// value of a function type or a type parameter are S7's, and declined.
 func (mut c Checker) ident(k Key, nm ast.Ident) (types.Type, error) {
     if nm.def.is_none() {
         mut m := msg()
@@ -331,18 +555,24 @@ func (mut c Checker) ident(k Key, nm ast.Ident) (types.Type, error) {
         }
         typ := decl_type_of(c.decl_types, v)
         if c.in_body {
-            plain := mut c.plain_type(typ)?
-            if !plain {
+            mut c.require_checked(k, nm)?
+            ok := mut c.supported_type(typ)?
+            if !ok {
                 return types.invalid, not_ported
             }
         }
         return typ, noerror
     }
     if nm.def.kind == ast.def_param {
-        typ := decl_type_of(c.decl_types, key_of_def(nm.def))
+        d := key_of_def(nm.def)
+        typ := decl_type_of(c.decl_types, d)
         if c.in_body {
-            plain := mut c.plain_type(typ)?
-            if !plain {
+            if param_of(c.prog.trees, d).is_scope {
+                return types.invalid, not_ported
+            }
+            mut c.require_checked(k, nm)?
+            ok := mut c.supported_type(typ)?
+            if !ok {
                 return types.invalid, not_ported
             }
         }
@@ -436,9 +666,8 @@ func clone_float(floats []constant.Float, i int64) (constant.Float, bool, error)
 }
 
 // settle_float gives the untyped constant expression e the float type
-// typ, if its value rounds to a finite value of typ, Go's settleFloat.
-// One too large Go reports with its value written out, which the port
-// does not write yet.
+// typ, if its value rounds to a finite value of typ, Go's settleFloat:
+// one too large is reported as overflowing it.
 func (mut c Checker) settle_float(e Key, typ types.Type) (bool, error) {
     value, _ := mut c.float_value(e)?
     mut finite := false
@@ -450,7 +679,13 @@ func (mut c Checker) settle_float(e Key, typ types.Type) (bool, error) {
         finite = f
     }
     if !finite {
-        return false, not_ported
+        tn := mut c.type_name(typ)?
+        mut m := msg()
+        fmt.appendf(mut m, "constant ")?
+        value.append_string(mut m, c_allocator)?
+        fmt.appendf(mut m, " overflows %s", tn[:])?
+        mut c.errorf(span_at(c.prog.trees, e), own m)?
+        return false, noerror
     }
     switch kind_at(c.prog.trees, e) {
     case int_lit, float_lit, binary, unary:
@@ -500,26 +735,36 @@ func (mut c Checker) set_const(k Key, v Const) error {
     return noerror
 }
 
+// binary_clause notes, in an ensures clause, the bound the left side of
+// k, an &&, puts in force on its right side, the part of Go's binary
+// done before the right operand is checked: the left side's last
+// operand from here on, the ones before it from the links below.
+func (mut c Checker) binary_clause(k Key, b ast.Binary) error {
+    if !c.in_clause || b.op != ast.op_and {
+        return noerror
+    }
+    mut last := sub(k, b.x)
+    switch kind_at(c.prog.trees, last) {
+    case binary(lb):
+        if lb.op == ast.op_and {
+            last = sub(last, lb.y)
+        }
+    default:
+    }
+    return mut c.clause_bound(last)
+}
+
 // binary checks an infix expression k, its left operand checked as x, and
 // returns its type, Go's binary: a bool for a comparison or a logical
 // operator, the operands' common type for arithmetic. What the left side
 // of && or || says holds in the right side: the port does not keep facts
 // yet, and a constant's checks need none.
-func (mut c Checker) binary(k Key, b ast.Binary, x types.Type) (types.Type, error) {
-    if c.in_clause && b.op == ast.op_and {
-        // The left side's last operand is in force from here on, the
-        // ones before it from the links below.
-        mut last := sub(k, b.x)
-        switch kind_at(c.prog.trees, last) {
-        case binary(lb):
-            if lb.op == ast.op_and {
-                last = sub(last, lb.y)
-            }
-        default:
-        }
-        mut c.clause_bound(last)?
-    }
-    y := mut c.expr(sub(k, b.y))?
+//
+// Its right operand, checked as y, is checked by the caller, between
+// binary_clause and binary, so that a right operand nested deeply, as
+// in f(a == f(a == ...)), recurses through the caller's small frame
+// alone, not through this one's, which holds every operator's checks.
+func (mut c Checker) binary(k Key, b ast.Binary, x types.Type, y types.Type) (types.Type, error) {
     if is_logical_op(b.op) {
         ok := mut c.operands_defined(k, b, x, y, 1)?
         if ok {
@@ -1099,8 +1344,7 @@ func (mut c Checker) shift_count(n Key, y types.Type) (bool, error) {
 }
 
 // unary checks a prefix expression k and returns its type, Go's unary.
-func (mut c Checker) unary(k Key, u ast.Unary) (types.Type, error) {
-    x := mut c.expr(sub(k, u.x))?
+func (mut c Checker) unary(k Key, u ast.Unary, x types.Type) (types.Type, error) {
     operand := sub(k, u.x)
     if u.op == ast.unary_not {
         if x == types.invalid {

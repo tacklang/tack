@@ -1,0 +1,305 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// The postfix ?, Go's question.go: f(...)? passes on the error of the
+// call before it, and gives the call's other results. It applies to a
+// call whose last result is an error, written in a function whose last
+// result is an error, outside deferred code. A ? in a test, which
+// records where it is, and one in a function with an ensures clause,
+// whose contract must hold there, are declined with the function.
+
+// question checks the ? k whose one value is used, and returns that
+// value's type, Go's question.
+func (mut c Checker) question(k Key) (types.Type, error) {
+    mut results := make(list[types.Type], c_allocator)
+    ok := mut c.check_question(k, mut results)?
+    t := mut c.question_value(k, ok, results)?
+    return t, noerror
+}
+
+// question_value returns the one value the ? k gives, results its values
+// when ok says it gives them, reporting none or several, Go's end of
+// question.
+func (mut c Checker) question_value(k Key, ok bool, results []types.Type) (types.Type, error) {
+    if !ok {
+        return types.invalid, noerror
+    }
+    if len(results) == 1 {
+        return type_at(results, 0), noerror
+    }
+    w := mut c.source_text(span_at(c.prog.trees, k))?
+    if len(results) == 0 {
+        mut c.report(span_at(c.prog.trees, k), "%s gives no value", w[:])?
+    } else {
+        mut c.report(span_at(c.prog.trees, k), "%s gives %d values", w[:], len(results))?
+    }
+    return types.invalid, noerror
+}
+
+// question_results checks the ? k, the value of a binding of want names
+// covering sp, and appends the type of each value it gives to out, Go's
+// questionResults, reporting whether it gives exactly want.
+func (mut c Checker) question_results(k Key, want int64, sp source.Span, mut out list[types.Type]) (bool, error) {
+    ok := mut c.check_question(k, mut out)?
+    if !ok {
+        return false, noerror
+    }
+    got := len(out)
+    if got == want {
+        return true, noerror
+    }
+    w := mut c.source_text(span_at(c.prog.trees, k))?
+    mut m := msg()
+    mut vars := "variables"
+    if want == 1 {
+        vars = "variable"
+    }
+    fmt.appendf(mut m, "assignment mismatch: %d %s but %s gives ", want, vars, w[:])?
+    if got == 0 {
+        fmt.appendf(mut m, "no value")?
+    } else if got == 1 {
+        fmt.appendf(mut m, "1 value")?
+    } else {
+        fmt.appendf(mut m, "%d values", got)?
+    }
+    mut c.errorf(sp, own m)?
+    return false, noerror
+}
+
+// question_mark returns the span of the ? of k, Go's Question.Mark: its
+// last byte.
+func (mut c Checker) question_mark(k Key) source.Span {
+    mut sp := span_at(c.prog.trees, k)
+    sp.start = sp.end -% 1
+    return sp
+}
+
+// check_question checks the ? k and the call it follows, Go's
+// checkQuestion, and appends the call's results before its error to
+// out, which it records on k, reporting whether k gives them.
+func (mut c Checker) check_question(k Key, mut out list[types.Type]) (bool, error) {
+    ok := mut c.question_call(k, mut out)?
+    r := mut c.question_record(k, ok, mut out)?
+    return r, noerror
+}
+
+// question_record checks where the ? k is written, once the call it
+// follows is checked, ok saying whether that gives the results out
+// holds, and records them on k, Go's end of checkQuestion.
+func (mut c Checker) question_record(k Key, ok bool, mut out list[types.Type]) (bool, error) {
+    place := mut c.question_place(k)?
+    if !place || !ok {
+        clear_types(mut out)
+        return false, noerror
+    }
+    if len(out) == 1 {
+        mut c.set_node_type(k, type_at(out, 0))?
+    }
+    put(mut c.question_counts, k, len(out))?
+    for i, t := range out {
+        put(mut c.question_types, RKey{unit: k.unit, node: k.node, i: i}, t)?
+    }
+    return true, noerror
+}
+
+// clear_types empties l, keeping what it holds allocated.
+func clear_types(mut l list[types.Type]) {
+    for len(l) > 0 {
+        pop(mut l)
+    }
+}
+
+// question_call checks what the ? k follows, which must be a call whose
+// last result is an error, Go's questionCall, and appends the call's
+// results before the error to out.
+func (mut c Checker) question_call(k Key, mut out list[types.Type]) (bool, error) {
+    mut x := no_key()
+    switch kind_at(c.prog.trees, k) {
+    case question(inner):
+        x = sub(k, inner)
+    default:
+        return false, noerror
+    }
+    mut is_call := false
+    switch kind_at(c.prog.trees, x) {
+    case call:
+        is_call = true
+    default:
+    }
+    if !is_call || mut c.not_calling(x) {
+        mut c.question_not_call(k, x)?
+        return false, noerror
+    }
+    mut all := make(list[types.Type], c_allocator)
+    mut name := msg()
+    ok := mut c.questioned_results(x, mut all, mut name)?
+    if !ok {
+        return false, noerror
+    }
+    r := mut c.question_error_last(k, all, name, mut out)?
+    return r, noerror
+}
+
+// question_not_call reports the ? k on x, which calls nothing, after
+// checking x for errors of its own, Go's first case of questionCall.
+func (mut c Checker) question_not_call(k Key, x Key) error {
+    before := len(c.diags)
+    mut c.discard(x)?
+    if len(c.diags) == before {
+        w := mut c.source_text(span_at(c.prog.trees, x))?
+        mut c.report(mut c.question_mark(k), "cannot use ? on %s, which is not a call", w[:])?
+    }
+    return noerror
+}
+
+// question_error_last checks all, every result the call the ? k follows
+// gives, its callee called name, for an error last, Go's end of
+// questionCall, and appends the results before it to out. The checks of
+// the call and of what follows it are each a function of their own, so
+// that only a small frame is on the stack while the call's arguments are
+// checked (see the stack discipline in doc.tck).
+func (mut c Checker) question_error_last(k Key, all []types.Type, name list[uint8], mut out list[types.Type]) (bool, error) {
+    if len(all) == 0 {
+        mut c.report(mut c.question_mark(k), "cannot use ? on a call to %s, which returns no error", name[:])?
+        return false, noerror
+    }
+    last := type_at(all, len(all) -% 1)
+    if last != types.error_type {
+        n := mut c.type_name(last)?
+        mut c.report(mut c.question_mark(k), "cannot use ? on a call to %s, whose last result is %s, not error", name[:], n[:])?
+        return false, noerror
+    }
+    for i := range len(all) -% 1 {
+        append(mut out, type_at(all, i))?
+    }
+    return true, noerror
+}
+
+// not_calling reports whether the call k, as written, calls no function,
+// Go's notCalling: it builds a union or converts a value.
+func (mut c Checker) not_calling(k Key) bool {
+    cl := call_of(c.prog.trees, k)
+    _, _, built := construction(c.prog.trees, c.none, k)
+    if built || cl.conv != types.invalid {
+        return true
+    }
+    switch kind_at(c.prog.trees, sub(k, cl.fn)) {
+    case view_type, ref_type:
+        return true
+    default:
+        return false
+    }
+}
+
+// questioned_results checks the call k a ? follows, Go's
+// questionedResults, appends every result it gives, the error included,
+// to out and its callee's name to name, and reports false when the
+// call's own problems were reported.
+func (mut c Checker) questioned_results(k Key, mut out list[types.Type], mut name list[uint8]) (bool, error) {
+    unbound := mut c.unbound_call(k)?
+    if unbound {
+        return false, noerror
+    }
+    if mut c.is_generic_call(k) {
+        r := mut c.question_generic(k, mut out, mut name)?
+        return r, noerror
+    }
+    mut c.check_call(k)?
+    r := mut c.question_callee(k, mut out, mut name)?
+    return r, noerror
+}
+
+// is_generic_call reports whether the call k calls a generic builtin.
+func (mut c Checker) is_generic_call(k Key) bool {
+    switch kind_at(c.prog.trees, k) {
+    case call(cl):
+        nm, ok := ident_at(c.prog.trees, sub(k, cl.fn))
+        return ok && nm.def.kind == ast.def_builtin && len(text_at(c.prog.trees, c.none, k.unit, nm.pkg)) == 0 && is_generic_builtin(text_at(c.prog.trees, c.none, k.unit, nm.name))
+    default:
+        return false
+    }
+}
+
+// question_generic checks the call k of a generic builtin a ? follows,
+// Go's generic case of questionedResults: its one value, an error for
+// append, reserve and put, and none for swap and drop, which a use as a
+// value reports unless the call is a statement's.
+func (mut c Checker) question_generic(k Key, mut out list[types.Type], mut name list[uint8]) (bool, error) {
+    bname, _ := builtin_name(c.prog.trees, c.none, k)?
+    before := len(c.diags)
+    outer := c.dropped_call
+    if bytes_equal(bname, []uint8("swap")) || bytes_equal(bname, []uint8("drop")) {
+        c.dropped_call = k
+    }
+    typ, _ := mut c.generic_call(k)?
+    c.dropped_call = outer
+    append(mut name, bname...)?
+    if len(c.diags) > before {
+        return false, noerror
+    }
+    if typ == types.invalid {
+        return true, noerror
+    }
+    append(mut out, typ)?
+    return true, noerror
+}
+
+// question_callee gives the results of the call k a ? follows, once it
+// is checked, and its callee's name, Go's end of questionedResults.
+func (mut c Checker) question_callee(k Key, mut out list[types.Type], mut name list[uint8]) (bool, error) {
+    named := mut c.callee_name(k, mut name)?
+    if !named {
+        return false, noerror
+    }
+    if is_value_call(c.prog.trees, k) {
+        return false, noerror
+    }
+    fn := mut c.callee_of(k)
+    if !is_no_key(fn) {
+        for i := range mut c.callee_result_count(fn) {
+            append(mut out, result_of(c.results, fn, i))?
+        }
+    }
+    return true, noerror
+}
+
+// question_place reports whether the ? k is written where it can
+// return, Go's questionPlace: in the body of a function whose last
+// result is an error, outside deferred code.
+func (mut c Checker) question_place(k Key) (bool, error) {
+    fnk := c.body.fn
+    mut m := msg()
+    if !c.in_body || is_no_key(fnk) {
+        fmt.appendf(mut m, "cannot use ? outside a function")?
+        mut c.errorf(mut c.question_mark(k), own m)?
+        return false, noerror
+    }
+    if c.body.deferred > 0 {
+        fmt.appendf(mut m, "cannot return from a defer with ?")?
+        mut c.errorf(mut c.question_mark(k), own m)?
+        return false, noerror
+    }
+    n := mut c.callee_result_count(fnk)
+    mut name := msg()
+    mut c.display_name(fnk, mut name)?
+    if n == 0 {
+        fmt.appendf(mut m, "cannot use ? in %s, which returns no error", name[:])?
+        mut c.errorf(mut c.question_mark(k), own m)?
+        return false, noerror
+    }
+    last := result_of(c.results, fnk, n -% 1)
+    if last == types.error_type {
+        return true, noerror
+    }
+    if last == types.invalid {
+        return false, noerror
+    }
+    tn := mut c.type_name(last)?
+    fmt.appendf(mut m, "cannot use ? in %s, whose last result is %s, not error", name[:], tn[:])?
+    mut c.errorf(mut c.question_mark(k), own m)?
+    return false, noerror
+}

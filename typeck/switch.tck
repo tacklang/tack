@@ -20,18 +20,16 @@ func (mut c Checker) check_switch(k Key, s ast.Switch) error {
     if s.on_type {
         return not_ported
     }
-    tag := sub(k, s.tag)
-    switch kind_at(c.prog.trees, tag) {
-    case type_assert:
-        return not_ported
-    default:
+    if mut c.is_type_switch(k, s) {
+        return mut c.check_type_switch(k, s)
     }
+    tag := sub(k, s.tag)
     mut tag_type := types.invalid
     if !ast.is_none(s.tag) {
         t := mut c.expr(tag)?
         tag_type = mut c.value_of(tag, t)?
-        plain := mut c.plain_type(tag_type)?
-        if !plain {
+        ok := mut c.supported_type(tag_type)?
+        if !ok {
             return not_ported
         }
     }
@@ -121,7 +119,7 @@ func clause_of(trees []ast.File, cl Key) ast.CaseClause {
 // on_union says so, Go's inClause around checkGuarded.
 func (mut c Checker) check_case_body(cl Key, on_union bool) error {
     body := clause_of(c.prog.trees, cl).body
-    append(mut c.body.clauses, ClauseAt{cl: cl, on_union: on_union, deferred: c.body.deferred})?
+    append(mut c.body.clauses, ClauseAt{cl: cl, on_union: on_union, on_type: false, deferred: c.body.deferred})?
     e := mut c.check_block(cl.unit, body)
     pop(mut c.body.clauses)
     return e
@@ -618,11 +616,14 @@ func (mut c Checker) check_binding(cl Key, clause ast.CaseClause, uc types.Case,
     if ast.is_none(clause.var_node) {
         return false, noerror
     }
-    plain := mut c.plain_type(uc.typ)?
-    if !plain {
+    ok := mut c.supported_type(uc.typ)?
+    if !ok {
         return false, not_ported
     }
-    mut c.set_decl_type(sub(cl, clause.var_node), uc.typ)?
+    vk := sub(cl, clause.var_node)
+    mut c.set_decl_type(vk, uc.typ)?
+    put(mut c.union_bound, vk, true)?
+    put(mut c.bindings, vk, bind_payload)?
     return uc.typ != types.invalid, noerror
 }
 

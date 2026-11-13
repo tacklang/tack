@@ -65,8 +65,15 @@ func (mut c Checker) method_expr(k Key, s ast.Selector) (types.Type, error) {
     if typ == types.invalid {
         return types.invalid, noerror
     }
-    if has_method_in(c.prog.trees, c.none, d, name[:]) {
-        // The method as a value, or one the package cannot see: S7's.
+    fn := method_named(c.prog.trees, c.none, d, name[:])
+    if !is_no_key(fn) {
+        mut why := msg()
+        hidden := mut c.hidden_method(fn, mut why)?
+        if hidden {
+            mut c.errorf(s.name_span, own why)?
+            return types.invalid, noerror
+        }
+        // The method as a value: S7's.
         return types.invalid, not_ported
     }
     if c.table.is_struct(typ) {
