@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\nfunc main() {\n    mut w.out.write(s)?\n    mut (x.m())\n    (f())?\n    a, mut b := g()\n    a[i].f.m()\n}\n")

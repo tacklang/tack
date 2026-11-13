@@ -83,8 +83,13 @@ PORT_FUZZ_BIN := bin/port-fuzz
 # running both compilers once per input.
 PORT_FUZZ_PARALLEL := 4
 
-# port-fuzz fuzzes FuzzLexDiff, which compares the port's --lex with this
-# compiler's on generated inputs, for $(FUZZTIME). It builds both
+# PORT_FUZZ is the fuzz test `make port-fuzz` runs: FuzzLexDiff, which
+# compares the port's --lex with this compiler's, or FuzzParseDiff, which
+# compares their --ast.
+PORT_FUZZ := FuzzLexDiff
+
+# port-fuzz fuzzes $(PORT_FUZZ), which compares the port with this
+# compiler on generated inputs, for $(FUZZTIME). It builds both
 # compilers once, into $(PORT_FUZZ_BIN), and passes them as TACK_GO and
 # TACK_PORT_BIN, so the fuzz workers, each a process of its own, build
 # neither. The port's source tree is $TACK_PORT, ../tack by default, as
@@ -96,7 +101,7 @@ port-fuzz:
 		TACK_CACHE="$(CURDIR)/$(PORT_FUZZ_BIN)/cache" \
 		"$(CURDIR)/$(PORT_FUZZ_BIN)/tack-go" --out "$(CURDIR)/$(PORT_FUZZ_BIN)/tack-port" ./driver
 	TACK_GO=$(PORT_FUZZ_BIN)/tack-go TACK_PORT_BIN=$(PORT_FUZZ_BIN)/tack-port TACK_PORT_TEST=1 \
-		go test -count=1 ./porttest -run '^$$' -fuzz '^FuzzLexDiff$$' \
+		go test -count=1 ./porttest -run '^$$' -fuzz '^$(PORT_FUZZ)$$' \
 		-fuzztime $(FUZZTIME) -parallel $(PORT_FUZZ_PARALLEL)
 
 # fuzz-progen fuzzes FuzzGenerated, which builds each generated program

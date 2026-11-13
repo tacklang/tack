@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\nfunc f(x int64) {\n    switch x {\n    case 1 {\n    }\n    case 2:\n    }\n}\n")

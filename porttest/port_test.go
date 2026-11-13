@@ -129,8 +129,14 @@ func TestPort(t *testing.T) {
 // way, and reports how they differ. A not implemented answer from the
 // port skips, before the Go compiler runs, unless st is required.
 func runCase(t *testing.T, st stage, in input) {
+	runCaseWith(t, st, in, env.portBin)
+}
+
+// runCaseWith is runCase with portBin run as the port, a wrapper around
+// it that changes how it runs, as TestDeepNesting's does.
+func runCaseWith(t *testing.T, st stage, in input, portBin string) {
 	args := st.args(in)
-	port := runCompiler(t, env.portBin, env.portCache, in.dir, args)
+	port := runCompiler(t, portBin, env.portCache, in.dir, args)
 	if port.notImplemented() {
 		msg := strings.TrimSuffix(string(port.stderr), "\n")
 		if env.required[st.name] {

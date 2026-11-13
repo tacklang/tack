@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\nfunc f[W Writer, V sink.Sink](mut w W, own v V) ensures w != 0 {\n    g[list[int64]](x)\n    h[map[text.Text]int64, T](y...)\n    fs[0](x)\n    s.m[T](y)\n}\n")

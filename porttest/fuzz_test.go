@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/tacklang/tack/lexer"
+	"github.com/tacklang/tack/parser"
 	"github.com/tacklang/tack/source"
 )
 
@@ -41,16 +42,44 @@ const fuzzFile = "fuzz.tck"
 // TACK_GO and TACK_PORT_BIN, as make port-fuzz does.
 func FuzzLexDiff(f *testing.F) {
 	ready(f)
-	st := stageNamed("lex-single")
-	if st == nil {
-		f.Fatal("no lex-single stage")
-	}
 	seeds, err := readFuzzSeeds(filepath.Join(env.root, fuzzLexSeeds))
 	if err != nil {
 		f.Fatal(err)
 	}
 	for _, s := range seeds {
 		f.Add(s)
+	}
+	fuzzDiff(f, "lex-single", goLex)
+}
+
+// FuzzParseDiff runs the port and the Go compiler with --ast on each
+// input, written to a file of its own, and compares them as the
+// ast-single stage does: standard error and the exit status byte for
+// byte, and standard output as decoded JSON, a not implemented answer
+// skipping unless ast-single is required. Before that it lexes and
+// parses the input with this module's lexer and parser, in process, as
+// the loader does for --ast, so the fuzz engine's coverage has the Go
+// parser's to guide it.
+//
+// It is seeded with its committed inputs, testdata/fuzz/FuzzParseDiff,
+// which go test reads itself, and, when it fuzzes, with every single file
+// of the corpus too; run as a test it checks the committed inputs alone,
+// since TestPort's ast-single runs the corpus already. It runs as
+// FuzzLexDiff does.
+func FuzzParseDiff(f *testing.F) {
+	ready(f)
+	fuzzDiff(f, "ast-single", goParse)
+}
+
+// fuzzDiff runs the fuzz test f, FuzzLexDiff or FuzzParseDiff, whose
+// committed seeds its caller has added: it adds every single file of the
+// corpus too when fuzzing, and runs each input through inProcess, for
+// the fuzz engine's coverage, and then through both compilers, compared
+// as the stage named stage compares them.
+func fuzzDiff(f *testing.F, stage string, inProcess func([]byte)) {
+	st := stageNamed(stage)
+	if st == nil {
+		f.Fatalf("no %s stage", stage)
 	}
 	ins, err := singleFiles()
 	if err != nil {
@@ -67,7 +96,7 @@ func FuzzLexDiff(f *testing.F) {
 		f.Add(src)
 	}
 	f.Fuzz(func(t *testing.T, src []byte) {
-		goLex(src)
+		inProcess(src)
 		dir := t.TempDir()
 		if err := os.WriteFile(filepath.Join(dir, fuzzFile), src, 0o600); err != nil {
 			t.Fatal(err)
@@ -89,6 +118,25 @@ func fuzzing() bool {
 func goLex(src []byte) {
 	f := &source.File{ID: fuzzFile, Filename: fuzzFile, Data: src}
 	lexer.New(f).Lex()
+}
+
+// goParseMaxErrors is how many errors goParse's parse goes past, the
+// driver's default --max-errors, as the loader's parse for --ast does.
+const goParseMaxErrors = 10
+
+// goParse lexes src with this module's lexer and, when it lexes, parses
+// it with this module's parser, as the loader does for --ast, and drops
+// the result: it is there for the coverage it gives the fuzz engine. The
+// parser's own invariants are its fuzz tests' to check.
+func goParse(src []byte) {
+	f := &source.File{ID: fuzzFile, Filename: fuzzFile, Data: src}
+	lex := lexer.New(f)
+	if len(lex.Lex()) > 0 {
+		return
+	}
+	p := parser.NewParser(f.ID, lex.Tokens())
+	p.Limit(goParseMaxErrors)
+	p.Parse()
 }
 
 // readFuzzSeeds returns the inputs of every file in dir, each a go test

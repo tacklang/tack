@@ -4,3 +4,4 @@
 # working. A stage is added once the port implements it.
 backends
 lex-single
+ast-single

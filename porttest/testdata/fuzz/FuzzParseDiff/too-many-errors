@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\nfunc main() {\n    )\n    )\n    )\n    )\n    )\n    )\n    )\n    )\n    )\n    )\n    )\n    )\n    )\n    )\n}\n")

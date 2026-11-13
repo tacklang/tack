@@ -99,24 +99,46 @@
 // blocks in docs/spec and examples/invalid-c.txtar are not part of the
 // corpus yet.
 //
+// # Deep nesting
+//
+// TestDeepNesting runs the programs that cost the most stack for each
+// level of nesting, in expressions, statements and types and in every
+// place an expression is parsed from, at the parser's nesting limit, a
+// thousand levels, and one past it, through both compilers with --ast,
+// compared as ast-single compares them, and with the port's stack held to
+// 4 MB, half the 8 MB Linux gives a program by default, by a shell
+// wrapper that sets ulimit -s before it runs the port. A port whose
+// recursion needs more than that at the limit fails here, where it
+// passes at the default. At the limit the trees of most of them would
+// dump to hundreds of megabytes of Go's indented JSON, so a syntax error
+// after the nesting leaves the dump out while the parse still goes all
+// the way down; a few cheap ones are dumped whole. It runs as TestPort
+// does, with TACK_PORT_TEST=1 and -count, and skips otherwise.
+//
 // # Fuzzing
 //
 // FuzzLexDiff runs both compilers with --lex on generated inputs, each
 // written to fuzz.tck in a temporary directory of its own and run from
 // there, and compares them as lex-single does, a not implemented answer
-// skipping the input unless lex-single is in required.txt. The fuzz
+// skipping the input unless lex-single is in required.txt. FuzzParseDiff
+// does the same with --ast, compared as ast-single does. The fuzz
 // engine's coverage cannot see into the compilers' processes, so each
-// input is also lexed in process by this module's lexer, and the
-// guidance comes from the Go lexer alone: an input that reaches new code
-// only in the port is found by chance. It is seeded with the lexer's
-// committed FuzzLex inputs, lexer/testdata/fuzz/FuzzLex, and, when
-// fuzzing, every single file of the corpus; run as a test, as make
-// port-test runs it, it checks the committed inputs alone, since
-// lex-single runs the corpus already. Like TestPort it runs only with
-// TACK_PORT_TEST=1 and -count, and skips without them. Each fuzz worker
-// is a process of its own that runs TestMain, so without TACK_GO and
-// TACK_PORT_BIN every worker builds both compilers; make port-fuzz
-// builds them once and passes them, fuzzing for $(FUZZTIME):
+// input is also lexed in process by this module's lexer, and, for
+// FuzzParseDiff, parsed by its parser when it lexes, as the loader does
+// for --ast, and the guidance comes from the Go lexer and parser alone:
+// an input that reaches new code only in the port is found by chance.
+// FuzzLexDiff is seeded with the lexer's committed FuzzLex inputs,
+// lexer/testdata/fuzz/FuzzLex, and FuzzParseDiff with its own,
+// porttest/testdata/fuzz/FuzzParseDiff, which go test reads itself; when
+// fuzzing, each is seeded with every single file of the corpus too. Run
+// as a test, as make port-test runs them, each checks its committed
+// inputs alone, since lex-single and ast-single run the corpus already.
+// Like TestPort they run only with TACK_PORT_TEST=1 and -count, and skip
+// without them. Each fuzz worker is a process of its own that runs
+// TestMain, so without TACK_GO and TACK_PORT_BIN every worker builds both
+// compilers; make port-fuzz builds them once and passes them, fuzzing
+// $(PORT_FUZZ), FuzzLexDiff by default, for $(FUZZTIME):
 //
 //	make port-fuzz FUZZTIME=60s
+//	make port-fuzz PORT_FUZZ=FuzzParseDiff FUZZTIME=60s
 package porttest

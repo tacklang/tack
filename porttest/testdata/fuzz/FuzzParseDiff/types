@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\ntype P struct {\n    pub x [3]int64\n    lib y []uint8\n    z map[string]list[int64]\n    a arena[P]\n    i id[P]\n    s span[P]\n    h handle[P]\n    q pool[int64]\n}\n\ntype U union {\n    int int64\n    eof\n    name string = 1\n}\n\ntype I interface {\n    mut write(b []uint8) error\n    size() int64\n}\n")

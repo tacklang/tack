@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\nfunc f() {\n    switch mut v := x.(type) {\n    }\n    switch v := x {\n    }\n    switch T{a: 1} {\n    }\n}\n")

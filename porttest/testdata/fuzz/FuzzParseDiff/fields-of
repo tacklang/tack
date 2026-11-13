@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\nfunc f[T Data](v T) {\n    for f := range fields(T) {\n        print(v.[f])\n    }\n    fields()\n    fields(T)\n}\n")

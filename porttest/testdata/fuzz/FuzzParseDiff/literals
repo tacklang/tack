@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\nvar a = -9223372036854775808\nvar b = 18446744073709551616\nvar c = 0x_ff + 0b101 + 0o17\nvar d = 1e2501 + 1.5e-3 + .5 + 1.\nvar e = 'a'\nvar f = `raw\nstring`\n")

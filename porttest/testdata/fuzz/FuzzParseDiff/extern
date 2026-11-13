@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\nextern(\"c_name\") func f(a int64) int64\npub extern func g() {\n}\nlib func (b Builder) len() int64 {\n    return len(b.s)\n}\nfunc () m() {}\nfunc (a A, b B) m() {}\n")

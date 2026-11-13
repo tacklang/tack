@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\nfunc main() {\n    if x > 0 \n        print(\"a\")\n    }\n}\n\nfunc other() {\n}\n")

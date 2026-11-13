@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\nfunc main() {\n    for i := 0; i < n; i++ {\n        continue\n    }\n    for i, v := range xs {\n        break\n    }\n    for mut a, b, c := range ys {\n    }\n    region r {\n        defer {\n            unreachable\n        }\n    }\n    x[1:2:3] = 4\n    y.[f] += 1\n}\n")

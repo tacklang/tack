@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\nfunc main() {\n    each(func(a int64) bool { return a > 0 })\n    func(x int64) {}(1)\n    var f func(int64, mut int64) (int64, error)\n}\n")
