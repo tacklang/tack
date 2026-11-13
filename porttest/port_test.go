@@ -55,6 +55,9 @@ var stages = []stage{
 	{name: "lex-single", args: dumpArgs("--lex"), inputs: singleFiles, stdout: compareBytes},
 	{name: "ast-single", args: dumpArgs("--ast"), inputs: singleFiles, stdout: compareJSON},
 	{name: "res-single", args: dumpArgs("--res"), inputs: singleFiles, stdout: compareJSON},
+	{name: "lex-packages", args: dumpArgs("--lex"), inputs: packageInputs, stdout: compareBytes},
+	{name: "ast-packages", args: dumpArgs("--ast"), inputs: packageInputs, stdout: compareJSON},
+	{name: "res-packages", args: dumpArgs("--res"), inputs: packageInputs, stdout: compareJSON},
 }
 
 // stageNamed returns the stage called name, or nil when there is none.
@@ -136,15 +139,15 @@ func runCase(t *testing.T, st stage, in input) {
 // it that changes how it runs, as TestDeepNesting's does.
 func runCaseWith(t *testing.T, st stage, in input, portBin string) {
 	args := st.args(in)
-	port := runCompiler(t, portBin, env.portCache, in.dir, args)
+	port := runCompiler(t, portBin, env.portCache, in, args)
 	if port.notImplemented() {
 		msg := strings.TrimSuffix(string(port.stderr), "\n")
-		if env.required[st.name] {
+		if env.required[st.name] && !in.declines {
 			t.Fatalf("stage %s is required, but the port says %q", st.name, msg)
 		}
 		t.Skip(msg)
 	}
-	want := runCompiler(t, env.goBin, env.goCache, in.dir, args)
+	want := runCompiler(t, env.goBin, env.goCache, in, args)
 	if port.code != want.code {
 		t.Errorf("exit status: port %d, Go %d", port.code, want.code)
 	}
@@ -159,17 +162,19 @@ func runCaseWith(t *testing.T, st stage, in input, portBin string) {
 	}
 }
 
-// runCompiler runs bin with args in dir, in the compilers' environment
-// with cache as TACK_CACHE, and returns how it ended. It fails t when bin
+// runCompiler runs bin with args in in's directory, in the compilers'
+// environment with cache as TACK_CACHE and in's own variables after it,
+// and returns how it ended. It fails t when bin
 // cannot be run, is stopped by a signal, which no answer of a compiler
 // is, or runs for longer than compilerTimeout, when it is killed.
-func runCompiler(t *testing.T, bin, cache, dir string, args []string) result {
+func runCompiler(t *testing.T, bin, cache string, in input, args []string) result {
+	dir := in.dir
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), compilerTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
-	cmd.Env = compilerEnv(cache)
+	cmd.Env = append(compilerEnv(cache), in.env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()

@@ -82,6 +82,19 @@ func inMain(body string) string {
 // rep returns s n times over.
 func rep(s string, n int) string { return strings.Repeat(s, n) }
 
+// stackWrapper writes, in dir, a shell script that runs the port with
+// its stack held to deepStack KB, and returns its path, for the tests
+// that hold the port to that margin.
+func stackWrapper(t testing.TB, dir string) string {
+	t.Helper()
+	wrapper := filepath.Join(dir, "port-stack")
+	script := fmt.Sprintf("#!/bin/sh\nulimit -s %d || exit 125\nexec %q \"$@\"\n", deepStack, env.portBin)
+	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil { //nolint:gosec // G306: a script it runs
+		t.Fatal(err)
+	}
+	return wrapper
+}
+
 // TestDeepNesting runs each of deepShapes at the nesting limit and one
 // past it through both compilers with --ast, compared as ast-single
 // compares them, the port with its stack held to deepStack KB, so a port
@@ -95,11 +108,7 @@ func TestDeepNesting(t *testing.T) {
 		t.Fatal("no ast-single stage")
 	}
 	dir := t.TempDir()
-	wrapper := filepath.Join(dir, "port-stack")
-	script := fmt.Sprintf("#!/bin/sh\nulimit -s %d || exit 125\nexec %q \"$@\"\n", deepStack, env.portBin)
-	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil { //nolint:gosec // G306: a script it runs
-		t.Fatal(err)
-	}
+	wrapper := stackWrapper(t, dir)
 	for name, shape := range deepShapes {
 		for _, n := range []int{deepLimit, deepLimit + 1} {
 			src := shape(n)

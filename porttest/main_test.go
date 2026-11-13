@@ -200,6 +200,12 @@ func compilerEnv(cache string) []string {
 	return append(os.Environ(), "TACK_HOME="+env.root, "TACK_CACHE="+cache)
 }
 
+// requirableChecks are the names, besides the stages', that required.txt
+// may hold: checks outside TestPort that a port can answer not
+// implemented to, which then fail rather than skip once required.
+// loaded is TestLoadOrder's.
+var requirableChecks = map[string]bool{"loaded": true}
+
 // readRequired reads the stage names in the file at path, one a line,
 // skipping blank lines and lines starting with #. A name that is no stage
 // is an error, so a typo cannot leave a stage unrequired.
@@ -215,7 +221,7 @@ func readRequired(path string) (map[string]bool, error) {
 		if name == "" || name[0] == '#' {
 			continue
 		}
-		if stageNamed(name) == nil {
+		if stageNamed(name) == nil && !requirableChecks[name] {
 			return nil, fmt.Errorf("%s:%d: %q is no stage", path, n, name)
 		}
 		required[name] = true

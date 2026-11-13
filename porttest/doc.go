@@ -56,7 +56,8 @@
 // the Go compiler, unless its stage is named in required.txt, one name a
 // line, where blank lines and lines starting with # are ignored; then it
 // fails. A stage enters required.txt once the port implements it, so it
-// cannot quietly stop working. A name in required.txt that is no stage
+// cannot quietly stop working. required.txt may also name loaded, the
+// check TestLoadOrder makes outside TestPort. A name in required.txt that is no stage
 // fails TestPort, and TestRequiredFile in every go test ./porttest.
 //
 // # Stages
@@ -69,11 +70,15 @@
 //   - lex-single runs --lex on each single file of the corpus.
 //   - ast-single runs --ast on each.
 //   - res-single runs --res on each.
+//   - lex-packages runs --lex on each package of the corpus.
+//   - ast-packages runs --ast on each.
+//   - res-packages runs --res on each.
 //
-// backends and lex-single compare standard output, standard error and the
-// exit status byte for byte. ast-single and res-single compare standard
-// error and the exit status byte for byte, and decode both standard
-// outputs as JSON, numbers kept as their text, and compare the values.
+// backends and the lex stages compare standard output, standard error
+// and the exit status byte for byte. The ast and res stages compare
+// standard error and the exit status byte for byte, and decode both
+// standard outputs as JSON, numbers kept as their text, and compare the
+// values.
 // That comparison ignores white space between tokens, the order of an
 // object's keys and how a string's characters are escaped, \u0041 or A;
 // a number's text counts, so 1 and 1.0 differ. The two standard outputs
@@ -99,6 +104,49 @@
 // blocks in docs/spec and examples/invalid-c.txtar are not part of the
 // corpus yet.
 //
+// The packages are every directory under examples/ and under src/std
+// that holds a .tck file directly, run from this module's root and named
+// examples/<path> and src/std/<path>; every module under examples/, a
+// directory holding a tack.mod, and std, each run from its root as .,
+// and each of its packages by its import path from there; and every
+// case of the archives of several files a case that is built from a
+// directory, its target, run from its archive's directory. Until the
+// port has a resolver, it answers --res only when loading stops with no
+// program, and skips the rest.
+//
+// # Loading
+//
+// TestLoadTrees makes file trees the corpus has none of, in a temporary
+// directory: symbolic links, to files, to directories, to nothing and to
+// themselves, where a package's files are; names that are not UTF-8,
+// hold a newline or dots, or differ only in case; files and directories
+// that cannot be read or searched; a tack.mod that is a directory or
+// above the current directory, and a current directory reached through
+// a symbolic link, with and without PWD naming it; every way a target
+// can be written relative to the current directory; imports of a file,
+// through a file, through a link, of std/builtin and of the main
+// package; a C file named like an option; a directory 300 deep; and an
+// import chain of 3000 packages closed by a cycle. Each runs as the
+// three package stages run, with the environment an input adds; the
+// port may answer not implemented for the trees it cannot read the way
+// Go words, even in a required stage.
+//
+// TestLoadOrder checks what the port loads, which --res cannot show yet,
+// for every package of the corpus, the port's own driver when its source
+// tree is there, and every input of TestLoadTrees but
+// those that set PWD: the port writes it with --port-loaded, a flag of
+// its own, and this module's loader, run in process as the driver runs
+// it for --res, gives what it must be: every package of the program in
+// order, with its files, C files and what each import is bound to, the
+// program's error count, and every diagnostic in the order it was
+// reported. --port-loaded is a temporary test hook, which goes at M5,
+// when --res can show the same. A port that answers it is not
+// implemented skips, unless loaded, the check's name, is in
+// required.txt, as it is, where then it fails, but for an input marked
+// as one the port may decline. TestLoadTrees, TestLoadOrder and
+// FuzzLoadDiff run the port with its stack held to 4 MB, as
+// TestDeepNesting does.
+//
 // # Deep nesting
 //
 // TestDeepNesting runs the programs that cost the most stack for each
@@ -116,6 +164,16 @@
 // does, with TACK_PORT_TEST=1 and -count, and skips otherwise.
 //
 // # Fuzzing
+//
+// FuzzLoadDiff writes each generated input as a file tree in a
+// temporary directory, entries separated by 0 bytes, each a path, a
+// newline and the file's content, and runs both compilers on the
+// directory of its first file: what the port loads, compared as
+// TestLoadOrder compares it, then --ast and --res, compared as
+// ast-packages and res-packages compare them; a not implemented answer
+// skips what is left of the input. The tree is loaded in process by this
+// module's loader first, for the fuzz engine's coverage. Run as a test it
+// checks its seeds, written in the test.
 //
 // FuzzLexDiff runs both compilers with --lex on generated inputs, each
 // written to fuzz.tck in a temporary directory of its own and run from
@@ -141,4 +199,5 @@
 //
 //	make port-fuzz FUZZTIME=60s
 //	make port-fuzz PORT_FUZZ=FuzzParseDiff FUZZTIME=60s
+//	make port-fuzz PORT_FUZZ=FuzzLoadDiff FUZZTIME=60s
 package porttest

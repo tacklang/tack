@@ -84,8 +84,9 @@ PORT_FUZZ_BIN := bin/port-fuzz
 PORT_FUZZ_PARALLEL := 4
 
 # PORT_FUZZ is the fuzz test `make port-fuzz` runs: FuzzLexDiff, which
-# compares the port's --lex with this compiler's, or FuzzParseDiff, which
-# compares their --ast.
+# compares the port's --lex with this compiler's, FuzzParseDiff, which
+# compares their --ast, or FuzzLoadDiff, which compares what they load
+# from generated file trees.
 PORT_FUZZ := FuzzLexDiff
 
 # port-fuzz fuzzes $(PORT_FUZZ), which compares the port with this

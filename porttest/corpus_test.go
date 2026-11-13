@@ -21,6 +21,14 @@ type input struct {
 	// file is the path, relative to dir and slash-separated, the compilers
 	// are given.
 	file string
+	// env holds variables, each name=value, the compilers run with after
+	// the environment they share, overriding it, as PWD for a directory
+	// reached through a symbolic link; it is empty for the corpus.
+	env []string
+	// declines says the port may answer that it is not implemented for
+	// the input even in a required stage: a failure of the file system
+	// the port cannot word as Go does, as TestLoadTrees makes.
+	declines bool
 }
 
 // archive is the cases of one txtar archive, written to disk.
@@ -34,6 +42,11 @@ type archive struct {
 	// files are the paths, relative to dir and slash-separated, of every
 	// file of every case, in archive order.
 	files []string
+	// targets are the directories, relative to dir and slash-separated,
+	// the cases of an archive of several files a case are built from, in
+	// archive order: each case's own, or the one its .target names. A
+	// case built from a file has none here; it is among files.
+	targets []string
 }
 
 // singleArchives are the archives of one file a case, named by their
@@ -73,6 +86,9 @@ func writeArchives(dir string) ([]archive, error) {
 				if err := a.write(c.Name+"/"+f.Path, f.Data); err != nil {
 					return nil, err
 				}
+			}
+			if target := c.Target(); path.Ext(target) != ".tck" {
+				a.targets = append(a.targets, target)
 			}
 		}
 		out = append(out, a)
@@ -133,4 +149,134 @@ func singleFiles() ([]input, error) {
 		}
 	}
 	return out, nil
+}
+
+// packageInputs returns every input of the corpus that is a package, as
+// the package doc lists them: each directory under examples/ and under
+// src/std that holds a .tck file directly, named from this module's
+// root, examples/<path> and src/std/<path>; each module under
+// examples/, a directory holding a tack.mod, named . from its root, and
+// each of its main packages by its import path from there; std's
+// packages by their import paths from src/std, which is the module std;
+// and each case of an archive of several files a case that is built
+// from a directory, its target, from the archive's directory.
+func packageInputs() ([]input, error) {
+	var out []input
+	for _, top := range []string{"examples", filepath.Join("src", "std")} {
+		dirs, err := tackDirs(filepath.Join(env.root, top))
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range dirs {
+			rel, err := filepath.Rel(env.root, d)
+			if err != nil {
+				return nil, fmt.Errorf("naming %s: %w", d, err)
+			}
+			rel = filepath.ToSlash(rel)
+			out = append(out, input{name: rel, dir: env.root, file: rel})
+		}
+	}
+	mods, err := moduleInputs()
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, mods...)
+	for _, a := range env.archives {
+		for _, target := range a.targets {
+			out = append(out, input{name: a.name + "/" + target, dir: a.dir, file: target})
+		}
+	}
+	return out, nil
+}
+
+// tackDirs returns root and every directory below it that holds a .tck
+// file directly, each once, in the order filepath.WalkDir first visits a
+// .tck file in it.
+func tackDirs(root string) ([]string, error) {
+	var dirs []string
+	seen := map[string]bool{}
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || filepath.Ext(p) != ".tck" {
+			return nil
+		}
+		if dir := filepath.Dir(p); !seen[dir] {
+			seen[dir] = true
+			dirs = append(dirs, dir)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing %s: %w", root, err)
+	}
+	return dirs, nil
+}
+
+// moduleInputs returns, for each module under examples/, the module's
+// root named . from itself and each directory below it holding a .tck
+// file by its import path from the root, and std's packages by theirs
+// from src/std. A directory's import path is the module's name, from
+// the first module line of its tack.mod, and its path below the root.
+func moduleInputs() ([]input, error) {
+	var roots []string
+	err := filepath.WalkDir(filepath.Join(env.root, "examples"),
+		func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !d.IsDir() && d.Name() == "tack.mod" {
+				roots = append(roots, filepath.Dir(p))
+			}
+			return nil
+		})
+	if err != nil {
+		return nil, fmt.Errorf("listing modules: %w", err)
+	}
+	roots = append(roots, filepath.Join(env.root, "src", "std"))
+	var out []input
+	for _, root := range roots {
+		name, err := moduleName(filepath.Join(root, "tack.mod"))
+		if err != nil {
+			return nil, err
+		}
+		rel, err := filepath.Rel(env.root, root)
+		if err != nil {
+			return nil, fmt.Errorf("naming %s: %w", root, err)
+		}
+		rel = filepath.ToSlash(rel)
+		out = append(out, input{name: rel + "/.", dir: root, file: "."})
+		dirs, err := tackDirs(root)
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range dirs {
+			below, err := filepath.Rel(root, d)
+			if err != nil {
+				return nil, fmt.Errorf("naming %s: %w", d, err)
+			}
+			if below == "." {
+				continue
+			}
+			ip := name + "/" + filepath.ToSlash(below)
+			out = append(out, input{name: rel + "/" + ip, dir: root, file: ip})
+		}
+	}
+	return out, nil
+}
+
+// moduleName returns the name the tack.mod at p gives its module: the
+// word after module on its first module line.
+func moduleName(p string) (string, error) {
+	data, err := os.ReadFile(p) //nolint:gosec // G304: a file of this module
+	if err != nil {
+		return "", fmt.Errorf("reading a module's name: %w", err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if f := strings.Fields(line); len(f) >= 2 && f[0] == "module" {
+			return f[1], nil
+		}
+	}
+	return "", fmt.Errorf("%s names no module", p)
 }
