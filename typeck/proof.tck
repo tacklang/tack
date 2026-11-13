@@ -1,0 +1,433 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import types from "tack/types"
+
+// The proofs facts make, Go's facts.go, string.go, array.go, errors.go
+// and the parts of arith.go and relations.go a proof of an index, a
+// divisor or a checked error reads: what the facts in force say of a
+// subject, a length or a value, and whether that keeps an index in
+// range, a divisor from zero, or an error's code at 0. Arithmetic's
+// bounds are a later stage's, and a proof that would read them declines
+// (see operand_range). Where its own bounds fall short, a proof asks the
+// relations in force (see relgraph.tck).
+
+// interval_of returns what is known about the value of e, a subject,
+// Go's intervalOf: its type's bounds, narrowed by every fact in force
+// about it that holds.
+func (mut c Checker) interval_of(e Key) (Interval, error) {
+    mut known := type_interval(mut c.type_of(e))
+    k, ok := mut c.subject_key(e)?
+    if !ok {
+        return known, noerror
+    }
+    mut facts := make(list[Fact], c_allocator)
+    mut c.held_facts_about(k, mut facts)?
+    for _, f := range facts {
+        h := mut c.holds(f)?
+        if h {
+            known = known.narrow(f)
+        }
+    }
+    return known, noerror
+}
+
+// key_interval returns what the facts in force that hold say of the
+// subject k, from nothing, Go's loops over heldFactsAbout narrowing an
+// interval.
+func (mut c Checker) key_interval(k FKey, frm Interval) (Interval, error) {
+    mut known := frm
+    mut facts := make(list[Fact], c_allocator)
+    mut c.held_facts_about(k, mut facts)?
+    for _, f := range facts {
+        h := mut c.holds(f)?
+        if h {
+            known = known.narrow(f)
+        }
+    }
+    return known, noerror
+}
+
+// is_arithmetic reports whether e is an operation whose bounds a later
+// stage works out, Go's isArithmetic and isWrapping: + - * and their
+// wrapping forms on integers, or unary - or -% on one.
+func (mut c Checker) is_arith_op(e Key) bool {
+    switch kind_at(c.prog.trees, e) {
+    case binary(b):
+        return (b.op == ast.op_add || b.op == ast.op_sub || b.op == ast.op_mul || is_wrapping_op(b.op)) && types.is_integer(node_type_of(c.node_types, e))
+    case unary(u):
+        return (u.op == ast.unary_neg || u.op == ast.unary_neg_wrap) && types.is_integer(node_type_of(c.node_types, e))
+    default:
+        return false
+    }
+}
+
+// operand_range returns what is known about the value of e where it is
+// used, Go's operandRange: a subject's interval, a length's bound, and
+// false for anything else but arithmetic, whose bound is a later stage's
+// and declined.
+func (mut c Checker) operand_range(e Key) (Interval, bool, error) {
+    s := mut c.is_subject(e)?
+    if s {
+        known := mut c.interval_of(e)?
+        return known, true, noerror
+    }
+    _, is_len := mut c.string_len(e)?
+    if is_len {
+        known, ok := mut c.leaf_range(e)?
+        return known, ok, noerror
+    }
+    if mut c.is_arith_op(e) {
+        return no_interval(), false, not_ported
+    }
+    return no_interval(), false, noerror
+}
+
+// leaf_range returns the bound of e, an operand that is no arithmetic,
+// Go's leafRange: a known value's, a length's from the least to the
+// greatest the facts give it, or a subject's, both its ends set.
+func (mut c Checker) leaf_range(e Key) (Interval, bool, error) {
+    v, known := mut c.known_value(e)?
+    if known {
+        return single(v), true, noerror
+    }
+    if !types.is_integer(mut c.type_of(e)) {
+        return no_interval(), false, noerror
+    }
+    _, is_len := mut c.string_len(e)?
+    if is_len {
+        s, _ := mut c.len_arg(e)
+        mut r := length_range()
+        r.lo = mut c.min_len(s)?
+        hi, has_hi := mut c.max_len(s)?
+        if has_hi && hi.cmp(r.hi) < 0 {
+            r.hi = hi
+        }
+        return r, true, noerror
+    }
+    sub := mut c.is_subject(e)?
+    if !sub {
+        return no_interval(), false, noerror
+    }
+    iv := mut c.interval_of(e)?
+    t := iv.tightened()
+    return t, t.has_lo && t.has_hi, noerror
+}
+
+// min_len returns the least length the facts in force give s, a string,
+// a list or a view subject, and 0 otherwise, Go's minLen.
+func (mut c Checker) min_len(s Key) (constant.Int, error) {
+    k, ok := mut c.subject_key(s)?
+    if !ok {
+        return constant.from_int64(0), noerror
+    }
+    if mut c.appended_list(k) {
+        // Go's appendedLen narrows it by what a successful append
+        // recorded, S5's.
+        return constant.from_int64(0), not_ported
+    }
+    least := mut c.key_interval(k, no_interval())?
+    one := constant.from_int64(1)
+    if least.has_lo && least.lo.cmp(one) >= 0 {
+        return least.lo, noerror
+    }
+    if least.nonzero {
+        return one, noerror
+    }
+    return constant.from_int64(0), noerror
+}
+
+// max_len returns the greatest length the facts in force give s, and
+// false when they give none, Go's maxLen.
+func (mut c Checker) max_len(s Key) (constant.Int, bool, error) {
+    k, ok := mut c.subject_key(s)?
+    if !ok {
+        return constant.from_int64(0), false, noerror
+    }
+    most := mut c.key_interval(k, no_interval())?
+    return most.hi, most.has_hi, noerror
+}
+
+// below_len reports whether a fact in force says the subject i is below
+// the length of the string subject s, Go's belowLen.
+func (mut c Checker) below_len(i Key, s Key) (bool, error) {
+    ik, ok_i := mut c.subject_key(i)?
+    sk, ok_s := mut c.subject_key(s)?
+    if !ok_i || !ok_s {
+        return false, noerror
+    }
+    mut facts := make(list[Fact], c_allocator)
+    mut c.held_facts_about(ik, mut facts)?
+    for _, f := range facts {
+        if f.len_of == sk {
+            h := mut c.holds(f)?
+            if h {
+                return true, noerror
+            }
+        }
+    }
+    return false, noerror
+}
+
+// nonzero reports whether e is known not to be zero where it is checked,
+// Go's nonzero: a known value other than zero, len of a subject whose
+// least length is 1 or more, or anything whose range excludes zero.
+func (mut c Checker) nonzero(e Key) (bool, error) {
+    v, known := mut c.known_value(e)?
+    if known {
+        return !v.is_zero(), noerror
+    }
+    _, is_len := mut c.string_len(e)?
+    if is_len {
+        s, _ := mut c.len_arg(e)
+        least := mut c.min_len(s)?
+        return least.cmp(constant.from_int64(1)) >= 0, noerror
+    }
+    r, ok := mut c.operand_range(e)?
+    return ok && r.excludes_zero(), noerror
+}
+
+// in_range reports whether an index is known to lie in [0, n) where it
+// is used, Go's inRange: by what its type and the facts say of it, or,
+// for a bound that does not give, by the relations in force.
+func (mut c Checker) in_range(index Key, n int64) (bool, error) {
+    known, ok := mut c.operand_range(index)?
+    if !ok || n == 0 {
+        return false, noerror
+    }
+    last := constant.from_int64(n -% 1)
+    mut lo := known.has_lo && !known.lo.is_negative()
+    if !lo {
+        lo = mut c.at_least(index)?
+    }
+    if !lo {
+        return false, noerror
+    }
+    if known.has_hi && known.hi.cmp(last) <= 0 {
+        return true, noerror
+    }
+    r := mut c.at_most_by(index, no_key(), last)?
+    return r, noerror
+}
+
+// IxRef is an element whose index a proof is of: its node, what it
+// indexes, x, and the index, index. Go's remove builds one, an ast.Index
+// of its list and its index, that is no node of the tree, whose node is
+// then no key.
+type IxRef struct {
+    node Key
+    x Key
+    index Key
+}
+
+// ix_ref returns the IxRef of the index node ix.
+func ix_ref(trees []ast.File, ix Key) IxRef {
+    return IxRef{node: ix, x: index_x(trees, ix), index: index_index(trees, ix)}
+}
+
+// string_index_proven reports whether the index of the string, view or
+// list element ix is known to be in range where it is used, Go's
+// stringIndexProven.
+func (mut c Checker) string_index_proven(ix IxRef) (bool, error) {
+    x := ix.x
+    index := ix.index
+    v, known := mut c.known_value(index)?
+    if known {
+        n, ext := mut c.extent_of(x)?
+        if ext {
+            return !v.is_negative() && v.cmp(constant.from_int64(n)) < 0, noerror
+        }
+        if v.is_negative() {
+            return false, noerror
+        }
+        least := mut c.min_len(x)?
+        if v.cmp(least) < 0 {
+            return true, noerror
+        }
+        r := mut c.len_above(x, v)?
+        return r, noerror
+    }
+    r, ok := mut c.operand_range(index)?
+    if !ok {
+        return false, noerror
+    }
+    if !r.has_lo || r.lo.is_negative() {
+        al := mut c.at_least(index)?
+        if !al {
+            return false, noerror
+        }
+    }
+    b := mut c.below_string_len(index, r, x)?
+    return b, noerror
+}
+
+// below_string_len reports whether the index i, of which known is what
+// the facts say, is below the length of the string s, Go's
+// belowStringLen.
+func (mut c Checker) below_string_len(i Key, known Interval, s Key) (bool, error) {
+    n, ext := mut c.extent_of(s)?
+    if ext {
+        if known.has_hi && known.hi.cmp(constant.from_int64(n)) < 0 {
+            return true, noerror
+        }
+        r := mut c.at_most_by(i, no_key(), constant.from_int64(n -% 1))?
+        return r, noerror
+    }
+    least := mut c.min_len(s)?
+    if known.has_hi && known.hi.cmp(least) < 0 {
+        return true, noerror
+    }
+    b := mut c.below_len(i, s)?
+    if b {
+        return true, noerror
+    }
+    r := mut c.below_len_by(i, s)?
+    return r, noerror
+}
+
+// below_len_by reports whether the relations in force put the index i
+// below the length of s, Go's belowLenBy.
+func (mut c Checker) below_len_by(i Key, s Key) (bool, error) {
+    ti, ok_i := mut c.query_term(i)?
+    ts, ok_s := mut c.len_term(s)?
+    if !ok_i || !ok_s {
+        return false, noerror
+    }
+    r := mut c.relates(ti, ts, constant.from_int64(-1))?
+    return r, noerror
+}
+
+// len_above reports whether the relations in force put the length of s
+// above the known value v, Go's lenAbove.
+func (mut c Checker) len_above(s Key, v constant.Int) (bool, error) {
+    ts, ok := mut c.len_term(s)?
+    if !ok {
+        return false, noerror
+    }
+    least, ok_l := v.add(constant.from_int64(1))
+    if !ok_l {
+        return false, noerror
+    }
+    neg, ok_n := least.negate()
+    if !ok_n {
+        return false, noerror
+    }
+    r := mut c.relates(zero_term(), ts, neg)?
+    return r, noerror
+}
+
+// zero_term returns the constant 0 as a term, Go's zeroTerm.
+func zero_term() LinTerm {
+    return LinTerm{node: zero_fkey(), off: constant.from_int64(0), is_len: false}
+}
+
+// query_term returns e as a query's term, Go's queryTerm: a known
+// value, the length of a string, view or list subject, or an integer
+// subject. Arithmetic that adds a known amount to one is a later stage's,
+// and declined.
+func (mut c Checker) query_term(e Key) (LinTerm, bool, error) {
+    v, known := mut c.known_value(e)?
+    if known {
+        return LinTerm{node: zero_fkey(), off: v, is_len: false}, true, noerror
+    }
+    s, is_len := mut c.string_len(e)?
+    if is_len {
+        return LinTerm{node: s, off: constant.from_int64(0), is_len: true}, true, noerror
+    }
+    k, ok := mut c.subject_key(e)?
+    if ok && types.is_integer(mut c.type_of(e)) {
+        return LinTerm{node: k, off: constant.from_int64(0), is_len: false}, true, noerror
+    }
+    if mut c.is_arith_op(e) {
+        return zero_term(), false, not_ported
+    }
+    return zero_term(), false, noerror
+}
+
+// len_term returns the length of s, a string, view or list subject, as
+// a query's term, Go's lenTerm.
+func (mut c Checker) len_term(s Key) (LinTerm, bool, error) {
+    k, ok := mut c.string_var(s)?
+    return LinTerm{node: k, off: constant.from_int64(0), is_len: true}, ok, noerror
+}
+
+// expr_term returns e as a query's term, or the constant 0 for no key,
+// Go's exprTerm.
+func (mut c Checker) expr_term(e Key) (LinTerm, bool, error) {
+    if is_no_key(e) {
+        return zero_term(), true, noerror
+    }
+    t, ok := mut c.query_term(e)?
+    return t, ok, noerror
+}
+
+// at_least reports whether the relations in force prove the term e at
+// least 0, Go's atLeast.
+func (mut c Checker) at_least(e Key) (bool, error) {
+    t, ok := mut c.query_term(e)?
+    if !ok {
+        return false, noerror
+    }
+    r := mut c.relates(zero_term(), t, constant.from_int64(0))?
+    return r, noerror
+}
+
+// at_most_by reports whether the relations in force prove a - b <= w, a
+// and b each a query's term, no key for the constant 0, Go's atMostBy.
+func (mut c Checker) at_most_by(a Key, b Key, w constant.Int) (bool, error) {
+    ta, ok_a := mut c.expr_term(a)?
+    tb, ok_b := mut c.expr_term(b)?
+    if !ok_a || !ok_b {
+        return false, noerror
+    }
+    r := mut c.relates(ta, tb, w)?
+    return r, noerror
+}
+
+// index_x returns what the index node ix indexes.
+func index_x(trees []ast.File, ix Key) Key {
+    switch kind_at(trees, ix) {
+    case index(i):
+        return sub(ix, i.x)
+    default:
+        return no_key()
+    }
+}
+
+// index_index returns the index of the index node ix.
+func index_index(trees []ast.File, ix Key) Key {
+    switch kind_at(trees, ix) {
+    case index(i):
+        return sub(ix, i.index)
+    default:
+        return no_key()
+    }
+}
+
+// no_error reports whether the facts in force prove the error variable
+// decl holds no error, Go's noError: they bound its code to exactly 0.
+func (mut c Checker) no_error(decl Key) (bool, error) {
+    k := mut c.code_key(decl)?
+    known := mut c.key_interval(k, code_interval())?
+    return is_zero_only(known), noerror
+}
+
+// code_interval returns the bounds an error's code has from its type, an
+// int32's, Go's codeInterval.
+func code_interval() Interval {
+    return type_interval(types.int32_type)
+}
+
+// is_zero_only reports whether known allows 0 and nothing else, Go's
+// isZeroOnly.
+func is_zero_only(known Interval) bool {
+    return known.has_lo && known.has_hi && known.lo.is_zero() && known.hi.is_zero()
+}
+
+// ok_true reports whether the facts in force prove the bool variable
+// decl true, Go's okTrue: they bound it to 1.
+func (mut c Checker) ok_true(decl Key) (bool, error) {
+    known := mut c.key_interval(decl_fkey(decl), no_interval())?
+    return known.has_lo && known.lo.cmp(constant.from_int64(1)) >= 0, noerror
+}

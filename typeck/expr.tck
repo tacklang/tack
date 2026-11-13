@@ -227,15 +227,17 @@ func (mut c Checker) expr(k Key) (types.Type, error) {
 
 // ExprSpine is a spine body_expr is checking: where its links start in
 // the walk's list of them, how many are left to finish, the type of the
-// operand the next one finishes, and the call among them, or no key,
+// operand the next one finishes, the call among them, or no key,
 // written where a view it returns may be, which Go's callValue finds
 // out before it checks the call's receiver, and which the spine checks
-// first.
+// first, and whether the spine is the right operand of && or ||, whose
+// facts are taken out of force once it is done (see logic_step).
 type ExprSpine struct {
     base int64
     left int64
     typ types.Type
     view Key
+    logic bool
 }
 
 // body_expr is expr in a body, where no check is suspended: the right
@@ -245,6 +247,8 @@ type ExprSpine struct {
 // each other's right operand, and in what a call nested in one passes,
 // cost no frame of their own.
 func (mut c Checker) body_expr(k Key) (types.Type, error) {
+    outer := c.fx.at
+    c.fx.at = span_at(c.prog.trees, k).end
     mut links := make(list[Key], c_allocator)
     mut spines := make(list[ExprSpine], c_allocator)
     first := mut c.start_spine(k, mut links)?
@@ -261,6 +265,7 @@ func (mut c Checker) body_expr(k Key) (types.Type, error) {
                 pop(mut links)
             }
             if len(spines) == 0 {
+                c.fx.at = outer
                 return sp.typ, noerror
             }
             // The spine was a binary's right operand: finish the binary.
@@ -270,6 +275,10 @@ func (mut c Checker) body_expr(k Key) (types.Type, error) {
                 break
             }
             l := key_in(links, up.base +% up.left -% 1)
+            c.fx.at = span_at(c.prog.trees, l).end
+            if sp.logic {
+                mut c.logic_step(l, false)?
+            }
             typ := mut c.binary(l, binary_at(c.prog.trees, l), up.typ, sp.typ)?
             mut c.set_node_type(l, typ)?
             up.left -%= 1
@@ -280,10 +289,16 @@ func (mut c Checker) body_expr(k Key) (types.Type, error) {
             continue
         }
         l := key_in(links, sp.base +% sp.left -% 1)
+        c.fx.at = span_at(c.prog.trees, l).end
         switch kind_at(c.prog.trees, l) {
         case binary(b):
             mut c.binary_clause(l, b)?
-            next := mut c.start_spine(sub(l, b.y), mut links)?
+            logic := b.op == ast.op_and || b.op == ast.op_or
+            if logic {
+                mut c.logic_step(l, true)?
+            }
+            mut next := mut c.start_spine(sub(l, b.y), mut links)?
+            next.logic = logic
             append(mut spines, next)?
             continue
         default:
@@ -302,7 +317,59 @@ func (mut c Checker) body_expr(k Key) (types.Type, error) {
             spines[top] = cur
         }
     }
+    c.fx.at = outer
     return types.invalid, noerror
+}
+
+// logic_step puts in force, when start is set, or takes out of force,
+// what the left operand of the && or || k says while its right operand
+// is checked (see logic_start and logic_end). One function, called from
+// both places in body_expr, keeps either's work out of body_expr's own
+// frame, which every level of a nested expression holds.
+func (mut c Checker) logic_step(k Key, start bool) error {
+    if start {
+        return mut c.logic_start(k, binary_at(c.prog.trees, k))
+    }
+    return mut c.logic_end(k)
+}
+
+// logic_start puts in force, for the right operand of the && or || k,
+// b, what its left operand says when the right one runs, Go's binary:
+// the left operand's facts, taken from the chain when it is the last &&
+// or || checked (see take_chain), are kept for join_chain once the right
+// operand is checked.
+func (mut c Checker) logic_start(k Key, b ast.Binary) error {
+    m := c.mark()
+    x := sub(k, b.x)
+    mut facts := make(list[Fact], c_allocator)
+    mut c.take_chain(x, b.op == ast.op_and, mut facts)?
+    start := len(c.fx.logic_facts)
+    append(mut c.fx.logic_facts, facts[:]...)?
+    append(mut c.fx.logic, LogicFrame{m: m, start: start})?
+    mut rgn := make(list[Key], c_allocator)
+    append(mut rgn, sub(k, b.y))?
+    g := Guard{cond: node_cond(x), span: span_at(c.prog.trees, x), kind: guard_cond}
+    return mut c.assume(g, facts[:], rgn[:])
+}
+
+// logic_end takes out of force what logic_start put in force for the
+// && or || k, and records its facts as the chain's (see join_chain).
+func (mut c Checker) logic_end(k Key) error {
+    fr, ok := pop(mut c.fx.logic)
+    if !ok {
+        return noerror
+    }
+    mut c.release(fr.m)?
+    mut facts := make(list[Fact], c_allocator)
+    mut i := fr.start
+    for i < len(c.fx.logic_facts) {
+        append(mut facts, fact_in(c.fx.logic_facts[:], i))?
+        i +%= 1
+    }
+    for len(c.fx.logic_facts) > fr.start {
+        pop(mut c.fx.logic_facts)
+    }
+    return mut c.join_chain(k, own facts)
 }
 
 // start_spine walks down the spine k is the top of, appending its links
@@ -329,6 +396,9 @@ func (mut c Checker) start_spine(k Key, mut links list[Key]) (ExprSpine, error) 
         mut c.allow_link_view(key_in(links, len(links) -% 1), x)
     }
     mut typ := types.invalid
+    if c.in_body {
+        c.fx.at = span_at(c.prog.trees, x).end
+    }
     switch kind_at(c.prog.trees, x) {
     case call:
         // A call, a ? and a literal are checked from here directly, not
@@ -337,20 +407,20 @@ func (mut c Checker) start_spine(k Key, mut links list[Key]) (ExprSpine, error) 
         typ = mut c.call_value(x)?
         ok := mut c.supported_type(typ)?
         if !ok {
-            return ExprSpine{base: base, left: 0, typ: types.invalid, view: no_key()}, not_ported
+            return ExprSpine{base: base, left: 0, typ: types.invalid, view: no_key(), logic: false}, not_ported
         }
     case question:
         typ = mut c.question(x)?
         ok := mut c.supported_type(typ)?
         if !ok {
-            return ExprSpine{base: base, left: 0, typ: types.invalid, view: no_key()}, not_ported
+            return ExprSpine{base: base, left: 0, typ: types.invalid, view: no_key(), logic: false}, not_ported
         }
     case composite_lit(lit):
         typ = mut c.composite_lit(x, lit)?
     default:
         typ = mut c.expr_node(x)?
     }
-    return ExprSpine{base: base, left: len(links) -% base, typ: typ, view: view}, noerror
+    return ExprSpine{base: base, left: len(links) -% base, typ: typ, view: view, logic: false}, noerror
 }
 
 // allow_link_view marks x, the operand of the link parent of a spine, as
@@ -806,8 +876,9 @@ func (mut c Checker) binary_clause(k Key, b ast.Binary) error {
 // binary checks an infix expression k, its left operand checked as x, and
 // returns its type, Go's binary: a bool for a comparison or a logical
 // operator, the operands' common type for arithmetic. What the left side
-// of && or || says holds in the right side: the port does not keep facts
-// yet, and a constant's checks need none.
+// of && or || says holds in the right side, which body_expr puts in force
+// before the right side is checked and takes out after (see
+// logic_start and logic_end).
 //
 // Its right operand, checked as y, is checked by the caller, between
 // binary_clause and binary, so that a right operand nested deeply, as
@@ -903,15 +974,16 @@ func (mut c Checker) int_arithmetic(k Key, b ast.Binary, x types.Type, y types.T
     if typ == types.invalid {
         return types.invalid, noerror
     }
+    checked := c.checked_division == k
     mut nonzero := true
-    if b.op == ast.op_div || b.op == ast.op_rem {
+    if (b.op == ast.op_div || b.op == ast.op_rem) && !checked {
         nonzero = mut c.require_nonzero(sub(k, b.y))?
     }
     over := mut c.known_overflow(k, b, typ)?
     if over {
         return types.invalid, noerror
     }
-    if b.op == ast.op_div && nonzero {
+    if b.op == ast.op_div && !checked && nonzero && !types.is_unsigned(typ) {
         mut c.set_node_type(k, typ)?
         mut c.require_no_overflow(k, b)?
     }
@@ -924,8 +996,9 @@ func (mut c Checker) int_arithmetic(k Key, b ast.Binary, x types.Type, y types.T
 
 // require_nonzero reports a divisor not proven non-zero, Go's
 // requireNonzero, and returns whether it is proven: a known value is
-// decided; any other would need the facts in force, which the port does
-// not keep yet, so it is assumed.
+// decided, and in a body any other by the facts in force (see
+// require_nonzero_at); before bodies one not known follows an error, and
+// is declined.
 func (mut c Checker) require_nonzero(divisor Key) (bool, error) {
     v, known := mut c.known_value(divisor)?
     if known {
@@ -937,17 +1010,20 @@ func (mut c Checker) require_nonzero(divisor Key) (bool, error) {
         }
         return true, noerror
     }
-    // A divisor whose value is not known needs the facts in force, which
-    // the port does not keep yet. Before bodies every value of a constant
-    // expression is known unless an error came first, so this is declined.
-    return false, not_ported
+    if !c.in_body {
+        // Before bodies every value of a constant expression is known
+        // unless an error came first, so this is declined.
+        return false, not_ported
+    }
+    r := mut c.require_nonzero_at(divisor, true)?
+    return r, noerror
 }
 
 // require_no_overflow is Go's requireNoOverflow and
 // requireNoQuotientOverflow for the arithmetic b at k: on known operands
 // knownOverflow has reported any that does not fit, so it holds; on any
-// other the proof needs facts and relations, which the port does not
-// have yet, so it is assumed.
+// other the proof needs arithmetic's bounds, a later stage's, and is
+// declined.
 func (mut c Checker) require_no_overflow(k Key, b ast.Binary) error {
     _, ok_x := mut c.known_value(sub(k, b.x))?
     _, ok_y := mut c.known_value(sub(k, b.y))?

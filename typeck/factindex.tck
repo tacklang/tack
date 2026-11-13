@@ -1,0 +1,337 @@
+package typeck
+
+// The facts in force by subject, Go's factindex.go. A query asks about
+// one subject; when more than scan_limit facts are in force it reads an
+// index of them instead of every one: for each subject, a chain through
+// the positions of its facts in active, newest first, and a chain of
+// those held, which leaves out a fact a newer one shadows, one saying
+// the same and holding wherever it does (see shadows), so a block of n
+// early exits proving the same thing again and again keeps queries from
+// reading n facts each. The index is built from a scan the first time a
+// query needs it, and from then on kept in step as facts are pushed and
+// popped, each a step.
+
+// scan_limit is how many facts in force a query reads one by one before
+// it reads them through the index, Go's scanLimit.
+var scan_limit int64 = 32
+
+// shadow_scan is how many of the last facts held about a subject a push
+// looks among for one the fact pushed shadows, Go's shadowScan.
+var shadow_scan int64 = 4
+
+// FactIndex is the index of the facts in force by subject, Go's
+// subjectIndex: built says whether it is kept; for each position of
+// active, prev the position of the fact before it about the same subject
+// and held_prev the one before it in its subject's held chain, -1 for
+// none; last and last_held the newest of each subject's; and for each
+// position hid and hid_next the fact pushing it took out of the held
+// chain and the one after that fact in the chain then, -1 for none.
+type FactIndex struct {
+    built bool
+    prev list[int64]
+    held_prev list[int64]
+    hid list[int64]
+    hid_next list[int64]
+    last map[FKey]int64
+    last_held map[FKey]int64
+}
+
+// new_fact_index returns an index not built.
+func new_fact_index() FactIndex {
+    return FactIndex{
+        built: false,
+        prev: make(list[int64], c_allocator),
+        held_prev: make(list[int64], c_allocator),
+        hid: make(list[int64], c_allocator),
+        hid_next: make(list[int64], c_allocator),
+        last: make(map[FKey]int64, c_allocator),
+        last_held: make(map[FKey]int64, c_allocator),
+    }
+}
+
+// set_int sets l[i] to v, when l has an i'th.
+func set_int(mut l list[int64], i int64, v int64) {
+    set_at(mut l, i, v)
+}
+
+// build_index builds the index from a scan of the facts in force, with
+// no fact shadowed, Go's factIndex.
+func (mut c Checker) build_index() error {
+    if c.fx.index.built {
+        return noerror
+    }
+    c.fx.index.built = true
+    for i, f := range c.fx.active {
+        mut p, has := c.fx.index.last[f.about]
+        if !has {
+            p = -1
+        }
+        append(mut c.fx.index.prev, p)?
+        append(mut c.fx.index.held_prev, p)?
+        append(mut c.fx.index.hid, -1)?
+        append(mut c.fx.index.hid_next, -1)?
+        put(mut c.fx.index.last, f.about, i)?
+        put(mut c.fx.index.last_held, f.about, i)?
+    }
+    return noerror
+}
+
+// index_fact adds active's last fact, just pushed, to the index when
+// it is kept, Go's indexFact: to its subject's chain, and to its held
+// chain, taking out of it the fact it shadows among the last
+// shadow_scan held about it, if any, unless a supposition is checking.
+func (mut c Checker) index_fact() error {
+    mut c.rel_index_fact()?
+    if !c.fx.index.built {
+        return noerror
+    }
+    i := len(c.fx.active) -% 1
+    g := fact_in(c.fx.active[:], i)
+    k := g.about
+    mut p, has := c.fx.index.last[k]
+    if !has {
+        p = -1
+    }
+    append(mut c.fx.index.prev, p)?
+    put(mut c.fx.index.last, k, i)?
+    mut hid := -1
+    mut hid_next := -1
+    mut tail, has_tail := c.fx.index.last_held[k]
+    if !has_tail {
+        tail = -1
+    }
+    if c.fx.edited == 0 {
+        mut cur := tail
+        mut after := -1
+        mut s int64 = 0
+        for cur >= 0 && s < shadow_scan {
+            f := fact_in(c.fx.active[:], cur)
+            sh := mut c.shadows(g, f)?
+            if sh {
+                hid = cur
+                hid_next = after
+                break
+            }
+            after = cur
+            cur = int_in(c.fx.index.held_prev[:], cur)
+            s +%= 1
+        }
+    }
+    if hid >= 0 {
+        before := int_in(c.fx.index.held_prev[:], hid)
+        if hid_next >= 0 {
+            set_int(mut c.fx.index.held_prev, hid_next, before)
+        } else {
+            tail = before
+        }
+    }
+    append(mut c.fx.index.held_prev, tail)?
+    put(mut c.fx.index.last_held, k, i)?
+    append(mut c.fx.index.hid, hid)?
+    append(mut c.fx.index.hid_next, hid_next)?
+    return noerror
+}
+
+// unindex_facts takes the facts of active from the one at n on, about
+// to be popped, out of the index, last first, Go's unindexFacts, putting
+// back where it was each fact a push took out of its held chain.
+func (mut c Checker) unindex_facts(n int64) error {
+    mut c.rel_unindex(n)?
+    if !c.fx.index.built {
+        return noerror
+    }
+    mut i := len(c.fx.active) -% 1
+    for i >= n {
+        f := fact_in(c.fx.active[:], i)
+        k := f.about
+        p := int_in(c.fx.index.prev[:], i)
+        if p < 0 {
+            delete(mut c.fx.index.last, k)
+        } else {
+            put(mut c.fx.index.last, k, p)?
+        }
+        mut tail := int_in(c.fx.index.held_prev[:], i)
+        hid := int_in(c.fx.index.hid[:], i)
+        if hid >= 0 {
+            next := int_in(c.fx.index.hid_next[:], i)
+            if next >= 0 {
+                set_int(mut c.fx.index.held_prev, next, hid)
+            } else {
+                tail = hid
+            }
+        }
+        if tail < 0 {
+            delete(mut c.fx.index.last_held, k)
+        } else {
+            put(mut c.fx.index.last_held, k, tail)?
+        }
+        pop(mut c.fx.index.prev)
+        pop(mut c.fx.index.held_prev)
+        pop(mut c.fx.index.hid)
+        pop(mut c.fx.index.hid_next)
+        i -%= 1
+    }
+    return noerror
+}
+
+// facts_about appends to out the facts in force, held or dropped, whose
+// subject is k, in the order they were put in force, Go's factsAbout.
+func (mut c Checker) facts_about(k FKey, mut out list[Fact]) error {
+    return mut c.read_facts(k, false, mut out)
+}
+
+// held_facts_about appends to out the facts in force about k as
+// facts_about does, but for those a newer one shadows, Go's
+// heldFactsAbout: only a query that asks what the facts that hold say
+// may read it.
+func (mut c Checker) held_facts_about(k FKey, mut out list[Fact]) error {
+    return mut c.read_facts(k, true, mut out)
+}
+
+// read_facts appends to out the facts in force about k: by a scan when
+// few are in force, and otherwise from the index, built the first time,
+// the held chain when held says so and no supposition is checking.
+func (mut c Checker) read_facts(k FKey, held bool, mut out list[Fact]) error {
+    if len(c.fx.active) <= scan_limit {
+        for _, f := range c.fx.active {
+            if f.about == k {
+                append(mut out, f)?
+            }
+        }
+        return noerror
+    }
+    mut c.build_index()?
+    use_held := held && c.fx.edited == 0
+    mut start := -1
+    if use_held {
+        v, has := c.fx.index.last_held[k]
+        if has {
+            start = v
+        }
+    } else {
+        v, has := c.fx.index.last[k]
+        if has {
+            start = v
+        }
+    }
+    mut back := make(list[int64], c_allocator)
+    mut cur := start
+    for cur >= 0 {
+        append(mut back, cur)?
+        if use_held {
+            cur = int_in(c.fx.index.held_prev[:], cur)
+        } else {
+            cur = int_in(c.fx.index.prev[:], cur)
+        }
+    }
+    mut i := len(back) -% 1
+    for i >= 0 {
+        append(mut out, fact_in(c.fx.active[:], int_in(back[:], i)))?
+        i -%= 1
+    }
+    return noerror
+}
+
+// shadows reports whether g, a fact pushed after f about the same
+// subject, says all f says wherever f holds, Go's shadows.
+func (mut c Checker) shadows(g Fact, f Fact) (bool, error) {
+    if g.drop >= 0 || f.drop >= 0 || g.either >= 0 || f.either >= 0 || !c.same_said(g, f) {
+        return false, noerror
+    }
+    w := mut c.ends_within(g.ends, f.ends)?
+    return w, noerror
+}
+
+// same_said reports whether f and g say the same of their subject,
+// wherever they came from and whatever ends them, Go's sameSaid.
+func (c Checker) same_said(f Fact, g Fact) bool {
+    if f.diff >= 0 || g.diff >= 0 {
+        if f.diff < 0 || g.diff < 0 {
+            return false
+        }
+        a := c.diff_at(f.diff)
+        b := c.diff_at(g.diff)
+        if a.x != b.x || a.y != b.y || a.w.cmp(b.w) != 0 || a.x_len != b.x_len || a.y_len != b.y_len {
+            return false
+        }
+    }
+    return f.about == g.about && f.len_of == g.len_of && f.at_most_len == g.at_most_len && f.at_most == g.at_most && f.in_map == g.in_map && f.known == g.known && f.lo.cmp(g.lo) == 0 && f.hi.cmp(g.hi) == 0 && f.ne.cmp(g.ne) == 0 && f.has_lo == g.has_lo && f.has_hi == g.has_hi && f.has_ne == g.has_ne && f.nonzero == g.nonzero && f.strict == g.strict && f.out == g.out && f.either == g.either
+}
+
+// ends_within reports whether every ending of the runs from g is also
+// one of the runs from f, in f's order, Go's endsWithin.
+func (mut c Checker) ends_within(g int64, f int64) (bool, error) {
+    if g < 0 || g == f {
+        return true, noerror
+    }
+    if f < 0 {
+        return false, noerror
+    }
+    if c.runs_within(g, f) {
+        return true, noerror
+    }
+    mut ge := make(list[Ending], c_allocator)
+    mut fe := make(list[Ending], c_allocator)
+    c.all_endings(g, mut ge)?
+    c.all_endings(f, mut fe)?
+    mut j int64 = 0
+    for _, e := range ge {
+        for j < len(fe) && !same_ending(e, ending_in(fe[:], j)) {
+            j +%= 1
+        }
+        if j == len(fe) {
+            return false, noerror
+        }
+        j +%= 1
+    }
+    return true, noerror
+}
+
+// runs_within reports whether g and f have as many runs, and each run of
+// g is shared from the same list as f's, from the same position in it or
+// a later one, Go's runsWithin.
+func (c Checker) runs_within(g int64, f int64) bool {
+    mut a := g
+    mut b := f
+    for a >= 0 && b >= 0 {
+        ra := c.run_at(a)
+        rb := c.run_at(b)
+        if ra.shared < 0 || ra.shared != rb.shared || ra.frm < rb.frm {
+            return false
+        }
+        a = ra.next
+        b = rb.next
+    }
+    return a < 0 && b < 0
+}
+
+// all_endings appends to out every ending of the runs from r, one run
+// after another.
+func (c Checker) all_endings(r int64, mut out list[Ending]) error {
+    mut run := r
+    for run >= 0 {
+        rec := c.run_at(run)
+        mut i int64 = 0
+        for i < rec.count {
+            append(mut out, c.ending_at(rec.start +% i))?
+            i +%= 1
+        }
+        run = rec.next
+    }
+    return noerror
+}
+
+// ending_in returns l[i], or an ending of nothing.
+func ending_in(l []Ending, i int64) Ending {
+    e, ok := l[i]
+    if !ok {
+        return Ending{drop: -1, kept: -1, loop: zero_span(), at: 0}
+    }
+    return e
+}
+
+// same_ending reports whether a and b end facts at the same places, Go's
+// sameEnding: the same position, loop and keeps.
+func same_ending(a Ending, b Ending) bool {
+    return a.at == b.at && a.loop == b.loop && a.kept == b.kept
+}

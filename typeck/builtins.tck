@@ -420,7 +420,7 @@ func (mut c Checker) reserve_call(k Key) (types.Type, error) {
 
 // pop_call checks a call to pop, k, records the type of the element it
 // gives on the call and returns it, Go's popCall: the plain form needs
-// the list proven not empty, S3's, and is declined.
+// the list proven not empty (see require_not_empty).
 func (mut c Checker) pop_call(k Key) (types.Type, error) {
     cl := call_of(c.prog.trees, k)
     mut name := msg()
@@ -436,15 +436,23 @@ func (mut c Checker) pop_call(k Key) (types.Type, error) {
     }
     mut c.set_node_type(k, elem)?
     if c.checked_take != k && c.dropped_call != k {
-        return types.invalid, not_ported
+        if !c.in_body {
+            return types.invalid, not_ported
+        }
+        arg := item_at(c.prog.trees, k.unit, cl.args, 0)
+        switch kind_at(c.prog.trees, arg) {
+        case mut_arg(x):
+            mut c.require_not_empty(k, sub(arg, x))?
+        default:
+        }
     }
     return elem, noerror
 }
 
 // remove_call checks a call to remove, k, records the type of the
 // element it gives on the call and returns it, Go's removeCall: a pool's
-// remove is pool_remove's, and the plain form, which needs its index
-// proven in range, is declined.
+// remove is pool_remove's, and the plain form needs its index proven in
+// range for the list, as an element's is (see require_remove_index).
 func (mut c Checker) remove_call(k Key) (types.Type, error) {
     cl := call_of(c.prog.trees, k)
     mut name := msg()
@@ -477,12 +485,22 @@ func (mut c Checker) remove_call(k Key) (types.Type, error) {
         return types.invalid, noerror
     }
     mut c.set_node_type(k, elem)?
+    mut l := no_key()
+    switch kind_at(c.prog.trees, first) {
+    case mut_arg(x):
+        l = sub(first, x)
+    default:
+    }
     v, known := mut c.known_value(i)?
     if known && v.is_negative() {
-        return types.invalid, not_ported
+        mut c.report_outside(IxRef{node: no_key(), x: l, index: i}, v)?
+        return types.invalid, noerror
     }
     if c.checked_take != k && c.dropped_call != k {
-        return types.invalid, not_ported
+        if !c.in_body {
+            return types.invalid, not_ported
+        }
+        mut c.require_remove_index(k, l, i)?
     }
     return elem, noerror
 }

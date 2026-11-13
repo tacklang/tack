@@ -1,0 +1,49 @@
+package typeck
+
+// Which ending of a fact first reaches where checking is, Go's reach.go.
+// A run of few endings is asked about one by one (see scan_reach); one
+// of more than reach_scan_limit, which a write repeated in a long block
+// gives, through indexes of it built the first time a query needs them
+// (see indexed_reach).
+
+// reach_scan_limit is how many endings a query asks reaches about one by
+// one before it reads them through an index, Go's reachScanLimit.
+var reach_scan_limit int64 = 16
+
+// ReachStore holds the indexes of runs of endings: the stabbing indexes
+// of the positions each ending reaches, and the indexes of where each
+// ending is, by position (see reach_index.tck).
+type ReachStore struct {
+    ints list[int64]
+    stabs list[Stab]
+    ats list[AtIdx]
+}
+
+// new_reach_store returns a store of no index.
+func new_reach_store() ReachStore {
+    return ReachStore{ints: make(list[int64], c_allocator), stabs: make(list[Stab], c_allocator), ats: make(list[AtIdx], c_allocator)}
+}
+
+// first_in_run returns the position in the run r's list of the first
+// ending that reaches c.at, or -1 for none, Go's firstInRun.
+func (mut c Checker) first_in_run(r int64) (int64, error) {
+    rec := c.run_at(r)
+    if rec.count <= reach_scan_limit {
+        return c.scan_reach(rec), noerror
+    }
+    i := mut c.indexed_reach(r)?
+    return i, noerror
+}
+
+// scan_reach returns the position in run's list of the first ending
+// that reaches c.at, asking reaches of each in turn, Go's scanReach.
+func (c Checker) scan_reach(run Run) int64 {
+    mut i int64 = 0
+    for i < run.count {
+        if c.reaches(c.ending_at(run.start +% i)) {
+            return i
+        }
+        i +%= 1
+    }
+    return -1
+}

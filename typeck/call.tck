@@ -1124,8 +1124,9 @@ func (mut c Checker) arg_expr(arg Key) error {
 
 // place checks e, the place the mut argument m names, or part of it, Go's
 // place, and returns its type: a mutable local or a mut parameter, or a
-// field of a place. An element needs its index proven, S3's, and is
-// declined but for a string's byte, which is never a place. The path
+// field or an element of a place, an element's index proven as an
+// element assigned is (see element_write), but for a string's byte,
+// which is never a place. The path
 // down to what it starts from is walked in a loop, and its fields and
 // elements then checked from the innermost out, as Go's recursion
 // checks them.
@@ -1192,8 +1193,10 @@ func (mut c Checker) place(e Key, m Key) (types.Type, error) {
                 mut c.string_byte_place(m)?
                 typ = types.invalid
             } else {
-                // An element of a place needs its index proven in range.
-                return types.invalid, not_ported
+                // Go's placeElement: an element of a place, its index
+                // proven in range as an element assigned is.
+                typ = mut c.element_write(p, ix, typ)?
+                mut c.set_node_type(p, typ)?
             }
         default:
         }

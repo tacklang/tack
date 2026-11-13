@@ -1,6 +1,7 @@
 package typeck
 
 import ast from "tack/ast"
+import diag from "tack/diag"
 import fmt from "std/fmt"
 import types from "tack/types"
 
@@ -10,9 +11,8 @@ import types from "tack/types"
 // and swap (replace.go, drop.go, swap.go). Each checks its own
 // arguments, the place it changes passed as mut first, and records the
 // type it gives on the call, each called from generic_call. What each
-// moves is the mover's (see mover.tck). A swap's indexes need proofs, the facts in force, which
-// the port does not keep yet, and it is declined once its arguments
-// check.
+// moves is the mover's (see mover.tck). A swap's indexes need proofs, as
+// an element's do (see require_swap_index).
 
 // builtin_msg returns name as a message's callee.
 func builtin_msg(name string) (list[uint8], error) {
@@ -432,9 +432,9 @@ func (mut c Checker) drop_place(x Key, t []uint8) (bool, error) {
 }
 
 // swap_call checks a call to swap, k, Go's swapCall: the list, passed
-// as mut, then the two indexes, each usable as an int64. Both indexes
-// need proofs of being in range, the facts in force, which the port
-// does not keep yet, so a swap whose arguments check is declined.
+// as mut, then the two indexes, each usable as an int64 and proven in
+// range for the list, and a call anywhere but as a statement is
+// reported, since it gives no value.
 func (mut c Checker) swap_call(k Key) (types.Type, error) {
     cl := call_of(c.prog.trees, k)
     name := builtin_msg("swap")?
@@ -450,5 +450,35 @@ func (mut c Checker) swap_call(k Key) (types.Type, error) {
     if len(c.diags) > before || elem == types.invalid {
         return types.invalid, noerror
     }
-    return types.invalid, not_ported
+    first := item_at(c.prog.trees, k.unit, cl.args, 0)
+    l := mut_place(c.prog.trees, first)
+    for j := range 2 {
+        mut c.require_swap_index(l, item_at(c.prog.trees, k.unit, cl.args, j +% 1))?
+    }
+    if c.dropped_call != k {
+        mut m := msg()
+        fmt.appendf(mut m, "swap returns no value")?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+    }
+    return types.invalid, noerror
+}
+
+// require_swap_index reports i, an index swap reads and writes the list
+// l at, when it is not proven in range for l, Go's requireSwapIndex: a
+// known negative index always, and any other the facts in force do not
+// prove, with what check would prove it.
+func (mut c Checker) require_swap_index(l Key, i Key) error {
+    ix := IxRef{node: no_key(), x: l, index: i}
+    v, known := mut c.known_value(i)?
+    if known && v.is_negative() {
+        return mut c.report_outside(ix, v)
+    }
+    proven := mut c.string_index_proven(ix)?
+    if proven {
+        return noerror
+    }
+    mut m := msg()
+    mut notes := make(list[diag.Related], c_allocator)
+    mut c.string_index_error(ix, true, mut m, mut notes)?
+    return mut c.error_notes(span_at(c.prog.trees, i), own m, own notes)
 }

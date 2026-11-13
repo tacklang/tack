@@ -6,11 +6,12 @@ package typeck
 // (check.go:557-603), and the bodies (check.go:604-618, see body.tck),
 // their statements and expressions, the calls in them and the values of
 // lists, maps, arenas, pools, views, any and error they pass (see
-// call.tck), and their ownership: moves (see mover.tck), exclusivity
-// and borrows (see exclusive.tck), view results (see viewresult.tck),
-// the builtins that move values (see ownbuiltins.tck), regions and
-// scope allocators (see scopealloc.tck) and escapes (see escape.tck),
-// as far as none needs a later stage.
+// call.tck), the facts that prove an index in range, a divisor not zero
+// and an error checked (see fact.tck), and their ownership: moves (see
+// mover.tck), exclusivity and borrows (see exclusive.tck), view results
+// (see viewresult.tck), the builtins that move values (see
+// ownbuiltins.tck), regions and scope allocators (see scopealloc.tck)
+// and escapes (see escape.tck), as far as none needs a later stage.
 // It takes a resolved program and the source files its spans point
 // into, both taken over and given back, and gives every struct and union
 // type its ID, its fields and its cases, every global its type and its
@@ -30,12 +31,15 @@ package typeck
 // finds is kept beside the tree, in maps keyed by node (see Checker),
 // rather than written into nodes as Go writes it.
 //
-// A body is checked without the facts Go keeps beside it: they decide
-// the proofs later stages port, and every construct that would need one
-// is declined before it could make a difference (see body.tck), so a
-// body that checks is one whose every report is the port's too. Once a
-// body reports nothing, its moves are followed, and then its escapes,
-// as Go's checkFunc does. check_types keeps what the
+// A body is checked with the facts Go keeps beside it, put in force as
+// conditions, loops, cases and early exits give them and taken out of
+// force as their regions end, and with the relations in force, which a
+// proof asks when a value's own bounds fall short (see relgraph.tck).
+// Every construct that would need a later stage is declined before it
+// could make a difference (see body.tck), so a body that checks is one
+// whose every report is the port's too. Once a body reports nothing,
+// its moves are followed, and then its escapes, as Go's checkFunc does.
+// check_types keeps what the
 // declaration phase found when only a body is declined, for
 // --port-types, whose dump says how far the checker got.
 //
@@ -74,7 +78,13 @@ package typeck
 // and after its part done by functions of their own, which return
 // before the part is checked (see field_key, question_error_last,
 // find_method and method_args); and a fold or a walk of the moves keeps
-// a stack of its own (see fold_run and mv_walk). The generated C gives
+// a stack of its own (see fold_run and mv_walk). The facts keep to it
+// too: a condition's facts are worked out from a stack of frames (see
+// facts_from), a region's writes, whether a block leaves and the jumps
+// out of it from stacks of their own (see walk_writes, block_leaves and
+// jumps_of), an else-if chain's links in a loop (see check_if), and the
+// right side of an && or || costs only an entry on body_expr's stack of
+// spines and one on the facts' (see logic_start). The generated C gives
 // every temporary of a function a slot for the whole call, so what
 // matters is what a frame on the recursion's path holds, which the
 // structure above keeps small whatever clang inlines into it.

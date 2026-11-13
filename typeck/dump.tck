@@ -423,8 +423,18 @@ func (mut c Checker) write_const(mut out list[uint8], k Const) error {
         append(mut out, '}')?
         return noerror
     }
-    // An untyped float is never a global's value: fold rounds it to its
-    // type first.
+    // An untyped float, the exact value of a constant expression of
+    // floats before it is rounded to a type, is never a global's value,
+    // but is an operator's; the dump writes it exactly, in lowest terms.
+    if k.kind == cv_float {
+        f, has := clone_float(c.store.floats, k.first)?
+        if has {
+            fmt.appendf(mut out, "{\"float\":\"")?
+            f.append_exact(mut out, c_allocator)?
+            fmt.appendf(mut out, "\"}")?
+            return noerror
+        }
+    }
     fmt.appendf(mut out, "null")?
     return noerror
 }

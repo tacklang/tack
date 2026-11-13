@@ -132,6 +132,21 @@ pub func (x Float) clone(scope alloc Allocator) (Float, error) {
     return Float{num: n, den: d}, noerror
 }
 
+// append_exact appends x's exact value in lowest terms, as Go's
+// big.Rat.RatString writes it: the numerator alone for an integer, and
+// numerator/denominator otherwise.
+pub func (x Float) append_exact(mut out list[uint8], scope alloc Allocator) error {
+    mut f := x.clone(alloc)?
+    reduce(mut f, alloc)?
+    big.format(mut out, f.num, 10)?
+    one := big.from_int64(1, alloc)?
+    if big.cmp(f.den, one) != 0 {
+        append(mut out, '/')?
+        big.format(mut out, f.den, 10)?
+    }
+    return noerror
+}
+
 // is_zero reports whether x is 0.
 pub func (x Float) is_zero() bool {
     return big.is_zero(x.num)

@@ -129,12 +129,12 @@ func (mut c Checker) esc_declare(v Key, d int64) error {
 // esc_raise raises the mark of decl to d, when its type may hold memory,
 // never past its home, Go's raise.
 func (mut c Checker) esc_raise(decl Key, d int64) error {
-    h := int_in(c.esc.home, decl)
+    h := map_int_in(c.esc.home, decl)
     mut to := d
     if h < to {
         to = h
     }
-    m := int_in(c.esc.mark, decl)
+    m := map_int_in(c.esc.mark, decl)
     owned := mut c.esc_owned(decl_type_of(c.decl_types, decl))?
     if to > m && owned {
         put(mut c.esc.mark, decl, to)?
@@ -150,7 +150,7 @@ func (mut c Checker) esc_decl_src(decl Key) int64 {
     if is_alloc {
         return dep
     }
-    return int_in(c.esc.mark, decl)
+    return map_int_in(c.esc.mark, decl)
 }
 
 // esc_stmts walks the statements of a block, Go's stmts.
@@ -255,8 +255,8 @@ func (mut c Checker) esc_stmt(k Key) error {
     }
 }
 
-// int_in returns m[k], or 0 when k is not in m.
-func int_in(m map[Key]int64, k Key) int64 {
+// map_int_in returns m[k], or 0 when k is not in m.
+func map_int_in(m map[Key]int64, k Key) int64 {
     v, ok := m[k]
     if !ok {
         return 0
@@ -518,7 +518,7 @@ func (mut c Checker) esc_target(k Key, place Key, d int64, ops []Key, source_at 
         return noerror
     }
     decl := key_of_def(nm.def)
-    h := int_in(c.esc.home, decl)
+    h := map_int_in(c.esc.home, decl)
     if h >= d {
         return mut c.esc_raise(decl, d)
     }
@@ -570,7 +570,7 @@ func (mut c Checker) esc_store(target Key, d int64, value Key) error {
         return noerror
     }
     decl := key_of_def(nm.def)
-    h := int_in(c.esc.home, decl)
+    h := map_int_in(c.esc.home, decl)
     if h >= d {
         return mut c.esc_raise(decl, d)
     }

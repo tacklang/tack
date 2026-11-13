@@ -1,0 +1,437 @@
+package typeck
+
+import constant from "tack/constant"
+import source from "tack/source"
+import text from "std/text"
+
+// The records the facts point at, and the facts in force, Go's fields
+// active, guards, proven, chain, deferSpan, storing, lateDefaults and
+// relatedSubjects of the Checker, and the records Go allocates as it
+// goes: guards, drops, endings, keeps, the sides of a condition, the
+// difference bounds and the regions. Every record lives until the check
+// of the function's body is done (see reset_facts), so a position named
+// once names the same record for as long as anything can ask.
+
+// Ending is a write in a fact's region that ends the fact for the code it
+// can reach, Go's ending: drop says what it is, at where it takes
+// effect, loop the outermost loop in the region holding it, or the zero
+// span, and kept the innermost of the branches in the region holding it
+// that leave (see Keep), or -1.
+type Ending struct {
+    drop int64
+    kept int64
+    loop source.Span
+    at int64
+}
+
+// Run is a run of a fact's endings, Go's endings: the count endings of
+// the FactState's endings from start, then the run next, or -1. A shared
+// run is the endings of the shared list shared from the position from
+// on, start and count naming those; its indexes are the shared list's.
+// by_use and by_at are a run of its own's indexes, built the first time
+// a query needs them (see reach.tck), or -1.
+type Run struct {
+    start int64
+    count int64
+    shared int64
+    frm int64
+    next int64
+    by_use int64
+    by_at int64
+}
+
+// Keep is a branch of an if, or a case's body, in a fact's region that
+// leaves, Go's keep: whole is the if or switch it is part of, end where
+// its last statement ends, and resume the point a break or continue out
+// of it can reach code past, or the largest int64 for none; parent is the
+// keep around it and skip the nearest keep out along parent whose resume
+// is greater, each -1 for none.
+type Keep struct {
+    parent int64
+    skip int64
+    whole source.Span
+    end int64
+    resume int64
+}
+
+// Side is one side of a true || or a false &&, Go's []fact in
+// eitherFacts.sides: the count facts of the FactState's side_facts from
+// start.
+type Side struct {
+    start int64
+    count int64
+}
+
+// Either is the sides of a true || or a false &&, of which one holds,
+// Go's eitherFacts: the count sides of the FactState's sides from first.
+type Either struct {
+    first int64
+    count int64
+}
+
+// DiffBound is a difference bound, x - y <= w, between two nodes, each a
+// subject, the length of one when x_len or y_len says so, or the zero
+// key for the constant 0, Go's diffBound. The port makes none with a
+// side condition: those come from arithmetic, which a later stage
+// ports.
+type DiffBound struct {
+    x FKey
+    y FKey
+    w constant.Int
+    x_len bool
+    y_len bool
+}
+
+// RegionRec is where facts hold, Go's region: the count nodes of the
+// FactState's region_nodes from head, then the statements of the block
+// blk from the one at from on, or none when blk is -1.
+type RegionRec struct {
+    head int64
+    count int64
+    blk int64
+    frm int64
+}
+
+// ProofOnly is facts kept apart from the facts in force, which only the
+// proof of an unreachable place, and a note's check of a value ruled
+// out, count, Go's proofOnly: the sides of the Either either, each side
+// facts that hold together, and the region they hold in, the writes in
+// which end them found once a proof first asks (indexed).
+type ProofOnly struct {
+    either int64
+    rgn int64
+    indexed bool
+}
+
+// LateDefault is a body of a switch that runs only after every case's
+// values have been tried, Go's lateDefault: whole is the switch and body
+// the case.
+type LateDefault struct {
+    whole source.Span
+    body source.Span
+}
+
+// LogicFrame is an && or || whose right operand is being checked with
+// what its left one says in force: the mark taken before, and where its
+// left operand's facts start among the FactState's logic_facts.
+type LogicFrame struct {
+    m Mark
+    start int64
+}
+
+// Mark is how many facts, guards and proof-only facts are in force, Go's
+// mark, for release.
+type Mark struct {
+    facts int64
+    guards int64
+    proven int64
+}
+
+// FactState is the facts of the body being checked and the records they
+// name. active is the facts in force, innermost last, and guards the
+// guards they came from, by position in guard_arena; chain_bin and
+// chain hold the facts of the last && or || binary checked, Go's
+// chain; at is where checking has reached, Go's c.at; storing the
+// assignment whose targets are being checked, defer_span the defer
+// whose code is, and late_defaults the switches whose late default is,
+// each when has_storing or has_defer says so; related the subjects a
+// note cannot claim anything literal about, Go's relatedSubjects; and
+// edited how many suppositions are checking, Go's factsEdited.
+type FactState struct {
+    active list[Fact]
+    guards list[int64]
+    guard_arena list[Guard]
+    proven list[ProofOnly]
+    drops list[Drop]
+    drop_text list[uint8]
+    endings list[Ending]
+    runs list[Run]
+    keeps list[Keep]
+    eithers list[Either]
+    sides list[Side]
+    side_facts list[Fact]
+    diffs list[DiffBound]
+    regions list[RegionRec]
+    region_nodes list[Key]
+    paths list[text.Text]
+    path_ids map[text.Text]int64
+    related map[FKey]bool
+    chain_bin Key
+    chain list[Fact]
+    at int64
+    storing source.Span
+    has_storing bool
+    defer_span source.Span
+    has_defer bool
+    late_defaults list[LateDefault]
+    edited int64
+    saved list[Fact]
+    fell map[Key]WSpan
+    fell_facts list[Fact]
+    logic list[LogicFrame]
+    logic_facts list[Fact]
+    blocks BlockStore
+    index FactIndex
+    rel RelIdx
+    reach ReachStore
+}
+
+// new_fact_state returns a FactState with nothing in force.
+func new_fact_state() (FactState, error) {
+    mut fs := FactState{
+        active: make(list[Fact], c_allocator),
+        guards: make(list[int64], c_allocator),
+        guard_arena: make(list[Guard], c_allocator),
+        proven: make(list[ProofOnly], c_allocator),
+        drops: make(list[Drop], c_allocator),
+        drop_text: make(list[uint8], c_allocator),
+        endings: make(list[Ending], c_allocator),
+        runs: make(list[Run], c_allocator),
+        keeps: make(list[Keep], c_allocator),
+        eithers: make(list[Either], c_allocator),
+        sides: make(list[Side], c_allocator),
+        side_facts: make(list[Fact], c_allocator),
+        diffs: make(list[DiffBound], c_allocator),
+        regions: make(list[RegionRec], c_allocator),
+        region_nodes: make(list[Key], c_allocator),
+        paths: make(list[text.Text], c_allocator),
+        path_ids: make(map[text.Text]int64, c_allocator),
+        related: make(map[FKey]bool, c_allocator),
+        chain_bin: no_key(),
+        chain: make(list[Fact], c_allocator),
+        at: 0,
+        storing: zero_span(),
+        has_storing: false,
+        defer_span: zero_span(),
+        has_defer: false,
+        late_defaults: make(list[LateDefault], c_allocator),
+        edited: 0,
+        saved: make(list[Fact], c_allocator),
+        fell: make(map[Key]WSpan, c_allocator),
+        fell_facts: make(list[Fact], c_allocator),
+        logic: make(list[LogicFrame], c_allocator),
+        logic_facts: make(list[Fact], c_allocator),
+        blocks: new_block_store(),
+        index: new_fact_index(),
+        rel: new_rel_idx(),
+        reach: new_reach_store(),
+    }
+    // Path 0 is the empty path, a variable itself.
+    t := text.new(c_allocator)
+    append(mut fs.paths, t)?
+    return fs, noerror
+}
+
+// unset_span returns the zero span, Go's zero ast.Span.
+func zero_span() source.Span {
+    mut z source.Span
+    return z
+}
+
+// reset_facts forgets every record the body just checked made, once
+// nothing can ask about them, and every fact in force: the paths
+// interned stay.
+func (mut c Checker) reset_facts() error {
+    paths := replace(mut c.fx.paths, make(list[text.Text], c_allocator))
+    ids := replace(mut c.fx.path_ids, make(map[text.Text]int64, c_allocator))
+    mut fresh := new_fact_state()?
+    old_paths := replace(mut fresh.paths, paths)
+    drop(own old_paths)
+    old_ids := replace(mut fresh.path_ids, ids)
+    drop(own old_ids)
+    old := replace(mut c.fx, fresh)
+    drop(own old)
+    return noerror
+}
+
+// mark returns how many facts, guards and proof-only facts are in
+// force, Go's mark.
+func (c Checker) mark() Mark {
+    return Mark{facts: len(c.fx.active), guards: len(c.fx.guards), proven: len(c.fx.proven)}
+}
+
+// release takes out of force every fact, guard and proof-only fact put
+// in force since m was taken, Go's release.
+func (mut c Checker) release(m Mark) error {
+    mut c.unindex_facts(m.facts)?
+    for len(c.fx.active) > m.facts {
+        pop(mut c.fx.active)
+    }
+    for len(c.fx.guards) > m.guards {
+        pop(mut c.fx.guards)
+    }
+    for len(c.fx.proven) > m.proven {
+        pop(mut c.fx.proven)
+    }
+    return noerror
+}
+
+// add_guard records g and returns its position.
+func (mut c Checker) add_guard(g Guard) (int64, error) {
+    nid := len(c.fx.guard_arena)
+    append(mut c.fx.guard_arena, g)?
+    return nid, noerror
+}
+
+// guard_at returns the guard at position g, or a guard of nothing.
+func (c Checker) guard_at(g int64) Guard {
+    r, ok := c.fx.guard_arena[g]
+    if !ok {
+        return Guard{cond: no_cond(), span: zero_span(), kind: guard_cond}
+    }
+    return r
+}
+
+// guard_silent reports whether the guard g's facts are ones no note
+// describes, Go's guard.silent: a stored value's, and a join's at a case
+// a fallthrough enters.
+func (c Checker) guard_silent(g int64) bool {
+    if g < 0 {
+        return false
+    }
+    k := c.guard_at(g).kind
+    return k == guard_value || k == guard_fallthrough
+}
+
+// guard_kind returns the kind of the guard g, or a kind no guard has
+// for none.
+func (c Checker) guard_kind(g int64) uint8 {
+    if g < 0 {
+        return 255
+    }
+    return c.guard_at(g).kind
+}
+
+// drop_at returns the drop at position d, or a drop of nothing.
+func (c Checker) drop_at(d int64) Drop {
+    r, ok := c.fx.drops[d]
+    if !ok {
+        return Drop{decl: no_key(), at: zero_span(), text_start: 0, text_len: 0, kind: drop_assigned}
+    }
+    return r
+}
+
+// same_drop reports whether the drops a and b are the same reason, the
+// same write, Go's drop.same.
+func (c Checker) same_drop(a int64, b int64) bool {
+    x := c.drop_at(a)
+    y := c.drop_at(b)
+    return x.kind == y.kind && x.at == y.at
+}
+
+// fact_in returns l[i], or a fact about nothing.
+func fact_in(l []Fact, i int64) Fact {
+    f, ok := l[i]
+    if !ok {
+        return new_fact(zero_fkey())
+    }
+    return f
+}
+
+// side_at returns the side at position s, or an empty one.
+func (c Checker) side_at(s int64) Side {
+    r, ok := c.fx.sides[s]
+    if !ok {
+        return Side{start: 0, count: 0}
+    }
+    return r
+}
+
+// either_at returns the sides at position e, or none.
+func (c Checker) either_at(e int64) Either {
+    r, ok := c.fx.eithers[e]
+    if !ok {
+        return Either{first: 0, count: 0}
+    }
+    return r
+}
+
+// diff_at returns the difference bound at position d, or one of
+// nothing.
+func (c Checker) diff_at(d int64) DiffBound {
+    r, ok := c.fx.diffs[d]
+    if !ok {
+        return DiffBound{x: zero_fkey(), y: zero_fkey(), w: constant.from_int64(0), x_len: false, y_len: false}
+    }
+    return r
+}
+
+// region_at returns the region at position r, or an empty one.
+func (c Checker) region_at(r int64) RegionRec {
+    rec, ok := c.fx.regions[r]
+    if !ok {
+        return RegionRec{head: 0, count: 0, blk: -1, frm: 0}
+    }
+    return rec
+}
+
+// add_region records the region of head, the count nodes of
+// region_nodes from start, then the rest of the block blk from the
+// statement from on, and returns its position.
+func (mut c Checker) add_region(start int64, count int64, blk int64, frm int64) (int64, error) {
+    nid := len(c.fx.regions)
+    append(mut c.fx.regions, RegionRec{head: start, count: count, blk: blk, frm: frm})?
+    return nid, noerror
+}
+
+// push_nodes appends nodes to region_nodes, and returns where they start.
+func (mut c Checker) push_nodes(nodes []Key) (int64, error) {
+    start := len(c.fx.region_nodes)
+    append(mut c.fx.region_nodes, nodes...)?
+    return start, noerror
+}
+
+// keep_at returns the keep at position k, or a keep of nothing.
+func (c Checker) keep_at(k int64) Keep {
+    r, ok := c.fx.keeps[k]
+    if !ok {
+        return Keep{parent: -1, skip: -1, whole: zero_span(), end: 0, resume: 0}
+    }
+    return r
+}
+
+// run_at returns the run at position r, or an empty one.
+func (c Checker) run_at(r int64) Run {
+    rec, ok := c.fx.runs[r]
+    if !ok {
+        return Run{start: 0, count: 0, shared: -1, frm: 0, next: -1, by_use: -1, by_at: -1}
+    }
+    return rec
+}
+
+// ending_at returns the ending at position e, or an ending of nothing.
+func (c Checker) ending_at(e int64) Ending {
+    r, ok := c.fx.endings[e]
+    if !ok {
+        return Ending{drop: -1, kept: -1, loop: zero_span(), at: 0}
+    }
+    return r
+}
+
+// mark_related records each of k1 and k2 in related, but the zero key,
+// Go's markRelated.
+func (mut c Checker) mark_related(k1 FKey, k2 FKey) error {
+    if !k1.is_zero() {
+        put(mut c.fx.related, k1, true)?
+    }
+    if !k2.is_zero() {
+        put(mut c.fx.related, k2, true)?
+    }
+    return noerror
+}
+
+// set_fact sets l[i] to f, when l has an i'th fact.
+func set_fact(mut l list[Fact], i int64, f Fact) {
+    set_at(mut l, i, f)
+}
+
+// AnyElem asks for no method, so set_at sets an element of any list.
+type AnyElem interface {
+}
+
+// set_at sets l[i] to v, when l has an i'th element.
+func set_at[T AnyElem](mut l list[T], i int64, own v T) {
+    if i >= 0 && i < len(l) {
+        l[i] = v
+    }
+}

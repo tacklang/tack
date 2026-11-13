@@ -1,0 +1,238 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// Elements being assigned and the checked forms, Go's elementTarget,
+// containerTarget and stringTarget (check.go), element with write set
+// (array.go) and divisionResults (expr.go): an element's index needs its
+// proof as a value's does, judged where the assignment's targets are
+// stored (see storing_assignable), and the checked form of a division
+// needs none, but for a divisor known to be zero.
+
+// storing_assignable checks target as assignable does, with stmt, an
+// assignment, marked as the one whose targets are being checked, Go's
+// storeTo around assignable, and target and value, what it stores,
+// recorded as Go's assigning for the checks of an element assigned in
+// place (see check_assign_borrows).
+func (mut c Checker) storing_assignable(stmt Key, target Key, value Key) (types.Type, bool, error) {
+    outer_has := c.fx.has_storing
+    outer := c.fx.storing
+    outer_value := c.assign_value
+    outer_target := c.assign_target
+    c.fx.has_storing = true
+    c.fx.storing = span_at(c.prog.trees, stmt)
+    c.assign_value = value
+    c.assign_target = target
+    typ, ok, e := mut c.assignable(target)
+    c.fx.has_storing = outer_has
+    c.fx.storing = outer
+    c.assign_value = outer_value
+    c.assign_target = outer_target
+    return typ, ok, e
+}
+
+// place_target checks target, an element being assigned, Go's
+// elementTarget, through the chain of elements and fields it is part
+// of: each element's container must be a mutable variable or a mut
+// parameter, or an element or a field of one, a string's bytes are never
+// assigned, and a slice is no place. The chain is walked in a loop, the
+// innermost link checked first as Go's recursion checks it, and when a
+// link fails, the index of every element outside it is still checked,
+// as Go's elementTarget does on its way out.
+func (mut c Checker) place_target(target Key) (types.Type, bool, error) {
+    mut links := make(list[Key], c_allocator)
+    mut cur := target
+    mut failed := false
+    mut root := no_key()
+    for is_no_key(root) && !failed {
+        switch kind_at(c.prog.trees, cur) {
+        case index(ix):
+            x := sub(cur, ix.x)
+            switch kind_at(c.prog.trees, x) {
+            case ident:
+                if mut c.type_of(x) == types.string_type {
+                    mut c.string_target(cur)?
+                    failed = true
+                    continue
+                }
+            case index, selector:
+            case slice:
+                t := mut c.source_text(span_at(c.prog.trees, cur))?
+                mut m := msg()
+                fmt.appendf(mut m, "cannot assign to %s: a slice is not a place", t[:])?
+                mut c.errorf(span_at(c.prog.trees, cur), own m)?
+                failed = true
+                continue
+            default:
+                mut c.not_a_target(x)?
+                failed = true
+                continue
+            }
+            append(mut links, cur)?
+            cur = x
+        case selector(s):
+            if !ast.is_none(s.field) {
+                return types.invalid, false, not_ported
+            }
+            append(mut links, cur)?
+            cur = sub(cur, s.x)
+        default:
+            root = cur
+        }
+    }
+    mut typ := types.invalid
+    if !failed {
+        mut what := "field"
+        last := key_in(links[:], len(links) -% 1)
+        switch kind_at(c.prog.trees, last) {
+        case index:
+            what = "element"
+        default:
+        }
+        t, ok := mut c.container_target_as(root, what)?
+        typ = t
+        failed = !ok
+    }
+    mut i := len(links) -% 1
+    for i >= 0 {
+        l := key_in(links[:], i)
+        i -%= 1
+        switch kind_at(c.prog.trees, l) {
+        case selector(s):
+            if failed {
+                continue
+            }
+            ft := mut c.field(l, s, typ)?
+            mut c.set_node_type(l, ft)?
+            typ = ft
+            failed = ft == types.invalid
+        case index(ix):
+            if failed {
+                mut c.expr(sub(l, ix.index))?
+                continue
+            }
+            if typ == types.string_type {
+                mut c.string_target(l)?
+                failed = true
+                continue
+            }
+            et := mut c.element_target(l, ix, typ)?
+            mut c.set_node_type(l, et)?
+            typ = et
+            failed = et == types.invalid
+        default:
+        }
+    }
+    if failed {
+        return types.invalid, false, noerror
+    }
+    return typ, true, noerror
+}
+
+// not_a_target reports target as no place an assignment can write, Go's
+// notATarget: only when nothing was reported before, the resolver having
+// reported it otherwise.
+func (mut c Checker) not_a_target(target Key) error {
+    if c.prior != 0 {
+        return noerror
+    }
+    mut m := msg()
+    fmt.appendf(mut m, "cannot assign to this expression")?
+    return mut c.errorf(span_at(c.prog.trees, target), own m)
+}
+
+// string_target reports an assignment to a byte of a string, ix, after
+// checking the index for errors of its own, Go's stringTarget.
+func (mut c Checker) string_target(ix Key) error {
+    mut c.expr(index_index(c.prog.trees, ix))?
+    mut m := msg()
+    fmt.appendf(mut m, "cannot assign to an element of a string; strings are immutable")?
+    return mut c.errorf(span_at(c.prog.trees, ix), own m)
+}
+
+// container_target_as checks x, which holds an element or a field, what,
+// being assigned, Go's containerTarget for a name or anything that is no
+// element or field: a mutable variable or a mut parameter.
+func (mut c Checker) container_target_as(x Key, what string) (types.Type, bool, error) {
+    nm, is_id := ident_at(c.prog.trees, x)
+    if !is_id {
+        mut c.not_a_target(x)?
+        return types.invalid, false, noerror
+    }
+    if nm.def.kind == ast.def_param {
+        d := key_of_def(nm.def)
+        typ := decl_type_of(c.decl_types, d)
+        if param_of(c.prog.trees, d).is_mut {
+            return typ, typ != types.invalid, noerror
+        }
+        mut m := msg()
+        fmt.appendf(mut m, "cannot assign to %s of parameter %s", what, text_at(c.prog.trees, c.none, x.unit, nm.name)[:])?
+        mut c.errorf(span_at(c.prog.trees, x), own m)?
+        return types.invalid, false, noerror
+    }
+    if nm.def.kind == ast.def_var {
+        d := key_of_def(nm.def)
+        typ := decl_type_of(c.decl_types, d)
+        if var_of(c.prog.trees, d).mutable {
+            return typ, typ != types.invalid, noerror
+        }
+        mut m := msg()
+        fmt.appendf(mut m, "cannot assign to %s of immutable variable ", what)?
+        qualified(c.prog.trees, c.none, x.unit, nm, mut m)?
+        mut c.errorf(span_at(c.prog.trees, x), own m)?
+        return types.invalid, false, noerror
+    }
+    return types.invalid, false, noerror
+}
+
+// element_target checks the index of ix, x, an element of a value of
+// type base being assigned, and returns the element's type, Go's element
+// with write set (see element_write).
+func (mut c Checker) element_target(ix Key, x ast.Index, base types.Type) (types.Type, error) {
+    t := mut c.element_write(ix, x, base)?
+    return t, noerror
+}
+
+// division_results checks a division or remainder bound to want names,
+// value, b, which must be two, the result and whether the divisor was
+// not zero, Go's divisionResults: the divisor needs no proof, but one
+// known to be zero is reported, and a float division has no checked
+// form.
+func (mut c Checker) division_results(value Key, b ast.Binary, want int64, sp source.Span, mut out list[types.Type]) (bool, error) {
+    outer := c.checked_division
+    c.checked_division = value
+    typ, e := mut c.expr(value)
+    c.checked_division = outer
+    if e.code != 0 {
+        return false, e
+    }
+    if typ == types.invalid {
+        return false, noerror
+    }
+    if types.is_float(typ) {
+        mut m := msg()
+        fmt.appendf(mut m, "dividing floats cannot fail, so it has no checked form; use a / b")?
+        mut c.errorf(sp, own m)?
+        return false, noerror
+    }
+    y := sub(value, b.y)
+    v, known := mut c.known_value(y)?
+    if known && v.is_zero() {
+        mut m := msg()
+        fmt.appendf(mut m, "division by zero")?
+        mut c.errorf(span_at(c.prog.trees, y), own m)?
+        return false, noerror
+    }
+    if want != 2 {
+        mut m := msg()
+        fmt.appendf(mut m, "assignment mismatch: %d variables but a division gives 2 values", want)?
+        mut c.errorf(sp, own m)?
+        return false, noerror
+    }
+    append(mut out, typ)?
+    append(mut out, types.bool_type)?
+    return true, noerror
+}

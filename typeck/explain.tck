@@ -1,0 +1,1184 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import diag from "tack/diag"
+import source from "tack/source"
+import text from "std/text"
+
+// The notes that explain a missing proof, Go's explain.go: when a guard
+// in scope says something about the operand, the guard gave a fact its
+// region dropped, because the region assigns the variable, or a fact
+// that holds but is too weak. A dropped fact stays in force marked with
+// its drop, which every query that proves something skips, so it is
+// there for these notes. Go's proof carries closures, proven, claim and
+// weak; here a Proof names its kind and what it is about, and the three
+// are functions that switch on the kind.
+
+// The kinds of proof, Go's divisorProof, indexProof, lengthProof,
+// errorProof and okProof.
+var proof_divisor uint8 = 0
+var proof_index uint8 = 1
+var proof_length uint8 = 2
+var proof_error uint8 = 3
+var proof_ok uint8 = 4
+var proof_pop uint8 = 5
+var proof_member uint8 = 6
+
+// Extent is what an index must stay below, Go's extent: the length n of
+// an array or a string, when known, and the array or string itself, of,
+// whose items are called unit and which notes call label.
+type Extent struct {
+    of Key
+    label list[uint8]
+    unit string
+    n int64
+    known bool
+}
+
+// Proof is a missing proof to explain, Go's proof: of kind, about the
+// subject about; e is the divisor, the index or the string, or the
+// error's or the ok's declaration; ix the element whose index a string
+// proof proves; n an array's length, for an array's index; ext the
+// extent an index proof is against; upper_only says only an upper bound
+// is relevant to it, Go's relevant.
+type Proof struct {
+    kind uint8
+    about FKey
+    e Key
+    ix IxRef
+    n int64
+    array bool
+    ext Extent
+    upper_only bool
+}
+
+// note_of returns a note at sp saying msg, taken over.
+func note_of(sp source.Span, own msg list[uint8]) (diag.Related, error) {
+    m := text.from_bytes(msg, c_allocator)?
+    return diag.Related{message: m, marker: text.new(c_allocator), span: sp, severity: diag.note}, noerror
+}
+
+// add_note appends to notes a note at sp saying msg, taken over.
+func push_note(mut notes list[diag.Related], sp source.Span, own msg list[uint8]) error {
+    n := note_of(sp, own msg)?
+    append(mut notes, n)?
+    return noerror
+}
+
+// error_notes reports an error at sp saying msg, taken over, with notes,
+// taken over, Go's errorNotes.
+func (mut c Checker) error_notes(sp source.Span, own msg list[uint8], own notes list[diag.Related]) error {
+    if c.suppressing {
+        return noerror
+    }
+    m := text.from_bytes(msg, c_allocator)?
+    mut d := diag.new_error(own m, sp, c_allocator)
+    for _, n := range notes {
+        nm := text.from_bytes(n.message.bytes(), c_allocator)?
+        append(mut d.related, diag.Related{message: nm, marker: text.new(c_allocator), span: n.span, severity: n.severity})?
+    }
+    append(mut c.diags, d)?
+    return noerror
+}
+
+// guard_subject appends to out how a note names the guard g, Go's
+// guard.subject.
+func (c Checker) guard_subject(g int64, mut out list[uint8]) error {
+    k := c.guard_kind(g)
+    mut s := "this guard"
+    if k == guard_range || k == guard_invariant {
+        s = "this loop"
+    } else if k == guard_count {
+        s = "counting frm this start"
+    } else if k == guard_case || k == guard_later_case || k == guard_matched {
+        s = "this case"
+    } else if k == guard_exit {
+        s = "this early exit"
+    } else if k == guard_store {
+        s = "this assignment"
+    } else if k == guard_ensures {
+        s = "this call"
+    }
+    append(mut out, []uint8(s)...)?
+    return noerror
+}
+
+// guard_where appends to out what a note adds after what the guard g's
+// facts prove, to say where they are true, Go's guard.where.
+func (c Checker) guard_where(g int64, mut out list[uint8]) error {
+    k := c.guard_kind(g)
+    mut s := ""
+    if k == guard_else {
+        s = " in its else branch"
+    } else if k == guard_later_case {
+        s = " in the cases after it"
+    } else if k == guard_matched {
+        s = " after the switch"
+    } else if k == guard_exit || k == guard_store || k == guard_ensures {
+        s = " after it"
+    }
+    append(mut out, []uint8(s)...)?
+    return noerror
+}
+
+// fact_span returns what a note about f underlines, Go's fact.span: the
+// comparison, or the && or ||, that gave it, or else its guard.
+func (c Checker) fact_span(f Fact) source.Span {
+    if !f.src.is_none() {
+        return span_at(c.prog.trees, f.src.node)
+    }
+    return c.guard_at(f.guard).span
+}
+
+// drop_note appends to notes the note that points at the drop d's cause,
+// Go's drop.note.
+func (c Checker) drop_note(d int64, mut notes list[diag.Related]) error {
+    dr := c.drop_at(d)
+    mut m := msg()
+    append(mut m, []uint8("but ")...)?
+    append(mut m, name_of(c.prog.trees, c.none, dr.decl)...)?
+    if dr.kind == drop_mut {
+        append(mut m, []uint8(" is passed as mut to ")...)?
+        mut i int64 = 0
+        for i < dr.text_len {
+            append(mut m, byte_at(c.fx.drop_text[:], dr.text_start +% i))?
+            i +%= 1
+        }
+        append(mut m, []uint8(" here, so the proof ends")...)?
+    } else {
+        append(mut m, []uint8(" is assigned here, so the proof ends")...)?
+    }
+    return push_note(mut notes, dr.at, own m)
+}
+
+// verb appends to out present, or would and base when would is set, Go's
+// verb.
+func verb(present string, base string, would bool, mut out list[uint8]) error {
+    if would {
+        append(mut out, []uint8("would ")...)?
+        append(mut out, []uint8(base)...)?
+        return noerror
+    }
+    append(mut out, []uint8(present)...)?
+    return noerror
+}
+
+// explain returns, in notes, the notes for the missing proof p, Go's
+// explain: for each fact about its subject that was dropped, the guard
+// that gave it and what dropped it, and then, if those facts would not
+// have been enough, or none was dropped, why the facts fall short.
+func (mut c Checker) explain(p Proof, mut notes list[diag.Related]) error {
+    hv := mut c.held_value(p.about)?
+    _, rel := c.fx.related[p.about]
+    held := hv || rel
+    mut all := make(list[Fact], c_allocator)
+    mut c.facts_about(p.about, mut all)?
+    mut facts := make(list[Fact], c_allocator)
+    mut dropped := make(list[Fact], c_allocator)
+    for _, f0 := range all {
+        if f0.relational() || f0.diff >= 0 || f0.has_ne || c.guard_silent(f0.guard) {
+            continue
+        }
+        mut f := f0
+        f.drop = mut c.drop_of(f0)?
+        if f.drop >= 0 && no_interval().implies(f) {
+            continue
+        }
+        append(mut facts, f)?
+        if f.drop >= 0 {
+            append(mut dropped, f)?
+        }
+    }
+    mut relevant := make(list[Fact], c_allocator)
+    c.relevant_drops(dropped[:], p.upper_only, mut relevant)?
+    if len(relevant) == 0 {
+        if held {
+            return noerror
+        }
+        return mut c.weak(p, facts[:], false, mut notes)
+    }
+    mut c.drop_notes(p, relevant[:], mut notes)?
+    proven := mut c.supposing_proven(p)?
+    if !proven && !held {
+        mut c.suppose()?
+        e := mut c.weak(p, facts[:], true, mut notes)
+        mut c.unsuppose()
+        if e.code != 0 {
+            return e
+        }
+    }
+    return noerror
+}
+
+// relevant_drops appends to out the dropped facts that came from a guard,
+// and were dropped for a reason, that dropped at least one fact relevant
+// to the proof, Go's relevantDrops: all of them when every fact is, and
+// with upper_only those that dropped a fact bounding from above.
+func (c Checker) relevant_drops(dropped []Fact, upper_only bool, mut out list[Fact]) error {
+    for _, f := range dropped {
+        if !upper_only {
+            append(mut out, f)?
+            continue
+        }
+        mut hit := false
+        for _, o := range dropped {
+            if o.guard == f.guard && c.same_drop(o.drop, f.drop) && (o.has_hi || !o.len_of.is_zero()) {
+                hit = true
+            }
+        }
+        if hit {
+            append(mut out, f)?
+        }
+    }
+    return noerror
+}
+
+// held_value reports whether a fact a stored value gives, or a join's at
+// a case a fallthrough enters, holds about k where checking has reached,
+// Go's heldValue.
+func (mut c Checker) held_value(k FKey) (bool, error) {
+    mut facts := make(list[Fact], c_allocator)
+    mut c.facts_about(k, mut facts)?
+    for _, f := range facts {
+        if f.guard >= 0 && (c.guard_silent(f.guard) || c.guard_kind(f.guard) == guard_store) {
+            h := mut c.holds(f)?
+            if h {
+                return true, noerror
+            }
+        }
+    }
+    return false, noerror
+}
+
+// suppose puts in force a copy of every fact with what drops it and
+// what ends it cleared, but a stored value's and a join's, Go's
+// supposing, until unsuppose puts the facts back.
+func (mut c Checker) suppose() error {
+    if c.fx.edited > 0 {
+        // Go supposes within a supposition only where a later stage's
+        // proofs do.
+        return not_ported
+    }
+    mut copy := make(list[Fact], c_allocator)
+    for _, f := range c.fx.active {
+        mut g := f
+        if !c.guard_silent(f.guard) {
+            g.drop = -1
+            g.ends = -1
+        }
+        append(mut copy, g)?
+    }
+    saved := replace(mut c.fx.active, copy)
+    old := replace(mut c.fx.saved, saved)
+    drop(own old)
+    c.fx.edited +%= 1
+    return noerror
+}
+
+// unsuppose puts back the facts suppose replaced.
+func (mut c Checker) unsuppose() {
+    saved := replace(mut c.fx.saved, make(list[Fact], c_allocator))
+    old := replace(mut c.fx.active, saved)
+    drop(own old)
+    c.fx.edited -%= 1
+}
+
+// supposing_proven runs p's proof with every fact counted, Go's
+// supposing(p.proven).
+func (mut c Checker) supposing_proven(p Proof) (bool, error) {
+    mut c.suppose()?
+    r, e := mut c.proven(p)
+    mut c.unsuppose()
+    return r, e
+}
+
+// proven runs p's proof again, Go's proof.proven.
+func (mut c Checker) proven(p Proof) (bool, error) {
+    if p.kind == proof_divisor {
+        r := mut c.nonzero(p.e)?
+        return r, noerror
+    }
+    if p.kind == proof_index && p.array {
+        r := mut c.in_range(p.e, p.n)?
+        return r, noerror
+    }
+    if p.kind == proof_index || p.kind == proof_length {
+        r := mut c.string_index_proven(p.ix)?
+        return r, noerror
+    }
+    if p.kind == proof_pop {
+        least := mut c.min_len(p.e)?
+        return least.cmp(constant.from_int64(1)) >= 0, noerror
+    }
+    if p.kind == proof_error {
+        r := mut c.no_error(p.e)?
+        return r, noerror
+    }
+    r := mut c.ok_true(p.e)?
+    return r, noerror
+}
+
+// drop_notes appends to notes, for each reason some of the dropped facts
+// were dropped, in the order the facts were put in force, a note at each
+// guard whose facts it dropped, in source order, saying what they prove,
+// and then one at the reason, Go's dropNotes.
+func (mut c Checker) drop_notes(p Proof, dropped []Fact, mut notes list[diag.Related]) error {
+    mut done := make(list[int64], c_allocator)
+    for _, f := range dropped {
+        mut seen := false
+        for _, d := range done {
+            seen = seen || c.same_drop(d, f.drop)
+        }
+        if seen {
+            continue
+        }
+        append(mut done, f.drop)?
+        mut guards := make(list[int64], c_allocator)
+        mut starts := make(list[int64], c_allocator)
+        for _, o := range dropped {
+            if !c.same_drop(o.drop, f.drop) {
+                continue
+            }
+            mut has := false
+            for _, g := range guards {
+                has = has || g == o.guard
+            }
+            if !has {
+                append(mut guards, o.guard)?
+                append(mut starts, c.guard_at(o.guard).span.start)?
+            }
+        }
+        mut order := make(list[int64], c_allocator)
+        for i := range len(guards) {
+            append(mut order, i)?
+        }
+        sorted := stable_sort_by(order[:], starts[:])?
+        for _, gi := range sorted {
+            g := int_in(guards[:], gi)
+            mut mine := make(list[Fact], c_allocator)
+            for _, o := range dropped {
+                if o.guard == g && c.same_drop(o.drop, f.drop) {
+                    append(mut mine, o)?
+                }
+            }
+            mut m := msg()
+            c.guard_subject(g, mut m)?
+            append(mut m, []uint8(" proves ")...)?
+            mut c.claim(p, mine[:], mut m)?
+            c.guard_where(g, mut m)?
+            push_note(mut notes, c.guard_at(g).span, own m)?
+        }
+        c.drop_note(f.drop, mut notes)?
+    }
+    return noerror
+}
+
+// claim appends to out what some facts prove, Go's proof.claim.
+func (mut c Checker) claim(p Proof, facts []Fact, mut out list[uint8]) error {
+    if p.kind == proof_member {
+        // Go's memberNotes: the key, or the handle, is in, or is live
+        // in, its map or its pool, p.e the element.
+        key := mut c.source_text(span_at(c.prog.trees, index_index(c.prog.trees, p.e)))?
+        x := index_x(c.prog.trees, p.e)
+        m := mut c.source_text(span_at(c.prog.trees, x))?
+        append(mut out, key[:]...)?
+        xt := mut c.type_of(x)
+        if c.table.is_pool(xt) {
+            append(mut out, []uint8(" is live in ")...)?
+        } else {
+            append(mut out, []uint8(" is in ")...)?
+        }
+        append(mut out, m[:]...)?
+        return noerror
+    }
+    if p.kind == proof_divisor {
+        mut known := no_interval()
+        for _, f := range facts {
+            known = known.narrow(f)
+        }
+        mut name := msg()
+        mut c.note_name(p.e, mut name)?
+        if known.excludes_zero() {
+            append(mut out, name[:]...)?
+            append(mut out, []uint8(" != 0")...)?
+            return noerror
+        }
+        return c.describe(name[:], facts, mut out)
+    }
+    if p.kind == proof_index {
+        mut name := msg()
+        mut c.note_name(p.e, mut name)?
+        return c.describe(name[:], facts, mut out)
+    }
+    if p.kind == proof_length || p.kind == proof_pop {
+        mut name := msg()
+        append(mut name, []uint8("len(")...)?
+        c.key_name(p.about, mut name)?
+        append(mut name, ')')?
+        return c.describe(name[:], facts, mut out)
+    }
+    if p.kind == proof_error {
+        mut name := msg()
+        append(mut name, name_of(c.prog.trees, c.none, p.e)...)?
+        append(mut name, []uint8(".code")...)?
+        return c.describe(name[:], facts, mut out)
+    }
+    mut known := no_interval()
+    for _, f := range facts {
+        known = known.narrow(f)
+    }
+    append(mut out, name_of(c.prog.trees, c.none, p.e)...)?
+    if known.has_lo && known.lo.cmp(constant.from_int64(1)) >= 0 {
+        append(mut out, []uint8(" is true")...)?
+    } else {
+        append(mut out, []uint8(" is false")...)?
+    }
+    return noerror
+}
+
+// describe appends to out what facts, all about the subject called name,
+// prove together, Go's describe: its bounds, a bound by a string's
+// length, a relation, and that it is not zero, when its bounds do not
+// already say so, joined by &&.
+func (c Checker) describe(name []uint8, facts []Fact, mut out list[uint8]) error {
+    mut known := no_interval()
+    mut len_of := zero_fkey()
+    for _, f := range facts {
+        known = known.narrow(f)
+        if !f.len_of.is_zero() {
+            len_of = f.len_of
+        }
+    }
+    mut rels := 0
+    for _, f := range facts {
+        if !f.at_most_len.is_zero() || !f.at_most.is_zero() {
+            rels +%= 1
+        }
+    }
+    first := len(out)
+    // bounds: one value, or a lower bound, written lo <= name when an
+    // upper bound follows, and an upper one.
+    if known.has_lo && known.has_hi && known.lo.cmp(known.hi) == 0 {
+        mut p := msg()
+        append(mut p, name...)?
+        append(mut p, []uint8(" == ")...)?
+        known.lo.append_string(mut p)?
+        join_part(mut out, first, p[:])?
+    } else {
+        by_len := !len_of.is_zero() || rels > 0
+        if known.has_lo && (known.has_hi || by_len) {
+            mut p := msg()
+            known.lo.append_string(mut p)?
+            append(mut p, []uint8(" <= ")...)?
+            append(mut p, name...)?
+            join_part(mut out, first, p[:])?
+        } else if known.has_lo {
+            mut p := msg()
+            append(mut p, name...)?
+            append(mut p, []uint8(" >= ")...)?
+            known.lo.append_string(mut p)?
+            join_part(mut out, first, p[:])?
+        }
+        if known.has_hi {
+            mut p := msg()
+            below(name, known.hi, mut p)?
+            join_part(mut out, first, p[:])?
+        }
+    }
+    if !len_of.is_zero() {
+        mut p := msg()
+        append(mut p, name...)?
+        append(mut p, []uint8(" < len(")...)?
+        c.key_name(len_of, mut p)?
+        append(mut p, ')')?
+        join_part(mut out, first, p[:])?
+    }
+    for _, f := range facts {
+        if !f.at_most_len.is_zero() {
+            mut p := msg()
+            append(mut p, name...)?
+            append(mut p, []uint8(" <= len(")...)?
+            c.key_name(f.at_most_len, mut p)?
+            append(mut p, ')')?
+            join_part(mut out, first, p[:])?
+        } else if !f.at_most.is_zero() {
+            mut p := msg()
+            append(mut p, name...)?
+            append(mut p, []uint8(" <= ")...)?
+            c.key_name(f.at_most, mut p)?
+            join_part(mut out, first, p[:])?
+        }
+    }
+    mut bounded := known
+    bounded.nonzero = false
+    if known.nonzero && !bounded.excludes_zero() {
+        mut p := msg()
+        append(mut p, name...)?
+        append(mut p, []uint8(" != 0")...)?
+        join_part(mut out, first, p[:])?
+    }
+    return noerror
+}
+
+// join_part appends p to out, after " && " unless it is the first part,
+// out holding nothing past first.
+func join_part(mut out list[uint8], first int64, p []uint8) error {
+    if len(out) > first {
+        append(mut out, []uint8(" && ")...)?
+    }
+    append(mut out, p...)?
+    return noerror
+}
+
+// below appends to out the upper bound hi on the variable called name,
+// Go's below: name < hi+1, or name <= hi when hi+1 is out of range.
+func below(name []uint8, hi constant.Int, mut out list[uint8]) error {
+    next, ok := hi.add(constant.from_int64(1))
+    append(mut out, name...)?
+    if ok {
+        append(mut out, []uint8(" < ")...)?
+        next.append_string(mut out)?
+        return noerror
+    }
+    append(mut out, []uint8(" <= ")...)?
+    hi.append_string(mut out)?
+    return noerror
+}
+
+// own_interval returns the bounds e, a subject or a length, has before
+// any fact narrows them, Go's ownInterval.
+func (mut c Checker) own_interval(e Key) (Interval, error) {
+    l := mut c.is_length_subject(e)?
+    if l {
+        return length_range(), noerror
+    }
+    return type_interval(mut c.type_of(e)), noerror
+}
+
+// note_interval returns what is known about the value of e, a subject or
+// a length, where it is used, Go's noteInterval.
+func (mut c Checker) note_interval(e Key) (Interval, error) {
+    l := mut c.is_length_subject(e)?
+    if l {
+        known, _ := mut c.leaf_range(e)?
+        return known, noerror
+    }
+    r := mut c.interval_of(e)?
+    return r, noerror
+}
+
+// at_least_zero reports whether the facts in force keep i at or above 0
+// where it is used, Go's atLeastZero.
+func (mut c Checker) at_least_zero(i Key) (bool, error) {
+    known := mut c.note_interval(i)?
+    if known.has_lo && !known.lo.is_negative() {
+        return true, noerror
+    }
+    r := mut c.at_least(i)?
+    return r, noerror
+}
+
+// weak appends to notes why facts, those about p's subject, fall short of
+// it, phrased as what they would do when would is set, Go's proof.weak.
+func (mut c Checker) weak(p Proof, facts []Fact, would bool, mut notes list[diag.Related]) error {
+    if p.kind == proof_length || p.kind == proof_pop {
+        return noerror
+    }
+    if p.kind == proof_divisor {
+        mut known := mut c.own_interval(p.e)?
+        for _, f := range facts {
+            known = known.narrow(f)
+        }
+        if len(facts) == 0 || known.excludes_zero() {
+            return noerror
+        }
+        out := mut c.rules_out(p.e, constant.from_int64(0))?
+        if out {
+            return noerror
+        }
+        f := fact_in(facts, len(facts) -% 1)
+        mut m := msg()
+        c.guard_subject(f.guard, mut m)?
+        append(mut m, ' ')?
+        verb("allows", "allow", would, mut m)?
+        append(mut m, ' ')?
+        mut c.note_name(p.e, mut m)?
+        append(mut m, []uint8(" == 0")...)?
+        return push_note(mut notes, c.fact_span(f), own m)
+    }
+    if p.kind == proof_error {
+        if len(facts) == 0 {
+            return noerror
+        }
+        mut known := code_interval()
+        for _, f := range facts {
+            known = known.narrow(f)
+        }
+        f := fact_in(facts, len(facts) -% 1)
+        mut m := msg()
+        c.guard_subject(f.guard, mut m)?
+        append(mut m, ' ')?
+        verb("allows", "allow", would, mut m)?
+        append(mut m, ' ')?
+        append(mut m, name_of(c.prog.trees, c.none, p.e)...)?
+        append(mut m, []uint8(".code == ")...)?
+        error_witness(known).append_string(mut m)?
+        return push_note(mut notes, c.fact_span(f), own m)
+    }
+    if p.kind == proof_ok {
+        if len(facts) == 0 {
+            return noerror
+        }
+        f := fact_in(facts, len(facts) -% 1)
+        mut m := msg()
+        c.guard_subject(f.guard, mut m)?
+        append(mut m, ' ')?
+        verb("allows", "allow", would, mut m)?
+        append(mut m, ' ')?
+        append(mut m, name_of(c.prog.trees, c.none, p.e)...)?
+        append(mut m, []uint8(" to be false")...)?
+        return push_note(mut notes, c.fact_span(f), own m)
+    }
+    mut known := mut c.own_interval(p.e)?
+    for _, f := range facts {
+        known = known.narrow(f)
+    }
+    if known.is_empty() {
+        return noerror
+    }
+    mut c.lower_note(p.e, facts, known, would, mut notes)?
+    return mut c.upper_note(p.e, facts, known, p.ext, would, mut notes)
+}
+
+// error_witness returns a code other than 0 that known allows,
+// preferring 1 and then -1, or 0 when it allows no other, Go's
+// errorWitness.
+func error_witness(known Interval) constant.Int {
+    one := constant.from_int64(1)
+    if known.lo.cmp(one) <= 0 && known.hi.cmp(one) >= 0 {
+        return one
+    }
+    m := constant.from_int64(-1)
+    if known.lo.cmp(m) <= 0 && known.hi.cmp(m) >= 0 {
+        return m
+    }
+    if !known.lo.is_zero() {
+        return known.lo
+    }
+    return known.hi
+}
+
+// lower_note appends to notes why the facts about the index i, which
+// with its type's bounds give known, do not keep it at or above 0, Go's
+// lowerNote.
+func (mut c Checker) lower_note(i Key, facts []Fact, known Interval, would bool, mut notes list[diag.Related]) error {
+    if known.has_lo && !known.lo.is_negative() {
+        return noerror
+    }
+    mut j := len(facts) -% 1
+    for j >= 0 {
+        f := fact_in(facts, j)
+        j -%= 1
+        if f.has_lo && f.lo.cmp(known.lo) == 0 {
+            out := mut c.rules_out(i, known.lo)?
+            if out {
+                return noerror
+            }
+            mut m := msg()
+            c.guard_subject(f.guard, mut m)?
+            append(mut m, ' ')?
+            verb("allows", "allow", would, mut m)?
+            append(mut m, ' ')?
+            mut c.note_name(i, mut m)?
+            append(mut m, []uint8(" == ")...)?
+            known.lo.append_string(mut m)?
+            return push_note(mut notes, c.fact_span(f), own m)
+        }
+    }
+    j = len(facts) -% 1
+    for j >= 0 {
+        f := fact_in(facts, j)
+        j -%= 1
+        if f.has_hi || !f.len_of.is_zero() || f.relational() {
+            mut name := msg()
+            mut c.note_name(i, mut name)?
+            mut m := msg()
+            c.guard_subject(f.guard, mut m)?
+            append(mut m, ' ')?
+            verb("bounds", "bound", would, mut m)?
+            append(mut m, ' ')?
+            append(mut m, name[:]...)?
+            append(mut m, []uint8(" only above; ")...)?
+            append(mut m, name[:]...)?
+            append(mut m, []uint8(" may be negative")...)?
+            return push_note(mut notes, c.fact_span(f), own m)
+        }
+    }
+    return noerror
+}
+
+// upper_note appends to notes why the facts about the index i, which
+// with its type's bounds give known, do not keep it below the length of
+// e, Go's upperNote.
+func (mut c Checker) upper_note(i Key, facts []Fact, known Interval, e Extent, would bool, mut notes list[diag.Related]) error {
+    mut name := msg()
+    mut c.note_name(i, mut name)?
+    if !e.known {
+        return mut c.other_len_note(name[:], facts, e, would, mut notes)
+    }
+    last := e.n -% 1
+    if known.has_hi && known.hi.cmp(constant.from_int64(last)) <= 0 {
+        return noerror
+    }
+    mut j := len(facts) -% 1
+    mut found := false
+    mut f := new_fact(zero_fkey())
+    for j >= 0 {
+        g := fact_in(facts, j)
+        j -%= 1
+        if g.has_hi && g.hi.cmp(known.hi) == 0 {
+            f = g
+            found = true
+            break
+        }
+    }
+    if !found {
+        return mut c.other_len_note(name[:], facts, e, would, mut notes)
+    }
+    mut other := msg()
+    is_other := mut c.len_of_other(f.src, i, e.of, mut other)?
+    if is_other {
+        return c.length_note(f, name[:], other[:], e, would, mut notes)
+    }
+    out := mut c.rules_out(i, known.hi)?
+    if out {
+        return noerror
+    }
+    mut m := msg()
+    c.guard_subject(f.guard, mut m)?
+    append(mut m, ' ')?
+    verb("allows", "allow", would, mut m)?
+    append(mut m, ' ')?
+    append(mut m, name[:]...)?
+    append(mut m, []uint8(" == ")...)?
+    known.hi.append_string(mut m)?
+    append(mut m, []uint8(", and ")...)?
+    append(mut m, e.label[:]...)?
+    append(mut m, []uint8(" has ")...)?
+    plural64(e.n, e.unit, mut m)?
+    return push_note(mut notes, c.fact_span(f), own m)
+}
+
+// plural64 appends n of unit, with an s added unless n is one, Go's
+// plural64.
+func plural64(n int64, unit string, mut out list[uint8]) error {
+    constant.from_int64(n).append_string(mut out)?
+    append(mut out, ' ')?
+    append(mut out, []uint8(unit)...)?
+    if n != 1 {
+        append(mut out, 's')?
+    }
+    return noerror
+}
+
+// other_len_note appends to notes the note on a bound on the index
+// called name by the length of a string subject other than e's, when no
+// fact bounds it by e's own, Go's otherLenNote.
+func (mut c Checker) other_len_note(name []uint8, facts []Fact, e Extent, would bool, mut notes list[diag.Related]) error {
+    s, is_subject := mut c.subject_key(e.of)?
+    if !is_subject {
+        return noerror
+    }
+    for _, f := range facts {
+        if f.len_of == s {
+            return noerror
+        }
+    }
+    mut j := len(facts) -% 1
+    for j >= 0 {
+        f := fact_in(facts, j)
+        j -%= 1
+        if !f.len_of.is_zero() || !f.at_most_len.is_zero() {
+            mut other := f.len_of
+            if other.is_zero() {
+                other = f.at_most_len
+            }
+            mut on := msg()
+            c.key_name(other, mut on)?
+            return c.length_note(f, name, on[:], e, would, mut notes)
+        }
+    }
+    return noerror
+}
+
+// length_note appends to notes the note that f bounds the index called
+// name by the length of other, not of e, Go's lengthNote.
+func (c Checker) length_note(f Fact, name []uint8, other []uint8, e Extent, would bool, mut notes list[diag.Related]) error {
+    mut m := msg()
+    c.guard_subject(f.guard, mut m)?
+    append(mut m, ' ')?
+    verb("bounds", "bound", would, mut m)?
+    append(mut m, ' ')?
+    append(mut m, name...)?
+    append(mut m, []uint8(" by the length of ")...)?
+    append(mut m, other...)?
+    append(mut m, []uint8(", not ")...)?
+    append(mut m, e.label[:]...)?
+    return push_note(mut notes, c.fact_span(f), own m)
+}
+
+// len_of_other appends to out the name of x and reports true when src
+// is a comparison of the index i with len(x), x a subject other than of
+// and other than the one whose length i is, Go's lenOfOther.
+func (mut c Checker) len_of_other(src Cond, i Key, of Key, mut out list[uint8]) (bool, error) {
+    if src.is_none() {
+        return false, noerror
+    }
+    op, x, y, is_bin := c.cond_binary(src)
+    if !is_bin || !is_comparison_op(op) {
+        return false, noerror
+    }
+    ik, _ := mut c.note_key(i)?
+    mut side := y
+    yk, y_subject := mut c.note_key(y)?
+    if y_subject && yk == ik {
+        side = x
+    }
+    lx, ok := mut c.len_arg(side)
+    if !ok {
+        return false, noerror
+    }
+    xk, is_subject := mut c.subject_key(lx)?
+    ofk, of_subject := mut c.subject_key(of)?
+    if !is_subject || of_subject && ofk == xk {
+        return false, noerror
+    }
+    mut c.name_subject(lx, mut out)?
+    return true, noerror
+}
+
+// rules_out reports whether a fact in force that holds rules the value v
+// out for the subject or length e, Go's rulesOut: e != v, or e != 0 for
+// 0, among the facts in force and the proof-only facts of one side.
+func (mut c Checker) rules_out(e Key, v constant.Int) (bool, error) {
+    k, ok := mut c.note_key(e)?
+    if !ok {
+        return false, noerror
+    }
+    mut facts := make(list[Fact], c_allocator)
+    mut c.facts_about(k, mut facts)?
+    for _, f := range facts {
+        o := mut c.out_value(f, k, v)?
+        if o {
+            return true, noerror
+        }
+    }
+    for p := range len(c.fx.proven) {
+        po, has := c.fx.proven[p]
+        if !has {
+            continue
+        }
+        e1 := c.either_at(po.either)
+        if e1.count != 1 {
+            continue
+        }
+        mut c.index_proven(p)?
+        side := c.side_at(e1.first)
+        mut j int64 = 0
+        for j < side.count {
+            f := fact_in(c.fx.side_facts[:], side.start +% j)
+            j +%= 1
+            o := mut c.out_value(f, k, v)?
+            if o {
+                return true, noerror
+            }
+        }
+    }
+    return false, noerror
+}
+
+// out_value reports whether f, about k, rules v out and holds, rulesOut's
+// out.
+func (mut c Checker) out_value(f Fact, k FKey, v constant.Int) (bool, error) {
+    if f.about != k || !(f.out && f.ne.cmp(v) == 0 || f.nonzero && v.is_zero()) {
+        return false, noerror
+    }
+    h := mut c.holds(f)?
+    return h, noerror
+}
+
+// new_extent returns the extent of of, an array or a string whose items
+// are called unit, with n of them when known, labeled by its name when
+// it is a subject, and as the array or the string otherwise, Go's
+// newExtent.
+func (mut c Checker) new_extent(of Key, unit string, n int64, known bool) (Extent, error) {
+    mut label := msg()
+    s := mut c.is_subject(of)?
+    if s {
+        mut c.name_subject(of, mut label)?
+    } else if bytes_equal([]uint8(unit), []uint8("byte")) {
+        append(mut label, []uint8("the string")...)?
+    } else {
+        append(mut label, []uint8("the array")...)?
+    }
+    return Extent{of: of, label: label, unit: unit, n: n, known: known}, noerror
+}
+
+// global_note appends to notes the note, at its declaration, that the
+// mutable global v can never be proven anything about, Go's globalNote.
+func (c Checker) global_note(v Key, mut notes list[diag.Related]) error {
+    mut m := msg()
+    append(mut m, name_of(c.prog.trees, c.none, v)...)?
+    append(mut m, []uint8(" is a mutable global, so no check proves it; copy it into a local first")...)?
+    return push_note(mut notes, name_span_of(c.prog.trees, v), own m)
+}
+
+// operand_notes appends to notes why operand, a divisor or an index that
+// is neither a subject nor the length of one, is not proven, Go's
+// operandNotes: a field of a mutable variable a guard in scope compares;
+// a mutable global's length; or a name, or the length of a subject, a
+// guard bounds, with the note that only what provenList lists is proven.
+func (mut c Checker) operand_notes(operand Key, mut notes list[diag.Related]) error {
+    never := mut c.never_fact_notes(operand, mut notes)?
+    if never {
+        return noerror
+    }
+    _, known := mut c.known_value(operand)?
+    if known {
+        return noerror
+    }
+    readable := mut c.is_arith_op(operand)
+    if readable {
+        return not_ported
+    }
+    mut seen := make(list[FKey], c_allocator)
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, operand.node)?
+    for len(stack) > 0 {
+        top, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        n := Key{unit: operand.unit, node: top}
+        switch kind_at(c.prog.trees, n) {
+        case case_clause, field, union_case:
+        default:
+            k, leaf := mut c.bounded_leaf(n)?
+            if leaf {
+                mut dup := false
+                for _, s := range seen {
+                    dup = dup || s == k
+                }
+                if dup {
+                    continue
+                }
+                append(mut seen, k)?
+                mut j := len(c.fx.active) -% 1
+                for j >= 0 {
+                    f := fact_in(c.fx.active[:], j)
+                    j -%= 1
+                    if f.about != k || f.relational() || c.guard_silent(f.guard) {
+                        continue
+                    }
+                    h := mut c.holds(f)?
+                    if !h {
+                        continue
+                    }
+                    mut name := msg()
+                    mut c.leaf_name(n, mut name)?
+                    mut c.name_note(f, name[:], operand, mut notes)?
+                    break
+                }
+                continue
+            }
+        }
+        clear_nodes(mut kids)
+        children_of(c.prog.trees, n.unit, top, mut kids)?
+        mut i := len(kids) -% 1
+        for i >= 0 {
+            kid, has := kids[i]
+            if has {
+                append(mut stack, kid)?
+            }
+            i -%= 1
+        }
+    }
+    return noerror
+}
+
+// never_fact_notes appends to notes the notes for operand when it, or
+// the string, view or list whose length it is, can never carry a fact,
+// and reports true, Go's neverFactNotes.
+func (mut c Checker) never_fact_notes(operand Key, mut notes list[diag.Related]) (bool, error) {
+    mut path := operand
+    x, is_len := mut c.len_arg(operand)
+    if is_len {
+        g, is_global := mut c.mutable_global(x)
+        if is_global {
+            c.global_note(g, mut notes)?
+            return true, noerror
+        }
+        path = x
+    }
+    switch kind_at(c.prog.trees, path) {
+    case selector:
+        mut c.field_notes(path, mut notes)?
+        return true, noerror
+    default:
+        return false, noerror
+    }
+}
+
+// bounded_leaf returns the key of n, a node inside an operand, when a
+// fact about it is one a note on the operand may name, Go's
+// boundedLeaf: a name of anything but a string, a view or a list, or the
+// length of a string, view or list subject.
+func (mut c Checker) bounded_leaf(n Key) (FKey, bool, error) {
+    l := mut c.is_length_subject(n)?
+    if l {
+        k, _ := mut c.note_key(n)?
+        return k, true, noerror
+    }
+    nm, is_id := ident_at(c.prog.trees, n)
+    if !is_id {
+        return zero_fkey(), false, noerror
+    }
+    _, is_str := mut c.string_var(n)?
+    if is_str {
+        return zero_fkey(), false, noerror
+    }
+    if nm.def.is_decl() {
+        return decl_fkey(key_of_def(nm.def)), true, noerror
+    }
+    return FKey{decl: no_decl_key(), path: 0}, true, noerror
+}
+
+// leaf_name appends to out how a note names the leaf n: a length as
+// note_name does, a name qualified.
+func (mut c Checker) leaf_name(n Key, mut out list[uint8]) error {
+    l := mut c.is_length_subject(n)?
+    if l {
+        return mut c.note_name(n, mut out)
+    }
+    nm, _ := ident_at(c.prog.trees, n)
+    return qualified(c.prog.trees, c.none, n.unit, nm, mut out)
+}
+
+// name_note appends to notes the note at f's guard, which bounds name, a
+// name or a length in operand, saying that it bounds name and not
+// operand, of which only what provenList lists is proven, Go's nameNote.
+func (mut c Checker) name_note(f Fact, name []uint8, operand Key, mut notes list[diag.Related]) error {
+    expr := mut c.source_text(span_at(c.prog.trees, operand))?
+    mut m := msg()
+    c.guard_subject(f.guard, mut m)?
+    append(mut m, []uint8(" bounds ")...)?
+    append(mut m, name...)?
+    append(mut m, []uint8(", not ")...)?
+    append(mut m, expr[:]...)?
+    append(mut m, []uint8("; only a known value, a name, a field or element of an immutable variable, len of a string, view or list one, or +, -, * or unary - on those, is proven, so copy ")...)?
+    append(mut m, expr[:]...)?
+    append(mut m, []uint8(" into a variable and check it")...)?
+    return push_note(mut notes, c.guard_at(f.guard).span, own m)
+}
+
+// field_notes appends to notes the note for the field path of a mutable
+// variable or a mut parameter that the innermost guard in scope
+// comparing it, or its length, proves nothing about it, Go's
+// fieldNotes.
+func (mut c Checker) field_notes(path Key, mut notes list[diag.Related]) error {
+    mut i := len(c.fx.guards) -% 1
+    for i >= 0 {
+        gid := int_in(c.fx.guards[:], i)
+        i -%= 1
+        g := c.guard_at(gid)
+        if g.cond.is_none() {
+            continue
+        }
+        cmp := mut c.compares(g.cond, path)?
+        if !cmp {
+            continue
+        }
+        t := mut c.source_text(span_at(c.prog.trees, path))?
+        mut m := msg()
+        c.guard_subject(gid, mut m)?
+        append(mut m, []uint8(" proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy ")...)?
+        append(mut m, t[:]...)?
+        append(mut m, []uint8(" into a variable first")...)?
+        return push_note(mut notes, span_at(c.prog.trees, g.cond.node), own m)
+    }
+    return noerror
+}
+
+// compares reports whether cond, through && || and !, holds a comparison
+// one side of which is path, or len of path, Go's compares.
+func (mut c Checker) compares(cond Cond, path Key) (bool, error) {
+    mut stack := make(list[Cond], c_allocator)
+    append(mut stack, cond)?
+    for len(stack) > 0 {
+        cd, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        op, x, y, is_bin := c.cond_binary(cd)
+        if is_bin {
+            if (op == ast.op_and || op == ast.op_or) && is_no_key(cd.tag) {
+                append(mut stack, node_cond(y))?
+                append(mut stack, node_cond(x))?
+                continue
+            }
+            if is_comparison_op(op) && (mut c.path_or_len(x, path) || mut c.path_or_len(y, path)) {
+                return true, noerror
+            }
+            continue
+        }
+        switch kind_at(c.prog.trees, cd.node) {
+        case unary(u):
+            if u.op == ast.unary_not {
+                append(mut stack, node_cond(sub(cd.node, u.x)))?
+            }
+        default:
+        }
+    }
+    return false, noerror
+}
+
+// path_or_len reports whether e is path, or a call of len of path, Go's
+// pathOrLen.
+func (mut c Checker) path_or_len(e Key, path Key) bool {
+    x, is_len := mut c.len_arg(e)
+    if is_len {
+        return same_path(c.prog.trees, c.none, x, path)
+    }
+    return same_path(c.prog.trees, c.none, e, path)
+}
+
+// same_path reports whether a and b are the same variable, or the same
+// field of the same path, Go's samePath, walking both chains in a loop.
+func same_path(trees []ast.File, none []uint8, a Key, b Key) bool {
+    mut x := a
+    mut y := b
+    for {
+        switch kind_at(trees, x) {
+        case ident(nx):
+            ny, ok := ident_at(trees, y)
+            return ok && nx.def == ny.def
+        case selector(sx):
+            switch kind_at(trees, y) {
+            case selector(sy):
+                if !bytes_equal(text_at(trees, none, x.unit, sx.name), text_at(trees, none, y.unit, sy.name)) {
+                    return false
+                }
+                x = sub(x, sx.x)
+                y = sub(y, sy.x)
+            default:
+                return false
+            }
+        default:
+            return false
+        }
+    }
+    return false
+}
+

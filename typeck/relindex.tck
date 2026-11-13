@@ -1,0 +1,397 @@
+package typeck
+
+import constant from "tack/constant"
+
+// The index of the relations in force, Go's relIndex (relindex.go): the
+// edges of every fact in force, listed at each node they touch in the
+// order of the facts that give them, and at each pair of nodes, a stored
+// value's bounds kept apart, each node's last only, and the lengths the
+// facts name, in the order they name them. It is built from one scan of
+// the facts in force the first time a query needs it, and from then on
+// kept in step with them, as assume pushes facts and release pops them,
+// each a step for the fact. A query, then, costs a time bounded by the
+// cap and the edges at the nodes it reaches, never the facts in force:
+// once its graph is full, only the edges to its own nodes can join, which
+// the pair lists give it.
+
+// RelEntry is an edge listed at a node, or at a pair of nodes: the edge,
+// the node at its other end, and the entries before and after it in the
+// list, -1 for none.
+type RelEntry struct {
+    edge int64
+    other FKey
+    prev int64
+    next int64
+}
+
+// ListEnds is the first and the last entry of a list of entries.
+type ListEnds struct {
+    head int64
+    tail int64
+}
+
+// PairKey names the edges at the node u whose other end is w.
+type PairKey struct {
+    u FKey
+    w FKey
+}
+
+// RelFact is what the index holds of the fact at one position of active:
+// how many edges it added and how many entries, each a node entry and
+// a pair entry, the lengths it
+// names, count of named_lens from named, and whether it is a relation, a
+// stored value's bounds, or neither and nothing.
+type RelFact struct {
+    edges int64
+    entries int64
+    named int64
+    named_count int64
+    relation bool
+    stored bool
+}
+
+// RelIdx is the index of the relations in force: built says it is kept.
+type RelIdx struct {
+    built bool
+    edges list[RelEdge]
+    entries list[RelEntry]
+    ends map[FKey]ListEnds
+    pentries list[RelEntry]
+    pends map[PairKey]ListEnds
+    facts list[RelFact]
+    named_lens list[FKey]
+    stored_top map[FKey]int64
+    stored_prev list[int64]
+    lens list[FKey]
+    len_count map[FKey]int64
+    relations int64
+}
+
+// new_rel_idx returns an index not built.
+func new_rel_idx() RelIdx {
+    return RelIdx{
+        built: false,
+        edges: make(list[RelEdge], c_allocator),
+        entries: make(list[RelEntry], c_allocator),
+        ends: make(map[FKey]ListEnds, c_allocator),
+        pentries: make(list[RelEntry], c_allocator),
+        pends: make(map[PairKey]ListEnds, c_allocator),
+        facts: make(list[RelFact], c_allocator),
+        named_lens: make(list[FKey], c_allocator),
+        stored_top: make(map[FKey]int64, c_allocator),
+        stored_prev: make(list[int64], c_allocator),
+        lens: make(list[FKey], c_allocator),
+        len_count: make(map[FKey]int64, c_allocator),
+        relations: 0,
+    }
+}
+
+// entry_in returns l[i], or an entry of nothing.
+func entry_in(l []RelEntry, i int64) RelEntry {
+    e, ok := l[i]
+    if !ok {
+        return RelEntry{edge: -1, other: zero_fkey(), prev: -1, next: -1}
+    }
+    return e
+}
+
+// rel_edge_in returns l[i], or an edge of nothing.
+func rel_edge_in(l []RelEdge, i int64) RelEdge {
+    e, ok := l[i]
+    if !ok {
+        return RelEdge{frm: zero_fkey(), to: zero_fkey(), w: 0, fact: -1}
+    }
+    return e
+}
+
+// build_rel_idx builds the index from the facts in force, Go's
+// relationIndex, when it is not kept yet.
+func (mut c Checker) build_rel_idx() error {
+    if c.fx.rel.built {
+        return noerror
+    }
+    c.fx.rel.built = true
+    for i := range len(c.fx.active) {
+        mut c.rel_push(i)?
+    }
+    return noerror
+}
+
+// rel_push adds the fact at position i of active, the last the index
+// holds, to it, Go's relIndex.push: nothing for a key being in a map or a
+// silent guard's fact but a stored value's; a stored value's bounds to
+// the stored facts of its node; and any other fact's edges to the lists
+// of the nodes, and the pairs, they touch.
+func (mut c Checker) rel_push(i int64) error {
+    f := fact_in(c.fx.active[:], i)
+    mut rf := RelFact{edges: 0, entries: 0, named: len(c.fx.rel.named_lens), named_count: 0, relation: false, stored: false}
+    stored := c.guard_kind(f.guard) == guard_value
+    mut prev_stored := -1
+    if !f.in_map.is_zero() || !stored && c.guard_silent(f.guard) {
+        append(mut c.fx.rel.facts, rf)?
+        append(mut c.fx.rel.stored_prev, prev_stored)?
+        return noerror
+    }
+    zero := zero_fkey()
+    if stored {
+        rf.stored = true
+        top, has := c.fx.rel.stored_top[f.about]
+        if has {
+            prev_stored = top
+        }
+        put(mut c.fx.rel.stored_top, f.about, i)?
+        append(mut c.fx.rel.facts, rf)?
+        append(mut c.fx.rel.stored_prev, prev_stored)?
+        return noerror
+    }
+    if f.has_hi {
+        mut c.rel_edge(mut rf, RelEdge{frm: f.about, to: zero, w: 0, fact: i}, f.hi)?
+    }
+    lo, ok := f.lo.negate()
+    if f.has_lo && ok {
+        mut c.rel_edge(mut rf, RelEdge{frm: zero, to: f.about, w: 0, fact: i}, lo)?
+    }
+    minus_one := constant.from_int64(-1)
+    if !f.len_of.is_zero() {
+        mut c.rel_edge(mut rf, RelEdge{frm: f.about, to: f.len_of, w: 0, fact: i}, minus_one)?
+        mut c.rel_length(mut rf, f.len_of, true)?
+        rf.relation = true
+    } else if !f.at_most_len.is_zero() {
+        mut c.rel_edge(mut rf, RelEdge{frm: f.about, to: f.at_most_len, w: 0, fact: i}, constant.from_int64(0))?
+        mut c.rel_length(mut rf, f.at_most_len, true)?
+        rf.relation = true
+    } else if !f.at_most.is_zero() {
+        mut w := constant.from_int64(0)
+        if f.strict {
+            w = minus_one
+        }
+        mut c.rel_edge(mut rf, RelEdge{frm: f.about, to: f.at_most, w: 0, fact: i}, w)?
+        rf.relation = true
+    } else if f.diff >= 0 {
+        d := c.diff_at(f.diff)
+        mut c.rel_edge(mut rf, RelEdge{frm: d.x, to: d.y, w: 0, fact: i}, d.w)?
+        mut c.rel_length(mut rf, d.x, d.x_len)?
+        mut c.rel_length(mut rf, d.y, d.y_len)?
+        rf.relation = true
+    }
+    if rf.relation {
+        c.fx.rel.relations +%= 1
+    }
+    append(mut c.fx.rel.facts, rf)?
+    append(mut c.fx.rel.stored_prev, prev_stored)?
+    return noerror
+}
+
+// rel_edge adds the edge e of weight w, when w fits an int64, to the
+// index, listed at both its nodes and at both its pairs, counting it in
+// rf.
+func (mut c Checker) rel_edge(mut rf RelFact, e RelEdge, w constant.Int) error {
+    if !w.fits(64, true) {
+        return noerror
+    }
+    mut edge := e
+    edge.w = w.to_int64()
+    eid := len(c.fx.rel.edges)
+    append(mut c.fx.rel.edges, edge)?
+    rf.edges +%= 1
+    mut c.rel_list(e.frm, e.to, eid)?
+    mut c.rel_list(e.to, e.frm, eid)?
+    rf.entries +%= 2
+    return noerror
+}
+
+// rel_list appends the edge id, from the node u to the node w, to u's
+// list and to the pair (u, w)'s.
+func (mut c Checker) rel_list(u FKey, w FKey, eid int64) error {
+    at := len(c.fx.rel.entries)
+    mut ends, has := c.fx.rel.ends[u]
+    mut prev := -1
+    if has {
+        prev = ends.tail
+        mut last := entry_in(c.fx.rel.entries[:], prev)
+        last.next = at
+        set_at(mut c.fx.rel.entries, prev, last)
+    } else {
+        ends = ListEnds{head: at, tail: at}
+    }
+    ends.tail = at
+    append(mut c.fx.rel.entries, RelEntry{edge: eid, other: w, prev: prev, next: -1})?
+    put(mut c.fx.rel.ends, u, ends)?
+    pk := PairKey{u: u, w: w}
+    pat := len(c.fx.rel.pentries)
+    mut pends, phas := c.fx.rel.pends[pk]
+    mut pprev := -1
+    if phas {
+        pprev = pends.tail
+        mut plast := entry_in(c.fx.rel.pentries[:], pprev)
+        plast.next = pat
+        set_at(mut c.fx.rel.pentries, pprev, plast)
+    } else {
+        pends = ListEnds{head: pat, tail: pat}
+    }
+    pends.tail = pat
+    append(mut c.fx.rel.pentries, RelEntry{edge: eid, other: w, prev: pprev, next: -1})?
+    put(mut c.fx.rel.pends, pk, pends)?
+    return noerror
+}
+
+// rel_length records k as a length rf names, when yes and k is not the
+// constant and rf has not named it, Go's relScan.length.
+func (mut c Checker) rel_length(mut rf RelFact, k FKey, yes bool) error {
+    if !yes || k.is_zero() {
+        return noerror
+    }
+    mut j int64 = 0
+    for j < rf.named_count {
+        if key_at(c.fx.rel.named_lens[:], rf.named +% j) == k {
+            return noerror
+        }
+        j +%= 1
+    }
+    append(mut c.fx.rel.named_lens, k)?
+    rf.named_count +%= 1
+    mut n, has := c.fx.rel.len_count[k]
+    if !has {
+        n = 0
+    }
+    if n == 0 {
+        append(mut c.fx.rel.lens, k)?
+    }
+    put(mut c.fx.rel.len_count, k, n +% 1)?
+    return noerror
+}
+
+// key_at returns l[i], or the zero key.
+func key_at(l []FKey, i int64) FKey {
+    k, ok := l[i]
+    if !ok {
+        return zero_fkey()
+    }
+    return k
+}
+
+// rel_pop takes the fact at position i of active, the last the index
+// holds, out of it, Go's relIndex.pop, in the reverse of rel_push.
+func (mut c Checker) rel_pop(i int64) error {
+    rf, ok := pop(mut c.fx.rel.facts)
+    if !ok {
+        return noerror
+    }
+    mut prev_stored, has_prev := pop(mut c.fx.rel.stored_prev)
+    if !has_prev {
+        prev_stored = -1
+    }
+    if rf.stored {
+        f := fact_in(c.fx.active[:], i)
+        if prev_stored < 0 {
+            delete(mut c.fx.rel.stored_top, f.about)
+        } else {
+            put(mut c.fx.rel.stored_top, f.about, prev_stored)?
+        }
+        return noerror
+    }
+    if rf.relation {
+        c.fx.rel.relations -%= 1
+    }
+    mut j := rf.named_count -% 1
+    for j >= 0 {
+        k := key_at(c.fx.rel.named_lens[:], rf.named +% j)
+        j -%= 1
+        mut n, has_n := c.fx.rel.len_count[k]
+        if !has_n {
+            n = 0
+        }
+        if n <= 1 {
+            delete(mut c.fx.rel.len_count, k)
+            pop(mut c.fx.rel.lens)
+        } else {
+            put(mut c.fx.rel.len_count, k, n -% 1)?
+        }
+        pop(mut c.fx.rel.named_lens)
+    }
+    mut e := rf.entries
+    for e > 0 {
+        e -%= 1
+        mut c.rel_unlist()?
+    }
+    mut d := rf.edges
+    for d > 0 {
+        d -%= 1
+        pop(mut c.fx.rel.edges)
+    }
+    return noerror
+}
+
+// rel_unlist takes the last node entry and the last pair entry out of
+// their lists, which they end.
+func (mut c Checker) rel_unlist() error {
+    en, ok := pop(mut c.fx.rel.entries)
+    if !ok {
+        return noerror
+    }
+    edge := rel_edge_in(c.fx.rel.edges[:], en.edge)
+    mut u := edge.frm
+    if edge.frm == en.other {
+        u = edge.to
+    }
+    if en.prev < 0 {
+        delete(mut c.fx.rel.ends, u)
+    } else {
+        mut last := entry_in(c.fx.rel.entries[:], en.prev)
+        last.next = -1
+        set_at(mut c.fx.rel.entries, en.prev, last)
+        ends, has_e := c.fx.rel.ends[u]
+        if !has_e {
+            return noerror
+        }
+        put(mut c.fx.rel.ends, u, ListEnds{head: ends.head, tail: en.prev})?
+    }
+    pe, pok := pop(mut c.fx.rel.pentries)
+    if !pok {
+        return noerror
+    }
+    pk := PairKey{u: u, w: pe.other}
+    if pe.prev < 0 {
+        delete(mut c.fx.rel.pends, pk)
+    } else {
+        mut plast := entry_in(c.fx.rel.pentries[:], pe.prev)
+        plast.next = -1
+        set_at(mut c.fx.rel.pentries, pe.prev, plast)
+        pends, has_pe := c.fx.rel.pends[pk]
+        if !has_pe {
+            return noerror
+        }
+        put(mut c.fx.rel.pends, pk, ListEnds{head: pends.head, tail: pe.prev})?
+    }
+    return noerror
+}
+
+// rel_index_fact adds active's last fact, just pushed, to the index of
+// the relations, when it is kept.
+func (mut c Checker) rel_index_fact() error {
+    if !c.fx.rel.built {
+        return noerror
+    }
+    return mut c.rel_push(len(c.fx.active) -% 1)
+}
+
+// rel_unindex takes the facts of active from the one at n on, about to be
+// popped, out of the index of the relations, last first, when it is
+// kept.
+func (mut c Checker) rel_unindex(n int64) error {
+    if !c.fx.rel.built {
+        return noerror
+    }
+    mut i := len(c.fx.active) -% 1
+    for i >= n {
+        mut c.rel_pop(i)?
+        i -%= 1
+    }
+    return noerror
+}
+
+// is_len_node reports whether a fact in force uses k as a length.
+func (c Checker) is_len_node(k FKey) bool {
+    n, has := c.fx.rel.len_count[k]
+    return has && n > 0
+}

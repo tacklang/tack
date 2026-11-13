@@ -2,7 +2,6 @@ package typeck
 
 import ast from "tack/ast"
 import fmt from "std/fmt"
-import types from "tack/types"
 
 // Exclusivity, Go's exclusive.go. During a call, a place passed as mut
 // is reachable only through its parameter, so no two mut arguments of
@@ -15,11 +14,9 @@ import types from "tack/types"
 // mut is an error too, and so is a comparison of two values holding
 // lists, one of which passes a place the other reads as mut.
 //
-// Whether two indexes differ is a known value's, or the facts in
-// force's, which the port does not keep yet: two indexes not both known
-// values, either a name or a path facts could be about, are declined
-// (see step_overlap). A closure that writes a variable is a writer too,
-// which is S7's, and declined.
+// Whether two indexes differ is decided by their known values, or by
+// what the facts in force say about them (see step_overlap). A closure
+// that writes a variable is a writer too, which is S7's, and declined.
 
 // The ways two places relate, Go's overlap.
 var ov_disjoint uint8 = 0
@@ -205,20 +202,6 @@ func (mut c Checker) borrow_holder(place Key, mut out list[uint8]) error {
         return noerror
     }
     return mut c.owned_phrase(typ, mut out)
-}
-
-// call_operands appends the operands of the call k to out, a method
-// call's receiver first, Go's call.Operands().
-func (mut c Checker) call_operands(k Key, mut out list[Key]) error {
-    cl := call_of(c.prog.trees, k)
-    recv := mut c.receiver_of(k)
-    if !is_no_key(recv) {
-        append(mut out, recv)?
-    }
-    for i := range count_items(c.prog.trees, k.unit, cl.args) {
-        append(mut out, item_at(c.prog.trees, k.unit, cl.args, i))?
-    }
-    return noerror
 }
 
 // appended_value reports whether the operand at i of the call k is a
@@ -445,9 +428,7 @@ func (mut c Checker) report_overlap(earlier Key, later Key, how uint8) error {
 }
 
 // overlap_of returns how the places a and b, both of a checked mut
-// argument, relate, Go's overlapOf. Two indexes whose relation needs
-// the facts in force are declined, unless a step of the paths keeps the
-// places apart anyway.
+// argument, relate, Go's overlapOf.
 func (mut c Checker) overlap_of(a Key, b Key) (uint8, error) {
     mut sa := make(list[PathStep], c_allocator)
     mut sb := make(list[PathStep], c_allocator)
@@ -458,7 +439,6 @@ func (mut c Checker) overlap_of(a Key, b Key) (uint8, error) {
     }
     mut maybe := false
     mut maybe_field := false
-    mut unknown := false
     for i, s := range sa {
         if i >= len(sb) {
             break
@@ -472,12 +452,7 @@ func (mut c Checker) overlap_of(a Key, b Key) (uint8, error) {
             maybe = true
         } else if how == ov_may_field {
             maybe_field = true
-        } else if how == ov_unknown {
-            unknown = true
         }
-    }
-    if unknown {
-        return ov_disjoint, not_ported
     }
     if maybe_field {
         return ov_may_field, noerror
@@ -494,16 +469,13 @@ func (mut c Checker) overlap_of(a Key, b Key) (uint8, error) {
     return ov_within, noerror
 }
 
-// ov_unknown is a relation of two indexes that only the facts in force
-// decide, which the port does not keep yet.
-var ov_unknown uint8 = 6
-
 // step_overlap returns how two steps at the same depth of two paths
 // from one variable relate, Go's stepOverlap: two fields are the same,
 // may be one when one is a fields loop's, or are disjoint; two indexes
-// are the same when they name one variable, decided by their values
-// when both are known, may overlap when either is no subject facts
-// could be about, and are ov_unknown otherwise.
+// are the same when they are one subject, and otherwise decided by what
+// is known about each, a known value or what its type and the facts in
+// force say about a subject (see interval_overlap), and may overlap when
+// either is neither.
 func (mut c Checker) step_overlap(a PathStep, b PathStep) (uint8, error) {
     if !a.is_index || !b.is_index {
         same := bytes_equal(selector_name(c.prog.trees, c.none, a.name), selector_name(c.prog.trees, c.none, b.name))
@@ -515,52 +487,51 @@ func (mut c Checker) step_overlap(a PathStep, b PathStep) (uint8, error) {
         }
         return ov_disjoint, noerror
     }
-    // No input reaches what follows yet: an element passed as mut needs
-    // its index proven in range, which is declined (see place), so two
-    // indexes are never compared here until the facts are ported.
     ia := index_of_step(c.prog.trees, a)
     ib := index_of_step(c.prog.trees, b)
-    na, a_name := ident_at(c.prog.trees, ia)
-    nb, b_name := ident_at(c.prog.trees, ib)
-    a_float := types.is_float(mut c.type_of(ia))
-    b_float := types.is_float(mut c.type_of(ib))
-    if a_name && b_name && !a_float && !b_float && na.def == nb.def {
+    ka, oka := mut c.subject_key(ia)?
+    kb, okb := mut c.subject_key(ib)?
+    if oka && okb && ka == kb {
         return ov_same, noerror
     }
-    va, a_known := mut c.known_value(ia)?
-    vb, b_known := mut c.known_value(ib)?
-    a_path := mut c.is_path_index(ia, a_known, a_float)
-    b_path := mut c.is_path_index(ib, b_known, b_float)
-    if a_path || b_path {
-        return ov_unknown, noerror
-    }
-    a_subject := a_known || a_name && !a_float
-    b_subject := b_known || b_name && !b_float
-    if !a_subject || !b_subject {
+    x, okx := mut c.index_interval(ia)?
+    y, oky := mut c.index_interval(ib)?
+    if !okx || !oky {
         return ov_may, noerror
     }
-    if !a_known || !b_known {
-        return ov_unknown, noerror
-    }
-    if va.cmp(vb) == 0 {
-        return ov_same, noerror
-    }
-    return ov_disjoint, noerror
+    return interval_overlap(x, y), noerror
 }
 
-// is_path_index reports whether e, an index, is a field or an element
-// whose value is not known, known says, which may be a path facts could
-// be about, whose key and facts the port does not keep yet.
-func (mut c Checker) is_path_index(e Key, known bool, float bool) bool {
-    if known || float {
-        return false
+// index_interval returns what is known about the value of the index e,
+// Go's indexInterval: a known value, or what its type and the facts in
+// force say about a subject, and false for anything else.
+func (mut c Checker) index_interval(e Key) (Interval, bool, error) {
+    v, known := mut c.known_value(e)?
+    if known {
+        return Interval{lo: v, hi: v, has_lo: true, has_hi: true, nonzero: false}, true, noerror
     }
-    switch kind_at(c.prog.trees, e) {
-    case selector, index:
-        return true
-    default:
-        return false
+    subject := mut c.is_subject(e)?
+    if !subject {
+        return no_interval(), false, noerror
     }
+    iv := mut c.interval_of(e)?
+    return iv, true, noerror
+}
+
+// interval_overlap returns how two indexes relate, given what is known
+// about each, Go's intervalOverlap: disjoint when no value one allows is
+// one the other allows, the same when both allow exactly one, equal,
+// value, and may overlap otherwise.
+func interval_overlap(x Interval, y Interval) uint8 {
+    if x.has_hi && y.has_lo && x.hi.cmp(y.lo) < 0 || y.has_hi && x.has_lo && y.hi.cmp(x.lo) < 0 {
+        return ov_disjoint
+    }
+    xs := x.has_lo && x.has_hi && x.lo.cmp(x.hi) == 0
+    ys := y.has_lo && y.has_hi && y.lo.cmp(y.hi) == 0
+    if xs && ys && x.lo.cmp(y.lo) == 0 {
+        return ov_same
+    }
+    return ov_may
 }
 
 // index_of_step returns the index of s, a step at an element.

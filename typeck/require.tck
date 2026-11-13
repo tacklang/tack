@@ -1,0 +1,781 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// What a body reports when a proof is missing, Go's requireInRange and
+// indexError (array.go), requireStringInRange and stringIndexError
+// (string.go), requireNonzero and divisorError (expr.go), requireChecked
+// (errors.go), and the notes on the relations in force (relnotes.go).
+
+// or_use appends to msg what an error adds to suggest the checked form,
+// form, after the check it suggests when msg ends in " first", Go's
+// orUse.
+func or_use(mut msg list[uint8], form []uint8) error {
+    if ends_with(msg[:], []uint8(" first")) {
+        append(mut msg, []uint8(", or use ")...)?
+    } else {
+        append(mut msg, []uint8("; use ")...)?
+    }
+    append(mut msg, form...)?
+    return noerror
+}
+
+// ends_with reports whether b ends in suffix.
+func ends_with(b []uint8, suffix []uint8) bool {
+    if len(suffix) > len(b) {
+        return false
+    }
+    off := len(b) -% len(suffix)
+    for i, x := range suffix {
+        if byte_at(b, off +% i) != x {
+            return false
+        }
+    }
+    return true
+}
+
+// operand_name appends how an error names a divisor or an index, Go's
+// operandName: its name when it is a subject, and ... otherwise.
+func (mut c Checker) operand_name(e Key, mut out list[uint8]) error {
+    s := mut c.is_subject(e)?
+    if s {
+        return mut c.name_subject(e, mut out)
+    }
+    append(mut out, []uint8("...")...)?
+    return noerror
+}
+
+// index_name appends how an error names an index, Go's indexName: its
+// known value, its name or path, or ... .
+func (mut c Checker) index_name(e Key, mut out list[uint8]) error {
+    v, known := mut c.known_value(e)?
+    if known {
+        return v.append_string(mut out)
+    }
+    return mut c.operand_name(e, mut out)
+}
+
+// in_bounds appends the check that proves i, a subject called name,
+// below bound and, unless its type is unsigned, at least 0, Go's
+// inBounds.
+func (mut c Checker) in_bounds(i Key, name []uint8, bnd []uint8, mut out list[uint8]) error {
+    if !types.is_unsigned(mut c.type_of(i)) {
+        append(mut out, []uint8("0 <= ")...)?
+        append(mut out, name...)?
+        append(mut out, []uint8(" && ")...)?
+    }
+    append(mut out, name...)?
+    append(mut out, []uint8(" < ")...)?
+    append(mut out, bnd...)?
+    return noerror
+}
+
+// require_in_range reports the index of ix, an element of an array of
+// type typ with n elements, when it is not proven to be in range, Go's
+// requireInRange: a constant outside it, or anything else no fact
+// covers, with notes that explain why no fact did.
+func (mut c Checker) require_in_range(ixk Key, typ types.Type, n int64, write bool) error {
+    ix := ix_ref(c.prog.trees, ixk)
+    index := ix.index
+    v, known := mut c.known_value(index)?
+    if known {
+        if v.is_negative() || v.cmp(constant.from_int64(n)) >= 0 {
+            tn := mut c.type_name(typ)?
+            mut m := msg()
+            fmt.appendf(mut m, "index ")?
+            v.append_string(mut m)?
+            fmt.appendf(mut m, " is out of range for %s", tn[:])?
+            mut c.errorf(span_at(c.prog.trees, index), own m)?
+        }
+        return noerror
+    }
+    proven := mut c.in_range(index, n)?
+    if proven {
+        return noerror
+    }
+    mut bnd := msg()
+    constant.from_int64(n).append_string(mut bnd)?
+    mut m := msg()
+    mut notes := make(list[diag.Related], c_allocator)
+    mut c.index_error(ix, bnd[:], true, n, mut m, mut notes)?
+    if !write {
+        mut form := msg()
+        append(mut form, []uint8("v, ok := ...[")...)?
+        mut c.operand_name(index, mut form)?
+        append(mut form, ']')?
+        or_use(mut m, form[:])?
+    }
+    return mut c.error_notes(span_at(c.prog.trees, index), own m, own notes)
+}
+
+// index_error appends to m the error for the index of ix, not a known
+// value, that no fact proves in range, before any mention of the checked
+// form, and to notes the notes that explain it, Go's indexError: a
+// subject gets the check that would prove it below bnd, but a mutable
+// global, which no check proves. The index proof is of an array of n
+// elements when array is set, and of a string, view or list otherwise.
+func (mut c Checker) index_error(ix IxRef, bnd []uint8, array bool, n int64, mut m list[uint8], mut notes list[diag.Related]) error {
+    mut c.index_error_notes(ix, bnd, array, n, mut m, mut notes)?
+    return mut c.outer_index_note(ix.node, mut notes)
+}
+
+// outer_index_note appends to notes the note that only the outer index
+// of the element being bound with ok is checked, when ix is an element
+// inside it, whose index still needs a proof of its own, Go's
+// outerIndexNote.
+func (mut c Checker) outer_index_note(ix Key, mut notes list[diag.Related]) error {
+    outer := c.checked_index
+    if is_no_key(outer) || is_no_key(ix) || outer == ix || outer.unit != ix.unit {
+        return noerror
+    }
+    mut inside := false
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, outer.node)?
+    for len(stack) > 0 && !inside {
+        top, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        if top == ix.node {
+            inside = true
+            break
+        }
+        clear_nodes(mut kids)
+        children_of(c.prog.trees, outer.unit, top, mut kids)?
+        for _, kid := range kids {
+            append(mut stack, kid)?
+        }
+    }
+    if !inside {
+        return noerror
+    }
+    ot := mut c.source_text(span_at(c.prog.trees, outer))?
+    it := mut c.source_text(span_at(c.prog.trees, ix))?
+    mut m := msg()
+    append(mut m, []uint8("only the outer index of ")...)?
+    append(mut m, ot[:]...)?
+    append(mut m, []uint8(" is checked; ")...)?
+    append(mut m, it[:]...)?
+    append(mut m, []uint8(" needs its own proof")...)?
+    return push_note(mut notes, span_at(c.prog.trees, outer), own m)
+}
+
+// index_error_notes is index_error without the note on an outer index.
+func (mut c Checker) index_error_notes(ix IxRef, bnd []uint8, array bool, n int64, mut m list[uint8], mut notes list[diag.Related]) error {
+    index := ix.index
+    append(mut m, []uint8("index may be out of range")...)?
+    mut c.operand_notes(index, mut notes)?
+    is_subj := mut c.is_subject(index)?
+    mut name := msg()
+    mut c.name_subject(index, mut name)?
+    g, is_global := mut c.mutable_global(index)
+    if is_global {
+        clear_bytes(mut m)
+        append(mut m, []uint8("index ")...)?
+        mut c.operand_name(index, mut m)?
+        append(mut m, []uint8(" may be out of range")...)?
+        clear_notes(mut notes)
+        c.global_note(g, mut notes)?
+        return noerror
+    }
+    is_len := mut c.is_length_subject(index)?
+    if is_len {
+        clear_notes(mut notes)
+        return mut c.explain_index(ix, array, n, mut notes)
+    }
+    if is_subj {
+        clear_bytes(mut m)
+        append(mut m, []uint8("index ")...)?
+        append(mut m, name[:]...)?
+        append(mut m, []uint8(" may be out of range")...)?
+        if len(bnd) > 0 {
+            append(mut m, []uint8("; check ")...)?
+            mut c.in_bounds(index, name[:], bnd, mut m)?
+            append(mut m, []uint8(" first")...)?
+        }
+        clear_notes(mut notes)
+        return mut c.explain_index(ix, array, n, mut notes)
+    }
+    return noerror
+}
+
+// clear_bytes empties b.
+func clear_bytes(mut b list[uint8]) {
+    for len(b) > 0 {
+        pop(mut b)
+    }
+}
+
+// clear_notes empties notes.
+func clear_notes(mut notes list[diag.Related]) {
+    for len(notes) > 0 {
+        n, ok := pop(mut notes)
+        if ok {
+            drop(own n)
+        }
+    }
+}
+
+// explain_index appends to notes the notes on the index of ix: what
+// explain gives for its index proof, against an array of n elements when
+// array is set and otherwise what it indexes, then what the relations in
+// force fall short of (see index_relation_notes).
+func (mut c Checker) explain_index(ix IxRef, array bool, n int64, mut notes list[diag.Related]) error {
+    index := ix.index
+    x := ix.x
+    mut ext := mut c.new_extent(x, "element", n, true)?
+    if !array {
+        en, known := mut c.extent_of(x)?
+        t := mut c.type_of(x)
+        mut unit := "byte"
+        if c.table.is_view(t) || c.table.is_list(t) {
+            unit = "element"
+        }
+        e2 := mut c.new_extent(x, unit, en, known)?
+        ext = e2
+    }
+    about, _ := mut c.note_key(index)?
+    mut upper_only := types.is_unsigned(mut c.type_of(index))
+    if !upper_only {
+        upper_only = mut c.at_least_zero(index)?
+    }
+    p := Proof{kind: proof_index, about: about, e: index, ix: ix, n: n, array: array, ext: ext, upper_only: upper_only}
+    mut c.explain(p, mut notes)?
+    return mut c.index_relation_notes(index, x, mut notes)
+}
+
+// require_string_in_range reports an index into a string, a view or a
+// list, ix, that is not proven to be in range, Go's
+// requireStringInRange: a constant out of range whatever the string
+// holds, or anything else no fact covers. write says the element is
+// being assigned, which has no checked form to suggest.
+func (mut c Checker) require_string_in_range(ixk Key, write bool) error {
+    ix := ix_ref(c.prog.trees, ixk)
+    index := ix.index
+    x := ix.x
+    v, known := mut c.known_value(index)?
+    if known {
+        n, ext := mut c.extent_of(x)?
+        if ext && (v.is_negative() || v.cmp(constant.from_int64(n)) >= 0) {
+            mut m := msg()
+            fmt.appendf(mut m, "index ")?
+            v.append_string(mut m)?
+            mut word := "bytes"
+            if n == 1 {
+                word = "byte"
+            }
+            fmt.appendf(mut m, " is out of range for a string of %d %s", n, word)?
+            return mut c.errorf(span_at(c.prog.trees, index), own m)
+        }
+        if !ext && v.is_negative() {
+            t := mut c.type_of(x)
+            mut what := "a string"
+            if c.table.is_view(t) {
+                what = "a view"
+            } else if c.table.is_list(t) {
+                what = "a list"
+            }
+            mut m := msg()
+            fmt.appendf(mut m, "index ")?
+            v.append_string(mut m)?
+            fmt.appendf(mut m, " is out of range for %s", what)?
+            return mut c.errorf(span_at(c.prog.trees, index), own m)
+        }
+    }
+    proven := mut c.string_index_proven(ix)?
+    if proven {
+        return noerror
+    }
+    mut m := msg()
+    mut notes := make(list[diag.Related], c_allocator)
+    mut c.string_index_error(ix, write, mut m, mut notes)?
+    return mut c.error_notes(span_at(c.prog.trees, index), own m, own notes)
+}
+
+// report_outside reports the constant index v of ix as out of range,
+// naming the string's length when it is known, Go's reportOutside.
+func (mut c Checker) report_outside(ix IxRef, v constant.Int) error {
+    n, ext := mut c.extent_of(ix.x)?
+    mut m := msg()
+    fmt.appendf(mut m, "index ")?
+    v.append_string(mut m)?
+    if ext {
+        mut word := "bytes"
+        if n == 1 {
+            word = "byte"
+        }
+        fmt.appendf(mut m, " is out of range for a string of %d %s", n, word)?
+        return mut c.errorf(span_at(c.prog.trees, ix.index), own m)
+    }
+    t := mut c.type_of(ix.x)
+    mut what := "a string"
+    if c.table.is_view(t) {
+        what = "a view"
+    } else if c.table.is_list(t) {
+        what = "a list"
+    }
+    fmt.appendf(mut m, " is out of range for %s", what)?
+    return mut c.errorf(span_at(c.prog.trees, ix.index), own m)
+}
+
+// require_remove_index reports the index of the plain remove call, of
+// the list l at the index i, when it is not proven in range for l, Go's
+// removeCall: as l[i] would be, with the checked form suggested.
+func (mut c Checker) require_remove_index(call Key, l Key, i Key) error {
+    ix := IxRef{node: no_key(), x: l, index: i}
+    proven := mut c.string_index_proven(ix)?
+    if proven {
+        return noerror
+    }
+    mut m := msg()
+    mut notes := make(list[diag.Related], c_allocator)
+    mut c.string_index_error(ix, true, mut m, mut notes)?
+    t := mut c.source_text(span_at(c.prog.trees, call))?
+    mut form := msg()
+    append(mut form, []uint8("x, ok := ")...)?
+    append(mut form, t[:]...)?
+    or_use(mut m, form[:])?
+    return mut c.error_notes(span_at(c.prog.trees, i), own m, own notes)
+}
+
+// require_not_empty reports l, the list the plain pop call takes the
+// last element of, when the facts in force do not prove it holds one,
+// Go's requireNotEmpty: len(l) is at least 1. The error says what check
+// would prove it, when l is a subject, and the checked form, with notes
+// on a check that falls short.
+func (mut c Checker) require_not_empty(call Key, l Key) error {
+    least := mut c.min_len(l)?
+    if least.cmp(constant.from_int64(1)) >= 0 {
+        return noerror
+    }
+    name := mut c.source_text(span_at(c.prog.trees, l))?
+    mut m := msg()
+    append(mut m, []uint8("pop may find ")...)?
+    append(mut m, name[:]...)?
+    append(mut m, []uint8(" empty")...)?
+    mut bnd := msg()
+    mut c.string_bound(l, mut bnd)?
+    if len(bnd) > 0 {
+        append(mut m, []uint8("; check ")...)?
+        append(mut m, bnd[:]...)?
+        append(mut m, []uint8(" > 0 first")...)?
+    }
+    mut form := msg()
+    append(mut form, []uint8("x, ok := pop(mut ")...)?
+    append(mut form, name[:]...)?
+    append(mut form, ')')?
+    or_use(mut m, form[:])?
+    mut notes := make(list[diag.Related], c_allocator)
+    s := mut c.is_subject(l)?
+    if s {
+        about, _ := mut c.subject_key(l)?
+        ext := mut c.new_extent(l, "byte", 0, false)?
+        p := Proof{kind: proof_pop, about: about, e: l, ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: ext, upper_only: false}
+        mut c.explain(p, mut notes)?
+    }
+    mut c.indexed_notes(l, mut notes)?
+    return mut c.error_notes(span_at(c.prog.trees, call), own m, own notes)
+}
+
+// string_index_error appends to m the error for the index of ix, a
+// string's, a view's or a list's element, that is not proven in range,
+// and to notes the notes that explain it, Go's stringIndexError.
+func (mut c Checker) string_index_error(ix IxRef, write bool, mut m list[uint8], mut notes list[diag.Related]) error {
+    index := ix.index
+    x := ix.x
+    mut bnd := msg()
+    mut c.string_bound(x, mut bnd)?
+    v, known := mut c.known_value(index)?
+    if known {
+        append(mut m, []uint8("index ")...)?
+        v.append_string(mut m)?
+        append(mut m, []uint8(" may be out of range")...)?
+        if len(bnd) > 0 {
+            append(mut m, []uint8("; check ")...)?
+            append(mut m, bnd[:]...)?
+            append(mut m, []uint8(" > ")...)?
+            v.append_string(mut m)?
+            append(mut m, []uint8(" first")...)?
+        }
+        s := mut c.is_subject(x)?
+        if s {
+            about, _ := mut c.subject_key(x)?
+            mut ext := mut c.new_extent(x, "byte", 0, false)?
+            p := Proof{kind: proof_length, about: about, e: x, ix: ix, n: 0, array: false, ext: ext, upper_only: false}
+            mut c.explain(p, mut notes)?
+        }
+    } else {
+        mut c.index_error(ix, bnd[:], false, 0, mut m, mut notes)?
+    }
+    mut c.indexed_notes(x, mut notes)?
+    if write {
+        return noerror
+    }
+    mut form := msg()
+    append(mut form, []uint8("v, ok := ...[")...)?
+    mut c.index_name(index, mut form)?
+    append(mut form, ']')?
+    return or_use(mut m, form[:])
+}
+
+// string_bound appends to out the bound a check on an index into the
+// string s would compare it with, Go's stringBound: a literal's length,
+// or len(s) when s is a name or a subject, but a mutable global.
+func (mut c Checker) string_bound(s Key, mut out list[uint8]) error {
+    switch kind_at(c.prog.trees, s) {
+    case str_lit(lit):
+        n := len(text_at(c.prog.trees, c.none, s.unit, lit))
+        return constant.from_int64(n).append_string(mut out)
+    default:
+    }
+    _, is_global := mut c.mutable_global(s)
+    if is_global {
+        return noerror
+    }
+    nm, is_id := ident_at(c.prog.trees, s)
+    if is_id {
+        append(mut out, []uint8("len(")...)?
+        append(mut out, text_at(c.prog.trees, c.none, s.unit, nm.name)...)?
+        append(mut out, ')')?
+        return noerror
+    }
+    sub := mut c.is_subject(s)?
+    if sub {
+        append(mut out, []uint8("len(")...)?
+        mut c.name_subject(s, mut out)?
+        append(mut out, ')')?
+    }
+    return noerror
+}
+
+// indexed_notes appends to notes the notes on why the length of the
+// string s cannot be proven, Go's indexedNotes: at its declaration, for
+// a mutable global, or at the guard on its length, for a field of a
+// mutable variable or a mut parameter.
+func (mut c Checker) indexed_notes(s Key, mut notes list[diag.Related]) error {
+    g, is_global := mut c.mutable_global(s)
+    if is_global {
+        return c.global_note(g, mut notes)
+    }
+    switch kind_at(c.prog.trees, s) {
+    case selector:
+        sub := mut c.is_subject(s)?
+        if !sub {
+            return mut c.field_notes(s, mut notes)
+        }
+    default:
+    }
+    return noerror
+}
+
+// require_nonzero reports a divisor that is not proven non-zero where it
+// is used, Go's requireNonzero, and returns whether it is proven: with_ok
+// says the division could be written q, ok := a / b instead.
+func (mut c Checker) require_nonzero_at(divisor Key, with_ok bool) (bool, error) {
+    v, known := mut c.known_value(divisor)?
+    if known {
+        if v.is_zero() {
+            mut m := msg()
+            fmt.appendf(mut m, "division by zero")?
+            mut c.errorf(span_at(c.prog.trees, divisor), own m)?
+            return false, noerror
+        }
+        return true, noerror
+    }
+    nz := mut c.nonzero(divisor)?
+    if nz {
+        return true, noerror
+    }
+    mut m := msg()
+    mut notes := make(list[diag.Related], c_allocator)
+    about, _ := mut c.note_key(divisor)?
+    ext := mut c.new_extent(divisor, "byte", 0, false)?
+    p := Proof{kind: proof_divisor, about: about, e: divisor, ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: ext, upper_only: false}
+    g, is_global := mut c.mutable_global(divisor)
+    is_subj := mut c.is_subject(divisor)?
+    is_len := mut c.is_length_subject(divisor)?
+    if is_global {
+        append(mut m, []uint8("divisor ")...)?
+        mut c.operand_name(divisor, mut m)?
+        append(mut m, []uint8(" may be zero")...)?
+        c.global_note(g, mut notes)?
+    } else if is_subj {
+        mut name := msg()
+        mut c.name_subject(divisor, mut name)?
+        append(mut m, []uint8("divisor ")...)?
+        append(mut m, name[:]...)?
+        append(mut m, []uint8(" may be zero; check ")...)?
+        append(mut m, name[:]...)?
+        append(mut m, []uint8(" != 0 first")...)?
+        mut c.explain(p, mut notes)?
+    } else if is_len {
+        append(mut m, []uint8("divisor may be zero")...)?
+        mut c.explain(p, mut notes)?
+    } else {
+        append(mut m, []uint8("divisor may be zero")...)?
+        mut c.operand_notes(divisor, mut notes)?
+    }
+    if with_ok {
+        mut form := msg()
+        append(mut form, []uint8("q, ok := ... / ")...)?
+        mut c.operand_name(divisor, mut form)?
+        or_use(mut m, form[:])?
+    }
+    mut c.error_notes(span_at(c.prog.trees, divisor), own m, own notes)?
+    return false, noerror
+}
+
+// index_relation_notes appends to notes what the relations in force fall
+// short of for the index i in range for x, Go's indexRelationNotes: for
+// each bound its own facts do not prove, at least 0 and below x's
+// length, what relation_notes says, each note once.
+func (mut c Checker) index_relation_notes(i Key, x Key, mut notes list[diag.Related]) error {
+    mut found := make(list[diag.Related], c_allocator)
+    known := mut c.note_interval(i)?
+    if !known.has_lo || known.lo.is_negative() {
+        t, ok := mut c.query_term(i)?
+        if ok {
+            mut c.relation_notes(zero_term(), t, constant.from_int64(0), span_at(c.prog.trees, i), mut found)?
+        }
+    }
+    mut c.upper_relation_notes(i, x, constant.from_int64(-1), mut found)?
+    for j, n := range found {
+        mut dup := false
+        for k, o := range found {
+            if k < j && o.span == n.span && bytes_equal(o.message.bytes(), n.message.bytes()) {
+                dup = true
+            }
+        }
+        if !dup {
+            mut m := text_copy(n.message.bytes())?
+            push_note(mut notes, n.span, own m)?
+        }
+    }
+    return noerror
+}
+
+// text_copy returns a copy of b.
+func text_copy(b []uint8) (list[uint8], error) {
+    mut out := msg()
+    append(mut out, b...)?
+    return out, noerror
+}
+
+// upper_relation_notes appends to notes what relation_notes says for the
+// subject or length b at most the length of x plus w, Go's
+// upperRelationNotes.
+func (mut c Checker) upper_relation_notes(b Key, x Key, w constant.Int, mut notes list[diag.Related]) error {
+    t, ok := mut c.query_term(b)?
+    if !ok {
+        return noerror
+    }
+    n, known := mut c.extent_of(x)?
+    sp := span_at(c.prog.trees, b)
+    if known {
+        limit, fits := constant.from_int64(n).add(w)
+        hi := mut c.note_interval(b)?
+        if !fits || hi.has_hi && hi.hi.cmp(limit) <= 0 {
+            return noerror
+        }
+        return mut c.relation_notes(t, zero_term(), limit, sp, mut notes)
+    }
+    l, ok_l := mut c.len_term(x)?
+    if !ok_l {
+        return noerror
+    }
+    if w.is_negative() {
+        b2 := mut c.below_len(b, x)?
+        if b2 {
+            return noerror
+        }
+    }
+    return mut c.relation_notes(t, l, w, sp, mut notes)
+}
+
+// relation_notes appends to notes the note that explains why the
+// relations in force do not prove x - y <= w, at sp, Go's relationNotes:
+// that the graph left relations out past its cap, or that one link is
+// missing from a chain that would prove it.
+func (mut c Checker) relation_notes(x LinTerm, y LinTerm, w constant.Int, sp source.Span, mut notes list[diag.Related]) error {
+    q := query_w(x, y, w)
+    if !q.ok || x.node == y.node {
+        return noerror
+    }
+    mut g, has := mut c.relation_graph(x.node, y.node, x.is_len, y.is_len, true)?
+    if !has {
+        return noerror
+    }
+    p := mut g.proves(x.node, y.node, q.w)?
+    if p {
+        return noerror
+    }
+    if g.capped {
+        mut m := msg()
+        append(mut m, []uint8("the checker follows at most 64 related values from here, so relations further along are not used; check ")...)?
+        c.relation_text(x.node, y.node, x.is_len, y.is_len, q.w, mut m)?
+        append(mut m, []uint8(" directly")...)?
+        return push_note(mut notes, sp, own m)
+    }
+    if x.node.is_zero() || y.node.is_zero() {
+        return noerror
+    }
+    mut i := len(g.nodes) -% 1
+    for i >= 0 {
+        mk, has_m := g.nodes[i]
+        i -%= 1
+        if !has_m {
+            continue
+        }
+        d, known := mut g.bound(x.node, mk)?
+        if !known || !c.middle(mk, x, y) {
+            continue
+        }
+        link, ok := q.w.sub(constant.from_int64(d))
+        if !ok {
+            continue
+        }
+        r := mut c.refutes(mut g, mk, y.node, link)?
+        if r {
+            continue
+        }
+        mut m := msg()
+        c.relation_text(x.node, mk, x.is_len, false, constant.from_int64(d), mut m)?
+        append(mut m, []uint8(" holds here; check ")...)?
+        c.relation_text(mk, y.node, false, y.is_len, link, mut m)?
+        append(mut m, []uint8(" too")...)?
+        return push_note(mut notes, sp, own m)
+    }
+    i = len(g.nodes) -% 1
+    for i >= 0 {
+        mk, has_m := g.nodes[i]
+        i -%= 1
+        if !has_m {
+            continue
+        }
+        d, known := mut g.bound_to(mk, y.node)?
+        if !known || !c.middle(mk, x, y) || !c.compared(x.node, mk) {
+            continue
+        }
+        link, ok := q.w.sub(constant.from_int64(d))
+        if !ok {
+            continue
+        }
+        r := mut c.refutes(mut g, x.node, mk, link)?
+        if r {
+            continue
+        }
+        mut m := msg()
+        c.relation_text(mk, y.node, false, y.is_len, constant.from_int64(d), mut m)?
+        append(mut m, []uint8(" holds here; check ")...)?
+        c.relation_text(x.node, mk, x.is_len, false, link, mut m)?
+        append(mut m, []uint8(" too")...)?
+        return push_note(mut notes, sp, own m)
+    }
+    return noerror
+}
+
+// refutes reports whether g proves that a - b <= w can never hold, by
+// proving b - a <= -w - 1, Go's refutes.
+func (mut c Checker) refutes(mut g RelGraph, a FKey, b FKey, w constant.Int) (bool, error) {
+    neg, ok := w.negate()
+    if !ok {
+        return false, noerror
+    }
+    n2, ok2 := neg.sub(constant.from_int64(1))
+    if !ok2 {
+        return false, noerror
+    }
+    r := mut g.proves(b, a, n2)?
+    return r, noerror
+}
+
+// middle reports whether k can be the third subject of a link note about
+// x and y, Go's middle: neither of them, nor the constant, nor a length.
+func (c Checker) middle(k FKey, x LinTerm, y LinTerm) bool {
+    return k != x.node && k != y.node && !k.is_zero() && !c.is_length_key(k)
+}
+
+// is_length_key reports whether a fact in force uses k as a length, Go's
+// isLength, from the index of the relations, built by the query that
+// asks.
+func (c Checker) is_length_key(k FKey) bool {
+    return c.is_len_node(k)
+}
+
+// compared reports whether a fact in force, held or dropped, names both
+// a and b, Go's compared.
+func (c Checker) compared(a FKey, b FKey) bool {
+    for _, f := range c.fx.active {
+        mut ha := false
+        mut hb := false
+        for i := range c.key_count(f) {
+            k := c.fact_key(f, i)
+            ha = ha || k == a
+            hb = hb || k == b
+        }
+        if ha && hb {
+            return true
+        }
+    }
+    return false
+}
+
+// relation_text appends x - y <= w written as a check, Go's
+// relationText: a node that is a length is written len(s).
+func (c Checker) relation_text(x FKey, y FKey, x_len bool, y_len bool, w constant.Int, mut out list[uint8]) error {
+    mut xn := msg()
+    c.len_name(x, x_len, mut xn)?
+    mut yn := msg()
+    c.len_name(y, y_len, mut yn)?
+    if y.is_zero() {
+        return below(xn[:], w, mut out)
+    }
+    if x.is_zero() {
+        lo, _ := w.negate()
+        lo.append_string(mut out)?
+        append(mut out, []uint8(" <= ")...)?
+        append(mut out, yn[:]...)?
+        return noerror
+    }
+    append(mut out, xn[:]...)?
+    if w.is_zero() {
+        append(mut out, []uint8(" <= ")...)?
+        append(mut out, yn[:]...)?
+        return noerror
+    }
+    if !w.is_negative() {
+        append(mut out, []uint8(" <= ")...)?
+        append(mut out, yn[:]...)?
+        append(mut out, []uint8(" + ")...)?
+        return w.append_string(mut out)
+    }
+    if w.cmp(constant.from_int64(-1)) == 0 {
+        append(mut out, []uint8(" < ")...)?
+        append(mut out, yn[:]...)?
+        return noerror
+    }
+    gap, _ := w.negate()
+    gap2, _ := gap.sub(constant.from_int64(1))
+    append(mut out, []uint8(" < ")...)?
+    append(mut out, yn[:]...)?
+    append(mut out, []uint8(" - ")...)?
+    return gap2.append_string(mut out)
+}
+
+// len_name appends how a relation's note names the node k: len(s) for a
+// length.
+func (c Checker) len_name(k FKey, is_len bool, mut out list[uint8]) error {
+    if is_len {
+        append(mut out, []uint8("len(")...)?
+        c.key_name(k, mut out)?
+        append(mut out, ')')?
+        return noerror
+    }
+    return c.key_name(k, mut out)
+}

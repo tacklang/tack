@@ -1,6 +1,7 @@
 package typeck
 
 import ast from "tack/ast"
+import diag from "tack/diag"
 import fmt from "std/fmt"
 import source from "tack/source"
 import types from "tack/types"
@@ -11,12 +12,14 @@ import types from "tack/types"
 // poolResults. An element read in place while its index passes what it
 // is read from as mut is reported (see check_index_borrows). Outside the
 // checked form, a map's key and a pool's handle must be proven in it by
-// has, the facts in force, which the port does not keep yet, so such an
-// element is declined; an arena's element needs no proof.
+// has, the facts in force (see proven_in); an arena's element needs no
+// proof.
 
 // map_element checks m[k], the index k, ix, of a map of type base whose
-// key has type idx, Go's mapElement, and returns the map's value type.
-func (mut c Checker) map_element(k Key, ix ast.Index, base types.Type, idx types.Type) (types.Type, error) {
+// key has type idx, Go's mapElement, and returns the map's value type:
+// outside the checked form the key must be proven in m by has, or is
+// reported, write saying m[k] is being assigned.
+func (mut c Checker) map_element(k Key, ix ast.Index, base types.Type, idx types.Type, write bool) (types.Type, error) {
     value := c.table.elem_of(base)
     n := mut c.type_name(base)?
     mut ctx := msg()
@@ -37,13 +40,33 @@ func (mut c Checker) map_element(k Key, ix ast.Index, base types.Type, idx types
     if c.checked_index == k {
         return value, noerror
     }
-    return types.invalid, not_ported
+    proven := mut c.proven_in(k)?
+    if proven {
+        return value, noerror
+    }
+    key := mut c.source_text(span_at(c.prog.trees, sub(k, ix.index)))?
+    m := mut c.source_text(span_at(c.prog.trees, sub(k, ix.x)))?
+    mut e := msg()
+    fmt.appendf(mut e, "key %s may not be in %s; check has(%s, %s) first", key[:], m[:], m[:], key[:])?
+    owned := c.table.owned(value)?
+    zero := c.table.has_zero(value)?
+    if write {
+        fmt.appendf(mut e, ", or use put(mut %s, %s, ...)", m[:], key[:])?
+    } else if !owned && zero {
+        t := mut c.source_text(span_at(c.prog.trees, k))?
+        fmt.appendf(mut e, ", or use v, ok := %s", t[:])?
+    }
+    mut notes := make(list[diag.Related], c_allocator)
+    mut c.member_notes(k, mut notes)?
+    mut c.error_notes(span_at(c.prog.trees, sub(k, ix.index)), own e, own notes)?
+    return value, noerror
 }
 
 // pool_element checks p[h], the index k, ix, of a pool of type base
 // whose handle has type idx, Go's poolElement, and returns the pool's
-// element type.
-func (mut c Checker) pool_element(k Key, ix ast.Index, base types.Type, idx types.Type) (types.Type, error) {
+// element type: outside the checked form the handle must be proven live
+// in p by has, or is reported, write saying p[h] is being assigned.
+func (mut c Checker) pool_element(k Key, ix ast.Index, base types.Type, idx types.Type, write bool) (types.Type, error) {
     elem := c.table.elem_of(base)
     ht := mut c.table.handle_of(elem)?
     n := mut c.type_name(base)?
@@ -65,7 +88,24 @@ func (mut c Checker) pool_element(k Key, ix ast.Index, base types.Type, idx type
     if c.checked_index == k {
         return elem, noerror
     }
-    return types.invalid, not_ported
+    proven := mut c.proven_in(k)?
+    if proven {
+        return elem, noerror
+    }
+    h := mut c.source_text(span_at(c.prog.trees, sub(k, ix.index)))?
+    p := mut c.source_text(span_at(c.prog.trees, sub(k, ix.x)))?
+    mut e := msg()
+    fmt.appendf(mut e, "handle %s may not be live in %s; check has(%s, %s) first", h[:], p[:], p[:], h[:])?
+    owned := c.table.owned(elem)?
+    zero := c.table.has_zero(elem)?
+    if !write && !owned && zero {
+        t := mut c.source_text(span_at(c.prog.trees, k))?
+        fmt.appendf(mut e, ", or use v, ok := %s", t[:])?
+    }
+    mut notes := make(list[diag.Related], c_allocator)
+    mut c.member_notes(k, mut notes)?
+    mut c.error_notes(span_at(c.prog.trees, sub(k, ix.index)), own e, own notes)?
+    return elem, noerror
 }
 
 // arena_element checks a[e], the index k, ix, of an arena of type base
@@ -357,7 +397,7 @@ func (mut c Checker) element_write(k Key, ix ast.Index, base types.Type) (types.
     if e.code != 0 {
         return types.invalid, e
     }
-    t := mut c.index_rest(k, ix, base, idx, false)?
+    t := mut c.index_rest(k, ix, base, idx, false, true)?
     return t, noerror
 }
 
@@ -408,4 +448,86 @@ func (mut c Checker) check_assign_borrows(k Key, ix ast.Index, base types.Type) 
         return true, noerror
     }
     return false, noerror
+}
+
+// member_facts appends to out the facts in force, held or dropped, that
+// the key of k, m[k], is in m, or the handle of p[h] live in p, Go's
+// memberFacts: none when m is no subject has can prove anything in, or
+// the key none that cannot change.
+func (mut c Checker) member_facts(k Key, mut out list[Fact]) error {
+    m, ok := mut c.key_of(index_x(c.prog.trees, k))?
+    if !ok {
+        return noerror
+    }
+    about, known, member := mut c.member_of(index_index(c.prog.trees, k))?
+    if !member {
+        return noerror
+    }
+    mut facts := make(list[Fact], c_allocator)
+    mut c.facts_about(about, mut facts)?
+    for _, f := range facts {
+        if f.in_map == m && f.known == known {
+            append(mut out, f)?
+        }
+    }
+    return noerror
+}
+
+// proven_in reports whether a fact in force proves the key of k, m[k],
+// in m, or the handle of p[h] live in p, Go's provenIn.
+func (mut c Checker) proven_in(k Key) (bool, error) {
+    mut facts := make(list[Fact], c_allocator)
+    mut c.member_facts(k, mut facts)?
+    for _, f := range facts {
+        h := mut c.holds(f)?
+        if h {
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// member_notes appends to notes what explains why the key of k, m[k],
+// is not proven in m, or the handle of p[h] live in p, Go's
+// memberNotes: that m is no subject has can prove anything in, or the
+// key none that cannot change; or, for each has that proved it but whose
+// proof a write ended, the guard and the write.
+func (mut c Checker) member_notes(k Key, mut notes list[diag.Related]) error {
+    x := index_x(c.prog.trees, k)
+    xt := mut c.type_of(x)
+    in_pool := c.table.is_pool(xt)
+    _, ok := mut c.key_of(x)?
+    if !ok {
+        mut n := msg()
+        if in_pool {
+            append(mut n, []uint8("has proves a handle only in a pool that is a variable or a parameter, or a field or an element of one declared without mut")...)?
+        } else {
+            append(mut n, []uint8("has proves a key only in a map that is a variable or a parameter, or a field or an element of one declared without mut")...)?
+        }
+        return push_note(mut notes, span_at(c.prog.trees, x), own n)
+    }
+    index := index_index(c.prog.trees, k)
+    _, _, member := mut c.member_of(index)?
+    if !member {
+        mut n := msg()
+        if in_pool {
+            append(mut n, []uint8("has proves only a handle that cannot change: a variable or parameter declared without mut, or a field of one")...)?
+        } else {
+            append(mut n, []uint8("has proves only a key that cannot change: a constant, a variable or parameter declared without mut, or a field of one")...)?
+        }
+        return push_note(mut notes, span_at(c.prog.trees, index), own n)
+    }
+    mut facts := make(list[Fact], c_allocator)
+    mut c.member_facts(k, mut facts)?
+    mut dropped := make(list[Fact], c_allocator)
+    for _, f := range facts {
+        mut g := f
+        g.drop = mut c.drop_of(f)?
+        if g.drop >= 0 {
+            append(mut dropped, g)?
+        }
+    }
+    ext := mut c.new_extent(k, "byte", 0, false)?
+    p := Proof{kind: proof_member, about: zero_fkey(), e: k, ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: ext, upper_only: false}
+    return mut c.drop_notes(p, dropped[:], mut notes)
 }

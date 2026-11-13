@@ -1,0 +1,708 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import source from "tack/source"
+import types from "tack/types"
+
+// What a statement gives the statements after it in its block, Go's
+// checkStmts and the functions it calls: an early exit's facts, an if or
+// a switch one of whose branches leaves (afterFacts, switchAfterFacts),
+// the facts down an else-if chain or a switch's cases (chainFacts), and
+// what a declaration or an assignment stores (storedFacts). Each holds in
+// a region of what the statement falls through to first, then the rest
+// of the block, shared by every region over it (see assume.tck).
+
+// no_guard returns the guard of no condition, for a result that has
+// none.
+func no_guard() Guard {
+    return Guard{cond: no_cond(), span: zero_span(), kind: guard_cond}
+}
+
+// stmt_facts puts in force, after the statement at position i of the
+// block blk, stmt, what it gives the rest of the block, Go's loop body in
+// checkStmts after checkStmt: an early exit's facts, or else what it
+// stores, then, for a call whose callee has a contract, a later stage's,
+// declined, and then what an if chain or a switch gives past its first
+// link.
+func (mut c Checker) stmt_facts(blk int64, i int64, stmt Key) error {
+    frm := i +% 1
+    rest := c.rest_of(blk, frm)
+    mut facts := make(list[Fact], c_allocator)
+    mut g, mut has := mut c.after_facts(stmt, mut facts)?
+    if !has {
+        g, has = mut c.stored_facts(stmt, mut facts)?
+    }
+    if has {
+        mut head := make(list[Key], c_allocator)
+        mut c.falls_through(stmt, mut head)?
+        mut c.assume_in(g, facts[:], head[:], rest, frm)?
+    }
+    contract := mut c.has_contract_call(stmt)?
+    if contract {
+        return not_ported
+    }
+    if rest < 0 {
+        return noerror
+    }
+    return mut c.chain_facts(stmt, rest, frm)
+}
+
+// has_contract_call reports whether stmt is, or has as its whole value,
+// a call whose callee has an ensures clause, Go's contractCall, whose
+// facts are a later stage's.
+func (mut c Checker) has_contract_call(stmt Key) (bool, error) {
+    mut value := no_key()
+    switch kind_at(c.prog.trees, stmt) {
+    case expr_stmt(s):
+        value = sub(stmt, s.x)
+    case var_decl(v):
+        value = sub(stmt, v.value)
+    case multi_var(m):
+        value = sub(stmt, m.value)
+    case assign(a):
+        value = sub(stmt, a.value)
+    case multi_assign(m):
+        value = sub(stmt, m.value)
+    default:
+        return false, noerror
+    }
+    switch kind_at(c.prog.trees, value) {
+    case call:
+        fnk := mut c.callee_of(value)
+        if is_no_key(fnk) {
+            return false, noerror
+        }
+        return !ast.is_none(func_of(c.prog.trees, fnk).contract), noerror
+    default:
+        return false, noerror
+    }
+}
+
+// if_guard returns the guard an if, the node k, s, is as an early exit,
+// Go's ifGuard: its keyword through its condition.
+func (c Checker) if_guard(k Key, s ast.If) Guard {
+    mut sp := span_at(c.prog.trees, k)
+    cond := sub(k, s.cond)
+    sp.end = span_at(c.prog.trees, cond).end
+    return Guard{cond: node_cond(cond), span: sp, kind: guard_exit}
+}
+
+// after_facts appends to facts what an if, or a switch, gives the
+// statements after it in its block, and returns the guard they come
+// from, when it is an early exit, one of whose branches leaves, Go's
+// afterFacts.
+func (mut c Checker) after_facts(stmt Key, mut facts list[Fact]) (Guard, bool, error) {
+    switch kind_at(c.prog.trees, stmt) {
+    case if_stmt(s):
+        then_leaves := mut c.leaves(stmt.unit, s.then)?
+        else_leaves := mut c.leaves(stmt.unit, s.else_body)?
+        if then_leaves == else_leaves {
+            return no_guard(), false, noerror
+        }
+        if then_leaves {
+            mut c.facts_from(node_cond(sub(stmt, s.cond)), false, mut facts)?
+        } else {
+            mut c.facts_from(node_cond(sub(stmt, s.cond)), true, mut facts)?
+        }
+        return c.if_guard(stmt, s), true, noerror
+    case switch_stmt(s):
+        g, has := mut c.switch_after_facts(stmt, s, mut facts)?
+        return g, has, noerror
+    default:
+        return no_guard(), false, noerror
+    }
+}
+
+// falls_through appends to out what an if or a switch that gives the
+// statements after it facts as an early exit runs after its condition is
+// known and before those statements, Go's fallsThrough.
+func (mut c Checker) falls_through(stmt Key, mut out list[Key]) error {
+    switch kind_at(c.prog.trees, stmt) {
+    case if_stmt(s):
+        l := mut c.leaves(stmt.unit, s.then)?
+        if l {
+            return c.stmt_keys(stmt.unit, s.else_body, mut out)
+        }
+        return c.stmt_keys(stmt.unit, s.then, mut out)
+    case switch_stmt(s):
+        mut order := make(list[Key], c_allocator)
+        c.try_order(stmt, s, mut order)?
+        if len(order) == 0 {
+            return noerror
+        }
+        first := key_in(order[:], 0)
+        fl := mut c.leaves(first.unit, clause_of(c.prog.trees, first).body)?
+        if !fl {
+            return c.stmt_keys(first.unit, clause_of(c.prog.trees, first).body, mut out)
+        }
+        mut i int64 = 1
+        for i < len(order) {
+            cl := key_in(order[:], i)
+            i +%= 1
+            cc := clause_of(c.prog.trees, cl)
+            c.stmt_keys(cl.unit, cc.values, mut out)?
+            l := mut c.leaves(cl.unit, cc.body)?
+            if !l {
+                c.stmt_keys(cl.unit, cc.body, mut out)?
+            }
+        }
+        return noerror
+    default:
+        return noerror
+    }
+}
+
+// chain_leaves reports whether the cases of order from position from on,
+// in the order tried, always leave the code around them, Go's
+// chainLeavesBy with Checker.leaves: they end in a default, and every
+// case's body leaves.
+func (mut c Checker) chain_leaves(order []Key, frm int64) (bool, error) {
+    if frm >= len(order) || !is_default(c.prog.trees, key_in(order, len(order) -% 1)) {
+        return false, noerror
+    }
+    mut i := frm
+    for i < len(order) {
+        cl := key_in(order, i)
+        i +%= 1
+        l := mut c.leaves(cl.unit, clause_of(c.prog.trees, cl).body)?
+        if !l {
+            return false, noerror
+        }
+    }
+    return true, noerror
+}
+
+// case_span returns what a note about the case cl underlines, Go's
+// caseSpan: its keyword through its last value, or the whole clause for a
+// default.
+func (c Checker) case_span(cl Key) source.Span {
+    mut sp := span_at(c.prog.trees, cl)
+    vs := clause_of(c.prog.trees, cl).values
+    n := count_items(c.prog.trees, cl.unit, vs)
+    if n > 0 {
+        sp.end = span_at(c.prog.trees, item_at(c.prog.trees, cl.unit, vs, n -% 1)).end
+    }
+    return sp
+}
+
+// switch_after_facts appends to facts what the switch k, s, gives the
+// statements after it in its block, as the chain of ifs it means does,
+// and returns the guard they come from, Go's switchAfterFacts.
+func (mut c Checker) switch_after_facts(k Key, s ast.Switch, mut facts list[Fact]) (Guard, bool, error) {
+    mut order := make(list[Key], c_allocator)
+    c.try_order(k, s, mut order)?
+    if len(order) == 0 || is_default(c.prog.trees, key_in(order[:], 0)) {
+        return no_guard(), false, noerror
+    }
+    first := key_in(order[:], 0)
+    first_leaves := mut c.leaves(first.unit, clause_of(c.prog.trees, first).body)?
+    rest_leaves := mut c.chain_leaves(order[:], 1)?
+    if first_leaves == rest_leaves {
+        return no_guard(), false, noerror
+    }
+    mut kind := guard_exit
+    if first_leaves {
+        mut c.case_facts(k, s, first, false, mut facts)?
+    } else {
+        mut c.case_facts(k, s, first, true, mut facts)?
+        kind = guard_matched
+    }
+    return Guard{cond: no_cond(), span: c.case_span(first), kind: kind}, true, noerror
+}
+
+// case_cond returns the condition a case value v of the switch s, at k,
+// stands for, Go's caseCond: v itself in a tagless switch, and tag == v
+// in an expression switch.
+func case_cond(k Key, s ast.Switch, v Key) Cond {
+    if ast.is_none(s.tag) {
+        return node_cond(v)
+    }
+    return Cond{node: v, tag: sub(k, s.tag)}
+}
+
+// gives_case_facts reports whether a case of the switch k, s, can give
+// facts: a switch on a type, a type switch and a switch on a union give
+// none, Go's caseFacts's first test.
+func (mut c Checker) gives_case_facts(k Key, s ast.Switch) bool {
+    if s.on_type || mut c.is_type_switch(k, s) {
+        return false
+    }
+    if ast.is_none(s.tag) {
+        return true
+    }
+    tt := mut c.type_of(sub(k, s.tag))
+    return !c.table.is_union(tt)
+}
+
+// case_facts appends to facts what the case cl of the switch k, s,
+// gives where its condition, the || of its values' conditions, evaluated
+// to holds, Go's caseFacts: what every value's facts of being true agree
+// on when true, and every value's facts of being false when false, each
+// dropped when a value tried after it assigns its variable.
+func (mut c Checker) case_facts(k Key, s ast.Switch, cl Key, holds bool, mut facts list[Fact]) error {
+    cc := clause_of(c.prog.trees, cl)
+    n := count_items(c.prog.trees, cl.unit, cc.values)
+    if cc.is_default || n == 0 || !mut c.gives_case_facts(k, s) {
+        return noerror
+    }
+    start := len(facts)
+    if holds {
+        mut acc := make(list[Fact], c_allocator)
+        mut c.facts_from(case_cond(k, s, item_at(c.prog.trees, cl.unit, cc.values, 0)), true, mut acc)?
+        mut i int64 = 1
+        for i < n {
+            v := item_at(c.prog.trees, cl.unit, cc.values, i)
+            i +%= 1
+            mut more := make(list[Fact], c_allocator)
+            mut c.facts_from(case_cond(k, s, v), true, mut more)?
+            mut united := make(list[Fact], c_allocator)
+            mut c.unite_facts(acc[:], more[:], mut united)?
+            acc = united
+        }
+        append(mut facts, acc[:]...)?
+        return mut c.tag_facts(k, s, cl, mut facts, start)
+    }
+    mut i int64 = 0
+    for i < n {
+        v := item_at(c.prog.trees, cl.unit, cc.values, i)
+        i +%= 1
+        mut own_facts := make(list[Fact], c_allocator)
+        mut c.facts_from(case_cond(k, s, v), false, mut own_facts)?
+        mut later := make(list[Key], c_allocator)
+        mut j := i
+        for j < n {
+            append(mut later, item_at(c.prog.trees, cl.unit, cc.values, j))?
+            j +%= 1
+        }
+        mut c.drop_assigned(mut own_facts, 0, later[:])?
+        append(mut facts, own_facts[:]...)?
+    }
+    return mut c.tag_facts(k, s, cl, mut facts, start)
+}
+
+// tag_facts marks each of facts from start on that a value tried up to
+// and including the case cl's assigns the variable of dropped, Go's
+// tagFacts: the tag is evaluated once, before any value. A switch none
+// of whose values tried by then passes anything as mut needs no search.
+func (mut c Checker) tag_facts(k Key, s ast.Switch, cl Key, mut facts list[Fact], start int64) error {
+    if ast.is_none(s.tag) {
+        return noerror
+    }
+    mut order := make(list[Key], c_allocator)
+    c.try_order(k, s, mut order)?
+    mut first := len(order)
+    mut pos := len(order)
+    for i, o := range order {
+        if o == cl {
+            pos = i
+        }
+        if first == len(order) {
+            m := mut c.passes_mut(o)?
+            if m {
+                first = i
+            }
+        }
+    }
+    if pos < first {
+        return noerror
+    }
+    mut tried := make(list[Key], c_allocator)
+    for _, o := range order {
+        c.stmt_keys(o.unit, clause_of(c.prog.trees, o).values, mut tried)?
+        if o == cl {
+            break
+        }
+    }
+    return mut c.drop_assigned(mut facts, start, tried[:])
+}
+
+// passes_mut reports whether any of the values of the case cl, at any
+// depth, passes something as mut, or holds a closure, Go's passesMut; a
+// closure is a later stage's, and declined.
+func (mut c Checker) passes_mut(cl Key) (bool, error) {
+    vs := clause_of(c.prog.trees, cl).values
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for i := range count_items(c.prog.trees, cl.unit, vs) {
+        append(mut stack, item_at(c.prog.trees, cl.unit, vs, i).node)?
+    }
+    for len(stack) > 0 {
+        top, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        n := Key{unit: cl.unit, node: top}
+        switch kind_at(c.prog.trees, n) {
+        case mut_arg:
+            return true, noerror
+        case func_lit:
+            return false, not_ported
+        default:
+        }
+        clear_nodes(mut kids)
+        children_of(c.prog.trees, n.unit, top, mut kids)?
+        for _, kid := range kids {
+            append(mut stack, kid)?
+        }
+    }
+    return false, noerror
+}
+
+// chain_facts puts in force, for the rest of the block blk from the
+// statement from on, what an if chain or a switch that stmt is gives the
+// code after it past its first link, Go's chainFacts: down an else-if
+// chain whose then branches leave, what each inner if gives the code
+// after it as an early exit.
+func (mut c Checker) chain_facts(stmt Key, blk int64, frm int64) error {
+    switch kind_at(c.prog.trees, stmt) {
+    case switch_stmt(s):
+        return mut c.switch_chain_facts(stmt, s, blk, frm)
+    case if_stmt(s0):
+        mut s := s0
+        mut cur := stmt
+        for {
+            l := mut c.leaves(cur.unit, s.then)?
+            if !l || count_items(c.prog.trees, cur.unit, s.else_body) != 1 {
+                return noerror
+            }
+            next := item_at(c.prog.trees, cur.unit, s.else_body, 0)
+            switch kind_at(c.prog.trees, next) {
+            case if_stmt(es):
+                cur = next
+                s = es
+            default:
+                return noerror
+            }
+            mut facts := make(list[Fact], c_allocator)
+            g, has := mut c.after_facts(cur, mut facts)?
+            if !has {
+                continue
+            }
+            mut head := make(list[Key], c_allocator)
+            mut c.falls_through(cur, mut head)?
+            mut c.assume_in(g, facts[:], head[:], blk, frm)?
+        }
+        return noerror
+    default:
+        return noerror
+    }
+}
+
+// switch_chain_facts puts in force, for the rest of the block blk from
+// the statement from on, what the cases of the expression switch k, s,
+// after its first give the code after it, Go's switchChainFacts.
+func (mut c Checker) switch_chain_facts(k Key, s ast.Switch, blk int64, frm int64) error {
+    if s.on_type || mut c.is_type_switch(k, s) {
+        return noerror
+    }
+    if !ast.is_none(s.tag) {
+        tt := mut c.type_of(sub(k, s.tag))
+        if c.table.is_union(tt) {
+            return noerror
+        }
+    }
+    mut order := make(list[Key], c_allocator)
+    c.try_order(k, s, mut order)?
+    n := len(order)
+    if n < 2 {
+        return noerror
+    }
+    mut body_leaves := make(list[bool], c_allocator)
+    mut rest_leaves := make(list[bool], c_allocator)
+    mut bl := make(list[bool], c_allocator)
+    mut i := n -% 1
+    for i >= 0 {
+        cl := key_in(order[:], i)
+        i -%= 1
+        l := mut c.leaves(cl.unit, clause_of(c.prog.trees, cl).body)?
+        append(mut bl, l)?
+    }
+    // bl holds the cases' leaving last first; body_leaves[i] is case i's,
+    // and rest_leaves[i] whether the chain order[i:] does.
+    mut all := is_default(c.prog.trees, key_in(order[:], n -% 1))
+    mut rl := make(list[bool], c_allocator)
+    for j := range n {
+        l := bool_at(bl[:], j)
+        all = all && l
+        append(mut rl, all)?
+    }
+    for j := range n {
+        append(mut body_leaves, bool_at(bl[:], n -% 1 -% j))?
+        append(mut rest_leaves, bool_at(rl[:], n -% 1 -% j))?
+    }
+    append(mut rest_leaves, false)?
+    // The regions' heads are suffixes of one list, each followed by the
+    // rest: starts[i] is where the values of order[i] start in it.
+    mut nodes := make(list[Key], c_allocator)
+    mut starts := make(list[int64], c_allocator)
+    append(mut starts, 0)?
+    mut j int64 = 1
+    for j < n {
+        cl := key_in(order[:], j)
+        append(mut starts, len(nodes))?
+        cc := clause_of(c.prog.trees, cl)
+        c.stmt_keys(cl.unit, cc.values, mut nodes)?
+        if !bool_at(body_leaves[:], j) {
+            c.stmt_keys(cl.unit, cc.body, mut nodes)?
+        }
+        j +%= 1
+    }
+    append(mut starts, len(nodes))?
+    j = 1
+    for j < n && bool_at(body_leaves[:], j -% 1) && !bool_at(rest_leaves[:], j) {
+        cl := key_in(order[:], j)
+        if bool_at(body_leaves[:], j) && !bool_at(rest_leaves[:], j +% 1) {
+            mut facts := make(list[Fact], c_allocator)
+            mut c.case_facts(k, s, cl, false, mut facts)?
+            if len(facts) > 0 {
+                g := Guard{cond: no_cond(), span: c.case_span(cl), kind: guard_exit}
+                frm_head := int_in(starts[:], j +% 1)
+                mut head := make(list[Key], c_allocator)
+                mut h := frm_head
+                for h < len(nodes) {
+                    append(mut head, key_in(nodes[:], h))?
+                    h +%= 1
+                }
+                mut c.assume_in(g, facts[:], head[:], blk, frm)?
+            }
+        } else if !bool_at(body_leaves[:], j) && bool_at(rest_leaves[:], j +% 1) {
+            mut facts := make(list[Fact], c_allocator)
+            mut c.case_facts(k, s, cl, true, mut facts)?
+            if len(facts) > 0 {
+                g := Guard{cond: no_cond(), span: c.case_span(cl), kind: guard_matched}
+                mut head := make(list[Key], c_allocator)
+                c.stmt_keys(cl.unit, clause_of(c.prog.trees, cl).body, mut head)?
+                mut c.assume_in(g, facts[:], head[:], blk, frm)?
+            }
+        }
+        j +%= 1
+    }
+    return noerror
+}
+
+// stored_facts appends to facts what the statement stmt gives the
+// statements after it by what it stores, and returns the guard they come
+// from, Go's storedFacts: a mutable integer variable declared with no
+// value is at 0; a known value stored in a mutable variable puts it at
+// that value; a value that is another node relates the two both ways;
+// and any other value bounds the variable by its own bounds where it was
+// computed (see range_stored).
+func (mut c Checker) stored_facts(stmt Key, mut facts list[Fact]) (Guard, bool, error) {
+    sp := span_at(c.prog.trees, stmt)
+    switch kind_at(c.prog.trees, stmt) {
+    case var_decl(v):
+        if ast.is_none(v.value) && v.mutable && types.is_integer(decl_type_of(c.decl_types, stmt)) && mut c.can_hold_fact(stmt) {
+            append(mut facts, bound(decl_fkey(stmt), ast.op_eq, constant.from_int64(0)))?
+            return Guard{cond: no_cond(), span: sp, kind: guard_value}, true, noerror
+        }
+    case inc_dec, assign:
+        stepped := mut c.stepped_store(stmt)
+        if stepped {
+            // An increment, a decrement or a compound assignment of an
+            // integer is a later stage's; the port declines each.
+            return no_guard(), false, not_ported
+        }
+    default:
+    }
+    target, value, ok := mut c.stored_target(stmt)?
+    if !ok {
+        return no_guard(), false, noerror
+    }
+    k, known := mut c.known_value(value)?
+    if known {
+        switch kind_at(c.prog.trees, stmt) {
+        case var_decl(v):
+            if !v.mutable {
+                return no_guard(), false, noerror
+            }
+        default:
+        }
+        append(mut facts, bound(target, ast.op_eq, k))?
+        return Guard{cond: no_cond(), span: sp, kind: guard_value}, true, noerror
+    }
+    t, lin := mut c.linear(value)?
+    if !lin || t.node.is_zero() || t.node.decl == target.decl {
+        r := mut c.range_stored(stmt, target, value, mut facts)?
+        return r, len(facts) > 0, noerror
+    }
+    neg_off, ok_neg := t.off.negate()
+    if !ok_neg {
+        return no_guard(), false, noerror
+    }
+    tt := LinTerm{node: target, off: constant.from_int64(0), is_len: false}
+    mut c.add_diff_fact(tt, t, t.off, mut facts)?
+    mut c.add_diff_fact(t, tt, neg_off, mut facts)?
+    return Guard{cond: no_cond(), span: sp, kind: guard_store}, true, noerror
+}
+
+// stepped_store reports whether stmt is an increment, a decrement or a
+// compound assignment by + - or * of an integer subject, whose stored
+// bounds Go's steppedFacts works out.
+func (mut c Checker) stepped_store(stmt Key) bool {
+    switch kind_at(c.prog.trees, stmt) {
+    case inc_dec(s):
+        return types.is_integer(mut c.type_of(sub(stmt, s.target)))
+    case assign(a):
+        if a.op != ast.op_add && a.op != ast.op_sub && a.op != ast.op_mul {
+            return false
+        }
+        return types.is_integer(mut c.type_of(sub(stmt, a.target)))
+    default:
+        return false
+    }
+}
+
+// stored_target returns the subject stmt stores to and the value it
+// stores, when stmt is a declaration with a value, or a plain assignment
+// to a name, of an integer type, the variable one that can have facts,
+// Go's storedTarget.
+func (mut c Checker) stored_target(stmt Key) (FKey, Key, bool, error) {
+    switch kind_at(c.prog.trees, stmt) {
+    case var_decl(v):
+        if ast.is_none(v.value) || !types.is_integer(decl_type_of(c.decl_types, stmt)) || !mut c.can_hold_fact(stmt) {
+            return zero_fkey(), no_key(), false, noerror
+        }
+        return decl_fkey(stmt), sub(stmt, v.value), true, noerror
+    case assign(a):
+        target := sub(stmt, a.target)
+        _, is_id := ident_at(c.prog.trees, target)
+        if a.op != ast.op_invalid || !is_id || !types.is_integer(mut c.type_of(target)) {
+            return zero_fkey(), no_key(), false, noerror
+        }
+        k, ok := mut c.key_of(target)?
+        return k, sub(stmt, a.value), ok, noerror
+    default:
+        return zero_fkey(), no_key(), false, noerror
+    }
+}
+
+// range_stored appends to facts the fact that stmt, storing value in
+// the integer subject k, gives the statements after it, Go's
+// rangeStored: k lies within the bounds of the value where it was
+// computed, when those are narrower than its type's; and returns the
+// guard.
+func (mut c Checker) range_stored(stmt Key, k FKey, value Key, mut facts list[Fact]) (Guard, error) {
+    outer := c.fx.at
+    c.fx.at = span_at(c.prog.trees, value).end
+    mut known, e := mut c.operand_bounds(value)
+    c.fx.at = outer
+    if e.code != 0 {
+        return no_guard(), e
+    }
+    whole := type_interval(mut c.type_of(value))
+    if !known.has_lo || !known.has_hi || known.lo.cmp(whole.lo) <= 0 && known.hi.cmp(whole.hi) >= 0 {
+        return no_guard(), noerror
+    }
+    known = within(known, whole)
+    mut f := new_fact(k)
+    f.lo = known.lo
+    f.hi = known.hi
+    f.has_lo = true
+    f.has_hi = true
+    append(mut facts, f)?
+    return Guard{cond: no_cond(), span: span_at(c.prog.trees, stmt), kind: guard_value}, noerror
+}
+
+// within returns known with each bound past other's moved to it, Go's
+// interval.within.
+func within(known Interval, other Interval) Interval {
+    mut k := known
+    if k.lo.cmp(other.lo) < 0 {
+        k.lo = other.lo
+    }
+    if k.hi.cmp(other.hi) > 0 {
+        k.hi = other.hi
+    }
+    return k
+}
+
+// operand_bounds returns bounds every value the integer operand e can
+// have where it is used lies within, Go's operandBounds: a known value's,
+// a subject's or a length's bound, a conversion's operand's within its
+// type, and otherwise its type's. Arithmetic's, and the other operators'
+// whose bounds their operands give, are a later stage's, and declined.
+func (mut c Checker) operand_bounds(e Key) (Interval, error) {
+    known, ok := mut c.leaf_range(e)?
+    if ok {
+        return known, noerror
+    }
+    typ := mut c.type_of(e)
+    switch kind_at(c.prog.trees, e) {
+    case binary, unary:
+        if types.is_integer(typ) {
+            return no_interval(), not_ported
+        }
+    case call(cl):
+        if cl.conv != types.invalid && types.is_integer(cl.conv) && count_items(c.prog.trees, e.unit, cl.args) == 1 {
+            arg := item_at(c.prog.trees, e.unit, cl.args, 0)
+            if types.is_integer(mut c.type_of(arg)) {
+                inner := mut c.operand_bounds(arg)?
+                return within(inner, type_interval(typ)), noerror
+            }
+        }
+    default:
+    }
+    return type_interval(typ), noerror
+}
+
+// range_facts appends to facts what the body of the range loop k, s,
+// over a value of type got knows about its index variable, Go's
+// rangeFacts: at least 0, and below the count or the length when that is
+// known, or below len(s) or a count subject n.
+func (mut c Checker) range_facts(k Key, s ast.ForRange, got types.Type, mut facts list[Fact]) error {
+    if ast.is_none(s.var_node) || c.table.is_map(got) || c.table.is_arena(got) {
+        return noerror
+    }
+    vk := sub(k, s.var_node)
+    if bytes_equal(name_of(c.prog.trees, c.none, vk), []uint8("_")) {
+        return noerror
+    }
+    x := sub(k, s.x)
+    if c.table.is_pool(got) {
+        p, ok := mut c.key_of(x)?
+        if ok {
+            mut f := new_fact(decl_fkey(vk))
+            f.in_map = p
+            append(mut facts, f)?
+        }
+        return noerror
+    }
+    mut f := new_fact(decl_fkey(vk))
+    f.has_lo = true
+    one := constant.from_int64(1)
+    if types.is_integer(got) {
+        n, known := mut c.known_value(x)?
+        if known {
+            hi, ok := n.sub(one)
+            f.hi = hi
+            f.has_hi = ok
+        } else {
+            kk, ok := mut c.key_of(x)?
+            if ok {
+                f.at_most = kk
+                f.strict = true
+            }
+        }
+        l, _ := mut c.string_len(x)?
+        f.len_of = l
+    } else if c.table.is_array(got) {
+        hi, ok := constant.from_int64(c.table.len_of(got)).sub(one)
+        f.hi = hi
+        f.has_hi = ok
+    } else if got == types.string_type {
+        n, ext := mut c.extent_of(x)?
+        if ext {
+            hi, ok := constant.from_int64(n).sub(one)
+            f.hi = hi
+            f.has_hi = ok
+        }
+        l, _ := mut c.string_var(x)?
+        f.len_of = l
+    } else if c.table.is_view(got) || c.table.is_list(got) {
+        l, _ := mut c.string_var(x)?
+        f.len_of = l
+    }
+    append(mut facts, f)?
+    return noerror
+}

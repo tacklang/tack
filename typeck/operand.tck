@@ -649,30 +649,31 @@ func (mut c Checker) index_expr(k Key, ix ast.Index) (types.Type, error) {
 }
 
 // index_of checks the index of x[i] at k, x of type base, and returns the
-// element's type, Go's index after its operand, and element: a map's,
-// an arena's and a pool's elements are map_element's, arena_element's
-// and pool_element's; a string's, a view's and a list's are read in
-// place, so an index that passes what they read as mut is reported (see
-// check_index_borrows); and the checked form, x, ok := x[i], the index
-// checked_index is, needs no proof. An index whose proof needs the facts
-// in force, which the port does not keep yet, is declined.
+// element's type, Go's index after its operand, and element (see
+// index_rest).
 func (mut c Checker) index_of(k Key, ix ast.Index, base types.Type) (types.Type, error) {
     view_ok := c.view_span == k
     if view_ok {
         c.view_span = no_key()
     }
     idx := mut c.expr(sub(k, ix.index))?
-    t := mut c.index_rest(k, ix, base, idx, view_ok)?
+    t := mut c.index_rest(k, ix, base, idx, view_ok, false)?
     return t, noerror
 }
 
-// index_rest checks x[i] at k, x of type base, whose index has type idx,
-// once the index is checked, Go's element: an element read, or, while
-// an assignment's target is being checked (see assign_target), one
-// being assigned, which may not be in a list, a map, an arena or a pool
-// the assignment's value passes as mut (see check_assign_borrows).
-// view_ok says k is where a span's view of an arena may be.
-func (mut c Checker) index_rest(k Key, ix ast.Index, base types.Type, given types.Type, view_ok bool) (types.Type, error) {
+// index_rest checks x[i] at k, x of type base, whose index has type
+// given, once the index is checked, Go's element, write saying it is
+// being assigned: a map's, an arena's and a pool's elements are
+// map_element's, arena_element's and pool_element's; a string's, a
+// view's and a list's are read in place, so an index that passes what
+// they read as mut is reported (see check_index_borrows), and so is an
+// element assigned while the assignment's value passes its list as mut
+// (see check_assign_borrows); in a body an index must be proven in range
+// by the facts in force (see require_in_range and
+// require_string_in_range), and one bound with ok needs no proof (see
+// checked_element). view_ok says k is where a span's view of an arena
+// may be.
+func (mut c Checker) index_rest(k Key, ix ast.Index, base types.Type, given types.Type, view_ok bool, write bool) (types.Type, error) {
     index := sub(k, ix.index)
     mut idx := given
     if c.table.is_arena(base) {
@@ -680,11 +681,11 @@ func (mut c Checker) index_rest(k Key, ix ast.Index, base types.Type, given type
         return t, noerror
     }
     if c.table.is_map(base) {
-        t := mut c.map_element(k, ix, base, idx)?
+        t := mut c.map_element(k, ix, base, idx, write)?
         return t, noerror
     }
     if c.table.is_pool(base) {
-        t := mut c.pool_element(k, ix, base, idx)?
+        t := mut c.pool_element(k, ix, base, idx, write)?
         return t, noerror
     }
     idx = mut c.value_of(index, idx)?
@@ -733,11 +734,21 @@ func (mut c Checker) index_rest(k Key, ix ast.Index, base types.Type, given type
         }
         return c.table.elem_of(base), noerror
     }
+    if c.checked_index == k {
+        ct := mut c.checked_element(k, base, length, elem)?
+        return ct, noerror
+    }
+    if write {
+        if length {
+            mut c.require_string_in_range(k, true)?
+            return elem, noerror
+        }
+        mut c.require_in_range(k, base, c.table.len_of(base), true)?
+        return c.table.elem_of(base), noerror
+    }
     if length {
         // A string's, a view's or a list's element: a known index of a
-        // string of known length is decided; anything else needs facts,
-        // but in the checked form, which needs only a known index that
-        // is outside reported.
+        // string of known length is decided; anything else needs facts.
         v, known := mut c.known_value(index)?
         n, extent := mut c.extent_of(sub(k, ix.x))?
         if known && extent {
@@ -751,9 +762,6 @@ func (mut c Checker) index_rest(k Key, ix ast.Index, base types.Type, given type
                 }
                 fmt.appendf(mut m, " is out of range for a string of %d %s", n, word)?
                 mut c.errorf(span_at(c.prog.trees, index), own m)?
-                if c.checked_index == k {
-                    return types.invalid, noerror
-                }
             }
             return elem, noerror
         }
@@ -769,18 +777,14 @@ func (mut c Checker) index_rest(k Key, ix ast.Index, base types.Type, given type
             v.append_string(mut m)?
             fmt.appendf(mut m, " is out of range for %s", what)?
             mut c.errorf(span_at(c.prog.trees, index), own m)?
-            if c.checked_index == k {
-                return types.invalid, noerror
-            }
             return elem, noerror
         }
-        if c.checked_index == k {
-            return elem, noerror
+        if !c.in_body {
+            // Before bodies an index not known follows an error.
+            return types.invalid, not_ported
         }
-        // An index not known, or of a string not known, needs the facts
-        // in force, which the port does not keep yet; before bodies that
-        // follows an error.
-        return types.invalid, not_ported
+        mut c.require_string_in_range(k, false)?
+        return elem, noerror
     }
     n := c.table.len_of(base)
     v, known := mut c.known_value(index)?
@@ -792,17 +796,48 @@ func (mut c Checker) index_rest(k Key, ix ast.Index, base types.Type, given type
             v.append_string(mut m)?
             fmt.appendf(mut m, " is out of range for %s", tn[:])?
             mut c.errorf(span_at(c.prog.trees, index), own m)?
-            if c.checked_index == k {
-                return types.invalid, noerror
-            }
         }
         return c.table.elem_of(base), noerror
     }
-    if c.checked_index == k {
-        return c.table.elem_of(base), noerror
+    if !c.in_body {
+        // As for a string's index, an array's not known is declined.
+        return types.invalid, not_ported
     }
-    // As for a string's index, an array's not known is declined.
-    return types.invalid, not_ported
+    mut c.require_in_range(k, base, n, false)?
+    return c.table.elem_of(base), noerror
+}
+
+// checked_element finishes the check of the element k being bound with
+// ok, of a value of type base, a string's, a view's or a list's when
+// length says so, whose element type is then elem, Go's element and
+// stringElement for the checked form: its index needs no proof, but a
+// constant one out of range always fails, and is reported.
+func (mut c Checker) checked_element(k Key, base types.Type, length bool, elem types.Type) (types.Type, error) {
+    index := index_index(c.prog.trees, k)
+    x := index_x(c.prog.trees, k)
+    v, known := mut c.known_value(index)?
+    if length {
+        if known {
+            n, ext := mut c.extent_of(x)?
+            out := ext && (v.is_negative() || v.cmp(constant.from_int64(n)) >= 0) || !ext && v.is_negative()
+            if out {
+                mut c.require_string_in_range(k, false)?
+                return types.invalid, noerror
+            }
+        }
+        return elem, noerror
+    }
+    n := c.table.len_of(base)
+    if known && (v.is_negative() || v.cmp(constant.from_int64(n)) >= 0) {
+        tn := mut c.type_name(base)?
+        mut m := msg()
+        fmt.appendf(mut m, "index ")?
+        v.append_string(mut m)?
+        fmt.appendf(mut m, " is out of range for %s", tn[:])?
+        mut c.errorf(span_at(c.prog.trees, index), own m)?
+        return types.invalid, noerror
+    }
+    return c.table.elem_of(base), noerror
 }
 
 // selector checks a field read as a value, x.f, whose x is a name, or a

@@ -289,6 +289,26 @@ pub type Checker struct {
     decl_type_count int64
     decl_error_count int64
     bodies_done bool
+
+    // The facts of the body being checked (see fact.tck), and whether a
+    // block leaves, remembered for each statement asked about while no
+    // switch is found to name every case since (see leaves):
+    // exhaust_gen counts the switches found to, and leave_gen is the
+    // count leave_memo's answers were worked out at.
+    fx FactState
+    // The division whose value is being bound with ok, Go's
+    // checkedDivision, which needs no proof, beside checked_index; and
+    // whether the body being checked has a loop writing a variable
+    // declared before it, which Go probes.
+    checked_division Key
+    probe_body bool
+    // append_lists holds the lists of the body being checked an append
+    // whose error a variable holds may lengthen, Go's appends (see
+    // record_append).
+    append_lists map[FKey]bool
+    leave_memo map[LeaveKey]bool
+    leave_gen int64
+    exhaust_gen int64
 }
 
 // KnownLocal is the value of an immutable local, Go's knownResult:
@@ -312,6 +332,7 @@ type KnownBinary struct {
 // back by check, Go's New.
 pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error) {
     t := types.new_table(c_allocator)?
+    fx := new_fact_state()?
     mut c := Checker{
         prog: prog,
         files: files,
@@ -413,6 +434,13 @@ pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error
         decl_type_count: 0,
         decl_error_count: 0,
         bodies_done: false,
+        fx: fx,
+        checked_division: no_key(),
+        probe_body: false,
+        append_lists: make(map[FKey]bool, c_allocator),
+        leave_memo: make(map[LeaveKey]bool, c_allocator),
+        leave_gen: 0,
+        exhaust_gen: 0,
     }
     for k, pkg := range c.prog.packages {
         mut c.table.add_owner_name(pkg.name.bytes())?
