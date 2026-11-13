@@ -72,7 +72,7 @@ func render_ctx(f source.File, mut out list[uint8], line int64, col int64, marke
         append(mut out, '\n')?
         if l == line {
             append(mut out, ' ', ' ', ' ', '|', '\t')?
-            render_token_marker(mut out, col, sp)?
+            render_token_marker(mut out, col, marker_width(f, sp))?
             append(mut out, marker...)?
             append(mut out, '\n')?
         }
@@ -97,19 +97,33 @@ func line_text(b []uint8) []uint8 {
     return b
 }
 
+// marker_width returns how many bytes of f the marker under sp covers:
+// every byte of sp but the carriage return of each \r\n in it, which is
+// part of a newline, as a source line is shown, so a span over several
+// lines is marked alike whether its file is saved with \n or \r\n. A
+// span reaching past f's data is counted as it is.
+func marker_width(f source.File, sp source.Span) int64 {
+    // Offsets are within the file, so the difference cannot wrap.
+    width := sp.end -% sp.start
+    if sp.start < 0 || sp.end > len(f.data) || sp.start > sp.end {
+        return width
+    }
+    return width -% bytes.count(f.data[sp.start:sp.end], []uint8("\r\n"))
+}
+
 // render_token_marker appends a caret at col and tildes under the rest of
-// sp, and nothing after them. An empty span, such as an inserted
-// semicolon or the end of the input, still gets its caret.
-func render_token_marker(mut out list[uint8], col int64, sp source.Span) error {
-    // Columns and offsets are within the file, whose length an int64
+// the width bytes it marks, and nothing after them. An empty span, such
+// as an inserted semicolon or the end of the input, still gets its caret.
+func render_token_marker(mut out list[uint8], col int64, width int64) error {
+    // Columns and widths are within the file, whose length an int64
     // holds with room to spare, so none of this wraps.
     start := col -% 1
-    end := col -% 1 +% sp.end -% sp.start
-    mut width := end
-    if width < start +% 1 {
-        width = start +% 1
+    end := col -% 1 +% width
+    mut stop := end
+    if stop < start +% 1 {
+        stop = start +% 1
     }
-    for c := range width {
+    for c := range stop {
         if c == start {
             append(mut out, '^')?
         } else if c > start && c < end {
