@@ -1826,12 +1826,14 @@ func (c *Checker) writes(target ast.Expr, decl ast.Decl) bool {
 
 // throughList reports whether target, a place, is an element of a list or
 // a pool or a value of a map, or a field or an element of one, at any
-// depth.
+// depth. A part's type is narrowed by the cases of switches on a type
+// parameter around it (see narrowType), since its root may not have been
+// checked yet.
 func (c *Checker) throughList(target ast.Expr) bool {
 	for {
 		switch x := target.(type) {
 		case *ast.Index:
-			if typ := ast.TypeOf(x.X); c.table.IsList(typ) || c.table.IsMap(typ) || c.table.IsPool(typ) {
+			if typ := c.narrowType(ast.TypeOf(x.X)); c.table.IsList(typ) || c.table.IsMap(typ) || c.table.IsPool(typ) {
 				return true
 			}
 			target = x.X

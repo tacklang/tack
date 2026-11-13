@@ -125,11 +125,14 @@ func (c *Checker) receiverType(recv ast.Expr) (types.Type, bool) {
 // declarations already give, without checking it or reporting anything:
 // every struct's fields are resolved before any body is checked. It
 // returns types.Invalid for anything else, and for a place with a part
-// that has no such type, a field its struct lacks among them.
+// that has no such type, a field its struct lacks among them. A name's
+// type is narrowed by the cases of switches on a type parameter around
+// it (see narrowType), as checking the name would record, since this may
+// run before the name is checked.
 func (c *Checker) placeType(e ast.Expr) types.Type {
 	switch x := e.(type) {
 	case *ast.Ident:
-		return ast.TypeOf(x)
+		return c.narrowType(ast.TypeOf(x))
 	case *ast.Selector:
 		f, _, ok := c.table.Field(c.placeType(x.X), x.Name)
 		if !ok {

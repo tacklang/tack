@@ -481,6 +481,41 @@ func put_pair(mut m map[text.Text]int64, s string, n int64) bool {
     return put(mut m, k, n).code == 0
 }
 
+// set_first writes 10 and 20 to the first two elements of v, when it is
+// a list of int64 at least two long, and returns their sum, or -1: the
+// proof of len(v) >= 2 guards both writes and the reads after them, an
+// element write ending no length proof, as for a list declared of that
+// type.
+func set_first[T Data](mut v T) int64 {
+    switch T {
+    case list[E]:
+        switch E {
+        case int64:
+            if len(v) >= 2 {
+                v[0] = 10
+                v[1] = 20
+                return v[0] +% v[1]
+            }
+        default:
+        }
+    default:
+    }
+    return -1
+}
+
+// exclaim appends "?" to v when it is a Text, through v as a method's
+// mut receiver, mut v.append, in a body checked once: the case narrows
+// the receiver where the call is first checked. Any other type is left
+// as it is.
+func exclaim[T Data](mut v T) error {
+    switch T {
+    case text.Text:
+        return mut v.append([]uint8("?"))
+    default:
+    }
+    return noerror
+}
+
 // narrowing checks that each case narrows T: a mut parameter assigned
 // with a proven addition, a Text appended to, a list's elements in place,
 // a local of type T, a closure and a defer.
@@ -497,9 +532,22 @@ func narrowing() {
     if terr.code == 0 {
         e := bump(mut t)
         check(e.code == 0 && t.equal([]uint8("go!")), "bump text")
+        x := exclaim(mut t)
+        mut z := 3
+        xz := exclaim(mut z)
+        check(x.code == 0 && t.equal([]uint8("go!?")) && xz.code == 0 && z == 3,
+            "mut receiver narrowed")
     } else {
         check(false, "bump text")
+        check(false, "mut receiver narrowed")
     }
+    mut pair := make(list[int64], c_allocator)
+    perr := append(mut pair, 1, 2, 3)
+    mut none := make(list[int64], c_allocator)
+    mut one := 7
+    check(perr.code == 0 && set_first(mut pair) == 30 && shows(pair, "[10 20 3]") &&
+        set_first(mut none) == -1 && set_first(mut one) == -1 && one == 7,
+        "element write keeps a narrowed length proof")
     mut l := make(list[int64], c_allocator)
     lerr := append(mut l, 1, 99, 100)
     if lerr.code == 0 {

@@ -11,7 +11,7 @@ import (
 )
 
 // reflectSwitchChecks is how many checks examples/reflect-switch prints.
-const reflectSwitchChecks = 29
+const reflectSwitchChecks = 31
 
 // TestReflectSwitchExampleIsSanitizerClean builds examples/reflect-switch,
 // its C file and std's C at -O2, and with the address and undefined

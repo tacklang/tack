@@ -48938,6 +48938,49 @@ param-switch-map-key/main.tck:5:14: error: case map[string]V never matches: a Da
    |	             ^~~~~~
 06 |	        return 1
 
+-- param-switch-map-key-moved/main.tck --
+package main
+
+import text from "std/text"
+
+func eat(own k text.Text) int64 {
+    return k.len()
+}
+
+func store[T Data](mut v T, own k text.Text) {
+    switch T {
+    case map[text.Text]V:
+        switch V {
+        case int64:
+            if has(v, k) {
+                v[k] = eat(own k)
+            }
+        default:
+        }
+    default:
+    }
+}
+
+func main() {
+    mut m := make(map[text.Text]int64, c_allocator)
+    store(mut m, text.new(c_allocator))
+    print("x")
+}
+-- param-switch-map-key-moved/expected --
+stage: typeck
+---
+
+param-switch-map-key-moved/main.tck:15:19: error: k is used after it was moved
+14 |	            if has(v, k) {
+15 |	                v[k] = eat(own k)
+   |	                  ^
+16 |	            }
+param-switch-map-key-moved/main.tck:15:32: note: k is moved here
+14 |	            if has(v, k) {
+15 |	                v[k] = eat(own k)
+   |	                               ^
+16 |	            }
+
 -- param-switch-missing/main.tck --
 package main
 
