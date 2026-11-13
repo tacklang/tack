@@ -30,6 +30,11 @@ import (
 // typesCheck is TestTypes's name in required.txt.
 const typesCheck = "types-decls"
 
+// bodiesCheck is the name in required.txt of TestTypes's check that the
+// port checks every body of an input whose Go typed tree's stage is S1
+// or S2a (see treeStage): its dump must be of the phase "bodies".
+const bodiesCheck = "types-bodies"
+
 // TestTypes checks what the port's type checker finds, so far in its
 // declaration phase, for every input of the corpus, single files and
 // packages, the port's own driver among them, that Go accepts with no
@@ -54,22 +59,32 @@ func TestTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var clean, all atomic.Int64
+	core, err := checkInputs(stageCore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var clean, all, bodies atomic.Int64
 	var assumed sync.Map
 	t.Run("corpus", func(t *testing.T) {
 		for _, group := range []struct {
 			name  string
 			ins   []input
 			clean bool
-		}{{"single", singles, true}, {"packages", pkgs, true}, {"check-decls", decls, false}} {
+		}{
+			{"single", singles, true}, {"packages", pkgs, true},
+			{"check-decls", decls, false}, {"check-core", core, false},
+		} {
 			t.Run(group.name, func(t *testing.T) {
 				for _, in := range group.ins {
 					t.Run(in.name, func(t *testing.T) {
 						t.Parallel()
 						all.Add(1)
-						compared, kinds := checkTypes(t, in, env.portRun, group.clean)
+						compared, kinds, phase := checkTypes(t, in, env.portRun, group.clean)
 						if compared {
 							clean.Add(1)
+						}
+						if phase == "bodies" {
+							bodies.Add(1)
 						}
 						for _, k := range kinds {
 							assumed.Store(k, true)
@@ -79,7 +94,8 @@ func TestTypes(t *testing.T) {
 			})
 		}
 	})
-	t.Logf("%d of %d inputs are inputs of the check and were compared", clean.Load(), all.Load())
+	t.Logf("%d of %d inputs are inputs of the check and were compared, %d of them with every body checked",
+		clean.Load(), all.Load(), bodies.Load())
 	var kinds []string
 	assumed.Range(func(k, _ any) bool {
 		kinds = append(kinds, k.(string)) //nolint:forcetypeassert // only strings are stored
@@ -91,13 +107,15 @@ func TestTypes(t *testing.T) {
 
 // checkTypes compares the port's --port-types dump of in with goTypes',
 // which clean says must be of a program Go accepts, and reports whether
-// in is an input of the check, and
-// the kinds of judgment the port's dump says it assumed.
-func checkTypes(t *testing.T, in input, portBin string, clean bool) (bool, []string) {
+// in is an input of the check, the kinds of judgment the port's dump
+// says it assumed, and the dump's phase. The port must check every body
+// of an input whose Go typed tree's stage is S1 or S2a, all of which its
+// body check covers, when types-bodies is required.
+func checkTypes(t *testing.T, in input, portBin string, clean bool) (bool, []string, string) {
 	t.Helper()
-	want, ok := goTypes(t, in, clean)
+	want, stage, ok := goTypes(t, in, clean)
 	if !ok {
-		return false, nil
+		return false, nil, ""
 	}
 	port := runCompiler(t, portBin, env.portCache, in, []string{"--port-types", in.file})
 	if port.notImplemented() {
@@ -116,15 +134,22 @@ func checkTypes(t *testing.T, in input, portBin string, clean bool) (bool, []str
 	}
 	var dump struct {
 		Assumed []string `json:"assumed"`
+		Phase   string   `json:"phase"`
 	}
 	if err := json.Unmarshal(port.stdout, &dump); err != nil {
 		t.Errorf("reading what the port assumed: %v", err)
 	}
-	return true, dump.Assumed
+	if stage <= stageCore && dump.Phase != "bodies" && env.required[bodiesCheck] {
+		t.Errorf("%s is required, and Go's typed tree is %s's, but the port's dump is of the phase %q",
+			bodiesCheck, stage, dump.Phase)
+	}
+	return true, dump.Assumed, dump.Phase
 }
 
 // typesDiff returns how got, the port's dump, differs from want, Go's,
-// or "". The port's phase says what is compared: while it is "decls",
+// or "". The port's phase says what is compared: when it is "bodies",
+// everything the dump holds, Go's whole table, every node and the
+// errors included; when it is "decls", the port having declined a body,
 // the declarations, the errors, and the table's entries up to the port's
 // count, which must not be past Go's: everything Go adds before its first
 // body comes first, so the port's table is a prefix of Go's. A Func's
@@ -144,6 +169,12 @@ func typesDiff(want, got []byte) string {
 	}
 	wm, _ := w.(map[string]any)
 	gm, ok := g.(map[string]any)
+	if ok && gm["phase"] == "bodies" {
+		if reflect.DeepEqual(wm, gm) {
+			return ""
+		}
+		return firstDiff(indent(wm), indent(gm))
+	}
 	if !ok || gm["phase"] != "decls" {
 		return fmt.Sprintf("the port's dump has no phase this check knows: %v", gm["phase"])
 	}
@@ -158,6 +189,7 @@ func typesDiff(want, got []byte) string {
 			fn["value"] = json.Number("0")
 		}
 	}
+	delete(wm, "nodes")
 	pick := func(m map[string]any, table []any) map[string]any {
 		return map[string]any{"table": table, "decls": m["decls"], "errors": m["errors"]}
 	}
@@ -169,31 +201,33 @@ func typesDiff(want, got []byte) string {
 }
 
 // goTypes returns the --port-types dump of in from this module's
-// compiler, and whether in is an input of the check: loaded as the
+// compiler, in the phase "bodies", the stage its typed tree implies
+// (see treeStage), and whether in is an input of the check: loaded as the
 // driver loads it, with the repository's std or the one in's TACK_HOME
 // names, resolved, and checked in full by typeck.New(...).Check(). When
 // clean says so, only a program Go accepts with no error is one; when
 // not, any program the loader builds is, checked as the port's
 // --port-types checks it, whatever the stages before reported.
-func goTypes(t *testing.T, in input, clean bool) ([]byte, bool) {
+func goTypes(t *testing.T, in input, clean bool) ([]byte, checkStage, bool) {
 	t.Helper()
 	res, ok := typesLoad(t, in)
 	if !ok || res.Program == nil || clean && diag.HasErrors(res.Diags) {
-		return nil, false
+		return nil, 0, false
 	}
 	prog := res.Program
 	if diag.HasErrors(resolver.New(prog, builtin.Default()).Resolve()) && clean {
-		return nil, false
+		return nil, 0, false
 	}
 	diags := typeck.New(prog, res.Files, builtin.Default()).Check()
 	if clean && diag.HasErrors(diags) {
-		return nil, false
+		return nil, 0, false
 	}
 	out, err := json.Marshal(typesDump(prog, diags))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return out, true
+	stage, _ := treeStage(prog, "")
+	return out, stage, true
 }
 
 // typesLoad loads in's target as the driver's loadWith does: a directory,
@@ -274,9 +308,57 @@ func typesDump(prog *ast.Program, diags []diag.Diagnostic) map[string]any {
 		errs = append(errs, e)
 	}
 	return map[string]any{
-		"phase": "decls", "table": types, "decls": decls, "instances": instances,
-		"errors": errs, "assumed": []any{},
+		"phase": "bodies", "table": types, "decls": decls, "instances": instances,
+		"errors": errs, "nodes": nodesDump(prog), "assumed": []any{},
 	}
+}
+
+// nodesDump returns the dump's list of the nodes of prog's files, in
+// package order, each file's in the order ast.Walk visits them, as the
+// port's typeck/nodes.tck describes it: each node's kind, its type, its
+// constant, what a call converts to, what a name was narrowed to,
+// whether a switch is exhaustive and whether a variable was unrolled.
+func nodesDump(prog *ast.Program) []any {
+	out := make([]any, 0)
+	for _, pkg := range prog.Packages {
+		for _, f := range pkg.Files {
+			ast.Walk(f, func(n ast.Node) bool {
+				if _, isFile := n.(*ast.File); !isFile {
+					out = append(out, nodeEntry(n))
+				}
+				return true
+			})
+		}
+	}
+	return out
+}
+
+// nodeEntry returns the dump's entry for n.
+func nodeEntry(n ast.Node) map[string]any {
+	e := map[string]any{
+		"kind": strings.TrimPrefix(fmt.Sprintf("%T", n), "*ast."), "type": 0, "const": nil,
+		"conv": 0, "narrowed": 0, "exhaustive": false, "unrolled": false,
+	}
+	if x, ok := n.(ast.Expr); ok {
+		e["type"] = int(ast.TypeOf(x))
+	}
+	switch x := n.(type) {
+	case *ast.Var:
+		e["type"], e["const"], e["unrolled"] = int(x.Type), constEntry(x.Const), x.Unrolled
+	case *ast.Param:
+		e["type"] = int(x.Type)
+	case *ast.Call:
+		e["conv"], e["const"] = int(x.Conv), constEntry(x.Const)
+	case *ast.Binary:
+		e["const"] = constEntry(x.Const)
+	case *ast.Unary:
+		e["const"] = constEntry(x.Const)
+	case *ast.Ident:
+		e["narrowed"] = int(x.Narrowed)
+	case *ast.Switch:
+		e["exhaustive"] = x.Exhaustive
+	}
+	return e
 }
 
 // diagEntry returns the dump's form of d, a diagnostic or a note: its
@@ -572,7 +654,7 @@ func TestTypesDeep(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "main.tck"), []byte(src), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if compared, _ := checkTypes(t, input{name: name, dir: dir, file: "main.tck"}, env.portRun, true); !compared {
+			if compared, _, _ := checkTypes(t, input{name: name, dir: dir, file: "main.tck"}, env.portRun, true); !compared {
 				t.Fatal("Go reports an error for the shape, which must be clean")
 			}
 		})

@@ -213,8 +213,8 @@ func compilerEnv(cache string) []string {
 // requirableChecks are the names, besides the stages', that required.txt
 // may hold: checks outside TestPort that a port can answer not
 // implemented to, which then fail rather than skip once required.
-// loaded is TestLoadOrder's, types-decls TestTypes'.
-var requirableChecks = map[string]bool{loadedCheck: true, typesCheck: true}
+// loaded is TestLoadOrder's, types-decls and types-bodies TestTypes'.
+var requirableChecks = map[string]bool{loadedCheck: true, typesCheck: true, bodiesCheck: true}
 
 // readRequired reads the stage names in the file at path, one a line,
 // skipping blank lines and lines starting with #. A name that is no stage

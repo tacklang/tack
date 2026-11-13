@@ -85,9 +85,9 @@ func TestClassifyHandChecked(t *testing.T) {
 		{"invalid", "region-fallthrough-inside", "a region", stageOwn},
 		// A generic function: S7.
 		{"invalid", "data-compare", "type parameters", stageGeneric},
-		// A warning case whose message is S2a and whose program only
-		// declares and calls: S2b.
-		{"warnings", "unused-stmt-len", "len, a call", stageCalls},
+		// A warning case, which has no error, so --check runs the
+		// backend on it: check-backend, whatever its message and tree.
+		{"warnings", "unused-stmt-len", "no error, the backend runs", stageBackend},
 		// The C name of an extern func, which checkFunc checks: S2a.
 		{"invalid", "extern-c-name-bad", "checkExtern's error", stageCore},
 		// A fields loop: S7.

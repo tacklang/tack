@@ -1,9 +1,9 @@
 # The stages the port must implement, one name a line. A stage named here
 # fails, instead of skipping, when the port answers that it is not
 # implemented, so a stage the port implements cannot quietly stop
-# working. A stage is added once the port implements it. loaded and
-# types-decls, which are no stages, are TestLoadOrder's and TestTypes'
-# checks, required the same way.
+# working. A stage is added once the port implements it. loaded,
+# types-decls and types-bodies, which are no stages, are TestLoadOrder's
+# and TestTypes' checks, required the same way.
 backends
 lex-single
 ast-single
@@ -13,3 +13,6 @@ ast-packages
 res-packages
 loaded
 types-decls
+check-decls
+check-core
+types-bodies

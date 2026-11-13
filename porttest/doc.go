@@ -87,10 +87,16 @@
 //     S2a, S2b, S3, S4, S5, S6 and S7, the stages the type checker is
 //     ported in (see Type checker stages).
 //   - check-backend runs the same on the cases the backend rejects,
-//     whose --check output holds the backend's errors (see Type checker
-//     stages).
+//     whose --check output holds the backend's errors, and on those
+//     with no error before the backend, warnings aside, whose --check
+//     output the backend decides too (see Type checker stages).
 //   - check-clean runs the same on each package input that is no case of
-//     an archive: the examples, std and the port's driver.
+//     an archive: the examples, std and the port's driver. Go accepts
+//     nearly all of them and runs its backend on each it accepts, so
+//     until the backend is ported, at M7, check-clean is wholly the
+//     backend's: the port's --check declines every program in which
+//     the stages before the backend find no error. TestTypes covers
+//     the type checker on them.
 //
 // backends, the lex stages and the check stages compare standard
 // output, standard error and the exit status byte for byte. The ast and
@@ -154,7 +160,10 @@
 // whose expected stage is codegen, is check-backend's instead, whatever
 // its two stages: --check shows the backend's errors, which the port
 // gives only once its backend is ported, so check-backend is required
-// at M7 and not before.
+// at M7 and not before. So is a case in which Go's loader, resolver and
+// type checker, run in process, report no error, a warnings case among
+// them: --check runs the backend on it, and what it shows, warnings
+// and exit status alike, depends on whether the backend reports.
 //
 // The first is that of its messages. Every string literal, and every
 // string built with + from literals and calls of fmt.Sprintf, of the
@@ -185,9 +194,10 @@
 // when none matches, of S7. TestClassifyCounts fails for every message
 // no template matches.
 //
-// The second is that of Go's typed tree of the case, the case's own
-// files loaded as --check loads them, as a library may be, resolved and
-// checked: S1 when no function has a statement in its body, S2a when
+// The second is that of Go's typed tree of the case, loaded as --check
+// loads it, as a library may be, resolved and checked, every package's
+// files, std's and any other import's as much as the case's own, since
+// Go's checker checks every function's body: S1 when no function has a statement in its body, S2a when
 // one does; S2b with a call that is no conversion, a mut or own
 // argument, a type assertion, a ? or a value or type of a list, map,
 // arena, pool, view, id, span, handle, any or error; S3 with an index or
@@ -269,8 +279,8 @@
 // TestTypes checks what the port's type checker finds, for every input
 // of the corpus, single files and packages, the port's own driver among
 // them, that the Go compiler accepts with no error, and for every case
-// of check-decls, the type checker's cases whose stage is S1, the
-// declarations, all of whose errors Go reports before its first body:
+// of check-decls and check-core, the type checker's cases whose stage is
+// S1, the declarations, or S2a, statements and expressions:
 // each loaded, resolved and checked in process by this module's loader,
 // resolver and checker, typeck.New(...).Check(), as --port-types checks
 // it, whatever the stages before reported. Any other input of the corpus
@@ -281,20 +291,28 @@
 // answers about it, every declaration of the program, in prog.Decls()
 // order, with the types and the constant value the checker recorded on
 // it, the instances, the errors, in order, each with its file, its
-// span's start and end, its message and its notes, and the kinds of
+// span's start and end, its message and its notes, once bodies are
+// checked every node of every file, in package order and ast.Walk's,
+// with its kind, its type, its constant, what a call converts to, what
+// a name was narrowed to, whether a switch is exhaustive and whether a
+// variable was unrolled, and the kinds of
 // judgment the port took as holding without proving them, logged, not
 // compared, and none so far. The test builds the same from Go's checker
-// and compares what the port's phase covers: in "decls", its declaration
-// phase, everything Go's Check does before the first function body
+// and compares what the port's phase covers: in "bodies", everything,
+// exactly, Go's whole table and every node among it; in "decls", which
+// the port writes when it declines a body, its declaration phase,
+// everything Go's Check does before the first function body
 // (typeck/check.go:604), the declarations, the errors and the table up to
 // the port's count, which must be a prefix of Go's, since every type Go
-// adds before bodies comes first; from S2a on, when the port checks
-// bodies, the table must match Go's whole. A function's value Go sets
+// adds before bodies comes first. A function's value Go sets
 // only where a body uses it as a value, so in "decls" Go's is compared
 // as it stood then, invalid; the instances are found after bodies. A
 // port that answers --port-types is not implemented skips, unless
 // types-decls, the check's name, is in
-// required.txt, as it is, where then it fails. TestTypesDeep runs the
+// required.txt, as it is, where then it fails. An input whose Go typed
+// tree's stage is S1 or S2a (see Type checker stages) must dump in the
+// phase "bodies" when types-bodies is in required.txt, as it is: the
+// port's body check covers every such input. TestTypesDeep runs the
 // same check on declaration chains a hundred thousand links long, which
 // have no nesting limit and which Go's checker walks with a frame a
 // link: globals each naming the next, in its value and in its type's
@@ -304,6 +322,16 @@
 // whose IDs show that the checks of globals nested in each other add
 // them in Go's order. The port runs with its stack held to deepStack KB.
 // Both run only as TestPort does.
+//
+// TestCheckDeep runs --check --max-errors 0, compared as check-core
+// compares its cases, on bodies nested as deeply as the parser allows,
+// in every statement that holds a block and in parenthesized, negated
+// and array literal expressions, and on chains a hundred thousand links
+// long, else ifs, statements, && chains, locals each the next's value,
+// an else if chain each of whose branches returns, and a selector down a
+// chain of structs each holding the next; each ends in an error, so the
+// backend decides nothing. The port runs with its stack held to
+// deepStack KB, as TestPort does.
 //
 // # Deep nesting
 //

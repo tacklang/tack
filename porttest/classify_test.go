@@ -18,6 +18,7 @@ import (
 	"unicode"
 
 	tackast "github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/internal/invalid"
 	"github.com/tacklang/tack/internal/stdtest"
 	"github.com/tacklang/tack/loader"
@@ -53,9 +54,11 @@ const (
 	stageOwn
 	// stageGeneric, S7, is generics and closures.
 	stageGeneric
-	// stageBackend is the cases the backend rejects: --check shows the
-	// backend's errors, which the port gives once its backend is ported,
-	// at M7, whatever its type checker passes.
+	// stageBackend is the cases the backend rejects, and those with no
+	// error before the backend, warnings aside, on which --check runs
+	// the backend: either way --check's output depends on the backend's
+	// judgment, which the port gives once its backend is ported, at M7,
+	// whatever its type checker passes.
 	stageBackend
 )
 
@@ -702,7 +705,8 @@ type checkCase struct {
 	// repository's.
 	std []invalid.TreeFile
 	// stage is the stage, the higher of diagStage and treeStage, or
-	// stageBackend for a case the backend rejects.
+	// stageBackend for a case the backend rejects or one with no error
+	// before the backend, which --check runs the backend on.
 	stage checkStage
 	// diagStage is the highest stage of its messages' templates.
 	diagStage checkStage
@@ -819,13 +823,15 @@ func stdFiles(c invalid.TreeCase, dir string) []invalid.TreeFile {
 
 // classify sets c's stages from c.expected matched against templates,
 // and from Go's typed tree of files, built from c.target, a file when
-// single, with std, or the repository's when nil. It reports whether
+// single, with std, or the repository's when nil; a case the backend
+// rejects, or with no error before the backend, is stageBackend's. It
+// reports whether
 // the program loaded, and so was type checked; c's stages are set only
 // when it did.
 func (c *checkCase) classify(
 	templates []template, files fstest.MapFS, std *loader.Std, single bool,
 ) (bool, error) {
-	prog, err := typedTree(files, c.target, std, single)
+	prog, clean, err := typedTree(files, c.target, std, single)
 	if err != nil {
 		return false, fmt.Errorf("%s/%s: %w", c.archive, c.name, err)
 	}
@@ -848,7 +854,7 @@ func (c *checkCase) classify(
 	}
 	c.treeStage, c.why = treeStage(prog, c.name+"/")
 	c.stage = max(c.diagStage, c.treeStage)
-	if first, _, _ := strings.Cut(string(c.expected), "\n"); first == "stage: codegen" {
+	if first, _, _ := strings.Cut(string(c.expected), "\n"); first == "stage: codegen" || clean {
 		c.stage = stageBackend
 	}
 	return true, nil
@@ -865,27 +871,30 @@ const typedTreeTimeout = 5 * time.Second
 // no limit on errors, with std or the repository's, and runs Go's
 // resolver and type checker on it, whatever any stage reported,
 // returning the program they annotated, nil when the loader built none,
-// which --check then does not type check.
+// which --check then does not type check, and whether the loader, the
+// resolver and the type checker reported no error, warnings aside: then
+// --check runs the backend, whose judgment its output depends on.
 func typedTree(
 	files fstest.MapFS, target string, std *loader.Std, single bool,
-) (*tackast.Program, error) {
+) (*tackast.Program, bool, error) {
 	if std == nil {
 		std = stdtest.Std()
 	}
 	type outcome struct {
-		prog *tackast.Program
-		err  error
+		prog  *tackast.Program
+		clean bool
+		err   error
 	}
 	done := make(chan outcome, 1)
 	go func() {
-		prog, err := loadAndCheck(files, target, std, single)
-		done <- outcome{prog, err}
+		prog, clean, err := loadAndCheck(files, target, std, single)
+		done <- outcome{prog, clean, err}
 	}()
 	select {
 	case o := <-done:
-		return o.prog, o.err
+		return o.prog, o.clean, o.err
 	case <-time.After(typedTreeTimeout):
-		return nil, fmt.Errorf("go's loader and checker did not finish within %v", typedTreeTimeout)
+		return nil, false, fmt.Errorf("go's loader and checker did not finish within %v", typedTreeTimeout)
 	}
 }
 
@@ -893,10 +902,10 @@ func typedTree(
 // compiler is returned as an error.
 func loadAndCheck(
 	files fstest.MapFS, target string, std *loader.Std, single bool,
-) (prog *tackast.Program, err error) {
+) (prog *tackast.Program, clean bool, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			prog, err = nil, fmt.Errorf("go's compiler panicked: %v", r)
+			prog, clean, err = nil, false, fmt.Errorf("go's compiler panicked: %v", r)
 		}
 	}()
 	l := &loader.Loader{
@@ -910,34 +919,50 @@ func loadAndCheck(
 	}
 	if err != nil {
 		// The driver reports the error and checks nothing.
-		return nil, nil //nolint:nilerr // a load error is a case --check does not type check
+		return nil, false, nil //nolint:nilerr // a load error is a case --check does not type check
 	}
 	if res.Program == nil {
-		return nil, nil
+		return nil, false, nil
 	}
 	r := resolver.New(res.Program, stdtest.MustBuiltins())
 	r.MainOptional = true
-	r.Resolve()
-	// The diagnostics are not looked at: the archive's expected output
-	// holds them, and TestCheckExpected checks that Go's --check gives it.
-	typeck.New(res.Program, res.Files, stdtest.MustBuiltins()).Check()
-	return res.Program, nil
+	diags := append(slices.Clone(res.Diags), r.Resolve()...)
+	// The diagnostics are looked at only for whether any is an error, as
+	// the driver's checkProgram looks at them to decide whether the
+	// backend runs: the archive's expected output holds them, and
+	// TestCheckExpected checks that Go's --check gives it.
+	diags = append(diags, typeck.New(res.Program, res.Files, stdtest.MustBuiltins()).Check()...)
+	return res.Program, !diag.HasErrors(diags), nil
 }
 
-// treeStage returns the stage Go's typed tree prog implies, from the
-// packages whose files are named under prefix, the case's own, and what
-// in it set the stage. A tree with a statement in a function's body is
+// treeStage returns the stage Go's typed tree prog implies, from every
+// package's files, std's and any other imported package's included,
+// since Go's checker checks every function's body, and what in it set
+// the stage: what in the files named under prefix, the case's own, set
+// it, or, when a package of another's set it higher, that, marked as
+// an imported package's. A tree with a statement in a function's body is
 // at least S2a; one with none is S1, the declarations alone, unless
 // something else in it raises it.
 func treeStage(prog *tackast.Program, prefix string) (checkStage, string) {
+	own := walkTree(prog, func(file string) bool { return strings.HasPrefix(file, prefix) })
+	all := walkTree(prog, func(string) bool { return true })
+	if all.stage > own.stage {
+		return all.stage, "an imported package's " + all.why
+	}
+	return own.stage, own.why
+}
+
+// walkTree walks the files of prog whose names keep says to, and
+// returns the walk, with the stage they imply and why.
+func walkTree(prog *tackast.Program, keep func(file string) bool) *treeWalk {
 	w := &treeWalk{stage: stageDecls, why: "declarations only"}
 	if prog == nil {
-		return w.stage, w.why
+		return w
 	}
 	w.table = prog.Types
 	for _, pkg := range prog.Packages {
 		for _, f := range pkg.Files {
-			if !strings.HasPrefix(string(f.Span.File), prefix) {
+			if !keep(string(f.Span.File)) {
 				continue
 			}
 			w.callees = map[*tackast.Ident]bool{}
@@ -952,7 +977,7 @@ func treeStage(prog *tackast.Program, prefix string) (checkStage, string) {
 			tackast.Walk(f, w.visit)
 		}
 	}
-	return w.stage, w.why
+	return w
 }
 
 // treeWalk is the walk of a typed tree treeStage makes.
