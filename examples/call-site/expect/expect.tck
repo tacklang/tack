@@ -1,0 +1,24 @@
+package expect
+
+import testing from "std/testing"
+
+// Package expect gives a testing.Site from another package than the
+// call's: here returns the place it was called from, again passes its
+// own caller's place on to here, and inside calls here from this file,
+// so the place is in this file.
+
+// here returns the place it was called from.
+pub func here(s testing.Site) testing.Site {
+    return s
+}
+
+// again returns the place it was called from, which it passes on to here.
+pub func again(_ testing.Site) testing.Site {
+    return here()
+}
+
+// inside returns the place here was called from in this file: inside has
+// no Site parameter, so the call passes its own.
+pub func inside() testing.Site {
+    return here()
+}

@@ -87,7 +87,8 @@ func (inf *inference) infers(typ types.Type) bool {
 
 // resolveInterfaces records the types of every interface's methods'
 // parameters and results, as a function's are resolved, and reports an
-// error result that is not last. Every struct's fields and every global
+// error result that is not last, and a testing.Site parameter, which only
+// a call by name passes (see site.go). Every struct's fields and every global
 // are known by then, so a method's array length may name a global.
 func (c *Checker) resolveInterfaces(decls []ast.Decl) {
 	for _, decl := range decls {
@@ -99,6 +100,10 @@ func (c *Checker) resolveInterfaces(decls []ast.Decl) {
 		for _, m := range td.Interface().Methods {
 			for i, p := range m.Params {
 				p.Type = c.paramType(p, paramNoun(m.Params, i, false))
+				if _, ok := c.declaredSite(p); ok {
+					c.errorf(p.TypeExpr.Spanned(),
+						"an interface method's parameter cannot be a testing.Site")
+				}
 			}
 			m.ResultTypes = make([]types.Type, len(m.Results))
 			for i, r := range m.Results {
@@ -611,7 +616,9 @@ func (c *Checker) unsatisfied(typ types.Type, iface *ast.TypeDecl) (why string, 
 
 // methodMismatch returns why have, the method owner names, does not
 // satisfy want, iface's method of its name: one takes its receiver as mut
-// and the other does not, or their signatures differ. It returns "" when
+// and the other does not, have takes a testing.Site where want, which
+// may not but whose own one was reported, does not (see site.go), or
+// their signatures differ. It returns "" when
 // it does.
 func (c *Checker) methodMismatch(have methodSig, owner string, want *ast.IfaceMethod,
 	iface *ast.TypeDecl,
@@ -622,6 +629,9 @@ func (c *Checker) methodMismatch(have methodSig, owner string, want *ast.IfaceMe
 		return fmt.Sprintf("%s takes its receiver as mut, and %s does not", owner, wanted)
 	case !have.mut && want.Mut:
 		return fmt.Sprintf("%s does not take its receiver as mut, and %s does", owner, wanted)
+	}
+	if c.siteNotValue(have.params, false) != "" && c.siteNotValue(want.Params, false) == "" {
+		return fmt.Sprintf("%s takes a testing.Site, which no interface method can", owner)
 	}
 	wantSig := methodSig{params: want.Params, results: want.ResultTypes, mut: want.Mut}
 	if !sameSig(have, wantSig) {

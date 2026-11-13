@@ -60637,6 +60637,431 @@ single-file-import/main.tck:5:17: error: cannot import ../lexer: a single file c
    |	                ^~~~~~~~~~
 06 |	
 
+-- site-closure-param/main.tck --
+package main
+
+import testing from "std/testing"
+
+func call(scope f func(int64)) {
+}
+
+func main() {
+    call(func(s testing.Site) {})
+}
+-- site-closure-param/expected --
+stage: typeck
+---
+
+site-closure-param/main.tck:9:10: error: this closure has no function type: its parameter s is a testing.Site, which no function type's parameter can be
+08 |	func main() {
+09 |	    call(func(s testing.Site) {})
+   |	         ^~~~
+10 |	}
+
+-- site-explicit/main.tck --
+package main
+
+import testing from "std/testing"
+
+func line(s testing.Site) int64 {
+    return s.line
+}
+
+func main() {
+    s := testing.Site{file: "x.tck", line: 1, col: 1, excerpt: ""}
+    if line(s) != 1 {
+        exit(1)
+    }
+}
+-- site-explicit/expected --
+stage: typeck
+---
+
+site-explicit/main.tck:11:13: error: cannot pass a testing.Site to line: the call passes its own
+10 |	    s := testing.Site{file: "x.tck", line: 1, col: 1, excerpt: ""}
+11 |	    if line(s) != 1 {
+   |	            ^
+12 |	        exit(1)
+
+-- site-explicit-forwarded/main.tck --
+package main
+
+import testing from "std/testing"
+
+func line(s testing.Site, n int64) int64 {
+    return s.line +% n
+}
+
+func helper(s testing.Site) int64 {
+    return line(s, 1)
+}
+
+func main() {
+    if helper() != 2 {
+        exit(1)
+    }
+}
+-- site-explicit-forwarded/expected --
+stage: typeck
+---
+
+site-explicit-forwarded/main.tck:10:17: error: cannot pass a testing.Site to line: the call passes its own
+09 |	func helper(s testing.Site) int64 {
+10 |	    return line(s, 1)
+   |	                ^
+11 |	}
+
+-- site-explicit-variadic/main.tck --
+package main
+
+import testing from "std/testing"
+
+func note(_ testing.Site, format string, args ...any) {
+}
+
+func main() {
+    s := testing.Site{file: "x.tck", line: 1, col: 1, excerpt: ""}
+    note(s, "x", 1)
+}
+-- site-explicit-variadic/expected --
+stage: typeck
+---
+
+site-explicit-variadic/main.tck:10:10: error: cannot pass a testing.Site to note: the call passes its own
+09 |	    s := testing.Site{file: "x.tck", line: 1, col: 1, excerpt: ""}
+10 |	    note(s, "x", 1)
+   |	         ^
+11 |	}
+
+-- site-extern/main.tck --
+package main
+
+import testing from "std/testing"
+
+extern func report(s testing.Site)
+
+func main() {
+    report()
+}
+-- site-extern/expected --
+stage: typeck
+---
+
+site-extern/main.tck:5:20: error: extern func report cannot take a testing.Site: a call passes it implicitly, which a call from C cannot
+04 |	
+05 |	extern func report(s testing.Site)
+   |	                   ^~~~~~~~~~~~~~
+06 |	
+
+-- site-func-type/main.tck --
+package main
+
+import testing from "std/testing"
+
+func call(scope f func(testing.Site, int64)) {
+}
+
+func main() {
+}
+-- site-func-type/expected --
+stage: typeck
+---
+
+site-func-type/main.tck:5:24: error: a function type's parameter cannot be a testing.Site
+04 |	
+05 |	func call(scope f func(testing.Site, int64)) {
+   |	                       ^~~~~~~~~~~~
+06 |	}
+
+-- site-func-value/main.tck --
+package main
+
+import testing from "std/testing"
+
+func line(s testing.Site) int64 {
+    return s.line
+}
+
+func main() {
+    f := line
+    exit(0)
+}
+-- site-func-value/expected --
+stage: typeck
+---
+
+site-func-value/main.tck:10:5: warning: declared and not used: f
+09 |	func main() {
+10 |	    f := line
+   |	    ^
+11 |	    exit(0)
+
+site-func-value/main.tck:10:10: error: cannot use line as a value: its parameter s is a testing.Site, which no function type's parameter can be
+09 |	func main() {
+10 |	    f := line
+   |	         ^~~~
+11 |	    exit(0)
+
+-- site-interface-method/main.tck --
+package main
+
+import testing from "std/testing"
+
+type Reporter interface {
+    report(_ testing.Site)
+}
+
+type P struct {
+    n int64
+}
+
+func (p P) report(s testing.Site) {
+}
+
+func run[R Reporter](r R) {
+    r.report()
+}
+
+func main() {
+    run(P{n: 1})
+}
+-- site-interface-method/expected --
+stage: typeck
+---
+
+site-interface-method/main.tck:6:14: error: an interface method's parameter cannot be a testing.Site
+05 |	type Reporter interface {
+06 |	    report(_ testing.Site)
+   |	             ^~~~~~~~~~~~
+07 |	}
+
+-- site-main/main.tck --
+package main
+
+import testing from "std/testing"
+
+func main(_ testing.Site) {
+}
+-- site-main/expected --
+stage: resolve
+---
+
+site-main/main.tck:5:11: error: main function must not declare parameters
+04 |	
+05 |	func main(_ testing.Site) {
+   |	          ^~~~~~~~~~~~~~
+06 |	}
+
+-- site-method-value/main.tck --
+package main
+
+import testing from "std/testing"
+
+type P struct {
+    n int64
+}
+
+func (p P) line(s testing.Site) int64 {
+    return s.line +% p.n
+}
+
+func main() {
+    f := P.line
+    exit(0)
+}
+-- site-method-value/expected --
+stage: typeck
+---
+
+site-method-value/main.tck:14:5: warning: declared and not used: f
+13 |	func main() {
+14 |	    f := P.line
+   |	    ^
+15 |	    exit(0)
+
+site-method-value/main.tck:14:10: error: cannot use P.line as a value: its parameter s is a testing.Site, which no function type's parameter can be
+13 |	func main() {
+14 |	    f := P.line
+   |	         ^~~~~~
+15 |	    exit(0)
+
+-- site-mut-param/main.tck --
+package main
+
+import testing from "std/testing"
+
+func line(mut s testing.Site) int64 {
+    return s.line
+}
+
+func main() {
+    if line() != 9 {
+        exit(1)
+    }
+}
+-- site-mut-param/expected --
+stage: typeck
+---
+
+site-mut-param/main.tck:5:11: error: a testing.Site parameter cannot be mut: a call passes its place as a value
+04 |	
+05 |	func line(mut s testing.Site) int64 {
+   |	          ^~~
+06 |	    return s.line
+
+-- site-own-param/main.tck --
+package main
+
+import testing from "std/testing"
+
+func line(own s testing.Site, n int64) int64 {
+    return n
+}
+
+func main() {
+    if line(1) != 1 {
+        exit(1)
+    }
+}
+-- site-own-param/expected --
+stage: typeck
+---
+
+site-own-param/main.tck:5:11: error: testing.Site cannot be an own parameter: it owns no list or map, so it is copied; remove own
+04 |	
+05 |	func line(own s testing.Site, n int64) int64 {
+   |	          ^~~
+06 |	    return n
+
+-- site-satisfies-interface/main.tck --
+package main
+
+import testing from "std/testing"
+
+type Liner interface {
+    line() int64
+}
+
+type P struct {
+    n int64
+}
+
+func (p P) line(s testing.Site) int64 {
+    return s.line +% p.n
+}
+
+func show[L Liner](l L) int64 {
+    return l.line()
+}
+
+func main() {
+    if show(P{n: 1}) != 2 {
+        exit(1)
+    }
+}
+-- site-satisfies-interface/expected --
+stage: typeck
+---
+
+site-satisfies-interface/main.tck:22:13: error: P does not satisfy Liner: P.line takes a testing.Site, which no interface method can
+21 |	func main() {
+22 |	    if show(P{n: 1}) != 2 {
+   |	            ^~~~~~~
+23 |	        exit(1)
+
+-- site-two-params/main.tck --
+package main
+
+import testing from "std/testing"
+
+func both(a testing.Site, b testing.Site) int64 {
+    return a.line +% b.line
+}
+
+func main() {
+    if both() != 2 {
+        exit(1)
+    }
+}
+-- site-two-params/expected --
+stage: typeck
+---
+
+site-two-params/main.tck:5:27: error: a second testing.Site parameter: a function takes at most one
+04 |	
+05 |	func both(a testing.Site, b testing.Site) int64 {
+   |	                          ^~~~~~~~~~~~~~
+06 |	    return a.line +% b.line
+
+-- site-variadic/main.tck --
+package main
+
+import testing from "std/testing"
+
+func count(xs ...testing.Site) int64 {
+    return len(xs)
+}
+
+func main() {
+    if count() != 0 {
+        exit(1)
+    }
+}
+-- site-variadic/expected --
+stage: typeck
+---
+
+site-variadic/main.tck:5:12: error: a variadic parameter cannot be a testing.Site
+04 |	
+05 |	func count(xs ...testing.Site) int64 {
+   |	           ^~~~~~~~~~~~~~~~~~
+06 |	    return len(xs)
+
+-- site-wrong-count/main.tck --
+package main
+
+import testing from "std/testing"
+
+func pair(_ testing.Site, a int64, b int64) int64 {
+    return a +% b
+}
+
+func main() {
+    if pair(1) != 1 {
+        exit(1)
+    }
+}
+-- site-wrong-count/expected --
+stage: typeck
+---
+
+site-wrong-count/main.tck:10:8: error: pair expects 2 argument(s), got 1, not counting its testing.Site
+09 |	func main() {
+10 |	    if pair(1) != 1 {
+   |	       ^~~~~~~
+11 |	        exit(1)
+
+-- site-wrong-count-variadic/main.tck --
+package main
+
+import testing from "std/testing"
+
+func note(_ testing.Site, format string, args ...any) {
+}
+
+func main() {
+    note()
+}
+-- site-wrong-count-variadic/expected --
+stage: typeck
+---
+
+site-wrong-count-variadic/main.tck:9:5: error: note expects at least 1 argument(s), got 0, not counting its testing.Site
+08 |	func main() {
+09 |	    note()
+   |	    ^~~~~~
+10 |	}
+
 -- size-after-damaged-body/main.tck --
 package main
 

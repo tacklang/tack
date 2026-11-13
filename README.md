@@ -5,10 +5,10 @@ compiler, written from scratch in Go.
 
 It is a learning project, built to understand how a compiler works end to end
 rather than to be used for anything. There is no runtime, a standard library
-of fifteen packages, `std/fmt`, `std/bytes`, `std/text`, `std/os`,
+of sixteen packages, `std/fmt`, `std/bytes`, `std/text`, `std/os`,
 `std/path`, `std/conv`, `std/errors`, `std/sort`, `std/utf8`,
-`std/unicode`, `std/sha256`, `std/hex`, `std/binary`, `std/big` and
-`std/json`, and no intermediate representation.
+`std/unicode`, `std/sha256`, `std/hex`, `std/binary`, `std/big`,
+`std/json` and `std/testing`, and no intermediate representation.
 
 Every program the compiler accepts is held to four guarantees: no
 out-of-bounds access, no memory leak, no use-after-free and no panic. They
@@ -641,8 +641,9 @@ section remains the description of the language.
   hexadecimal (see hex), [`binary`](src/std/binary/binary.tck),
   which writes and reads integers as bytes (see binary),
   [`big`](src/std/big/big.tck), which holds integers of any size (see
-  big), and [`json`](src/std/json/json.tck), which writes JSON (see
-  json).
+  big), [`json`](src/std/json/json.tck), which writes JSON (see
+  json), and [`testing`](src/std/testing/testing.tck), whose `Site` is
+  the place a call was written (see call sites).
   A std package follows every rule a package of the program's module
   does. Its `pub` names are usable from every package, its private names
   only from itself, `hidden is not pub in package std/util`, and its `lib`
@@ -1719,6 +1720,63 @@ section remains the description of the language.
   list, so its depth is bounded by memory, not C's stack. There is no
   decoding, no indented output, and no way to skip, rename or omit a
   field yet.
+- Call sites. `std/testing`, written in Tack alone, imports no other std
+  package and holds one type, `pub type Site struct { pub file string;
+  pub line int64; pub col int64; pub excerpt string }`. A function or a
+  method may declare one parameter of type `testing.Site`, its receiver
+  aside, `func expect(_ testing.Site, ok bool)`, and a call writes no
+  argument for it, `expect(n > 0)`: the compiler passes the call's own
+  place, `file` the name diagnostics give the call's file, `line` and
+  `col` the line and the byte column, from 1, a tab counting one, of the
+  call's first byte, a method call's receiver's or its `mut`, and
+  `excerpt` exactly the lines a diagnostic at the call prints below its
+  header: the line before, the call's first line with a marker as long
+  as the whole call under it, and the line after, each numbered and
+  ended by `\n`. A CRLF file's lines are shown without the `\r`, and the
+  `\r` of a line ending inside a call is not marked, in a diagnostic as
+  in a Site, so a file saved with either line ending gives the same
+  excerpt. All four are
+  constants the compiler works out, held in the program's pooled
+  strings; the program never reads its source. A call written in a
+  function that has a Site parameter of its own passes that one on
+  instead, so a helper that declares `_ testing.Site` reports the place
+  its own caller wrote, through any number of helpers; a call in a
+  closure's body or a defer's passes as any other: a closure has no Site
+  parameter, so one in a closure passes the closure's call's own place,
+  wherever the closure is written, and one in a defer passes the
+  function's. Generic functions and methods, called on a value or through
+  their type, `Probe.at(p)`, take one as any function does, and so does
+  a variadic function, given its values one by one or as a spread,
+  `total(xs...)`. A parameter declared as `testing.Site` is always
+  implicit, so a Site value is never written as an argument to one; it
+  is otherwise a value like any other, which can travel in a struct's
+  field, as a result, or to a generic function's parameter of a type
+  parameter, `func pair_of[T Anything](a T, b T)`. A count of arguments
+  for a callee with a Site leaves it out, `pair expects 2 argument(s),
+  got 1, not counting its testing.Site`. Each of these is an error: an
+  argument of type `testing.Site` written for a callee with a Site
+  parameter, `cannot pass a testing.Site to line: the call passes its
+  own`; a second Site parameter, `a second testing.Site parameter: a
+  function takes at most one`; an extern func's, `extern func report
+  cannot take a testing.Site: a call passes it implicitly, which a call
+  from C cannot`; a mut one, `a testing.Site parameter cannot be mut: a
+  call passes its place as a value`; a variadic parameter of Sites, `a
+  variadic parameter cannot be a testing.Site`; a function or a method
+  with one used as a value, `cannot use line as a value: its parameter s
+  is a testing.Site, which no function type's parameter can be`, and a
+  closure with one, `this closure has no function type: ...` saying the
+  same; a function type's, `a function type's parameter cannot be a
+  testing.Site`; an interface method's, `an interface method's parameter
+  cannot be a testing.Site`; and a method with one where an interface
+  asks for none, `P does not satisfy Liner: P.line takes a testing.Site,
+  which no interface method can`. A Site parameter that is reported, own
+  or a second one among them, still takes no argument written, so its
+  calls report nothing more. `main` declares no parameters at all. A
+  Site parameter given a name and only passed on counts as used. A
+  module named `std` holds its own `std/testing`, whose `Site` must
+  declare exactly those four fields, in order, each `pub`, or it is
+  `testing.Site must be struct { pub file string; pub line int64; pub
+  col int64; pub excerpt string }: a call fills in those fields`.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`

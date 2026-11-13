@@ -178,7 +178,11 @@
 // several, becomes p_ and its position among the function's parameters,
 // p_0 for the first, which no Tack name gives, since none starts with a
 // digit (see paramDeclName); nothing refers to it but its declaration,
-// its cast to void and, for an own one, its free. A function whose
+// its cast to void, for an own one, its free and, for a testing.Site
+// one, the argument the type checker passes it on as to a call in the
+// body (see ast.Call.Site and blankParamName). The Site argument of a
+// call that does not pass one on is the struct literal the checker made,
+// lowered as any other, its file and excerpt pooled strings. A function whose
 // lowered body never names one of its parameters, which Tack allows, as
 // a callback or a generic function ignoring one does, starts with (void)p_x; for it, so C's unused-parameter
 // warning never fires (see unusedParams). A function, an instance, a map

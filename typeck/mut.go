@@ -42,6 +42,15 @@ type param struct {
 	// whether that function is an extern func; a message about a scope
 	// allocator passed to it says so (see scopeAllocToPlain).
 	sig, extern bool
+
+	// site is whether it is a testing.Site parameter, which a call never
+	// writes an argument for, siteType the Site type it is written with,
+	// which own or scope may have left typ without, and siteCallee whether
+	// it is another parameter of a function that has one, where an
+	// argument of type testing.Site is one written for that one (see
+	// site.go).
+	site, siteCallee bool
+	siteType         types.Type
 }
 
 // calleeParams returns the parameters of the function or builtin id
@@ -65,7 +74,9 @@ func (c *Checker) calleeParams(id *ast.Ident) []param {
 // checkArg checks arg, passed to p in a call to callee: a mut argument to
 // a mut parameter must name a place of exactly its type, and any other
 // argument must be usable as its plain parameter's type, or be what
-// viewArg allows a view parameter, or anyArg an any parameter, to take. A
+// viewArg allows a view parameter, or anyArg an any parameter, to take;
+// one of type testing.Site, passed to a callee with a Site parameter, is
+// reported as written for that one (see site.go). A
 // mut argument to a plain parameter, or a plain one to a mut parameter, is
 // reported, and what it holds is still checked for errors of its own; own
 // is checked first, as ownArg says. It returns the mut
@@ -108,7 +119,12 @@ func (c *Checker) checkArg(arg ast.Expr, p param, callee string) *ast.MutArg {
 	case p.typ == types.Any:
 		c.anyArg(arg)
 	default:
-		c.use(arg, c.expr(arg), p.typ, "in argument to "+callee)
+		got := c.expr(arg)
+		if p.siteCallee && c.isSite(got) {
+			c.explicitSite(arg, callee)
+			return nil
+		}
+		c.use(arg, got, p.typ, "in argument to "+callee)
 	}
 	return nil
 }

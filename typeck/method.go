@@ -272,6 +272,9 @@ func (c *Checker) funcParams(ps []*ast.Param, recv bool) []param {
 			variadic: p.Variadic,
 			sig:      true,
 		}
+		if typ, ok := c.declaredSite(p); ok && (!recv || i > 0) {
+			params[i].site, params[i].siteType = true, typ
+		}
 	}
 	return params
 }

@@ -59,6 +59,17 @@ type Call struct {
 
 	Args []Expr
 
+	// Site is the argument the type checker passes for the callee's
+	// testing.Site parameter, which a call never writes: a literal of the
+	// call's own place, or a name of the Site parameter of the function
+	// the call is written in, which it passes on. The checker puts it
+	// among Args, at the parameter's position, so Args has one argument
+	// for every parameter, as for any other call, and takes it out again
+	// before it checks the call another time. It is nil for any other
+	// call, and for one whose arguments did not match its parameters,
+	// and is left out of the JSON dump, which is of the resolved tree.
+	Site Expr `json:"-"`
+
 	// TypeArgExprs are the type arguments written in brackets after the
 	// callee's name, f[T, list[U]](x) or pkg.f[T](x), each a type as
 	// written, in order, and TypeArgsSpan the brackets around them. They

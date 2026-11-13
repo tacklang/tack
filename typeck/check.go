@@ -341,6 +341,12 @@ type Checker struct {
 	// function type (see dynamicFunc).
 	dynamics map[types.Type]*ast.Func
 
+	// siteParams holds each parameter whose type is written testing.Site,
+	// with that type, and siteArgs every argument the checker passed for
+	// one in a call (see site.go); each is nil until one is met.
+	siteParams map[*ast.Param]types.Type
+	siteArgs   map[ast.Expr]bool
+
 	// lostMethods holds, for each package, the names of the methods its
 	// bad declarations were declaring, and lostAll the packages with a
 	// bad declaration that got no name, which could have been any method
@@ -561,6 +567,7 @@ func (c *Checker) Check() []diag.Diagnostic {
 	// global's initializer is a constant, so it never needs a function.
 	c.declareStructs()
 	c.checkGlobals(decls)
+	c.checkSiteShape()
 	c.resolveInterfaces(decls)
 
 	// Signatures are resolved for every function before any body is checked,
@@ -573,6 +580,7 @@ func (c *Checker) Check() []diag.Diagnostic {
 			implicitTypeParams(fn)
 			c.resolveTypeParams(fn)
 			c.resolveParamTypes(fn)
+			c.checkSiteParams(fn)
 			c.resolveResultTypes(fn)
 			c.checkContract(fn)
 			restore()

@@ -31,4 +31,9 @@
 // Every file must already have its line starts recorded by the lexer. A span
 // in no file the source.Files knows is a compiler bug, and is rendered with
 // <unknown file> in place of a position rather than panicked on.
+//
+// Excerpt gives the lines RenderPretty writes below a diagnostic's header
+// for a span alone, which the type checker gives a testing.Site at
+// compile time, so a place a program reports at run time reads exactly
+// as a diagnostic there does.
 package diag

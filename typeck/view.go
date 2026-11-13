@@ -29,11 +29,13 @@ import (
 // type is written []T, which only a parameter or a result may have, and
 // never a mut one, or when it is variadic, args ...T (see variadicParam); any, which
 // only a parameter may have too, and never a mut one (see anyParam); any
-// other type as declaredType gives it. An own parameter's type is then
+// other type as declaredType gives it, a testing.Site recorded as one
+// (see noteSiteParam). An own parameter's type is then
 // checked as ownParamType says, and a scope one's as scopeParamType does,
 // which names it as noun (see paramNoun).
 func (c *Checker) paramType(param *ast.Param, noun string) types.Type {
 	typ := c.plainParamType(param)
+	c.noteSiteParam(param, typ)
 	if param.Own {
 		return c.ownParamType(param, typ)
 	}

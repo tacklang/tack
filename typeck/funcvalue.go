@@ -92,7 +92,8 @@ func (c *Checker) funcType(ft *ast.FuncType) types.Type {
 
 // funcTypeParam returns the type p, a parameter of a function type, has:
 // a view, which may not be mut, or any other type declaredType gives, a
-// type parameter included, but any, which is reported.
+// type parameter included, but any and testing.Site, which only a call
+// by name passes (see site.go), each reported.
 func (c *Checker) funcTypeParam(p *ast.Param) types.Type {
 	if isAnyName(p.TypeExpr) {
 		c.errorf(p.TypeExpr.Spanned(), "a function type's parameter cannot be any")
@@ -106,7 +107,12 @@ func (c *Checker) funcTypeParam(p *ast.Param) types.Type {
 		}
 		return typ
 	}
-	return c.declaredType(p.TypeExpr)
+	typ := c.declaredType(p.TypeExpr)
+	if c.isSite(typ) {
+		c.errorf(p.TypeExpr.Spanned(), "a function type's parameter cannot be a testing.Site")
+		return types.Invalid
+	}
+	return typ
 }
 
 // funcTypeResult returns the type r, a result of a function type,
@@ -167,7 +173,9 @@ func (c *Checker) signatureValue(fn *ast.Func) types.Type {
 const genericNotValue = "it is generic, and a generic function is only called"
 
 // notValue returns why fn, a function, cannot be a value, or "" when it
-// can.
+// can: it is generic or extern, or its signature has what no function
+// type can say, a variadic, an any or a testing.Site parameter, or a view
+// result.
 func (c *Checker) notValue(fn *ast.Func) string {
 	switch {
 	case fn.Generic():
@@ -184,6 +192,9 @@ func (c *Checker) notValue(fn *ast.Func) string {
 			return fmt.Sprintf("%s is an any, which no function type's can be",
 				itsParam(fn.Params, i, fn.Method))
 		}
+	}
+	if why := c.siteNotValue(fn.Params, fn.Method); why != "" {
+		return why
 	}
 	if len(fn.ResultTypes) == 1 && c.table.IsView(fn.ResultTypes[0]) {
 		return "it returns a view, which no function type can"

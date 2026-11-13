@@ -3491,10 +3491,28 @@ func (g *generator) paramRef(param *ast.Param) string {
 	if ref, ok := g.captureRef(param); ok {
 		return ref
 	}
-	if param.Mut {
-		return "(*" + paramName(param.Name) + ")"
+	name := paramName(param.Name)
+	if param.Name == ast.Blank {
+		name = g.blankParamName(param)
 	}
-	return paramName(param.Name)
+	if param.Mut {
+		return "(*" + name + ")"
+	}
+	return name
+}
+
+// blankParamName is the C name of param, a parameter named _ of the
+// function whose body is being lowered, which only the type checker
+// names: as the testing.Site argument a call in that body passes on (see
+// ast.Call.Site). A closure has no Site parameter, so param is never
+// captured.
+func (g *generator) blankParamName(param *ast.Param) string {
+	for i, p := range g.frame.fn.Params {
+		if p == param {
+			return paramDeclName(p, i)
+		}
+	}
+	panic("c: a parameter named _ of no function being lowered")
 }
 
 // argument renders e, a mut argument (see mutArg) or an own one, whose

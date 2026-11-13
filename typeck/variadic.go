@@ -30,9 +30,10 @@ import (
 
 // variadicParam returns the type of param, a variadic parameter, args
 // ...T: the view type []T, T any included. A mut variadic, and one whose
-// element type is a view, or owns a list, which a value passed to it would
-// copy, are reported, and give types.Invalid, as does an element type that
-// was reported.
+// element type is a view, a testing.Site, which a call passes only to a
+// parameter of its own (see site.go), or owns a list, which a value
+// passed to it would copy, are reported, and give types.Invalid, as does
+// an element type that was reported.
 func (c *Checker) variadicParam(param *ast.Param) types.Type {
 	if _, ok := param.TypeExpr.(*ast.ViewType); ok {
 		c.errorf(
@@ -43,6 +44,10 @@ func (c *Checker) variadicParam(param *ast.Param) types.Type {
 	}
 	elem := c.paramElemType(param.TypeExpr)
 	if elem == types.Invalid {
+		return types.Invalid
+	}
+	if c.isSite(elem) {
+		c.errorf(param.Span, "a variadic parameter cannot be a testing.Site")
 		return types.Invalid
 	}
 	if !c.requireCopyable("a variadic parameter", elem, param.TypeExpr.Spanned()) {
@@ -110,15 +115,16 @@ func (c *Checker) checkVariadicArity(
 	case !call.Spread && n < len(fixed):
 		c.errorf(
 			call.Spanned(),
-			"%s expects at least %d argument(s), got %d",
+			"%s expects at least %d argument(s), got %d%s",
 			callee,
 			len(fixed),
 			n,
+			siteCount(last.siteCallee),
 		)
 		return false
 	case call.Spread && n-1 < len(fixed):
-		c.errorf(call.Spanned(), "%s expects %d argument(s) before %s..., got %d",
-			callee, len(fixed), c.text(call.Args[n-1].Spanned()), n-1)
+		c.errorf(call.Spanned(), "%s expects %d argument(s) before %s..., got %d%s",
+			callee, len(fixed), c.text(call.Args[n-1].Spanned()), n-1, siteCount(last.siteCallee))
 		return false
 	case call.Spread && n-1 > len(fixed):
 		extra := ast.Span{

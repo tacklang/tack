@@ -256,6 +256,7 @@ func notOneValue(fn *ast.Func, name string) string {
 // printf, eprintf and appendf, a known format against the values (see
 // checkPrintf). Its result, if any, is the caller's to use or discard.
 func (c *Checker) checkCall(call *ast.Call) {
+	c.dropSite(call)
 	if call.Receiver() != nil {
 		c.checkMethodCall(call)
 		return
@@ -316,14 +317,37 @@ func (c *Checker) checkNamedCall(call *ast.Call, id *ast.Ident) {
 }
 
 // checkArgs checks the arguments of call, Args, against params, the
-// parameters callee, as a message names it, takes for them: their count,
-// and each argument against its parameter (see checkArg), or a variadic
-// parameter's values (see checkVariadicCall). It returns the mut
+// parameters callee, as a message names it, takes for them, as
+// checkWrittenArgs says; a testing.Site parameter among them takes no
+// argument written, and the call's Site arguments are put among Args once
+// the others matched their parameters (see site.go). It returns the mut
 // arguments passed to mut parameters with nothing reported, for the
 // exclusivity check, and false when a callee that is not variadic was
 // passed the wrong number of arguments, so that no argument was matched
 // with a parameter.
 func (c *Checker) checkArgs(call *ast.Call, callee string, params []param) ([]*ast.MutArg, bool) {
+	c.dropSite(call)
+	written, at := withoutSite(params)
+	if at == nil {
+		return c.checkWrittenArgs(call, callee, params)
+	}
+	if !isVariadic(written) && (call.Spread || len(call.Args) != len(written)) {
+		c.siteArity(call, callee, len(written))
+		return nil, false
+	}
+	muts, counted := c.checkWrittenArgs(call, callee, written)
+	if counted {
+		c.passSite(call, params, at)
+	}
+	return muts, counted
+}
+
+// checkWrittenArgs checks the arguments of call, Args, against params,
+// the parameters callee, as a message names it, takes for them: their
+// count, and each argument against its parameter (see checkArg), or a
+// variadic parameter's values (see checkVariadicCall). It returns what
+// checkArgs does.
+func (c *Checker) checkWrittenArgs(call *ast.Call, callee string, params []param) ([]*ast.MutArg, bool) {
 	if isVariadic(params) {
 		return c.checkVariadicCall(call, callee, params), true
 	}

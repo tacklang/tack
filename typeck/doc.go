@@ -549,6 +549,23 @@
 // or any; it gives no facts, and is otherwise checked as a switch, its
 // default last.
 //
+// A parameter of type testing.Site, std/testing's Site, recognized by its
+// package's path and name, takes no written argument, checked in site.go:
+// the checker checks a call's other arguments against the other
+// parameters, then puts in its place, among the call's Args and in
+// Call.Site, a literal of the call's own place, its file's display name,
+// line, column and diag.Excerpt of its span, all constants, or, in a
+// function with a Site parameter of its own, a closure aside, a name of
+// that parameter, passed on. Every later stage sees one argument per
+// parameter. A Site argument written, two Site parameters, an extern
+// func's, a mut one, a variadic one of Sites, and a Site parameter on
+// anything that is not called by name, a function value, a closure, a
+// function type, an interface method and a method satisfying one, are
+// reported, each once: a reported Site parameter still takes no written
+// argument. std/testing's Site must declare exactly the four fields the
+// literal fills in (checkSiteShape), since a module named std holds a
+// std/testing of its own.
+//
 // A call to std/fmt's printf, to eprintf, its twin for standard error,
 // or to appendf, which appends to the list given before its format
 // (formatFuncs), checked in printf.go, has its format read when it is a

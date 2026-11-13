@@ -4331,6 +4331,38 @@ root-package-invalid-name/tools.tck:1:9: error: my-tools is not a valid package 
    |	        ^~~~~
 02 |	
 
+-- site-std-module/tack.mod --
+module std
+-- site-std-module/testing/testing.tck --
+package testing
+
+pub type Site struct {
+    pub x int64
+}
+-- site-std-module/main.tck --
+package main
+
+import testing from "std/testing"
+
+func here(s testing.Site) int64 {
+    return s.x
+}
+
+func main() {
+    if here() == 0 {
+        exit(1)
+    }
+}
+-- site-std-module/expected --
+stage: typeck
+---
+
+site-std-module/testing/testing.tck:3:10: error: testing.Site must be struct { pub file string; pub line int64; pub col int64; pub excerpt string }: a call fills in those fields
+02 |	
+03 |	pub type Site struct {
+   |	         ^~~~
+04 |	    pub x int64
+
 -- size-globals-across-packages/tack.mod --
 module calc
 -- size-globals-across-packages/table/b.tck --
