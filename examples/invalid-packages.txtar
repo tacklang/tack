@@ -4818,6 +4818,78 @@ tck-directory-is-skipped/main.tck:4:5: error: undefined: helper
    |	    ^~~~~~
 05 |	}
 
+-- test-file-bare-name/tack.mod --
+module test-file-bare-name
+-- test-file-bare-name/_test.tck --
+package main
+
+func main() {
+}
+-- test-file-bare-name/expected --
+stage: load
+---
+no .tck files other than test files in test-file-bare-name
+-- test-file-target/.target --
+main_test.tck
+-- test-file-target/main_test.tck --
+package main
+
+func main() {
+}
+-- test-file-target/expected --
+stage: load
+---
+test-file-target/main_test.tck is a test file, which is never loaded on its own
+-- test-file-upper-case/tack.mod --
+module test-file-upper-case
+-- test-file-upper-case/MAIN_TEST.tck --
+package main
+
+func main() {
+    undefined()
+}
+-- test-file-upper-case/expected --
+stage: resolve
+---
+
+test-file-upper-case/MAIN_TEST.tck:4:5: error: undefined: undefined
+03 |	func main() {
+04 |	    undefined()
+   |	    ^~~~~~~~~
+05 |	}
+
+-- test-files-only/tack.mod --
+module test-files-only
+-- test-files-only/main_test.tck --
+package main
+
+func main() {
+}
+-- test-files-only/expected --
+stage: load
+---
+no .tck files other than test files in test-files-only
+-- test-files-only-import/tack.mod --
+module calc
+-- test-files-only-import/main.tck --
+package main
+
+import tests from "calc/tests"
+
+func main() {
+}
+-- test-files-only-import/tests/tests_test.tck --
+package tests
+-- test-files-only-import/expected --
+stage: load
+---
+
+test-files-only-import/main.tck:3:19: error: cannot find package calc/tests: no .tck files other than test files in test-files-only-import/tests
+02 |	
+03 |	import tests from "calc/tests"
+   |	                  ^~~~~~~~~~~~
+04 |	
+
 -- two-packages/tack.mod --
 module calc
 -- two-packages/.target --

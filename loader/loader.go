@@ -33,6 +33,10 @@ const (
 // sourceExt is the extension of a Tack source file.
 const sourceExt = ".tck"
 
+// testSuffix ends the name of a test file, a Tack file a build never
+// loads (see IsTestFile).
+const testSuffix = "_test" + sourceExt
+
 // cExt is the extension of a C source file, which defines extern funcs.
 const cExt = ".c"
 
@@ -44,8 +48,26 @@ const mainPath = "main"
 const mainPackage = "main"
 
 // errNoTackFiles is wrapped by the error for a package directory that
-// holds no Tack file.
+// holds no Tack file, test files left out.
 var errNoTackFiles = errors.New("no " + sourceExt + " files")
+
+// IsTestFile reports whether the file named name, a base name, is a test
+// file: its name ends in _test.tck, matched byte for byte, so _test.tck
+// itself is one and X_TEST.tck is not. No build loads a test file, as
+// part of a package or on its own. The driver asks it of a file target
+// before anything else looks at the file.
+func IsTestFile(name string) bool {
+	return strings.HasSuffix(name, testSuffix)
+}
+
+// isPackageFile reports whether the file named name, a base name, of a
+// directory entry that is not itself a directory, is one of its
+// package's Tack files: its name ends in .tck, does not start with a dot,
+// as an editor's or a tool's, and is not a test file.
+func isPackageFile(name string) bool {
+	return strings.HasSuffix(name, sourceExt) && !strings.HasPrefix(name, ".") &&
+		!IsTestFile(name)
+}
 
 // Loader reads the files of a program and parses them. Its fields are
 // set by the caller; the zero value is not usable, since FS is required.
@@ -153,8 +175,14 @@ func (res *Result) report(stage Stage, diags []diag.Diagnostic) {
 }
 
 // File loads the program the one file name makes on its own: a package
-// whose path is main. A problem reading it is returned as an error.
+// whose path is main. A problem reading it is returned as an error, and
+// so is a name that makes it a test file, which is never loaded on its
+// own, before it is read.
 func (l *Loader) File(name string) (*Result, error) {
+	if IsTestFile(path.Base(name)) {
+		return nil, fmt.Errorf("%s is a test file, which is never loaded on its own",
+			l.display(name))
+	}
 	data, err := l.FS.ReadFile(name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
@@ -297,8 +325,10 @@ func (l *Loader) isLib(files []*source.File, err error) bool {
 
 // readPackageFiles reads every Tack file directly in dir, in the byte order
 // of their names, through fsys, and adds each to res. A name starting with
-// a dot is left out, as an editor's or a tool's, and so is a directory. It
-// also returns the path of every C file in dir, which it does not read.
+// a dot is left out, as an editor's or a tool's, and so is a test file and
+// a directory (see isPackageFile). A directory with no such file is an
+// error wrapping errNoTackFiles, which says so when it holds test files.
+// It also returns the path of every C file in dir, which it does not read.
 func (l *Loader) readPackageFiles(
 	res *Result,
 	fsys FS,
@@ -308,16 +338,9 @@ func (l *Loader) readPackageFiles(
 	if err != nil {
 		return nil, nil, fmt.Errorf("cannot read directory %s: %w", l.display(dir), err)
 	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || strings.HasPrefix(name, ".") || !strings.HasSuffix(name, sourceExt) {
-			continue
-		}
-		names = append(names, name)
-	}
+	names, tests := packageFileNames(entries)
 	if len(names) == 0 {
-		return nil, nil, fmt.Errorf("%w in %s", errNoTackFiles, l.display(dir))
+		return nil, nil, l.noTackFiles(dir, tests)
 	}
 	sort.Strings(names)
 
@@ -335,6 +358,37 @@ func (l *Loader) readPackageFiles(
 		return nil, nil, cErr
 	}
 	return files, cFiles, nil
+}
+
+// packageFileNames returns the names of the package's Tack files among
+// entries, the entries of one directory, in their order (see
+// isPackageFile), and whether any other entry is a test file whose name
+// does not start with a dot.
+func packageFileNames(entries []fs.DirEntry) ([]string, bool) {
+	names := make([]string, 0, len(entries))
+	tests := false
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() {
+			continue
+		}
+		if isPackageFile(name) {
+			names = append(names, name)
+		}
+		tests = tests || (IsTestFile(name) && !strings.HasPrefix(name, "."))
+	}
+	return names, tests
+}
+
+// noTackFiles returns the error, wrapping errNoTackFiles, for the
+// directory dir, which holds no Tack file of a package; tests says it
+// holds test files, which the error then says, since a directory of
+// test files would otherwise seem to hold Tack files it does not count.
+func (l *Loader) noTackFiles(dir string, tests bool) error {
+	if tests {
+		return fmt.Errorf("%w other than test files in %s", errNoTackFiles, l.display(dir))
+	}
+	return fmt.Errorf("%w in %s", errNoTackFiles, l.display(dir))
 }
 
 // addFile records the file read from name, with contents data, in res and

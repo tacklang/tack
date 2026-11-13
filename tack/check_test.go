@@ -741,6 +741,14 @@ func TestCheckBuiltinDocThroughSymlinks(t *testing.T) {
 	for _, target := range []string{dirLink, filepath.Join(dirLink, "builtin.tck"), fileLink} {
 		assertCheckClean(t, runTack(t, "--check", target))
 	}
+	// A link whose own name makes it a test file is rejected by that
+	// name, as any test file target is, wherever it leads.
+	testLink := filepath.Join(links, "x_test.tck")
+	if err := os.Symlink(filepath.Join(copied, "builtin.tck"), testLink); err != nil {
+		t.Fatal(err)
+	}
+	assertFailure(t, runTack(t, "--check", testLink),
+		testLink+" is a test file, which is never loaded on its own")
 
 	appendTo(t, filepath.Join(copied, "builtin.tck"), "\n// edited\n")
 	target := filepath.Join(dirLink, "builtin.tck")

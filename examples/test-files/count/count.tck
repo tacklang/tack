@@ -1,0 +1,7 @@
+package count
+
+// three is what main checks it gets, from the one file of this package
+// that is loaded.
+pub func three() int64 {
+    return 3
+}

@@ -17,9 +17,25 @@
 // files are every file directly in its directory
 // whose name ends in .tck, in the byte order of their names, without
 // recursing, leaving out a name that starts with a dot, as an editor's or a
-// tool's, and a directory, even one whose name ends in .tck. A directory
+// tool's, a test file, and a directory, even one whose name ends in .tck. A directory
 // with no such file is an error, not a diagnostic, since there is no source
-// to point into; so is a file or directory that cannot be read.
+// to point into, which says so when the directory holds test files; so is
+// a file or directory that cannot be read.
+//
+// # Test files
+//
+// A test file is a Tack file whose name ends in _test.tck, matched byte
+// for byte: _test.tck itself is one, and X_TEST.tck and x_Test.tck are
+// ordinary files. No load reads a test file: not a package's, whether it
+// is the main package, an import, a library's or std's, nor one named as
+// a single file target, which is an error before the file is read, since
+// a test file belongs to its directory's package and is never a program
+// of its own. A directory whose only Tack files are test files holds no
+// package, as one with none does: as a target or an import it is an
+// error, and a library leaves it out; a library with no package to load
+// that found test files says so. A C file is never a test file,
+// whatever its name. Loading a package's test files beside its own is
+// left to a test mode, which does not exist yet.
 //
 // # Libraries
 //

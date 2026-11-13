@@ -211,6 +211,15 @@ func isLibrary(prog *ast.Program) bool {
 // in std/builtin.
 const builtinDocName = "builtin.tck"
 
+// isTestFileTarget reports whether abs, a target's absolute path, names
+// a file, not a directory, whose own name makes it a test file, which
+// the loader rejects (see loader.IsTestFile), wherever a symbolic link by
+// that name leads.
+func isTestFileTarget(abs string) bool {
+	info, err := os.Stat(abs)
+	return err == nil && !info.IsDir() && loader.IsTestFile(filepath.Base(abs))
+}
+
 // checkBuiltinDoc checks target when it is std/builtin/builtin.tck, or
 // the directory std/builtin, directly or through a symbolic link, and
 // reports whether it was: that file is a
@@ -219,11 +228,16 @@ const builtinDocName = "builtin.tck"
 // parses, so it is never checked as code. It is clean when it matches
 // the compiler's own, and an error saying how to refresh it when it does
 // not. Any other target, another .tck file in std/builtin among them, is
-// left to the loader.
+// left to the loader, and so is a file target whose name as given makes
+// it a test file, even a symbolic link to the copy, which the loader
+// rejects by that name.
 func checkBuiltinDoc(target string, lib *std) (bool, error) {
 	abs, err := filepath.Abs(target)
 	if err != nil {
 		return false, nil //nolint:nilerr // the loader reports the target
+	}
+	if isTestFileTarget(abs) {
+		return false, nil
 	}
 	// A symbolic link to the directory or to the file, as an editor may
 	// open it through, is what it links to: the copy is found by where it

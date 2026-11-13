@@ -1,0 +1,7 @@
+package main
+
+// Never loaded: a second main would be an error, and so would the
+// undefined name.
+func main() {
+    undefined()
+}

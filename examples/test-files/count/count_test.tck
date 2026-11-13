@@ -1,0 +1,6 @@
+package count
+
+// Never loaded: three is already declared in count.tck.
+pub func three() int64 {
+    return 4
+}

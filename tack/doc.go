@@ -36,10 +36,12 @@
 //	tack --backends
 //
 // The target is a file, a directory, or an import path. A file is compiled
-// alone. A directory is compiled as the one package its .tck files make,
-// in the module whose tack.mod is in it or the nearest directory above it
-// (see package loader); a directory with no .tck files, or no tack.mod at
-// or above it, is an error. A target that names nothing on disk, is not
+// alone, unless it is a test file, whose name ends in _test.tck, which is
+// an error in every mode. A directory is compiled as the one package its
+// .tck files make, test files left out, in the module whose tack.mod is in
+// it or the nearest directory above it (see package loader); a directory
+// with no .tck files but test files, or no tack.mod at or above it, is an
+// error. A target that names nothing on disk, is not
 // absolute, does not start with a dot and does not end in .tck is an
 // import path, looked up in the module found from the current directory.
 // Files are shown relative to the current directory when they are in it or
@@ -282,10 +284,11 @@
 // loader.Loader.Lib). A main package below it is left out, and is checked
 // by naming its directory; so is a directory starting with a dot and
 // another module below it. A target with no package to check is a "tack:"
-// error: "no .tck files in <dir> or below", or, when it holds only main
-// packages, "no library package in <dir> or below; check a main package by
-// naming its directory". A single file whose package is not main is
-// checked as a library of that one package.
+// error: "no .tck files in <dir> or below", "no .tck files other than test
+// files in <dir> or below" when the only ones found were test files, or,
+// when it holds only main packages, "no library package in <dir> or
+// below; check a main package by naming its directory". A single file
+// whose package is not main is checked as a library of that one package.
 //
 // Every stage runs whatever an earlier one reported, as without --check,
 // and the diagnostics of all of them are sorted and capped by

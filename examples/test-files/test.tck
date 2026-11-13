@@ -1,0 +1,6 @@
+package main
+
+// plain is in test.tck, whose name does not end in _test.tck.
+func plain() int64 {
+    return 9
+}

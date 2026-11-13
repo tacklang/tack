@@ -33,7 +33,7 @@ func (l *Loader) loadLib(
 	files []*source.File,
 	cFiles []string,
 ) (*Result, error) {
-	dirs, err := l.packageDirs(mod.fsys, dir)
+	dirs, sawTests, err := l.packageDirs(mod.fsys, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +62,7 @@ func (l *Loader) loadLib(
 		}
 	}
 	if !loadedAny {
-		return nil, l.noLibrary(dir, sawMain)
+		return nil, l.noLibrary(dir, sawMain, sawTests)
 	}
 	return g.finishLib(), nil
 }
@@ -112,12 +112,17 @@ func (g *graph) addDir(d string, read *packageFiles) (bool, error) {
 }
 
 // noLibrary returns the error for a library at dir with no package to
-// load: none at all, or, when sawMain says so, only main packages.
-func (l *Loader) noLibrary(dir string, sawMain bool) error {
+// load: none at all, which says so when sawTests says test files were
+// found, as readPackageFiles's error does, or, when sawMain says so,
+// only main packages.
+func (l *Loader) noLibrary(dir string, sawMain, sawTests bool) error {
 	if sawMain {
 		return fmt.Errorf(
 			"no library package in %s or below; check a main package by naming its directory",
 			l.display(dir))
+	}
+	if sawTests {
+		return fmt.Errorf("%w other than test files in %s or below", errNoTackFiles, l.display(dir))
 	}
 	return fmt.Errorf("%w in %s or below", errNoTackFiles, l.display(dir))
 }
@@ -156,37 +161,52 @@ func (g *graph) addRoot(dir, p string, files []*source.File, cFiles []string) {
 // the byte order of their paths, that holds a Tack file, leaving out a
 // directory whose name starts with a dot and one below dir holding a
 // tack.mod, with everything below either, and std's root, which is a
-// module of its own.
-func (l *Loader) packageDirs(fsys FS, dir string) ([]string, error) {
-	hasTack, subs, err := l.scanDir(fsys, dir)
+// module of its own. It also reports whether any directory it looked in
+// holds a test file.
+func (l *Loader) packageDirs(fsys FS, dir string) ([]string, bool, error) {
+	scan, err := l.scanDir(fsys, dir)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var dirs []string
-	if hasTack {
+	if scan.hasTack {
 		dirs = append(dirs, dir)
 	}
-	for _, sub := range subs {
-		below, err := l.packageDirs(fsys, sub)
+	tests := scan.hasTests
+	for _, sub := range scan.subs {
+		below, belowTests, err := l.packageDirs(fsys, sub)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		dirs = append(dirs, below...)
+		tests = tests || belowTests
 	}
-	return dirs, nil
+	return dirs, tests, nil
+}
+
+// dirScan is what scanDir finds in one directory.
+type dirScan struct {
+	// subs are the paths of the directories in it to look in for more.
+	subs []string
+	// hasTack is whether the directory holds a Tack file of a package
+	// (see isPackageFile).
+	hasTack bool
+	// hasTests is whether it holds a test file.
+	hasTests bool
 }
 
 // scanDir reads the directory dir through fsys and reports whether it
-// holds a Tack file, and returns the paths of the directories in it to
-// look in for more, in byte order: those whose names do not start with a
-// dot and that are not a module's root.
-func (l *Loader) scanDir(fsys FS, dir string) (bool, []string, error) {
+// holds a Tack file of a package, a test file not counting (see
+// isPackageFile), and whether it holds a test file, and gives the paths
+// of the directories in it to look in for more, in byte order: those
+// whose names do not start with a dot and that are not a module's root.
+// A name starting with a dot is left out, a test file's included.
+func (l *Loader) scanDir(fsys FS, dir string) (dirScan, error) {
+	var scan dirScan
 	entries, err := fsys.ReadDir(dir)
 	if err != nil {
-		return false, nil, fmt.Errorf("cannot read directory %s: %w", l.display(dir), err)
+		return scan, fmt.Errorf("cannot read directory %s: %w", l.display(dir), err)
 	}
-	hasTack := false
-	var subs []string
 	// ReadDir returns entries sorted by name, so subs is in byte order.
 	for _, e := range entries {
 		name := e.Name()
@@ -194,19 +214,20 @@ func (l *Loader) scanDir(fsys FS, dir string) (bool, []string, error) {
 			continue
 		}
 		if !e.IsDir() {
-			hasTack = hasTack || path.Ext(name) == sourceExt
+			scan.hasTack = scan.hasTack || isPackageFile(name)
+			scan.hasTests = scan.hasTests || IsTestFile(name)
 			continue
 		}
 		sub := path.Join(dir, name)
 		nested, err := l.isModuleRoot(fsys, sub)
 		if err != nil {
-			return false, nil, err
+			return dirScan{}, err
 		}
 		if !nested {
-			subs = append(subs, sub)
+			scan.subs = append(scan.subs, sub)
 		}
 	}
-	return hasTack, subs, nil
+	return scan, nil
 }
 
 // isModuleRoot reports whether the directory d, read through fsys, is the

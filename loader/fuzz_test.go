@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"path"
 	"slices"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -214,14 +215,30 @@ var loadSeeds = []string{
 		"return part(p, len(p), len(p)) }\n" +
 		"func back(mut out list[uint8], dotdot int64) { mut c, mut ok := pop(mut out)\n" +
 		"for ok && len(out) > dotdot && c != '/' { c, ok = pop(mut out) } }\n",
+	"p/main.tck\npackage main\nimport t from \"m/t\"\nfunc main() {}\n\x00p/main_test.tck\n@\n" +
+		"\x00p/_test.tck\npackage main\n\x00p/X_TEST.tck\npackage main\n\x00t/t_test.tck\npackage t\n" +
+		"\x00tack.mod\nmodule m\n",
+	"tack.mod\nmodule m\n\x00a_test.tck\npackage main\nfunc main() {}\n\x00std/fmt/fmt_test.tck\n@\n",
+}
+
+// checkNoTestFiles fails t if res read a test file, one whose name ends
+// in _test.tck, which no load outside test mode reads.
+func checkNoTestFiles(t *testing.T, res *loader.Result) {
+	t.Helper()
+	for _, f := range res.Files.Files() {
+		if strings.HasSuffix(f.Filename, "_test.tck") {
+			t.Fatalf("read the test file %s", f.Filename)
+		}
+	}
 }
 
 // FuzzLoad loads random file trees, with odd names, deep nesting, imports
-// and cycles of them, tack.mod files anywhere, and a standard library in
-// the tree's directory std, which a target may be in, and checks the loader
-// never panics, and either fails with an error or gives a program, a
-// diagnostic, or both, a program counting its diagnostics in its Errors,
-// with every diagnostic's span in a file it read. A program it gives is
+// and cycles of them, tack.mod files anywhere, test files, and a standard
+// library in the tree's directory std, which a target may be in, and
+// checks the loader never panics, and either fails with an error or gives
+// a program, a diagnostic, or both, a program counting its diagnostics in
+// its Errors, with every diagnostic's span in a file it read, and no test
+// file read. A program it gives is
 // compiled on, through code generation, which must not panic either, and
 // must refuse a program with errors (see compileLoaded).
 func FuzzLoad(f *testing.F) {
@@ -239,6 +256,7 @@ func FuzzLoad(f *testing.F) {
 		if err != nil {
 			return
 		}
+		checkNoTestFiles(t, res)
 		checkResult(t, res)
 		for _, d := range res.Diags {
 			file := res.Files.Lookup(d.Span.File)
@@ -267,8 +285,8 @@ var libSeeds = []string{
 
 // FuzzLoadLib is FuzzLoad for a library, loaded with Lib set: the loader
 // never panics, gives a program, a diagnostic or both, a program counting
-// its diagnostics, and every diagnostic renders against the files it
-// read; a program is compiled on as a library is checked, every stage
+// its diagnostics, every diagnostic renders against the files it read,
+// and no test file is read; a program is compiled on as a library is checked, every stage
 // whatever an earlier one reported, without requiring a main function,
 // and code generation refuses it when any stage reported an error.
 func FuzzLoadLib(f *testing.F) {
@@ -287,6 +305,7 @@ func FuzzLoadLib(f *testing.F) {
 		if err != nil {
 			return
 		}
+		checkNoTestFiles(t, res)
 		diags := checkLibResult(t, res)
 		for _, d := range diags {
 			file := res.Files.Lookup(d.Span.File)

@@ -44,6 +44,17 @@ file whose name starts with `.` is skipped, and so is every
 subdirectory, even one named like a Tack file. A directory with no such
 file is an error, `no .tck files in dir`.
 
+A file whose name ends in `_test.tck`, `_test.tck` itself included, is a
+test file, and is never part of its package's build: compiling the
+package, as the program, an import or part of a library, leaves it out.
+The suffix is matched byte for byte, so `X_TEST.tck` is an ordinary
+file. A directory whose only Tack files are test files holds no package,
+`no .tck files other than test files in dir`; checked as a library
+with no other Tack file at or below it, `no .tck files other than test
+files in dir or below`. A test file named as the file to compile is an
+error, `dir/x_test.tck is a test file, which is never loaded on its
+own`.
+
 The files are read in the byte order of their names. Every file is
 lexed, and then every file parsed, so the problems of each are
 reported.

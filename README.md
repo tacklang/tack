@@ -485,6 +485,17 @@ section remains the description of the language.
   itself`. Every file is lexed, and then every file parsed, so each
   file's problems are reported. A file compiled on its own is the whole
   package.
+- A file whose name ends in `_test.tck`, `_test.tck` itself included, is a
+  test file, and no build reads it: compiling a directory, every package
+  it imports, std's included, and `--check` of a library all leave test
+  files out, in every mode, the dumps included. The suffix is matched
+  exactly, so `X_TEST.tck` is an ordinary file. A directory whose only
+  Tack files are test files holds no package: `no .tck files other than
+  test files in dir` as a target or an import; a library leaves it out,
+  and one with no other Tack file at or below its root is `no .tck files
+  other than test files in dir or below`. A test file named as a target
+  is an error before it is read, `dir/x_test.tck is a test file, which is
+  never loaded on its own`. Nothing runs test files yet.
 - A directory is compiled in its module. A module is a directory tree
   whose root holds a `tack.mod`, which names it in one line, `module
   calc`, and may hold `//` comments, which run to the end of the line
