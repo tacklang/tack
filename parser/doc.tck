@@ -1,0 +1,63 @@
+package parser
+
+// Package parser builds the syntax tree of one Tack source file. It is a
+// port of the Go compiler's package parser, function by function, and
+// accepts, rejects and recovers from exactly what Go's does: the same
+// tree, the same errors in the same order, at the same places, with the
+// same words. The grammar, the recovery and the limits are documented in
+// full in Go's parser/doc.go; what follows is where the port differs and
+// why.
+//
+// It sits between the lexer and the resolver. parse takes the lexer's
+// Tokens, which end in an EOF token and already carry the inserted
+// semicolons, and produces an ast.File: the package clause's name, the
+// imports, every top-level declaration in source order, and every
+// comment, and the syntax errors it recovered from. Go's NewParser,
+// Limit and Parse are the one function parse here.
+//
+// Comment tokens are set apart before parsing, so the grammar never sees
+// them. The parser is recursive descent, as Go's is, but for binary
+// operators: Go climbs their precedences by recursion, a frame for each
+// precedence an expression steps through, and parse_expr reduces them
+// with stacks of the parser's own instead, building the same tree.
+//
+// Stack. The parser recurses on the C stack, which does not grow, to the
+// nesting limit, so what each level costs is kept small: the parser's
+// recursive functions do not call Parser methods that would copy the
+// Parser, a large value, onto their stacks (see look.tck), nor keep a
+// node's Kind copied while they recurse (see nodes.tck). A program nests at most max_nesting
+// levels deep, a thousand, counted together across expressions,
+// statements and types (see nest); the first construct past it is
+// reported once, parsing stops, and the file has no tree.
+//
+// Failures. Go's constructs return their errors as a []diag.Diagnostic,
+// which holds one at most. Here a construct returns a Fail, a small
+// copyable value naming its one error among the parser's pending ones,
+// whose messages are kept in one list: an error made and then dropped, as
+// recovery drops some, costs a few bytes and no Diagnostic. record keeps
+// the ones recovery keeps, and parse makes Diagnostics of those at the
+// end, in the order they were recorded. Every function that can recurse
+// returns an error, the builtin append's out of memory, beside its
+// result.
+//
+// Nodes. A construct builds its node's payload as a local value, Go's
+// struct, and adds it to the tree once it parsed, so a construct that
+// fails leaves nodes no one names, which the tree keeps and nothing
+// reads. Where Go sets a field of a node already made, through a
+// pointer, the port copies the node's kind out, changes it and writes it
+// back. Go's map from a parenthesized expression to its parentheses'
+// span is a map from the node's id. Go's maps of import names and of the
+// type parameters in scope are lists searched in order: a file has few.
+//
+// Tokens. Go's peek and next return nil past the final EOF token, which
+// no path that does not panic in Go reads; the port's return the EOF
+// token there. Go counts the tokens a parse looks at, for its tests that
+// bound the work; the port does not.
+//
+// Recovery's look aheads that take a function in Go, a stop condition or
+// a token match, take a flag saying which of Go's functions it is here,
+// since Tack has no closures but scope parameters.
+//
+// Builtin mode, in which the file documenting the builtins parses, is
+// ported but never on: the loader parses every file with it off, and the
+// builtins come later in the port.

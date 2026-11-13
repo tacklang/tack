@@ -314,3 +314,9 @@ pub func (k TokenKind) append_string(mut out list[uint8]) error {
     bytes.append_uint(mut out, k.n)?
     return append(mut out, ')')
 }
+
+// number returns the kind's number, Go's value of the constant, for a
+// test of a range of kinds, as the parser's recovery makes.
+pub func (k TokenKind) number() uint8 {
+    return k.n
+}

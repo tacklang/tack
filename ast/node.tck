@@ -1,0 +1,451 @@
+package ast
+
+import constant from "tack/constant"
+import source from "tack/source"
+
+// Node is one element of the syntax tree: what it is, its Kind, and the
+// Span locating it in the source, from the first byte of its first token
+// to the last byte of its last. Go's nodes are pointers to a struct of
+// each type, each with a Span among its fields; here every node is an
+// element of its File's nodes arena, named by an id[Node], and keeps its
+// span beside its kind, so that a pass reads or moves a node's span the
+// same way whatever the node is. The id 0 is the arena's sentinel, a Node
+// of Kind none, which stands for Go's nil: an expression left out, a
+// variable declared with no value.
+pub type Node struct {
+    pub k Kind
+    pub span source.Span
+}
+
+// Nodes is a list of nodes held by a node, its parameters, its
+// statements or its arguments: a run of the File's lists arena, read
+// with File.items. Go's lists are slices, which encoding/json writes as
+// null when nil and as [] when empty, and the --ast dump shows which, so
+// made records whether the list was ever made: the zero Nodes is Go's nil
+// slice, and a made one with no items Go's empty one.
+pub type Nodes struct {
+    pub items span[id[Node]]
+    pub made bool
+}
+
+// Kind is what a node is, one case for each type of node Go's package ast
+// has, with that type's fields but its Span. Its payloads hold only
+// copyable values, ids, spans and flags, so a Kind is copied out of the
+// tree, changed and written back where Go would set a field through a
+// pointer. A name or another string is the bytes span[uint8] names in the
+// File's bytes arena, which File.text reads.
+//
+// Go's Decl, Stmt and Expr interfaces are not types here: every node is a
+// Node, and which family it is in follows from its kind. A Var is both a
+// declaration and a statement, as in Go. CaseClause, Field and UnionCase
+// are not nodes in Go, but parts of a Switch, a StructType and a
+// UnionType; here they are nodes all the same, so the lists that hold
+// them are Nodes like any other.
+//
+// Func and Param are kept in arenas of their own, the File's funcs and
+// params, and the node holds the id: they are the largest payloads, and
+// a Kind is as large as its largest case, which every node would pay for.
+pub type Kind union {
+    // none is the sentinel node, id 0, Go's nil.
+    none
+
+    // The declarations.
+    func_decl id[Func]
+    param_decl id[Param]
+    var_decl Var
+    import_decl Import
+    type_decl TypeDecl
+    bad_decl BadDecl
+    type_param TypeParam
+    iface_method IfaceMethod
+
+    // The statements.
+    expr_stmt ExprStmt
+    return_stmt Return
+    if_stmt If
+    assign Assign
+    for_stmt For
+    break_stmt
+    continue_stmt
+    unreachable_stmt
+    fallthrough_stmt
+    inc_dec IncDec
+    multi_var MultiVar
+    multi_assign MultiAssign
+    for_range ForRange
+    switch_stmt Switch
+    case_clause CaseClause
+    defer_stmt Defer
+    region_stmt Region
+    bad_stmt
+
+    // The expressions, the types as written among them.
+    call Call
+    ident Ident
+    str_lit span[uint8]
+    float_lit span[uint8]
+    int_lit IntLit
+    char_lit uint8
+    bool_lit bool
+    noerror_lit
+    c_allocator_lit
+    binary Binary
+    unary Unary
+    type_assert TypeAssert
+    array_type ArrayType
+    view_type id[Node]
+    list_type id[Node]
+    arena_type id[Node]
+    pool_type id[Node]
+    ref_type RefType
+    map_type MapType
+    func_type FuncType
+    composite_lit CompositeLit
+    index Index
+    slice Slice
+    struct_type Nodes
+    field Field
+    selector Selector
+    question id[Node]
+    key_value KeyValue
+    mut_arg id[Node]
+    own_arg id[Node]
+    func_lit id[Node]
+    fields_of id[Node]
+    interface_type Nodes
+    struct_case
+    union_type Nodes
+    union_case UnionCase
+}
+
+// Func is a function declaration, Go's ast.Func, with its parameters,
+// its result types and its body: a method's receiver is its first
+// parameter, and a generic function's type parameters are type_params.
+// The fields the resolver and the type checker fill in, which the parser
+// leaves at their zero values, are not here yet: they come with the
+// passes that set them. Go's EnsuresSpan, TypeParamsSpan, VisSpan,
+// ExternSpan and CNameSpan, which the dump leaves out, are kept for
+// those passes.
+pub type Func struct {
+    pub name span[uint8]
+    pub type_params Nodes
+    pub params Nodes
+    pub results Nodes
+    pub body Nodes
+    // contract is the condition written after ensures, or none.
+    pub contract id[Node]
+    pub ensures_span source.Span
+    pub name_span source.Span
+    pub type_params_span source.Span
+    pub vis_span source.Span
+    pub cname span[uint8]
+    pub extern_span source.Span
+    pub cname_span source.Span
+    pub vis Visibility
+    pub is_extern bool
+    pub no_body bool
+    pub method bool
+    pub closure bool
+}
+
+// Param is one parameter, of a function or of a function type, Go's
+// ast.Param: its type as written, a variadic's element type, its name,
+// none for a function type's, and its modes.
+pub type Param struct {
+    pub type_expr id[Node]
+    pub name span[uint8]
+    pub name_span source.Span
+    pub mut_span source.Span
+    pub own_span source.Span
+    pub scope_span source.Span
+    pub ellipsis_span source.Span
+    pub is_mut bool
+    pub is_own bool
+    pub is_scope bool
+    pub variadic bool
+}
+
+// Var is a variable declaration, Go's ast.Var: its type as written and
+// its value, either none when left out.
+pub type Var struct {
+    pub type_expr id[Node]
+    pub value id[Node]
+    pub name span[uint8]
+    pub name_span source.Span
+    pub vis_span source.Span
+    pub mutable bool
+    pub vis Visibility
+}
+
+// Import is an import declaration, Go's ast.Import, import name from
+// "path".
+pub type Import struct {
+    pub name span[uint8]
+    pub path span[uint8]
+    pub name_span source.Span
+    pub path_span source.Span
+}
+
+// TypeDecl is a type declaration, Go's ast.TypeDecl: its name and the
+// struct, interface or union type it declares.
+pub type TypeDecl struct {
+    pub type_expr id[Node]
+    pub name span[uint8]
+    pub name_span source.Span
+    pub vis_span source.Span
+    pub vis Visibility
+}
+
+// BadDecl stands for a declaration the parser could not parse, Go's
+// ast.BadDecl: the name it was declaring, when the parser got that far,
+// and whether that is a method's.
+pub type BadDecl struct {
+    pub name span[uint8]
+    pub method bool
+}
+
+// TypeParam is one type parameter of a generic function, Go's
+// ast.TypeParam: its name and its constraint as written.
+pub type TypeParam struct {
+    pub constraint id[Node]
+    pub name span[uint8]
+    pub name_span source.Span
+}
+
+// IfaceMethod is one method of an interface type, Go's ast.IfaceMethod.
+pub type IfaceMethod struct {
+    pub params Nodes
+    pub results Nodes
+    pub name span[uint8]
+    pub name_span source.Span
+    pub mut_span source.Span
+    pub is_mut bool
+}
+
+// ExprStmt is an expression evaluated for its effect, Go's ast.ExprStmt.
+pub type ExprStmt struct {
+    pub x id[Node]
+}
+
+// Return is a return statement, Go's ast.Return.
+pub type Return struct {
+    pub values Nodes
+}
+
+// If is an if statement, Go's ast.If: else_body holds the one If of an
+// else if.
+pub type If struct {
+    pub cond id[Node]
+    pub then Nodes
+    pub else_body Nodes
+}
+
+// Assign is an assignment, Go's ast.Assign; op is the operator of a
+// compound one, op_invalid for =.
+pub type Assign struct {
+    pub target id[Node]
+    pub value id[Node]
+    pub op BinaryOp
+}
+
+// For is a loop, Go's ast.For: init, cond and post, each none when left
+// out, and its body.
+pub type For struct {
+    pub init id[Node]
+    pub cond id[Node]
+    pub post id[Node]
+    pub body Nodes
+}
+
+// IncDec is x++ or, dec set, x--, Go's ast.IncDec.
+pub type IncDec struct {
+    pub target id[Node]
+    pub dec bool
+}
+
+// MultiVar declares a variable for each result of a call, Go's
+// ast.MultiVar.
+pub type MultiVar struct {
+    pub value id[Node]
+    pub vars Nodes
+}
+
+// MultiAssign assigns each result of a call, Go's ast.MultiAssign.
+pub type MultiAssign struct {
+    pub value id[Node]
+    pub targets Nodes
+}
+
+// ForRange is a range loop, Go's ast.ForRange: its index or count
+// variable, its element variable, each none when not written, what it
+// ranges over and its body.
+pub type ForRange struct {
+    pub var_node id[Node]
+    pub elem id[Node]
+    pub x id[Node]
+    pub body Nodes
+}
+
+// Switch is a switch, Go's ast.Switch: its tag, none for a tagless one, a
+// type switch's binding, none when it has none, and its clauses.
+pub type Switch struct {
+    pub tag id[Node]
+    pub bind id[Node]
+    pub cases Nodes
+    pub on_type bool
+}
+
+// CaseClause is one clause of a switch, Go's ast.CaseClause: its values,
+// none for a default, the variable a type switch's binding gives it, and
+// its body. Go's Fallthrough.Next, the clause a fallthrough enters, is
+// left out of the dump and is not kept yet.
+pub type CaseClause struct {
+    pub values Nodes
+    pub var_node id[Node]
+    pub body Nodes
+    pub is_default bool
+    pub bad bool
+}
+
+// Defer is a defer statement and its block, Go's ast.Defer.
+pub type Defer struct {
+    pub body Nodes
+}
+
+// Region is a region statement, Go's ast.Region: the variable it binds
+// and its block.
+pub type Region struct {
+    pub var_node id[Node]
+    pub body Nodes
+}
+
+// Call is a call or a conversion, Go's ast.Call: its callee, its
+// arguments, and the type arguments written after the callee's name,
+// type_args unmade when none are.
+pub type Call struct {
+    pub fn id[Node]
+    pub args Nodes
+    pub type_args Nodes
+    pub type_args_span source.Span
+    pub ellipsis_span source.Span
+    pub spread bool
+}
+
+// Ident is a use of a name, Go's ast.Ident: pkg is the import's name of a
+// qualified one, pkg.name, and empty otherwise.
+pub type Ident struct {
+    pub pkg span[uint8]
+    pub name span[uint8]
+    pub pkg_span source.Span
+}
+
+// IntLit is an integer literal, Go's ast.IntLit, its value decoded.
+pub type IntLit struct {
+    pub value constant.Int
+}
+
+// Binary is an infix operation, Go's ast.Binary.
+pub type Binary struct {
+    pub x id[Node]
+    pub y id[Node]
+    pub op BinaryOp
+}
+
+// Unary is a prefix operation, Go's ast.Unary.
+pub type Unary struct {
+    pub x id[Node]
+    pub op UnaryOp
+}
+
+// TypeAssert is x.(T), or x.(type) with type_expr none, Go's
+// ast.TypeAssert.
+pub type TypeAssert struct {
+    pub x id[Node]
+    pub type_expr id[Node]
+}
+
+// ArrayType is [n]T, or [...]T with length none, Go's ast.ArrayType.
+pub type ArrayType struct {
+    pub length id[Node]
+    pub elem id[Node]
+}
+
+// RefType is id[T], span[T] or handle[T], Go's ast.RefType.
+pub type RefType struct {
+    pub name span[uint8]
+    pub elem id[Node]
+    pub name_span source.Span
+}
+
+// MapType is map[K]V, Go's ast.MapType.
+pub type MapType struct {
+    pub key id[Node]
+    pub value id[Node]
+}
+
+// FuncType is a function type as written, Go's ast.FuncType.
+pub type FuncType struct {
+    pub params Nodes
+    pub results Nodes
+}
+
+// CompositeLit is an array or a struct literal, Go's ast.CompositeLit:
+// its type as written, none when left out, and its elements.
+pub type CompositeLit struct {
+    pub type_expr id[Node]
+    pub elems Nodes
+}
+
+// Index is x[i], Go's ast.Index.
+pub type Index struct {
+    pub x id[Node]
+    pub index id[Node]
+}
+
+// Slice is x[lo:hi], each bound none when left out, Go's ast.Slice.
+pub type Slice struct {
+    pub x id[Node]
+    pub lo id[Node]
+    pub hi id[Node]
+    pub colon_span source.Span
+}
+
+// Field is one field of a struct type, Go's ast.Field.
+pub type Field struct {
+    pub type_expr id[Node]
+    pub name span[uint8]
+    pub name_span source.Span
+    pub vis_span source.Span
+    pub vis Visibility
+}
+
+// Selector is x.name, or x.[f] with field the name f, Go's ast.Selector.
+pub type Selector struct {
+    pub x id[Node]
+    pub name span[uint8]
+    pub name_span source.Span
+    pub field id[Node]
+}
+
+// KeyValue is a composite literal's key: value element, Go's
+// ast.KeyValue.
+pub type KeyValue struct {
+    pub key id[Node]
+    pub value id[Node]
+    pub key_parens bool
+}
+
+// UnionCase is one case of a union type, Go's ast.UnionCase: its name and
+// its payload's type, none for a case with no payload.
+pub type UnionCase struct {
+    pub type_expr id[Node]
+    pub name span[uint8]
+    pub name_span source.Span
+}
+
+// Comment is a comment kept from the source, Go's ast.Comment: its text,
+// trimmed as the lexer trims it, and its span.
+pub type Comment struct {
+    pub value span[uint8]
+    pub span source.Span
+}

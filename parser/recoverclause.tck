@@ -1,0 +1,143 @@
+package parser
+
+import ast from "tack/ast"
+import lexer from "tack/lexer"
+import source from "tack/source"
+
+// Recovery inside a switch, a port of Go's recoverclause.go: a clause
+// whose header fails does not fail the switch; its error is recorded, the
+// header skipped (see skip_header), and the statements after it parsed as
+// its body. A bad clause, a CaseClause with bad set, stands for it.
+
+// bad_clause records f, the error of the clause header that started at
+// the token start and failed, skips the header, parses the statements
+// after it as the clause's body, and returns the bad clause standing for
+// it. It returns none, recording nothing and leaving the parser where it
+// was, when the nesting limit was passed or when the header's skip does
+// not cover its error.
+func (mut p Parser) bad_clause(start int64, f Fail) (id[ast.Node], error) {
+    if p.too_deep.failed() || !f.failed() {
+        return no_node(), noerror
+    }
+    failed := p.index
+    mut p.unconsume_eof()
+    p.index = start
+    if !mut p.skip_header(start, p.fail_span(f).start) {
+        p.index = failed
+        return no_node(), noerror
+    }
+    mut p.record(f)?
+    sp := p.skipped(start)
+    header := mut p.add(ast.Kind.bad_stmt, sp)?
+    mut body := make(list[id[ast.Node]], p.alloc)
+    append(mut body, header)?
+    mut p.parse_stmts(mut body, true)?
+    mut cl ast.CaseClause
+    cl.body = mut p.add_list(body)?
+    cl.bad = true
+    n := mut p.add(ast.Kind.case_clause(cl), sp)?
+    return n, noerror
+}
+
+// reject_clause records the error of cl, a clause that parsed but is
+// rejected, a switch's second default, with a note at first, its first,
+// and makes it a bad clause: its header, which cl's span covers, becomes
+// the bad statement its body starts with, and its values are dropped.
+func (mut p Parser) reject_clause(cl id[ast.Node], first id[ast.Node]) error {
+    f := mut p.fail_str("multiple defaults in switch", p.spanned(cl))?
+    mark_related(mut p.pending, f.n -% 1, p.spanned(first))
+    mut p.record(f)?
+    header := mut p.add(ast.Kind.bad_stmt, p.spanned(cl))?
+    mut c := clause_of(p.t.nodes, cl)
+    mut body := make(list[id[ast.Node]], p.alloc)
+    append(mut body, header)?
+    append(mut body, p.t.items(c.body)...)?
+    c.body = mut p.add_list(body)?
+    mut no_values ast.Nodes
+    c.values = no_values
+    c.is_default = false
+    c.bad = true
+    p.t.nodes[cl].k = ast.Kind.case_clause(c)
+    return noerror
+}
+
+// mark_related gives the error at index i of l, when there is one, the
+// note first default here at sp.
+func mark_related(mut l list[Pending], i int64, sp source.Span) {
+    if i >= 0 && i < len(l) {
+        l[i].related = true
+        l[i].related_span = sp
+    }
+}
+
+// skip_header skips a damaged clause header from the token start, the
+// parser's, whose first error starts at the offset first, and reports
+// whether the skip covers that error (see Go's skipHeader).
+func (mut p Parser) skip_header(start int64, first int64) bool {
+    mut depth int64 = 0
+    for !mut p.header_stops(start, first, depth) {
+        tk := mut p.next()
+        depth = max0(depth +% nest_step(tk.kind()))
+        if tk.kind() == lexer.kind_colon && depth == 0 && tk.offset_start() >= first {
+            return true
+        }
+    }
+    return first <= p.peek().offset_start()
+}
+
+// header_stops reports whether a damaged clause header's skip, from the
+// token start, with depth parentheses, brackets and braces open, stops
+// before the next token, the header's first error starting at the offset
+// first.
+func (mut p Parser) header_stops(start int64, first int64, depth int64) bool {
+    tk := p.peek()
+    if tk.kind() == lexer.kind_eof {
+        return true
+    }
+    if p.index > start && tk.starts_line() {
+        return tk.offset_start() >= first || p.at_clause_end()
+    }
+    return tk.kind() == lexer.kind_r_curl && depth == 0 && mut p.closes_block(p.index)
+}
+
+// nest_step returns how a token of kind k changes the depth of
+// parentheses, brackets and braces: up one for an opening one, down one
+// for a closing one, and not at all for anything else.
+func nest_step(k lexer.TokenKind) int64 {
+    if k == lexer.kind_l_paren || k == lexer.kind_l_brack || k == lexer.kind_l_curl {
+        return 1
+    }
+    if k == lexer.kind_r_paren || k == lexer.kind_r_brack || k == lexer.kind_r_curl {
+        return -1
+    }
+    return 0
+}
+
+// at_damaged_header reports whether the next token, in a case clause's
+// body, starts a line that can only be a clause's header, damaged: its
+// last token is a colon outside every parenthesis, bracket and brace
+// opened on the line, and it does not start with case or default. Only
+// the line's tokens before its first case or default outside every
+// parenthesis, bracket and brace count.
+func (p Parser) at_damaged_header() bool {
+    if !p.at_line_start() || p.at_clause_end() {
+        return false
+    }
+    end := p.next_line(p.index)
+    mut depth int64 = 0
+    mut last := lexer.kind_eof
+    mut last_depth int64 = 0
+    for mut i := p.index; i < end; i = i +% 1 {
+        tk := p.tok(i)
+        if tk.kind() == lexer.kind_semi && inserted(tk) {
+            continue
+        }
+        if depth == 0 && (is_keyword(tk, lexer.keyword_case) || is_keyword(tk, lexer.keyword_default)) {
+            break
+        }
+        depth = max0(depth +% nest_step(tk.kind()))
+        last = tk.kind()
+        last_depth = depth
+    }
+    return last == lexer.kind_colon && last_depth == 0
+}

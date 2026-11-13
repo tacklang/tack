@@ -1,0 +1,255 @@
+package parser
+
+import ast from "tack/ast"
+import lexer from "tack/lexer"
+import source from "tack/source"
+
+// The parser's look aheads over the tokens, as free functions of the
+// tokens and the parser's index, base, rather than methods of the
+// Parser. The Parser is a large value, and a call of one of its methods
+// that is not inlined copies it onto the caller's stack; these are called
+// from the parser's recursive functions, where that copy is paid for at
+// every level of nesting. Each Parser method of the same name calls the
+// one here.
+
+// look returns the token at index i of toks, or the last, the EOF token,
+// past the end, as the Parser's at does.
+func look(toks []lexer.Token, i int64) lexer.Token {
+    tk, ok := toks[i]
+    if ok {
+        return tk
+    }
+    last, has := toks[len(toks) -% 1]
+    if has {
+        return last
+    }
+    mut z lexer.Token
+    return z
+}
+
+// target_after returns the token after the name n places ahead and every
+// bracketed index, field selection and type assertion that follows it.
+// A period not followed by a name, an opening parenthesis or an opening
+// bracket ends the target, and is what is returned.
+// The next token is the one at base, and every count of places ahead
+// is from it.
+func target_after(toks []lexer.Token, base int64, n int64) lexer.Token {
+    mut k := n +% 1
+    for {
+        k0 := look(toks, base +% k).kind()
+        if k0 == lexer.kind_l_brack {
+            k = group_after(toks, base, k, lexer.kind_l_brack, lexer.kind_r_brack)
+        } else if k0 == lexer.kind_period {
+            k1 := look(toks, base +% k +% 1).kind()
+            if k1 == lexer.kind_ident {
+                k +%= 2
+            } else if k1 == lexer.kind_l_paren {
+                k = group_after(toks, base, k +% 1, lexer.kind_l_paren, lexer.kind_r_paren)
+            } else if k1 == lexer.kind_l_brack {
+                k = group_after(toks, base, k +% 1, lexer.kind_l_brack, lexer.kind_r_brack)
+            } else {
+                return look(toks, base +% k)
+            }
+        } else {
+            return look(toks, base +% k)
+        }
+    }
+}
+
+// method_call_ahead reports whether the name n places ahead, and every
+// index, field selection, call and type assertion after it, end in a
+// method call, each perhaps followed by a ?.
+// The next token is the one at base, and every count of places ahead
+// is from it.
+func method_call_ahead(toks []lexer.Token, base int64, n int64) bool {
+    mut k := n +% 1
+    mut method := false
+    for {
+        kind := look(toks, base +% k).kind()
+        if kind == lexer.kind_question {
+            // x.m()? is still the method call x.m() as a statement, and
+            // f()?.m() a method call on what f()? gives.
+            k +%= 1
+        } else if kind == lexer.kind_l_brack {
+            k = group_after(toks, base, k, lexer.kind_l_brack, lexer.kind_r_brack)
+            method = false
+        } else if kind == lexer.kind_l_paren {
+            method = k >= 2 && look(toks, base +% k -% 1).kind() == lexer.kind_ident &&
+                look(toks, base +% k -% 2).kind() == lexer.kind_period
+            k = group_after(toks, base, k, lexer.kind_l_paren, lexer.kind_r_paren)
+        } else if kind == lexer.kind_period {
+            k = selection_after(toks, base, k)
+            if k < 0 {
+                return false
+            }
+            method = false
+        } else {
+            return method
+        }
+    }
+}
+
+// selection_after returns how many places ahead of base the token after
+// the period k places ahead is, past the name, the parenthesized type
+// assertion or the bracketed field variable after it, or -1 when none
+// follows the period.
+func selection_after(toks []lexer.Token, base int64, k int64) int64 {
+    kind := look(toks, base +% k +% 1).kind()
+    if kind == lexer.kind_ident {
+        return k +% 2
+    }
+    if kind == lexer.kind_l_paren {
+        return group_after(toks, base, k +% 1, lexer.kind_l_paren, lexer.kind_r_paren)
+    }
+    if kind == lexer.kind_l_brack {
+        return group_after(toks, base, k +% 1, lexer.kind_l_brack, lexer.kind_r_brack)
+    }
+    return -1
+}
+
+// group_after returns how many places ahead the token after the group
+// that open opens k places ahead is, matching the opens and closes nested
+// in it, or, if the group does not close within the statement it starts
+// in, where the statement ends (see group_stops).
+// The next token is the one at base, and every count of places ahead
+// is from it.
+func group_after(toks []lexer.Token, base int64, start_k int64, open lexer.TokenKind, closing lexer.TokenKind) int64 {
+    mut k := start_k
+    mut depth int64 = 0
+    mut braces int64 = 0
+    mut first := true
+    for {
+        tk := look(toks, base +% k)
+        if group_stops(tk, braces, first) {
+            return k
+        }
+        if tk.kind() == open {
+            depth +%= 1
+        } else if tk.kind() == closing {
+            depth -%= 1
+        }
+        braces +%= brace_step(tk.kind())
+        k +%= 1
+        if depth == 0 {
+            return k
+        }
+        first = false
+    }
+}
+
+// decl_shape_ahead reports whether the tokens after the func that
+// is next start a declaration: a name followed by ( or [, or a
+// parenthesized receiver closed on the same line followed by such a
+// name.
+// The next token is the one at base, and every count of places ahead
+// is from it.
+func decl_shape_ahead(toks []lexer.Token, base int64) bool {
+    k := func_name_ahead(toks, base)
+    if k < 0 {
+        return false
+    }
+    after := look(toks, base +% k +% 1).kind()
+    return after == lexer.kind_l_paren || after == lexer.kind_l_brack
+}
+
+// func_name_ahead returns how many places ahead of the func at base its
+// name is, past a receiver closed on the same line, or -1 when no
+// name comes there.
+func func_name_ahead(toks []lexer.Token, base int64) int64 {
+    mut k int64 = 1
+    if look(toks, base +% k).kind() == lexer.kind_l_paren {
+        end, ok := close_ahead(toks, base, k, lexer.kind_l_paren, lexer.kind_r_paren)
+        if !ok {
+            return -1
+        }
+        k = end +% 1
+    }
+    if look(toks, base +% k).kind() != lexer.kind_ident {
+        return -1
+    }
+    return k
+}
+
+// close_ahead returns how many places ahead the token closing the
+// group that open opens k places ahead is, and whether it closes on the
+// line the group starts on.
+// The next token is the one at base, and every count of places ahead
+// is from it.
+func close_ahead(toks []lexer.Token, base int64, start_k int64, open lexer.TokenKind, closing lexer.TokenKind) (int64, bool) {
+    mut depth int64 = 0
+    for mut k := start_k; ; k = k +% 1 {
+        tk := look(toks, base +% k)
+        if tk.kind() == lexer.kind_eof || depth > 0 && tk.starts_line() {
+            return k, false
+        }
+        if tk.kind() == open {
+            depth +%= 1
+        } else if tk.kind() == closing {
+            depth -%= 1
+            if depth == 0 {
+                return k, true
+            }
+        }
+    }
+}
+
+// params_ahead returns how many places ahead of the func that is next the
+// parenthesis opening its parameters is, after its name or after type
+// parameters closed on its line, and whether it is there.
+// The next token is the one at base, and every count of places ahead
+// is from it.
+func params_ahead(toks []lexer.Token, base int64) (int64, bool) {
+    mut k := func_name_ahead(toks, base) +% 1
+    if look(toks, base +% k).kind() == lexer.kind_l_brack {
+        end, ok := close_ahead(toks, base, k, lexer.kind_l_brack, lexer.kind_r_brack)
+        if !ok {
+            return 0, false
+        }
+        k = end +% 1
+    }
+    return k, look(toks, base +% k).kind() == lexer.kind_l_paren
+}
+
+// qualified_ahead reports whether the tokens n places ahead of base are
+// a qualified name: the name of one of the file's imports, whose names
+// imports holds as runs of bytes, a period and a name. toks holds the
+// tokens' values.
+func qualified_ahead(toks []lexer.Token, base int64, values lexer.Tokens, imports []span[uint8], bytes arena[uint8], n int64) bool {
+    tk := look(toks, base +% n)
+    if tk.kind() != lexer.kind_ident {
+        return false
+    }
+    mut known := false
+    for _, s := range imports {
+        if equal_bytes(bytes[s], values.value(tk)) {
+            known = true
+            break
+        }
+    }
+    if !known {
+        return false
+    }
+    return look(toks, base +% n +% 1).kind() == lexer.kind_period &&
+        look(toks, base +% n +% 2).kind() == lexer.kind_ident
+}
+
+// fields_of_ahead reports whether the tokens at base start fields(T):
+// the name fields and an opening parenthesis. values holds the tokens'
+// values.
+func fields_of_ahead(toks []lexer.Token, base int64, values lexer.Tokens) bool {
+    tk := look(toks, base)
+    return tk.kind() == lexer.kind_ident && equal_bytes(values.value(tk), []uint8("fields")) &&
+        look(toks, base +% 1).kind() == lexer.kind_l_paren
+}
+
+// extent_in returns the source range x was written in as an operand: its
+// span, widened to its outermost parentheses if it was written in some.
+// parens holds the outermost parentheses of each expression written in
+// them, and nodes the tree's nodes.
+func extent_in(parens map[id[ast.Node]]source.Span, nodes arena[ast.Node], x id[ast.Node]) source.Span {
+    sp, ok := parens[x]
+    if ok {
+        return sp
+    }
+    return nodes[x].span
+}

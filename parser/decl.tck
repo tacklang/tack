@@ -1,0 +1,432 @@
+package parser
+
+import ast from "tack/ast"
+import lexer from "tack/lexer"
+import source from "tack/source"
+
+// parse_var_decl parses a declaration that starts with var or mut: a
+// name, or in builtin mode a keyword naming a builtin value (see
+// parse_var_name), then a type, a value after =, or both. mut also allows
+// the short form mut x := value. Whether a declaration without a value is
+// allowed is the type checker's to judge.
+func (mut p Parser) parse_var_decl() (id[ast.Node], Fail, error) {
+    kw := mut p.next() // the var or mut keyword
+
+    mut v ast.Var
+    v.mutable = is_keyword(kw, lexer.keyword_mut)
+    start := kw.offset_start()
+
+    name, nf := mut p.parse_var_name()?
+    if is_nil(name) {
+        return no_node(), nf, noerror
+    }
+    name_str, name_span := ident_name(p.t.nodes, name)
+    v.name = name_str
+    v.name_span = name_span
+
+    if v.mutable && p.peek().kind() == lexer.kind_define {
+        mut p.next()
+        value, vf := mut p.parse_expr(1)?
+        if is_nil(value) {
+            return no_node(), vf, noerror
+        }
+        v.value = value
+        n := mut p.add(ast.Kind.var_decl(v), span_in(p.file, start, p.spanned(value).end))?
+        return n, no_fail(), noerror
+    }
+
+    tf := mut p.parse_var_type_and_value(mut v)?
+    if tf.failed() {
+        return no_node(), tf, noerror
+    }
+    n := mut p.add(ast.Kind.var_decl(v), span_in(p.file, start, p.prev_end()))?
+    return n, no_fail(), noerror
+}
+
+// parse_var_type_and_value parses what follows a declared name: a type,
+// = and a value, or both, into v. Neither is a syntax error.
+func (mut p Parser) parse_var_type_and_value(mut v ast.Var) (Fail, error) {
+    tk := p.peek()
+    if tk.kind() == lexer.kind_ellipsis || p.starts_type(tk) {
+        typ, f := mut p.parse_type()?
+        if is_nil(typ) {
+            return f, noerror
+        }
+        v.type_expr = typ
+    }
+
+    if p.peek().kind() == lexer.kind_assign {
+        mut p.next()
+        value, f := mut p.parse_expr(1)?
+        if is_nil(value) {
+            return f, noerror
+        }
+        v.value = value
+    }
+
+    if is_nil(v.type_expr) && is_nil(v.value) {
+        f := mut p.invalid_token([]uint8("type or ="), p.peek())?
+        return f, noerror
+    }
+    return no_fail(), noerror
+}
+
+// parse_type_decl parses a type declaration, type Name struct { ... },
+// and the semicolon after it. Only struct, interface and union types can
+// be declared: a name declared as another type is reported, but for a
+// type declared as itself in builtin mode (see self_named_type). The node
+// is returned with the semicolon's error, if any, as Go's is.
+func (mut p Parser) parse_type_decl() (id[ast.Node], Fail, error) {
+    kw := mut p.next() // the type keyword
+
+    name, f := mut p.parse_ident([]uint8("type name"))?
+    if is_nil(name) {
+        return no_node(), f, noerror
+    }
+    name_str, name_span := ident_name(p.t.nodes, name)
+
+    mut typ := mut p.self_named_type(name_str)?
+    if is_nil(typ) {
+        t, tf := mut p.parse_declared_type()?
+        if is_nil(t) {
+            return no_node(), tf, noerror
+        }
+        typ = t
+    }
+
+    mut vis_span source.Span
+    d := mut p.add(ast.Kind.type_decl(ast.TypeDecl{
+        type_expr: typ,
+        name: name_str,
+        name_span: name_span,
+        vis_span: vis_span,
+        vis: ast.vis_private,
+    }), span_in(p.file, kw.offset_start(), p.spanned(typ).end))?
+    ef := mut p.end_stmt(d)?
+    return d, ef, noerror
+}
+
+// parse_declared_type parses the type a type declaration declares, after
+// its name: a struct, an interface or a union type. Anything else, a
+// type's name or an array type, which would declare another named type,
+// is reported.
+func (mut p Parser) parse_declared_type() (id[ast.Node], Fail, error) {
+    tk := p.peek()
+    if is_keyword(tk, lexer.keyword_struct) {
+        n, f := mut p.parse_struct_type()?
+        return n, f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_interface) {
+        n, f := mut p.parse_interface_type()?
+        return n, f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_union) {
+        n, f := mut p.parse_union_type()?
+        return n, f, noerror
+    }
+    if tk.kind() == lexer.kind_ident || tk.kind() == lexer.kind_l_brack {
+        f := mut p.fail_str("only struct, interface and union types can be declared", tok_span(p.file, tk))?
+        return no_node(), f, noerror
+    }
+    f := mut p.invalid_token([]uint8("struct, interface or union"), tk)?
+    return no_node(), f, noerror
+}
+
+// parse_interface_type parses interface { ... }: its methods, each ended
+// by a semicolon, written or inserted at a line end, which may be left
+// out before the closing brace, as a struct's fields are.
+func (mut p Parser) parse_interface_type() (id[ast.Node], Fail, error) {
+    kw := mut p.next() // the interface keyword
+    ok, f := mut p.expect(lexer.kind_l_curl)?
+    if !ok {
+        return no_node(), f, noerror
+    }
+
+    mut methods := make(list[id[ast.Node]], p.alloc)
+    for p.peek().kind() != lexer.kind_r_curl {
+        m, mf := mut p.parse_iface_method()?
+        if is_nil(m) {
+            return no_node(), mf, noerror
+        }
+        append(mut methods, m)?
+
+        if p.peek().kind() == lexer.kind_r_curl {
+            break
+        }
+        sok, sf := mut p.expect(lexer.kind_semi)?
+        if !sok {
+            return no_node(), sf, noerror
+        }
+    }
+
+    end := mut p.next() // the closing brace
+    l := mut p.add_list(methods)?
+    n := mut p.add(ast.Kind.interface_type(l), span_in(p.file, kw.offset_start(), end.offset_end()))?
+    return n, no_fail(), noerror
+}
+
+// not_method reports name, the name an interface's member starts with,
+// spanning name_span, when what follows it is no method's parameters:
+// nothing, or a period and a name, which would embed an interface, or a
+// type, which would make it a field. It returns no failure when
+// parameters follow.
+func (mut p Parser) not_method(name_span source.Span) (Fail, error) {
+    k := p.peek().kind()
+    if k == lexer.kind_l_paren {
+        return no_fail(), noerror
+    }
+    if k == lexer.kind_semi || k == lexer.kind_r_curl || k == lexer.kind_period {
+        f := mut p.fail_str("embedded interfaces are not supported", name_span)?
+        return f, noerror
+    }
+    f := mut p.fail_str("an interface cannot have fields; it holds only methods", name_span)?
+    return f, noerror
+}
+
+// parse_iface_method parses one method of an interface type: mut, if its
+// receiver is taken as mut, its name, its parameters and its results.
+// Visibility written on it, a name alone, a field and a body are
+// reported.
+func (mut p Parser) parse_iface_method() (id[ast.Node], Fail, error) {
+    mut m ast.IfaceMethod
+    tk := p.peek()
+    _, visible := visibility_of(tk)
+    if visible {
+        start := p.fail_start()
+        append(mut p.msgs, []uint8("an interface's method cannot be ")...)?
+        tk.keyword().append_string(mut p.msgs)?
+        append(mut p.msgs, []uint8("; it is as visible as its interface")...)?
+        f := mut p.fail_from(start, tok_span(p.file, tk))?
+        return no_node(), f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_mut) {
+        mut p.next()
+        m.is_mut = true
+        m.mut_span = tok_span(p.file, tk)
+    }
+    own_tk := p.peek()
+    if is_keyword(own_tk, lexer.keyword_own) {
+        f := mut p.fail_str("a method cannot take its receiver as own; take it as a plain or a mut receiver", tok_span(p.file, own_tk))?
+        return no_node(), f, noerror
+    }
+    name, nf := mut p.parse_ident([]uint8("method name"))?
+    if is_nil(name) {
+        return no_node(), nf, noerror
+    }
+    name_str, name_span := ident_name(p.t.nodes, name)
+    m.name = name_str
+    m.name_span = name_span
+    bad := mut p.not_method(name_span)?
+    if bad.failed() {
+        return no_node(), bad, noerror
+    }
+
+    params, made, pf := mut p.parse_params()?
+    if pf.failed() {
+        return no_node(), pf, noerror
+    }
+    if made {
+        m.params = mut p.add_list(params)?
+    }
+    results, rf := mut p.parse_results()?
+    if rf.failed() {
+        return no_node(), rf, noerror
+    }
+    m.results = results
+    body := p.peek()
+    if body.kind() == lexer.kind_l_curl {
+        start := p.fail_start()
+        append(mut p.msgs, []uint8("interface method ")...)?
+        append(mut p.msgs, p.t.text(m.name)...)?
+        append(mut p.msgs, []uint8(" cannot have a body")...)?
+        f := mut p.fail_from(start, tok_span(p.file, body))?
+        return no_node(), f, noerror
+    }
+    mut first := name_span.start
+    if m.is_mut {
+        first = m.mut_span.start
+    }
+    n := mut p.add(ast.Kind.iface_method(m), span_in(p.file, first, p.last_end()))?
+    return n, no_fail(), noerror
+}
+
+// parse_union_type parses union { ... }: its cases, each ended by a
+// semicolon, written or inserted at a line end, which may be left out
+// before the closing brace, as a struct's fields are.
+func (mut p Parser) parse_union_type() (id[ast.Node], Fail, error) {
+    kw := mut p.next() // the union keyword
+    ok, f := mut p.expect(lexer.kind_l_curl)?
+    if !ok {
+        return no_node(), f, noerror
+    }
+
+    mut cases := make(list[id[ast.Node]], p.alloc)
+    for p.peek().kind() != lexer.kind_r_curl {
+        c, cf := mut p.parse_union_case()?
+        if is_nil(c) {
+            return no_node(), cf, noerror
+        }
+        append(mut cases, c)?
+
+        if p.peek().kind() == lexer.kind_r_curl {
+            break
+        }
+        sok, sf := mut p.expect(lexer.kind_semi)?
+        if !sok {
+            return no_node(), sf, noerror
+        }
+    }
+
+    end := mut p.next() // the closing brace
+    l := mut p.add_list(cases)?
+    n := mut p.add(ast.Kind.union_type(l), span_in(p.file, kw.offset_start(), end.offset_end()))?
+    return n, no_fail(), noerror
+}
+
+// parse_union_case parses one case of a union type: its name, and the
+// type of its payload unless the case ends there. Visibility written on
+// it and a value given to it are reported.
+func (mut p Parser) parse_union_case() (id[ast.Node], Fail, error) {
+    tk := p.peek()
+    _, visible := visibility_of(tk)
+    if visible {
+        start := p.fail_start()
+        append(mut p.msgs, []uint8("a union's case cannot be ")...)?
+        tk.keyword().append_string(mut p.msgs)?
+        append(mut p.msgs, []uint8("; it is as visible as its union")...)?
+        f := mut p.fail_from(start, tok_span(p.file, tk))?
+        return no_node(), f, noerror
+    }
+    name, nf := mut p.parse_ident([]uint8("case name"))?
+    if is_nil(name) {
+        return no_node(), nf, noerror
+    }
+    name_str, name_span := ident_name(p.t.nodes, name)
+    mut c := ast.UnionCase{type_expr: no_node(), name: name_str, name_span: name_span}
+    mut sp := name_span
+    k := p.peek().kind()
+    if k == lexer.kind_semi || k == lexer.kind_r_curl {
+        n := mut p.add(ast.Kind.union_case(c), sp)?
+        return n, no_fail(), noerror
+    }
+    if p.peek().kind() != lexer.kind_assign {
+        typ, tf := mut p.parse_type()?
+        if is_nil(typ) {
+            return no_node(), tf, noerror
+        }
+        c.type_expr = typ
+        sp.end = p.spanned(typ).end
+    }
+    eq := p.peek()
+    if eq.kind() == lexer.kind_assign {
+        f := mut p.fail_str("a union's case cannot have a tag value; it is a name and a payload's type, if any", tok_span(p.file, eq))?
+        return no_node(), f, noerror
+    }
+    n := mut p.add(ast.Kind.union_case(c), sp)?
+    return n, no_fail(), noerror
+}
+
+// parse_struct_type parses struct { ... }: its fields, each ended by a
+// semicolon, written or inserted at a line end, which may be left out
+// before the closing brace.
+func (mut p Parser) parse_struct_type() (id[ast.Node], Fail, error) {
+    kw := mut p.next() // the struct keyword
+    ok, f := mut p.expect(lexer.kind_l_curl)?
+    if !ok {
+        return no_node(), f, noerror
+    }
+
+    mut fields := make(list[id[ast.Node]], p.alloc)
+    for p.peek().kind() != lexer.kind_r_curl {
+        fd, ff := mut p.parse_field()?
+        if is_nil(fd) {
+            return no_node(), ff, noerror
+        }
+        append(mut fields, fd)?
+
+        if p.peek().kind() == lexer.kind_r_curl {
+            break
+        }
+        sok, sf := mut p.expect(lexer.kind_semi)?
+        if !sok {
+            return no_node(), sf, noerror
+        }
+    }
+
+    end := mut p.next() // the closing brace
+    l := mut p.add_list(fields)?
+    n := mut p.add(ast.Kind.struct_type(l), span_in(p.file, kw.offset_start(), end.offset_end()))?
+    return n, no_fail(), noerror
+}
+
+// parse_field parses one field of a struct type: pub or lib, if written,
+// a name and a type. A type alone, which would embed it, is reported.
+func (mut p Parser) parse_field() (id[ast.Node], Fail, error) {
+    vis, visible := visibility_of(p.peek())
+    mut vis_span source.Span
+    if visible {
+        vis_tk := mut p.next()
+        vis_span = tok_span(p.file, vis_tk)
+    }
+
+    name, nf := mut p.parse_ident([]uint8("field name"))?
+    if is_nil(name) {
+        return no_node(), nf, noerror
+    }
+    name_str, name_span := ident_name(p.t.nodes, name)
+    k := p.peek().kind()
+    if k == lexer.kind_semi || k == lexer.kind_r_curl {
+        f := mut p.fail_str("embedded fields are not supported", name_span)?
+        return no_node(), f, noerror
+    }
+
+    typ, tf := mut p.parse_type()?
+    if is_nil(typ) {
+        return no_node(), tf, noerror
+    }
+    mut start := name_span.start
+    if visible {
+        start = vis_span.start
+    }
+    n := mut p.add(ast.Kind.field(ast.Field{
+        type_expr: typ,
+        name: name_str,
+        name_span: name_span,
+        vis_span: vis_span,
+        vis: vis,
+    }), span_in(p.file, start, p.spanned(typ).end))?
+    return n, no_fail(), noerror
+}
+
+// parse_package_var parses a declaration outside any function. It is the
+// same as one inside a function, except that the short form mut x :=
+// value is not allowed here. The node is returned with the semicolon's
+// error, if any, as Go's is.
+func (mut p Parser) parse_package_var() (id[ast.Node], Fail, error) {
+    if p.peek_next().kind() == lexer.kind_ident && p.peek_at(2).kind() == lexer.kind_define {
+        mut p.next() // the mut keyword
+        mut p.next() // the name
+        f := mut p.invalid_token([]uint8("type or ="), p.peek())?
+        return no_node(), f, noerror
+    }
+
+    v, f := mut p.parse_var_decl()?
+    if is_nil(v) {
+        return no_node(), f, noerror
+    }
+    ef := mut p.end_stmt(v)?
+    return v, ef, noerror
+}
+
+// end_stmt consumes the semicolon that ends a statement, which may be
+// left out before a closing brace, and ends n's span at the last token
+// before it, leaving the semicolon out. It returns the error for anything
+// else found there.
+func (mut p Parser) end_stmt(n id[ast.Node]) (Fail, error) {
+    ok, f := mut p.expect(lexer.kind_semi)?
+    if !ok && p.peek().kind() != lexer.kind_r_curl {
+        return f, noerror
+    }
+    p.t.nodes[n].span.end = p.last_end()
+    return no_fail(), noerror
+}

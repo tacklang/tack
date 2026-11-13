@@ -1,20 +1,24 @@
 package main
 
+import ast from "tack/ast"
 import bytes from "std/bytes"
 import conv from "std/conv"
 import diag from "tack/diag"
 import fmt from "std/fmt"
 import lexer from "tack/lexer"
 import os from "std/os"
+import parser from "tack/parser"
 import path from "std/path"
 import source from "tack/source"
 import text from "std/text"
 
 // Package main is the driver of the Tack compiler written in Tack, the
 // tack command. It takes the command line the Go compiler takes and, so
-// far, does two things as that compiler does: it answers --backends, and
-// it dumps the tokens of a single file, --lex <file>, or reports the
-// file's lexical errors. Anything else it does not do yet, and says so in
+// far, does three things as that compiler does: it answers --backends, it
+// dumps the tokens of a single file, --lex <file>, or reports the file's
+// lexical errors, and it dumps the syntax tree of a single file, --ast
+// <file>, as JSON, or reports the file's lexical or syntax errors.
+// Anything else it does not do yet, and says so in
 // the form the differential harness in tackc/porttest reads: on standard
 // error,
 //
@@ -24,13 +28,21 @@ import text from "std/text"
 // is one it requires.
 //
 // The command line is read as Go's flag package reads it, as far as
-// --lex needs: flags, each starting with - or --, come first and stop at
-// the first argument that is not one, or after --, and the rest are the
-// input files. The one flag read is -lex or --lex; any other flag, -lex=
-// with a value among them, is not implemented, named in the line above.
-// The usage errors a --lex command line can make are reported as Go's
-// driver reports them, with exit status 2: no input file, several, an
-// empty name, and a flag of bad syntax, such as ---lex.
+// --lex and --ast need: flags, each starting with - or --, come first and
+// stop at the first argument that is not one, or after --, and the rest
+// are the input files. The flags read are -lex or --lex and -ast or
+// --ast; any other flag, -lex= with a value among them, is not
+// implemented, named in the line above. The usage errors such a command
+// line can make are reported as Go's driver reports them, with exit
+// status 2: both dumps asked for, no input file, several, an empty name,
+// and a flag of bad syntax, such as ---lex.
+//
+// For --ast the file is lexed and, when it lexes, parsed, as Go's loader
+// does for that dump, the parse going past at most ten syntax errors, the
+// default of --max-errors, which the port does not read yet, and either
+// errors are reported, ten at most, or the tree is written as Go's driver
+// writes it, JSON that decodes to the same value (see package ast), with
+// Go's encoder's refusal of a tree nested too deeply, exit status 1.
 //
 // The file is read as the Go loader's File reads one, which the port has
 // not got yet: a directory, and a name that is no file and looks like an
@@ -108,12 +120,14 @@ func usage(msg []uint8) int32 {
 
 // run carries out the command line a, the program's name and its
 // arguments, and returns the exit status: lexing the one file named
-// after --lex, or a usage error, or not implemented for anything else.
-// It returns an error only when an allocation failed.
+// after --lex, or parsing it after --ast, or a usage error, or not
+// implemented for anything else. It returns an error only when an
+// allocation failed.
 func run(a []text.Text) (int32, error) {
     // rest holds the index in a of each argument after the flags.
     mut rest := make(list[int64], c_allocator)
     mut lex := false
+    mut ast_dump := false
     mut flags_done := false
     for i, s := range a {
         if i == 0 {
@@ -148,9 +162,16 @@ func run(a []text.Text) (int32, error) {
             lex = true
             continue
         }
+        if s.len() == name +% 3 && bytes.has_suffix(s.bytes(), []uint8("ast")) {
+            ast_dump = true
+            continue
+        }
         return unimplemented(s.bytes()), noerror
     }
-    if !lex {
+    if lex && ast_dump {
+        return usage([]uint8("--lex and --ast cannot be combined; pick one")), noerror
+    }
+    if !lex && !ast_dump {
         for i, s := range a {
             if i == 1 {
                 return unimplemented(s.bytes()), noerror
@@ -158,14 +179,15 @@ func run(a []text.Text) (int32, error) {
         }
         return unimplemented([]uint8("(no arguments)")), noerror
     }
-    code, e := lex_command(a, rest)
+    code, e := dump_command(a, rest, ast_dump)
     return code, e
 }
 
-// lex_command carries out a --lex command line, a, whose arguments after
-// the flags are the ones at the indexes rest holds: the one input file,
-// as Go's fileArg checks it, then the file's tokens or its errors.
-func lex_command(a []text.Text, rest []int64) (int32, error) {
+// dump_command carries out a --lex command line, a, or an --ast one when
+// ast_dump is set, whose arguments after the flags are the ones at the
+// indexes rest holds: the one input file, as Go's fileArg checks it, then
+// the file's tokens or its tree, or its errors.
+func dump_command(a []text.Text, rest []int64, ast_dump bool) (int32, error) {
     if len(rest) == 0 {
         return usage([]uint8("no input file")), noerror
     }
@@ -186,29 +208,39 @@ func lex_command(a []text.Text, rest []int64) (int32, error) {
     k := rest[0]
     if k < 0 || k >= len(a) {
         // rest holds indexes of a, so this does not happen.
-        return unimplemented([]uint8("--lex")), noerror
+        return unimplemented([]uint8(flag_name(ast_dump))), noerror
     }
     if a[k].len() == 0 {
         return usage([]uint8("input file name is empty")), noerror
     }
-    code, e := lex_file(a[k].bytes())
+    code, e := dump_file(a[k].bytes(), ast_dump)
     return code, e
+}
+
+// flag_name returns the name of the dump flag, --ast when ast_dump is set
+// and --lex otherwise.
+func flag_name(ast_dump bool) string {
+    if ast_dump {
+        return "--ast"
+    }
+    return "--lex"
 }
 
 // enoent is the message std/os gives for ENOENT, which Go's errors.Is
 // with fs.ErrNotExist matches.
 var enoent = "No such file or directory"
 
-// lex_file loads the single file name, as Go's loadWith does for a
-// --lex dump, and writes its tokens to standard output, or its lexical
-// errors to standard error, returning the exit status.
-func lex_file(name []uint8) (int32, error) {
+// dump_file loads the single file name, as Go's loadWith does for a
+// --lex dump, or an --ast one when ast_dump is set, and writes its tokens
+// or its tree to standard output, or its lexical or syntax errors to
+// standard error, returning the exit status.
+func dump_file(name []uint8, ast_dump bool) (int32, error) {
     info, stat_err := os.stat(name)
     if stat_err.code == 0 && info.is_dir() {
-        return unimplemented([]uint8("--lex of a directory")), noerror
+        return unimplemented_of(ast_dump, []uint8(" of a directory"))?, noerror
     }
     if stat_err.code == 3 && stat_err.msg == enoent && looks_like_import_path(name) {
-        return unimplemented([]uint8("--lex of an import path")), noerror
+        return unimplemented_of(ast_dump, []uint8(" of an import path"))?, noerror
     }
 
     // Go's loader.File rejects a test file before it reads it, so one
@@ -221,7 +253,7 @@ func lex_file(name []uint8) (int32, error) {
 
     data, read_err := os.read_file(name, c_allocator)
     if read_err.code != 0 {
-        code, e := open_failed(name, read_err)
+        code, e := open_failed(name, read_err, ast_dump)
         return code, e
     }
 
@@ -238,10 +270,52 @@ func lex_file(name []uint8) (int32, error) {
         return exit_failure, noerror
     }
 
-    mut out := format_tokens(tokens)?
+    if !ast_dump {
+        mut out := format_tokens(tokens)?
+        with_trailing_newline(mut out)?
+        fmt.write(out)
+        return exit_ok, noerror
+    }
+    code, e := ast_file(set, name, own tokens)
+    return code, e
+}
+
+// ast_file parses the file of set, named name, whose tokens are toks, as
+// Go's loader parses a file for an --ast dump, its parse going past at
+// most default_max_errors syntax errors, and writes its tree to standard
+// output as Go's driver writes it, or its syntax errors to standard
+// error, returning the exit status. A tree whose JSON nests too deeply
+// for Go's encoder is reported as Go's driver reports the encoder's
+// refusal, in the encoder's words (see ast.dump).
+func ast_file(set source.Set, name []uint8, own toks lexer.Tokens) (int32, error) {
+    mut fid source.FileID
+    for _, f := range set.files() {
+        fid = f.id
+    }
+    tree, has_tree, diags := parser.parse(fid, own toks, default_max_errors, c_allocator)?
+    if len(diags) > 0 || !has_tree {
+        out := render_diagnostics(set, diags, default_max_errors)?
+        fmt.ewrite(out)
+        return exit_failure, noerror
+    }
+    mut out, refused := ast.dump(tree, name, c_allocator)?
+    if len(refused) > 0 {
+        fmt.eprintf("tack: failed to render syntax tree: %s\n", refused)
+        return exit_failure, noerror
+    }
     with_trailing_newline(mut out)?
     fmt.write(out)
     return exit_ok, noerror
+}
+
+// unimplemented_of writes the not implemented line naming the dump flag,
+// --ast when ast_dump is set and --lex otherwise, followed by what, and
+// returns not_implemented.
+func unimplemented_of(ast_dump bool, what []uint8) (int32, error) {
+    mut msg := make(list[uint8], c_allocator)
+    append(mut msg, []uint8(flag_name(ast_dump))...)?
+    append(mut msg, what...)?
+    return unimplemented(msg), noerror
 }
 
 // open_failed reports err, the error std/os's read_file gave for the file
@@ -261,11 +335,12 @@ func lex_file(name []uint8) (int32, error) {
 // wrong answer. So is code 1, out of memory, which std/os gives both
 // for ENOMEM from the OS, which Go words as cannot allocate memory, and
 // for a list that could not grow, which Go never reports; and so is any
-// errno go_errno_text does not list.
-func open_failed(name []uint8, err error) (int32, error) {
+// errno go_errno_text does not list. The not implemented line names the
+// dump asked for, --ast when ast_dump is set and --lex otherwise.
+func open_failed(name []uint8, err error, ast_dump bool) (int32, error) {
     s := go_errno_text(err)
     if len(s) == 0 {
-        return unimplemented([]uint8("--lex of a file whose read fails with an error the port cannot word as Go does")), noerror
+        return unimplemented_of(ast_dump, []uint8(" of a file whose read fails with an error the port cannot word as Go does"))?, noerror
     }
     fmt.eprintf("tack: failed to open file: open %s: %s\n", name, s)
     return exit_failure, noerror

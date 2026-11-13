@@ -12,13 +12,17 @@ on the same inputs and compare what each writes and how it exits.
 
 ## Status
 
-The port has the compiler's first stage: packages `source`, `diag` and
-`lexer`, ported from the Go compiler's packages of those names. The
-driver answers `tack --backends` as the Go compiler does, and `tack
---lex <file>` for a single file: the token dump, or the file's lexical
-errors, its usage errors and its errors reading the file, byte for byte
-as the Go compiler writes them. To any other command line, and to a `--lex` it cannot answer yet, it
-writes one line
+The port has the compiler's first two stages: packages `source`, `diag`
+and `lexer`, and `ast`, `parser` and `constant`, ported from the Go
+compiler's packages of those names, `constant` as far as the parser
+needs it: integer constants in full, and whether a float literal can be
+held exactly, without the float constant's value yet. The driver answers
+`tack --backends` as the Go compiler does, `tack --lex <file>` for a
+single file, the token dump, and `tack --ast <file>`, the syntax tree as
+JSON that decodes to the value the Go compiler writes; or the file's
+lexical or syntax errors, its usage errors and its errors reading the
+file, byte for byte as the Go compiler writes them. To any other
+command line, and to a dump it cannot answer yet, it writes one line
 
     tack: not implemented in the port: <what>
 
@@ -37,6 +41,20 @@ These are known, and not fixed yet:
   error cannot be written, to a full disk for one, the port exits 0
   where the Go compiler reports the failure and exits 1. Fixing it needs
   a std write that returns an error, planned with the driver at M8.
+- The parser recurses, as the Go compiler's does, to the nesting limit
+  of a thousand levels, on the C stack, which does not grow; the JSON
+  dump walks the tree with a stack of its own. Binary operators are
+  parsed with stacks of the parser's own, so precedence adds no frames.
+  Built as the harness builds it, with the Go compiler's default -O3, the
+  costliest shapes at the limit take, measured: switches 2.9 MB, ifs 2.8
+  MB, closures and blocks inside ifs 2.6 MB, nested struct literals and
+  call ladders through every precedence 2.3 MB, plain nested calls 2.1
+  MB, parentheses 1.6 MB, of the 8 MB stack Linux gives a program by
+  default. tackc's porttest runs these shapes, at the limit and past it,
+  with the stack held to 4 MB. An -O0 build takes far more, 10 MB
+  for a thousand nested parentheses and 13 MB for a thousand nested
+  calls, and crashes on both at the default stack. The recursion rule planned
+  for the port bounds this for every build.
 - Neither compiler limits the size of a source file. A file that never
   ends, such as `/proc/self/pagemap`, is read until memory runs out, by
   both. A limit for the port is a follow-up.
@@ -93,3 +111,4 @@ From tackc,
 
 fuzzes `--lex`: it builds both compilers once and runs tackc's
 FuzzLexDiff, which compares their output on generated inputs.
+`PORT_FUZZ=FuzzParseDiff` fuzzes `--ast` the same way.

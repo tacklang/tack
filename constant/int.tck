@@ -1,0 +1,246 @@
+package constant
+
+import bytes from "std/bytes"
+import conv from "std/conv"
+
+// Int is an integer constant between min and max, the range every integer
+// literal and every intermediate result of constant arithmetic must lie
+// in, Go's constant.Int. It is a sign and a magnitude, so the whole range
+// fits in one uint64 and a bool. The zero value is 0, and zero is never
+// negative.
+pub type Int struct {
+    mag uint64
+    neg bool
+}
+
+// min_mag is the magnitude of the smallest Int, -2^63.
+var min_mag uint64 = 9223372036854775808
+
+// max_uint64 is the largest uint64, 2^64 - 1, the largest Int.
+var max_uint64 uint64 = 18446744073709551615
+
+// min returns the smallest Int, -2^63, the smallest int64.
+pub func min() Int {
+    return Int{mag: min_mag, neg: true}
+}
+
+// max returns the largest Int, 2^64 - 1, the largest uint64.
+pub func max() Int {
+    return Int{mag: max_uint64, neg: false}
+}
+
+// from_int64 returns v as an Int.
+pub func from_int64(v int64) Int {
+    if v >= 0 {
+        return Int{mag: uint64(v), neg: false}
+    }
+    // -(v + 1) is an int64 for every negative v, the smallest included,
+    // and one less than v's magnitude, which is at most 2^63, so adding
+    // the 1 back in a uint64 cannot wrap.
+    return Int{mag: uint64(-(v + 1)) +% 1, neg: true}
+}
+
+// from_uint64 returns v as an Int.
+pub func from_uint64(v uint64) Int {
+    return Int{mag: v, neg: false}
+}
+
+// parse decodes an integer literal as the lexer gives it, Go's Parse:
+// decimal digits, or hexadecimal, binary or octal ones after a 0x, 0b or
+// 0o prefix in either case, with _ between them, and a minus sign before
+// it when negative is true. It reports whether the value is in range. A
+// decimal literal is always decimal, a leading 0 included, which the
+// lexer reports. Go removes the underscores with strings.ReplaceAll and
+// then calls strconv.ParseUint; this copies the digits but the
+// underscores into a list, of the literal's length at most, and calls
+// std/conv's parse_uint, its port. It returns an error only when that
+// list cannot be made.
+pub func parse(digits []uint8, negative bool, alloc Allocator) (Int, bool, error) {
+    mut base int64 = 10
+    if len(digits) > 2 && digits[0] == '0' {
+        switch digits[1] {
+        case 'x', 'X':
+            base = 16
+        case 'b', 'B':
+            base = 2
+        case 'o', 'O':
+            base = 8
+        }
+    }
+    mut text := make(list[uint8], alloc)
+    reserve(mut text, len(digits))?
+    for i, c := range digits {
+        if c == '_' || base != 10 && i < 2 {
+            continue
+        }
+        append(mut text, c)?
+    }
+    mag, err := conv.parse_uint(text, base, 64)
+    if err.code != 0 {
+        return Int{mag: 0, neg: false}, false, noerror
+    }
+    r, ok := build(mag, negative)
+    return r, ok, noerror
+}
+
+// build builds the Int with magnitude mag and the given sign, normalizing
+// a negative zero, and reports whether it is in range.
+func build(mag uint64, negative bool) (Int, bool) {
+    if mag == 0 {
+        return Int{mag: 0, neg: false}, true
+    }
+    if negative && mag > min_mag {
+        return Int{mag: 0, neg: false}, false
+    }
+    return Int{mag: mag, neg: negative}, true
+}
+
+// is_zero reports whether x is 0.
+pub func (x Int) is_zero() bool {
+    return x.mag == 0
+}
+
+// is_negative reports whether x is less than 0.
+pub func (x Int) is_negative() bool {
+    return x.neg
+}
+
+// to_int64 returns x as an int64, Go's Int64. x must fit in one; one that
+// does not, which no caller passes, gives its low 64 bits as two's
+// complement does, as Go's does.
+pub func (x Int) to_int64() int64 {
+    u := x.to_uint64()
+    v, fits := int64(u)
+    if fits {
+        return v
+    }
+    // u is at least 2^63, so ^u is at most 2^63 - 1, and the int64 whose
+    // two's complement form is u is ^(^u), which is -(^u) - 1; the
+    // conversion of ^u always fits.
+    w, small := int64(^u)
+    if !small {
+        return 0
+    }
+    return ^w
+}
+
+// to_uint64 returns x as a uint64, keeping its low 64 bits for a
+// negative x, as two's complement does, Go's Uint64.
+pub func (x Int) to_uint64() uint64 {
+    if x.neg {
+        return 0 -% x.mag
+    }
+    return x.mag
+}
+
+// append_string appends x in decimal, as Go's String returns it.
+pub func (x Int) append_string(mut out list[uint8]) error {
+    if x.neg {
+        append(mut out, '-')?
+    }
+    return bytes.append_uint(mut out, x.mag)
+}
+
+// fits reports whether x is a value of an integer type with the given
+// number of bits, 1 to 64, and signedness.
+pub func (x Int) fits(bit_size int64, signed bool) bool {
+    if bit_size < 1 || bit_size > 64 {
+        return false
+    }
+    if signed {
+        half := uint64(1) << uint64(bit_size - 1)
+        if x.neg {
+            return x.mag <= half
+        }
+        return x.mag < half
+    }
+    if x.neg {
+        return false
+    }
+    if bit_size == 64 {
+        return true
+    }
+    return x.mag < uint64(1) << uint64(bit_size)
+}
+
+// cmp returns -1, 0 or 1 as x is less than, equal to, or greater than y.
+pub func (x Int) cmp(y Int) int64 {
+    if x.neg != y.neg {
+        if x.neg {
+            return -1
+        }
+        return 1
+    }
+    if x.mag == y.mag {
+        return 0
+    }
+    if (x.mag < y.mag) != x.neg {
+        return -1
+    }
+    return 1
+}
+
+// negate returns -x, and reports whether it is in range, Go's Neg; a field
+// is already named neg.
+pub func (x Int) negate() (Int, bool) {
+    r, ok := build(x.mag, !x.neg)
+    return r, ok
+}
+
+// add returns x + y, and reports whether it is in range.
+pub func (x Int) add(y Int) (Int, bool) {
+    if x.neg == y.neg {
+        sum := x.mag +% y.mag
+        if sum < x.mag {
+            return Int{mag: 0, neg: false}, false
+        }
+        r, ok := build(sum, x.neg)
+        return r, ok
+    }
+    // Opposite signs: the result takes the sign of the larger magnitude.
+    if x.mag >= y.mag {
+        r, ok := build(x.mag - y.mag, x.neg)
+        return r, ok
+    }
+    r, ok := build(y.mag - x.mag, y.neg)
+    return r, ok
+}
+
+// sub returns x - y, and reports whether it is in range.
+pub func (x Int) sub(y Int) (Int, bool) {
+    r, ok := x.add(Int{mag: y.mag, neg: !y.neg && y.mag != 0})
+    return r, ok
+}
+
+// mul returns x * y, and reports whether it is in range. Go tests the
+// high word of the 128-bit product for zero; this tests whether the
+// product fits a uint64 by dividing, which says the same.
+pub func (x Int) mul(y Int) (Int, bool) {
+    if x.mag != 0 && y.mag > max_uint64 / x.mag {
+        return Int{mag: 0, neg: false}, false
+    }
+    r, ok := build(x.mag *% y.mag, x.neg != y.neg)
+    return r, ok
+}
+
+// quo returns x / y truncated toward zero, as Go and C divide, and
+// reports whether it is in range. y must not be zero; for a y of zero,
+// where Go's panics, it reports false.
+pub func (x Int) quo(y Int) (Int, bool) {
+    if y.mag == 0 {
+        return Int{mag: 0, neg: false}, false
+    }
+    r, ok := build(x.mag / y.mag, x.neg != y.neg)
+    return r, ok
+}
+
+// rem returns the remainder of x / y, which takes the sign of x, and
+// reports whether it is in range, which it always is. y must not be
+// zero; for a y of zero, where Go's panics, it reports false.
+pub func (x Int) rem(y Int) (Int, bool) {
+    if y.mag == 0 {
+        return Int{mag: 0, neg: false}, false
+    }
+    r, ok := build(x.mag % y.mag, x.neg)
+    return r, ok
+}

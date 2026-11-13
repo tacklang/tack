@@ -1,0 +1,1546 @@
+package parser
+
+import ast from "tack/ast"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import lexer from "tack/lexer"
+import source from "tack/source"
+import text from "std/text"
+
+// Parser turns one file's token stream into a tree. After a syntax error
+// it recovers and goes on (see recover.tck), so a file yields a tree and
+// every error it has, the damage marked in the tree by bad nodes. It is
+// the state of one call of parse, Go's Parser.
+//
+// Go's parser returns each construct's errors as a []diag.Diagnostic,
+// which holds one at most. Here a construct returns a Fail, the index of
+// its one error among the parser's pending, so that a failure is a small
+// value that copies freely; record moves the pending errors a recovery
+// keeps into errs, and parse makes the diagnostics of those at the end.
+//
+// Indexes and depths here count tokens, nesting levels and bytes, which
+// an int64 holds with room to spare, so the arithmetic on them never
+// wraps; the checker cannot see that through the Parser's fields, which
+// carry no facts, so it is written with +% and -%, as the lexer's is.
+type Parser struct {
+    t ast.File
+
+    // toks holds the tokens' values, which values reads.
+    toks lexer.Tokens
+    // tokens is every token but the comments, ending with the EOF.
+    tokens list[lexer.Token]
+
+    // operands and operators are parse_expr's stacks (see parse_expr).
+    operands list[id[ast.Node]]
+    operators list[PendingOp]
+
+    // parens holds, for each expression written in parentheses, the
+    // span of its outermost pair (see extent).
+    parens map[id[ast.Node]]source.Span
+
+    // imports holds the names the file's imports declare, each a run of
+    // the tree's bytes (see at_qualified). Go keeps a map; there are few
+    // imports, and a name is looked for by comparing it with each.
+    imports list[span[uint8]]
+
+    // too_deep is the error for nesting past max_nesting, once a program
+    // has (see nest).
+    too_deep Fail
+
+    // region_named is set once region was reported written as a name
+    // (see no_region_name).
+    region_named bool
+
+    // err_at holds where each error of errs starts, so a second one there
+    // is found at once (see recorded).
+    err_at map[int64]bool
+
+    file source.FileID
+
+    // pending holds every error a construct failed with, recorded or
+    // not, and msgs their messages, one after another.
+    pending list[Pending]
+    msgs list[uint8]
+    // errs holds the index in pending of each error recorded, in order,
+    // and max_errors how many the parse goes past before it stops, or 0
+    // for no limit.
+    errs list[int64]
+    max_errors int64
+
+    // line_memo, no_stmts_memo and no_open_before remember what recovery
+    // last read of a line (see last_on_line, holds_no_stmts,
+    // opens_on_line_before).
+    line_memo LineMemo
+    no_stmts_memo StartMemo
+    no_open_before int64
+    // decl_errs is how many errors were recorded before the top-level
+    // declaration being parsed began (see stray_after_error).
+    decl_errs int64
+
+    index int64
+
+    // depth is how many levels of nesting the construct being parsed is
+    // inside (see nest).
+    depth int64
+
+    // no_lit is set while parsing the header of an if, a for, a range
+    // loop or a switch, where a name followed by an opening brace is the
+    // name and then the body.
+    no_lit bool
+
+    // spilling is whether the lines being parsed may be a function's body
+    // spilled where declarations go (see note_spill).
+    spilling bool
+
+    // lost_import is set once an import failed before its name (see
+    // note_lost_import_lit).
+    lost_import bool
+
+    // builtin_mode is set only for the file that documents the builtins
+    // (see builtinmode.tck).
+    builtin_mode bool
+
+    // type_params counts, by name, the type parameters in scope where the
+    // parse is (see at_param_switch).
+    type_params list[Scoped]
+
+    alloc Allocator
+}
+
+// Pending is one error a construct failed with: its message, the bytes
+// [msg_start, msg_end) of the parser's msgs, its span, and, when related
+// is set, a note at related_span, first default here, which only a
+// second default's error has.
+type Pending struct {
+    msg_start int64
+    msg_end int64
+    span source.Span
+    related bool
+    related_span source.Span
+}
+
+// Fail is how a construct's parse ended: zero when it did not fail, and
+// otherwise the index plus one of its error in the parser's pending.
+type Fail struct {
+    n int64
+}
+
+// no_fail is the Fail of a construct that did not fail.
+func no_fail() Fail {
+    return Fail{n: 0}
+}
+
+// failed reports whether f is a failure.
+func (f Fail) failed() bool {
+    return f.n != 0
+}
+
+// Scoped is a type parameter's name in scope, a run of the tree's bytes,
+// and how many scopes around the parse declare it.
+type Scoped struct {
+    name span[uint8]
+    count int64
+}
+
+// max_nesting is how many levels a program may nest one construct inside
+// another, counted together across expressions, statements and types,
+// Go's maxNesting (see the package documentation).
+var max_nesting int64 = 1000
+
+// no_node returns the sentinel node, Go's nil.
+func no_node() id[ast.Node] {
+    mut z id[ast.Node]
+    return z
+}
+
+// is_nil reports whether n is the sentinel, Go's nil.
+func is_nil(n id[ast.Node]) bool {
+    return ast.is_none(n)
+}
+
+// parse parses the file whose tokens toks holds, which end in an EOF
+// token, and returns its tree and every syntax error, in the order they
+// were found, Go's NewParser, Limit and Parse in one: past max_errors
+// errors, when it is positive, the parse stops, with one more recorded.
+// Spans are tagged with fid. A program nested too deeply has no tree:
+// has_tree is false then, and the tree is of no use. Everything is made
+// through alloc. It returns an error only when an allocation fails, and
+// the tree and the diagnostics are of no use then.
+pub func parse(fid source.FileID, own toks lexer.Tokens, max_errors int64, alloc Allocator) (ast.File, bool, list[diag.Diagnostic], error) {
+    mut p := Parser{
+        t: ast.new_file(alloc),
+        toks: toks,
+        tokens: make(list[lexer.Token], alloc),
+        operands: make(list[id[ast.Node]], alloc),
+        operators: make(list[PendingOp], alloc),
+        parens: make(map[id[ast.Node]]source.Span, alloc),
+        imports: make(list[span[uint8]], alloc),
+        too_deep: no_fail(),
+        region_named: false,
+        err_at: make(map[int64]bool, alloc),
+        file: fid,
+        pending: make(list[Pending], alloc),
+        msgs: make(list[uint8], alloc),
+        errs: make(list[int64], alloc),
+        max_errors: max_errors,
+        line_memo: LineMemo{first: 0, end: 0, last_at: -1, ok: false},
+        no_stmts_memo: StartMemo{start: 0, val: false, ok: false},
+        no_open_before: 0,
+        decl_errs: 0,
+        index: 0,
+        depth: 0,
+        no_lit: false,
+        spilling: false,
+        lost_import: false,
+        builtin_mode: false,
+        type_params: make(list[Scoped], alloc),
+        alloc: alloc,
+    }
+    has_tree := mut p.run()?
+    diags := p.diagnostics()?
+    t := replace(mut p.t, ast.new_file(alloc))
+    return t, has_tree, diags, noerror
+}
+
+// run sets the comments apart, as Go's NewParser does, and parses the
+// whole file, as Go's Parse does: the package clause, then every
+// top-level declaration up to EOF. It reports whether the file has a
+// tree, which a program nested too deeply has not.
+func (mut p Parser) run() (bool, error) {
+    reserve(mut p.tokens, len(p.toks.tokens()))?
+    for _, tk := range p.toks.tokens() {
+        if tk.kind() == lexer.kind_comment {
+            v := mut p.t.str(p.toks.value(tk))?
+            append(mut p.t.comments, ast.Comment{value: v, span: tok_span(p.file, tk)})?
+        } else {
+            append(mut p.tokens, tk)?
+        }
+    }
+    if len(p.tokens) == 0 {
+        // The lexer ends every stream with an EOF token, so this does
+        // not happen; Go's Parse panics on it.
+        return false, error{code: 2, msg: "internal error: the token list is empty"}
+    }
+
+    mut p.parse_header()?
+    for p.peek().kind() != lexer.kind_eof && !p.halted() {
+        mut p.parse_top_level()?
+    }
+
+    // A program nested too deeply has no tree, even where a parse that
+    // went on past the error found nothing else wrong.
+    if p.too_deep.failed() {
+        if !p.recorded(p.too_deep) {
+            append(mut p.errs, p.too_deep.n -% 1)?
+        }
+        return false, noerror
+    }
+    p.t.span.end = p.peek().offset_end()
+    return true, noerror
+}
+
+// diagnostics returns the errors recorded, as diagnostics, in the order
+// they were recorded.
+func (p Parser) diagnostics() (list[diag.Diagnostic], error) {
+    mut out := make(list[diag.Diagnostic], p.alloc)
+    for _, i := range p.errs {
+        e, ok := p.pending[i]
+        if !ok {
+            continue
+        }
+        if e.msg_start < 0 || e.msg_start > e.msg_end || e.msg_end > len(p.msgs) {
+            continue
+        }
+        msg := text.from_bytes(p.msgs[e.msg_start:e.msg_end], p.alloc)?
+        mut d := diag.new_error(own msg, e.span, p.alloc)
+        if e.related {
+            note := text.from_bytes([]uint8("first default here"), p.alloc)?
+            append(mut d.related, diag.Related{
+                message: note,
+                marker: text.new(p.alloc),
+                span: e.related_span,
+                severity: diag.note,
+            })?
+        }
+        append(mut out, d)?
+    }
+    return out, noerror
+}
+
+// fail_from makes the error whose message is msgs from start on, which
+// its caller has just appended, over sp, and returns its Fail.
+func (mut p Parser) fail_from(start int64, sp source.Span) (Fail, error) {
+    append(mut p.pending, Pending{
+        msg_start: start,
+        msg_end: len(p.msgs),
+        span: sp,
+        related: false,
+        related_span: sp,
+    })?
+    return Fail{n: len(p.pending)}, noerror
+}
+
+// fail makes the error msg over sp and returns its Fail.
+func (mut p Parser) fail(msg []uint8, sp source.Span) (Fail, error) {
+    start := len(p.msgs)
+    append(mut p.msgs, msg...)?
+    f := mut p.fail_from(start, sp)?
+    return f, noerror
+}
+
+// fail_str is fail for a message written as a string literal.
+func (mut p Parser) fail_str(msg string, sp source.Span) (Fail, error) {
+    f := mut p.fail([]uint8(msg), sp)?
+    return f, noerror
+}
+
+// fail_start returns where the message of an error about to be made is
+// appended to msgs.
+func (p Parser) fail_start() int64 {
+    return len(p.msgs)
+}
+
+// fail_span returns the span of the error f, the zero span for none.
+func (p Parser) fail_span(f Fail) source.Span {
+    e, ok := p.pending[f.n -% 1]
+    if !ok {
+        mut z source.Span
+        return z
+    }
+    return e.span
+}
+
+// nest enters one more level of nesting, opened by tk, or, past
+// max_nesting, reports the program as nested too deeply, at tk, and
+// returns that error, which every later call returns too without going
+// deeper. Each nest that returns no failure is matched by an unnest.
+func (mut p Parser) nest(tk lexer.Token) (Fail, error) {
+    if p.too_deep.failed() {
+        return p.too_deep, noerror
+    }
+    if p.depth == max_nesting {
+        start := p.fail_start()
+        fmt.appendf(mut p.msgs, "expression nested too deeply: more than %d levels", max_nesting)?
+        p.too_deep = mut p.fail_from(start, tok_span(p.file, tk))?
+        return p.too_deep, noerror
+    }
+    p.depth +%= 1
+    return no_fail(), noerror
+}
+
+// nest_at is nest for a construct opened by a token of kind, which is
+// next if the construct is written right: a token of another kind is
+// left for the construct's own check to report, and nests nothing, but
+// is still matched by an unnest.
+func (mut p Parser) nest_at(kind lexer.TokenKind) (Fail, error) {
+    if p.peek().kind() != kind {
+        if p.too_deep.failed() {
+            return p.too_deep, noerror
+        }
+        p.depth +%= 1
+        return no_fail(), noerror
+    }
+    f := mut p.nest(p.peek())?
+    return f, noerror
+}
+
+// unnest leaves the level of nesting the last nest entered.
+func (mut p Parser) unnest() {
+    p.depth -%= 1
+}
+
+// at returns the token at index i, or the final EOF token when i is
+// past the end, where Go's tok would panic.
+func (p Parser) at(i int64) lexer.Token {
+    tk, ok := p.tokens[i]
+    if ok {
+        return tk
+    }
+    return p.eof_token()
+}
+
+// eof_token returns the final EOF token.
+func (p Parser) eof_token() lexer.Token {
+    last, ok := p.tokens[len(p.tokens) -% 1]
+    if ok {
+        return last
+    }
+    mut z lexer.Token
+    return z
+}
+
+// next consumes the next token and returns it. Once the parse is past the
+// final EOF token, where Go's next returns nil, it returns the EOF token
+// and consumes nothing.
+func (mut p Parser) next() lexer.Token {
+    tk, ok := p.tokens[p.index]
+    if !ok {
+        return p.eof_token()
+    }
+    p.index +%= 1
+    return tk
+}
+
+// tok returns the token at index i, as recovery reads the tokens it
+// scans. Go's tok also counts the step, for tests that bound the work a
+// parse does; the port does not count steps.
+func (p Parser) tok(i int64) lexer.Token {
+    return p.at(i)
+}
+
+// peek returns the next token without consuming it, or the EOF token
+// once the parse is past it, where Go's returns nil.
+func (p Parser) peek() lexer.Token {
+    return p.at(p.index)
+}
+
+// peek_next returns the token after the next one without consuming
+// anything, or the EOF token past the end. Go's returns nil when the next
+// token is the EOF, which no caller reaches.
+func (p Parser) peek_next() lexer.Token {
+    return p.at(p.index +% 1)
+}
+
+// peek_at returns the token n places ahead without consuming anything,
+// or the final EOF token if that runs past the end.
+func (p Parser) peek_at(n int64) lexer.Token {
+    return p.at(p.index +% n)
+}
+
+// peek_prev returns the last token consumed, and false before any has
+// been, where Go's returns nil.
+func (p Parser) peek_prev() (lexer.Token, bool) {
+    if p.index <= 0 {
+        return p.eof_token(), false
+    }
+    return p.at(p.index -% 1), true
+}
+
+// prev_end returns the offset just past the last token consumed, or 0
+// before any has been, where Go's peekPrev().OffsetEnd() would panic.
+func (p Parser) prev_end() int64 {
+    tk, _ := p.peek_prev()
+    return tk.offset_end()
+}
+
+// last_end returns the offset just past the last token consumed that is
+// not a semicolon. No span covers the semicolon that ends a statement or
+// declaration, whether it was written in the source or inserted at a
+// line end.
+func (p Parser) last_end() int64 {
+    mut tk, _ := p.peek_prev()
+    if tk.kind() == lexer.kind_semi && p.index >= 2 {
+        tk = p.at(p.index -% 2)
+    }
+    return tk.offset_end()
+}
+
+// value returns the string value of tk, a view of it in place.
+func (p Parser) value(tk lexer.Token) []uint8 {
+    return p.toks.value(tk)
+}
+
+// tok_span returns the span of the token tk in the file fid. It and
+// span_in take the file rather than the Parser: a call of a Parser method
+// whose arguments make calls of their own copies the Parser first, a
+// large value, onto the stack of the recursive function making it, which
+// the parser's depth multiplies.
+func tok_span(fid source.FileID, tk lexer.Token) source.Span {
+    return source.Span{file: fid, start: tk.offset_start(), end: tk.offset_end()}
+}
+
+// span_in returns the span from start to end in the file fid.
+func span_in(fid source.FileID, start int64, end int64) source.Span {
+    return source.Span{file: fid, start: start, end: end}
+}
+
+// spanned returns the span of the node n.
+func (p Parser) spanned(n id[ast.Node]) source.Span {
+    return p.t.spanned(n)
+}
+
+// is_keyword reports whether tk is the keyword kw.
+func is_keyword(tk lexer.Token, kw lexer.KeywordType) bool {
+    return tk.kind() == lexer.kind_keyword && tk.keyword() == kw
+}
+
+// add adds a node of kind k over sp to the tree.
+func (mut p Parser) add(k ast.Kind, sp source.Span) (id[ast.Node], error) {
+    n := mut p.t.add(k, sp)?
+    return n, noerror
+}
+
+// str copies s into the tree's bytes.
+func (mut p Parser) str(s []uint8) (span[uint8], error) {
+    r := mut p.t.str(s)?
+    return r, noerror
+}
+
+// tok_str copies tk's value into the tree's bytes.
+func (mut p Parser) tok_str(tk lexer.Token) (span[uint8], error) {
+    r := mut p.t.str(p.toks.value(tk))?
+    return r, noerror
+}
+
+// list copies items into the tree's lists, a made Nodes.
+func (mut p Parser) add_list(items []id[ast.Node]) (ast.Nodes, error) {
+    r := mut p.t.add_list(items)?
+    return r, noerror
+}
+
+// text returns the bytes s names in the tree.
+func (p Parser) text(s span[uint8]) []uint8 {
+    return p.t.text(s)
+}
+
+// parse_top_level parses what comes next where declarations go: a
+// declaration, recording one that fails as a bad declaration (see
+// recover.tck), or, after damage, the imports damage alone came before,
+// or what a function's body spilled there, skipped (see spill.tck).
+func (mut p Parser) parse_top_level() error {
+    if p.spilling && p.at_line_start() && mut p.ends_spill() {
+        p.spilling = false
+    }
+    if mut p.skip_stray_braces() {
+        return noerror
+    }
+    if mut p.skip_spill() {
+        return noerror
+    }
+    if is_keyword(p.peek(), lexer.keyword_import) && p.only_bad_decls() {
+        // Only damaged declarations came before: the header goes on.
+        return mut p.parse_imports()
+    }
+    start := p.index
+    p.decl_errs = len(p.errs)
+    dec, f := mut p.parse_decl()?
+    if f.failed() {
+        stmt := mut p.stmt_like(start)
+        bad := mut p.bad_decl(start, f)?
+        append(mut p.t.decls, bad)?
+        mut p.skip_unopened_body(start)
+        mut p.note_spill(stmt)
+        return noerror
+    }
+    append(mut p.t.decls, dec)?
+    mut p.note_spill(is_func(p.t.nodes, dec))
+    return noerror
+}
+
+// is_func reports whether n is a function's declaration.
+func is_func(nodes arena[ast.Node], n id[ast.Node]) bool {
+    switch nodes[n].k {
+    case func_decl:
+        return true
+    default:
+        return false
+    }
+}
+
+// parse_header parses the package clause and the imports, recording each
+// that fails as a bad declaration (see recover.tck).
+func (mut p Parser) parse_header() error {
+    keyword, pkg, pkg_span, f := mut p.parse_pkg()?
+    if f.failed() {
+        bad := mut p.bad_decl(0, f)?
+        append(mut p.t.decls, bad)?
+        p.t.span = p.spanned(bad)
+    } else {
+        p.t.package_name = pkg
+        p.t.package_span = pkg_span
+        p.t.span = keyword
+    }
+    return mut p.parse_imports()
+}
+
+// parse_imports parses the imports of the header, recording each that
+// fails, and a line that reads as an import with its keyword damaged, as
+// a bad declaration.
+func (mut p Parser) parse_imports() error {
+    for !p.halted() {
+        start := p.index
+        if is_keyword(p.peek(), lexer.keyword_import) {
+            imp, f := mut p.parse_import()?
+            if f.failed() {
+                bad := mut p.bad_decl(start, f)?
+                append(mut p.t.decls, bad)?
+                continue
+            }
+            append(mut p.t.imports, imp)?
+        } else if p.import_shaped_line() {
+            // An import whose keyword is damaged, bytes from "std/bytes":
+            // it fails as a declaration, and the imports after it are
+            // still in the header rather than each out of place.
+            dec, f := mut p.parse_decl()?
+            if !f.failed() {
+                append(mut p.t.decls, dec)?
+                return noerror
+            }
+            bad := mut p.bad_decl(start, f)?
+            append(mut p.t.decls, bad)?
+        } else {
+            return noerror
+        }
+    }
+    return noerror
+}
+
+// only_bad_decls reports whether every top-level declaration parsed so
+// far is a damaged one, so that an import after them is still in the
+// header.
+func (p Parser) only_bad_decls() bool {
+    for _, d := range p.t.decls {
+        switch p.t.kind(d) {
+        case bad_decl:
+        default:
+            return false
+        }
+    }
+    return true
+}
+
+// import_shaped_line reports whether the next token starts a line holding
+// from and then a string, which only an import holds.
+func (p Parser) import_shaped_line() bool {
+    if !p.at_line_start() {
+        return false
+    }
+    mut k int64 = 0
+    for {
+        tk := p.peek_at(k)
+        if tk.kind() == lexer.kind_eof || k > 0 && tk.starts_line() {
+            return false
+        }
+        if is_keyword(tk, lexer.keyword_from) && p.peek_at(k +% 1).kind() == lexer.kind_str {
+            return true
+        }
+        k +%= 1
+    }
+}
+
+// parse_pkg parses the package clause, and returns the span of its
+// package keyword, its name and the name's span.
+func (mut p Parser) parse_pkg() (source.Span, span[uint8], source.Span, Fail, error) {
+    tk := mut p.next()
+    mut z source.Span
+    if !is_keyword(tk, lexer.keyword_package) {
+        f := mut p.invalid_token([]uint8("package"), tk)?
+        return z, empty_str(), z, f, noerror
+    }
+    name, f := mut p.parse_ident([]uint8("package name"))?
+    if f.failed() {
+        return z, empty_str(), z, f, noerror
+    }
+    ok, semi_f := mut p.expect(lexer.kind_semi)?
+    if !ok {
+        return z, empty_str(), z, semi_f, noerror
+    }
+    pkg, pkg_span := ident_name(p.t.nodes, name)
+    return tok_span(p.file, tk), pkg, pkg_span, no_fail(), noerror
+}
+
+// empty_str returns the empty run of the tree's bytes.
+func empty_str() span[uint8] {
+    mut s span[uint8]
+    return s
+}
+
+// ident_name returns the name of n, an ident node, and its span.
+func ident_name(nodes arena[ast.Node], n id[ast.Node]) (span[uint8], source.Span) {
+    switch nodes[n].k {
+    case ident(i):
+        return i.name, nodes[n].span
+    default:
+        return empty_str(), nodes[n].span
+    }
+}
+
+// ident_of returns the Ident of n, an ident node, and whether n is one.
+func ident_of(nodes arena[ast.Node], n id[ast.Node]) (ast.Ident, bool) {
+    switch nodes[n].k {
+    case ident(i):
+        return i, true
+    default:
+        mut z ast.Ident
+        return z, false
+    }
+}
+
+// new_ident adds an unqualified name, name over sp, to the tree.
+func (mut p Parser) new_ident(name span[uint8], sp source.Span) (id[ast.Node], error) {
+    mut z source.Span
+    n := mut p.add(ast.Kind.ident(ast.Ident{pkg: empty_str(), name: name, pkg_span: z}), sp)?
+    return n, noerror
+}
+
+// parse_ident consumes the next token if it is a name and returns it as
+// an ident node spanning that token. Otherwise it consumes nothing and
+// reports the token found where expected, the wording for what should be
+// there, was wanted (see invalid_token).
+func (mut p Parser) parse_ident(expected []uint8) (id[ast.Node], Fail, error) {
+    tk := p.peek()
+    if tk.kind() != lexer.kind_ident {
+        f := mut p.invalid_token(expected, tk)?
+        return no_node(), f, noerror
+    }
+    mut p.next()
+    name := mut p.tok_str(tk)?
+    n := mut p.new_ident(name, tok_span(p.file, tk))?
+    return n, no_fail(), noerror
+}
+
+// expect consumes the next token if it is of kind, and reports true.
+// Otherwise it consumes nothing, reports false and returns the error
+// expected '<kind>' found '<token>' (see invalid_token).
+func (mut p Parser) expect(kind lexer.TokenKind) (bool, Fail, error) {
+    tk := p.peek()
+    if tk.kind() != kind {
+        mut want := make(list[uint8], p.alloc)
+        kind.append_string(mut want)?
+        f := mut p.invalid_token(want, tk)?
+        return false, f, noerror
+    }
+    mut p.next()
+    return true, no_fail(), noerror
+}
+
+// optional consumes the next token if it is of kind, and does nothing
+// otherwise.
+func (mut p Parser) optional(kind lexer.TokenKind) {
+    if p.peek().kind() == kind {
+        mut p.next()
+    }
+}
+
+// expect_sequence expects each of kinds in turn (see expect) and reports
+// true once all are consumed. At the first token that is not the kind
+// wanted it stops, with the tokens before it consumed, and reports false
+// and that token's error.
+func (mut p Parser) expect_sequence(kinds []lexer.TokenKind) (bool, Fail, error) {
+    for _, kind := range kinds {
+        ok, f := mut p.expect(kind)?
+        if !ok {
+            return false, f, noerror
+        }
+    }
+    return true, no_fail(), noerror
+}
+
+// parse_import parses one import declaration, import x from "path", and
+// the semicolon that ends it.
+func (mut p Parser) parse_import() (id[ast.Node], Fail, error) {
+    kw := mut p.next()
+    if p.peek().kind() != lexer.kind_ident {
+        p.lost_import = true
+    }
+    tk := p.peek()
+    if tk.kind() == lexer.kind_l_paren {
+        f := mut p.fail_str("grouped imports are not supported; write one import per line", tok_span(p.file, tk))?
+        return no_node(), f, noerror
+    }
+    if tk.kind() == lexer.kind_str {
+        f := mut p.fail_str("an import needs a name: import x from \"path\"", tok_span(p.file, tk))?
+        return no_node(), f, noerror
+    }
+    name, f := mut p.parse_ident([]uint8("import name"))?
+    if is_nil(name) {
+        return no_node(), f, noerror
+    }
+    // The name is known from here on, whatever goes wrong after it, so a
+    // qualified literal of the package, geo.Rect{...}, is still parsed as
+    // one and gives no error of its own.
+    name_str, name_span := ident_name(p.t.nodes, name)
+    mut p.add_import_name(name_str)?
+    from_tk := p.peek()
+    if !is_keyword(from_tk, lexer.keyword_from) {
+        mut want := make(list[uint8], p.alloc)
+        lexer.keyword_from.append_string(mut want)?
+        ff := mut p.invalid_token(want, from_tk)?
+        return no_node(), ff, noerror
+    }
+    mut p.next()
+    path := p.peek()
+    if path.kind() != lexer.kind_str {
+        pf := mut p.invalid_token([]uint8("import path"), path)?
+        return no_node(), pf, noerror
+    }
+    mut p.next()
+    path_str := mut p.tok_str(path)?
+    imp := mut p.add(ast.Kind.import_decl(ast.Import{
+        name: name_str,
+        path: path_str,
+        name_span: name_span,
+        path_span: tok_span(p.file, path),
+    }), span_in(p.file, kw.offset_start(), path.offset_end()))?
+    ok, sf := mut p.expect(lexer.kind_semi)?
+    if !ok {
+        return no_node(), sf, noerror
+    }
+    return imp, no_fail(), noerror
+}
+
+// add_import_name records name, a run of the tree's bytes, as an
+// import's, unless it is one already.
+func (mut p Parser) add_import_name(name span[uint8]) error {
+    if p.is_import_name(p.text(name)) {
+        return noerror
+    }
+    return append(mut p.imports, name)
+}
+
+// add_import_token records the value of tk, a name, as an import's,
+// unless it is one already.
+func (mut p Parser) add_import_token(tk lexer.Token) error {
+    if p.is_import_name(p.value(tk)) {
+        return noerror
+    }
+    name := mut p.tok_str(tk)?
+    return append(mut p.imports, name)
+}
+
+// is_import_name reports whether name is the name of one of the file's
+// imports.
+func (p Parser) is_import_name(name []uint8) bool {
+    for _, s := range p.imports {
+        if equal_bytes(p.t.text(s), name) {
+            return true
+        }
+    }
+    return false
+}
+
+// equal_bytes reports whether a and b hold the same bytes.
+func equal_bytes(a []uint8, b []uint8) bool {
+    if len(a) != len(b) {
+        return false
+    }
+    for i, c := range a {
+        d, ok := b[i]
+        if !ok || c != d {
+            return false
+        }
+    }
+    return true
+}
+
+// parse_decl parses one package-level declaration: a function, a
+// variable or a type, with the visibility keyword that may come first.
+func (mut p Parser) parse_decl() (id[ast.Node], Fail, error) {
+    tk := p.peek()
+    vis, visible := visibility_of(tk)
+    if visible {
+        n, f := mut p.parse_visible_decl(vis)?
+        return n, f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_import) {
+        f := mut p.fail_str("imports must come before every other declaration", tok_span(p.file, tk))?
+        return no_node(), f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_func) {
+        n, f := mut p.parse_func(false)?
+        return n, f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_extern) {
+        n, f := mut p.parse_extern_func()?
+        return n, f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_var) || is_keyword(tk, lexer.keyword_mut) {
+        n, f := mut p.parse_package_var()?
+        return n, f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_type) {
+        n, f := mut p.parse_type_decl()?
+        return n, f, noerror
+    }
+    f := mut p.invalid_token([]uint8("func"), tk)?
+    return no_node(), f, noerror
+}
+
+// visibility_of returns the visibility tk gives, if it is pub or lib.
+func visibility_of(tk lexer.Token) (ast.Visibility, bool) {
+    if is_keyword(tk, lexer.keyword_pub) {
+        return ast.vis_pub, true
+    }
+    if is_keyword(tk, lexer.keyword_lib) {
+        return ast.vis_lib, true
+    }
+    return ast.vis_private, false
+}
+
+// parse_visible_decl parses a package-level declaration that starts with
+// the keyword pub or lib, giving vis: a function, a variable or a type,
+// whose span then starts at the keyword. Anything else after the keyword,
+// a second one included, is reported.
+func (mut p Parser) parse_visible_decl(vis ast.Visibility) (id[ast.Node], Fail, error) {
+    kw := mut p.next()
+    vis_span := tok_span(p.file, kw)
+    tk := p.peek()
+    mut n := no_node()
+    mut f := no_fail()
+    if is_keyword(tk, lexer.keyword_func) || is_keyword(tk, lexer.keyword_extern) {
+        n, f = mut p.parse_any_func(tk)?
+    } else if is_keyword(tk, lexer.keyword_var) || is_keyword(tk, lexer.keyword_mut) {
+        n, f = mut p.parse_package_var()?
+    } else if is_keyword(tk, lexer.keyword_type) {
+        n, f = mut p.parse_type_decl()?
+    } else {
+        bad := mut p.invalid_token([]uint8("func, var, mut or type"), tk)?
+        return no_node(), bad, noerror
+    }
+    if is_nil(n) {
+        return no_node(), f, noerror
+    }
+    mut p.set_visibility(n, vis, vis_span)
+    return n, f, noerror
+}
+
+// set_visibility gives n, a function, a variable or a type declaration,
+// the visibility vis written at vis_span, where its span then starts.
+func (mut p Parser) set_visibility(n id[ast.Node], vis ast.Visibility, vis_span source.Span) {
+    k := p.t.kind(n)
+    switch k {
+    case func_decl(fid):
+        p.t.funcs[fid].vis = vis
+        p.t.funcs[fid].vis_span = vis_span
+    case var_decl(v):
+        mut nv := v
+        nv.vis = vis
+        nv.vis_span = vis_span
+        p.t.nodes[n].k = ast.Kind.var_decl(nv)
+    case type_decl(td):
+        mut nt := td
+        nt.vis = vis
+        nt.vis_span = vis_span
+        p.t.nodes[n].k = ast.Kind.type_decl(nt)
+    default:
+    }
+    p.t.nodes[n].span.start = vis_span.start
+}
+
+// parse_any_func parses a function declaration starting at tk, an extern
+// func if tk is extern.
+func (mut p Parser) parse_any_func(tk lexer.Token) (id[ast.Node], Fail, error) {
+    if is_keyword(tk, lexer.keyword_extern) {
+        n, f := mut p.parse_extern_func()?
+        return n, f, noerror
+    }
+    n, f := mut p.parse_func(false)?
+    return n, f, noerror
+}
+
+// parse_extern_func parses an extern func declaration, extern func
+// name(...) with its results and no body, or extern("c_name") func
+// name(...), whose string gives its C name, whose span then starts at
+// extern.
+func (mut p Parser) parse_extern_func() (id[ast.Node], Fail, error) {
+    kw := mut p.next()
+    mut extern_span := tok_span(p.file, kw)
+    mut has_cname := false
+    mut cname := p.peek()
+    if p.peek().kind() == lexer.kind_l_paren {
+        mut p.next()
+        cname = p.peek()
+        if cname.kind() != lexer.kind_str {
+            f := mut p.invalid_token([]uint8("C name in quotes"), cname)?
+            return no_node(), f, noerror
+        }
+        has_cname = true
+        mut p.next()
+        ok, f := mut p.expect(lexer.kind_r_paren)?
+        if !ok {
+            return no_node(), f, noerror
+        }
+        extern_span.end = p.last_end()
+    }
+    n, f := mut p.parse_func(true)?
+    if is_nil(n) {
+        return no_node(), f, noerror
+    }
+    switch p.t.kind(n) {
+    case func_decl(fid):
+        p.t.funcs[fid].is_extern = true
+        p.t.funcs[fid].cname = p.t.funcs[fid].name
+        p.t.funcs[fid].extern_span = extern_span
+        if has_cname {
+            c := mut p.tok_str(cname)?
+            p.t.funcs[fid].cname = c
+            p.t.funcs[fid].cname_span = tok_span(p.file, cname)
+        }
+    default:
+    }
+    p.t.nodes[n].span.start = kw.offset_start()
+    return n, no_fail(), noerror
+}
+
+// parse_func parses a function declaration from its func keyword: its
+// name, parameters, results and body, which an extern func, extern says,
+// must not have. A parenthesis right after func starts a method's
+// receiver, which becomes the method's first parameter.
+func (mut p Parser) parse_func(is_extern bool) (id[ast.Node], Fail, error) {
+    tk := p.peek()
+    if !is_keyword(tk, lexer.keyword_func) {
+        f := mut p.invalid_token([]uint8("func"), tk)?
+        return no_node(), f, noerror
+    }
+
+    // advance past the func keyword
+    mut p.next()
+
+    mut recv := no_node()
+    mut expected := "function name"
+    if p.peek().kind() == lexer.kind_l_paren {
+        r, f := mut p.parse_receiver()?
+        if is_nil(r) {
+            return no_node(), f, noerror
+        }
+        recv = r
+        expected = "method name"
+    }
+
+    name, name_f := mut p.parse_ident([]uint8(expected))?
+    if is_nil(name) {
+        return no_node(), name_f, noerror
+    }
+    name_str, name_span := ident_name(p.t.nodes, name)
+
+    mut fn ast.Func
+    fn.name = name_str
+    fn.name_span = name_span
+    fn.method = !is_nil(recv)
+
+    mut type_params := make(list[id[ast.Node]], p.alloc)
+    tf := mut p.parse_type_params(mut fn, mut type_params, is_extern)?
+    if tf.failed() {
+        return no_node(), tf, noerror
+    }
+    if len(type_params) > 0 {
+        fn.type_params = mut p.add_list(type_params)?
+    }
+
+    params, made, pf := mut p.parse_params()?
+    if pf.failed() {
+        return no_node(), pf, noerror
+    }
+    if !is_nil(recv) {
+        mut all := make(list[id[ast.Node]], p.alloc)
+        append(mut all, recv)?
+        for _, param := range params {
+            append(mut all, param)?
+        }
+        fn.params = mut p.add_list(all)?
+    } else if made {
+        fn.params = mut p.add_list(params)?
+    }
+
+    sf := mut p.parse_signature_end(mut fn)?
+    if sf.failed() {
+        return no_node(), sf, noerror
+    }
+
+    mut p.enter_type_params(fn.type_params)?
+    body, bf := mut p.parse_func_body(mut fn, is_extern)?
+    mut p.leave_type_params(fn.type_params)?
+    if bf.failed() {
+        return no_node(), bf, noerror
+    }
+    fn.body = mut p.add_list(body)?
+
+    fid := mut p.t.add_func(fn)?
+    n := mut p.add(ast.Kind.func_decl(fid), span_in(p.file, tk.offset_start(), p.last_end()))?
+    return n, no_fail(), noerror
+}
+
+// parse_type_params parses the type parameters of fn, a generic
+// function, in the brackets that come next, if any, into type_params,
+// setting fn's type_params_span: each a name and its constraint, with
+// commas between them optional, as between parameters. An empty list, a
+// name with no constraint after it, and type parameters on a method or,
+// extern says, an extern func are reported.
+func (mut p Parser) parse_type_params(mut fn ast.Func, mut type_params list[id[ast.Node]], is_extern bool) (Fail, error) {
+    if p.peek().kind() != lexer.kind_l_brack {
+        return no_fail(), noerror
+    }
+    open := mut p.next() // the opening bracket
+    for p.peek().kind() != lexer.kind_r_brack {
+        name, f := mut p.parse_ident([]uint8("type parameter name"))?
+        if is_nil(name) {
+            return f, noerror
+        }
+        name_str, name_span := ident_name(p.t.nodes, name)
+        k := p.peek().kind()
+        if k == lexer.kind_comma || k == lexer.kind_r_brack {
+            start := p.fail_start()
+            append(mut p.msgs, []uint8("type parameter ")...)?
+            append(mut p.msgs, p.t.text(name_str)...)?
+            append(mut p.msgs, []uint8(" has no constraint; write the interface it must satisfy after it, as in [")...)?
+            append(mut p.msgs, p.t.text(name_str)...)?
+            append(mut p.msgs, []uint8(" Writer]")...)?
+            nf := mut p.fail_from(start, name_span)?
+            return nf, noerror
+        }
+        constraint, cf := mut p.parse_type()?
+        if is_nil(constraint) {
+            return cf, noerror
+        }
+        tp := mut p.add(ast.Kind.type_param(ast.TypeParam{
+            constraint: constraint,
+            name: name_str,
+            name_span: name_span,
+        }), span_in(p.file, name_span.start, p.spanned(constraint).end))?
+        append(mut type_params, tp)?
+        mut p.optional(lexer.kind_comma)
+    }
+    closing := mut p.next()
+    fn.type_params_span = span_in(p.file, open.offset_start(), closing.offset_end())
+    if len(type_params) == 0 {
+        f := mut p.fail_str("empty type parameter list", fn.type_params_span)?
+        return f, noerror
+    }
+    if fn.method {
+        f := mut p.fail_str("a method cannot have type parameters; only a function can be generic", fn.type_params_span)?
+        return f, noerror
+    }
+    if is_extern {
+        start := p.fail_start()
+        append(mut p.msgs, []uint8("extern func ")...)?
+        append(mut p.msgs, p.t.text(fn.name)...)?
+        append(mut p.msgs, []uint8(" cannot have type parameters; its body is written in C")...)?
+        f := mut p.fail_from(start, fn.type_params_span)?
+        return f, noerror
+    }
+    return no_fail(), noerror
+}
+
+// enter_type_params records the type parameters tps, nodes of the tree,
+// as in scope for the body about to be parsed, so a switch on one is
+// parsed as one (see at_param_switch). leave_type_params, given the same
+// list, leaves their scope, as the function Go's returns does.
+func (mut p Parser) enter_type_params(tps ast.Nodes) error {
+    names := p.type_param_names(tps)?
+    for _, name := range names {
+        mut p.enter_type_name(name)?
+    }
+    return noerror
+}
+
+// type_param_names returns the names of the type parameters tps.
+func (p Parser) type_param_names(tps ast.Nodes) (list[span[uint8]], error) {
+    mut names := make(list[span[uint8]], p.alloc)
+    for _, tp := range p.t.items(tps) {
+        switch p.t.kind(tp) {
+        case type_param(t):
+            append(mut names, t.name)?
+        default:
+        }
+    }
+    return names, noerror
+}
+
+// leave_type_params leaves the scope enter_type_params entered for tps.
+func (mut p Parser) leave_type_params(tps ast.Nodes) error {
+    names := p.type_param_names(tps)?
+    for _, name := range names {
+        mut p.leave_type_name(name)
+    }
+    return noerror
+}
+
+// enter_type_name counts name, a run of the tree's bytes, as a type
+// parameter in one more scope.
+func (mut p Parser) enter_type_name(name span[uint8]) error {
+    i := p.type_param_index(name)
+    if i >= 0 {
+        add_count(mut p.type_params, i, 1)
+        return noerror
+    }
+    return append(mut p.type_params, Scoped{name: name, count: 1})
+}
+
+// add_count adds delta to the count of the type parameter at index i of
+// l, when there is one.
+func add_count(mut l list[Scoped], i int64, delta int64) {
+    if i >= 0 && i < len(l) {
+        l[i].count +%= delta
+    }
+}
+
+// type_param_index returns the index in type_params of name, or -1 when
+// it is not there.
+func (p Parser) type_param_index(name span[uint8]) int64 {
+    for i, s := range p.type_params {
+        if equal_bytes(p.t.text(s.name), p.t.text(name)) {
+            return i
+        }
+    }
+    return -1
+}
+
+// leave_type_name counts name as a type parameter in one scope fewer.
+func (mut p Parser) leave_type_name(name span[uint8]) {
+    add_count(mut p.type_params, p.type_param_index(name), -1)
+}
+
+// type_param_count returns how many scopes around the parse declare a
+// type parameter named name.
+func (p Parser) type_param_count(name []uint8) int64 {
+    for _, s := range p.type_params {
+        if equal_bytes(p.t.text(s.name), name) {
+            return s.count
+        }
+    }
+    return 0
+}
+
+// not_final is the error for a ... at sp that does not mark a function's
+// final parameter.
+func (mut p Parser) not_final(sp source.Span) (Fail, error) {
+    f := mut p.fail_str("can only use ... with the final parameter", sp)?
+    return f, noerror
+}
+
+// parse_receiver parses a method's receiver, in the parentheses that come
+// next: one parameter, followed by a comma or not. No receiver, several,
+// and a variadic one are reported; () with no name after it is a
+// function's name left out.
+func (mut p Parser) parse_receiver() (id[ast.Node], Fail, error) {
+    if p.peek_next().kind() == lexer.kind_r_paren && p.peek_at(2).kind() != lexer.kind_ident {
+        f := mut p.invalid_token([]uint8("function name"), p.peek())?
+        return no_node(), f, noerror
+    }
+    open := mut p.next() // the opening parenthesis
+    tk := p.peek()
+    if tk.kind() == lexer.kind_r_paren {
+        f := mut p.fail_str("method has no receiver", span_in(p.file, open.offset_start(), tk.offset_end()))?
+        return no_node(), f, noerror
+    }
+    recv, f := mut p.parse_param([]uint8("receiver name"))?
+    if is_nil(recv) {
+        return no_node(), f, noerror
+    }
+    switch p.t.kind(recv) {
+    case param_decl(pid):
+        if p.t.params[pid].variadic {
+            vf := mut p.fail_str("a receiver cannot be variadic", p.t.params[pid].ellipsis_span)?
+            return no_node(), vf, noerror
+        }
+    default:
+    }
+    r, rf := mut p.end_receiver(recv)?
+    return r, rf, noerror
+}
+
+// end_receiver parses what follows recv, a method's receiver, up to and
+// including the closing parenthesis: a comma before it may be written,
+// and another receiver is reported.
+func (mut p Parser) end_receiver(recv id[ast.Node]) (id[ast.Node], Fail, error) {
+    if p.peek().kind() == lexer.kind_comma && p.peek_next().kind() == lexer.kind_r_paren {
+        mut p.next()
+    }
+    tk := p.peek()
+    if tk.kind() == lexer.kind_r_paren {
+        mut p.next()
+        return recv, no_fail(), noerror
+    }
+    if tk.kind() == lexer.kind_comma || tk.kind() == lexer.kind_ident || is_keyword(tk, lexer.keyword_mut) ||
+        is_keyword(tk, lexer.keyword_own) || is_keyword(tk, lexer.keyword_scope) {
+        f := mut p.fail_str("method has multiple receivers", tok_span(p.file, tk))?
+        return no_node(), f, noerror
+    }
+    f := mut p.invalid_token([]uint8(")"), tk)?
+    return no_node(), f, noerror
+}
+
+// parse_params parses a parenthesized parameter list, parentheses
+// included, into a list, and reports whether Go's would be made, a nil
+// slice when there are no parameters. Commas between parameters are
+// optional.
+func (mut p Parser) parse_params() (list[id[ast.Node]], bool, Fail, error) {
+    mut params := make(list[id[ast.Node]], p.alloc)
+    ok, f := mut p.expect(lexer.kind_l_paren)?
+    if !ok {
+        return params, false, f, noerror
+    }
+
+    for p.peek().kind() != lexer.kind_r_paren {
+        // A variadic parameter takes every value left in a call, so
+        // nothing can follow it, another variadic included.
+        last, has_last := params[len(params) -% 1]
+        if has_last {
+            switch p.t.kind(last) {
+            case param_decl(pid):
+                if p.t.params[pid].variadic {
+                    nf := mut p.not_final(p.t.params[pid].ellipsis_span)?
+                    return params, false, nf, noerror
+                }
+            default:
+            }
+        }
+        param, pf := mut p.parse_param([]uint8("parameter name"))?
+        if is_nil(param) {
+            return params, false, pf, noerror
+        }
+        append(mut params, param)?
+
+        mut p.optional(lexer.kind_comma)
+    }
+
+    ok2, f2 := mut p.expect(lexer.kind_r_paren)?
+    if !ok2 {
+        return params, false, f2, noerror
+    }
+    made := len(params) > 0
+    return params, made, no_fail(), noerror
+}
+
+// parse_signature_end parses what follows fn's parameters before its
+// body: its results, into fn.results, and its contract, if any.
+func (mut p Parser) parse_signature_end(mut fn ast.Func) (Fail, error) {
+    results, f := mut p.parse_results()?
+    if f.failed() {
+        return f, noerror
+    }
+    fn.results = results
+    ef := mut p.parse_ensures(mut fn)?
+    return ef, noerror
+}
+
+// parse_ensures parses the contract of fn that comes next, if any: the
+// ensures keyword and a condition, into fn.contract. As in an if's
+// header, a name before an opening brace is not a struct literal, and
+// one written without parentheses is reported.
+func (mut p Parser) parse_ensures(mut fn ast.Func) (Fail, error) {
+    if !is_keyword(p.peek(), lexer.keyword_ensures) {
+        return no_fail(), noerror
+    }
+    kw := mut p.next()
+    old := p.no_lit
+    p.no_lit = true
+    cond, f := mut p.parse_expr(1)?
+    p.no_lit = old
+    if is_nil(cond) {
+        return f, noerror
+    }
+    hf := mut p.header_lit("an ensures")?
+    if hf.failed() {
+        return hf, noerror
+    }
+    fn.contract = cond
+    fn.ensures_span = tok_span(p.file, kw)
+    return no_fail(), noerror
+}
+
+// parse_results parses a function's result types: one type name, or a
+// parenthesized, comma-separated list of them. A brace or semicolon
+// instead means the function returns nothing, and the result is an
+// unmade list. scope before the results, which marks only a parameter, is
+// reported.
+func (mut p Parser) parse_results() (ast.Nodes, Fail, error) {
+    mut none ast.Nodes
+    tk := p.peek()
+    if is_keyword(tk, lexer.keyword_scope) {
+        f := mut p.fail_str("a result cannot be scope; only a parameter can be scope", tok_span(p.file, tk))?
+        return none, f, noerror
+    }
+    // A ... goes to parse_type, which reports it, rather than being taken
+    // for a missing body.
+    if p.starts_type(tk) || tk.kind() == lexer.kind_ellipsis {
+        typ, f := mut p.parse_type()?
+        if is_nil(typ) {
+            return none, f, noerror
+        }
+        mut one := make(list[id[ast.Node]], p.alloc)
+        append(mut one, typ)?
+        l := mut p.add_list(one)?
+        return l, no_fail(), noerror
+    }
+    if p.peek().kind() != lexer.kind_l_paren {
+        return none, no_fail(), noerror
+    }
+    mut p.next()
+
+    mut results := make(list[id[ast.Node]], p.alloc)
+    for {
+        typ, f := mut p.parse_type()?
+        if is_nil(typ) {
+            return none, f, noerror
+        }
+        append(mut results, typ)?
+
+        if p.peek().kind() != lexer.kind_comma {
+            break
+        }
+        mut p.next()
+    }
+
+    ok, f := mut p.expect(lexer.kind_r_paren)?
+    if !ok {
+        return none, f, noerror
+    }
+    l := mut p.add_list(results)?
+    return l, no_fail(), noerror
+}
+
+// parse_func_body parses what follows a function's signature: a
+// brace-delimited body with its terminator, whose statements it returns,
+// or a lone semicolon for a function declared without one, which sets
+// fn.no_body. An extern func, extern says, has no body to parse.
+func (mut p Parser) parse_func_body(mut fn ast.Func, is_extern bool) (list[id[ast.Node]], Fail, error) {
+    mut body := make(list[id[ast.Node]], p.alloc)
+    tk := p.peek()
+    if is_extern && tk.kind() == lexer.kind_l_curl {
+        start := p.fail_start()
+        append(mut p.msgs, []uint8("extern func ")...)?
+        append(mut p.msgs, p.t.text(fn.name)...)?
+        append(mut p.msgs, []uint8(" cannot have a body; its body is written in C")...)?
+        f := mut p.fail_from(start, tok_span(p.file, tk))?
+        return body, f, noerror
+    }
+    opener := mut p.next()
+    k := opener.kind()
+    if k == lexer.kind_l_curl {
+        mut p.parse_stmts(mut body, false)?
+        if p.too_deep.failed() {
+            return body, p.too_deep, noerror
+        }
+        closing := [2]lexer.TokenKind{lexer.kind_r_curl, lexer.kind_semi}
+        ok, f := mut p.expect_sequence(closing)?
+        if !ok {
+            return body, f, noerror
+        }
+        return body, no_fail(), noerror
+    }
+    if k == lexer.kind_semi {
+        fn.no_body = true
+        return body, no_fail(), noerror
+    }
+    f := mut p.fail_str("missing function body", tok_span(p.file, p.peek()))?
+    return body, f, noerror
+}
+
+// parse_param parses one parameter: a name and its type, with mut, own
+// or scope before the name, and ... before the type for a variadic one,
+// whose type is then its element type. expected names what the name is,
+// for the error when there is none.
+func (mut p Parser) parse_param(expected []uint8) (id[ast.Node], Fail, error) {
+    mut param ast.Param
+    mf := mut p.parse_param_mode(mut param)?
+    if mf.failed() {
+        return no_node(), mf, noerror
+    }
+    name, nf := mut p.parse_ident(expected)?
+    if is_nil(name) {
+        return no_node(), nf, noerror
+    }
+    tk := p.peek()
+    if tk.kind() == lexer.kind_ellipsis {
+        mut p.next()
+        param.variadic = true
+        param.ellipsis_span = tok_span(p.file, tk)
+    }
+
+    typ, tf := mut p.parse_type()?
+    if is_nil(typ) {
+        return no_node(), tf, noerror
+    }
+
+    name_str, name_span := ident_name(p.t.nodes, name)
+    param.name = name_str
+    param.name_span = name_span
+    param.type_expr = typ
+    sp := span_in(p.file, start_at_mode(param, name_span.start), p.spanned(typ).end)
+    pid := mut p.t.add_param(param)?
+    n := mut p.add(ast.Kind.param_decl(pid), sp)?
+    return n, no_fail(), noerror
+}
+
+// parse_param_mode parses the scope, mut or own a parameter may start
+// with into param. mut and own together, in either order, are reported at
+// the second, and so are scope with mut or with own. One written twice is
+// left for the parameter's name to report.
+func (mut p Parser) parse_param_mode(mut param ast.Param) (Fail, error) {
+    if !mut p.take_param_mode(mut param) {
+        return no_fail(), noerror
+    }
+    tk := p.peek()
+    is_mut := is_keyword(tk, lexer.keyword_mut)
+    is_own := is_keyword(tk, lexer.keyword_own)
+    is_scope := is_keyword(tk, lexer.keyword_scope)
+    if is_mut && param.is_own || is_own && param.is_mut {
+        f := mut p.fail_str("a parameter cannot be both mut and own; an own parameter is moved into a mutable variable with mut x := p", tok_span(p.file, tk))?
+        return f, noerror
+    }
+    if is_mut && param.is_scope || is_scope && param.is_mut {
+        f := mut p.fail_str("a parameter cannot be both scope and mut: a scope parameter is only called or passed on to another scope parameter, never assigned", tok_span(p.file, tk))?
+        return f, noerror
+    }
+    if is_own && param.is_scope || is_scope && param.is_own {
+        f := mut p.fail_str("a parameter cannot be both scope and own: a scope parameter is a function value, which owns nothing to move", tok_span(p.file, tk))?
+        return f, noerror
+    }
+    return no_fail(), noerror
+}
+
+// take_param_mode takes the next token into param when it is scope, mut
+// or own, and reports whether it was.
+func (mut p Parser) take_param_mode(mut param ast.Param) bool {
+    tk := p.peek()
+    if is_keyword(tk, lexer.keyword_mut) {
+        param.is_mut = true
+        param.mut_span = tok_span(p.file, tk)
+    } else if is_keyword(tk, lexer.keyword_own) {
+        param.is_own = true
+        param.own_span = tok_span(p.file, tk)
+    } else if is_keyword(tk, lexer.keyword_scope) {
+        param.is_scope = true
+        param.scope_span = tok_span(p.file, tk)
+    } else {
+        return false
+    }
+    mut p.next()
+    return true
+}
+
+// start_at_mode returns where param's span starts: at its scope, mut or
+// own, when it has one, and at start otherwise.
+func start_at_mode(param ast.Param, start int64) int64 {
+    if param.is_mut {
+        return param.mut_span.start
+    }
+    if param.is_own {
+        return param.own_span.start
+    }
+    if param.is_scope {
+        return param.scope_span.start
+    }
+    return start
+}
+
+// invalid_token returns the error expected '<expected>' found '<tk>',
+// naming tk by its value, the text of a name or number, the contents of a
+// literal or the keyword it is, or by its kind when it has none, Go's
+// diagInvalidToken. The error is an empty span where tk starts, or, when
+// tk or the next token is the EOF, where the token before it ends.
+func (mut p Parser) invalid_token(expected []uint8, tk lexer.Token) (Fail, error) {
+    start := p.fail_start()
+    append(mut p.msgs, []uint8("expected '")...)?
+    append(mut p.msgs, expected...)?
+    append(mut p.msgs, []uint8("' found '")...)?
+    if lexer.has_text(tk.kind()) {
+        append(mut p.msgs, p.toks.value(tk)...)?
+    } else if tk.kind() == lexer.kind_keyword {
+        tk.keyword().append_string(mut p.msgs)?
+    } else {
+        tk.kind().append_string(mut p.msgs)?
+    }
+    append(mut p.msgs, '\'')?
+
+    mut at := tk.offset_start()
+    if tk.kind() == lexer.kind_eof || p.peek().kind() == lexer.kind_eof {
+        pre, ok := p.peek_prev()
+        if ok {
+            at = pre.offset_end()
+        }
+    }
+    f := mut p.fail_from(start, span_in(p.file, at, at))?
+    return f, noerror
+}

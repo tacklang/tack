@@ -1,0 +1,136 @@
+package ast
+
+// BinaryOp is an infix operator, Go's ast.BinaryOp. It wraps a number
+// because Tack declares no named integer types; the operators are the
+// globals below, numbered as Go's iota constants are, which is what the
+// --ast dump shows.
+pub type BinaryOp struct {
+    n uint8
+}
+
+// op_invalid is the zero BinaryOp, a plain assignment's Op.
+pub var op_invalid = BinaryOp{n: 0}
+
+// op_add is +.
+pub var op_add = BinaryOp{n: 1}
+
+// op_sub is -.
+pub var op_sub = BinaryOp{n: 2}
+
+// op_mul is *.
+pub var op_mul = BinaryOp{n: 3}
+
+// op_div is /.
+pub var op_div = BinaryOp{n: 4}
+
+// op_rem is %.
+pub var op_rem = BinaryOp{n: 5}
+
+// op_eq is ==.
+pub var op_eq = BinaryOp{n: 6}
+
+// op_ne is !=.
+pub var op_ne = BinaryOp{n: 7}
+
+// op_lt is <.
+pub var op_lt = BinaryOp{n: 8}
+
+// op_le is <=.
+pub var op_le = BinaryOp{n: 9}
+
+// op_gt is >.
+pub var op_gt = BinaryOp{n: 10}
+
+// op_ge is >=.
+pub var op_ge = BinaryOp{n: 11}
+
+// op_and is &&.
+pub var op_and = BinaryOp{n: 12}
+
+// op_or is ||.
+pub var op_or = BinaryOp{n: 13}
+
+// op_bit_and is &.
+pub var op_bit_and = BinaryOp{n: 14}
+
+// op_bit_or is |.
+pub var op_bit_or = BinaryOp{n: 15}
+
+// op_bit_xor is ^.
+pub var op_bit_xor = BinaryOp{n: 16}
+
+// op_and_not is &^.
+pub var op_and_not = BinaryOp{n: 17}
+
+// op_shl is <<.
+pub var op_shl = BinaryOp{n: 18}
+
+// op_shr is >>.
+pub var op_shr = BinaryOp{n: 19}
+
+// op_add_wrap is +%.
+pub var op_add_wrap = BinaryOp{n: 20}
+
+// op_sub_wrap is -%.
+pub var op_sub_wrap = BinaryOp{n: 21}
+
+// op_mul_wrap is *%.
+pub var op_mul_wrap = BinaryOp{n: 22}
+
+// number returns the operator's number, Go's value of the constant.
+pub func (o BinaryOp) number() uint8 {
+    return o.n
+}
+
+// UnaryOp is a prefix operator, Go's ast.UnaryOp, numbered as Go's are.
+pub type UnaryOp struct {
+    n uint8
+}
+
+// unary_invalid is the zero UnaryOp, which the parser never produces.
+pub var unary_invalid = UnaryOp{n: 0}
+
+// unary_not is !.
+pub var unary_not = UnaryOp{n: 1}
+
+// unary_neg is -.
+pub var unary_neg = UnaryOp{n: 2}
+
+// unary_complement is ^.
+pub var unary_complement = UnaryOp{n: 3}
+
+// unary_neg_wrap is -%.
+pub var unary_neg_wrap = UnaryOp{n: 4}
+
+// number returns the operator's number, Go's value of the constant.
+pub func (o UnaryOp) number() uint8 {
+    return o.n
+}
+
+// Visibility says which packages may use a declaration or a field by
+// name, Go's ast.Visibility: vis_private, vis_lib or vis_pub, numbered and
+// ordered as Go's are.
+pub type Visibility struct {
+    n uint8
+}
+
+// vis_private is the default, usable only in the declaring package.
+pub var vis_private = Visibility{n: 0}
+
+// vis_lib, written lib, is usable in every package of the module.
+pub var vis_lib = Visibility{n: 1}
+
+// vis_pub, written pub, is usable in every package.
+pub var vis_pub = Visibility{n: 2}
+
+// string returns the keyword that gives v, or "private" for vis_private,
+// which has none, as Go's String does.
+pub func (v Visibility) string() string {
+    if v == vis_lib {
+        return "lib"
+    }
+    if v == vis_pub {
+        return "pub"
+    }
+    return "private"
+}

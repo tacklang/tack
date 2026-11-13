@@ -1,0 +1,163 @@
+package constant
+
+import big from "std/big"
+import conv from "std/conv"
+
+// max_bits is how many bits the numerator and the denominator of a float
+// constant may each take, Go's MaxBits.
+var max_bits int64 = 8192
+
+// max_exponent is the largest power of ten a float literal may scale its
+// digits by, in either direction, before Go's ParseFloat refuses it
+// rather than compute it, Go's maxExponent.
+var max_exponent int64 = 2500
+
+// float_literal_ok reports whether Go's ParseFloat accepts text, a
+// decimal float literal as the lexer accepts it: digits with _ between
+// them, a fraction point, an exponent, e or E with an optional sign and
+// digits, or both. Go refuses text that is not such a literal, and one
+// too large or too precise to hold exactly, its value's numerator or
+// denominator, in lowest terms as a big.Rat keeps them, taking more than
+// max_bits bits.
+//
+// Go's ParseFloat returns the value too, a Float, which the parser keeps
+// on its FloatLit; the --ast dump writes it as {}, since a Float's fields
+// are unexported, and nothing before the type checker reads it. The port
+// has no Float yet: the literal keeps its text, and this computes only
+// whether the value fits, exactly as Go's does. Everything is made
+// through alloc, and freed before it returns; it returns an error only
+// when alloc cannot give it.
+pub func float_literal_ok(text []uint8, scope alloc Allocator) (bool, error) {
+    mut t := make(list[uint8], alloc)
+    reserve(mut t, len(text))?
+    for _, c := range text {
+        if c != '_' {
+            append(mut t, c)?
+        }
+    }
+    for i, c := range t {
+        if c == 'e' || c == 'E' {
+            after := i + 1
+            if after > len(t) {
+                return false, noerror
+            }
+            e, err := conv.parse_int(t[after:], 10, 32)
+            if err.code != 0 {
+                return false, noerror
+            }
+            ok := mantissa_ok(t[:i], e, alloc)?
+            return ok, noerror
+        }
+    }
+    ok := mantissa_ok(t, 0, alloc)?
+    return ok, noerror
+}
+
+// mantissa_ok reports whether the literal whose mantissa, its digits and
+// fraction point without underscores, is mant, scaled by 10^exp, an int32
+// exponent, is one Go's ParseFloat accepts (see float_literal_ok).
+func mantissa_ok(mant []uint8, exp int64, scope alloc Allocator) (bool, error) {
+    mut digits := make(list[uint8], alloc)
+    reserve(mut digits, len(mant))?
+    mut frac_len int64 = 0
+    mut seen_point := false
+    for _, c := range mant {
+        if c == '.' && !seen_point {
+            seen_point = true
+            continue
+        }
+        if c < '0' || c > '9' {
+            return false, noerror
+        }
+        if seen_point {
+            // frac_len counts bytes of mant, so it never wraps.
+            frac_len +%= 1
+        }
+        append(mut digits, c)?
+    }
+    if len(digits) == 0 {
+        return false, noerror
+    }
+    for i, c := range digits {
+        if c != '0' {
+            // exp fits an int32 and frac_len is at most the literal's
+            // length, so the difference cannot overflow an int64.
+            ok := value_fits(digits[i:], exp -% frac_len, alloc)?
+            return ok, noerror
+        }
+    }
+    // Every digit is 0: the value is 0, which fits.
+    return true, noerror
+}
+
+// value_fits reports whether n * 10^scale, n the decimal digits
+// significant, which start with one that is not 0, can be held: scale and
+// the digits within max_exponent, and the value's numerator and
+// denominator in lowest terms each below 2^max_bits. For a scale of 0 or
+// more the value is an integer. For a negative scale it is n / 10^k, k =
+// -scale, which in lowest terms is (n / 2^a 5^b) / (2^(k-a) 5^(k-b)),
+// where a and b are how many times 2 and 5 divide n, at most k each.
+func value_fits(significant []uint8, scale int64, scope alloc Allocator) (bool, error) {
+    if scale > max_exponent || scale < -max_exponent || len(significant) > max_exponent {
+        return false, noerror
+    }
+    n := big.parse(significant, 10, alloc)?
+    one := big.from_int64(1, alloc)?
+    limit := big.shl(one, max_bits, alloc)?
+    if scale >= 0 {
+        scaling := pow(10, scale, alloc)?
+        num := big.mul(n, scaling, alloc)?
+        return big.cmp(num, limit) < 0, noerror
+    }
+    k := -scale
+    a := multiplicity(n, 2, k, alloc)?
+    b := multiplicity(n, 5, k, alloc)?
+    // n / 2^a 5^b, the numerator in lowest terms: 2^a and 5^b divide n.
+    shifted := big.shr(n, a, alloc)?
+    fives := pow(5, b, alloc)?
+    num, remainder := big.div_mod(shifted, fives, alloc)?
+    if !big.is_zero(remainder) {
+        // 5^b divides n, so this does not happen.
+        return false, error{code: 2, msg: "internal error: a float literal's digits did not divide"}
+    }
+    // 2^(k-a) 5^(k-b), the denominator in lowest terms; a and b are at
+    // most k, so neither count is negative.
+    den_fives := pow(5, k -% b, alloc)?
+    den := big.shl(den_fives, k -% a, alloc)?
+    return big.cmp(num, limit) < 0 && big.cmp(den, limit) < 0, noerror
+}
+
+// pow returns base^e, for an e of 0 or more, made through alloc, by
+// repeated squaring.
+func pow(base int64, e int64, scope alloc Allocator) (big.Int, error) {
+    mut result := big.from_int64(1, alloc)?
+    mut square := big.from_int64(base, alloc)?
+    mut rest := e
+    for rest > 0 {
+        if rest % 2 == 1 {
+            result = big.mul(result, square, alloc)?
+        }
+        rest = rest / 2
+        if rest > 0 {
+            square = big.mul(square, square, alloc)?
+        }
+    }
+    return result, noerror
+}
+
+// multiplicity returns how many times p, 2 or 5, divides n, a positive
+// Int, counting at most limit times.
+func multiplicity(n big.Int, p int64, limit int64, scope alloc Allocator) (int64, error) {
+    divisor := big.from_int64(p, alloc)?
+    mut count int64 = 0
+    mut rest := big.abs(n, alloc)?
+    for count < limit {
+        q, r := big.div_mod(rest, divisor, alloc)?
+        if !big.is_zero(r) {
+            break
+        }
+        rest = q
+        count +%= 1
+    }
+    return count, noerror
+}

@@ -1,0 +1,516 @@
+package parser
+
+import ast from "tack/ast"
+import lexer from "tack/lexer"
+
+// The kinds of composite type parse_composite_type parses, which Go's
+// compositeType returns a parser for, and parse_type_operand parses as an
+// operand: list_kind, map_kind, arena_kind and pool_kind for the keyword
+// types, array_kind for an array or a view type, func_kind for a function
+// type and ref_kind for an id, a span or a handle type. no_kind is none
+// of them.
+var no_kind int64 = 0
+var array_kind int64 = 1
+var list_kind int64 = 2
+var map_kind int64 = 3
+var arena_kind int64 = 4
+var pool_kind int64 = 5
+var func_kind int64 = 6
+var ref_kind int64 = 7
+
+// starts_type reports whether tk can start a type: a name, an array
+// type's bracket, list, map, arena, pool, func, or struct or union, which
+// parse_type reports, since a struct type can only be declared.
+func (p Parser) starts_type(tk lexer.Token) bool {
+    k := tk.kind()
+    if k == lexer.kind_ident || k == lexer.kind_l_brack {
+        return true
+    }
+    if k != lexer.kind_keyword {
+        return false
+    }
+    kw := tk.keyword()
+    return kw == lexer.keyword_struct || kw == lexer.keyword_list || kw == lexer.keyword_union ||
+        kw == lexer.keyword_arena || kw == lexer.keyword_pool || kw == lexer.keyword_map ||
+        kw == lexer.keyword_func
+}
+
+// parse_type parses a type: a name, qualified or not, an array type, a
+// view type, a list type, a map type or a function type. A ... here is
+// one written anywhere but before a parameter's type, and is reported.
+func (mut p Parser) parse_type() (id[ast.Node], Fail, error) {
+    tk := p.peek()
+    if tk.kind() == lexer.kind_ellipsis {
+        f := mut p.not_final(tok_span(p.file, tk))?
+        return no_node(), f, noerror
+    }
+
+    which := p.composite_type()
+    if which != no_kind {
+        n, f := mut p.parse_composite_type(which)?
+        return n, f, noerror
+    }
+    af := mut p.anonymous_type()?
+    if af.failed() {
+        return no_node(), af, noerror
+    }
+    // A type is never a field, so a name, a period and a name is always a
+    // qualified type name, whether or not the first name is an import's.
+    if p.peek().kind() == lexer.kind_ident && p.peek_at(1).kind() == lexer.kind_period &&
+        p.peek_at(2).kind() == lexer.kind_ident {
+        n := mut p.parse_qualified()?
+        return n, no_fail(), noerror
+    }
+    n, f := mut p.parse_ident([]uint8("type name"))?
+    return n, f, noerror
+}
+
+// composite_type returns the kind of the type that starts with the next
+// token when it is an array or a view type's bracket, list, map, arena,
+// pool or func, or id, span or handle and a bracket, and no_kind for any
+// other.
+func (p Parser) composite_type() int64 {
+    tk := p.peek()
+    if tk.kind() == lexer.kind_l_brack {
+        return array_kind
+    }
+    if is_keyword(tk, lexer.keyword_list) {
+        return list_kind
+    }
+    if is_keyword(tk, lexer.keyword_map) {
+        return map_kind
+    }
+    if is_keyword(tk, lexer.keyword_arena) {
+        return arena_kind
+    }
+    if is_keyword(tk, lexer.keyword_pool) {
+        return pool_kind
+    }
+    if is_keyword(tk, lexer.keyword_func) {
+        return func_kind
+    }
+    if p.at_ref_type() {
+        return ref_kind
+    }
+    return no_kind
+}
+
+// parse_composite_type parses the composite type of kind which, which
+// composite_type has seen starts next.
+func (mut p Parser) parse_composite_type(which int64) (id[ast.Node], Fail, error) {
+    if which == array_kind {
+        n, f := mut p.parse_array_type(false)?
+        return n, f, noerror
+    }
+    if which == list_kind {
+        n, f := mut p.parse_list_type()?
+        return n, f, noerror
+    }
+    if which == map_kind {
+        n, f := mut p.parse_map_type()?
+        return n, f, noerror
+    }
+    if which == arena_kind || which == pool_kind {
+        n, f := mut p.parse_keyword_type(which)?
+        return n, f, noerror
+    }
+    if which == func_kind {
+        n, f := mut p.parse_func_type()?
+        return n, f, noerror
+    }
+    n, f := mut p.parse_ref_type()?
+    return n, f, noerror
+}
+
+// anonymous_type reports a struct or a union type written where a type
+// is, rather than declared, when one comes next, which is not supported.
+func (mut p Parser) anonymous_type() (Fail, error) {
+    tk := p.peek()
+    if is_keyword(tk, lexer.keyword_struct) {
+        f := mut p.fail_str("anonymous structs are not supported", tok_span(p.file, tk))?
+        return f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_union) {
+        f := mut p.fail_str("anonymous unions are not supported", tok_span(p.file, tk))?
+        return f, noerror
+    }
+    return no_fail(), noerror
+}
+
+// parse_qualified parses a name, a period and a name, which the caller
+// has seen are next, as one qualified ident spanning all three.
+func (mut p Parser) parse_qualified() (id[ast.Node], error) {
+    pkg := mut p.next()
+    mut p.next() // the period
+    name := mut p.next()
+    pkg_str := mut p.tok_str(pkg)?
+    name_str := mut p.tok_str(name)?
+    n := mut p.add(ast.Kind.ident(ast.Ident{pkg: pkg_str, name: name_str, pkg_span: tok_span(p.file, pkg)}),
+        span_in(p.file, pkg.offset_start(), name.offset_end()))?
+    return n, noerror
+}
+
+// parse_name parses a name, qualified by an import's name or not;
+// expected says what it is, for the error when there is none.
+func (mut p Parser) parse_name(expected []uint8) (id[ast.Node], Fail, error) {
+    if qualified_ahead(p.tokens, p.index, p.toks, p.imports, p.t.bytes, 0) {
+        n := mut p.parse_qualified()?
+        return n, no_fail(), noerror
+    }
+    n, f := mut p.parse_ident(expected)?
+    return n, f, noerror
+}
+
+// parse_array_type parses [n]T. In an array literal, literal is true and
+// the length may be [...], left for the elements to give. An empty
+// length, [], makes it a view type, []T.
+func (mut p Parser) parse_array_type(literal bool) (id[ast.Node], Fail, error) {
+    nf := mut p.nest(p.peek())?
+    if nf.failed() {
+        return no_node(), nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    open := mut p.next() // the opening bracket
+    mut length := no_node()
+
+    tk := p.peek()
+    if tk.kind() == lexer.kind_r_brack {
+        n, f := mut p.parse_view_type(open)?
+        return n, f, noerror
+    }
+    if tk.kind() == lexer.kind_ellipsis {
+        mut p.next()
+        if !literal {
+            f := mut p.fail_str("[...] can only be used in an array literal", span_in(p.file, open.offset_start(), tk.offset_end()))?
+            return no_node(), f, noerror
+        }
+    } else {
+        old := p.no_lit
+        p.no_lit = false
+        n, f := mut p.parse_expr(1)?
+        p.no_lit = old
+        if is_nil(n) {
+            return no_node(), f, noerror
+        }
+        length = n
+    }
+    ok, f := mut p.expect(lexer.kind_r_brack)?
+    if !ok {
+        return no_node(), f, noerror
+    }
+
+    elem, ef := mut p.parse_type()?
+    if is_nil(elem) {
+        return no_node(), ef, noerror
+    }
+    n := mut p.add(ast.Kind.array_type(ast.ArrayType{length: length, elem: elem}),
+        span_in(p.file, open.offset_start(), p.spanned(elem).end))?
+    return n, no_fail(), noerror
+}
+
+// parse_view_type parses the rest of a view type, []T, whose opening
+// bracket, open, has been read and whose closing one is next.
+func (mut p Parser) parse_view_type(open lexer.Token) (id[ast.Node], Fail, error) {
+    mut p.next() // the closing bracket
+    elem, f := mut p.parse_type()?
+    if is_nil(elem) {
+        return no_node(), f, noerror
+    }
+    n := mut p.add(ast.Kind.view_type(elem), span_in(p.file, open.offset_start(), p.spanned(elem).end))?
+    return n, no_fail(), noerror
+}
+
+// parse_list_type parses a list type, list[T], whose keyword is next.
+func (mut p Parser) parse_list_type() (id[ast.Node], Fail, error) {
+    nf := mut p.nest(p.peek())?
+    if nf.failed() {
+        return no_node(), nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    kw := mut p.next()
+    ok, f := mut p.expect(lexer.kind_l_brack)?
+    if !ok {
+        return no_node(), f, noerror
+    }
+    elem, ef := mut p.parse_type()?
+    if is_nil(elem) {
+        return no_node(), ef, noerror
+    }
+    rok, rf := mut p.expect(lexer.kind_r_brack)?
+    if !rok {
+        return no_node(), rf, noerror
+    }
+    n := mut p.add(ast.Kind.list_type(elem), span_in(p.file, kw.offset_start(), p.prev_end()))?
+    return n, no_fail(), noerror
+}
+
+// parse_keyword_type parses an arena type, arena[T], or a pool type,
+// pool[T], which says, whose keyword is next, Go's parseArenaType and
+// parsePoolType.
+func (mut p Parser) parse_keyword_type(which int64) (id[ast.Node], Fail, error) {
+    nf := mut p.nest(p.peek())?
+    if nf.failed() {
+        return no_node(), nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    kw := mut p.next()
+    elem, f := mut p.parse_bracketed_type()?
+    if is_nil(elem) {
+        return no_node(), f, noerror
+    }
+    sp := span_in(p.file, kw.offset_start(), p.prev_end())
+    if which == arena_kind {
+        n := mut p.add(ast.Kind.arena_type(elem), sp)?
+        return n, no_fail(), noerror
+    }
+    n := mut p.add(ast.Kind.pool_type(elem), sp)?
+    return n, no_fail(), noerror
+}
+
+// at_ref_type reports whether the next tokens are id, span or handle and
+// an opening bracket, the start of an id, a span or a handle type.
+func (p Parser) at_ref_type() bool {
+    tk := p.peek()
+    if tk.kind() != lexer.kind_ident || p.peek_at(1).kind() != lexer.kind_l_brack {
+        return false
+    }
+    return equal_bytes(p.value(tk), []uint8("id")) || equal_bytes(p.value(tk), []uint8("span")) ||
+        equal_bytes(p.value(tk), []uint8("handle"))
+}
+
+// parse_ref_type parses an id, a span or a handle type, id[T], span[T] or
+// handle[T], whose name is next.
+func (mut p Parser) parse_ref_type() (id[ast.Node], Fail, error) {
+    nf := mut p.nest(p.peek())?
+    if nf.failed() {
+        return no_node(), nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    name := mut p.next()
+    elem, f := mut p.parse_bracketed_type()?
+    if is_nil(elem) {
+        return no_node(), f, noerror
+    }
+    name_str := mut p.tok_str(name)?
+    n := mut p.add(ast.Kind.ref_type(ast.RefType{name: name_str, elem: elem, name_span: tok_span(p.file, name)}),
+        span_in(p.file, name.offset_start(), p.prev_end()))?
+    return n, no_fail(), noerror
+}
+
+// parse_ref_operand parses an id, a span or a handle type written where
+// an operand is: followed by a conversion's argument in parentheses, a
+// call whose Fn is the type, or by braces, a literal of it, or alone.
+func (mut p Parser) parse_ref_operand() (id[ast.Node], Fail, error) {
+    typ, f := mut p.parse_ref_type()?
+    if is_nil(typ) {
+        return no_node(), f, noerror
+    }
+    if p.peek().kind() == lexer.kind_l_paren {
+        c, cf := mut p.parse_args(typ, p.spanned(typ))?
+        if is_nil(c) {
+            return no_node(), cf, noerror
+        }
+        n, pf := mut p.parse_postfix(c)?
+        return n, pf, noerror
+    }
+    n, lf := mut p.type_operand_lit(typ)?
+    return n, lf, noerror
+}
+
+// parse_bracketed_type parses a type in brackets, [T], whose opening
+// bracket is next, and returns T.
+func (mut p Parser) parse_bracketed_type() (id[ast.Node], Fail, error) {
+    ok, f := mut p.expect(lexer.kind_l_brack)?
+    if !ok {
+        return no_node(), f, noerror
+    }
+    elem, ef := mut p.parse_type()?
+    if is_nil(elem) {
+        return no_node(), ef, noerror
+    }
+    rok, rf := mut p.expect(lexer.kind_r_brack)?
+    if !rok {
+        return no_node(), rf, noerror
+    }
+    return elem, no_fail(), noerror
+}
+
+// parse_map_type parses a map type, map[K]V, whose keyword is next.
+func (mut p Parser) parse_map_type() (id[ast.Node], Fail, error) {
+    nf := mut p.nest(p.peek())?
+    if nf.failed() {
+        return no_node(), nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    kw := mut p.next()
+    ok, f := mut p.expect(lexer.kind_l_brack)?
+    if !ok {
+        return no_node(), f, noerror
+    }
+    key, kf := mut p.parse_type()?
+    if is_nil(key) {
+        return no_node(), kf, noerror
+    }
+    cok, cf := mut p.expect(lexer.kind_r_brack)?
+    if !cok {
+        return no_node(), cf, noerror
+    }
+    value, vf := mut p.parse_type()?
+    if is_nil(value) {
+        return no_node(), vf, noerror
+    }
+    n := mut p.add(ast.Kind.map_type(ast.MapType{key: key, value: value}),
+        span_in(p.file, kw.offset_start(), p.spanned(value).end))?
+    return n, no_fail(), noerror
+}
+
+// parse_func_type parses a function type, func(A, mut B) R, whose
+// keyword is next: its parameters' types in parentheses, each with mut,
+// own or scope before it when it is so, separated by commas, and its
+// results as a function's are written, unless a name and a type follow,
+// which start the next parameter of a list it is a parameter's type in.
+func (mut p Parser) parse_func_type() (id[ast.Node], Fail, error) {
+    nf := mut p.nest(p.peek())?
+    if nf.failed() {
+        return no_node(), nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    kw := mut p.next()
+    ok, f := mut p.expect(lexer.kind_l_paren)?
+    if !ok {
+        return no_node(), f, noerror
+    }
+    mut params := make(list[id[ast.Node]], p.alloc)
+    for p.peek().kind() != lexer.kind_r_paren {
+        param, pf := mut p.parse_func_type_param()?
+        if is_nil(param) {
+            return no_node(), pf, noerror
+        }
+        append(mut params, param)?
+        if p.peek().kind() != lexer.kind_comma {
+            break
+        }
+        mut p.next()
+    }
+    rok, rf := mut p.expect(lexer.kind_r_paren)?
+    if !rok {
+        return no_node(), rf, noerror
+    }
+    mut results ast.Nodes
+    // A name followed by a type is the next parameter of a parameter
+    // list, f func() n int64, its comma left out, so the function type
+    // returns nothing.
+    if p.peek().kind() != lexer.kind_ident || !p.starts_type(p.peek_at(1)) {
+        r, resf := mut p.parse_results()?
+        if resf.failed() {
+            return no_node(), resf, noerror
+        }
+        results = r
+    }
+    mut l ast.Nodes
+    if len(params) > 0 {
+        l = mut p.add_list(params)?
+    }
+    n := mut p.add(ast.Kind.func_type(ast.FuncType{params: l, results: results}),
+        span_in(p.file, kw.offset_start(), p.last_end()))?
+    return n, no_fail(), noerror
+}
+
+// parse_func_type_param parses one parameter of a function type: its
+// type, with mut, own or scope before it. A name before the type and a
+// ... are reported.
+func (mut p Parser) parse_func_type_param() (id[ast.Node], Fail, error) {
+    mut param ast.Param
+    mf := mut p.parse_param_mode(mut param)?
+    if mf.failed() {
+        return no_node(), mf, noerror
+    }
+    tk := p.peek()
+    if tk.kind() == lexer.kind_ellipsis {
+        f := mut p.fail_str("a function type cannot have a variadic parameter", tok_span(p.file, tk))?
+        return no_node(), f, noerror
+    }
+    typ, f := mut p.parse_type()?
+    if is_nil(typ) {
+        return no_node(), f, noerror
+    }
+    // A basic type's name is never a parameter's, so one followed by a
+    // type is a comma left out, which expect reports.
+    name, is_name := ident_of(p.t.nodes, typ)
+    if is_name && len(p.text(name.pkg)) == 0 && !is_basic_type(p.text(name.name)) {
+        next := p.peek()
+        if p.starts_type(next) || next.kind() == lexer.kind_ellipsis {
+            start := p.fail_start()
+            append(mut p.msgs, []uint8("a function type's parameters have no names; write only the type, not ")...)?
+            append(mut p.msgs, p.t.text(name.name)...)?
+            nf := mut p.fail_from(start, p.spanned(typ))?
+            return no_node(), nf, noerror
+        }
+    }
+    param.type_expr = typ
+    param.name_span = ast.unset_span()
+    typ_span := p.spanned(typ)
+    pid := mut p.t.add_param(param)?
+    n := mut p.add(ast.Kind.param_decl(pid), span_in(p.file, start_at_mode(param, typ_span.start), typ_span.end))?
+    return n, no_fail(), noerror
+}
+
+// basic_types are the names of the basic types a program can write,
+// which Go's types.Lookup finds; the types package is not ported yet.
+var basic_types = [17]string{
+    "int64", "string", "bool", "int8", "int16", "int32", "uint8", "uint16", "uint32", "uint64",
+    "unsafe_size_t", "unsafe_uintptr_t", "any", "error", "Allocator", "float32", "float64",
+}
+
+// is_basic_type reports whether name is a basic type's, such as int64,
+// which no declaration may take as its name.
+func is_basic_type(name []uint8) bool {
+    for _, b := range basic_types {
+        if equal_bytes(name, []uint8(b)) {
+            return true
+        }
+    }
+    return false
+}
+
+// parse_type_operand parses a list, a map, an arena or a pool type, of
+// kind which, written where an operand is, and a literal of it.
+func (mut p Parser) parse_type_operand(which int64) (id[ast.Node], Fail, error) {
+    mut typ := no_node()
+    mut f := no_fail()
+    if which == list_kind {
+        typ, f = mut p.parse_list_type()?
+    } else if which == map_kind {
+        typ, f = mut p.parse_map_type()?
+    } else {
+        typ, f = mut p.parse_keyword_type(which)?
+    }
+    if is_nil(typ) {
+        return no_node(), f, noerror
+    }
+    n, lf := mut p.type_operand_lit(typ)?
+    return n, lf, noerror
+}
+
+// type_operand_lit parses what follows typ, a type written where an
+// operand is: a literal of it, when braces follow and literals are
+// allowed, or nothing, typ alone.
+func (mut p Parser) type_operand_lit(typ id[ast.Node]) (id[ast.Node], Fail, error) {
+    if p.peek().kind() != lexer.kind_l_curl || p.no_lit {
+        return typ, no_fail(), noerror
+    }
+    n, f := mut p.parse_lit_body(typ, p.spanned(typ).start)?
+    return n, f, noerror
+}

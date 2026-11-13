@@ -1,0 +1,102 @@
+package constant
+
+// The bitwise operators work on an Int as Go's work on its untyped
+// constants: on the infinitely wide two's complement form of the value,
+// in which a negative value has every bit above its magnitude set. Every
+// Int lies in [-2^63, 2^64), so 65 bits hold that form exactly: a sign,
+// set for a negative value and copied into every bit above, and the 64
+// bits below it. An operator works on the two parts on its own, and the
+// result, also 65 bits, is in range unless it is negative with a
+// magnitude past 2^63.
+
+// twos_low returns the 64 low bits of x's 65-bit two's complement form;
+// x.neg is its sign bit.
+func twos_low(x Int) uint64 {
+    if x.neg {
+        return 0 -% x.mag
+    }
+    return x.mag
+}
+
+// from_twos returns the Int whose 65-bit two's complement form is lo and
+// neg, and reports whether it is in range. A negative value whose low bits
+// are all zero is -2^64, which is not.
+func from_twos(lo uint64, neg bool) (Int, bool) {
+    if !neg {
+        return Int{mag: lo, neg: false}, true
+    }
+    if lo == 0 {
+        return Int{mag: 0, neg: false}, false
+    }
+    r, ok := build(0 -% lo, true)
+    return r, ok
+}
+
+// bit_and returns x & y, and reports whether it is in range, Go's And.
+pub func (x Int) bit_and(y Int) (Int, bool) {
+    r, ok := from_twos(twos_low(x) & twos_low(y), x.neg && y.neg)
+    return r, ok
+}
+
+// bit_or returns x | y, and reports whether it is in range, Go's Or.
+pub func (x Int) bit_or(y Int) (Int, bool) {
+    r, ok := from_twos(twos_low(x) | twos_low(y), x.neg || y.neg)
+    return r, ok
+}
+
+// bit_xor returns x ^ y, and reports whether it is in range, Go's Xor.
+pub func (x Int) bit_xor(y Int) (Int, bool) {
+    r, ok := from_twos(twos_low(x) ^ twos_low(y), x.neg != y.neg)
+    return r, ok
+}
+
+// and_not returns x &^ y, x with every bit set in y cleared, and reports
+// whether it is in range, Go's AndNot.
+pub func (x Int) and_not(y Int) (Int, bool) {
+    r, ok := from_twos(twos_low(x) & ^twos_low(y), x.neg && !y.neg)
+    return r, ok
+}
+
+// complement returns ^x, every bit of x flipped, which is -x - 1, and
+// reports whether it is in range, Go's Not.
+pub func (x Int) complement() (Int, bool) {
+    r, ok := from_twos(^twos_low(x), !x.neg)
+    return r, ok
+}
+
+// shl returns x << n, x times 2^n, exactly, and reports whether it is in
+// range. Nothing is lost off the top, as nothing is in any constant
+// arithmetic.
+pub func (x Int) shl(n uint64) (Int, bool) {
+    if x.mag == 0 {
+        return Int{mag: 0, neg: false}, true
+    }
+    if n >= 64 || n > 0 && x.mag >> (64 - n) != 0 {
+        return Int{mag: 0, neg: false}, false
+    }
+    r, ok := build(x.mag << n, x.neg)
+    return r, ok
+}
+
+// shr returns x >> n, x divided by 2^n rounded down, toward negative
+// infinity, as an arithmetic shift does. It is always in range: a
+// non-negative x shifted far enough is 0, and a negative one -1.
+pub func (x Int) shr(n uint64) (Int, bool) {
+    if !x.neg {
+        if n >= 64 {
+            return Int{mag: 0, neg: false}, true
+        }
+        return Int{mag: x.mag >> n, neg: false}, true
+    }
+    if n >= 64 {
+        return Int{mag: 1, neg: true}, true
+    }
+    mut q := x.mag >> n
+    if x.mag & ((uint64(1) << n) -% 1) != 0 {
+        // q is below 2^64 - 1 here: the bits shifted out are not all
+        // zero, so n is at least 1 and q at most 2^63 - 1.
+        q = q +% 1
+    }
+    r, ok := build(q, true)
+    return r, ok
+}

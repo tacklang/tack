@@ -1,0 +1,1146 @@
+package ast
+
+import json from "std/json"
+import source from "tack/source"
+
+// The --ast dump. Go's driver renders a File with encoding/json, whose
+// reflection writes each node as an object of its struct's exported
+// fields, keyed by their names, those tagged json:"-" left out and those
+// tagged omitempty left out at their zero value, a nil slice as null and
+// an empty one as [], and an interface holding a node as that node's
+// object, with nothing saying which type it is. dump writes the same
+// value field for field, in the order Go declares them, with the fields
+// the passes after the parser fill in at the zero value the parser leaves
+// them at: every Type and Conv 0, every Const and Def null, every
+// ResultTypes null, and a literal's constant.Int or constant.Float {},
+// since neither has an exported field. An Ident's Def is null and its
+// PkgSpan and Pkg left out unless it is qualified, as its MarshalJSON
+// writes it. Go indents the JSON; dump writes it compact, which decodes to
+// the same value.
+//
+// A tree is as deep as its source makes it: a chain of a thousand binary
+// operators is a thousand nodes deep, though it nests no deeper for the
+// parser. Go's encoder recurses, on a stack that grows; a Tack program's
+// stack does not, so dump walks the tree with a stack of its own, Frames
+// in a list, and each node's fields are steps, Ops, that op_at gives one
+// at a time: writing one is a step of the walk, and a field holding a
+// node pushes it.
+
+// dump returns the JSON value of f, the tree of the file named name, as
+// Go's driver writes it for --ast, made through alloc, and an empty
+// refusal; or, for a tree whose JSON would nest objects and arrays more
+// than max_depth deep, which Go's encoder refuses, an empty list and the
+// error Go's encoder words its refusal with (see refusal). It returns the
+// builtin append's out of memory when the JSON cannot grow.
+pub func dump(f File, name []uint8, scope alloc Allocator) (list[uint8], string, error) {
+    mut d := Dumper{w: json.new_writer(alloc), depth: 0, stack: make(list[Frame], alloc), in_ident: false, deep_in_ident: false}
+    e := write_file(f, name, mut d)
+    if e.code == too_deep.code && e.msg == too_deep.msg {
+        return make(list[uint8], alloc), refusal(d.deep_in_ident), noerror
+    }
+    if e.code != 0 {
+        return make(list[uint8], alloc), "", e
+    }
+    out := mut d.w.finish(alloc)?
+    return out, "", noerror
+}
+
+// refusal returns how Go's encoder words its refusal of a value nested
+// past max_depth: exceeded max depth, or, when the container past the
+// limit is part of an Ident, which Go writes with its own MarshalJSON,
+// that message after the one Go's encoder gives for a MarshalJSON that
+// failed. Ident's is the only MarshalJSON among the nodes; Visibility
+// has a MarshalText, which writes a string, no container.
+func refusal(in_ident bool) string {
+    if in_ident {
+        return "json: error calling MarshalJSON for type *ast.Ident: exceeded max depth"
+    }
+    return "exceeded max depth"
+}
+
+// max_depth is how deep Go's JSON encoder lets objects and arrays nest:
+// it refuses a value that opens one more inside as many, with the error
+// exceeded max depth.
+pub var max_depth int64 = 10000
+
+// too_deep is the error that unwinds the dump of a tree whose JSON nests
+// past max_depth, which dump turns into its false.
+var too_deep = error{code: 2, msg: "exceeded max depth"}
+
+// Dumper is the state of one dump: the JSON so far, how many objects and
+// arrays are open in it, and the nodes being written, each a Frame, the
+// innermost last.
+type Dumper struct {
+    w json.Writer
+    depth int64
+    stack list[Frame]
+    // in_ident says the node being written is an Ident, and
+    // deep_in_ident that a container of one was the one past max_depth.
+    in_ident bool
+    deep_in_ident bool
+}
+
+// Frame is a node being written: the node n, the index of the next of its
+// Ops to write, or -1 once it is written, and, while one of its lists is
+// being written, in_list set with the list and the position of the next
+// item.
+type Frame struct {
+    n id[Node]
+    op int64
+    in_list bool
+    items Nodes
+    pos int64
+}
+
+// begin_object opens an object, or returns too_deep when max_depth are
+// open already.
+func (mut d Dumper) begin_object() error {
+    if d.depth >= max_depth {
+        d.deep_in_ident = d.in_ident
+        return too_deep
+    }
+    mut d.w.begin_object()?
+    d.depth +%= 1
+    return noerror
+}
+
+// begin_array opens an array, or returns too_deep when max_depth are open
+// already.
+func (mut d Dumper) begin_array() error {
+    if d.depth >= max_depth {
+        d.deep_in_ident = d.in_ident
+        return too_deep
+    }
+    mut d.w.begin_array()?
+    d.depth +%= 1
+    return noerror
+}
+
+// end_object closes the innermost container, an object.
+func (mut d Dumper) end_object() error {
+    mut d.w.end_object()?
+    d.depth -%= 1
+    return noerror
+}
+
+// end_array closes the innermost container, an array.
+func (mut d Dumper) end_array() error {
+    mut d.w.end_array()?
+    d.depth -%= 1
+    return noerror
+}
+
+// key writes s as the next member's key.
+func (mut d Dumper) key(s string) error {
+    return mut d.w.key([]uint8(s))
+}
+
+// write_file writes f, the tree of the file named name, as Go writes an
+// ast.File.
+func write_file(f File, name []uint8, mut d Dumper) error {
+    mut d.begin_object()?
+    mut d.key("Package")?
+    mut d.w.string(f.text(f.package_name))?
+    mut d.key("Imports")?
+    mut d.begin_array()?
+    for _, n := range f.imports {
+        write_tree(f, name, mut d, n)?
+    }
+    mut d.end_array()?
+    mut d.key("Decls")?
+    mut d.begin_array()?
+    for _, n := range f.decls {
+        write_tree(f, name, mut d, n)?
+    }
+    mut d.end_array()?
+    mut d.key("Comments")?
+    mut d.begin_array()?
+    for _, c := range f.comments {
+        mut d.begin_object()?
+        mut d.key("Value")?
+        mut d.w.string(f.text(c.value))?
+        write_span(name, mut d, "Span", c.span)?
+        mut d.end_object()?
+    }
+    mut d.end_array()?
+    write_span(name, mut d, "Span", f.span)?
+    write_span(name, mut d, "PackageSpan", f.package_span)?
+    return mut d.end_object()
+}
+
+// write_span writes the member k, the span sp, in the file named name, as
+// Go writes an ast.Span: its File, the file's name, which is the FileID
+// in Go, or "" for a span never set (see unset_span), and its Start and
+// End.
+func write_span(name []uint8, mut d Dumper, k string, sp source.Span) error {
+    mut d.key(k)?
+    mut d.begin_object()?
+    mut d.key("File")?
+    if sp.file.n < 0 {
+        mut d.w.string(name[:0])?
+    } else {
+        mut d.w.string(name)?
+    }
+    mut d.key("Start")?
+    mut d.w.int(sp.start)?
+    mut d.key("End")?
+    mut d.w.int(sp.end)?
+    return mut d.end_object()
+}
+
+// new_frame returns the frame that starts writing the node n.
+func new_frame(n id[Node]) Frame {
+    mut items span[id[Node]]
+    return Frame{n: n, op: 0, in_list: false, items: Nodes{items: items, made: false}, pos: 0}
+}
+
+// write_tree writes the node n and everything under it, a value where
+// one is expected, with the Dumper's stack, which it leaves as it found
+// it: empty.
+func write_tree(f File, name []uint8, mut d Dumper, n id[Node]) error {
+    if is_none(n) {
+        return mut d.w.null()
+    }
+    append(mut d.stack, new_frame(n))?
+    for len(d.stack) > 0 {
+        mut fr := last_frame(d.stack)
+        child := step(f, name, mut d, mut fr)?
+        set_last_frame(mut d.stack, fr)
+        if fr.op < 0 {
+            pop(mut d.stack)
+        }
+        if !is_none(child) {
+            append(mut d.stack, new_frame(child))?
+        }
+    }
+    return noerror
+}
+
+// last_frame returns the innermost frame of stack, which is not empty, or
+// a written one should it be.
+func last_frame(stack []Frame) Frame {
+    fr, ok := stack[len(stack) -% 1]
+    if ok {
+        return fr
+    }
+    mut z Frame
+    z.op = -1
+    return z
+}
+
+// set_last_frame replaces the innermost frame of stack with fr.
+func set_last_frame(mut stack list[Frame], fr Frame) {
+    i := len(stack) -% 1
+    if i >= 0 && i < len(stack) {
+        stack[i] = fr
+    }
+}
+
+// step writes the next part of fr's node: an item of the list being
+// written, or its next Op. It returns the node a field or an item holds,
+// for the walk to write next, or none, and sets fr.op to -1 once the
+// node is written.
+func step(f File, name []uint8, mut d Dumper, mut fr Frame) (id[Node], error) {
+    if fr.in_list {
+        item, ok := f.items(fr.items)[fr.pos]
+        if ok {
+            fr.pos +%= 1
+            if is_none(item) {
+                mut d.w.null()?
+            }
+            return item, noerror
+        }
+        d.in_ident = false
+        mut d.end_array()?
+        fr.in_list = false
+        return no_child(), noerror
+    }
+    d.in_ident = is_ident(f, fr.n)
+    op := op_at(f, fr.n, fr.op)
+    fr.op +%= 1
+    switch op {
+    case open:
+        mut d.begin_object()?
+    case close:
+        mut d.end_object()?
+        fr.op = -1
+    case skip:
+    case node(o):
+        mut d.key(o.key)?
+        if is_none(o.n) {
+            mut d.w.null()?
+        } else {
+            return o.n, noerror
+        }
+    case nodes(o):
+        mut d.key(o.key)?
+        if !o.l.made {
+            mut d.w.null()?
+        } else {
+            mut d.begin_array()?
+            fr.in_list = true
+            fr.items = o.l
+            fr.pos = 0
+        }
+    case span_value(o):
+        write_span(name, mut d, o.key, o.sp)?
+    case str(o):
+        mut d.key(o.key)?
+        mut d.w.string(f.text(o.s))?
+    case word(o):
+        mut d.key(o.key)?
+        mut d.w.string([]uint8(o.s))?
+    case null_value(k):
+        mut d.key(k)?
+        mut d.w.null()?
+    case flag(o):
+        mut d.key(o.key)?
+        mut d.w.bool(o.v)?
+    case number(o):
+        mut d.key(o.key)?
+        mut d.w.int(o.v)?
+    case empty(k):
+        mut d.key(k)?
+        mut d.begin_object()?
+        mut d.end_object()?
+    }
+    return no_child(), noerror
+}
+
+// is_ident reports whether n is an Ident.
+func is_ident(f File, n id[Node]) bool {
+    switch f.nodes[n].k {
+    case ident:
+        return true
+    default:
+        return false
+    }
+}
+
+// no_child returns the none node, for a step that leaves nothing to
+// write next.
+func no_child() id[Node] {
+    mut z id[Node]
+    return z
+}
+
+// Op is one step of writing a node: the { that opens its object, the }
+// that closes it, nothing, for a field left out at this place, or one
+// field, a key and its value.
+type Op union {
+    open
+    close
+    skip
+    // node is a field holding a node, null for none.
+    node NodeOp
+    // nodes is a field holding a list, null when it was never made.
+    nodes ListOp
+    span_value SpanOp
+    // str is a field holding a string of the tree's bytes.
+    str StrOp
+    // word is a field holding a string the dump spells, a Visibility's
+    // keyword.
+    word WordOp
+    // null_value, number, flag and empty are fields holding null, an
+    // integer, a bool and {}.
+    null_value string
+    number IntOp
+    flag BoolOp
+    empty string
+}
+
+// NodeOp is a field, key, holding the node n.
+type NodeOp struct {
+    key string
+    n id[Node]
+}
+
+// ListOp is a field, key, holding the list l.
+type ListOp struct {
+    key string
+    l Nodes
+}
+
+// SpanOp is a field, key, holding the span sp.
+type SpanOp struct {
+    key string
+    sp source.Span
+}
+
+// StrOp is a field, key, holding the string s of the tree's bytes.
+type StrOp struct {
+    key string
+    s span[uint8]
+}
+
+// WordOp is a field, key, holding the string s.
+type WordOp struct {
+    key string
+    s string
+}
+
+// IntOp is a field, key, holding the integer v.
+type IntOp struct {
+    key string
+    v int64
+}
+
+// BoolOp is a field, key, holding the bool v.
+type BoolOp struct {
+    key string
+    v bool
+}
+
+// node_op is the field k holding the node n, null for none.
+func node_op(k string, n id[Node]) Op {
+    return Op.node(NodeOp{key: k, n: n})
+}
+
+// omit_node_op is node_op for an interface or a pointer field tagged
+// omitempty, left out for none.
+func omit_node_op(k string, n id[Node]) Op {
+    if is_none(n) {
+        return Op.skip
+    }
+    return node_op(k, n)
+}
+
+// list_op is the field k holding the list l: null when it was never made,
+// as Go writes a nil slice, and an array of its nodes otherwise.
+func list_op(k string, l Nodes) Op {
+    return Op.nodes(ListOp{key: k, l: l})
+}
+
+// omit_list_op is list_op for a slice field tagged omitempty, which Go
+// leaves out when nil or empty.
+func omit_list_op(f File, k string, l Nodes) Op {
+    if len(f.items(l)) == 0 {
+        return Op.skip
+    }
+    return list_op(k, l)
+}
+
+// span_op is the field k holding the span sp.
+func span_op(k string, sp source.Span) Op {
+    return Op.span_value(SpanOp{key: k, sp: sp})
+}
+
+// str_op is the field k holding the string s of the tree's bytes.
+func str_op(k string, s span[uint8]) Op {
+    return Op.str(StrOp{key: k, s: s})
+}
+
+// zero_op is the field k holding 0, a types.Type the parser leaves
+// Invalid.
+func zero_op(k string) Op {
+    return Op.number(IntOp{key: k, v: 0})
+}
+
+// null_op is the field k holding null: a Const, a Def or a ResultTypes
+// the parser leaves nil.
+func null_op(k string) Op {
+    return Op.null_value(k)
+}
+
+// bool_op is the field k holding v.
+func bool_op(k string, v bool) Op {
+    return Op.flag(BoolOp{key: k, v: v})
+}
+
+// omit_bool_op is bool_op for a field tagged omitempty, left out when
+// false.
+func omit_bool_op(k string, v bool) Op {
+    if !v {
+        return Op.skip
+    }
+    return bool_op(k, v)
+}
+
+// int_op is the field k holding v.
+func int_op(k string, v int64) Op {
+    return Op.number(IntOp{key: k, v: v})
+}
+
+// vis_op is the field Vis holding v, left out when it is vis_private, as
+// Go writes a Visibility tagged omitempty, by its MarshalText.
+func vis_op(v Visibility) Op {
+    if v == vis_private {
+        return Op.skip
+    }
+    return Op.word(WordOp{key: "Vis", s: v.string()})
+}
+
+// op_at returns the Op at index i of the node n: the { at 0, then each
+// field, as Go writes the node's type, and the } after the last.
+func op_at(f File, n id[Node], i int64) Op {
+    if i == 0 {
+        return Op.open
+    }
+    sp := f.nodes[n].span
+    switch f.nodes[n].k {
+    case none:
+        return Op.close
+    case func_decl(fid):
+        return func_op(f, f.funcs[fid], sp, i)
+    case param_decl(pid):
+        return param_op(f.params[pid], sp, i)
+    case var_decl(v):
+        return var_op(v, sp, i)
+    case import_decl(imp):
+        switch i {
+        case 1:
+            return str_op("Name", imp.name)
+        case 2:
+            return str_op("Path", imp.path)
+        case 3:
+            return span_op("NameSpan", imp.name_span)
+        case 4:
+            return span_op("PathSpan", imp.path_span)
+        case 5:
+            return span_op("Span", sp)
+        }
+    case type_decl(td):
+        switch i {
+        case 1:
+            return node_op("TypeExpr", td.type_expr)
+        case 2:
+            return str_op("Name", td.name)
+        case 3:
+            return span_op("NameSpan", td.name_span)
+        case 4:
+            return span_op("Span", sp)
+        case 5:
+            return zero_op("Type")
+        case 6:
+            return vis_op(td.vis)
+        }
+    case bad_decl(bd):
+        switch i {
+        case 1:
+            return str_op("Name", bd.name)
+        case 2:
+            return span_op("Span", sp)
+        case 3:
+            return bool_op("Method", bd.method)
+        }
+    case type_param(tp):
+        switch i {
+        case 1:
+            return node_op("Constraint", tp.constraint)
+        case 2:
+            return str_op("Name", tp.name)
+        case 3:
+            return span_op("NameSpan", tp.name_span)
+        case 4:
+            return span_op("Span", sp)
+        case 5:
+            return zero_op("Type")
+        }
+    case iface_method(m):
+        switch i {
+        case 1:
+            return list_op("Params", m.params)
+        case 2:
+            return list_op("Results", m.results)
+        case 3:
+            return null_op("ResultTypes")
+        case 4:
+            return str_op("Name", m.name)
+        case 5:
+            return span_op("NameSpan", m.name_span)
+        case 6:
+            return span_op("Span", sp)
+        case 7:
+            return omit_bool_op("Mut", m.is_mut)
+        }
+    default:
+        return stmt_op(f, f.nodes[n].k, sp, i)
+    }
+    return Op.close
+}
+
+// func_op is op_at for fn, a function over sp, Go's ast.Func.
+func func_op(f File, fn Func, sp source.Span, i int64) Op {
+    switch i {
+    case 1:
+        return str_op("Name", fn.name)
+    case 2:
+        return omit_list_op(f, "TypeParams", fn.type_params)
+    case 3:
+        return list_op("Params", fn.params)
+    case 4:
+        return list_op("Results", fn.results)
+    case 5:
+        return list_op("Body", fn.body)
+    case 6:
+        return omit_node_op("Ensures", fn.contract)
+    case 7:
+        return null_op("ResultTypes")
+    case 8:
+        return span_op("NameSpan", fn.name_span)
+    case 9:
+        return span_op("Span", sp)
+    case 10:
+        if len(f.text(fn.cname)) == 0 {
+            return Op.skip
+        }
+        return str_op("CName", fn.cname)
+    case 11:
+        return vis_op(fn.vis)
+    case 12:
+        return omit_bool_op("Extern", fn.is_extern)
+    case 13:
+        return omit_bool_op("NoBody", fn.no_body)
+    case 14:
+        return omit_bool_op("Method", fn.method)
+    case 15:
+        return omit_bool_op("Closure", fn.closure)
+    }
+    return Op.close
+}
+
+// param_op is op_at for param, a parameter over sp, Go's ast.Param.
+func param_op(param Param, sp source.Span, i int64) Op {
+    switch i {
+    case 1:
+        return node_op("TypeExpr", param.type_expr)
+    case 2:
+        return str_op("Name", param.name)
+    case 3:
+        return span_op("NameSpan", param.name_span)
+    case 4:
+        return span_op("Span", sp)
+    case 5:
+        return zero_op("Type")
+    case 6:
+        return omit_bool_op("Mut", param.is_mut)
+    case 7:
+        return omit_bool_op("Own", param.is_own)
+    case 8:
+        return omit_bool_op("Scope", param.is_scope)
+    case 9:
+        return omit_bool_op("Variadic", param.variadic)
+    }
+    return Op.close
+}
+
+// var_op is op_at for v, a variable over sp, Go's ast.Var.
+func var_op(v Var, sp source.Span, i int64) Op {
+    switch i {
+    case 1:
+        return node_op("TypeExpr", v.type_expr)
+    case 2:
+        return node_op("Value", v.value)
+    case 3:
+        return null_op("Const")
+    case 4:
+        return str_op("Name", v.name)
+    case 5:
+        return span_op("NameSpan", v.name_span)
+    case 6:
+        return span_op("Span", sp)
+    case 7:
+        return zero_op("Type")
+    case 8:
+        return bool_op("Mutable", v.mutable)
+    case 9:
+        return vis_op(v.vis)
+    }
+    return Op.close
+}
+
+// stmt_op is op_at for a statement of kind k over sp, and for a node
+// that has nothing but its span, and expr_op's for any other kind.
+func stmt_op(f File, k Kind, sp source.Span, i int64) Op {
+    switch k {
+    case expr_stmt(s):
+        switch i {
+        case 1:
+            return node_op("X", s.x)
+        case 2:
+            return span_op("Span", sp)
+        }
+    case return_stmt(r):
+        switch i {
+        case 1:
+            return list_op("Values", r.values)
+        case 2:
+            return span_op("Span", sp)
+        }
+    case if_stmt(s):
+        switch i {
+        case 1:
+            return node_op("Cond", s.cond)
+        case 2:
+            return list_op("Then", s.then)
+        case 3:
+            return list_op("Else", s.else_body)
+        case 4:
+            return span_op("Span", sp)
+        }
+    case assign(a):
+        switch i {
+        case 1:
+            return node_op("Target", a.target)
+        case 2:
+            return node_op("Value", a.value)
+        case 3:
+            return span_op("Span", sp)
+        case 4:
+            return int_op("Op", int64(a.op.number()))
+        }
+    case for_stmt(s):
+        switch i {
+        case 1:
+            return node_op("Init", s.init)
+        case 2:
+            return node_op("Cond", s.cond)
+        case 3:
+            return node_op("Post", s.post)
+        case 4:
+            return list_op("Body", s.body)
+        case 5:
+            return span_op("Span", sp)
+        }
+    case break_stmt, continue_stmt, unreachable_stmt, fallthrough_stmt, bad_stmt, noerror_lit, c_allocator_lit, struct_case:
+        if i == 1 {
+            return span_op("Span", sp)
+        }
+    case inc_dec(s):
+        switch i {
+        case 1:
+            return node_op("Target", s.target)
+        case 2:
+            return span_op("Span", sp)
+        case 3:
+            return bool_op("Dec", s.dec)
+        }
+    case multi_var(m):
+        switch i {
+        case 1:
+            return node_op("Value", m.value)
+        case 2:
+            return list_op("Vars", m.vars)
+        case 3:
+            return span_op("Span", sp)
+        }
+    case multi_assign(m):
+        switch i {
+        case 1:
+            return node_op("Value", m.value)
+        case 2:
+            return list_op("Targets", m.targets)
+        case 3:
+            return span_op("Span", sp)
+        }
+    case for_range(s):
+        switch i {
+        case 1:
+            return node_op("Var", s.var_node)
+        case 2:
+            return node_op("Elem", s.elem)
+        case 3:
+            return node_op("X", s.x)
+        case 4:
+            return list_op("Body", s.body)
+        case 5:
+            return span_op("Span", sp)
+        }
+    case switch_stmt(s):
+        switch i {
+        case 1:
+            return node_op("Tag", s.tag)
+        case 2:
+            return node_op("Bind", s.bind)
+        case 3:
+            return list_op("Cases", s.cases)
+        case 4:
+            return span_op("Span", sp)
+        case 5:
+            return omit_bool_op("OnType", s.on_type)
+        }
+    case case_clause(cl):
+        switch i {
+        case 1:
+            return list_op("Values", cl.values)
+        case 2:
+            return node_op("Var", cl.var_node)
+        case 3:
+            return list_op("Body", cl.body)
+        case 4:
+            return span_op("Span", sp)
+        case 5:
+            return bool_op("Default", cl.is_default)
+        case 6:
+            return omit_bool_op("Bad", cl.bad)
+        }
+    case defer_stmt(ds):
+        switch i {
+        case 1:
+            return list_op("Body", ds.body)
+        case 2:
+            return span_op("Span", sp)
+        }
+    case region_stmt(r):
+        switch i {
+        case 1:
+            return node_op("Var", r.var_node)
+        case 2:
+            return list_op("Body", r.body)
+        case 3:
+            return span_op("Span", sp)
+        }
+    default:
+        return expr_op(f, k, sp, i)
+    }
+    return Op.close
+}
+
+// expr_op is op_at for an expression of kind k over sp, and type_op's
+// for any other kind.
+func expr_op(f File, k Kind, sp source.Span, i int64) Op {
+    switch k {
+    case call(c):
+        switch i {
+        case 1:
+            return node_op("Fn", c.fn)
+        case 2:
+            return null_op("Const")
+        case 3:
+            return list_op("Args", c.args)
+        case 4:
+            return omit_list_op(f, "TypeArgExprs", c.type_args)
+        case 5:
+            return span_op("Span", sp)
+        case 6:
+            return omit_bool_op("Spread", c.spread)
+        case 7:
+            return zero_op("Conv")
+        }
+    case ident(name):
+        return ident_op(f, name, sp, i)
+    case str_lit(s):
+        switch i {
+        case 1:
+            return str_op("Value", s)
+        case 2:
+            return span_op("Span", sp)
+        }
+    case float_lit:
+        switch i {
+        case 1:
+            return Op.empty("Value")
+        case 2:
+            return span_op("Span", sp)
+        case 3:
+            return zero_op("Type")
+        }
+    case int_lit:
+        switch i {
+        case 1:
+            return span_op("Span", sp)
+        case 2:
+            return Op.empty("Value")
+        case 3:
+            return zero_op("Type")
+        }
+    case char_lit(c):
+        switch i {
+        case 1:
+            return span_op("Span", sp)
+        case 2:
+            return int_op("Value", int64(c))
+        }
+    case bool_lit(b):
+        switch i {
+        case 1:
+            return span_op("Span", sp)
+        case 2:
+            return bool_op("Value", b)
+        }
+    case binary(b):
+        switch i {
+        case 1:
+            return node_op("X", b.x)
+        case 2:
+            return node_op("Y", b.y)
+        case 3:
+            return null_op("Const")
+        case 4:
+            return span_op("Span", sp)
+        case 5:
+            return int_op("Op", int64(b.op.number()))
+        case 6:
+            return zero_op("Type")
+        }
+    case unary(u):
+        switch i {
+        case 1:
+            return node_op("X", u.x)
+        case 2:
+            return null_op("Const")
+        case 3:
+            return span_op("Span", sp)
+        case 4:
+            return int_op("Op", int64(u.op.number()))
+        case 5:
+            return zero_op("Type")
+        }
+    case type_assert(a):
+        switch i {
+        case 1:
+            return node_op("X", a.x)
+        case 2:
+            return node_op("TypeExpr", a.type_expr)
+        case 3:
+            return span_op("Span", sp)
+        case 4:
+            return zero_op("Type")
+        }
+    case composite_lit(c):
+        switch i {
+        case 1:
+            return node_op("TypeExpr", c.type_expr)
+        case 2:
+            return list_op("Elems", c.elems)
+        case 3:
+            return span_op("Span", sp)
+        case 4:
+            return zero_op("Type")
+        }
+    case index(x):
+        switch i {
+        case 1:
+            return node_op("X", x.x)
+        case 2:
+            return node_op("Index", x.index)
+        case 3:
+            return span_op("Span", sp)
+        case 4:
+            return zero_op("Type")
+        }
+    case slice(s):
+        switch i {
+        case 1:
+            return node_op("X", s.x)
+        case 2:
+            return node_op("Lo", s.lo)
+        case 3:
+            return node_op("Hi", s.hi)
+        case 4:
+            return span_op("ColonSpan", s.colon_span)
+        case 5:
+            return span_op("Span", sp)
+        case 6:
+            return zero_op("Type")
+        }
+    case selector(s):
+        switch i {
+        case 1:
+            return node_op("X", s.x)
+        case 2:
+            return str_op("Name", s.name)
+        case 3:
+            return span_op("NameSpan", s.name_span)
+        case 4:
+            return span_op("Span", sp)
+        case 5:
+            return omit_node_op("Field", s.field)
+        case 6:
+            return zero_op("Type")
+        }
+    case question(x):
+        switch i {
+        case 1:
+            return node_op("X", x)
+        case 2:
+            return span_op("Span", sp)
+        case 3:
+            return zero_op("Type")
+        }
+    case key_value(kv):
+        switch i {
+        case 1:
+            return node_op("Key", kv.key)
+        case 2:
+            return node_op("Value", kv.value)
+        case 3:
+            return span_op("Span", sp)
+        case 4:
+            return bool_op("KeyParens", kv.key_parens)
+        }
+    case mut_arg(x):
+        return arg_op(x, sp, i)
+    case own_arg(x):
+        return arg_op(x, sp, i)
+    case func_lit(fn):
+        switch i {
+        case 1:
+            return node_op("Func", fn)
+        case 2:
+            return zero_op("Type")
+        case 3:
+            return span_op("Span", sp)
+        }
+    case fields_of(t):
+        switch i {
+        case 1:
+            return node_op("TypeExpr", t)
+        case 2:
+            return span_op("Span", sp)
+        case 3:
+            return zero_op("Type")
+        case 4:
+            return zero_op("Field")
+        }
+    default:
+        return type_op(k, sp, i)
+    }
+    return Op.close
+}
+
+// ident_op is op_at for name, a name over sp, as Go's Ident.MarshalJSON
+// writes it: Def null, and PkgSpan and Pkg only for a qualified name.
+func ident_op(f File, name Ident, sp source.Span, i int64) Op {
+    qualified := len(f.text(name.pkg)) > 0
+    switch i {
+    case 1:
+        return null_op("Def")
+    case 2:
+        if !qualified {
+            return Op.skip
+        }
+        return span_op("PkgSpan", name.pkg_span)
+    case 3:
+        return str_op("Name", name.name)
+    case 4:
+        return span_op("Span", sp)
+    case 5:
+        if !qualified {
+            return Op.skip
+        }
+        return str_op("Pkg", name.pkg)
+    }
+    return Op.close
+}
+
+// arg_op is op_at for a mut or an own argument over sp, whose operand is
+// x.
+func arg_op(x id[Node], sp source.Span, i int64) Op {
+    switch i {
+    case 1:
+        return node_op("X", x)
+    case 2:
+        return span_op("Span", sp)
+    }
+    return Op.close
+}
+
+// type_op is op_at for a type as written, of kind k over sp, Go's
+// ArrayType through UnionCase, and the } for any other kind.
+func type_op(k Kind, sp source.Span, i int64) Op {
+    switch k {
+    case array_type(a):
+        switch i {
+        case 1:
+            return node_op("Len", a.length)
+        case 2:
+            return node_op("Elem", a.elem)
+        case 3:
+            return span_op("Span", sp)
+        }
+    case view_type(e):
+        return elem_op(e, sp, i)
+    case list_type(e):
+        return elem_op(e, sp, i)
+    case arena_type(e):
+        return elem_op(e, sp, i)
+    case pool_type(e):
+        return elem_op(e, sp, i)
+    case ref_type(r):
+        switch i {
+        case 1:
+            return str_op("Name", r.name)
+        case 2:
+            return node_op("Elem", r.elem)
+        case 3:
+            return span_op("NameSpan", r.name_span)
+        case 4:
+            return span_op("Span", sp)
+        }
+    case map_type(m):
+        switch i {
+        case 1:
+            return node_op("Key", m.key)
+        case 2:
+            return node_op("Value", m.value)
+        case 3:
+            return span_op("Span", sp)
+        }
+    case func_type(t):
+        switch i {
+        case 1:
+            return list_op("Params", t.params)
+        case 2:
+            return list_op("Results", t.results)
+        case 3:
+            return span_op("Span", sp)
+        }
+    case struct_type(fields):
+        return members_op("Fields", fields, sp, i)
+    case interface_type(methods):
+        return members_op("Methods", methods, sp, i)
+    case union_type(cases):
+        return members_op("Cases", cases, sp, i)
+    case field(fd):
+        switch i {
+        case 1:
+            return node_op("TypeExpr", fd.type_expr)
+        case 2:
+            return str_op("Name", fd.name)
+        case 3:
+            return span_op("NameSpan", fd.name_span)
+        case 4:
+            return span_op("Span", sp)
+        case 5:
+            return vis_op(fd.vis)
+        }
+    case union_case(c):
+        switch i {
+        case 1:
+            return node_op("TypeExpr", c.type_expr)
+        case 2:
+            return str_op("Name", c.name)
+        case 3:
+            return span_op("NameSpan", c.name_span)
+        case 4:
+            return span_op("Span", sp)
+        }
+    default:
+    }
+    return Op.close
+}
+
+// elem_op is op_at for a type as written with an element type, e, over
+// sp: a view, a list, an arena or a pool type.
+func elem_op(e id[Node], sp source.Span, i int64) Op {
+    switch i {
+    case 1:
+        return node_op("Elem", e)
+    case 2:
+        return span_op("Span", sp)
+    }
+    return Op.close
+}
+
+// members_op is op_at for a struct, an interface or a union type over sp,
+// whose members, its fields, methods or cases, are l, under the key k.
+func members_op(k string, l Nodes, sp source.Span, i int64) Op {
+    switch i {
+    case 1:
+        return list_op(k, l)
+    case 2:
+        return span_op("Span", sp)
+    }
+    return Op.close
+}

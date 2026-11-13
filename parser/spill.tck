@@ -1,0 +1,179 @@
+package parser
+
+import lexer from "tack/lexer"
+
+// How error recovery skips a function's body spilled where declarations
+// go, a port of Go's spill.go: a brace left out, or one too many, closes
+// a function's body before its end, and its statements then come where
+// declarations go. These lines are skipped without errors of their own,
+// until a line only a declaration starts, or the brace that ends them.
+
+// note_spill records whether the lines after the top-level declaration
+// just parsed may be a function's body spilled where declarations go:
+// when suspect says it is a function whose body parsed as one, or a line
+// that starts as a statement does right after one, and an error was
+// recorded in it, and a brace closing nothing comes after it.
+func (mut p Parser) note_spill(suspect bool) {
+    if suspect && len(p.errs) > p.decl_errs && mut p.orphan_brace_ahead() {
+        p.spilling = true
+    }
+}
+
+// orphan_brace_ahead reports whether a closing brace that closes nothing
+// opened after the parser's position comes before the next line only a
+// declaration starts, or the end of the file, with a line that starts as
+// only a statement does before it.
+func (mut p Parser) orphan_brace_ahead() bool {
+    mut depth int64 = 0
+    mut saw_stmt := false
+    for mut i := p.index; i < len(p.tokens); i = i +% 1 {
+        tk := p.tok(i)
+        if tk.kind() == lexer.kind_eof || depth == 0 && p.decl_only_line_at(i) {
+            return false
+        }
+        if tk.kind() == lexer.kind_r_curl && depth == 0 {
+            return saw_stmt
+        }
+        depth +%= brace_step(tk.kind())
+        if depth == 0 && tk.starts_line() && mut p.stmt_starts_at(i) {
+            saw_stmt = true
+        }
+    }
+    return false
+}
+
+// decl_only_line_at reports whether the token at index i starts a line
+// with a keyword only a declaration starts with, func, type, extern or
+// import, pub and lib aside.
+func (p Parser) decl_only_line_at(i int64) bool {
+    tk := p.tok(i)
+    return tk.starts_line() && is_decl_keyword(tk) && !is_keyword(tk, lexer.keyword_pub) &&
+        !is_keyword(tk, lexer.keyword_lib)
+}
+
+// skip_spill skips, while the lines may be a spilled body, lines that
+// cannot start a declaration, up to the next line that can, that ends the
+// spill, or that starts with a closing brace outside the braces skipped,
+// and reports whether it skipped any.
+func (mut p Parser) skip_spill() bool {
+    if !p.spilling || !p.at_line_start() || mut p.at_top_decl_line() || p.peek().kind() == lexer.kind_r_curl {
+        return false
+    }
+    mut p.skip_to_line(true)
+    return true
+}
+
+// ends_spill reports whether the next token, which starts a line, ends a
+// spilled body: it starts a line only a declaration starts, or one
+// shaped like a function's header that does not start as a statement
+// does.
+func (mut p Parser) ends_spill() bool {
+    return mut p.at_decl_line(false) || mut p.header_line_at(p.index) && !mut p.stmt_starts_at(p.index)
+}
+
+// at_top_decl_line reports whether the next token starts a line a
+// top-level declaration starts: one only a declaration starts, or a var
+// or a mut one that is not a statement's.
+func (mut p Parser) at_top_decl_line() bool {
+    tk := p.peek()
+    if is_keyword(tk, lexer.keyword_var) || is_keyword(tk, lexer.keyword_mut) {
+        return p.at_line_start() && p.peek_at(2).kind() != lexer.kind_define
+    }
+    return mut p.at_decl_line(false)
+}
+
+// skip_unopened_body skips the body of the damaged declaration that
+// started at the token start, when it is a function's, starting as one
+// does, and its opening brace never came: the lines after it, up to and
+// through a closing brace that starts a line outside the braces skipped,
+// or up to a line only a declaration starts.
+func (mut p Parser) skip_unopened_body(start int64) {
+    if !p.has_body(start) || !mut p.func_shape_at(start) || p.brace_in(start) {
+        return
+    }
+    if p.peek().kind() != lexer.kind_eof && (!p.at_line_start() || !mut p.unopened_stop()) {
+        mut p.skip_to_line(false)
+    }
+    if p.at_brace_line() {
+        mut p.skip_brace()
+    }
+}
+
+// unopened_stop reports whether skip_unopened_body's skip stops before
+// the next token: a closing brace, or a line only a declaration starts.
+func (mut p Parser) unopened_stop() bool {
+    return p.peek().kind() == lexer.kind_r_curl || mut p.at_decl_line(false)
+}
+
+// spill_stop reports whether skip_spill's skip stops before the next
+// token: a closing brace, a line a top-level declaration starts, or one
+// that ends the spill.
+func (mut p Parser) spill_stop() bool {
+    return p.peek().kind() == lexer.kind_r_curl || mut p.at_top_decl_line() || mut p.ends_spill()
+}
+
+// brace_in reports whether an opening brace is among the tokens from the
+// token start to the parser's.
+func (p Parser) brace_in(start int64) bool {
+    for mut i := start; i < p.index; i = i +% 1 {
+        if p.tok(i).kind() == lexer.kind_l_curl {
+            return true
+        }
+    }
+    return false
+}
+
+// skip_to_line consumes tokens, counting the braces they open and close,
+// up to the end of the file, the first token that starts a line outside
+// every brace consumed and where the skip stops, spill_stop when spill
+// is set and unopened_stop otherwise, Go's stop functions, or one that
+// starts a line inside them where a block's statements stop. It consumes
+// at least one token.
+func (mut p Parser) skip_to_line(spill bool) {
+    mut depth int64 = 0
+    for {
+        tk := mut p.next()
+        depth = max0(depth +% brace_step(tk.kind()))
+        if p.peek().kind() == lexer.kind_eof {
+            return
+        }
+        if p.at_line_start() {
+            if depth == 0 {
+                mut stop := false
+                if spill {
+                    stop = mut p.spill_stop()
+                } else {
+                    stop = mut p.unopened_stop()
+                }
+                if stop {
+                    return
+                }
+            } else if mut p.at_block_break() {
+                return
+            }
+        }
+    }
+}
+
+// skip_brace consumes the closing brace that is next, and the semicolon
+// inserted after it.
+func (mut p Parser) skip_brace() {
+    mut p.next()
+    if p.peek().kind() == lexer.kind_semi {
+        mut p.next()
+    }
+}
+
+// skip_stray_braces skips each closing brace that starts a line where a
+// top-level declaration is expected, after one with an error, or while
+// the lines may be a spilled body, which it then ends, and reports
+// whether it skipped any.
+func (mut p Parser) skip_stray_braces() bool {
+    mut skipped := false
+    for p.peek().kind() == lexer.kind_r_curl && (p.stray_after_error() || p.spilling && p.at_line_start()) {
+        mut p.skip_brace()
+        skipped = true
+        p.spilling = false
+    }
+    return skipped
+}

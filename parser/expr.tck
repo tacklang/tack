@@ -1,0 +1,1121 @@
+package parser
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import lexer from "tack/lexer"
+import source from "tack/source"
+
+// precedence returns the binding power of an infix operator, or 0 if the
+// token is not one. Higher binds tighter, following Go's ordering.
+func precedence(k lexer.TokenKind) int64 {
+    if k == lexer.kind_mul || k == lexer.kind_div || k == lexer.kind_mod || k == lexer.kind_mul_wrap ||
+        k == lexer.kind_shift_left || k == lexer.kind_shift_right || k == lexer.kind_bit_and ||
+        k == lexer.kind_bit_and_not {
+        return 5
+    }
+    if k == lexer.kind_add || k == lexer.kind_sub || k == lexer.kind_add_wrap || k == lexer.kind_sub_wrap ||
+        k == lexer.kind_bit_or || k == lexer.kind_bit_xor {
+        return 4
+    }
+    if k == lexer.kind_equal || k == lexer.kind_not_equal || k == lexer.kind_less ||
+        k == lexer.kind_less_equal || k == lexer.kind_greater || k == lexer.kind_greater_equal {
+        return 3
+    }
+    if k == lexer.kind_logical_and {
+        return 2
+    }
+    if k == lexer.kind_logical_or {
+        return 1
+    }
+    return 0
+}
+
+// binary_op returns the operator the infix token kind k stands for, Go's
+// binaryOps, and op_invalid for any other.
+func binary_op(k lexer.TokenKind) ast.BinaryOp {
+    if k == lexer.kind_add {
+        return ast.op_add
+    }
+    if k == lexer.kind_sub {
+        return ast.op_sub
+    }
+    if k == lexer.kind_mul {
+        return ast.op_mul
+    }
+    if k == lexer.kind_div {
+        return ast.op_div
+    }
+    if k == lexer.kind_mod {
+        return ast.op_rem
+    }
+    if k == lexer.kind_add_wrap {
+        return ast.op_add_wrap
+    }
+    if k == lexer.kind_sub_wrap {
+        return ast.op_sub_wrap
+    }
+    if k == lexer.kind_mul_wrap {
+        return ast.op_mul_wrap
+    }
+    if k == lexer.kind_equal {
+        return ast.op_eq
+    }
+    if k == lexer.kind_not_equal {
+        return ast.op_ne
+    }
+    if k == lexer.kind_less {
+        return ast.op_lt
+    }
+    if k == lexer.kind_less_equal {
+        return ast.op_le
+    }
+    if k == lexer.kind_greater {
+        return ast.op_gt
+    }
+    if k == lexer.kind_greater_equal {
+        return ast.op_ge
+    }
+    if k == lexer.kind_logical_and {
+        return ast.op_and
+    }
+    if k == lexer.kind_logical_or {
+        return ast.op_or
+    }
+    if k == lexer.kind_bit_and {
+        return ast.op_bit_and
+    }
+    if k == lexer.kind_bit_or {
+        return ast.op_bit_or
+    }
+    if k == lexer.kind_bit_xor {
+        return ast.op_bit_xor
+    }
+    if k == lexer.kind_bit_and_not {
+        return ast.op_and_not
+    }
+    if k == lexer.kind_shift_left {
+        return ast.op_shl
+    }
+    if k == lexer.kind_shift_right {
+        return ast.op_shr
+    }
+    return ast.op_invalid
+}
+
+// parse_expr parses an expression whose operators bind at least as
+// tightly as min_prec, by precedence, every binary operator binding to
+// the left, as Go's does. Go's climbs the precedences by recursion, a
+// call for the right side of each operator, at its precedence plus one;
+// that adds a frame of the parser's for each precedence an expression
+// steps up through, a || b && c == d + e * f, with no level of nesting
+// taken, so this parses the same expression with stacks of its own
+// instead, its operands and its operators, the shift-reduce form of the
+// same grammar: an operator reduces the ones before it that bind at least
+// as tightly, its precedence or higher, which builds the tree Go's
+// recursion builds, each Binary spanning its operands' extents. The
+// stacks are the parser's, shared by every parse_expr, each working above
+// where it found them and leaving them so.
+func (mut p Parser) parse_expr(min_prec int64) (id[ast.Node], Fail, error) {
+    first, f := mut p.parse_operand()?
+    if is_nil(first) {
+        return no_node(), f, noerror
+    }
+    base_x := len(p.operands)
+    base_op := len(p.operators)
+    append(mut p.operands, first)?
+
+    for {
+        prec := precedence(p.peek().kind())
+        if prec == 0 || prec < min_prec {
+            break
+        }
+        mut p.reduce(base_op, prec)?
+        op := mut p.next()
+        right, rf := mut p.parse_operand()?
+        if is_nil(right) {
+            truncate_nodes(mut p.operands, base_x)
+            truncate_ops(mut p.operators, base_op)
+            return no_node(), rf, noerror
+        }
+        append(mut p.operators, PendingOp{prec: prec, kind: op.kind()})?
+        append(mut p.operands, right)?
+    }
+    mut p.reduce(base_op, 0)?
+    result := last_node(p.operands)
+    truncate_nodes(mut p.operands, base_x)
+    truncate_ops(mut p.operators, base_op)
+    return result, no_fail(), noerror
+}
+
+// PendingOp is an operator parse_expr has read whose right operand is
+// on the operand stack, not yet made a Binary: its precedence and its
+// token's kind.
+type PendingOp struct {
+    prec int64
+    kind lexer.TokenKind
+}
+
+// reduce makes a Binary of each operator above base on the operator
+// stack whose precedence is at least min, the last first, with the two
+// operands on top of the operand stack, which it replaces with the
+// Binary.
+func (mut p Parser) reduce(base int64, min int64) error {
+    for len(p.operators) > base {
+        top := last_op(p.operators)
+        if top.prec < min {
+            return noerror
+        }
+        truncate_ops(mut p.operators, len(p.operators) -% 1)
+        right := last_node(p.operands)
+        truncate_nodes(mut p.operands, len(p.operands) -% 1)
+        left := last_node(p.operands)
+        truncate_nodes(mut p.operands, len(p.operands) -% 1)
+        sp := span_in(p.file, extent_in(p.parens, p.t.nodes, left).start, extent_in(p.parens, p.t.nodes, right).end)
+        b := mut p.add(ast.Kind.binary(ast.Binary{x: left, y: right, op: binary_op(top.kind)}), sp)?
+        append(mut p.operands, b)?
+    }
+    return noerror
+}
+
+// last_node returns the last node of l, or none when l is empty.
+func last_node(l []id[ast.Node]) id[ast.Node] {
+    n, ok := l[len(l) -% 1]
+    if ok {
+        return n
+    }
+    return no_node()
+}
+
+// last_op returns the last operator of l, or one of precedence -1 when l
+// is empty.
+func last_op(l []PendingOp) PendingOp {
+    o, ok := l[len(l) -% 1]
+    if ok {
+        return o
+    }
+    return PendingOp{prec: -1, kind: lexer.kind_invalid}
+}
+
+// truncate_nodes pops nodes off l until it holds at most n.
+func truncate_nodes(mut l list[id[ast.Node]], n int64) {
+    for len(l) > n && len(l) > 0 {
+        pop(mut l)
+    }
+}
+
+// truncate_ops pops operators off l until it holds at most n.
+func truncate_ops(mut l list[PendingOp], n int64) {
+    for len(l) > n && len(l) > 0 {
+        pop(mut l)
+    }
+}
+
+// parse_operand parses an expression with no infix operator at its root:
+// a literal, a name, a call, a parenthesised expression, a prefix
+// operator and its operand, mut or own and an operand, a function
+// literal, and what follows it but a call, or a list, map, arena or pool
+// type, which only make's first argument may be.
+func (mut p Parser) parse_operand() (id[ast.Node], Fail, error) {
+    tk := p.peek()
+    k := tk.kind()
+    if k == lexer.kind_logical_not {
+        n, f := mut p.parse_unary(ast.unary_not)?
+        return n, f, noerror
+    }
+    if k == lexer.kind_sub {
+        n, f := mut p.parse_unary(ast.unary_neg)?
+        return n, f, noerror
+    }
+    if k == lexer.kind_sub_wrap {
+        n, f := mut p.parse_unary(ast.unary_neg_wrap)?
+        return n, f, noerror
+    }
+    if k == lexer.kind_bit_xor {
+        n, f := mut p.parse_unary(ast.unary_complement)?
+        return n, f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_mut) {
+        n, f := mut p.parse_mut_arg()?
+        return n, f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_own) {
+        n, f := mut p.parse_own_arg()?
+        return n, f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_list) {
+        n, f := mut p.parse_type_operand(list_kind)?
+        return n, f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_map) {
+        n, f := mut p.parse_type_operand(map_kind)?
+        return n, f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_arena) {
+        n, f := mut p.parse_type_operand(arena_kind)?
+        return n, f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_pool) {
+        n, f := mut p.parse_type_operand(pool_kind)?
+        return n, f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_region) && p.region_named {
+        mut p.next()
+        name := mut p.str([]uint8("region"))?
+        n := mut p.new_ident(name, tok_span(p.file, tk))?
+        return n, no_fail(), noerror
+    }
+    if p.at_ref_type() {
+        n, f := mut p.parse_ref_operand()?
+        return n, f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_func) && p.peek_next().kind() != lexer.kind_l_paren {
+        // A function literal's parameters follow its keyword; func and a
+        // name is a declaration, which no operand is.
+        f := mut p.invalid_token([]uint8("value"), tk)?
+        return no_node(), f, noerror
+    }
+    if is_keyword(tk, lexer.keyword_func) {
+        lit, f := mut p.parse_func_lit()?
+        if is_nil(lit) {
+            return no_node(), f, noerror
+        }
+        if p.peek().kind() == lexer.kind_l_paren {
+            cf := mut p.fail_str("a closure cannot be called where it is written; it can only be passed to a scope parameter", tok_span(p.file, tk))?
+            return no_node(), cf, noerror
+        }
+        n, pf := mut p.parse_postfix(lit)?
+        return n, pf, noerror
+    }
+
+    x, f := mut p.parse_primary()?
+    if is_nil(x) {
+        return no_node(), f, noerror
+    }
+    n, pf := mut p.parse_postfix(x)?
+    return n, pf, noerror
+}
+
+// parse_mut_arg parses mut and the operand after it, a mut argument, or,
+// when the operand is a method call, mut x.m(args), the call of a mut
+// receiver: mut then covers the receiver, what comes before the last
+// .m(. A call written in parentheses is not one: mut covers the whole
+// call. A ? after the method call leaves it one, so each ? written after
+// it, none in parentheses, spans from mut too.
+func (mut p Parser) parse_mut_arg() (id[ast.Node], Fail, error) {
+    nf := mut p.nest(p.peek())?
+    if nf.failed() {
+        return no_node(), nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    kw := mut p.next()
+    x, f := mut p.parse_operand()?
+    if is_nil(x) {
+        return no_node(), f, noerror
+    }
+    // The ?s after the call, none in parentheses, and the call they
+    // follow, inner.
+    mut inner := x
+    for {
+        q := question_of(p.t.nodes, inner)
+        if is_nil(q) || p.t.nodes[inner].span != extent_in(p.parens, p.t.nodes, inner) {
+            break
+        }
+        inner = q
+    }
+    if p.t.nodes[inner].span == extent_in(p.parens, p.t.nodes, inner) {
+        sel := call_fn(p.t.nodes, inner)
+        recv := selector_x(p.t.nodes, sel)
+        if !is_nil(recv) && !is_mut_arg(p.t.nodes, recv) {
+            start := kw.offset_start()
+            arg := mut p.add(ast.Kind.mut_arg(recv), span_in(p.file, start, extent_in(p.parens, p.t.nodes, recv).end))?
+            set_selector_x(mut p.t.nodes, sel, arg)
+            p.t.nodes[sel].span.start = start
+            p.t.nodes[inner].span.start = start
+            mut q := x
+            for q != inner && !is_nil(q) {
+                p.t.nodes[q].span.start = start
+                q = question_of(p.t.nodes, q)
+            }
+            return x, no_fail(), noerror
+        }
+    }
+    n := mut p.add(ast.Kind.mut_arg(x), span_in(p.file, kw.offset_start(), extent_in(p.parens, p.t.nodes, x).end))?
+    return n, no_fail(), noerror
+}
+
+// parse_own_arg parses own and the operand after it, an own argument.
+// Unlike mut, own never covers a method call's receiver.
+func (mut p Parser) parse_own_arg() (id[ast.Node], Fail, error) {
+    nf := mut p.nest(p.peek())?
+    if nf.failed() {
+        return no_node(), nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    kw := mut p.next()
+    x, f := mut p.parse_operand()?
+    if is_nil(x) {
+        return no_node(), f, noerror
+    }
+    n := mut p.add(ast.Kind.own_arg(x), span_in(p.file, kw.offset_start(), extent_in(p.parens, p.t.nodes, x).end))?
+    return n, no_fail(), noerror
+}
+
+// parse_primary parses an operand that indexes and fields can follow: a
+// parenthesized expression, a call, one that writes type arguments
+// included, an array literal, a struct literal, a name, or a literal. A
+// name followed by an opening brace starts a struct literal, except where
+// no_lit says the brace opens a body.
+func (mut p Parser) parse_primary() (id[ast.Node], Fail, error) {
+    k := p.peek().kind()
+    if k == lexer.kind_l_paren {
+        n, f := mut p.parse_paren_expr()?
+        return n, f, noerror
+    }
+    if k == lexer.kind_l_brack {
+        n, f := mut p.parse_composite_lit()?
+        return n, f, noerror
+    }
+
+    mut p.note_lost_import_lit()?
+    n := p.name_end()
+    if p.peek().kind() == lexer.kind_ident && p.peek_at(n +% 1).kind() == lexer.kind_l_curl && !p.no_lit {
+        r, f := mut p.parse_struct_lit()?
+        return r, f, noerror
+    }
+    if p.at_type_args(n) {
+        r, f := mut p.parse_type_args_call()?
+        return r, f, noerror
+    }
+
+    if n == 0 && fields_of_ahead(p.tokens, p.index, p.toks) {
+        r, f := mut p.parse_fields_of()?
+        return r, f, noerror
+    }
+    if p.peek().kind() == lexer.kind_ident && p.peek_at(n +% 1).kind() == lexer.kind_l_paren {
+        r, f := mut p.parse_call()?
+        return r, f, noerror
+    }
+
+    if n > 0 {
+        r := mut p.parse_qualified()?
+        return r, no_fail(), noerror
+    }
+    r, f := mut p.parse_literal()?
+    return r, f, noerror
+}
+
+// parse_fields_of parses fields(T), whose T is a type, which the caller
+// has seen starts next.
+func (mut p Parser) parse_fields_of() (id[ast.Node], Fail, error) {
+    name := mut p.next()
+    nf := mut p.nest_at(lexer.kind_l_paren)?
+    if nf.failed() {
+        return no_node(), nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    mut p.next() // the opening parenthesis
+    tk := p.peek()
+    if tk.kind() == lexer.kind_r_paren {
+        f := mut p.fail_str("fields is a builtin, which takes a type, as in for f := range fields(T); a call by that name always calls it",
+            span_in(p.file, name.offset_start(), tk.offset_end()))?
+        return no_node(), f, noerror
+    }
+    typ, f := mut p.parse_type()?
+    if is_nil(typ) {
+        return no_node(), f, noerror
+    }
+    ok, rf := mut p.expect(lexer.kind_r_paren)?
+    if !ok {
+        return no_node(), rf, noerror
+    }
+    n := mut p.add(ast.Kind.fields_of(typ), span_in(p.file, name.offset_start(), p.prev_end()))?
+    return n, no_fail(), noerror
+}
+
+// note_lost_import_lit records the name that starts the next tokens as
+// an import's, after an import that lost its name (see lost_import), when
+// they read as a literal of a package, geo.Rect{...}.
+func (mut p Parser) note_lost_import_lit() error {
+    if p.lost_import && !p.no_lit && p.peek().kind() == lexer.kind_ident &&
+        p.peek_at(1).kind() == lexer.kind_period && p.peek_at(2).kind() == lexer.kind_ident &&
+        p.peek_at(3).kind() == lexer.kind_l_curl {
+        return mut p.add_import_token(p.peek())
+    }
+    return noerror
+}
+
+// parse_struct_lit parses a struct literal: its type's name, qualified
+// or not, which the caller has seen is next, and then its body.
+func (mut p Parser) parse_struct_lit() (id[ast.Node], Fail, error) {
+    typ, _ := mut p.parse_name([]uint8("type name"))?
+    n, f := mut p.parse_lit_body(typ, p.spanned(typ).start)?
+    return n, f, noerror
+}
+
+// parse_postfix parses any number of indexes, slices, field selections,
+// type assertions and ?s after x.
+func (mut p Parser) parse_postfix(start_x id[ast.Node]) (id[ast.Node], Fail, error) {
+    mut x := start_x
+    for {
+        mut f := no_fail()
+        k := p.peek().kind()
+        if k == lexer.kind_question {
+            x = mut p.parse_question(x)?
+        } else if k == lexer.kind_l_brack {
+            x, f = mut p.parse_index(x)?
+        } else if k == lexer.kind_period {
+            nk := p.peek_next().kind()
+            if nk == lexer.kind_l_paren {
+                x, f = mut p.parse_type_assert(x)?
+            } else if nk == lexer.kind_l_brack {
+                x, f = mut p.parse_field_selector(x)?
+            } else {
+                x, f = mut p.parse_selector(x)?
+            }
+        } else {
+            return x, no_fail(), noerror
+        }
+        if f.failed() {
+            return no_node(), f, noerror
+        }
+    }
+}
+
+// parse_question parses the ? after x, which spans from the start of x,
+// its parentheses included, through the ?.
+func (mut p Parser) parse_question(x id[ast.Node]) (id[ast.Node], error) {
+    mark := mut p.next()
+    n := mut p.add(ast.Kind.question(x), span_in(p.file, extent_in(p.parens, p.t.nodes, x).start, mark.offset_end()))?
+    return n, noerror
+}
+
+// parse_index parses one index after x, x[i], or one slice, x[i:j],
+// whose bounds may each be left out.
+func (mut p Parser) parse_index(x id[ast.Node]) (id[ast.Node], Fail, error) {
+    nf := mut p.nest(p.peek())?
+    if nf.failed() {
+        return no_node(), nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    mut p.next() // the opening bracket
+    old := p.no_lit
+    p.no_lit = false
+    defer {
+        p.no_lit = old
+    }
+    mut index := no_node()
+    if p.peek().kind() != lexer.kind_colon {
+        i, f := mut p.parse_expr(1)?
+        if is_nil(i) {
+            return no_node(), f, noerror
+        }
+        index = i
+    }
+    if p.peek().kind() == lexer.kind_colon {
+        n, f := mut p.parse_slice(x, index)?
+        return n, f, noerror
+    }
+    ok, f := mut p.expect(lexer.kind_r_brack)?
+    if !ok {
+        return no_node(), f, noerror
+    }
+    n := mut p.add(ast.Kind.index(ast.Index{x: x, index: index}), span_in(p.file, extent_in(p.parens, p.t.nodes, x).start, p.prev_end()))?
+    return n, no_fail(), noerror
+}
+
+// parse_slice parses the rest of a slice after x, x[lo:hi], from the
+// colon that follows lo, none when it is left out. hi may be left out
+// too. A second colon is reported there.
+func (mut p Parser) parse_slice(x id[ast.Node], lo id[ast.Node]) (id[ast.Node], Fail, error) {
+    colon_tk := mut p.next()
+    colon := tok_span(p.file, colon_tk)
+    mut hi := no_node()
+    k := p.peek().kind()
+    if k != lexer.kind_r_brack && k != lexer.kind_colon {
+        h, f := mut p.parse_expr(1)?
+        if is_nil(h) {
+            return no_node(), f, noerror
+        }
+        hi = h
+    }
+    tk := p.peek()
+    if tk.kind() == lexer.kind_colon {
+        f := mut p.fail_str("a slice has at most two bounds, x[i:j]; there is no three-index form", tok_span(p.file, tk))?
+        return no_node(), f, noerror
+    }
+    ok, f := mut p.expect(lexer.kind_r_brack)?
+    if !ok {
+        return no_node(), f, noerror
+    }
+    n := mut p.add(ast.Kind.slice(ast.Slice{x: x, lo: lo, hi: hi, colon_span: colon}),
+        span_in(p.file, extent_in(p.parens, p.t.nodes, x).start, p.prev_end()))?
+    return n, no_fail(), noerror
+}
+
+// parse_selector parses one field selection after x, x.f, or, when an
+// opening parenthesis follows the name, a method call on x, x.m(args),
+// whose callee is the selection. Brackets and then a parenthesis after
+// the name are reported.
+func (mut p Parser) parse_selector(x id[ast.Node]) (id[ast.Node], Fail, error) {
+    mut p.next() // the period
+    name, f := mut p.parse_ident([]uint8("field name"))?
+    if is_nil(name) {
+        return no_node(), f, noerror
+    }
+    name_str, name_span := ident_name(p.t.nodes, name)
+    mut field := no_node()
+    sel := mut p.add(ast.Kind.selector(ast.Selector{x: x, name: name_str, name_span: name_span, field: field}),
+        span_in(p.file, extent_in(p.parens, p.t.nodes, x).start, name_span.end))?
+    tf := mut p.selector_type_args(sel)?
+    if tf.failed() {
+        return no_node(), tf, noerror
+    }
+    if p.peek().kind() != lexer.kind_l_paren {
+        return sel, no_fail(), noerror
+    }
+    c, cf := mut p.parse_args(sel, p.spanned(sel))?
+    return c, cf, noerror
+}
+
+// selector_type_args reports brackets and then a parenthesis after sel,
+// a selection just parsed, and returns no failure when they do not come
+// next.
+func (mut p Parser) selector_type_args(sel id[ast.Node]) (Fail, error) {
+    if p.peek().kind() != lexer.kind_l_brack {
+        return no_fail(), noerror
+    }
+    end := group_after(p.tokens, p.index, 0, lexer.kind_l_brack, lexer.kind_r_brack)
+    if p.peek_at(end).kind() != lexer.kind_l_paren {
+        return no_fail(), noerror
+    }
+    sp := span_in(p.file, p.spanned(sel).start, p.peek_at(end -% 1).offset_end())
+    mut name := make(list[uint8], p.alloc)
+    p.selection_name(mut name, sel)?
+    tk := p.peek_next()
+    start := p.fail_start()
+    if tk.kind() != lexer.kind_r_brack && !p.starts_type(tk) {
+        element_call_message(mut p.msgs, name)?
+    } else {
+        append(mut p.msgs, []uint8("cannot call ")...)?
+        append(mut p.msgs, name...)?
+        append(mut p.msgs, []uint8("[...](...): only a name is called, and only a function can be generic")...)?
+    }
+    f := mut p.fail_from(start, sp)?
+    return f, noerror
+}
+
+// element_call_message appends the error for a call of an element,
+// fs[0](x) or s.fs[i](x), where name is what the element is of, Go's
+// ast.ElementCallMessage.
+func element_call_message(mut out list[uint8], name []uint8) error {
+    append(mut out, []uint8("cannot call an element, ")...)?
+    append(mut out, name...)?
+    append(mut out, []uint8("[...](...); only a name is called: bind it first, as in g := ")...)?
+    append(mut out, name...)?
+    return append(mut out, []uint8("[...]")...)
+}
+
+// selection_name appends sel as a diagnostic names it when its operand
+// is a name or a chain of selections of one, s.fs or a.b.fs, and as
+// (...).fs, its field after a stand-in for the operand, when it is
+// anything else, Go's selectionName. Go's recurses down the chain; this
+// walks it, so a long chain costs no stack.
+func (p Parser) selection_name(mut out list[uint8], sel id[ast.Node]) error {
+    mut names := make(list[span[uint8]], p.alloc)
+    mut x := sel
+    for {
+        mut next := no_node()
+        switch p.t.kind(x) {
+        case selector(s):
+            append(mut names, s.name)?
+            next = s.x
+        default:
+        }
+        if is_nil(next) {
+            break
+        }
+        x = next
+    }
+    base, is_name := ident_of(p.t.nodes, x)
+    if !is_name {
+        append(mut out, []uint8("(...).")...)?
+        first, ok := names[0]
+        if ok {
+            append(mut out, p.text(first)...)?
+        }
+        return noerror
+    }
+    if len(p.text(base.pkg)) > 0 {
+        append(mut out, p.text(base.pkg)...)?
+        append(mut out, '.')?
+    }
+    append(mut out, p.text(base.name)...)?
+    mut i := len(names)
+    for i > 0 {
+        i -%= 1
+        s, ok := names[i]
+        if ok {
+            append(mut out, '.')?
+            append(mut out, p.text(s)...)?
+        }
+    }
+    return noerror
+}
+
+// parse_field_selector parses x.[f], the field f of x, after x, from the
+// period: f is a name.
+func (mut p Parser) parse_field_selector(x id[ast.Node]) (id[ast.Node], Fail, error) {
+    mut p.next() // the period
+    open := mut p.next()
+    name, f := mut p.parse_ident([]uint8("field variable"))?
+    if is_nil(name) {
+        return no_node(), f, noerror
+    }
+    ok, rf := mut p.expect(lexer.kind_r_brack)?
+    if !ok {
+        return no_node(), rf, noerror
+    }
+    end := p.prev_end()
+    name_str, _ := ident_name(p.t.nodes, name)
+    mut text := make(list[uint8], p.alloc)
+    append(mut text, '[')?
+    append(mut text, p.text(name_str)...)?
+    append(mut text, ']')?
+    bracketed := mut p.str(text)?
+    n := mut p.add(ast.Kind.selector(ast.Selector{
+        x: x,
+        name: bracketed,
+        name_span: span_in(p.file, open.offset_start(), end),
+        field: name,
+    }), span_in(p.file, extent_in(p.parens, p.t.nodes, x).start, end))?
+    return n, no_fail(), noerror
+}
+
+// parse_type_assert parses a type assertion after x, from the period:
+// x.(T), with any type T, or x.(type).
+func (mut p Parser) parse_type_assert(x id[ast.Node]) (id[ast.Node], Fail, error) {
+    mut p.next() // the period
+    mut p.next() // the opening parenthesis
+    mut typ := no_node()
+    if is_keyword(p.peek(), lexer.keyword_type) {
+        mut p.next()
+    } else {
+        old := p.no_lit
+        p.no_lit = false
+        t, f := mut p.parse_type()?
+        p.no_lit = old
+        if is_nil(t) {
+            return no_node(), f, noerror
+        }
+        typ = t
+    }
+    ok, f := mut p.expect(lexer.kind_r_paren)?
+    if !ok {
+        return no_node(), f, noerror
+    }
+    n := mut p.add(ast.Kind.type_assert(ast.TypeAssert{x: x, type_expr: typ}), span_in(p.file, extent_in(p.parens, p.t.nodes, x).start, p.prev_end()))?
+    return n, no_fail(), noerror
+}
+
+// parse_composite_lit parses an array literal: an array type, which may
+// use [...] for its length, then its elements in braces. A view type,
+// []T, is followed by its conversion's argument in parentheses,
+// []uint8(s), or by braces, a literal of a view.
+func (mut p Parser) parse_composite_lit() (id[ast.Node], Fail, error) {
+    typ, f := mut p.parse_array_type(true)?
+    if is_nil(typ) {
+        return no_node(), f, noerror
+    }
+    mut is_view := false
+    switch p.t.kind(typ) {
+    case view_type:
+        is_view = true
+    default:
+    }
+    if is_view && p.peek().kind() == lexer.kind_l_paren {
+        c, cf := mut p.parse_args(typ, p.spanned(typ))?
+        return c, cf, noerror
+    }
+    n, lf := mut p.parse_lit_body(typ, p.spanned(typ).start)?
+    return n, lf, noerror
+}
+
+// parse_lit_body parses the braces of a composite literal and the
+// elements in them, separated by commas, with a comma allowed after the
+// last. An element may have a key, key: value. An element or value that
+// is itself only braces is a literal whose type is left out, typ is
+// none. The literal spans from start.
+func (mut p Parser) parse_lit_body(typ id[ast.Node], start int64) (id[ast.Node], Fail, error) {
+    nf := mut p.nest_at(lexer.kind_l_curl)?
+    if nf.failed() {
+        return no_node(), nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    ok, f := mut p.expect(lexer.kind_l_curl)?
+    if !ok {
+        return no_node(), f, noerror
+    }
+    old := p.no_lit
+    p.no_lit = false
+    defer {
+        p.no_lit = old
+    }
+
+    mut elems := make(list[id[ast.Node]], p.alloc)
+    for p.peek().kind() != lexer.kind_r_curl {
+        if len(elems) > 0 {
+            cok, cf := mut p.expect(lexer.kind_comma)?
+            if !cok {
+                return no_node(), cf, noerror
+            }
+            if p.peek().kind() == lexer.kind_r_curl {
+                break
+            }
+        }
+
+        elem, ef := mut p.parse_lit_elem()?
+        if is_nil(elem) {
+            return no_node(), ef, noerror
+        }
+        append(mut elems, elem)?
+    }
+
+    mut p.next() // the closing brace
+    l := mut p.add_list(elems)?
+    n := mut p.add(ast.Kind.composite_lit(ast.CompositeLit{type_expr: typ, elems: l}), span_in(p.file, start, p.prev_end()))?
+    return n, no_fail(), noerror
+}
+
+// parse_lit_elem parses one element of a composite literal: a value, or
+// a key, a colon and a value. A key in parentheses is marked as such.
+func (mut p Parser) parse_lit_elem() (id[ast.Node], Fail, error) {
+    key, f := mut p.parse_lit_value()?
+    if is_nil(key) || p.peek().kind() != lexer.kind_colon {
+        return key, f, noerror
+    }
+    mut p.next() // the colon
+    value, vf := mut p.parse_lit_value()?
+    if is_nil(value) {
+        return no_node(), vf, noerror
+    }
+    n := mut p.add(ast.Kind.key_value(ast.KeyValue{
+        key: key,
+        value: value,
+        key_parens: extent_in(p.parens, p.t.nodes, key) != p.spanned(key),
+    }), span_in(p.file, extent_in(p.parens, p.t.nodes, key).start, extent_in(p.parens, p.t.nodes, value).end))?
+    return n, no_fail(), noerror
+}
+
+// parse_lit_value parses a value in a composite literal: an expression,
+// or braces alone, a literal whose type is left out.
+func (mut p Parser) parse_lit_value() (id[ast.Node], Fail, error) {
+    tk := p.peek()
+    if tk.kind() != lexer.kind_l_curl {
+        n, f := mut p.parse_expr(1)?
+        return n, f, noerror
+    }
+    n, f := mut p.parse_lit_body(no_node(), tk.offset_start())?
+    return n, f, noerror
+}
+
+// parse_unary parses a prefix operator and the operand after it. The
+// operand is parsed as an operand, not a full expression, so a prefix
+// operator binds tighter than any infix one. A - right before an integer
+// literal makes one negative literal instead.
+func (mut p Parser) parse_unary(op ast.UnaryOp) (id[ast.Node], Fail, error) {
+    nf := mut p.nest(p.peek())?
+    if nf.failed() {
+        return no_node(), nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    tk := mut p.next()
+
+    if op == ast.unary_neg && p.peek().kind() == lexer.kind_int {
+        digits := mut p.next()
+        n, f := mut p.int_lit(true, tk.offset_start(), digits)?
+        return n, f, noerror
+    }
+
+    x, f := mut p.parse_operand()?
+    if is_nil(x) {
+        return no_node(), f, noerror
+    }
+    n := mut p.add(ast.Kind.unary(ast.Unary{x: x, op: op}), span_in(p.file, tk.offset_start(), extent_in(p.parens, p.t.nodes, x).end))?
+    return n, no_fail(), noerror
+}
+
+// int_lit decodes the integer literal digits, negative when minus is
+// set, into a literal spanning from start through the digits. One out of
+// range is reported here.
+func (mut p Parser) int_lit(minus bool, start int64, digits lexer.Token) (id[ast.Node], Fail, error) {
+    sp := span_in(p.file, start, digits.offset_end())
+    val, ok := constant.parse(p.value(digits), minus, p.alloc)?
+    if !ok {
+        fstart := p.fail_start()
+        append(mut p.msgs, []uint8("integer literal ")...)?
+        if minus {
+            append(mut p.msgs, '-')?
+        }
+        append(mut p.msgs, p.toks.value(digits)...)?
+        append(mut p.msgs, []uint8(" is out of range")...)?
+        f := mut p.fail_from(fstart, sp)?
+        return no_node(), f, noerror
+    }
+    n := mut p.add(ast.Kind.int_lit(ast.IntLit{value: val}), sp)?
+    return n, no_fail(), noerror
+}
+
+// float_lit decodes the float literal tk. A literal too large or too
+// precise for an untyped float constant to hold exactly is reported here.
+// The literal keeps its text, which is all the port's tree holds of its
+// value yet (see constant.float_literal_ok).
+func (mut p Parser) float_lit(tk lexer.Token) (id[ast.Node], Fail, error) {
+    ok := constant.float_literal_ok(p.value(tk), p.alloc)?
+    if !ok {
+        start := p.fail_start()
+        append(mut p.msgs, []uint8("float literal ")...)?
+        append(mut p.msgs, p.toks.value(tk)...)?
+        append(mut p.msgs, []uint8(" is too large or too precise to hold exactly")...)?
+        f := mut p.fail_from(start, tok_span(p.file, tk))?
+        return no_node(), f, noerror
+    }
+    s := mut p.tok_str(tk)?
+    n := mut p.add(ast.Kind.float_lit(s), tok_span(p.file, tk))?
+    return n, no_fail(), noerror
+}
+
+// parse_paren_expr parses a parenthesized expression and returns the
+// inner expression; the parentheses leave no node of their own, and are
+// recorded in parens instead.
+func (mut p Parser) parse_paren_expr() (id[ast.Node], Fail, error) {
+    nf := mut p.nest(p.peek())?
+    if nf.failed() {
+        return no_node(), nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    lparen := mut p.next()
+
+    old := p.no_lit
+    p.no_lit = false
+    inner, f := mut p.parse_expr(1)?
+    p.no_lit = old
+    if is_nil(inner) {
+        return no_node(), f, noerror
+    }
+
+    ok, rf := mut p.expect(lexer.kind_r_paren)?
+    if !ok {
+        return no_node(), rf, noerror
+    }
+    // An enclosing pair is parsed after this one, so ((a)) ends up with
+    // the outer pair's span.
+    put(mut p.parens, inner, span_in(p.file, lparen.offset_start(), p.prev_end()))?
+    return inner, no_fail(), noerror
+}
+
+// parse_literal parses a single-token operand: a string, integer,
+// character or bool literal, noerror, c_allocator, or a name.
+func (mut p Parser) parse_literal() (id[ast.Node], Fail, error) {
+    tk := mut p.next()
+    k := tk.kind()
+    if k == lexer.kind_str {
+        s := mut p.tok_str(tk)?
+        n := mut p.add(ast.Kind.str_lit(s), tok_span(p.file, tk))?
+        return n, no_fail(), noerror
+    }
+    if k == lexer.kind_ident {
+        // A parameter reference. The resolver binds it to its declaration.
+        name := mut p.tok_str(tk)?
+        n := mut p.new_ident(name, tok_span(p.file, tk))?
+        return n, no_fail(), noerror
+    }
+    if k == lexer.kind_int {
+        n, f := mut p.int_lit(false, tk.offset_start(), tk)?
+        return n, f, noerror
+    }
+    if k == lexer.kind_float {
+        n, f := mut p.float_lit(tk)?
+        return n, f, noerror
+    }
+    if k == lexer.kind_char {
+        // The lexer gives a char literal only when it holds exactly one
+        // byte.
+        mut c uint8 = 0
+        first, ok := p.value(tk)[0]
+        if ok {
+            c = first
+        }
+        n := mut p.add(ast.Kind.char_lit(c), tok_span(p.file, tk))?
+        return n, no_fail(), noerror
+    }
+    if k == lexer.kind_keyword {
+        lit := mut p.keyword_literal(tk)?
+        if !is_nil(lit) {
+            return lit, no_fail(), noerror
+        }
+    }
+    f := mut p.invalid_token([]uint8("value"), tk)?
+    return no_node(), f, noerror
+}
+
+// keyword_literal returns the literal the keyword tk is, true, false,
+// noerror or c_allocator, or none for any other keyword.
+func (mut p Parser) keyword_literal(tk lexer.Token) (id[ast.Node], error) {
+    kw := tk.keyword()
+    if kw == lexer.keyword_true {
+        n := mut p.add(ast.Kind.bool_lit(true), tok_span(p.file, tk))?
+        return n, noerror
+    }
+    if kw == lexer.keyword_false {
+        n := mut p.add(ast.Kind.bool_lit(false), tok_span(p.file, tk))?
+        return n, noerror
+    }
+    if kw == lexer.keyword_no_error {
+        n := mut p.add(ast.Kind.noerror_lit, tok_span(p.file, tk))?
+        return n, noerror
+    }
+    if kw == lexer.keyword_c_allocator {
+        n := mut p.add(ast.Kind.c_allocator_lit, tok_span(p.file, tk))?
+        return n, noerror
+    }
+    return no_node(), noerror
+}
+
+// at_type_args reports whether the name that starts the next tokens,
+// ending n places ahead, is followed by brackets and then an opening
+// parenthesis, f[T](x): a call that writes its callee's type arguments.
+func (p Parser) at_type_args(n int64) bool {
+    if p.peek().kind() != lexer.kind_ident || p.peek_at(n +% 1).kind() != lexer.kind_l_brack {
+        return false
+    }
+    return p.peek_at(group_after(p.tokens, p.index, n +% 1, lexer.kind_l_brack, lexer.kind_r_brack)).kind() == lexer.kind_l_paren
+}
+
+// parse_type_args_call parses a call that writes type arguments, f[T](x)
+// or pkg.f[A, B](x), which the caller has seen is next: the callee's
+// name, the type arguments and then the arguments. Brackets whose first
+// token starts no type index, and are reported as an element called.
+func (mut p Parser) parse_type_args_call() (id[ast.Node], Fail, error) {
+    name, f := mut p.parse_name([]uint8("function name"))?
+    if is_nil(name) {
+        return no_node(), f, noerror
+    }
+    tk := p.peek_next()
+    if tk.kind() != lexer.kind_r_brack && !p.starts_type(tk) {
+        // fs[0](x): what the brackets hold is no type, so they index.
+        end := group_after(p.tokens, p.index, 0, lexer.kind_l_brack, lexer.kind_r_brack)
+        mut qualified := make(list[uint8], p.alloc)
+        append_qualified(mut qualified, p.t.nodes, p.t.bytes, name)?
+        start := p.fail_start()
+        element_call_message(mut p.msgs, qualified)?
+        ef := mut p.fail_from(start, span_in(p.file, p.spanned(name).start, p.peek_at(end -% 1).offset_end()))?
+        return no_node(), ef, noerror
+    }
+    type_args, sp, tf := mut p.parse_type_args()?
+    if tf.failed() {
+        return no_node(), tf, noerror
+    }
+    c, cf := mut p.parse_args(name, p.spanned(name))?
+    if is_nil(c) {
+        return no_node(), cf, noerror
+    }
+    set_call_type_args(mut p.t.nodes, c, type_args, sp)
+    return c, no_fail(), noerror
+}
+
+// parse_type_args parses the bracketed type arguments of a call, from the
+// opening bracket next through the closing one, and returns them and the
+// span of the brackets. Each is a type, and the commas between them are
+// written, with none after the last; [] is reported.
+func (mut p Parser) parse_type_args() (ast.Nodes, source.Span, Fail, error) {
+    mut none ast.Nodes
+    mut z source.Span
+    nf := mut p.nest(p.peek())?
+    if nf.failed() {
+        return none, z, nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    open := mut p.next()
+    tk := p.peek()
+    if tk.kind() == lexer.kind_r_brack {
+        f := mut p.fail_str("empty type argument list", span_in(p.file, open.offset_start(), tk.offset_end()))?
+        return none, z, f, noerror
+    }
+    mut type_args := make(list[id[ast.Node]], p.alloc)
+    for {
+        typ, f := mut p.parse_type()?
+        if is_nil(typ) {
+            return none, z, f, noerror
+        }
+        append(mut type_args, typ)?
+        if p.peek().kind() != lexer.kind_comma {
+            break
+        }
+        mut p.next()
+    }
+    ok, f := mut p.expect(lexer.kind_r_brack)?
+    if !ok {
+        return none, z, f, noerror
+    }
+    l := mut p.add_list(type_args)?
+    return l, span_in(p.file, open.offset_start(), p.prev_end()), no_fail(), noerror
+}
+
+// parse_func_lit parses a function literal, func(a T, b T) R { ... },
+// whose keyword is next: its parameters, its results and its body, in
+// braces, a block of its own, in which a struct literal needs no
+// parentheses.
+func (mut p Parser) parse_func_lit() (id[ast.Node], Fail, error) {
+    nf := mut p.nest(p.peek())?
+    if nf.failed() {
+        return no_node(), nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    kw := mut p.next()
+    params, made, pf := mut p.parse_params()?
+    if pf.failed() {
+        return no_node(), pf, noerror
+    }
+    results, rf := mut p.parse_results()?
+    if rf.failed() {
+        return no_node(), rf, noerror
+    }
+    old := p.no_lit
+    p.no_lit = false
+    body, bf := mut p.parse_block_list()?
+    p.no_lit = old
+    if bf.failed() {
+        return no_node(), bf, noerror
+    }
+    sp := span_in(p.file, kw.offset_start(), p.last_end())
+    mut fn ast.Func
+    if made {
+        fn.params = mut p.add_list(params)?
+    }
+    fn.results = results
+    fn.body = body
+    fn.name_span = tok_span(p.file, kw)
+    fn.closure = true
+    fid := mut p.t.add_func(fn)?
+    fn_node := mut p.add(ast.Kind.func_decl(fid), sp)?
+    n := mut p.add(ast.Kind.func_lit(fn_node), sp)?
+    return n, no_fail(), noerror
+}

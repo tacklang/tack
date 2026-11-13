@@ -1,0 +1,386 @@
+package parser
+
+import lexer from "tack/lexer"
+
+// What error recovery (see recover.tck) reads of a line, a port of Go's
+// recoverlines.go: whether it starts as only a declaration does, as a
+// function's header does, or as only a statement does. Each looks at the
+// tokens of one line at most.
+
+// at_line_start reports whether the next token starts a line.
+func (p Parser) at_line_start() bool {
+    return p.peek().starts_line()
+}
+
+// at_brace_line reports whether the next token is a closing brace that
+// starts its line.
+func (p Parser) at_brace_line() bool {
+    return p.at_line_start() && p.peek().kind() == lexer.kind_r_curl
+}
+
+// next_line returns the index of the first token after the token k that
+// starts a line, or of the EOF token.
+func (p Parser) next_line(k int64) int64 {
+    mut next := k +% 1
+    for next < len(p.tokens) && !p.tok(next).starts_line() && p.tok(next).kind() != lexer.kind_eof {
+        next +%= 1
+    }
+    return min_index(next, len(p.tokens) -% 1)
+}
+
+// last_on_line returns the kind of the last token of the line the token
+// k is on, from k on, the semicolon inserted at its end aside, or EOF
+// when there is none. The line last scanned is remembered, which keeps a
+// line of thousands of written semicolons linear.
+func (mut p Parser) last_on_line(k int64) lexer.TokenKind {
+    if !p.line_memo.ok || k < p.line_memo.first || k >= p.line_memo.end {
+        end := p.next_line(k)
+        mut last_at int64 = -1
+        for mut i := k; i < end; i = i +% 1 {
+            tk := p.tok(i)
+            if tk.kind() != lexer.kind_semi || !inserted(tk) {
+                last_at = i
+            }
+        }
+        p.line_memo = LineMemo{first: k, end: end, last_at: last_at, ok: true}
+    }
+    if p.line_memo.last_at < k {
+        return lexer.kind_eof
+    }
+    return p.tok(p.line_memo.last_at).kind()
+}
+
+// LineMemo is the line last_on_line last scanned: from the token first
+// to the one before end, whose last token, the inserted semicolon aside,
+// is at last_at, or -1 for none.
+type LineMemo struct {
+    first int64
+    end int64
+    last_at int64
+    ok bool
+}
+
+// header_line_at reports whether the line the token k starts ends in an
+// opening brace with a closing parenthesis before it, as a function's
+// header does.
+func (mut p Parser) header_line_at(k int64) bool {
+    return p.kind_on_line(k, lexer.kind_r_paren) && mut p.last_on_line(k) == lexer.kind_l_curl
+}
+
+// func_on_line reports whether func is among the tokens of the line the
+// token k is on, from k on.
+func (p Parser) func_on_line(k int64) bool {
+    end := p.next_line(k)
+    for mut i := k; i < end; i = i +% 1 {
+        if is_keyword(p.tok(i), lexer.keyword_func) {
+            return true
+        }
+    }
+    return false
+}
+
+// kind_on_line reports whether a token of kind kind is among the tokens
+// of the line the token k is on, from k on. Go's onLine takes a function
+// that matches a token; its matches are a token's kind, here, and the
+// keyword func, func_on_line.
+func (p Parser) kind_on_line(k int64, kind lexer.TokenKind) bool {
+    end := p.next_line(k)
+    for mut i := k; i < end; i = i +% 1 {
+        if p.tok(i).kind() == kind {
+            return true
+        }
+    }
+    return false
+}
+
+// at_decl_line reports whether the next tokens start a line the way only
+// a top-level declaration does. inside says the line is inside braces,
+// where a func line counts only when it has a declaration's shape with
+// its body's brace after its parameters (see func_decl_line).
+func (mut p Parser) at_decl_line(inside bool) bool {
+    if !p.keyword_line() {
+        return false
+    }
+    tk := p.peek()
+    next := p.peek_at(1)
+    kw := tk.keyword()
+    if kw == lexer.keyword_func {
+        return mut p.func_decl_line(next, inside)
+    }
+    if kw == lexer.keyword_type {
+        return next.kind() == lexer.kind_ident
+    }
+    if kw == lexer.keyword_import {
+        return p.import_line()
+    }
+    if kw == lexer.keyword_pub || kw == lexer.keyword_lib {
+        // pub mut x := is a statement's form, never a declaration's.
+        return visible_decl_keyword(next) && p.peek_at(3).kind() != lexer.kind_define
+    }
+    if kw == lexer.keyword_extern {
+        return is_keyword(next, lexer.keyword_func) || next.kind() == lexer.kind_l_paren
+    }
+    return false
+}
+
+// import_line reports whether the import that is next reads as every
+// import does, import x from.
+func (p Parser) import_line() bool {
+    return p.peek_at(1).kind() == lexer.kind_ident && is_keyword(p.peek_at(2), lexer.keyword_from)
+}
+
+// keyword_line reports whether the next token starts a line and is a
+// keyword with more of its line after it.
+func (p Parser) keyword_line() bool {
+    return p.at_line_start() && p.peek().kind() == lexer.kind_keyword && !p.peek_at(1).starts_line()
+}
+
+// func_decl_line reports whether func, with next after it, starts a line
+// as a function's declaration does: a name or a receiver's parenthesis
+// next, and, inside braces, the shape of a declaration with the brace
+// that opens its body after the parameters close, on the same line.
+func (mut p Parser) func_decl_line(next lexer.Token, inside bool) bool {
+    if next.kind() != lexer.kind_ident && next.kind() != lexer.kind_l_paren {
+        return false
+    }
+    return !inside || decl_shape_ahead(p.tokens, p.index) && mut p.body_after_params()
+}
+
+// body_after_params reports whether, on the line of the func that is
+// next, an opening brace comes after the parameters close: the brace of
+// its body, after its results if any, and after its contract if any (see
+// contract_ends_in_body).
+func (mut p Parser) body_after_params() bool {
+    end, ok := p.params_end()
+    if !ok {
+        return false
+    }
+    for mut k := end +% 1; ; k = k +% 1 {
+        tk := p.peek_at(k)
+        if is_keyword(tk, lexer.keyword_ensures) && !tk.starts_line() {
+            return mut p.contract_ends_in_body(p.index +% k)
+        }
+        if tk.kind() == lexer.kind_eof || tk.starts_line() || !result_token(tk) {
+            return false
+        }
+        if tk.kind() == lexer.kind_l_curl {
+            return true
+        }
+    }
+}
+
+// contract_ends_in_body reports whether the contract of a function's
+// header whose ensures keyword is the token k ends in the brace of the
+// body.
+func (mut p Parser) contract_ends_in_body(start_k int64) bool {
+    mut k := start_k
+    for {
+        if mut p.last_on_line(k) == lexer.kind_l_curl {
+            return true
+        }
+        next := p.next_line(k)
+        tk := p.tok(next -% 1)
+        if tk.kind() == lexer.kind_semi && inserted(tk) || p.tok(next).kind() == lexer.kind_eof ||
+            is_decl_keyword(p.tok(next)) {
+            return false
+        }
+        k = next
+    }
+}
+
+// params_end returns how many places ahead of the func that is next the
+// parenthesis closing its parameters is, past its type parameters, and
+// whether they close on its line.
+func (p Parser) params_end() (int64, bool) {
+    k, ok := params_ahead(p.tokens, p.index)
+    if !ok {
+        return 0, false
+    }
+    end, closed := close_ahead(p.tokens, p.index, k, lexer.kind_l_paren, lexer.kind_r_paren)
+    return end, closed
+}
+
+// result_token reports whether tk can be part of a function's results
+// written before its body: no operator but the punctuation of a type, and
+// no literal.
+func result_token(tk lexer.Token) bool {
+    k := tk.kind()
+    if k == lexer.kind_comma || k == lexer.kind_period || k == lexer.kind_r_paren ||
+        k == lexer.kind_r_brack || k == lexer.kind_ellipsis {
+        return true
+    }
+    if k == lexer.kind_logical_not || k == lexer.kind_str || k == lexer.kind_char {
+        return false
+    }
+    return !continues_line(k)
+}
+
+// visible_decl_keyword reports whether tk, after pub or lib, is a keyword
+// a declaration they make visible starts with: func, var, mut, type or
+// extern.
+func visible_decl_keyword(tk lexer.Token) bool {
+    if tk.kind() != lexer.kind_keyword {
+        return false
+    }
+    kw := tk.keyword()
+    return kw == lexer.keyword_func || kw == lexer.keyword_var || kw == lexer.keyword_mut ||
+        kw == lexer.keyword_type || kw == lexer.keyword_extern
+}
+
+// decl_tok returns the token that says what the declaration starting at
+// the token start declares: its first, or, after pub or lib, its second.
+func (p Parser) decl_tok(start int64) lexer.Token {
+    return p.tok(p.decl_keyword_index(start))
+}
+
+// decl_keyword_index returns the index of the token decl_tok returns.
+func (p Parser) decl_keyword_index(start int64) int64 {
+    last := len(p.tokens) -% 1
+    mut k := min_index(start, last)
+    if is_keyword(p.tok(k), lexer.keyword_pub) || is_keyword(p.tok(k), lexer.keyword_lib) {
+        k = min_index(k +% 1, last)
+    }
+    return k
+}
+
+// has_body reports whether the declaration that starts at the token
+// start, pub or lib aside, is a function's.
+func (p Parser) has_body(start int64) bool {
+    return is_keyword(p.decl_tok(start), lexer.keyword_func)
+}
+
+// holds_no_stmts reports whether the declaration that starts at the
+// token start, pub or lib aside, is one whose braces cannot hold
+// statements (see Go's holdsNoStmts). The answer for the last start asked
+// about is remembered.
+func (mut p Parser) holds_no_stmts(start int64) bool {
+    if p.no_stmts_memo.ok && p.no_stmts_memo.start == start {
+        return p.no_stmts_memo.val
+    }
+    val := mut p.holds_no_stmts_at(start)
+    p.no_stmts_memo = StartMemo{start: start, val: val, ok: true}
+    return val
+}
+
+// StartMemo is what holds_no_stmts answered for the declaration that
+// starts at the token start.
+type StartMemo struct {
+    start int64
+    val bool
+    ok bool
+}
+
+// holds_no_stmts_at is holds_no_stmts, worked out.
+func (mut p Parser) holds_no_stmts_at(start int64) bool {
+    k := p.decl_keyword_index(start)
+    tk := p.tok(k)
+    if is_keyword(tk, lexer.keyword_extern) {
+        return !mut p.extern_body_at(k)
+    }
+    if p.func_on_line(k) && mut p.header_line_at(k) || is_keyword(tk, lexer.keyword_func) {
+        return false
+    }
+    if tk.kind() == lexer.kind_l_curl && p.after_bodiless_func() {
+        return false
+    }
+    if no_stmt_keyword(tk) {
+        return !mut p.func_mistyped(k)
+    }
+    return !mut p.header_line_at(k) && !mut p.stmt_like(k)
+}
+
+// extern_body_at reports whether the extern func whose line starts at
+// the token k is written with a body: its line is shaped like a
+// function's header, with no closing brace on it.
+func (mut p Parser) extern_body_at(k int64) bool {
+    return mut p.header_line_at(k) && !p.kind_on_line(k, lexer.kind_r_curl)
+}
+
+// no_stmt_keyword reports whether tk is a keyword that starts a
+// declaration that holds no statements: var, mut, type, import, extern or
+// package.
+func no_stmt_keyword(tk lexer.Token) bool {
+    if tk.kind() != lexer.kind_keyword {
+        return false
+    }
+    kw := tk.keyword()
+    return kw == lexer.keyword_var || kw == lexer.keyword_mut || kw == lexer.keyword_extern ||
+        kw == lexer.keyword_type || kw == lexer.keyword_import || kw == lexer.keyword_package
+}
+
+// func_mistyped reports whether the line the keyword at token k starts is
+// a function's header with its func mistyped as that keyword: a name and
+// a parenthesis after it, and the shape of a header.
+func (mut p Parser) func_mistyped(k int64) bool {
+    last := len(p.tokens) -% 1
+    return p.tok(min_index(k +% 1, last)).kind() == lexer.kind_ident &&
+        p.tok(min_index(k +% 2, last)).kind() == lexer.kind_l_paren && mut p.header_line_at(k)
+}
+
+// stmt_like reports whether the damaged top-level declaration that starts
+// at the token start starts as a statement does (see stmt_starts_at),
+// right after a function: that function's body spilled where
+// declarations go.
+func (mut p Parser) stmt_like(start int64) bool {
+    return p.after_func() && mut p.stmt_starts_at(min_index(start, len(p.tokens) -% 1))
+}
+
+// stmt_starts_at reports whether the token at index i starts as only a
+// statement does: a keyword only a statement starts with, var x := or
+// mut x :=, or a name not on a line shaped like a function's header.
+func (mut p Parser) stmt_starts_at(i int64) bool {
+    tk := p.tok(i)
+    if tk.kind() == lexer.kind_ident {
+        return !mut p.header_line_at(i)
+    }
+    if is_keyword(tk, lexer.keyword_var) || is_keyword(tk, lexer.keyword_mut) {
+        // var x := and mut x := declare only in a body.
+        return p.tok(min_index(i +% 2, len(p.tokens) -% 1)).kind() == lexer.kind_define
+    }
+    if tk.kind() == lexer.kind_keyword {
+        kw := tk.keyword()
+        return kw == lexer.keyword_for || kw == lexer.keyword_if || kw == lexer.keyword_return ||
+            kw == lexer.keyword_switch || kw == lexer.keyword_defer || kw == lexer.keyword_region ||
+            kw == lexer.keyword_break || kw == lexer.keyword_continue || kw == lexer.keyword_unreachable ||
+            kw == lexer.keyword_fallthrough || kw == lexer.keyword_else
+    }
+    return false
+}
+
+// after_func reports whether the last top-level declaration parsed is a
+// function's.
+func (p Parser) after_func() bool {
+    last, ok := p.t.decls[len(p.t.decls) -% 1]
+    return ok && is_func(p.t.nodes, last)
+}
+
+// after_bodiless_func reports whether the last top-level declaration
+// parsed is a function's with no body that is not an extern func.
+func (p Parser) after_bodiless_func() bool {
+    last, ok := p.t.decls[len(p.t.decls) -% 1]
+    if !ok {
+        return false
+    }
+    switch p.t.kind(last) {
+    case func_decl(fid):
+        return p.t.funcs[fid].no_body && !p.t.funcs[fid].is_extern
+    default:
+        return false
+    }
+}
+
+// func_shape_at reports whether the declaration that starts at the token
+// start, pub or lib aside, starts as a function's does, func f( or func
+// (p T) m(, or func f[T Any]( with its type parameters closed on its
+// line. It moves the parser to the keyword to look, and back, as Go's
+// does.
+func (mut p Parser) func_shape_at(start int64) bool {
+    saved := p.index
+    p.index = p.decl_keyword_index(start)
+    mut ok := decl_shape_ahead(p.tokens, p.index)
+    if ok {
+        _, ok = params_ahead(p.tokens, p.index)
+    }
+    p.index = saved
+    return ok
+}

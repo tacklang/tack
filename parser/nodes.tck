@@ -1,0 +1,96 @@
+package parser
+
+import ast from "tack/ast"
+import source from "tack/source"
+
+// Small readers and writers of the tree's nodes, free functions of the
+// nodes arena, for the parser's recursive functions: each copies a node's
+// Kind, a large value, only for as long as it runs, rather than for as
+// long as the recursive function that asks, where a switch over a Kind
+// would keep the copy on the stack at every level of nesting.
+
+// question_of returns the operand of n when it is a ?, and none
+// otherwise.
+func question_of(nodes arena[ast.Node], n id[ast.Node]) id[ast.Node] {
+    switch nodes[n].k {
+    case question(x):
+        return x
+    default:
+        return no_node()
+    }
+}
+
+// call_fn returns the callee of n when it is a call, and none otherwise.
+func call_fn(nodes arena[ast.Node], n id[ast.Node]) id[ast.Node] {
+    switch nodes[n].k {
+    case call(c):
+        return c.fn
+    default:
+        return no_node()
+    }
+}
+
+// selector_x returns the operand of n when it is a selector, and none
+// otherwise.
+func selector_x(nodes arena[ast.Node], n id[ast.Node]) id[ast.Node] {
+    switch nodes[n].k {
+    case selector(s):
+        return s.x
+    default:
+        return no_node()
+    }
+}
+
+// is_mut_arg reports whether n is a mut argument.
+func is_mut_arg(nodes arena[ast.Node], n id[ast.Node]) bool {
+    switch nodes[n].k {
+    case mut_arg:
+        return true
+    default:
+        return false
+    }
+}
+
+// set_selector_x makes x the operand of n, a selector, and does nothing
+// to a node of any other kind.
+func set_selector_x(mut nodes arena[ast.Node], n id[ast.Node], x id[ast.Node]) {
+    k := nodes[n].k
+    switch k {
+    case selector(s):
+        mut ns := s
+        ns.x = x
+        nodes[n].k = ast.Kind.selector(ns)
+    default:
+    }
+}
+
+// set_call_type_args gives n, a call, the type arguments type_args
+// written in the brackets at sp, and does nothing to a node of any other
+// kind.
+func set_call_type_args(mut nodes arena[ast.Node], n id[ast.Node], type_args ast.Nodes, sp source.Span) {
+    k := nodes[n].k
+    switch k {
+    case call(c):
+        mut nc := c
+        nc.type_args = type_args
+        nc.type_args_span = sp
+        nodes[n].k = ast.Kind.call(nc)
+    default:
+    }
+}
+
+// append_qualified appends n, a name, as written, pkg.name for a
+// qualified one, to out; bytes holds the tree's names. A node of any
+// other kind appends nothing.
+func append_qualified(mut out list[uint8], nodes arena[ast.Node], bytes arena[uint8], n id[ast.Node]) error {
+    switch nodes[n].k {
+    case ident(i):
+        if len(bytes[i.pkg]) > 0 {
+            append(mut out, bytes[i.pkg]...)?
+            append(mut out, '.')?
+        }
+        return append(mut out, bytes[i.name]...)
+    default:
+        return noerror
+    }
+}

@@ -1,0 +1,57 @@
+package parser
+
+import ast from "tack/ast"
+import lexer from "tack/lexer"
+
+// Builtin mode, a port of Go's builtinmode.go: the mode in which package
+// builtin parses the file that documents the builtins, and nothing else.
+// In it a var may be named by a keyword that is a builtin value, var true
+// bool, and a type declared as itself, type int32 int32. The loader never
+// turns it on, and the port's parse does not yet either: builtin_mode is
+// always false until the builtins are ported.
+
+// parse_var_name parses the name a var or a mut declares: a name, or, in
+// builtin mode, a keyword that names a builtin value.
+func (mut p Parser) parse_var_name() (id[ast.Node], Fail, error) {
+    name := mut p.builtin_value_name()?
+    if !is_nil(name) {
+        return name, no_fail(), noerror
+    }
+    n, f := mut p.parse_ident([]uint8("variable name"))?
+    return n, f, noerror
+}
+
+// builtin_value_name consumes and returns the next token as a name when
+// the parser is in builtin mode and it is a keyword naming a builtin
+// value, true, false, noerror or c_allocator, and returns none
+// otherwise.
+func (mut p Parser) builtin_value_name() (id[ast.Node], error) {
+    tk := p.peek()
+    if !p.builtin_mode || tk.kind() != lexer.kind_keyword {
+        return no_node(), noerror
+    }
+    kw := tk.keyword()
+    if kw != lexer.keyword_true && kw != lexer.keyword_false && kw != lexer.keyword_no_error &&
+        kw != lexer.keyword_c_allocator {
+        return no_node(), noerror
+    }
+    mut p.next()
+    mut spelled := make(list[uint8], p.alloc)
+    kw.append_string(mut spelled)?
+    name := mut p.str(spelled)?
+    n := mut p.new_ident(name, tok_span(p.file, tk))?
+    return n, noerror
+}
+
+// self_named_type consumes and returns the type a type declaration named
+// name declares when the parser is in builtin mode and it is that name
+// itself, type int32 int32, and returns none otherwise.
+func (mut p Parser) self_named_type(name span[uint8]) (id[ast.Node], error) {
+    tk := p.peek()
+    if !p.builtin_mode || tk.kind() != lexer.kind_ident || !equal_bytes(p.value(tk), p.text(name)) {
+        return no_node(), noerror
+    }
+    mut p.next()
+    n := mut p.new_ident(name, tok_span(p.file, tk))?
+    return n, noerror
+}

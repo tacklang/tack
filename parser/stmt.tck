@@ -1,0 +1,1613 @@
+package parser
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import lexer from "tack/lexer"
+import source from "tack/source"
+
+// parse_stmt parses one statement, choosing the form by its first token
+// and, for one starting with a name, the token after it. It returns none
+// and no failure at the end of the file, as Go's returns nil and no
+// errors.
+func (mut p Parser) parse_stmt() (id[ast.Node], Fail, error) {
+    tk := p.peek()
+    if tk.kind() == lexer.kind_eof {
+        return no_node(), no_fail(), noerror
+    }
+    if p.at_simple_stmt() {
+        stmt, f := mut p.parse_simple_stmt()?
+        if f.failed() {
+            return no_node(), f, noerror
+        }
+        ef := mut p.end_stmt(stmt)?
+        if ef.failed() {
+            return no_node(), ef, noerror
+        }
+        return stmt, no_fail(), noerror
+    }
+    if tk.kind() == lexer.kind_keyword {
+        stmt, f := mut p.parse_keyword_stmt(tk)?
+        if f.failed() {
+            return no_node(), f, noerror
+        }
+        return stmt, no_fail(), noerror
+    }
+    f := mut p.invalid_token([]uint8("statement"), tk)?
+    return no_node(), f, noerror
+}
+
+// at_simple_stmt reports whether the next statement is a simple one: a
+// declaration starting with var or mut, anything starting with a name, or
+// a call or a ? on one starting with a parenthesis.
+func (p Parser) at_simple_stmt() bool {
+    tk := p.peek()
+    k := tk.kind()
+    if k == lexer.kind_ident || k == lexer.kind_l_paren {
+        return true
+    }
+    return is_keyword(tk, lexer.keyword_var) || is_keyword(tk, lexer.keyword_mut)
+}
+
+// parse_simple_stmt parses a simple statement, without the semicolon
+// that ends it: a declaration, an assignment, an increment or decrement,
+// or a call, written in parentheses or not, perhaps with a ? after it.
+func (mut p Parser) parse_simple_stmt() (id[ast.Node], Fail, error) {
+    tk := p.peek()
+    mut n := no_node()
+    mut f := no_fail()
+    if p.at_multi() {
+        n, f = mut p.parse_multi()?
+    } else if tk.kind() == lexer.kind_ident {
+        n, f = mut p.parse_ident_stmt(tk)?
+    } else if p.at_mut_call() {
+        n, f = mut p.parse_call_stmt(tk)?
+    } else if tk.kind() == lexer.kind_l_paren {
+        n, f = mut p.parse_paren_stmt(tk)?
+    } else if p.at_simple_stmt() {
+        n, f = mut p.parse_var_decl()?
+    } else {
+        f = mut p.invalid_token([]uint8("statement"), tk)?
+    }
+    if f.failed() {
+        return no_node(), f, noerror
+    }
+    return n, no_fail(), noerror
+}
+
+// parse_keyword_stmt parses a statement that starts with keyword tk.
+func (mut p Parser) parse_keyword_stmt(tk lexer.Token) (id[ast.Node], Fail, error) {
+    kw := tk.keyword()
+    if kw == lexer.keyword_if || kw == lexer.keyword_for || kw == lexer.keyword_switch ||
+        kw == lexer.keyword_defer || kw == lexer.keyword_region {
+        n, f := mut p.parse_block_stmt(tk)?
+        return n, f, noerror
+    }
+    if kw == lexer.keyword_return {
+        n, f := mut p.parse_return()?
+        return n, f, noerror
+    }
+    if kw == lexer.keyword_break {
+        n, f := mut p.parse_jump(ast.Kind.break_stmt, tk)?
+        return n, f, noerror
+    }
+    if kw == lexer.keyword_continue {
+        n, f := mut p.parse_jump(ast.Kind.continue_stmt, tk)?
+        return n, f, noerror
+    }
+    if kw == lexer.keyword_unreachable {
+        n, f := mut p.parse_jump(ast.Kind.unreachable_stmt, tk)?
+        return n, f, noerror
+    }
+    if kw == lexer.keyword_fallthrough {
+        n, f := mut p.parse_jump(ast.Kind.fallthrough_stmt, tk)?
+        return n, f, noerror
+    }
+    if kw == lexer.keyword_type {
+        f := mut p.fail_str("types can only be declared at package level", tok_span(p.file, tk))?
+        return no_node(), f, noerror
+    }
+    f := mut p.invalid_token([]uint8("statement"), tk)?
+    return no_node(), f, noerror
+}
+
+// parse_block_stmt parses a statement that starts with keyword tk and
+// holds blocks: an if, a loop, a switch, a defer or a region.
+func (mut p Parser) parse_block_stmt(tk lexer.Token) (id[ast.Node], Fail, error) {
+    kw := tk.keyword()
+    if kw == lexer.keyword_region {
+        n, f := mut p.parse_region()?
+        return n, f, noerror
+    }
+    if kw == lexer.keyword_if {
+        n, f := mut p.parse_if()?
+        return n, f, noerror
+    }
+    if kw == lexer.keyword_for {
+        if p.at_range() {
+            n, f := mut p.parse_for_range()?
+            return n, f, noerror
+        }
+        n, f := mut p.parse_for()?
+        return n, f, noerror
+    }
+    if kw == lexer.keyword_switch {
+        n, f := mut p.parse_switch()?
+        return n, f, noerror
+    }
+    n, f := mut p.parse_defer()?
+    return n, f, noerror
+}
+
+// parse_ident_stmt parses a statement that starts with the name tk: a
+// short variable declaration, an assignment (plain or compound), an
+// increment or decrement, or a call, a method call and one that writes
+// type arguments included. A name followed by indexes or fields can only
+// be assigned, incremented or decremented, or have a method called on
+// it; anything else after them is reported by parsing them first.
+func (mut p Parser) parse_ident_stmt(tk lexer.Token) (id[ast.Node], Fail, error) {
+    // A qualified name can be assigned or called but not declared.
+    n := p.name_end()
+    if p.at_type_args(n) {
+        r, f := mut p.parse_call_stmt(tk)?
+        return r, f, noerror
+    }
+    after_name := p.peek_at(n +% 1).kind()
+    postfixed := after_name == lexer.kind_l_brack || after_name == lexer.kind_period
+    after := target_after(p.tokens, p.index, n)
+    k := after.kind()
+    if k == lexer.kind_define {
+        r, f := mut p.parse_define(postfixed || n > 0, after)?
+        return r, f, noerror
+    }
+    _, compound := compound_op(k)
+    if k == lexer.kind_assign || compound {
+        r, f := mut p.parse_assign()?
+        return r, f, noerror
+    }
+    if k == lexer.kind_l_paren {
+        if n == 0 && fields_of_ahead(p.tokens, p.index, p.toks) {
+            r, f := mut p.parse_fields_of_stmt()?
+            return r, f, noerror
+        }
+        r, f := mut p.parse_call_like(tk, n, postfixed)?
+        return r, f, noerror
+    }
+    if k == lexer.kind_inc || k == lexer.kind_dec {
+        r, f := mut p.parse_inc_dec()?
+        return r, f, noerror
+    }
+    if k == lexer.kind_question {
+        r, f := mut p.parse_question_stmt(tk)?
+        return r, f, noerror
+    }
+    if postfixed {
+        f := mut p.bad_target(tk)?
+        return no_node(), f, noerror
+    }
+    f := mut p.invalid_token([]uint8("statement"), tk)?
+    return no_node(), f, noerror
+}
+
+// parse_fields_of_stmt parses a statement that starts with fields(T),
+// which the caller has seen is next, as the expression it starts.
+func (mut p Parser) parse_fields_of_stmt() (id[ast.Node], Fail, error) {
+    x, f := mut p.parse_operand()?
+    if is_nil(x) {
+        return no_node(), f, noerror
+    }
+    n := mut p.expr_stmt(x)?
+    return n, no_fail(), noerror
+}
+
+// expr_stmt adds a statement of x, spanning x's extent.
+func (mut p Parser) expr_stmt(x id[ast.Node]) (id[ast.Node], error) {
+    n := mut p.add(ast.Kind.expr_stmt(ast.ExprStmt{x: x}), extent_in(p.parens, p.t.nodes, x))?
+    return n, noerror
+}
+
+// parse_question_stmt parses a statement that starts with the name tk
+// and is a ? after it, or after an element or a field of it, without the
+// semicolon that ends it.
+func (mut p Parser) parse_question_stmt(tk lexer.Token) (id[ast.Node], Fail, error) {
+    x, f := mut p.parse_operand()?
+    if is_nil(x) {
+        return no_node(), f, noerror
+    }
+    n, cf := mut p.call_stmt(tk, x)?
+    return n, cf, noerror
+}
+
+// call_stmt makes a statement of x, which starts with tk, and spans its
+// extent: a call, or a ? after one or, but for a statement starting with
+// a parenthesis, after anything else. It reports anything else at tk.
+func (mut p Parser) call_stmt(tk lexer.Token, x id[ast.Node]) (id[ast.Node], Fail, error) {
+    if !is_call_stmt(p.t.nodes, tk, x) {
+        f := mut p.invalid_token([]uint8("statement"), tk)?
+        return no_node(), f, noerror
+    }
+    n := mut p.expr_stmt(x)?
+    return n, no_fail(), noerror
+}
+
+// is_call_stmt reports whether x, an expression starting with tk, can be
+// a statement: a call, or a ? after one or, unless tk is a parenthesis,
+// after anything.
+func is_call_stmt(nodes arena[ast.Node], tk lexer.Token, x id[ast.Node]) bool {
+    mut inner := x
+    mut questioned := false
+    for {
+        switch nodes[inner].k {
+        case question(q):
+            if !questioned && tk.kind() != lexer.kind_l_paren {
+                return true
+            }
+            questioned = true
+            inner = q
+        case call:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+// parse_call_like parses a statement that starts with the name tk, which
+// ends n places ahead, and holds a call: a method call, a call of the
+// function the name names, or, after indexes or fields, postfixed says,
+// anything else, which is reported.
+func (mut p Parser) parse_call_like(tk lexer.Token, n int64, postfixed bool) (id[ast.Node], Fail, error) {
+    if method_call_ahead(p.tokens, p.index, n) {
+        r, f := mut p.parse_call_stmt(tk)?
+        return r, f, noerror
+    }
+    if postfixed {
+        f := mut p.bad_target(tk)?
+        return no_node(), f, noerror
+    }
+    r, f := mut p.parse_func_call()?
+    return r, f, noerror
+}
+
+// name_end returns how many places ahead the name that starts the next
+// tokens ends: 0 for a name, 2 for a qualified one.
+func (p Parser) name_end() int64 {
+    if qualified_ahead(p.tokens, p.index, p.toks, p.imports, p.t.bytes, 0) {
+        return 2
+    }
+    return 0
+}
+
+// parse_define parses a short variable declaration, whose := is after,
+// or reports one whose target is not a plain name, when not_name says
+// so.
+func (mut p Parser) parse_define(not_name bool, after lexer.Token) (id[ast.Node], Fail, error) {
+    if not_name {
+        f := mut p.invalid_token([]uint8("="), after)?
+        return no_node(), f, noerror
+    }
+    n, f := mut p.parse_short_var_decl()?
+    return n, f, noerror
+}
+
+// bad_target reports a statement that starts with the name tk and
+// indexes or fields but is not an assignment, increment or decrement:
+// the error in the indexes or fields themselves, if there is one, and
+// otherwise the statement.
+func (mut p Parser) bad_target(tk lexer.Token) (Fail, error) {
+    _, f := mut p.parse_target()?
+    if f.failed() {
+        return f, noerror
+    }
+    sf := mut p.invalid_token([]uint8("statement"), tk)?
+    return sf, noerror
+}
+
+// at_mut_call reports whether the next tokens are mut, then a name, and
+// what follows it ends in a method call (see at_method_call).
+func (p Parser) at_mut_call() bool {
+    return is_keyword(p.peek(), lexer.keyword_mut) && p.peek_next().kind() == lexer.kind_ident &&
+        method_call_ahead(p.tokens, p.index, 1)
+}
+
+// parse_paren_stmt parses a statement that starts with tk, an opening
+// parenthesis: a call written in parentheses, or a ? on one, without the
+// semicolon that ends it. Anything else is no statement, and is reported
+// at tk alone, the parse moved back to tk.
+func (mut p Parser) parse_paren_stmt(tk lexer.Token) (id[ast.Node], Fail, error) {
+    start := p.index
+    x, _ := mut p.parse_operand()?
+    if is_nil(x) || !is_call_stmt(p.t.nodes, tk, x) {
+        p.index = start
+        f := mut p.invalid_token([]uint8("statement"), tk)?
+        return no_node(), f, noerror
+    }
+    n := mut p.expr_stmt(x)?
+    return n, no_fail(), noerror
+}
+
+// parse_call_stmt parses a statement that starts with tk and is a method
+// call, or a ? after one, without the semicolon that ends it.
+func (mut p Parser) parse_call_stmt(tk lexer.Token) (id[ast.Node], Fail, error) {
+    x, f := mut p.parse_operand()?
+    if is_nil(x) {
+        return no_node(), f, noerror
+    }
+    n, cf := mut p.call_stmt(tk, x)?
+    return n, cf, noerror
+}
+
+// group_stops reports whether a group after_group scans, with braces of
+// its own open, stops before tk: a semicolon or a closing brace outside
+// every brace it opened, EOF, or, but for the group's first token, one
+// that starts a line only a declaration starts.
+func group_stops(tk lexer.Token, braces int64, first bool) bool {
+    k := tk.kind()
+    if k == lexer.kind_eof {
+        return true
+    }
+    if (k == lexer.kind_semi || k == lexer.kind_r_curl) && braces == 0 {
+        return true
+    }
+    return !first && tk.starts_line() && is_decl_keyword(tk)
+}
+
+// is_decl_keyword reports whether tk is a keyword only a package-level
+// declaration starts with: func, type, pub, lib, extern or import.
+func is_decl_keyword(tk lexer.Token) bool {
+    if tk.kind() != lexer.kind_keyword {
+        return false
+    }
+    kw := tk.keyword()
+    return kw == lexer.keyword_func || kw == lexer.keyword_type || kw == lexer.keyword_pub ||
+        kw == lexer.keyword_lib || kw == lexer.keyword_extern || kw == lexer.keyword_import
+}
+
+// parse_target parses what an assignment, increment or decrement writes:
+// a name, followed by any number of indexes and fields.
+func (mut p Parser) parse_target() (id[ast.Node], Fail, error) {
+    name, f := mut p.parse_name([]uint8("variable name"))?
+    if is_nil(name) {
+        return no_node(), f, noerror
+    }
+    x, pf := mut p.parse_postfix(name)?
+    return x, pf, noerror
+}
+
+// at_multi reports whether the next tokens start a statement binding
+// several results: a name, or mut and a name, followed by a comma.
+func (p Parser) at_multi() bool {
+    tk := p.peek()
+    if is_keyword(tk, lexer.keyword_mut) {
+        return p.peek_next().kind() == lexer.kind_ident && target_after(p.tokens, p.index, 1).kind() == lexer.kind_comma
+    }
+    return tk.kind() == lexer.kind_ident && target_after(p.tokens, p.index, 0).kind() == lexer.kind_comma
+}
+
+// MultiItem is one entry in the list of a statement binding several
+// values: a name, or an element of a variable, with whether mut was
+// written before it and the span of both, Go's multiItem.
+type MultiItem struct {
+    target id[ast.Node]
+    span source.Span
+    mutable bool
+}
+
+// parse_multi parses a statement binding each result of a call: a
+// comma-separated list of names, then := and the call to declare them,
+// or = and the call to assign to them.
+func (mut p Parser) parse_multi() (id[ast.Node], Fail, error) {
+    start := tok_span(p.file, p.peek())
+
+    mut items := make(list[MultiItem], p.alloc)
+    for {
+        item, f := mut p.parse_multi_item()?
+        if is_nil(item.target) {
+            return no_node(), f, noerror
+        }
+        append(mut items, item)?
+
+        if p.peek().kind() != lexer.kind_comma {
+            break
+        }
+        mut p.next()
+    }
+
+    op := p.peek()
+    if op.kind() != lexer.kind_define && op.kind() != lexer.kind_assign {
+        f := mut p.invalid_token([]uint8(":= or ="), op)?
+        return no_node(), f, noerror
+    }
+    mut p.next()
+
+    value, vf := mut p.parse_expr(1)?
+    if is_nil(value) {
+        return no_node(), vf, noerror
+    }
+    sp := span_in(p.file, start.start, p.spanned(value).end)
+
+    if op.kind() == lexer.kind_define {
+        n, f := mut p.multi_var(items, value, sp)?
+        return n, f, noerror
+    }
+    n, f := mut p.multi_assign(items, value, sp)?
+    return n, f, noerror
+}
+
+// multi_assign turns the entries parsed for an assignment of several
+// values into its targets, reporting one written with mut.
+func (mut p Parser) multi_assign(items []MultiItem, value id[ast.Node], sp source.Span) (id[ast.Node], Fail, error) {
+    mut targets := make(list[id[ast.Node]], p.alloc)
+    for _, item := range items {
+        if item.mutable {
+            f := mut p.fail_str("cannot use mut in an assignment", item.span)?
+            return no_node(), f, noerror
+        }
+        append(mut targets, item.target)?
+    }
+    mut l ast.Nodes
+    if len(targets) > 0 {
+        l = mut p.add_list(targets)?
+    }
+    n := mut p.add(ast.Kind.multi_assign(ast.MultiAssign{value: value, targets: l}), sp)?
+    return n, no_fail(), noerror
+}
+
+// parse_multi_item parses one entry in the list of a statement binding
+// several values: a name, or an element of a variable, with the mut
+// before it if there is one.
+func (mut p Parser) parse_multi_item() (MultiItem, Fail, error) {
+    start := p.peek()
+    mutable := is_keyword(start, lexer.keyword_mut)
+    if mutable {
+        mut p.next()
+    }
+    mut z source.Span
+    target, f := mut p.parse_target()?
+    if is_nil(target) {
+        return MultiItem{target: no_node(), span: z, mutable: false}, f, noerror
+    }
+    return MultiItem{
+        target: target,
+        span: span_in(p.file, start.offset_start(), p.spanned(target).end),
+        mutable: mutable,
+    }, no_fail(), noerror
+}
+
+// multi_var turns the entries parsed for a declaration of several values
+// into its variables, each with no value of its own, reporting an
+// element, which only an assignment can have.
+func (mut p Parser) multi_var(items []MultiItem, value id[ast.Node], sp source.Span) (id[ast.Node], Fail, error) {
+    mut vars := make(list[id[ast.Node]], p.alloc)
+    for _, item := range items {
+        name, is_name := ident_of(p.t.nodes, item.target)
+        if !is_name {
+            f := mut p.fail_str("only a name can be declared; use = to assign to an element", p.spanned(item.target))?
+            return no_node(), f, noerror
+        }
+        mut v ast.Var
+        v.name = name.name
+        v.name_span = p.spanned(item.target)
+        v.mutable = item.mutable
+        vn := mut p.add(ast.Kind.var_decl(v), item.span)?
+        append(mut vars, vn)?
+    }
+    mut l ast.Nodes
+    if len(vars) > 0 {
+        l = mut p.add_list(vars)?
+    }
+    n := mut p.add(ast.Kind.multi_var(ast.MultiVar{value: value, vars: l}), sp)?
+    return n, no_fail(), noerror
+}
+
+// parse_inc_dec parses name++ or name--.
+func (mut p Parser) parse_inc_dec() (id[ast.Node], Fail, error) {
+    target, f := mut p.parse_target()?
+    if is_nil(target) {
+        return no_node(), f, noerror
+    }
+    op := mut p.next() // ++ or --
+    n := mut p.add(ast.Kind.inc_dec(ast.IncDec{target: target, dec: op.kind() == lexer.kind_dec}),
+        span_in(p.file, p.spanned(target).start, op.offset_end()))?
+    return n, no_fail(), noerror
+}
+
+// parse_short_var_decl parses name := value, which declares an immutable
+// variable whose type is the value's.
+func (mut p Parser) parse_short_var_decl() (id[ast.Node], Fail, error) {
+    name, _ := mut p.parse_ident([]uint8("variable name"))?
+    mut p.next() // the := token
+
+    name_str, name_span := ident_name(p.t.nodes, name)
+    mut v ast.Var
+    v.name = name_str
+    v.name_span = name_span
+
+    value, f := mut p.parse_expr(1)?
+    if is_nil(value) {
+        return no_node(), f, noerror
+    }
+    v.value = value
+    n := mut p.add(ast.Kind.var_decl(v), span_in(p.file, name_span.start, p.spanned(value).end))?
+    return n, no_fail(), noerror
+}
+
+// parse_assign parses name = value, or a compound assignment such as
+// name += value.
+func (mut p Parser) parse_assign() (id[ast.Node], Fail, error) {
+    target, f := mut p.parse_target()?
+    if is_nil(target) {
+        return no_node(), f, noerror
+    }
+    op := mut p.next() // = or a compound assignment operator
+    bop, _ := compound_op(op.kind())
+
+    value, vf := mut p.parse_expr(1)?
+    if is_nil(value) {
+        return no_node(), vf, noerror
+    }
+    n := mut p.add(ast.Kind.assign(ast.Assign{target: target, value: value, op: bop}),
+        span_in(p.file, p.spanned(target).start, p.spanned(value).end))?
+    return n, no_fail(), noerror
+}
+
+// compound_op returns the arithmetic, bitwise or shift operator the
+// compound assignment operator k applies, and whether k is one, Go's
+// compoundOps. A plain = is none, so it maps to op_invalid.
+func compound_op(k lexer.TokenKind) (ast.BinaryOp, bool) {
+    if k == lexer.kind_add_assign {
+        return ast.op_add, true
+    }
+    if k == lexer.kind_sub_assign {
+        return ast.op_sub, true
+    }
+    if k == lexer.kind_mul_assign {
+        return ast.op_mul, true
+    }
+    if k == lexer.kind_div_assign {
+        return ast.op_div, true
+    }
+    if k == lexer.kind_mod_assign {
+        return ast.op_rem, true
+    }
+    if k == lexer.kind_add_wrap_assign {
+        return ast.op_add_wrap, true
+    }
+    if k == lexer.kind_sub_wrap_assign {
+        return ast.op_sub_wrap, true
+    }
+    if k == lexer.kind_mul_wrap_assign {
+        return ast.op_mul_wrap, true
+    }
+    if k == lexer.kind_bit_and_assign {
+        return ast.op_bit_and, true
+    }
+    if k == lexer.kind_bit_or_assign {
+        return ast.op_bit_or, true
+    }
+    if k == lexer.kind_bit_xor_assign {
+        return ast.op_bit_xor, true
+    }
+    if k == lexer.kind_bit_and_not_assign {
+        return ast.op_and_not, true
+    }
+    if k == lexer.kind_shift_left_assign {
+        return ast.op_shl, true
+    }
+    if k == lexer.kind_shift_right_assign {
+        return ast.op_shr, true
+    }
+    return ast.op_invalid, false
+}
+
+// parse_func_call parses a call used as a statement, or a ? after one,
+// without the semicolon that ends it.
+func (mut p Parser) parse_func_call() (id[ast.Node], Fail, error) {
+    tk := p.peek()
+    c, f := mut p.parse_call()?
+    if is_nil(c) {
+        return no_node(), f, noerror
+    }
+    if p.peek().kind() != lexer.kind_question {
+        n := mut p.add(ast.Kind.expr_stmt(ast.ExprStmt{x: c}), p.spanned(c))?
+        return n, no_fail(), noerror
+    }
+    x, pf := mut p.parse_postfix(c)?
+    if is_nil(x) {
+        return no_node(), pf, noerror
+    }
+    n, cf := mut p.call_stmt(tk, x)?
+    return n, cf, noerror
+}
+
+// parse_call parses a call as an expression, without the statement
+// terminator.
+func (mut p Parser) parse_call() (id[ast.Node], Fail, error) {
+    name, f := mut p.parse_name([]uint8("function name"))?
+    if is_nil(name) {
+        return no_node(), f, noerror
+    }
+    c, af := mut p.parse_args(name, p.spanned(name))?
+    return c, af, noerror
+}
+
+// parse_args parses the parenthesized arguments of a call to fn, which
+// spans sp's start through the closing parenthesis.
+func (mut p Parser) parse_args(fn id[ast.Node], sp source.Span) (id[ast.Node], Fail, error) {
+    nf := mut p.nest_at(lexer.kind_l_paren)?
+    if nf.failed() {
+        return no_node(), nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    c, f := mut p.parse_arg_list(fn, sp)?
+    return c, f, noerror
+}
+
+// parse_arg_list parses the parenthesized arguments of a call of fn,
+// which starts at sp, as parse_args does once it has entered their level
+// of nesting.
+func (mut p Parser) parse_arg_list(fn id[ast.Node], sp source.Span) (id[ast.Node], Fail, error) {
+    ok, f := mut p.expect(lexer.kind_l_paren)?
+    if !ok {
+        return no_node(), f, noerror
+    }
+    old := p.no_lit
+    p.no_lit = false
+    defer {
+        p.no_lit = old
+    }
+
+    mut c ast.Call
+    c.fn = fn
+    mut args := make(list[id[ast.Node]], p.alloc)
+    for p.peek().kind() != lexer.kind_r_paren && p.peek().kind() != lexer.kind_eof {
+        // Every argument after the first is preceded by a comma.
+        if len(args) > 0 {
+            cok, cf := mut p.expect(lexer.kind_comma)?
+            if !cok {
+                return no_node(), cf, noerror
+            }
+        }
+
+        val, vf := mut p.parse_expr(1)?
+        if is_nil(val) {
+            return no_node(), vf, noerror
+        }
+        append(mut args, val)?
+
+        // A spread, v..., passes v as the whole of a variadic parameter,
+        // the last, so it can only follow the last argument.
+        tk := p.peek()
+        if tk.kind() == lexer.kind_ellipsis {
+            mut p.next()
+            if p.peek().kind() != lexer.kind_r_paren {
+                ef := mut p.fail_str("can only use ... with the final argument", tok_span(p.file, tk))?
+                return no_node(), ef, noerror
+            }
+            c.spread = true
+            c.ellipsis_span = tok_span(p.file, tk)
+        }
+    }
+
+    rok, rf := mut p.expect(lexer.kind_r_paren)?
+    if !rok {
+        return no_node(), rf, noerror
+    }
+    c.args = mut p.add_list(args)?
+    n := mut p.add(ast.Kind.call(c), span_in(p.file, sp.start, p.prev_end()))?
+    return n, no_fail(), noerror
+}
+
+// parse_block parses a brace-delimited statement list into body.
+func (mut p Parser) parse_block(mut body list[id[ast.Node]]) (Fail, error) {
+    nf := mut p.nest_at(lexer.kind_l_curl)?
+    if nf.failed() {
+        return nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    ok, f := mut p.expect(lexer.kind_l_curl)?
+    if !ok {
+        return f, noerror
+    }
+
+    mut p.parse_stmts(mut body, false)?
+    if p.too_deep.failed() {
+        return p.too_deep, noerror
+    }
+    rok, rf := mut p.expect(lexer.kind_r_curl)?
+    if !rok {
+        return rf, noerror
+    }
+    return no_fail(), noerror
+}
+
+// parse_block_list parses a block, as parse_block does, and returns its
+// statements as a made list.
+func (mut p Parser) parse_block_list() (ast.Nodes, Fail, error) {
+    mut body := make(list[id[ast.Node]], p.alloc)
+    mut none ast.Nodes
+    f := mut p.parse_block(mut body)?
+    if f.failed() {
+        return none, f, noerror
+    }
+    l := mut p.add_list(body)?
+    return l, no_fail(), noerror
+}
+
+// parse_if parses an if statement with its whole else if chain, through
+// the semicolon that ends it, which may be left out before a closing
+// brace. It returns the first if, each later if of the chain the sole
+// statement of the else branch before it, and every if of the chain
+// spanning to the end of the chain. The chain is parsed in a loop, not by
+// recursion, so its length costs no stack.
+func (mut p Parser) parse_if() (id[ast.Node], Fail, error) {
+    first, f := mut p.parse_if_branch()?
+    if is_nil(first) {
+        return no_node(), f, noerror
+    }
+    mut chain := make(list[id[ast.Node]], p.alloc)
+    append(mut chain, first)?
+    mut last := first
+    for {
+        els, next, ef := mut p.parse_else()?
+        if ef.failed() {
+            return no_node(), ef, noerror
+        }
+        if is_nil(next) {
+            set_else(mut p.t.nodes, last, els)
+            break
+        }
+        mut one := make(list[id[ast.Node]], p.alloc)
+        append(mut one, next)?
+        l := mut p.add_list(one)?
+        set_else(mut p.t.nodes, last, l)
+        append(mut chain, next)?
+        last = next
+    }
+
+    ok, sf := mut p.expect(lexer.kind_semi)?
+    if !ok && p.peek().kind() != lexer.kind_r_curl {
+        return no_node(), sf, noerror
+    }
+
+    // Each if of the chain spans to the end of the chain, as the else
+    // branch nested in it does.
+    end := p.last_end()
+    for _, s := range chain {
+        p.t.nodes[s].span.end = end
+    }
+    return first, no_fail(), noerror
+}
+
+// set_else sets the else branch of n, an if, to els.
+func set_else(mut nodes arena[ast.Node], n id[ast.Node], els ast.Nodes) {
+    k := nodes[n].k
+    switch k {
+    case if_stmt(s):
+        mut ns := s
+        ns.else_body = els
+        nodes[n].k = ast.Kind.if_stmt(ns)
+    default:
+    }
+}
+
+// parse_if_branch parses the if keyword, the condition and the block of
+// one if, of a chain or alone, leaving its else branch to parse_if.
+func (mut p Parser) parse_if_branch() (id[ast.Node], Fail, error) {
+    tk := mut p.next() // the if keyword
+
+    old := p.no_lit
+    p.no_lit = true
+    cond, f := mut p.parse_expr(1)?
+    p.no_lit = old
+    if is_nil(cond) {
+        return no_node(), f, noerror
+    }
+
+    hf := mut p.header_lit("an if, for or range")?
+    if hf.failed() {
+        return no_node(), hf, noerror
+    }
+    then, tf := mut p.parse_block_list()?
+    if tf.failed() {
+        return no_node(), tf, noerror
+    }
+    mut els ast.Nodes
+    n := mut p.add(ast.Kind.if_stmt(ast.If{cond: cond, then: then, else_body: els}), tok_span(p.file, tk))?
+    return n, no_fail(), noerror
+}
+
+// parse_else parses an optional else branch, returning an unmade list and
+// none when there is none. An else if is parsed only as far as its own
+// if, next, whose else branch parse_if goes on to parse.
+func (mut p Parser) parse_else() (ast.Nodes, id[ast.Node], Fail, error) {
+    mut none ast.Nodes
+    if !is_keyword(p.peek(), lexer.keyword_else) {
+        return none, no_node(), no_fail(), noerror
+    }
+    mut p.next()
+
+    if is_keyword(p.peek(), lexer.keyword_if) {
+        nested, f := mut p.parse_if_branch()?
+        if is_nil(nested) {
+            return none, no_node(), f, noerror
+        }
+        return none, nested, no_fail(), noerror
+    }
+
+    block, bf := mut p.parse_block_list()?
+    if bf.failed() {
+        return none, no_node(), bf, noerror
+    }
+    return block, no_node(), no_fail(), noerror
+}
+
+// parse_switch parses a switch: the keyword, an optional tag, and the
+// cases in braces. With no tag, the body's brace comes straight after
+// the keyword. There is no init statement: a name and := after the
+// keyword bind the value of a type switch's tag, and nothing else.
+func (mut p Parser) parse_switch() (id[ast.Node], Fail, error) {
+    tk := mut p.next() // the switch keyword
+
+    mut s ast.Switch
+    if p.at_param_switch() {
+        s.tag, _ = mut p.parse_ident([]uint8("type parameter"))?
+        s.on_type = true
+    } else if p.peek().kind() != lexer.kind_l_curl {
+        f := mut p.parse_switch_tag(mut s)?
+        if f.failed() {
+            return no_node(), f, noerror
+        }
+    }
+
+    cf := mut p.parse_cases(mut s)?
+    if cf.failed() {
+        return no_node(), cf, noerror
+    }
+    n := mut p.add(ast.Kind.switch_stmt(s), span_in(p.file, tk.offset_start(), p.prev_end()))?
+
+    ok, sf := mut p.expect(lexer.kind_semi)?
+    if !ok && p.peek().kind() != lexer.kind_r_curl {
+        return no_node(), sf, noerror
+    }
+    return n, no_fail(), noerror
+}
+
+// parse_switch_tag parses the header of s, a switch that is not on a
+// type parameter, after its keyword: a type switch's binding, if any,
+// and the tag, with no literal allowed outside parentheses.
+func (mut p Parser) parse_switch_tag(mut s ast.Switch) (Fail, error) {
+    bind, f := mut p.parse_binding()?
+    if f.failed() {
+        return f, noerror
+    }
+    old := p.no_lit
+    p.no_lit = true
+    tag, tf := mut p.parse_expr(1)?
+    p.no_lit = old
+    if is_nil(tag) {
+        return tf, noerror
+    }
+    s.tag = tag
+    s.bind = bind
+    bf := mut p.check_binding(s)?
+    if bf.failed() {
+        return bf, noerror
+    }
+    hf := mut p.header_lit("a switch")?
+    return hf, noerror
+}
+
+// at_param_switch reports whether the switch whose keyword was just
+// consumed is on a type parameter: the next token is the name of a type
+// parameter in scope, and a brace follows it.
+func (p Parser) at_param_switch() bool {
+    tk := p.peek()
+    return tk.kind() == lexer.kind_ident && p.type_param_count(p.value(tk)) > 0 &&
+        p.peek_at(1).kind() == lexer.kind_l_curl
+}
+
+// parse_binding parses the name and := of a type switch's binding,
+// switch v := x.(type), when they come next, and returns the variable, or
+// none when the tag follows the keyword directly. A name written with mut
+// is reported, as a range loop's is.
+func (mut p Parser) parse_binding() (id[ast.Node], Fail, error) {
+    start := p.peek()
+    mutable := is_keyword(start, lexer.keyword_mut)
+    mut k int64 = 0
+    if mutable {
+        k = 1
+    }
+    if p.peek_at(k).kind() != lexer.kind_ident || p.peek_at(k +% 1).kind() != lexer.kind_define {
+        return no_node(), no_fail(), noerror
+    }
+    if mutable {
+        mut p.next()
+    }
+    name, _ := mut p.parse_ident([]uint8("variable name"))?
+    mut p.next() // the :=
+    name_str, name_span := ident_name(p.t.nodes, name)
+    sp := span_in(p.file, start.offset_start(), name_span.end)
+    if mutable {
+        f := mut p.fail_str("cannot use mut on a type switch variable", sp)?
+        return no_node(), f, noerror
+    }
+    mut v ast.Var
+    v.name = name_str
+    v.name_span = name_span
+    n := mut p.add(ast.Kind.var_decl(v), sp)?
+    return n, no_fail(), noerror
+}
+
+// is_type_switch reports whether s is a type switch: its tag is
+// x.(type).
+func is_type_switch(nodes arena[ast.Node], s ast.Switch) bool {
+    switch nodes[s.tag].k {
+    case type_assert(a):
+        return is_nil(a.type_expr)
+    default:
+        return false
+    }
+}
+
+// check_binding reports a switch whose header binds a name to a tag that
+// is not x.(type): a switch has no init statement, and only a type
+// switch binds a name.
+func (mut p Parser) check_binding(s ast.Switch) (Fail, error) {
+    if is_nil(s.bind) || is_type_switch(p.t.nodes, s) {
+        return no_fail(), noerror
+    }
+    f := mut p.fail_str("a switch has no init statement; only a type switch binds a name, as in switch v := x.(type)",
+        span_in(p.file, p.spanned(s.bind).start, extent_in(p.parens, p.t.nodes, s.tag).end))?
+    return f, noerror
+}
+
+// parse_cases parses a switch's body into s.cases: an opening brace, any
+// number of case clauses, and the closing brace.
+func (mut p Parser) parse_cases(mut s ast.Switch) (Fail, error) {
+    nf := mut p.nest_at(lexer.kind_l_curl)?
+    if nf.failed() {
+        return nf, noerror
+    }
+    defer {
+        mut p.unnest()
+    }
+    f := mut p.parse_case_list(mut s)?
+    return f, noerror
+}
+
+// parse_case_list parses s's cases in braces, as parse_cases does once it
+// has entered their level of nesting. A clause whose header fails, or a
+// second default, becomes a bad clause, and the clauses after it are
+// parsed as ever (see bad_clause); a failure only the whole switch can
+// stand for is returned.
+func (mut p Parser) parse_case_list(mut s ast.Switch) (Fail, error) {
+    ok, f := mut p.expect(lexer.kind_l_curl)?
+    if !ok {
+        return f, noerror
+    }
+
+    values := p.cases_of(s)
+    mut cases := make(list[id[ast.Node]], p.alloc)
+    mut first := no_node()
+    for !p.halted() && !p.at_stmts_end(false) {
+        cl, cf := mut p.parse_clause_or_bad(values)?
+        if is_nil(cl) {
+            return cf, noerror
+        }
+        if clause_of(p.t.nodes, cl).is_default && !is_nil(first) {
+            mut p.reject_clause(cl, first)?
+        }
+        // A rejected default is a bad clause, no default, by now, so the
+        // first stays the first.
+        if clause_of(p.t.nodes, cl).is_default {
+            first = cl
+        }
+        if !is_nil(s.bind) {
+            name, name_span := var_name(p.t.nodes, s.bind)
+            mut v ast.Var
+            v.name = name
+            v.name_span = name_span
+            vn := mut p.add(ast.Kind.var_decl(v), p.spanned(s.bind))?
+            mut c := clause_of(p.t.nodes, cl)
+            c.var_node = vn
+            p.t.nodes[cl].k = ast.Kind.case_clause(c)
+        }
+        append(mut cases, cl)?
+    }
+
+    rok, rf := mut p.expect(lexer.kind_r_curl)?
+    if !rok {
+        return rf, noerror
+    }
+    s.cases = mut p.add_list(cases)?
+    return no_fail(), noerror
+}
+
+// var_name returns the name of n, a variable, and its span.
+func var_name(nodes arena[ast.Node], n id[ast.Node]) (span[uint8], source.Span) {
+    switch nodes[n].k {
+    case var_decl(v):
+        return v.name, v.name_span
+    default:
+        mut z source.Span
+        return empty_str(), z
+    }
+}
+
+// clause_of returns the CaseClause of n, a case clause, or a zero one.
+func clause_of(nodes arena[ast.Node], n id[ast.Node]) ast.CaseClause {
+    switch nodes[n].k {
+    case case_clause(c):
+        return c
+    default:
+        mut z ast.CaseClause
+        return z
+    }
+}
+
+// value_cases, type_cases and param_cases are what the values of a
+// switch's cases are, Go's caseValues: values, types, in a type switch,
+// or patterns of types, in a switch on a type parameter.
+var value_cases int64 = 0
+var type_cases int64 = 1
+var param_cases int64 = 2
+
+// cases_of returns what the values of s's cases are.
+func (p Parser) cases_of(s ast.Switch) int64 {
+    if s.on_type {
+        return param_cases
+    }
+    if is_type_switch(p.t.nodes, s) {
+        return type_cases
+    }
+    return value_cases
+}
+
+// parse_clause_or_bad parses one clause of a switch, as
+// parse_case_clause does, or a bad clause in its place when its header
+// fails (see bad_clause). It returns none, and the error, when neither
+// can be had.
+func (mut p Parser) parse_clause_or_bad(values int64) (id[ast.Node], Fail, error) {
+    start := p.index
+    mut cl, f := mut p.parse_case_clause(values)?
+    if is_nil(cl) {
+        cl = mut p.bad_clause(start, f)?
+    }
+    return cl, f, noerror
+}
+
+// parse_case_clause parses one clause of a switch: case, one or more
+// values separated by commas, and a colon, or default and a colon; then
+// the statements of its body, up to the next case, default or closing
+// brace.
+func (mut p Parser) parse_case_clause(values int64) (id[ast.Node], Fail, error) {
+    tk := p.peek()
+    if !is_keyword(tk, lexer.keyword_case) && !is_keyword(tk, lexer.keyword_default) {
+        f := mut p.invalid_token([]uint8("case or default"), tk)?
+        return no_node(), f, noerror
+    }
+    mut p.next()
+
+    mut cl ast.CaseClause
+    cl.is_default = is_keyword(tk, lexer.keyword_default)
+    mut vals := make(list[id[ast.Node]], p.alloc)
+    for !cl.is_default {
+        value, f := mut p.parse_case_value(values)?
+        if is_nil(value) {
+            return no_node(), f, noerror
+        }
+        append(mut vals, value)?
+        if p.peek().kind() != lexer.kind_comma {
+            break
+        }
+        mut p.next()
+    }
+    ok, cf := mut p.expect(lexer.kind_colon)?
+    if !ok {
+        return no_node(), cf, noerror
+    }
+    sp := span_in(p.file, tk.offset_start(), p.prev_end())
+    if len(vals) > 0 {
+        cl.values = mut p.add_list(vals)?
+    }
+
+    mut names := make(list[span[uint8]], p.alloc)
+    if values == param_cases {
+        for _, v := range vals {
+            name, ok2 := case_type_name(p.t.nodes, p.t.bytes, v)
+            if ok2 {
+                append(mut names, name)?
+            }
+        }
+    }
+    for _, name := range names {
+        mut p.enter_type_name(name)?
+    }
+    mut body := make(list[id[ast.Node]], p.alloc)
+    mut p.parse_stmts(mut body, true)?
+    for _, name := range names {
+        mut p.leave_type_name(name)
+    }
+    if p.too_deep.failed() {
+        return no_node(), p.too_deep, noerror
+    }
+    cl.body = mut p.add_list(body)?
+    n := mut p.add(ast.Kind.case_clause(cl), sp)?
+    return n, no_fail(), noerror
+}
+
+// parse_case_value parses one value of a case of a switch whose values
+// are of the kind values says: a type, a pattern of one, or an
+// expression.
+func (mut p Parser) parse_case_value(values int64) (id[ast.Node], Fail, error) {
+    if values == type_cases {
+        n, f := mut p.parse_type()?
+        return n, f, noerror
+    }
+    if values == param_cases {
+        n, f := mut p.parse_type_case()?
+        return n, f, noerror
+    }
+    n, f := mut p.parse_expr(1)?
+    return n, f, noerror
+}
+
+// case_type_name returns the name v, a value of a case of a switch on a
+// type parameter, declares a type parameter by, Go's ast.CaseTypeName: E,
+// written alone as the element type of list[E], or V as the value type of
+// map[K]V, and whether it declares one.
+func case_type_name(nodes arena[ast.Node], bytes arena[uint8], v id[ast.Node]) (span[uint8], bool) {
+    mut part := no_node()
+    switch nodes[v].k {
+    case list_type(e):
+        part = e
+    case map_type(m):
+        part = m.value
+    default:
+        return empty_str(), false
+    }
+    name, ok := ident_of(nodes, part)
+    if !ok || len(bytes[name.pkg]) > 0 {
+        return empty_str(), false
+    }
+    return name.name, true
+}
+
+// parse_type_case parses a value of a case of a switch on a type
+// parameter: struct, which matches any struct, or a type as written.
+func (mut p Parser) parse_type_case() (id[ast.Node], Fail, error) {
+    tk := p.peek()
+    if is_keyword(tk, lexer.keyword_struct) {
+        mut p.next()
+        n := mut p.add(ast.Kind.struct_case, tok_span(p.file, tk))?
+        return n, no_fail(), noerror
+    }
+    n, f := mut p.parse_type()?
+    return n, f, noerror
+}
+
+// at_clause_end reports whether the next token ends a case clause's
+// body: the next case or default, the switch's closing brace, or the end
+// of the file.
+func (p Parser) at_clause_end() bool {
+    tk := p.peek()
+    return tk.kind() == lexer.kind_r_curl || tk.kind() == lexer.kind_eof ||
+        is_keyword(tk, lexer.keyword_case) || is_keyword(tk, lexer.keyword_default)
+}
+
+// parse_defer parses a defer: the keyword, then a block, which may hold
+// any statements. Anything else after the keyword is an error at that
+// token.
+func (mut p Parser) parse_defer() (id[ast.Node], Fail, error) {
+    tk := mut p.next() // the defer keyword
+
+    if p.peek().kind() != lexer.kind_l_curl {
+        f := mut p.no_block(p.peek(), "defer must be followed by a block: defer { ... }")?
+        return no_node(), f, noerror
+    }
+    body, f := mut p.parse_block_list()?
+    if f.failed() {
+        return no_node(), f, noerror
+    }
+    ok, sf := mut p.expect(lexer.kind_semi)?
+    if !ok && p.peek().kind() != lexer.kind_r_curl {
+        return no_node(), sf, noerror
+    }
+    n := mut p.add(ast.Kind.defer_stmt(ast.Defer{body: body}), span_in(p.file, tk.offset_start(), p.last_end()))?
+    return n, no_fail(), noerror
+}
+
+// parse_region parses a region statement, region r { ... }, through the
+// semicolon that ends it, which may be left out before a closing brace.
+// r is a Var with no type and no value, spanning its name.
+func (mut p Parser) parse_region() (id[ast.Node], Fail, error) {
+    tk := mut p.next() // the region keyword
+
+    name := p.peek()
+    if name.kind() != lexer.kind_ident {
+        f := mut p.no_region_name(tk, name)?
+        return no_node(), f, noerror
+    }
+    mut p.next()
+    if p.peek().kind() != lexer.kind_l_curl {
+        f := mut p.no_block(p.peek(), "a region's name must be followed by a block: region r { ... }")?
+        return no_node(), f, noerror
+    }
+    name_span := tok_span(p.file, name)
+    mut v ast.Var
+    v.name = mut p.tok_str(name)?
+    v.name_span = name_span
+    vn := mut p.add(ast.Kind.var_decl(v), name_span)?
+    body, f := mut p.parse_block_list()?
+    if f.failed() {
+        return no_node(), f, noerror
+    }
+    ok, sf := mut p.expect(lexer.kind_semi)?
+    if !ok && p.peek().kind() != lexer.kind_r_curl {
+        return no_node(), sf, noerror
+    }
+    n := mut p.add(ast.Kind.region_stmt(ast.Region{var_node: vn, body: body}), span_in(p.file, tk.offset_start(), p.last_end()))?
+    return n, no_fail(), noerror
+}
+
+// no_region_name reports name, the token after kw, a region keyword, for
+// not being the region's name, Go's diagNoRegionName. It spans kw. Once
+// region is reported as a name, it is taken as one where an operand is.
+func (mut p Parser) no_region_name(kw lexer.Token, name lexer.Token) (Fail, error) {
+    if name.kind() == lexer.kind_l_curl {
+        f := mut p.fail_str("a region needs a name: region r { ... }", tok_span(p.file, kw))?
+        return f, noerror
+    }
+    p.region_named = true
+    f := mut p.fail_str("region is a keyword and cannot be a name; a region is written region r { ... }", tok_span(p.file, kw))?
+    return f, noerror
+}
+
+// no_block reports tk, the token after a defer keyword or a region's
+// name, for not opening a block, saying msg, Go's diagNoDeferBlock and
+// diagNoRegionBlock. It spans tk, or at the end of the file the point
+// after the token before it.
+func (mut p Parser) no_block(tk lexer.Token, msg string) (Fail, error) {
+    if tk.kind() == lexer.kind_eof {
+        end := p.last_end()
+        f := mut p.fail_str(msg, span_in(p.file, end, end))?
+        return f, noerror
+    }
+    f := mut p.fail_str(msg, tok_span(p.file, tk))?
+    return f, noerror
+}
+
+// parse_for parses a loop: for, then its header, then the body. The
+// header is empty when the body's opening brace comes straight after for,
+// a condition, or three clauses separated by semicolons.
+func (mut p Parser) parse_for() (id[ast.Node], Fail, error) {
+    tk := mut p.next() // the for keyword
+
+    mut loop ast.For
+    if p.peek().kind() != lexer.kind_l_curl {
+        old := p.no_lit
+        p.no_lit = true
+        mut f := mut p.parse_for_header(mut loop)?
+        p.no_lit = old
+        if !f.failed() {
+            f = mut p.header_lit("an if, for or range")?
+        }
+        if f.failed() {
+            return no_node(), f, noerror
+        }
+    }
+
+    body, bf := mut p.parse_block_list()?
+    if bf.failed() {
+        return no_node(), bf, noerror
+    }
+    loop.body = body
+    n := mut p.add(ast.Kind.for_stmt(loop), span_in(p.file, tk.offset_start(), p.prev_end()))?
+
+    ok, sf := mut p.expect(lexer.kind_semi)?
+    if !ok && p.peek().kind() != lexer.kind_r_curl {
+        return no_node(), sf, noerror
+    }
+    return n, no_fail(), noerror
+}
+
+// at_range reports whether the for keyword next is the start of a range
+// loop: followed by range, or by a list of names, each perhaps after
+// mut, then := and range.
+func (p Parser) at_range() bool {
+    if is_keyword(p.peek_at(1), lexer.keyword_range) {
+        return true
+    }
+    mut k int64 = 1
+    for {
+        if is_keyword(p.peek_at(k), lexer.keyword_mut) {
+            k +%= 1
+        }
+        if p.peek_at(k).kind() != lexer.kind_ident {
+            return false
+        }
+        k +%= 1
+        if p.peek_at(k).kind() != lexer.kind_comma {
+            break
+        }
+        k +%= 1
+    }
+    return p.peek_at(k).kind() == lexer.kind_define && is_keyword(p.peek_at(k +% 1), lexer.keyword_range)
+}
+
+// parse_for_range parses for i := range x { ... }, for i, v := range x
+// { ... } or for range x { ... }. A name written with mut, or more than
+// two names, is reported, after the ranged expression is parsed.
+func (mut p Parser) parse_for_range() (id[ast.Node], Fail, error) {
+    tk := mut p.next() // the for keyword
+
+    mut loop ast.ForRange
+    mut names := make(list[MultiItem], p.alloc)
+    f := mut p.parse_range_names(mut names)?
+    if f.failed() {
+        return no_node(), f, noerror
+    }
+    mut p.next() // the range keyword
+
+    old := p.no_lit
+    p.no_lit = true
+    x, xf := mut p.parse_expr(1)?
+    p.no_lit = old
+    if is_nil(x) {
+        return no_node(), xf, noerror
+    }
+    loop.x = x
+    vf := mut p.range_vars(mut loop, names)?
+    if vf.failed() {
+        return no_node(), vf, noerror
+    }
+    lf := mut p.header_lit("an if, for or range")?
+    if lf.failed() {
+        return no_node(), lf, noerror
+    }
+
+    body, bf := mut p.parse_block_list()?
+    if bf.failed() {
+        return no_node(), bf, noerror
+    }
+    loop.body = body
+    n := mut p.add(ast.Kind.for_range(loop), span_in(p.file, tk.offset_start(), p.prev_end()))?
+
+    ok, sf := mut p.expect(lexer.kind_semi)?
+    if !ok && p.peek().kind() != lexer.kind_r_curl {
+        return no_node(), sf, noerror
+    }
+    return n, no_fail(), noerror
+}
+
+// parse_range_names parses the names of a range loop up to and including
+// its :=, into names, each with the mut written before it, if any.
+func (mut p Parser) parse_range_names(mut names list[MultiItem]) (Fail, error) {
+    for !is_keyword(p.peek(), lexer.keyword_range) {
+        start := p.peek()
+        mutable := is_keyword(start, lexer.keyword_mut)
+        if mutable {
+            mut p.next()
+        }
+        name, f := mut p.parse_ident([]uint8("variable name"))?
+        if is_nil(name) {
+            return f, noerror
+        }
+        append(mut names, MultiItem{
+            target: name,
+            span: span_in(p.file, start.offset_start(), p.spanned(name).end),
+            mutable: mutable,
+        })?
+        mut p.next() // the comma, or the := token
+    }
+    return no_fail(), noerror
+}
+
+// range_vars turns the names written before := in a range loop into its
+// index and element variables, reporting a name written with mut and a
+// third name.
+func (mut p Parser) range_vars(mut loop ast.ForRange, names []MultiItem) (Fail, error) {
+    for _, item := range names {
+        if item.mutable {
+            f := mut p.fail_str("cannot use mut on a range loop variable", item.span)?
+            return f, noerror
+        }
+    }
+    if len(names) > 2 {
+        first := names[0]
+        start := p.fail_start()
+        fmt.appendf(mut p.msgs, "assignment mismatch: %d variables but range gives at most 2 values", len(names))?
+        f := mut p.fail_from(start, span_in(p.file, first.span.start, p.spanned(loop.x).end))?
+        return f, noerror
+    }
+    for i, item := range names {
+        name, name_span := ident_name(p.t.nodes, item.target)
+        mut v ast.Var
+        v.name = name
+        v.name_span = name_span
+        vn := mut p.add(ast.Kind.var_decl(v), name_span)?
+        if i == 0 {
+            loop.var_node = vn
+        } else {
+            loop.elem = vn
+        }
+    }
+    return no_fail(), noerror
+}
+
+// parse_for_header parses what comes between for and the body's opening
+// brace into loop. A header that starts with a semicolon, a declaration,
+// an assignment, or an increment or decrement has three clauses. One
+// that starts with an expression is a condition, unless a semicolon
+// follows it, in which case it was a call, or a ? on one, used as the
+// init statement; one in parentheses that is neither is reported at the
+// parenthesis.
+func (mut p Parser) parse_for_header(mut loop ast.For) (Fail, error) {
+    if p.peek().kind() == lexer.kind_semi {
+        f := mut p.parse_for_clauses(mut loop)?
+        return f, noerror
+    }
+    if p.at_decl_or_update() {
+        init, f := mut p.parse_simple_stmt()?
+        if is_nil(init) {
+            return f, noerror
+        }
+        loop.init = init
+        cf := mut p.parse_for_clauses(mut loop)?
+        return cf, noerror
+    }
+
+    start := p.peek()
+    at := p.index
+    cond, f := mut p.parse_expr(1)?
+    if is_nil(cond) {
+        if start.kind() == lexer.kind_l_paren {
+            // Recovery starts from the parenthesis, as for a statement
+            // that starts with one.
+            p.index = at
+        }
+        return f, noerror
+    }
+    if p.peek().kind() == lexer.kind_semi {
+        if is_call_stmt(p.t.nodes, start, cond) {
+            loop.init = mut p.expr_stmt(cond)?
+            cf := mut p.parse_for_clauses(mut loop)?
+            return cf, noerror
+        }
+        if start.kind() == lexer.kind_l_paren {
+            // An init statement in parentheses that is no call, as a
+            // statement anywhere is reported (see parse_paren_stmt).
+            p.index = at
+            sf := mut p.invalid_token([]uint8("statement"), start)?
+            return sf, noerror
+        }
+    }
+    loop.cond = cond
+    return no_fail(), noerror
+}
+
+// at_decl_or_update reports whether the next tokens start a simple
+// statement that cannot also be an expression: a declaration, an
+// assignment, or an increment or decrement.
+func (p Parser) at_decl_or_update() bool {
+    if p.peek().kind() == lexer.kind_keyword {
+        return p.at_simple_stmt() && !p.at_mut_call()
+    }
+    if p.peek().kind() != lexer.kind_ident {
+        return false
+    }
+    k := target_after(p.tokens, p.index, 0).kind()
+    if k == lexer.kind_define || k == lexer.kind_inc || k == lexer.kind_dec || k == lexer.kind_comma {
+        return true
+    }
+    _, compound := compound_op(k)
+    return compound || k == lexer.kind_assign
+}
+
+// parse_for_clauses parses the rest of a three-clause header once its
+// init statement, if any, is in loop: the semicolon after it, an
+// optional condition, a second semicolon, and an optional post
+// statement, which may not declare a variable.
+func (mut p Parser) parse_for_clauses(mut loop ast.For) (Fail, error) {
+    ok, f := mut p.expect(lexer.kind_semi)?
+    if !ok {
+        return f, noerror
+    }
+
+    if p.peek().kind() != lexer.kind_semi {
+        cond, cf := mut p.parse_expr(1)?
+        if is_nil(cond) {
+            return cf, noerror
+        }
+        loop.cond = cond
+    }
+    ok2, f2 := mut p.expect(lexer.kind_semi)?
+    if !ok2 {
+        return f2, noerror
+    }
+
+    if p.peek().kind() == lexer.kind_l_curl {
+        return no_fail(), noerror
+    }
+    post, pf := mut p.parse_simple_stmt()?
+    if is_nil(post) {
+        return pf, noerror
+    }
+    switch p.t.kind(post) {
+    case var_decl, multi_var:
+        df := mut p.fail_str("cannot declare a variable in a for loop's post statement", p.spanned(post))?
+        return df, noerror
+    default:
+    }
+    loop.post = post
+    return no_fail(), noerror
+}
+
+// parse_jump parses break, continue, unreachable or fallthrough, of kind
+// k, whose keyword is tk. Nothing may follow the keyword.
+func (mut p Parser) parse_jump(k ast.Kind, tk lexer.Token) (id[ast.Node], Fail, error) {
+    mut p.next() // the keyword
+
+    ok, f := mut p.expect(lexer.kind_semi)?
+    if !ok && p.peek().kind() != lexer.kind_r_curl {
+        return no_node(), f, noerror
+    }
+    n := mut p.add(k, tok_span(p.file, tk))?
+    return n, no_fail(), noerror
+}
+
+// parse_return parses a return statement, from its keyword through the
+// semicolon that ends it, which may be left out before a closing brace:
+// a bare return, or the values it returns, separated by commas.
+func (mut p Parser) parse_return() (id[ast.Node], Fail, error) {
+    tk := mut p.next() // the return keyword
+
+    mut values := make(list[id[ast.Node]], p.alloc)
+    // Semicolon insertion puts a Semi after a bare return, so anything
+    // else here is the first of the returned expressions.
+    if p.peek().kind() != lexer.kind_semi && p.peek().kind() != lexer.kind_r_curl {
+        for {
+            val, f := mut p.parse_expr(1)?
+            if is_nil(val) {
+                return no_node(), f, noerror
+            }
+            append(mut values, val)?
+
+            if p.peek().kind() != lexer.kind_comma {
+                break
+            }
+            mut p.next()
+        }
+    }
+
+    ok, sf := mut p.expect(lexer.kind_semi)?
+    if !ok && p.peek().kind() != lexer.kind_r_curl {
+        return no_node(), sf, noerror
+    }
+    mut l ast.Nodes
+    if len(values) > 0 {
+        l = mut p.add_list(values)?
+    }
+    n := mut p.add(ast.Kind.return_stmt(ast.Return{values: l}), span_in(p.file, tk.offset_start(), p.last_end()))?
+    return n, no_fail(), noerror
+}
+
+// header_lit reports a struct literal written without parentheses in the
+// header of an if, a for, a range loop or a switch, which ends the header
+// at its type name, so that its braces are taken for the body. where
+// names the kind of header, as the message words it.
+func (mut p Parser) header_lit(where string) (Fail, error) {
+    tk := p.peek()
+    if tk.kind() != lexer.kind_l_curl || p.peek_at(1).kind() != lexer.kind_ident ||
+        p.peek_at(2).kind() != lexer.kind_colon {
+        return no_fail(), noerror
+    }
+    start := p.fail_start()
+    fmt.appendf(mut p.msgs, "a struct literal in %s header must be in parentheses", where)?
+    f := mut p.fail_from(start, tok_span(p.file, tk))?
+    return f, noerror
+}

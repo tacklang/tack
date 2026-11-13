@@ -1,0 +1,137 @@
+package ast
+
+import source from "tack/source"
+
+// File is the tree of one source file, Go's ast.File: its package
+// clause, its imports and top-level declarations in source order, and its
+// comments, and the arenas every node of it, and every list and string
+// they hold, are kept in. It owns them all, so the tree lives as long as
+// its File.
+//
+// Go's File holds its package's name as a string and its parts as
+// pointers. Here package_name, like every name, is a run of bytes, and
+// imports and decls are ids of nodes. Go's NewFile makes its Imports,
+// Decls and Comments empty rather than nil, so the dump writes [] for
+// them, which a File's lists always are.
+pub type File struct {
+    pub package_name span[uint8]
+    pub imports list[id[Node]]
+    pub decls list[id[Node]]
+    pub comments list[Comment]
+    pub span source.Span
+    // package_span is the span of the package clause's name.
+    pub package_span source.Span
+
+    // nodes holds every node, its sentinel, the none node, at id 0.
+    pub nodes arena[Node]
+    // lists holds the items of every Nodes.
+    pub lists arena[id[Node]]
+    // bytes holds every name and string.
+    pub bytes arena[uint8]
+    // funcs and params hold the payloads of the func_decl and
+    // param_decl nodes.
+    pub funcs arena[Func]
+    pub params arena[Param]
+}
+
+// new_file returns a File with no declarations, comments or nodes but the
+// sentinels, which grows through alloc. It allocates nothing, so it
+// cannot fail.
+pub func new_file(alloc Allocator) File {
+    mut sp source.Span
+    mut fn Func
+    mut param Param
+    mut none_id id[Node]
+    return File{
+        package_name: empty_bytes(),
+        imports: make(list[id[Node]], alloc),
+        decls: make(list[id[Node]], alloc),
+        comments: make(list[Comment], alloc),
+        span: sp,
+        package_span: unset_span(),
+        nodes: make(arena[Node], Node{k: Kind.none, span: sp}, alloc),
+        lists: make(arena[id[Node]], none_id, alloc),
+        bytes: make(arena[uint8], 0, alloc),
+        funcs: make(arena[Func], fn, alloc),
+        params: make(arena[Param], param, alloc),
+    }
+}
+
+// empty_bytes returns the empty run of bytes, the zero span.
+func empty_bytes() span[uint8] {
+    mut s span[uint8]
+    return s
+}
+
+// add adds a node of kind k over sp to f and returns its id, or the
+// builtin add's out of memory, with f as it was.
+pub func (mut f File) add(k Kind, sp source.Span) (id[Node], error) {
+    n, err := add(mut f.nodes, Node{k: k, span: sp})
+    return n, err
+}
+
+// add_func adds fn to f's funcs and returns its id, or out of memory.
+pub func (mut f File) add_func(fn Func) (id[Func], error) {
+    n, err := add(mut f.funcs, fn)
+    return n, err
+}
+
+// add_param adds param to f's params and returns its id, or out of
+// memory.
+pub func (mut f File) add_param(param Param) (id[Param], error) {
+    n, err := add(mut f.params, param)
+    return n, err
+}
+
+// str copies s into f's bytes and returns where it is, or out of memory.
+pub func (mut f File) str(s []uint8) (span[uint8], error) {
+    r, err := add_all(mut f.bytes, s...)
+    return r, err
+}
+
+// list copies items into f's lists and returns them as a made Nodes, or
+// out of memory.
+pub func (mut f File) add_list(items []id[Node]) (Nodes, error) {
+    r, err := add_all(mut f.lists, items...)
+    if err.code != 0 {
+        mut none Nodes
+        return none, err
+    }
+    return Nodes{items: r, made: true}, noerror
+}
+
+// text returns the bytes s names, a view of them in place.
+pub func (f File) text(s span[uint8]) []uint8 {
+    return f.bytes[s]
+}
+
+// items returns the nodes of l, a view of them in place, empty for an
+// unmade l.
+pub func (f File) items(l Nodes) []id[Node] {
+    return f.lists[l.items]
+}
+
+// kind returns what the node n is, a copy.
+pub func (f File) kind(n id[Node]) Kind {
+    return f.nodes[n].k
+}
+
+// spanned returns the span of the node n, Go's Spanned.
+pub func (f File) spanned(n id[Node]) source.Span {
+    return f.nodes[n].span
+}
+
+// is_none reports whether n is the sentinel, Go's nil.
+pub func is_none(n id[Node]) bool {
+    mut z id[Node]
+    return n == z
+}
+
+// unset_span returns the span Go's zero Span stands for, one never set,
+// such as the name of a function type's parameter, which has none: Go's
+// zero Span names the file "", and a FileID here is an index, whose zero
+// is the first file, so an unset span names no file, FileID -1, which the
+// dump writes as Go writes the zero Span.
+pub func unset_span() source.Span {
+    return source.Span{file: source.FileID{n: -1}, start: 0, end: 0}
+}

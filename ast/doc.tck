@@ -1,0 +1,45 @@
+package ast
+
+// Package ast defines the syntax tree of a Tack source file, as the
+// parser builds it. It is a port of the Go compiler's package ast, as far
+// as the parser and the --ast dump need it so far: the nodes and what the
+// parser puts in them, and the dump. The fields later passes fill in, the
+// resolver's Def, the type checker's types and constants, are not here
+// yet; they come with the passes that set them, and the dump writes them
+// at the zero values the parser leaves them at in Go. Go's Walk and the
+// helpers the later passes call are not ported yet either.
+//
+// The parser produces a File from the lexer's tokens: the package
+// clause's name, the imports and top-level declarations in source order,
+// and the comments. A File owns its tree. Go's tree is pointers to nodes
+// of many types; Tack has no pointers, and a type may hold an id or a
+// span of itself, so here every node is a Node in the File's nodes
+// arena, named by an id[Node], and holds the ids of its children. A
+// Node is a Kind, a union with one case for each type of node Go has,
+// and a span; the id 0, the arena's sentinel, of Kind none, stands for
+// Go's nil. A node's lists, its parameters or its statements, are Nodes,
+// runs of the lists arena, and its names and strings runs of the bytes
+// arena, so every Kind is copyable: a pass copies a node's kind out,
+// changes it and writes it back where Go sets a field through a pointer.
+// A Nodes records whether it was made, which tells Go's nil slice, null
+// in the dump, from its empty one, [] (see Nodes). Func and Param, the
+// largest payloads, are kept in arenas of their own.
+//
+// Go's node types fall into three sealed interfaces, Decl, Stmt and Expr;
+// here the family of a node follows from its kind. CaseClause, Field and
+// UnionCase, parts of their Switch, StructType and UnionType in Go, are
+// nodes here, so the lists holding them are Nodes like any other.
+//
+// Spans are source.Span, which the port keeps in package source: a file,
+// as an index into the compilation's source.Set, and byte offsets. Go's
+// zero Span, which names the file "", is unset_span here, FileID -1.
+//
+// dump renders a File as the JSON Go's driver writes for --ast, an
+// object of each node's fields keyed by Go's names, which the
+// differential harness in tackc/porttest decodes and compares with Go's.
+// Go's encoder refuses a value nested more than 10000 objects and arrays
+// deep, and so does dump.
+//
+// BinaryOp, UnaryOp and Visibility are Go's named integer types, as
+// structs wrapping a number, since Tack declares no named integer types;
+// each value is a global, numbered as Go's constant is.
