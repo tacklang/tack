@@ -5972,36 +5972,6 @@ blank-as-name/main.tck:4:5: error: cannot use _ as a name
    |	    ^
 05 |	}
 
--- blank-as-param/main.tck --
-package main
-
-func f(_ int32, n int32) int32 {
-    return n
-}
-
-func g(n int32, _ int32) int32 {
-    return n
-}
-
-func main() {
-    exit(f(1, g(0, 2)))
-}
--- blank-as-param/expected --
-stage: resolve
----
-
-blank-as-param/main.tck:3:8: error: cannot use _ as a name
-02 |	
-03 |	func f(_ int32, n int32) int32 {
-   |	       ^
-04 |	    return n
-
-blank-as-param/main.tck:7:17: error: cannot use _ as a name
-06 |	
-07 |	func g(n int32, _ int32) int32 {
-   |	                ^
-08 |	    return n
-
 -- blank-as-value/main.tck --
 package main
 
@@ -6099,6 +6069,639 @@ blank-nothing-bound-semicolon/main.tck:8:5: error: every name is _, so nothing i
 07 |	func main() {
 08 |	    _, _ := pair();
    |	    ^~~~~~~~~~~~~~
+09 |	}
+
+-- blank-param-assign/main.tck --
+package main
+
+func f(mut _ int64) {
+    _ = 1
+}
+
+func main() {
+    mut n := 0
+    f(mut n)
+}
+-- blank-param-assign/expected --
+stage: resolve
+---
+
+blank-param-assign/main.tck:4:5: error: cannot assign to _
+03 |	func f(mut _ int64) {
+04 |	    _ = 1
+   |	    ^
+05 |	}
+
+-- blank-param-closure-plain/main.tck --
+package main
+
+func run(_ func()) {
+}
+
+func main() {
+    run(func() {
+    })
+}
+-- blank-param-closure-plain/expected --
+stage: typeck
+---
+
+blank-param-closure-plain/main.tck:7:9: error: run does not take its 1st parameter as scope, and a closure can only be passed to a scope parameter
+06 |	func main() {
+07 |	    run(func() {
+   |	        ^~~~
+08 |	    })
+
+-- blank-param-closure-read/main.tck --
+package main
+
+func apply(scope f func(int64) int64) int64 {
+    return f(1)
+}
+
+func main() {
+    if apply(func(_ int64) int64 {
+        return _
+    }) == 1 {
+        print("one\n")
+    }
+}
+-- blank-param-closure-read/expected --
+stage: resolve
+---
+
+blank-param-closure-read/main.tck:9:16: error: cannot use _ as a value
+08 |	    if apply(func(_ int64) int64 {
+09 |	        return _
+   |	               ^
+10 |	    }) == 1 {
+
+-- blank-param-extern-own/main.tck --
+package main
+
+extern func take(own _ list[int64])
+
+func main() {
+}
+-- blank-param-extern-own/expected --
+stage: typeck
+---
+
+blank-param-extern-own/main.tck:3:18: error: the 1st parameter of extern func take cannot be own: C is not held to free what it is given
+02 |	
+03 |	extern func take(own _ list[int64])
+   |	                 ^~~
+04 |	
+
+-- blank-param-extern-scope/main.tck --
+package main
+
+extern func take(n int64, scope _ func())
+
+func main() {
+}
+-- blank-param-extern-scope/expected --
+stage: typeck
+---
+
+blank-param-extern-scope/main.tck:3:27: error: the 2nd parameter of extern func take cannot be scope: a function value does not cross to C
+02 |	
+03 |	extern func take(n int64, scope _ func())
+   |	                          ^~~~~
+04 |	
+
+-- blank-param-extern-types/main.tck --
+package main
+
+type U union {
+    n int64
+}
+
+extern func maps(n int64, _ map[int64]int64)
+
+extern func unions(n int64, _ U)
+
+extern func lists(n int64, _ list[int64])
+
+extern func nested(n int64, mut _ list[list[int64]])
+
+extern func funcs(n int64, _ func())
+
+func main() {
+}
+-- blank-param-extern-types/expected --
+stage: typeck
+---
+
+blank-param-extern-types/main.tck:7:29: error: the 2nd parameter of extern func maps cannot be map[int64]int64: a map does not cross to C
+06 |	
+07 |	extern func maps(n int64, _ map[int64]int64)
+   |	                            ^~~~~~~~~~~~~~~
+08 |	
+
+blank-param-extern-types/main.tck:9:31: error: the 2nd parameter of extern func unions cannot be U: a union cannot cross to C yet
+08 |	
+09 |	extern func unions(n int64, _ U)
+   |	                              ^
+10 |	
+
+blank-param-extern-types/main.tck:11:30: error: the 2nd parameter of extern func lists cannot be list[int64]: a list crosses to C only as a mut parameter, or as a view
+10 |	
+11 |	extern func lists(n int64, _ list[int64])
+   |	                             ^~~~~~~~~~~
+12 |	
+
+blank-param-extern-types/main.tck:13:35: error: the 2nd parameter of extern func nested cannot be list[list[int64]]: a list or a view whose elements hold lists cannot cross to C yet
+12 |	
+13 |	extern func nested(n int64, mut _ list[list[int64]])
+   |	                                  ^~~~~~~~~~~~~~~~~
+14 |	
+
+blank-param-extern-types/main.tck:15:30: error: the 2nd parameter of extern func funcs cannot be func(): a function value does not cross to C
+14 |	
+15 |	extern func funcs(n int64, _ func())
+   |	                             ^~~~~~
+16 |	
+
+-- blank-param-func-type-name/main.tck --
+package main
+
+func apply(scope f func(_ int64)) {
+    f(1)
+}
+
+func main() {
+}
+-- blank-param-func-type-name/expected --
+stage: parse
+---
+
+blank-param-func-type-name/main.tck:3:25: error: a function type's parameters have no names; write only the type, not _
+02 |	
+03 |	func apply(scope f func(_ int64)) {
+   |	                        ^
+04 |	    f(1)
+
+-- blank-param-infer-conflict/main.tck --
+package main
+
+func same[T Data](_ T, _ T) bool {
+    return true
+}
+
+func main() {
+    if same(1, "a") {
+        exit(1)
+    }
+}
+-- blank-param-infer-conflict/expected --
+stage: typeck
+---
+
+blank-param-infer-conflict/main.tck:8:16: error: cannot use string as T in argument to same: T is int64 in this call, from an earlier argument
+07 |	func main() {
+08 |	    if same(1, "a") {
+   |	               ^~~
+09 |	        exit(1)
+
+-- blank-param-method-expr-position/main.tck --
+package main
+
+type B struct {
+    n int64
+}
+
+func (b B) grow(_ int64, mut _ list[int64]) int64 {
+    return b.n
+}
+
+func main() {
+    b := B{n: 1}
+    mut a := make(list[int64], c_allocator)
+    if b.grow(1, a) == 1 && B.grow(b, 1, a) == 1 {
+        print("one\n")
+    }
+}
+-- blank-param-method-expr-position/expected --
+stage: typeck
+---
+
+blank-param-method-expr-position/main.tck:14:18: error: B.grow takes its 2nd parameter as mut; pass mut a
+13 |	    mut a := make(list[int64], c_allocator)
+14 |	    if b.grow(1, a) == 1 && B.grow(b, 1, a) == 1 {
+   |	                 ^
+15 |	        print("one\n")
+
+blank-param-method-expr-position/main.tck:14:42: error: B.grow takes its 2nd parameter as mut; pass mut a
+13 |	    mut a := make(list[int64], c_allocator)
+14 |	    if b.grow(1, a) == 1 && B.grow(b, 1, a) == 1 {
+   |	                                         ^
+15 |	        print("one\n")
+
+-- blank-param-method-expr-receiver/main.tck --
+package main
+
+type B struct {
+    n int64
+}
+
+func (mut _ B) grow() {
+}
+
+func main() {
+    mut b := B{n: 1}
+    B.grow(b)
+}
+-- blank-param-method-expr-receiver/expected --
+stage: typeck
+---
+
+blank-param-method-expr-receiver/main.tck:12:12: error: B.grow takes its receiver as mut; pass mut b
+11 |	    mut b := B{n: 1}
+12 |	    B.grow(b)
+   |	           ^
+13 |	}
+
+-- blank-param-method-own/main.tck --
+package main
+
+type Box struct {
+    size int64
+}
+
+func (_ Box) put(n int64, own _ list[int64]) int64 {
+    return n
+}
+
+func main() {
+    b := Box{size: 1}
+    l := make(list[int64], c_allocator)
+    if b.put(1, l) == 1 {
+        print("one\n")
+    }
+}
+-- blank-param-method-own/expected --
+stage: typeck
+---
+
+blank-param-method-own/main.tck:14:17: error: Box.put takes its 2nd parameter as own; pass own l
+13 |	    l := make(list[int64], c_allocator)
+14 |	    if b.put(1, l) == 1 {
+   |	                ^
+15 |	        print("one\n")
+
+-- blank-param-mut-borrow-overlap/main.tck --
+package main
+
+func f(mut _ list[int64], l list[int64]) int64 {
+    return len(l)
+}
+
+func main() {
+    mut a := make(list[int64], c_allocator)
+    if f(mut a, a) == 0 {
+        print("empty\n")
+    }
+}
+-- blank-param-mut-borrow-overlap/expected --
+stage: typeck
+---
+
+blank-param-mut-borrow-overlap/main.tck:9:17: error: cannot pass a alongside mut a in this call: a list is not copied for a call, and a mut argument must be the only way to reach a during it
+08 |	    mut a := make(list[int64], c_allocator)
+09 |	    if f(mut a, a) == 0 {
+   |	                ^
+10 |	        print("empty\n")
+blank-param-mut-borrow-overlap/main.tck:9:10: note: passed as mut here
+08 |	    mut a := make(list[int64], c_allocator)
+09 |	    if f(mut a, a) == 0 {
+   |	         ^~~~~
+10 |	        print("empty\n")
+
+-- blank-param-mut-missing/main.tck --
+package main
+
+func grow(n int64, mut _ list[int64]) int64 {
+    return n
+}
+
+func main() {
+    mut a := make(list[int64], c_allocator)
+    if grow(1, a) == 1 {
+        print("one\n")
+    }
+}
+-- blank-param-mut-missing/expected --
+stage: typeck
+---
+
+blank-param-mut-missing/main.tck:9:16: error: grow takes its 2nd parameter as mut; pass mut a
+08 |	    mut a := make(list[int64], c_allocator)
+09 |	    if grow(1, a) == 1 {
+   |	               ^
+10 |	        print("one\n")
+
+-- blank-param-mut-overlap/main.tck --
+package main
+
+func f(mut _ list[int64], mut l list[int64]) error {
+    return append(mut l, 1)
+}
+
+func main() {
+    mut a := make(list[int64], c_allocator)
+    err := f(mut a, mut a)
+    exit(err.code)
+}
+-- blank-param-mut-overlap/expected --
+stage: typeck
+---
+
+blank-param-mut-overlap/main.tck:9:21: error: a is passed as mut twice in this call; a mut argument must be the only way to reach a during the call
+08 |	    mut a := make(list[int64], c_allocator)
+09 |	    err := f(mut a, mut a)
+   |	                    ^~~~~
+10 |	    exit(err.code)
+blank-param-mut-overlap/main.tck:9:14: note: first passed as mut here
+08 |	    mut a := make(list[int64], c_allocator)
+09 |	    err := f(mut a, mut a)
+   |	             ^~~~~
+10 |	    exit(err.code)
+
+-- blank-param-own-moved/main.tck --
+package main
+
+func sink(own _ list[int64]) {
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    sink(own l)
+    if len(l) == 0 {
+        print("empty\n")
+    }
+}
+-- blank-param-own-moved/expected --
+stage: typeck
+---
+
+blank-param-own-moved/main.tck:9:12: error: l is used after it was moved
+08 |	    sink(own l)
+09 |	    if len(l) == 0 {
+   |	           ^
+10 |	        print("empty\n")
+blank-param-own-moved/main.tck:8:14: note: l is moved here
+07 |	    l := make(list[int64], c_allocator)
+08 |	    sink(own l)
+   |	             ^
+09 |	    if len(l) == 0 {
+
+-- blank-param-own-without-own/main.tck --
+package main
+
+func sink(own _ list[int64]) {
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    sink(l)
+}
+-- blank-param-own-without-own/expected --
+stage: typeck
+---
+
+blank-param-own-without-own/main.tck:8:10: error: sink takes its 1st parameter as own; pass own l
+07 |	    l := make(list[int64], c_allocator)
+08 |	    sink(l)
+   |	         ^
+09 |	}
+
+-- blank-param-read/main.tck --
+package main
+
+func f(_ int32) int32 {
+    return _
+}
+
+func main() {
+    exit(f(1))
+}
+-- blank-param-read/expected --
+stage: resolve
+---
+
+blank-param-read/main.tck:4:12: error: cannot use _ as a value
+03 |	func f(_ int32) int32 {
+04 |	    return _
+   |	           ^
+05 |	}
+
+-- blank-param-receiver-read/main.tck --
+package main
+
+type Box struct {
+    size int32
+}
+
+func (_ Box) size_of() int32 {
+    return _.size
+}
+
+func main() {
+    exit(Box{size: 1}.size_of())
+}
+-- blank-param-receiver-read/expected --
+stage: resolve
+---
+
+blank-param-receiver-read/main.tck:8:12: error: cannot use _ as a value
+07 |	func (_ Box) size_of() int32 {
+08 |	    return _.size
+   |	           ^
+09 |	}
+
+-- blank-param-receiver-scope/main.tck --
+package main
+
+type B struct {
+    n int64
+}
+
+func (scope _ B) m() {
+}
+
+func main() {
+}
+-- blank-param-receiver-scope/expected --
+stage: typeck
+---
+
+blank-param-receiver-scope/main.tck:7:7: error: the receiver cannot be scope: B is not a function type or Allocator, and only a function value or an Allocator can be scope; remove scope
+06 |	
+07 |	func (scope _ B) m() {
+   |	      ^~~~~
+08 |	}
+
+-- blank-param-region-plain/main.tck --
+package main
+
+func take(_ Allocator) int64 {
+    return 0
+}
+
+func main() {
+    region r {
+        n := take(r)
+        if n != 0 {
+            exit(1)
+        }
+    }
+}
+-- blank-param-region-plain/expected --
+stage: typeck
+---
+
+blank-param-region-plain/main.tck:9:19: error: take does not take its 1st parameter as scope, and a region's allocator can only be passed to a scope parameter
+08 |	    region r {
+09 |	        n := take(r)
+   |	                  ^
+10 |	        if n != 0 {
+blank-param-region-plain/main.tck:8:5: note: region r is opened here, and everything made through r is given back when its block ends
+07 |	func main() {
+08 |	    region r {
+   |	    ^~~~~~~~
+09 |	        n := take(r)
+
+-- blank-param-scope-not-func/main.tck --
+package main
+
+func f(scope _ int64) {
+}
+
+func main() {
+    f(1)
+}
+-- blank-param-scope-not-func/expected --
+stage: typeck
+---
+
+blank-param-scope-not-func/main.tck:3:8: error: the 1st parameter cannot be scope: int64 is not a function type or Allocator, and only a function value or an Allocator can be scope; remove scope
+02 |	
+03 |	func f(scope _ int64) {
+   |	       ^~~~~
+04 |	}
+
+-- blank-param-scope-variadic/main.tck --
+package main
+
+func f(n int64, scope _ ...func()) {
+}
+
+func main() {
+}
+-- blank-param-scope-variadic/expected --
+stage: typeck
+---
+
+blank-param-scope-variadic/main.tck:3:17: error: the 2nd parameter cannot be both variadic and scope: a scope parameter takes one function value or Allocator
+02 |	
+03 |	func f(n int64, scope _ ...func()) {
+   |	                ^~~~~
+04 |	}
+
+-- blank-param-spread-beside-values/main.tck --
+package main
+
+func none(_ ...int64) int64 {
+    return 0
+}
+
+func main() {
+    a := [2]int64{1, 2}
+    if none(1, a...) == 0 {
+        print("zero\n")
+    }
+}
+-- blank-param-spread-beside-values/expected --
+stage: typeck
+---
+
+blank-param-spread-beside-values/main.tck:9:13: error: cannot use ... in a call with other values for its 1st parameter
+08 |	    a := [2]int64{1, 2}
+09 |	    if none(1, a...) == 0 {
+   |	            ^~~~~~~
+10 |	        print("zero\n")
+
+-- blank-param-value-any/main.tck --
+package main
+
+func f(n int64, _ any) int64 {
+    return n
+}
+
+func main() {
+    g := f
+    if g(1, 2) == 1 {
+        print("one\n")
+    }
+}
+-- blank-param-value-any/expected --
+stage: typeck
+---
+
+blank-param-value-any/main.tck:8:10: error: cannot use f as a value: its 2nd parameter is an any, which no function type's can be
+07 |	func main() {
+08 |	    g := f
+   |	         ^
+09 |	    if g(1, 2) == 1 {
+
+-- blank-param-variadic-value/main.tck --
+package main
+
+func none(n int64, _ ...int64) int64 {
+    return n
+}
+
+func main() {
+    f := none
+    if f(1) == 1 {
+        print("one\n")
+    }
+}
+-- blank-param-variadic-value/expected --
+stage: typeck
+---
+
+blank-param-variadic-value/main.tck:8:10: error: cannot use none as a value: its 2nd parameter is variadic, which no function type's can be
+07 |	func main() {
+08 |	    f := none
+   |	         ^~~~
+09 |	    if f(1) == 1 {
+
+-- blank-param-view-variadic/main.tck --
+package main
+
+func all(v []uint8, _ ...uint8) []uint8 {
+    return v
+}
+
+func first(v []uint8) []uint8 {
+    return all(v, 1, 2)
+}
+
+func main() {
+    if len(first([]uint8("ab"))) == 2 {
+        print("two\n")
+    }
+}
+-- blank-param-view-variadic/expected --
+stage: typeck
+---
+
+blank-param-view-variadic/main.tck:8:12: error: cannot return all(v, 1, 2): the view it returns may point into the values for its 2nd parameter, and they are packed into a temporary; a returned view can only point into what a parameter that is not mut holds
+07 |	func first(v []uint8) []uint8 {
+08 |	    return all(v, 1, 2)
+   |	           ^~~~~~~~~~~~
 09 |	}
 
 -- block-comment-not-terminated/main.tck --
@@ -37528,28 +38131,6 @@ method-pub-in-main/main.tck:11:1: error: lib has no effect in package main, whic
 11 |	lib func (p P) norm2() int64 {
    |	^~~
 12 |	    return p.x
-
--- method-receiver-blank/main.tck --
-package main
-
-type P struct {
-    x int64
-}
-
-func (_ P) f() {
-}
-
-func main() {
-}
--- method-receiver-blank/expected --
-stage: resolve
----
-
-method-receiver-blank/main.tck:7:7: error: cannot use _ as a name
-06 |	
-07 |	func (_ P) f() {
-   |	      ^
-08 |	}
 
 -- method-receiver-named-like-type/main.tck --
 package main

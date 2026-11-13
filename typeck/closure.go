@@ -91,21 +91,23 @@ import (
 // is declared with, once it has checked that scope fits it: its type is
 // a function type or Allocator, and it is not variadic. A misfit is
 // reported, and param is then taken as a plain parameter (see
-// scopeFits), so its uses are not reported again.
-func (c *Checker) scopeParamType(param *ast.Param, typ types.Type) types.Type {
+// scopeFits), so its uses are not reported again. noun is how a report
+// names param, parameter n or, for one named _, the 2nd parameter (see
+// paramNoun).
+func (c *Checker) scopeParamType(param *ast.Param, noun string, typ types.Type) types.Type {
 	switch {
 	case typ == types.Invalid:
 	case param.Variadic:
 		c.errorf(
 			param.ScopeSpan,
-			"parameter %s cannot be both variadic and scope: a scope parameter takes one function value or Allocator",
-			param.Name,
+			"%s cannot be both variadic and scope: a scope parameter takes one function value or Allocator",
+			noun,
 		)
 	case !c.table.IsFunc(typ) && typ != types.Allocator:
 		c.errorf(param.ScopeSpan,
-			"parameter %s cannot be scope: %s is not a function type or Allocator, "+
+			"%s cannot be scope: %s is not a function type or Allocator, "+
 				"and only a function value or an Allocator can be scope; remove scope",
-			param.Name, c.typeName(typ))
+			noun, c.typeName(typ))
 	}
 	return typ
 }
@@ -138,7 +140,7 @@ func (c *Checker) funcTypeScope(p *ast.Param, typ types.Type) bool {
 // how a region's allocator crossed, which it never does.
 func (c *Checker) checkExternScope(fn *ast.Func) bool {
 	clean := true
-	for _, p := range fn.Params {
+	for i, p := range fn.Params {
 		if !p.Scope {
 			continue
 		}
@@ -146,16 +148,16 @@ func (c *Checker) checkExternScope(fn *ast.Func) bool {
 		if p.Type == types.Allocator {
 			c.errorf(
 				p.ScopeSpan,
-				"parameter %s of extern func %s cannot be scope: a region's allocator never crosses to C, "+
+				"%s of extern func %s cannot be scope: a region's allocator never crosses to C, "+
 					"and c_allocator crosses as a plain Allocator; remove scope",
-				p.Name,
+				paramNoun(fn.Params, i, false),
 				fn.Name,
 			)
 			continue
 		}
 		c.errorf(p.ScopeSpan,
-			"parameter %s of extern func %s cannot be scope: a function value does not cross to C",
-			p.Name, fn.Name)
+			"%s of extern func %s cannot be scope: a function value does not cross to C",
+			paramNoun(fn.Params, i, false), fn.Name)
 	}
 	return clean
 }
@@ -235,7 +237,7 @@ func (c *Checker) funcLitType(lit *ast.FuncLit) types.Type {
 	ok := true
 	params := make([]types.FuncParam, len(fn.Params))
 	for i, p := range fn.Params {
-		p.Type = c.paramType(p)
+		p.Type = c.paramType(p, paramNoun(fn.Params, i, false))
 		ok = ok && p.Type != types.Invalid
 		params[i] = types.FuncParam{Type: p.Type, Mut: p.Mut, Own: p.Own, Scope: c.scopeFits(p)}
 	}

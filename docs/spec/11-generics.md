@@ -31,9 +31,9 @@ function's signature without `func`, a receiver or a body, with `mut`
 first for a method that takes its receiver as `mut`. A method's
 parameters and results follow a function's rules: a `mut`, a view, a
 variadic or an `any` parameter may appear, and an error result is last.
-Its parameters are named, no two alike and none `_` or a type's name;
-since no body can see them, they may otherwise share a name with
-anything. A method's name is in its interface's namespace, follows a
+Its parameters are named, no two alike but any number `_`, and none a
+type's name; since no body can see them, they may otherwise share a name
+with anything. A method's name is in its interface's namespace, follows a
 field's naming rule, so it may be a builtin's, `span() int64`, and is
 declared once in it.
 

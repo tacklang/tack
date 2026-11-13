@@ -149,7 +149,9 @@ func (f *Func) Spanned() Span { return f.Span }
 // and pass it on to another scope parameter, and nothing else, so it may
 // be a closure, which no other parameter can take: Scope is set, and
 // ScopeSpan is the scope keyword.
-// Any other parameter is an immutable copy of its argument.
+// Any other parameter is an immutable copy of its argument. A parameter of
+// any kind may be named _, Blank: it declares nothing, so nothing refers
+// to it, and its argument is passed as any other's.
 type Param struct {
 	TypeExpr     Expr // the type as written, e.g. *Ident{"int64"}; a variadic's element type
 	Name         string

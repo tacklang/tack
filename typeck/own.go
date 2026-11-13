@@ -83,12 +83,12 @@ func (c *Checker) ownReceiver(fn *ast.Func) {
 // found none.
 func (c *Checker) checkExternOwn(fn *ast.Func) bool {
 	ok := true
-	for _, p := range fn.Params {
+	for i, p := range fn.Params {
 		if p.Own {
 			c.errorf(
 				p.OwnSpan,
-				"parameter %s of extern func %s cannot be own: C is not held to free what it is given",
-				p.Name,
+				"%s of extern func %s cannot be own: C is not held to free what it is given",
+				paramNoun(fn.Params, i, false),
 				fn.Name,
 			)
 			ok = false

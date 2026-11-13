@@ -136,9 +136,9 @@
 //
 // A method, func (b Builder) len(), is a function whose first parameter
 // is its receiver, so its body is resolved as any function's, the
-// receiver in scope as a parameter under every parameter's rule, _ and
-// type names reserved and no other parameter, local or global sharing its
-// name. Its name is not one of the package's: methods are not declared
+// receiver in scope as a parameter under every parameter's rule, type
+// names reserved, _ declaring nothing, and no other parameter, local or
+// global sharing its name. Its name is not one of the package's: methods are not declared
 // with the functions, so one may share a name with a function, a global,
 // a builtin or main. Once every receiver's type is bound, each method is
 // recorded on its type, in TypeDecl.Methods, and its type in
@@ -164,7 +164,8 @@
 // file's scope; a method's name is in its interface's namespace, follows
 // a field's naming rule, a builtin type's allowed, and is declared once, and its parameters are
 // named once each, none reserved, but may share names with anything
-// else, since a method of an interface has no body that could see them.
+// else, since a method of an interface has no body that could see them;
+// any number of them may be _.
 // A generic function's type parameters form a scope of their own,
 // enclosing its parameters and nested in its file's: they are declared
 // first, under a parameter's naming rules, so none is reserved, a
@@ -183,6 +184,13 @@
 // case's own in the case's block, as a type switch's variable is
 // declared, so only that case's body names it; it must be a new name, not
 // a type's (see paramswitch.go).
+//
+// A parameter named _, of a function, a method, its receiver, a function
+// literal or an interface's method, declares nothing: any number of a
+// signature's parameters may be _, none clashes with another, and a _ in
+// the body is reported as any other _ is, cannot use _ as a value or
+// cannot assign to _, since no scope holds one. The type checker never
+// warns of one as unused.
 //
 // Each block is a scope: a function's parameters come next, its body is
 // nested in that, and each branch of an if, and each case of a switch, is

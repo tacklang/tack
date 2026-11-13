@@ -244,6 +244,26 @@ unused-param/main.tck:3:21: warning: declared and not used: by
    |	                    ^~
 04 |	    return n *% 2
 
+-- unused-param-blank/main.tck --
+package main
+
+func scale(n int64, _ int64, by int64, _ string) int64 {
+    return n *% 2
+}
+
+func main() {
+    if scale(3, 4, 5, "s") == 6 {
+        print("ok\n")
+    }
+}
+-- unused-param-blank/expected --
+
+unused-param-blank/main.tck:3:30: warning: declared and not used: by
+02 |	
+03 |	func scale(n int64, _ int64, by int64, _ string) int64 {
+   |	                             ^~
+04 |	    return n *% 2
+
 -- unused-private-func/main.tck --
 package main
 

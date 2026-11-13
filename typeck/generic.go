@@ -95,8 +95,8 @@ func (c *Checker) resolveInterfaces(decls []ast.Decl) {
 		}
 		restore := c.enter(td)
 		for _, m := range td.Interface().Methods {
-			for _, p := range m.Params {
-				p.Type = c.paramType(p)
+			for i, p := range m.Params {
+				p.Type = c.paramType(p, paramNoun(m.Params, i, false))
 			}
 			m.ResultTypes = make([]types.Type, len(m.Results))
 			for i, r := range m.Results {
@@ -396,7 +396,7 @@ func (c *Checker) checkGenericCall(
 	outer := c.inference
 	inf := &inference{fn: fn, args: make(map[types.Type]types.Type)}
 	c.inference = inf
-	muts, counted := c.checkArgs(call, callee, c.funcParams(fn.Params))
+	muts, counted := c.checkArgs(call, callee, c.funcParams(fn.Params, false))
 	c.inference = outer
 	call.TypeArgs, call.ParamTypes, call.ResultTypes = nil, nil, nil
 	if !counted {

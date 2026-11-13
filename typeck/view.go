@@ -30,14 +30,15 @@ import (
 // never a mut one, or when it is variadic, args ...T (see variadicParam); any, which
 // only a parameter may have too, and never a mut one (see anyParam); any
 // other type as declaredType gives it. An own parameter's type is then
-// checked as ownParamType says.
-func (c *Checker) paramType(param *ast.Param) types.Type {
+// checked as ownParamType says, and a scope one's as scopeParamType does,
+// which names it as noun (see paramNoun).
+func (c *Checker) paramType(param *ast.Param, noun string) types.Type {
 	typ := c.plainParamType(param)
 	if param.Own {
 		return c.ownParamType(param, typ)
 	}
 	if param.Scope {
-		return c.scopeParamType(param, typ)
+		return c.scopeParamType(param, noun, typ)
 	}
 	return typ
 }

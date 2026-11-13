@@ -813,13 +813,11 @@ private ones included, so a type is `Data` or not whichever package
 asks; `fields(T)` lists a field by its own mark, uncapped by its
 struct's visibility, so a field of package main may be `pub` or `lib`
 for that alone; and `f.index` is the position among the fields listed,
-from 0. Still open:
+from 0. A function that needs only a type takes a value of it in a
+parameter named `_`, `func fresh[F Data](_ F, scope alloc Allocator) F`,
+which infers the type parameter and is never read or warned of (ruled
+2026-11-13). Still open:
 
-- A function that needs only a type must still take a value of it, since
-  a type parameter is inferred only from the arguments, and the value is
-  then unread, which warns, and `_` is no parameter name. Options: allow
-  `_` as a parameter name, keep the warning off for a parameter whose
-  type is a type parameter, or let a type be passed, `count[T]()`.
 - A value of a field's type is built by a generic function `v.[f]` is
   passed to, which calls `make(T, alloc)` (see make for Data) and
   assigns it to a `mut` parameter, `reset(mut v.[f], alloc)`, or returns
@@ -864,10 +862,10 @@ Still open:
 - In a fields loop, `v.[f] = make(<the field's type>, alloc)` cannot be
   written: the field's type parameter, `T.[f]`, has no name a program
   can write, and a type argument is only inferred from a value. So the
-  make goes in a generic function `v.[f]` is passed to, and one that only
-  returns the value, `fresh[T Data](v T, scope alloc Allocator) T`, warns
-  that `v` is unused (see Data and fields loops); `reset(mut v T, ...)`
-  with `v = make(T, alloc)` does not. Options: a spelling for the
+  make goes in a generic function `v.[f]` is passed to, `fresh[T
+  Data](_ T, scope alloc Allocator) T`, whose `_` parameter infers `T`
+  and is never warned of (see Data and fields loops), or `reset(mut v T,
+  ...)` with `v = make(T, alloc)`. Options: a spelling for the
   field's type, `make(T.[f], alloc)`; a make from a value's type; or
   keep the helper.
 - A struct reached through a list or a map is `Data` (see Data), but a

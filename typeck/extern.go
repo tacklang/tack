@@ -74,12 +74,12 @@ func (c *Checker) checkCName(fn *ast.Func) {
 // so none crosses.
 func (c *Checker) checkExternMaps(fn *ast.Func) bool {
 	clean := true
-	for _, p := range fn.Params {
+	for i, p := range fn.Params {
 		if held := c.uncrossable(p.Type, make(map[types.Type]bool)); held != "" {
 			c.errorf(
 				p.TypeExpr.Spanned(),
-				"parameter %s of extern func %s cannot be %s: %s does not cross to C",
-				p.Name,
+				"%s of extern func %s cannot be %s: %s does not cross to C",
+				paramNoun(fn.Params, i, false),
 				fn.Name,
 				c.typeName(p.Type),
 				held,
@@ -135,9 +135,9 @@ func (c *Checker) uncrossable(typ types.Type, seen map[types.Type]bool) string {
 // array, a view or a list: how a union is laid out for C is not settled,
 // so none crosses yet.
 func (c *Checker) checkExternUnions(fn *ast.Func) {
-	for _, p := range fn.Params {
+	for i, p := range fn.Params {
 		c.externUnion(p.Type, p.TypeExpr.Spanned(),
-			fmt.Sprintf("parameter %s of extern func %s cannot be", p.Name, fn.Name))
+			fmt.Sprintf("%s of extern func %s cannot be", paramNoun(fn.Params, i, false), fn.Name))
 	}
 	for i, typ := range fn.ResultTypes {
 		c.externUnion(typ, fn.Results[i].Spanned(),
@@ -157,10 +157,10 @@ const listCrossing = "a list crosses to C only as a mut parameter, or as a view"
 // then frees it, and through which allocator, is not settled. A type
 // holding a union is reported as one instead (see checkExternUnions).
 func (c *Checker) checkExternLists(fn *ast.Func) {
-	for _, p := range fn.Params {
+	for i, p := range fn.Params {
 		if !p.Mut && c.table.Owned(p.Type) && !c.crossesUnion(p.Type) {
-			c.errorf(p.TypeExpr.Spanned(), "parameter %s of extern func %s cannot be %s: %s",
-				p.Name, fn.Name, c.ownedTypeName(p.Type), listCrossing)
+			c.errorf(p.TypeExpr.Spanned(), "%s of extern func %s cannot be %s: %s",
+				paramNoun(fn.Params, i, false), fn.Name, c.ownedTypeName(p.Type), listCrossing)
 		}
 	}
 	for i, typ := range fn.ResultTypes {
@@ -179,7 +179,7 @@ func (c *Checker) checkExternLists(fn *ast.Func) {
 // plain parameter of an owned type, and any type holding a union, is
 // reported as one instead.
 func (c *Checker) checkExternOwnedElems(fn *ast.Func) {
-	for _, p := range fn.Params {
+	for i, p := range fn.Params {
 		if !p.Mut && c.table.Owned(p.Type) || c.crossesUnion(p.Type) ||
 			!c.holdsOwnedElems(p.Type, make(map[types.Type]bool)) {
 			continue
@@ -190,8 +190,8 @@ func (c *Checker) checkExternOwnedElems(fn *ast.Func) {
 		}
 		c.errorf(
 			p.TypeExpr.Spanned(),
-			"parameter %s of extern func %s cannot be %s: a list or a view whose elements hold lists cannot cross to C yet",
-			p.Name,
+			"%s of extern func %s cannot be %s: a list or a view whose elements hold lists cannot cross to C yet",
+			paramNoun(fn.Params, i, false),
 			fn.Name,
 			name,
 		)

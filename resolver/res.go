@@ -426,7 +426,8 @@ func (r *pkgResolver) resolveFields(st *ast.StructType, sc *scope) []diag.Diagno
 }
 
 // blankName reports _ used to name a declaration, which it cannot: it only
-// discards a result in a binding of several.
+// discards a result in a binding of several, or names a parameter that is
+// never read, which paramScope and its kin never pass here.
 func blankName(span ast.Span) diag.Diagnostic {
 	return diag.Diagnostic{Severity: diag.Error, Message: "cannot use _ as a name", Span: span}
 }
@@ -641,11 +642,13 @@ func missingMain(pkg *ast.Package) []diag.Diagnostic {
 }
 
 // paramScope returns the outermost scope of a function, holding its
-// parameters, and reports any parameter name declared twice. A generic
-// function's parameters are nested in the scope of its type parameters
-// (see typeParamScope), so a parameter or local cannot reuse a type
-// parameter's name, and a type written anywhere in the function may name
-// one.
+// parameters, and reports any parameter name declared twice. A parameter
+// named _ declares nothing, so any number of them may be written and none
+// can be referred to: the _ a body reads or assigns is reported as any
+// other _ is. A generic function's parameters are nested in the scope of
+// its type parameters (see typeParamScope), so a parameter or local
+// cannot reuse a type parameter's name, and a type written anywhere in
+// the function may name one.
 func (r *pkgResolver) paramScope(fn *ast.Func) (*scope, []diag.Diagnostic) {
 	file := r.fileScope(fn.Span.File)
 	sig, diags := r.typeParamScope(fn, file)
@@ -661,6 +664,9 @@ func (r *pkgResolver) paramScope(fn *ast.Func) (*scope, []diag.Diagnostic) {
 		diags = append(diags, r.resolveType(result, sig)...)
 	}
 	for _, param := range fn.Params {
+		if param.Name == ast.Blank {
+			continue
+		}
 		if clash := r.paramClash(param, params); clash != nil {
 			diags = append(diags, clash...)
 			params.reject(param.Name)
@@ -1346,7 +1352,8 @@ func (r *pkgResolver) resolveExpr(e ast.Expr, sc *scope) []diag.Diagnostic {
 // the variables and parameters of the functions and closures around it
 // among them, which are its captures. A parameter's name may not be one
 // visible there already, as a variable's may not, nor another
-// parameter's of the literal.
+// parameter's of the literal; a parameter named _ declares nothing, as a
+// function's does (see paramScope).
 func (r *pkgResolver) resolveFuncLit(lit *ast.FuncLit, sc *scope) []diag.Diagnostic {
 	fn := lit.Func
 	var diags []diag.Diagnostic
@@ -1358,6 +1365,9 @@ func (r *pkgResolver) resolveFuncLit(lit *ast.FuncLit, sc *scope) []diag.Diagnos
 	}
 	params := newScope(sc)
 	for _, param := range fn.Params {
+		if param.Name == ast.Blank {
+			continue
+		}
 		if clash := r.litParamClash(param, params); clash != nil {
 			diags = append(diags, clash...)
 			params.reject(param.Name)

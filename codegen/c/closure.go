@@ -339,8 +339,8 @@ func (g *generator) generateClosure(cl *closure) []diag.Diagnostic {
 	body = append(append(head, unusedParams(fn, body)...), body...)
 	g.noteNames(cl.name, body)
 	params := []string{"void *tack_envp"}
-	for _, p := range fn.Params {
-		params = append(params, fmt.Sprintf("%s %s", g.paramType(p), paramName(p.Name)))
+	for i, p := range fn.Params {
+		params = append(params, fmt.Sprintf("%s %s", g.paramType(p), paramDeclName(p, i)))
 	}
 	cl.sig = fmt.Sprintf("static %s %s(%s)", g.funcTypeResult(cl.typ), cl.name, strings.Join(params, ", "))
 	cl.lines = body

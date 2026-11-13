@@ -48,7 +48,7 @@ type param struct {
 // names, none when it names neither.
 func (c *Checker) calleeParams(id *ast.Ident) []param {
 	if fn, ok := id.Def.(*ast.Func); ok && fn != nil {
-		params := c.funcParams(fn.Params)
+		params := c.funcParams(fn.Params, fn.Method)
 		for i := range params {
 			params[i].extern = fn.Extern
 		}

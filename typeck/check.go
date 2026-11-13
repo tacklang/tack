@@ -2530,7 +2530,7 @@ func (c *Checker) resolveParamTypes(fn *ast.Func) {
 			param.Type = types.Invalid
 			continue
 		}
-		param.Type = c.paramType(param)
+		param.Type = c.paramType(param, paramNoun(fn.Params, i, fn.Method))
 	}
 	c.ownReceiver(fn)
 }

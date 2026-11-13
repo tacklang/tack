@@ -172,14 +172,14 @@ func (c *Checker) notValue(fn *ast.Func) string {
 	case fn.Extern:
 		return "it is an extern func, and a function value does not cross to C"
 	}
-	for _, p := range fn.Params {
+	for i, p := range fn.Params {
 		switch {
 		case p.Variadic:
-			return fmt.Sprintf("its parameter %s is variadic, which no function type's can be",
-				p.Name)
+			return fmt.Sprintf("%s is variadic, which no function type's can be",
+				itsParam(fn.Params, i, fn.Method))
 		case p.Type == types.Any:
-			return fmt.Sprintf("its parameter %s is an any, which no function type's can be",
-				p.Name)
+			return fmt.Sprintf("%s is an any, which no function type's can be",
+				itsParam(fn.Params, i, fn.Method))
 		}
 	}
 	if len(fn.ResultTypes) == 1 && c.table.IsView(fn.ResultTypes[0]) {
@@ -209,7 +209,7 @@ func (c *Checker) dynamicCall(call *ast.Call, id *ast.Ident) {
 		return
 	}
 	call.Dynamic = c.dynamicFunc(typ)
-	muts, counted := c.checkArgs(call, id.Qualified(), c.funcParams(call.Dynamic.Params))
+	muts, counted := c.checkArgs(call, id.Qualified(), c.funcParams(call.Dynamic.Params, false))
 	if !counted {
 		return
 	}
@@ -322,12 +322,12 @@ func (c *Checker) holdsFunc(typ types.Type, seen map[types.Type]bool) bool {
 // returns whether there was none: a function value does not cross to C.
 func (c *Checker) checkExternFuncs(fn *ast.Func) bool {
 	clean := true
-	for _, p := range fn.Params {
+	for i, p := range fn.Params {
 		if c.holdsFunc(p.Type, make(map[types.Type]bool)) {
 			c.errorf(
 				p.TypeExpr.Spanned(),
-				"parameter %s of extern func %s cannot be %s: a function value does not cross to C",
-				p.Name,
+				"%s of extern func %s cannot be %s: a function value does not cross to C",
+				paramNoun(fn.Params, i, false),
 				fn.Name,
 				c.typeName(p.Type),
 			)

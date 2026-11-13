@@ -28,6 +28,28 @@ func TestAcceptsBlankInMultiBindings(t *testing.T) {
 	}
 }
 
+// TestAcceptsBlankParams checks any number of parameters may be named _,
+// as many as a function, a method, its receiver, a closure and an
+// interface's method have, with no diagnostic: not a duplicate, and not
+// a clash with another _ or with a named parameter's name.
+func TestAcceptsBlankParams(t *testing.T) {
+	for _, src := range []string{
+		"func f(_ int64) {\n}\n\nfunc main() {\n    f(1)\n}\n",
+		"func f(_ int64, _ string, n int64) int64 {\n    return n\n}\n\nfunc main() {\n    f(1, \"s\", 2)\n}\n",
+		"func f(mut _ int64, own _ list[int64], _ ...int64) {\n}\n\nfunc main() {\n}\n",
+		"type P struct {\n    x int64\n}\n\nfunc (_ P) f(_ int64) {\n}\n\nfunc main() {\n}\n",
+		"type I interface {\n    f(_ int64, _ int64)\n}\n\nfunc main() {\n}\n",
+		"func run(scope f func(int64, int64)) {\n    f(1, 2)\n}\n\nfunc main() {\n    run(func(_ int64, _ int64) {\n    })\n}\n",
+	} {
+		t.Run(src, func(t *testing.T) {
+			_, diags := resolveTree(t, "package main\n\n"+src)
+			if len(diags) > 0 {
+				t.Errorf("got %q, want no diagnostics", messagesOf(diags))
+			}
+		})
+	}
+}
+
 // blankMisuseCases are uses of _ outside a binding of several, or that bind
 // nothing, with the one message each must produce and what it must cover.
 var blankMisuseCases = []struct {
@@ -38,9 +60,15 @@ var blankMisuseCases = []struct {
 	{"mut declaration", "func main() {\n    mut _ int64\n}\n", "cannot use _ as a name", "_"},
 	{"global", "var _ = 1\n\nfunc main() {\n}\n", "cannot use _ as a name", "_"},
 	{
-		"parameter",
-		"func f(_ int64) {\n}\n\nfunc main() {\n    f(1)\n}\n",
-		"cannot use _ as a name",
+		"parameter read",
+		"func f(_ int64) int64 {\n    return _\n}\n\nfunc main() {\n    f(1)\n}\n",
+		"cannot use _ as a value",
+		"_",
+	},
+	{
+		"closure parameter read",
+		"func run(scope f func(int64) int64) {\n    f(1)\n}\n\nfunc main() {\n    run(func(_ int64) int64 {\n        return _\n    })\n}\n",
+		"cannot use _ as a value",
 		"_",
 	},
 	{"function", "func _() {\n}\n\nfunc main() {\n}\n", "cannot use _ as a name", "_"},

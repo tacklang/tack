@@ -25,7 +25,8 @@ import "github.com/tacklang/tack/ast"
 // a value, a method by a method expression included, whose type the
 // value's must match, and a method a constraint asks for, whose
 // signature the interface's must match. A method's
-// receiver is never warned of. The parameters of a function that is
+// receiver is never warned of, nor is a parameter named _. The parameters
+// of a function that is
 // itself unused are not warned of apart from it.
 
 // usage is what checkUnusedDecls finds is used: the functions, methods
@@ -191,9 +192,9 @@ func (c *Checker) warnUnused(pkg *ast.Package, decl ast.Decl, u *usage) {
 }
 
 // warnUnusedParams warns of each parameter of fn, a private function
-// that is used, that nothing reads, but its receiver, unless fn's
-// signature is not its own: it is used as a value, a constraint asks for
-// it, or it has no body.
+// that is used, that nothing reads, but its receiver and any named _,
+// which says it is not read, unless fn's signature is not its own: it is
+// used as a value, a constraint asks for it, or it has no body.
 func (c *Checker) warnUnusedParams(fn *ast.Func, u *usage) {
 	if u.value[fn] || u.bound[fn] || fn.NoBody {
 		return
@@ -203,7 +204,7 @@ func (c *Checker) warnUnusedParams(fn *ast.Func, u *usage) {
 		params = params[1:]
 	}
 	for _, p := range params {
-		if !u.read[p] {
+		if !u.read[p] && p.Name != ast.Blank {
 			c.unusedf(p.NameSpan, "declared and not used: %s", p.Name)
 		}
 	}

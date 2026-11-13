@@ -588,15 +588,22 @@ func (g *generator) ownedAssign(typ types.Type, ref, value string) []string {
 
 // freeEntry is one owned local variable, or own parameter, whose value
 // its block frees when it ends, as a defer would: see defer.go. Exactly
-// one of v and p is set.
+// one of v and p is set; i is p's position among its function's
+// parameters, which names it in C when it is named _ (see
+// paramDeclName).
 type freeEntry struct {
 	v *ast.Var
 	p *ast.Param
+	i int
 }
 
 // lower returns the statements that free the variable's or the
-// parameter's value.
+// parameter's value. A parameter named _ is never captured, and an own
+// one is never mut, so its C name is how it is reached.
 func (e freeEntry) lower(g *generator) []string {
+	if e.p != nil && e.p.Name == ast.Blank {
+		return g.frees(e.p.Type, paramDeclName(e.p, e.i))
+	}
 	if e.p != nil {
 		return g.frees(e.p.Type, g.paramRef(e.p))
 	}
@@ -610,9 +617,9 @@ func (e freeEntry) lower(g *generator) []string {
 // whose type argument owns nothing, there is none.
 func (g *generator) addParamFrees(fn *ast.Func) {
 	sc := g.scopes[len(g.scopes)-1]
-	for _, p := range fn.Params {
+	for i, p := range fn.Params {
 		if p.Own && g.owned(p.Type) {
-			sc.entries = append(sc.entries, cleanup{free: &freeEntry{p: p}})
+			sc.entries = append(sc.entries, cleanup{free: &freeEntry{p: p, i: i}})
 		}
 	}
 }

@@ -70,7 +70,7 @@ func (c *Checker) checkMethodExprCall(call *ast.Call, sel *ast.Selector) {
 		return
 	}
 	call.Method = fn
-	muts, counted := c.checkArgs(call, c.displayName(fn), c.funcParams(fn.Params))
+	muts, counted := c.checkArgs(call, c.displayName(fn), c.funcParams(fn.Params, true))
 	if !counted {
 		return
 	}

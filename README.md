@@ -687,6 +687,32 @@ section remains the description of the language.
   len() int64`, is a method of a struct type (see methods). A contract,
   `ensures` and a condition, may come after the results, before the body,
   `func must(err error) ensures err.code == 0 { ... }` (see contracts).
+- Parameters named `_`. A parameter may be named `_`, as in Go: it
+  carries a type and is never read, typically to infer a type parameter
+  from an argument whose value is not needed, `func fresh[F Data](_ F,
+  scope alloc Allocator) F`, called `fresh(v.[f], alloc)`. Any number of
+  a function's parameters may be `_`, and so may a method's receiver,
+  `func (_ Box) kind() int64`, an interface method's parameters, a
+  closure's and an extern func's. A function type's parameters have no
+  names, `_` included, `a function type's parameters have no names; write
+  only the type, not _`; a function with a `_` parameter has the function
+  type its parameters' types give. `_` declares nothing, so the body
+  cannot refer to it, `cannot use _ as a value` or `cannot assign to _`,
+  and is never warned of as unused. The argument is evaluated, in order
+  with the others, and passed under the usual rules: a plain `_` borrows,
+  an `own _` takes the value, which the function frees when it returns,
+  by any path, a `mut _` is a `mut` argument for the call's overlap
+  rules, `a is passed as mut twice in this call`, and a `scope _` takes a
+  closure, which it never calls, or an Allocator, and on any other type
+  is an error, `the 1st parameter cannot be scope: int64 is not a
+  function type or Allocator, ...`. As there, a message about such a
+  parameter names it by its position among the parameters in the
+  parentheses, a receiver not counted, `sink takes its 2nd parameter as
+  own; pass own l`, and a `_` receiver as the receiver, `B.grow takes
+  its receiver as mut; pass mut b`; a method expression's call,
+  `B.grow(b, 1, a)`, names them as the call `b.grow(1, a)` does. In C a `_` parameter
+  is `p_` and its position, `p_0`, which no Tack name gives, cast to
+  `void` unless an own one's free reads it.
 - Mut parameters. A parameter written `mut p T`, as in `func scale(mut p
   Point, k int64)`, is a mutable reference to the caller's variable for the
   duration of the call: inside, `p`, `p.x` and `p.cells[i]` read and write
@@ -2957,9 +2983,10 @@ section remains the description of the language.
   that value's type, of any package, as `t.kind()` for a `lexer.Token`
   `t`. A type with no such method is `Builder has no method nope`. The
   receiver is a parameter, written first, with a parameter's rules for its
-  name: `_` and a type's name are errors, and no other parameter or local
-  may reuse it. A plain receiver is a plain parameter, an immutable copy
-  of any value of the type, and a struct holding a list is borrowed, not
+  name: a type's name is an error, `_` names a receiver the method never
+  reads, and no other parameter or local may reuse any other name. A plain
+  receiver is a plain parameter, an immutable copy of any value of the
+  type, and a struct holding a list is borrowed, not
   copied, so a temporary one is `cannot use a temporary Builder here;
   store it in a variable first`. A `mut` receiver is a `mut` parameter: the
   call writes `mut` before it, `mut b.write(s)`, as a statement or as a
@@ -3454,9 +3481,9 @@ section remains the description of the language.
   the parameters of a function whose signature is not its own to change:
   an extern func's, a `pub` or `lib` function's or method's, a function
   used as a value, and a method a constraint asks for. An unused
-  function's parameters are not warned of apart from it. A parameter
-  cannot be named `_`, `cannot use _ as a name`, so one a function
-  ignores on purpose is warned of. Reusing a function's name is allowed.
+  function's parameters are not warned of apart from it. A parameter a
+  function ignores on purpose is named `_`, which is never warned of
+  (see parameters named `_`). Reusing a function's name is allowed.
 - Expressions are literals, parameter and variable names, functions'
   names as values, calls, a call's `mut` arguments, parentheses,
   array and struct literals, indexes, slices, field selections, the infix
@@ -4212,8 +4239,11 @@ section remains the description of the language.
   not a name: it only discards a result in a
   binding of several, as in `_, r := divmod(7, 2)` or `q, _ = divmod(7, 2)`,
   and may appear there more than once, or one of a range loop's two
-  variables, as in `for _, x := range a`. It cannot be declared, read or
-  assigned anywhere else, cannot be `mut`, and a binding whose every name is
+  variables, as in `for _, x := range a`, or a parameter's name, for a
+  parameter that is never read (see parameters named `_`). It cannot be
+  declared, read or
+  assigned anywhere else, cannot be `mut` in a binding, and a binding
+  whose every name is
   `_` is an error, since the call can be made on its own, or the loop
   written without names; for a call that returns an error, it is the
   error discarded (see errors).

@@ -1125,7 +1125,7 @@ func (g *generator) signature(fn *ast.Func) string {
 
 	params := make([]string, len(fn.Params))
 	for i, param := range fn.Params {
-		params[i] = fmt.Sprintf("%s %s", g.paramType(param), paramName(param.Name))
+		params[i] = fmt.Sprintf("%s %s", g.paramType(param), paramDeclName(param, i))
 	}
 	return fmt.Sprintf(
 		"static %s %s(%s)", result, g.funcCName(fn), strings.Join(params, ", "),
@@ -1187,8 +1187,8 @@ func (g *generator) generateFuncBody(fn *ast.Func) ([]string, []diag.Diagnostic)
 // gets none, so most functions are lowered as they were.
 func unusedParams(fn *ast.Func, body []string) []string {
 	var casts []string
-	for _, p := range fn.Params {
-		name := paramName(p.Name)
+	for i, p := range fn.Params {
+		name := paramDeclName(p, i)
 		used := false
 		for _, line := range body {
 			if namesIdent(line, name) {
@@ -3467,6 +3467,20 @@ var cTypes = map[types.Type]string{
 // defines. Tack has no reserved words, so a parameter may legally be called
 // exit or int, each of which collides with something already emitted.
 func paramName(name string) string { return "p_" + name }
+
+// paramDeclName is the C name of param, the i'th parameter of its
+// function, counting a method's receiver: paramName's for a named one,
+// and p_ and i for one named _, which a function may have several of. No
+// Tack name starts with a digit, so paramName never gives p_ and a
+// number. A parameter named _ is never referred to, so only its
+// function's declaration, the cast of it to void and, for an own one, its
+// free name it (see freeEntry).
+func paramDeclName(param *ast.Param, i int) string {
+	if param.Name == ast.Blank {
+		return fmt.Sprintf("p_%d", i)
+	}
+	return paramName(param.Name)
+}
 
 // paramRef is how the parameter param is read and written: by its C name,
 // or, for a mut parameter, through the pointer it is, (*p_x), which C's

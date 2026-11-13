@@ -48,7 +48,7 @@ func (c *Checker) checkMethodCall(call *ast.Call) {
 		return
 	}
 	call.Method = fn
-	params := c.funcParams(fn.Params[1:])
+	params := c.funcParams(fn.Params[1:], false)
 	muts, counted := c.checkArgs(call, c.displayName(fn), params)
 	if !counted {
 		return
@@ -255,14 +255,16 @@ func builtInPlace(e ast.Expr) bool {
 }
 
 // funcParams returns what checking an argument needs to know about each
-// of ps, a function's parameters (see param).
-func (c *Checker) funcParams(ps []*ast.Param) []param {
+// of ps, a function's parameters (see param). recv says ps[0] is a
+// method's receiver, which a parameter named _ is then named after (see
+// argParamName).
+func (c *Checker) funcParams(ps []*ast.Param, recv bool) []param {
 	params := make([]param, len(ps))
 	for i, p := range ps {
 		// A mut variadic was reported where it is declared; its values
 		// are not asked to be mut too.
 		params[i] = param{
-			name:     p.Name,
+			name:     argParamName(ps, i, recv),
 			typ:      p.Type,
 			mut:      p.Mut && !p.Variadic,
 			own:      p.Own && !p.Variadic,

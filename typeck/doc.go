@@ -1252,8 +1252,9 @@
 // The checker's warnings, not errors, are: a statement that only gives a
 // value, x is not used; a union clause's variable its body never reads,
 // declared and not used, which is marked ast.Var.Unused; and, in a
-// program with no error, a parameter, a private function or method and a
-// private type nothing uses (see unusedecl.go). Every one is about code
+// program with no error, a parameter not named _, a private function or
+// method and a private type nothing uses (see unusedecl.go). Every one is
+// about code
 // never used, and is marked diag.Diagnostic.Unused (see unusedf). Warnings are kept apart from the errors (Checker's
 // warnings, reported by unusedf), so every count of what has been reported
 // that decides what is checked next, whether a body is checked for moved
@@ -1261,4 +1262,9 @@
 // and Program.Errors counts no warning. Check returns both, the errors
 // first. A body checked twice drops the first pass's warnings with its
 // errors, and a damaged body drops both after its first bad statement.
+//
+// A message about a parameter names it, parameter n, or, for one named _,
+// which has no name to show, by its position among the parameters in the
+// parentheses, a receiver not counted: the 2nd parameter, its 2nd
+// parameter, and a _ receiver the receiver (see paramnoun.go).
 package typeck

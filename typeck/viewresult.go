@@ -400,21 +400,22 @@ func (c *Checker) callBorrowsParams(call *ast.Call) *viewProblem {
 		if _, isMut := arg.(*ast.MutArg); isMut || i >= len(fn.Params) || fn.Params[i].Own {
 			continue
 		}
-		if problem := c.borrowedArg(call, fn.Params[i], arg); problem != nil {
+		if problem := c.borrowedArg(call, fn, i, arg); problem != nil {
 			return problem
 		}
 	}
 	return nil
 }
 
-// borrowedArg returns why arg, passed to p in call, a call returning a
-// view being returned, may hold what a returned view cannot point into,
-// as callBorrowsParams says, or nil when it does not.
-func (c *Checker) borrowedArg(call *ast.Call, p *ast.Param, arg ast.Expr) *viewProblem {
+// borrowedArg returns why arg, passed to p, fn.Params[i], in call, a call
+// of fn returning a view being returned, may hold what a returned view
+// cannot point into, as callBorrowsParams says, or nil when it does not.
+func (c *Checker) borrowedArg(call *ast.Call, fn *ast.Func, i int, arg ast.Expr) *viewProblem {
+	p := fn.Params[i]
 	switch {
 	case p.Variadic && !call.Spread:
 		return &viewProblem{
-			at: arg, what: "the values for " + p.Name,
+			at: arg, what: "the values for " + argParamName(fn.Params, i, fn.Method),
 			why: "they are packed into a temporary",
 		}
 	case c.table.IsView(p.Type):

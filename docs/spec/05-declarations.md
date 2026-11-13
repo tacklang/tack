@@ -106,12 +106,13 @@ main.tck:4:10: error: undefined: z
   the value; never as its `ok`, which `v, _ := a[i]` would discard, `the ok
   a[i] gives cannot be discarded; bind it to a variable instead of _`
   ([Safety and proofs](10-safety.md));
-- as the first of a range clause's two names, `for _, x := range a`.
+- as the first of a range clause's two names, `for _, x := range a`;
+- as a parameter's name, for a parameter that is never read.
 
 A declaration or an assignment whose every name is `_` is an error,
 since the call can be made on its own or the loop written without
 names. `_` cannot be declared on its own, read, assigned on its own,
-written with `mut`, or name a parameter, a field, a union case, a
+written with `mut` in a binding, or name a field, a union case, a
 type, a function or a package-level variable: each is an error,
 `cannot use _ as a name`, `cannot use _ as a value` where it is read,
 as in `print(_)`, or `cannot assign to _`. `_` where a call's error result
@@ -136,13 +137,36 @@ func main() {
 }
 ```
 
-A parameter named `_` is an error; a parameter a function does not
-read is named, and warned of (see [Unused names](#unused-names)):
+A parameter named `_` declares nothing: it carries a type, and its
+argument is evaluated and passed under the parameter's `mut`, `own` or
+`scope` rule, but the function cannot refer to it, and it is never
+reported as unused (see [Unused names](#unused-names)). Any number of a
+function's parameters may be `_`, and so may a method's receiver, an
+interface method's parameters, a function literal's and an extern
+func's. A function type's
+parameters have no names, `_` included. It is for a parameter a
+function must take but does not need, to match a function type or to
+infer a type parameter ([Generics](11-generics.md)):
+
+```tack run exit=7
+package main
+
+func second(_ int32, _ string, n int32) int32 {
+    return n
+}
+
+func main() {
+    exit(second(1, "a", 7))
+}
+```
+
+Reading it is an error:
 
 ```tack error
 package main
 
-func ignore(_ int64) {
+func ignore(_ int64) int64 {
+    return _
 }
 
 func main() {
@@ -151,7 +175,7 @@ func main() {
 ```
 
 ```diagnostics
-main.tck:3:13: error: cannot use _ as a name
+main.tck:4:12: error: cannot use _ as a value
 ```
 
 ## Package-level variables
@@ -831,9 +855,10 @@ These are never reported: a `pub` or `lib` declaration; `func main`; a
 method's receiver; a struct's field; the parameters of a function whose
 signature is not its own to change, an extern func's, a `pub` or `lib`
 function's or method's, a function's or a method's used as a value,
-and a method's that a constraint asks for; and the parameters of an unused function,
-apart from the function itself. A parameter cannot be named `_`, so a
-parameter a function ignores on purpose is reported.
+and a method's that a constraint asks for; the parameters of an unused
+function,
+apart from the function itself; and a parameter named `_`, which is how
+a function says it ignores one on purpose.
 
 ```tack warn
 package main

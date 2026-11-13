@@ -109,12 +109,16 @@ func (r *pkgResolver) resolveInterfaces() []diag.Diagnostic {
 
 // resolveIfaceMethod resolves the types of m, a method of an interface,
 // in sc, and reports a parameter name that is reserved or another
-// parameter's.
+// parameter's. Any number of parameters may be named _, as a function's
+// may.
 func (r *pkgResolver) resolveIfaceMethod(m *ast.IfaceMethod, sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	names := make(map[string]*ast.Param, len(m.Params))
 	for _, p := range m.Params {
 		diags = append(diags, r.resolveType(p.TypeExpr, sc)...)
+		if p.Name == ast.Blank {
+			continue
+		}
 		if reserved := reservedName(p.Name, p.NameSpan); reserved != nil {
 			diags = append(diags, reserved...)
 			continue
