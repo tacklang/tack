@@ -20,7 +20,8 @@
 // Render and RenderAll produce one compact line per diagnostic, which the
 // golden tests pin. RenderPretty and RenderAllPretty add the offending source
 // line with a marker under the span, for the command line: a caret under its
-// first byte and a tilde under each of the rest, with nothing after. A
+// first byte and a tilde under each of the rest, with nothing after, the
+// carriage return of a \r\n inside the span not counted. A
 // source line is shown without its newline, \n or \r\n, so one saved with
 // CRLF line endings looks the same as one saved with LF. Both
 // take a source.Files, which finds the file each span points into by the

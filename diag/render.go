@@ -84,18 +84,31 @@ func renderCtx(f *source.File, str *strings.Builder, line, col int, d *Diagnosti
 		fmt.Fprintf(str, "%02d |\t%s\n", l, lval)
 		if l == line {
 			str.WriteString("   |\t")
-			renderTokenMarker(str, col, &d.Span)
+			renderTokenMarker(str, col, markerWidth(f, d.Span))
 			str.WriteString(d.Marker)
 			str.WriteRune('\n')
 		}
 	}
 }
 
-// renderTokenMarker writes a caret at col and tildes under the rest of span,
-// and nothing after them. An empty span, such as an inserted semicolon or
-// the end of the input, still gets its caret.
-func renderTokenMarker(str *strings.Builder, col int, span *ast.Span) {
-	start, end := col-1, col-1+span.End-span.Start
+// markerWidth returns how many bytes of f the marker under span covers:
+// every byte of span but the carriage return of each \r\n in it, which is
+// part of a newline, as a source line is shown, so a span over several
+// lines is marked alike whether its file is saved with \n or \r\n. A
+// span reaching past f's data is counted as it is.
+func markerWidth(f *source.File, span ast.Span) int {
+	width := span.End - span.Start
+	if span.Start < 0 || span.End > len(f.Data) || span.Start > span.End {
+		return width
+	}
+	return width - bytes.Count(f.Data[span.Start:span.End], []byte("\r\n"))
+}
+
+// renderTokenMarker writes a caret at col and tildes under the rest of
+// the width bytes it marks, and nothing after them. An empty span, such
+// as an inserted semicolon or the end of the input, still gets its caret.
+func renderTokenMarker(str *strings.Builder, col int, width int) {
+	start, end := col-1, col-1+width
 	for c := range max(end, start+1) {
 		switch {
 		case c == start:

@@ -185,6 +185,28 @@ func TestRenderPrettyDropsCarriageReturns(t *testing.T) {
 	}
 }
 
+// TestMarkerOverLinesIgnoresCarriageReturns checks a span over several
+// lines is marked as long in a file saved with \r\n as in one saved with
+// \n: the carriage return of each line ending is part of the newline, not
+// a byte to mark. A lone carriage return is a byte like any other, and is
+// marked.
+func TestMarkerOverLinesIgnoresCarriageReturns(t *testing.T) {
+	lf := newFile("x\nab(\ncd\n)\ny\n")
+	crlf := newFile("x\r\nab(\r\ncd\r\n)\r\ny\r\n")
+	got := diag.RenderPretty(crlf, errorAt("bad", 3, 13))
+	want := diag.RenderPretty(lf, errorAt("bad", 2, 10))
+	if got != want {
+		t.Errorf("RenderPretty = %q, want %q", got, want)
+	}
+	if !strings.Contains(want, "   |\t^~~~~~~~\n") {
+		t.Errorf("RenderPretty = %q, want a marker 8 bytes long", want)
+	}
+	lone := diag.RenderPretty(newFile("a\rb\n"), errorAt("bad", 0, 3))
+	if !strings.Contains(lone, "   |\t^~~\n") {
+		t.Errorf("RenderPretty = %q, want a marker 3 bytes long", lone)
+	}
+}
+
 // TestRenderPrettyKeepsALoneCarriageReturn checks a carriage return that
 // does not end a line is shown as the byte it is.
 func TestRenderPrettyKeepsALoneCarriageReturn(t *testing.T) {

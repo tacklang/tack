@@ -726,10 +726,11 @@ func TestRejectsInvalidPrograms(t *testing.T) {
 // context, or the generated code. Line endings must not change anything a
 // program means or anything said about it. Cases that already hold a
 // carriage return are left out, since adding one before a line feed
-// changes what that byte is. A marker under a source line is compared up
-// to its caret: a span that runs past the end of its line, such as an
-// unterminated raw string's, is underlined for every byte it covers, and
-// covers one more for each carriage return.
+// changes what that byte is. A marker under a source line is compared
+// whole: a span that runs past the end of its line, such as an
+// unterminated raw string's or a call's over several lines, is underlined
+// for every byte it covers but the carriage return of each line ending in
+// it, so it is as long with \r\n as with \n.
 func TestCRLFMatchesLF(t *testing.T) {
 	type named struct {
 		name string
@@ -763,7 +764,7 @@ func TestCRLFMatchesLF(t *testing.T) {
 		t.Run(p.name, func(t *testing.T) {
 			lf := run(t, frontEndBackend, p.prog)
 			crlf := run(t, frontEndBackend, crlf)
-			if carets(crlf.String()) != carets(lf.String()) {
+			if crlf.String() != lf.String() {
 				t.Errorf("CRLF gave\n%s\nwant, as with LF,\n%s", crlf, lf)
 			}
 		})
@@ -786,20 +787,6 @@ func withCRLF(p program) (program, bool) {
 		p.std = &loader.Std{FS: loader.FromFS(files), Dir: p.std.Dir}
 	}
 	return p, true
-}
-
-// carets returns out, rendered output, with every marker line cut after
-// its caret.
-func carets(out string) string {
-	lines := strings.Split(out, "\n")
-	for i, line := range lines {
-		if strings.HasPrefix(line, "   |\t") {
-			if c := strings.IndexByte(line, '^'); c >= 0 {
-				lines[i] = line[:c+1]
-			}
-		}
-	}
-	return strings.Join(lines, "\n")
 }
 
 // TestLexIdentifierAtEOF pins the tokenisation of an identifier that ends the
