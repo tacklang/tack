@@ -8,7 +8,7 @@ BIN := bin/tack
 BUILTIN_DOC := builtin/builtin.tck
 RUNTIME_HEADER := builtin/runtime/tack/tack.h
 
-.PHONY: build install install-std std-copies unicode-tables test port-test fuzz-progen fmt lint
+.PHONY: build install install-std std-copies unicode-tables test port-test port-fuzz fuzz-progen fmt lint
 
 # build compiles the compiler into $(BIN).
 build:
@@ -72,8 +72,32 @@ test:
 port-test:
 	TACK_PORT_TEST=1 go test -count=1 ./porttest
 
-# FUZZTIME is how long `make fuzz-progen` fuzzes for.
+# FUZZTIME is how long `make fuzz-progen` and `make port-fuzz` fuzz for.
 FUZZTIME := 10m
+
+# PORT_FUZZ_BIN is where `make port-fuzz` builds the two compilers, under
+# the ignored bin/.
+PORT_FUZZ_BIN := bin/port-fuzz
+
+# PORT_FUZZ_PARALLEL is how many fuzz workers `make port-fuzz` runs, each
+# running both compilers once per input.
+PORT_FUZZ_PARALLEL := 4
+
+# port-fuzz fuzzes FuzzLexDiff, which compares the port's --lex with this
+# compiler's on generated inputs, for $(FUZZTIME). It builds both
+# compilers once, into $(PORT_FUZZ_BIN), and passes them as TACK_GO and
+# TACK_PORT_BIN, so the fuzz workers, each a process of its own, build
+# neither. The port's source tree is $TACK_PORT, ../tack by default, as
+# for port-test.
+port-fuzz:
+	mkdir -p $(PORT_FUZZ_BIN)
+	go build -o $(PORT_FUZZ_BIN)/tack-go ./tack
+	cd "$${TACK_PORT:-../tack}" && TACK_HOME="$(CURDIR)" \
+		TACK_CACHE="$(CURDIR)/$(PORT_FUZZ_BIN)/cache" \
+		"$(CURDIR)/$(PORT_FUZZ_BIN)/tack-go" --out "$(CURDIR)/$(PORT_FUZZ_BIN)/tack-port" ./driver
+	TACK_GO=$(PORT_FUZZ_BIN)/tack-go TACK_PORT_BIN=$(PORT_FUZZ_BIN)/tack-port TACK_PORT_TEST=1 \
+		go test -count=1 ./porttest -run '^$$' -fuzz '^FuzzLexDiff$$' \
+		-fuzztime $(FUZZTIME) -parallel $(PORT_FUZZ_PARALLEL)
 
 # fuzz-progen fuzzes FuzzGenerated, which builds each generated program
 # with clang under the sanitizers and runs it, for $(FUZZTIME). It caps

@@ -3,3 +3,4 @@
 # implemented, so a stage the port implements cannot quietly stop
 # working. A stage is added once the port implements it.
 backends
+lex-single

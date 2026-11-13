@@ -98,4 +98,25 @@
 // repository's std, which a case's .std does not replace. The spec's code
 // blocks in docs/spec and examples/invalid-c.txtar are not part of the
 // corpus yet.
+//
+// # Fuzzing
+//
+// FuzzLexDiff runs both compilers with --lex on generated inputs, each
+// written to fuzz.tck in a temporary directory of its own and run from
+// there, and compares them as lex-single does, a not implemented answer
+// skipping the input unless lex-single is in required.txt. The fuzz
+// engine's coverage cannot see into the compilers' processes, so each
+// input is also lexed in process by this module's lexer, and the
+// guidance comes from the Go lexer alone: an input that reaches new code
+// only in the port is found by chance. It is seeded with the lexer's
+// committed FuzzLex inputs, lexer/testdata/fuzz/FuzzLex, and, when
+// fuzzing, every single file of the corpus; run as a test, as make
+// port-test runs it, it checks the committed inputs alone, since
+// lex-single runs the corpus already. Like TestPort it runs only with
+// TACK_PORT_TEST=1 and -count, and skips without them. Each fuzz worker
+// is a process of its own that runs TestMain, so without TACK_GO and
+// TACK_PORT_BIN every worker builds both compilers; make port-fuzz
+// builds them once and passes them, fuzzing for $(FUZZTIME):
+//
+//	make port-fuzz FUZZTIME=60s
 package porttest

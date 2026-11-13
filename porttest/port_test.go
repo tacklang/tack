@@ -2,6 +2,7 @@ package porttest
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,8 +12,14 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
+
+// compilerTimeout is how long one run of a compiler may take before
+// runCompiler kills it and fails the case, so a compiler that hangs
+// fails its case rather than stall the run.
+const compilerTimeout = 60 * time.Second
 
 // compare is how a stage compares the two compilers' standard outputs.
 type compare int
@@ -148,11 +155,13 @@ func runCase(t *testing.T, st stage, in input) {
 
 // runCompiler runs bin with args in dir, in the compilers' environment
 // with cache as TACK_CACHE, and returns how it ended. It fails t when bin
-// cannot be run or is stopped by a signal, which no answer of a compiler
-// is.
+// cannot be run, is stopped by a signal, which no answer of a compiler
+// is, or runs for longer than compilerTimeout, when it is killed.
 func runCompiler(t *testing.T, bin, cache, dir string, args []string) result {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), bin, args...)
+	ctx, cancel := context.WithTimeout(t.Context(), compilerTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
 	cmd.Env = compilerEnv(cache)
 	var stdout, stderr bytes.Buffer
@@ -160,6 +169,9 @@ func runCompiler(t *testing.T, bin, cache, dir string, args []string) result {
 	err := cmd.Run()
 	var exit *exec.ExitError
 	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		t.Fatalf("running %s %s in %s: killed after %v", bin, strings.Join(args, " "), dir,
+			compilerTimeout)
 	case err == nil:
 	case errors.As(err, &exit) && exit.ExitCode() >= 0:
 	default:

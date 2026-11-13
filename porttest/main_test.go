@@ -226,8 +226,9 @@ func readRequired(path string) (map[string]bool, error) {
 	return required, nil
 }
 
-// ready skips or fails t when TestMain found the tests cannot run.
-func ready(t *testing.T) {
+// ready skips or fails t, a test or a fuzz target, when TestMain found
+// the tests cannot run.
+func ready(t testing.TB) {
 	t.Helper()
 	if env.setupErr != nil {
 		t.Fatal(env.setupErr)
