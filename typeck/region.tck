@@ -1,0 +1,949 @@
+package typeck
+
+import ast from "tack/ast"
+import source from "tack/source"
+
+// The writes in a fact's region, Go's writeIndex, keepWalk and
+// region.go: every assignment to a variable, and every call passing one
+// as mut, in the region a fact holds in, with the loops and the leaving
+// branches around it, which decide what code it can reach (see
+// reach.tck). A region is a head of nodes of its own, then the rest of
+// a block, whose writes are found once in a walk of the whole block and
+// shared by every region over it, so a block of n statements each giving
+// facts is walked once, not n times.
+//
+// Go walks with ast.Walk and recurses into whether a block leaves and
+// whether a break or a continue leaves it; here every walk keeps a
+// stack of its own, so a chain of else ifs of any length is walked in a
+// bounded stack, and what each if, switch and case gives is remembered
+// as Go remembers it, so the chain is looked at once.
+
+// max_pos is the largest int64, Go's math.MaxInt as a keep's resume.
+var max_pos int64 = 9223372036854775807
+
+// Write is a write a walk found, Go's write: shown, the target or the mut
+// argument a note underlines; call, the call it is a mut argument of, or
+// no key; kept, the innermost keep holding it, or -1; loop, the outermost
+// loop holding it in the node walked, or the zero span; at, where it
+// takes effect, the end of the node.
+type Write struct {
+    shown Key
+    call Key
+    kept int64
+    loop source.Span
+    at int64
+}
+
+// IdxWrite is a write as an index holds it: the write, the drop it makes
+// once judged, or -1, and the position of the node walked from in the
+// nodes walked.
+type IdxWrite struct {
+    w Write
+    drop int64
+    node int64
+}
+
+// WSpan is the run of an index's writes to one declaration: count of
+// them from start.
+type WSpan struct {
+    start int64
+    count int64
+}
+
+// WriteIndex is every write in a region by the declaration it writes,
+// each declaration's in the order a walk meets them, Go's writeIndex:
+// spans gives each declaration's run of writes.
+type WriteIndex struct {
+    writes list[IdxWrite]
+    spans map[Key]WSpan
+}
+
+// new_write_index returns an index of no writes.
+func new_write_index() WriteIndex {
+    return WriteIndex{writes: make(list[IdxWrite], c_allocator), spans: make(map[Key]WSpan, c_allocator)}
+}
+
+// FoundWrite is a write a walk found, before an index groups it: the
+// declaration its root names, and the write.
+type FoundWrite struct {
+    decl Key
+    w IdxWrite
+}
+
+// group_writes returns the index of found, the writes a walk found in
+// order: each declaration's writes together, in the order found.
+func group_writes(found []FoundWrite) (WriteIndex, error) {
+    mut idx := new_write_index()
+    mut counts := make(map[Key]int64, c_allocator)
+    mut order := make(list[Key], c_allocator)
+    for _, fw := range found {
+        mut n, seen := counts[fw.decl]
+        if !seen {
+            append(mut order, fw.decl)?
+            n = 0
+        }
+        put(mut counts, fw.decl, n +% 1)?
+    }
+    mut start int64 = 0
+    for _, d := range order {
+        n, has_n := counts[d]
+        if !has_n {
+            continue
+        }
+        put(mut idx.spans, d, WSpan{start: start, count: 0})?
+        start +%= n
+    }
+    for _, fw := range found {
+        append(mut idx.writes, fw.w)?
+    }
+    for _, fw := range found {
+        sp, has_sp := idx.spans[fw.decl]
+        if !has_sp {
+            continue
+        }
+        at := sp.start +% sp.count
+        set_at(mut idx.writes, at, fw.w)
+        put(mut idx.spans, fw.decl, WSpan{start: sp.start, count: sp.count +% 1})?
+    }
+    return idx, noerror
+}
+
+// idx_write_in returns l[i], or a write of nothing.
+func idx_write_in(l []IdxWrite, i int64) IdxWrite {
+    w, ok := l[i]
+    if !ok {
+        return IdxWrite{w: Write{shown: no_key(), call: no_key(), kept: -1, loop: zero_span(), at: 0}, drop: -1, node: 0}
+    }
+    return w
+}
+
+// JumpsOut says whether a statement holds a break, and whether it holds a
+// continue, that acts on a loop around it, Go's jumpsOut.
+type JumpsOut struct {
+    breaks bool
+    continues bool
+}
+
+// or returns the jumps of two statements together.
+func (j JumpsOut) or(k JumpsOut) JumpsOut {
+    return JumpsOut{breaks: j.breaks || k.breaks, continues: j.continues || k.continues}
+}
+
+// LeaveKey is a statement whose block's leaving is remembered, and
+// whether it was asked as a keepWalk asks, a switch leaving only as a
+// chain ending in a default (see keep_leaves).
+type LeaveKey struct {
+    k Key
+    keep bool
+}
+
+// PendingKeep is a branch that leaves recorded under its first statement,
+// Go's keepWalk.pending: the keep it is once the walk reaches it.
+type PendingKeep struct {
+    whole source.Span
+    end int64
+    resume int64
+}
+
+// KeepWalk finds, as a walk of a region goes, the chain of keeps holding
+// each node, Go's keepWalk: top, the innermost keep holding the node
+// walked, or -1; pending, the branches that leave under their first
+// statement; leaves, jumps and fallen what each if, switch, defer and
+// region gives, remembered; and lits, the closures the walk is in.
+type KeepWalk struct {
+    top int64
+    pending map[Key]PendingKeep
+    leaves map[LeaveKey]bool
+    jumps map[Key]JumpsOut
+    fallen map[Key]JumpsOut
+    lits list[source.Span]
+}
+
+// new_keep_walk returns a KeepWalk with nothing in force.
+func new_keep_walk() KeepWalk {
+    return KeepWalk{
+        top: -1,
+        pending: make(map[Key]PendingKeep, c_allocator),
+        leaves: make(map[LeaveKey]bool, c_allocator),
+        jumps: make(map[Key]JumpsOut, c_allocator),
+        fallen: make(map[Key]JumpsOut, c_allocator),
+        lits: make(list[source.Span], c_allocator),
+    }
+}
+
+// body_last returns the last statement of body, in the tree unit, or no
+// key for an empty one.
+func (c Checker) body_last(unit int64, body ast.Nodes) Key {
+    n := count_items(c.prog.trees, unit, body)
+    if n == 0 {
+        return no_key()
+    }
+    return item_at(c.prog.trees, unit, body, n -% 1)
+}
+
+// try_order appends to out the clauses of the switch k, s, in the order
+// they are tried, Go's tryOrder: every case with values in source order,
+// then the default, if there is one.
+func (c Checker) try_order(k Key, s ast.Switch, mut out list[Key]) error {
+    mut def := no_key()
+    for i := range count_items(c.prog.trees, k.unit, s.cases) {
+        cl := item_at(c.prog.trees, k.unit, s.cases, i)
+        if is_default(c.prog.trees, cl) {
+            if is_no_key(def) {
+                def = cl
+            }
+            continue
+        }
+        append(mut out, cl)?
+    }
+    if !is_no_key(def) {
+        append(mut out, def)?
+    }
+    return noerror
+}
+
+// atomic_leaves returns whether a block whose last statement is last
+// leaves, when that needs no other block, and false for known when it
+// does: a return, a break, a continue, an unreachable, a call to exit,
+// none and anything else but an if, a switch, a fallthrough and a region.
+func (c Checker) atomic_leaves(last Key) (bool, bool) {
+    switch kind_at(c.prog.trees, last) {
+    case return_stmt, break_stmt, continue_stmt, unreachable_stmt:
+        return true, true
+    case expr_stmt(s):
+        return is_exit_call(c.prog.trees, c.none, sub(last, s.x)), true
+    case if_stmt, switch_stmt, fallthrough_stmt, region_stmt:
+        return false, false
+    default:
+        return false, true
+    }
+}
+
+// leave_parts appends to out the blocks the leaving of a block ending in
+// the statement s depends on, each by its last statement and the way it
+// is asked, and returns false when s's block cannot leave whatever they
+// do. keep says s is asked as a keepWalk asks, Go's leavesBody: a switch
+// leaves as a chain of cases ending in a default, and any statement but
+// an if, a switch and a fallthrough is asked as leaves asks. Otherwise
+// it is Go's leavesBy with leaves: a switch on a union naming every case
+// leaves when every clause does.
+func (mut c Checker) leave_parts(s Key, keep bool, mut out list[LeaveKey]) (bool, error) {
+    switch kind_at(c.prog.trees, s) {
+    case if_stmt(st):
+        append(mut out, LeaveKey{k: c.body_last(s.unit, st.then), keep: keep})?
+        append(mut out, LeaveKey{k: c.body_last(s.unit, st.else_body), keep: keep})?
+        return true, noerror
+    case fallthrough_stmt:
+        next, linked := c.fall_next[s]
+        if !linked {
+            return false, noerror
+        }
+        append(mut out, LeaveKey{k: c.body_last(next.unit, clause_of(c.prog.trees, next).body), keep: keep})?
+        return true, noerror
+    case switch_stmt(st):
+        _, exhaustive := c.exhaustive[s]
+        if !keep && exhaustive {
+            for i := range count_items(c.prog.trees, s.unit, st.cases) {
+                cl := item_at(c.prog.trees, s.unit, st.cases, i)
+                append(mut out, LeaveKey{k: c.body_last(cl.unit, clause_of(c.prog.trees, cl).body), keep: keep})?
+            }
+            return true, noerror
+        }
+        mut order := make(list[Key], c_allocator)
+        c.try_order(s, st, mut order)?
+        if len(order) == 0 || !is_default(c.prog.trees, key_in(order, len(order) -% 1)) {
+            return false, noerror
+        }
+        for _, cl := range order {
+            append(mut out, LeaveKey{k: c.body_last(cl.unit, clause_of(c.prog.trees, cl).body), keep: keep})?
+        }
+        return true, noerror
+    case region_stmt(st):
+        append(mut out, LeaveKey{k: c.body_last(s.unit, st.body), keep: false})?
+        return true, noerror
+    default:
+        return false, noerror
+    }
+}
+
+// block_leaves reports whether a block whose last statement is last,
+// asked as keep says (see leave_parts), always leaves the code around
+// it, Go's leaves, Checker.leaves and keepWalk.leavesBody. The answer
+// for each if, switch, fallthrough and region it depends on is worked
+// out after theirs, from a stack of its own, and remembered in memo, so
+// a chain of else ifs is looked at once whatever its length.
+func (mut c Checker) block_leaves(last Key, keep bool, mut memo map[LeaveKey]bool) (bool, error) {
+    v, atomic := c.atomic_leaves(last)
+    if atomic {
+        return v, noerror
+    }
+    root := LeaveKey{k: last, keep: keep}
+    known, seen := memo[root]
+    if seen {
+        return known, noerror
+    }
+    mut stack := make(list[LeaveKey], c_allocator)
+    mut parts := make(list[LeaveKey], c_allocator)
+    append(mut stack, root)?
+    for len(stack) > 0 {
+        top := len(stack) -% 1
+        cur, ok := stack[top]
+        if !ok {
+            break
+        }
+        _, done := memo[cur]
+        if done {
+            pop(mut stack)
+            continue
+        }
+        for len(parts) > 0 {
+            pop(mut parts)
+        }
+        // A keepWalk's question about any statement but an if, a switch
+        // and a fallthrough is leaves's.
+        mut how := cur.keep
+        switch kind_at(c.prog.trees, cur.k) {
+        case if_stmt, switch_stmt, fallthrough_stmt:
+        default:
+            how = false
+        }
+        can := mut c.leave_parts(cur.k, how, mut parts)?
+        if !can {
+            put(mut memo, cur, false)?
+            pop(mut stack)
+            continue
+        }
+        mut all := true
+        mut falls := false
+        mut pushed := false
+        for _, p := range parts {
+            pv, p_atomic := c.atomic_leaves(p.k)
+            if p_atomic {
+                if !pv {
+                    falls = true
+                }
+                continue
+            }
+            m, has := memo[p]
+            if has {
+                if !m {
+                    falls = true
+                }
+                continue
+            }
+            all = false
+        }
+        if falls {
+            put(mut memo, cur, false)?
+            pop(mut stack)
+            continue
+        }
+        if all {
+            put(mut memo, cur, true)?
+            pop(mut stack)
+            continue
+        }
+        for _, p := range parts {
+            _, p_atomic := c.atomic_leaves(p.k)
+            _, has := memo[p]
+            if !p_atomic && !has {
+                append(mut stack, p)?
+                pushed = true
+            }
+        }
+        if !pushed {
+            pop(mut stack)
+        }
+    }
+    r, has_r := memo[root]
+    return has_r && r, noerror
+}
+
+// leaves reports whether body, in the tree unit, always leaves the code
+// around it, Go's Checker.leaves, remembering the answer for the body's
+// last statement while no switch has been found to name every case
+// since (see exhaust_gen).
+func (mut c Checker) leaves(unit int64, body ast.Nodes) (bool, error) {
+    last := c.body_last(unit, body)
+    if c.leave_gen != c.exhaust_gen {
+        old := replace(mut c.leave_memo, make(map[LeaveKey]bool, c_allocator))
+        drop(own old)
+        c.leave_gen = c.exhaust_gen
+    }
+    mut memo := replace(mut c.leave_memo, make(map[LeaveKey]bool, c_allocator))
+    r, e := mut c.block_leaves(last, false, mut memo)
+    old := replace(mut c.leave_memo, memo)
+    drop(own old)
+    return r, e
+}
+
+// jump_parts appends to out the statements whose breaks and continues
+// count as the statement s's, the statements of an if's branches, of a
+// switch's cases, of a defer's body or of a region's, and returns the
+// jumps s itself is, Go's jumpsOf without the statements it holds.
+func (mut c Checker) jump_parts(s Key, mut out list[Key]) (JumpsOut, error) {
+    switch kind_at(c.prog.trees, s) {
+    case break_stmt:
+        return JumpsOut{breaks: true, continues: false}, noerror
+    case continue_stmt:
+        return JumpsOut{breaks: false, continues: true}, noerror
+    case if_stmt(st):
+        c.append_stmts(s.unit, st.then, mut out)?
+        c.append_stmts(s.unit, st.else_body, mut out)?
+    case switch_stmt(st):
+        for i := range count_items(c.prog.trees, s.unit, st.cases) {
+            cl := item_at(c.prog.trees, s.unit, st.cases, i)
+            c.append_stmts(cl.unit, clause_of(c.prog.trees, cl).body, mut out)?
+        }
+    case defer_stmt(st):
+        c.append_stmts(s.unit, st.body, mut out)?
+    case region_stmt(st):
+        c.append_stmts(s.unit, st.body, mut out)?
+    default:
+    }
+    return JumpsOut{breaks: false, continues: false}, noerror
+}
+
+// holds_jumps reports whether s is a statement whose jumps are those of
+// statements it holds: an if, a switch, a defer or a region.
+func (c Checker) holds_jumps(s Key) bool {
+    switch kind_at(c.prog.trees, s) {
+    case if_stmt, switch_stmt, defer_stmt, region_stmt:
+        return true
+    default:
+        return false
+    }
+}
+
+// append_stmts appends the statements of body, in the tree unit, to out.
+func (c Checker) append_stmts(unit int64, body ast.Nodes, mut out list[Key]) error {
+    for i := range count_items(c.prog.trees, unit, body) {
+        append(mut out, item_at(c.prog.trees, unit, body, i))?
+    }
+    return noerror
+}
+
+// jumps_of returns the jumps of the statement s, Go's jumpsOf: those of
+// every statement an if, a switch, a defer or a region holds, worked out
+// from a stack of its own after theirs and remembered in w.jumps.
+func (mut c Checker) jumps_of(mut w KeepWalk, s Key) (JumpsOut, error) {
+    if !c.holds_jumps(s) {
+        mut none := make(list[Key], c_allocator)
+        j := mut c.jump_parts(s, mut none)?
+        return j, noerror
+    }
+    known, seen := w.jumps[s]
+    if seen {
+        return known, noerror
+    }
+    mut stack := make(list[Key], c_allocator)
+    mut parts := make(list[Key], c_allocator)
+    append(mut stack, s)?
+    for len(stack) > 0 {
+        cur := key_in(stack, len(stack) -% 1)
+        _, done := w.jumps[cur]
+        if done {
+            pop(mut stack)
+            continue
+        }
+        for len(parts) > 0 {
+            pop(mut parts)
+        }
+        mut j := mut c.jump_parts(cur, mut parts)?
+        mut all := true
+        for _, p := range parts {
+            if !c.holds_jumps(p) {
+                mut none := make(list[Key], c_allocator)
+                pj := mut c.jump_parts(p, mut none)?
+                j = j.or(pj)
+                continue
+            }
+            pj, has := w.jumps[p]
+            if has {
+                j = j.or(pj)
+                continue
+            }
+            all = false
+            append(mut stack, p)?
+        }
+        if all {
+            put(mut w.jumps, cur, j)?
+            pop(mut stack)
+        }
+    }
+    r, has_r := w.jumps[s]
+    if !has_r {
+        return JumpsOut{breaks: false, continues: false}, noerror
+    }
+    return r, noerror
+}
+
+// jumps_in returns the jumps of the statements of body, in the tree
+// unit, together, Go's jumpsIn.
+func (mut c Checker) jumps_in(mut w KeepWalk, unit int64, body ast.Nodes) (JumpsOut, error) {
+    mut j := JumpsOut{breaks: false, continues: false}
+    for i := range count_items(c.prog.trees, unit, body) {
+        sj := mut c.jumps_of(mut w, item_at(c.prog.trees, unit, body, i))?
+        j = j.or(sj)
+    }
+    return j, noerror
+}
+
+// fallen_jumps returns the jumps of the body of cl, a case a fallthrough
+// enters, with those of every case it falls into in turn, Go's
+// fallenJumps, walking the chain forward once and remembering each
+// case's from its end back.
+func (mut c Checker) fallen_jumps(mut w KeepWalk, cl Key) (JumpsOut, error) {
+    mut chain := make(list[Key], c_allocator)
+    mut cur := cl
+    mut tail := JumpsOut{breaks: false, continues: false}
+    for !is_no_key(cur) {
+        known, seen := w.fallen[cur]
+        if seen {
+            tail = known
+            break
+        }
+        append(mut chain, cur)?
+        last := c.body_last(cur.unit, clause_of(c.prog.trees, cur).body)
+        next, linked := c.fall_next[last]
+        if !linked {
+            break
+        }
+        cur = next
+    }
+    mut i := len(chain) -% 1
+    for i >= 0 {
+        k := key_in(chain, i)
+        i -%= 1
+        j := mut c.jumps_in(mut w, k.unit, clause_of(c.prog.trees, k).body)?
+        tail = j.or(tail)
+        put(mut w.fallen, k, tail)?
+    }
+    r, ok := w.fallen[cl]
+    if ok {
+        return r, noerror
+    }
+    return tail, noerror
+}
+
+// resume_from returns a keep's resume for body, in the tree unit, a
+// branch or case that leaves, held by the loops of the region, the
+// outermost first, Go's resumeFrom.
+func (mut c Checker) resume_from(mut w KeepWalk, unit int64, body ast.Nodes, loops []source.Span) (int64, error) {
+    if len(loops) == 0 {
+        return max_pos, noerror
+    }
+    mut j := mut c.jumps_in(mut w, unit, body)?
+    last := c.body_last(unit, body)
+    next, falls := c.fall_next[last]
+    if falls {
+        fj := mut c.fallen_jumps(mut w, next)?
+        j = j.or(fj)
+    }
+    outer := span_in(loops, 0)
+    if j.continues || j.breaks && len(loops) > 1 {
+        return outer.start, noerror
+    }
+    if j.breaks {
+        return outer.end, noerror
+    }
+    return max_pos, noerror
+}
+
+// keep_record makes body, in the tree unit, a branch or a case of the
+// statement n held by loops, pending as a keep when it leaves, Go's
+// keepWalk.record.
+func (mut c Checker) keep_record(mut w KeepWalk, n Key, unit int64, body ast.Nodes, loops []source.Span) error {
+    last := c.body_last(unit, body)
+    if is_no_key(last) {
+        return noerror
+    }
+    l := mut c.block_leaves(last, true, mut w.leaves)?
+    if !l {
+        return noerror
+    }
+    resume := mut c.resume_from(mut w, unit, body, loops)?
+    first := item_at(c.prog.trees, unit, body, 0)
+    put(mut w.pending, first, PendingKeep{whole: span_at(c.prog.trees, n), end: span_at(c.prog.trees, last).end, resume: resume})?
+    return noerror
+}
+
+// keep_link puts the keep k in force inside parent, setting its skip,
+// Go's keep.link.
+func (mut c Checker) keep_link(k int64, parent int64) {
+    mut s := parent
+    mine := c.keep_at(k)
+    for s >= 0 && c.keep_at(s).resume <= mine.resume {
+        s = c.keep_at(s).skip
+    }
+    mut rec := mine
+    rec.parent = parent
+    rec.skip = s
+    set_at(mut c.fx.keeps, k, rec)
+}
+
+// keep_visit moves the walk w to the node n, whose span is sp, held by
+// loops, and returns the innermost keep holding it, Go's keepWalk.visit.
+func (mut c Checker) keep_visit(mut w KeepWalk, n Key, sp source.Span, loops []source.Span) (int64, error) {
+    for w.top >= 0 && sp.start >= c.keep_at(w.top).end {
+        w.top = c.keep_at(w.top).parent
+    }
+    for len(w.lits) > 0 && sp.start >= span_in(w.lits, len(w.lits) -% 1).end {
+        pop(mut w.lits)
+    }
+    switch kind_at(c.prog.trees, n) {
+    case func_lit:
+        append(mut w.lits, sp)?
+    default:
+    }
+    if len(w.lits) > 0 {
+        return w.top, noerror
+    }
+    p, pending := delete(mut w.pending, n)
+    if pending {
+        nid := len(c.fx.keeps)
+        append(mut c.fx.keeps, Keep{parent: -1, skip: -1, whole: p.whole, end: p.end, resume: p.resume})?
+        mut c.keep_link(nid, w.top)
+        w.top = nid
+    }
+    switch kind_at(c.prog.trees, n) {
+    case if_stmt(s):
+        mut c.keep_record(mut w, n, n.unit, s.then, loops)?
+        mut c.keep_record(mut w, n, n.unit, s.else_body, loops)?
+    case switch_stmt(s):
+        for i := range count_items(c.prog.trees, n.unit, s.cases) {
+            cl := item_at(c.prog.trees, n.unit, s.cases, i)
+            mut c.keep_record(mut w, n, cl.unit, clause_of(c.prog.trees, cl).body, loops)?
+        }
+    default:
+    }
+    return w.top, noerror
+}
+
+// is_loop_node reports whether n is a loop, of either kind, or a
+// closure, Go's isLoop.
+func (c Checker) is_loop_node(n Key) bool {
+    switch kind_at(c.prog.trees, n) {
+    case for_stmt, for_range, func_lit:
+        return true
+    default:
+        return false
+    }
+}
+
+// walk_writes walks each of nodes on its own, as Go's walkWrites does,
+// and appends to out every write it meets, as indexNode finds them when
+// judged is set, and otherwise as blockWrites finds them: each target an
+// assignment, an increment, a decrement or a binding of several values
+// assigns, then, for a call, each argument passed as mut. Each write
+// knows the loops and the keeps around it and the position in nodes of
+// the node walked from.
+func (mut c Checker) walk_writes(nodes []Key, judged bool, mut out list[FoundWrite]) error {
+    keeps_before := len(c.fx.keeps)
+    found_before := len(out)
+    mut w := new_keep_walk()
+    mut loops := make(list[source.Span], c_allocator)
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for i, root := range nodes {
+        for len(loops) > 0 {
+            pop(mut loops)
+        }
+        w.top = -1
+        for len(w.lits) > 0 {
+            pop(mut w.lits)
+        }
+        append(mut stack, root.node)?
+        for len(stack) > 0 {
+            top, ok := pop(mut stack)
+            if !ok {
+                break
+            }
+            n := Key{unit: root.unit, node: top}
+            clear_nodes(mut kids)
+            children_of(c.prog.trees, n.unit, top, mut kids)?
+            mut j := len(kids) -% 1
+            for j >= 0 {
+                kid, has := kids[j]
+                if has {
+                    append(mut stack, kid)?
+                }
+                j -%= 1
+            }
+            switch kind_at(c.prog.trees, n) {
+            case case_clause, field, union_case:
+                // No node in Go's walk: what it holds is visited where Go
+                // visits it.
+                continue
+            default:
+            }
+            sp := span_at(c.prog.trees, n)
+            for len(loops) > 0 && sp.start >= span_in(loops, len(loops) -% 1).end {
+                pop(mut loops)
+            }
+            if c.is_loop_node(n) {
+                append(mut loops, sp)?
+            }
+            kept := mut c.keep_visit(mut w, n, sp, loops[:])?
+            mut loop0 := zero_span()
+            if len(loops) > 0 {
+                loop0 = span_in(loops, 0)
+            }
+            at := Write{shown: no_key(), call: no_key(), kept: kept, loop: loop0, at: sp.end}
+            mut c.node_writes(n, at, i, judged, mut out)?
+        }
+    }
+    // A keep is named only by the writes it holds: a walk that found none
+    // leaves none named, and gives its keeps back, so a region walked
+    // again and again, as each link of an else-if chain walks the rest of
+    // the chain, holds no keeps of its own.
+    if len(out) == found_before {
+        for len(c.fx.keeps) > keeps_before {
+            pop(mut c.fx.keeps)
+        }
+    }
+    return noerror
+}
+
+// node_writes appends to out the writes the node n makes, at where they
+// take effect, n walked from the node at position i, Go's indexNode when
+// judged is set and blockWrites' walk otherwise.
+func (mut c Checker) node_writes(n Key, at Write, i int64, judged bool, mut out list[FoundWrite]) error {
+    switch kind_at(c.prog.trees, n) {
+    case assign(a):
+        mut c.target_write(sub(n, a.target), at, i, judged, mut out)?
+    case inc_dec(a):
+        mut c.target_write(sub(n, a.target), at, i, judged, mut out)?
+    case multi_assign(m):
+        for j := range count_items(c.prog.trees, n.unit, m.targets) {
+            mut c.target_write(item_at(c.prog.trees, n.unit, m.targets, j), at, i, judged, mut out)?
+        }
+    case call:
+        if judged && is_builtin_call(c.prog.trees, c.none, n, "swap") {
+            return noerror
+        }
+        mut ops := make(list[Key], c_allocator)
+        mut c.call_operands(n, mut ops)?
+        mut done := make(list[Key], c_allocator)
+        for _, arg := range ops {
+            switch kind_at(c.prog.trees, arg) {
+            case mut_arg(x):
+                mut decl := no_key()
+                if judged {
+                    decl = mut c.written_decl(sub(arg, x))
+                } else {
+                    decl = root_decl(c.prog.trees, sub(arg, x))
+                }
+                if is_no_key(decl) {
+                    continue
+                }
+                if judged {
+                    mut dup := false
+                    for _, d := range done {
+                        dup = dup || d == decl
+                    }
+                    if dup {
+                        continue
+                    }
+                    append(mut done, decl)?
+                }
+                mut w := at
+                w.shown = arg
+                w.call = n
+                mut dr := -1
+                if judged {
+                    dr = mut c.write_drop(w, decl)?
+                }
+                append(mut out, FoundWrite{decl: decl, w: IdxWrite{w: w, drop: dr, node: i}})?
+            default:
+            }
+        }
+    default:
+    }
+    return noerror
+}
+
+// target_write appends to out the write of target, a place assigned, at
+// at, as node_writes does.
+func (mut c Checker) target_write(target Key, at Write, i int64, judged bool, mut out list[FoundWrite]) error {
+    mut decl := no_key()
+    if judged {
+        decl = mut c.written_decl(target)
+    } else {
+        decl = root_decl(c.prog.trees, target)
+    }
+    if is_no_key(decl) {
+        return noerror
+    }
+    mut w := at
+    w.shown = target
+    mut dr := -1
+    if judged {
+        dr = mut c.write_drop(w, decl)?
+    }
+    append(mut out, FoundWrite{decl: decl, w: IdxWrite{w: w, drop: dr, node: i}})?
+    return noerror
+}
+
+// call_operands appends to out the operands of the call k, its receiver
+// first, Go's Call.Operands.
+func (mut c Checker) call_operands(k Key, mut out list[Key]) error {
+    recv := mut c.receiver_of(k)
+    if !is_no_key(recv) {
+        append(mut out, recv)?
+    }
+    cl := call_of(c.prog.trees, k)
+    for i := range count_items(c.prog.trees, k.unit, cl.args) {
+        append(mut out, item_at(c.prog.trees, k.unit, cl.args, i))?
+    }
+    return noerror
+}
+
+// root_decl returns the declaration the root of the place target names,
+// Go's ast.Root's Def, or no key when it has none.
+func root_decl(trees []ast.File, target Key) Key {
+    r := root_ident(trees, target)
+    nm, ok := ident_at(trees, r)
+    if !ok || !nm.def.is_decl() {
+        return no_key()
+    }
+    return key_of_def(nm.def)
+}
+
+// written_decl returns the declaration assigning to target changes, Go's
+// writtenDecl: its root's, unless it writes through a list (see
+// through_list).
+func (mut c Checker) written_decl(target Key) Key {
+    d := root_decl(c.prog.trees, target)
+    if is_no_key(d) || mut c.through_list(target) {
+        return no_key()
+    }
+    return d
+}
+
+// through_list reports whether target, a place, is an element of a list
+// or a pool or a value of a map, or a part of one, at any depth, Go's
+// throughList.
+func (mut c Checker) through_list(target Key) bool {
+    mut t := target
+    for {
+        switch kind_at(c.prog.trees, t) {
+        case index(ix):
+            typ := mut c.type_of(sub(t, ix.x))
+            if c.table.is_list(typ) || c.table.is_map(typ) || c.table.is_pool(typ) {
+                return true
+            }
+            t = sub(t, ix.x)
+        case selector(s):
+            t = sub(t, s.x)
+        default:
+            return false
+        }
+    }
+    return false
+}
+
+// write_drop records why w, a write to decl, ends a fact, Go's
+// writeDrop: an assignment to decl, or a call passing it as mut, named
+// as fact_callee names it now.
+func (mut c Checker) write_drop(w Write, decl Key) (int64, error) {
+    nid := len(c.fx.drops)
+    sp := span_at(c.prog.trees, w.shown)
+    if is_no_key(w.call) {
+        append(mut c.fx.drops, Drop{decl: decl, at: sp, text_start: 0, text_len: 0, kind: drop_assigned})?
+        return nid, noerror
+    }
+    start := len(c.fx.drop_text)
+    mut name := msg()
+    mut c.fact_callee(w.call, mut name)?
+    append(mut c.fx.drop_text, name[:]...)?
+    append(mut c.fx.drops, Drop{decl: decl, at: sp, text_start: start, text_len: len(name), kind: drop_mut})?
+    return nid, noerror
+}
+
+// fact_callee appends to out the name call calls, Go's factCallee: as
+// calleeName gives it, or "a function" for a call it cannot name.
+func (mut c Checker) fact_callee(call Key, mut out list[uint8]) error {
+    mut name := msg()
+    ok := mut c.callee_name(call, mut name)?
+    if ok {
+        append(mut out, name[:]...)?
+        return noerror
+    }
+    append(mut out, []uint8("a function")...)?
+    return noerror
+}
+
+// index_writes returns the WriteIndex of nodes, judged now, from one walk
+// of them, Go's indexWrites.
+func (mut c Checker) index_writes(nodes []Key) (WriteIndex, error) {
+    mut found := make(list[FoundWrite], c_allocator)
+    mut c.walk_writes(nodes, true, mut found)?
+    idx := group_writes(found[:])?
+    return idx, noerror
+}
+
+// first_write_drop returns the drop of the first write in idx, in the
+// order the region holds them, to any of the declarations f names, Go's
+// writeIndex.assigned, or -1 when it writes none of them.
+func (c Checker) first_write_drop(idx WriteIndex, f Fact) int64 {
+    if len(idx.writes) == 0 {
+        return -1
+    }
+    for i := range c.key_count(f) {
+        k := c.fact_key(f, i)
+        if k.is_zero() {
+            continue
+        }
+        sp, has := idx.spans[k.decl]
+        if has && sp.count > 0 {
+            return idx_write_in(idx.writes[:], sp.start).drop
+        }
+    }
+    return -1
+}
+
+// key_count returns how many subjects fact_key gives for f, Go's
+// fact.allKeys's length: its own, the length that bounds it, the subject
+// a relation bounds it by and the map it is a key of, and a difference
+// bound's two nodes.
+func (c Checker) key_count(f Fact) int64 {
+    if f.diff >= 0 {
+        return 7
+    }
+    return 5
+}
+
+// fact_key returns the i'th subject f names, in Go's fact.allKeys order,
+// the zero key for one it does not have.
+func (c Checker) fact_key(f Fact, i int64) FKey {
+    if i == 0 {
+        return f.about
+    }
+    if i == 1 {
+        return f.len_of
+    }
+    if i == 2 {
+        return f.at_most_len
+    }
+    if i == 3 {
+        return f.at_most
+    }
+    if i == 4 {
+        return f.in_map
+    }
+    d := c.diff_at(f.diff)
+    if i == 5 {
+        return d.x
+    }
+    return d.y
+}
+
+// stmt_keys appends to out the statements of body, in the tree unit, as
+// a region's nodes, Go's stmtNodes.
+func (c Checker) stmt_keys(unit int64, body ast.Nodes, mut out list[Key]) error {
+    for i := range count_items(c.prog.trees, unit, body) {
+        append(mut out, item_at(c.prog.trees, unit, body, i))?
+    }
+    return noerror
+}

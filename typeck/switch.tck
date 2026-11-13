@@ -44,8 +44,12 @@ func (mut c Checker) check_switch(k Key, s ast.Switch) error {
 
 // check_switch_chain checks the cases of the expression switch k, s,
 // whose tag has type tag_type, Go's loop over tryOrder in checkSwitch:
-// every case with values in source order, then the default; and then the
-// bodies a fallthrough enters, in source order, Go's checkFallenInto.
+// every case with values in source order, then the default, each case's
+// values with the facts of those before it not matching in force, its
+// body with what matching it says, and what it not matching says in
+// force for every case tried after it; and then the bodies a
+// fallthrough enters, in source order, with what both ways into each
+// agree on (see check_fallen_into).
 func (mut c Checker) check_switch_chain(k Key, s ast.Switch, tag_type types.Type) error {
     mut seen := make(map[CaseKey]Key, c_allocator)
     n := count_items(c.prog.trees, k.unit, s.cases)
@@ -57,40 +61,262 @@ func (mut c Checker) check_switch_chain(k Key, s ast.Switch, tag_type types.Type
             put(mut entered, next, true)?
         }
     }
-    mut def := no_key()
-    for i := range n {
-        cl := item_at(c.prog.trees, k.unit, s.cases, i)
-        if is_default(c.prog.trees, cl) {
-            if is_no_key(def) {
-                def = cl
-            }
-            continue
+    mut late := make(map[Key]bool, c_allocator)
+    mut c.late_bodies(k, s, mut late)?
+    mut order := make(list[Key], c_allocator)
+    c.try_order(k, s, mut order)?
+    // Every case after a case, its values and its body, is the region
+    // its condition being false holds in; rest[i] is where that region
+    // starts for the case at order[i].
+    mut later := make(list[Key], c_allocator)
+    mut rest := make(list[int64], c_allocator)
+    for _, cl := range order {
+        cc := clause_of(c.prog.trees, cl)
+        c.stmt_keys(cl.unit, cc.values, mut later)?
+        c.stmt_keys(cl.unit, cc.body, mut later)?
+        append(mut rest, len(later))?
+    }
+    mut earlier := make(list[Fact], c_allocator)
+    mut at_switch := make(list[Fact], c_allocator)
+    if len(entered) > 0 {
+        mut c.facts_at_switch(k, s, mut at_switch)?
+    }
+    // matched holds, for each case a fallthrough enters, where its facts
+    // start and end in matched_facts.
+    mut matched_facts := make(list[Fact], c_allocator)
+    mut matched := make(map[Key]WSpan, c_allocator)
+    m := c.mark()
+    for i, cl := range order {
+        mut c.check_case_values(k, s, tag_type, cl, mut seen)?
+        sp := c.case_span(cl)
+        _, in := entered[cl]
+        if in {
+            start := len(matched_facts)
+            append(mut matched_facts, at_switch[:]...)?
+            mut c.case_facts(k, s, cl, true, mut matched_facts)?
+            append(mut matched_facts, earlier[:]...)?
+            put(mut matched, cl, WSpan{start: start, count: len(matched_facts) -% start})?
+        } else {
+            mut facts := make(list[Fact], c_allocator)
+            mut c.case_facts(k, s, cl, true, mut facts)?
+            _, is_late := late[cl]
+            g := Guard{cond: no_cond(), span: sp, kind: guard_case}
+            mut c.check_case_body(k, cl, false, g, facts[:], is_late)?
         }
-        mut c.check_case(s, tag_type, cl, entered, mut seen)?
+        mut not_matched := make(list[Fact], c_allocator)
+        mut c.case_facts(k, s, cl, false, mut not_matched)?
+        mut region_nodes := make(list[Key], c_allocator)
+        mut j := int_in(rest[:], i)
+        for j < len(later) {
+            append(mut region_nodes, key_in(later[:], j))?
+            j +%= 1
+        }
+        mut c.assume(Guard{cond: no_cond(), span: sp, kind: guard_later_case}, not_matched[:], region_nodes[:])?
+        if len(entered) > 0 {
+            append(mut earlier, not_matched[:]...)?
+        }
     }
-    if !is_no_key(def) {
-        mut c.check_case(s, tag_type, def, entered, mut seen)?
-    }
+    mut c.release(m)?
     for i := range n {
         cl := item_at(c.prog.trees, k.unit, s.cases, i)
         _, in := entered[cl]
-        if in {
-            mut c.check_case_body(cl, false)?
+        if !in {
+            continue
         }
+        from_case := item_at(c.prog.trees, k.unit, s.cases, i -% 1)
+        f := last_stmt(c.prog.trees, from_case)
+        sp, has := matched[cl]
+        mut facts := make(list[Fact], c_allocator)
+        if has {
+            mut j int64 = 0
+            for j < sp.count {
+                append(mut facts, fact_in(matched_facts[:], sp.start +% j))?
+                j +%= 1
+            }
+        }
+        _, is_late := late[cl]
+        mut c.check_fallen_into(k, s, cl, f, is_late, mut facts)?
     }
     return noerror
 }
 
-// check_case checks one case of the expression switch s, cl: its
-// values, then its body, unless a fallthrough enters it, whose body is
-// checked after every case's values.
-func (mut c Checker) check_case(s ast.Switch, tag_type types.Type, cl Key, entered map[Key]bool, mut seen map[CaseKey]Key) error {
-    mut c.check_case_values(s, tag_type, cl, mut seen)?
-    _, in := entered[cl]
-    if in {
+// late_bodies records in late the cases of the switch k, s, whose body
+// may run after every case's values are tried, Go's lateBodies: a
+// default written before another case, and each case it falls into, down
+// a chain of fallthroughs.
+func (mut c Checker) late_bodies(k Key, s ast.Switch, mut late map[Key]bool) error {
+    n := count_items(c.prog.trees, k.unit, s.cases)
+    mut def := -1
+    for i := range n {
+        if def < 0 && is_default(c.prog.trees, item_at(c.prog.trees, k.unit, s.cases, i)) {
+            def = i
+        }
+    }
+    if def < 0 || def == n -% 1 {
         return noerror
     }
-    return mut c.check_case_body(cl, false)
+    mut cl := item_at(c.prog.trees, k.unit, s.cases, def)
+    put(mut late, cl, true)?
+    for {
+        next, linked := c.fall_next[last_stmt(c.prog.trees, cl)]
+        if !linked {
+            break
+        }
+        put(mut late, next, true)?
+        cl = next
+    }
+    return noerror
+}
+
+// facts_at_switch appends to out the facts in force where the switch k,
+// s, starts, once its tag is evaluated and before any value is tried,
+// Go's factsAtSwitch: just past the tag.
+func (mut c Checker) facts_at_switch(k Key, s ast.Switch, mut out list[Fact]) error {
+    outer := c.fx.at
+    c.fx.at = span_at(c.prog.trees, k).start +% 6
+    if !ast.is_none(s.tag) {
+        c.fx.at = span_at(c.prog.trees, sub(k, s.tag)).end +% 1
+    }
+    e := mut c.facts_here(mut out)
+    c.fx.at = outer
+    return e
+}
+
+// facts_here appends to out a copy of every fact in force that holds
+// where checking has reached but those that hold nothing a join can
+// carry, each with no write to end it, Go's factsHere.
+func (mut c Checker) facts_here(mut out list[Fact]) error {
+    for i := range len(c.fx.active) {
+        f := fact_in(c.fx.active[:], i)
+        if f.is_empty() || f.relational() || f.either >= 0 {
+            continue
+        }
+        h := mut c.holds(f)?
+        if !h {
+            continue
+        }
+        mut g := f
+        g.ends = -1
+        append(mut out, g)?
+    }
+    return noerror
+}
+
+// check_fallen_into checks the body of cl, a case of the expression
+// switch k, s, that the fallthrough from enters, with what both ways
+// into it agree on in force, Go's checkFallenInto: matched, which
+// matching it gives, each fact a value of the switch assigns the
+// variable of dropped, joined with the facts in force at from.
+func (mut c Checker) check_fallen_into(k Key, s ast.Switch, cl Key, frm Key, late bool, mut matched list[Fact]) error {
+    mut order := make(list[Key], c_allocator)
+    c.try_order(k, s, mut order)?
+    mut writes := false
+    for _, o := range order {
+        pm := mut c.passes_mut(o)?
+        writes = writes || pm
+    }
+    if writes && !ast.is_none(s.tag) {
+        mut values := make(list[Key], c_allocator)
+        for i := range count_items(c.prog.trees, k.unit, s.cases) {
+            o := item_at(c.prog.trees, k.unit, s.cases, i)
+            c.stmt_keys(o.unit, clause_of(c.prog.trees, o).values, mut values)?
+        }
+        mut c.drop_assigned(mut matched, 0, values[:])?
+    }
+    mut fell := make(list[Fact], c_allocator)
+    sp, has := c.fx.fell[frm]
+    if has {
+        mut j int64 = 0
+        for j < sp.count {
+            append(mut fell, fact_in(c.fx.fell_facts[:], sp.start +% j))?
+            j +%= 1
+        }
+        delete(mut c.fx.fell, frm)
+    }
+    mut joined := make(list[Fact], c_allocator)
+    mut c.join_facts(fell[:], matched[:], mut joined)?
+    g := Guard{cond: no_cond(), span: c.case_span(cl), kind: guard_fallthrough}
+    return mut c.check_case_body(k, cl, false, g, joined[:], late)
+}
+
+// join_facts appends to out what joinFacts gives for a and b, the facts
+// at two points control reaches one place from: for each subject both
+// say something about, in the order a first names them, the hull of
+// what each side's facts say of it.
+func (mut c Checker) join_facts(a []Fact, b []Fact, mut out list[Fact]) error {
+    mut order := make(list[FKey], c_allocator)
+    mut mine := make(map[FKey]Interval, c_allocator)
+    for _, f := range a {
+        if f.relational() || f.drop >= 0 || f.either >= 0 {
+            continue
+        }
+        mut v, seen := mine[f.about]
+        if !seen {
+            append(mut order, f.about)?
+            v = no_interval()
+        }
+        put(mut mine, f.about, v.narrow(f))?
+    }
+    mut other := make(map[FKey]Interval, c_allocator)
+    for _, f := range b {
+        if f.relational() || f.drop >= 0 || f.either >= 0 {
+            continue
+        }
+        mut v, seen := other[f.about]
+        if !seen {
+            v = no_interval()
+        }
+        put(mut other, f.about, v.narrow(f))?
+    }
+    for _, k := range order {
+        theirs, has := other[k]
+        if !has {
+            continue
+        }
+        m, has_m := mine[k]
+        if !has_m {
+            continue
+        }
+        append(mut out, m.hull(theirs).as_fact(k))?
+    }
+    return noerror
+}
+
+// check_case_body checks the body of the clause cl of the switch k, with
+// cl recorded as the innermost case being checked, of a switch on a
+// union when on_union says so, Go's inClause around checkGuarded: the
+// guard g's facts in force. A body that may run after every case's
+// values are tried, late, is checked with the switch recorded as one
+// whose late default is being checked (see reaches).
+func (mut c Checker) check_case_body(k Key, cl Key, on_union bool, g Guard, facts []Fact, late bool) error {
+    body := clause_of(c.prog.trees, cl).body
+    if late {
+        mut whole := span_at(c.prog.trees, k)
+        mut bsp := span_at(c.prog.trees, cl)
+        last := c.body_last(cl.unit, body)
+        if !is_no_key(last) {
+            bsp.end = span_at(c.prog.trees, last).end
+        }
+        append(mut c.fx.late_defaults, LateDefault{whole: whole, body: bsp})?
+    }
+    append(mut c.body.clauses, ClauseAt{cl: cl, on_union: on_union, on_type: false, deferred: c.body.deferred})?
+    e := mut c.check_guarded(cl.unit, body, g, facts)
+    pop(mut c.body.clauses)
+    if late {
+        pop(mut c.fx.late_defaults)
+    }
+    return e
+}
+
+// check_guarded checks body, in the tree unit, a block reached only when
+// facts, which come from g, hold, Go's checkGuarded.
+func (mut c Checker) check_guarded(unit int64, body ast.Nodes, g Guard, facts []Fact) error {
+    m := c.mark()
+    mut nodes := make(list[Key], c_allocator)
+    c.stmt_keys(unit, body, mut nodes)?
+    mut c.assume(g, facts, nodes[:])?
+    mut c.check_block(unit, body)?
+    return mut c.release(m)
 }
 
 // is_default reports whether the clause cl is a switch's default.
@@ -114,17 +340,6 @@ func clause_of(trees []ast.File, cl Key) ast.CaseClause {
     }
 }
 
-// check_case_body checks the body of the clause cl with cl recorded as
-// the innermost case being checked, of a switch on a union when
-// on_union says so, Go's inClause around checkGuarded.
-func (mut c Checker) check_case_body(cl Key, on_union bool) error {
-    body := clause_of(c.prog.trees, cl).body
-    append(mut c.body.clauses, ClauseAt{cl: cl, on_union: on_union, on_type: false, deferred: c.body.deferred})?
-    e := mut c.check_block(cl.unit, body)
-    pop(mut c.body.clauses)
-    return e
-}
-
 // CaseKey identifies a constant case value for finding duplicates, Go's
 // caseKey: an integer's known value, a bool constant's, true or false,
 // or a string literal's bytes quoted, told apart by str.
@@ -134,28 +349,41 @@ type CaseKey struct {
 }
 
 // check_case_values checks each value of the clause cl of the switch
-// s, whose tag has type tag_type, left to right, Go's checkCaseValues:
-// in a tagless switch each must be a bool; in an expression switch each
-// must compare with the tag, and must not repeat a constant value seen
-// earlier in the switch.
-func (mut c Checker) check_case_values(s ast.Switch, tag_type types.Type, cl Key, mut seen map[CaseKey]Key) error {
+// k, s, whose tag has type tag_type, left to right, Go's
+// checkCaseValues: in a tagless switch each must be a bool; in an
+// expression switch each must compare with the tag, and must not repeat
+// a constant value seen earlier in the switch. Each is checked with the
+// facts of those before it being false in force, as on the right of ||.
+func (mut c Checker) check_case_values(k Key, s ast.Switch, tag_type types.Type, cl Key, mut seen map[CaseKey]Key) error {
     values := clause_of(c.prog.trees, cl).values
-    for i := range count_items(c.prog.trees, cl.unit, values) {
+    m := c.mark()
+    nv := count_items(c.prog.trees, cl.unit, values)
+    for i := range nv {
         v := item_at(c.prog.trees, cl.unit, values, i)
         if ast.is_none(s.tag) {
             mut c.check_cond(v)?
-            continue
+        } else {
+            unresolved := mut c.unresolved_case(v, tag_type)?
+            if !unresolved {
+                ok := mut c.check_case_value(tag_type, v)?
+                if ok {
+                    mut c.check_duplicate(v, mut seen)?
+                }
+            }
         }
-        unresolved := mut c.unresolved_case(v, tag_type)?
-        if unresolved {
-            continue
+        cond := case_cond(k, s, v)
+        mut facts := make(list[Fact], c_allocator)
+        mut c.facts_from(cond, false, mut facts)?
+        mut c.tag_facts(k, s, cl, mut facts, 0)?
+        mut after := make(list[Key], c_allocator)
+        mut j := i +% 1
+        for j < nv {
+            append(mut after, item_at(c.prog.trees, cl.unit, values, j))?
+            j +%= 1
         }
-        ok := mut c.check_case_value(tag_type, v)?
-        if ok {
-            mut c.check_duplicate(v, mut seen)?
-        }
+        mut c.assume(Guard{cond: cond, span: span_at(c.prog.trees, v), kind: guard_case}, facts[:], after[:])?
     }
-    return noerror
+    return mut c.release(m)
 }
 
 // check_case_value checks a value v of an expression switch whose tag
@@ -436,7 +664,8 @@ func (mut c Checker) union_clause(typ types.Type, cl Key, covered bool, mut seen
         fmt.appendf(mut m, "every case of %s is already covered, so this default never runs", n[:])?
         mut c.errorf(span_at(c.prog.trees, cl), own m)?
     }
-    mut c.check_case_body(cl, true)?
+    none := make(list[Fact], c_allocator)
+    mut c.check_case_body(no_key(), cl, true, Guard{cond: no_cond(), span: c.case_span(cl), kind: guard_case}, none[:], false)?
     if ast.is_none(clause.var_node) {
         return noerror
     }
@@ -669,6 +898,10 @@ func (mut c Checker) check_coverage(k Key, s ast.Switch, typ types.Type) (bool, 
         return count == 0, noerror
     }
     if count == 0 {
+        _, was := c.exhaustive[k]
+        if !was {
+            c.exhaust_gen +%= 1
+        }
         put(mut c.exhaustive, k, true)?
         return true, noerror
     }

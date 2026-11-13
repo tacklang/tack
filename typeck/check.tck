@@ -268,6 +268,25 @@ pub type Checker struct {
     decl_type_count int64
     decl_error_count int64
     bodies_done bool
+
+    // The facts of the body being checked (see fact.tck), and whether a
+    // block leaves, remembered for each statement asked about while no
+    // switch is found to name every case since (see leaves):
+    // exhaust_gen counts the switches found to, and leave_gen is the
+    // count leave_memo's answers were worked out at.
+    fx FactState
+    // The element and the division whose value is being bound with ok,
+    // Go's checkedIndex and checkedDivision, which need no proof; the
+    // value an assignment stores while its target is checked, for an
+    // element assigned in place; and whether the body being checked has
+    // a loop writing a variable declared before it, which Go probes.
+    checked_index Key
+    checked_division Key
+    assign_value Key
+    probe_body bool
+    leave_memo map[LeaveKey]bool
+    leave_gen int64
+    exhaust_gen int64
 }
 
 // KnownLocal is the value of an immutable local, Go's knownResult:
@@ -291,6 +310,7 @@ type KnownBinary struct {
 // back by check, Go's New.
 pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error) {
     t := types.new_table(c_allocator)?
+    fx := new_fact_state()?
     mut c := Checker{
         prog: prog,
         files: files,
@@ -383,6 +403,14 @@ pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error
         decl_type_count: 0,
         decl_error_count: 0,
         bodies_done: false,
+        fx: fx,
+        checked_index: no_key(),
+        checked_division: no_key(),
+        assign_value: no_key(),
+        probe_body: false,
+        leave_memo: make(map[LeaveKey]bool, c_allocator),
+        leave_gen: 0,
+        exhaust_gen: 0,
     }
     for k, pkg := range c.prog.packages {
         mut c.table.add_owner_name(pkg.name.bytes())?

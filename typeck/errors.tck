@@ -1,6 +1,7 @@
 package typeck
 
 import ast from "tack/ast"
+import diag from "tack/diag"
 import fmt from "std/fmt"
 import source from "tack/source"
 import types from "tack/types"
@@ -9,9 +10,8 @@ import types from "tack/types"
 // error cannot be discarded, and what a binding takes beside an error is
 // held by the error's variable until the facts in force prove it checked.
 // Which variables an error holds is collected before a body is checked
-// (see collect_holds); a read of one that is held needs the facts, S3's,
-// and is declined, but where Go's answer needs none (see
-// require_checked).
+// (see collect_holds); a read of one that is held needs the facts in
+// force to prove the error checked (see require_checked).
 
 // HoldTie is one tie a binding of an error, or of a checked pop or
 // remove's ok, makes, Go's holding.first: err, the error's or the ok's
@@ -294,11 +294,13 @@ func (mut c Checker) held_vars(err Key, mut out list[Key]) error {
 }
 
 // require_checked checks a read of the variable the name k, nm, names,
-// Go's requireChecked: when an error variable holds it, whether the
-// facts in force prove that error no error is S3's, and declined, but
-// where Go needs no fact: an ok holding a variable whose type has a zero
-// value, which is read freely, and a value a return passes on beside the
-// error holding it.
+// Go's requireChecked: when an error variable holds it, the facts in
+// force must prove that error no error, its code bounded to exactly 0,
+// or, for the ok of a checked pop or remove holding a variable whose
+// type has no zero value, the ok true; a value a return passes on beside
+// the error holding it needs neither. The first holder whose proof is
+// missing is reported, with notes on any check of it that falls short
+// (see explain).
 func (mut c Checker) require_checked(k Key, nm ast.Ident) error {
     if nm.def.is_none() {
         return noerror
@@ -308,6 +310,7 @@ func (mut c Checker) require_checked(k Key, nm ast.Ident) error {
     if !held {
         return noerror
     }
+    mut seen := make(list[Key], c_allocator)
     mut i int64 = 0
     for i < len(c.ties) {
         t := tie_in(c.ties, i)
@@ -315,19 +318,45 @@ func (mut c Checker) require_checked(k Key, nm ast.Ident) error {
         if t.v != v {
             continue
         }
+        mut again := false
+        for _, s := range seen {
+            again = again || s == t.err
+        }
+        if again {
+            continue
+        }
+        append(mut seen, t.err)?
         _, is_ok := c.oks[t.err]
         if is_ok {
             h := mut c.ok_held(v)?
             if !h {
                 continue
             }
-            return not_ported
+            tr := mut c.ok_true(t.err)?
+            if tr {
+                continue
+            }
+            mut notes := make(list[diag.Related], c_allocator)
+            ext := mut c.new_extent(t.err, "byte", 0, false)?
+            p := Proof{kind: proof_ok, about: decl_fkey(t.err), e: t.err, ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: ext, upper_only: false}
+            mut c.explain(p, mut notes)?
+            mut m := msg()
+            fmt.appendf(mut m, "%s cannot be read before %s is checked; check that %s is true first", text_at(c.prog.trees, c.none, k.unit, nm.name), name_of(c.prog.trees, c.none, t.err), name_of(c.prog.trees, c.none, t.err))?
+            return mut c.error_notes(span_at(c.prog.trees, k), own m, own notes)
         }
+        ne := mut c.no_error(t.err)?
         passed, was := c.passed_on[k]
-        if was && passed == t.err {
+        if ne || was && passed == t.err {
             continue
         }
-        return not_ported
+        mut notes := make(list[diag.Related], c_allocator)
+        ck := mut c.code_key(t.err)?
+        ext := mut c.new_extent(t.err, "byte", 0, false)?
+        p := Proof{kind: proof_error, about: ck, e: t.err, ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: ext, upper_only: false}
+        mut c.explain(p, mut notes)?
+        mut m := msg()
+        fmt.appendf(mut m, "%s cannot be read before %s is checked; check %s.code == 0 first", text_at(c.prog.trees, c.none, k.unit, nm.name), name_of(c.prog.trees, c.none, t.err), name_of(c.prog.trees, c.none, t.err))?
+        return mut c.error_notes(span_at(c.prog.trees, k), own m, own notes)
     }
     return noerror
 }

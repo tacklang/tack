@@ -1,0 +1,509 @@
+package typeck
+
+import constant from "tack/constant"
+
+// The relations in force, Go's relgraph.go, relindex.go's relScan and
+// relnotes.go: a query of whether x - y <= w builds a graph of the
+// bounds in force that hold where it is asked, each bound a - b <= v an
+// edge from a to b of weight v, every length at least 0 and at most the
+// largest int64, of at most relation_cap nodes found breadth first from
+// x and y, and the shortest paths in it bound the differences of its
+// nodes. The graph is built from a scan of the facts in force, as Go's
+// tests build the graph they check Go's index against, which takes the
+// same edges in the same order and so finds the same nodes, cap and
+// bounds. No edge with a side condition is ever in force here: those
+// come from arithmetic, a later stage's.
+
+// relation_cap is the most nodes a query's graph holds, Go's
+// relationCap.
+var relation_cap int64 = 64
+
+// RelEdge is a bound in a query's graph, from - to <= w, Go's relEdge:
+// fact is the position in active of the fact it comes from, or -1 for a
+// length's range, which always holds.
+type RelEdge struct {
+    frm FKey
+    to FKey
+    w int64
+    fact int64
+}
+
+// RelGraph is the graph of a query, Go's relGraph: nodes in the order
+// found, index their positions, the admitted edges, whether the cap left
+// edges out, and the bounds found
+// so far from a node and to one, each by the node as dist_from and
+// dist_to give their positions in dists, n entries each, known the same.
+type RelGraph struct {
+    nodes list[FKey]
+    index map[FKey]int64
+    edges list[RelEdge]
+    capped bool
+    dist_from map[int64]int64
+    dist_to map[int64]int64
+    dists list[int64]
+    known list[bool]
+    settled map[int64]bool
+}
+
+// new_rel_graph returns a graph of no node.
+func new_rel_graph() RelGraph {
+    return RelGraph{
+        nodes: make(list[FKey], c_allocator),
+        index: make(map[FKey]int64, c_allocator),
+        edges: make(list[RelEdge], c_allocator),
+        capped: false,
+        dist_from: make(map[int64]int64, c_allocator),
+        dist_to: make(map[int64]int64, c_allocator),
+        dists: make(list[int64], c_allocator),
+        known: make(list[bool], c_allocator),
+        settled: make(map[int64]bool, c_allocator),
+    }
+}
+
+// found adds k to the graph's nodes, when it is not one already, Go's
+// relGraph.found.
+func (mut g RelGraph) found(k FKey) error {
+    _, seen := g.index[k]
+    if !seen {
+        put(mut g.index, k, len(g.nodes))?
+        append(mut g.nodes, k)?
+    }
+    return noerror
+}
+
+// ending_count returns how many endings the runs from r hold, Go's
+// endings.count.
+func (c Checker) ending_count(r int64) int64 {
+    mut n int64 = 0
+    mut run := r
+    for run >= 0 {
+        rec := c.run_at(run)
+        n +%= rec.count
+        run = rec.next
+    }
+    return n
+}
+
+// GraphBuild is what building a query's graph keeps, Go's graphBuilder:
+// which facts hold, memoized, which edges are taken, which lengths have
+// their range, the lengths, the query's nodes and whether it leaves out
+// a stored value's bounds, plain.
+type GraphBuild struct {
+    holds map[int64]bool
+    used map[int64]bool
+    ranged map[FKey]bool
+    lens list[FKey]
+    x FKey
+    y FKey
+    x_len bool
+    y_len bool
+    plain bool
+}
+
+// relation_graph returns the graph for a query about the nodes x and y,
+// x_len and y_len saying which are lengths, and false when no relation is
+// in force, Go's relationGraph and graphOf, from the index of the
+// relations in force (see relindex.tck).
+func (mut c Checker) relation_graph(x FKey, y FKey, x_len bool, y_len bool, plain bool) (RelGraph, bool, error) {
+    mut g := new_rel_graph()
+    mut c.build_rel_idx()?
+    if c.fx.rel.relations == 0 {
+        return g, false, noerror
+    }
+    mut b := GraphBuild{
+        holds: make(map[int64]bool, c_allocator), used: make(map[int64]bool, c_allocator),
+        ranged: make(map[FKey]bool, c_allocator), lens: make(list[FKey], c_allocator),
+        x: x, y: y, x_len: x_len, y_len: y_len, plain: plain,
+    }
+    append(mut b.lens, c.fx.rel.lens[:]...)?
+    mut q int64 = 0
+    for q < 2 {
+        mut k := x
+        if q == 1 {
+            k = y
+        }
+        q +%= 1
+        if c.graph_is_len(b, k) && !c.is_len_node(k) {
+            append(mut b.lens, k)?
+        }
+    }
+    mut g.found(x)?
+    mut g.found(y)?
+    mut next int64 = 0
+    for next < len(g.nodes) {
+        u, has_u := g.nodes[next]
+        if !has_u {
+            break
+        }
+        next +%= 1
+        mut c.expand(mut g, mut b, u)?
+    }
+    return g, true, noerror
+}
+
+// graph_is_len reports whether k is a length: one the facts use as one,
+// or a query's node that is, Go's graphBuilder.isLen.
+func (c Checker) graph_is_len(b GraphBuild, k FKey) bool {
+    return c.is_len_node(k) || k == b.x && b.x_len || k == b.y && b.y_len
+}
+
+// visit adds k to g, and reports whether it is in it: it is, or the cap
+// leaves room for it, Go's graphBuilder.visit.
+func (mut g RelGraph) visit(k FKey) (bool, error) {
+    _, seen := g.index[k]
+    if seen {
+        return true, noerror
+    }
+    if len(g.nodes) == relation_cap {
+        g.capped = true
+        return false, noerror
+    }
+    mut g.found(k)?
+    return true, noerror
+}
+
+// expand takes every edge that holds from u, a node found, to a node the
+// graph has room for, in the order the index lists them, then the last
+// stored value's bounds at u, and, for 0 and for a length, the lengths'
+// ranges, Go's graphBuilder.expand. Once the graph is full, of the edges
+// left at u only those to its nodes can join, which the pair lists give,
+// taken in the order of the index, as taking every edge would; and it is
+// capped when any other holds (see take_rest).
+func (mut c Checker) expand(mut g RelGraph, mut b GraphBuild, u FKey) error {
+    ends, has := c.fx.rel.ends[u]
+    mut cur := -1
+    if has {
+        cur = ends.head
+    }
+    for cur >= 0 && len(g.nodes) < relation_cap {
+        en := entry_in(c.fx.rel.entries[:], cur)
+        cur = en.next
+        mut c.take_edge(mut g, mut b, en.edge, en.other)?
+    }
+    if cur >= 0 {
+        mut c.take_rest(mut g, mut b, u, cur)?
+    }
+    top, has_top := c.fx.rel.stored_top[u]
+    if has_top && !b.plain {
+        f := fact_in(c.fx.active[:], top)
+        if f.ends < 0 || c.ending_count(f.ends) <= reach_scan_limit {
+            zero := zero_fkey()
+            if f.has_hi && f.hi.fits(64, true) {
+                mut c.take_stored(mut g, mut b, RelEdge{frm: f.about, to: zero, w: f.hi.to_int64(), fact: top}, zero)?
+            }
+            lo, ok := f.lo.negate()
+            if f.has_lo && ok && lo.fits(64, true) {
+                mut c.take_stored(mut g, mut b, RelEdge{frm: zero, to: f.about, w: lo.to_int64(), fact: top}, zero)?
+            }
+        }
+    }
+    if u.is_zero() {
+        mut li int64 = 0
+        for li < len(b.lens) {
+            k, has_k := b.lens[li]
+            li +%= 1
+            if !has_k {
+                break
+            }
+            in := mut g.visit(k)?
+            if in {
+                mut c.length_edges(mut g, mut b, k)?
+            }
+        }
+    } else if c.graph_is_len(b, u) {
+        in := mut g.visit(zero_fkey())?
+        if in {
+            mut c.length_edges(mut g, mut b, u)?
+        }
+    }
+    return noerror
+}
+
+// take_edge takes the edge id of the index, from the node being expanded
+// to other, when it is not taken, its fact holds and the graph has room
+// for other, Go's graphBuilder.take.
+func (mut c Checker) take_edge(mut g RelGraph, mut b GraphBuild, eid int64, other FKey) error {
+    _, used := b.used[eid]
+    if used {
+        return noerror
+    }
+    e := rel_edge_in(c.fx.rel.edges[:], eid)
+    h := mut c.holds_at(mut b, e.fact)?
+    if !h {
+        return noerror
+    }
+    in := mut g.visit(other)?
+    if in {
+        put(mut b.used, eid, true)?
+        mut c.add_edge(mut g, e)?
+    }
+    return noerror
+}
+
+// take_stored takes e, a stored value's bound at the node being
+// expanded, to other, when its fact holds and the graph has room for
+// other.
+func (mut c Checker) take_stored(mut g RelGraph, mut b GraphBuild, e RelEdge, other FKey) error {
+    h := mut c.holds_at(mut b, e.fact)?
+    if !h {
+        return noerror
+    }
+    in := mut g.visit(other)?
+    if in {
+        mut c.add_edge(mut g, e)?
+    }
+    return noerror
+}
+
+// take_rest takes, once the graph is full, the edges at u from the entry
+// cur on that hold and lead to a node of the graph, not taken before, in
+// the order the index lists them, after marking the graph capped when
+// any other holds, Go's graphBuilder.takeRest: a full graph gains no
+// node, so only whether an edge outside it holds matters.
+func (mut c Checker) take_rest(mut g RelGraph, mut b GraphBuild, u FKey, cur int64) error {
+    first := entry_in(c.fx.rel.entries[:], cur).edge
+    mut found := make(list[int64], c_allocator)
+    for _, w := range g.nodes {
+        pe, has := c.fx.rel.pends[PairKey{u: u, w: w}]
+        if !has {
+            continue
+        }
+        mut p := pe.tail
+        for p >= 0 {
+            en := entry_in(c.fx.rel.pentries[:], p)
+            if en.edge < first {
+                break
+            }
+            append(mut found, en.edge)?
+            p = en.prev
+        }
+    }
+    sorted := sort_ints(found[:])?
+    mut e := cur
+    for !g.capped && e >= 0 {
+        en := entry_in(c.fx.rel.entries[:], e)
+        e = en.next
+        _, in := g.index[en.other]
+        if in {
+            continue
+        }
+        edge := rel_edge_in(c.fx.rel.edges[:], en.edge)
+        h := mut c.holds_at(mut b, edge.fact)?
+        if h {
+            g.capped = true
+        }
+    }
+    mut last := -1
+    for _, eid := range sorted {
+        if eid == last {
+            continue
+        }
+        last = eid
+        edge := rel_edge_in(c.fx.rel.edges[:], eid)
+        mut other := edge.to
+        if other == u {
+            other = edge.frm
+        }
+        mut c.take_edge(mut g, mut b, eid, other)?
+    }
+    return noerror
+}
+
+// add_edge takes e into the graph's edges.
+func (mut c Checker) add_edge(mut g RelGraph, e RelEdge) error {
+    append(mut g.edges, e)?
+    return noerror
+}
+
+// length_edges takes the range of the length k, once, Go's
+// graphBuilder.lengthRange: at most the largest int64, and at least 0.
+// The least length a successful append gives a list is a later stage's,
+// and every such append declined (see check_local_var).
+func (mut c Checker) length_edges(mut g RelGraph, mut b GraphBuild, k FKey) error {
+    _, done := b.ranged[k]
+    if done {
+        return noerror
+    }
+    put(mut b.ranged, k, true)?
+    mut c.add_edge(mut g, RelEdge{frm: k, to: zero_fkey(), w: 9223372036854775807, fact: -1})?
+    mut c.add_edge(mut g, RelEdge{frm: zero_fkey(), to: k, w: 0, fact: -1})?
+    return noerror
+}
+
+// holds_at reports whether the fact at position i of active holds where
+// the query is asked, remembering the answer, Go's holdsAt.
+func (mut c Checker) holds_at(mut b GraphBuild, i int64) (bool, error) {
+    h, seen := b.holds[i]
+    if seen {
+        return h, noerror
+    }
+    r := mut c.holds(fact_in(c.fx.active[:], i))?
+    put(mut b.holds, i, r)?
+    return r, noerror
+}
+
+// find_dists returns where the bounds the shortest paths give from the
+// node at src, or to it when reverse is set, start in g's dists, found
+// once, Go's relGraph.dists, by Bellman and Ford's rounds, Go's
+// roundBounds: at most as many rounds as the graph has nodes, each edge
+// followed in order, a sum past an int64 left out. Go finds them on a
+// graph that drops edges alike exactly instead, which settles to the same
+// shortest paths whenever these settle; where they do not, a cycle of
+// negative weight being reached, Go takes the graph keeping every edge
+// alike, this one, and finds them by these rounds.
+func (mut g RelGraph) find_dists(src int64, reverse bool) (int64, error) {
+    if reverse {
+        at, ok := g.dist_to[src]
+        if ok {
+            return at, noerror
+        }
+    } else {
+        at, ok := g.dist_from[src]
+        if ok {
+            return at, noerror
+        }
+    }
+    n := len(g.nodes)
+    // Each edge's nodes are looked up once, not once a round.
+    mut ea := make(list[int64], c_allocator)
+    mut eb := make(list[int64], c_allocator)
+    mut ew := make(list[int64], c_allocator)
+    for _, e := range g.edges {
+        a, has_a := g.index[e.frm]
+        bn, has_b := g.index[e.to]
+        if !has_a || !has_b {
+            continue
+        }
+        if reverse {
+            append(mut ea, bn)?
+            append(mut eb, a)?
+        } else {
+            append(mut ea, a)?
+            append(mut eb, bn)?
+        }
+        append(mut ew, e.w)?
+    }
+    mut dist := make(list[int64], c_allocator)
+    mut known := make(list[bool], c_allocator)
+    push_ints(mut dist, 0, n)?
+    mut zi int64 = 0
+    for zi < n {
+        append(mut known, false)?
+        zi +%= 1
+    }
+    set_bool(mut known, src, true)
+    mut round int64 = 0
+    for round < n {
+        round +%= 1
+        mut changed := false
+        mut i int64 = 0
+        for i < len(ea) {
+            a := int_in(ea[:], i)
+            bn := int_in(eb[:], i)
+            w := int_in(ew[:], i)
+            i +%= 1
+            if !bool_at(known[:], a) {
+                continue
+            }
+            s, ok := sum_int64(int_in(dist[:], a), w)
+            if ok && (!bool_at(known[:], bn) || s < int_in(dist[:], bn)) {
+                set_int(mut dist, bn, s)
+                set_bool(mut known, bn, true)
+                changed = true
+            }
+        }
+        if !changed {
+            break
+        }
+    }
+    base := len(g.dists)
+    append(mut g.dists, dist[:]...)?
+    append(mut g.known, known[:]...)?
+    if reverse {
+        put(mut g.dist_to, src, base)?
+    } else {
+        put(mut g.dist_from, src, base)?
+    }
+    return base, noerror
+}
+
+// set_bool sets l[i] to v, when l has an i'th.
+func set_bool(mut l list[bool], i int64, v bool) {
+    set_at(mut l, i, v)
+}
+
+// sum_int64 returns a + b, and false when it is past what an int64
+// holds, Go's sum.
+func sum_int64(a int64, b int64) (int64, bool) {
+    s := a +% b
+    if b > 0 && s < a || b < 0 && s > a {
+        return 0, false
+    }
+    return s, true
+}
+
+// bound returns what the graph knows of node x less node y, when it
+// knows something, Go's relGraph.bound.
+func (mut g RelGraph) bound(x FKey, y FKey) (int64, bool, error) {
+    i, ok_x := g.index[x]
+    j, ok_y := g.index[y]
+    if !ok_x || !ok_y {
+        return 0, false, noerror
+    }
+    base := mut g.find_dists(i, false)?
+    return int_in(g.dists[:], base +% j), bool_at(g.known[:], base +% j), noerror
+}
+
+// bound_to is bound, found from y backwards, Go's relGraph.boundTo.
+func (mut g RelGraph) bound_to(x FKey, y FKey) (int64, bool, error) {
+    i, ok_x := g.index[x]
+    j, ok_y := g.index[y]
+    if !ok_x || !ok_y {
+        return 0, false, noerror
+    }
+    base := mut g.find_dists(j, true)?
+    return int_in(g.dists[:], base +% i), bool_at(g.known[:], base +% i), noerror
+}
+
+// proves reports whether the graph proves x - y <= w, Go's
+// relGraph.proves.
+func (mut g RelGraph) proves(x FKey, y FKey, w constant.Int) (bool, error) {
+    d, ok := mut g.bound(x, y)?
+    return ok && constant.from_int64(d).cmp(w) <= 0, noerror
+}
+
+// QueryW is the bound a query's graph must prove on x's node less y's,
+// and whether any can prove it.
+type QueryW struct {
+    w constant.Int
+    ok bool
+}
+
+// query_w returns the bound the graph must prove for x - y <= w, Go's
+// query: w less x's offset plus y's.
+func query_w(x LinTerm, y LinTerm, w constant.Int) QueryW {
+    v, ok := w.sub(x.off)
+    if !ok {
+        return QueryW{w: v, ok: false}
+    }
+    r, ok2 := v.add(y.off)
+    return QueryW{w: r, ok: ok2}
+}
+
+// relates reports whether the relations in force prove x - y <= w, Go's
+// relates: two terms of the same node need no facts.
+func (mut c Checker) relates(x LinTerm, y LinTerm, w constant.Int) (bool, error) {
+    q := query_w(x, y, w)
+    if !q.ok {
+        return false, noerror
+    }
+    if x.node == y.node {
+        return constant.from_int64(0).cmp(q.w) <= 0, noerror
+    }
+    mut g, has := mut c.relation_graph(x.node, y.node, x.is_len, y.is_len, false)?
+    if !has {
+        return false, noerror
+    }
+    r := mut g.proves(x.node, y.node, q.w)?
+    return r, noerror
+}

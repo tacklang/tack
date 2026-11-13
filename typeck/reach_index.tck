@@ -1,0 +1,819 @@
+package typeck
+
+import source from "tack/source"
+
+// The indexes of a run of endings, Go's reachIndex, atIndex,
+// suffixReach and suffixAt (reach.go): whether an ending reaches c.at
+// depends, but for three things, deferred code, an assignment's targets
+// and a late default, only on c.at, so the positions each ending reaches
+// are a few intervals (see reach_set), and the first ending reaching
+// c.at is found by a binary search over the cuts between them; the
+// three others make an ending reach c.at by where it is, which a search
+// over the endings sorted by position finds. A run shared by every fact
+// over the rest of a block answers through indexes of the whole list,
+// segment trees whose nodes each list the endings covering them.
+
+// min_pos is the smallest int64, Go's math.MinInt.
+var min_pos int64 = -9223372036854775807 - 1
+
+// Ival is the positions lo through hi, both included, Go's ival; it is
+// empty when lo is past hi.
+type Ival struct {
+    lo int64
+    hi int64
+}
+
+// span_ival returns the positions in_span says lie in sp, Go's spanIval.
+func span_ival(sp source.Span) Ival {
+    if sp.start == max_pos {
+        return Ival{lo: 1, hi: 0}
+    }
+    return Ival{lo: sp.start +% 1, hi: sp.end}
+}
+
+// above returns the positions past at, Go's above.
+func above(at int64) Ival {
+    if at == max_pos {
+        return Ival{lo: 1, hi: 0}
+    }
+    return Ival{lo: at +% 1, hi: max_pos}
+}
+
+// every_ival returns every position, Go's every.
+func every_ival() Ival {
+    return Ival{lo: min_pos, hi: max_pos}
+}
+
+// ival_in returns l[i], or an empty interval.
+func ival_in(l []Ival, i int64) Ival {
+    v, ok := l[i]
+    if !ok {
+        return Ival{lo: 1, hi: 0}
+    }
+    return v
+}
+
+// cut_ival returns the positions of set outside v, Go's cut.
+func cut_ival(set []Ival, v Ival) (list[Ival], error) {
+    mut out := make(list[Ival], c_allocator)
+    if v.lo > v.hi {
+        append(mut out, set...)?
+        return out, noerror
+    }
+    for _, s := range set {
+        if s.hi < v.lo || s.lo > v.hi {
+            append(mut out, s)?
+            continue
+        }
+        if s.lo < v.lo {
+            append(mut out, Ival{lo: s.lo, hi: v.lo -% 1})?
+        }
+        if s.hi > v.hi {
+            append(mut out, Ival{lo: v.hi +% 1, hi: s.hi})?
+        }
+    }
+    return out, noerror
+}
+
+// clip_ival returns the positions of set inside v, Go's clip.
+func clip_ival(set []Ival, v Ival) (list[Ival], error) {
+    mut out := make(list[Ival], c_allocator)
+    for _, s := range set {
+        mut lo := s.lo
+        if v.lo > lo {
+            lo = v.lo
+        }
+        mut hi := s.hi
+        if v.hi < hi {
+            hi = v.hi
+        }
+        if lo <= hi {
+            append(mut out, Ival{lo: lo, hi: hi})?
+        }
+    }
+    return out, noerror
+}
+
+// reach_set returns the positions c.at may be at for e to reach it when
+// no deferred code, assignment's targets or late default is being
+// checked, Go's reachSet.
+func (c Checker) reach_set(e Ending) (list[Ival], error) {
+    mut set := make(list[Ival], c_allocator)
+    append(mut set, above(e.at))?
+    loop := span_ival(e.loop)
+    if loop.lo <= loop.hi {
+        append(mut set, loop)?
+    }
+    mut rest := make(list[Ival], c_allocator)
+    append(mut rest, every_ival())?
+    mut k := e.kept
+    for k >= 0 && len(rest) > 0 {
+        kp := c.keep_at(k)
+        r1 := cut_ival(rest[:], span_ival(kp.whole))?
+        left := clip_ival(r1[:], Ival{lo: min_pos, hi: kp.resume})?
+        for _, l := range left {
+            s2 := cut_ival(set[:], l)?
+            set = s2
+        }
+        r2 := clip_ival(r1[:], above(kp.resume))?
+        rest = r2
+        k = kp.skip
+    }
+    return set, noerror
+}
+
+// Stab is the index of which ending of a run is the first to reach a
+// position, Go's reachIndex: the count cuts of the store's ints from
+// cuts, in increasing order, where the answer may change, and from
+// first, for each, the position in the run of the first ending reaching
+// every position from it up to the next cut, or -1.
+type Stab struct {
+    cuts int64
+    first int64
+    count int64
+}
+
+// AtIdx finds the first ending of a run whose own position lies in an
+// interval, Go's atIndex: of the store's ints, from order the positions
+// in the run of the endings sorted by where each is, from ats where each
+// is in that order, and from least a tree of the least of order over
+// each run of it; count is how many endings.
+type AtIdx struct {
+    order int64
+    ats int64
+    least int64
+    count int64
+}
+
+// rint returns the store's int at i, or 0.
+func (c Checker) rint(i int64) int64 {
+    v, ok := c.fx.reach.ints[i]
+    if !ok {
+        return 0
+    }
+    return v
+}
+
+// set_rint sets the store's int at i to v.
+func (mut c Checker) set_rint(i int64, v int64) {
+    set_at(mut c.fx.reach.ints, i, v)
+}
+
+// IvalSets is the reach sets of a run of endings, flat: the intervals
+// of every ending in order, and for each ending where its own start.
+type IvalSets struct {
+    ivals list[Ival]
+    starts list[int64]
+}
+
+// reach_sets returns the reach sets of the count endings from start.
+func (c Checker) reach_sets(start int64, count int64) (IvalSets, error) {
+    mut sets := IvalSets{ivals: make(list[Ival], c_allocator), starts: make(list[int64], c_allocator)}
+    mut i int64 = 0
+    for i < count {
+        s := c.reach_set(c.ending_at(start +% i))?
+        append(mut sets.starts, len(sets.ivals))?
+        append(mut sets.ivals, s[:]...)?
+        i +%= 1
+    }
+    append(mut sets.starts, len(sets.ivals))?
+    return sets, noerror
+}
+
+// sorted_cuts returns the cuts of sets, the starts of their intervals
+// and the position past each one's end, sorted, each once.
+func sorted_cuts(sets IvalSets) (list[int64], error) {
+    mut raw := make(list[int64], c_allocator)
+    for _, v := range sets.ivals {
+        append(mut raw, v.lo)?
+        if v.hi < max_pos {
+            append(mut raw, v.hi +% 1)?
+        }
+    }
+    sorted := sort_ints(raw[:])?
+    mut out := make(list[int64], c_allocator)
+    for _, v := range sorted {
+        if len(out) == 0 || int_in(out[:], len(out) -% 1) != v {
+            append(mut out, v)?
+        }
+    }
+    return out, noerror
+}
+
+// int_in returns l[i], or 0.
+func int_in(l []int64, i int64) int64 {
+    v, ok := l[i]
+    if !ok {
+        return 0
+    }
+    return v
+}
+
+// search_ints returns the first position of the sorted l whose value is
+// at least v, Go's sort.SearchInts and slices.BinarySearch's position.
+func search_ints(l []int64, v int64) int64 {
+    mut lo int64 = 0
+    mut hi := len(l)
+    for lo < hi {
+        mid := lo +% (hi -% lo) / 2
+        if int_in(l, mid) < v {
+            lo = mid +% 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
+}
+
+// new_stab returns the Stab of the run r, from the reach set of each of
+// its endings, each piece between two cuts labeled by the first ending
+// covering it, Go's newReachIndex.
+func (mut c Checker) new_stab(r int64) (int64, error) {
+    run := c.run_at(r)
+    sets := c.reach_sets(run.start, run.count)?
+    cuts := sorted_cuts(sets)?
+    n := len(cuts)
+    mut first := make(list[int64], c_allocator)
+    mut next := make(list[int64], c_allocator)
+    for j := range n {
+        append(mut first, -1)?
+        append(mut next, j)?
+    }
+    append(mut next, n)?
+    mut si int64 = 0
+    for si < run.count {
+        lo_v := int_in(sets.starts[:], si)
+        hi_v := int_in(sets.starts[:], si +% 1)
+        mut vi := lo_v
+        for vi < hi_v {
+            v := ival_in(sets.ivals[:], vi)
+            vi +%= 1
+            frm := search_ints(cuts[:], v.lo)
+            mut to := n
+            if v.hi < max_pos {
+                to = search_ints(cuts[:], v.hi +% 1)
+            }
+            mut j := free_piece(mut next, frm)
+            for j < to {
+                set_at(mut first, j, si)
+                set_at(mut next, j, j +% 1)
+                j = free_piece(mut next, j)
+            }
+        }
+        si +%= 1
+    }
+    base := len(c.fx.reach.ints)
+    append(mut c.fx.reach.ints, cuts[:]...)?
+    append(mut c.fx.reach.ints, first[:]...)?
+    nid := len(c.fx.reach.stabs)
+    append(mut c.fx.reach.stabs, Stab{cuts: base, first: base +% n, count: n})?
+    return nid, noerror
+}
+
+// free_piece returns the first piece from j not yet labeled, following
+// next and compressing the path it follows.
+func free_piece(mut next list[int64], j int64) int64 {
+    mut root := j
+    for {
+        nr := int_in(next[:], root)
+        if nr == root {
+            break
+        }
+        root = nr
+    }
+    mut k := j
+    for {
+        nk := int_in(next[:], k)
+        if nk == root {
+            break
+        }
+        set_at(mut next, k, root)
+        k = nk
+    }
+    return root
+}
+
+// stab_at returns the position in the run of the first ending reaching
+// the position at, or -1 for none, Go's reachIndex.at.
+func (c Checker) stab_at(s Stab, at int64) int64 {
+    mut lo int64 = 0
+    mut hi := s.count
+    for lo < hi {
+        mid := lo +% (hi -% lo) / 2
+        if c.rint(s.cuts +% mid) > at {
+            hi = mid
+        } else {
+            lo = mid +% 1
+        }
+    }
+    if lo == 0 {
+        return -1
+    }
+    return c.rint(s.first +% lo -% 1)
+}
+
+// stab_rec returns the Stab at position s, or one of no cuts.
+func (c Checker) stab_rec(s int64) Stab {
+    r, ok := c.fx.reach.stabs[s]
+    if !ok {
+        return Stab{cuts: 0, first: 0, count: 0}
+    }
+    return r
+}
+
+// at_rec returns the AtIdx at position a, or one of no endings.
+func (c Checker) at_rec(a int64) AtIdx {
+    r, ok := c.fx.reach.ats[a]
+    if !ok {
+        return AtIdx{order: 0, ats: 0, least: 0, count: 0}
+    }
+    return r
+}
+
+// new_at_idx returns the AtIdx of the count endings from start, Go's
+// newAtIndex: their positions sorted stably by where each is.
+func (mut c Checker) new_at_idx(start int64, count int64) (int64, error) {
+    mut keys := make(list[int64], c_allocator)
+    mut order := make(list[int64], c_allocator)
+    mut i int64 = 0
+    for i < count {
+        append(mut keys, c.ending_at(start +% i).at)?
+        append(mut order, i)?
+        i +%= 1
+    }
+    sorted := stable_sort_by(order[:], keys[:])?
+    base := len(c.fx.reach.ints)
+    append(mut c.fx.reach.ints, sorted[:]...)?
+    for _, j := range sorted {
+        append(mut c.fx.reach.ints, int_in(keys[:], j))?
+    }
+    least := len(c.fx.reach.ints)
+    push_ints(mut c.fx.reach.ints, 0, count)?
+    for _, j := range sorted {
+        append(mut c.fx.reach.ints, j)?
+    }
+    mut k := count -% 1
+    for k > 0 {
+        a := c.rint(least +% 2 *% k)
+        b := c.rint(least +% 2 *% k +% 1)
+        mut m := a
+        if b < a {
+            m = b
+        }
+        mut c.set_rint(least +% k, m)
+        k -%= 1
+    }
+    nid := len(c.fx.reach.ats)
+    append(mut c.fx.reach.ats, AtIdx{order: base, ats: base +% count, least: least, count: count})?
+    return nid, noerror
+}
+
+// at_first returns the least position in the run of an ending whose own
+// position lies in v, or -1 for none, Go's atIndex.first.
+func (c Checker) at_first(x AtIdx, v Ival) int64 {
+    if v.lo > v.hi {
+        return -1
+    }
+    n := x.count
+    lo0 := c.search_at(x.ats, n, v.lo, false)
+    hi0 := c.search_at(x.ats, n, v.hi, true)
+    mut best := -1
+    mut lo := lo0 +% n
+    mut hi := hi0 +% n
+    for lo < hi {
+        if lo % 2 == 1 {
+            j := c.rint(x.least +% lo)
+            if best < 0 || j < best {
+                best = j
+            }
+            lo +%= 1
+        }
+        if hi % 2 == 1 {
+            hi -%= 1
+            j := c.rint(x.least +% hi)
+            if best < 0 || j < best {
+                best = j
+            }
+        }
+        lo = lo / 2
+        hi = hi / 2
+    }
+    return best
+}
+
+// search_at returns the first of the n ints from base that is at least
+// v, or, when past, past v.
+func (c Checker) search_at(base int64, n int64, v int64, past bool) int64 {
+    mut lo int64 = 0
+    mut hi := n
+    for lo < hi {
+        mid := lo +% (hi -% lo) / 2
+        x := c.rint(base +% mid)
+        if x >= v && !past || x > v && past {
+            hi = mid
+        } else {
+            lo = mid +% 1
+        }
+    }
+    return lo
+}
+
+// placed returns the intervals where an ending reaches c.at whatever
+// c.at is, by where it is alone, Go's placed.
+func (c Checker) placed() (list[Ival], error) {
+    mut out := make(list[Ival], c_allocator)
+    if c.fx.has_defer {
+        mut all := make(list[Ival], c_allocator)
+        append(mut all, every_ival())?
+        cut := cut_ival(all[:], span_ival(c.fx.defer_span))?
+        append(mut out, cut[:]...)?
+    }
+    if c.fx.has_storing {
+        append(mut out, span_ival(c.fx.storing))?
+    }
+    for _, d := range c.fx.late_defaults {
+        mut whole := make(list[Ival], c_allocator)
+        append(mut whole, span_ival(d.whole))?
+        cut := cut_ival(whole[:], span_ival(d.body))?
+        append(mut out, cut[:]...)?
+    }
+    return out, noerror
+}
+
+// indexed_reach returns what scan_reach does for the run r, through its
+// indexes, built the first time they are needed, Go's indexedReach.
+func (mut c Checker) indexed_reach(r int64) (int64, error) {
+    mut run := c.run_at(r)
+    if run.shared >= 0 {
+        i := mut c.shared_reach(run.shared, run.frm)?
+        return i, noerror
+    }
+    if run.by_use < 0 {
+        run.by_use = mut c.new_stab(r)?
+        set_at(mut c.fx.runs, r, run)
+    }
+    mut best := c.stab_at(c.stab_rec(run.by_use), c.fx.at)
+    pl := c.placed()?
+    for _, v := range pl {
+        if run.by_at < 0 {
+            run.by_at = mut c.new_at_idx(run.start, run.count)?
+            set_at(mut c.fx.runs, r, run)
+        }
+        i := c.at_first(c.at_rec(run.by_at), v)
+        if i >= 0 && (best < 0 || i < best) {
+            best = i
+        }
+    }
+    return best, noerror
+}
+
+// SegTree is a segment tree over count leaves whose every node lists
+// positions in increasing order, Go's suffixReach.tree and
+// suffixAt.tree: node i's list is the store's ints from int(lists +
+// i) to int(lists + i + 1), of the count * 2 + 1 offsets from lists;
+// keys are the count cuts or positions from keys its leaves stand for.
+type SegTree struct {
+    keys int64
+    count int64
+    lists int64
+}
+
+// shared_reach returns what indexed_reach does for the endings of the
+// shared list sh from the position from on, as a position among them,
+// Go's sharedReach.
+func (mut c Checker) shared_reach(sh int64, frm int64) (int64, error) {
+    mut rec := c.shared_at(sh)
+    if rec.by_use < 0 {
+        rec.by_use = mut c.new_suffix_reach(rec)?
+        set_at(mut c.fx.blocks.shared, sh, rec)
+    }
+    mut best := c.suffix_reach_at(c.seg_rec(rec.by_use), c.fx.at, frm)
+    pl := c.placed()?
+    for _, v := range pl {
+        if rec.by_at < 0 {
+            rec.by_at = mut c.new_suffix_at(rec)?
+            set_at(mut c.fx.blocks.shared, sh, rec)
+        }
+        i := c.suffix_at_first(c.seg_rec(rec.by_at), v, frm)
+        if i >= 0 && (best < 0 || i < best) {
+            best = i
+        }
+    }
+    if best < 0 {
+        return -1, noerror
+    }
+    return best -% frm, noerror
+}
+
+// seg_rec returns the SegTree at position s, kept among the stabs as
+// keys, count and lists in cuts, count and first.
+func (c Checker) seg_rec(s int64) SegTree {
+    r := c.stab_rec(s)
+    return SegTree{keys: r.cuts, count: r.count, lists: r.first}
+}
+
+// add_seg records a segment tree of len(keys) leaves, keys its leaves'
+// keys, whose node i lists the pool's ints from int_in(starts, i), of
+// int_in(counts, i) of them, and returns its position.
+func (mut c Checker) add_seg(keys []int64, pl []int64, starts []int64, counts []int64) (int64, error) {
+    n := len(keys)
+    base := len(c.fx.reach.ints)
+    append(mut c.fx.reach.ints, keys...)?
+    offs := len(c.fx.reach.ints)
+    push_ints(mut c.fx.reach.ints, 0, 2 *% n +% 1)?
+    for i := range 2 *% n {
+        mut c.set_rint(offs +% i, len(c.fx.reach.ints))
+        st := int_in(starts, i)
+        mut j int64 = 0
+        for j < int_in(counts, i) {
+            append(mut c.fx.reach.ints, int_in(pl, st +% j))?
+            j +%= 1
+        }
+    }
+    mut c.set_rint(offs +% 2 *% n, len(c.fx.reach.ints))
+    nid := len(c.fx.reach.stabs)
+    append(mut c.fx.reach.stabs, Stab{cuts: base, first: offs, count: n})?
+    return nid, noerror
+}
+
+// seg_first returns the first position node i of t lists at or after
+// from, or -1, Go's firstFrom.
+func (c Checker) seg_first(t SegTree, i int64, frm int64) int64 {
+    lo0 := c.rint(t.lists +% i)
+    hi0 := c.rint(t.lists +% i +% 1)
+    mut lo := lo0
+    mut hi := hi0
+    for lo < hi {
+        mid := lo +% (hi -% lo) / 2
+        if c.rint(mid) >= frm {
+            hi = mid
+        } else {
+            lo = mid +% 1
+        }
+    }
+    if lo == hi0 {
+        return -1
+    }
+    return c.rint(lo)
+}
+
+// new_suffix_reach returns the segment tree of the shared list rec, each
+// interval of each ending's reach set put in the nodes that cover its
+// pieces and no more, Go's newSuffixReach: a first pass counts each
+// node's positions, a second puts them in, the endings in order so each
+// node's list is in increasing order.
+func (mut c Checker) new_suffix_reach(rec SharedRec) (int64, error) {
+    sets := c.reach_sets(rec.start, rec.count)?
+    cuts := sorted_cuts(sets)?
+    n := len(cuts)
+    mut counts := make(list[int64], c_allocator)
+    push_ints(mut counts, 0, 2 *% n)?
+    mut pass int64 = 0
+    mut starts := make(list[int64], c_allocator)
+    mut fill := make(list[int64], c_allocator)
+    mut pl := make(list[int64], c_allocator)
+    for pass < 2 {
+        if pass == 1 {
+            mut at int64 = 0
+            for i := range 2 *% n {
+                append(mut starts, at)?
+                append(mut fill, 0)?
+                at +%= int_in(counts[:], i)
+            }
+            push_ints(mut pl, 0, at)?
+        }
+        mut si int64 = 0
+        for si < rec.count {
+            lo_v := int_in(sets.starts[:], si)
+            hi_v := int_in(sets.starts[:], si +% 1)
+            mut vi := lo_v
+            for vi < hi_v {
+                v := ival_in(sets.ivals[:], vi)
+                vi +%= 1
+                frm := search_ints(cuts[:], v.lo)
+                mut to := n
+                if v.hi < max_pos {
+                    to = search_ints(cuts[:], v.hi +% 1)
+                }
+                mut lo := frm +% n
+                mut hi := to +% n
+                for lo < hi {
+                    if lo % 2 == 1 {
+                        put_node(pass, mut counts, starts[:], mut fill, mut pl, lo, si)
+                        lo +%= 1
+                    }
+                    if hi % 2 == 1 {
+                        hi -%= 1
+                        put_node(pass, mut counts, starts[:], mut fill, mut pl, hi, si)
+                    }
+                    lo = lo / 2
+                    hi = hi / 2
+                }
+            }
+            si +%= 1
+        }
+        pass +%= 1
+    }
+    nid := mut c.add_seg(cuts[:], pl[:], starts[:], counts[:])?
+    return nid, noerror
+}
+
+// put_node counts the position si in node, on the first pass, and puts
+// it in the node's list, on the second.
+func put_node(pass int64, mut counts list[int64], starts []int64, mut fill list[int64], mut pl list[int64], node int64, si int64) {
+    if pass == 0 {
+        set_at(mut counts, node, int_in(counts[:], node) +% 1)
+        return
+    }
+    at := int_in(starts, node) +% int_in(fill[:], node)
+    set_at(mut pl, at, si)
+    set_at(mut fill, node, int_in(fill[:], node) +% 1)
+}
+
+// suffix_reach_at returns the position in the list of the first ending
+// at or after from that reaches the position at, or -1, Go's
+// suffixReach.at.
+func (c Checker) suffix_reach_at(t SegTree, at int64, frm int64) int64 {
+    n := t.count
+    mut lo int64 = 0
+    mut hi := n
+    for lo < hi {
+        mid := lo +% (hi -% lo) / 2
+        if c.rint(t.keys +% mid) > at {
+            hi = mid
+        } else {
+            lo = mid +% 1
+        }
+    }
+    if lo == 0 {
+        return -1
+    }
+    mut best := -1
+    mut node := lo -% 1 +% n
+    for node >= 1 {
+        i := c.seg_first(t, node, frm)
+        if i >= 0 && (best < 0 || i < best) {
+            best = i
+        }
+        node = node / 2
+    }
+    return best
+}
+
+// new_suffix_at returns the segment tree over the shared list rec's
+// endings sorted stably by where each is, each node holding the
+// positions in the list of those under it, merged from its children's,
+// Go's newSuffixAt.
+func (mut c Checker) new_suffix_at(rec SharedRec) (int64, error) {
+    n := rec.count
+    mut keys := make(list[int64], c_allocator)
+    mut order := make(list[int64], c_allocator)
+    mut i int64 = 0
+    for i < n {
+        append(mut keys, c.ending_at(rec.start +% i).at)?
+        append(mut order, i)?
+        i +%= 1
+    }
+    sorted := stable_sort_by(order[:], keys[:])?
+    mut ats := make(list[int64], c_allocator)
+    for _, j := range sorted {
+        append(mut ats, int_in(keys[:], j))?
+    }
+    mut starts := make(list[int64], c_allocator)
+    mut counts := make(list[int64], c_allocator)
+    push_ints(mut starts, 0, 2 *% n)?
+    push_ints(mut counts, 0, 2 *% n)?
+    mut pl := make(list[int64], c_allocator)
+    for k, j := range sorted {
+        at := n +% k
+        set_at(mut starts, at, len(pl))
+        set_at(mut counts, at, 1)
+        append(mut pl, j)?
+    }
+    mut k := n -% 1
+    for k > 0 {
+        a0 := int_in(starts[:], 2 *% k)
+        an := int_in(counts[:], 2 *% k)
+        b0 := int_in(starts[:], 2 *% k +% 1)
+        bn := int_in(counts[:], 2 *% k +% 1)
+        start := len(pl)
+        mut x int64 = 0
+        mut y int64 = 0
+        for x < an || y < bn {
+            av := int_in(pl[:], a0 +% x)
+            bv := int_in(pl[:], b0 +% y)
+            if y >= bn || x < an && av < bv {
+                append(mut pl, av)?
+                x +%= 1
+            } else {
+                append(mut pl, bv)?
+                y +%= 1
+            }
+        }
+        set_at(mut starts, k, start)
+        set_at(mut counts, k, an +% bn)
+        k -%= 1
+    }
+    nid := mut c.add_seg(ats[:], pl[:], starts[:], counts[:])?
+    return nid, noerror
+}
+
+// suffix_at_first returns the least position in the list, at or after
+// from, of an ending whose own position lies in v, or -1, Go's
+// suffixAt.first.
+func (c Checker) suffix_at_first(t SegTree, v Ival, frm int64) int64 {
+    if v.lo > v.hi {
+        return -1
+    }
+    n := t.count
+    lo0 := c.search_at(t.keys, n, v.lo, false)
+    hi0 := c.search_at(t.keys, n, v.hi, true)
+    mut best := -1
+    mut lo := lo0 +% n
+    mut hi := hi0 +% n
+    for lo < hi {
+        if lo % 2 == 1 {
+            i := c.seg_first(t, lo, frm)
+            if i >= 0 && (best < 0 || i < best) {
+                best = i
+            }
+            lo +%= 1
+        }
+        if hi % 2 == 1 {
+            hi -%= 1
+            i := c.seg_first(t, hi, frm)
+            if i >= 0 && (best < 0 || i < best) {
+                best = i
+            }
+        }
+        lo = lo / 2
+        hi = hi / 2
+    }
+    return best
+}
+
+// sort_ints returns the values of l in increasing order.
+func sort_ints(l []int64) (list[int64], error) {
+    mut order := make(list[int64], c_allocator)
+    for i := range len(l) {
+        append(mut order, i)?
+    }
+    sorted := stable_sort_by(order[:], l)?
+    mut out := make(list[int64], c_allocator)
+    for _, i := range sorted {
+        append(mut out, int_in(l, i))?
+    }
+    return out, noerror
+}
+
+// stable_sort_by returns order, positions into keys, sorted by their
+// keys, keeping the order of positions whose keys are equal, as Go's
+// slices.SortStableFunc does: a merge sort, bottom up, with no
+// recursion.
+func stable_sort_by(order []int64, keys []int64) (list[int64], error) {
+    n := len(order)
+    mut src := make(list[int64], c_allocator)
+    append(mut src, order...)?
+    mut width int64 = 1
+    for width < n {
+        mut to := make(list[int64], c_allocator)
+        mut lo int64 = 0
+        for lo < n {
+            mut mid := lo +% width
+            if mid > n {
+                mid = n
+            }
+            mut hi := mid +% width
+            if hi > n {
+                hi = n
+            }
+            mut i := lo
+            mut j := mid
+            for i < mid || j < hi {
+                a := int_in(src[:], i)
+                b := int_in(src[:], j)
+                if i < mid && (j >= hi || int_in(keys, b) >= int_in(keys, a)) {
+                    append(mut to, a)?
+                    i +%= 1
+                } else {
+                    append(mut to, b)?
+                    j +%= 1
+                }
+            }
+            lo = hi
+        }
+        src = to
+        width = width *% 2
+    }
+    return src, noerror
+}
+
+// push_ints appends n copies of v to l.
+func push_ints(mut l list[int64], v int64, n int64) error {
+    mut i int64 = 0
+    for i < n {
+        append(mut l, v)?
+        i +%= 1
+    }
+    return noerror
+}

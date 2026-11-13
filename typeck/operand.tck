@@ -649,8 +649,11 @@ func (mut c Checker) index_expr(k Key, ix ast.Index) (types.Type, error) {
 }
 
 // index_of checks the index of x[i] at k, x of type base, and returns the
-// element's type, Go's index after its operand and element. A map, an
-// arena or a pool is a body's, which the port does not check yet.
+// element's type, Go's index after its operand and element: in a body an
+// index must be proven in range by the facts in force (see
+// require_in_range and require_string_in_range), and one bound with ok
+// needs no proof (see checked_element). A map's, an arena's and a pool's
+// element are other stages', and declined.
 func (mut c Checker) index_of(k Key, ix ast.Index, base types.Type) (types.Type, error) {
     if c.table.is_arena(base) {
         return types.invalid, not_ported
@@ -696,6 +699,10 @@ func (mut c Checker) index_of(k Key, ix ast.Index, base types.Type) (types.Type,
         }
         return c.table.elem_of(base), noerror
     }
+    if c.checked_index == k {
+        ct := mut c.checked_element(k, base, length, elem)?
+        return ct, noerror
+    }
     if length {
         // A string's, a view's or a list's element: a known index of a
         // string of known length is decided; anything else needs facts.
@@ -729,10 +736,16 @@ func (mut c Checker) index_of(k Key, ix ast.Index, base types.Type) (types.Type,
             mut c.errorf(span_at(c.prog.trees, index), own m)?
             return elem, noerror
         }
-        // An index not known, or of a string not known, needs the facts
-        // in force, which the port does not keep yet; before bodies that
-        // follows an error.
-        return types.invalid, not_ported
+        if !c.in_body {
+            // Before bodies an index not known follows an error.
+            return types.invalid, not_ported
+        }
+        borrows := mut c.index_writes_borrow(index)?
+        if borrows {
+            return types.invalid, not_ported
+        }
+        mut c.require_string_in_range(k, false)?
+        return elem, noerror
     }
     n := c.table.len_of(base)
     v, known := mut c.known_value(index)?
@@ -747,8 +760,73 @@ func (mut c Checker) index_of(k Key, ix ast.Index, base types.Type) (types.Type,
         }
         return c.table.elem_of(base), noerror
     }
-    // As for a string's index, an array's not known is declined.
-    return types.invalid, not_ported
+    if !c.in_body {
+        // As for a string's index, an array's not known is declined.
+        return types.invalid, not_ported
+    }
+    mut c.require_in_range(k, base, n, false)?
+    return c.table.elem_of(base), noerror
+}
+
+// checked_element finishes the check of the element k being bound with
+// ok, of a value of type base, a string's, a view's or a list's when
+// length says so, whose element type is then elem, Go's element and
+// stringElement for the checked form: its index needs no proof, but a
+// constant one out of range always fails, and is reported.
+func (mut c Checker) checked_element(k Key, base types.Type, length bool, elem types.Type) (types.Type, error) {
+    index := index_index(c.prog.trees, k)
+    x := index_x(c.prog.trees, k)
+    v, known := mut c.known_value(index)?
+    if length {
+        if known {
+            n, ext := mut c.extent_of(x)?
+            out := ext && (v.is_negative() || v.cmp(constant.from_int64(n)) >= 0) || !ext && v.is_negative()
+            if out {
+                mut c.require_string_in_range(k, false)?
+                return types.invalid, noerror
+            }
+        }
+        return elem, noerror
+    }
+    n := c.table.len_of(base)
+    if known && (v.is_negative() || v.cmp(constant.from_int64(n)) >= 0) {
+        tn := mut c.type_name(base)?
+        mut m := msg()
+        fmt.appendf(mut m, "index ")?
+        v.append_string(mut m)?
+        fmt.appendf(mut m, " is out of range for %s", tn[:])?
+        mut c.errorf(span_at(c.prog.trees, index), own m)?
+        return types.invalid, noerror
+    }
+    return c.table.elem_of(base), noerror
+}
+
+// index_writes_borrow reports whether the index index passes anything as
+// mut, or holds a closure, at any depth, which Go's checkIndexBorrows
+// asks about: what may overlap the list or view read in place is a
+// later stage's, and declined.
+func (mut c Checker) index_writes_borrow(index Key) (bool, error) {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, index.node)?
+    for len(stack) > 0 {
+        top, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        n := Key{unit: index.unit, node: top}
+        switch kind_at(c.prog.trees, n) {
+        case mut_arg, func_lit:
+            return true, noerror
+        default:
+        }
+        clear_nodes(mut kids)
+        children_of(c.prog.trees, n.unit, top, mut kids)?
+        for _, kid := range kids {
+            append(mut stack, kid)?
+        }
+    }
+    return false, noerror
 }
 
 // selector checks a field read as a value, x.f, whose x is a name, or a

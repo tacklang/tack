@@ -1,0 +1,790 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import source from "tack/source"
+import text from "std/text"
+import types from "tack/types"
+
+// The facts, Go's facts.go, subject.go and explain.go's guards and
+// drops. A fact is something known about a subject's value within some
+// region of the body: that it is not zero, or bounds on it, or that it
+// lies below a string's length, or a relation to another subject. It
+// comes from a condition just tested, a range loop, a case of a switch
+// or a statement that stores a value, and holds in its region up to the
+// first write to what it names that can reach the use (see reach.tck).
+// The rules are Go's, written out in facts.go; this port keeps its
+// order of work wherever the order shows in what is reported.
+//
+// Go's facts point at what they came from, their guard, why they were
+// dropped and what ends them; here those are records in arenas of the
+// Checker's FactState, named by their position, -1 for none, which
+// live for the check of one function's body (see reset_facts).
+
+// FKey identifies a fact's subject, Go's factKey: the variable or
+// parameter decl it starts from, and the fields and elements after it,
+// an interned path (see intern_path), 0 for the variable itself. The
+// zero key, whose decl is no key, names nothing.
+type FKey struct {
+    decl Key
+    path int64
+}
+
+// zero_fkey returns the zero key, which names nothing.
+func zero_fkey() FKey {
+    return FKey{decl: no_key(), path: 0}
+}
+
+// decl_fkey returns the key of the variable or parameter decl itself,
+// Go's declKey.
+func decl_fkey(decl Key) FKey {
+    return FKey{decl: decl, path: 0}
+}
+
+// is_zero reports whether k is the zero key.
+func (k FKey) is_zero() bool {
+    return is_no_key(k.decl)
+}
+
+// Cond is a condition a fact came from or a guard tests, Go's ast.Expr
+// in fact.src and guard.cond: the node itself when tag is no key, and
+// otherwise the comparison tag == node a switch's case stands for, which
+// Go builds only to derive facts from (see caseCond), spanning node.
+type Cond struct {
+    node Key
+    tag Key
+}
+
+// no_cond returns the Cond of no condition, Go's nil.
+func no_cond() Cond {
+    return Cond{node: no_key(), tag: no_key()}
+}
+
+// node_cond returns the Cond that is the node k.
+func node_cond(k Key) Cond {
+    return Cond{node: k, tag: no_key()}
+}
+
+// is_none reports whether cd is no condition.
+func (cd Cond) is_none() bool {
+    return is_no_key(cd.node)
+}
+
+// The kinds of guard, Go's guardKind.
+var guard_cond uint8 = 0
+var guard_else uint8 = 1
+var guard_range uint8 = 2
+var guard_count uint8 = 3
+var guard_case uint8 = 4
+var guard_later_case uint8 = 5
+var guard_exit uint8 = 6
+var guard_matched uint8 = 7
+var guard_store uint8 = 8
+var guard_ensures uint8 = 9
+var guard_invariant uint8 = 10
+var guard_value uint8 = 11
+var guard_fallthrough uint8 = 12
+
+// Guard is where facts came from, Go's guard: a condition, a loop, a
+// case or an early exit, whose span a note underlines, and cond, the
+// condition tested, when there is one.
+type Guard struct {
+    cond Cond
+    span source.Span
+    kind uint8
+}
+
+// The kinds of drop, Go's dropKind; Go's dropWraps, a counting loop's,
+// is a later stage's.
+var drop_assigned uint8 = 0
+var drop_mut uint8 = 2
+
+// Drop is why a fact does not hold where it is put in force, Go's drop:
+// the region assigns the variable decl names at at, or passes it as mut
+// to the function the bytes text_start and text_len of the FactState's
+// drop_text name there.
+type Drop struct {
+    decl Key
+    at source.Span
+    text_start int64
+    text_len int64
+    kind uint8
+}
+
+// Fact is something known about a subject's value in a region, Go's
+// fact: about is its subject; it is not zero, nonzero, or not ne, a
+// value a division asks about (has_ne), or lies at or above lo, or at
+// or below hi, or below the length of the string subject len_of, or at
+// or below that of at_most_len, or at or below the integer subject
+// at_most, below it when strict, or it is a key of the map subject
+// in_map, known by its value, the interned text known, when it has one,
+// or a difference bound, diff. out says ne is a value it rules out;
+// either the sides of a condition one of which holds. src, guard, drop
+// and ends are where it came from, the guard it was put in force for,
+// why it does not hold, and the writes in its region that may end it
+// (see Run), each -1 or none for none.
+type Fact struct {
+    src Cond
+    guard int64
+    drop int64
+    about FKey
+    len_of FKey
+    at_most_len FKey
+    at_most FKey
+    in_map FKey
+    diff int64
+    known int64
+    ends int64
+    lo constant.Int
+    hi constant.Int
+    ne constant.Int
+    has_lo bool
+    has_hi bool
+    has_ne bool
+    nonzero bool
+    strict bool
+    out bool
+    either int64
+}
+
+// new_fact returns a fact about about that says nothing yet.
+func new_fact(about FKey) Fact {
+    z := constant.from_int64(0)
+    return Fact{
+        src: no_cond(), guard: -1, drop: -1, about: about, len_of: zero_fkey(),
+        at_most_len: zero_fkey(), at_most: zero_fkey(), in_map: zero_fkey(),
+        diff: -1, known: 0, ends: -1, lo: z, hi: z, ne: z, has_lo: false,
+        has_hi: false, has_ne: false, nonzero: false, strict: false, out: false,
+        either: -1,
+    }
+}
+
+// is_empty reports whether f says nothing about its variable, Go's
+// fact.empty: no bound, not nonzero, no value ruled out, no length
+// bounding it and no relation.
+func (f Fact) is_empty() bool {
+    return !f.has_lo && !f.has_hi && !f.nonzero && !f.has_ne && f.len_of.is_zero() && !f.relational()
+}
+
+// relational reports whether f is a relation, Go's fact.relational: at
+// or below a length, at or below another subject, a key of a map, or a
+// difference bound.
+func (f Fact) relational() bool {
+    return !f.at_most_len.is_zero() || !f.at_most.is_zero() || !f.in_map.is_zero() || f.diff >= 0
+}
+
+// Interval is what the facts say about a value, Go's interval: at or
+// above lo when has_lo, at or below hi when has_hi, and not zero when
+// nonzero.
+type Interval struct {
+    lo constant.Int
+    hi constant.Int
+    has_lo bool
+    has_hi bool
+    nonzero bool
+}
+
+// no_interval returns the interval that says nothing.
+func no_interval() Interval {
+    z := constant.from_int64(0)
+    return Interval{lo: z, hi: z, has_lo: false, has_hi: false, nonzero: false}
+}
+
+// narrow returns known once the fact f holds as well, Go's
+// interval.narrow.
+func (known Interval) narrow(f Fact) Interval {
+    mut k := known
+    k.nonzero = k.nonzero || f.nonzero
+    if f.has_lo && (!k.has_lo || f.lo.cmp(k.lo) > 0) {
+        k.lo = f.lo
+        k.has_lo = true
+    }
+    if f.has_hi && (!k.has_hi || f.hi.cmp(k.hi) < 0) {
+        k.hi = f.hi
+        k.has_hi = true
+    }
+    return k
+}
+
+// hull returns the smallest interval holding every value known or other
+// allows, Go's interval.hull.
+func (known Interval) hull(other Interval) Interval {
+    mut h := no_interval()
+    h.nonzero = known.excludes_zero() && other.excludes_zero()
+    if known.has_lo && other.has_lo {
+        h.lo = known.lo
+        h.has_lo = true
+        if other.lo.cmp(known.lo) < 0 {
+            h.lo = other.lo
+        }
+    }
+    if known.has_hi && other.has_hi {
+        h.hi = known.hi
+        h.has_hi = true
+        if other.hi.cmp(known.hi) > 0 {
+            h.hi = other.hi
+        }
+    }
+    return h
+}
+
+// excludes_zero reports whether known rules out zero, Go's
+// interval.excludesZero.
+func (known Interval) excludes_zero() bool {
+    z := constant.from_int64(0)
+    return known.nonzero || known.has_lo && known.lo.cmp(z) > 0 || known.has_hi && known.hi.cmp(z) < 0
+}
+
+// as_fact returns the fact that the subject k lies in known, Go's
+// interval.fact.
+func (known Interval) as_fact(k FKey) Fact {
+    mut f := new_fact(k)
+    f.lo = known.lo
+    f.hi = known.hi
+    f.has_lo = known.has_lo
+    f.has_hi = known.has_hi
+    f.nonzero = known.nonzero
+    return f
+}
+
+// is_empty reports whether known holds no value, its lower bound above
+// its upper one, Go's interval.empty.
+func (known Interval) is_empty() bool {
+    return known.has_lo && known.has_hi && known.lo.cmp(known.hi) > 0
+}
+
+// covers reports whether known bounds a value at least as tightly as f
+// does, on each side f bounds it, Go's interval.covers.
+func (known Interval) covers(f Fact) bool {
+    lo := !f.has_lo || known.has_lo && known.lo.cmp(f.lo) >= 0
+    return lo && (!f.has_hi || known.has_hi && known.hi.cmp(f.hi) <= 0)
+}
+
+// implies reports whether known says everything f does, Go's
+// interval.implies.
+func (known Interval) implies(f Fact) bool {
+    if !f.len_of.is_zero() || f.relational() {
+        return false
+    }
+    return known.covers(f) && (!f.nonzero || known.excludes_zero())
+}
+
+// tightened returns known with a subject known not to be zero, and at
+// or above it, at or above 1, and at or below -1 when at or below it,
+// Go's interval.tightened.
+func (known Interval) tightened() Interval {
+    mut k := known
+    if !k.nonzero {
+        return k
+    }
+    z := constant.from_int64(0)
+    if k.has_lo && k.lo.cmp(z) == 0 {
+        k.lo = constant.from_int64(1)
+    }
+    if k.has_hi && k.hi.cmp(z) == 0 {
+        k.hi = constant.from_int64(-1)
+    }
+    return k
+}
+
+// single returns the interval of the one value v, Go's single.
+func single(v constant.Int) Interval {
+    return Interval{lo: v, hi: v, has_lo: true, has_hi: true, nonzero: false}
+}
+
+// length_range returns the range of any length, from 0 to the largest
+// int64, Go's lengthRange.
+func length_range() Interval {
+    return Interval{lo: constant.from_int64(0), hi: constant.from_int64(9223372036854775807), has_lo: true, has_hi: true, nonzero: false}
+}
+
+// type_bounds returns the smallest and largest values of a sized integer
+// type, Go's typeBounds: a target-width type's largest is a 64-bit
+// one's.
+func type_bounds(typ types.Type) (constant.Int, constant.Int) {
+    n := types.max_bits(typ)
+    if types.is_unsigned(typ) {
+        if n >= 64 {
+            return constant.from_int64(0), constant.from_uint64(18446744073709551615)
+        }
+        mut hi uint64 = 1
+        mut i int64 = 0
+        for i < n {
+            hi = hi *% 2
+            i +%= 1
+        }
+        return constant.from_int64(0), constant.from_uint64(hi -% 1)
+    }
+    if n >= 64 {
+        return constant.from_int64(-9223372036854775807 - 1), constant.from_int64(9223372036854775807)
+    }
+    mut hi int64 = 1
+    mut i int64 = 1
+    for i < n {
+        hi = hi *% 2
+        i +%= 1
+    }
+    return constant.from_int64(0 -% hi), constant.from_int64(hi -% 1)
+}
+
+// type_interval returns the bounds the type typ gives a value of it,
+// none for a type without them, Go's typeInterval.
+func type_interval(typ types.Type) Interval {
+    mut known := no_interval()
+    if types.max_bits(typ) > 0 {
+        lo, hi := type_bounds(typ)
+        known.lo = lo
+        known.hi = hi
+        known.has_lo = true
+        known.has_hi = true
+    }
+    return known
+}
+
+// bound returns the fact that the subject about compares with k as op
+// says, Go's bound.
+func bound(about FKey, op ast.BinaryOp, k constant.Int) Fact {
+    mut f := new_fact(about)
+    one := constant.from_int64(1)
+    if op == ast.op_eq {
+        f.lo = k
+        f.hi = k
+        f.has_lo = true
+        f.has_hi = true
+    } else if op == ast.op_ne {
+        f.nonzero = k.is_zero()
+        f.ne = k
+        f.has_ne = division_edge(k)
+        f.out = true
+    } else if op == ast.op_lt {
+        v, ok := k.sub(one)
+        f.hi = v
+        f.has_hi = ok
+    } else if op == ast.op_le {
+        f.hi = k
+        f.has_hi = true
+    } else if op == ast.op_gt {
+        v, ok := k.add(one)
+        f.lo = v
+        f.has_lo = ok
+    } else {
+        f.lo = k
+        f.has_lo = true
+    }
+    return f
+}
+
+// division_edge reports whether k is a value a signed division's proof
+// asks to rule out, Go's divisionEdge: -1, or the smallest value of a
+// signed width.
+func division_edge(k constant.Int) bool {
+    if k.cmp(constant.from_int64(-1)) == 0 {
+        return true
+    }
+    return k.cmp(constant.from_int64(-128)) == 0 || k.cmp(constant.from_int64(-32768)) == 0 || k.cmp(constant.from_int64(-2147483648)) == 0 || k.cmp(constant.from_int64(-9223372036854775807 - 1)) == 0
+}
+
+// flip returns the operator that compares the same way with its
+// operands swapped, Go's flip.
+func flip(op ast.BinaryOp) ast.BinaryOp {
+    if op == ast.op_lt {
+        return ast.op_gt
+    }
+    if op == ast.op_le {
+        return ast.op_ge
+    }
+    if op == ast.op_gt {
+        return ast.op_lt
+    }
+    if op == ast.op_ge {
+        return ast.op_le
+    }
+    return op
+}
+
+// negate returns the comparison that holds exactly when op does not,
+// Go's negate.
+func negate(op ast.BinaryOp) ast.BinaryOp {
+    if op == ast.op_eq {
+        return ast.op_ne
+    }
+    if op == ast.op_ne {
+        return ast.op_eq
+    }
+    if op == ast.op_lt {
+        return ast.op_ge
+    }
+    if op == ast.op_le {
+        return ast.op_gt
+    }
+    if op == ast.op_gt {
+        return ast.op_le
+    }
+    return ast.op_lt
+}
+
+// intern_path returns the number of the path p, a subject's fields and
+// elements as a key writes them, adding it the first time: 0 is the
+// empty path, a variable itself.
+func (mut c Checker) intern_path(p []uint8) (int64, error) {
+    if len(p) == 0 {
+        return 0, noerror
+    }
+    t := text.from_bytes(p, c_allocator)?
+    n, seen := c.fx.path_ids[t]
+    if seen {
+        return n, noerror
+    }
+    nid := len(c.fx.paths)
+    put(mut c.fx.path_ids, t, nid)?
+    t2 := text.from_bytes(p, c_allocator)?
+    append(mut c.fx.paths, t2)?
+    return nid, noerror
+}
+
+// path_text appends to out the path n names.
+func (c Checker) path_text(n int64, mut out list[uint8]) error {
+    if n <= 0 {
+        return noerror
+    }
+    if n < len(c.fx.paths) {
+        append(mut out, c.fx.paths[n].bytes()...)?
+    }
+    return noerror
+}
+
+// key_name appends to out how a note names the subject k, Go's
+// factKey.name: the variable's name and its path.
+func (c Checker) key_name(k FKey, mut out list[uint8]) error {
+    if !k.is_zero() {
+        append(mut out, name_of(c.prog.trees, c.none, k.decl)...)?
+    }
+    return c.path_text(k.path, mut out)
+}
+
+// can_hold_fact reports whether decl can have a fact, Go's canHoldFact:
+// a parameter, or a variable other than a mutable global.
+func (mut c Checker) can_hold_fact(decl Key) bool {
+    switch kind_at(c.prog.trees, decl) {
+    case param_decl:
+        return true
+    case var_decl(v):
+        _, global := c.globals[decl]
+        return !v.mutable || !global
+    default:
+        return false
+    }
+}
+
+// immutable_name reports whether the name nm names a variable or a
+// parameter nothing can assign, Go's immutableName.
+func (mut c Checker) immutable_name(nm ast.Ident) bool {
+    if nm.def.kind == ast.def_var {
+        return !var_of(c.prog.trees, key_of_def(nm.def)).mutable
+    }
+    if nm.def.kind == ast.def_param {
+        return !param_of(c.prog.trees, key_of_def(nm.def)).is_mut
+    }
+    return false
+}
+
+// key_of returns the subject e is, when a fact can be about it, Go's
+// keyOf: a variable that can hold a fact, or a path below an immutable
+// one. A float never is.
+func (mut c Checker) key_of(e Key) (FKey, bool, error) {
+    if types.is_float(mut c.type_of(e)) {
+        return zero_fkey(), false, noerror
+    }
+    nm, is_id := ident_at(c.prog.trees, e)
+    if !is_id {
+        k, ok := mut c.path_key(e)?
+        return k, ok, noerror
+    }
+    if nm.def.is_decl() && mut c.can_hold_fact(key_of_def(nm.def)) {
+        return decl_fkey(key_of_def(nm.def)), true, noerror
+    }
+    return zero_fkey(), false, noerror
+}
+
+// subject_key returns the subject facts about e would be about, Go's
+// subjectKey: the variable any name names, or a path below an immutable
+// one. A float is no subject.
+func (mut c Checker) subject_key(e Key) (FKey, bool, error) {
+    if types.is_float(mut c.type_of(e)) {
+        return zero_fkey(), false, noerror
+    }
+    nm, is_id := ident_at(c.prog.trees, e)
+    if is_id {
+        // Go keys a name by whatever it is bound to, nil included; a
+        // name bound to no declaration gets a key of its own node.
+        if nm.def.is_decl() {
+            return decl_fkey(key_of_def(nm.def)), true, noerror
+        }
+        return FKey{decl: no_decl_key(), path: 0}, true, noerror
+    }
+    k, ok := mut c.path_key(e)?
+    return k, ok, noerror
+}
+
+// no_decl_key returns the key a fact's subject has for a name bound
+// to no declaration: Go's key of a nil or builtin Decl, which no fact is
+// ever about. It is a key no declaration has, unit -2.
+func no_decl_key() Key {
+    mut z id[ast.Node]
+    return Key{unit: -2, node: z}
+}
+
+// path_key returns the key of e, a field or an element, when it is a
+// path below an immutable variable or parameter whose every index is a
+// known value or an immutable name, Go's pathKey. The path is written
+// out from the root, in a loop down the chain, and interned.
+func (mut c Checker) path_key(e Key) (FKey, bool, error) {
+    mut steps := make(list[Key], c_allocator)
+    mut x := e
+    mut root := no_key()
+    for is_no_key(root) {
+        switch kind_at(c.prog.trees, x) {
+        case selector(s):
+            if !ast.is_none(s.field) {
+                return zero_fkey(), false, noerror
+            }
+            append(mut steps, x)?
+            x = sub(x, s.x)
+        case index(ix):
+            append(mut steps, x)?
+            x = sub(x, ix.x)
+        case ident(nm):
+            if len(steps) == 0 || !nm.def.is_decl() || !mut c.immutable_name(nm) {
+                return zero_fkey(), false, noerror
+            }
+            root = key_of_def(nm.def)
+        default:
+            return zero_fkey(), false, noerror
+        }
+    }
+    mut p := msg()
+    mut i := len(steps) -% 1
+    for i >= 0 {
+        st := key_in(steps, i)
+        i -%= 1
+        switch kind_at(c.prog.trees, st) {
+        case selector(s):
+            append(mut p, '.')?
+            append(mut p, text_at(c.prog.trees, c.none, st.unit, s.name)...)?
+        case index(ix):
+            append(mut p, '[')?
+            ok := mut c.index_step(sub(st, ix.index), mut p)?
+            if !ok {
+                return zero_fkey(), false, noerror
+            }
+            append(mut p, ']')?
+        default:
+        }
+    }
+    n := mut c.intern_path(p[:])?
+    return FKey{decl: root, path: n}, true, noerror
+}
+
+// index_step appends to out how an index in a path is written in its
+// key, Go's indexStep: its value when it is known, or the name of the
+// immutable variable or parameter it is, and reports whether it is one.
+func (mut c Checker) index_step(index Key, mut out list[uint8]) (bool, error) {
+    v, known := mut c.known_value(index)?
+    if known {
+        v.append_string(mut out)?
+        return true, noerror
+    }
+    nm, is_id := ident_at(c.prog.trees, index)
+    if is_id && mut c.immutable_name(nm) {
+        qualified(c.prog.trees, c.none, index.unit, nm, mut out)?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// name_subject appends to out how a message names e, a subject, Go's
+// nameOf: a name as written, or a path below one, its indexes written as
+// index_step writes them; anything else is ... . The chain is walked in
+// a loop, its root first.
+func (mut c Checker) name_subject(e Key, mut out list[uint8]) error {
+    mut steps := make(list[Key], c_allocator)
+    mut x := e
+    for {
+        switch kind_at(c.prog.trees, x) {
+        case selector(s):
+            append(mut steps, x)?
+            x = sub(x, s.x)
+            continue
+        case index(ix):
+            mut scratch := msg()
+            ok := mut c.index_step(sub(x, ix.index), mut scratch)?
+            if !ok {
+                append(mut out, []uint8("...")...)?
+                return mut c.name_steps(steps[:], mut out)
+            }
+            append(mut steps, x)?
+            x = sub(x, ix.x)
+            continue
+        case ident(nm):
+            qualified(c.prog.trees, c.none, x.unit, nm, mut out)?
+        default:
+            append(mut out, []uint8("...")...)?
+        }
+        break
+    }
+    return mut c.name_steps(steps[:], mut out)
+}
+
+// name_steps appends to out the steps of a path, the selectors and
+// indexes of steps, outermost first, written from the innermost out.
+func (mut c Checker) name_steps(steps []Key, mut out list[uint8]) error {
+    mut i := len(steps) -% 1
+    for i >= 0 {
+        st := key_in(steps, i)
+        i -%= 1
+        switch kind_at(c.prog.trees, st) {
+        case selector(s):
+            append(mut out, '.')?
+            append(mut out, text_at(c.prog.trees, c.none, st.unit, s.name)...)?
+        case index(ix):
+            append(mut out, '[')?
+            mut c.index_step(sub(st, ix.index), mut out)?
+            append(mut out, ']')?
+        default:
+        }
+    }
+    return noerror
+}
+
+// is_subject reports whether e names a subject facts can be about, Go's
+// isSubject.
+func (mut c Checker) is_subject(e Key) (bool, error) {
+    _, ok := mut c.subject_key(e)?
+    return ok, noerror
+}
+
+// error_code_key returns the subject err.code is, when e is the code of
+// an error variable or parameter that can hold a fact, mutable or not,
+// Go's errorCodeKey.
+func (mut c Checker) error_code_key(e Key) (FKey, bool, error) {
+    switch kind_at(c.prog.trees, e) {
+    case selector(s):
+        if !ast.is_none(s.field) || !bytes_equal(text_at(c.prog.trees, c.none, e.unit, s.name), []uint8("code")) {
+            return zero_fkey(), false, noerror
+        }
+        x := sub(e, s.x)
+        nm, is_id := ident_at(c.prog.trees, x)
+        if !is_id || mut c.type_of(x) != types.error_type || !nm.def.is_decl() || !mut c.can_hold_fact(key_of_def(nm.def)) {
+            return zero_fkey(), false, noerror
+        }
+        p := mut c.intern_path([]uint8(".code"))?
+        return FKey{decl: key_of_def(nm.def), path: p}, true, noerror
+    default:
+        return zero_fkey(), false, noerror
+    }
+}
+
+// code_key returns the key of the code of the error variable decl, Go's
+// factKey{decl, ".code"}.
+func (mut c Checker) code_key(decl Key) (FKey, error) {
+    p := mut c.intern_path([]uint8(".code"))?
+    return FKey{decl: decl, path: p}, noerror
+}
+
+// len_arg returns x when e is len(x), Go's lenArg.
+func (mut c Checker) len_arg(e Key) (Key, bool) {
+    if !is_len_call(c.prog.trees, c.none, e) {
+        return no_key(), false
+    }
+    cl := call_of(c.prog.trees, e)
+    if count_items(c.prog.trees, e.unit, cl.args) != 1 {
+        return no_key(), false
+    }
+    return item_at(c.prog.trees, e.unit, cl.args, 0), true
+}
+
+// string_len returns the string subject s when e is len(s) and s can
+// have facts, Go's stringLen.
+func (mut c Checker) string_len(e Key) (FKey, bool, error) {
+    x, ok := mut c.len_arg(e)
+    if !ok {
+        return zero_fkey(), false, noerror
+    }
+    k, is_var := mut c.string_var(x)?
+    return k, is_var, noerror
+}
+
+// string_var returns the string subject e is, a string, a view or a
+// list that is a variable or a path below an immutable one, when it can
+// have facts, Go's stringVar.
+func (mut c Checker) string_var(e Key) (FKey, bool, error) {
+    typ := mut c.type_of(e)
+    if typ != types.string_type && !c.table.is_view(typ) && !c.table.is_list(typ) {
+        return zero_fkey(), false, noerror
+    }
+    k, ok := mut c.key_of(e)?
+    return k, ok, noerror
+}
+
+// subject returns the subject a fact about e would be about, Go's
+// subject: a variable or a path below an immutable one, the code of an
+// error variable, or the string subject whose length e is.
+func (mut c Checker) subject(e Key) (FKey, bool, error) {
+    k, ok := mut c.key_of(e)?
+    if ok {
+        return k, true, noerror
+    }
+    ek, is_code := mut c.error_code_key(e)?
+    if is_code {
+        return ek, true, noerror
+    }
+    sk, is_len := mut c.string_len(e)?
+    return sk, is_len, noerror
+}
+
+// is_length_subject reports whether e is the length of a string, view
+// or list subject, Go's isLengthSubject.
+func (mut c Checker) is_length_subject(e Key) (bool, error) {
+    _, ok := mut c.string_len(e)?
+    return ok, noerror
+}
+
+// note_key returns the key the facts a note explains about e are under,
+// Go's noteKey: a length's string's, or a subject's own.
+func (mut c Checker) note_key(e Key) (FKey, bool, error) {
+    k, ok := mut c.string_len(e)?
+    if ok {
+        return k, true, noerror
+    }
+    s, is_subject := mut c.subject_key(e)?
+    return s, is_subject, noerror
+}
+
+// note_name appends to out how a note names e, Go's noteName: a subject
+// as name_subject does, and the length of a string, view or list
+// subject s as len(s).
+func (mut c Checker) note_name(e Key, mut out list[uint8]) error {
+    x, is_len := mut c.len_arg(e)
+    if is_len {
+        l := mut c.is_length_subject(e)?
+        if l {
+            append(mut out, []uint8("len(")...)?
+            mut c.name_subject(x, mut out)?
+            append(mut out, ')')?
+            return noerror
+        }
+    }
+    return mut c.name_subject(e, mut out)
+}
+
+// mutable_global returns the declaration of the variable e names when
+// it is a mutable global, Go's mutableGlobal.
+func (mut c Checker) mutable_global(e Key) (Key, bool) {
+    nm, is_id := ident_at(c.prog.trees, e)
+    if !is_id || nm.def.kind != ast.def_var {
+        return no_key(), false
+    }
+    v := key_of_def(nm.def)
+    _, global := c.globals[v]
+    return v, var_of(c.prog.trees, v).mutable && global
+}

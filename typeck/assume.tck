@@ -1,0 +1,661 @@
+package typeck
+
+import ast from "tack/ast"
+import source from "tack/source"
+
+// Putting facts in force, Go's assume and assumeIn (facts.go), the
+// shared rests of blocks (region.go), the proof-only facts
+// (unreachable.go's keepApart) and whether a fact holds where checking
+// has reached (facts.go's holds, dropOf and reaches).
+
+// BlockDecl names the writes of one block to one declaration.
+type BlockDecl struct {
+    blk int64
+    decl Key
+}
+
+// BlockRec is the statements of one block as a region, Go's blockRegion:
+// count statements of region_nodes from start, and whether their writes
+// have been found.
+type BlockRec struct {
+    start int64
+    count int64
+    walked bool
+}
+
+// SharedRec is the endings of the writes to one declaration in the
+// statements of a block from the one at from on, judged once and shared
+// by every fact over a rest from there or later, Go's sharedEnds: count
+// endings of the FactState's endings from start, the position in the
+// block of the statement holding each, count of shared_nodes from nodes,
+// and the indexes of them a query builds (see reach.tck), or -1.
+type SharedRec struct {
+    frm int64
+    start int64
+    count int64
+    nodes int64
+    by_use int64
+    by_at int64
+}
+
+// BlockStore holds every block a body's checkStmts made a region of:
+// their records, the writes found in each, each declaration's together,
+// in the order a walk meets them, by block and declaration, and the
+// endings shared over each block's rests.
+type BlockStore struct {
+    blocks list[BlockRec]
+    writes list[IdxWrite]
+    spans map[BlockDecl]WSpan
+    shared list[SharedRec]
+    shared_by map[BlockDecl]int64
+    shared_nodes list[int64]
+}
+
+// new_block_store returns a store of no blocks.
+func new_block_store() BlockStore {
+    return BlockStore{
+        blocks: make(list[BlockRec], c_allocator),
+        writes: make(list[IdxWrite], c_allocator),
+        spans: make(map[BlockDecl]WSpan, c_allocator),
+        shared: make(list[SharedRec], c_allocator),
+        shared_by: make(map[BlockDecl]int64, c_allocator),
+        shared_nodes: make(list[int64], c_allocator),
+    }
+}
+
+// new_block_region records the statements of body, in the tree unit, as
+// a block's region, its writes not found yet, Go's newBlockRegion, and
+// returns its position.
+func (mut c Checker) new_block_region(unit int64, body ast.Nodes) (int64, error) {
+    mut nodes := make(list[Key], c_allocator)
+    c.stmt_keys(unit, body, mut nodes)?
+    start := mut c.push_nodes(nodes[:])?
+    nid := len(c.fx.blocks.blocks)
+    append(mut c.fx.blocks.blocks, BlockRec{start: start, count: len(nodes), walked: false})?
+    return nid, noerror
+}
+
+// block_at returns the block at position b, or an empty one.
+func (c Checker) block_at(b int64) BlockRec {
+    r, ok := c.fx.blocks.blocks[b]
+    if !ok {
+        return BlockRec{start: 0, count: 0, walked: true}
+    }
+    return r
+}
+
+// block_count returns how many statements the block b holds.
+func (c Checker) block_count(b int64) int64 {
+    return c.block_at(b).count
+}
+
+// rest_of returns the rest of the block b from the statement i on, as
+// the block and the statement, Go's restFrom: -1 for an empty rest.
+func (c Checker) rest_of(b int64, i int64) int64 {
+    if b < 0 || i >= c.block_count(b) {
+        return -1
+    }
+    return b
+}
+
+// block_writes finds the writes of the block b, once, in one walk of its
+// statements, Go's blockWrites: every target and every mut argument
+// whose root names a declaration, swap's included, to be judged as they
+// are asked for (see live_write).
+func (mut c Checker) block_writes(b int64) error {
+    rec := c.block_at(b)
+    if rec.walked {
+        return noerror
+    }
+    mut nodes := make(list[Key], c_allocator)
+    mut i int64 = 0
+    for i < rec.count {
+        append(mut nodes, key_in(c.fx.region_nodes[:], rec.start +% i))?
+        i +%= 1
+    }
+    mut found := make(list[FoundWrite], c_allocator)
+    mut c.walk_writes(nodes[:], false, mut found)?
+    idx := group_writes(found[:])?
+    base := len(c.fx.blocks.writes)
+    append(mut c.fx.blocks.writes, idx.writes[:]...)?
+    for d, sp := range idx.spans {
+        put(mut c.fx.blocks.spans, BlockDecl{blk: b, decl: d}, WSpan{start: base +% sp.start, count: sp.count})?
+    }
+    mut done := rec
+    done.walked = true
+    set_at(mut c.fx.blocks.blocks, b, done)
+    return noerror
+}
+
+// live_write reports whether w, a write a walk of a block found for
+// decl, writes decl as it is judged now, Go's liveWrite.
+func (mut c Checker) live_write(w Write, decl Key) bool {
+    if !is_no_key(w.call) {
+        if is_builtin_call(c.prog.trees, c.none, w.call, "swap") {
+            return false
+        }
+        switch kind_at(c.prog.trees, w.shown) {
+        case mut_arg(x):
+            return mut c.written_decl(sub(w.shown, x)) == decl
+        default:
+            return false
+        }
+    }
+    return mut c.written_decl(w.shown) == decl
+}
+
+// RegionIdx holds every write in a region for one use, Go's regionIndex:
+// head, the index of the region's head, from a walk of it; the rest, the
+// block blk from the statement from on, or none when blk is -1, whose
+// writes are found among the block's and judged as they are asked for;
+// drops, the drop made for each write of the rest so far, by its
+// position among the block's writes; and share, whether the endings of
+// the rest are shared with every fact over it.
+type RegionIdx struct {
+    head WriteIndex
+    blk int64
+    frm int64
+    drops map[int64]int64
+    share bool
+}
+
+// index_region returns the index of the region of head, then the rest of
+// the block blk from the statement from on, Go's indexRegion, walking
+// head but not the rest.
+func (mut c Checker) index_region(head []Key, blk int64, frm int64, share bool) (RegionIdx, error) {
+    mut ri := RegionIdx{head: new_write_index(), blk: blk, frm: frm, drops: make(map[int64]int64, c_allocator), share: share}
+    if len(head) > 0 {
+        h := mut c.index_writes(head)?
+        old := replace(mut ri.head, h)
+        drop(own old)
+    }
+    return ri, noerror
+}
+
+// rest_writes appends to out the positions among the block's writes of
+// the writes the rest of ri makes to decl, in the order a walk meets
+// them, Go's restWrites: each that writes decl now, and of a call's mut
+// arguments passing decl, only the first.
+func (mut c Checker) rest_writes(ri RegionIdx, decl Key, mut out list[int64]) error {
+    if ri.blk < 0 {
+        return noerror
+    }
+    mut c.block_writes(ri.blk)?
+    sp, has := c.fx.blocks.spans[BlockDecl{blk: ri.blk, decl: decl}]
+    if !has {
+        return noerror
+    }
+    // The first write held by a statement of the rest: the writes are in
+    // the order of the statements holding them.
+    mut lo int64 = 0
+    mut hi := sp.count
+    for lo < hi {
+        mid := lo +% (hi -% lo) / 2
+        if idx_write_in(c.fx.blocks.writes[:], sp.start +% mid).node >= ri.frm {
+            hi = mid
+        } else {
+            lo = mid +% 1
+        }
+    }
+    mut last_call := no_key()
+    mut i := lo
+    for i < sp.count {
+        at := sp.start +% i
+        i +%= 1
+        w := idx_write_in(c.fx.blocks.writes[:], at).w
+        if !mut c.live_write(w, decl) {
+            continue
+        }
+        if !is_no_key(w.call) {
+            if w.call == last_call {
+                continue
+            }
+            last_call = w.call
+        }
+        append(mut out, at)?
+    }
+    return noerror
+}
+
+// rest_drop returns why the block's write at position at, a write of
+// ri's rest to decl, ends a fact, Go's restDrop: made the first time it
+// is asked for and kept.
+func (mut c Checker) rest_drop(mut ri RegionIdx, at int64, decl Key) (int64, error) {
+    d, made := ri.drops[at]
+    if made {
+        return d, noerror
+    }
+    w := idx_write_in(c.fx.blocks.writes[:], at).w
+    nd := mut c.write_drop(w, decl)?
+    put(mut ri.drops, at, nd)?
+    return nd, noerror
+}
+
+// ending_of returns the ending of w with its drop d, Go's endingOf.
+func ending_of(w Write, d int64) Ending {
+    return Ending{drop: d, kept: w.kept, loop: w.loop, at: w.at}
+}
+
+// add_run records the endings of own as a run of a fact's own, linked
+// after last, and returns the run and the new last; own is emptied.
+func (mut c Checker) add_run(mut mine list[Ending], first int64, last int64) (int64, int64, error) {
+    if len(mine) == 0 {
+        return first, last, noerror
+    }
+    start := len(c.fx.endings)
+    append(mut c.fx.endings, mine[:]...)?
+    run := Run{start: start, count: len(mine), shared: -1, frm: 0, next: -1, by_use: -1, by_at: -1}
+    for len(mine) > 0 {
+        pop(mut mine)
+    }
+    nid := len(c.fx.runs)
+    append(mut c.fx.runs, run)?
+    f2, l2 := mut c.link_run(nid, first, last)?
+    return f2, l2, noerror
+}
+
+// link_run links the run id after last, and returns the first and the
+// last run of the chain.
+func (mut c Checker) link_run(nid int64, first int64, last int64) (int64, int64, error) {
+    if first < 0 {
+        return nid, nid, noerror
+    }
+    mut l := c.run_at(last)
+    l.next = nid
+    set_at(mut c.fx.runs, last, l)
+    return first, nid, noerror
+}
+
+// shared_run returns the run of endings of ri's rest's writes to decl
+// shared with the other facts over the rest of its block, Go's
+// sharedRun: -1 when the rest holds no such write, and false when the
+// block's endings for decl were judged from a statement after the rest's
+// first, for them to be judged for ri alone.
+func (mut c Checker) shared_run(mut ri RegionIdx, decl Key) (int64, bool, error) {
+    if ri.blk < 0 {
+        return -1, true, noerror
+    }
+    bd := BlockDecl{blk: ri.blk, decl: decl}
+    mut sh, has := c.fx.blocks.shared_by[bd]
+    if !has {
+        mut ats := make(list[int64], c_allocator)
+        mut c.rest_writes(ri, decl, mut ats)?
+        start := len(c.fx.endings)
+        nodes := len(c.fx.blocks.shared_nodes)
+        for _, at := range ats {
+            iw := idx_write_in(c.fx.blocks.writes[:], at)
+            d := mut c.rest_drop(mut ri, at, decl)?
+            append(mut c.fx.endings, ending_of(iw.w, d))?
+            append(mut c.fx.blocks.shared_nodes, iw.node)?
+        }
+        sh = len(c.fx.blocks.shared)
+        append(mut c.fx.blocks.shared, SharedRec{frm: ri.frm, start: start, count: len(ats), nodes: nodes, by_use: -1, by_at: -1})?
+        put(mut c.fx.blocks.shared_by, bd, sh)?
+    }
+    rec := c.shared_at(sh)
+    if ri.frm < rec.frm {
+        return -1, false, noerror
+    }
+    mut lo int64 = 0
+    mut hi := rec.count
+    for lo < hi {
+        mid := lo +% (hi -% lo) / 2
+        n := int_in(c.fx.blocks.shared_nodes[:], rec.nodes +% mid)
+        if n >= ri.frm {
+            hi = mid
+        } else {
+            lo = mid +% 1
+        }
+    }
+    if lo == rec.count {
+        return -1, true, noerror
+    }
+    nid := len(c.fx.runs)
+    append(mut c.fx.runs, Run{start: rec.start +% lo, count: rec.count -% lo, shared: sh, frm: lo, next: -1, by_use: -1, by_at: -1})?
+    return nid, true, noerror
+}
+
+// shared_at returns the shared endings at position s, or none.
+func (c Checker) shared_at(s int64) SharedRec {
+    r, ok := c.fx.blocks.shared[s]
+    if !ok {
+        return SharedRec{frm: 0, start: 0, count: 0, nodes: 0, by_use: -1, by_at: -1}
+    }
+    return r
+}
+
+// find_endings returns the first run of the writes in ri's region that
+// may end f, Go's findEndings: for each declaration f's keys name, once
+// each, the writes to it in the head, then those in the rest, as runs of
+// f's own and, when ri shares its rest's endings, runs shared with every
+// fact over it; -1 when there are none.
+func (mut c Checker) find_endings(mut ri RegionIdx, f Fact) (int64, error) {
+    mut first := -1
+    mut last := -1
+    mut mine := make(list[Ending], c_allocator)
+    mut seen := make(list[Key], c_allocator)
+    for i := range c.key_count(f) {
+        k := c.fact_key(f, i)
+        if k.is_zero() {
+            continue
+        }
+        mut dup := false
+        for _, d := range seen {
+            dup = dup || d == k.decl
+        }
+        if dup {
+            continue
+        }
+        append(mut seen, k.decl)?
+        sp, has := ri.head.spans[k.decl]
+        if has {
+            mut j int64 = 0
+            for j < sp.count {
+                iw := idx_write_in(ri.head.writes[:], sp.start +% j)
+                j +%= 1
+                append(mut mine, ending_of(iw.w, iw.drop))?
+            }
+        }
+        if ri.share {
+            run, ok := mut c.shared_run(mut ri, k.decl)?
+            if ok {
+                if run >= 0 {
+                    first, last = mut c.add_run(mut mine, first, last)?
+                    first, last = mut c.link_run(run, first, last)?
+                }
+                continue
+            }
+        }
+        mut ats := make(list[int64], c_allocator)
+        mut c.rest_writes(ri, k.decl, mut ats)?
+        for _, at := range ats {
+            iw := idx_write_in(c.fx.blocks.writes[:], at)
+            d := mut c.rest_drop(mut ri, at, k.decl)?
+            append(mut mine, ending_of(iw.w, d))?
+        }
+    }
+    first, last = mut c.add_run(mut mine, first, last)?
+    return first, noerror
+}
+
+// assume puts facts in force, from the guard g, for the region of the
+// nodes head, Go's assume.
+func (mut c Checker) assume(g Guard, facts []Fact, head []Key) error {
+    return mut c.assume_in(g, facts, head, -1, 0)
+}
+
+// assume_in puts facts in force, from the guard g, for the region of the
+// nodes head, then the rest of the block blk from the statement from on,
+// Go's assumeIn: each fact keeps every write in the region that may end
+// it (see find_endings), but one dropped already; one that says nothing
+// is kept apart instead, for the proofs that count it (see keep_apart).
+// The guard is put in scope too. Everything stays until a release to a
+// mark taken before.
+func (mut c Checker) assume_in(g Guard, facts []Fact, head []Key, blk int64, frm int64) error {
+    gid := mut c.add_guard(g)?
+    append(mut c.fx.guards, gid)?
+    mut ri := RegionIdx{head: new_write_index(), blk: blk, frm: frm, drops: make(map[int64]int64, c_allocator), share: true}
+    mut indexed := false
+    mut rgn := -1
+    for _, f0 := range facts {
+        mut c.note_related(f0)?
+        if f0.is_empty() {
+            if rgn < 0 {
+                start := mut c.push_nodes(head)?
+                rgn = mut c.add_region(start, len(head), blk, frm)?
+            }
+            mut c.keep_apart(gid, f0, rgn)?
+            continue
+        }
+        mut f := f0
+        f.guard = gid
+        if f.drop < 0 {
+            if !indexed {
+                fresh := mut c.index_region(head, blk, frm, true)?
+                old := replace(mut ri, fresh)
+                drop(own old)
+                indexed = true
+            }
+            f.ends = mut c.find_endings(mut ri, f)?
+        }
+        append(mut c.fx.active, f)?
+        mut c.index_fact()?
+    }
+    return noerror
+}
+
+// keep_apart records the content of f, an empty fact put in force from
+// the guard g for the region r, as proof-only facts, when it has any,
+// Go's keepApart: the sides it carries, each fact's guard g, or the
+// value it rules out.
+func (mut c Checker) keep_apart(g int64, f Fact, r int64) error {
+    if f.drop >= 0 {
+        return noerror
+    }
+    if f.either >= 0 {
+        src := c.either_at(f.either)
+        first := len(c.fx.sides)
+        mut j int64 = 0
+        for j < src.count {
+            side := c.side_at(src.first +% j)
+            j +%= 1
+            start := len(c.fx.side_facts)
+            mut k int64 = 0
+            for k < side.count {
+                mut sf := fact_in(c.fx.side_facts[:], side.start +% k)
+                k +%= 1
+                sf.guard = g
+                append(mut c.fx.side_facts, sf)?
+            }
+            append(mut c.fx.sides, Side{start: start, count: side.count})?
+        }
+        nid := len(c.fx.eithers)
+        append(mut c.fx.eithers, Either{first: first, count: src.count})?
+        append(mut c.fx.proven, ProofOnly{either: nid, rgn: r, indexed: false})?
+        return noerror
+    }
+    if f.out {
+        mut sf := f
+        sf.guard = g
+        start := len(c.fx.side_facts)
+        append(mut c.fx.side_facts, sf)?
+        first := len(c.fx.sides)
+        append(mut c.fx.sides, Side{start: start, count: 1})?
+        nid := len(c.fx.eithers)
+        append(mut c.fx.eithers, Either{first: first, count: 1})?
+        append(mut c.fx.proven, ProofOnly{either: nid, rgn: r, indexed: false})?
+    }
+    return noerror
+}
+
+// index_proven finds, the first time it is asked, the writes in the
+// region of the proof-only facts at position p that could end each of
+// them, Go's indexProven.
+func (mut c Checker) index_proven(p int64) error {
+    po, ok := c.fx.proven[p]
+    if !ok || po.indexed {
+        return noerror
+    }
+    mut done := po
+    done.indexed = true
+    set_at(mut c.fx.proven, p, done)
+    r := c.region_at(po.rgn)
+    mut head := make(list[Key], c_allocator)
+    mut i int64 = 0
+    for i < r.count {
+        append(mut head, key_in(c.fx.region_nodes[:], r.head +% i))?
+        i +%= 1
+    }
+    mut ri := mut c.index_region(head[:], r.blk, r.frm, false)?
+    e := c.either_at(po.either)
+    mut j int64 = 0
+    for j < e.count {
+        side := c.side_at(e.first +% j)
+        j +%= 1
+        mut k int64 = 0
+        for k < side.count {
+            at := side.start +% k
+            k +%= 1
+            mut sf := fact_in(c.fx.side_facts[:], at)
+            if sf.drop < 0 {
+                sf.ends = mut c.find_endings(mut ri, sf)?
+                set_at(mut c.fx.side_facts, at, sf)
+            }
+        }
+    }
+    return noerror
+}
+
+// note_related records in related each subject f relates to another,
+// a length aside, and each subject of every side f carries when it
+// carries several, Go's noteRelated.
+func (mut c Checker) note_related(f Fact) error {
+    if f.either >= 0 {
+        e := c.either_at(f.either)
+        if e.count > 1 {
+            mut j int64 = 0
+            for j < e.count {
+                side := c.side_at(e.first +% j)
+                j +%= 1
+                mut k int64 = 0
+                for k < side.count {
+                    sf := fact_in(c.fx.side_facts[:], side.start +% k)
+                    k +%= 1
+                    mut c.mark_related(sf.about, zero_fkey())?
+                    // A side's own fact carries no sides (see either_fact).
+                    mut c.note_related_plain(sf)?
+                }
+            }
+            return noerror
+        }
+    }
+    return mut c.note_related_plain(f)
+}
+
+// note_related_plain is note_related for a fact carrying no sides of
+// several.
+func (mut c Checker) note_related_plain(f Fact) error {
+    if f.either >= 0 && c.either_at(f.either).count > 1 {
+        return noerror
+    }
+    if !f.at_most.is_zero() {
+        return mut c.mark_related(f.about, f.at_most)
+    }
+    if f.diff >= 0 {
+        d := c.diff_at(f.diff)
+        if !d.x_len && !d.y_len && !d.x.is_zero() && !d.y.is_zero() {
+            return mut c.mark_related(d.x, d.y)
+        }
+    }
+    // tiedLengths: the length bounding a subject, and each length in a
+    // relation between two values.
+    if !f.len_of.is_zero() {
+        return mut c.mark_related(f.len_of, zero_fkey())
+    }
+    if !f.at_most_len.is_zero() {
+        return mut c.mark_related(f.at_most_len, zero_fkey())
+    }
+    if f.diff < 0 {
+        return noerror
+    }
+    d := c.diff_at(f.diff)
+    if d.x.is_zero() || d.y.is_zero() {
+        return noerror
+    }
+    if d.x_len {
+        mut c.mark_related(d.x, zero_fkey())?
+    }
+    if d.y_len {
+        mut c.mark_related(d.y, zero_fkey())?
+    }
+    return noerror
+}
+
+// in_span reports whether the position at, the end of a node, lies in
+// sp: after its start and at or before its end, Go's inSpan.
+func in_span(at int64, sp source.Span) bool {
+    return sp.start < at && at <= sp.end
+}
+
+// left_before reports whether the write e cannot reach c.at by falling
+// through, Go's leftBefore: a branch or case that holds it and leaves
+// does not hold c.at, nor does its if or switch, and c.at comes before
+// the point any break or continue out of it can reach code from.
+func (c Checker) left_before(e Ending) bool {
+    mut k := e.kept
+    for k >= 0 {
+        kp := c.keep_at(k)
+        if in_span(c.fx.at, kp.whole) {
+            return false
+        }
+        if c.fx.at <= kp.resume {
+            return true
+        }
+        k = kp.skip
+    }
+    return false
+}
+
+// reaches reports whether e, a write in the region of a fact, can run
+// after the fact became true and before the check at c.at, Go's
+// reaches.
+func (c Checker) reaches(e Ending) bool {
+    if c.fx.has_defer && !in_span(e.at, c.fx.defer_span) {
+        return true
+    }
+    if c.fx.has_storing && in_span(e.at, c.fx.storing) {
+        return true
+    }
+    if c.before_late_default(e) {
+        return true
+    }
+    if e.at < c.fx.at || e.loop.start < c.fx.at && c.fx.at <= e.loop.end {
+        return !c.left_before(e)
+    }
+    return false
+}
+
+// before_late_default reports whether e is in a switch whose late
+// default, or a case it falls into, is being checked, and outside that
+// case, Go's beforeLateDefault.
+func (c Checker) before_late_default(e Ending) bool {
+    for _, d := range c.fx.late_defaults {
+        if in_span(e.at, d.whole) && !in_span(e.at, d.body) {
+            return true
+        }
+    }
+    return false
+}
+
+// first_reach returns the drop of the first ending of the runs from r on
+// that reaches c.at, or -1 when none does, Go's firstReach.
+func (mut c Checker) first_reach(r int64) (int64, error) {
+    mut run := r
+    for run >= 0 {
+        rec := c.run_at(run)
+        i := mut c.first_in_run(run)?
+        if i >= 0 {
+            return c.ending_at(rec.start +% i).drop, noerror
+        }
+        run = rec.next
+    }
+    return -1, noerror
+}
+
+// drop_of returns why f does not hold at c.at, Go's dropOf: the drop it
+// was put in force with, or else the first write in its region that
+// reaches c.at, or -1 when it holds there.
+func (mut c Checker) drop_of(f Fact) (int64, error) {
+    if f.drop >= 0 {
+        return f.drop, noerror
+    }
+    d := mut c.first_reach(f.ends)?
+    return d, noerror
+}
+
+// holds reports whether f is in force where checking has reached, Go's
+// holds.
+func (mut c Checker) holds(f Fact) (bool, error) {
+    d := mut c.drop_of(f)?
+    return d < 0, noerror
+}
