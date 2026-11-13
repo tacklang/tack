@@ -1,0 +1,316 @@
+package lexer
+
+import bytes from "std/bytes"
+
+// TokenKind classifies a token. The set covers Go-like syntax beyond what
+// the parser accepts today, so the lexer can tokenize source the parser
+// later rejects with a proper diagnostic. It wraps a number because Tack
+// declares no named integer types; the kinds are the globals below,
+// numbered in the order of Go's iota constants, so a kind's number is the
+// same in both compilers.
+pub type TokenKind struct {
+    n uint8
+}
+
+// kind_invalid, Go's InvalidToken, is the zero value, which the lexer
+// never produces.
+pub var kind_invalid = TokenKind{n: 0}
+
+// kind_eof, Go's EOF, ends every token stream.
+pub var kind_eof = TokenKind{n: 1}
+
+// kind_comment, Go's Comment, is a line comment, or a run of consecutive
+// line comments, indented alike or not, with no blank line between them,
+// or a block comment.
+pub var kind_comment = TokenKind{n: 2}
+
+// kind_ident, Go's Ident, is an identifier.
+pub var kind_ident = TokenKind{n: 3}
+
+// kind_keyword, Go's Keyword, is a reserved word, whose KeywordType the
+// token carries.
+pub var kind_keyword = TokenKind{n: 4}
+
+// kind_int, Go's Int, is an integer literal.
+pub var kind_int = TokenKind{n: 5}
+
+// kind_float, Go's Float, is a float literal.
+pub var kind_float = TokenKind{n: 6}
+
+// kind_char, Go's Char, is a character literal.
+pub var kind_char = TokenKind{n: 7}
+
+// kind_str, Go's Str, is a string literal, double-quoted or raw.
+pub var kind_str = TokenKind{n: 8}
+
+// kind_add, Go's Add, spelled "+", is addition.
+pub var kind_add = TokenKind{n: 9}
+
+// kind_sub, Go's Sub, spelled "-", is subtraction.
+pub var kind_sub = TokenKind{n: 10}
+
+// kind_mul, Go's Mul, spelled "*", is multiplication.
+pub var kind_mul = TokenKind{n: 11}
+
+// kind_div, Go's Div, spelled "/", is division.
+pub var kind_div = TokenKind{n: 12}
+
+// kind_mod, Go's Mod, spelled "%", is the remainder.
+pub var kind_mod = TokenKind{n: 13}
+
+// kind_add_wrap, Go's AddWrap, spelled "+%", is addition that wraps at its
+// type's width.
+pub var kind_add_wrap = TokenKind{n: 14}
+
+// kind_sub_wrap, Go's SubWrap, spelled "-%", is subtraction that wraps at
+// its type's width.
+pub var kind_sub_wrap = TokenKind{n: 15}
+
+// kind_mul_wrap, Go's MulWrap, spelled "*%", is multiplication that wraps
+// at its type's width.
+pub var kind_mul_wrap = TokenKind{n: 16}
+
+// kind_bit_and, Go's BitAnd, spelled "&", is bitwise and.
+pub var kind_bit_and = TokenKind{n: 17}
+
+// kind_bit_or, Go's BitOr, spelled "|", is bitwise or.
+pub var kind_bit_or = TokenKind{n: 18}
+
+// kind_bit_xor, Go's BitXor, spelled "^", is bitwise exclusive or.
+pub var kind_bit_xor = TokenKind{n: 19}
+
+// kind_bit_and_not, Go's BitAndNot, spelled "&^", is bit clear.
+pub var kind_bit_and_not = TokenKind{n: 20}
+
+// kind_shift_left, Go's ShiftLeft, spelled "<<", is the left shift.
+pub var kind_shift_left = TokenKind{n: 21}
+
+// kind_shift_right, Go's ShiftRight, spelled ">>", is the right shift.
+pub var kind_shift_right = TokenKind{n: 22}
+
+// kind_assign, Go's Assign, spelled "=", is assignment.
+pub var kind_assign = TokenKind{n: 23}
+
+// kind_define, Go's Define, spelled ":=", is a declaration with
+// assignment.
+pub var kind_define = TokenKind{n: 24}
+
+// kind_add_assign, Go's AddAssign, spelled "+=", is addition assigned to
+// its left operand.
+pub var kind_add_assign = TokenKind{n: 25}
+
+// kind_sub_assign, Go's SubAssign, spelled "-=", is subtraction assigned
+// to its left operand.
+pub var kind_sub_assign = TokenKind{n: 26}
+
+// kind_mul_assign, Go's MulAssign, spelled "*=", is multiplication
+// assigned to its left operand.
+pub var kind_mul_assign = TokenKind{n: 27}
+
+// kind_div_assign, Go's DivAssign, spelled "/=", is division assigned to
+// its left operand.
+pub var kind_div_assign = TokenKind{n: 28}
+
+// kind_mod_assign, Go's ModAssign, spelled "%=", is the remainder assigned
+// to its left operand.
+pub var kind_mod_assign = TokenKind{n: 29}
+
+// kind_add_wrap_assign, Go's AddWrapAssign, spelled "+%=", is wrapping
+// addition assigned to its left operand.
+pub var kind_add_wrap_assign = TokenKind{n: 30}
+
+// kind_sub_wrap_assign, Go's SubWrapAssign, spelled "-%=", is wrapping
+// subtraction assigned to its left operand.
+pub var kind_sub_wrap_assign = TokenKind{n: 31}
+
+// kind_mul_wrap_assign, Go's MulWrapAssign, spelled "*%=", is wrapping
+// multiplication assigned to its left operand.
+pub var kind_mul_wrap_assign = TokenKind{n: 32}
+
+// kind_bit_and_assign, Go's BitAndAssign, spelled "&=", is bitwise and
+// assigned to its left operand.
+pub var kind_bit_and_assign = TokenKind{n: 33}
+
+// kind_bit_or_assign, Go's BitOrAssign, spelled "|=", is bitwise or
+// assigned to its left operand.
+pub var kind_bit_or_assign = TokenKind{n: 34}
+
+// kind_bit_xor_assign, Go's BitXorAssign, spelled "^=", is bitwise
+// exclusive or assigned to its left operand.
+pub var kind_bit_xor_assign = TokenKind{n: 35}
+
+// kind_bit_and_not_assign, Go's BitAndNotAssign, spelled "&^=", is bit
+// clear assigned to its left operand.
+pub var kind_bit_and_not_assign = TokenKind{n: 36}
+
+// kind_shift_left_assign, Go's ShiftLeftAssign, spelled "<<=", is the left
+// shift assigned to its left operand.
+pub var kind_shift_left_assign = TokenKind{n: 37}
+
+// kind_shift_right_assign, Go's ShiftRightAssign, spelled ">>=", is the
+// right shift assigned to its left operand.
+pub var kind_shift_right_assign = TokenKind{n: 38}
+
+// kind_logical_and, Go's LogicalAnd, spelled "&&", is logical and.
+pub var kind_logical_and = TokenKind{n: 39}
+
+// kind_logical_or, Go's LogicalOr, spelled "||", is logical or.
+pub var kind_logical_or = TokenKind{n: 40}
+
+// kind_logical_not, Go's LogicalNot, spelled "!", is logical not.
+pub var kind_logical_not = TokenKind{n: 41}
+
+// kind_equal, Go's Equal, spelled "==", is the comparison for equality.
+pub var kind_equal = TokenKind{n: 42}
+
+// kind_not_equal, Go's NotEqual, spelled "!=", is the comparison for
+// inequality.
+pub var kind_not_equal = TokenKind{n: 43}
+
+// kind_less, Go's Less, spelled "<", is the comparison less than.
+pub var kind_less = TokenKind{n: 44}
+
+// kind_less_equal, Go's LessEqual, spelled "<=", is the comparison less
+// than or equal.
+pub var kind_less_equal = TokenKind{n: 45}
+
+// kind_greater, Go's Greater, spelled ">", is the comparison greater than.
+pub var kind_greater = TokenKind{n: 46}
+
+// kind_greater_equal, Go's GreaterEqual, spelled ">=", is the comparison
+// greater than or equal.
+pub var kind_greater_equal = TokenKind{n: 47}
+
+// kind_inc, Go's Inc, spelled "++", is the increment statement.
+pub var kind_inc = TokenKind{n: 48}
+
+// kind_dec, Go's Dec, spelled "--", is the decrement statement.
+pub var kind_dec = TokenKind{n: 49}
+
+// kind_arrow, Go's Arrow, spelled "<-", is the channel operator.
+pub var kind_arrow = TokenKind{n: 50}
+
+// kind_l_paren, Go's LParen, spelled "(", is an opening parenthesis.
+pub var kind_l_paren = TokenKind{n: 51}
+
+// kind_r_paren, Go's RParen, spelled ")", is a closing parenthesis.
+pub var kind_r_paren = TokenKind{n: 52}
+
+// kind_l_brack, Go's LBrack, spelled "[", is an opening square bracket.
+pub var kind_l_brack = TokenKind{n: 53}
+
+// kind_r_brack, Go's RBrack, spelled "]", is a closing square bracket.
+pub var kind_r_brack = TokenKind{n: 54}
+
+// kind_l_curl, Go's LCurl, spelled "{", is an opening brace.
+pub var kind_l_curl = TokenKind{n: 55}
+
+// kind_r_curl, Go's RCurl, spelled "}", is a closing brace.
+pub var kind_r_curl = TokenKind{n: 56}
+
+// kind_comma, Go's Comma, spelled ",", is a comma.
+pub var kind_comma = TokenKind{n: 57}
+
+// kind_period, Go's Period, spelled ".", is a period, the selector.
+pub var kind_period = TokenKind{n: 58}
+
+// kind_colon, Go's Colon, spelled ":", is a colon.
+pub var kind_colon = TokenKind{n: 59}
+
+// kind_semi, Go's Semi, spelled ";", is a semicolon, also inserted
+// automatically at line ends (see add_semi).
+pub var kind_semi = TokenKind{n: 60}
+
+// kind_ellipsis, Go's Ellipsis, spelled "...", is an ellipsis.
+pub var kind_ellipsis = TokenKind{n: 61}
+
+// kind_tilde, Go's Tilde, spelled "~", is a tilde.
+pub var kind_tilde = TokenKind{n: 62}
+
+// kind_question, Go's Question, spelled "?", is the postfix operator that
+// passes a call's error on.
+pub var kind_question = TokenKind{n: 63}
+
+// token_names holds each kind's name, by its number: an operator's
+// spelling, or a lowercase name for the other kinds, as Go's tokenNames
+// map holds them. kind_invalid has none, its entry empty, as Go's map has
+// no entry for InvalidToken.
+var token_names = [64]string{
+    "",
+    "EOF",
+    "comment",
+    "ident",
+    "keyword",
+    "int",
+    "float",
+    "char",
+    "string",
+    "+",
+    "-",
+    "*",
+    "/",
+    "%",
+    "+%",
+    "-%",
+    "*%",
+    "&",
+    "|",
+    "^",
+    "&^",
+    "<<",
+    ">>",
+    "=",
+    ":=",
+    "+=",
+    "-=",
+    "*=",
+    "/=",
+    "%=",
+    "+%=",
+    "-%=",
+    "*%=",
+    "&=",
+    "|=",
+    "^=",
+    "&^=",
+    "<<=",
+    ">>=",
+    "&&",
+    "||",
+    "!",
+    "==",
+    "!=",
+    "<",
+    "<=",
+    ">",
+    ">=",
+    "++",
+    "--",
+    "<-",
+    "(",
+    ")",
+    "[",
+    "]",
+    "{",
+    "}",
+    ",",
+    ".",
+    ":",
+    ";",
+    "...",
+    "~",
+    "?",
+}
+
+// append_string appends the token's spelling for operators, or a
+// lowercase name for the other kinds, as Go's String returns it: for a
+// kind with no name, TokenKind(n), its number in parentheses.
+pub func (k TokenKind) append_string(mut out list[uint8]) error {
+    name, ok := token_names[k.n]
+    if ok && len(name) > 0 {
+        return append(mut out, []uint8(name)...)
+    }
+    append(mut out, []uint8("TokenKind(")...)?
+    bytes.append_uint(mut out, k.n)?
+    return append(mut out, ')')
+}

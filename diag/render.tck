@@ -1,0 +1,143 @@
+package diag
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import source from "tack/source"
+
+// unknown_file is what a diagnostic whose span points into no file given
+// to the renderer shows in place of the file's name. That is a compiler
+// bug, but it is rendered rather than stopped on.
+var unknown_file = "<unknown file>"
+
+// render appends d to out as a single line, with no newline after it:
+// severity, file:line:col, the byte offset, and the message. files finds
+// the file d's span points into. Go's Render returns the line as a
+// string.
+pub func render(files source.Set, mut out list[uint8], d Diagnostic) error {
+    for _, f := range files.lookup(d.span.file) {
+        line, col := f.position(d.span.start)
+        return fmt.appendf(mut out, "%s: %s:%d:%d: (%d) %s", d.severity.string(),
+            f.filename.bytes(), line, col, d.span.start, d.message.bytes())
+    }
+    return fmt.appendf(mut out, "%s: %s: (%d) %s", d.severity.string(), unknown_file,
+        d.span.start, d.message.bytes())
+}
+
+// render_pretty appends d and its related notes to out, for a person,
+// each followed by the surrounding source lines with the span underlined.
+// files finds the file each span points into, so a note may be in a
+// different file from its diagnostic.
+pub func render_pretty(files source.Set, mut out list[uint8], d Diagnostic) error {
+    render_one(files, mut out, d.severity, d.message.bytes(), d.marker.bytes(), d.span)?
+    for _, r := range d.related {
+        render_one(files, mut out, r.severity, r.message.bytes(), r.marker.bytes(), r.span)?
+    }
+    return noerror
+}
+
+// render_one appends the header line and the source context of one
+// diagnostic or note, of severity sev, saying message, with marker after
+// its underline, over sp, without any related notes. A span in no known
+// file gets the header alone. Go's renderOne takes the *Diagnostic; this
+// takes its fields, so a Diagnostic and a Related, two types here, share
+// it.
+func render_one(files source.Set, mut out list[uint8], sev Severity, message []uint8, marker []uint8, sp source.Span) error {
+    for _, f := range files.lookup(sp.file) {
+        line, col := f.position(sp.start)
+        fmt.appendf(mut out, "%s:%d:%d: %s: %s\n", f.filename.bytes(), line, col, sev.string(), message)?
+        return render_ctx(f, mut out, line, col, marker, sp, 1)
+    }
+    return fmt.appendf(mut out, "%s: %s: %s\n", unknown_file, sev.string(), message)
+}
+
+// render_ctx appends the n lines either side of line, and under line
+// itself a marker for sp, at column col, followed by marker. Each line
+// is written without its newline, \n or \r\n, and ended with \n, after
+// its number zero-padded to two digits, as Go's %02d writes it.
+func render_ctx(f source.File, mut out list[uint8], line int64, col int64, marker []uint8, sp source.Span, n int64) error {
+    num_lines := f.num_lines()
+    // line is a line of f, or 0, and n is 1, so none of the arithmetic
+    // on them below comes near wrapping.
+    for i := range 2 *% n +% 1 {
+        l := line -% n +% i
+        if l < 1 || l > num_lines {
+            continue
+        }
+        if l < 10 {
+            append(mut out, '0')?
+        }
+        bytes.append_int(mut out, l)?
+        append(mut out, ' ', '|', '\t')?
+        append(mut out, line_text(f.line(l))...)?
+        append(mut out, '\n')?
+        if l == line {
+            append(mut out, ' ', ' ', ' ', '|', '\t')?
+            render_token_marker(mut out, col, sp)?
+            append(mut out, marker...)?
+            append(mut out, '\n')?
+        }
+    }
+    return noerror
+}
+
+// line_text returns b, a line of a file, without its newline: a trailing
+// \n, and a \r before it, but not a lone trailing \r, which is shown as
+// it is, being no newline.
+func line_text(b []uint8) []uint8 {
+    if !bytes.has_suffix(b, []uint8("\n")) {
+        return b
+    }
+    // b ends in \n, so it holds at least one byte.
+    if bytes.has_suffix(b, []uint8("\r\n")) && len(b) >= 2 {
+        return b[:len(b) - 2]
+    }
+    if len(b) >= 1 {
+        return b[:len(b) - 1]
+    }
+    return b
+}
+
+// render_token_marker appends a caret at col and tildes under the rest of
+// sp, and nothing after them. An empty span, such as an inserted
+// semicolon or the end of the input, still gets its caret.
+func render_token_marker(mut out list[uint8], col int64, sp source.Span) error {
+    // Columns and offsets are within the file, whose length an int64
+    // holds with room to spare, so none of this wraps.
+    start := col -% 1
+    end := col -% 1 +% sp.end -% sp.start
+    mut width := end
+    if width < start +% 1 {
+        width = start +% 1
+    }
+    for c := range width {
+        if c == start {
+            append(mut out, '^')?
+        } else if c > start && c < end {
+            append(mut out, '~')?
+        } else {
+            append(mut out, ' ')?
+        }
+    }
+    return noerror
+}
+
+// render_all appends each diagnostic with render, each followed by a
+// newline.
+pub func render_all(files source.Set, mut out list[uint8], diags []Diagnostic) error {
+    for _, d := range diags {
+        render(files, mut out, d)?
+        append(mut out, '\n')?
+    }
+    return noerror
+}
+
+// render_all_pretty appends each diagnostic with render_pretty, with a
+// blank line before the first and after each.
+pub func render_all_pretty(files source.Set, mut out list[uint8], diags []Diagnostic) error {
+    append(mut out, '\n')?
+    for _, d := range diags {
+        render_pretty(files, mut out, d)?
+        append(mut out, '\n')?
+    }
+    return noerror
+}

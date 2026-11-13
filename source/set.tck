@@ -1,0 +1,73 @@
+package source
+
+// Set is the files one compilation reads, found by FileID, which is a
+// file's index in it. Go's Set keeps a map from ID to file beside the list
+// of files; here the ID is the index, so the list alone finds a file.
+pub type Set struct {
+    // items holds the files, each at the index its FileID names.
+    items list[File]
+}
+
+// new_set returns an empty Set, which grows through alloc. It allocates
+// nothing, so it cannot fail.
+pub func new_set(scope alloc Allocator) Set {
+    return Set{items: make(list[File], alloc)}
+}
+
+// next_id returns the FileID the next file added to s must have: the
+// number of files s holds.
+pub func (s Set) next_id() FileID {
+    // A Set holds fewer files than an int32 counts, since add refuses
+    // one past that, so the conversion always fits.
+    n, ok := int32(len(s.items))
+    if !ok {
+        return FileID{n: -1}
+    }
+    return FileID{n: n}
+}
+
+// bad_id is the error add returns for a file whose FileID is not the
+// next one, a bug in the caller.
+var bad_id = error{code: 2, msg: "internal error: a file added to a source set has the wrong FileID"}
+
+// add adds f to the Set, taking it over. Its FileID must be next_id(),
+// and any other is an internal error, with f not added. It returns the
+// builtin append's error when the Set cannot grow, and f is freed then.
+//
+// Go's Add, whose IDs are display names, lets a file whose name was
+// added before replace the earlier one in lookups, while both stay in
+// Files. Here every file gets an ID of its own, so a name added twice
+// gives two files and two IDs, and each span finds the file it came
+// from. That differs from Go only in which of two same-named files a
+// span of the first one renders against, and the Go loader can add a
+// name twice only by reading the same path twice: it shows a file by
+// its path relative to the current directory, or as it was given when
+// outside it, so two names are equal only for one path, should one
+// directory be read for two import paths. The two files then hold the same bytes and the same
+// line starts, so either renders a span alike; sorting diagnostics
+// compares file names, which are equal, and then offsets, as Go's
+// comparison of the equal IDs does.
+pub func (mut s Set) add(own f File) error {
+    if f.id != s.next_id() || f.id.n < 0 {
+        return bad_id
+    }
+    return append(mut s.items, f)
+}
+
+// lookup returns the file with ID fid as a view holding it alone, read in
+// place, or an empty view if the Set has none. Go's Lookup returns a
+// pointer or nil; a File owns lists and cannot be copied out, so a view of
+// at most one element stands for the pointer.
+pub func (s Set) lookup(fid FileID) []File {
+    i := int64(fid.n)
+    if i < 0 || i >= len(s.items) {
+        return s.items[:0]
+    }
+    return s.items[i:i + 1]
+}
+
+// files returns the files in the order they were added, a view of them in
+// place, not a copy.
+pub func (s Set) files() []File {
+    return s.items
+}

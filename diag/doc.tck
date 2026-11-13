@@ -1,0 +1,42 @@
+package diag
+
+// Package diag defines compiler diagnostics and renders them for people.
+// It is a port of the Go compiler's package diag, function by function.
+//
+// Every stage of the pipeline (loader, lexer, parser, resolver, type
+// checker, code generation backend) reports problems in user input as a
+// list of Diagnostic rather than by stopping. A Diagnostic carries a
+// Severity, a message, a Span into the source, and optionally related
+// notes, such as one pointing at an earlier declaration a duplicate
+// collides with.
+//
+// A Severity is error, warning or note. An error stops compilation: a
+// program with one is never generated, built or dumped. A warning reports
+// something suspicious that stops nothing, and is printed as one; a
+// program with only warnings compiles as one with none does. A note only
+// adds to another diagnostic, among its related. error_count and
+// has_errors count the errors of a list, which is what every stage's and
+// the driver's decisions count, warnings aside. A warning about code never
+// used sets unused, its span the code an editor may dim; nothing rendered
+// shows it.
+//
+// A related note is a Related, not a Diagnostic as in Go: Tack rejects a
+// type that holds itself, even through a list, so a note cannot have notes
+// of its own. No Go diagnostic's notes have notes either, so nothing
+// rendered differs.
+//
+// render and render_all produce one compact line per diagnostic, which
+// the Go compiler's golden tests pin. render_pretty and render_all_pretty add the offending
+// source line with a marker under the span, for the command line: a caret
+// under its first byte and a tilde under each of the rest, with nothing
+// after. A source line is shown without its newline, \n or \r\n, so one
+// saved with CRLF line endings looks the same as one saved with LF. Each
+// appends to a list[uint8], where Go's returns a string, and returns the
+// builtin append's error when the list cannot grow, having appended some
+// of the text then. Each takes a source.Set, which finds the file each
+// span points into by the source.FileID the span carries, so a diagnostic
+// and its notes may be in different files of one package; a file
+// compiled on its own is the one file of its Set. Every file must already
+// have its line starts recorded by the lexer. A span in no file of the Set
+// is a compiler bug, and is rendered with <unknown file> in place of a
+// position, as Go renders it.

@@ -1,0 +1,157 @@
+package lexer
+
+import bytes from "std/bytes"
+import conv from "std/conv"
+
+// Token is one lexical unit: its kind, its value if it has one, and the
+// byte offsets [off_start, off_end) it covers in the source. An inserted
+// semicolon covers no bytes.
+//
+// Go's Token holds its value as an any: a string, a KeywordType or nil.
+// Here a keyword's KeywordType is a field of its own, and a string value
+// is the bytes [val_start, val_end) of the values of the Tokens holding
+// it, one list every token's value is appended to, so a Token owns
+// nothing and copies as Go's does. Which kind of value a token has follows from its kind (see
+// has_text).
+pub type Token struct {
+    k TokenKind
+    kw KeywordType
+    val_start int64
+    val_end int64
+    off_start int64
+    off_end int64
+
+    // at_line_start says no token comes before this one on its line.
+    at_line_start bool
+}
+
+// kind returns the token's kind.
+pub func (t Token) kind() TokenKind {
+    return t.k
+}
+
+// keyword returns the keyword a keyword token is, and keyword_invalid for
+// a token of any other kind. It stands for Go's Value of a keyword token.
+pub func (t Token) keyword() KeywordType {
+    return t.kw
+}
+
+// offset_start returns the offset of the token's first byte.
+pub func (t Token) offset_start() int64 {
+    return t.off_start
+}
+
+// offset_end returns the offset just past the token's last byte.
+pub func (t Token) offset_end() int64 {
+    return t.off_end
+}
+
+// starts_line reports whether no token comes before t on its line: it is
+// the file's first, or a newline lies between the previous token and it.
+// A semicolon inserted at a line end is on the line it ends, and so never
+// starts one. The parser recovers from a syntax error to the start of a
+// line.
+pub func (t Token) starts_line() bool {
+    return t.at_line_start
+}
+
+// Tokens is what lex produces from a file: its tokens, in source order
+// and ending with an EOF token, and the string values they refer to. It
+// owns both, so the tokens outlive the Lexer that made them.
+pub type Tokens struct {
+    items list[Token]
+    // values holds every token's string value, one after another; a
+    // token's val_start and val_end say which bytes are its.
+    values list[uint8]
+}
+
+// new_tokens returns Tokens holding no token, which grow through alloc.
+// It allocates nothing, so it cannot fail.
+func new_tokens(alloc Allocator) Tokens {
+    return Tokens{items: make(list[Token], alloc), values: make(list[uint8], alloc)}
+}
+
+// tokens returns the tokens, a view of them in place.
+pub func (ts Tokens) tokens() []Token {
+    return ts.items
+}
+
+// value returns t's string value, for a token of a kind that has one
+// (see has_text): the text of an identifier, a number or a comment, and
+// the decoded contents of a string or char literal. It is empty for any
+// other token, and for a token that did not come from ts.
+pub func (ts Tokens) value(t Token) []uint8 {
+    s := t.val_start
+    e := t.val_end
+    if s < 0 || s > e || e > len(ts.values) {
+        return ts.values[:0]
+    }
+    return ts.values[s:e]
+}
+
+// has_text reports whether a token of kind k has a string value, which
+// Tokens.value returns: the text of an identifier, a number or a comment,
+// and the decoded contents of a string or char literal. A keyword's
+// value is its KeywordType instead, and the other kinds have none, nil
+// in Go.
+pub func has_text(k TokenKind) bool {
+    return k == kind_ident || k == kind_int || k == kind_float || k == kind_char ||
+        k == kind_str || k == kind_comment
+}
+
+// append_padded appends t to out for debugging as "[start:end] kind(value)",
+// zero-padding the offsets to min_w digits so a token dump lines up, as
+// Go's StringPadded formats it: a string value quoted as Go's %q quotes
+// it, a keyword as it is spelled, and no parentheses for a token with no
+// value. value is t's string value, Tokens.value(t), read only when t has
+// one. Go's String, the same with min_w 2, is not ported: nothing but
+// the token dump formats a token.
+pub func append_padded(mut out list[uint8], t Token, value []uint8, min_w int64) error {
+    append(mut out, '[')?
+    append_zero_padded(mut out, t.off_start, min_w)?
+    append(mut out, ':')?
+    append_zero_padded(mut out, t.off_end, min_w)?
+    append(mut out, ']', ' ')?
+    t.k.append_string(mut out)?
+    if has_text(t.k) {
+        append(mut out, '(')?
+        conv.append_quote(mut out, value)?
+        return append(mut out, ')')
+    }
+    if t.k == kind_keyword {
+        append(mut out, '(')?
+        t.kw.append_string(mut out)?
+        return append(mut out, ')')
+    }
+    return noerror
+}
+
+// append_zero_padded appends v in decimal, with zeros before it to make
+// at least w digits, as Go's %0*d does. A negative v, which no offset is,
+// gets its - before the zeros and counts it among the w, as Go's does.
+func append_zero_padded(mut out list[uint8], v int64, w int64) error {
+    // width counts the characters bytes.append_int writes for v: its
+    // digits, and a - when it is negative. Dividing toward zero by 10
+    // takes a digit off either sign, and never overflows.
+    mut width int64 = 1
+    mut rest := v / 10
+    for rest != 0 {
+        width +%= 1
+        rest = rest / 10
+    }
+    if v < 0 {
+        width +%= 1
+        append(mut out, '-')?
+    }
+    for mut n := width; n < w; n++ {
+        append(mut out, '0')?
+    }
+    if v < 0 {
+        // The - is written; what is left is the magnitude, which a
+        // uint64 holds for every int64, the most negative included:
+        // -(v + 1) cannot overflow under v < 0, and adding the 1 back
+        // in a uint64 cannot wrap.
+        return bytes.append_uint(mut out, uint64(-(v + 1)) +% 1)
+    }
+    return bytes.append_int(mut out, v)
+}

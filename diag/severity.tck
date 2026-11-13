@@ -1,0 +1,51 @@
+package diag
+
+// Severity says how serious a diagnostic is. It wraps a number because
+// Tack declares no named integer types; the three values are the globals
+// note, warning and error_severity, numbered as Go's are.
+pub type Severity struct {
+    n uint8
+}
+
+// note adds context to another diagnostic.
+pub var note = Severity{n: 0}
+
+// warning reports something suspicious that does not stop compilation.
+pub var warning = Severity{n: 1}
+
+// error_severity reports a problem that stops compilation. It is Go's
+// Error, named apart from the builtin type error, which no global can be
+// named.
+pub var error_severity = Severity{n: 2}
+
+// error_count returns how many of diags are errors: the ones that stop
+// compilation, which warnings and notes do not.
+pub func error_count(diags []Diagnostic) int64 {
+    mut n int64 = 0
+    for _, d := range diags {
+        if d.severity == error_severity {
+            // n counts elements of diags, so it stays below len(diags)
+            // and never wraps.
+            n +%= 1
+        }
+    }
+    return n
+}
+
+// has_errors reports whether any of diags is an error.
+pub func has_errors(diags []Diagnostic) bool {
+    return error_count(diags) > 0
+}
+
+// string returns the severity's lowercase name as diagnostics print it.
+pub func (l Severity) string() string {
+    switch l {
+    case note:
+        return "note"
+    case warning:
+        return "warning"
+    case error_severity:
+        return "error"
+    }
+    return "unknown"
+}

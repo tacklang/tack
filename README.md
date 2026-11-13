@@ -12,13 +12,34 @@ on the same inputs and compare what each writes and how it exits.
 
 ## Status
 
-The driver is a stub. It answers `tack --backends` as the Go compiler does,
-and to any other command line it writes
+The port has the compiler's first stage: packages `source`, `diag` and
+`lexer`, ported from the Go compiler's packages of those names. The
+driver answers `tack --backends` as the Go compiler does, and `tack
+--lex <file>` for a single file: the token dump, or the file's lexical
+errors, its usage errors and its errors reading the file, byte for byte
+as the Go compiler writes them. To any other command line, and to a `--lex` it cannot answer yet, it
+writes one line
 
-    tack: not implemented in the port: <first argument>
+    tack: not implemented in the port: <what>
 
-to standard error and exits with status 3, which the harness reads as a
-stage the port does not implement yet.
+to standard error, naming the first argument, an unknown flag, or what
+it cannot do, as in `--lex of a directory`, and exits with status 3,
+which the harness reads as a stage the port does not implement yet. A
+file whose read fails with an error the port cannot word exactly as the
+Go compiler would is answered the same way.
+
+### Known differences
+
+These are known, and not fixed yet:
+
+- A failed write of the output is not reported. std's `fmt.write` and
+  `fmt.ewrite` report no error, so when standard output or standard
+  error cannot be written, to a full disk for one, the port exits 0
+  where the Go compiler reports the failure and exits 1. Fixing it needs
+  a std write that returns an error, planned with the driver at M8.
+- Neither compiler limits the size of a source file. A file that never
+  ends, such as `/proc/self/pagemap`, is read until memory runs out, by
+  both. A limit for the port is a follow-up.
 
 ## Building
 
@@ -65,3 +86,10 @@ it is the default: a source tree without `driver/` is never skipped.
 against itself, which passes every stage, and checks the harness rather
 than the port. The package documentation of `porttest` describes the
 protocol, the stages and the corpus in full.
+
+From tackc,
+
+    TACK_PORT=<this repository> make port-fuzz FUZZTIME=60s
+
+fuzzes `--lex`: it builds both compilers once and runs tackc's
+FuzzLexDiff, which compares their output on generated inputs.

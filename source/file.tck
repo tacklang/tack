@@ -1,0 +1,123 @@
+package source
+
+import text from "std/text"
+
+// FileID identifies a source file. Spans carry it to say which file they
+// point into. It is the file's index in the Set that holds it, from 0 (see
+// the package documentation for how this differs from Go's FileID, the
+// file's name).
+pub type FileID struct {
+    pub n int32
+}
+
+// Span is the bytes [start, end) of the file file, which a token, a syntax
+// node or a diagnostic covers. An empty span, start equal to end, covers no
+// bytes but still has a place, as an inserted semicolon does.
+pub type Span struct {
+    pub file FileID
+    pub start int64
+    pub end int64
+}
+
+// File is a source file's name and contents, plus the line starts the
+// lexer records while scanning it.
+pub type File struct {
+    pub id FileID
+    pub filename text.Text
+    pub data list[uint8]
+    // starts holds the offset at which each line starts, in order.
+    starts list[int64]
+}
+
+// new_file returns the File fid named filename holding data, with no line
+// starts recorded yet, which grows its list of them through alloc. It
+// takes filename and data over, so nothing is copied, and allocates
+// nothing itself, so it cannot fail.
+pub func new_file(fid FileID, own filename text.Text, own data list[uint8], scope alloc Allocator) File {
+    return File{id: fid, filename: filename, data: data, starts: make(list[int64], alloc)}
+}
+
+// add_line_start records that a line begins at byte offset ls. Offsets
+// must be added in increasing order, starting with 0. It returns the
+// builtin append's error when the list of line starts cannot grow, and
+// records nothing then.
+pub func (mut f File) add_line_start(ls int64) error {
+    return append(mut f.starts, ls)
+}
+
+// position returns the 1-based line and column of byte offset off.
+// Columns count bytes, not characters. The line is found by a binary
+// search for the last line start at or before off, as Go's sort.Search
+// finds it. An offset before the first line start, which there is none
+// of once the lexer has recorded 0, has no line: Go's Position panics on
+// one, and this returns line 0 and column off + 1, as if a line started
+// at 0, since Tack code cannot panic.
+//
+// off must be an offset into the file, from 0 to the length of its data,
+// as every span's offsets are; this is not checked. The column is then at
+// most that length plus 1, so its arithmetic cannot wrap. For an offset
+// outside that range the line is still found, and the column wraps
+// rather than fail, which is why it is written with +% and -%.
+pub func (f File) position(off int64) (int64, int64) {
+    // lo and hi bound the search: every start before lo is at or before
+    // off, and every start from hi on is after it.
+    mut lo int64 = 0
+    mut hi := len(f.starts)
+    // lo and hi stay from 0 to len(f.starts), so none of the arithmetic
+    // on them wraps.
+    for lo < hi {
+        mid := lo +% (hi -% lo) / 2
+        s, ok := f.starts[mid]
+        if !ok {
+            break
+        }
+        if s > off {
+            hi = mid
+        } else {
+            lo = mid +% 1
+        }
+    }
+    i := lo -% 1
+    first, ok := f.starts[i]
+    if !ok {
+        return 0, off +% 1
+    }
+    // first is at or before off, so off - first is not negative, and
+    // for an off within the file, as position's doc requires, the
+    // column is at most the file's length plus 1.
+    return i +% 1, off -% first +% 1
+}
+
+// line returns the bytes of 1-based line n, including its trailing
+// newline if it has one, or an empty view if there is no such line. Go's
+// Line returns nil for no line and an empty, non-nil slice for an empty
+// last line; a view has no nil, so the two are told apart by n against
+// num_lines instead.
+pub func (f File) line(n int64) []uint8 {
+    if n <= 0 || n > len(f.starts) {
+        return f.data[:0]
+    }
+    start := f.starts[n - 1]
+    mut end := len(f.data)
+    if n < len(f.starts) {
+        end = f.starts[n]
+    }
+    if start < 0 || start > end || end > len(f.data) {
+        // Line starts are recorded in increasing order within the
+        // file, so this does not happen; it is here because nothing
+        // proves it to the checker.
+        return f.data[:0]
+    }
+    return f.data[start:end]
+}
+
+// line_starts returns the recorded line start offsets, a view of them in
+// place, not a copy.
+pub func (f File) line_starts() []int64 {
+    return f.starts
+}
+
+// num_lines returns how many lines have been recorded.
+pub func (f File) num_lines() int64 {
+    return len(f.starts)
+}

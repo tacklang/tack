@@ -1,0 +1,47 @@
+package diag
+
+import source from "tack/source"
+import text from "std/text"
+
+// Diagnostic is one problem found in user input. marker is optional text
+// printed after the underline in pretty output, and related holds
+// supporting notes, such as where a conflicting declaration was first
+// made.
+pub type Diagnostic struct {
+    pub message text.Text
+    pub marker text.Text
+    pub related list[Related]
+    pub span source.Span
+    pub severity Severity
+
+    // unused says the span is code that is never used, which an editor
+    // may dim: the name of a declaration nothing uses, or an expression
+    // whose value is dropped. Only a warning sets it; it changes nothing
+    // rendered.
+    pub unused bool
+}
+
+// Related is a note among a Diagnostic's related: a Diagnostic without
+// related notes of its own (see the package documentation).
+pub type Related struct {
+    pub message text.Text
+    pub marker text.Text
+    pub span source.Span
+    pub severity Severity
+}
+
+// new_error returns an error Diagnostic over sp with message, taken
+// over, and no marker or related notes, whose empty lists grow through
+// alloc. It allocates nothing itself, so it cannot fail. It stands for
+// the Go literal diag.Diagnostic{Severity: diag.Error, Message: m, Span:
+// s} the stages write.
+pub func new_error(own message text.Text, sp source.Span, scope alloc Allocator) Diagnostic {
+    return Diagnostic{
+        message: message,
+        marker: text.new(alloc),
+        related: make(list[Related], alloc),
+        span: sp,
+        severity: error_severity,
+        unused: false,
+    }
+}

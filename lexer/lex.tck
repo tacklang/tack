@@ -1,0 +1,1142 @@
+package lexer
+
+import bytes from "std/bytes"
+import conv from "std/conv"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import source from "tack/source"
+import text from "std/text"
+import utf8 from "std/utf8"
+
+// lex tokenizes the whole of file and returns its tokens, ending with an
+// EOF token, and the diagnostics it found, in the order it found them. It
+// keeps going after a lexical error, so one run reports every lexical
+// problem. It records the line starts of file as it scans, so file must
+// not have been lexed before. The tokens and the diagnostics grow through
+// alloc (see the package documentation for why it is not a scope
+// Allocator).
+//
+// Go's New, Lex and Tokens are this one function here: Go's Lexer holds a
+// *source.File and records the line starts in the file the loader keeps,
+// and a Tack struct holds no reference, so the Lexer takes file over
+// while it scans and gives it back to file before lex returns, on every
+// path. What the Lexer made, the Tokens and the diagnostics, is moved out
+// to the caller, so the Lexer lives only as long as the call.
+//
+// It returns no error, or the builtin append's out of memory when a list
+// cannot grow, or an internal error when the tokens break the lexer's
+// own invariants (see check_tokens); on an error the Tokens and the
+// diagnostics are what was made before it, which no caller should use,
+// and file holds the line starts recorded so far.
+pub func lex(mut file source.File, alloc Allocator) (Tokens, list[diag.Diagnostic], error) {
+    mut l := Lexer{
+        file: replace(mut file, make(source.File, alloc)),
+        out: new_tokens(alloc),
+        diag_list: make(list[diag.Diagnostic], alloc),
+        pos: 0,
+        alloc: alloc,
+    }
+    e := mut l.lex()
+    file = replace(mut l.file, make(source.File, alloc))
+    out := replace(mut l.out, new_tokens(alloc))
+    diags := replace(mut l.diag_list, make(list[diag.Diagnostic], alloc))
+    return out, diags, e
+}
+
+// Lexer is the state of one call of lex: the file it scans, the position
+// in it, and the tokens and diagnostics so far.
+//
+// Positions and lengths here are offsets into the file's bytes, which an
+// int64 holds with room to spare, and each step moves a position by a
+// few bytes at most while it is still within the file, so the arithmetic
+// on them never wraps. The checker cannot see that through the Lexer's
+// fields, which carry no facts, so it is written with +% and -%.
+type Lexer struct {
+    file source.File
+    out Tokens
+    diag_list list[diag.Diagnostic]
+    pos int64
+    // alloc is what the diagnostics' messages are made through.
+    alloc Allocator
+}
+
+// bytes_per_token is the bytes of source lex allows for each token when
+// it sizes the token list. The examples average five to six; four leaves
+// room for denser code. A file with more tokens than that still lexes,
+// its list growing as it would otherwise.
+var bytes_per_token int64 = 4
+
+// Operator is one spelling of a punctuation token.
+type Operator struct {
+    text string
+    kind TokenKind
+}
+
+// operators lists the punctuation tokens, grouped by the byte that starts
+// them and, within each group, longest first, so the first match for a
+// byte is the longest one. Go keeps a map from the first byte to its
+// group; handle_operator walks the whole list instead, skipping the
+// groups of other bytes, which gives the same match.
+var operators = [55]Operator{
+    {text: "+%=", kind: kind_add_wrap_assign},
+    {text: "++", kind: kind_inc},
+    {text: "+=", kind: kind_add_assign},
+    {text: "+%", kind: kind_add_wrap},
+    {text: "+", kind: kind_add},
+    {text: "-%=", kind: kind_sub_wrap_assign},
+    {text: "--", kind: kind_dec},
+    {text: "-=", kind: kind_sub_assign},
+    {text: "-%", kind: kind_sub_wrap},
+    {text: "-", kind: kind_sub},
+    {text: "*%=", kind: kind_mul_wrap_assign},
+    {text: "*=", kind: kind_mul_assign},
+    {text: "*%", kind: kind_mul_wrap},
+    {text: "*", kind: kind_mul},
+    {text: "/=", kind: kind_div_assign},
+    {text: "/", kind: kind_div},
+    {text: "%=", kind: kind_mod_assign},
+    {text: "%", kind: kind_mod},
+    {text: "&^=", kind: kind_bit_and_not_assign},
+    {text: "&=", kind: kind_bit_and_assign},
+    {text: "&&", kind: kind_logical_and},
+    {text: "&^", kind: kind_bit_and_not},
+    {text: "&", kind: kind_bit_and},
+    {text: "|=", kind: kind_bit_or_assign},
+    {text: "||", kind: kind_logical_or},
+    {text: "|", kind: kind_bit_or},
+    {text: "^=", kind: kind_bit_xor_assign},
+    {text: "^", kind: kind_bit_xor},
+    {text: "<<=", kind: kind_shift_left_assign},
+    {text: "<=", kind: kind_less_equal},
+    {text: "<-", kind: kind_arrow},
+    {text: "<<", kind: kind_shift_left},
+    {text: "<", kind: kind_less},
+    {text: ">>=", kind: kind_shift_right_assign},
+    {text: ">=", kind: kind_greater_equal},
+    {text: ">>", kind: kind_shift_right},
+    {text: ">", kind: kind_greater},
+    {text: "==", kind: kind_equal},
+    {text: "=", kind: kind_assign},
+    {text: "!=", kind: kind_not_equal},
+    {text: "!", kind: kind_logical_not},
+    {text: "(", kind: kind_l_paren},
+    {text: ")", kind: kind_r_paren},
+    {text: "[", kind: kind_l_brack},
+    {text: "]", kind: kind_r_brack},
+    {text: "{", kind: kind_l_curl},
+    {text: "}", kind: kind_r_curl},
+    {text: ",", kind: kind_comma},
+    {text: "...", kind: kind_ellipsis},
+    {text: ".", kind: kind_period},
+    {text: ":=", kind: kind_define},
+    {text: ":", kind: kind_colon},
+    {text: ";", kind: kind_semi},
+    {text: "~", kind: kind_tilde},
+    {text: "?", kind: kind_question},
+}
+
+// lex tokenizes the whole file, keeping the tokens and the diagnostics it
+// found in l, as Go's Lex does. It returns the error the function lex
+// returns.
+func (mut l Lexer) lex() error {
+    mut l.file.add_line_start(0)?
+    reserve(mut l.out.items, len(l.file.data) / bytes_per_token +% 2)?
+
+    for l.pos < len(l.file.data) {
+        c := byte_at(l.file.data, l.pos)
+        if c == ' ' || c == '\t' {
+            mut l.handle_space()
+        } else if l.newline_at(l.pos) > 0 {
+            mut l.handle_newline()?
+        } else if mut l.handle_token()? {
+            // handle_token consumed the input and reported any error.
+        } else {
+            mut msg := make(list[uint8], l.alloc)
+            append(mut msg, []uint8("invalid character ")...)?
+            // Go's %c of a byte writes the rune of that value, so a
+            // byte from 0x80 up is written as two bytes of UTF-8.
+            utf8.append_rune(mut msg, c)?
+            mut l.diag(msg, l.pos, l.pos +% 1)?
+            l.pos +%= 1
+        }
+    }
+
+    mut l.add_semi(l.pos)?
+    mut l.add_plain(kind_eof, l.pos, l.pos)?
+
+    return l.check_tokens()
+}
+
+// handle_token lexes the token starting at the current position, and
+// reports false, consuming nothing, if no token can start there. Each
+// handler checks its own first byte and declines without side effects
+// otherwise. The first bytes the handlers accept are disjoint except for
+// a slash, which is tried as a comment before it is tried as an operator.
+func (mut l Lexer) handle_token() (bool, error) {
+    if mut l.handle_ident()? {
+        return true, noerror
+    }
+    if mut l.handle_string()? {
+        return true, noerror
+    }
+    if mut l.handle_char()? {
+        return true, noerror
+    }
+    if mut l.handle_digit()? {
+        return true, noerror
+    }
+    if mut l.handle_comment()? {
+        return true, noerror
+    }
+    ok := mut l.handle_operator()?
+    return ok, noerror
+}
+
+// overlapping is the error check_tokens returns for tokens out of source
+// order or overlapping. Go panics with the offsets in the message; a Tack
+// error's message is a literal, so this one names none.
+var overlapping = error{code: 2, msg: "internal error: the lexer's tokens are overlapping"}
+
+// past_eof is the error check_tokens returns for a token that ends past
+// the end of the file.
+var past_eof = error{code: 2, msg: "internal error: a token ends after EOF"}
+
+// check_tokens returns an internal error if the token stream breaks the
+// lexer's own invariants: tokens must be in source order, must not
+// overlap and must not extend past the end of the file. The one token
+// allowed to start before the end of the one before it is the empty
+// semicolon inserted after a line comment of several lines, which sits
+// inside the comment, at the end of its first line (see handle_comment);
+// the token after it must still start at or after the comment's end. A
+// failure here is a bug in the lexer, not a user error. Go panics on one;
+// Tack code cannot, so the error goes to the caller.
+func (l Lexer) check_tokens() error {
+    mut end int64 = 0
+    mut prev Token
+    for i, tk := range l.out.items {
+        in_comment := i > 0 && tk.k == kind_semi && tk.off_start == tk.off_end &&
+            prev.k == kind_comment && prev.off_start < tk.off_start && tk.off_start < prev.off_end
+        if tk.off_start < end && !in_comment {
+            return overlapping
+        }
+        if tk.off_end > end {
+            end = tk.off_end
+        }
+        if tk.off_end > len(l.file.data) {
+            return past_eof
+        }
+        prev = tk
+    }
+    return noerror
+}
+
+// handle_operator emits the longest punctuation token starting at the
+// current position and moves past it. It reports false, consuming
+// nothing, when no punctuation token starts there.
+func (mut l Lexer) handle_operator() (bool, error) {
+    c := byte_at(l.file.data, l.pos)
+    for _, op := range operators {
+        if len(op.text) > 0 && op.text[0] == c && l.at(op.text) {
+            end := l.pos +% len(op.text)
+            mut l.add_plain(op.kind, l.pos, end)?
+            l.pos = end
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// at reports whether the input at the current position begins with s.
+func (l Lexer) at(s string) bool {
+    return bytes.has_prefix(part(l.file.data, l.pos, len(l.file.data)), []uint8(s))
+}
+
+// byte_at returns byte i of data, or 0 when data has no byte i. The
+// lexer's position is a field of the Lexer, which no guard proves in
+// range, so every read of the source goes through this; each caller has
+// already checked the position against the length wherever Go does, so a
+// 0 for a byte out of range is never mistaken for one in the file.
+func byte_at(data []uint8, i int64) uint8 {
+    c, ok := data[i]
+    if !ok {
+        return 0
+    }
+    return c
+}
+
+// part returns the bytes of data from a up to b, or an empty view when
+// those are not bounds of data, which no caller passes: it stands for
+// Go's data[a:b], whose bounds the checker cannot see through the
+// Lexer's fields.
+func part(data []uint8, a int64, b int64) []uint8 {
+    if a < 0 || b < a || b > len(data) {
+        return data[:0]
+    }
+    return data[a:b]
+}
+
+// is_ident_start reports whether c can begin an identifier.
+func is_ident_start(c uint8) bool {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+}
+
+// is_ident_byte reports whether c can appear in an identifier after its
+// first byte.
+func is_ident_byte(c uint8) bool {
+    return is_ident_start(c) || is_digit(c)
+}
+
+// is_digit reports whether c is an ASCII decimal digit.
+func is_digit(c uint8) bool {
+    return c >= '0' && c <= '9'
+}
+
+// diag records an error saying msg, copied, covering the bytes [start,
+// end). It returns the error of an allocation that failed, and records
+// nothing then.
+func (mut l Lexer) diag(msg []uint8, start int64, end int64) error {
+    m := text.from_bytes(msg, l.alloc)?
+    d := diag.new_error(own m, source.Span{file: l.file.id, start: start, end: end}, l.alloc)
+    return append(mut l.diag_list, d)
+}
+
+// diag_quoted records an error saying prefix followed by the bytes
+// [start, end) of the source quoted as Go's %q quotes them, over those
+// bytes: the message Go writes as fmt.Sprintf(prefix+"%q", ...).
+func (mut l Lexer) diag_quoted(prefix string, start int64, end int64) error {
+    mut msg := make(list[uint8], l.alloc)
+    append(mut msg, []uint8(prefix)...)?
+    conv.append_quote(mut msg, part(l.file.data, start, end))?
+    return mut l.diag(msg, start, end)
+}
+
+// diag_text records an error saying prefix, the bytes [start, l.pos) of
+// the source as they are, and suffix, over those bytes: the message Go
+// writes as fmt.Sprintf(prefix+"%s"+suffix, text) for a literal's text.
+func (mut l Lexer) diag_text(prefix string, start int64, suffix string) error {
+    mut msg := make(list[uint8], l.alloc)
+    append(mut msg, []uint8(prefix)...)?
+    append(mut msg, part(l.file.data, start, l.pos)...)?
+    append(mut msg, []uint8(suffix)...)?
+    return mut l.diag(msg, start, l.pos)
+}
+
+// add_token appends a token of kind k, keyword kw, covering the bytes
+// [start, end), whose string value is the bytes of l.out.values from
+// val_start to its end, starting a line when it is the first token or a
+// newline lies between the last one and it (see Token.starts_line).
+func (mut l Lexer) add_token(k TokenKind, kw KeywordType, val_start int64, start int64, end int64) error {
+    mut line := len(l.out.items) == 0
+    if !line {
+        last, ok := l.out.items[len(l.out.items) -% 1]
+        if ok {
+            prev := last.off_end
+            line = prev <= start && bytes.index_byte(part(l.file.data, prev, start), '\n') >= 0
+        }
+    }
+    val_end := len(l.out.values)
+    return append(mut l.out.items, Token{
+        k: k,
+        kw: kw,
+        val_start: val_start,
+        val_end: val_end,
+        off_start: start,
+        off_end: end,
+        at_line_start: line,
+    })
+}
+
+// add_plain appends a token of kind k with no value, covering the bytes
+// [start, end), as add_token does: Go's addToken with a nil value.
+func (mut l Lexer) add_plain(k TokenKind, start int64, end int64) error {
+    val := len(l.out.values)
+    return mut l.add_token(k, keyword_invalid, val, start, end)
+}
+
+// handle_space skips a run of spaces and tabs.
+func (mut l Lexer) handle_space() {
+    for l.pos < len(l.file.data) && (byte_at(l.file.data, l.pos) == ' ' || byte_at(l.file.data, l.pos) == '\t') {
+        l.pos +%= 1
+    }
+}
+
+// newline_at returns the length of the newline starting at offset i: 1
+// for a line feed, 2 for a carriage return followed by one, and 0 if no
+// newline starts there. A carriage return alone is not a newline.
+func (l Lexer) newline_at(i int64) int64 {
+    if i < 0 || i >= len(l.file.data) {
+        return 0
+    }
+    c := byte_at(l.file.data, i)
+    if c == '\n' {
+        return 1
+    }
+    if c == '\r' && i +% 1 < len(l.file.data) && byte_at(l.file.data, i +% 1) == '\n' {
+        return 2
+    }
+    return 0
+}
+
+// handle_newline skips a run of newlines, each a line feed or a carriage
+// return and line feed, recording where each new line starts, and
+// inserts a semicolon at the first one if the preceding token can end a
+// statement.
+func (mut l Lexer) handle_newline() error {
+    nl := l.pos
+    for mut n := l.newline_at(l.pos); n > 0; n = l.newline_at(l.pos) {
+        l.pos +%= n
+        mut l.file.add_line_start(l.pos)?
+    }
+    return mut l.add_semi(nl)
+}
+
+// handle_ident lexes an identifier or keyword. It reports false,
+// consuming nothing, when the current byte cannot start an identifier.
+func (mut l Lexer) handle_ident() (bool, error) {
+    start := l.pos
+
+    if !is_ident_start(byte_at(l.file.data, l.pos)) {
+        return false, noerror
+    }
+
+    for l.pos < len(l.file.data) && is_ident_byte(byte_at(l.file.data, l.pos)) {
+        l.pos +%= 1
+    }
+
+    kw, ok := lookup_keyword(part(l.file.data, start, l.pos))
+    if ok {
+        val := len(l.out.values)
+        mut l.add_token(kind_keyword, kw, val, start, l.pos)?
+    } else {
+        val := len(l.out.values)
+        append(mut l.out.values, part(l.file.data, start, l.pos)...)?
+        mut l.add_token(kind_ident, keyword_invalid, val, start, l.pos)?
+    }
+
+    return true, noerror
+}
+
+// handle_string lexes a double-quoted or backquoted string. It reports
+// false, consuming nothing, when the current byte starts neither.
+func (mut l Lexer) handle_string() (bool, error) {
+    c := byte_at(l.file.data, l.pos)
+    if c == '"' {
+        mut l.handle_quoted()?
+        return true, noerror
+    }
+    if c == '`' {
+        mut l.handle_raw()?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// handle_quoted lexes a double-quoted string, decoding its escape
+// sequences. It may not span lines: a newline, \n or \r\n, ends it
+// unterminated and is left for the main loop to record. A carriage
+// return not followed by a line feed is a byte of the string like any
+// other. An unterminated string still produces a token, along with a
+// diagnostic.
+func (mut l Lexer) handle_quoted() error {
+    start := l.pos
+    l.pos +%= 1
+
+    val := len(l.out.values)
+    mut terminated := false
+    for l.pos < len(l.file.data) && l.newline_at(l.pos) == 0 {
+        c := byte_at(l.file.data, l.pos)
+        if c == '"' {
+            terminated = true
+            l.pos +%= 1
+            break
+        }
+        if c == '\\' {
+            b := mut l.unescape_rune('"')?
+            append(mut l.out.values, b)?
+            continue
+        }
+        append(mut l.out.values, c)?
+        l.pos +%= 1
+    }
+
+    mut l.add_token(kind_str, keyword_invalid, val, start, l.pos)?
+
+    if !terminated {
+        mut l.diag([]uint8("unterminated string"), start, l.pos)?
+    }
+    return noerror
+}
+
+// handle_raw lexes a backquoted string, which is raw, as in Go: every
+// byte up to the next backquote is taken as it is, except carriage
+// returns, which are dropped so a file's line endings do not change the
+// value. A backslash is a byte like any other, so nothing is decoded and
+// a backquote cannot appear inside. The string may span lines, whose
+// starts are recorded, or every later position would be reported on the
+// wrong line. One with no closing backquote runs to the end of the input
+// and still produces a token, along with a diagnostic.
+func (mut l Lexer) handle_raw() error {
+    start := l.pos
+    l.pos +%= 1
+
+    mut end := bytes.index_byte(part(l.file.data, l.pos, len(l.file.data)), '`')
+    terminated := end >= 0
+    if !terminated {
+        end = len(l.file.data) -% l.pos
+    }
+    body_end := l.pos +% end
+
+    val := len(l.out.values)
+    for mut i := l.pos; i < body_end; i +%= 1 {
+        c := byte_at(l.file.data, i)
+        if c == '\n' {
+            mut l.file.add_line_start(i +% 1)?
+        }
+        if c != '\r' {
+            append(mut l.out.values, c)?
+        }
+    }
+    l.pos = body_end
+    if terminated {
+        l.pos +%= 1
+    }
+
+    mut l.add_token(kind_str, keyword_invalid, val, start, l.pos)?
+
+    if !terminated {
+        mut l.diag([]uint8("unterminated string"), start, l.pos)?
+    }
+    return noerror
+}
+
+// handle_char lexes a single-quoted character literal holding exactly
+// one byte or escape sequence. A malformed literal produces a diagnostic
+// and no token.
+func (mut l Lexer) handle_char() (bool, error) {
+    start := l.pos
+
+    if l.pos >= len(l.file.data) || byte_at(l.file.data, l.pos) != '\'' {
+        return false, noerror
+    }
+    l.pos +%= 1
+
+    // A char literal cannot span lines, so a newline ends it
+    // unterminated and is left for the main loop to record.
+    if l.pos >= len(l.file.data) || l.newline_at(l.pos) > 0 {
+        mut l.diag([]uint8("unterminated char literal"), start, l.pos)?
+        return true, noerror
+    }
+
+    if mut l.skip_empty_or_wide_char(start)? {
+        return true, noerror
+    }
+
+    mut val := byte_at(l.file.data, l.pos)
+    if val == '\\' {
+        val = mut l.unescape_rune('\'')?
+    } else {
+        l.pos +%= 1
+    }
+
+    if l.pos >= len(l.file.data) || l.newline_at(l.pos) > 0 {
+        mut l.diag([]uint8("unterminated char literal"), start, l.pos)?
+        return true, noerror
+    }
+
+    if byte_at(l.file.data, l.pos) != '\'' {
+        mut l.skip_bad_char(start)?
+        return true, noerror
+    }
+    l.pos +%= 1
+
+    // One byte, not the UTF-8 encoding of the code point the byte's
+    // value would be, which Go's string(val) would give from 0x80 up.
+    v := len(l.out.values)
+    append(mut l.out.values, val)?
+    mut l.add_token(kind_char, keyword_invalid, v, start, l.pos)?
+
+    return true, noerror
+}
+
+// skip_empty_or_wide_char reports a character literal starting at start
+// that is empty, '', or holds one character encoded in more than one
+// byte of UTF-8, such as 'é', since a character literal is one byte, and
+// moves past it. It reports whether it found one. A byte that does not
+// begin a valid multi-byte sequence is left for handle_char, as a byte of
+// its own.
+func (mut l Lexer) skip_empty_or_wide_char(start int64) (bool, error) {
+    if byte_at(l.file.data, l.pos) == '\'' {
+        l.pos +%= 1
+        mut l.diag([]uint8("empty char literal"), start, l.pos)?
+        return true, noerror
+    }
+    _, size := utf8.decode(part(l.file.data, l.pos, len(l.file.data)))
+    if size < 2 || l.pos +% size >= len(l.file.data) || byte_at(l.file.data, l.pos +% size) != '\'' {
+        return false, noerror
+    }
+    l.pos +%= size +% 1
+    mut msg := make(list[uint8], l.alloc)
+    fmt.appendf(mut msg, "char literal %s is %d bytes in UTF-8; a char literal must be one byte",
+        part(l.file.data, start, l.pos), size)?
+    mut l.diag(msg, start, l.pos)?
+    return true, noerror
+}
+
+// skip_bad_char recovers from a character literal starting at start that
+// holds more than one character: it skips past the closing quote, or up
+// to the end of the line or input if there is none, and reports the whole
+// literal. A newline is left in place, so the main loop records the line
+// and inserts any semicolon as usual.
+func (mut l Lexer) skip_bad_char(start int64) error {
+    for l.pos < len(l.file.data) && l.newline_at(l.pos) == 0 {
+        if byte_at(l.file.data, l.pos) == '\'' {
+            l.pos +%= 1
+            break
+        }
+        l.pos +%= 1
+    }
+    return mut l.diag([]uint8("too many characters in char literal"), start, l.pos)
+}
+
+// simple_escape returns the byte the escape sequence of a backslash and c
+// denotes, and true, for the escapes valid in every kind of literal, or 0
+// and false for any other c. It stands for Go's simpleEscapes map.
+func simple_escape(c uint8) (uint8, bool) {
+    switch c {
+    case 'a':
+        return 7, true
+    case 'b':
+        return 8, true
+    case 'f':
+        return 12, true
+    case 'v':
+        return 11, true
+    case 'n':
+        return '\n', true
+    case 't':
+        return '\t', true
+    case 'r':
+        return '\r', true
+    case '\\':
+        return '\\', true
+    }
+    return 0, false
+}
+
+// unescape_rune decodes the escape sequence at the current position and
+// moves past it: one of simple_escape's, or \x and two hex digits, giving
+// that byte. quote is a further byte that may be escaped as itself, the
+// literal's own quote; Go's unescapeRune takes a variadic list of them,
+// and every call passes exactly that one. An invalid sequence is reported
+// and decodes to 0. A backslash at the end of the input decodes to 0
+// unreported, since the literal it cut off reports itself as
+// unterminated. A backslash before a newline, \n or \r\n, is reported and
+// decodes to 0, and the newline is left in place for the caller to
+// handle.
+func (mut l Lexer) unescape_rune(quote uint8) (uint8, error) {
+    start := l.pos
+    if l.pos >= len(l.file.data) || byte_at(l.file.data, l.pos) != '\\' {
+        return 0, noerror
+    }
+    l.pos +%= 1
+    if l.pos >= len(l.file.data) {
+        return 0, noerror
+    }
+    if l.newline_at(l.pos) > 0 {
+        mut l.diag_quoted("Invalid escape sequence ", start, l.pos)?
+        return 0, noerror
+    }
+
+    c := byte_at(l.file.data, l.pos)
+    l.pos +%= 1
+    r, ok := simple_escape(c)
+    if ok {
+        return r, noerror
+    }
+    if c == 'x' {
+        v := mut l.unescape_hex(start)?
+        return v, noerror
+    }
+    if c == quote {
+        return c, noerror
+    }
+    mut l.diag_quoted("Invalid escape sequence ", start, l.pos)?
+    return 0, noerror
+}
+
+// unescape_hex decodes the two hex digits of a \x escape, which starts at
+// start, the current position being just past the x, and moves past them.
+// Fewer than two hex digits, upper or lower case, is reported, covering
+// the \x and any digit there is, and decodes to 0; whatever stopped the
+// escape is left in place.
+func (mut l Lexer) unescape_hex(start int64) (uint8, error) {
+    // v holds at most two hex digits, below 256, so shifting in the
+    // second never wraps.
+    mut v uint8 = 0
+    for mut k := 0; k < 2; k++ {
+        if l.pos >= len(l.file.data) {
+            break
+        }
+        d, ok := hex_digit(byte_at(l.file.data, l.pos))
+        if !ok {
+            break
+        }
+        v = v *% 16 +% d
+        l.pos +%= 1
+    }
+    if l.pos -% start < len("\\x00") {
+        mut l.diag_quoted("Invalid escape sequence ", start, l.pos)?
+        return 0, noerror
+    }
+    return v, noerror
+}
+
+// hex_digit returns the value of the hex digit c, upper or lower case,
+// and whether c is one.
+func hex_digit(c uint8) (uint8, bool) {
+    if c >= '0' && c <= '9' {
+        return c - '0', true
+    }
+    if c >= 'a' && c <= 'f' {
+        return c - 'a' + 10, true
+    }
+    if c >= 'A' && c <= 'F' {
+        return c - 'A' + 10, true
+    }
+    return 0, false
+}
+
+// handle_digit lexes a number: an integer literal, decimal or, after a
+// 0x, 0b or 0o prefix in either case, hexadecimal, binary or octal, with
+// _ allowed between digits and after a prefix to group them; or a
+// decimal float literal, as Go writes one, lexed as a float: digits with
+// a fraction point, 1.5 or 1., a point and digits, .5, or either or plain
+// digits followed by an exponent, e or E, an optional sign and digits, as
+// in 1e9 or 1.5e-3, with _ allowed between digits. The token's value is
+// the literal as written, which the parser decodes. A prefix with no
+// digit after it, a digit its base does not have, an exponent with no
+// digits, and a _ that does not separate digits are reported, the
+// literal still a token; a decimal integer starting with 0 is reported by
+// check_leading_zero. It reports false, consuming nothing, when the
+// current byte is no digit, nor a point followed by one.
+func (mut l Lexer) handle_digit() (bool, error) {
+    start := l.pos
+    if !l.number_starts() {
+        return false, noerror
+    }
+    base, name := prefix_base(part(l.file.data, l.pos, len(l.file.data)))
+    if base != 0 {
+        l.pos +%= 2
+        mut l.prefixed_int(start, base, name)?
+        return true, noerror
+    }
+
+    mut k := mut l.decimal()
+    mut exp_ok := true
+    c := byte_at(l.file.data, l.pos)
+    if l.pos < len(l.file.data) && (c == 'e' || c == 'E') {
+        k = kind_float
+        exp_ok = mut l.exponent()
+    }
+    mut l.check_decimal(k, exp_ok, start)?
+    val := len(l.out.values)
+    append(mut l.out.values, part(l.file.data, start, l.pos)...)?
+    mut l.add_token(k, keyword_invalid, val, start, l.pos)?
+    return true, noerror
+}
+
+// number_starts reports whether a number starts at the current position:
+// a digit, or a point followed by one, as in .5.
+func (l Lexer) number_starts() bool {
+    c := byte_at(l.file.data, l.pos)
+    return is_digit(c) ||
+        c == '.' && l.pos +% 1 < len(l.file.data) && is_digit(byte_at(l.file.data, l.pos +% 1))
+}
+
+// check_decimal reports what is wrong with the decimal literal of kind k
+// from start to the current position, an integer or a float whose
+// exponent has a digit when exp_ok: an exponent with no digits, a _ that
+// separates none, or an integer's leading zero. Go passes the literal's
+// text; here it is read from the file, from start to the position.
+func (mut l Lexer) check_decimal(k TokenKind, exp_ok bool, start int64) error {
+    if !exp_ok {
+        return mut l.diag_text("exponent has no digits in ", start, "")
+    }
+    if k == kind_float {
+        return mut l.check_float_separators(start)
+    }
+    if mut l.check_separators(start, 0)? {
+        return mut l.check_leading_zero(start)
+    }
+    return noerror
+}
+
+// decimal consumes a decimal number's digits and _ separators, with one
+// fraction point among them, and returns its kind: kind_float when it had
+// the point, kind_int otherwise.
+func (mut l Lexer) decimal() TokenKind {
+    mut k := kind_int
+    for l.pos < len(l.file.data) {
+        c := byte_at(l.file.data, l.pos)
+        if !(is_digit(c) || c == '_' || (c == '.' && k == kind_int)) {
+            break
+        }
+        if c == '.' {
+            k = kind_float
+        }
+        l.pos +%= 1
+    }
+    return k
+}
+
+// exponent consumes a float literal's exponent, at the current e or E:
+// the letter, an optional + or -, and the digits and _ separators after
+// it. It reports whether a digit was among them.
+func (mut l Lexer) exponent() bool {
+    l.pos +%= 1
+    c := byte_at(l.file.data, l.pos)
+    if l.pos < len(l.file.data) && (c == '+' || c == '-') {
+        l.pos +%= 1
+    }
+    mut digits := false
+    for l.pos < len(l.file.data) && (is_digit(byte_at(l.file.data, l.pos)) || byte_at(l.file.data, l.pos) == '_') {
+        digits = digits || is_digit(byte_at(l.file.data, l.pos))
+        l.pos +%= 1
+    }
+    return digits
+}
+
+// check_float_separators reports the float literal from start to the
+// current position when a _ in it does not stand between two digits:
+// next to the point, the exponent's letter or sign, another _, or either
+// end.
+func (mut l Lexer) check_float_separators(start int64) error {
+    n := l.pos -% start
+    for mut i int64 = 0; i < n; i +%= 1 {
+        if byte_at(l.file.data, start +% i) == '_' &&
+            (i == 0 || !is_digit(byte_at(l.file.data, start +% i -% 1)) || i +% 1 == n ||
+                !is_digit(byte_at(l.file.data, start +% i +% 1))) {
+            return mut l.diag_text("_ must separate successive digits in ", start, "")
+        }
+    }
+    return noerror
+}
+
+// prefix_base returns the base and the name of the integer literal whose
+// bytes start b when they start with a prefix, 0x, 0b or 0o in either
+// case, and 0 otherwise.
+func prefix_base(b []uint8) (int64, string) {
+    if len(b) < 2 || b[0] != '0' {
+        return 0, ""
+    }
+    switch b[1] {
+    case 'x', 'X':
+        return 16, "hexadecimal"
+    case 'b', 'B':
+        return 2, "binary"
+    case 'o', 'O':
+        return 8, "octal"
+    }
+    return 0, ""
+}
+
+// prefixed_int lexes the rest of an integer literal of the given base,
+// named name, whose prefix starts at start and has been consumed: every
+// letter, digit and _ that follows, so a digit the base does not have is
+// part of the literal and reported in it, rather than starting a name.
+func (mut l Lexer) prefixed_int(start int64, base int64, name string) error {
+    for l.pos < len(l.file.data) && is_ident_byte(byte_at(l.file.data, l.pos)) {
+        l.pos +%= 1
+    }
+    digits := start +% 2
+    if only_underscores(part(l.file.data, digits, l.pos)) {
+        mut msg := make(list[uint8], l.alloc)
+        fmt.appendf(mut msg, "%s literal %s has no digits", name, part(l.file.data, start, l.pos))?
+        mut l.diag(msg, start, l.pos)?
+    } else {
+        bad, at := bad_digit(part(l.file.data, digits, l.pos), base)
+        if bad != 0 {
+            mut msg := make(list[uint8], l.alloc)
+            append(mut msg, []uint8("invalid digit ")...)?
+            utf8.append_rune(mut msg, bad)?
+            fmt.appendf(mut msg, " in %s literal %s", name, part(l.file.data, start, l.pos))?
+            mut l.diag(msg, digits +% at, digits +% at +% 1)?
+        } else {
+            mut l.check_separators(start, 2)?
+        }
+    }
+    val := len(l.out.values)
+    append(mut l.out.values, part(l.file.data, start, l.pos)...)?
+    return mut l.add_token(kind_int, keyword_invalid, val, start, l.pos)
+}
+
+// only_underscores reports whether every byte of b is _, an empty b
+// included: Go's strings.Trim(digits, "_") == "".
+func only_underscores(b []uint8) bool {
+    for _, c := range b {
+        if c != '_' {
+            return false
+        }
+    }
+    return true
+}
+
+// bad_digit returns the first byte of digits, the digits of a literal of
+// base, that is neither a digit of the base nor _, and its index, or 0.
+func bad_digit(digits []uint8, base int64) (uint8, int64) {
+    for i, c := range digits {
+        if c != '_' && digit_value(c) >= base {
+            return c, i
+        }
+    }
+    return 0, 0
+}
+
+// digit_value returns the value of c as a digit of a base up to 16, or
+// 16 when it is none.
+func digit_value(c uint8) int64 {
+    if c >= '0' && c <= '9' {
+        return c - '0'
+    }
+    if c >= 'a' && c <= 'f' {
+        return c - 'a' + 10
+    }
+    if c >= 'A' && c <= 'F' {
+        return c - 'A' + 10
+    }
+    return 16
+}
+
+// check_separators reports the integer literal from start to the current
+// position, whose digits start at index first of it, after its prefix if
+// it has one, when a _ in it does not stand between two digits, or,
+// after a prefix, right after the prefix before a digit, and reports
+// whether it found none.
+func (mut l Lexer) check_separators(start int64, first int64) (bool, error) {
+    n := l.pos -% start
+    for mut i := first; i < n; i +%= 1 {
+        if byte_at(l.file.data, start +% i) != '_' {
+            continue
+        }
+        before := i > first && byte_at(l.file.data, start +% i -% 1) != '_' || i == first && first == 2
+        after := i +% 1 < n && byte_at(l.file.data, start +% i +% 1) != '_'
+        if !before || !after {
+            mut l.diag_text("_ must separate successive digits in ", start, "")?
+            return false, noerror
+        }
+    }
+    return true, noerror
+}
+
+// check_leading_zero reports the integer literal from start to the
+// current position if it has more than one digit and starts with 0,
+// suggesting it without its leading zeros.
+func (mut l Lexer) check_leading_zero(start int64) error {
+    if l.pos -% start < 2 || byte_at(l.file.data, start) != '0' {
+        return noerror
+    }
+    // digits is the literal without its _ separators and its leading
+    // zeros, or 0 when nothing is left, as Go's TrimLeft of its
+    // ReplaceAll gives it.
+    mut digits := make(list[uint8], l.alloc)
+    for _, c := range part(l.file.data, start, l.pos) {
+        if c == '_' || c == '0' && len(digits) == 0 {
+            continue
+        }
+        append(mut digits, c)?
+    }
+    if len(digits) == 0 {
+        append(mut digits, '0')?
+    }
+    mut msg := make(list[uint8], l.alloc)
+    fmt.appendf(mut msg, "integer literal %s has a leading zero; write %s", part(l.file.data, start, l.pos), digits[:])?
+    return mut l.diag(msg, start, l.pos)
+}
+
+// handle_comment lexes a comment: a block comment (see block_comment) or
+// a line comment. Consecutive lines whose first bytes other than spaces
+// and tabs are "//" merge into one comment token, however each line is
+// indented, and its value joins them with newlines, each line with its
+// surrounding space trimmed. A blank line, empty or holding only spaces
+// and tabs, ends the comment, as it ends a comment group in Go, so
+// comment lines separated by one become separate tokens. A semicolon is
+// inserted after the comment if the preceding token can end a statement,
+// placed at the end of the comment's first line, where the line's newline
+// or the end of the input is: the same place a line with no comment puts
+// it. For a comment of several lines that place is inside the comment's
+// span, the one case where a token starts before the end of the token
+// before it (see check_tokens). The newlines after the comment are left
+// to lex, which inserts no second semicolon.
+func (mut l Lexer) handle_comment() (bool, error) {
+    start := l.pos
+
+    if l.at("/*") {
+        mut l.block_comment()?
+        return true, noerror
+    }
+
+    if !l.at("//") {
+        return false, noerror
+    }
+    l.pos +%= 2
+
+    // A newline continues the comment only when the very next line, past
+    // its indentation, starts with "//"; otherwise the comment ends
+    // before the newline, which is left for lex. Only a single newline is
+    // consumed here, so a blank line always ends the comment. The
+    // indentation is not written to the value, which trims it anyway.
+    mut val := make(list[uint8], l.alloc)
+    mut first_end int64 = -1
+    for l.pos < len(l.file.data) {
+        n := l.newline_at(l.pos)
+        if n > 0 {
+            if first_end < 0 {
+                first_end = l.pos
+            }
+            mut next := l.pos +% n
+            for next < len(l.file.data) && (byte_at(l.file.data, next) == ' ' || byte_at(l.file.data, next) == '\t') {
+                next +%= 1
+            }
+            if !bytes.has_prefix(part(l.file.data, next, len(l.file.data)), []uint8("//")) {
+                break
+            }
+            mut l.file.add_line_start(l.pos +% n)?
+            append(mut val, '\n')?
+            l.pos = next +% 2
+            continue
+        }
+
+        append(mut val, byte_at(l.file.data, l.pos))?
+        l.pos +%= 1
+    }
+
+    if first_end < 0 {
+        first_end = l.pos
+    }
+    v := len(l.out.values)
+    append_trimmed_lines(mut l.out.values, val)?
+    mut l.add_token(kind_comment, keyword_invalid, v, start, l.pos)?
+    mut l.add_semi(first_end)?
+
+    return true, noerror
+}
+
+// append_trimmed_lines appends the text of a merged line comment to out
+// with the surrounding space trimmed from each of its lines, so every
+// line is treated as the first one is: "// a\n// b" has the value
+// "a\nb". The lines are kept, empty ones included, so the value has as
+// many lines as the comment. It is Go's trimCommentLines, appending where
+// Go returns a string.
+func append_trimmed_lines(mut out list[uint8], b []uint8) error {
+    mut line_start int64 = 0
+    for i, c := range b {
+        if c == '\n' {
+            append(mut out, trim_space(part(b, line_start, i))...)?
+            append(mut out, '\n')?
+            line_start = i + 1
+        }
+    }
+    return append(mut out, trim_space(part(b, line_start, len(b)))...)
+}
+
+// block_comment lexes a block comment, from "/*" to the "*/" that closes
+// it, as one comment token whose value is the text between them with its
+// surrounding space trimmed and each \r\n made \n, as a line comment's
+// value has no carriage return. Block comments nest: each "/*" inside
+// opens one that needs its own "*/", so code holding one can be commented
+// out whole. As in Go, a block comment that spans a line break acts as a
+// newline, so a semicolon is inserted before it when the preceding token
+// can end a statement, and one on a single line acts as a space,
+// inserting nothing. One that is never closed runs to the end of the
+// input and is reported. The lines it spans are recorded, so later
+// positions stay correct.
+func (mut l Lexer) block_comment() error {
+    start := l.pos
+    l.pos +%= 2
+
+    mut depth int64 = 1
+    mut spans_lines := false
+    for l.pos < len(l.file.data) && depth > 0 {
+        if l.at("/*") {
+            depth +%= 1
+            l.pos +%= 2
+        } else if l.at("*/") {
+            depth -%= 1
+            l.pos +%= 2
+        } else {
+            n := l.newline_at(l.pos)
+            if n > 0 {
+                l.pos +%= n
+                mut l.file.add_line_start(l.pos)?
+                spans_lines = true
+                continue
+            }
+            l.pos +%= 1
+        }
+    }
+
+    mut text_end := l.pos
+    if depth == 0 {
+        text_end = l.pos -% 2
+    }
+    if spans_lines {
+        mut l.add_semi(start)?
+    }
+    // value is the comment's text with each \r\n made \n, Go's
+    // strings.ReplaceAll, before it is trimmed.
+    mut value := make(list[uint8], l.alloc)
+    for mut i := start +% 2; i < text_end; i +%= 1 {
+        c := byte_at(l.file.data, i)
+        if c == '\r' && byte_at(l.file.data, i +% 1) == '\n' && i +% 1 < text_end {
+            continue
+        }
+        append(mut value, c)?
+    }
+    v := len(l.out.values)
+    append(mut l.out.values, trim_space(value)...)?
+    mut l.add_token(kind_comment, keyword_invalid, v, start, l.pos)?
+    if depth > 0 {
+        mut l.diag([]uint8("block comment not terminated"), start, l.pos)?
+    }
+    return noerror
+}
+
+// add_semi inserts an empty semicolon token at pos if the last token
+// other than a comment can end a statement, so a block comment on one
+// line before a newline is passed over as a space is. This is automatic
+// semicolon insertion, following Go's rule.
+func (mut l Lexer) add_semi(pos int64) error {
+    mut last := len(l.out.items) -% 1
+    for last >= 0 {
+        t, ok := l.out.items[last]
+        if !ok || t.k != kind_comment {
+            break
+        }
+        last -%= 1
+    }
+    t, ok := l.out.items[last]
+    if ok && ends_statement(t) {
+        return mut l.add_plain(kind_semi, pos, pos)
+    }
+    return noerror
+}
+
+// ends_statement reports whether a semicolon belongs after tk when a line
+// ends there: identifiers, literals (true, false, noerror and c_allocator
+// among them), ++ and --, the postfix ?, closing brackets, and the
+// keywords break, continue, return, unreachable and fallthrough.
+func ends_statement(tk Token) bool {
+    switch tk.k {
+    case kind_ident, kind_str, kind_int, kind_float, kind_char, kind_inc, kind_dec, kind_question,
+        kind_r_paren, kind_r_brack, kind_r_curl:
+        return true
+    case kind_keyword:
+        switch tk.kw {
+        case keyword_break, keyword_continue, keyword_return, keyword_unreachable, keyword_fallthrough,
+            keyword_true, keyword_false, keyword_no_error, keyword_c_allocator:
+            return true
+        }
+        return false
+    }
+    return false
+}

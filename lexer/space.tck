@@ -1,0 +1,77 @@
+package lexer
+
+import unicode from "std/unicode"
+import utf8 from "std/utf8"
+
+// trim_space returns b without its leading and trailing white space, as
+// Go's strings.TrimSpace trims a comment's text: every rune unicode's
+// is_space reports, Go's IsSpace, decoded as UTF-8 forward from the start
+// and backward from the end, which takes \t \n \v \f \r and space, and
+// U+0085, U+00A0 and the other Unicode spaces written in UTF-8. A byte
+// that is not valid UTF-8 decodes to U+FFFD, which is no space, and so
+// stops the trimming, as it does in Go.
+func trim_space(b []uint8) []uint8 {
+    mut lo int64 = 0
+    for lo >= 0 && lo < len(b) {
+        r, w := utf8.decode(b[lo:])
+        if !unicode.is_space(r) {
+            break
+        }
+        // decode reads 1 to 4 bytes of b[lo:], so lo stays at most
+        // len(b) and never wraps.
+        lo +%= w
+    }
+    mut hi := len(b)
+    for hi > lo && lo >= 0 && hi <= len(b) {
+        r, w := decode_last(b[:hi])
+        if !unicode.is_space(r) {
+            break
+        }
+        hi -%= w
+    }
+    if lo < 0 || hi < lo || hi > len(b) {
+        return b[:0]
+    }
+    return b[lo:hi]
+}
+
+// decode_last returns the last rune of b and the number of bytes its
+// encoding takes, as Go's utf8.DecodeLastRune does: 0xFFFD and 1 when b
+// does not end with a valid encoding, and 0xFFFD and 0 when b is empty.
+// It looks back at most four bytes for one that starts an encoding, one
+// whose top two bits are not 10, decodes from there, and takes the rune
+// only when its encoding ends exactly at the end of b.
+func decode_last(b []uint8) (int32, int64) {
+    end := len(b)
+    if end == 0 {
+        return 0xFFFD, 0
+    }
+    mut start := end - 1
+    last, ok := b[start]
+    if ok && last < 0x80 {
+        return last, 1
+    }
+    mut lim := end - 4
+    if lim < 0 {
+        lim = 0
+    }
+    start -%= 1
+    for start >= lim {
+        c, in_b := b[start]
+        if !in_b || c & 0xC0 != 0x80 {
+            break
+        }
+        start -%= 1
+    }
+    if start < 0 {
+        start = 0
+    }
+    if start < 0 || start > end {
+        return 0xFFFD, 1
+    }
+    r, size := utf8.decode(b[start:end])
+    if start +% size != end {
+        return 0xFFFD, 1
+    }
+    return r, size
+}

@@ -1,0 +1,224 @@
+package lexer
+
+import bytes from "std/bytes"
+
+// KeywordType identifies a reserved word. A keyword token carries one as
+// its value. Reserving a word here makes it unusable as an identifier,
+// whether or not the parser accepts it yet. It wraps a number because
+// Tack declares no named integer types; the keywords are the globals
+// below, numbered in the order of Go's iota constants, so a keyword's
+// number is the same in both compilers, and its doc comment in Go says
+// what each one starts or means.
+pub type KeywordType struct {
+    n uint8
+}
+
+// keyword_invalid is the zero value and names no keyword.
+pub var keyword_invalid = KeywordType{n: 0}
+
+// keyword_lib is Go's Lib, spelled "lib".
+pub var keyword_lib = KeywordType{n: 1}
+
+// keyword_pub is Go's Pub, spelled "pub".
+pub var keyword_pub = KeywordType{n: 2}
+
+// keyword_const is Go's Const, spelled "const".
+pub var keyword_const = KeywordType{n: 3}
+
+// keyword_var is Go's Var, spelled "var".
+pub var keyword_var = KeywordType{n: 4}
+
+// keyword_mut is Go's Mut, spelled "mut".
+pub var keyword_mut = KeywordType{n: 5}
+
+// keyword_type is Go's Type, spelled "type".
+pub var keyword_type = KeywordType{n: 6}
+
+// keyword_func is Go's Func, spelled "func".
+pub var keyword_func = KeywordType{n: 7}
+
+// keyword_struct is Go's Struct, spelled "struct".
+pub var keyword_struct = KeywordType{n: 8}
+
+// keyword_interface is Go's Interface, spelled "interface".
+pub var keyword_interface = KeywordType{n: 9}
+
+// keyword_map is Go's Map, spelled "map".
+pub var keyword_map = KeywordType{n: 10}
+
+// keyword_extern is Go's Extern, spelled "extern".
+pub var keyword_extern = KeywordType{n: 11}
+
+// keyword_package is Go's Package, spelled "package".
+pub var keyword_package = KeywordType{n: 12}
+
+// keyword_import is Go's Import, spelled "import".
+pub var keyword_import = KeywordType{n: 13}
+
+// keyword_from is Go's From, spelled "from".
+pub var keyword_from = KeywordType{n: 14}
+
+// keyword_if is Go's If, spelled "if".
+pub var keyword_if = KeywordType{n: 15}
+
+// keyword_else is Go's Else, spelled "else".
+pub var keyword_else = KeywordType{n: 16}
+
+// keyword_for is Go's For, spelled "for".
+pub var keyword_for = KeywordType{n: 17}
+
+// keyword_range is Go's Range, spelled "range".
+pub var keyword_range = KeywordType{n: 18}
+
+// keyword_switch is Go's Switch, spelled "switch".
+pub var keyword_switch = KeywordType{n: 19}
+
+// keyword_case is Go's Case, spelled "case".
+pub var keyword_case = KeywordType{n: 20}
+
+// keyword_default is Go's Default, spelled "default".
+pub var keyword_default = KeywordType{n: 21}
+
+// keyword_select is Go's Select, spelled "select".
+pub var keyword_select = KeywordType{n: 22}
+
+// keyword_break is Go's Break, spelled "break".
+pub var keyword_break = KeywordType{n: 23}
+
+// keyword_continue is Go's Continue, spelled "continue".
+pub var keyword_continue = KeywordType{n: 24}
+
+// keyword_goto is Go's Goto, spelled "goto".
+pub var keyword_goto = KeywordType{n: 25}
+
+// keyword_return is Go's Return, spelled "return".
+pub var keyword_return = KeywordType{n: 26}
+
+// keyword_async is Go's Async, spelled "async".
+pub var keyword_async = KeywordType{n: 27}
+
+// keyword_defer is Go's Defer, spelled "defer".
+pub var keyword_defer = KeywordType{n: 28}
+
+// keyword_true is Go's True, spelled "true".
+pub var keyword_true = KeywordType{n: 29}
+
+// keyword_false is Go's False, spelled "false".
+pub var keyword_false = KeywordType{n: 30}
+
+// keyword_no_error is Go's NoError, spelled "noerror".
+pub var keyword_no_error = KeywordType{n: 31}
+
+// keyword_list is Go's List, spelled "list".
+pub var keyword_list = KeywordType{n: 32}
+
+// keyword_c_allocator is Go's CAllocator, spelled "c_allocator".
+pub var keyword_c_allocator = KeywordType{n: 33}
+
+// keyword_union is Go's Union, spelled "union".
+pub var keyword_union = KeywordType{n: 34}
+
+// keyword_own is Go's Own, spelled "own".
+pub var keyword_own = KeywordType{n: 35}
+
+// keyword_ensures is Go's Ensures, spelled "ensures".
+pub var keyword_ensures = KeywordType{n: 36}
+
+// keyword_unreachable is Go's Unreachable, spelled "unreachable".
+pub var keyword_unreachable = KeywordType{n: 37}
+
+// keyword_fallthrough is Go's Fallthrough, spelled "fallthrough".
+pub var keyword_fallthrough = KeywordType{n: 38}
+
+// keyword_scope is Go's Scope, spelled "scope".
+pub var keyword_scope = KeywordType{n: 39}
+
+// keyword_arena is Go's Arena, spelled "arena".
+pub var keyword_arena = KeywordType{n: 40}
+
+// keyword_pool is Go's Pool, spelled "pool".
+pub var keyword_pool = KeywordType{n: 41}
+
+// keyword_region is Go's Region, spelled "region".
+pub var keyword_region = KeywordType{n: 42}
+
+// keyword_names holds each keyword's spelling, by its number, as Go's
+// keywordNames map holds them. keyword_invalid has none, its entry empty,
+// as Go's map has no entry for InvalidKeyword. No two keywords share a
+// spelling, as Go's TestKeywordSpellingsAreDistinct checks of its map.
+var keyword_names = [43]string{
+    "",
+    "lib",
+    "pub",
+    "const",
+    "var",
+    "mut",
+    "type",
+    "func",
+    "struct",
+    "interface",
+    "map",
+    "extern",
+    "package",
+    "import",
+    "from",
+    "if",
+    "else",
+    "for",
+    "range",
+    "switch",
+    "case",
+    "default",
+    "select",
+    "break",
+    "continue",
+    "goto",
+    "return",
+    "async",
+    "defer",
+    "true",
+    "false",
+    "noerror",
+    "list",
+    "c_allocator",
+    "union",
+    "own",
+    "ensures",
+    "unreachable",
+    "fallthrough",
+    "scope",
+    "arena",
+    "pool",
+    "region",
+}
+
+// append_string appends the keyword as written in source, as Go's String
+// returns it: for a KeywordType that is no keyword, KeywordType(n), its
+// number in parentheses.
+pub func (k KeywordType) append_string(mut out list[uint8]) error {
+    name, ok := keyword_names[k.n]
+    if ok && len(name) > 0 {
+        return append(mut out, []uint8(name)...)
+    }
+    append(mut out, []uint8("KeywordType(")...)?
+    bytes.append_uint(mut out, k.n)?
+    return append(mut out, ')')
+}
+
+// lookup_keyword returns the keyword ident spells, and true, or
+// keyword_invalid and false when it spells none. Go looks the spelling up
+// in a map built from keywordNames when the package starts; this
+// compares it with each spelling in turn, a length differing at once, to
+// avoid a map built at run time and the allocation that could fail. There
+// are 42 keywords, so the cost is a few comparisons for most identifiers.
+pub func lookup_keyword(ident []uint8) (KeywordType, bool) {
+    for i, name := range keyword_names {
+        if len(name) > 0 && bytes.equal(ident, []uint8(name)) {
+            n, ok := uint8(i)
+            if ok {
+                return KeywordType{n: n}, true
+            }
+        }
+    }
+    return keyword_invalid, false
+}

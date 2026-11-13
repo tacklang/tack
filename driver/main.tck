@@ -1,42 +1,89 @@
 package main
 
+import bytes from "std/bytes"
+import conv from "std/conv"
+import diag from "tack/diag"
 import fmt from "std/fmt"
+import lexer from "tack/lexer"
 import os from "std/os"
+import path from "std/path"
+import source from "tack/source"
 import text from "std/text"
 
 // Package main is the driver of the Tack compiler written in Tack, the
-// tack command, for now a stub. It takes the command line the Go
-// compiler takes and answers --backends as that compiler does. Anything
-// else it does not do yet, and says so in the form the differential
-// harness in tackc/porttest reads: on standard error,
+// tack command. It takes the command line the Go compiler takes and, so
+// far, does two things as that compiler does: it answers --backends, and
+// it dumps the tokens of a single file, --lex <file>, or reports the
+// file's lexical errors. Anything else it does not do yet, and says so in
+// the form the differential harness in tackc/porttest reads: on standard
+// error,
 //
 //     tack: not implemented in the port: <first argument>
 //
 // and exit status 3, which the harness counts as a skip unless the stage
 // is one it requires.
+//
+// The command line is read as Go's flag package reads it, as far as
+// --lex needs: flags, each starting with - or --, come first and stop at
+// the first argument that is not one, or after --, and the rest are the
+// input files. The one flag read is -lex or --lex; any other flag, -lex=
+// with a value among them, is not implemented, named in the line above.
+// The usage errors a --lex command line can make are reported as Go's
+// driver reports them, with exit status 2: no input file, several, an
+// empty name, and a flag of bad syntax, such as ---lex.
+//
+// The file is read as the Go loader's File reads one, which the port has
+// not got yet: a directory, and a name that is no file and looks like an
+// import path, are loaded as packages in Go, and are not implemented
+// here. A test file, one whose base name ends in _test.tck, is rejected
+// before it is read, as Go's loader rejects one. A file that cannot be
+// read is reported as Go reports it, with the operating system's message
+// as Go's syscall package words it (see go_errno_text).
 
-// notImplemented is the exit status that says the port cannot do what the
-// command line asks yet.
-var notImplemented int32 = 3
+// exit_ok means the requested work was done.
+var exit_ok int32 = 0
 
-// main lists the backends for a command line of --backends alone, and
-// otherwise reports the first argument as not implemented.
+// exit_failure means the program was rejected with diagnostics, or
+// reading or writing failed.
+var exit_failure int32 = 1
+
+// exit_usage means the command line itself was wrong.
+var exit_usage int32 = 2
+
+// not_implemented is the exit status that says the port cannot do what
+// the command line asks yet.
+var not_implemented int32 = 3
+
+// default_max_errors is how many errors the driver reports when
+// --max-errors is not given, which the port does not read yet.
+var default_max_errors int64 = 10
+
+// main lists the backends for a command line of --backends alone, runs
+// the command line otherwise, and exits with the status run gives. An
+// error run returns, which only an allocation that failed gives, is
+// written as Go's driver writes an error, tack: and its message, with
+// exit status 1.
 func main() {
     a, err := os.args(c_allocator)
     if err.code != 0 {
         fmt.eprintf("tack: %s\n", err.msg)
-        exit(1)
+        exit(exit_failure)
     }
-    if len(a) == 2 && isBackends(a) {
+    if len(a) == 2 && is_backends(a) {
         print("c\n")
         return
     }
-    unimplemented(a)
+    code, e := run(a)
+    if e.code != 0 {
+        fmt.eprintf("tack: %s\n", e.msg)
+        exit(exit_failure)
+    }
+    exit(code)
 }
 
-// isBackends reports whether the argument after the program's name in a
+// is_backends reports whether the argument after the program's name in a
 // is --backends.
-func isBackends(a []text.Text) bool {
+func is_backends(a []text.Text) bool {
     for i, s := range a {
         if i == 1 {
             return s.equal([]uint8("--backends"))
@@ -45,16 +92,437 @@ func isBackends(a []text.Text) bool {
     return false
 }
 
-// unimplemented writes the not implemented line for a, the program's name
-// and its arguments, naming the first argument, or "(no arguments)" when
-// there is none, and exits with notImplemented.
-func unimplemented(a []text.Text) {
+// unimplemented writes the not implemented line naming what, and returns
+// not_implemented, the exit status that goes with it.
+func unimplemented(what []uint8) int32 {
+    fmt.eprintf("tack: not implemented in the port: %s\n", what)
+    return not_implemented
+}
+
+// usage writes msg as Go's driver reports a command-line mistake, with a
+// pointer to --help, and returns exit_usage.
+func usage(msg []uint8) int32 {
+    fmt.eprintf("tack: %s\nRun 'tack --help' for usage.\n", msg)
+    return exit_usage
+}
+
+// run carries out the command line a, the program's name and its
+// arguments, and returns the exit status: lexing the one file named
+// after --lex, or a usage error, or not implemented for anything else.
+// It returns an error only when an allocation failed.
+func run(a []text.Text) (int32, error) {
+    // rest holds the index in a of each argument after the flags.
+    mut rest := make(list[int64], c_allocator)
+    mut lex := false
+    mut flags_done := false
     for i, s := range a {
-        if i == 1 {
-            fmt.eprintf("tack: not implemented in the port: %s\n", s.bytes())
-            exit(notImplemented)
+        if i == 0 {
+            continue
+        }
+        if flags_done {
+            append(mut rest, i)?
+            continue
+        }
+        first, has_first := s.bytes()[0]
+        if s.len() < 2 || !has_first || first != '-' {
+            flags_done = true
+            append(mut rest, i)?
+            continue
+        }
+        if s.equal([]uint8("--")) {
+            flags_done = true
+            continue
+        }
+        mut name int64 = 1
+        second, has_second := s.bytes()[1]
+        if has_second && second == '-' {
+            name = 2
+        }
+        c, has := s.bytes()[name]
+        if !has || c == '-' || c == '=' {
+            mut msg := make(list[uint8], c_allocator)
+            fmt.appendf(mut msg, "bad flag syntax: %s", s.bytes())?
+            return usage(msg), noerror
+        }
+        if s.len() == name +% 3 && bytes.has_suffix(s.bytes(), []uint8("lex")) {
+            lex = true
+            continue
+        }
+        return unimplemented(s.bytes()), noerror
+    }
+    if !lex {
+        for i, s := range a {
+            if i == 1 {
+                return unimplemented(s.bytes()), noerror
+            }
+        }
+        return unimplemented([]uint8("(no arguments)")), noerror
+    }
+    code, e := lex_command(a, rest)
+    return code, e
+}
+
+// lex_command carries out a --lex command line, a, whose arguments after
+// the flags are the ones at the indexes rest holds: the one input file,
+// as Go's fileArg checks it, then the file's tokens or its errors.
+func lex_command(a []text.Text, rest []int64) (int32, error) {
+    if len(rest) == 0 {
+        return usage([]uint8("no input file")), noerror
+    }
+    if len(rest) > 1 {
+        mut msg := make(list[uint8], c_allocator)
+        fmt.appendf(mut msg, "expected one input file, got %d arguments: ", len(rest))?
+        for j, k := range rest {
+            if j > 0 {
+                append(mut msg, ' ')?
+            }
+            if k >= 0 && k < len(a) {
+                conv.append_quote(mut msg, a[k].bytes())?
+            }
+        }
+        append(mut msg, []uint8(" (flags must come before the file)")...)?
+        return usage(msg), noerror
+    }
+    k := rest[0]
+    if k < 0 || k >= len(a) {
+        // rest holds indexes of a, so this does not happen.
+        return unimplemented([]uint8("--lex")), noerror
+    }
+    if a[k].len() == 0 {
+        return usage([]uint8("input file name is empty")), noerror
+    }
+    code, e := lex_file(a[k].bytes())
+    return code, e
+}
+
+// enoent is the message std/os gives for ENOENT, which Go's errors.Is
+// with fs.ErrNotExist matches.
+var enoent = "No such file or directory"
+
+// lex_file loads the single file name, as Go's loadWith does for a
+// --lex dump, and writes its tokens to standard output, or its lexical
+// errors to standard error, returning the exit status.
+func lex_file(name []uint8) (int32, error) {
+    info, stat_err := os.stat(name)
+    if stat_err.code == 0 && info.is_dir() {
+        return unimplemented([]uint8("--lex of a directory")), noerror
+    }
+    if stat_err.code == 3 && stat_err.msg == enoent && looks_like_import_path(name) {
+        return unimplemented([]uint8("--lex of an import path")), noerror
+    }
+
+    // Go's loader.File rejects a test file before it reads it, so one
+    // that does not exist is rejected the same way.
+    base := path.base(name, c_allocator)?
+    if bytes.has_suffix(base.bytes(), []uint8("_test.tck")) {
+        fmt.eprintf("tack: %s is a test file, which is never loaded on its own\n", name)
+        return exit_failure, noerror
+    }
+
+    data, read_err := os.read_file(name, c_allocator)
+    if read_err.code != 0 {
+        code, e := open_failed(name, read_err)
+        return code, e
+    }
+
+    mut set := source.new_set(c_allocator)
+    mut filename := text.new(c_allocator)
+    mut filename.append(name)?
+    mut file := source.new_file(set.next_id(), own filename, own data, c_allocator)
+    tokens, diags := lexer.lex(mut file, c_allocator)?
+    mut set.add(own file)?
+
+    if len(diags) > 0 {
+        out := render_diagnostics(set, diags, default_max_errors)?
+        fmt.ewrite(out)
+        return exit_failure, noerror
+    }
+
+    mut out := format_tokens(tokens)?
+    with_trailing_newline(mut out)?
+    fmt.write(out)
+    return exit_ok, noerror
+}
+
+// open_failed reports err, the error std/os's read_file gave for the file
+// name, as Go's driver reports the loader's failure to read it:
+//
+//     tack: failed to open file: open <name>: <message>
+//
+// with exit status 1, the message as Go's syscall package words the
+// errno (see go_errno_text), when the port can tell that Go would write
+// exactly that. read_file opens the file and then reads it, and its
+// error does not say which of the two failed, while Go writes open
+// <name> for the one and read <name> for the other. So an errno a read
+// can fail with after the open succeeded, EIO, EISDIR and EINVAL, and
+// EPERM and EACCES, which a security module or a fanotify listener can
+// give a read, and EINTR, which Go retries and std/os does not on an open, is answered
+// as not implemented: a skip, where a guess at Go's wording could be a
+// wrong answer. So is code 1, out of memory, which std/os gives both
+// for ENOMEM from the OS, which Go words as cannot allocate memory, and
+// for a list that could not grow, which Go never reports; and so is any
+// errno go_errno_text does not list.
+func open_failed(name []uint8, err error) (int32, error) {
+    s := go_errno_text(err)
+    if len(s) == 0 {
+        return unimplemented([]uint8("--lex of a file whose read fails with an error the port cannot word as Go does")), noerror
+    }
+    fmt.eprintf("tack: failed to open file: open %s: %s\n", name, s)
+    return exit_failure, noerror
+}
+
+// go_errno_text returns the message Go's syscall package gives on Linux
+// for the errno behind err, an error std/os returned, when only an open
+// can fail with it, or an empty string otherwise (see open_failed).
+// std/os gives macOS's strerror text, with a capital first letter, and Go
+// its own table, all lowercase, which differ in more than case for some
+// errnos. std/os refuses a path holding a 0 byte, code 4, before it opens
+// anything, where Go's open fails with EINVAL.
+func go_errno_text(err error) string {
+    if err.code == 4 {
+        return "invalid argument"
+    }
+    if err.code != 3 {
+        return ""
+    }
+    switch err.msg {
+    case "No such file or directory":
+        return "no such file or directory"
+    case "Resource busy":
+        return "device or resource busy"
+    case "Not a directory":
+        return "not a directory"
+    case "Too many open files in system":
+        return "too many open files in system"
+    case "Too many open files":
+        return "too many open files"
+    case "Text file busy":
+        return "text file busy"
+    case "File name too long":
+        return "file name too long"
+    case "Too many levels of symbolic links":
+        return "too many levels of symbolic links"
+    }
+    return ""
+}
+
+// looks_like_import_path reports whether target, which names nothing on
+// disk, could be an import path rather than a mistyped file: it is not
+// absolute, does not start with a dot, and does not end in .tck.
+func looks_like_import_path(target []uint8) bool {
+    return len(target) > 0 && !bytes.has_prefix(target, []uint8("/")) &&
+        !bytes.has_prefix(target, []uint8(".")) && !bytes.has_suffix(target, []uint8(".tck"))
+}
+
+// render_diagnostics renders diags, problems in the files of files,
+// sorted by file and then by where each starts, up to the error past the
+// first max_errors when max_errors is positive, followed, when that left
+// some out, by a line saying so (see too_many_errors). Only errors count
+// toward max_errors: the warnings among the errors shown are shown too,
+// and those after the last error shown are left out with it, as the
+// errors after it are. Go sorts a clone of the diagnostics; a Diagnostic
+// is owned and cannot be cloned, so this sorts their indexes instead,
+// stably, and renders them in that order as Go's diag.RenderAllPretty
+// renders a list: a blank line, then each diagnostic followed by one.
+func render_diagnostics(files source.Set, diags []diag.Diagnostic, max_errors int64) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    mut order := make(list[int64], c_allocator)
+    for i := range len(diags) {
+        append(mut order, i)?
+    }
+    sort_diagnostics(files, diags, mut order)?
+
+    mut shown := len(order)
+    mut more := false
+    if max_errors > 0 {
+        mut errs int64 = 0
+        for j, k := range order {
+            if k < 0 || k >= len(diags) || diags[k].severity != diag.error_severity {
+                continue
+            }
+            // errs counts diagnostics, so it never wraps.
+            errs +%= 1
+            if errs > max_errors {
+                shown = j
+                more = true
+                break
+            }
         }
     }
-    fmt.eprintln("tack: not implemented in the port: (no arguments)")
-    exit(notImplemented)
+
+    append(mut out, '\n')?
+    for j, k := range order {
+        if j >= shown {
+            break
+        }
+        if k >= 0 && k < len(diags) {
+            diag.render_pretty(files, mut out, diags[k])?
+            append(mut out, '\n')?
+        }
+    }
+    if more {
+        too_many_errors(mut out, max_errors)?
+    }
+    return out, noerror
+}
+
+// too_many_errors appends the line that ends the report of the first n
+// errors when there were more.
+func too_many_errors(mut out list[uint8], n int64) error {
+    return fmt.appendf(mut out, "too many errors: showing the first %d; --max-errors 0 shows them all\n", n)
+}
+
+// diag_less reports whether diagnostic i of diags sorts before diagnostic
+// j: by the name of the file its span points into, a file no Set holds
+// sorting as an empty name, and then by where the span starts. Go
+// compares the spans' FileIDs, which are the files' names there; here a
+// FileID is an index, so the names are looked up.
+func diag_less(files source.Set, diags []diag.Diagnostic, i int64, j int64) bool {
+    if i < 0 || i >= len(diags) || j < 0 || j >= len(diags) {
+        return false
+    }
+    a := diags[i].span
+    b := diags[j].span
+    if a.file != b.file {
+        c := compare_names(files, a.file, b.file)
+        if c != 0 {
+            return c < 0
+        }
+    }
+    return a.start < b.start
+}
+
+// compare_names compares the names of the files a and b of files,
+// bytewise, as Go's cmp.Compare compares two strings: -1 when a's sorts
+// first, 1 when b's does, and 0 when they are equal. A FileID no file of
+// files has stands for an empty name.
+func compare_names(files source.Set, a source.FileID, b source.FileID) int64 {
+    for _, fa := range files.lookup(a) {
+        for _, fb := range files.lookup(b) {
+            return compare_bytes(fa.filename.bytes(), fb.filename.bytes())
+        }
+        if fa.filename.len() > 0 {
+            return 1
+        }
+        return 0
+    }
+    for _, fb := range files.lookup(b) {
+        if fb.filename.len() > 0 {
+            return -1
+        }
+    }
+    return 0
+}
+
+// compare_bytes compares a and b bytewise: -1 when a sorts first, a
+// prefix of b included, 1 when b does, and 0 when they are equal.
+func compare_bytes(a []uint8, b []uint8) int64 {
+    for i, x := range a {
+        y, ok := b[i]
+        if !ok {
+            return 1
+        }
+        if x != y {
+            if x < y {
+                return -1
+            }
+            return 1
+        }
+    }
+    if len(a) < len(b) {
+        return -1
+    }
+    return 0
+}
+
+// sort_diagnostics sorts order, indexes into diags, by diag_less, keeping
+// the order of indexes that compare equal, as Go's slices.SortStableFunc
+// does: a merge sort, bottom up, so it needs no recursion, merging runs
+// of width 1, 2, 4 and on from one list into a second.
+func sort_diagnostics(files source.Set, diags []diag.Diagnostic, mut order list[int64]) error {
+    n := len(order)
+    mut width int64 = 1
+    for width < n {
+        mut to := make(list[int64], c_allocator)
+        reserve(mut to, n)?
+        mut lo int64 = 0
+        for lo < n {
+            // lo, width and n are all at most len(order), so none of
+            // the sums below comes near wrapping.
+            mut mid := lo +% width
+            if mid > n {
+                mid = n
+            }
+            mut hi := mid +% width
+            if hi > n {
+                hi = n
+            }
+            merge(files, diags, order, lo, mid, hi, mut to)?
+            lo = hi
+        }
+        order = to
+        width = width *% 2
+    }
+    return noerror
+}
+
+// merge appends to to the runs src[lo:mid] and src[mid:hi], each already
+// sorted by diag_less, merged into one sorted run. An element of the
+// second run goes first only when it sorts strictly before the first
+// run's, which keeps the sort stable.
+func merge(files source.Set, diags []diag.Diagnostic, src []int64, lo int64, mid int64, hi int64, mut to list[int64]) error {
+    mut i := lo
+    mut j := mid
+    for i < mid || j < hi {
+        a, a_ok := src[i]
+        b, b_ok := src[j]
+        if i < mid && a_ok && (j >= hi || !b_ok || !diag_less(files, diags, b, a)) {
+            append(mut to, a)?
+            i +%= 1
+        } else if j < hi && b_ok {
+            append(mut to, b)?
+            j +%= 1
+        } else {
+            // Both runs are within src, so this does not happen; it ends
+            // the loop rather than spin should it.
+            break
+        }
+    }
+    return noerror
+}
+
+// format_tokens renders the tokens of ts one per line, with every offset
+// zero-padded to the width of the largest one so the columns line up, as
+// Go's formatTokens does. The largest offset is the end of the last
+// token, since tokens are in source order. No tokens render as nothing.
+func format_tokens(ts lexer.Tokens) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    last, ok := ts.tokens()[len(ts.tokens()) -% 1]
+    if !ok {
+        return out, noerror
+    }
+    // width is the number of digits of the last token's end, or 1 when
+    // that is not positive, as Go's len(strconv.Itoa(max(end, 0))) is.
+    mut width int64 = 1
+    mut rest := last.offset_end() / 10
+    for rest > 0 {
+        width +%= 1
+        rest = rest / 10
+    }
+    for _, t := range ts.tokens() {
+        lexer.append_padded(mut out, t, ts.value(t), width)?
+        append(mut out, '\n')?
+    }
+    return out, noerror
+}
+
+// with_trailing_newline adds a newline to the end of b, a dump about to
+// be written, only if b is non-empty and lacks it, so a dump ends cleanly
+// on a terminal without doubling the newline generated code already ends
+// with.
+func with_trailing_newline(mut b list[uint8]) error {
+    if len(b) > 0 && !bytes.has_suffix(b, []uint8("\n")) {
+        return append(mut b, '\n')
+    }
+    return noerror
 }

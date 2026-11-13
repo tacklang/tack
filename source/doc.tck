@@ -1,0 +1,31 @@
+package source
+
+// Package source holds the contents of a file being compiled and maps byte
+// offsets in it to line and column positions. It is a port of the Go
+// compiler's package source, function by function, and of the Span type
+// that compiler keeps in its package ast, which lives here in the port so
+// that the lexer and diag can name it without the syntax tree.
+//
+// The loader creates a File from the bytes it read. The lexer records the
+// offset at which each line starts as it scans, starting with 0, so a File
+// can answer position and line queries only once lexing has run. Spans
+// elsewhere in the compiler refer to a File by its FileID and to positions
+// in it by byte offset; this package is what turns those offsets into the
+// line:column a diagnostic shows.
+//
+// A program of several files reads them into a Set, which finds a File by
+// its FileID. The port's FileID differs from Go's: Go's is the file's
+// display name, a string, and the port's is the file's index in the Set
+// that holds it, so that a Span, which every token and syntax node carries,
+// stays a small copyable value with no Text in it. A Span's file name is
+// read through the Set instead. A File is made with its FileID, before it
+// is lexed, and the Set it is added to checks that the FileID is the index
+// it gets, so the two cannot disagree.
+//
+// Go's Files interface, which both a Set and a lone File satisfy, is not
+// ported: Tack has no interface values, and a File cannot be returned from
+// a lookup without being copied, which a value owning lists cannot be.
+// Rendering a diagnostic takes a Set, which a single file compiled on its
+// own is put in too, as the Go loader does for it.
+//
+// It is a leaf package and depends on nothing else in the compiler.
