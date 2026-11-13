@@ -30,6 +30,9 @@ typedef struct {
 typedef struct {
     int64_t length;
     bool directory;
+    uint64_t device;
+    uint64_t inode;
+    bool found;
 } os_Info;
 
 typedef struct {
@@ -51,6 +54,8 @@ int64_t tack_os_remove(tack_view_uint8 /* path */); // extern func c_remove(path
 int64_t tack_os_make_dir(tack_view_uint8 /* path */); // extern func c_make_dir(path []uint8) int64
 int64_t tack_os_rename(tack_view_uint8 /* old_path */, tack_view_uint8 /* new_path */); // extern func c_rename(old_path []uint8, new_path []uint8) int64
 int64_t tack_os_stat(tack_view_uint8 /* path */, os_Info * /* info */); // extern func c_stat(path []uint8, mut info Info) int64
+int64_t tack_os_lstat(tack_view_uint8 /* path */, os_Info * /* info */); // extern func c_lstat(path []uint8, mut info Info) int64
+int64_t tack_os_getwd(tack_list_uint8 * /* dir */); // extern func c_getwd(mut dir list[uint8]) int64
 int64_t tack_os_list_dir(tack_view_uint8 /* path */, tack_list_uint8 * /* names */); // extern func c_list_dir(path []uint8, mut names list[uint8]) int64
 int64_t tack_os_make_temp_dir(tack_list_uint8 * /* tmpl */); // extern func c_make_temp_dir(mut tmpl list[uint8]) int64
 int64_t tack_os_env(tack_view_uint8 /* name */, tack_list_uint8 * /* value */); // extern func c_env(name []uint8, mut value list[uint8]) int64

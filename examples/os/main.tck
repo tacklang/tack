@@ -56,6 +56,14 @@ extern("os_truncate") func truncate(path []uint8, size int64) int64
 // otherwise. It leaves the file at 1 MiB.
 extern("os_sparse") func sparse(path []uint8) int64
 
+// hardlink makes a hard link at path to the file target and returns 0,
+// or the errno negated, in C.
+extern("os_link") func hardlink(target []uint8, path []uint8) int64
+
+// chdir makes path the current directory and returns 0, or the errno
+// negated, in C.
+extern("os_chdir") func chdir(path []uint8) int64
+
 // otherFs reports, in C, 1 when /dev/shm is a directory this process may
 // write in, on another file system than dir, so renaming between them
 // crosses file systems, and 0 otherwise.
@@ -707,6 +715,216 @@ func stats(dir []uint8) {
     check(a0.code == 0 && nulError(e25), "stat of a path with a 0 byte")
 }
 
+// lstatErr returns the error lstat gives for p; the Info beside it
+// cannot be read unless there is none.
+func lstatErr(p []uint8) error {
+    _, e := os.lstat(p)
+    return e
+}
+
+// lstats lstats files, directories and symbolic links in dir, which
+// lstat does not follow: a file, a directory, a link to each, which is
+// itself, the length of its target and no directory, a broken link and a
+// link to itself, which lstat reports where stat fails; and makes lstat
+// fail as stat fails: a missing path, a path through a file, through a
+// link to nothing, an empty path, a path too long and a 0 byte. It
+// checks same_file over what stat and lstat report: a file and a link
+// to it are the same file through stat and not through lstat, a file
+// and a hard link to it are through either, two files are not, and a zero Info is the same file as none, itself included.
+// It allocates nothing, and removes everything it made, on every path.
+func lstats(dir []uint8) {
+    defer {
+        check(tidy(dir, "l-link-file", "l-link-dir", "l-link-broken", "l-link-loop", "l-other", "l-hard", "l.txt", "l-dir"), "remove what lstat looked at")
+    }
+    f, e0 := join(dir, "l.txt")
+    other, e1 := join(dir, "l-other")
+    sub, e2 := join(dir, "l-dir")
+    to_file, e3 := join(dir, "l-link-file")
+    to_dir, e4 := join(dir, "l-link-dir")
+    broken, e5 := join(dir, "l-link-broken")
+    looped, e6 := join(dir, "l-link-loop")
+    missing, e7 := join(dir, "missing")
+    through, e8 := join(dir, "l.txt/x")
+    past_broken, e9 := join(dir, "l-link-broken/x")
+    hard, e9b := join(dir, "l-hard")
+    if e9b.code != 0 {
+        check(false, "join a hard link path")
+        return
+    }
+    if e0.code != 0 || e1.code != 0 || e2.code != 0 || e3.code != 0 || e4.code != 0 || e5.code != 0 || e6.code != 0 || e7.code != 0 || e8.code != 0 || e9.code != 0 {
+        check(false, "join lstat paths")
+        return
+    }
+    base := live()
+    w0 := os.write_file(f, []uint8("hello\x00\xff"))
+    w1 := os.write_file(other, []uint8("hello\x00\xff"))
+    m0 := os.make_dir(sub)
+    l0 := symlink([]uint8("l.txt"), to_file)
+    l1 := symlink([]uint8("l-dir"), to_dir)
+    l2 := symlink([]uint8("l-nothing"), broken)
+    l3 := symlink([]uint8("l-link-loop"), looped)
+    if w0.code != 0 || w1.code != 0 || m0.code != 0 || l0 != 0 || l1 != 0 || l2 != 0 || l3 != 0 {
+        check(false, "make what lstat looks at")
+        return
+    }
+    i0, e10 := os.lstat(f)
+    i1, e11 := os.lstat(sub)
+    i2, e12 := os.lstat(to_file)
+    i3, e13 := os.lstat(to_dir)
+    i4, e14 := os.lstat(broken)
+    i5, e15 := os.lstat(looped)
+    if e10.code != 0 || e11.code != 0 || e12.code != 0 || e13.code != 0 || e14.code != 0 || e15.code != 0 {
+        check(false, "lstat what was made")
+        return
+    }
+    check(i0.size() == 7 && !i0.is_dir(), "lstat a file")
+    check(i1.is_dir(), "lstat a directory")
+    check(i2.size() == 5 && !i2.is_dir(), "lstat of a link to a file is the link")
+    check(i3.size() == 5 && !i3.is_dir(), "lstat of a link to a directory is no directory")
+    check(i4.size() == 9 && !i4.is_dir(), "lstat of a broken link")
+    check(i5.size() == 11 && !i5.is_dir(), "lstat of a link to itself")
+
+    s0, e16 := os.stat(f)
+    s1, e17 := os.stat(to_file)
+    s2, e18 := os.stat(other)
+    s3, e19 := os.stat(sub)
+    s4, e20 := os.stat(to_dir)
+    if e16.code != 0 || e17.code != 0 || e18.code != 0 || e19.code != 0 || e20.code != 0 {
+        check(false, "stat for same_file")
+        return
+    }
+    check(os.same_file(s0, s1) && os.same_file(s1, s0), "same_file of a file and a link to it")
+    check(os.same_file(s0, i0), "same_file of a file through stat and lstat")
+    check(!os.same_file(s0, i2), "same_file of a file and the link itself")
+    check(!os.same_file(s0, s2), "same_file of two files with the same bytes")
+    check(os.same_file(s3, s4) && os.same_file(s3, i1) && !os.same_file(s3, i3), "same_file of a directory and a link to it")
+    h0 := hardlink(f, hard)
+    s5, e24 := os.stat(hard)
+    i7, e25 := os.lstat(hard)
+    if h0 != 0 || e24.code != 0 || e25.code != 0 {
+        check(false, "stat a hard link")
+        return
+    }
+    check(os.same_file(s0, s5) && os.same_file(i0, i7) && os.same_file(s5, i7) && !os.same_file(s5, s2), "same_file of a file and a hard link to it")
+    zero := make(os.Info, c_allocator)
+    mut zero2 os.Info
+    check(!os.same_file(zero, zero2) && !os.same_file(zero, zero) && !os.same_file(zero, s0) && !os.same_file(s0, zero), "same_file of a zero Info is false")
+    check(osError(lstatErr(missing), "No such file or directory"), "lstat of a missing path")
+    check(osError(lstatErr(through), "Not a directory"), "lstat through a file")
+    check(osError(lstatErr(past_broken), "No such file or directory"), "lstat through a broken link")
+    check(osError(lstatErr([]uint8("")), "No such file or directory"), "lstat of an empty path")
+    check(live() == base, "lstat and same_file allocate nothing")
+    long, e22 := bytes.repeat([]uint8("a"), 5000, c_allocator)
+    if e22.code != 0 {
+        check(false, "a long path")
+        return
+    }
+    check(osError(lstatErr(long), "File name too long"), "lstat of a path too long")
+    mut nul, e23 := join(dir, "l.txt")
+    if e23.code != 0 {
+        check(false, "join a 0 byte path")
+        return
+    }
+    a0 := append(mut nul, 0, 'x')
+    check(a0.code == 0 && nulError(lstatErr(nul)), "lstat of a path with a 0 byte")
+}
+
+// getwdErr returns the error getwd gives, after checking that a getwd
+// that succeeds returns an absolute path, which it then frees.
+func getwdErr() error {
+    w, e := os.getwd(c_allocator)
+    if e.code == 0 && !bytes.has_prefix(w.bytes(), []uint8("/")) {
+        return error{code: 99, msg: "a relative path"}
+    }
+    return e
+}
+
+// workdir moves the current directory about in dir and checks what
+// getwd gives: the path of the current directory, the same file as .,
+// with a symbolic link on the way resolved, after changing into a
+// directory through one; a directory removed while current, which is
+// no such file; one whose path is longer than 4095 bytes, which is
+// ERANGE; and out of memory, freeing what it made each time. It changes
+// back to the directory it started in, and removes everything it made,
+// on every path.
+func workdir(dir []uint8) {
+    start, e0 := os.getwd(c_allocator)
+    if e0.code != 0 {
+        check(false, "getwd of the starting directory")
+        return
+    }
+    defer {
+        check(chdir(start.bytes()) == 0, "change back to the starting directory")
+        check(tidy(dir, "w-link", "w-dir", "w-gone"), "remove what getwd looked at")
+    }
+    s0, e1 := os.stat(start.bytes())
+    d0, e2 := os.stat([]uint8("."))
+    check(e1.code == 0 && e2.code == 0 && os.same_file(s0, d0) && bytes.has_prefix(start.bytes(), []uint8("/")), "getwd is the absolute path of .")
+
+    sub, e3 := join(dir, "w-dir")
+    link, e4 := join(dir, "w-link")
+    gone, e5 := join(dir, "w-gone")
+    if e3.code != 0 || e4.code != 0 || e5.code != 0 {
+        check(false, "join getwd paths")
+        return
+    }
+    m0 := os.make_dir(sub)
+    l0 := symlink([]uint8("w-dir"), link)
+    c0 := chdir(link)
+    w0, e6 := os.getwd(c_allocator)
+    if m0.code != 0 || l0 != 0 || c0 != 0 || e6.code != 0 {
+        check(false, "getwd through a link")
+        return
+    }
+    check(bytes.has_suffix(w0.bytes(), []uint8("/w-dir")), "getwd resolves a symbolic link")
+    real, e7 := os.stat(sub)
+    here, e8 := os.stat(w0.bytes())
+    check(e7.code == 0 && e8.code == 0 && os.same_file(real, here), "getwd names the directory changed into")
+
+    base := live()
+    failAfter(0)
+    e9 := getwdErr()
+    failAfter(-1)
+    check(oom(e9), "getwd out of memory")
+    check(live() == base, "getwd frees what it made out of memory")
+    m1 := os.make_dir(gone)
+    c1 := chdir(gone)
+    r0 := os.remove_path(gone)
+    check(m1.code == 0 && c1 == 0 && r0.code == 0 && osError(getwdErr(), "No such file or directory"), "getwd of a removed directory")
+    check(live() == base, "getwd frees what it made on an error")
+
+    // A path past getwd's buffer: 21 directories of 200 bytes each,
+    // entered one at a time, since no single path to the last fits.
+    c2 := chdir(sub)
+    name, e10 := bytes.repeat([]uint8("d"), 200, c_allocator)
+    if c2 != 0 || e10.code != 0 {
+        check(false, "set up a long path")
+        return
+    }
+    mut depth int64 = 0
+    for depth < 21 {
+        m := os.make_dir(name)
+        c := chdir(name)
+        if m.code != 0 || c != 0 {
+            break
+        }
+        depth++
+    }
+    long_err := getwdErr()
+    mut removed := true
+    for depth > 0 {
+        c := chdir([]uint8(".."))
+        r := os.remove_path(name)
+        if c != 0 || r.code != 0 {
+            removed = false
+            break
+        }
+        depth--
+    }
+    check(osError(long_err, "Result too large"), "getwd of a path past 4095 bytes")
+    check(removed, "remove the long path")
+}
+
 // command returns parts as a list of Texts, the arguments of a run.
 func command(parts ...string) (list[text.Text], error) {
     mut l := make(list[text.Text], c_allocator)
@@ -912,6 +1130,10 @@ func main() {
     check(live() == 1, "renames freed")
     stats(d.bytes())
     check(live() == 1, "stats freed")
+    lstats(d.bytes())
+    check(live() == 1, "lstats freed")
+    workdir(d.bytes())
+    check(live() == 1, "workdir freed")
     cleanup(d.bytes())
 }
 

@@ -46265,7 +46265,7 @@ func main() {
 stage: typeck
 ---
 
-os-info-literal/main.tck:6:10: error: cannot write a os.Info literal outside package os: fields length, directory are not pub
+os-info-literal/main.tck:6:10: error: cannot write a os.Info literal outside package os: fields length, directory, device, inode, found are not pub
 05 |	func main() {
 06 |	    i := os.Info{length: 1, directory: false}
    |	         ^~~~~~~

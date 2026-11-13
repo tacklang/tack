@@ -3,7 +3,8 @@
 // every list std/os made or grew was freed exactly once, and make an
 // allocation fail on purpose; a note on the standard error for a check
 // the machine cannot run; and what its rename and stat checks need that
-// std/os does not do: making a symbolic link, finding a second file
+// std/os does not do: making a symbolic or hard link, changing the current
+// directory, finding a second file
 // system to rename across, setting a file's size, and finding whether
 // a file larger than the disk can be made safely.
 #include <errno.h>
@@ -57,6 +58,34 @@ int64_t os_symlink(tack_view_uint8 target, tack_view_uint8 path) {
         return -e;
     }
     if (symlink(t, p) != 0) {
+        return -errno;
+    }
+    return 0;
+}
+
+int64_t os_link(tack_view_uint8 target, tack_view_uint8 path) {
+    char t[4096];
+    char p[4096];
+    int e = c_str(target, t, sizeof t);
+    if (e == 0) {
+        e = c_str(path, p, sizeof p);
+    }
+    if (e != 0) {
+        return -e;
+    }
+    if (link(t, p) != 0) {
+        return -errno;
+    }
+    return 0;
+}
+
+int64_t os_chdir(tack_view_uint8 path) {
+    char p[4096];
+    int e = c_str(path, p, sizeof p);
+    if (e != 0) {
+        return -e;
+    }
+    if (chdir(p) != 0) {
         return -errno;
     }
     return 0;

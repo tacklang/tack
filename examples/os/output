@@ -106,5 +106,39 @@ stat of a path too long ok
 stat of a path with a 0 byte ok
 remove what stat looked at ok
 stats freed ok
+lstat a file ok
+lstat a directory ok
+lstat of a link to a file is the link ok
+lstat of a link to a directory is no directory ok
+lstat of a broken link ok
+lstat of a link to itself ok
+same_file of a file and a link to it ok
+same_file of a file through stat and lstat ok
+same_file of a file and the link itself ok
+same_file of two files with the same bytes ok
+same_file of a directory and a link to it ok
+same_file of a file and a hard link to it ok
+same_file of a zero Info is false ok
+lstat of a missing path ok
+lstat through a file ok
+lstat through a broken link ok
+lstat of an empty path ok
+lstat and same_file allocate nothing ok
+lstat of a path too long ok
+lstat of a path with a 0 byte ok
+remove what lstat looked at ok
+lstats freed ok
+getwd is the absolute path of . ok
+getwd resolves a symbolic link ok
+getwd names the directory changed into ok
+getwd out of memory ok
+getwd frees what it made out of memory ok
+getwd of a removed directory ok
+getwd frees what it made on an error ok
+getwd of a path past 4095 bytes ok
+remove the long path ok
+change back to the starting directory ok
+remove what getwd looked at ok
+workdir freed ok
 remove files and an empty directory ok
 remove the temporary directory ok

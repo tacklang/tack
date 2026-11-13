@@ -95,6 +95,16 @@ extern("tack_os_rename") func c_rename(old_path []uint8, new_path []uint8) int64
 // failure info is left as it was.
 extern("tack_os_stat") func c_stat(path []uint8, mut info Info) int64
 
+// c_lstat is c_stat with lstat(2), which does not follow a symbolic link
+// at the end of path.
+extern("tack_os_lstat") func c_lstat(path []uint8, mut info Info) int64
+
+// c_getwd appends the absolute path of the current directory to dir,
+// through getcwd, and returns 0, or the errno negated: ENOMEM when dir
+// cannot grow, and ERANGE for a path longer than the buffer getcwd is
+// given, path_max bytes with its 0.
+extern("tack_os_getwd") func c_getwd(mut dir list[uint8]) int64
+
 // c_list_dir appends the name of every entry of the directory path,
 // each followed by a 0, to names, in the order the OS gives them, "."
 // and ".." included, and returns 0, or the errno negated: ENOMEM when
@@ -363,12 +373,20 @@ pub func rename(old_path []uint8, new_path []uint8) error {
 // fields are private, so no program outside os writes an Info literal,
 // and fields added to it later break none that reads one. A program may
 // still have a zero Info, from a declaration or make(os.Info, alloc):
-// one with size 0 that is not a directory.
+// one with size 0 that is not a directory, and is the same file as no
+// Info, itself included (see same_file).
 pub type Info struct {
     // length is the file's size in bytes, as size returns it.
     length int64
     // directory is whether the file is a directory.
     directory bool
+    // device and inode are the file's st_dev and st_ino, which together
+    // name it on the machine, as same_file compares them.
+    device uint64
+    inode uint64
+    // found is whether stat or lstat filled the Info in, which a zero
+    // Info's is not.
+    found bool
 }
 
 // size returns the file's length in bytes: for a regular file, how many
@@ -381,6 +399,17 @@ pub func (i Info) size() int64 {
 // is_dir reports whether the file is a directory.
 pub func (i Info) is_dir() bool {
     return i.directory
+}
+
+// same_file reports whether a and b, each from stat or lstat, describe
+// the same file: the same device and the same inode, as Go's
+// os.SameFile compares them. Two paths reaching one file, by a symbolic
+// link that stat follows or by a hard link, are the same file. A zero
+// Info, which neither filled in, is the same file as none, not even
+// another zero Info. What a and b say is what was true when each was
+// made: a file removed since and another made may reuse the inode.
+pub func same_file(a Info, b Info) bool {
+    return a.found && b.found && a.device == b.device && a.inode == b.inode
 }
 
 // stat returns what the OS reports of the file at path, with stat(2),
@@ -400,6 +429,47 @@ pub func stat(path []uint8) (Info, error) {
         return info, c_error(-%r)
     }
     return info, noerror
+}
+
+// lstat is stat without following a symbolic link at the end of path,
+// with lstat(2): a link reports itself, a file that is not a directory,
+// whether what it points to exists or not, and a link to a directory is
+// not one. Links before the last element of path are followed, as stat
+// follows them, so a path through a missing directory is error{code: 3,
+// msg: "No such file or directory"} and one through a file error{code:
+// 3, msg: "Not a directory"}. On an error the Info is a zero Info.
+pub func lstat(path []uint8) (Info, error) {
+    mut info Info
+    if has_nul(path) {
+        return info, nul_path
+    }
+    r := c_lstat(path, mut info)
+    if r < 0 {
+        return info, c_error(-%r)
+    }
+    return info, noerror
+}
+
+// getwd returns the absolute path of the current directory, made
+// through alloc, as getcwd(3) gives it: the directory's own path, with
+// every symbolic link resolved, whatever path the process was started in
+// through, and whatever $PWD says. A current directory that was removed
+// is error{code: 3, msg: "No such file or directory"}, one an element
+// of whose path cannot be read error{code: 3, msg: "Permission
+// denied"}, and a path longer than 4095 bytes error{code: 3, msg:
+// "Result too large"}, ERANGE's, even where the OS could give it. On an
+// error the Text is empty and what had been made is freed.
+pub func getwd(scope alloc Allocator) (text.Text, error) {
+    mut dir := make(list[uint8], alloc)
+    r := c_getwd(mut dir)
+    if r < 0 {
+        return text.new(alloc), c_error(-%r)
+    }
+    t, e := text.from_bytes(dir, alloc)
+    if e.code != 0 {
+        return text.new(alloc), e
+    }
+    return t, noerror
 }
 
 // is_dot reports whether name is "." or "..".

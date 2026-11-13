@@ -189,6 +189,19 @@ int64_t tack_os_rename(tack_view_uint8 old_path, tack_view_uint8 new_path) {
 _Static_assert((off_t)-1 < 0, "off_t is signed");
 _Static_assert(sizeof(off_t) <= sizeof(int64_t), "an int64_t holds every off_t");
 
+// fill_info sets info from st: its size, whether it is a directory, and
+// its device and inode, which an unsigned 64-bit integer holds on every
+// target os builds for, as the assertions prove.
+_Static_assert(sizeof(dev_t) <= sizeof(uint64_t), "a uint64_t holds every dev_t");
+_Static_assert(sizeof(ino_t) <= sizeof(uint64_t), "a uint64_t holds every ino_t");
+static void fill_info(os_Info *info, const struct stat *st) {
+    info->length = (int64_t)st->st_size;
+    info->directory = S_ISDIR(st->st_mode);
+    info->device = (uint64_t)st->st_dev;
+    info->inode = (uint64_t)st->st_ino;
+    info->found = true;
+}
+
 int64_t tack_os_stat(tack_view_uint8 path, os_Info *info) {
     char buf[path_max];
     int e = c_path(path, buf);
@@ -199,9 +212,30 @@ int64_t tack_os_stat(tack_view_uint8 path, os_Info *info) {
     if (stat(buf, &st) != 0) {
         return -errno;
     }
-    info->length = (int64_t)st.st_size;
-    info->directory = S_ISDIR(st.st_mode);
+    fill_info(info, &st);
     return 0;
+}
+
+int64_t tack_os_lstat(tack_view_uint8 path, os_Info *info) {
+    char buf[path_max];
+    int e = c_path(path, buf);
+    if (e != 0) {
+        return -e;
+    }
+    struct stat st;
+    if (lstat(buf, &st) != 0) {
+        return -errno;
+    }
+    fill_info(info, &st);
+    return 0;
+}
+
+int64_t tack_os_getwd(tack_list_uint8 *dir) {
+    char buf[path_max];
+    if (getcwd(buf, sizeof buf) == NULL) {
+        return -errno;
+    }
+    return append_bytes(dir, buf, strlen(buf));
 }
 
 int64_t tack_os_list_dir(tack_view_uint8 path, tack_list_uint8 *names) {
@@ -463,6 +497,8 @@ tack_error tack_os_error(int64_t e) {
         return TACK_ERROR(3, "Too many links");
     case EPIPE:
         return TACK_ERROR(3, "Broken pipe");
+    case ERANGE:
+        return TACK_ERROR(3, "Result too large");
     case ENAMETOOLONG:
         return TACK_ERROR(3, "File name too long");
     case ENOTEMPTY:

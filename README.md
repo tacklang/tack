@@ -57,7 +57,7 @@ and repeats bytes into lists, and `std/text`, also in Tack alone, holds
 growing bytes in a `Text`, compares and hashes them, and lends them out
 as a view. `std/os` reads the program's arguments and environment,
 reads, writes, lists, renames, stats and removes files and
-directories, and runs other programs, through C that makes one system
+directories, finds the current directory, and runs other programs, through C that makes one system
 call at a time, and
 `std/path`, in Tack alone, cleans, splits and joins slash-separated
 paths as Go's `path` package does, `std/conv`, in Tack alone,
@@ -1395,6 +1395,16 @@ section remains the description of the language.
   link to nothing is `error{code: 3, msg: "No such file or
   directory"}`, and a size too wide for an `int64` cannot happen, since
   os.c asserts at compile time that an `int64_t` holds every `off_t`;
+  `info, err := os.lstat(path)` is `stat` through `lstat(2)`, which
+  reports a symbolic link at the end of `path` itself, no directory,
+  broken or not; `os.same_file(a, b)` reports whether two `Info`s from
+  `stat` or `lstat` name one file, the same device and inode, as Go's
+  `os.SameFile` does, and a zero `Info` is the same file as none;
+  `w, err := os.getwd(alloc)` is the current directory's absolute path,
+  as `getcwd(3)` gives it, symbolic links resolved and `$PWD` not read,
+  a removed directory being `error{code: 3, msg: "No such file or
+  directory"}` and a path past 4095 bytes `error{code: 3, msg: "Result
+  too large"}`;
   and `d, err := os.make_temp_dir(alloc)` makes a new directory,
   mode 0700, in `$TMPDIR`, or `/tmp`, named `tack-` and six characters,
   which the caller removes. `status, err := os.run(argv, mut out, mut
