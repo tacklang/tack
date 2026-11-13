@@ -175,7 +175,7 @@ way:
 
 ## View results
 
-Ahmed decided that a function's or a method's single result may be a
+It was decided that a function's or a method's single result may be a
 view, second-class like a view parameter: a call returning one is used
 only inside the expression that consumes it, passed to a view parameter,
 given to `len`, indexed with the checked form, sliced, ranged over, or
@@ -196,7 +196,7 @@ another way:
   the caller holds. Returning a parameter's own array would need such a
   parameter passed by pointer, an ABI change.
 - A union pattern's binding and a range's element variable that refer to
-  a parameter's payload or element in place are rooted, as Ahmed decided,
+  a parameter's payload or element in place are rooted, as decided,
   in what they refer into, so a union method can return a view of its
   payload's list; through a `mut` parameter or receiver, a local, a global
   or a call's result they are not, `cannot return a view of n.bytes: n
@@ -208,7 +208,7 @@ another way:
 - A call's view is not allowed as what a range ranges over when sliced,
   `range t.bytes()[1:]`, as no view slice is.
 - A call returning a view written as a statement drops the view, as
-  Ahmed decided, as any call's result may be dropped.
+  decided, as any call's result may be dropped.
 - A view among several results is `a view can only be a function's only
   result`, rather than letting a multiple binding hold one.
 - An extern func cannot return a view: `extern func f cannot return a view:
@@ -268,7 +268,7 @@ decided, and could go another way:
 
 ## Views as any
 
-Ahmed approved passing a view to an `any` parameter, and a type switch
+It was approved to pass a view to an `any` parameter, and a type switch
 binding one, with printf writing a `[]uint8` for `%s` and `%v`. These
 points were settled by the implementation, each the most conservative
 choice consistent with the rules around it, and could go another way:
@@ -482,7 +482,7 @@ rules already there, rather than decided, and could go another way:
   `append`, `reserve`, `pop` and `remove` included, though `reserve`
   changes no length, or a move, each when it can reach the use; a
   successful `append`, its error proven 0, proves `len(l)` at least the
-  count it added, as Ahmed decided; writing an element of a list ends no
+  count it added, as decided; writing an element of a list ends no
   fact about any variable, since no element of a list is a subject.
 - A variable that holds a list is never `const` in C. The C names are
   `tack_list_<id>` in the generated source and `tack_list_<element>` in
@@ -516,7 +516,7 @@ rules already there, rather than decided, and could go another way:
 
 ## Lists of owned elements
 
-Ahmed decided that a list may hold owned elements, lists and structs and
+It was decided that a list may hold owned elements, lists and structs and
 unions holding them, nested to any depth, each read in place as a
 struct's list field is, never copied out, moved in by `append` and by
 `l[i] = v`, and taken out only by the new builtins `pop` and `remove`,
@@ -528,8 +528,8 @@ for consistency with the rules already there, rather than decided, and
 could go another way:
 
 - The plain forms, `x := pop(mut l)` and `x := remove(mut l, i)`, are
-  proven as an index is. Ahmed decided the proof rules that make them
-  usable: a fact holds up to the first write to its variable that can
+  proven as an index is. The proof rules that make them
+  usable were decided: a fact holds up to the first write to its variable that can
   reach the use, so the call's own `mut` argument, which takes effect
   after the call's check, does not end the fact it relies on, and `if
   len(l) > 0 { x := pop(mut l) }` and `if d != 0 { d = n / d }` compile.
@@ -553,7 +553,7 @@ could go another way:
   `||` and early exits as every fact is. `ok == true` gives none, as
   only comparisons with a known integer do. Only an `ok`'s check asks
   about such a fact.
-- Dropping an element: Ahmed decided that `pop(mut l)` and `remove(mut
+- Dropping an element: it was decided that `pop(mut l)` and `remove(mut
   l, i)` written as a statement need no proof, drop the element when
   there is one, and free it when it is owned. Bound to `_`, an owned one
   is `pop returns list[int64], which cannot be dropped; bind it to a
@@ -687,7 +687,7 @@ monomorphized, bodies are checked once against the constraints, type
 arguments are written at the call or inferred from the arguments, and
 satisfaction is implicit.
 
-Ahmed decided where a method's visibility is checked for satisfaction:
+It was decided where a method's visibility is checked for satisfaction:
 where the type argument is chosen. At a call that binds a type parameter
 to a struct type, each method the constraint asks for must be visible
 from the package holding the call, under the usual rules (private within
@@ -1067,7 +1067,7 @@ rules already there, rather than decided, and could go another way:
 
 ## Methods on unions
 
-Ahmed decided that a union type may have methods under exactly the rules
+It was decided that a union type may have methods under exactly the rules
 for a struct type's, and so satisfy interfaces and be a type argument.
 These points were settled by the implementation, for consistency with
 the rules already there, rather than decided, and could go another way:
@@ -1412,7 +1412,7 @@ settled by consistency and could go another way:
 
 ## std/errors
 
-Ahmed decided that a runtime message lives in `type Failure struct { err
+It was decided that a runtime message lives in `type Failure struct { err
 error; detail text.Text }`. These points were settled for the smallest
 useful API and could go another way:
 
@@ -1451,7 +1451,7 @@ useful API and could go another way:
 
 ## std/sort
 
-Ahmed decided on a std sort with a less function, after function values
+It was decided to add a std sort with a less function, after function values
 and generics step 2. These points were settled conservatively and could
 go another way:
 
