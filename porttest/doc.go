@@ -284,7 +284,10 @@
 // them, that the Go compiler accepts with no error, and for every case
 // of check-decls, check-core and check-calls, the type checker's cases
 // whose stage is S1, the declarations, S2a, statements and expressions,
-// or S2b, calls and containers:
+// or S2b, calls and containers, and of check-own, S6, ownership, once
+// check-own is in required.txt (until S3 to S5 are ported, some cases of
+// check-own, which also need the facts or the arithmetic, are declined:
+// a case is of the highest stage it needs, and S6 orders after them):
 // each loaded, resolved and checked in process by this module's loader,
 // resolver and checker, typeck.New(...).Check(), as --port-types checks
 // it, whatever the stages before reported. Any other input of the corpus
@@ -298,8 +301,9 @@
 // span's start and end, its message and its notes, once bodies are
 // checked every node of every file, in package order and ast.Walk's,
 // with its kind, its type, its constant, what a call converts to, what
-// a name was narrowed to, whether a switch is exhaustive and whether a
-// variable was unrolled, and the kinds of
+// a name was narrowed to, whether a switch is exhaustive, whether a
+// variable was unrolled and whether a name moves its variable's value,
+// Ident.Move, and the kinds of
 // judgment the port took as holding without proving them, logged, not
 // compared, and none so far. The test builds the same from Go's checker
 // and compares what the port's phase covers: in "bodies", everything,
@@ -314,9 +318,10 @@
 // port that answers --port-types is not implemented skips, unless
 // types-decls, the check's name, is in
 // required.txt, as it is, where then it fails. An input whose Go typed
-// tree's stage is S1, S2a or S2b (see Type checker stages) must dump in the
-// phase "bodies" when types-bodies is in required.txt, as it is: the
-// port's body check covers every such input. TestTypesDeep runs the
+// tree's stage is S1, S2a or S2b (see Type checker stages), or S6 once
+// check-own is in required.txt, must dump in the phase "bodies" when
+// types-bodies is in required.txt, as it is: the port's body check
+// covers every such input. TestTypesDeep runs the
 // same check on declaration chains a hundred thousand links long, which
 // have no nesting limit and which Go's checker walks with a frame a
 // link: globals each naming the next, in its value and in its type's
@@ -346,8 +351,19 @@
 // ends in an error, so the backend decides nothing, and most hold a
 // function with the same shape and no error too, whose moves Go's
 // checkFunc then follows; chains of method calls each followed by a ?
-// are among them. The port runs with its stack held to deepStack KB, as
-// TestPort does.
+// are among them. And on owned values, in a function h with no error,
+// whose moves and escapes Go's checkFunc follows, and in main: every
+// statement that holds a block nested as deeply as the parser allows
+// around moves of owned locals, a range over a list among them, and
+// regions making lists; locals a hundred thousand long each moved into
+// the next; an else if chain two thousand links long moving a local in
+// every branch, as long as Go's move check, which takes time growing
+// faster than the square of the chain's length, checks in seconds; and
+// a field chain a hundred thousand structs deep ending in a list, read,
+// assigned and passed as mut. These but the field chain are run with
+// --port-types too, compared as TestTypes compares a case of
+// check-core. The port runs
+// with its stack held to deepStack KB, as TestPort does.
 //
 // TestCheckDeepPairs nests every ordered pair of a family of
 // constructs an expression nests in, alternating, as deeply as the
@@ -355,13 +371,19 @@
 // receiver, a call of a method expression, an operator's left and right
 // operands, !, parentheses, an array literal's element and a struct
 // literal's field read back, a union's payload, a ?, a value passed as
-// any, a conversion, and a value tested in an if and a switch. Each pair
+// any, a conversion, and a value tested in an if and a switch; and of
+// values that own a list, a call and a method call taking one as own,
+// a call taking another variable as own beside it, a struct literal's
+// owned field, and replace, each with a place of its own. swap and drop
+// give no value, and nest in nothing. Each pair
 // runs as a valid nest and as one with a value of the wrong type at its
 // bottom, under --check, compared as check-core compares its cases, and
 // as a nest in a program Go accepts, under --port-types, compared as
 // TestTypes compares it in the phase "bodies", the port's stack held to
-// deepStack KB: every level of every construct must cost the port's
-// checker less than that over the nesting limit.
+// deepStack KB, and each --check nest again at pairStack KB, 3.5 MB:
+// every level of every construct must cost the port's checker less than
+// that over the nesting limit, which leaves half a megabyte of deepStack
+// for what later stages add.
 //
 // # Deep nesting
 //
@@ -445,5 +467,10 @@
 // run at a time, measuring wall time and peak memory, each compiler
 // started by a launcher, the test binary run anew, which reads the peak
 // from wait4; it fails when the port takes more than twice Go's time and
-// a tenth of a second, or twice its memory, and logs both.
+// a tenth of a second, or twice its memory, and logs both. TestCheckPerf
+// is the same for --check --max-errors 0 on a program of three thousand
+// functions whose bodies Go accepts and the ownership checks follow,
+// moves, own parameters, replace, view results, ranges, regions and
+// defers, with one error in main, so that --check stops before the
+// backend; it first checks that both compilers give the same output.
 package porttest

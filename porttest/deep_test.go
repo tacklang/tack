@@ -127,13 +127,19 @@ func inMain(body string) string {
 // rep returns s n times over.
 func rep(s string, n int) string { return strings.Repeat(s, n) }
 
-// writeStackWrapper writes, in dir, a shell script that runs the port
-// with its stack held to deepStack KB, and returns its path, or why it
+// pairStack is the stack, in KB, TestCheckDeepPairs runs every --check
+// pair with besides deepStack: 3.5 MB, so that every level of every
+// route leaves at least half a megabyte of deepStack spare over the
+// nesting limit, room for what later stages add to the checker.
+const pairStack = 3584
+
+// writeStackWrapper writes, in dir, a shell script named name that runs
+// the port with its stack held to kb KB, and returns its path, or why it
 // could not write it. TestMain writes the one every run of the port goes
-// through, env.portRun.
-func writeStackWrapper(dir string) (string, error) {
-	wrapper := filepath.Join(dir, "port-stack")
-	script := fmt.Sprintf("#!/bin/sh\nulimit -s %d || exit 125\nexec %q \"$@\"\n", deepStack, env.portBin)
+// through, env.portRun, at deepStack KB, and env.portPairs, at pairStack.
+func writeStackWrapper(dir, name string, kb int) (string, error) {
+	wrapper := filepath.Join(dir, name)
+	script := fmt.Sprintf("#!/bin/sh\nulimit -s %d || exit 125\nexec %q \"$@\"\n", kb, env.portBin)
 	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil { //nolint:gosec // G306: a script it runs
 		return "", fmt.Errorf("writing the stack wrapper: %w", err)
 	}

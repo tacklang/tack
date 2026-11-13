@@ -44,8 +44,8 @@ func TestResPerf(t *testing.T) {
 		t.Skip("no port source tree: the program is the port's driver")
 	}
 	args := []string{"--res", "./driver"}
-	goTime, goMem := measure(t, env.goBin, env.goCache, src, args)
-	portTime, portMem := measure(t, env.portRun, env.portCache, src, args)
+	goTime, goMem := measure(t, env.goBin, env.goCache, src, args, 0)
+	portTime, portMem := measure(t, env.portRun, env.portCache, src, args, 0)
 	t.Logf("--res ./driver of the port: Go %v, %d KB; port %v, %d KB", goTime, goMem, portTime, portMem)
 	if portTime > perfTimeFactor*goTime+perfTimeSlack {
 		t.Errorf("the port took %v, more than %d times Go's %v", portTime, perfTimeFactor, goTime)
@@ -90,10 +90,11 @@ func launchMeasured(cmdline string) int {
 
 // measure runs bin with args in dir perfRuns times, with cache as
 // TACK_CACHE, each run through the launcher measureVar makes of this
-// test binary, each to succeed, and returns the fastest run's wall time,
+// test binary, each to exit with the status code, and returns the
+// fastest run's wall time,
 // the launcher's start included, the same for both compilers, and the
 // largest peak resident memory, in KB.
-func measure(t *testing.T, bin, cache, dir string, args []string) (time.Duration, int64) {
+func measure(t *testing.T, bin, cache, dir string, args []string, code int) (time.Duration, int64) {
 	t.Helper()
 	self, err := os.Executable()
 	if err != nil {
@@ -111,8 +112,8 @@ func measure(t *testing.T, bin, cache, dir string, args []string) (time.Duration
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 		start := time.Now()
-		if err := cmd.Run(); err != nil {
-			t.Fatalf("running %s %v in %s: %v\n%s", bin, args, dir, err, stderr.Bytes())
+		if err := cmd.Run(); cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != code {
+			t.Fatalf("running %s %v in %s: %v, want exit status %d\n%s", bin, args, dir, err, code, stderr.Bytes())
 		}
 		took := time.Since(start)
 		if i == 0 || took < best {
@@ -125,4 +126,66 @@ func measure(t *testing.T, bin, cache, dir string, args []string) (time.Duration
 		peak = max(peak, kb)
 	}
 	return best, peak
+}
+
+// checkPerfFuncs is how many functions TestCheckPerf's program holds.
+const checkPerfFuncs = 3000
+
+// checkPerfDecls and checkPerfFunc make TestCheckPerf's program: a
+// struct owning a list, a function taking a list as mut and a view, and
+// one returning the view it is given, then checkPerfFuncs functions, %d
+// each one's number, whose bodies report nothing and hold what the
+// ownership checks follow: an own parameter and owned locals moved into
+// one another and into a struct literal, a replace, a mut argument
+// beside a call returning a view, a range over a list moving a local in
+// a branch that returns, a region making a list, and a defer.
+const (
+	checkPerfDecls = "package main\n\ntype S struct {\n    items list[int64]\n}\n\n" +
+		"func keep(mut l list[int64], v []int64) {\n}\n\nfunc view(v []int64) []int64 {\n    return v\n}\n\n"
+	checkPerfFunc = "func f%d(own p list[int64], q list[int64]) int64 {\n" +
+		"    a := make(list[int64], c_allocator)\n    b := p\n    mut s := S{items: b}\n" +
+		"    old := replace(mut s.items, a)\n    keep(mut s.items, view(q))\n" +
+		"    for _, e := range q {\n        if e == 0 {\n            c := old\n" +
+		"            if len(c) == 0 {\n                return 1\n            }\n            return 2\n        }\n    }\n" +
+		"    region r {\n        t := make(list[int64], r)\n        if len(t) == 0 {\n        }\n    }\n" +
+		"    defer {\n        if len(s.items) == 0 {\n        }\n    }\n    return len(view(old))\n}\n\n"
+)
+
+// TestCheckPerf is the performance tripwire for the type checker's
+// ownership checks: it runs --check --max-errors 0 through both
+// compilers, perfRuns times each, on a program of checkPerfFuncs
+// functions each of whose bodies Go accepts and S6 decides, and a main
+// with one error, so that --check stops before the backend, and fails
+// as TestResPerf does when the port is slower or larger than
+// perfTimeFactor and perfMemoryFactor allow, after checking that both
+// give the same output. It runs only as TestPort does, and is not
+// parallel.
+func TestCheckPerf(t *testing.T) {
+	ready(t)
+	dir := t.TempDir()
+	var b strings.Builder
+	b.WriteString(checkPerfDecls)
+	for i := range checkPerfFuncs {
+		fmt.Fprintf(&b, checkPerfFunc, i)
+	}
+	b.WriteString("func main() {\n    " + checkError + "}\n")
+	if err := os.WriteFile(filepath.Join(dir, "perf.tck"), []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st := stageNamed(checkStageInfo[stageCore].stage)
+	if st == nil {
+		t.Fatal("no check-core stage")
+	}
+	runCaseWith(t, *st, input{name: "perf.tck", dir: dir, file: "perf.tck"}, env.portRun)
+	args := []string{"--check", "--max-errors", "0", "perf.tck"}
+	goTime, goMem := measure(t, env.goBin, env.goCache, dir, args, 1)
+	portTime, portMem := measure(t, env.portRun, env.portCache, dir, args, 1)
+	t.Logf("--check of %d owning functions: Go %v, %d KB; port %v, %d KB",
+		checkPerfFuncs, goTime, goMem, portTime, portMem)
+	if portTime > perfTimeFactor*goTime+perfTimeSlack {
+		t.Errorf("the port took %v, more than %d times Go's %v", portTime, perfTimeFactor, goTime)
+	}
+	if portMem > perfMemoryFactor*goMem {
+		t.Errorf("the port's peak memory was %d KB, more than %d times Go's %d KB", portMem, perfMemoryFactor, goMem)
+	}
 }

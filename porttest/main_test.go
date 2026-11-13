@@ -25,6 +25,9 @@ var env struct {
 	// portRun is what TestPort runs as the port: a wrapper around portBin
 	// that holds its stack to deepStack KB (see stackWrapper).
 	portRun string
+	// portPairs is portRun with its stack held to pairStack KB, which
+	// TestCheckDeepPairs runs as well.
+	portPairs string
 	// goCache is the TACK_CACHE the Go compiler runs with, the port's
 	// build among its runs.
 	goCache string
@@ -120,7 +123,10 @@ func setup(tmp string) error {
 	if env.portBin, err = portCompiler(tmp); err != nil {
 		return err
 	}
-	if env.portRun, err = writeStackWrapper(tmp); err != nil {
+	if env.portRun, err = writeStackWrapper(tmp, "port-stack", deepStack); err != nil {
+		return err
+	}
+	if env.portPairs, err = writeStackWrapper(tmp, "port-pairs", pairStack); err != nil {
 		return err
 	}
 	env.archives, err = writeArchives(filepath.Join(tmp, "corpus"))

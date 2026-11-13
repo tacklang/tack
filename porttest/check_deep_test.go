@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -71,6 +72,85 @@ var checkChains = map[string]func(n int) string{
 		fmt.Fprintf(&b, "type S%d struct {\n    v int64\n}\n\n", n)
 		b.WriteString("func main() {\n    mut s S0\n    x := s" + rep(".f", n) + ".v\n    return x\n}\n")
 		return b.String()
+	},
+}
+
+// ownDecls are the declarations ownNests and ownChains use: mkl, which
+// gives a new list, and S, a struct owning one.
+const ownDecls = "func mkl() list[int64] {\n    return make(list[int64], c_allocator)\n}\n\n" +
+	"type S struct {\n    items list[int64]\n}\n\n"
+
+// ownProgram returns a program declaring decls and ownDecls, then h
+// holding body, which reports nothing, so that the move check and the
+// escape check follow it, and main holding body too, ending in
+// checkError.
+func ownProgram(decls, body string) string {
+	return "package main\n\n" + ownDecls + decls + "func h() {\n" + body + "}\n\n" +
+		"func main() {\n" + body + checkError + "}\n"
+}
+
+// ownNests are the bodies TestCheckDeep nests n levels deep in a
+// function that reports nothing, of every statement that holds a block,
+// each around a move of an owned local, whose moves the move check
+// follows through every level and a loop's body twice, and regions,
+// whose escapes the escape check walks.
+var ownNests = map[string]func(n int) string{
+	"own-ifs":      func(n int) string { return ownNest("if true {\n", "}\n", n) },
+	"own-elses":    func(n int) string { return ownNest("if true {\n} else {\n", "}\n", n) },
+	"own-fors":     func(n int) string { return ownNest("for true {\n", "}\n", n) },
+	"own-ranges":   func(n int) string { return ownNest("for range 3 {\n", "}\n", n) },
+	"own-lists":    func(n int) string { return ownNest("for _, e := range l {\n", "}\n", n) },
+	"own-switches": func(n int) string { return ownNest("switch {\ncase true:\n", "}\n", n) },
+	"own-defers":   func(n int) string { return ownNest("defer {\n", "}\n", n) },
+	"own-regions": func(n int) string {
+		return ownProgram("", "    mut l := mkl()\n"+rep("region r {\n", n)+
+			"q := make(list[int64], r)\nif len(q) == 0 {\n}\nl = mkl()\n"+rep("}\n", n)+"    if len(l) == 0 {\n    }\n")
+	},
+}
+
+// ownNest returns a program whose h and main hold a list l and n
+// statements opened by open and closed by close around a move of a new
+// list into a local and of that local into another.
+func ownNest(open, close string, n int) string {
+	return ownProgram("", "    l := mkl()\n"+rep(open, n)+"z := mkl()\ny := z\nif len(y) == len(l) {\n}\n"+
+		rep(close, n)+"    if len(l) == 0 {\n    }\n")
+}
+
+// ownBranchLength is how long TestCheckDeep's else if chain moving a
+// local in every branch is: Go's move check joins what every branch
+// leaves, taking time that grows faster than the square of the chain's
+// length, and checks this many in seconds.
+const ownBranchLength = 2000
+
+// ownChains are the programs TestCheckDeep writes n links long of
+// owned values, which the move check must follow without a frame a
+// link: locals each moved into the next, an else if chain moving a local
+// in every branch, ownBranchLength long, and a field chain of structs
+// each holding the next by value, the last a list, read, assigned and
+// passed as mut.
+var ownChains = map[string]func(n int) string{
+	"own-moves": func(n int) string {
+		var b strings.Builder
+		b.WriteString("    a0 := mkl()\n")
+		for i := range n {
+			fmt.Fprintf(&b, "    a%d := a%d\n", i+1, i)
+		}
+		fmt.Fprintf(&b, "    if len(a%d) == 0 {\n    }\n", n)
+		return ownProgram("", b.String())
+	},
+	"own-elseifs": func(n int) string {
+		return ownProgram("", "    mut l := mkl()\n    x := 1\n    if x == 0 {\n        z := l\n        if len(z) == 0 {\n        }\n    }"+
+			rep(" else if x == 1 {\n        z := l\n        if len(z) == 0 {\n        }\n    }", n)+"\n    l = mkl()\n    if len(l) == 0 {\n    }\n")
+	},
+	"own-fields": func(n int) string {
+		var b strings.Builder
+		for i := range n {
+			fmt.Fprintf(&b, "type F%d struct {\n    f F%d\n}\n", i, i+1)
+		}
+		fmt.Fprintf(&b, "type F%d struct {\n    items list[int64]\n}\n\nfunc grow(mut l list[int64]) {\n}\n\n", n)
+		path := "s" + rep(".f", n) + ".items"
+		return ownProgram(b.String(), "    mut s F0\n    k := len("+path+")\n    if k == 0 {\n    }\n    "+
+			path+" = mkl()\n    grow(mut "+path+")\n")
 	},
 }
 
@@ -224,9 +304,9 @@ var checkPrintfs = map[string]string{
 // its cases, the port's stack held to deepStack KB: a port whose body
 // check recurses with a chain's length, or past its stack at the nesting
 // limit, fails here, as does one that declines any of them once
-// check-core is required. Each of checkBadChains is run with --port-types
-// too, compared as TestTypes compares a case of check-core. It runs only
-// as TestPort does.
+// check-core is required. Each of checkBadChains, ownNests and ownChains
+// but the field chain is run with --port-types too, compared as TestTypes
+// compares a case of check-core. It runs only as TestPort does.
 func TestCheckDeep(t *testing.T) {
 	ready(t)
 	st := stageNamed(checkStageInfo[stageCore].stage)
@@ -246,6 +326,20 @@ func TestCheckDeep(t *testing.T) {
 		shapes[name] = call(deepLimit - 4)
 	}
 	bad := make(map[string]bool)
+	for name, nest := range ownNests {
+		shapes[name] = nest(deepLimit - 4)
+		bad[name] = true
+	}
+	for name, chain := range ownChains {
+		n := chainLength
+		if name == "own-elseifs" {
+			n = ownBranchLength
+		}
+		shapes[name] = chain(n)
+		// The dump of a table of a hundred thousand structs, each with
+		// every query the table answers, is TestTypesDeep's to time.
+		bad[name] = name != "own-fields"
+	}
 	for name, body := range checkBadChains {
 		shapes[name] = inMain(body + "\n" + checkError)
 		bad[name] = true
@@ -307,10 +401,16 @@ type nestRoute struct {
 // parenthesized expression, an element of an array literal read back, a
 // field of a struct literal read back, a union's payload, a ?, a value
 // passed as any, a conversion, and a function whose body tests the value
-// in an if and a switch.
+// in an if and a switch; and, of values that own a list, a call and a
+// method call that take one as own, a call taking another variable as
+// own beside it, a struct literal's field, and replace, whose mut place
+// is a variable of its own each time, @ in the route, so that what the
+// move check follows is the nest and not a use after a move. swap and
+// drop give no value, and so nest in nothing.
 var nestFamilies = []struct {
 	decls, leaf, bad string
 	routes           map[string]nestRoute
+	owned            bool
 }{
 	{
 		decls: "type T struct {\n    n int64\n}\n\nfunc (t T) c(x bool) bool {\n    return x\n}\n\n" +
@@ -330,6 +430,20 @@ var nestFamilies = []struct {
 		},
 	},
 	{
+		decls: "type T struct {\n    n int64\n}\n\ntype L struct {\n    items list[int64]\n}\n\n" +
+			"func mkl() list[int64] {\n    return make(list[int64], c_allocator)\n}\n\n" +
+			"func idl(own l list[int64]) list[int64] {\n    return l\n}\n\n" +
+			"func ido(own a list[int64], own b list[int64]) list[int64] {\n    return b\n}\n\n" +
+			"func li(own x L) list[int64] {\n    mut y := x\n    return replace(mut y.items, mkl())\n}\n\n" +
+			"func (t T) ml(own l list[int64]) list[int64] {\n    return l\n}\n\n",
+		leaf: "mkl()", bad: "\"s\"",
+		routes: map[string]nestRoute{
+			"own-call": {"idl(%s)", 1}, "own-arg": {"ido(own @, %s)", 1}, "owned-lit": {"li(L{items: %s})", 2},
+			"replace": {"replace(mut @, %s)", 1}, "own-method": {"t.ml(%s)", 1},
+		},
+		owned: true,
+	},
+	{
 		decls: "type T struct {\n    n int64\n}\n\nfunc (t T) c(x int64) int64 {\n    return x\n}\n\n" +
 			"type B struct {\n    v int64\n}\n\nfunc fi(x int64) int64 {\n    return x\n}\n\n",
 		leaf: "1", bad: "\"s\"",
@@ -344,19 +458,42 @@ var nestFamilies = []struct {
 // a first from the outside, around leaf, as many times as the parser's
 // nesting limit, less a margin for what holds them, allows.
 func pairNest(a, b nestRoute, leaf string) string {
+	return pairNestTo(a, b, leaf, deepLimit-6)
+}
+
+// pairNestTo is pairNest nesting as many levels as limit allows.
+func pairNestTo(a, b nestRoute, leaf string, limit int) string {
 	e, levels := leaf, 0
 	for i := 0; ; i++ {
 		r := a
 		if i%2 == 1 {
 			r = b
 		}
-		if levels+r.level > deepLimit-6 || i > 4*deepLimit {
+		if levels+r.level > limit || i > 4*deepLimit {
 			break
 		}
 		levels += r.level
 		e = fmt.Sprintf(r.wrap, e)
 	}
 	return e
+}
+
+// ownedVars returns nest with each @ in it replaced by a variable of its
+// own, v0, v1 and on, and the declarations of those variables, each a
+// mutable list, one a line.
+func ownedVars(nest string) (string, string) {
+	var b, decls strings.Builder
+	n := 0
+	for _, r := range nest {
+		if r != '@' {
+			b.WriteRune(r)
+			continue
+		}
+		fmt.Fprintf(&b, "v%d", n)
+		fmt.Fprintf(&decls, "    mut v%d := mkl()\n", n)
+		n++
+	}
+	return b.String(), decls.String()
 }
 
 // TestCheckDeepPairs nests every ordered pair of the routes of each of
@@ -366,9 +503,10 @@ func pairNest(a, b nestRoute, leaf string) string {
 // --check --max-errors 0 and compared as check-core compares its cases,
 // and a program Go accepts with the valid nest, compared as TestTypes
 // compares an input of the corpus, in the phase "bodies". The port runs
-// with its stack held to deepStack KB, as TestPort does, so every level
-// of every route must cost it less than deepStack KB over the parser's
-// nesting limit, counting every frame the level takes. Two routes that
+// with its stack held to deepStack KB, as TestPort does, and each
+// --check nest again at pairStack KB, so every level of every route must
+// cost it less than pairStack KB over the parser's nesting limit,
+// counting every frame the level takes. Two routes that
 // take no nesting level, operators of each other's operand, are no pair:
 // they chain without end, which TestCheckDeep checks. It runs only as
 // TestPort does.
@@ -394,10 +532,22 @@ func TestCheckDeepPairs(t *testing.T) {
 					if fam.leaf == "1" {
 						ret = "int64"
 					}
-					h := "func h(t T) (" + ret + ", error) {\n    x := " + pairNest(a, b, leaf) +
+					nest, vars := ownedVars(pairNest(a, b, leaf))
+					if fam.owned {
+						ret = "list[int64]"
+					}
+					h := "func h(t T) (" + ret + ", error) {\n" + vars + "    x := " + nest +
 						"\n    return x, noerror\n}\n\n"
+					if fam.owned {
+						// A list bound with an error could be read only once
+						// the facts in force prove the error checked.
+						h = "func h(t T) list[int64] {\n" + vars + "    x := " + nest + "\n    return x\n}\n\n"
+					}
 					main := "func main() {\n    " + checkError + "}\n"
-					if variant == "clean" {
+					switch {
+					case variant == "clean" && fam.owned:
+						main = "func main() {\n    l := h(T{n: 1})\n    if len(l) == 0 {\n        return\n    }\n}\n"
+					case variant == "clean":
 						main = "func main() {\n    _, err := h(T{n: 1})\n    if err.code != 0 {\n        return\n    }\n}\n"
 					}
 					src := "package main\n\n" + fam.decls + h + main
@@ -410,6 +560,7 @@ func TestCheckDeepPairs(t *testing.T) {
 						in := input{name: file, dir: dir, file: file}
 						if variant != "clean" {
 							runCaseWith(t, *st, in, env.portRun)
+							runCaseWith(t, *st, in, env.portPairs)
 							return
 						}
 						compared, _, phase := checkTypes(t, in, env.portRun, true)
@@ -419,6 +570,147 @@ func TestCheckDeepPairs(t *testing.T) {
 					})
 				}
 			}
+		}
+	}
+}
+
+// stmtRoutes are the statements TestCheckDeepStmts nests, each around
+// the statements it holds, a %s, each taking one of the parser's nesting
+// levels: every statement that holds a block, an if, an else, an else
+// if, a loop with a condition, a range over a count and over a list, a
+// tagless switch, a switch on a value, on a union, binding its payload,
+// with its other case and with a default, a type switch, a defer and a
+// region. A # in one is a number of its own each time it is written, so
+// that no name is declared twice. There are no labels and no bare
+// blocks; a defer in a defer is reported, so a nest holding two defers
+// is no program Go accepts.
+var stmtRoutes = map[string]string{
+	"if":            "if b {\n%s}\n",
+	"else":          "if b {\n} else {\n%s}\n",
+	"else-if":       "if b {\n} else if b {\n%s}\n",
+	"for":           "for b {\n%s}\n",
+	"range":         "for range 3 {\n%s}\n",
+	"list-range":    "for _, e# := range l {\nif e# == 0 {\n}\n%s}\n",
+	"tagless":       "switch {\ncase b:\n%s}\n",
+	"value-switch":  "switch n {\ncase 1:\n%s}\n",
+	"union-bind":    "switch u {\ncase a(p#):\nif p# {\n}\n%scase b:\n}\n",
+	"union-default": "switch u {\ncase a(p#):\nif p# {\n}\ndefault:\n%s}\n",
+	"type-switch":   "switch t# := y.(type) {\ncase int64:\nif t# == 0 {\n}\n%s}\n",
+	"defer":         "defer {\n%s}\n",
+	"region":        "region r# {\n%s}\n",
+}
+
+// stmtNest nests the routes a and b, alternating, a first from the
+// outside, levels deep around inner, numbering each # in them.
+func stmtNest(a, b string, levels int, inner string) string {
+	var wraps []string
+	for i := range levels {
+		if i%2 == 0 {
+			wraps = append(wraps, a)
+		} else {
+			wraps = append(wraps, b)
+		}
+	}
+	e := inner
+	for i := len(wraps) - 1; i >= 0; i-- {
+		e = strings.ReplaceAll(fmt.Sprintf(wraps[i], e), "#", strconv.Itoa(i))
+	}
+	return e
+}
+
+// stmtProgram returns a program declaring what the bool routes of
+// nestFamilies call, U among them, whose h holds body, given a T, a
+// bool, an int64, a U, an any and a list, returning an error, so that a
+// ? may be written in it, and whose main ends in checkError, or, when
+// clean, calls h and reports nothing.
+func stmtProgram(body string, clean bool) string {
+	main := "func main() {\n    " + checkError + "}\n"
+	if clean {
+		main = "func main() {\n    l := make(list[int64], c_allocator)\n    e := h(T{n: 1}, true, 1, U.b, 1, l)\n" +
+			"    if e.code != 0 {\n        return\n    }\n}\n"
+	}
+	return "package main\n\n" + nestFamilies[0].decls +
+		"func h(t T, b bool, n int64, u U, y any, l list[int64]) error {\n" + body + "    return noerror\n}\n\n" + main
+}
+
+// TestCheckDeepStmts nests every ordered pair of stmtRoutes,
+// alternating, as deeply as the parser allows around a local's
+// declaration and an if on it; and every statement route nested half as
+// deeply around a value nested the other half in each bool route of
+// nestFamilies that takes a level. Each runs as a valid
+// nest, one whose value is of the wrong type, and one in a program Go
+// accepts, but for a nest holding two defers: the first two under
+// --check, compared as check-core compares its cases, and --port-types,
+// compared as TestTypes compares a case of check-core, and the last
+// under --port-types, compared in the phase "bodies", each with the
+// port's stack held to deepStack KB and again to pairStack KB. It runs
+// only as TestPort does.
+func TestCheckDeepStmts(t *testing.T) {
+	ready(t)
+	st := stageNamed(checkStageInfo[stageCore].stage)
+	if st == nil {
+		t.Fatal("no check-core stage")
+	}
+	dir := t.TempDir()
+	type shape struct {
+		name, body, leaf string
+		defers           int
+	}
+	var shapes []shape
+	for an, a := range stmtRoutes {
+		for bn, b := range stmtRoutes {
+			d := 0
+			if an == "defer" || bn == "defer" {
+				// Alternating, the nest holds a defer every other level.
+				d = 2
+			}
+			shapes = append(shapes, shape{an + "-" + bn, stmtNest(a, b, deepLimit-6, "x := @\nif x == 1 {\n}\n"), "1", d})
+		}
+	}
+	bools := nestFamilies[0].routes
+	half := (deepLimit - 6) / 2
+	for sn, s := range stmtRoutes {
+		for en, e := range bools {
+			if e.level == 0 {
+				continue
+			}
+			d := 0
+			if sn == "defer" {
+				d = 2
+			}
+			value := pairNestTo(e, e, "@", half)
+			shapes = append(shapes, shape{sn + "-" + en, stmtNest(s, s, half, "x := "+value+"\nif x {\n}\n"), "true", d})
+		}
+	}
+	for _, sh := range shapes {
+		for _, variant := range []string{"valid", "invalid", "clean"} {
+			if variant == "clean" && sh.defers > 1 {
+				continue
+			}
+			leaf := sh.leaf
+			if variant == "invalid" {
+				leaf = "\"s\""
+			}
+			src := stmtProgram(strings.ReplaceAll(sh.body, "@", leaf), variant == "clean")
+			file := sh.name + "-" + variant + ".tck"
+			t.Run(file, func(t *testing.T) {
+				t.Parallel()
+				if err := os.WriteFile(filepath.Join(dir, file), []byte(src), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				in := input{name: file, dir: dir, file: file}
+				for _, port := range []string{env.portRun, env.portPairs} {
+					if variant == "clean" {
+						compared, _, phase := checkTypes(t, in, port, true)
+						if !compared || phase != "bodies" {
+							t.Errorf("not compared in the phase bodies: compared %v, phase %q", compared, phase)
+						}
+						continue
+					}
+					runCaseWith(t, *st, in, port)
+					checkTypes(t, in, port, false)
+				}
+			})
 		}
 	}
 }

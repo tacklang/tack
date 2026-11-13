@@ -67,6 +67,10 @@ func TestTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	owns, err := checkInputs(stageOwn)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var clean, all, bodies atomic.Int64
 	var assumed sync.Map
 	t.Run("corpus", func(t *testing.T) {
@@ -77,8 +81,14 @@ func TestTypes(t *testing.T) {
 		}{
 			{"single", singles, true}, {"packages", pkgs, true},
 			{"check-decls", decls, false}, {"check-core", core, false},
-			{"check-calls", calls, false},
+			{"check-calls", calls, false}, {"check-own", owns, false},
 		} {
+			if group.name == checkStageInfo[stageOwn].stage && !env.required[group.name] {
+				// A declined case's errors are its bodies', which the
+				// declaration phase's dump cannot hold; until check-own
+				// is required, some of its cases are declined.
+				continue
+			}
 			t.Run(group.name, func(t *testing.T) {
 				for _, in := range group.ins {
 					t.Run(in.name, func(t *testing.T) {
@@ -114,8 +124,8 @@ func TestTypes(t *testing.T) {
 // which clean says must be of a program Go accepts, and reports whether
 // in is an input of the check, the kinds of judgment the port's dump
 // says it assumed, and the dump's phase. The port must check every body
-// of an input whose Go typed tree's stage is S1, S2a or S2b, all of which
-// its body check covers, when types-bodies is required.
+// of an input whose Go typed tree's stage is one its body check covers
+// (see bodiesStage), when types-bodies is required.
 func checkTypes(t *testing.T, in input, portBin string, clean bool) (bool, []string, string) {
 	t.Helper()
 	want, stage, ok := goTypes(t, in, clean)
@@ -144,11 +154,20 @@ func checkTypes(t *testing.T, in input, portBin string, clean bool) (bool, []str
 	if err := json.Unmarshal(port.stdout, &dump); err != nil {
 		t.Errorf("reading what the port assumed: %v", err)
 	}
-	if stage <= stageCalls && dump.Phase != "bodies" && env.required[bodiesCheck] {
+	if bodiesStage(stage) && dump.Phase != "bodies" && env.required[bodiesCheck] {
 		t.Errorf("%s is required, and Go's typed tree is %s's, but the port's dump is of the phase %q",
 			bodiesCheck, stage, dump.Phase)
 	}
 	return true, dump.Assumed, dump.Phase
+}
+
+// bodiesStage reports whether stage, a Go typed tree's (see treeStage),
+// is one whose every body the port's body check covers: S1, S2a or S2b,
+// and S6, ownership, ported beside S3 to S5, once check-own is in
+// required.txt: until then some of its inputs need the facts, and the
+// port declines them.
+func bodiesStage(stage checkStage) bool {
+	return stage <= stageCalls || stage == stageOwn && env.required[checkStageInfo[stageOwn].stage]
 }
 
 // typesDiff returns how got, the port's dump, differs from want, Go's,
@@ -322,7 +341,8 @@ func typesDump(prog *ast.Program, diags []diag.Diagnostic) map[string]any {
 // package order, each file's in the order ast.Walk visits them, as the
 // port's typeck/nodes.tck describes it: each node's kind, its type, its
 // constant, what a call converts to, what a name was narrowed to,
-// whether a switch is exhaustive and whether a variable was unrolled.
+// whether a switch is exhaustive, whether a variable was unrolled and
+// whether a name moves its variable's value.
 func nodesDump(prog *ast.Program) []any {
 	out := make([]any, 0)
 	for _, pkg := range prog.Packages {
@@ -342,7 +362,7 @@ func nodesDump(prog *ast.Program) []any {
 func nodeEntry(n ast.Node) map[string]any {
 	e := map[string]any{
 		"kind": strings.TrimPrefix(fmt.Sprintf("%T", n), "*ast."), "type": 0, "const": nil,
-		"conv": 0, "narrowed": 0, "exhaustive": false, "unrolled": false,
+		"conv": 0, "narrowed": 0, "exhaustive": false, "unrolled": false, "move": false,
 	}
 	if x, ok := n.(ast.Expr); ok {
 		e["type"] = int(ast.TypeOf(x))
@@ -359,7 +379,7 @@ func nodeEntry(n ast.Node) map[string]any {
 	case *ast.Unary:
 		e["const"] = constEntry(x.Const)
 	case *ast.Ident:
-		e["narrowed"] = int(x.Narrowed)
+		e["narrowed"], e["move"] = int(x.Narrowed), x.Move
 	case *ast.Switch:
 		e["exhaustive"] = x.Exhaustive
 	}
