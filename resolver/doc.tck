@@ -1,0 +1,67 @@
+package resolver
+
+// Package resolver binds every name in a parsed program to what it
+// refers to. It is a port of the Go compiler's package resolver,
+// function by function, and binds, reports and recovers exactly as Go's
+// does: the same bindings, the same diagnostics, worded the same, at the
+// same places, in the same order. The rules, every one of them, are
+// documented in full in Go's resolver/doc.go; what follows is the
+// resolver's place in the pipeline and where the port differs from Go,
+// and why.
+//
+// It runs after the loader and before the type checker. resolve takes
+// an ast.Program, every tree of every package, the package being built
+// last, and gives it back with every name bound and the diagnostics it
+// found, adding its errors to the program's count; Go's New and Resolve
+// are the one function here. Packages are resolved in the program's
+// order, every package after those it imports. The builtins it binds
+// calls to are a builtin.Set's, and main_optional is Go's MainOptional.
+//
+// What it writes into the trees is Go's: each Ident's def, what the name
+// is bound to (see ast.Def), and, for a callee that passed over a
+// variable or a parameter of its name, hidden; a conversion's Call.conv;
+// a Call's type arguments dropped where Go drops them; a Var's unused,
+// unused_deferred and hidden_call; a method's Func.recv_type and its
+// type's TypeDecl.methods; and the nodes Go makes, a Var for a union
+// pattern's binding, set as its CaseClause's var_node, and a TypeParam
+// for a name a case of a switch on a type parameter declares, added to
+// the tree of the function they are in.
+//
+// Names. Go keys its scopes and its tables by names, strings; here each
+// name is interned once, as a symbol, an int64 (see Syms), and every
+// table is a map keyed by symbols. Go's pointers to declarations, to
+// variables and to imports, which its maps are keyed by too, are a
+// tree's unit and a node's id here, a Key.
+//
+// Scopes. Go's scopes are maps linked to the scope enclosing each; a
+// function's local scopes open and close as the resolver walks it, so
+// here they are a stack, each linked to the one enclosing it, and an
+// entry for each name a scope declares or rejects, the latest entry of
+// each name a lookup's start (see scope.tck). The global scope is the
+// package's members that are no function, and each file's scope its
+// imports. Go's pkgResolver for each package, which the packages after
+// it read, is maps keyed by the package's index in Res: its members, and
+// what its bad nodes may have declared.
+//
+// Recursion. A tree is as deep as its source makes it: a chain of
+// selectors, indexes, calls of methods or binary operators is a node
+// deeper for each link, with no nesting the parser counts, and so is the
+// target of an assignment, a.b.c[0] = v. Go recurses down each; here
+// resolve_expr and resolve_target walk down such a chain in a loop and
+// back up it, and the recursion that is left goes only as deep as the
+// parser lets a program nest, a level for each call's arguments, each
+// bracket, each block and each precedence between. An else if chain is
+// a loop in Go too. Go's BadStmts walks a function's body with Walk,
+// recursively; here ast.bad_stmts walks it with a stack of its own.
+// tackc's porttest runs the deepest shapes at the nesting limit, and
+// chains of a hundred thousand links, with the port's stack held to
+// 4 MB.
+//
+// Failures. Go's functions return their diagnostics, which the caller
+// appends or drops; here each is appended to Res's list as it is found,
+// and settle, which Go hands the diagnostics a binding found, drops
+// those reported after a mark instead. Every function returns an error,
+// the builtin append's out of memory, which ends the resolution.
+// Diagnostics are sorted by file and place when they are rendered, as
+// Go's driver sorts them, so their order here matters only between two
+// at one place, which is Go's.

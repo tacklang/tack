@@ -1,0 +1,871 @@
+package resolver
+
+import ast from "tack/ast"
+import builtin from "tack/builtin"
+import bytes from "std/bytes"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// Names and their nodes.
+
+// ident_of returns the identifier n of the tree unit, or a zero one for
+// a node that is none.
+func ident_of(trees []ast.File, unit int64, n id[ast.Node]) ast.Ident {
+    switch kind_at(trees, unit, n) {
+    case ident(x):
+        return x
+    default:
+        mut z ast.Ident
+        return z
+    }
+}
+
+// is_ident reports whether n of the tree unit is an identifier.
+func is_ident(trees []ast.File, unit int64, n id[ast.Node]) bool {
+    switch kind_at(trees, unit, n) {
+    case ident:
+        return true
+    default:
+        return false
+    }
+}
+
+// set_def binds the identifier n of the tree unit to d.
+func set_def(mut trees list[ast.File], unit int64, n id[ast.Node], d ast.Def) {
+    switch kind_at(trees, unit, n) {
+    case ident(x):
+        mut y := x
+        y.def = d
+        set_kind(mut trees, unit, n, ast.Kind.ident(y))
+    default:
+    }
+}
+
+// set_hidden records d as what the identifier n of the tree unit passed
+// over, Go's Hidden.
+func set_hidden(mut trees list[ast.File], unit int64, n id[ast.Node], d ast.Def) {
+    switch kind_at(trees, unit, n) {
+    case ident(x):
+        mut y := x
+        y.hidden = d
+        set_kind(mut trees, unit, n, ast.Kind.ident(y))
+    default:
+    }
+}
+
+// qualified_at reports whether the identifier n of the tree unit is
+// qualified, pkg.name.
+func qualified_at(trees []ast.File, unit int64, n id[ast.Node]) bool {
+    x := ident_of(trees, unit, n)
+    if unit < 0 || unit >= len(trees) {
+        return false
+    }
+    return len(trees[unit].text(x.pkg)) > 0
+}
+
+// Name is a name as the resolver reads it from an identifier: its
+// symbol, its package's symbol when it is qualified, and whether it is.
+type Name struct {
+    sym int64
+    pkg int64
+    qualified bool
+}
+
+// name_of reads the identifier n of the tree being resolved.
+func name_of(mut r Res, n id[ast.Node]) (Name, error) {
+    x := ident_of(r.prog.trees, r.unit, n)
+    k := sym_of(mut r, x.name)?
+    q := qualified_at(r.prog.trees, r.unit, n)
+    mut p int64 = -1
+    if q {
+        p = sym_of(mut r, x.pkg)?
+    }
+    return Name{sym: k, pkg: p, qualified: q}, noerror
+}
+
+// append_qualified appends the name nm as written, Go's Qualified:
+// pkg.name, or name.
+func append_qualified(r Res, mut m list[uint8], nm Name) error {
+    if nm.qualified {
+        fmt.appendf(mut m, "%s.", sym_text(r.syms, nm.pkg))?
+    }
+    return fmt.appendf(mut m, "%s", sym_text(r.syms, nm.sym))
+}
+
+// seen returns the function of the package being resolved named k, and
+// whether there is one, Go's seen.
+func seen(r Res, k int64) (ast.Def, bool) {
+    d, ok := r.members[PKey{pkg: r.pkg, sym: k}]
+    if !ok || d.kind != ast.def_func {
+        return ast.no_def(), false
+    }
+    return d, true
+}
+
+// builtin_seen reports whether k is a builtin's name, Go's builtinSeen.
+func builtin_seen(r Res, k int64) bool {
+    b, ok := r.builtin_syms[k]
+    return ok && b
+}
+
+// member returns the package-level declaration of the package pkg named
+// k, a function, a type or a global, and whether there is one, Go's
+// member.
+func member(r Res, pkg int64, k int64) (ast.Def, bool) {
+    d, ok := r.members[PKey{pkg: pkg, sym: k}]
+    return d, ok
+}
+
+// is_reserved_name reports whether the name k is one no declaration may
+// have, Go's reservedName != nil.
+func is_reserved_name(r Res, k int64) bool {
+    return k == r.sym_blank || types.reserved(sym_text(r.syms, k)) || builtin.is_constraint(sym_text(r.syms, k))
+}
+
+// reserved_name reports, if the name k, written at sp, is not one a
+// declaration may have, why not, and reports whether it did, Go's
+// reservedName: _ only discards a result, and a type name is reserved
+// like a keyword.
+func reserved_name(mut r Res, k int64, sp source.Span) (bool, error) {
+    mut m := new_msg()
+    if k == r.sym_blank {
+        fmt.appendf(mut m, "cannot use _ as a name")?
+    } else if types.reserved(sym_text(r.syms, k)) {
+        fmt.appendf(mut m, "cannot use %s as a name; it is a type", sym_text(r.syms, k))?
+    } else if builtin.is_constraint(sym_text(r.syms, k)) {
+        fmt.appendf(mut m, "cannot use %s as a name; it is a builtin constraint", sym_text(r.syms, k))?
+    } else {
+        return false, noerror
+    }
+    error_at(mut r, sp, own m)?
+    return true, noerror
+}
+
+// member_name reports, if the name k, a field's or a method's, written
+// at sp, is _, which names nothing, and reports whether it did, Go's
+// memberName.
+func member_name(mut r Res, k int64, sp source.Span) (bool, error) {
+    if k != r.sym_blank {
+        return false, noerror
+    }
+    mut m := new_msg()
+    fmt.appendf(mut m, "cannot use _ as a name")?
+    error_at(mut r, sp, own m)?
+    return true, noerror
+}
+
+// already_declared reports the name k, declared at sp, as clashing with
+// the declaration existing, and points at that one, Go's
+// alreadyDeclared.
+func already_declared(mut r Res, k int64, sp source.Span, existing ast.Def) error {
+    mut m := new_msg()
+    fmt.appendf(mut m, "%s is already declared", sym_text(r.syms, k))?
+    error_at(mut r, sp, own m)?
+    return previous(mut r, k, def_name_span(r.prog.trees, existing))
+}
+
+// previous adds to the last diagnostic the note previous declaration of
+// the name k, at sp.
+func previous(mut r Res, k int64, sp source.Span) error {
+    mut m := new_msg()
+    fmt.appendf(mut m, "previous declaration of %s", sym_text(r.syms, k))?
+    return note_last(mut r, sp, own m)
+}
+
+// redeclared reports a local or a parameter named k, at sp, that reuses
+// the name of existing, visible where it is declared: an import's, which
+// is reported as such, or any other's, as declared already, Go's
+// redeclared.
+func redeclared(mut r Res, k int64, sp source.Span, existing ast.Def) error {
+    if existing.kind == ast.def_import {
+        mut m := new_msg()
+        fmt.appendf(mut m, "%s is an imported package and cannot be redeclared", sym_text(r.syms, k))?
+        return error_at(mut r, sp, own m)
+    }
+    return already_declared(mut r, k, sp, existing)
+}
+
+// duplicate reports a name declared twice in one namespace, saying msg,
+// at sp, with the note previous declaration of the name k at prev.
+func duplicate(mut r Res, msg string, k int64, sp source.Span, prev source.Span) error {
+    mut m := new_msg()
+    fmt.appendf(mut m, "%s", msg)?
+    error_at(mut r, sp, own m)?
+    return previous(mut r, k, prev)
+}
+
+// The package's declarations.
+
+// declare_funcs records every top-level function of every file of the
+// package, reporting a name declared twice, in one file or in two, or
+// one that reuses a builtin's name, Go's declareFuncs. A method is not
+// one: its name is in its type's namespace.
+func declare_funcs(mut r Res) error {
+    for u := range r.count {
+        unit := r.first +% u
+        r.unit = unit
+        for i := range count_decls(r.prog.trees, unit) {
+            d := decl_at(r.prog.trees, unit, i)
+            switch kind_at(r.prog.trees, unit, d) {
+            case func_decl(fid):
+                fn := func_at(r.prog.trees, unit, fid)
+                if fn.method {
+                    continue
+                }
+                k := sym_of(mut r, fn.name)?
+                reserved := reserved_name(mut r, k, fn.name_span)?
+                if reserved {
+                    continue
+                }
+                existing, is_seen := seen(r, k)
+                if is_seen {
+                    already_declared(mut r, k, fn.name_span, existing)?
+                    continue
+                }
+                if builtin_seen(r, k) {
+                    mut m := new_msg()
+                    fmt.appendf(mut m, "duplicate declaration of builtin function")?
+                    error_at(mut r, fn.name_span, own m)?
+                    put(mut r.shadowed, k, true)?
+                    continue
+                }
+                put(mut r.members, PKey{pkg: r.pkg, sym: k}, ast.decl_def(ast.def_func, unit, d))?
+            default:
+            }
+        }
+    }
+    return noerror
+}
+
+// check_bodies reports every function of the package declared without a
+// body that is not an extern func, Go's checkBodies: a method never is
+// extern, so one without a body is reported as a method.
+func check_bodies(mut r Res) error {
+    for u := range r.count {
+        unit := r.first +% u
+        r.unit = unit
+        for i := range count_decls(r.prog.trees, unit) {
+            d := decl_at(r.prog.trees, unit, i)
+            switch kind_at(r.prog.trees, unit, d) {
+            case func_decl(fid):
+                fn := func_at(r.prog.trees, unit, fid)
+                if !fn.no_body || fn.is_extern {
+                    continue
+                }
+                mut m := new_msg()
+                if fn.method {
+                    append_type_text(r.prog.trees, unit, mut m, recv_type_expr(r.prog.trees, unit, fn))?
+                    nm := sym_of(mut r, fn.name)?
+                    mut full := new_msg()
+                    fmt.appendf(mut full, "method %s.%s has no body", m[:], sym_text(r.syms, nm))?
+                    error_at(mut r, fn.name_span, own full)?
+                    continue
+                }
+                nm := sym_of(mut r, fn.name)?
+                fmt.appendf(mut m, "function %s has no body; only an extern func is declared without one", sym_text(r.syms, nm))?
+                error_at(mut r, fn.name_span, own m)?
+            default:
+            }
+        }
+    }
+    return noerror
+}
+
+// recv_type_expr returns the type written for the receiver of fn, a
+// method of the tree unit, Go's Recv().TypeExpr, or none when it has no
+// receiver.
+func recv_type_expr(trees []ast.File, unit int64, fn ast.Func) id[ast.Node] {
+    mut z id[ast.Node]
+    if !fn.method || count_items(trees, unit, fn.params) == 0 {
+        return z
+    }
+    p := item_at(trees, unit, fn.params, 0)
+    switch kind_at(trees, unit, p) {
+    case param_decl(pid):
+        return param_at(trees, unit, pid).type_expr
+    default:
+        return z
+    }
+}
+
+// recv_node returns the receiver of fn, a method of the tree unit, its
+// first parameter's node, or none.
+func recv_node(trees []ast.File, unit int64, fn ast.Func) id[ast.Node] {
+    mut z id[ast.Node]
+    if !fn.method || count_items(trees, unit, fn.params) == 0 {
+        return z
+    }
+    return item_at(trees, unit, fn.params, 0)
+}
+
+// append_type_text appends the type typ of the tree unit as a receiver's
+// is written for a diagnostic, Go's typeText.
+func append_type_text(trees []ast.File, unit int64, mut m list[uint8], typ id[ast.Node]) error {
+    switch kind_at(trees, unit, typ) {
+    case ident(x):
+        if unit >= 0 && unit < len(trees) {
+            if len(trees[unit].text(x.pkg)) > 0 {
+                fmt.appendf(mut m, "%s.", trees[unit].text(x.pkg))?
+            }
+            return fmt.appendf(mut m, "%s", trees[unit].text(x.name))
+        }
+        return noerror
+    case array_type:
+        return fmt.appendf(mut m, "an array type")
+    case view_type:
+        return fmt.appendf(mut m, "a view type")
+    case list_type:
+        return fmt.appendf(mut m, "a list type")
+    case map_type:
+        return fmt.appendf(mut m, "a map type")
+    case arena_type:
+        return fmt.appendf(mut m, "an arena type")
+    case pool_type:
+        return fmt.appendf(mut m, "a pool type")
+    case ref_type(rt):
+        if unit >= 0 && unit < len(trees) {
+            if name_equal(trees[unit].text(rt.name), "id") {
+                return fmt.appendf(mut m, "an id type")
+            }
+            if name_equal(trees[unit].text(rt.name), "handle") {
+                return fmt.appendf(mut m, "a handle type")
+            }
+        }
+        return fmt.appendf(mut m, "a span type")
+    case func_type:
+        return fmt.appendf(mut m, "a function type")
+    default:
+        return fmt.appendf(mut m, "this type")
+    }
+}
+
+// name_equal reports whether the bytes a are s.
+func name_equal(a []uint8, s string) bool {
+    return bytes.equal(a, []uint8(s))
+}
+
+// check_main reports a missing main function, or one with any other
+// signature than taking nothing and returning nothing, Go's checkMain.
+func check_main(mut r Res) error {
+    main_fn, defined := seen(r, r.sym_main)
+    if !defined && may_declare(r, r.sym_main, ast.unset_span()) {
+        return noerror
+    }
+    if !defined {
+        if r.main_optional {
+            return noerror
+        }
+        return missing_main(mut r)
+    }
+    switch kind_at(r.prog.trees, main_fn.unit, main_fn.node) {
+    case func_decl(fid):
+        fn := func_at(r.prog.trees, main_fn.unit, fid)
+        u := main_fn.unit
+        if fn.is_extern {
+            mut m := new_msg()
+            fmt.appendf(mut m, "main function must not be extern")?
+            error_at(mut r, fn.extern_span, own m)?
+        }
+        if count_items(r.prog.trees, u, fn.type_params) > 0 {
+            mut m := new_msg()
+            fmt.appendf(mut m, "main function must not declare type parameters")?
+            error_at(mut r, fn.type_params_span, own m)?
+        }
+        if count_items(r.prog.trees, u, fn.params) > 0 {
+            mut m := new_msg()
+            fmt.appendf(mut m, "main function must not declare parameters")?
+            error_at(mut r, span_at(r.prog.trees, u, item_at(r.prog.trees, u, fn.params, 0)), own m)?
+        }
+        n := count_items(r.prog.trees, u, fn.results)
+        if n > 0 {
+            mut sp := span_at(r.prog.trees, u, item_at(r.prog.trees, u, fn.results, 0))
+            sp.end = span_at(r.prog.trees, u, item_at(r.prog.trees, u, fn.results, n -% 1)).end
+            mut m := new_msg()
+            fmt.appendf(mut m, "main function must not declare a result")?
+            error_at(mut r, sp, own m)?
+        }
+    default:
+    }
+    return noerror
+}
+
+// missing_main reports the package being resolved, a main package, as
+// declaring no main function, at the start of its first file.
+func missing_main(mut r Res) error {
+    mut m := new_msg()
+    fmt.appendf(mut m, "main function not found")?
+    return error_at(mut r, first_file_span(r.prog.packages, r.prog.trees, r.pkg), own m)
+}
+
+// main_outside_main reports every package-level declaration named main
+// in a package other than main, Go's mainOutsideMain: the name is the
+// main package's. A method is not one.
+func main_outside_main(mut r Res) error {
+    for u := range r.count {
+        unit := r.first +% u
+        r.unit = unit
+        for i := range count_decls(r.prog.trees, unit) {
+            d := decl_at(r.prog.trees, unit, i)
+            mut keyword := ""
+            mut sp := ast.unset_span()
+            switch kind_at(r.prog.trees, unit, d) {
+            case func_decl(fid):
+                fn := func_at(r.prog.trees, unit, fid)
+                k := sym_of(mut r, fn.name)?
+                if k == r.sym_main && !fn.method {
+                    keyword = "func"
+                    sp = fn.name_span
+                }
+            case type_decl(td):
+                k := sym_of(mut r, td.name)?
+                if k == r.sym_main {
+                    keyword = "type"
+                    sp = td.name_span
+                }
+            case var_decl(v):
+                k := sym_of(mut r, v.name)?
+                if k == r.sym_main && v.mutable {
+                    keyword = "mut"
+                    sp = v.name_span
+                } else if k == r.sym_main {
+                    keyword = "var"
+                    sp = v.name_span
+                }
+            default:
+            }
+            if len(keyword) > 0 {
+                mut m := new_msg()
+                fmt.appendf(mut m, "%s main is allowed only in package main", keyword)?
+                error_at(mut r, sp, own m)?
+            }
+        }
+    }
+    return noerror
+}
+
+// declare_types adds every type declaration to the global scope, Go's
+// declareTypes. Functions were declared first, so a type that shares a
+// name with one is the one reported.
+func declare_types(mut r Res) error {
+    for u := range r.count {
+        unit := r.first +% u
+        r.unit = unit
+        for i := range count_decls(r.prog.trees, unit) {
+            d := decl_at(r.prog.trees, unit, i)
+            switch kind_at(r.prog.trees, unit, d) {
+            case type_decl(td):
+                k := sym_of(mut r, td.name)?
+                clash := package_name_clash(mut r, k, td.name_span)?
+                if clash {
+                    continue
+                }
+                put(mut r.members, PKey{pkg: r.pkg, sym: k}, ast.decl_def(ast.def_type, unit, d))?
+            default:
+            }
+        }
+    }
+    return noerror
+}
+
+// declare_globals adds every package-level variable of every file of the
+// package to the global scope, Go's declareGlobals, and returns every
+// global, declared or not, for resolve_globals.
+func declare_globals(mut r Res) error {
+    for u := range r.count {
+        unit := r.first +% u
+        r.unit = unit
+        for i := range count_decls(r.prog.trees, unit) {
+            d := decl_at(r.prog.trees, unit, i)
+            switch kind_at(r.prog.trees, unit, d) {
+            case var_decl(v):
+                k := sym_of(mut r, v.name)?
+                clash := package_name_clash(mut r, k, v.name_span)?
+                if clash {
+                    reject(mut r, globals_sc(), k)?
+                    continue
+                }
+                put(mut r.members, PKey{pkg: r.pkg, sym: k}, ast.decl_def(ast.def_var, unit, d))?
+                append(mut r.globals, GlobalVar{pkg: r.pkg, key: Key{unit: unit, node: d}})?
+            default:
+            }
+        }
+    }
+    return noerror
+}
+
+// package_name_clash reports why a package-level declaration cannot be
+// named k, written at sp, and reports whether it did, Go's
+// packageNameClash: the name is reserved, a builtin's, or already
+// declared by a function or in the global scope.
+func package_name_clash(mut r Res, k int64, sp source.Span) (bool, error) {
+    reserved := reserved_name(mut r, k, sp)?
+    if reserved {
+        return true, noerror
+    }
+    if builtin_seen(r, k) {
+        mut m := new_msg()
+        fmt.appendf(mut m, "%s is a builtin and cannot be redeclared", sym_text(r.syms, k))?
+        error_at(mut r, sp, own m)?
+        return true, noerror
+    }
+    mut existing, mut clash := global_name(r, k)
+    f, is_func := seen(r, k)
+    if is_func {
+        existing = f
+        clash = true
+    }
+    if clash {
+        already_declared(mut r, k, sp, existing)?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// resolve_globals resolves the type and initializer of every global in
+// the scope of its file, Go's resolveGlobals.
+func resolve_globals(mut r Res) error {
+    for u := range r.count {
+        unit := r.first +% u
+        for i := range count_decls(r.prog.trees, unit) {
+            d := decl_at(r.prog.trees, unit, i)
+            switch kind_at(r.prog.trees, unit, d) {
+            case var_decl(v):
+                r.unit = unit
+                sc := file_scope(r, unit)
+                if !ast.is_none(v.type_expr) {
+                    resolve_type(mut r, v.type_expr, sc)?
+                }
+                if !ast.is_none(v.value) {
+                    resolve_expr(mut r, v.value, sc)?
+                }
+            default:
+            }
+        }
+    }
+    return noerror
+}
+
+// type_expr_of returns the type a type declaration declares, the node
+// td of the tree unit.
+func type_expr_of(trees []ast.File, unit int64, td id[ast.Node]) id[ast.Node] {
+    switch kind_at(trees, unit, td) {
+    case type_decl(t):
+        return t.type_expr
+    default:
+        mut z id[ast.Node]
+        return z
+    }
+}
+
+// resolve_structs resolves the fields of every struct type declared, Go's
+// resolveStructs: each field's type, and its name, which must not be _
+// or another field's of its struct.
+func resolve_structs(mut r Res) error {
+    for u := range r.count {
+        unit := r.first +% u
+        for i := range count_decls(r.prog.trees, unit) {
+            d := decl_at(r.prog.trees, unit, i)
+            switch kind_at(r.prog.trees, unit, type_expr_of(r.prog.trees, unit, d)) {
+            case struct_type(fields):
+                r.unit = unit
+                resolve_fields(mut r, fields, file_scope(r, unit))?
+            default:
+            }
+        }
+    }
+    return noerror
+}
+
+// resolve_fields resolves the fields of one struct type, in sc, the
+// scope of the file declaring it, Go's resolveFields.
+func resolve_fields(mut r Res, fields ast.Nodes, sc Sc) error {
+    mut prev := make(map[int64]source.Span, c_allocator)
+    for i := range count_items(r.prog.trees, r.unit, fields) {
+        f := item_at(r.prog.trees, r.unit, fields, i)
+        switch kind_at(r.prog.trees, r.unit, f) {
+        case field(fd):
+            resolve_type(mut r, fd.type_expr, sc)?
+            k := sym_of(mut r, fd.name)?
+            blank := member_name(mut r, k, fd.name_span)?
+            if blank {
+                continue
+            }
+            p, dup := prev[k]
+            if dup {
+                duplicate(mut r, "duplicate field name", k, fd.name_span, p)?
+                continue
+            }
+            put(mut prev, k, fd.name_span)?
+        default:
+        }
+    }
+    return noerror
+}
+
+// resolve_unions resolves the cases of every union type declared, Go's
+// resolveUnions: each payload's type, and each case's name, which is not
+// reserved, and not another case's of the union.
+func resolve_unions(mut r Res) error {
+    for u := range r.count {
+        unit := r.first +% u
+        for i := range count_decls(r.prog.trees, unit) {
+            d := decl_at(r.prog.trees, unit, i)
+            switch kind_at(r.prog.trees, unit, type_expr_of(r.prog.trees, unit, d)) {
+            case union_type(cases):
+                r.unit = unit
+                sc := file_scope(r, unit)
+                mut prev := make(map[int64]source.Span, c_allocator)
+                for j := range count_items(r.prog.trees, unit, cases) {
+                    c := item_at(r.prog.trees, unit, cases, j)
+                    switch kind_at(r.prog.trees, unit, c) {
+                    case union_case(uc):
+                        if !ast.is_none(uc.type_expr) {
+                            resolve_type(mut r, uc.type_expr, sc)?
+                        }
+                        k := sym_of(mut r, uc.name)?
+                        reserved := reserved_name(mut r, k, uc.name_span)?
+                        if reserved {
+                            continue
+                        }
+                        p, dup := prev[k]
+                        if dup {
+                            duplicate(mut r, "duplicate case name", k, uc.name_span, p)?
+                            continue
+                        }
+                        put(mut prev, k, uc.name_span)?
+                    default:
+                    }
+                }
+            default:
+            }
+        }
+    }
+    return noerror
+}
+
+// resolve_interfaces resolves the methods of every interface type the
+// package declares, Go's resolveInterfaces: each method's parameter and
+// result types, in the scope of the interface's file, and its name,
+// which is in its interface's namespace.
+func resolve_interfaces(mut r Res) error {
+    for u := range r.count {
+        unit := r.first +% u
+        for i := range count_decls(r.prog.trees, unit) {
+            d := decl_at(r.prog.trees, unit, i)
+            switch kind_at(r.prog.trees, unit, type_expr_of(r.prog.trees, unit, d)) {
+            case interface_type(methods):
+                r.unit = unit
+                sc := file_scope(r, unit)
+                type_name := decl_sym(mut r, unit, d)?
+                mut prev := make(map[int64]source.Span, c_allocator)
+                for j := range count_items(r.prog.trees, unit, methods) {
+                    mn := item_at(r.prog.trees, unit, methods, j)
+                    switch kind_at(r.prog.trees, unit, mn) {
+                    case iface_method(m):
+                        resolve_iface_method(mut r, m, sc)?
+                        k := sym_of(mut r, m.name)?
+                        blank := member_name(mut r, k, m.name_span)?
+                        if blank {
+                            continue
+                        }
+                        p, dup := prev[k]
+                        if dup {
+                            already_member(mut r, type_name, k, m.name_span, p)?
+                            continue
+                        }
+                        put(mut prev, k, m.name_span)?
+                    default:
+                    }
+                }
+            default:
+            }
+        }
+    }
+    return noerror
+}
+
+// decl_sym returns the symbol of the name the declaration d of the tree
+// unit declares.
+func decl_sym(mut r Res, unit int64, d id[ast.Node]) (int64, error) {
+    if unit < 0 || unit >= len(r.prog.trees) {
+        k := intern(mut r.syms, []uint8(""))?
+        return k, noerror
+    }
+    k := intern_decl_name(mut r.syms, r.prog.trees, unit, d)?
+    return k, noerror
+}
+
+// intern_decl_name returns the symbol of the name the declaration d of
+// the tree unit declares.
+func intern_decl_name(mut syms Syms, trees []ast.File, unit int64, d id[ast.Node]) (int64, error) {
+    if unit < 0 || unit >= len(trees) {
+        k := intern(mut syms, []uint8(""))?
+        return k, noerror
+    }
+    k := intern(mut syms, ast.decl_name(trees[unit], d))?
+    return k, noerror
+}
+
+// already_member reports the member k of the type named type_name,
+// declared at sp, as declared already at prev: type_name.k is already
+// declared.
+func already_member(mut r Res, type_name int64, k int64, sp source.Span, prev source.Span) error {
+    mut m := new_msg()
+    fmt.appendf(mut m, "%s.%s is already declared", sym_text(r.syms, type_name), sym_text(r.syms, k))?
+    error_at(mut r, sp, own m)?
+    mut n := new_msg()
+    fmt.appendf(mut n, "previous declaration of %s.%s", sym_text(r.syms, type_name), sym_text(r.syms, k))?
+    return note_last(mut r, prev, own n)
+}
+
+// resolve_iface_method resolves the types of m, a method of an
+// interface, in sc, and reports a parameter name that is reserved or
+// another parameter's, Go's resolveIfaceMethod.
+func resolve_iface_method(mut r Res, m ast.IfaceMethod, sc Sc) error {
+    mut names := make(map[int64]source.Span, c_allocator)
+    for i := range count_items(r.prog.trees, r.unit, m.params) {
+        pn := item_at(r.prog.trees, r.unit, m.params, i)
+        switch kind_at(r.prog.trees, r.unit, pn) {
+        case param_decl(pid):
+            p := param_at(r.prog.trees, r.unit, pid)
+            resolve_type(mut r, p.type_expr, sc)?
+            k := sym_of(mut r, p.name)?
+            if k == r.sym_blank {
+                continue
+            }
+            reserved := reserved_name(mut r, k, p.name_span)?
+            if reserved {
+                continue
+            }
+            prev, dup := names[k]
+            if dup {
+                duplicate(mut r, "duplicate parameter name", k, p.name_span, prev)?
+                continue
+            }
+            put(mut names, k, p.name_span)?
+        default:
+        }
+    }
+    for i := range count_items(r.prog.trees, r.unit, m.results) {
+        resolve_type(mut r, item_at(r.prog.trees, r.unit, m.results, i), sc)?
+    }
+    return noerror
+}
+
+// Visibility.
+
+// Vis is a package-level declaration's visibility and the span of the
+// keyword that gave it, Go's visibilityOf, and whether it is an extern
+// func or a mut variable, which may have neither pub nor lib.
+type Vis struct {
+    vis ast.Visibility
+    span source.Span
+    is_extern bool
+    mutable bool
+}
+
+// vis_of returns the visibility of the declaration d of the tree unit.
+func vis_of(trees []ast.File, unit int64, d id[ast.Node]) Vis {
+    switch kind_at(trees, unit, d) {
+    case func_decl(fid):
+        fn := func_at(trees, unit, fid)
+        return Vis{vis: fn.vis, span: fn.vis_span, is_extern: fn.is_extern, mutable: false}
+    case var_decl(v):
+        return Vis{vis: v.vis, span: v.vis_span, is_extern: false, mutable: v.mutable}
+    case type_decl(td):
+        return Vis{vis: td.vis, span: td.vis_span, is_extern: false, mutable: false}
+    default:
+        return Vis{vis: ast.vis_private, span: ast.unset_span(), is_extern: false, mutable: false}
+    }
+}
+
+// var_vis returns the visibility of the variable v.
+func var_vis(trees []ast.File, v Key) ast.Visibility {
+    return vis_of(trees, v.unit, v.node).vis
+}
+
+// check_visibility reports every pub or lib the package cannot have, Go's
+// checkVisibility: any on a declaration in package main, which no
+// package can import, one on a mut global and one on an extern func.
+func check_visibility(mut r Res) error {
+    is_main := package_is_main(r)
+    for u := range r.count {
+        unit := r.first +% u
+        for i := range count_decls(r.prog.trees, unit) {
+            v := vis_of(r.prog.trees, unit, decl_at(r.prog.trees, unit, i))
+            if v.vis == ast.vis_private {
+                continue
+            }
+            mut m := new_msg()
+            if is_main {
+                fmt.appendf(mut m, "%s has no effect in package main, which no package can import", v.vis.string())?
+            } else if v.is_extern {
+                fmt.appendf(mut m, "an extern func cannot be %s; export a Tack function that calls it", v.vis.string())?
+            } else if v.mutable {
+                fmt.appendf(mut m, "a mut variable cannot be %s; export a function that reads or changes it", v.vis.string())?
+            } else {
+                continue
+            }
+            error_at(mut r, v.span, own m)?
+        }
+    }
+    return noerror
+}
+
+// access reports why the package being resolved cannot use member, a
+// package-level declaration of the package owner named by the name nm
+// at sp, and reports whether it did, Go's access.
+func access(mut r Res, mem ast.Def, owner int64, nm Name, sp source.Span) (bool, error) {
+    vis := vis_of(r.prog.trees, mem.unit, mem.node).vis
+    if owner == r.pkg || vis == ast.vis_pub {
+        return false, noerror
+    }
+    if vis == ast.vis_lib && same_module(r.prog.packages, owner, r.pkg) {
+        return false, noerror
+    }
+    mut m := new_msg()
+    if vis == ast.vis_lib {
+        append_lib_message(r.prog.packages, mut m, sym_text(r.syms, nm.sym), owner, r.pkg)?
+    } else {
+        append_not_pub(r.prog.packages, mut m, sym_text(r.syms, nm.sym), owner)?
+    }
+    error_at(mut r, sp, own m)?
+    return true, noerror
+}
+
+// same_module reports whether the packages a and b are in one module.
+func same_module(packages []ast.Package, a int64, b int64) bool {
+    if a < 0 || a >= len(packages) || b < 0 || b >= len(packages) {
+        return false
+    }
+    return packages[a].module.equal(packages[b].module.bytes())
+}
+
+// append_not_pub appends the message for name, a private name of the
+// package owner: name is not pub in package path.
+func append_not_pub(packages []ast.Package, mut m list[uint8], name []uint8, owner int64) error {
+    if owner < 0 || owner >= len(packages) {
+        return noerror
+    }
+    return fmt.appendf(mut m, "%s is not pub in package %s", name, packages[owner].path.bytes())
+}
+
+// append_lib_message appends the message for name, a lib name of the
+// package owner, used in the package user of another module, Go's
+// LibMessage.
+func append_lib_message(packages []ast.Package, mut m list[uint8], name []uint8, owner int64, user int64) error {
+    if owner < 0 || owner >= len(packages) || user < 0 || user >= len(packages) {
+        return noerror
+    }
+    if packages[user].module.len() == 0 {
+        return fmt.appendf(mut m, "%s is lib in module %s and cannot be used from a single file, which has no module", name, packages[owner].module.bytes())
+    }
+    return fmt.appendf(mut m, "%s is lib in module %s and cannot be used from module %s", name, packages[owner].module.bytes(), packages[user].module.bytes())
+}
+
+// warning_at adds a warning at sp saying msg, taken over, marked unused.
+func warning_at(mut r Res, sp source.Span, own msg list[uint8]) error {
+    return report(mut r, diag.warning, sp, own msg, true)
+}

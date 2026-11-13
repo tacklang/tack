@@ -32,6 +32,8 @@ pub type File struct {
     // param_decl nodes.
     pub funcs arena[Func]
     pub params arena[Param]
+    // defs holds the runs of Defs nodes hold, a TypeDecl's methods.
+    pub defs arena[Def]
 }
 
 // new_file returns a File with no declarations, comments or nodes but the
@@ -54,6 +56,7 @@ pub func new_file(alloc Allocator) File {
         bytes: make(arena[uint8], 0, alloc),
         funcs: make(arena[Func], fn, alloc),
         params: make(arena[Param], param, alloc),
+        defs: make(arena[Def], no_def(), alloc),
     }
 }
 

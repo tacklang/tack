@@ -1,0 +1,37 @@
+package types
+
+// Package types holds Tack's type representation. It is a port of the Go
+// compiler's package types, as far as the resolver needs it so far: the
+// basic types and what is known of them without a Table. The Table,
+// which gives the composite types their IDs, names them and answers what
+// a type owns, holds and weighs (Go's table.go and size.go), comes with
+// the type checker, the first stage that adds a type to one, where the
+// differential harness can check that its IDs are handed out in Go's
+// order.
+//
+// A Type is an ID: a small integer that, for a composite type, a Table
+// gives meaning to. Every distinct type has exactly one ID within a
+// compilation, so == on two Types is type identity. The zero value,
+// invalid, marks an expression that has not been checked or whose type
+// could not be determined, so a node's type the type checker has not
+// filled in holds invalid.
+//
+// The basic types have fixed IDs, numbered as Go's constants are, the
+// same in every compilation: int64, string, bool, the signed integers
+// int8 to int32, the unsigned uint8 to uint64, the target-width
+// unsafe_size and unsafe_uintptr, untyped_int, any, error, allocator,
+// float32, float64 and untyped_float, after invalid at 0. A Table's own
+// types start at num_basic. Go's Type is a named int; Tack declares no
+// named integer types, so here a Type is a struct wrapping its number,
+// each basic type a global, and number gives the ID the --res dump
+// writes.
+//
+// lookup maps a basic type's name as a program writes it, such as
+// int64, to its Type; untyped_int and untyped_float have no such name.
+// reserved says which names no declaration may take: a basic type's, and
+// id, span and handle, the builtin types written with an element type.
+// in_any, is_untyped, is_float, is_numeric, is_integer, is_unsigned,
+// target_width, bits, portable_bits, max_bits and widens describe the
+// basic types as Go's functions of those names do.
+//
+// It is a leaf package: it imports nothing of the compiler.

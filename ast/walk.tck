@@ -1,0 +1,231 @@
+package ast
+
+// The walk. Go's Walk visits a node and then, recursively, the nodes it
+// holds, in an order of its own, which is source order but for a few
+// fields written out of it, a MultiVar's names before its value
+// included. A tree is as deep as its source makes it, a chain of
+// selectors or of binary operators a node deeper for each link, so here
+// the walk is a loop over a stack of nodes of its own: children appends
+// the nodes n holds in Go's order, and a walk pushes them last first, so
+// they come off the stack in that order, each before the nodes it holds,
+// the order of Go's visits.
+
+// children appends to out the nodes n of f holds, in the order Go's Walk
+// visits them, none of them the sentinel, and returns the builtin
+// append's out of memory when out cannot grow. A CaseClause, a Field and
+// a UnionCase, parts of their node in Go, are nodes of their own here,
+// visited where Go visits what they hold, so the order of everything
+// else is Go's.
+pub func children(f File, n id[Node], mut out list[id[Node]]) error {
+    switch f.nodes[n].k {
+    case func_decl(fid):
+        fn := f.funcs[fid]
+        if !fn.closure {
+            add_items(f, fn.type_params, mut out)?
+        }
+        add_items(f, fn.params, mut out)?
+        add_items(f, fn.results, mut out)?
+        return add_items(f, fn.body, mut out)
+    case param_decl(pid):
+        return add_node(f.params[pid].type_expr, mut out)
+    case var_decl(v):
+        add_node(v.type_expr, mut out)?
+        return add_node(v.value, mut out)
+    case type_decl(td):
+        return add_node(td.type_expr, mut out)
+    case type_param(tp):
+        return add_node(tp.constraint, mut out)
+    case iface_method(m):
+        add_items(f, m.params, mut out)?
+        return add_items(f, m.results, mut out)
+    case expr_stmt(s):
+        return add_node(s.x, mut out)
+    case return_stmt(s):
+        return add_items(f, s.values, mut out)
+    case if_stmt(s):
+        add_node(s.cond, mut out)?
+        add_items(f, s.then, mut out)?
+        return add_items(f, s.else_body, mut out)
+    case for_stmt(s):
+        add_node(s.init, mut out)?
+        add_node(s.cond, mut out)?
+        add_node(s.post, mut out)?
+        return add_items(f, s.body, mut out)
+    case for_range(s):
+        add_node(s.var_node, mut out)?
+        add_node(s.elem, mut out)?
+        add_node(s.x, mut out)?
+        return add_items(f, s.body, mut out)
+    case switch_stmt(s):
+        add_node(s.bind, mut out)?
+        add_node(s.tag, mut out)?
+        return add_items(f, s.cases, mut out)
+    case case_clause(cl):
+        add_items(f, cl.values, mut out)?
+        add_node(cl.var_node, mut out)?
+        return add_items(f, cl.body, mut out)
+    case defer_stmt(s):
+        return add_items(f, s.body, mut out)
+    case region_stmt(s):
+        add_node(s.var_node, mut out)?
+        return add_items(f, s.body, mut out)
+    case assign(s):
+        add_node(s.target, mut out)?
+        return add_node(s.value, mut out)
+    case inc_dec(s):
+        return add_node(s.target, mut out)
+    case multi_var(s):
+        add_items(f, s.vars, mut out)?
+        return add_node(s.value, mut out)
+    case multi_assign(s):
+        add_items(f, s.targets, mut out)?
+        return add_node(s.value, mut out)
+    default:
+        return expr_children(f, n, mut out)
+    }
+}
+
+// expr_children is children for an expression or a type as written.
+func expr_children(f File, n id[Node], mut out list[id[Node]]) error {
+    switch f.nodes[n].k {
+    case binary(b):
+        add_node(b.x, mut out)?
+        return add_node(b.y, mut out)
+    case unary(u):
+        return add_node(u.x, mut out)
+    case mut_arg(x):
+        return add_node(x, mut out)
+    case own_arg(x):
+        return add_node(x, mut out)
+    case selector(s):
+        return add_node(s.x, mut out)
+    case question(x):
+        return add_node(x, mut out)
+    case type_assert(a):
+        add_node(a.x, mut out)?
+        return add_node(a.type_expr, mut out)
+    case call(c):
+        add_node(c.fn, mut out)?
+        add_items(f, c.type_args, mut out)?
+        return add_items(f, c.args, mut out)
+    case struct_type(fields):
+        return add_items(f, fields, mut out)
+    case field(fd):
+        return add_node(fd.type_expr, mut out)
+    case interface_type(methods):
+        return add_items(f, methods, mut out)
+    case union_type(cases):
+        return add_items(f, cases, mut out)
+    case union_case(c):
+        return add_node(c.type_expr, mut out)
+    case map_type(m):
+        add_node(m.key, mut out)?
+        return add_node(m.value, mut out)
+    case func_type(t):
+        add_items(f, t.params, mut out)?
+        return add_items(f, t.results, mut out)
+    case key_value(kv):
+        add_node(kv.key, mut out)?
+        return add_node(kv.value, mut out)
+    case func_lit(fn):
+        return add_node(fn, mut out)
+    case fields_of(t):
+        return add_node(t, mut out)
+    case array_type(a):
+        add_node(a.length, mut out)?
+        return add_node(a.elem, mut out)
+    case view_type(e):
+        return add_node(e, mut out)
+    case list_type(e):
+        return add_node(e, mut out)
+    case arena_type(e):
+        return add_node(e, mut out)
+    case pool_type(e):
+        return add_node(e, mut out)
+    case ref_type(r):
+        return add_node(r.elem, mut out)
+    case composite_lit(c):
+        add_node(c.type_expr, mut out)?
+        return add_items(f, c.elems, mut out)
+    case index(x):
+        add_node(x.x, mut out)?
+        return add_node(x.index, mut out)
+    case slice(s):
+        add_node(s.x, mut out)?
+        add_node(s.lo, mut out)?
+        return add_node(s.hi, mut out)
+    default:
+        return noerror
+    }
+}
+
+// add_node appends n to out unless it is the sentinel.
+func add_node(n id[Node], mut out list[id[Node]]) error {
+    if is_none(n) {
+        return noerror
+    }
+    return append(mut out, n)
+}
+
+// add_items appends the nodes of l to out, but the sentinel.
+func add_items(f File, l Nodes, mut out list[id[Node]]) error {
+    for _, n := range f.items(l) {
+        add_node(n, mut out)?
+    }
+    return noerror
+}
+
+// BadSpread is where the bad statements of a body are, Go's
+// BadStmts(body) as the resolver reads it: whether there are any, and
+// where the first and the last of them start, in the order Go's Walk
+// finds them.
+pub type BadSpread struct {
+    pub any bool
+    pub first int64
+    pub last int64
+}
+
+// bad_stmts returns where the bad statements of body, a function's body
+// in f, are, at any depth, a function literal's body included, as Go's
+// BadStmts finds them.
+pub func bad_stmts(f File, body Nodes, scope alloc Allocator) (BadSpread, error) {
+    mut spread := BadSpread{any: false, first: -1, last: -1}
+    mut stack := make(list[id[Node]], alloc)
+    mut kids := make(list[id[Node]], alloc)
+    push_reversed(f.items(body), mut stack)?
+    for len(stack) > 0 {
+        n, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        switch f.nodes[n].k {
+        case bad_stmt:
+            if !spread.any {
+                spread.first = f.nodes[n].span.start
+            }
+            spread.any = true
+            spread.last = f.nodes[n].span.start
+        default:
+        }
+        for len(kids) > 0 {
+            pop(mut kids)
+        }
+        children(f, n, mut kids)?
+        push_reversed(kids, mut stack)?
+    }
+    return spread, noerror
+}
+
+// push_reversed pushes the nodes of items on stack, last first, so they
+// come off it in their order, leaving out the sentinel.
+func push_reversed(items []id[Node], mut stack list[id[Node]]) error {
+    mut k := len(items)
+    for k > 0 {
+        k -%= 1
+        n, ok := items[k]
+        if ok {
+            add_node(n, mut stack)?
+        }
+    }
+    return noerror
+}

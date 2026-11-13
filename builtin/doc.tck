@@ -1,0 +1,61 @@
+package builtin
+
+// Package builtin is the compiler's builtins and runtime: the functions,
+// types and values Tack provides without a declaration or an import, the
+// C that some of them and lists run on, and the file that documents them
+// all. It is a port of the Go compiler's package builtin, as far as the
+// stages ported so far and the driver need it.
+//
+// # The builtins
+//
+// The resolver needs the builtins' names, to bind a call to one and to
+// stop a program from declaring a function with a builtin's name; the
+// loader, to stop a package from taking one; the type checker their
+// signatures; and the C backend the C names of those with a C body. All
+// of them read one Set, default_set, which is what keeps the stages from
+// disagreeing about what the builtins are. Go's nil *Set, which has no
+// builtins with a C body, as a dump of the tokens or the trees needs
+// none, is no_set here: a Set is a flag saying whether it has them, since
+// there is one set of builtins.
+//
+// print and exit have a C body, so a Func each: a name, its parameter's
+// name and type, and the C name, tack_builtin_print and
+// tack_builtin_exit, that a call lowers to. Go's Funcs is funcs_count and
+// func_at, and Lookup is lookup. Each has one parameter, so a Func holds
+// one; Go's holds a list.
+//
+// len, make, append, reserve, pop, remove, swap, replace, put, delete,
+// has, drop, add, add_all, insert and fields are generic. Go's Generic is
+// generic_count and generic_name, Names is names_count and name_at, and
+// ParamNames is param_names. is_func_name says whether a name is any
+// builtin function's of a Set, Names searched. Types and Values list the
+// builtin types and values, true, false, noerror and c_allocator; here
+// they are type_count and type_name, value_count and value_name. The
+// builtin constraints, Data, are constraint_count and constraint_name,
+// and is_constraint tells one by name.
+//
+// Called and Used, which find the builtins a resolved program calls, and
+// UsesUnreachable, RunsC and UsesLists, which say what a program needs of
+// the runtime, are the C backend's and the driver's, and come with them.
+//
+// # The runtime and the documentation
+//
+// Go embeds the runtime's C files, their header and builtin.tck with
+// go:embed. Tack has no such directive, so tools/embed writes their
+// bytes into embedded.tck as string literals, from the Go compiler's
+// builtin directory, and tackc's porttest checks that what it holds is
+// those files byte for byte, and that tools/embed writes it as it is:
+//
+//     ../tackc/bin/tack --out bin/embed ./tools/embed
+//     bin/embed builtin/embedded.tck builtin doc=../tackc/builtin/builtin.tck \
+//         header=../tackc/builtin/runtime/tack/tack.h \
+//         runtime[]=../tackc/builtin/runtime/exit.c ...
+//
+// with every runtime C file in the byte order of their names, which
+// tackc's make port-embed runs. runtime_count and runtime_file are Go's
+// RuntimeCFiles, in that order; runtime_header is RuntimeHeader, and
+// header_path the path a C file includes it by. source is the
+// builtins' documentation, Go's Source, which is never compiled;
+// copy_differs and append_copy_error are Go's CopyError, which the
+// driver's --check reports with. Go's Doc, which parses it for an
+// editor, is not ported.

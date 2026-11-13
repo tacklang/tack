@@ -1,0 +1,367 @@
+package resolver
+
+import ast from "tack/ast"
+import builtin from "tack/builtin"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import source from "tack/source"
+
+// Key names a node of the program: a tree, by its unit, and a node of
+// it. It stands for Go's pointer to a node, as a map's key: a variable,
+// an import, an identifier.
+type Key struct {
+    unit int64
+    node id[ast.Node]
+}
+
+// PKey is a symbol of one package, or of one tree, by its index: the key
+// of a package's members, and of a file's imports.
+type PKey struct {
+    pkg int64
+    sym int64
+}
+
+// Entry is what one local scope says of one name, Go's scope's names and
+// rejected for that name: the declaration it holds, if any, and whether
+// a declaration of the name was rejected there. prev is the entry of the
+// same name in an enclosing scope, -1 for none (see scope.tck).
+type Entry struct {
+    sym int64
+    owner int64
+    prev int64
+    decl ast.Def
+    has_decl bool
+    rejected bool
+}
+
+// ScopeVar is a variable the local scope owner declared, in the order
+// declared, Go's scope.vars.
+type ScopeVar struct {
+    owner int64
+    key Key
+}
+
+// GlobalVar is a package-level variable of the package pkg, for the
+// report of the unused ones once every package is resolved.
+type GlobalVar struct {
+    pkg int64
+    key Key
+}
+
+// Res is the state of one resolution, Go's Resolver and the pkgResolver
+// of the package being resolved, which shares it. Go keeps each
+// package's resolver for the packages that import it; here what they
+// read of one, its members and what its bad nodes may have declared, is
+// kept in maps keyed by the package's index, and the rest is the
+// current package's alone, made afresh for each.
+type Res struct {
+    prog ast.Program
+    builtins builtin.Set
+    main_optional bool
+    diags list[diag.Diagnostic]
+    syms Syms
+
+    // read, excused, bound and hidden_by are Go's maps of the same
+    // names, keyed by a variable's node.
+    read map[Key]bool
+    excused map[Key]bool
+    bound map[Key]bool
+    hidden_by map[Key]Key
+
+    // members holds every package's functions, Go's funcRefs, and its
+    // global scope's names, types and globals, by package and name;
+    // the two never share a name. builtin_syms are the builtins' names.
+    members map[PKey]ast.Def
+    builtin_syms map[int64]bool
+    // lost and lost_all are every package's damage.lost and lostAll.
+    lost map[PKey]bool
+    lost_all map[int64]bool
+    damaged map[int64]bool
+    // globals holds every package's globals, in order, for the report of
+    // the unused ones.
+    globals list[GlobalVar]
+
+    // The package being resolved: its index, its trees' units from
+    // first, count of them, and the package's own state.
+    pkg int64
+    first int64
+    count int64
+    shadowed map[int64]bool
+    global_rejected map[int64]bool
+    // file_names and file_rejected are each file's scope, by unit and
+    // name, which file_declared says it has once declareImports ran.
+    file_names map[PKey]ast.Def
+    file_rejected map[PKey]bool
+    file_declared map[int64]bool
+    used map[Key]bool
+    rejected_imports map[Key]bool
+    // import_pkg holds the index of the package each import is bound
+    // to, -1 for none, Go's Import.Package.
+    import_pkg map[Key]int64
+    // damage_units are the package's files with a bad node; from and
+    // last Go's damage.from, here bad_from, and damage.last.
+    damage_units map[int64]bool
+    bad_from int64
+    last int64
+
+    // The local scopes open, innermost last (see scope.tck), and the
+    // unit of the tree being resolved.
+    entries list[Entry]
+    heads map[int64]int64
+    open list[Open]
+    vars list[ScopeVar]
+    unit int64
+
+    // Symbols every package needs.
+    sym_blank int64
+    sym_main int64
+    sym_error int64
+    sym_make int64
+    sym_id int64
+    sym_handle int64
+}
+
+// resolve binds every name in prog, Go's Resolver.Resolve: it checks the
+// program's top-level shape, binds every name of every package, in the
+// program's order, and reports every problem found, adding the errors
+// to prog's count. builtins are the builtins a call can bind to without
+// a declaration, and main_optional is Go's MainOptional. It takes prog
+// over and gives it back, resolved, with the diagnostics; or, when an
+// allocation fails, an empty program and the builtin append's out of
+// memory. A program with no package is Go's panic, a caller's bug: it
+// is given back as it is, with nothing reported.
+pub func resolve(own prog ast.Program, builtins builtin.Set, main_optional bool) (ast.Program, list[diag.Diagnostic], error) {
+    mut r := new_res(own prog, builtins, main_optional)?
+    e := run(mut r)
+    diags := replace(mut r.diags, make(list[diag.Diagnostic], c_allocator))
+    if e.code != 0 {
+        return ast.new_program(c_allocator), diags, e
+    }
+    r.prog.errors +%= diag.error_count(diags)
+    p := replace(mut r.prog, ast.new_program(c_allocator))
+    return p, diags, noerror
+}
+
+// new_res returns the state of a resolution of prog, taken over.
+func new_res(own prog ast.Program, builtins builtin.Set, main_optional bool) (Res, error) {
+    syms := new_syms(c_allocator)?
+    mut r := Res{
+        prog: prog,
+        builtins: builtins,
+        main_optional: main_optional,
+        diags: make(list[diag.Diagnostic], c_allocator),
+        syms: syms,
+        read: make(map[Key]bool, c_allocator),
+        excused: make(map[Key]bool, c_allocator),
+        bound: make(map[Key]bool, c_allocator),
+        hidden_by: make(map[Key]Key, c_allocator),
+        members: make(map[PKey]ast.Def, c_allocator),
+        builtin_syms: make(map[int64]bool, c_allocator),
+        lost: make(map[PKey]bool, c_allocator),
+        lost_all: make(map[int64]bool, c_allocator),
+        damaged: make(map[int64]bool, c_allocator),
+        globals: make(list[GlobalVar], c_allocator),
+        pkg: 0,
+        first: 0,
+        count: 0,
+        shadowed: make(map[int64]bool, c_allocator),
+        global_rejected: make(map[int64]bool, c_allocator),
+        file_names: make(map[PKey]ast.Def, c_allocator),
+        file_rejected: make(map[PKey]bool, c_allocator),
+        file_declared: make(map[int64]bool, c_allocator),
+        used: make(map[Key]bool, c_allocator),
+        rejected_imports: make(map[Key]bool, c_allocator),
+        import_pkg: make(map[Key]int64, c_allocator),
+        damage_units: make(map[int64]bool, c_allocator),
+        bad_from: -1,
+        last: -1,
+        entries: make(list[Entry], c_allocator),
+        heads: make(map[int64]int64, c_allocator),
+        open: make(list[Open], c_allocator),
+        vars: make(list[ScopeVar], c_allocator),
+        unit: 0,
+        sym_blank: 0,
+        sym_main: 0,
+        sym_error: 0,
+        sym_make: 0,
+        sym_id: 0,
+        sym_handle: 0,
+    }
+    r.sym_blank = intern(mut r.syms, []uint8("_"))?
+    r.sym_main = intern(mut r.syms, []uint8("main"))?
+    r.sym_error = intern(mut r.syms, []uint8("error"))?
+    r.sym_make = intern(mut r.syms, []uint8("make"))?
+    r.sym_id = intern(mut r.syms, []uint8("id"))?
+    r.sym_handle = intern(mut r.syms, []uint8("handle"))?
+    for i := range builtins.names_count() {
+        k := intern(mut r.syms, []uint8(builtins.name_at(i)))?
+        put(mut r.builtin_syms, k, true)?
+    }
+    return r, noerror
+}
+
+// run does resolve's work, Go's resolve: a program whose last package is
+// not main is reported, unless main_optional, and otherwise each package
+// is resolved in order, and then each one's unused globals reported.
+func run(mut r Res) error {
+    n := len(r.prog.packages)
+    if n == 0 {
+        return noerror
+    }
+    main := n -% 1
+    if !main_name_is(r.prog.packages, main) && !r.main_optional {
+        mut m := new_msg()
+        fmt.appendf(mut m, "main package not found")?
+        return error_at(mut r, first_file_span(r.prog.packages, r.prog.trees, main), own m)
+    }
+    for k := range n {
+        resolve_package(mut r, k)?
+    }
+    // A global is reported unused only once every package has been
+    // resolved, so a read from any of them counts. One that is pub or
+    // lib is there for other packages, which may not read it, so it is
+    // never reported, nor is any of a package with damaged source.
+    r.bad_from = -1
+    r.last = -1
+    for i := range len(r.globals) {
+        g, ok := global_at(r.globals, i)
+        if !ok {
+            continue
+        }
+        dam, has := r.damaged[g.pkg]
+        if var_vis(r.prog.trees, g.key) != ast.vis_private || has && dam {
+            put(mut r.excused, g.key, true)?
+        }
+        unused_var(mut r, g.key)?
+    }
+    return noerror
+}
+
+// global_at returns the i-th of globals, and whether there is one.
+func global_at(globals []GlobalVar, i int64) (GlobalVar, bool) {
+    g, ok := globals[i]
+    return g, ok
+}
+
+// main_name_is reports whether the package k of packages is named main.
+func main_name_is(packages []ast.Package, k int64) bool {
+    if k < 0 || k >= len(packages) {
+        return false
+    }
+    return packages[k].name.equal([]uint8("main"))
+}
+
+// first_file_span returns the span at the start of the first file of the
+// package k, where a diagnostic about the package as a whole points, Go's
+// firstFile, or the unset span for a package with no files.
+func first_file_span(packages []ast.Package, trees []ast.File, k int64) source.Span {
+    if k < 0 || k >= len(packages) {
+        return ast.unset_span()
+    }
+    u := packages[k].first
+    if packages[k].count <= 0 || u < 0 || u >= len(trees) {
+        return ast.unset_span()
+    }
+    return source.Span{file: trees[u].span.file, start: 0, end: 0}
+}
+
+// resolve_package resolves the package k, Go's pkgResolver.resolve: it
+// declares every package-level name of every one of its files and then
+// binds every name in it, reporting every problem found but the unused
+// globals, which run reports.
+func resolve_package(mut r Res, k int64) error {
+    start_package(mut r, k)?
+    declare_funcs(mut r)?
+    check_bodies(mut r)?
+    declare_types(mut r)?
+    declare_globals(mut r)?
+    declare_imports(mut r)?
+    resolve_globals(mut r)?
+    resolve_structs(mut r)?
+    resolve_unions(mut r)?
+    resolve_interfaces(mut r)?
+    check_visibility(mut r)?
+    if package_is_main(r) {
+        check_main(mut r)?
+    } else {
+        main_outside_main(mut r)?
+    }
+    // Resolution is per function body: a parameter is in scope inside
+    // the function that declares it and nowhere else.
+    for u := range r.count {
+        unit := r.first +% u
+        for i := range count_decls(r.prog.trees, unit) {
+            d := decl_at(r.prog.trees, unit, i)
+            switch kind_at(r.prog.trees, unit, d) {
+            case func_decl(fid):
+                r.unit = unit
+                resolve_func(mut r, fid)?
+            default:
+            }
+        }
+    }
+    // Every receiver's type is bound by now, so each method can be found
+    // a type to belong to.
+    declare_methods(mut r)?
+    return unused_imports(mut r)
+}
+
+// package_is_main reports whether the package being resolved is named
+// main.
+func package_is_main(r Res) bool {
+    return main_name_is(r.prog.packages, r.pkg)
+}
+
+// start_package makes the state of the package k, the next to resolve,
+// afresh, and records what its bad nodes may have declared (see
+// invalid.tck).
+func start_package(mut r Res, k int64) error {
+    r.pkg = k
+    r.first = package_first(r.prog.packages, k)
+    r.count = package_count(r.prog.packages, k)
+    r.shadowed = make(map[int64]bool, c_allocator)
+    r.global_rejected = make(map[int64]bool, c_allocator)
+    r.file_names = make(map[PKey]ast.Def, c_allocator)
+    r.file_rejected = make(map[PKey]bool, c_allocator)
+    r.file_declared = make(map[int64]bool, c_allocator)
+    r.used = make(map[Key]bool, c_allocator)
+    r.rejected_imports = make(map[Key]bool, c_allocator)
+    r.import_pkg = make(map[Key]int64, c_allocator)
+    r.damage_units = make(map[int64]bool, c_allocator)
+    r.bad_from = -1
+    r.last = -1
+    return new_damage(mut r)
+}
+
+// package_first returns the unit of the first tree of the package k.
+func package_first(packages []ast.Package, k int64) int64 {
+    if k < 0 || k >= len(packages) {
+        return 0
+    }
+    return packages[k].first
+}
+
+// package_count returns how many trees the package k has.
+func package_count(packages []ast.Package, k int64) int64 {
+    if k < 0 || k >= len(packages) {
+        return 0
+    }
+    return packages[k].count
+}
+
+// resolve_func resolves the function fid of the current tree, Go's step
+// of the loop over declarations in resolve: its parameters' scope, its
+// contract, with the parameters in scope and nothing its body declares,
+// and its body.
+func resolve_func(mut r Res, fid id[ast.Func]) error {
+    fn := func_at(r.prog.trees, r.unit, fid)
+    params := param_scope(mut r, fn)?
+    if !ast.is_none(fn.contract) {
+        resolve_expr(mut r, fn.contract, params)?
+    }
+    enter_body(mut r, fn.body)?
+    resolve_block(mut r, fn.body, params)?
+    r.bad_from = -1
+    r.last = -1
+    return close_from(mut r, 0)
+}

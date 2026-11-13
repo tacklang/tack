@@ -669,7 +669,7 @@ func ident_of(nodes arena[ast.Node], n id[ast.Node]) (ast.Ident, bool) {
 // new_ident adds an unqualified name, name over sp, to the tree.
 func (mut p Parser) new_ident(name span[uint8], sp source.Span) (id[ast.Node], error) {
     mut z source.Span
-    n := mut p.add(ast.Kind.ident(ast.Ident{pkg: empty_str(), name: name, pkg_span: z}), sp)?
+    n := mut p.add(ast.Kind.ident(ast.Ident{pkg: empty_str(), name: name, pkg_span: z, def: ast.no_def(), hidden: ast.no_def()}), sp)?
     return n, noerror
 }
 

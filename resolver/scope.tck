@@ -1,0 +1,549 @@
+package resolver
+
+import ast from "tack/ast"
+import diag from "tack/diag"
+import source from "tack/source"
+import text from "std/text"
+
+// Scopes. Go's scopes are a tree of maps, each linked to the one that
+// encloses it: the package's global scope, each file's, holding its
+// imports, and, in a function, a scope for its type parameters, one for
+// its parameters and one for each block. Here the global scope is the
+// package's members that are no function (see Res.members) and the
+// names rejected there, each file's scope its imports in file_names,
+// and the local scopes, which open and close as the resolver walks a
+// function, a stack of Opens, each linked to the scope enclosing it, as
+// Go's are. entries holds, for each name a local scope declares or
+// rejects, one Entry, a later scope's after an earlier one's, and heads
+// the latest entry of each name, each entry linking to the one before it
+// for its name. A lookup from a scope follows a name's entries from the
+// latest and takes those of the scope and of the scopes enclosing it,
+// passing over those of a scope open beside it, as a case's is while a
+// type in its values is resolved where the switch is.
+
+// Sc names a scope: level 0 is the global scope, 1 the file unit's, and
+// 2 a local one, the open scope index.
+type Sc struct {
+    level int64
+    index int64
+    unit int64
+}
+
+// Open is an open local scope: the scope enclosing it, a local one's
+// index, or -1 for the file's or, with parent_level 0, the global scope,
+// and where its entries and its variables start in Res's lists.
+type Open struct {
+    parent int64
+    parent_level int64
+    entries int64
+    vars int64
+}
+
+// globals_sc returns the global scope.
+func globals_sc() Sc {
+    return Sc{level: 0, index: -1, unit: -1}
+}
+
+// file_scope returns the scope of the file unit, Go's fileScope: its
+// imports, enclosed by the global scope, or the global scope itself for
+// a file that has none yet, before declare_imports gave it one.
+func file_scope(r Res, unit int64) Sc {
+    v, ok := r.file_declared[unit]
+    if ok && v {
+        return Sc{level: 1, index: -1, unit: unit}
+    }
+    return globals_sc()
+}
+
+// open_at returns the open scope i, and whether there is one.
+func open_at(open []Open, i int64) (Open, bool) {
+    o, ok := open[i]
+    return o, ok
+}
+
+// parent returns the scope enclosing sc.
+func parent(r Res, sc Sc) Sc {
+    if sc.level <= 1 {
+        return globals_sc()
+    }
+    o, ok := open_at(r.open, sc.index)
+    if !ok {
+        return globals_sc()
+    }
+    if o.parent >= 0 {
+        return Sc{level: 2, index: o.parent, unit: sc.unit}
+    }
+    if o.parent_level == 1 {
+        return Sc{level: 1, index: -1, unit: sc.unit}
+    }
+    return globals_sc()
+}
+
+// open_scope opens a local scope nested in sc, Go's newScope, and
+// returns it.
+func open_scope(mut r Res, sc Sc) (Sc, error) {
+    mut p int64 = -1
+    if sc.level == 2 {
+        p = sc.index
+    }
+    i := len(r.open)
+    append(mut r.open, Open{parent: p, parent_level: sc.level, entries: len(r.entries), vars: len(r.vars)})?
+    return Sc{level: 2, index: i, unit: sc.unit}, noerror
+}
+
+// close_scope closes sc, a local scope, and every scope opened after it
+// still open, dropping what each declared, so a scope left open cannot
+// outlive the one it is in.
+func close_scope(mut r Res, sc Sc) error {
+    if sc.level != 2 {
+        return noerror
+    }
+    return close_from(mut r, sc.index)
+}
+
+// close_from closes every local scope open from the index i on, the
+// latest first.
+func close_from(mut r Res, i int64) error {
+    for len(r.open) > i && len(r.open) > 0 {
+        o, ok := pop(mut r.open)
+        if !ok {
+            break
+        }
+        for len(r.entries) > o.entries {
+            e, has := pop(mut r.entries)
+            if !has {
+                break
+            }
+            if e.prev < 0 {
+                delete(mut r.heads, e.sym)
+            } else {
+                put(mut r.heads, e.sym, e.prev)?
+            }
+        }
+        for len(r.vars) > o.vars {
+            pop(mut r.vars)
+        }
+    }
+    return noerror
+}
+
+// encloses reports whether the open scope a is sc or encloses it.
+func encloses(r Res, a int64, sc Sc) bool {
+    mut x := sc.index
+    for x >= a && x >= 0 {
+        if x == a {
+            return true
+        }
+        o, ok := open_at(r.open, x)
+        if !ok {
+            return false
+        }
+        x = o.parent
+    }
+    return false
+}
+
+// entry_at returns the entry e, and whether there is one.
+func entry_at(entries []Entry, e int64) (Entry, bool) {
+    en, ok := entries[e]
+    return en, ok
+}
+
+// set_entry replaces the entry e with en.
+func set_entry(mut entries list[Entry], e int64, en Entry) {
+    if e >= 0 && e < len(entries) {
+        entries[e] = en
+    }
+}
+
+// head returns the latest entry of the name k, or -1.
+func head(r Res, k int64) int64 {
+    h, ok := r.heads[k]
+    if !ok {
+        return -1
+    }
+    return h
+}
+
+// own_entry returns the entry of the name k in the local scope sc, or -1
+// when sc says nothing of k.
+func own_entry(r Res, sc Sc, k int64) int64 {
+    mut e := head(r, k)
+    for e >= 0 {
+        en, ok := entry_at(r.entries, e)
+        if !ok || en.owner < sc.index {
+            return -1
+        }
+        if en.owner == sc.index {
+            return e
+        }
+        e = en.prev
+    }
+    return -1
+}
+
+// declare adds the declaration d of the name k to sc, Go's
+// sc.names[name] = d: the global scope's are the package's members, a
+// file's its imports, and a local scope's an entry.
+func declare(mut r Res, sc Sc, k int64, d ast.Def) error {
+    if sc.level == 0 {
+        return put(mut r.members, PKey{pkg: r.pkg, sym: k}, d)
+    }
+    if sc.level == 1 {
+        return put(mut r.file_names, PKey{pkg: sc.unit, sym: k}, d)
+    }
+    e := own_entry(r, sc, k)
+    en, ok := entry_at(r.entries, e)
+    if ok {
+        set_entry(mut r.entries, e, Entry{sym: k, owner: en.owner, prev: en.prev, decl: d, has_decl: true, rejected: en.rejected})
+        return noerror
+    }
+    return push_entry(mut r, sc, k, d, true, false)
+}
+
+// reject records in sc that a declaration of the name k there was
+// reported, Go's scope.reject.
+func reject(mut r Res, sc Sc, k int64) error {
+    if sc.level == 0 {
+        return put(mut r.global_rejected, k, true)
+    }
+    if sc.level == 1 {
+        return put(mut r.file_rejected, PKey{pkg: sc.unit, sym: k}, true)
+    }
+    e := own_entry(r, sc, k)
+    en, ok := entry_at(r.entries, e)
+    if ok {
+        set_entry(mut r.entries, e, Entry{sym: k, owner: en.owner, prev: en.prev, decl: en.decl, has_decl: en.has_decl, rejected: true})
+        return noerror
+    }
+    return push_entry(mut r, sc, k, ast.no_def(), false, true)
+}
+
+// push_entry adds a new entry for the name k in sc.
+func push_entry(mut r Res, sc Sc, k int64, d ast.Def, has_decl bool, rejected bool) error {
+    prev := head(r, k)
+    append(mut r.entries, Entry{sym: k, owner: sc.index, prev: prev, decl: d, has_decl: has_decl, rejected: rejected})?
+    return put(mut r.heads, k, len(r.entries) -% 1)
+}
+
+// global_name returns the declaration the global scope holds under k: a
+// member of the package that is no function.
+func global_name(r Res, k int64) (ast.Def, bool) {
+    d, ok := r.members[PKey{pkg: r.pkg, sym: k}]
+    if !ok || d.kind == ast.def_func {
+        return ast.no_def(), false
+    }
+    return d, true
+}
+
+// own_names returns the declaration sc itself holds under k, Go's
+// sc.names[name].
+func own_names(r Res, sc Sc, k int64) (ast.Def, bool) {
+    if sc.level == 0 {
+        d, ok := global_name(r, k)
+        return d, ok
+    }
+    if sc.level == 1 {
+        d, ok := r.file_names[PKey{pkg: sc.unit, sym: k}]
+        return d, ok
+    }
+    en, ok := entry_at(r.entries, own_entry(r, sc, k))
+    if ok && en.has_decl {
+        return en.decl, true
+    }
+    return ast.no_def(), false
+}
+
+// Use is what a use of a name sees, Go's lookupUse: the declaration
+// found, whether there is one, and whether a declaration of the name was
+// reported in a scope from the one of the use out to the one holding
+// that declaration.
+type Use struct {
+    decl ast.Def
+    visible bool
+    rejected bool
+}
+
+// lookup_use finds the name k as a use of it in sc sees it.
+func lookup_use(r Res, sc Sc, k int64) Use {
+    mut rejected := false
+    if sc.level == 2 {
+        mut e := head(r, k)
+        for e >= 0 {
+            en, ok := entry_at(r.entries, e)
+            if !ok {
+                break
+            }
+            if encloses(r, en.owner, sc) {
+                rejected = rejected || en.rejected
+                if en.has_decl {
+                    return Use{decl: en.decl, visible: true, rejected: rejected}
+                }
+            }
+            e = en.prev
+        }
+    }
+    if sc.level >= 1 {
+        fr, has := r.file_rejected[PKey{pkg: sc.unit, sym: k}]
+        rejected = rejected || has && fr
+        d, ok := r.file_names[PKey{pkg: sc.unit, sym: k}]
+        if ok {
+            return Use{decl: d, visible: true, rejected: rejected}
+        }
+    }
+    gr, has := r.global_rejected[k]
+    rejected = rejected || has && gr
+    d, ok := global_name(r, k)
+    if ok {
+        return Use{decl: d, visible: true, rejected: rejected}
+    }
+    return Use{decl: ast.no_def(), visible: false, rejected: rejected}
+}
+
+// lookup finds the name k in sc or any scope enclosing it, Go's lookup.
+func lookup(r Res, sc Sc, k int64) (ast.Def, bool) {
+    u := lookup_use(r, sc, k)
+    return u.decl, u.visible
+}
+
+// is_rejected reports whether a declaration of the name k was reported
+// in sc or a scope enclosing it, Go's isRejected.
+func is_rejected(r Res, sc Sc, k int64) bool {
+    if sc.level == 2 {
+        mut e := head(r, k)
+        for e >= 0 {
+            en, ok := entry_at(r.entries, e)
+            if !ok {
+                break
+            }
+            if en.rejected && encloses(r, en.owner, sc) {
+                return true
+            }
+            e = en.prev
+        }
+    }
+    if sc.level >= 1 {
+        fr, has := r.file_rejected[PKey{pkg: sc.unit, sym: k}]
+        if has && fr {
+            return true
+        }
+    }
+    gr, has := r.global_rejected[k]
+    return has && gr
+}
+
+// add_var records v, declared in sc, the innermost scope, among its
+// variables, Go's sc.vars.
+func add_var(mut r Res, sc Sc, v Key) error {
+    return append(mut r.vars, ScopeVar{owner: sc.index, key: v})
+}
+
+// Tree access. The trees are the program's, which the resolver changes
+// in place; a list's element is proven in range by a guard only when the
+// list is a variable or a parameter of its own, not a field of a mut
+// one, so each read and write of a tree goes through a function that
+// takes the trees as a parameter, here.
+
+// kind_at returns the kind of the node n of the tree unit, none for a
+// unit there is no tree for.
+func kind_at(trees []ast.File, unit int64, n id[ast.Node]) ast.Kind {
+    if unit < 0 || unit >= len(trees) {
+        return ast.Kind.none
+    }
+    return trees[unit].nodes[n].k
+}
+
+// span_at returns the span of the node n of the tree unit.
+func span_at(trees []ast.File, unit int64, n id[ast.Node]) source.Span {
+    if unit < 0 || unit >= len(trees) {
+        return ast.unset_span()
+    }
+    return trees[unit].nodes[n].span
+}
+
+// set_kind replaces the kind of the node n of the tree unit with k.
+func set_kind(mut trees list[ast.File], unit int64, n id[ast.Node], k ast.Kind) {
+    if unit >= 0 && unit < len(trees) {
+        trees[unit].nodes[n].k = k
+    }
+}
+
+// add_node adds a node of kind k over sp to the tree unit and returns
+// its id.
+func add_node(mut trees list[ast.File], unit int64, k ast.Kind, sp source.Span) (id[ast.Node], error) {
+    mut z id[ast.Node]
+    if unit < 0 || unit >= len(trees) {
+        return z, noerror
+    }
+    n := mut trees[unit].add(k, sp)?
+    return n, noerror
+}
+
+// func_at returns the function fid of the tree unit, a copy.
+func func_at(trees []ast.File, unit int64, fid id[ast.Func]) ast.Func {
+    if unit < 0 || unit >= len(trees) {
+        mut z ast.Func
+        return z
+    }
+    return trees[unit].funcs[fid]
+}
+
+// set_func replaces the function fid of the tree unit with fn.
+func set_func(mut trees list[ast.File], unit int64, fid id[ast.Func], fn ast.Func) {
+    if unit >= 0 && unit < len(trees) {
+        trees[unit].funcs[fid] = fn
+    }
+}
+
+// param_at returns the parameter pid of the tree unit, a copy.
+func param_at(trees []ast.File, unit int64, pid id[ast.Param]) ast.Param {
+    if unit < 0 || unit >= len(trees) {
+        mut z ast.Param
+        return z
+    }
+    return trees[unit].params[pid]
+}
+
+// count_items returns how many nodes the list l of the tree unit holds.
+func count_items(trees []ast.File, unit int64, l ast.Nodes) int64 {
+    if unit < 0 || unit >= len(trees) {
+        return 0
+    }
+    return len(trees[unit].items(l))
+}
+
+// item_at returns the i-th node of the list l of the tree unit, or none.
+func item_at(trees []ast.File, unit int64, l ast.Nodes, i int64) id[ast.Node] {
+    mut z id[ast.Node]
+    if unit < 0 || unit >= len(trees) {
+        return z
+    }
+    n, ok := trees[unit].items(l)[i]
+    if !ok {
+        return z
+    }
+    return n
+}
+
+// count_decls returns how many top-level declarations the tree unit has.
+func count_decls(trees []ast.File, unit int64) int64 {
+    if unit < 0 || unit >= len(trees) {
+        return 0
+    }
+    return len(trees[unit].decls)
+}
+
+// decl_at returns the i-th top-level declaration of the tree unit.
+func decl_at(trees []ast.File, unit int64, i int64) id[ast.Node] {
+    mut z id[ast.Node]
+    if unit < 0 || unit >= len(trees) {
+        return z
+    }
+    n, ok := trees[unit].decls[i]
+    if !ok {
+        return z
+    }
+    return n
+}
+
+// count_imports returns how many imports the tree unit has.
+func count_imports(trees []ast.File, unit int64) int64 {
+    if unit < 0 || unit >= len(trees) {
+        return 0
+    }
+    return len(trees[unit].imports)
+}
+
+// import_at returns the i-th import of the tree unit.
+func import_at(trees []ast.File, unit int64, i int64) id[ast.Node] {
+    mut z id[ast.Node]
+    if unit < 0 || unit >= len(trees) {
+        return z
+    }
+    n, ok := trees[unit].imports[i]
+    if !ok {
+        return z
+    }
+    return n
+}
+
+// intern_at returns the symbol of the bytes s of the tree unit.
+func intern_at(mut syms Syms, trees []ast.File, unit int64, s span[uint8]) (int64, error) {
+    if unit < 0 || unit >= len(trees) {
+        k := intern(mut syms, []uint8(""))?
+        return k, noerror
+    }
+    k := intern(mut syms, trees[unit].text(s))?
+    return k, noerror
+}
+
+// sym_of returns the symbol of the bytes s of the tree being resolved.
+func sym_of(mut r Res, s span[uint8]) (int64, error) {
+    k := intern_at(mut r.syms, r.prog.trees, r.unit, s)?
+    return k, noerror
+}
+
+// def_name_span returns where the name the declaration d declares is
+// written, Go's nameSpan.
+func def_name_span(trees []ast.File, d ast.Def) source.Span {
+    u := d.unit
+    if u < 0 || u >= len(trees) {
+        return ast.unset_span()
+    }
+    return ast.decl_name_span(trees[u], d.node)
+}
+
+// key_of returns the Key of the node d names.
+func key_of(d ast.Def) Key {
+    return Key{unit: d.unit, node: d.node}
+}
+
+// var_def returns the Def of the variable k names.
+func var_def(k Key) ast.Def {
+    return ast.decl_def(ast.def_var, k.unit, k.node)
+}
+
+// Diagnostics.
+
+// new_msg returns an empty message to format a diagnostic's into.
+func new_msg() list[uint8] {
+    return make(list[uint8], c_allocator)
+}
+
+// report adds a diagnostic of severity sev at sp saying msg, taken over,
+// marked unused when unused says so.
+func report(mut r Res, sev diag.Severity, sp source.Span, own msg list[uint8], unused bool) error {
+    m := text.from_bytes(msg, c_allocator)?
+    mut d := diag.new_error(own m, sp, c_allocator)
+    d.severity = sev
+    d.unused = unused
+    return append(mut r.diags, d)
+}
+
+// error_at adds an error at sp saying msg, taken over.
+func error_at(mut r Res, sp source.Span, own msg list[uint8]) error {
+    return report(mut r, diag.error_severity, sp, own msg, false)
+}
+
+// note_last adds to the last diagnostic a note at sp saying msg, taken
+// over.
+func note_last(mut r Res, sp source.Span, own msg list[uint8]) error {
+    m := text.from_bytes(msg, c_allocator)?
+    return add_related(mut r.diags, diag.Related{message: m, marker: text.new(c_allocator), span: sp, severity: diag.note})
+}
+
+// add_related adds rel, taken over, to the last of diags.
+func add_related(mut diags list[diag.Diagnostic], own rel diag.Related) error {
+    i := len(diags) -% 1
+    if i >= 0 && i < len(diags) {
+        return append(mut diags[i].related, rel)
+    }
+    return noerror
+}
+
+// drop_to drops every diagnostic after the first mark.
+func drop_to(mut r Res, mark int64) {
+    for len(r.diags) > mark {
+        pop(mut r.diags)
+    }
+}

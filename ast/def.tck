@@ -1,0 +1,146 @@
+package ast
+
+// Def is what a name is bound to, Go's Ident.Def, a Decl: nothing, as
+// before the resolver runs, or for a name it leaves to the type checker;
+// unbound, Go's ast.Unbound, for a name that names nothing usable because
+// of an error already known; the builtin, Go's nil *Func, for a call of
+// a builtin, which has no declaration; or a declaration, a node of one of
+// the program's trees. Go's Def points at the declaration; here it names
+// it by unit, the index of its tree among the program's (see Program),
+// and its node there: a func_decl, a param_decl, a var_decl, a
+// type_decl, a type_param or an import_decl, which kind says.
+pub type Def struct {
+    pub kind DefKind
+    pub unit int64
+    pub node id[Node]
+}
+
+// DefKind is which of Def's forms a Def is, and for a declaration which
+// kind of one, Go's dynamic type of the Decl. It wraps a number because
+// Tack declares no named integer types.
+pub type DefKind struct {
+    n uint8
+}
+
+// def_none is the zero DefKind, Go's nil Decl: bound to nothing.
+pub var def_none = DefKind{n: 0}
+
+// def_unbound is Go's ast.Unbound.
+pub var def_unbound = DefKind{n: 1}
+
+// def_builtin is Go's nil *Func, the binding of a call of a builtin.
+pub var def_builtin = DefKind{n: 2}
+
+// def_func is a function or a method, a func_decl node.
+pub var def_func = DefKind{n: 3}
+
+// def_param is a parameter, a param_decl node.
+pub var def_param = DefKind{n: 4}
+
+// def_var is a variable, a var_decl node.
+pub var def_var = DefKind{n: 5}
+
+// def_type is a type declaration, a type_decl node.
+pub var def_type = DefKind{n: 6}
+
+// def_type_param is a type parameter, a type_param node.
+pub var def_type_param = DefKind{n: 7}
+
+// def_import is an import, an import_decl node.
+pub var def_import = DefKind{n: 8}
+
+// no_def returns the zero Def, bound to nothing.
+pub func no_def() Def {
+    mut z id[Node]
+    return Def{kind: def_none, unit: 0, node: z}
+}
+
+// unbound_def returns the Def Go's ast.Unbound is.
+pub func unbound_def() Def {
+    mut z id[Node]
+    return Def{kind: def_unbound, unit: 0, node: z}
+}
+
+// builtin_def returns the Def of a call of a builtin, Go's nil *Func.
+pub func builtin_def() Def {
+    mut z id[Node]
+    return Def{kind: def_builtin, unit: 0, node: z}
+}
+
+// decl_def returns the Def naming the declaration n, of kind k, in the
+// tree unit.
+pub func decl_def(k DefKind, unit int64, n id[Node]) Def {
+    return Def{kind: k, unit: unit, node: n}
+}
+
+// is_decl reports whether d names a declaration.
+pub func (d Def) is_decl() bool {
+    return d.kind.n >= def_func.n
+}
+
+// is_none reports whether d is bound to nothing, Go's nil Decl.
+pub func (d Def) is_none() bool {
+    return d.kind == def_none
+}
+
+// is_func reports whether d is a *Func in Go: a function's or a
+// builtin's, which is a nil *Func.
+pub func (d Def) is_func() bool {
+    return d.kind == def_func || d.kind == def_builtin
+}
+
+// is_type_name reports whether d is a declaration that stands for a type,
+// a type declaration or a type parameter, Go's isTypeName.
+pub func (d Def) is_type_name() bool {
+    return d.kind == def_type || d.kind == def_type_param
+}
+
+// is_value reports whether d is a variable or a parameter.
+pub func (d Def) is_value() bool {
+    return d.kind == def_var || d.kind == def_param
+}
+
+// kind_name returns the name the dump gives d's kind of declaration, Go's
+// DeclRef.Kind, or "" for a Def that names none.
+pub func (d Def) kind_name() string {
+    if d.kind == def_func {
+        return "Func"
+    }
+    if d.kind == def_param {
+        return "Param"
+    }
+    if d.kind == def_var {
+        return "Var"
+    }
+    if d.kind == def_type {
+        return "Type"
+    }
+    if d.kind == def_type_param {
+        return "TypeParam"
+    }
+    if d.kind == def_import {
+        return "Import"
+    }
+    return ""
+}
+
+// def_kind_of returns the DefKind a Def naming a node of kind k has, or
+// def_none for a node that is no declaration a name can be bound to.
+pub func def_kind_of(k Kind) DefKind {
+    switch k {
+    case func_decl:
+        return def_func
+    case param_decl:
+        return def_param
+    case var_decl:
+        return def_var
+    case type_decl:
+        return def_type
+    case type_param:
+        return def_type_param
+    case import_decl:
+        return def_import
+    default:
+        return def_none
+    }
+}

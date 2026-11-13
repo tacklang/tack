@@ -1,0 +1,248 @@
+package builtin
+
+import bytes from "std/bytes"
+import text from "std/text"
+import types from "tack/types"
+
+// Func is a builtin function with a C body, Go's builtin.Func: its name
+// as a program calls it, the C function a call lowers to, and its one
+// parameter's name and type.
+pub type Func struct {
+    pub name string
+    pub cname string
+    pub param types.Type
+    pub param_name string
+}
+
+// Set is the builtins the stages agree on, Go's *Set: has_funcs says it
+// has print and exit, the builtins with a C body, beside the generic
+// ones every Set has.
+pub type Set struct {
+    has_funcs bool
+}
+
+// default_set returns the Set every compile uses, Go's Default.
+pub func default_set() Set {
+    return Set{has_funcs: true}
+}
+
+// no_set returns the Set with only the generic builtins, Go's nil *Set.
+pub func no_set() Set {
+    return Set{has_funcs: false}
+}
+
+// funcs are the builtins with a C body, in the order Go lists them.
+var funcs = [2]Func{
+    Func{name: "print", cname: "tack_builtin_print", param: types.string_type, param_name: "s"},
+    Func{name: "exit", cname: "tack_builtin_exit", param: types.int32_type, param_name: "code"},
+}
+
+// funcs_count returns how many builtins with a C body s has, Go's
+// len(s.Funcs()).
+pub func (s Set) funcs_count() int64 {
+    if !s.has_funcs {
+        return 0
+    }
+    return len(funcs)
+}
+
+// func_at returns the i-th builtin with a C body of s, in Go's order, and
+// whether there is one.
+pub func (s Set) func_at(i int64) (Func, bool) {
+    if !s.has_funcs {
+        mut z Func
+        return z, false
+    }
+    f, ok := funcs[i]
+    return f, ok
+}
+
+// lookup returns the builtin with a C body of s named name, and whether
+// there is one, Go's Lookup.
+pub func (s Set) lookup(name []uint8) (Func, bool) {
+    if s.has_funcs {
+        for _, f := range funcs {
+            if bytes.equal(name, []uint8(f.name)) {
+                return f, true
+            }
+        }
+    }
+    mut z Func
+    return z, false
+}
+
+// generic_names are the generic builtins' names, in Go's order, and
+// generic_params each one's parameters' names, joined by commas.
+var generic_names = [16]string{
+    "len", "make", "append", "reserve", "pop", "remove", "swap", "replace",
+    "put", "delete", "has", "drop", "add", "add_all", "insert", "fields",
+}
+
+// generic_params are the parameters' names of each of generic_names,
+// joined by commas.
+var generic_params = [16]string{
+    "v", "t,alloc", "l,elems", "l,n", "l", "l,i", "l,i,j", "place,new",
+    "m,k,v", "m,k", "m,k", "x", "a,v", "a,elems", "p,v", "t",
+}
+
+// generic_count returns how many generic builtins there are.
+pub func generic_count() int64 {
+    return len(generic_names)
+}
+
+// generic_name returns the i-th generic builtin's name, Go's
+// Generic()[i], or "" past them.
+pub func generic_name(i int64) string {
+    n, ok := generic_names[i]
+    if !ok {
+        return ""
+    }
+    return n
+}
+
+// names_count returns how many builtin functions s has, Go's
+// len(s.Names()).
+pub func (s Set) names_count() int64 {
+    // Both counts are at most 16.
+    return s.funcs_count() +% generic_count()
+}
+
+// name_at returns the i-th of s's builtin functions' names, Go's
+// s.Names()[i]: those with a C body first, then the generic ones, or ""
+// past them.
+pub func (s Set) name_at(i int64) string {
+    f, ok := s.func_at(i)
+    if ok {
+        return f.name
+    }
+    return generic_name(i -% s.funcs_count())
+}
+
+// is_func_name reports whether name is one of s's builtin functions'
+// names, one of s.Names().
+pub func (s Set) is_func_name(name []uint8) bool {
+    _, ok := s.lookup(name)
+    if ok {
+        return true
+    }
+    for _, n := range generic_names {
+        if bytes.equal(name, []uint8(n)) {
+            return true
+        }
+    }
+    return false
+}
+
+// param_names returns the parameters' names of the builtin function
+// name, made through alloc, and whether it is one, Go's ParamNames: print
+// and exit's from the default Set, and any generic one's.
+pub func param_names(name []uint8, scope alloc Allocator) (list[text.Text], bool, error) {
+    mut out := make(list[text.Text], alloc)
+    f, ok := default_set().lookup(name)
+    if ok {
+        t := text.from_bytes([]uint8(f.param_name), alloc)?
+        append(mut out, t)?
+        return out, true, noerror
+    }
+    for i, n := range generic_names {
+        if !bytes.equal(name, []uint8(n)) {
+            continue
+        }
+        joined, has := generic_params[i]
+        if !has {
+            break
+        }
+        mut part := text.new(alloc)
+        for _, c := range joined {
+            if c == ',' {
+                append(mut out, replace(mut part, text.new(alloc)))?
+            } else {
+                mut part.append_byte(c)?
+            }
+        }
+        append(mut out, part)?
+        return out, true, noerror
+    }
+    return out, false, noerror
+}
+
+// constraints are the builtin constraints, Go's Constraints.
+var constraints = [1]string{"Data"}
+
+// constraint_count returns how many builtin constraints there are.
+pub func constraint_count() int64 {
+    return len(constraints)
+}
+
+// constraint_name returns the i-th builtin constraint's name, or "" past
+// them.
+pub func constraint_name(i int64) string {
+    n, ok := constraints[i]
+    if !ok {
+        return ""
+    }
+    return n
+}
+
+// is_constraint reports whether name is a builtin constraint's, Go's
+// IsConstraint: Data, which no declaration, parameter or local may take.
+pub func is_constraint(name []uint8) bool {
+    for _, c := range constraints {
+        if bytes.equal(name, []uint8(c)) {
+            return true
+        }
+    }
+    return false
+}
+
+// values are the builtin values, Go's Values, written as the lexer's
+// keywords for them.
+var values = [4]string{"true", "false", "noerror", "c_allocator"}
+
+// value_count returns how many builtin values there are.
+pub func value_count() int64 {
+    return len(values)
+}
+
+// value_name returns the i-th builtin value, or "" past them.
+pub func value_name(i int64) string {
+    n, ok := values[i]
+    if !ok {
+        return ""
+    }
+    return n
+}
+
+// type_count returns how many builtin types there are, Go's len(Types()):
+// the basic types a program can write, then id, span and handle.
+pub func type_count() int64 {
+    // Both counts are small.
+    return types.basic_count() +% 3
+}
+
+// type_name returns the i-th builtin type's name, Go's Types()[i], or ""
+// past them.
+pub func type_name(i int64) string {
+    if i < types.basic_count() {
+        return types.basic_named(i)
+    }
+    return types.ref_name(i -% types.basic_count())
+}
+
+// list_symbols are the runtime's list, arena and pool symbols, Go's
+// ListSymbols, which a program that uses them links.
+pub var list_symbols = [6]string{
+    "tack_list_grow_", "tack_list_free_", "tack_arena_room_",
+    "tack_pool_tag_", "tack_pool_room_", "tack_pool_gen0_",
+}
+
+// unreachable_symbol is the runtime's abort an unreachable statement
+// lowers to, Go's UnreachableSymbol.
+pub var unreachable_symbol = "tack_unreachable_"
+
+// start_symbol and end_symbol are the runtime's start and end of the
+// process, Go's StartSymbol and EndSymbol.
+pub var start_symbol = "tack_start_"
+
+// end_symbol is the runtime's end of the process (see start_symbol).
+pub var end_symbol = "tack_end_"

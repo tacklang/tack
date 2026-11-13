@@ -2,6 +2,7 @@ package ast
 
 import constant from "tack/constant"
 import source from "tack/source"
+import types from "tack/types"
 
 // Node is one element of the syntax tree: what it is, its Kind, and the
 // Span locating it in the source, from the first byte of its first token
@@ -121,11 +122,12 @@ pub type Kind union {
 // Func is a function declaration, Go's ast.Func, with its parameters,
 // its result types and its body: a method's receiver is its first
 // parameter, and a generic function's type parameters are type_params.
-// The fields the resolver and the type checker fill in, which the parser
-// leaves at their zero values, are not here yet: they come with the
-// passes that set them. Go's EnsuresSpan, TypeParamsSpan, VisSpan,
-// ExternSpan and CNameSpan, which the dump leaves out, are kept for
-// those passes.
+// recv_type is a method's receiver's type declaration, which the
+// resolver sets, Go's RecvType; the fields the type checker fills in,
+// which the parser leaves at their zero values, are not here yet: they
+// come with the pass that sets them. Go's EnsuresSpan, TypeParamsSpan,
+// VisSpan, ExternSpan and CNameSpan, which the dump leaves out, are kept
+// for the passes after the parser.
 pub type Func struct {
     pub name span[uint8]
     pub type_params Nodes
@@ -146,6 +148,7 @@ pub type Func struct {
     pub no_body bool
     pub method bool
     pub closure bool
+    pub recv_type Def
 }
 
 // Param is one parameter, of a function or of a function type, Go's
@@ -166,15 +169,31 @@ pub type Param struct {
 }
 
 // Var is a variable declaration, Go's ast.Var: its type as written and
-// its value, either none when left out.
+// its value, either none when left out. unused says the resolver warned
+// that it is never read, or, with unused_deferred, left that to the type
+// checker, the variable being one a call or a binding of several names
+// gave a value, and hidden_call is then the call by its name that
+// called a function instead, if any, Go's HiddenCall.
 pub type Var struct {
     pub type_expr id[Node]
     pub value id[Node]
     pub name span[uint8]
     pub name_span source.Span
     pub vis_span source.Span
+    pub hidden_call Ref
     pub mutable bool
     pub vis Visibility
+    pub unused bool
+    pub unused_deferred bool
+}
+
+// Ref names a node of any of the program's trees, Go's pointer to a node
+// that is no declaration: set says it names one, the node in the tree
+// unit (see Program).
+pub type Ref struct {
+    pub set bool
+    pub unit int64
+    pub node id[Node]
 }
 
 // Import is an import declaration, Go's ast.Import, import name from
@@ -187,12 +206,15 @@ pub type Import struct {
 }
 
 // TypeDecl is a type declaration, Go's ast.TypeDecl: its name and the
-// struct, interface or union type it declares.
+// struct, interface or union type it declares. methods are the methods
+// the resolver records on a struct or a union type, in program order, a
+// run of the File's defs, Go's Methods.
 pub type TypeDecl struct {
     pub type_expr id[Node]
     pub name span[uint8]
     pub name_span source.Span
     pub vis_span source.Span
+    pub methods span[Def]
     pub vis Visibility
 }
 
@@ -321,22 +343,28 @@ pub type Region struct {
 
 // Call is a call or a conversion, Go's ast.Call: its callee, its
 // arguments, and the type arguments written after the callee's name,
-// type_args unmade when none are.
+// type_args unmade when none are, and the basic type a conversion
+// converts to, which the resolver records, Go's Conv.
 pub type Call struct {
     pub fn id[Node]
     pub args Nodes
     pub type_args Nodes
     pub type_args_span source.Span
     pub ellipsis_span source.Span
+    pub conv types.Type
     pub spread bool
 }
 
 // Ident is a use of a name, Go's ast.Ident: pkg is the import's name of a
-// qualified one, pkg.name, and empty otherwise.
+// qualified one, pkg.name, and empty otherwise. def is what the resolver
+// binds it to, and hidden, for a callee bound to a function or a builtin,
+// the variable or parameter of its name it passed over, Go's Hidden.
 pub type Ident struct {
     pub pkg span[uint8]
     pub name span[uint8]
     pub pkg_span source.Span
+    pub def Def
+    pub hidden Def
 }
 
 // IntLit is an integer literal, Go's ast.IntLit, its value decoded.

@@ -1,0 +1,231 @@
+package resolver
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import types from "tack/types"
+
+// Patterns. A value of a case of an expression switch, written as a
+// name, eof, or a name and one name in parentheses, int(n), may be a
+// value, or a pattern naming a case of a union, when the switch's tag is
+// one, which only the type checker learns. Go's union.go says how each
+// is bound; this is its port.
+
+// case_patterns resolves the values of cl, a clause of an expression
+// switch nested in sc, as values or patterns, appends to rejected the
+// names the body must not report as undefined, and returns the variable
+// the clause's one pattern binds, a var_decl node it adds to the tree, or
+// none, Go's casePatterns.
+func case_patterns(mut r Res, cl ast.CaseClause, sc Sc, mut rejected list[int64]) (id[ast.Node], error) {
+    mut bound id[ast.Node]
+    n := count_items(r.prog.trees, r.unit, cl.values)
+    for i := range n {
+        v := item_at(r.prog.trees, r.unit, cl.values, i)
+        p := pattern_value(mut r, v, sc)?
+        if !p.is_pattern || ast.is_none(p.bind) {
+            continue
+        }
+        bind := ident_of(r.prog.trees, r.unit, p.bind)
+        k := sym_of(mut r, bind.name)?
+        if k == r.sym_blank || is_reserved_name(r, k) {
+            continue
+        }
+        _, visible := lookup(r, sc, k)
+        if visible || n > 1 {
+            append(mut rejected, k)?
+            continue
+        }
+        sp := span_at(r.prog.trees, r.unit, p.bind)
+        mut nv ast.Var
+        nv.name = bind.name
+        nv.name_span = sp
+        bound = add_node(mut r.prog.trees, r.unit, ast.Kind.var_decl(nv), sp)?
+    }
+    return bound, noerror
+}
+
+// Pattern is what pattern_value found: the name a pattern binds, or none,
+// and whether any of the value was left as a pattern.
+type Pattern struct {
+    bind id[ast.Node]
+    is_pattern bool
+}
+
+// pattern_value resolves v, a value of a case of an expression switch, in
+// sc, as Go's patternValue does.
+func pattern_value(mut r Res, v id[ast.Node], sc Sc) (Pattern, error) {
+    mut z id[ast.Node]
+    switch kind_at(r.prog.trees, r.unit, v) {
+    case ident:
+        nm := name_of(mut r, v)?
+        if nm.qualified || nm.sym == r.sym_blank || is_value_name(r, nm.sym, sc) {
+            resolve_expr(mut r, v, sc)?
+            return Pattern{bind: z, is_pattern: false}, noerror
+        }
+        bind_pattern_name(mut r, v, nm.sym, sc)
+        return Pattern{bind: z, is_pattern: true}, noerror
+    case call:
+        p := call_pattern(mut r, v, sc)?
+        return p, noerror
+    default:
+        resolve_expr(mut r, v, sc)?
+        return Pattern{bind: z, is_pattern: false}, noerror
+    }
+}
+
+// call_pattern is pattern_value for the call n, Go's callPattern: a call
+// that writes type arguments is never a pattern, and is resolved as a
+// value.
+func call_pattern(mut r Res, n id[ast.Node], sc Sc) (Pattern, error) {
+    mut z id[ast.Node]
+    c := call_of(r, n)
+    if !is_ident(r.prog.trees, r.unit, c.fn) || qualified_at(r.prog.trees, r.unit, c.fn) || c.spread || c.type_args.made {
+        resolve_expr(mut r, n, sc)?
+        return Pattern{bind: z, is_pattern: false}, noerror
+    }
+    bind_pattern_callee(mut r, c.fn, n, sc)?
+    if count_items(r.prog.trees, r.unit, c.args) == 1 {
+        a := item_at(r.prog.trees, r.unit, c.args, 0)
+        if is_ident(r.prog.trees, r.unit, a) && !qualified_at(r.prog.trees, r.unit, a) {
+            k := sym_of(mut r, ident_of(r.prog.trees, r.unit, a).name)?
+            if !is_value_name(r, k, sc) {
+                bind_pattern_name(mut r, a, k, sc)
+                return Pattern{bind: a, is_pattern: true}, noerror
+            }
+        }
+    }
+    callable := ident_of(r.prog.trees, r.unit, c.fn).def.is_func() || call_of(r, n).conv != types.invalid
+    resolve_args(mut r, n, sc)?
+    return Pattern{bind: z, is_pattern: !callable}, noerror
+}
+
+// is_value_name reports whether the name k is visible in sc as a
+// variable or a parameter, Go's isValueName.
+func is_value_name(r Res, k int64, sc Sc) bool {
+    d, visible := lookup(r, sc, k)
+    return visible && d.is_value()
+}
+
+// bind_pattern_name binds the name n, a pattern's, named k, to what it
+// names where it is visible in sc, if anything, Go's bindPatternName.
+func bind_pattern_name(mut r Res, n id[ast.Node], k int64, sc Sc) {
+    d, visible := lookup(r, sc, k)
+    if visible {
+        set_def(mut r.prog.trees, r.unit, n, d)
+    }
+}
+
+// bind_pattern_callee binds fn, the case name of a pattern written as the
+// call n, to the function or builtin it would call, or records the type
+// a conversion would convert to, or binds it to what it names, reporting
+// nothing, Go's bindPatternCallee.
+func bind_pattern_callee(mut r Res, fn id[ast.Node], n id[ast.Node], sc Sc) error {
+    k := sym_of(mut r, ident_of(r.prog.trees, r.unit, fn).name)?
+    typ, is_type := types.lookup(sym_text(r.syms, k))
+    if is_type {
+        mut c := call_of(r, n)
+        c.conv = typ
+        set_call(mut r, n, c)
+        return noerror
+    }
+    d, is_seen := seen(r, k)
+    if is_seen {
+        set_def(mut r.prog.trees, r.unit, fn, d)
+        return noerror
+    }
+    if builtin_seen(r, k) {
+        set_def(mut r.prog.trees, r.unit, fn, ast.builtin_def())
+        return noerror
+    }
+    bind_pattern_name(mut r, fn, k, sc)
+    return noerror
+}
+
+// resolve_param_switch resolves s, a switch on a type parameter, nested
+// in sc, Go's resolveParamSwitch: its tag as a type, and each case as a
+// block of its own, whose values are types resolved where the switch is,
+// but for the names list[E] and map[K]V write for an element or a value
+// type, which each declares a type parameter of the case's own.
+func resolve_param_switch(mut r Res, s ast.Switch, sc Sc) error {
+    resolve_type(mut r, s.tag, sc)?
+    for i := range count_items(r.prog.trees, r.unit, s.cases) {
+        cl := clause_of(r, item_at(r.prog.trees, r.unit, s.cases, i))
+        block := open_scope(mut r, sc)?
+        for j := range count_items(r.prog.trees, r.unit, cl.values) {
+            resolve_type_case(mut r, item_at(r.prog.trees, r.unit, cl.values, j), block, sc)?
+        }
+        for j := range count_items(r.prog.trees, r.unit, cl.body) {
+            resolve_stmt(mut r, item_at(r.prog.trees, r.unit, cl.body, j), block)?
+        }
+        unused(mut r, block)?
+        close_scope(mut r, block)?
+    }
+    return noerror
+}
+
+// resolve_type_case resolves v, a value of a case of a switch on a type
+// parameter whose body is block, nested in sc, Go's resolveTypeCase.
+func resolve_type_case(mut r Res, v id[ast.Node], block Sc, sc Sc) error {
+    switch kind_at(r.prog.trees, r.unit, v) {
+    case struct_case:
+        return noerror
+    case list_type(e):
+        return declare_case_param(mut r, e, "the element type of a list", "list[E]", block)
+    case map_type(m):
+        resolve_type(mut r, m.key, sc)?
+        return declare_case_param(mut r, m.value, "the value type of a map", "map[text.Text]V", block)
+    default:
+        return resolve_type(mut r, v, sc)
+    }
+}
+
+// declare_case_param declares part, the type what names in a value of a
+// case of a switch on a type parameter, as a type parameter of its own
+// in block, the case's body, Go's declareCaseParam: part must be an
+// unqualified name that names nothing visible there and is not reserved,
+// and example shows how one is written.
+func declare_case_param(mut r Res, part id[ast.Node], what string, example string, block Sc) error {
+    is_name := is_ident(r.prog.trees, r.unit, part)
+    mut nm := Name{sym: -1, pkg: -1, qualified: false}
+    if is_name {
+        nm = name_of(mut r, part)?
+    }
+    if !is_name || nm.qualified || names_type(r, nm.sym, block) {
+        mut m := new_msg()
+        if is_name {
+            append_qualified(r, mut m, nm)?
+            fmt.appendf(mut m, " is a type; ")?
+        }
+        fmt.appendf(mut m, "a case of a switch on a type parameter names %s with a new name, as in case %s", what, example)?
+        return error_at(mut r, span_at(r.prog.trees, r.unit, part), own m)
+    }
+    sp := span_at(r.prog.trees, r.unit, part)
+    reserved := reserved_name(mut r, nm.sym, sp)?
+    if reserved {
+        return noerror
+    }
+    existing, visible := lookup(r, block, nm.sym)
+    if visible {
+        reject(mut r, block, nm.sym)?
+        set_def(mut r.prog.trees, r.unit, part, ast.unbound_def())
+        return redeclared(mut r, nm.sym, sp, existing)
+    }
+    mut tp ast.TypeParam
+    tp.name = ident_of(r.prog.trees, r.unit, part).name
+    tp.name_span = sp
+    tn := add_node(mut r.prog.trees, r.unit, ast.Kind.type_param(tp), sp)?
+    d := ast.decl_def(ast.def_type_param, r.unit, tn)
+    declare(mut r, block, nm.sym, d)?
+    set_def(mut r.prog.trees, r.unit, part, d)
+    return noerror
+}
+
+// names_type reports whether the name k names a type where sc is, Go's
+// namesType: a builtin type, or a type declaration or type parameter
+// visible there.
+func names_type(r Res, k int64, sc Sc) bool {
+    if types.reserved(sym_text(r.syms, k)) {
+        return true
+    }
+    d, _ := lookup(r, sc, k)
+    return d.is_type_name()
+}

@@ -1,6 +1,7 @@
 package main
 
 import ast from "tack/ast"
+import builtin from "tack/builtin"
 import bytes from "std/bytes"
 import conv from "std/conv"
 import diag from "tack/diag"
@@ -9,6 +10,7 @@ import lexer from "tack/lexer"
 import loader from "tack/loader"
 import os from "std/os"
 import path from "std/path"
+import resolver from "tack/resolver"
 import source from "tack/source"
 import text from "std/text"
 
@@ -19,10 +21,13 @@ import text from "std/text"
 // of the package in a directory, or of the package with an import path
 // in the module found from the current directory, or reports their
 // errors; and for --res it loads the program in full, with the standard
-// library, and reports its diagnostics when loading stops with no
-// program, which needs no resolver. Anything else it does not do yet, a
-// --res of a program that loads among them, and says so in the form the
-// differential harness in tackc/porttest reads: on standard error,
+// library, resolves it (see package resolver) and writes the resolved
+// tree, a single file's as Go's driver takes it, the first tree of the
+// program's first package, and a package's as the whole program, or the
+// diagnostics, the loader's and the resolver's together, when any is an
+// error, the warnings among them written beside a dump. Anything else it
+// does not do yet, and says so in the form the differential harness in
+// tackc/porttest reads: on standard error,
 //
 //     tack: not implemented in the port: <what>
 //
@@ -60,7 +65,9 @@ import text from "std/text"
 // have: it writes what loading in full gives, the program's packages,
 // files and import bindings and the diagnostics in the order they were
 // reported (see write_loaded), which tackc's porttest compares with what
-// the Go loader gives, until --res can dump a loaded program itself.
+// the Go loader gives: the directories, C files, error count, import
+// bindings and load diagnostics --res does not show, until the builds
+// check them.
 
 // exit_ok means the requested work was done.
 var exit_ok int32 = 0
@@ -141,15 +148,13 @@ var dump_lex = Dump{n: 1}
 // dump_ast is --ast, the parsed syntax tree.
 var dump_ast = Dump{n: 2}
 
-// dump_res is --res, the resolved syntax tree, which the port answers
-// only when loading stops with no program.
+// dump_res is --res, the resolved syntax tree.
 var dump_res = Dump{n: 3}
 
 // dump_loaded is --port-loaded, which the Go compiler does not have: the
 // program loaded in full, written as a list of its packages (see
 // write_loaded), so tackc's porttest can check what the port loads
-// before it has a resolver to dump it with --res. It goes once --res
-// does.
+// that --res does not show.
 var dump_loaded = Dump{n: 4}
 
 // dump_flags are the dump flags the port reads, in the order Go's dumpOf
@@ -317,8 +322,8 @@ func failed(f loader.Fail, d Dump) (int32, error) {
 
 // dump_target writes the dump d of target, as Go's execute does: for
 // --res, the standard library is found first, and the target loaded in
-// full, as Go's load loads it, and answered only when loading stops with
-// no program, with its diagnostics; for --lex and --ast, loading stops
+// full, as Go's load loads it, and resolved when it is a program (see
+// res_dump), or its diagnostics reported; for --lex and --ast, loading stops
 // after that stage, having read only the target's own files, and the
 // dump is written, or the target's errors. It returns the exit status.
 func dump_target(target []uint8, d Dump) (int32, error) {
@@ -347,7 +352,7 @@ func dump_target(target []uint8, d Dump) (int32, error) {
         l.has_std = true
         l.builtins = true
     }
-    res, single, f := load_with(mut l, target)?
+    mut res, single, f := load_with(mut l, target)?
     if d == dump_loaded {
         if f.unworded {
             code, e := failed(f, d)
@@ -363,7 +368,8 @@ func dump_target(target []uint8, d Dump) (int32, error) {
     }
     if d == dump_res {
         if res.has_program {
-            return unimplemented([]uint8("--res of a program that loads")), noerror
+            code, e := res_dump(mut res, single)
+            return code, e
         }
         if !diag.has_errors(res.diags) {
             fmt.eprintf("tack: internal error: the loader built no program and reported no error\n")
@@ -642,33 +648,99 @@ func find_std() (text.Text, loader.Fail, error) {
     return dir, loader.no_fail(c_allocator), noerror
 }
 
+// res_dump runs the resolver on the program res holds and writes what
+// --res writes, as Go's runStages and compile do: every diagnostic, the
+// loader's and the resolver's, when any is an error, exit status 1; and
+// otherwise the warnings, on standard error, and the resolved tree, the
+// first tree of the first package for a single file, as Go's
+// resolvedDump takes it, and the whole program otherwise, or Go's
+// encoder's refusal of a tree nested too deeply. It returns the exit
+// status.
+func res_dump(mut res loader.Result, single bool) (int32, error) {
+    prog := program_of(mut res.program.packages, res.program.errors)?
+    resolved, mut diags := resolver.resolve(own prog, builtin.default_set(), false)?
+    mut all := replace(mut res.diags, make(list[diag.Diagnostic], c_allocator))
+    for i := range len(diags) {
+        append(mut all, replace(mut diags[i], make(diag.Diagnostic, c_allocator)))?
+    }
+    if diag.has_errors(all) {
+        out := render_diagnostics(res.files, all, default_max_errors)?
+        fmt.ewrite(out)
+        return exit_failure, noerror
+    }
+    mut out := make(list[uint8], c_allocator)
+    mut refused := ""
+    if single {
+        for i, t := range resolved.trees {
+            if i == 0 {
+                o, rf := ast.dump(t, res.files, resolved.trees, c_allocator)?
+                out = o
+                refused = rf
+            }
+        }
+    } else {
+        o, rf := ast.dump_program(resolved, res.files, c_allocator)?
+        out = o
+        refused = rf
+    }
+    if len(refused) > 0 {
+        fmt.eprintf("tack: failed to render syntax tree: %s\n", refused)
+        return exit_failure, noerror
+    }
+    if len(all) > 0 {
+        w := render_diagnostics(res.files, all, default_max_errors)?
+        fmt.ewrite(w)
+    }
+    with_trailing_newline(mut out)?
+    fmt.write(out)
+    return exit_ok, noerror
+}
+
+// program_of returns the program the loader built, of packages, taken
+// out of them, with its error count errors, as the
+// resolver takes it: every tree of every package in one list, in the
+// packages' order, each package naming its run of them.
+func program_of(mut packages list[loader.Package], errors int64) (ast.Program, error) {
+    mut prog := ast.new_program(c_allocator)
+    prog.errors = errors
+    for i := range len(packages) {
+        mut pkg := ast.Package{
+            name: replace(mut packages[i].name, text.new(c_allocator)),
+            path: replace(mut packages[i].path, text.new(c_allocator)),
+            module: replace(mut packages[i].module, text.new(c_allocator)),
+            dir: replace(mut packages[i].dir, text.new(c_allocator)),
+            c_files: replace(mut packages[i].c_files, make(list[text.Text], c_allocator)),
+            first: len(prog.trees),
+            count: 0,
+            imports: replace(mut packages[i].imports, make(list[int64], c_allocator)),
+        }
+        mut trees := replace(mut packages[i].files, make(list[ast.File], c_allocator))
+        for j := range len(trees) {
+            append(mut prog.trees, replace(mut trees[j], ast.new_file(c_allocator)))?
+            pkg.count +%= 1
+        }
+        append(mut prog.packages, pkg)?
+    }
+    return prog, noerror
+}
+
 // ast_dump writes the --ast dump of what res, loaded to that stage,
 // holds, as Go's driver writes it: a single file's tree as it is, and
 // several files' trees as a list, or Go's encoder's refusal of a tree
 // nested too deeply, exit status 1. It returns the exit status.
 func ast_dump(res loader.Result, single bool) (int32, error) {
-    mut names := make(list[text.Text], c_allocator)
-    for _, fid := range res.sources {
-        mut nm := text.new(c_allocator)
-        for _, f := range res.files.lookup(fid) {
-            mut nm.append(f.filename.bytes())?
-        }
-        append(mut names, nm)?
-    }
     mut out := make(list[uint8], c_allocator)
     mut refused := ""
     if single {
         for i, t := range res.trees {
-            for j, nm := range names {
-                if i == 0 && j == 0 {
-                    o, r := ast.dump(t, nm.bytes(), c_allocator)?
-                    out = o
-                    refused = r
-                }
+            if i == 0 {
+                o, r := ast.dump(t, res.files, res.trees[:0], c_allocator)?
+                out = o
+                refused = r
             }
         }
     } else {
-        o, r := ast.dump_list(res.trees, names, c_allocator)?
+        o, r := ast.dump_list(res.trees, res.files, c_allocator)?
         out = o
         refused = r
     }

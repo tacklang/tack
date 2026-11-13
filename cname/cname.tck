@@ -1,0 +1,56 @@
+package cname
+
+import bytes from "std/bytes"
+
+// is_ident reports whether s is a C identifier: ASCII letters, digits and
+// underscores, not empty and not starting with a digit.
+pub func is_ident(s []uint8) bool {
+    if len(s) == 0 || is_digit(s[0]) {
+        return false
+    }
+    for _, b := range s {
+        if b != '_' && !is_letter(b) && !is_digit(b) {
+            return false
+        }
+    }
+    return true
+}
+
+// is_letter reports whether b is an ASCII letter.
+func is_letter(b uint8) bool {
+    return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
+}
+
+// is_digit reports whether b is an ASCII digit.
+func is_digit(b uint8) bool {
+    return b >= '0' && b <= '9'
+}
+
+// is_keyword reports whether s is a C keyword, one a C name may not be
+// (see the package documentation).
+pub func is_keyword(s []uint8) bool {
+    for _, k := range keywords {
+        if bytes.equal(s, []uint8(k)) {
+            return true
+        }
+    }
+    return false
+}
+
+// keywords are C23's keywords with asm and typeof, Go's keywords map.
+var keywords = [60]string{
+    "alignas", "alignof", "asm", "auto", "bool",
+    "break", "case", "char", "const", "constexpr",
+    "continue", "default", "do", "double", "else",
+    "enum", "extern", "false", "float", "for",
+    "goto", "if", "inline", "int", "long",
+    "nullptr", "register", "restrict", "return",
+    "short", "signed", "sizeof", "static",
+    "static_assert", "struct", "switch", "thread_local",
+    "true", "typedef", "typeof", "typeof_unqual",
+    "union", "unsigned", "void", "volatile", "while",
+    "_Alignas", "_Alignof", "_Atomic", "_BitInt",
+    "_Bool", "_Complex", "_Decimal128", "_Decimal32",
+    "_Decimal64", "_Generic", "_Imaginary", "_Noreturn",
+    "_Static_assert", "_Thread_local",
+}

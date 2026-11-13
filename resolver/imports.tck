@@ -1,0 +1,356 @@
+package resolver
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import source from "tack/source"
+
+// import_pkg_of returns the index of the package the k-th import of the
+// package pkg is bound to, or -1.
+func import_pkg_of(packages []ast.Package, pkg int64, k int64) int64 {
+    if pkg < 0 || pkg >= len(packages) {
+        return -1
+    }
+    i, ok := packages[pkg].imports[k]
+    if !ok {
+        return -1
+    }
+    return i
+}
+
+// declare_imports gives every file of the package a scope holding its
+// imports, enclosed by the global scope, and reports every import that
+// cannot be declared, Go's declareImports: one whose name is reserved,
+// a builtin's, any package-level name of the package, or another
+// import's of the same file, and one of a package the file already
+// imports under another name.
+func declare_imports(mut r Res) error {
+    mut k int64 = 0
+    for u := range r.count {
+        unit := r.first +% u
+        r.unit = unit
+        put(mut r.file_declared, unit, true)?
+        sc := Sc{level: 1, index: -1, unit: unit}
+        mut paths := make(map[int64]Key, c_allocator)
+        for i := range count_imports(r.prog.trees, unit) {
+            n := import_at(r.prog.trees, unit, i)
+            target := import_pkg_of(r.prog.packages, r.pkg, k)
+            k +%= 1
+            put(mut r.import_pkg, Key{unit: unit, node: n}, target)?
+            switch kind_at(r.prog.trees, unit, n) {
+            case import_decl(imp):
+                name := sym_of(mut r, imp.name)?
+                path := sym_of(mut r, imp.path)?
+                clash := import_clash(mut r, imp, name, path, sc, paths)?
+                if clash {
+                    put(mut r.rejected_imports, Key{unit: unit, node: n}, true)?
+                    reject(mut r, sc, name)?
+                    continue
+                }
+                declare(mut r, sc, name, ast.decl_def(ast.def_import, unit, n))?
+                put(mut paths, path, Key{unit: unit, node: n})?
+                if target < 0 {
+                    // The loader reported why the package could not be
+                    // loaded; what the import would name follows from
+                    // that.
+                    put(mut r.rejected_imports, Key{unit: unit, node: n}, true)?
+                    reject(mut r, sc, name)?
+                }
+            default:
+            }
+        }
+    }
+    return noerror
+}
+
+// import_clash reports why imp, named name with the path path, cannot
+// be declared in sc, its file's scope, where paths holds the file's
+// imports declared so far by path, and reports whether it did, Go's
+// importClash.
+func import_clash(mut r Res, imp ast.Import, name int64, path int64, sc Sc, paths map[int64]Key) (bool, error) {
+    reserved := reserved_name(mut r, name, imp.name_span)?
+    if reserved {
+        return true, noerror
+    }
+    if builtin_seen(r, name) {
+        mut m := new_msg()
+        fmt.appendf(mut m, "%s is a builtin and cannot be redeclared", sym_text(r.syms, name))?
+        error_at(mut r, imp.name_span, own m)?
+        return true, noerror
+    }
+    existing, visible := lookup(r, sc, name)
+    if visible {
+        already_declared(mut r, name, imp.name_span, existing)?
+        return true, noerror
+    }
+    f, is_func := seen(r, name)
+    if is_func {
+        already_declared(mut r, name, imp.name_span, f)?
+        return true, noerror
+    }
+    prev, dup := paths[path]
+    if dup {
+        prev_imp := import_of(r.prog.trees, prev)
+        prev_name := sym_of(mut r, prev_imp.name)?
+        mut m := new_msg()
+        fmt.appendf(mut m, "%s is already imported as %s", sym_text(r.syms, path), sym_text(r.syms, prev_name))?
+        error_at(mut r, imp.path_span, own m)?
+        mut n := new_msg()
+        fmt.appendf(mut n, "previous import of %s", sym_text(r.syms, path))?
+        note_last(mut r, prev_imp.path_span, own n)?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// import_of returns the import k names.
+func import_of(trees []ast.File, k Key) ast.Import {
+    switch kind_at(trees, k.unit, k.node) {
+    case import_decl(imp):
+        return imp
+    default:
+        mut z ast.Import
+        return z
+    }
+}
+
+// unused_imports reports every import of every file that no qualified
+// name in the file used, unless its declaration was reported, or its
+// package could not be loaded, or the file has damaged source, Go's
+// unusedImports.
+func unused_imports(mut r Res) error {
+    for u := range r.count {
+        unit := r.first +% u
+        r.unit = unit
+        dam, has := r.damage_units[unit]
+        if has && dam {
+            continue
+        }
+        for i := range count_imports(r.prog.trees, unit) {
+            n := import_at(r.prog.trees, unit, i)
+            key := Key{unit: unit, node: n}
+            used, is_used := r.used[key]
+            rej, is_rej := r.rejected_imports[key]
+            if is_used && used || is_rej && rej {
+                continue
+            }
+            imp := import_of(r.prog.trees, key)
+            name := sym_of(mut r, imp.name)?
+            mut m := new_msg()
+            fmt.appendf(mut m, "imported and not used: %s", sym_text(r.syms, name))?
+            warning_at(mut r, imp.name_span, own m)?
+        }
+    }
+    return noerror
+}
+
+// import_target returns the index of the package the import d is bound
+// to, when it is one resolved already, the package being resolved
+// included, Go's r.packages[imp.Package], or -1.
+func import_target(r Res, d ast.Def) int64 {
+    t, ok := r.import_pkg[key_of(d)]
+    if !ok || t < 0 || t > r.pkg {
+        return -1
+    }
+    return t
+}
+
+// rejected_import reports whether k is the name of an import of the file
+// whose scope encloses sc, and that import's declaration was reported,
+// Go's rejectedImport.
+func rejected_import(r Res, k int64, sc Sc) bool {
+    if sc.level < 1 {
+        return false
+    }
+    v, ok := r.file_rejected[PKey{pkg: sc.unit, sym: k}]
+    return ok && v
+}
+
+// Qualified is what a qualified name names, Go's qualified: the
+// declaration found, if found, and whether the name was settled without
+// one, bound to unbound because its import was rejected.
+type Qualified struct {
+    decl ast.Def
+    found bool
+}
+
+// qualified returns the declaration the qualified name n, pkg.name, of
+// the tree being resolved, used in sc, names in the package the import
+// pkg stands for, marking the import used, or reports why it names none,
+// Go's qualified.
+func qualified(mut r Res, n id[ast.Node], nm Name, sc Sc) (Qualified, error) {
+    x := ident_of(r.prog.trees, r.unit, n)
+    none := Qualified{decl: ast.no_def(), found: false}
+    if rejected_import(r, nm.pkg, sc) {
+        set_def(mut r.prog.trees, r.unit, n, ast.unbound_def())
+        return none, noerror
+    }
+    d, visible := lookup(r, sc, nm.pkg)
+    if !visible {
+        mut m := new_msg()
+        fmt.appendf(mut m, "undefined: %s", sym_text(r.syms, nm.pkg))?
+        error_at(mut r, x.pkg_span, own m)?
+        return none, noerror
+    }
+    if d.kind != ast.def_import {
+        mut m := new_msg()
+        fmt.appendf(mut m, "%s is not a package", sym_text(r.syms, nm.pkg))?
+        error_at(mut r, x.pkg_span, own m)?
+        return none, noerror
+    }
+    put(mut r.used, key_of(d), true)?
+    target := import_target(r, d)
+    if target >= 0 {
+        mem, ok := member(r, target, nm.sym)
+        if ok {
+            denied := access(mut r, mem, target, nm, span_at(r.prog.trees, r.unit, n))?
+            if denied {
+                return none, noerror
+            }
+            return Qualified{decl: mem, found: true}, noerror
+        }
+    }
+    undefined(mut r, n, nm)?
+    return none, noerror
+}
+
+// undefined reports the name n, written nm, as naming nothing, Go's
+// undefined.
+func undefined(mut r Res, n id[ast.Node], nm Name) error {
+    mut m := new_msg()
+    fmt.appendf(mut m, "undefined: ")?
+    append_qualified(r, mut m, nm)?
+    return error_at(mut r, span_at(r.prog.trees, r.unit, n), own m)
+}
+
+// not_a reports the name n, an import's, used where what is wanted, Go's
+// notA.
+func not_a(mut r Res, n id[ast.Node], nm Name, what string) error {
+    mut m := new_msg()
+    fmt.appendf(mut m, "%s is a package, not a %s", sym_text(r.syms, nm.sym), what)?
+    return error_at(mut r, span_at(r.prog.trees, r.unit, n), own m)
+}
+
+// is_a_type reports the name n, written nm, as a type where what is
+// done with it, as in cannot use %s as a value; it is a type, the
+// format's one verb the name as written.
+func is_a_type(mut r Res, n id[ast.Node], nm Name, format string) error {
+    mut q := new_msg()
+    append_qualified(r, mut q, nm)?
+    mut m := new_msg()
+    fmt.appendf(mut m, format, q[:])?
+    return error_at(mut r, span_at(r.prog.trees, r.unit, n), own m)
+}
+
+// bind_qualified_value binds the qualified name n, used as a value, to
+// the global it names, marking it read, or to the function it names,
+// Go's bindQualifiedValue.
+func bind_qualified_value(mut r Res, n id[ast.Node], nm Name, sc Sc) error {
+    q := qualified(mut r, n, nm, sc)?
+    if !q.found {
+        return noerror
+    }
+    if q.decl.kind == ast.def_type {
+        return is_a_type(mut r, n, nm, "cannot use %s as a value; it is a type")
+    }
+    if q.decl.kind == ast.def_var {
+        set_def(mut r.prog.trees, r.unit, n, q.decl)
+        put(mut r.read, key_of(q.decl), true)?
+        return noerror
+    }
+    if q.decl.kind == ast.def_func {
+        set_def(mut r.prog.trees, r.unit, n, q.decl)
+        return noerror
+    }
+    return undefined(mut r, n, nm)
+}
+
+// bind_qualified_type binds the qualified name n, written as a type, to
+// the type it names, Go's bindQualifiedType.
+func bind_qualified_type(mut r Res, n id[ast.Node], nm Name, sc Sc) error {
+    q := qualified(mut r, n, nm, sc)?
+    if !q.found {
+        return noerror
+    }
+    if q.decl.kind == ast.def_type {
+        set_def(mut r.prog.trees, r.unit, n, q.decl)
+        return noerror
+    }
+    return is_a_type_not(mut r, n, nm)
+}
+
+// is_a_type_not reports the name n, written nm, as not a type.
+func is_a_type_not(mut r Res, n id[ast.Node], nm Name) error {
+    mut m := new_msg()
+    append_qualified(r, mut m, nm)?
+    fmt.appendf(mut m, " is not a type")?
+    return error_at(mut r, span_at(r.prog.trees, r.unit, n), own m)
+}
+
+// bind_qualified_callee binds the qualified name n, called, to the
+// function it names, Go's bindQualifiedCallee.
+func bind_qualified_callee(mut r Res, n id[ast.Node], nm Name, sc Sc) error {
+    q := qualified(mut r, n, nm, sc)?
+    if !q.found {
+        return noerror
+    }
+    if q.decl.kind == ast.def_func {
+        set_def(mut r.prog.trees, r.unit, n, q.decl)
+        return noerror
+    }
+    if q.decl.kind == ast.def_type {
+        return is_a_type(mut r, n, nm, "cannot call %s; it is a type")
+    }
+    return undefined(mut r, n, nm)
+}
+
+// bind_qualified_target binds the qualified name n, assigned, to the
+// global it names, Go's bindQualifiedTarget.
+func bind_qualified_target(mut r Res, n id[ast.Node], nm Name, sc Sc) error {
+    q := qualified(mut r, n, nm, sc)?
+    if !q.found {
+        return noerror
+    }
+    if q.decl.kind == ast.def_var {
+        set_def(mut r.prog.trees, r.unit, n, q.decl)
+        return noerror
+    }
+    if q.decl.kind == ast.def_type {
+        return is_a_type(mut r, n, nm, "cannot assign to %s; it is a type")
+    }
+    return undefined(mut r, n, nm)
+}
+
+// use_import marks the import the qualified name nm is qualified by
+// used, if it names one visible in sc, without binding the name, Go's
+// useImport.
+func use_import(mut r Res, nm Name, sc Sc) error {
+    d, ok := lookup(r, sc, nm.pkg)
+    if ok && d.kind == ast.def_import {
+        put(mut r.used, key_of(d), true)?
+        return noerror
+    }
+    return noerror
+}
+
+// qualified_type reports whether the qualified name nm, used in sc,
+// names a type of the package its import stands for, whether or not
+// this package may use it, without reporting anything or marking the
+// import used, Go's qualifiedType.
+func qualified_type(r Res, nm Name, sc Sc) bool {
+    d, visible := lookup(r, sc, nm.pkg)
+    if !visible || d.kind != ast.def_import {
+        return false
+    }
+    target := import_target(r, d)
+    if target < 0 {
+        return false
+    }
+    mem, ok := member(r, target, nm.sym)
+    return ok && mem.kind == ast.def_type
+}
+
+// span_of_name returns the span of the name n of the tree being
+// resolved.
+func span_of_name(r Res, n id[ast.Node]) source.Span {
+    return span_at(r.prog.trees, r.unit, n)
+}

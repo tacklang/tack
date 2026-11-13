@@ -1,0 +1,336 @@
+package resolver
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// Method is a method recorded on its type by declare_methods: the type
+// declaration and the method.
+type Method struct {
+    td ast.Def
+    fn ast.Def
+    name int64
+}
+
+// declare_methods records every method of the package on the struct or
+// union type its receiver has, once every receiver's type is bound, Go's
+// declareMethods: in TypeDecl.methods, a run of the type's file's defs,
+// in program order, and in the method's recv_type. A method's name may
+// not be _, a field's of its struct, a case's of its union, or another
+// method's of its type, and an extern method is reported, though still
+// recorded.
+func declare_methods(mut r Res) error {
+    mut recorded := make(list[Method], c_allocator)
+    for u := range r.count {
+        unit := r.first +% u
+        for i := range count_decls(r.prog.trees, unit) {
+            d := decl_at(r.prog.trees, unit, i)
+            switch kind_at(r.prog.trees, unit, d) {
+            case func_decl(fid):
+                r.unit = unit
+                fn := func_at(r.prog.trees, unit, fid)
+                if !fn.method {
+                    continue
+                }
+                if fn.is_extern {
+                    mut m := new_msg()
+                    fmt.appendf(mut m, "a method cannot be extern; declare an extern func and call it from the method")?
+                    error_at(mut r, fn.extern_span, own m)?
+                }
+                td := receiver_type(mut r, fn)?
+                if td.is_none() {
+                    continue
+                }
+                name := sym_of(mut r, fn.name)?
+                clash := method_clash(mut r, fn, name, td, recorded)?
+                if clash {
+                    continue
+                }
+                mut nf := fn
+                nf.recv_type = td
+                set_func(mut r.prog.trees, unit, fid, nf)
+                append(mut recorded, Method{td: td, fn: ast.decl_def(ast.def_func, unit, d), name: name})?
+            default:
+            }
+        }
+    }
+    // Each type's methods are written as one run of its file's defs, in
+    // the order they were recorded.
+    for i, m := range recorded {
+        if first_of_type(recorded, i) {
+            write_methods(mut r.prog.trees, recorded, m.td)?
+        }
+    }
+    return noerror
+}
+
+// first_of_type reports whether the i-th of recorded is the first method
+// recorded on its type.
+func first_of_type(recorded []Method, i int64) bool {
+    for j, m := range recorded {
+        if j >= i {
+            return true
+        }
+        o, ok := recorded[i]
+        if ok && m.td == o.td {
+            return false
+        }
+    }
+    return true
+}
+
+// write_methods sets the methods of the type td, every one of recorded
+// on it, in order.
+func write_methods(mut trees list[ast.File], recorded []Method, td ast.Def) error {
+    u := td.unit
+    if u < 0 || u >= len(trees) {
+        return noerror
+    }
+    mut defs := make(list[ast.Def], c_allocator)
+    for _, m := range recorded {
+        if m.td == td {
+            append(mut defs, m.fn)?
+        }
+    }
+    s := add_all(mut trees[u].defs, defs...)?
+    k := trees[u].nodes[td.node].k
+    switch k {
+    case type_decl(t):
+        mut nt := t
+        nt.methods = s
+        trees[u].nodes[td.node].k = ast.Kind.type_decl(nt)
+    default:
+    }
+    return noerror
+}
+
+// receiver_type returns the declaration of the struct or union type fn's
+// receiver has, when it is one declared in the package, and reports any
+// other type written there, Go's receiverType. It returns no Def, and
+// reports nothing, for a type name bound to nothing, which the type
+// checker reports as unknown, or to something that is not a type, which
+// resolve_type reported.
+func receiver_type(mut r Res, fn ast.Func) (ast.Def, error) {
+    recv := recv_node(r.prog.trees, r.unit, fn)
+    if ast.is_none(recv) {
+        return ast.no_def(), noerror
+    }
+    typ := recv_type_expr(r.prog.trees, r.unit, fn)
+    switch kind_at(r.prog.trees, r.unit, typ) {
+    case ident(x):
+        q := qualified_at(r.prog.trees, r.unit, typ)
+        if x.def.kind == ast.def_type && !q && can_have_methods(r.prog.trees, x.def) {
+            return x.def, noerror
+        }
+        nm := sym_of(mut r, x.name)?
+        _, basic := types.lookup(sym_text(r.syms, nm))
+        if x.def.is_none() && (q || !basic) {
+            return ast.no_def(), noerror
+        }
+    default:
+    }
+    mut t := new_msg()
+    append_type_text(r.prog.trees, r.unit, mut t, typ)?
+    mut m := new_msg()
+    fmt.appendf(mut m, "cannot declare a method on %s: only a struct or union type declared in this package can have methods", t[:])?
+    error_at(mut r, span_at(r.prog.trees, r.unit, typ), own m)?
+    return ast.no_def(), noerror
+}
+
+// can_have_methods reports whether the type declaration td declares a
+// struct or a union type, Go's canHaveMethods.
+func can_have_methods(trees []ast.File, td ast.Def) bool {
+    switch kind_at(trees, td.unit, type_expr_of(trees, td.unit, td.node)) {
+    case struct_type:
+        return true
+    case union_type:
+        return true
+    default:
+        return false
+    }
+}
+
+// method_clash reports why fn, a method named name of the type td,
+// cannot be declared, where recorded are the methods recorded so far,
+// and reports whether it did, Go's methodClash.
+func method_clash(mut r Res, fn ast.Func, name int64, td ast.Def, recorded []Method) (bool, error) {
+    blank := member_name(mut r, name, fn.name_span)?
+    if blank {
+        return true, noerror
+    }
+    type_name := decl_sym(mut r, td.unit, td.node)?
+    members := type_expr_of(r.prog.trees, td.unit, td.node)
+    switch kind_at(r.prog.trees, td.unit, members) {
+    case struct_type(fields):
+        for i := range count_items(r.prog.trees, td.unit, fields) {
+            f := item_at(r.prog.trees, td.unit, fields, i)
+            switch kind_at(r.prog.trees, td.unit, f) {
+            case field(fd):
+                k := intern_at(mut r.syms, r.prog.trees, td.unit, fd.name)?
+                if k == name {
+                    member_clash(mut r, name, type_name, "a field", fn.name_span, fd.name_span)?
+                    return true, noerror
+                }
+            default:
+            }
+        }
+    case union_type(cases):
+        for i := range count_items(r.prog.trees, td.unit, cases) {
+            c := item_at(r.prog.trees, td.unit, cases, i)
+            switch kind_at(r.prog.trees, td.unit, c) {
+            case union_case(uc):
+                k := intern_at(mut r.syms, r.prog.trees, td.unit, uc.name)?
+                if k == name {
+                    member_clash(mut r, name, type_name, "a case", fn.name_span, uc.name_span)?
+                    return true, noerror
+                }
+            default:
+            }
+        }
+    default:
+    }
+    for _, m := range recorded {
+        if m.td == td && m.name == name {
+            already_member(mut r, type_name, name, fn.name_span, def_name_span(r.prog.trees, m.fn))?
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// member_clash reports a method named name of the type type_name, at
+// sp, named like a member of the type declared at prev, what naming the
+// member's kind, Go's memberClash.
+func member_clash(mut r Res, name int64, type_name int64, what string, sp source.Span, prev source.Span) error {
+    mut m := new_msg()
+    fmt.appendf(mut m, "%s is already declared as %s of %s", sym_text(r.syms, name), what, sym_text(r.syms, type_name))?
+    error_at(mut r, sp, own m)?
+    return previous(mut r, name, prev)
+}
+
+// param_scope opens the outermost scope of fn, a function of the tree
+// being resolved, holding its parameters, and returns it, reporting any
+// parameter name declared twice, Go's paramScope. A generic function's
+// parameters are nested in the scope of its type parameters. The types
+// of the signature are resolved where no parameter is visible: before
+// the parameters' scope opens, which Go opens first, empty, which no
+// lookup sees.
+func param_scope(mut r Res, fn ast.Func) (Sc, error) {
+    file := file_scope(r, r.unit)
+    sig := type_param_scope(mut r, fn, file)?
+    for i := range count_items(r.prog.trees, r.unit, fn.params) {
+        resolve_param_type(mut r, item_at(r.prog.trees, r.unit, fn.params, i), sig)?
+    }
+    for i := range count_items(r.prog.trees, r.unit, fn.results) {
+        resolve_type(mut r, item_at(r.prog.trees, r.unit, fn.results, i), sig)?
+    }
+    params := open_scope(mut r, sig)?
+    for i := range count_items(r.prog.trees, r.unit, fn.params) {
+        pn := item_at(r.prog.trees, r.unit, fn.params, i)
+        switch kind_at(r.prog.trees, r.unit, pn) {
+        case param_decl(pid):
+            p := param_at(r.prog.trees, r.unit, pid)
+            k := sym_of(mut r, p.name)?
+            if k == r.sym_blank {
+                continue
+            }
+            clash := param_clash(mut r, k, p.name_span, params)?
+            if clash {
+                reject(mut r, params, k)?
+                continue
+            }
+            declare(mut r, params, k, ast.decl_def(ast.def_param, r.unit, pn))?
+        default:
+        }
+    }
+    return params, noerror
+}
+
+// resolve_param_type resolves the type of the parameter pn, in sc.
+func resolve_param_type(mut r Res, pn id[ast.Node], sc Sc) error {
+    switch kind_at(r.prog.trees, r.unit, pn) {
+    case param_decl(pid):
+        return resolve_type(mut r, param_at(r.prog.trees, r.unit, pid).type_expr, sc)
+    default:
+        return noerror
+    }
+}
+
+// param_clash reports why a parameter named k, at sp, cannot be
+// declared in params, the scope of its function's parameters, and
+// reports whether it did, Go's paramClash: its name is reserved, a
+// package-level name's, or another parameter's.
+func param_clash(mut r Res, k int64, sp source.Span, params Sc) (bool, error) {
+    reserved := reserved_name(mut r, k, sp)?
+    if reserved {
+        return true, noerror
+    }
+    outer, clash := lookup(r, parent(r, params), k)
+    if clash {
+        redeclared(mut r, k, sp, outer)?
+        return true, noerror
+    }
+    existing, dup := own_names(r, params, k)
+    if dup {
+        duplicate(mut r, "duplicate parameter name", k, sp, def_name_span(r.prog.trees, existing))?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// type_param_scope opens the scope of fn's type parameters, nested in
+// file, and returns it, or returns file itself for a function with none,
+// Go's typeParamScope. A type parameter follows a parameter's naming
+// rules; each one reported is rejected. The constraints are resolved
+// once every type parameter is declared, in their scope.
+func type_param_scope(mut r Res, fn ast.Func, file Sc) (Sc, error) {
+    n := count_items(r.prog.trees, r.unit, fn.type_params)
+    if n == 0 {
+        return file, noerror
+    }
+    tps := open_scope(mut r, file)?
+    for i := range n {
+        tn := item_at(r.prog.trees, r.unit, fn.type_params, i)
+        switch kind_at(r.prog.trees, r.unit, tn) {
+        case type_param(tp):
+            k := sym_of(mut r, tp.name)?
+            clash := type_param_clash(mut r, k, tp.name_span, tps)?
+            if clash {
+                reject(mut r, tps, k)?
+                continue
+            }
+            declare(mut r, tps, k, ast.decl_def(ast.def_type_param, r.unit, tn))?
+        default:
+        }
+    }
+    for i := range n {
+        tn := item_at(r.prog.trees, r.unit, fn.type_params, i)
+        switch kind_at(r.prog.trees, r.unit, tn) {
+        case type_param(tp):
+            resolve_type(mut r, tp.constraint, tps)?
+        default:
+        }
+    }
+    return tps, noerror
+}
+
+// type_param_clash reports why a type parameter named k, at sp, cannot
+// be declared in tps, and reports whether it did, Go's typeParamClash.
+func type_param_clash(mut r Res, k int64, sp source.Span, tps Sc) (bool, error) {
+    reserved := reserved_name(mut r, k, sp)?
+    if reserved {
+        return true, noerror
+    }
+    outer, clash := lookup(r, parent(r, tps), k)
+    if clash {
+        redeclared(mut r, k, sp, outer)?
+        return true, noerror
+    }
+    existing, dup := own_names(r, tps, k)
+    if dup {
+        duplicate(mut r, "duplicate type parameter name", k, sp, def_name_span(r.prog.trees, existing))?
+        return true, noerror
+    }
+    return false, noerror
+}

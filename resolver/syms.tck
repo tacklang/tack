@@ -1,0 +1,158 @@
+package resolver
+
+// Syms interns names: each distinct run of bytes a program names
+// something with gets a symbol, a small integer, the same wherever the
+// name is written, in any file of any package, so that the resolver's
+// scopes are maps keyed by an int64 and a lookup hashes a name once. Go
+// keys its maps by the name's string; Tack's maps hash their keys by
+// content too, but a key must be a value the map can own, and a name is
+// a view into a tree, so a lookup would copy it first.
+//
+// It is an open-addressing hash table of FNV-1a hashes: slots holds, for
+// each slot, 0 for an empty one or the symbol plus one, and a symbol's
+// bytes are the run of bytes from starts to ends. The table is kept at
+// most half full, doubling when it would not be, so a probe ends.
+type Syms struct {
+    bytes list[uint8]
+    starts list[int64]
+    ends list[int64]
+    slots list[int64]
+}
+
+// new_syms returns a Syms with no symbols, which grows through alloc.
+func new_syms(alloc Allocator) (Syms, error) {
+    mut s := Syms{
+        bytes: make(list[uint8], alloc),
+        starts: make(list[int64], alloc),
+        ends: make(list[int64], alloc),
+        slots: make(list[int64], alloc),
+    }
+    grow_slots(mut s.slots, 64)?
+    return s, noerror
+}
+
+// grow_slots makes slots n empty slots, n a power of two.
+func grow_slots(mut slots list[int64], n int64) error {
+    reserve(mut slots, n)?
+    for len(slots) < n {
+        append(mut slots, 0)?
+    }
+    return noerror
+}
+
+// fnv returns the 64-bit FNV-1a hash of name.
+func fnv(name []uint8) uint64 {
+    mut h uint64 = 14695981039346656037
+    for _, c := range name {
+        h = (h ^ uint64(c)) *% 1099511628211
+    }
+    return h
+}
+
+// sym_text returns the bytes of the symbol k, a view of them in place, or
+// nothing for a k s did not give.
+func sym_text(s Syms, k int64) []uint8 {
+    start, has_start := s.starts[k]
+    end, has_end := s.ends[k]
+    if !has_start || !has_end || start < 0 || end < start || end > len(s.bytes) {
+        return s.bytes[0:0]
+    }
+    return s.bytes[start:end]
+}
+
+// sym_is reports whether the symbol k is the bytes name.
+func sym_is(s Syms, k int64, name []uint8) bool {
+    start, has_start := s.starts[k]
+    end, has_end := s.ends[k]
+    if !has_start || !has_end || start < 0 || end < start || end > len(s.bytes) {
+        return false
+    }
+    if end -% start != len(name) {
+        return false
+    }
+    for i, c := range name {
+        b, ok := s.bytes[start +% i]
+        if !ok || b != c {
+            return false
+        }
+    }
+    return true
+}
+
+// slot_index returns the slot of the table of n slots, a power of two,
+// that a probe of hash h looks at i-th.
+func slot_index(h uint64, i int64, n int64) int64 {
+    if n <= 0 {
+        return 0
+    }
+    // h >> 1 is below 2^63, so it is an int64.
+    v, fits := int64(h >> 1)
+    if !fits {
+        return 0
+    }
+    // Linear probing: the slots after the hash's own, wrapping round.
+    // v % n and i are both below n, so their sum does not wrap.
+    return (v % n +% i) % n
+}
+
+// intern returns the symbol of name, giving it one if it has none, or
+// the builtin append's out of memory.
+func intern(mut s Syms, name []uint8) (int64, error) {
+    h := fnv(name)
+    n := len(s.slots)
+    mut i int64 = 0
+    for i < n {
+        at := slot_index(h, i, n)
+        v, ok := s.slots[at]
+        if !ok {
+            break
+        }
+        if v == 0 {
+            break
+        }
+        if sym_is(s, v -% 1, name) {
+            return v -% 1, noerror
+        }
+        i +%= 1
+    }
+    k := len(s.starts)
+    start := len(s.bytes)
+    append(mut s.bytes, name...)?
+    append(mut s.starts, start)?
+    append(mut s.ends, len(s.bytes))?
+    // The table is kept at most half full, so every name's probe ends
+    // at an empty slot before it has looked at every slot.
+    if len(s.starts) *% 2 > n {
+        rehash(mut s)?
+    } else {
+        place(mut s.slots, h, k)
+    }
+    return k, noerror
+}
+
+// place puts the symbol k, whose name hashes to h, in the first empty
+// slot of its probe.
+func place(mut slots list[int64], h uint64, k int64) {
+    n := len(slots)
+    mut i int64 = 0
+    for i < n {
+        at := slot_index(h, i, n)
+        if at >= 0 && at < len(slots) && slots[at] == 0 {
+            slots[at] = k +% 1
+            return
+        }
+        i +%= 1
+    }
+}
+
+// rehash doubles s's table and puts every symbol back in it.
+func rehash(mut s Syms) error {
+    n := len(s.slots) *% 2
+    mut slots := make(list[int64], c_allocator)
+    grow_slots(mut slots, n)?
+    for k := range len(s.starts) {
+        place(mut slots, fnv(sym_text(s, k)), k)
+    }
+    s.slots = slots
+    return noerror
+}

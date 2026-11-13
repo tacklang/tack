@@ -1,0 +1,44 @@
+package ast
+
+import text from "std/text"
+
+// Program is everything one compilation compiles, Go's ast.Program: its
+// packages, each after those it imports, the package being built last,
+// and every file's tree, package by package in that order. Go's Package
+// holds its files; here the trees are the Program's, a package naming
+// its run of them, so that a Def can name a declaration of any package
+// by its tree's place, its unit, alone. errors counts the errors the
+// stages that have run reported about the program, Go's Errors.
+pub type Program struct {
+    pub packages list[Package]
+    pub trees list[File]
+    pub errors int64
+}
+
+// Package is one package of a Program, Go's ast.Package: its name, its
+// import path and its module, which the --res dump writes, the directory
+// it was read from and its C files, which it leaves out, its trees, the
+// count units from first, and, for each import of its files, in order,
+// the index among the program's packages of the package it is bound to,
+// or -1 for one the loader could not load, Go's Import.Package.
+pub type Package struct {
+    pub name text.Text
+    pub path text.Text
+    pub module text.Text
+    pub dir text.Text
+    pub c_files list[text.Text]
+    pub first int64
+    pub count int64
+    pub imports list[int64]
+}
+
+// new_program returns a Program with no packages and no trees, which
+// grows through alloc.
+pub func new_program(alloc Allocator) Program {
+    return Program{packages: make(list[Package], alloc), trees: make(list[File], alloc), errors: 0}
+}
+
+// in reports whether the tree unit is one of pkg's.
+pub func (pkg Package) in(unit int64) bool {
+    return unit >= pkg.first && unit -% pkg.first < pkg.count
+}

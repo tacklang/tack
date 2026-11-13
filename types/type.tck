@@ -1,0 +1,313 @@
+package types
+
+import bytes from "std/bytes"
+
+// Type is a Tack type, identified by a number, Go's types.Type. Two types
+// are the same type exactly when their numbers are equal, so == is type
+// identity. The basic types are the globals below, numbered as Go's
+// constants are; any other type would be given its number by the Table
+// of the compilation that uses it.
+pub type Type struct {
+    n int64
+}
+
+// number returns the type's ID, Go's value of the Type, which the dumps
+// write.
+pub func (t Type) number() int64 {
+    return t.n
+}
+
+// invalid is the zero Type, carried by an expression that has not been
+// checked or whose type could not be determined.
+pub var invalid = Type{n: 0}
+
+// int64_type is int64, a signed 64-bit integer.
+pub var int64_type = Type{n: 1}
+
+// string_type is string, a string of bytes.
+pub var string_type = Type{n: 2}
+
+// bool_type is bool, true or false.
+pub var bool_type = Type{n: 3}
+
+// int8_type is int8, a signed 8-bit integer.
+pub var int8_type = Type{n: 4}
+
+// int16_type is int16, a signed 16-bit integer.
+pub var int16_type = Type{n: 5}
+
+// int32_type is int32, a signed 32-bit integer.
+pub var int32_type = Type{n: 6}
+
+// uint8_type is uint8, an unsigned 8-bit integer.
+pub var uint8_type = Type{n: 7}
+
+// uint16_type is uint16, an unsigned 16-bit integer.
+pub var uint16_type = Type{n: 8}
+
+// uint32_type is uint32, an unsigned 32-bit integer.
+pub var uint32_type = Type{n: 9}
+
+// uint64_type is uint64, an unsigned 64-bit integer.
+pub var uint64_type = Type{n: 10}
+
+// unsafe_size is unsafe_size_t, C's size_t: an unsigned integer as wide
+// as the target makes it, from 32 to 64 bits (see target_width).
+pub var unsafe_size = Type{n: 11}
+
+// unsafe_uintptr is unsafe_uintptr_t, C's uintptr_t: an unsigned integer
+// wide enough to hold an address, from 32 to 64 bits.
+pub var unsafe_uintptr = Type{n: 12}
+
+// untyped_int is the type of an integer constant expression until the
+// place it is used gives it a type. No program can write it.
+pub var untyped_int = Type{n: 13}
+
+// any_type is any, a reference to a value of some other type known only
+// at run time.
+pub var any_type = Type{n: 14}
+
+// error_type is error, a code and a message, code 0 meaning no error.
+pub var error_type = Type{n: 15}
+
+// allocator is Allocator, an opaque handle on an allocator.
+pub var allocator = Type{n: 16}
+
+// float32_type is float32, an IEEE 754 binary32 float.
+pub var float32_type = Type{n: 17}
+
+// float64_type is float64, an IEEE 754 binary64 float.
+pub var float64_type = Type{n: 18}
+
+// untyped_float is the type of a float constant expression until the
+// place it is used gives it a float type. No program can write it.
+pub var untyped_float = Type{n: 19}
+
+// num_basic is the number of basic types, invalid included: the first ID
+// a Table hands out.
+pub var num_basic int64 = 20
+
+// basic_names holds each basic type's name as a program writes it,
+// indexed by its ID, Go's basicNames.
+var basic_names = [20]string{
+    "invalid",
+    "int64",
+    "string",
+    "bool",
+    "int8",
+    "int16",
+    "int32",
+    "uint8",
+    "uint16",
+    "uint32",
+    "uint64",
+    "unsafe_size_t",
+    "unsafe_uintptr_t",
+    "untyped int",
+    "any",
+    "error",
+    "Allocator",
+    "float32",
+    "float64",
+    "untyped float",
+}
+
+// basic_name returns the name of the basic type t as a program writes it,
+// or "" for a type that is not basic.
+pub func basic_name(t Type) string {
+    name, ok := basic_names[t.n]
+    if !ok {
+        return ""
+    }
+    return name
+}
+
+// lookup returns the basic type the type name name denotes, Go's Lookup.
+// invalid, untyped_int and untyped_float have no name a program can
+// write, so none is ever returned as a match.
+pub func lookup(name []uint8) (Type, bool) {
+    for i, n := range basic_names {
+        t := Type{n: int64(i)}
+        if i > 0 && !is_untyped(t) && bytes.equal(name, []uint8(n)) {
+            return t, true
+        }
+    }
+    return invalid, false
+}
+
+// ref_names are the builtin types written as a name and an element type,
+// id[T], span[T] and handle[T], Go's refNames: none is a type alone, but
+// each is reserved as a basic type's name is.
+var ref_names = [3]string{"id", "span", "handle"}
+
+// ref_name returns the i-th of the names of the builtin types written
+// with an element type, id, span and handle, in that order, Go's
+// RefNames()[i], or "" past them.
+pub func ref_name(i int64) string {
+    name, ok := ref_names[i]
+    if !ok {
+        return ""
+    }
+    return name
+}
+
+// basic_count returns how many basic types a program can write, the
+// names basic_named gives.
+pub func basic_count() int64 {
+    // Every basic type but invalid and the two untyped ones.
+    return num_basic - 3
+}
+
+// basic_named returns the name of the i-th basic type a program can
+// write, in the order of their IDs, Go's Names()[i], or "" past them.
+pub func basic_named(i int64) string {
+    mut k int64 = 0
+    for j, n := range basic_names {
+        t := Type{n: int64(j)}
+        if j == 0 || is_untyped(t) {
+            continue
+        }
+        if k == i {
+            return n
+        }
+        // k counts basic types, at most num_basic, so it never wraps.
+        k +%= 1
+    }
+    return ""
+}
+
+// reserved reports whether name is a builtin type's, Go's Reserved: a
+// basic type's, which lookup finds, or id, span or handle. No
+// declaration, struct field or method may take one as its name, and none
+// is read or assigned as a value.
+pub func reserved(name []uint8) bool {
+    _, ok := lookup(name)
+    if ok {
+        return true
+    }
+    for _, n := range ref_names {
+        if bytes.equal(name, []uint8(n)) {
+            return true
+        }
+    }
+    return false
+}
+
+// in_any reports whether a value of type t can be passed as any, Go's
+// InAny: t is one of the fourteen basic types a value can have, every
+// integer type, bool, string, float32 and float64.
+pub func in_any(t Type) bool {
+    return t.n >= int64_type.n && t.n < untyped_int.n || t == float32_type || t == float64_type
+}
+
+// is_untyped reports whether t is the type of an untyped constant,
+// untyped_int or untyped_float.
+pub func is_untyped(t Type) bool {
+    return t == untyped_int || t == untyped_float
+}
+
+// is_float reports whether t is one of the float types, untyped_float
+// included.
+pub func is_float(t Type) bool {
+    return t == float32_type || t == float64_type || t == untyped_float
+}
+
+// is_numeric reports whether t is an integer or a float type, an untyped
+// one included.
+pub func is_numeric(t Type) bool {
+    return is_integer(t) || is_float(t)
+}
+
+// is_integer reports whether t is one of the integer types, untyped_int
+// included.
+pub func is_integer(t Type) bool {
+    return t == int64_type || t.n >= int8_type.n && t.n <= untyped_int.n
+}
+
+// is_unsigned reports whether t is an unsigned integer type, a
+// target-width one included.
+pub func is_unsigned(t Type) bool {
+    return t.n >= uint8_type.n && t.n <= unsafe_uintptr.n
+}
+
+// target_width reports whether t is one of the integer types whose width
+// is the target's, unsafe_size_t and unsafe_uintptr_t, Go's TargetWidth.
+pub func target_width(t Type) bool {
+    return t == unsafe_size || t == unsafe_uintptr
+}
+
+// portable_max is the largest value every target-width type holds on
+// every target, the largest 32-bit unsigned value, Go's PortableMax.
+pub var portable_max uint64 = 4294967295
+
+// bits returns the width of a fixed-width integer type, or 0 for any
+// other type, a target-width one included.
+pub func bits(t Type) int64 {
+    if t == int8_type || t == uint8_type {
+        return 8
+    }
+    if t == int16_type || t == uint16_type {
+        return 16
+    }
+    if t == int32_type || t == uint32_type {
+        return 32
+    }
+    if t == int64_type || t == uint64_type {
+        return 64
+    }
+    return 0
+}
+
+// portable_bits returns the width in which every value of the integer
+// type t is a value of t on every target: bits for a fixed-width type,
+// and 32 for a target-width type. It is 0 for any other type.
+pub func portable_bits(t Type) int64 {
+    if target_width(t) {
+        return 32
+    }
+    return bits(t)
+}
+
+// max_bits returns the widest the integer type t can be on any target:
+// bits for a fixed-width type, and 64 for a target-width type. It is 0
+// for any other type.
+pub func max_bits(t Type) int64 {
+    if target_width(t) {
+        return 64
+    }
+    return bits(t)
+}
+
+// widens reports whether every value of the integer type from is also a
+// value of to, on every target, Go's Widens with src for from, a keyword here: a type widens to itself, a
+// signed type to a wider signed one, an unsigned type to a wider type of
+// either kind, uint8, uint16 and uint32 to a target-width type, and a
+// target-width type to uint64. No other pair does.
+pub func widens(src Type, to Type) bool {
+    if src == to {
+        return true
+    }
+    if target_width(to) {
+        return src == uint8_type || src == uint16_type || src == uint32_type
+    }
+    if target_width(src) {
+        return to == uint64_type
+    }
+    return fixed_widens(src, to)
+}
+
+// fixed_widens is widens for two different types of which neither is a
+// target-width type: both must be fixed-width integer types, the one
+// narrower than the other, and a signed type never widens to an
+// unsigned one.
+func fixed_widens(src Type, to Type) bool {
+    fb := bits(src)
+    tb := bits(to)
+    if fb == 0 || tb == 0 {
+        return false
+    }
+    if !is_unsigned(src) && is_unsigned(to) {
+        return false
+    }
+    return fb < tb
+}

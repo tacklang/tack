@@ -1,0 +1,891 @@
+package resolver
+
+import ast from "tack/ast"
+import builtin from "tack/builtin"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// Expressions. Go's resolveExpr recurses into every operand. A tree is
+// as deep as its source makes it, and the operand first resolved, the
+// left one of a binary operator, what a selector, an index, a slice, a
+// type assertion or a ? applies to, and a method call's receiver, can
+// nest without end, x.a.b.c or a + b + c, a node deeper for each link,
+// with no nesting the parser counts. So resolve_expr walks down that
+// chain, the spine, in a loop, resolving its last link first, as Go's
+// recursion does, and then finishes each link on the way back up: the
+// right operand, the index, the arguments. What those hold nests only as
+// deep as the parser lets a program nest, a level for each call's
+// arguments, each bracket and each block, and the precedences between,
+// so the recursion through them is bounded.
+
+// spine_operand returns the operand of n, of the tree being resolved,
+// that Go's resolveExpr resolves first and as an expression, which
+// resolve_expr walks down into, or none when n is no link of a spine:
+// one whose resolution starts otherwise.
+func spine_operand(r Res, n id[ast.Node]) id[ast.Node] {
+    mut z id[ast.Node]
+    switch kind_at(r.prog.trees, r.unit, n) {
+    case binary(b):
+        return b.x
+    case unary(u):
+        return u.x
+    case mut_arg(x):
+        return x
+    case own_arg(x):
+        return x
+    case question(x):
+        return x
+    case index(x):
+        return x.x
+    case slice(s):
+        return s.x
+    case type_assert(a):
+        return a.x
+    case selector(s):
+        // A selector with no field whose operand is a name may name a
+        // type, which resolve_node binds; any other operand is a value.
+        if ast.is_none(s.field) && is_ident(r.prog.trees, r.unit, s.x) {
+            return z
+        }
+        return s.x
+    case call(c):
+        switch kind_at(r.prog.trees, r.unit, c.fn) {
+        case selector(s):
+            if is_ident(r.prog.trees, r.unit, s.x) {
+                return z
+            }
+            return s.x
+        default:
+            return z
+        }
+    default:
+        return z
+    }
+}
+
+// resolve_expr binds every name in the expression n of the tree being
+// resolved, used in sc, Go's resolveExpr.
+func resolve_expr(mut r Res, n id[ast.Node], sc Sc) error {
+    mut x := n
+    mut next := spine_operand(r, x)
+    if ast.is_none(next) {
+        return resolve_node(mut r, x, sc)
+    }
+    mut links := make(list[id[ast.Node]], c_allocator)
+    for !ast.is_none(next) {
+        append(mut links, x)?
+        x = next
+        next = spine_operand(r, x)
+    }
+    resolve_node(mut r, x, sc)?
+    mut i := len(links)
+    for i > 0 {
+        i -%= 1
+        l, ok := links[i]
+        if ok {
+            finish_link(mut r, l, sc)?
+        }
+    }
+    return noerror
+}
+
+// finish_link resolves what is left of n, a link of a spine whose
+// operand is resolved: Go's resolveExpr of n after its first operand.
+func finish_link(mut r Res, n id[ast.Node], sc Sc) error {
+    switch kind_at(r.prog.trees, r.unit, n) {
+    case binary(b):
+        return resolve_expr(mut r, b.y, sc)
+    case selector(s):
+        if !ast.is_none(s.field) {
+            return resolve_ident(mut r, s.field, sc)
+        }
+        return noerror
+    case index(x):
+        if names_generic(r, x.x) {
+            // f[int64] with no call: what the brackets hold is a type
+            // argument, which the type checker reports, as no generic
+            // function is a value.
+            is_type := bind_made_type(mut r, x.index, sc)?
+            if is_type {
+                return noerror
+            }
+        }
+        return resolve_expr(mut r, x.index, sc)
+    case slice(s):
+        if !ast.is_none(s.lo) {
+            resolve_expr(mut r, s.lo, sc)?
+        }
+        if !ast.is_none(s.hi) {
+            resolve_expr(mut r, s.hi, sc)?
+        }
+        return noerror
+    case type_assert(a):
+        if !ast.is_none(a.type_expr) {
+            return resolve_type(mut r, a.type_expr, sc)
+        }
+        return noerror
+    case call:
+        return resolve_args(mut r, n, sc)
+    default:
+        return noerror
+    }
+}
+
+// resolve_node is Go's resolveExpr for a node that is no link of a spine
+// in the shape it has: a call by a name or a type, a selector of a
+// name, a name, a literal, a type made, a function literal or fields(T).
+func resolve_node(mut r Res, n id[ast.Node], sc Sc) error {
+    switch kind_at(r.prog.trees, r.unit, n) {
+    case call:
+        return resolve_call(mut r, n, sc)
+    case selector(s):
+        is_type := bind_type_operand(mut r, s.x, sc)?
+        if is_type {
+            return noerror
+        }
+        return resolve_expr(mut r, s.x, sc)
+    case ident:
+        return resolve_ident(mut r, n, sc)
+    case composite_lit(c):
+        if !ast.is_none(c.type_expr) {
+            resolve_type(mut r, c.type_expr, sc)?
+        }
+        for i := range count_items(r.prog.trees, r.unit, c.elems) {
+            resolve_expr(mut r, item_at(r.prog.trees, r.unit, c.elems, i), sc)?
+        }
+        return noerror
+    case key_value(kv):
+        if is_ident(r.prog.trees, r.unit, kv.key) && qualified_at(r.prog.trees, r.unit, kv.key) {
+            nm := name_of(mut r, kv.key)?
+            use_import(mut r, nm, sc)?
+        }
+        return resolve_expr(mut r, kv.value, sc)
+    case list_type:
+        return resolve_type(mut r, n, sc)
+    case map_type:
+        return resolve_type(mut r, n, sc)
+    case arena_type:
+        return resolve_type(mut r, n, sc)
+    case pool_type:
+        return resolve_type(mut r, n, sc)
+    case ref_type:
+        return resolve_type(mut r, n, sc)
+    case func_lit(fn):
+        return resolve_func_lit(mut r, fn, sc)
+    case fields_of(t):
+        return resolve_type(mut r, t, sc)
+    default:
+        return noerror
+    }
+}
+
+// names_generic reports whether x, resolved, is a name of a function
+// that declares type parameters, Go's namesGeneric.
+func names_generic(r Res, x id[ast.Node]) bool {
+    if !is_ident(r.prog.trees, r.unit, x) {
+        return false
+    }
+    d := ident_of(r.prog.trees, r.unit, x).def
+    if d.kind != ast.def_func {
+        return false
+    }
+    switch kind_at(r.prog.trees, d.unit, d.node) {
+    case func_decl(fid):
+        fn := func_at(r.prog.trees, d.unit, fid)
+        return count_items(r.prog.trees, d.unit, fn.type_params) > 0
+    default:
+        return false
+    }
+}
+
+// resolve_func_lit resolves a function literal, the func_decl node fnn,
+// written where sc is, Go's resolveFuncLit: its parameters' and results'
+// types where it is, then its parameters, in a scope of their own nested
+// in sc, and its body, as a block nested in that.
+func resolve_func_lit(mut r Res, fnn id[ast.Node], sc Sc) error {
+    mut fn ast.Func
+    switch kind_at(r.prog.trees, r.unit, fnn) {
+    case func_decl(fid):
+        fn = func_at(r.prog.trees, r.unit, fid)
+    default:
+        return noerror
+    }
+    for i := range count_items(r.prog.trees, r.unit, fn.params) {
+        resolve_param_type(mut r, item_at(r.prog.trees, r.unit, fn.params, i), sc)?
+    }
+    for i := range count_items(r.prog.trees, r.unit, fn.results) {
+        resolve_type(mut r, item_at(r.prog.trees, r.unit, fn.results, i), sc)?
+    }
+    params := open_scope(mut r, sc)?
+    for i := range count_items(r.prog.trees, r.unit, fn.params) {
+        pn := item_at(r.prog.trees, r.unit, fn.params, i)
+        switch kind_at(r.prog.trees, r.unit, pn) {
+        case param_decl(pid):
+            p := param_at(r.prog.trees, r.unit, pid)
+            k := sym_of(mut r, p.name)?
+            if k == r.sym_blank {
+                continue
+            }
+            clash := lit_param_clash(mut r, k, p.name_span, params)?
+            if clash {
+                reject(mut r, params, k)?
+                continue
+            }
+            declare(mut r, params, k, ast.decl_def(ast.def_param, r.unit, pn))?
+        default:
+        }
+    }
+    resolve_block(mut r, fn.body, params)?
+    return close_scope(mut r, params)
+}
+
+// lit_param_clash reports why a parameter of a function literal named k,
+// at sp, cannot be declared in params, and reports whether it did, Go's
+// litParamClash: its name is reserved, another parameter's, or visible
+// where the literal is written.
+func lit_param_clash(mut r Res, k int64, sp source.Span, params Sc) (bool, error) {
+    reserved := reserved_name(mut r, k, sp)?
+    if reserved {
+        return true, noerror
+    }
+    existing, dup := own_names(r, params, k)
+    if dup {
+        duplicate(mut r, "duplicate parameter name", k, sp, def_name_span(r.prog.trees, existing))?
+        return true, noerror
+    }
+    outer, visible := lookup(r, parent(r, params), k)
+    if visible {
+        redeclared(mut r, k, sp, outer)?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// resolve_type binds the names in the type n as written, of the tree
+// being resolved, Go's resolveType: a type name to the type it names,
+// and an array type's length, through every level of nesting.
+func resolve_type(mut r Res, n id[ast.Node], sc Sc) error {
+    switch kind_at(r.prog.trees, r.unit, n) {
+    case ident:
+        return resolve_type_name(mut r, n, sc)
+    case array_type(a):
+        if !ast.is_none(a.length) {
+            resolve_expr(mut r, a.length, sc)?
+        }
+        return resolve_type(mut r, a.elem, sc)
+    case view_type(e):
+        return resolve_type(mut r, e, sc)
+    case list_type(e):
+        return resolve_type(mut r, e, sc)
+    case arena_type(e):
+        return resolve_type(mut r, e, sc)
+    case pool_type(e):
+        return resolve_type(mut r, e, sc)
+    case ref_type(t):
+        return resolve_type(mut r, t.elem, sc)
+    case map_type(m):
+        resolve_type(mut r, m.key, sc)?
+        return resolve_type(mut r, m.value, sc)
+    case func_type(t):
+        for i := range count_items(r.prog.trees, r.unit, t.params) {
+            resolve_param_type(mut r, item_at(r.prog.trees, r.unit, t.params, i), sc)?
+        }
+        for i := range count_items(r.prog.trees, r.unit, t.results) {
+            resolve_type(mut r, item_at(r.prog.trees, r.unit, t.results, i), sc)?
+        }
+        return noerror
+    default:
+        return noerror
+    }
+}
+
+// resolve_type_name binds the name n, written as a type, to the type
+// declaration it names, Go's resolveTypeName (see settle).
+func resolve_type_name(mut r Res, n id[ast.Node], sc Sc) error {
+    mark := len(r.diags)
+    nm := name_of(mut r, n)?
+    if nm.qualified {
+        bind_qualified_type(mut r, n, nm, sc)?
+    } else {
+        bind_type_name(mut r, n, nm, sc)?
+    }
+    return settle(mut r, n, mark, sc)
+}
+
+// bind_type_name does resolve_type_name's work for an unqualified name,
+// Go's bindTypeName.
+func bind_type_name(mut r Res, n id[ast.Node], nm Name, sc Sc) error {
+    _, basic := types.lookup(sym_text(r.syms, nm.sym))
+    if basic || builtin.is_constraint(sym_text(r.syms, nm.sym)) {
+        return noerror
+    }
+    if types.reserved(sym_text(r.syms, nm.sym)) {
+        mut m := new_msg()
+        fmt.appendf(mut m, "%s needs its element type, as in %s[int64]", sym_text(r.syms, nm.sym), sym_text(r.syms, nm.sym))?
+        return error_at(mut r, span_of_name(r, n), own m)
+    }
+    use := lookup_use(r, sc, nm.sym)
+    if use.rejected {
+        set_def(mut r.prog.trees, r.unit, n, ast.unbound_def())
+        return noerror
+    }
+    if !use.visible {
+        lost_type(mut r, n, nm.sym)
+        return noerror
+    }
+    if use.decl.kind == ast.def_import {
+        return not_a(mut r, n, nm, "type")
+    }
+    if !use.decl.is_type_name() {
+        if use.decl.kind == ast.def_var {
+            put(mut r.excused, key_of(use.decl), true)?
+        }
+        mut m := new_msg()
+        fmt.appendf(mut m, "%s is not a type", sym_text(r.syms, nm.sym))?
+        return error_at(mut r, span_of_name(r, n), own m)
+    }
+    set_def(mut r.prog.trees, r.unit, n, use.decl)
+    return noerror
+}
+
+// call_of returns the call n of the tree being resolved.
+func call_of(r Res, n id[ast.Node]) ast.Call {
+    switch kind_at(r.prog.trees, r.unit, n) {
+    case call(c):
+        return c
+    default:
+        mut z ast.Call
+        return z
+    }
+}
+
+// set_call replaces the call n of the tree being resolved with c.
+func set_call(mut r Res, n id[ast.Node], c ast.Call) {
+    set_kind(mut r.prog.trees, r.unit, n, ast.Kind.call(c))
+}
+
+// resolve_call binds the call n's callee to the function or builtin it
+// names, or records the type a conversion converts to, and resolves its
+// arguments, Go's resolveCall, for a call whose callee is no link of a
+// spine (see spine_operand): a name, a view or a ref type, or a selector
+// of a name.
+func resolve_call(mut r Res, n id[ast.Node], sc Sc) error {
+    c := call_of(r, n)
+    switch kind_at(r.prog.trees, r.unit, c.fn) {
+    case ident:
+        nm := name_of(mut r, c.fn)?
+        sh, shadowed := r.shadowed[nm.sym]
+        if !nm.qualified && shadowed && sh {
+            // The call is to the function the package declared under a
+            // builtin's name, reported, or to the builtin, which the
+            // package meant to replace: which is unknown.
+            set_def(mut r.prog.trees, r.unit, c.fn, ast.unbound_def())
+        } else {
+            mark := len(r.diags)
+            bind_callee(mut r, c.fn, nm, n, sc)?
+            settle(mut r, c.fn, mark, sc)?
+        }
+        resolve_type_args(mut r, n, c.fn, nm, sc)?
+    case view_type:
+        resolve_type(mut r, c.fn, sc)?
+    case ref_type:
+        resolve_type(mut r, c.fn, sc)?
+    case selector(s):
+        is_type := bind_type_operand(mut r, s.x, sc)?
+        if !is_type {
+            resolve_expr(mut r, s.x, sc)?
+        }
+    default:
+    }
+    return resolve_args(mut r, n, sc)
+}
+
+// resolve_type_args resolves the type arguments the call n writes after
+// its callee, the name fn written nm, each as a type, once fn is bound
+// to a function, Go's resolveTypeArgs. After a variable or a parameter
+// the brackets index, an element called, which is reported; after a
+// builtin or a type's name they are reported; either way they are then
+// dropped.
+func resolve_type_args(mut r Res, n id[ast.Node], fn id[ast.Node], nm Name, sc Sc) error {
+    c := call_of(r, n)
+    if !c.type_args.made {
+        return noerror
+    }
+    d := ident_of(r.prog.trees, r.unit, fn).def
+    mut why := ""
+    if d.kind == ast.def_func {
+        for i := range count_items(r.prog.trees, r.unit, c.type_args) {
+            resolve_type(mut r, item_at(r.prog.trees, r.unit, c.type_args, i), sc)?
+        }
+        return noerror
+    }
+    if d.kind == ast.def_builtin {
+        why = "it is a builtin"
+    } else if d.is_value() {
+        return element_call(mut r, n, fn, nm, sc)
+    } else if d.is_none() && c.conv != types.invalid {
+        why = "it is a type"
+    }
+    mut sp := span_at(r.prog.trees, r.unit, fn)
+    sp.end = c.type_args_span.end
+    drop_type_args(mut r, n)
+    if len(why) == 0 {
+        return noerror
+    }
+    mut m := new_msg()
+    fmt.appendf(mut m, "cannot write type arguments for ")?
+    append_qualified(r, mut m, nm)?
+    fmt.appendf(mut m, ": %s", why)?
+    return error_at(mut r, sp, own m)
+}
+
+// drop_type_args drops the type arguments the call n writes, Go's
+// call.TypeArgExprs, call.TypeArgsSpan = nil, ast.Span{}.
+func drop_type_args(mut r Res, n id[ast.Node]) {
+    mut c := call_of(r, n)
+    mut z ast.Nodes
+    c.type_args = z
+    c.type_args_span = ast.unset_span()
+    set_call(mut r, n, c)
+}
+
+// element_call reports the call n, whose callee, fn, a variable or a
+// parameter, is followed by brackets, an element called, Go's
+// elementCall, and resolves what the brackets hold as values, but for a
+// name of a type, which is bound as one. It then drops them and leaves fn
+// unbound.
+func element_call(mut r Res, n id[ast.Node], fn id[ast.Node], nm Name, sc Sc) error {
+    c := call_of(r, n)
+    mut sp := span_at(r.prog.trees, r.unit, fn)
+    sp.end = c.type_args_span.end
+    for i := range count_items(r.prog.trees, r.unit, c.type_args) {
+        x := item_at(r.prog.trees, r.unit, c.type_args, i)
+        // Go drops what binding a type here reports.
+        mark := len(r.diags)
+        is_type := bind_made_type(mut r, x, sc)?
+        drop_to(mut r, mark)
+        if !is_type {
+            resolve_expr(mut r, x, sc)?
+        }
+    }
+    drop_type_args(mut r, n)
+    set_def(mut r.prog.trees, r.unit, fn, ast.unbound_def())
+    mut q := new_msg()
+    append_qualified(r, mut q, nm)?
+    mut m := new_msg()
+    fmt.appendf(mut m, "cannot call an element, %s[...](...); only a name is called: bind it first, as in g := %s[...]", q[:], q[:])?
+    return error_at(mut r, sp, own m)
+}
+
+// resolve_args resolves the arguments of the call n, its callee bound,
+// each as a value, but for make's first argument when it is a name of a
+// type, Go's resolveArgs.
+func resolve_args(mut r Res, n id[ast.Node], sc Sc) error {
+    c := call_of(r, n)
+    make_call := calls_builtin_make(mut r, c)?
+    for i := range count_items(r.prog.trees, r.unit, c.args) {
+        a := item_at(r.prog.trees, r.unit, c.args, i)
+        if i == 0 && make_call {
+            is_type := bind_made_type(mut r, a, sc)?
+            if is_type {
+                continue
+            }
+        }
+        resolve_expr(mut r, a, sc)?
+    }
+    return noerror
+}
+
+// calls_builtin_make reports whether c, its callee bound, calls the
+// builtin make, Go's callsBuiltinMake.
+func calls_builtin_make(mut r Res, c ast.Call) (bool, error) {
+    if !is_ident(r.prog.trees, r.unit, c.fn) || qualified_at(r.prog.trees, r.unit, c.fn) {
+        return false, noerror
+    }
+    x := ident_of(r.prog.trees, r.unit, c.fn)
+    k := sym_of(mut r, x.name)?
+    return k == r.sym_make && x.def.kind == ast.def_builtin, noerror
+}
+
+// bind_made_type binds x, the first argument of a call to the builtin
+// make, as a type when it is a name of one, reporting whether it is, Go's
+// bindMadeType.
+func bind_made_type(mut r Res, x id[ast.Node], sc Sc) (bool, error) {
+    if is_ident(r.prog.trees, r.unit, x) && !qualified_at(r.prog.trees, r.unit, x) {
+        nm := name_of(mut r, x)?
+        if types.reserved(sym_text(r.syms, nm.sym)) || builtin.is_constraint(sym_text(r.syms, nm.sym)) {
+            resolve_type_name(mut r, x, sc)?
+            return true, noerror
+        }
+    }
+    is_type := bind_type_operand(mut r, x, sc)?
+    return is_type, noerror
+}
+
+// bind_callee binds fn, the callee of the call n, written nm, to the
+// function or builtin it names, or records the type a conversion converts
+// to, Go's bindCallee.
+func bind_callee(mut r Res, fn id[ast.Node], nm Name, n id[ast.Node], sc Sc) error {
+    if nm.qualified {
+        return bind_qualified_callee(mut r, fn, nm, sc)
+    }
+    typ, is_type := types.lookup(sym_text(r.syms, nm.sym))
+    if is_type {
+        // A type name called like a function converts its argument. It
+        // binds to no declaration; the type checker reads conv instead.
+        mut c := call_of(r, n)
+        c.conv = typ
+        set_call(mut r, n, c)
+        return noerror
+    }
+    if types.reserved(sym_text(r.syms, nm.sym)) {
+        return is_a_type(mut r, fn, nm, "cannot call %s; it is a type")
+    }
+    called := bind_called(mut r, fn, nm.sym, sc)?
+    if called {
+        return noerror
+    }
+    d, visible := lookup(r, sc, nm.sym)
+    if visible && d.kind == ast.def_import {
+        return not_a(mut r, fn, nm, "function")
+    }
+    if visible && d.is_type_name() {
+        return is_a_type(mut r, fn, nm, "cannot call %s; it is a type")
+    }
+    return undefined(mut r, fn, nm)
+}
+
+// bind_called binds fn, the callee of a call, named k, to the function or
+// the builtin of its name, recording a variable or a parameter of that
+// name visible in sc as hidden, or, when there is neither, to that
+// variable or parameter, marking a variable read, and reports whether it
+// bound fn, Go's bindCalled.
+func bind_called(mut r Res, fn id[ast.Node], k int64, sc Sc) (bool, error) {
+    local := local_value(r, k, sc)
+    mut d, mut is_seen := seen(r, k)
+    if !is_seen && builtin_seen(r, k) {
+        d = ast.builtin_def()
+        is_seen = true
+    }
+    if is_seen {
+        set_def(mut r.prog.trees, r.unit, fn, d)
+        set_hidden(mut r.prog.trees, r.unit, fn, local)
+        if local.kind == ast.def_var {
+            _, has := r.hidden_by[key_of(local)]
+            if !has {
+                put(mut r.hidden_by, key_of(local), Key{unit: r.unit, node: fn})?
+            }
+        }
+        return true, noerror
+    }
+    if !local.is_none() {
+        set_def(mut r.prog.trees, r.unit, fn, local)
+        if local.kind == ast.def_var {
+            put(mut r.read, key_of(local), true)?
+        }
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// local_value returns the variable or parameter named k visible in sc, a
+// global among them, or no Def when k names neither there, Go's
+// localValue.
+func local_value(r Res, k int64, sc Sc) ast.Def {
+    d, ok := lookup(r, sc, k)
+    if ok && d.is_value() {
+        return d
+    }
+    return ast.no_def()
+}
+
+// resolve_ident binds the name n, used as a value, Go's resolveIdent (see
+// settle).
+func resolve_ident(mut r Res, n id[ast.Node], sc Sc) error {
+    mark := len(r.diags)
+    bind_ident(mut r, n, sc)?
+    return settle(mut r, n, mark, sc)
+}
+
+// bind_ident does resolve_ident's work, Go's bindIdent: a parameter or a
+// variable, a variable marked read, or the function of its name when no
+// parameter or variable has it there.
+func bind_ident(mut r Res, n id[ast.Node], sc Sc) error {
+    nm := name_of(mut r, n)?
+    if nm.qualified {
+        return bind_qualified_value(mut r, n, nm, sc)
+    }
+    if nm.sym == r.sym_blank {
+        mut m := new_msg()
+        fmt.appendf(mut m, "cannot use _ as a value")?
+        return error_at(mut r, span_of_name(r, n), own m)
+    }
+    if types.reserved(sym_text(r.syms, nm.sym)) {
+        return is_a_type(mut r, n, nm, "cannot use %s as a value; it is a type")
+    }
+    use := lookup_use(r, sc, nm.sym)
+    if use.rejected {
+        return rejected_use(mut r, n, use.decl)
+    }
+    if !use.visible {
+        return bind_func_value(mut r, n, nm)
+    }
+    if use.decl.is_type_name() {
+        return is_a_type(mut r, n, nm, "cannot use %s as a value; it is a type")
+    }
+    if use.decl.kind == ast.def_import {
+        return not_a(mut r, n, nm, "value")
+    }
+    set_def(mut r.prog.trees, r.unit, n, use.decl)
+    if use.decl.kind == ast.def_var {
+        put(mut r.read, key_of(use.decl), true)?
+    }
+    return noerror
+}
+
+// bind_func_value binds the name n, which no parameter, variable or type
+// has where it is used as a value, to the function of the package it
+// names, Go's bindFuncValue; a builtin's name is reported, and any other
+// as undefined.
+func bind_func_value(mut r Res, n id[ast.Node], nm Name) error {
+    d, is_seen := seen(r, nm.sym)
+    if is_seen {
+        set_def(mut r.prog.trees, r.unit, n, d)
+        return noerror
+    }
+    if builtin_seen(r, nm.sym) {
+        mut m := new_msg()
+        fmt.appendf(mut m, "cannot use the builtin %s as a value; only a declared function can be one", sym_text(r.syms, nm.sym))?
+        return error_at(mut r, span_of_name(r, n), own m)
+    }
+    return undefined(mut r, n, nm)
+}
+
+// bind_type_operand binds x, the operand of a selector, when it names a
+// type, plain or qualified, and reports whether it does, Go's
+// bindTypeOperand: a basic type's name is left bound to nothing, and a
+// qualified one marks its import used and is settled.
+func bind_type_operand(mut r Res, x id[ast.Node], sc Sc) (bool, error) {
+    if !is_ident(r.prog.trees, r.unit, x) {
+        return false, noerror
+    }
+    nm := name_of(mut r, x)?
+    if !nm.qualified {
+        _, basic := types.lookup(sym_text(r.syms, nm.sym))
+        if basic {
+            return true, noerror
+        }
+        d, visible := lookup(r, sc, nm.sym)
+        if visible && d.is_type_name() {
+            set_def(mut r.prog.trees, r.unit, x, d)
+            return true, noerror
+        }
+        return false, noerror
+    }
+    if !qualified_type(r, nm, sc) {
+        return false, noerror
+    }
+    mark := len(r.diags)
+    q := qualified(mut r, x, nm, sc)?
+    if q.found && q.decl.kind == ast.def_type {
+        set_def(mut r.prog.trees, r.unit, x, q.decl)
+    }
+    settle(mut r, x, mark, sc)?
+    return true, noerror
+}
+
+// resolve_target binds the target n of an assignment, an increment or a
+// decrement, Go's resolveTarget: a variable, or an element of one, whose
+// index is resolved like any value, or a field of one. The chain of
+// elements and fields is walked down in a loop, its name resolved first,
+// then each index on the way back up.
+func resolve_target(mut r Res, n id[ast.Node], sc Sc) error {
+    mut links := make(list[id[ast.Node]], c_allocator)
+    mut x := n
+    for {
+        mut next id[ast.Node]
+        switch kind_at(r.prog.trees, r.unit, x) {
+        case index(ix):
+            next = ix.x
+        case selector(s):
+            next = s.x
+        default:
+        }
+        if ast.is_none(next) {
+            break
+        }
+        append(mut links, x)?
+        x = next
+    }
+    switch kind_at(r.prog.trees, r.unit, x) {
+    case ident:
+        resolve_target_name(mut r, x, sc)?
+    case slice:
+        // A slice is never a place; the type checker says so, once
+        // everything in it is bound.
+        resolve_expr(mut r, x, sc)?
+    default:
+        mut m := new_msg()
+        fmt.appendf(mut m, "cannot assign to this expression")?
+        error_at(mut r, span_at(r.prog.trees, r.unit, x), own m)?
+    }
+    mut i := len(links)
+    for i > 0 {
+        i -%= 1
+        l, ok := links[i]
+        if !ok {
+            continue
+        }
+        switch kind_at(r.prog.trees, r.unit, l) {
+        case index(ix):
+            resolve_expr(mut r, ix.index, sc)?
+        case selector(s):
+            if !ast.is_none(s.field) {
+                resolve_ident(mut r, s.field, sc)?
+            }
+        default:
+        }
+    }
+    return noerror
+}
+
+// resolve_target_name binds the variable the target n names, Go's
+// resolveTargetName (see settle).
+func resolve_target_name(mut r Res, n id[ast.Node], sc Sc) error {
+    mark := len(r.diags)
+    bind_target_name(mut r, n, sc)?
+    return settle(mut r, n, mark, sc)
+}
+
+// bind_target_name does resolve_target_name's work, Go's bindTargetName.
+func bind_target_name(mut r Res, n id[ast.Node], sc Sc) error {
+    nm := name_of(mut r, n)?
+    if nm.qualified {
+        return bind_qualified_target(mut r, n, nm, sc)
+    }
+    if nm.sym == r.sym_blank {
+        mut m := new_msg()
+        fmt.appendf(mut m, "cannot assign to _")?
+        return error_at(mut r, span_of_name(r, n), own m)
+    }
+    if types.reserved(sym_text(r.syms, nm.sym)) {
+        return is_a_type(mut r, n, nm, "cannot assign to %s; it is a type")
+    }
+    use := lookup_use(r, sc, nm.sym)
+    if use.rejected {
+        set_def(mut r.prog.trees, r.unit, n, ast.unbound_def())
+        return noerror
+    }
+    if !use.visible {
+        return undefined(mut r, n, nm)
+    }
+    if use.decl.is_type_name() {
+        return is_a_type(mut r, n, nm, "cannot assign to %s; it is a type")
+    }
+    if use.decl.kind == ast.def_import {
+        return not_a(mut r, n, nm, "variable")
+    }
+    set_def(mut r.prog.trees, r.unit, n, use.decl)
+    return noerror
+}
+
+// returns_error reports whether value is a call to a function whose last
+// result is written error, Go's returnsError. A method call, a call of a
+// method expression and a call through a function value are left to the
+// type checker, and count as one.
+func returns_error(mut r Res, value id[ast.Node]) (bool, error) {
+    if !is_call(r, value) {
+        return false, noerror
+    }
+    c := call_of(r, value)
+    switch kind_at(r.prog.trees, r.unit, c.fn) {
+    case selector(s):
+        // A selector through a type is a method expression unless it
+        // builds a union's case; through anything else it calls a method.
+        if type_operand(mut r, s.x)? {
+            built := construction(mut r, s)?
+            if !built {
+                return true, noerror
+            }
+            return false, noerror
+        }
+        return true, noerror
+    case ident(x):
+        if x.def.is_value() {
+            return true, noerror
+        }
+        if x.def.kind != ast.def_func {
+            return false, noerror
+        }
+        u := x.def.unit
+        switch kind_at(r.prog.trees, u, x.def.node) {
+        case func_decl(fid):
+            fn := func_at(r.prog.trees, u, fid)
+            n := count_items(r.prog.trees, u, fn.results)
+            if n == 0 {
+                return false, noerror
+            }
+            last := item_at(r.prog.trees, u, fn.results, n -% 1)
+            if !is_ident(r.prog.trees, u, last) || qualified_at(r.prog.trees, u, last) {
+                return false, noerror
+            }
+            k := intern_at(mut r.syms, r.prog.trees, u, ident_of(r.prog.trees, u, last).name)?
+            return k == r.sym_error, noerror
+        default:
+            return false, noerror
+        }
+    default:
+        return false, noerror
+    }
+}
+
+// type_operand reports whether x, of the tree being resolved, names a
+// type, Go's ast.TypeOperand: a name bound to a type declaration or a
+// type parameter, or an unqualified basic type's name bound to nothing.
+func type_operand(mut r Res, x id[ast.Node]) (bool, error) {
+    if !is_ident(r.prog.trees, r.unit, x) {
+        return false, noerror
+    }
+    d := ident_of(r.prog.trees, r.unit, x).def
+    if d.is_type_name() {
+        return true, noerror
+    }
+    if !d.is_none() {
+        return false, noerror
+    }
+    nm := name_of(mut r, x)?
+    _, basic := types.lookup(sym_text(r.syms, nm.sym))
+    return basic && !nm.qualified, noerror
+}
+
+// construction reports whether s, a selector of the tree being resolved,
+// names a case of a union through its type, Expr.int, Go's
+// ast.Construction.
+func construction(mut r Res, s ast.Selector) (bool, error) {
+    if !is_ident(r.prog.trees, r.unit, s.x) {
+        return false, noerror
+    }
+    td := ident_of(r.prog.trees, r.unit, s.x).def
+    if td.kind != ast.def_type {
+        return false, noerror
+    }
+    name := sym_of(mut r, s.name)?
+    switch kind_at(r.prog.trees, td.unit, type_expr_of(r.prog.trees, td.unit, td.node)) {
+    case union_type(cases):
+        for i := range count_items(r.prog.trees, td.unit, cases) {
+            c := item_at(r.prog.trees, td.unit, cases, i)
+            switch kind_at(r.prog.trees, td.unit, c) {
+            case union_case(uc):
+                k := intern_at(mut r.syms, r.prog.trees, td.unit, uc.name)?
+                if k == name {
+                    return true, noerror
+                }
+            default:
+            }
+        }
+        return false, noerror
+    default:
+        return false, noerror
+    }
+}

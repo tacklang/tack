@@ -1,13 +1,22 @@
 package ast
 
 // Package ast defines the syntax tree of a Tack source file, as the
-// parser builds it. It is a port of the Go compiler's package ast, as far
-// as the parser and the --ast dump need it so far: the nodes and what the
-// parser puts in them, and the dump. The fields later passes fill in, the
-// resolver's Def, the type checker's types and constants, are not here
-// yet; they come with the passes that set them, and the dump writes them
-// at the zero values the parser leaves them at in Go. Go's Walk and the
-// helpers the later passes call are not ported yet either.
+// parser builds it and the resolver binds it. It is a port of the Go
+// compiler's package ast, as far as the parser, the resolver and the
+// --ast and --res dumps need it so far: the nodes, what the parser and
+// the resolver put in them, a Program of trees, the walk Go's BadStmts
+// makes, and the dumps. The fields the type checker fills in, its types
+// and constants, are not here yet; they come with it, and the dumps
+// write them at the zero values the stages before it leave them at in
+// Go. Go's Walk with a visitor, and the helpers the later passes call,
+// are not ported yet either.
+//
+// A Program, Go's ast.Program, holds every tree of a compilation,
+// package by package, each package naming its run of them, so that a
+// tree is named by its place, its unit. What the resolver binds a name
+// to is a Def (see def.tck): nothing, unbound, the builtin, or a
+// declaration, by its tree's unit and its node, where Go's Ident.Def is
+// a pointer. A Ref names any other node of any tree.
 //
 // The parser produces a File from the lexer's tokens: the package
 // clause's name, the imports and top-level declarations in source order,
@@ -34,9 +43,10 @@ package ast
 // as an index into the compilation's source.Set, and byte offsets. Go's
 // zero Span, which names the file "", is unset_span here, FileID -1.
 //
-// dump renders a File as the JSON Go's driver writes for --ast, an
-// object of each node's fields keyed by Go's names, which the
-// differential harness in tackc/porttest decodes and compares with Go's.
+// dump renders a File as the JSON Go's driver writes for --ast and
+// --res, an object of each node's fields keyed by Go's names, and
+// dump_program a Program as --res writes one, which the differential
+// harness in tackc/porttest decodes and compares with Go's.
 // Go's encoder refuses a value nested more than 10000 objects and arrays
 // deep, and so does dump.
 //

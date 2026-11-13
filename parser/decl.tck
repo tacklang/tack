@@ -95,11 +95,13 @@ func (mut p Parser) parse_type_decl() (id[ast.Node], Fail, error) {
     }
 
     mut vis_span source.Span
+    mut methods span[ast.Def]
     d := mut p.add(ast.Kind.type_decl(ast.TypeDecl{
         type_expr: typ,
         name: name_str,
         name_span: name_span,
         vis_span: vis_span,
+        methods: methods,
         vis: ast.vis_private,
     }), span_in(p.file, kw.offset_start(), p.spanned(typ).end))?
     ef := mut p.end_stmt(d)?

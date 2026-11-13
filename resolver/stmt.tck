@@ -1,0 +1,585 @@
+package resolver
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import source from "tack/source"
+
+// resolve_block resolves a block's statements, the list body of the tree
+// being resolved, in a new scope nested in sc, then reports every
+// variable the block declared and never read, Go's resolveBlock.
+func resolve_block(mut r Res, body ast.Nodes, sc Sc) error {
+    block := open_scope(mut r, sc)?
+    for i := range count_items(r.prog.trees, r.unit, body) {
+        resolve_stmt(mut r, item_at(r.prog.trees, r.unit, body, i), block)?
+    }
+    unused(mut r, block)?
+    return close_scope(mut r, block)
+}
+
+// resolve_stmt binds every name the statement n mentions, and declares
+// any variable it introduces in sc, Go's resolveStmt.
+func resolve_stmt(mut r Res, n id[ast.Node], sc Sc) error {
+    switch kind_at(r.prog.trees, r.unit, n) {
+    case return_stmt(s):
+        for i := range count_items(r.prog.trees, r.unit, s.values) {
+            resolve_expr(mut r, item_at(r.prog.trees, r.unit, s.values, i), sc)?
+        }
+        return noerror
+    case if_stmt:
+        return resolve_if(mut r, n, sc)
+    case for_stmt(s):
+        return resolve_for(mut r, s, sc)
+    case for_range(s):
+        return resolve_for_range(mut r, s, sc)
+    case switch_stmt:
+        return resolve_switch(mut r, n, sc)
+    case defer_stmt(s):
+        return resolve_block(mut r, s.body, sc)
+    case region_stmt(s):
+        return resolve_region(mut r, s, sc)
+    default:
+        return resolve_simple_stmt(mut r, n, sc)
+    }
+}
+
+// if_of returns the if statement n of the tree being resolved.
+func if_of(r Res, n id[ast.Node]) ast.If {
+    switch kind_at(r.prog.trees, r.unit, n) {
+    case if_stmt(s):
+        return s
+    default:
+        mut z ast.If
+        return z
+    }
+}
+
+// resolve_if resolves the if n and the chain of else ifs after it, in a
+// loop, Go's resolveIf: an else branch that is a single if opens no scope
+// of its own, so every if of the chain is resolved in sc, and a chain of
+// any length costs no stack.
+func resolve_if(mut r Res, n id[ast.Node], sc Sc) error {
+    mut s := if_of(r, n)
+    resolve_expr(mut r, s.cond, sc)?
+    for {
+        resolve_block(mut r, s.then, sc)?
+        next := else_if(r, s)
+        if ast.is_none(next) {
+            return resolve_block(mut r, s.else_body, sc)
+        }
+        s = if_of(r, next)
+        resolve_expr(mut r, s.cond, sc)?
+    }
+}
+
+// else_if returns the if that is s's else branch, when that branch is a
+// single if, as an else if is, or none, Go's elseIf.
+func else_if(r Res, s ast.If) id[ast.Node] {
+    mut z id[ast.Node]
+    if count_items(r.prog.trees, r.unit, s.else_body) != 1 {
+        return z
+    }
+    n := item_at(r.prog.trees, r.unit, s.else_body, 0)
+    switch kind_at(r.prog.trees, r.unit, n) {
+    case if_stmt:
+        return n
+    default:
+        return z
+    }
+}
+
+// unused reports every variable sc, the innermost scope, declared and
+// never read, unless it is excused, Go's unused.
+func unused(mut r Res, sc Sc) error {
+    mut start := len(r.vars)
+    for start > 0 {
+        v, ok := var_at(r.vars, start -% 1)
+        if !ok || v.owner != sc.index {
+            break
+        }
+        start -%= 1
+    }
+    for i := range len(r.vars) {
+        if i < start {
+            continue
+        }
+        v, ok := var_at(r.vars, i)
+        if ok {
+            unused_var(mut r, v.key)?
+        }
+    }
+    return noerror
+}
+
+// var_at returns the i-th of vars, and whether there is one.
+func var_at(vars []ScopeVar, i int64) (ScopeVar, bool) {
+    v, ok := vars[i]
+    return v, ok
+}
+
+// unused_var reports the variable v when it was never read, unless it is
+// excused, Go's unused for one variable. One a call by its name passed
+// over gets a note at the call saying so. One a call or a binding of
+// several names gave a value is marked unused_deferred and left to the
+// type checker.
+func unused_var(mut r Res, v Key) error {
+    rd, is_read := r.read[v]
+    ex, is_ex := r.excused[v]
+    if is_read && rd || is_ex && ex || may_read(r, v) {
+        return noerror
+    }
+    callee, hidden := r.hidden_by[v]
+    b, is_bound := r.bound[v]
+    switch kind_at(r.prog.trees, v.unit, v.node) {
+    case var_decl(vd):
+        mut nv := vd
+        nv.unused = true
+        if is_bound && b {
+            nv.unused_deferred = true
+            if hidden {
+                nv.hidden_call = ast.Ref{set: true, unit: callee.unit, node: callee.node}
+                set_hidden(mut r.prog.trees, callee.unit, callee.node, ast.no_def())
+            }
+            set_kind(mut r.prog.trees, v.unit, v.node, ast.Kind.var_decl(nv))
+            return noerror
+        }
+        set_kind(mut r.prog.trees, v.unit, v.node, ast.Kind.var_decl(nv))
+        k := intern_at(mut r.syms, r.prog.trees, v.unit, vd.name)?
+        mut m := new_msg()
+        fmt.appendf(mut m, "declared and not used: %s", sym_text(r.syms, k))?
+        warning_at(mut r, vd.name_span, own m)?
+        if hidden {
+            set_hidden(mut r.prog.trees, callee.unit, callee.node, ast.no_def())
+            mut what := "function"
+            if ident_of(r.prog.trees, callee.unit, callee.node).def.kind == ast.def_builtin {
+                what = "builtin"
+            }
+            mut n := new_msg()
+            fmt.appendf(mut n, "this call calls the %s %s, not the variable; rename one of them", what, sym_text(r.syms, k))?
+            note_last(mut r, span_at(r.prog.trees, callee.unit, callee.node), own n)?
+        }
+    default:
+    }
+    return noerror
+}
+
+// var_name_span returns where the name of the variable v is written.
+func var_name_span(trees []ast.File, v Key) source.Span {
+    switch kind_at(trees, v.unit, v.node) {
+    case var_decl(vd):
+        return vd.name_span
+    default:
+        return ast.unset_span()
+    }
+}
+
+// var_sym returns the symbol of the name of the variable node n of the
+// tree being resolved.
+func var_sym(mut r Res, n id[ast.Node]) (int64, error) {
+    switch kind_at(r.prog.trees, r.unit, n) {
+    case var_decl(v):
+        k := sym_of(mut r, v.name)?
+        return k, noerror
+    default:
+        return -1, noerror
+    }
+}
+
+// declare_var adds the variable n of the tree being resolved to sc, the
+// innermost scope, Go's declareVar. Its type and value are resolved
+// first, so a variable cannot refer to itself. No variable may reuse a
+// name already visible from here.
+func declare_var(mut r Res, n id[ast.Node], sc Sc) error {
+    mut v ast.Var
+    switch kind_at(r.prog.trees, r.unit, n) {
+    case var_decl(vd):
+        v = vd
+    default:
+        return noerror
+    }
+    mark := len(r.diags)
+    if !ast.is_none(v.type_expr) {
+        resolve_type(mut r, v.type_expr, sc)?
+    }
+    if !ast.is_none(v.value) {
+        resolve_expr(mut r, v.value, sc)?
+    }
+    k := sym_of(mut r, v.name)?
+    if is_reserved_name(r, k) {
+        reject(mut r, sc, k)?
+        reserved_name(mut r, k, v.name_span)?
+        return noerror
+    }
+    existing, visible := lookup(r, sc, k)
+    if visible {
+        reject(mut r, sc, k)?
+        return redeclared(mut r, k, v.name_span, existing)
+    }
+    key := Key{unit: r.unit, node: n}
+    if len(r.diags) > mark {
+        put(mut r.excused, key, true)?
+    }
+    declare(mut r, sc, k, var_def(key))?
+    return add_var(mut r, sc, key)
+}
+
+// resolve_region resolves a region, Go's resolveRegion: its name, a
+// variable of the region's own scope unless it is _, and its body, a
+// block nested in that scope.
+func resolve_region(mut r Res, s ast.Region, sc Sc) error {
+    inner := open_scope(mut r, sc)?
+    k := var_sym(mut r, s.var_node)?
+    if k != r.sym_blank {
+        declare_var(mut r, s.var_node, inner)?
+    }
+    resolve_block(mut r, s.body, inner)?
+    unused(mut r, inner)?
+    return close_scope(mut r, inner)
+}
+
+// switch_of returns the switch n of the tree being resolved.
+func switch_of(r Res, n id[ast.Node]) ast.Switch {
+    switch kind_at(r.prog.trees, r.unit, n) {
+    case switch_stmt(s):
+        return s
+    default:
+        mut z ast.Switch
+        return z
+    }
+}
+
+// clause_of returns the case clause n of the tree being resolved.
+func clause_of(r Res, n id[ast.Node]) ast.CaseClause {
+    switch kind_at(r.prog.trees, r.unit, n) {
+    case case_clause(c):
+        return c
+    default:
+        mut z ast.CaseClause
+        return z
+    }
+}
+
+// is_type_switch reports whether s is a type switch, its tag x.(type),
+// Go's IsTypeSwitch.
+func is_type_switch(r Res, s ast.Switch) bool {
+    switch kind_at(r.prog.trees, r.unit, s.tag) {
+    case type_assert(a):
+        return ast.is_none(a.type_expr)
+    default:
+        return false
+    }
+}
+
+// resolve_switch resolves the switch n, Go's resolveSwitch: its tag and
+// every case value where the switch is, and each case's body as a block
+// of its own nested in sc, in source order. A type switch's binding is
+// declared in no scope of its own: each case declares a variable of its
+// own under it, and the binding is reported unused, once, when no case
+// reads its variable.
+func resolve_switch(mut r Res, n id[ast.Node], sc Sc) error {
+    s := switch_of(r, n)
+    if s.on_type {
+        return resolve_param_switch(mut r, s, sc)
+    }
+    if !ast.is_none(s.tag) {
+        resolve_expr(mut r, s.tag, sc)?
+    }
+    bound := check_binding(mut r, s, sc)?
+    mut used := false
+    for i := range count_items(r.prog.trees, r.unit, s.cases) {
+        cn := item_at(r.prog.trees, r.unit, s.cases, i)
+        rejected := resolve_case_values(mut r, s, cn, sc)?
+        resolve_case(mut r, cn, bound || ast.is_none(s.bind), s.bind, rejected, sc)?
+        cv := clause_of(r, cn).var_node
+        if !ast.is_none(cv) {
+            rd, ok := r.read[Key{unit: r.unit, node: cv}]
+            used = used || ok && rd
+        }
+    }
+    if bound && !used {
+        for i := range count_items(r.prog.trees, r.unit, s.cases) {
+            cv := clause_of(r, item_at(r.prog.trees, r.unit, s.cases, i)).var_node
+            switch kind_at(r.prog.trees, r.unit, cv) {
+            case var_decl(vd):
+                mut nv := vd
+                nv.unused = true
+                set_kind(mut r.prog.trees, r.unit, cv, ast.Kind.var_decl(nv))
+            default:
+            }
+        }
+        switch kind_at(r.prog.trees, r.unit, s.bind) {
+        case var_decl(b):
+            k := sym_of(mut r, b.name)?
+            mut m := new_msg()
+            fmt.appendf(mut m, "declared and not used: %s", sym_text(r.syms, k))?
+            warning_at(mut r, b.name_span, own m)?
+        default:
+        }
+    }
+    return noerror
+}
+
+// resolve_case_values resolves the values of the clause cn of s where the
+// switch is, sc, Go's resolveCaseValues: a type switch's as types, a
+// tagless switch's as values, and an expression switch's as values or a
+// union's patterns, the variable one binds recorded as the clause's. It
+// returns the names a pattern's binding declares nothing for.
+func resolve_case_values(mut r Res, s ast.Switch, cn id[ast.Node], sc Sc) (list[int64], error) {
+    mut rejected := make(list[int64], c_allocator)
+    cl := clause_of(r, cn)
+    if is_type_switch(r, s) {
+        for i := range count_items(r.prog.trees, r.unit, cl.values) {
+            resolve_type(mut r, item_at(r.prog.trees, r.unit, cl.values, i), sc)?
+        }
+        return rejected, noerror
+    }
+    if !ast.is_none(s.tag) {
+        bound := case_patterns(mut r, cl, sc, mut rejected)?
+        switch kind_at(r.prog.trees, r.unit, cn) {
+        case case_clause(c):
+            mut nc := c
+            nc.var_node = bound
+            set_kind(mut r.prog.trees, r.unit, cn, ast.Kind.case_clause(nc))
+        default:
+        }
+        return rejected, noerror
+    }
+    for i := range count_items(r.prog.trees, r.unit, cl.values) {
+        resolve_expr(mut r, item_at(r.prog.trees, r.unit, cl.values, i), sc)?
+    }
+    return rejected, noerror
+}
+
+// check_binding reports the name a type switch binds when no variable can
+// be declared with it where the switch is, sc, and reports whether each
+// case may declare its variable under that name, Go's checkBinding.
+func check_binding(mut r Res, s ast.Switch, sc Sc) (bool, error) {
+    mut b ast.Var
+    switch kind_at(r.prog.trees, r.unit, s.bind) {
+    case var_decl(v):
+        b = v
+    default:
+        return false, noerror
+    }
+    k := sym_of(mut r, b.name)?
+    reserved := reserved_name(mut r, k, b.name_span)?
+    if reserved {
+        return false, noerror
+    }
+    existing, visible := lookup(r, sc, k)
+    if visible {
+        redeclared(mut r, k, b.name_span, existing)?
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// resolve_case resolves the body of the clause cn of a switch nested in
+// sc as a block of its own, Go's resolveCase, with the case's variable,
+// if bound says the binding b allows one, declared at its start; one
+// whose binding was reported is rejected there instead, and so is each
+// of rejected.
+func resolve_case(mut r Res, cn id[ast.Node], bound bool, b id[ast.Node], rejected []int64, sc Sc) error {
+    cl := clause_of(r, cn)
+    block := open_scope(mut r, sc)?
+    if !ast.is_none(cl.var_node) && bound {
+        k := var_sym(mut r, cl.var_node)?
+        declare(mut r, block, k, var_def(Key{unit: r.unit, node: cl.var_node}))?
+    } else if !ast.is_none(b) {
+        k := var_sym(mut r, b)?
+        reject(mut r, block, k)?
+    }
+    for _, k := range rejected {
+        reject(mut r, block, k)?
+    }
+    for i := range count_items(r.prog.trees, r.unit, cl.body) {
+        resolve_stmt(mut r, item_at(r.prog.trees, r.unit, cl.body, i), block)?
+    }
+    unused(mut r, block)?
+    return close_scope(mut r, block)
+}
+
+// resolve_for resolves a loop in a scope of its own, nested in sc, which
+// holds any variable its init statement declares, Go's resolveFor; the
+// body is a block nested in that.
+func resolve_for(mut r Res, s ast.For, sc Sc) error {
+    inner := open_scope(mut r, sc)?
+    if !ast.is_none(s.init) {
+        resolve_simple_stmt(mut r, s.init, inner)?
+    }
+    if !ast.is_none(s.cond) {
+        resolve_expr(mut r, s.cond, inner)?
+    }
+    if !ast.is_none(s.post) {
+        resolve_simple_stmt(mut r, s.post, inner)?
+    }
+    resolve_block(mut r, s.body, inner)?
+    unused(mut r, inner)?
+    return close_scope(mut r, inner)
+}
+
+// resolve_for_range resolves a range loop, Go's resolveForRange: what it
+// ranges over where the loop is, then its variables in a scope of the
+// loop's own, with the body nested in that.
+func resolve_for_range(mut r Res, s ast.ForRange, sc Sc) error {
+    resolve_expr(mut r, s.x, sc)?
+    inner := open_scope(mut r, sc)?
+    declare_range_vars(mut r, s, inner)?
+    resolve_block(mut r, s.body, inner)?
+    unused(mut r, inner)?
+    return close_scope(mut r, inner)
+}
+
+// declare_range_vars declares a range loop's variables in sc, the index
+// first, Go's declareRangeVars. With two names, a _ declares nothing, and
+// both being _ is reported. A lone name is declared like any variable.
+func declare_range_vars(mut r Res, s ast.ForRange, sc Sc) error {
+    if ast.is_none(s.elem) {
+        if ast.is_none(s.var_node) {
+            return noerror
+        }
+        return declare_var(mut r, s.var_node, sc)
+    }
+    vk := var_sym(mut r, s.var_node)?
+    ek := var_sym(mut r, s.elem)?
+    if vk == r.sym_blank && ek == r.sym_blank {
+        vs := span_at(r.prog.trees, r.unit, s.var_node)
+        es := span_at(r.prog.trees, r.unit, s.elem)
+        mut m := new_msg()
+        fmt.appendf(mut m, "every name is _, so nothing is bound; remove the names and :=")?
+        return error_at(mut r, source.Span{file: vs.file, start: vs.start, end: es.end}, own m)
+    }
+    if vk != r.sym_blank {
+        declare_var(mut r, s.var_node, sc)?
+    }
+    if ek != r.sym_blank {
+        declare_var(mut r, s.elem, sc)?
+    }
+    return noerror
+}
+
+// is_call reports whether n of the tree being resolved is a call.
+func is_call(r Res, n id[ast.Node]) bool {
+    switch kind_at(r.prog.trees, r.unit, n) {
+    case call:
+        return true
+    default:
+        return false
+    }
+}
+
+// resolve_simple_stmt resolves a statement that holds no other
+// statement, Go's resolveSimpleStmt.
+func resolve_simple_stmt(mut r Res, n id[ast.Node], sc Sc) error {
+    switch kind_at(r.prog.trees, r.unit, n) {
+    case expr_stmt(s):
+        return resolve_expr(mut r, s.x, sc)
+    case var_decl(v):
+        if is_call(r, v.value) {
+            put(mut r.bound, Key{unit: r.unit, node: n}, true)?
+        }
+        return declare_var(mut r, n, sc)
+    case assign(a):
+        resolve_expr(mut r, a.value, sc)?
+        resolve_target(mut r, a.target, sc)?
+        if is_call(r, a.value) {
+            note_bound(mut r, a.target)?
+        }
+        return noerror
+    case inc_dec(s):
+        return resolve_target(mut r, s.target, sc)
+    case multi_var(m):
+        return declare_multi_var(mut r, m, span_at(r.prog.trees, r.unit, n), sc)
+    case multi_assign(m):
+        return resolve_multi_assign(mut r, m, span_at(r.prog.trees, r.unit, n), sc)
+    default:
+        return noerror
+    }
+}
+
+// declare_multi_var resolves the value of a declaration of several
+// variables, m over sp, then declares each of them in order, Go's
+// declareMultiVar. A _ in the list declares nothing, and may not be mut;
+// a list of nothing but _ is reported unless the call returns an error.
+func declare_multi_var(mut r Res, m ast.MultiVar, sp source.Span, sc Sc) error {
+    resolve_expr(mut r, m.value, sc)?
+    mut blanks int64 = 0
+    n := count_items(r.prog.trees, r.unit, m.vars)
+    for i := range n {
+        vn := item_at(r.prog.trees, r.unit, m.vars, i)
+        k := var_sym(mut r, vn)?
+        if k != r.sym_blank {
+            declare_var(mut r, vn, sc)?
+            put(mut r.bound, Key{unit: r.unit, node: vn}, true)?
+            continue
+        }
+        blanks +%= 1
+        switch kind_at(r.prog.trees, r.unit, vn) {
+        case var_decl(v):
+            if v.mutable {
+                mut msg := new_msg()
+                fmt.appendf(mut msg, "cannot use mut on _")?
+                error_at(mut r, span_at(r.prog.trees, r.unit, vn), own msg)?
+            }
+        default:
+        }
+    }
+    if blanks == n && !returns_error(mut r, m.value)? {
+        return nothing_bound(mut r, sp)
+    }
+    return noerror
+}
+
+// resolve_multi_assign resolves the value of an assignment of several
+// results, m over sp, then binds each target other than _, Go's
+// resolveMultiAssign.
+func resolve_multi_assign(mut r Res, m ast.MultiAssign, sp source.Span, sc Sc) error {
+    resolve_expr(mut r, m.value, sc)?
+    mut blanks int64 = 0
+    n := count_items(r.prog.trees, r.unit, m.targets)
+    for i := range n {
+        t := item_at(r.prog.trees, r.unit, m.targets, i)
+        blank := is_blank(mut r, t)?
+        if blank {
+            blanks +%= 1
+            continue
+        }
+        resolve_target(mut r, t, sc)?
+        note_bound(mut r, t)?
+    }
+    if blanks == n && !returns_error(mut r, m.value)? {
+        return nothing_bound(mut r, sp)
+    }
+    return noerror
+}
+
+// is_blank reports whether n of the tree being resolved is the name _,
+// Go's IsBlank.
+func is_blank(mut r Res, n id[ast.Node]) (bool, error) {
+    if !is_ident(r.prog.trees, r.unit, n) {
+        return false, noerror
+    }
+    k := sym_of(mut r, ident_of(r.prog.trees, r.unit, n).name)?
+    return k == r.sym_blank, noerror
+}
+
+// nothing_bound reports a binding of several results, over sp, whose
+// every name is _.
+func nothing_bound(mut r Res, sp source.Span) error {
+    mut m := new_msg()
+    fmt.appendf(mut m, "every name is _, so nothing is bound; make the call on its own")?
+    return error_at(mut r, sp, own m)
+}
+
+// note_bound records target, an assignment's, as bound when it is a
+// variable's name, Go's noteBound.
+func note_bound(mut r Res, target id[ast.Node]) error {
+    if !is_ident(r.prog.trees, r.unit, target) {
+        return noerror
+    }
+    d := ident_of(r.prog.trees, r.unit, target).def
+    if d.kind == ast.def_var {
+        put(mut r.bound, key_of(d), true)?
+        return noerror
+    }
+    return noerror
+}

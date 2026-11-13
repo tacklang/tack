@@ -145,7 +145,7 @@ func (mut p Parser) parse_qualified() (id[ast.Node], error) {
     name := mut p.next()
     pkg_str := mut p.tok_str(pkg)?
     name_str := mut p.tok_str(name)?
-    n := mut p.add(ast.Kind.ident(ast.Ident{pkg: pkg_str, name: name_str, pkg_span: tok_span(p.file, pkg)}),
+    n := mut p.add(ast.Kind.ident(ast.Ident{pkg: pkg_str, name: name_str, pkg_span: tok_span(p.file, pkg), def: ast.no_def(), hidden: ast.no_def()}),
         span_in(p.file, pkg.offset_start(), name.offset_end()))?
     return n, noerror
 }

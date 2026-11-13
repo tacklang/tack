@@ -2,7 +2,6 @@ package ast
 
 import json from "std/json"
 import source from "tack/source"
-import text from "std/text"
 
 // The --ast dump. Go's driver renders a File with encoding/json, whose
 // reflection writes each node as an object of its struct's exported
@@ -10,14 +9,19 @@ import text from "std/text"
 // tagged omitempty left out at their zero value, a nil slice as null and
 // an empty one as [], and an interface holding a node as that node's
 // object, with nothing saying which type it is. dump writes the same
-// value field for field, in the order Go declares them, with the fields
-// the passes after the parser fill in at the zero value the parser leaves
-// them at: every Type and Conv 0, every Const and Def null, every
+// value field for field, in the order Go declares them, with what the
+// resolver fills in, a Def, a Call's Conv and a Var's Unused, as it left
+// them, and the fields the type checker fills in at the zero value the
+// stages before it leave them at: every Type 0, every Const null, every
 // ResultTypes null, and a literal's constant.Int or constant.Float {},
-// since neither has an exported field. An Ident's Def is null and its
-// PkgSpan and Pkg left out unless it is qualified, as its MarshalJSON
-// writes it. Go indents the JSON; dump writes it compact, which decodes to
-// the same value.
+// since neither has an exported field. An Ident is written as its
+// MarshalJSON writes it: its Def a DeclRef, the declaration's kind, name
+// and name span, or null for one that names no declaration, and its
+// PkgSpan and Pkg left out unless it is qualified. A Def names its
+// declaration by its tree's place among the program's, so writing one
+// reads that tree, and a span is written with the name of its file,
+// which the Set of the compilation's files gives. Go indents the JSON;
+// dump writes it compact, which decodes to the same value.
 //
 // A tree is as deep as its source makes it: a chain of a thousand binary
 // operators is a thousand nodes deep, though it nests no deeper for the
@@ -27,15 +31,17 @@ import text from "std/text"
 // at a time: writing one is a step of the walk, and a field holding a
 // node pushes it.
 
-// dump returns the JSON value of f, the tree of the file named name, as
-// Go's driver writes it for --ast, made through alloc, and an empty
-// refusal; or, for a tree whose JSON would nest objects and arrays more
-// than max_depth deep, which Go's encoder refuses, an empty list and the
-// error Go's encoder words its refusal with (see refusal). It returns the
-// builtin append's out of memory when the JSON cannot grow.
-pub func dump(f File, name []uint8, scope alloc Allocator) (list[uint8], string, error) {
+// dump returns the JSON value of f, a tree whose files files names, as
+// Go's driver writes it for --ast and --res, made through alloc, and an
+// empty refusal; or, for a tree whose JSON would nest objects and arrays
+// more than max_depth deep, which Go's encoder refuses, an empty list and
+// the error Go's encoder words its refusal with (see refusal). trees are
+// the program's trees, which f's Defs name declarations in, none for a
+// tree that is not resolved. It returns the builtin append's out of
+// memory when the JSON cannot grow.
+pub func dump(f File, files source.Set, trees []File, scope alloc Allocator) (list[uint8], string, error) {
     mut d := Dumper{w: json.new_writer(alloc), depth: 0, stack: make(list[Frame], alloc), in_ident: false, deep_in_ident: false}
-    e := write_file(f, name, mut d)
+    e := write_file(f, files, trees, mut d)
     if e.code == too_deep.code && e.msg == too_deep.msg {
         return make(list[uint8], alloc), refusal(d.deep_in_ident), noerror
     }
@@ -47,14 +53,14 @@ pub func dump(f File, name []uint8, scope alloc Allocator) (list[uint8], string,
 }
 
 // dump_list returns the JSON value of trees, the trees of several files,
-// each named by the name at its index in names, as Go's driver writes a
-// []*ast.File for --ast: an array of what dump gives for each, which
-// opens one container more around them, so Go's encoder refuses a tree
-// one level shallower than dump does. Its refusal and its errors are
+// which files names, as Go's driver writes a []*ast.File for --ast: an
+// array of what dump gives for each, which opens one container more
+// around them, so Go's encoder refuses a tree one level shallower than
+// dump does. The trees are not resolved. Its refusal and its errors are
 // dump's.
-pub func dump_list(trees []File, names []text.Text, scope alloc Allocator) (list[uint8], string, error) {
+pub func dump_list(trees []File, files source.Set, scope alloc Allocator) (list[uint8], string, error) {
     mut d := Dumper{w: json.new_writer(alloc), depth: 0, stack: make(list[Frame], alloc), in_ident: false, deep_in_ident: false}
-    e := write_files(trees, names, mut d)
+    e := write_files(trees, files, mut d)
     if e.code == too_deep.code && e.msg == too_deep.msg {
         return make(list[uint8], alloc), refusal(d.deep_in_ident), noerror
     }
@@ -65,20 +71,61 @@ pub func dump_list(trees []File, names []text.Text, scope alloc Allocator) (list
     return out, "", noerror
 }
 
-// write_files writes trees, each named by the name at its index in
-// names, as an array.
-func write_files(trees []File, names []text.Text, mut d Dumper) error {
+// write_files writes trees, which files names, as an array. Their Defs
+// name nothing, so none of them is read for one.
+func write_files(trees []File, files source.Set, mut d Dumper) error {
     mut d.begin_array()?
-    // Each tree's name is found by a scan of names, quadratic in a
-    // package's files, which are few.
-    for i, f := range trees {
-        for j, n := range names {
-            if j == i {
-                write_file(f, n.bytes(), mut d)?
-            }
-        }
+    for _, f := range trees {
+        write_file(f, files, trees[:0], mut d)?
     }
     return mut d.end_array()
+}
+
+// dump_program returns the JSON value of prog, a resolved program whose
+// files files names, as Go's driver writes an *ast.Program for --res:
+// an object of its Packages, each with its Name, Path, Module and Files,
+// which opens four containers around each tree, so Go's encoder refuses
+// a tree four levels shallower than dump does. Its refusal and its
+// errors are dump's.
+pub func dump_program(prog Program, files source.Set, scope alloc Allocator) (list[uint8], string, error) {
+    mut d := Dumper{w: json.new_writer(alloc), depth: 0, stack: make(list[Frame], alloc), in_ident: false, deep_in_ident: false}
+    e := write_program(prog, files, mut d)
+    if e.code == too_deep.code && e.msg == too_deep.msg {
+        return make(list[uint8], alloc), refusal(d.deep_in_ident), noerror
+    }
+    if e.code != 0 {
+        return make(list[uint8], alloc), "", e
+    }
+    out := mut d.w.finish(alloc)?
+    return out, "", noerror
+}
+
+// write_program writes prog as Go writes an ast.Program: its Packages,
+// each an object of Go's ast.Package's fields.
+func write_program(prog Program, files source.Set, mut d Dumper) error {
+    mut d.begin_object()?
+    mut d.key("Packages")?
+    mut d.begin_array()?
+    for _, pkg := range prog.packages {
+        mut d.begin_object()?
+        mut d.key("Name")?
+        mut d.w.string(pkg.name.bytes())?
+        mut d.key("Path")?
+        mut d.w.string(pkg.path.bytes())?
+        mut d.key("Module")?
+        mut d.w.string(pkg.module.bytes())?
+        mut d.key("Files")?
+        mut d.begin_array()?
+        for u, f := range prog.trees {
+            if pkg.in(u) {
+                write_file(f, files, prog.trees, mut d)?
+            }
+        }
+        mut d.end_array()?
+        mut d.end_object()?
+    }
+    mut d.end_array()?
+    return mut d.end_object()
 }
 
 // refusal returns how Go's encoder words its refusal of a value nested
@@ -171,22 +218,22 @@ func (mut d Dumper) key(s string) error {
     return mut d.w.key([]uint8(s))
 }
 
-// write_file writes f, the tree of the file named name, as Go writes an
-// ast.File.
-func write_file(f File, name []uint8, mut d Dumper) error {
+// write_file writes f, whose files files names, as Go writes an
+// ast.File, its Defs naming declarations of trees.
+func write_file(f File, files source.Set, trees []File, mut d Dumper) error {
     mut d.begin_object()?
     mut d.key("Package")?
     mut d.w.string(f.text(f.package_name))?
     mut d.key("Imports")?
     mut d.begin_array()?
     for _, n := range f.imports {
-        write_tree(f, name, mut d, n)?
+        write_tree(f, files, trees, mut d, n)?
     }
     mut d.end_array()?
     mut d.key("Decls")?
     mut d.begin_array()?
     for _, n := range f.decls {
-        write_tree(f, name, mut d, n)?
+        write_tree(f, files, trees, mut d, n)?
     }
     mut d.end_array()?
     mut d.key("Comments")?
@@ -195,27 +242,30 @@ func write_file(f File, name []uint8, mut d Dumper) error {
         mut d.begin_object()?
         mut d.key("Value")?
         mut d.w.string(f.text(c.value))?
-        write_span(name, mut d, "Span", c.span)?
+        write_span(files, mut d, "Span", c.span)?
         mut d.end_object()?
     }
     mut d.end_array()?
-    write_span(name, mut d, "Span", f.span)?
-    write_span(name, mut d, "PackageSpan", f.package_span)?
+    write_span(files, mut d, "Span", f.span)?
+    write_span(files, mut d, "PackageSpan", f.package_span)?
     return mut d.end_object()
 }
 
-// write_span writes the member k, the span sp, in the file named name, as
-// Go writes an ast.Span: its File, the file's name, which is the FileID
-// in Go, or "" for a span never set (see unset_span), and its Start and
-// End.
-func write_span(name []uint8, mut d Dumper, k string, sp source.Span) error {
+// write_span writes the member k, the span sp, of a file files names,
+// as Go writes an ast.Span: its File, the file's name, which is the
+// FileID in Go, or "" for a span never set (see unset_span), and its
+// Start and End.
+func write_span(files source.Set, mut d Dumper, k string, sp source.Span) error {
     mut d.key(k)?
     mut d.begin_object()?
     mut d.key("File")?
-    if sp.file.n < 0 {
-        mut d.w.string(name[:0])?
-    } else {
-        mut d.w.string(name)?
+    mut named := false
+    for _, file := range files.lookup(sp.file) {
+        mut d.w.string(file.filename.bytes())?
+        named = true
+    }
+    if !named {
+        mut d.w.string([]uint8(""))?
     }
     mut d.key("Start")?
     mut d.w.int(sp.start)?
@@ -230,17 +280,17 @@ func new_frame(n id[Node]) Frame {
     return Frame{n: n, op: 0, in_list: false, items: Nodes{items: items, made: false}, pos: 0}
 }
 
-// write_tree writes the node n and everything under it, a value where
-// one is expected, with the Dumper's stack, which it leaves as it found
-// it: empty.
-func write_tree(f File, name []uint8, mut d Dumper, n id[Node]) error {
+// write_tree writes the node n of f and everything under it, a value
+// where one is expected, with the Dumper's stack, which it leaves as it
+// found it: empty.
+func write_tree(f File, files source.Set, trees []File, mut d Dumper, n id[Node]) error {
     if is_none(n) {
         return mut d.w.null()
     }
     append(mut d.stack, new_frame(n))?
     for len(d.stack) > 0 {
         mut fr := last_frame(d.stack)
-        child := step(f, name, mut d, mut fr)?
+        child := step(f, files, trees, mut d, mut fr)?
         set_last_frame(mut d.stack, fr)
         if fr.op < 0 {
             pop(mut d.stack)
@@ -276,7 +326,7 @@ func set_last_frame(mut stack list[Frame], fr Frame) {
 // written, or its next Op. It returns the node a field or an item holds,
 // for the walk to write next, or none, and sets fr.op to -1 once the
 // node is written.
-func step(f File, name []uint8, mut d Dumper, mut fr Frame) (id[Node], error) {
+func step(f File, files source.Set, trees []File, mut d Dumper, mut fr Frame) (id[Node], error) {
     if fr.in_list {
         item, ok := f.items(fr.items)[fr.pos]
         if ok {
@@ -319,7 +369,7 @@ func step(f File, name []uint8, mut d Dumper, mut fr Frame) (id[Node], error) {
             fr.pos = 0
         }
     case span_value(o):
-        write_span(name, mut d, o.key, o.sp)?
+        write_span(files, mut d, o.key, o.sp)?
     case str(o):
         mut d.key(o.key)?
         mut d.w.string(f.text(o.s))?
@@ -339,8 +389,30 @@ func step(f File, name []uint8, mut d Dumper, mut fr Frame) (id[Node], error) {
         mut d.key(k)?
         mut d.begin_object()?
         mut d.end_object()?
+    case decl_ref(o):
+        write_decl_ref(files, trees, mut d, o)?
     }
     return no_child(), noerror
+}
+
+// write_decl_ref writes the member o.key, the DeclRef Go writes for the
+// Def o.def: an object of the declaration's Kind, Name and NameSpan, read
+// from its node in trees, or null when trees has no such tree, which a
+// resolved program's Defs never name.
+func write_decl_ref(files source.Set, trees []File, mut d Dumper, o DeclRefOp) error {
+    mut d.key(o.key)?
+    u := o.def.unit
+    if u < 0 || u >= len(trees) {
+        return mut d.w.null()
+    }
+    mut d.begin_object()?
+    mut d.key("Kind")?
+    mut d.w.string([]uint8(o.def.kind_name()))?
+    mut d.key("Name")?
+    mut d.w.string(decl_name(trees[u], o.def.node))?
+    sp := decl_name_span(trees[u], o.def.node)
+    write_span(files, mut d, "NameSpan", sp)?
+    return mut d.end_object()
 }
 
 // is_ident reports whether n is an Ident.
@@ -383,6 +455,58 @@ type Op union {
     number IntOp
     flag BoolOp
     empty string
+    // decl_ref is a field holding the DeclRef of a Def that names a
+    // declaration.
+    decl_ref DeclRefOp
+}
+
+// decl_name returns the name the declaration n of t declares, or nothing
+// for a node that is no declaration.
+pub func decl_name(t File, n id[Node]) []uint8 {
+    switch t.nodes[n].k {
+    case func_decl(fid):
+        return t.text(t.funcs[fid].name)
+    case param_decl(pid):
+        return t.text(t.params[pid].name)
+    case var_decl(v):
+        return t.text(v.name)
+    case type_decl(td):
+        return t.text(td.name)
+    case type_param(tp):
+        return t.text(tp.name)
+    case import_decl(imp):
+        return t.text(imp.name)
+    default:
+        return t.text(empty_bytes())
+    }
+}
+
+// decl_name_span returns where the name the declaration n of t declares
+// is written, Go's nameSpan, or the node's span for a node that is no
+// declaration.
+pub func decl_name_span(t File, n id[Node]) source.Span {
+    switch t.nodes[n].k {
+    case func_decl(fid):
+        return t.funcs[fid].name_span
+    case param_decl(pid):
+        return t.params[pid].name_span
+    case var_decl(v):
+        return v.name_span
+    case type_decl(td):
+        return td.name_span
+    case type_param(tp):
+        return tp.name_span
+    case import_decl(imp):
+        return imp.name_span
+    default:
+        return t.nodes[n].span
+    }
+}
+
+// DeclRefOp is a field, key, holding the DeclRef of def.
+type DeclRefOp struct {
+    key string
+    def Def
 }
 
 // NodeOp is a field, key, holding the node n.
@@ -681,6 +805,8 @@ func var_op(v Var, sp source.Span, i int64) Op {
         return bool_op("Mutable", v.mutable)
     case 9:
         return vis_op(v.vis)
+    case 10:
+        return omit_bool_op("Unused", v.unused)
     }
     return Op.close
 }
@@ -851,7 +977,7 @@ func expr_op(f File, k Kind, sp source.Span, i int64) Op {
         case 6:
             return omit_bool_op("Spread", c.spread)
         case 7:
-            return zero_op("Conv")
+            return int_op("Conv", c.conv.number())
         }
     case ident(name):
         return ident_op(f, name, sp, i)
@@ -1036,11 +1162,15 @@ func expr_op(f File, k Kind, sp source.Span, i int64) Op {
 }
 
 // ident_op is op_at for name, a name over sp, as Go's Ident.MarshalJSON
-// writes it: Def null, and PkgSpan and Pkg only for a qualified name.
+// writes it: Def a DeclRef, or null for a Def that names no declaration,
+// and PkgSpan and Pkg only for a qualified name.
 func ident_op(f File, name Ident, sp source.Span, i int64) Op {
     qualified := len(f.text(name.pkg)) > 0
     switch i {
     case 1:
+        if name.def.is_decl() {
+            return Op.decl_ref(DeclRefOp{key: "Def", def: name.def})
+        }
         return null_op("Def")
     case 2:
         if !qualified {

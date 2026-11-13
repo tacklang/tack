@@ -12,43 +12,51 @@ on the same inputs and compare what each writes and how it exits.
 
 ## Status
 
-The port has the compiler's first three stages: packages `source`,
+The port has the compiler's first four stages: packages `source`,
 `diag` and `lexer`; `ast`, `parser` and `constant`, ported from the Go
 compiler's packages of those names, `constant` as far as the parser
 needs it: integer constants in full, and whether a float literal can be
-held exactly, without the float constant's value yet; and `modfile` and
+held exactly, without the float constant's value yet; `modfile` and
 `loader`, which find a program's files, in a directory, a module
 (`tack.mod`) and the packages it imports, std's among them, and put
 them together, as the Go compiler's do, but for its libraries, which
-`--check` loads, and its test mode, which `tack test` uses. The driver
-answers `tack --backends` as the Go compiler does; `tack --lex` and
-`tack --ast` of a single file, a directory or an import path, the token
-dump, a header line before each file's when there are several, and the
-syntax trees as JSON that decodes to the value the Go compiler writes,
-a list of them for a package; and `tack --res`, for which it loads the
-program in full, with the standard library, but only as far as loading
-goes: when loading stops with no program, its diagnostics are the
-answer, and otherwise there is a resolver to run, which the port has
-not got yet. Its usage errors, its errors reading files and
-directories, every load diagnostic and every load error are written
-byte for byte as the Go compiler writes them. To any other command
-line, and to what it cannot answer yet, it writes one line
+`--check` loads, and its test mode, which `tack test` uses; and
+`resolver`, which binds every name of the program, with `types`, as far
+as the resolver needs it, the basic types, `cname`, whole, and
+`builtin`, the builtins' names and the files the compiler carries
+inside it: the builtins' documentation and the C runtime with its
+header, which `tools/embed` writes into `builtin/embedded.tck` as
+string literals, since Tack has no `go:embed` (see package builtin).
+The driver answers `tack --backends` as the Go compiler does; `tack
+--lex` and `tack --ast` of a single file, a directory or an import
+path, the token dump, a header line before each file's when there are
+several, and the syntax trees as JSON that decodes to the value the Go
+compiler writes, a list of them for a package; and `tack --res`, for
+which it loads the program in full, with the standard library, and
+resolves it: the resolved tree, a single file's taken as Go's driver
+takes it, the first tree of the program's first package, and a
+package's as the whole program, with the warnings, or the diagnostics
+of loading and resolving together. Its usage errors, its errors
+reading files and directories, and every diagnostic are written byte
+for byte as the Go compiler writes them. To any other command line,
+and to what it cannot answer yet, it writes one line
 
     tack: not implemented in the port: <what>
 
 to standard error, naming the first argument, an unknown flag, or what
-it cannot do, as in `--res of a program that loads`, and exits with
-status 3, which the harness reads as a stage the port does not
-implement yet. A file or directory whose reading fails with an error
-the port cannot word exactly as the Go compiler would is answered the
-same way (see package loader).
+it cannot do, and exits with status 3, which the harness reads as a
+stage the port does not implement yet. A file or directory whose
+reading fails with an error the port cannot word exactly as the Go
+compiler would is answered the same way (see package loader).
 
 The driver has one flag the Go compiler has not, `--port-loaded`, which
 writes what a load in full gives: the program's packages, in order,
-their files and C files, what each import is bound to, and every
-diagnostic in the order it was reported. tackc's porttest compares it
-with what the Go loader gives, until `--res` can dump a loaded program
-itself, when it goes.
+their directories, files and C files, what each import is bound to, the
+error count, and every diagnostic in the order it was reported.
+tackc's porttest compares it with what the Go loader gives, since
+`--res` shows none of the directories, C files, the count or the
+bindings of imports no qualified name uses, and dumps nothing for a
+program with an error; it stays until the builds check those.
 
 ### Known differences
 
@@ -141,5 +149,14 @@ From tackc,
 
 fuzzes `--lex`: it builds both compilers once and runs tackc's
 FuzzLexDiff, which compares their output on generated inputs.
-`PORT_FUZZ=FuzzParseDiff` fuzzes `--ast` the same way, and
-`PORT_FUZZ=FuzzLoadDiff` what both load from generated file trees.
+`PORT_FUZZ=FuzzParseDiff` fuzzes `--ast` the same way,
+`PORT_FUZZ=FuzzResDiff` `--res`, and `PORT_FUZZ=FuzzLoadDiff` both
+dumps of generated file trees.
+
+`builtin/embedded.tck` is written by `tools/embed` from tackc's
+`builtin/` directory, which, from tackc,
+
+    TACK_PORT=<this repository> make port-embed
+
+runs; tackc's porttest fails while the file differs from what that
+writes, or from the files it holds.

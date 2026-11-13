@@ -1,0 +1,199 @@
+package resolver
+
+import ast from "tack/ast"
+import source from "tack/source"
+import types from "tack/types"
+
+// Invalid names. The resolver goes on past every error it reports, and
+// runs on trees the parser recovered from errors in, so a name may name
+// nothing because of an error already known: its declaration was
+// reported, its import could not be loaded, or the declaration or
+// statement that would have declared it could not be parsed. Such a name
+// is bound to unbound and not reported, so each error is reported once,
+// at its cause. Damaged source hides uses as well as declarations: a
+// variable a bad statement may have read, an import or a global a bad
+// declaration or statement may have used, is not reported unused, and a
+// missing main a bad declaration may have been is not reported either.
+// This is Go's invalid.go; Go's damage is the package's lost, lost_all
+// and damage_units, and the function's from and last, in Res.
+
+// new_damage records what the bad nodes of the package being resolved
+// hide, Go's newDamage: the names its bad declarations were declaring,
+// whether one got to no name, and the files with a bad declaration or a
+// function with a bad statement.
+func new_damage(mut r Res) error {
+    for u := range r.count {
+        unit := r.first +% u
+        for i := range count_decls(r.prog.trees, unit) {
+            d := decl_at(r.prog.trees, unit, i)
+            switch kind_at(r.prog.trees, unit, d) {
+            case bad_decl(bd):
+                put(mut r.damage_units, unit, true)?
+                put(mut r.damaged, r.pkg, true)?
+                k := intern_at(mut r.syms, r.prog.trees, unit, bd.name)?
+                if k == empty_sym(mut r)? {
+                    put(mut r.lost_all, r.pkg, true)?
+                } else if !bd.method {
+                    put(mut r.lost, PKey{pkg: r.pkg, sym: k}, true)?
+                }
+            case func_decl(fid):
+                fn := func_at(r.prog.trees, unit, fid)
+                spread := bad_spread(r.prog.trees, unit, fn.body)?
+                if spread.any {
+                    put(mut r.damage_units, unit, true)?
+                    put(mut r.damaged, r.pkg, true)?
+                }
+            default:
+            }
+        }
+    }
+    return noerror
+}
+
+// empty_sym returns the symbol of the empty name, a bad declaration's
+// that got to no name.
+func empty_sym(mut r Res) (int64, error) {
+    k := intern(mut r.syms, []uint8(""))?
+    return k, noerror
+}
+
+// bad_spread returns where the bad statements of body, of the tree
+// unit, are (see ast.bad_stmts).
+func bad_spread(trees []ast.File, unit int64, body ast.Nodes) (ast.BadSpread, error) {
+    if unit < 0 || unit >= len(trees) {
+        return ast.BadSpread{any: false, first: -1, last: -1}, noerror
+    }
+    s := ast.bad_stmts(trees[unit], body, c_allocator)?
+    return s, noerror
+}
+
+// enter_body records where the bad statements of body, the body of the
+// function of the tree being resolved, are, Go's enterBody.
+func enter_body(mut r Res, body ast.Nodes) error {
+    spread := bad_spread(r.prog.trees, r.unit, body)?
+    r.bad_from = spread.first
+    r.last = spread.last
+    return noerror
+}
+
+// may_declare reports whether damaged source may have declared the name
+// k where it is used, at sp, Go's mayDeclare: a bad declaration of the
+// package, or a bad statement of the function before it.
+func may_declare(r Res, k int64, sp source.Span) bool {
+    all, has_all := r.lost_all[r.pkg]
+    if has_all && all {
+        return true
+    }
+    l, has := r.lost[PKey{pkg: r.pkg, sym: k}]
+    if has && l {
+        return true
+    }
+    return r.bad_from >= 0 && sp.start > r.bad_from
+}
+
+// may_read reports whether a bad statement of the function being
+// resolved may have read the local variable v: it is declared before the
+// last one, Go's mayRead.
+func may_read(r Res, v Key) bool {
+    return r.last >= 0 && var_name_span(r.prog.trees, v).start < r.last
+}
+
+// settle finishes the binding of the name n of the tree being resolved,
+// used in sc, whose binding reported the diagnostics after the first
+// mark, Go's settle: a name that names nothing usable is bound to
+// unbound, and its problems are dropped when what they say follows from
+// an error already known. A name a declaration visible here declares,
+// which was reported, is one; so is one no declaration visible here
+// declares, which damaged source may have declared.
+func settle(mut r Res, n id[ast.Node], mark int64, sc Sc) error {
+    if len(r.diags) <= mark {
+        return noerror
+    }
+    x := ident_of(r.prog.trees, r.unit, n)
+    if x.def.is_none() {
+        set_def(mut r.prog.trees, r.unit, n, ast.unbound_def())
+    }
+    name := sym_of(mut r, x.name)?
+    if qualified_at(r.prog.trees, r.unit, n) {
+        pkg := sym_of(mut r, x.pkg)?
+        lost := lost_qualified(r, pkg, name, x.pkg_span, sc)
+        if lost {
+            drop_to(mut r, mark)
+        }
+        return noerror
+    }
+    if is_rejected(r, sc, name) {
+        drop_to(mut r, mark)
+        return noerror
+    }
+    if unknown(r, name, sc) && may_declare(r, name, span_at(r.prog.trees, r.unit, n)) {
+        drop_to(mut r, mark)
+    }
+    return noerror
+}
+
+// unknown reports whether the name k, used in sc, is one no declaration
+// visible there declares, and no function or builtin of the package, nor
+// _ or a basic type's name, which nothing declares, Go's unknown.
+func unknown(r Res, k int64, sc Sc) bool {
+    _, visible := lookup(r, sc, k)
+    if visible {
+        return false
+    }
+    _, is_func := seen(r, k)
+    if is_func || builtin_seen(r, k) {
+        return false
+    }
+    _, is_basic := types.lookup(sym_text(r.syms, k))
+    return k != r.sym_blank && !is_basic
+}
+
+// lost_qualified reports whether the qualified name pkg.name, used in
+// sc, its package's name written at pkg_span, names nothing because of
+// damaged source, Go's lostQualified: no import of pkg is visible, and
+// damaged source may have declared one, or the package imported has
+// damaged declarations that may have declared name.
+func lost_qualified(r Res, pkg int64, name int64, pkg_span source.Span, sc Sc) bool {
+    d, visible := lookup(r, sc, pkg)
+    if !visible {
+        return may_declare(r, pkg, pkg_span)
+    }
+    if d.kind != ast.def_import {
+        return false
+    }
+    target := import_target(r, d)
+    if target < 0 {
+        return false
+    }
+    _, declared := member(r, target, name)
+    if declared {
+        return false
+    }
+    all, has_all := r.lost_all[target]
+    l, has := r.lost[PKey{pkg: target, sym: name}]
+    return has_all && all || has && l
+}
+
+// rejected_use binds the name n, used as a value where a declaration of
+// it visible there, d, if any, was reported, or a declaration between the
+// use and d was, to unbound, Go's rejectedUse: which of them the use
+// means is unknown. d, a variable, counts as read, since the use may
+// mean it.
+func rejected_use(mut r Res, n id[ast.Node], d ast.Def) error {
+    set_def(mut r.prog.trees, r.unit, n, ast.unbound_def())
+    if d.kind == ast.def_var {
+        put(mut r.read, key_of(d), true)?
+    }
+    return noerror
+}
+
+// lost_type binds the name n, written as a type that no declaration
+// visible here declares, to unbound, and reports whether it did, Go's
+// lostType: damaged source may have declared it.
+func lost_type(mut r Res, n id[ast.Node], k int64) bool {
+    if !may_declare(r, k, span_at(r.prog.trees, r.unit, n)) {
+        return false
+    }
+    set_def(mut r.prog.trees, r.unit, n, ast.unbound_def())
+    return true
+}

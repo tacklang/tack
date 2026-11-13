@@ -1,0 +1,61 @@
+package builtin
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+
+// header_path is the path every C file of a program and of std includes
+// the runtime's header by, as in #include <tack/tack.h>, Go's HeaderPath.
+pub var header_path = "tack/tack.h"
+
+// RuntimeFile is one of the runtime's C files, Go's RuntimeFile: its base
+// name and its bytes.
+pub type RuntimeFile struct {
+    pub name string
+    pub data string
+}
+
+// runtime_count returns how many C files the runtime has.
+pub func runtime_count() int64 {
+    return len(runtime_names)
+}
+
+// runtime_file returns the i-th of the runtime's C files, in the byte
+// order of their names, as Go's RuntimeCFiles lists them, and whether
+// there is one.
+pub func runtime_file(i int64) (RuntimeFile, bool) {
+    name, has_name := runtime_names[i]
+    data, has_data := runtime_data[i]
+    if !has_name || !has_data {
+        return RuntimeFile{name: "", data: ""}, false
+    }
+    return RuntimeFile{name: name, data: data}, true
+}
+
+// runtime_header returns the bytes of the runtime's header, tack.h, Go's
+// RuntimeHeader.
+pub func runtime_header() string {
+    return header
+}
+
+// doc_filename is the base name of the builtins' documentation, Go's
+// DocFilename.
+pub var doc_filename = "builtin.tck"
+
+// source returns the builtins' documentation, the bytes of builtin.tck,
+// Go's Source.
+pub func source() string {
+    return doc
+}
+
+// copy_differs reports whether data, a copy of the builtins'
+// documentation, differs from the one built into the compiler, when Go's
+// CopyError returns an error.
+pub func copy_differs(data []uint8) bool {
+    return !bytes.equal(data, []uint8(doc))
+}
+
+// append_copy_error appends to out the message of Go's CopyError for the
+// copy named name, which differs.
+pub func append_copy_error(mut out list[uint8], name []uint8) error {
+    return fmt.appendf(mut out, "%s differs from the builtins built into the compiler; refresh it with make std-copies, or make install-std for an installed std", name)
+}
