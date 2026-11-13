@@ -56,8 +56,9 @@
 // the Go compiler, unless its stage is named in required.txt, one name a
 // line, where blank lines and lines starting with # are ignored; then it
 // fails. A stage enters required.txt once the port implements it, so it
-// cannot quietly stop working. required.txt also names loaded, the check
-// TestLoadOrder makes outside TestPort. A name in required.txt that is no
+// cannot quietly stop working. required.txt also names loaded and
+// types-decls, the checks TestLoadOrder and TestTypes make outside
+// TestPort. A name in required.txt that is no
 // stage or check fails TestPort, and TestRequiredFile in every go test
 // ./porttest.
 //
@@ -262,6 +263,47 @@
 // it is not implemented skips, unless loaded, the check's name, is in
 // required.txt, as it is, where then it fails, but for an input marked
 // as one the port may decline.
+//
+// # Types
+//
+// TestTypes checks what the port's type checker finds, for every input
+// of the corpus, single files and packages, the port's own driver among
+// them, that the Go compiler accepts with no error, and for every case
+// of check-decls, the type checker's cases whose stage is S1, the
+// declarations, all of whose errors Go reports before its first body:
+// each loaded, resolved and checked in process by this module's loader,
+// resolver and checker, typeck.New(...).Check(), as --port-types checks
+// it, whatever the stages before reported. Any other input of the corpus
+// is no input of the check, and passes at once, counted in the log. The
+// port writes what it finds with --port-types, a flag of its own, as
+// flat JSON, lists and never a nested tree, so a program of any size
+// dumps: its phase, every type of the table with every query the Table
+// answers about it, every declaration of the program, in prog.Decls()
+// order, with the types and the constant value the checker recorded on
+// it, the instances, the errors, in order, each with its file, its
+// span's start and end, its message and its notes, and the kinds of
+// judgment the port took as holding without proving them, logged, not
+// compared, and none so far. The test builds the same from Go's checker
+// and compares what the port's phase covers: in "decls", its declaration
+// phase, everything Go's Check does before the first function body
+// (typeck/check.go:604), the declarations, the errors and the table up to
+// the port's count, which must be a prefix of Go's, since every type Go
+// adds before bodies comes first; from S2a on, when the port checks
+// bodies, the table must match Go's whole. A function's value Go sets
+// only where a body uses it as a value, so in "decls" Go's is compared
+// as it stood then, invalid; the instances are found after bodies. A
+// port that answers --port-types is not implemented skips, unless
+// types-decls, the check's name, is in
+// required.txt, as it is, where then it fails. TestTypesDeep runs the
+// same check on declaration chains a hundred thousand links long, which
+// have no nesting limit and which Go's checker walks with a frame a
+// link: globals each naming the next, in its value and in its type's
+// array length, structs each holding the next by value, and array
+// lengths, values and bools written as long chains of operators; and a
+// thousand globals each adding types before and after it names the next,
+// whose IDs show that the checks of globals nested in each other add
+// them in Go's order. The port runs with its stack held to deepStack KB.
+// Both run only as TestPort does.
 //
 // # Deep nesting
 //
