@@ -1,0 +1,15 @@
+package main
+
+// A main package with tests beside it, in main_test.tck: a build leaves
+// them out and runs main, which exits with double(21), and tack test runs
+// them instead, never main, which the generated main replaces as the
+// entry.
+
+// double returns n doubled.
+func double(n int32) int32 {
+    return n *% 2
+}
+
+func main() {
+    exit(double(21))
+}

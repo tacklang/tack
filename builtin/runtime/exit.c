@@ -9,8 +9,9 @@
 // that finds stdout's pipe with no reader ends the process through
 // tack_stdio_failed_, with status 141 rather than code; errno is cleared
 // before it, as before every checked write. Exit then marks the process
-// as ending (tack_ending_), so a destructor that writes during C's exit
-// and finds the broken pipe cannot call exit again. Every allocator
+// as ending with code (tack_ending_), so a destructor that writes during
+// C's exit and finds the broken pipe cannot call exit again, and an
+// atexit handler can read the status (tack_exit_status_). Every allocator
 // then frees every buffer it still holds, so nothing the program
 // allocated outlives it, whatever still held it. The status is an
 // int32_t, which C's exit takes as an int with no narrowing; only its low
@@ -22,7 +23,7 @@ _Noreturn void tack_builtin_exit(int32_t code) {
     if (fflush(stdout) == EOF) {
         tack_stdio_failed_();
     }
-    tack_ending_();
+    tack_ending_(code);
     tack_allocators_release_all_();
     exit(code);
 }

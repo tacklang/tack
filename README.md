@@ -228,6 +228,24 @@ tack --check .                 # every library package at or below .
 tack --check --res cmd/tool    # the resolved tree and every diagnostic
 ```
 
+`tack test` builds a package with its tests and runs them (see "Tests"
+in "The language today"). A first argument of `test` is always the
+subcommand, so a directory named `test` is built as `tack --out bin
+./test`, and tested as `tack test ./test`. Its target is a directory or
+an import path, as a build's is, `.` by default; a file is a usage
+error. Its flags go
+before the target: `-run <text>` runs only the tests whose names hold
+`text`, byte for byte, case and all; `-v` writes a line for each test
+as it ends; and `-O0` to `-Oz` set the level, as for a build. It exits 0
+when every test passed, 1 when one failed, the package has errors or
+the build fails, and 2 when the command line is wrong.
+
+```sh
+tack test                      # the package in the current directory
+tack test -v -run parse ./lexer
+tack test src/std/hex          # std's own packages have tests too
+```
+
 Diagnostics and errors go to stderr. The exit status is 0 on success, 1 when
 the program has errors or the build fails, and 2 when the command line is
 wrong. A warning, `warning:` where an error says `error:`, is something
@@ -495,7 +513,8 @@ section remains the description of the language.
   and one with no other Tack file at or below its root is `no .tck files
   other than test files in dir or below`. A test file named as a target
   is an error before it is read, `dir/x_test.tck is a test file, which is
-  never loaded on its own`. Nothing runs test files yet.
+  never loaded on its own`. Only `tack test` reads test files, the target
+  package's alone (see tests).
 - A directory is compiled in its module. A module is a directory tree
   whose root holds a `tack.mod`, which names it in one line, `module
   calc`, and may hold `//` comments, which run to the end of the line
@@ -643,7 +662,8 @@ section remains the description of the language.
   [`big`](src/std/big/big.tck), which holds integers of any size (see
   big), [`json`](src/std/json/json.tck), which writes JSON (see
   json), and [`testing`](src/std/testing/testing.tck), whose `Site` is
-  the place a call was written (see call sites).
+  the place a call was written (see call sites), and whose `T` and
+  runner `tack test` builds tests with (see tests).
   A std package follows every rule a package of the program's module
   does. Its `pub` names are usable from every package, its private names
   only from itself, `hidden is not pub in package std/util`, and its `lib`
@@ -1777,6 +1797,102 @@ section remains the description of the language.
   declare exactly those four fields, in order, each `pub`, or it is
   `testing.Site must be struct { pub file string; pub line int64; pub
   col int64; pub excerpt string }: a call fills in those fields`.
+- Tests. `tack test dir` builds the package in `dir` with its test files,
+  those whose names end in `_test.tck`, and runs its tests; no other
+  package's test files are read, and a directory of only test files is
+  a package of them. A test is a package-level function of a test file
+  whose name starts with `test_`, `test_` alone included, and must be
+  declared `func test_x(mut t testing.T) error`, with `testing` imported
+  from `std/testing`: anything else, a generic one, a method, another
+  parameter or result, a parameter that is not `mut` or not a
+  `testing.T`, or an extern func, is an error at its name, `test_x is a
+  test, so it must be declared func test_x(mut t testing.T) error, not
+  generic and not a method`. A function named `test_` in a file that is
+  not a test file is no test. The tests are in the package, so they see
+  its private names. They run one after another, in the byte order of
+  their files' names and then in source order, in a binary that runs in
+  the package's directory, so a relative path names a file beside the
+  tests. The package may be a main package, whose `main` never runs, and
+  must still declare one, `main function not found`; a library; or a
+  package of std, as `tack test src/std/hex` runs: `std/testing` imports
+  no std package, so std's own tests make no import cycle. A test that
+  imports a package importing the one under test is `import cycle: m/a
+  imports m/b imports m/a`.
+
+  A test reports through its `T`. `mut t.errorf(format, args...)`
+  reports a failure, its message formatted as `fmt.eprintf` formats, and
+  lets the test go on; `return mut t.fatalf(format, args...)` reports one
+  and stops the test with the error it returns; and `t.failed()` says
+  whether it has failed so far. Both take a `testing.Site` first, which
+  the call passes, so a helper that declares `_ testing.Site` reports
+  where it was called. A format the compiler knows is checked as
+  printf's is, `errorf verb %d does not take string`, called as a method
+  or through its type, `testing.T.errorf(mut t, ...)`. An error a test
+  returns any other way fails it too, reported at the last `?` that
+  returned an error through the test's `T`: a `?` in a test's own body,
+  not in a closure's, stores its place in that test's `T`, so a plain
+  `return` reports the last place stored, by the test or by another
+  test it called with its `T`, and the test's name when none was. So does a buffer of `c_allocator`'s the test allocated
+  and did not free, which only C code behind an extern func can leave,
+  counted before and after each test; `c_allocator` grants every request
+  again after each test, whatever one asked of it. Every report goes to
+  standard error, as a diagnostic does: its place, `fail:`, the test's
+  name and the message on one line, the source around the place under
+  it, and an empty line:
+
+  ```
+  fail/fail_test.tck:59:10: fail: test_question: returned error 3: no such key
+  58 |	    n := lookup("a")?
+  59 |	    m := lookup("b")?
+     |	         ^~~~~~~~~~~~
+  60 |	    mut t.errorf("the ? did not return: %d %d", n, m)
+
+  ```
+
+  The messages are the test's own for `errorf` and `fatalf`, `returned
+  error <code>: <msg>` for an error returned, and `1 buffer allocated
+  during the test was not freed` or `N buffers allocated during the test
+  were not freed` for a leak. The run's last line is `ok <pkg>: N tests`
+  when none failed, and the status 0, or `FAIL <pkg>: K of N tests
+  failed`, and 1, `<pkg>` being the package's import path. `-v` adds `ok
+  test_x` or `FAIL test_x` as each test ends. A `-run` pattern that
+  matches no test is `tack test: -run "<text>" matched no test in <pkg>`,
+  and 1. A test that calls `exit` ends the run, whatever the status, 0
+  included: every buffer is freed, as `exit` frees them, and the test is
+  reported at its name, `fail: test_x called exit(3); 2 tests did not
+  run`, counting the tests after it that would have run, then the run's
+  last line, `FAIL <pkg>: K of N tests failed`, K counting that test and
+  the failures before it and N every test that would have run, and the
+  status is 1. One that C code ends with C's `exit` from inside a test
+  is reported the same way, `fail: test_x ended the process from C; N
+  tests did not run`, and the last line after it. A write to a pipe with
+  no reader ends the run as it ends any program, with status 141 and
+  nothing more written by the tests, and `tack test` says `FAIL <pkg>:
+  the test binary exited with status 141`; a test that calls `exit(141)`
+  itself cannot be told from it, and ends the same way. A binary killed
+  by a signal, which no valid program is, is `FAIL <pkg>: the test
+  binary was killed by signal 11 (segmentation fault)`. All are status
+  1.
+
+  The main that runs the tests is generated, a Tack file of the package
+  that calls `std/testing`'s runner, `start`, `run` for each test and
+  `finish`, and is the binary's entry in `main`'s place. The names it
+  declares are `tack_test_main_`, its function, `tack_test_names_`, the
+  array of the tests' names, and `tack_testing_`, the name it imports
+  `std/testing` by: a package-level function, variable or type of the
+  package named like one, or an import named like the first two, which
+  share the package's scope, is an error at its name before anything is
+  checked, `tack_test_names_ is declared by the main tack test generates;
+  rename it`. An import named `tack_testing_` is its own file's, and
+  clashes with nothing. Anything else the stages report in the generated
+  main is dropped when something else is an error, and otherwise an
+  `internal error: tack test generated a main that does not compile:
+  ...`. A module named `std`
+  holds its own `std/testing`, whose `T` must have a field `at` of type
+  `testing.Site`, where a `?` in a test stores its place, or it is
+  `testing.T must have a field at of type testing.Site: a ? in a test
+  stores its place there`. There are no subtests, no skipping, no
+  logging but through `errorf`, no benchmarks and no parallel tests.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`
@@ -4538,8 +4654,11 @@ go test ./test -update
 Every directory under `examples/` is a test case, and so is every case in
 `examples/invalid.txtar`, which exists to pin the diagnostic each malformed
 program produces, and in `examples/invalid-packages.txtar`, for programs of
-several files; `go test ./test -update` also rewrites their expected
-sections. The programs whose problem shows only once their C files are
+several files, and in `examples/invalid-tests.txtar`, for packages `tack
+test` rejects, each built as it builds one, with its test files and the
+main it generates; `go test ./test -update` also rewrites their expected
+sections. The packages of `examples/tack-test` are run by `tack test` in
+the driver's tests, which assert every report and exit status. The programs whose problem shows only once their C files are
 compiled, a C file that does not compile or defines what it must not, or
 an extern func no C file defines, are in `examples/invalid-c.txtar`, in the
 same format with the `.c` files among each case's files; the driver's

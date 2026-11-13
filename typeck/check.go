@@ -15,6 +15,15 @@ import (
 // Checker type-checks a program. It is single-use: create one with New and
 // call Check once.
 type Checker struct {
+	// Tests, if set before Check, checks the program as tack test builds
+	// a package's tests: its tests' declarations, and a ? in a test
+	// recording its place (see tests.go).
+	Tests bool
+
+	// tests holds every test declared as a test must be (see
+	// checkTests); nil until one is met.
+	tests map[*ast.Func]bool
+
 	prog  *ast.Program
 	table *types.Table // the program's types, recorded on it by Check
 
@@ -568,6 +577,7 @@ func (c *Checker) Check() []diag.Diagnostic {
 	c.declareStructs()
 	c.checkGlobals(decls)
 	c.checkSiteShape()
+	c.checkTestingT()
 	c.resolveInterfaces(decls)
 
 	// Signatures are resolved for every function before any body is checked,
@@ -589,6 +599,7 @@ func (c *Checker) Check() []diag.Diagnostic {
 
 	c.checkExposure(decls)
 	c.checkCNames(decls)
+	c.checkTests(decls)
 
 	for _, decl := range decls {
 		if fn, ok := decl.(*ast.Func); ok {

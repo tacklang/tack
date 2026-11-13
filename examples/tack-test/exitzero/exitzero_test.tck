@@ -1,0 +1,23 @@
+package exitzero
+
+import testing from "std/testing"
+
+// Package exitzero's middle test calls exit(0), which ends the run as
+// any exit does: a status of 0 is no pass, the test is reported, and
+// tack test exits 1. Only exitzero_test.tck holds Tack, so the package
+// is only tests.
+
+// test_first passes.
+func test_first(mut t testing.T) error {
+    return noerror
+}
+
+// test_exit_zero ends the process with status 0.
+func test_exit_zero(mut t testing.T) error {
+    exit(0)
+}
+
+// test_last never runs.
+func test_last(mut t testing.T) error {
+    return noerror
+}

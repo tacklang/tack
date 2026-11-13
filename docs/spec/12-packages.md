@@ -53,7 +53,10 @@ file. A directory whose only Tack files are test files holds no package,
 with no other Tack file at or below it, `no .tck files other than test
 files in dir or below`. A test file named as the file to compile is an
 error, `dir/x_test.tck is a test file, which is never loaded on its
-own`.
+own`. Only `tack test` reads test files: those of the package it tests,
+with the package's own files, as one package. A function of a test file
+whose name starts with `test_` is a test, and must be declared `func
+test_x(mut t testing.T) error`; the README's "Tests" says how they run.
 
 The files are read in the byte order of their names. Every file is
 lexed, and then every file parsed, so the problems of each are

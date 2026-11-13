@@ -411,11 +411,20 @@ void tack_end_(void);
 // for the program to see.
 void tack_stdio_failed_(void);
 
-// tack_ending_ marks the process as ending, so that tack_stdio_failed_,
-// reached again from a destructor or atexit handler while C's exit runs,
-// returns rather than call exit inside exit. exit calls it; nothing else
-// may.
-void tack_ending_(void);
+// tack_ending_ marks the process as ending with status, so that
+// tack_stdio_failed_, reached again from a destructor or atexit handler
+// while C's exit runs, returns rather than call exit inside exit, and
+// records status for tack_exit_status_. exit calls it; nothing else may.
+void tack_ending_(int32_t status);
+
+// tack_exit_status_ reports whether exit, or tack_stdio_failed_ finding
+// a broken pipe, has begun to end the process, and stores the status it
+// ends with in *status: the code exit was called with, or 141 for the
+// broken pipe, whichever began the end. Neither has when Tack's main
+// returns, or C code calls C's exit itself. It allocates nothing, so an
+// atexit handler may call it; std/testing's does, to tell a test that
+// called exit from one whose output pipe broke.
+bool tack_exit_status_(int32_t *status);
 
 // tack_c_allocator_live_ returns how many buffers c_allocator has given
 // out and not had back, for tests that check every list is freed.

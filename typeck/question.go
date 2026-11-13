@@ -82,6 +82,7 @@ func (c *Checker) checkQuestion(q *ast.Question) ([]types.Type, bool) {
 	if len(results) == 1 {
 		q.Type = results[0]
 	}
+	c.recordQuestionSite(q)
 	c.proveQuestionContract(q)
 	return results, true
 }

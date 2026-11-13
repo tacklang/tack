@@ -99,7 +99,9 @@ func (g *graph) load(from *ast.Package, imp *ast.Import) *ast.Package {
 		g.errorAt(imp, msg)
 		return nil
 	}
-	if g.main != nil && p == g.main.Path {
+	// A package loaded for its tests may be any package, and importing
+	// it back from one it imports is a cycle, which state says below.
+	if g.main != nil && p == g.main.Path && g.main.Name == mainPackage {
 		g.errorAt(imp, fmt.Sprintf("cannot import %s: it is a main package", show(p)))
 		return nil
 	}

@@ -1,0 +1,13 @@
+package exits
+
+// Package exits has a test that calls exit(3), in exits_test.tck, which
+// ends the run there: the test is reported at its declaration, with how
+// many of the tests after it would have run, and tack test exits 1. The
+// buffer the test holds is freed by exit, as always. The tests after it
+// say "ran" when they run, which none does.
+
+// Steps returns what test_exit appends to the list it holds when it
+// exits.
+pub func Steps() [3]int64 {
+    return [3]int64{1, 2, 3}
+}

@@ -182,7 +182,16 @@
 // one, the argument the type checker passes it on as to a call in the
 // body (see ast.Call.Site and blankParamName). The Site argument of a
 // call that does not pass one on is the struct literal the checker made,
-// lowered as any other, its file and excerpt pooled strings. A function whose
+// lowered as any other, its file and excerpt pooled strings. A ? in a
+// test that tack test builds stores such a literal of its own place in
+// the test's testing.T, (*p_t).f_at = ..., first thing when its error is
+// set, before the frees and the return (see ast.Question.Site), so the
+// runner reports the error where the ? is.
+//
+// C's main calls Tack's main, or the program's Entry when it has one, the
+// main tack test generates for a package's tests (see ast.Program.Entry),
+// which may be any package: a program with an Entry is never a library,
+// whatever its last package is named. A function whose
 // lowered body never names one of its parameters, which Tack allows, as
 // a callback or a generic function ignoring one does, starts with (void)p_x; for it, so C's unused-parameter
 // warning never fires (see unusedParams). A function, an instance, a map

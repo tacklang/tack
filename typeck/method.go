@@ -59,6 +59,9 @@ func (c *Checker) checkMethodCall(call *ast.Call) {
 	c.checkExclusive(muts)
 	c.checkListBorrows(call)
 	c.checkCaptures(call)
+	if isVariadic(params) {
+		c.checkPrintf(call, fn)
+	}
 }
 
 // method checks the receiver of call, a method call whose callee is sel,

@@ -58,6 +58,13 @@ type Program struct {
 	// found them; nil before then, and left out of the JSON dump.
 	Instances []*Instance `json:"-"`
 
+	// Entry is the function the program starts at, when it is not the
+	// main function of a main package: the generated main of a package's
+	// tests (see package testmain), which the driver sets. The C backend
+	// calls it where it would call main, and the type checker never
+	// reports it unused. Left out of the JSON dump.
+	Entry *Func `json:"-"`
+
 	// Errors counts the errors the stages that have run reported about
 	// the program: the loader sets it, and the resolver and the type
 	// checker add theirs. A program with errors is checked as far as it

@@ -1,14 +1,47 @@
 package testing
 
-// Package testing holds Site, the place in the source a call was written.
-// A program imports it as
+// Package testing is what tack test builds a package's tests with: T, the
+// handle a test reports through, Site, the place in the source a call
+// was written, and the runner the generated main calls. A test file
+// imports it as
 //
 //     import testing from "std/testing"
 //
 // and the compiler reads it from $TACK_HOME/src/std/testing, or
-// ~/.tack/src/std/testing, as it reads std/bytes. It is written in Tack
-// alone, with no C, and imports no other std package, so that any std
-// package's tests can import it without an import cycle.
+// ~/.tack/src/std/testing, as it reads std/bytes. Its Tack is here, and
+// its C, which formats and writes every report, in testing.c, which the
+// driver compiles and links with the tests, as it does any package's C
+// files. It imports no other std package, so that any std package's
+// tests can import it without an import cycle; testing.c formats through
+// std/fmt's formatter all the same, by including its C header,
+// ../fmt/format.h, so a report's message is formatted exactly as
+// fmt.eprintf formats it.
+//
+// A test is a function in a file whose name ends in _test.tck, named
+// test_ and anything, declared
+//
+//     func test_parse(mut t testing.T) error
+//
+// It reports a failure with errorf, which lets it go on, or with fatalf,
+// whose error it returns, which stops it:
+//
+//     if got != 3 {
+//         mut t.errorf("count(%s) = %d, want 3", s, got)
+//     }
+//     if !ok {
+//         return mut t.fatalf("no header in %s", name)
+//     }
+//
+// An error it returns any other way fails it too, reported at the place
+// of the last ? that returned an error through the test's T, or, when
+// none did, at the test's declaration: a ? in the test's own body, or in
+// another test the test called with its T, stores its place there, and
+// a plain return reports the last place stored. So
+// does a buffer it allocates and does not free, and a call to exit. All
+// of it is written to standard error, as the compiler writes a
+// diagnostic: the place, fail:, the test's name and the message on one
+// line, the source around the place under it, and an empty line. T
+// allocates nothing.
 //
 // A function or a method may declare one parameter of type Site, which a
 // call never writes an argument for: the compiler passes the call's own
@@ -17,12 +50,15 @@ package testing
 // own passes that one on instead, so a helper that declares a
 // `_ testing.Site` reports the place its own caller was written:
 //
-//     func expect(_ testing.Site, ok bool) { ... }
+//     func expect(_ testing.Site, mut t testing.T, ok bool) { ... }
 //
-//     func expect_both(_ testing.Site, a bool, b bool) {
-//         expect(a)
-//         expect(b) // both pass the place expect_both was called from
+//     func expect_both(_ testing.Site, mut t testing.T, a bool, b bool) {
+//         expect(mut t, a)
+//         expect(mut t, b) // both pass the place expect_both was called from
 //     }
+//
+// errorf and fatalf are such methods, so a failure a helper reports is
+// reported where the helper was called.
 //
 // A call in a closure's body passes its own place: a closure has no Site
 // parameter. A function with a Site parameter is only ever called by
@@ -50,3 +86,158 @@ pub type Site struct {
     pub col     int64
     pub excerpt string
 }
+
+// T is a test's handle, which the runner makes for each test and passes
+// as mut: what the test reported, and where it returned an error from.
+// bad is whether it has failed, stopped whether fatalf stopped it, and
+// at the place of the last ? that returned an error through it, which
+// the compiler stores there itself as that ? returns, in the body of a
+// test, not a closure's, whichever test's T it is; its line is 0 when no
+// ? did.
+pub type T struct {
+    bad     bool
+    stopped bool
+    at      Site
+}
+
+// errorf reports a failure of the test at the place the call was
+// written: format with its verbs replaced by args, exactly as
+// fmt.eprintf formats it, on the line that names the place and the test,
+// and the source around the place under it. It marks the test failed
+// and lets it go on. The compiler checks a format it knows, a literal,
+// against args, as it does eprintf's.
+pub func (mut t T) errorf(at Site, format string, args ...any) {
+    c_fail(at.file, at.line, at.col, at.excerpt, format, args...)
+    t.bad = true
+}
+
+// fatalf reports a failure as errorf does, marks the test failed and
+// stopped, and returns an error for the test to return, which stops it:
+// return mut t.fatalf("..."). The runner reports nothing more of that
+// error, or of any error the test returns after it.
+pub func (mut t T) fatalf(at Site, format string, args ...any) error {
+    c_fail(at.file, at.line, at.col, at.excerpt, format, args...)
+    t.bad = true
+    t.stopped = true
+    return error{code: 1, msg: "the test called fatalf"}
+}
+
+// failed reports whether the test has failed so far: whether errorf or
+// fatalf was called.
+pub func (t T) failed() bool {
+    return t.bad
+}
+
+// Runner runs the tests of one package, as the main tack test generates
+// calls it: start, then run for every test, in order, then finish. It
+// holds the -run pattern. start, run and finish are meant for that main
+// alone: called from anywhere else, as they can be, they keep no pointer
+// into memory that may be freed, so they corrupt nothing, but what they
+// report means nothing either.
+pub type Runner struct {
+    pattern string
+}
+
+// start returns the Runner for the tests of the package pkg, which the
+// last line names, named names, every test run will be given, of which
+// those whose names hold pattern run, all for an empty pattern; verbose
+// writes a line for each test run. Only the main tack test generates
+// calls it, with string literals, and a global array of every test's
+// name; testing.c keeps the strings for the whole run, as a string's
+// bytes are a literal's, and counts names at once, keeping nothing of
+// it.
+pub func start(pkg string, pattern string, verbose bool, names []string) Runner {
+    c_start(pkg, pattern, verbose, names)
+    return Runner{pattern: pattern}
+}
+
+// run runs test, the test named name, declared at line and col of file,
+// with excerpt the source around its name, when its name holds the
+// pattern, and does nothing otherwise. A test fails when it reports a
+// failure, returns an error, or leaves a buffer it allocated unfreed:
+// an error at the last place a ? that returned through its T stored, or
+// at the declaration when none did, and a leak at the declaration.
+// c_allocator refuses nothing
+// once it ends, whatever the test asked of it. The strings must be
+// literals, as start's are.
+pub func (mut r Runner) run(
+    name string,
+    file string,
+    line int64,
+    col int64,
+    excerpt string,
+    test func(mut T) error,
+) {
+    if !c_contains([]uint8(name), []uint8(r.pattern)) {
+        return
+    }
+    c_begin(name, file, line, col, excerpt)
+    mut t T
+    err := test(mut t)
+    if err.code != 0 && !t.stopped {
+        t.bad = true
+        if t.at.line > 0 {
+            c_returned(t.at.file, t.at.line, t.at.col, t.at.excerpt, err.code, err.msg)
+        } else {
+            c_returned(file, line, col, excerpt, err.code, err.msg)
+        }
+    }
+    c_end(t.bad)
+}
+
+// finish writes the run's last line and returns the status the process
+// ends with: ok and the number of tests run, and 0, when none failed;
+// FAIL and how many failed, and 1, when one did; and, when a pattern ran
+// no test, a line saying so, and 1.
+pub func (mut r Runner) finish() int32 {
+    return c_finish()
+}
+
+// c_start is start's body, in C: tack_testing_start in testing.c, which
+// also arranges for the end of the process to be checked (see
+// testing.c).
+extern("tack_testing_start") func c_start(pkg string, pattern string, verbose bool, names []string)
+
+// c_contains reports whether s holds sub, byte for byte, which an empty
+// sub always is: tack_testing_contains in testing.c, which matches a
+// test's name against the pattern.
+extern("tack_testing_contains") func c_contains(s []uint8, sub []uint8) bool
+
+// c_begin marks the test named name, declared at line and col of file,
+// with excerpt the source around its name, as running:
+// tack_testing_begin in testing.c.
+extern("tack_testing_begin") func c_begin(
+    name string,
+    file string,
+    line int64,
+    col int64,
+    excerpt string,
+)
+
+// c_fail is errorf's and fatalf's report, in C: tack_testing_fail.
+extern("tack_testing_fail") func c_fail(
+    file string,
+    line int64,
+    col int64,
+    excerpt string,
+    format string,
+    args ...any,
+)
+
+// c_returned reports an error the test returned, its code and its
+// message, at line and col of file: tack_testing_returned.
+extern("tack_testing_returned") func c_returned(
+    file string,
+    line int64,
+    col int64,
+    excerpt string,
+    code int32,
+    msg string,
+)
+
+// c_end ends the running test, failed or not, checking it freed what it
+// allocated: tack_testing_end.
+extern("tack_testing_end") func c_end(failed bool)
+
+// c_finish is finish's body: tack_testing_finish.
+extern("tack_testing_finish") func c_finish() int32

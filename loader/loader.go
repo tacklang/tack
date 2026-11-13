@@ -105,6 +105,22 @@ type Loader struct {
 	// loadLib). A directory holding a main package loads as it does
 	// without Lib. The driver sets it for --check.
 	Lib bool
+
+	// TestMain, if set, makes Dir and Path load the package in the
+	// directory for its tests, tack test's mode, whatever its name: its
+	// test files are read with its other files, in the byte order of
+	// all their names, each marked as one (see ast.File.Test), and
+	// TestMain is called with the package parsed, its path set, and
+	// every file read so far, to give one file more: the main that runs
+	// the tests, its name, which is its source.FileID and must be no
+	// file's on disk, and its source. That file is parsed into the
+	// package, its last file, before anything the package imports is
+	// loaded, so what it imports is loaded too, and no other package's
+	// test files are read. The package becomes the program's last, as a
+	// main package is, though it may be any. TestMain is not called when
+	// the package's files do not parse into a whole package. Lib is
+	// ignored then.
+	TestMain func(pkg *ast.Package, files source.Files) (name string, src []byte)
 }
 
 // Std is where a Loader finds the standard library: the directory Dir, the
@@ -281,6 +297,9 @@ func (l *Loader) Path(cwd, importPath string) (*Result, error) {
 // With l.Lib set, a directory with no Tack files, or whose files make a
 // package other than main, is loaded as a library instead (see loadLib).
 func (l *Loader) loadMain(res *Result, mod *module, dir, importPath string) (*Result, error) {
+	if l.TestMain != nil {
+		return l.loadTests(res, mod, dir, importPath)
+	}
 	files, cFiles, err := l.readPackageFiles(res, mod.fsys, dir)
 	if l.isLib(files, err) {
 		return l.loadLib(res, mod, dir, files, cFiles)
@@ -342,6 +361,19 @@ func (l *Loader) readPackageFiles(
 	if len(names) == 0 {
 		return nil, nil, l.noTackFiles(dir, tests)
 	}
+	return l.readNamed(res, fsys, dir, names, entries)
+}
+
+// readNamed reads the Tack files of dir named names, through fsys, in the
+// byte order of their names, adding each to res, and returns them with
+// the path of every C file among entries, dir's entries.
+func (l *Loader) readNamed(
+	res *Result,
+	fsys FS,
+	dir string,
+	names []string,
+	entries []fs.DirEntry,
+) ([]*source.File, []string, error) {
 	sort.Strings(names)
 
 	files := make([]*source.File, 0, len(names))

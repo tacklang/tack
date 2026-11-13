@@ -179,7 +179,7 @@ func (c *Checker) warnUnused(pkg *ast.Package, decl ast.Decl, u *usage) {
 		if d.Vis != ast.Private {
 			return
 		}
-		if !u.used[d] && !isMainFunc(pkg, d) {
+		if !u.used[d] && !isMainFunc(pkg, d) && d != c.prog.Entry {
 			c.unusedf(d.NameSpan, "declared and not used: %s", c.displayName(d))
 			return
 		}

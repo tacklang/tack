@@ -12,7 +12,8 @@ import (
 
 // std/fmt's printf, eprintf, its twin for standard error, and appendf,
 // which appends to a list[uint8] after it, take a format and ...any (see
-// formatFuncs). When the format is a string
+// formatFuncs), and so do std/testing's T.errorf and T.fatalf, after the
+// testing.Site the call passes (see formatMethods). When the format is a string
 // the checker knows (see knownString), a literal or an immutable variable
 // holding one, every verb in it is checked against the value it takes, as
 // Go's vet checks fmt.Printf and clang's -Wformat checks C's printf, and
@@ -47,13 +48,31 @@ const stdFmt = "std/fmt"
 // %d does not take string".
 var formatFuncs = map[string]int{"printf": 0, "eprintf": 0, "appendf": 1}
 
+// formatMethods are the methods of std/testing's T that take a printf
+// format and its values, checked as formatFuncs are, mapped to the index
+// of the format among their arguments, the receiver left out: each
+// takes the testing.Site its call passes first, which is among a call's
+// arguments by the time it is checked (see site.go), and the format
+// after it.
+var formatMethods = map[string]int{"errorf": 1, "fatalf": 1}
+
 // checkPrintf checks call, a call to fn, when fn is one of std/fmt's
-// formatFuncs and its format is a string the checker knows: see
-// checkFormat. Each problem is reported at the value it is about, or at
-// the format when it is about the format itself, and a format with more
-// values than verbs at the values left over.
+// formatFuncs or std/testing's formatMethods and its format is a string
+// the checker knows: see checkFormat. Each problem is reported at the
+// value it is about, or at the format when it is about the format
+// itself, and a format with more values than verbs at the values left
+// over.
 func (c *Checker) checkPrintf(call *ast.Call, fn *ast.Func) {
+	c.checkPrintfFrom(call, fn, 0)
+}
+
+// checkPrintfFrom is checkPrintf for a call whose arguments hold shift
+// more before the format than formatParam counts: 1 for a method called
+// through its type, testing.T.errorf(mut t, ...), whose receiver is its
+// first argument.
+func (c *Checker) checkPrintfFrom(call *ast.Call, fn *ast.Func, shift int) {
 	at, ok := c.formatParam(fn)
+	at += shift
 	if !ok || len(call.Args) <= at {
 		return
 	}
@@ -85,11 +104,21 @@ func (c *Checker) isBytes(typ types.Type) bool {
 	return c.table.IsView(typ) && c.table.Elem(typ) == types.Uint8
 }
 
-// formatParam returns the index of the format among fn's parameters,
-// and whether fn is one of std/fmt's formatFuncs.
+// formatParam returns the index of the format among the arguments of a
+// call to fn, and whether fn is one of std/fmt's formatFuncs or one of
+// std/testing's formatMethods.
 func (c *Checker) formatParam(fn *ast.Func) (int, bool) {
-	if fn == nil || fn.Method {
+	if fn == nil {
 		return 0, false
+	}
+	if fn.Method {
+		at, ok := formatMethods[fn.Name]
+		pkg := c.declPkg[fn]
+		if !ok || pkg == nil || pkg.Path != stdTesting || fn.RecvType == nil ||
+			fn.RecvType.Name != testingT {
+			return 0, false
+		}
+		return at, true
 	}
 	at, ok := formatFuncs[fn.Name]
 	pkg := c.declPkg[fn]

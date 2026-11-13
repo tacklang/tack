@@ -46,7 +46,8 @@ type Resolver struct {
 	// be any package, as a library's is, and a main package that declares
 	// no main function is not reported, which MissingMain reports for a
 	// caller that checks on past it. A main function with the wrong
-	// signature is reported all the same. The driver sets it for --check.
+	// signature is reported all the same. The driver sets it for --check,
+	// and for tack test, whose program starts at the main it generates.
 	MainOptional bool
 }
 

@@ -1,0 +1,102 @@
+package fail
+
+import fmt from "std/fmt"
+import testing from "std/testing"
+
+// lookup returns the value of key, 1 for "a", or error 3 for any other.
+func lookup(key string) (int64, error) {
+    if key == "a" {
+        return 1, noerror
+    }
+    return 0, error{code: 3, msg: "no such key"}
+}
+
+// hold takes a buffer from c_allocator and keeps it, as no Tack code
+// can, in C (see leak.c): the leak a test reports.
+extern("fail_hold") func hold()
+
+// release frees the buffer hold kept, in C.
+extern("fail_release") func release()
+
+// fail_after makes c_allocator refuse every request after the next n,
+// in C.
+extern("fail_fail_after") func fail_after(n int64)
+
+// test_errorf reports twice and goes on, so both reports are written and
+// so is what it prints after them.
+func test_errorf(mut t testing.T) error {
+    mut t.errorf("first %d", 1)
+    mut t.errorf("second %s %t", "and", true)
+    fmt.println("errorf went on")
+    if !t.failed() {
+        fmt.println("errorf did not mark the test failed")
+    }
+    return noerror
+}
+
+// test_passes passes between failures.
+func test_passes(mut t testing.T) error {
+    n := lookup("a")?
+    if n != 1 {
+        return mut t.fatalf("lookup(a) = %d", n)
+    }
+    return noerror
+}
+
+// test_fatalf stops at its fatalf: the errorf after it never runs, and
+// the error it returns is not reported again.
+func test_fatalf(mut t testing.T) error {
+    if lookup("a")? == 1 {
+        return mut t.fatalf("stopped at %v", 1)
+    }
+    mut t.errorf("fatalf did not stop the test")
+    return noerror
+}
+
+// test_question returns lookup's error through a ?, reported there.
+func test_question(mut t testing.T) error {
+    n := lookup("a")?
+    m := lookup("b")?
+    mut t.errorf("the ? did not return: %d %d", n, m)
+    return noerror
+}
+
+// test_plain_return returns an error with no ?, reported at the test.
+func test_plain_return(mut t testing.T) error {
+    _, err := lookup("z")
+    return err
+}
+
+// test_leak keeps a buffer of c_allocator's past its end.
+func test_leak(mut t testing.T) error {
+    hold()
+    return noerror
+}
+
+// test_frees frees the buffer test_leak kept, which is no failure.
+func test_frees(mut t testing.T) error {
+    release()
+    return noerror
+}
+
+// test_refuse makes c_allocator refuse every request and ends, which
+// fails nothing.
+func test_refuse(mut t testing.T) error {
+    fail_after(0)
+    return noerror
+}
+
+// test_allocates allocates after test_refuse, which works because the
+// runner made c_allocator grant every request again.
+func test_allocates(mut t testing.T) error {
+    mut l := make(list[uint8], c_allocator)
+    append(mut l, 1)?
+    return noerror
+}
+
+// test_errorf_then_fatalf reports with errorf, then stops with fatalf;
+// both are reported, and the test once.
+func test_errorf_then_fatalf(mut t testing.T) error {
+    mut t.errorf("before")
+    return mut t.fatalf("then %s", "stop")
+}

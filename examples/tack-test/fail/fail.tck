@@ -1,0 +1,15 @@
+package fail
+
+// Package fail is a library whose tests, in fail_test.tck, fail in every
+// way a test can, but for exit, which ends the run (see ../exits): errorf,
+// which lets the test go on, fatalf, which stops it, an error a ?
+// returns, reported at the ?, an error returned plainly, reported at
+// the test's declaration, and a buffer the test allocated and did not
+// free, also reported there. Tests that pass run between them, so each
+// failure is seen to be the test's own. tack test exits 1. What the tests
+// call is in fail_test.tck too, as nothing else calls it.
+
+// Version is a declaration for the package to have beside its tests.
+pub func Version() int64 {
+    return 1
+}

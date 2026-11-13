@@ -566,9 +566,23 @@
 // literal fills in (checkSiteShape), since a module named std holds a
 // std/testing of its own.
 //
+// With Checker.Tests set, which tack test does, the program is a package
+// loaded for its tests (see loader.Loader.TestMain), checked in tests.go:
+// every function of one of its test files whose name starts with test_
+// must be declared func test_x(mut t testing.T) error, not generic, not
+// a method and not extern, or it is an error at its name (checkTests); a
+// ? in such a test's own body is given its own place, a literal of
+// testing.Site made as a call's is, and the field of the test's T it is
+// stored in, t.at (Question.Site and Question.SiteTo), for the backend to
+// store before the ? returns; and std/testing's T must have that field
+// (checkTestingT). The program's Entry, the generated main, is never
+// reported unused.
+//
 // A call to std/fmt's printf, to eprintf, its twin for standard error,
 // or to appendf, which appends to the list given before its format
-// (formatFuncs), checked in printf.go, has its format read when it is a
+// (formatFuncs), or to std/testing's T.errorf or T.fatalf, whose format
+// follows the testing.Site the call passes (formatMethods), checked in
+// printf.go, has its format read when it is a
 // known string (knownString): every verb against the value it takes, an
 // unknown verb, a % ending the format, and the number of values against
 // the number of verbs, each mistake an error at the value or the format,

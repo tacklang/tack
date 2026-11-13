@@ -1,0 +1,50 @@
+package question
+
+import testing from "std/testing"
+
+// Package question's tests return errors through ? in the places that
+// record a place, and those that do not: a ? in a closure in a test
+// records none, so the error the test returns from it plainly is
+// reported at the test; a ? in a test whose T is named _ records its
+// place as any test's does; and a plain return after a function the
+// test called with its T returned through a ? of its own reports the
+// last place a ? stored, that function's.
+
+// fails returns error 4.
+func fails() (int64, error) {
+    return 0, error{code: 4, msg: "failed"}
+}
+
+// apply calls f and returns its error.
+func apply(scope f func() error) error {
+    return f()
+}
+
+// test_closure returns the error of a ? in a closure plainly.
+func test_closure(mut t testing.T) error {
+    err := apply(func() error {
+        n := fails()?
+        if n != 0 {
+            return error{code: 5, msg: "unreachable"}
+        }
+        return noerror
+    })
+    return err
+}
+
+// test_blank_t returns through a ? with its T named _.
+func test_blank_t(mut _ testing.T) error {
+    n := fails()?
+    if n != 0 {
+        return error{code: 5, msg: "unreachable"}
+    }
+    return noerror
+}
+
+// test_inner_question calls test_blank_t, a test called as a function
+// with this test's T, whose ? stores its place in that T, then returns
+// its error plainly.
+func test_inner_question(mut t testing.T) error {
+    err := test_blank_t(mut t)
+    return err
+}

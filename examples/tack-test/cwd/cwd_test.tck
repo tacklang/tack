@@ -1,0 +1,17 @@
+package cwd
+
+import os from "std/os"
+import testing from "std/testing"
+
+// Package cwd's test reads data.txt by a relative path: the binary tack
+// test builds runs in the package's directory, wherever tack test was
+// run from, so the file is found.
+
+// test_reads_data reads data.txt, beside this file, and checks its size.
+func test_reads_data(mut t testing.T) error {
+    data := os.read_file([]uint8("data.txt"), c_allocator)?
+    if len(data) != 32 {
+        mut t.errorf("data.txt holds %d bytes, want 32", len(data))
+    }
+    return noerror
+}

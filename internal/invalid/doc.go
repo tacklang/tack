@@ -1,8 +1,11 @@
 // Package invalid reads and writes examples/invalid.txtar, the file that holds
 // every invalid example program of one file together with the output the
 // compiler must produce for it, examples/invalid-packages.txtar, which
-// does the same for the invalid programs of several files, and
-// examples/invalid-c.txtar, for those with C files. examples/warnings.txtar
+// does the same for the invalid programs of several files,
+// examples/invalid-c.txtar, for those with C files, and
+// examples/invalid-tests.txtar, at TestsPath, in the format of
+// invalid-packages.txtar, for those tack test rejects, each built as tack
+// test builds a package for its tests. examples/warnings.txtar
 // and examples/warnings-packages.txtar, at WarningsPath and
 // WarningsTreePath, are in the formats of invalid.txtar and
 // invalid-packages.txtar, for programs the compiler accepts with

@@ -1,0 +1,568 @@
+Invalid example packages that tack test rejects, one case per package, in
+byte order of name.
+
+A case named n is its files, each a txtar file n/<path>, followed by
+n/expected, what tack test reports for it, with each file's path printed
+as n/<path>. The case is built as tack test builds a package: from the
+directory n, or the one an optional n/.target file names, relative to n,
+its test files, those whose names end in _test.tck, read with its other
+files, and the main tack test generates for them added; what is reported
+in that main is dropped when anything else is an error. A directory is
+built in its module, so every case has an n/tack.mod. Every file must end
+with a newline. internal/invalid documents the format; go test ./test
+-run TestInvalidTests checks every case, and -update rewrites the
+expected sections.
+
+-- errorf-format/tack.mod --
+module errorf
+-- errorf-format/errorf_test.tck --
+package errorf
+
+import testing from "std/testing"
+
+func test_format(mut t testing.T) error {
+    mut t.errorf("%d is not %s", "seven", 7)
+    return noerror
+}
+-- errorf-format/expected --
+stage: typeck
+---
+
+errorf-format/errorf_test.tck:6:34: error: errorf verb %d does not take string
+05 |	func test_format(mut t testing.T) error {
+06 |	    mut t.errorf("%d is not %s", "seven", 7)
+   |	                                 ^~~~~~~
+07 |	    return noerror
+
+errorf-format/errorf_test.tck:6:43: error: errorf verb %s does not take int64
+05 |	func test_format(mut t testing.T) error {
+06 |	    mut t.errorf("%d is not %s", "seven", 7)
+   |	                                          ^
+07 |	    return noerror
+
+-- errorf-format-method-expr/tack.mod --
+module errorf
+-- errorf-format-method-expr/errorf_test.tck --
+package errorf
+
+import testing from "std/testing"
+
+func test_format(mut t testing.T) error {
+    testing.T.errorf(mut t, "%d", "s")
+    return testing.T.fatalf(mut t, "%s and %s", "one")
+}
+-- errorf-format-method-expr/expected --
+stage: typeck
+---
+
+errorf-format-method-expr/errorf_test.tck:6:35: error: errorf verb %d does not take string
+05 |	func test_format(mut t testing.T) error {
+06 |	    testing.T.errorf(mut t, "%d", "s")
+   |	                                  ^~~
+07 |	    return testing.T.fatalf(mut t, "%s and %s", "one")
+
+errorf-format-method-expr/errorf_test.tck:7:36: error: fatalf format has 2 verbs but 1 argument
+06 |	    testing.T.errorf(mut t, "%d", "s")
+07 |	    return testing.T.fatalf(mut t, "%s and %s", "one")
+   |	                                   ^~~~~~~~~~~
+08 |	}
+
+-- fatalf-format/tack.mod --
+module fatalf
+-- fatalf-format/fatalf_test.tck --
+package fatalf
+
+import testing from "std/testing"
+
+func test_format(mut t testing.T) error {
+    return mut t.fatalf("%d of %d", 1)
+}
+-- fatalf-format/expected --
+stage: typeck
+---
+
+fatalf-format/fatalf_test.tck:6:25: error: fatalf format has 2 verbs but 1 argument
+05 |	func test_format(mut t testing.T) error {
+06 |	    return mut t.fatalf("%d of %d", 1)
+   |	                        ^~~~~~~~~~
+07 |	}
+
+-- generated-name-clash/tack.mod --
+module clash
+-- generated-name-clash/clash.tck --
+package clash
+
+pub var tack_test_names_ = 3
+-- generated-name-clash/expected --
+stage: load
+---
+
+generated-name-clash/clash.tck:3:9: error: tack_test_names_ is declared by the main tack test generates; rename it
+02 |	
+03 |	pub var tack_test_names_ = 3
+   |	        ^~~~~~~~~~~~~~~~
+04 |	
+
+-- generated-name-import/tack.mod --
+module clash
+-- generated-name-import/clash.tck --
+package clash
+
+import tack_test_main_ from "std/hex"
+import tack_testing_ from "std/hex"
+
+pub func Encode(mut out list[uint8]) error {
+    one := [1]uint8{1}
+    tack_test_main_.append_encode(mut out, one)?
+    return tack_testing_.append_encode(mut out, one)
+}
+-- generated-name-import/expected --
+stage: load
+---
+
+generated-name-import/clash.tck:3:8: error: tack_test_main_ is declared by the main tack test generates; rename it
+02 |	
+03 |	import tack_test_main_ from "std/hex"
+   |	       ^~~~~~~~~~~~~~~
+04 |	import tack_testing_ from "std/hex"
+
+-- generated-names-every-kind/tack.mod --
+module clash
+-- generated-names-every-kind/clash.tck --
+package clash
+
+type tack_testing_ struct {
+    n int64
+}
+
+pub func tack_test_main_() {
+}
+
+// A method of the name declares nothing at package level.
+func (c tack_testing_) tack_test_names_() int64 {
+    return c.n
+}
+
+pub func Use(c tack_testing_) int64 {
+    return c.tack_test_names_()
+}
+-- generated-names-every-kind/expected --
+stage: load
+---
+
+generated-names-every-kind/clash.tck:3:6: error: tack_testing_ is declared by the main tack test generates; rename it
+02 |	
+03 |	type tack_testing_ struct {
+   |	     ^~~~~~~~~~~~~
+04 |	    n int64
+
+generated-names-every-kind/clash.tck:7:10: error: tack_test_main_ is declared by the main tack test generates; rename it
+06 |	
+07 |	pub func tack_test_main_() {
+   |	         ^~~~~~~~~~~~~~~
+08 |	}
+
+-- import-cycle/tack.mod --
+module cycle
+-- import-cycle/a/a.tck --
+package a
+
+pub func One() int64 {
+    return 1
+}
+-- import-cycle/a/a_test.tck --
+package a
+
+import b from "cycle/b"
+import testing from "std/testing"
+
+func test_two(mut t testing.T) error {
+    if b.Two() != 2 {
+        mut t.errorf("Two is %d", b.Two())
+    }
+    return noerror
+}
+-- import-cycle/b/b.tck --
+package b
+
+import a from "cycle/a"
+
+pub func Two() int64 {
+    return a.One() + 1
+}
+-- import-cycle/.target --
+a
+-- import-cycle/expected --
+stage: load
+---
+
+import-cycle/b/b.tck:3:15: error: import cycle: cycle/a imports cycle/b imports cycle/a
+02 |	
+03 |	import a from "cycle/a"
+   |	              ^~~~~~~~~
+04 |	
+
+-- main-without-main/tack.mod --
+module nomain
+-- main-without-main/main_test.tck --
+package main
+
+import testing from "std/testing"
+
+func test_x(mut t testing.T) error {
+    return noerror
+}
+-- main-without-main/expected --
+stage: resolve
+---
+
+main-without-main/main_test.tck:1:1: error: main function not found
+01 |	package main
+   |	^
+02 |	
+
+-- shape-extern/tack.mod --
+module shape
+-- shape-extern/shape_test.tck --
+package shape
+
+import testing from "std/testing"
+
+extern func test_extern(mut t testing.T) error
+-- shape-extern/expected --
+stage: typeck
+---
+
+shape-extern/shape_test.tck:5:13: error: test_extern is a test, so it must be declared func test_extern(mut t testing.T) error, not generic and not a method
+04 |	
+05 |	extern func test_extern(mut t testing.T) error
+   |	            ^~~~~~~~~~~
+06 |	
+
+-- shape-generic/tack.mod --
+module shape
+-- shape-generic/shape_test.tck --
+package shape
+
+import testing from "std/testing"
+
+type Sizer interface {
+    size() int64
+}
+
+func test_generic[V Sizer](mut t testing.T) error {
+    return noerror
+}
+-- shape-generic/expected --
+stage: typeck
+---
+
+shape-generic/shape_test.tck:9:6: error: test_generic is a test, so it must be declared func test_generic(mut t testing.T) error, not generic and not a method
+08 |	
+09 |	func test_generic[V Sizer](mut t testing.T) error {
+   |	     ^~~~~~~~~~~~
+10 |	    return noerror
+
+-- shape-method/tack.mod --
+module shape
+-- shape-method/shape_test.tck --
+package shape
+
+import testing from "std/testing"
+
+pub type Fixture struct {
+    n int64
+}
+
+func (f Fixture) test_method(mut t testing.T) error {
+    return noerror
+}
+-- shape-method/expected --
+stage: typeck
+---
+
+shape-method/shape_test.tck:9:18: error: test_method is a test, so it must be declared func test_method(mut t testing.T) error, not generic and not a method
+08 |	
+09 |	func (f Fixture) test_method(mut t testing.T) error {
+   |	                 ^~~~~~~~~~~
+10 |	    return noerror
+
+-- shape-no-params/tack.mod --
+module shape
+-- shape-no-params/shape_test.tck --
+package shape
+
+func test_nothing() error {
+    return noerror
+}
+-- shape-no-params/expected --
+stage: typeck
+---
+
+shape-no-params/shape_test.tck:3:6: error: test_nothing is a test, so it must be declared func test_nothing(mut t testing.T) error, not generic and not a method
+02 |	
+03 |	func test_nothing() error {
+   |	     ^~~~~~~~~~~~
+04 |	    return noerror
+
+-- shape-no-result/tack.mod --
+module shape
+-- shape-no-result/shape_test.tck --
+package shape
+
+import testing from "std/testing"
+
+func test_no_result(mut t testing.T) {
+}
+-- shape-no-result/expected --
+stage: typeck
+---
+
+shape-no-result/shape_test.tck:5:6: error: test_no_result is a test, so it must be declared func test_no_result(mut t testing.T) error, not generic and not a method
+04 |	
+05 |	func test_no_result(mut t testing.T) {
+   |	     ^~~~~~~~~~~~~~
+06 |	}
+
+-- shape-not-mut/tack.mod --
+module shape
+-- shape-not-mut/shape_test.tck --
+package shape
+
+import testing from "std/testing"
+
+func test_plain(t testing.T) error {
+    return noerror
+}
+-- shape-not-mut/expected --
+stage: typeck
+---
+
+shape-not-mut/shape_test.tck:5:6: error: test_plain is a test, so it must be declared func test_plain(mut t testing.T) error, not generic and not a method
+04 |	
+05 |	func test_plain(t testing.T) error {
+   |	     ^~~~~~~~~~
+06 |	    return noerror
+
+-- shape-testing-not-imported/tack.mod --
+module shape
+-- shape-testing-not-imported/shape_test.tck --
+package shape
+
+func test_x(mut t testing.T) error {
+    return noerror
+}
+-- shape-testing-not-imported/expected --
+stage: resolve
+---
+
+shape-testing-not-imported/shape_test.tck:3:19: error: undefined: testing
+02 |	
+03 |	func test_x(mut t testing.T) error {
+   |	                  ^~~~~~~
+04 |	    return noerror
+
+-- shape-two-params/tack.mod --
+module shape
+-- shape-two-params/shape_test.tck --
+package shape
+
+import testing from "std/testing"
+
+func test_two(mut t testing.T, n int64) error {
+    return noerror
+}
+-- shape-two-params/expected --
+stage: typeck
+---
+
+shape-two-params/shape_test.tck:5:6: error: test_two is a test, so it must be declared func test_two(mut t testing.T) error, not generic and not a method
+04 |	
+05 |	func test_two(mut t testing.T, n int64) error {
+   |	     ^~~~~~~~
+06 |	    return noerror
+
+-- shape-two-results/tack.mod --
+module shape
+-- shape-two-results/shape_test.tck --
+package shape
+
+import testing from "std/testing"
+
+func test_two(mut t testing.T) (int64, error) {
+    return 0, noerror
+}
+-- shape-two-results/expected --
+stage: typeck
+---
+
+shape-two-results/shape_test.tck:5:6: error: test_two is a test, so it must be declared func test_two(mut t testing.T) error, not generic and not a method
+04 |	
+05 |	func test_two(mut t testing.T) (int64, error) {
+   |	     ^~~~~~~~
+06 |	    return 0, noerror
+
+-- shape-unknown-param-type/tack.mod --
+module shape
+-- shape-unknown-param-type/shape_test.tck --
+package shape
+
+func test_x(mut t Fixture) error {
+    return noerror
+}
+-- shape-unknown-param-type/expected --
+stage: typeck
+---
+
+shape-unknown-param-type/shape_test.tck:3:19: error: unknown type: Fixture
+02 |	
+03 |	func test_x(mut t Fixture) error {
+   |	                  ^~~~~~~
+04 |	    return noerror
+
+-- shape-unknown-result-type/tack.mod --
+module shape
+-- shape-unknown-result-type/shape_test.tck --
+package shape
+
+import testing from "std/testing"
+
+func test_x(mut t testing.T) Outcome {
+    return noerror
+}
+-- shape-unknown-result-type/expected --
+stage: typeck
+---
+
+shape-unknown-result-type/shape_test.tck:5:30: error: unknown type: Outcome
+04 |	
+05 |	func test_x(mut t testing.T) Outcome {
+   |	                             ^~~~~~~
+06 |	    return noerror
+
+-- shape-wrong-param-type/tack.mod --
+module shape
+-- shape-wrong-param-type/shape_test.tck --
+package shape
+
+type T struct {
+    n int64
+}
+
+func test_own_t(mut t T) error {
+    return noerror
+}
+-- shape-wrong-param-type/expected --
+stage: typeck
+---
+
+shape-wrong-param-type/shape_test.tck:7:6: error: test_own_t is a test, so it must be declared func test_own_t(mut t testing.T) error, not generic and not a method
+06 |	
+07 |	func test_own_t(mut t T) error {
+   |	     ^~~~~~~~~~
+08 |	    return noerror
+
+-- shape-wrong-result/tack.mod --
+module shape
+-- shape-wrong-result/shape_test.tck --
+package shape
+
+import testing from "std/testing"
+
+func test_int(mut t testing.T) int64 {
+    return 0
+}
+-- shape-wrong-result/expected --
+stage: typeck
+---
+
+shape-wrong-result/shape_test.tck:5:6: error: test_int is a test, so it must be declared func test_int(mut t testing.T) error, not generic and not a method
+04 |	
+05 |	func test_int(mut t testing.T) int64 {
+   |	     ^~~~~~~~
+06 |	    return 0
+
+-- syntax-error-in-test-file/tack.mod --
+module syntax
+-- syntax-error-in-test-file/syntax.tck --
+package syntax
+
+pub func One() int64 {
+    return 1
+}
+-- syntax-error-in-test-file/syntax_test.tck --
+package syntax
+
+import testing from "std/testing"
+
+func test_one(mut t testing.T) error {
+    if One() != 1 {
+        mut t.errorf("One is %d" One())
+    }
+    return noerror
+}
+-- syntax-error-in-test-file/expected --
+stage: parse
+---
+
+syntax-error-in-test-file/syntax_test.tck:7:34: error: expected ',' found 'One'
+06 |	    if One() != 1 {
+07 |	        mut t.errorf("One is %d" One())
+   |	                                 ^
+08 |	    }
+
+-- testing-t-without-at/tack.mod --
+module noat
+-- testing-t-without-at/noat_test.tck --
+package noat
+
+import testing from "std/testing"
+
+func test_x(mut t testing.T) error {
+    return noerror
+}
+-- testing-t-without-at/.std/testing/testing.tck --
+package testing
+
+pub type Site struct {
+    pub file    string
+    pub line    int64
+    pub col     int64
+    pub excerpt string
+}
+
+pub type T struct {
+    bad bool
+}
+
+pub type Runner struct {
+    n int64
+}
+
+pub func start(pkg string, pattern string, verbose bool, names []string) Runner {
+    return Runner{n: 0}
+}
+
+pub func (mut r Runner) run(
+    name string,
+    file string,
+    line int64,
+    col int64,
+    excerpt string,
+    test func(mut T) error,
+) {
+}
+
+pub func (mut r Runner) finish() int32 {
+    return 0
+}
+-- testing-t-without-at/expected --
+stage: typeck
+---
+
+testing-t-without-at/.std/testing/testing.tck:10:10: error: testing.T must have a field at of type testing.Site: a ? in a test stores its place there
+09 |	
+10 |	pub type T struct {
+   |	         ^
+11 |	    bad bool
+

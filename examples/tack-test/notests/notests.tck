@@ -1,0 +1,10 @@
+package notests
+
+// Package notests has no test file: tack test builds it with a main that
+// runs nothing, reports 0 tests, and exits 0, and with -run it reports
+// that the pattern matched no test, and exits 1.
+
+// Answer is a declaration for the package to have.
+pub func Answer() int64 {
+    return 42
+}

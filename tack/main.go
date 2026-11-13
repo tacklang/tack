@@ -137,6 +137,9 @@ func main() {
 // exitUsage) and never exits itself, which is what lets tests call it in
 // process.
 func run(ctx context.Context, args []string, env environment, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == testCommand {
+		return runTest(ctx, args[1:], env, stdout, stderr)
+	}
 	fs, values := newFlagSet()
 	opts, err := parseArgs(fs, values, args)
 	if errors.Is(err, flag.ErrHelp) {
@@ -384,7 +387,8 @@ func printUsage(fs *flag.FlagSet, w io.Writer) {
 		"       tack (--lex | --ast | --res | --emit | --emit-header) [flags] <file or directory>\n",
 	)
 	b.WriteString("       tack --check [dump flag] [flags] <file or directory>\n")
-	b.WriteString("       tack --backends\n\nFlags:\n")
+	b.WriteString("       tack --backends\n")
+	b.WriteString("       tack test [-run text] [-v] [-O level] [directory or import path]\n\nFlags:\n")
 	fs.VisitAll(func(f *flag.Flag) {
 		if isOptFlag(f.Name) {
 			return

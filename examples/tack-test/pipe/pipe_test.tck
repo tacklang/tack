@@ -1,0 +1,27 @@
+package pipe
+
+import fmt from "std/fmt"
+import testing from "std/testing"
+
+// Package pipe's test writes to standard output, which the driver's test
+// gives a pipe with no reader: the write ends the process with status
+// 141, as it would any program's, every buffer freed, and the runner
+// reports nothing, since what it would write may have nowhere to go.
+// tack test then says how the binary ended. With standard output open,
+// the test passes.
+
+// test_writes writes 2000 lines, more than a pipe or C's buffer holds,
+// with a list held, which the end frees.
+func test_writes(mut t testing.T) error {
+    mut l := make(list[int64], c_allocator)
+    append(mut l, 1)?
+    for mut i int64 = 0; i < 2000; i = i + 1 {
+        fmt.println("a line that fills the pipe")
+    }
+    return noerror
+}
+
+// test_after runs only when standard output is open.
+func test_after(mut t testing.T) error {
+    return noerror
+}

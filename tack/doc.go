@@ -34,6 +34,7 @@
 //	tack (--lex | --ast | --res | --emit | --emit-header) [flags] <target>
 //	tack --check [dump flag] [flags] <target>
 //	tack --backends
+//	tack test [-run text] [-v] [-O level] [<dir or import path>]
 //
 // The target is a file, a directory, or an import path. A file is compiled
 // alone, unless it is a test file, whose name ends in _test.tck, which is
@@ -315,6 +316,33 @@
 // function, tack_init_. tack.h is written into every package of the
 // library's module with C files or extern funcs, as for a program's
 // packages other than main.
+//
+// # Tests
+//
+// tack test, run when the first argument is test, builds a package with
+// its tests and runs them (see runTest). Its target is a directory or an
+// import path, . by default; a file is a usage error. Its flags, which
+// also go before the target, are -run <text>, which runs only the tests
+// whose names hold text, byte for byte; -v, which writes ok or FAIL and a
+// test's name as each test ends; and the -O flags. The package is loaded
+// for its tests (see loader.Loader.TestMain), with the main package
+// testmain generates for them, which is the program's entry, and checked
+// with the resolver asking for no main function and the type checker
+// checking every test's declaration (typeck.Checker.Tests); a main
+// package with no main function is reported, as --check reports it.
+// What is reported in the generated main is dropped when anything else
+// is an error and an internal error otherwise (see
+// testmain.Diagnostics). The program is built as any is, into a
+// temporary directory, and the binary run there with the package's
+// directory as its working directory, its standard output and error
+// tack's own, so its reports, written by std/testing as it runs, are not
+// captured. The exit status is the binary's: 0 when every test passed and
+// 1 when one failed, its last line saying which. A binary killed by a
+// signal is reported as "FAIL <pkg>: the test binary was killed by
+// signal <n> (<name>)", and one that ends with any other status, as a
+// broken pipe ends it with 141, as "FAIL <pkg>: the test binary exited
+// with status <n>"; both exit 1. A usage error exits 2, saying "tack
+// test:" and pointing at tack test --help.
 //
 // # Structure
 //

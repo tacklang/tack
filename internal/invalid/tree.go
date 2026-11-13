@@ -16,6 +16,12 @@ const TreePath = "../examples/invalid-packages.txtar"
 // warnings live, in the format of TreePath's (see WarningsPath).
 const WarningsTreePath = "../examples/warnings-packages.txtar"
 
+// TestsPath is where the cases of several files that tack test rejects
+// live, in the format of TreePath's archive: each is built as tack test
+// builds a package, its test files and the main tack test generates
+// included, which is the only way a test's declaration is checked.
+const TestsPath = "../examples/invalid-tests.txtar"
+
 // CPath is where the cases with C files live, in the format of TreePath's
 // archive, relative to a top-level package directory, as Path is. Its
 // cases are built into binaries, which compiles their C files with clang,

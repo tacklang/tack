@@ -34,8 +34,18 @@
 // package, as one with none does: as a target or an import it is an
 // error, and a library leaves it out; a library with no package to load
 // that found test files says so. A C file is never a test file,
-// whatever its name. Loading a package's test files beside its own is
-// left to a test mode, which does not exist yet.
+// whatever its name.
+//
+// Only a load for tests reads test files: with Loader.TestMain set, which
+// tack test does, Dir and Path load the one package of the directory with
+// its test files, in the byte order of all their names, each marked
+// (ast.File.Test), whatever the package's name, and call TestMain with it
+// parsed to get one file more, the main that runs the tests, parsed into
+// the package as its last file before anything it imports is loaded. No
+// other package's test files are read, and a directory of test files
+// alone is a package of them. The package becomes the program's last, as
+// a main package is; a package it imports that imports it back is an
+// import cycle, not an import of a main package.
 //
 // # Libraries
 //

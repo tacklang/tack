@@ -1274,6 +1274,15 @@ type Question struct {
 	// the type checker, a generic callee's with its type arguments in
 	// place; nil until it has checked the ?, and when it gives none.
 	Results []types.Type `json:",omitempty"`
+
+	// Site, for a ? written in the body of a test, is a literal of
+	// testing.Site holding the ?'s own place, and SiteTo where the ? stores
+	// it before it returns the error: the field of the test's testing.T
+	// that records where its error came from. The type checker sets both,
+	// each typed; they are nil for any other ?, and left out of the JSON
+	// dump.
+	Site   Expr `json:"-"`
+	SiteTo Expr `json:"-"`
 }
 
 var _ Expr = (*Question)(nil)

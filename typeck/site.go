@@ -256,7 +256,7 @@ func (c *Checker) passSite(call *ast.Call, params []param, at []int) {
 		if p := c.siteParam(c.fn); p != nil {
 			arg = &ast.Ident{Name: p.Name, Def: p, Span: end}
 		} else {
-			arg = c.siteLit(call, params[i].siteType, end)
+			arg = c.siteLit(call.Span, params[i].siteType, end)
 		}
 		args := make([]ast.Expr, 0, len(call.Args)+1)
 		args = append(args, call.Args[:i]...)
@@ -269,15 +269,16 @@ func (c *Checker) passSite(call *ast.Call, params []param, at []int) {
 	}
 }
 
-// siteLit returns a literal of typ, testing.Site, holding call's place,
-// as the top of this file says, every node of it at span, where a
-// diagnostic about it, which none should be, would point.
-func (c *Checker) siteLit(call *ast.Call, typ types.Type, span ast.Span) *ast.CompositeLit {
-	f := c.files.Lookup(call.Span.File)
+// siteLit returns a literal of typ, testing.Site, holding place, a
+// call's span or a ?'s, as the top of this file says, every node of it
+// at span, where a diagnostic about it, which none should be, would
+// point.
+func (c *Checker) siteLit(place ast.Span, typ types.Type, span ast.Span) *ast.CompositeLit {
+	f := c.files.Lookup(place.File)
 	if f == nil {
 		panic("typeck: a span outside the source given to New")
 	}
-	line, col := f.Position(call.Span.Start)
+	line, col := f.Position(place.Start)
 	field := func(name string, value ast.Expr) ast.Expr {
 		return &ast.KeyValue{Key: &ast.Ident{Name: name, Span: span}, Value: value, Span: span}
 	}
@@ -291,7 +292,7 @@ func (c *Checker) siteLit(call *ast.Call, typ types.Type, span ast.Span) *ast.Co
 			field("file", &ast.StrLit{Value: f.Filename, Span: span}),
 			field("line", number(line)),
 			field("col", number(col)),
-			field("excerpt", &ast.StrLit{Value: diag.Excerpt(f, call.Span), Span: span}),
+			field("excerpt", &ast.StrLit{Value: diag.Excerpt(f, place), Span: span}),
 		},
 	}
 }

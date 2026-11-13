@@ -70,13 +70,17 @@ func (c *Checker) checkMethodExprCall(call *ast.Call, sel *ast.Selector) {
 		return
 	}
 	call.Method = fn
-	muts, counted := c.checkArgs(call, c.displayName(fn), c.funcParams(fn.Params, true))
+	params := c.funcParams(fn.Params, true)
+	muts, counted := c.checkArgs(call, c.displayName(fn), params)
 	if !counted {
 		return
 	}
 	c.checkExclusive(muts)
 	c.checkListBorrows(call)
 	c.checkCaptures(call)
+	if isVariadic(params) {
+		c.checkPrintfFrom(call, fn, 1)
+	}
 }
 
 // namedMethod returns the method sel, a method expression, names, called

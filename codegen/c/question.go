@@ -42,6 +42,10 @@ import (
 // A ? written as a statement gives nothing; one of a call with several
 // results before its error, bound by a, b := f()?, gives the results
 // struct whole, which the binding reads field by field.
+//
+// A ? in a test's own body (see ast.Question.Site) first stores its place
+// in the test's testing.T, a store of a literal the checker made, and
+// nothing else, so the runner can report the error where the ? is.
 
 // pendingFree is an owned value the expression being rendered has made
 // and not yet given to what takes it: the C place ref holding it, of type
@@ -85,6 +89,13 @@ func (g *generator) questionExpr(q *ast.Question, value bool) (string, string, [
 		fmt.Sprintf("%s %s = %s;", ctype, t, init),
 		fmt.Sprintf("if (%s.code != 0) {", errRef),
 	}
+	if q.Site != nil {
+		store, diags := g.siteStore(q)
+		if len(diags) > 0 {
+			return "", "", diags
+		}
+		parts = append(parts, store)
+	}
 	// The call's other results are its caller's, the ?'s, which drops
 	// them when it returns: what f returned beside its error, a list
 	// made so far among it, is freed first, the last made.
@@ -103,6 +114,20 @@ func (g *generator) questionExpr(q *ast.Question, value bool) (string, string, [
 		}
 	}
 	return "({ " + strings.Join(parts, " ") + " })", ctype, nil
+}
+
+// siteStore renders the store of q's place, q.Site, in q.SiteTo, the field
+// of the test's testing.T that records it.
+func (g *generator) siteStore(q *ast.Question) (string, []diag.Diagnostic) {
+	to, diags := g.expr(q.SiteTo, types.Invalid)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	site, diags := g.expr(q.Site, types.Invalid)
+	if len(diags) > 0 {
+		return "", diags
+	}
+	return fmt.Sprintf("%s = %s;", to, site), nil
 }
 
 // questioned renders call, the call a ? follows, and returns the C type of

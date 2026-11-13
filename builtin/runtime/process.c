@@ -23,9 +23,13 @@
 // An ignored signal stays ignored across exec, so std/os's run sets
 // SIGPIPE back to its default action in every child it starts: a child
 // behaves as it would started from a shell.
+//
+// Either end records its status, which tack_exit_status_ returns, so an
+// atexit handler, std/testing's, can tell what ended the process.
 #include <errno.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -41,6 +45,12 @@ enum { broken_pipe_status = 141 };
 // tack_stdio_failed_, it returns, losing the bytes, rather than call exit
 // inside exit.
 static bool ending = false;
+
+// exit_status is the status the process is ending with, once exit was
+// called or a broken pipe found, which exit_known says (see
+// tack_exit_status_).
+static int32_t exit_status = 0;
+static bool exit_known = false;
 
 // tack_start_ ignores SIGPIPE. signal fails only for a signal number that
 // is not one, or one that cannot be ignored, and SIGPIPE is neither, so
@@ -59,9 +69,18 @@ void tack_end_(void) {
     }
 }
 
-// tack_ending_ marks the process as ending, for exit.
-void tack_ending_(void) {
+// tack_ending_ marks the process as ending with status, for exit.
+void tack_ending_(int32_t status) {
     ending = true;
+    exit_status = status;
+    exit_known = true;
+}
+
+// tack_exit_status_ stores the status the process is ending with in
+// *status and reports whether exit or a broken pipe has begun to end it.
+bool tack_exit_status_(int32_t *status) {
+    *status = exit_status;
+    return exit_known;
 }
 
 // tack_stdio_failed_ ends the process as exit(141) does when errno, which
@@ -72,6 +91,8 @@ void tack_stdio_failed_(void) {
         return;
     }
     ending = true;
+    exit_status = broken_pipe_status;
+    exit_known = true;
     tack_allocators_release_all_();
     exit(broken_pipe_status);
 }

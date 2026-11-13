@@ -1,0 +1,48 @@
+package pass
+
+import testing from "std/testing"
+
+// expect reports a failure at its own caller, through the Site it passes
+// on, when got is not want.
+func expect(_ testing.Site, mut t testing.T, got int64, want int64) {
+    if got != want {
+        mut t.errorf("got %d, want %d", got, want)
+    }
+}
+
+// test_sum checks sum at its edges; none of the checks fails, so failed
+// stays false and fatalf is never reached.
+func test_sum(mut t testing.T) error {
+    expect(mut t, sum(2, 3), 5)
+    expect(mut t, sum(-1, 1), 0)
+    expect(mut t, sum(9223372036854775807, 1), -9223372036854775807 - 1)
+    if t.failed() {
+        return mut t.fatalf("sum failed")
+    }
+    return noerror
+}
+
+// test_parse passes a ? that gives a value, and checks an error without
+// one.
+func test_parse(mut t testing.T) error {
+    n := parse('7')?
+    expect(mut t, n, 7)
+    _, err := parse('x')
+    if err.code != 2 {
+        return mut t.fatalf("parse('x') gave error %d, want 2", err.code)
+    }
+    return noerror
+}
+
+// test_lists allocates and frees, so it leaks nothing.
+func test_lists(mut t testing.T) error {
+    mut l := make(list[int64], c_allocator)
+    append(mut l, 1, 2, 3)?
+    expect(mut t, len(l), 3)
+    return noerror
+}
+
+// test_with_blank names its T _, which it never uses.
+func test_with_blank(mut _ testing.T) error {
+    return noerror
+}

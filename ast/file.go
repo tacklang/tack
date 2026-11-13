@@ -27,6 +27,11 @@ type File struct {
 
 	// PackageSpan is the span of the package clause's name.
 	PackageSpan Span
+
+	// Test is whether the file is a test file, one whose name ends in
+	// _test.tck, which only a load for a package's tests reads (see
+	// loader.Loader.TestMain). It is left out of the JSON dump.
+	Test bool `json:"-"`
 }
 
 var _ Node = (*File)(nil)

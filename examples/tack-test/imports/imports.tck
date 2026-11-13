@@ -1,0 +1,13 @@
+package imports
+
+import pass from "tt/pass"
+
+// Package imports uses another package of the module, tt/pass, and its
+// tests, in imports_test.tck, import that one, std/bytes and std/fmt
+// too, each loaded as it is for a build, test files left out of all
+// but this package.
+
+// Twice returns n + n, through pass.Sum.
+pub func Twice(n int64) int64 {
+    return pass.Sum(n, n)
+}

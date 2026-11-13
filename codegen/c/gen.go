@@ -286,10 +286,10 @@ func (g *generator) generate() ([]byte, []diag.Diagnostic) {
 		return nil, diags
 	}
 	sigs, bodies = append(sigs, instSigs...), append(bodies, instBodies...)
-	// C's main, which emitEntryPoint writes, calls Tack's; a library has
-	// neither.
+	// C's main, which emitEntryPoint writes, calls Tack's, or the
+	// program's entry; a library has neither.
 	if !g.isLibrary() {
-		g.noteNames("main", []string{g.mangle(nil, "main")})
+		g.noteNames("main", []string{g.startName()})
 	}
 	builtins := g.builtins.Used(g.prog)
 
@@ -461,6 +461,12 @@ func (g *generator) collectStrings() {
 			return false
 		case *ast.MultiAssign:
 			g.poolCheckedZero(x.Value)
+		case *ast.Question:
+			// A ? in a test stores its place, a literal the checker made,
+			// whose strings are pooled as any are (see question.go).
+			if x.Site != nil {
+				ast.Walk(x.Site, visit)
+			}
 		case *ast.ForRange:
 			if fo, ok := x.X.(*ast.FieldsOf); ok {
 				g.poolFieldNames(fo)
@@ -1057,7 +1063,8 @@ func (g *generator) emitFunc(sig string, body []string) {
 	g.buf.WriteString("}\n\n")
 }
 
-// emitEntryPoint writes C's main, which exists only to call Tack's, once
+// emitEntryPoint writes C's main, which exists only to call Tack's, or
+// the program's entry, ast.Program.Entry, when it has one, once
 // it has stored its argc and argv in tack_argc_ and tack_argv_, the
 // globals the runtime's tack.h declares and this source defines, for std/os to
 // read, and given each global too deep for a C initializer its value (see
@@ -1098,7 +1105,7 @@ func (g *generator) emitEntryPoint() {
 	for _, init := range g.globalInits {
 		g.buf.WriteString("    " + init + "\n")
 	}
-	fmt.Fprintf(&g.buf, "    %s();\n", g.mangle(nil, "main"))
+	fmt.Fprintf(&g.buf, "    %s();\n", g.startName())
 	if runsC {
 		g.buf.WriteString("    " + builtin.EndSymbol + "();\n")
 	}
@@ -1107,10 +1114,21 @@ func (g *generator) emitEntryPoint() {
 }
 
 // isLibrary reports whether the program is a library, whose last package
-// is not a main package: the driver's --check loads one, and it has no
-// entry point.
+// is not a main package and which has no entry of its own: the driver's
+// --check loads one, and it has no entry point. A package loaded for its
+// tests may be any package, and has its tests' generated main as its
+// entry.
 func (g *generator) isLibrary() bool {
-	return g.prog.Main().Name != "main"
+	return g.prog.Main().Name != "main" && g.prog.Entry == nil
+}
+
+// startName is the C name of the function C's main calls: the program's
+// entry when it has one, and Tack's main otherwise.
+func (g *generator) startName() string {
+	if g.prog.Entry != nil {
+		return g.funcCName(g.prog.Entry)
+	}
+	return g.mangle(nil, "main")
 }
 
 // signature returns fn's C declaration, without a body or semicolon: a
