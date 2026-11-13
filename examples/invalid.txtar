@@ -27203,6 +27203,70 @@ invalid-func-syntax-1/main.tck:4:11: error: expected ')' found 'EOF'
    |	          ^
 
 -- invalid-func-syntax-1/no-final-newline --
+-- json-encode-not-data/main.tck --
+package main
+
+import json from "std/json"
+
+// Tagged has a string field, and a string is not Data, so std/json's
+// encode, whose T is constrained by Data, cannot take it.
+type Tagged struct {
+    pub name string
+    pub n    int64
+}
+
+func main() {
+    mut out := make(list[uint8], c_allocator)
+    err := json.append_encode(mut out, Tagged{name: "a", n: 1}, c_allocator)
+    if err.code != 0 {
+        exit(1)
+    }
+}
+-- json-encode-not-data/expected --
+stage: typeck
+---
+
+json-encode-not-data/main.tck:14:40: error: Tagged does not satisfy Data: field name of Tagged is string, which is not Data
+13 |	    mut out := make(list[uint8], c_allocator)
+14 |	    err := json.append_encode(mut out, Tagged{name: "a", n: 1}, c_allocator)
+   |	                                       ^~~~~~~~~~~~~~~~~~~~~~~
+15 |	    if err.code != 0 {
+
+-- json-encode-region-out/main.tck --
+package main
+
+import json from "std/json"
+import text from "std/text"
+
+// A region's allocator is encode's scratch here, but out was made
+// outside the region, and a list passed as mut beside a region's
+// allocator could be given memory from it.
+func main() {
+    m := make(map[text.Text]int64, c_allocator)
+    mut out := make(list[uint8], c_allocator)
+    mut err := noerror
+    region r {
+        err = json.append_encode(mut out, m, r)
+    }
+    if err.code != 0 {
+        exit(1)
+    }
+}
+-- json-encode-region-out/expected --
+stage: typeck
+---
+
+json-encode-region-out/main.tck:14:34: error: cannot pass mut out to append_encode alongside r, the allocator of region r: the call could keep memory from region r in out, and out is declared outside the block of region r
+13 |	    region r {
+14 |	        err = json.append_encode(mut out, m, r)
+   |	                                 ^~~~~~~
+15 |	    }
+json-encode-region-out/main.tck:13:5: note: region r is opened here, and everything made through r is given back when its block ends
+12 |	    mut err := noerror
+13 |	    region r {
+   |	    ^~~~~~~~
+14 |	        err = json.append_encode(mut out, m, r)
+
 -- keep-going-bad-decl-func/main.tck --
 package main
 

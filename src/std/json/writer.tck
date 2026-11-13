@@ -1,0 +1,365 @@
+package json
+
+import bytes from "std/bytes"
+
+// A Writer builds JSON by hand, one token at a time, for a program that
+// writes values it does not hold as Data: a union, an arena's id, or a
+// tree it walks itself. It is owned, as a list is: it moves, has no zero
+// value and frees what it holds when its block ends.
+//
+//     mut w := json.new_writer(alloc)
+//     mut w.begin_object()?
+//     mut w.key([]uint8("kind"))?
+//     mut w.string([]uint8("call"))?
+//     mut w.key([]uint8("args"))?
+//     mut w.begin_array()?
+//     mut w.int(1)?
+//     mut w.end_array()?
+//     mut w.end_object()?
+//     out := mut w.finish(alloc)?
+//
+// gives {"kind":"call","args":[1]}. The Writer owns the bytes it has
+// written, a list[uint8], and its nesting, a list of one state for each
+// container open, both made through the allocator new_writer was given:
+// a struct cannot hold a mut list borrowed from its caller, so the bytes
+// are the Writer's until finish hands them over. Its depth is bounded by
+// memory alone, never by C's stack, as nothing in it recurses.
+//
+// A Writer writes compact JSON, with no space or newline, and one value
+// at the top: a scalar, or an object or an array holding any others.
+// Strings, keys among them, are written from a []uint8 view and escaped
+// as append_encode escapes a Text, and floats as append_encode writes a
+// float64 (see the comments at the top of json.tck and string.tck).
+//
+// Every method is all or nothing: it appends its token, the comma before
+// it included, and moves the Writer on, or returns an error and leaves
+// the Writer exactly as it was, so a program may go on writing after a
+// refused call as though it had not been made. The errors are:
+//
+//   - error{code: 1, msg: "out of memory"}, the builtin append's, when
+//     the bytes or the nesting cannot grow;
+//   - error{code: 11, msg: "unsupported value"} from float, for NaN or
+//     an infinity;
+//   - code 12, for a call that would make the JSON malformed, with one
+//     of these messages:
+//       - "a value where an object key is expected": a value, or a begin,
+//         in an object before its key;
+//       - "a key where a value is expected": a key right after another;
+//       - "a key outside an object": a key in an array, or at the top;
+//       - "a value after the top-level value": a second value at the top;
+//       - "an end with no container of its kind open": end_array closing
+//         an object, end_object an array, or either with nothing open;
+//       - "an object ends after a key, before its value";
+//       - "finish with containers still open";
+//       - "finish before any value".
+//
+// finish(alloc) hands over the bytes, a whole JSON value, and leaves the
+// Writer empty, writing into a new list made through alloc, ready for
+// another value. A finish refused leaves the Writer as it was, and gives
+// an empty list.
+
+// The states a container open in a Writer can be in, one byte each in
+// its nesting.
+//
+// array_first is an array with no value yet, after its [.
+var array_first uint8 = 1
+
+// array_rest is an array holding a value, so a comma comes before the
+// next.
+var array_rest uint8 = 2
+
+// object_first is an object with no member yet, after its {, waiting for
+// a key or its end.
+var object_first uint8 = 3
+
+// object_rest is an object holding a member, waiting for a comma and a
+// key, or its end.
+var object_rest uint8 = 4
+
+// object_value is an object after a key and its colon, waiting for the
+// key's value.
+var object_value uint8 = 5
+
+// The misuse errors, code 12, one for each way a call could make the
+// JSON malformed (see the comment at the top of this file).
+var key_expected = error{code: 12, msg: "a value where an object key is expected"}
+var value_expected = error{code: 12, msg: "a key where a value is expected"}
+var key_outside = error{code: 12, msg: "a key outside an object"}
+var after_top = error{code: 12, msg: "a value after the top-level value"}
+var unbalanced = error{code: 12, msg: "an end with no container of its kind open"}
+var end_after_key = error{code: 12, msg: "an object ends after a key, before its value"}
+var still_open = error{code: 12, msg: "finish with containers still open"}
+var nothing_written = error{code: 12, msg: "finish before any value"}
+
+// Writer builds one JSON value by hand, a token at a time (see the
+// comment at the top of this file).
+pub type Writer struct {
+    // out holds the bytes written so far.
+    out list[uint8]
+    // nesting holds a state for each container open, the innermost last.
+    nesting list[uint8]
+    // started is whether the value at the top has begun: written whole
+    // when nesting is empty, or still open when it is not.
+    started bool
+}
+
+// new_writer returns an empty Writer whose bytes and nesting grow
+// through alloc. It allocates nothing until a token is written, so it
+// cannot fail.
+pub func new_writer(scope alloc Allocator) Writer {
+    return Writer{out: make(list[uint8], alloc), nesting: make(list[uint8], alloc), started: false}
+}
+
+// top returns the state of the innermost container open in w, or 0 when
+// none is.
+func (w Writer) top() uint8 {
+    return last(w.nesting)
+}
+
+// last returns the last byte of l, or 0 when l is empty.
+func last(l []uint8) uint8 {
+    i := len(l) -% 1
+    if i >= 0 && i < len(l) {
+        return l[i]
+    }
+    return 0
+}
+
+// set_at makes s the byte at index i of l, when l has one.
+func set_at(mut l list[uint8], i int64, s uint8) {
+    if i >= 0 && i < len(l) {
+        l[i] = s
+    }
+}
+
+// at returns the byte at index i of l, or 0 when l has none.
+func at(l []uint8, i int64) uint8 {
+    if i >= 0 && i < len(l) {
+        return l[i]
+    }
+    return 0
+}
+
+// open_value checks a value may come next in w, and appends the comma
+// due before it, if one is: a value is refused in an object waiting for
+// a key, and at the top once a value has begun there.
+func (mut w Writer) open_value() error {
+    s := w.top()
+    if s == 0 {
+        if w.started {
+            return after_top
+        }
+        return noerror
+    }
+    if s == object_first || s == object_rest {
+        return key_expected
+    }
+    if s == array_rest {
+        return append(mut w.out, ',')
+    }
+    return noerror
+}
+
+// value_begun moves w on past the start of a value in the container
+// that holds it, the innermost open before the value began, depth being
+// how many were open then: an array to one that holds a value, an
+// object after a key to one that holds a member, and the top to begun.
+func (mut w Writer) value_begun(depth int64) {
+    if depth <= 0 {
+        w.started = true
+        return
+    }
+    i := depth -% 1
+    s := at(w.nesting, i)
+    if s == array_first {
+        set_at(mut w.nesting, i, array_rest)
+    } else if s == object_value {
+        set_at(mut w.nesting, i, object_rest)
+    }
+}
+
+// done ends a call that appended a token to w.out from start: on err it
+// takes the token off, leaving w as it was, and returns err; otherwise
+// it moves w past a value begun at depth.
+func (mut w Writer) done(start int64, depth int64, err error) error {
+    if err.code != 0 {
+        truncate(mut w.out, start)
+        return err
+    }
+    mut w.value_begun(depth)
+    return noerror
+}
+
+// begin_object writes {, opening an object as the next value.
+pub func (mut w Writer) begin_object() error {
+    return mut w.begin('{', object_first)
+}
+
+// begin_array writes [, opening an array as the next value.
+pub func (mut w Writer) begin_array() error {
+    return mut w.begin('[', array_first)
+}
+
+// begin writes c, opening a container in state s as the next value.
+func (mut w Writer) begin(c uint8, s uint8) error {
+    depth := len(w.nesting)
+    start := len(w.out)
+    mut err := mut w.open_value()
+    if err.code == 0 {
+        err = append(mut w.out, c)
+    }
+    if err.code == 0 {
+        err = append(mut w.nesting, s)
+    }
+    return mut w.done(start, depth, err)
+}
+
+// end_object writes }, closing the innermost container, which must be
+// an object holding no key without its value.
+pub func (mut w Writer) end_object() error {
+    s := w.top()
+    if s == object_value {
+        return end_after_key
+    }
+    if s != object_first && s != object_rest {
+        return unbalanced
+    }
+    return mut w.end('}')
+}
+
+// end_array writes ], closing the innermost container, which must be an
+// array.
+pub func (mut w Writer) end_array() error {
+    s := w.top()
+    if s != array_first && s != array_rest {
+        return unbalanced
+    }
+    return mut w.end(']')
+}
+
+// end writes c and drops the innermost container, which its caller
+// checked is open.
+func (mut w Writer) end(c uint8) error {
+    append(mut w.out, c)?
+    pop(mut w.nesting)
+    return noerror
+}
+
+// key writes k as the next member's key, a string, and a colon, in an
+// object waiting for a key.
+// A key the object already holds is taken again, as Go's Marshal can
+// write one twice, from map keys that differ only in bytes not UTF-8.
+pub func (mut w Writer) key(k []uint8) error {
+    s := w.top()
+    if s == object_value {
+        return value_expected
+    }
+    if s != object_first && s != object_rest {
+        return key_outside
+    }
+    start := len(w.out)
+    mut err := noerror
+    if s == object_rest {
+        err = append(mut w.out, ',')
+    }
+    if err.code == 0 {
+        err = put_string(mut w.out, k)
+    }
+    if err.code == 0 {
+        err = append(mut w.out, ':')
+    }
+    if err.code != 0 {
+        truncate(mut w.out, start)
+        return err
+    }
+    set_at(mut w.nesting, len(w.nesting) -% 1, object_value)
+    return noerror
+}
+
+// string writes the bytes of s as a string, escaped as append_encode
+// escapes a Text.
+pub func (mut w Writer) string(s []uint8) error {
+    depth := len(w.nesting)
+    start := len(w.out)
+    mut err := mut w.open_value()
+    if err.code == 0 {
+        err = put_string(mut w.out, s)
+    }
+    return mut w.done(start, depth, err)
+}
+
+// int writes v in decimal.
+pub func (mut w Writer) int(v int64) error {
+    depth := len(w.nesting)
+    start := len(w.out)
+    mut err := mut w.open_value()
+    if err.code == 0 {
+        err = bytes.append_int(mut w.out, v)
+    }
+    return mut w.done(start, depth, err)
+}
+
+// uint writes v in decimal.
+pub func (mut w Writer) uint(v uint64) error {
+    depth := len(w.nesting)
+    start := len(w.out)
+    mut err := mut w.open_value()
+    if err.code == 0 {
+        err = bytes.append_uint(mut w.out, v)
+    }
+    return mut w.done(start, depth, err)
+}
+
+// float writes v as append_encode writes a float64, or refuses NaN and
+// the infinities with error{code: 11, msg: "unsupported value"}.
+pub func (mut w Writer) float(v float64) error {
+    depth := len(w.nesting)
+    start := len(w.out)
+    mut err := mut w.open_value()
+    if err.code == 0 {
+        err = put_float64(mut w.out, v)
+    }
+    return mut w.done(start, depth, err)
+}
+
+// bool writes true or false.
+pub func (mut w Writer) bool(v bool) error {
+    depth := len(w.nesting)
+    start := len(w.out)
+    mut err := mut w.open_value()
+    if err.code == 0 {
+        if v {
+            err = append(mut w.out, 't', 'r', 'u', 'e')
+        } else {
+            err = append(mut w.out, 'f', 'a', 'l', 's', 'e')
+        }
+    }
+    return mut w.done(start, depth, err)
+}
+
+// null writes null.
+pub func (mut w Writer) null() error {
+    depth := len(w.nesting)
+    start := len(w.out)
+    mut err := mut w.open_value()
+    if err.code == 0 {
+        err = append(mut w.out, 'n', 'u', 'l', 'l')
+    }
+    return mut w.done(start, depth, err)
+}
+
+// finish returns the bytes w holds, one whole JSON value, and leaves w
+// empty, its bytes a new list made through alloc, which allocates
+// nothing, ready to write another value. It refuses, with an empty list
+// beside the error, while a container is open or before any value is
+// written, leaving w as it was.
+pub func (mut w Writer) finish(scope alloc Allocator) (list[uint8], error) {
+    if len(w.nesting) > 0 {
+        return make(list[uint8], alloc), still_open
+    }
+    if !w.started {
+        return make(list[uint8], alloc), nothing_written
+    }
+    w.started = false
+    return replace(mut w.out, make(list[uint8], alloc)), noerror
+}

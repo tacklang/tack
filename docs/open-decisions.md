@@ -1649,3 +1649,82 @@ consistency, and could go another way:
   precision floats, as Go's `big.Float`. There is no `set`, `copy`,
   method syntax or in-place form either: each operation makes a new
   `Int`, so a loop accumulating one allocates on each step.
+
+## std/json
+
+`std/json`'s encoder follows the reflection design, stage 4; decoding
+was ruled for later. The API was the lead's call (2026-11-13),
+overrulable: `append_encode[T Data](mut out list[uint8], v T, scope
+alloc Allocator) error`, renamed in review from `encode` to match std's
+other appenders, all or nothing, and a `Writer` for JSON built by
+hand. Ruled in review (2026-11-13), the lead's call, overrulable: the
+oracle and its U+FFFD below, `list[uint8]` as an array, the error
+codes and the Writer's API as designed, and scratch through an
+explicit allocator. These points were picked in implementation and
+could go another way:
+
+- The oracle is the installed Go's `json.Marshal`, Go 1.27.3, which is
+  built on `encoding/json/v2` by default (`GOEXPERIMENT=jsonv2` is on in
+  1.27). It writes a byte that is not UTF-8 as U+FFFD itself, the three
+  bytes EF BF BD, where Go's v1 encoder, `encoding/json/encode.go`,
+  which 1.27 compiles only under `GOEXPERIMENT=nojsonv2`, writes the six
+  bytes `\ufffd`. std/json follows the default, as ruled: the port's
+  AST check compares decoded JSON, where the two agree. A port checked
+  byte for byte against a Go built with `GOEXPERIMENT=nojsonv2` would
+  differ there.
+- A `list[uint8]` is an array of numbers, as every list is; Go writes a
+  `[]byte` as a base64 string. Ruled to stay; base64 would need a
+  `case list[E]` with a `switch E` on `uint8`.
+- The errors are new codes after std/big's 10: 11 `"unsupported
+  value"`, for NaN and the infinities, which Go refuses with an
+  `UnsupportedValueError`, and 12 for a Writer's misuse, with one
+  message for each way, so a caller tests the code alone. The errors
+  are not `pub` globals, as std/conv's are not.
+- A map's keys are sorted bytewise on copies, a `list[text.Text]` made
+  through `append_encode`'s `alloc` and sorted by std/sort, since a list
+  cannot hold a view of a key and a map has no index by position; each
+  value is then read by its copy, and the copies are freed before
+  `append_encode` returns. `alloc` is for that scratch alone, as ruled,
+  std functions taking their allocator explicitly; a value holding no
+  map allocates nothing through it. A refused copy is the out-of-memory
+  error. A region's allocator works as scratch only with `out` made in
+  the region too: the region rule refuses a list from outside passed as
+  `mut` beside it, `cannot pass mut out to append_encode alongside r`,
+  since a generic signature cannot say `alloc` never reaches `out`.
+  Sorting without allocating would take time proportional to the square
+  of the map's size.
+- The Writer cannot hold an `Allocator` (a scope one cannot be stored,
+  and a plain one would keep regions out), and a field cannot be moved
+  out of its struct, so `finish(scope alloc)` takes the bytes with
+  `replace`, leaving a new list made through `alloc`. Options: keep it;
+  `finish(mut out list[uint8])` appending a copy; or a `bytes()` view
+  beside a check.
+- The Writer writes one value at the top, as `json.Marshal` gives; a
+  second is a misuse, not a newline-separated stream as Go's
+  `json.Encoder` writes. A refused call leaves it as it was, so writing
+  may go on; nothing poisons it.
+- The Writer's methods are named `int`, `uint`, `float`, `bool`,
+  `string` and `null`, after the JSON they write and the Tack types they
+  take, since a method may take a builtin's name; there is no `float32`
+  method, as a float32 widens to a float64 that formats with more
+  digits, and no raw-bytes method.
+- A `json.Writer` is itself `Data`, its private fields being two lists
+  and a bool, and it is declared in std/json, whose fields loop sees
+  every field of its own package's structs. So `json.append_encode(mut
+  out, w, alloc)` compiles and writes the Writer's insides,
+  `{"out":[91],"nesting":[1],"started":true}` after one `[`. Nothing is
+  unsafe in it, though it shows state no other package can read; ruled
+  to stay (2026-11-13). The alternatives were a field that is not
+  `Data`, or a mark that keeps a type out of `Data`.
+
+Still open:
+
+- The decoder, as the reflection design sketches it, `json.decode[T
+  Data](mut v T, in []uint8, scope alloc Allocator) error`, with its
+  semantics to state when it lands, and a depth limit on skipped values
+  until recursion is bounded.
+- Skipping, renaming and omitting fields, Go's `json:"-"`, `json:"name"`
+  and `omitempty`, and a custom marshaler, which the port's AST dump
+  needs: Tack has no tag syntax, and the AST dump decides the story.
+- Indented output, as Go's `json.MarshalIndent` writes, for append_encode
+  and the Writer.

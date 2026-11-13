@@ -5,10 +5,10 @@ compiler, written from scratch in Go.
 
 It is a learning project, built to understand how a compiler works end to end
 rather than to be used for anything. There is no runtime, a standard library
-of fourteen packages, `std/fmt`, `std/bytes`, `std/text`, `std/os`,
+of fifteen packages, `std/fmt`, `std/bytes`, `std/text`, `std/os`,
 `std/path`, `std/conv`, `std/errors`, `std/sort`, `std/utf8`,
-`std/unicode`, `std/sha256`, `std/hex`, `std/binary` and `std/big`,
-and no intermediate representation.
+`std/unicode`, `std/sha256`, `std/hex`, `std/binary`, `std/big` and
+`std/json`, and no intermediate representation.
 
 Every program the compiler accepts is held to four guarantees: no
 out-of-bounds access, no memory leak, no use-after-free and no panic. They
@@ -73,8 +73,10 @@ from Go's own. `std/sha256`, in Tack alone, computes SHA-256 as Go's
 `std/hex`, in Tack alone, writes bytes in hexadecimal as Go's
 `encoding/hex` does, `std/binary`, in Tack alone, writes and reads
 unsigned integers as big- and little-endian bytes as Go's
-`encoding/binary` does, and `std/big`, in Tack alone, holds signed
-integers of any size, as Go's `math/big` does.
+`encoding/binary` does, `std/big`, in Tack alone, holds signed
+integers of any size, as Go's `math/big` does, and `std/json`, in Tack
+alone, writes any `Data` value as JSON byte for byte as Go's
+`json.Marshal` does, and JSON built by hand through a `Writer`.
 
 `exit` is a global builtin as a stand-in for a future `os.Exit`, after which
 the global goes away. `std/os` does not have one yet, so `exit` stays.
@@ -625,9 +627,10 @@ section remains the description of the language.
   [`sha256`](src/std/sha256/sha256.tck), which hashes bytes (see
   sha256), [`hex`](src/std/hex/hex.tck), which writes bytes in
   hexadecimal (see hex), [`binary`](src/std/binary/binary.tck),
-  which writes and reads integers as bytes (see binary), and
+  which writes and reads integers as bytes (see binary),
   [`big`](src/std/big/big.tck), which holds integers of any size (see
-  big).
+  big), and [`json`](src/std/json/json.tck), which writes JSON (see
+  json).
   A std package follows every rule a package of the program's module
   does. Its `pub` names are usable from every package, its private names
   only from itself, `hidden is not pub in package std/util`, and its `lib`
@@ -1647,6 +1650,61 @@ section remains the description of the language.
   stand only for a word's sum or difference modulo 2^64. There are no
   bitwise operations, powers, modular powers, greatest common
   divisors, rationals or floats yet.
+- json. `std/json` is written in Tack alone, with no C, and writes JSON
+  byte for byte as the installed Go's `json.Marshal` writes the same
+  value, checked against Go 1.27.3. `err := json.append_encode(mut out,
+  v, alloc)`, named as std's other appenders are, `out` first, appends
+  any `Data` value `v` to the list `out` (see Data and fields loops): a
+  struct as an object of the fields std/json sees, its `pub` ones, in
+  declaration order, keyed by their names, so a private field, or a
+  `lib` one outside std, is left out, as Go leaves out an unexported
+  one; a list as an array, an empty one `[]`, a `list[uint8]` included,
+  where Go writes a `[]byte` as base64; a `map[text.Text]V` as an object
+  whose keys are sorted bytewise, as Go sorts a map's string keys; a
+  `text.Text` as a string; a `bool` as `true` or `false`; every integer
+  type in decimal; and a float as Go writes one, the shortest digits
+  that read back as it, through std/conv's `append_float`, in plain
+  decimal from `1e-6` up to `1e21` and with an exponent outside, `1e+21`
+  and `1e-7`, negative zero as `-0`. A string is escaped as Go escapes
+  it: `\"` and `\\`, `\b \f \n \r \t`, any other byte below `0x20` as
+  `\u00XX`, `<`, `>` and `&` as `\u003c`, `\u003e` and `\u0026`, U+2028
+  and U+2029 as `\u2028` and `\u2029`, and a byte that is not UTF-8, as
+  std/utf8 decodes it, as U+FFFD itself, the bytes EF BF BD, as Go
+  1.27's json.Marshal writes it by default, where its v1 encoder writes
+  `\ufffd`. NaN and the infinities are refused, `error{code: 11, msg:
+  "unsupported value"}`, as Go refuses them, and `out`, or the scratch
+  copies of a map's keys, that cannot be made or grow is `error{code: 1,
+  msg: "out of memory"}`; on an error `out` is left as it was. `alloc`
+  is for scratch only, as std functions take their allocator explicitly:
+  the JSON goes into `out`, and the one thing made through `alloc`, a
+  list of copies of a map's keys that it sorts, is freed before
+  `append_encode` returns, so nothing from `alloc` outlives the call. A
+  region's allocator may be it, with `out` made in the region too: a
+  list from outside passed as `mut` beside it is the region error,
+  `cannot pass mut out to append_encode alongside r, ...`. Nothing
+  recurses at run time: `append_encode` of a struct calls the instance
+  for each field's type, another function, so the calls follow the type
+  down to its basic types. A `json.Writer` builds JSON by hand, for
+  values that are not `Data`: `mut w := json.new_writer(alloc)` makes an
+  empty one that owns its bytes and its nesting, lists made through
+  `alloc`, and `mut w.begin_object()`, `end_object()`, `begin_array()`,
+  `end_array()`, `key(k)` of a `[]uint8` view, a name the object already
+  holds taken again as Go's Marshal can write one twice, `string(s)`,
+  `int(v)` of an `int64`, `uint(v)` of a `uint64`, `float(v)` of a
+  `float64`, `bool(v)` and `null()` each write a token and the comma
+  before it, escaped and formatted as `append_encode` does; `b := mut
+  w.finish(alloc)?` hands over the bytes of the one whole value written
+  and leaves `w` empty for another, its bytes a new list made through
+  `alloc`, since a struct cannot hold a scope `Allocator`. A call that
+  would make the JSON malformed, a value where a key is expected, a key
+  outside an object or after another, a second value at the top, an end
+  that matches no open container or comes after a key, and a finish with
+  a container open or before any value, is `error{code: 12, msg: ...}`,
+  the message naming which. Every call is all or nothing: on any error
+  the Writer is left as it was, so writing may go on. Its nesting is a
+  list, so its depth is bounded by memory, not C's stack. There is no
+  decoding, no indented output, and no way to skip, rename or omit a
+  field yet.
 - Several results are bound together, by position, with
   `q, r := divmod(7, 2)`. Each name is a new variable of its result's type,
   immutable unless that name has its own `mut`: `q, mut r := divmod(7, 2)`
