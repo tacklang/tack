@@ -4,7 +4,7 @@ This chapter describes interface declarations, how a struct or union
 type satisfies an interface (its methods, signatures and `mut`
 receivers, and their visibility from the call), generic functions with
 type parameters constrained by interfaces, interface parameters, how a
-call chooses its type arguments, and what a generic body may do with a
+call writes or infers its type arguments, and what a generic body may do with a
 value of a type parameter. Only a function is generic: a method, an
 `extern func` and a type cannot have type parameters, as "The language
 today" in the [README](../../README.md) says under generic functions.
@@ -190,26 +190,31 @@ its signature and its body, and stands for whichever type a call passes.
 - A type parameter's name follows a parameter's rules: not reserved, not
   a package-level name or an import's, `duplicate type parameter name`
   for two alike, and no parameter or local may reuse it.
-- Every type parameter appears in some parameter's type, so a call can
-  infer it: whole, `w W`, or as a part of it, a list's, a view's or a map
-  value's element, or a function type's parameter or result, `l
-  list[T]`, `v []T`, `m map[string]T`, `less func(T, T) bool`. Otherwise
-  it is `W appears in no parameter of f, so no call can infer it`.
+- A type parameter may appear in any parameter's type, whole, `w W`, or
+  as a part of it, a list's, a view's or a map value's element, or a
+  function type's parameter or result, `l list[T]`, `v []T`, `m
+  map[string]T`, `less func(T, T) bool`, where a call can infer it; in a
+  result alone, `func empty[T Data](scope alloc Allocator) T`; or in the
+  body alone. A call writes each one no argument gives (see [Type
+  arguments and inference](#type-arguments-and-inference)).
 - A type parameter is a type, never a value: `cannot use W as a value;
   it is a type`, `cannot call W; it is a type`, `cannot assign to W; it
   is a type`.
 - A method cannot have type parameters, `a method cannot have type
   parameters; only a function can be generic`, nor can an extern func,
   `extern func f cannot have type parameters; its body is written in C`.
-  There are no generic types.
+  There are no generic types. Nor can `main`, `main function must not
+  declare type parameters`.
 - A `pub` or `lib` generic function exposes its constraints as it
   exposes its parameters' types, `pub function Size exposes hidden,
   which is not pub`.
 
 A generic function is never a value: `cannot use measure as a value: it
-is generic, and a generic function is only called, its type arguments
-inferred from the call`. It may call itself and other generic
-functions, passing its type parameters as type arguments.
+is generic, and a generic function is only called`, nor is one given
+type arguments without a call, `cannot use measure[Box] as a value: it
+is generic, and a generic function is only called`. It may call itself
+and other generic functions, passing its type parameters as type
+arguments, inferred or written, `empty[T](alloc)`.
 
 The body of a generic function is checked once, against the
 constraints, never for each call, so the diagnostics a program gets
@@ -313,11 +318,74 @@ func main() {
 ## Type arguments and inference
 
 A call to a generic function is written as any call, `render(mut f,
-"x")`. Type arguments are never written: `f[T](x)` is `cannot write
-type arguments; they are inferred from the arguments, as in f(...)`.
+"x")`, and may write type arguments in brackets after the callee's
+name, plain or qualified, `empty[User](alloc)` or
+`lists.new[int64](alloc)`. Each is a type of any form, `f[list[int64]]`
+and `f[map[text.Text]int64]` among them, separated by commas, with none
+after the last; `[]` is `empty type argument list`. Only a name is ever
+called, so brackets and a parenthesis after one are always type
+arguments, whatever the name names.
 
-Each type parameter takes its type from the arguments, in order:
+The type arguments written fill the type parameters the function
+declares, from the left; the arguments infer the rest. An interface
+parameter's type parameter is never written, only inferred, as no name
+says which one it is. So a list may be partial:
 
+```tack run exit=3
+package main
+
+func counted[R Data, E Data](l list[E], scope alloc Allocator) (R, int64) {
+    return make(R, alloc), len(l)
+}
+
+func main() {
+    mut l := make(list[int32], c_allocator)
+    err := append(mut l, 1, 2, 3)
+    r, n := counted[int64](l, c_allocator)
+    if err.code == 0 && r == 0 && n == 3 {
+        exit(3)
+    }
+}
+```
+
+A call is reported when:
+
+- it writes more type arguments than the function declares, at the
+  extra ones: `too many type arguments for empty: it declares 1 type
+  parameter`;
+- a type parameter is neither written nor in any parameter's type, so no
+  argument could give it, at the callee: `cannot infer T in this call
+  to empty: no argument gives it; write the type arguments through it,
+  as in empty[T](...)`;
+- its callee is no generic function: `cannot write type arguments for
+  one: it declares no type parameters`, for a function whose only type
+  parameters are its interface parameters' too, `cannot write type
+  arguments for make: it is a builtin`, `cannot write type arguments for
+  int32: it is a type`;
+- it calls an element: brackets after a variable or a parameter, or
+  whose first token starts no type, index, `cannot call an element,
+  fs[...](...); only a name is called: bind it first, as in g :=
+  fs[...]`, and so do those after a field, `s.fs[0](x)`;
+- it writes them after a selector, a method, a union's case or a method
+  expression, none of which is generic, unless what they hold starts no
+  type: `cannot call b.size[...](...): only a name is called, and only
+  a function can be generic`.
+
+A written type argument is checked as an inferred one is, below, and
+reported at itself: `cannot use []int64 as T in type argument to keep:
+a type argument cannot be a view`, `int64 does not satisfy Sizer: int64
+has no method size`. Each argument for a parameter whose type
+parameters are all settled, written or inferred from an earlier
+argument, is then checked against that parameter's type as for a
+function that is not generic, so an untyped constant takes it and an
+`int32` widens to a written `int64`, and one that does not fit is
+reported as any argument is, `cannot use Box as int64 in argument to
+same`. An argument that still infers another part of its parameter's
+type is matched part by part, and a part that differs from a written
+type argument is `cannot use int32 as K in argument to apply: K is
+int64 in this call, from its type argument`.
+
+Each type parameter not written takes its type from the arguments, in order:
 - the type of an argument passed to a parameter of that type;
 - or the part of an argument's type where the parameter's type has the
   type parameter: the element of a list, an array or a view passed for a

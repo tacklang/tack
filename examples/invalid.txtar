@@ -21955,19 +21955,13 @@ func main() {
     }
 }
 -- func-value-generic-brackets/expected --
-stage: resolve+typeck
+stage: typeck
 ---
 
-func-value-generic-brackets/main.tck:20:10: error: cannot use measure as a value: it is generic, and a generic function is only called, its type arguments inferred from the call
+func-value-generic-brackets/main.tck:20:10: error: cannot use measure[Box] as a value: it is generic, and a generic function is only called
 19 |	func main() {
 20 |	    f := measure[Box]
-   |	         ^~~~~~~
-21 |	    if f(Box{n: 1}) == 1 {
-
-func-value-generic-brackets/main.tck:20:18: error: cannot use Box as a value; it is a type
-19 |	func main() {
-20 |	    f := measure[Box]
-   |	                 ^~~
+   |	         ^~~~~~~~~~~~
 21 |	    if f(Box{n: 1}) == 1 {
 
 -- func-value-global/main.tck --
@@ -23356,45 +23350,6 @@ generic-equal/main.tck:8:12: error: operator == is not defined on S
    |	           ^~~~~~
 09 |	}
 
--- generic-explicit-type-args/main.tck --
-package main
-
-type Sizer interface {
-    size() int64
-}
-
-type Counter struct {
-    n int64
-}
-
-func (mut c Counter) write(b []uint8) error {
-    c.n +%= len(b)
-    return noerror
-}
-
-func (c Counter) size() int64 {
-    return c.n
-}
-
-func measure[S Sizer](s S) int64 {
-    return s.size()
-}
-
-func main() {
-    c := Counter{n: 1}
-    n := measure[Counter](c)
-    exit(int32(n))
-}
--- generic-explicit-type-args/expected --
-stage: parse
----
-
-generic-explicit-type-args/main.tck:26:10: error: cannot write type arguments; they are inferred from the arguments, as in measure(...)
-25 |	    c := Counter{n: 1}
-26 |	    n := measure[Counter](c)
-   |	         ^~~~~~~~~~~~~~~~
-27 |	    exit(int32(n))
-
 -- generic-explicit-type-args-stmt/main.tck --
 package main
 
@@ -23423,13 +23378,13 @@ func main() {
     show[Counter, Counter](c)
 }
 -- generic-explicit-type-args-stmt/expected --
-stage: parse
+stage: typeck
 ---
 
-generic-explicit-type-args-stmt/main.tck:25:5: error: cannot write type arguments; they are inferred from the arguments, as in show(...)
+generic-explicit-type-args-stmt/main.tck:25:19: error: too many type arguments for show: it declares 1 type parameter
 24 |	    c := Counter{n: 1}
 25 |	    show[Counter, Counter](c)
-   |	    ^~~~~~~~~~~~~~~~~~~~~~
+   |	                  ^~~~~~~
 26 |	}
 
 -- generic-extern-type-params/main.tck --
@@ -23497,7 +23452,7 @@ func main() {
 stage: typeck
 ---
 
-generic-func-value/main.tck:15:9: error: cannot use measure as a value: it is generic, and a generic function is only called, its type arguments inferred from the call
+generic-func-value/main.tck:15:9: error: cannot use measure as a value: it is generic, and a generic function is only called
 14 |	func main() {
 15 |	    run(measure)
    |	        ^~~~~~~
@@ -23727,13 +23682,13 @@ type Sizer interface {
 func main[S Sizer]() {
 }
 -- generic-main/expected --
-stage: typeck
+stage: resolve
 ---
 
-generic-main/main.tck:7:11: error: S appears in no parameter of main, so no call can infer it
+generic-main/main.tck:7:10: error: main function must not declare type parameters
 06 |	
 07 |	func main[S Sizer]() {
-   |	          ^
+   |	         ^~~~~~~~~
 08 |	}
 
 -- generic-method-arg-count/main.tck --
@@ -24471,16 +24426,10 @@ func f[int64 Sizer](s int64) {
 func main() {
 }
 -- generic-type-param-basic-name/expected --
-stage: resolve+typeck
+stage: resolve
 ---
 
 generic-type-param-basic-name/main.tck:7:8: error: cannot use int64 as a name; it is a type
-06 |	
-07 |	func f[int64 Sizer](s int64) {
-   |	       ^~~~~
-08 |	}
-
-generic-type-param-basic-name/main.tck:7:8: error: int64 appears in no parameter of f, so no call can infer it
 06 |	
 07 |	func f[int64 Sizer](s int64) {
    |	       ^~~~~
@@ -24552,16 +24501,23 @@ func f[S Sizer]() S {
 }
 
 func main() {
+    s := f()
 }
 -- generic-type-param-result-only/expected --
 stage: typeck
 ---
 
-generic-type-param-result-only/main.tck:7:8: error: S appears in no parameter of f, so no call can infer it
-06 |	
-07 |	func f[S Sizer]() S {
-   |	       ^
-08 |	    for {
+generic-type-param-result-only/main.tck:13:5: warning: declared and not used: s
+12 |	func main() {
+13 |	    s := f()
+   |	    ^
+14 |	}
+
+generic-type-param-result-only/main.tck:13:10: error: cannot infer S in this call to f: no argument gives it; write the type arguments through it, as in f[S](...)
+12 |	func main() {
+13 |	    s := f()
+   |	         ^
+14 |	}
 
 -- generic-type-param-unused/main.tck --
 package main
@@ -24570,20 +24526,29 @@ type Sizer interface {
     size() int64
 }
 
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
 func f[A Sizer, B Sizer](a A) {
 }
 
 func main() {
+    f(Box{n: 1})
 }
 -- generic-type-param-unused/expected --
 stage: typeck
 ---
 
-generic-type-param-unused/main.tck:7:17: error: B appears in no parameter of f, so no call can infer it
-06 |	
-07 |	func f[A Sizer, B Sizer](a A) {
-   |	                ^
-08 |	}
+generic-type-param-unused/main.tck:19:5: error: cannot infer B in this call to f: no argument gives it; write the type arguments through it, as in f[A, B](...)
+18 |	func main() {
+19 |	    f(Box{n: 1})
+   |	    ^
+20 |	}
 
 -- generic-type-param-value/main.tck --
 package main
@@ -27102,7 +27067,7 @@ func main() {
 stage: typeck
 ---
 
-interface-param-value/main.tck:24:14: error: cannot use total as a value: it is generic, and a generic function is only called, its type arguments inferred from the call
+interface-param-value/main.tck:24:14: error: cannot use total as a value: it is generic, and a generic function is only called
 23 |	func main() {
 24 |	    if apply(total) > 0 {
    |	             ^~~~~
@@ -65111,6 +65076,1420 @@ text-literal-outside/main.tck:6:10: error: cannot write a text.Text literal outs
 06 |	    t := text.Text{}
    |	         ^~~~~~~~~
 07 |	    if t.len() != 0 {
+
+-- type-args-any/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    v := empty[any](c_allocator)
+}
+-- type-args-any/expected --
+stage: typeck
+---
+
+type-args-any/main.tck:24:5: warning: declared and not used: v
+23 |	func main() {
+24 |	    v := empty[any](c_allocator)
+   |	    ^
+25 |	}
+
+type-args-any/main.tck:24:16: error: cannot use any as T in type argument to empty: a type argument cannot be an any
+23 |	func main() {
+24 |	    v := empty[any](c_allocator)
+   |	               ^~~
+25 |	}
+
+-- type-args-builtin/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    l := make[list[int64]](c_allocator)
+    if len[list[int64]](l) == 0 {
+        exit(1)
+    }
+}
+-- type-args-builtin/expected --
+stage: resolve+typeck
+---
+
+type-args-builtin/main.tck:24:10: error: cannot write type arguments for make: it is a builtin
+23 |	func main() {
+24 |	    l := make[list[int64]](c_allocator)
+   |	         ^~~~~~~~~~~~~~~~~
+25 |	    if len[list[int64]](l) == 0 {
+
+type-args-builtin/main.tck:24:10: error: make expects 2 argument(s), got 1
+23 |	func main() {
+24 |	    l := make[list[int64]](c_allocator)
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+25 |	    if len[list[int64]](l) == 0 {
+
+type-args-builtin/main.tck:25:8: error: cannot write type arguments for len: it is a builtin
+24 |	    l := make[list[int64]](c_allocator)
+25 |	    if len[list[int64]](l) == 0 {
+   |	       ^~~~~~~~~~~~~~~~
+26 |	        exit(1)
+
+-- type-args-conflict/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func count[T Data](l list[T]) int64 {
+    return len(l)
+}
+
+func same[T Data](a T, b T) bool {
+    return true
+}
+
+func main() {
+    l := make(list[int32], c_allocator)
+    if count[int64](l) == 0 {
+        exit(1)
+    }
+    if same[int64](Box{n: 1}, 2) {
+        print("same\n")
+    }
+}
+-- type-args-conflict/expected --
+stage: typeck
+---
+
+type-args-conflict/main.tck:33:21: error: cannot use list[int32] as list[int64] in argument to count
+32 |	    l := make(list[int32], c_allocator)
+33 |	    if count[int64](l) == 0 {
+   |	                    ^
+34 |	        exit(1)
+
+type-args-conflict/main.tck:36:20: error: cannot use Box as int64 in argument to same
+35 |	    }
+36 |	    if same[int64](Box{n: 1}, 2) {
+   |	                   ^~~~~~~~~
+37 |	        print("same\n")
+
+-- type-args-conflict-func/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func apply[K Data, V Data](k K, f func(K) V) V {
+    return f(k)
+}
+
+func wide(n int32) bool {
+    return n > 0
+}
+
+func main() {
+    if apply[int64](1, wide) {
+        exit(1)
+    }
+}
+-- type-args-conflict-func/expected --
+stage: typeck
+---
+
+type-args-conflict-func/main.tck:32:24: error: cannot use int32 as K in argument to apply: K is int64 in this call, from its type argument
+31 |	func main() {
+32 |	    if apply[int64](1, wide) {
+   |	                       ^~~~
+33 |	        exit(1)
+
+-- type-args-constraint/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    if measure[int64](5) == 0 {
+        exit(1)
+    }
+}
+-- type-args-constraint/expected --
+stage: typeck
+---
+
+type-args-constraint/main.tck:24:16: error: int64 does not satisfy Sizer: int64 has no method size
+23 |	func main() {
+24 |	    if measure[int64](5) == 0 {
+   |	               ^~~~~
+25 |	        exit(1)
+
+-- type-args-constraint-data/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    s := empty[string](c_allocator)
+    a := empty[Allocator](c_allocator)
+    l := empty[list[string]](c_allocator)
+}
+-- type-args-constraint-data/expected --
+stage: typeck
+---
+
+type-args-constraint-data/main.tck:24:5: warning: declared and not used: s
+23 |	func main() {
+24 |	    s := empty[string](c_allocator)
+   |	    ^
+25 |	    a := empty[Allocator](c_allocator)
+
+type-args-constraint-data/main.tck:24:16: error: string does not satisfy Data: a string is not Data
+23 |	func main() {
+24 |	    s := empty[string](c_allocator)
+   |	               ^~~~~~
+25 |	    a := empty[Allocator](c_allocator)
+
+type-args-constraint-data/main.tck:25:5: warning: declared and not used: a
+24 |	    s := empty[string](c_allocator)
+25 |	    a := empty[Allocator](c_allocator)
+   |	    ^
+26 |	    l := empty[list[string]](c_allocator)
+
+type-args-constraint-data/main.tck:25:16: error: Allocator does not satisfy Data: an Allocator is not Data
+24 |	    s := empty[string](c_allocator)
+25 |	    a := empty[Allocator](c_allocator)
+   |	               ^~~~~~~~~
+26 |	    l := empty[list[string]](c_allocator)
+
+type-args-constraint-data/main.tck:26:5: warning: declared and not used: l
+25 |	    a := empty[Allocator](c_allocator)
+26 |	    l := empty[list[string]](c_allocator)
+   |	    ^
+27 |	}
+
+type-args-constraint-data/main.tck:26:16: error: list[string] does not satisfy Data: the element type of list[string] is string, which is not Data
+25 |	    a := empty[Allocator](c_allocator)
+26 |	    l := empty[list[string]](c_allocator)
+   |	               ^~~~~~~~~~~~
+27 |	}
+
+-- type-args-conversion/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    n := 5
+    if int32[int64](n) == 0 {
+        exit(1)
+    }
+}
+-- type-args-conversion/expected --
+stage: resolve
+---
+
+type-args-conversion/main.tck:25:8: error: cannot write type arguments for int32: it is a type
+24 |	    n := 5
+25 |	    if int32[int64](n) == 0 {
+   |	       ^~~~~~~~~~~~
+26 |	        exit(1)
+
+-- type-args-element-call-field/main.tck --
+package main
+
+func one(n int64) int64 {
+    return n
+}
+
+type S struct {
+    fs [2]func(int64) int64
+}
+
+func main() {
+    s := S{fs: [2]func(int64) int64{one, one}}
+    i := 1
+    if s.fs[0](3) == 0 {
+        exit(1)
+    }
+    if s.fs[i](3) == 0 {
+        exit(1)
+    }
+}
+-- type-args-element-call-field/expected --
+stage: parse
+---
+
+type-args-element-call-field/main.tck:14:8: error: cannot call an element, s.fs[...](...); only a name is called: bind it first, as in g := s.fs[...]
+13 |	    i := 1
+14 |	    if s.fs[0](3) == 0 {
+   |	       ^~~~~~~
+15 |	        exit(1)
+
+type-args-element-call-field/main.tck:17:8: error: cannot call s.fs[...](...): only a name is called, and only a function can be generic
+16 |	    }
+17 |	    if s.fs[i](3) == 0 {
+   |	       ^~~~~~~
+18 |	        exit(1)
+
+-- type-args-element-call-index/main.tck --
+package main
+
+func one(n int64) int64 {
+    return n
+}
+
+func main() {
+    fs := [2]func(int64) int64{one, one}
+    i := 1
+    if fs[i](3) == 0 {
+        exit(1)
+    }
+}
+-- type-args-element-call-index/expected --
+stage: resolve
+---
+
+type-args-element-call-index/main.tck:10:8: error: cannot call an element, fs[...](...); only a name is called: bind it first, as in g := fs[...]
+09 |	    i := 1
+10 |	    if fs[i](3) == 0 {
+   |	       ^~~~~
+11 |	        exit(1)
+
+-- type-args-element-call-map/main.tck --
+package main
+
+import text from "std/text"
+
+func one(n int64) int64 {
+    return n
+}
+
+func main() {
+    mut m := make(map[text.Text]func(int64) int64, c_allocator)
+    k := text.new(c_allocator)
+    if m[k](3) == 0 {
+        exit(1)
+    }
+}
+-- type-args-element-call-map/expected --
+stage: resolve
+---
+
+type-args-element-call-map/main.tck:12:8: error: cannot call an element, m[...](...); only a name is called: bind it first, as in g := m[...]
+11 |	    k := text.new(c_allocator)
+12 |	    if m[k](3) == 0 {
+   |	       ^~~~
+13 |	        exit(1)
+
+-- type-args-empty-list/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    x := empty[](c_allocator)
+}
+-- type-args-empty-list/expected --
+stage: parse
+---
+
+type-args-empty-list/main.tck:24:15: error: empty type argument list
+23 |	func main() {
+24 |	    x := empty[](c_allocator)
+   |	              ^~
+25 |	}
+
+-- type-args-hidden-local/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    empty := 3
+    x := empty[int64](c_allocator)
+    if x == empty {
+        exit(1)
+    }
+    y := empty[bool, bool](c_allocator)
+}
+-- type-args-hidden-local/expected --
+stage: typeck
+---
+
+type-args-hidden-local/main.tck:29:5: warning: declared and not used: y
+28 |	    }
+29 |	    y := empty[bool, bool](c_allocator)
+   |	    ^
+30 |	}
+
+type-args-hidden-local/main.tck:29:22: error: too many type arguments for empty: it declares 1 type parameter
+28 |	    }
+29 |	    y := empty[bool, bool](c_allocator)
+   |	                     ^~~~
+30 |	}
+
+-- type-args-index-call/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func one(n int64) int64 {
+    return n
+}
+
+func main() {
+    fs := [1]func(int64) int64{one}
+    if fs[0](1) == 0 {
+        exit(1)
+    }
+}
+-- type-args-index-call/expected --
+stage: parse
+---
+
+type-args-index-call/main.tck:29:8: error: cannot call an element, fs[...](...); only a name is called: bind it first, as in g := fs[...]
+28 |	    fs := [1]func(int64) int64{one}
+29 |	    if fs[0](1) == 0 {
+   |	       ^~~~~
+30 |	        exit(1)
+
+-- type-args-interface-param-only/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func both(x Sizer, y Sizer) int64 {
+    return x.size() +% y.size()
+}
+
+func main() {
+    b := Box{n: 1}
+    if both[Box, Box](b, b) == 0 {
+        exit(1)
+    }
+}
+-- type-args-interface-param-only/expected --
+stage: typeck
+---
+
+type-args-interface-param-only/main.tck:29:8: error: cannot write type arguments for both: it declares no type parameters
+28 |	    b := Box{n: 1}
+29 |	    if both[Box, Box](b, b) == 0 {
+   |	       ^~~~~~~~~~~~~~
+30 |	        exit(1)
+
+-- type-args-made-of-type-param/main.tck --
+package main
+
+import text from "std/text"
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func wrap[T Data](scope alloc Allocator) int64 {
+    l := empty[list[T]](alloc)
+    m := empty[map[text.Text]T](alloc)
+    return len(l) +% len(m)
+}
+
+func main() {
+    if wrap[int64](c_allocator) == 0 {
+        exit(1)
+    }
+}
+-- type-args-made-of-type-param/expected --
+stage: typeck
+---
+
+type-args-made-of-type-param/main.tck:26:16: error: cannot use list[T] as T in type argument to empty: a type argument cannot be made of a type parameter, only be one
+25 |	func wrap[T Data](scope alloc Allocator) int64 {
+26 |	    l := empty[list[T]](alloc)
+   |	               ^~~~~~~
+27 |	    m := empty[map[text.Text]T](alloc)
+
+type-args-made-of-type-param/main.tck:27:16: error: cannot use map[text.Text]T as T in type argument to empty: a type argument cannot be made of a type parameter, only be one
+26 |	    l := empty[list[T]](alloc)
+27 |	    m := empty[map[text.Text]T](alloc)
+   |	               ^~~~~~~~~~~~~~~
+28 |	    return len(l) +% len(m)
+
+-- type-args-main/main.tck --
+package main
+
+func main[T Data]() {
+}
+-- type-args-main/expected --
+stage: resolve
+---
+
+type-args-main/main.tck:3:10: error: main function must not declare type parameters
+02 |	
+03 |	func main[T Data]() {
+   |	         ^~~~~~~~
+04 |	}
+
+-- type-args-method/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    b := Box{n: 1}
+    if b.size[int64]() == 0 {
+        exit(1)
+    }
+    if Box.size[int64](b) == 0 {
+        exit(1)
+    }
+}
+-- type-args-method/expected --
+stage: parse
+---
+
+type-args-method/main.tck:25:8: error: cannot call b.size[...](...): only a name is called, and only a function can be generic
+24 |	    b := Box{n: 1}
+25 |	    if b.size[int64]() == 0 {
+   |	       ^~~~~~~~~~~~~
+26 |	        exit(1)
+
+type-args-method/main.tck:28:8: error: cannot call Box.size[...](...): only a name is called, and only a function can be generic
+27 |	    }
+28 |	    if Box.size[int64](b) == 0 {
+   |	       ^~~~~~~~~~~~~~~
+29 |	        exit(1)
+
+-- type-args-not-generic/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func one(n int64) int64 {
+    return n
+}
+
+func main() {
+    x := one[int64](1)
+    if x == 0 {
+        exit(1)
+    }
+}
+-- type-args-not-generic/expected --
+stage: typeck
+---
+
+type-args-not-generic/main.tck:28:10: error: cannot write type arguments for one: it declares no type parameters
+27 |	func main() {
+28 |	    x := one[int64](1)
+   |	         ^~~~~~~~~~
+29 |	    if x == 0 {
+
+-- type-args-not-generic-qualified/main.tck --
+package main
+
+import text from "std/text"
+
+func main() {
+    t := text.new[int64](c_allocator)
+    if t.len() == 0 {
+        exit(1)
+    }
+}
+-- type-args-not-generic-qualified/expected --
+stage: typeck
+---
+
+type-args-not-generic-qualified/main.tck:6:10: error: cannot write type arguments for text.new: it declares no type parameters
+05 |	func main() {
+06 |	    t := text.new[int64](c_allocator)
+   |	         ^~~~~~~~~~~~~~~
+07 |	    if t.len() == 0 {
+
+-- type-args-parameter/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func call(f func(int64) int64) int64 {
+    return f[int64](1)
+}
+
+func main() {
+}
+-- type-args-parameter/expected --
+stage: resolve
+---
+
+type-args-parameter/main.tck:24:12: error: cannot call an element, f[...](...); only a name is called: bind it first, as in g := f[...]
+23 |	func call(f func(int64) int64) int64 {
+24 |	    return f[int64](1)
+   |	           ^~~~~~~~
+25 |	}
+
+-- type-args-qualified/main.tck --
+package main
+
+import sort from "std/sort"
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    sort.by[int32](mut l, func(a int32, b int32) bool {
+        return a < b
+    })
+    sort.by[int64, int64](mut l, func(a int64, b int64) bool {
+        return a < b
+    })
+    sort.by[[]int64](mut l, func(a int64, b int64) bool {
+        return a < b
+    })
+}
+-- type-args-qualified/expected --
+stage: typeck
+---
+
+type-args-qualified/main.tck:7:24: error: cannot use list[int64] as list[int32] in argument to sort.by
+06 |	    mut l := make(list[int64], c_allocator)
+07 |	    sort.by[int32](mut l, func(a int32, b int32) bool {
+   |	                       ^
+08 |	        return a < b
+
+type-args-qualified/main.tck:10:20: error: too many type arguments for sort.by: it declares 1 type parameter
+09 |	    })
+10 |	    sort.by[int64, int64](mut l, func(a int64, b int64) bool {
+   |	                   ^~~~~
+11 |	        return a < b
+
+type-args-qualified/main.tck:13:13: error: cannot use []int64 as T in type argument to sort.by: a type argument cannot be a view
+12 |	    })
+13 |	    sort.by[[]int64](mut l, func(a int64, b int64) bool {
+   |	            ^~~~~~~
+14 |	        return a < b
+
+-- type-args-statement/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    empty[Box](c_allocator)
+    empty[int64, int64](c_allocator)
+}
+-- type-args-statement/expected --
+stage: typeck
+---
+
+type-args-statement/main.tck:25:18: error: too many type arguments for empty: it declares 1 type parameter
+24 |	    empty[Box](c_allocator)
+25 |	    empty[int64, int64](c_allocator)
+   |	                 ^~~~~
+26 |	}
+
+-- type-args-too-many/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    x := empty[int64, bool, int32](c_allocator)
+    if x == 0 {
+        exit(1)
+    }
+}
+-- type-args-too-many/expected --
+stage: typeck
+---
+
+type-args-too-many/main.tck:24:23: error: too many type arguments for empty: it declares 1 type parameter
+23 |	func main() {
+24 |	    x := empty[int64, bool, int32](c_allocator)
+   |	                      ^~~~~~~~~~~
+25 |	    if x == 0 {
+
+-- type-args-too-many-partial-ok/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func counted[R Data, E Data](l list[E], scope alloc Allocator) R {
+    return make(R, alloc)
+}
+
+func main() {
+    l := make(list[int64], c_allocator)
+    r := counted[int64, int64, int64](l, c_allocator)
+    if r == 0 {
+        exit(1)
+    }
+}
+-- type-args-too-many-partial-ok/expected --
+stage: typeck
+---
+
+type-args-too-many-partial-ok/main.tck:29:32: error: too many type arguments for counted: it declares 2 type parameters
+28 |	    l := make(list[int64], c_allocator)
+29 |	    r := counted[int64, int64, int64](l, c_allocator)
+   |	                               ^~~~~
+30 |	    if r == 0 {
+
+-- type-args-trailing-comma/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    x := empty[int64,](c_allocator)
+}
+-- type-args-trailing-comma/expected --
+stage: parse
+---
+
+type-args-trailing-comma/main.tck:24:22: error: expected 'type name' found ']'
+23 |	func main() {
+24 |	    x := empty[int64,](c_allocator)
+   |	                     ^
+25 |	}
+
+-- type-args-type-param-constraint/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func outer[T Data](t T, scope alloc Allocator) int64 {
+    switch T {
+    case int64:
+        x := empty[T](alloc)
+        if x == t {
+            return 1
+        }
+    default:
+    }
+    return measure[T](t)
+}
+
+func main() {
+    if outer[int64](1, c_allocator) == 0 {
+        exit(1)
+    }
+}
+-- type-args-type-param-constraint/expected --
+stage: typeck
+---
+
+type-args-type-param-constraint/main.tck:32:20: error: T does not satisfy Sizer: its constraint Data has no method size
+31 |	    }
+32 |	    return measure[T](t)
+   |	                   ^
+33 |	}
+
+-- type-args-uninferred/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    x := empty(c_allocator)
+    if x == 0 {
+        exit(1)
+    }
+}
+-- type-args-uninferred/expected --
+stage: typeck
+---
+
+type-args-uninferred/main.tck:24:10: error: cannot infer T in this call to empty: no argument gives it; write the type arguments through it, as in empty[T](...)
+23 |	func main() {
+24 |	    x := empty(c_allocator)
+   |	         ^~~~~
+25 |	    if x == 0 {
+
+-- type-args-uninferred-arity/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    x := empty[int64]()
+    y := empty()
+    if x == y {
+        exit(1)
+    }
+}
+-- type-args-uninferred-arity/expected --
+stage: typeck
+---
+
+type-args-uninferred-arity/main.tck:24:10: error: empty expects 1 argument(s), got 0
+23 |	func main() {
+24 |	    x := empty[int64]()
+   |	         ^~~~~~~~~~~~~~
+25 |	    y := empty()
+
+type-args-uninferred-arity/main.tck:25:10: error: empty expects 1 argument(s), got 0
+24 |	    x := empty[int64]()
+25 |	    y := empty()
+   |	         ^~~~~~~
+26 |	    if x == y {
+
+type-args-uninferred-arity/main.tck:25:10: error: cannot infer T in this call to empty: no argument gives it; write the type arguments through it, as in empty[T](...)
+24 |	    x := empty[int64]()
+25 |	    y := empty()
+   |	         ^~~~~
+26 |	    if x == y {
+
+-- type-args-uninferred-second/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func two[A Data, B Data](scope alloc Allocator) (A, B) {
+    return make(A, alloc), make(B, alloc)
+}
+
+func main() {
+    a, b := two[int64](c_allocator)
+    if a == b {
+        exit(1)
+    }
+}
+-- type-args-uninferred-second/expected --
+stage: typeck
+---
+
+type-args-uninferred-second/main.tck:28:13: error: cannot infer B in this call to two: no argument gives it; write the type arguments through it, as in two[A, B](...)
+27 |	func main() {
+28 |	    a, b := two[int64](c_allocator)
+   |	            ^~~
+29 |	    if a == b {
+
+-- type-args-unknown-type/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    x := empty[Nope](c_allocator)
+    y := empty[Sizer](c_allocator)
+    z := empty[Data](c_allocator)
+}
+-- type-args-unknown-type/expected --
+stage: typeck
+---
+
+type-args-unknown-type/main.tck:24:5: warning: declared and not used: x
+23 |	func main() {
+24 |	    x := empty[Nope](c_allocator)
+   |	    ^
+25 |	    y := empty[Sizer](c_allocator)
+
+type-args-unknown-type/main.tck:24:16: error: unknown type: Nope
+23 |	func main() {
+24 |	    x := empty[Nope](c_allocator)
+   |	               ^~~~
+25 |	    y := empty[Sizer](c_allocator)
+
+type-args-unknown-type/main.tck:25:5: warning: declared and not used: y
+24 |	    x := empty[Nope](c_allocator)
+25 |	    y := empty[Sizer](c_allocator)
+   |	    ^
+26 |	    z := empty[Data](c_allocator)
+
+type-args-unknown-type/main.tck:25:16: error: Sizer is an interface; it can only constrain a type parameter
+24 |	    x := empty[Nope](c_allocator)
+25 |	    y := empty[Sizer](c_allocator)
+   |	               ^~~~~
+26 |	    z := empty[Data](c_allocator)
+
+type-args-unknown-type/main.tck:26:5: warning: declared and not used: z
+25 |	    y := empty[Sizer](c_allocator)
+26 |	    z := empty[Data](c_allocator)
+   |	    ^
+27 |	}
+
+type-args-unknown-type/main.tck:26:16: error: Data is a constraint; it can only constrain a type parameter
+25 |	    y := empty[Sizer](c_allocator)
+26 |	    z := empty[Data](c_allocator)
+   |	               ^~~~
+27 |	}
+
+-- type-args-value-index/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    f := empty[int64]
+    g := measure[list[int64]]
+    h := empty[map[string]int64]
+}
+-- type-args-value-index/expected --
+stage: typeck
+---
+
+type-args-value-index/main.tck:24:5: warning: declared and not used: f
+23 |	func main() {
+24 |	    f := empty[int64]
+   |	    ^
+25 |	    g := measure[list[int64]]
+
+type-args-value-index/main.tck:24:10: error: cannot use empty[int64] as a value: it is generic, and a generic function is only called
+23 |	func main() {
+24 |	    f := empty[int64]
+   |	         ^~~~~~~~~~~~
+25 |	    g := measure[list[int64]]
+
+type-args-value-index/main.tck:25:5: warning: declared and not used: g
+24 |	    f := empty[int64]
+25 |	    g := measure[list[int64]]
+   |	    ^
+26 |	    h := empty[map[string]int64]
+
+type-args-value-index/main.tck:25:10: error: cannot use measure[list[int64]] as a value: it is generic, and a generic function is only called
+24 |	    f := empty[int64]
+25 |	    g := measure[list[int64]]
+   |	         ^~~~~~~~~~~~~~~~~~~~
+26 |	    h := empty[map[string]int64]
+
+type-args-value-index/main.tck:26:5: warning: declared and not used: h
+25 |	    g := measure[list[int64]]
+26 |	    h := empty[map[string]int64]
+   |	    ^
+27 |	}
+
+type-args-value-index/main.tck:26:10: error: cannot use empty[map[string]int64] as a value: it is generic, and a generic function is only called
+25 |	    g := measure[list[int64]]
+26 |	    h := empty[map[string]int64]
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~
+27 |	}
+
+-- type-args-variable/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func one(n int64) int64 {
+    return n
+}
+
+func main() {
+    f := one
+    if f[int64](1) == 0 {
+        exit(1)
+    }
+}
+-- type-args-variable/expected --
+stage: resolve
+---
+
+type-args-variable/main.tck:29:8: error: cannot call an element, f[...](...); only a name is called: bind it first, as in g := f[...]
+28 |	    f := one
+29 |	    if f[int64](1) == 0 {
+   |	       ^~~~~~~~
+30 |	        exit(1)
+
+-- type-args-view/main.tck --
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+type Box struct {
+    n int64
+}
+
+func (b Box) size() int64 {
+    return b.n
+}
+
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+func main() {
+    v := empty[[]int64](c_allocator)
+}
+-- type-args-view/expected --
+stage: typeck
+---
+
+type-args-view/main.tck:24:5: warning: declared and not used: v
+23 |	func main() {
+24 |	    v := empty[[]int64](c_allocator)
+   |	    ^
+25 |	}
+
+type-args-view/main.tck:24:16: error: cannot use []int64 as T in type argument to empty: a type argument cannot be a view
+23 |	func main() {
+24 |	    v := empty[[]int64](c_allocator)
+   |	               ^~~~~~~
+25 |	}
 
 -- type-name-as-name/main.tck --
 package main

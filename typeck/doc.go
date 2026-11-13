@@ -1112,19 +1112,24 @@
 // parameter's constraint is reported. A generic function's type
 // parameters are each given a type of their own (types.Table.TypeParam)
 // before its parameters' types are resolved, which may name them; each
-// constraint must name an interface, and each type parameter be mentioned
-// by some parameter's type, whole or inside a list, a view, a map's value
-// or a function type. The body is checked once, against the constraints,
-// never for a call: a value of a type parameter has its constraint's
+// constraint must name an interface or Data. A type parameter may appear
+// anywhere in the signature, or nowhere. The body is checked once,
+// against the constraints, never for a call: a value of a type parameter
+// has its constraint's
 // methods, a call of one checked against a stand-in method (see
 // ast.Func.Interface), and nothing else, and is owned as a list is, since
 // its type argument may hold one, so every ownership rule above applies
 // to it as written, whatever the type argument: a list, a view, a map's
 // value and a function type may be made of one, a result may be one, and
 // swap (swap.go) reorders a list of one in place. A call to a generic
-// function infers each type parameter from the arguments, in order, by
+// function gives the type parameters it declares the type arguments it
+// writes, f[A, B](x), from the left, too many reported, and infers each
+// other from the arguments, in order, by
 // matching each argument's type against its parameter's, part by part
-// (infer.go), as any type but a view, an any or one made of a type
+// (infer.go); an argument whose parameter's type parameters are all
+// settled is checked against that parameter's type as for a function
+// that is not generic, and one no argument could give is reported at the
+// call. Each is any type but a view, an any or one made of a type
 // parameter, the caller's own type parameters included, satisfying the
 // constraint, one type per type parameter; a type that is no struct or
 // union has no method. A struct or

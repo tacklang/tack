@@ -172,8 +172,16 @@ func (c *Checker) arrayElem(e ast.Expr, elem types.Type) {
 }
 
 // index checks an element read as a value, x[i], and returns its type. x
-// may be a call returning a view.
+// may be a call returning a view. x naming a generic function, f[int64],
+// is the function with type arguments and no call, which is reported, as
+// a generic function is never a value (see notValue).
 func (c *Checker) index(ix *ast.Index) types.Type {
+	if id, ok := ix.X.(*ast.Ident); ok {
+		if fn, ok := id.Def.(*ast.Func); ok && fn != nil && fn.Generic() {
+			c.errorf(ix.Span, "cannot use %s as a value: %s", c.text(ix.Span), genericNotValue)
+			return types.Invalid
+		}
+	}
 	viewOK := c.viewSpan == ix
 	c.viewSpan = nil
 	c.allowViewCall(ix.X)

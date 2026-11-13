@@ -1,0 +1,428 @@
+package main
+
+import sort from "std/sort"
+import text from "std/text"
+import lists from "typeargs/lists"
+
+// Explicit type arguments: a call may write its callee's type arguments
+// in brackets, f[T](args), as pkg.f[T](args) for another package's. They
+// fill the type parameters from the left, and the arguments infer the
+// rest, so a type parameter no parameter mentions, one only in the
+// result, is given by the call. Each check prints its name and "ok", or
+// "FAIL"; every check that allocates runs in a function of its own, and
+// main asserts after it that c_allocator's count of live buffers is back
+// to zero.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("go_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("go_fail_after") func fail_after(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// User is a struct of an integer, a Text and a list.
+type User struct {
+    n    int64
+    name text.Text
+    tags list[int64]
+}
+
+// Point is a struct of two integers, which own nothing.
+type Point struct {
+    x int64
+    y int64
+}
+
+// Sizer is what a value whose size can be asked has.
+type Sizer interface {
+    size() int64
+}
+
+// Box has a size of its own.
+type Box struct {
+    n int64
+}
+
+// size returns b's size.
+func (b Box) size() int64 {
+    return b.n
+}
+
+// Counter counts up to n and holds tags, whose length its size adds, so a
+// value of it owns a list.
+type Counter struct {
+    n    int64
+    tags list[int64]
+}
+
+// size returns c's count plus how many tags it holds.
+func (c Counter) size() int64 {
+    return c.n +% len(c.tags)
+}
+
+// Shape is a union whose every case has a size of 7.
+type Shape union {
+    sq   int64
+    name string
+}
+
+// size returns 7, whichever case s holds.
+func (s Shape) size() int64 {
+    return 7
+}
+
+// measure returns s's size, through its constraint's method.
+func measure[S Sizer](s S) int64 {
+    return s.size()
+}
+
+// keep appends s to l, which takes it.
+func keep[S Sizer](own s S, mut l list[S]) error {
+    return append(mut l, s)
+}
+
+// total returns the sum of the sizes in l, each measured with S written.
+func total[S Sizer](l list[S]) int64 {
+    mut t := 0
+    for _, s := range l {
+        t +%= measure[S](s)
+    }
+    return t
+}
+
+// kind returns 1 for int64, 10 more than its element's for a list, 100
+// for a struct and 0 for anything else, with each element's type written
+// as a type argument.
+func kind[T Data]() int64 {
+    switch T {
+    case int64:
+        return 1
+    case list[E]:
+        return 10 +% kind[E]()
+    case struct:
+        return 100
+    default:
+        return 0
+    }
+}
+
+// empty returns the empty value of T, made with alloc. T appears in no
+// parameter, so every call writes it.
+func empty[T Data](scope alloc Allocator) T {
+    return make(T, alloc)
+}
+
+// count_fields returns how many fields of T a fields loop here lists:
+// none for a type that is no struct. T appears nowhere but the loop.
+func count_fields[T Data]() int64 {
+    mut n := 0
+    for range fields(T) {
+        n +%= 1
+    }
+    return n
+}
+
+// counted returns the empty value of R, made with alloc, and how many
+// elements l holds. A call writes R and may leave E for l to infer.
+func counted[R Data, E Data](l list[E], scope alloc Allocator) (R, int64) {
+    return make(R, alloc), len(l)
+}
+
+// put_first appends x to l. x comes first, so a call that writes T
+// passes an untyped constant as a T, which inference alone would make an
+// int64.
+func put_first[T Data](own x T, mut l list[T]) error {
+    return append(mut l, x)
+}
+
+// sized returns the empty value of T, made with alloc, and s's size. Its
+// Sizer parameter is a type parameter of its own, always inferred: a call
+// writes T alone.
+func sized[T Data](s Sizer, scope alloc Allocator) (T, int64) {
+    return make(T, alloc), s.size()
+}
+
+// pair returns two empty values of T, each through empty, with T passed
+// on as empty's type argument.
+func pair[T Data](scope alloc Allocator) (T, T) {
+    return empty[T](alloc), empty[T](alloc)
+}
+
+// width returns how many fields of T a fields loop lists, counted
+// through count_fields with T passed on.
+func width[T Data](_ T) int64 {
+    return count_fields[T]()
+}
+
+// equal reports whether a and b hold the same value: == for an integer,
+// the same bytes for a Text, the same elements for a list, and the same
+// fields for a struct. Any other type is never equal.
+func equal[T Data](a T, b T) bool {
+    switch T {
+    case int64:
+        return a == b
+    case text.Text:
+        return a.equal(b.bytes())
+    case list[E]:
+        if len(a) != len(b) {
+            return false
+        }
+        for i, x := range a {
+            if i >= len(b) || !equal(x, b[i]) {
+                return false
+            }
+        }
+        return true
+    case struct:
+        for f := range fields(T) {
+            if !equal(a.[f], b.[f]) {
+                return false
+            }
+        }
+        return true
+    default:
+        return false
+    }
+}
+
+// empties returns how many fields of v hold their empty value, each
+// compared with the field of a value empty[T] makes in the loop's body.
+func empties[T Data](v T, scope alloc Allocator) int64 {
+    mut n := 0
+    for f := range fields(T) {
+        e := empty[T](alloc)
+        if equal(v.[f], e.[f]) {
+            n +%= 1
+        }
+    }
+    return n
+}
+
+// constructors checks values no argument could give the type of: basic
+// types, a struct, a Text, a list and a map, each written in brackets.
+func constructors() {
+    check(empty[int64](c_allocator) == 0 && !empty[bool](c_allocator) &&
+        empty[uint8](c_allocator) == 0 && empty[float64](c_allocator) == 0.0,
+        "empty basic")
+    mut u := empty[User](c_allocator)
+    err := append(mut u.tags, 4)
+    check(u.n == 0 && u.name.len() == 0 && err.code == 0 && len(u.tags) == 1, "empty struct")
+    t := empty[text.Text](c_allocator)
+    check(t.len() == 0, "empty qualified type")
+    mut l := empty[list[int64]](c_allocator)
+    lerr := append(mut l, 1, 2)
+    check(lerr.code == 0 && len(l) == 2, "empty list type")
+    m := empty[map[text.Text]int64](c_allocator)
+    ll := empty[list[list[User]]](c_allocator)
+    check(len(m) == 0 && len(ll) == 0, "empty map and nested list types")
+}
+
+// packages checks another package's generic functions called with their
+// type arguments written, qualified, and one whose error is passed on.
+func packages() {
+    mut l := lists.new[int64](c_allocator)
+    err := append(mut l, 1, 2, 3)
+    us := lists.new[User](c_allocator)
+    check(err.code == 0 && len(l) == 3 && len(us) == 0, "lists.new")
+    n := through()
+    check(n == 4, "lists.filled through ?")
+    mut s := make(list[int64], c_allocator)
+    serr := append(mut s, 3, 1, 2)
+    sort.by[int64](mut s, func(a int64, b int64) bool {
+        return a > b
+    })
+    check(serr.code == 0 && len(s) == 3 && s[0] == 3 && s[1] == 2 && s[2] == 1, "sort.by from std")
+}
+
+// through returns how many values lists.filled gave, passing its error on
+// with ?.
+func through() int64 {
+    got, err := filled_len()
+    if err.code != 0 {
+        return -1
+    }
+    return got
+}
+
+// filled_len returns the length of a list lists.filled makes, or its
+// error, which ? passes on.
+func filled_len() (int64, error) {
+    us := lists.filled[User](4, c_allocator)?
+    return len(us), noerror
+}
+
+// partial checks type argument lists that give fewer type arguments than
+// the callee has, the rest inferred, and one that gives them all.
+func partial() {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, 7, 8, 9)
+    r, n := counted[User](l, c_allocator)
+    check(err.code == 0 && r.n == 0 && len(r.tags) == 0 && n == 3, "partial list")
+    i, k := counted[int64, int64](l, c_allocator)
+    check(i == 0 && k == 3, "full list agreeing with the arguments")
+    t, s := sized[text.Text](Box{n: 5}, c_allocator)
+    check(t.len() == 0 && s == 5, "interface parameter inferred beside a written one")
+}
+
+// constants checks that a written type argument types the arguments it
+// gives a parameter: an untyped constant becomes an int32 and an int32
+// widens to an int64, as for a function that is not generic.
+func constants() {
+    mut l32 := make(list[int32], c_allocator)
+    err := put_first[int32](5, mut l32)
+    mut first := int32(0)
+    if len(l32) == 1 {
+        var got int32 = l32[0]
+        first = got
+    }
+    check(err.code == 0 && first == 5, "constant as a written type")
+    mut l64 := make(list[int64], c_allocator)
+    small := int32(-7)
+    werr := put_first[int64](small, mut l64)
+    check(werr.code == 0 && len(l64) == 1 && l64[0] == -7, "int32 widens to a written int64")
+}
+
+// generic checks a generic body writing its own type parameter as a type
+// argument, and a struct and a struct literal passed for a written T.
+func generic() {
+    a, b := pair[User](c_allocator)
+    check(equal(a, b) && len(a.tags) == 0, "type parameter passed on")
+    u := empty[User](c_allocator)
+    check(width[User](u) == 3 && width(u) == 3 && width[Point](Point{x: 1, y: 2}) == 2 &&
+        width[int64](9) == 0, "struct and literal for a written type")
+    check(count_fields[User]() == 3 && count_fields[Point]() == 2 &&
+        count_fields[text.Text]() == 0, "type parameter only in a fields loop")
+}
+
+// interfaces checks type arguments written for type parameters an
+// interface constrains: a struct holding a list, moved into a list by an
+// own parameter, and a union, each measured through its method.
+func interfaces() {
+    mut c := Counter{n: 1, tags: make(list[int64], c_allocator)}
+    e1 := append(mut c.tags, 5, 6)
+    mut l := make(list[Counter], c_allocator)
+    e2 := keep[Counter](own c, mut l)
+    mut u := make(list[Shape], c_allocator)
+    e3 := keep[Shape](Shape.sq(3), mut u)
+    check(e1.code == 0 && e2.code == 0 && e3.code == 0 && total[Counter](l) == 3 &&
+        total(u) == 7 && measure[Shape](Shape.name("x")) == 7, "written interface-constrained type")
+    check(kind[int64]() == 1 && kind[list[list[int64]]]() == 21 && kind[Counter]() == 100 &&
+        kind[bool]() == 0, "written type in a switch on it")
+}
+
+// reflection checks empty[T] made in a fields loop's body, its fields
+// compared one by one.
+func reflection() {
+    mut u := empty[User](c_allocator)
+    check(empties(u, c_allocator) == 3, "fields of an empty struct")
+    u.n = 2
+    err := append(mut u.tags, 1)
+    check(err.code == 0 && empties(u, c_allocator) == 1, "fields after a change")
+}
+
+// apply returns f(n).
+func apply(n int64, scope f func(int64) int64) int64 {
+    return f(n)
+}
+
+// apply_to returns f(k). A call that writes K and V gives f its type, so
+// a closure passed for it is checked against func(K) V; one that writes
+// K alone infers V from the closure's result.
+func apply_to[K Data, V Data](k K, scope f func(K) V) V {
+    return f(k)
+}
+
+// deferred returns what a defer that makes a User through empty[User],
+// before the function returns, writes: the length of its empty list.
+func deferred() int64 {
+    mut seen := -1
+    if seen < 0 {
+        defer {
+            u := empty[User](c_allocator)
+            seen = len(u.tags) +% count_fields[Point]()
+        }
+    }
+    return seen
+}
+
+// closures checks calls with written type arguments in a closure and in
+// a defer.
+func closures() {
+    got := apply(3, func(n int64) int64 {
+        mut l := lists.new[int64](c_allocator)
+        err := append(mut l, n, n)
+        if err.code != 0 {
+            return -1
+        }
+        u := empty[User](c_allocator)
+        return len(l) +% len(u.tags) +% count_fields[User]()
+    })
+    check(got == 5 && deferred() == 2, "written type arguments in a closure and a defer")
+    big := apply_to[int64, bool](3, func(n int64) bool {
+        return n > 2
+    })
+    small := apply_to[int32](7, func(n int32) bool {
+        return n < 2
+    })
+    check(big && !small, "closure for a written function type")
+    mut n := 0
+    region r {
+        mut l := lists.new[User](r)
+        err := append(mut l, empty[User](r))
+        if err.code == 0 {
+            n = len(l)
+        }
+    }
+    check(n == 1, "written type arguments through a region")
+}
+
+// failing makes lists.filled fail at every allocation in turn, and checks
+// each failure is passed on, and that nothing leaks however far it got.
+func failing() {
+    mut fails := 0
+    mut made := false
+    for k := range 20 {
+        if !made {
+            fail_after(k)
+            n, err := filled_len()
+            fail_after(-1)
+            if err.code == 0 {
+                made = n == 4
+            } else if err.code == 1 {
+                fails +%= 1
+            }
+        }
+    }
+    check(made && fails > 0, "lists.filled under failure")
+}
+
+func main() {
+    constructors()
+    check(live() == 0, "constructors freed")
+    packages()
+    check(live() == 0, "packages freed")
+    partial()
+    check(live() == 0, "partial freed")
+    constants()
+    check(live() == 0, "constants freed")
+    generic()
+    check(live() == 0, "generic freed")
+    interfaces()
+    check(live() == 0, "interfaces freed")
+    reflection()
+    check(live() == 0, "reflection freed")
+    closures()
+    check(live() == 0, "closures freed")
+    failing()
+    check(live() == 0, "failing freed")
+}

@@ -188,10 +188,11 @@ func (r *pkgResolver) patternValue(v ast.Expr, sc *scope) (*ast.Ident, bool, []d
 	}
 }
 
-// callPattern is patternValue for call.
+// callPattern is patternValue for call. A call that writes type
+// arguments, f[T](x), is never a pattern, and is resolved as a value.
 func (r *pkgResolver) callPattern(call *ast.Call, sc *scope) (*ast.Ident, bool, []diag.Diagnostic) {
 	fn, isName := call.Fn.(*ast.Ident)
-	if !isName || fn.Pkg != "" || call.Spread {
+	if !isName || fn.Pkg != "" || call.Spread || call.TypeArgExprs != nil {
 		return nil, false, r.resolveExpr(call, sc)
 	}
 	r.bindPatternCallee(fn, call, sc)

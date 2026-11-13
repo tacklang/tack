@@ -176,14 +176,21 @@
 // to one is reported as a value, called or assigned, as a type's name is.
 // Data, the builtin constraint, binds to nothing, as a basic type's name
 // does, and no declaration, parameter or local may take its name. In
-// fields(T), T is resolved as a type, and in v.[f], v as a value and f as
-// a name read, which the type checker requires to be a fields loop's
-// variable. In a switch on a type parameter, the tag and each case value
-// are resolved as types, but the name a case's list[E] or map[K]V writes
-// for its element or value type, which declares an ast.TypeParam of the
-// case's own in the case's block, as a type switch's variable is
-// declared, so only that case's body names it; it must be a new name, not
-// a type's (see paramswitch.go).
+// fields(T), T is resolved as a type. The type arguments a call writes,
+// f[T](x), are resolved as types once its callee is bound to a function;
+// written after a builtin or a type's name, they are reported and
+// dropped. After a variable or a parameter, fs[i](x), the brackets index,
+// an element called, which is reported, what they hold resolved as values
+// and then dropped, and the callee left unbound. In f[T] with no call, f
+// a function that declares type parameters, T is bound as a type when it
+// names one, for the type checker to report the use as a value. In v.[f],
+// v is resolved as a value and f as a name read, which the type checker
+// requires to be a fields loop's variable. In a switch on a type
+// parameter, the tag and each case value are resolved as types, but the
+// name a case's list[E] or map[K]V writes for its element or value type,
+// which declares an ast.TypeParam of the case's own in the case's block,
+// as a type switch's variable is declared, so only that case's body names
+// it; it must be a new name, not a type's (see paramswitch.go).
 //
 // A parameter named _, of a function, a method, its receiver, a function
 // literal or an interface's method, declares nothing: any number of a

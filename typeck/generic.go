@@ -61,11 +61,13 @@ import (
 // program needs are found (see instantiate in instance.go).
 
 // inference is what a call to a generic function has inferred so far: its
-// callee, and the type argument found for each of the callee's type
-// parameters.
+// callee, the type argument found for each of the callee's type
+// parameters, and which of them the call wrote, f[T](x), whether or not
+// what it wrote was a type argument the parameter could take.
 type inference struct {
-	fn   *ast.Func
-	args map[types.Type]types.Type
+	fn      *ast.Func
+	args    map[types.Type]types.Type
+	written map[types.Type]bool
 }
 
 // infers reports whether typ is a type parameter of the callee whose call
@@ -187,27 +189,6 @@ func (c *Checker) constraint(tp *ast.TypeParam) *ast.TypeDecl {
 	return nil
 }
 
-// checkTypeParamsUsed reports each type parameter of fn that no
-// parameter's type mentions, as the whole type or a part of it, a list's,
-// a view's or a function type's among them: a call infers a type argument
-// only from the arguments, so it could infer none for one. A result alone
-// does not name one usably. A parameter whose type was reported may have
-// mentioned it, and counts as doing so.
-func (c *Checker) checkTypeParamsUsed(fn *ast.Func) {
-	for _, tp := range fn.TypeParams {
-		used := false
-		for _, p := range fn.Params {
-			if p.Type == types.Invalid || c.mentions(p.Type, tp.Type) {
-				used = true
-			}
-		}
-		if !used {
-			c.errorf(tp.NameSpan, "%s appears in no parameter of %s, so no call can infer it",
-				tp.Name, fn.Name)
-		}
-	}
-}
-
 // namedType returns the type id, a name written as a type, names when it
 // is bound to a declaration, and whether it is: a struct type's, a type
 // parameter's, as a case of a switch on it narrows it where checking is
@@ -317,7 +298,7 @@ func (c *Checker) typeArg(arg ast.Expr, p param, callee string) *ast.MutArg {
 	default:
 		got = c.valueOf(arg, c.expr(arg))
 	}
-	if got == types.Invalid || !c.bindTypeArg(arg, p.typ, got, callee) {
+	if got == types.Invalid || !c.bindTypeArg(arg, p.typ, got, callee, false) {
 		return nil
 	}
 	return m
@@ -326,9 +307,11 @@ func (c *Checker) typeArg(arg ast.Expr, p param, callee string) *ast.MutArg {
 // bindTypeArg makes got, the type of arg, the type argument of tp, a type
 // parameter of the callee being inferred, named callee: got must be a
 // struct or union type a package declares, or a type parameter, satisfy
-// tp's constraint, and be the type any earlier argument gave tp. Anything
-// else is reported at arg, and gives false.
-func (c *Checker) bindTypeArg(arg ast.Expr, tp, got types.Type, callee string) bool {
+// tp's constraint, and be the type any earlier argument, or the type
+// argument the call wrote for tp, gave it. Anything else is reported at
+// arg, and gives false. arg is an argument, or, when written says so, a
+// type argument the call wrote, f[T](x), which the messages name as one.
+func (c *Checker) bindTypeArg(arg ast.Expr, tp, got types.Type, callee string, written bool) bool {
 	param := c.typeParams[tp]
 	if param == nil || c.inference == nil {
 		return false
@@ -338,30 +321,69 @@ func (c *Checker) bindTypeArg(arg ast.Expr, tp, got types.Type, callee string) b
 		at = m.X
 	}
 	if why := c.notTypeArg(got); why != "" {
-		c.errorf(at.Spanned(), "cannot use %s as %s in argument to %s: %s",
-			c.typeName(got), param.Name, callee, why)
+		c.errorf(at.Spanned(), "cannot use %s as %s in %s to %s: %s",
+			c.typeName(got), param.Name, argNoun(written), callee, why)
 		return false
 	}
 	if prev, ok := c.inference.args[tp]; ok && prev != got {
-		c.errorf(
-			at.Spanned(),
-			"cannot use %s as %s in argument to %s: %s is %s in this call, from an earlier argument",
-			c.typeName(got),
-			param.Name,
-			callee,
-			param.Name,
-			c.typeName(prev),
-		)
+		c.typeArgConflict(at, param, got, prev, callee)
 		return false
 	}
-	if param.Iface != nil && !c.satisfies(at, got, param.Iface) {
-		return false
-	}
-	if param.Data && !c.satisfiesData(at, got) {
+	if !c.satisfiesConstraint(at, got, param) {
 		return false
 	}
 	c.inference.args[tp] = got
 	return true
+}
+
+// argNoun is how a message names what gave a type parameter its type
+// argument: an argument, or, when written says so, a type argument the
+// call wrote.
+func argNoun(written bool) string {
+	if written {
+		return "type argument"
+	}
+	return "argument"
+}
+
+// satisfiesConstraint reports whether got, a type argument given as at,
+// satisfies param's constraint, an interface or Data, reporting at at why
+// it does not. A constraint that was reported asks for nothing more.
+func (c *Checker) satisfiesConstraint(at ast.Expr, got types.Type, param *ast.TypeParam) bool {
+	switch {
+	case param.Iface != nil:
+		return c.satisfies(at, got, param.Iface)
+	case param.Data:
+		return c.satisfiesData(at, got)
+	default:
+		return true
+	}
+}
+
+// typeArgConflict reports at, an argument of type got, which would give
+// param, a type parameter of callee, a type argument other than prev, the
+// one the call already gave it: from an earlier argument, or from the
+// type argument it wrote for param.
+func (c *Checker) typeArgConflict(
+	at ast.Expr,
+	param *ast.TypeParam,
+	got, prev types.Type,
+	callee string,
+) {
+	from := "an earlier argument"
+	if c.inference.written[param.Type] {
+		from = "its type argument"
+	}
+	c.errorf(
+		at.Spanned(),
+		"cannot use %s as %s in argument to %s: %s is %s in this call, from %s",
+		c.typeName(got),
+		param.Name,
+		callee,
+		param.Name,
+		c.typeName(prev),
+		from,
+	)
 }
 
 // satisfies reports whether got, a type argument passed as at, satisfies
@@ -383,23 +405,32 @@ func (c *Checker) satisfies(at ast.Expr, got types.Type, iface *ast.TypeDecl) bo
 }
 
 // checkGenericCall checks call, a call to fn, a generic function named
-// callee, against its parameters, inferring a type argument for each of
-// its type parameters from the arguments passed to parameters of that
-// type (see typeArg), and records them in call.TypeArgs when every one
-// was inferred. It returns the mut arguments passed to mut parameters with
-// nothing reported and whether the count was right, as checkArgs does.
+// callee, against its parameters: the type arguments the call writes,
+// f[T](x), give the type parameters fn declares theirs, from the left
+// (see bindWritten), and the arguments infer the rest, from those passed
+// to parameters of those types (see typeArg). It records them in
+// call.TypeArgs when every type parameter has one. A type parameter
+// neither written nor in any parameter's type, which no argument could
+// give, is reported (see uninferred). It returns the mut arguments passed
+// to mut parameters with nothing reported and whether the count was
+// right, as checkArgs does.
 func (c *Checker) checkGenericCall(
 	call *ast.Call,
 	fn *ast.Func,
 	callee string,
 ) ([]*ast.MutArg, bool) {
 	outer := c.inference
-	inf := &inference{fn: fn, args: make(map[types.Type]types.Type)}
+	inf := &inference{
+		fn:      fn,
+		args:    make(map[types.Type]types.Type),
+		written: make(map[types.Type]bool),
+	}
 	c.inference = inf
+	c.bindWritten(call, fn, callee)
 	muts, counted := c.checkArgs(call, callee, c.funcParams(fn.Params, false))
 	c.inference = outer
 	call.TypeArgs, call.ParamTypes, call.ResultTypes = nil, nil, nil
-	if !counted {
+	if c.uninferred(call, fn, inf, callee) || !counted {
 		return muts, counted
 	}
 	args := make([]types.Type, len(fn.TypeParams))
@@ -413,6 +444,111 @@ func (c *Checker) checkGenericCall(
 	call.TypeArgs = args
 	c.recordSignature(call, fn, inf.args)
 	return muts, counted
+}
+
+// declaredTypeParams returns the type parameters fn's declaration
+// writes, in order: all of them but those its interface parameters
+// declare (see implicitTypeParams), which come after them and which a
+// call never writes, as no name of them could say which is which.
+func declaredTypeParams(fn *ast.Func) []*ast.TypeParam {
+	for i, tp := range fn.TypeParams {
+		if tp.Implicit {
+			return fn.TypeParams[:i]
+		}
+	}
+	return fn.TypeParams
+}
+
+// bindWritten gives the type parameters fn declares, from the left, the
+// type arguments call writes, f[A, B](x), in the inference being made,
+// marking each written: each must be a type a call could infer, and
+// satisfy its constraint, as bindTypeArg checks an inferred one, and is
+// reported at the type argument otherwise. More type arguments than fn
+// declares are reported, from the first extra one through the last, and
+// each is still checked as a type; those before them are used. A function
+// that declares none, generic only through its interface parameters, has
+// had them reported by checkNamedCall, and they are left alone.
+func (c *Checker) bindWritten(call *ast.Call, fn *ast.Func, callee string) {
+	declared := declaredTypeParams(fn)
+	if len(declared) == 0 {
+		return
+	}
+	for i, typ := range call.TypeArgExprs {
+		got := c.writtenType(typ)
+		if i >= len(declared) {
+			continue
+		}
+		tp := declared[i].Type
+		c.inference.written[tp] = true
+		if got != types.Invalid {
+			c.bindTypeArg(typ, tp, got, callee, true)
+		}
+	}
+	if extra := call.TypeArgExprs[min(len(declared), len(call.TypeArgExprs)):]; len(extra) > 0 {
+		span := extra[0].Spanned()
+		span.End = extra[len(extra)-1].Spanned().End
+		c.errorf(span, "too many type arguments for %s: it declares %s",
+			callee, typeParamCount(len(declared)))
+	}
+}
+
+// typeParamCount says how many type parameters a function declares, n:
+// "no type parameters", "1 type parameter" or "2 type parameters".
+func typeParamCount(n int) string {
+	switch n {
+	case 0:
+		return "no type parameters"
+	case 1:
+		return "1 type parameter"
+	default:
+		return fmt.Sprintf("%d type parameters", n)
+	}
+}
+
+// writtenType returns the type typ, a type argument a call writes, names,
+// reporting one that names no type. A view and any are types, which a
+// call could not infer either, and are given as they are, for
+// bindTypeArg to report as it reports them inferred.
+func (c *Checker) writtenType(typ ast.Expr) types.Type {
+	if vt, ok := typ.(*ast.ViewType); ok {
+		return c.viewType(vt)
+	}
+	if isAnyName(typ) {
+		return types.Any
+	}
+	return c.declaredType(typ)
+}
+
+// uninferred reports the first type parameter of fn, in order, that call,
+// a call to it named callee, neither writes a type argument for nor could
+// infer one for from its arguments, as no parameter's type mentions it,
+// and returns whether there was one. A parameter whose type was reported
+// may have mentioned it, and counts as doing so.
+func (c *Checker) uninferred(call *ast.Call, fn *ast.Func, inf *inference, callee string) bool {
+	for i, tp := range fn.TypeParams {
+		if inf.written[tp.Type] {
+			continue
+		}
+		mentioned := false
+		for _, p := range fn.Params {
+			if p.Type == types.Invalid || c.mentions(p.Type, tp.Type) {
+				mentioned = true
+			}
+		}
+		if mentioned {
+			continue
+		}
+		names := make([]string, i+1)
+		for j, through := range fn.TypeParams[:i+1] {
+			names[j] = through.Name
+		}
+		c.errorf(call.Fn.Spanned(),
+			"cannot infer %s in this call to %s: no argument gives it; "+
+				"write the type arguments through it, as in %s[%s](...)",
+			tp.Name, callee, callee, strings.Join(names, ", "))
+		return true
+	}
+	return false
 }
 
 // notTypeArg returns why a value of type got cannot give a type parameter

@@ -25,7 +25,8 @@ type Expr interface {
 // Call is a function call, Fn(Args...), or a conversion, when Fn names a
 // type: int8(x) converts x to int8, and []uint8(s) views the bytes of the
 // string s. A call written f(a, v...) spreads its last argument, v, into
-// f's variadic parameter.
+// f's variadic parameter. A call to a generic function may write its type
+// arguments, f[T](x) (see TypeArgExprs).
 //
 // A method call, x.m(Args...), has a *Selector as Fn, whose X is the
 // receiver, x, and whose Name is the method's: the receiver is passed
@@ -58,11 +59,22 @@ type Call struct {
 
 	Args []Expr
 
+	// TypeArgExprs are the type arguments written in brackets after the
+	// callee's name, f[T, list[U]](x) or pkg.f[T](x), each a type as
+	// written, in order, and TypeArgsSpan the brackets around them. They
+	// are nil, and the span zero, for a call that writes none. Only a
+	// name can be followed by them, so the parser reads the brackets of
+	// f[...](...) as type arguments whatever f is; the resolver and the
+	// type checker report them on a callee that is not a generic function.
+	TypeArgExprs []Expr `json:",omitempty"`
+	TypeArgsSpan Span   `json:"-"`
+
 	// TypeArgs holds the type arguments of a call to a generic function,
-	// one for each of its type parameters, in order, as the type checker
-	// inferred them from the arguments: struct types, or, in the body of
-	// another generic function, that function's type parameters. It is
-	// nil for any other call, and for one whose inference was reported.
+	// one for each of its type parameters, in order, as the call wrote
+	// them (see TypeArgExprs) or the type checker inferred them from the
+	// arguments: struct types, or, in the body of another generic
+	// function, that function's type parameters. It is nil for any other
+	// call, and for one whose type arguments were reported.
 	TypeArgs []types.Type `json:",omitempty"`
 
 	// ParamTypes and ResultTypes are the types of a generic callee's
@@ -155,6 +167,27 @@ func Callee(call *Call) *Func {
 		}
 	}
 	return nil
+}
+
+// TypeArgsSpan returns the span of call's callee through the brackets of
+// the type arguments it writes, f[T] or pkg.f[A, B], where a diagnostic
+// about them as a whole points. call writes some (see Call.TypeArgExprs).
+func TypeArgsSpan(call *Call) Span {
+	span := call.Fn.Spanned()
+	span.End = call.TypeArgsSpan.End
+	return span
+}
+
+// ElementCallMessage is the error for a call of an element, fs[0](x) or
+// s.fs[i](x), where name, fs or s.fs, is what the element is of: only a
+// name is ever called, so brackets and a parenthesis after anything but a
+// generic function's name are an element called, which Tack never does.
+func ElementCallMessage(name string) string {
+	return fmt.Sprintf(
+		"cannot call an element, %s[...](...); only a name is called: bind it first, as in g := %s[...]",
+		name,
+		name,
+	)
 }
 
 // Ident is a use of a name. Def links it to what it names once the resolver

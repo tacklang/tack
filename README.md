@@ -680,7 +680,8 @@ section remains the description of the language.
   extern func's C name, or a field of a struct `tack.h` defines (see
   [docs/extern.md](docs/extern.md)).
 - A `main` package must declare a `func main()`, which takes no parameters
-  and declares no result. No other package may declare anything named
+  and declares no result, and has no type parameters, `main function must
+  not declare type parameters`. No other package may declare anything named
   `main` (see imports).
 - Top-level `func name(x int64, s string) int64 { ... }` declarations. Parameters
   are Go-style, one type each, no grouping. A function declares no result,
@@ -693,7 +694,8 @@ section remains the description of the language.
 - Parameters named `_`. A parameter may be named `_`, as in Go: it
   carries a type and is never read, typically to infer a type parameter
   from an argument whose value is not needed, `func fresh[F Data](_ F,
-  scope alloc Allocator) F`, called `fresh(v.[f], alloc)`. Any number of
+  scope alloc Allocator) F`, called `fresh(v.[f], alloc)`, where the
+  type has no name to write as a type argument. Any number of
   a function's parameters may be `_`, and so may a method's receiver,
   `func (_ Box) kind() int64`, an interface method's parameters, a
   closure's and an extern func's. A function type's parameters have no
@@ -2490,8 +2492,8 @@ section remains the description of the language.
   generic function one may be a type parameter, `func(T, T) bool`, and it
   returns no view, so a function whose signature has
   one, a generic function, `cannot use measure as a value: it is generic,
-  and a generic function is only called, its type arguments inferred from
-  the call`, and an extern func are no values; neither is a
+  and a generic function is only called`, with type arguments or not,
+  and an extern func are no values; neither is a
   builtin, `cannot use the builtin len as a value; only a declared
   function can be one`. A method is a value named through its type, a
   method expression (see methods), `Pair.first` or `lexer.Token.Kind`,
@@ -2547,7 +2549,8 @@ section remains the description of the language.
   its parameter xs is variadic, which no function type's can be`. Its type
   must be the parameter's exactly, `cannot use func(int64) bool as func()
   in argument to call`; a generic callee infers its type arguments from
-  it as from any argument. A `return` in it returns from the closure,
+  it as from any argument, and one whose type arguments are written,
+  `apply[int64](func(n int64) bool { ... })`, checks it against them. A `return` in it returns from the closure,
   with the closure's results, `the closure declares no result, so it
   cannot return a value`, and one with results must end in one, `the
   closure must end in a return`; a `?` in it passes the error on as the
@@ -3213,13 +3216,11 @@ section remains the description of the language.
   no constraint; write the interface it must satisfy after it, as in [W
   Writer]`, and anything else, a struct, a basic type, `any` among them,
   a view or another type parameter, is `Point is not an interface; the
-  constraint of type parameter W must be one`. A type parameter must
-  appear in some parameter's type, whole, `w W`, or as a part of it, a
-  list's, a view's or a map value's element or a function type's
-  parameter or result, `l list[T]`, `v []T`, `m map[string]T`, `less
-  func(T, T) bool`, as a call infers it from the arguments, `W appears in
-  no parameter of f, so no call can infer it`. A result may be one, or be
-  made of one (see below). `[]` is `empty type parameter list`. A type
+  constraint of type parameter W must be one`. A type parameter may
+  appear anywhere in the signature, or only in the body, as a call that
+  cannot infer it writes it (see below); a result may be one, or be made
+  of one, `func empty[T Data](scope alloc Allocator) T`. `[]` is `empty
+  type parameter list`. A type
   parameter's name follows a parameter's rules: `duplicate type parameter
   name`, `Point is already declared` for a package-level name, and no
   parameter or local may reuse it. It is a type, never a value: `cannot
@@ -3266,9 +3267,40 @@ section remains the description of the language.
   (see own parameters). A plain parameter is never moved, `cannot move x:
   it is a parameter, which borrows its caller's value`, and a result of one cannot be discarded, `stuck returns S, which
   may hold a list and cannot be discarded; bind it to a variable`. A call is written as any call, `render(mut f,
-  "x")`; type arguments are never written, `cannot write type arguments;
-  they are inferred from the arguments, as in render(...)`. Each type
-  parameter is given its type from the arguments, in order: the type of
+  "x")`, and may write type arguments in brackets after the callee's
+  name, `empty[User](alloc)`, `lists.new[int64](alloc)` for another
+  package's function, each a type of any form, `f[list[int64]]`,
+  `f[map[text.Text]int64]`, separated by commas, with none after the
+  last. They fill the type parameters the function declares, from the
+  left, and the arguments infer the rest, so a list may be partial,
+  `counted[User](l, alloc)` for `func counted[R Data, E Data](l list[E],
+  scope alloc Allocator) R`; an interface parameter's type parameter is
+  never written, always inferred. `[]` is `empty type argument list`;
+  more than the function declares are `too many type arguments for
+  empty: it declares 1 type parameter`; a type parameter that is neither
+  written nor in any parameter's type is reported at the call, `cannot
+  infer T in this call to empty: no argument gives it; write the type
+  arguments through it, as in empty[T](...)`. A written type argument
+  is checked as an inferred one is, `cannot use []int64 as T in type
+  argument to keep: a type argument cannot be a view`, `int64 does not
+  satisfy Sizer: int64 has no method size`, and an argument for a
+  parameter it settles is then checked against the parameter's type, as
+  for a function that is not generic, so an untyped constant takes it
+  and an `int32` widens to a written `int64`, and one that does not fit
+  is `cannot use Box as int64 in argument to same` or, where an argument
+  still infers another part, `cannot use int32 as K in argument to
+  apply: K is int64 in this call, from its type argument`. Only a
+  generic function's name takes type arguments: `cannot write type
+  arguments for one: it declares no type parameters`, `... for make: it
+  is a builtin`, `... for int32: it is a type`. After a variable or a
+  parameter, or with a first token that starts no type, the brackets
+  index, an element called, which Tack never does, `cannot call an
+  element, fs[...](...); only a name is called: bind it first, as in g :=
+  fs[...]`, as after a field, `s.fs[0](x)`; after a selector they may
+  also be type arguments for a method, which is never generic, `cannot
+  call b.size[...](...): only a name is called, and only a function can
+  be generic`. Each type
+  parameter not written is given its type from the arguments, in order: the type of
   one passed to a parameter of that type, or the part of an argument's
   type where the parameter's type has it, the element of a list, an
   array or a view passed for a `list[T]` or a `[]T`, the value type of a
@@ -3307,9 +3339,11 @@ section remains the description of the language.
   are otherwise checked as for any function: a `mut` parameter of a type
   parameter takes a `mut` place, `render takes w as mut; pass mut c`. A
   generic function may call itself and other generic functions, with its
-  type parameters as type arguments; it is never a value, `cannot use
+  type parameters as type arguments, inferred or written, `empty[T](alloc)`; it is never a value, `cannot use
   measure as a value: it is generic, and a generic function is only
-  called, its type arguments inferred from the call`. A `pub` or `lib` one exposes its constraints, `pub function
+  called`, nor is it with type arguments and no call, `cannot use
+  measure[Box] as a value: it is generic, and a generic function is only
+  called`. A `pub` or `lib` one exposes its constraints, `pub function
   Size exposes hidden, which is not pub`. In C each generic function is
   compiled once for every set of type arguments the program's calls need
   it with, an instance, found from the functions that are not generic
@@ -3320,7 +3354,8 @@ section remains the description of the language.
   on a type parameter call the type argument's method directly, and its
   `list[T]` is the C type of `list[int64]` its caller passes. Instances
   are finite, since every type argument is one code that is not generic
-  writes, a type parameter being passed on only whole, but a program
+  writes, inferred or in brackets, a type parameter being passed on only
+  whole, but a program
   needing more than 10000 is an error,
   `instantiating g with ... makes more than 10000 instances of generic
   functions, the most a program may have`, so the compiler never runs

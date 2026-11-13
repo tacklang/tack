@@ -326,7 +326,7 @@ function value is called through a local or a parameter holding it,
 A method is a value named through its type ([Method
 expressions](#method-expressions)). A generic function, an extern func
 and a builtin are not values: `cannot use measure as a value: it is generic, and a generic
-function is only called, its type arguments inferred from the call`,
+function is only called`, with type arguments or not, `measure[Box]`,
 `cannot use now as a value: it is an extern func, and a function value
 does not cross to C`, `cannot use the builtin len as a value; only a
 declared function can be one`. Nor is a function whose signature no

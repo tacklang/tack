@@ -574,7 +574,6 @@ func (c *Checker) Check() []diag.Diagnostic {
 			c.resolveTypeParams(fn)
 			c.resolveParamTypes(fn)
 			c.resolveResultTypes(fn)
-			c.checkTypeParamsUsed(fn)
 			c.checkContract(fn)
 			restore()
 		}

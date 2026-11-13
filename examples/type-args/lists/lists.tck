@@ -1,0 +1,21 @@
+package lists
+
+// Package lists makes lists of a type its caller names: no argument
+// carries the element type, so every call writes it as a type argument,
+// lists.new[int64](alloc).
+
+// new returns an empty list of T, growing through alloc. T appears in no
+// parameter, so a call gives it as a type argument.
+pub func new[T Data](scope alloc Allocator) list[T] {
+    return make(list[T], alloc)
+}
+
+// filled returns a list of n empty values of T, growing through alloc,
+// or the error of the append that failed, freeing what it held.
+pub func filled[T Data](n int64, scope alloc Allocator) (list[T], error) {
+    mut l := make(list[T], alloc)
+    for range n {
+        append(mut l, make(T, alloc))?
+    }
+    return l, noerror
+}

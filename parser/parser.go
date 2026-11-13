@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/constant"
@@ -802,9 +803,12 @@ func typeParamsProblem(fn *ast.Func, extern bool) string {
 
 // atTypeArgs reports whether the name that starts the next tokens, ending
 // n places ahead, is followed by brackets and then an opening
-// parenthesis, f[T](x): a call written with type arguments, which a call
-// never has, since they are inferred from its arguments. Nothing else
-// takes that shape, since a call's callee is a name.
+// parenthesis, f[T](x): a call that writes its callee's type arguments.
+// Only a name is ever called, never an element, so nothing else takes
+// that shape, and the brackets hold types, f[list[int64]](x) and
+// f[map[text.Text]int64](x) among them, whatever f turns out to be;
+// whether it is a generic function is the resolver's and the type
+// checker's to judge.
 func (p *Parser) atTypeArgs(n int) bool {
 	if p.peek().Kind() != lexer.Ident || p.peekAt(n+1).Kind() != lexer.LBrack {
 		return false
@@ -812,22 +816,78 @@ func (p *Parser) atTypeArgs(n int) bool {
 	return p.peekAt(p.afterGroup(n+1, lexer.LBrack, lexer.RBrack)).Kind() == lexer.LParen
 }
 
-// typeArgsError reports the call that starts the next tokens, whose name
-// ends n places ahead, written with type arguments (see atTypeArgs).
-func (p *Parser) typeArgsError(n int) []diag.Diagnostic {
-	first, last := p.peek(), p.peekAt(p.afterGroup(n+1, lexer.LBrack, lexer.RBrack)-1)
-	name := lexer.ValueChecked[string](first)
-	if n > 0 {
-		name += "." + lexer.ValueChecked[string](p.peekAt(n))
+// parseTypeArgsCall parses a call that writes type arguments, f[T](x) or
+// pkg.f[A, B](x), which the caller has seen is next (see atTypeArgs): the
+// callee's name, the type arguments and then the arguments. Brackets
+// whose first token starts no type, fs[0](x), index, and are reported as
+// an element called.
+func (p *Parser) parseTypeArgsCall() (ast.Expr, []diag.Diagnostic) {
+	ident, diags := p.parseName("function name")
+	if ident == nil {
+		return nil, diags
 	}
-	return []diag.Diagnostic{{
-		Severity: diag.Error,
-		Message: fmt.Sprintf(
-			"cannot write type arguments; they are inferred from the arguments, as in %s(...)",
-			name,
-		),
-		Span: ast.Span{File: p.fileID, Start: first.OffsetStart(), End: last.OffsetEnd()},
-	}}
+	if tk := p.peekNext(); tk.Kind() != lexer.RBrack && !p.startsType(tk) {
+		// fs[0](x): what the brackets hold is no type, so they index.
+		end := p.afterGroup(0, lexer.LBrack, lexer.RBrack)
+		return nil, []diag.Diagnostic{
+			{
+				Severity: diag.Error,
+				Message:  ast.ElementCallMessage(ident.Qualified()),
+				Span: ast.Span{
+					File:  p.fileID,
+					Start: ident.Span.Start,
+					End:   p.peekAt(end - 1).OffsetEnd(),
+				},
+			},
+		}
+	}
+	typeArgs, span, diags := p.parseTypeArgs()
+	if diags != nil {
+		return nil, diags
+	}
+	call, diags := p.parseArgs(ident, ident.Span)
+	if call == nil {
+		return nil, diags
+	}
+	call.TypeArgExprs, call.TypeArgsSpan = typeArgs, span
+	return call, nil
+}
+
+// parseTypeArgs parses the bracketed type arguments of a call, [T] or [A,
+// list[B]], from the opening bracket next through the closing one, and
+// returns them and the span of the brackets. Each is a type, parsed as
+// any type is, and the commas between them are written, as between a
+// call's arguments, with none after the last; [] is reported.
+func (p *Parser) parseTypeArgs() ([]ast.Expr, ast.Span, []diag.Diagnostic) {
+	if diags := p.nest(p.peek()); diags != nil {
+		return nil, ast.Span{}, diags
+	}
+	defer p.unnest()
+	open := p.next()
+	if tk := p.peek(); tk.Kind() == lexer.RBrack {
+		return nil, ast.Span{}, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "empty type argument list",
+			Span:     ast.Span{File: p.fileID, Start: open.OffsetStart(), End: tk.OffsetEnd()},
+		}}
+	}
+	var typeArgs []ast.Expr
+	for {
+		typ, diags := p.parseType()
+		if typ == nil {
+			return nil, ast.Span{}, diags
+		}
+		typeArgs = append(typeArgs, typ)
+		if p.peek().Kind() != lexer.Comma {
+			break
+		}
+		p.next()
+	}
+	if ok, diags := p.expect(lexer.RBrack); !ok {
+		return nil, ast.Span{}, diags
+	}
+	span := ast.Span{File: p.fileID, Start: open.OffsetStart(), End: p.peekPrev().OffsetEnd()}
+	return typeArgs, span, nil
 }
 
 // notFinal is the error for a ... at span that does not mark a function's
@@ -1411,7 +1471,8 @@ func (p *Parser) parseBlockStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 
 // parseIdentStmt parses a statement that starts with the name tk: a short
 // variable declaration, an assignment (plain or compound), an increment or
-// decrement, or a call, a method call included. A name followed by indexes
+// decrement, or a call, a method call and one that writes type arguments,
+// f[T](x), included. A name followed by indexes
 // or fields can only be assigned, incremented or decremented, or have a
 // method called on it; anything else after them is reported by parsing
 // them first, so a malformed index or field gets its own error.
@@ -1419,7 +1480,7 @@ func (p *Parser) parseIdentStmt(tk *lexer.Token) (ast.Stmt, []diag.Diagnostic) {
 	// A qualified name can be assigned or called but not declared.
 	n := p.nameEnd()
 	if p.atTypeArgs(n) {
-		return nil, p.typeArgsError(n)
+		return p.parseCallStmt(tk)
 	}
 	postfixed := p.peekAt(n+1).Kind() == lexer.LBrack || p.peekAt(n+1).Kind() == lexer.Period
 	switch after := p.afterTarget(n); after.Kind() {
@@ -3537,8 +3598,9 @@ func (p *Parser) parseOwnArg() (ast.Expr, []diag.Diagnostic) {
 }
 
 // parsePrimary parses an operand that indexes and fields can follow: a
-// parenthesized expression, a call, an array literal, a struct literal, a
-// name, or a literal. A name followed by an opening brace starts a struct
+// parenthesized expression, a call, one that writes type arguments
+// included (see atTypeArgs), an array literal, a struct literal, a name,
+// or a literal. A name followed by an opening brace starts a struct
 // literal, except where noLit says the brace opens a body.
 func (p *Parser) parsePrimary() (ast.Expr, []diag.Diagnostic) {
 	switch p.peek().Kind() {
@@ -3554,7 +3616,7 @@ func (p *Parser) parsePrimary() (ast.Expr, []diag.Diagnostic) {
 		return p.parseStructLit()
 	}
 	if p.atTypeArgs(n) {
-		return nil, p.typeArgsError(n)
+		return p.parseTypeArgsCall()
 	}
 
 	if n == 0 && p.atFieldsOf() {
@@ -3762,7 +3824,10 @@ func (p *Parser) parseSlice(x, lo ast.Expr) (ast.Expr, []diag.Diagnostic) {
 
 // parseSelector parses one field selection after x, x.f, or, when an
 // opening parenthesis follows the name, a method call on x, x.m(args),
-// whose callee is the selection (see ast.Call).
+// whose callee is the selection (see ast.Call). Brackets and then a
+// parenthesis after the name, x.m[T](args), are type arguments, which
+// only a function's name takes, since a method, a union's case and a
+// method expression are never generic, and are reported.
 func (p *Parser) parseSelector(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 	p.next() // the period
 	name, diags := p.parseIdent("field name")
@@ -3775,6 +3840,9 @@ func (p *Parser) parseSelector(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 		NameSpan: name.Span,
 		Span:     ast.Span{File: p.fileID, Start: p.extent(x).Start, End: name.Span.End},
 	}
+	if typeArgDiags := p.selectorTypeArgs(sel); typeArgDiags != nil {
+		return nil, typeArgDiags
+	}
 	if p.peek().Kind() != lexer.LParen {
 		return sel, nil
 	}
@@ -3783,6 +3851,47 @@ func (p *Parser) parseSelector(x ast.Expr) (ast.Expr, []diag.Diagnostic) {
 		return nil, diags
 	}
 	return call, nil
+}
+
+// selectorTypeArgs reports brackets and then a parenthesis after sel, a
+// selection just parsed, and returns nil when they do not come next.
+// Only a name is called and no method is generic, so either they index,
+// s.fs[0](y), an element called, which they surely do when their first
+// token starts no type, or they are type arguments for a method, a
+// union's case or a method expression, b.m[T](y), and the message, which
+// cannot tell which, says why neither is allowed.
+func (p *Parser) selectorTypeArgs(sel *ast.Selector) []diag.Diagnostic {
+	if p.peek().Kind() != lexer.LBrack {
+		return nil
+	}
+	end := p.afterGroup(0, lexer.LBrack, lexer.RBrack)
+	if p.peekAt(end).Kind() != lexer.LParen {
+		return nil
+	}
+	span := ast.Span{File: p.fileID, Start: sel.Span.Start, End: p.peekAt(end - 1).OffsetEnd()}
+	msg := fmt.Sprintf(
+		"cannot call %s[...](...): only a name is called, and only a function can be generic",
+		selectionName(sel),
+	)
+	if tk := p.peekNext(); tk.Kind() != lexer.RBrack && !p.startsType(tk) {
+		msg = ast.ElementCallMessage(selectionName(sel))
+	}
+	return []diag.Diagnostic{{Severity: diag.Error, Message: msg, Span: span}}
+}
+
+// selectionName writes sel as a diagnostic names it when its operand is a
+// name or a chain of selections of one, s.fs or a.b.fs, and as (...).fs,
+// its field after a stand-in for the operand, when it is anything else.
+func selectionName(sel *ast.Selector) string {
+	switch x := sel.X.(type) {
+	case *ast.Ident:
+		return x.Qualified() + "." + sel.Name
+	case *ast.Selector:
+		if inner := selectionName(x); !strings.HasPrefix(inner, "(...)") {
+			return inner + "." + sel.Name
+		}
+	}
+	return "(...)." + sel.Name
 }
 
 // parseFieldSelector parses x.[f], the field f of x, after x, from the

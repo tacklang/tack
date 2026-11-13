@@ -684,7 +684,7 @@ there, rather than decided, and could go another way:
 Interfaces and generic functions follow the decisions recorded in the
 README: interfaces only constrain type parameters, generic functions are
 monomorphized, bodies are checked once against the constraints, type
-arguments are inferred from the arguments and must be struct types, and
+arguments are written at the call or inferred from the arguments, and
 satisfaction is implicit.
 
 Ahmed decided where a method's visibility is checked for satisfaction:
@@ -745,10 +745,7 @@ the rules already there, rather than decided, and could go another way:
   must satisfy after it, as in [W Writer]`, and `[]` is `empty type
   parameter list`, both parse errors. A method or an extern func with
   type parameters is a parse error too.
-- A type parameter used as no parameter's type is an error at its
-  declaration, `W appears in no parameter of f, so no call can infer it`,
-  `main` included, which has no message of its own. A variadic `ws ...W`
-  counts as a use, but is rejected by the view rules, `a variadic
+- A variadic `ws ...W` is rejected by the view rules, `a variadic
   parameter cannot hold W: its elements are copied, and W, a type
   parameter, which may hold a list, cannot be`, since a type parameter is
   owned; the same holds for an array, a list or a view of one.
@@ -773,11 +770,6 @@ the rules already there, rather than decided, and could go another way:
   named without a call `size is a method of W, not a field; a method can
   only be called`. A method call on one is named in a diagnostic by the
   type parameter and the method, `W.write expects 1 argument(s), got 2`.
-- A call written with type arguments, `f[T](x)` or `p.f[A, B](x)`, is a
-  parse error, `cannot write type arguments; they are inferred from the
-  arguments, as in f(...)`, for any name followed by brackets and a
-  parenthesis, which before was `expected ';' found '('`. A generic
-  function used as a value is `undefined: f`, as any function is.
 - `only struct types can be declared` now reads `only struct and
   interface types can be declared`, and a type declaration's missing
   kind `expected 'struct or interface'`.
@@ -804,6 +796,66 @@ the rules already there, rather than decided, and could go another way:
   the variable is not read again until it is assigned.
 - The instances are recorded on the Program and on every file, as the
   type table is, so a program rebuilt from one checked file has them.
+
+## Written type arguments
+
+A call may write its callee's type arguments, `f[T](x)` and
+`pkg.f[T](x)` (ruled 2026-11-13): a partial list fills the type
+parameters from the left and the arguments infer the rest; too many,
+and any left uninferrable, are errors; written ones are checked for
+their constraints as inferred ones are; one an argument conflicts with
+is reported with the mismatch diagnostics; and a type parameter in no
+parameter is no longer an error at its declaration, only at a call that
+cannot infer it. Builtins keep their forms, with no `make[T]`. Each of
+these was picked in implementation and is overrulable:
+
+- The brackets are type arguments wherever a name is followed by them
+  and a parenthesis, `f[...](...)`, since only a name is ever called:
+  the parser reads them as types, and the resolver and the type checker
+  report them on a callee that is no generic function. Calling an
+  element, which Tack never had, `fs[0](x)`, `fs[i](x)` or `m[k](x)`,
+  is `cannot call an element, fs[...](...); only a name is called: bind
+  it first, as in g := fs[...]`, from the parser when the brackets'
+  first token starts no type, and from the resolver when the callee is
+  a variable or a parameter, which resolves what the brackets hold as
+  values, so a name read there counts as read; it was `cannot write
+  type arguments; ...`. The message writes `[...]`, as the parser and
+  the resolver keep no source text to quote the index with.
+- Commas between type arguments are written, as between a call's
+  arguments, with none after the last, unlike type parameters, whose
+  commas are optional; `[]` is `empty type argument list`.
+- Only the type parameters a function declares are written. Those its
+  interface parameters declare, `func both(x Sizer)`, come after them
+  and are always inferred, as nothing names them apart; a function with
+  only those takes none, `cannot write type arguments for both: it
+  declares no type parameters`.
+- An argument whose parameter's type parameters are all settled is
+  checked against the parameter's type as for a function that is not
+  generic, so an untyped constant takes a written `int32`, and an
+  `int32` value widens to a written `int64`, as no inferred type
+  parameter could; a mismatch reads `cannot use Box as int64 in argument
+  to same`. Only an argument that still infers another part gets the
+  conflict wording, `K is int64 in this call, from its type argument`.
+- A generic function with type arguments and no call, `g :=
+  measure[Box]`, is not a value, `cannot use measure[Box] as a value: it
+  is generic, and a generic function is only called`, as a generic
+  function is never one; the message for a bare one dropped its ending,
+  `its type arguments inferred from the call`. Allowing an instance as a
+  function value would need a rule for its identity and its C address,
+  and is open.
+- A generic `main`, which the declaration check used to catch, is now
+  `main function must not declare type parameters`, beside main's other
+  signature errors.
+- Brackets and a parenthesis after a selector are a parse error: the
+  element message when the brackets' first token starts no type,
+  `s.fs[0](x)`, and otherwise, since the parser cannot tell an element,
+  `s.fs[i](x)`, from type arguments for a method, `b.size[int64]()`,
+  one message for both, `cannot call b.size[...](...): only a name is
+  called, and only a function can be generic`. An operand that is no
+  name or selection of one is written `(...)`, `(...).fs[...](...)`.
+- The uninferrable error is reported once per call, for the first such
+  type parameter, at the callee's name, and names the declared type
+  parameters through it as a template, `as in two[A, B](...)`.
 
 ## Data and fields loops
 
@@ -861,7 +913,9 @@ Still open:
 
 - In a fields loop, `v.[f] = make(<the field's type>, alloc)` cannot be
   written: the field's type parameter, `T.[f]`, has no name a program
-  can write, and a type argument is only inferred from a value. So the
+  can write, neither in make nor as a written type argument,
+  `empty[T.[f]](alloc)`, so its type argument is only inferred from a
+  value. So the
   make goes in a generic function `v.[f]` is passed to, `fresh[T
   Data](_ T, scope alloc Allocator) T`, whose `_` parameter infers `T`
   and is never warned of (see Data and fields loops), or `reset(mut v T,

@@ -50,9 +50,18 @@
 // Func.TypeParams, the brackets' span in TypeParamsSpan. An empty list, a
 // name with no constraint after it, and type parameters on a method or
 // an extern func are reported; whether a constraint is an interface is
-// the type checker's to judge. A call is never written with type
-// arguments: a name followed by brackets and then a parenthesis, f[T](x),
-// is reported, since nothing else takes that shape. fields( starts
+// the type checker's to judge. A name, plain or qualified, followed by
+// brackets and then a parenthesis, f[T](x) or pkg.f[A, B](x), is a call
+// that writes type arguments, since only a name is ever called and
+// nothing else takes that shape: each is parsed as a type, so
+// f[list[int64]] and f[map[text.Text]int64] parse where an index would
+// not, with commas between them and none after the last, recorded in
+// Call.TypeArgExprs, the brackets' span in TypeArgsSpan; whether the name
+// is a generic function is the resolver's and the type checker's to
+// judge. An empty list is reported, and so are brackets whose first token
+// starts no type, fs[0](x), an element called, and brackets and a
+// parenthesis after a selector, x.m[T](y) or s.fs[0](y), as no method is
+// generic and no element is called. fields( starts
 // fields(T), an ast.FieldsOf whose T is parsed as a type, wherever an
 // expression or a statement starts, since a call by that name always
 // calls the builtin; for f := range fields(T) is a range loop over one.

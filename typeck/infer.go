@@ -55,6 +55,18 @@ func (inf *inference) mentionsAny(c *Checker, typ types.Type) bool {
 	return false
 }
 
+// lost reports whether typ mentions a type parameter of the callee being
+// inferred whose type argument the call wrote and was reported, so it has
+// none, and no argument may give it one.
+func (inf *inference) lost(c *Checker, typ types.Type) bool {
+	for _, tp := range inf.fn.TypeParams {
+		if _, ok := inf.args[tp.Type]; !ok && inf.written[tp.Type] && c.mentions(typ, tp.Type) {
+			return true
+		}
+	}
+	return false
+}
+
 // complete reports whether every type parameter of the callee being
 // inferred that typ mentions has a type argument already.
 func (inf *inference) complete(c *Checker, typ types.Type) bool {
@@ -125,7 +137,12 @@ func (c *Checker) substitute(typ types.Type, args map[types.Type]types.Type) typ
 // nothing reported, for the exclusivity check.
 func (c *Checker) inferArg(arg ast.Expr, p param, callee string) *ast.MutArg {
 	inf := c.inference
-	if inf.infers(p.typ) {
+	if inf.lost(c, p.typ) {
+		// What arg must be is unknown: its type argument was reported.
+		c.argExpr(arg)
+		return nil
+	}
+	if inf.infers(p.typ) && !inf.written[p.typ] {
 		return c.typeArg(arg, p, callee)
 	}
 	if inf.complete(c, p.typ) {
@@ -230,7 +247,7 @@ func (c *Checker) unify(arg ast.Expr, want, got types.Type, callee string) bool 
 	inf := c.inference
 	switch {
 	case inf.infers(want):
-		return c.bindTypeArg(arg, want, got, callee)
+		return c.bindTypeArg(arg, want, got, callee, false)
 	case !inf.mentionsAny(c, want):
 		return true
 	}

@@ -162,13 +162,16 @@ func (c *Checker) signatureValue(fn *ast.Func) types.Type {
 	return fn.Value
 }
 
+// genericNotValue is why a generic function, named alone or with type
+// arguments, f[int64], is not a value: only a call instantiates one.
+const genericNotValue = "it is generic, and a generic function is only called"
+
 // notValue returns why fn, a function, cannot be a value, or "" when it
 // can.
 func (c *Checker) notValue(fn *ast.Func) string {
 	switch {
 	case fn.Generic():
-		return "it is generic, and a generic function is only called, " +
-			"its type arguments inferred from the call"
+		return genericNotValue
 	case fn.Extern:
 		return "it is an extern func, and a function value does not cross to C"
 	}

@@ -251,7 +251,8 @@ through other imports. A `main` package declares a function `main`,
 which takes no parameters and declares no result; a `main` package
 without one is `main function not found`. No package other than `main`
 declares anything named `main`, `func main is allowed only in package
-main`, and `main` is not extern, `main function must not be extern`.
+main`, `main` is not extern, `main function must not be extern`, and
+it is not generic, `main function must not declare type parameters`.
 
 ```tack error
 package main

@@ -279,9 +279,20 @@ func (c *Checker) checkCall(call *ast.Call) {
 }
 
 // checkNamedCall checks call, a call to a function or a builtin named id,
-// as checkCall says.
+// as checkCall says. Type arguments written for a function that declares
+// no type parameters, f[T](x), are reported, and the call is checked as
+// if they were not written (see bindWritten); the resolver reported them
+// on anything else.
 func (c *Checker) checkNamedCall(call *ast.Call, id *ast.Ident) {
 	c.hiddenValue(id)
+	if fn, ok := id.Def.(*ast.Func); ok && fn != nil && call.TypeArgExprs != nil &&
+		len(declaredTypeParams(fn)) == 0 {
+		c.errorf(
+			ast.TypeArgsSpan(call),
+			"cannot write type arguments for %s: it declares no type parameters",
+			id.Qualified(),
+		)
+	}
 
 	params := c.calleeParams(id)
 	var (

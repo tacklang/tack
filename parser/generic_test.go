@@ -51,6 +51,78 @@ func TestParsesTypeParams(t *testing.T) {
 	}
 }
 
+// TestParsesTypeArgs checks a call that writes type arguments, f[T](x),
+// in a statement and as an operand, plain or qualified, each a type of any
+// form, list[int64] and map[text.Text]int64 among them, which an index
+// could not hold, and the span of the brackets around them.
+func TestParsesTypeArgs(t *testing.T) {
+	for _, tt := range []struct {
+		name, body, callee, brackets string
+		args                         []string
+	}{
+		{"one", "x := f[T](a)", "f", "[T]", []string{"T"}},
+		{"statement", "f[T](a)", "f", "[T]", []string{"T"}},
+		{"two", "x := f[A, B](a, b)", "f", "[A, B]", []string{"A", "B"}},
+		{"qualified", "x := p.f[A](a)", "p.f", "[A]", []string{"A"}},
+		{"qualified statement", "p.f[A, B]()", "p.f", "[A, B]", []string{"A", "B"}},
+		{"qualified type", "x := f[p.T]()", "f", "[p.T]", []string{"p.T"}},
+		{"list", "x := f[list[int64]](a)", "f", "[list[int64]]", []string{"list[int64]"}},
+		{
+			"map", "x := f[map[p.Text]int64](a)", "f", "[map[p.Text]int64]",
+			[]string{"map[p.Text]int64"},
+		},
+		{"view", "x := f[[]int64]()", "f", "[[]int64]", []string{"[]int64"}},
+		{"array", "x := f[[4]uint8]()", "f", "[[4]uint8]", []string{"[4]uint8"}},
+		{"func", "x := f[func(int64) bool]()", "f", "[func(int64) bool]", []string{"func(int64) bool"}},
+		{"nested call", "x := f[A](g[B](b))", "f", "[A]", []string{"A"}},
+		{"question", "x := f[A](a)?", "f", "[A]", []string{"A"}},
+		{"in if", "if f[A](a) {\n    }", "f", "[A]", []string{"A"}},
+		{"method on result", "f[A](a).m()", "f", "[A]", []string{"A"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			src := "package main\n\nimport p from \"m/p\"\n\nfunc main() {\n    " + tt.body + "\n}\n"
+			call := firstTypeArgsCall(t, src)
+			if id, ok := call.Fn.(*ast.Ident); !ok || id.Qualified() != tt.callee {
+				t.Errorf("callee is %v, want %s", call.Fn, tt.callee)
+			}
+			if len(call.TypeArgExprs) != len(tt.args) {
+				t.Fatalf("got %d type arguments, want %d", len(call.TypeArgExprs), len(tt.args))
+			}
+			for i, arg := range call.TypeArgExprs {
+				span := arg.Spanned()
+				if got := src[span.Start:span.End]; got != tt.args[i] {
+					t.Errorf("type argument %d covers %q, want %q", i, got, tt.args[i])
+				}
+			}
+			if got := src[call.TypeArgsSpan.Start:call.TypeArgsSpan.End]; got != tt.brackets {
+				t.Errorf("brackets cover %q, want %q", got, tt.brackets)
+			}
+		})
+	}
+}
+
+// firstTypeArgsCall parses src, which must parse with nothing reported,
+// and returns the first call in it that writes type arguments, failing t
+// when there is none.
+func firstTypeArgsCall(t *testing.T, src string) *ast.Call {
+	t.Helper()
+	file, diags := parse(t, src)
+	if len(diags) > 0 {
+		t.Fatalf("parse reported %+v", diags)
+	}
+	var call *ast.Call
+	ast.Walk(file, func(n ast.Node) bool {
+		if c, ok := n.(*ast.Call); ok && call == nil && c.TypeArgExprs != nil {
+			call = c
+		}
+		return true
+	})
+	if call == nil {
+		t.Fatalf("no call with type arguments in %q", src)
+	}
+	return call
+}
+
 // TestParsesInterfaces checks an interface type's methods, one per line
 // or separated by semicolons, each mut or not, with parameters and
 // results as a function's.
@@ -144,20 +216,65 @@ var genericParseErrors = []struct{ name, src, msg, at string }{
 		"extern func f cannot have type parameters; its body is written in C", "[W I]",
 	},
 	{
-		"type arguments", "func main() {\n    x := f[A](a)\n}\n",
-		"cannot write type arguments; they are inferred from the arguments, as in f(...)", "f[A]",
+		"empty type arguments", "func main() {\n    x := f[](a)\n}\n",
+		"empty type argument list", "[]",
 	},
 	{
-		"two type arguments",
-		"func main() {\n    f[A, B](a, b)\n}\n",
-		"cannot write type arguments; they are inferred from the arguments, as in f(...)",
-		"f[A, B]",
+		"empty type arguments statement", "func main() {\n    f[](a)\n}\n",
+		"empty type argument list", "[]",
 	},
 	{
-		"qualified type arguments",
-		"import p from \"m/p\"\n\nfunc main() {\n    p.f[A](a)\n}\n",
-		"cannot write type arguments; they are inferred from the arguments, as in p.f(...)",
-		"p.f[A]",
+		"trailing comma in type arguments", "func main() {\n    x := f[A,](a)\n}\n",
+		"expected 'type name' found ']'", "",
+	},
+	{
+		"no comma between type arguments", "func main() {\n    x := f[A B](a)\n}\n",
+		"expected ']' found 'B'", "",
+	},
+	{
+		"element called",
+		"func main() {\n    x := fs[0](a)\n}\n",
+		"cannot call an element, fs[...](...); only a name is called: bind it first, as in g := fs[...]",
+		"fs[0]",
+	},
+	{
+		"method type arguments",
+		"func main() {\n    x := b.m[A](a)\n}\n",
+		"cannot call b.m[...](...): only a name is called, and only a function can be generic",
+		"b.m[A]",
+	},
+	{
+		"method type arguments statement", "func main() {\n    b.c.m[A, B](a)\n}\n",
+		"cannot call b.c.m[...](...): only a name is called, and only a function can be generic",
+		"b.c.m[A, B]",
+	},
+	{
+		"method expression type arguments",
+		"func main() {\n    x := Pair.first[A](p)\n}\n",
+		"cannot call Pair.first[...](...): only a name is called, and only a function can be generic",
+		"Pair.first[A]",
+	},
+	{
+		"element of a field called",
+		"func main() {\n    x := s.fs[0](a)\n}\n",
+		"cannot call an element, s.fs[...](...); only a name is called: bind it first, as in g := s.fs[...]",
+		"s.fs[0]",
+	},
+	{
+		"element of a call's result called",
+		"func main() {\n    x := f().fs[-1](a)\n}\n",
+		"cannot call an element, (...).fs[...](...); only a name is called: bind it first, as in g := (...).fs[...]",
+		"f().fs[-1]",
+	},
+	{
+		"qualified element called",
+		"import p from \"m/p\"\n\nfunc main() {\n    x := p.fs[\"k\"](a)\n}\n",
+		"cannot call an element, p.fs[...](...); only a name is called: bind it first, as in g := p.fs[...]",
+		"p.fs[\"k\"]",
+	},
+	{
+		"unclosed type arguments", "func main() {\n    x := f[A(a)\n}\n",
+		"expected ']' found ';'", "",
 	},
 	{
 		"embedded interface",
@@ -244,6 +361,14 @@ var genericSeeds = []string{
 	"package main\nfunc sort[T Any](mut l list[T], lt func(T, T) bool, v []T, m map[string]T) T {\n" +
 		"swap(mut l, 0, 1)\nreturn pop(mut l) }\n",
 	"package main\nfunc main() { x := p.f[A, B[C]](y) }\n",
+	"package main\nimport p from \"m/p\"\nfunc main() { x := p.f[list[int64], map[p.T]func(A) B](y)?\n" +
+		"f[[]A, [3]B](g[C](z)).m()\nif h[D](x) { k[E]() } }\n",
+	"package main\nfunc main() { f[",
+	"package main\nfunc main() { f[A",
+	"package main\nfunc main() { f[A](",
+	"package main\nfunc main() { x := f[A][B](c) }\n",
+	"package main\nfunc main() { x := b.m[A](c)\ny := f[A]\n}\n",
+	"package main\nfunc main() { x := fs[0](1)\ny := s.fs[i](2)\nm[k](3)\nz := f().g[-1](4) }\n",
 	"package main\ntype W interface {",
 	"package main\ntype W interface { mut",
 	"package main\nfunc f[",

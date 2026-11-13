@@ -579,6 +579,13 @@ func (r *pkgResolver) checkMain() []diag.Diagnostic {
 			Span:     mainFn.ExternSpan,
 		})
 	}
+	if mainFn.Generic() {
+		diags = append(diags, diag.Diagnostic{
+			Severity: diag.Error,
+			Message:  "main function must not declare type parameters",
+			Span:     mainFn.TypeParamsSpan,
+		})
+	}
 	if len(mainFn.Params) > 0 {
 		diags = append(diags, diag.Diagnostic{
 			Severity: diag.Error,
@@ -1440,7 +1447,16 @@ func (r *pkgResolver) resolveTyped(e ast.Expr, sc *scope) []diag.Diagnostic {
 // it indexes or slices, then the index or each bound that is written.
 func (r *pkgResolver) resolveElement(e ast.Expr, sc *scope) []diag.Diagnostic {
 	if ix, ok := e.(*ast.Index); ok {
-		return append(r.resolveExpr(ix.X, sc), r.resolveExpr(ix.Index, sc)...)
+		diags := r.resolveExpr(ix.X, sc)
+		if namesGeneric(ix.X) {
+			// f[int64] with no call: what the brackets hold is a type
+			// argument, which the type checker reports, as no generic
+			// function is a value.
+			if isType, typeDiags := r.bindMadeType(ix.Index, sc); isType {
+				return append(diags, typeDiags...)
+			}
+		}
+		return append(diags, r.resolveExpr(ix.Index, sc)...)
 	}
 	s, _ := e.(*ast.Slice)
 	diags := r.resolveExpr(s.X, sc)
@@ -1450,6 +1466,17 @@ func (r *pkgResolver) resolveElement(e ast.Expr, sc *scope) []diag.Diagnostic {
 		}
 	}
 	return diags
+}
+
+// namesGeneric reports whether x, resolved, is a name of a function that
+// declares type parameters.
+func namesGeneric(x ast.Expr) bool {
+	id, ok := x.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	fn, ok := id.Def.(*ast.Func)
+	return ok && fn != nil && fn.Generic()
 }
 
 // operand returns the operand of e, a prefix operator, a mut argument, an
@@ -1613,9 +1640,10 @@ func (r *pkgResolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 			// builtin's name, reported, or to the builtin, which the
 			// package meant to replace: which is unknown.
 			fn.Def = ast.Unbound
-			break
+		} else {
+			diags = r.settle(fn, r.bindCallee(fn, call, sc), sc)
 		}
-		diags = r.settle(fn, r.bindCallee(fn, call, sc), sc)
+		diags = append(diags, r.resolveTypeArgs(call, fn, sc)...)
 	case *ast.ViewType, *ast.RefType:
 		diags = r.resolveType(fn, sc)
 	case *ast.Selector:
@@ -1628,6 +1656,73 @@ func (r *pkgResolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 		panic(fmt.Sprintf("resolver: a call of %T", call.Fn))
 	}
 	return append(diags, r.resolveArgs(call, sc)...)
+}
+
+// resolveTypeArgs resolves the type arguments call writes, f[T](x), each
+// as a type, once its callee, fn, is bound to a function, which the type
+// checker finds generic or reports. After a variable or a parameter,
+// fs[i](x), the brackets index what it holds, an element called, which is
+// reported, and what they hold is resolved as values, so a name read
+// there counts as read, but for a name of a type, which is bound as one
+// and not reported again. Written after any other callee, a builtin or a
+// type's name, which converts, they are reported, as no such call takes
+// any. Either way they are then dropped, so no later stage sees types it
+// would not have resolved. After a callee that was reported, bound to
+// nothing, they are dropped with nothing more said.
+func (r *pkgResolver) resolveTypeArgs(call *ast.Call, fn *ast.Ident, sc *scope) []diag.Diagnostic {
+	if call.TypeArgExprs == nil {
+		return nil
+	}
+	var why string
+	switch def := fn.Def.(type) {
+	case *ast.Func:
+		if def != nil {
+			var diags []diag.Diagnostic
+			for _, typ := range call.TypeArgExprs {
+				diags = append(diags, r.resolveType(typ, sc)...)
+			}
+			return diags
+		}
+		why = "it is a builtin"
+	case *ast.Var, *ast.Param:
+		return r.elementCall(call, fn, sc)
+	case nil:
+		if call.Conv != types.Invalid {
+			why = "it is a type"
+		}
+	}
+	span := ast.TypeArgsSpan(call)
+	call.TypeArgExprs, call.TypeArgsSpan = nil, ast.Span{}
+	if why == "" {
+		return nil
+	}
+	return []diag.Diagnostic{{
+		Severity: diag.Error,
+		Message:  fmt.Sprintf("cannot write type arguments for %s: %s", fn.Qualified(), why),
+		Span:     span,
+	}}
+}
+
+// elementCall reports call, whose callee, fn, a variable or a parameter,
+// is followed by brackets, fs[i](x), an element called, and resolves
+// what the brackets hold as values, but for a name of a type, which is
+// bound as one, so a name read there counts as read. It then drops them
+// and leaves fn unbound, so the type checker passes over the call.
+func (r *pkgResolver) elementCall(call *ast.Call, fn *ast.Ident, sc *scope) []diag.Diagnostic {
+	var diags []diag.Diagnostic
+	span := ast.TypeArgsSpan(call)
+	for _, index := range call.TypeArgExprs {
+		if isType, _ := r.bindMadeType(index, sc); !isType {
+			diags = append(diags, r.resolveExpr(index, sc)...)
+		}
+	}
+	call.TypeArgExprs, call.TypeArgsSpan = nil, ast.Span{}
+	fn.Def = ast.Unbound
+	return append(diags, diag.Diagnostic{
+		Severity: diag.Error,
+		Message:  ast.ElementCallMessage(fn.Qualified()),
+		Span:     span,
+	})
 }
 
 // resolveArgs resolves the arguments of call, its callee bound, each as
