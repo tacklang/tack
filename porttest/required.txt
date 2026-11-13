@@ -16,4 +16,5 @@ types-decls
 check-decls
 check-core
 check-calls
+check-facts
 types-bodies

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"math"
+	"math/big"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,6 +17,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"unsafe"
 
 	"github.com/tacklang/tack/ast"
 	"github.com/tacklang/tack/builtin"
@@ -32,7 +34,7 @@ const typesCheck = "types-decls"
 
 // bodiesCheck is the name in required.txt of TestTypes's check that the
 // port checks every body of an input whose Go typed tree's stage is S1,
-// S2a or S2b (see treeStage): its dump must be of the phase "bodies".
+// S2a, S2b or S3 (see treeStage): its dump must be of the phase "bodies".
 const bodiesCheck = "types-bodies"
 
 // TestTypes checks what the port's type checker finds, so far in its
@@ -67,6 +69,10 @@ func TestTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	facts, err := checkInputs(stageFacts)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var clean, all, bodies atomic.Int64
 	var assumed sync.Map
 	t.Run("corpus", func(t *testing.T) {
@@ -77,7 +83,7 @@ func TestTypes(t *testing.T) {
 		}{
 			{"single", singles, true}, {"packages", pkgs, true},
 			{"check-decls", decls, false}, {"check-core", core, false},
-			{"check-calls", calls, false},
+			{"check-calls", calls, false}, {"check-facts", facts, false},
 		} {
 			t.Run(group.name, func(t *testing.T) {
 				for _, in := range group.ins {
@@ -114,8 +120,8 @@ func TestTypes(t *testing.T) {
 // which clean says must be of a program Go accepts, and reports whether
 // in is an input of the check, the kinds of judgment the port's dump
 // says it assumed, and the dump's phase. The port must check every body
-// of an input whose Go typed tree's stage is S1, S2a or S2b, all of which
-// its body check covers, when types-bodies is required.
+// of an input whose Go typed tree's stage is S1, S2a, S2b or S3, all of
+// which its body check covers, when types-bodies is required.
 func checkTypes(t *testing.T, in input, portBin string, clean bool) (bool, []string, string) {
 	t.Helper()
 	want, stage, ok := goTypes(t, in, clean)
@@ -144,7 +150,7 @@ func checkTypes(t *testing.T, in input, portBin string, clean bool) (bool, []str
 	if err := json.Unmarshal(port.stdout, &dump); err != nil {
 		t.Errorf("reading what the port assumed: %v", err)
 	}
-	if stage <= stageCalls && dump.Phase != "bodies" && env.required[bodiesCheck] {
+	if stage <= stageFacts && dump.Phase != "bodies" && env.required[bodiesCheck] {
 		t.Errorf("%s is required, and Go's typed tree is %s's, but the port's dump is of the phase %q",
 			bodiesCheck, stage, dump.Phase)
 	}
@@ -498,8 +504,9 @@ func typeList(ts []types.Type) []any {
 	return out
 }
 
-// constEntry returns the dump's form of a global's computed value, as
-// the port's typeck/dump.tck describes it.
+// constEntry returns the dump's form of a global's computed value, or
+// of an operator's constant, as the port's typeck/dump.tck describes it:
+// an untyped float's exact value in lowest terms (see floatRat).
 func constEntry(v any) any {
 	switch x := v.(type) {
 	case nil:
@@ -524,6 +531,8 @@ func constEntry(v any) any {
 		return map[string]any{"list": items}
 	case ast.UnionConst:
 		return map[string]any{"union": x.Case, "payload": constEntry(x.Payload)}
+	case constant.Float:
+		return map[string]any{"float": floatRat(x).RatString()}
 	default:
 		return map[string]any{"unknown": fmt.Sprintf("%T", v)}
 	}
@@ -664,4 +673,17 @@ func TestTypesDeep(t *testing.T) {
 			}
 		})
 	}
+}
+
+// floatRat returns the exact value an untyped float constant holds. The
+// type keeps it in an unexported *big.Rat, nil for zero, and has no
+// accessor for it, constant being frozen, so it is read through reflect;
+// it is never written.
+func floatRat(x constant.Float) *big.Rat {
+	v := reflect.ValueOf(&x).Elem().Field(0)
+	r := *(**big.Rat)(unsafe.Pointer(v.UnsafeAddr()))
+	if r == nil {
+		return new(big.Rat)
+	}
+	return r
 }
