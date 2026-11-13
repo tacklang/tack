@@ -1,0 +1,60 @@
+package main
+
+import fmt from "std/fmt"
+import os from "std/os"
+import text from "std/text"
+
+// Package main is the driver of the Tack compiler written in Tack, the
+// tack command, for now a stub. It takes the command line the Go
+// compiler takes and answers --backends as that compiler does. Anything
+// else it does not do yet, and says so in the form the differential
+// harness in tackc/porttest reads: on standard error,
+//
+//     tack: not implemented in the port: <first argument>
+//
+// and exit status 3, which the harness counts as a skip unless the stage
+// is one it requires.
+
+// notImplemented is the exit status that says the port cannot do what the
+// command line asks yet.
+var notImplemented int32 = 3
+
+// main lists the backends for a command line of --backends alone, and
+// otherwise reports the first argument as not implemented.
+func main() {
+    a, err := os.args(c_allocator)
+    if err.code != 0 {
+        fmt.eprintf("tack: %s\n", err.msg)
+        exit(1)
+    }
+    if len(a) == 2 && isBackends(a) {
+        print("c\n")
+        return
+    }
+    unimplemented(a)
+}
+
+// isBackends reports whether the argument after the program's name in a
+// is --backends.
+func isBackends(a []text.Text) bool {
+    for i, s := range a {
+        if i == 1 {
+            return s.equal([]uint8("--backends"))
+        }
+    }
+    return false
+}
+
+// unimplemented writes the not implemented line for a, the program's name
+// and its arguments, naming the first argument, or "(no arguments)" when
+// there is none, and exits with notImplemented.
+func unimplemented(a []text.Text) {
+    for i, s := range a {
+        if i == 1 {
+            fmt.eprintf("tack: not implemented in the port: %s\n", s.bytes())
+            exit(notImplemented)
+        }
+    }
+    fmt.eprintln("tack: not implemented in the port: (no arguments)")
+    exit(notImplemented)
+}
