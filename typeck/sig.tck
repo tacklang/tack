@@ -1,0 +1,139 @@
+package typeck
+
+import fmt from "std/fmt"
+import types from "tack/types"
+
+// resolve_param_types records what each declared parameter type of the
+// function at d denotes, Go's resolveParamTypes, then reports an own
+// receiver (ownReceiver). A method whose receiver's type the resolver
+// reported keeps an invalid receiver, not reported again.
+func (mut c Checker) resolve_param_types(d Key) error {
+    fn := func_of(c.prog.trees, d)
+    for i := range count_items(c.prog.trees, d.unit, fn.params) {
+        p := item_at(c.prog.trees, d.unit, fn.params, i)
+        if i == 0 && fn.method && fn.recv_type.is_none() && c.prior > 0 {
+            mut c.set_decl_type(p, types.invalid)?
+            continue
+        }
+        typ := mut c.param_type(p, Sig{unit: d.unit, params: fn.params, i: i, recv: fn.method})?
+        mut c.set_decl_type(p, typ)?
+    }
+    if fn.method && count_items(c.prog.trees, d.unit, fn.params) > 0 {
+        recv := param_of(c.prog.trees, item_at(c.prog.trees, d.unit, fn.params, 0))
+        if recv.is_own {
+            mut m := msg()
+            fmt.appendf(mut m, "a method cannot take its receiver as own; take it as a plain or a mut receiver")?
+            mut c.errorf(recv.own_span, own m)?
+        }
+    }
+    return noerror
+}
+
+// resolve_result_types records what each declared result type of the
+// function at d denotes, a view included when it is the only one, Go's
+// resolveResultTypes, then reports an error result that is not last
+// (checkErrorLast).
+func (mut c Checker) resolve_result_types(d Key) error {
+    fn := func_of(c.prog.trees, d)
+    n := count_items(c.prog.trees, d.unit, fn.results)
+    put(mut c.result_count, d, n)?
+    mut ext := no_key()
+    if fn.is_extern {
+        ext = d
+    }
+    for i := range n {
+        r := item_at(c.prog.trees, d.unit, fn.results, i)
+        typ := mut c.result_type(r, n, ext)?
+        put(mut c.results, RKey{unit: d.unit, node: d.node, i: i}, typ)?
+    }
+    for i := range n {
+        if i +% 1 < n && result_of(c.results, d, i) == types.error_type {
+            mut m := msg()
+            fmt.appendf(mut m, "error must be the last result of ")?
+            mut c.display_name(d, mut m)?
+            mut c.errorf(span_at(c.prog.trees, item_at(c.prog.trees, d.unit, fn.results, i)), own m)?
+        }
+    }
+    return noerror
+}
+
+// display_name appends how a diagnostic names the function at d, Go's
+// displayName: a function by its name, a method by its receiver's type
+// and its name.
+func (mut c Checker) display_name(d Key, mut out list[uint8]) error {
+    fn := func_of(c.prog.trees, d)
+    if fn.closure {
+        append(mut out, []uint8("the closure")...)?
+        return noerror
+    }
+    if !fn.method {
+        append(mut out, text_at(c.prog.trees, c.none, d.unit, fn.name)...)?
+        return noerror
+    }
+    if count_items(c.prog.trees, d.unit, fn.params) > 0 {
+        rt := decl_type_of(c.decl_types, item_at(c.prog.trees, d.unit, fn.params, 0))
+        if rt != types.invalid {
+            n := mut c.type_name(rt)?
+            append(mut out, n[:]...)?
+            append(mut out, '.')?
+            append(mut out, text_at(c.prog.trees, c.none, d.unit, fn.name)...)?
+            return noerror
+        }
+    }
+    if !fn.recv_type.is_none() {
+        append(mut out, name_of(c.prog.trees, c.none, key_of_def(fn.recv_type))...)?
+        append(mut out, '.')?
+    }
+    append(mut out, text_at(c.prog.trees, c.none, d.unit, fn.name)...)?
+    return noerror
+}
+
+// param_noun appends how a message names the parameter s names, Go's
+// paramNoun: parameter n, or, for one named _, the 2nd parameter.
+func (mut c Checker) param_noun(mut out list[uint8], s Sig) error {
+    p := item_at(c.prog.trees, s.unit, s.params, s.i)
+    if !bytes_equal(name_of(c.prog.trees, c.none, p), []uint8("_")) {
+        append(mut out, []uint8("parameter ")...)?
+        append(mut out, name_of(c.prog.trees, c.none, p)...)?
+        return noerror
+    }
+    append(mut out, []uint8("the ")...)?
+    return blank_position(mut out, s.i, s.recv)
+}
+
+// blank_position appends how a message names the parameter named _ at
+// index i, Go's blankPosition: receiver, or its position, 2nd
+// parameter, a receiver not counted.
+func blank_position(mut out list[uint8], i int64, recv bool) error {
+    mut at := i
+    if recv {
+        if at == 0 {
+            append(mut out, []uint8("receiver")...)?
+            return noerror
+        }
+        at -%= 1
+    }
+    ordinal(mut out, at +% 1)?
+    append(mut out, []uint8(" parameter")...)?
+    return noerror
+}
+
+// ordinal appends n, a positive count, as an English ordinal, Go's
+// ordinal: 1st, 2nd, 3rd, 4th, 11th, 12th, 13th, 21st.
+func ordinal(mut out list[uint8], n int64) error {
+    fmt.appendf(mut out, "%d", n)?
+    mut suffix := "th"
+    h := n % 100
+    if h != 11 && h != 12 && h != 13 {
+        t := n % 10
+        if t == 1 {
+            suffix = "st"
+        } else if t == 2 {
+            suffix = "nd"
+        } else if t == 3 {
+            suffix = "rd"
+        }
+    }
+    append(mut out, []uint8(suffix)...)?
+    return noerror
+}

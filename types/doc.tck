@@ -1,13 +1,17 @@
 package types
 
-// Package types holds Tack's type representation. It is a port of the Go
-// compiler's package types, as far as the resolver needs it so far: the
-// basic types and what is known of them without a Table. The Table,
-// which gives the composite types their IDs, names them and answers what
-// a type owns, holds and weighs (Go's table.go and size.go), comes with
-// the type checker, the first stage that adds a type to one, where the
-// differential harness can check that its IDs are handed out in Go's
-// order.
+// Package types holds Tack's type representation, a port of the Go
+// compiler's package types: the basic types and what is known of them
+// without a Table, and the Table (table.tck, Go's table.go), which gives
+// every other type its ID, in the order the type checker adds them,
+// Go's order, names them and answers what a type is made of, owns and
+// holds, and how C lays it out (size.tck, Go's size.go). The walks
+// along the structs and unions a type holds by value keep stacks of
+// their own, since such a chain is as long as its source makes it; the
+// walks into a type's own parts, an element, a key, a parameter, recurse,
+// since a type expression nests only as deeply as the parser allows.
+// Go's Bind, which makes a type parameter stand for a type while the
+// backend lowers an instance, comes with the backend.
 //
 // A Type is an ID: a small integer that, for a composite type, a Table
 // gives meaning to. Every distinct type has exactly one ID within a

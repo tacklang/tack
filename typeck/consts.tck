@@ -1,0 +1,163 @@
+package typeck
+
+import constant from "tack/constant"
+
+// Const is a constant's value, Go's any held in Var.Const and in a
+// Binary's, a Unary's or a Call's Const: none, Go's nil; an integer, a
+// constant.Int; an untyped float, a constant.Float, kept in the store by
+// its place; a typed float, the bits of the float64 or float32 Go
+// holds; a string, its bytes a run of the store's; a bool; c_allocator,
+// Go's *ast.CAllocatorLit; an array's or a struct's values, Go's []any,
+// a run of the store's items; or a union's case, Go's ast.UnionConst,
+// with its payload, an item of the store, or none.
+pub type Const struct {
+    pub kind uint8
+    pub i constant.Int
+    pub bits uint64
+    pub b bool
+    pub first int64
+    pub count int64
+}
+
+// The kinds of Const.
+pub var cv_none uint8 = 0
+pub var cv_int uint8 = 1
+pub var cv_float uint8 = 2
+pub var cv_f64 uint8 = 3
+pub var cv_f32 uint8 = 4
+pub var cv_str uint8 = 5
+pub var cv_bool uint8 = 6
+pub var cv_alloc uint8 = 7
+pub var cv_list uint8 = 8
+pub var cv_union uint8 = 9
+
+// ConstStore holds what Consts name: the untyped floats, the bytes of the
+// strings and the items of the arrays, structs and unions.
+pub type ConstStore struct {
+    pub floats list[constant.Float]
+    pub bytes list[uint8]
+    pub items list[Const]
+}
+
+// new_store returns an empty ConstStore, which grows through alloc.
+func new_store(alloc Allocator) ConstStore {
+    return ConstStore{
+        floats: make(list[constant.Float], alloc),
+        bytes: make(list[uint8], alloc),
+        items: make(list[Const], alloc),
+    }
+}
+
+// base_const returns a Const of kind k with nothing else set.
+func base_const(k uint8) Const {
+    return Const{kind: k, i: constant.from_int64(0), bits: 0, b: false, first: 0, count: 0}
+}
+
+// no_const returns the Const none, Go's nil.
+pub func no_const() Const {
+    return base_const(cv_none)
+}
+
+// int_const returns the integer v as a Const.
+func int_const(v constant.Int) Const {
+    mut k := base_const(cv_int)
+    k.i = v
+    return k
+}
+
+// bool_const returns the bool v as a Const.
+func bool_const(v bool) Const {
+    mut k := base_const(cv_bool)
+    k.b = v
+    return k
+}
+
+// alloc_const returns c_allocator as a Const.
+func alloc_const() Const {
+    return base_const(cv_alloc)
+}
+
+// float_bits_const returns a typed float as a Const, the bits of a
+// float64, or, when f32 says so, of a float32.
+func float_bits_const(bits uint64, f32 bool) Const {
+    mut k := base_const(cv_f64)
+    if f32 {
+        k.kind = cv_f32
+    }
+    k.bits = bits
+    return k
+}
+
+// str_const returns the string s as a Const, its bytes copied into the
+// store.
+func (mut s ConstStore) str_const(b []uint8) (Const, error) {
+    mut k := base_const(cv_str)
+    k.first = len(s.bytes)
+    append(mut s.bytes, b...)?
+    k.count = len(b)
+    return k, noerror
+}
+
+// float_const returns the untyped float f, taken over into the store, as
+// a Const.
+func (mut s ConstStore) float_const(own f constant.Float) (Const, error) {
+    mut k := base_const(cv_float)
+    k.first = len(s.floats)
+    append(mut s.floats, f)?
+    return k, noerror
+}
+
+// list_const returns values, an array's elements or a struct's fields, as
+// a Const, copied into the store's items.
+func (mut s ConstStore) list_const(values []Const) (Const, error) {
+    mut k := base_const(cv_list)
+    k.first = len(s.items)
+    append(mut s.items, values...)?
+    k.count = len(values)
+    return k, noerror
+}
+
+// union_const returns the case at of a union, with payload when has
+// says so, as a Const.
+func (mut s ConstStore) union_const(at int64, payload Const, has bool) (Const, error) {
+    mut k := base_const(cv_union)
+    k.i = constant.from_int64(at)
+    k.first = -1
+    if has {
+        k.first = len(s.items)
+        append(mut s.items, payload)?
+    }
+    return k, noerror
+}
+
+// str_bytes returns the bytes of the string k.
+func (s ConstStore) str_bytes(k Const) []uint8 {
+    end := k.first +% k.count
+    if k.first < 0 || k.first > end || end > len(s.bytes) {
+        return s.bytes[0:0]
+    }
+    return s.bytes[k.first:end]
+}
+
+// item returns the i'th value of the list k, and whether it has one.
+func (s ConstStore) item(k Const, i int64) (Const, bool) {
+    if i < 0 || i >= k.count {
+        return no_const(), false
+    }
+    v, ok := s.items[k.first +% i]
+    return v, ok
+}
+
+// payload returns the payload of the union k, and whether it has one.
+func (s ConstStore) payload(k Const) (Const, bool) {
+    if k.first < 0 {
+        return no_const(), false
+    }
+    v, ok := s.items[k.first]
+    return v, ok
+}
+
+// case_of returns the case a union's Const holds, its tag.
+func case_of(k Const) int64 {
+    return k.i.to_int64()
+}

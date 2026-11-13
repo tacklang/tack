@@ -1,0 +1,612 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import diag from "tack/diag"
+import source from "tack/source"
+import text from "std/text"
+import types from "tack/types"
+
+// Key names a node of the program, Go's pointer to it as a map's key: a
+// tree, by its unit, and a node of it.
+pub type Key struct {
+    pub unit int64
+    pub node id[ast.Node]
+}
+
+// RKey names one result type of a function or an interface method, Go's
+// ResultTypes[i]: the declaration's key and the result's place.
+type RKey struct {
+    unit int64
+    node id[ast.Node]
+    i int64
+}
+
+// The states of something checked when first needed, Go's progress: not
+// looked at yet, being checked further up, or done.
+var st_none uint8 = 0
+var st_checking uint8 = 1
+var st_checked uint8 = 2
+
+// not_ported is the error a check returns for what the port does not do
+// yet, which the driver reports as not implemented, exit status 3.
+pub var not_ported = error{code: 3, msg: "not implemented in the port"}
+
+// suspend is the error that unwinds the checks of globals nested in each
+// other past the depth they may nest to on the stack, so the outermost
+// loop checks the global wanted first (see ensure_global).
+var suspend = error{code: 4, msg: "internal error: a global's check was suspended"}
+
+// max_nested_globals is how many globals' checks may nest on the stack,
+// one needing the next, before the innermost is suspended, and
+// max_nested_depth how deeply the expressions and types being checked
+// may nest, summed over them, before it is.
+var max_nested_globals int64 = 8
+var max_nested_depth int64 = 64
+
+// PendingElem is an element type whose copyability, or a key type whose
+// ==, is judged once every struct's fields are known, Go's pendingElem.
+type PendingElem struct {
+    holder string
+    at source.Span
+    elem types.Type
+}
+
+// SizeSite is a type whose size is to be checked and where it is made,
+// Go's sizeSite.
+type SizeSite struct {
+    span source.Span
+    typ types.Type
+}
+
+// Pending is a global whose check was suspended: the global, the name in
+// its initializer or type where it needed one not checked yet, from
+// which its check goes on once that one is, and whether it has one.
+type Pending struct {
+    v Key
+    resume Key
+}
+
+// Lost is a method name a bad declaration of the package pkg may have
+// declared, Go's lostMethods.
+type Lost struct {
+    pkg int64
+    name text.Text
+}
+
+// Checker type-checks a program, Go's typeck.Checker: so far its
+// declaration phase, everything Go's Check does before it checks the
+// first function body (check.go:604), whose results --port-types dumps.
+//
+// Go's checker records what it finds on the tree's nodes, a Type field
+// here and a Const there; the port's tree is in arenas the checker
+// reads, so what it finds is kept beside the tree, in maps keyed by the
+// node: decl_types for a declaration's type, Go's TypeDecl.Type,
+// Var.Type, Param.Type and TypeParam.Type, results for Func.ResultTypes
+// and IfaceMethod.ResultTypes, node_types for an expression's, and
+// consts for a constant's value, Go's Var.Const and the Const of a
+// Binary, a Unary or a Call.
+pub type Checker struct {
+    prog ast.Program
+    files source.Set
+    table types.Table
+    pub tests bool
+
+    diags list[diag.Diagnostic]
+    // assumed holds the kinds of judgment the port answered as holding
+    // without proving them, each once: none since the declaration phase
+    // declines every judgment it cannot make (see expr.tck), but the
+    // dump keeps the list for the stages to come.
+    assumed list[text.Text]
+
+    // unit_pkg holds the package of each tree, by unit.
+    unit_pkg list[int64]
+    pkg int64
+    prior int64
+
+    decl_types map[Key]types.Type
+    node_types map[Key]types.Type
+    result_count map[Key]int64
+    results map[RKey]types.Type
+    consts map[Key]Const
+    var_consts map[Key]Const
+    store ConstStore
+
+    // The type parameters: the interface each one's constraint names,
+    // or none, whether it is constrained by Data, and whether the
+    // checker made it for a parameter whose type is an interface (see
+    // implicit_type_params).
+    tp_iface map[Key]Key
+    tp_data map[Key]bool
+    tp_implicit map[Key]bool
+    type_params map[int64]Key
+
+    globals map[Key]bool
+    global_state map[Key]uint8
+    global_before map[Key]int64
+    init_stack list[Key]
+
+    structs map[int64]Key
+    unions map[int64]Key
+    struct_order list[types.Type]
+    struct_state map[int64]uint8
+    union_state map[int64]uint8
+    struct_pkg map[int64]int64
+
+    pending_elems list[PendingElem]
+    pending_keys list[PendingElem]
+    pending_sizes list[SizeSite]
+    size_checked map[int64]source.Span
+    sizes_known bool
+
+    site_params map[Key]types.Type
+
+    lost list[Lost]
+    lost_all map[int64]bool
+
+    in_fields bool
+    in_union bool
+
+    // known_binaries remembers knownArithmetic's answers, Go's
+    // knownBinaries.
+    known_binaries map[Key]KnownBinary
+
+    // The globals' checks: how many nest on the stack now, how deeply
+    // the expressions and types being checked nest, the globals waiting
+    // for another to be checked first (see check_globals), and, while
+    // one of them is checked again from the start, the name its check
+    // goes on from, the diagnostics before which were reported already.
+    nested_globals int64
+    depth int64
+    unwound list[Pending]
+    want Key
+    suppressing bool
+    suppress_until Key
+
+    // global_shapes keeps what each global's initializer is (see
+    // global_shape).
+    global_shapes map[Key]uint8
+
+    // spines holds the spines whose check was suspended, by their top
+    // node (see expr).
+    spines map[Key]SpineState
+
+    // in_clause is whether an ensures clause is being checked, and
+    // clause_upper the parameters x an operand x < len(s) of its
+    // top-level && before the one being checked bounds (see
+    // clause_bound).
+    in_clause bool
+    clause_upper map[Key]bool
+
+    // none is empty, the view a lookup of a name of no tree gives.
+    none list[uint8]
+}
+
+// KnownBinary is what known_arithmetic found about a binary, Go's
+// knownBinary: its value, whether it is known, and the binary's type
+// then.
+type KnownBinary struct {
+    value constant.Int
+    ok bool
+    typ types.Type
+}
+
+// new_checker returns a Checker for prog, which must have been resolved,
+// with the source files its spans point into, both taken over and given
+// back by check, Go's New.
+pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error) {
+    t := types.new_table(c_allocator)?
+    mut c := Checker{
+        prog: prog,
+        files: files,
+        table: t,
+        tests: false,
+        diags: make(list[diag.Diagnostic], c_allocator),
+        assumed: make(list[text.Text], c_allocator),
+        unit_pkg: make(list[int64], c_allocator),
+        pkg: -1,
+        prior: 0,
+        decl_types: make(map[Key]types.Type, c_allocator),
+        node_types: make(map[Key]types.Type, c_allocator),
+        result_count: make(map[Key]int64, c_allocator),
+        results: make(map[RKey]types.Type, c_allocator),
+        consts: make(map[Key]Const, c_allocator),
+        var_consts: make(map[Key]Const, c_allocator),
+        store: new_store(c_allocator),
+        tp_iface: make(map[Key]Key, c_allocator),
+        tp_data: make(map[Key]bool, c_allocator),
+        tp_implicit: make(map[Key]bool, c_allocator),
+        type_params: make(map[int64]Key, c_allocator),
+        globals: make(map[Key]bool, c_allocator),
+        global_state: make(map[Key]uint8, c_allocator),
+        global_before: make(map[Key]int64, c_allocator),
+        init_stack: make(list[Key], c_allocator),
+        structs: make(map[int64]Key, c_allocator),
+        unions: make(map[int64]Key, c_allocator),
+        struct_order: make(list[types.Type], c_allocator),
+        struct_state: make(map[int64]uint8, c_allocator),
+        union_state: make(map[int64]uint8, c_allocator),
+        struct_pkg: make(map[int64]int64, c_allocator),
+        pending_elems: make(list[PendingElem], c_allocator),
+        pending_keys: make(list[PendingElem], c_allocator),
+        pending_sizes: make(list[SizeSite], c_allocator),
+        size_checked: make(map[int64]source.Span, c_allocator),
+        sizes_known: false,
+        site_params: make(map[Key]types.Type, c_allocator),
+        lost: make(list[Lost], c_allocator),
+        lost_all: make(map[int64]bool, c_allocator),
+        in_fields: false,
+        in_union: false,
+        known_binaries: make(map[Key]KnownBinary, c_allocator),
+        nested_globals: 0,
+        depth: 0,
+        unwound: make(list[Pending], c_allocator),
+        want: no_key(),
+        suppressing: false,
+        suppress_until: no_key(),
+        none: make(list[uint8], c_allocator),
+        spines: make(map[Key]SpineState, c_allocator),
+        global_shapes: make(map[Key]uint8, c_allocator),
+        in_clause: false,
+        clause_upper: make(map[Key]bool, c_allocator),
+    }
+    for k, pkg := range c.prog.packages {
+        mut c.table.add_owner_name(pkg.name.bytes())?
+        mut j int64 = 0
+        for j < pkg.count {
+            append(mut c.unit_pkg, k)?
+            j +%= 1
+        }
+    }
+    return c, noerror
+}
+
+// append_pkg appends to out the name, for what 0, the import path, for
+// 1, or the module, for 2, of the package p of packages, or nothing for
+// a p it does not have.
+func append_pkg(packages []ast.Package, p int64, what uint8, mut out list[uint8]) error {
+    if p < 0 || p >= len(packages) {
+        return noerror
+    }
+    if what == 0 {
+        append(mut out, packages[p].name.bytes()...)?
+    } else if what == 1 {
+        append(mut out, packages[p].path.bytes()...)?
+    } else {
+        append(mut out, packages[p].module.bytes()...)?
+    }
+    return noerror
+}
+
+// pkg_path_is reports whether the package p of packages has the import
+// path s.
+func pkg_path_is(packages []ast.Package, p int64, s []uint8) bool {
+    if p < 0 || p >= len(packages) {
+        return false
+    }
+    return packages[p].path.equal(s)
+}
+
+// state_at returns how far the check of k has got, in states, st_none
+// for one not looked at yet.
+func state_at(states map[Key]uint8, k Key) uint8 {
+    st, ok := states[k]
+    if !ok {
+        return st_none
+    }
+    return st
+}
+
+// state_n returns how far the check of the type numbered n has got, in
+// states, st_none for one not looked at yet.
+func state_n(states map[int64]uint8, n int64) uint8 {
+    st, ok := states[n]
+    if !ok {
+        return st_none
+    }
+    return st
+}
+
+// no_key returns the Key of no node.
+func no_key() Key {
+    mut z id[ast.Node]
+    return Key{unit: -1, node: z}
+}
+
+// is_no_key reports whether k names no node.
+func is_no_key(k Key) bool {
+    return k.unit < 0
+}
+
+// key_of_def returns the Key of the declaration d names.
+func key_of_def(d ast.Def) Key {
+    return Key{unit: d.unit, node: d.node}
+}
+
+// check runs the declaration phase of Go's Check on the program, in its
+// order (check.go:557-603): every struct and union type declared, their
+// fields and cases resolved and the globals checked, std/testing's shapes
+// checked, the interfaces' methods resolved, every function's signature,
+// and then the exposure of every declaration, the C names of the extern
+// funcs and the tests. It returns not_ported for anything the port does
+// not check yet, or out of memory.
+pub func (mut c Checker) check() error {
+    c.prior = c.prog.errors
+    mut c.find_lost_methods()?
+    mut c.declare_structs()?
+    mut c.check_globals()?
+    mut c.check_site_shape()?
+    mut c.check_testing_t()?
+    mut c.resolve_interfaces()?
+    for i := range count_decls(c.prog) {
+        d := decl_at(c.prog, i)
+        switch kind_at(c.prog.trees, d) {
+        case func_decl(fid):
+            old := mut c.enter(d)
+            mut c.implicit_type_params(d, fid)?
+            mut c.resolve_type_params(d)?
+            mut c.resolve_param_types(d)?
+            mut c.check_site_params(d)?
+            mut c.resolve_result_types(d)?
+            mut c.check_contract(d)?
+            c.pkg = old
+        default:
+        }
+    }
+    mut c.check_exposure()?
+    mut c.check_cnames()?
+    mut c.check_tests()?
+    return noerror
+}
+
+// take_program gives back the program and the files check took over.
+pub func (mut c Checker) take_program() (ast.Program, source.Set) {
+    p := replace(mut c.prog, ast.new_program(c_allocator))
+    f := replace(mut c.files, source.new_set(c_allocator))
+    return p, f
+}
+
+// enter makes the package of decl the one being checked, and returns the
+// one it replaced, for the caller to put back, Go's enter.
+func (mut c Checker) enter(decl Key) int64 {
+    old := c.pkg
+    p, ok := c.unit_pkg[decl.unit]
+    if ok {
+        c.pkg = p
+    }
+    return old
+}
+
+// count_decls returns how many declarations prog has, Go's len of
+// prog.Decls().
+func count_decls(prog ast.Program) int64 {
+    mut n int64 = 0
+    for _, t := range prog.trees {
+        n +%= len(t.decls)
+    }
+    return n
+}
+
+// decl_at returns the i'th of prog's declarations, in Go's prog.Decls()
+// order: the trees' in the program's order, each tree's in source order.
+// The trees are in package order already, so this is it.
+func decl_at(prog ast.Program, i int64) Key {
+    mut rest := i
+    for u, t := range prog.trees {
+        if rest < len(t.decls) {
+            n, ok := t.decls[rest]
+            if ok {
+                return Key{unit: u, node: n}
+            }
+            return no_key()
+        }
+        rest -%= len(t.decls)
+    }
+    return no_key()
+}
+
+// kind_at returns what the node k is, a copy, or none for a k naming no
+// node.
+func kind_at(trees []ast.File, k Key) ast.Kind {
+    if k.unit < 0 || k.unit >= len(trees) {
+        return ast.Kind.none
+    }
+    return trees[k.unit].nodes[k.node].k
+}
+
+// span_at returns the span of the node k.
+func span_at(trees []ast.File, k Key) source.Span {
+    if k.unit < 0 || k.unit >= len(trees) {
+        return ast.unset_span()
+    }
+    return trees[k.unit].nodes[k.node].span
+}
+
+// text_at returns the bytes s names in the tree unit, or none, an empty
+// view, for a unit trees does not have.
+func text_at(trees []ast.File, none []uint8, unit int64, s span[uint8]) []uint8 {
+    if unit < 0 || unit >= len(trees) {
+        return none
+    }
+    return trees[unit].bytes[s]
+}
+
+// count_items returns how many nodes l holds in the tree unit.
+func count_items(trees []ast.File, unit int64, l ast.Nodes) int64 {
+    if unit < 0 || unit >= len(trees) {
+        return 0
+    }
+    return len(trees[unit].lists[l.items])
+}
+
+// item_at returns the i'th node of l in the tree unit, as a Key, or no
+// key.
+func item_at(trees []ast.File, unit int64, l ast.Nodes, i int64) Key {
+    if unit < 0 || unit >= len(trees) {
+        return no_key()
+    }
+    n, ok := trees[unit].lists[l.items][i]
+    if !ok {
+        return no_key()
+    }
+    return Key{unit: unit, node: n}
+}
+
+// func_of returns the Func the func_decl node k holds, a copy.
+func func_of(trees []ast.File, k Key) ast.Func {
+    switch kind_at(trees, k) {
+    case func_decl(fid):
+        if k.unit >= 0 && k.unit < len(trees) {
+            return trees[k.unit].funcs[fid]
+        }
+    default:
+    }
+    mut z ast.Func
+    return z
+}
+
+// param_of returns the Param the param_decl node k holds, a copy.
+func param_of(trees []ast.File, k Key) ast.Param {
+    switch kind_at(trees, k) {
+    case param_decl(pid):
+        if k.unit >= 0 && k.unit < len(trees) {
+            return trees[k.unit].params[pid]
+        }
+    default:
+    }
+    mut z ast.Param
+    return z
+}
+
+// sub returns the Key of the node n of the tree k names.
+func sub(k Key, n id[ast.Node]) Key {
+    return Key{unit: k.unit, node: n}
+}
+
+// is_none_key reports whether k names the sentinel, Go's nil.
+func is_none_key(k Key) bool {
+    return k.unit < 0 || ast.is_none(k.node)
+}
+
+// name_of returns the name a declaration k has: a Func's, a Param's, a
+// Var's, a TypeDecl's or a TypeParam's.
+func name_of(trees []ast.File, none []uint8, k Key) []uint8 {
+    if k.unit < 0 || k.unit >= len(trees) {
+        return none
+    }
+    return ast.decl_name(trees[k.unit], k.node)
+}
+
+// name_span_of returns the span of the name of the declaration k.
+func name_span_of(trees []ast.File, k Key) source.Span {
+    if k.unit < 0 || k.unit >= len(trees) {
+        return ast.unset_span()
+    }
+    return ast.decl_name_span(trees[k.unit], k.node)
+}
+
+// errorf reports an error at sp saying msg, taken over, Go's errorf;
+// while a suspended global is checked again up to where it was
+// suspended, what it reported then is not reported again.
+func (mut c Checker) errorf(sp source.Span, own msg list[uint8]) error {
+    if c.suppressing {
+        return noerror
+    }
+    m := text.from_bytes(msg, c_allocator)?
+    d := diag.new_error(own m, sp, c_allocator)
+    append(mut c.diags, d)?
+    return noerror
+}
+
+// note_last adds to the last diagnostic a note at sp saying msg, taken
+// over, unless the diagnostic was not reported (see errorf).
+func (mut c Checker) note_last(sp source.Span, own msg list[uint8]) error {
+    if c.suppressing {
+        return noerror
+    }
+    m := text.from_bytes(msg, c_allocator)?
+    i := len(c.diags) -% 1
+    add_note(mut c.diags, i, diag.Related{message: m, marker: text.new(c_allocator), span: sp, severity: diag.note})?
+    return noerror
+}
+
+// add_note adds rel, taken over, to diags[i].
+func add_note(mut diags list[diag.Diagnostic], i int64, own rel diag.Related) error {
+    if i >= 0 && i < len(diags) {
+        append(mut diags[i].related, rel)?
+    }
+    return noerror
+}
+
+// msg returns an empty message to write into.
+func msg() list[uint8] {
+    return make(list[uint8], c_allocator)
+}
+
+// type_name returns typ's name as a diagnostic about the package being
+// checked writes it, Go's typeName: a struct or union type of another
+// package qualified by that package's name.
+func (mut c Checker) type_name(typ types.Type) (list[uint8], error) {
+    n := c.table.name_in(typ, c.pkg)?
+    return n, noerror
+}
+
+// text returns the source sp covers, which notes quote, Go's text.
+func (mut c Checker) source_text(sp source.Span) (list[uint8], error) {
+    mut out := msg()
+    for _, f := range c.files.lookup(sp.file) {
+        if sp.start >= 0 && sp.start <= sp.end && sp.end <= len(f.data) {
+            append(mut out, f.data[sp.start:sp.end]...)?
+        }
+    }
+    return out, noerror
+}
+
+// decl_type_of returns the type recorded in decl_types for the
+// declaration k, invalid before.
+func decl_type_of(decl_types map[Key]types.Type, k Key) types.Type {
+    t, ok := decl_types[k]
+    if !ok {
+        return types.invalid
+    }
+    return t
+}
+
+// set_decl_type records typ as the declaration k's type.
+func (mut c Checker) set_decl_type(k Key, typ types.Type) error {
+    put(mut c.decl_types, k, typ)?
+    return noerror
+}
+
+// node_type_of returns the type recorded in node_types on the
+// expression k, Go's x.Type, invalid before.
+func node_type_of(node_types map[Key]types.Type, k Key) types.Type {
+    t, ok := node_types[k]
+    if !ok {
+        return types.invalid
+    }
+    return t
+}
+
+// set_node_type records typ on the expression k.
+func (mut c Checker) set_node_type(k Key, typ types.Type) error {
+    put(mut c.node_types, k, typ)?
+    return noerror
+}
+
+// result_of returns the i'th of the result types recorded in results for
+// the function or interface method k.
+func result_of(results map[RKey]types.Type, k Key, i int64) types.Type {
+    t, ok := results[RKey{unit: k.unit, node: k.node, i: i}]
+    if !ok {
+        return types.invalid
+    }
+    return t
+}
+
+// results_count returns how many result types are recorded in counts for
+// k, and whether any were, Go's ResultTypes being made.
+func results_count(counts map[Key]int64, k Key) (int64, bool) {
+    n, ok := counts[k]
+    return n, ok
+}

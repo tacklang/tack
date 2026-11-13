@@ -1,0 +1,410 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// The dump --port-types writes: a flat JSON object, lists of nodes and
+// never a nested tree, so a program of any size dumps, which tackc's
+// porttest builds again from Go's checker and compares. phase says how
+// far the checker got, "decls", the declaration phase; table holds every
+// type the table added, with every query the Table answers about it;
+// decls every declaration of the program in Go's prog.Decls() order,
+// with what the checker recorded on it; instances the instances of
+// generic functions, none before bodies; errors the errors reported, in
+// order, each with its file, its span's start and end, its message and
+// its notes, each a file, a span and a message; and assumed the kinds of
+// judgment the port answered as holding without proving them.
+//
+// A constant is null, Go's nil, or an object of one key saying its kind:
+// int, its value in decimal as a string; float64 and float32, the bits of
+// the float as a decimal string; bytes, a string's bytes in hexadecimal,
+// so any bytes dump as themselves; bool; c_allocator, true; list, the
+// values of an array or a struct; or union, its case's place, with
+// payload, its payload or null.
+
+// write_dump returns the dump of what the checker found.
+pub func (mut c Checker) write_dump() (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    fmt.appendf(mut out, "{\"phase\":\"decls\",\"table\":[")?
+    n := c.table.count()
+    for i := range n {
+        if i > 0 {
+            append(mut out, ',')?
+        }
+        mut c.write_type(mut out, types.added(i))?
+    }
+    fmt.appendf(mut out, "],\"decls\":[")?
+    for i := range count_decls(c.prog) {
+        if i > 0 {
+            append(mut out, ',')?
+        }
+        mut c.write_decl(mut out, decl_at(c.prog, i))?
+    }
+    fmt.appendf(mut out, "],\"instances\":[],\"errors\":[")?
+    for i, d := range c.diags {
+        if i > 0 {
+            append(mut out, ',')?
+        }
+        write_diag(c.files, mut out, d.message.bytes(), d.span)?
+        fmt.appendf(mut out, ",\"notes\":[")?
+        for j, note := range d.related {
+            if j > 0 {
+                append(mut out, ',')?
+            }
+            write_diag(c.files, mut out, note.message.bytes(), note.span)?
+            append(mut out, '}')?
+        }
+        fmt.appendf(mut out, "]}")?
+    }
+    fmt.appendf(mut out, "],\"assumed\":[")?
+    for i, a := range c.assumed {
+        if i > 0 {
+            append(mut out, ',')?
+        }
+        append(mut out, '"')?
+        write_escaped(mut out, a.bytes())?
+        append(mut out, '"')?
+    }
+    fmt.appendf(mut out, "]}\n")?
+    return out, noerror
+}
+
+// write_diag appends a diagnostic or a note saying message at sp, as an
+// object, left open for the caller to add to and close, of its file's
+// name, its span's start and end and its message.
+func write_diag(files source.Set, mut out list[uint8], message []uint8, sp source.Span) error {
+    fmt.appendf(mut out, "{\"file\":\"")?
+    for _, f := range files.lookup(sp.file) {
+        write_escaped(mut out, f.filename.bytes())?
+    }
+    fmt.appendf(mut out, "\",\"start\":%d,\"end\":%d,\"message\":\"", sp.start, sp.end)?
+    write_escaped(mut out, message)?
+    append(mut out, '"')?
+    return noerror
+}
+
+// write_escaped appends s as the inside of a JSON string: a quote, a
+// backslash and every byte below 32 escaped, and every other byte as it
+// is.
+func write_escaped(mut out list[uint8], s []uint8) error {
+    for _, b := range s {
+        if b == '"' || b == '\\' {
+            append(mut out, '\\')?
+            append(mut out, b)?
+        } else if b < 32 {
+            append(mut out, []uint8("\\u00")...)?
+            append_hex(mut out, b)?
+        } else {
+            append(mut out, b)?
+        }
+    }
+    return noerror
+}
+
+// append_hex appends b as two lowercase hexadecimal digits.
+func append_hex(mut out list[uint8], b uint8) error {
+    append(mut out, hex_digit(b >> 4))?
+    append(mut out, hex_digit(b & 15))?
+    return noerror
+}
+
+// hex_digit returns the lowercase hexadecimal digit of d, below 16.
+func hex_digit(d uint8) uint8 {
+    if d < 10 {
+        return '0' +% d
+    }
+    return 'a' +% (d -% 10)
+}
+
+// write_name appends s as a JSON string.
+func write_name(mut out list[uint8], s []uint8) error {
+    append(mut out, '"')?
+    write_escaped(mut out, s)?
+    append(mut out, '"')?
+    return noerror
+}
+
+// write_bool appends b as JSON.
+func write_bool(mut out list[uint8], b bool) error {
+    if b {
+        append(mut out, []uint8("true")...)?
+    } else {
+        append(mut out, []uint8("false")...)?
+    }
+    return noerror
+}
+
+// write_type appends the table's entry for typ.
+func (mut c Checker) write_type(mut out list[uint8], typ types.Type) error {
+    fmt.appendf(mut out, "{\"id\":%d,\"kind\":", typ.number())?
+    write_name(mut out, []uint8(c.table.kind_name(typ)))?
+    name := c.table.name(typ)?
+    fmt.appendf(mut out, ",\"name\":")?
+    write_name(mut out, name[:])?
+    fmt.appendf(mut out, ",\"elem\":%d,\"len\":%d,\"key\":%d,\"fields\":[", c.table.elem_of(typ).number(), c.table.len_of(typ), c.table.key_of(typ).number())?
+    if typ != types.error_type && c.table.is_struct(typ) {
+        for i := range c.table.field_count(typ) {
+            if i > 0 {
+                append(mut out, ',')?
+            }
+            ft, _ := c.table.field_type(typ, i)
+            fmt.appendf(mut out, "{\"name\":")?
+            write_name(mut out, c.table.field_name(typ, i))?
+            fmt.appendf(mut out, ",\"type\":%d}", ft.number())?
+        }
+    }
+    fmt.appendf(mut out, "],\"cases\":[")?
+    for i, cs := range c.table.cases(typ) {
+        if i > 0 {
+            append(mut out, ',')?
+        }
+        fmt.appendf(mut out, "{\"name\":")?
+        write_name(mut out, c.table.text(cs.name.start, cs.name.end))?
+        fmt.appendf(mut out, ",\"type\":%d,\"payload\":", cs.typ.number())?
+        write_bool(mut out, cs.payload)?
+        append(mut out, '}')?
+    }
+    fmt.appendf(mut out, "],\"params\":[")?
+    for i, p := range c.table.func_params(typ) {
+        if i > 0 {
+            append(mut out, ',')?
+        }
+        fmt.appendf(mut out, "{\"type\":%d,\"mut\":", p.typ.number())?
+        write_bool(mut out, p.is_mut)?
+        fmt.appendf(mut out, ",\"own\":")?
+        write_bool(mut out, p.is_own)?
+        fmt.appendf(mut out, ",\"scope\":")?
+        write_bool(mut out, p.is_scope)?
+        append(mut out, '}')?
+    }
+    fmt.appendf(mut out, "],\"results\":[")?
+    for i, r := range c.table.func_results(typ) {
+        if i > 0 {
+            append(mut out, ',')?
+        }
+        fmt.appendf(mut out, "%d", r.number())?
+    }
+    size := mut c.table.size(typ)?
+    fmt.appendf(mut out, "],\"size\":{\"bytes\":%d,\"align\":%d,\"overflow\":", size.bytes, size.align)?
+    write_bool(mut out, size.overflow)?
+    owned := c.table.owned(typ)?
+    has_zero := c.table.has_zero(typ)?
+    holds_list := c.table.holds_list(typ)?
+    holds_arena := c.table.holds_arena(typ)?
+    holds_pool := c.table.holds_pool(typ)?
+    holds_union := c.table.holds_union(typ)?
+    fmt.appendf(mut out, "},\"owned\":")?
+    write_bool(mut out, owned)?
+    fmt.appendf(mut out, ",\"has_zero\":")?
+    write_bool(mut out, has_zero)?
+    fmt.appendf(mut out, ",\"holds_list\":")?
+    write_bool(mut out, holds_list)?
+    fmt.appendf(mut out, ",\"holds_arena\":")?
+    write_bool(mut out, holds_arena)?
+    fmt.appendf(mut out, ",\"holds_pool\":")?
+    write_bool(mut out, holds_pool)?
+    fmt.appendf(mut out, ",\"holds_union\":")?
+    write_bool(mut out, holds_union)?
+    fmt.appendf(mut out, ",\"in_any\":")?
+    write_bool(mut out, c.table.in_any_of(typ))?
+    fmt.appendf(mut out, ",\"buffered\":")?
+    write_bool(mut out, c.table.buffered(typ))?
+    append(mut out, '}')?
+    return noerror
+}
+
+// write_decl appends the dump of the declaration d.
+func (mut c Checker) write_decl(mut out list[uint8], d Key) error {
+    switch kind_at(c.prog.trees, d) {
+    case func_decl:
+        fn := func_of(c.prog.trees, d)
+        fmt.appendf(mut out, "{\"decl\":\"Func\",\"name\":")?
+        write_name(mut out, text_at(c.prog.trees, c.none, d.unit, fn.name))?
+        // Go's Func.Value is set only where a body uses the function as
+        // a value, so it is invalid in every declaration before bodies.
+        fmt.appendf(mut out, ",\"value\":0,\"type_params\":[")?
+        for i := range count_items(c.prog.trees, d.unit, fn.type_params) {
+            if i > 0 {
+                append(mut out, ',')?
+            }
+            mut c.write_type_param(mut out, item_at(c.prog.trees, d.unit, fn.type_params, i))?
+        }
+        fmt.appendf(mut out, "],\"params\":")?
+        mut c.write_params(mut out, d.unit, fn.params)?
+        fmt.appendf(mut out, ",\"results\":")?
+        mut c.write_results(mut out, d)?
+        append(mut out, '}')?
+    case var_decl(v):
+        fmt.appendf(mut out, "{\"decl\":\"Var\",\"name\":")?
+        write_name(mut out, text_at(c.prog.trees, c.none, d.unit, v.name))?
+        fmt.appendf(mut out, ",\"type\":%d,\"const\":", decl_type_of(c.decl_types, d).number())?
+        cv, has := c.var_consts[d]
+        if has {
+            mut c.write_const(mut out, cv)?
+        } else {
+            append(mut out, []uint8("null")...)?
+        }
+        append(mut out, '}')?
+    case type_decl(td):
+        fmt.appendf(mut out, "{\"decl\":\"Type\",\"name\":")?
+        write_name(mut out, text_at(c.prog.trees, c.none, d.unit, td.name))?
+        fmt.appendf(mut out, ",\"type\":%d,\"methods\":[", decl_type_of(c.decl_types, d).number())?
+        switch kind_at(c.prog.trees, sub(d, td.type_expr)) {
+        case interface_type(ms):
+            for j := range count_items(c.prog.trees, d.unit, ms) {
+                if j > 0 {
+                    append(mut out, ',')?
+                }
+                mk := item_at(c.prog.trees, d.unit, ms, j)
+                switch kind_at(c.prog.trees, mk) {
+                case iface_method(m):
+                    fmt.appendf(mut out, "{\"name\":")?
+                    write_name(mut out, text_at(c.prog.trees, c.none, mk.unit, m.name))?
+                    fmt.appendf(mut out, ",\"params\":")?
+                    mut c.write_params(mut out, mk.unit, m.params)?
+                    fmt.appendf(mut out, ",\"results\":")?
+                    mut c.write_results(mut out, mk)?
+                    append(mut out, '}')?
+                default:
+                    append(mut out, []uint8("null")...)?
+                }
+            }
+        default:
+        }
+        fmt.appendf(mut out, "]}")?
+    default:
+        fmt.appendf(mut out, "{\"decl\":\"Bad\"}")?
+    }
+    return noerror
+}
+
+// write_params appends the names and types of the parameters ps of the
+// tree unit.
+func (mut c Checker) write_params(mut out list[uint8], unit int64, ps ast.Nodes) error {
+    append(mut out, '[')?
+    for i := range count_items(c.prog.trees, unit, ps) {
+        if i > 0 {
+            append(mut out, ',')?
+        }
+        p := item_at(c.prog.trees, unit, ps, i)
+        fmt.appendf(mut out, "{\"name\":")?
+        write_name(mut out, name_of(c.prog.trees, c.none, p))?
+        fmt.appendf(mut out, ",\"type\":%d}", decl_type_of(c.decl_types, p).number())?
+    }
+    append(mut out, ']')?
+    return noerror
+}
+
+// write_results appends the result types recorded for the function or
+// interface method k.
+func (mut c Checker) write_results(mut out list[uint8], k Key) error {
+    append(mut out, '[')?
+    n, _ := results_count(c.result_count, k)
+    for i := range n {
+        if i > 0 {
+            append(mut out, ',')?
+        }
+        fmt.appendf(mut out, "%d", result_of(c.results, k, i).number())?
+    }
+    append(mut out, ']')?
+    return noerror
+}
+
+// write_type_param appends the dump of the type parameter tk.
+func (mut c Checker) write_type_param(mut out list[uint8], tk Key) error {
+    fmt.appendf(mut out, "{\"name\":")?
+    write_name(mut out, name_of(c.prog.trees, c.none, tk))?
+    fmt.appendf(mut out, ",\"type\":%d,\"iface\":", decl_type_of(c.decl_types, tk).number())?
+    iface, has := c.tp_iface[tk]
+    if has {
+        append(mut out, '"')?
+        p, ok := c.unit_pkg[iface.unit]
+        if ok {
+            mut path := msg()
+            append_pkg(c.prog.packages, p, 1, mut path)?
+            write_escaped(mut out, path[:])?
+        }
+        append(mut out, '.')?
+        write_escaped(mut out, name_of(c.prog.trees, c.none, iface))?
+        append(mut out, '"')?
+    } else {
+        append(mut out, []uint8("null")...)?
+    }
+    data, has_data := c.tp_data[tk]
+    implicit, has_implicit := c.tp_implicit[tk]
+    fmt.appendf(mut out, ",\"data\":")?
+    write_bool(mut out, has_data && data)?
+    fmt.appendf(mut out, ",\"implicit\":")?
+    write_bool(mut out, has_implicit && implicit)?
+    append(mut out, '}')?
+    return noerror
+}
+
+// write_const appends the constant k.
+func (mut c Checker) write_const(mut out list[uint8], k Const) error {
+    if k.kind == cv_none {
+        append(mut out, []uint8("null")...)?
+        return noerror
+    }
+    if k.kind == cv_int {
+        fmt.appendf(mut out, "{\"int\":\"")?
+        k.i.append_string(mut out)?
+        fmt.appendf(mut out, "\"}")?
+        return noerror
+    }
+    if k.kind == cv_f64 {
+        fmt.appendf(mut out, "{\"float64\":\"%d\"}", k.bits)?
+        return noerror
+    }
+    if k.kind == cv_f32 {
+        fmt.appendf(mut out, "{\"float32\":\"%d\"}", k.bits)?
+        return noerror
+    }
+    if k.kind == cv_str {
+        fmt.appendf(mut out, "{\"bytes\":\"")?
+        for _, b := range c.store.str_bytes(k) {
+            append_hex(mut out, b)?
+        }
+        fmt.appendf(mut out, "\"}")?
+        return noerror
+    }
+    if k.kind == cv_bool {
+        fmt.appendf(mut out, "{\"bool\":")?
+        write_bool(mut out, k.b)?
+        append(mut out, '}')?
+        return noerror
+    }
+    if k.kind == cv_alloc {
+        fmt.appendf(mut out, "{\"c_allocator\":true}")?
+        return noerror
+    }
+    if k.kind == cv_list {
+        fmt.appendf(mut out, "{\"list\":[")?
+        for i := range k.count {
+            if i > 0 {
+                append(mut out, ',')?
+            }
+            item, _ := c.store.item(k, i)
+            mut c.write_const(mut out, item)?
+        }
+        fmt.appendf(mut out, "]}")?
+        return noerror
+    }
+    if k.kind == cv_union {
+        fmt.appendf(mut out, "{\"union\":%d,\"payload\":", case_of(k))?
+        p, has := c.store.payload(k)
+        if has {
+            mut c.write_const(mut out, p)?
+        } else {
+            append(mut out, []uint8("null")...)?
+        }
+        append(mut out, '}')?
+        return noerror
+    }
+    // An untyped float is never a global's value: fold rounds it to its
+    // type first.
+    fmt.appendf(mut out, "null")?
+    return noerror
+}

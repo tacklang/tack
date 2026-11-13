@@ -1,0 +1,1040 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// call_value checks a call whose single value is used, Go's callValue, as
+// far as a constant expression has one: a union built, a conversion, or
+// len. Any other call is a body's, which the port does not check yet.
+func (mut c Checker) call_value(k Key, cl ast.Call) (types.Type, error) {
+    _, _, built := construction(c.prog.trees, c.none, k)
+    if built {
+        typ := mut c.construction_of(k)?
+        return typ, noerror
+    }
+    switch kind_at(c.prog.trees, sub(k, cl.fn)) {
+    case view_type, ref_type:
+        // A conversion to a view, []uint8(s), or to an nm, a span or a
+        // handle, which Go reports in words the port does not have yet.
+        return types.invalid, not_ported
+    default:
+    }
+    if cl.conv != types.invalid {
+        typ := mut c.conversion(k, cl)?
+        return typ, noerror
+    }
+    nm, is_id := ident_at(c.prog.trees, sub(k, cl.fn))
+    if is_id && nm.def.kind == ast.def_unbound {
+        mut c.unbound(sub(k, cl.fn), nm)?
+        for i := range count_items(c.prog.trees, k.unit, cl.args) {
+            mut c.arg_expr(item_at(c.prog.trees, k.unit, cl.args, i))?
+        }
+        return types.invalid, noerror
+    }
+    if is_len_call(c.prog.trees, c.none, k) {
+        typ := mut c.len_call(k, cl)?
+        return typ, noerror
+    }
+    if is_has_call(c.prog.trees, c.none, k) {
+        typ := mut c.has_call(k, cl)?
+        mut c.set_node_type(k, typ)?
+        return typ, noerror
+    }
+    return types.invalid, not_ported
+}
+
+// arg_expr checks arg, an argument passed to nothing known, for errors of
+// its own, Go's argExpr as far as a constant has one.
+func (mut c Checker) arg_expr(arg Key) error {
+    switch kind_at(c.prog.trees, arg) {
+    case func_lit:
+        return noerror
+    case mut_arg, own_arg:
+        return not_ported
+    default:
+        mut c.expr(arg)?
+        return noerror
+    }
+}
+
+// discard checks e, whose value nothing uses, for errors of its own, Go's
+// discard: a union built is checked as one, and a call of a function
+// would be checked as a call, which the port does not do yet.
+func (mut c Checker) discard(e Key) error {
+    _, _, built := construction(c.prog.trees, c.none, e)
+    if built {
+        mut c.construction_of(e)?
+        return noerror
+    }
+    switch kind_at(c.prog.trees, e) {
+    case call(cl):
+        if cl.conv == types.invalid && !is_len_call(c.prog.trees, c.none, e) {
+            return not_ported
+        }
+    default:
+    }
+    mut c.expr(e)?
+    return noerror
+}
+
+// check_arity reports a call to name, or a conversion to it, passing the
+// wrong number of arguments or a spread, and returns whether the count
+// was right, Go's checkArity. A spread Go reports in words the port does
+// not have yet.
+func (mut c Checker) check_arity(k Key, cl ast.Call, name list[uint8], want int64) (bool, error) {
+    if cl.spread {
+        return false, not_ported
+    }
+    got := count_items(c.prog.trees, k.unit, cl.args)
+    if got == want {
+        return true, noerror
+    }
+    mut m := msg()
+    fmt.appendf(mut m, "%s expects %d argument(s), got %d", name[:], want, got)?
+    mut c.errorf(span_at(c.prog.trees, k), own m)?
+    return false, noerror
+}
+
+// conversion checks a conversion whose single value is used, T(x), and
+// returns T, Go's conversion.
+func (mut c Checker) conversion(k Key, cl ast.Call) (types.Type, error) {
+    to := cl.conv
+    name := mut c.type_name(to)?
+    ok_arity := mut c.check_arity(k, cl, name, 1)?
+    if !ok_arity {
+        for i := range count_items(c.prog.trees, k.unit, cl.args) {
+            mut c.expr(item_at(c.prog.trees, k.unit, cl.args, i))?
+        }
+        return types.invalid, noerror
+    }
+    arg := item_at(c.prog.trees, k.unit, cl.args, 0)
+    mut src := mut c.expr(arg)?
+    if src == types.invalid {
+        return types.invalid, noerror
+    }
+    if !types.is_numeric(to) || !types.is_numeric(src) {
+        src = mut c.value_of(arg, src)?
+        if src != types.invalid {
+            f := mut c.type_name(src)?
+            mut m := msg()
+            fmt.appendf(mut m, "cannot convert %s to %s", f[:], name[:])?
+            mut c.errorf(span_at(c.prog.trees, k), own m)?
+        }
+        return types.invalid, noerror
+    }
+    if types.is_float(src) || types.is_float(to) {
+        if types.is_untyped(src) {
+            ok := mut c.const_conversion(k, arg, src, to)?
+            if !ok {
+                return types.invalid, noerror
+            }
+            return to, noerror
+        }
+        if types.is_integer(to) {
+            f := mut c.type_name(src)?
+            mut m := msg()
+            fmt.appendf(mut m, "converting %s to %s can fail; use v, ok := %s(...)", f[:], name[:], name[:])?
+            mut c.errorf(span_at(c.prog.trees, k), own m)?
+            return types.invalid, noerror
+        }
+        return to, noerror
+    }
+    if src == types.untyped_int {
+        ok := mut c.settle(arg, to)?
+        if !ok {
+            return types.invalid, noerror
+        }
+        return to, noerror
+    }
+    if types.widens(src, to) {
+        return to, noerror
+    }
+    v, known := mut c.known_value(arg)?
+    if known && types.target_width(to) && !fits_portably(v, to) && v.fits(64, false) {
+        f := mut c.type_name(src)?
+        mut m := msg()
+        fmt.appendf(mut m, "converting %s to %s can fail; use v, ok := %s(...)", f[:], name[:], name[:])?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return to, noerror
+    }
+    if known {
+        if !fits_portably(v, to) {
+            mut m := msg()
+            fmt.appendf(mut m, "constant ")?
+            v.append_string(mut m)?
+            fmt.appendf(mut m, " overflows %s", name[:])?
+            if types.target_width(to) && !v.is_negative() {
+                fmt.appendf(mut m, ": its width is unknown, so a constant must be at most %d", types.portable_max)?
+            }
+            mut c.errorf(span_at(c.prog.trees, arg), own m)?
+            return types.invalid, noerror
+        }
+        return to, noerror
+    }
+    // A conversion of a value not known needs the facts in force, which
+    // the port does not keep yet; before bodies that follows an error.
+    return types.invalid, not_ported
+}
+
+// const_conversion checks the conversion k, to or from a float, of an
+// untyped constant arg, of type src, to the type to, and records its
+// value on k, Go's constConversion. One that cannot be made Go reports
+// with the float's value written out, which the port does not write
+// yet.
+func (mut c Checker) const_conversion(k Key, arg Key, src types.Type, to types.Type) (bool, error) {
+    value, _ := mut c.float_value(arg)?
+    if types.is_float(to) {
+        ok := mut c.settle_float(arg, to)?
+        if !ok {
+            return false, noerror
+        }
+        cv := mut c.store.float_const(own value)?
+        mut c.set_const(k, cv)?
+        return true, noerror
+    }
+    n, is_int := value.to_int(c_allocator)?
+    if !is_int || !fits_portably(n, to) {
+        return false, not_ported
+    }
+    mut c.value_of(arg, src)?
+    mut c.set_const(k, int_const(n))?
+    return true, noerror
+}
+
+// len_call checks a call to the builtin len, Go's lenCall: the length of
+// an array, and of a string literal, is a constant recorded on the call.
+func (mut c Checker) len_call(k Key, cl ast.Call) (types.Type, error) {
+    mut name := msg()
+    append(mut name, []uint8("len")...)?
+    ok_arity := mut c.check_arity(k, cl, name, 1)?
+    if !ok_arity {
+        for i := range count_items(c.prog.trees, k.unit, cl.args) {
+            mut c.expr(item_at(c.prog.trees, k.unit, cl.args, i))?
+        }
+        return types.invalid, noerror
+    }
+    arg := item_at(c.prog.trees, k.unit, cl.args, 0)
+    got := mut c.expr(arg)?
+    if got == types.invalid {
+        return types.invalid, noerror
+    }
+    if c.table.is_array(got) {
+        has := has_call(c.prog.trees, arg)?
+        if !has {
+            mut c.set_const(k, int_const(constant.from_int64(c.table.len_of(got))))?
+        }
+        return types.int64_type, noerror
+    }
+    if got == types.string_type || c.table.is_view(got) || c.table.is_list(got) || c.table.is_map(got) || c.table.is_arena(got) || c.table.is_pool(got) {
+        switch kind_at(c.prog.trees, arg) {
+        case str_lit(s):
+            mut c.set_const(k, int_const(constant.from_int64(len(text_at(c.prog.trees, c.none, arg.unit, s)))))?
+        default:
+        }
+        return types.int64_type, noerror
+    }
+    v := mut c.value_of(arg, got)?
+    if v != types.invalid {
+        n := mut c.type_name(v)?
+        mut m := msg()
+        fmt.appendf(mut m, "len expects an array, a string, a view, a list, a map, an arena or a pool, got %s", n[:])?
+        mut c.errorf(span_at(c.prog.trees, arg), own m)?
+    }
+    return types.invalid, noerror
+}
+
+// construction_of checks e, which builds a value of a union, and returns
+// its type, which it records on e, Go's construction.
+func (mut c Checker) construction_of(e Key) (types.Type, error) {
+    td, sel, _ := construction(c.prog.trees, c.none, e)
+    typ := decl_type_of(c.decl_types, td)
+    mut is_call := false
+    switch kind_at(c.prog.trees, e) {
+    case call:
+        is_call = true
+    default:
+    }
+    built := mut c.build_case(e, typ, sel, is_call)?
+    mut c.set_node_type(e, built)?
+    return built, noerror
+}
+
+// build_case checks the case sel names of the union typ being built, by
+// the call e when is_call, Go's buildCase.
+func (mut c Checker) build_case(e Key, typ types.Type, sel Key, is_call bool) (types.Type, error) {
+    s := selector_of(c.prog.trees, sel)
+    sel_span := span_at(c.prog.trees, sel)
+    mut ok := typ != types.invalid
+    if ok {
+        ok = mut c.resolve_cases(typ, sel_span)?
+    }
+    if !ok {
+        mut c.discard_args(e, is_call)?
+        return types.invalid, noerror
+    }
+    mut case_name := msg()
+    append(mut case_name, text_at(c.prog.trees, c.none, sel.unit, s.name)...)?
+    uc, _, has := c.table.find_case(typ, case_name[:])
+    tn := mut c.type_name(typ)?
+    mut name := msg()
+    append(mut name, tn[:]...)?
+    append(mut name, '.')?
+    append(mut name, case_name[:]...)?
+    if !has {
+        mut m := msg()
+        fmt.appendf(mut m, "%s has no case %s", tn[:], case_name[:])?
+        mut c.errorf(s.name_span, own m)?
+    } else if !uc.payload && is_call {
+        t := mut c.source_text(sel_span)?
+        mut m := msg()
+        fmt.appendf(mut m, "%s has no payload; write %s", name[:], t[:])?
+        mut c.errorf(span_at(c.prog.trees, e), own m)?
+    } else if !uc.payload {
+        return typ, noerror
+    } else if !is_call {
+        pn := mut c.type_name(uc.typ)?
+        t := mut c.source_text(sel_span)?
+        mut m := msg()
+        fmt.appendf(mut m, "%s needs its %s payload, as in %s(...)", name[:], pn[:], t[:])?
+        mut c.errorf(sel_span, own m)?
+        return types.invalid, noerror
+    } else {
+        r := mut c.payload_of(e, typ, uc.typ, name)?
+        return r, noerror
+    }
+    mut c.discard_args(e, is_call)?
+    return types.invalid, noerror
+}
+
+// selector_of returns the Selector the node k holds.
+func selector_of(trees []ast.File, k Key) ast.Selector {
+    switch kind_at(trees, k) {
+    case selector(s):
+        return s
+    default:
+        mut z ast.Selector
+        return z
+    }
+}
+
+// discard_args checks the arguments of e, when is_call says it is a call,
+// for errors of their own, Go's discardArgs.
+func (mut c Checker) discard_args(e Key, is_call bool) error {
+    if !is_call {
+        return noerror
+    }
+    switch kind_at(c.prog.trees, e) {
+    case call(cl):
+        for i := range count_items(c.prog.trees, e.unit, cl.args) {
+            mut c.arg_expr(item_at(c.prog.trees, e.unit, cl.args, i))?
+        }
+    default:
+    }
+    return noerror
+}
+
+// payload_of checks the payload the call e passes to build the case,
+// named name, of the union typ, whose payload is of type want, Go's
+// payload.
+func (mut c Checker) payload_of(e Key, typ types.Type, want types.Type, name list[uint8]) (types.Type, error) {
+    switch kind_at(c.prog.trees, e) {
+    case call(cl):
+        mut n := msg()
+        append(mut n, name[:]...)?
+        ok_arity := mut c.check_arity(e, cl, n, 1)?
+        if !ok_arity {
+            for i := range count_items(c.prog.trees, e.unit, cl.args) {
+                mut c.arg_expr(item_at(c.prog.trees, e.unit, cl.args, i))?
+            }
+            return types.invalid, noerror
+        }
+        arg := item_at(c.prog.trees, e.unit, cl.args, 0)
+        got := mut c.expr(arg)?
+        mut ctx := msg()
+        fmt.appendf(mut ctx, "in argument to %s", name[:])?
+        ok := mut c.use(arg, got, want, ctx)?
+        if !ok {
+            return types.invalid, noerror
+        }
+        return typ, noerror
+    default:
+        return types.invalid, noerror
+    }
+}
+
+// composite_lit checks an array or struct literal written with its type,
+// or [...] for an array's length, and returns its type, Go's
+// compositeLit.
+func (mut c Checker) composite_lit(k Key, lit ast.CompositeLit) (types.Type, error) {
+    texpr := sub(k, lit.type_expr)
+    if ast.is_none(lit.type_expr) {
+        mut m := msg()
+        fmt.appendf(mut m, "a literal without a type needs an array literal around it")?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        mut c.set_node_type(k, types.invalid)?
+        mut c.discard_elems(k, lit)?
+        return types.invalid, noerror
+    }
+    switch kind_at(c.prog.trees, texpr) {
+    case view_type(elem):
+        vt := mut c.view_type(texpr, elem)?
+        typ := mut c.literal_of(k, lit, vt)?
+        return typ, noerror
+    case array_type(a):
+        if ast.is_none(a.length) {
+            elem := mut c.declared_type(sub(texpr, a.elem))?
+            if elem == types.invalid {
+                typ := mut c.literal_of(k, lit, types.invalid)?
+                return typ, noerror
+            }
+            at := mut c.table.array_of(elem, count_items(c.prog.trees, k.unit, lit.elems))?
+            typ := mut c.literal_of(k, lit, at)?
+            return typ, noerror
+        }
+    default:
+    }
+    dt := mut c.declared_type(texpr)?
+    typ := mut c.literal_of(k, lit, dt)?
+    return typ, noerror
+}
+
+// literal_of checks the elements of a literal of type typ, an array or a
+// struct, Go's literalOf.
+func (mut c Checker) literal_of(k Key, lit ast.CompositeLit, typ types.Type) (types.Type, error) {
+    mut c.set_node_type(k, typ)?
+    if typ == types.invalid {
+        mut c.discard_elems(k, lit)?
+        return types.invalid, noerror
+    }
+    if c.table.is_struct(typ) {
+        r := mut c.struct_lit(k, lit, typ)?
+        return r, noerror
+    }
+    if !c.table.is_array(typ) {
+        n := mut c.type_name(typ)?
+        mut m := msg()
+        fmt.appendf(mut m, "%s cannot be written as a literal; only arrays and structs can", n[:])?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        mut c.set_node_type(k, types.invalid)?
+        return types.invalid, noerror
+    }
+    elem := c.table.elem_of(typ)
+    n := count_items(c.prog.trees, k.unit, lit.elems)
+    for i := range n {
+        mut c.array_elem(item_at(c.prog.trees, k.unit, lit.elems, i), elem)?
+    }
+    want := c.table.len_of(typ)
+    if n != want {
+        tn := mut c.type_name(typ)?
+        mut word := "elements"
+        if n == 1 {
+            word = "element"
+        }
+        mut m := msg()
+        fmt.appendf(mut m, "%s literal has %d %s, want %d", tn[:], n, word, want)?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+    }
+    return typ, noerror
+}
+
+// discard_elems checks the elements of a literal whose type is unknown,
+// for errors of their own, Go's discardElems.
+func (mut c Checker) discard_elems(k Key, lit ast.CompositeLit) error {
+    for i := range count_items(c.prog.trees, k.unit, lit.elems) {
+        mut e := item_at(c.prog.trees, k.unit, lit.elems, i)
+        switch kind_at(c.prog.trees, e) {
+        case key_value(kv):
+            e = sub(e, kv.value)
+        default:
+        }
+        mut c.discard(e)?
+    }
+    return noerror
+}
+
+// array_elem checks one element e of an array literal whose element type
+// is elem, Go's arrayElem.
+func (mut c Checker) array_elem(e Key, elem types.Type) error {
+    switch kind_at(c.prog.trees, e) {
+    case key_value(kv):
+        mut m := msg()
+        fmt.appendf(mut m, "keys are not allowed in an array literal")?
+        mut c.errorf(span_at(c.prog.trees, e), own m)?
+        return mut c.discard(sub(e, kv.value))
+    case composite_lit(inner):
+        if ast.is_none(inner.type_expr) && (c.table.is_array(elem) || c.table.is_struct(elem)) {
+            mut c.literal_of(e, inner, elem)?
+            return noerror
+        }
+    default:
+    }
+    got := mut c.expr(e)?
+    mut ctx := msg()
+    append(mut ctx, []uint8("in array literal")...)?
+    mut c.use(e, got, elem, ctx)?
+    return noerror
+}
+
+// struct_lit checks the elements of a literal of the struct type typ,
+// Go's structLit: each a field's name and a value of its type, every
+// field named once, every field visible where it is written.
+func (mut c Checker) struct_lit(k Key, lit ast.CompositeLit, typ types.Type) (types.Type, error) {
+    name := mut c.type_name(typ)?
+    sp := span_at(c.prog.trees, k)
+    resolved := mut c.resolve_fields(typ, sp)?
+    if !resolved {
+        mut c.discard_elems(k, lit)?
+        mut c.set_node_type(k, types.invalid)?
+        return types.invalid, noerror
+    }
+    mut at := sp
+    if !ast.is_none(lit.type_expr) {
+        at = span_at(c.prog.trees, sub(k, lit.type_expr))
+    }
+    visible := mut c.check_literal_fields(typ, at)?
+    if !visible {
+        mut c.discard_elems(k, lit)?
+        return typ, noerror
+    }
+    mut set := make(map[int64]bool, c_allocator)
+    mut unnamed := false
+    for i := range count_items(c.prog.trees, k.unit, lit.elems) {
+        e := item_at(c.prog.trees, k.unit, lit.elems, i)
+        switch kind_at(c.prog.trees, e) {
+        case key_value(kv):
+            key := sub(e, kv.key)
+            nm, is_id := ident_at(c.prog.trees, key)
+            if !is_id || kv.key_parens || len(text_at(c.prog.trees, c.none, key.unit, nm.pkg)) > 0 {
+                mut m := msg()
+                fmt.appendf(mut m, "invalid field name in %s literal", name[:])?
+                mut c.errorf(span_at(c.prog.trees, key), own m)?
+                mut c.discard(sub(e, kv.value))?
+                unnamed = true
+                continue
+            }
+            mut c.field_value(e, kv, key, nm, typ, name, mut set)?
+        default:
+            mut m := msg()
+            fmt.appendf(mut m, "missing field name in %s literal", name[:])?
+            mut c.errorf(span_at(c.prog.trees, e), own m)?
+            mut c.discard(e)?
+            unnamed = true
+        }
+    }
+    if !unnamed {
+        mut missing := msg()
+        mut count int64 = 0
+        for i := range c.table.field_count(typ) {
+            _, named := set[i]
+            if !named {
+                if count > 0 {
+                    append(mut missing, []uint8(", ")...)?
+                }
+                append(mut missing, c.table.field_name(typ, i)...)?
+                count +%= 1
+            }
+        }
+        if count > 0 {
+            mut word := "fields"
+            if count == 1 {
+                word = "field"
+            }
+            mut m := msg()
+            fmt.appendf(mut m, "%s literal is missing %s %s", name[:], word, missing[:])?
+            mut c.errorf(sp, own m)?
+        }
+    }
+    return typ, noerror
+}
+
+// field_value checks one element e of a struct literal of type typ, key:
+// value, recording the field's place in set, Go's fieldValue.
+func (mut c Checker) field_value(e Key, kv ast.KeyValue, key Key, nm ast.Ident, typ types.Type, name list[uint8], mut set map[int64]bool) error {
+    mut fname := msg()
+    append(mut fname, text_at(c.prog.trees, c.none, key.unit, nm.name)...)?
+    ft, i, found := c.table.find_field(typ, fname[:])
+    value := sub(e, kv.value)
+    if !found {
+        mut m := msg()
+        fmt.appendf(mut m, "%s has no field %s", name[:], fname[:])?
+        mut c.errorf(span_at(c.prog.trees, key), own m)?
+        return mut c.discard(value)
+    }
+    _, dup := set[i]
+    if dup {
+        mut m := msg()
+        fmt.appendf(mut m, "duplicate field %s in %s literal", fname[:], name[:])?
+        mut c.errorf(span_at(c.prog.trees, key), own m)?
+        return mut c.discard(value)
+    }
+    put(mut set, i, true)?
+    got := mut c.expr(value)?
+    mut ctx := msg()
+    fmt.appendf(mut ctx, "in field %s of %s literal", fname[:], name[:])?
+    mut c.use(value, got, ft, ctx)?
+    return noerror
+}
+
+// field_vis returns the visibility field i of the struct typ has in
+// effect, Go's fieldVis: its own, capped by its struct's.
+func (mut c Checker) field_vis(typ types.Type, i int64) ast.Visibility {
+    d, ok := c.structs[typ.number()]
+    if !ok {
+        return ast.vis_private
+    }
+    td := type_decl_of(c.prog.trees, d)
+    switch kind_at(c.prog.trees, sub(d, td.type_expr)) {
+    case struct_type(fs):
+        switch kind_at(c.prog.trees, item_at(c.prog.trees, d.unit, fs, i)) {
+        case field(f):
+            return f.vis.capped(td.vis)
+        default:
+            return ast.vis_private
+        }
+    default:
+        return ast.vis_private
+    }
+}
+
+// field_hidden reports whether the code being checked may not use field i
+// of the struct type typ by name, Go's hiddenField being non-empty.
+func (mut c Checker) field_hidden(typ types.Type, i int64) (bool, error) {
+    owner, ok := c.struct_pkg[typ.number()]
+    if !ok || c.pkg < 0 || owner == c.pkg {
+        return false, noerror
+    }
+    vis := mut c.field_vis(typ, i)
+    if vis == ast.vis_pub {
+        return false, noerror
+    }
+    if vis == ast.vis_lib {
+        mut a := msg()
+        append_pkg(c.prog.packages, owner, 2, mut a)?
+        mut b := msg()
+        append_pkg(c.prog.packages, c.pkg, 2, mut b)?
+        return !bytes_equal(a[:], b[:]), noerror
+    }
+    return true, noerror
+}
+
+// check_literal_fields reports a literal of the struct type typ, at sp,
+// written in a package that cannot see every one of its fields, Go's
+// checkLiteralFields.
+func (mut c Checker) check_literal_fields(typ types.Type, sp source.Span) (bool, error) {
+    mut hidden := msg()
+    mut count int64 = 0
+    for i := range c.table.field_count(typ) {
+        hidden_i := mut c.field_hidden(typ, i)?
+        if hidden_i {
+            if count > 0 {
+                append(mut hidden, []uint8(", ")...)?
+            }
+            append(mut hidden, c.table.field_name(typ, i)...)?
+            count +%= 1
+        }
+    }
+    if count == 0 {
+        return true, noerror
+    }
+    n := mut c.type_name(typ)?
+    owner, has_owner := c.struct_pkg[typ.number()]
+    if !has_owner {
+        return false, noerror
+    }
+    mut verb := "is"
+    mut word := "field"
+    if count > 1 {
+        verb = "are"
+        word = "fields"
+    }
+    mut m := msg()
+    fmt.appendf(mut m, "cannot write a %s literal outside package ", n[:])?
+    if owner >= 0 && owner < len(c.prog.packages) {
+        append_pkg(c.prog.packages, owner, 0, mut m)?
+    }
+    fmt.appendf(mut m, ": %s %s %s not pub", word, hidden[:], verb)?
+    mut c.errorf(sp, own m)?
+    return false, noerror
+}
+
+// index_expr checks an element read as a value, x[i], whose x is a name,
+// Go's index: a generic function named with type arguments and no call
+// is reported in words the port does not have yet.
+func (mut c Checker) index_expr(k Key, ix ast.Index) (types.Type, error) {
+    nm, _ := ident_at(c.prog.trees, sub(k, ix.x))
+    if nm.def.kind == ast.def_func {
+        return types.invalid, not_ported
+    }
+    base := mut c.expr(sub(k, ix.x))?
+    typ := mut c.index_of(k, ix, base)?
+    return typ, noerror
+}
+
+// index_of checks the index of x[i] at k, x of type base, and returns the
+// element's type, Go's index after its operand and element. A map, an
+// arena or a pool is a body's, which the port does not check yet.
+func (mut c Checker) index_of(k Key, ix ast.Index, base types.Type) (types.Type, error) {
+    if c.table.is_arena(base) {
+        return types.invalid, not_ported
+    }
+    index := sub(k, ix.index)
+    mut idx := mut c.expr(index)?
+    if c.table.is_map(base) || c.table.is_pool(base) {
+        return types.invalid, not_ported
+    }
+    idx = mut c.value_of(index, idx)?
+    if base == types.invalid {
+        return types.invalid, noerror
+    }
+    mut elem := types.invalid
+    mut length := false
+    if base == types.string_type {
+        elem = types.uint8_type
+        length = true
+    } else if c.table.is_view(base) || c.table.is_list(base) {
+        elem = c.table.elem_of(base)
+        length = true
+    }
+    if !length && !c.table.is_array(base) {
+        n := mut c.type_name(base)?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot index %s", n[:])?
+        mut c.errorf(span_at(c.prog.trees, sub(k, ix.x)), own m)?
+        return types.invalid, noerror
+    }
+    if idx == types.invalid {
+        if length {
+            return elem, noerror
+        }
+        return c.table.elem_of(base), noerror
+    }
+    if !types.is_integer(idx) {
+        n := mut c.type_name(idx)?
+        mut m := msg()
+        fmt.appendf(mut m, "index must be an integer, got %s", n[:])?
+        mut c.errorf(span_at(c.prog.trees, index), own m)?
+        if length {
+            return elem, noerror
+        }
+        return c.table.elem_of(base), noerror
+    }
+    if length {
+        // A string's, a view's or a list's element: a known index of a
+        // string of known length is decided; anything else needs facts.
+        v, known := mut c.known_value(index)?
+        n, extent := mut c.extent_of(sub(k, ix.x))?
+        if known && extent {
+            if v.is_negative() || v.cmp(constant.from_int64(n)) >= 0 {
+                mut m := msg()
+                fmt.appendf(mut m, "index ")?
+                v.append_string(mut m)?
+                mut word := "bytes"
+                if n == 1 {
+                    word = "byte"
+                }
+                fmt.appendf(mut m, " is out of range for a string of %d %s", n, word)?
+                mut c.errorf(span_at(c.prog.trees, index), own m)?
+            }
+            return elem, noerror
+        }
+        if known && v.is_negative() {
+            mut what := "a string"
+            if c.table.is_view(base) {
+                what = "a view"
+            } else if c.table.is_list(base) {
+                what = "a list"
+            }
+            mut m := msg()
+            fmt.appendf(mut m, "index ")?
+            v.append_string(mut m)?
+            fmt.appendf(mut m, " is out of range for %s", what)?
+            mut c.errorf(span_at(c.prog.trees, index), own m)?
+            return elem, noerror
+        }
+        // An index not known, or of a string not known, needs the facts
+        // in force, which the port does not keep yet; before bodies that
+        // follows an error.
+        return types.invalid, not_ported
+    }
+    n := c.table.len_of(base)
+    v, known := mut c.known_value(index)?
+    if known {
+        if v.is_negative() || v.cmp(constant.from_int64(n)) >= 0 {
+            tn := mut c.type_name(base)?
+            mut m := msg()
+            fmt.appendf(mut m, "index ")?
+            v.append_string(mut m)?
+            fmt.appendf(mut m, " is out of range for %s", tn[:])?
+            mut c.errorf(span_at(c.prog.trees, index), own m)?
+        }
+        return c.table.elem_of(base), noerror
+    }
+    // As for a string's index, an array's not known is declined.
+    return types.invalid, not_ported
+}
+
+// selector checks a field read as a value, x.f, whose x is a name, or a
+// union built from a case with no payload, Go's selector. A method named
+// through its type, and a fields loop's field, are a body's.
+func (mut c Checker) selector(k Key, s ast.Selector) (types.Type, error) {
+    _, _, built := construction(c.prog.trees, c.none, k)
+    if built {
+        typ := mut c.construction_of(k)?
+        return typ, noerror
+    }
+    if !ast.is_none(s.field) {
+        return types.invalid, not_ported
+    }
+    nm, _ := ident_at(c.prog.trees, sub(k, s.x))
+    if nm.def.kind == ast.def_type || nm.def.kind == ast.def_type_param {
+        return types.invalid, not_ported
+    }
+    x := mut c.expr(sub(k, s.x))?
+    base := mut c.value_of(sub(k, s.x), x)?
+    typ := mut c.field(k, s, base)?
+    mut c.set_node_type(k, typ)?
+    return typ, noerror
+}
+
+// field returns the type of the field s names of a value of type base,
+// Go's field.
+func (mut c Checker) field(k Key, s ast.Selector, base types.Type) (types.Type, error) {
+    if !ast.is_none(s.field) {
+        return types.invalid, not_ported
+    }
+    if base == types.invalid {
+        return types.invalid, noerror
+    }
+    if c.table.is_struct(base) {
+        ok := mut c.resolve_fields(base, span_at(c.prog.trees, k))?
+        if !ok {
+            return types.invalid, noerror
+        }
+    }
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, k.unit, s.name)...)?
+    ft, i, found := c.table.find_field(base, name[:])
+    if !found {
+        if c.table.is_type_param(base) {
+            return types.invalid, not_ported
+        }
+        d := decl_of_type(c.structs, c.unions, base)
+        if !is_no_key(d) && has_method_in(c.prog.trees, c.none, d, name[:]) {
+            n := mut c.type_name(base)?
+            mut m := msg()
+            fmt.appendf(mut m, "%s is a method of %s, not a field; a method can only be called", name[:], n[:])?
+            mut c.errorf(s.name_span, own m)?
+            return types.invalid, noerror
+        }
+        if mut c.lost_method_of(base, name[:]) {
+            return types.invalid, noerror
+        }
+        n := mut c.type_name(base)?
+        mut m := msg()
+        fmt.appendf(mut m, "%s has no field %s", n[:], name[:])?
+        mut c.errorf(s.name_span, own m)?
+        return types.invalid, noerror
+    }
+    hidden := mut c.field_hidden(base, i)?
+    if hidden {
+        // Go words a lib field of another module in words the port does
+        // not have yet; a private one is "is not pub".
+        vis := mut c.field_vis(base, i)
+        if vis == ast.vis_lib {
+            return types.invalid, not_ported
+        }
+        n := mut c.type_name(base)?
+        mut m := msg()
+        fmt.appendf(mut m, "%s is not pub in %s", name[:], n[:])?
+        mut c.errorf(s.name_span, own m)?
+        return types.invalid, noerror
+    }
+    return ft, noerror
+}
+
+// has_method_in reports whether the type declared at d has a method named
+// name, Go's TypeDecl.Method.
+func has_method_in(trees []ast.File, none []uint8, d Key, name []uint8) bool {
+    if d.unit < 0 || d.unit >= len(trees) {
+        return false
+    }
+    td := type_decl_of(trees, d)
+    for _, m := range trees[d.unit].defs[td.methods] {
+        if bytes_equal(name_of(trees, none, key_of_def(m)), name) {
+            return true
+        }
+    }
+    return false
+}
+
+// lost_method_of reports whether typ, said to have no method name, may
+// have had it declared by a bad declaration of its package, Go's
+// lostMethodOf.
+func (mut c Checker) lost_method_of(typ types.Type, name []uint8) bool {
+    d := decl_of_type(c.structs, c.unions, typ)
+    if is_no_key(d) || has_method_in(c.prog.trees, c.none, d, name) || c.prior == 0 {
+        return false
+    }
+    p, has_p := c.unit_pkg[d.unit]
+    if !has_p {
+        return false
+    }
+    _, all := c.lost_all[p]
+    if all {
+        return true
+    }
+    for _, l := range c.lost {
+        if l.pkg == p && l.name.equal(name) {
+            return true
+        }
+    }
+    return false
+}
+
+// slice_of checks the slice s at k, what it slices checked as x, and
+// returns its type, Go's slice: a string's is a string, an array's, a
+// view's or a list's a view, which only a few places may hold.
+func (mut c Checker) slice_of(k Key, s ast.Slice, x types.Type) (types.Type, error) {
+    base := mut c.value_of(sub(k, s.x), x)?
+    lo_ok := mut c.slice_bound(k, s.lo)?
+    hi_ok := mut c.slice_bound(k, s.hi)?
+    if base == types.invalid {
+        mut c.set_node_type(k, types.invalid)?
+        return types.invalid, noerror
+    }
+    if base != types.string_type {
+        // A slice of an array, a view or a list is a view, which a
+        // global cannot hold and an array length cannot be: Go reports it
+        // in words the port does not have yet.
+        return types.invalid, not_ported
+    }
+    if !lo_ok || !hi_ok {
+        mut c.set_node_type(k, types.invalid)?
+        return types.invalid, noerror
+    }
+    mut c.set_node_type(k, base)?
+    mut known_all := true
+    for _, b := range [2]id[ast.Node]{s.lo, s.hi} {
+        if ast.is_none(b) {
+            continue
+        }
+        v, known := mut c.known_value(sub(k, b))?
+        if known && v.is_negative() {
+            return types.invalid, not_ported
+        }
+        known_all = known_all && known
+    }
+    n, extent := mut c.extent_of(sub(k, s.x))?
+    if known_all && extent {
+        mut lo := constant.from_int64(0)
+        mut hi := constant.from_int64(n)
+        if !ast.is_none(s.lo) {
+            lo, _ = mut c.known_value(sub(k, s.lo))?
+        }
+        if !ast.is_none(s.hi) {
+            hi, _ = mut c.known_value(sub(k, s.hi))?
+        }
+        if lo.cmp(hi) > 0 || hi.cmp(constant.from_int64(n)) > 0 || lo.cmp(constant.from_int64(n)) > 0 {
+            return types.invalid, not_ported
+        }
+        return base, noerror
+    }
+    // Bounds not known need the facts in force; declined, as an index is.
+    return types.invalid, not_ported
+}
+
+// slice_bound checks the bound b of the slice at k, which must be an
+// integer, Go's sliceBound; one left out is.
+func (mut c Checker) slice_bound(k Key, b id[ast.Node]) (bool, error) {
+    if ast.is_none(b) {
+        return true, noerror
+    }
+    e := sub(k, b)
+    got := mut c.expr(e)?
+    v := mut c.value_of(e, got)?
+    if v == types.invalid {
+        return false, noerror
+    }
+    if !types.is_integer(v) {
+        n := mut c.type_name(v)?
+        mut m := msg()
+        fmt.appendf(mut m, "slice bound must be an integer, got %s", n[:])?
+        mut c.errorf(span_at(c.prog.trees, e), own m)?
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// is_has_call reports whether the call k calls the builtin has.
+func is_has_call(trees []ast.File, none []uint8, k Key) bool {
+    switch kind_at(trees, k) {
+    case call(cl):
+        nm, ok := ident_at(trees, sub(k, cl.fn))
+        return ok && bytes_equal(text_at(trees, none, k.unit, nm.name), []uint8("has")) && nm.def.kind == ast.def_builtin
+    default:
+        return false
+    }
+}
+
+// has_call checks a call to has, has(m, k) or has(p, h), Go's
+// hasKeyCall: a map's key, or a handle of a pool's element, as its
+// second argument, which a key holding a list Go checks for borrows the
+// port does not, and declines.
+func (mut c Checker) has_call(k Key, cl ast.Call) (types.Type, error) {
+    mut name := msg()
+    append(mut name, []uint8("has")...)?
+    ok_arity := mut c.check_arity(k, cl, name, 2)?
+    if !ok_arity {
+        for i := range count_items(c.prog.trees, k.unit, cl.args) {
+            mut c.arg_expr(item_at(c.prog.trees, k.unit, cl.args, i))?
+        }
+        return types.invalid, noerror
+    }
+    before := len(c.diags)
+    m := item_at(c.prog.trees, k.unit, cl.args, 0)
+    key_arg := item_at(c.prog.trees, k.unit, cl.args, 1)
+    got := mut c.expr(m)?
+    mut key := types.invalid
+    if got == types.invalid {
+    } else if c.table.is_map(got) {
+        key = c.table.key_of(got)
+    } else if c.table.is_pool(got) {
+        key = mut c.table.handle_of(c.table.elem_of(got))?
+    } else {
+        v := mut c.value_of(m, got)?
+        if v != types.invalid {
+            n := mut c.type_name(v)?
+            mut msg1 := msg()
+            fmt.appendf(mut msg1, "has expects a map or a pool, got %s", n[:])?
+            mut c.errorf(span_at(c.prog.trees, m), own msg1)?
+        }
+    }
+    if key == types.invalid {
+        mut c.arg_expr(key_arg)?
+        return types.invalid, noerror
+    }
+    owned := c.table.owned(got)?
+    if owned && !c.table.is_map(got) || c.table.is_view(key) || key == types.any_type {
+        return types.invalid, not_ported
+    }
+    key_owned := c.table.owned(key)?
+    if key_owned {
+        return types.invalid, not_ported
+    }
+    switch kind_at(c.prog.trees, key_arg) {
+    case mut_arg, own_arg, func_lit:
+        return types.invalid, not_ported
+    default:
+    }
+    kt := mut c.expr(key_arg)?
+    mut ctx := msg()
+    append(mut ctx, []uint8("in argument to has")...)?
+    mut c.use(key_arg, kt, key, ctx)?
+    if len(c.diags) > before {
+        return types.invalid, noerror
+    }
+    return types.bool_type, noerror
+}

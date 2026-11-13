@@ -1,0 +1,131 @@
+package typeck
+
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// note_array_size checks the size of the array type typ, written at sp,
+// or holds it until every struct's and union's size can be known, Go's
+// noteArraySize.
+func (mut c Checker) note_array_size(typ types.Type, sp source.Span) error {
+    if !c.sizes_known {
+        append(mut c.pending_sizes, SizeSite{span: sp, typ: typ})?
+        return noerror
+    }
+    return mut c.check_size(SizeSite{span: sp, typ: typ})
+}
+
+// check_type_sizes checks the sizes of the array types held until now, in
+// the order they were met, then of every struct and union type, in
+// declaration order, Go's checkTypeSizes.
+func (mut c Checker) check_type_sizes() error {
+    c.sizes_known = true
+    for i := range len(c.pending_sizes) {
+        s, ok := c.pending_sizes[i]
+        if ok {
+            mut c.check_size(s)?
+        }
+    }
+    c.pending_sizes = make(list[SizeSite], c_allocator)
+    for i := range len(c.struct_order) {
+        typ, ok := c.struct_order[i]
+        if ok {
+            d := decl_of_type(c.structs, c.unions, typ)
+            mut c.check_size(SizeSite{span: name_span_of(c.prog.trees, d), typ: typ})?
+        }
+    }
+    return noerror
+}
+
+// check_size reports site's type at site's span when it is too large and
+// none of its parts is, unless it has been checked already, Go's
+// checkSize.
+func (mut c Checker) check_size(site SizeSite) error {
+    typ := site.typ
+    _, done := c.size_checked[typ.number()]
+    if done {
+        return noerror
+    }
+    put(mut c.size_checked, typ.number(), site.span)?
+    size := mut c.table.size(typ)?
+    if !size.too_large() {
+        return noerror
+    }
+    mut parts := make(list[types.Type], c_allocator)
+    if c.table.is_array(typ) {
+        append(mut parts, c.table.elem_of(typ))?
+    } else if c.table.is_union(typ) {
+        for i := range len(c.table.cases(typ)) {
+            uc, ok := c.table.cases(typ)[i]
+            if ok && uc.payload {
+                append(mut parts, uc.typ)?
+            }
+        }
+    } else {
+        for i := range c.table.field_count(typ) {
+            f, ok := c.table.field_type(typ, i)
+            if ok {
+                append(mut parts, f)?
+            }
+        }
+    }
+    for _, p := range parts {
+        ps := mut c.table.size(p)?
+        if ps.too_large() {
+            return noerror
+        }
+    }
+    n := mut c.type_name(typ)?
+    mut m := msg()
+    if c.table.is_array(typ) {
+        fmt.appendf(mut m, "array type %s", n[:])?
+    } else {
+        fmt.appendf(mut m, "type %s", n[:])?
+    }
+    fmt.appendf(mut m, " is too large: it holds ")?
+    if size.overflow {
+        fmt.appendf(mut m, "more than 18446744073709551615")?
+    } else {
+        fmt.appendf(mut m, "%d", size.bytes)?
+    }
+    fmt.appendf(mut m, " bytes, more than the 2^31 a value may hold")?
+    return mut c.errorf(site.span, own m)
+}
+
+// check_globals_size adds up the sizes of the globals, in declaration
+// order, and reports the first one that takes the total past
+// max_globals_size, Go's checkGlobalsSize. A global whose type is too
+// large, or unknown, is not counted.
+func (mut c Checker) check_globals_size() error {
+    mut total uint64 = 0
+    for i := range count_decls(c.prog) {
+        d := decl_at(c.prog, i)
+        switch kind_at(c.prog.trees, d) {
+        case var_decl(v):
+            typ := decl_type_of(c.decl_types, d)
+            if typ == types.invalid {
+                continue
+            }
+            size := mut c.table.size(typ)?
+            if size.too_large() {
+                continue
+            }
+            sum := total +% size.bytes
+            if sum < total {
+                total = 18446744073709551615
+            } else {
+                total = sum
+            }
+            if total > types.max_globals_size {
+                old := mut c.enter(d)
+                mut m := msg()
+                fmt.appendf(mut m, "global %s makes this program's globals hold %d bytes, more than the 2^30 a program's globals may hold", name_of(c.prog.trees, c.none, d)[:], total)?
+                mut c.errorf(v.name_span, own m)?
+                c.pkg = old
+                return noerror
+            }
+        default:
+        }
+    }
+    return noerror
+}

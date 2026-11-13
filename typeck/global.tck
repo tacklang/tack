@@ -1,0 +1,562 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import fmt from "std/fmt"
+import types from "tack/types"
+
+// check_global checks the package-level variable v like a local, and
+// requires its initializer to be a constant expression, which it
+// evaluates into its Const, and its type to hold no list, map, arena,
+// pool or function value, Go's checkGlobal. A global without a value
+// takes its type's zero value.
+func (mut c Checker) check_global(v Key) error {
+    var_node := var_of(c.prog.trees, v)
+    value := sub(v, var_node.value)
+    has_value := !ast.is_none(var_node.value)
+    shape := mut c.global_shape(value, has_value)?
+    if shape & shape_question != 0 {
+        // Go reports each ? at its mark, which the port does not find
+        // yet.
+        return not_ported
+    }
+    if shape & shape_func != 0 {
+        mut m := msg()
+        fmt.appendf(mut m, "package-level variable %s cannot hold a function value", text_at(c.prog.trees, c.none, v.unit, var_node.name)[:])?
+        mut c.errorf(var_node.name_span, own m)?
+        if !ast.is_none(var_node.type_expr) {
+            typ := mut c.declared_type(sub(v, var_node.type_expr))?
+            mut c.set_decl_type(v, typ)?
+        }
+        return noerror
+    }
+    if has_value && shape & shape_constant == 0 {
+        mut c.not_constant(v, var_node)?
+        if !ast.is_none(var_node.type_expr) {
+            typ := mut c.declared_type(sub(v, var_node.type_expr))?
+            mut c.set_decl_type(v, typ)?
+        }
+        return noerror
+    }
+    mut before := len(c.diags)
+    first, again := c.global_before[v]
+    if again {
+        before = first
+    } else {
+        put(mut c.global_before, v, before)?
+    }
+    mut c.check_var(v, var_node)?
+    if len(c.diags) > before {
+        return noerror
+    }
+    bad := mut c.bad_global_type(v, var_node)?
+    if bad {
+        return noerror
+    }
+    typ := decl_type_of(c.decl_types, v)
+    if !has_value {
+        put(mut c.var_consts, v, zero_const(typ))?
+        return noerror
+    }
+    folded, ok := mut c.fold(value)?
+    if !ok {
+        failed := mut c.names_failed_global(value)?
+        if !failed {
+            mut c.not_constant(v, var_node)?
+        }
+        return noerror
+    }
+    put(mut c.var_consts, v, folded)?
+    return noerror
+}
+
+// var_of returns the Var the var_decl node k holds.
+func var_of(trees []ast.File, k Key) ast.Var {
+    switch kind_at(trees, k) {
+    case var_decl(v):
+        return v
+    default:
+        mut z ast.Var
+        return z
+    }
+}
+
+// check_var records the type of v, a package-level variable, Go's checkVar
+// for one: its declared type if it has one, otherwise its value's, an
+// untyped constant being an int64, and never a view. A value must be
+// usable as the declared type, and only a mutable variable whose type has
+// a zero value may leave out its value.
+func (mut c Checker) check_var(v Key, var_node ast.Var) error {
+    mut declared := types.invalid
+    if !ast.is_none(var_node.type_expr) {
+        declared = mut c.declared_type(sub(v, var_node.type_expr))?
+    }
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, v.unit, var_node.name)...)?
+    if ast.is_none(var_node.value) {
+        if !var_node.mutable {
+            mut m := msg()
+            fmt.appendf(mut m, "immutable variable %s needs a value", name[:])?
+            mut c.errorf(var_node.name_span, own m)?
+        } else {
+            owned := c.table.owned(declared)?
+            if !owned {
+                has_zero := c.table.has_zero(declared)?
+                if declared != types.invalid && !has_zero {
+                    n := mut c.type_name(declared)?
+                    mut m := msg()
+                    fmt.appendf(mut m, "%s needs a value: %s has no zero value", name[:], n[:])?
+                    mut c.errorf(var_node.name_span, own m)?
+                    declared = types.invalid
+                }
+            }
+        }
+        return mut c.set_decl_type(v, declared)
+    }
+    value := sub(v, var_node.value)
+    got := mut c.expr(value)?
+    if ast.is_none(var_node.type_expr) {
+        typ := mut c.value_of(value, got)?
+        mut c.set_decl_type(v, typ)?
+        if typ == types.any_type && var_node.mutable {
+            // Go's anyLocal: no constant has type any, so this is not
+            // reached by a global's initializer that checked.
+            return not_ported
+        }
+        if c.table.is_view(typ) {
+            n := mut c.type_name(typ)?
+            mut m := msg()
+            fmt.appendf(mut m, "cannot declare %s as %s; %s", name[:], n[:], view_places)?
+            mut c.errorf(var_node.name_span, own m)?
+            mut c.set_decl_type(v, types.invalid)?
+        }
+        return noerror
+    }
+    mut ctx := msg()
+    fmt.appendf(mut ctx, "in declaration of %s", name[:])?
+    mut c.use(value, got, declared, ctx)?
+    return mut c.set_decl_type(v, declared)
+}
+
+// bad_global_type reports v when its type holds a function value, a list,
+// a map, an arena or a pool, which no global may, and returns whether it
+// did, Go's badGlobalType.
+func (mut c Checker) bad_global_type(v Key, var_node ast.Var) (bool, error) {
+    typ := decl_type_of(c.decl_types, v)
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, v.unit, var_node.name)...)?
+    fn := mut c.holds_func(typ)?
+    if fn {
+        mut m := msg()
+        fmt.appendf(mut m, "package-level variable %s cannot hold a function value", name[:])?
+        mut c.errorf(var_node.name_span, own m)?
+        return true, noerror
+    }
+    owned := c.table.owned(typ)?
+    if !owned {
+        return false, noerror
+    }
+    mut held := "a list"
+    has_arena := c.table.holds_arena(typ)?
+    has_pool := c.table.holds_pool(typ)?
+    holds_list := c.table.holds_list(typ)?
+    if has_arena {
+        held = "an arena"
+    } else if has_pool {
+        held = "a pool"
+    } else if !holds_list {
+        held = "a map"
+    }
+    mut m := msg()
+    fmt.appendf(mut m, "package-level variable %s cannot hold %s", name[:], held)?
+    mut c.errorf(var_node.name_span, own m)?
+    return true, noerror
+}
+
+// not_constant reports that the initializer of the global v is not a
+// constant expression, unless it names something bound to ast.Unbound,
+// Go's notConstant.
+func (mut c Checker) not_constant(v Key, var_node ast.Var) error {
+    value := sub(v, var_node.value)
+    unbound := names_unbound(c.prog.trees, value)?
+    if unbound {
+        return noerror
+    }
+    mut m := msg()
+    fmt.appendf(mut m, "%s must be initialized with a constant expression", text_at(c.prog.trees, c.none, v.unit, var_node.name)[:])?
+    return mut c.errorf(span_at(c.prog.trees, value), own m)
+}
+
+// names_failed_global reports whether e names an immutable global with no
+// computed value, or a name bound to ast.Unbound, Go's namesFailedGlobal.
+func (mut c Checker) names_failed_global(e Key) (bool, error) {
+    unbound := names_unbound(c.prog.trees, e)?
+    if unbound {
+        return true, noerror
+    }
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, e.node)?
+    for len(stack) > 0 {
+        n := pop(mut stack)
+        k := sub(e, n)
+        nm, is_id := ident_at(c.prog.trees, k)
+        if is_id {
+            g := mut c.constant_global(nm)
+            if !is_no_key(g) {
+                cv, has := c.var_consts[g]
+                if !has || cv.kind == cv_none {
+                    return true, noerror
+                }
+            }
+        }
+        push_children(c.prog.trees, k, mut stack)?
+    }
+    return false, noerror
+}
+
+// push_children pushes the nodes k holds onto stack, last first, so they
+// come off in Go's Walk order.
+func push_children(trees []ast.File, k Key, mut stack list[id[ast.Node]]) error {
+    if k.unit < 0 || k.unit >= len(trees) {
+        return noerror
+    }
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    ast.children(trees[k.unit], k.node, mut kids)?
+    mut i := len(kids)
+    for i > 0 {
+        i -%= 1
+        kid, ok := kids[i]
+        if ok {
+            append(mut stack, kid)?
+        }
+    }
+    return noerror
+}
+
+// names_unbound reports whether e names something bound to ast.Unbound,
+// Go's namesUnbound.
+func names_unbound(trees []ast.File, e Key) (bool, error) {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, e.node)?
+    for len(stack) > 0 {
+        n := pop(mut stack)
+        k := sub(e, n)
+        nm, is_id := ident_at(trees, k)
+        if is_id && nm.def.kind == ast.def_unbound {
+            return true, noerror
+        }
+        push_children(trees, k, mut stack)?
+    }
+    return false, noerror
+}
+
+// has_question reports whether e holds a ?, Go's questionsIn being
+// non-empty.
+func has_question(trees []ast.File, e Key) (bool, error) {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, e.node)?
+    for len(stack) > 0 {
+        n := pop(mut stack)
+        k := sub(e, n)
+        switch kind_at(trees, k) {
+        case question:
+            return true, noerror
+        default:
+        }
+        push_children(trees, k, mut stack)?
+    }
+    return false, noerror
+}
+
+// constant_global returns the variable nm names when it is an immutable
+// package-level variable, or no key, Go's constantGlobal.
+func (mut c Checker) constant_global(nm ast.Ident) Key {
+    if nm.def.kind != ast.def_var {
+        return no_key()
+    }
+    v := key_of_def(nm.def)
+    _, global := c.globals[v]
+    if !global || var_of(c.prog.trees, v).mutable {
+        return no_key()
+    }
+    return v
+}
+
+// zero_const returns a type's zero value as a constant, Go's zeroConst: an
+// array's or a struct's is none.
+func zero_const(typ types.Type) Const {
+    if types.is_integer(typ) {
+        return int_const(constant.from_int64(0))
+    }
+    if typ == types.bool_type {
+        return bool_const(false)
+    }
+    if typ == types.string_type {
+        mut k := base_const(cv_str)
+        k.first = 0
+        k.count = 0
+        return k
+    }
+    return no_const()
+}
+
+// The bits of a global's shape, what its initializer is before it is
+// checked: it holds a ?, it names a function as a value (Go's
+// globalFuncValue), it is a constant expression (Go's isConstant).
+var shape_question uint8 = 1
+var shape_func uint8 = 2
+var shape_constant uint8 = 4
+
+// global_shape returns the shape of the initializer value, found the
+// first time a global's check asks and kept: each walks the whole
+// initializer and finds the same each time, and a global whose check is
+// suspended is checked again from its start, once for each suspension.
+func (mut c Checker) global_shape(value Key, has_value bool) (uint8, error) {
+    if !has_value {
+        return shape_constant, noerror
+    }
+    kept, ok := c.global_shapes[value]
+    if ok {
+        return kept, noerror
+    }
+    mut shape uint8 = 0
+    q := has_question(c.prog.trees, value)?
+    if q {
+        shape = shape | shape_question
+    } else {
+        f := names_func(c.prog.trees, c.none, value)?
+        if f {
+            shape = shape | shape_func
+        } else {
+            k := mut c.is_constant(value)?
+            if k {
+                shape = shape | shape_constant
+            }
+        }
+    }
+    put(mut c.global_shapes, value, shape)?
+    return shape, noerror
+}
+
+// names_func reports whether e names a function as a value anywhere in
+// it, outside a call's callee, Go's namesFunc: a name bound to a declared
+// function, or a method named through its type.
+func names_func(trees []ast.File, none []uint8, e Key) (bool, error) {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, e.node)?
+    for len(stack) > 0 {
+        n := pop(mut stack)
+        k := sub(e, n)
+        switch kind_at(trees, k) {
+        case call(cl):
+            mut i := count_items(trees, k.unit, cl.args)
+            for i > 0 {
+                i -%= 1
+                append(mut stack, item_at(trees, k.unit, cl.args, i).node)?
+            }
+            switch kind_at(trees, sub(k, cl.fn)) {
+            case selector(s):
+                append(mut stack, s.x)?
+            default:
+            }
+            continue
+        case selector:
+            if names_method(trees, none, k) {
+                return true, noerror
+            }
+        case ident(nm):
+            if nm.def.kind == ast.def_func {
+                return true, noerror
+            }
+        default:
+        }
+        push_children(trees, k, mut stack)?
+    }
+    return false, noerror
+}
+
+// names_method reports whether the selector k is a method expression
+// naming a method its type declares, Pair.first, Go's namesMethod.
+func names_method(trees []ast.File, none []uint8, k Key) bool {
+    switch kind_at(trees, k) {
+    case selector(s):
+        if !ast.is_none(s.field) {
+            return false
+        }
+        nm, is_id := ident_at(trees, sub(k, s.x))
+        if !is_id || nm.def.kind != ast.def_type {
+            return false
+        }
+        d := key_of_def(nm.def)
+        if d.unit < 0 || d.unit >= len(trees) {
+            return false
+        }
+        td := type_decl_of(trees, d)
+        for _, m := range trees[d.unit].defs[td.methods] {
+            if bytes_equal(name_of(trees, none, key_of_def(m)), text_at(trees, none, k.unit, s.name)) {
+                return true
+            }
+        }
+        return false
+    default:
+        return false
+    }
+}
+
+// is_constant reports whether e is built only from literals, names of
+// immutable package-level variables, operators, array and struct
+// literals, union constructions, fields, elements, slices, len and
+// conversions, Go's isConstant. Go recurses, and an operator's chain is
+// as long as its source makes it, so the walk keeps a stack of its own;
+// the answer is whether every part is constant, whatever the order.
+func (mut c Checker) is_constant(e Key) (bool, error) {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, e.node)?
+    for len(stack) > 0 {
+        n := pop(mut stack)
+        k := sub(e, n)
+        switch kind_at(c.prog.trees, k) {
+        case int_lit, float_lit, char_lit, str_lit, bool_lit, noerror_lit, c_allocator_lit:
+            continue
+        case ident(nm):
+            if is_no_key(mut c.constant_global(nm)) {
+                return false, noerror
+            }
+            continue
+        default:
+        }
+        _, _, built := construction(c.prog.trees, c.none, k)
+        if built {
+            switch kind_at(c.prog.trees, k) {
+            case call(cl):
+                for i := range count_items(c.prog.trees, k.unit, cl.args) {
+                    append(mut stack, item_at(c.prog.trees, k.unit, cl.args, i).node)?
+                }
+            default:
+            }
+            continue
+        }
+        switch kind_at(c.prog.trees, k) {
+        case call(cl):
+            is_len := is_len_call(c.prog.trees, c.none, k)
+            if is_len && count_items(c.prog.trees, k.unit, cl.args) == 1 {
+                has := has_call(c.prog.trees, item_at(c.prog.trees, k.unit, cl.args, 0))?
+                if !has {
+                    continue
+                }
+            }
+            if cl.conv == types.invalid && !is_len {
+                return false, noerror
+            }
+            for i := range count_items(c.prog.trees, k.unit, cl.args) {
+                append(mut stack, item_at(c.prog.trees, k.unit, cl.args, i).node)?
+            }
+        case key_value(kv):
+            append(mut stack, kv.value)?
+        case composite_lit(lit):
+            for i := range count_items(c.prog.trees, k.unit, lit.elems) {
+                append(mut stack, item_at(c.prog.trees, k.unit, lit.elems, i).node)?
+            }
+        case binary(b):
+            append(mut stack, b.x)?
+            append(mut stack, b.y)?
+        case unary(u):
+            append(mut stack, u.x)?
+        case selector(s):
+            append(mut stack, s.x)?
+        case index(ix):
+            append(mut stack, ix.x)?
+            append(mut stack, ix.index)?
+        case slice(s):
+            append(mut stack, s.x)?
+            if !ast.is_none(s.lo) {
+                append(mut stack, s.lo)?
+            }
+            if !ast.is_none(s.hi) {
+                append(mut stack, s.hi)?
+            }
+        default:
+            return false, noerror
+        }
+    }
+    return true, noerror
+}
+
+// has_call reports whether evaluating e calls a function, Go's hasCall: a
+// call whose value is not a constant recorded on it.
+func has_call(trees []ast.File, e Key) (bool, error) {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, e.node)?
+    for len(stack) > 0 {
+        n := pop(mut stack)
+        k := sub(e, n)
+        switch kind_at(trees, k) {
+        case call:
+            return true, noerror
+        default:
+        }
+        push_children(trees, k, mut stack)?
+    }
+    return false, noerror
+}
+
+// is_len_call reports whether the call k calls the builtin len, Go's
+// isLen.
+func is_len_call(trees []ast.File, none []uint8, k Key) bool {
+    switch kind_at(trees, k) {
+    case call(cl):
+        nm, ok := ident_at(trees, sub(k, cl.fn))
+        return ok && bytes_equal(text_at(trees, none, k.unit, nm.name), []uint8("len")) && nm.def.kind == ast.def_builtin
+    default:
+        return false
+    }
+}
+
+// construction returns, when e builds a value of a union, Go's
+// ast.Construction, the union's declaration and the selector naming the
+// case, and true: a call of Expr.int or Expr.eof alone, of a union the
+// resolver bound the name to, naming one of its cases.
+func construction(trees []ast.File, none []uint8, e Key) (Key, Key, bool) {
+    mut sel := no_key()
+    switch kind_at(trees, e) {
+    case call(cl):
+        switch kind_at(trees, sub(e, cl.fn)) {
+        case selector:
+            sel = sub(e, cl.fn)
+        default:
+        }
+    case selector:
+        sel = e
+    default:
+    }
+    if is_no_key(sel) {
+        return no_key(), no_key(), false
+    }
+    switch kind_at(trees, sel) {
+    case selector(s):
+        nm, is_id := ident_at(trees, sub(sel, s.x))
+        if !is_id || nm.def.kind != ast.def_type {
+            return no_key(), no_key(), false
+        }
+        td := key_of_def(nm.def)
+        tdecl := type_decl_of(trees, td)
+        switch kind_at(trees, sub(td, tdecl.type_expr)) {
+        case union_type(cs):
+            for i := range count_items(trees, td.unit, cs) {
+                uk := item_at(trees, td.unit, cs, i)
+                switch kind_at(trees, uk) {
+                case union_case(uc):
+                    if bytes_equal(text_at(trees, none, uk.unit, uc.name), text_at(trees, none, sel.unit, s.name)) {
+                        return td, sel, true
+                    }
+                default:
+                }
+            }
+            return no_key(), no_key(), false
+        default:
+            return no_key(), no_key(), false
+        }
+    default:
+        return no_key(), no_key(), false
+    }
+}

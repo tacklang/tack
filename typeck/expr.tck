@@ -1,0 +1,1179 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import fmt from "std/fmt"
+import types from "tack/types"
+
+// The expressions a declaration's check meets: a global's initializer,
+// a constant expression (see is_constant), and an array type's length,
+// which may be any expression and must turn out a constant. The checks
+// are Go's (expr.go and the files it calls), as far as such expressions
+// reach. What only a function body has, a call of a function, a mut
+// argument, a closure, a type assertion, is declined as not ported, and
+// a proof the port does not make yet, that arithmetic on a value not
+// known does not overflow or that an index not known is in range, is
+// taken as holding and recorded as assumed.
+//
+// Go's expr recurses into every operand. The operand first checked, the
+// left one of a binary operator, what a selector, an index or a slice
+// applies to, can nest without end, a + b + c, a node deeper for each
+// link, so expr walks down that chain, the spine, in a loop, checking its
+// last link first, as Go's recursion does, and finishes each link on the
+// way back up; what the links hold besides nests only as deeply as the
+// parser lets a program nest, so the recursion through it is bounded.
+
+// op_name returns how the operator op is written, Go's BinaryOp.String.
+func op_name(op ast.BinaryOp) string {
+    if op == ast.op_add {
+        return "+"
+    }
+    if op == ast.op_sub {
+        return "-"
+    }
+    if op == ast.op_mul {
+        return "*"
+    }
+    if op == ast.op_div {
+        return "/"
+    }
+    if op == ast.op_rem {
+        return "%"
+    }
+    if op == ast.op_eq {
+        return "=="
+    }
+    if op == ast.op_ne {
+        return "!="
+    }
+    if op == ast.op_lt {
+        return "<"
+    }
+    if op == ast.op_le {
+        return "<="
+    }
+    if op == ast.op_gt {
+        return ">"
+    }
+    if op == ast.op_ge {
+        return ">="
+    }
+    if op == ast.op_and {
+        return "&&"
+    }
+    if op == ast.op_or {
+        return "||"
+    }
+    if op == ast.op_bit_and {
+        return "&"
+    }
+    if op == ast.op_bit_or {
+        return "|"
+    }
+    if op == ast.op_bit_xor {
+        return "^"
+    }
+    if op == ast.op_and_not {
+        return "&^"
+    }
+    if op == ast.op_shl {
+        return "<<"
+    }
+    if op == ast.op_shr {
+        return ">>"
+    }
+    if op == ast.op_add_wrap {
+        return "+%"
+    }
+    if op == ast.op_sub_wrap {
+        return "-%"
+    }
+    if op == ast.op_mul_wrap {
+        return "*%"
+    }
+    return "invalid operator"
+}
+
+// spine_operand returns the operand of k that Go's check of k checks
+// first and as an expression, which expr walks down into, or no key for
+// a k that is no link: a binary's left operand, and what a selector, an
+// index or a slice applies to, unless that is a name, whose check is
+// the link's own.
+func (mut c Checker) spine_operand(k Key) Key {
+    switch kind_at(c.prog.trees, k) {
+    case binary(b):
+        return sub(k, b.x)
+    case selector(s):
+        _, is_id := ident_at(c.prog.trees, sub(k, s.x))
+        if is_id || !ast.is_none(s.field) {
+            return no_key()
+        }
+        return sub(k, s.x)
+    case index(ix):
+        _, is_id := ident_at(c.prog.trees, sub(k, ix.x))
+        if is_id {
+            return no_key()
+        }
+        return sub(k, ix.x)
+    case slice(s):
+        _, is_id := ident_at(c.prog.trees, sub(k, s.x))
+        if is_id {
+            return no_key()
+        }
+        return sub(k, s.x)
+    default:
+        return no_key()
+    }
+}
+
+// expr checks the expression k and returns its type, Go's expr.
+//
+// A spine whose check is suspended (see check_globals) at one of its
+// links keeps where it got, its links and the type of the operand below
+// that link, so that its global, checked again from the start, goes on
+// from that link rather than through the whole spine again: a global
+// adding up many others each needing a chain of its own checks in time
+// linear in their number.
+func (mut c Checker) expr(k Key) (types.Type, error) {
+    c.depth +%= 1
+    mut links := make(list[Key], c_allocator)
+    mut typ := types.invalid
+    mut i int64 = 0
+    mut resumed := false
+    if c.suppressing {
+        mut st, saved := delete(mut c.spines, k)
+        if saved {
+            links = replace(mut st.links, make(list[Key], c_allocator))
+            typ = st.typ
+            i = st.next
+            resumed = true
+        }
+    }
+    if !resumed {
+        mut x := k
+        mut next := mut c.spine_operand(x)
+        for !is_no_key(next) {
+            append(mut links, x)?
+            x = next
+            next = mut c.spine_operand(x)
+        }
+        typ = mut c.expr_node(x)?
+        i = len(links)
+    }
+    for i > 0 {
+        i -%= 1
+        l, ok := links[i]
+        if !ok {
+            continue
+        }
+        r, e := mut c.finish_link(l, typ)
+        if e.code == suspend.code {
+            put(mut c.spines, k, SpineState{links: links, next: i +% 1, typ: typ})?
+            return types.invalid, e
+        }
+        if e.code != 0 {
+            return types.invalid, e
+        }
+        typ = r
+    }
+    c.depth -%= 1
+    return typ, noerror
+}
+
+// SpineState is where the check of a spine was suspended: its links,
+// how many of them, from the last, are left to finish, and the type of
+// the operand the next one finishes.
+type SpineState struct {
+    links list[Key]
+    next int64
+    typ types.Type
+}
+
+// finish_link finishes checking l, a link of a spine whose operand has
+// been checked as x.
+func (mut c Checker) finish_link(l Key, x types.Type) (types.Type, error) {
+    switch kind_at(c.prog.trees, l) {
+    case binary(b):
+        typ := mut c.binary(l, b, x)?
+        mut c.set_node_type(l, typ)?
+        return typ, noerror
+    case selector(s):
+        base := mut c.value_of(sub(l, s.x), x)?
+        typ := mut c.field(l, s, base)?
+        mut c.set_node_type(l, typ)?
+        return typ, noerror
+    case index(ix):
+        typ := mut c.index_of(l, ix, x)?
+        mut c.set_node_type(l, typ)?
+        return typ, noerror
+    case slice(s):
+        typ := mut c.slice_of(l, s, x)?
+        return typ, noerror
+    default:
+        return types.invalid, not_ported
+    }
+}
+
+// expr_node checks k, an expression that is no link of a spine, or the
+// last link of one, Go's exprAt for it.
+func (mut c Checker) expr_node(k Key) (types.Type, error) {
+    switch kind_at(c.prog.trees, k) {
+    case int_lit:
+        mut c.set_node_type(k, types.untyped_int)?
+        return types.untyped_int, noerror
+    case float_lit:
+        mut c.set_node_type(k, types.untyped_float)?
+        return types.untyped_float, noerror
+    case char_lit:
+        return types.uint8_type, noerror
+    case str_lit:
+        return types.string_type, noerror
+    case bool_lit:
+        return types.bool_type, noerror
+    case noerror_lit:
+        return types.error_type, noerror
+    case c_allocator_lit:
+        return types.allocator, noerror
+    case ident(nm):
+        typ := mut c.ident(k, nm)?
+        return typ, noerror
+    case call(cl):
+        typ := mut c.call_value(k, cl)?
+        return typ, noerror
+    case binary(b):
+        x := mut c.expr(sub(k, b.x))?
+        typ := mut c.binary(k, b, x)?
+        mut c.set_node_type(k, typ)?
+        return typ, noerror
+    case unary(u):
+        typ := mut c.unary(k, u)?
+        mut c.set_node_type(k, typ)?
+        return typ, noerror
+    case composite_lit(lit):
+        typ := mut c.composite_lit(k, lit)?
+        return typ, noerror
+    case index(ix):
+        typ := mut c.index_expr(k, ix)?
+        mut c.set_node_type(k, typ)?
+        return typ, noerror
+    case slice(s):
+        x := mut c.expr(sub(k, s.x))?
+        typ := mut c.slice_of(k, s, x)?
+        return typ, noerror
+    case selector(s):
+        typ := mut c.selector(k, s)?
+        return typ, noerror
+    default:
+        // A ?, a mut or own argument, a type written as a value, a type
+        // assertion, a closure, fields(T): only a body has them, or Go
+        // reports them in a way the port does not word yet.
+        return types.invalid, not_ported
+    }
+}
+
+// ident checks a name used as a value and returns its type, Go's ident:
+// a variable's or a parameter's. A package-level variable not checked
+// yet is checked now, or its check suspended (see ensure_global), and
+// then this name is where the check of the global naming it goes on
+// from.
+func (mut c Checker) ident(k Key, nm ast.Ident) (types.Type, error) {
+    if nm.def.is_none() {
+        mut m := msg()
+        fmt.appendf(mut m, "undefined: ")?
+        qualified(c.prog.trees, c.none, k.unit, nm, mut m)?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    }
+    unbound := mut c.unbound(k, nm)?
+    if unbound {
+        return types.invalid, noerror
+    }
+    if nm.def.kind == ast.def_func || nm.def.kind == ast.def_builtin {
+        // A function used as a value: a global's initializer naming one
+        // is reported before it is checked; an array length naming one
+        // Go reports in words the port does not have yet.
+        return types.invalid, not_ported
+    }
+    if nm.def.kind == ast.def_var {
+        v := key_of_def(nm.def)
+        _, global := c.globals[v]
+        if global {
+            if c.suppressing && k == c.suppress_until {
+                c.suppressing = false
+            }
+            // The global whose check this name is in, which a suspension
+            // unwinds, is the innermost being checked before the call.
+            me, has_me := c.init_stack[len(c.init_stack) -% 1]
+            e := mut c.ensure_global(v, span_at(c.prog.trees, k))
+            if e.code == suspend.code {
+                if has_me {
+                    append(mut c.unwound, Pending{v: me, resume: k})?
+                }
+                return types.invalid, suspend
+            }
+            if e.code != 0 {
+                return types.invalid, e
+            }
+        }
+        return decl_type_of(c.decl_types, v), noerror
+    }
+    if nm.def.kind == ast.def_param {
+        return decl_type_of(c.decl_types, key_of_def(nm.def)), noerror
+    }
+    return types.invalid, noerror
+}
+
+// value_of gives e, of type got, a type of its own where nothing else
+// does, Go's valueOf: an untyped integer constant becomes an int64, an
+// untyped float a float64, if its value fits.
+func (mut c Checker) value_of(e Key, got types.Type) (types.Type, error) {
+    if got == types.untyped_int {
+        ok := mut c.settle(e, types.int64_type)?
+        if !ok {
+            return types.invalid, noerror
+        }
+        return types.int64_type, noerror
+    }
+    if got == types.untyped_float {
+        ok := mut c.settle_float(e, types.float64_type)?
+        if !ok {
+            return types.invalid, noerror
+        }
+        return types.float64_type, noerror
+    }
+    return got, noerror
+}
+
+// settle gives the untyped constant expression e the integer type typ, if
+// its value is one of typ's, Go's settle: the type is recorded on e
+// alone.
+func (mut c Checker) settle(e Key, typ types.Type) (bool, error) {
+    value, _ := mut c.const_value(e)
+    if !fits_portably(value, typ) {
+        n := mut c.type_name(typ)?
+        mut m := msg()
+        fmt.appendf(mut m, "constant ")?
+        value.append_string(mut m)?
+        fmt.appendf(mut m, " overflows %s", n[:])?
+        if types.target_width(typ) && !value.is_negative() {
+            fmt.appendf(mut m, ": its width is unknown, so a constant must be at most %d", types.portable_max)?
+        }
+        mut c.errorf(span_at(c.prog.trees, e), own m)?
+        return false, noerror
+    }
+    switch kind_at(c.prog.trees, e) {
+    case int_lit, binary, unary:
+        mut c.set_node_type(e, typ)?
+    default:
+    }
+    return true, noerror
+}
+
+// float_value returns the exact value of an untyped constant expression,
+// an integer or a float one, as a float constant, and whether e is one,
+// Go's floatValue.
+func (mut c Checker) float_value(e Key) (constant.Float, bool, error) {
+    switch kind_at(c.prog.trees, e) {
+    case float_lit(s):
+        f, ok := constant.parse_float(text_at(c.prog.trees, c.none, e.unit, s), c_allocator)?
+        return f, ok, noerror
+    case int_lit(lit):
+        f := constant.float_from_int(lit.value, c_allocator)?
+        return f, true, noerror
+    case binary, unary, call:
+        v := const_of(c.consts, e)
+        if v.kind == cv_float {
+            f, has := clone_float(c.store.floats, v.first)?
+            return f, has, noerror
+        }
+        if v.kind == cv_int {
+            f := constant.float_from_int(v.i, c_allocator)?
+            return f, true, noerror
+        }
+    default:
+    }
+    z := constant.float_zero(c_allocator)?
+    return z, false, noerror
+}
+
+// clone_float returns a copy of the i'th of floats, and whether there is
+// one.
+func clone_float(floats []constant.Float, i int64) (constant.Float, bool, error) {
+    if i < 0 || i >= len(floats) {
+        z := constant.float_zero(c_allocator)?
+        return z, false, noerror
+    }
+    f := floats[i].clone(c_allocator)?
+    return f, true, noerror
+}
+
+// settle_float gives the untyped constant expression e the float type
+// typ, if its value rounds to a finite value of typ, Go's settleFloat.
+// One too large Go reports with its value written out, which the port
+// does not write yet.
+func (mut c Checker) settle_float(e Key, typ types.Type) (bool, error) {
+    value, _ := mut c.float_value(e)?
+    mut finite := false
+    if typ == types.float32_type {
+        _, f := value.float32_bits(c_allocator)?
+        finite = f
+    } else {
+        _, f := value.float64_bits(c_allocator)?
+        finite = f
+    }
+    if !finite {
+        return false, not_ported
+    }
+    switch kind_at(c.prog.trees, e) {
+    case int_lit, float_lit, binary, unary:
+        mut c.set_node_type(e, typ)?
+    default:
+    }
+    return true, noerror
+}
+
+// use checks that e, of type got, can be used where a value of type want
+// is expected, as context says, Go's use: an untyped constant takes want
+// as its type if its value fits, and a typed value must be of type want
+// or widen to it.
+func (mut c Checker) use(e Key, got types.Type, want types.Type, context list[uint8]) (bool, error) {
+    if got == types.invalid || want == types.invalid {
+        return false, noerror
+    }
+    mut g := got
+    if types.is_untyped(got) {
+        if types.is_float(want) && !types.is_untyped(want) {
+            ok := mut c.settle_float(e, want)?
+            return ok, noerror
+        }
+        if got == types.untyped_int && types.is_integer(want) {
+            ok := mut c.settle(e, want)?
+            return ok, noerror
+        }
+        g = mut c.value_of(e, got)?
+        if g == types.invalid {
+            return false, noerror
+        }
+    }
+    if !types.widens(g, want) {
+        a := mut c.type_name(g)?
+        b := mut c.type_name(want)?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot use %s as %s %s", a[:], b[:], context[:])?
+        mut c.errorf(span_at(c.prog.trees, e), own m)?
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// set_const records v as the constant value of the expression k.
+func (mut c Checker) set_const(k Key, v Const) error {
+    put(mut c.consts, k, v)?
+    return noerror
+}
+
+// binary checks an infix expression k, its left operand checked as x, and
+// returns its type, Go's binary: a bool for a comparison or a logical
+// operator, the operands' common type for arithmetic. What the left side
+// of && or || says holds in the right side: the port does not keep facts
+// yet, and a constant's checks need none.
+func (mut c Checker) binary(k Key, b ast.Binary, x types.Type) (types.Type, error) {
+    if c.in_clause && b.op == ast.op_and {
+        // The left side's last operand is in force from here on, the
+        // ones before it from the links below.
+        mut last := sub(k, b.x)
+        switch kind_at(c.prog.trees, last) {
+        case binary(lb):
+            if lb.op == ast.op_and {
+                last = sub(last, lb.y)
+            }
+        default:
+        }
+        mut c.clause_bound(last)?
+    }
+    y := mut c.expr(sub(k, b.y))?
+    if is_logical_op(b.op) {
+        ok := mut c.operands_defined(k, b, x, y, 1)?
+        if ok {
+            return types.bool_type, noerror
+        }
+        return types.invalid, noerror
+    }
+    if is_comparison_op(b.op) {
+        mut c.comparison(k, b, x, y)?
+        return types.bool_type, noerror
+    }
+    if b.op == ast.op_shl || b.op == ast.op_shr {
+        typ := mut c.shift(k, b, x, y)?
+        return typ, noerror
+    }
+    if is_wrapping_op(b.op) {
+        ok := mut c.operands_defined(k, b, x, y, 2)?
+        if !ok {
+            return types.invalid, noerror
+        }
+        if x == types.untyped_int && y == types.untyped_int {
+            // Go words this with a suggested conversion the port does
+            // not write yet.
+            return types.invalid, not_ported
+        }
+        typ := mut c.typed_arithmetic(k, b, x, y)?
+        return typ, noerror
+    }
+    if types.is_float(x) || types.is_float(y) {
+        typ := mut c.float_arithmetic(k, b, x, y)?
+        return typ, noerror
+    }
+    typ := mut c.int_arithmetic(k, b, x, y)?
+    return typ, noerror
+}
+
+// defined reports whether typ is one the test which accepts: 1 a bool,
+// 2 an integer, 3 a number.
+func defined(typ types.Type, which uint8) bool {
+    if which == 1 {
+        return typ == types.bool_type
+    }
+    if which == 2 {
+        return types.is_integer(typ)
+    }
+    return types.is_numeric(typ)
+}
+
+// operands_defined reports whether b's operator is defined on both its
+// operands, of types x and y, by the test which, Go's operandsDefined,
+// reporting the first operand it is not.
+func (mut c Checker) operands_defined(k Key, b ast.Binary, x types.Type, y types.Type, which uint8) (bool, error) {
+    if x == types.invalid || y == types.invalid {
+        return false, noerror
+    }
+    if defined(x, which) && defined(y, which) {
+        return true, noerror
+    }
+    mut operand := sub(k, b.x)
+    mut got := x
+    if defined(x, which) {
+        operand = sub(k, b.y)
+        got = y
+    }
+    got = mut c.value_of(operand, got)?
+    if got != types.invalid {
+        n := mut c.type_name(got)?
+        mut m := msg()
+        fmt.appendf(mut m, "operator %s is not defined on %s", op_name(b.op), n[:])?
+        mut c.errorf(span_at(c.prog.trees, operand), own m)?
+    }
+    return false, noerror
+}
+
+// int_arithmetic is arithmetic on operands of which neither is a float,
+// Go's intArithmetic.
+func (mut c Checker) int_arithmetic(k Key, b ast.Binary, x types.Type, y types.Type) (types.Type, error) {
+    ok := mut c.operands_defined(k, b, x, y, 2)?
+    if !ok {
+        return types.invalid, noerror
+    }
+    if x == types.untyped_int && y == types.untyped_int {
+        typ := mut c.fold_arithmetic(k, b)?
+        return typ, noerror
+    }
+    typ := mut c.typed_arithmetic(k, b, x, y)?
+    if typ == types.invalid {
+        return types.invalid, noerror
+    }
+    mut nonzero := true
+    if b.op == ast.op_div || b.op == ast.op_rem {
+        nonzero = mut c.require_nonzero(sub(k, b.y))?
+    }
+    over := mut c.known_overflow(k, b, typ)?
+    if over {
+        return types.invalid, noerror
+    }
+    if b.op == ast.op_div && nonzero {
+        mut c.set_node_type(k, typ)?
+        mut c.require_no_overflow(k, b)?
+    }
+    if b.op == ast.op_add || b.op == ast.op_sub || b.op == ast.op_mul {
+        mut c.set_node_type(k, typ)?
+        mut c.require_no_overflow(k, b)?
+    }
+    return typ, noerror
+}
+
+// require_nonzero reports a divisor not proven non-zero, Go's
+// requireNonzero, and returns whether it is proven: a known value is
+// decided; any other would need the facts in force, which the port does
+// not keep yet, so it is assumed.
+func (mut c Checker) require_nonzero(divisor Key) (bool, error) {
+    v, known := mut c.known_value(divisor)?
+    if known {
+        if v.is_zero() {
+            mut m := msg()
+            fmt.appendf(mut m, "division by zero")?
+            mut c.errorf(span_at(c.prog.trees, divisor), own m)?
+            return false, noerror
+        }
+        return true, noerror
+    }
+    // A divisor whose value is not known needs the facts in force, which
+    // the port does not keep yet. Before bodies every value of a constant
+    // expression is known unless an error came first, so this is declined.
+    return false, not_ported
+}
+
+// require_no_overflow is Go's requireNoOverflow and
+// requireNoQuotientOverflow for the arithmetic b at k: on known operands
+// knownOverflow has reported any that does not fit, so it holds; on any
+// other the proof needs facts and relations, which the port does not
+// have yet, so it is assumed.
+func (mut c Checker) require_no_overflow(k Key, b ast.Binary) error {
+    _, ok_x := mut c.known_value(sub(k, b.x))?
+    _, ok_y := mut c.known_value(sub(k, b.y))?
+    if ok_x && ok_y {
+        return noerror
+    }
+    // In an ensures clause, x + 1 with x < len(s) in force, which no
+    // length lets reach the largest int64, is proven, as Go's provers
+    // prove it.
+    if c.in_clause && b.op == ast.op_add {
+        nm, is_id := ident_at(c.prog.trees, sub(k, b.x))
+        one, ok_one := mut c.known_value(sub(k, b.y))?
+        _, bounded := c.clause_upper[key_of_def(nm.def)]
+        if is_id && nm.def.kind == ast.def_param && ok_one && one.cmp(constant.from_int64(1)) == 0 && bounded {
+            return noerror
+        }
+    }
+    // An operand not known needs the provers, which the port does not
+    // have yet; before bodies that happens only after an error, which Go
+    // may follow with one of its own, or in a clause, so it is declined.
+    return not_ported
+}
+
+// typed_arithmetic returns the type arithmetic on operands of types x and
+// y works in when at least one is typed, Go's typedArithmetic.
+func (mut c Checker) typed_arithmetic(k Key, b ast.Binary, x types.Type, y types.Type) (types.Type, error) {
+    if x == types.untyped_int {
+        ok := mut c.settle(sub(k, b.x), y)?
+        if !ok {
+            return types.invalid, noerror
+        }
+        return y, noerror
+    }
+    if y == types.untyped_int {
+        ok := mut c.settle(sub(k, b.y), x)?
+        if !ok {
+            return types.invalid, noerror
+        }
+        return x, noerror
+    }
+    if types.widens(x, y) {
+        return y, noerror
+    }
+    if types.widens(y, x) {
+        return x, noerror
+    }
+    mut c.mismatched(k, b, x, y)?
+    return types.invalid, noerror
+}
+
+// mismatched reports b's operands, of types x and y, as of no one type.
+func (mut c Checker) mismatched(k Key, b ast.Binary, x types.Type, y types.Type) error {
+    a := mut c.type_name(x)?
+    n := mut c.type_name(y)?
+    mut m := msg()
+    fmt.appendf(mut m, "mismatched types %s and %s in %s", a[:], n[:], op_name(b.op))?
+    return mut c.errorf(span_at(c.prog.trees, k), own m)
+}
+
+// known_overflow reports typed arithmetic whose operands are both known
+// but whose exact result is not a value of its type typ, Go's
+// knownOverflow, and returns whether it did.
+func (mut c Checker) known_overflow(k Key, b ast.Binary, typ types.Type) (bool, error) {
+    a, ok_a := mut c.known_value(sub(k, b.x))?
+    v, ok_b := mut c.known_value(sub(k, b.y))?
+    if !ok_a || !ok_b || (b.op == ast.op_div || b.op == ast.op_rem) && v.is_zero() {
+        return false, noerror
+    }
+    _, fits := known_step(b.op, a, v, typ)
+    if fits {
+        return false, noerror
+    }
+    exact, in_range := known_step(b.op, a, v, types.untyped_int)
+    if types.target_width(typ) && in_range {
+        is_const := mut c.is_constant_expr(k)?
+        if !exact.is_negative() && !is_const && len(c.init_stack) == 0 {
+            return false, noerror
+        }
+    }
+    n := mut c.type_name(typ)?
+    mut m := msg()
+    fmt.appendf(mut m, "constant expression overflows %s", n[:])?
+    if types.target_width(typ) && in_range && !exact.is_negative() {
+        fmt.appendf(mut m, ": its width is unknown, so a constant must be at most %d", types.portable_max)?
+    }
+    mut c.errorf(span_at(c.prog.trees, k), own m)?
+    return true, noerror
+}
+
+// is_constant_expr reports whether k is made of literals, conversions and
+// operators alone, and len of an array or of a string literal, Go's
+// isConstantExpr, by a walk with a stack of its own.
+func (mut c Checker) is_constant_expr(k Key) (bool, error) {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, k.node)?
+    for len(stack) > 0 {
+        n := pop(mut stack)
+        e := sub(k, n)
+        switch kind_at(c.prog.trees, e) {
+        case int_lit, char_lit:
+        case binary(b):
+            append(mut stack, b.x)?
+            append(mut stack, b.y)?
+        case unary(u):
+            append(mut stack, u.x)?
+        case call(cl):
+            if cl.conv != types.invalid {
+                if count_items(c.prog.trees, e.unit, cl.args) != 1 {
+                    return false, noerror
+                }
+                append(mut stack, item_at(c.prog.trees, e.unit, cl.args, 0).node)?
+            } else if const_of(c.consts, e).kind == cv_none {
+                return false, noerror
+            }
+        default:
+            return false, noerror
+        }
+    }
+    return true, noerror
+}
+
+// fold_arithmetic computes an arithmetic or bitwise operator on two
+// untyped constants exactly, recording the value on k, Go's
+// foldArithmetic.
+func (mut c Checker) fold_arithmetic(k Key, b ast.Binary) (types.Type, error) {
+    a, _ := mut c.const_value(sub(k, b.x))
+    v, _ := mut c.const_value(sub(k, b.y))
+    mut result := constant.from_int64(0)
+    mut ok := false
+    if b.op == ast.op_add {
+        result, ok = a.add(v)
+    } else if b.op == ast.op_sub {
+        result, ok = a.sub(v)
+    } else if b.op == ast.op_mul {
+        result, ok = a.mul(v)
+    } else if is_bitwise_op(b.op) {
+        result, ok = bitwise_step(b.op, a, v)
+    } else {
+        if v.is_zero() {
+            mut m := msg()
+            fmt.appendf(mut m, "division by zero in constant expression")?
+            mut c.errorf(span_at(c.prog.trees, k), own m)?
+            return types.invalid, noerror
+        }
+        if b.op == ast.op_div {
+            result, ok = a.quo(v)
+        } else {
+            result, ok = a.rem(v)
+        }
+    }
+    if !ok {
+        mut m := msg()
+        fmt.appendf(mut m, "constant expression is out of range")?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    }
+    mut c.set_const(k, int_const(result))?
+    return types.untyped_int, noerror
+}
+
+// float_arithmetic checks arithmetic with a float among its operands, Go's
+// floatArithmetic: only + - * and /, on numbers; two untyped constants
+// are computed exactly; a typed float and an untyped constant work in
+// the float's type; two typed operands must have the same float type.
+func (mut c Checker) float_arithmetic(k Key, b ast.Binary, x types.Type, y types.Type) (types.Type, error) {
+    ok := mut c.operands_defined(k, b, x, y, 3)?
+    if !ok {
+        return types.invalid, noerror
+    }
+    if b.op != ast.op_add && b.op != ast.op_sub && b.op != ast.op_mul && b.op != ast.op_div {
+        mut operand := sub(k, b.x)
+        mut got := x
+        if !types.is_float(x) {
+            operand = sub(k, b.y)
+            got = y
+        }
+        got = mut c.value_of(operand, got)?
+        if got != types.invalid {
+            n := mut c.type_name(got)?
+            mut m := msg()
+            fmt.appendf(mut m, "operator %s is not defined on %s", op_name(b.op), n[:])?
+            mut c.errorf(span_at(c.prog.trees, operand), own m)?
+        }
+        return types.invalid, noerror
+    }
+    if types.is_untyped(x) && types.is_untyped(y) {
+        typ := mut c.fold_float(k, b)?
+        return typ, noerror
+    }
+    if types.is_untyped(x) && types.is_float(y) {
+        ok_x := mut c.settle_float(sub(k, b.x), y)?
+        if !ok_x {
+            return types.invalid, noerror
+        }
+        return y, noerror
+    }
+    if types.is_untyped(y) && types.is_float(x) {
+        ok_y := mut c.settle_float(sub(k, b.y), x)?
+        if !ok_y {
+            return types.invalid, noerror
+        }
+        return x, noerror
+    }
+    vx := mut c.value_of(sub(k, b.x), x)?
+    vy := mut c.value_of(sub(k, b.y), y)?
+    if vx == types.invalid || vy == types.invalid {
+        return types.invalid, noerror
+    }
+    if vx != vy {
+        mut c.mismatched(k, b, vx, vy)?
+        return types.invalid, noerror
+    }
+    return vx, noerror
+}
+
+// fold_float computes + - * or / on two untyped constants, at least one
+// a float, exactly, recording the value on k, Go's foldFloat.
+func (mut c Checker) fold_float(k Key, b ast.Binary) (types.Type, error) {
+    a, _ := mut c.float_value(sub(k, b.x))?
+    v, _ := mut c.float_value(sub(k, b.y))?
+    mut ok := false
+    mut result := constant.float_zero(c_allocator)?
+    if b.op == ast.op_add {
+        result, ok = a.add(v, c_allocator)?
+    } else if b.op == ast.op_sub {
+        result, ok = a.sub(v, c_allocator)?
+    } else if b.op == ast.op_mul {
+        result, ok = a.mul(v, c_allocator)?
+    } else {
+        if v.is_zero() {
+            mut m := msg()
+            fmt.appendf(mut m, "division by zero in constant expression")?
+            mut c.errorf(span_at(c.prog.trees, k), own m)?
+            return types.invalid, noerror
+        }
+        result, ok = a.quo(v, c_allocator)?
+    }
+    if !ok {
+        mut m := msg()
+        fmt.appendf(mut m, "constant expression is out of range")?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    }
+    cv := mut c.store.float_const(own result)?
+    mut c.set_const(k, cv)?
+    return types.untyped_float, noerror
+}
+
+// comparison checks a comparison of operands of types x and y, Go's
+// comparison: two untyped constants are compared exactly; an untyped one
+// takes the other's type; two integers of any types compare; any other
+// two must have one type that supports the operator.
+func (mut c Checker) comparison(k Key, b ast.Binary, x types.Type, y types.Type) error {
+    if x == types.invalid || y == types.invalid {
+        return noerror
+    }
+    if types.is_untyped(x) && types.is_untyped(y) {
+        return mut c.fold_comparison(k, b)
+    }
+    ux := mut c.untyped_as(sub(k, b.x), x, y)?
+    uy := mut c.untyped_as(sub(k, b.y), y, x)?
+    if ux == types.invalid || uy == types.invalid || types.is_integer(ux) && types.is_integer(uy) {
+        return noerror
+    }
+    mut common := types.invalid
+    if types.widens(ux, uy) {
+        common = uy
+    } else if types.widens(uy, ux) {
+        common = ux
+    } else {
+        return mut c.mismatched(k, b, ux, uy)
+    }
+    sup := mut c.supports(common, b.op)?
+    if !sup {
+        n := mut c.type_name(common)?
+        mut m := msg()
+        fmt.appendf(mut m, "operator %s is not defined on %s", op_name(b.op), n[:])?
+        return mut c.errorf(span_at(c.prog.trees, k), own m)
+    }
+    owned := c.table.owned(common)?
+    if owned {
+        // Go checks the borrows of a comparison of owned values, which
+        // no constant is.
+        return not_ported
+    }
+    return noerror
+}
+
+// supports reports whether values of type typ compare with op, Go's
+// supports.
+func (mut c Checker) supports(typ types.Type, op ast.BinaryOp) (bool, error) {
+    if types.is_numeric(typ) || typ == types.string_type {
+        return true, noerror
+    }
+    if op != ast.op_eq && op != ast.op_ne {
+        return false, noerror
+    }
+    r := mut c.comparable(typ)?
+    return r, noerror
+}
+
+// fold_comparison compares k's two untyped constant operands exactly, as
+// floats when either is one, and records the result on k, Go's
+// foldComparison.
+func (mut c Checker) fold_comparison(k Key, b ast.Binary) error {
+    a, ok_a := mut c.const_value(sub(k, b.x))
+    v, ok_b := mut c.const_value(sub(k, b.y))
+    if ok_a && ok_b {
+        return mut c.set_const(k, bool_const(compare(b.op, a.cmp(v))))
+    }
+    fa, _ := mut c.float_value(sub(k, b.x))?
+    fb, _ := mut c.float_value(sub(k, b.y))?
+    r := fa.cmp(fb, c_allocator)?
+    return mut c.set_const(k, bool_const(compare(b.op, r)))
+}
+
+// compare applies a comparison operator to the result of comparing two
+// values, -1, 0 or 1, Go's compare.
+func compare(op ast.BinaryOp, cmp int64) bool {
+    if op == ast.op_eq {
+        return cmp == 0
+    }
+    if op == ast.op_ne {
+        return cmp != 0
+    }
+    if op == ast.op_lt {
+        return cmp < 0
+    }
+    if op == ast.op_le {
+        return cmp <= 0
+    }
+    if op == ast.op_gt {
+        return cmp > 0
+    }
+    return cmp >= 0
+}
+
+// untyped_as settles operand, of type got, to the type other of the
+// operand it is compared with, when got is untyped, Go's untypedAs.
+func (mut c Checker) untyped_as(operand Key, got types.Type, other types.Type) (types.Type, error) {
+    if !types.is_untyped(got) {
+        return got, noerror
+    }
+    if types.is_float(other) && !types.is_untyped(other) {
+        ok := mut c.settle_float(operand, other)?
+        if !ok {
+            return types.invalid, noerror
+        }
+        return other, noerror
+    }
+    if got == types.untyped_int && types.is_integer(other) && other != types.untyped_int {
+        ok := mut c.settle(operand, other)?
+        if !ok {
+            return types.invalid, noerror
+        }
+        return other, noerror
+    }
+    t := mut c.value_of(operand, got)?
+    return t, noerror
+}
+
+// shift checks x << n or x >> n, Go's shift: x an integer and n an
+// unsigned integer or an untyped constant not negative.
+func (mut c Checker) shift(k Key, b ast.Binary, x types.Type, y types.Type) (types.Type, error) {
+    if x == types.invalid || y == types.invalid {
+        return types.invalid, noerror
+    }
+    left_ok := types.is_integer(x)
+    if !left_ok {
+        got := mut c.value_of(sub(k, b.x), x)?
+        if got != types.invalid {
+            n := mut c.type_name(got)?
+            mut m := msg()
+            fmt.appendf(mut m, "operator %s is not defined on %s", op_name(b.op), n[:])?
+            mut c.errorf(span_at(c.prog.trees, sub(k, b.x)), own m)?
+        }
+    }
+    count_ok := mut c.shift_count(sub(k, b.y), y)?
+    if !count_ok || !left_ok {
+        return types.invalid, noerror
+    }
+    if x == types.untyped_int && y == types.untyped_int {
+        a, _ := mut c.const_value(sub(k, b.x))
+        n, _ := mut c.const_value(sub(k, b.y))
+        result, ok := shift_step(b.op, a, n)
+        if !ok {
+            mut m := msg()
+            fmt.appendf(mut m, "constant expression is out of range")?
+            mut c.errorf(span_at(c.prog.trees, k), own m)?
+            return types.invalid, noerror
+        }
+        mut c.set_const(k, int_const(result))?
+        return types.untyped_int, noerror
+    }
+    mut typ := x
+    if x == types.untyped_int {
+        typ = types.int64_type
+        ok := mut c.settle(sub(k, b.x), typ)?
+        if !ok {
+            return types.invalid, noerror
+        }
+    }
+    if y == types.untyped_int {
+        ok := mut c.settle(sub(k, b.y), types.uint64_type)?
+        if !ok {
+            return types.invalid, noerror
+        }
+    }
+    over := mut c.known_overflow(k, b, typ)?
+    if over {
+        return types.invalid, noerror
+    }
+    return typ, noerror
+}
+
+// shift_count checks n, of type y, the count of a shift, Go's shiftCount.
+func (mut c Checker) shift_count(n Key, y types.Type) (bool, error) {
+    if y == types.invalid {
+        return false, noerror
+    }
+    if y == types.untyped_int {
+        v, _ := mut c.const_value(n)
+        if v.is_negative() {
+            mut m := msg()
+            fmt.appendf(mut m, "shift count must not be negative, got ")?
+            v.append_string(mut m)?
+            mut c.errorf(span_at(c.prog.trees, n), own m)?
+            return false, noerror
+        }
+        return true, noerror
+    }
+    if types.is_integer(y) && types.is_unsigned(y) {
+        return true, noerror
+    }
+    got := mut c.value_of(n, y)?
+    if got != types.invalid {
+        tn := mut c.type_name(got)?
+        mut m := msg()
+        fmt.appendf(mut m, "shift count must be an unsigned integer, got %s", tn[:])?
+        mut c.errorf(span_at(c.prog.trees, n), own m)?
+    }
+    return false, noerror
+}
+
+// unary checks a prefix expression k and returns its type, Go's unary.
+func (mut c Checker) unary(k Key, u ast.Unary) (types.Type, error) {
+    x := mut c.expr(sub(k, u.x))?
+    operand := sub(k, u.x)
+    if u.op == ast.unary_not {
+        if x == types.invalid {
+            return types.invalid, noerror
+        }
+        if x == types.bool_type {
+            return types.bool_type, noerror
+        }
+        got := mut c.value_of(operand, x)?
+        if got != types.invalid {
+            n := mut c.type_name(got)?
+            mut m := msg()
+            fmt.appendf(mut m, "operator ! is not defined on %s", n[:])?
+            mut c.errorf(span_at(c.prog.trees, operand), own m)?
+        }
+        return types.invalid, noerror
+    }
+    if u.op == ast.unary_complement {
+        if x == types.invalid {
+            return types.invalid, noerror
+        }
+        if x == types.untyped_int {
+            v, _ := mut c.const_value(operand)
+            flipped, ok := v.complement()
+            if !ok {
+                mut m := msg()
+                fmt.appendf(mut m, "constant expression is out of range")?
+                mut c.errorf(span_at(c.prog.trees, k), own m)?
+                return types.invalid, noerror
+            }
+            mut c.set_const(k, int_const(flipped))?
+            return types.untyped_int, noerror
+        }
+        if types.is_integer(x) {
+            return x, noerror
+        }
+        got := mut c.value_of(operand, x)?
+        if got != types.invalid {
+            n := mut c.type_name(got)?
+            mut m := msg()
+            fmt.appendf(mut m, "operator ^ is not defined on %s", n[:])?
+            mut c.errorf(span_at(c.prog.trees, operand), own m)?
+        }
+        return types.invalid, noerror
+    }
+    if u.op == ast.unary_neg_wrap {
+        if x == types.invalid {
+            return types.invalid, noerror
+        }
+        if types.is_integer(x) && x != types.untyped_int {
+            return x, noerror
+        }
+        // Go words the other cases with the source quoted and a
+        // suggestion the port does not write yet.
+        return types.invalid, not_ported
+    }
+    if x == types.invalid {
+        return types.invalid, noerror
+    }
+    if x == types.untyped_int {
+        v, _ := mut c.const_value(operand)
+        negated, ok := v.negate()
+        if !ok {
+            mut m := msg()
+            fmt.appendf(mut m, "constant expression is out of range")?
+            mut c.errorf(span_at(c.prog.trees, k), own m)?
+            return types.invalid, noerror
+        }
+        mut c.set_const(k, int_const(negated))?
+        return types.untyped_int, noerror
+    }
+    if x == types.untyped_float {
+        f, _ := mut c.float_value(operand)?
+        n := f.negate(c_allocator)?
+        cv := mut c.store.float_const(own n)?
+        mut c.set_const(k, cv)?
+        return types.untyped_float, noerror
+    }
+    if types.is_float(x) {
+        return x, noerror
+    }
+    if types.is_integer(x) && !types.is_unsigned(x) {
+        v, known := mut c.known_value(operand)?
+        if !known {
+            // As require_no_overflow declines a proof it cannot make.
+            return types.invalid, not_ported
+        }
+        n, ok := v.negate()
+        _, fits := fitting(n, ok, x)
+        if fits {
+            return x, noerror
+        }
+        tn := mut c.type_name(x)?
+        mut m := msg()
+        fmt.appendf(mut m, "constant expression overflows %s", tn[:])?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    }
+    tn := mut c.type_name(x)?
+    mut m := msg()
+    fmt.appendf(mut m, "operator - is not defined on %s", tn[:])?
+    mut c.errorf(span_at(c.prog.trees, operand), own m)?
+    return types.invalid, noerror
+}

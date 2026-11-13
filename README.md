@@ -21,12 +21,18 @@ held exactly, without the float constant's value yet; `modfile` and
 (`tack.mod`) and the packages it imports, std's among them, and put
 them together, as the Go compiler's do, but for its libraries, which
 `--check` loads, and its test mode, which `tack test` uses; and
-`resolver`, which binds every name of the program, with `types`, as far
-as the resolver needs it, the basic types, `cname`, whole, and
+`resolver`, which binds every name of the program, with `types`, the
+basic types and the `Table` that gives every other type its ID, `cname`,
+whole, and
 `builtin`, the builtins' names and the files the compiler carries
 inside it: the builtins' documentation and the C runtime with its
 header, which `tools/embed` writes into `builtin/embedded.tck` as
 string literals, since Tack has no `go:embed` (see package builtin).
+`typeck`, the type checker, has its declaration phase so far: every
+struct and union type, every global with its constant value, and every
+signature, checked as the Go compiler checks them before its first
+function body, and `constant` float constants with it, exact rationals
+rounded to float32 and float64.
 The driver answers `tack --backends` as the Go compiler does; `tack
 --lex` and `tack --ast` of a single file, a directory or an import
 path, the token dump, a header line before each file's when there are
@@ -49,7 +55,7 @@ stage the port does not implement yet. A file or directory whose
 reading fails with an error the port cannot word exactly as the Go
 compiler would is answered the same way (see package loader).
 
-The driver has one flag the Go compiler has not, `--port-loaded`, which
+The driver has two flags the Go compiler has not. `--port-loaded`
 writes what a load in full gives: the program's packages, in order,
 their directories, files and C files, what each import is bound to, the
 error count, and every diagnostic in the order it was reported.
@@ -57,6 +63,12 @@ tackc's porttest compares it with what the Go loader gives, since
 `--res` shows none of the directories, C files, the count or the
 bindings of imports no qualified name uses, and dumps nothing for a
 program with an error; it stays until the builds check those.
+`--port-types` writes what the type checker finds, as flat JSON: every
+type of the table with every query it answers, every declaration with
+the types and the value the checker recorded on it, the errors, and
+the kinds of judgment the port took as holding without proving them,
+which tackc's porttest compares with what the Go checker finds, on
+every program of the corpus the Go compiler accepts.
 
 ### Known differences
 

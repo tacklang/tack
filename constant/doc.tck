@@ -1,8 +1,7 @@
 package constant
 
 // Package constant holds the exact values of integer and float constant
-// expressions. It is a port of the Go compiler's package constant, as
-// far as the parser needs it so far.
+// expressions. It is a port of the Go compiler's package constant.
 //
 // Tack computes a constant expression, such as 1 + 2 * 3 written as
 // literals and operators, exactly, before giving it a type. Every literal
@@ -22,13 +21,17 @@ package constant
 // bit_xor here, since a field is named neg and the others read as
 // keywords elsewhere.
 //
-// A float constant is, in Go, an exact rational held by math/big, whose
-// numerator and denominator may each take at most max_bits bits. The
-// port has no Float yet, since nothing before the type checker reads a
-// float constant's value: float_literal_ok decides, exactly as Go's
-// ParseFloat does, whether a float literal can be held, using std/big,
-// and the parser keeps the literal's text. Float and its arithmetic come
-// with the type checker.
+// A float constant is an exact rational, Go's Float, here num / den
+// over std/big's integers (rat.tck), whose numerator and denominator in
+// lowest terms may each take at most max_bits bits. Go's big.Rat keeps
+// them in lowest terms always; here they are reduced only when either
+// reaches 2^max_bits, which gives the same values and the same answers
+// about them for less work. float_literal_ok decides whether a literal
+// can be held, which the parser asks, and parse_float gives its value,
+// which the type checker computes with. float64_bits and float32_bits
+// round a value to the nearest float, ties to even, as Go's big.Rat
+// does, giving the float's bits, since the port has no float arithmetic
+// of its own to hold one in, and whether it is finite.
 //
 // It is a leaf package: the parser decodes literals into it, and the
 // later stages will compute with it.

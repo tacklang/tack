@@ -1,0 +1,472 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import fmt from "std/fmt"
+import types from "tack/types"
+
+// A function's contract, func f(d int64) ensures d != 0, is checked with
+// its signature, before any body, as Go's checkContract checks it: the
+// clause's shape, that it is a bool, and that each operand of its
+// top-level && gives a fact. Proving the facts at each return is a body's
+// work, which the port does not do yet.
+//
+// Go asks factsFrom, the facts machinery, which facts an operand gives.
+// The port does not have it yet, so leaf_gives answers only for the
+// operands whose facts follow from their shape alone: a comparison of a
+// parameter, a field of a parameter that is not mut, an error's code or
+// the length of a string, a view or a list such a thing is, with a
+// constant or with another of them; has of such a map; and those that
+// give none because they name only parts of a mut parameter, compare
+// with != a value other than 0, or join with || operands about different
+// subjects. Any other operand is declined.
+
+// check_contract checks the ensures clause of the function at d, Go's
+// checkContract: an extern func's is reported; any other's shape, then
+// its type, then, when neither was reported, the facts each operand of
+// its top-level && gives.
+func (mut c Checker) check_contract(d Key) error {
+    fn := func_of(c.prog.trees, d)
+    if ast.is_none(fn.contract) {
+        return noerror
+    }
+    clause := sub(d, fn.contract)
+    if fn.is_extern {
+        mut sp := fn.ensures_span
+        sp.end = span_at(c.prog.trees, clause).end
+        mut m := msg()
+        fmt.appendf(mut m, "extern func %s cannot have an ensures clause; its body is written in C, where nothing proves it", text_at(c.prog.trees, c.none, d.unit, fn.name)[:])?
+        return mut c.errorf(sp, own m)
+    }
+    before := len(c.diags)
+    mut c.clause_shape(d, clause)?
+    if len(c.diags) == before {
+        c.in_clause = true
+        c.clause_upper = make(map[Key]bool, c_allocator)
+        got := mut c.expr(clause)?
+        v := mut c.value_of(clause, got)?
+        c.in_clause = false
+        if v != types.invalid && v != types.bool_type {
+            n := mut c.type_name(v)?
+            mut m := msg()
+            fmt.appendf(mut m, "ensures clause must be a bool, got %s", n[:])?
+            mut c.errorf(span_at(c.prog.trees, clause), own m)?
+        }
+    }
+    if len(c.diags) > before {
+        return noerror
+    }
+    mut leaves := make(list[Key], c_allocator)
+    mut x := clause
+    for {
+        switch kind_at(c.prog.trees, x) {
+        case binary(b):
+            if b.op == ast.op_and {
+                append(mut leaves, sub(x, b.y))?
+                x = sub(x, b.x)
+                continue
+            }
+        default:
+        }
+        append(mut leaves, x)?
+        break
+    }
+    mut i := len(leaves)
+    for i > 0 {
+        i -%= 1
+        leaf, ok := leaves[i]
+        if ok {
+            mut c.leaf_facts(d, leaf)?
+        }
+    }
+    return noerror
+}
+
+// clause_shape reports each part of e, the clause of the function at d,
+// that a clause cannot hold, Go's clauseShape, in Go's order, by a walk
+// with a stack of its own, since an operator's chain nests without end.
+func (mut c Checker) clause_shape(d Key, e Key) error {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, e.node)?
+    for len(stack) > 0 {
+        n := pop(mut stack)
+        k := sub(e, n)
+        switch kind_at(c.prog.trees, k) {
+        case ident(nm):
+            mut c.clause_name(d, k, nm)?
+        case int_lit, float_lit, char_lit, str_lit, bool_lit:
+        case selector(s):
+            append(mut stack, s.x)?
+        case index(ix):
+            append(mut stack, ix.index)?
+            append(mut stack, ix.x)?
+        case unary(u):
+            if u.op == ast.unary_not || u.op == ast.unary_neg {
+                append(mut stack, u.x)?
+            } else {
+                mut c.clause_cannot_hold(k)?
+            }
+        case binary(b):
+            if b.op == ast.op_and || b.op == ast.op_or || b.op == ast.op_add || b.op == ast.op_sub || is_comparison_op(b.op) {
+                append(mut stack, b.y)?
+                append(mut stack, b.x)?
+            } else {
+                mut c.clause_cannot_hold(k)?
+            }
+        case call(cl):
+            nm, is_id := ident_at(c.prog.trees, sub(k, cl.fn))
+            if !is_id || nm.def.kind != ast.def_builtin || !bytes_equal(text_at(c.prog.trees, c.none, k.unit, nm.name), []uint8("len")) && !bytes_equal(text_at(c.prog.trees, c.none, k.unit, nm.name), []uint8("has")) {
+                t := mut c.source_text(span_at(c.prog.trees, sub(k, cl.fn)))?
+                mut m := msg()
+                fmt.appendf(mut m, "an ensures clause can call only len and has, not %s", t[:])?
+                mut c.errorf(span_at(c.prog.trees, sub(k, cl.fn)), own m)?
+                continue
+            }
+            mut i := count_items(c.prog.trees, k.unit, cl.args)
+            for i > 0 {
+                i -%= 1
+                append(mut stack, item_at(c.prog.trees, k.unit, cl.args, i).node)?
+            }
+        default:
+            mut c.clause_cannot_hold(k)?
+        }
+    }
+    return noerror
+}
+
+// clause_name reports the name nm at k, in the clause of the function at
+// d, unless it names one of its parameters that is not own, or nothing
+// because of an error already reported, Go's clauseName.
+func (mut c Checker) clause_name(d Key, k Key, nm ast.Ident) error {
+    if nm.def.kind == ast.def_unbound {
+        return noerror
+    }
+    p := key_of_def(nm.def)
+    if nm.def.kind == ast.def_param && is_param_of(c.prog.trees, d, p) {
+        param := param_of(c.prog.trees, p)
+        if !param.is_own {
+            return noerror
+        }
+        mut name := msg()
+        append(mut name, name_of(c.prog.trees, c.none, p)...)?
+        mut m := msg()
+        fmt.appendf(mut m, "an ensures clause cannot name own parameter %s: its argument moves into the call, so nothing it ensures about %s reaches the caller", name[:], name[:])?
+        return mut c.errorf(span_at(c.prog.trees, k), own m)
+    }
+    mut m := msg()
+    fmt.appendf(mut m, "an ensures clause can name only the parameters of ")?
+    mut c.display_name(d, mut m)?
+    fmt.appendf(mut m, ", and ")?
+    qualified(c.prog.trees, c.none, k.unit, nm, mut m)?
+    fmt.appendf(mut m, " is not one")?
+    return mut c.errorf(span_at(c.prog.trees, k), own m)
+}
+
+// is_param_of reports whether p is one of the parameters of the function
+// at d.
+func is_param_of(trees []ast.File, d Key, p Key) bool {
+    fn := func_of(trees, d)
+    for i := range count_items(trees, d.unit, fn.params) {
+        if item_at(trees, d.unit, fn.params, i) == p {
+            return true
+        }
+    }
+    return false
+}
+
+// clause_cannot_hold reports e, a part of an ensures clause no fact can
+// be learned through, Go's clauseCannotHold.
+func (mut c Checker) clause_cannot_hold(e Key) error {
+    t := mut c.source_text(span_at(c.prog.trees, e))?
+    mut m := msg()
+    fmt.appendf(mut m, "an ensures clause cannot hold %s; it compares parameters, their fields and elements, constants, len and has, with !, &&, ||, + and -", t[:])?
+    return mut c.errorf(span_at(c.prog.trees, e), own m)
+}
+
+// The answers of leaf_gives.
+var gives_fact uint8 = 0
+var gives_none uint8 = 1
+var gives_unknown uint8 = 2
+
+// leaf_facts reports leaf, an operand of the clause's top-level && of the
+// function at d, when it gives no fact, Go's leafFacts: naming the part
+// of a mut parameter it is about, when it is, and the facts a clause can
+// state otherwise. One the port cannot tell about is declined.
+func (mut c Checker) leaf_facts(d Key, leaf Key) error {
+    g := mut c.leaf_gives(d, leaf)?
+    if g == gives_unknown {
+        return not_ported
+    }
+    if g == gives_fact {
+        return noerror
+    }
+    t := mut c.source_text(span_at(c.prog.trees, leaf))?
+    part, root, found := mut c.mut_part(leaf)?
+    mut m := msg()
+    if found {
+        pt := mut c.source_text(span_at(c.prog.trees, part))?
+        fmt.appendf(mut m, "%s gives no fact; %s is part of the mut parameter %s, and a field or an element of a mut parameter carries no facts", t[:], pt[:], name_of(c.prog.trees, c.none, root)[:])?
+    } else {
+        fmt.appendf(mut m, "%s gives no fact; an ensures clause states facts an if's condition proves, such as d != 0, 0 <= i && i < len(a), err.code == 0 or has(m, k)", t[:])?
+    }
+    return mut c.errorf(span_at(c.prog.trees, leaf), own m)
+}
+
+// mut_root returns the mut parameter e, a field or an element, is part
+// of, Go's mutRoot: none for anything else, an error's code included.
+func (mut c Checker) mut_root(e Key) (Key, bool) {
+    switch kind_at(c.prog.trees, e) {
+    case selector(s):
+        if bytes_equal(text_at(c.prog.trees, c.none, e.unit, s.name), []uint8("code")) && mut c.type_of(sub(e, s.x)) == types.error_type {
+            return no_key(), false
+        }
+    case index:
+    default:
+        return no_key(), false
+    }
+    mut x := e
+    for {
+        switch kind_at(c.prog.trees, x) {
+        case selector(s):
+            x = sub(x, s.x)
+        case index(ix):
+            x = sub(x, ix.x)
+        case ident(nm):
+            if nm.def.kind == ast.def_param && param_of(c.prog.trees, key_of_def(nm.def)).is_mut {
+                return key_of_def(nm.def), true
+            }
+            return no_key(), false
+        default:
+            return no_key(), false
+        }
+    }
+}
+
+// mut_part returns the first field or element in leaf, in Go's Walk
+// order, below a mut parameter, with that parameter, Go's mutPart.
+func (mut c Checker) mut_part(leaf Key) (Key, Key, bool, error) {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, leaf.node)?
+    for len(stack) > 0 {
+        n := pop(mut stack)
+        k := sub(leaf, n)
+        root, found := mut c.mut_root(k)
+        if found {
+            return k, root, true, noerror
+        }
+        push_children(c.prog.trees, k, mut stack)?
+    }
+    return no_key(), no_key(), false, noerror
+}
+
+// The kinds of operand term_of finds.
+var term_const uint8 = 0
+var term_subject uint8 = 1
+var term_offset uint8 = 2
+var term_mut uint8 = 3
+var term_other uint8 = 4
+
+// term_of says what e, a side of a comparison in a clause, is as far as
+// its facts go: a known integer; a subject, one of the function's
+// parameters, a field of one that is not mut, an error parameter's code
+// or the length of a string, a view or a list subject, of a signed
+// integer type or a length; a subject plus or minus a known value; a
+// part of a mut parameter, which carries no facts; or anything else. A
+// subject of an unsigned type is anything else, whose facts the port
+// does not work out.
+func (mut c Checker) term_of(e Key) (uint8, error) {
+    _, known := mut c.known_value(e)?
+    if known {
+        return term_const, noerror
+    }
+    switch kind_at(c.prog.trees, e) {
+    case binary(b):
+        if b.op == ast.op_add || b.op == ast.op_sub {
+            x := mut c.term_of(sub(e, b.x))?
+            _, ky := mut c.known_value(sub(e, b.y))?
+            if x == term_subject && ky {
+                return term_offset, noerror
+            }
+        }
+        return term_other, noerror
+    case call(cl):
+        if is_len_call(c.prog.trees, c.none, e) && count_items(c.prog.trees, e.unit, cl.args) == 1 {
+            arg := item_at(c.prog.trees, e.unit, cl.args, 0)
+            at := mut c.type_of(arg)
+            if at != types.string_type && !c.table.is_view(at) && !c.table.is_list(at) {
+                return term_other, noerror
+            }
+            s := mut c.path_kind(arg)?
+            return s, noerror
+        }
+        return term_other, noerror
+    default:
+    }
+    typ := mut c.type_of(e)
+    if !types.is_integer(typ) || types.is_unsigned(typ) {
+        p := mut c.path_kind(e)?
+        if p == term_mut {
+            return term_mut, noerror
+        }
+        return term_other, noerror
+    }
+    s := mut c.path_kind(e)?
+    return s, noerror
+}
+
+// path_kind says whether e is a subject, a parameter or a path of fields
+// below a parameter that is not mut, or an error parameter's code; a
+// part of a mut parameter; or anything else.
+func (mut c Checker) path_kind(e Key) (uint8, error) {
+    _, under_mut := mut c.mut_root(e)
+    if under_mut {
+        return term_mut, noerror
+    }
+    switch kind_at(c.prog.trees, e) {
+    case ident(nm):
+        if nm.def.kind == ast.def_param {
+            return term_subject, noerror
+        }
+        return term_other, noerror
+    case selector(s):
+        if !ast.is_none(s.field) {
+            return term_other, noerror
+        }
+        mut x := sub(e, s.x)
+        for {
+            switch kind_at(c.prog.trees, x) {
+            case selector(t):
+                if !ast.is_none(t.field) {
+                    return term_other, noerror
+                }
+                x = sub(x, t.x)
+            case ident(nm):
+                if nm.def.kind == ast.def_param {
+                    return term_subject, noerror
+                }
+                return term_other, noerror
+            default:
+                return term_other, noerror
+            }
+        }
+    default:
+        return term_other, noerror
+    }
+}
+
+// leaf_gives says whether leaf, an operand of the clause's top-level &&,
+// gives a fact, gives none, or is one the port cannot tell about (see
+// the top of the file).
+func (mut c Checker) leaf_gives(d Key, leaf Key) (uint8, error) {
+    switch kind_at(c.prog.trees, leaf) {
+    case call(cl):
+        nm, _ := ident_at(c.prog.trees, sub(leaf, cl.fn))
+        if !bytes_equal(text_at(c.prog.trees, c.none, leaf.unit, nm.name), []uint8("has")) || count_items(c.prog.trees, leaf.unit, cl.args) != 2 {
+            return gives_unknown, noerror
+        }
+        m := mut c.path_kind(item_at(c.prog.trees, leaf.unit, cl.args, 0))?
+        k := mut c.path_kind(item_at(c.prog.trees, leaf.unit, cl.args, 1))?
+        _, kc := mut c.known_value(item_at(c.prog.trees, leaf.unit, cl.args, 1))?
+        if m == term_subject && (k == term_subject || kc) {
+            return gives_fact, noerror
+        }
+        if m == term_mut {
+            return gives_none, noerror
+        }
+        return gives_unknown, noerror
+    case binary(b):
+        if b.op == ast.op_or {
+            l := mut c.leaf_gives(d, sub(leaf, b.x))?
+            r := mut c.leaf_gives(d, sub(leaf, b.y))?
+            lk, lok := mut c.single_subject(sub(leaf, b.x))?
+            rk, rok := mut c.single_subject(sub(leaf, b.y))?
+            if l == gives_fact && r == gives_fact && lok && rok && lk != rk {
+                return gives_none, noerror
+            }
+            return gives_unknown, noerror
+        }
+        if !is_comparison_op(b.op) {
+            return gives_unknown, noerror
+        }
+        x := mut c.term_of(sub(leaf, b.x))?
+        y := mut c.term_of(sub(leaf, b.y))?
+        if x == term_const && y == term_const {
+            return gives_unknown, noerror
+        }
+        if x == term_mut && (y == term_const || y == term_mut) || y == term_mut && x == term_const {
+            return gives_none, noerror
+        }
+        if x == term_subject && y == term_const || y == term_subject && x == term_const {
+            mut kside := sub(leaf, b.y)
+            if y == term_subject {
+                kside = sub(leaf, b.x)
+            }
+            v, _ := mut c.known_value(kside)?
+            if b.op == ast.op_ne {
+                if v.is_zero() {
+                    return gives_fact, noerror
+                }
+                return gives_none, noerror
+            }
+            _, up := v.add(constant.from_int64(1))
+            _, down := v.sub(constant.from_int64(1))
+            if !up || !down {
+                return gives_unknown, noerror
+            }
+            return gives_fact, noerror
+        }
+        if (x == term_subject || x == term_offset) && (y == term_subject || y == term_offset) && b.op != ast.op_eq && b.op != ast.op_ne {
+            return gives_fact, noerror
+        }
+        return gives_unknown, noerror
+    default:
+        return gives_unknown, noerror
+    }
+}
+
+// single_subject returns the one subject e, a comparison of a subject
+// with a known value, is about, and whether it is one.
+func (mut c Checker) single_subject(e Key) (Key, bool, error) {
+    switch kind_at(c.prog.trees, e) {
+    case binary(b):
+        if !is_comparison_op(b.op) {
+            return no_key(), false, noerror
+        }
+        x := mut c.term_of(sub(e, b.x))?
+        y := mut c.term_of(sub(e, b.y))?
+        mut s := sub(e, b.x)
+        if x == term_const && y == term_subject {
+            s = sub(e, b.y)
+        } else if !(x == term_subject && y == term_const) {
+            return no_key(), false, noerror
+        }
+        switch kind_at(c.prog.trees, s) {
+        case ident(nm):
+            return key_of_def(nm.def), true, noerror
+        default:
+            return no_key(), false, noerror
+        }
+    default:
+        return no_key(), false, noerror
+    }
+}
+
+// clause_bound records, while a clause is checked, an operand of its
+// top-level && in force for the operands after it of the shape x <
+// len(s), x a parameter, whose x then has room for 1 more: Go's facts in
+// force where the right side of an && is checked, as far as the port
+// keeps them.
+func (mut c Checker) clause_bound(e Key) error {
+    switch kind_at(c.prog.trees, e) {
+    case binary(b):
+        if b.op != ast.op_lt || !is_len_call(c.prog.trees, c.none, sub(e, b.y)) {
+            return noerror
+        }
+        nm, is_id := ident_at(c.prog.trees, sub(e, b.x))
+        if is_id && nm.def.kind == ast.def_param && mut c.type_of(sub(e, b.x)) == types.int64_type {
+            put(mut c.clause_upper, key_of_def(nm.def), true)?
+        }
+    default:
+    }
+    return noerror
+}

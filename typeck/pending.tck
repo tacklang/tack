@@ -1,0 +1,272 @@
+package typeck
+
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// require_copyable reports elem, the element type of holder, an array or
+// a variadic parameter written at at, when it is owned, which an
+// element cannot be, and returns whether elem may be an element, Go's
+// requireCopyable. While struct fields are being resolved the check
+// waits until every struct's fields are known (see
+// check_pending_elems), and elem is allowed for now.
+func (mut c Checker) require_copyable(holder string, elem types.Type, at source.Span) (bool, error) {
+    if c.in_fields {
+        append(mut c.pending_elems, PendingElem{holder: holder, at: at, elem: elem})?
+        return true, noerror
+    }
+    owned := c.table.owned(elem)?
+    if !owned {
+        return true, noerror
+    }
+    mut c.not_copyable(holder, elem, at)?
+    return false, noerror
+}
+
+// check_pending_elems reports every element type require_copyable put
+// off that turned out to be owned, Go's checkPendingElems.
+func (mut c Checker) check_pending_elems() error {
+    for i := range len(c.pending_elems) {
+        p, ok := c.pending_elems[i]
+        if !ok {
+            continue
+        }
+        owned := c.table.owned(p.elem)?
+        if owned {
+            mut c.not_copyable(p.holder, p.elem, p.at)?
+        }
+    }
+    c.pending_elems = make(list[PendingElem], c_allocator)
+    return noerror
+}
+
+// not_copyable reports elem, an owned type, as the element type of
+// holder, written at at, Go's notCopyable.
+func (mut c Checker) not_copyable(holder string, elem types.Type, at source.Span) error {
+    n := mut c.type_name(elem)?
+    mut phrase := msg()
+    mut c.owned_phrase(elem, mut phrase)?
+    mut m := msg()
+    fmt.appendf(mut m, "%s cannot hold %s: its elements are copied, and %s cannot be", holder, n[:], phrase[:])?
+    return mut c.errorf(at, own m)
+}
+
+// owned_phrase appends what makes typ, an owned type, owned, for a
+// diagnostic, Go's ownedPhrase.
+func (mut c Checker) owned_phrase(typ types.Type, mut out list[uint8]) error {
+    if c.table.is_list(typ) {
+        append(mut out, []uint8("a list")...)?
+        return noerror
+    }
+    if c.table.is_arena(typ) {
+        append(mut out, []uint8("an arena")...)?
+        return noerror
+    }
+    if c.table.is_pool(typ) {
+        append(mut out, []uint8("a pool")...)?
+        return noerror
+    }
+    if c.table.is_map(typ) {
+        append(mut out, []uint8("a map")...)?
+        return noerror
+    }
+    n := mut c.type_name(typ)?
+    append(mut out, n[:]...)?
+    has_arena := c.table.holds_arena(typ)?
+    if has_arena {
+        append(mut out, []uint8(", which holds an arena,")...)?
+        return noerror
+    }
+    has_pool := c.table.holds_pool(typ)?
+    if has_pool {
+        append(mut out, []uint8(", which holds a pool,")...)?
+        return noerror
+    }
+    if c.table.is_type_param(typ) {
+        append(mut out, []uint8(", a type parameter, which may hold a list,")...)?
+        return noerror
+    }
+    holds_list := c.table.holds_list(typ)?
+    if !holds_list {
+        append(mut out, []uint8(", which holds a map,")...)?
+        return noerror
+    }
+    append(mut out, []uint8(", which holds a list,")...)?
+    return noerror
+}
+
+// require_key reports key, the key type of a map written at at, unless
+// == compares its values, Go's requireKey; while struct fields are being
+// resolved the check waits (see check_pending_keys).
+func (mut c Checker) require_key(key types.Type, at source.Span) (bool, error) {
+    if key == types.error_type || c.table.is_type_param(key) {
+        mut c.bad_key(key, at)?
+        return false, noerror
+    }
+    if c.in_fields {
+        append(mut c.pending_keys, PendingElem{holder: "a map", at: at, elem: key})?
+        return true, noerror
+    }
+    cmp := mut c.comparable(key)?
+    fl := mut c.holds_float(key)?
+    if !cmp || fl {
+        mut c.bad_key(key, at)?
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// check_pending_keys reports every key type require_key put off that
+// turned out to have no ==, Go's checkPendingKeys.
+func (mut c Checker) check_pending_keys() error {
+    for i := range len(c.pending_keys) {
+        p, ok := c.pending_keys[i]
+        if !ok {
+            continue
+        }
+        cmp := mut c.comparable(p.elem)?
+        fl := mut c.holds_float(p.elem)?
+        if !cmp || fl {
+            mut c.bad_key(p.elem, p.at)?
+        }
+    }
+    c.pending_keys = make(list[PendingElem], c_allocator)
+    return noerror
+}
+
+// bad_key reports key, written at at, as a type no map can be keyed by,
+// Go's badKey.
+func (mut c Checker) bad_key(key types.Type, at source.Span) error {
+    mut why := "it has no =="
+    if key == types.error_type {
+        why = "an error is not a key"
+    } else if c.table.is_type_param(key) {
+        why = "a map's key cannot be a type parameter"
+    } else if types.is_float(key) {
+        why = "a float is not a key"
+    } else {
+        cmp := mut c.comparable(key)?
+        fl := mut c.holds_float(key)?
+        if cmp && fl {
+            why = "it holds a float, which is not a key"
+        }
+    }
+    n := mut c.type_name(key)?
+    mut m := msg()
+    fmt.appendf(mut m, "cannot use %s as a map key: %s", n[:], why)?
+    return mut c.errorf(at, own m)
+}
+
+// part_types appends the types a struct's fields, or a union's payloads,
+// have, in order, Go's partTypes.
+func (mut c Checker) part_types(typ types.Type, mut out list[types.Type]) error {
+    for i := range c.table.field_count(typ) {
+        f, ok := c.table.field_type(typ, i)
+        if ok {
+            append(mut out, f)?
+        }
+    }
+    for i := range len(c.table.cases(typ)) {
+        uc, ok := c.table.cases(typ)[i]
+        if ok && uc.payload {
+            append(mut out, uc.typ)?
+        }
+    }
+    return noerror
+}
+
+// comparable reports whether values of type typ support == and !=, Go's
+// comparable: every number, bool and string, an nm, a span and a handle,
+// an array or a list whose elements do, a struct or a union whose every
+// part does. Go recurses with the structs seen, any seen counting as
+// comparable, which makes the answer whether every type reached through
+// them is one of those; here the walk keeps its own stack, since a chain
+// of structs held by value is as long as its source makes it.
+func (mut c Checker) comparable(typ types.Type) (bool, error) {
+    mut seen := make(map[int64]bool, c_allocator)
+    mut stack := make(list[types.Type], c_allocator)
+    append(mut stack, typ)?
+    for len(stack) > 0 {
+        t := pop(mut stack)
+        if types.is_numeric(t) || t == types.bool_type || t == types.string_type || c.table.is_ref(t) || c.table.is_handle(t) {
+            continue
+        }
+        if c.table.is_array(t) || c.table.is_list(t) {
+            append(mut stack, c.table.elem_of(t))?
+            continue
+        }
+        if c.table.is_struct(t) || c.table.is_union(t) {
+            _, was := seen[t.number()]
+            if was {
+                continue
+            }
+            put(mut seen, t.number(), true)?
+            mut c.part_types(t, mut stack)?
+            continue
+        }
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// holds_float reports whether typ is a float type, or an array, a list, a
+// view, a struct or a union holding one at any depth, Go's holdsFloat,
+// by a walk that keeps its own stack.
+func (mut c Checker) holds_float(typ types.Type) (bool, error) {
+    mut seen := make(map[int64]bool, c_allocator)
+    mut stack := make(list[types.Type], c_allocator)
+    append(mut stack, typ)?
+    for len(stack) > 0 {
+        t := pop(mut stack)
+        if types.is_float(t) {
+            return true, noerror
+        }
+        if c.table.is_array(t) || c.table.is_list(t) || c.table.is_view(t) {
+            append(mut stack, c.table.elem_of(t))?
+            continue
+        }
+        if c.table.is_struct(t) || c.table.is_union(t) {
+            _, was := seen[t.number()]
+            if was {
+                continue
+            }
+            put(mut seen, t.number(), true)?
+            mut c.part_types(t, mut stack)?
+        }
+    }
+    return false, noerror
+}
+
+// holds_func reports whether typ is a function type, or holds one at any
+// depth, through a struct, an array, a union, a list, a view, a pool, an
+// arena or a map's key or value, Go's holdsFunc, by a walk that keeps
+// its own stack.
+func (mut c Checker) holds_func(typ types.Type) (bool, error) {
+    mut seen := make(map[int64]bool, c_allocator)
+    mut stack := make(list[types.Type], c_allocator)
+    append(mut stack, typ)?
+    for len(stack) > 0 {
+        t := pop(mut stack)
+        if c.table.is_func(t) {
+            return true, noerror
+        }
+        if c.table.is_array(t) || c.table.is_list(t) || c.table.is_view(t) || c.table.is_pool(t) || c.table.is_arena(t) {
+            append(mut stack, c.table.elem_of(t))?
+            continue
+        }
+        if c.table.is_map(t) {
+            append(mut stack, c.table.elem_of(t))?
+            append(mut stack, c.table.key_of(t))?
+            continue
+        }
+        if c.table.is_struct(t) || c.table.is_union(t) {
+            _, was := seen[t.number()]
+            if was {
+                continue
+            }
+            put(mut seen, t.number(), true)?
+            mut c.part_types(t, mut stack)?
+        }
+    }
+    return false, noerror
+}

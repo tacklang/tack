@@ -1,0 +1,231 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// resolve_interfaces records the types of every interface's methods'
+// parameters and results, as a function's are resolved, and reports an
+// error result that is not last, and a testing.Site parameter, Go's
+// resolveInterfaces.
+func (mut c Checker) resolve_interfaces() error {
+    for i := range count_decls(c.prog) {
+        d := decl_at(c.prog, i)
+        if !is_interface_decl(c.prog.trees, d) {
+            continue
+        }
+        old := mut c.enter(d)
+        td := type_decl_of(c.prog.trees, d)
+        switch kind_at(c.prog.trees, sub(d, td.type_expr)) {
+        case interface_type(ms):
+            for j := range count_items(c.prog.trees, d.unit, ms) {
+                mk := item_at(c.prog.trees, d.unit, ms, j)
+                switch kind_at(c.prog.trees, mk) {
+                case iface_method(m):
+                    mut c.resolve_iface_method(d, td, mk, m)?
+                default:
+                }
+            }
+        default:
+        }
+        c.pkg = old
+    }
+    return noerror
+}
+
+// resolve_iface_method resolves the method m, at mk, of the interface td
+// declared at d.
+func (mut c Checker) resolve_iface_method(d Key, td ast.TypeDecl, mk Key, m ast.IfaceMethod) error {
+    for i := range count_items(c.prog.trees, mk.unit, m.params) {
+        p := item_at(c.prog.trees, mk.unit, m.params, i)
+        typ := mut c.param_type(p, Sig{unit: mk.unit, params: m.params, i: i, recv: false})?
+        mut c.set_decl_type(p, typ)?
+        _, site := c.site_params[p]
+        if site {
+            param := param_of(c.prog.trees, p)
+            mut msg1 := msg()
+            fmt.appendf(mut msg1, "an interface method's parameter cannot be a testing.Site")?
+            mut c.errorf(span_at(c.prog.trees, sub(p, param.type_expr)), own msg1)?
+        }
+    }
+    n := count_items(c.prog.trees, mk.unit, m.results)
+    put(mut c.result_count, mk, n)?
+    for i := range n {
+        r := item_at(c.prog.trees, mk.unit, m.results, i)
+        typ := mut c.result_type(r, n, no_key())?
+        put(mut c.results, RKey{unit: mk.unit, node: mk.node, i: i}, typ)?
+    }
+    for i := range n {
+        if i +% 1 < n && result_of(c.results, mk, i) == types.error_type {
+            mut msg2 := msg()
+            fmt.appendf(mut msg2, "error must be the last result of %s.%s", text_at(c.prog.trees, c.none, d.unit, td.name)[:], text_at(c.prog.trees, c.none, mk.unit, m.name)[:])?
+            mut c.errorf(span_at(c.prog.trees, item_at(c.prog.trees, mk.unit, m.results, i)), own msg2)?
+        }
+    }
+    return noerror
+}
+
+// implicit_type_params turns each parameter of the function at d whose
+// whole type is an interface, s Shape, into one of a type parameter of
+// its own constrained by it, appended to the function's type parameters,
+// Go's implicitTypeParams: func area(s Shape) is shorthand for func
+// area[S Shape](s S). A method, an extern func and a variadic parameter
+// are left as written. Go makes a TypeParam and an Ident of its own; here
+// they are nodes added to the function's tree, the TypeParam marked
+// implicit in tp_implicit.
+func (mut c Checker) implicit_type_params(d Key, fid id[ast.Func]) error {
+    fn := func_of(c.prog.trees, d)
+    if fn.method || fn.is_extern {
+        return noerror
+    }
+    for i := range count_items(c.prog.trees, d.unit, fn.params) {
+        p := item_at(c.prog.trees, d.unit, fn.params, i)
+        param := param_of(c.prog.trees, p)
+        texpr := sub(p, param.type_expr)
+        nm, is_id := ident_at(c.prog.trees, texpr)
+        if !is_id || param.variadic || nm.def.kind != ast.def_type || !is_interface_decl(c.prog.trees, key_of_def(nm.def)) {
+            continue
+        }
+        mut name := msg()
+        qualified(c.prog.trees, c.none, d.unit, nm, mut name)?
+        sp := span_at(c.prog.trees, texpr)
+        mut c.add_implicit(d, fid, p, texpr, sp, name)?
+    }
+    return noerror
+}
+
+// add_implicit adds the type parameter named name, constrained by the
+// interface name at texpr, written at sp, to the function fid at d, and
+// makes the type of its parameter p a name of it.
+func (mut c Checker) add_implicit(d Key, fid id[ast.Func], p Key, texpr Key, sp source.Span, name list[uint8]) error {
+    u := d.unit
+    s := add_str(mut c.prog.trees, u, name)?
+    tp := ast.TypeParam{constraint: texpr.node, name: s, name_span: sp}
+    tn := add_node(mut c.prog.trees, u, ast.Kind.type_param(tp), sp)?
+    put(mut c.tp_implicit, Key{unit: u, node: tn}, true)?
+    fn := func_of(c.prog.trees, d)
+    mut items := make(list[id[ast.Node]], c_allocator)
+    for i := range count_items(c.prog.trees, u, fn.type_params) {
+        k := item_at(c.prog.trees, u, fn.type_params, i)
+        append(mut items, k.node)?
+    }
+    append(mut items, tn)?
+    l := add_list(mut c.prog.trees, u, items)?
+    mut nf := fn
+    nf.type_params = l
+    set_func(mut c.prog.trees, u, fid, nf)
+    mut z span[uint8]
+    nid := ast.Ident{pkg: z, name: s, pkg_span: ast.unset_span(), def: ast.decl_def(ast.def_type_param, u, tn), hidden: ast.no_def()}
+    nn := add_node(mut c.prog.trees, u, ast.Kind.ident(nid), sp)?
+    switch kind_at(c.prog.trees, p) {
+    case param_decl(pid):
+        mut np := param_of(c.prog.trees, p)
+        np.type_expr = nn
+        set_param(mut c.prog.trees, u, pid, np)
+    default:
+    }
+    return noerror
+}
+
+// add_str copies s into the bytes of the tree u and returns where it is.
+func add_str(mut trees list[ast.File], u int64, s list[uint8]) (span[uint8], error) {
+    if u < 0 || u >= len(trees) {
+        mut z span[uint8]
+        return z, noerror
+    }
+    r := mut trees[u].str(s[:])?
+    return r, noerror
+}
+
+// add_node adds a node of kind k over sp to the tree u.
+func add_node(mut trees list[ast.File], u int64, k ast.Kind, sp source.Span) (id[ast.Node], error) {
+    if u < 0 || u >= len(trees) {
+        mut z id[ast.Node]
+        return z, noerror
+    }
+    n := mut trees[u].add(k, sp)?
+    return n, noerror
+}
+
+// add_list adds items to the lists of the tree u, as a made Nodes.
+func add_list(mut trees list[ast.File], u int64, items list[id[ast.Node]]) (ast.Nodes, error) {
+    if u < 0 || u >= len(trees) {
+        mut z ast.Nodes
+        return z, noerror
+    }
+    l := mut trees[u].add_list(items[:])?
+    return l, noerror
+}
+
+// set_func replaces the Func fid of the tree u with fn.
+func set_func(mut trees list[ast.File], u int64, fid id[ast.Func], fn ast.Func) {
+    if u >= 0 && u < len(trees) {
+        trees[u].funcs[fid] = fn
+    }
+}
+
+// set_param replaces the Param pid of the tree u with p.
+func set_param(mut trees list[ast.File], u int64, pid id[ast.Param], p ast.Param) {
+    if u >= 0 && u < len(trees) {
+        trees[u].params[pid] = p
+    }
+}
+
+// resolve_type_params gives each type parameter of the function at d a
+// type of its own and finds the interface its constraint names, or
+// marks it constrained by Data, reporting a constraint that names
+// anything else, Go's resolveTypeParams.
+func (mut c Checker) resolve_type_params(d Key) error {
+    fn := func_of(c.prog.trees, d)
+    for i := range count_items(c.prog.trees, d.unit, fn.type_params) {
+        tk := item_at(c.prog.trees, d.unit, fn.type_params, i)
+        switch kind_at(c.prog.trees, tk) {
+        case type_param(tp):
+            typ := mut c.table.type_param(text_at(c.prog.trees, c.none, tk.unit, tp.name))?
+            mut c.set_decl_type(tk, typ)?
+            put(mut c.type_params, typ.number(), tk)?
+            ck := sub(tk, tp.constraint)
+            data := is_data_name(c.prog.trees, c.none, ck)
+            put(mut c.tp_data, tk, data)?
+            if !data {
+                iface := mut c.constraint(tk, tp)?
+                if !is_no_key(iface) {
+                    put(mut c.tp_iface, tk, iface)?
+                }
+            }
+        default:
+        }
+    }
+    return noerror
+}
+
+// constraint returns the interface the constraint of tp, at tk, names,
+// reporting anything else written there, and no key when it reported,
+// Go's constraint.
+func (mut c Checker) constraint(tk Key, tp ast.TypeParam) (Key, error) {
+    ck := sub(tk, tp.constraint)
+    nm, is_id := ident_at(c.prog.trees, ck)
+    if is_id {
+        if nm.def.kind == ast.def_type && is_interface_decl(c.prog.trees, key_of_def(nm.def)) {
+            return key_of_def(nm.def), noerror
+        }
+        unbound := mut c.unbound(ck, nm)?
+        if unbound {
+            return no_key(), noerror
+        }
+        _, basic := types.lookup(text_at(c.prog.trees, c.none, ck.unit, nm.name))
+        if !basic && nm.def.is_none() {
+            mut m := msg()
+            fmt.appendf(mut m, "unknown type: ")?
+            qualified(c.prog.trees, c.none, ck.unit, nm, mut m)?
+            mut c.errorf(span_at(c.prog.trees, ck), own m)?
+            return no_key(), noerror
+        }
+    }
+    t := mut c.source_text(span_at(c.prog.trees, ck))?
+    mut m := msg()
+    fmt.appendf(mut m, "%s is not an interface; the constraint of type parameter %s must be one", t[:], text_at(c.prog.trees, c.none, tk.unit, tp.name)[:])?
+    mut c.errorf(span_at(c.prog.trees, ck), own m)?
+    return no_key(), noerror
+}

@@ -1,0 +1,333 @@
+package types
+
+// max_value_size is the most bytes a value of any type may hold, 2^31,
+// and max_globals_size the most all of a program's globals may hold
+// together, 2^30, Go's MaxValueSize and MaxGlobalsSize (see Go's
+// size.go for why).
+pub var max_value_size uint64 = 2147483648
+pub var max_globals_size uint64 = 1073741824
+
+// Size is how a value of a type is laid out in C, as the C backend lowers
+// it, Go's types.Size: bytes, what sizeof gives, and align, what
+// _Alignof gives. overflow is set when the size does not fit a uint64,
+// and bytes is then meaningless.
+pub type Size struct {
+    pub bytes uint64
+    pub align uint64
+    pub overflow bool
+}
+
+// too_large reports whether a value of this size holds more than
+// max_value_size bytes, Go's TooLarge.
+pub func (s Size) too_large() bool {
+    return s.overflow || s.bytes > max_value_size
+}
+
+// no_size is the zero Size, of a type parameter, invalid, or a type that
+// contains itself.
+pub func no_size() Size {
+    return Size{bytes: 0, align: 0, overflow: false}
+}
+
+// sz returns the Size of b bytes aligned to a.
+func sz(b uint64, a uint64) Size {
+    return Size{bytes: b, align: a, overflow: false}
+}
+
+// basic_size returns the size of the basic type typ in C, for the LP64
+// targets Size describes, and whether it has one: every basic type but
+// invalid, the untyped ones and error, which is laid out from its fields.
+func basic_size(typ Type) (Size, bool) {
+    if typ == int8_type || typ == uint8_type || typ == bool_type {
+        return sz(1, 1), true
+    }
+    if typ == int16_type || typ == uint16_type {
+        return sz(2, 2), true
+    }
+    if typ == int32_type || typ == uint32_type || typ == float32_type {
+        return sz(4, 4), true
+    }
+    if typ == int64_type || typ == uint64_type || typ == unsafe_size || typ == unsafe_uintptr || typ == float64_type {
+        return sz(8, 8), true
+    }
+    if typ == string_type || typ == any_type {
+        return sz(16, 8), true
+    }
+    if typ == allocator {
+        return sz(8, 4), true
+    }
+    return no_size(), false
+}
+
+// SizeFrame is one type whose size size is computing, as one of Go's
+// calls of size would be on its stack: the type, how many of its parts
+// it has taken, and what they add up to so far.
+type SizeFrame struct {
+    typ Type
+    next int64
+    acc Size
+    payload bool
+}
+
+// size returns the size of typ as the C backend lays it out, Go's Size:
+// for the LP64 targets it builds for, a pointer, an int64 and a size_t
+// of 8 bytes, aligned to 8, each struct and union padded as C pads it
+// there, an array of no elements holding one, a struct with no fields
+// one char, a union a tag before its payloads, and a target-width
+// integer at its widest. Sizes are computed once each and kept, until
+// fields or cases are set. A type parameter, invalid or a type that
+// contains itself has size 0.
+//
+// Go's size recurses into each part, a frame for each struct, union,
+// array and arena on the way down, and a chain of structs each holding
+// the next by value is as long as its source makes it, so here the
+// frames are on a stack of the function's own, each taking its parts in
+// Go's order and keeping what is computed as Go does, a type met again
+// while it is being computed counting as 0, so the sizes kept are Go's
+// even for a type that contains itself.
+pub func (mut t Table) size(typ Type) (Size, error) {
+    s, done := t.size_now(typ)
+    if done {
+        return s, noerror
+    }
+    mut visiting := make(map[int64]bool, c_allocator)
+    mut stack := make(list[SizeFrame], c_allocator)
+    put(mut visiting, typ.n, true)?
+    append(mut stack, SizeFrame{typ: typ, next: 0, acc: sz(0, 1), payload: false})?
+    mut result := no_size()
+    for len(stack) > 0 {
+        top := len(stack) -% 1
+        fr, ok := stack[top]
+        if !ok {
+            break
+        }
+        part, at, more := t.size_part(fr)
+        if more {
+            if 0 <= top && top < len(stack) {
+                stack[top].next = at +% 1
+            }
+            _, busy := visiting[part.n]
+            if busy {
+                t.size_feed(mut stack, top, no_size())
+                continue
+            }
+            ps, known := t.size_now(part)
+            if known {
+                t.size_feed(mut stack, top, ps)
+                continue
+            }
+            put(mut visiting, part.n, true)?
+            append(mut stack, SizeFrame{typ: part, next: 0, acc: sz(0, 1), payload: false})?
+            continue
+        }
+        mut done_size := t.size_finish(fr)
+        pop(mut stack)
+        delete(mut visiting, fr.typ.n)
+        if done_size.align == 0 {
+            done_size = no_size()
+        }
+        put(mut t.sizes, fr.typ.n, done_size)?
+        if len(stack) == 0 {
+            result = done_size
+        } else {
+            t.size_feed(mut stack, len(stack) -% 1, done_size)
+        }
+    }
+    return result, noerror
+}
+
+// size_now returns the size of typ when it needs no frame: a basic
+// type's, one already kept, or one with no parts to wait for; and
+// whether it is known.
+func (t Table) size_now(typ Type) (Size, bool) {
+    s, basic := basic_size(typ)
+    if basic {
+        return s, true
+    }
+    kept, has := t.sizes[typ.n]
+    if has {
+        return kept, true
+    }
+    if typ == error_type || t.is_struct(typ) || t.is_union(typ) || t.is_array(typ) || t.is_arena(typ) {
+        return no_size(), false
+    }
+    return t.leaf_size(typ), true
+}
+
+// leaf_size returns the size of typ, a type with no parts Size counts,
+// as Go's layout gives it, its handle's or reference's.
+func (t Table) leaf_size(typ Type) Size {
+    if t.is_view(typ) {
+        return sz(16, 8)
+    }
+    if t.is_list(typ) {
+        return sz(32, 8)
+    }
+    if t.is_map(typ) {
+        return sz(56, 8)
+    }
+    if t.is_func(typ) {
+        return sz(8, 8)
+    }
+    if t.is_id(typ) {
+        return sz(4, 4)
+    }
+    if t.is_span(typ) {
+        return sz(8, 8)
+    }
+    if t.is_handle(typ) {
+        return sz(12, 4)
+    }
+    if t.is_pool(typ) {
+        return sz(48, 8)
+    }
+    return no_size()
+}
+
+// size_part returns the next part of the type fr is computing the size
+// of, in Go's order, its index among the type's fields or cases, and
+// whether there is one: an arena's or an array's element, a struct's
+// fields, error's code and msg among them, and a union's cases' payloads,
+// a case with no payload passed over.
+func (t Table) size_part(fr SizeFrame) (Type, int64, bool) {
+    typ := fr.typ
+    if t.is_arena(typ) || t.is_array(typ) {
+        if fr.next == 0 {
+            return t.elem_of(typ), 0, true
+        }
+        return invalid, 0, false
+    }
+    if t.is_struct(typ) {
+        ftyp, ok := t.field_type(typ, fr.next)
+        return ftyp, fr.next, ok
+    }
+    mut i := fr.next
+    for i >= 0 && i < len(t.cases(typ)) {
+        c, ok := t.cases(typ)[i]
+        if ok && c.payload {
+            return c.typ, i, true
+        }
+        i +%= 1
+    }
+    return invalid, 0, false
+}
+
+// size_feed adds ps, the size of the part the frame at top took last, to
+// what that frame has added up, as Go's layout does with each part.
+func (t Table) size_feed(mut stack list[SizeFrame], top int64, ps Size) {
+    fr, ok := stack[top]
+    if !ok {
+        return
+    }
+    typ := fr.typ
+    mut acc := fr.acc
+    mut payload := fr.payload
+    if t.is_arena(typ) {
+        acc = place(sz(32, 8), ps)
+    } else if t.is_array(typ) {
+        acc = ps
+    } else if t.is_struct(typ) {
+        acc = place(acc, ps)
+    } else {
+        payload = true
+        if ps.bytes > acc.bytes {
+            acc.bytes = ps.bytes
+        }
+        if ps.align > acc.align {
+            acc.align = ps.align
+        }
+        acc.overflow = acc.overflow || ps.overflow
+    }
+    if 0 <= top && top < len(stack) {
+        stack[top].acc = acc
+        stack[top].payload = payload
+    }
+}
+
+// size_finish returns the size of the type fr computed once every part
+// is added, as Go's layout, structSize and unionSize finish it.
+func (t Table) size_finish(fr SizeFrame) Size {
+    typ := fr.typ
+    if t.is_arena(typ) {
+        return pad_to(fr.acc, fr.acc.align)
+    }
+    if t.is_array(typ) {
+        elem := fr.acc
+        mut n := t.len_of(typ)
+        if n < 1 {
+            n = 1
+        }
+        count, fits := uint64(n)
+        if !fits {
+            return Size{bytes: 0, align: elem.align, overflow: true}
+        }
+        hi, lo := mul64(elem.bytes, count)
+        return Size{bytes: lo, align: elem.align, overflow: elem.overflow || hi != 0}
+    }
+    if t.is_struct(typ) {
+        if t.field_count(typ) == 0 {
+            return sz(1, 1)
+        }
+        return pad_to(fr.acc, fr.acc.align)
+    }
+    n := len(t.cases(typ))
+    mut tag := sz(1, 1)
+    if n > 65536 {
+        tag = sz(4, 4)
+    } else if n > 256 {
+        tag = sz(2, 2)
+    }
+    mut payloads := fr.acc
+    if !fr.payload {
+        payloads = sz(1, 1)
+    }
+    payloads = pad_to(payloads, payloads.align)
+    mut align := tag.align
+    if payloads.align > align {
+        align = payloads.align
+    }
+    return pad_to(place(place(sz(0, 1), tag), payloads), align)
+}
+
+// place adds a member of size m to a struct laid out so far as acc: at
+// the next offset aligned for m, then m's bytes, Go's place.
+func place(acc Size, m Size) Size {
+    mut ma := m.align
+    if ma < 1 {
+        ma = 1
+    }
+    a := pad_to(acc, ma)
+    sum := a.bytes +% m.bytes
+    carry := sum < a.bytes
+    mut align := a.align
+    if m.align > align {
+        align = m.align
+    }
+    return Size{bytes: sum, align: align, overflow: a.overflow || m.overflow || carry}
+}
+
+// pad_to rounds s's bytes up to a multiple of align, a power of two,
+// keeping s's alignment, Go's padTo.
+func pad_to(s Size, align uint64) Size {
+    sum := s.bytes +% (align -% 1)
+    carry := sum < s.bytes
+    return Size{bytes: sum & ^(align -% 1), align: s.align, overflow: s.overflow || carry}
+}
+
+// mul64 returns the 128-bit product of x and y as its high and low
+// words, Go's bits.Mul64, from 32-bit halves.
+func mul64(x uint64, y uint64) (uint64, uint64) {
+    mask := uint64(4294967295)
+    x0 := x & mask
+    x1 := x >> 32
+    y0 := y & mask
+    y1 := y >> 32
+    w0 := x0 *% y0
+    t := x1 *% y0 +% (w0 >> 32)
+    w1 := t & mask
+    w2 := t >> 32
+    w1b := x0 *% y1 +% w1
+    hi := x1 *% y1 +% w2 +% (w1b >> 32)
+    lo := x *% y
+    return hi, lo
+}

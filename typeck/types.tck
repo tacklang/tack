@@ -1,0 +1,658 @@
+package typeck
+
+import ast from "tack/ast"
+import builtin from "tack/builtin"
+import fmt from "std/fmt"
+import types from "tack/types"
+
+// any_message is the error for any written as the type of anything but a
+// parameter, Go's anyMessage.
+var any_message = "any can only be the type of a parameter"
+
+// view_places says where a view type may be written, Go's viewPlaces.
+var view_places = "a view can only be the type of a parameter or of a result"
+
+// ident_at returns the identifier k, and whether k is one.
+func ident_at(trees []ast.File, k Key) (ast.Ident, bool) {
+    switch kind_at(trees, k) {
+    case ident(x):
+        return x, true
+    default:
+        mut z ast.Ident
+        return z, false
+    }
+}
+
+// qualified appends the name nm writes, pkg.name when qualified, Go's
+// Qualified.
+func qualified(trees []ast.File, none []uint8, unit int64, nm ast.Ident, mut out list[uint8]) error {
+    if len(text_at(trees, none, unit, nm.pkg)) > 0 {
+        append(mut out, text_at(trees, none, unit, nm.pkg)...)?
+        append(mut out, '.')?
+    }
+    append(mut out, text_at(trees, none, unit, nm.name)...)?
+    return noerror
+}
+
+// is_any_name reports whether k is the type name any, unqualified, Go's
+// isAnyName.
+func is_any_name(trees []ast.File, none []uint8, k Key) bool {
+    nm, ok := ident_at(trees, k)
+    if !ok || len(text_at(trees, none, k.unit, nm.pkg)) > 0 || !nm.def.is_none() {
+        return false
+    }
+    typ, known := types.lookup(text_at(trees, none, k.unit, nm.name))
+    return known && typ == types.any_type
+}
+
+// is_data_name reports whether k names the builtin constraint Data, Go's
+// isDataName.
+func is_data_name(trees []ast.File, none []uint8, k Key) bool {
+    nm, ok := ident_at(trees, k)
+    return ok && len(text_at(trees, none, k.unit, nm.pkg)) == 0 && nm.def.is_none() && builtin.is_constraint(text_at(trees, none, k.unit, nm.name))
+}
+
+// is_interface_decl reports whether the declaration d is a type
+// declaration of an interface.
+func is_interface_decl(trees []ast.File, d Key) bool {
+    switch kind_at(trees, d) {
+    case type_decl(td):
+        switch kind_at(trees, sub(d, td.type_expr)) {
+        case interface_type:
+            return true
+        default:
+            return false
+        }
+    default:
+        return false
+    }
+}
+
+// declared_type returns the type the type expression k denotes, Go's
+// declaredType, reporting a type it does not know and returning invalid
+// for it: a basic type, a struct or union type the resolver bound the
+// name to, a type parameter, or a composite type. A view and any are
+// reported, since only a parameter or a result may have them.
+func (mut c Checker) declared_type(k Key) (types.Type, error) {
+    c.depth +%= 1
+    typ := mut c.declared_type_at(k)?
+    c.depth -%= 1
+    return typ, noerror
+}
+
+// declared_type_at is declared_type, with depth counted.
+func (mut c Checker) declared_type_at(k Key) (types.Type, error) {
+    switch kind_at(c.prog.trees, k) {
+    case array_type(a):
+        typ := mut c.array_type(k, a)?
+        return typ, noerror
+    case view_type:
+        mut m := msg()
+        append(mut m, []uint8(view_places)...)?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    case list_type(elem):
+        typ := mut c.list_type(sub(k, elem))?
+        return typ, noerror
+    case map_type(mt):
+        typ := mut c.map_type(k, mt)?
+        return typ, noerror
+    case arena_type(elem):
+        e := mut c.declared_type(sub(k, elem))?
+        if e == types.invalid {
+            return types.invalid, noerror
+        }
+        typ := mut c.table.arena_of(e)?
+        return typ, noerror
+    case pool_type(elem):
+        e := mut c.declared_type(sub(k, elem))?
+        if e == types.invalid {
+            return types.invalid, noerror
+        }
+        typ := mut c.table.pool_of(e)?
+        return typ, noerror
+    case ref_type(rt):
+        typ := mut c.ref_type(k, rt)?
+        return typ, noerror
+    case func_type(ft):
+        typ := mut c.func_type(k, ft)?
+        return typ, noerror
+    case ident(nm):
+        typ := mut c.ident_type(k, nm)?
+        return typ, noerror
+    default:
+        // Go reports "unsupported type expression: %T", with the Go type
+        // of the node, which the port does not name yet.
+        return types.invalid, not_ported
+    }
+}
+
+// ident_type is declared_type of the name nm at k.
+func (mut c Checker) ident_type(k Key, nm ast.Ident) (types.Type, error) {
+    typ, declared := mut c.named_type(k, nm)?
+    if declared {
+        return typ, noerror
+    }
+    unbound := mut c.unbound(k, nm)?
+    if unbound {
+        return types.invalid, noerror
+    }
+    if is_data_name(c.prog.trees, c.none, k) {
+        mut m := msg()
+        fmt.appendf(mut m, "%s is a constraint; it can only constrain a type parameter", text_at(c.prog.trees, c.none, k.unit, nm.name)[:])?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    }
+    b, known := types.lookup(text_at(c.prog.trees, c.none, k.unit, nm.name))
+    if !known || len(text_at(c.prog.trees, c.none, k.unit, nm.pkg)) > 0 {
+        mut m := msg()
+        fmt.appendf(mut m, "unknown type: ")?
+        qualified(c.prog.trees, c.none, k.unit, nm, mut m)?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    }
+    if b == types.any_type {
+        mut m := msg()
+        append(mut m, []uint8(any_message)...)?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    }
+    return b, noerror
+}
+
+// named_type returns the type the name nm at k names when it is bound to
+// a declaration, and whether it is, Go's namedType: a struct's or a
+// union's, a type parameter's, or, for an interface, invalid, reported.
+func (mut c Checker) named_type(k Key, nm ast.Ident) (types.Type, bool, error) {
+    if nm.def.kind == ast.def_type {
+        d := key_of_def(nm.def)
+        if is_interface_decl(c.prog.trees, d) {
+            mut m := msg()
+            qualified(c.prog.trees, c.none, k.unit, nm, mut m)?
+            fmt.appendf(mut m, " is an interface; it can only constrain a type parameter")?
+            mut c.errorf(span_at(c.prog.trees, k), own m)?
+            return types.invalid, true, noerror
+        }
+        return decl_type_of(c.decl_types, d), true, noerror
+    }
+    if nm.def.kind == ast.def_type_param {
+        // No case of a switch on a type parameter narrows anything
+        // before a body is checked.
+        return decl_type_of(c.decl_types, key_of_def(nm.def)), true, noerror
+    }
+    return types.invalid, false, noerror
+}
+
+// array_type returns the array type a written [n]T at k denotes, adding
+// it to the table, Go's arrayType: the length a constant integer, not
+// negative, and the elements copyable.
+func (mut c Checker) array_type(k Key, a ast.ArrayType) (types.Type, error) {
+    elem := mut c.declared_type(sub(k, a.elem))?
+    sp := span_at(c.prog.trees, k)
+    if ast.is_none(a.length) {
+        mut m := msg()
+        fmt.appendf(mut m, "[...] can only be used in an array literal")?
+        mut c.errorf(sp, own m)?
+        return types.invalid, noerror
+    }
+    n, ok := mut c.array_length(sub(k, a.length))?
+    if !ok || elem == types.invalid {
+        return types.invalid, noerror
+    }
+    copyable := mut c.require_copyable("an array", elem, sp)?
+    if !copyable {
+        return types.invalid, noerror
+    }
+    typ := mut c.table.array_of(elem, n)?
+    mut c.note_array_size(typ, sp)?
+    return typ, noerror
+}
+
+// array_length checks the length e of an array type and returns it, Go's
+// arrayLength. In a struct's field, or a union's case, it must name no
+// variable, which is checked first.
+func (mut c Checker) array_length(e Key) (int64, bool, error) {
+    if c.in_fields {
+        v, found := first_var(c.prog.trees, e)?
+        if found {
+            mut where := "a struct field"
+            if c.in_union {
+                where = "a union's case"
+            }
+            nm, _ := ident_at(c.prog.trees, v)
+            mut m := msg()
+            fmt.appendf(mut m, "array length in %s must not name variable %s", where, text_at(c.prog.trees, c.none, v.unit, nm.name)[:])?
+            mut c.errorf(span_at(c.prog.trees, v), own m)?
+            return 0, false, noerror
+        }
+    }
+    got := mut c.expr(e)?
+    if got == types.invalid {
+        return 0, false, noerror
+    }
+    v, known := mut c.known_value(e)?
+    if !types.is_integer(got) || !known {
+        mut m := msg()
+        fmt.appendf(mut m, "array length must be a constant integer")?
+        mut c.errorf(span_at(c.prog.trees, e), own m)?
+        return 0, false, noerror
+    }
+    if got == types.untyped_int {
+        settled := mut c.settle(e, types.int64_type)?
+        if !settled {
+            return 0, false, noerror
+        }
+    }
+    if v.is_negative() {
+        mut m := msg()
+        fmt.appendf(mut m, "array length must not be negative, got ")?
+        v.append_string(mut m)?
+        mut c.errorf(span_at(c.prog.trees, e), own m)?
+        return 0, false, noerror
+    }
+    return v.to_int64(), true, noerror
+}
+
+// first_var returns the first name in e, in source order, that refers to
+// a variable, and whether there is one, Go's firstVar, by a walk that
+// keeps its own stack, as ast's does.
+func first_var(trees []ast.File, e Key) (Key, bool, error) {
+    if e.unit < 0 || e.unit >= len(trees) {
+        return no_key(), false, noerror
+    }
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, e.node)?
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for len(stack) > 0 {
+        n := pop(mut stack)
+        nm, is_id := ident_at(trees, Key{unit: e.unit, node: n})
+        if is_id && nm.def.kind == ast.def_var {
+            return Key{unit: e.unit, node: n}, true, noerror
+        }
+        kids = make(list[id[ast.Node]], c_allocator)
+        ast.children(trees[e.unit], n, mut kids)?
+        mut i := len(kids)
+        for i > 0 {
+            i -%= 1
+            kid, ok := kids[i]
+            if ok {
+                append(mut stack, kid)?
+            }
+        }
+    }
+    return no_key(), false, noerror
+}
+
+// list_type returns list[T] of the element type written at elem, Go's
+// listType.
+func (mut c Checker) list_type(elem Key) (types.Type, error) {
+    e := mut c.declared_type(elem)?
+    if e == types.invalid {
+        return types.invalid, noerror
+    }
+    typ := mut c.table.list_of(e)?
+    return typ, noerror
+}
+
+// map_type returns map[K]V written at k, Go's mapType: its key type must
+// have == (see require_key).
+func (mut c Checker) map_type(k Key, mt ast.MapType) (types.Type, error) {
+    key := mut c.declared_type(sub(k, mt.key))?
+    value := mut c.declared_type(sub(k, mt.value))?
+    if key == types.invalid || value == types.invalid {
+        return types.invalid, noerror
+    }
+    ok := mut c.require_key(key, span_at(c.prog.trees, sub(k, mt.key)))?
+    if !ok {
+        return types.invalid, noerror
+    }
+    typ := mut c.table.map_of(key, value)?
+    return typ, noerror
+}
+
+// ref_type returns id[T], span[T] or handle[T] written at k, Go's
+// refType.
+func (mut c Checker) ref_type(k Key, rt ast.RefType) (types.Type, error) {
+    elem := mut c.declared_type(sub(k, rt.elem))?
+    if elem == types.invalid {
+        return types.invalid, noerror
+    }
+    if bytes_equal(text_at(c.prog.trees, c.none, k.unit, rt.name), []uint8("id")) {
+        typ := mut c.table.id_of(elem)?
+        return typ, noerror
+    }
+    if bytes_equal(text_at(c.prog.trees, c.none, k.unit, rt.name), []uint8("handle")) {
+        typ := mut c.table.handle_of(elem)?
+        return typ, noerror
+    }
+    typ := mut c.table.span_of(elem)?
+    return typ, noerror
+}
+
+// bytes_equal reports whether a and b hold the same bytes.
+func bytes_equal(a []uint8, b []uint8) bool {
+    if len(a) != len(b) {
+        return false
+    }
+    for i, x := range a {
+        y, ok := b[i]
+        if !ok || x != y {
+            return false
+        }
+    }
+    return true
+}
+
+// view_type returns the view type a written []T at k denotes, adding it
+// to the table, Go's viewType: its element may be any type but a view,
+// any included.
+func (mut c Checker) view_type(k Key, elem id[ast.Node]) (types.Type, error) {
+    switch kind_at(c.prog.trees, sub(k, elem)) {
+    case view_type:
+        mut m := msg()
+        fmt.appendf(mut m, "the element type of a view cannot be a view")?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    default:
+    }
+    e := mut c.param_elem_type(sub(k, elem))?
+    if e == types.invalid {
+        return types.invalid, noerror
+    }
+    typ := mut c.table.view_of(e)?
+    return typ, noerror
+}
+
+// param_elem_type returns the type k denotes as a parameter's, a
+// variadic's element or a view parameter's element, where any is
+// allowed, Go's paramElemType.
+func (mut c Checker) param_elem_type(k Key) (types.Type, error) {
+    if is_any_name(c.prog.trees, c.none, k) {
+        return types.any_type, noerror
+    }
+    typ := mut c.declared_type(k)?
+    return typ, noerror
+}
+
+// Sig names one parameter of a signature for a message: the list of
+// parameters it is in, its place, and whether the first is a method's
+// receiver.
+type Sig struct {
+    unit int64
+    params ast.Nodes
+    i int64
+    recv bool
+}
+
+// param_type returns the type the parameter p, of the signature s, is
+// declared with, Go's paramType.
+func (mut c Checker) param_type(p Key, s Sig) (types.Type, error) {
+    param := param_of(c.prog.trees, p)
+    typ := mut c.plain_param_type(p, param)?
+    mut c.note_site_param(p, param, typ)?
+    if param.is_own {
+        t := mut c.own_param_type(param, typ)?
+        return t, noerror
+    }
+    if param.is_scope {
+        t := mut c.scope_param_type(param, s, typ)?
+        return t, noerror
+    }
+    return typ, noerror
+}
+
+// plain_param_type returns the type param is declared with, before own
+// is asked about, Go's plainParamType.
+func (mut c Checker) plain_param_type(p Key, param ast.Param) (types.Type, error) {
+    texpr := sub(p, param.type_expr)
+    if param.variadic {
+        t := mut c.variadic_param(p, param)?
+        return t, noerror
+    }
+    switch kind_at(c.prog.trees, texpr) {
+    case view_type(elem):
+        typ := mut c.view_type(texpr, elem)?
+        if param.is_mut && typ != types.invalid {
+            mut m := msg()
+            fmt.appendf(mut m, "a view cannot be a mut parameter; views are read-only")?
+            mut c.errorf(span_at(c.prog.trees, p), own m)?
+            return types.invalid, noerror
+        }
+        return typ, noerror
+    default:
+    }
+    if is_any_name(c.prog.trees, c.none, texpr) {
+        if param.is_mut {
+            mut m := msg()
+            fmt.appendf(mut m, "mut has no effect on an any parameter; take mut p T to change the caller's value")?
+            mut c.errorf(span_at(c.prog.trees, p), own m)?
+            return types.invalid, noerror
+        }
+        return types.any_type, noerror
+    }
+    typ := mut c.declared_type(texpr)?
+    return typ, noerror
+}
+
+// variadic_param returns the type of param, a variadic parameter, the
+// view of its element type, Go's variadicParam.
+func (mut c Checker) variadic_param(p Key, param ast.Param) (types.Type, error) {
+    texpr := sub(p, param.type_expr)
+    switch kind_at(c.prog.trees, texpr) {
+    case view_type:
+        mut m := msg()
+        fmt.appendf(mut m, "the element type of a variadic parameter cannot be a view")?
+        mut c.errorf(span_at(c.prog.trees, texpr), own m)?
+        return types.invalid, noerror
+    default:
+    }
+    elem := mut c.param_elem_type(texpr)?
+    if elem == types.invalid {
+        return types.invalid, noerror
+    }
+    if mut c.is_site(elem) {
+        mut m := msg()
+        fmt.appendf(mut m, "a variadic parameter cannot be a testing.Site")?
+        mut c.errorf(span_at(c.prog.trees, p), own m)?
+        return types.invalid, noerror
+    }
+    copyable := mut c.require_copyable("a variadic parameter", elem, span_at(c.prog.trees, texpr))?
+    if !copyable {
+        return types.invalid, noerror
+    }
+    if param.is_mut {
+        mut m := msg()
+        fmt.appendf(mut m, "a variadic parameter cannot be mut; it is a read-only view")?
+        mut c.errorf(span_at(c.prog.trees, p), own m)?
+        return types.invalid, noerror
+    }
+    typ := mut c.table.view_of(elem)?
+    return typ, noerror
+}
+
+// own_param_type returns typ, the type of param, an own parameter, or
+// invalid, reported, when own cannot be written on it, Go's
+// ownParamType.
+func (mut c Checker) own_param_type(param ast.Param, typ types.Type) (types.Type, error) {
+    if typ == types.invalid {
+        return typ, noerror
+    }
+    mut m := msg()
+    if param.variadic {
+        fmt.appendf(mut m, "a variadic parameter cannot be own; take a list as own instead")?
+    } else if c.table.is_view(typ) {
+        fmt.appendf(mut m, "a view cannot be an own parameter: it only borrows what it points into")?
+    } else if typ == types.any_type {
+        fmt.appendf(mut m, "an any cannot be an own parameter: it only borrows the value it holds")?
+    } else {
+        owned := c.table.owned(typ)?
+        if owned {
+            return typ, noerror
+        }
+        n := mut c.type_name(typ)?
+        fmt.appendf(mut m, "%s cannot be an own parameter: it owns no list or map, so it is copied; remove own", n[:])?
+    }
+    mut c.errorf(param.own_span, own m)?
+    return types.invalid, noerror
+}
+
+// scope_param_type returns typ, the type of param, a scope parameter,
+// once it has checked that scope fits it, Go's scopeParamType.
+func (mut c Checker) scope_param_type(param ast.Param, s Sig, typ types.Type) (types.Type, error) {
+    if typ == types.invalid {
+        return typ, noerror
+    }
+    if param.variadic {
+        mut m := msg()
+        mut c.param_noun(mut m, s)?
+        fmt.appendf(mut m, " cannot be both variadic and scope: a scope parameter takes one function value or Allocator")?
+        mut c.errorf(param.scope_span, own m)?
+        return typ, noerror
+    }
+    if !c.table.is_func(typ) && typ != types.allocator {
+        mut m := msg()
+        mut c.param_noun(mut m, s)?
+        n := mut c.type_name(typ)?
+        fmt.appendf(mut m, " cannot be scope: %s is not a function type or Allocator, and only a function value or an Allocator can be scope; remove scope", n[:])?
+        mut c.errorf(param.scope_span, own m)?
+    }
+    return typ, noerror
+}
+
+// result_type returns the type the result r, one of n results, denotes,
+// Go's resultType: a view only as the only result of a function that is
+// not extern, ext being the extern func's declaration or no key.
+func (mut c Checker) result_type(r Key, n int64, ext Key) (types.Type, error) {
+    switch kind_at(c.prog.trees, r) {
+    case view_type(elem):
+        if !is_no_key(ext) {
+            mut m := msg()
+            fmt.appendf(mut m, "extern func %s cannot return a view: nothing tells the checker what C's view points into", name_of(c.prog.trees, c.none, ext)[:])?
+            mut c.errorf(span_at(c.prog.trees, r), own m)?
+            return types.invalid, noerror
+        }
+        if n > 1 {
+            mut m := msg()
+            fmt.appendf(mut m, "a view can only be a function's only result")?
+            mut c.errorf(span_at(c.prog.trees, r), own m)?
+            return types.invalid, noerror
+        }
+        typ := mut c.view_type(r, elem)?
+        return typ, noerror
+    default:
+        typ := mut c.declared_type(r)?
+        return typ, noerror
+    }
+}
+
+// func_type returns the function type a written func(A, mut B) R at k
+// denotes, adding it to the table, Go's funcType.
+func (mut c Checker) func_type(k Key, ft ast.FuncType) (types.Type, error) {
+    mut ok := true
+    mut params := make(list[types.FuncParam], c_allocator)
+    for i := range count_items(c.prog.trees, k.unit, ft.params) {
+        p := item_at(c.prog.trees, k.unit, ft.params, i)
+        param := param_of(c.prog.trees, p)
+        mut typ := mut c.func_type_param(p, param)?
+        if param.is_own {
+            typ = mut c.own_param_type(param, typ)?
+        }
+        if param.is_scope {
+            fits := mut c.func_type_scope(param, typ)?
+            if !fits {
+                typ = types.invalid
+            }
+        }
+        ok = ok && typ != types.invalid
+        append(mut params, types.FuncParam{typ: typ, is_mut: param.is_mut, is_own: param.is_own, is_scope: param.is_scope})?
+    }
+    mut results := make(list[types.Type], c_allocator)
+    for i := range count_items(c.prog.trees, k.unit, ft.results) {
+        r := item_at(c.prog.trees, k.unit, ft.results, i)
+        mut typ := types.invalid
+        switch kind_at(c.prog.trees, r) {
+        case view_type:
+            mut m := msg()
+            fmt.appendf(mut m, "a function type cannot return a view")?
+            mut c.errorf(span_at(c.prog.trees, r), own m)?
+        default:
+            typ = mut c.declared_type(r)?
+        }
+        ok = ok && typ != types.invalid
+        append(mut results, typ)?
+    }
+    for i, typ := range results {
+        if i +% 1 < len(results) && typ == types.error_type {
+            mut m := msg()
+            fmt.appendf(mut m, "error must be the last result of a function type")?
+            mut c.errorf(span_at(c.prog.trees, item_at(c.prog.trees, k.unit, ft.results, i)), own m)?
+            ok = false
+        }
+    }
+    if !ok {
+        return types.invalid, noerror
+    }
+    typ := mut c.table.func_of(params, results)?
+    return typ, noerror
+}
+
+// func_type_param returns the type param, a parameter of a function type
+// at p, has, Go's funcTypeParam.
+func (mut c Checker) func_type_param(p Key, param ast.Param) (types.Type, error) {
+    texpr := sub(p, param.type_expr)
+    if is_any_name(c.prog.trees, c.none, texpr) {
+        mut m := msg()
+        fmt.appendf(mut m, "a function type's parameter cannot be any")?
+        mut c.errorf(span_at(c.prog.trees, texpr), own m)?
+        return types.invalid, noerror
+    }
+    switch kind_at(c.prog.trees, texpr) {
+    case view_type(elem):
+        typ := mut c.view_type(texpr, elem)?
+        if param.is_mut && typ != types.invalid {
+            mut m := msg()
+            fmt.appendf(mut m, "a view cannot be a mut parameter; views are read-only")?
+            mut c.errorf(span_at(c.prog.trees, p), own m)?
+            return types.invalid, noerror
+        }
+        return typ, noerror
+    default:
+    }
+    typ := mut c.declared_type(texpr)?
+    if mut c.is_site(typ) {
+        mut m := msg()
+        fmt.appendf(mut m, "a function type's parameter cannot be a testing.Site")?
+        mut c.errorf(span_at(c.prog.trees, texpr), own m)?
+        return types.invalid, noerror
+    }
+    return typ, noerror
+}
+
+// func_type_scope reports whether param, a parameter of a function type
+// marked scope, of type typ, may be, Go's funcTypeScope.
+func (mut c Checker) func_type_scope(param ast.Param, typ types.Type) (bool, error) {
+    if typ == types.invalid || c.table.is_func(typ) || typ == types.allocator {
+        return true, noerror
+    }
+    n := mut c.type_name(typ)?
+    mut m := msg()
+    fmt.appendf(mut m, "a function type's parameter cannot be scope unless it is a function type or Allocator, and %s is not; remove scope", n[:])?
+    mut c.errorf(param.scope_span, own m)?
+    return false, noerror
+}
+
+// unbound reports whether nm, at k, is bound to ast.Unbound, which gives
+// it no type, reporting it as undefined when no earlier stage reported
+// an error, Go's unbound.
+func (mut c Checker) unbound(k Key, nm ast.Ident) (bool, error) {
+    if nm.def.kind != ast.def_unbound {
+        return false, noerror
+    }
+    if c.prior == 0 {
+        mut m := msg()
+        fmt.appendf(mut m, "undefined: ")?
+        qualified(c.prog.trees, c.none, k.unit, nm, mut m)?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+    }
+    return true, noerror
+}

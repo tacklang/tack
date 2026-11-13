@@ -1,0 +1,419 @@
+package constant
+
+import big from "std/big"
+
+// Float is the exact value of an untyped float constant, Go's
+// constant.Float: a rational number, num / den, den above 0, never
+// rounded until the constant is given a float type (see float64_bits and
+// float32_bits). Go's big.Rat keeps it in lowest terms; here it is
+// reduced only when its numerator or its denominator reaches 2^max_bits,
+// and an operation whose result is still that large in lowest terms
+// reports false, as Go's does, so the values and every answer about them
+// are Go's. A Float owns its integers, as a big.Int does: it moves rather
+// than copies.
+pub type Float struct {
+    num big.Int
+    den big.Int
+}
+
+// float_zero returns the Float 0.
+pub func float_zero(scope alloc Allocator) (Float, error) {
+    n := big.from_int64(0, alloc)?
+    d := big.from_int64(1, alloc)?
+    return Float{num: n, den: d}, noerror
+}
+
+// big_of returns x as a big.Int.
+func big_of(x Int, scope alloc Allocator) (big.Int, error) {
+    mag := big.from_uint64(x.mag, alloc)?
+    if x.neg {
+        n := big.neg(mag, alloc)?
+        return n, noerror
+    }
+    return mag, noerror
+}
+
+// float_from_int returns the Float equal to x, Go's FloatFromInt.
+pub func float_from_int(x Int, scope alloc Allocator) (Float, error) {
+    n := big_of(x, alloc)?
+    d := big.from_int64(1, alloc)?
+    return Float{num: n, den: d}, noerror
+}
+
+// parse_float decodes a float literal the parser accepted, Go's
+// ParseFloat: digits with _ between them, a fraction point, an exponent,
+// or both. It reports false for text that is not one, which the parser
+// never gives it.
+pub func parse_float(text []uint8, scope alloc Allocator) (Float, bool, error) {
+    mut digits := make(list[uint8], alloc)
+    mut frac_len int64 = 0
+    mut seen_point := false
+    mut exp int64 = 0
+    mut exp_neg := false
+    mut in_exp := false
+    mut exp_digits int64 = 0
+    for _, c := range text {
+        if c == '_' {
+            continue
+        }
+        if in_exp {
+            if c == '-' && exp_digits == 0 {
+                exp_neg = true
+                continue
+            }
+            if c == '+' && exp_digits == 0 {
+                continue
+            }
+            if c < '0' || c > '9' {
+                z := float_zero(alloc)?
+                return z, false, noerror
+            }
+            if exp < 100000 {
+                exp = exp *% 10 +% int64(c -% '0')
+            }
+            exp_digits +%= 1
+            continue
+        }
+        if c == 'e' || c == 'E' {
+            in_exp = true
+            continue
+        }
+        if c == '.' && !seen_point {
+            seen_point = true
+            continue
+        }
+        if c < '0' || c > '9' {
+            z := float_zero(alloc)?
+            return z, false, noerror
+        }
+        if seen_point {
+            frac_len +%= 1
+        }
+        append(mut digits, c)?
+    }
+    if len(digits) == 0 || in_exp && exp_digits == 0 {
+        z := float_zero(alloc)?
+        return z, false, noerror
+    }
+    if exp_neg {
+        exp = -%exp
+    }
+    // exp is below 100000 in size, and frac_len is at most the literal's
+    // length, so the difference cannot overflow an int64.
+    scale := exp -% frac_len
+    if scale > max_exponent || scale < -max_exponent {
+        z := float_zero(alloc)?
+        return z, false, noerror
+    }
+    n := big.parse(digits, 10, alloc)?
+    if scale >= 0 {
+        p := pow(10, scale, alloc)?
+        num := big.mul(n, p, alloc)?
+        d := big.from_int64(1, alloc)?
+        return Float{num: num, den: d}, true, noerror
+    }
+    den := pow(10, -scale, alloc)?
+    mut f := Float{num: n, den: den}
+    fits := within(mut f, alloc)?
+    return f, fits, noerror
+}
+
+// copy_big returns a copy of x.
+func copy_big(x big.Int, scope alloc Allocator) (big.Int, error) {
+    z := big.from_int64(0, alloc)?
+    c := big.plus(x, z, alloc)?
+    return c, noerror
+}
+
+// clone returns a copy of x.
+pub func (x Float) clone(scope alloc Allocator) (Float, error) {
+    n := copy_big(x.num, alloc)?
+    d := copy_big(x.den, alloc)?
+    return Float{num: n, den: d}, noerror
+}
+
+// is_zero reports whether x is 0.
+pub func (x Float) is_zero() bool {
+    return big.is_zero(x.num)
+}
+
+// cmp compares x and y, giving -1, 0 or 1 as x is less than, equal to or
+// greater than y, Go's Cmp.
+pub func (x Float) cmp(y Float, scope alloc Allocator) (int64, error) {
+    a := big.mul(x.num, y.den, alloc)?
+    b := big.mul(y.num, x.den, alloc)?
+    return big.cmp(a, b), noerror
+}
+
+// negate returns -x, Go's Neg.
+pub func (x Float) negate(scope alloc Allocator) (Float, error) {
+    n := big.neg(x.num, alloc)?
+    d := copy_big(x.den, alloc)?
+    return Float{num: n, den: d}, noerror
+}
+
+// add returns x + y, and whether it is within max_bits, Go's Add.
+pub func (x Float) add(y Float, scope alloc Allocator) (Float, bool, error) {
+    a := big.mul(x.num, y.den, alloc)?
+    b := big.mul(y.num, x.den, alloc)?
+    n := big.plus(a, b, alloc)?
+    d := big.mul(x.den, y.den, alloc)?
+    mut f := Float{num: n, den: d}
+    ok := within(mut f, alloc)?
+    return f, ok, noerror
+}
+
+// sub returns x - y, and whether it is within max_bits, Go's Sub.
+pub func (x Float) sub(y Float, scope alloc Allocator) (Float, bool, error) {
+    a := big.mul(x.num, y.den, alloc)?
+    b := big.mul(y.num, x.den, alloc)?
+    n := big.sub(a, b, alloc)?
+    d := big.mul(x.den, y.den, alloc)?
+    mut f := Float{num: n, den: d}
+    ok := within(mut f, alloc)?
+    return f, ok, noerror
+}
+
+// mul returns x * y, and whether it is within max_bits, Go's Mul.
+pub func (x Float) mul(y Float, scope alloc Allocator) (Float, bool, error) {
+    n := big.mul(x.num, y.num, alloc)?
+    d := big.mul(x.den, y.den, alloc)?
+    mut f := Float{num: n, den: d}
+    ok := within(mut f, alloc)?
+    return f, ok, noerror
+}
+
+// quo returns x / y, exactly, and whether it is within max_bits, Go's
+// Quo. y must not be zero.
+pub func (x Float) quo(y Float, scope alloc Allocator) (Float, bool, error) {
+    mut n := big.mul(x.num, y.den, alloc)?
+    mut d := big.mul(x.den, y.num, alloc)?
+    if big.sign(d) < 0 {
+        n = big.neg(n, alloc)?
+        d = big.neg(d, alloc)?
+    }
+    if big.is_zero(d) {
+        z := float_zero(alloc)?
+        return z, false, noerror
+    }
+    mut f := Float{num: n, den: d}
+    ok := within(mut f, alloc)?
+    return f, ok, noerror
+}
+
+// limit returns 2^max_bits, which no numerator or denominator in lowest
+// terms may reach.
+func limit(scope alloc Allocator) (big.Int, error) {
+    one := big.from_int64(1, alloc)?
+    l := big.shl(one, max_bits, alloc)?
+    return l, noerror
+}
+
+// within reports whether f, in lowest terms, has a numerator and a
+// denominator below 2^max_bits, Go's fromRat, putting f in lowest terms
+// first when either is not below it.
+func within(mut f Float, scope alloc Allocator) (bool, error) {
+    l := limit(alloc)?
+    a := big.abs(f.num, alloc)?
+    if big.cmp(a, l) < 0 && big.cmp(f.den, l) < 0 {
+        return true, noerror
+    }
+    reduce(mut f, alloc)?
+    b := big.abs(f.num, alloc)?
+    return big.cmp(b, l) < 0 && big.cmp(f.den, l) < 0, noerror
+}
+
+// reduce puts f in lowest terms, dividing its numerator and denominator
+// by their greatest common divisor.
+func reduce(mut f Float, scope alloc Allocator) error {
+    if big.is_zero(f.num) {
+        f.den = big.from_int64(1, alloc)?
+        return noerror
+    }
+    mut a := big.abs(f.num, alloc)?
+    mut b := copy_big(f.den, alloc)?
+    for !big.is_zero(b) {
+        q0, r := big.div_mod(a, b, alloc)?
+        drop(own q0)
+        a = replace(mut b, r)
+    }
+    q, r1 := big.div_mod(f.num, a, alloc)?
+    drop(own r1)
+    d, r2 := big.div_mod(f.den, a, alloc)?
+    drop(own r2)
+    f.num = q
+    f.den = d
+    return noerror
+}
+
+// is_integer reports whether x is an integer, whatever its size, Go's
+// IsInteger.
+pub func (x Float) is_integer(scope alloc Allocator) (bool, error) {
+    q, r := big.div_mod(x.num, x.den, alloc)?
+    drop(own q)
+    return big.is_zero(r), noerror
+}
+
+// to_int returns x as an Int, and whether x is an integer an Int can
+// hold, from the smallest int64 to the largest uint64, Go's Int.
+pub func (x Float) to_int(scope alloc Allocator) (Int, bool, error) {
+    q, r := big.div_mod(x.num, x.den, alloc)?
+    if !big.is_zero(r) {
+        return Int{mag: 0, neg: false}, false, noerror
+    }
+    u, is_u := big.to_uint64(q)
+    if is_u {
+        return Int{mag: u, neg: false}, true, noerror
+    }
+    s, is_s := big.to_int64(q)
+    if is_s {
+        return from_int64(s), true, noerror
+    }
+    return Int{mag: 0, neg: false}, false, noerror
+}
+
+// bit_len returns how many bits x, not negative, takes: 0 for 0.
+func bit_len(x big.Int, scope alloc Allocator) (int64, error) {
+    if big.is_zero(x) {
+        return 0, noerror
+    }
+    mut hex := make(list[uint8], alloc)
+    big.format(mut hex, x, 16)?
+    n := len(hex)
+    first, has := hex[0]
+    if !has {
+        return 0, noerror
+    }
+    mut top int64 = 4
+    if first == '1' {
+        top = 1
+    } else if first == '2' || first == '3' {
+        top = 2
+    } else if first >= '4' && first <= '7' {
+        top = 3
+    }
+    // n counts the digits of an Int that fits in memory, so this does
+    // not wrap.
+    return (n -% 1) *% 4 +% top, noerror
+}
+
+// rounded is a float's value rounded to a float type: sign, the integer
+// mantissa q and the exponent e, the value being q * 2^e, and whether it
+// is finite.
+type rounded struct {
+    neg bool
+    q uint64
+    e int64
+    finite bool
+}
+
+// round rounds x to the nearest value with a mant-bit mantissa, ties to
+// even, as Go's big.Rat Float64 and Float32 do: emin is the exponent of
+// the smallest subnormal's unit, and a value of 2^emax or more is no
+// finite one.
+func round(x Float, mant int64, emin int64, emax int64, scope alloc Allocator) (rounded, error) {
+    neg := big.sign(x.num) < 0
+    a := big.abs(x.num, alloc)?
+    if big.is_zero(a) {
+        return rounded{neg: neg, q: 0, e: 0, finite: true}, noerror
+    }
+    la := bit_len(a, alloc)?
+    lb := bit_len(x.den, alloc)?
+    // The lengths are those of Ints in memory, so this does not wrap.
+    mut e := la -% lb -% mant
+    mut q, mut r, mut d := quotient(a, x.den, e, alloc)?
+    ql := bit_len(q, alloc)?
+    if ql > mant {
+        e +%= 1
+        q, r, d = quotient(a, x.den, e, alloc)?
+    }
+    if e < emin {
+        e = emin
+        q, r, d = quotient(a, x.den, e, alloc)?
+    }
+    two_r := big.shl(r, 1, alloc)?
+    c := big.cmp(two_r, d)
+    one := big.from_int64(1, alloc)?
+    two := big.from_int64(2, alloc)?
+    half, low := big.div_mod(q, two, alloc)?
+    drop(own half)
+    if c > 0 || c == 0 && !big.is_zero(low) {
+        q = big.plus(q, one, alloc)?
+    }
+    mut qb := bit_len(q, alloc)?
+    if qb > mant {
+        q = big.shr(q, 1, alloc)?
+        e +%= 1
+        qb = mant
+    }
+    qu, fits := big.to_uint64(q)
+    if !fits {
+        return rounded{neg: neg, q: 0, e: 0, finite: false}, noerror
+    }
+    return rounded{neg: neg, q: qu, e: e, finite: e +% qb <= emax}, noerror
+}
+
+// quotient returns floor(a / (b * 2^e)), its remainder and the divisor
+// it was taken by, the shift moved to a for a negative e.
+func quotient(a big.Int, b big.Int, e int64, scope alloc Allocator) (big.Int, big.Int, big.Int, error) {
+    if e >= 0 {
+        d := big.shl(b, e, alloc)?
+        q, r := big.div_mod(a, d, alloc)?
+        return q, r, d, noerror
+    }
+    n := big.shl(a, -%e, alloc)?
+    d := copy_big(b, alloc)?
+    q, r := big.div_mod(n, d, alloc)?
+    return q, r, d, noerror
+}
+
+// float64_bits returns the IEEE 754 binary64 bits of the float64 nearest
+// x, ties to even, and whether it is finite, Go's Float64: a value too
+// large rounds to an infinity, which no constant may become; one too
+// small to zero or a subnormal.
+pub func (x Float) float64_bits(scope alloc Allocator) (uint64, bool, error) {
+    r := round(x, 53, -1074, 1024, alloc)?
+    mut bits uint64 = 0
+    if r.neg {
+        bits = 9223372036854775808
+    }
+    if !r.finite {
+        return bits | 9218868437227405312, false, noerror
+    }
+    if r.q == 0 {
+        return bits, true, noerror
+    }
+    if r.q < 4503599627370496 {
+        return bits | r.q, true, noerror
+    }
+    biased, ok := uint64(r.e +% 1075)
+    if !ok {
+        return bits, true, noerror
+    }
+    return bits | biased << 52 | (r.q -% 4503599627370496), true, noerror
+}
+
+// float32_bits returns the IEEE 754 binary32 bits of the float32 nearest
+// x, ties to even, and whether it is finite, Go's Float32.
+pub func (x Float) float32_bits(scope alloc Allocator) (uint32, bool, error) {
+    r := round(x, 24, -149, 128, alloc)?
+    mut bits uint32 = 0
+    if r.neg {
+        bits = 2147483648
+    }
+    if !r.finite {
+        return bits | 2139095040, false, noerror
+    }
+    q, fits := uint32(r.q)
+    if !fits || q == 0 {
+        return bits, true, noerror
+    }
+    if q < 8388608 {
+        return bits | q, true, noerror
+    }
+    biased, ok := uint32(r.e +% 150)
+    if !ok {
+        return bits, true, noerror
+    }
+    return bits | biased << 23 | (q -% 8388608), true, noerror
+}

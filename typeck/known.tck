@@ -1,0 +1,546 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import types from "tack/types"
+
+// type_of returns the type of the expression k as the checker recorded
+// it, Go's ast.TypeOf: a literal's fixed type, or an integer's or a
+// float's recorded one, untyped before; a name's variable's or
+// parameter's; a conversion's or a len call's; and any other's recorded
+// type.
+func (mut c Checker) type_of(k Key) types.Type {
+    switch kind_at(c.prog.trees, k) {
+    case int_lit:
+        t := node_type_of(c.node_types, k)
+        if t == types.invalid {
+            return types.untyped_int
+        }
+        return t
+    case float_lit:
+        t := node_type_of(c.node_types, k)
+        if t == types.invalid {
+            return types.untyped_float
+        }
+        return t
+    case char_lit:
+        return types.uint8_type
+    case str_lit:
+        return types.string_type
+    case bool_lit:
+        return types.bool_type
+    case noerror_lit:
+        return types.error_type
+    case c_allocator_lit:
+        return types.allocator
+    case ident(nm):
+        if nm.def.kind == ast.def_var || nm.def.kind == ast.def_param {
+            return decl_type_of(c.decl_types, key_of_def(nm.def))
+        }
+        return types.invalid
+    case call(cl):
+        if cl.conv != types.invalid {
+            return cl.conv
+        }
+        t := node_type_of(c.node_types, k)
+        if t != types.invalid {
+            return t
+        }
+        if is_len_call(c.prog.trees, c.none, k) {
+            return types.int64_type
+        }
+        return types.invalid
+    default:
+        return node_type_of(c.node_types, k)
+    }
+}
+
+// const_of returns the constant recorded in consts on the expression k,
+// a Binary's, a Unary's or a Call's Const, or none.
+func const_of(consts map[Key]Const, k Key) Const {
+    v, ok := consts[k]
+    if !ok {
+        return no_const()
+    }
+    return v
+}
+
+// const_value returns the value of an integer constant expression, and
+// whether k is one, Go's constValue: a literal, a character, or a
+// Binary, a Unary or a Call with an integer Const. One given a float
+// type is not one.
+func (mut c Checker) const_value(k Key) (constant.Int, bool) {
+    if types.is_float(mut c.type_of(k)) {
+        return constant.from_int64(0), false
+    }
+    switch kind_at(c.prog.trees, k) {
+    case int_lit(lit):
+        return lit.value, true
+    case char_lit(ch):
+        return constant.from_int64(int64(ch)), true
+    case binary, unary, call:
+        v := const_of(c.consts, k)
+        if v.kind == cv_int {
+            return v.i, true
+        }
+        return constant.from_int64(0), false
+    default:
+        return constant.from_int64(0), false
+    }
+}
+
+// known_value returns the value of k when the checker knows it, Go's
+// knownValue: a constant expression, an immutable global's computed
+// value, a field or an element of a known struct or array, a byte of a
+// known string, a conversion of a known value that fits, or arithmetic
+// on known values whose exact result fits its type. A float's value is
+// never known this way.
+func (mut c Checker) known_value(k Key) (constant.Int, bool, error) {
+    if types.is_float(mut c.type_of(k)) {
+        return constant.from_int64(0), false, noerror
+    }
+    v, ok := mut c.const_value(k)
+    if ok {
+        return v, true, noerror
+    }
+    switch kind_at(c.prog.trees, k) {
+    case binary(b):
+        r, known := mut c.known_arithmetic(k, b)?
+        return r, known, noerror
+    case call(cl):
+        r, known := mut c.known_call(k, cl)?
+        return r, known, noerror
+    case selector, index:
+        part, ok_part := mut c.fold_part(k)?
+        if ok_part && part.kind == cv_int {
+            return part.i, true, noerror
+        }
+        return constant.from_int64(0), false, noerror
+    case unary(u):
+        r, known := mut c.known_unary(k, u)?
+        return r, known, noerror
+    case ident(nm):
+        r, known := mut c.known_var(nm)
+        return r, known, noerror
+    default:
+        return constant.from_int64(0), false, noerror
+    }
+}
+
+// known_var returns the value of the variable nm names, when it is an
+// immutable global with a computed integer value, Go's knownVar before
+// bodies: no local is known yet.
+func (mut c Checker) known_var(nm ast.Ident) (constant.Int, bool) {
+    if nm.def.kind != ast.def_var {
+        return constant.from_int64(0), false
+    }
+    v := key_of_def(nm.def)
+    if var_of(c.prog.trees, v).mutable {
+        return constant.from_int64(0), false
+    }
+    k, ok := c.var_consts[v]
+    if ok && k.kind == cv_int {
+        return k.i, true
+    }
+    return constant.from_int64(0), false
+}
+
+// known_unary returns the value of -x, -%x or ^x, u at k, when x's value
+// is known and the result is a value of u's type, Go's knownUnary.
+func (mut c Checker) known_unary(k Key, u ast.Unary) (constant.Int, bool, error) {
+    v, ok := mut c.known_value(sub(k, u.x))?
+    if !ok {
+        return constant.from_int64(0), false, noerror
+    }
+    typ := node_type_of(c.node_types, k)
+    if u.op == ast.unary_neg {
+        n, fits := v.negate()
+        r, f := fitting(n, fits, typ)
+        return r, f, noerror
+    }
+    if u.op == ast.unary_neg_wrap {
+        r, f := wrap_step(ast.op_sub_wrap, constant.from_int64(0), v, typ)
+        return r, f, noerror
+    }
+    if u.op != ast.unary_complement || types.target_width(typ) {
+        return constant.from_int64(0), false, noerror
+    }
+    if types.is_unsigned(typ) {
+        sh, sh_ok := uint64(64 -% types.max_bits(typ))
+        if !sh_ok || sh > 63 {
+            return constant.from_int64(0), false, noerror
+        }
+        mask := uint64(18446744073709551615) >> sh
+        x, fits := v.bit_xor(constant.from_uint64(mask))
+        r, f := fitting(x, fits, typ)
+        return r, f, noerror
+    }
+    n, fits := v.complement()
+    r, f := fitting(n, fits, typ)
+    return r, f, noerror
+}
+
+// known_call returns the value of a call when it is known, Go's
+// knownCall: a conversion of a known value that fits its type, or len of
+// a known string or of a slice of one at known bounds.
+func (mut c Checker) known_call(k Key, cl ast.Call) (constant.Int, bool, error) {
+    if cl.conv != types.invalid {
+        if count_items(c.prog.trees, k.unit, cl.args) != 1 || !types.is_integer(cl.conv) {
+            return constant.from_int64(0), false, noerror
+        }
+        v, ok := mut c.known_value(item_at(c.prog.trees, k.unit, cl.args, 0))?
+        if !ok || !fits_portably(v, cl.conv) {
+            return constant.from_int64(0), false, noerror
+        }
+        return v, true, noerror
+    }
+    if !is_len_call(c.prog.trees, c.none, k) || count_items(c.prog.trees, k.unit, cl.args) != 1 {
+        return constant.from_int64(0), false, noerror
+    }
+    arg := item_at(c.prog.trees, k.unit, cl.args, 0)
+    s, known := mut c.known_string(arg)?
+    if known {
+        return constant.from_int64(s.count), true, noerror
+    }
+    switch kind_at(c.prog.trees, arg) {
+    case slice:
+        has := has_call(c.prog.trees, arg)?
+        if !has {
+            n, ok := mut c.slice_extent(arg)?
+            if ok {
+                return constant.from_int64(n), true, noerror
+            }
+        }
+    default:
+    }
+    return constant.from_int64(0), false, noerror
+}
+
+// known_string returns the value of k when it is a string the checker
+// knows, Go's knownString: a literal, an immutable variable initialized
+// with a known string, a field or an element of a known struct or
+// array, or a slice of a known string at known bounds.
+func (mut c Checker) known_string(k Key) (Const, bool, error) {
+    switch kind_at(c.prog.trees, k) {
+    case str_lit(s):
+        v := mut c.store.str_const(text_at(c.prog.trees, c.none, k.unit, s))?
+        return v, true, noerror
+    case selector, index:
+        part, ok := mut c.fold_part(k)?
+        return part, ok && part.kind == cv_str, noerror
+    case slice:
+        v, ok := mut c.known_slice(k)?
+        return v, ok, noerror
+    case ident(nm):
+        if nm.def.kind != ast.def_var {
+            return no_const(), false, noerror
+        }
+        v := key_of_def(nm.def)
+        var_node := var_of(c.prog.trees, v)
+        if var_node.mutable || decl_type_of(c.decl_types, v) != types.string_type {
+            return no_const(), false, noerror
+        }
+        cv, ok := c.var_consts[v]
+        if ok && cv.kind == cv_str {
+            return cv, true, noerror
+        }
+        // A local's initializer would be followed here; a global's
+        // value is its Const, computed before anything reads it.
+        _, global := c.globals[v]
+        if ast.is_none(var_node.value) || global {
+            return no_const(), false, noerror
+        }
+        r, known := mut c.known_string(sub(v, var_node.value))?
+        return r, known, noerror
+    default:
+        return no_const(), false, noerror
+    }
+}
+
+// slice_extent returns the length of the slice s when its bounds are
+// known, in order and not negative, Go's sliceExtent.
+func (mut c Checker) slice_extent(s Key) (int64, bool, error) {
+    switch kind_at(c.prog.trees, s) {
+    case slice(sl):
+        mut lo := constant.from_int64(0)
+        mut hi := constant.from_int64(0)
+        if !ast.is_none(sl.lo) {
+            v, ok := mut c.known_value(sub(s, sl.lo))?
+            if !ok {
+                return 0, false, noerror
+            }
+            lo = v
+        }
+        if !ast.is_none(sl.hi) {
+            v, ok := mut c.known_value(sub(s, sl.hi))?
+            if !ok {
+                return 0, false, noerror
+            }
+            hi = v
+        } else {
+            n, ok := mut c.extent_of(sub(s, sl.x))?
+            if !ok {
+                return 0, false, noerror
+            }
+            hi = constant.from_int64(n)
+        }
+        n, ok := hi.sub(lo)
+        if !ok || lo.is_negative() || n.is_negative() || !n.fits(64, true) {
+            return 0, false, noerror
+        }
+        return n.to_int64(), true, noerror
+    default:
+        return 0, false, noerror
+    }
+}
+
+// extent_of returns the length of x when it is known, Go's extentOf: a
+// slice's at known bounds, an array's, or a known string's.
+func (mut c Checker) extent_of(x Key) (int64, bool, error) {
+    switch kind_at(c.prog.trees, x) {
+    case slice:
+        n, ok := mut c.slice_extent(x)?
+        return n, ok, noerror
+    default:
+    }
+    typ := mut c.type_of(x)
+    if c.table.is_array(typ) {
+        return c.table.len_of(typ), true, noerror
+    }
+    if typ == types.string_type {
+        s, ok := mut c.known_string(x)?
+        return s.count, ok, noerror
+    }
+    return 0, false, noerror
+}
+
+// known_slice returns the slice s of a known string at known bounds, in
+// range and in order, Go's knownSlice.
+func (mut c Checker) known_slice(s Key) (Const, bool, error) {
+    switch kind_at(c.prog.trees, s) {
+    case slice(sl):
+        str, ok := mut c.known_string(sub(s, sl.x))?
+        if !ok {
+            return no_const(), false, noerror
+        }
+        mut lo int64 = 0
+        mut hi := str.count
+        if !ast.is_none(sl.lo) {
+            v, known := mut c.known_value(sub(s, sl.lo))?
+            if !known || v.is_negative() || v.cmp(constant.from_int64(str.count)) > 0 {
+                return no_const(), false, noerror
+            }
+            lo = v.to_int64()
+        }
+        if !ast.is_none(sl.hi) {
+            v, known := mut c.known_value(sub(s, sl.hi))?
+            if !known || v.is_negative() || v.cmp(constant.from_int64(str.count)) > 0 {
+                return no_const(), false, noerror
+            }
+            hi = v.to_int64()
+        }
+        if lo > hi {
+            return no_const(), false, noerror
+        }
+        mut r := str
+        r.first = str.first +% lo
+        r.count = hi -% lo
+        return r, true, noerror
+    default:
+        return no_const(), false, noerror
+    }
+}
+
+// known_arithmetic computes arithmetic on two known values, exactly, and
+// keeps the result only if it is a value of the expression's type, Go's
+// knownArithmetic, remembering the answer for a typed binary.
+func (mut c Checker) known_arithmetic(k Key, b ast.Binary) (constant.Int, bool, error) {
+    if !is_integer_op(b.op) {
+        return constant.from_int64(0), false, noerror
+    }
+    typ := node_type_of(c.node_types, k)
+    typed := typ != types.invalid && typ != types.untyped_int
+    known, seen := c.known_binaries[k]
+    if typed && seen && known.typ == typ {
+        return known.value, known.ok, noerror
+    }
+    x, ok_x := mut c.known_value(sub(k, b.x))?
+    y, ok_y := mut c.known_value(sub(k, b.y))?
+    mut value := constant.from_int64(0)
+    mut ok := false
+    if ok_x && ok_y {
+        value, ok = known_step(b.op, x, y, typ)
+    }
+    if typed {
+        put(mut c.known_binaries, k, KnownBinary{value: value, ok: ok, typ: typ})?
+    }
+    return value, ok, noerror
+}
+
+// known_step computes a op b, exactly, for the arithmetic, bitwise, shift
+// or wrapping operator op, and keeps the result only if it is a value of
+// the type typ, Go's knownStep.
+func known_step(op ast.BinaryOp, a constant.Int, b constant.Int, typ types.Type) (constant.Int, bool) {
+    if op == ast.op_add {
+        v, ok := a.add(b)
+        fr, ff := fitting(v, ok, typ)
+        return fr, ff
+    }
+    if op == ast.op_sub {
+        v, ok := a.sub(b)
+        fr, ff := fitting(v, ok, typ)
+        return fr, ff
+    }
+    if op == ast.op_mul {
+        v, ok := a.mul(b)
+        fr, ff := fitting(v, ok, typ)
+        return fr, ff
+    }
+    if is_bitwise_op(op) {
+        v, ok := bitwise_step(op, a, b)
+        fr, ff := fitting(v, ok, typ)
+        return fr, ff
+    }
+    if op == ast.op_shl || op == ast.op_shr {
+        v, ok := shift_step(op, a, b)
+        fr, ff := fitting(v, ok, typ)
+        return fr, ff
+    }
+    if is_wrapping_op(op) {
+        w, ok := wrap_step(op, a, b, typ)
+        return w, ok
+    }
+    if b.is_zero() {
+        return constant.from_int64(0), false
+    }
+    if op == ast.op_div {
+        v, ok := a.quo(b)
+        fr, ff := fitting(v, ok, typ)
+        return fr, ff
+    }
+    v, ok := a.rem(b)
+    fr, ff := fitting(v, ok, typ)
+    return fr, ff
+}
+
+// bitwise_step computes a op b, exactly, for the bitwise operator op, Go's
+// bitwiseStep.
+func bitwise_step(op ast.BinaryOp, a constant.Int, b constant.Int) (constant.Int, bool) {
+    if op == ast.op_bit_and {
+        v, ok := a.bit_and(b)
+    return v, ok
+    }
+    if op == ast.op_bit_or {
+        v, ok := a.bit_or(b)
+    return v, ok
+    }
+    if op == ast.op_bit_xor {
+        v, ok := a.bit_xor(b)
+    return v, ok
+    }
+    v, ok := a.and_not(b)
+    return v, ok
+}
+
+// shift_step computes a op n, exactly, for the shift operator op, Go's
+// shiftStep: a negative count gives none.
+func shift_step(op ast.BinaryOp, a constant.Int, n constant.Int) (constant.Int, bool) {
+    if n.is_negative() {
+        return constant.from_int64(0), false
+    }
+    if op == ast.op_shl {
+        sr, sf := a.shl(n.to_uint64())
+        return sr, sf
+    }
+    sr, sf := a.shr(n.to_uint64())
+    return sr, sf
+}
+
+// fitting turns the result v of a constant operation, ok when it was in
+// range, into a known value of the type typ, Go's fitting: known only if
+// it is a value of typ on every target.
+func fitting(v constant.Int, ok bool, typ types.Type) (constant.Int, bool) {
+    if !ok || !types.is_integer(typ) || typ == types.untyped_int {
+        return v, ok && typ == types.untyped_int
+    }
+    return v, fits_portably(v, typ)
+}
+
+// fits_portably reports whether v is a value of the integer type typ on
+// every target, Go's fitsPortably.
+func fits_portably(v constant.Int, typ types.Type) bool {
+    return v.fits(types.portable_bits(typ), !types.is_unsigned(typ))
+}
+
+// wrap_step computes a op b for op, a wrapping operator, on the two's
+// complement forms of a and b, keeping the low bits of typ's width, Go's
+// wrapStep; a target-width type's result is not known.
+func wrap_step(op ast.BinaryOp, a constant.Int, b constant.Int, typ types.Type) (constant.Int, bool) {
+    if !types.is_integer(typ) || typ == types.untyped_int || types.target_width(typ) {
+        return constant.from_int64(0), false
+    }
+    x := a.to_uint64()
+    y := b.to_uint64()
+    mut r uint64 = 0
+    if op == ast.op_add_wrap {
+        r = x +% y
+    } else if op == ast.op_sub_wrap {
+        r = x -% y
+    } else {
+        r = x *% y
+    }
+    shift := 64 -% types.max_bits(typ)
+    if shift < 0 || shift > 63 {
+        return constant.from_int64(0), false
+    }
+    sh, sh_ok := uint64(shift)
+    if !sh_ok || sh > 63 {
+        return constant.from_int64(0), false
+    }
+    if types.is_unsigned(typ) {
+        return constant.from_uint64(r << sh >> sh), true
+    }
+    // The low bits are read as a two's complement value of the type's
+    // width, the value the program computes: shifted up to the top, read
+    // as an int64, and shifted back down with the sign.
+    up := r << sh
+    mut signed int64 = 0
+    if up < 9223372036854775808 {
+        low, fits := int64(up)
+        if fits {
+            signed = low
+        }
+    } else {
+        flipped, fits := int64(^up)
+        if fits {
+            signed = (-%flipped) -% 1
+        }
+    }
+    return constant.from_int64(signed >> sh), true
+}
+
+// is_integer_op reports whether op is an operator on integers, Go's
+// IsInteger: arithmetic, bitwise, shifts and the wrapping operators.
+func is_integer_op(op ast.BinaryOp) bool {
+    return op == ast.op_add || op == ast.op_sub || op == ast.op_mul || op == ast.op_div || op == ast.op_rem || is_bitwise_op(op) || op == ast.op_shl || op == ast.op_shr || is_wrapping_op(op)
+}
+
+// is_bitwise_op reports whether op is & | ^ or &^.
+func is_bitwise_op(op ast.BinaryOp) bool {
+    return op == ast.op_bit_and || op == ast.op_bit_or || op == ast.op_bit_xor || op == ast.op_and_not
+}
+
+// is_wrapping_op reports whether op is +% -% or *%.
+func is_wrapping_op(op ast.BinaryOp) bool {
+    return op == ast.op_add_wrap || op == ast.op_sub_wrap || op == ast.op_mul_wrap
+}
+
+// is_comparison_op reports whether op is one of the six comparisons.
+func is_comparison_op(op ast.BinaryOp) bool {
+    return op == ast.op_eq || op == ast.op_ne || op == ast.op_lt || op == ast.op_le || op == ast.op_gt || op == ast.op_ge
+}
+
+// is_logical_op reports whether op is && or ||.
+func is_logical_op(op ast.BinaryOp) bool {
+    return op == ast.op_and || op == ast.op_or
+}

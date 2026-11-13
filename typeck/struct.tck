@@ -1,0 +1,575 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// declare_structs gives every type declaration of the program its struct
+// or union type, with no fields or cases yet, so that any type can name
+// any struct or union whatever the order of declarations, Go's
+// declareStructs. Both are listed in struct_order, in source order. An
+// interface is no type of the table.
+func (mut c Checker) declare_structs() error {
+    for i := range count_decls(c.prog) {
+        d := decl_at(c.prog, i)
+        switch kind_at(c.prog.trees, d) {
+        case type_decl(td):
+            texpr := sub(d, td.type_expr)
+            switch kind_at(c.prog.trees, texpr) {
+            case interface_type:
+                continue
+            case union_type:
+                typ := mut c.table.add_union(text_at(c.prog.trees, c.none, d.unit, td.name))?
+                mut c.set_decl_type(d, typ)?
+                put(mut c.unions, typ.number(), d)?
+                mut c.note_declared(d, typ)?
+            default:
+                typ := mut c.table.add_struct(text_at(c.prog.trees, c.none, d.unit, td.name))?
+                mut c.set_decl_type(d, typ)?
+                put(mut c.structs, typ.number(), d)?
+                mut c.note_declared(d, typ)?
+            }
+        default:
+        }
+    }
+    return noerror
+}
+
+// note_declared records typ, the struct or union type d declares, as one
+// of its package's, in struct_order.
+func (mut c Checker) note_declared(d Key, typ types.Type) error {
+    p, ok := c.unit_pkg[d.unit]
+    if ok {
+        put(mut c.struct_pkg, typ.number(), p)?
+        mut c.table.set_owner(typ, p)
+    }
+    append(mut c.struct_order, typ)?
+    return noerror
+}
+
+// decl_of_type returns the declaration of typ, a struct or a union type
+// the program declares, in structs or unions, or no key, Go's typeDecl.
+func decl_of_type(structs map[int64]Key, unions map[int64]Key, typ types.Type) Key {
+    s, ok := structs[typ.number()]
+    if ok {
+        return s
+    }
+    u, is_union := unions[typ.number()]
+    if is_union {
+        return u
+    }
+    return no_key()
+}
+
+// type_decl_of returns the TypeDecl the type_decl node k holds.
+func type_decl_of(trees []ast.File, k Key) ast.TypeDecl {
+    switch kind_at(trees, k) {
+    case type_decl(td):
+        return td
+    default:
+        mut z ast.TypeDecl
+        return z
+    }
+}
+
+// check_globals records which declarations are package-level variables,
+// then resolves every struct's fields and every union's cases, judges
+// what waited for them, then checks each variable, Go's checkGlobals.
+//
+// Go checks a global the first time it is needed, from inside the check
+// of the global that names it (see ensure_global), so a chain of globals
+// each naming the next nests a check for each link, as deep as the chain
+// is long. Here a check nests on the stack only a few deep: past that
+// the innermost needed is suspended, every check nested unwound, and
+// this loop checks the global wanted first, then each unwound one again
+// from its start, the innermost first, as a stack of its own. What a
+// check did before it was suspended stays done, the types it added among
+// it, so each type has Go's ID, and what it reported stays reported, in
+// Go's order, and is not reported again when it is checked from the
+// start. Checked again, a global does not redo what it did before: what
+// its initializer is is kept (see global_shape), and a spine of
+// operators goes on from the link it was suspended at (see expr), so a
+// global adding up many others, each suspending it, checks in time
+// linear in their number.
+func (mut c Checker) check_globals() error {
+    for i := range count_decls(c.prog) {
+        d := decl_at(c.prog, i)
+        switch kind_at(c.prog.trees, d) {
+        case var_decl:
+            put(mut c.globals, d, true)?
+        default:
+        }
+    }
+    mut c.check_structs()?
+    mut c.check_pending_elems()?
+    mut c.check_pending_keys()?
+    mut c.check_type_sizes()?
+    for i := range count_decls(c.prog) {
+        d := decl_at(c.prog, i)
+        switch kind_at(c.prog.trees, d) {
+        case var_decl(v):
+            mut c.drive_global(d, v.name_span)?
+        default:
+        }
+    }
+    return mut c.check_globals_size()
+}
+
+// drive_global checks the global v, needed at at, and every global its
+// check needs first, as check_globals says.
+func (mut c Checker) drive_global(v Key, at source.Span) error {
+    mut pending := make(list[Pending], c_allocator)
+    mut cur := v
+    mut replay := false
+    mut resume := no_key()
+    // init_stack holds pending's globals, in order, throughout: a check
+    // that is suspended leaves every global it was checking on it, which
+    // are the ones it unwound, and one that ends takes its own off.
+    c.init_stack = make(list[Key], c_allocator)
+    for {
+        c.unwound = make(list[Pending], c_allocator)
+        c.nested_globals = 0
+        c.depth = 0
+        c.in_fields = false
+        c.in_union = false
+        mut e error
+        if replay {
+            c.suppressing = true
+            c.suppress_until = resume
+            e = mut c.check_global_now(cur)
+            c.suppressing = false
+        } else {
+            e = mut c.ensure_global(cur, at)
+        }
+        if e.code == suspend.code {
+            if replay {
+                pop(mut pending)
+            }
+            mut i := len(c.unwound)
+            for i > 0 {
+                i -%= 1
+                u, ok := c.unwound[i]
+                if ok {
+                    append(mut pending, u)?
+                }
+            }
+            cur = c.want
+            replay = false
+            continue
+        }
+        if e.code != 0 {
+            return e
+        }
+        if replay {
+            pop(mut pending)
+        }
+        top, has := pending[len(pending) -% 1]
+        if !has {
+            break
+        }
+        cur = top.v
+        resume = top.resume
+        replay = true
+    }
+    c.init_stack = make(list[Key], c_allocator)
+    return noerror
+}
+
+// ensure_global checks the package-level variable v, needed at at, unless
+// it has been already, Go's ensureGlobal: needing v while it is being
+// checked means it depends on itself, which is reported. A check nested
+// too deeply in others is suspended instead (see check_globals).
+func (mut c Checker) ensure_global(v Key, at source.Span) error {
+    st := state_at(c.global_state, v)
+    if st == st_checked {
+        return noerror
+    }
+    if st == st_checking {
+        mut m := msg()
+        mut c.init_cycle(mut m, v)?
+        return mut c.errorf(at, own m)
+    }
+    if c.nested_globals >= max_nested_globals || c.depth > max_nested_depth {
+        c.want = v
+        return suspend
+    }
+    put(mut c.global_state, v, st_checking)?
+    append(mut c.init_stack, v)?
+    c.nested_globals +%= 1
+    e := mut c.check_global_now(v)
+    c.nested_globals -%= 1
+    if e.code != 0 {
+        return e
+    }
+    return noerror
+}
+
+// check_global_now checks v, a global marked as being checked, in its
+// package and in no function, marks it checked and takes it off the
+// stack of globals being checked.
+func (mut c Checker) check_global_now(v Key) error {
+    old := mut c.enter(v)
+    outer_fields := c.in_fields
+    outer_union := c.in_union
+    c.in_fields = false
+    c.in_union = false
+    e := mut c.check_global(v)
+    c.in_fields = outer_fields
+    c.in_union = outer_union
+    c.pkg = old
+    if e.code != 0 {
+        // A suspended check leaves v on the stack of globals being
+        // checked, where it waits to be checked again.
+        return e
+    }
+    if len(c.init_stack) > 0 {
+        pop(mut c.init_stack)
+    }
+    put(mut c.global_state, v, st_checked)?
+    return noerror
+}
+
+// init_cycle describes the cycle needing v, which is being checked,
+// closes, Go's initCycle: "a refers to itself", or every global from v
+// round to v again, "a refers to b refers to a".
+func (mut c Checker) init_cycle(mut m list[uint8], v Key) error {
+    mut start int64 = 0
+    for i, w := range c.init_stack {
+        if w == v {
+            start = i
+        }
+    }
+    fmt.appendf(mut m, "initialization cycle: ")?
+    if start == len(c.init_stack) -% 1 {
+        fmt.appendf(mut m, "%s refers to itself", name_of(c.prog.trees, c.none, v)[:])?
+        return noerror
+    }
+    for i, w := range c.init_stack {
+        if i >= start {
+            fmt.appendf(mut m, "%s refers to ", name_of(c.prog.trees, c.none, w)[:])?
+        }
+    }
+    fmt.appendf(mut m, "%s", name_of(c.prog.trees, c.none, v)[:])?
+    return noerror
+}
+
+// check_structs resolves the fields of every struct type, and the cases
+// of every union type, not already resolved, then reports every struct
+// or union that contains itself by value, Go's checkStructs.
+func (mut c Checker) check_structs() error {
+    for i := range len(c.struct_order) {
+        typ, ok := c.struct_order[i]
+        if !ok {
+            continue
+        }
+        d := decl_of_type(c.structs, c.unions, typ)
+        _, is_union := c.unions[typ.number()]
+        if is_union {
+            mut c.resolve_cases(typ, name_span_of(c.prog.trees, d))?
+            continue
+        }
+        mut c.resolve_fields(typ, name_span_of(c.prog.trees, d))?
+    }
+    return mut c.report_cycles()
+}
+
+// resolve_fields records the fields of the struct type typ in the table
+// the first time they are needed, Go's resolveFields: needing them again
+// while they are being resolved, at, is reported and gives false.
+// error's fields are fixed.
+func (mut c Checker) resolve_fields(typ types.Type, at source.Span) (bool, error) {
+    if typ == types.error_type {
+        return true, noerror
+    }
+    st := state_n(c.struct_state, typ.number())
+    if st == st_checked {
+        return true, noerror
+    }
+    if st == st_checking {
+        mut m := msg()
+        n := mut c.type_name(typ)?
+        fmt.appendf(mut m, "invalid recursive type %s", n[:])?
+        mut c.errorf(at, own m)?
+        return false, noerror
+    }
+    put(mut c.struct_state, typ.number(), st_checking)?
+    d := decl_of_type(c.structs, c.unions, typ)
+    old := mut c.enter(d)
+    td := type_decl_of(c.prog.trees, d)
+    mut fields := make(list[types.FieldIn], c_allocator)
+    texpr := sub(d, td.type_expr)
+    switch kind_at(c.prog.trees, texpr) {
+    case struct_type(fs):
+        outer_fields := c.in_fields
+        outer_union := c.in_union
+        c.in_fields = true
+        c.in_union = false
+        for i := range count_items(c.prog.trees, d.unit, fs) {
+            f := item_at(c.prog.trees, d.unit, fs, i)
+            switch kind_at(c.prog.trees, f) {
+            case field(fd):
+                ftyp := mut c.declared_type(sub(f, fd.type_expr))?
+                mut name := make(list[uint8], c_allocator)
+                append(mut name, text_at(c.prog.trees, c.none, f.unit, fd.name)...)?
+                append(mut fields, types.FieldIn{name: name, typ: ftyp})?
+            default:
+            }
+        }
+        c.in_fields = outer_fields
+        c.in_union = outer_union
+    default:
+    }
+    mut c.table.set_fields(typ, fields)?
+    put(mut c.struct_state, typ.number(), st_checked)?
+    c.pkg = old
+    return true, noerror
+}
+
+// Part is one field of a struct, or one payload of a union, with where
+// it is written, Go's part.
+type Part struct {
+    span source.Span
+    typ types.Type
+}
+
+// Core is a struct or a union type a value holds at its core, and what
+// it is held through, Go's core.
+type Core struct {
+    via string
+    typ types.Type
+}
+
+// CycleEdge is one step of a struct or union containing another, Go's
+// cycleEdge.
+type CycleEdge struct {
+    via string
+    span source.Span
+    src types.Type
+}
+
+// VisitFrame is one of Go's calls of visitStruct on the walk's stack: the
+// type, its parts, which part it has reached, the cores of that part and
+// which core it has reached.
+type VisitFrame struct {
+    typ types.Type
+    parts list[Part]
+    part int64
+    cores list[Core]
+    core int64
+}
+
+// report_cycles reports every struct or union type that contains itself
+// by value, directly, through another, through an array, or through a
+// list, an arena, a pool or a map, Go's reportCycles. Go's visitStruct
+// recurses a frame for each type on the way, and a chain of structs each
+// holding the next is as long as its source makes it, so here the walk
+// keeps its frames on a stack of its own, visiting in Go's order.
+func (mut c Checker) report_cycles() error {
+    mut state := make(map[int64]uint8, c_allocator)
+    for i := range len(c.struct_order) {
+        typ, ok := c.struct_order[i]
+        if ok {
+            mut c.visit_struct(typ, mut state)?
+        }
+    }
+    return noerror
+}
+
+// visit_struct walks the structs and unions typ contains, depth first,
+// Go's visitStruct from the top.
+func (mut c Checker) visit_struct(root types.Type, mut state map[int64]uint8) error {
+    mut path := make(list[CycleEdge], c_allocator)
+    mut stack := make(list[VisitFrame], c_allocator)
+    entered := mut c.visit_enter(root, mut state, path, mut stack)?
+    if !entered {
+        return noerror
+    }
+    for len(stack) > 0 {
+        top := len(stack) -% 1
+        step, to, has := mut c.visit_step(mut stack, top)?
+        if !has {
+            fr, popped := pop(mut stack)
+            if !popped {
+                break
+            }
+            put(mut state, fr.typ.number(), st_checked)?
+            if len(path) > 0 {
+                pop(mut path)
+            }
+            continue
+        }
+        append(mut path, step)?
+        entered_child := mut c.visit_enter(to, mut state, path, mut stack)?
+        if !entered_child {
+            pop(mut path)
+        }
+    }
+    return noerror
+}
+
+// visit_step returns the next edge the frame at top of stack follows,
+// the type it reaches, and whether there is one.
+func (mut c Checker) visit_step(mut stack list[VisitFrame], top int64) (CycleEdge, types.Type, bool, error) {
+    if top < 0 || top >= len(stack) {
+        return CycleEdge{via: "", span: ast.unset_span(), src: types.invalid}, types.invalid, false, noerror
+    }
+    for {
+        if stack[top].core < len(stack[top].cores) {
+            j := stack[top].core
+            stack[top].core = j +% 1
+            p, has_p := stack[top].parts[stack[top].part -% 1]
+            co, has_c := stack[top].cores[j]
+            if has_p && has_c {
+                return CycleEdge{via: co.via, span: p.span, src: stack[top].typ}, co.typ, true, noerror
+            }
+            continue
+        }
+        if stack[top].part >= len(stack[top].parts) {
+            return CycleEdge{via: "", span: ast.unset_span(), src: types.invalid}, types.invalid, false, noerror
+        }
+        p, has := stack[top].parts[stack[top].part]
+        stack[top].part +%= 1
+        stack[top].cores = make(list[Core], c_allocator)
+        stack[top].core = 0
+        if has {
+            mut c.structs_in(p.typ, "", mut stack[top].cores)?
+        }
+    }
+}
+
+// visit_enter starts visiting typ, reached by path, Go's visitStruct's
+// first steps: a type done is passed over, one still on path closes a
+// cycle, which is reported, and any other gets a frame. It reports
+// whether it pushed one.
+func (mut c Checker) visit_enter(typ types.Type, mut state map[int64]uint8, path []CycleEdge, mut stack list[VisitFrame]) (bool, error) {
+    st := state_n(state, typ.number())
+    if st == st_checked {
+        return false, noerror
+    }
+    if st == st_checking {
+        mut c.report_cycle(typ, path)?
+        return false, noerror
+    }
+    put(mut state, typ.number(), st_checking)?
+    parts := mut c.parts_of(typ)?
+    append(mut stack, VisitFrame{typ: typ, parts: parts, part: 0, cores: make(list[Core], c_allocator), core: 0})?
+    return true, noerror
+}
+
+// parts_of returns the fields of the struct typ, or the payloads of the
+// union typ, each with where it is written, Go's partsOf.
+func (mut c Checker) parts_of(typ types.Type) (list[Part], error) {
+    mut parts := make(list[Part], c_allocator)
+    d := decl_of_type(c.structs, c.unions, typ)
+    td := type_decl_of(c.prog.trees, d)
+    texpr := sub(d, td.type_expr)
+    _, is_union := c.unions[typ.number()]
+    if is_union {
+        switch kind_at(c.prog.trees, texpr) {
+        case union_type(cs):
+            n := len(c.table.cases(typ))
+            for i := range count_items(c.prog.trees, d.unit, cs) {
+                if i >= n {
+                    break
+                }
+                uc, ok := c.table.cases(typ)[i]
+                if ok && uc.payload {
+                    append(mut parts, Part{span: span_at(c.prog.trees, item_at(c.prog.trees, d.unit, cs, i)), typ: uc.typ})?
+                }
+            }
+        default:
+        }
+        return parts, noerror
+    }
+    switch kind_at(c.prog.trees, texpr) {
+    case struct_type(fs):
+        nf := count_items(c.prog.trees, d.unit, fs)
+        for i := range c.table.field_count(typ) {
+            ftyp, ok := c.table.field_type(typ, i)
+            if ok && i < nf {
+                append(mut parts, Part{span: span_at(c.prog.trees, item_at(c.prog.trees, d.unit, fs, i)), typ: ftyp})?
+            }
+        }
+    default:
+    }
+    return parts, noerror
+}
+
+// structs_in appends to out the struct or union types a value of type typ
+// holds at its core, Go's structsIn: typ itself if it is one, or the
+// element type of an array, a list, an arena or a pool, or the key and
+// value types of a map, at any depth, each with the first list, arena,
+// pool or map on its way. Types nest only as deeply as their source, so
+// it recurses.
+func (mut c Checker) structs_in(typ types.Type, via string, mut out list[Core]) error {
+    if c.table.is_map(typ) {
+        mut v := via
+        if len(v) == 0 {
+            v = "a map"
+        }
+        mut c.structs_in(c.table.key_of(typ), v, mut out)?
+        return mut c.structs_in(c.table.elem_of(typ), v, mut out)
+    }
+    if c.table.is_list(typ) || c.table.is_arena(typ) || c.table.is_pool(typ) {
+        mut v := via
+        if len(v) == 0 {
+            if c.table.is_list(typ) {
+                v = "a list"
+            } else if c.table.is_arena(typ) {
+                v = "an arena"
+            } else {
+                v = "a pool"
+            }
+        }
+        return mut c.structs_in(c.table.elem_of(typ), v, mut out)
+    }
+    if c.table.is_array(typ) {
+        return mut c.structs_in(c.table.elem_of(typ), via, mut out)
+    }
+    if (c.table.is_struct(typ) || c.table.is_union(typ)) && typ != types.error_type {
+        append(mut out, Core{via: via, typ: typ})?
+    }
+    return noerror
+}
+
+// report_cycle reports the cycle path, the fields followed so far,
+// closes by reaching typ again, Go's reportCycle.
+func (mut c Checker) report_cycle(typ types.Type, path []CycleEdge) error {
+    d := decl_of_type(c.structs, c.unions, typ)
+    old := mut c.enter(d)
+    mut start int64 = 0
+    for i, e := range path {
+        if e.src == typ {
+            start = i
+            break
+        }
+    }
+    mut m := msg()
+    tn := mut c.type_name(typ)?
+    fmt.appendf(mut m, "invalid recursive type %s", tn[:])?
+    for i, e := range path {
+        if i >= start && len(e.via) > 0 {
+            fmt.appendf(mut m, ": a type cannot hold itself, even through %s", e.via)?
+            break
+        }
+    }
+    mut c.errorf(name_span_of(c.prog.trees, d), own m)?
+    for i, e := range path {
+        if i < start {
+            continue
+        }
+        mut to := typ
+        nx, has := path[i +% 1]
+        if has {
+            to = nx.src
+        }
+        mut n := msg()
+        a := mut c.type_name(e.src)?
+        b := mut c.type_name(to)?
+        fmt.appendf(mut n, "%s refers to %s", a[:], b[:])?
+        mut c.note_last(e.span, own n)?
+    }
+    c.pkg = old
+    return noerror
+}

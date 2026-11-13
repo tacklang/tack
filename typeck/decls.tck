@@ -1,0 +1,477 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import source from "tack/source"
+import text from "std/text"
+import types from "tack/types"
+
+// The checks of declarations Go's Check makes once every signature is
+// known, and those of the shapes std/testing must have: site.go,
+// tests.go, visibility.go, extern.go's checkCNames and invalid.go's
+// findLostMethods.
+
+// std_testing is the import path of std/testing, Go's stdTesting.
+var std_testing = "std/testing"
+
+// is_site reports whether typ is std/testing's Site, Go's isSite.
+func (mut c Checker) is_site(typ types.Type) bool {
+    return mut c.is_testing_type(typ, "Site")
+}
+
+// is_testing_t reports whether typ is std/testing's T, Go's isTestingT.
+func (mut c Checker) is_testing_t(typ types.Type) bool {
+    return mut c.is_testing_type(typ, "T")
+}
+
+// is_testing_type reports whether typ is the struct std/testing declares
+// as name.
+func (mut c Checker) is_testing_type(typ types.Type, name string) bool {
+    d, is_struct := c.structs[typ.number()]
+    p, has_pkg := c.struct_pkg[typ.number()]
+    if !is_struct || !has_pkg || p < 0 || p >= len(c.prog.packages) {
+        return false
+    }
+    return pkg_path_is(c.prog.packages, p, []uint8(std_testing)) && bytes_equal(name_of(c.prog.trees, c.none, d), []uint8(name))
+}
+
+// check_site_shape reports std/testing's Site, at its name, when its
+// fields are not exactly file, line, col and excerpt, each pub, Go's
+// checkSiteShape.
+func (mut c Checker) check_site_shape() error {
+    for i := range len(c.struct_order) {
+        typ, ok := c.struct_order[i]
+        if !ok || !mut c.is_site(typ) {
+            continue
+        }
+        d := decl_of_type(c.structs, c.unions, typ)
+        td := type_decl_of(c.prog.trees, d)
+        mut good := false
+        switch kind_at(c.prog.trees, sub(d, td.type_expr)) {
+        case struct_type(fs):
+            good = count_items(c.prog.trees, d.unit, fs) == 4 && c.table.field_count(typ) == 4
+            if good {
+                good = mut c.site_field(typ, d, fs, 0, "file", types.string_type) && mut c.site_field(typ, d, fs, 1, "line", types.int64_type) && mut c.site_field(typ, d, fs, 2, "col", types.int64_type) && mut c.site_field(typ, d, fs, 3, "excerpt", types.string_type)
+            }
+        default:
+        }
+        if !good {
+            mut m := msg()
+            fmt.appendf(mut m, "testing.Site must be struct { pub file string; pub line int64; pub col int64; pub excerpt string }: a call fills in those fields")?
+            mut c.errorf(name_span_of(c.prog.trees, d), own m)?
+        }
+    }
+    return noerror
+}
+
+// site_field reports whether field i of Site, typ, declared at d with the
+// fields fs, is named name, of type want, and pub.
+func (mut c Checker) site_field(typ types.Type, d Key, fs ast.Nodes, i int64, name string, want types.Type) bool {
+    ft, ok := c.table.field_type(typ, i)
+    if !ok || ft != want || !bytes_equal(c.table.field_name(typ, i), []uint8(name)) {
+        return false
+    }
+    switch kind_at(c.prog.trees, item_at(c.prog.trees, d.unit, fs, i)) {
+    case field(f):
+        return f.vis == ast.vis_pub
+    default:
+        return false
+    }
+}
+
+// note_site_param records param, at p, whose type is written as typ, as
+// a Site parameter when typ is testing.Site, Go's noteSiteParam.
+func (mut c Checker) note_site_param(p Key, param ast.Param, typ types.Type) error {
+    if param.variadic || !mut c.is_site(typ) {
+        return noerror
+    }
+    put(mut c.site_params, p, typ)?
+    return noerror
+}
+
+// check_site_params reports what the function at d may not declare of
+// Site parameters, Go's checkSiteParams: a second one, one of an extern
+// func, and a mut one.
+func (mut c Checker) check_site_params(d Key) error {
+    fn := func_of(c.prog.trees, d)
+    mut seen := false
+    for i := range count_items(c.prog.trees, d.unit, fn.params) {
+        p := item_at(c.prog.trees, d.unit, fn.params, i)
+        _, site := c.site_params[p]
+        if !site || fn.method && i == 0 {
+            continue
+        }
+        param := param_of(c.prog.trees, p)
+        mut m := msg()
+        if seen {
+            fmt.appendf(mut m, "a second testing.Site parameter: a function takes at most one")?
+            mut c.errorf(span_at(c.prog.trees, p), own m)?
+        } else if fn.is_extern {
+            fmt.appendf(mut m, "extern func %s cannot take a testing.Site: a call passes it implicitly, which a call from C cannot", text_at(c.prog.trees, c.none, d.unit, fn.name)[:])?
+            mut c.errorf(span_at(c.prog.trees, p), own m)?
+        } else if param.is_mut {
+            fmt.appendf(mut m, "a testing.Site parameter cannot be mut: a call passes its place as a value")?
+            mut c.errorf(param.mut_span, own m)?
+        }
+        seen = true
+    }
+    return noerror
+}
+
+// check_testing_t reports std/testing's T, when tests are checked and it
+// has no field at of type testing.Site, Go's checkTestingT.
+func (mut c Checker) check_testing_t() error {
+    if !c.tests {
+        return noerror
+    }
+    for i := range len(c.struct_order) {
+        typ, ok := c.struct_order[i]
+        if !ok || !mut c.is_testing_t(typ) {
+            continue
+        }
+        mut found := false
+        for j := range c.table.field_count(typ) {
+            if bytes_equal(c.table.field_name(typ, j), []uint8("at")) {
+                ft, _ := c.table.field_type(typ, j)
+                found = mut c.is_site(ft)
+                break
+            }
+        }
+        if !found {
+            mut m := msg()
+            fmt.appendf(mut m, "testing.T must have a field at of type testing.Site: a ? in a test stores its place there")?
+            at := name_span_of(c.prog.trees, decl_of_type(c.structs, c.unions, typ))
+            mut c.errorf(at, own m)?
+        }
+    }
+    return noerror
+}
+
+// check_tests checks the tests' declarations, Go's checkTests, when tests
+// are checked: the driver checks none yet, so it declines.
+func (mut c Checker) check_tests() error {
+    if c.tests {
+        return not_ported
+    }
+    return noerror
+}
+
+// check_exposure reports every type a pub or lib declaration exposes that
+// is less visible than it, Go's checkExposure.
+func (mut c Checker) check_exposure() error {
+    for i := range count_decls(c.prog) {
+        d := decl_at(c.prog, i)
+        old := mut c.enter(d)
+        switch kind_at(c.prog.trees, d) {
+        case func_decl:
+            mut c.func_exposure(d)?
+        case var_decl(v):
+            if v.vis != ast.vis_private && !v.mutable {
+                mut at := v.name_span
+                if !ast.is_none(v.type_expr) {
+                    at = span_at(c.prog.trees, sub(d, v.type_expr))
+                }
+                mut what := msg()
+                fmt.appendf(mut what, "variable %s", text_at(c.prog.trees, c.none, d.unit, v.name)[:])?
+                mut c.exposure(v.vis, what, decl_type_of(c.decl_types, d), at)?
+            }
+        case type_decl(td):
+            mut c.type_exposure(d, td)?
+        default:
+        }
+        c.pkg = old
+    }
+    return noerror
+}
+
+// type_exposure reports every type td, at d, exposes that is less
+// visible than it, Go's typeExposure.
+func (mut c Checker) type_exposure(d Key, td ast.TypeDecl) error {
+    if td.vis == ast.vis_private {
+        return noerror
+    }
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, d.unit, td.name)...)?
+    switch kind_at(c.prog.trees, sub(d, td.type_expr)) {
+    case interface_type(ms):
+        for j := range count_items(c.prog.trees, d.unit, ms) {
+            mk := item_at(c.prog.trees, d.unit, ms, j)
+            switch kind_at(c.prog.trees, mk) {
+            case iface_method(m):
+                for i := range count_items(c.prog.trees, mk.unit, m.params) {
+                    p := item_at(c.prog.trees, mk.unit, m.params, i)
+                    param := param_of(c.prog.trees, p)
+                    mut what := msg()
+                    fmt.appendf(mut what, "interface %s", name[:])?
+                    mut c.exposure(td.vis, what, decl_type_of(c.decl_types, p), span_at(c.prog.trees, sub(p, param.type_expr)))?
+                }
+                nr, _ := results_count(c.result_count, mk)
+                for i := range count_items(c.prog.trees, mk.unit, m.results) {
+                    if i < nr {
+                        mut what := msg()
+                        fmt.appendf(mut what, "interface %s", name[:])?
+                        mut c.exposure(td.vis, what, result_of(c.results, mk, i), span_at(c.prog.trees, item_at(c.prog.trees, mk.unit, m.results, i)))?
+                    }
+                }
+            default:
+            }
+        }
+    case union_type(cs):
+        typ := decl_type_of(c.decl_types, d)
+        n := len(c.table.cases(typ))
+        for i := range count_items(c.prog.trees, d.unit, cs) {
+            uk := item_at(c.prog.trees, d.unit, cs, i)
+            switch kind_at(c.prog.trees, uk) {
+            case union_case(uc):
+                if !ast.is_none(uc.type_expr) && i < n {
+                    ct, ok := c.table.cases(typ)[i]
+                    if ok {
+                        mut what := msg()
+                        fmt.appendf(mut what, "case %s of %s", text_at(c.prog.trees, c.none, uk.unit, uc.name)[:], name[:])?
+                        mut c.exposure(td.vis, what, ct.typ, span_at(c.prog.trees, sub(uk, uc.type_expr)))?
+                    }
+                }
+            default:
+            }
+        }
+    case struct_type(fs):
+        typ := decl_type_of(c.decl_types, d)
+        n := c.table.field_count(typ)
+        for i := range count_items(c.prog.trees, d.unit, fs) {
+            fk := item_at(c.prog.trees, d.unit, fs, i)
+            switch kind_at(c.prog.trees, fk) {
+            case field(f):
+                vis := f.vis.capped(td.vis)
+                if vis != ast.vis_private && i < n {
+                    ft, _ := c.table.field_type(typ, i)
+                    mut what := msg()
+                    fmt.appendf(mut what, "field %s of %s", text_at(c.prog.trees, c.none, fk.unit, f.name)[:], name[:])?
+                    mut c.exposure(vis, what, ft, span_at(c.prog.trees, sub(fk, f.type_expr)))?
+                }
+            default:
+            }
+        }
+    default:
+    }
+    return noerror
+}
+
+// func_exposure reports every type the signature of the function at d,
+// if pub or lib, names that is less visible than it, Go's funcExposure.
+func (mut c Checker) func_exposure(d Key) error {
+    fn := func_of(c.prog.trees, d)
+    mut vis := fn.vis
+    mut what := msg()
+    if fn.method {
+        if !fn.recv_type.is_none() {
+            rtd := type_decl_of(c.prog.trees, key_of_def(fn.recv_type))
+            vis = vis.capped(rtd.vis)
+        }
+        append(mut what, []uint8("method ")...)?
+        mut c.display_name(d, mut what)?
+    } else {
+        append(mut what, []uint8("function ")...)?
+        append(mut what, text_at(c.prog.trees, c.none, d.unit, fn.name)...)?
+    }
+    if vis == ast.vis_private {
+        return noerror
+    }
+    for i := range count_items(c.prog.trees, d.unit, fn.type_params) {
+        tk := item_at(c.prog.trees, d.unit, fn.type_params, i)
+        iface, has := c.tp_iface[tk]
+        if !has {
+            continue
+        }
+        itd := type_decl_of(c.prog.trees, iface)
+        if itd.vis.at_least(vis) {
+            continue
+        }
+        mut need := "pub"
+        if vis == ast.vis_lib {
+            need = "lib or pub"
+        }
+        switch kind_at(c.prog.trees, tk) {
+        case type_param(tp):
+            mut m := msg()
+            fmt.appendf(mut m, "%s %s exposes ", vis.string(), what[:])?
+            mut c.iface_name(iface, mut m)?
+            fmt.appendf(mut m, ", which is not %s", need)?
+            mut c.errorf(span_at(c.prog.trees, sub(tk, tp.constraint)), own m)?
+        default:
+        }
+    }
+    for i := range count_items(c.prog.trees, d.unit, fn.params) {
+        p := item_at(c.prog.trees, d.unit, fn.params, i)
+        param := param_of(c.prog.trees, p)
+        mut w := msg()
+        append(mut w, what[:]...)?
+        mut c.exposure(vis, w, decl_type_of(c.decl_types, p), span_at(c.prog.trees, sub(p, param.type_expr)))?
+    }
+    nr, _ := results_count(c.result_count, d)
+    for i := range count_items(c.prog.trees, d.unit, fn.results) {
+        if i < nr {
+            mut w := msg()
+            append(mut w, what[:]...)?
+            mut c.exposure(vis, w, result_of(c.results, d, i), span_at(c.prog.trees, item_at(c.prog.trees, d.unit, fn.results, i)))?
+        }
+    }
+    return noerror
+}
+
+// iface_name appends how a diagnostic names the interface declared at d,
+// Go's ifaceName: qualified by its package's name when that is not the
+// package being checked.
+func (mut c Checker) iface_name(d Key, mut out list[uint8]) error {
+    p, ok := c.unit_pkg[d.unit]
+    if ok && c.pkg >= 0 && p != c.pkg && p >= 0 && p < len(c.prog.packages) {
+        append_pkg(c.prog.packages, p, 0, mut out)?
+        append(mut out, '.')?
+    }
+    append(mut out, name_of(c.prog.trees, c.none, d)...)?
+    return noerror
+}
+
+// exposure reports typ, written at at in the declaration what, whose
+// visibility is vis, if it is or holds a struct or union type less
+// visible than vis, Go's exposure. A map's and a function type's parts
+// nest only as deeply as their source, so it recurses.
+func (mut c Checker) exposure(vis ast.Visibility, what list[uint8], typ types.Type, at source.Span) error {
+    mut t := typ
+    for c.table.is_array(t) || c.table.is_view(t) || c.table.is_list(t) || c.table.is_pool(t) || c.table.is_handle(t) || c.table.is_arena(t) || c.table.is_ref(t) {
+        t = c.table.elem_of(t)
+    }
+    if c.table.is_map(t) {
+        mut w1 := msg()
+        append(mut w1, what[:]...)?
+        mut c.exposure(vis, w1, c.table.key_of(t), at)?
+        mut w2 := msg()
+        append(mut w2, what[:]...)?
+        return mut c.exposure(vis, w2, c.table.elem_of(t), at)
+    }
+    if c.table.is_func(t) {
+        mut parts := make(list[types.Type], c_allocator)
+        for _, fp := range c.table.func_params(t) {
+            append(mut parts, fp.typ)?
+        }
+        for _, r := range c.table.func_results(t) {
+            append(mut parts, r)?
+        }
+        for _, p := range parts {
+            mut w := msg()
+            append(mut w, what[:]...)?
+            mut c.exposure(vis, w, p, at)?
+        }
+        return noerror
+    }
+    d := decl_of_type(c.structs, c.unions, t)
+    if is_no_key(d) {
+        return noerror
+    }
+    td := type_decl_of(c.prog.trees, d)
+    if td.vis.at_least(vis) {
+        return noerror
+    }
+    mut need := "pub"
+    if vis == ast.vis_lib {
+        need = "lib or pub"
+    }
+    n := mut c.type_name(t)?
+    mut m := msg()
+    fmt.appendf(mut m, "%s %s exposes %s, which is not %s", vis.string(), what[:], n[:], need)?
+    return mut c.errorf(at, own m)
+}
+
+// check_cnames reports every extern func whose C name an earlier one
+// has, Go's checkCNames: the error at the later one, with a note at the
+// first.
+func (mut c Checker) check_cnames() error {
+    mut first := make(map[text.Text]Key, c_allocator)
+    for i := range count_decls(c.prog) {
+        d := decl_at(c.prog, i)
+        fn := func_of(c.prog.trees, d)
+        switch kind_at(c.prog.trees, d) {
+        case func_decl:
+        default:
+            continue
+        }
+        if !fn.is_extern {
+            continue
+        }
+        mut cname := text.new(c_allocator)
+        mut cname.append(text_at(c.prog.trees, c.none, d.unit, fn.cname))?
+        prev, dup := first[cname]
+        if !dup {
+            put(mut first, cname, d)?
+            continue
+        }
+        if mut c.declared_twice(prev, d) {
+            continue
+        }
+        mut at := fn.name_span
+        if fn.cname_span != ast.unset_span() && fn.cname_span.end > fn.cname_span.start {
+            at = fn.cname_span
+        }
+        mut m := msg()
+        fmt.appendf(mut m, "extern funcs ")?
+        mut c.cfunc_name(d, mut m)?
+        fmt.appendf(mut m, " and ")?
+        mut c.cfunc_name(prev, mut m)?
+        fmt.appendf(mut m, " both have the C name %s", cname.bytes())?
+        mut c.errorf(at, own m)?
+        mut n := msg()
+        fmt.appendf(mut n, "extern func ")?
+        mut c.cfunc_name(prev, mut n)?
+        fmt.appendf(mut n, " is declared here")?
+        mut c.note_last(func_of(c.prog.trees, prev).name_span, own n)?
+    }
+    return noerror
+}
+
+// declared_twice reports whether prev and fn, two extern funcs of one C
+// name, are two functions of one name in one package, which the resolver
+// reported, Go's declaredTwice.
+func (mut c Checker) declared_twice(prev Key, fn Key) bool {
+    a := func_of(c.prog.trees, prev)
+    b := func_of(c.prog.trees, fn)
+    pa, ok_a := c.unit_pkg[prev.unit]
+    pb, ok_b := c.unit_pkg[fn.unit]
+    return ok_a && ok_b && c.prior > 0 && bytes_equal(text_at(c.prog.trees, c.none, prev.unit, a.name), text_at(c.prog.trees, c.none, fn.unit, b.name)) && !a.method && !b.method && pa == pb
+}
+
+// cfunc_name appends how a diagnostic about extern funcs names the one at
+// d, Go's funcName: qualified by its package's name when that is not the
+// main package.
+func (mut c Checker) cfunc_name(d Key, mut out list[uint8]) error {
+    p, ok := c.unit_pkg[d.unit]
+    main := len(c.prog.packages) -% 1
+    if ok && p != main && p >= 0 && p < len(c.prog.packages) {
+        append_pkg(c.prog.packages, p, 0, mut out)?
+        append(mut out, '.')?
+    }
+    append(mut out, name_of(c.prog.trees, c.none, d)...)?
+    return noerror
+}
+
+// find_lost_methods records the methods each package's bad declarations
+// may have declared, Go's findLostMethods.
+func (mut c Checker) find_lost_methods() error {
+    for i := range count_decls(c.prog) {
+        d := decl_at(c.prog, i)
+        switch kind_at(c.prog.trees, d) {
+        case bad_decl(b):
+            p, has_p := c.unit_pkg[d.unit]
+            if !has_p {
+                continue
+            }
+            if len(text_at(c.prog.trees, c.none, d.unit, b.name)) == 0 {
+                put(mut c.lost_all, p, true)?
+            } else if b.method {
+                mut t := text.new(c_allocator)
+                mut t.append(text_at(c.prog.trees, c.none, d.unit, b.name))?
+                append(mut c.lost, Lost{pkg: p, name: t})?
+            }
+        default:
+        }
+    }
+    return noerror
+}

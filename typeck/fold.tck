@@ -1,0 +1,419 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import types from "tack/types"
+
+// fold returns the value of a checked constant expression, Go's fold: an
+// integer, computed exactly as it was checked, a float rounded to its
+// type, a string, a bool, c_allocator, an array's elements, a struct's
+// fields in declaration order, or a union's case and payload. A bool
+// expression is evaluated in full, both sides of && and || included.
+//
+// Go's fold recurses into each operand; the left operand of a chain of
+// comparisons and logical operators, and what a chain of fields and
+// elements is taken from, nest without end, so those chains are walked
+// in a loop, and the rest, which the parser bounds, recursed into.
+func (mut c Checker) fold(k Key) (Const, bool, error) {
+    v, ok, is_number := mut c.fold_number(k)?
+    if is_number {
+        return v, ok, noerror
+    }
+    _, _, built := construction(c.prog.trees, c.none, k)
+    if built {
+        r, folded := mut c.fold_construction(k)?
+        return r, folded, noerror
+    }
+    switch kind_at(c.prog.trees, k) {
+    case str_lit(s):
+        r := mut c.store.str_const(text_at(c.prog.trees, c.none, k.unit, s))?
+        return r, true, noerror
+    case bool_lit(b):
+        return bool_const(b), true, noerror
+    case noerror_lit:
+        empty := mut c.store.str_const([]uint8(""))?
+        values := [2]Const{int_const(constant.from_int64(0)), empty}
+        r := mut c.store.list_const(values[:])?
+        return r, true, noerror
+    case c_allocator_lit:
+        return alloc_const(), true, noerror
+    case ident(nm):
+        g := mut c.constant_global(nm)
+        if is_no_key(g) {
+            return no_const(), false, noerror
+        }
+        cv, has := c.var_consts[g]
+        if !has || cv.kind == cv_none {
+            return no_const(), false, noerror
+        }
+        return cv, true, noerror
+    case composite_lit(lit):
+        r, folded := mut c.fold_literal(k, lit)?
+        return r, folded, noerror
+    case binary:
+        r, folded := mut c.fold_bools(k)?
+        return r, folded, noerror
+    case unary(u):
+        operand, folded := mut c.fold(sub(k, u.x))?
+        if folded && operand.kind == cv_bool && u.op == ast.unary_not {
+            return bool_const(!operand.b), true, noerror
+        }
+        return no_const(), false, noerror
+    case selector, index:
+        r, folded := mut c.fold_part(k)?
+        return r, folded, noerror
+    case slice:
+        r, folded := mut c.known_slice(k)?
+        return r, folded, noerror
+    default:
+        return no_const(), false, noerror
+    }
+}
+
+// fold_number computes k when it is a float literal or operator
+// expression, rounded to its float type, or an integer constant
+// expression or known value, Go's foldNumber, and reports whether it has
+// a value and whether it is one.
+func (mut c Checker) fold_number(k Key) (Const, bool, bool, error) {
+    typ := mut c.type_of(k)
+    if types.is_float(typ) {
+        switch kind_at(c.prog.trees, k) {
+        case float_lit, int_lit, binary, unary:
+            f, ok := mut c.float_value(k)?
+            if !ok {
+                return no_const(), false, true, noerror
+            }
+            if typ == types.float32_type {
+                bits, _ := f.float32_bits(c_allocator)?
+                return float_bits_const(uint64(bits), true), true, true, noerror
+            }
+            bits, _ := f.float64_bits(c_allocator)?
+            return float_bits_const(bits, false), true, true, noerror
+        default:
+            return no_const(), false, false, noerror
+        }
+    }
+    v, ok := mut c.const_value(k)
+    if ok {
+        return int_const(v), true, true, noerror
+    }
+    if !types.is_integer(typ) || typ == types.untyped_int {
+        return no_const(), false, false, noerror
+    }
+    known, is_known := mut c.known_value(k)?
+    return int_const(known), is_known, true, noerror
+}
+
+// fold_construction computes e, a checked construction of a constant
+// payload or of none, Go's foldConstruction.
+func (mut c Checker) fold_construction(e Key) (Const, bool, error) {
+    td, sel, _ := construction(c.prog.trees, c.none, e)
+    s := selector_of(c.prog.trees, sel)
+    _, at, ok := c.table.find_case(decl_type_of(c.decl_types, td), text_at(c.prog.trees, c.none, sel.unit, s.name))
+    if !ok {
+        return no_const(), false, noerror
+    }
+    switch kind_at(c.prog.trees, e) {
+    case call(cl):
+        if count_items(c.prog.trees, e.unit, cl.args) == 1 {
+            p, folded := mut c.fold(item_at(c.prog.trees, e.unit, cl.args, 0))?
+            if !folded {
+                return no_const(), false, noerror
+            }
+            r := mut c.store.union_const(at, p, true)?
+            return r, true, noerror
+        }
+    default:
+    }
+    r := mut c.store.union_const(at, no_const(), false)?
+    return r, true, noerror
+}
+
+// fold_literal computes a constant literal of a struct, its fields'
+// values in declaration order whatever order the literal names them in,
+// or of an array, its elements, Go's foldLiteral.
+func (mut c Checker) fold_literal(k Key, lit ast.CompositeLit) (Const, bool, error) {
+    typ := node_type_of(c.node_types, k)
+    mut values := make(list[Const], c_allocator)
+    n := count_items(c.prog.trees, k.unit, lit.elems)
+    if c.table.is_struct(typ) {
+        mut j int64 = 0
+        for j < c.table.field_count(typ) {
+            append(mut values, no_const())?
+            j +%= 1
+        }
+        for i := range n {
+            e := item_at(c.prog.trees, k.unit, lit.elems, i)
+            switch kind_at(c.prog.trees, e) {
+            case key_value(kv):
+                nm, is_id := ident_at(c.prog.trees, sub(e, kv.key))
+                if !is_id {
+                    return no_const(), false, noerror
+                }
+                _, at, found := c.table.find_field(typ, text_at(c.prog.trees, c.none, e.unit, nm.name))
+                v, folded := mut c.fold(sub(e, kv.value))?
+                if !found || !folded {
+                    return no_const(), false, noerror
+                }
+                set_const_at(mut values, at, v)
+            default:
+                return no_const(), false, noerror
+            }
+        }
+        r := mut c.store.list_const(values)?
+        return r, true, noerror
+    }
+    for i := range n {
+        v, folded := mut c.fold(item_at(c.prog.trees, k.unit, lit.elems, i))?
+        if !folded {
+            return no_const(), false, noerror
+        }
+        append(mut values, v)?
+    }
+    r := mut c.store.list_const(values)?
+    return r, true, noerror
+}
+
+// set_const_at sets element i of values to v, when it has one.
+func set_const_at(mut values list[Const], i int64, v Const) {
+    if 0 <= i && i < len(values) {
+        values[i] = v
+    }
+}
+
+// is_bool_link reports whether k is a binary whose fold is Go's
+// foldBoolBinary: one that is no number and has no bool recorded.
+func (mut c Checker) is_bool_link(k Key) (bool, error) {
+    switch kind_at(c.prog.trees, k) {
+    case binary:
+        _, _, is_number := mut c.fold_number(k)?
+        return !is_number && const_of(c.consts, k).kind != cv_bool, noerror
+    default:
+        return false, noerror
+    }
+}
+
+// fold_bools computes the binary k, Go's fold of a Binary: a bool
+// recorded on it, or, as foldBoolBinary computes it, an operator giving
+// a bool on two constants folded first.
+func (mut c Checker) fold_bools(k Key) (Const, bool, error) {
+    rec := const_of(c.consts, k)
+    if rec.kind == cv_bool {
+        return rec, true, noerror
+    }
+    mut links := make(list[Key], c_allocator)
+    mut x := k
+    for {
+        link := mut c.is_bool_link(x)?
+        if !link {
+            break
+        }
+        append(mut links, x)?
+        switch kind_at(c.prog.trees, x) {
+        case binary(b):
+            x = sub(x, b.x)
+        default:
+        }
+    }
+    mut left, mut ok := mut c.fold(x)?
+    mut i := len(links)
+    for i > 0 {
+        i -%= 1
+        l, has := links[i]
+        if !has {
+            continue
+        }
+        switch kind_at(c.prog.trees, l) {
+        case binary(b):
+            right, ok_r := mut c.fold(sub(l, b.y))?
+            if !ok || !ok_r {
+                left = no_const()
+                ok = false
+                continue
+            }
+            left, ok = mut c.fold_bool_step(b.op, left, right)?
+        default:
+        }
+    }
+    return left, ok, noerror
+}
+
+// fold_bool_step applies op, an operator giving a bool, to two folded
+// constants, Go's foldBoolBinary after its operands.
+func (mut c Checker) fold_bool_step(op ast.BinaryOp, left Const, right Const) (Const, bool, error) {
+    if op == ast.op_eq || op == ast.op_ne {
+        equal, ok := mut c.equal_consts(left, right)?
+        return bool_const(equal == (op == ast.op_eq)), ok, noerror
+    }
+    if is_comparison_op(op) {
+        cmp, ok := mut c.compare_consts(left, right)
+        return bool_const(compare(op, cmp)), ok, noerror
+    }
+    if left.kind != cv_bool || right.kind != cv_bool {
+        return no_const(), false, noerror
+    }
+    if op == ast.op_and {
+        return bool_const(left.b && right.b), true, noerror
+    }
+    if op == ast.op_or {
+        return bool_const(left.b || right.b), true, noerror
+    }
+    return no_const(), false, noerror
+}
+
+// compare_consts compares two integer or two string constants, giving -1,
+// 0 or 1, and whether it could, Go's compareConsts: strings by their
+// bytes, unsigned, and only in a global's initializer.
+func (mut c Checker) compare_consts(left Const, right Const) (int64, bool) {
+    if left.kind == cv_int {
+        return left.i.cmp(right.i), true
+    }
+    if left.kind == cv_str && len(c.init_stack) > 0 {
+        return compare_bytes(c.store.str_bytes(left), c.store.str_bytes(right)), true
+    }
+    return 0, false
+}
+
+// compare_bytes compares a and b bytewise, as Go's strings.Compare does.
+func compare_bytes(a []uint8, b []uint8) int64 {
+    for i, x := range a {
+        y, ok := b[i]
+        if !ok {
+            return 1
+        }
+        if x < y {
+            return -1
+        }
+        if x > y {
+            return 1
+        }
+    }
+    if len(a) < len(b) {
+        return -1
+    }
+    return 0
+}
+
+// equal_consts reports whether two constants of one type are equal, and
+// whether it could tell, Go's equalConsts. Constants nest only as deeply
+// as the literals they come from, so it recurses.
+func (mut c Checker) equal_consts(left Const, right Const) (bool, bool, error) {
+    if left.kind == cv_union {
+        if right.kind != cv_union {
+            return false, false, noerror
+        }
+        if case_of(left) != case_of(right) {
+            return false, true, noerror
+        }
+        pa, has_a := c.store.payload(left)
+        pb, has_b := c.store.payload(right)
+        if !has_a || !has_b {
+            return !has_a && !has_b, true, noerror
+        }
+        r, ok := mut c.equal_consts(pa, pb)?
+        return r, ok, noerror
+    }
+    if left.kind == cv_bool {
+        return left.b == right.b, right.kind == cv_bool, noerror
+    }
+    if left.kind == cv_list {
+        if right.kind != cv_list || left.count != right.count {
+            return false, false, noerror
+        }
+        mut equal := true
+        for i := range left.count {
+            a, _ := c.store.item(left, i)
+            b, _ := c.store.item(right, i)
+            same, known := mut c.equal_consts(a, b)?
+            if !known {
+                return false, false, noerror
+            }
+            equal = equal && same
+        }
+        return equal, true, noerror
+    }
+    cmp, ok := mut c.compare_consts(left, right)
+    return cmp == 0, ok, noerror
+}
+
+// fold_part computes a field or an element whose struct, array or string
+// is known, Go's foldPart, walking a chain of them in a loop: an
+// element's index must be a known value in range, and a string's byte is
+// an integer.
+func (mut c Checker) fold_part(k Key) (Const, bool, error) {
+    mut links := make(list[Key], c_allocator)
+    mut x := k
+    for {
+        _, _, built := construction(c.prog.trees, c.none, x)
+        if built {
+            break
+        }
+        mut next := no_key()
+        switch kind_at(c.prog.trees, x) {
+        case selector(s):
+            next = sub(x, s.x)
+        case index(ix):
+            next = sub(x, ix.x)
+        default:
+        }
+        if is_no_key(next) {
+            break
+        }
+        append(mut links, x)?
+        x = next
+    }
+    if len(links) == 0 {
+        return no_const(), false, noerror
+    }
+    mut base, mut ok := mut c.fold(x)?
+    mut i := len(links)
+    for i > 0 && ok {
+        i -%= 1
+        l, has := links[i]
+        if !has {
+            ok = false
+            break
+        }
+        switch kind_at(c.prog.trees, l) {
+        case selector(s):
+            stype := mut c.type_of(sub(l, s.x))
+            _, at, found := c.table.find_field(stype, text_at(c.prog.trees, c.none, l.unit, s.name))
+            if !found || base.kind != cv_list || at >= base.count {
+                ok = false
+                continue
+            }
+            base, ok = c.store.item(base, at)
+        case index(ix):
+            v, known := mut c.known_value(sub(l, ix.index))?
+            if !known || v.is_negative() || !v.fits(64, true) {
+                ok = false
+                continue
+            }
+            at := v.to_int64()
+            if mut c.type_of(sub(l, ix.x)) == types.string_type {
+                if base.kind != cv_str || at >= base.count {
+                    ok = false
+                    continue
+                }
+                b, has_b := c.store.str_bytes(base)[at]
+                if !has_b {
+                    ok = false
+                    continue
+                }
+                base = int_const(constant.from_int64(int64(b)))
+                continue
+            }
+            if base.kind != cv_list || at >= base.count {
+                ok = false
+                continue
+            }
+            base, ok = c.store.item(base, at)
+        default:
+            ok = false
+        }
+    }
+    if !ok {
+        return no_const(), false, noerror
+    }
+    return base, true, noerror
+}

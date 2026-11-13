@@ -1,0 +1,57 @@
+package typeck
+
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// resolve_cases records the cases of the union type typ in the table the
+// first time they are needed, as resolve_fields does a struct's fields,
+// Go's resolveCases: needing them again while they are being resolved,
+// at, is reported as an invalid recursive type, and gives false.
+func (mut c Checker) resolve_cases(typ types.Type, at source.Span) (bool, error) {
+    st := state_n(c.union_state, typ.number())
+    if st == st_checked {
+        return true, noerror
+    }
+    if st == st_checking {
+        mut m := msg()
+        n := mut c.type_name(typ)?
+        fmt.appendf(mut m, "invalid recursive type %s", n[:])?
+        mut c.errorf(at, own m)?
+        return false, noerror
+    }
+    put(mut c.union_state, typ.number(), st_checking)?
+    d := decl_of_type(c.structs, c.unions, typ)
+    old := mut c.enter(d)
+    td := type_decl_of(c.prog.trees, d)
+    mut cases := make(list[types.CaseIn], c_allocator)
+    switch kind_at(c.prog.trees, sub(d, td.type_expr)) {
+    case union_type(cs):
+        outer_fields := c.in_fields
+        outer_union := c.in_union
+        c.in_fields = true
+        c.in_union = true
+        for i := range count_items(c.prog.trees, d.unit, cs) {
+            uk := item_at(c.prog.trees, d.unit, cs, i)
+            switch kind_at(c.prog.trees, uk) {
+            case union_case(uc):
+                mut name := make(list[uint8], c_allocator)
+                append(mut name, text_at(c.prog.trees, c.none, uk.unit, uc.name)...)?
+                mut tc := types.CaseIn{name: name, typ: types.invalid, payload: false}
+                if !is_none_key(sub(uk, uc.type_expr)) {
+                    tc.payload = true
+                    tc.typ = mut c.declared_type(sub(uk, uc.type_expr))?
+                }
+                append(mut cases, tc)?
+            default:
+            }
+        }
+        c.in_fields = outer_fields
+        c.in_union = outer_union
+    default:
+    }
+    mut c.table.set_cases(typ, cases)?
+    put(mut c.union_state, typ.number(), st_checked)?
+    c.pkg = old
+    return true, noerror
+}

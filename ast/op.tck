@@ -134,3 +134,17 @@ pub func (v Visibility) string() string {
     }
     return "private"
 }
+
+// at_least reports whether v lets at least the packages w does use a
+// declaration, Go's v >= w on the ordered Visibility.
+pub func (v Visibility) at_least(w Visibility) bool {
+    return v.n >= w.n
+}
+
+// capped returns v, but no more visible than limit, Go's Capped.
+pub func (v Visibility) capped(limit Visibility) Visibility {
+    if v.n > limit.n {
+        return limit
+    }
+    return v
+}

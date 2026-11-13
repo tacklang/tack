@@ -1,0 +1,1141 @@
+package types
+
+import fmt from "std/fmt"
+import text from "std/text"
+
+// Table describes the types one compilation uses, Go's types.Table. The
+// type checker creates it, and every later stage reads types through
+// it, so the name or shape of a type is always looked up in the
+// compilation that gave it its ID.
+//
+// The basic types have fixed IDs and need no entry. Every other type is
+// added and given the next free ID, num_basic plus its place among
+// entries. An array type is added the first time it is seen and found
+// again by its shape after that, so == stays type identity, and so is
+// a view, a list, an arena, an id, a span, a pool and a handle, by its
+// element type, a map, by its key and value types, and a function type,
+// by its parameters and results. A struct and a union type are added
+// once for each declaration, by add_struct and add_union, and their
+// fields or cases set afterwards; a type parameter once for each one a
+// generic function declares. error is a struct the Table never adds:
+// is_struct and fields know it without an entry.
+//
+// Go's Table keeps names and lists of fields, cases, parameters and
+// results in each entry; here they are runs of the Table's own lists,
+// which an entry names by where they start and how many there are, so
+// an Entry is a plain value. Setting a struct's fields again appends a
+// new run, and the old one is left unread.
+//
+// Go's Bind, BindMore, Unbind, Binding and Bound, which make a type
+// parameter stand for a type while code is generated for one instance,
+// are not here yet: the type checker binds nothing, and they come with
+// the backend, which does. Every query here answers about the type it is
+// given, as Go's does with nothing bound.
+//
+// owners holds, for each entry, the package of a struct or union type,
+// an index among the program's packages, or -1, and owner_names each
+// package's name, which name_in qualifies a type of another package
+// with: Go's typeName passes Table.NameWith a function doing the same,
+// which Tack's second-class closures make awkward to keep.
+pub type Table struct {
+    entries list[Entry]
+    arrays map[ArrayKey]Type
+    views map[int64]Type
+    lists map[int64]Type
+    maps map[MapKey]Type
+    funcs map[list[uint8]]Type
+    arenas map[int64]Type
+    ids map[int64]Type
+    spans map[int64]Type
+    pools map[int64]Type
+    handles map[int64]Type
+
+    // names holds the bytes of every struct, union and type parameter
+    // name, and of every field and case name.
+    names list[uint8]
+    // field_list, case_list, param_list and result_list hold the runs
+    // entries name.
+    field_list list[Field]
+    case_list list[Case]
+    param_list list[FuncParam]
+    result_list list[Type]
+
+    // sizes keeps each size size has computed, by type number; setting
+    // fields or cases forgets them all, as Go's SetFields does.
+    sizes map[int64]Size
+
+    owners list[int64]
+    owner_names list[text.Text]
+
+    // errors counts the errors of the compilation the table was made
+    // for, Go's Errors.
+    pub errors int64
+}
+
+// Entry is one type a Table added: which kind of type it is, its element
+// type, a map's key type, an array's length, a declared type's name, and
+// the run of its fields, cases or parameters and of its results.
+type Entry struct {
+    kind uint8
+    elem Type
+    key Type
+    n int64
+    name_start int64
+    name_end int64
+    first int64
+    count int64
+    rfirst int64
+    rcount int64
+    set bool
+}
+
+// The kinds of Entry.
+var k_array uint8 = 1
+var k_view uint8 = 2
+var k_list uint8 = 3
+var k_map uint8 = 4
+var k_arena uint8 = 5
+var k_id uint8 = 6
+var k_span uint8 = 7
+var k_pool uint8 = 8
+var k_handle uint8 = 9
+var k_struct uint8 = 10
+var k_union uint8 = 11
+var k_func uint8 = 12
+var k_param uint8 = 13
+
+// ArrayKey identifies an array type by its element type's number and its
+// length.
+pub type ArrayKey struct {
+    elem int64
+    n int64
+}
+
+// MapKey identifies a map type by its key and value types' numbers.
+pub type MapKey struct {
+    key int64
+    value int64
+}
+
+// Field is one field of a struct type, Go's types.Field: its name, a run
+// of the Table's names, which Table.text reads, and its type.
+pub type Field struct {
+    pub name span_text
+    pub typ Type
+}
+
+// span_text is a run of the Table's names: where it starts and ends.
+pub type span_text struct {
+    pub start int64
+    pub end int64
+}
+
+// Case is one case of a union type, Go's types.Case: its name, its
+// payload's type, and whether it has a payload. A case with no payload
+// has payload false and typ invalid.
+pub type Case struct {
+    pub name span_text
+    pub typ Type
+    pub payload bool
+}
+
+// FuncParam is one parameter of a function type, Go's types.FuncParam:
+// its type, and whether it is mut, own or scope.
+pub type FuncParam struct {
+    pub typ Type
+    pub is_mut bool
+    pub is_own bool
+    pub is_scope bool
+}
+
+// FieldIn is a field to set on a struct type, its name given as bytes.
+pub type FieldIn struct {
+    pub name list[uint8]
+    pub typ Type
+}
+
+// new_table returns a Table that knows the basic types, which grows
+// through alloc, or out of memory.
+pub func new_table(alloc Allocator) (Table, error) {
+    mut t := Table{
+        entries: make(list[Entry], alloc),
+        arrays: make(map[ArrayKey]Type, alloc),
+        views: make(map[int64]Type, alloc),
+        lists: make(map[int64]Type, alloc),
+        maps: make(map[MapKey]Type, alloc),
+        funcs: make(map[list[uint8]]Type, alloc),
+        arenas: make(map[int64]Type, alloc),
+        ids: make(map[int64]Type, alloc),
+        spans: make(map[int64]Type, alloc),
+        pools: make(map[int64]Type, alloc),
+        handles: make(map[int64]Type, alloc),
+        names: make(list[uint8], alloc),
+        field_list: make(list[Field], alloc),
+        case_list: make(list[Case], alloc),
+        param_list: make(list[FuncParam], alloc),
+        result_list: make(list[Type], alloc),
+        sizes: make(map[int64]Size, alloc),
+        owners: make(list[int64], alloc),
+        owner_names: make(list[text.Text], alloc),
+        errors: 0,
+    }
+    // error's field names, code and msg, are the first names (see
+    // field_name).
+    append(mut t.names, []uint8("codemsg")...)?
+    return t, noerror
+}
+
+// blank_entry returns an Entry of kind k with nothing else set.
+func blank_entry(k uint8) Entry {
+    return Entry{kind: k, elem: invalid, key: invalid, n: 0, name_start: 0, name_end: 0, first: 0, count: 0, rfirst: 0, rcount: 0, set: false}
+}
+
+// add gives e the next free ID and returns it, Go's add.
+func (mut t Table) add(e Entry) (Type, error) {
+    n := num_basic +% len(t.entries)
+    append(mut t.entries, e)?
+    append(mut t.owners, -1)?
+    return Type{n: n}, noerror
+}
+
+// elem_entry adds a type of kind k made of elem alone, a view, a list,
+// an arena, an id, a span, a pool or a handle.
+func (mut t Table) elem_entry(k uint8, elem Type) (Type, error) {
+    mut e := blank_entry(k)
+    e.elem = elem
+    typ := mut t.add(e)?
+    return typ, noerror
+}
+
+// array_of returns the type of arrays of n elements of type elem, adding it
+// if the Table does not have it yet, Go's Array. n must not be negative.
+pub func (mut t Table) array_of(elem Type, n int64) (Type, error) {
+    k := ArrayKey{elem: elem.n, n: n}
+    found, ok := t.arrays[k]
+    if ok {
+        return found, noerror
+    }
+    mut e := blank_entry(k_array)
+    e.elem = elem
+    e.n = n
+    typ := mut t.add(e)?
+    put(mut t.arrays, k, typ)?
+    return typ, noerror
+}
+
+// view_of returns []elem, adding it if the Table does not have it yet.
+pub func (mut t Table) view_of(elem Type) (Type, error) {
+    found, ok := t.views[elem.n]
+    if ok {
+        return found, noerror
+    }
+    typ := mut t.elem_entry(k_view, elem)?
+    put(mut t.views, elem.n, typ)?
+    return typ, noerror
+}
+
+// list_of returns list[elem], adding it if the Table does not have it yet.
+pub func (mut t Table) list_of(elem Type) (Type, error) {
+    found, ok := t.lists[elem.n]
+    if ok {
+        return found, noerror
+    }
+    typ := mut t.elem_entry(k_list, elem)?
+    put(mut t.lists, elem.n, typ)?
+    return typ, noerror
+}
+
+// arena_of returns arena[elem], adding it if the Table does not have it
+// yet, after list[elem] and []elem, which the backend needs wherever it
+// needs the arena's type, Go's Arena.
+pub func (mut t Table) arena_of(elem Type) (Type, error) {
+    found, ok := t.arenas[elem.n]
+    if ok {
+        return found, noerror
+    }
+    mut t.list_of(elem)?
+    mut t.view_of(elem)?
+    typ := mut t.elem_entry(k_arena, elem)?
+    put(mut t.arenas, elem.n, typ)?
+    return typ, noerror
+}
+
+// id_of returns id[elem], adding it if the Table does not have it yet,
+// Go's ID.
+pub func (mut t Table) id_of(elem Type) (Type, error) {
+    found, ok := t.ids[elem.n]
+    if ok {
+        return found, noerror
+    }
+    typ := mut t.elem_entry(k_id, elem)?
+    put(mut t.ids, elem.n, typ)?
+    return typ, noerror
+}
+
+// span_of returns span[elem], adding it if the Table does not have it
+// yet, Go's Span.
+pub func (mut t Table) span_of(elem Type) (Type, error) {
+    found, ok := t.spans[elem.n]
+    if ok {
+        return found, noerror
+    }
+    typ := mut t.elem_entry(k_span, elem)?
+    put(mut t.spans, elem.n, typ)?
+    return typ, noerror
+}
+
+// pool_of returns pool[elem], adding it if the Table does not have it yet.
+pub func (mut t Table) pool_of(elem Type) (Type, error) {
+    found, ok := t.pools[elem.n]
+    if ok {
+        return found, noerror
+    }
+    typ := mut t.elem_entry(k_pool, elem)?
+    put(mut t.pools, elem.n, typ)?
+    return typ, noerror
+}
+
+// handle_of returns handle[elem], adding it if the Table does not have it
+// yet.
+pub func (mut t Table) handle_of(elem Type) (Type, error) {
+    found, ok := t.handles[elem.n]
+    if ok {
+        return found, noerror
+    }
+    typ := mut t.elem_entry(k_handle, elem)?
+    put(mut t.handles, elem.n, typ)?
+    return typ, noerror
+}
+
+// map_of returns map[key]value, adding it if the Table does not have it
+// yet, Go's Map.
+pub func (mut t Table) map_of(key Type, value Type) (Type, error) {
+    k := MapKey{key: key.n, value: value.n}
+    found, ok := t.maps[k]
+    if ok {
+        return found, noerror
+    }
+    mut e := blank_entry(k_map)
+    e.elem = value
+    e.key = key
+    typ := mut t.add(e)?
+    put(mut t.maps, k, typ)?
+    return typ, noerror
+}
+
+// func_of returns the function type with the parameters params and the
+// results results, in order, adding it if the Table does not have it
+// yet, Go's Func: two functions of one signature have one type.
+pub func (mut t Table) func_of(params []FuncParam, results []Type) (Type, error) {
+    mut k := func_key(params, results)?
+    found, ok := t.funcs[k]
+    if ok {
+        return found, noerror
+    }
+    mut e := blank_entry(k_func)
+    e.first = len(t.param_list)
+    e.count = len(params)
+    e.rfirst = len(t.result_list)
+    e.rcount = len(results)
+    append(mut t.param_list, params...)?
+    append(mut t.result_list, results...)?
+    typ := mut t.add(e)?
+    put(mut t.funcs, k, typ)?
+    return typ, noerror
+}
+
+// func_key writes out a function type's signature as Go's funcKey does,
+// the ID of each parameter's type, marked m, o or s when it is mut, own
+// or scope, then the ID of each result's, so that two signatures have
+// one key exactly when they are alike.
+func func_key(params []FuncParam, results []Type) (list[uint8], error) {
+    mut b := make(list[uint8], c_allocator)
+    for _, p := range params {
+        if p.is_mut {
+            append(mut b, 'm')?
+        }
+        if p.is_own {
+            append(mut b, 'o')?
+        }
+        if p.is_scope {
+            append(mut b, 's')?
+        }
+        append_int(mut b, p.typ.n)?
+        append(mut b, ',')?
+    }
+    append(mut b, ';')?
+    for _, r := range results {
+        append_int(mut b, r.n)?
+        append(mut b, ',')?
+    }
+    return b, noerror
+}
+
+// append_int appends v in decimal.
+func append_int(mut b list[uint8], v int64) error {
+    fmt.appendf(mut b, "%d", v)?
+    return noerror
+}
+
+// add_name appends s to names and returns where it is.
+func (mut t Table) add_name(s []uint8) (span_text, error) {
+    start := len(t.names)
+    append(mut t.names, s...)?
+    return span_text{start: start, end: len(t.names)}, noerror
+}
+
+// add_struct adds a new struct type named name, with no fields until
+// set_fields gives it some, and returns it, Go's Struct: every call adds
+// a type of its own.
+pub func (mut t Table) add_struct(name []uint8) (Type, error) {
+    sp := mut t.add_name(name)?
+    mut e := blank_entry(k_struct)
+    e.name_start = sp.start
+    e.name_end = sp.end
+    typ := mut t.add(e)?
+    return typ, noerror
+}
+
+// add_union adds a new union type named name, with no cases until
+// set_cases gives it some, and returns it, Go's Union.
+pub func (mut t Table) add_union(name []uint8) (Type, error) {
+    sp := mut t.add_name(name)?
+    mut e := blank_entry(k_union)
+    e.name_start = sp.start
+    e.name_end = sp.end
+    typ := mut t.add(e)?
+    return typ, noerror
+}
+
+// type_param adds a type parameter named name, one of a generic
+// function's, and returns its ID, Go's TypeParam.
+pub func (mut t Table) type_param(name []uint8) (Type, error) {
+    sp := mut t.add_name(name)?
+    mut e := blank_entry(k_param)
+    e.name_start = sp.start
+    e.name_end = sp.end
+    typ := mut t.add(e)?
+    return typ, noerror
+}
+
+// set_fields gives the struct type typ its fields, in declaration order,
+// Go's SetFields, and forgets every size computed. It does nothing if
+// typ is not a struct type of this Table.
+pub func (mut t Table) set_fields(typ Type, fields []FieldIn) error {
+    i := typ.n -% num_basic
+    e, ok := t.entries[i]
+    if !ok || e.kind != k_struct {
+        return noerror
+    }
+    first := len(t.field_list)
+    for _, f := range fields {
+        sp := mut t.add_name(f.name[:])?
+        append(mut t.field_list, Field{name: sp, typ: f.typ})?
+    }
+    set_run(mut t.entries, i, first, len(fields))
+    t.sizes = make(map[int64]Size, c_allocator)
+    return noerror
+}
+
+// CaseIn is a case to set on a union type, its name given as bytes.
+pub type CaseIn struct {
+    pub name list[uint8]
+    pub typ Type
+    pub payload bool
+}
+
+// set_run makes the entry i of entries name the run of count fields or
+// cases from first, and marks them set.
+func set_run(mut entries list[Entry], i int64, first int64, count int64) {
+    if 0 <= i && i < len(entries) {
+        entries[i].first = first
+        entries[i].count = count
+        entries[i].set = true
+    }
+}
+
+// set_cases gives the union type typ its cases, in declaration order, Go's
+// SetCases, and forgets every size computed. It does nothing if typ is
+// not a union type of this Table.
+pub func (mut t Table) set_cases(typ Type, cases []CaseIn) error {
+    i := typ.n -% num_basic
+    e, ok := t.entries[i]
+    if !ok || e.kind != k_union {
+        return noerror
+    }
+    first := len(t.case_list)
+    for _, c := range cases {
+        sp := mut t.add_name(c.name[:])?
+        append(mut t.case_list, Case{name: sp, typ: c.typ, payload: c.payload})?
+    }
+    set_run(mut t.entries, i, first, len(cases))
+    t.sizes = make(map[int64]Size, c_allocator)
+    return noerror
+}
+
+// set_owner records that the struct or union type typ is declared in the
+// package pkg, which name_in qualifies it by elsewhere.
+pub func (mut t Table) set_owner(typ Type, pkg int64) {
+    set_int(mut t.owners, typ.n -% num_basic, pkg)
+}
+
+// set_int sets element i of l to v, when l has one.
+func set_int(mut l list[int64], i int64, v int64) {
+    if 0 <= i && i < len(l) {
+        l[i] = v
+    }
+}
+
+// add_owner_name records the name of the next package, for name_in.
+pub func (mut t Table) add_owner_name(name []uint8) error {
+    mut n := text.new(c_allocator)
+    mut n.append(name)?
+    append(mut t.owner_names, n)?
+    return noerror
+}
+
+// entry returns the entry of typ, and whether typ is one this Table gave
+// out, Go's entry with nothing bound.
+func (t Table) entry(typ Type) (Entry, bool) {
+    if typ.n < num_basic {
+        return blank_entry(0), false
+    }
+    e, ok := t.entries[typ.n -% num_basic]
+    if !ok {
+        return blank_entry(0), false
+    }
+    return e, true
+}
+
+// kind_is reports whether typ is an entry of kind k.
+func (t Table) kind_is(typ Type, k uint8) bool {
+    e, ok := t.entry(typ)
+    return ok && e.kind == k
+}
+
+// text returns the bytes of the run of names from start to end.
+pub func (t Table) text(start int64, end int64) []uint8 {
+    if start < 0 || start > end || end > len(t.names) {
+        return t.names[0:0]
+    }
+    return t.names[start:end]
+}
+
+// count returns how many types the Table has added, Go's Count: their IDs
+// are num_basic through num_basic + count() - 1.
+pub func (t Table) count() int64 {
+    return len(t.entries)
+}
+
+// added returns the ID of the i'th type the Table added, Go's Added.
+pub func added(i int64) Type {
+    return Type{n: num_basic +% i}
+}
+
+// is_func reports whether typ is a function type.
+pub func (t Table) is_func(typ Type) bool {
+    return t.kind_is(typ, k_func)
+}
+
+// func_params returns the parameters of the function type typ, in order,
+// none if typ is not one, Go's FuncParams.
+pub func (t Table) func_params(typ Type) []FuncParam {
+    e, ok := t.entry(typ)
+    end := e.first +% e.count
+    if !ok || e.kind != k_func || e.first < 0 || e.first > end || end > len(t.param_list) {
+        return t.param_list[0:0]
+    }
+    return t.param_list[e.first:end]
+}
+
+// func_results returns the results of the function type typ, in order,
+// none if typ is not one or returns nothing, Go's FuncResults.
+pub func (t Table) func_results(typ Type) []Type {
+    e, ok := t.entry(typ)
+    end := e.rfirst +% e.rcount
+    if !ok || e.kind != k_func || e.rfirst < 0 || e.rfirst > end || end > len(t.result_list) {
+        return t.result_list[0:0]
+    }
+    return t.result_list[e.rfirst:end]
+}
+
+// is_union reports whether typ is a union type.
+pub func (t Table) is_union(typ Type) bool {
+    return t.kind_is(typ, k_union)
+}
+
+// cases returns the cases of the union type typ, in declaration order,
+// none if typ is not one or has none yet, Go's Cases.
+pub func (t Table) cases(typ Type) []Case {
+    e, ok := t.entry(typ)
+    end := e.first +% e.count
+    if !ok || e.kind != k_union || e.first < 0 || e.first > end || end > len(t.case_list) {
+        return t.case_list[0:0]
+    }
+    return t.case_list[e.first:end]
+}
+
+// cases_set reports whether the cases or fields of typ, a union or a
+// struct, have been set, Go's cases or fields not being nil.
+pub func (t Table) cases_set(typ Type) bool {
+    e, ok := t.entry(typ)
+    return ok && e.set
+}
+
+// find_case returns the case of the union type typ named name, its
+// position among the cases, which is its tag, and whether typ has one,
+// Go's Case.
+pub func (t Table) find_case(typ Type, name []uint8) (Case, int64, bool) {
+    for i, c := range t.cases(typ) {
+        if bytes_equal(t.text(c.name.start, c.name.end), name) {
+            return c, i, true
+        }
+    }
+    return Case{name: span_text{start: 0, end: 0}, typ: invalid, payload: false}, 0, false
+}
+
+// bytes_equal reports whether a and b hold the same bytes.
+func bytes_equal(a []uint8, b []uint8) bool {
+    if len(a) != len(b) {
+        return false
+    }
+    for i, x := range a {
+        y, ok := b[i]
+        if !ok || x != y {
+            return false
+        }
+    }
+    return true
+}
+
+// is_type_param reports whether typ is a type parameter.
+pub func (t Table) is_type_param(typ Type) bool {
+    return t.kind_is(typ, k_param)
+}
+
+// has_type_param reports whether typ is a type parameter, or is made of
+// one, as an element, a map's key or value, or a function type's
+// parameter or result, Go's HasTypeParam. A struct or a union is never
+// made of one. Types nest only as deeply as their source, which the
+// parser bounds, so the walk recurses.
+pub func (t Table) has_type_param(typ Type) bool {
+    e, ok := t.entry(typ)
+    if !ok || e.kind == k_struct || e.kind == k_union {
+        return false
+    }
+    if e.kind == k_param {
+        return true
+    }
+    if e.kind == k_func {
+        for _, p := range t.func_params(typ) {
+            if t.has_type_param(p.typ) {
+                return true
+            }
+        }
+        for _, r := range t.func_results(typ) {
+            if t.has_type_param(r) {
+                return true
+            }
+        }
+        return false
+    }
+    if e.kind == k_map && t.has_type_param(e.key) {
+        return true
+    }
+    return t.has_type_param(e.elem)
+}
+
+// is_array reports whether typ is an array type.
+pub func (t Table) is_array(typ Type) bool {
+    return t.kind_is(typ, k_array)
+}
+
+// is_arena reports whether typ is an arena type.
+pub func (t Table) is_arena(typ Type) bool {
+    return t.kind_is(typ, k_arena)
+}
+
+// is_id reports whether typ is an id type.
+pub func (t Table) is_id(typ Type) bool {
+    return t.kind_is(typ, k_id)
+}
+
+// is_span reports whether typ is a span type.
+pub func (t Table) is_span(typ Type) bool {
+    return t.kind_is(typ, k_span)
+}
+
+// is_ref reports whether typ is an id or a span type.
+pub func (t Table) is_ref(typ Type) bool {
+    return t.is_id(typ) || t.is_span(typ)
+}
+
+// is_pool reports whether typ is a pool type.
+pub func (t Table) is_pool(typ Type) bool {
+    return t.kind_is(typ, k_pool)
+}
+
+// is_handle reports whether typ is a handle type.
+pub func (t Table) is_handle(typ Type) bool {
+    return t.kind_is(typ, k_handle)
+}
+
+// buffered reports whether typ is a list or an arena type, Go's Buffered.
+pub func (t Table) buffered(typ Type) bool {
+    return t.is_list(typ) || t.is_arena(typ)
+}
+
+// is_list reports whether typ is a list type.
+pub func (t Table) is_list(typ Type) bool {
+    return t.kind_is(typ, k_list)
+}
+
+// is_map reports whether typ is a map type.
+pub func (t Table) is_map(typ Type) bool {
+    return t.kind_is(typ, k_map)
+}
+
+// key_of returns the key type of the map type typ, or invalid, Go's Key.
+pub func (t Table) key_of(typ Type) Type {
+    e, ok := t.entry(typ)
+    if !ok || e.kind != k_map {
+        return invalid
+    }
+    return e.key
+}
+
+// is_view reports whether typ is a view type.
+pub func (t Table) is_view(typ Type) bool {
+    return t.kind_is(typ, k_view)
+}
+
+// in_any_of reports whether a value of type typ can be passed as any, Go's
+// Table.InAny: a basic type in_any accepts, or a view of one.
+pub func (t Table) in_any_of(typ Type) bool {
+    return in_any(typ) || t.is_view(typ) && in_any(t.elem_of(typ))
+}
+
+// is_struct reports whether typ is a struct type, one a Table added or
+// error.
+pub func (t Table) is_struct(typ Type) bool {
+    if typ == error_type {
+        return true
+    }
+    return t.kind_is(typ, k_struct)
+}
+
+// elem_of returns the element type of the array, view, list, arena, id,
+// span, pool or handle type typ, or the value type of the map type typ,
+// or invalid, Go's Elem.
+pub func (t Table) elem_of(typ Type) Type {
+    e, ok := t.entry(typ)
+    if !ok || e.kind == k_struct || e.kind == k_union || e.kind == k_func || e.kind == k_param {
+        return invalid
+    }
+    return e.elem
+}
+
+// len_of returns the length of the array type typ, or 0, Go's Len.
+pub func (t Table) len_of(typ Type) int64 {
+    e, ok := t.entry(typ)
+    if !ok || e.kind != k_array {
+        return 0
+    }
+    return e.n
+}
+
+// struct_fields returns the fields of the struct type typ, in
+// declaration order, none if typ is not one or has none yet, Go's
+// Fields. error's, code and msg, are error_fields'.
+pub func (t Table) struct_fields(typ Type) []Field {
+    e, ok := t.entry(typ)
+    end := e.first +% e.count
+    if !ok || e.kind != k_struct || e.first < 0 || e.first > end || end > len(t.field_list) {
+        return t.field_list[0:0]
+    }
+    return t.field_list[e.first:end]
+}
+
+// field_count returns how many fields the struct type typ has, error's
+// two included.
+pub func (t Table) field_count(typ Type) int64 {
+    if typ == error_type {
+        return 2
+    }
+    return len(t.struct_fields(typ))
+}
+
+// field_name returns the name of field i of the struct type typ,
+// error's code and msg included, or nothing when it has none.
+pub func (t Table) field_name(typ Type, i int64) []uint8 {
+    if typ == error_type {
+        if len(t.names) < 7 {
+            return t.names[0:0]
+        }
+        if i == 0 {
+            return t.names[0:4]
+        }
+        if i == 1 {
+            return t.names[4:7]
+        }
+        return t.names[0:0]
+    }
+    f, ok := t.struct_fields(typ)[i]
+    if !ok {
+        return t.names[0:0]
+    }
+    return t.text(f.name.start, f.name.end)
+}
+
+// field_type returns the type of field i of the struct type typ, error's
+// code and msg included, and whether it has one.
+pub func (t Table) field_type(typ Type, i int64) (Type, bool) {
+    if typ == error_type {
+        if i == 0 {
+            return int32_type, true
+        }
+        if i == 1 {
+            return string_type, true
+        }
+        return invalid, false
+    }
+    f, ok := t.struct_fields(typ)[i]
+    if !ok {
+        return invalid, false
+    }
+    return f.typ, true
+}
+
+// find_field returns the type of the field of the struct type typ named
+// name, its position among the fields, and whether typ has one, Go's
+// Field.
+pub func (t Table) find_field(typ Type, name []uint8) (Type, int64, bool) {
+    n := t.field_count(typ)
+    for i := range n {
+        ftyp, ok := t.field_type(typ, i)
+        if ok && bytes_equal(t.field_name(typ, i), name) {
+            return ftyp, i, true
+        }
+    }
+    return invalid, 0, false
+}
+
+// part_count returns how many parts typ has as holds walks it: a struct's
+// fields, then a union's cases with a payload.
+func (t Table) part_count(typ Type) int64 {
+    return t.field_count(typ) +% len(t.cases(typ))
+}
+
+// part_at returns the i'th of the parts of typ, a struct's fields and a
+// union's cases, as Go's parts lists them, and whether it is one: a case
+// with no payload is no part.
+func (t Table) part_at(typ Type, i int64) (Type, bool) {
+    nf := t.field_count(typ)
+    if i < nf {
+        ftyp, ok := t.field_type(typ, i)
+        return ftyp, ok
+    }
+    c, ok := t.cases(typ)[i -% nf]
+    if !ok || !c.payload {
+        return invalid, false
+    }
+    return c.typ, true
+}
+
+// The judgments holds asks of a type.
+var is_owner uint8 = 1
+var is_no_zero uint8 = 2
+var is_list_judge uint8 = 3
+var is_arena_judge uint8 = 4
+var is_pool_judge uint8 = 5
+var is_union_judge uint8 = 6
+
+// judge reports whether typ is a type the judgment which accepts.
+func (t Table) judge(typ Type, which uint8) bool {
+    if which == is_owner {
+        return t.is_list(typ) || t.is_arena(typ) || t.is_pool(typ) || t.is_map(typ) || t.is_type_param(typ)
+    }
+    if which == is_no_zero {
+        return typ == allocator || t.is_list(typ) || t.is_arena(typ) || t.is_pool(typ) || t.is_map(typ) || t.is_type_param(typ) || t.is_union(typ) || t.is_func(typ)
+    }
+    if which == is_list_judge {
+        return t.is_list(typ)
+    }
+    if which == is_arena_judge {
+        return t.is_arena(typ)
+    }
+    if which == is_pool_judge {
+        return t.is_pool(typ)
+    }
+    return t.is_union(typ)
+}
+
+// owned reports whether a value of type typ owns memory it must free, Go's
+// Owned: a list, an arena, a pool, a map or a type parameter, or an
+// array, a struct or a union holding one.
+pub func (t Table) owned(typ Type) (bool, error) {
+    r := t.holds(typ, is_owner)?
+    return r, noerror
+}
+
+// has_zero reports whether type typ has a zero value, Go's HasZero.
+pub func (t Table) has_zero(typ Type) (bool, error) {
+    r := t.holds(typ, is_no_zero)?
+    return !r, noerror
+}
+
+// holds_list reports whether typ is or holds a list, Go's HoldsList.
+pub func (t Table) holds_list(typ Type) (bool, error) {
+    r := t.holds(typ, is_list_judge)?
+    return r, noerror
+}
+
+// holds_arena reports whether typ is or holds an arena, Go's HoldsArena.
+pub func (t Table) holds_arena(typ Type) (bool, error) {
+    r := t.holds(typ, is_arena_judge)?
+    return r, noerror
+}
+
+// holds_pool reports whether typ is or holds a pool, Go's HoldsPool.
+pub func (t Table) holds_pool(typ Type) (bool, error) {
+    r := t.holds(typ, is_pool_judge)?
+    return r, noerror
+}
+
+// holds_union reports whether typ is or holds a union, Go's HoldsUnion.
+pub func (t Table) holds_union(typ Type) (bool, error) {
+    r := t.holds(typ, is_union_judge)?
+    return r, noerror
+}
+
+// holds reports whether typ is one of the types the judgment which
+// accepts, or an array, a struct or a union holding one at any depth, a
+// union through its cases' payloads, Go's holds. Go recurses, a frame for
+// each array, struct and union on the way, and a chain of structs each
+// holding the next by value is as long as its source makes it, so here
+// the walk keeps a stack of its own. Go's answer is whether any type
+// reachable that way is accepted, a struct or union already seen not
+// walked again, which the order of the walk does not change.
+func (t Table) holds(typ Type, which uint8) (bool, error) {
+    mut seen := make(map[int64]bool, c_allocator)
+    mut stack := make(list[Type], c_allocator)
+    append(mut stack, typ)?
+    for len(stack) > 0 {
+        cur := pop(mut stack)
+        if t.judge(cur, which) {
+            return true, noerror
+        }
+        if t.is_array(cur) {
+            append(mut stack, t.elem_of(cur))?
+            continue
+        }
+        if !t.is_struct(cur) && !t.is_union(cur) {
+            continue
+        }
+        _, was := seen[cur.n]
+        if was {
+            continue
+        }
+        put(mut seen, cur.n, true)?
+        n := t.part_count(cur)
+        mut i := n
+        for i > 0 {
+            i -%= 1
+            p, ok := t.part_at(cur, i)
+            if ok {
+                append(mut stack, p)?
+            }
+        }
+    }
+    return false, noerror
+}
+
+// name returns a type's name as a program writes it, Go's Name: a basic
+// type's own name, a composite type's made of its parts' names, and a
+// struct, union or type parameter's declared name; a type the Table does
+// not know is "invalid".
+pub func (t Table) name(typ Type) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    t.write_name(typ, mut out, -1)?
+    return out, noerror
+}
+
+// name_in returns a type's name as name does, but with each struct or
+// union type in it of a package other than pkg, an index among the
+// program's packages, qualified by its package's name, Go's typeName.
+pub func (t Table) name_in(typ Type, pkg int64) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    t.write_name(typ, mut out, pkg)?
+    return out, noerror
+}
+
+// write_name appends typ's name to out, qualified as name_in says for
+// the package pkg, or not at all for a pkg of -1, Go's NameWith. A type
+// nests only as deeply as its source, which the parser bounds, so it
+// recurses.
+pub func (t Table) write_name(typ Type, mut out list[uint8], pkg int64) error {
+    if typ.n >= 0 && typ.n < num_basic {
+        append(mut out, []uint8(basic_name(typ))...)?
+        return noerror
+    }
+    e, ok := t.entry(typ)
+    if !ok {
+        append(mut out, []uint8("invalid")...)?
+        return noerror
+    }
+    if e.kind == k_struct || e.kind == k_union {
+        owner, has := t.owners[typ.n -% num_basic]
+        if has && pkg >= 0 && owner >= 0 && owner != pkg && owner < len(t.owner_names) {
+            append(mut out, t.owner_names[owner].bytes()...)?
+            append(mut out, '.')?
+        }
+        append(mut out, t.text(e.name_start, e.name_end)...)?
+        return noerror
+    }
+    if e.kind == k_param {
+        append(mut out, t.text(e.name_start, e.name_end)...)?
+        return noerror
+    }
+    if e.kind == k_func {
+        return t.write_func_name(typ, mut out, pkg)
+    }
+    if e.kind == k_map {
+        append(mut out, []uint8("map[")...)?
+        t.write_name(e.key, mut out, pkg)?
+        append(mut out, ']')?
+        return t.write_name(e.elem, mut out, pkg)
+    }
+    if e.kind == k_array {
+        append(mut out, '[')?
+        append_int(mut out, e.n)?
+        append(mut out, ']')?
+        return t.write_name(e.elem, mut out, pkg)
+    }
+    if e.kind == k_view {
+        append(mut out, []uint8("[]")...)?
+        return t.write_name(e.elem, mut out, pkg)
+    }
+    if e.kind == k_list {
+        append(mut out, []uint8("list[")...)?
+    } else if e.kind == k_arena {
+        append(mut out, []uint8("arena[")...)?
+    } else if e.kind == k_id {
+        append(mut out, []uint8("id[")...)?
+    } else if e.kind == k_span {
+        append(mut out, []uint8("span[")...)?
+    } else if e.kind == k_pool {
+        append(mut out, []uint8("pool[")...)?
+    } else {
+        append(mut out, []uint8("handle[")...)?
+    }
+    t.write_name(e.elem, mut out, pkg)?
+    append(mut out, ']')?
+    return noerror
+}
+
+// write_func_name appends the name of the function type typ as Go's
+// funcName writes it: func, its parameters' types in parentheses, each
+// after mut, own or scope where it is one, and its results, none, one
+// alone, or several in parentheses.
+func (t Table) write_func_name(typ Type, mut out list[uint8], pkg int64) error {
+    append(mut out, []uint8("func(")...)?
+    for i, p := range t.func_params(typ) {
+        if i > 0 {
+            append(mut out, []uint8(", ")...)?
+        }
+        if p.is_scope {
+            append(mut out, []uint8("scope ")...)?
+        }
+        if p.is_own {
+            append(mut out, []uint8("own ")...)?
+        }
+        if p.is_mut {
+            append(mut out, []uint8("mut ")...)?
+        }
+        t.write_name(p.typ, mut out, pkg)?
+    }
+    append(mut out, ')')?
+    nr := len(t.func_results(typ))
+    if nr == 1 {
+        for _, r := range t.func_results(typ) {
+            append(mut out, ' ')?
+            t.write_name(r, mut out, pkg)?
+        }
+        return noerror
+    }
+    if nr > 1 {
+        append(mut out, []uint8(" (")...)?
+        for i, r := range t.func_results(typ) {
+            if i > 0 {
+                append(mut out, []uint8(", ")...)?
+            }
+            t.write_name(r, mut out, pkg)?
+        }
+        append(mut out, ')')?
+    }
+    return noerror
+}
+
+// is_declared reports whether typ is a struct, a union or a type
+// parameter, whose name declared_name gives.
+pub func (t Table) is_declared(typ Type) bool {
+    e, ok := t.entry(typ)
+    return ok && (e.kind == k_struct || e.kind == k_union || e.kind == k_param)
+}
+
+// declared_name returns the name a struct, union or type parameter typ
+// was declared with, or nothing for any other type.
+pub func (t Table) declared_name(typ Type) []uint8 {
+    e, ok := t.entry(typ)
+    if !ok || e.kind != k_struct && e.kind != k_union && e.kind != k_param {
+        return t.names[0:0]
+    }
+    return t.text(e.name_start, e.name_end)
+}
+
+// kind_name returns the name the dump gives typ's kind of type: array,
+// view, list, map, arena, id, span, pool, handle, struct, union, func or
+// param, or "" for a type the Table did not add.
+pub func (t Table) kind_name(typ Type) string {
+    e, ok := t.entry(typ)
+    if !ok {
+        return ""
+    }
+    if e.kind == k_array {
+        return "array"
+    }
+    if e.kind == k_view {
+        return "view"
+    }
+    if e.kind == k_list {
+        return "list"
+    }
+    if e.kind == k_map {
+        return "map"
+    }
+    if e.kind == k_arena {
+        return "arena"
+    }
+    if e.kind == k_id {
+        return "id"
+    }
+    if e.kind == k_span {
+        return "span"
+    }
+    if e.kind == k_pool {
+        return "pool"
+    }
+    if e.kind == k_handle {
+        return "handle"
+    }
+    if e.kind == k_struct {
+        return "struct"
+    }
+    if e.kind == k_union {
+        return "union"
+    }
+    if e.kind == k_func {
+        return "func"
+    }
+    return "param"
+}
