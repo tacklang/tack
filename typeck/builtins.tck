@@ -7,10 +7,9 @@ import types from "tack/types"
 
 // The generic builtins a body calls, Go's genericCall and the checks of
 // list.go and arena.go's make: len, make, append, reserve, pop and
-// remove, each checking its own arguments. What needs a proof, a plain
-// pop's or remove's, is S3's and declined, as are the builtins of maps,
-// arenas and pools that change them, put, delete, add, add_all and
-// insert, and replace, swap and drop, which are S6's.
+// remove, each checking its own arguments, and those ownbuiltins.tck
+// checks. What needs a proof, a plain pop's or remove's, is S3's and
+// declined.
 
 // is_generic_builtin reports whether name is a generic builtin's, one
 // Go's genericCall checks.
@@ -53,6 +52,38 @@ func (mut c Checker) generic_call(k Key) (types.Type, bool, error) {
     }
     if bytes_equal(name, []uint8("remove")) {
         t := mut c.remove_call(k)?
+        return t, true, noerror
+    }
+    if bytes_equal(name, []uint8("put")) {
+        t := mut c.put_call(k)?
+        return t, true, noerror
+    }
+    if bytes_equal(name, []uint8("delete")) {
+        t := mut c.delete_call(k)?
+        return t, true, noerror
+    }
+    if bytes_equal(name, []uint8("add")) {
+        t := mut c.add_call(k)?
+        return t, true, noerror
+    }
+    if bytes_equal(name, []uint8("add_all")) {
+        t := mut c.add_all_call(k)?
+        return t, true, noerror
+    }
+    if bytes_equal(name, []uint8("insert")) {
+        t := mut c.insert_call(k)?
+        return t, true, noerror
+    }
+    if bytes_equal(name, []uint8("replace")) {
+        t := mut c.replace_call(k)?
+        return t, true, noerror
+    }
+    if bytes_equal(name, []uint8("drop")) {
+        t := mut c.drop_call(k)?
+        return t, true, noerror
+    }
+    if bytes_equal(name, []uint8("swap")) {
+        t := mut c.swap_call(k)?
         return t, true, noerror
     }
     return types.invalid, true, not_ported
@@ -133,7 +164,7 @@ func (mut c Checker) make_call(k Key) (types.Type, error) {
     if is_id && typ != types.invalid {
         typ = mut c.made_data(first, typ)?
     }
-    at := mut c.expr(alloc)?
+    at := mut c.alloc_arg(alloc)?
     mut ctx := msg()
     append(mut ctx, []uint8("in argument to make")...)?
     used := mut c.use(alloc, at, types.allocator, ctx)?
@@ -168,7 +199,7 @@ func (mut c Checker) make_arena(k Key, typ types.Type) (types.Type, error) {
         mut c.arg_expr(sentinel)?
     }
     alloc := item_at(c.prog.trees, k.unit, cl.args, 2)
-    at := mut c.expr(alloc)?
+    at := mut c.alloc_arg(alloc)?
     mut ctx := msg()
     append(mut ctx, []uint8("in argument to make")...)?
     mut c.use(alloc, at, types.allocator, ctx)?
@@ -412,8 +443,8 @@ func (mut c Checker) pop_call(k Key) (types.Type, error) {
 
 // remove_call checks a call to remove, k, records the type of the
 // element it gives on the call and returns it, Go's removeCall: a pool's
-// remove, and the plain form, which needs its index proven in range,
-// are declined.
+// remove is pool_remove's, and the plain form, which needs its index
+// proven in range, is declined.
 func (mut c Checker) remove_call(k Key) (types.Type, error) {
     cl := call_of(c.prog.trees, k)
     mut name := msg()
@@ -430,7 +461,8 @@ func (mut c Checker) remove_call(k Key) (types.Type, error) {
     case mut_arg(x):
         ft := mut c.type_of(sub(first, x))
         if c.table.is_pool(ft) {
-            return types.invalid, not_ported
+            t := mut c.pool_remove(k, ft)?
+            return t, noerror
         }
     default:
     }

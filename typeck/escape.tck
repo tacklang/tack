@@ -1,0 +1,695 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// The escape rule, Go's escape.go. A value is from a region r when its
+// type owns memory and it may hold memory r handed out: made inside r's
+// block by an expression given r, a call with r or a value from r among
+// its operands, a literal holding one, or a variable a value from r was
+// given. Such a value may not reach anything that lives longer than r's
+// block: a return, an assignment to a variable declared outside the
+// block, or a call that passes it together with a mut argument declared
+// outside it, which could store one into the other. Regions nest, so
+// the rule is checked by depth: each variable lives at the depth it is
+// declared at, its home, and may hold memory from the region at its
+// mark, at most its home. Marks are found by walking the body until none
+// rises, and each way out is then checked once, against them, as Go
+// does. A body holding no region is not walked. A closure, and a scope
+// parameter of a function type, are S7's, and declined.
+//
+// Every expression is walked with a stack of its own (see esc_src), and
+// a chain of else ifs and a list of statements in a loop. The walks that
+// raise marks repeat until none rises, as Go's do, so a body whose marks
+// rise a link at a time down a chain of n assignments is walked n times,
+// in time quadratic in n; the port takes about 1.7 times Go's time on
+// such a chain.
+
+// EscState is what the escape walk of one body tracks, Go's escaper: the
+// regions around the point, outermost first, each variable's home and
+// mark, each region's allocator's depth, how many errors it reported,
+// whether this walk reports, the last one, and whether a mark rose.
+type EscState struct {
+    fn Key
+    regions list[Key]
+    home map[Key]int64
+    mark map[Key]int64
+    depth map[Key]int64
+    reported int64
+    report bool
+    changed bool
+}
+
+// new_esc_state returns the state of an escape walk of the function d.
+func new_esc_state(d Key) EscState {
+    return EscState{
+        fn: d,
+        regions: make(list[Key], c_allocator),
+        home: make(map[Key]int64, c_allocator),
+        mark: make(map[Key]int64, c_allocator),
+        depth: make(map[Key]int64, c_allocator),
+        reported: 0,
+        report: false,
+        changed: false,
+    }
+}
+
+// check_escapes checks the escape rule in the body of d, which was
+// checked with nothing reported, when it holds a region, Go's
+// checkEscapes: walks raising marks until none rises, then one that
+// reports.
+func (mut c Checker) check_escapes(d Key) error {
+    fn := func_of(c.prog.trees, d)
+    holds := mut c.holds_region(d.unit, fn.body)?
+    if !holds {
+        return noerror
+    }
+    old := replace(mut c.esc, new_esc_state(d))
+    drop(own old)
+    for {
+        c.esc.changed = false
+        mut c.esc_stmts(d.unit, fn.body)?
+        if !c.esc.changed {
+            break
+        }
+    }
+    c.esc.report = true
+    return mut c.esc_stmts(d.unit, fn.body)
+}
+
+// holds_region reports whether body, in the tree unit, holds a region at
+// any depth, Go's holdsRegion.
+func (mut c Checker) holds_region(unit int64, body ast.Nodes) (bool, error) {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for i := range count_items(c.prog.trees, unit, body) {
+        append(mut stack, item_at(c.prog.trees, unit, body, i).node)?
+    }
+    for len(stack) > 0 {
+        top, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        switch kind_at(c.prog.trees, Key{unit: unit, node: top}) {
+        case region_stmt:
+            return true, noerror
+        default:
+        }
+        clear_nodes(mut kids)
+        children_of(c.prog.trees, unit, top, mut kids)?
+        for _, kid := range kids {
+            append(mut stack, kid)?
+        }
+    }
+    return false, noerror
+}
+
+// esc_owned reports whether a value of type typ may hold memory: it owns
+// some, or its type is not known, Go's escaper.owned.
+func (mut c Checker) esc_owned(typ types.Type) (bool, error) {
+    if typ == types.invalid {
+        return true, noerror
+    }
+    o := c.table.owned(typ)?
+    return o, noerror
+}
+
+// esc_declare records v as declared at the walk's depth, given a value
+// of depth d, Go's declare.
+func (mut c Checker) esc_declare(v Key, d int64) error {
+    if is_no_key(v) {
+        return noerror
+    }
+    put(mut c.esc.home, v, len(c.esc.regions))?
+    return mut c.esc_raise(v, d)
+}
+
+// esc_raise raises the mark of decl to d, when its type may hold memory,
+// never past its home, Go's raise.
+func (mut c Checker) esc_raise(decl Key, d int64) error {
+    h := int_in(c.esc.home, decl)
+    mut to := d
+    if h < to {
+        to = h
+    }
+    m := int_in(c.esc.mark, decl)
+    owned := mut c.esc_owned(decl_type_of(c.decl_types, decl))?
+    if to > m && owned {
+        put(mut c.esc.mark, decl, to)?
+        c.esc.changed = true
+    }
+    return noerror
+}
+
+// esc_decl_src returns the depth of what decl holds, Go's declSrc: its
+// region's depth for a region's allocator, its mark for anything else.
+func (mut c Checker) esc_decl_src(decl Key) int64 {
+    dep, is_alloc := c.esc.depth[decl]
+    if is_alloc {
+        return dep
+    }
+    return int_in(c.esc.mark, decl)
+}
+
+// esc_stmts walks the statements of a block, Go's stmts.
+func (mut c Checker) esc_stmts(unit int64, body ast.Nodes) error {
+    for i := range count_items(c.prog.trees, unit, body) {
+        mut c.esc_stmt(item_at(c.prog.trees, unit, body, i))?
+    }
+    return noerror
+}
+
+// esc_stmt walks the statement k and everything in it, Go's stmt; a
+// chain of else ifs is walked in a loop.
+func (mut c Checker) esc_stmt(k Key) error {
+    switch kind_at(c.prog.trees, k) {
+    case region_stmt(r):
+        append(mut c.esc.regions, k)?
+        v := sub(k, r.var_node)
+        put(mut c.esc.depth, v, len(c.esc.regions))?
+        put(mut c.esc.home, v, len(c.esc.regions))?
+        e := mut c.esc_stmts(k.unit, r.body)
+        pop(mut c.esc.regions)
+        return e
+    case var_decl(v):
+        d := mut c.esc_src(opt_sub(k, v.value))?
+        return mut c.esc_declare(k, d)
+    case multi_var(m):
+        d := mut c.esc_src(sub(k, m.value))?
+        for i := range count_items(c.prog.trees, k.unit, m.vars) {
+            mut c.esc_declare(item_at(c.prog.trees, k.unit, m.vars, i), d)?
+        }
+        return noerror
+    case assign(a):
+        d := mut c.esc_src(sub(k, a.value))?
+        mut c.esc_src(sub(k, a.target))?
+        return mut c.esc_store(sub(k, a.target), d, sub(k, a.value))
+    case multi_assign(m):
+        d := mut c.esc_src(sub(k, m.value))?
+        for i := range count_items(c.prog.trees, k.unit, m.targets) {
+            t := item_at(c.prog.trees, k.unit, m.targets, i)
+            mut c.esc_src(t)?
+            mut c.esc_store(t, d, sub(k, m.value))?
+        }
+        return noerror
+    case expr_stmt(s):
+        mut c.esc_src(sub(k, s.x))?
+        return noerror
+    case inc_dec(s):
+        mut c.esc_src(sub(k, s.target))?
+        return noerror
+    case return_stmt(s):
+        return mut c.esc_ret(k, s)
+    case if_stmt(s):
+        mut at := k
+        mut st := s
+        for {
+            mut c.esc_src(sub(at, st.cond))?
+            mut c.esc_stmts(at.unit, st.then)?
+            if count_items(c.prog.trees, at.unit, st.else_body) == 1 {
+                next := item_at(c.prog.trees, at.unit, st.else_body, 0)
+                switch kind_at(c.prog.trees, next) {
+                case if_stmt(es):
+                    at = next
+                    st = es
+                    continue
+                default:
+                }
+            }
+            return mut c.esc_stmts(at.unit, st.else_body)
+        }
+        return noerror
+    case for_stmt(s):
+        if !ast.is_none(s.init) {
+            mut c.esc_stmt(sub(k, s.init))?
+        }
+        mut c.esc_src(opt_sub(k, s.cond))?
+        if !ast.is_none(s.post) {
+            mut c.esc_stmt(sub(k, s.post))?
+        }
+        return mut c.esc_stmts(k.unit, s.body)
+    case for_range(s):
+        d := mut c.esc_src(sub(k, s.x))?
+        mut c.esc_declare(opt_sub(k, s.var_node), d)?
+        mut c.esc_declare(opt_sub(k, s.elem), d)?
+        return mut c.esc_stmts(k.unit, s.body)
+    case switch_stmt(s):
+        d := mut c.esc_src(opt_sub(k, s.tag))?
+        mut c.esc_declare(opt_sub(k, s.bind), d)?
+        for i := range count_items(c.prog.trees, k.unit, s.cases) {
+            cl := item_at(c.prog.trees, k.unit, s.cases, i)
+            clause := clause_of(c.prog.trees, cl)
+            for j := range count_items(c.prog.trees, cl.unit, clause.values) {
+                mut c.esc_src(item_at(c.prog.trees, cl.unit, clause.values, j))?
+            }
+            mut c.esc_declare(opt_sub(cl, clause.var_node), d)?
+            mut c.esc_stmts(cl.unit, clause.body)?
+        }
+        return noerror
+    case defer_stmt(s):
+        return mut c.esc_stmts(k.unit, s.body)
+    default:
+        return noerror
+    }
+}
+
+// int_in returns m[k], or 0 when k is not in m.
+func int_in(m map[Key]int64, k Key) int64 {
+    v, ok := m[k]
+    if !ok {
+        return 0
+    }
+    return v
+}
+
+// int64_at returns l[i], or 0.
+func int64_at(l []int64, i int64) int64 {
+    v, ok := l[i]
+    if !ok {
+        return 0
+    }
+    return v
+}
+
+// opt_sub returns the node n of k's tree, or no key when n is none.
+func opt_sub(k Key, n id[ast.Node]) Key {
+    if ast.is_none(n) {
+        return no_key()
+    }
+    return sub(k, n)
+}
+
+// esc_ret walks the return k, s, reporting a value from a region, Go's
+// ret: a function's results live outside every region.
+func (mut c Checker) esc_ret(k Key, s ast.Return) error {
+    n := mut c.callee_result_count(c.esc.fn)
+    for i := range count_items(c.prog.trees, k.unit, s.values) {
+        v := item_at(c.prog.trees, k.unit, s.values, i)
+        d := mut c.esc_src(v)?
+        if d == 0 || !c.esc.report {
+            continue
+        }
+        if i < n {
+            owned := mut c.esc_owned(result_of(c.results, c.esc.fn, i))?
+            if !owned {
+                continue
+            }
+        }
+        mut what := msg()
+        mut c.esc_holding(v, d, mut what)?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot return %s: the region gives its memory back when its block ends", what[:])?
+        mut c.esc_error(span_at(c.prog.trees, v), d, own m)?
+    }
+    return noerror
+}
+
+// EscFrame is an expression esc_src is walking: the node, whether its
+// parts were pushed to be walked, the deepest depth they gave, for a
+// call where its operands' depths start in the walk's list of them, and
+// where on the walk's stack the node it is a part of is, -1 for none.
+type EscFrame struct {
+    k Key
+    pushed bool
+    d int64
+    base int64
+    parent int64
+}
+
+// esc_src walks x and returns its depth, Go's src: the innermost region
+// a value of it may hold memory from, 0 for none, a name's what its
+// variable holds, a call's that of its deepest operand, checked on the
+// way (see esc_call), anything else's that of its deepest part, when
+// its type may hold memory. It keeps a stack of its own, and walks the
+// parts of each node in order.
+func (mut c Checker) esc_src(x Key) (int64, error) {
+    if is_no_key(x) {
+        return 0, noerror
+    }
+    mut st := make(list[EscFrame], c_allocator)
+    mut srcs := make(list[int64], c_allocator)
+    mut kids := make(list[Key], c_allocator)
+    mut result int64 = 0
+    append(mut st, EscFrame{k: x, pushed: false, d: 0, base: 0, parent: -1})?
+    for len(st) > 0 {
+        top := len(st) -% 1
+        mut f, has := st[top]
+        if !has {
+            break
+        }
+        k := f.k
+        mut r int64 = 0
+        switch kind_at(c.prog.trees, k) {
+        case ident(nm):
+            if !nm.def.is_none() {
+                r = mut c.esc_decl_src(key_of_def(nm.def))
+            }
+        case func_lit:
+            return 0, not_ported
+        default:
+            if !f.pushed {
+                f.pushed = true
+                f.base = len(srcs)
+                if top >= 0 && top < len(st) {
+                    st[top] = f
+                }
+                clear_keys(mut kids)
+                mut c.esc_parts(k, mut kids)?
+                mut j := len(kids) -% 1
+                for j >= 0 {
+                    append(mut st, EscFrame{k: key_in(kids, j), pushed: false, d: 0, base: 0, parent: top})?
+                    j -%= 1
+                }
+                continue
+            }
+            switch kind_at(c.prog.trees, k) {
+            case call:
+                mut ops := make(list[Key], c_allocator)
+                mut c.call_operands(k, mut ops)?
+                d := mut c.esc_call(k, ops, srcs, f.base)?
+                for len(srcs) > f.base {
+                    pop(mut srcs)
+                }
+                r = mut c.esc_if_owned(k, d)?
+            default:
+                r = mut c.esc_if_owned(k, f.d)?
+            }
+        }
+        pop(mut st)
+        up := f.parent
+        if up < 0 {
+            result = r
+            break
+        }
+        mut parent, has_parent := st[up]
+        if !has_parent {
+            break
+        }
+        switch kind_at(c.prog.trees, parent.k) {
+        case call:
+            append(mut srcs, r)?
+        default:
+            if r > parent.d {
+                parent.d = r
+            }
+            if up >= 0 && up < len(st) {
+                st[up] = parent
+            }
+        }
+    }
+    return result, noerror
+}
+
+// esc_parts appends to out what esc_src walks of k: a call's operands, a
+// method call's receiver first, and any other node's children, as Go's
+// walk meets them.
+func (mut c Checker) esc_parts(k Key, mut out list[Key]) error {
+    switch kind_at(c.prog.trees, k) {
+    case call:
+        return mut c.call_operands(k, mut out)
+    default:
+    }
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    children_of(c.prog.trees, k.unit, k.node, mut kids)?
+    for _, kid := range kids {
+        append(mut out, sub(k, kid))?
+    }
+    return noerror
+}
+
+// esc_if_owned returns d, the depth of x, or 0 when x's type is known and
+// owns nothing, Go's ifOwned.
+func (mut c Checker) esc_if_owned(x Key, d int64) (int64, error) {
+    t := mut c.type_of(x)
+    if t != types.invalid {
+        o := c.table.owned(t)?
+        if !o {
+            return 0, noerror
+        }
+    }
+    return d, noerror
+}
+
+// esc_call checks the call k, whose operands are ops, walked with depths
+// srcs from base, and returns its depth, Go's call: that of the deepest
+// operand not passed as a view (see esc_views). Each mut argument whose
+// place may hold memory could be given that operand's memory by the
+// callee: it is reported when it lives outside the region the operand is
+// from, and its mark is raised to it otherwise. A call through a scope
+// parameter of a function type is S7's, and declined.
+func (mut c Checker) esc_call(k Key, ops []Key, srcs []int64, base int64) (int64, error) {
+    before := c.esc.reported
+    mut views := make(list[bool], c_allocator)
+    mut c.esc_views(k, ops, mut views)?
+    mut d int64 = 0
+    mut source_at int64 = -1
+    for i := range len(ops) {
+        mut s := int64_at(srcs, base +% i)
+        if bool_at(views, i) {
+            s = 0
+        }
+        if s > d {
+            d = s
+            source_at = i
+        }
+    }
+    if d == 0 {
+        return 0, noerror
+    }
+    quiet := c.esc.reported > before
+    for i, op := range ops {
+        switch kind_at(c.prog.trees, op) {
+        case mut_arg(x):
+            owned := mut c.esc_owned(mut c.type_of(sub(op, x)))?
+            if owned {
+                mut c.esc_target(k, sub(op, x), d, ops, source_at, i, quiet)?
+            }
+        case func_lit:
+            return 0, not_ported
+        default:
+        }
+    }
+    return d, noerror
+}
+
+// esc_views appends, for each of ops, the operands of the call k, a
+// method call's receiver first, whether k passes it as a view, Go's
+// viewOperands: a spread, and an argument of a view parameter that is
+// not variadic.
+func (mut c Checker) esc_views(k Key, ops []Key, mut out list[bool]) error {
+    cl := call_of(c.prog.trees, k)
+    nargs := count_items(c.prog.trees, k.unit, cl.args)
+    shift := len(ops) -% nargs
+    fn := mut c.callee_of(k)
+    params := func_params_nodes(c.prog.trees, fn)
+    nparams := count_items(c.prog.trees, fn.unit, params)
+    for i := range len(ops) {
+        mut view := false
+        j := i -% shift
+        if j >= 0 {
+            if cl.spread && j == nargs -% 1 {
+                view = true
+            }
+            pi := j +% shift
+            if !is_no_key(fn) && j < nparams -% shift && pi < nparams {
+                p := item_at(c.prog.trees, fn.unit, params, pi)
+                if !param_of(c.prog.trees, p).variadic && c.table.is_view(decl_type_of(c.decl_types, p)) {
+                    view = true
+                }
+            }
+        }
+        append(mut out, view)?
+    }
+    return noerror
+}
+
+// esc_target checks place, the mut argument at ops[at] of the call k,
+// given a value of depth d by the operand at ops[source_at], and raises its
+// root's mark, Go's target.
+func (mut c Checker) esc_target(k Key, place Key, d int64, ops []Key, source_at int64, at int64, quiet bool) error {
+    root := root_ident(c.prog.trees, place)
+    if is_no_key(root) {
+        return noerror
+    }
+    nm, _ := ident_at(c.prog.trees, root)
+    if nm.def.is_none() {
+        return noerror
+    }
+    decl := key_of_def(nm.def)
+    h := int_in(c.esc.home, decl)
+    if h >= d {
+        return mut c.esc_raise(decl, d)
+    }
+    if !c.esc.report || quiet || source_at == at {
+        return noerror
+    }
+    value := key_in(ops, source_at)
+    mut where := msg()
+    mut c.esc_outside(root, place, d, mut where)?
+    mut holding := msg()
+    mut c.esc_holding(value, d, mut holding)?
+    p := mut c.source_text(span_at(c.prog.trees, place))?
+    name, is_builtin := builtin_name(c.prog.trees, c.none, k)?
+    mut m := msg()
+    if is_builtin && bytes_equal(name, []uint8("append")) {
+        fmt.appendf(mut m, "cannot append %s to %s: %s", holding[:], p[:], where[:])?
+    } else if is_builtin && bytes_equal(name, []uint8("put")) {
+        fmt.appendf(mut m, "cannot put %s in %s: %s", holding[:], p[:], where[:])?
+    } else if is_builtin && bytes_equal(name, []uint8("replace")) {
+        fmt.appendf(mut m, "cannot replace the value of %s with %s: %s", p[:], holding[:], where[:])?
+    } else if is_builtin && (bytes_equal(name, []uint8("add")) || bytes_equal(name, []uint8("add_all"))) {
+        fmt.appendf(mut m, "cannot add %s to %s: %s", holding[:], p[:], where[:])?
+    } else if is_builtin && bytes_equal(name, []uint8("insert")) {
+        fmt.appendf(mut m, "cannot insert %s into %s: %s", holding[:], p[:], where[:])?
+    } else {
+        mut callee := msg()
+        mut c.esc_callee_name(k, mut callee)?
+        mut rname := msg()
+        mut c.esc_region_name(d, mut rname)?
+        fmt.appendf(mut m, "cannot pass mut %s to %s alongside %s: the call could keep memory from region %s in %s, and %s", p[:], callee[:], holding[:], rname[:], p[:], where[:])?
+        return mut c.esc_error(span_at(c.prog.trees, key_in(ops, at)), d, own m)
+    }
+    return mut c.esc_error(span_at(c.prog.trees, value), d, own m)
+}
+
+// esc_store checks an assignment of value, of depth d, to target, and
+// raises the mark of target's root, Go's store.
+func (mut c Checker) esc_store(target Key, d int64, value Key) error {
+    root := root_ident(c.prog.trees, target)
+    if d == 0 || is_no_key(root) {
+        return noerror
+    }
+    nm, _ := ident_at(c.prog.trees, root)
+    if nm.def.is_none() {
+        return noerror
+    }
+    owned := mut c.esc_owned(mut c.type_of(target))?
+    if !owned {
+        return noerror
+    }
+    decl := key_of_def(nm.def)
+    h := int_in(c.esc.home, decl)
+    if h >= d {
+        return mut c.esc_raise(decl, d)
+    }
+    if !c.esc.report {
+        return noerror
+    }
+    mut what := msg()
+    if mut c.type_of(value) == types.invalid {
+        n := mut c.type_name(mut c.type_of(target))?
+        mut rname := msg()
+        mut c.esc_region_name(d, mut rname)?
+        fmt.appendf(mut what, "a value of type %s holding memory from region %s", n[:], rname[:])?
+    } else {
+        mut c.esc_holding(value, d, mut what)?
+    }
+    t := mut c.source_text(span_at(c.prog.trees, target))?
+    mut where := msg()
+    mut c.esc_outside(root, target, d, mut where)?
+    mut m := msg()
+    fmt.appendf(mut m, "cannot assign %s to %s: %s", what[:], t[:], where[:])?
+    return mut c.esc_error(span_at(c.prog.trees, value), d, own m)
+}
+
+// esc_outside appends why place, rooted at root, outlives the region at
+// depth d, Go's outside: where root is declared.
+func (mut c Checker) esc_outside(root Key, place Key, d int64, mut out list[uint8]) error {
+    nm, _ := ident_at(c.prog.trees, root)
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, root.unit, nm.name)...)?
+    mut subject := msg()
+    if place != root {
+        t := mut c.source_text(span_at(c.prog.trees, place))?
+        fmt.appendf(mut subject, "%s is part of %s,", t[:], name[:])?
+    } else {
+        fmt.appendf(mut subject, "%s is", name[:])?
+    }
+    if nm.def.kind == ast.def_param {
+        if param_of(c.prog.trees, key_of_def(nm.def)).is_mut {
+            fmt.appendf(mut out, "%s a mut parameter, which lives outside every region", subject[:])?
+        } else {
+            fmt.appendf(mut out, "%s a parameter, which lives outside every region", subject[:])?
+        }
+        return noerror
+    }
+    if nm.def.kind == ast.def_var {
+        _, global := c.globals[key_of_def(nm.def)]
+        if global {
+            fmt.appendf(mut out, "%s a global, which lives outside every region", subject[:])?
+            return noerror
+        }
+    }
+    mut rname := msg()
+    mut c.esc_region_name(d, mut rname)?
+    if place != root {
+        fmt.appendf(mut out, "%s which is declared outside the block of region %s", subject[:], rname[:])?
+    } else {
+        fmt.appendf(mut out, "%s declared outside the block of region %s", subject[:], rname[:])?
+    }
+    return noerror
+}
+
+// esc_holding appends how a message names x, a value of depth d, with
+// the region it holds memory from, Go's holding.
+func (mut c Checker) esc_holding(x Key, d int64, mut out list[uint8]) error {
+    mut rname := msg()
+    mut c.esc_region_name(d, mut rname)?
+    if mut c.esc_is_region_alloc(x) {
+        t := mut c.source_text(span_at(c.prog.trees, x))?
+        fmt.appendf(mut out, "%s, the allocator of region %s", t[:], rname[:])?
+        return noerror
+    }
+    t := mut c.type_of(x)
+    if t != types.invalid {
+        n := mut c.type_name(t)?
+        fmt.appendf(mut out, "a value of type %s holding memory from region %s", n[:], rname[:])?
+        return noerror
+    }
+    fmt.appendf(mut out, "a value holding memory from region %s", rname[:])?
+    return noerror
+}
+
+// esc_region_name appends the name of the region at depth d, Go's
+// regionName.
+func (mut c Checker) esc_region_name(d int64, mut out list[uint8]) error {
+    r := key_in(c.esc.regions, d -% 1)
+    s := region_of(c.prog.trees, r)
+    append(mut out, name_of(c.prog.trees, c.none, sub(r, s.var_node))...)?
+    return noerror
+}
+
+// esc_is_region_alloc reports whether x names a region's allocator, Go's
+// isRegionAlloc.
+func (mut c Checker) esc_is_region_alloc(x Key) bool {
+    nm, is_name := ident_at(c.prog.trees, x)
+    if !is_name || nm.def.kind != ast.def_var {
+        return false
+    }
+    _, ok := c.esc.depth[key_of_def(nm.def)]
+    return ok
+}
+
+// esc_callee_name appends how a message names what the call k calls,
+// Go's escaper.calleeName: a function or a method by its display name,
+// and anything else as written.
+func (mut c Checker) esc_callee_name(k Key, mut out list[uint8]) error {
+    fn := mut c.callee_of(k)
+    if !is_no_key(fn) {
+        return mut c.display_name(fn, mut out)
+    }
+    cl := call_of(c.prog.trees, k)
+    t := mut c.source_text(span_at(c.prog.trees, sub(k, cl.fn)))?
+    append(mut out, t[:]...)?
+    return noerror
+}
+
+// esc_error reports an escape at sp saying m, taken over, with a note at
+// the region at depth d, Go's errorAt.
+func (mut c Checker) esc_error(sp source.Span, d int64, own m list[uint8]) error {
+    c.esc.reported +%= 1
+    mut c.errorf(sp, own m)?
+    return mut c.region_note(key_in(c.esc.regions, d -% 1))
+}

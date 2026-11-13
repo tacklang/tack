@@ -1,0 +1,411 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// The elements of maps, pools and arenas, Go's mapElement (maps.go),
+// poolElement (pool.go) and arenaElement (arena.go), and the checked form
+// of an index, x, ok := x[i], Go's indexResults, mapResults and
+// poolResults. An element read in place while its index passes what it
+// is read from as mut is reported (see check_index_borrows). Outside the
+// checked form, a map's key and a pool's handle must be proven in it by
+// has, the facts in force, which the port does not keep yet, so such an
+// element is declined; an arena's element needs no proof.
+
+// map_element checks m[k], the index k, ix, of a map of type base whose
+// key has type idx, Go's mapElement, and returns the map's value type.
+func (mut c Checker) map_element(k Key, ix ast.Index, base types.Type, idx types.Type) (types.Type, error) {
+    value := c.table.elem_of(base)
+    n := mut c.type_name(base)?
+    mut ctx := msg()
+    fmt.appendf(mut ctx, "as a key of %s", n[:])?
+    used := mut c.use(sub(k, ix.index), idx, c.table.key_of(base), ctx)?
+    if !used {
+        c.assign_target = no_key()
+        return value, noerror
+    }
+    mut borrowed := mut c.check_index_borrows(k, ix)?
+    if !borrowed {
+        borrowed = mut c.check_assign_borrows(k, ix, base)?
+    }
+    if borrowed {
+        c.assign_target = no_key()
+        return value, noerror
+    }
+    if c.checked_index == k {
+        return value, noerror
+    }
+    return types.invalid, not_ported
+}
+
+// pool_element checks p[h], the index k, ix, of a pool of type base
+// whose handle has type idx, Go's poolElement, and returns the pool's
+// element type.
+func (mut c Checker) pool_element(k Key, ix ast.Index, base types.Type, idx types.Type) (types.Type, error) {
+    elem := c.table.elem_of(base)
+    ht := mut c.table.handle_of(elem)?
+    n := mut c.type_name(base)?
+    mut ctx := msg()
+    fmt.appendf(mut ctx, "to index %s", n[:])?
+    used := mut c.use(sub(k, ix.index), idx, ht, ctx)?
+    if !used {
+        c.assign_target = no_key()
+        return elem, noerror
+    }
+    mut borrowed := mut c.check_index_borrows(k, ix)?
+    if !borrowed {
+        borrowed = mut c.check_assign_borrows(k, ix, base)?
+    }
+    if borrowed {
+        c.assign_target = no_key()
+        return elem, noerror
+    }
+    if c.checked_index == k {
+        return elem, noerror
+    }
+    return types.invalid, not_ported
+}
+
+// arena_element checks a[e], the index k, ix, of an arena of type base
+// whose index has type idx, Go's arenaElement: an id of its element type
+// names an element, which needs no proof, and has no checked form; a
+// span gives a view of its elements (see arena_span), view_ok saying k
+// is where one may be; any other index is reported.
+func (mut c Checker) arena_element(k Key, ix ast.Index, base types.Type, idx types.Type, view_ok bool) (types.Type, error) {
+    elem := c.table.elem_of(base)
+    if idx == types.invalid {
+        return types.invalid, noerror
+    }
+    sp := mut c.table.span_of(elem)?
+    if idx == sp {
+        t := mut c.arena_span(k, ix, elem, view_ok)?
+        return t, noerror
+    }
+    id_type := mut c.table.id_of(elem)?
+    if idx != id_type {
+        mut c.bad_arena_index(k, ix, base, idx)?
+        return types.invalid, noerror
+    }
+    mut borrowed := mut c.check_index_borrows(k, ix)?
+    if !borrowed {
+        borrowed = mut c.check_assign_borrows(k, ix, base)?
+    }
+    if borrowed {
+        c.assign_target = no_key()
+    }
+    if c.checked_index == k {
+        t := mut c.source_text(span_at(c.prog.trees, k))?
+        mut m := msg()
+        fmt.appendf(mut m, "the checked form cannot read an element of an arena: every id names one, the sentinel for an id the arena did not give; use %s", t[:])?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    }
+    return elem, noerror
+}
+
+// bad_arena_index reports idx, the type of the index of k, ix, an
+// element of the arena of type base, which is neither an id nor a span
+// of its element type, Go's badArenaIndex.
+func (mut c Checker) bad_arena_index(k Key, ix ast.Index, base types.Type, idx types.Type) error {
+    index := sub(k, ix.index)
+    bn := mut c.type_name(base)?
+    if !types.is_untyped(idx) && !types.is_integer(idx) {
+        n := mut c.type_name(idx)?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot index %s with %s", bn[:], n[:])?
+        return mut c.errorf(span_at(c.prog.trees, index), own m)
+    }
+    v := mut c.value_of(index, idx)?
+    if v == types.invalid {
+        return noerror
+    }
+    n := mut c.type_name(v)?
+    id_type := mut c.table.id_of(c.table.elem_of(base))?
+    idn := mut c.type_name(id_type)?
+    mut m := msg()
+    fmt.appendf(mut m, "cannot index %s with %s; index it with an %s", bn[:], n[:], idn[:])?
+    return mut c.errorf(span_at(c.prog.trees, index), own m)
+}
+
+// is_view_call reports whether e is a call, no conversion, whose one
+// result is a view, once it has been checked, Go's isViewCall.
+func (mut c Checker) is_view_call(e Key) bool {
+    switch kind_at(c.prog.trees, e) {
+    case call(cl):
+        if cl.conv != types.invalid {
+            return false
+        }
+        switch kind_at(c.prog.trees, sub(e, cl.fn)) {
+        case view_type:
+            return false
+        default:
+        }
+        t := mut c.type_of(e)
+        return c.table.is_view(t)
+    default:
+        return false
+    }
+}
+
+// check_index_borrows reports the element k, ix, when what it indexes is
+// read in place, a list or a part of one, while its index passes as mut,
+// at any depth, a place that may overlap it, with a note at that mut
+// argument, and reports whether it did, Go's checkIndexBorrows; and so
+// is one that indexes a view a call returns, while its index passes a
+// place that view may point into.
+func (mut c Checker) check_index_borrows(k Key, ix ast.Index) (bool, error) {
+    x := sub(k, ix.x)
+    mut ws := make(list[Writer], c_allocator)
+    mut c.writers_in(sub(k, ix.index), 0, mut ws)?
+    if len(ws) == 0 {
+        return false, noerror
+    }
+    place := mut c.borrowed_list(x)?
+    if is_no_key(place) {
+        call := mut c.view_call_of(x)
+        if is_no_key(call) {
+            return false, noerror
+        }
+        mut places := make(list[Key], c_allocator)
+        mut c.view_borrows(call, mut places)?
+        for _, vp := range places {
+            for _, w := range ws {
+                may := places_may_overlap(c.prog.trees, c.none, vp, w.place)?
+                if !may {
+                    continue
+                }
+                t := mut c.source_text(span_at(c.prog.trees, x))?
+                mut what := msg()
+                mut c.writer_what(w, mut what)?
+                p := mut c.source_text(span_at(c.prog.trees, vp))?
+                mut only := msg()
+                mut c.writer_only(w, mut only)?
+                mut m := msg()
+                fmt.appendf(mut m, "cannot index %s alongside %s in its index: the view it returns may point into %s, and %s during its call", t[:], what[:], p[:], only[:])?
+                mut c.errorf(span_at(c.prog.trees, x), own m)?
+                mut c.writer_note(w)?
+                return true, noerror
+            }
+        }
+        return false, noerror
+    }
+    for _, w := range ws {
+        may := places_may_overlap(c.prog.trees, c.none, place, w.place)?
+        if !may {
+            continue
+        }
+        t := mut c.source_text(span_at(c.prog.trees, x))?
+        mut what := msg()
+        mut c.writer_what(w, mut what)?
+        mut holder := msg()
+        mut c.borrow_holder(place, mut holder)?
+        mut only := msg()
+        mut c.writer_only(w, mut only)?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot index %s alongside %s in its index: %s is not copied to be indexed, and %s during its call", t[:], what[:], holder[:], only[:])?
+        mut c.errorf(span_at(c.prog.trees, x), own m)?
+        mut c.writer_note(w)?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// index_results checks k, ix, an element bound to want names covering
+// sp, the checked form, Go's indexResults, and appends the types of the
+// two values it gives to out, reporting whether it gives them: the
+// element, or its type's zero value when the index is out of range, and
+// whether it was in range. It copies the element, so one of an owned
+// type is reported, with the guard that lets it be used in place, and
+// so is one of a type with no zero value.
+func (mut c Checker) index_results(k Key, ix ast.Index, want int64, sp source.Span, mut out list[types.Type]) (bool, error) {
+    outer := c.checked_index
+    c.checked_index = k
+    elem, e := mut c.expr(k)
+    c.checked_index = outer
+    if e.code != 0 {
+        return false, e
+    }
+    if elem == types.invalid {
+        return false, noerror
+    }
+    x := sub(k, ix.x)
+    xt := mut c.type_of(x)
+    if c.table.is_map(xt) {
+        ok := mut c.keyed_results(k, ix, elem, want, sp, true, mut out)?
+        return ok, noerror
+    }
+    if c.table.is_pool(xt) {
+        ok := mut c.keyed_results(k, ix, elem, want, sp, false, mut out)?
+        return ok, noerror
+    }
+    owned := c.table.owned(elem)?
+    if owned {
+        n := mut c.type_name(elem)?
+        xs := mut c.source_text(span_at(c.prog.trees, x))?
+        mut m := msg()
+        if mut c.is_view_call(x) {
+            fmt.appendf(mut m, "the checked form cannot read an element of type %s: it would copy it out of %s; range over %s to use its elements in place", n[:], xs[:], xs[:])?
+            mut c.errorf(sp, own m)?
+            return false, noerror
+        }
+        index := sub(k, ix.index)
+        is := mut c.source_text(span_at(c.prog.trees, index))?
+        mut guard := msg()
+        v, known := mut c.known_value(index)?
+        if known {
+            fmt.appendf(mut guard, "len(%s) > ", xs[:])?
+            v.append_string(mut guard)?
+        } else if types.is_unsigned(mut c.type_of(index)) {
+            fmt.appendf(mut guard, "%s < len(%s)", is[:], xs[:])?
+        } else {
+            fmt.appendf(mut guard, "0 <= %s && %s < len(%s)", is[:], is[:], xs[:])?
+        }
+        ks := mut c.source_text(span_at(c.prog.trees, k))?
+        fmt.appendf(mut m, "the checked form cannot read an element of type %s: it would copy it out of %s; check %s first and use %s in place", n[:], xs[:], guard[:], ks[:])?
+        mut c.errorf(sp, own m)?
+        return false, noerror
+    }
+    zero := c.table.has_zero(elem)?
+    if !zero {
+        n := mut c.type_name(elem)?
+        mut m := msg()
+        fmt.appendf(mut m, "the checked form cannot read an element of type %s: it has no zero value to give when the index is out of range", n[:])?
+        mut c.errorf(sp, own m)?
+        return false, noerror
+    }
+    if want != 2 {
+        mut m := msg()
+        fmt.appendf(mut m, "assignment mismatch: %d variables but an index gives 2 values", want)?
+        mut c.errorf(sp, own m)?
+        return false, noerror
+    }
+    append(mut out, elem)?
+    append(mut out, types.bool_type)?
+    return true, noerror
+}
+
+// keyed_results checks k, ix, a map's value, is_map saying so, or a
+// pool's element, of type elem, bound to want names covering sp, Go's
+// mapResults and poolResults, and appends the types of the two values
+// it gives to out, reporting whether it gives them.
+func (mut c Checker) keyed_results(k Key, ix ast.Index, elem types.Type, want int64, sp source.Span, is_map bool, mut out list[types.Type]) (bool, error) {
+    xs := mut c.source_text(span_at(c.prog.trees, sub(k, ix.x)))?
+    is := mut c.source_text(span_at(c.prog.trees, sub(k, ix.index)))?
+    mut what := "an element"
+    mut gone := "the handle is stale"
+    if is_map {
+        what = "a value"
+        gone = "the key is not in the map"
+    }
+    owned := c.table.owned(elem)?
+    if owned {
+        n := mut c.type_name(elem)?
+        ks := mut c.source_text(span_at(c.prog.trees, k))?
+        mut m := msg()
+        fmt.appendf(mut m, "the checked form cannot read %s of type %s: it would copy it out of %s; check has(%s, %s) first and use %s in place", what, n[:], xs[:], xs[:], is[:], ks[:])?
+        mut c.errorf(sp, own m)?
+        return false, noerror
+    }
+    zero := c.table.has_zero(elem)?
+    if !zero {
+        n := mut c.type_name(elem)?
+        mut m := msg()
+        fmt.appendf(mut m, "the checked form cannot read %s of type %s: it has no zero value to give when %s; check has(%s, %s) first", what, n[:], gone, xs[:], is[:])?
+        mut c.errorf(sp, own m)?
+        return false, noerror
+    }
+    if want != 2 {
+        mut m := msg()
+        fmt.appendf(mut m, "assignment mismatch: %d variables but an index gives 2 values", want)?
+        mut c.errorf(sp, own m)?
+        return false, noerror
+    }
+    append(mut out, elem)?
+    append(mut out, types.bool_type)?
+    return true, noerror
+}
+
+// arena_span checks k, ix, a span's view of an arena of elements of type
+// elem, Go's arenaSpan: a view, which only a place a view a call returns
+// may be is, as view_ok says k is; anywhere else it is reported.
+func (mut c Checker) arena_span(k Key, ix ast.Index, elem types.Type, view_ok bool) (types.Type, error) {
+    borrowed := mut c.check_index_borrows(k, ix)?
+    if borrowed {
+        return types.invalid, noerror
+    }
+    view := mut c.table.view_of(elem)?
+    if view_ok {
+        return view, noerror
+    }
+    t := mut c.source_text(span_at(c.prog.trees, k))?
+    n := mut c.type_name(view)?
+    mut m := msg()
+    fmt.appendf(mut m, "%s is a view, %s, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned", t[:], n[:])?
+    mut c.errorf(span_at(c.prog.trees, k), own m)?
+    return types.invalid, noerror
+}
+
+// element_write checks k, ix, an element being assigned whose container
+// has type base, Go's element called from elementTarget: its index is
+// checked as no part of the assignment's target.
+func (mut c Checker) element_write(k Key, ix ast.Index, base types.Type) (types.Type, error) {
+    target := replace(mut c.assign_target, no_key())
+    idx, e := mut c.expr(sub(k, ix.index))
+    c.assign_target = target
+    if e.code != 0 {
+        return types.invalid, e
+    }
+    t := mut c.index_rest(k, ix, base, idx, false)?
+    return t, noerror
+}
+
+// check_assign_borrows reports the target of the assignment being
+// checked when k, ix, an element of a list, an arena or a pool or a
+// value of a map, of type base, on the target's path is assigned while
+// the value passes as mut, at any depth, that container or a place
+// holding it, with a note at that mut argument, and reports whether it
+// did, Go's checkAssignBorrows. It reports nothing outside an
+// assignment's target.
+func (mut c Checker) check_assign_borrows(k Key, ix ast.Index, base types.Type) (bool, error) {
+    if is_no_key(c.assign_target) {
+        return false, noerror
+    }
+    mut holder := "an element is assigned in place in its list"
+    if c.table.is_map(base) {
+        holder = "a value is assigned in place in its map"
+    } else if c.table.is_arena(base) {
+        holder = "an element is assigned in place in its arena"
+    } else if c.table.is_pool(base) {
+        holder = "an element is assigned in place in its pool"
+    } else if !c.table.is_list(base) {
+        return false, noerror
+    }
+    x := sub(k, ix.x)
+    mut steps := make(list[PathStep], c_allocator)
+    _, rooted := place_path(c.prog.trees, x, mut steps)?
+    if !rooted {
+        return false, noerror
+    }
+    mut ws := make(list[Writer], c_allocator)
+    mut c.writers_in(c.assign_value, 0, mut ws)?
+    for _, w := range ws {
+        may := places_may_overlap(c.prog.trees, c.none, x, w.place)?
+        inside := path_len(c.prog.trees, w.place)?
+        if !may || inside > len(steps) {
+            continue
+        }
+        t := mut c.source_text(span_at(c.prog.trees, c.assign_target))?
+        mut what := msg()
+        mut c.writer_what(w, mut what)?
+        mut only := msg()
+        mut c.writer_only(w, mut only)?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot assign to %s alongside %s in its value: %s, and %s during its call", t[:], what[:], holder, only[:])?
+        mut c.errorf(span_at(c.prog.trees, c.assign_target), own m)?
+        mut c.writer_note(w)?
+        return true, noerror
+    }
+    return false, noerror
+}

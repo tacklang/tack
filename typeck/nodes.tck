@@ -17,8 +17,9 @@ import types from "tack/types"
 // unary, a call or a variable, as the dump writes a constant (see
 // write_const), null for anything else; the type a call converts to,
 // conv; the type a name was narrowed to, narrowed; whether a switch on a
-// union names every case, exhaustive; and whether a variable is one a
-// fields loop unrolled, unrolled. A switch on a type parameter's
+// union names every case, exhaustive; whether a variable is one a
+// fields loop unrolled, unrolled; and whether a name moves the value of
+// the variable it names, Go's Ident.Move (see mv_move). A switch on a type parameter's
 // TypeCases, and what a fields loop unrolled, are generics', which the
 // port declines, and are not written.
 
@@ -108,7 +109,7 @@ func (mut c Checker) write_site_arg(mut out list[uint8], k Key) error {
         return noerror
     }
     if !is_no_key(sa.param) {
-        fmt.appendf(mut out, ",{\"kind\":\"Ident\",\"type\":%d,\"const\":null,\"conv\":0,\"narrowed\":0,\"exhaustive\":false,\"unrolled\":false}", decl_type_of(c.decl_types, sa.param).number())?
+        fmt.appendf(mut out, ",{\"kind\":\"Ident\",\"type\":%d,\"const\":null,\"conv\":0,\"narrowed\":0,\"exhaustive\":false,\"unrolled\":false,\"move\":false}", decl_type_of(c.decl_types, sa.param).number())?
         return noerror
     }
     write_plain_node(mut out, "CompositeLit", sa.typ.number())?
@@ -127,7 +128,7 @@ func (mut c Checker) write_site_arg(mut out list[uint8], k Key) error {
 // write_plain_node appends, after a comma, the dump's object of a node of
 // the kind name and type typ, with nothing else recorded on it.
 func write_plain_node(mut out list[uint8], name string, typ int64) error {
-    fmt.appendf(mut out, ",{\"kind\":\"%s\",\"type\":%d,\"const\":null,\"conv\":0,\"narrowed\":0,\"exhaustive\":false,\"unrolled\":false}", name, typ)?
+    fmt.appendf(mut out, ",{\"kind\":\"%s\",\"type\":%d,\"const\":null,\"conv\":0,\"narrowed\":0,\"exhaustive\":false,\"unrolled\":false,\"move\":false}", name, typ)?
     return noerror
 }
 
@@ -202,7 +203,10 @@ func (mut c Checker) write_node(mut out list[uint8], k Key, name string) error {
     }
     fmt.appendf(mut out, ",\"conv\":%d,\"narrowed\":0,\"exhaustive\":", conv.number())?
     write_bool(mut out, exhaustive)?
-    fmt.appendf(mut out, ",\"unrolled\":false}")?
+    _, moved := c.moves[k]
+    fmt.appendf(mut out, ",\"unrolled\":false,\"move\":")?
+    write_bool(mut out, moved)?
+    append(mut out, '}')?
     return noerror
 }
 

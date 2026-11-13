@@ -649,16 +649,43 @@ func (mut c Checker) index_expr(k Key, ix ast.Index) (types.Type, error) {
 }
 
 // index_of checks the index of x[i] at k, x of type base, and returns the
-// element's type, Go's index after its operand and element. A map, an
-// arena or a pool is a body's, which the port does not check yet.
+// element's type, Go's index after its operand, and element: a map's,
+// an arena's and a pool's elements are map_element's, arena_element's
+// and pool_element's; a string's, a view's and a list's are read in
+// place, so an index that passes what they read as mut is reported (see
+// check_index_borrows); and the checked form, x, ok := x[i], the index
+// checked_index is, needs no proof. An index whose proof needs the facts
+// in force, which the port does not keep yet, is declined.
 func (mut c Checker) index_of(k Key, ix ast.Index, base types.Type) (types.Type, error) {
-    if c.table.is_arena(base) {
-        return types.invalid, not_ported
+    view_ok := c.view_span == k
+    if view_ok {
+        c.view_span = no_key()
     }
+    idx := mut c.expr(sub(k, ix.index))?
+    t := mut c.index_rest(k, ix, base, idx, view_ok)?
+    return t, noerror
+}
+
+// index_rest checks x[i] at k, x of type base, whose index has type idx,
+// once the index is checked, Go's element: an element read, or, while
+// an assignment's target is being checked (see assign_target), one
+// being assigned, which may not be in a list, a map, an arena or a pool
+// the assignment's value passes as mut (see check_assign_borrows).
+// view_ok says k is where a span's view of an arena may be.
+func (mut c Checker) index_rest(k Key, ix ast.Index, base types.Type, given types.Type, view_ok bool) (types.Type, error) {
     index := sub(k, ix.index)
-    mut idx := mut c.expr(index)?
-    if c.table.is_map(base) || c.table.is_pool(base) {
-        return types.invalid, not_ported
+    mut idx := given
+    if c.table.is_arena(base) {
+        t := mut c.arena_element(k, ix, base, idx, view_ok)?
+        return t, noerror
+    }
+    if c.table.is_map(base) {
+        t := mut c.map_element(k, ix, base, idx)?
+        return t, noerror
+    }
+    if c.table.is_pool(base) {
+        t := mut c.pool_element(k, ix, base, idx)?
+        return t, noerror
     }
     idx = mut c.value_of(index, idx)?
     if base == types.invalid {
@@ -680,6 +707,16 @@ func (mut c Checker) index_of(k Key, ix ast.Index, base types.Type) (types.Type,
         mut c.errorf(span_at(c.prog.trees, sub(k, ix.x)), own m)?
         return types.invalid, noerror
     }
+    if length {
+        mut borrowed := mut c.check_index_borrows(k, ix)?
+        if !borrowed {
+            borrowed = mut c.check_assign_borrows(k, ix, base)?
+        }
+        if borrowed {
+            c.assign_target = no_key()
+            return elem, noerror
+        }
+    }
     if idx == types.invalid {
         if length {
             return elem, noerror
@@ -698,7 +735,9 @@ func (mut c Checker) index_of(k Key, ix ast.Index, base types.Type) (types.Type,
     }
     if length {
         // A string's, a view's or a list's element: a known index of a
-        // string of known length is decided; anything else needs facts.
+        // string of known length is decided; anything else needs facts,
+        // but in the checked form, which needs only a known index that
+        // is outside reported.
         v, known := mut c.known_value(index)?
         n, extent := mut c.extent_of(sub(k, ix.x))?
         if known && extent {
@@ -712,6 +751,9 @@ func (mut c Checker) index_of(k Key, ix ast.Index, base types.Type) (types.Type,
                 }
                 fmt.appendf(mut m, " is out of range for a string of %d %s", n, word)?
                 mut c.errorf(span_at(c.prog.trees, index), own m)?
+                if c.checked_index == k {
+                    return types.invalid, noerror
+                }
             }
             return elem, noerror
         }
@@ -727,6 +769,12 @@ func (mut c Checker) index_of(k Key, ix ast.Index, base types.Type) (types.Type,
             v.append_string(mut m)?
             fmt.appendf(mut m, " is out of range for %s", what)?
             mut c.errorf(span_at(c.prog.trees, index), own m)?
+            if c.checked_index == k {
+                return types.invalid, noerror
+            }
+            return elem, noerror
+        }
+        if c.checked_index == k {
             return elem, noerror
         }
         // An index not known, or of a string not known, needs the facts
@@ -744,7 +792,13 @@ func (mut c Checker) index_of(k Key, ix ast.Index, base types.Type) (types.Type,
             v.append_string(mut m)?
             fmt.appendf(mut m, " is out of range for %s", tn[:])?
             mut c.errorf(span_at(c.prog.trees, index), own m)?
+            if c.checked_index == k {
+                return types.invalid, noerror
+            }
         }
+        return c.table.elem_of(base), noerror
+    }
+    if c.checked_index == k {
         return c.table.elem_of(base), noerror
     }
     // As for a string's index, an array's not known is declined.
@@ -948,8 +1002,7 @@ func (mut c Checker) slice_bound(k Key, b id[ast.Node]) (bool, error) {
 
 // has_call checks a call to has, has(m, k) or has(p, h), Go's
 // hasKeyCall: a map's key, or a handle of a pool's element, as its
-// second argument, which a key holding a list Go checks for borrows the
-// port does not, and declines.
+// second argument, and the borrows of the call (see check_list_borrows).
 func (mut c Checker) has_call(k Key) (types.Type, error) {
     cl := call_of(c.prog.trees, k)
     mut name := msg()
@@ -984,23 +1037,8 @@ func (mut c Checker) has_call(k Key) (types.Type, error) {
         mut c.arg_expr(key_arg)?
         return types.invalid, noerror
     }
-    owned := c.table.owned(got)?
-    if owned && !c.table.is_map(got) || c.table.is_view(key) || key == types.any_type {
-        return types.invalid, not_ported
-    }
-    key_owned := c.table.owned(key)?
-    if key_owned {
-        return types.invalid, not_ported
-    }
-    switch kind_at(c.prog.trees, key_arg) {
-    case mut_arg, own_arg, func_lit:
-        return types.invalid, not_ported
-    default:
-    }
-    kt := mut c.expr(key_arg)?
-    mut ctx := msg()
-    append(mut ctx, []uint8("in argument to has")...)?
-    mut c.use(key_arg, kt, key, ctx)?
+    mut c.check_arg(key_arg, arg_param("k", key), name)?
+    mut c.check_list_borrows(k)?
     if len(c.diags) > before {
         return types.invalid, noerror
     }

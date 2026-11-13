@@ -221,6 +221,12 @@ pub type Checker struct {
     view_span Key
     checked_assert Key
     checked_take Key
+    checked_index Key
+
+    // The assignment whose target is being checked, Go's assigning: its
+    // target and its value, or no key.
+    assign_target Key
+    assign_value Key
     dropped_call Key
     own_reported map[source.Span]bool
     // site_args holds the testing.Site argument Go puts among each
@@ -249,13 +255,28 @@ pub type Checker struct {
     question_counts map[Key]int64
     question_types map[RKey]types.Type
 
-    // The moves (see mover.tck): the function whose body is followed,
-    // the places switched on around the point whose clause binds a
-    // payload of them in place, and the clause variables a switch on a
-    // union bound, Go's unionBindings.
-    mv_fn Key
-    matching list[Matched]
-    union_bound map[Key]bool
+    // The moves (see mover.tck): what the mover tracks while it follows
+    // a body; the clause variables a switch on a union bound, each with
+    // what its switch matches, Go's unionBindings, and the switch on a
+    // union whose patterns are being checked, union_tag; the element and
+    // key variables of range loops that refer into what they range over
+    // in place, each with it, Go's rangeBindings, the keys among them,
+    // Go's rangeKeys; and the names the mover moved, Go's Ident.Move.
+    mv MoverState
+    union_bound map[Key]Key
+    union_tag Key
+    range_bindings map[Key]Key
+    range_keys map[Key]bool
+    moves map[Key]bool
+
+    // The regions (see scopealloc.tck): each region's allocator with
+    // its region, Go's regions, and the name of a scope allocator being
+    // checked where one may be, Go's scopeUse.
+    regions map[Key]Key
+    scope_use Key
+
+    // esc is what the escape walk tracks (see escape.tck).
+    esc EscState
 
     // body_owns says whether the body being checked holds an own
     // argument, whose call checks check_own_exclusive.
@@ -362,6 +383,9 @@ pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error
         view_span: no_key(),
         checked_assert: no_key(),
         checked_take: no_key(),
+        checked_index: no_key(),
+        assign_target: no_key(),
+        assign_value: no_key(),
         dropped_call: no_key(),
         own_reported: make(map[source.Span]bool, c_allocator),
         site_args: make(map[Key]SiteArg, c_allocator),
@@ -375,9 +399,15 @@ pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error
         passed_on: make(map[Key]Key, c_allocator),
         question_counts: make(map[Key]int64, c_allocator),
         question_types: make(map[RKey]types.Type, c_allocator),
-        mv_fn: no_key(),
-        matching: make(list[Matched], c_allocator),
-        union_bound: make(map[Key]bool, c_allocator),
+        mv: new_mover_state(),
+        union_bound: make(map[Key]Key, c_allocator),
+        union_tag: no_key(),
+        range_bindings: make(map[Key]Key, c_allocator),
+        range_keys: make(map[Key]bool, c_allocator),
+        moves: make(map[Key]bool, c_allocator),
+        regions: make(map[Key]Key, c_allocator),
+        scope_use: no_key(),
+        esc: new_esc_state(no_key()),
         body_owns: false,
         decls_done: false,
         decl_type_count: 0,

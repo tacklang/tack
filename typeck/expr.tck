@@ -226,12 +226,16 @@ func (mut c Checker) expr(k Key) (types.Type, error) {
 }
 
 // ExprSpine is a spine body_expr is checking: where its links start in
-// the walk's list of them, how many are left to finish, and the type of
-// the operand the next one finishes.
+// the walk's list of them, how many are left to finish, the type of the
+// operand the next one finishes, and the call among them, or no key,
+// written where a view it returns may be, which Go's callValue finds
+// out before it checks the call's receiver, and which the spine checks
+// first.
 type ExprSpine struct {
     base int64
     left int64
     typ types.Type
+    view Key
 }
 
 // body_expr is expr in a body, where no check is suspended: the right
@@ -284,6 +288,12 @@ func (mut c Checker) body_expr(k Key) (types.Type, error) {
             continue
         default:
         }
+        if l == sp.view {
+            c.view_call = l
+        }
+        if sp.left >= 2 {
+            mut c.allow_link_view(key_in(links, sp.base +% sp.left -% 2), l)
+        }
         typ := mut c.finish_link(l, sp.typ)?
         mut cur := sp
         cur.left -%= 1
@@ -306,6 +316,18 @@ func (mut c Checker) start_spine(k Key, mut links list[Key]) (ExprSpine, error) 
         x = next
         next = mut c.spine_operand(x)
     }
+    mut view := no_key()
+    if !is_no_key(c.view_call) {
+        for i := range len(links) -% base {
+            if key_in(links, base +% i) == c.view_call {
+                view = c.view_call
+                c.view_call = no_key()
+            }
+        }
+    }
+    if len(links) > base {
+        mut c.allow_link_view(key_in(links, len(links) -% 1), x)
+    }
     mut typ := types.invalid
     switch kind_at(c.prog.trees, x) {
     case call:
@@ -315,20 +337,42 @@ func (mut c Checker) start_spine(k Key, mut links list[Key]) (ExprSpine, error) 
         typ = mut c.call_value(x)?
         ok := mut c.supported_type(typ)?
         if !ok {
-            return ExprSpine{base: base, left: 0, typ: types.invalid}, not_ported
+            return ExprSpine{base: base, left: 0, typ: types.invalid, view: no_key()}, not_ported
         }
     case question:
         typ = mut c.question(x)?
         ok := mut c.supported_type(typ)?
         if !ok {
-            return ExprSpine{base: base, left: 0, typ: types.invalid}, not_ported
+            return ExprSpine{base: base, left: 0, typ: types.invalid, view: no_key()}, not_ported
         }
     case composite_lit(lit):
         typ = mut c.composite_lit(x, lit)?
     default:
         typ = mut c.expr_node(x)?
     }
-    return ExprSpine{base: base, left: len(links) -% base, typ: typ}, noerror
+    return ExprSpine{base: base, left: len(links) -% base, typ: typ, view: view}, noerror
+}
+
+// allow_link_view marks x, the operand of the link parent of a spine, as
+// written where a view a call returns may be when parent indexes or
+// slices it, as Go's index and sliceType do with allowViewCall and
+// allowView before they check what they index or slice.
+func (mut c Checker) allow_link_view(parent Key, x Key) {
+    switch kind_at(c.prog.trees, parent) {
+    case index(ix):
+        if sub(parent, ix.x) == x {
+            switch kind_at(c.prog.trees, x) {
+            case call:
+                c.view_call = x
+            default:
+            }
+        }
+    case slice(s):
+        if sub(parent, s.x) == x {
+            mut c.allow_view(x)
+        }
+    default:
+    }
 }
 
 // SpineState is where the check of a spine was suspended: its links,
@@ -555,6 +599,10 @@ func (mut c Checker) ident(k Key, nm ast.Ident) (types.Type, error) {
         }
         typ := decl_type_of(c.decl_types, v)
         if c.in_body {
+            reported := mut c.scope_name_check(k, nm)?
+            if reported {
+                return types.invalid, noerror
+            }
             mut c.require_checked(k, nm)?
             ok := mut c.supported_type(typ)?
             if !ok {
@@ -567,8 +615,9 @@ func (mut c Checker) ident(k Key, nm ast.Ident) (types.Type, error) {
         d := key_of_def(nm.def)
         typ := decl_type_of(c.decl_types, d)
         if c.in_body {
-            if param_of(c.prog.trees, d).is_scope {
-                return types.invalid, not_ported
+            reported := mut c.scope_name_check(k, nm)?
+            if reported {
+                return types.invalid, noerror
             }
             mut c.require_checked(k, nm)?
             ok := mut c.supported_type(typ)?
@@ -1180,9 +1229,7 @@ func (mut c Checker) comparison(k Key, b ast.Binary, x types.Type, y types.Type)
     }
     owned := c.table.owned(common)?
     if owned {
-        // Go checks the borrows of a comparison of owned values, which
-        // no constant is.
-        return not_ported
+        return mut c.check_compare_borrows(k, b)
     }
     return noerror
 }

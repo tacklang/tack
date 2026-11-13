@@ -413,19 +413,32 @@ func (mut c Checker) check_union_switch(k Key, s ast.Switch, typ types.Type) err
             }
             continue
         }
-        mut c.union_clause(typ, cl, covered, mut seen)?
+        mut c.union_clause(typ, tag, cl, covered, mut seen)?
     }
     if !is_no_key(def) {
-        mut c.union_clause(typ, def, covered, mut seen)?
+        mut c.union_clause(typ, tag, def, covered, mut seen)?
     }
     return noerror
 }
 
-// union_clause checks one clause cl of a switch on the union typ whose
-// patterns cover every case when covered says so: its patterns, a
-// default that never runs, its body, and its variable when nothing
-// reads it.
-func (mut c Checker) union_clause(typ types.Type, cl Key, covered bool, mut seen map[text.Text]Key) error {
+// union_clause checks one clause cl of a switch on the union typ, which
+// matches tag, whose patterns cover every case when covered says so: its
+// patterns and a default that never runs (see union_clause_head), its
+// body, and its variable when nothing reads it (see union_clause_tail).
+// The head and the tail are functions of their own, so that this frame,
+// which a switch nested in a clause's body nests through, holds neither
+// (see the stack discipline in doc.tck).
+func (mut c Checker) union_clause(typ types.Type, tag Key, cl Key, covered bool, mut seen map[text.Text]Key) error {
+    mut c.union_clause_head(typ, tag, cl, covered, mut seen)?
+    mut c.check_case_body(cl, true)?
+    return mut c.union_clause_tail(cl)
+}
+
+// union_clause_head checks the patterns of the clause cl of a switch on
+// the union typ, which matches tag, and reports a default that never
+// runs, covered saying the patterns cover every case.
+func (mut c Checker) union_clause_head(typ types.Type, tag Key, cl Key, covered bool, mut seen map[text.Text]Key) error {
+    c.union_tag = tag
     mut c.check_patterns(typ, cl, mut seen)?
     clause := clause_of(c.prog.trees, cl)
     if clause.is_default && covered {
@@ -436,7 +449,13 @@ func (mut c Checker) union_clause(typ types.Type, cl Key, covered bool, mut seen
         fmt.appendf(mut m, "every case of %s is already covered, so this default never runs", n[:])?
         mut c.errorf(span_at(c.prog.trees, cl), own m)?
     }
-    mut c.check_case_body(cl, true)?
+    return noerror
+}
+
+// union_clause_tail reports the variable of the clause cl, once its body
+// is checked, when nothing reads it.
+func (mut c Checker) union_clause_tail(cl Key) error {
+    clause := clause_of(c.prog.trees, cl)
     if ast.is_none(clause.var_node) {
         return noerror
     }
@@ -622,7 +641,7 @@ func (mut c Checker) check_binding(cl Key, clause ast.CaseClause, uc types.Case,
     }
     vk := sub(cl, clause.var_node)
     mut c.set_decl_type(vk, uc.typ)?
-    put(mut c.union_bound, vk, true)?
+    put(mut c.union_bound, vk, c.union_tag)?
     put(mut c.bindings, vk, bind_payload)?
     return uc.typ != types.invalid, noerror
 }

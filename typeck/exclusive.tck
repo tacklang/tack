@@ -1,0 +1,574 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import types from "tack/types"
+
+// Exclusivity, Go's exclusive.go. During a call, a place passed as mut
+// is reachable only through its parameter, so no two mut arguments of
+// one call may overlap: the same place twice, or a place and a part of
+// it. Places are compared as paths, a variable and the fields and
+// elements after it, so different fields of one struct never overlap,
+// and two elements of one array overlap unless their indexes are known
+// to differ. A list is never copied for a call, so an argument that
+// reads one in place while the same call passes an overlapping place as
+// mut is an error too, and so is a comparison of two values holding
+// lists, one of which passes a place the other reads as mut.
+//
+// Whether two indexes differ is a known value's, or the facts in
+// force's, which the port does not keep yet: two indexes not both known
+// values, either a name or a path facts could be about, are declined
+// (see step_overlap). A closure that writes a variable is a writer too,
+// which is S7's, and declined.
+
+// The ways two places relate, Go's overlap.
+var ov_disjoint uint8 = 0
+var ov_same uint8 = 1
+var ov_contains uint8 = 2
+var ov_within uint8 = 3
+var ov_may uint8 = 4
+var ov_may_field uint8 = 5
+
+// Writer is a mut argument found at any depth in some operands, Go's
+// writer: the place it passes, and the mut argument, with the index of
+// the operand it is in.
+type Writer struct {
+    place Key
+    arg Key
+    op int64
+}
+
+// writers_in appends to out the mut arguments in e, at any depth, in the
+// order Go's walk meets them, Go's writersIn, each marked as found in
+// the operand op. A closure is declined.
+func (mut c Checker) writers_in(e Key, op int64, mut out list[Writer]) error {
+    if is_no_key(e) {
+        return noerror
+    }
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, e.node)?
+    for len(stack) > 0 {
+        top, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        n := sub(e, top)
+        switch kind_at(c.prog.trees, n) {
+        case mut_arg(x):
+            append(mut out, Writer{place: sub(n, x), arg: n, op: op})?
+        case func_lit:
+            return not_ported
+        default:
+        }
+        clear_nodes(mut kids)
+        children_of(c.prog.trees, e.unit, top, mut kids)?
+        mut j := len(kids) -% 1
+        for j >= 0 {
+            kid, has := kids[j]
+            if has {
+                append(mut stack, kid)?
+            }
+            j -%= 1
+        }
+    }
+    return noerror
+}
+
+// writer_what appends what names w in a message, Go's writer.what: mut
+// and its place's text.
+func (mut c Checker) writer_what(w Writer, mut out list[uint8]) error {
+    t := mut c.source_text(span_at(c.prog.trees, w.place))?
+    append(mut out, []uint8("mut ")...)?
+    append(mut out, t[:]...)?
+    return noerror
+}
+
+// writer_only appends that w must be the only way to reach what it
+// changes, Go's writer.only.
+func (mut c Checker) writer_only(w Writer, mut out list[uint8]) error {
+    t := mut c.source_text(span_at(c.prog.trees, w.place))?
+    append(mut out, []uint8("a mut argument must be the only way to reach ")...)?
+    append(mut out, t[:]...)?
+    return noerror
+}
+
+// writer_note adds the note pointing at w's mut argument to the error
+// reported last, Go's writer.note.
+func (mut c Checker) writer_note(w Writer) error {
+    mut n := msg()
+    append(mut n, []uint8("passed as mut here")...)?
+    return mut c.note_last(span_at(c.prog.trees, w.arg), own n)
+}
+
+// places_may_overlap reports whether the places a and b may share
+// memory, Go's placesMayOverlap: they start from the same variable or
+// parameter, and no field of one differs from the other's at the same
+// depth, a field of a fields loop differing from none. Two elements
+// always may.
+func places_may_overlap(trees []ast.File, none []uint8, a Key, b Key) (bool, error) {
+    mut sa := make(list[PathStep], c_allocator)
+    mut sb := make(list[PathStep], c_allocator)
+    ra, oka := place_path(trees, a, mut sa)?
+    rb, okb := place_path(trees, b, mut sb)?
+    if !oka || !okb || ra != rb {
+        return false, noerror
+    }
+    for i, s := range sa {
+        if i >= len(sb) {
+            break
+        }
+        t := step_in(sb, i)
+        if !s.is_index && !t.is_index && !s.reflect && !t.reflect {
+            if !bytes_equal(selector_name(trees, none, s.name), selector_name(trees, none, t.name)) {
+                return false, noerror
+            }
+        }
+    }
+    return true, noerror
+}
+
+// path_len returns how many fields and elements follow the variable
+// place starts from.
+func path_len(trees []ast.File, place Key) (int64, error) {
+    mut steps := make(list[PathStep], c_allocator)
+    place_path(trees, place, mut steps)?
+    return len(steps), noerror
+}
+
+// is_span_view reports whether e is a span's view of an arena, a[s], Go's
+// isSpanView.
+func (mut c Checker) is_span_view(e Key) bool {
+    switch kind_at(c.prog.trees, e) {
+    case index(ix):
+        xt := mut c.type_of(sub(e, ix.x))
+        it := mut c.type_of(sub(e, ix.index))
+        return c.table.is_arena(xt) && c.table.is_span(it)
+    default:
+        return false
+    }
+}
+
+// borrowed_list returns the place arg reads a list from in place, when
+// it does, Go's borrowedList: arg itself, a place of an owned type, or
+// what a slice of one slices, at any depth of slices, or a span's view
+// of an arena; and no key for anything else, a mut argument included.
+func (mut c Checker) borrowed_list(arg Key) (Key, error) {
+    switch kind_at(c.prog.trees, arg) {
+    case mut_arg:
+        return no_key(), noerror
+    default:
+    }
+    mut x := arg
+    mut slicing := true
+    for slicing {
+        switch kind_at(c.prog.trees, x) {
+        case slice(s):
+            x = sub(x, s.x)
+        default:
+            slicing = false
+        }
+    }
+    if mut c.is_span_view(x) && !is_no_key(root_ident(c.prog.trees, x)) {
+        return x, noerror
+    }
+    if is_no_key(root_ident(c.prog.trees, x)) {
+        return no_key(), noerror
+    }
+    xt := mut c.type_of(x)
+    owned := c.table.owned(xt)?
+    if !owned {
+        return no_key(), noerror
+    }
+    return x, noerror
+}
+
+// borrow_holder appends what place, a borrowed list, is, Go's
+// borrowHolder: an arena or a pool, for an element of one, or what
+// makes its type owned.
+func (mut c Checker) borrow_holder(place Key, mut out list[uint8]) error {
+    mut typ := mut c.type_of(place)
+    switch kind_at(c.prog.trees, place) {
+    case index(ix):
+        xt := mut c.type_of(sub(place, ix.x))
+        if c.table.is_arena(xt) || c.table.is_pool(xt) {
+            typ = xt
+        }
+    default:
+    }
+    if c.table.is_arena(typ) {
+        append(mut out, []uint8("an arena")...)?
+        return noerror
+    }
+    if c.table.is_pool(typ) {
+        append(mut out, []uint8("a pool")...)?
+        return noerror
+    }
+    return mut c.owned_phrase(typ, mut out)
+}
+
+// call_operands appends the operands of the call k to out, a method
+// call's receiver first, Go's call.Operands().
+func (mut c Checker) call_operands(k Key, mut out list[Key]) error {
+    cl := call_of(c.prog.trees, k)
+    recv := mut c.receiver_of(k)
+    if !is_no_key(recv) {
+        append(mut out, recv)?
+    }
+    for i := range count_items(c.prog.trees, k.unit, cl.args) {
+        append(mut out, item_at(c.prog.trees, k.unit, cl.args, i))?
+    }
+    return noerror
+}
+
+// appended_value reports whether the operand at i of the call k is a
+// value append, add, add_all or insert adds, not a spread, or put puts,
+// Go's appendedValue: copied, or moved, and so no borrow.
+func (mut c Checker) appended_value(k Key, i int64) bool {
+    cl := call_of(c.prog.trees, k)
+    adds := (is_builtin_call(c.prog.trees, c.none, k, "append") || mut c.gives_with_error(k)) && !cl.spread
+    return (adds || is_builtin_call(c.prog.trees, c.none, k, "put")) && i > 0
+}
+
+// check_list_borrows checks the operands of the call k for what Go's
+// checkListBorrows reports: its own arguments (see check_own_exclusive),
+// its view borrows, its mut arguments in an arena's buffer (see
+// check_mut_arena_elements), and each operand that reads a list in
+// place while another operand passes a place that may overlap it as
+// mut, at any depth, with a note at that mut argument.
+func (mut c Checker) check_list_borrows(k Key) error {
+    mut c.check_own_exclusive(k)?
+    mut ops := make(list[Key], c_allocator)
+    mut c.call_operands(k, mut ops)?
+    mut ws := make(list[Writer], c_allocator)
+    for i, op := range ops {
+        mut c.writers_in(op, i, mut ws)?
+    }
+    if len(ws) == 0 {
+        return noerror
+    }
+    mut c.check_view_borrows(k, ops, ws)?
+    mut c.check_mut_arena_elements(ops, ws)?
+    for i, arg := range ops {
+        if mut c.appended_value(k, i) {
+            continue
+        }
+        place := mut c.borrowed_list(arg)?
+        if is_no_key(place) {
+            continue
+        }
+        for _, w := range ws {
+            if w.op == i {
+                continue
+            }
+            may := places_may_overlap(c.prog.trees, c.none, place, w.place)?
+            if !may {
+                continue
+            }
+            p := mut c.source_text(span_at(c.prog.trees, place))?
+            mut what := msg()
+            mut c.writer_what(w, mut what)?
+            mut holder := msg()
+            mut c.borrow_holder(place, mut holder)?
+            mut only := msg()
+            mut c.writer_only(w, mut only)?
+            mut m := msg()
+            fmt.appendf(mut m, "cannot pass %s alongside %s in this call: %s is not copied for a call, and %s during it", p[:], what[:], holder[:], only[:])?
+            mut c.errorf(span_at(c.prog.trees, arg), own m)?
+            mut c.writer_note(w)?
+            break
+        }
+    }
+    return noerror
+}
+
+// mut_arena_element returns the place the operand arg passes as mut and
+// the arena it is in, when it is in an arena's buffer, an element of an
+// arena or a field or an element of one, at any depth, Go's
+// mutArenaElement, and no keys for anything else.
+func (mut c Checker) mut_arena_element(arg Key) (Key, Key) {
+    mut x := no_key()
+    switch kind_at(c.prog.trees, arg) {
+    case mut_arg(inner):
+        x = sub(arg, inner)
+    default:
+        return no_key(), no_key()
+    }
+    if is_no_key(root_ident(c.prog.trees, x)) {
+        return no_key(), no_key()
+    }
+    place := x
+    for {
+        switch kind_at(c.prog.trees, x) {
+        case index(ix):
+            xt := mut c.type_of(sub(x, ix.x))
+            if c.table.is_arena(xt) {
+                return place, sub(x, ix.x)
+            }
+            x = sub(x, ix.x)
+        case selector(s):
+            x = sub(x, s.x)
+        default:
+            return no_key(), no_key()
+        }
+    }
+    return no_key(), no_key()
+}
+
+// check_mut_arena_elements reports each of ops, a call's operands, that
+// passes as mut a place in an arena's buffer while another operand
+// holds, at any depth, a mut argument of that arena or of a place
+// holding it, ws being every mut argument in ops, with a note there, Go's
+// checkMutArenaElements. A mut argument of the arena that is itself an
+// operand is the exclusivity check's to report.
+func (mut c Checker) check_mut_arena_elements(ops []Key, ws []Writer) error {
+    for i, arg := range ops {
+        place, holder := mut c.mut_arena_element(arg)
+        if is_no_key(place) {
+            continue
+        }
+        steps := path_len(c.prog.trees, holder)?
+        for _, w := range ws {
+            if w.op == i {
+                continue
+            }
+            mut is_operand := false
+            for _, o := range ops {
+                is_operand = is_operand || o == w.arg
+            }
+            may := places_may_overlap(c.prog.trees, c.none, holder, w.place)?
+            inside := path_len(c.prog.trees, w.place)?
+            if is_operand || !may || inside > steps {
+                continue
+            }
+            p := mut c.source_text(span_at(c.prog.trees, place))?
+            mut what := msg()
+            mut c.writer_what(w, mut what)?
+            mut only := msg()
+            mut c.writer_only(w, mut only)?
+            mut m := msg()
+            fmt.appendf(mut m, "cannot pass mut %s alongside %s in this call: an arena is not copied for a call, and %s during it", p[:], what[:], only[:])?
+            mut c.errorf(span_at(c.prog.trees, arg), own m)?
+            mut c.writer_note(w)?
+            break
+        }
+    }
+    return noerror
+}
+
+// check_compare_borrows reports an operand of the comparison k, b, of two
+// values holding lists, that is a place read in place while the other
+// operand passes, at any depth, a place that may overlap it as mut, with
+// a note at that mut argument, Go's checkCompareBorrows.
+func (mut c Checker) check_compare_borrows(k Key, b ast.Binary) error {
+    for i := range 2 {
+        mut operand := sub(k, b.x)
+        mut other := sub(k, b.y)
+        if i == 1 {
+            operand = sub(k, b.y)
+            other = sub(k, b.x)
+        }
+        place := mut c.borrowed_list(operand)?
+        if is_no_key(place) {
+            continue
+        }
+        mut ws := make(list[Writer], c_allocator)
+        mut c.writers_in(other, 0, mut ws)?
+        for _, w := range ws {
+            may := places_may_overlap(c.prog.trees, c.none, place, w.place)?
+            if !may {
+                continue
+            }
+            t := mut c.source_text(span_at(c.prog.trees, operand))?
+            mut what := msg()
+            mut c.writer_what(w, mut what)?
+            mut only := msg()
+            mut c.writer_only(w, mut only)?
+            mut m := msg()
+            fmt.appendf(mut m, "cannot compare %s alongside %s in the other operand: a list is not copied to be compared, and %s during its call", t[:], what[:], only[:])?
+            mut c.errorf(span_at(c.prog.trees, operand), own m)?
+            return mut c.writer_note(w)
+        }
+    }
+    return noerror
+}
+
+// check_exclusive reports each of muts, the mut arguments of one call
+// whose places were checked without error, in order, that overlaps an
+// earlier one, with a note at the earlier one, Go's checkExclusive. Each
+// is reported once, against the first it overlaps.
+func (mut c Checker) check_exclusive(muts []Key) error {
+    for j, later := range muts {
+        for i := range j {
+            earlier := key_in(muts, i)
+            how := mut c.overlap_of(mut_place(c.prog.trees, earlier), mut_place(c.prog.trees, later))?
+            if how != ov_disjoint {
+                mut c.report_overlap(earlier, later, how)?
+                break
+            }
+        }
+    }
+    return noerror
+}
+
+// mut_place returns the place the mut argument m passes.
+func mut_place(trees []ast.File, m Key) Key {
+    switch kind_at(trees, m) {
+    case mut_arg(x):
+        return sub(m, x)
+    default:
+        return no_key()
+    }
+}
+
+// report_overlap reports later, a mut argument whose place relates to
+// earlier's as how says, with a note at earlier, Go's reportOverlap.
+func (mut c Checker) report_overlap(earlier Key, later Key, how uint8) error {
+    first := mut c.source_text(span_at(c.prog.trees, mut_place(c.prog.trees, earlier)))?
+    second := mut c.source_text(span_at(c.prog.trees, mut_place(c.prog.trees, later)))?
+    mut m := msg()
+    if how == ov_same {
+        fmt.appendf(mut m, "%s is passed as mut twice in this call; a mut argument must be the only way to reach %s during the call", second[:], second[:])?
+    } else if how == ov_contains {
+        fmt.appendf(mut m, "%s is part of %s, and both are passed as mut in this call; a mut argument must be the only way to reach %s during the call", second[:], first[:], second[:])?
+    } else if how == ov_within {
+        fmt.appendf(mut m, "%s is part of %s, and both are passed as mut in this call; a mut argument must be the only way to reach %s during the call", first[:], second[:], first[:])?
+    } else if how == ov_may_field {
+        fmt.appendf(mut m, "%s and %s may be one field, and both are passed as mut in this call; a mut argument must be the only way to reach %s during the call", first[:], second[:], second[:])?
+    } else {
+        fmt.appendf(mut m, "%s and %s may overlap, and both are passed as mut in this call; elements of one array can be passed as mut together only at indexes known to differ", first[:], second[:])?
+    }
+    mut c.errorf(span_at(c.prog.trees, later), own m)?
+    mut n := msg()
+    append(mut n, []uint8("first passed as mut here")...)?
+    return mut c.note_last(span_at(c.prog.trees, earlier), own n)
+}
+
+// overlap_of returns how the places a and b, both of a checked mut
+// argument, relate, Go's overlapOf. Two indexes whose relation needs
+// the facts in force are declined, unless a step of the paths keeps the
+// places apart anyway.
+func (mut c Checker) overlap_of(a Key, b Key) (uint8, error) {
+    mut sa := make(list[PathStep], c_allocator)
+    mut sb := make(list[PathStep], c_allocator)
+    ra, oka := place_path(c.prog.trees, a, mut sa)?
+    rb, okb := place_path(c.prog.trees, b, mut sb)?
+    if !oka || !okb || ra != rb {
+        return ov_disjoint, noerror
+    }
+    mut maybe := false
+    mut maybe_field := false
+    mut unknown := false
+    for i, s := range sa {
+        if i >= len(sb) {
+            break
+        }
+        t := step_in(sb, i)
+        how := mut c.step_overlap(s, t)?
+        if how == ov_disjoint {
+            return ov_disjoint, noerror
+        }
+        if how == ov_may {
+            maybe = true
+        } else if how == ov_may_field {
+            maybe_field = true
+        } else if how == ov_unknown {
+            unknown = true
+        }
+    }
+    if unknown {
+        return ov_disjoint, not_ported
+    }
+    if maybe_field {
+        return ov_may_field, noerror
+    }
+    if maybe {
+        return ov_may, noerror
+    }
+    if len(sa) == len(sb) {
+        return ov_same, noerror
+    }
+    if len(sa) < len(sb) {
+        return ov_contains, noerror
+    }
+    return ov_within, noerror
+}
+
+// ov_unknown is a relation of two indexes that only the facts in force
+// decide, which the port does not keep yet.
+var ov_unknown uint8 = 6
+
+// step_overlap returns how two steps at the same depth of two paths
+// from one variable relate, Go's stepOverlap: two fields are the same,
+// may be one when one is a fields loop's, or are disjoint; two indexes
+// are the same when they name one variable, decided by their values
+// when both are known, may overlap when either is no subject facts
+// could be about, and are ov_unknown otherwise.
+func (mut c Checker) step_overlap(a PathStep, b PathStep) (uint8, error) {
+    if !a.is_index || !b.is_index {
+        same := bytes_equal(selector_name(c.prog.trees, c.none, a.name), selector_name(c.prog.trees, c.none, b.name))
+        if same {
+            return ov_same, noerror
+        }
+        if a.reflect || b.reflect {
+            return ov_may_field, noerror
+        }
+        return ov_disjoint, noerror
+    }
+    // No input reaches what follows yet: an element passed as mut needs
+    // its index proven in range, which is declined (see place), so two
+    // indexes are never compared here until the facts are ported.
+    ia := index_of_step(c.prog.trees, a)
+    ib := index_of_step(c.prog.trees, b)
+    na, a_name := ident_at(c.prog.trees, ia)
+    nb, b_name := ident_at(c.prog.trees, ib)
+    a_float := types.is_float(mut c.type_of(ia))
+    b_float := types.is_float(mut c.type_of(ib))
+    if a_name && b_name && !a_float && !b_float && na.def == nb.def {
+        return ov_same, noerror
+    }
+    va, a_known := mut c.known_value(ia)?
+    vb, b_known := mut c.known_value(ib)?
+    a_path := mut c.is_path_index(ia, a_known, a_float)
+    b_path := mut c.is_path_index(ib, b_known, b_float)
+    if a_path || b_path {
+        return ov_unknown, noerror
+    }
+    a_subject := a_known || a_name && !a_float
+    b_subject := b_known || b_name && !b_float
+    if !a_subject || !b_subject {
+        return ov_may, noerror
+    }
+    if !a_known || !b_known {
+        return ov_unknown, noerror
+    }
+    if va.cmp(vb) == 0 {
+        return ov_same, noerror
+    }
+    return ov_disjoint, noerror
+}
+
+// is_path_index reports whether e, an index, is a field or an element
+// whose value is not known, known says, which may be a path facts could
+// be about, whose key and facts the port does not keep yet.
+func (mut c Checker) is_path_index(e Key, known bool, float bool) bool {
+    if known || float {
+        return false
+    }
+    switch kind_at(c.prog.trees, e) {
+    case selector, index:
+        return true
+    default:
+        return false
+    }
+}
+
+// index_of_step returns the index of s, a step at an element.
+func index_of_step(trees []ast.File, s PathStep) Key {
+    switch kind_at(trees, s.name) {
+    case index(ix):
+        return sub(s.name, ix.index)
+    default:
+        return no_key()
+    }
+}

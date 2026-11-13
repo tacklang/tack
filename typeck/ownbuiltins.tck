@@ -1,0 +1,454 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import types from "tack/types"
+
+// The generic builtins that move values in and out of what holds them:
+// put and delete of a map (Go's maps.go), add and add_all of an arena
+// (arena.go), insert and a pool's remove (pool.go), and replace, drop
+// and swap (replace.go, drop.go, swap.go). Each checks its own
+// arguments, the place it changes passed as mut first, and records the
+// type it gives on the call, each called from generic_call. What each
+// moves is the mover's (see mover.tck). A swap's indexes need proofs, the facts in force, which
+// the port does not keep yet, and it is declined once its arguments
+// check.
+
+// builtin_msg returns name as a message's callee.
+func builtin_msg(name string) (list[uint8], error) {
+    mut m := msg()
+    append(mut m, []uint8(name)...)?
+    return m, noerror
+}
+
+// args_unchecked checks every argument of the call k for errors of its
+// own, as a call of the wrong arity is.
+func (mut c Checker) args_unchecked(k Key) error {
+    return mut c.arg_exprs(k)
+}
+
+// changed_target checks arg, the map, the arena or the pool a call to
+// builtin changes, Go's mapTarget, arenaTarget and poolTarget: it must
+// be passed as mut, the parameter named pname, and be a place of the
+// kind kind says, "a map", "an arena" or "a pool". It returns the
+// place's type, invalid when anything was reported.
+func (mut c Checker) changed_target(arg Key, builtin string, pname string, kind string) (types.Type, error) {
+    mut x := no_key()
+    switch kind_at(c.prog.trees, arg) {
+    case mut_arg(inner):
+        x = sub(arg, inner)
+    default:
+    }
+    callee := builtin_msg(builtin)?
+    if is_no_key(x) {
+        mut c.expr(arg)?
+        mut c.missing_mut(arg, arg_param(pname, types.invalid), callee)?
+        return types.invalid, noerror
+    }
+    got := mut c.place(x, arg)?
+    if got == types.invalid {
+        return types.invalid, noerror
+    }
+    mut fits := c.table.is_map(got)
+    if bytes_equal([]uint8(kind), []uint8("an arena")) {
+        fits = c.table.is_arena(got)
+    } else if bytes_equal([]uint8(kind), []uint8("a pool")) {
+        fits = c.table.is_pool(got)
+    }
+    if !fits {
+        n := mut c.type_name(got)?
+        mut m := msg()
+        fmt.appendf(mut m, "%s expects %s, got %s", builtin, kind, n[:])?
+        mut c.errorf(span_at(c.prog.trees, x), own m)?
+        return types.invalid, noerror
+    }
+    return got, noerror
+}
+
+// put_call checks a call to put, k, Go's putCall: the map, passed as
+// mut, then the key and the value, usable as its key and value types.
+// It records its type, error, on the call and returns it.
+func (mut c Checker) put_call(k Key) (types.Type, error) {
+    cl := call_of(c.prog.trees, k)
+    name := builtin_msg("put")?
+    ok := mut c.check_arity(k, name, 3)?
+    if !ok {
+        mut c.args_unchecked(k)?
+        return types.invalid, noerror
+    }
+    before := len(c.diags)
+    typ := mut c.changed_target(item_at(c.prog.trees, k.unit, cl.args, 0), "put", "m", "a map")?
+    if typ == types.invalid {
+        mut c.arg_expr(item_at(c.prog.trees, k.unit, cl.args, 1))?
+        mut c.arg_expr(item_at(c.prog.trees, k.unit, cl.args, 2))?
+        return types.invalid, noerror
+    }
+    mut c.check_arg(item_at(c.prog.trees, k.unit, cl.args, 1), arg_param("k", c.table.key_of(typ)), name)?
+    mut c.check_arg(item_at(c.prog.trees, k.unit, cl.args, 2), arg_param("v", c.table.elem_of(typ)), name)?
+    mut c.check_list_borrows(k)?
+    if len(c.diags) > before {
+        return types.invalid, noerror
+    }
+    mut c.set_node_type(k, types.error_type)?
+    return types.error_type, noerror
+}
+
+// delete_call checks a call to delete, k, Go's deleteCall: the map,
+// passed as mut, then the key, usable as its key type. It records the
+// type of the value it gives on the call and returns it. Only the
+// checked form and the statement may be written.
+func (mut c Checker) delete_call(k Key) (types.Type, error) {
+    cl := call_of(c.prog.trees, k)
+    name := builtin_msg("delete")?
+    ok := mut c.check_arity(k, name, 2)?
+    if !ok {
+        mut c.args_unchecked(k)?
+        return types.invalid, noerror
+    }
+    before := len(c.diags)
+    typ := mut c.changed_target(item_at(c.prog.trees, k.unit, cl.args, 0), "delete", "m", "a map")?
+    if typ == types.invalid {
+        mut c.arg_expr(item_at(c.prog.trees, k.unit, cl.args, 1))?
+        return types.invalid, noerror
+    }
+    mut c.check_arg(item_at(c.prog.trees, k.unit, cl.args, 1), arg_param("k", c.table.key_of(typ)), name)?
+    mut c.check_list_borrows(k)?
+    if len(c.diags) > before {
+        return types.invalid, noerror
+    }
+    elem := c.table.elem_of(typ)
+    mut c.set_node_type(k, elem)?
+    if c.checked_take != k && c.dropped_call != k {
+        t := mut c.source_text(span_at(c.prog.trees, k))?
+        mut m := msg()
+        fmt.appendf(mut m, "delete gives the value and whether the key was there; use v, ok := %s", t[:])?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    }
+    return elem, noerror
+}
+
+// add_call checks a call to add, k, Go's addCall: the arena, passed as
+// mut, then a value usable as its element type. It records the id type
+// it gives on the call and returns it.
+func (mut c Checker) add_call(k Key) (types.Type, error) {
+    cl := call_of(c.prog.trees, k)
+    name := builtin_msg("add")?
+    ok := mut c.check_arity(k, name, 2)?
+    if !ok {
+        mut c.args_unchecked(k)?
+        return types.invalid, noerror
+    }
+    before := len(c.diags)
+    typ := mut c.changed_target(item_at(c.prog.trees, k.unit, cl.args, 0), "add", "a", "an arena")?
+    mut elem := types.invalid
+    if typ != types.invalid {
+        elem = c.table.elem_of(typ)
+    }
+    mut c.check_arg(item_at(c.prog.trees, k.unit, cl.args, 1), arg_param("v", elem), name)?
+    mut c.check_list_borrows(k)?
+    if len(c.diags) > before || elem == types.invalid {
+        return types.invalid, noerror
+    }
+    t := mut c.table.id_of(elem)?
+    mut c.set_node_type(k, t)?
+    return t, noerror
+}
+
+// add_all_call checks a call to add_all, k, Go's addAllCall: the arena,
+// passed as mut, then any number of values usable as its element type,
+// or a view of them spread whole, which an owned element type cannot
+// be. It records the span type it gives on the call and returns it.
+func (mut c Checker) add_all_call(k Key) (types.Type, error) {
+    cl := call_of(c.prog.trees, k)
+    name := builtin_msg("add_all")?
+    ok := mut c.check_variadic_arity(k, name, 1, arg_param("elems", types.invalid))?
+    if !ok {
+        mut c.args_unchecked(k)?
+        return types.invalid, noerror
+    }
+    before := len(c.diags)
+    typ := mut c.changed_target(item_at(c.prog.trees, k.unit, cl.args, 0), "add_all", "a", "an arena")?
+    mut elem := types.invalid
+    if typ != types.invalid {
+        elem = c.table.elem_of(typ)
+    }
+    if cl.spread {
+        spread := item_at(c.prog.trees, k.unit, cl.args, 1)
+        mut c.append_spread(spread, elem, name)?
+        owned := c.table.owned(elem)?
+        if len(c.diags) == before && owned {
+            t := mut c.source_text(span_at(c.prog.trees, spread))?
+            mut what := msg()
+            mut c.owned_phrase(elem, mut what)?
+            mut m := msg()
+            fmt.appendf(mut m, "cannot spread %s into add_all: its elements would be copied, and %s cannot be", t[:], what[:])?
+            mut c.errorf(span_at(c.prog.trees, spread), own m)?
+        }
+    } else {
+        value := arg_param("elems", elem)
+        mut i int64 = 1
+        for i < count_items(c.prog.trees, k.unit, cl.args) {
+            mut c.check_arg(item_at(c.prog.trees, k.unit, cl.args, i), value, name)?
+            i +%= 1
+        }
+    }
+    mut c.check_list_borrows(k)?
+    if len(c.diags) > before || elem == types.invalid {
+        return types.invalid, noerror
+    }
+    t := mut c.table.span_of(elem)?
+    mut c.set_node_type(k, t)?
+    return t, noerror
+}
+
+// insert_call checks a call to insert, k, Go's insertCall: the pool,
+// passed as mut, then a value usable as its element type. It records
+// the handle type it gives on the call and returns it.
+func (mut c Checker) insert_call(k Key) (types.Type, error) {
+    cl := call_of(c.prog.trees, k)
+    name := builtin_msg("insert")?
+    ok := mut c.check_arity(k, name, 2)?
+    if !ok {
+        mut c.args_unchecked(k)?
+        return types.invalid, noerror
+    }
+    before := len(c.diags)
+    typ := mut c.changed_target(item_at(c.prog.trees, k.unit, cl.args, 0), "insert", "p", "a pool")?
+    mut elem := types.invalid
+    if typ != types.invalid {
+        elem = c.table.elem_of(typ)
+    }
+    mut c.check_arg(item_at(c.prog.trees, k.unit, cl.args, 1), arg_param("v", elem), name)?
+    mut c.check_list_borrows(k)?
+    if len(c.diags) > before || elem == types.invalid {
+        return types.invalid, noerror
+    }
+    t := mut c.table.handle_of(elem)?
+    mut c.set_node_type(k, t)?
+    return t, noerror
+}
+
+// pool_remove checks the handle of the call k to remove whose first
+// argument passes a place of the pool type typ as mut, Go's poolRemove:
+// its second argument, usable as a handle of the pool's element type.
+// It records the element type on the call and returns it. Only the
+// checked form and the statement may be written.
+func (mut c Checker) pool_remove(k Key, typ types.Type) (types.Type, error) {
+    cl := call_of(c.prog.trees, k)
+    name := builtin_msg("remove")?
+    before := len(c.diags)
+    elem := c.table.elem_of(typ)
+    h := mut c.table.handle_of(elem)?
+    mut c.check_arg(item_at(c.prog.trees, k.unit, cl.args, 1), arg_param("h", h), name)?
+    mut c.check_list_borrows(k)?
+    if len(c.diags) > before {
+        return types.invalid, noerror
+    }
+    mut c.set_node_type(k, elem)?
+    if c.checked_take != k && c.dropped_call != k {
+        t := mut c.source_text(span_at(c.prog.trees, k))?
+        mut m := msg()
+        fmt.appendf(mut m, "remove gives the element and whether the handle was live; use v, ok := %s", t[:])?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    }
+    return elem, noerror
+}
+
+// replace_call checks a call to replace, k, Go's replaceCall: the place,
+// a mut argument checked as one passed to a mut parameter is, then the
+// value moved into it, usable as the place's type. It records the
+// place's type on the call and returns it.
+func (mut c Checker) replace_call(k Key) (types.Type, error) {
+    cl := call_of(c.prog.trees, k)
+    name := builtin_msg("replace")?
+    ok := mut c.check_arity(k, name, 2)?
+    if !ok {
+        mut c.args_unchecked(k)?
+        return types.invalid, noerror
+    }
+    before := len(c.diags)
+    first := item_at(c.prog.trees, k.unit, cl.args, 0)
+    mut typ := types.invalid
+    switch kind_at(c.prog.trees, first) {
+    case mut_arg(x):
+        mut c.check_error_mut(first)?
+        typ = mut c.place(sub(first, x), first)?
+    default:
+        mut c.expr(first)?
+        mut c.missing_mut(first, arg_param("place", types.invalid), name)?
+    }
+    second := item_at(c.prog.trees, k.unit, cl.args, 1)
+    if typ == types.invalid {
+        mut c.arg_expr(second)?
+        return types.invalid, noerror
+    }
+    mut c.check_arg(second, arg_param("new", typ), name)?
+    mut c.check_list_borrows(k)?
+    if len(c.diags) > before {
+        return types.invalid, noerror
+    }
+    mut c.set_node_type(k, typ)?
+    return typ, noerror
+}
+
+// drop_call checks a call to drop, k, Go's dropCall: its one argument
+// must be own before a variable that owns something (see drop_operand),
+// and a call anywhere but as a statement is reported, since it gives no
+// value. An operand that can be dropped but is written without own, or
+// with mut, is reported with the own it needs.
+func (mut c Checker) drop_call(k Key) (types.Type, error) {
+    cl := call_of(c.prog.trees, k)
+    name := builtin_msg("drop")?
+    ok := mut c.check_arity(k, name, 1)?
+    if !ok {
+        mut c.args_unchecked(k)?
+        return types.invalid, noerror
+    }
+    arg := item_at(c.prog.trees, k.unit, cl.args, 0)
+    mut x := arg
+    mut is_own := false
+    switch kind_at(c.prog.trees, arg) {
+    case own_arg(inner):
+        x = sub(arg, inner)
+        is_own = true
+    case mut_arg(inner):
+        x = sub(arg, inner)
+    default:
+    }
+    can := mut c.drop_operand(x)?
+    if !can {
+        return types.invalid, noerror
+    }
+    if !is_own {
+        t := mut c.source_text(span_at(c.prog.trees, x))?
+        mut m := msg()
+        fmt.appendf(mut m, "drop takes x as own; pass own %s", t[:])?
+        mut c.errorf(span_at(c.prog.trees, arg), own m)?
+        return types.invalid, noerror
+    }
+    if c.dropped_call != k {
+        mut m := msg()
+        fmt.appendf(mut m, "drop returns no value")?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+    }
+    return types.invalid, noerror
+}
+
+// drop_operand checks x, what a call to drop is given, and reports
+// whether it can be dropped, Go's dropOperand: the name of a local
+// variable or a parameter whose type owns something. Anything else is
+// reported, after it is checked for errors of its own, unless it has
+// one, which the drop follows from.
+func (mut c Checker) drop_operand(x Key) (bool, error) {
+    t := mut c.source_text(span_at(c.prog.trees, x))?
+    if !mut c.droppable(x) {
+        sound := mut c.sound_operand(x)?
+        if sound {
+            mut m := msg()
+            fmt.appendf(mut m, "cannot drop %s: only a variable can be dropped", t[:])?
+            mut c.errorf(span_at(c.prog.trees, x), own m)?
+        }
+        return false, noerror
+    }
+    before := len(c.diags)
+    typ := mut c.expr(x)?
+    if typ == types.invalid || len(c.diags) > before {
+        return false, noerror
+    }
+    if c.table.is_view(typ) {
+        mut m := msg()
+        fmt.appendf(mut m, "cannot drop %s: a view only borrows what it points into", t[:])?
+        mut c.errorf(span_at(c.prog.trees, x), own m)?
+        return false, noerror
+    }
+    owned := c.table.owned(typ)?
+    if !owned {
+        n := mut c.type_name(typ)?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot drop %s: %s owns no list or map, so there is nothing to free; remove the drop", t[:], n[:])?
+        mut c.errorf(span_at(c.prog.trees, x), own m)?
+        return false, noerror
+    }
+    can := mut c.drop_place(x, t)?
+    return can, noerror
+}
+
+// droppable reports whether x is written as a drop's operand may be,
+// Go's droppable: the name of a local variable or a parameter, or a
+// field or an element, which drop_place reports once its type is known
+// to own something.
+func (mut c Checker) droppable(x Key) bool {
+    if mut c.is_method_expr(x) {
+        return false
+    }
+    _, _, built := construction(c.prog.trees, c.none, x)
+    if built {
+        return false
+    }
+    switch kind_at(c.prog.trees, x) {
+    case ident(nm):
+        return nm.def.kind == ast.def_var || nm.def.kind == ast.def_param
+    case selector, index:
+        return true
+    default:
+        return false
+    }
+}
+
+// drop_place reports x, written as t, the operand of a drop of a type
+// that owns something, when it is a field or an element, which cannot
+// be moved out of what holds it, Go's dropPlace, and reports whether it
+// is a variable's name instead.
+func (mut c Checker) drop_place(x Key, t []uint8) (bool, error) {
+    switch kind_at(c.prog.trees, x) {
+    case selector:
+        mut m := msg()
+        fmt.appendf(mut m, "cannot drop %s: a field cannot be moved on its own; take it out with replace", t)?
+        mut c.errorf(span_at(c.prog.trees, x), own m)?
+        return false, noerror
+    case index(ix):
+        mut what := "an element"
+        mut holder := "a list; take it out with pop or remove"
+        xt := mut c.type_of(sub(x, ix.x))
+        if c.table.is_view(xt) {
+            holder = "a view, which only borrows it"
+        } else if c.table.is_map(xt) {
+            what = "a value"
+            holder = "a map; take it out with delete"
+        } else if c.table.is_arena(xt) {
+            holder = "an arena"
+        } else if c.table.is_pool(xt) {
+            holder = "a pool; take it out with remove"
+        }
+        mut m := msg()
+        fmt.appendf(mut m, "cannot drop %s: %s cannot be moved out of %s", t, what, holder)?
+        mut c.errorf(span_at(c.prog.trees, x), own m)?
+        return false, noerror
+    default:
+        return true, noerror
+    }
+}
+
+// swap_call checks a call to swap, k, Go's swapCall: the list, passed
+// as mut, then the two indexes, each usable as an int64. Both indexes
+// need proofs of being in range, the facts in force, which the port
+// does not keep yet, so a swap whose arguments check is declined.
+func (mut c Checker) swap_call(k Key) (types.Type, error) {
+    cl := call_of(c.prog.trees, k)
+    name := builtin_msg("swap")?
+    ok := mut c.check_arity(k, name, 3)?
+    if !ok {
+        mut c.args_unchecked(k)?
+        return types.invalid, noerror
+    }
+    before := len(c.diags)
+    elem := mut c.list_target(item_at(c.prog.trees, k.unit, cl.args, 0), "swap")?
+    mut c.check_arg(item_at(c.prog.trees, k.unit, cl.args, 1), arg_param("i", types.int64_type), name)?
+    mut c.check_arg(item_at(c.prog.trees, k.unit, cl.args, 2), arg_param("j", types.int64_type), name)?
+    if len(c.diags) > before || elem == types.invalid {
+        return types.invalid, noerror
+    }
+    return types.invalid, not_ported
+}

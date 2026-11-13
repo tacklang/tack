@@ -59,14 +59,18 @@ func (mut c Checker) method_args(k Key, fn Key, recv_mut Key, through bool) erro
     params := mut c.func_params(fn, first, through)?
     mut name := msg()
     mut c.display_name(fn, mut name)?
-    mut muts, counted := mut c.check_args(k, name, params)?
+    muts, counted := mut c.check_args(k, name, params)?
     if !counted {
         return noerror
     }
+    mut all := make(list[Key], c_allocator)
     if !is_no_key(recv_mut) {
-        append(mut muts, recv_mut)?
+        append(mut all, recv_mut)?
     }
-    mut c.check_exclusive(muts)?
+    for _, m := range muts {
+        append(mut all, m)?
+    }
+    mut c.check_exclusive(all)?
     mut c.check_list_borrows(k)?
     if is_variadic(params) {
         mut c.check_printf(k, fn, shift)?

@@ -1,0 +1,270 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import types from "tack/types"
+
+// Regions and scope allocators, Go's scopealloc.go. A region, region r
+// { ... }, opens an allocator, r, an immutable variable of type
+// Allocator, that lives for its block, which is checked as any block of
+// its function. r is second class: it may be given to make as its
+// allocator or passed to a parameter written scope a Allocator, and
+// nothing else; such a parameter is under the same rule in its function.
+// r and a scope Allocator parameter are scope allocators (see
+// is_scope_alloc), and any other use of one is reported. What is made
+// through r cannot outlive the block either: the escape rule (see
+// escape.tck). A scope parameter of a function type is S7's, and
+// declined.
+
+// bind_region is the binding of a region's allocator, which a message
+// about making it mut names (see binding_words).
+var bind_region uint8 = 4
+
+// declare_regions declares the name of every region in body, in the tree
+// unit, at any depth, an immutable variable of type Allocator recorded as
+// its region's allocator, Go's checkRegion, before the body is checked:
+// nothing reads it before its region's block, which check_stmt then
+// checks as any block, so that the frame every statement nests through
+// holds none of this (see the stack discipline in doc.tck).
+func (mut c Checker) declare_regions(unit int64, body ast.Nodes) error {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for i := range count_items(c.prog.trees, unit, body) {
+        append(mut stack, item_at(c.prog.trees, unit, body, i).node)?
+    }
+    for len(stack) > 0 {
+        top, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        k := Key{unit: unit, node: top}
+        switch kind_at(c.prog.trees, k) {
+        case region_stmt(r):
+            v := sub(k, r.var_node)
+            mut c.set_decl_type(v, types.allocator)?
+            put(mut c.regions, v, k)?
+            put(mut c.bindings, v, bind_region)?
+        default:
+        }
+        clear_nodes(mut kids)
+        children_of(c.prog.trees, unit, top, mut kids)?
+        for _, kid := range kids {
+            append(mut stack, kid)?
+        }
+    }
+    return noerror
+}
+
+// scope_fits reports whether the parameter d is one scope fits, Go's
+// scopeFits: marked scope, not variadic, of a function type or
+// Allocator.
+func (mut c Checker) scope_fits(d Key) bool {
+    p := param_of(c.prog.trees, d)
+    t := decl_type_of(c.decl_types, d)
+    return p.is_scope && !p.variadic && (c.table.is_func(t) || t == types.allocator)
+}
+
+// is_scope_alloc reports whether nm names a scope allocator, Go's
+// isScopeAlloc: a region's allocator, or a parameter scope fits of type
+// Allocator.
+func (mut c Checker) is_scope_alloc(nm ast.Ident) bool {
+    if nm.def.kind == ast.def_var {
+        _, ok := c.regions[key_of_def(nm.def)]
+        return ok
+    }
+    if nm.def.kind == ast.def_param {
+        d := key_of_def(nm.def)
+        return mut c.scope_fits(d) && decl_type_of(c.decl_types, d) == types.allocator
+    }
+    return false
+}
+
+// is_scope_func reports whether nm names a scope parameter of a function
+// type, Go's isScopeParam, which is S7's.
+func (mut c Checker) is_scope_func(nm ast.Ident) bool {
+    if nm.def.kind != ast.def_param {
+        return false
+    }
+    d := key_of_def(nm.def)
+    return mut c.scope_fits(d) && c.table.is_func(decl_type_of(c.decl_types, d))
+}
+
+// alloc_region returns the region whose allocator nm names, or no key
+// when nm names a scope Allocator parameter, Go's allocRegion.
+func (mut c Checker) alloc_region(nm ast.Ident) Key {
+    if nm.def.kind != ast.def_var {
+        return no_key()
+    }
+    r, ok := c.regions[key_of_def(nm.def)]
+    if !ok {
+        return no_key()
+    }
+    return r
+}
+
+// region_note adds to the error reported last the note naming the region
+// r, at its keyword and name, Go's regionNotes, when r is one.
+func (mut c Checker) region_note(r Key) error {
+    if is_no_key(r) {
+        return noerror
+    }
+    s := region_of(c.prog.trees, r)
+    v := sub(r, s.var_node)
+    mut sp := span_at(c.prog.trees, r)
+    sp.end = name_span_of(c.prog.trees, v).end
+    mut name := msg()
+    append(mut name, name_of(c.prog.trees, c.none, v)...)?
+    mut n := msg()
+    fmt.appendf(mut n, "region %s is opened here, and everything made through %s is given back when its block ends", name[:], name[:])?
+    return mut c.note_last(sp, own n)
+}
+
+// region_of returns the region statement k.
+func region_of(trees []ast.File, k Key) ast.Region {
+    switch kind_at(trees, k) {
+    case region_stmt(r):
+        return r
+    default:
+        mut z ast.Region
+        return z
+    }
+}
+
+// scope_alloc_elsewhere reports k, nm, a name of a scope allocator, used
+// anywhere but as make's allocator or an argument to a scope parameter,
+// Go's scopeAllocElsewhere.
+func (mut c Checker) scope_alloc_elsewhere(k Key, nm ast.Ident) error {
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, k.unit, nm.name)...)?
+    r := mut c.alloc_region(nm)
+    mut m := msg()
+    if !is_no_key(r) {
+        fmt.appendf(mut m, "%s is a region's allocator, which can only be given to make or passed to a scope Allocator parameter", name[:])?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return mut c.region_note(r)
+    }
+    fmt.appendf(mut m, "%s is a scope Allocator parameter, which can only be given to make or passed to another scope parameter", name[:])?
+    return mut c.errorf(span_at(c.prog.trees, k), own m)
+}
+
+// scope_alloc_to_plain reports k, nm, a name of a scope allocator, passed
+// to p, a parameter of callee's signature that is not scope, Go's
+// scopeAllocToPlain: an extern func's, which none can be, or any other
+// function's.
+func (mut c Checker) scope_alloc_to_plain(k Key, nm ast.Ident, p ArgParam, callee []uint8) error {
+    r := mut c.alloc_region(nm)
+    mut what := "a scope Allocator parameter"
+    if !is_no_key(r) {
+        what = "a region's allocator"
+    }
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, k.unit, nm.name)...)?
+    mut m := msg()
+    if p.is_extern {
+        fmt.appendf(mut m, "%s is %s, which never crosses to C, and %s is an extern func", name[:], what, callee)?
+    } else {
+        mut pname := msg()
+        mut c.arg_param_name(p, mut pname)?
+        fmt.appendf(mut m, "%s does not take %s as scope, and %s can only be passed to a scope parameter", callee, pname[:], what)?
+    }
+    mut c.errorf(span_at(c.prog.trees, k), own m)?
+    return mut c.region_note(r)
+}
+
+// alloc_arg checks alloc, the allocator make is given, and returns its
+// type, Go's allocArg: a scope allocator may be one.
+func (mut c Checker) alloc_arg(alloc Key) (types.Type, error) {
+    nm, is_name := ident_at(c.prog.trees, alloc)
+    if is_name && mut c.is_scope_alloc(nm) {
+        c.scope_use = alloc
+    }
+    t, e := mut c.expr(alloc)
+    c.scope_use = no_key()
+    if e.code != 0 {
+        return types.invalid, e
+    }
+    return t, noerror
+}
+
+// scope_arg checks arg, passed to p, a scope parameter of callee, Go's
+// scopeArg: a scope Allocator parameter takes any Allocator (see
+// scope_alloc_arg); one whose type was reported, or is neither a
+// function type nor Allocator, takes anything without a further report;
+// one of a function type is S7's, and declined.
+func (mut c Checker) scope_arg(arg Key, p ArgParam, callee list[uint8]) error {
+    if p.typ == types.allocator {
+        return mut c.scope_alloc_arg(arg, p, callee)
+    }
+    if p.typ == types.invalid || !c.table.is_func(p.typ) {
+        switch kind_at(c.prog.trees, arg) {
+        case func_lit:
+            return noerror
+        default:
+            return mut c.arg_expr(arg)
+        }
+    }
+    return not_ported
+}
+
+// scope_alloc_arg checks arg, passed to p, a scope Allocator parameter of
+// callee, Go's scopeAllocArg: any Allocator, a scope allocator among
+// them. A mut or an own argument is reported as for a plain parameter,
+// and a closure as a mismatch, which is S7's, and declined.
+func (mut c Checker) scope_alloc_arg(arg Key, p ArgParam, callee list[uint8]) error {
+    switch kind_at(c.prog.trees, arg) {
+    case mut_arg, own_arg:
+        mut plain := p
+        plain.is_scope = false
+        mut c.check_arg_special(arg, plain, callee)?
+        return noerror
+    case func_lit:
+        return not_ported
+    case ident(nm):
+        if mut c.is_scope_alloc(nm) {
+            c.scope_use = arg
+        }
+    default:
+    }
+    t, e := mut c.expr(arg)
+    c.scope_use = no_key()
+    if e.code != 0 {
+        return e
+    }
+    mut ctx := msg()
+    fmt.appendf(mut ctx, "in argument to %s", callee[:])?
+    mut c.use(arg, t, types.allocator, ctx)?
+    return noerror
+}
+
+// scope_name_check reports k, nm, a name of a scope allocator used where
+// it may not be, Go's check in ident, and reports whether it did; a
+// scope parameter of a function type is declined.
+func (mut c Checker) scope_name_check(k Key, nm ast.Ident) (bool, error) {
+    if mut c.is_scope_func(nm) {
+        return false, not_ported
+    }
+    if mut c.is_scope_alloc(nm) && c.scope_use != k {
+        mut c.scope_alloc_elsewhere(k, nm)?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// scope_case checks arg, passed to p in a call to callee, as mode says
+// (see scope_to_scope): to a scope parameter, as scope_arg does, or a
+// scope allocator to a parameter that is not scope, as
+// scope_alloc_to_plain reports, in one call, so that check_arg, which
+// every argument nests through, holds as little of either as it can
+// (see the stack discipline in doc.tck).
+func (mut c Checker) scope_case(arg Key, p ArgParam, callee list[uint8], mode uint8) error {
+    if mode == scope_to_scope {
+        return mut c.scope_arg(arg, p, callee)
+    }
+    nm, _ := ident_at(c.prog.trees, arg)
+    return mut c.scope_alloc_to_plain(arg, nm, p, callee)
+}
+
+// The ways scope_case checks an argument: passed to a scope parameter,
+// and a scope allocator passed to a parameter that is not scope.
+var scope_to_scope uint8 = 0
+var scope_to_plain uint8 = 1

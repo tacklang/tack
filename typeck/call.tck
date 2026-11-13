@@ -291,6 +291,15 @@ func (mut c Checker) call_value(k Key) (types.Type, error) {
     }
     gtyp, generic := mut c.generic_call(k)?
     if generic {
+        if gtyp != types.invalid && mut c.gives_with_error(k) && c.dropped_call != k {
+            // add, add_all and insert give two values, the id, span or
+            // handle and an error.
+            gname, _ := builtin_name(c.prog.trees, c.none, k)?
+            mut m := msg()
+            fmt.appendf(mut m, "%s returns 2 values", gname[:])?
+            mut c.errorf(span_at(c.prog.trees, k), own m)?
+            return types.invalid, noerror
+        }
         return gtyp, noerror
     }
     mut c.check_value_call(k)?
@@ -306,11 +315,8 @@ func (mut c Checker) call_value(k Key) (types.Type, error) {
     fn := mut c.callee_of(k)
     if !is_no_key(fn) && mut c.callee_result_count(fn) == 1 {
         rt := result_of(c.results, fn, 0)
-        if c.table.is_view(rt) && !view_ok {
-            // A view a function returns: its function is S6's.
-            return types.invalid, not_ported
-        }
-        return rt, noerror
+        t := mut c.view_call_value(k, rt, view_ok)?
+        return t, noerror
     }
     mut m := msg()
     if !is_no_key(fn) && mut c.callee_result_count(fn) > 1 {
@@ -750,79 +756,6 @@ func (mut c Checker) spread_elsewhere(k Key, name list[uint8]) (bool, error) {
     return true, noerror
 }
 
-// check_exclusive checks the mut arguments of one call, muts, Go's
-// checkExclusive: two or more may overlap, which is S6's, and is
-// declined.
-func (mut c Checker) check_exclusive(muts []Key) error {
-    if len(muts) > 1 {
-        return not_ported
-    }
-    return noerror
-}
-
-// check_list_borrows checks the operands of the call k for what Go's
-// checkListBorrows reports, its own arguments, its view borrows and its
-// borrows of lists, arenas and pools in place: the own arguments are
-// checked (see check_own_exclusive); a borrow of anything owned in
-// place, an operand that is a call returning a view, and a mut argument
-// of an arena, a pool or anything holding one are S6's and declined.
-func (mut c Checker) check_list_borrows(k Key) error {
-    cl := call_of(c.prog.trees, k)
-    mut c.check_own_exclusive(k)?
-    recv := mut c.receiver_of(k)
-    mut ops := make(list[Key], c_allocator)
-    if !is_no_key(recv) {
-        append(mut ops, recv)?
-    }
-    for i := range count_items(c.prog.trees, k.unit, cl.args) {
-        append(mut ops, item_at(c.prog.trees, k.unit, cl.args, i))?
-    }
-    for _, op := range ops {
-        mut x := op
-        switch kind_at(c.prog.trees, op) {
-        case mut_arg(inner):
-            t := mut c.type_of(sub(op, inner))
-            owned := c.table.owned(t)?
-            if owned {
-                return not_ported
-            }
-            continue
-        default:
-        }
-        mut slicing := true
-        for slicing {
-            switch kind_at(c.prog.trees, x) {
-            case slice(s):
-                x = sub(x, s.x)
-            default:
-                slicing = false
-            }
-        }
-        if !is_no_key(root_ident(c.prog.trees, x)) {
-            t := mut c.type_of(x)
-            owned := c.table.owned(t)?
-            if owned {
-                return not_ported
-            }
-        }
-        switch kind_at(c.prog.trees, x) {
-        case call(xc):
-            mut conv := xc.conv != types.invalid
-            switch kind_at(c.prog.trees, sub(x, xc.fn)) {
-            case view_type:
-                conv = true
-            default:
-            }
-            ot := mut c.type_of(x)
-            if !conv && c.table.is_view(ot) {
-                return not_ported
-            }
-        default:
-        }
-    }
-    return noerror
-}
-
 // ArgFix is what a message about passing an argument as mut says of the
 // variable at its root, Go's rootFix: why it cannot be passed as mut,
 // empty when it can; what lets it, empty when nothing can; and a note at
@@ -940,6 +873,9 @@ func binding_words(kind uint8) string {
     if kind == bind_type_switch {
         return " is a type switch variable, which cannot be mut"
     }
+    if kind == bind_region {
+        return " is a region's allocator, which cannot be mut"
+    }
     return " binds a union's payload, which cannot be mut"
 }
 
@@ -1006,21 +942,76 @@ func names_variable(trees []ast.File, e Key) bool {
 // and any other must be usable as its plain parameter's type, or be what
 // a view parameter or an any one takes. It returns the mut argument when
 // arg is one passed to a mut parameter with nothing reported, and no key
-// otherwise. A scope parameter, a closure and an own parameter are
-// declined.
+// otherwise. A scope parameter takes what scope_arg says, a scope
+// allocator passed to a parameter that is not scope is reported, and an
+// own argument is checked as own_plan says. A closure is declined.
 func (mut c Checker) check_arg(arg Key, p ArgParam, callee list[uint8]) (Key, error) {
-    if p.is_scope {
-        return no_key(), not_ported
+    plain := mut c.arg_is_plain(arg, p)
+    if !plain {
+        m := mut c.check_arg_special(arg, p, callee)?
+        return m, noerror
     }
-    switch kind_at(c.prog.trees, arg) {
-    case func_lit:
-        return no_key(), not_ported
-    default:
-    }
-    a, ok := mut c.own_arg(arg, p, callee)?
-    if !ok {
+    got := mut c.expr(arg)?
+    if p.site_callee && mut c.is_site(got) {
+        mut c.explicit_site(arg, callee)?
         return no_key(), noerror
     }
+    mut ctx := msg()
+    fmt.appendf(mut ctx, "in argument to %s", callee[:])?
+    mut c.use(arg, got, p.typ, ctx)?
+    return no_key(), noerror
+}
+
+// arg_is_plain reports whether arg, passed to p, is a plain value passed
+// to a plain parameter, whose check is check_arg's own: no scope, mut,
+// view or any parameter, no mut or own argument, no closure, no scope
+// allocator, and no name passed to an own parameter; a value no
+// variable holds passed to an own parameter is plain (see own_plan). Every other argument is check_arg_special's, out of
+// the frame plain arguments nest through (see the stack discipline in
+// doc.tck).
+func (mut c Checker) arg_is_plain(arg Key, p ArgParam) bool {
+    if p.is_scope || p.is_mut || c.table.is_view(p.typ) || p.typ == types.any_type {
+        return false
+    }
+    switch kind_at(c.prog.trees, arg) {
+    case func_lit, mut_arg, own_arg:
+        return false
+    case ident(nm):
+        return !p.is_own && !(p.sig && mut c.is_scope_alloc(nm))
+    default:
+        return true
+    }
+}
+
+// check_arg_special is check_arg for an argument arg_is_plain says is
+// not plain.
+func (mut c Checker) check_arg_special(arg Key, p ArgParam, callee list[uint8]) (Key, error) {
+    mut scoped := p.is_scope
+    switch kind_at(c.prog.trees, arg) {
+    case func_lit:
+        if !scoped {
+            return no_key(), not_ported
+        }
+    case ident(snm):
+        scoped = scoped || p.sig && mut c.is_scope_alloc(snm)
+    default:
+    }
+    if scoped {
+        mut mode := scope_to_plain
+        if p.is_scope {
+            mode = scope_to_scope
+        }
+        mut c.scope_case(arg, p, callee, mode)?
+        return no_key(), noerror
+    }
+    plan := mut c.own_plan(arg, p.is_own)?
+    if plan.kind != own_fine && plan.kind != own_var {
+        before := len(c.diags)
+        t := mut c.expr(plan.x)?
+        mut c.own_report(arg, plan, t != types.invalid && len(c.diags) == before, p, callee)?
+        return no_key(), noerror
+    }
+    a := plan.x
     switch kind_at(c.prog.trees, a) {
     case mut_arg(x):
         if p.is_mut {
@@ -1114,8 +1105,14 @@ func (mut c Checker) arg_expr(arg Key) error {
         mut c.expr(sub(arg, x))?
         return noerror
     case ident(nm):
-        if nm.def.kind == ast.def_param && param_of(c.prog.trees, key_of_def(nm.def)).is_scope {
+        if mut c.is_scope_func(nm) {
             return not_ported
+        }
+        if mut c.is_scope_alloc(nm) {
+            c.scope_use = arg
+            _, e := mut c.expr(arg)
+            c.scope_use = no_key()
+            return e
         }
         mut c.expr(arg)?
         return noerror
@@ -1293,36 +1290,147 @@ func (mut c Checker) arg_elsewhere(e Key) (types.Type, error) {
         return types.invalid, noerror
     case own_arg(x):
         mut c.expr(sub(e, x))?
-        t := mut c.source_text(span_at(c.prog.trees, e))?
-        mut m := msg()
-        fmt.appendf(mut m, "%s can only be passed to an own parameter", t[:])?
-        mut c.errorf(span_at(c.prog.trees, e), own m)?
+        mut c.own_report(e, OwnPlan{kind: own_elsewhere, x: sub(e, x)}, true, arg_param("", types.invalid), []uint8(""))?
         return types.invalid, noerror
     default:
         return types.invalid, noerror
     }
 }
 
-// own_arg checks how arg, passed to p in a call to callee, is written
-// against whether p is own, Go's ownArg, and returns what is checked as
-// the argument's value in its stead, and false when it reported arg:
-// own before an argument to a parameter that is not own. An own
-// parameter is S6's, and declined.
-func (mut c Checker) own_arg(arg Key, p ArgParam, callee list[uint8]) (Key, bool, error) {
-    if p.is_own {
-        return arg, false, not_ported
-    }
+// The ways an argument is written against an own parameter, Go's
+// ownArg and ownName: as it should be, plainly or own before a variable
+// that owns something; own before an argument to a parameter that is
+// not own; a variable of an owned type passed to an own parameter
+// without own; own before a method named through its type, a value no
+// variable holds, a name of no variable, a variable whose type owns
+// nothing, a field or an element; and own written outside any call's
+// arguments.
+var own_fine uint8 = 0
+var own_var uint8 = 1
+var own_not_own uint8 = 2
+var own_takes uint8 = 3
+var own_method uint8 = 4
+var own_temp uint8 = 5
+var own_no_var uint8 = 6
+var own_copied uint8 = 7
+var own_field uint8 = 8
+var own_elem uint8 = 9
+var own_elsewhere uint8 = 10
+
+// OwnPlan is how an argument is written against an own parameter (see
+// own_fine): the way, and what is checked next, the variable an own
+// argument names, or what is checked for errors of its own before the
+// argument is reported.
+type OwnPlan struct {
+    kind uint8
+    x Key
+}
+
+// own_plan returns how arg, passed to a parameter that is own when
+// is_own says so, is written against it, Go's ownArg and ownName, without checking anything: the checks it
+// leads to, and their report, are check_arg's and own_report's, so that
+// no frame on the path an argument nests through holds what reporting
+// one needs (see the stack discipline in doc.tck).
+func (mut c Checker) own_plan(arg Key, is_own bool) (OwnPlan, error) {
     switch kind_at(c.prog.trees, arg) {
-    case own_arg(x):
-        mut c.expr(sub(arg, x))?
-        t := mut c.source_text(span_at(c.prog.trees, sub(arg, x)))?
-        mut m := msg()
-        fmt.appendf(mut m, "%s does not take %s as own; pass %s", callee[:], t[:], t[:])?
-        mut c.errorf(span_at(c.prog.trees, arg), own m)?
-        return arg, false, noerror
+    case own_arg(inner):
+        x := sub(arg, inner)
+        if !is_own {
+            return OwnPlan{kind: own_not_own, x: x}, noerror
+        }
+        if mut c.is_method_expr(x) {
+            return OwnPlan{kind: own_method, x: x}, noerror
+        }
+        _, _, built := construction(c.prog.trees, c.none, x)
+        if built {
+            return OwnPlan{kind: own_temp, x: x}, noerror
+        }
+        switch kind_at(c.prog.trees, x) {
+        case ident(nm):
+            if nm.def.kind != ast.def_var && nm.def.kind != ast.def_param {
+                return OwnPlan{kind: own_no_var, x: x}, noerror
+            }
+            typ := decl_type_of(c.decl_types, key_of_def(nm.def))
+            owned := mut c.decl_owned(key_of_def(nm.def))?
+            if typ != types.invalid && !owned {
+                return OwnPlan{kind: own_copied, x: x}, noerror
+            }
+            return OwnPlan{kind: own_var, x: x}, noerror
+        case selector:
+            return OwnPlan{kind: own_field, x: x}, noerror
+        case index:
+            return OwnPlan{kind: own_elem, x: x}, noerror
+        default:
+            return OwnPlan{kind: own_temp, x: x}, noerror
+        }
+    case ident(nm):
+        if is_own && (nm.def.kind == ast.def_var || nm.def.kind == ast.def_param) {
+            owned := mut c.decl_owned(key_of_def(nm.def))?
+            if owned {
+                return OwnPlan{kind: own_takes, x: arg}, noerror
+            }
+        }
+        return OwnPlan{kind: own_fine, x: arg}, noerror
     default:
-        return arg, true, noerror
+        return OwnPlan{kind: own_fine, x: arg}, noerror
     }
+}
+
+// decl_owned reports whether the type the variable or parameter d is
+// declared with is owned.
+func (mut c Checker) decl_owned(d Key) (bool, error) {
+    o := c.table.owned(decl_type_of(c.decl_types, d))?
+    return o, noerror
+}
+
+// own_report reports o, an argument written as plan says, once what
+// plan names has been checked for errors of its own, sound saying it had
+// none and a valid type, Go's messages of ownArg, ownName, temporaryOwn
+// and ownElsewhere: the ways that follow from an error of the operand's
+// own are not reported when it had one. p is the parameter, and callee
+// what is called.
+func (mut c Checker) own_report(o Key, plan OwnPlan, sound bool, p ArgParam, callee []uint8) error {
+    gated := plan.kind != own_not_own && plan.kind != own_takes && plan.kind != own_elsewhere
+    if gated && !sound {
+        return noerror
+    }
+    x := plan.x
+    t := mut c.source_text(span_at(c.prog.trees, o))?
+    xt := mut c.source_text(span_at(c.prog.trees, x))?
+    mut m := msg()
+    if plan.kind == own_not_own {
+        fmt.appendf(mut m, "%s does not take %s as own; pass %s", callee, xt[:], xt[:])?
+    } else if plan.kind == own_takes {
+        mut pname := msg()
+        mut c.arg_param_name(p, mut pname)?
+        fmt.appendf(mut m, "%s takes %s as own; pass own %s", callee, pname[:], xt[:])?
+    } else if plan.kind == own_elsewhere {
+        fmt.appendf(mut m, "%s can only be passed to an own parameter", t[:])?
+    } else if plan.kind == own_method || plan.kind == own_no_var {
+        fmt.appendf(mut m, "cannot pass %s: only a variable can be passed as own", t[:])?
+    } else if plan.kind == own_temp {
+        fmt.appendf(mut m, "cannot pass %s: only a variable can be passed as own; pass %s without own", t[:], xt[:])?
+    } else if plan.kind == own_copied {
+        nm, _ := ident_at(c.prog.trees, x)
+        n := mut c.type_name(decl_type_of(c.decl_types, key_of_def(nm.def)))?
+        mut q := msg()
+        qualified(c.prog.trees, c.none, x.unit, nm, mut q)?
+        fmt.appendf(mut m, "cannot pass %s: %s owns no list or map, so it is copied; pass %s", t[:], n[:], q[:])?
+    } else if plan.kind == own_field {
+        fmt.appendf(mut m, "cannot pass %s: a field cannot be moved on its own", t[:])?
+    } else {
+        fmt.appendf(mut m, "cannot pass %s: an element cannot be moved out of what holds it", t[:])?
+    }
+    return mut c.errorf(span_at(c.prog.trees, o), own m)
+}
+
+// sound_operand checks e, what follows own in an argument that cannot
+// be passed as own, for errors of its own, Go's soundOperand, and
+// reports whether it has none and a valid type.
+func (mut c Checker) sound_operand(e Key) (bool, error) {
+    before := len(c.diags)
+    t := mut c.expr(e)?
+    return t != types.invalid && len(c.diags) == before, noerror
 }
 
 // check_own_exclusive reports every name in the call k, its function,

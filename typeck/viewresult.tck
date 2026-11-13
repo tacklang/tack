@@ -1,0 +1,608 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import types from "tack/types"
+
+// View results, Go's viewresult.go. A view may be a function's only
+// result; the view it returns points into what the caller passed it, so
+// a call returning one is used only inside the expression that consumes
+// it: passed to a view parameter, given to len, sliced, indexed, ranged
+// over, or returned from a function that returns one itself. Anywhere
+// else it is reported (see view_call_value). What the view may point
+// into is everything its call was passed but as mut or own that holds
+// data (see view_borrows): a call passing it cannot also pass a place
+// that may overlap one of those as mut (see check_view_borrows), and a
+// range over it cannot change one while it runs (see mover.tck).
+//
+// A function may return as a view only what it was passed and does not
+// own or change: a view parameter, a list or an array that is a
+// parameter neither mut nor own, a field or an element of one, a slice
+// of any of these, or a call returning a view whose borrowed arguments
+// are all such places (see returned_view). A chain of calls, each
+// passing the next's view on, and of bindings each referring into the
+// next, is followed with a stack of its own.
+
+// view_call_value returns typ, the one result of the call k, used as a
+// value, Go's viewCallValue, or reports it and returns invalid when it is
+// a view and allowed says k is not where a view may be.
+func (mut c Checker) view_call_value(k Key, typ types.Type, allowed bool) (types.Type, error) {
+    if allowed || !c.table.is_view(typ) {
+        return typ, noerror
+    }
+    t := mut c.source_text(span_at(c.prog.trees, k))?
+    n := mut c.type_name(typ)?
+    mut m := msg()
+    fmt.appendf(mut m, "%s is a view, %s, which can only be passed to a view parameter, given to len, indexed, sliced, ranged over or returned", t[:], n[:])?
+    mut c.errorf(span_at(c.prog.trees, k), own m)?
+    return types.invalid, noerror
+}
+
+// is_view_conv reports whether e is a conversion to a view type,
+// []uint8(s), Go's isViewConversion.
+func is_view_conv(trees []ast.File, e Key) bool {
+    switch kind_at(trees, e) {
+    case call(cl):
+        switch kind_at(trees, sub(e, cl.fn)) {
+        case view_type:
+            return true
+        default:
+            return false
+        }
+    default:
+        return false
+    }
+}
+
+// unsliced returns what e slices, at any depth of slices, or e when it is
+// not a slice, Go's unsliced.
+func unsliced(trees []ast.File, e Key) Key {
+    mut x := e
+    for {
+        switch kind_at(trees, x) {
+        case slice(s):
+            x = sub(x, s.x)
+        default:
+            return x
+        }
+    }
+    return x
+}
+
+// view_call_of returns the call returning a view that e is, or slices at
+// any depth, or no key when it is neither, Go's viewCallOf.
+func (mut c Checker) view_call_of(e Key) Key {
+    x := unsliced(c.prog.trees, e)
+    if mut c.is_view_call(x) {
+        return x
+    }
+    return no_key()
+}
+
+// holds_data reports whether a value of type typ may hold data a view
+// can point into, Go's holdsData: a view, a list, a map, an arena, a
+// pool, an array, a struct but error, a union, or a type parameter.
+func (mut c Checker) holds_data(typ types.Type) bool {
+    if typ == types.error_type {
+        return false
+    }
+    return c.table.is_view(typ) || c.table.is_list(typ) || c.table.is_map(typ) || c.table.is_arena(typ) || c.table.is_pool(typ) || c.table.is_array(typ) || c.table.is_struct(typ) || c.table.is_union(typ) || c.table.is_type_param(typ)
+}
+
+// VbFrame is a call returning a view whose borrowed places view_borrows
+// is collecting: the call and the operand it got to.
+type VbFrame struct {
+    call Key
+    i int64
+}
+
+// view_borrows appends to out the places the view call returns may point
+// into, Go's viewBorrows: each of its operands, the receiver among them,
+// neither mut nor own, that holds data and is a place, or what a slice
+// of one slices, and, for one that is itself a call returning a view,
+// the places that call borrows, at any depth, in the order Go's
+// recursion finds them.
+func (mut c Checker) view_borrows(call Key, mut out list[Key]) error {
+    mut st := make(list[VbFrame], c_allocator)
+    append(mut st, VbFrame{call: call, i: 0})?
+    for len(st) > 0 {
+        mut f, ok := pop(mut st)
+        if !ok {
+            break
+        }
+        mut ops := make(list[Key], c_allocator)
+        mut c.call_operands(f.call, mut ops)?
+        for f.i < len(ops) {
+            arg := key_in(ops, f.i)
+            f.i +%= 1
+            switch kind_at(c.prog.trees, arg) {
+            case mut_arg, own_arg:
+                continue
+            default:
+            }
+            inner := mut c.view_call_of(arg)
+            if !is_no_key(inner) {
+                append(mut st, f)?
+                append(mut st, VbFrame{call: inner, i: 0})?
+                break
+            }
+            x := unsliced(c.prog.trees, arg)
+            t := mut c.type_of(x)
+            if !is_no_key(root_ident(c.prog.trees, x)) && mut c.holds_data(t) {
+                append(mut out, x)?
+            }
+        }
+    }
+    return noerror
+}
+
+// check_view_borrows reports each of ops, the operands of the call k,
+// that is a call returning a view, or a slice of one, while another
+// operand, at any depth, passes as mut a place that may overlap one the
+// view may point into, ws being every mut argument in ops, with a note
+// at that mut argument, Go's checkViewBorrows.
+func (mut c Checker) check_view_borrows(k Key, ops []Key, ws []Writer) error {
+    for i, arg := range ops {
+        inner := mut c.view_call_of(arg)
+        if is_no_key(inner) || mut c.appended_value(k, i) {
+            continue
+        }
+        mut places := make(list[Key], c_allocator)
+        mut c.view_borrows(inner, mut places)?
+        mut done := false
+        for _, place := range places {
+            if done {
+                break
+            }
+            for _, w := range ws {
+                if w.op == i {
+                    continue
+                }
+                may := places_may_overlap(c.prog.trees, c.none, place, w.place)?
+                if !may {
+                    continue
+                }
+                a := mut c.source_text(span_at(c.prog.trees, arg))?
+                mut what := msg()
+                mut c.writer_what(w, mut what)?
+                p := mut c.source_text(span_at(c.prog.trees, place))?
+                mut only := msg()
+                mut c.writer_only(w, mut only)?
+                mut m := msg()
+                fmt.appendf(mut m, "cannot pass %s alongside %s in this call: the view it returns may point into %s, and %s during the call", a[:], what[:], p[:], only[:])?
+                mut c.errorf(span_at(c.prog.trees, arg), own m)?
+                mut c.writer_note(w)?
+                done = true
+                break
+            }
+        }
+    }
+    return noerror
+}
+
+// return_view checks value, returned from the function fn whose result
+// is the view type want, Go's returnView: a view, or a list or an array
+// of exactly its element type, that points only into what a parameter
+// that is not mut holds (see report_returned_view). A string's bytes and
+// a string are reported, and any other value is used as want.
+func (mut c Checker) return_view(value Key, want types.Type, fn Key) error {
+    if is_view_conv(c.prog.trees, value) {
+        to := mut c.view_conversion(value)?
+        if to == types.invalid {
+            return noerror
+        }
+        t := mut c.source_text(span_at(c.prog.trees, value))?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot return %s: a returned view cannot point into a string's bytes", t[:])?
+        return mut c.errorf(span_at(c.prog.trees, value), own m)
+    }
+    mut c.allow_view(value)
+    t := mut c.expr(value)?
+    got := mut c.value_of(value, t)?
+    if got == types.invalid {
+        return noerror
+    }
+    if got == types.string_type && c.table.elem_of(want) == types.uint8_type {
+        s := mut c.source_text(span_at(c.prog.trees, value))?
+        n := mut c.type_name(want)?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot return string %s as %s: a returned view cannot point into a string's bytes", s[:], n[:])?
+        return mut c.errorf(span_at(c.prog.trees, value), own m)
+    }
+    if (c.table.is_array(got) || c.table.is_list(got) || c.table.is_view(got)) && c.table.elem_of(got) == c.table.elem_of(want) {
+        return mut c.report_returned_view(value)
+    }
+    mut ctx := msg()
+    append(mut ctx, []uint8("in return from ")...)?
+    mut c.display_name(fn, mut ctx)?
+    mut c.use(value, got, want, ctx)?
+    return noerror
+}
+
+// ViewProblem is why a view cannot be returned, Go's viewProblem: what,
+// the text naming what it may point into, at the place it is written,
+// at, cannot be pointed into by a returned view, as why says; copied
+// says it is an array the function holds its own copy of. found is
+// false for none.
+type ViewProblem struct {
+    found bool
+    at Key
+    what list[uint8]
+    why list[uint8]
+    copied bool
+}
+
+// no_problem returns the ViewProblem of a view that can be returned.
+func no_problem() ViewProblem {
+    return ViewProblem{found: false, at: no_key(), what: msg(), why: msg(), copied: false}
+}
+
+// problem_at returns the problem of x, named by its text, saying why.
+func (mut c Checker) problem_at(x Key, why []uint8) (ViewProblem, error) {
+    t := mut c.source_text(span_at(c.prog.trees, x))?
+    mut w := msg()
+    append(mut w, why...)?
+    return ViewProblem{found: true, at: x, what: t, why: w, copied: false}, noerror
+}
+
+// report_returned_view reports value, a view returned, when it may point
+// into anything but what a parameter that is not mut holds, Go's
+// reportReturnedView: as a view of that place when value is the place or
+// a slice of it, and otherwise as a call whose view may point into it.
+func (mut c Checker) report_returned_view(value Key) error {
+    p := mut c.returned_view(value)?
+    if !p.found {
+        return noerror
+    }
+    mut rule := "a returned view can only point into what a parameter that is not mut holds"
+    if p.copied {
+        rule = "an array is returned as a view only when it is reached through an element of a list or a view"
+    }
+    t := mut c.source_text(span_at(c.prog.trees, value))?
+    mut m := msg()
+    if p.at == unsliced(c.prog.trees, value) {
+        fmt.appendf(mut m, "cannot return a view of %s: %s; %s", t[:], p.why[:], rule)?
+    } else {
+        fmt.appendf(mut m, "cannot return %s: the view it returns may point into %s, and %s; %s", t[:], p.what[:], p.why[:], rule)?
+    }
+    return mut c.errorf(span_at(c.prog.trees, value), own m)
+}
+
+// The kinds of RvFrame.
+var rv_call uint8 = 0
+var rv_ref uint8 = 1
+
+// RvFrame is a step returned_view is in the middle of: a call returning a
+// view whose operands it is going through, from i, as Go's
+// callBorrowsParams; or a variable v that refers in place into what is
+// being checked, Go's paramRoot through referent, of x, whose array
+// check follows when array says so.
+type RvFrame struct {
+    kind uint8
+    call Key
+    i int64
+    v Key
+    x Key
+    array bool
+}
+
+// returned_view returns why e, a view returned or what a view returned
+// may point into, may point into what a returned view cannot, or no
+// problem when it can be returned, Go's returnedView: a view parameter,
+// a list or an array that is a parameter that is not mut, or a field or
+// an element of one, an array only when its storage is the caller's
+// (see caller_memory), a slice of one, or a call returning a view that
+// borrows only such places. The slices of a slice are followed to what
+// they slice. A call and a variable referring into something are
+// followed with a stack of their own, in the order Go's recursion
+// follows them.
+func (mut c Checker) returned_view(e Key) (ViewProblem, error) {
+    mut st := make(list[RvFrame], c_allocator)
+    mut req := e
+    mut res := no_problem()
+    for {
+        if !is_no_key(req) {
+            x := unsliced(c.prog.trees, req)
+            req = no_key()
+            switch kind_at(c.prog.trees, x) {
+            case call:
+                if is_view_conv(c.prog.trees, x) {
+                    res = mut c.problem_at(x, []uint8("it is a string's bytes"))?
+                } else if mut c.is_view_call(x) {
+                    if is_no_key(mut c.callee_of(x)) {
+                        res = mut c.problem_at(x, []uint8("it is a temporary"))?
+                    } else {
+                        append(mut st, RvFrame{kind: rv_call, call: x, i: 0, v: no_key(), x: no_key(), array: false})?
+                        res = no_problem()
+                    }
+                } else {
+                    res = mut c.problem_at(x, []uint8("it is a temporary"))?
+                }
+            default:
+                req = mut c.rv_root(x, true, mut st, mut res)?
+                if !is_no_key(req) {
+                    continue
+                }
+            }
+        }
+        if len(st) == 0 {
+            return res, noerror
+        }
+        top := len(st) -% 1
+        f, has := st[top]
+        if !has {
+            return res, noerror
+        }
+        if f.kind == rv_ref {
+            pop(mut st)
+            if res.found {
+                mut why := msg()
+                append(mut why, name_of(c.prog.trees, c.none, f.v)...)?
+                fmt.appendf(mut why, " refers into %s, and %s", res.what[:], res.why[:])?
+                res = mut c.problem_at(f.x, why)?
+            } else if f.array {
+                res = mut c.array_problem(f.x)?
+            }
+            continue
+        }
+        if res.found {
+            pop(mut st)
+            continue
+        }
+        req = mut c.rv_next_operand(mut st, mut res)?
+    }
+    return res, noerror
+}
+
+// rv_root follows x, a place, as Go's paramRoot, and, when array says
+// so, the array check of returnedView after it: res is the problem
+// found, and the key returned what a variable at x's root refers into,
+// to be followed next, a frame for it pushed on st, or no key.
+func (mut c Checker) rv_root(x Key, array bool, mut st list[RvFrame], mut res ViewProblem) (Key, error) {
+    root := root_ident(c.prog.trees, x)
+    if is_no_key(root) {
+        res = mut c.problem_at(x, []uint8("it is a temporary"))?
+        return no_key(), noerror
+    }
+    v, place, refers := mut c.referent(root)
+    if refers {
+        append(mut st, RvFrame{kind: rv_ref, call: no_key(), i: 0, v: v, x: x, array: array})?
+        return place, noerror
+    }
+    mut why := msg()
+    ok := mut c.plain_root(root, mut why)?
+    if !ok {
+        res = mut c.problem_at(x, why)?
+        return no_key(), noerror
+    }
+    if array {
+        res = mut c.array_problem(x)?
+    } else {
+        res = no_problem()
+    }
+    return no_key(), noerror
+}
+
+// rv_next_operand goes on through the operands of the call on top of st,
+// as Go's callBorrowsParams and borrowedArg: res is the problem found,
+// the frame popped once the call is done, and the key returned an
+// argument to a view parameter, to be followed next, or a place a
+// variable refers into, its frame pushed, or no key.
+func (mut c Checker) rv_next_operand(mut st list[RvFrame], mut res ViewProblem) (Key, error) {
+    top := len(st) -% 1
+    mut f, has := st[top]
+    if !has {
+        return no_key(), noerror
+    }
+    fn := mut c.callee_of(f.call)
+    cl := call_of(c.prog.trees, f.call)
+    params := func_params_nodes(c.prog.trees, fn)
+    nparams := count_items(c.prog.trees, fn.unit, params)
+    mut ops := make(list[Key], c_allocator)
+    mut c.call_operands(f.call, mut ops)?
+    for f.i < len(ops) {
+        i := f.i
+        arg := key_in(ops, i)
+        f.i +%= 1
+        if top >= 0 && top < len(st) {
+            st[top] = f
+        }
+        switch kind_at(c.prog.trees, arg) {
+        case mut_arg:
+            continue
+        default:
+        }
+        if i >= nparams {
+            continue
+        }
+        p := item_at(c.prog.trees, fn.unit, params, i)
+        param := param_of(c.prog.trees, p)
+        if param.is_own {
+            continue
+        }
+        if param.variadic && !cl.spread {
+            mut what := msg()
+            append(mut what, []uint8("the values for ")...)?
+            if bytes_equal(name_of(c.prog.trees, c.none, p), []uint8("_")) {
+                append(mut what, []uint8("its ")...)?
+                blank_position(mut what, i, func_of(c.prog.trees, fn).method)?
+            } else {
+                append(mut what, name_of(c.prog.trees, c.none, p)...)?
+            }
+            mut why := msg()
+            append(mut why, []uint8("they are packed into a temporary")...)?
+            res = ViewProblem{found: true, at: arg, what: what, why: why, copied: false}
+            pop(mut st)
+            return no_key(), noerror
+        }
+        if c.table.is_view(decl_type_of(c.decl_types, p)) {
+            return arg, noerror
+        }
+        at := mut c.type_of(arg)
+        if mut c.holds_data(at) {
+            next := mut c.rv_root(arg, false, mut st, mut res)?
+            if !is_no_key(next) || res.found {
+                if res.found {
+                    pop(mut st)
+                }
+                return next, noerror
+            }
+        }
+    }
+    pop(mut st)
+    res = no_problem()
+    return no_key(), noerror
+}
+
+// plain_root reports whether root, the name at the root of a place that
+// refers into nothing else, is a parameter that is neither mut nor own,
+// Go's rest of paramRoot, and appends why not to why when it is not.
+func (mut c Checker) plain_root(root Key, mut why list[uint8]) (bool, error) {
+    nm, _ := ident_at(c.prog.trees, root)
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, root.unit, nm.name)...)?
+    if nm.def.kind == ast.def_param {
+        p := param_of(c.prog.trees, key_of_def(nm.def))
+        if p.is_mut {
+            fmt.appendf(mut why, "%s is a mut parameter", name[:])?
+            return false, noerror
+        }
+        if p.is_own {
+            fmt.appendf(mut why, "%s is an own parameter, which is freed when the function returns", name[:])?
+            return false, noerror
+        }
+        return true, noerror
+    }
+    if nm.def.kind == ast.def_var {
+        _, global := c.globals[key_of_def(nm.def)]
+        if global {
+            fmt.appendf(mut why, "%s is a global", name[:])?
+        } else {
+            fmt.appendf(mut why, "%s is a local variable", name[:])?
+        }
+        return false, noerror
+    }
+    append(mut why, []uint8("it is a temporary")...)?
+    return false, noerror
+}
+
+// array_problem returns the problem of x, a place rooted in a parameter,
+// when it is an array its function holds its own copy of, Go's array
+// check in returnedView (see caller_memory), and no problem otherwise.
+func (mut c Checker) array_problem(x Key) (ViewProblem, error) {
+    t := mut c.type_of(x)
+    if !c.table.is_array(t) {
+        return no_problem(), noerror
+    }
+    in_caller := mut c.caller_memory(x)
+    if in_caller {
+        return no_problem(), noerror
+    }
+    mut why := msg()
+    append(mut why, []uint8("the function holds its own copy of ")...)?
+    mut c.owner_name(x, mut why)?
+    append(mut why, []uint8(", and so of the array, which ends when it returns")...)?
+    mut p := mut c.problem_at(x, why)?
+    p.copied = true
+    return p, noerror
+}
+
+// referent returns the variable root names and what it refers into in
+// place, when it is one that does, Go's referent: a union pattern's
+// binding, or a range loop's variable over owned elements.
+func (mut c Checker) referent(root Key) (Key, Key, bool) {
+    nm, _ := ident_at(c.prog.trees, root)
+    if nm.def.kind != ast.def_var {
+        return no_key(), no_key(), false
+    }
+    v := key_of_def(nm.def)
+    tag, bound := c.union_bound[v]
+    if bound && !is_no_key(tag) {
+        return v, tag, true
+    }
+    x, in_place := c.range_bindings[v]
+    if in_place {
+        return v, x, true
+    }
+    return no_key(), no_key(), false
+}
+
+// caller_memory reports whether the array place e, rooted in a
+// parameter, is stored in its caller's data, Go's callerMemory: reached
+// through an element of a list, a pool or a view, or a range loop's
+// element over one; a union pattern's binding is followed to what its
+// switch matches, and a range loop's element over an arena to the arena.
+func (mut c Checker) caller_memory(e Key) bool {
+    mut x := e
+    for {
+        switch kind_at(c.prog.trees, x) {
+        case index(ix):
+            base := mut c.type_of(sub(x, ix.x))
+            if c.table.is_list(base) || c.table.is_view(base) || c.table.is_pool(base) {
+                return true
+            }
+            x = sub(x, ix.x)
+        case selector(s):
+            x = sub(x, s.x)
+        case ident(nm):
+            if nm.def.kind != ast.def_var {
+                return false
+            }
+            v := key_of_def(nm.def)
+            r, in_place := c.range_bindings[v]
+            if in_place {
+                rt := mut c.type_of(r)
+                if !c.table.is_arena(rt) {
+                    return true
+                }
+                x = r
+                continue
+            }
+            tag, bound := c.union_bound[v]
+            if !bound || is_no_key(tag) {
+                return false
+            }
+            x = tag
+        default:
+            return false
+        }
+    }
+    return false
+}
+
+// owner_name appends the name of the parameter e, a place, is rooted in,
+// through any union pattern's binding to what its switch matches, and
+// any range loop's element over an arena to the arena, Go's ownerName.
+func (mut c Checker) owner_name(e Key, mut out list[uint8]) error {
+    mut root := root_ident(c.prog.trees, e)
+    for {
+        nm, _ := ident_at(c.prog.trees, root)
+        if nm.def.kind != ast.def_var {
+            break
+        }
+        v := key_of_def(nm.def)
+        mut into := no_key()
+        tag, bound := c.union_bound[v]
+        if bound {
+            into = tag
+        }
+        r, in_place := c.range_bindings[v]
+        if in_place {
+            rt := mut c.type_of(r)
+            if c.table.is_arena(rt) {
+                into = r
+            }
+        }
+        if is_no_key(into) {
+            break
+        }
+        next := root_ident(c.prog.trees, into)
+        if is_no_key(next) {
+            break
+        }
+        root = next
+    }
+    nm, _ := ident_at(c.prog.trees, root)
+    append(mut out, text_at(c.prog.trees, c.none, root.unit, nm.name)...)?
+    return noerror
+}
