@@ -360,8 +360,10 @@ pub func rename(old_path []uint8, new_path []uint8) error {
 }
 
 // Info is what stat reports of a file, read through its methods. Its
-// fields are private, so no program outside os builds an Info, and
-// fields added to it later break none that reads one.
+// fields are private, so no program outside os writes an Info literal,
+// and fields added to it later break none that reads one. A program may
+// still have a zero Info, from a declaration or make(os.Info, alloc):
+// one with size 0 that is not a directory.
 pub type Info struct {
     // length is the file's size in bytes, as size returns it.
     length int64

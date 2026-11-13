@@ -1,0 +1,22 @@
+package vault
+
+// Package vault declares a struct with a private list, which another
+// package's fields loop does not list but make builds, so its value
+// grows through the allocator it was made with and is freed with it.
+
+// Safe has a pub count and a private list of codes.
+pub type Safe struct {
+    pub count int64
+    codes     list[int64]
+}
+
+// codes returns how many codes s holds.
+pub func codes(s Safe) int64 {
+    return len(s.codes)
+}
+
+// put_code appends c to s's codes, growing them through the allocator s
+// was made with.
+pub func put_code(mut s Safe, c int64) error {
+    return append(mut s.codes, c)
+}

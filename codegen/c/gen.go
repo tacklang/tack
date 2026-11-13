@@ -2166,7 +2166,8 @@ func (g *generator) generateIncDec(s *ast.IncDec) ([]string, []diag.Diagnostic) 
 // generateExprStmt lowers an expression statement: a call to a named
 // function or a method, pop and remove among them, which drop what they
 // take (see dropTake), replace, which drops the value it moves out (see
-// dropReplace), and drop, which frees its operand (see dropStmt); or an
+// dropReplace), drop, which frees its operand (see dropStmt), and make,
+// whose value, one that owns nothing, is discarded (see makeStmt); or an
 // expression that only gives a value, which the type checker warns about
 // (see droppedValue).
 func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagnostic) {
@@ -2205,6 +2206,9 @@ func (g *generator) generateExprStmt(stmt *ast.ExprStmt) ([]string, []diag.Diagn
 	}
 	if isBuiltin(call, "drop") {
 		return g.dropStmt(call)
+	}
+	if isBuiltin(call, "make") {
+		return g.makeStmt(call)
 	}
 	id, ok := call.Fn.(*ast.Ident)
 	if !ok {

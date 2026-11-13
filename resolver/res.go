@@ -1590,6 +1590,10 @@ func (r *pkgResolver) bindTypeName(id *ast.Ident, sc *scope) []diag.Diagnostic {
 // found by the type checker, from the receiver's type. A callee written
 // through a type, Expr.int(5) or Pair.first(p), has the type bound (see
 // bindTypeOperand); the case or the method is the type checker's to find.
+// A call to the builtin make whose first argument is a name of a type,
+// make(T, alloc) of a Data type, has that type bound the same way; any
+// other first argument is resolved as a value, for the type checker to
+// report.
 func (r *pkgResolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	switch fn := call.Fn.(type) {
@@ -1613,10 +1617,49 @@ func (r *pkgResolver) resolveCall(call *ast.Call, sc *scope) []diag.Diagnostic {
 	default:
 		panic(fmt.Sprintf("resolver: a call of %T", call.Fn))
 	}
-	for _, arg := range call.Args {
+	return append(diags, r.resolveArgs(call, sc)...)
+}
+
+// resolveArgs resolves the arguments of call, its callee bound, each as
+// a value, but for make's first argument when it is a name of a type
+// (see bindMadeType).
+func (r *pkgResolver) resolveArgs(call *ast.Call, sc *scope) []diag.Diagnostic {
+	var diags []diag.Diagnostic
+	for i, arg := range call.Args {
+		if i == 0 && callsBuiltinMake(call) {
+			if isType, typeDiags := r.bindMadeType(arg, sc); isType {
+				diags = append(diags, typeDiags...)
+				continue
+			}
+		}
 		diags = append(diags, r.resolveExpr(arg, sc)...)
 	}
 	return diags
+}
+
+// bindMadeType binds arg, the first argument of a call to the builtin
+// make, as a type when it is a name of one, reporting whether it is: a
+// type declaration's or a type parameter's name, a basic type's, and
+// Data's or id's, span's or handle's, which resolveTypeName reports as a
+// type written wrongly, not as a value. Anything else is a value.
+func (r *pkgResolver) bindMadeType(arg ast.Expr, sc *scope) (bool, []diag.Diagnostic) {
+	if id, ok := arg.(*ast.Ident); ok && id.Pkg == "" &&
+		(types.Reserved(id.Name) || builtin.IsConstraint(id.Name)) {
+		return true, r.resolveTypeName(id, sc)
+	}
+	return r.bindTypeOperand(arg, sc)
+}
+
+// callsBuiltinMake reports whether call, its callee bound, calls the
+// builtin make, which binds to a nil *ast.Func, and not a function of
+// the package by that name.
+func callsBuiltinMake(call *ast.Call) bool {
+	id, ok := call.Fn.(*ast.Ident)
+	if !ok || id.Pkg != "" || id.Name != "make" {
+		return false
+	}
+	fn, ok := id.Def.(*ast.Func)
+	return ok && fn == nil
 }
 
 // bindCallee binds ident, the callee of call, to the function or builtin

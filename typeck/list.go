@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/builtin"
 	"github.com/tacklang/tack/constant"
 	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/types"
@@ -192,9 +193,10 @@ func isTake(
 }
 
 // makeCall checks a call to make, make(list[T], alloc), make(map[K]V,
-// alloc) or make(pool[T], alloc), records the type it makes on the call
-// and returns it. It takes the list, map or pool type, as written, and an
-// Allocator to grow it through; a capacity is not taken
+// alloc), make(pool[T], alloc) or make(T, alloc) of a Data type T named
+// by its name, records the type it makes on the call and returns it. It
+// takes the list, map, pool or Data type, as written, and an Allocator
+// to grow it through; a capacity is not taken
 // yet. make(arena[T], sentinel, alloc) takes the arena's sentinel between
 // them (see makeArena). Anything else is reported, and gives
 // types.Invalid.
@@ -214,14 +216,19 @@ func (c *Checker) makeCall(call *ast.Call) types.Type {
 		}
 		return types.Invalid
 	}
-	if !madeType(call.Args[0]) {
-		c.argExpr(call.Args[0])
-		c.errorf(call.Args[0].Spanned(),
-			"make takes a list, a map, an arena or a pool type, as in make(list[int64], c_allocator)")
+	if id, ok := call.Args[0].(*ast.Ident); ok && id.Def == ast.Unbound {
+		// A name the resolver could not bind, reported there.
 		c.argExpr(call.Args[1])
 		return types.Invalid
 	}
-	typ := c.declaredType(call.Args[0])
+	if !madeType(call.Args[0]) {
+		c.argExpr(call.Args[0])
+		c.errorf(call.Args[0].Spanned(),
+			"make takes a list, a map, an arena, a pool or a Data type, as in make(list[int64], c_allocator)")
+		c.argExpr(call.Args[1])
+		return types.Invalid
+	}
+	typ := c.madeTypeOf(call.Args[0])
 	alloc := call.Args[1]
 	if !c.use(alloc, c.allocArg(alloc), types.Allocator, "in argument to make") ||
 		typ == types.Invalid {
@@ -231,12 +238,71 @@ func (c *Checker) makeCall(call *ast.Call) types.Type {
 	return typ
 }
 
+// madeTypeOf returns the type e, make's first argument, a type make can
+// make as written (see madeType), names, or types.Invalid, reported: a
+// list, map, arena or pool type, or a name of a Data type (see madeData).
+func (c *Checker) madeTypeOf(e ast.Expr) types.Type {
+	typ := c.declaredType(e)
+	if id, named := e.(*ast.Ident); named && typ != types.Invalid {
+		return c.madeData(id, typ)
+	}
+	return typ
+}
+
+// madeData returns typ, the type id names as make's first argument, when
+// make can make it by name: a Data type, its empty value 0, 0.0 or false,
+// an empty Text, list or map, or a struct of such values, so a type
+// parameter constrained by Data, one a case of a switch on a type
+// parameter narrows or declares, or a type that satisfies Data. A type
+// parameter constrained by an interface, or a type that is not Data, is
+// reported, naming why, and gives types.Invalid. Data is closed, so the
+// make in a generic body is checked once, for every instance.
+func (c *Checker) madeData(id *ast.Ident, typ types.Type) types.Type {
+	if c.table.IsTypeParam(typ) {
+		tp := c.typeParams[typ]
+		if tp == nil || tp.Data {
+			return typ
+		}
+		if tp.Iface != nil {
+			c.errorf(id.Span, "cannot make %s: it is constrained by %s, not Data",
+				c.typeName(typ), c.ifaceName(tp.Iface))
+		}
+		return types.Invalid
+	}
+	if why := c.notData(typ, make(map[types.Type]bool)); why != "" {
+		c.errorf(id.Span, "cannot make %s: %s", c.typeName(typ), why)
+		return types.Invalid
+	}
+	return typ
+}
+
 // madeType reports whether e is a type make can make: a list type, a map
-// type, an arena type or a pool type, as written.
+// type, an arena type or a pool type, as written, or a name the resolver
+// bound as a type, make(T, alloc) of a Data type (see madeName).
 func madeType(e ast.Expr) bool {
-	switch e.(type) {
+	switch x := e.(type) {
 	case *ast.ListType, *ast.MapType, *ast.ArenaType, *ast.PoolType:
 		return true
+	case *ast.Ident:
+		return madeName(x)
+	default:
+		return false
+	}
+}
+
+// madeName reports whether id, written as make's first argument, is a
+// name of a type: bound to a type declaration or a type parameter, or a
+// basic type's name, which binds to nothing, or Data's, which the type
+// checker reports. The resolver binds a type's name there as a type,
+// and reports any other use of one as a value (see resolveArgs and
+// bindMadeType), so no other argument is such a name.
+func madeName(id *ast.Ident) bool {
+	switch id.Def.(type) {
+	case *ast.TypeDecl, *ast.TypeParam:
+		return true
+	case nil:
+		_, basic := types.Lookup(id.Name)
+		return id.Pkg == "" && (basic || builtin.IsConstraint(id.Name))
 	default:
 		return false
 	}

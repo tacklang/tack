@@ -2728,6 +2728,90 @@ main-missing-across-files/a.tck:1:1: error: main function not found
    |	^
 02 |	
 
+-- make-data-qualified/tack.mod --
+module q1
+-- make-data-qualified/geo/geo.tck --
+package geo
+
+pub type Open struct {
+    pub n int64
+    s     string
+}
+
+type hidden struct {
+    n int64
+}
+
+pub var count = 0
+
+pub func mk() int64 {
+    return 1
+}
+-- make-data-qualified/main.tck --
+package main
+
+import geo from "q1/geo"
+
+func main() {
+    a := make(geo.Open, c_allocator)
+    b := make(geo.hidden, c_allocator)
+    c := make(geo.mk, c_allocator)
+    d := make(geo.count, c_allocator)
+    e := make(geo.Nope, c_allocator)
+    print("x")
+}
+-- make-data-qualified/expected --
+stage: resolve+typeck
+---
+
+make-data-qualified/main.tck:6:5: warning: declared and not used: a
+05 |	func main() {
+06 |	    a := make(geo.Open, c_allocator)
+   |	    ^
+07 |	    b := make(geo.hidden, c_allocator)
+
+make-data-qualified/main.tck:6:15: error: cannot make geo.Open: field s of geo.Open is string, which is not Data
+05 |	func main() {
+06 |	    a := make(geo.Open, c_allocator)
+   |	              ^~~~~~~~
+07 |	    b := make(geo.hidden, c_allocator)
+
+make-data-qualified/main.tck:7:15: error: hidden is not pub in package q1/geo
+06 |	    a := make(geo.Open, c_allocator)
+07 |	    b := make(geo.hidden, c_allocator)
+   |	              ^~~~~~~~~~
+08 |	    c := make(geo.mk, c_allocator)
+
+make-data-qualified/main.tck:8:5: warning: declared and not used: c
+07 |	    b := make(geo.hidden, c_allocator)
+08 |	    c := make(geo.mk, c_allocator)
+   |	    ^
+09 |	    d := make(geo.count, c_allocator)
+
+make-data-qualified/main.tck:8:15: error: make takes a list, a map, an arena, a pool or a Data type, as in make(list[int64], c_allocator)
+07 |	    b := make(geo.hidden, c_allocator)
+08 |	    c := make(geo.mk, c_allocator)
+   |	              ^~~~~~
+09 |	    d := make(geo.count, c_allocator)
+
+make-data-qualified/main.tck:9:5: warning: declared and not used: d
+08 |	    c := make(geo.mk, c_allocator)
+09 |	    d := make(geo.count, c_allocator)
+   |	    ^
+10 |	    e := make(geo.Nope, c_allocator)
+
+make-data-qualified/main.tck:9:15: error: make takes a list, a map, an arena, a pool or a Data type, as in make(list[int64], c_allocator)
+08 |	    c := make(geo.mk, c_allocator)
+09 |	    d := make(geo.count, c_allocator)
+   |	              ^~~~~~~~~
+10 |	    e := make(geo.Nope, c_allocator)
+
+make-data-qualified/main.tck:10:15: error: undefined: geo.Nope
+09 |	    d := make(geo.count, c_allocator)
+10 |	    e := make(geo.Nope, c_allocator)
+   |	              ^~~~~~~~
+11 |	    print("x")
+
 -- method-exposes/tack.mod --
 module calc
 -- method-exposes/lexer/lexer.tck --

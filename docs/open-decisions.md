@@ -820,12 +820,60 @@ from 0. Still open:
   then unread, which warns, and `_` is no parameter name. Options: allow
   `_` as a parameter name, keep the warning off for a parameter whose
   type is a type parameter, or let a type be passed, `count[T]()`.
-- Nothing builds a value of a field's type yet: `v.[f] = x` needs one
-  from elsewhere than another field, since `dst.[f] = src.[f]` moves a
-  field out of `src`, which is reported. A generic helper that returns a
-  value of its type parameter, taken out of a list or a map it was given,
-  does type-check, so the assignment is reachable today; `make` for
-  `Data` (stage 3) is what makes it practical.
+- A value of a field's type is built by a generic function `v.[f]` is
+  passed to, which calls `make(T, alloc)` (see make for Data) and
+  assigns it to a `mut` parameter, `reset(mut v.[f], alloc)`, or returns
+  it, `mut x := copy_of(v.[f], alloc)?` then `v.[f] = x`, as
+  examples/reflect-make does. `v.[f] = make(..., alloc)` cannot be written in the loop
+  itself, since the field's type has no name there (see make for Data).
+
+## make for Data
+
+`make(T, alloc)` for a `Data` type follows the reflection design, stage
+3. Each of these was picked in implementation (2026-11-13) and is
+overrulable:
+
+- It gives the value alone, no error, as `make(list[T], alloc)` does:
+  builtin.tck already says make allocates nothing and so cannot fail, and
+  an empty Text, list or map holds only its allocator.
+- `T` is written as a name, a type's or a type parameter's; a list or a
+  map type written out keeps its own make, which gives the same value.
+- The diagnostics are `cannot make T: it is constrained by Any, not
+  Data` and `cannot make S: ...` with the reason `Data` gives, and the
+  message for anything else now names Data types, `make takes a list, a
+  map, an arena, a pool or a Data type, as in make(list[int64],
+  c_allocator)`.
+- A made value that owns nothing, `make(int64, alloc)` or a struct of
+  integers, may be discarded as a statement, as any call's result that
+  owns nothing may; one that may own memory is reported, as a list's
+  make is.
+- make builds a struct whose fields are private to another package,
+  `make(os.Info, c_allocator)`, though the literal `os.Info{}` is
+  rejected outside os (the lead's call, overrulable). It gives exactly
+  the value a bare declaration, `mut i os.Info`, already gives, so the
+  zero value was reachable already. A struct holding a list or a map
+  has no zero value, and make gives it empty ones: `make(text.Text,
+  alloc)` is an empty Text and `make(big.Int, alloc)` the Int zero, no
+  words and not negative, each valid by its package's own rules, so
+  std's invariants hold. A package that needs a struct no other package
+  can make would need a mark for it. os's doc for Info now says no
+  program outside os writes an Info literal, not that none builds one.
+
+Still open:
+
+- In a fields loop, `v.[f] = make(<the field's type>, alloc)` cannot be
+  written: the field's type parameter, `T.[f]`, has no name a program
+  can write, and a type argument is only inferred from a value. So the
+  make goes in a generic function `v.[f]` is passed to, and one that only
+  returns the value, `fresh[T Data](v T, scope alloc Allocator) T`, warns
+  that `v` is unused (see Data and fields loops); `reset(mut v T, ...)`
+  with `v = make(T, alloc)` does not. Options: a spelling for the
+  field's type, `make(T.[f], alloc)`; a make from a value's type; or
+  keep the helper.
+- A struct reached through a list or a map is `Data` (see Data), but a
+  type cannot hold itself even through a list today, `invalid recursive
+  type`, so make's compile-time walk over a struct's fields never meets
+  one; were that relaxed, the walk already stops at every list and map.
 
 ## Switches on a type parameter
 

@@ -127,7 +127,12 @@ func isBuiltin(call *ast.Call, name string) bool {
 // as an empty map (see makeMap), make(arena[T], sentinel, alloc) as
 // an arena holding only its sentinel (see makeArena), and make(pool[T],
 // alloc) as a pool with no slots and a tag of its own (see makePool).
+// make(T, alloc) with T a name is a Data type's empty value (see
+// makeData).
 func (g *generator) makeValue(call *ast.Call) (string, []diag.Diagnostic) {
+	if _, named := call.Args[0].(*ast.Ident); named {
+		return g.makeData(call)
+	}
 	if g.prog.Types.IsArena(call.Type) {
 		return g.makeArena(call)
 	}

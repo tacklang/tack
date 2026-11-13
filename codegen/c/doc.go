@@ -298,6 +298,16 @@
 // lowers as code written for that type would; a local or a parameter
 // only other cases name is declared unused, or cast to void, as above.
 //
+// make(T, alloc) with T a type's name lowers to the empty value of the
+// type T stands for in the instance being lowered (makedata.go): a basic
+// type's zero, a list or a map holding the allocator, and a struct's
+// compound literal of its fields made the same way, or its zeroed value
+// when it holds no list or map. The type is walked at compile time and
+// nothing recurs at run time; the allocator is evaluated once, in a
+// temporary when it is a call or any expression but a name or
+// c_allocator and two or more lists or maps hold it, and cast to void
+// beside the value when none does.
+//
 // A view, []T, lowers to a C struct of a pointer to const elements and a
 // length, tack_view_ and the type's ID, defined after its element type,
 // the layout of tack_string, so a view's element is x.ptr[i], its length

@@ -1184,6 +1184,15 @@
 // (instance.go's walkArm), with the case's own type parameter bound to the
 // element or value type, so a switch adds no bodies to bound.
 //
+// make for Data (list.go's madeData). make(T, alloc) with T a type's name
+// makes T's empty value, so T must be Data: a type parameter constrained
+// by Data, read as a case around it narrows it (namedType), so a narrowed
+// case's make is a value of the narrowed type, or a type that satisfies
+// Data (notData), each reported with why it is not. A type parameter is
+// Data whatever it stands for, so the make is checked once per body, and
+// its value is a value of T, owned, moved and freed as any. It gives the
+// value alone, no error: it allocates nothing.
+//
 // Before any of this, Check records the program's types.Table on
 // Program.Types and on every file's File.Types, and every diagnostic names
 // a type through it, so a type is always named by the compilation that gave

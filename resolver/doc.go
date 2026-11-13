@@ -211,7 +211,10 @@
 //
 // The names in a type as written, an array length that names a constant,
 // a list type's element type, make's first argument included, are bound too: a local's in its own scope, a global's and a signature's at
-// package level. The target of an assignment to an element or a field,
+// package level. make's first argument, when it is a name of a type, as
+// in make(T, alloc) of a Data type, is bound as a type, not a value, and
+// id, span, handle or Data written there is reported as a type written
+// wrongly, not as a value. The target of an assignment to an element or a field,
 // a[i].x, binds its variable without counting as a read of it, and its
 // index like any value. A mut argument, mut x, binds x as a value, so it
 // counts as a read: the callee may read the variable through it; an own

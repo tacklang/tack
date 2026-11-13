@@ -1782,8 +1782,9 @@ section remains the description of the language.
   and anything but a list `append expects a list, got [3]int64`, and the
   same for reserve, which takes an arena too, `reserve expects a list or
   an arena, got [3]int64`. `make`
-  takes the list type as written, `make takes a list, a map, an arena or
-  a pool type, as in make(list[int64], c_allocator)`, and no capacity yet, `make expects 2
+  takes the list type as written, `make takes a list, a map, an arena, a
+  pool or a Data type, as in make(list[int64], c_allocator)`, or a Data
+  type's name (see make for Data), and no capacity yet, `make expects 2
   argument(s), got 3`; a list type anywhere else a value is wanted is
   `cannot use list[int64] as a value; it is a type`, and
   `list[int64]{1, 2}` is `list[int64] cannot be written as a literal;
@@ -3302,8 +3303,11 @@ section remains the description of the language.
   no fields gives no block. An assignment to a field, `v.[f] = x`, needs
   a value of the field's type from somewhere other than another field,
   since `dst.[f] = src.[f]` moves a field out of `src`, which is
-  reported: a generic function that returns one, taken out of a list it
-  was given, does, and `make` for `Data` is still to come.
+  reported: a generic function the field is passed to makes one with
+  `make(T, alloc)` (see make for Data), assigning it to a `mut`
+  parameter, `reset(mut v.[f], alloc)`, or returning it, `mut x :=
+  copy_of(v.[f], alloc)?` and then `v.[f] = x`, as examples/reflect-make
+  does.
 - Switches on a type parameter. `switch T { case int64: ... }` names a
   type parameter `T` constrained by `Data`, `cannot switch on T: it is
   constrained by Shape, not Data`, of the function it is in or one a case
@@ -3353,6 +3357,52 @@ section remains the description of the language.
   lowered is lowered where a body of its function is, once per instance
   or per fields loop body, so a switch adds no code beyond what the
   instance and fields loop limits bound.
+- make for Data. `make(T, alloc)`, with `T` a type's name, gives the
+  empty value of any `Data` type: `0`, `0.0` or `false` for a basic type,
+  `make(int64, c_allocator)`; an empty `text.Text`, list or map, growing
+  through `alloc`, as `make(list[T], alloc)` does; and for a struct every
+  field made the same way, at every depth, private ones included, so
+  `make(geo.Box, c_allocator)` builds a list another package cannot see.
+  `T` may be a struct, `text.Text` or a basic type named directly, or a
+  type parameter constrained by `Data`: a function's, one a case of a
+  switch on a type parameter narrows, inside which `make(T, alloc)` is a
+  value of the narrowed type, or declares, `make(E, alloc)` in a
+  `list[E]` case, and a field's, reached by passing `v.[f]` to a generic
+  function, since it cannot be named. It allocates nothing, so it cannot
+  fail, and gives the value alone, as `make(list[T], alloc)` does: no
+  error to check. The make in a generic body is checked once, against
+  `Data`, so `x := make(T, alloc)` then `x + 1` is `operator + is not
+  defined on T`, as for any value of `T`. Anything else is reported: a
+  type parameter constrained by an interface, `cannot make T: it is
+  constrained by Any, not Data`, and a type that is not `Data`, naming
+  why, `cannot make string: a string is not Data`, `cannot make Out:
+  field s of In is string, which is not Data`, `cannot make U: a union
+  is not Data`, `cannot make S: the key type of map[int64]bool is int64,
+  and a Data map's key is text.Text`, `cannot make error: field msg of
+  error is string, which is not Data`; an interface's name, `Shape is an
+  interface; it can only constrain a type parameter`, `Data is a
+  constraint; it can only constrain a type parameter`, `id needs its
+  element type, as in id[int64]`, `undefined: Nope`, and a value, `make
+  takes a list, a map, an arena, a pool or a Data type, as in
+  make(list[int64], c_allocator)`. The allocator is checked as for a
+  list's make, `cannot use int64 as Allocator in argument to make`, and
+  may be a region's or a scope parameter. The value is owned as any
+  value of `T`: freed when its owner's block ends, moved by assignment,
+  `a is used after it was moved`, and, when it may own memory, never
+  discarded, `make returns Bag, which holds a list and cannot be
+  discarded; bind it to a variable`, `make returns T, which may hold a
+  list and cannot be discarded; bind it to a variable`; one made
+  through a region is from it (see regions), `cannot return a value of
+  type Bag holding memory from region r: ...`. A value that owns nothing,
+  `make(int64, c_allocator)` or `make(Point, c_allocator)` of a struct of
+  integers, may be discarded, as any call's result that owns nothing
+  may. In C the value is one expression built per instance from the type
+  `T` stands for: a struct's compound literal with each list and map
+  holding the allocator, its zeroed value when it holds none. The type
+  is walked at compile time, which ends since no type holds itself, and
+  nothing recurs at run time. The allocator is evaluated once, before
+  the value: a call giving it is held in a temporary when two lists or
+  maps hold it, and evaluated, its value unused, when none does.
 - Package-level variables. `var` and `mut` declarations may also appear
   outside any function, where `:=` is not allowed. A package-level variable is
   initialized with a constant expression, which the compiler computes:

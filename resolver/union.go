@@ -200,11 +200,7 @@ func (r *pkgResolver) callPattern(call *ast.Call, sc *scope) (*ast.Ident, bool, 
 		r.bindPatternName(bind, sc)
 		return bind, true, nil
 	}
-	var diags []diag.Diagnostic
-	for _, arg := range call.Args {
-		diags = append(diags, r.resolveExpr(arg, sc)...)
-	}
-	return nil, !r.callable(fn, call), diags
+	return nil, !r.callable(fn, call), r.resolveArgs(call, sc)
 }
 
 // soleName returns the argument of call when it has one, a name that is

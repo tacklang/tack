@@ -31255,7 +31255,7 @@ func main() {
 stage: typeck
 ---
 
-list-make-not-type/main.tck:5:15: error: make takes a list, a map, an arena or a pool type, as in make(list[int64], c_allocator)
+list-make-not-type/main.tck:5:15: error: make takes a list, a map, an arena, a pool or a Data type, as in make(list[int64], c_allocator)
 04 |	    n := 3
 05 |	    l := make(n, c_allocator)
    |	              ^
@@ -33258,6 +33258,536 @@ main-with-result/main.tck:3:13: error: main function must not declare a result
 03 |	func main() int64 {
    |	            ^~~~~
 04 |	    return 7
+
+-- make-data-any/main.tck --
+package main
+
+func main() {
+    v := make(any, c_allocator)
+    print("x")
+}
+-- make-data-any/expected --
+stage: typeck
+---
+
+make-data-any/main.tck:4:5: warning: declared and not used: v
+03 |	func main() {
+04 |	    v := make(any, c_allocator)
+   |	    ^
+05 |	    print("x")
+
+make-data-any/main.tck:4:15: error: any can only be the type of a parameter
+03 |	func main() {
+04 |	    v := make(any, c_allocator)
+   |	              ^~~
+05 |	    print("x")
+
+-- make-data-arity/main.tck --
+package main
+
+type P struct {
+    x int64
+}
+
+func main() {
+    a := make(P)
+    b := make(P, c_allocator, c_allocator)
+    c := make(int64)
+    print("x")
+}
+-- make-data-arity/expected --
+stage: typeck
+---
+
+make-data-arity/main.tck:8:5: warning: declared and not used: a
+07 |	func main() {
+08 |	    a := make(P)
+   |	    ^
+09 |	    b := make(P, c_allocator, c_allocator)
+
+make-data-arity/main.tck:8:10: error: make expects 2 argument(s), got 1
+07 |	func main() {
+08 |	    a := make(P)
+   |	         ^~~~~~~
+09 |	    b := make(P, c_allocator, c_allocator)
+
+make-data-arity/main.tck:9:5: warning: declared and not used: b
+08 |	    a := make(P)
+09 |	    b := make(P, c_allocator, c_allocator)
+   |	    ^
+10 |	    c := make(int64)
+
+make-data-arity/main.tck:9:10: error: make expects 2 argument(s), got 3
+08 |	    a := make(P)
+09 |	    b := make(P, c_allocator, c_allocator)
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+10 |	    c := make(int64)
+
+make-data-arity/main.tck:10:5: warning: declared and not used: c
+09 |	    b := make(P, c_allocator, c_allocator)
+10 |	    c := make(int64)
+   |	    ^
+11 |	    print("x")
+
+make-data-arity/main.tck:10:10: error: make expects 2 argument(s), got 1
+09 |	    b := make(P, c_allocator, c_allocator)
+10 |	    c := make(int64)
+   |	         ^~~~~~~~~~~
+11 |	    print("x")
+
+-- make-data-checked-once/main.tck --
+package main
+
+func plus[T Data](v T) int64 {
+    x := make(T, c_allocator)
+    return x + 1
+}
+
+func main() {
+    n := plus(1)
+    print("x")
+}
+-- make-data-checked-once/expected --
+stage: typeck
+---
+
+make-data-checked-once/main.tck:5:12: error: operator + is not defined on T
+04 |	    x := make(T, c_allocator)
+05 |	    return x + 1
+   |	           ^
+06 |	}
+
+make-data-checked-once/main.tck:9:5: warning: declared and not used: n
+08 |	func main() {
+09 |	    n := plus(1)
+   |	    ^
+10 |	    print("x")
+
+-- make-data-constraint/main.tck --
+package main
+
+func main() {
+    d := make(Data, c_allocator)
+    print("x")
+}
+-- make-data-constraint/expected --
+stage: typeck
+---
+
+make-data-constraint/main.tck:4:5: warning: declared and not used: d
+03 |	func main() {
+04 |	    d := make(Data, c_allocator)
+   |	    ^
+05 |	    print("x")
+
+make-data-constraint/main.tck:4:15: error: Data is a constraint; it can only constrain a type parameter
+03 |	func main() {
+04 |	    d := make(Data, c_allocator)
+   |	              ^~~~
+05 |	    print("x")
+
+-- make-data-discarded-generic/main.tck --
+package main
+
+func reset[T Data](mut v T) {
+    make(T, c_allocator)
+}
+
+func main() {
+    mut n := 1
+    reset(mut n)
+}
+-- make-data-discarded-generic/expected --
+stage: typeck
+---
+
+make-data-discarded-generic/main.tck:4:5: error: make returns T, which may hold a list and cannot be discarded; bind it to a variable
+03 |	func reset[T Data](mut v T) {
+04 |	    make(T, c_allocator)
+   |	    ^~~~~~~~~~~~~~~~~~~~
+05 |	}
+
+-- make-data-discarded-struct/main.tck --
+package main
+
+type Bag struct {
+    items list[int64]
+}
+
+func main() {
+    make(Bag, c_allocator)
+}
+-- make-data-discarded-struct/expected --
+stage: typeck
+---
+
+make-data-discarded-struct/main.tck:8:5: error: make returns Bag, which holds a list and cannot be discarded; bind it to a variable
+07 |	func main() {
+08 |	    make(Bag, c_allocator)
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+09 |	}
+
+-- make-data-element-type/main.tck --
+package main
+
+func main() {
+    i := make(id, c_allocator)
+    print("x")
+}
+-- make-data-element-type/expected --
+stage: resolve
+---
+
+make-data-element-type/main.tck:4:15: error: id needs its element type, as in id[int64]
+03 |	func main() {
+04 |	    i := make(id, c_allocator)
+   |	              ^~
+05 |	    print("x")
+
+-- make-data-error/main.tck --
+package main
+
+func main() {
+    e := make(error, c_allocator)
+    print("x")
+}
+-- make-data-error/expected --
+stage: typeck
+---
+
+make-data-error/main.tck:4:5: warning: declared and not used: e
+03 |	func main() {
+04 |	    e := make(error, c_allocator)
+   |	    ^
+05 |	    print("x")
+
+make-data-error/main.tck:4:15: error: cannot make error: field msg of error is string, which is not Data
+03 |	func main() {
+04 |	    e := make(error, c_allocator)
+   |	              ^~~~~
+05 |	    print("x")
+
+-- make-data-escapes-region/main.tck --
+package main
+
+type Bag struct {
+    n     int64
+    items list[int64]
+}
+
+func bag() Bag {
+    region r {
+        b := make(Bag, r)
+        return b
+    }
+}
+
+func main() {
+    b := bag()
+    print("x")
+}
+-- make-data-escapes-region/expected --
+stage: typeck
+---
+
+make-data-escapes-region/main.tck:11:16: error: cannot return a value of type Bag holding memory from region r: the region gives its memory back when its block ends
+10 |	        b := make(Bag, r)
+11 |	        return b
+   |	               ^
+12 |	    }
+make-data-escapes-region/main.tck:9:5: note: region r is opened here, and everything made through r is given back when its block ends
+08 |	func bag() Bag {
+09 |	    region r {
+   |	    ^~~~~~~~
+10 |	        b := make(Bag, r)
+
+make-data-escapes-region/main.tck:16:5: warning: declared and not used: b
+15 |	func main() {
+16 |	    b := bag()
+   |	    ^
+17 |	    print("x")
+
+-- make-data-func-field/main.tck --
+package main
+
+type S struct {
+    f func() int64
+}
+
+func main() {
+    s := make(S, c_allocator)
+    print("x")
+}
+-- make-data-func-field/expected --
+stage: typeck
+---
+
+make-data-func-field/main.tck:8:5: warning: declared and not used: s
+07 |	func main() {
+08 |	    s := make(S, c_allocator)
+   |	    ^
+09 |	    print("x")
+
+make-data-func-field/main.tck:8:15: error: cannot make S: field f of S is func() int64, which is not Data
+07 |	func main() {
+08 |	    s := make(S, c_allocator)
+   |	              ^
+09 |	    print("x")
+
+-- make-data-interface/main.tck --
+package main
+
+type Shape interface {
+    area() int64
+}
+
+func main() {
+    s := make(Shape, c_allocator)
+    print("x")
+}
+-- make-data-interface/expected --
+stage: typeck
+---
+
+make-data-interface/main.tck:8:5: warning: declared and not used: s
+07 |	func main() {
+08 |	    s := make(Shape, c_allocator)
+   |	    ^
+09 |	    print("x")
+
+make-data-interface/main.tck:8:15: error: Shape is an interface; it can only constrain a type parameter
+07 |	func main() {
+08 |	    s := make(Shape, c_allocator)
+   |	              ^~~~~
+09 |	    print("x")
+
+-- make-data-interface-param/main.tck --
+package main
+
+type Any interface {
+}
+
+func fresh[T Any](v T) {
+    x := make(T, c_allocator)
+}
+
+func main() {
+    fresh(1)
+}
+-- make-data-interface-param/expected --
+stage: typeck
+---
+
+make-data-interface-param/main.tck:7:5: warning: declared and not used: x
+06 |	func fresh[T Any](v T) {
+07 |	    x := make(T, c_allocator)
+   |	    ^
+08 |	}
+
+make-data-interface-param/main.tck:7:15: error: cannot make T: it is constrained by Any, not Data
+06 |	func fresh[T Any](v T) {
+07 |	    x := make(T, c_allocator)
+   |	              ^
+08 |	}
+
+-- make-data-map-key/main.tck --
+package main
+
+type S struct {
+    m map[int64]bool
+}
+
+func main() {
+    s := make(S, c_allocator)
+    print("x")
+}
+-- make-data-map-key/expected --
+stage: typeck
+---
+
+make-data-map-key/main.tck:8:5: warning: declared and not used: s
+07 |	func main() {
+08 |	    s := make(S, c_allocator)
+   |	    ^
+09 |	    print("x")
+
+make-data-map-key/main.tck:8:15: error: cannot make S: the key type of map[int64]bool is int64, and a Data map's key is text.Text
+07 |	func main() {
+08 |	    s := make(S, c_allocator)
+   |	              ^
+09 |	    print("x")
+
+-- make-data-moved/main.tck --
+package main
+
+import text from "std/text"
+
+type Bag struct {
+    name text.Text
+}
+
+func main() {
+    a := make(Bag, c_allocator)
+    b := a
+    print("x")
+    if a.name.len() == b.name.len() {
+        print("y")
+    }
+}
+-- make-data-moved/expected --
+stage: typeck
+---
+
+make-data-moved/main.tck:13:8: error: a is used after it was moved
+12 |	    print("x")
+13 |	    if a.name.len() == b.name.len() {
+   |	       ^
+14 |	        print("y")
+make-data-moved/main.tck:11:10: note: a is moved here
+10 |	    a := make(Bag, c_allocator)
+11 |	    b := a
+   |	         ^
+12 |	    print("x")
+
+-- make-data-nested-string/main.tck --
+package main
+
+type In struct {
+    s string
+}
+
+type Out struct {
+    n  int64
+    in In
+}
+
+func main() {
+    o := make(Out, c_allocator)
+    print("x")
+}
+-- make-data-nested-string/expected --
+stage: typeck
+---
+
+make-data-nested-string/main.tck:13:5: warning: declared and not used: o
+12 |	func main() {
+13 |	    o := make(Out, c_allocator)
+   |	    ^
+14 |	    print("x")
+
+make-data-nested-string/main.tck:13:15: error: cannot make Out: field s of In is string, which is not Data
+12 |	func main() {
+13 |	    o := make(Out, c_allocator)
+   |	              ^~~
+14 |	    print("x")
+
+-- make-data-not-allocator/main.tck --
+package main
+
+type P struct {
+    xs list[int64]
+}
+
+func main() {
+    p := make(P, 0)
+    n := make(int64, true)
+    print("x")
+}
+-- make-data-not-allocator/expected --
+stage: typeck
+---
+
+make-data-not-allocator/main.tck:8:5: warning: declared and not used: p
+07 |	func main() {
+08 |	    p := make(P, 0)
+   |	    ^
+09 |	    n := make(int64, true)
+
+make-data-not-allocator/main.tck:8:18: error: cannot use int64 as Allocator in argument to make
+07 |	func main() {
+08 |	    p := make(P, 0)
+   |	                 ^
+09 |	    n := make(int64, true)
+
+make-data-not-allocator/main.tck:9:5: warning: declared and not used: n
+08 |	    p := make(P, 0)
+09 |	    n := make(int64, true)
+   |	    ^
+10 |	    print("x")
+
+make-data-not-allocator/main.tck:9:22: error: cannot use bool as Allocator in argument to make
+08 |	    p := make(P, 0)
+09 |	    n := make(int64, true)
+   |	                     ^~~~
+10 |	    print("x")
+
+-- make-data-string/main.tck --
+package main
+
+func main() {
+    s := make(string, c_allocator)
+    print("x")
+}
+-- make-data-string/expected --
+stage: typeck
+---
+
+make-data-string/main.tck:4:5: warning: declared and not used: s
+03 |	func main() {
+04 |	    s := make(string, c_allocator)
+   |	    ^
+05 |	    print("x")
+
+make-data-string/main.tck:4:15: error: cannot make string: a string is not Data
+03 |	func main() {
+04 |	    s := make(string, c_allocator)
+   |	              ^~~~~~
+05 |	    print("x")
+
+-- make-data-undefined/main.tck --
+package main
+
+func main() {
+    u := make(Nope, c_allocator)
+    print("x")
+}
+-- make-data-undefined/expected --
+stage: resolve
+---
+
+make-data-undefined/main.tck:4:15: error: undefined: Nope
+03 |	func main() {
+04 |	    u := make(Nope, c_allocator)
+   |	              ^~~~
+05 |	    print("x")
+
+-- make-data-union/main.tck --
+package main
+
+type U union {
+    a int64
+    b bool
+}
+
+func main() {
+    u := make(U, c_allocator)
+    print("x")
+}
+-- make-data-union/expected --
+stage: typeck
+---
+
+make-data-union/main.tck:9:5: warning: declared and not used: u
+08 |	func main() {
+09 |	    u := make(U, c_allocator)
+   |	    ^
+10 |	    print("x")
+
+make-data-union/main.tck:9:15: error: cannot make U: a union is not Data
+08 |	func main() {
+09 |	    u := make(U, c_allocator)
+   |	              ^
+10 |	    print("x")
 
 -- map-alongside-mut/main.tck --
 package main
