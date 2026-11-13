@@ -1635,11 +1635,14 @@ func (g *generator) generateForRange(
 	x, addr := withSteps(steps, place), withSteps(steps, "&"+place)
 	xType := ast.TypeOf(loop.X)
 	isMap := g.prog.Types.IsMap(xType)
-	if g.bindsInPlace(loop) {
-		g.inPlace[loop.Elem] = true
+	// Each is set afresh, true or false, every time the loop is lowered:
+	// a generic function's loop is lowered once for each instance, and an
+	// element owned in one may not be in the next.
+	if loop.Elem != nil {
+		g.inPlace[loop.Elem] = g.bindsInPlace(loop)
 	}
-	if isMap && loop.Var != nil && g.owned(loop.Var.Type) {
-		g.inPlace[loop.Var] = true
+	if isMap && loop.Var != nil {
+		g.inPlace[loop.Var] = g.owned(loop.Var.Type)
 	}
 	body, diags := g.generateLoopBody(loop.Body, fn)
 	if len(diags) > 0 {
