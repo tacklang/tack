@@ -6,51 +6,61 @@ import conv from "std/conv"
 import diag from "tack/diag"
 import fmt from "std/fmt"
 import lexer from "tack/lexer"
+import loader from "tack/loader"
 import os from "std/os"
-import parser from "tack/parser"
 import path from "std/path"
 import source from "tack/source"
 import text from "std/text"
 
 // Package main is the driver of the Tack compiler written in Tack, the
 // tack command. It takes the command line the Go compiler takes and, so
-// far, does three things as that compiler does: it answers --backends, it
-// dumps the tokens of a single file, --lex <file>, or reports the file's
-// lexical errors, and it dumps the syntax tree of a single file, --ast
-// <file>, as JSON, or reports the file's lexical or syntax errors.
-// Anything else it does not do yet, and says so in
-// the form the differential harness in tackc/porttest reads: on standard
-// error,
+// far, does what that compiler does for four: it answers --backends; it
+// dumps the tokens, --lex, or the syntax trees, --ast, of a single file,
+// of the package in a directory, or of the package with an import path
+// in the module found from the current directory, or reports their
+// errors; and for --res it loads the program in full, with the standard
+// library, and reports its diagnostics when loading stops with no
+// program, which needs no resolver. Anything else it does not do yet, a
+// --res of a program that loads among them, and says so in the form the
+// differential harness in tackc/porttest reads: on standard error,
 //
-//     tack: not implemented in the port: <first argument>
+//     tack: not implemented in the port: <what>
 //
 // and exit status 3, which the harness counts as a skip unless the stage
 // is one it requires.
 //
-// The command line is read as Go's flag package reads it, as far as
-// --lex and --ast need: flags, each starting with - or --, come first and
-// stop at the first argument that is not one, or after --, and the rest
-// are the input files. The flags read are -lex or --lex and -ast or
-// --ast; any other flag, -lex= with a value among them, is not
-// implemented, named in the line above. The usage errors such a command
-// line can make are reported as Go's driver reports them, with exit
-// status 2: both dumps asked for, no input file, several, an empty name,
-// and a flag of bad syntax, such as ---lex.
+// The command line is read as Go's flag package reads it, as far as the
+// dumps need: flags, each starting with - or --, come first and stop at
+// the first argument that is not one, or after --, and the rest are the
+// inputs. The flags read are -lex, -ast and -res, with one dash or two;
+// any other flag, -lex= with a value among them, is not implemented,
+// named in the line above. The usage errors such a command line can make
+// are reported as Go's driver reports them, with exit status 2: two
+// dumps asked for, no input, several, an empty name, and a flag of bad
+// syntax, such as ---lex.
 //
-// For --ast the file is lexed and, when it lexes, parsed, as Go's loader
-// does for that dump, the parse going past at most ten syntax errors, the
-// default of --max-errors, which the port does not read yet, and either
-// errors are reported, ten at most, or the tree is written as Go's driver
-// writes it, JSON that decodes to the same value (see package ast), with
-// Go's encoder's refusal of a tree nested too deeply, exit status 1.
+// The target is loaded as Go's loadWith loads it (see package loader):
+// a directory as its package, a name that is no file and looks like an
+// import path as one, and anything else as a single file. A file is
+// lexed and, for --ast, parsed, the parse going past at most ten syntax
+// errors, the default of --max-errors, which the port does not read yet;
+// errors are reported, ten at most, or the dump written as Go's driver
+// writes it: a single file's tokens, or its tree as JSON that decodes to
+// the same value (see package ast), several files' tokens each after a
+// header line naming the file, and several trees as a list, with Go's
+// encoder's refusal of a tree nested too deeply, exit status 1. A failure
+// to read what is named is reported as Go reports it, tack: and the
+// loader's error, exit status 1, or, when the port cannot word it as Go
+// would, as not implemented. The current directory is found as Go's
+// os.Getwd finds it, $PWD when it names the same directory as ., and
+// getcwd otherwise; the standard library as Go's findStd finds it, from
+// $TACK_HOME or the home directory.
 //
-// The file is read as the Go loader's File reads one, which the port has
-// not got yet: a directory, and a name that is no file and looks like an
-// import path, are loaded as packages in Go, and are not implemented
-// here. A test file, one whose base name ends in _test.tck, is rejected
-// before it is read, as Go's loader rejects one. A file that cannot be
-// read is reported as Go reports it, with the operating system's message
-// as Go's syscall package words it (see go_errno_text).
+// --port-loaded is the port's own flag, which the Go compiler does not
+// have: it writes what loading in full gives, the program's packages,
+// files and import bindings and the diagnostics in the order they were
+// reported (see write_loaded), which tackc's porttest compares with what
+// the Go loader gives, until --res can dump a loaded program itself.
 
 // exit_ok means the requested work was done.
 var exit_ok int32 = 0
@@ -118,16 +128,46 @@ func usage(msg []uint8) int32 {
     return exit_usage
 }
 
+// Dump is the dump a command line asks for, Go's dump as far as the port
+// reads it: --lex, --ast or --res. It wraps a number because Tack
+// declares no named integer types.
+type Dump struct {
+    n uint8
+}
+
+// dump_lex is --lex, the token stream.
+var dump_lex = Dump{n: 1}
+
+// dump_ast is --ast, the parsed syntax tree.
+var dump_ast = Dump{n: 2}
+
+// dump_res is --res, the resolved syntax tree, which the port answers
+// only when loading stops with no program.
+var dump_res = Dump{n: 3}
+
+// dump_loaded is --port-loaded, which the Go compiler does not have: the
+// program loaded in full, written as a list of its packages (see
+// write_loaded), so tackc's porttest can check what the port loads
+// before it has a resolver to dump it with --res. It goes once --res
+// does.
+var dump_loaded = Dump{n: 4}
+
+// dump_flags are the dump flags the port reads, in the order Go's dumpOf
+// lists them, which is the order a usage error names them in, each at
+// the index of its Dump's number less one; --port-loaded, the port's
+// own, last.
+var dump_flags = [4]string{"--lex", "--ast", "--res", "--port-loaded"}
+
 // run carries out the command line a, the program's name and its
-// arguments, and returns the exit status: lexing the one file named
-// after --lex, or parsing it after --ast, or a usage error, or not
-// implemented for anything else. It returns an error only when an
-// allocation failed.
+// arguments, and returns the exit status: the dump asked for, of the one
+// file, directory or import path named after the flags, or a usage
+// error, or not implemented for anything else. It returns an error only
+// when an allocation failed.
 func run(a []text.Text) (int32, error) {
     // rest holds the index in a of each argument after the flags.
     mut rest := make(list[int64], c_allocator)
-    mut lex := false
-    mut ast_dump := false
+    // asked holds whether each of dump_flags was given.
+    mut asked [4]bool
     mut flags_done := false
     for i, s := range a {
         if i == 0 {
@@ -158,20 +198,42 @@ func run(a []text.Text) (int32, error) {
             fmt.appendf(mut msg, "bad flag syntax: %s", s.bytes())?
             return usage(msg), noerror
         }
-        if s.len() == name +% 3 && bytes.has_suffix(s.bytes(), []uint8("lex")) {
-            lex = true
+        mut known := false
+        for k, f := range dump_flags {
+            if s.len() == name +% len(f) -% 2 && is_flag(s.bytes(), []uint8(f)) && k >= 0 && k < len(asked) {
+                asked[k] = true
+                known = true
+            }
+        }
+        if !known {
+            return unimplemented(s.bytes()), noerror
+        }
+    }
+    mut count int64 = 0
+    mut d := Dump{n: 0}
+    mut names := make(list[uint8], c_allocator)
+    for k, on := range asked {
+        if !on {
             continue
         }
-        if s.len() == name +% 3 && bytes.has_suffix(s.bytes(), []uint8("ast")) {
-            ast_dump = true
-            continue
+        if count > 0 {
+            append(mut names, []uint8(" and ")...)?
         }
-        return unimplemented(s.bytes()), noerror
+        f, has_f := dump_flags[k]
+        if has_f {
+            append(mut names, []uint8(f)...)?
+        }
+        count +%= 1
+        n, fits := uint8(k +% 1)
+        if fits {
+            d = Dump{n: n}
+        }
     }
-    if lex && ast_dump {
-        return usage([]uint8("--lex and --ast cannot be combined; pick one")), noerror
+    if count > 1 {
+        append(mut names, []uint8(" cannot be combined; pick one")...)?
+        return usage(names), noerror
     }
-    if !lex && !ast_dump {
+    if count == 0 {
         for i, s := range a {
             if i == 1 {
                 return unimplemented(s.bytes()), noerror
@@ -179,15 +241,25 @@ func run(a []text.Text) (int32, error) {
         }
         return unimplemented([]uint8("(no arguments)")), noerror
     }
-    code, e := dump_command(a, rest, ast_dump)
+    code, e := dump_command(a, rest, d)
     return code, e
 }
 
-// dump_command carries out a --lex command line, a, or an --ast one when
-// ast_dump is set, whose arguments after the flags are the ones at the
-// indexes rest holds: the one input file, as Go's fileArg checks it, then
-// the file's tokens or its tree, or its errors.
-func dump_command(a []text.Text, rest []int64, ast_dump bool) (int32, error) {
+// is_flag reports whether arg, a flag of one dash or two whose name is
+// as long as flag's, is flag, written with two dashes: whether arg ends
+// in flag's name.
+func is_flag(arg []uint8, flag []uint8) bool {
+    if len(flag) < 2 {
+        return false
+    }
+    return bytes.has_suffix(arg, flag[2:])
+}
+
+// dump_command carries out a command line, a, asking for the dump d,
+// whose arguments after the flags are the ones at the indexes rest
+// holds: the one input, as Go's fileArg checks it, then what the dump
+// gives for it.
+func dump_command(a []text.Text, rest []int64, d Dump) (int32, error) {
     if len(rest) == 0 {
         return usage([]uint8("no input file")), noerror
     }
@@ -208,97 +280,398 @@ func dump_command(a []text.Text, rest []int64, ast_dump bool) (int32, error) {
     k := rest[0]
     if k < 0 || k >= len(a) {
         // rest holds indexes of a, so this does not happen.
-        return unimplemented([]uint8(flag_name(ast_dump))), noerror
+        return unimplemented([]uint8(flag_name(d))), noerror
     }
     if a[k].len() == 0 {
         return usage([]uint8("input file name is empty")), noerror
     }
-    code, e := dump_file(a[k].bytes(), ast_dump)
+    code, e := dump_target(a[k].bytes(), d)
     return code, e
 }
 
-// flag_name returns the name of the dump flag, --ast when ast_dump is set
-// and --lex otherwise.
-func flag_name(ast_dump bool) string {
-    if ast_dump {
+// flag_name returns the name of the dump flag of d.
+func flag_name(d Dump) string {
+    if d == dump_ast {
         return "--ast"
+    }
+    if d == dump_res {
+        return "--res"
+    }
+    if d == dump_loaded {
+        return "--port-loaded"
     }
     return "--lex"
 }
 
-// enoent is the message std/os gives for ENOENT, which Go's errors.Is
-// with fs.ErrNotExist matches.
-var enoent = "No such file or directory"
-
-// dump_file loads the single file name, as Go's loadWith does for a
-// --lex dump, or an --ast one when ast_dump is set, and writes its tokens
-// or its tree to standard output, or its lexical or syntax errors to
-// standard error, returning the exit status.
-func dump_file(name []uint8, ast_dump bool) (int32, error) {
-    info, stat_err := os.stat(name)
-    if stat_err.code == 0 && info.is_dir() {
-        return unimplemented_of(ast_dump, []uint8(" of a directory"))?, noerror
+// failed answers f, a failure Go's driver reports as an error, as Go's
+// report does: tack: and its text, with exit status 1; or, for one the
+// port cannot word, not implemented, naming the dump d and what f says.
+func failed(f loader.Fail, d Dump) (int32, error) {
+    if f.unworded {
+        code := unimplemented_of(d, f.msg)?
+        return code, noerror
     }
-    if stat_err.code == 3 && stat_err.msg == enoent && looks_like_import_path(name) {
-        return unimplemented_of(ast_dump, []uint8(" of an import path"))?, noerror
-    }
+    fmt.eprintf("tack: %s\n", f.msg[:])
+    return exit_failure, noerror
+}
 
-    // Go's loader.File rejects a test file before it reads it, so one
-    // that does not exist is rejected the same way.
-    base := path.base(name, c_allocator)?
-    if bytes.has_suffix(base.bytes(), []uint8("_test.tck")) {
-        fmt.eprintf("tack: %s is a test file, which is never loaded on its own\n", name)
-        return exit_failure, noerror
+// dump_target writes the dump d of target, as Go's execute does: for
+// --res, the standard library is found first, and the target loaded in
+// full, as Go's load loads it, and answered only when loading stops with
+// no program, with its diagnostics; for --lex and --ast, loading stops
+// after that stage, having read only the target's own files, and the
+// dump is written, or the target's errors. It returns the exit status.
+func dump_target(target []uint8, d Dump) (int32, error) {
+    mut l := loader.Loader{
+        stop: loader.stage_none,
+        max_errors: default_max_errors,
+        builtins: false,
+        has_std: false,
+        std_dir: text.new(c_allocator),
+        relative: false,
+        cwd: text.new(c_allocator),
+        alloc: c_allocator,
     }
-
-    data, read_err := os.read_file(name, c_allocator)
-    if read_err.code != 0 {
-        code, e := open_failed(name, read_err, ast_dump)
+    if d == dump_lex {
+        l.stop = loader.stage_lex
+    } else if d == dump_ast {
+        l.stop = loader.stage_parse
+    } else {
+        // --res and --port-loaded load in full, with the standard library.
+        std_dir, f := find_std()?
+        if f.failed {
+            code, e := failed(f, d)
+            return code, e
+        }
+        l.std_dir = std_dir
+        l.has_std = true
+        l.builtins = true
+    }
+    res, single, f := load_with(mut l, target)?
+    if d == dump_loaded {
+        if f.unworded {
+            code, e := failed(f, d)
+            return code, e
+        }
+        out := write_loaded(res, f)?
+        fmt.write(out)
+        return exit_ok, noerror
+    }
+    if f.failed {
+        code, e := failed(f, d)
         return code, e
     }
-
-    mut set := source.new_set(c_allocator)
-    mut filename := text.new(c_allocator)
-    mut filename.append(name)?
-    mut file := source.new_file(set.next_id(), own filename, own data, c_allocator)
-    tokens, diags := lexer.lex(mut file, c_allocator)?
-    mut set.add(own file)?
-
-    if len(diags) > 0 {
-        out := render_diagnostics(set, diags, default_max_errors)?
+    if d == dump_res {
+        if res.has_program {
+            return unimplemented([]uint8("--res of a program that loads")), noerror
+        }
+        if !diag.has_errors(res.diags) {
+            fmt.eprintf("tack: internal error: the loader built no program and reported no error\n")
+            return exit_failure, noerror
+        }
+    }
+    if diag.has_errors(res.diags) {
+        out := render_diagnostics(res.files, res.diags, default_max_errors)?
         fmt.ewrite(out)
         return exit_failure, noerror
     }
-
-    if !ast_dump {
-        mut out := format_tokens(tokens)?
+    if d == dump_lex {
+        mut out := format_file_tokens(res, single)?
         with_trailing_newline(mut out)?
         fmt.write(out)
         return exit_ok, noerror
     }
-    code, e := ast_file(set, name, own tokens)
+    code, e := ast_dump(res, single)
     return code, e
 }
 
-// ast_file parses the file of set, named name, whose tokens are toks, as
-// Go's loader parses a file for an --ast dump, its parse going past at
-// most default_max_errors syntax errors, and writes its tree to standard
-// output as Go's driver writes it, or its syntax errors to standard
-// error, returning the exit status. A tree whose JSON nests too deeply
-// for Go's encoder is reported as Go's driver reports the encoder's
-// refusal, in the encoder's words (see ast.dump).
-func ast_file(set source.Set, name []uint8, own toks lexer.Tokens) (int32, error) {
-    mut fid source.FileID
-    for _, f := range set.files() {
-        fid = f.id
+// write_loaded returns what --port-loaded writes for res, a load that
+// failed with f or did not: error and f's text for a failure; and
+// otherwise, for each package of the program, in order, a line package
+// with its import path, module, name and directory, a line file with
+// the name of each of its files, cfile with the path of each C file,
+// and import with each import's path and the index of the package it
+// is bound to, -1 for none; then errors and the program's count, or no
+// program; and then diag and each diagnostic's file, offset and
+// message, in the order they were reported.
+func write_loaded(res loader.Result, f loader.Fail) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    if f.failed {
+        fmt.appendf(mut out, "error %s\n", f.msg[:])?
+        return out, noerror
     }
-    tree, has_tree, diags := parser.parse(fid, own toks, default_max_errors, c_allocator)?
-    if len(diags) > 0 || !has_tree {
-        out := render_diagnostics(set, diags, default_max_errors)?
-        fmt.ewrite(out)
-        return exit_failure, noerror
+    if res.has_program {
+        for _, pkg := range res.program.packages {
+            fmt.appendf(mut out, "package %s module %s name %s dir %s\n", pkg.path.bytes(), pkg.module.bytes(), pkg.name.bytes(), pkg.dir.bytes())?
+            for _, fid := range pkg.file_ids {
+                for _, file := range res.files.lookup(fid) {
+                    fmt.appendf(mut out, "file %s\n", file.filename.bytes())?
+                }
+            }
+            for _, c := range pkg.c_files {
+                fmt.appendf(mut out, "cfile %s\n", c.bytes())?
+            }
+            mut k int64 = 0
+            for _, t := range pkg.files {
+                for _, n := range t.imports {
+                    switch t.kind(n) {
+                    case import_decl(imp):
+                        mut index, ok := pkg.imports[k]
+                        if !ok {
+                            index = -2
+                        }
+                        fmt.appendf(mut out, "import %s %d\n", t.text(imp.path), index)?
+                    default:
+                    }
+                    k +%= 1
+                }
+            }
+        }
+        fmt.appendf(mut out, "errors %d\n", res.program.errors)?
+    } else {
+        append(mut out, []uint8("no program\n")...)?
     }
-    mut out, refused := ast.dump(tree, name, c_allocator)?
+    for _, dg := range res.diags {
+        for _, file := range res.files.lookup(dg.span.file) {
+            fmt.appendf(mut out, "diag %s:%d: %s\n", file.filename.bytes(), dg.span.start, dg.message.bytes())?
+        }
+    }
+    return out, noerror
+}
+
+// load_with loads target with l, as Go's loadWith does, and reports
+// whether it is a single file: the package in it if it is a directory,
+// the package with that import path in the module found from the
+// current directory if it names nothing on disk and looks like one, and
+// otherwise the one file it names.
+func load_with(mut l loader.Loader, target []uint8) (loader.Result, bool, loader.Fail, error) {
+    info, stat_err := os.stat(target)
+    if stat_err.code == 0 && info.is_dir() {
+        res, f := load_dir(mut l, target)?
+        return res, false, f, noerror
+    }
+    if loader.is_enoent(stat_err) && looks_like_import_path(target) {
+        res, f := load_path(mut l, target)?
+        return res, false, f, noerror
+    }
+    res, f := l.file(target)?
+    return res, true, f, noerror
+}
+
+// load_dir loads the directory target with l, Go's loadDir: its module
+// is found from the directory's absolute path, and files are shown
+// relative to the current directory.
+func load_dir(mut l loader.Loader, target []uint8) (loader.Result, loader.Fail, error) {
+    abs, af := abs_path(target)?
+    if af.failed {
+        mut prefix := make(list[uint8], c_allocator)
+        fmt.appendf(mut prefix, "cannot find %s: ", target)?
+        w := wrap_fail(prefix, own af)?
+        return no_result(), w, noerror
+    }
+    cwd, cf := go_getwd()?
+    if cf.failed {
+        w := wrap_fail([]uint8("cannot find the current directory: "), own cf)?
+        return no_result(), w, noerror
+    }
+    l.relative = true
+    l.cwd = cwd
+    res, f := l.dir(abs.bytes())?
+    return res, f, noerror
+}
+
+// load_path loads the import path target with l, in the module found
+// from the current directory, showing files relative to it, Go's
+// loadPath.
+func load_path(mut l loader.Loader, target []uint8) (loader.Result, loader.Fail, error) {
+    cwd, cf := go_getwd()?
+    if cf.failed {
+        w := wrap_fail([]uint8("cannot find the current directory: "), own cf)?
+        return no_result(), w, noerror
+    }
+    l.relative = true
+    l.cwd = text.from_bytes(cwd.bytes(), c_allocator)?
+    res, f := l.path(cwd.bytes(), target)?
+    if f.failed {
+        mut prefix := make(list[uint8], c_allocator)
+        fmt.appendf(mut prefix, "%s is not a file or a directory, nor an import path: ", target)?
+        w := wrap_fail(prefix, own f)?
+        return res, w, noerror
+    }
+    return res, f, noerror
+}
+
+// no_result returns the Result of a load that never started, empty.
+func no_result() loader.Result {
+    l := loader.Loader{
+        stop: loader.stage_none,
+        max_errors: 0,
+        builtins: false,
+        has_std: false,
+        std_dir: text.new(c_allocator),
+        relative: false,
+        cwd: text.new(c_allocator),
+        alloc: c_allocator,
+    }
+    return l.empty_result()
+}
+
+// wrap_fail returns f with prefix put before its text, as Go's
+// fmt.Errorf with %w wraps an error; an unworded failure is returned as
+// it is.
+func wrap_fail(prefix []uint8, own f loader.Fail) (loader.Fail, error) {
+    if f.unworded {
+        return f, noerror
+    }
+    mut msg := make(list[uint8], c_allocator)
+    append(mut msg, prefix...)?
+    append(mut msg, f.msg...)?
+    return loader.Fail{failed: true, unworded: false, not_exist: f.not_exist, no_tack: f.no_tack, msg: msg}, noerror
+}
+
+// path_fail returns the failure Go's os package words as op p: and the
+// errno's text, for err, std/os's error, or an unworded one, saying
+// what, when Go's syscall package's words for its errno are not known.
+func path_fail(op string, p []uint8, err error, what string) (loader.Fail, error) {
+    errno := loader.go_errno(err)
+    mut msg := make(list[uint8], c_allocator)
+    if len(errno) == 0 {
+        append(mut msg, []uint8(what)...)?
+        return loader.Fail{failed: true, unworded: true, not_exist: false, no_tack: false, msg: msg}, noerror
+    }
+    append(mut msg, []uint8(op)...)?
+    if len(p) > 0 {
+        append(mut msg, ' ')?
+        append(mut msg, p...)?
+    }
+    append(mut msg, ':', ' ')?
+    append(mut msg, []uint8(errno)...)?
+    return loader.Fail{failed: true, unworded: false, not_exist: loader.is_enoent(err), no_tack: false, msg: msg}, noerror
+}
+
+// go_getwd returns the current directory as Go's os.Getwd gives it on
+// Linux: $PWD when it is absolute and names the same file as ., as a
+// stat of each says, and getcwd's answer otherwise. A failed stat of .
+// is Go's stat .: and the errno, and a failed getcwd getwd: and the
+// errno, but for the errnos that make Go look for the directory itself,
+// by walking up from ., ENAMETOOLONG and ERANGE among them, which is
+// unworded, as is any errno whose Go words are not known.
+func go_getwd() (text.Text, loader.Fail, error) {
+    none := loader.no_fail(c_allocator)
+    pwd, set := os.env([]uint8("PWD"), c_allocator)?
+    if set && bytes.has_prefix(pwd.bytes(), []uint8("/")) {
+        dot, dot_err := os.stat([]uint8("."))
+        if dot_err.code != 0 {
+            f := path_fail("stat", []uint8("."), dot_err, " of a current directory that cannot be looked at")?
+            return text.new(c_allocator), f, noerror
+        }
+        here, here_err := os.stat(pwd.bytes())
+        if here_err.code == 0 && os.same_file(dot, here) {
+            return pwd, none, noerror
+        }
+    }
+    w, err := os.getwd(c_allocator)
+    if err.code != 0 {
+        if err.code == 3 && (err.msg == "Result too large" || err.msg == "File name too long" || err.msg == "Invalid argument") || err.code == 1 {
+            mut msg := make(list[uint8], c_allocator)
+            append(mut msg, []uint8(" in a current directory whose path getcwd cannot give")...)?
+            return text.new(c_allocator), loader.Fail{failed: true, unworded: true, not_exist: false, no_tack: false, msg: msg}, noerror
+        }
+        f := path_fail("getwd", []uint8(""), err, " in a current directory getcwd cannot find")?
+        return text.new(c_allocator), f, noerror
+    }
+    return w, none, noerror
+}
+
+// abs_path returns target made absolute, as Go's filepath.Abs does: an
+// absolute one cleaned, and a relative one joined to the current
+// directory, which go_getwd gives, and cleaned.
+func abs_path(target []uint8) (text.Text, loader.Fail, error) {
+    if bytes.has_prefix(target, []uint8("/")) {
+        t := path.clean(target, c_allocator)?
+        return t, loader.no_fail(c_allocator), noerror
+    }
+    wd, f := go_getwd()?
+    if f.failed {
+        return text.new(c_allocator), f, noerror
+    }
+    t := path.join(wd.bytes(), target, c_allocator)?
+    return t, f, noerror
+}
+
+// find_std finds the standard library as Go's findStd does, for --res,
+// and returns its directory, absolute: $TACK_HOME/src/std, or
+// ~/.tack/src/std when TACK_HOME is unset or empty, $HOME giving the
+// home directory as Go's os.UserHomeDir does. A std that is not there,
+// or is not a directory, is a failure saying how to put it there, and
+// one that cannot be looked at says why.
+func find_std() (text.Text, loader.Fail, error) {
+    mut home := text.new(c_allocator)
+    tack_home, set := os.env([]uint8("TACK_HOME"), c_allocator)?
+    if set && tack_home.len() > 0 {
+        mut home.append(tack_home.bytes())?
+    } else {
+        user, user_set := os.env([]uint8("HOME"), c_allocator)?
+        if !user_set || user.len() == 0 {
+            mut msg := make(list[uint8], c_allocator)
+            append(mut msg, []uint8("cannot find std: TACK_HOME is not set and the home directory is unknown: $HOME is not defined")...)?
+            return text.new(c_allocator), loader.Fail{failed: true, unworded: false, not_exist: false, no_tack: false, msg: msg}, noerror
+        }
+        home = path.join(user.bytes(), []uint8(".tack"), c_allocator)?
+    }
+    abs, af := abs_path(home.bytes())?
+    if af.failed {
+        w := wrap_fail([]uint8("cannot find std: "), own af)?
+        return text.new(c_allocator), w, noerror
+    }
+    src := path.join(abs.bytes(), []uint8("src"), c_allocator)?
+    dir := path.join(src.bytes(), []uint8("std"), c_allocator)?
+    info, err := os.stat(dir.bytes())
+    if loader.is_enoent(err) || err.code == 0 && !info.is_dir() {
+        mut msg := make(list[uint8], c_allocator)
+        fmt.appendf(mut msg, "cannot find std at %s; set TACK_HOME or run make install", dir.bytes())?
+        return text.new(c_allocator), loader.Fail{failed: true, unworded: false, not_exist: false, no_tack: false, msg: msg}, noerror
+    }
+    if err.code != 0 {
+        f := path_fail("stat", dir.bytes(), err, " of a standard library that cannot be looked at")?
+        mut prefix := make(list[uint8], c_allocator)
+        fmt.appendf(mut prefix, "cannot read std at %s: ", dir.bytes())?
+        w := wrap_fail(prefix, own f)?
+        return text.new(c_allocator), w, noerror
+    }
+    return dir, loader.no_fail(c_allocator), noerror
+}
+
+// ast_dump writes the --ast dump of what res, loaded to that stage,
+// holds, as Go's driver writes it: a single file's tree as it is, and
+// several files' trees as a list, or Go's encoder's refusal of a tree
+// nested too deeply, exit status 1. It returns the exit status.
+func ast_dump(res loader.Result, single bool) (int32, error) {
+    mut names := make(list[text.Text], c_allocator)
+    for _, fid := range res.sources {
+        mut nm := text.new(c_allocator)
+        for _, f := range res.files.lookup(fid) {
+            mut nm.append(f.filename.bytes())?
+        }
+        append(mut names, nm)?
+    }
+    mut out := make(list[uint8], c_allocator)
+    mut refused := ""
+    if single {
+        for i, t := range res.trees {
+            for j, nm := range names {
+                if i == 0 && j == 0 {
+                    o, r := ast.dump(t, nm.bytes(), c_allocator)?
+                    out = o
+                    refused = r
+                }
+            }
+        }
+    } else {
+        o, r := ast.dump_list(res.trees, names, c_allocator)?
+        out = o
+        refused = r
+    }
     if len(refused) > 0 {
         fmt.eprintf("tack: failed to render syntax tree: %s\n", refused)
         return exit_failure, noerror
@@ -308,77 +681,37 @@ func ast_file(set source.Set, name []uint8, own toks lexer.Tokens) (int32, error
     return exit_ok, noerror
 }
 
-// unimplemented_of writes the not implemented line naming the dump flag,
-// --ast when ast_dump is set and --lex otherwise, followed by what, and
-// returns not_implemented.
-func unimplemented_of(ast_dump bool, what []uint8) (int32, error) {
+// format_file_tokens renders the tokens of every file res holds, as Go's
+// formatFileTokens does: a single file's alone, and each of several after
+// a header line naming its file, -- name --.
+func format_file_tokens(res loader.Result, single bool) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    for i, ts := range res.tokens {
+        if single {
+            if i == 0 {
+                out = format_tokens(ts)?
+            }
+            continue
+        }
+        fid, ok := res.sources[i]
+        if ok {
+            for _, f := range res.files.lookup(fid) {
+                fmt.appendf(mut out, "-- %s --\n", f.filename.bytes())?
+            }
+        }
+        part := format_tokens(ts)?
+        append(mut out, part...)?
+    }
+    return out, noerror
+}
+
+// unimplemented_of writes the not implemented line naming the dump flag
+// of d followed by what, and returns not_implemented.
+func unimplemented_of(d Dump, what []uint8) (int32, error) {
     mut msg := make(list[uint8], c_allocator)
-    append(mut msg, []uint8(flag_name(ast_dump))...)?
+    append(mut msg, []uint8(flag_name(d))...)?
     append(mut msg, what...)?
     return unimplemented(msg), noerror
-}
-
-// open_failed reports err, the error std/os's read_file gave for the file
-// name, as Go's driver reports the loader's failure to read it:
-//
-//     tack: failed to open file: open <name>: <message>
-//
-// with exit status 1, the message as Go's syscall package words the
-// errno (see go_errno_text), when the port can tell that Go would write
-// exactly that. read_file opens the file and then reads it, and its
-// error does not say which of the two failed, while Go writes open
-// <name> for the one and read <name> for the other. So an errno a read
-// can fail with after the open succeeded, EIO, EISDIR and EINVAL, and
-// EPERM and EACCES, which a security module or a fanotify listener can
-// give a read, and EINTR, which Go retries and std/os does not on an open, is answered
-// as not implemented: a skip, where a guess at Go's wording could be a
-// wrong answer. So is code 1, out of memory, which std/os gives both
-// for ENOMEM from the OS, which Go words as cannot allocate memory, and
-// for a list that could not grow, which Go never reports; and so is any
-// errno go_errno_text does not list. The not implemented line names the
-// dump asked for, --ast when ast_dump is set and --lex otherwise.
-func open_failed(name []uint8, err error, ast_dump bool) (int32, error) {
-    s := go_errno_text(err)
-    if len(s) == 0 {
-        return unimplemented_of(ast_dump, []uint8(" of a file whose read fails with an error the port cannot word as Go does"))?, noerror
-    }
-    fmt.eprintf("tack: failed to open file: open %s: %s\n", name, s)
-    return exit_failure, noerror
-}
-
-// go_errno_text returns the message Go's syscall package gives on Linux
-// for the errno behind err, an error std/os returned, when only an open
-// can fail with it, or an empty string otherwise (see open_failed).
-// std/os gives macOS's strerror text, with a capital first letter, and Go
-// its own table, all lowercase, which differ in more than case for some
-// errnos. std/os refuses a path holding a 0 byte, code 4, before it opens
-// anything, where Go's open fails with EINVAL.
-func go_errno_text(err error) string {
-    if err.code == 4 {
-        return "invalid argument"
-    }
-    if err.code != 3 {
-        return ""
-    }
-    switch err.msg {
-    case "No such file or directory":
-        return "no such file or directory"
-    case "Resource busy":
-        return "device or resource busy"
-    case "Not a directory":
-        return "not a directory"
-    case "Too many open files in system":
-        return "too many open files in system"
-    case "Too many open files":
-        return "too many open files"
-    case "Text file busy":
-        return "text file busy"
-    case "File name too long":
-        return "file name too long"
-    case "Too many levels of symbolic links":
-        return "too many levels of symbolic links"
-    }
-    return ""
 }
 
 // looks_like_import_path reports whether target, which names nothing on

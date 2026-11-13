@@ -1,0 +1,73 @@
+package loader
+
+// Package loader finds the files of a program, lexes and parses them, and
+// puts them together into packages. It is a port of the Go compiler's
+// package loader, function by function, and loads what Go's loads, in the
+// same order, with the same diagnostics and the same errors, worded the
+// same. What a target is, how a package's files are chosen, what a module
+// and an import path are, and the order loading goes in are documented in
+// full in Go's loader/doc.go; what follows is where the port differs and
+// why.
+//
+// It is the front of the pipeline: it takes what the command line names,
+// a single file (file), a directory (dir) or an import path (path), and
+// produces a Program, its packages each after those it imports and the
+// main package last, along with the source.Set every later stage renders
+// its diagnostics against. With Loader.stop set to stage_lex or
+// stage_parse it stops after that stage, having read only the target's
+// own files, and the Result holds their tokens or trees instead, for a
+// dump.
+//
+// Files. Go reads through an FS interface, the host's or an fs.FS a test
+// gives; the driver reads only the host's, so the port reads the host's
+// file system through std/os alone (see fs.tck), and has no FS. Go's
+// Std.FS is nil in the driver, so std is read as everything else is, and
+// a directory at or below std's root is in the module std. Every failure
+// of the file system is worded as Go's os package words it. Where std/os
+// cannot tell the port which call failed, or gives an errno whose Go
+// wording is not known, the failure is unworded (see Fail), and the
+// driver answers that it is not implemented, rather than guess at Go's
+// words. Go reads each directory entry's type from the OS's listing;
+// std/os lists names alone, so the port lstats each entry, which gives
+// the same type, a symbolic link never a directory.
+//
+// Errors. Go's loader returns an error, a value with a text and what
+// errors.Is finds in it, beside its Result; the port returns a Fail,
+// which records the two errors.Is questions the loader asks of one,
+// fs.ErrNotExist and errNoTackFiles. A Tack error beside it is only ever
+// the builtin append's out of memory.
+//
+// Names. Go's source.FileID is a file's name as a diagnostic shows it;
+// the port's is the file's index in the Set (see package source), so a
+// diagnostic's span names its file by index, and the driver sorts
+// diagnostics by the files' names, as Go sorts them by FileID. A file
+// read is added to the Set once lexed, since the lexer takes it as mut,
+// and is given the FileID it gets there when read. A name is shown as Go's
+// driver shows it, relative to the current directory when the target is
+// a directory or an import path (relative_to), and as it is for a single
+// file.
+//
+// Imports. Go loads a package's imports by recursion, a call for each
+// package down an import chain, on a stack that grows. The port's stack
+// does not grow, and an import chain is as long as a program makes it, so
+// the packages being loaded are a stack of the loader's own (see Graph),
+// and loading steps through them in the order Go's recursion does, each
+// package finished, and added to the program, when its last import is.
+// An import's package, Go's Import.Package, a pointer, is the index of
+// the package in the program, in Package.imports, -1 for none.
+//
+// Package names. Go checks a package name against the lexer's keywords,
+// package types' builtin type names and package builtin's functions; the
+// port has neither package types nor builtin yet, so their names are
+// listed here (see names.tck).
+//
+// Libraries and test mode. Go's Loader.Lib, the driver's --check, and
+// its test mode, tack test's, are not ported yet: the driver comes with
+// them, at the end of the port.
+//
+// Invariants. A Result has a program, or diagnostics, or both, unless
+// loading was stopped at Loader.stop or failed. A program's errors is
+// the number of the Result's diagnostics. Every package of a program has
+// at least one file, and every file a package clause that parsed. An
+// import is bound to no package exactly when it was reported, or when
+// the package it names was reported, as in Go.

@@ -1,0 +1,455 @@
+package loader
+
+import ast from "tack/ast"
+import bytes from "std/bytes"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import modfile from "tack/modfile"
+import source from "tack/source"
+import text from "std/text"
+
+// builtin_path is the path of the package that documents the builtins.
+var builtin_path = "std/builtin"
+
+// Seen is a package the graph has looked at, Go's state and packages
+// maps for one import path: loading says its imports are being loaded,
+// further down the stack, so importing it again closes a cycle; index is
+// where it is in the program's packages once loaded, or -1 when it could
+// not be loaded, having been reported.
+type Seen struct {
+    path text.Text
+    loading bool
+    index int64
+}
+
+// Frame is a package whose imports are being loaded, Go's call of
+// loadImports for it: the package, the position of the next import to
+// load, its file and its import in that file, and the Seen that stands
+// for it, -1 for the main package's.
+type Frame struct {
+    pkg Package
+    file int64
+    imp int64
+    seen int64
+}
+
+// Graph loads the packages a program's main package imports, directly
+// or not, depth first, Go's graph. Go recurses, a call of loadImports
+// for each package on the way down; Tack's stack does not grow, and an
+// import chain is as long as a program makes it, so here the packages
+// being loaded are a stack of Frames of the graph's own, and each step
+// loads the next import of the innermost one, or, when it has none left,
+// finishes it. paths holds the import paths of the packages on the
+// stack, outermost first, Go's stack.
+type Graph struct {
+    has_mod bool
+    mod Module
+    has_std bool
+    std Module
+    main_path text.Text
+    main_name text.Text
+    seen list[Seen]
+    stack list[Frame]
+    paths list[text.Text]
+    order list[Package]
+    diags list[diag.Diagnostic]
+    // stopped says a package failed to lex, or had a file with no tree,
+    // and res holds why; abort, an unworded failure met reading a
+    // package, which stops loading as stopped does.
+    stopped bool
+    abort Fail
+}
+
+// no_module returns a Module with an empty root and name, made through
+// alloc, which stands for Go's nil *module.
+func no_module(alloc Allocator) Module {
+    return Module{root: text.new(alloc), name: text.new(alloc)}
+}
+
+// new_graph returns a Graph for the program whose main package is main,
+// taken over, in mod when has_mod says there is one.
+func new_graph(l Loader, has_mod bool, own mod Module, own main Package) (Graph, error) {
+    mut std := no_module(l.alloc)
+    if l.has_std {
+        std = l.std_module()?
+    }
+    mp := text_of(main.path.bytes(), l.alloc)?
+    mn := text_of(main.name.bytes(), l.alloc)?
+    mp2 := text_of(main.path.bytes(), l.alloc)?
+    mut stack := make(list[Frame], l.alloc)
+    append(mut stack, Frame{pkg: main, file: 0, imp: 0, seen: -1})?
+    mut paths := make(list[text.Text], l.alloc)
+    append(mut paths, mp2)?
+    return Graph{
+        has_mod: has_mod,
+        mod: mod,
+        has_std: l.has_std,
+        std: std,
+        main_path: mp,
+        main_name: mn,
+        seen: make(list[Seen], l.alloc),
+        stack: stack,
+        paths: paths,
+        order: make(list[Package], l.alloc),
+        diags: make(list[diag.Diagnostic], l.alloc),
+        stopped: false,
+        abort: no_fail(l.alloc),
+    }, noerror
+}
+
+// finish loads everything the main package imports and records in res
+// the program, the diagnostics found loading it, or both, Go's finish.
+// An import that could not be loaded is reported and bound to no
+// package, and the program built without it; one whose package did not
+// lex stops loading, with no program.
+func (mut g Graph) finish(l Loader, mut res Result) error {
+    for !g.stopped && !g.abort.failed {
+        done := mut g.step(l, mut res)?
+        if done {
+            break
+        }
+    }
+    diags := replace(mut g.diags, make(list[diag.Diagnostic], l.alloc))
+    report(mut res, stage_load, own diags)?
+    if g.stopped || g.abort.failed {
+        return noerror
+    }
+    main, ok := pop(mut g.stack)
+    if !ok {
+        return noerror
+    }
+    mut packages := replace(mut g.order, make(list[Package], l.alloc))
+    append(mut packages, main_of(own main))?
+    res.program = Program{packages: packages, errors: len(res.diags)}
+    res.has_program = true
+    return noerror
+}
+
+// main_of returns the package of f, taking it over.
+func main_of(own f Frame) Package {
+    mut fr := f
+    return replace(mut fr.pkg, new_package(c_allocator))
+}
+
+// step loads the next import of the innermost package being loaded, or
+// finishes that package when it has none left, and reports whether the
+// main package, the outermost, has none left. The innermost frame is
+// taken off the stack while its import is loaded, and put back, with
+// the package that import names pushed after it when that is to be
+// loaded next.
+func (mut g Graph) step(l Loader, mut res Result) (bool, error) {
+    mut fr, ok := pop(mut g.stack)
+    if !ok {
+        return true, noerror
+    }
+    if fr.file >= len(fr.pkg.files) || fr.file < 0 {
+        if len(g.stack) == 0 {
+            append(mut g.stack, fr)?
+            return true, noerror
+        }
+        mut g.finish_frame(own fr)?
+        return false, noerror
+    }
+    mut n id[ast.Node]
+    mut found := false
+    // A scan of the package's files for the one at fr.file, each step,
+    // quadratic in a package's files, which are few; a file is read in
+    // place, since one cannot be copied out.
+    for i, t := range fr.pkg.files {
+        if i == fr.file {
+            nn, has := t.imports[fr.imp]
+            n = nn
+            found = has
+        }
+    }
+    if !found {
+        fr.file = fr.file +% 1
+        fr.imp = 0
+        append(mut g.stack, fr)?
+        return false, noerror
+    }
+    fr.imp = fr.imp +% 1
+    mut p := text.new(l.alloc)
+    mut sp := ast.unset_span()
+    mut is_import := false
+    for i, t := range fr.pkg.files {
+        if i == fr.file {
+            switch t.kind(n) {
+            case import_decl(imp):
+                mut p.append(t.text(imp.path))?
+                sp = imp.path_span
+                is_import = true
+            default:
+            }
+        }
+    }
+    if !is_import {
+        // Every import of a tree is an import node, so this does not
+        // happen; the import is bound to no package should it.
+        append(mut fr.pkg.imports, -1)?
+        append(mut g.stack, fr)?
+        return false, noerror
+    }
+    from_mod := text_of(fr.pkg.module.bytes(), l.alloc)?
+    index, next, pushed := mut g.load(l, mut res, from_mod.bytes(), p.bytes(), sp)?
+    if !pushed {
+        append(mut fr.pkg.imports, index)?
+    }
+    append(mut g.stack, fr)?
+    if pushed {
+        pt := text_of(next.pkg.path.bytes(), l.alloc)?
+        append(mut g.paths, pt)?
+        append(mut g.stack, next)?
+    }
+    return false, noerror
+}
+
+// finish_frame finishes fr, the innermost package being loaded, taken
+// off the stack, all of whose imports are loaded: it becomes the next of
+// the program's packages, as Go's loadPackage appends it to order once
+// loadImports returns, and the import that named it, in the package
+// below it on the stack, is bound to it.
+func (mut g Graph) finish_frame(own fr Frame) error {
+    index := len(g.order)
+    set_seen(mut g.seen, fr.seen, false, index)
+    pop(mut g.paths)
+    append(mut g.order, main_of(own fr))?
+    mut below, has := pop(mut g.stack)
+    if has {
+        append(mut below.pkg.imports, index)?
+        append(mut g.stack, below)?
+    }
+    return noerror
+}
+
+// set_seen sets Seen i of l, when there is one, to loading and index.
+func set_seen(mut l list[Seen], i int64, loading bool, index int64) {
+    if i >= 0 && i < len(l) {
+        l[i].loading = loading
+        l[i].index = index
+    }
+}
+
+// seen_state returns whether Seen i of l is loading, its index, and
+// true, or false when there is no Seen i.
+func seen_state(l []Seen, i int64) (bool, int64, bool) {
+    if i >= 0 && i < len(l) {
+        return l[i].loading, l[i].index, true
+    }
+    return false, -1, false
+}
+
+// find returns the index in g.seen of the package whose import path is
+// p, or -1 when it has not been looked at.
+func (g Graph) find(p []uint8) int64 {
+    for i, s := range g.seen {
+        if s.path.equal(p) {
+            return i
+        }
+    }
+    return -1
+}
+
+// load returns the index in the program of the package that p, the path
+// of an import at sp of a package of the module named from, names, Go's
+// load: the package already loaded, or -1, with the problem recorded,
+// when it cannot be imported; or, with true, the Frame of the package,
+// to be pushed so its imports load first, when it is looked at for the
+// first time and its files load, the import being bound once it is
+// finished.
+func (mut g Graph) load(l Loader, mut res Result, from_mod []uint8, p []uint8, sp source.Span) (int64, Frame, bool, error) {
+    none := Frame{pkg: new_package(l.alloc), file: 0, imp: 0, seen: -1}
+    mut msg := make(list[uint8], l.alloc)
+    mod, bad := g.module_of(l, mut msg, from_mod, p)?
+    if bad {
+        mut g.error_at(l, own msg, sp)?
+        return -1, none, false, noerror
+    }
+    if g.main_path.equal(p) && g.main_name.equal([]uint8(main_package)) {
+        mut g.cannot_import_main(l, p, sp)?
+        return -1, none, false, noerror
+    }
+    loading, index, seen := seen_state(g.seen, g.find(p))
+    if seen {
+        if loading {
+            g.cycle(mut msg, p)?
+            mut g.error_at(l, own msg, sp)?
+            return -1, none, false, noerror
+        }
+        return index, none, false, noerror
+    }
+    pt := text_of(p, l.alloc)?
+    append(mut g.seen, Seen{path: pt, loading: true, index: -1})?
+    k := len(g.seen) -% 1
+    fr, pushed := mut g.load_package(l, mut res, own mod, p, sp, k)?
+    if !pushed {
+        set_seen(mut g.seen, k, false, -1)
+    }
+    return -1, fr, pushed, noerror
+}
+
+// cannot_import_main records the error for an import, at sp, of p, a
+// main package.
+func (mut g Graph) cannot_import_main(l Loader, p []uint8, sp source.Span) error {
+    mut msg := make(list[uint8], l.alloc)
+    append(mut msg, []uint8("cannot import ")...)?
+    modfile.show(mut msg, p)?
+    append(mut msg, []uint8(": it is a main package")...)?
+    return mut g.error_at(l, own msg, sp)
+}
+
+// load_package loads the package that p, an import at sp, names in mod,
+// which has not been looked at and is g.seen[k], Go's loadPackage up to
+// its call of loadImports: it reads and parses the package's files and
+// checks their clauses, and, when all is well, returns its Frame, to be
+// pushed so its imports are loaded next, and true. A package that cannot be loaded is
+// reported, or stops loading, and false is returned.
+func (mut g Graph) load_package(l Loader, mut res Result, own mod Module, p []uint8, sp source.Span, k int64) (Frame, bool, error) {
+    none := Frame{pkg: new_package(l.alloc), file: 0, imp: 0, seen: -1}
+    mut msg := make(list[uint8], l.alloc)
+    dir, bad_dir := mod.dir_of(p, mut msg, l.alloc)?
+    if bad_dir {
+        // module_of found p in mod, so this does not happen.
+        mut g.error_at(l, own msg, sp)?
+        return none, false, noerror
+    }
+    files, c_files, f := l.read_package_files(res, dir.bytes())?
+    if f.unworded {
+        g.abort = f
+        return none, false, noerror
+    }
+    if f.failed {
+        append(mut msg, []uint8("cannot find package ")...)?
+        modfile.show(mut msg, p)?
+        if f.not_exist {
+            append(mut msg, []uint8(": no directory ")...)?
+            modfile.show(mut msg, p)?
+            fmt.appendf(mut msg, " in module %s", mod.name.bytes())?
+        } else {
+            append(mut msg, ':', ' ')?
+            append(mut msg, f.msg...)?
+        }
+        mut g.error_at(l, own msg, sp)?
+        return none, false, noerror
+    }
+    mut pkg, ok := l.parse_package(mut res, own files)?
+    if !ok {
+        g.stopped = true
+        return none, false, noerror
+    }
+    mut diags := l.check_clauses(dir.bytes(), p, pkg)?
+    if len(diags) > 0 {
+        for i := range len(diags) {
+            append(mut g.diags, replace(mut diags[i], make(diag.Diagnostic, l.alloc)))?
+        }
+        return none, false, noerror
+    }
+    if pkg.name.equal([]uint8(main_package)) {
+        mut g.cannot_import_main(l, p, sp)?
+        return none, false, noerror
+    }
+    mut pkg.path.append(p)?
+    mut pkg.module.append(mod.name.bytes())?
+    mut pkg.dir.append(dir.bytes())?
+    pkg.c_files = c_files
+    return Frame{pkg: pkg, file: 0, imp: 0, seen: k}, true, noerror
+}
+
+// module_of returns the module whose package p, imported by a package
+// of the module named from, names, Go's moduleOf, or, having appended
+// why p cannot be imported to msg, true, before looking for it. A path
+// in the module being loaded, its name or below it, imported by one of
+// its own packages, is in that module, even one named std; any other
+// path whose first part is std is in the standard library; any other is
+// in the main package's module, which a package of std, or a program
+// built from a single file, has none of.
+func (g Graph) module_of(l Loader, mut msg list[uint8], from_mod []uint8, p []uint8) (Module, bool, error) {
+    none := no_module(l.alloc)
+    if bytes.equal(p, []uint8(builtin_path)) {
+        append(mut msg, []uint8(builtin_path)...)?
+        append(mut msg, []uint8(" documents the builtins and cannot be imported")...)?
+        return none, true, noerror
+    }
+    if g.has_mod && bytes.equal(from_mod, g.mod.name.bytes()) && under(p, g.mod.name.bytes()) {
+        m, bad := g.in_module(l, mut msg, p)?
+        return m, bad, noerror
+    }
+    if under(p, []uint8(std_name)) {
+        if !g.has_std {
+            append(mut msg, []uint8("cannot import ")...)?
+            modfile.show(mut msg, p)?
+            append(mut msg, []uint8(": there is no standard library")...)?
+            return none, true, noerror
+        }
+        if check_import_path(mut msg, p, []uint8(std_name), l.alloc)? {
+            return none, true, noerror
+        }
+        m := copy_module(g.std, l.alloc)?
+        return m, false, noerror
+    }
+    if bytes.equal(from_mod, []uint8(std_name)) {
+        append(mut msg, []uint8("cannot import ")...)?
+        modfile.show(mut msg, p)?
+        append(mut msg, []uint8(": a package of std can import only std packages")...)?
+        return none, true, noerror
+    }
+    if !g.has_mod {
+        append(mut msg, []uint8("cannot import ")...)?
+        modfile.show(mut msg, p)?
+        append(mut msg, []uint8(": a single file can import only the standard library")...)?
+        return none, true, noerror
+    }
+    m, bad := g.in_module(l, mut msg, p)?
+    return m, bad, noerror
+}
+
+// in_module returns g's module as the module of p, Go's inModule, or,
+// having appended why p names no package in it to msg, true.
+func (g Graph) in_module(l Loader, mut msg list[uint8], p []uint8) (Module, bool, error) {
+    none := no_module(l.alloc)
+    if check_import_path(mut msg, p, g.mod.name.bytes(), l.alloc)? {
+        return none, true, noerror
+    }
+    d, bad := g.mod.dir_of(p, mut msg, l.alloc)?
+    drop(own d)
+    if bad {
+        return none, true, noerror
+    }
+    m := copy_module(g.mod, l.alloc)?
+    return m, false, noerror
+}
+
+// copy_module returns a copy of m made through alloc.
+func copy_module(m Module, alloc Allocator) (Module, error) {
+    root := text_of(m.root.bytes(), alloc)?
+    nm := text_of(m.name.bytes(), alloc)?
+    return Module{root: root, name: nm}, noerror
+}
+
+// cycle appends to msg the message for importing p while it is being
+// loaded, Go's cycle: the imports from p round to p again, each path as
+// show writes it.
+func (g Graph) cycle(mut msg list[uint8], p []uint8) error {
+    mut start int64 = 0
+    for i, q := range g.paths {
+        if q.equal(p) {
+            start = i
+        }
+    }
+    append(mut msg, []uint8("import cycle: ")...)?
+    for i, q := range g.paths {
+        if i < start {
+            continue
+        }
+        modfile.show(mut msg, q.bytes())?
+        append(mut msg, []uint8(" imports ")...)?
+    }
+    return modfile.show(mut msg, p)
+}
+
+// error_at records an error at sp, an import's path, saying msg, taken
+// over.
+func (mut g Graph) error_at(l Loader, own msg list[uint8], sp source.Span) error {
+    m := text.from_bytes(msg, l.alloc)?
+    return append(mut g.diags, diag.new_error(own m, sp, l.alloc))
+}

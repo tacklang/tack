@@ -12,25 +12,43 @@ on the same inputs and compare what each writes and how it exits.
 
 ## Status
 
-The port has the compiler's first two stages: packages `source`, `diag`
-and `lexer`, and `ast`, `parser` and `constant`, ported from the Go
+The port has the compiler's first three stages: packages `source`,
+`diag` and `lexer`; `ast`, `parser` and `constant`, ported from the Go
 compiler's packages of those names, `constant` as far as the parser
 needs it: integer constants in full, and whether a float literal can be
-held exactly, without the float constant's value yet. The driver answers
-`tack --backends` as the Go compiler does, `tack --lex <file>` for a
-single file, the token dump, and `tack --ast <file>`, the syntax tree as
-JSON that decodes to the value the Go compiler writes; or the file's
-lexical or syntax errors, its usage errors and its errors reading the
-file, byte for byte as the Go compiler writes them. To any other
-command line, and to a dump it cannot answer yet, it writes one line
+held exactly, without the float constant's value yet; and `modfile` and
+`loader`, which find a program's files, in a directory, a module
+(`tack.mod`) and the packages it imports, std's among them, and put
+them together, as the Go compiler's do, but for its libraries, which
+`--check` loads, and its test mode, which `tack test` uses. The driver
+answers `tack --backends` as the Go compiler does; `tack --lex` and
+`tack --ast` of a single file, a directory or an import path, the token
+dump, a header line before each file's when there are several, and the
+syntax trees as JSON that decodes to the value the Go compiler writes,
+a list of them for a package; and `tack --res`, for which it loads the
+program in full, with the standard library, but only as far as loading
+goes: when loading stops with no program, its diagnostics are the
+answer, and otherwise there is a resolver to run, which the port has
+not got yet. Its usage errors, its errors reading files and
+directories, every load diagnostic and every load error are written
+byte for byte as the Go compiler writes them. To any other command
+line, and to what it cannot answer yet, it writes one line
 
     tack: not implemented in the port: <what>
 
 to standard error, naming the first argument, an unknown flag, or what
-it cannot do, as in `--lex of a directory`, and exits with status 3,
-which the harness reads as a stage the port does not implement yet. A
-file whose read fails with an error the port cannot word exactly as the
-Go compiler would is answered the same way.
+it cannot do, as in `--res of a program that loads`, and exits with
+status 3, which the harness reads as a stage the port does not
+implement yet. A file or directory whose reading fails with an error
+the port cannot word exactly as the Go compiler would is answered the
+same way (see package loader).
+
+The driver has one flag the Go compiler has not, `--port-loaded`, which
+writes what a load in full gives: the program's packages, in order,
+their files and C files, what each import is bound to, and every
+diagnostic in the order it was reported. tackc's porttest compares it
+with what the Go loader gives, until `--res` can dump a loaded program
+itself, when it goes.
 
 ### Known differences
 
@@ -55,6 +73,18 @@ These are known, and not fixed yet:
   for a thousand nested parentheses and 13 MB for a thousand nested
   calls, and crashes on both at the default stack. The recursion rule planned
   for the port bounds this for every build.
+- An entry of a directory that can be listed but not searched, a
+  directory with read but no execute permission, cannot be told a file
+  or a directory: std/os lists names alone, and the port lstats each
+  entry, which fails there, where Go reads the type from the listing
+  and goes on to fail opening the package's files. The port answers
+  not implemented for it, wherever it is met: as a target, an import,
+  or an import path named on the command line.
+- A file that cannot be read, a `.tck` file with no read permission,
+  gives `permission denied` from its open in Go; std/os's read_file
+  does not say whether its open or its read failed, so the port answers
+  not implemented, unless a directory on the way cannot be searched,
+  which an lstat shows.
 - Neither compiler limits the size of a source file. A file that never
   ends, such as `/proc/self/pagemap`, is read until memory runs out, by
   both. A limit for the port is a follow-up.
@@ -111,4 +141,5 @@ From tackc,
 
 fuzzes `--lex`: it builds both compilers once and runs tackc's
 FuzzLexDiff, which compares their output on generated inputs.
-`PORT_FUZZ=FuzzParseDiff` fuzzes `--ast` the same way.
+`PORT_FUZZ=FuzzParseDiff` fuzzes `--ast` the same way, and
+`PORT_FUZZ=FuzzLoadDiff` what both load from generated file trees.

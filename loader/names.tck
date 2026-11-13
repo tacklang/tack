@@ -1,0 +1,168 @@
+package loader
+
+import bytes from "std/bytes"
+import lexer from "tack/lexer"
+import modfile from "tack/modfile"
+import path from "std/path"
+
+// type_names are the names of the builtin types a program can write, as
+// Go's types.Lookup finds them: every basic type but the untyped ones.
+// The port has no package types yet, so they are listed here.
+var type_names = [17]string{"int64", "string", "bool", "int8", "int16", "int32", "uint8", "uint16", "uint32", "uint64", "unsafe_size_t", "unsafe_uintptr_t", "any", "error", "Allocator", "float32", "float64"}
+
+// func_names are the names of the builtins with a C body, which Go's
+// builtin.Default Set looks up: print and exit. The port has no package
+// builtin yet, so they are listed here.
+var func_names = [2]string{"print", "exit"}
+
+// in_names reports whether name is one of names.
+func in_names(name []uint8, names []string) bool {
+    for _, n := range names {
+        if bytes.equal(name, []uint8(n)) {
+            return true
+        }
+    }
+    return false
+}
+
+// check_package_name appends to out why name cannot be a package's name,
+// and returns true, or appends nothing and returns false if it can, Go's
+// checkPackageName: a package name is lowercase ASCII letters and
+// digits, starting with a letter, and is not a keyword, a builtin type's
+// name, or, when builtins says the program has them, a builtin
+// function's. main is a valid name.
+func check_package_name(mut out list[uint8], name []uint8, builtins bool) (bool, error) {
+    mut reason := ""
+    first, has_first := name[0]
+    _, is_keyword := lexer.lookup_keyword(name)
+    if !lower_alnum(name) {
+        reason = "use lowercase letters and digits"
+    } else if !has_first || first < 'a' || first > 'z' {
+        reason = "start with a letter"
+    } else if is_keyword {
+        reason = "it is a keyword"
+    } else if in_names(name, type_names) {
+        reason = "it is a builtin type"
+    } else if builtins && in_names(name, func_names) {
+        reason = "it is a builtin function"
+    } else {
+        return false, noerror
+    }
+    modfile.show(mut out, name)?
+    append(mut out, []uint8(" is not a valid package name: ")...)?
+    append(mut out, []uint8(reason)...)?
+    return true, noerror
+}
+
+// lower_alnum reports whether name is one or more lowercase ASCII
+// letters and digits.
+func lower_alnum(name []uint8) bool {
+    if len(name) == 0 {
+        return false
+    }
+    for _, c := range name {
+        if (c < 'a' || c > 'z') && (c < '0' || c > '9') {
+            return false
+        }
+    }
+    return true
+}
+
+// check_import_path appends to out why p cannot be an import path in the
+// module named mod, and returns true, or appends nothing and returns
+// false if it can, Go's checkImportPath: an import path starts with a
+// module's name, never with . or /, and its parts between slashes are
+// neither empty nor . or ..
+func check_import_path(mut out list[uint8], p []uint8, mod []uint8, alloc Allocator) (bool, error) {
+    if len(p) == 0 {
+        append(mut out, []uint8("import path is empty")...)?
+        return true, noerror
+    }
+    if bytes.has_prefix(p, []uint8("/")) {
+        append(mut out, []uint8("import path must start with a module name, such as ")...)?
+        suggest_path(mut out, p, mod, alloc)?
+        append(mut out, []uint8("; absolute paths are not allowed")...)?
+        return true, noerror
+    }
+    if bytes.equal(p, []uint8(".")) || bytes.equal(p, []uint8("..")) || bytes.has_prefix(p, []uint8("./")) || bytes.has_prefix(p, []uint8("../")) {
+        append(mut out, []uint8("import path must start with a module name, such as ")...)?
+        suggest_path(mut out, p, mod, alloc)?
+        append(mut out, []uint8("; relative paths are not allowed")...)?
+        return true, noerror
+    }
+    mut start int64 = 0
+    n := len(p)
+    for start <= n {
+        k := index_from(p, start, '/')
+        mut end := n
+        if k >= 0 {
+            end = k
+        }
+        // start and end are offsets within p, so end - start does not
+        // wrap.
+        width := end -% start
+        dot := width == 1 && byte_at(p, start) == '.'
+        // start is below end when width is 2, so start + 1 is within p.
+        dotdot := width == 2 && byte_at(p, start) == '.' && byte_at(p, start +% 1) == '.'
+        if width == 0 {
+            append(mut out, []uint8("invalid import path ")...)?
+            modfile.show(mut out, p)?
+            append(mut out, []uint8(": a part between slashes is empty")...)?
+            return true, noerror
+        }
+        if dot || dotdot {
+            append(mut out, []uint8("invalid import path ")...)?
+            modfile.show(mut out, p)?
+            append(mut out, []uint8(": a part cannot be . or ..")...)?
+            return true, noerror
+        }
+        if k < 0 {
+            break
+        }
+        // end is below n here, so end + 1 is at most n.
+        start = end +% 1
+    }
+    return false, noerror
+}
+
+// byte_at returns byte i of s, or 0 when i is outside s.
+func byte_at(s []uint8, i int64) uint8 {
+    c, ok := s[i]
+    if !ok {
+        return 0
+    }
+    return c
+}
+
+// index_from returns the offset of the first c in s at or after start,
+// or -1 when there is none.
+func index_from(s []uint8, start int64, c uint8) int64 {
+    mut i := start
+    for i < len(s) {
+        if byte_at(s, i) == c {
+            return i
+        }
+        // i is below len(s), so i + 1 never wraps.
+        i +%= 1
+    }
+    return -1
+}
+
+// suggest_path appends the import path a relative or absolute path p
+// probably means, its last part in the module named mod, Go's
+// suggestPath.
+func suggest_path(mut out list[uint8], p []uint8, mod []uint8, alloc Allocator) error {
+    base := path.base(p, alloc)?
+    append(mut out, mod...)?
+    return suggest_base(mut out, base.bytes())
+}
+
+// suggest_base appends the rest of suggest_path's path for b, the base
+// of the path it was given.
+func suggest_base(mut out list[uint8], b []uint8) error {
+    if bytes.equal(b, []uint8(".")) || bytes.equal(b, []uint8("..")) || bytes.equal(b, []uint8("/")) {
+        return append(mut out, []uint8("/<package>")...)
+    }
+    append(mut out, '/')?
+    return modfile.show(mut out, b)
+}

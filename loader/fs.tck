@@ -1,0 +1,258 @@
+package loader
+
+import os from "std/os"
+import text from "std/text"
+
+// The loader reads the host's file system through std/os, as Go's OS
+// reads it through package os, and words a failure as Go's os package
+// words it: the operation, the path as it was given, and the errno in
+// Go's syscall words, open /a/b: no such file or directory. std/os
+// gives an errno in macOS's strerror words, and some of its functions do
+// in one call what Go does in two, so the operation that failed is not
+// always known: where Go's wording cannot be told for certain, the
+// failure is unworded, and the driver answers that it is not implemented
+// rather than guess (see Fail).
+
+// Fail is a failure Go's loader returns as an error rather than a
+// diagnostic: msg is the error's text, as Go's Error method gives it,
+// not_exist says errors.Is(err, fs.ErrNotExist) holds, and no_tack that
+// errors.Is(err, errNoTackFiles) does. unworded says the port cannot
+// word the failure as Go would; msg then says what it could not word,
+// for the not implemented line, and the failure is never shown as an
+// error. A Fail with failed false is no failure.
+pub type Fail struct {
+    pub failed bool
+    pub unworded bool
+    pub not_exist bool
+    pub no_tack bool
+    pub msg list[uint8]
+}
+
+// no_fail returns the Fail that is no failure.
+pub func no_fail(alloc Allocator) Fail {
+    return Fail{failed: false, unworded: false, not_exist: false, no_tack: false, msg: make(list[uint8], alloc)}
+}
+
+// fail_with returns the failure whose text is msg, taken over.
+func fail_with(own msg list[uint8]) Fail {
+    return Fail{failed: true, unworded: false, not_exist: false, no_tack: false, msg: msg}
+}
+
+// unworded_fail returns the failure the port cannot word, what saying
+// what it is, for the not implemented line.
+func unworded_fail(what string, alloc Allocator) (Fail, error) {
+    mut msg := make(list[uint8], alloc)
+    append(mut msg, []uint8(what)...)?
+    return Fail{failed: true, unworded: true, not_exist: false, no_tack: false, msg: msg}, noerror
+}
+
+// wrap returns f with prefix put before its text, as Go's fmt.Errorf
+// with %w wraps an error, keeping what errors.Is finds in it. An
+// unworded failure is returned as it is: it is never shown.
+func wrap(prefix []uint8, own f Fail, alloc Allocator) (Fail, error) {
+    if f.unworded || !f.failed {
+        return f, noerror
+    }
+    mut msg := make(list[uint8], alloc)
+    append(mut msg, prefix...)?
+    append(mut msg, f.msg...)?
+    return Fail{failed: true, unworded: false, not_exist: f.not_exist, no_tack: f.no_tack, msg: msg}, noerror
+}
+
+// go_errno returns the text Go's syscall package gives on Linux for the
+// errno behind err, an error std/os returned, among those a path lookup,
+// an open or a read can fail with, or an empty string for any other.
+// std/os refuses a path holding a 0 byte, code 4, before the OS sees
+// it, where Go's call fails with EINVAL.
+pub func go_errno(err error) string {
+    if err.code == 4 {
+        return "invalid argument"
+    }
+    if err.code != 3 {
+        return ""
+    }
+    switch err.msg {
+    case "No such file or directory":
+        return "no such file or directory"
+    case "Permission denied":
+        return "permission denied"
+    case "Not a directory":
+        return "not a directory"
+    case "Is a directory":
+        return "is a directory"
+    case "Too many levels of symbolic links":
+        return "too many levels of symbolic links"
+    case "File name too long":
+        return "file name too long"
+    case "Too many open files in system":
+        return "too many open files in system"
+    case "Too many open files":
+        return "too many open files"
+    case "Text file busy":
+        return "text file busy"
+    case "Resource busy":
+        return "device or resource busy"
+    }
+    return ""
+}
+
+// is_enoent reports whether err is std/os's ENOENT, which Go's
+// errors.Is matches with fs.ErrNotExist; no other errno is.
+pub func is_enoent(err error) bool {
+    return err.code == 3 && err.msg == "No such file or directory"
+}
+
+// path_fail returns the failure Go's os package gives as a PathError,
+// op p: and the errno's text, for err, std/os's error for p.
+func path_fail(op string, p []uint8, err error, errno string, alloc Allocator) (Fail, error) {
+    mut msg := make(list[uint8], alloc)
+    append(mut msg, []uint8(op)...)?
+    append(mut msg, ' ')?
+    append(mut msg, p...)?
+    append(mut msg, ':', ' ')?
+    append(mut msg, []uint8(errno)...)?
+    return Fail{failed: true, unworded: false, not_exist: is_enoent(err), no_tack: false, msg: msg}, noerror
+}
+
+// open_only reports whether err, from std/os, is an errno only a path
+// lookup or an open can give, never a read of what was opened: Go words
+// it as the open's.
+func open_only(err error) bool {
+    if err.code == 4 {
+        return true
+    }
+    if err.code != 3 {
+        return false
+    }
+    switch err.msg {
+    case "No such file or directory", "Not a directory", "Too many levels of symbolic links", "File name too long", "Too many open files in system", "Too many open files", "Text file busy", "Resource busy":
+        return true
+    }
+    return false
+}
+
+// read_file reads the file at p, as Go's os.ReadFile does, and returns
+// its bytes, or the failure as Go words it: open p: and the errno for a
+// failed open, and read p: is a directory for a directory, which opens
+// and then fails to be read. std/os's read_file opens and reads in one
+// call and does not say which failed, so an errno either can give, EIO,
+// EINVAL, EACCES and EPERM, which a security module or a fanotify
+// listener can give a read, and EINTR, which Go retries and std/os does
+// not on an open, is unworded, and so is out of memory, which Go never
+// reports. EACCES is worded as the open's when an lstat of p fails with
+// it too: a directory on the way cannot be searched, so nothing was
+// opened (see lookup_denied).
+pub func read_file(p []uint8, alloc Allocator) (list[uint8], Fail, error) {
+    data, err := os.read_file(p, alloc)
+    if err.code == 0 {
+        return data, no_fail(alloc), noerror
+    }
+    empty := make(list[uint8], alloc)
+    if err.code == 3 && err.msg == "Is a directory" {
+        f := path_fail("read", p, err, "is a directory", alloc)?
+        return empty, f, noerror
+    }
+    errno := go_errno(err)
+    if (!open_only(err) || len(errno) == 0) && !lookup_denied(p, err) {
+        f := unworded_fail(" of a file whose read fails with an error the port cannot word as Go does", alloc)?
+        return empty, f, noerror
+    }
+    f := path_fail("open", p, err, errno, alloc)?
+    return empty, f, noerror
+}
+
+// lookup_denied reports whether err, std/os's error reading the file at
+// p, is EACCES that the lookup of p gave, a directory along it that
+// cannot be searched, which an lstat of p fails with too: the open
+// failed then, before anything could be read.
+func lookup_denied(p []uint8, err error) bool {
+    if err.code != 3 || err.msg != "Permission denied" {
+        return false
+    }
+    _, lerr := os.lstat(p)
+    return lerr.code == 3 && lerr.msg == "Permission denied"
+}
+
+// Entry is one entry of a directory, Go's fs.DirEntry as far as the
+// loader reads it: its name and whether it is a directory itself, not
+// following a symbolic link, which is never one.
+pub type Entry struct {
+    pub name text.Text
+    pub dir bool
+}
+
+// read_dir reads the directory p, as Go's os.ReadDir does, and returns
+// its entries sorted by name, bytewise, or the failure as Go words it,
+// open p: and the errno for a directory that cannot be opened. Go 1.27
+// opens it with O_DIRECTORY, as std/os's opendir does, so a file that is
+// not a directory fails the open in both, open p: not a directory.
+//
+// Go reads each entry's type from the OS's listing, and lstats it only
+// on a file system that gives none; std/os lists names alone, so here
+// each entry is lstat'd, which gives the same type. An entry lstat
+// cannot read, as in a directory that can be listed but not searched,
+// where Go's read succeeds and knows its type, is unworded, and is the
+// one failure here Go does not have (see list_fails). Of the errnos
+// list_dir can give, those only an open gives are worded as the open's,
+// and EACCES is too: listing a directory opened for reading fails with
+// it only through a security module. Any other errno, which a read of
+// the directory can give as well as its open, is unworded, and so is out
+// of memory.
+pub func read_dir(p []uint8, alloc Allocator) (list[Entry], Fail, error) {
+    mut entries := make(list[Entry], alloc)
+    names, err := os.list_dir(p, alloc)
+    if err.code != 0 {
+        f := list_fail(p, err, alloc)?
+        return entries, f, noerror
+    }
+    for _, nm := range names {
+        full := join_bytes(p, nm.bytes(), alloc)?
+        info, lerr := os.lstat(full.bytes())
+        if lerr.code != 0 {
+            f := unworded_fail(" of a directory whose entries cannot be looked at", alloc)?
+            return make(list[Entry], alloc), f, noerror
+        }
+        copy := text.from_bytes(nm.bytes(), alloc)?
+        append(mut entries, Entry{name: copy, dir: info.is_dir()})?
+    }
+    return entries, no_fail(alloc), noerror
+}
+
+// list_fail returns the failure for err, std/os's error listing the
+// directory p, as read_dir words it.
+func list_fail(p []uint8, err error, alloc Allocator) (Fail, error) {
+    errno := go_errno(err)
+    perm := err.code == 3 && err.msg == "Permission denied"
+    if len(errno) == 0 || !open_only(err) && !perm {
+        f := unworded_fail(" of a directory whose listing fails with an error the port cannot word as Go does", alloc)?
+        return f, noerror
+    }
+    f := path_fail("open", p, err, errno, alloc)?
+    return f, noerror
+}
+
+// list_fails reports whether Go's os.ReadDir of p fails: whether
+// std/os's list_dir does, which fails where Go's does, at the open or at
+// the read, but not where read_dir alone does, on an entry whose type
+// cannot be read.
+pub func list_fails(p []uint8, alloc Allocator) (bool, error) {
+    names, err := os.list_dir(p, alloc)
+    if err.code == 1 {
+        return false, err
+    }
+    if err.code != 0 {
+        return true, noerror
+    }
+    drop(own names)
+    return false, noerror
+}
+
+// join_bytes returns a, a slash and b, uncleaned, as Go names an entry
+// it lstats, parent + "/" + name.
+func join_bytes(a []uint8, b []uint8, alloc Allocator) (text.Text, error) {
+    mut t := text.new(alloc)
+    mut t.append(a)?
+    mut t.append_byte('/')?
+    mut t.append(b)?
+    return t, noerror
+}

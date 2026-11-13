@@ -1,0 +1,217 @@
+package loader
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import modfile from "tack/modfile"
+import path from "std/path"
+import text from "std/text"
+
+// std_name is the name of the standard library's module, the first part
+// of the import path of each of its packages.
+var std_name = "std"
+
+// Module is a module found on disk, Go's module: the directory holding
+// its tack.mod, and the name the tack.mod gives it. Every module is read
+// from the host's file system, so it needs no FS of its own.
+pub type Module struct {
+    pub root text.Text
+    pub name text.Text
+}
+
+// std_module returns the module std, the standard library at l.std_dir:
+// its name is std whatever its tack.mod says, which is not read.
+func (l Loader) std_module() (Module, error) {
+    root := path.clean(l.std_dir.bytes(), l.alloc)?
+    nm := text_of([]uint8(std_name), l.alloc)?
+    return Module{root: root, name: nm}, noerror
+}
+
+// is_std_root reports whether the directory d is the root of std, Go's
+// isStdRoot for a standard library read through the Loader's own file
+// system, as the driver's always is.
+func (l Loader) is_std_root(d []uint8) (bool, error) {
+    if !l.has_std {
+        return false, noerror
+    }
+    a := path.clean(d, l.alloc)?
+    b := path.clean(l.std_dir.bytes(), l.alloc)?
+    return bytes.equal(a.bytes(), b.bytes()), noerror
+}
+
+// find_module finds the module dir belongs to, Go's findModule: the
+// nearest directory at or above dir holding a tack.mod, which it reads
+// into res and parses. It fails when there is none, or one cannot be
+// read; a malformed one gives no module, with its diagnostics recorded
+// in res. The root of std is the module std, whose tack.mod is not read.
+func (l Loader) find_module(mut res Result, dir []uint8) (Module, bool, Fail, error) {
+    mut d := text_of(dir, l.alloc)?
+    for {
+        if l.is_std_root(d.bytes())? {
+            m := l.std_module()?
+            return m, true, no_fail(l.alloc), noerror
+        }
+        name := path.join(d.bytes(), []uint8(modfile.name), l.alloc)?
+        data, f := read_file(name.bytes(), l.alloc)?
+        if !f.failed {
+            m, ok := l.parse_module(mut res, d.bytes(), name.bytes(), own data)?
+            return m, ok, no_fail(l.alloc), noerror
+        }
+        if f.unworded {
+            return no_module(l.alloc), false, f, noerror
+        }
+        if !f.not_exist {
+            mut prefix := make(list[uint8], l.alloc)
+            shown := l.display(name.bytes())?
+            fmt.appendf(mut prefix, "cannot read %s: ", shown.bytes())?
+            w := wrap(prefix, own f, l.alloc)?
+            return no_module(l.alloc), false, w, noerror
+        }
+        parent := path.dir(d.bytes(), l.alloc)?
+        if parent.equal(d.bytes()) {
+            mut msg := make(list[uint8], l.alloc)
+            shown := l.display(dir)?
+            fmt.appendf(mut msg, "no %s found in %s or any parent directory", modfile.name, shown.bytes())?
+            return no_module(l.alloc), false, fail_with(own msg), noerror
+        }
+        d = parent
+    }
+}
+
+// parse_module parses data, the tack.mod at name in the directory root,
+// taken over, recording it in res, and returns the module it declares
+// and true, or false with its diagnostics recorded in res.
+func (l Loader) parse_module(mut res Result, root []uint8, name []uint8, own data list[uint8]) (Module, bool, error) {
+    mut f := l.new_file(res, 0, name, own data)?
+    mut mf, ok, diags := modfile.parse(mut f, l.alloc)?
+    mut res.files.add(own f)?
+    if !ok {
+        report(mut res, stage_load, own diags)?
+        return no_module(l.alloc), false, noerror
+    }
+    r := text_of(root, l.alloc)?
+    return Module{root: r, name: replace(mut mf.module, text.new(l.alloc))}, true, noerror
+}
+
+// path_of returns the import path of dir, a directory at or below the
+// module's root, Go's pathOf: the module's name, then dir's path below
+// the root.
+func (m Module) path_of(dir []uint8, alloc Allocator) (text.Text, error) {
+    t := path_below(m.name.bytes(), m.root.bytes(), dir, alloc)?
+    return t, noerror
+}
+
+// path_below returns the import path of dir in the module named name
+// whose root is root, as path_of gives it.
+func path_below(name []uint8, root []uint8, dir []uint8, alloc Allocator) (text.Text, error) {
+    mut out := text.new(alloc)
+    mut out.append(name)?
+    if bytes.equal(dir, root) {
+        return out, noerror
+    }
+    mut out.append_byte('/')?
+    if bytes.equal(root, []uint8(".")) {
+        mut out.append(dir)?
+        return out, noerror
+    }
+    if bytes.equal(root, []uint8("/")) {
+        mut out.append(trim_prefix(dir, []uint8("/")))?
+        return out, noerror
+    }
+    mut prefix := make(list[uint8], alloc)
+    append(mut prefix, root...)?
+    append(mut prefix, '/')?
+    mut out.append(trim_prefix(dir, prefix))?
+    return out, noerror
+}
+
+// trim_prefix returns s without prefix when it starts with it, and s
+// otherwise, Go's strings.TrimPrefix.
+func trim_prefix(s []uint8, prefix []uint8) []uint8 {
+    if bytes.has_prefix(s, prefix) && len(prefix) <= len(s) {
+        return s[len(prefix):]
+    }
+    return s
+}
+
+// dir_of returns the directory the import path import_path names in the
+// module, Go's dirOf, or, having appended why it names none to msg,
+// true: its first parts must be the module's name.
+func (m Module) dir_of(import_path []uint8, mut msg list[uint8], alloc Allocator) (text.Text, bool, error) {
+    t, bad := dir_below(m.name.bytes(), m.root.bytes(), import_path, mut msg, alloc)?
+    return t, bad, noerror
+}
+
+// dir_below returns the directory import_path names in the module named
+// nm whose root is root, as dir_of gives it.
+func dir_below(nm []uint8, root []uint8, import_path []uint8, mut msg list[uint8], alloc Allocator) (text.Text, bool, error) {
+    if bytes.equal(import_path, nm) {
+        r := text_of(root, alloc)?
+        return r, false, noerror
+    }
+    mut prefix := make(list[uint8], alloc)
+    append(mut prefix, nm...)?
+    append(mut prefix, '/')?
+    if !bytes.has_prefix(import_path, prefix) || len(prefix) > len(import_path) {
+        mut first := len(import_path)
+        k := bytes.index_byte(import_path, '/')
+        if k >= 0 && k <= len(import_path) {
+            first = k
+        }
+        append(mut msg, []uint8("unknown module ")...)?
+        if first >= 0 && first <= len(import_path) {
+            modfile.show(mut msg, import_path[:first])?
+        }
+        append(mut msg, []uint8(" in import path ")...)?
+        modfile.show(mut msg, import_path)?
+        return text.new(alloc), true, noerror
+    }
+    d := path.join(root, import_path[len(prefix):], alloc)?
+    return d, false, noerror
+}
+
+// under reports whether the import path p is the module name mod or
+// below it.
+func under(p []uint8, mod []uint8) bool {
+    if bytes.equal(p, mod) {
+        return true
+    }
+    return bytes.has_prefix(p, mod) && len(mod) < len(p) && byte_at(p, len(mod)) == '/'
+}
+
+// relative_to returns name shown relative to dir, as the Go driver's
+// relativeTo does with filepath.Rel: both cleaned, the path below dir
+// when name is dir or below it, . for dir itself, and name as it is
+// otherwise, when the relative path would climb out of dir with ...
+// Both are absolute paths, as the loader's names and the current
+// directory are, which is all Rel needs to be this; a relative one,
+// which Rel cannot relate to an absolute one, is shown as it is.
+pub func relative_to(dir []uint8, name []uint8, alloc Allocator) (text.Text, error) {
+    base := path.clean(dir, alloc)?
+    targ := path.clean(name, alloc)?
+    r := relative_clean(base.bytes(), targ.bytes(), name, alloc)?
+    return r, noerror
+}
+
+// relative_clean is relative_to for b and t, dir and name cleaned.
+func relative_clean(b []uint8, t []uint8, name []uint8, alloc Allocator) (text.Text, error) {
+    if !bytes.has_prefix(b, []uint8("/")) || !bytes.has_prefix(t, []uint8("/")) {
+        r := text_of(name, alloc)?
+        return r, noerror
+    }
+    if bytes.equal(b, t) {
+        r := text_of([]uint8("."), alloc)?
+        return r, noerror
+    }
+    if bytes.equal(b, []uint8("/")) && len(t) >= 1 {
+        r := text_of(t[1:], alloc)?
+        return r, noerror
+    }
+    // b is shorter than t below, so len(b) + 1 is at most len(t).
+    k := len(b) +% 1
+    if bytes.has_prefix(t, b) && len(b) < len(t) && byte_at(t, len(b)) == '/' && k >= 0 && k <= len(t) {
+        r := text_of(t[k:], alloc)?
+        return r, noerror
+    }
+    r := text_of(name, alloc)?
+    return r, noerror
+}

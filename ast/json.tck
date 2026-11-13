@@ -2,6 +2,7 @@ package ast
 
 import json from "std/json"
 import source from "tack/source"
+import text from "std/text"
 
 // The --ast dump. Go's driver renders a File with encoding/json, whose
 // reflection writes each node as an object of its struct's exported
@@ -43,6 +44,41 @@ pub func dump(f File, name []uint8, scope alloc Allocator) (list[uint8], string,
     }
     out := mut d.w.finish(alloc)?
     return out, "", noerror
+}
+
+// dump_list returns the JSON value of trees, the trees of several files,
+// each named by the name at its index in names, as Go's driver writes a
+// []*ast.File for --ast: an array of what dump gives for each, which
+// opens one container more around them, so Go's encoder refuses a tree
+// one level shallower than dump does. Its refusal and its errors are
+// dump's.
+pub func dump_list(trees []File, names []text.Text, scope alloc Allocator) (list[uint8], string, error) {
+    mut d := Dumper{w: json.new_writer(alloc), depth: 0, stack: make(list[Frame], alloc), in_ident: false, deep_in_ident: false}
+    e := write_files(trees, names, mut d)
+    if e.code == too_deep.code && e.msg == too_deep.msg {
+        return make(list[uint8], alloc), refusal(d.deep_in_ident), noerror
+    }
+    if e.code != 0 {
+        return make(list[uint8], alloc), "", e
+    }
+    out := mut d.w.finish(alloc)?
+    return out, "", noerror
+}
+
+// write_files writes trees, each named by the name at its index in
+// names, as an array.
+func write_files(trees []File, names []text.Text, mut d Dumper) error {
+    mut d.begin_array()?
+    // Each tree's name is found by a scan of names, quadratic in a
+    // package's files, which are few.
+    for i, f := range trees {
+        for j, n := range names {
+            if j == i {
+                write_file(f, n.bytes(), mut d)?
+            }
+        }
+    }
+    return mut d.end_array()
 }
 
 // refusal returns how Go's encoder words its refusal of a value nested

@@ -1,0 +1,282 @@
+package modfile
+
+import bytes from "std/bytes"
+import conv from "std/conv"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import source from "tack/source"
+import text from "std/text"
+
+// name is the name of the root file, which marks a module's root
+// directory, Go's Name.
+pub var name = "tack.mod"
+
+// ModFile is what a tack.mod declares, Go's File: the module's name and
+// where it is written.
+pub type ModFile struct {
+    pub module text.Text
+    pub module_span source.Span
+}
+
+// Field is one word of a line: the bytes [start, end) of the file.
+type Field struct {
+    start int64
+    end int64
+}
+
+// Parser holds what parse has found so far: the file's id and data, the
+// module line seen, if any, and the diagnostics.
+type Parser struct {
+    fid source.FileID
+    has_mod bool
+    mod_start int64
+    mod_end int64
+    diags list[diag.Diagnostic]
+    alloc Allocator
+}
+
+// parse reads the tack.mod f holds, recording its line starts in f so
+// its diagnostics can be rendered, as Go's Parse does. It returns the
+// ModFile and true, or every problem found with it and false. Everything
+// is made through alloc.
+pub func parse(mut f source.File, alloc Allocator) (ModFile, bool, list[diag.Diagnostic], error) {
+    mut p := Parser{fid: f.id, has_mod: false, mod_start: 0, mod_end: 0, diags: make(list[diag.Diagnostic], alloc), alloc: alloc}
+    mut start int64 = 0
+    n := len(f.data)
+    for start <= n {
+        mut f.add_line_start(start)?
+        end := index_byte(f.data, start, n, '\n')
+        if end < 0 {
+            mut p.line(f.data, start, n)?
+            break
+        }
+        mut p.line(f.data, start, end)?
+        // end is an offset within the file, so end + 1 is at most its
+        // length and never wraps.
+        start = end +% 1
+    }
+    mut diags := replace(mut p.diags, make(list[diag.Diagnostic], alloc))
+    if !p.has_mod && len(diags) == 0 {
+        mut msg := make(list[uint8], alloc)
+        fmt.appendf(mut msg, "%s declares no module; write module <name>", name)?
+        m := text.from_bytes(msg, alloc)?
+        append(mut diags, diag.new_error(own m, source.Span{file: f.id, start: 0, end: 0}, alloc))?
+    }
+    if len(diags) > 0 || !p.has_mod {
+        return ModFile{module: text.new(alloc), module_span: source.Span{file: f.id, start: 0, end: 0}}, false, diags, noerror
+    }
+    module := text.from_bytes(part(f.data, p.mod_start, p.mod_end), alloc)?
+    sp := source.Span{file: f.id, start: p.mod_start, end: p.mod_end}
+    return ModFile{module: module, module_span: sp}, true, diags, noerror
+}
+
+// part returns the view of s from a up to b, or an empty view when those
+// are not bounds of s.
+func part(s []uint8, a int64, b int64) []uint8 {
+    if a < 0 || b < a || b > len(s) {
+        return s[:0]
+    }
+    return s[a:b]
+}
+
+// index_byte returns the offset of the first c in data[start:end], or -1
+// when there is none there.
+func index_byte(data []uint8, start int64, end int64, c uint8) int64 {
+    mut i := start
+    for i < end {
+        b, ok := data[i]
+        if !ok {
+            return -1
+        }
+        if b == c {
+            return i
+        }
+        // i is below end, an offset within data, so i + 1 never wraps.
+        i +%= 1
+    }
+    return -1
+}
+
+// line parses the line of data in [start, end), without its newline: a
+// trailing carriage return is dropped, and so is everything from the
+// first // on, and the words left are a directive and its arguments.
+func (mut p Parser) line(data []uint8, start int64, end int64) error {
+    mut stop := end
+    last, has_last := data[end -% 1]
+    if end > start && has_last && last == '\r' {
+        stop = end -% 1
+    }
+    i := bytes.index(part(data, start, stop), []uint8("//"))
+    if i >= 0 {
+        // i is within the line, so start + i is at most stop.
+        stop = start +% i
+    }
+    fields := split(data, start, stop, p.alloc)?
+    first, ok := fields[0]
+    if !ok {
+        return noerror
+    }
+    if !bytes.equal(part(data, first.start, first.end), []uint8("module")) {
+        mut msg := make(list[uint8], p.alloc)
+        append(mut msg, []uint8("unknown directive ")...)?
+        show(mut msg, part(data, first.start, first.end))?
+        append(mut msg, []uint8("; ")...)?
+        append(mut msg, []uint8(name)...)?
+        append(mut msg, []uint8(" holds only a module line")...)?
+        return mut p.error_at(first.start, first.end, msg)
+    }
+    return mut p.module(data, fields)
+}
+
+// module parses a module line, whose words are fields, the first of
+// them module: one more, the name, is the module's, unless one was
+// declared already or the name is not valid.
+func (mut p Parser) module(data []uint8, fields []Field) error {
+    first, ok := fields[0]
+    if !ok {
+        return noerror
+    }
+    if len(fields) == 1 {
+        mut msg := make(list[uint8], p.alloc)
+        append(mut msg, []uint8("module needs a name: module <name>")...)?
+        return mut p.error_at(first.start, first.end, msg)
+    }
+    third, has_third := fields[2]
+    if has_third {
+        mut msg := make(list[uint8], p.alloc)
+        append(mut msg, []uint8("unexpected ")...)?
+        show(mut msg, part(data, third.start, third.end))?
+        append(mut msg, []uint8(" after the module name; a module has one name")...)?
+        return mut p.error_at(third.start, third.end, msg)
+    }
+    nm, has_name := fields[1]
+    if !has_name {
+        return noerror
+    }
+    if p.has_mod {
+        msg := text.from_bytes([]uint8("module is already declared"), p.alloc)?
+        mut d := diag.new_error(own msg, source.Span{file: p.fid, start: first.start, end: first.end}, p.alloc)
+        note := text.from_bytes([]uint8("previous declaration of module"), p.alloc)?
+        append(mut d.related, diag.Related{
+            message: note,
+            marker: text.new(p.alloc),
+            span: source.Span{file: p.fid, start: p.mod_start, end: p.mod_end},
+            severity: diag.note,
+        })?
+        return append(mut p.diags, d)
+    }
+    mut msg := make(list[uint8], p.alloc)
+    if check_module(mut msg, part(data, nm.start, nm.end))? {
+        mut p.error_at(nm.start, nm.end, msg)?
+    }
+    p.has_mod = true
+    p.mod_start = nm.start
+    p.mod_end = nm.end
+    return noerror
+}
+
+// error_at records an error covering [start, end) saying msg.
+func (mut p Parser) error_at(start int64, end int64, msg []uint8) error {
+    m := text.from_bytes(msg, p.alloc)?
+    d := diag.new_error(own m, source.Span{file: p.fid, start: start, end: end}, p.alloc)
+    return append(mut p.diags, d)
+}
+
+// split returns the words of data[start:end]: the runs of bytes other
+// than spaces and tabs, each as the offsets of its bytes in data.
+func split(data []uint8, start int64, end int64, scope alloc Allocator) (list[Field], error) {
+    mut fields := make(list[Field], alloc)
+    mut i := start
+    // i and j stay from start to end, offsets within data, so none of
+    // the sums wraps.
+    for i < end {
+        if is_blank(data, i) {
+            i +%= 1
+            continue
+        }
+        mut j := i
+        for j < end && !is_blank(data, j) {
+            j +%= 1
+        }
+        append(mut fields, Field{start: i, end: j})?
+        i = j
+    }
+    return fields, noerror
+}
+
+// is_blank reports whether byte i of data is a space or a tab.
+func is_blank(data []uint8, i int64) bool {
+    c, ok := data[i]
+    return ok && (c == ' ' || c == '\t')
+}
+
+// check_module appends to out why nm cannot be a module's name, and
+// returns true, or appends nothing and returns false if it can, Go's
+// CheckModule: a module name is one or more parts joined by slashes, a
+// part being lowercase ASCII letters, digits, -, . and _, and not
+// starting or ending with . or -. std is a name like any other.
+pub func check_module(mut out list[uint8], nm []uint8) (bool, error) {
+    mut start int64 = 0
+    n := len(nm)
+    for start <= n {
+        k := index_byte(nm, start, n, '/')
+        mut end := n
+        if k >= 0 {
+            end = k
+        }
+        reason := check_part(part(nm, start, end))
+        if len(reason) > 0 {
+            append(mut out, []uint8("invalid module name ")...)?
+            show(mut out, nm)?
+            append(mut out, ':', ' ')?
+            append(mut out, []uint8(reason)...)?
+            return true, noerror
+        }
+        if k < 0 {
+            break
+        }
+        start = end +% 1
+    }
+    return false, noerror
+}
+
+// check_part returns why part cannot be a part of a module name, or an
+// empty string if it can.
+func check_part(p []uint8) string {
+    if len(p) == 0 {
+        return "a part between slashes is empty"
+    }
+    for _, c := range p {
+        if !module_byte(c) {
+            return "use lowercase letters, digits, -, . and _"
+        }
+    }
+    first, has_first := p[0]
+    last, has_last := p[len(p) - 1]
+    if has_first && edge(first) || has_last && edge(last) {
+        return "a part cannot start or end with . or -"
+    }
+    return ""
+}
+
+// module_byte reports whether c may be in a part of a module name.
+func module_byte(c uint8) bool {
+    return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '.' || c == '_'
+}
+
+// edge reports whether c may not start or end a part of a module name.
+func edge(c uint8) bool {
+    return c == '.' || c == '-'
+}
+
+// show appends s to out as a message writes it, Go's show: as it is if
+// every byte of it is printable ASCII, and Go-quoted otherwise, so an
+// odd byte is visible.
+pub func show(mut out list[uint8], s []uint8) error {
+    for _, c := range s {
+        if c < ' ' || c > '~' {
+            return conv.append_quote(mut out, s)
+        }
+    }
+    return append(mut out, s...)
+}

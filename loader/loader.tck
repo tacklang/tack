@@ -1,0 +1,665 @@
+package loader
+
+import ast from "tack/ast"
+import bytes from "std/bytes"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import lexer from "tack/lexer"
+import modfile from "tack/modfile"
+import parser from "tack/parser"
+import path from "std/path"
+import source from "tack/source"
+import text from "std/text"
+
+// Stage names the part of loading that reported a Result's diagnostics,
+// Go's Stage: none, before any did, lexing a file, parsing one, or
+// putting files together into packages and packages into a program. It
+// wraps a number because Tack declares no named integer types.
+pub type Stage struct {
+    n uint8
+}
+
+// stage_none is no stage: no diagnostics yet, or, as Loader.stop, load
+// the program in full.
+pub var stage_none = Stage{n: 0}
+
+// stage_lex is lexing a file.
+pub var stage_lex = Stage{n: 1}
+
+// stage_parse is parsing a file.
+pub var stage_parse = Stage{n: 2}
+
+// stage_load is putting files together into packages, and packages into
+// a program.
+pub var stage_load = Stage{n: 3}
+
+// main_path is the path of the package of a program built from a single
+// file.
+var main_path = "main"
+
+// main_package is the name of the package a program is built from.
+var main_package = "main"
+
+// source_ext is the extension of a Tack source file.
+var source_ext = ".tck"
+
+// test_suffix ends the name of a test file, which no load reads.
+var test_suffix = "_test.tck"
+
+// c_ext is the extension of a C source file, which defines extern funcs.
+var c_ext = ".c"
+
+// is_test_file reports whether the file named name, a base name, is a
+// test file, Go's IsTestFile: its name ends in _test.tck, matched byte
+// for byte.
+pub func is_test_file(name []uint8) bool {
+    return bytes.has_suffix(name, []uint8(test_suffix))
+}
+
+// is_package_file reports whether the file named name, a base name, of a
+// directory entry that is not itself a directory, is one of its
+// package's Tack files: its name ends in .tck, does not start with a
+// dot, and is not a test file.
+func is_package_file(name []uint8) bool {
+    return bytes.has_suffix(name, []uint8(source_ext)) && !bytes.has_prefix(name, []uint8(".")) && !is_test_file(name)
+}
+
+// Loader reads the files of a program and parses them, Go's Loader for
+// the host's file system, the one the driver reads. Its fields are set
+// by the caller.
+pub type Loader struct {
+    // stop, if stage_lex or stage_parse, stops after that stage, having
+    // read only the target's own files, for a dump of the tokens or the
+    // syntax trees.
+    pub stop Stage
+    // max_errors, when positive, is how many syntax errors a file's parse
+    // goes past before it stops.
+    pub max_errors int64
+    // builtins says the program has the builtins with a C body, print and
+    // exit, whose names no package may have; Go's nil Set, which a dump
+    // that stops loading has, has none.
+    pub builtins bool
+    // has_std says there is a standard library, at std_dir, the root of
+    // the module std, an absolute slash path.
+    pub has_std bool
+    pub std_dir text.Text
+    // relative says a file's name is shown relative to cwd when it is in
+    // cwd or below it, Go's Display set to the driver's relativeTo(cwd);
+    // otherwise names are shown as they are.
+    pub relative bool
+    pub cwd text.Text
+    // alloc is what everything a load makes is made through.
+    pub alloc Allocator
+}
+
+// Package is a package of a program, Go's ast.Package: its name, its
+// import path, the name of its module, empty for a program built from a
+// single file, the directory it was read from, the path of every C file
+// in it, and its files' trees, with the ids of their files. imports
+// holds, for each import of its files, in file order and source order,
+// the index in the program's packages of the package it names, or -1
+// when it names none, having been reported, Go's nil Import.Package.
+pub type Package struct {
+    pub name text.Text
+    pub path text.Text
+    pub module text.Text
+    pub dir text.Text
+    pub c_files list[text.Text]
+    pub files list[ast.File]
+    pub file_ids list[source.FileID]
+    pub imports list[int64]
+}
+
+// Program is a loaded program, Go's ast.Program: every package, each
+// after those it imports, the main package last, and how many
+// diagnostics loading reported.
+pub type Program struct {
+    pub packages list[Package]
+    pub errors int64
+}
+
+// Result is a loaded program, or the diagnostics that stopped it
+// loading, or both, Go's Result. files holds every file read, for
+// rendering diagnostics. sources holds the ids of the target's own Tack
+// files when loading stopped at stage_lex or stage_parse, and tokens or
+// trees what was asked for, in the same order. stage is the first stage
+// that reported any of diags. has_program says program holds a program,
+// Go's non-nil Program.
+pub type Result struct {
+    pub files source.Set
+    pub sources list[source.FileID]
+    pub tokens list[lexer.Tokens]
+    pub trees list[ast.File]
+    pub stage Stage
+    pub diags list[diag.Diagnostic]
+    pub has_program bool
+    pub program Program
+}
+
+// new_result returns an empty Result, which grows through alloc.
+func new_result(alloc Allocator) Result {
+    return Result{
+        files: source.new_set(alloc),
+        sources: make(list[source.FileID], alloc),
+        tokens: make(list[lexer.Tokens], alloc),
+        trees: make(list[ast.File], alloc),
+        stage: stage_none,
+        diags: make(list[diag.Diagnostic], alloc),
+        has_program: false,
+        program: Program{packages: make(list[Package], alloc), errors: 0},
+    }
+}
+
+// new_package returns a Package with nothing in it, which grows through
+// alloc.
+func new_package(alloc Allocator) Package {
+    return Package{
+        name: text.new(alloc),
+        path: text.new(alloc),
+        module: text.new(alloc),
+        dir: text.new(alloc),
+        c_files: make(list[text.Text], alloc),
+        files: make(list[ast.File], alloc),
+        file_ids: make(list[source.FileID], alloc),
+        imports: make(list[int64], alloc),
+    }
+}
+
+// report records diags, found at stage, in res, taking them over.
+func report(mut res Result, stage Stage, own diags list[diag.Diagnostic]) error {
+    if len(diags) == 0 {
+        return noerror
+    }
+    if res.stage == stage_none {
+        res.stage = stage
+    }
+    mut ds := diags
+    for i := range len(ds) {
+        d := replace(mut ds[i], make(diag.Diagnostic, c_allocator))
+        append(mut res.diags, d)?
+    }
+    return noerror
+}
+
+// text_of returns s as a Text made through alloc.
+func text_of(s []uint8, alloc Allocator) (text.Text, error) {
+    t := text.from_bytes(s, alloc)?
+    return t, noerror
+}
+
+// file loads the program the one file name makes on its own, a package
+// whose path is main, Go's File. A problem reading it is a failure, and
+// so is a name that makes it a test file, before it is read.
+pub func (l Loader) file(name []uint8) (Result, Fail, error) {
+    mut res := new_result(l.alloc)
+    base := path.base(name, l.alloc)?
+    if is_test_file(base.bytes()) {
+        mut msg := make(list[uint8], l.alloc)
+        shown := l.display(name)?
+        append(mut msg, shown.bytes()...)?
+        append(mut msg, []uint8(" is a test file, which is never loaded on its own")...)?
+        return res, fail_with(own msg), noerror
+    }
+    data, f := read_file(name, l.alloc)?
+    if f.failed {
+        w := wrap([]uint8("failed to open file: "), own f, l.alloc)?
+        return res, w, noerror
+    }
+    mut files := make(list[source.File], l.alloc)
+    file := l.new_file(res, 0, name, own data)?
+    append(mut files, file)?
+    mut pkg, ok := l.parse_package(mut res, own files)?
+    if !ok {
+        return res, no_fail(l.alloc), noerror
+    }
+    mut pkg.path.append([]uint8(main_path))?
+    dir := path.dir(name, l.alloc)?
+    mut pkg.dir.append(dir.bytes())?
+    entries, rf := read_dir(dir.bytes(), l.alloc)?
+    if rf.failed {
+        w := l.cannot_read_dir(dir.bytes(), own rf)?
+        return res, w, noerror
+    }
+    c_files, cf := l.c_files_in(dir.bytes(), entries)?
+    if cf.failed {
+        return res, cf, noerror
+    }
+    pkg.c_files = c_files
+    mut g := new_graph(l, false, no_module(l.alloc), own pkg)?
+    mut g.finish(l, mut res)?
+    if g.abort.failed {
+        return res, replace(mut g.abort, no_fail(l.alloc)), noerror
+    }
+    return res, no_fail(l.alloc), noerror
+}
+
+// cannot_read_dir returns f, the failure reading the directory dir,
+// wrapped as Go's loader wraps it: cannot read directory dir: and f.
+func (l Loader) cannot_read_dir(dir []uint8, own f Fail) (Fail, error) {
+    mut prefix := make(list[uint8], l.alloc)
+    shown := l.display(dir)?
+    fmt.appendf(mut prefix, "cannot read directory %s: ", shown.bytes())?
+    w := wrap(prefix, own f, l.alloc)?
+    return w, noerror
+}
+
+// c_files_in returns the path of every C file among entries, the
+// entries of the directory dir, in the byte order of their names, Go's
+// cFilesIn: each whose name ends in .c, leaving out a directory and a
+// name that starts with a dot. A C file whose name starts with - is a
+// failure, since the driver hands C files to clang, which could take
+// such a name for an option. Go sorts the paths; entries are in the byte
+// order of their names already, and joined to the one directory they
+// keep it.
+func (l Loader) c_files_in(dir []uint8, entries []Entry) (list[text.Text], Fail, error) {
+    mut out := make(list[text.Text], l.alloc)
+    for _, e := range entries {
+        if e.dir || bytes.has_prefix(e.name.bytes(), []uint8(".")) || !bytes.has_suffix(e.name.bytes(), []uint8(c_ext)) {
+            continue
+        }
+        if bytes.has_prefix(e.name.bytes(), []uint8("-")) {
+            mut msg := make(list[uint8], l.alloc)
+            shown := l.display(dir)?
+            fmt.appendf(mut msg, "file %s in %s starts with -, which clang could read as an option; rename it", e.name.bytes(), shown.bytes())?
+            return make(list[text.Text], l.alloc), fail_with(own msg), noerror
+        }
+        full := path.join(dir, e.name.bytes(), l.alloc)?
+        append(mut out, full)?
+    }
+    return out, no_fail(l.alloc), noerror
+}
+
+// dir loads the program whose main package is the directory dir, an
+// absolute slash path: the package the Tack files directly in it make
+// together, in the module whose root is the nearest directory at or
+// above dir holding a tack.mod, Go's Dir. A problem reading a directory
+// or a file, a directory with no Tack files, and no tack.mod at or above
+// dir are failures; a malformed tack.mod, diagnostics.
+pub func (l Loader) dir(dir []uint8) (Result, Fail, error) {
+    mut res := new_result(l.alloc)
+    mod, found, f := l.find_module(mut res, dir)?
+    if f.failed || !found {
+        return res, f, noerror
+    }
+    ip := mod.path_of(dir, l.alloc)?
+    f2 := l.load_main(mut res, own mod, dir, ip.bytes())?
+    return res, f2, noerror
+}
+
+// path loads the program whose main package has the import path
+// import_path, in the module whose root is the nearest directory at or
+// above cwd holding a tack.mod, Go's Path. Problems with the path are
+// failures, as dir's are.
+pub func (l Loader) path(cwd []uint8, import_path []uint8) (Result, Fail, error) {
+    mut res := new_result(l.alloc)
+    mod, found, f := l.find_module(mut res, cwd)?
+    if f.failed || !found {
+        return res, f, noerror
+    }
+    mut msg := make(list[uint8], l.alloc)
+    if check_import_path(mut msg, import_path, mod.name.bytes(), l.alloc)? {
+        return res, fail_with(own msg), noerror
+    }
+    dir, bad := mod.dir_of(import_path, mut msg, l.alloc)?
+    if bad {
+        return res, fail_with(own msg), noerror
+    }
+    // Go's message for a directory it cannot read leaves the error out,
+    // so any failure of the listing gives it, worded or not; an entry
+    // whose type cannot be read, which fails read_dir and not Go's
+    // ReadDir, is met when the package's files are read, below.
+    if list_fails(dir.bytes(), l.alloc)? {
+        append(mut msg, []uint8("cannot find package ")...)?
+        modfile.show(mut msg, import_path)?
+        append(mut msg, []uint8(": no directory ")...)?
+        modfile.show(mut msg, import_path)?
+        fmt.appendf(mut msg, " in module %s", mod.name.bytes())?
+        return res, fail_with(own msg), noerror
+    }
+    f2 := l.load_main(mut res, own mod, dir.bytes(), import_path)?
+    return res, f2, noerror
+}
+
+// load_main loads the package in dir, whose import path is import_path
+// in mod, as the main package of a program, into res, with every
+// package it imports, Go's loadMain without a library.
+func (l Loader) load_main(mut res Result, own mod Module, dir []uint8, import_path []uint8) (Fail, error) {
+    files, c_files, f := l.read_package_files(res, dir)?
+    if f.failed {
+        return f, noerror
+    }
+    mut pkg, ok := l.parse_package(mut res, own files)?
+    if !ok {
+        return no_fail(l.alloc), noerror
+    }
+    mut diags := l.check_clauses(dir, import_path, pkg)?
+    if len(diags) == 0 && !pkg.name.equal([]uint8(main_package)) {
+        mut msg := make(list[uint8], l.alloc)
+        fmt.appendf(mut msg, "%s is not a main package", import_path)?
+        m := text_of(msg, l.alloc)?
+        append(mut diags, diag.new_error(own m, first_package_span(pkg), l.alloc))?
+    }
+    if len(diags) > 0 {
+        report(mut res, stage_load, own diags)?
+        return no_fail(l.alloc), noerror
+    }
+    mut pkg.path.append(import_path)?
+    mut pkg.module.append(mod.name.bytes())?
+    mut pkg.dir.append(dir)?
+    pkg.c_files = c_files
+    mut g := new_graph(l, true, own mod, own pkg)?
+    mut g.finish(l, mut res)?
+    return replace(mut g.abort, no_fail(l.alloc)), noerror
+}
+
+// first_package_span returns the span of the package clause of pkg's
+// first file, which every package has.
+func first_package_span(pkg Package) source.Span {
+    for _, t := range pkg.files {
+        return t.package_span
+    }
+    return ast.unset_span()
+}
+
+// read_package_files reads every Tack file directly in dir, in the byte
+// order of their names, Go's readPackageFiles: a name starting with a
+// dot is left out, and so is a test file and a directory. A directory
+// with no such file is a failure that is no_tack, which says so when it
+// holds test files. It also returns the path of every C file in dir,
+// which it does not read. The files are not in res yet: each has the id
+// it gets when added, after the files res holds, in order, which
+// parse_package does once it has lexed them.
+func (l Loader) read_package_files(res Result, dir []uint8) (list[source.File], list[text.Text], Fail, error) {
+    mut files := make(list[source.File], l.alloc)
+    entries, f := read_dir(dir, l.alloc)?
+    if f.failed {
+        w := l.cannot_read_dir(dir, own f)?
+        return files, make(list[text.Text], l.alloc), w, noerror
+    }
+    mut tests := false
+    mut some := false
+    for _, e := range entries {
+        if e.dir {
+            continue
+        }
+        some = some || is_package_file(e.name.bytes())
+        tests = tests || is_test_file(e.name.bytes()) && !bytes.has_prefix(e.name.bytes(), []uint8("."))
+    }
+    if !some {
+        mut msg := make(list[uint8], l.alloc)
+        shown := l.display(dir)?
+        if tests {
+            fmt.appendf(mut msg, "no .tck files other than test files in %s", shown.bytes())?
+        } else {
+            fmt.appendf(mut msg, "no .tck files in %s", shown.bytes())?
+        }
+        mut nf := fail_with(own msg)
+        nf.no_tack = true
+        return files, make(list[text.Text], l.alloc), nf, noerror
+    }
+    for _, e := range entries {
+        if e.dir || !is_package_file(e.name.bytes()) {
+            continue
+        }
+        full := path.join(dir, e.name.bytes(), l.alloc)?
+        data, rf := read_file(full.bytes(), l.alloc)?
+        if rf.failed {
+            w := wrap([]uint8("failed to open file: "), own rf, l.alloc)?
+            return make(list[source.File], l.alloc), make(list[text.Text], l.alloc), w, noerror
+        }
+        file := l.new_file(res, len(files), full.bytes(), own data)?
+        append(mut files, file)?
+    }
+    c_files, cf := l.c_files_in(dir, entries)?
+    if cf.failed {
+        return make(list[source.File], l.alloc), make(list[text.Text], l.alloc), cf, noerror
+    }
+    return files, c_files, no_fail(l.alloc), noerror
+}
+
+// new_file returns the file read from name, with contents data, taken
+// over, named as l shows name, with the id it gets added to res after k
+// more files.
+func (l Loader) new_file(res Result, k int64, name []uint8, own data list[uint8]) (source.File, error) {
+    shown := l.display(name)?
+    next := res.files.next_id()
+    // A Set holds fewer files than an int32 counts, and k counts files
+    // read for one package, so the sum fits; a FileID that did not would
+    // be refused when the file is added.
+    n, fits := int32(int64(next.n) +% k)
+    if !fits {
+        return source.new_file(source.FileID{n: -1}, own shown, own data, l.alloc), noerror
+    }
+    return source.new_file(source.FileID{n: n}, own shown, own data, l.alloc), noerror
+}
+
+// display returns the name shown for name: relative to the current
+// directory when l.relative is set and name is in it or below it, as
+// Go's relativeTo shows it, and name as it is otherwise.
+func (l Loader) display(name []uint8) (text.Text, error) {
+    if l.relative {
+        t := relative_to(l.cwd.bytes(), name, l.alloc)?
+        return t, noerror
+    }
+    t := text_of(name, l.alloc)?
+    return t, noerror
+}
+
+// parse_package lexes and then parses files, the files of one package,
+// taken over and added to res once lexed, and returns the package they
+// make, Go's parsePackage. Every file is lexed, and then every file
+// parsed. A lexing error stops it before parsing, recorded in res, and
+// it returns false. Syntax errors are recorded in res and the package
+// returned all the same, unless a file nests too deeply to have a tree,
+// or has a package clause that could not be parsed. It also returns
+// false, having recorded what was asked for, when l.stop says to stop
+// after lexing or parsing.
+func (l Loader) parse_package(mut res Result, own files list[source.File]) (Package, bool, error) {
+    mut fs := files
+    mut pkg := new_package(l.alloc)
+    mut tokens := make(list[lexer.Tokens], l.alloc)
+    mut ids := make(list[source.FileID], l.alloc)
+    mut diags := make(list[diag.Diagnostic], l.alloc)
+    for i := range len(fs) {
+        toks, mut lex_diags := lexer.lex(mut fs[i], l.alloc)?
+        append(mut tokens, toks)?
+        for j := range len(lex_diags) {
+            append(mut diags, replace(mut lex_diags[j], make(diag.Diagnostic, l.alloc)))?
+        }
+    }
+    for i := range len(fs) {
+        f := replace(mut fs[i], make(source.File, l.alloc))
+        append(mut ids, f.id)?
+        mut res.files.add(own f)?
+    }
+    if len(diags) > 0 {
+        report(mut res, stage_lex, own diags)?
+        return pkg, false, noerror
+    }
+    if l.stop == stage_lex {
+        append(mut res.sources, ids...)?
+        for i := range len(tokens) {
+            append(mut res.tokens, replace(mut tokens[i], make(lexer.Tokens, l.alloc)))?
+        }
+        return pkg, false, noerror
+    }
+
+    mut whole := true
+    for i := range len(tokens) {
+        toks := replace(mut tokens[i], make(lexer.Tokens, l.alloc))
+        fid, has_id := ids[i]
+        if !has_id {
+            break
+        }
+        tree, has_tree, mut parse_diags := parser.parse(fid, own toks, l.max_errors, l.alloc)?
+        for j := range len(parse_diags) {
+            append(mut diags, replace(mut parse_diags[j], make(diag.Diagnostic, l.alloc)))?
+        }
+        whole = whole && has_tree && len(tree.text(tree.package_name)) > 0
+        if has_tree {
+            append(mut pkg.files, tree)?
+            append(mut pkg.file_ids, fid)?
+        }
+    }
+    report(mut res, stage_parse, own diags)?
+    if l.stop == stage_parse {
+        if len(pkg.files) == len(ids) {
+            // The trees, bad nodes and all when the parser recovered
+            // from errors, are kept for a dump that asks for them.
+            append(mut res.sources, pkg.file_ids...)?
+            mut trees := replace(mut pkg.files, make(list[ast.File], l.alloc))
+            for i := range len(trees) {
+                append(mut res.trees, replace(mut trees[i], ast.new_file(l.alloc)))?
+            }
+        }
+        return new_package(l.alloc), false, noerror
+    }
+    if !whole || len(pkg.files) == 0 {
+        return pkg, false, noerror
+    }
+    for _, t := range pkg.files {
+        mut pkg.name.append(t.text(t.package_name))?
+        break
+    }
+    return pkg, true, noerror
+}
+
+// clause_of returns the name tree's package clause gives.
+func clause_of(tree ast.File) []uint8 {
+    return tree.text(tree.package_name)
+}
+
+// check_clauses returns the errors for files of the directory dir, the
+// package pkg whose import path is import_path, whose package clauses
+// are wrong, Go's checkClauses: every file's clause names the last part
+// of the import path, or main; a name other than main must be a valid
+// package name; and a directory holds one package.
+func (l Loader) check_clauses(dir []uint8, import_path []uint8, pkg Package) (list[diag.Diagnostic], error) {
+    mut diags := make(list[diag.Diagnostic], l.alloc)
+    want := path.base(import_path, l.alloc)?
+    for _, f := range pkg.files {
+        if bytes.equal(clause_of(f), []uint8(main_package)) || bytes.equal(clause_of(f), want.bytes()) {
+            continue
+        }
+        mut msg := make(list[uint8], l.alloc)
+        if check_package_name(mut msg, want.bytes(), l.builtins)? {
+            m := text_of(msg, l.alloc)?
+            append(mut diags, diag.new_error(own m, f.package_span, l.alloc))?
+            break
+        }
+        append(mut msg, []uint8("package ")...)?
+        modfile.show(mut msg, clause_of(f))?
+        fmt.appendf(mut msg, " does not match its directory; expected package %s", want.bytes())?
+        m := text_of(msg, l.alloc)?
+        append(mut diags, diag.new_error(own m, f.package_span, l.alloc))?
+    }
+    if len(diags) == 0 {
+        diags = l.mixed_packages(dir, pkg)?
+    }
+    if len(diags) == 0 && !pkg.name.equal([]uint8(main_package)) {
+        mut msg := make(list[uint8], l.alloc)
+        if check_package_name(mut msg, want.bytes(), l.builtins)? {
+            m := text_of(msg, l.alloc)?
+            append(mut diags, diag.new_error(own m, first_package_span(pkg), l.alloc))?
+        }
+    }
+    return diags, noerror
+}
+
+// bytes_less reports whether a sorts before b bytewise, as Go compares
+// two strings.
+func bytes_less(a []uint8, b []uint8) bool {
+    for i, x := range a {
+        y, ok := b[i]
+        if !ok {
+            return false
+        }
+        if x != y {
+            return x < y
+        }
+    }
+    return len(a) < len(b)
+}
+
+// mixed_packages returns the error for files of the directory dir whose
+// package clauses disagree, though each is allowed there, Go's
+// mixedPackages: the packages named in sorted order, the error at the
+// first file of the second of them, and a note at the first file of each
+// of the others.
+func (l Loader) mixed_packages(dir []uint8, pkg Package) (list[diag.Diagnostic], error) {
+    mut diags := make(list[diag.Diagnostic], l.alloc)
+    // first holds, for each package named, the index of the first file
+    // naming it, in the order they are first named.
+    mut first := make(list[int64], l.alloc)
+    for i, f := range pkg.files {
+        mut seen := false
+        for _, k := range first {
+            if k >= 0 && k < len(pkg.files) && bytes.equal(clause_of(pkg.files[k]), clause_of(f)) {
+                seen = true
+            }
+        }
+        if !seen {
+            append(mut first, i)?
+        }
+    }
+    if len(first) <= 1 {
+        return diags, noerror
+    }
+    // An insertion sort of the few names, stable, by their bytes; the
+    // names are distinct, so stability does not show.
+    for i := range len(first) {
+        mut j := i
+        for j > 0 && j < len(first) {
+            a, has_a := first[j - 1]
+            b, has_b := first[j]
+            if !has_a || !has_b || a < 0 || a >= len(pkg.files) || b < 0 || b >= len(pkg.files) || !bytes_less(clause_of(pkg.files[b]), clause_of(pkg.files[a])) {
+                break
+            }
+            first[j - 1] = b
+            first[j] = a
+            j -= 1
+        }
+    }
+    mut msg := make(list[uint8], l.alloc)
+    shown := l.display(dir)?
+    fmt.appendf(mut msg, "directory %s holds ", shown.bytes())?
+    if len(first) > 2 {
+        fmt.appendf(mut msg, "%d packages, ", len(first))?
+    } else {
+        append(mut msg, []uint8("two packages, ")...)?
+    }
+    for i, k := range first {
+        if k < 0 || k >= len(pkg.files) {
+            continue
+        }
+        if i == len(first) -% 1 {
+            append(mut msg, []uint8(" and ")...)?
+        } else if i > 0 {
+            append(mut msg, ',', ' ')?
+        }
+        append(mut msg, clause_of(pkg.files[k])...)?
+    }
+    second := first[1]
+    if second < 0 || second >= len(pkg.files) {
+        return diags, noerror
+    }
+    m := text_of(msg, l.alloc)?
+    mut d := diag.new_error(own m, pkg.files[second].package_span, l.alloc)
+    for i, k := range first {
+        if i == 1 || k < 0 || k >= len(pkg.files) {
+            continue
+        }
+        mut note := make(list[uint8], l.alloc)
+        fmt.appendf(mut note, "package %s is declared here", clause_of(pkg.files[k]))?
+        nt := text_of(note, l.alloc)?
+        append(mut d.related, diag.Related{message: nt, marker: text.new(l.alloc), span: pkg.files[k].package_span, severity: diag.note})?
+    }
+    append(mut diags, d)?
+    return diags, noerror
+}
+
+// empty_result returns an empty Result, made through l.alloc, the Result
+// of a load that never started.
+pub func (l Loader) empty_result() Result {
+    return new_result(l.alloc)
+}

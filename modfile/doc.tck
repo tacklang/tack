@@ -1,0 +1,24 @@
+package modfile
+
+// Package modfile parses tack.mod, the root file that marks a module's
+// root directory and names the module. It is a port of the Go compiler's
+// package modfile, function by function, and accepts and rejects exactly
+// what Go's does, with the same diagnostics at the same places. The
+// format is documented in full in Go's modfile/doc.go: a line-oriented
+// file whose one directive, module, names the module once.
+//
+// The loader finds a tack.mod by walking up from the directory it is
+// asked to build and reads it into a source.File, which parse takes as
+// mut: it records the file's line starts, as the lexer does for a Tack
+// file, so its diagnostics can be rendered, and gives the file back. It
+// returns the ModFile the file declares, or every problem found with it.
+//
+// Go returns a *File or nil; here a ModFile is returned with a flag
+// saying whether there is one. Go's CheckModule returns a message, empty
+// for a valid name; check_module appends the message to a list and
+// reports whether it did. show writes a name with a byte that is not
+// printable ASCII Go-quoted, as Go's strconv.Quote does, through std's
+// conv.append_quote.
+//
+// Every function that allocates returns the builtin append's out of
+// memory as an error beside its result, which is of no use then.
