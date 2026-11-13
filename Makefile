@@ -8,7 +8,7 @@ BIN := bin/tack
 BUILTIN_DOC := builtin/builtin.tck
 RUNTIME_HEADER := builtin/runtime/tack/tack.h
 
-.PHONY: build install install-std std-copies unicode-tables test port-test port-fuzz fuzz-progen fmt lint
+.PHONY: build install install-std std-copies unicode-tables test port-test port-fuzz port-embed fuzz-progen fmt lint
 
 # build compiles the compiler into $(BIN).
 build:
@@ -85,8 +85,9 @@ PORT_FUZZ_PARALLEL := 4
 
 # PORT_FUZZ is the fuzz test `make port-fuzz` runs: FuzzLexDiff, which
 # compares the port's --lex with this compiler's, FuzzParseDiff, which
-# compares their --ast, or FuzzLoadDiff, which compares what they load
-# from generated file trees.
+# compares their --ast, FuzzResDiff, which compares their --res, or
+# FuzzLoadDiff, which compares their --ast and --res of generated file
+# trees.
 PORT_FUZZ := FuzzLexDiff
 
 # port-fuzz fuzzes $(PORT_FUZZ), which compares the port with this
@@ -104,6 +105,27 @@ port-fuzz:
 	TACK_GO=$(PORT_FUZZ_BIN)/tack-go TACK_PORT_BIN=$(PORT_FUZZ_BIN)/tack-port TACK_PORT_TEST=1 \
 		go test -count=1 ./porttest -run '^$$' -fuzz '^$(PORT_FUZZ)$$' \
 		-fuzztime $(FUZZTIME) -parallel $(PORT_FUZZ_PARALLEL)
+
+# PORT_EMBED_BIN is where `make port-embed` builds the port's tools/embed,
+# under the ignored bin/.
+PORT_EMBED_BIN := bin/port-embed
+
+# port-embed writes the port's builtin/embedded.tck, the files this
+# compiler embeds with go:embed as Tack string literals, with the port's
+# tools/embed, built with this compiler, from builtin.tck, the runtime's
+# header and its C files, in the byte order of their names. porttest's
+# TestEmbedded fails while the port's copy differs from what this writes.
+# The port's source tree is $TACK_PORT, ../tack by default, as for
+# port-test.
+port-embed:
+	mkdir -p $(PORT_EMBED_BIN)
+	go build -o $(PORT_EMBED_BIN)/tack-go ./tack
+	cd "$${TACK_PORT:-../tack}" && TACK_HOME="$(CURDIR)" \
+		TACK_CACHE="$(CURDIR)/$(PORT_EMBED_BIN)/cache" \
+		"$(CURDIR)/$(PORT_EMBED_BIN)/tack-go" --out "$(CURDIR)/$(PORT_EMBED_BIN)/embed" ./tools/embed && \
+		"$(CURDIR)/$(PORT_EMBED_BIN)/embed" builtin/embedded.tck builtin \
+		doc="$(CURDIR)/$(BUILTIN_DOC)" header="$(CURDIR)/$(RUNTIME_HEADER)" \
+		$(foreach c,$(sort $(wildcard builtin/runtime/*.c)),'runtime[]=$(CURDIR)/$(c)')
 
 # fuzz-progen fuzzes FuzzGenerated, which builds each generated program
 # with clang under the sanitizers and runs it, for $(FUZZTIME). It caps

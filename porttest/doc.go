@@ -56,9 +56,16 @@
 // the Go compiler, unless its stage is named in required.txt, one name a
 // line, where blank lines and lines starting with # are ignored; then it
 // fails. A stage enters required.txt once the port implements it, so it
-// cannot quietly stop working. required.txt may also name loaded, the
-// check TestLoadOrder makes outside TestPort. A name in required.txt that is no stage
-// fails TestPort, and TestRequiredFile in every go test ./porttest.
+// cannot quietly stop working. required.txt also names loaded, the check
+// TestLoadOrder makes outside TestPort. A name in required.txt that is no
+// stage or check fails TestPort, and TestRequiredFile in every go test
+// ./porttest.
+//
+// Every run of the port goes through a shell wrapper TestMain writes,
+// which holds its stack to 4 MB with ulimit -s before it runs the port:
+// half the 8 MB Linux gives a program by default, so a port whose
+// recursion needs more than that for any input fails, where it would
+// pass at the default.
 //
 // # Stages
 //
@@ -110,9 +117,10 @@
 // directory holding a tack.mod, and std, each run from its root as .,
 // and each of its packages by its import path from there; and every
 // case of the archives of several files a case that is built from a
-// directory, its target, run from its archive's directory. Until the
-// port has a resolver, it answers --res only when loading stops with no
-// program, and skips the rest.
+// directory, its target, run from its archive's directory; and the
+// port's own driver, ./driver run from the port's source tree when it is
+// there, the largest program of all, which imports the whole port and
+// most of std.
 //
 // # Loading
 //
@@ -131,37 +139,42 @@
 // port may answer not implemented for the trees it cannot read the way
 // Go words, even in a required stage.
 //
-// TestLoadOrder checks what the port loads, which --res cannot show yet,
-// for every package of the corpus, the port's own driver when its source
-// tree is there, and every input of TestLoadTrees but
-// those that set PWD: the port writes it with --port-loaded, a flag of
-// its own, and this module's loader, run in process as the driver runs
-// it for --res, gives what it must be: every package of the program in
-// order, with its files, C files and what each import is bound to, the
-// program's error count, and every diagnostic in the order it was
-// reported. --port-loaded is a temporary test hook, which goes at M5,
-// when --res can show the same. A port that answers it is not
-// implemented skips, unless loaded, the check's name, is in
+// TestLoadOrder checks what the port loads, for every package input of
+// the corpus, the port's own driver among them, and every input of
+// TestLoadTrees but those that set PWD: --res shows none of a package's
+// directory or C files, nor the program's error count, nor what an
+// import no qualified name uses is bound to, and dumps nothing at all for
+// a program with an error, so the port writes these with --port-loaded,
+// a flag of its own, and this module's loader, run in process as the
+// driver runs it for --res, gives what they must be: every package of
+// the program in order, with its directory, files, C files and what
+// each import is bound to, the program's error count, and every
+// diagnostic in the order it was reported. --port-loaded is a test hook
+// the port keeps until its builds check the same. A port that answers
+// it is not implemented skips, unless loaded, the check's name, is in
 // required.txt, as it is, where then it fails, but for an input marked
-// as one the port may decline. TestLoadTrees, TestLoadOrder and
-// FuzzLoadDiff run the port with its stack held to 4 MB, as
-// TestDeepNesting does.
+// as one the port may decline.
 //
 // # Deep nesting
 //
 // TestDeepNesting runs the programs that cost the most stack for each
 // level of nesting, in expressions, statements and types and in every
 // place an expression is parsed from, at the parser's nesting limit, a
-// thousand levels, and one past it, through both compilers with --ast,
-// compared as ast-single compares them, and with the port's stack held to
-// 4 MB, half the 8 MB Linux gives a program by default, by a shell
-// wrapper that sets ulimit -s before it runs the port. A port whose
-// recursion needs more than that at the limit fails here, where it
-// passes at the default. At the limit the trees of most of them would
-// dump to hundreds of megabytes of Go's indented JSON, so a syntax error
-// after the nesting leaves the dump out while the parse still goes all
-// the way down; a few cheap ones are dumped whole. It runs as TestPort
-// does, with TACK_PORT_TEST=1 and -count, and skips otherwise.
+// thousand levels, and one past it, through both compilers with --ast
+// and with --res, compared as ast-single and res-single compare them,
+// the port's stack held to 4 MB. A port whose recursion, the parser's or
+// the resolver's, needs more than that at the limit fails here. At the
+// limit the trees of most of them would dump to hundreds of megabytes of
+// Go's indented JSON, so a syntax error after the nesting leaves the
+// dump out while the parse, and the resolver after it, still go all the
+// way down; a few cheap ones are dumped whole. TestDeepChains runs, with
+// --res, chains the parser builds with no nesting it counts, a hundred
+// thousand links long: selectors, indexes, slices, method calls, type
+// assertions, ?, binary operators, assignment targets, else ifs and
+// statements, which the resolver must walk without a frame a link, and
+// one with no error, whose tree both compilers refuse to dump as nested
+// too deeply. Both run as TestPort does, with TACK_PORT_TEST=1 and
+// -count, and skip otherwise.
 //
 // # Fuzzing
 //
@@ -170,27 +183,30 @@
 // newline and the file's content, and runs both compilers on the
 // directory of its first file: what the port loads, compared as
 // TestLoadOrder compares it, then --ast and --res, compared as
-// ast-packages and res-packages compare them; a not implemented answer
-// skips what is left of the input. The tree is loaded in process by this
-// module's loader first, for the fuzz engine's coverage. Run as a test it
+// ast-packages and res-packages compare them. The tree is loaded and
+// resolved in process by this module's loader and resolver first, for
+// the fuzz engine's coverage. Run as a test it
 // checks its seeds, written in the test.
 //
 // FuzzLexDiff runs both compilers with --lex on generated inputs, each
 // written to fuzz.tck in a temporary directory of its own and run from
 // there, and compares them as lex-single does, a not implemented answer
 // skipping the input unless lex-single is in required.txt. FuzzParseDiff
-// does the same with --ast, compared as ast-single does. The fuzz
-// engine's coverage cannot see into the compilers' processes, so each
-// input is also lexed in process by this module's lexer, and, for
-// FuzzParseDiff, parsed by its parser when it lexes, as the loader does
-// for --ast, and the guidance comes from the Go lexer and parser alone:
-// an input that reaches new code only in the port is found by chance.
-// FuzzLexDiff is seeded with the lexer's committed FuzzLex inputs,
-// lexer/testdata/fuzz/FuzzLex, and FuzzParseDiff with its own,
-// porttest/testdata/fuzz/FuzzParseDiff, which go test reads itself; when
-// fuzzing, each is seeded with every single file of the corpus too. Run
-// as a test, as make port-test runs them, each checks its committed
-// inputs alone, since lex-single and ast-single run the corpus already.
+// does the same with --ast, compared as ast-single does, and FuzzResDiff
+// with --res, compared as res-single does. The fuzz engine's coverage
+// cannot see into the compilers' processes, so each input is also lexed
+// in process by this module's lexer, and, for FuzzParseDiff and
+// FuzzResDiff, parsed by its parser when it lexes, as the loader does,
+// and for FuzzResDiff resolved by its resolver as a program of that one
+// file, and the guidance comes from the Go lexer, parser and resolver
+// alone: an input that reaches new code only in the port is found by
+// chance. FuzzLexDiff is seeded with the lexer's committed FuzzLex
+// inputs, lexer/testdata/fuzz/FuzzLex, and FuzzParseDiff and FuzzResDiff
+// with their own, porttest/testdata/fuzz/<name>, which go test reads
+// itself; when fuzzing, each is seeded with every single file of the
+// corpus too. Run as a test, as make port-test runs them, each checks
+// its committed inputs alone, since the single-file stages run the
+// corpus already.
 // Like TestPort they run only with TACK_PORT_TEST=1 and -count, and skip
 // without them. Each fuzz worker is a process of its own that runs
 // TestMain, so without TACK_GO and TACK_PORT_BIN every worker builds both
@@ -199,5 +215,27 @@
 //
 //	make port-fuzz FUZZTIME=60s
 //	make port-fuzz PORT_FUZZ=FuzzParseDiff FUZZTIME=60s
+//	make port-fuzz PORT_FUZZ=FuzzResDiff FUZZTIME=60s
 //	make port-fuzz PORT_FUZZ=FuzzLoadDiff FUZZTIME=60s
+//
+// # Embedded files
+//
+// The Go compiler embeds the builtins' documentation, builtin.tck, and
+// the C runtime, its header and its C files, with go:embed; the port
+// holds them as string literals in its builtin/embedded.tck, which its
+// tools/embed writes, as make port-embed runs it. TestEmbedded reads that
+// file with this module's lexer and parser, as the Go compiler reads it
+// building the port, and checks that it holds each of builtin/'s
+// originals byte for byte, the C files in the byte order of their names,
+// as the Go compiler lists them; and builds tools/embed and runs it on
+// the originals, to check that the file is what it writes.
+//
+// # Performance
+//
+// TestResPerf is a tripwire: it runs --res of the port's driver, the
+// largest program the corpus has, three times through each compiler, one
+// run at a time, measuring wall time and peak memory, each compiler
+// started by a launcher, the test binary run anew, which reads the peak
+// from wait4; it fails when the port takes more than twice Go's time and
+// a tenth of a second, or twice its memory, and logs both.
 package porttest

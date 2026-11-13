@@ -6,6 +6,8 @@
 backends
 lex-single
 ast-single
+res-single
 lex-packages
 ast-packages
+res-packages
 loaded

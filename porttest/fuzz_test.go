@@ -10,8 +10,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tacklang/tack/ast"
+	"github.com/tacklang/tack/builtin"
 	"github.com/tacklang/tack/lexer"
 	"github.com/tacklang/tack/parser"
+	"github.com/tacklang/tack/resolver"
 	"github.com/tacklang/tack/source"
 )
 
@@ -71,7 +74,25 @@ func FuzzParseDiff(f *testing.F) {
 	fuzzDiff(f, "ast-single", goParse)
 }
 
-// fuzzDiff runs the fuzz test f, FuzzLexDiff or FuzzParseDiff, whose
+// FuzzResDiff runs the port and the Go compiler with --res on each input,
+// written to a file of its own, and compares them as the res-single
+// stage does, a not implemented answer skipping unless res-single is
+// required. Before that it lexes, parses and resolves the input in
+// process, as a single file with no imports loaded, so the fuzz engine's
+// coverage has the Go resolver's to guide it; an import of std is
+// resolved by the compilers alone.
+//
+// It is seeded with its committed inputs, testdata/fuzz/FuzzResDiff, and,
+// when it fuzzes, with every single file of the corpus too; run as a test
+// it checks the committed inputs alone, since TestPort's res-single runs
+// the corpus already. It runs as FuzzLexDiff does.
+func FuzzResDiff(f *testing.F) {
+	ready(f)
+	fuzzDiff(f, "res-single", goResolve)
+}
+
+// fuzzDiff runs the fuzz test f, FuzzLexDiff, FuzzParseDiff or
+// FuzzResDiff, whose
 // committed seeds its caller has added: it adds every single file of the
 // corpus too when fuzzing, and runs each input through inProcess, for
 // the fuzz engine's coverage, and then through both compilers, compared
@@ -137,6 +158,25 @@ func goParse(src []byte) {
 	p := parser.NewParser(f.ID, lex.Tokens())
 	p.Limit(goParseMaxErrors)
 	p.Parse()
+}
+
+// goResolve parses src as goParse does and, when it parses to a tree,
+// resolves it with this module's resolver as a program of that one file,
+// dropping the result: it is there for the coverage it gives the fuzz
+// engine.
+func goResolve(src []byte) {
+	f := &source.File{ID: fuzzFile, Filename: fuzzFile, Data: src}
+	lex := lexer.New(f)
+	if len(lex.Lex()) > 0 {
+		return
+	}
+	p := parser.NewParser(f.ID, lex.Tokens())
+	p.Limit(goParseMaxErrors)
+	tree, _ := p.Parse()
+	if tree == nil {
+		return
+	}
+	resolver.New(ast.SingleFile(tree), builtin.Default()).Resolve()
 }
 
 // readFuzzSeeds returns the inputs of every file in dir, each a go test

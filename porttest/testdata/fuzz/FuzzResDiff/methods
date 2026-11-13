@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\ntype S struct {\n\tx int64\n}\n\nfunc (s S) x() int64 {\n\treturn s.x\n}\n\nfunc (s S) m() {}\n\nfunc (s S) m() {}\n\nfunc (n int64) bad() {}\n\nfunc main() {\n\ts := S{x: 1}\n\t_ = s.m\n}\n")

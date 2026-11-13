@@ -130,9 +130,11 @@ func TestPort(t *testing.T) {
 
 // runCase runs the port and then the Go compiler on in, the stage st's
 // way, and reports how they differ. A not implemented answer from the
-// port skips, before the Go compiler runs, unless st is required.
+// port skips, before the Go compiler runs, unless st is required. The
+// port runs with its stack held to deepStack KB, as every run of it
+// does, so a port that needs more for an input of the corpus fails.
 func runCase(t *testing.T, st stage, in input) {
-	runCaseWith(t, st, in, env.portBin)
+	runCaseWith(t, st, in, env.portRun)
 }
 
 // runCaseWith is runCase with portBin run as the port, a wrapper around

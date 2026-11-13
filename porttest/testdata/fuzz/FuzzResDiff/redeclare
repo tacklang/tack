@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\nfunc f(a int64, a int64) {}\n\nfunc f() {}\n\nvar f = 1\n\nfunc main() {\n\tint64 := 2\n}\n")

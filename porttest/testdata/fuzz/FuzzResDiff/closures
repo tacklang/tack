@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\nfunc main() {\n\tx := 1\n\tf := func(x int64, _ int64, _ int64) int64 {\n\t\treturn x + y\n\t}\n\tregion r {\n\t}\n\tdefer {\n\t\tx = 2\n\t}\n}\n")

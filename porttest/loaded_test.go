@@ -18,30 +18,27 @@ import (
 const loadedCheck = "loaded"
 
 // TestLoadOrder checks what the port loads for each package input of the
-// corpus, the port's own driver, and each of treeCases' inputs, but
-// those that set PWD, against
+// corpus, the port's own driver among them, and each of treeCases'
+// inputs, but those that set PWD, against
 // this module's loader, run in process as the driver runs it for --res:
 // every package of the program, in order, with its files, C files and
 // what each import is bound to, the program's error count, and every
 // diagnostic, in the order it was reported, before the driver sorts
-// them. The port writes them with --port-loaded, a flag of its own that
-// the Go compiler does not have, a temporary test hook it keeps until it
-// can dump a program with --res, at M5; a port without it skips, unless
-// loaded is in required.txt, as it is once the port has it. The port
-// runs with its stack held to deepStack KB, as TestDeepNesting runs it. It runs only as TestPort
-// does, with TACK_PORT_TEST=1 and -count.
+// them. --res shows none of the directories, the C files, the count or
+// the bindings of imports no qualified name uses, and dumps nothing for
+// a program with an error, so the port writes them with --port-loaded,
+// a flag of its own that the Go compiler does not have, which it keeps
+// until the builds check them; a port without it skips, unless loaded
+// is in required.txt, as it is. The port runs with its stack held to
+// deepStack KB, as every run of it does. It runs only as TestPort does,
+// with TACK_PORT_TEST=1 and -count.
 func TestLoadOrder(t *testing.T) {
 	ready(t)
 	ins, err := packageInputs()
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The port's own driver, which imports most of std, when its source
-	// tree is here: a run given only TACK_PORT_BIN may have none.
-	if src, _ := portSource(os.Getenv("TACK_PORT")); dirExists(filepath.Join(src, "driver")) {
-		ins = append(ins, input{name: "port/driver", dir: src, file: "./driver"})
-	}
-	wrapper := stackWrapper(t, t.TempDir())
+	wrapper := env.portRun
 	t.Run("corpus", func(t *testing.T) {
 		for _, in := range ins {
 			t.Run(in.name, func(t *testing.T) {
@@ -63,12 +60,6 @@ func TestLoadOrder(t *testing.T) {
 			})
 		}
 	})
-}
-
-// dirExists reports whether p is a directory.
-func dirExists(p string) bool {
-	info, err := os.Stat(p)
-	return err == nil && info.IsDir()
 }
 
 // checkLoaded runs portBin, the port or a wrapper around it, with

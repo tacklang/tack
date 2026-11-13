@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package lib\n\nvar main = 1\n\npub mut g = 2\n\nextern func e()\n\nfunc main() {}\n")

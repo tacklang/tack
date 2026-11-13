@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\nfunc main() {\n\tx := 1\n\t@\n\ty := z\n}\n\nfunc @\n")

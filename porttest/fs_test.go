@@ -264,7 +264,7 @@ var treeCases = map[string]treeCase{
 // TACK_PORT_TEST=1 and -count.
 func TestLoadTrees(t *testing.T) {
 	ready(t)
-	wrapper := stackWrapper(t, t.TempDir())
+	wrapper := env.portRun
 	for name, tc := range treeCases {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()

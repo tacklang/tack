@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\nfunc g[T Data, T Data](x T) T {\n\treturn x\n}\n\nfunc main() {\n\tx := g[int64](1)\n\ty := len[int64](x)\n\tf := g\n\tz := f[1](2)\n}\n")

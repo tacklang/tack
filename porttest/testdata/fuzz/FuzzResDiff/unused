@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\nfunc len() {}\n\nfunc main() {\n\tprint := 1\n\tprint(\"x\")\n\t_, _ := 1, 2\n\tfor _, _ := range [1]int64{1} {\n\t}\n}\n")

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\nimport fmt from \"std/fmt\"\nimport fmt from \"std/fmt\"\nimport os from \"std/fmt\"\n\nfunc main() {\n\tfmt.println(\"a\")\n\tfmt.nothing()\n\tos.x = 1\n}\n")

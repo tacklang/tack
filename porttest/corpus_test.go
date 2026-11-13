@@ -186,7 +186,19 @@ func packageInputs() ([]input, error) {
 			out = append(out, input{name: a.name + "/" + target, dir: a.dir, file: target})
 		}
 	}
+	// The port's own driver, which imports the whole port and most of
+	// std, the largest program the corpus has, when its source tree is
+	// here: a run given only TACK_PORT_BIN may have none.
+	if src, _ := portSource(os.Getenv("TACK_PORT")); dirExists(filepath.Join(src, "driver")) {
+		out = append(out, input{name: "port/driver", dir: src, file: "./driver"})
+	}
 	return out, nil
+}
+
+// dirExists reports whether p is a directory.
+func dirExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && info.IsDir()
 }
 
 // tackDirs returns root and every directory below it that holds a .tck

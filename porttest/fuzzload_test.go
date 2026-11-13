@@ -7,6 +7,10 @@ import (
 	"path"
 	"path/filepath"
 	"testing"
+
+	"github.com/tacklang/tack/builtin"
+	"github.com/tacklang/tack/loader"
+	"github.com/tacklang/tack/resolver"
 )
 
 // loadDiffSeeds are the file trees FuzzLoadDiff starts from, in
@@ -68,15 +72,15 @@ func writeFuzzTree(dir string, data []byte) string {
 
 // FuzzLoadDiff writes each input as a file tree, in writeFuzzTree's form,
 // in a temporary directory of its own, and runs both compilers on the
-// directory of its first file from there: --ast, compared as the
-// ast-packages stage compares it, what the port loads with
-// --port-loaded, compared as TestLoadOrder compares it, and --res,
-// compared as res-packages does, each skipping, and skipping the rest,
-// when the port answers that it is not implemented, unless its stage is
-// required. The port runs with its stack held to deepStack KB, as
-// TestDeepNesting runs it. Before that it loads the tree with this module's loader, in
-// process, as TestLoadOrder does, so the fuzz engine's coverage has the
-// Go loader's to guide it.
+// directory of its first file from there: what the port loads with
+// --port-loaded, compared as TestLoadOrder compares it, --ast, compared
+// as the ast-packages stage compares it, and --res, compared as
+// res-packages does, each skipping when the port answers that it is not
+// implemented, unless its check is required. The port runs with its stack held to
+// deepStack KB, as every run of it does. Before that it loads the tree
+// with this module's loader and resolves it with its resolver, in
+// process, as the driver does for --res, so the fuzz engine's coverage
+// has the Go loader's and resolver's to guide it.
 //
 // It is seeded with loadDiffSeeds; run as a test, without -fuzz, it
 // checks them alone. It runs as FuzzLexDiff does.
@@ -89,7 +93,7 @@ func FuzzLoadDiff(f *testing.F) {
 	if astStage == nil || resStage == nil {
 		f.Fatal("no ast-packages or res-packages stage")
 	}
-	wrapper := stackWrapper(f, f.TempDir())
+	wrapper := env.portRun
 	f.Fuzz(func(t *testing.T, data []byte) {
 		dir := t.TempDir()
 		// The target is written ./ first, which keeps a directory named
@@ -98,7 +102,31 @@ func FuzzLoadDiff(f *testing.F) {
 		target := "./" + writeFuzzTree(dir, data)
 		in := input{name: target, dir: dir, file: target}
 		checkLoaded(t, in, wrapper)
+		goLoad(t, in)
 		runCaseWith(t, *astStage, in, wrapper)
 		runCaseWith(t, *resStage, in, wrapper)
 	})
+}
+
+// goLoad loads in's target, a directory, with this module's loader, as
+// the driver loads it for --res, with the repository's std, and resolves
+// the program it builds with this module's resolver, dropping the
+// result: it is there for the coverage it gives the fuzz engine. The
+// Go compiler's run is what the port's is compared with.
+func goLoad(t *testing.T, in input) {
+	t.Helper()
+	full := filepath.Join(in.dir, filepath.FromSlash(in.file))
+	info, err := os.Stat(full)
+	if err != nil || !info.IsDir() {
+		return
+	}
+	l := &loader.Loader{
+		FS: loader.OS{}, Builtins: builtin.Default(), MaxErrors: 10,
+		Std: &loader.Std{Dir: filepath.ToSlash(filepath.Join(env.root, "src", "std"))},
+	}
+	res, err := l.Dir(filepath.ToSlash(full))
+	if err != nil || res.Program == nil {
+		return
+	}
+	resolver.New(res.Program, builtin.Default()).Resolve()
 }

@@ -22,6 +22,9 @@ var env struct {
 	goBin string
 	// portBin is the port's binary.
 	portBin string
+	// portRun is what TestPort runs as the port: a wrapper around portBin
+	// that holds its stack to deepStack KB (see stackWrapper).
+	portRun string
 	// goCache is the TACK_CACHE the Go compiler runs with, the port's
 	// build among its runs.
 	goCache string
@@ -50,8 +53,12 @@ const (
 // TestMain sets TestPort up, when it is asked for, once for every test
 // of the run: it builds the binaries and writes the corpus in a
 // temporary directory it removes afterwards. The harness's own tests
-// need none of it and run either way.
+// need none of it and run either way. With measureVar set, the binary is
+// TestResPerf's launcher instead, and runs no test.
 func TestMain(m *testing.M) {
+	if cmdline := os.Getenv(measureVar); cmdline != "" {
+		os.Exit(launchMeasured(cmdline))
+	}
 	flag.Parse()
 	root, err := filepath.Abs("..")
 	if err != nil {
@@ -111,6 +118,9 @@ func setup(tmp string) error {
 		return err
 	}
 	if env.portBin, err = portCompiler(tmp); err != nil {
+		return err
+	}
+	if env.portRun, err = writeStackWrapper(tmp); err != nil {
 		return err
 	}
 	env.archives, err = writeArchives(filepath.Join(tmp, "corpus"))

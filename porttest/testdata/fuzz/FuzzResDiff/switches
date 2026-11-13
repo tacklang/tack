@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package main\n\ntype E union {\n\tint int64\n\teof\n}\n\nfunc main() {\n\tmut e := E.int(1)\n\tswitch e {\n\tcase int(n):\n\t\te = E.int(n)\n\tcase eof:\n\t}\n\tswitch v := e.(type) {\n\tcase int64:\n\t}\n}\n")
