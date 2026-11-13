@@ -177,7 +177,12 @@
 // does, and no declaration, parameter or local may take its name. In
 // fields(T), T is resolved as a type, and in v.[f], v as a value and f as
 // a name read, which the type checker requires to be a fields loop's
-// variable.
+// variable. In a switch on a type parameter, the tag and each case value
+// are resolved as types, but the name a case's list[E] or map[K]V writes
+// for its element or value type, which declares an ast.TypeParam of the
+// case's own in the case's block, as a type switch's variable is
+// declared, so only that case's body names it; it must be a new name, not
+// a type's (see paramswitch.go).
 //
 // Each block is a scope: a function's parameters come next, its body is
 // nested in that, and each branch of an if, and each case of a switch, is

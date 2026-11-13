@@ -126,6 +126,10 @@ func (s *instances) walkStmts(
 				ok = s.unroll(fn, loop, fo, bound)
 				return false
 			}
+			if sw, isSwitch := n.(*ast.Switch); isSwitch && sw.OnType {
+				ok = s.walkArm(fn, sw, bound)
+				return false
+			}
 			if call, isCall := n.(*ast.Call); isCall && call.TypeArgs != nil {
 				ok = s.add(call, bound)
 			}
@@ -170,6 +174,42 @@ func (s *instances) unroll(
 		}
 	}
 	return true
+}
+
+// walkArm walks the one case of sw, a switch on a type parameter in fn,
+// that runs when its type parameter stands for what bound binds it to,
+// with each type parameter that case declares bound to what it stands
+// for then, in a copy of bound, as the backend lowers it; no other case
+// is lowered, so no call in one needs an instance. One case is walked
+// for each time the switch is, so a switch adds no bodies to what an
+// instance or a fields loop holds, and needs no bound of its own beside
+// MaxInstances and MaxUnrolled. A switch whose type parameter bound does
+// not bind has no case walked; the backend reports it.
+func (s *instances) walkArm(fn *ast.Func, sw *ast.Switch, bound map[types.Type]types.Type) bool {
+	id, _ := sw.Tag.(*ast.Ident)
+	var tp *ast.TypeParam
+	if id != nil {
+		tp, _ = id.Def.(*ast.TypeParam)
+	}
+	if tp == nil {
+		return true
+	}
+	typ, ok := bound[tp.Type]
+	if !ok {
+		return true
+	}
+	arm, binds := sw.ArmFor(s.c.table, typ)
+	if arm == nil {
+		return true
+	}
+	inner := make(map[types.Type]types.Type, len(bound)+len(binds))
+	for k, v := range bound {
+		inner[k] = v
+	}
+	for k, v := range binds {
+		inner[k] = v
+	}
+	return s.walkStmts(fn, arm.Body, inner)
 }
 
 // recordFields records on fo, a fields loop of fn, the fields it lists

@@ -287,6 +287,17 @@
 // the body is lowered under the binding and the fields in force where
 // it is met.
 //
+// A switch on a type parameter lowers to the body of the one case the
+// type its type parameter stands for in the instance being lowered
+// matches (switch.go's paramSwitch, ast.Switch.ArmFor), in a C block of
+// its own, with the type parameter a list[E] or map[text.Text]V case
+// declares bound to the element or value type on top of the binding in
+// force (types.Table.BindMore); no other case is lowered and nothing is
+// tested at run time. Every value the checker narrowed in the case has
+// the type its declared type stands for under that binding, so the case
+// lowers as code written for that type would; a local or a parameter
+// only other cases name is declared unused, or cast to void, as above.
+//
 // A view, []T, lowers to a C struct of a pointer to const elements and a
 // length, tack_view_ and the type's ID, defined after its element type,
 // the layout of tack_string, so a view's element is x.ptr[i], its length

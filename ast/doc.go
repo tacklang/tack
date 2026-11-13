@@ -63,6 +63,14 @@
 // v.[f] in its body is a Selector whose Field is f, the loop's variable,
 // which Walk does not visit, and a TypeParam constrained by the builtin
 // Data has TypeParam.Data set (see fields.go).
+// A switch on a type parameter, switch T { ... }, is a Switch with OnType
+// set, whose Tag is the name T and whose case values are types as
+// written, struct a StructCase, the name in list[E] or map[K]V a
+// TypeParam of the case's own; the type checker records how each value
+// matches in CaseClause.TypeCases, and ArmFor picks the case an instance
+// runs. A name of a variable or a parameter inside a case that narrows
+// its type has that type in Ident.Narrowed, which TypeOf gives (see
+// paramswitch.go).
 // A Defer holds the statements of its defer { ... } as a body, a block of
 // their own, which may hold another Defer; the checker rejects that.
 // A Region holds the statements of its region r { ... } as a body, a block

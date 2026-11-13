@@ -184,6 +184,14 @@ type Ident struct {
 	// struct literal's field. The variable cannot be used again until it
 	// is assigned (see typeck), and code generation empties it.
 	Move bool `json:",omitempty"`
+
+	// Narrowed is the type the type checker found a variable's or a
+	// parameter's value has where this name of it is written, when that
+	// is not its declared type: inside a case of a switch on a type
+	// parameter that narrows it, int64 for a v declared of type T in case
+	// int64 (see paramswitch.go). It is Invalid for every other name, and
+	// TypeOf gives it in place of the declared type.
+	Narrowed types.Type `json:",omitempty"`
 }
 
 // Qualified returns the name as written: pkg.name for a qualified one, the
@@ -727,9 +735,14 @@ func recordedType(expr Expr) types.Type {
 
 // identType returns the type of the parameter or variable a name is bound
 // to, or of the function it names, used as a value, as the type checker
-// recorded it (see Func.Value). A name bound to a type has no value, and
-// a builtin's Def is a nil *Func, so the type of either is Invalid.
+// recorded it (see Func.Value), or the type it was narrowed to where the
+// name is written (see Ident.Narrowed). A name bound to a type has no
+// value, and a builtin's Def is a nil *Func, so the type of either is
+// Invalid.
 func identType(id *Ident) types.Type {
+	if id.Narrowed != types.Invalid {
+		return id.Narrowed
+	}
 	switch def := id.Def.(type) {
 	case *Param:
 		return def.Type

@@ -48507,6 +48507,906 @@ owned-switch-element-matched/main.tck:13:13: error: l[0] is being matched, and x
    |	            ^~~~
 14 |	            if len(xs) > 0 {
 
+-- param-switch-binding/main.tck --
+package main
+
+func f[T Data](v T) int64 {
+    switch x := T {
+    default:
+        return 0
+    }
+}
+
+func main() {
+    if f(1) == 1 {
+        exit(1)
+    }
+}
+-- param-switch-binding/expected --
+stage: parse
+---
+
+param-switch-binding/main.tck:4:12: error: a switch has no init statement; only a type switch binds a name, as in switch v := x.(type)
+03 |	func f[T Data](v T) int64 {
+04 |	    switch x := T {
+   |	           ^~~~~~
+05 |	    default:
+
+-- param-switch-blank-name/main.tck --
+package main
+
+func f[T Data](v T) int64 {
+    switch T {
+    case list[_]:
+        return len(v)
+    default:
+        return 0
+    }
+}
+
+func main() {
+    if f(1) == 1 {
+        exit(1)
+    }
+}
+-- param-switch-blank-name/expected --
+stage: resolve
+---
+
+param-switch-blank-name/main.tck:5:15: error: cannot use _ as a name
+04 |	    switch T {
+05 |	    case list[_]:
+   |	              ^
+06 |	        return len(v)
+
+-- param-switch-case-type-param/main.tck --
+package main
+
+func f[T Data, U Data](v T, u U) int64 {
+    switch T {
+    case U:
+        return 1
+    default:
+        return 0
+    }
+}
+
+func main() {
+    if f(1, 2) == 1 {
+        exit(1)
+    }
+}
+-- param-switch-case-type-param/expected --
+stage: typeck
+---
+
+param-switch-case-type-param/main.tck:5:10: error: case U names a type parameter; a case of a switch on a type parameter names a type, list[E], map[text.Text]V or struct
+04 |	    switch T {
+05 |	    case U:
+   |	         ^
+06 |	        return 1
+
+-- param-switch-default-never-runs/main.tck --
+package main
+
+import text from "std/text"
+
+func f[T Data](v T) int64 {
+    switch T {
+    case bool, int8, int16, int32, int64, uint8, uint16, uint32, uint64:
+        return 1
+    case unsafe_size_t, unsafe_uintptr_t, float32, float64:
+        return 2
+    case list[E]:
+        return 3
+    case map[text.Text]V:
+        return 4
+    case struct:
+        return 5
+    default:
+        return 6
+    }
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-default-never-runs/expected --
+stage: typeck
+---
+
+param-switch-default-never-runs/main.tck:17:5: error: every type T can stand for is already covered, so this default never runs
+16 |	        return 5
+17 |	    default:
+   |	    ^~~~~~~~
+18 |	        return 6
+
+-- param-switch-duplicate/main.tck --
+package main
+
+import text from "std/text"
+
+func f[T Data](v T) int64 {
+    switch T {
+    case int64, int64:
+        return 1
+    case text.Text:
+        return 2
+    case list[E]:
+        return 3
+    case list[F]:
+        return 4
+    case struct, struct:
+        return 5
+    default:
+        return 0
+    }
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-duplicate/expected --
+stage: typeck
+---
+
+param-switch-duplicate/main.tck:7:17: error: int64 appears twice in this switch
+06 |	    switch T {
+07 |	    case int64, int64:
+   |	                ^~~~~
+08 |	        return 1
+param-switch-duplicate/main.tck:7:10: note: previous case
+06 |	    switch T {
+07 |	    case int64, int64:
+   |	         ^~~~~
+08 |	        return 1
+
+param-switch-duplicate/main.tck:13:10: error: case list[F] never matches: an earlier case takes every type it names
+12 |	        return 3
+13 |	    case list[F]:
+   |	         ^~~~~~~
+14 |	        return 4
+param-switch-duplicate/main.tck:11:10: note: earlier case
+10 |	        return 2
+11 |	    case list[E]:
+   |	         ^~~~~~~
+12 |	        return 3
+
+param-switch-duplicate/main.tck:15:18: error: struct appears twice in this switch
+14 |	        return 4
+15 |	    case struct, struct:
+   |	                 ^~~~~~
+16 |	        return 5
+param-switch-duplicate/main.tck:15:10: note: previous case
+14 |	        return 4
+15 |	    case struct, struct:
+   |	         ^~~~~~
+16 |	        return 5
+
+-- param-switch-fallthrough/main.tck --
+package main
+
+func f[T Data](v T) int64 {
+    mut n := 0
+    switch T {
+    case int64:
+        n = 1
+        fallthrough
+    default:
+        n +%= 2
+    }
+    return n
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-fallthrough/expected --
+stage: typeck
+---
+
+param-switch-fallthrough/main.tck:8:9: error: cannot fall through in a switch on a type parameter
+07 |	        n = 1
+08 |	        fallthrough
+   |	        ^~~~~~~~~~~
+09 |	    default:
+
+-- param-switch-fresh-name-clash/main.tck --
+package main
+
+import text from "std/text"
+
+func f[T Data](v T) int64 {
+    switch T {
+    case list[v]:
+        return 1
+    case map[text.Text]T:
+        return 2
+    default:
+        return 0
+    }
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-fresh-name-clash/expected --
+stage: resolve
+---
+
+param-switch-fresh-name-clash/main.tck:7:15: error: v is already declared
+06 |	    switch T {
+07 |	    case list[v]:
+   |	              ^
+08 |	        return 1
+param-switch-fresh-name-clash/main.tck:5:16: note: previous declaration of v
+04 |	
+05 |	func f[T Data](v T) int64 {
+   |	               ^
+06 |	    switch T {
+
+param-switch-fresh-name-clash/main.tck:9:24: error: T is a type; a case of a switch on a type parameter names the value type of a map with a new name, as in case map[text.Text]V
+08 |	        return 1
+09 |	    case map[text.Text]T:
+   |	                       ^
+10 |	        return 2
+
+-- param-switch-fresh-outside-case/main.tck --
+package main
+
+func f[T Data](v T) int64 {
+    switch T {
+    case list[E]:
+        return len(v)
+    case bool:
+        mut e E
+        return 0
+    default:
+        return 0
+    }
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-fresh-outside-case/expected --
+stage: typeck
+---
+
+param-switch-fresh-outside-case/main.tck:8:13: warning: declared and not used: e
+07 |	    case bool:
+08 |	        mut e E
+   |	            ^
+09 |	        return 0
+
+param-switch-fresh-outside-case/main.tck:8:15: error: unknown type: E
+07 |	    case bool:
+08 |	        mut e E
+   |	              ^
+09 |	        return 0
+
+-- param-switch-group-no-narrow/main.tck --
+package main
+
+func f[T Data](v T) T {
+    switch T {
+    case int8, int16:
+        return v + 1
+    default:
+        return v
+    }
+}
+
+func main() {
+    if f(int8(1)) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-group-no-narrow/expected --
+stage: typeck
+---
+
+param-switch-group-no-narrow/main.tck:6:16: error: operator + is not defined on T
+05 |	    case int8, int16:
+06 |	        return v + 1
+   |	               ^
+07 |	    default:
+
+-- param-switch-list-concrete/main.tck --
+package main
+
+func f[T Data](v T) int64 {
+    switch T {
+    case list[int64]:
+        return len(v)
+    case list[list[E]]:
+        return 2
+    default:
+        return 0
+    }
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-list-concrete/expected --
+stage: resolve
+---
+
+param-switch-list-concrete/main.tck:5:15: error: int64 is a type; a case of a switch on a type parameter names the element type of a list with a new name, as in case list[E]
+04 |	    switch T {
+05 |	    case list[int64]:
+   |	              ^~~~~
+06 |	        return len(v)
+
+param-switch-list-concrete/main.tck:7:15: error: a case of a switch on a type parameter names the element type of a list with a new name, as in case list[E]
+06 |	        return len(v)
+07 |	    case list[list[E]]:
+   |	              ^~~~~~~
+08 |	        return 2
+
+-- param-switch-list-grouped/main.tck --
+package main
+
+func f[T Data](v T) int64 {
+    switch T {
+    case list[E], bool:
+        return 1
+    default:
+        return 0
+    }
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-list-grouped/expected --
+stage: typeck
+---
+
+param-switch-list-grouped/main.tck:5:10: error: a case naming list[E] names no other type, since E stands for the element type of the list it matches
+04 |	    switch T {
+05 |	    case list[E], bool:
+   |	         ^~~~~~~
+06 |	        return 1
+
+-- param-switch-list-passed-whole/main.tck --
+package main
+
+func count[T Data](v T) int64 {
+    switch T {
+    case list[E]:
+        return count(v)
+    default:
+        return 1
+    }
+}
+
+func main() {
+    if count(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-list-passed-whole/expected --
+stage: typeck
+---
+
+param-switch-list-passed-whole/main.tck:6:22: error: cannot use list[E] as T in argument to count: a type argument cannot be made of a type parameter, only be one
+05 |	    case list[E]:
+06 |	        return count(v)
+   |	                     ^
+07 |	    default:
+
+-- param-switch-map-key/main.tck --
+package main
+
+func f[T Data](v T) int64 {
+    switch T {
+    case map[string]V:
+        return 1
+    default:
+        return 0
+    }
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-map-key/expected --
+stage: typeck
+---
+
+param-switch-map-key/main.tck:5:14: error: case map[string]V never matches: a Data map's key is text.Text, not string
+04 |	    switch T {
+05 |	    case map[string]V:
+   |	             ^~~~~~
+06 |	        return 1
+
+-- param-switch-missing/main.tck --
+package main
+
+import text from "std/text"
+
+func f[T Data](v T) int64 {
+    switch T {
+    case bool, int8, int16, int32, int64, uint8, uint16, uint32, uint64:
+        return 1
+    case unsafe_size_t, unsafe_uintptr_t:
+        return 2
+    case text.Text:
+        return 3
+    case list[E]:
+        return 4
+    }
+    return 0
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-missing/expected --
+stage: typeck
+---
+
+param-switch-missing/main.tck:6:5: error: switch on T misses cases float32, float64, map[text.Text]V, struct; cover them or add a default
+05 |	func f[T Data](v T) int64 {
+06 |	    switch T {
+   |	    ^~~~~~~~
+07 |	    case bool, int8, int16, int32, int64, uint8, uint16, uint32, uint64:
+
+-- param-switch-missing-return/main.tck --
+package main
+
+import text from "std/text"
+
+func f[T Data](v T) int64 {
+    switch T {
+    case bool, int8, int16, int32, int64, uint8, uint16, uint32, uint64:
+        return 1
+    case unsafe_size_t, unsafe_uintptr_t, float32, float64:
+        return 2
+    case list[E]:
+        return 3
+    case map[text.Text]V:
+    case struct:
+        return 5
+    }
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-missing-return/expected --
+stage: typeck
+---
+
+param-switch-missing-return/main.tck:5:6: error: f must end in a return
+04 |	
+05 |	func f[T Data](v T) int64 {
+   |	     ^
+06 |	    switch T {
+
+-- param-switch-move-in-list-case/main.tck --
+package main
+
+func f[T Data](v T) int64 {
+    switch T {
+    case list[E]:
+        w := v
+        return len(w)
+    default:
+        return 0
+    }
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-move-in-list-case/expected --
+stage: typeck
+---
+
+param-switch-move-in-list-case/main.tck:6:14: error: cannot move v: it is a parameter, which borrows its caller's value
+05 |	    case list[E]:
+06 |	        w := v
+   |	             ^
+07 |	        return len(w)
+
+-- param-switch-narrowed-outside/main.tck --
+package main
+
+func f[T Data](v T) int64 {
+    switch T {
+    case int64:
+        w := v
+        if w > 0 {
+            return 1
+        }
+    default:
+    }
+    return v + 1
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-narrowed-outside/expected --
+stage: typeck
+---
+
+param-switch-narrowed-outside/main.tck:12:12: error: operator + is not defined on T
+11 |	    }
+12 |	    return v + 1
+   |	           ^
+13 |	}
+
+-- param-switch-narrowed-wrong-type/main.tck --
+package main
+
+import text from "std/text"
+
+func f[T Data](v T) int64 {
+    switch T {
+    case bool:
+        return v + 1
+    case text.Text:
+        return v
+    default:
+        return 0
+    }
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-narrowed-wrong-type/expected --
+stage: typeck
+---
+
+param-switch-narrowed-wrong-type/main.tck:8:16: error: operator + is not defined on bool
+07 |	    case bool:
+08 |	        return v + 1
+   |	               ^
+09 |	    case text.Text:
+
+param-switch-narrowed-wrong-type/main.tck:10:16: error: cannot use text.Text as int64 in return from f
+09 |	    case text.Text:
+10 |	        return v
+   |	               ^
+11 |	    default:
+
+-- param-switch-nested-kinds/main.tck --
+package main
+
+func f[T Data](v T) int64 {
+    switch T {
+    case struct:
+        switch T {
+        case int64:
+            return 1
+        case struct:
+            return 2
+        }
+    default:
+        switch T {
+        case struct:
+            return 3
+        default:
+            return 4
+        }
+    }
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-nested-kinds/expected --
+stage: typeck
+---
+
+param-switch-nested-kinds/main.tck:7:14: error: case int64 never matches: T is never int64 here
+06 |	        switch T {
+07 |	        case int64:
+   |	             ^~~~~
+08 |	            return 1
+
+param-switch-nested-kinds/main.tck:14:14: error: case struct never matches: T is never struct here
+13 |	        switch T {
+14 |	        case struct:
+   |	             ^~~~~~
+15 |	            return 3
+
+-- param-switch-nested-narrowed/main.tck --
+package main
+
+func f[T Data](v T) int64 {
+    switch T {
+    case int64:
+        switch T {
+        default:
+            return 1
+        }
+    default:
+        return 0
+    }
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-nested-narrowed/expected --
+stage: typeck
+---
+
+param-switch-nested-narrowed/main.tck:6:16: error: cannot switch on T: it is int64 in this case
+05 |	    case int64:
+06 |	        switch T {
+   |	               ^
+07 |	        default:
+
+-- param-switch-non-data-case/main.tck --
+package main
+
+func f[T Data](v T) int64 {
+    switch T {
+    case string:
+        return 1
+    case [2]int64:
+        return 2
+    default:
+        return 0
+    }
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-non-data-case/expected --
+stage: typeck
+---
+
+param-switch-non-data-case/main.tck:5:10: error: case string never matches: string does not satisfy Data: a string is not Data
+04 |	    switch T {
+05 |	    case string:
+   |	         ^~~~~~
+06 |	        return 1
+
+param-switch-non-data-case/main.tck:7:10: error: case [2]int64 never matches: [2]int64 does not satisfy Data: an array is not Data
+06 |	        return 1
+07 |	    case [2]int64:
+   |	         ^~~~~~~~
+08 |	        return 2
+
+-- param-switch-not-data/main.tck --
+package main
+
+type Shape interface {
+    area() int64
+}
+
+func f[T Shape](v T) int64 {
+    switch T {
+    default:
+        return v.area()
+    }
+}
+
+type Sq struct {
+    n int64
+}
+
+func (s Sq) area() int64 {
+    return s.n
+}
+
+func main() {
+    if f(Sq{n: 2}) == 3 {
+        exit(1)
+    }
+}
+-- param-switch-not-data/expected --
+stage: typeck
+---
+
+param-switch-not-data/main.tck:8:12: error: cannot switch on T: it is constrained by Shape, not Data
+07 |	func f[T Shape](v T) int64 {
+08 |	    switch T {
+   |	           ^
+09 |	    default:
+
+-- param-switch-on-concrete-type/main.tck --
+package main
+
+func f[T Data](v T) int64 {
+    switch int64 {
+    default:
+        return 0
+    }
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-on-concrete-type/expected --
+stage: resolve
+---
+
+param-switch-on-concrete-type/main.tck:4:12: error: cannot use int64 as a value; it is a type
+03 |	func f[T Data](v T) int64 {
+04 |	    switch int64 {
+   |	           ^~~~~
+05 |	    default:
+
+-- param-switch-overflow-unproven/main.tck --
+package main
+
+func f[T Data](v T) int64 {
+    switch T {
+    case int64:
+        return v + 1
+    default:
+        return 0
+    }
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-overflow-unproven/expected --
+stage: typeck
+---
+
+param-switch-overflow-unproven/main.tck:6:16: error: v + 1 may overflow int64; bound v first, or use v, ok := v + 1, or v +% 1 to wrap
+05 |	    case int64:
+06 |	        return v + 1
+   |	               ^~~~~
+07 |	    default:
+
+-- param-switch-struct-type/main.tck --
+package main
+
+type Point struct {
+    x int64
+}
+
+func f[T Data](v T) int64 {
+    switch T {
+    case Point:
+        return 1
+    default:
+        return 0
+    }
+}
+
+func main() {
+    if f(Point{x: 1}) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-struct-type/expected --
+stage: typeck
+---
+
+param-switch-struct-type/main.tck:9:10: error: case Point names a struct type; a case of a switch on a type parameter names text.Text or struct, which matches every struct
+08 |	    switch T {
+09 |	    case Point:
+   |	         ^~~~~
+10 |	        return 1
+
+-- param-switch-unknown-case-type/main.tck --
+package main
+
+func f[T Data](v T) int64 {
+    switch T {
+    case Nowhere:
+        return 1
+    case int64:
+        return 2
+    }
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-unknown-case-type/expected --
+stage: typeck
+---
+
+param-switch-unknown-case-type/main.tck:5:10: error: unknown type: Nowhere
+04 |	    switch T {
+05 |	    case Nowhere:
+   |	         ^~~~~~~
+06 |	        return 1
+
+-- param-switch-unreachable-text/main.tck --
+package main
+
+import text from "std/text"
+
+func f[T Data](v T) int64 {
+    switch T {
+    case struct:
+        return 1
+    case text.Text:
+        return 2
+    case int64:
+        return 3
+    case int8, int64:
+        return 4
+    default:
+        return 0
+    }
+}
+
+func main() {
+    if f(1) == 2 {
+        exit(1)
+    }
+}
+-- param-switch-unreachable-text/expected --
+stage: typeck
+---
+
+param-switch-unreachable-text/main.tck:9:10: error: case text.Text never matches: an earlier case takes every type it names
+08 |	        return 1
+09 |	    case text.Text:
+   |	         ^~~~~~~~~
+10 |	        return 2
+param-switch-unreachable-text/main.tck:7:10: note: earlier case
+06 |	    switch T {
+07 |	    case struct:
+   |	         ^~~~~~
+08 |	        return 1
+
+param-switch-unreachable-text/main.tck:13:16: error: int64 appears twice in this switch
+12 |	        return 3
+13 |	    case int8, int64:
+   |	               ^~~~~
+14 |	        return 4
+param-switch-unreachable-text/main.tck:11:10: note: previous case
+10 |	        return 2
+11 |	    case int64:
+   |	         ^~~~~
+12 |	        return 3
+
 -- param-type-mismatch/main.tck --
 package main
 

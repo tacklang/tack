@@ -1165,6 +1165,25 @@
 // and each local its body names from outside it is marked
 // ast.Var.Unrolled.
 //
+// Switches on a type parameter (paramswitch.go). switch T { ... } names
+// a type parameter constrained by Data, and each case value a type T may
+// stand for, list[E] and map[text.Text]V declaring E and V, type
+// parameters of the case's own constrained by Data, and struct any
+// struct; each value takes kinds of the closed set Data falls into (each
+// integer and float type, bool, text.Text, lists, maps, other structs),
+// in source order, and one that takes none left is reported, a switch
+// with no default must take every kind left to T, and a default that
+// never runs is reported. A case naming one type is checked once with T
+// narrowed to it: every type made of T is made of it there (narrowType),
+// a name of a variable or parameter records the narrowed type in
+// ast.Ident.Narrowed, and the function's results are narrowed too, so the
+// body is checked, moves, facts and proofs included, as code written for
+// that type. Other cases, the default included, narrow nothing, but hold
+// a switch on T nested in them to the kinds they leave. Once instances
+// are found, each switch walks only the case its type argument matches
+// (instance.go's walkArm), with the case's own type parameter bound to the
+// element or value type, so a switch adds no bodies to bound.
+//
 // Before any of this, Check records the program's types.Table on
 // Program.Types and on every file's File.Types, and every diagnostic names
 // a type through it, so a type is always named by the compilation that gave

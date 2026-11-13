@@ -58,8 +58,12 @@ import (
 // A switch with a case ending in fallthrough is lowered by fallChain
 // instead, its tag held the same way.
 //
-// A switch on a union is lowered by generateUnionSwitch.
+// A switch on a union is lowered by generateUnionSwitch, and one on a
+// type parameter by paramSwitch.
 func (g *generator) generateSwitch(s *ast.Switch, fn *ast.Func) ([]string, []diag.Diagnostic) {
+	if s.OnType {
+		return g.paramSwitch(s, fn)
+	}
 	if g.isUnionSwitch(s) {
 		return g.generateUnionSwitch(s, fn)
 	}
@@ -367,11 +371,52 @@ func (g *generator) intTest(typ types.Type, tagRef string, v ast.Expr, value str
 // switchCompares returns the type of the tag when n is an expression
 // switch that compares its tag with at least one value, with ==, so that
 // the type's equality helper, or the string comparison helper, is
-// emitted. A type switch compares type ids, and needs neither.
+// emitted. A type switch compares type ids, and needs neither, and a
+// switch on a type parameter compares nothing at run time.
 func switchCompares(n ast.Node) (types.Type, bool) {
 	s, ok := n.(*ast.Switch)
-	if !ok || s.Tag == nil || !hasValues(s) || s.IsTypeSwitch() {
+	if !ok || s.Tag == nil || !hasValues(s) || s.IsTypeSwitch() || s.OnType {
 		return types.Invalid, false
 	}
 	return ast.TypeOf(s.Tag), true
+}
+
+// paramSwitch lowers s, a switch in fn on a type parameter, as the body
+// of the one case the type its type parameter stands for in the instance
+// being lowered matches (see ast.Switch.ArmFor), in a C block of its own,
+// with each type parameter that case declares bound to what it stands
+// for: the element type of the list, or the value type of the map, the
+// type parameter stands for. No other case is lowered, and nothing is
+// tested at run time.
+func (g *generator) paramSwitch(s *ast.Switch, fn *ast.Func) ([]string, []diag.Diagnostic) {
+	id, _ := s.Tag.(*ast.Ident)
+	var tp *ast.TypeParam
+	if id != nil {
+		tp, _ = id.Def.(*ast.TypeParam)
+	}
+	if tp == nil {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message:  "a switch on a type parameter must name one",
+			Span:     s.Tag.Spanned(),
+		}}
+	}
+	typ := g.prog.Types.Bound(tp.Type)
+	arm, binds := s.ArmFor(g.prog.Types, typ)
+	if arm == nil {
+		return nil, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Message: fmt.Sprintf("a switch on a type parameter has no case for %s",
+				g.prog.Types.Name(typ)),
+			Span: s.Tag.Spanned(),
+		}}
+	}
+	restore := g.prog.Types.BindMore(binds)
+	body, diags := g.block(arm.Body, fn, false, nil)
+	restore()
+	if len(diags) > 0 {
+		return nil, diags
+	}
+	lines := append([]string{"{"}, indent(body)...)
+	return append(lines, "}"), nil
 }

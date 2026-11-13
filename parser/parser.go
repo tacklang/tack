@@ -94,6 +94,13 @@ type Parser struct {
 	// builtinMode is set only for the file that documents the builtins
 	// (see NewBuiltinParser).
 	builtinMode bool
+
+	// typeParams counts, by name, the type parameters in scope where the
+	// parse is: those of the function whose body is being parsed, and
+	// those each case of a switch on a type parameter around it declares
+	// (see atParamSwitch). No name is ever declared twice in one scope,
+	// so a count is enough to leave a scope.
+	typeParams map[string]int
 }
 
 // maxNesting is how many levels a program may nest one construct inside
@@ -163,6 +170,8 @@ func NewParser(fileID source.FileID, tokens []lexer.Token) *Parser {
 		parens:  make(map[ast.Expr]ast.Span),
 		imports: make(map[string]bool),
 		errAt:   make(map[ast.Span]bool),
+
+		typeParams: make(map[string]int),
 	}
 	for _, tk := range tokens {
 		if tk.Kind() == lexer.Comment {
@@ -681,7 +690,10 @@ func (p *Parser) parseFunc(extern bool) (*ast.Func, []diag.Diagnostic) {
 		return nil, diags
 	}
 
-	if bodyDiags := p.parseFuncBody(fn, extern); bodyDiags != nil {
+	leave := p.enterTypeParams(fn.TypeParams)
+	bodyDiags := p.parseFuncBody(fn, extern)
+	leave()
+	if bodyDiags != nil {
 		return nil, bodyDiags
 	}
 
@@ -742,6 +754,30 @@ func (p *Parser) parseTypeParams(fn *ast.Func, extern bool) []diag.Diagnostic {
 		return []diag.Diagnostic{{Severity: diag.Error, Message: msg, Span: fn.TypeParamsSpan}}
 	}
 	return nil
+}
+
+// enterTypeParams records tps, type parameters, as in scope for the body
+// about to be parsed, so a switch on one is parsed as one (see
+// atParamSwitch), and returns what leaves their scope.
+func (p *Parser) enterTypeParams(tps []*ast.TypeParam) (leave func()) {
+	names := make([]string, len(tps))
+	for i, tp := range tps {
+		names[i] = tp.Name
+	}
+	return p.enterTypeNames(names)
+}
+
+// enterTypeNames is enterTypeParams for type parameters known by their
+// names alone.
+func (p *Parser) enterTypeNames(names []string) (leave func()) {
+	for _, name := range names {
+		p.typeParams[name]++
+	}
+	return func() {
+		for _, name := range names {
+			p.typeParams[name]--
+		}
+	}
 }
 
 // typeParamsProblem returns what is wrong with fn's type parameters,
@@ -2538,22 +2574,12 @@ func (p *Parser) parseSwitch() (*ast.Switch, []diag.Diagnostic) {
 
 	stmt := &ast.Switch{Span: p.span(tk), Cases: make([]*ast.CaseClause, 0)}
 
-	if p.peek().Kind() != lexer.LCurl {
-		bind, diags := p.parseBinding()
-		if diags != nil {
-			return nil, diags
-		}
-		restore := p.allowLits(false)
-		tag, diags := p.parseExpr(1)
-		restore()
-		if tag == nil {
-			return nil, diags
-		}
-		stmt.Tag, stmt.Bind = tag, bind
-		if diags := p.checkBinding(stmt); diags != nil {
-			return nil, diags
-		}
-		if diags := p.headerLit("a switch"); diags != nil {
+	switch {
+	case p.atParamSwitch():
+		stmt.Tag, _ = p.parseIdent("type parameter")
+		stmt.OnType = true
+	case p.peek().Kind() != lexer.LCurl:
+		if diags := p.parseSwitchTag(stmt); diags != nil {
 			return nil, diags
 		}
 	}
@@ -2567,6 +2593,38 @@ func (p *Parser) parseSwitch() (*ast.Switch, []diag.Diagnostic) {
 		return nil, semiDiags
 	}
 	return stmt, nil
+}
+
+// parseSwitchTag parses the header of stmt, a switch that is not on a
+// type parameter, after its keyword: a type switch's binding, if any,
+// and the tag, with no literal allowed outside parentheses.
+func (p *Parser) parseSwitchTag(stmt *ast.Switch) []diag.Diagnostic {
+	bind, diags := p.parseBinding()
+	if diags != nil {
+		return diags
+	}
+	restore := p.allowLits(false)
+	tag, diags := p.parseExpr(1)
+	restore()
+	if tag == nil {
+		return diags
+	}
+	stmt.Tag, stmt.Bind = tag, bind
+	if diags := p.checkBinding(stmt); diags != nil {
+		return diags
+	}
+	return p.headerLit("a switch")
+}
+
+// atParamSwitch reports whether the switch whose keyword was just
+// consumed is on a type parameter: the next token is the name of a type
+// parameter in scope, and a brace follows it. A name in scope is never
+// declared again, as a variable or anything else, so such a name names
+// the type parameter.
+func (p *Parser) atParamSwitch() bool {
+	tk := p.peek()
+	return tk.Kind() == lexer.Ident && p.typeParams[lexer.ValueChecked[string](tk)] > 0 &&
+		p.peekAt(1).Kind() == lexer.LCurl
 }
 
 // parseBinding parses the name and := of a type switch's binding, switch
@@ -2643,7 +2701,7 @@ func (p *Parser) parseCaseList(stmt *ast.Switch) []diag.Diagnostic {
 
 	var first *ast.CaseClause
 	for !p.halted() && !p.atStmtsEnd(false) {
-		cl, diags := p.parseClauseOrBad(stmt.IsTypeSwitch())
+		cl, diags := p.parseClauseOrBad(casesOf(stmt))
 		if cl == nil {
 			return diags
 		}
@@ -2681,12 +2739,35 @@ func linkFallthroughs(s *ast.Switch) {
 	}
 }
 
+// caseValues is what the values of a switch's cases are: values,
+// types, in a type switch, or patterns of types, in a switch on a type
+// parameter.
+type caseValues int
+
+const (
+	valueCases caseValues = iota
+	typeCases
+	paramCases
+)
+
+// casesOf returns what the values of stmt's cases are.
+func casesOf(stmt *ast.Switch) caseValues {
+	switch {
+	case stmt.OnType:
+		return paramCases
+	case stmt.IsTypeSwitch():
+		return typeCases
+	default:
+		return valueCases
+	}
+}
+
 // parseClauseOrBad parses one clause of a switch, as parseCaseClause
 // does, or a bad clause in its place when its header fails (see
 // badClause). It returns nil, and the errors, when neither can be had.
-func (p *Parser) parseClauseOrBad(typeCases bool) (*ast.CaseClause, []diag.Diagnostic) {
+func (p *Parser) parseClauseOrBad(values caseValues) (*ast.CaseClause, []diag.Diagnostic) {
 	start := p.index
-	cl, diags := p.parseCaseClause(typeCases)
+	cl, diags := p.parseCaseClause(values)
 	if cl == nil {
 		cl = p.badClause(start, diags)
 	}
@@ -2711,8 +2792,11 @@ func multipleDefaults(cl, first *ast.CaseClause) []diag.Diagnostic {
 // parseCaseClause parses one clause of a switch: case, one or more values
 // separated by commas, and a colon, or default and a colon; then the
 // statements of its body, up to the next case, default or closing brace.
-// In a type switch, typeCases says so, and each value is a type.
-func (p *Parser) parseCaseClause(typeCases bool) (*ast.CaseClause, []diag.Diagnostic) {
+// In a type switch, values says so, and each value is a type; in a switch
+// on a type parameter, each is a pattern of one (see parseTypeCase), and
+// the names its list[E] and map[K]V declare are type parameters in scope
+// in its body.
+func (p *Parser) parseCaseClause(values caseValues) (*ast.CaseClause, []diag.Diagnostic) {
 	tk := p.peek()
 	if !isKeyword(tk, lexer.Case) && !isKeyword(tk, lexer.Default) {
 		return nil, []diag.Diagnostic{p.diagInvalidToken("case or default", tk)}
@@ -2725,13 +2809,7 @@ func (p *Parser) parseCaseClause(typeCases bool) (*ast.CaseClause, []diag.Diagno
 		Body:    make([]ast.Stmt, 0),
 	}
 	for !cl.Default {
-		var value ast.Expr
-		var diags []diag.Diagnostic
-		if typeCases {
-			value, diags = p.parseType()
-		} else {
-			value, diags = p.parseExpr(1)
-		}
+		value, diags := p.parseCaseValue(values)
 		if value == nil {
 			return nil, diags
 		}
@@ -2746,11 +2824,56 @@ func (p *Parser) parseCaseClause(typeCases bool) (*ast.CaseClause, []diag.Diagno
 	}
 	cl.Span.End = p.peekPrev().OffsetEnd()
 
+	leave := p.enterTypeNames(caseTypeNames(cl, values))
 	cl.Body = p.parseStmts(true)
+	leave()
 	if p.tooDeep != nil {
 		return nil, []diag.Diagnostic{*p.tooDeep}
 	}
 	return cl, nil
+}
+
+// parseCaseValue parses one value of a case of a switch whose values are
+// of the kind values says: a type, a pattern of one, or an expression.
+func (p *Parser) parseCaseValue(values caseValues) (ast.Expr, []diag.Diagnostic) {
+	switch values {
+	case typeCases:
+		return p.parseType()
+	case paramCases:
+		return p.parseTypeCase()
+	default:
+		return p.parseExpr(1)
+	}
+}
+
+// caseTypeNames returns the names of the type parameters cl, a case
+// whose values are of the kind values says, declares: those its list[E]
+// and map[K]V name, in a switch on a type parameter, and none in any
+// other switch.
+func caseTypeNames(cl *ast.CaseClause, values caseValues) []string {
+	if values != paramCases {
+		return nil
+	}
+	var names []string
+	for _, v := range cl.Values {
+		if name := ast.CaseTypeName(v); name != nil {
+			names = append(names, name.Name)
+		}
+	}
+	return names
+}
+
+// parseTypeCase parses a value of a case of a switch on a type
+// parameter: struct, which matches any struct, or a type as written,
+// whose list[E] or map[K]V may name, in E or V, a type parameter the case
+// declares. What each names is the resolver's and the type checker's to
+// judge.
+func (p *Parser) parseTypeCase() (ast.Expr, []diag.Diagnostic) {
+	if tk := p.peek(); isKeyword(tk, lexer.Struct) {
+		p.next()
+		return &ast.StructCase{Span: p.span(tk)}, nil
+	}
+	return p.parseType()
 }
 
 // atClauseEnd reports whether the next token ends a case clause's body:

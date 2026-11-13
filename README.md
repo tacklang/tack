@@ -3304,6 +3304,55 @@ section remains the description of the language.
   since `dst.[f] = src.[f]` moves a field out of `src`, which is
   reported: a generic function that returns one, taken out of a list it
   was given, does, and `make` for `Data` is still to come.
+- Switches on a type parameter. `switch T { case int64: ... }` names a
+  type parameter `T` constrained by `Data`, `cannot switch on T: it is
+  constrained by Shape, not Data`, of the function it is in or one a case
+  around it declares, and each case names types `T` may stand for: a
+  type that is `Data` and no struct but `text.Text`, `case bool:`, `case
+  int8, int16:`, `case text.Text:`; `list[E]`, any list, and
+  `map[text.Text]V`, any map, whose `E` and `V` are new names, type
+  parameters constrained by `Data` that stand for the element and value
+  types in the case's body, `int64 is a type; a case of a switch on a
+  type parameter names the element type of a list with a new name, as in
+  case list[E]`; and `struct`, any struct. Anything else is reported,
+  `case string never matches: string does not satisfy Data: a string is
+  not Data`, `case Point names a struct type; a case of a switch on a
+  type parameter names text.Text or struct, which matches every struct`,
+  `case map[string]V never matches: a Data map's key is text.Text, not
+  string`, and a `list[E]` or `map[text.Text]V` shares its case with no
+  other type. Each instance runs the first case, in source order, that
+  its type argument matches, the default last, chosen when it is
+  compiled: only that case is in its C, and nothing is tested at run
+  time. So `case text.Text:` before `case struct:` takes Texts, and a case
+  that can never match is an error, `case text.Text never matches: an
+  earlier case takes every type it names`, `int64 appears twice in this
+  switch`. `Data` is closed, so a switch with no default must take every
+  integer type, `unsafe_size_t` and `unsafe_uintptr_t` among them, both
+  float types, `bool`, `text.Text`, lists, maps and structs, `switch on T
+  misses cases float32, float64, struct; cover them or add a default`,
+  and a default that never runs is reported, `every type T can stand for
+  is already covered, so this default never runs`. A case naming one
+  type narrows `T` in its body: every value of type `T` there, a
+  parameter, a local or a `mut` place declared outside the case, is a
+  value of that type, and every type made of `T` is made of it, so `v + 1`,
+  `a == b`, `v = n`, `mut v.append(b)` and the facts proving `v + 1` safe
+  work as for a value declared of that type, `v + 1 may overflow int64;
+  bound v first, or use v, ok := v + 1, or v +% 1 to wrap`. A case naming
+  several types, `struct` and the default narrow nothing, but a switch on
+  `T` nested in one is held to the types it leaves, `case int64 never
+  matches: T is never int64 here`, and one nested in a case that narrows
+  `T` is reported, `cannot switch on T: it is int64 in this case`. A
+  switch whose cases take every type and has no default ends a body when
+  every case returns, as a switch on a union does. `fallthrough` is
+  reported, `cannot fall through in a switch on a type parameter`. The
+  type parameter a fields loop's `v.[f]` has cannot be named, so a switch
+  on a field's type is written in a generic function `v.[f]` is passed
+  to. A value of a `list[E]` case's type, `list[E]`, is not passed whole
+  to a generic function taking a `T`, which a type made of a type
+  parameter never is, but its elements, of type `E`, are. Every case
+  lowered is lowered where a body of its function is, once per instance
+  or per fields loop body, so a switch adds no code beyond what the
+  instance and fields loop limits bound.
 - Package-level variables. `var` and `mut` declarations may also appear
   outside any function, where `:=` is not allowed. A package-level variable is
   initialized with a constant expression, which the compiler computes:

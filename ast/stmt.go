@@ -352,15 +352,24 @@ func (f *ForRange) Spanned() Span { return f.Span }
 // may bind that case's payload to a variable, its CaseClause's Var. The
 // type checker sets Exhaustive when its clauses name every case, which a
 // switch on a union must unless it has a default.
+//
+// A switch on a type parameter, switch T { case int64: ... }, has OnType
+// set, and its Tag is the name T: each case value is a pattern of a type
+// T may stand for, and each instance runs the one case its type argument
+// matches, chosen when it is compiled (see paramswitch.go).
 type Switch struct {
 	Tag   Expr
 	Bind  *Var
 	Cases []*CaseClause
 	Span  Span // 'switch' keyword through the closing brace
 
+	// OnType is set by the parser on a switch on a type parameter.
+	OnType bool `json:",omitempty"`
+
 	// Exhaustive is set by the type checker on a switch on a union whose
-	// clauses name every one of its cases, which then has no default and
-	// always runs one of its clauses.
+	// clauses name every one of its cases, or on a type parameter whose
+	// clauses match every type it may stand for, which then has no
+	// default and always runs one of its clauses.
 	Exhaustive bool `json:",omitempty"`
 }
 
@@ -409,7 +418,9 @@ func (s *Switch) IsTypeSwitch() bool {
 // checker gives the payload's type; it refers to the payload in place.
 // Var is nil in every other case. In a type switch,
 // Types holds the type each value names, in order, set by the type
-// checker, since a type as written has no type of its own to record.
+// checker, since a type as written has no type of its own to record. In
+// a switch on a type parameter, TypeCases holds how each value matches,
+// in order, set by the type checker (see TypeCase).
 //
 // Bad is set for a clause the parser could not parse the header of, case
 // or default and its values through the colon, or that it rejected, a
@@ -421,13 +432,14 @@ func (s *Switch) IsTypeSwitch() bool {
 // statement passes over this one too. Whatever the header named is
 // unknown: a bad clause may have been any case or the default.
 type CaseClause struct {
-	Values  []Expr
-	Types   []types.Type `json:",omitempty"`
-	Var     *Var
-	Body    []Stmt
-	Span    Span // 'case' or 'default' keyword through the colon, or a bad clause's header
-	Default bool
-	Bad     bool `json:",omitempty"`
+	Values    []Expr
+	Types     []types.Type `json:",omitempty"`
+	TypeCases []TypeCase   `json:"-"`
+	Var       *Var
+	Body      []Stmt
+	Span      Span // 'case' or 'default' keyword through the colon, or a bad clause's header
+	Default   bool
+	Bad       bool `json:",omitempty"`
 }
 
 // Defer registers Body to run when the block holding the defer is left,

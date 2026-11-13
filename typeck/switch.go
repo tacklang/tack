@@ -46,6 +46,10 @@ import (
 // with no ==, a view, an any, a list, an Allocator, or a struct or array
 // holding one, is reported, since a switch compares its tag with ==.
 func (c *Checker) checkSwitch(s *ast.Switch, fn *ast.Func) {
+	if s.OnType {
+		c.checkParamSwitch(s, fn)
+		return
+	}
 	if s.IsTypeSwitch() {
 		c.checkTypeSwitch(s, fn)
 		return
@@ -224,6 +228,8 @@ const (
 	typeSwitch
 	// unionSwitch is a switch on a union, which matches its cases.
 	unionSwitch
+	// paramSwitch is a switch on a type parameter (see paramswitch.go).
+	paramSwitch
 )
 
 // clauseAt is a switch case whose body is being checked: cl, of a switch
@@ -262,6 +268,8 @@ func (c *Checker) checkFallthrough(f *ast.Fallthrough) {
 		c.errorf(f.Span, "cannot fall through in a type switch")
 	case in.kind == unionSwitch:
 		c.errorf(f.Span, "cannot fall through in a switch on a union")
+	case in.kind == paramSwitch:
+		c.errorf(f.Span, "cannot fall through in a switch on a type parameter")
 	case !isLast || last != f:
 		c.errorf(f.Span, "fallthrough must be the last statement of a case")
 	case f.Next == nil:
@@ -503,9 +511,9 @@ func caseCond(s *ast.Switch, v ast.Expr) ast.Expr {
 // tried after it assigns its variable. The default has no
 // condition, and gives nothing, and neither does a type switch's case,
 // whose values are types, nor a union switch's, whose values are
-// patterns.
+// patterns, nor a switch on a type parameter's, whose values are types.
 func (c *Checker) caseFacts(s *ast.Switch, cl *ast.CaseClause, holds bool) []fact {
-	if cl.Default || len(cl.Values) == 0 || s.IsTypeSwitch() ||
+	if cl.Default || len(cl.Values) == 0 || s.IsTypeSwitch() || s.OnType ||
 		c.table.IsUnion(ast.TypeOf(s.Tag)) {
 		return nil
 	}

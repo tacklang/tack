@@ -58,7 +58,13 @@
 // calls the builtin; for f := range fields(T) is a range loop over one.
 // After any operand, .[f] is the field f of it, a Selector whose Field is
 // the name f and whose Name is "[f]"; whether f is a fields loop's
-// variable is the resolver's and the type checker's to judge.
+// variable is the resolver's and the type checker's to judge. The parser
+// keeps the names of the type parameters in scope, a function's while its
+// body is parsed and those a case's list[E] or map[K]V names while that
+// case's body is, so switch followed by one of them and a brace is a
+// switch on a type parameter, ast.Switch.OnType, whose case values are
+// types and struct, an ast.StructCase; since no name in scope is ever
+// declared again, the name can mean nothing else.
 //
 // Comment tokens are set apart before parsing, so the grammar never sees
 // them and a comment is accepted at every token boundary. A line comment

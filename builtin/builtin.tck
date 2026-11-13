@@ -130,7 +130,11 @@ type handle handle
 // deepest in it that is not. A value of a type parameter constrained by
 // Data has no method, no field and no ==, and is borrowed, moved and freed
 // as any type parameter's value is; a fields loop walks its fields (see
-// fields). Data is a builtin name, which no program can declare.
+// fields), and switch T { case int64: ... } runs, in each instance, the
+// one case its type argument matches, in which a case naming one type
+// makes every value of type T a value of that type. Data is closed, so a
+// switch on T with no default must name every kind of type T may stand
+// for. Data is a builtin name, which no program can declare.
 type Data interface {
 }
 

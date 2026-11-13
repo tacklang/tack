@@ -166,7 +166,8 @@ func walkExpr(e Expr, v Visitor) {
 	case *Call:
 		Walk(e.Fn, v)
 		walkAll(e.Args, v)
-	case *Ident, *StrLit, *IntLit, *FloatLit, *CharLit, *BoolLit, *NoErrorLit, *CAllocatorLit:
+	case *Ident, *StrLit, *IntLit, *FloatLit, *CharLit, *BoolLit, *NoErrorLit, *CAllocatorLit,
+		*StructCase:
 		// leaves
 	case *StructType, *InterfaceType, *UnionType, *MapType, *FuncType:
 		walkTypeExpr(e, v)

@@ -330,6 +330,13 @@ type Checker struct {
 	fieldLoops map[*ast.Var]*ast.FieldsOf
 	fieldLoop  int
 
+	// narrowed maps each type parameter a case of a switch on a type
+	// parameter around the statement being checked narrows to the type
+	// it is there, and paramKinds each one such a case leaves only some
+	// kinds to, to those kinds (see paramswitch.go).
+	narrowed   narrowing
+	paramKinds map[types.Type]kindSet
+
 	// dynamics holds the stand-in for calls through values of each
 	// function type (see dynamicFunc).
 	dynamics map[types.Type]*ast.Func
@@ -478,6 +485,7 @@ func New(prog *ast.Program, files source.Files, builtins *builtin.Set) *Checker 
 
 		typeParams: make(map[types.Type]*ast.TypeParam),
 		fieldLoops: make(map[*ast.Var]*ast.FieldsOf),
+		paramKinds: make(map[types.Type]kindSet),
 		standIns:   make(map[standInKey]*ast.Func),
 		dynamics:   make(map[types.Type]*ast.Func),
 
@@ -2074,7 +2082,7 @@ func (c *Checker) assignable(target ast.Expr) (types.Type, bool) {
 		switch def := t.Def.(type) {
 		case *ast.Param:
 			if def.Mut {
-				return def.Type, def.Type != types.Invalid
+				return c.narrowIdent(t, def.Type), def.Type != types.Invalid
 			}
 			c.errorf(t.Span, "cannot assign to parameter %s", t.Name)
 		case *ast.Var:
@@ -2082,7 +2090,7 @@ func (c *Checker) assignable(target ast.Expr) (types.Type, bool) {
 				c.errorf(t.Span, "cannot assign to immutable variable %s", t.Qualified())
 				return types.Invalid, false
 			}
-			return def.Type, true
+			return c.narrowIdent(t, def.Type), true
 		}
 		return types.Invalid, false
 	case *ast.Index:
@@ -2147,12 +2155,12 @@ func (c *Checker) containerTarget(x ast.Expr, what string) (types.Type, bool) {
 		switch def := x.Def.(type) {
 		case *ast.Param:
 			if def.Mut {
-				return def.Type, def.Type != types.Invalid
+				return c.narrowIdent(x, def.Type), def.Type != types.Invalid
 			}
 			c.errorf(x.Span, "cannot assign to %s of parameter %s", what, x.Name)
 		case *ast.Var:
 			if def.Mutable {
-				return def.Type, def.Type != types.Invalid
+				return c.narrowIdent(x, def.Type), def.Type != types.Invalid
 			}
 			c.errorf(x.Span, "cannot assign to %s of immutable variable %s", what, x.Qualified())
 		}
@@ -2451,11 +2459,14 @@ func (c *Checker) checkResults(ret *ast.Return, fn *ast.Func) {
 		c.passedOn = c.passOn(ret, fn)
 		defer func() { c.passedOn = nil }()
 		for i, v := range ret.Values {
-			if c.table.IsView(fn.ResultTypes[i]) {
-				c.returnView(v, fn.ResultTypes[i], fn)
+			// A case of a switch on a type parameter narrows the results
+			// made of it as it narrows any other type (see narrowType).
+			want := c.narrowType(fn.ResultTypes[i])
+			if c.table.IsView(want) {
+				c.returnView(v, want, fn)
 				continue
 			}
-			c.use(v, c.expr(v), fn.ResultTypes[i], "in return from "+c.displayName(fn))
+			c.use(v, c.expr(v), want, "in return from "+c.displayName(fn))
 		}
 		return
 	}

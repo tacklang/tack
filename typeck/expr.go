@@ -86,6 +86,12 @@ func (c *Checker) ident(id *ast.Ident) types.Type {
 		return types.Invalid
 	}
 	c.requireChecked(id)
+	switch def := id.Def.(type) {
+	case *ast.Var:
+		return c.narrowIdent(id, def.Type)
+	case *ast.Param:
+		return c.narrowIdent(id, def.Type)
+	}
 	return ast.TypeOf(id)
 }
 

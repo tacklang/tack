@@ -112,31 +112,38 @@ func FuzzFrontEndAfterErrors(f *testing.F) {
 			f.Add(c.Source)
 		}
 	}
-	f.Fuzz(func(t *testing.T, src []byte) {
-		done := make(chan string, 1)
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					done <- fmt.Sprintf("panic: %v", r)
-				}
-			}()
-			p := singleFile("main.tck", src)
-			diags := checkRefused(t, p)
-			if hasBadNode(t, p) && !diag.HasErrors(diags) {
-				done <- "a tree with a bad node came with no error"
-				return
+	f.Fuzz(checkFrontEnd)
+}
+
+// checkFrontEnd compiles src, a single file, through the whole front end,
+// as FuzzFrontEndAfterErrors does, and fails t if a stage panics or does
+// not finish within caseTimeout, if a tree with a bad node came with no
+// syntax error, or if the backend does not refuse a program with an
+// error (see checkRefused).
+func checkFrontEnd(t *testing.T, src []byte) {
+	done := make(chan string, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- fmt.Sprintf("panic: %v", r)
 			}
-			done <- ""
 		}()
-		select {
-		case msg := <-done:
-			if msg != "" {
-				t.Fatal(msg)
-			}
-		case <-time.After(caseTimeout):
-			t.Fatalf("the front end did not finish within %s", caseTimeout)
+		p := singleFile("main.tck", src)
+		diags := checkRefused(t, p)
+		if hasBadNode(t, p) && !diag.HasErrors(diags) {
+			done <- "a tree with a bad node came with no error"
+			return
 		}
-	})
+		done <- ""
+	}()
+	select {
+	case msg := <-done:
+		if msg != "" {
+			t.Fatal(msg)
+		}
+	case <-time.After(caseTimeout):
+		t.Fatalf("the front end did not finish within %s", caseTimeout)
+	}
 }
 
 // hasBadNode reports whether the tree the loader builds for p holds a bad

@@ -1106,6 +1106,9 @@ func (r *pkgResolver) resolveRegion(s *ast.Region, sc *scope) []diag.Diagnostic 
 // variable, and a case that does not read its own is not reported, as in
 // Go: a case that does not need v need not use it.
 func (r *pkgResolver) resolveSwitch(s *ast.Switch, sc *scope) []diag.Diagnostic {
+	if s.OnType {
+		return r.resolveParamSwitch(s, sc)
+	}
 	var diags []diag.Diagnostic
 	if s.Tag != nil {
 		diags = r.resolveExpr(s.Tag, sc)

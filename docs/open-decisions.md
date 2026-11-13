@@ -827,6 +827,46 @@ from 0. Still open:
   does type-check, so the assignment is reachable today; `make` for
   `Data` (stage 3) is what makes it practical.
 
+## Switches on a type parameter
+
+`switch T { ... }` follows the reflection design, stage 2. Each of these
+is the lead's call (2026-11-13), overrulable; each restriction can be
+relaxed later without breaking a program:
+
+- A case naming several types, `case int8, int16:`, narrows nothing, as
+  a type switch's case naming several types binds an `any`. So such a case
+  can count or recurse, but not do arithmetic or `==` on its values,
+  and printing every integer needs a case per type. Options: keep it;
+  let such a case's values be passed as `any`, which every integer and
+  float type can be; or narrow to a union of the types for operators they
+  all have.
+- Among struct types, only `text.Text` can be named; any other is
+  reported, and `struct` matches the rest. Options: allow any named
+  struct type that is `Data`, matching it exactly; or keep `text.Text`
+  as the one, since it stands for a string.
+- `list[E]` and `map[text.Text]V` name only a new element or value type;
+  `list[int64]` is reported. Options: allow a type there, matching that
+  list exactly; or keep only names, with `switch E` inside the case.
+- Coverage counts `unsafe_size_t` and `unsafe_uintptr_t` among the
+  integer types, since `Data` takes them, so a switch with no default
+  names all twelve integer and float types and `bool`.
+- A value of the narrowed type `list[E]` cannot be passed whole to a
+  generic function taking a `T`: a type argument made of a type parameter
+  is never inferred (the rule that keeps instances finite). The element,
+  of type `E`, can. Allowing `list[E]` where `E` is a case's own type
+  parameter would keep instances finite too, since it stands for a type
+  argument already found, but needs the rule changed.
+
+Still open:
+
+- `list[_]` is reported, `cannot use _ as a name`, like any other `_`
+  where a name is declared; nothing reports an `E` the case never names,
+  so the blank is not needed today.
+- A field's type parameter, `T.[f]`, has no name a program can write, so
+  a switch on it is written by passing `v.[f]` to a generic function and
+  switching on that function's `T`. Writing it directly would need a
+  spelling, `switch T.[f]` or a switch on a value's type.
+
 ## Unions
 
 Unions follow the decisions recorded in the README: named cases with one

@@ -210,7 +210,8 @@ func (c *Checker) checkTypeParamsUsed(fn *ast.Func) {
 
 // namedType returns the type id, a name written as a type, names when it
 // is bound to a declaration, and whether it is: a struct type's, a type
-// parameter's, or, for an interface, which is no type a value can have,
+// parameter's, as a case of a switch on it narrows it where checking is
+// (see narrowType), or, for an interface, which is no type a value can have,
 // types.Invalid, reported, since only a constraint may name one.
 func (c *Checker) namedType(id *ast.Ident) (types.Type, bool) {
 	switch def := id.Def.(type) {
@@ -222,7 +223,7 @@ func (c *Checker) namedType(id *ast.Ident) (types.Type, bool) {
 		}
 		return def.Type, true
 	case *ast.TypeParam:
-		return def.Type, true
+		return c.narrowType(def.Type), true
 	default:
 		return types.Invalid, false
 	}
