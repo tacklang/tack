@@ -1,0 +1,14 @@
+// --port-types writes a function type's parameters as their types, as
+// Go's walk visits them, with no node for the parameter itself.
+package main
+
+type Sizer interface {
+    size() int64
+}
+
+func apply(f func(Sizer) int64) int64 {
+    return 0
+}
+
+func main() {
+}

@@ -1,0 +1,59 @@
+package main
+
+// The bytes of a known local string are known values, as a global's
+// are: every operation on them below fits its type, every index and
+// bound is in range, and a[x[0]] is an index known to be past the end.
+
+func sum() uint8 {
+    x := "abc"
+    return x[0] + x[2]
+}
+
+func plus() uint8 {
+    x := "abc"
+    return x[0] + 1
+}
+
+func bound() uint8 {
+    x := "abc"
+    y := x[0]
+    return y + x[2]
+}
+
+func step() uint8 {
+    x := "abc"
+    mut y uint8 = 1
+    y += x[0]
+    return y
+}
+
+func narrow() int8 {
+    x := "abc"
+    return int8(x[0])
+}
+
+func slice() string {
+    x := "abc"
+    return x[x[0] - 96:]
+}
+
+func divide() int64 {
+    x := "abc"
+    return 100 / int64(x[0])
+}
+
+func sliced() uint8 {
+    x := "abcdef"[1:]
+    y := x[0:4]
+    return y[0] + y[3]
+}
+
+func index() int64 {
+    x := "abc"
+    a := [4]int64{0, 1, 2, 3}
+    return a[x[0]]
+}
+
+func main() {
+    return 1
+}

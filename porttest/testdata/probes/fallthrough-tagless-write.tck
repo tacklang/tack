@@ -1,0 +1,32 @@
+package main
+
+// zero zeroes d.
+func zero(mut d int64) bool {
+    d = 0
+    return true
+}
+
+// Matching the second case runs its value, which zeroes d, though the
+// first case proves d != 0 before falling into it: the tagless switch's
+// values are tried before the body on the path that matches.
+func f(n int64) int64 {
+    mut d := n
+    if d == 0 {
+        return 0
+    }
+    switch {
+    case n == 5:
+        if d == 0 {
+            return 0
+        }
+        fallthrough
+    case zero(mut d):
+        return 10 / d
+    }
+    return 0
+}
+
+func main() {
+    x := f(4)
+    if x == 1 { exit(1) }
+}

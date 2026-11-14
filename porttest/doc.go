@@ -293,16 +293,15 @@
 // TestTypes checks what the port's type checker finds, for every input
 // of the corpus, single files and packages, the port's own driver among
 // them, that the Go compiler accepts with no error, and for every case
-// of check-decls, check-core, check-calls and check-facts, the type
-// checker's cases whose stage is S1, the declarations, S2a, statements
-// and expressions, S2b, calls and containers, or S3, facts, of
-// check-own, S6, ownership, once check-own is in required.txt (until S4
-// and S5 are ported, some cases of check-own, which also need the
-// arithmetic or the loops, are declined: a case is of the highest stage
-// it needs, and S6 orders after them), and of check-generic, S7,
-// generics and closures, whose cases that need S4 or S5 too skip when
-// the port declines their bodies, and for every program of
-// testdata/probes, the probes stage's:
+// of check-decls, check-core, check-calls, check-facts and check-arith,
+// the type checker's cases whose stage is S1, the declarations, S2a,
+// statements and expressions, S2b, calls and containers, S3, facts, or
+// S4, arithmetic and relations, of check-own, S6, ownership, once
+// check-own is in required.txt (until S5 is ported, some cases of
+// check-own, which also need the loops, are declined: a case is of the
+// highest stage it needs, and S6 orders after it), and of
+// check-generic, S7, generics and closures, whose cases that need S5
+// too skip when the port declines their bodies:
 // each loaded, resolved and checked in process by this module's loader,
 // resolver and checker, typeck.New(...).Check(), as --port-types checks
 // it, whatever the stages before reported. Any other input of the corpus
@@ -338,10 +337,10 @@
 // port that answers --port-types is not implemented skips, unless
 // types-decls, the check's name, is in
 // required.txt, as it is, where then it fails. An input whose Go typed
-// tree's stage is S1, S2a, S2b or S3 (see Type checker stages), S6
+// tree's stage is S1, S2a, S2b, S3 or S4 (see Type checker stages), S6
 // once check-own is in required.txt, or S7 when no part of the tree
-// implies S4 or S5, must dump in the phase "bodies" when types-bodies is
-// in required.txt, as it is: the port's body check covers every such
+// implies S5, must dump in the phase "bodies" when types-bodies is in
+// required.txt, as it is: the port's body check covers every such
 // input. TestTypesDeep runs the
 // same check on declaration chains a hundred thousand links long, which
 // have no nesting limit and which Go's checker walks with a frame a
@@ -364,7 +363,11 @@
 // fact, and a selector down a chain of structs each holding the next,
 // and an else if chain of early exits each giving the statement after it
 // a fact, two thousand links long, which Go's checker takes time
-// quadratic in; and on calls: calls, method
+// quadratic in; on arithmetic: sums a hundred thousand terms long, proven
+// and not, chains of wrapping additions, divisions and masks added to, an
+// index adding 0 as long, an unsigned subtraction chain four hundred
+// links long, which Go's checker takes time cubic in, and two thousand
+// statements stepping a variable, by +=, ++ and *=; and on calls: calls, method
 // calls, calls of a method expression and struct literals nested in each
 // other's arguments as deeply as the parser allows, with an invalid or an
 // untyped constant at the bottom too, chains of method calls ten thousand
@@ -397,7 +400,9 @@
 // receiver, a call of a method expression, an operator's left and right
 // operands, !, parentheses, an array literal's element and a struct
 // literal's field read back, a union's payload, a ?, a value passed as
-// any, a conversion, a value tested in an if and a switch, the right
+// any, a conversion, a narrowing one, + - * and unary - whose overflow
+// the bounds of an & prove, a wrapping +, a division, shifts, a slice's
+// bound, a value tested in an if and a switch, the right
 // side of an && and of an || whose left side gives it a fact, and an
 // element whose index the facts around it prove in range, a generic
 // function's call with its type argument written and one inferring it,
@@ -413,8 +418,10 @@
 // runs as a valid nest, as one with a value of the wrong type at its
 // bottom and as one with an untyped constant there, under --check,
 // compared as check-core compares its cases, and under --port-types,
-// compared as TestTypes compares a case of the type checker's, and as a
-// nest in a program Go accepts, under --port-types, compared as
+// compared as TestTypes compares a case of the type checker's, and,
+// unless a route of it is one Go always reports, a narrowing conversion
+// or a slice's bound, as a nest in a program Go accepts, under
+// --port-types, compared as
 // TestTypes compares it in the phase "bodies", the port's stack held to
 // deepStack KB, and each --check nest again at pairStack KB, 3.5 MB:
 // every level of every construct must cost the port's checker less than
@@ -537,4 +544,15 @@
 // that is quadratic when a closure's check copies the facts in force,
 // and TestBindPerf for a hundred thousand locals bound to a call's
 // value, nearly all unused, each a warning.
+// TestArithPerf does the same for the arithmetic and the relations: on
+// three thousand functions whose bodies Go accepts, each proving
+// overflows, indexes, a slice and a conversion, and on one body holding
+// fifteen hundred values each related to another by an early exit, all
+// in force while each is asked about again, on three thousand early exits
+// each putting the same relation in force again, and on a switch of eight
+// thousand cases. TestCheckSliceChains runs a spine of slices with no high
+// bound, under len and indexed, and chains of locals each slicing the one before, from a
+// parameter and from a literal, five thousand links long, under --check,
+// the port's stack held to deepStack KB and to a quarter of it.
+// TestProbesTypes runs the probes with --port-types too.
 package porttest

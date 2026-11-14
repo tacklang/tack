@@ -14,9 +14,13 @@ import (
 // value ends the proof of the target's index, an append spread whose
 // count is not known, an outer index a checked index is in, a map's
 // value assigned under a key of the wrong type, nests of operators and
-// calls deep enough to have overflowed the port's stack, and a call
-// whose argument's own call reported an escape, which Go reports no
-// escape of again.
+// calls deep enough to have overflowed the port's stack, the bytes of a
+// known local string, a tagless switch whose value writes what a case
+// falling into it proved, a checked division of untyped constants,
+// function types whose dump differed, a call whose argument's own call
+// reported an escape, which Go reports no escape of again, a struct
+// literal of a struct declaring a field twice, and a region in a
+// closure Go never checks.
 const probesStage = "probes"
 
 func init() {
@@ -66,6 +70,24 @@ func TestProbesPairStack(t *testing.T) {
 		t.Run(in.name, func(t *testing.T) {
 			t.Parallel()
 			runCaseWith(t, *st, in, env.portPairs)
+		})
+	}
+}
+
+// TestProbesTypes runs the programs of the probes stage with
+// --port-types too, compared as TestTypes compares a case of the type
+// checker's: some probes found the port's dump differing from Go's
+// checker. It runs only as TestPort does.
+func TestProbesTypes(t *testing.T) {
+	ready(t)
+	ins, err := probeInputs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range ins {
+		t.Run(in.name, func(t *testing.T) {
+			t.Parallel()
+			checkTypes(t, in, env.portRun, false)
 		})
 	}
 }

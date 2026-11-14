@@ -96,6 +96,33 @@ var checkChains = map[string]func(n int) string{
 			"func main() {\n" + checkError + "}\n")
 		return b.String()
 	},
+	// Sums n terms long, of a value whose bounds an early exit sets,
+	// each link proven from the one before, and of one with none, whose
+	// first link is reported and every later one rests on it; and chains
+	// of wrapping additions, divisions, masks added to, and of an index
+	// adding 0 to a value an early exit bounds.
+	"sums": func(n int) string {
+		return "package main\n\nfunc f(a int64) int64 {\n    if a < 0 || a > 10 {\n        return 0\n    }\n    x := a" +
+			rep(" + a", n) + "\n    return x\n}\n\nfunc g(a int64) int64 {\n    x := a" + rep(" + a", n) +
+			"\n    return x\n}\n\nfunc main() {\n" + checkError + "}\n"
+	},
+	"wraps": func(n int) string { return arithChain("int64", rep(" +% a", n)) },
+	"divs":  func(n int) string { return arithChain("int64", rep(" / 2", n)) },
+	"masks": func(n int) string { return arithChain("int64", rep(" & 255 + 1", n)) },
+	"index-sums": func(n int) string {
+		return "package main\n\nfunc f(i int64, s string) uint8 {\n    if i < 0 || i >= len(s) - 5 {\n        return 0\n    }\n" +
+			"    return s[i" + rep(" + 0", n) + "]\n}\n\nfunc main() {\n" + checkError + "}\n"
+	},
+	// An unsigned subtraction chain, whose every link Go's checker reads
+	// down to its bottom, the relations in force asked about each step,
+	// taking time cubic in its length, so it is subChainLength long.
+	"uint-subs": func(int) string { return arithChain("uint64", rep(" - 1", subChainLength)) },
+	// Statements stepping a variable, each giving the next what it
+	// stores, exitChainLength long: Go's checker takes time quadratic in
+	// them, each step's proof asking every fact about the variable.
+	"compounds": func(int) string { return stepChain("    x += 1\n") },
+	"incs":      func(int) string { return stepChain("    x++\n") },
+	"steps":     func(int) string { return stepChain("    x *= 2\n") },
 	// Structs each holding the next by value, a local of the first, and a
 	// selector down the whole chain.
 	"fields": func(n int) string {
@@ -108,6 +135,25 @@ var checkChains = map[string]func(n int) string{
 		b.WriteString("func main() {\n    mut s S0\n    x := s" + rep(".f", n) + ".v\n    return x\n}\n")
 		return b.String()
 	},
+}
+
+// subChainLength is how long TestCheckDeep's unsigned subtraction chain
+// is: Go's checker takes time cubic in it, and checks four hundred links
+// in a second.
+const subChainLength = 400
+
+// arithChain returns a program whose f takes a, of type typ, and gives
+// a followed by links, and whose main ends in checkError.
+func arithChain(typ, links string) string {
+	return "package main\n\nfunc f(a " + typ + ") " + typ + " {\n    x := a" + links +
+		"\n    return x\n}\n\nfunc main() {\n" + checkError + "}\n"
+}
+
+// stepChain returns a program whose f steps a variable x by step
+// exitChainLength times, and whose main ends in checkError.
+func stepChain(step string) string {
+	return "package main\n\nfunc f() int64 {\n    mut x int64 = 0\n" + rep(step, exitChainLength) +
+		"    return x\n}\n\nfunc main() {\n" + checkError + "}\n"
 }
 
 // ownDecls are the declarations ownNests and ownChains use: mkl, which
@@ -440,7 +486,9 @@ type nestRoute struct {
 // the left and right operands of a comparison and of && and ||, !, a
 // parenthesized expression, an element of an array literal read back, a
 // field of a struct literal read back, a union's payload, a ?, a value
-// passed as any, a conversion, a function whose body tests the value
+// passed as any, a conversion, a narrowing one, arithmetic whose
+// overflow the bounds of an & prove, + - * and unary -, a wrapping +,
+// a division, shifts, a slice's bound, a function whose body tests the value
 // in an if and a switch, the right side of an && and of an || whose left
 // side gives it a fact, an element of an array literal whose index
 // the facts of the && around it prove in range, a call of a generic
@@ -525,6 +573,10 @@ var nestFamilies = []struct {
 			"int-call": {"fi(%s)", 1}, "int-method-arg": {"t.c(%s)", 1}, "conversion": {"int64(%s)", 1},
 			"int-element": {"[1]int64{%s}[0]", 1}, "int-field": {"B{v: %s}.v", 1},
 			"int-generic": {"gn[int64](%s)", 1}, "int-closure": {"sn(func() int64 {\nreturn %s\n})", 3},
+			"plus": {"((%s) & 255) + 1", 2}, "minus": {"((%s) & 255) - 255", 2},
+			"times": {"((%s) & 255) * 2", 2}, "neg": {"-((%s) & 255)", 3}, "wrap": {"%s +%% t.n", 0}, "div": {"(%s / 2)", 1},
+			"shr": {"(%s >> 1)", 1}, "shl": {"(%s << 0)", 1}, "narrow": {"int64(uint8(%s & 255))", 2},
+			"slice": {"len(\"abcdef\"[%s:])", 2},
 		},
 	},
 }
@@ -543,6 +595,13 @@ func nestLocals(nest string) string {
 	}
 	return b.String()
 }
+
+// reportingRoutes are the routes of nestFamilies whose every nest Go's
+// checker reports, whatever it holds, so no pair holding one is a
+// program Go accepts: a narrowing conversion and a slice's bound, which
+// only a subject, a length or arithmetic on them is proven to fit, never
+// the value of another route.
+var reportingRoutes = map[string]bool{"narrow": true, "slice": true}
 
 // shallowPairs are the ordered pairs of routes TestCheckDeepPairs nests
 // only a quarter as deeply as the parser allows: an || whose facts are
@@ -598,8 +657,9 @@ func ownedVars(nest string) (string, string) {
 // untyped constant there, each in a function h of a program whose main
 // ends in checkError, run with --check --max-errors 0 and compared as
 // check-core compares its cases, and with --port-types, compared as
-// TestTypes compares a case of the type checker's, and a program Go
-// accepts with the valid nest, compared as TestTypes compares an input
+// TestTypes compares a case of the type checker's, and, unless a route
+// of the pair is one of reportingRoutes, a program Go accepts with the
+// valid nest, compared as TestTypes compares an input
 // of the corpus, in the phase "bodies". The port runs with its stack
 // held to deepStack KB, as TestPort does, and each --check nest again at
 // pairStack KB, so every level of every route must cost it less than
@@ -623,6 +683,9 @@ func TestCheckDeepPairs(t *testing.T) {
 				}
 				for _, variant := range []string{"valid", "invalid", "untyped", "clean"} {
 					if variant == "untyped" && fam.untyped == "" {
+						continue
+					}
+					if variant == "clean" && (reportingRoutes[an] || reportingRoutes[bn]) {
 						continue
 					}
 					leaf := fam.leaf
@@ -826,5 +889,77 @@ func TestCheckDeepStmts(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// smallStack is the stack, in KB, TestCheckSliceChains holds the port to
+// besides deepStack: a quarter of it, which a check taking a frame of
+// even two hundred bytes a link of sliceChainLength links runs out of.
+const smallStack = 1024
+
+// sliceChainLength is how long TestCheckSliceChains's chains are: Go's
+// checker takes time quadratic in each, and checks five thousand links
+// in a second.
+const sliceChainLength = 5000
+
+// sliceChains are the programs TestCheckSliceChains writes n links long:
+// a spine of slices with no high bound under len, whose length is the
+// length of what each slices less its low bound, down the whole spine,
+// and one indexed;
+// and locals each slicing the one before, from a parameter, and from a
+// string literal, whose value is known, down the whole chain.
+var sliceChains = map[string]func(n int) string{
+	"slice-spine": func(n int) string {
+		return "package main\n\nfunc f(s string) int64 {\n    if len(s) < 10 {\n        return 0\n    }\n" +
+			"    return len(s" + rep("[0:]", n) + ")\n}\n\nfunc main() {\n" + checkError + "}\n"
+	},
+	"index-spine": func(n int) string {
+		return "package main\n\nfunc f(s string) uint8 {\n    if len(s) < 3 {\n        return 0\n    }\n" +
+			"    return s" + rep("[0:]", n) + "[1]\n}\n\nfunc main() {\n" + checkError + "}\n"
+	},
+	"slice-locals": func(n int) string { return localSlices("s string", "s[0:]", n) },
+	"slice-literal-locals": func(n int) string {
+		return localSlices("", "\"abcdef\"[0:]", n)
+	},
+}
+
+// localSlices returns a program whose f, taking params, declares t0 as
+// first and each local after it slicing the one before, n of them, and
+// gives the length of a slice of the last, and whose main ends in
+// checkError.
+func localSlices(params, first string, n int) string {
+	var b strings.Builder
+	b.WriteString("package main\n\nfunc f(" + params + ") int64 {\n    t0 := " + first + "\n")
+	for i := range n {
+		fmt.Fprintf(&b, "    t%d := t%d[0:]\n", i+1, i)
+	}
+	fmt.Fprintf(&b, "    return len(t%d[1:])\n}\n\nfunc main() {\n%s}\n", n, checkError)
+	return b.String()
+}
+
+// TestCheckSliceChains runs each of sliceChains sliceChainLength links
+// long through both compilers with --check --max-errors 0, compared as
+// check-core compares its cases, the port's stack held to deepStack KB
+// and again to smallStack KB: a port that works out a slice's length or
+// a known string with a frame a link fails here. It runs only as
+// TestPort does.
+func TestCheckSliceChains(t *testing.T) {
+	ready(t)
+	st := stageNamed(checkStageInfo[stageCore].stage)
+	if st == nil {
+		t.Fatal("no check-core stage")
+	}
+	dir := t.TempDir()
+	for name, chain := range sliceChains {
+		file := name + ".tck"
+		t.Run(file, func(t *testing.T) {
+			t.Parallel()
+			if err := os.WriteFile(filepath.Join(dir, file), []byte(chain(sliceChainLength)), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			in := input{name: file, dir: dir, file: file}
+			runCaseWith(t, *st, in, env.portRun)
+			runCaseWith(t, *st, in, env.portSmall)
+		})
 	}
 }

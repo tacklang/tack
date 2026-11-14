@@ -406,3 +406,119 @@ func TestBindPerf(t *testing.T) {
 	checkPerfAgainstGo(t, t.TempDir(), "perf.tck", b.String(),
 		fmt.Sprintf("%d bindings to a call's value", bindPerfFuncs*bindPerfSites))
 }
+
+// arithPerfFuncs is how many functions the first program of
+// TestArithPerf holds.
+const arithPerfFuncs = 3000
+
+// arithPerfFunc is a function of TestArithPerf's first program, %d its
+// number: early exits relating an index to a length, values computed from
+// it whose overflow they prove, a slice and an element they prove in
+// range, a narrowing conversion, arithmetic on a mask, and steps.
+const arithPerfFunc = `func f%d(i int64, n int64, s string, a [8]int64) int64 {
+    if i < 0 || i >= n || n > len(s) || i > 1000 {
+        return 0
+    }
+    j := i + 1
+    k := n - i
+    b := s[i]
+    t := s[i:n]
+    m := int32(i)
+    q := (i & 7) * 3 + 2
+    mut w int64 = 0
+    if i < 8 {
+        w = a[i]
+    }
+    mut c int64 = 0
+    c += 1
+    c++
+    if j < n && k > 0 && len(t) > 0 {
+        return j + int64(b) + int64(m) + q + w + c
+    }
+    return k
+}
+
+`
+
+// arithPerfRelations is how many values TestArithPerf's second program
+// relates to n, each then asked about three times.
+const arithPerfRelations = 1500
+
+// arithPerfRepeats is how many early exits TestArithPerf's third
+// program repeats, each putting the same relation in force again, and
+// how many times it then asks about it.
+const arithPerfRepeats = 3000
+
+// arithPerfArms is how many cases the switch of TestArithPerf's fourth
+// program has, each giving the cases after it what its value not
+// matching says.
+const arithPerfArms = 8000
+
+// TestArithPerf is the performance tripwire for the type checker's
+// arithmetic and relations: it runs --check --max-errors 0 through both
+// compilers, as TestCheckPerf does, on a program of arithPerfFuncs
+// functions whose bodies Go accepts, each proving overflows, indexes, a
+// slice and a conversion, and on one body holding arithPerfRelations
+// values each related to n by an early exit, all in force while each is
+// asked about again, through + 1, n - v and a narrowing conversion; on
+// one body holding arithPerfRepeats early exits putting the same relation
+// in force, each asked about as many times; and on a switch of
+// arithPerfArms cases each returning. Each program's main has one error,
+// so that --check stops before the backend. It fails as TestCheckPerf does, after checking that both give
+// the same output. It runs only as TestPort does, and is not parallel.
+func TestArithPerf(t *testing.T) {
+	ready(t)
+	var clean strings.Builder
+	for i := range arithPerfFuncs {
+		fmt.Fprintf(&clean, arithPerfFunc, i)
+	}
+	var rel strings.Builder
+	rel.WriteString("func g(i int64, n int64, s string) int64 {\n    if i < 0 || n > len(s) {\n        return 0\n    }\n")
+	for k := range arithPerfRelations {
+		fmt.Fprintf(&rel, "    v%d := i + %d\n    if v%d >= n || v%d < 0 {\n        return 0\n    }\n", k, k%50, k, k)
+	}
+	for k := range arithPerfRelations {
+		fmt.Fprintf(&rel, "    r%d := v%d + 1 + v%d\n    d%d := n - v%d - 1\n    c%d := int32(d%d)\n",
+			k, k, (k*7)%arithPerfRelations, k, k, k, k)
+	}
+	rel.WriteString("    return r0 + d0\n}\n\n")
+	st := stageNamed(checkStageInfo[stageCore].stage)
+	if st == nil {
+		t.Fatal("no check-core stage")
+	}
+	var dup strings.Builder
+	dup.WriteString("func h(i int64, n int64, s string) int64 {\n    if i < 0 {\n        return 0\n    }\n")
+	dup.WriteString(strings.Repeat("    if i >= n {\n        return 0\n    }\n", arithPerfRepeats))
+	for k := range arithPerfRepeats {
+		fmt.Fprintf(&dup, "    u%d := s[i]\n    d%d := n - i\n", k, k)
+	}
+	dup.WriteString("    return 0\n}\n\n")
+	var sw strings.Builder
+	sw.WriteString("func w(n int64, d int64) int64 {\n    switch d {\n")
+	for k := range arithPerfArms {
+		fmt.Fprintf(&sw, "    case %d:\n        return n\n", k+1)
+	}
+	sw.WriteString("    }\n    return n\n}\n\n")
+	for _, prog := range []struct{ name, body string }{
+		{"arith-clean.tck", clean.String()}, {"arith-relations.tck", rel.String()},
+		{"arith-repeats.tck", dup.String()}, {"switch-arms.tck", sw.String()},
+	} {
+		dir := t.TempDir()
+		src := "package main\n\n" + prog.body + "func main() {\n    " + checkError + "}\n"
+		if err := os.WriteFile(filepath.Join(dir, prog.name), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		runCaseWith(t, *st, input{name: prog.name, dir: dir, file: prog.name}, env.portRun)
+		args := []string{"--check", "--max-errors", "0", prog.name}
+		goTime, goMem := measure(t, env.goBin, env.goCache, dir, args, 1)
+		portTime, portMem := measure(t, env.portRun, env.portCache, dir, args, 1)
+		t.Logf("--check of %s: Go %v, %d KB; port %v, %d KB", prog.name, goTime, goMem, portTime, portMem)
+		if portTime > perfTimeFactor*goTime+perfTimeSlack {
+			t.Errorf("%s: the port took %v, more than %d times Go's %v", prog.name, portTime, perfTimeFactor, goTime)
+		}
+		if portMem > perfMemoryFactor*goMem {
+			t.Errorf("%s: the port's peak memory was %d KB, more than %d times Go's %d KB",
+				prog.name, portMem, perfMemoryFactor, goMem)
+		}
+	}
+}

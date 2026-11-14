@@ -70,7 +70,7 @@ test:
 # TACK_PORT_TEST=1 and -count=1: go test cannot see a change to the port
 # or to the binaries, so a cached result could pass a broken port.
 port-test:
-	TACK_PORT_TEST=1 go test -count=1 ./porttest
+	TACK_PORT_TEST=1 go test -count=1 -timeout 30m ./porttest
 
 # FUZZTIME is how long `make fuzz-progen` and `make port-fuzz` fuzz for.
 FUZZTIME := 10m
