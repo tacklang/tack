@@ -51,6 +51,9 @@ type RelFact struct {
 }
 
 // RelIdx is the index of the relations in force: built says it is kept.
+// groups numbers each set of ends and weight an edge with no condition
+// has, the edges alike, and group_mark holds, for each, the stamp of the
+// last query graph that took one of them, stamp counting the graphs.
 type RelIdx struct {
     built bool
     edges list[RelEdge]
@@ -65,6 +68,9 @@ type RelIdx struct {
     lens list[FKey]
     len_count map[FKey]int64
     relations int64
+    groups map[EdgeEnds]int64
+    group_mark list[int64]
+    stamp int64
 }
 
 // new_rel_idx returns an index not built.
@@ -83,6 +89,9 @@ func new_rel_idx() RelIdx {
         lens: make(list[FKey], c_allocator),
         len_count: make(map[FKey]int64, c_allocator),
         relations: 0,
+        groups: make(map[EdgeEnds]int64, c_allocator),
+        group_mark: make(list[int64], c_allocator),
+        stamp: 0,
     }
 }
 
@@ -99,7 +108,7 @@ func entry_in(l []RelEntry, i int64) RelEntry {
 func rel_edge_in(l []RelEdge, i int64) RelEdge {
     e, ok := l[i]
     if !ok {
-        return RelEdge{frm: zero_fkey(), to: zero_fkey(), w: 0, fact: -1}
+        return plain_edge(zero_fkey(), zero_fkey(), 0, -1)
     }
     return e
 }
@@ -145,19 +154,19 @@ func (mut c Checker) rel_push(i int64) error {
         return noerror
     }
     if f.has_hi {
-        mut c.rel_edge(mut rf, RelEdge{frm: f.about, to: zero, w: 0, fact: i}, f.hi)?
+        mut c.rel_edge(mut rf, plain_edge(f.about, zero, 0, i), f.hi)?
     }
     lo, ok := f.lo.negate()
     if f.has_lo && ok {
-        mut c.rel_edge(mut rf, RelEdge{frm: zero, to: f.about, w: 0, fact: i}, lo)?
+        mut c.rel_edge(mut rf, plain_edge(zero, f.about, 0, i), lo)?
     }
     minus_one := constant.from_int64(-1)
     if !f.len_of.is_zero() {
-        mut c.rel_edge(mut rf, RelEdge{frm: f.about, to: f.len_of, w: 0, fact: i}, minus_one)?
+        mut c.rel_edge(mut rf, plain_edge(f.about, f.len_of, 0, i), minus_one)?
         mut c.rel_length(mut rf, f.len_of, true)?
         rf.relation = true
     } else if !f.at_most_len.is_zero() {
-        mut c.rel_edge(mut rf, RelEdge{frm: f.about, to: f.at_most_len, w: 0, fact: i}, constant.from_int64(0))?
+        mut c.rel_edge(mut rf, plain_edge(f.about, f.at_most_len, 0, i), constant.from_int64(0))?
         mut c.rel_length(mut rf, f.at_most_len, true)?
         rf.relation = true
     } else if !f.at_most.is_zero() {
@@ -165,13 +174,21 @@ func (mut c Checker) rel_push(i int64) error {
         if f.strict {
             w = minus_one
         }
-        mut c.rel_edge(mut rf, RelEdge{frm: f.about, to: f.at_most, w: 0, fact: i}, w)?
+        mut c.rel_edge(mut rf, plain_edge(f.about, f.at_most, 0, i), w)?
         rf.relation = true
     } else if f.diff >= 0 {
         d := c.diff_at(f.diff)
-        mut c.rel_edge(mut rf, RelEdge{frm: d.x, to: d.y, w: 0, fact: i}, d.w)?
+        mut de := plain_edge(d.x, d.y, 0, i)
+        de.conds = d.conds
+        mut c.rel_edge(mut rf, de, d.w)?
         mut c.rel_length(mut rf, d.x, d.x_len)?
         mut c.rel_length(mut rf, d.y, d.y_len)?
+        mut ci int64 = 0
+        for ci < d.conds.count {
+            cond := c.cond_at(d.conds, ci)
+            ci +%= 1
+            mut c.rel_length(mut rf, cond.of, cond.is_len)?
+        }
         rf.relation = true
     }
     if rf.relation {
@@ -191,6 +208,9 @@ func (mut c Checker) rel_edge(mut rf RelFact, e RelEdge, w constant.Int) error {
     }
     mut edge := e
     edge.w = w.to_int64()
+    if edge.conds.count == 0 {
+        edge.group = mut c.edge_group(edge)?
+    }
     eid := len(c.fx.rel.edges)
     append(mut c.fx.rel.edges, edge)?
     rf.edges +%= 1

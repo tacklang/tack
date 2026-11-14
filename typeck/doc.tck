@@ -11,7 +11,11 @@ package typeck
 // mover.tck), exclusivity and borrows (see exclusive.tck), view results
 // (see viewresult.tck), the builtins that move values (see
 // ownbuiltins.tck), regions and scope allocators (see scopealloc.tck)
-// and escapes (see escape.tck), as far as none needs a later stage.
+// and escapes (see escape.tck), and arithmetic: overflow proofs (see
+// overflow.tck), the bounds of arithmetic (see arith.tck), conversions
+// (see convfacts.tck), slices (see slice.tck) and the relations through
+// + and - of known amounts (see relations.tck), as far as none needs a
+// later stage.
 // It takes a resolved program and the source files its spans point
 // into, both taken over and given back, and gives every struct and union
 // type its ID, its fields and its cases, every global its type and its
@@ -84,7 +88,16 @@ package typeck
 // out of it from stacks of their own (see walk_writes, block_leaves and
 // jumps_of), an else-if chain's links in a loop (see check_if), and the
 // right side of an && or || costs only an entry on body_expr's stack of
-// spines and one on the facts' (see logic_start). The generated C gives
+// spines and one on the facts' (see logic_start). Arithmetic's proofs
+// walk an operator chain from stacks of their own (see range_of,
+// operand_bounds, arithmetic_shape and boundable), and a chain of steps
+// of known amounts in a loop (see linear), so a sum of any length is
+// proven in a bounded stack. A slice's length and a known string are
+// worked out down a chain of slices, and of locals each initialized
+// with the next, in a loop too (see extent_of and known_string). A
+// query's graph drops an edge alike to one it took, and where a search
+// for its bounds does not settle it is built again whole, keeping every
+// such edge, as Go's is (see relgraph.tck's header). The generated C gives
 // every temporary of a function a slot for the whole call, so what
 // matters is what a frame on the recursion's path holds, which the
 // structure above keeps small whatever clang inlines into it.

@@ -338,7 +338,7 @@ func (mut c Checker) require_checked(k Key, nm ast.Ident) error {
             }
             mut notes := make(list[diag.Related], c_allocator)
             ext := mut c.new_extent(t.err, "byte", 0, false)?
-            p := Proof{kind: proof_ok, about: decl_fkey(t.err), e: t.err, ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: ext, upper_only: false}
+            p := Proof{kind: proof_ok, about: decl_fkey(t.err), e: t.err, ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: ext, upper_only: false, to: types.invalid, lower: false, upper: false, relations: false}
             mut c.explain(p, mut notes)?
             mut m := msg()
             fmt.appendf(mut m, "%s cannot be read before %s is checked; check that %s is true first", text_at(c.prog.trees, c.none, k.unit, nm.name), name_of(c.prog.trees, c.none, t.err), name_of(c.prog.trees, c.none, t.err))?
@@ -352,7 +352,7 @@ func (mut c Checker) require_checked(k Key, nm ast.Ident) error {
         mut notes := make(list[diag.Related], c_allocator)
         ck := mut c.code_key(t.err)?
         ext := mut c.new_extent(t.err, "byte", 0, false)?
-        p := Proof{kind: proof_error, about: ck, e: t.err, ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: ext, upper_only: false}
+        p := Proof{kind: proof_error, about: ck, e: t.err, ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: ext, upper_only: false, to: types.invalid, lower: false, upper: false, relations: false}
         mut c.explain(p, mut notes)?
         mut m := msg()
         fmt.appendf(mut m, "%s cannot be read before %s is checked; check %s.code == 0 first", text_at(c.prog.trees, c.none, k.unit, nm.name), name_of(c.prog.trees, c.none, t.err), name_of(c.prog.trees, c.none, t.err))?

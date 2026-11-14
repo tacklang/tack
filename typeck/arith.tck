@@ -1,0 +1,375 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import types from "tack/types"
+
+// The bounds of arithmetic, Go's arith.go: an index, a slice's bound, a
+// divisor or a conversion's operand that is +, - or * on two integers,
+// or unary - on one, is bounded by what its operands are, each a known
+// value, a subject, the length of a string, view or list subject, or such
+// arithmetic itself, worked out exactly from the operands' bounds (see
+// range_of). Arithmetic wraps at its type's width, so an operation that
+// could wrap, given its operands' bounds, has no bound at all, and nor
+// does any arithmetic holding it. A target-width type wraps at 32 bits
+// on some targets, so an operation in one is bounded only when it cannot
+// wrap there.
+//
+// A chain of operators can be as long as the source likes, so every walk
+// of one here keeps a stack of its own rather than a frame a link.
+
+// is_arithmetic reports whether e is an operation range_of bounds, Go's
+// isArithmetic: +, - or * on integers, or unary - on one.
+func (mut c Checker) is_arithmetic(e Key) bool {
+    switch kind_at(c.prog.trees, e) {
+    case binary(b):
+        return (b.op == ast.op_add || b.op == ast.op_sub || b.op == ast.op_mul) && types.is_integer(node_type_of(c.node_types, e))
+    case unary(u):
+        return u.op == ast.unary_neg && types.is_integer(node_type_of(c.node_types, e))
+    default:
+        return false
+    }
+}
+
+// is_wrapping reports whether e is a wrapping operator on integers, +%
+// -% *% or -%x, whose value is always one of its type's, Go's isWrapping.
+func (mut c Checker) is_wrapping(e Key) bool {
+    switch kind_at(c.prog.trees, e) {
+    case binary(b):
+        return is_wrapping_op(b.op) && types.is_integer(node_type_of(c.node_types, e))
+    case unary(u):
+        return u.op == ast.unary_neg_wrap && types.is_integer(node_type_of(c.node_types, e))
+    default:
+        return false
+    }
+}
+
+// operand_range returns what is known about the value of e where it is
+// used, Go's operandRange, when e is a subject, the length of a string,
+// view or list subject, arithmetic or a wrapping operator, and false for
+// anything else: a subject's interval, a length's bound, arithmetic's
+// bound (see range_of), or, for a wrapping operator and for arithmetic
+// with none, its type's bounds.
+func (mut c Checker) operand_range(e Key) (Interval, bool, error) {
+    s := mut c.is_subject(e)?
+    if s {
+        known := mut c.interval_of(e)?
+        return known, true, noerror
+    }
+    _, is_len := mut c.string_len(e)?
+    if is_len {
+        known, ok := mut c.leaf_range(e)?
+        return known, ok, noerror
+    }
+    if mut c.is_wrapping(e) {
+        return type_interval(mut c.type_of(e)), true, noerror
+    }
+    if !mut c.is_arithmetic(e) {
+        return no_interval(), false, noerror
+    }
+    known, ok := mut c.range_of(e)?
+    if ok {
+        return known, true, noerror
+    }
+    return type_interval(mut c.type_of(e)), true, noerror
+}
+
+// RangeFrame is a node range_of is working out the bound of: state 0
+// before its operands, 1 once its left operand's bound is on the stack
+// of results, 2 once its right one's is too, and 3 once a negation's
+// operand's is.
+type RangeFrame struct {
+    e Key
+    state uint8
+}
+
+// range_of returns the bound of e, an integer expression, where it is
+// used, and false when it has none, Go's rangeOf: a known value is its
+// own bound; the length of a string, view or list subject's and a
+// subject's are what leaf_range says; and arithmetic's is worked out
+// exactly from its operands' bounds, and is a bound only when every
+// value it allows is a value of the operation's type on every target
+// (see fitted). Anything else has none, and nor does arithmetic with an
+// operand that has none. An operand that has none ends the whole walk,
+// as it ends every operation above it, so the operands are walked from a
+// stack in Go's order, the left one first, and the walk stops there.
+func (mut c Checker) range_of(e Key) (Interval, bool, error) {
+    mut frames := make(list[RangeFrame], c_allocator)
+    mut results := make(list[Interval], c_allocator)
+    append(mut frames, RangeFrame{e: e, state: 0})?
+    for len(frames) > 0 {
+        f, has := pop(mut frames)
+        if !has {
+            break
+        }
+        if f.state == 0 {
+            v, ok := mut c.const_value(f.e)
+            if ok {
+                append(mut results, single(v))?
+                continue
+            }
+            if mut c.is_arithmetic(f.e) {
+                switch kind_at(c.prog.trees, f.e) {
+                case binary(b):
+                    append(mut frames, RangeFrame{e: f.e, state: 1})?
+                    append(mut frames, RangeFrame{e: sub(f.e, b.x), state: 0})?
+                    continue
+                case unary(u):
+                    append(mut frames, RangeFrame{e: f.e, state: 3})?
+                    append(mut frames, RangeFrame{e: sub(f.e, u.x), state: 0})?
+                    continue
+                default:
+                }
+            }
+            known, ok_l := mut c.leaf_range(f.e)?
+            if !ok_l {
+                return no_interval(), false, noerror
+            }
+            append(mut results, known)?
+            continue
+        }
+        if f.state == 1 {
+            b, _ := binary_of(c.prog.trees, f.e)
+            append(mut frames, RangeFrame{e: f.e, state: 2})?
+            append(mut frames, RangeFrame{e: sub(f.e, b.y), state: 0})?
+            continue
+        }
+        typ := node_type_of(c.node_types, f.e)
+        if f.state == 2 {
+            bi := pop_interval(mut results)
+            ai := pop_interval(mut results)
+            b, _ := binary_of(c.prog.trees, f.e)
+            known, ok := binary_bounds(b.op, ai, bi)
+            if !ok {
+                return no_interval(), false, noerror
+            }
+            fit, ok_f := fitted(known, typ)
+            if !ok_f {
+                return no_interval(), false, noerror
+            }
+            append(mut results, fit)?
+            continue
+        }
+        ai := pop_interval(mut results)
+        known, ok := neg_bounds(ai)
+        if !ok {
+            return no_interval(), false, noerror
+        }
+        fit, ok_f := fitted(known, typ)
+        if !ok_f {
+            return no_interval(), false, noerror
+        }
+        append(mut results, fit)?
+    }
+    r, has_r := pop(mut results)
+    if !has_r {
+        return no_interval(), false, noerror
+    }
+    return r, true, noerror
+}
+
+// binary_bounds returns the exact bounds of a op b, + - or * on values
+// within a and b, Go's binaryRange less its fitting: the sum of their
+// lowest values and of their highest, the lowest of one less the highest
+// of the other, or the least and greatest of the four products of their
+// ends, and false when an end is past what a constant holds. A product of
+// two values that are never zero is never zero.
+func binary_bounds(op ast.BinaryOp, a Interval, b Interval) (Interval, bool) {
+    mut known := no_interval()
+    mut ok_lo := false
+    mut ok_hi := false
+    if op == ast.op_add {
+        lo, l_ok := a.lo.add(b.lo)
+        hi, h_ok := a.hi.add(b.hi)
+        known.lo = lo
+        known.hi = hi
+        ok_lo = l_ok
+        ok_hi = h_ok
+    } else if op == ast.op_sub {
+        lo, l_ok := a.lo.sub(b.hi)
+        hi, h_ok := a.hi.sub(b.lo)
+        known.lo = lo
+        known.hi = hi
+        ok_lo = l_ok
+        ok_hi = h_ok
+    } else {
+        p := products(a, b)
+        known.lo = p.lo
+        known.hi = p.hi
+        ok_lo = p.ok
+        ok_hi = p.ok
+        known.nonzero = a.excludes_zero() && b.excludes_zero()
+    }
+    return known, ok_lo && ok_hi
+}
+
+// neg_bounds returns the bounds of -x for x within a, Go's negRange less
+// its fitting: a's bounds negated and swapped. The negation of a value
+// that is never zero is never zero.
+func neg_bounds(a Interval) (Interval, bool) {
+    lo, ok_lo := a.hi.negate()
+    hi, ok_hi := a.lo.negate()
+    if !ok_lo || !ok_hi {
+        return no_interval(), false
+    }
+    return Interval{lo: lo, hi: hi, has_lo: true, has_hi: true, nonzero: a.excludes_zero()}, true
+}
+
+// Products is the least and the greatest of four products, and whether
+// each fit a constant.
+type Products struct {
+    lo constant.Int
+    hi constant.Int
+    ok bool
+}
+
+// products returns the least and the greatest of the products of a's
+// ends with b's, Go's products, which bound the product of any value of
+// a with any value of b, and false when one of them is past what a
+// constant holds.
+func products(a Interval, b Interval) Products {
+    z := constant.from_int64(0)
+    mut out := Products{lo: z, hi: z, ok: false}
+    xs := [4]constant.Int{a.lo, a.lo, a.hi, a.hi}
+    ys := [4]constant.Int{b.lo, b.hi, b.lo, b.hi}
+    for i := range 4 {
+        x := const_in(xs[:], i)
+        y := const_in(ys[:], i)
+        p, fits := x.mul(y)
+        if !fits {
+            return out
+        }
+        if i == 0 || p.cmp(out.lo) < 0 {
+            out.lo = p
+        }
+        if i == 0 || p.cmp(out.hi) > 0 {
+            out.hi = p
+        }
+    }
+    out.ok = true
+    return out
+}
+
+// pop_interval pops the last interval of l, or returns none for an
+// empty l.
+func pop_interval(mut l list[Interval]) Interval {
+    v, ok := pop(mut l)
+    if !ok {
+        return no_interval()
+    }
+    return v
+}
+
+// const_in returns l[i], or 0.
+func const_in(l []constant.Int, i int64) constant.Int {
+    v, ok := l[i]
+    if !ok {
+        return constant.from_int64(0)
+    }
+    return v
+}
+
+// fitted returns known, the exact bounds of an operation's result, with
+// both its ends set, as the bound of an operation of type typ, when every
+// value known allows is a value of typ on every target, Go's fitted, so
+// that the operation cannot wrap anywhere, and false otherwise.
+func fitted(known Interval, typ types.Type) (Interval, bool) {
+    if types.portable_bits(typ) == 0 {
+        return no_interval(), false
+    }
+    mut k := known
+    k.has_lo = true
+    k.has_hi = true
+    lo, hi := portable_bounds(typ)
+    if k.lo.cmp(lo) < 0 || k.hi.cmp(hi) > 0 {
+        return no_interval(), false
+    }
+    return k, true
+}
+
+// portable_bounds returns the smallest and largest values the integer
+// type typ holds on every target, Go's portableBounds: its own for a
+// fixed-width type, and 0 and types.portable_max for a target-width one.
+func portable_bounds(typ types.Type) (constant.Int, constant.Int) {
+    n := types.portable_bits(typ)
+    if n >= 64 {
+        if types.is_unsigned(typ) {
+            return constant.from_int64(0), constant.from_uint64(18446744073709551615)
+        }
+        return constant.from_int64(-9223372036854775807 - 1), constant.from_int64(9223372036854775807)
+    }
+    mut p uint64 = 1
+    mut i int64 = 0
+    for i < n {
+        p = p *% 2
+        i +%= 1
+    }
+    if types.is_unsigned(typ) {
+        return constant.from_int64(0), constant.from_uint64(p -% 1)
+    }
+    half := constant.from_uint64(p / 2)
+    lo, _ := half.negate()
+    hi, _ := half.sub(constant.from_int64(1))
+    if n == 0 {
+        // Go's shifts by 64 leave -1 and 0.
+        return constant.from_int64(-1), constant.from_int64(0)
+    }
+    return lo, hi
+}
+
+// arithmetic_shape reports whether e is arithmetic that range_of reads
+// through to its every leaf, whatever their bounds, Go's
+// arithmeticShape: + - * or unary - on integers whose every operand is a
+// known value, a subject of an integer type, the length of a string,
+// view or list subject, or such arithmetic. Its operands are walked from
+// a stack, the left one first, and the walk stops at the first that is
+// none of those.
+func (mut c Checker) arithmetic_shape(e Key) (bool, error) {
+    if !mut c.is_arithmetic(e) {
+        return false, noerror
+    }
+    mut stack := make(list[Key], c_allocator)
+    mut c.push_operands(e, mut stack)?
+    for len(stack) > 0 {
+        x, has := pop(mut stack)
+        if !has {
+            break
+        }
+        _, is_const := mut c.const_value(x)
+        if is_const {
+            continue
+        }
+        if mut c.is_arithmetic(x) {
+            mut c.push_operands(x, mut stack)?
+            continue
+        }
+        _, known := mut c.known_value(x)?
+        if known {
+            continue
+        }
+        _, is_len := mut c.string_len(x)?
+        if is_len {
+            continue
+        }
+        s := mut c.is_subject(x)?
+        if !s || !types.is_integer(mut c.type_of(x)) {
+            return false, noerror
+        }
+    }
+    return true, noerror
+}
+
+// push_operands pushes the operands of e, a binary or a unary
+// expression, on stack, the right one first, so that the left one is
+// popped first.
+func (mut c Checker) push_operands(e Key, mut stack list[Key]) error {
+    switch kind_at(c.prog.trees, e) {
+    case binary(b):
+        append(mut stack, sub(e, b.y))?
+        append(mut stack, sub(e, b.x))?
+    case unary(u):
+        append(mut stack, sub(e, u.x))?
+    default:
+    }
+    return noerror
+}

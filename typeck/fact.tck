@@ -289,7 +289,7 @@ func (known Interval) tightened() Interval {
 
 // single returns the interval of the one value v, Go's single.
 func single(v constant.Int) Interval {
-    return Interval{lo: v, hi: v, has_lo: true, has_hi: true, nonzero: false}
+    return Interval{lo: v, hi: v, has_lo: true, has_hi: true, nonzero: !v.is_zero()}
 }
 
 // length_range returns the range of any length, from 0 to the largest

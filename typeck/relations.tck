@@ -1,0 +1,399 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import types from "tack/types"
+
+// The values relations are between, Go's relations.go: a value as a node
+// plus a known offset, read through + and - of known amounts (see
+// linear), with the side conditions that each step does not wrap, and
+// the difference bounds a comparison of two such values gives (see
+// linear_facts). A query asks the relations in force about them (see
+// relgraph.tck).
+
+// NoWrap is a side condition, Go's noWrap: the node of lies at or above
+// lo, when has_lo, and at or below hi, when has_hi, so that a step
+// computed from it does not wrap. is_len says the node is a length.
+type NoWrap struct {
+    of FKey
+    lo constant.Int
+    hi constant.Int
+    has_lo bool
+    has_hi bool
+    is_len bool
+}
+
+// Conds is a run of side conditions, Go's []noWrap: the count of them
+// in the FactState's conds from start on.
+type Conds struct {
+    start int64
+    count int64
+}
+
+// no_conds returns the run of no condition.
+func no_conds() Conds {
+    return Conds{start: 0, count: 0}
+}
+
+// cond_at returns the i'th condition of the run cs.
+func (c Checker) cond_at(cs Conds, i int64) NoWrap {
+    w, ok := c.fx.conds[cs.start +% i]
+    if !ok {
+        z := constant.from_int64(0)
+        return NoWrap{of: zero_fkey(), lo: z, hi: z, has_lo: false, has_hi: false, is_len: false}
+    }
+    return w
+}
+
+// conds_push returns the run cs with w after it. A run that ends where
+// the conditions end grows in place, so a chain of steps, each adding a
+// condition to the one before, takes time growing with its length; any
+// other is copied first, so no run another names changes.
+func (mut c Checker) conds_push(cs Conds, w NoWrap) (Conds, error) {
+    if cs.count == 0 {
+        start := len(c.fx.conds)
+        append(mut c.fx.conds, w)?
+        return Conds{start: start, count: 1}, noerror
+    }
+    if cs.start +% cs.count == len(c.fx.conds) {
+        append(mut c.fx.conds, w)?
+        return Conds{start: cs.start, count: cs.count +% 1}, noerror
+    }
+    start := len(c.fx.conds)
+    mut i int64 = 0
+    for i < cs.count {
+        append(mut c.fx.conds, c.cond_at(cs, i))?
+        i +%= 1
+    }
+    append(mut c.fx.conds, w)?
+    return Conds{start: start, count: cs.count +% 1}, noerror
+}
+
+// conds_release drops every condition after the first mark, which a
+// query recorded before it made the terms whose conditions they are:
+// those terms are gone once it is done, and no fact names them.
+func (mut c Checker) conds_release(mark int64) {
+    for len(c.fx.conds) > mark {
+        pop(mut c.fx.conds)
+    }
+}
+
+// conds_join returns the run of a's conditions followed by b's, Go's
+// append(slices.Clip(a), b...).
+func (mut c Checker) conds_join(a Conds, b Conds) (Conds, error) {
+    if b.count == 0 {
+        return a, noerror
+    }
+    if a.count == 0 {
+        return b, noerror
+    }
+    mut out := a
+    mut i int64 = 0
+    for i < b.count {
+        out = mut c.conds_push(out, c.cond_at(b, i))?
+        i +%= 1
+    }
+    return out, noerror
+}
+
+// LinTerm is a value as a node plus a known offset, Go's linTerm: a
+// subject, a length when is_len says so, or, for the zero key, the
+// constant off. conds are what must hold for the value to be node +
+// off, every step of arithmetic from the node staying within its type,
+// and own the bounds the node's type, or a length's range, gives it.
+type LinTerm struct {
+    node FKey
+    off constant.Int
+    is_len bool
+    conds Conds
+    own_bounds Interval
+}
+
+// lin_term returns the term node + off, of no condition and no bounds of
+// its own.
+func lin_term(node FKey, off constant.Int, is_len bool) LinTerm {
+    return LinTerm{node: node, off: off, is_len: is_len, conds: no_conds(), own_bounds: no_interval()}
+}
+
+// zero_term returns the constant 0 as a term, Go's zeroTerm.
+func zero_term() LinTerm {
+    return lin_term(zero_fkey(), constant.from_int64(0), false)
+}
+
+// linear returns e as a node plus a known offset, Go's linear: a known
+// value, an integer subject that can have facts, the length of a string,
+// view or list subject, or one of those plus or minus a known value, k +
+// e included, each step with the condition that it does not wrap, which
+// is left out where the node's own bounds already keep it from wrapping.
+// A chain of steps is walked down in a loop, and its steps then taken
+// from the node up, so a chain of any length takes no frame a link.
+func (mut c Checker) linear(e Key) (LinTerm, bool, error) {
+    mut ks := make(list[constant.Int], c_allocator)
+    mut typs := make(list[types.Type], c_allocator)
+    mut cur := e
+    mut t := zero_term()
+    for {
+        leaf, ok := mut c.linear_leaf(cur)?
+        if ok {
+            t = leaf
+            break
+        }
+        bin, is_bin := binary_of(c.prog.trees, cur)
+        typ := node_type_of(c.node_types, cur)
+        if !is_bin || bin.op != ast.op_add && bin.op != ast.op_sub || !types.is_integer(typ) {
+            return t, false, noerror
+        }
+        base, k, known := mut c.known_step(bin.op, sub(cur, bin.x), sub(cur, bin.y), false)?
+        if !known {
+            return t, false, noerror
+        }
+        append(mut ks, k)?
+        append(mut typs, typ)?
+        cur = base
+    }
+    if len(ks) > 0 && t.node.is_zero() {
+        return t, false, noerror
+    }
+    mut i := len(ks) -% 1
+    for i >= 0 {
+        k := const_in(ks[:], i)
+        typ := type_at(typs[:], i)
+        i -%= 1
+        next, ok := mut c.term_step(t, k, typ)?
+        if !ok {
+            return t, false, noerror
+        }
+        t = next
+    }
+    return t, true, noerror
+}
+
+// binary_of returns the binary expression at k, when k is one.
+func binary_of(trees []ast.File, k Key) (ast.Binary, bool) {
+    switch kind_at(trees, k) {
+    case binary(b):
+        return b, true
+    default:
+        mut z ast.Binary
+        return z, false
+    }
+}
+
+// linear_leaf returns e as a term when it is a known value, the length
+// of a string, view or list subject, or an integer subject that can
+// have facts, Go's linearLeaf, with the bounds a length's range, or the
+// subject's type, gives it.
+func (mut c Checker) linear_leaf(e Key) (LinTerm, bool, error) {
+    v, known := mut c.known_value(e)?
+    if known {
+        return lin_term(zero_fkey(), v, false), true, noerror
+    }
+    s, is_len := mut c.string_len(e)?
+    if is_len {
+        mut t := lin_term(s, constant.from_int64(0), true)
+        t.own_bounds = length_range()
+        return t, true, noerror
+    }
+    k, ok := mut c.key_of(e)?
+    if ok && types.is_integer(mut c.type_of(e)) {
+        mut t := lin_term(k, constant.from_int64(0), false)
+        t.own_bounds = type_interval(mut c.type_of(e))
+        return t, true, noerror
+    }
+    return zero_term(), false, noerror
+}
+
+// known_step returns the operand of x op y, a + or a -, that is not a
+// known value, and the known amount the operation adds to it, Go's
+// knownStep: the right operand, or, for k + e, the left, negated for a
+// -. one says y is the literal 1 a step's operation adds (see ArithOp).
+func (mut c Checker) known_step(op ast.BinaryOp, x Key, y Key, one bool) (Key, constant.Int, bool, error) {
+    mut base := x
+    mut k := constant.from_int64(1)
+    mut known := one
+    if !one {
+        k, known = mut c.known_value(y)?
+    }
+    if !known && op == ast.op_add {
+        base = y
+        k, known = mut c.known_value(x)?
+    }
+    if !known {
+        return no_key(), k, false, noerror
+    }
+    if op == ast.op_sub {
+        n, ok := k.negate()
+        if !ok {
+            return no_key(), k, false, noerror
+        }
+        k = n
+    }
+    return base, k, true, noerror
+}
+
+// term_step returns t plus k, computed in the type typ, with the
+// condition that the sum stays within typ (see step_cond), Go's
+// linTerm.step.
+func (mut c Checker) term_step(t LinTerm, k constant.Int, typ types.Type) (LinTerm, bool, error) {
+    off, ok := t.off.add(k)
+    if !ok {
+        return t, false, noerror
+    }
+    cond, ok_c := step_cond(t, off, typ)
+    if !ok_c {
+        return t, false, noerror
+    }
+    mut r := t
+    r.off = off
+    if cond.has_lo || cond.has_hi {
+        r.conds = mut c.conds_push(t.conds, cond)?
+    }
+    return r, true, noerror
+}
+
+// step_cond returns the condition that t's node plus off is a value of
+// typ, Go's linTerm.stepCond: the node lies between typ's bounds less
+// off. A bound past what a constant can hold is one the node meets
+// whatever its value, and so is one t's own bounds already meet; both are
+// left out.
+func step_cond(t LinTerm, off constant.Int, typ types.Type) (NoWrap, bool) {
+    lo, hi := step_bounds(typ)
+    z := constant.from_int64(0)
+    mut cond := NoWrap{of: t.node, lo: z, hi: z, has_lo: false, has_hi: false, is_len: t.is_len}
+    v, ok := lo.sub(off)
+    if ok {
+        cond.lo = v
+        cond.has_lo = !t.own_bounds.has_lo || t.own_bounds.lo.cmp(v) < 0
+    } else if off.is_negative() {
+        return cond, false
+    }
+    w, ok_w := hi.sub(off)
+    if ok_w {
+        cond.hi = w
+        cond.has_hi = !t.own_bounds.has_hi || t.own_bounds.hi.cmp(w) > 0
+    } else if !off.is_negative() {
+        return cond, false
+    }
+    return cond, true
+}
+
+// step_bounds returns the bounds a step of the integer type typ must
+// stay within, Go's stepBounds: its type's, the largest a target-width
+// type holds on every target for one of those.
+func step_bounds(typ types.Type) (constant.Int, constant.Int) {
+    lo, hi := type_bounds(typ)
+    if types.target_width(typ) {
+        return lo, constant.from_uint64(types.portable_max)
+    }
+    return lo, hi
+}
+
+// linear_facts appends to out the difference bounds left op right
+// gives, left and right each a value linear reads, of two different
+// nodes, Go's linearFacts.
+func (mut c Checker) linear_facts(left Key, op ast.BinaryOp, right Key, mut out list[Fact]) error {
+    a, ok_a := mut c.linear(left)?
+    if !ok_a {
+        return noerror
+    }
+    b, ok_b := mut c.linear(right)?
+    if !ok_b || a.node == b.node {
+        return noerror
+    }
+    d, ok := b.off.sub(a.off)
+    if !ok {
+        return noerror
+    }
+    conds := mut c.conds_join(a.conds, b.conds)?
+    one := constant.from_int64(1)
+    neg_d, ok_neg := d.negate()
+    if op == ast.op_lt {
+        w, ok_w := d.sub(one)
+        if ok_w {
+            mut c.add_diff_fact(a, b, w, conds, mut out)?
+        }
+    } else if op == ast.op_le {
+        mut c.add_diff_fact(a, b, d, conds, mut out)?
+    } else if op == ast.op_gt {
+        w, ok_w := neg_d.sub(one)
+        if ok_w && ok_neg {
+            mut c.add_diff_fact(b, a, w, conds, mut out)?
+        }
+    } else if op == ast.op_ge {
+        if ok_neg {
+            mut c.add_diff_fact(b, a, neg_d, conds, mut out)?
+        }
+    } else if op == ast.op_eq {
+        mut c.add_diff_fact(a, b, d, conds, mut out)?
+        if ok_neg {
+            mut c.add_diff_fact(b, a, neg_d, conds, mut out)?
+        }
+    }
+    return noerror
+}
+
+// add_diff_fact appends to out the fact x.node - y.node <= w, holding
+// where conds do, about x's node, or y's when x's is the constant, Go's
+// diffFact.
+func (mut c Checker) add_diff_fact(x LinTerm, y LinTerm, w constant.Int, conds Conds, mut out list[Fact]) error {
+    mut about := x.node
+    if about.is_zero() {
+        about = y.node
+    }
+    nid := len(c.fx.diffs)
+    append(mut c.fx.diffs, DiffBound{x: x.node, y: y.node, w: w, x_len: x.is_len, y_len: y.is_len, conds: conds})?
+    mut f := new_fact(about)
+    f.diff = nid
+    append(mut out, f)?
+    return noerror
+}
+
+// arith_term returns e as a query's term when it is arithmetic that
+// linear reads as a node plus a known offset, i + 1 or len(a) - 1, Go's
+// arithTerm. The term keeps the conditions that its steps do not wrap,
+// which a query must prove (see relates), unless e's bound already
+// proves that no operation in it can wrap (see range_of).
+func (mut c Checker) arith_term(e Key) (LinTerm, bool, error) {
+    if !mut c.is_arithmetic(e) {
+        return zero_term(), false, noerror
+    }
+    t, ok := mut c.linear(e)?
+    if !ok || t.node.is_zero() {
+        return zero_term(), false, noerror
+    }
+    _, fits := mut c.range_of(e)?
+    if fits {
+        mut r := t
+        r.conds = no_conds()
+        return r, true, noerror
+    }
+    return t, true, noerror
+}
+
+// query_term returns e as a query's term, Go's queryTerm: a known value,
+// the length of a string, view or list subject, an integer subject, or
+// arithmetic that adds a known amount to one of those last two (see
+// arith_term).
+func (mut c Checker) query_term(e Key) (LinTerm, bool, error) {
+    v, known := mut c.known_value(e)?
+    if known {
+        return lin_term(zero_fkey(), v, false), true, noerror
+    }
+    s, is_len := mut c.string_len(e)?
+    if is_len {
+        return lin_term(s, constant.from_int64(0), true), true, noerror
+    }
+    k, ok := mut c.subject_key(e)?
+    if ok && types.is_integer(mut c.type_of(e)) {
+        return lin_term(k, constant.from_int64(0), false), true, noerror
+    }
+    t, ok_t := mut c.arith_term(e)?
+    return t, ok_t, noerror
+}
+
+// len_term returns the length of s, a string, view or list subject, as
+// a query's term, Go's lenTerm.
+func (mut c Checker) len_term(s Key) (LinTerm, bool, error) {
+    k, ok := mut c.string_var(s)?
+    return lin_term(k, constant.from_int64(0), true), ok, noerror
+}

@@ -196,9 +196,38 @@ func (mut c Checker) is_view_call(e Key) bool {
 // is one that indexes a view a call returns, while its index passes a
 // place that view may point into.
 func (mut c Checker) check_index_borrows(k Key, ix ast.Index) (bool, error) {
-    x := sub(k, ix.x)
+    mut ops := make(list[Key], c_allocator)
+    append(mut ops, sub(k, ix.index))?
+    r_, e_ := mut c.check_read_borrows(sub(k, ix.x), ops[:], "index", "in its index", "indexed")
+    return r_, e_
+}
+
+// check_slice_borrows reports the slice k, s, when what it slices is
+// read in place, as check_index_borrows says, while a bound passes as
+// mut a place that may overlap it, and reports whether it did, Go's
+// checkSliceBorrows.
+func (mut c Checker) check_slice_borrows(k Key, s ast.Slice) (bool, error) {
+    mut ops := make(list[Key], c_allocator)
+    if !ast.is_none(s.lo) {
+        append(mut ops, sub(k, s.lo))?
+    }
+    if !ast.is_none(s.hi) {
+        append(mut ops, sub(k, s.hi))?
+    }
+    r_, e_ := mut c.check_read_borrows(sub(k, s.x), ops[:], "slice", "in its bounds", "sliced")
+    return r_, e_
+}
+
+// check_read_borrows reports x, what an index or a slice reads, when it
+// is read in place and a mut argument in operands, at any depth, may
+// overlap it or what the view it is may point into, with a note at that
+// mut argument, and reports whether it did, Go's checkReadBorrows. verb,
+// where and done word the message.
+func (mut c Checker) check_read_borrows(x Key, operands []Key, verb string, where string, done string) (bool, error) {
     mut ws := make(list[Writer], c_allocator)
-    mut c.writers_in(sub(k, ix.index), 0, mut ws)?
+    for _, op := range operands {
+        mut c.writers_in(op, 0, mut ws)?
+    }
     if len(ws) == 0 {
         return false, noerror
     }
@@ -223,7 +252,7 @@ func (mut c Checker) check_index_borrows(k Key, ix ast.Index) (bool, error) {
                 mut only := msg()
                 mut c.writer_only(w, mut only)?
                 mut m := msg()
-                fmt.appendf(mut m, "cannot index %s alongside %s in its index: the view it returns may point into %s, and %s during its call", t[:], what[:], p[:], only[:])?
+                fmt.appendf(mut m, "cannot %s %s alongside %s %s: the view it returns may point into %s, and %s during its call", verb, t[:], what[:], where, p[:], only[:])?
                 mut c.errorf(span_at(c.prog.trees, x), own m)?
                 mut c.writer_note(w)?
                 return true, noerror
@@ -244,7 +273,7 @@ func (mut c Checker) check_index_borrows(k Key, ix ast.Index) (bool, error) {
         mut only := msg()
         mut c.writer_only(w, mut only)?
         mut m := msg()
-        fmt.appendf(mut m, "cannot index %s alongside %s in its index: %s is not copied to be indexed, and %s during its call", t[:], what[:], holder[:], only[:])?
+        fmt.appendf(mut m, "cannot %s %s alongside %s %s: %s is not copied to be %s, and %s during its call", verb, t[:], what[:], where, holder[:], done, only[:])?
         mut c.errorf(span_at(c.prog.trees, x), own m)?
         mut c.writer_note(w)?
         return true, noerror
@@ -528,6 +557,6 @@ func (mut c Checker) member_notes(k Key, mut notes list[diag.Related]) error {
         }
     }
     ext := mut c.new_extent(k, "byte", 0, false)?
-    p := Proof{kind: proof_member, about: zero_fkey(), e: k, ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: ext, upper_only: false}
+    p := Proof{kind: proof_member, about: zero_fkey(), e: k, ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: ext, upper_only: false, to: types.invalid, lower: false, upper: false, relations: false}
     return mut c.drop_notes(p, dropped[:], mut notes)
 }

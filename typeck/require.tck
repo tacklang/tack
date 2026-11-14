@@ -245,7 +245,7 @@ func (mut c Checker) explain_index(ix IxRef, array bool, n int64, mut notes list
     if !upper_only {
         upper_only = mut c.at_least_zero(index)?
     }
-    p := Proof{kind: proof_index, about: about, e: index, ix: ix, n: n, array: array, ext: ext, upper_only: upper_only}
+    p := Proof{kind: proof_index, about: about, e: index, ix: ix, n: n, array: array, ext: ext, upper_only: upper_only, to: types.invalid, lower: false, upper: false, relations: false}
     mut c.explain(p, mut notes)?
     return mut c.index_relation_notes(index, x, mut notes)
 }
@@ -376,7 +376,7 @@ func (mut c Checker) require_not_empty(call Key, l Key) error {
     if s {
         about, _ := mut c.subject_key(l)?
         ext := mut c.new_extent(l, "byte", 0, false)?
-        p := Proof{kind: proof_pop, about: about, e: l, ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: ext, upper_only: false}
+        p := Proof{kind: proof_pop, about: about, e: l, ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: ext, upper_only: false, to: types.invalid, lower: false, upper: false, relations: false}
         mut c.explain(p, mut notes)?
     }
     mut c.indexed_notes(l, mut notes)?
@@ -407,7 +407,7 @@ func (mut c Checker) string_index_error(ix IxRef, write bool, mut m list[uint8],
         if s {
             about, _ := mut c.subject_key(x)?
             mut ext := mut c.new_extent(x, "byte", 0, false)?
-            p := Proof{kind: proof_length, about: about, e: x, ix: ix, n: 0, array: false, ext: ext, upper_only: false}
+            p := Proof{kind: proof_length, about: about, e: x, ix: ix, n: 0, array: false, ext: ext, upper_only: false, to: types.invalid, lower: false, upper: false, relations: false}
             mut c.explain(p, mut notes)?
         }
     } else {
@@ -496,7 +496,7 @@ func (mut c Checker) require_nonzero_at(divisor Key, with_ok bool) (bool, error)
     mut notes := make(list[diag.Related], c_allocator)
     about, _ := mut c.note_key(divisor)?
     ext := mut c.new_extent(divisor, "byte", 0, false)?
-    p := Proof{kind: proof_divisor, about: about, e: divisor, ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: ext, upper_only: false}
+    p := Proof{kind: proof_divisor, about: about, e: divisor, ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: ext, upper_only: false, to: types.invalid, lower: false, upper: false, relations: false}
     g, is_global := mut c.mutable_global(divisor)
     is_subj := mut c.is_subject(divisor)?
     is_len := mut c.is_length_subject(divisor)?
@@ -600,18 +600,21 @@ func (mut c Checker) upper_relation_notes(b Key, x Key, w constant.Int, mut note
 
 // relation_notes appends to notes the note that explains why the
 // relations in force do not prove x - y <= w, at sp, Go's relationNotes:
-// that the graph left relations out past its cap, or that one link is
-// missing from a chain that would prove it.
+// that the graph left relations out past its cap, that a relation
+// through + or - would prove it but for its condition (see
+// wrapping_note), or that one link is missing from a chain that would
+// prove it. Two terms of the same node with no conditions need no facts,
+// and get no note.
 func (mut c Checker) relation_notes(x LinTerm, y LinTerm, w constant.Int, sp source.Span, mut notes list[diag.Related]) error {
     q := query_w(x, y, w)
-    if !q.ok || x.node == y.node {
+    if !q.ok || x.node == y.node && x.conds.count == 0 && y.conds.count == 0 {
         return noerror
     }
     mut g, has := mut c.relation_graph(x.node, y.node, x.is_len, y.is_len, true)?
     if !has {
         return noerror
     }
-    p := mut g.proves(x.node, y.node, q.w)?
+    p := mut c.proves(mut g, x.node, y.node, q.w)?
     if p {
         return noerror
     }
@@ -620,6 +623,15 @@ func (mut c Checker) relation_notes(x LinTerm, y LinTerm, w constant.Int, sp sou
         append(mut m, []uint8("the checker follows at most 64 related values from here, so relations further along are not used; check ")...)?
         c.relation_text(x.node, y.node, x.is_len, y.is_len, q.w, mut m)?
         append(mut m, []uint8(" directly")...)?
+        return push_note(mut notes, sp, own m)
+    }
+    mut cond := msg()
+    wraps := mut c.wrapping_note(mut g, x.node, y.node, q.w, mut cond)?
+    if wraps {
+        mut m := msg()
+        append(mut m, []uint8("a relation through + or - here holds only where its step cannot overflow; check ")...)?
+        append(mut m, cond[:]...)?
+        append(mut m, []uint8(" too")...)?
         return push_note(mut notes, sp, own m)
     }
     if x.node.is_zero() || y.node.is_zero() {
@@ -632,7 +644,7 @@ func (mut c Checker) relation_notes(x LinTerm, y LinTerm, w constant.Int, sp sou
         if !has_m {
             continue
         }
-        d, known := mut g.bound(x.node, mk)?
+        d, known := mut c.bound(mut g, x.node, mk)?
         if !known || !c.middle(mk, x, y) {
             continue
         }
@@ -658,7 +670,7 @@ func (mut c Checker) relation_notes(x LinTerm, y LinTerm, w constant.Int, sp sou
         if !has_m {
             continue
         }
-        d, known := mut g.bound_to(mk, y.node)?
+        d, known := mut c.bound_to(mut g, mk, y.node)?
         if !known || !c.middle(mk, x, y) || !c.compared(x.node, mk) {
             continue
         }
@@ -691,7 +703,7 @@ func (mut c Checker) refutes(mut g RelGraph, a FKey, b FKey, w constant.Int) (bo
     if !ok2 {
         return false, noerror
     }
-    r := mut g.proves(b, a, n2)?
+    r := mut c.proves(mut g, b, a, n2)?
     return r, noerror
 }
 
@@ -702,10 +714,83 @@ func (c Checker) middle(k FKey, x LinTerm, y LinTerm) bool {
 }
 
 // is_length_key reports whether a fact in force uses k as a length, Go's
-// isLength, from the index of the relations, built by the query that
-// asks.
+// isLength: bounds a value below or at most its length, or names it as
+// a length in a difference bound.
 func (c Checker) is_length_key(k FKey) bool {
-    return c.is_len_node(k)
+    for _, f := range c.fx.active {
+        if f.len_of == k || f.at_most_len == k {
+            return true
+        }
+        if f.diff >= 0 {
+            d := c.diff_at(f.diff)
+            if d.x == k && d.x_len || d.y == k && d.y_len {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+// wrapping_note appends to out the side condition, written as a check,
+// that keeps g from proving x - y <= w, and reports whether there is
+// one, Go's relGraph.wrapping: the first of an edge left out for its
+// conditions whose own failing condition, once proved, with every edge
+// left out added, would let the graph prove it.
+func (mut c Checker) wrapping_note(mut g RelGraph, x FKey, y FKey, w constant.Int, mut out list[uint8]) (bool, error) {
+    if len(g.pending) == 0 {
+        return false, noerror
+    }
+    all := mut c.proves_all(mut g, x, y, w)?
+    if !all {
+        return false, noerror
+    }
+    mut i int64 = 0
+    for i < len(g.pending) {
+        e := rel_edge_in(g.pending[:], i)
+        i +%= 1
+        mut j int64 = 0
+        for j < e.conds.count {
+            cond := c.cond_at(e.conds, j)
+            j +%= 1
+            failing := mut c.failing_cond(mut g, cond, mut out)?
+            if failing {
+                return true, noerror
+            }
+        }
+    }
+    return false, noerror
+}
+
+// failing_cond appends to out, written as a check, the bound of cond the
+// graph does not prove, and reports whether there is one, Go's
+// relGraph.failing.
+func (mut c Checker) failing_cond(mut g RelGraph, cond NoWrap, mut out list[uint8]) (bool, error) {
+    zero := zero_fkey()
+    mut name := msg()
+    c.len_name(cond.of, cond.is_len, mut name)?
+    if cond.has_hi {
+        p := mut c.proves(mut g, cond.of, zero, cond.hi)?
+        if !p {
+            below(name[:], cond.hi, mut out)?
+            return true, noerror
+        }
+    }
+    if !cond.has_lo {
+        return false, noerror
+    }
+    lo, ok := cond.lo.negate()
+    mut fails := !ok
+    if ok {
+        p := mut c.proves(mut g, zero, cond.of, lo)?
+        fails = !p
+    }
+    if fails {
+        cond.lo.append_string(mut out)?
+        append(mut out, []uint8(" <= ")...)?
+        append(mut out, name[:]...)?
+        return true, noerror
+    }
+    return false, noerror
 }
 
 // compared reports whether a fact in force, held or dropped, names both

@@ -85,6 +85,7 @@ func (mut c Checker) check_switch_chain(k Key, s ast.Switch, tag_type types.Type
     // start and end in matched_facts.
     mut matched_facts := make(list[Fact], c_allocator)
     mut matched := make(map[Key]WSpan, c_allocator)
+    later_start := mut c.push_nodes(later[:])?
     m := c.mark()
     for i, cl := range order {
         mut c.check_case_values(k, s, tag_type, cl, mut seen)?
@@ -105,13 +106,8 @@ func (mut c Checker) check_switch_chain(k Key, s ast.Switch, tag_type types.Type
         }
         mut not_matched := make(list[Fact], c_allocator)
         mut c.case_facts(k, s, cl, false, mut not_matched)?
-        mut region_nodes := make(list[Key], c_allocator)
-        mut j := int_in(rest[:], i)
-        for j < len(later) {
-            append(mut region_nodes, key_in(later[:], j))?
-            j +%= 1
-        }
-        mut c.assume(Guard{cond: no_cond(), span: sp, kind: guard_later_case}, not_matched[:], region_nodes[:])?
+        rest_at := int_in(rest[:], i)
+        mut c.assume_pushed(Guard{cond: no_cond(), span: sp, kind: guard_later_case}, not_matched[:], later_start +% rest_at, len(later) -% rest_at, -1, 0)?
         if len(entered) > 0 {
             append(mut earlier, not_matched[:]...)?
         }
@@ -215,7 +211,7 @@ func (mut c Checker) check_fallen_into(k Key, s ast.Switch, cl Key, frm Key, lat
         pm := mut c.passes_mut(o)?
         writes = writes || pm
     }
-    if writes && !ast.is_none(s.tag) {
+    if writes {
         mut values := make(list[Key], c_allocator)
         for i := range count_items(c.prog.trees, k.unit, s.cases) {
             o := item_at(c.prog.trees, k.unit, s.cases, i)

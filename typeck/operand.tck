@@ -48,88 +48,6 @@ func (mut c Checker) discard(e Key) error {
 
 
 
-// conversion checks a conversion whose single value is used, T(x), and
-// returns T, Go's conversion.
-func (mut c Checker) conversion(k Key) (types.Type, error) {
-    cl := call_of(c.prog.trees, k)
-    to := cl.conv
-    name := mut c.type_name(to)?
-    ok_arity := mut c.check_arity(k, name, 1)?
-    if !ok_arity {
-        for i := range count_items(c.prog.trees, k.unit, cl.args) {
-            mut c.expr(item_at(c.prog.trees, k.unit, cl.args, i))?
-        }
-        return types.invalid, noerror
-    }
-    arg := item_at(c.prog.trees, k.unit, cl.args, 0)
-    mut src := mut c.expr(arg)?
-    if src == types.invalid {
-        return types.invalid, noerror
-    }
-    if !types.is_numeric(to) || !types.is_numeric(src) {
-        src = mut c.value_of(arg, src)?
-        if src != types.invalid {
-            f := mut c.type_name(src)?
-            mut m := msg()
-            fmt.appendf(mut m, "cannot convert %s to %s", f[:], name[:])?
-            mut c.errorf(span_at(c.prog.trees, k), own m)?
-        }
-        return types.invalid, noerror
-    }
-    if types.is_float(src) || types.is_float(to) {
-        if types.is_untyped(src) {
-            ok := mut c.const_conversion(k, arg, src, to)?
-            if !ok {
-                return types.invalid, noerror
-            }
-            return to, noerror
-        }
-        if types.is_integer(to) {
-            f := mut c.type_name(src)?
-            mut m := msg()
-            fmt.appendf(mut m, "converting %s to %s can fail; use v, ok := %s(...)", f[:], name[:], name[:])?
-            mut c.errorf(span_at(c.prog.trees, k), own m)?
-            return types.invalid, noerror
-        }
-        return to, noerror
-    }
-    if src == types.untyped_int {
-        ok := mut c.settle(arg, to)?
-        if !ok {
-            return types.invalid, noerror
-        }
-        return to, noerror
-    }
-    if types.widens(src, to) {
-        return to, noerror
-    }
-    v, known := mut c.known_value(arg)?
-    if known && types.target_width(to) && !fits_portably(v, to) && v.fits(64, false) {
-        f := mut c.type_name(src)?
-        mut m := msg()
-        fmt.appendf(mut m, "converting %s to %s can fail; use v, ok := %s(...)", f[:], name[:], name[:])?
-        mut c.errorf(span_at(c.prog.trees, k), own m)?
-        return to, noerror
-    }
-    if known {
-        if !fits_portably(v, to) {
-            mut m := msg()
-            fmt.appendf(mut m, "constant ")?
-            v.append_string(mut m)?
-            fmt.appendf(mut m, " overflows %s", name[:])?
-            if types.target_width(to) && !v.is_negative() {
-                fmt.appendf(mut m, ": its width is unknown, so a constant must be at most %d", types.portable_max)?
-            }
-            mut c.errorf(span_at(c.prog.trees, arg), own m)?
-            return types.invalid, noerror
-        }
-        return to, noerror
-    }
-    // A conversion of a value not known needs the facts in force, which
-    // the port does not keep yet; before bodies that follows an error.
-    return types.invalid, not_ported
-}
-
 // const_conversion checks the conversion k, to or from a float, of an
 // untyped constant arg, of type src, to the type to, and records its
 // value on k, Go's constConversion: one to an integer type must be an
@@ -905,11 +823,26 @@ func (mut c Checker) field(k Key, s ast.Selector, base types.Type) (types.Type, 
     }
     hidden := mut c.field_hidden(base, i)?
     if hidden {
-        // Go words a lib field of another module in words the port does
-        // not have yet; a private one is "is not pub".
+        // A lib field of another module is reported as ast.LibMessage
+        // words it; a private one is "is not pub".
         vis := mut c.field_vis(base, i)
         if vis == ast.vis_lib {
-            return types.invalid, not_ported
+            mut owner, has_owner := c.struct_pkg[base.number()]
+            if !has_owner {
+                owner = -1
+            }
+            mut om := msg()
+            append_pkg(c.prog.packages, owner, 2, mut om)?
+            mut um := msg()
+            append_pkg(c.prog.packages, c.pkg, 2, mut um)?
+            mut m := msg()
+            if len(um) == 0 {
+                fmt.appendf(mut m, "%s is lib in module %s and cannot be used from a single file, which has no module", name[:], om[:])?
+            } else {
+                fmt.appendf(mut m, "%s is lib in module %s and cannot be used from module %s", name[:], om[:], um[:])?
+            }
+            mut c.errorf(s.name_span, own m)?
+            return types.invalid, noerror
         }
         n := mut c.type_name(base)?
         mut m := msg()
@@ -957,58 +890,6 @@ func (mut c Checker) lost_method_of(typ types.Type, name []uint8) bool {
         }
     }
     return false
-}
-
-// slice_of checks the slice s at k, what it slices checked as x, and
-// returns its type, Go's slice: a string's is a string, an array's, a
-// view's or a list's a view, which only a few places may hold.
-func (mut c Checker) slice_of(k Key, s ast.Slice, x types.Type) (types.Type, error) {
-    base := mut c.value_of(sub(k, s.x), x)?
-    lo_ok := mut c.slice_bound(k, s.lo)?
-    hi_ok := mut c.slice_bound(k, s.hi)?
-    if base == types.invalid {
-        mut c.set_node_type(k, types.invalid)?
-        return types.invalid, noerror
-    }
-    if base != types.string_type {
-        // A slice of an array, a view or a list is a view, which a
-        // global cannot hold and an array length cannot be: Go reports it
-        // in words the port does not have yet.
-        return types.invalid, not_ported
-    }
-    if !lo_ok || !hi_ok {
-        mut c.set_node_type(k, types.invalid)?
-        return types.invalid, noerror
-    }
-    mut c.set_node_type(k, base)?
-    mut known_all := true
-    for _, b := range [2]id[ast.Node]{s.lo, s.hi} {
-        if ast.is_none(b) {
-            continue
-        }
-        v, known := mut c.known_value(sub(k, b))?
-        if known && v.is_negative() {
-            return types.invalid, not_ported
-        }
-        known_all = known_all && known
-    }
-    n, extent := mut c.extent_of(sub(k, s.x))?
-    if known_all && extent {
-        mut lo := constant.from_int64(0)
-        mut hi := constant.from_int64(n)
-        if !ast.is_none(s.lo) {
-            lo, _ = mut c.known_value(sub(k, s.lo))?
-        }
-        if !ast.is_none(s.hi) {
-            hi, _ = mut c.known_value(sub(k, s.hi))?
-        }
-        if lo.cmp(hi) > 0 || hi.cmp(constant.from_int64(n)) > 0 || lo.cmp(constant.from_int64(n)) > 0 {
-            return types.invalid, not_ported
-        }
-        return base, noerror
-    }
-    // Bounds not known need the facts in force; declined, as an index is.
-    return types.invalid, not_ported
 }
 
 // slice_bound checks the bound b of the slice at k, which must be an

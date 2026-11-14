@@ -237,27 +237,32 @@ func (mut c Checker) known_call(k Key) (constant.Int, bool, error) {
 // known_string returns the value of k when it is a string the checker
 // knows, Go's knownString: a literal, an immutable variable initialized
 // with a known string, a field or an element of a known struct or
-// array, or a slice of a known string at known bounds.
+// array, or a slice of a known string at known bounds. A chain of locals
+// each initialized with the next, and of slices each of the next, is
+// walked down in a loop to the string it starts from, and the slices'
+// bounds are then taken from the innermost out, so a chain of any length
+// takes no frame a link.
 func (mut c Checker) known_string(k Key) (Const, bool, error) {
-    switch kind_at(c.prog.trees, k) {
-    case str_lit(s):
-        v := mut c.store.str_const(text_at(c.prog.trees, c.none, k.unit, s))?
-        return v, true, noerror
-    case selector, index:
-        part, ok := mut c.fold_part(k)?
-        return part, ok && part.kind == cv_str, noerror
-    case slice:
-        v, ok := mut c.known_slice(k)?
-        return v, ok, noerror
-    case ident:
-        // A chain of locals each initialized with the next is followed in
-        // a loop, to the first value that is no such local.
-        mut x := k
-        for {
-            nm, is_id := ident_at(c.prog.trees, x)
-            if !is_id {
-                break
+    mut slices := make(list[Key], c_allocator)
+    mut x := k
+    mut str := no_const()
+    for {
+        switch kind_at(c.prog.trees, x) {
+        case str_lit(s):
+            str = mut c.store.str_const(text_at(c.prog.trees, c.none, x.unit, s))?
+            break
+        case selector, index:
+            part, ok := mut c.fold_part(x)?
+            if !ok || part.kind != cv_str {
+                return no_const(), false, noerror
             }
+            str = part
+            break
+        case slice(sl):
+            append(mut slices, x)?
+            x = sub(x, sl.x)
+            continue
+        case ident(nm):
             if nm.def.kind != ast.def_var {
                 return no_const(), false, noerror
             }
@@ -268,7 +273,8 @@ func (mut c Checker) known_string(k Key) (Const, bool, error) {
             }
             cv, ok := c.var_consts[v]
             if ok && cv.kind == cv_str {
-                return cv, true, noerror
+                str = cv
+                break
             }
             // A local's initializer is followed; a global's value is its
             // Const, computed before anything reads it.
@@ -277,80 +283,31 @@ func (mut c Checker) known_string(k Key) (Const, bool, error) {
                 return no_const(), false, noerror
             }
             x = sub(v, var_node.value)
+            continue
+        default:
+            return no_const(), false, noerror
         }
-        r, known := mut c.known_string(x)?
-        return r, known, noerror
-    default:
-        return no_const(), false, noerror
+        break
     }
-}
-
-// slice_extent returns the length of the slice s when its bounds are
-// known, in order and not negative, Go's sliceExtent.
-func (mut c Checker) slice_extent(s Key) (int64, bool, error) {
-    switch kind_at(c.prog.trees, s) {
-    case slice(sl):
-        mut lo := constant.from_int64(0)
-        mut hi := constant.from_int64(0)
-        if !ast.is_none(sl.lo) {
-            v, ok := mut c.known_value(sub(s, sl.lo))?
-            if !ok {
-                return 0, false, noerror
-            }
-            lo = v
-        }
-        if !ast.is_none(sl.hi) {
-            v, ok := mut c.known_value(sub(s, sl.hi))?
-            if !ok {
-                return 0, false, noerror
-            }
-            hi = v
-        } else {
-            n, ok := mut c.extent_of(sub(s, sl.x))?
-            if !ok {
-                return 0, false, noerror
-            }
-            hi = constant.from_int64(n)
-        }
-        n, ok := hi.sub(lo)
-        if !ok || lo.is_negative() || n.is_negative() || !n.fits(64, true) {
-            return 0, false, noerror
-        }
-        return n.to_int64(), true, noerror
-    default:
-        return 0, false, noerror
-    }
-}
-
-// extent_of returns the length of x when it is known, Go's extentOf: a
-// slice's at known bounds, an array's, or a known string's.
-func (mut c Checker) extent_of(x Key) (int64, bool, error) {
-    switch kind_at(c.prog.trees, x) {
-    case slice:
-        n, ok := mut c.slice_extent(x)?
-        return n, ok, noerror
-    default:
-    }
-    typ := mut c.type_of(x)
-    if c.table.is_array(typ) {
-        return c.table.len_of(typ), true, noerror
-    }
-    if typ == types.string_type {
-        s, ok := mut c.known_string(x)?
-        return s.count, ok, noerror
-    }
-    return 0, false, noerror
-}
-
-// known_slice returns the slice s of a known string at known bounds, in
-// range and in order, Go's knownSlice.
-func (mut c Checker) known_slice(s Key) (Const, bool, error) {
-    switch kind_at(c.prog.trees, s) {
-    case slice(sl):
-        str, ok := mut c.known_string(sub(s, sl.x))?
+    mut i := len(slices) -% 1
+    for i >= 0 {
+        s := key_in(slices[:], i)
+        i -%= 1
+        r, ok := mut c.slice_of_known(s, str)?
         if !ok {
             return no_const(), false, noerror
         }
+        str = r
+    }
+    return str, true, noerror
+}
+
+// slice_of_known returns the slice s of str, a known string, at known
+// bounds in range and in order, Go's knownSlice once its string is
+// known.
+func (mut c Checker) slice_of_known(s Key, str Const) (Const, bool, error) {
+    switch kind_at(c.prog.trees, s) {
+    case slice(sl):
         mut lo int64 = 0
         mut hi := str.count
         if !ast.is_none(sl.lo) {
@@ -374,6 +331,145 @@ func (mut c Checker) known_slice(s Key) (Const, bool, error) {
         r.first = str.first +% lo
         r.count = hi -% lo
         return r, true, noerror
+    default:
+        return no_const(), false, noerror
+    }
+}
+
+// slice_extent returns the length of the slice s when its bounds are
+// known, in order and not negative, Go's sliceExtent (see extent_of).
+func (mut c Checker) slice_extent(s Key) (int64, bool, error) {
+    switch kind_at(c.prog.trees, s) {
+    case slice:
+        n, ok := mut c.extent_of(s)?
+        return n, ok, noerror
+    default:
+        return 0, false, noerror
+    }
+}
+
+// extent_of returns the length of x when it is known, Go's extentOf and
+// sliceExtent: a slice's at known bounds, the high one, or the length of
+// what it slices for one left out, less the low one, an array's, or a
+// known string's. A chain of slices each with no high bound is walked
+// down in a loop, its low bounds kept, and their lengths then worked out
+// from the innermost out, so a chain of any length takes no frame a link.
+func (mut c Checker) extent_of(x Key) (int64, bool, error) {
+    mut los := make(list[constant.Int], c_allocator)
+    mut keys := make(list[Key], c_allocator)
+    mut cur := x
+    mut n := constant.from_int64(0)
+    mut found := false
+    for !found {
+        memo, seen := c.extents[cur]
+        if seen {
+            if !memo.ok {
+                mut c.extent_unknown(keys[:])?
+                return 0, false, noerror
+            }
+            n = constant.from_int64(memo.n)
+            break
+        }
+        switch kind_at(c.prog.trees, cur) {
+        case slice(sl):
+            mut lo := constant.from_int64(0)
+            if !ast.is_none(sl.lo) {
+                v, ok := mut c.known_value(sub(cur, sl.lo))?
+                if !ok {
+                    append(mut keys, cur)?
+                    mut c.extent_unknown(keys[:])?
+                    return 0, false, noerror
+                }
+                lo = v
+            }
+            append(mut los, lo)?
+            append(mut keys, cur)?
+            if !ast.is_none(sl.hi) {
+                v, ok := mut c.known_value(sub(cur, sl.hi))?
+                if !ok {
+                    mut c.extent_unknown(keys[:])?
+                    return 0, false, noerror
+                }
+                n = v
+                found = true
+            } else {
+                cur = sub(cur, sl.x)
+            }
+        default:
+            typ := mut c.type_of(cur)
+            if c.table.is_array(typ) {
+                n = constant.from_int64(c.table.len_of(typ))
+            } else if typ == types.string_type {
+                str, ok := mut c.known_string(cur)?
+                if !ok {
+                    mut c.extent_unknown(keys[:])?
+                    return 0, false, noerror
+                }
+                n = constant.from_int64(str.count)
+            } else {
+                mut c.extent_unknown(keys[:])?
+                return 0, false, noerror
+            }
+            found = true
+        }
+    }
+    mut i := len(los) -% 1
+    for i >= 0 {
+        lo := const_in(los[:], i)
+        k := key_in(keys[:], i)
+        i -%= 1
+        d, ok := n.sub(lo)
+        if !ok || lo.is_negative() || d.is_negative() || !d.fits(64, true) {
+            mut j := i +% 1
+            for j >= 0 {
+                mut c.remember_extent(key_in(keys[:], j), 0, false)?
+                j -%= 1
+            }
+            return 0, false, noerror
+        }
+        n = d
+        mut c.remember_extent(k, n.to_int64(), true)?
+    }
+    if !n.fits(64, true) {
+        return 0, false, noerror
+    }
+    return n.to_int64(), true, noerror
+}
+
+// ExtentMemo is what extent_of found the length of a slice to be: n, when
+// ok says it is known.
+type ExtentMemo struct {
+    n int64
+    ok bool
+}
+
+// remember_extent records what extent_of found of the slice k, in a body,
+// where nothing a slice's length is worked out from changes: its bounds'
+// values and what it slices are constants, immutable variables and
+// literals.
+func (mut c Checker) remember_extent(k Key, n int64, ok bool) error {
+    if c.in_body {
+        put(mut c.extents, k, ExtentMemo{n: n, ok: ok})?
+    }
+    return noerror
+}
+
+// extent_unknown records that none of the slices keys, a chain walked
+// down from the first, has a length extent_of knows.
+func (mut c Checker) extent_unknown(keys []Key) error {
+    for _, k := range keys {
+        mut c.remember_extent(k, 0, false)?
+    }
+    return noerror
+}
+
+// known_slice returns the slice s of a known string at known bounds, in
+// range and in order, Go's knownSlice.
+func (mut c Checker) known_slice(s Key) (Const, bool, error) {
+    switch kind_at(c.prog.trees, s) {
+    case slice:
+        v, ok := mut c.known_string(s)?
+        return v, ok, noerror
     default:
         return no_const(), false, noerror
     }

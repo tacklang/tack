@@ -71,15 +71,15 @@ type Either struct {
 
 // DiffBound is a difference bound, x - y <= w, between two nodes, each a
 // subject, the length of one when x_len or y_len says so, or the zero
-// key for the constant 0, Go's diffBound. The port makes none with a
-// side condition: those come from arithmetic, which a later stage
-// ports.
+// key for the constant 0, Go's diffBound. It holds only where each of
+// its side conditions, conds, does (see NoWrap).
 type DiffBound struct {
     x FKey
     y FKey
     w constant.Int
     x_len bool
     y_len bool
+    conds Conds
 }
 
 // RegionRec is where facts hold, Go's region: the count nodes of the
@@ -151,6 +151,7 @@ type FactState struct {
     sides list[Side]
     side_facts list[Fact]
     diffs list[DiffBound]
+    conds list[NoWrap]
     regions list[RegionRec]
     region_nodes list[Key]
     paths list[text.Text]
@@ -192,6 +193,7 @@ func new_fact_state() (FactState, error) {
         sides: make(list[Side], c_allocator),
         side_facts: make(list[Fact], c_allocator),
         diffs: make(list[DiffBound], c_allocator),
+        conds: make(list[NoWrap], c_allocator),
         regions: make(list[RegionRec], c_allocator),
         region_nodes: make(list[Key], c_allocator),
         paths: make(list[text.Text], c_allocator),
@@ -253,6 +255,9 @@ func (c Checker) mark() Mark {
 // release takes out of force every fact, guard and proof-only fact put
 // in force since m was taken, Go's release.
 func (mut c Checker) release(m Mark) error {
+    if len(c.fx.active) != m.facts {
+        c.fact_gen +%= 1
+    }
     mut c.unindex_facts(m.facts)?
     for len(c.fx.active) > m.facts {
         pop(mut c.fx.active)
@@ -351,7 +356,7 @@ func (c Checker) either_at(e int64) Either {
 func (c Checker) diff_at(d int64) DiffBound {
     r, ok := c.fx.diffs[d]
     if !ok {
-        return DiffBound{x: zero_fkey(), y: zero_fkey(), w: constant.from_int64(0), x_len: false, y_len: false}
+        return DiffBound{x: zero_fkey(), y: zero_fkey(), w: constant.from_int64(0), x_len: false, y_len: false, conds: no_conds()}
     }
     return r
 }

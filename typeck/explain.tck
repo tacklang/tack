@@ -5,6 +5,7 @@ import constant from "tack/constant"
 import diag from "tack/diag"
 import source from "tack/source"
 import text from "std/text"
+import types from "tack/types"
 
 // The notes that explain a missing proof, Go's explain.go: when a guard
 // in scope says something about the operand, the guard gave a fact its
@@ -24,16 +25,21 @@ var proof_error uint8 = 3
 var proof_ok uint8 = 4
 var proof_pop uint8 = 5
 var proof_member uint8 = 6
+var proof_conv uint8 = 7
+var proof_bound uint8 = 8
+var proof_slice_len uint8 = 9
 
 // Extent is what an index must stay below, Go's extent: the length n of
 // an array or a string, when known, and the array or string itself, of,
-// whose items are called unit and which notes call label.
+// whose items are called unit and which notes call label. A slice's
+// bound may also equal the length, which at_end says.
 type Extent struct {
     of Key
     label list[uint8]
     unit string
     n int64
     known bool
+    at_end bool
 }
 
 // Proof is a missing proof to explain, Go's proof: of kind, about the
@@ -41,7 +47,10 @@ type Extent struct {
 // error's or the ok's declaration; ix the element whose index a string
 // proof proves; n an array's length, for an array's index; ext the
 // extent an index proof is against; upper_only says only an upper bound
-// is relevant to it, Go's relevant.
+// is relevant to it, Go's relevant; to is the type a conversion's proof
+// is of; lower and upper say which bounds of a slice's bound its proof
+// is of; and relations says a relation can take part in the proof, Go's
+// proof.relations.
 type Proof struct {
     kind uint8
     about FKey
@@ -51,6 +60,10 @@ type Proof struct {
     array bool
     ext Extent
     upper_only bool
+    to types.Type
+    lower bool
+    upper bool
+    relations bool
 }
 
 // note_of returns a note at sp saying msg, taken over.
@@ -177,7 +190,7 @@ func (mut c Checker) explain(p Proof, mut notes list[diag.Related]) error {
     mut facts := make(list[Fact], c_allocator)
     mut dropped := make(list[Fact], c_allocator)
     for _, f0 := range all {
-        if f0.relational() || f0.diff >= 0 || f0.has_ne || c.guard_silent(f0.guard) {
+        if f0.relational() && !p.relations || f0.diff >= 0 || f0.has_ne || c.guard_silent(f0.guard) {
             continue
         }
         mut f := f0
@@ -191,7 +204,7 @@ func (mut c Checker) explain(p Proof, mut notes list[diag.Related]) error {
         }
     }
     mut relevant := make(list[Fact], c_allocator)
-    c.relevant_drops(dropped[:], p.upper_only, mut relevant)?
+    mut c.relevant_drops(p, dropped[:], mut relevant)?
     if len(relevant) == 0 {
         if held {
             return noerror
@@ -213,18 +226,32 @@ func (mut c Checker) explain(p Proof, mut notes list[diag.Related]) error {
 
 // relevant_drops appends to out the dropped facts that came from a guard,
 // and were dropped for a reason, that dropped at least one fact relevant
-// to the proof, Go's relevantDrops: all of them when every fact is, and
-// with upper_only those that dropped a fact bounding from above.
-func (c Checker) relevant_drops(dropped []Fact, upper_only bool, mut out list[Fact]) error {
+// to the proof p, Go's relevantDrops: all of them when every fact is
+// (see relevant_to).
+func (mut c Checker) relevant_drops(p Proof, dropped []Fact, mut out list[Fact]) error {
+    every := !p.upper_only && p.kind != proof_conv
+    mut need_lo := false
+    mut need_hi := false
+    if p.kind == proof_conv {
+        lo, hi := portable_bounds(p.to)
+        own_iv := mut c.own_interval(p.e)?
+        need_lo = own_iv.lo.cmp(lo) < 0
+        need_hi = own_iv.hi.cmp(hi) > 0
+    }
     for _, f := range dropped {
-        if !upper_only {
+        if every {
             append(mut out, f)?
             continue
         }
         mut hit := false
         for _, o := range dropped {
-            if o.guard == f.guard && c.same_drop(o.drop, f.drop) && (o.has_hi || !o.len_of.is_zero()) {
-                hit = true
+            if o.guard != f.guard || !c.same_drop(o.drop, f.drop) {
+                continue
+            }
+            if p.kind == proof_conv {
+                hit = hit || need_lo && o.has_lo || need_hi && (o.has_hi || binds_other(o))
+            } else {
+                hit = hit || o.has_hi || !o.len_of.is_zero()
             }
         }
         if hit {
@@ -310,6 +337,27 @@ func (mut c Checker) proven(p Proof) (bool, error) {
     if p.kind == proof_pop {
         least := mut c.min_len(p.e)?
         return least.cmp(constant.from_int64(1)) >= 0, noerror
+    }
+    if p.kind == proof_conv {
+        r := mut c.facts_fit(p.e, p.to)?
+        return r, noerror
+    }
+    if p.kind == proof_bound {
+        if p.lower {
+            nn := mut c.not_negative(p.e)?
+            if !nn {
+                return false, noerror
+            }
+        }
+        if p.upper {
+            r := mut c.within_len(p.e, p.ext.of)?
+            return r, noerror
+        }
+        return true, noerror
+    }
+    if p.kind == proof_slice_len {
+        r := mut c.within_len(p.ix.index, p.e)?
+        return r, noerror
     }
     if p.kind == proof_error {
         r := mut c.no_error(p.e)?
@@ -406,12 +454,12 @@ func (mut c Checker) claim(p Proof, facts []Fact, mut out list[uint8]) error {
         }
         return c.describe(name[:], facts, mut out)
     }
-    if p.kind == proof_index {
+    if p.kind == proof_index || p.kind == proof_conv || p.kind == proof_bound {
         mut name := msg()
         mut c.note_name(p.e, mut name)?
         return c.describe(name[:], facts, mut out)
     }
-    if p.kind == proof_length || p.kind == proof_pop {
+    if p.kind == proof_length || p.kind == proof_pop || p.kind == proof_slice_len {
         mut name := msg()
         append(mut name, []uint8("len(")...)?
         c.key_name(p.about, mut name)?
@@ -582,8 +630,11 @@ func (mut c Checker) at_least_zero(i Key) (bool, error) {
 // weak appends to notes why facts, those about p's subject, fall short of
 // it, phrased as what they would do when would is set, Go's proof.weak.
 func (mut c Checker) weak(p Proof, facts []Fact, would bool, mut notes list[diag.Related]) error {
-    if p.kind == proof_length || p.kind == proof_pop {
+    if p.kind == proof_length || p.kind == proof_pop || p.kind == proof_slice_len {
         return noerror
+    }
+    if p.kind == proof_conv {
+        return mut c.conversion_weak(p, facts, would, mut notes)
     }
     if p.kind == proof_divisor {
         mut known := mut c.own_interval(p.e)?
@@ -645,6 +696,15 @@ func (mut c Checker) weak(p Proof, facts []Fact, would bool, mut notes list[diag
         known = known.narrow(f)
     }
     if known.is_empty() {
+        return noerror
+    }
+    if p.kind == proof_bound {
+        if p.lower {
+            mut c.lower_note(p.e, facts, known, would, mut notes)?
+        }
+        if p.upper {
+            mut c.upper_note(p.e, facts, known, p.ext, would, mut notes)?
+        }
         return noerror
     }
     mut c.lower_note(p.e, facts, known, would, mut notes)?
@@ -727,7 +787,10 @@ func (mut c Checker) upper_note(i Key, facts []Fact, known Interval, e Extent, w
     if !e.known {
         return mut c.other_len_note(name[:], facts, e, would, mut notes)
     }
-    last := e.n -% 1
+    mut last := e.n -% 1
+    if e.at_end {
+        last = e.n
+    }
     if known.has_hi && known.hi.cmp(constant.from_int64(last)) <= 0 {
         return noerror
     }
@@ -791,7 +854,7 @@ func (mut c Checker) other_len_note(name []uint8, facts []Fact, e Extent, would 
         return noerror
     }
     for _, f := range facts {
-        if f.len_of == s {
+        if f.len_of == s || e.at_end && f.at_most_len == s {
             return noerror
         }
     }
@@ -922,7 +985,7 @@ func (mut c Checker) new_extent(of Key, unit string, n int64, known bool) (Exten
     } else {
         append(mut label, []uint8("the array")...)?
     }
-    return Extent{of: of, label: label, unit: unit, n: n, known: known}, noerror
+    return Extent{of: of, label: label, unit: unit, n: n, known: known, at_end: false}, noerror
 }
 
 // global_note appends to notes the note, at its declaration, that the
@@ -948,10 +1011,7 @@ func (mut c Checker) operand_notes(operand Key, mut notes list[diag.Related]) er
     if known {
         return noerror
     }
-    readable := mut c.is_arith_op(operand)
-    if readable {
-        return not_ported
-    }
+    readable := mut c.arithmetic_shape(operand)?
     mut seen := make(list[FKey], c_allocator)
     mut stack := make(list[id[ast.Node]], c_allocator)
     mut kids := make(list[id[ast.Node]], c_allocator)
@@ -988,7 +1048,7 @@ func (mut c Checker) operand_notes(operand Key, mut notes list[diag.Related]) er
                     }
                     mut name := msg()
                     mut c.leaf_name(n, mut name)?
-                    mut c.name_note(f, name[:], operand, mut notes)?
+                    mut c.name_note(f, name[:], operand, readable, mut notes)?
                     break
                 }
                 continue
@@ -1069,7 +1129,7 @@ func (mut c Checker) leaf_name(n Key, mut out list[uint8]) error {
 // name_note appends to notes the note at f's guard, which bounds name, a
 // name or a length in operand, saying that it bounds name and not
 // operand, of which only what provenList lists is proven, Go's nameNote.
-func (mut c Checker) name_note(f Fact, name []uint8, operand Key, mut notes list[diag.Related]) error {
+func (mut c Checker) name_note(f Fact, name []uint8, operand Key, readable bool, mut notes list[diag.Related]) error {
     expr := mut c.source_text(span_at(c.prog.trees, operand))?
     mut m := msg()
     c.guard_subject(f.guard, mut m)?
@@ -1077,7 +1137,13 @@ func (mut c Checker) name_note(f Fact, name []uint8, operand Key, mut notes list
     append(mut m, name...)?
     append(mut m, []uint8(", not ")...)?
     append(mut m, expr[:]...)?
-    append(mut m, []uint8("; only a known value, a name, a field or element of an immutable variable, len of a string, view or list one, or +, -, * or unary - on those, is proven, so copy ")...)?
+    if readable {
+        append(mut m, []uint8("; the bounds of its operands do not prove ")...)?
+        append(mut m, expr[:]...)?
+        append(mut m, []uint8(", or let a step of it overflow, so copy ")...)?
+    } else {
+        append(mut m, []uint8("; only a known value, a name, a field or element of an immutable variable, len of a string, view or list one, or +, -, * or unary - on those, is proven, so copy ")...)?
+    }
     append(mut m, expr[:]...)?
     append(mut m, []uint8(" into a variable and check it")...)?
     return push_note(mut notes, c.guard_at(f.guard).span, own m)

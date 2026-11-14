@@ -309,6 +309,34 @@ pub type Checker struct {
     leave_memo map[LeaveKey]bool
     leave_gen int64
     exhaust_gen int64
+
+    // The arithmetic (see overflow.tck): the operation a checked form
+    // binds, Go's checkedArith, which needs no proof; the slice being
+    // bound with ok, Go's checkedSlice; the slices of a spine written
+    // where a view may be, marked as the spine is walked down, as Go's
+    // viewSlice marks each before its check; what checking each operation
+    // found, Go's arithMemo, under the facts of generation fact_gen in the
+    // statement stmt_gen counts, Go's factGen and stmtGen; the operations
+    // of a loop's post not proven where it is written, kept for
+    // recheck_post while deferring says so, Go's deferredOverflow; and
+    // whether a query counts each variable's type's bounds, Go's
+    // typedRelations.
+    checked_arith Key
+    checked_slice Key
+    slice_views map[Key]bool
+    arith_memo map[Key]ArithMemo
+    fact_gen int64
+    stmt_gen int64
+    deferring bool
+    deferred list[OverflowCheck]
+    typed_relations bool
+    // extents holds what extent_of found of each slice in a body.
+    extents map[Key]ExtentMemo
+    // tag_writes holds, for each switch, where its values first may
+    // assign a variable, and tag_pos each case's place in the order its
+    // switch tries them (see tag_write_of).
+    tag_writes map[Key]int64
+    tag_pos map[Key]int64
 }
 
 // KnownLocal is the value of an immutable local, Go's knownResult:
@@ -441,6 +469,18 @@ pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error
         leave_memo: make(map[LeaveKey]bool, c_allocator),
         leave_gen: 0,
         exhaust_gen: 0,
+        checked_arith: no_key(),
+        checked_slice: no_key(),
+        slice_views: make(map[Key]bool, c_allocator),
+        arith_memo: make(map[Key]ArithMemo, c_allocator),
+        fact_gen: 0,
+        stmt_gen: 0,
+        deferring: false,
+        deferred: make(list[OverflowCheck], c_allocator),
+        typed_relations: false,
+        extents: make(map[Key]ExtentMemo, c_allocator),
+        tag_writes: make(map[Key]int64, c_allocator),
+        tag_pos: make(map[Key]int64, c_allocator),
     }
     for k, pkg := range c.prog.packages {
         mut c.table.add_owner_name(pkg.name.bytes())?

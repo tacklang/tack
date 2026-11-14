@@ -1,0 +1,1486 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// Integer arithmetic never wraps unless it is written to, Go's
+// overflow.go. Plain + - and * on integers, unary -, ++ and --, and +=
+// -= and *= on an integer target compile only where the checker proves
+// the exact result is a value of the operation's type, below 0 included
+// for an unsigned one; anything else is an error that suggests the
+// checked form, v, ok := a + b, or the wrapping operator, a +% b. A
+// target-width type's result must fit on a 32-bit target, the
+// narrowest, so that it fits on every target (see portable_bounds).
+//
+// A proof (see overflow_proven) takes the bounds of each operand and
+// works out the bounds of the exact result from them (see exact_range);
+// an operand's bounds are its known value, a subject's interval, a
+// length's range, the exact bounds of arithmetic inside it, or, for
+// anything else, its type's (see operand_bounds). Where those bounds
+// fall short, the relations in force may still prove it: a known amount
+// added to a node, i + 1 under i < n, through its steps' conditions, and
+// a difference that cannot go below 0, a - b under b <= a, each counting
+// every node's type's bounds too (see typed_relations).
+//
+// A loop's post statement runs after its body, where the condition held
+// when the body began: an operation in it that the facts there do not
+// prove is tried again after the body, with the condition's facts in
+// force (see recheck_post).
+//
+// An increment, a decrement and a compound assignment apply an operation
+// that is no node of the tree, which Go builds for the proof; here it is
+// an ArithOp of the statement's parts.
+
+// ArithOp is an operation whose result a proof bounds: the binary or
+// unary expression node, or, for no key, the operation an increment, a
+// decrement or a compound assignment applies, Go's ast.Binary built for
+// it. unary says it is -x, of x; otherwise it is x op y, y the literal 1
+// of an increment or a decrement when one says so. typ is its type and
+// sp its span.
+type ArithOp struct {
+    node Key
+    unary bool
+    op ast.BinaryOp
+    x Key
+    y Key
+    one bool
+    typ types.Type
+    sp source.Span
+}
+
+// op_of returns the expression e, a binary or a unary one, as an
+// ArithOp.
+func (mut c Checker) op_of(e Key) ArithOp {
+    typ := node_type_of(c.node_types, e)
+    sp := span_at(c.prog.trees, e)
+    switch kind_at(c.prog.trees, e) {
+    case binary(b):
+        return ArithOp{node: e, unary: false, op: b.op, x: sub(e, b.x), y: sub(e, b.y), one: false, typ: typ, sp: sp}
+    case unary(u):
+        return ArithOp{node: e, unary: true, op: ast.op_sub, x: sub(e, u.x), y: no_key(), one: false, typ: typ, sp: sp}
+    default:
+        return ArithOp{node: e, unary: true, op: ast.op_invalid, x: no_key(), y: no_key(), one: false, typ: typ, sp: sp}
+    }
+}
+
+// OverflowCheck is an operation whose result must be proven to fit its
+// type, Go's overflowCheck: a, of type typ, checked where checking had
+// reached at. stmt is the increment, decrement or compound assignment a
+// stands for, when there is one, which the error names instead.
+type OverflowCheck struct {
+    a ArithOp
+    stmt Key
+    typ types.Type
+    at int64
+}
+
+// ArithMemo is what checking an operation found, Go's arithMemo: the
+// bounds operand_bounds gives it and whether it was proven, under the
+// facts of generation gen in the statement stmt counted.
+type ArithMemo struct {
+    bounds Interval
+    proven bool
+    gen int64
+    stmt int64
+}
+
+// memo_for returns what checking e found, when it was found in the
+// statement being checked under the facts in force now, Go's memoFor.
+func (c Checker) memo_for(e Key) (ArithMemo, bool) {
+    m, ok := c.arith_memo[e]
+    if !ok {
+        return ArithMemo{bounds: no_interval(), proven: false, gen: 0, stmt: 0}, false
+    }
+    return m, m.gen == c.fact_gen && m.stmt == c.stmt_gen
+}
+
+// is_plain_arith reports whether e is plain + - or * on two operands, or
+// unary - on one, Go's isPlainArith, whatever its type.
+func (mut c Checker) is_plain_arith(e Key) bool {
+    switch kind_at(c.prog.trees, e) {
+    case binary(b):
+        return b.op == ast.op_add || b.op == ast.op_sub || b.op == ast.op_mul
+    case unary(u):
+        return u.op == ast.unary_neg
+    default:
+        return false
+    }
+}
+
+// require_no_overflow reports e, plain + - * or unary - of the typed
+// integer type typ, which it records as e's, unless it is the operation
+// a checked form binds, or it is proven not to overflow, Go's
+// requireNoOverflow (see check_overflow).
+func (mut c Checker) require_no_overflow(e Key, typ types.Type) error {
+    if c.checked_arith == e || !types.is_integer(typ) || typ == types.untyped_int {
+        return noerror
+    }
+    mut c.set_node_type(e, typ)?
+    a := mut c.op_of(e)
+    return mut c.check_overflow(OverflowCheck{a: a, stmt: no_key(), typ: typ, at: c.fx.at})
+}
+
+// require_step_no_overflow reports stmt, an increment, a decrement, or a
+// compound assignment by + - or *, of a target of the integer type typ,
+// unless the operation it applies is proven not to overflow, Go's
+// requireStepNoOverflow.
+func (mut c Checker) require_step_no_overflow(stmt Key, typ types.Type) error {
+    if !types.is_integer(typ) {
+        return noerror
+    }
+    a, ok := mut c.step_op(stmt, typ)
+    if !ok {
+        return noerror
+    }
+    return mut c.check_overflow(OverflowCheck{a: a, stmt: stmt, typ: typ, at: c.fx.at})
+}
+
+// step_op returns the operation stmt applies, an increment's x + 1, a
+// decrement's x - 1 or a compound assignment's x op v, of type typ, and
+// false for any other statement.
+func (mut c Checker) step_op(stmt Key, typ types.Type) (ArithOp, bool) {
+    sp := span_at(c.prog.trees, stmt)
+    switch kind_at(c.prog.trees, stmt) {
+    case inc_dec(s):
+        mut op := ast.op_add
+        if s.dec {
+            op = ast.op_sub
+        }
+        return ArithOp{node: no_key(), unary: false, op: op, x: sub(stmt, s.target), y: no_key(), one: true, typ: typ, sp: sp}, true
+    case assign(a):
+        return ArithOp{node: no_key(), unary: false, op: a.op, x: sub(stmt, a.target), y: sub(stmt, a.value), one: false, typ: typ, sp: sp}, true
+    default:
+        return ArithOp{node: no_key(), unary: true, op: ast.op_invalid, x: no_key(), y: no_key(), one: false, typ: typ, sp: sp}, false
+    }
+}
+
+// check_overflow reports chk unless its operation is proven not to
+// overflow, or an operand of it is not proven either, which is reported
+// on its own, Go's checkOverflow. While a loop's post statement is
+// checked, every one not proven is kept for recheck_post instead.
+func (mut c Checker) check_overflow(chk OverflowCheck) error {
+    proven := mut c.overflow_proven(chk.a, chk.typ)?
+    if is_no_key(chk.stmt) {
+        mut c.remember(chk.a, chk.typ, proven)?
+    }
+    if proven {
+        return noerror
+    }
+    if c.deferring {
+        append(mut c.deferred, chk)?
+        return noerror
+    }
+    unproven := mut c.operand_unproven(chk.a)?
+    if !unproven {
+        mut c.report_overflow(chk)?
+    }
+    return noerror
+}
+
+// remember records what checking a, an operation of type typ, found,
+// Go's remember: the bounds of its exact result when they fit typ, and
+// its type's otherwise.
+func (mut c Checker) remember(a ArithOp, typ types.Type, proven bool) error {
+    mut bounds := type_interval(mut c.type_of(a.node))
+    known := mut c.exact_range(a)?
+    if known.has_lo && known.has_hi {
+        fit, ok := fitted(known, typ)
+        if ok {
+            bounds = fit
+        }
+    }
+    put(mut c.arith_memo, a.node, ArithMemo{bounds: bounds, proven: proven, gen: c.fact_gen, stmt: c.stmt_gen})?
+    return noerror
+}
+
+// operand_unproven reports whether an operand of a is itself plain + - *
+// or unary - on integers not proven not to overflow, which is reported
+// on its own, Go's operandUnproven: a is not reported as well, since its
+// bounds rest on that operand's.
+func (mut c Checker) operand_unproven(a ArithOp) (bool, error) {
+    mut n := 2
+    if a.unary || a.one {
+        n = 1
+    }
+    mut i := 0
+    for i < n {
+        mut x := a.x
+        if i == 1 {
+            x = a.y
+        }
+        i +%= 1
+        if is_no_key(x) {
+            continue
+        }
+        typ := mut c.type_of(x)
+        if !mut c.is_plain_arith(x) || !types.is_integer(typ) || typ == types.untyped_int {
+            continue
+        }
+        m, ok := c.memo_for(x)
+        if ok {
+            if !m.proven {
+                return true, noerror
+            }
+            continue
+        }
+        p := mut c.overflow_proven(mut c.op_of(x), typ)?
+        if !p {
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// recheck_post tries again each operation of the loop k's post statement
+// that the facts where it is written did not prove, those kept from
+// pending on, with the facts the loop's condition gives when it holds
+// also in force, Go's recheckPost: the post runs only after a pass of
+// the body, which the condition let in. A fact about anything the body
+// writes, or passes as mut, is dropped. One still not proven is
+// reported.
+func (mut c Checker) recheck_post(k Key, s ast.For, pending int64) error {
+    if len(c.deferred) <= pending {
+        return noerror
+    }
+    m := c.mark()
+    if !ast.is_none(s.cond) {
+        cond := sub(k, s.cond)
+        mut facts := make(list[Fact], c_allocator)
+        mut c.facts_from(node_cond(cond), true, mut facts)?
+        mut nodes := make(list[Key], c_allocator)
+        c.stmt_keys(k.unit, s.body, mut nodes)?
+        mut c.drop_assigned(mut facts, 0, nodes[:])?
+        g := Guard{cond: node_cond(cond), span: span_at(c.prog.trees, cond), kind: guard_cond}
+        mut none := make(list[Key], c_allocator)
+        mut c.assume(g, facts[:], none[:])?
+    }
+    outer := c.fx.at
+    mut i := pending
+    for i < len(c.deferred) {
+        chk, has := c.deferred[i]
+        i +%= 1
+        if !has {
+            break
+        }
+        c.fx.at = chk.at
+        p := mut c.overflow_proven(chk.a, chk.typ)?
+        if p {
+            continue
+        }
+        u := mut c.operand_unproven(chk.a)?
+        if !u {
+            mut c.report_overflow(chk)?
+        }
+    }
+    c.fx.at = outer
+    for len(c.deferred) > pending {
+        pop(mut c.deferred)
+    }
+    return mut c.release(m)
+}
+
+// overflow_proven reports whether a, plain + - or * on two integers or
+// unary - on one, of type typ, is proven to give a value of typ, Go's
+// overflowProven: it is a known value; the bounds of its operands keep
+// its exact result within typ's, on every target (see exact_range); or
+// the relations in force do, for a known amount added to a node (see
+// linear_proven), or for a difference whose bounds keep it at or below
+// typ's largest value and the relations keep at or above 0 (see
+// ordered_sub).
+func (mut c Checker) overflow_proven(a ArithOp, typ types.Type) (bool, error) {
+    if !is_no_key(a.node) {
+        _, known := mut c.known_value(a.node)?
+        if known {
+            return true, noerror
+        }
+    }
+    lo, hi := portable_bounds(typ)
+    known := mut c.exact_range(a)?
+    low_ok := known.has_lo && known.lo.cmp(lo) >= 0
+    mut high_ok := known.has_hi && known.hi.cmp(hi) <= 0
+    if low_ok && high_ok {
+        return true, noerror
+    }
+    if a.unary {
+        return false, noerror
+    }
+    if !high_ok {
+        high_ok = mut c.no_larger(a)?
+    }
+    if low_ok && high_ok {
+        return true, noerror
+    }
+    lp := mut c.linear_proven(a)?
+    if lp {
+        return true, noerror
+    }
+    if a.op != ast.op_sub || !high_ok {
+        return false, noerror
+    }
+    r_, e_ := mut c.ordered_sub(a)
+    return r_, e_
+}
+
+// y_bounds returns operand_bounds of a's right operand, the literal 1's
+// for a step's.
+func (mut c Checker) y_bounds(a ArithOp) (Interval, error) {
+    if a.one {
+        return single(constant.from_int64(1)), noerror
+    }
+    r_, e_ := mut c.operand_bounds(a.y)
+    return r_, e_
+}
+
+// no_larger reports whether a, + or - on integers, gives no more than
+// one of its operands, Go's noLarger: a - b with b never negative, or a
+// + b with one operand never positive.
+func (mut c Checker) no_larger(a ArithOp) (bool, error) {
+    if a.op == ast.op_sub {
+        b := mut c.y_bounds(a)?
+        return !b.lo.is_negative(), noerror
+    }
+    if a.op == ast.op_add {
+        x := mut c.operand_bounds(a.x)?
+        y := mut c.y_bounds(a)?
+        return not_positive(x.hi) || not_positive(y.hi), noerror
+    }
+    return false, noerror
+}
+
+// not_positive reports whether v is at most 0.
+func not_positive(v constant.Int) bool {
+    return v.is_negative() || v.is_zero()
+}
+
+// exact_range returns the bounds of the exact result of a, plain + - *
+// on two integers or unary - on one, from its operands' bounds, Go's
+// exactRange. An end past what a constant holds is left unset; a product
+// sets both or neither.
+func (mut c Checker) exact_range(a ArithOp) (Interval, error) {
+    mut known := no_interval()
+    if a.unary {
+        x := mut c.operand_bounds(a.x)?
+        lo, ok_lo := x.hi.negate()
+        hi, ok_hi := x.lo.negate()
+        known.lo = lo
+        known.has_lo = ok_lo
+        known.hi = hi
+        known.has_hi = ok_hi
+        return known, noerror
+    }
+    x := mut c.operand_bounds(a.x)?
+    y := mut c.y_bounds(a)?
+    if a.op == ast.op_add {
+        lo, ok_lo := x.lo.add(y.lo)
+        hi, ok_hi := x.hi.add(y.hi)
+        known.lo = lo
+        known.has_lo = ok_lo
+        known.hi = hi
+        known.has_hi = ok_hi
+    } else if a.op == ast.op_sub {
+        lo, ok_lo := x.lo.sub(y.hi)
+        hi, ok_hi := x.hi.sub(y.lo)
+        known.lo = lo
+        known.has_lo = ok_lo
+        known.hi = hi
+        known.has_hi = ok_hi
+    } else {
+        p := products(x, y)
+        known.lo = p.lo
+        known.hi = p.hi
+        known.has_lo = p.ok
+        known.has_hi = p.ok
+    }
+    return known, noerror
+}
+
+// BoundsFrame is a node operand_bounds is working out the bounds of: at
+// state 0 before its operands; at 1 once those of plain arithmetic are
+// on the stack of results; at 2 once a conversion's operand's are; and
+// at 3 once those a quotient reads are.
+type BoundsFrame struct {
+    e Key
+    state uint8
+}
+
+// operand_bounds returns bounds every value the integer operand e can
+// have where it is used lies within, Go's operandBounds: its known
+// value, or a subject's or a length's bound (see leaf_range); what
+// checking it found, when it was found here (see memo_for); for plain +
+// - * or unary - on integers, the exact bounds of its result when they
+// are within its type's on every target, and otherwise its type's; for a
+// conversion between integer types, its operand's bounds, within its
+// type's; for a division, a remainder, a bitwise and or a right shift,
+// the bounds its operands give it (see quotient_bounds); and for
+// anything else, its type's. The operands are worked out from a stack of
+// frames, so arithmetic nested as deeply as the source likes takes no
+// frame a level.
+func (mut c Checker) operand_bounds(e Key) (Interval, error) {
+    mut frames := make(list[BoundsFrame], c_allocator)
+    mut results := make(list[Interval], c_allocator)
+    append(mut frames, BoundsFrame{e: e, state: 0})?
+    for len(frames) > 0 {
+        f, has := pop(mut frames)
+        if !has {
+            break
+        }
+        typ := mut c.type_of(f.e)
+        if f.state == 1 {
+            a := mut c.op_of(f.e)
+            mut y := single(constant.from_int64(0))
+            if !a.unary {
+                y = pop_interval(mut results)
+            }
+            x := pop_interval(mut results)
+            known := exact_of(a, x, y)
+            if known.has_lo && known.has_hi {
+                fit, ok := fitted(known, typ)
+                if ok {
+                    append(mut results, fit)?
+                    continue
+                }
+            }
+            append(mut results, type_interval(typ))?
+            continue
+        }
+        if f.state == 2 {
+            x := pop_interval(mut results)
+            append(mut results, within(x, type_interval(typ)))?
+            continue
+        }
+        if f.state == 3 {
+            b, _ := binary_of(c.prog.trees, f.e)
+            mut y := no_interval()
+            if b.op == ast.op_bit_and {
+                y = pop_interval(mut results)
+            }
+            x := pop_interval(mut results)
+            k, known := mut c.known_value(sub(f.e, b.y))?
+            q, ok := quotient_bounds(b.op, x, y, k, known)
+            if ok {
+                append(mut results, within(q, type_interval(typ)))?
+            } else {
+                append(mut results, type_interval(typ))?
+            }
+            continue
+        }
+        leaf, is_leaf := mut c.leaf_range(f.e)?
+        if is_leaf {
+            append(mut results, leaf)?
+            continue
+        }
+        m, memo := c.memo_for(f.e)
+        if memo {
+            append(mut results, m.bounds)?
+            continue
+        }
+        if mut c.is_plain_arith(f.e) && types.is_integer(typ) {
+            append(mut frames, BoundsFrame{e: f.e, state: 1})?
+            switch kind_at(c.prog.trees, f.e) {
+            case binary(b):
+                append(mut frames, BoundsFrame{e: sub(f.e, b.y), state: 0})?
+                append(mut frames, BoundsFrame{e: sub(f.e, b.x), state: 0})?
+            case unary(u):
+                append(mut frames, BoundsFrame{e: sub(f.e, u.x), state: 0})?
+            default:
+            }
+            continue
+        }
+        switch kind_at(c.prog.trees, f.e) {
+        case call(cl):
+            if cl.conv != types.invalid && types.is_integer(cl.conv) && count_items(c.prog.trees, f.e.unit, cl.args) == 1 {
+                arg := item_at(c.prog.trees, f.e.unit, cl.args, 0)
+                if types.is_integer(mut c.type_of(arg)) {
+                    append(mut frames, BoundsFrame{e: f.e, state: 2})?
+                    append(mut frames, BoundsFrame{e: arg, state: 0})?
+                    continue
+                }
+            }
+        case binary(b):
+            if types.is_integer(typ) && typ != types.untyped_int && quotient_op(b.op) {
+                append(mut frames, BoundsFrame{e: f.e, state: 3})?
+                if b.op == ast.op_bit_and {
+                    append(mut frames, BoundsFrame{e: sub(f.e, b.y), state: 0})?
+                }
+                append(mut frames, BoundsFrame{e: sub(f.e, b.x), state: 0})?
+                continue
+            }
+        default:
+        }
+        append(mut results, type_interval(typ))?
+    }
+    r, has_r := pop(mut results)
+    if !has_r {
+        return no_interval(), noerror
+    }
+    return r, noerror
+}
+
+// exact_of returns the exact bounds of a given its operands' bounds, x
+// and y, as exact_range works them out.
+func exact_of(a ArithOp, x Interval, y Interval) Interval {
+    mut known := no_interval()
+    if a.unary {
+        lo, ok_lo := x.hi.negate()
+        hi, ok_hi := x.lo.negate()
+        known.lo = lo
+        known.has_lo = ok_lo
+        known.hi = hi
+        known.has_hi = ok_hi
+        return known
+    }
+    if a.op == ast.op_add {
+        lo, ok_lo := x.lo.add(y.lo)
+        hi, ok_hi := x.hi.add(y.hi)
+        known.lo = lo
+        known.has_lo = ok_lo
+        known.hi = hi
+        known.has_hi = ok_hi
+    } else if a.op == ast.op_sub {
+        lo, ok_lo := x.lo.sub(y.hi)
+        hi, ok_hi := x.hi.sub(y.lo)
+        known.lo = lo
+        known.has_lo = ok_lo
+        known.hi = hi
+        known.has_hi = ok_hi
+    } else {
+        p := products(x, y)
+        known.lo = p.lo
+        known.hi = p.hi
+        known.has_lo = p.ok
+        known.has_hi = p.ok
+    }
+    return known
+}
+
+// quotient_op reports whether op is one whose bounds quotient_bounds
+// works out: / % & or >>.
+func quotient_op(op ast.BinaryOp) bool {
+    return op == ast.op_div || op == ast.op_rem || op == ast.op_bit_and || op == ast.op_shr
+}
+
+// quotient_bounds returns bounds a op b lies within, an integer operation
+// that only ever gives a value no further from 0 than an operand's, from
+// a's bounds, and b's for an and, k being b's value when known says it
+// is one, Go's quotientBounds:
+//
+//   - a / k, for a known k above 0, from a's bounds each divided by k;
+//   - a / b otherwise, from -m to m, m the larger of a's bounds' sizes;
+//   - a % b, between 0 and a's bound on each side, and, for a known b,
+//     less in size than b;
+//   - a & b, with one operand never negative, from 0 to that operand's
+//     largest value;
+//   - a >> k, for a known k, from a's bounds each shifted.
+func quotient_bounds(op ast.BinaryOp, a Interval, b Interval, k constant.Int, is_known bool) (Interval, bool) {
+    z := constant.from_int64(0)
+    mut known := Interval{lo: z, hi: z, has_lo: true, has_hi: true, nonzero: false}
+    if op == ast.op_div {
+        if is_known && !k.is_zero() && !k.is_negative() {
+            lo, _ := a.lo.quo(k)
+            hi, _ := a.hi.quo(k)
+            known.lo = lo
+            known.hi = hi
+            return known, true
+        }
+        m := magnitude(a)
+        known.hi = m
+        neg, _ := m.negate()
+        known.lo = neg
+        return known, true
+    }
+    if op == ast.op_rem {
+        if a.lo.is_negative() {
+            known.lo = a.lo
+        }
+        if !a.hi.is_negative() {
+            known.hi = a.hi
+        }
+        if is_known && !k.is_zero() {
+            size := magnitude(Interval{lo: k, hi: k, has_lo: false, has_hi: false, nonzero: false})
+            below, _ := size.sub(constant.from_int64(1))
+            neg, _ := below.negate()
+            known = within(known, Interval{lo: neg, hi: below, has_lo: false, has_hi: false, nonzero: false})
+        }
+        return known, true
+    }
+    if op == ast.op_bit_and {
+        if !a.lo.is_negative() && (b.lo.is_negative() || a.hi.cmp(b.hi) <= 0) {
+            known.hi = a.hi
+        } else if !b.lo.is_negative() {
+            known.hi = b.hi
+        } else {
+            return known, false
+        }
+        return known, true
+    }
+    if op == ast.op_shr {
+        if !is_known || k.is_negative() {
+            return known, false
+        }
+        lo, _ := a.lo.shr(k.to_uint64())
+        hi, _ := a.hi.shr(k.to_uint64())
+        known.lo = lo
+        known.hi = hi
+        return known, true
+    }
+    return known, false
+}
+
+// magnitude returns the larger of the sizes of known's two ends, Go's
+// magnitude: a size is at most 2^63 for a negative end.
+func magnitude(known Interval) constant.Int {
+    lo := size_of(known.lo)
+    hi := size_of(known.hi)
+    if lo.cmp(hi) > 0 {
+        return lo
+    }
+    return hi
+}
+
+// size_of returns v's distance from 0.
+func size_of(v constant.Int) constant.Int {
+    n, ok := v.negate()
+    if ok && v.is_negative() {
+        return n
+    }
+    return v
+}
+
+// linear_proven reports whether a is a node plus or minus a known amount
+// whose every step the relations in force keep within its type, counting
+// each node's type's bounds, Go's linearProven.
+func (mut c Checker) linear_proven(a ArithOp) (bool, error) {
+    mark := len(c.fx.conds)
+    r_q, e_q := mut c.linear_proven_terms(a)
+    mut c.conds_release(mark)
+    return r_q, e_q
+}
+
+// linear_proven_terms is linear_proven, which the conditions of the terms it reads (see
+// NoWrap) outlive only until it returns: linear_proven drops them then.
+func (mut c Checker) linear_proven_terms(a ArithOp) (bool, error) {
+    if a.op == ast.op_mul {
+        return false, noerror
+    }
+    t, ok := mut c.linear_op(a)?
+    if !ok || t.node.is_zero() {
+        return false, noerror
+    }
+    if t.conds.count == 0 {
+        return true, noerror
+    }
+    c.typed_relations = true
+    mut g, has, e := mut c.relation_graph(t.node, zero_fkey(), t.is_len, false, false)
+    if e.code != 0 || !has {
+        c.typed_relations = false
+        return false, e
+    }
+    r, e2 := mut c.holds_all(mut g, t.conds)
+    c.typed_relations = false
+    return r, e2
+}
+
+// linear_op returns a as a node plus a known offset, as linear reads an
+// expression: an operation of the tree as linear reads it, and a step's
+// as linear reads the + or - Go builds for it.
+func (mut c Checker) linear_op(a ArithOp) (LinTerm, bool, error) {
+    if !is_no_key(a.node) {
+        t, ok := mut c.linear(a.node)?
+        return t, ok, noerror
+    }
+    if a.op != ast.op_add && a.op != ast.op_sub || !types.is_integer(a.typ) {
+        return zero_term(), false, noerror
+    }
+    base, k, known := mut c.known_step(a.op, a.x, a.y, a.one)?
+    if !known {
+        return zero_term(), false, noerror
+    }
+    t, ok := mut c.linear(base)?
+    if !ok || t.node.is_zero() {
+        return zero_term(), false, noerror
+    }
+    r, ok_r := mut c.term_step(t, k, a.typ)?
+    return r, ok_r, noerror
+}
+
+// ordered_sub reports whether the relations in force, counting each
+// node's type's bounds, prove a, x - y, at least 0: that y is at most x,
+// Go's orderedSub.
+func (mut c Checker) ordered_sub(a ArithOp) (bool, error) {
+    mark := len(c.fx.conds)
+    r_q, e_q := mut c.ordered_sub_terms(a)
+    mut c.conds_release(mark)
+    return r_q, e_q
+}
+
+// ordered_sub_terms is ordered_sub, which the conditions of the terms it reads (see
+// NoWrap) outlive only until it returns: ordered_sub drops them then.
+func (mut c Checker) ordered_sub_terms(a ArithOp) (bool, error) {
+    x, ok_x := mut c.query_term(a.x)?
+    if !ok_x {
+        return false, noerror
+    }
+    mut y := lin_term(zero_fkey(), constant.from_int64(1), false)
+    if !a.one {
+        t, ok_y := mut c.query_term(a.y)?
+        if !ok_y {
+            return false, noerror
+        }
+        y = t
+    }
+    c.typed_relations = true
+    r, e := mut c.relates(y, x, constant.from_int64(0))
+    c.typed_relations = false
+    return r, e
+}
+
+// report_overflow reports chk, an operation not proven to fit its type,
+// with the checks that would prove it, where one would, the checked
+// form, and the wrapping operator, Go's reportOverflow.
+func (mut c Checker) report_overflow(chk OverflowCheck) error {
+    mut m := msg()
+    if !is_no_key(chk.stmt) {
+        mut c.step_overflow_message(chk, mut m)?
+        return mut c.errorf(span_at(c.prog.trees, chk.stmt), own m)
+    }
+    mut c.overflow_message(chk.a, chk.typ, mut m)?
+    return mut c.errorf(chk.a.sp, own m)
+}
+
+// overflow_message appends the error for a, plain + - * or unary - of the
+// integer type typ, not proven to fit it, Go's overflowMessage: what may
+// happen, the check that would prove it when its operands are subjects,
+// then the checked form and the wrapping operator, each written out with
+// a's own operands.
+func (mut c Checker) overflow_message(a ArithOp, typ types.Type, mut out list[uint8]) error {
+    text := mut c.source_text(a.sp)?
+    mut tail := msg()
+    append(mut tail, []uint8("use v, ok := ")...)?
+    append(mut tail, text[:]...)?
+    append(mut tail, []uint8(", or ")...)?
+    mut c.wrap_text(a, mut tail)?
+    append(mut tail, []uint8(" to wrap")...)?
+    name := mut c.type_name(typ)?
+    append(mut out, text[:]...)?
+    if a.unary {
+        cs := mut c.check_subject(a.x)?
+        if cs {
+            lo, _ := type_bounds(typ)
+            append(mut out, []uint8(" may overflow ")...)?
+            append(mut out, name[:]...)?
+            append(mut out, []uint8("; check ")...)?
+            mut c.name_subject(a.x, mut out)?
+            append(mut out, []uint8(" > ")...)?
+            lo.append_string(mut out)?
+            append(mut out, []uint8(" first, or ")...)?
+            append(mut out, tail[:]...)?
+            return noerror
+        }
+    } else {
+        if a.op == ast.op_sub && types.is_unsigned(typ) {
+            append(mut out, []uint8(" may go below 0 in ")...)?
+            append(mut out, name[:]...)?
+            append(mut out, []uint8("; ")...)?
+            cx := mut c.checkable(a.x)?
+            mut cy := false
+            if cx {
+                cy = mut c.checkable(a.y)?
+            }
+            if cx && cy {
+                append(mut out, []uint8("check ")...)?
+                mut c.check_text(a.x, mut out)?
+                append(mut out, []uint8(" >= ")...)?
+                mut c.check_text(a.y, mut out)?
+                append(mut out, []uint8(" first, or ")...)?
+            }
+            append(mut out, tail[:]...)?
+            return noerror
+        }
+        mut names := make(list[list[uint8]], c_allocator)
+        mut c.boundable(a.node, mut names)?
+        if len(names) > 0 {
+            append(mut out, []uint8(" may overflow ")...)?
+            append(mut out, name[:]...)?
+            append(mut out, []uint8("; bound ")...)?
+            and_list(names[:], mut out)?
+            append(mut out, []uint8(" first, or ")...)?
+            append(mut out, tail[:]...)?
+            return noerror
+        }
+    }
+    append(mut out, []uint8(" may overflow ")...)?
+    append(mut out, name[:]...)?
+    append(mut out, []uint8("; ")...)?
+    append(mut out, tail[:]...)?
+    return noerror
+}
+
+// step_overflow_message appends the error for chk, an increment, a
+// decrement or a compound assignment not proven to fit its target's
+// type, Go's stepOverflowMessage: what may happen, for an unsigned
+// target going below 0 the check that would prove it when the target
+// and the amount are subjects or known, then the wrapping compound
+// assignment and the checked form, followed by storing its value when
+// its ok is true.
+func (mut c Checker) step_overflow_message(chk OverflowCheck, mut out list[uint8]) error {
+    a := chk.a
+    target := mut c.source_text(span_at(c.prog.trees, a.x))?
+    mut amount := msg()
+    mut operand := msg()
+    mut stmt := msg()
+    append(mut stmt, target[:]...)?
+    switch kind_at(c.prog.trees, chk.stmt) {
+    case inc_dec(s):
+        append(mut amount, '1')?
+        append(mut operand, '1')?
+        if s.dec {
+            append(mut stmt, []uint8("--")...)?
+        } else {
+            append(mut stmt, []uint8("++")...)?
+        }
+    case assign(asg):
+        mut c.value_text(chk.stmt, asg, mut amount)?
+        value := sub(chk.stmt, asg.value)
+        vt := mut c.source_text(span_at(c.prog.trees, value))?
+        _, is_bin := binary_of(c.prog.trees, value)
+        if is_bin && bytes_equal(amount[:], vt[:]) {
+            append(mut operand, '(')?
+            append(mut operand, amount[:]...)?
+            append(mut operand, ')')?
+        } else {
+            append(mut operand, amount[:]...)?
+        }
+        fmt.appendf(mut stmt, " %s= ", op_name(asg.op))?
+        append(mut stmt, amount[:]...)?
+    default:
+    }
+    name := mut c.type_name(chk.typ)?
+    op := op_name(a.op)
+    mut tail := msg()
+    append(mut tail, []uint8("use ")...)?
+    append(mut tail, target[:]...)?
+    fmt.appendf(mut tail, " %s%%= ", op)?
+    append(mut tail, amount[:]...)?
+    append(mut tail, []uint8(" to wrap, or v, ok := ")...)?
+    append(mut tail, target[:]...)?
+    fmt.appendf(mut tail, " %s ", op)?
+    append(mut tail, operand[:]...)?
+    append(mut tail, []uint8(" and ")...)?
+    append(mut tail, target[:]...)?
+    append(mut tail, []uint8(" = v when ok")...)?
+    append(mut out, stmt[:]...)?
+    if a.op != ast.op_sub || !types.is_unsigned(chk.typ) {
+        append(mut out, []uint8(" may overflow ")...)?
+        append(mut out, name[:]...)?
+        append(mut out, []uint8("; ")...)?
+        append(mut out, tail[:]...)?
+        return noerror
+    }
+    append(mut out, []uint8(" may go below 0 in ")...)?
+    append(mut out, name[:]...)?
+    append(mut out, []uint8("; ")...)?
+    cx := mut c.checkable(a.x)?
+    if cx {
+        if a.one {
+            append(mut out, []uint8("check ")...)?
+            mut c.name_subject(a.x, mut out)?
+            append(mut out, []uint8(" > 0 first, ")...)?
+        } else {
+            cy := mut c.checkable(a.y)?
+            if cy {
+                append(mut out, []uint8("check ")...)?
+                mut c.name_subject(a.x, mut out)?
+                append(mut out, []uint8(" >= ")...)?
+                mut c.check_text(a.y, mut out)?
+                append(mut out, []uint8(" first, ")...)?
+            }
+        }
+    }
+    append(mut out, tail[:]...)?
+    return noerror
+}
+
+// value_text appends the value of the compound assignment asg, the
+// statement k, as written, with the parentheses around it, which its own
+// span leaves out: one for each opened between the assignment's operator
+// and the value, Go's valueText.
+func (mut c Checker) value_text(k Key, asg ast.Assign, mut out list[uint8]) error {
+    vs := span_at(c.prog.trees, sub(k, asg.value))
+    ts := span_at(c.prog.trees, sub(k, asg.target))
+    mut gs := vs
+    gs.start = ts.end
+    gs.end = vs.start
+    gap := mut c.source_text(gs)?
+    mut start int64 = 0
+    for i, b := range gap {
+        if b == '=' {
+            start = i +% 1
+            break
+        }
+    }
+    mut n := 0
+    mut j := start
+    for j < len(gap) {
+        if byte_at(gap[:], j) == '(' {
+            n +%= 1
+        }
+        j +%= 1
+    }
+    mut i := 0
+    for i < n {
+        append(mut out, '(')?
+        i +%= 1
+    }
+    vt := mut c.source_text(vs)?
+    append(mut out, vt[:]...)?
+    i = 0
+    for i < n {
+        append(mut out, ')')?
+        i +%= 1
+    }
+    return noerror
+}
+
+// checkable reports whether a check on e, compared in an if, gives a
+// fact that bounds it, Go's checkable: e is a subject or a known value.
+func (mut c Checker) checkable(e Key) (bool, error) {
+    _, known := mut c.known_value(e)?
+    if known {
+        return true, noerror
+    }
+    r_, e_ := mut c.check_subject(e)
+    return r_, e_
+}
+
+// check_subject reports whether a check on e gives a fact about it, Go's
+// checkSubject: e is a subject, and not a mutable global, which no fact
+// is ever about.
+func (mut c Checker) check_subject(e Key) (bool, error) {
+    _, global := mut c.mutable_global(e)
+    if global {
+        return false, noerror
+    }
+    r_, e_ := mut c.is_subject(e)
+    return r_, e_
+}
+
+// check_text appends how a check names e, a subject or a known value, by
+// its name, or as written, Go's checkText.
+func (mut c Checker) check_text(e Key, mut out list[uint8]) error {
+    s := mut c.is_subject(e)?
+    if s {
+        return mut c.name_subject(e, mut out)
+    }
+    t := mut c.source_text(span_at(c.prog.trees, e))?
+    append(mut out, t[:]...)?
+    return noerror
+}
+
+// boundable appends to names the names of the subjects among the leaves
+// of e that exact_range reads through, plain + - * and unary - on
+// integers and conversions between them, each once, in source order,
+// Go's boundable: the values a bound would have to be put on for its
+// operands' bounds to prove e. The leaves are walked from a stack.
+func (mut c Checker) boundable(e Key, mut names list[list[uint8]]) error {
+    mut stack := make(list[Key], c_allocator)
+    append(mut stack, e)?
+    for len(stack) > 0 {
+        x, has := pop(mut stack)
+        if !has {
+            break
+        }
+        if mut c.is_plain_arith(x) {
+            mut c.push_operands(x, mut stack)?
+            continue
+        }
+        switch kind_at(c.prog.trees, x) {
+        case call(cl):
+            if cl.conv != types.invalid && count_items(c.prog.trees, x.unit, cl.args) == 1 {
+                append(mut stack, item_at(c.prog.trees, x.unit, cl.args, 0))?
+                continue
+            }
+        default:
+        }
+        _, known := mut c.known_value(x)?
+        if known {
+            continue
+        }
+        cs := mut c.check_subject(x)?
+        if !cs {
+            continue
+        }
+        mut name := msg()
+        mut c.name_subject(x, mut name)?
+        mut dup := false
+        for _, n := range names {
+            dup = dup || bytes_equal(n[:], name[:])
+        }
+        if !dup {
+            append(mut names, name)?
+        }
+    }
+    return noerror
+}
+
+// and_list appends names as a sentence lists them, Go's andList: a, b
+// and c.
+func and_list(names []list[uint8], mut out list[uint8]) error {
+    n := len(names)
+    for i, name := range names {
+        if i > 0 && i == n -% 1 {
+            append(mut out, []uint8(" and ")...)?
+        } else if i > 0 {
+            append(mut out, []uint8(", ")...)?
+        }
+        append(mut out, name[:]...)?
+    }
+    return noerror
+}
+
+// wrap_text appends a, plain + - * or unary -, as written, with its
+// operator replaced by the wrapping one, Go's wrapText: a +% b for a +
+// b, -%x for -x. A binary operator is found between its operands, past
+// any parenthesis and line comment there.
+func (mut c Checker) wrap_text(a ArithOp, mut out list[uint8]) error {
+    text := mut c.source_text(a.sp)?
+    if a.unary {
+        append(mut out, []uint8("-%")...)?
+        mut i int64 = 1
+        for i < len(text) {
+            append(mut out, byte_at(text[:], i))?
+            i +%= 1
+        }
+        return noerror
+    }
+    xs := span_at(c.prog.trees, a.x)
+    ys := span_at(c.prog.trees, a.y)
+    mut gs := xs
+    gs.start = xs.end
+    gs.end = ys.start
+    gap := mut c.source_text(gs)?
+    at := operator_in(gap[:], op_byte(a.op))
+    if at < 0 {
+        append(mut out, text[:]...)?
+        return noerror
+    }
+    cut := xs.end -% a.sp.start +% at +% 1
+    for i, b := range text {
+        if i == cut {
+            append(mut out, '%')?
+        }
+        append(mut out, b)?
+    }
+    if cut == len(text) {
+        append(mut out, '%')?
+    }
+    return noerror
+}
+
+// op_byte returns the first byte of the plain arithmetic operator op.
+func op_byte(op ast.BinaryOp) uint8 {
+    if op == ast.op_sub {
+        return '-'
+    }
+    if op == ast.op_mul {
+        return '*'
+    }
+    if op == ast.op_div {
+        return '/'
+    }
+    return '+'
+}
+
+// operator_in returns where op, an operator's one byte, is in gap, the
+// source between a binary expression's operands, skipping line comments,
+// or -1 when it is not there, Go's operatorIn.
+func operator_in(gap []uint8, op uint8) int64 {
+    mut i int64 = 0
+    for i < len(gap) {
+        b := byte_at(gap, i)
+        if b == '/' && byte_at(gap, i +% 1) == '/' && i +% 1 < len(gap) {
+            mut end := -1
+            mut j := i
+            for j < len(gap) {
+                if byte_at(gap, j) == '\n' {
+                    end = j
+                    break
+                }
+                j +%= 1
+            }
+            if end < 0 {
+                return -1
+            }
+            i = end +% 1
+            continue
+        }
+        if b == op {
+            return i
+        }
+        i +%= 1
+    }
+    return -1
+}
+
+// untyped_wrap reports k, b, a wrapping operator on two untyped
+// constants, which have no width to wrap at, suggesting a conversion of
+// its left operand to a type both operands are values of, when there is
+// one, Go's untypedWrap.
+func (mut c Checker) untyped_wrap(k Key, b ast.Binary) error {
+    x := sub(k, b.x)
+    av, _ := mut c.const_value(x)
+    bv, _ := mut c.const_value(sub(k, b.y))
+    sp := span_at(c.prog.trees, k)
+    whole := mut c.source_text(sp)?
+    mut m := msg()
+    append(mut m, whole[:]...)?
+    append(mut m, []uint8(" wraps at its type's width, but both operands are untyped constants; give one a type")...)?
+    typ, ok := holding_type(av, bv)
+    if ok {
+        xs := span_at(c.prog.trees, x)
+        tn := mut c.type_name(typ)?
+        xt := mut c.source_text(xs)?
+        append(mut m, []uint8(", as in ")...)?
+        for i, ch := range whole {
+            if i == xs.start -% sp.start {
+                break
+            }
+            append(mut m, ch)?
+        }
+        append(mut m, tn[:]...)?
+        append(mut m, '(')?
+        append(mut m, xt[:]...)?
+        append(mut m, ')')?
+        mut i := xs.end -% sp.start
+        for i < len(whole) {
+            append(mut m, byte_at(whole[:], i))?
+            i +%= 1
+        }
+    }
+    return mut c.errorf(sp, own m)
+}
+
+// wrap_negation checks -%x, u at k, x of type x, and returns its type,
+// Go's wrapNegation: x's, signed or unsigned. An untyped constant has no
+// width to wrap at, and is reported, suggesting a conversion to a type
+// it is a value of.
+func (mut c Checker) wrap_negation(k Key, u ast.Unary, x types.Type) (types.Type, error) {
+    operand := sub(k, u.x)
+    if x == types.invalid {
+        return types.invalid, noerror
+    }
+    if x == types.untyped_int {
+        v, _ := mut c.const_value(operand)
+        sp := span_at(c.prog.trees, k)
+        t := mut c.source_text(sp)?
+        mut m := msg()
+        append(mut m, t[:]...)?
+        append(mut m, []uint8(" wraps at its type's width, but its operand is an untyped constant; give it a type")...)?
+        typ, ok := holding_type(v, v)
+        if ok {
+            tn := mut c.type_name(typ)?
+            xt := mut c.source_text(span_at(c.prog.trees, operand))?
+            append(mut m, []uint8(", as in -%")...)?
+            append(mut m, tn[:]...)?
+            append(mut m, '(')?
+            append(mut m, xt[:]...)?
+            append(mut m, ')')?
+        }
+        mut c.errorf(sp, own m)?
+        return types.invalid, noerror
+    }
+    if types.is_integer(x) {
+        return x, noerror
+    }
+    got := mut c.value_of(operand, x)?
+    if got != types.invalid {
+        n := mut c.type_name(got)?
+        mut m := msg()
+        fmt.appendf(mut m, "operator -%% is not defined on %s", n[:])?
+        mut c.errorf(span_at(c.prog.trees, operand), own m)?
+    }
+    return types.invalid, noerror
+}
+
+// holding_type returns int64 when a and b are both values of it, and
+// otherwise uint64 when they are both values of that, the type a
+// suggestion converts an untyped constant to, Go's holdingType.
+func holding_type(a constant.Int, b constant.Int) (types.Type, bool) {
+    if a.fits(64, true) && b.fits(64, true) {
+        return types.int64_type, true
+    }
+    if a.fits(64, false) && b.fits(64, false) {
+        return types.uint64_type, true
+    }
+    return types.invalid, false
+}
+
+// arith_results checks value, at k, bound to want names when it is the
+// checked form of arithmetic, a + b, a - b, a * b or -a on integers,
+// appending the result's type and bool to out, and reports whether it
+// gave them and whether it was one, Go's arithResults. The operation
+// itself needs no proof; arithmetic on known values that overflows is
+// still an error, and any operation inside it needs its own proof. A
+// float's arithmetic cannot fail and has no checked form, and nor has a
+// wrapping operator, which is reported too.
+func (mut c Checker) arith_results(value Key, want int64, sp source.Span, mut out list[types.Type]) (bool, bool, error) {
+    wrapped, is_wrap := mut c.wrap_form(value)
+    if is_wrap {
+        t := mut c.expr(value)?
+        if t != types.invalid {
+            mut m := msg()
+            if wrapped == 0 {
+                op := binary_op_of(c.prog.trees, value)
+                fmt.appendf(mut m, "a %s b wraps and cannot fail, so it has no checked form; use a %s b, or v, ok := a %s b", op_name(op), op_name(op), op_name(unwrapped(op)))?
+            } else {
+                fmt.appendf(mut m, "-%%a wraps and cannot fail, so it has no checked form; use -%%a, or v, ok := -a")?
+            }
+            mut c.errorf(sp, own m)?
+        }
+        return false, true, noerror
+    }
+    if !mut c.is_plain_arith(value) {
+        return false, false, noerror
+    }
+    outer := c.checked_arith
+    c.checked_arith = value
+    typ, e := mut c.expr(value)
+    c.checked_arith = outer
+    if e.code != 0 {
+        return false, true, e
+    }
+    if typ == types.invalid {
+        return false, true, noerror
+    }
+    if types.is_float(typ) {
+        mut m := msg()
+        switch kind_at(c.prog.trees, value) {
+        case binary(b):
+            if b.op == ast.op_add {
+                fmt.appendf(mut m, "adding floats cannot fail, so it has no checked form; use a + b")?
+            } else if b.op == ast.op_sub {
+                fmt.appendf(mut m, "subtracting floats cannot fail, so it has no checked form; use a - b")?
+            } else {
+                fmt.appendf(mut m, "multiplying floats cannot fail, so it has no checked form; use a * b")?
+            }
+        default:
+            fmt.appendf(mut m, "negating floats cannot fail, so it has no checked form; use -a")?
+        }
+        mut c.errorf(sp, own m)?
+        return false, true, noerror
+    }
+    if want != 2 {
+        mut m := msg()
+        mut noun := "a negation"
+        switch kind_at(c.prog.trees, value) {
+        case binary(b):
+            if b.op == ast.op_add {
+                noun = "an addition"
+            } else if b.op == ast.op_sub {
+                noun = "a subtraction"
+            } else {
+                noun = "a multiplication"
+            }
+        default:
+        }
+        fmt.appendf(mut m, "assignment mismatch: %d variables but %s gives 2 values", want, noun)?
+        mut c.errorf(sp, own m)?
+        return false, true, noerror
+    }
+    append(mut out, typ)?
+    append(mut out, types.bool_type)?
+    return true, true, noerror
+}
+
+// wrap_form reports whether value is a wrapping operator, Go's wrapForm,
+// and which: 0 for a binary one, 1 for -%a.
+func (mut c Checker) wrap_form(value Key) (uint8, bool) {
+    switch kind_at(c.prog.trees, value) {
+    case binary(b):
+        return 0, is_wrapping_op(b.op)
+    case unary(u):
+        return 1, u.op == ast.unary_neg_wrap
+    default:
+        return 0, false
+    }
+}
+
+// binary_op_of returns the operator of the binary expression at k.
+func binary_op_of(trees []ast.File, k Key) ast.BinaryOp {
+    b, _ := binary_of(trees, k)
+    return b.op
+}
+
+// unwrapped returns the plain operator a wrapping one wraps, Go's
+// BinaryOp.Unwrapped: + for +%, - for -% and * for *%.
+func unwrapped(op ast.BinaryOp) ast.BinaryOp {
+    if op == ast.op_add_wrap {
+        return ast.op_add
+    }
+    if op == ast.op_sub_wrap {
+        return ast.op_sub
+    }
+    if op == ast.op_mul_wrap {
+        return ast.op_mul
+    }
+    return op
+}
+
+// is_signed reports whether typ is a typed signed integer type, one
+// whose division can overflow, Go's isSigned.
+func is_signed(typ types.Type) bool {
+    return types.is_integer(typ) && !types.is_unsigned(typ) && typ != types.untyped_int
+}
+
+// require_no_quotient_overflow reports a, a / b of the integer type typ,
+// unless typ is unsigned, the division is proven not to be the smallest
+// value of typ divided by -1 (see quotient_proven), or an operand of it
+// is plain arithmetic not proven, which is reported on its own, Go's
+// requireNoQuotientOverflow. stmt is the compound assignment a stands
+// for, x /= b, when there is one, which the error names instead.
+func (mut c Checker) require_no_quotient_overflow(a ArithOp, typ types.Type, stmt Key) error {
+    if !is_signed(typ) {
+        return noerror
+    }
+    p := mut c.quotient_proven(a, typ)?
+    if p {
+        return noerror
+    }
+    u := mut c.operand_unproven(a)?
+    if u {
+        return noerror
+    }
+    mut m := msg()
+    mut c.quotient_message(a, typ, stmt, mut m)?
+    if !is_no_key(stmt) {
+        return mut c.errorf(span_at(c.prog.trees, stmt), own m)
+    }
+    return mut c.errorf(a.sp, own m)
+}
+
+// quotient_proven reports whether a, a / b of the signed integer type
+// typ, is proven not to be typ's smallest value divided by -1, Go's
+// quotientProven: the divisor is ruled out being -1, or the dividend
+// being that smallest value (see excludes).
+func (mut c Checker) quotient_proven(a ArithOp, typ types.Type) (bool, error) {
+    least, _ := type_bounds(typ)
+    y := mut c.excludes(a.y, constant.from_int64(-1))?
+    if y {
+        return true, noerror
+    }
+    r_, e_ := mut c.excludes(a.x, least)
+    return r_, e_
+}
+
+// excludes reports whether e, an integer operand, is known not to be v
+// where it is used, Go's excludes: its known value is another, its
+// bounds leave v out (see operand_bounds), or, for a subject, a fact in
+// force rules v out, e != v.
+func (mut c Checker) excludes(e Key, v constant.Int) (bool, error) {
+    k, known := mut c.known_value(e)?
+    if known {
+        return k.cmp(v) != 0, noerror
+    }
+    b := mut c.operand_bounds(e)?
+    if b.lo.cmp(v) > 0 || b.hi.cmp(v) < 0 {
+        return true, noerror
+    }
+    sk, ok := mut c.subject_key(e)?
+    if !ok {
+        return false, noerror
+    }
+    mut facts := make(list[Fact], c_allocator)
+    mut c.held_facts_about(sk, mut facts)?
+    for _, f := range facts {
+        if f.has_ne && f.ne.cmp(v) == 0 {
+            h := mut c.holds(f)?
+            if h {
+                return true, noerror
+            }
+        }
+    }
+    return false, noerror
+}
+
+// quotient_message appends the error for a, a / b of the signed integer
+// type typ, not proven not to overflow, Go's quotientMessage: what may
+// happen, the check that would prove it when the divisor, or else the
+// dividend, is a subject whose value is not known, then the checked
+// form. For stmt, x /= b, it names the statement and suggests the
+// checked form of x / b, followed by storing its value when ok is true.
+func (mut c Checker) quotient_message(a ArithOp, typ types.Type, stmt Key, mut out list[uint8]) error {
+    mut text := mut c.source_text(a.sp)?
+    mut tail := msg()
+    append(mut tail, []uint8("use q, ok := ")...)?
+    append(mut tail, text[:]...)?
+    switch kind_at(c.prog.trees, stmt) {
+    case assign(asg):
+        target := mut c.source_text(span_at(c.prog.trees, a.x))?
+        mut amount := msg()
+        mut c.value_text(stmt, asg, mut amount)?
+        value := sub(stmt, asg.value)
+        vt := mut c.source_text(span_at(c.prog.trees, value))?
+        mut operand := msg()
+        _, is_bin := binary_of(c.prog.trees, value)
+        if is_bin && bytes_equal(amount[:], vt[:]) {
+            append(mut operand, '(')?
+            append(mut operand, amount[:]...)?
+            append(mut operand, ')')?
+        } else {
+            append(mut operand, amount[:]...)?
+        }
+        mut t2 := msg()
+        append(mut t2, target[:]...)?
+        append(mut t2, []uint8(" /= ")...)?
+        append(mut t2, amount[:]...)?
+        old := replace(mut text, t2)
+        drop(own old)
+        mut tl := msg()
+        append(mut tl, []uint8("use q, ok := ")...)?
+        append(mut tl, target[:]...)?
+        append(mut tl, []uint8(" / ")...)?
+        append(mut tl, operand[:]...)?
+        append(mut tl, []uint8(" and ")...)?
+        append(mut tl, target[:]...)?
+        append(mut tl, []uint8(" = q when ok")...)?
+        old_tail := replace(mut tail, tl)
+        drop(own old_tail)
+    default:
+    }
+    name := mut c.type_name(typ)?
+    append(mut out, text[:]...)?
+    append(mut out, []uint8(" may overflow ")...)?
+    append(mut out, name[:]...)?
+    append(mut out, []uint8("; ")...)?
+    uy := mut c.unknown_subject(a.y)?
+    if uy {
+        append(mut out, []uint8("check ")...)?
+        mut c.name_subject(a.y, mut out)?
+        append(mut out, []uint8(" != -1 first, or ")...)?
+    } else {
+        ux := mut c.unknown_subject(a.x)?
+        if ux {
+            least, _ := type_bounds(typ)
+            append(mut out, []uint8("check ")...)?
+            mut c.name_subject(a.x, mut out)?
+            append(mut out, []uint8(" > ")...)?
+            least.append_string(mut out)?
+            append(mut out, []uint8(" first, or ")...)?
+        }
+    }
+    append(mut out, tail[:]...)?
+    return noerror
+}
+
+// unknown_subject reports whether e is a subject a check gives a fact
+// about whose value is not known, Go's unknownSubject.
+func (mut c Checker) unknown_subject(e Key) (bool, error) {
+    _, known := mut c.known_value(e)?
+    if known {
+        return false, noerror
+    }
+    r_, e_ := mut c.check_subject(e)
+    return r_, e_
+}

@@ -56,6 +56,13 @@ func (mut c Checker) write_nodes(mut out list[uint8]) error {
             }
             clear_nodes(mut kids)
             children_of(c.prog.trees, u, top.node, mut kids)?
+            switch kind_at(c.prog.trees, k) {
+            case func_type:
+                // Go's walk of a function type visits each parameter's
+                // type, with no node for the parameter itself.
+                mut c.param_types(u, mut kids)?
+            default:
+            }
             mut at int64 = -1
             sa, has_site := c.site_args[k]
             if has_site {
@@ -81,6 +88,26 @@ func (mut c Checker) write_nodes(mut out list[uint8]) error {
         }
     }
     append(mut out, ']')?
+    return noerror
+}
+
+// param_types replaces each parameter among kids, the children of a
+// function type in the tree u, by its own children, its type as written.
+func (mut c Checker) param_types(u int64, mut kids list[id[ast.Node]]) error {
+    mut out := make(list[id[ast.Node]], c_allocator)
+    mut sub_kids := make(list[id[ast.Node]], c_allocator)
+    for _, kid := range kids {
+        switch kind_at(c.prog.trees, Key{unit: u, node: kid}) {
+        case param_decl:
+            clear_nodes(mut sub_kids)
+            children_of(c.prog.trees, u, kid, mut sub_kids)?
+            append(mut out, sub_kids[:]...)?
+        default:
+            append(mut out, kid)?
+        }
+    }
+    clear_nodes(mut kids)
+    append(mut kids, out[:]...)?
     return noerror
 }
 
