@@ -1,6 +1,7 @@
 package porttest
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -499,13 +500,17 @@ type nestRoute struct {
 // parameter, also under a ?, by a local and by a local holding a method
 // expression, and a closure returning the value and an error, passed to
 // a scope parameter whose call a ? follows, so that a ? in the closure
-// returns from it; and, of
+// returns from it, the same closure with a loop writing a local of its
+// own declared before it first, whose bounds a probe of the body looks
+// for, and one with an unreachable its return proves after it; an int64
+// passed to a function with a contract and returned from a closure, as
+// either closure of the bool family does; and, of
 // values that own
 // a list, a call and a method call that take one as own, a call taking
-// another variable as own beside it, a struct literal's field, and
+// another variable as own beside it, a struct literal's field,
 // replace, whose mut place is a variable of its own each time, @ in the
 // route, so that what the move check follows is the nest and not a use
-// after a move. swap and drop give no value, and so nest in nothing.
+// after a move, and a closure returning one after a probed loop. swap and drop give no value, and so nest in nothing.
 // Each family's bad is a value of the wrong type, and untyped an untyped
 // constant of the family's type, none for the owned family. params are
 // the parameters h takes after its T, the function values the routes
@@ -547,7 +552,9 @@ var nestFamilies = []struct {
 			"value-local": {"vl(%s)", 1}, "value-method": {"vm(t, %s)", 1},
 			"any-q": {"aq(true, %s)?", 1}, "generic-any-q": {"gaq(true, %s)?", 1},
 			"generic-any-w": {"gaq[bool](true, %s)?", 1}, "generic-any-m": {"gaqm(1, true, %s)?", 1},
-			"closure": {"sc(func() (bool, error) {\nreturn %s, noerror\n})?", 3},
+			"closure":        {"sc(func() (bool, error) {\nreturn %s, noerror\n})?", 3},
+			"probed-closure": {"sc(func() (bool, error) {\nmut w$ := 0\nfor w$ < 1 {\nw$ = 1\n}\nreturn %s, noerror\n})?", 3},
+			"dead-closure":   {"sc(func() (bool, error) {\nreturn %s, noerror\nunreachable\n})?", 3},
 		},
 	},
 	{
@@ -556,18 +563,21 @@ var nestFamilies = []struct {
 			"func idl(own l list[int64]) list[int64] {\n    return l\n}\n\n" +
 			"func ido(own a list[int64], own b list[int64]) list[int64] {\n    return b\n}\n\n" +
 			"func li(own x L) list[int64] {\n    mut y := x\n    return replace(mut y.items, mkl())\n}\n\n" +
-			"func (t T) ml(own l list[int64]) list[int64] {\n    return l\n}\n\n",
+			"func (t T) ml(own l list[int64]) list[int64] {\n    return l\n}\n\n" +
+			"func sl(scope f func() list[int64]) list[int64] {\n    return f()\n}\n\n",
 		leaf: "mkl()", bad: "\"s\"",
 		routes: map[string]nestRoute{
 			"own-call": {"idl(%s)", 1}, "own-arg": {"ido(own @, %s)", 1}, "owned-lit": {"li(L{items: %s})", 2},
 			"replace": {"replace(mut @, %s)", 1}, "own-method": {"t.ml(%s)", 1},
+			"own-probed": {"sl(func() list[int64] {\nmut w$ := 0\nfor w$ < 1 {\nw$ = 1\n}\nreturn %s\n})", 3},
 		},
 		owned: true,
 	},
 	{
 		decls: "type T struct {\n    n int64\n}\n\nfunc (t T) c(x int64) int64 {\n    return x\n}\n\n" +
 			"type B struct {\n    v int64\n}\n\nfunc fi(x int64) int64 {\n    return x\n}\n\n" +
-			"func gn[V Data](own x V) V {\n    return x\n}\n\nfunc sn(scope f func() int64) int64 {\n    return f()\n}\n\n",
+			"func gn[V Data](own x V) V {\n    return x\n}\n\nfunc sn(scope f func() int64) int64 {\n    return f()\n}\n\n" +
+			"func ei(x int64) int64 ensures x <= 9223372036854775807 {\n    return x\n}\n\n",
 		leaf: "1", bad: "\"s\"", untyped: "2 * 3",
 		routes: map[string]nestRoute{
 			"int-call": {"fi(%s)", 1}, "int-method-arg": {"t.c(%s)", 1}, "conversion": {"int64(%s)", 1},
@@ -576,7 +586,10 @@ var nestFamilies = []struct {
 			"plus": {"((%s) & 255) + 1", 2}, "minus": {"((%s) & 255) - 255", 2},
 			"times": {"((%s) & 255) * 2", 2}, "neg": {"-((%s) & 255)", 3}, "wrap": {"%s +%% t.n", 0}, "div": {"(%s / 2)", 1},
 			"shr": {"(%s >> 1)", 1}, "shl": {"(%s << 0)", 1}, "narrow": {"int64(uint8(%s & 255))", 2},
-			"slice": {"len(\"abcdef\"[%s:])", 2},
+			"slice":       {"len(\"abcdef\"[%s:])", 2},
+			"int-ensures": {"ei(%s)", 1},
+			"int-probed":  {"sn(func() int64 {\nmut w$ := 0\nfor w$ < 1 {\nw$ = 1\n}\nreturn %s\n})", 3},
+			"int-dead":    {"sn(func() int64 {\nreturn %s\nunreachable\n})", 3},
 		},
 	},
 }
@@ -603,6 +616,14 @@ func nestLocals(nest string) string {
 // the value of another route.
 var reportingRoutes = map[string]bool{"narrow": true, "slice": true}
 
+// reportingPairs are the ordered pairs of routes of nestFamilies whose
+// every nest Go's checker reports, as reportingRoutes' are: own-arg
+// moves a variable of h's, which inside own-probed's closure is a
+// capture, and a closure cannot move what it captures.
+var reportingPairs = map[[2]string]bool{
+	{"own-arg", "own-probed"}: true, {"own-probed", "own-arg"}: true,
+}
+
 // shallowPairs are the ordered pairs of routes TestCheckDeepPairs nests
 // only a quarter as deeply as the parser allows: an || whose facts are
 // asked true, nested in an && and holding one, which Go's checker works
@@ -614,9 +635,42 @@ var shallowPairs = map[[2]string]bool{
 	{"fact-and", "fact-or"}: true, {"fact-or", "fact-and"}: true,
 }
 
+// probedRoutes are the routes, of nestFamilies and of stmtRoutes, that
+// nest a loop writing a variable declared before it, whose body Go's
+// checker probes for the bounds its loops keep: the probe of a nest of
+// them takes Go's checker memory growing with the cube of the depth,
+// some eight GB at the parser's limit, so a nest holding one is nested
+// only an eighth as deeply as the parser allows, a quarter for a pair
+// of nestFamilies, whose routes nest a probed loop every other level at
+// most. What a level of such a nest costs the port's stack is what a
+// loop's or a closure's level costs, which the routes without a probe
+// nest at the limit.
+var probedRoutes = map[string]bool{
+	"probed-closure": true, "own-probed": true, "int-probed": true,
+	"probed-for": true, "probed-range": true, "probed-list": true,
+}
+
+// loopRoutes and factRoutes are the routes of stmtRoutes that loop, and
+// that put in force, at every level, a fact a write in a loop around
+// them ends: a contract's and an early exit's. Nested in each other,
+// alternating, the writes each loop's facts are searched for take Go's
+// checker memory cubic in the depth, some two and a half GB at the
+// parser's limit, so such a pair is nested only a quarter as deeply, as
+// is a nest holding a counting loop, whose facts take Go's checker time
+// cubic in the depth, some six seconds a run at the limit.
+var (
+	loopRoutes = map[string]bool{
+		"for": true, "range": true, "list-range": true, "counting": true,
+		"probed-for": true, "probed-range": true, "probed-list": true,
+	}
+	factRoutes = map[string]bool{"ensures-call": true, "facts-dead": true}
+)
+
 // pairNest returns the expression that nests routes a and b, alternating,
 // a first from the outside, around leaf, as many times as limit, the
-// parser's nesting limit less a margin for what holds them, allows.
+// parser's nesting limit less a margin for what holds them, allows. A $
+// in a route is the number of its level, so that a local a closure of
+// the route declares is declared once.
 func pairNest(a, b nestRoute, leaf string, limit int) string {
 	e, levels := leaf, 0
 	for i := 0; ; i++ {
@@ -628,7 +682,7 @@ func pairNest(a, b nestRoute, leaf string, limit int) string {
 			break
 		}
 		levels += r.level
-		e = fmt.Sprintf(r.wrap, e)
+		e = fmt.Sprintf(strings.ReplaceAll(r.wrap, "$", strconv.Itoa(i)), e)
 	}
 	return e
 }
@@ -658,7 +712,8 @@ func ownedVars(nest string) (string, string) {
 // ends in checkError, run with --check --max-errors 0 and compared as
 // check-core compares its cases, and with --port-types, compared as
 // TestTypes compares a case of the type checker's, and, unless a route
-// of the pair is one of reportingRoutes, a program Go accepts with the
+// of the pair is one of reportingRoutes or the pair one of
+// reportingPairs, a program Go accepts with the
 // valid nest, compared as TestTypes compares an input
 // of the corpus, in the phase "bodies". The port runs with its stack
 // held to deepStack KB, as TestPort does, and each --check nest again at
@@ -685,7 +740,7 @@ func TestCheckDeepPairs(t *testing.T) {
 					if variant == "untyped" && fam.untyped == "" {
 						continue
 					}
-					if variant == "clean" && (reportingRoutes[an] || reportingRoutes[bn]) {
+					if variant == "clean" && (reportingRoutes[an] || reportingRoutes[bn] || reportingPairs[[2]string{an, bn}]) {
 						continue
 					}
 					leaf := fam.leaf
@@ -700,7 +755,7 @@ func TestCheckDeepPairs(t *testing.T) {
 						ret = "int64"
 					}
 					limit := deepLimit - 6
-					if shallowPairs[[2]string{an, bn}] {
+					if shallowPairs[[2]string{an, bn}] || probedRoutes[an] || probedRoutes[bn] {
 						limit /= 4
 					}
 					nest, vars := ownedVars(pairNest(a, b, leaf, limit))
@@ -753,8 +808,11 @@ func TestCheckDeepPairs(t *testing.T) {
 // if, a loop with a condition, a range over a count and over a list, a
 // tagless switch, a switch on a value, on a union, binding its payload,
 // with its other case and with a default, a type switch, a defer and a
-// region. A # in one is a number of its own each time it is written, so
-// that no name is declared twice. There are no labels and no bare
+// region; a loop writing w, a variable declared before it, for, range
+// and over a list, whose bounds a probe looks for; a counting loop; an
+// unreachable a return before it proves, and one the facts prove; and a
+// call whose contract gives w a fact. A # in one is a number of its own
+// each time it is written, so that no name is declared twice. There are no labels and no bare
 // blocks; a defer in a defer is reported, so a nest holding two defers
 // is no program Go accepts.
 var stmtRoutes = map[string]string{
@@ -771,6 +829,13 @@ var stmtRoutes = map[string]string{
 	"type-switch":   "switch t# := y.(type) {\ncase int64:\nif t# == 0 {\n}\n%s}\n",
 	"defer":         "defer {\n%s}\n",
 	"region":        "region r# {\n%s}\n",
+	"probed-for":    "for b {\nw = 1\n%s}\n",
+	"probed-range":  "for range 3 {\nw = n\n%s}\n",
+	"probed-list":   "for _, e# := range l {\nw = e#\n%s}\n",
+	"counting":      "for mut i# := 0; i# < 3; i# += 1 {\n%s}\n",
+	"dead":          "if b {\n%sreturn noerror\nunreachable\n}\n",
+	"facts-dead":    "if n > 0 {\nif n < 0 {\nunreachable\n}\n%s}\n",
+	"ensures-call":  "if b {\nfix(mut w)\n%s}\n",
 }
 
 // stmtNest nests the routes a and b, alternating, a first from the
@@ -792,12 +857,13 @@ func stmtNest(a, b string, levels int, inner string) string {
 }
 
 // stmtProgram returns a program declaring what the bool routes of
-// nestFamilies call, U among them, whose h holds body, given a T, a
+// nestFamilies call, U among them, and fix, whose contract gives its
+// argument a fact, when body calls it, whose h holds body, given a T, a
 // bool, an int64, a U, an any, a list and the function values the bool
 // family's params are, declaring the locals body calls (see
-// nestLocals), returning an error, so that a ? may be written in it,
-// and whose main ends in checkError, or, when clean, calls h and
-// reports nothing.
+// nestLocals) and w, an int64 the loops of stmtRoutes write, returning
+// an error, so that a ? may be written in it, and whose main ends in
+// checkError, or, when clean, calls h and reports nothing.
 func stmtProgram(body string, clean bool) string {
 	bools := nestFamilies[0]
 	main := "func main() {\n    " + checkError + "}\n"
@@ -805,16 +871,22 @@ func stmtProgram(body string, clean bool) string {
 		main = "func main() {\n    l := make(list[int64], c_allocator)\n    e := h(T{n: 1}, true, 1, U.b, 1, l" + bools.args + ")\n" +
 			"    if e.code != 0 {\n        return\n    }\n}\n"
 	}
-	return "package main\n\n" + bools.decls +
-		"func h(t T, b bool, n int64, u U, y any, l list[int64]" + bools.params + ") error {\n" + nestLocals(body) + body +
-		"    return noerror\n}\n\n" + main
+	fix := ""
+	if strings.Contains(body, "fix(") {
+		fix = "func fix(mut d int64) ensures d != 0 {\n    d = 1\n}\n\n"
+	}
+	return "package main\n\n" + bools.decls + fix +
+		"func h(t T, b bool, n int64, u U, y any, l list[int64]" + bools.params + ") error {\n" + nestLocals(body) +
+		"    mut w := 0\n" + body + "    if w > 0 {\n    }\n    return noerror\n}\n\n" + main
 }
 
 // TestCheckDeepStmts nests every ordered pair of stmtRoutes,
 // alternating, as deeply as the parser allows around a local's
 // declaration and an if on it; and every statement route nested half as
 // deeply around a value nested the other half in each bool route of
-// nestFamilies that takes a level. Each runs as a valid
+// nestFamilies that takes a level. A nest holding one of probedRoutes,
+// or a loop and a fact of loopRoutes and factRoutes, is shallower (see
+// probedRoutes and loopRoutes). Each runs as a valid
 // nest, one whose value is of the wrong type, and one in a program Go
 // accepts, but for a nest holding two defers: the first two under
 // --check, compared as check-core compares its cases, and --port-types,
@@ -841,7 +913,15 @@ func TestCheckDeepStmts(t *testing.T) {
 				// Alternating, the nest holds a defer every other level.
 				d = 2
 			}
-			shapes = append(shapes, shape{an + "-" + bn, stmtNest(a, b, deepLimit-6, "x := @\nif x == 1 {\n}\n"), "1", d})
+			levels := deepLimit - 6
+			switch {
+			case probedRoutes[an] || probedRoutes[bn]:
+				levels /= 8
+			case an == "counting" || bn == "counting" ||
+				loopRoutes[an] && factRoutes[bn] || factRoutes[an] && loopRoutes[bn]:
+				levels /= 4
+			}
+			shapes = append(shapes, shape{an + "-" + bn, stmtNest(a, b, levels, "x := @\nif x == 1 {\n}\n"), "1", d})
 		}
 	}
 	bools := nestFamilies[0].routes
@@ -855,8 +935,15 @@ func TestCheckDeepStmts(t *testing.T) {
 			if sn == "defer" {
 				d = 2
 			}
-			value := pairNest(e, e, "@", half)
-			shapes = append(shapes, shape{sn + "-" + en, stmtNest(s, s, half, "x := "+value+"\nif x {\n}\n"), "true", d})
+			levels, depth := half, half
+			if probedRoutes[sn] || sn == "counting" {
+				levels /= 4
+			}
+			if probedRoutes[en] {
+				depth /= 4
+			}
+			value := pairNest(e, e, "@", depth)
+			shapes = append(shapes, shape{sn + "-" + en, stmtNest(s, s, levels, "x := "+value+"\nif x {\n}\n"), "true", d})
 		}
 	}
 	for _, sh := range shapes {
@@ -960,6 +1047,104 @@ func TestCheckSliceChains(t *testing.T) {
 			in := input{name: file, dir: dir, file: file}
 			runCaseWith(t, *st, in, env.portRun)
 			runCaseWith(t, *st, in, env.portSmall)
+		})
+	}
+}
+
+// bigStack is the stack, in KB, TestCheckDeepPortOnly gives the port to
+// compare against: far more than any nest needs.
+const bigStack = 64 * 1024
+
+// portOnlyStmts are the pairs of stmtRoutes TestCheckDeepStmts nests
+// shallower than the parser allows, since Go's checker cannot check them
+// at the limit in the memory a run has (see probedRoutes and
+// loopRoutes), and portOnlyRoutes the routes of nestFamilies, by family,
+// that TestCheckDeepPairs does, each nested with itself.
+var (
+	portOnlyStmts = [][2]string{
+		{"probed-for", "probed-for"}, {"probed-range", "if"}, {"probed-list", "for"},
+		{"counting", "counting"}, {"counting", "facts-dead"}, {"counting", "dead"},
+		{"for", "ensures-call"}, {"ensures-call", "counting"}, {"range", "facts-dead"},
+	}
+	portOnlyRoutes = map[int][]string{0: {"probed-closure"}, 1: {"own-probed"}, 2: {"int-probed"}}
+)
+
+// TestCheckDeepPortOnly runs, at the parser's limit, the nests
+// TestCheckDeepStmts and TestCheckDeepPairs make shallower for Go's
+// sake: each of portOnlyStmts, as TestCheckDeepStmts nests a pair, and
+// each of portOnlyRoutes nested with itself, as TestCheckDeepPairs
+// does, each valid and with a value of the wrong type at its bottom.
+// Go's checker runs out of memory on them, so the port is compared with
+// itself: under --check --max-errors 0 with its stack held to pairStack
+// KB it must exit and write exactly what it does with bigStack KB, and
+// never be killed, so every level of these routes costs it no more than
+// the routes Go can follow to the limit. It runs only as TestPort does.
+func TestCheckDeepPortOnly(t *testing.T) {
+	ready(t)
+	dir := t.TempDir()
+	big, err := writeStackWrapper(dir, "port-big", bigStack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srcs := map[string]string{}
+	for _, p := range portOnlyStmts {
+		a, b := stmtRoutes[p[0]], stmtRoutes[p[1]]
+		if a == "" || b == "" {
+			t.Fatalf("no statement route %v", p)
+		}
+		for _, variant := range []string{"valid", "invalid"} {
+			leaf := "1"
+			if variant == "invalid" {
+				leaf = "\"s\""
+			}
+			body := stmtNest(a, b, deepLimit-6, "x := "+leaf+"\nif x == 1 {\n}\n")
+			srcs[p[0]+"-"+p[1]+"-"+variant+".tck"] = stmtProgram(body, false)
+		}
+	}
+	for fi, names := range portOnlyRoutes {
+		fam := nestFamilies[fi]
+		for _, name := range names {
+			r, ok := fam.routes[name]
+			if !ok {
+				t.Fatalf("no route %s", name)
+			}
+			for _, variant := range []string{"valid", "invalid"} {
+				leaf := fam.leaf
+				if variant == "invalid" {
+					leaf = fam.bad
+				}
+				nest, vars := ownedVars(pairNest(r, r, leaf, deepLimit-6))
+				vars += nestLocals(nest)
+				ret := "bool"
+				if fam.leaf == "1" {
+					ret = "int64"
+				}
+				h := "func h(t T" + fam.params + ") (" + ret + ", error) {\n" + vars + "    x := " + nest +
+					"\n    return x, noerror\n}\n\n"
+				if fam.owned {
+					h = "func h(t T) list[int64] {\n" + vars + "    x := " + nest + "\n    return x\n}\n\n"
+				}
+				srcs[name+"-"+name+"-"+variant+".tck"] = "package main\n\n" + fam.decls + h + "func main() {\n    " + checkError + "}\n"
+			}
+		}
+	}
+	for file, src := range srcs {
+		t.Run(file, func(t *testing.T) {
+			t.Parallel()
+			if err := os.WriteFile(filepath.Join(dir, file), []byte(src), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			in := input{name: file, dir: dir, file: file}
+			args := []string{"--check", "--max-errors", "0", file}
+			want := runCompiler(t, big, env.portCache, in, args)
+			got := runCompiler(t, env.portPairs, env.portCache, in, args)
+			if got.code != want.code || !bytes.Equal(got.stdout, want.stdout) || !bytes.Equal(got.stderr, want.stderr) {
+				t.Errorf("at %d KB the port exited %d, writing\n%s\nat %d KB it exited %d, writing\n%s",
+					pairStack, got.code, got.stderr, bigStack, want.code, want.stderr)
+			}
+			if want.code > 2 {
+				t.Errorf("the port exited %d: %s", want.code, want.stderr)
+			}
 		})
 	}
 }

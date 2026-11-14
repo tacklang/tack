@@ -1,0 +1,37 @@
+package main
+
+func g(x int64) {
+}
+
+// A binary search: lo and hi keep 0 <= lo and hi <= len(s) through the loop.
+func find(s []int64, want int64) int64 {
+    mut lo := 0
+    mut hi := len(s)
+    for lo < hi {
+        mid := lo + (hi - lo) / 2
+        if s[mid] < want {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
+}
+
+func count(n int64) int64 {
+    mut i := 0
+    mut total := 0
+    for i < n {
+        arr := [4]int64{1, 2, 3, 4}
+        g(arr[i])
+        i++
+        total = i
+    }
+    return total
+}
+
+func main() {
+    a := [3]int64{1, 2, 3}
+    g(find(a[:], 2))
+    g(count(3))
+}

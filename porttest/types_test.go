@@ -79,6 +79,10 @@ func TestTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	loops, err := checkInputs(stageLoops)
+	if err != nil {
+		t.Fatal(err)
+	}
 	owns, err := checkInputs(stageOwn)
 	if err != nil {
 		t.Fatal(err)
@@ -98,13 +102,15 @@ func TestTypes(t *testing.T) {
 			{"single", singles, true}, {"packages", pkgs, true},
 			{"check-decls", decls, false}, {"check-core", core, false},
 			{"check-calls", calls, false}, {"check-facts", facts, false},
-			{"check-arith", arith, false}, {"check-own", owns, false},
-			{"check-generic", generics, false},
+			{"check-arith", arith, false}, {"check-loops", loops, false},
+			{"check-own", owns, false}, {"check-generic", generics, false},
 		} {
-			if group.name == checkStageInfo[stageOwn].stage && !env.required[group.name] {
+			if (group.name == checkStageInfo[stageOwn].stage || group.name == checkStageInfo[stageLoops].stage) &&
+				!env.required[group.name] {
 				// A declined case's errors are its bodies', which the
 				// declaration phase's dump cannot hold; until check-own
-				// is required, some of its cases are declined.
+				// and check-loops are required, some of their cases are
+				// declined.
 				continue
 			}
 			t.Run(group.name, func(t *testing.T) {
@@ -194,16 +200,19 @@ func checkTypesOf(t *testing.T, in input, portBin string, clean, declinable bool
 
 // bodiesStage reports whether stage, a Go typed tree's (see treeStage),
 // is one whose every body the port's body check covers: S1, S2a, S2b,
-// S3 or S4, and S6, ownership, once check-own is in required.txt: until
-// then some of its inputs need the loops, and the port declines them.
-// S7, generics and closures, is covered for a tree that implies no S5
-// anywhere, which stages, every stage the tree implies (see
-// treeStages), says.
+// S3 or S4; S5, loops and contracts, once check-loops is in
+// required.txt; and S6, ownership, once check-own is: until then some of
+// its inputs need the loops, and the port declines them. S7, generics
+// and closures, is covered for a tree that implies no S5 anywhere, which
+// stages, every stage the tree implies (see treeStages), says, and for
+// any tree once check-loops is in required.txt.
 func bodiesStage(stage checkStage, stages map[checkStage]bool) bool {
+	loops := env.required[checkStageInfo[stageLoops].stage]
 	if stage == stageGeneric {
-		return !stages[stageLoops]
+		return !stages[stageLoops] || loops
 	}
-	return stage <= stageArith || stage == stageOwn && env.required[checkStageInfo[stageOwn].stage]
+	return stage <= stageArith || stage == stageLoops && loops ||
+		stage == stageOwn && env.required[checkStageInfo[stageOwn].stage]
 }
 
 // typesDiff returns how got, the port's dump, differs from want, Go's,

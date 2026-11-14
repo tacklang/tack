@@ -1,0 +1,38 @@
+package main
+
+func g(x int64) {
+}
+
+func h(n int64, s []int64) {
+    for mut i := 9223372036854775806; i < 9223372036854775807; i++ {
+        g(i)
+    }
+    for mut i := 0; i < n; i += 9223372036854775807 {
+        g(100 / (i + 1))
+    }
+    for mut i := 10; i > 0; i-- {
+        g(100 / i)
+    }
+    for mut i := 0; i != 10; i += 3 {
+        g(100 / i)
+    }
+    for mut i := 0; i < len(s); i++ {
+        g(s[i])
+        continue
+    }
+    for mut i := -9223372036854775807 - 1; i < 0; i-- {
+        g(i)
+    }
+    mut u uint8 = 0
+    for u < 255 {
+        u++
+    }
+    for mut w uint8 = 250; w < 255; w += 10 {
+        g(int64(w))
+    }
+}
+
+func main() {
+    a := [1]int64{1}
+    h(1, a[:])
+}

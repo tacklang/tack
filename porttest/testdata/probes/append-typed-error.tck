@@ -1,0 +1,23 @@
+package main
+
+// An error declared with its type written proves nothing of what the
+// append added; one with none does.
+func h() int64 {
+    mut l := make(list[int64], c_allocator)
+    var err error = append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    mut m := make(list[int64], c_allocator)
+    e2 := append(mut m, 1)
+    if e2.code != 0 {
+        return 0
+    }
+    return l[0] +% m[0]
+}
+
+func main() {
+    if h() > 0 {
+        exit(1)
+    }
+}

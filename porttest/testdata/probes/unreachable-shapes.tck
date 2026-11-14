@@ -1,0 +1,53 @@
+package main
+
+func g(x int64) {
+}
+
+type U union {
+    a int64
+    b
+}
+
+func h(u U, n int64, m int64) {
+    switch u {
+    case a(v):
+        g(v)
+    case b:
+    default:
+        unreachable
+    }
+    if n < m && m < n {
+        unreachable
+    }
+    if n > 0 {
+        if n < 0 {
+            unreachable
+        }
+    }
+    switch n {
+    case 1, 2:
+        return
+    default:
+        if n == 1 {
+            unreachable
+        }
+    }
+    f := func(x int64) {
+        if x > 0 && x < 0 {
+            unreachable
+        }
+        unreachable
+    }
+    f(n)
+    for {
+        if n > 3 {
+            break
+        }
+        return
+    }
+    unreachable
+}
+
+func main() {
+    h(U.b, 1, 2)
+}

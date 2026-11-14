@@ -296,12 +296,13 @@
 // of check-decls, check-core, check-calls, check-facts and check-arith,
 // the type checker's cases whose stage is S1, the declarations, S2a,
 // statements and expressions, S2b, calls and containers, S3, facts, or
-// S4, arithmetic and relations, of check-own, S6, ownership, once
-// check-own is in required.txt (until S5 is ported, some cases of
-// check-own, which also need the loops, are declined: a case is of the
-// highest stage it needs, and S6 orders after it), and of
-// check-generic, S7, generics and closures, whose cases that need S5
-// too skip when the port declines their bodies:
+// S4, arithmetic and relations, of check-loops, S5, loops and
+// contracts, and of check-own, S6, ownership, each once it is in
+// required.txt (until S5 is ported, some cases of either are declined:
+// a case is of the highest stage it needs, and S6 orders after S5), and
+// of check-generic, S7, generics and closures, whose cases that need S5
+// too skip when the port declines their bodies, until check-loops is in
+// required.txt:
 // each loaded, resolved and checked in process by this module's loader,
 // resolver and checker, typeck.New(...).Check(), as --port-types checks
 // it, whatever the stages before reported. Any other input of the corpus
@@ -337,11 +338,11 @@
 // port that answers --port-types is not implemented skips, unless
 // types-decls, the check's name, is in
 // required.txt, as it is, where then it fails. An input whose Go typed
-// tree's stage is S1, S2a, S2b, S3 or S4 (see Type checker stages), S6
-// once check-own is in required.txt, or S7 when no part of the tree
-// implies S5, must dump in the phase "bodies" when types-bodies is in
-// required.txt, as it is: the port's body check covers every such
-// input. TestTypesDeep runs the
+// tree's stage is S1, S2a, S2b, S3 or S4 (see Type checker stages), S5
+// once check-loops is in required.txt, S6 once check-own is, or S7 when
+// no part of the tree implies S5 or check-loops is in required.txt, must
+// dump in the phase "bodies" when types-bodies is in required.txt, as it
+// is: the port's body check covers every such input. TestTypesDeep runs the
 // same check on declaration chains a hundred thousand links long, which
 // have no nesting limit and which Go's checker walks with a frame a
 // link: globals each naming the next, in its value and in its type's
@@ -410,10 +411,13 @@
 // generic one, under a ?, a call through a function value held by a scope
 // parameter, also under a ?, by a local and by a local holding a method
 // expression, and a closure returning the value, passed to a scope
-// parameter; and of
+// parameter, also after a loop writing a local declared before it, whose
+// bounds a probe of the body looks for, and before an unreachable its
+// return proves, and a call of a function with a contract; and of
 // values that own a list, a call and a method call taking one as own, a call
 // taking another variable as own beside it, a struct literal's owned
-// field, and replace, each with a place of its own. swap and drop give
+// field, replace, each with a place of its own, and a closure returning
+// one after a probed loop. swap and drop give
 // no value, and nest in nothing. Each pair
 // runs as a valid nest, as one with a value of the wrong type at its
 // bottom and as one with an untyped constant there, under --check,
@@ -429,7 +433,29 @@
 // for what later stages add. Four pairs, an || whose
 // facts an && around it asks for and the && it holds, are nested a
 // quarter as deeply: Go's checker takes time cubic in their depth, and
-// each of their routes is nested to the limit in its other pairs.
+// each of their routes is nested to the limit in its other pairs. So is
+// a pair holding a probed loop, whose probe takes Go's checker memory
+// cubic in the depth, as are TestCheckDeepStmts's nests of probed loops,
+// an eighth as deeply, and its nests of a loop and a statement putting
+// in force a fact the loop's writes end, a quarter as deeply, for the
+// same reason, as are its nests of counting loops, which take Go's
+// checker time cubic in the depth.
+//
+// TestCheckDeepPortOnly nests, at the limit, what TestCheckDeepPairs and
+// TestCheckDeepStmts nest shallower for Go's sake: probed loops of every
+// kind, counting loops, loops around facts and contract calls, and the
+// closures holding a probed loop. Go's checker runs out of memory there,
+// so the port at pairStack KB is compared with the port at 64 MB: the
+// same exit status and output, and never killed.
+//
+// TestCheckDeepStmts nests every ordered pair of the statements that
+// hold a block, an if, an else, an else if, loops, a counting loop and
+// loops writing a variable declared before them, switches of every
+// kind, a defer, a region, an unreachable a return before it proves and
+// one the facts prove, and a call whose contract gives a variable a
+// fact, alternating, as deeply as the parser allows, and each around a
+// value nested in every route of the bool family, compared as
+// TestCheckDeepPairs compares its nests.
 //
 // TestCheckDeepGeneric nests, in a generic function's body, every
 // ordered pair of fields loops, switches on a type parameter, each on
@@ -550,7 +576,21 @@
 // fifteen hundred values each related to another by an early exit, all
 // in force while each is asked about again, on three thousand early exits
 // each putting the same relation in force again, and on a switch of eight
-// thousand cases. TestCheckSliceChains runs a spine of slices with no high
+// thousand cases. TestLoopPerf does the same for the loops and the
+// contracts: on fifteen hundred functions whose bodies Go accepts, each
+// probed for the bounds its loops keep, a counting loop, nested loops
+// and a range among them, with a contract proven at each return, a call
+// of a function with one, an append whose length an index reads and
+// unreachable places; on two thousand calls of a function with a
+// contract, each followed by a division its fact proves; on two
+// thousand early exits each followed by an unreachable the facts prove
+// and an append followed by an index of its list; and on a hundred and
+// twenty loops nested in each other, each writing a variable declared
+// before the outermost. TestChainPerf does the same for chains of four
+// thousand && and || operands, each putting the facts of those before
+// it in force for itself: in an if's condition, values ruled out and
+// joined by && or || equalities, and in an ensures clause, values ruled
+// out and lower bounds, given to a caller. TestCheckSliceChains runs a spine of slices with no high
 // bound, under len and indexed, and chains of locals each slicing the one before, from a
 // parameter and from a literal, five thousand links long, under --check,
 // the port's stack held to deepStack KB and to a quarter of it.

@@ -1,0 +1,38 @@
+package main
+
+func g(x int64) {
+}
+
+func h(n int64) {
+    mut l := make(list[int64], c_allocator)
+    a := [3]int64{1, 2, 3}
+    err := append(mut l, a...)
+    if err.code != 0 {
+        return
+    }
+    g(l[2])
+    for range 2 {
+        g(l[2])
+        e2 := append(mut l, 1)
+        if e2.code != 0 {
+            return
+        }
+    }
+    g(l[0])
+    defer {
+        g(l[0])
+    }
+    mut m := make(list[int64], c_allocator)
+    e3 := append(mut m, 1, 2)
+    if e3.code != 0 {
+        return
+    }
+    x := pop(mut m)
+    g(x)
+    g(m[0])
+    g(m[1])
+}
+
+func main() {
+    h(1)
+}

@@ -1,0 +1,67 @@
+package main
+
+func g(x int64) {
+}
+
+func nest(n int64) {
+    mut a := 0
+    mut b := 0
+    mut c := 0
+    mut d := 0
+    mut e := 0
+    mut f := 0
+    mut h := 0
+    mut i := 0
+    mut j := 0
+    arr := [10]int64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
+    for a < 9 {
+        a++
+        for b < 9 {
+            b++
+            for c < 9 {
+                c++
+                for d < 9 {
+                    d++
+                    for e < 9 {
+                        e++
+                        for f < 9 {
+                            f++
+                            for h < 9 {
+                                h++
+                                for i < 9 {
+                                    i++
+                                    for j < 9 {
+                                        j++
+                                        g(arr[a] + arr[b] + arr[c] + arr[d] + arr[e] + arr[f] + arr[h] + arr[i] + arr[j])
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+func cl(n int64) {
+    mut i := 0
+    arr := [4]int64{1, 2, 3, 4}
+    k := func() {
+        mut j := 0
+        for j < 3 {
+            g(arr[j])
+            j++
+        }
+    }
+    for i < 4 {
+        g(arr[i])
+        k()
+        i += 1
+    }
+}
+
+func main() {
+    nest(1)
+    cl(2)
+}

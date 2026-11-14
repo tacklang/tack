@@ -1,0 +1,56 @@
+package main
+
+func g(x int64) {
+}
+
+type P struct {
+    n int64
+}
+
+func (p P) sure() ensures p.n > 0 {
+    if p.n <= 0 {
+        exit(1)
+    }
+}
+
+func fix(mut d int64) ensures d != 0 {
+    if d == 0 {
+        d = 1
+    }
+}
+
+func keyed(m map[int64]int64, k int64) ensures has(m, k) {
+    if !has(m, k) {
+        exit(1)
+    }
+}
+
+func pick(mut d int64) (int64, error) ensures d != 0 {
+    fix(mut d)
+    e := fail(d)?
+    return e, noerror
+}
+
+func fail(x int64) (int64, error) {
+    return x, noerror
+}
+
+func ret(mut d int64) ensures d != 0 {
+    return fix(mut d)
+}
+
+func h(mut d int64, p P, m map[int64]int64) {
+    fix(mut d)
+    g(100 / d)
+    p.sure()
+    g(100 / p.n)
+    keyed(m, 3)
+    g(m[3])
+}
+
+func main() {
+    mut d := 0
+    p := P{n: 1}
+    m := make(map[int64]int64, c_allocator)
+    h(mut d, p, m)
+}

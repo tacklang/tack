@@ -1,0 +1,39 @@
+package main
+
+func g(x int64) {
+}
+
+func defers(mut d int64) ensures d != 0 {
+    defer {
+        d = 0
+    }
+    if d == 0 {
+        return
+    }
+}
+
+func many(mut a int64, mut b int64) ensures a > 0 && b > 0 && a != b {
+    a = 1
+    b = 1
+}
+
+func gen[T Data](x int64, y T) ensures x > 0 {
+    if x <= 0 {
+        exit(1)
+    }
+}
+
+func use(n int64) {
+    gen(n, 1)
+    g(100 / n)
+    gen[int64](n, 2)
+}
+
+func main() {
+    mut d := 1
+    defers(mut d)
+    mut a := 0
+    mut b := 0
+    many(mut a, mut b)
+    use(3)
+}

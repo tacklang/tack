@@ -522,3 +522,159 @@ func TestArithPerf(t *testing.T) {
 		}
 	}
 }
+
+// loopPerfFuncs is how many functions the first program of TestLoopPerf
+// holds, and loopPerfCalls how many contract calls, unreachables and
+// appends its other programs repeat.
+const (
+	loopPerfFuncs = 1500
+	loopPerfCalls = 2000
+	loopPerfNest  = 120
+)
+
+// loopPerfFunc is a function of TestLoopPerf's first program, %d its
+// number: loops writing variables declared before them, which a probe
+// of the body looks for the bounds of, a binary search whose bounds a
+// difference keeps, a counting loop, a range over a list, nested loops,
+// a contract proven at each return and a call of a function with one,
+// an append whose length an index reads, and unreachable places.
+const loopPerfFunc = `func f%d(n int64, s []int64, mut d int64) int64 ensures d != 0 {
+    arr := [8]int64{1, 2, 3, 4, 5, 6, 7, 8}
+    mut i := 0
+    mut total := 0
+    for i < 8 {
+        total = arr[i]
+        i++
+    }
+    mut lo := 0
+    hi := len(s)
+    for lo < hi {
+        if lo < 0 {
+            unreachable
+        }
+        total = s[lo]
+        lo++
+    }
+    for mut k := 0; k < 8; k++ {
+        total = arr[k]
+        mut j := k
+        for j > 0 {
+            j--
+            total = arr[j]
+        }
+    }
+    for _, v := range s {
+        if v > 0 {
+            total = v
+        }
+    }
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, n, total)
+    if err.code != 0 {
+        d = 1
+        return 0
+    }
+    fix(mut d)
+    if d == 0 {
+        unreachable
+    }
+    return l[1] +%% 100 / d
+}
+
+`
+
+// TestLoopPerf is the performance tripwire for the type checker's loops
+// and contracts: it runs --check --max-errors 0 through both compilers,
+// as TestArithPerf does, on a program of loopPerfFuncs functions whose
+// bodies Go accepts, each probed for the bounds its loops keep (see
+// loopPerfFunc); on one body holding loopPerfCalls calls of a function
+// with a contract, each followed by a division its fact proves; on one
+// holding loopPerfCalls early exits each followed by an unreachable the
+// facts in force prove, and as many appends each followed by an index
+// of its list; and on loopPerfNest loops nested in each other, each
+// writing a variable declared before the outermost. Each program's main
+// has one error, so that --check stops before the backend. It runs only
+// as TestPort does, and is not parallel.
+func TestLoopPerf(t *testing.T) {
+	ready(t)
+	fix := "func fix(mut d int64) ensures d != 0 {\n    d = 1\n}\n\n"
+	var funcs strings.Builder
+	funcs.WriteString(fix)
+	for i := range loopPerfFuncs {
+		fmt.Fprintf(&funcs, loopPerfFunc, i)
+	}
+	var calls strings.Builder
+	calls.WriteString(fix + "func h(mut d int64, n int64) int64 {\n    mut t := 0\n")
+	for k := range loopPerfCalls {
+		fmt.Fprintf(&calls, "    fix(mut d)\n    t = n / d + %d\n", k%7)
+	}
+	calls.WriteString("    return t\n}\n\n")
+	var dead strings.Builder
+	dead.WriteString("func u(n int64, x int64) int64 {\n    mut l := make(list[int64], c_allocator)\n")
+	for k := range loopPerfCalls {
+		fmt.Fprintf(&dead, "    if n == %d {\n        return 0\n    }\n    if n == %d {\n        unreachable\n    }\n", k, k)
+		fmt.Fprintf(&dead, "    e%d := append(mut l, %d)\n    if e%d.code != 0 {\n        return 0\n    }\n    x%d := l[0]\n",
+			k, k, k, k)
+	}
+	dead.WriteString("    return x0\n}\n\n")
+	var nest strings.Builder
+	nest.WriteString("func w(n int64) int64 {\n")
+	for k := range loopPerfNest {
+		fmt.Fprintf(&nest, "    mut v%d := 0\n", k)
+	}
+	for k := range loopPerfNest {
+		fmt.Fprintf(&nest, "for v%d < 3 {\nv%d++\n", k, k)
+	}
+	nest.WriteString(strings.Repeat("}\n", loopPerfNest))
+	nest.WriteString("    return v0\n}\n\n")
+	for _, prog := range []struct{ name, body string }{
+		{"loop-funcs.tck", funcs.String()}, {"contract-calls.tck", calls.String()},
+		{"dead-appends.tck", dead.String()}, {"loop-nest.tck", nest.String()},
+	} {
+		t.Run(prog.name, func(t *testing.T) {
+			src := "package main\n\n" + prog.body + "func main() {\n    " + checkError + "}\n"
+			checkPerfAgainstGo(t, t.TempDir(), prog.name, src, prog.name)
+		})
+	}
+}
+
+// chainPerfLength is how many operands each chain of TestChainPerf
+// holds: long enough that work or memory growing with the square of it,
+// in one compiler and not the other, shows.
+const chainPerfLength = 4000
+
+// TestChainPerf is the performance tripwire for long chains of && and
+// ||, whose every operand puts the facts of those before it in force for
+// itself: an if whose condition is chainPerfLength operands x != k joined
+// by &&, values each ruled out, which only the proof of an unreachable
+// place counts; one of as many x == k joined by ||; and an ensures
+// clause of as many operands x != k, and of as many x > -k, which a
+// call of its function then gives the caller. Each program's main has
+// one error, so that --check stops before the backend, and it fails as
+// TestArithPerf does, on time and on memory, after checking that both
+// compilers give the same output. It runs only as TestPort does, and is
+// not parallel.
+func TestChainPerf(t *testing.T) {
+	ready(t)
+	join := func(form, op string) string {
+		parts := make([]string, chainPerfLength)
+		for k := range parts {
+			parts[k] = fmt.Sprintf(form, k)
+		}
+		return strings.Join(parts, op)
+	}
+	head := "func g(x int64) {\n}\n\n"
+	for _, prog := range []struct{ name, body string }{
+		{"if-and.tck", head + "func f(x int64) {\n    if " + join("x != %d", " && ") + " {\n        g(x)\n    }\n}\n\n"},
+		{"if-or.tck", head + "func f(x int64) {\n    if " + join("x == %d", " || ") + " {\n        g(x)\n    }\n}\n\n"},
+		{"ensures-ne.tck", head + "func f(x int64) ensures " + join("x != %d", " && ") +
+			" {\n    exit(1)\n}\n\nfunc c(y int64) {\n    f(y)\n    g(y)\n}\n\n"},
+		{"ensures-gt.tck", head + "func f(x int64) ensures " + join("x > -%d", " && ") +
+			" {\n    if x <= 0 {\n        exit(1)\n    }\n}\n\nfunc c(y int64) {\n    f(y)\n    g(100 / y)\n}\n\n"},
+	} {
+		t.Run(prog.name, func(t *testing.T) {
+			src := "package main\n\n" + prog.body + "func main() {\n    " + checkError + "}\n"
+			checkPerfAgainstGo(t, t.TempDir(), prog.name, src, fmt.Sprintf("%s, %d operands", prog.name, chainPerfLength))
+		})
+	}
+}

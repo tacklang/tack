@@ -1,0 +1,41 @@
+package main
+
+import fmt from "std/fmt"
+
+type F struct {
+    items arena[int64]
+}
+
+func get(f F, s span[int64], i int64) int64 {
+    n, ok := f.items[s][i]
+    if !ok {
+        return 0
+    }
+    return n
+}
+
+func grow(mut f F, xs []int64) (int64, error) {
+    s := add_all(mut f.items, xs...)?
+    one := add(mut f.items, 3)?
+    return get(f, s, 0) +% int64(one), noerror
+}
+
+func pools(mut p pool[int64]) error {
+    h := insert(mut p, 3)?
+    if has(p, h) {
+        return noerror
+    }
+    return noerror
+}
+
+func main() {
+    b := [2]uint8{'o', 'k'}
+    n := [1]int64{1}
+    fmt.printf("%v %v\n", b[:], n[:])
+    mut f := F{items: make(arena[int64], 4, c_allocator)}
+    a := [2]int64{1, 2}
+    x, e := grow(mut f, a[:])
+    if e.code != 0 || x > 0 {
+        exit(1)
+    }
+}

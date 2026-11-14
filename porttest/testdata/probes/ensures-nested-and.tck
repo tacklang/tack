@@ -1,0 +1,22 @@
+package main
+
+// The operands of an ensures clause's top-level && are flattened through
+// an && on either side, so each is reported alone.
+func f(mut x int64, mut y int64, mut z int64) ensures x > 0 && (y > 0 && z > 0) {
+    x = 1
+    y = 1
+}
+
+func g(n int64, m int64) ensures n + 1 < m {
+    if n >= m {
+        exit(1)
+    }
+}
+
+func main() {
+    mut a := 0
+    mut b := 0
+    mut c := 0
+    f(mut a, mut b, mut c)
+    g(1, 3)
+}

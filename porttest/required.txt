@@ -18,5 +18,8 @@ check-core
 check-calls
 check-facts
 check-arith
+check-loops
+check-own
+check-generic
 types-bodies
 probes

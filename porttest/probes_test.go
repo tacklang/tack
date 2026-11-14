@@ -20,7 +20,15 @@ import (
 // function types whose dump differed, a call whose argument's own call
 // reported an escape, which Go reports no escape of again, a struct
 // literal of a struct declaring a field twice, and a region in a
-// closure Go never checks.
+// closure Go never checks; and, from the port of loops and contracts,
+// the bounds loops keep, a probe's frames past their cap, counting
+// loops whose steps may wrap, contracts carried to callers, broken by
+// defers and on generic functions, an ensures clause's && nested on its
+// right and its arithmetic, unreachable places of every kind, the
+// lengths appends prove and an error declared with its type, which
+// proves none, and three found beside them: a ? on add, add_all and
+// insert, an element of a span's view of an arena bound with ok, and
+// printf's %v given a view.
 const probesStage = "probes"
 
 func init() {
