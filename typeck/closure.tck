@@ -74,6 +74,9 @@ type ClosureMarks struct {
     covered int64
     outer int64
     outer_guards int64
+    checked_arith Key
+    checked_slice Key
+    deferring bool
 }
 
 // lit_func returns the function the closure lit holds.
@@ -258,9 +261,13 @@ func (mut c Checker) immutable_decl(d Key) bool {
 // with only the guards that gave them. The facts and guards stay where
 // they are: those before outer and outer_guards are the code around
 // it's, and every read passes over those not kept (see fact_in_force),
-// so entering a closure copies none of them, as Go's view. What the call it is an argument of is
-// checking for itself, an inference among it, is nothing its body's
-// expressions are part of.
+// so entering a closure copies none of them, as Go's view. What the call
+// it is an argument of is checking for itself, an inference among it,
+// and what the arithmetic around it is checking, a checked form's
+// operation or slice, the slices marked as views and the overflows a
+// loop's post defers, are nothing its body's expressions are part of,
+// and what the arithmetic remembered under the facts outside is not
+// current in it (see fact_gen).
 func (mut c Checker) enter_closure(fk Key) error {
     append(mut c.cs_body, replace(mut c.body, BodyState{fn: fk, loops: 0, deferred: 0, defer_loops: 0, field_loop: 0, in_rejected_defer: false, clauses: make(list[ClauseAt], c_allocator)}))?
     // The index of the relations the body reads is the one kept for its
@@ -279,7 +286,8 @@ func (mut c Checker) enter_closure(fk Key) error {
     append(mut c.cs_chain, replace(mut c.fx.chain, make(list[Fact], c_allocator)))?
     append(mut c.cs_appended, replace(mut c.append_lists, make(map[FKey]bool, c_allocator)))?
     append(mut c.cs_passed, replace(mut c.passed_on, make(map[Key]Key, c_allocator)))?
-    append(mut c.cs_marks, ClosureMarks{chain_bin: c.fx.chain_bin, at: c.fx.at, inf: c.inf, view_call: c.view_call, view_slice: c.view_slice, view_span: c.view_span, checked_assert: c.checked_assert, checked_take: c.checked_take, checked_index: c.checked_index, checked_division: c.checked_division, assign_target: c.assign_target, assign_value: c.assign_value, dropped_call: c.dropped_call, scope_use: c.scope_use, covered: c.in_covered_default, outer: c.fx.outer, outer_guards: c.fx.outer_guards})?
+    append(mut c.cs_marks, ClosureMarks{chain_bin: c.fx.chain_bin, at: c.fx.at, inf: c.inf, view_call: c.view_call, view_slice: c.view_slice, view_span: c.view_span, checked_assert: c.checked_assert, checked_take: c.checked_take, checked_index: c.checked_index, checked_division: c.checked_division, assign_target: c.assign_target, assign_value: c.assign_value, dropped_call: c.dropped_call, scope_use: c.scope_use, covered: c.in_covered_default, outer: c.fx.outer, outer_guards: c.fx.outer_guards, checked_arith: c.checked_arith, checked_slice: c.checked_slice, deferring: c.deferring})?
+    append(mut c.cs_views, replace(mut c.slice_views, make(map[Key]bool, c_allocator)))?
     c.fx.outer = len(c.fx.active)
     c.fx.outer_guards = len(c.fx.guards)
     c.fx.chain_bin = no_key()
@@ -296,6 +304,12 @@ func (mut c Checker) enter_closure(fk Key) error {
     c.dropped_call = no_key()
     c.scope_use = no_key()
     c.in_covered_default = 0
+    c.checked_arith = no_key()
+    c.checked_slice = no_key()
+    c.deferring = false
+    // What the arithmetic remembered was found under the facts in force
+    // outside, which the body's view changes.
+    c.fact_gen +%= 1
     return noerror
 }
 
@@ -335,6 +349,12 @@ func (mut c Checker) leave_closure() error {
         old := replace(mut c.passed_on, po)
         drop(own old)
     }
+    sv, has_sv := pop(mut c.cs_views)
+    if has_sv {
+        old := replace(mut c.slice_views, sv)
+        drop(own old)
+    }
+    c.fact_gen +%= 1
     s, has_s := pop(mut c.cs_marks)
     if !has_s {
         return noerror
@@ -356,6 +376,9 @@ func (mut c Checker) leave_closure() error {
     c.dropped_call = s.dropped_call
     c.scope_use = s.scope_use
     c.in_covered_default = s.covered
+    c.checked_arith = s.checked_arith
+    c.checked_slice = s.checked_slice
+    c.deferring = s.deferring
     return noerror
 }
 

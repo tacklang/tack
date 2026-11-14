@@ -716,37 +716,15 @@ type SiteArg struct {
     param Key
 }
 
-// pass_site records the testing.Site argument the call k, whose
+// pass_site records the testing.Site arguments the call k, whose
 // parameters are params, is given, Go's passSite, for the dump, which
-// shows it among the arguments. Nothing reads it before the moves, which
-// read a copyable Site without a report. A callee with two Site
-// parameters was reported, and the dump declines it.
+// shows them among the arguments: one for each Site parameter, at its
+// index, in increasing order, until one is past the arguments given so
+// far. Nothing reads them before the moves, which read a copyable Site
+// without a report.
 func (mut c Checker) pass_site(k Key, params []ArgParam) error {
     cl := call_of(c.prog.trees, k)
-    mut at int64 = -1
-    mut typ := types.invalid
-    for i, p := range params {
-        if p.site {
-            if at >= 0 {
-                // A callee with two Site parameters was reported; the
-                // dump, which shows every Site argument Go puts among
-                // the arguments, declines it, and nothing else reads
-                // them.
-                if c.dumping {
-                    return not_ported
-                }
-                return noerror
-            }
-            at = i
-            st, has := c.site_params[p.decl]
-            if has {
-                typ = st
-            }
-        }
-    }
-    if at < 0 || at > count_items(c.prog.trees, k.unit, cl.args) {
-        return noerror
-    }
+    nargs := count_items(c.prog.trees, k.unit, cl.args)
     mut param := no_key()
     fnk := c.body.fn
     fn := func_of(c.prog.trees, fnk)
@@ -760,7 +738,25 @@ func (mut c Checker) pass_site(k Key, params []ArgParam) error {
             }
         }
     }
-    put(mut c.site_args, k, SiteArg{index: at, typ: typ, param: param})?
+    mut n int64 = 0
+    for i, p := range params {
+        if !p.site {
+            continue
+        }
+        if i > nargs +% n {
+            break
+        }
+        mut typ := types.invalid
+        st, has := c.site_params[p.decl]
+        if has {
+            typ = st
+        }
+        put(mut c.site_args, RKey{unit: k.unit, node: k.node, i: n}, SiteArg{index: i, typ: typ, param: param})?
+        n +%= 1
+    }
+    if n > 0 {
+        put(mut c.site_count, k, n)?
+    }
     return noerror
 }
 

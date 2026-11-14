@@ -11,9 +11,12 @@ package typeck
 // mover.tck), exclusivity and borrows (see exclusive.tck), view results
 // (see viewresult.tck), the builtins that move values (see
 // ownbuiltins.tck), regions and scope allocators (see scopealloc.tck)
-// and escapes (see escape.tck), and its generics and closures: the
-// bodies of generic functions, their calls, which infer the type
-// arguments (see infer.tck), switches on a type parameter (see
+// and escapes (see escape.tck), arithmetic: overflow proofs (see
+// overflow.tck), the bounds of arithmetic (see arith.tck), conversions
+// (see convfacts.tck), slices (see slice.tck) and the relations through
+// + and - of known amounts (see relations.tck), and its generics and
+// closures: the bodies of generic functions, their calls, which infer
+// the type arguments (see infer.tck), switches on a type parameter (see
 // paramswitch.tck) and fields loops (see data.tck), function values
 // (see funcvalue.tck) and closures (see closure.tck), and, once every
 // body checks, the instances of generic functions the program needs
@@ -90,19 +93,28 @@ package typeck
 // out of it from stacks of their own (see walk_writes, block_leaves and
 // jumps_of), an else-if chain's links in a loop (see check_if), and the
 // right side of an && or || costs only an entry on body_expr's stack of
-// spines and one on the facts' (see logic_start). A generic call's
+// spines and one on the facts' (see logic_start). Arithmetic's proofs
+// walk an operator chain from stacks of their own (see range_of,
+// operand_bounds, arithmetic_shape and boundable), and a chain of steps
+// of known amounts in a loop (see linear), so a sum of any length is
+// proven in a bounded stack. A slice's length and a known string are
+// worked out down a chain of slices, and of locals each initialized
+// with the next, in a loop too (see extent_of and known_string). A
+// query's graph drops an edge alike to one it took, and where a search
+// for its bounds does not settle it is built again whole, keeping every
+// such edge, as Go's is (see relgraph.tck's header). A generic call's
 // argument is checked from check_written_args, not through check_arg's,
 // check_arg_special's or infer_arg's frames (see infer_step), a value
 // passed as any from check_written_args, out of check_arg's frame, or
 // from check_arg, out of check_arg_special's (see any_plain), what
 // checking a closure's body sets apart is kept on the Checker's stacks,
-// not in a frame (see
-// enter_closure), and an instance's body, a fields loop's and a case's
-// are walked from a stack of their own (see inst_walk). clang inlines a
-// function called from one place into its caller, frame and all, so a
-// function on the path a level of nesting takes is kept small by giving
-// what it calls only when it does not nest a call of its own, or does
-// so rarely, a frame of its own: a second caller does it. The generated C gives
+// not in a frame (see enter_closure), and an instance's body, a fields
+// loop's and a case's are walked from a stack of their own (see
+// inst_walk). clang inlines a function called from one place into its
+// caller, frame and all, so a function on the path a level of nesting
+// takes is kept small by giving what it calls only when it does not
+// nest a call of its own, or does so rarely, a frame of its own: a
+// second caller does it. The generated C gives
 // every temporary of a function a slot for the whole call, so what
 // matters is what a frame on the recursion's path holds, which the
 // structure above keeps small whatever clang inlines into it.

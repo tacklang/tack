@@ -289,24 +289,16 @@ func (mut c Checker) tag_facts(k Key, s ast.Switch, cl Key, mut facts list[Fact]
     if ast.is_none(s.tag) {
         return noerror
     }
-    mut order := make(list[Key], c_allocator)
-    c.try_order(k, s, mut order)?
-    mut first := len(order)
-    mut pos := len(order)
-    for i, o := range order {
-        if o == cl {
-            pos = i
-        }
-        if first == len(order) {
-            m := mut c.passes_mut(o)?
-            if m {
-                first = i
-            }
-        }
+    first := mut c.tag_write_of(k, s)?
+    mut pos, has_pos := c.tag_pos[cl]
+    if !has_pos {
+        pos = 0
     }
     if pos < first {
         return noerror
     }
+    mut order := make(list[Key], c_allocator)
+    c.try_order(k, s, mut order)?
     mut tried := make(list[Key], c_allocator)
     for _, o := range order {
         c.stmt_keys(o.unit, clause_of(c.prog.trees, o).values, mut tried)?
@@ -315,6 +307,32 @@ func (mut c Checker) tag_facts(k Key, s ast.Switch, cl Key, mut facts list[Fact]
         }
     }
     return mut c.drop_assigned(mut facts, start, tried[:])
+}
+
+// tag_write_of returns where, in the order the cases of the switch k, s,
+// are tried, its values first may assign a variable, Go's tagWriteOf:
+// the position of the first case with a value that passes anything as
+// mut, or the number of cases when none does, worked out the first time
+// it is asked, with each case's position, kept in tag_pos.
+func (mut c Checker) tag_write_of(k Key, s ast.Switch) (int64, error) {
+    w, has := c.tag_writes[k]
+    if has {
+        return w, noerror
+    }
+    mut order := make(list[Key], c_allocator)
+    c.try_order(k, s, mut order)?
+    mut first := len(order)
+    for i, o := range order {
+        put(mut c.tag_pos, o, i)?
+        if first == len(order) {
+            m := mut c.passes_mut(o)?
+            if m {
+                first = i
+            }
+        }
+    }
+    put(mut c.tag_writes, k, first)?
+    return first, noerror
 }
 
 // passes_mut reports whether any of the values of the case cl, at any
@@ -456,6 +474,7 @@ func (mut c Checker) switch_chain_facts(k Key, s ast.Switch, blk int64, frm int6
         j +%= 1
     }
     append(mut starts, len(nodes))?
+    nodes_start := mut c.push_nodes(nodes[:])?
     j = 1
     for j < n && bool_at(body_leaves[:], j -% 1) && !bool_at(rest_leaves[:], j) {
         cl := key_in(order[:], j)
@@ -465,13 +484,7 @@ func (mut c Checker) switch_chain_facts(k Key, s ast.Switch, blk int64, frm int6
             if len(facts) > 0 {
                 g := Guard{cond: no_cond(), span: c.case_span(cl), kind: guard_exit}
                 frm_head := int_in(starts[:], j +% 1)
-                mut head := make(list[Key], c_allocator)
-                mut h := frm_head
-                for h < len(nodes) {
-                    append(mut head, key_in(nodes[:], h))?
-                    h +%= 1
-                }
-                mut c.assume_in(g, facts[:], head[:], blk, frm)?
+                mut c.assume_pushed(g, facts[:], nodes_start +% frm_head, len(nodes) -% frm_head, blk, frm)?
             }
         } else if !bool_at(body_leaves[:], j) && bool_at(rest_leaves[:], j +% 1) {
             mut facts := make(list[Fact], c_allocator)
@@ -504,11 +517,9 @@ func (mut c Checker) stored_facts(stmt Key, mut facts list[Fact]) (Guard, bool, 
             return Guard{cond: no_cond(), span: sp, kind: guard_value}, true, noerror
         }
     case inc_dec, assign:
-        stepped := mut c.stepped_store(stmt)
+        g, stepped := mut c.stepped_facts(stmt, mut facts)?
         if stepped {
-            // An increment, a decrement or a compound assignment of an
-            // integer is a later stage's; the port declines each.
-            return no_guard(), false, not_ported
+            return g, len(facts) > 0, noerror
         }
     default:
     }
@@ -537,27 +548,48 @@ func (mut c Checker) stored_facts(stmt Key, mut facts list[Fact]) (Guard, bool, 
     if !ok_neg {
         return no_guard(), false, noerror
     }
-    tt := LinTerm{node: target, off: constant.from_int64(0), is_len: false}
-    mut c.add_diff_fact(tt, t, t.off, mut facts)?
-    mut c.add_diff_fact(t, tt, neg_off, mut facts)?
+    tt := lin_term(target, constant.from_int64(0), false)
+    mut c.add_diff_fact(tt, t, t.off, t.conds, mut facts)?
+    mut c.add_diff_fact(t, tt, neg_off, t.conds, mut facts)?
     return Guard{cond: no_cond(), span: sp, kind: guard_store}, true, noerror
 }
 
-// stepped_store reports whether stmt is an increment, a decrement or a
-// compound assignment by + - or * of an integer subject, whose stored
-// bounds Go's steppedFacts works out.
-func (mut c Checker) stepped_store(stmt Key) bool {
+// stepped_facts appends to facts the fact an increment, a decrement or a
+// compound assignment by + - or * of an integer subject, stmt, gives the
+// statements after it, the bounds of the value it stores (see
+// stored_bounds), and returns their guard and whether stmt is one, Go's
+// steppedFacts.
+func (mut c Checker) stepped_facts(stmt Key, mut facts list[Fact]) (Guard, bool, error) {
+    mut at int64 = 0
+    mut target := no_key()
     switch kind_at(c.prog.trees, stmt) {
     case inc_dec(s):
-        return types.is_integer(mut c.type_of(sub(stmt, s.target)))
+        target = sub(stmt, s.target)
+        at = span_at(c.prog.trees, target).end
     case assign(a):
         if a.op != ast.op_add && a.op != ast.op_sub && a.op != ast.op_mul {
-            return false
+            return no_guard(), false, noerror
         }
-        return types.is_integer(mut c.type_of(sub(stmt, a.target)))
+        target = sub(stmt, a.target)
+        at = span_at(c.prog.trees, sub(stmt, a.value)).end
     default:
-        return false
+        return no_guard(), false, noerror
     }
+    typ := mut c.type_of(target)
+    k, ok := mut c.key_of(target)?
+    if !ok || !types.is_integer(typ) {
+        return no_guard(), false, noerror
+    }
+    step, _ := mut c.step_op(stmt, typ)
+    outer := c.fx.at
+    c.fx.at = at
+    known, e := mut c.exact_range(step)
+    c.fx.at = outer
+    if e.code != 0 {
+        return no_guard(), true, e
+    }
+    g := mut c.stored_bounds(stmt, k, known, type_interval(typ), mut facts)?
+    return g, true, noerror
 }
 
 // stored_target returns the subject stmt stores to and the value it
@@ -592,12 +624,28 @@ func (mut c Checker) stored_target(stmt Key) (FKey, Key, bool, error) {
 func (mut c Checker) range_stored(stmt Key, k FKey, value Key, mut facts list[Fact]) (Guard, error) {
     outer := c.fx.at
     c.fx.at = span_at(c.prog.trees, value).end
-    mut known, e := mut c.operand_bounds(value)
+    mut known := no_interval()
+    mut e := noerror
+    _, is_bin := binary_of(c.prog.trees, value)
+    if is_bin && mut c.is_plain_arith(value) {
+        known, e = mut c.exact_range(mut c.op_of(value))
+    } else {
+        known, e = mut c.operand_bounds(value)
+    }
     c.fx.at = outer
     if e.code != 0 {
         return no_guard(), e
     }
-    whole := type_interval(mut c.type_of(value))
+    r_, e_ := mut c.stored_bounds(stmt, k, known, type_interval(mut c.type_of(value)), mut facts)
+    return r_, e_
+}
+
+// stored_bounds appends to facts the fact that stmt, storing a value
+// within known in the integer subject k, gives the statements after it,
+// when known is narrower than whole, the value's type's bounds, and
+// returns its guard.
+func (mut c Checker) stored_bounds(stmt Key, k FKey, b Interval, whole Interval, mut facts list[Fact]) (Guard, error) {
+    mut known := b
     if !known.has_lo || !known.has_hi || known.lo.cmp(whole.lo) <= 0 && known.hi.cmp(whole.hi) >= 0 {
         return no_guard(), noerror
     }
@@ -622,35 +670,6 @@ func within(known Interval, other Interval) Interval {
         k.hi = other.hi
     }
     return k
-}
-
-// operand_bounds returns bounds every value the integer operand e can
-// have where it is used lies within, Go's operandBounds: a known value's,
-// a subject's or a length's bound, a conversion's operand's within its
-// type, and otherwise its type's. Arithmetic's, and the other operators'
-// whose bounds their operands give, are a later stage's, and declined.
-func (mut c Checker) operand_bounds(e Key) (Interval, error) {
-    known, ok := mut c.leaf_range(e)?
-    if ok {
-        return known, noerror
-    }
-    typ := mut c.type_of(e)
-    switch kind_at(c.prog.trees, e) {
-    case binary, unary:
-        if types.is_integer(typ) {
-            return no_interval(), not_ported
-        }
-    case call(cl):
-        if cl.conv != types.invalid && types.is_integer(cl.conv) && count_items(c.prog.trees, e.unit, cl.args) == 1 {
-            arg := item_at(c.prog.trees, e.unit, cl.args, 0)
-            if types.is_integer(mut c.type_of(arg)) {
-                inner := mut c.operand_bounds(arg)?
-                return within(inner, type_interval(typ)), noerror
-            }
-        }
-    default:
-    }
-    return type_interval(typ), noerror
 }
 
 // range_facts appends to facts what the body of the range loop k, s,

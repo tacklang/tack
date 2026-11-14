@@ -16,13 +16,10 @@ import types from "tack/types"
 // escapes Go checks after a body with nothing reported the port checks
 // too (see mover.tck and escape.tck).
 //
-// What is declined, and the stage that owns it: integer arithmetic, an
-// increment, a decrement, an integer compound assignment, a slice and a
-// conversion of a value not known, and the bounds a proof would read
-// from any of them (S4); a loop that writes an integer variable declared
-// before it, whose bounds Go probes for, a call of a function with an
-// ensures clause, an ensures clause, unreachable and a successful append
-// a length is read from (S5).
+// What is declined, and the stage that owns it: a loop that writes an
+// integer variable declared before it, whose bounds Go probes for, a
+// call of a function with an ensures clause, an ensures clause,
+// unreachable and a successful append a length is read from (S5).
 //
 // A chain of else ifs, which nests an if in the else of the one before
 // for every link, is checked in a loop, as is a statement list; only
@@ -634,6 +631,7 @@ func (mut c Checker) check_stmts(unit int64, body ast.Nodes) error {
 // checkStmt and checkStmtAt, with where checking has reached at its end
 // for whatever it checks outside an expression.
 func (mut c Checker) check_stmt(k Key) error {
+    c.stmt_gen +%= 1
     outer := c.fx.at
     c.fx.at = span_at(c.prog.trees, k).end
     e := mut c.check_stmt_at(k)
@@ -970,8 +968,9 @@ func (mut c Checker) check_results(k Key, s ast.Return) error {
 // check_for checks a loop's clauses, in source order, then its body,
 // inside which break and continue are allowed, Go's checkFor. A loop
 // whose init declares a mutable variable is declined: it may count, and
-// its counting is a later stage's; the overflow a post statement needs
-// proved is declined where it is met.
+// its counting is a later stage's. An operation of the post statement
+// the facts there do not prove is tried again after the body (see
+// recheck_post).
 func (mut c Checker) check_for(k Key, s ast.For) error {
     pd := mut c.probe_declines(k)?
     if pd {
@@ -991,8 +990,15 @@ func (mut c Checker) check_for(k Key, s ast.For) error {
     if !ast.is_none(s.cond) {
         mut c.check_cond(sub(k, s.cond))?
     }
+    pending := len(c.deferred)
     if !ast.is_none(s.post) {
-        mut c.check_simple_stmt(sub(k, s.post))?
+        outer := c.deferring
+        c.deferring = true
+        e := mut c.check_simple_stmt(sub(k, s.post))
+        c.deferring = outer
+        if e.code != 0 {
+            return e
+        }
     }
     body := c.mark()
     if !ast.is_none(s.cond) {
@@ -1011,6 +1017,7 @@ func (mut c Checker) check_for(k Key, s ast.For) error {
         return e
     }
     mut c.release(body)?
+    mut c.recheck_post(k, s, pending)?
     return mut c.release(m)
 }
 
@@ -1159,6 +1166,8 @@ func (mut c Checker) check_simple_stmt(k Key) error {
         return mut c.check_multi(k, sub(k, m.value), m.vars, false)
     case multi_assign(m):
         return mut c.check_multi(k, sub(k, m.value), m.targets, true)
+    case inc_dec(s):
+        return mut c.check_inc_dec(k, s)
     default:
         return not_ported
     }
@@ -1243,7 +1252,11 @@ func (mut c Checker) check_multi(k Key, value Key, names ast.Nodes, assign bool)
         }
     }
     mut results := make(list[types.Type], c_allocator)
-    ok := mut c.multi_results(value, want, span_at(c.prog.trees, k), mut results)?
+    mut bop := ":="
+    if assign {
+        bop = "="
+    }
+    ok := mut c.multi_results(value, want, span_at(c.prog.trees, k), first[:], second[:], bop, mut results)?
     mut blank := make(list[bool], c_allocator)
     mut spans := make(list[source.Span], c_allocator)
     if !assign {
@@ -1252,7 +1265,7 @@ func (mut c Checker) check_multi(k Key, value Key, names ast.Nodes, assign bool)
         }
         for i := range want {
             v := item_at(c.prog.trees, k.unit, names, i)
-            t := type_at(results, i)
+            t := mut c.settle_result(value, type_at(results, i), types.invalid)?
             mut c.set_decl_type(v, t)?
             mut c.any_local(v, var_of(c.prog.trees, v))?
             append(mut blank, bytes_equal(name_of(c.prog.trees, c.none, v), []uint8("_")))?
@@ -1300,12 +1313,33 @@ func (mut c Checker) check_multi(k Key, value Key, names ast.Nodes, assign bool)
     return noerror
 }
 
+// settle_result returns the type of the value in one position of a
+// binding of several names, got, once it has one, Go's settleResult: the
+// result of a checked operation on two untyped constants settles to typ,
+// the type of the variable it is assigned to, when that is an integer
+// type, and as any untyped value does otherwise.
+func (mut c Checker) settle_result(value Key, got types.Type, typ types.Type) (types.Type, error) {
+    if !types.is_untyped(got) {
+        return got, noerror
+    }
+    if got == types.untyped_int && types.is_integer(typ) {
+        ok := mut c.settle(value, typ)?
+        if !ok {
+            return types.invalid, noerror
+        }
+        return typ, noerror
+    }
+    t := mut c.value_of(value, got)?
+    return t, noerror
+}
+
 // check_multi_target checks one target of an assignment of several
 // values to value, which gives got in the target's position, invalid when
 // the value is wrong, Go's checkMultiTarget: seen holds the variables
 // already named, each of which may be named only once.
-func (mut c Checker) check_multi_target(k Key, target Key, value Key, got types.Type, mut seen map[ast.Def]bool) error {
+func (mut c Checker) check_multi_target(k Key, target Key, value Key, given types.Type, mut seen map[ast.Def]bool) error {
     if is_blank(c.prog.trees, c.none, target) {
+        mut c.settle_result(value, given, types.invalid)?
         return noerror
     }
     nm, is_id := ident_at(c.prog.trees, target)
@@ -1319,6 +1353,7 @@ func (mut c Checker) check_multi_target(k Key, target Key, value Key, got types.
         put(mut seen, nm.def, true)?
     }
     typ, ok := mut c.storing_assignable(k, target, value)?
+    got := mut c.settle_result(value, given, typ)?
     if !ok || typ == types.invalid || got == types.invalid || types.widens(got, typ) {
         return noerror
     }
@@ -1337,7 +1372,7 @@ func (mut c Checker) check_multi_target(k Key, target Key, value Key, got types.
 // or a checked pop or remove. A division, a slice, arithmetic and a
 // conversion, whose checked forms need proofs, are declined; any other
 // value is one, reported as such.
-func (mut c Checker) multi_results(value Key, want int64, sp source.Span, mut out list[types.Type]) (bool, error) {
+func (mut c Checker) multi_results(value Key, want int64, sp source.Span, first []uint8, second []uint8, bop string, mut out list[types.Type]) (bool, error) {
     switch kind_at(c.prog.trees, value) {
     case question:
         ok := mut c.question_results(value, want, sp, mut out)?
@@ -1347,12 +1382,21 @@ func (mut c Checker) multi_results(value Key, want int64, sp source.Span, mut ou
             ok := mut c.division_results(value, b, want, sp, mut out)?
             return ok, noerror
         }
-        return false, not_ported
+        ok, checked := mut c.arith_results(value, want, sp, mut out)?
+        if checked {
+            return ok, noerror
+        }
     case index(ix):
         ok := mut c.index_results(value, ix, want, sp, mut out)?
         return ok, noerror
-    case unary, slice:
-        return false, not_ported
+    case unary:
+        ok, checked := mut c.arith_results(value, want, sp, mut out)?
+        if checked {
+            return ok, noerror
+        }
+    case slice:
+        ok := mut c.slice_results(value, want, sp, mut out)?
+        return ok, noerror
     case type_assert(a):
         ok := mut c.assert_results(value, a, want, sp, mut out)?
         return ok, noerror
@@ -1362,7 +1406,8 @@ func (mut c Checker) multi_results(value Key, want int64, sp source.Span, mut ou
             return ok, noerror
         }
         if cl.conv != types.invalid {
-            return false, not_ported
+            ok := mut c.conversion_results(value, want, sp, mut out)?
+            return ok, noerror
         }
         switch kind_at(c.prog.trees, sub(value, cl.fn)) {
         case view_type:
@@ -1377,9 +1422,10 @@ func (mut c Checker) multi_results(value Key, want int64, sp source.Span, mut ou
         return ok, noerror
     default:
     }
-    has := mut c.has_fallible(value)?
-    if has {
-        return false, not_ported
+    op := mut c.fallible_of(value)?
+    if want == 2 && !is_no_key(op) {
+        mut c.not_whole(value, op, first, second, bop)?
+        return false, noerror
     }
     mut c.expr(value)?
     mut m := msg()
@@ -1444,38 +1490,114 @@ func (mut c Checker) call_results(k Key, want int64, sp source.Span, mut out lis
     return true, noerror
 }
 
-// has_fallible reports whether value holds, outside any call, a
-// division, a remainder, an index, a slice or a type assertion, Go's
-// fallible finding one, which makes a binding of two names the checked
-// form misused, a later stage's.
-func (mut c Checker) has_fallible(value Key) (bool, error) {
+// fallible_of returns the first division, remainder, index, slice or
+// type assertion x.(T) in value, in source order, outside any call, Go's
+// fallible, or no key when there is none.
+func (mut c Checker) fallible_of(value Key) (Key, error) {
     mut stack := make(list[id[ast.Node]], c_allocator)
     mut kids := make(list[id[ast.Node]], c_allocator)
     append(mut stack, value.node)?
     for len(stack) > 0 {
         top, ok := pop(mut stack)
         if !ok {
-            return true, noerror
+            break
         }
         k := Key{unit: value.unit, node: top}
         switch kind_at(c.prog.trees, k) {
         case call:
             continue
-        case index, slice, type_assert:
-            return true, noerror
+        case index, slice:
+            return k, noerror
+        case type_assert(ta):
+            if !ast.is_none(ta.type_expr) {
+                return k, noerror
+            }
         case binary(b):
             if b.op == ast.op_div || b.op == ast.op_rem {
-                return true, noerror
+                return k, noerror
             }
         default:
         }
         clear_nodes(mut kids)
         children_of(c.prog.trees, value.unit, top, mut kids)?
-        for _, kid := range kids {
-            append(mut stack, kid)?
+        mut i := len(kids) -% 1
+        for i >= 0 {
+            kid, has := kids[i]
+            if has {
+                append(mut stack, kid)?
+            }
+            i -%= 1
         }
     }
-    return false, noerror
+    return no_key(), noerror
+}
+
+// not_whole reports value, bound to two names as b says, which holds op,
+// a division, a remainder, an index, a slice or a type assertion, but is
+// more than it, Go's notWhole: the checked form must be the whole value,
+// bound to first and second, as written, by bop, := or =.
+// The error names the form with op alone, and what to compute from its
+// first value, the value with op replaced by the first name, or, when
+// that is _, only says to use it. value is then checked with op bound
+// with ok, so op needs no proof, except that a divisor known to be zero
+// is still reported.
+func (mut c Checker) not_whole(value Key, op Key, first []uint8, second []uint8, bop string) error {
+    whole := span_at(c.prog.trees, value)
+    part := span_at(c.prog.trees, op)
+    wtext := mut c.source_text(whole)?
+    ptext := mut c.source_text(part)?
+    mut m := msg()
+    append(mut m, []uint8("the checked form must be the whole value: ")...)?
+    append(mut m, first...)?
+    append(mut m, []uint8(", ")...)?
+    append(mut m, second...)?
+    append(mut m, ' ')?
+    append(mut m, []uint8(bop)...)?
+    append(mut m, ' ')?
+    append(mut m, ptext[:]...)?
+    append(mut m, []uint8(", ")...)?
+    if bytes_equal(first, []uint8("_")) {
+        append(mut m, []uint8("then use its value")...)?
+    } else {
+        append(mut m, []uint8("then compute ")...)?
+        for i, ch := range wtext {
+            if i == part.start -% whole.start {
+                break
+            }
+            append(mut m, ch)?
+        }
+        append(mut m, first...)?
+        mut i := part.end -% whole.start
+        for i < len(wtext) {
+            append(mut m, byte_at(wtext[:], i))?
+            i +%= 1
+        }
+    }
+    mut c.errorf(whole, own m)?
+    outer_div := c.checked_division
+    outer_ix := c.checked_index
+    outer_sl := c.checked_slice
+    outer_as := c.checked_assert
+    switch kind_at(c.prog.trees, op) {
+    case binary(bin):
+        v, known := mut c.known_value(sub(op, bin.y))?
+        if !known || !v.is_zero() {
+            c.checked_division = op
+        }
+    case index:
+        c.checked_index = op
+    case slice:
+        c.checked_slice = op
+    case type_assert:
+        c.checked_assert = op
+    default:
+    }
+    _, e := mut c.expr(value)
+    c.checked_division = outer_div
+    c.checked_index = outer_ix
+    c.checked_slice = outer_sl
+    c.checked_assert = outer_as
+    return e
 }
 
 // check_local_var checks a variable declared in a body, Go's checkVar
@@ -1645,33 +1767,74 @@ func (mut c Checker) check_assign(k Key, a ast.Assign) error {
 
 // check_compound checks a compound assignment whose value has type got,
 // Go's checkCompound: its target, checked with k marked as the
-// statement storing it (see storing_assignable), must be a number the
-// operator updates.
-// One on an integer is declined, since it needs its overflow or its
-// divisor proved, later stages' work; one on a float, of + - * or /,
-// needs its value usable as the float's type.
+// statement storing it (see storing_assignable), must be an integer
+// variable it can update, or, for += -= *= and /=, a float one, and the
+// value usable as the target's type, or, for <<= and >>=, a shift's
+// count. An integer's /= and %= need their divisor proven not zero, a
+// signed /= that it is not the smallest value divided by -1, and += -=
+// and *= that the result fits (see require_step_no_overflow).
 func (mut c Checker) check_compound(k Key, a ast.Assign, got types.Type) error {
     target := sub(k, a.target)
-    typ, ok := mut c.storing_assignable(k, target, sub(k, a.value))?
+    value := sub(k, a.value)
+    typ, ok := mut c.storing_assignable(k, target, value)?
     if !ok || typ == types.invalid {
         return noerror
     }
     float_op := a.op == ast.op_add || a.op == ast.op_sub || a.op == ast.op_mul || a.op == ast.op_div
-    if types.is_integer(typ) {
-        return not_ported
-    }
     mut op := msg()
     fmt.appendf(mut op, "%s=", op_name(a.op))?
-    if !float_op || !types.is_float(typ) {
+    if !types.is_integer(typ) && (!float_op || !types.is_float(typ)) {
         n := mut c.type_name(typ)?
         mut m := msg()
         fmt.appendf(mut m, "operator %s is not defined on %s", op[:], n[:])?
         return mut c.errorf(span_at(c.prog.trees, target), own m)
     }
+    if a.op == ast.op_shl || a.op == ast.op_shr {
+        count := mut c.shift_count(value, got)?
+        if count && got == types.untyped_int {
+            mut c.settle(value, types.uint64_type)?
+        }
+        return noerror
+    }
     mut ctx := msg()
     fmt.appendf(mut ctx, "in %s", op[:])?
-    mut c.use(sub(k, a.value), got, typ, ctx)?
+    usable := mut c.use(value, got, typ, ctx)?
+    if usable && (a.op == ast.op_div || a.op == ast.op_rem) && !types.is_float(typ) {
+        nz := mut c.require_nonzero_at(value, false)?
+        if nz && a.op == ast.op_div {
+            step := ArithOp{node: no_key(), unary: false, op: ast.op_div, x: target, y: value, one: false, typ: typ, sp: span_at(c.prog.trees, k)}
+            mut c.require_no_quotient_overflow(step, typ, k)?
+        }
+    }
+    if usable && (a.op == ast.op_add || a.op == ast.op_sub || a.op == ast.op_mul) {
+        mut c.require_step_no_overflow(k, typ)?
+    }
     return noerror
+}
+
+// check_inc_dec checks an increment or a decrement, k, s, Go's case of
+// *ast.IncDec: what holds its target is read, its target must be an
+// integer variable it can update, and the step must be proven to fit
+// (see require_step_no_overflow).
+func (mut c Checker) check_inc_dec(k Key, s ast.IncDec) error {
+    target := sub(k, s.target)
+    mut c.read_held(target)?
+    typ, ok := mut c.assignable(target)?
+    if ok && typ != types.invalid {
+        if !types.is_integer(typ) {
+            n := mut c.type_name(typ)?
+            mut m := msg()
+            mut op := "++"
+            if s.dec {
+                op = "--"
+            }
+            fmt.appendf(mut m, "operator %s is not defined on %s", op, n[:])?
+            mut c.errorf(span_at(c.prog.trees, target), own m)?
+        } else {
+            mut c.require_step_no_overflow(k, typ)?
+        }
+    }
+    return mut c.check_error_assign(k, target)
 }
 
 // assignable checks that target can be assigned, Go's assignable: a

@@ -1,0 +1,447 @@
+package typeck
+
+import constant from "tack/constant"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// Conversions, Go's convfacts.go and the conversions of expr.go: a
+// conversion T(x) of an integer that is neither a constant, nor a known
+// value, nor of a type that widens to T compiles in its plain form when
+// the facts in force where it is written prove x a value of T: x is a
+// subject, the length of a string, view or list subject, or arithmetic
+// on such values, and its type and the facts about it keep it within
+// T's range on every target, or the relations in force do (see
+// facts_fit). Anything else needs the two-value form, v, ok := T(x).
+
+// conversion_operand checks what every conversion requires, whether its
+// value is used alone or with ok, Go's conversionOperand: one argument,
+// an integer or a float type to convert to, and an integer or a float to
+// convert. It returns the argument's type, and false if anything was
+// reported.
+func (mut c Checker) conversion_operand(k Key) (types.Type, bool, error) {
+    cl := call_of(c.prog.trees, k)
+    to := cl.conv
+    name := mut c.type_name(to)?
+    ok_arity := mut c.check_arity(k, name, 1)?
+    if !ok_arity {
+        for i := range count_items(c.prog.trees, k.unit, cl.args) {
+            mut c.expr(item_at(c.prog.trees, k.unit, cl.args, i))?
+        }
+        return types.invalid, false, noerror
+    }
+    arg := item_at(c.prog.trees, k.unit, cl.args, 0)
+    mut src := mut c.expr(arg)?
+    if src == types.invalid {
+        return types.invalid, false, noerror
+    }
+    if !types.is_numeric(to) || !types.is_numeric(src) {
+        src = mut c.value_of(arg, src)?
+        if src != types.invalid {
+            f := mut c.type_name(src)?
+            mut m := msg()
+            fmt.appendf(mut m, "cannot convert %s to %s", f[:], name[:])?
+            mut c.errorf(span_at(c.prog.trees, k), own m)?
+        }
+        return types.invalid, false, noerror
+    }
+    return src, true, noerror
+}
+
+// conversion checks a conversion whose single value is used, T(x), and
+// returns T, Go's conversion, floatConversion and intConversion: it must
+// be one that cannot fail, an untyped constant that fits T, a value of a
+// type that widens to T, a known value that is a value of T on every
+// target, or a subject the facts in force prove one (see facts_fit).
+func (mut c Checker) conversion(k Key) (types.Type, error) {
+    src, ok := mut c.conversion_operand(k)?
+    if !ok {
+        return types.invalid, noerror
+    }
+    cl := call_of(c.prog.trees, k)
+    to := cl.conv
+    arg := item_at(c.prog.trees, k.unit, cl.args, 0)
+    if types.is_float(src) || types.is_float(to) {
+        if types.is_untyped(src) {
+            okc := mut c.const_conversion(k, arg, src, to)?
+            if !okc {
+                return types.invalid, noerror
+            }
+            return to, noerror
+        }
+        if types.is_integer(to) {
+            mut c.can_fail(k, src, to)?
+            return types.invalid, noerror
+        }
+        return to, noerror
+    }
+    if src == types.untyped_int {
+        oks := mut c.settle(arg, to)?
+        if !oks {
+            return types.invalid, noerror
+        }
+        return to, noerror
+    }
+    if types.widens(src, to) {
+        return to, noerror
+    }
+    v, known := mut c.known_value(arg)?
+    if known && fits_somewhere(v, to) {
+        mut c.can_fail(k, src, to)?
+        return to, noerror
+    }
+    if known {
+        fits := mut c.known_fits(arg, v, to)?
+        if !fits {
+            return types.invalid, noerror
+        }
+        return to, noerror
+    }
+    if !c.in_body || c.in_clause {
+        // Before bodies a value not known follows an error, which Go may
+        // follow with one of its own; in a clause the facts are a later
+        // stage's.
+        return types.invalid, not_ported
+    }
+    fit := mut c.facts_fit(arg, to)?
+    if !fit {
+        mut c.conversion_error(k, src, to)?
+    }
+    return to, noerror
+}
+
+// can_fail reports the conversion k, from src to to, as one that can
+// fail, which needs the two-value form.
+func (mut c Checker) can_fail(k Key, src types.Type, to types.Type) error {
+    f := mut c.type_name(src)?
+    name := mut c.type_name(to)?
+    mut m := msg()
+    fmt.appendf(mut m, "converting %s to %s can fail; use v, ok := %s(...)", f[:], name[:], name[:])?
+    return mut c.errorf(span_at(c.prog.trees, k), own m)
+}
+
+// known_fits reports whether v, the known value of e, is a value of the
+// integer type typ on every target, and reports e as overflowing typ
+// when it is not, Go's knownFits.
+func (mut c Checker) known_fits(e Key, v constant.Int, typ types.Type) (bool, error) {
+    if fits_portably(v, typ) {
+        return true, noerror
+    }
+    name := mut c.type_name(typ)?
+    mut m := msg()
+    fmt.appendf(mut m, "constant ")?
+    v.append_string(mut m)?
+    fmt.appendf(mut m, " overflows %s", name[:])?
+    if types.target_width(typ) && !v.is_negative() {
+        fmt.appendf(mut m, ": its width is unknown, so a constant must be at most %d", types.portable_max)?
+    }
+    mut c.errorf(span_at(c.prog.trees, e), own m)?
+    return false, noerror
+}
+
+// fits_somewhere reports whether v is a value of the target-width type
+// typ on some targets but not on others, Go's fitsSomewhere: it lies
+// past types.portable_max, but within 64 bits.
+func fits_somewhere(v constant.Int, typ types.Type) bool {
+    return types.target_width(typ) && !fits_portably(v, typ) && v.fits(64, false)
+}
+
+// checked_conversion checks a conversion in its two-value form, v, ok :=
+// T(x), Go's checkedConversion: only a constant or known value that does
+// not fit, which always fails, is reported. It reports whether the
+// conversion is valid in this form.
+func (mut c Checker) checked_conversion(k Key) (bool, error) {
+    src, ok := mut c.conversion_operand(k)?
+    if !ok {
+        return false, noerror
+    }
+    cl := call_of(c.prog.trees, k)
+    to := cl.conv
+    arg := item_at(c.prog.trees, k.unit, cl.args, 0)
+    if types.is_float(src) || types.is_float(to) {
+        if types.is_untyped(src) {
+            r_, e_ := mut c.const_conversion(k, arg, src, to)
+            return r_, e_
+        }
+        return true, noerror
+    }
+    if types.widens(src, to) {
+        return true, noerror
+    }
+    if src == types.untyped_int {
+        r_, e_ := mut c.settle(arg, to)
+        return r_, e_
+    }
+    v, known := mut c.known_value(arg)?
+    if known && !fits_somewhere(v, to) {
+        r_, e_ := mut c.known_fits(arg, v, to)
+        return r_, e_
+    }
+    return true, noerror
+}
+
+// conversion_results checks the conversion k bound to want names, which
+// must be two, appending to out the converted value's type and whether
+// it fit, Go's conversionResults.
+func (mut c Checker) conversion_results(k Key, want int64, sp source.Span, mut out list[types.Type]) (bool, error) {
+    ok := mut c.checked_conversion(k)?
+    if !ok {
+        return false, noerror
+    }
+    if want != 2 {
+        mut m := msg()
+        fmt.appendf(mut m, "assignment mismatch: %d variables but a conversion gives 2 values", want)?
+        mut c.errorf(sp, own m)?
+        return false, noerror
+    }
+    append(mut out, call_of(c.prog.trees, k).conv)?
+    append(mut out, types.bool_type)?
+    return true, noerror
+}
+
+// facts_fit reports whether the facts in force prove x, a subject, a
+// length or arithmetic of an integer type, a value of the integer type
+// to on every target, Go's factsFit: by the bounds x's type, or a
+// length's range, and the facts give it (see operand_range), or, for a
+// query's term, by the relations in force (see at_least_by and
+// at_most_of).
+func (mut c Checker) facts_fit(x Key, to types.Type) (bool, error) {
+    mark := len(c.fx.conds)
+    r_q, e_q := mut c.facts_fit_terms(x, to)
+    mut c.conds_release(mark)
+    return r_q, e_q
+}
+
+// facts_fit_terms is facts_fit, which the conditions of the terms it reads (see
+// NoWrap) outlive only until it returns: facts_fit drops them then.
+func (mut c Checker) facts_fit_terms(x Key, to types.Type) (bool, error) {
+    known, ok := mut c.operand_range(x)?
+    if !ok {
+        return false, noerror
+    }
+    lo, hi := portable_bounds(to)
+    term, ok_t := mut c.query_term(x)?
+    if !ok_t {
+        return known.has_lo && known.lo.cmp(lo) >= 0 && known.has_hi && known.hi.cmp(hi) <= 0, noerror
+    }
+    least := mut c.at_least_by(known, term, lo)?
+    if !least {
+        return false, noerror
+    }
+    r_, e_ := mut c.at_most_of(known, term, hi)
+    return r_, e_
+}
+
+// at_least_by reports whether a subject, the query's term about, of which
+// known is known, is at least lo, Go's atLeastBy: known says so, or the
+// relations in force do.
+func (mut c Checker) at_least_by(known Interval, about LinTerm, lo constant.Int) (bool, error) {
+    if known.has_lo && known.lo.cmp(lo) >= 0 {
+        return true, noerror
+    }
+    w, ok := lo.negate()
+    if !ok {
+        return false, noerror
+    }
+    r_, e_ := mut c.relates(zero_term(), about, w)
+    return r_, e_
+}
+
+// at_most_of reports whether a subject, the query's term about, of which
+// known is known, is at most hi, Go's atMostOf: known says so, or the
+// relations in force do.
+func (mut c Checker) at_most_of(known Interval, about LinTerm, hi constant.Int) (bool, error) {
+    if known.has_hi && known.hi.cmp(hi) <= 0 {
+        return true, noerror
+    }
+    r_, e_ := mut c.relates(about, zero_term(), hi)
+    return r_, e_
+}
+
+// conversion_error reports k, the conversion T(x) of an integer of type
+// src to the integer type to, which nothing proves cannot fail, Go's
+// conversionError. A subject x gets the check that would prove it (see
+// fit_check), before the two-value form, with notes that explain why the
+// facts about it do not prove it, except a mutable global, which no check
+// proves, and gets a note saying so. Anything else gets the two-value
+// form alone, with the notes operand_notes gives it.
+func (mut c Checker) conversion_error(k Key, src types.Type, to types.Type) error {
+    cl := call_of(c.prog.trees, k)
+    arg := item_at(c.prog.trees, k.unit, cl.args, 0)
+    sn := mut c.type_name(src)?
+    tn := mut c.type_name(to)?
+    mut m := msg()
+    fmt.appendf(mut m, "converting %s to %s can fail", sn[:], tn[:])?
+    mut form := msg()
+    fmt.appendf(mut form, "v, ok := %s(...)", tn[:])?
+    mut notes := make(list[diag.Related], c_allocator)
+    g, is_global := mut c.mutable_global(arg)
+    subj := mut c.is_subject(arg)?
+    if is_global {
+        append(mut m, []uint8("; use ")...)?
+        append(mut m, form[:]...)?
+        c.global_note(g, mut notes)?
+        return mut c.error_notes(span_at(c.prog.trees, k), own m, own notes)
+    }
+    if subj {
+        mut name := msg()
+        mut c.name_subject(arg, mut name)?
+        append(mut m, []uint8("; check ")...)?
+        mut c.fit_check(arg, name[:], to, mut m)?
+        append(mut m, []uint8(" first, or use ")...)?
+        append(mut m, form[:]...)?
+        p := mut c.conversion_proof(arg, to)?
+        mut c.explain(p, mut notes)?
+        return mut c.error_notes(span_at(c.prog.trees, k), own m, own notes)
+    }
+    append(mut m, []uint8("; use ")...)?
+    append(mut m, form[:]...)?
+    is_len := mut c.is_length_subject(arg)?
+    if is_len {
+        p := mut c.conversion_proof(arg, to)?
+        mut c.explain(p, mut notes)?
+    } else {
+        mut c.operand_notes(arg, mut notes)?
+    }
+    return mut c.error_notes(span_at(c.prog.trees, k), own m, own notes)
+}
+
+// fit_check appends the check that proves the subject x, called name, a
+// value of the integer type to, Go's fitCheck: each bound of to's range
+// on every target that x's type does not already keep it within, the
+// lower one first, written as a constant x's type holds on every target.
+func (mut c Checker) fit_check(x Key, name []uint8, to types.Type, mut out list[uint8]) error {
+    lo, top := portable_bounds(to)
+    mut hi := top
+    own_iv := type_interval(mut c.type_of(x))
+    need_lo := own_iv.lo.cmp(lo) < 0
+    need_hi := own_iv.hi.cmp(hi) > 0
+    _, most := portable_bounds(mut c.type_of(x))
+    if hi.cmp(most) > 0 {
+        hi = most
+    }
+    if need_lo && need_hi {
+        lo.append_string(mut out)?
+        append(mut out, []uint8(" <= ")...)?
+        append(mut out, name...)?
+        append(mut out, []uint8(" && ")...)?
+        append(mut out, name...)?
+        append(mut out, []uint8(" <= ")...)?
+        return hi.append_string(mut out)
+    }
+    if need_lo {
+        append(mut out, name...)?
+        append(mut out, []uint8(" >= ")...)?
+        return lo.append_string(mut out)
+    }
+    append(mut out, name...)?
+    append(mut out, []uint8(" <= ")...)?
+    return hi.append_string(mut out)
+}
+
+// conversion_proof returns the proof that the subject or length x is a
+// value of the integer type to, Go's conversionProof (see facts_fit, and
+// relevant_drops and conversion_weak for what a note on it says).
+func (mut c Checker) conversion_proof(x Key, to types.Type) (Proof, error) {
+    about, _ := mut c.note_key(x)?
+    ext := mut c.new_extent(x, "byte", 0, false)?
+    return Proof{kind: proof_conv, about: about, e: x, ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: ext, upper_only: false, to: to, lower: false, upper: false, relations: true}, noerror
+}
+
+// conversion_weak appends to notes why facts about the converted subject
+// that do not prove p fall short, Go's conversionProof's weak: for each
+// side of to's range the facts and its own bounds leave it past, what
+// append_side_note says.
+func (mut c Checker) conversion_weak(p Proof, facts []Fact, would bool, mut notes list[diag.Related]) error {
+    lo, hi := portable_bounds(p.to)
+    mut known := mut c.own_interval(p.e)?
+    for _, f := range facts {
+        known = known.narrow(f)
+    }
+    if known.is_empty() {
+        return noerror
+    }
+    if known.lo.cmp(lo) < 0 {
+        mut c.append_side_note(facts, p.e, known.lo, lo, would, true, mut notes)?
+    }
+    if known.hi.cmp(hi) > 0 {
+        mut c.append_side_note(facts, p.e, known.hi, hi, would, false, mut notes)?
+    }
+    return noerror
+}
+
+// append_side_note appends to notes the note that explains why the facts
+// about the subject x, which with its type's bounds give v as its lowest
+// value, when lower is set, or its highest, do not keep it at or above,
+// or at or below, the limit to's range sets on that side, Go's
+// appendSideNote: the innermost fact that set v allows x == v, or else
+// the innermost one that bounds x on the other side only bounds it
+// there. A bound by another value is one from above, so on that side no
+// note is given beyond the first.
+func (mut c Checker) append_side_note(facts []Fact, x Key, v constant.Int, limit constant.Int, would bool, lower bool, mut notes list[diag.Related]) error {
+    mut name := msg()
+    mut c.note_name(x, mut name)?
+    mut j := len(facts) -% 1
+    for j >= 0 {
+        f := fact_in(facts, j)
+        j -%= 1
+        sets := lower && f.has_lo && f.lo.cmp(v) == 0 || !lower && f.has_hi && f.hi.cmp(v) == 0
+        if !sets {
+            continue
+        }
+        out := mut c.rules_out(x, v)?
+        if out {
+            return noerror
+        }
+        mut m := msg()
+        c.guard_subject(f.guard, mut m)?
+        append(mut m, ' ')?
+        verb("allows", "allow", would, mut m)?
+        append(mut m, ' ')?
+        append(mut m, name[:]...)?
+        append(mut m, []uint8(" == ")...)?
+        v.append_string(mut m)?
+        return push_note(mut notes, c.fact_span(f), own m)
+    }
+    if !lower {
+        for _, f := range facts {
+            if binds_other(f) {
+                return noerror
+            }
+        }
+    }
+    j = len(facts) -% 1
+    for j >= 0 {
+        f := fact_in(facts, j)
+        j -%= 1
+        other := !lower && f.has_lo || lower && (f.has_hi || binds_other(f))
+        if !other {
+            continue
+        }
+        mut m := msg()
+        c.guard_subject(f.guard, mut m)?
+        append(mut m, ' ')?
+        verb("bounds", "bound", would, mut m)?
+        append(mut m, ' ')?
+        append(mut m, name[:]...)?
+        if lower {
+            append(mut m, []uint8(" only above; ")...)?
+            append(mut m, name[:]...)?
+            append(mut m, []uint8(" may be below ")...)?
+        } else {
+            append(mut m, []uint8(" only below; ")...)?
+            append(mut m, name[:]...)?
+            append(mut m, []uint8(" may be above ")...)?
+        }
+        limit.append_string(mut m)?
+        return push_note(mut notes, c.fact_span(f), own m)
+    }
+    return noerror
+}
+
+// binds_other reports whether f bounds its subject by another value,
+// from above, Go's bindsOther: by a string's length, or by a relation.
+func binds_other(f Fact) bool {
+    return !f.len_of.is_zero() || f.relational()
+}

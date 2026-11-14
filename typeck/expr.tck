@@ -11,9 +11,9 @@ import types from "tack/types"
 // are Go's (expr.go and the files it calls), as far as such expressions
 // reach. What only a function body has, a call of a function, a mut
 // argument, a closure, a type assertion, is declined as not ported, and
-// a proof the port does not make yet, that arithmetic on a value not
-// known does not overflow or that an index not known is in range, is
-// taken as holding and recorded as assumed.
+// so is a proof before bodies about a value not known, which follows an
+// error there (see arith_decidable); in a body the provers decide every
+// one (see overflow.tck).
 //
 // Go's expr recurses into every operand. The operand first checked, the
 // left one of a binary operator, what a selector, an index or a slice
@@ -378,6 +378,9 @@ func (mut c Checker) start_spine(k Key, mut links list[Key]) (ExprSpine, error) 
     base := len(links)
     mut x := k
     mut next := mut c.spine_operand(x)
+    if !is_no_key(next) && c.view_slice == k {
+        mut c.mark_slice_views(k)?
+    }
     for !is_no_key(next) {
         append(mut links, x)?
         x = next
@@ -413,6 +416,25 @@ func (mut c Checker) start_spine(k Key, mut links list[Key]) (ExprSpine, error) 
         typ = mut c.expr_node(x)?
     }
     return ExprSpine{base: base, left: len(links) -% base, typ: typ, view: view, logic: false}, noerror
+}
+
+// mark_slice_views marks k, a slice at the top of a spine written where
+// a view may be, and each slice down the spine that another slice
+// slices, as written where a view may be (see slice_of), as Go's
+// sliceType marks what each slice slices before checking it.
+func (mut c Checker) mark_slice_views(k Key) error {
+    c.view_slice = no_key()
+    mut x := k
+    for {
+        switch kind_at(c.prog.trees, x) {
+        case slice(s):
+            put(mut c.slice_views, x, true)?
+            x = sub(x, s.x)
+        default:
+            return noerror
+        }
+    }
+    return noerror
 }
 
 // allow_link_view marks x, the operand of the link parent of a spine, as
@@ -893,9 +915,8 @@ func (mut c Checker) binary(k Key, b ast.Binary, x types.Type, y types.Type) (ty
             return types.invalid, noerror
         }
         if x == types.untyped_int && y == types.untyped_int {
-            // Go words this with a suggested conversion the port does
-            // not write yet.
-            return types.invalid, not_ported
+            mut c.untyped_wrap(k, b)?
+            return types.invalid, noerror
         }
         typ := mut c.typed_arithmetic(k, b, x, y)?
         return typ, noerror
@@ -970,13 +991,25 @@ func (mut c Checker) int_arithmetic(k Key, b ast.Binary, x types.Type, y types.T
     if over {
         return types.invalid, noerror
     }
-    if b.op == ast.op_div && !checked && nonzero && !types.is_unsigned(typ) {
+    if b.op == ast.op_div && !checked && nonzero {
         mut c.set_node_type(k, typ)?
-        mut c.require_no_overflow(k, b)?
+        ok_div := mut c.arith_decidable(k, b)?
+        if !ok_div {
+            return types.invalid, not_ported
+        }
+        if c.in_body {
+            mut c.require_no_quotient_overflow(mut c.op_of(k), typ, no_key())?
+        }
     }
     if b.op == ast.op_add || b.op == ast.op_sub || b.op == ast.op_mul {
         mut c.set_node_type(k, typ)?
-        mut c.require_no_overflow(k, b)?
+        ok_arith := mut c.arith_decidable(k, b)?
+        if !ok_arith {
+            return types.invalid, not_ported
+        }
+        if c.in_body {
+            mut c.require_no_overflow(k, typ)?
+        }
     }
     return typ, noerror
 }
@@ -1006,16 +1039,22 @@ func (mut c Checker) require_nonzero(divisor Key) (bool, error) {
     return r, noerror
 }
 
-// require_no_overflow is Go's requireNoOverflow and
-// requireNoQuotientOverflow for the arithmetic b at k: on known operands
-// knownOverflow has reported any that does not fit, so it holds; on any
-// other the proof needs arithmetic's bounds, a later stage's, and is
-// declined.
-func (mut c Checker) require_no_overflow(k Key, b ast.Binary) error {
+// arith_decidable reports whether the port decides the proof the
+// arithmetic b at k needs, Go's requireNoOverflow and
+// requireNoQuotientOverflow: in a body, by the provers; on known
+// operands, where knownOverflow has reported any that does not fit; and
+// before bodies, or in an ensures clause, only there. An operand not
+// known there follows an error, which Go may follow with one of its own,
+// and is declined, but for x + 1 in a clause with x < len(s) in force,
+// which no length lets reach the largest int64.
+func (mut c Checker) arith_decidable(k Key, b ast.Binary) (bool, error) {
+    if c.in_body && !c.in_clause {
+        return true, noerror
+    }
     _, ok_x := mut c.known_value(sub(k, b.x))?
     _, ok_y := mut c.known_value(sub(k, b.y))?
     if ok_x && ok_y {
-        return noerror
+        return true, noerror
     }
     // In an ensures clause, x + 1 with x < len(s) in force, which no
     // length lets reach the largest int64, is proven, as Go's provers
@@ -1025,13 +1064,10 @@ func (mut c Checker) require_no_overflow(k Key, b ast.Binary) error {
         one, ok_one := mut c.known_value(sub(k, b.y))?
         _, bounded := c.clause_upper[key_of_def(nm.def)]
         if is_id && nm.def.kind == ast.def_param && ok_one && one.cmp(constant.from_int64(1)) == 0 && bounded {
-            return noerror
+            return true, noerror
         }
     }
-    // An operand not known needs the provers, which the port does not
-    // have yet; before bodies that happens only after an error, which Go
-    // may follow with one of its own, or in a clause, so it is declined.
-    return not_ported
+    return false, noerror
 }
 
 // typed_arithmetic returns the type arithmetic on operands of types x and
@@ -1504,12 +1540,8 @@ func (mut c Checker) unary(k Key, u ast.Unary, x types.Type) (types.Type, error)
         if x == types.invalid {
             return types.invalid, noerror
         }
-        if types.is_integer(x) && x != types.untyped_int {
-            return x, noerror
-        }
-        // Go words the other cases with the source quoted and a
-        // suggestion the port does not write yet.
-        return types.invalid, not_ported
+        r_, e_ := mut c.wrap_negation(k, u, x)
+        return r_, e_
     }
     if x == types.invalid {
         return types.invalid, noerror
@@ -1539,8 +1571,12 @@ func (mut c Checker) unary(k Key, u ast.Unary, x types.Type) (types.Type, error)
     if types.is_integer(x) && !types.is_unsigned(x) {
         v, known := mut c.known_value(operand)?
         if !known {
-            // As require_no_overflow declines a proof it cannot make.
-            return types.invalid, not_ported
+            if !c.in_body || c.in_clause {
+                // As arith_decidable declines a proof it cannot make.
+                return types.invalid, not_ported
+            }
+            mut c.require_no_overflow(k, x)?
+            return x, noerror
         }
         n, ok := v.negate()
         _, fits := fitting(n, ok, x)

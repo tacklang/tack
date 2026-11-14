@@ -1,0 +1,758 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// Slices, Go's slice.go: x[i:j] is the bytes of a string, or the
+// elements of an array, a view or a list, from i up to, but not
+// including, j. A string's slice is a string; an array's, a view's or a
+// list's is a view of its element type, usable only where a view
+// parameter's value would be. The bounds are integers of any types, and
+// must be proven to satisfy 0 <= i <= j <= len(x), each of the three by
+// what proves an index: a known value, a variable's type and the facts
+// in force, and two relations only a slice asks about, j <= len(x) and
+// i <= j. A string's slice not proven may be bound with ok instead, t,
+// ok := s[i:j].
+
+// slice_of checks the slice k, s, what it slices checked as x, and
+// returns its type, which it records on k, Go's slice and sliceType: a
+// string for a string's slice, and a view of the elements for an array's,
+// a view's or a list's, which only where a view may be is allowed (see
+// allow_view). Its bounds are checked by slice_in_range, unless it is a
+// view where one cannot be, or a bound can change the list or the view
+// it slices (see check_slice_borrows).
+func (mut c Checker) slice_of(k Key, s ast.Slice, x types.Type) (types.Type, error) {
+    _, marked := delete(mut c.slice_views, k)
+    view_ok := c.view_slice == k || marked
+    if c.view_slice == k {
+        c.view_slice = no_key()
+    }
+    typ := mut c.slice_type(k, s, x)?
+    mut c.set_node_type(k, typ)?
+    if typ == types.invalid {
+        return typ, noerror
+    }
+    if c.table.is_view(typ) && !view_ok {
+        t := mut c.source_text(span_at(c.prog.trees, k))?
+        n := mut c.type_name(typ)?
+        mut m := msg()
+        fmt.appendf(mut m, "%s is a view, %s, which can only be passed to a view parameter or to len", t[:], n[:])?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        mut c.set_node_type(k, types.invalid)?
+        return types.invalid, noerror
+    }
+    if !c.in_body {
+        // Before bodies a slice's bounds follow an error unless they are
+        // known, which the facts would decide otherwise.
+        ok := mut c.known_slice_bounds(k, s)?
+        if !ok {
+            return types.invalid, not_ported
+        }
+    }
+    borrowed := mut c.check_slice_borrows(k, s)?
+    if !borrowed {
+        mut c.slice_in_range(k, s)?
+    }
+    return typ, noerror
+}
+
+// known_slice_bounds reports whether every bound s, at k, writes is a
+// known value.
+func (mut c Checker) known_slice_bounds(k Key, s ast.Slice) (bool, error) {
+    for _, b := range [2]id[ast.Node]{s.lo, s.hi} {
+        if ast.is_none(b) {
+            continue
+        }
+        _, known := mut c.known_value(sub(k, b))?
+        if !known {
+            return false, noerror
+        }
+    }
+    return true, noerror
+}
+
+// slice_type checks what s, at k, slices, checked as x, and its bounds,
+// and returns the slice's type, Go's sliceType: a string's is a string,
+// and an array's, a view's or a list's a view of its elements. An array
+// or a list must be a place. Anything else, a bound that is not an
+// integer and an array that is a temporary are reported, and give
+// invalid.
+func (mut c Checker) slice_type(k Key, s ast.Slice, x types.Type) (types.Type, error) {
+    xk := sub(k, s.x)
+    base := mut c.value_of(xk, x)?
+    lo_ok := mut c.slice_bound(k, s.lo)?
+    hi_ok := mut c.slice_bound(k, s.hi)?
+    mut typ := types.invalid
+    if base == types.invalid {
+        return types.invalid, noerror
+    }
+    if base == types.string_type || c.table.is_view(base) {
+        typ = base
+    } else if c.table.is_list(base) || c.table.is_array(base) {
+        if !is_place(c.prog.trees, xk) {
+            mut m := msg()
+            if c.table.is_list(base) {
+                fmt.appendf(mut m, "cannot slice a temporary list; store it in a variable first")?
+            } else {
+                fmt.appendf(mut m, "cannot slice a temporary array; store it in a variable first")?
+            }
+            mut c.errorf(span_at(c.prog.trees, xk), own m)?
+            return types.invalid, noerror
+        }
+        typ = mut c.table.view_of(c.table.elem_of(base))?
+    } else {
+        n := mut c.type_name(base)?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot slice %s", n[:])?
+        mut c.errorf(span_at(c.prog.trees, xk), own m)?
+        return types.invalid, noerror
+    }
+    if !lo_ok || !hi_ok {
+        return types.invalid, noerror
+    }
+    return typ, noerror
+}
+
+// slice_results checks the slice k bound to want names, which must be
+// two, appending to out the slice's type and whether its bounds were in
+// range, Go's sliceResults. The form needs no proof; a known bound that
+// is always out of range is still reported. Only a string's slice can be
+// bound so: an array's or a view's is a view, which no variable may
+// hold.
+func (mut c Checker) slice_results(k Key, want int64, sp source.Span, mut out list[types.Type]) (bool, error) {
+    outer_checked := c.checked_slice
+    c.checked_slice = k
+    c.view_slice = k
+    typ, e := mut c.expr(k)
+    c.checked_slice = outer_checked
+    c.view_slice = no_key()
+    if e.code != 0 {
+        return false, e
+    }
+    if typ == types.invalid {
+        return false, noerror
+    }
+    if typ != types.string_type {
+        t := mut c.source_text(span_at(c.prog.trees, k))?
+        n := mut c.type_name(typ)?
+        mut m := msg()
+        fmt.appendf(mut m, "%s is a view, %s, which cannot be bound with ok; prove its bounds instead", t[:], n[:])?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return false, noerror
+    }
+    if want != 2 {
+        mut m := msg()
+        fmt.appendf(mut m, "assignment mismatch: %d variables but a slice gives 2 values", want)?
+        mut c.errorf(sp, own m)?
+        return false, noerror
+    }
+    append(mut out, typ)?
+    append(mut out, types.bool_type)?
+    return true, noerror
+}
+
+// SliceNeed is what is missing from the proof that a slice's bounds are
+// in range, Go's sliceNeed: that its low bound is not negative, lo; that
+// its bounds are in order, order; and that its high bound is not past the
+// length, hi.
+type SliceNeed struct {
+    lo bool
+    order bool
+    hi bool
+}
+
+// slice_bounds_span returns the span of s's bounds, Go's Slice.Bounds:
+// from the start of its low bound, or the colon, through the end of its
+// high one, or the colon.
+func slice_bounds_span(trees []ast.File, k Key, s ast.Slice) source.Span {
+    mut sp := s.colon_span
+    if !ast.is_none(s.lo) {
+        sp.start = span_at(trees, sub(k, s.lo)).start
+    }
+    if !ast.is_none(s.hi) {
+        sp.end = span_at(trees, sub(k, s.hi)).end
+    }
+    return sp
+}
+
+// slice_in_range reports the bounds of s, at k, when they are not proven
+// to be in range, Go's sliceInRange: a known bound out of range whatever
+// s slices, or the two out of order, always, and otherwise, unless s is
+// being bound with ok, whatever slice_needs finds missing, with the check
+// that would prove it.
+func (mut c Checker) slice_in_range(k Key, s ast.Slice) error {
+    mistake := mut c.constant_slice_mistake(k, s)?
+    if mistake || c.checked_slice == k {
+        return noerror
+    }
+    need := mut c.slice_needs(k, s)?
+    if !need.lo && !need.order && !need.hi {
+        return noerror
+    }
+    mut m := msg()
+    mut notes := make(list[diag.Related], c_allocator)
+    mut c.slice_error(k, s, need, mut m, mut notes)?
+    return mut c.error_notes(slice_bounds_span(c.prog.trees, k, s), own m, own notes)
+}
+
+// constant_slice_mistake reports, and reports whether it found, a known
+// bound of s that no length makes valid, Go's constantSliceMistake:
+// negative, or past the length of what s slices when that is known, or a
+// known low bound above a known high one.
+func (mut c Checker) constant_slice_mistake(k Key, s ast.Slice) (bool, error) {
+    lo_out := mut c.constant_bound_outside(k, s, s.lo)?
+    if lo_out {
+        return true, noerror
+    }
+    hi_out := mut c.constant_bound_outside(k, s, s.hi)?
+    if hi_out {
+        return true, noerror
+    }
+    if ast.is_none(s.lo) || ast.is_none(s.hi) {
+        return false, noerror
+    }
+    lo, ok_lo := mut c.known_value(sub(k, s.lo))?
+    hi, ok_hi := mut c.known_value(sub(k, s.hi))?
+    if ok_lo && ok_hi && lo.cmp(hi) > 0 {
+        mut m := msg()
+        fmt.appendf(mut m, "slice bounds ")?
+        lo.append_string(mut m)?
+        append(mut m, ':')?
+        hi.append_string(mut m)?
+        fmt.appendf(mut m, " are out of order")?
+        mut c.errorf(slice_bounds_span(c.prog.trees, k, s), own m)?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// constant_bound_outside reports, and reports whether it is, the bound b
+// of s, none when left out, when it is known and outside the range any
+// slice of what s slices allows, Go's constantBoundOutside: negative, or
+// past its length when that is known.
+func (mut c Checker) constant_bound_outside(k Key, s ast.Slice, b id[ast.Node]) (bool, error) {
+    if ast.is_none(b) {
+        return false, noerror
+    }
+    bk := sub(k, b)
+    v, ok := mut c.known_value(bk)?
+    if !ok {
+        return false, noerror
+    }
+    xk := sub(k, s.x)
+    n, n_known := mut c.extent_of(xk)?
+    if !v.is_negative() && (!n_known || v.cmp(constant.from_int64(n)) <= 0) {
+        return false, noerror
+    }
+    mut m := msg()
+    fmt.appendf(mut m, "slice bound ")?
+    v.append_string(mut m)?
+    fmt.appendf(mut m, " is out of range for ")?
+    mut c.extent_name(xk, n, n_known, mut m)?
+    mut c.errorf(span_at(c.prog.trees, bk), own m)?
+    return true, noerror
+}
+
+// extent_name appends how an error about a bound out of range names x,
+// sliced, Go's extentName: an array by its type, and a string, a view or
+// a list by what it is, with its length when that, n, is known.
+func (mut c Checker) extent_name(x Key, n int64, known bool, mut out list[uint8]) error {
+    typ := mut c.type_of(x)
+    if c.table.is_array(typ) {
+        tn := mut c.type_name(typ)?
+        append(mut out, tn[:]...)?
+        return noerror
+    }
+    if typ == types.string_type && known {
+        append(mut out, []uint8("a string of ")...)?
+        return plural64(n, "byte", mut out)
+    }
+    if typ == types.string_type {
+        append(mut out, []uint8("a string")...)?
+        return noerror
+    }
+    if c.table.is_list(typ) {
+        append(mut out, []uint8("a list")...)?
+        return noerror
+    }
+    if known {
+        append(mut out, []uint8("a view of ")...)?
+        return plural64(n, "element", mut out)
+    }
+    append(mut out, []uint8("a view")...)?
+    return noerror
+}
+
+// slice_needs returns what the facts in force do not prove about the
+// bounds of s, Go's sliceNeeds.
+func (mut c Checker) slice_needs(k Key, s ast.Slice) (SliceNeed, error) {
+    xk := sub(k, s.x)
+    mut need := SliceNeed{lo: false, order: false, hi: false}
+    if !ast.is_none(s.lo) {
+        nn := mut c.not_negative(sub(k, s.lo))?
+        need.lo = !nn
+    }
+    if !ast.is_none(s.hi) {
+        w := mut c.within_len(sub(k, s.hi), xk)?
+        need.hi = !w
+    }
+    if ast.is_none(s.lo) && ast.is_none(s.hi) {
+        return need, noerror
+    }
+    if ast.is_none(s.lo) {
+        nn := mut c.not_negative(sub(k, s.hi))?
+        need.order = !nn
+    } else if ast.is_none(s.hi) {
+        w := mut c.within_len(sub(k, s.lo), xk)?
+        need.order = !w
+    } else {
+        o := mut c.in_order(sub(k, s.lo), sub(k, s.hi), xk)?
+        need.order = !o
+    }
+    return need, noerror
+}
+
+// not_negative reports whether the bound b is known not to be negative,
+// Go's notNegative: its least value is not, or the relations in force
+// keep it at least 0.
+func (mut c Checker) not_negative(b Key) (bool, error) {
+    lo, ok := mut c.lowest(b)?
+    if ok && !lo.is_negative() {
+        return true, noerror
+    }
+    r_, e_ := mut c.at_least(b)
+    return r_, e_
+}
+
+// lowest returns the least value the bound b can have where it is used,
+// when there is one, Go's lowest: its known value, 0 for a len, and
+// otherwise what its type, and for a subject or arithmetic the facts in
+// force, give it (see operand_range).
+func (mut c Checker) lowest(b Key) (constant.Int, bool, error) {
+    v, known := mut c.known_value(b)?
+    if known {
+        return v, true, noerror
+    }
+    if is_len_call(c.prog.trees, c.none, b) {
+        return constant.from_int64(0), true, noerror
+    }
+    mut iv := type_interval(mut c.type_of(b))
+    r, ok := mut c.operand_range(b)?
+    if ok {
+        iv = r
+    }
+    return iv.lo, iv.has_lo, noerror
+}
+
+// highest returns the greatest value the bound b can have where it is
+// used, when there is one, Go's highest.
+func (mut c Checker) highest(b Key) (constant.Int, bool, error) {
+    v, known := mut c.known_value(b)?
+    if known {
+        return v, true, noerror
+    }
+    mut iv := type_interval(mut c.type_of(b))
+    r, ok := mut c.operand_range(b)?
+    if ok {
+        iv = r
+    }
+    return iv.hi, iv.has_hi, noerror
+}
+
+// within_len reports whether the bound b is known to be at most the
+// length of x, Go's withinLen: a known value, or the upper bound of a
+// subject or of arithmetic, at most a known length, or at most the least
+// length the facts give x; len(x) itself; or a subject a fact in force
+// bounds by len(x), below it or at most it, or one the relations in
+// force put at most len(x), or a known length.
+func (mut c Checker) within_len(b Key, x Key) (bool, error) {
+    mut limit := mut c.min_len(x)?
+    n, ext := mut c.extent_of(x)?
+    if ext {
+        limit = constant.from_int64(n)
+    }
+    v, known := mut c.known_value(b)?
+    if known {
+        return v.cmp(limit) <= 0, noerror
+    }
+    lo := mut c.is_len_of(b, x)?
+    if lo {
+        return true, noerror
+    }
+    r, ok := mut c.operand_range(b)?
+    if !ok {
+        return false, noerror
+    }
+    if r.has_hi && r.hi.cmp(limit) <= 0 {
+        return true, noerror
+    }
+    bl := mut c.below_len(b, x)?
+    if bl {
+        return true, noerror
+    }
+    rel := mut c.related(b, x, true)?
+    if rel {
+        return true, noerror
+    }
+    r_, e_ := mut c.within_len_by(b, x)
+    return r_, e_
+}
+
+// within_len_by reports whether the relations in force put the bound b
+// at most the length of x, Go's withinLenBy: a known length, or len(x)
+// for a subject x.
+func (mut c Checker) within_len_by(b Key, x Key) (bool, error) {
+    mark := len(c.fx.conds)
+    r_q, e_q := mut c.within_len_by_terms(b, x)
+    mut c.conds_release(mark)
+    return r_q, e_q
+}
+
+// within_len_by_terms is within_len_by, which the conditions of the terms it reads (see
+// NoWrap) outlive only until it returns: within_len_by drops them then.
+func (mut c Checker) within_len_by_terms(b Key, x Key) (bool, error) {
+    n, ext := mut c.extent_of(x)?
+    if ext {
+        r_, e_ := mut c.at_most_by(b, no_key(), constant.from_int64(n))
+        return r_, e_
+    }
+    tb, ok_b := mut c.query_term(b)?
+    tx, ok_x := mut c.len_term(x)?
+    if !ok_b || !ok_x {
+        return false, noerror
+    }
+    r_, e_ := mut c.relates(tb, tx, constant.from_int64(0))
+    return r_, e_
+}
+
+// in_order reports whether the bound lo is known to be at most the bound
+// hi, of a slice of x, Go's inOrder: they are the same subject; hi is
+// len(x) and lo is at most it; the greatest value lo can have is at most
+// the least hi can; or a fact in force, or a chain of relations, puts lo
+// at or below hi.
+func (mut c Checker) in_order(lo Key, hi Key, x Key) (bool, error) {
+    same := mut c.same_subject(lo, hi)?
+    if same {
+        return true, noerror
+    }
+    hl := mut c.is_len_of(hi, x)?
+    if hl {
+        r_, e_ := mut c.within_len(lo, x)
+        return r_, e_
+    }
+    top, ok_top := mut c.highest(lo)?
+    bottom, ok_bottom := mut c.lowest(hi)?
+    if ok_top && ok_bottom && top.cmp(bottom) <= 0 {
+        return true, noerror
+    }
+    rel := mut c.related(lo, hi, false)?
+    if rel {
+        return true, noerror
+    }
+    r_, e_ := mut c.at_most_by(lo, hi, constant.from_int64(0))
+    return r_, e_
+}
+
+// related reports whether a fact in force about the subject a relates it
+// to the subject b, Go's related: at most b's length, when by_len, and
+// at most b otherwise.
+func (mut c Checker) related(a Key, b Key, by_len bool) (bool, error) {
+    ak, ok_a := mut c.subject_key(a)?
+    bk, ok_b := mut c.subject_key(b)?
+    if !ok_a || !ok_b {
+        return false, noerror
+    }
+    mut facts := make(list[Fact], c_allocator)
+    mut c.held_facts_about(ak, mut facts)?
+    for _, f := range facts {
+        h := mut c.holds(f)?
+        if !h {
+            continue
+        }
+        if by_len && f.at_most_len == bk || !by_len && f.at_most == bk {
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// same_subject reports whether a and b are the same subject, Go's
+// sameSubject.
+func (mut c Checker) same_subject(a Key, b Key) (bool, error) {
+    ak, ok_a := mut c.subject_key(a)?
+    bk, ok_b := mut c.subject_key(b)?
+    return ok_a && ok_b && ak == bk, noerror
+}
+
+// is_len_of reports whether e is len(x), x being a subject, Go's isLenOf.
+func (mut c Checker) is_len_of(e Key, x Key) (bool, error) {
+    arg, ok := mut c.len_arg(e)
+    if !ok {
+        return false, noerror
+    }
+    r_, e_ := mut c.same_subject(arg, x)
+    return r_, e_
+}
+
+// slice_error appends to m the error for the bounds of s that need is
+// missing proofs of, and to notes the notes that explain it, Go's
+// sliceError: it suggests the check that would prove them when every
+// part of it can be written, and, for a string, the checked form.
+func (mut c Checker) slice_error(k Key, s ast.Slice, need SliceNeed, mut m list[uint8], mut notes list[diag.Related]) error {
+    mut c.bounds_name(k, s, mut m)?
+    append(mut m, []uint8(" may be out of range")...)?
+    mut checks := msg()
+    ok := mut c.slice_checks(k, s, need, mut checks)?
+    if ok {
+        append(mut m, []uint8("; check ")...)?
+        append(mut m, checks[:]...)?
+        append(mut m, []uint8(" first")...)?
+    }
+    if mut c.type_of(sub(k, s.x)) == types.string_type {
+        mut form := msg()
+        append(mut form, []uint8("v, ok := ...")...)?
+        mut c.bounds_form(k, s, mut form)?
+        or_use(mut m, form[:])?
+    }
+    return mut c.slice_notes(k, s, need, mut notes)
+}
+
+// bounds_name appends how an error names the bounds of s, Go's
+// boundsName: slice bounds i:j, or slice bound i, or j.
+func (mut c Checker) bounds_name(k Key, s ast.Slice, mut out list[uint8]) error {
+    if !ast.is_none(s.lo) && !ast.is_none(s.hi) {
+        append(mut out, []uint8("slice bounds ")...)?
+        mut c.index_name(sub(k, s.lo), mut out)?
+        append(mut out, ':')?
+        return mut c.index_name(sub(k, s.hi), mut out)
+    }
+    append(mut out, []uint8("slice bound ")...)?
+    if !ast.is_none(s.lo) {
+        return mut c.index_name(sub(k, s.lo), mut out)
+    }
+    return mut c.index_name(sub(k, s.hi), mut out)
+}
+
+// bounds_form appends the bounds of s in brackets, as the checked form
+// the error suggests writes them, Go's boundsForm.
+func (mut c Checker) bounds_form(k Key, s ast.Slice, mut out list[uint8]) error {
+    append(mut out, '[')?
+    if !ast.is_none(s.lo) {
+        mut c.index_name(sub(k, s.lo), mut out)?
+    }
+    append(mut out, ':')?
+    if !ast.is_none(s.hi) {
+        mut c.index_name(sub(k, s.hi), mut out)?
+    }
+    append(mut out, ']')?
+    return noerror
+}
+
+// slice_checks appends the comparisons that would prove what need is
+// missing, joined by &&, in the order 0 <= i, i <= j, j <= len(x), with
+// a bound left out standing as 0 or the length, and reports whether each
+// can be written, Go's sliceChecks.
+func (mut c Checker) slice_checks(k Key, s ast.Slice, need SliceNeed, mut out list[uint8]) (bool, error) {
+    mut length := msg()
+    mut c.length_text(sub(k, s.x), mut length)?
+    mut ok := true
+    mut first := true
+    mut part := 0
+    for part < 3 {
+        part +%= 1
+        mut a := no_key()
+        mut b := no_key()
+        if part == 1 {
+            if !need.lo {
+                continue
+            }
+            b = sub(k, s.lo)
+        } else if part == 2 {
+            if !need.order {
+                continue
+            }
+            if !ast.is_none(s.lo) {
+                a = sub(k, s.lo)
+            }
+            if !ast.is_none(s.hi) {
+                b = sub(k, s.hi)
+            }
+        } else {
+            if !need.hi {
+                continue
+            }
+            a = sub(k, s.hi)
+        }
+        mut left := msg()
+        append(mut left, '0')?
+        mut right := msg()
+        append(mut right, length[:]...)?
+        if !is_no_key(a) {
+            clear_bytes(mut left)
+            ok = mut c.check_term(a, ok, mut left)?
+        }
+        if !is_no_key(b) {
+            clear_bytes(mut right)
+            ok = mut c.check_term(b, ok, mut right)?
+        }
+        if len(right) == 0 {
+            ok = false
+        }
+        if !first {
+            append(mut out, []uint8(" && ")...)?
+        }
+        first = false
+        if !is_no_key(a) && is_no_key(b) {
+            _, known := mut c.known_value(a)?
+            if known {
+                append(mut out, right[:]...)?
+                append(mut out, []uint8(" >= ")...)?
+                append(mut out, left[:]...)?
+                continue
+            }
+        }
+        append(mut out, left[:]...)?
+        append(mut out, []uint8(" <= ")...)?
+        append(mut out, right[:]...)?
+    }
+    return ok, noerror
+}
+
+// check_term appends how a check names the bound b, Go's checkTerm: its
+// known value, or its name when it is a subject other than a mutable
+// global, and returns ok as it was, or false when b is neither.
+func (mut c Checker) check_term(b Key, ok bool, mut out list[uint8]) (bool, error) {
+    v, known := mut c.known_value(b)?
+    if known {
+        v.append_string(mut out)?
+        return ok, noerror
+    }
+    _, is_global := mut c.mutable_global(b)
+    s := mut c.is_subject(b)?
+    if is_global || !s {
+        return false, noerror
+    }
+    mut c.name_subject(b, mut out)?
+    return ok, noerror
+}
+
+// length_text appends how a check names the length of x, Go's
+// lengthText: a known length, or len(x) when x is a subject, other than
+// a mutable global, whose length a check can bound, and nothing
+// otherwise.
+func (mut c Checker) length_text(x Key, mut out list[uint8]) error {
+    n, ext := mut c.extent_of(x)?
+    if ext {
+        return constant.from_int64(n).append_string(mut out)
+    }
+    return mut c.string_bound(x, mut out)
+}
+
+// slice_notes appends the notes that explain why the bounds of s are not
+// proven, as need says, each once, Go's sliceNotes (see bound_notes).
+func (mut c Checker) slice_notes(k Key, s ast.Slice, need SliceNeed, mut out list[diag.Related]) error {
+    mut notes := make(list[diag.Related], c_allocator)
+    if need.lo {
+        mut c.bound_notes(k, s, sub(k, s.lo), true, mut notes)?
+    }
+    if need.order && ast.is_none(s.lo) {
+        mut c.bound_notes(k, s, sub(k, s.hi), true, mut notes)?
+    } else if need.order && ast.is_none(s.hi) {
+        mut c.bound_notes(k, s, sub(k, s.lo), false, mut notes)?
+    }
+    if need.hi {
+        mut c.bound_notes(k, s, sub(k, s.hi), false, mut notes)?
+    }
+    if need.order && !ast.is_none(s.lo) && !ast.is_none(s.hi) {
+        mut c.order_relation_notes(sub(k, s.lo), sub(k, s.hi), mut notes)?
+    }
+    if mut c.type_of(sub(k, s.x)) == types.string_type {
+        mut c.indexed_notes(sub(k, s.x), mut notes)?
+    }
+    return unique_notes(notes[:], mut out)
+}
+
+// unique_notes appends notes to out without repeats, the first of each
+// kept, Go's uniqueNotes.
+func unique_notes(notes []diag.Related, mut out list[diag.Related]) error {
+    for j, n := range notes {
+        mut dup := false
+        for i, o := range notes {
+            if i < j && o.span == n.span && bytes_equal(o.message.bytes(), n.message.bytes()) {
+                dup = true
+            }
+        }
+        if !dup {
+            mut m := text_copy(n.message.bytes())?
+            push_note(mut out, n.span, own m)?
+        }
+    }
+    return noerror
+}
+
+// bound_notes appends the notes that explain why the bound b of s is not
+// proven at least 0, when lower is set, or at most the length of what s
+// slices otherwise, Go's boundNotes: for a subject or the length of one,
+// what the guards in scope prove about it, as for an index; for a known
+// value past 0, what they prove about the length; and for anything else,
+// why a guard on a variable in it proves nothing.
+func (mut c Checker) bound_notes(k Key, s ast.Slice, b Key, lower bool, mut notes list[diag.Related]) error {
+    xk := sub(k, s.x)
+    subj := mut c.is_subject(b)?
+    is_len := mut c.is_length_subject(b)?
+    if subj || is_len {
+        n, known := mut c.extent_of(xk)?
+        mut unit := "byte"
+        if mut c.type_of(xk) != types.string_type {
+            unit = "element"
+        }
+        mut e := mut c.new_extent(xk, unit, n, known)?
+        e.at_end = true
+        about, _ := mut c.note_key(b)?
+        p := Proof{kind: proof_bound, about: about, e: b, ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: e, upper_only: false, to: types.invalid, lower: lower, upper: !lower, relations: true}
+        mut c.explain(p, mut notes)?
+        if lower {
+            return mut c.lower_relation_notes(b, mut notes)
+        }
+        return mut c.upper_relation_notes(b, xk, constant.from_int64(0), mut notes)
+    }
+    _, known := mut c.known_value(b)?
+    xs := mut c.is_subject(xk)?
+    if known && !lower && xs {
+        about, _ := mut c.subject_key(xk)?
+        ext := mut c.new_extent(xk, "byte", 0, false)?
+        p := Proof{kind: proof_slice_len, about: about, e: xk, ix: IxRef{node: no_key(), x: xk, index: b}, n: 0, array: false, ext: ext, upper_only: false, to: types.invalid, lower: false, upper: false, relations: false}
+        return mut c.explain(p, mut notes)
+    }
+    return mut c.operand_notes(b, mut notes)
+}
+
+// lower_relation_notes appends relation_notes for the subject or length
+// b at least 0, when neither its own bounds nor the relations prove it,
+// Go's lowerRelationNotes.
+func (mut c Checker) lower_relation_notes(b Key, mut notes list[diag.Related]) error {
+    known := mut c.note_interval(b)?
+    if known.has_lo && !known.lo.is_negative() {
+        return noerror
+    }
+    t, ok := mut c.query_term(b)?
+    if !ok {
+        return noerror
+    }
+    return mut c.relation_notes(zero_term(), t, constant.from_int64(0), span_at(c.prog.trees, b), mut notes)
+}
+
+// order_relation_notes appends relation_notes for the slice bound lo at
+// most hi, both subjects, Go's orderRelationNotes.
+func (mut c Checker) order_relation_notes(lo Key, hi Key, mut notes list[diag.Related]) error {
+    tl, ok_l := mut c.query_term(lo)?
+    th, ok_h := mut c.query_term(hi)?
+    if !ok_l || !ok_h || tl.node.is_zero() || th.node.is_zero() {
+        return noerror
+    }
+    return mut c.relation_notes(tl, th, constant.from_int64(0), span_at(c.prog.trees, hi), mut notes)
+}

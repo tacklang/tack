@@ -32,11 +32,12 @@ func (mut c Checker) write_nodes(mut out list[uint8]) error {
     mut first := true
     mut stack := make(list[DumpItem], c_allocator)
     mut kids := make(list[id[ast.Node]], c_allocator)
+    mut order := make(list[DumpItem], c_allocator)
     for u := range len(c.prog.trees) {
         clear_items(mut stack)
         mut i := tree_decl_count(c.prog.trees, u) -% 1
         for i >= 0 {
-            append(mut stack, DumpItem{node: tree_decl(c.prog.trees, u, i), site: false})?
+            append(mut stack, DumpItem{node: tree_decl(c.prog.trees, u, i), site: false, nth: 0})?
             i -%= 1
         }
         for len(stack) > 0 {
@@ -46,7 +47,7 @@ func (mut c Checker) write_nodes(mut out list[uint8]) error {
             }
             k := Key{unit: u, node: top.node}
             if top.site {
-                mut c.write_site_arg(mut out, k)?
+                mut c.write_site_arg(mut out, k, top.nth)?
                 continue
             }
             name := node_kind_name(c.prog.trees, k)
@@ -59,27 +60,13 @@ func (mut c Checker) write_nodes(mut out list[uint8]) error {
             }
             clear_nodes(mut kids)
             mut c.dump_children(k, mut kids)?
-            mut at int64 = -1
-            sa, has_site := c.site_args[k]
-            if has_site {
-                switch kind_at(c.prog.trees, k) {
-                case call(cl):
-                    at = 1 +% count_items(c.prog.trees, u, cl.type_args) +% sa.index
-                default:
-                }
-            }
-            mut j := len(kids)
+            mut c.dump_order(k, kids[:], mut order)?
+            // Pushed last first, so that they are written in order.
+            mut j := len(order) -% 1
             for j >= 0 {
-                if j < len(kids) {
-                    kid, has := kids[j]
-                    if has {
-                        append(mut stack, DumpItem{node: kid, site: false})?
-                    }
-                }
-                if j == at {
-                    // Pushed after the argument it goes before, so that
-                    // it is written first.
-                    append(mut stack, DumpItem{node: top.node, site: true})?
+                item, has := order[j]
+                if has {
+                    append(mut stack, item)?
                 }
                 j -%= 1
             }
@@ -116,12 +103,59 @@ func (mut c Checker) dump_children(k Key, mut kids list[id[ast.Node]]) error {
     }
 }
 
-// DumpItem is a node the dump has yet to write, or, site set, the
+// DumpItem is a node the dump has yet to write, or, site set, the nth
 // testing.Site argument Go put among the arguments of the call node (see
 // SiteArg).
 type DumpItem struct {
     node id[ast.Node]
     site bool
+    nth int64
+}
+
+// dump_order sets order to the nodes Go's walk visits under k, kids, in
+// order, with the testing.Site arguments Go put among a call's arguments
+// each at its index among them (see pass_site).
+func (mut c Checker) dump_order(k Key, kids []id[ast.Node], mut order list[DumpItem]) error {
+    clear_items(mut order)
+    n, has_sites := c.site_count[k]
+    mut base := len(kids)
+    if has_sites {
+        switch kind_at(c.prog.trees, k) {
+        case call(cl):
+            base = 1 +% count_items(c.prog.trees, k.unit, cl.type_args)
+        default:
+        }
+    }
+    mut a int64 = 0
+    for a < base && a < len(kids) {
+        kid, has := kids[a]
+        if has {
+            append(mut order, DumpItem{node: kid, site: false, nth: 0})?
+        }
+        a +%= 1
+    }
+    if !has_sites {
+        return noerror
+    }
+    mut s int64 = 0
+    mut at int64 = 0
+    for a < len(kids) || s < n {
+        sa, has_sa := c.site_args[RKey{unit: k.unit, node: k.node, i: s}]
+        if s < n && has_sa && sa.index == at {
+            append(mut order, DumpItem{node: k.node, site: true, nth: s})?
+            s +%= 1
+        } else if a < len(kids) {
+            kid, has := kids[a]
+            if has {
+                append(mut order, DumpItem{node: kid, site: false, nth: 0})?
+            }
+            a +%= 1
+        } else {
+            break
+        }
+        at +%= 1
+    }
+    return noerror
 }
 
 // clear_items empties l, keeping what it holds allocated.
@@ -131,12 +165,13 @@ func clear_items(mut l list[DumpItem]) {
     }
 }
 
-// write_site_arg appends the nodes of the testing.Site argument Go put
-// among the arguments of the call k, Go's passSite: the Site parameter
-// of the function the call is in, a name, or a literal of the Site type
-// whose four fields hold the call's place, as siteLit builds it.
-func (mut c Checker) write_site_arg(mut out list[uint8], k Key) error {
-    sa, has := c.site_args[k]
+// write_site_arg appends the nodes of the nth testing.Site argument Go
+// put among the arguments of the call k, Go's passSite: the Site
+// parameter of the function the call is in, a name, or a literal of the
+// Site type whose four fields hold the call's place, as siteLit builds
+// it.
+func (mut c Checker) write_site_arg(mut out list[uint8], k Key, nth int64) error {
+    sa, has := c.site_args[RKey{unit: k.unit, node: k.node, i: nth}]
     if !has {
         return noerror
     }

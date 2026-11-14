@@ -398,6 +398,7 @@ func (mut c Checker) assume_in(g Guard, facts []Fact, head []Key, blk int64, frm
     gid := mut c.add_guard(g)?
     append(mut c.fx.guards, gid)?
     append(mut c.fx.guard_kept, false)?
+    c.fact_gen +%= 1
     mut ri := RegionIdx{head: new_write_index(), blk: blk, frm: frm, drops: make(map[int64]int64, c_allocator), share: true}
     mut indexed := false
     mut rgn := -1
@@ -425,6 +426,44 @@ func (mut c Checker) assume_in(g Guard, facts []Fact, head []Key, blk int64, frm
         append(mut c.fx.active, f)?
         mut c.push_kept(f)?
         mut c.index_fact()?
+    }
+    return noerror
+}
+
+// assume_pushed puts facts in force, from the guard g, for the region of
+// the count nodes of the FactState's region_nodes from start on, pushed
+// there once for every region over them, then the rest of the block blk
+// from the statement frm on, as assume_in's, Go's assumeIn of a slice of
+// one list of nodes: a fact that says nothing is kept apart for that region
+// without copying its nodes, so a switch of many cases, each case's
+// facts over the cases after it, takes time growing with its cases, not
+// with their square. The nodes are copied out only for a fact that needs
+// the writes in them found.
+func (mut c Checker) assume_pushed(g Guard, facts []Fact, start int64, count int64, blk int64, frm int64) error {
+    mut needs_index := false
+    for _, f := range facts {
+        needs_index = needs_index || !f.is_empty()
+    }
+    if needs_index {
+        mut head := make(list[Key], c_allocator)
+        mut i int64 = 0
+        for i < count {
+            append(mut head, key_in(c.fx.region_nodes[:], start +% i))?
+            i +%= 1
+        }
+        return mut c.assume_in(g, facts, head[:], blk, frm)
+    }
+    gid := mut c.add_guard(g)?
+    append(mut c.fx.guards, gid)?
+    append(mut c.fx.guard_kept, false)?
+    c.fact_gen +%= 1
+    mut rgn := -1
+    for _, f0 := range facts {
+        mut c.note_related(f0)?
+        if rgn < 0 {
+            rgn = mut c.add_region(start, count, blk, frm)?
+        }
+        mut c.keep_apart(gid, f0, rgn)?
     }
     return noerror
 }

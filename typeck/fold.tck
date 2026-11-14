@@ -219,6 +219,12 @@ func (mut c Checker) fold_run(k Key, part bool) (Const, bool, error) {
         e := f.k
         if f.part {
             if f.step == 0 {
+                sv, sok, is_byte := mut c.string_element(e)?
+                if is_byte {
+                    rv = sv
+                    rok = sok
+                    continue
+                }
                 f.links = len(links)
                 x := chain_base(c.prog.trees, c.none, e, mut links)?
                 f.n = len(links) -% f.links
@@ -513,6 +519,37 @@ func (mut c Checker) bools_step(mut f FoldFrame, mut links list[Key], rv Const, 
         pop(mut links)
     }
     return no_key(), noerror
+}
+
+// string_element folds e when it is an element of a string, Go's
+// foldElement for a string: the byte at a known index, not negative and
+// below the length, of a string the checker knows (see known_string), an
+// immutable local or a slice of one as much as a global, and reports
+// whether e is one.
+func (mut c Checker) string_element(e Key) (Const, bool, bool, error) {
+    switch kind_at(c.prog.trees, e) {
+    case index(ix):
+        x := sub(e, ix.x)
+        if mut c.type_of(x) != types.string_type {
+            return no_const(), false, false, noerror
+        }
+        v, known := mut c.known_value(sub(e, ix.index))?
+        if !known || v.is_negative() || !v.fits(64, true) {
+            return no_const(), false, true, noerror
+        }
+        str, ok := mut c.known_string(x)?
+        at := v.to_int64()
+        if !ok || at >= str.count {
+            return no_const(), false, true, noerror
+        }
+        b, has_b := c.store.str_bytes(str)[at]
+        if !has_b {
+            return no_const(), false, true, noerror
+        }
+        return int_const(constant.from_int64(int64(b))), true, true, noerror
+    default:
+        return no_const(), false, false, noerror
+    }
 }
 
 // fold_links takes the n links of a chain of fields and elements from
