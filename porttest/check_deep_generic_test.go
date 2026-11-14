@@ -2,8 +2,10 @@ package porttest
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -76,8 +78,9 @@ func genericNest(a, b genericRoute, limit int, inner string) string {
 
 // genericProgram returns a program whose generic h, of a type parameter
 // E0 constrained by Data, holds body, with a struct P for fields loops
-// and a scope parameter for closures, whose main ends in checkError, or,
-// when clean, calls h and reports nothing.
+// and a scope parameter for closures, a function of a bool for a value
+// passed as one, whose main ends in checkError, or, when clean, calls h
+// and reports nothing.
 func genericProgram(body string, clean bool) string {
 	main := "func main() {\n    " + checkError + "}\n"
 	if clean {
@@ -85,6 +88,7 @@ func genericProgram(body string, clean bool) string {
 	}
 	return "package main\n\ntype P struct {\n    n int64\n}\n\n" +
 		"func sv(scope f func()) {\n    f()\n}\n\n" +
+		"func bb(x bool) bool {\n    return x\n}\n\n" +
 		"func h[E0 Data](b bool, v E0) error {\n" + body + "    return noerror\n}\n\n" + main
 }
 
@@ -116,7 +120,8 @@ const instanceLinks = 9000
 // loops in fields loops, switches on a type parameter in switches on
 // the one the case around them declares, closures in closures, each in
 // the others and in an if and a range. Each runs as a valid nest, one
-// whose value is of the wrong type, both under --check, compared as
+// whose value is of the wrong type, and, for a nest holding switches on
+// a type parameter, one for each of narrowedInners, each under --check, compared as
 // check-core compares its cases, and --port-types, compared as TestTypes
 // compares a case of the type checker's, and one in a program Go
 // accepts, under --port-types, compared in the phase "bodies", each with
@@ -136,8 +141,11 @@ func TestCheckDeepGeneric(t *testing.T) {
 		name, src string
 		clean     bool
 		// typesDepth is how deeply the nest is written for --port-types,
-		// when it is less deep than for --check.
+		// when it is less deep than for --check, of the routes a and b in
+		// the variant named.
 		typesDepth int
+		a, b       genericRoute
+		variant    string
 	}
 	var shapes []shape
 	for an, a := range genericRoutes {
@@ -151,14 +159,20 @@ func TestCheckDeepGeneric(t *testing.T) {
 					// the dump of the whole nest would run to gigabytes.
 					depth = paramSwitchTypesDepth
 				}
-				shapes = append(shapes, shape{an + "-" + bn + "-" + variant, genericSource(a, b, variant, deepLimit-6), variant == "clean", depth})
+				shapes = append(shapes, shape{an + "-" + bn + "-" + variant, genericSource(a, b, variant, deepLimit-6), variant == "clean", depth, a, b, variant})
+			}
+			if an != "param-switch" && bn != "param-switch" {
+				continue
+			}
+			for _, variant := range slices.Sorted(maps.Keys(narrowedInners)) {
+				shapes = append(shapes, shape{an + "-" + bn + "-" + variant, genericSource(a, b, variant, deepLimit-6), false, paramSwitchTypesDepth, a, b, variant})
 			}
 		}
 	}
 	shapes = append(shapes,
-		shape{"instances-clean", instanceChain(instanceLinks, "x"), true, 0},
-		shape{"instances-invalid", instanceChain(instanceLinks, "\"s\""), false, 0},
-		shape{"instances-too-many", instanceChain(10001, "x"), false, 0},
+		shape{name: "instances-clean", src: instanceChain(instanceLinks, "x"), clean: true},
+		shape{name: "instances-invalid", src: instanceChain(instanceLinks, "\"s\"")},
+		shape{name: "instances-too-many", src: instanceChain(10001, "x")},
 	)
 	for _, sh := range shapes {
 		file := sh.name + ".tck"
@@ -170,11 +184,8 @@ func TestCheckDeepGeneric(t *testing.T) {
 			in := input{name: file, dir: dir, file: file}
 			types := in
 			if sh.typesDepth > 0 {
-				parts := strings.SplitN(sh.name, "-", -1)
-				variant := parts[len(parts)-1]
-				a, b := genericPair(strings.TrimSuffix(sh.name, "-"+variant))
 				typesFile := "types-" + file
-				src := genericSource(a, b, variant, sh.typesDepth)
+				src := genericSource(sh.a, sh.b, sh.variant, sh.typesDepth)
 				if err := os.WriteFile(filepath.Join(dir, typesFile), []byte(src), 0o600); err != nil {
 					t.Fatal(err)
 				}
@@ -200,32 +211,39 @@ func TestCheckDeepGeneric(t *testing.T) {
 	}
 }
 
+// narrowedInners are the statements TestCheckDeepGeneric puts innermost
+// in a nest holding switches on a type parameter, by variant, each one
+// reported with the type of h's parameter v named in full, as the
+// innermost case narrowed it, a type as deep as the nest: a comparison
+// of mismatched types, arithmetic, a unary operator, a conversion, and
+// v passed as another type.
+var narrowedInners = map[string]string{
+	"typed-mismatch": "if v == \"s\" {\n}\n",
+	"typed-arith":    "y := v + 1\nif y == 0 {\n}\n",
+	"typed-unary":    "y := -v\nif y == 0 {\n}\n",
+	"typed-conv":     "y := int64(v)\nif y == 0 {\n}\n",
+	"typed-pass":     "if bb(v) {\n}\n",
+}
+
 // paramSwitchTypesDepth is how deeply TestCheckDeepGeneric writes a nest
 // holding switches on a type parameter for --port-types.
 const paramSwitchTypesDepth = 100
 
 // genericSource returns the program of the nest of the routes a and b,
 // as deep as limit allows, in the variant named: valid, invalid, its
-// value of the wrong type, or clean, in a program Go accepts.
+// value of the wrong type, clean, in a program Go accepts, or one of
+// narrowedInners, whose statement is innermost.
 func genericSource(a, b genericRoute, variant string, limit int) string {
 	leaf := "1"
 	if variant == "invalid" {
 		leaf = "\"s\""
 	}
-	body := genericNest(a, b, limit, "x := "+leaf+"\nif x == 1 {\n}\n")
-	return genericProgram(body, variant == "clean")
-}
-
-// genericPair returns the routes a shape's name, a-b, nests.
-func genericPair(name string) (genericRoute, genericRoute) {
-	for an, a := range genericRoutes {
-		for bn, b := range genericRoutes {
-			if an+"-"+bn == name {
-				return a, b
-			}
-		}
+	inner, named := narrowedInners[variant]
+	if !named {
+		inner = "x := " + leaf + "\nif x == 1 {\n}\n"
 	}
-	return genericRoute{}, genericRoute{}
+	body := genericNest(a, b, limit, inner)
+	return genericProgram(body, variant == "clean")
 }
 
 // runStackOnly runs the port on in, a program Go accepts, under --check
