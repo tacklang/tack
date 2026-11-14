@@ -1,0 +1,16 @@
+package main
+
+type Box struct {
+    n int64
+    n int64
+}
+
+func g(b Box) {
+}
+
+func main() {
+    g(Box{n: 1})
+    x := Box{n: 1}
+    if x.n == 1 {
+    }
+}

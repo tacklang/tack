@@ -215,7 +215,9 @@
 // does not widen to the target's, or a conversion in its checked form;
 // S5 with a counter loop, a three-clause loop whose init declares a
 // mutable variable, any loop that writes an integer declared before it,
-// whose bounds its invariants carry, an ensures clause or unreachable;
+// whose bounds its invariants carry, an ensures clause, unreachable or
+// an immutable error declared with an append's value, whose success
+// proves the list's length (Go's appendedLen);
 // S6 with an owned parameter or variable, a region, a call with two mut
 // arguments or more, a call of drop or swap, or a function whose result
 // is a view; and S7 with type parameters or arguments, a fields loop,
@@ -224,6 +226,10 @@
 // value of a function type or a call of one. Where an error
 // leaves a type unknown, an operator that could be an integer's counts
 // as one.
+//
+// The walk notes every stage some part of the tree implies, not only the
+// highest: a tree of S7 that implies S4 or S5 as well waits for those
+// stages too (see TestTypes).
 //
 // TestClassifyCounts logs how many cases each stage has, and what set
 // their stages; TestClassifyHandChecked checks the stages of cases read
@@ -289,11 +295,14 @@
 // them, that the Go compiler accepts with no error, and for every case
 // of check-decls, check-core, check-calls and check-facts, the type
 // checker's cases whose stage is S1, the declarations, S2a, statements
-// and expressions, S2b, calls and containers, or S3, facts, and of
+// and expressions, S2b, calls and containers, or S3, facts, of
 // check-own, S6, ownership, once check-own is in required.txt (until S4
 // and S5 are ported, some cases of check-own, which also need the
 // arithmetic or the loops, are declined: a case is of the highest stage
-// it needs, and S6 orders after them):
+// it needs, and S6 orders after them), and of check-generic, S7,
+// generics and closures, whose cases that need S4 or S5 too skip when
+// the port declines their bodies, and for every program of
+// testdata/probes, the probes stage's:
 // each loaded, resolved and checked in process by this module's loader,
 // resolver and checker, typeck.New(...).Check(), as --port-types checks
 // it, whatever the stages before reported. Any other input of the corpus
@@ -309,7 +318,12 @@
 // with its kind, its type, its constant, what a call converts to, what
 // a name was narrowed to, whether a switch is exhaustive, whether a
 // variable was unrolled and whether a name moves its variable's value,
-// Ident.Move, and the kinds of
+// Ident.Move; a call of a generic function with its type arguments and
+// its parameters' and results' types, a fields loop's fields(T) with
+// what it ranges over, the type parameter its fields have, whether its
+// body reads their names and the fields it lists for each type, a
+// switch on a type parameter with how each value of each case matches,
+// and a closure with its captures; and the kinds of
 // judgment the port took as holding without proving them, logged, not
 // compared, and none so far. The test builds the same from Go's checker
 // and compares what the port's phase covers: in "bodies", everything,
@@ -324,10 +338,11 @@
 // port that answers --port-types is not implemented skips, unless
 // types-decls, the check's name, is in
 // required.txt, as it is, where then it fails. An input whose Go typed
-// tree's stage is S1, S2a, S2b or S3 (see Type checker stages), or S6
-// once check-own is in required.txt, must dump in the phase "bodies"
-// when types-bodies is in required.txt, as it is: the port's body check
-// covers every such input. TestTypesDeep runs the
+// tree's stage is S1, S2a, S2b or S3 (see Type checker stages), S6
+// once check-own is in required.txt, or S7 when no part of the tree
+// implies S4 or S5, must dump in the phase "bodies" when types-bodies is
+// in required.txt, as it is: the port's body check covers every such
+// input. TestTypesDeep runs the
 // same check on declaration chains a hundred thousand links long, which
 // have no nesting limit and which Go's checker walks with a frame a
 // link: globals each naming the next, in its value and in its type's
@@ -384,8 +399,14 @@
 // literal's field read back, a union's payload, a ?, a value passed as
 // any, a conversion, a value tested in an if and a switch, the right
 // side of an && and of an || whose left side gives it a fact, and an
-// element whose index the facts around it prove in range; and of values
-// that own a list, a call and a method call taking one as own, a call
+// element whose index the facts around it prove in range, a generic
+// function's call with its type argument written and one inferring it,
+// each also under a ?, a value passed as any to a function and to a
+// generic one, under a ?, a call through a function value held by a scope
+// parameter, also under a ?, by a local and by a local holding a method
+// expression, and a closure returning the value, passed to a scope
+// parameter; and of
+// values that own a list, a call and a method call taking one as own, a call
 // taking another variable as own beside it, a struct literal's owned
 // field, and replace, each with a place of its own. swap and drop give
 // no value, and nest in nothing. Each pair
@@ -402,6 +423,20 @@
 // facts an && around it asks for and the && it holds, are nested a
 // quarter as deeply: Go's checker takes time cubic in their depth, and
 // each of their routes is nested to the limit in its other pairs.
+//
+// TestCheckDeepGeneric nests, in a generic function's body, every
+// ordered pair of fields loops, switches on a type parameter, each on
+// the one the case around it declares, closures passed to a scope
+// parameter, ifs and ranges, alternating, as deeply as the parser
+// allows, valid, with a value of the wrong type and in a program Go
+// accepts, as TestCheckDeepStmts does; a nest holding switches on a
+// type parameter is compared under --port-types a hundred levels deep,
+// since every case narrows the switches around it to a type of its own,
+// and the whole nest's dump would run to gigabytes. And it runs chains
+// of generic functions each calling the next, nine thousand links long,
+// whose instances are found one from another, as Go's checker finds
+// them from a worklist, and one more than ten thousand long, which
+// needs one instance too many.
 //
 // # Deep nesting
 //
@@ -491,4 +526,15 @@
 // moves, own parameters, replace, view results, ranges, regions and
 // defers, with one error in main, so that --check stops before the
 // backend; it first checks that both compilers give the same output.
+// TestGenericPerf is the same for a program of two thousand functions
+// each making forty calls of generic functions, eight hundred instances
+// in all, and passing as many closures to a scope parameter, with one
+// error at the end of main, so that both compilers run only the type
+// checker, the instances and all; it first checks that the port's
+// --port-types of the program without the error, which Go accepts, is
+// Go's. TestClosurePerf is the same for functions of eight thousand
+// locals and closures written under the facts on them, each shape one
+// that is quadratic when a closure's check copies the facts in force,
+// and TestBindPerf for a hundred thousand locals bound to a call's
+// value, nearly all unused, each a warning.
 package porttest

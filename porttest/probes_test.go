@@ -13,8 +13,10 @@ import (
 // and that no case of the corpus covered: compound assignments whose
 // value ends the proof of the target's index, an append spread whose
 // count is not known, an outer index a checked index is in, a map's
-// value assigned under a key of the wrong type, and nests of operators
-// and calls deep enough to have overflowed the port's stack.
+// value assigned under a key of the wrong type, nests of operators and
+// calls deep enough to have overflowed the port's stack, and a call
+// whose argument's own call reported an escape, which Go reports no
+// escape of again.
 const probesStage = "probes"
 
 func init() {

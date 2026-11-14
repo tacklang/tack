@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 // TestClassifyCounts classifies every case of the type checker's and
@@ -126,6 +127,63 @@ func TestClassifyHandChecked(t *testing.T) {
 			t.Errorf("%s/%s (%s) is %s (messages %s, tree %s: %s), want %s",
 				w.archive, w.name, w.why, c.stage, c.diagStage, c.treeStage, c.why, w.stage)
 		}
+	}
+}
+
+// appendBoundSrc is a program of S7, a list of a function type, whose
+// main binds an append's error and then indexes the list under a check
+// of its length, which Go's checker proves with the append's success,
+// S5's appendedLen. A mutation review found it.
+const appendBoundSrc = `package main
+
+func grow(mut l list[func()]) int64 {
+    err := append(mut l, 1)
+    if err.code != 0 {
+        return 0
+    }
+    return 1
+}
+
+type Stack struct {
+    items list[int64]
+}
+
+func (mut s Stack) push() int64 {
+    return grow(mut s.items)
+}
+
+func main() {
+    mut ss := make(list[Stack], c_allocator)
+    err := append(mut ss, Stack{items: make(list[int64], c_allocator)})
+    if err.code != 0 {
+        return
+    }
+    if len(ss) > 0 {
+        c, ok := ss[0].items[mut ss[0].push()]
+        if ok {
+            if c > 5 {
+                exit(1)
+            }
+        }
+    }
+}
+`
+
+// TestClassifyTreeImplies checks the stages a typed tree implies below
+// its own: appendBoundSrc's tree is S7's, and implies S5 too, so that it
+// is no pure S7 input whose bodies the port must check.
+func TestClassifyTreeImplies(t *testing.T) {
+	files := fstest.MapFS{"main.tck": {Data: []byte(appendBoundSrc)}}
+	prog, _, err := typedTree(files, "main.tck", nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prog == nil {
+		t.Fatal("the program did not load")
+	}
+	stage, why, stages := treeStages(prog, "")
+	if stage != stageGeneric || !stages[stageLoops] {
+		t.Errorf("the tree is %s (%s), implying %v; want %s, implying %s", stage, why, stages, stageGeneric, stageLoops)
 	}
 }
 

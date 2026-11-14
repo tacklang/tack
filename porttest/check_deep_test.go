@@ -442,17 +442,30 @@ type nestRoute struct {
 // field of a struct literal read back, a union's payload, a ?, a value
 // passed as any, a conversion, a function whose body tests the value
 // in an if and a switch, the right side of an && and of an || whose left
-// side gives it a fact, and an element of an array literal whose index
-// the facts of the && around it prove in range; and, of values that own
+// side gives it a fact, an element of an array literal whose index
+// the facts of the && around it prove in range, a call of a generic
+// function with its type argument written and one inferring it, each
+// also under a ?, a value passed as any to a function and to a generic
+// one, inferred, written and with its type parameter's argument between
+// two any ones, under a ?, a call through a function value held by a scope
+// parameter, also under a ?, by a local and by a local holding a method
+// expression, and a closure returning the value and an error, passed to
+// a scope parameter whose call a ? follows, so that a ? in the closure
+// returns from it; and, of
+// values that own
 // a list, a call and a method call that take one as own, a call taking
 // another variable as own beside it, a struct literal's field, and
 // replace, whose mut place is a variable of its own each time, @ in the
 // route, so that what the move check follows is the nest and not a use
 // after a move. swap and drop give no value, and so nest in nothing.
 // Each family's bad is a value of the wrong type, and untyped an untyped
-// constant of the family's type, none for the owned family.
+// constant of the family's type, none for the owned family. params are
+// the parameters h takes after its T, the function values the routes
+// call, and args the values a call of h passes them; the locals the
+// routes call are declared in h as nestLocals says.
 var nestFamilies = []struct {
 	decls, leaf, bad, untyped string
+	params, args              string
 	routes                    map[string]nestRoute
 	owned                     bool
 }{
@@ -463,8 +476,15 @@ var nestFamilies = []struct {
 			"func bb(x bool) bool {\n    return x\n}\n\nfunc wb(x bool) W {\n    return W{v: x}\n}\n\n" +
 			"func ub(u U) bool {\n    return u == U.b\n}\n\n" +
 			"func qb(x bool) (bool, error) {\n    return x, noerror\n}\n\nfunc ab(x any) bool {\n    return true\n}\n\n" +
-			"func cb(x bool) bool {\n    if x {\n        return true\n    }\n    switch x {\n    case true:\n    }\n    return false\n}\n\n",
+			"func cb(x bool) bool {\n    if x {\n        return true\n    }\n    switch x {\n    case true:\n    }\n    return false\n}\n\n" +
+			"func gb[V Data](own x V) V {\n    return x\n}\n\nfunc gi[V Data](own x V) V {\n    return x\n}\n\n" +
+			"func sc(scope f func() (bool, error)) (bool, error) {\n    x, err := f()\n    return x, err\n}\n\n" +
+			"func qg[V Data](own x V) (V, error) {\n    return x, noerror\n}\n\n" +
+			"func aq(x bool, y any) (bool, error) {\n    return x, noerror\n}\n\n" +
+			"func gaq[V Data](own x V, y any) (V, error) {\n    return x, noerror\n}\n\n" +
+			"func gaqm[V Data](y any, own x V, z any) (V, error) {\n    return x, noerror\n}\n\n",
 		leaf: "true", bad: "\"s\"", untyped: "1 < 2",
+		params: ", scope pf func(bool) bool, scope pq func(bool) (bool, error)", args: ", bb, qb",
 		routes: map[string]nestRoute{
 			"call": {"bb(%s)", 1}, "method-arg": {"t.c(%s)", 1}, "receiver": {"wb(%s).get()", 1},
 			"method-expr": {"T.c(t, %s)", 1}, "left": {"%s == true", 0}, "right": {"true == %s", 0},
@@ -473,6 +493,13 @@ var nestFamilies = []struct {
 			"question": {"qb(%s)?", 1}, "any": {"ab(%s)", 1}, "cond": {"cb(%s)", 1},
 			"fact-and": {"(t.n > 0 && %s)", 1}, "fact-or": {"(t.n == 0 || %s)", 1},
 			"guarded": {"(t.n >= 0 && t.n < 2 && [2]bool{%s, true}[t.n])", 2},
+			"generic": {"gb[bool](%s)", 1}, "inferred": {"gi(%s)", 1},
+			"generic-q": {"qg[bool](%s)?", 1}, "inferred-q": {"qg(%s)?", 1},
+			"value-param": {"pf(%s)", 1}, "value-q": {"pq(%s)?", 1},
+			"value-local": {"vl(%s)", 1}, "value-method": {"vm(t, %s)", 1},
+			"any-q": {"aq(true, %s)?", 1}, "generic-any-q": {"gaq(true, %s)?", 1},
+			"generic-any-w": {"gaq[bool](true, %s)?", 1}, "generic-any-m": {"gaqm(1, true, %s)?", 1},
+			"closure": {"sc(func() (bool, error) {\nreturn %s, noerror\n})?", 3},
 		},
 	},
 	{
@@ -491,13 +518,30 @@ var nestFamilies = []struct {
 	},
 	{
 		decls: "type T struct {\n    n int64\n}\n\nfunc (t T) c(x int64) int64 {\n    return x\n}\n\n" +
-			"type B struct {\n    v int64\n}\n\nfunc fi(x int64) int64 {\n    return x\n}\n\n",
+			"type B struct {\n    v int64\n}\n\nfunc fi(x int64) int64 {\n    return x\n}\n\n" +
+			"func gn[V Data](own x V) V {\n    return x\n}\n\nfunc sn(scope f func() int64) int64 {\n    return f()\n}\n\n",
 		leaf: "1", bad: "\"s\"", untyped: "2 * 3",
 		routes: map[string]nestRoute{
 			"int-call": {"fi(%s)", 1}, "int-method-arg": {"t.c(%s)", 1}, "conversion": {"int64(%s)", 1},
 			"int-element": {"[1]int64{%s}[0]", 1}, "int-field": {"B{v: %s}.v", 1},
+			"int-generic": {"gn[int64](%s)", 1}, "int-closure": {"sn(func() int64 {\nreturn %s\n})", 3},
 		},
 	},
+}
+
+// nestLocals returns the declarations, one a line, of the locals nest
+// calls of those the bool family's routes call through: vl, holding the
+// function bb, and vm, the method expression T.c. Only those called are
+// declared, as a local declared and never used is reported.
+func nestLocals(nest string) string {
+	var b strings.Builder
+	if strings.Contains(nest, "vl(") {
+		b.WriteString("    vl := bb\n")
+	}
+	if strings.Contains(nest, "vm(") {
+		b.WriteString("    vm := T.c\n")
+	}
+	return b.String()
 }
 
 // shallowPairs are the ordered pairs of routes TestCheckDeepPairs nests
@@ -597,10 +641,11 @@ func TestCheckDeepPairs(t *testing.T) {
 						limit /= 4
 					}
 					nest, vars := ownedVars(pairNest(a, b, leaf, limit))
+					vars += nestLocals(nest)
 					if fam.owned {
 						ret = "list[int64]"
 					}
-					h := "func h(t T) (" + ret + ", error) {\n" + vars + "    x := " + nest +
+					h := "func h(t T" + fam.params + ") (" + ret + ", error) {\n" + vars + "    x := " + nest +
 						"\n    return x, noerror\n}\n\n"
 					if fam.owned {
 						// A list bound with an error could be read only once
@@ -612,7 +657,7 @@ func TestCheckDeepPairs(t *testing.T) {
 					case variant == "clean" && fam.owned:
 						main = "func main() {\n    l := h(T{n: 1})\n    if len(l) == 0 {\n        return\n    }\n}\n"
 					case variant == "clean":
-						main = "func main() {\n    _, err := h(T{n: 1})\n    if err.code != 0 {\n        return\n    }\n}\n"
+						main = "func main() {\n    _, err := h(T{n: 1}" + fam.args + ")\n    if err.code != 0 {\n        return\n    }\n}\n"
 					}
 					src := "package main\n\n" + fam.decls + h + main
 					file := an + "-" + bn + "-" + variant + ".tck"
@@ -685,17 +730,21 @@ func stmtNest(a, b string, levels int, inner string) string {
 
 // stmtProgram returns a program declaring what the bool routes of
 // nestFamilies call, U among them, whose h holds body, given a T, a
-// bool, an int64, a U, an any and a list, returning an error, so that a
-// ? may be written in it, and whose main ends in checkError, or, when
-// clean, calls h and reports nothing.
+// bool, an int64, a U, an any, a list and the function values the bool
+// family's params are, declaring the locals body calls (see
+// nestLocals), returning an error, so that a ? may be written in it,
+// and whose main ends in checkError, or, when clean, calls h and
+// reports nothing.
 func stmtProgram(body string, clean bool) string {
+	bools := nestFamilies[0]
 	main := "func main() {\n    " + checkError + "}\n"
 	if clean {
-		main = "func main() {\n    l := make(list[int64], c_allocator)\n    e := h(T{n: 1}, true, 1, U.b, 1, l)\n" +
+		main = "func main() {\n    l := make(list[int64], c_allocator)\n    e := h(T{n: 1}, true, 1, U.b, 1, l" + bools.args + ")\n" +
 			"    if e.code != 0 {\n        return\n    }\n}\n"
 	}
-	return "package main\n\n" + nestFamilies[0].decls +
-		"func h(t T, b bool, n int64, u U, y any, l list[int64]) error {\n" + body + "    return noerror\n}\n\n" + main
+	return "package main\n\n" + bools.decls +
+		"func h(t T, b bool, n int64, u U, y any, l list[int64]" + bools.params + ") error {\n" + nestLocals(body) + body +
+		"    return noerror\n}\n\n" + main
 }
 
 // TestCheckDeepStmts nests every ordered pair of stmtRoutes,

@@ -1,6 +1,7 @@
 package porttest
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -77,6 +78,14 @@ func TestTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	generics, err := checkInputs(stageGeneric)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probes, err := probeInputs()
+	if err != nil {
+		t.Fatal(err)
+	}
 	var clean, all, bodies atomic.Int64
 	var assumed sync.Map
 	t.Run("corpus", func(t *testing.T) {
@@ -88,7 +97,8 @@ func TestTypes(t *testing.T) {
 			{"single", singles, true}, {"packages", pkgs, true},
 			{"check-decls", decls, false}, {"check-core", core, false},
 			{"check-calls", calls, false}, {"check-facts", facts, false},
-			{"check-own", owns, false},
+			{"check-own", owns, false}, {"check-generic", generics, false},
+			{"probes", probes, false},
 		} {
 			if group.name == checkStageInfo[stageOwn].stage && !env.required[group.name] {
 				// A declined case's errors are its bodies', which the
@@ -101,7 +111,7 @@ func TestTypes(t *testing.T) {
 					t.Run(in.name, func(t *testing.T) {
 						t.Parallel()
 						all.Add(1)
-						compared, kinds, phase := checkTypes(t, in, env.portRun, group.clean)
+						compared, kinds, phase := checkTypesOf(t, in, env.portRun, group.clean, group.name == checkStageInfo[stageGeneric].stage)
 						if compared {
 							clean.Add(1)
 						}
@@ -135,7 +145,17 @@ func TestTypes(t *testing.T) {
 // (see bodiesStage), when types-bodies is required.
 func checkTypes(t *testing.T, in input, portBin string, clean bool) (bool, []string, string) {
 	t.Helper()
-	want, stage, ok := goTypes(t, in, clean)
+	return checkTypesOf(t, in, portBin, clean, false)
+}
+
+// checkTypesOf is checkTypes, but for an input whose dump, declinable
+// says, may be of the phase "decls" when its errors are its bodies':
+// one the port's body check need not cover (see bodiesStage) skips
+// when the port declines its bodies, as a case of check-generic that
+// waits for a later stage does.
+func checkTypesOf(t *testing.T, in input, portBin string, clean, declinable bool) (bool, []string, string) {
+	t.Helper()
+	want, stage, stages, ok := goTypes(t, in, clean)
 	if !ok {
 		return false, nil, ""
 	}
@@ -150,6 +170,9 @@ func checkTypes(t *testing.T, in input, portBin string, clean bool) (bool, []str
 	if port.code != 0 || len(port.stderr) > 0 {
 		t.Fatalf("the port exited %d, writing to standard error:\n%s", port.code, port.stderr)
 	}
+	if declinable && !bodiesStage(stage, stages) && bytes.Contains(port.stdout, []byte(`"phase":"decls"`)) {
+		t.Skip("the port declines a body, which waits for a later stage")
+	}
 	if d := typesDiff(want, port.stdout); d != "" {
 		t.Errorf("what the checker finds differs: %s\ncommand: (cd %s && tack --port-types %s)",
 			d, in.dir, in.file)
@@ -161,7 +184,7 @@ func checkTypes(t *testing.T, in input, portBin string, clean bool) (bool, []str
 	if err := json.Unmarshal(port.stdout, &dump); err != nil {
 		t.Errorf("reading what the port assumed: %v", err)
 	}
-	if bodiesStage(stage) && dump.Phase != "bodies" && env.required[bodiesCheck] {
+	if bodiesStage(stage, stages) && dump.Phase != "bodies" && env.required[bodiesCheck] {
 		t.Errorf("%s is required, and Go's typed tree is %s's, but the port's dump is of the phase %q",
 			bodiesCheck, stage, dump.Phase)
 	}
@@ -172,8 +195,13 @@ func checkTypes(t *testing.T, in input, portBin string, clean bool) (bool, []str
 // is one whose every body the port's body check covers: S1, S2a, S2b or
 // S3, and S6, ownership, once check-own is in required.txt: until then
 // some of its inputs need the arithmetic or the loops, and the port
-// declines them.
-func bodiesStage(stage checkStage) bool {
+// declines them. S7, generics and closures, is covered for a tree that
+// implies neither S4 nor S5 anywhere, which stages, every stage the tree
+// implies (see treeStages), says.
+func bodiesStage(stage checkStage, stages map[checkStage]bool) bool {
+	if stage == stageGeneric {
+		return !stages[stageArith] && !stages[stageLoops]
+	}
 	return stage <= stageFacts || stage == stageOwn && env.required[checkStageInfo[stageOwn].stage]
 }
 
@@ -239,26 +267,26 @@ func typesDiff(want, got []byte) string {
 // clean says so, only a program Go accepts with no error is one; when
 // not, any program the loader builds is, checked as the port's
 // --port-types checks it, whatever the stages before reported.
-func goTypes(t *testing.T, in input, clean bool) ([]byte, checkStage, bool) {
+func goTypes(t *testing.T, in input, clean bool) ([]byte, checkStage, map[checkStage]bool, bool) {
 	t.Helper()
 	res, ok := typesLoad(t, in)
 	if !ok || res.Program == nil || clean && diag.HasErrors(res.Diags) {
-		return nil, 0, false
+		return nil, 0, nil, false
 	}
 	prog := res.Program
 	if diag.HasErrors(resolver.New(prog, builtin.Default()).Resolve()) && clean {
-		return nil, 0, false
+		return nil, 0, nil, false
 	}
 	diags := typeck.New(prog, res.Files, builtin.Default()).Check()
 	if clean && diag.HasErrors(diags) {
-		return nil, 0, false
+		return nil, 0, nil, false
 	}
 	out, err := json.Marshal(typesDump(prog, diags))
 	if err != nil {
 		t.Fatal(err)
 	}
-	stage, _ := treeStage(prog, "")
-	return out, stage, true
+	stage, _, stages := treeStages(prog, "")
+	return out, stage, stages, true
 }
 
 // typesLoad loads in's target as the driver's loadWith does: a directory,
@@ -323,7 +351,9 @@ func typesDump(prog *ast.Program, diags []diag.Diagnostic) map[string]any {
 	}
 	instances := make([]any, 0)
 	for _, inst := range prog.Instances {
-		instances = append(instances, inst.Func.Name)
+		instances = append(instances, map[string]any{
+			"func": inst.Func.Name, "type_args": typeList(inst.TypeArgs),
+		})
 	}
 	errs := make([]any, 0)
 	for _, d := range diags {
@@ -381,6 +411,11 @@ func nodeEntry(n ast.Node) map[string]any {
 		e["type"] = int(x.Type)
 	case *ast.Call:
 		e["conv"], e["const"] = int(x.Conv), constEntry(x.Const)
+		if x.TypeArgs != nil {
+			e["type_args"] = typeList(x.TypeArgs)
+			e["param_types"] = typeList(x.ParamTypes)
+			e["result_types"] = typeList(x.ResultTypes)
+		}
 	case *ast.Binary:
 		e["const"] = constEntry(x.Const)
 	case *ast.Unary:
@@ -389,6 +424,42 @@ func nodeEntry(n ast.Node) map[string]any {
 		e["narrowed"], e["move"] = int(x.Narrowed), x.Move
 	case *ast.Switch:
 		e["exhaustive"] = x.Exhaustive
+		if x.OnType {
+			clauses := make([]any, 0, len(x.Cases))
+			for _, cl := range x.Cases {
+				tcs := make([]any, 0, len(cl.TypeCases))
+				for _, tc := range cl.TypeCases {
+					tcs = append(tcs, map[string]any{
+						"kind": int(tc.Kind), "type": int(tc.Type), "key": int(tc.Key),
+					})
+				}
+				clauses = append(clauses, tcs)
+			}
+			e["type_cases"] = clauses
+		}
+	case *ast.FuncLit:
+		caps := make([]any, 0, len(x.Captures))
+		for _, cp := range x.Captures {
+			writeAt := 0
+			if cp.Write {
+				writeAt = cp.WriteAt.Start
+			}
+			caps = append(caps, map[string]any{
+				"decl": declName(cp.Decl), "at": cp.At.Start, "write": cp.Write, "write_at": writeAt,
+			})
+		}
+		e["captures"] = caps
+	case *ast.FieldsOf:
+		unrolled := make([]any, 0, len(x.Unrolled))
+		for _, u := range x.Unrolled {
+			fields := make([]any, 0, len(u.Fields))
+			for _, i := range u.Fields {
+				fields = append(fields, i)
+			}
+			unrolled = append(unrolled, map[string]any{"type": int(u.Type), "fields": fields})
+		}
+		e["fo_type"], e["fo_field"], e["names"] = int(x.Type), int(x.Field), x.Names
+		e["fields_for"] = unrolled
 	}
 	return e
 }
@@ -398,6 +469,19 @@ func nodeEntry(n ast.Node) map[string]any {
 func diagEntry(d diag.Diagnostic) map[string]any {
 	return map[string]any{
 		"file": d.Span.File, "start": d.Span.Start, "end": d.Span.End, "message": d.Message,
+	}
+}
+
+// declName returns the name decl, a variable or a parameter a closure
+// captures, declares.
+func declName(decl ast.Decl) string {
+	switch d := decl.(type) {
+	case *ast.Var:
+		return d.Name
+	case *ast.Param:
+		return d.Name
+	default:
+		return ""
 	}
 }
 

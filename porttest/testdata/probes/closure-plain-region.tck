@@ -1,0 +1,11 @@
+package main
+
+func each(f func()) {
+}
+
+func main() {
+    each(func() {
+        region r {
+        }
+    })
+}

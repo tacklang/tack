@@ -189,3 +189,220 @@ func TestCheckPerf(t *testing.T) {
 		t.Errorf("the port's peak memory was %d KB, more than %d times Go's %d KB", portMem, perfMemoryFactor, goMem)
 	}
 }
+
+// genericPerfTypes, genericPerfFuncs and genericPerfCallers size
+// TestGenericPerf's program: struct types each with a method an
+// interface asks for, generic functions each called with every one of
+// them, and the functions calling them, each passing closures to a
+// scope parameter.
+const (
+	genericPerfTypes   = 40
+	genericPerfFuncs   = 20
+	genericPerfCallers = 2000
+)
+
+// genericPerfProgram returns TestGenericPerf's program, which Go accepts:
+// genericPerfTypes structs, genericPerfFuncs generic functions of a type
+// parameter constrained by an interface, each calling a method of it,
+// ranging over the fields of a Data one and switching on it, and
+// genericPerfCallers functions, each calling one of the generic
+// functions with each struct type in turn, several of them with the
+// type argument written, and passing closures that capture and write its
+// locals to a scope parameter, so that the program needs every instance
+// of every generic function, genericPerfTypes times genericPerfFuncs of
+// them, and holds as many closures as calls. When failing, main ends in
+// checkError, so that --check stops before the backend.
+func genericPerfProgram(failing bool) string {
+	var b strings.Builder
+	b.WriteString("package main\n\ntype Sizer interface {\n    size() int64\n}\n\n" +
+		"func each(n int64, scope f func(int64)) {\n    for i := range n {\n        f(i)\n    }\n}\n\n")
+	for i := range genericPerfTypes {
+		fmt.Fprintf(&b, "type S%d struct {\n    n int64\n    b bool\n}\n\n"+
+			"func (s S%d) size() int64 {\n    return s.n\n}\n\n", i, i)
+	}
+	for i := range genericPerfFuncs {
+		fmt.Fprintf(&b, "func g%d[T Sizer](own x T) int64 {\n    return x.size()\n}\n\n", i)
+		fmt.Fprintf(&b, "func d%d[T Data](own v T) int64 {\n    mut named := false\n"+
+			"    for f := range fields(T) {\n        if f.index == 0 {\n            named = true\n        }\n    }\n"+
+			"    switch T {\n    case int64:\n        return v\n    case struct:\n        if named {\n            return 1\n        }\n"+
+			"        return 0\n    default:\n        return 0\n    }\n}\n\n", i)
+	}
+	for i := range genericPerfCallers {
+		g := i % genericPerfFuncs
+		fmt.Fprintf(&b, "func h%d() int64 {\n    mut seen := false\n", i)
+		for j := range genericPerfTypes {
+			s := (i + j) % genericPerfTypes
+			if j%4 == 0 {
+				fmt.Fprintf(&b, "    a%d := g%d[S%d](S%d{n: 1, b: true})\n", j, g, s, s)
+			} else {
+				fmt.Fprintf(&b, "    a%d := g%d(S%d{n: 1, b: true})\n", j, g, s)
+			}
+			fmt.Fprintf(&b, "    each(1, func(k int64) {\n        if k == a%d {\n            seen = true\n        }\n    })\n", j)
+		}
+		fmt.Fprintf(&b, "    return d%d(S%d{n: 1, b: seen})\n}\n\n", g, i%genericPerfTypes)
+	}
+	b.WriteString("func main() {\n")
+	for i := range genericPerfCallers {
+		fmt.Fprintf(&b, "    if h%d() == 3 {\n        return\n    }\n", i)
+	}
+	if failing {
+		b.WriteString("    " + checkError)
+	}
+	b.WriteString("}\n")
+	return b.String()
+}
+
+// TestGenericPerf is the performance tripwire for the type checker's
+// generics and closures: it checks that the port's --port-types of
+// genericPerfProgram's program, which Go accepts, is Go's, as TestTypes
+// checks an input of the corpus, in the phase "bodies", and then runs
+// --check --max-errors 0 through both compilers, perfRuns times each, on
+// the program with one error at the end of main, so that both run the
+// type checker, the instances and all, and stop before the backend, and
+// fails as TestCheckPerf does when the port is slower or larger than
+// perfTimeFactor and perfMemoryFactor allow, after checking that both
+// give the same output. It runs only as TestPort does, and is not
+// parallel.
+func TestGenericPerf(t *testing.T) {
+	ready(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "valid.tck"), []byte(genericPerfProgram(false)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	in := input{name: "valid.tck", dir: dir, file: "valid.tck"}
+	if compared, _, phase := checkTypes(t, in, env.portRun, true); !compared || phase != "bodies" {
+		t.Fatalf("not compared in the phase bodies: compared %v, phase %q", compared, phase)
+	}
+	checkPerfAgainstGo(t, dir, "perf.tck", genericPerfProgram(true),
+		fmt.Sprintf("%d generic calls and closures", genericPerfCallers*genericPerfTypes))
+}
+
+// checkPerfAgainstGo writes src, a program whose --check reports an
+// error, to file in dir, checks that the port's --check --max-errors 0
+// output is Go's, as check-core compares its cases, and then runs it
+// through both compilers, perfRuns times each, failing as TestResPerf
+// does when the port is slower or larger than perfTimeFactor and
+// perfMemoryFactor allow, and logging both, what naming the program.
+func checkPerfAgainstGo(t *testing.T, dir, file, src, what string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, file), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st := stageNamed(checkStageInfo[stageCore].stage)
+	if st == nil {
+		t.Fatal("no check-core stage")
+	}
+	runCaseWith(t, *st, input{name: file, dir: dir, file: file}, env.portRun)
+	args := []string{"--check", "--max-errors", "0", file}
+	goTime, goMem := measure(t, env.goBin, env.goCache, dir, args, 1)
+	portTime, portMem := measure(t, env.portRun, env.portCache, dir, args, 1)
+	t.Logf("--check of %s: Go %v, %d KB; port %v, %d KB", what, goTime, goMem, portTime, portMem)
+	if portTime > perfTimeFactor*goTime+perfTimeSlack {
+		t.Errorf("the port took %v, more than %d times Go's %v", portTime, perfTimeFactor, goTime)
+	}
+	if portMem > perfMemoryFactor*goMem {
+		t.Errorf("the port's peak memory was %d KB, more than %d times Go's %d KB", portMem, perfMemoryFactor, goMem)
+	}
+}
+
+// closurePerfLocals and closurePerfNest size TestClosurePerf's programs:
+// the locals of a function, each closure one of them is captured by or
+// beside, and how deeply its nested closures nest.
+const (
+	closurePerfLocals = 8000
+	closurePerfNest   = 300
+)
+
+// closurePerfShapes are the bodies of the function h TestClosurePerf
+// checks, by name, each of closurePerfLocals locals x%d of the value of
+// its parameter a, and closures passed to a scope parameter of sv:
+// every local declared before any closure, each closure empty; a fact
+// on each local, then a closure testing it; a fact on each mut local,
+// an empty closure, and the local assigned, which ends the fact; and
+// every local with its fact, then closurePerfNest closures, each the
+// last's, testing the first local. Each closure is checked under the
+// facts in force where it is written, so each shape is quadratic when
+// what a closure is checked under is copied for it.
+var closurePerfShapes = map[string]func(n int) string{
+	"locals-then-closures": func(n int) string {
+		var b strings.Builder
+		for i := range n {
+			fmt.Fprintf(&b, "    x%d := a\n", i)
+		}
+		for i := range n {
+			fmt.Fprintf(&b, "    sv(func() {\n        if x%d > 0 {\n        }\n    })\n", i)
+		}
+		return b.String()
+	},
+	"facts-closures": func(n int) string {
+		var b strings.Builder
+		for i := range n {
+			fmt.Fprintf(&b, "    x%d := a\n    if x%d < 0 {\n        return\n    }\n"+
+				"    sv(func() {\n        if x%d > 0 {\n        }\n    })\n", i, i, i)
+		}
+		return b.String()
+	},
+	"mut-facts-closures": func(n int) string {
+		var b strings.Builder
+		for i := range n {
+			fmt.Fprintf(&b, "    mut x%d := a\n    if x%d < 0 {\n        return\n    }\n"+
+				"    sv(func() {\n    })\n    x%d = 1\n", i, i, i)
+		}
+		return b.String()
+	},
+	"facts-nested-closures": func(n int) string {
+		var b strings.Builder
+		for i := range n {
+			fmt.Fprintf(&b, "    x%d := a\n    if x%d < 0 {\n        return\n    }\n", i, i)
+		}
+		b.WriteString(strings.Repeat("sv(func() {\n", closurePerfNest))
+		b.WriteString("if x0 > 0 {\n}\n")
+		b.WriteString(strings.Repeat("})\n", closurePerfNest))
+		return b.String()
+	},
+}
+
+// TestClosurePerf is the performance tripwire for checking closures
+// under the facts in force where they are written: for each of
+// closurePerfShapes, a program of h with that body and a main ending in
+// checkError, which checkPerfAgainstGo checks and times against Go. It
+// runs only as TestPort does, and is not parallel.
+func TestClosurePerf(t *testing.T) {
+	ready(t)
+	for name, shape := range closurePerfShapes {
+		t.Run(name, func(t *testing.T) {
+			src := "package main\n\nfunc sv(scope f func()) {\n    f()\n}\n\n" +
+				"func h(a int64) {\n" + shape(closurePerfLocals) + "}\n\nfunc main() {\n    " + checkError + "}\n"
+			checkPerfAgainstGo(t, t.TempDir(), "perf.tck", src, fmt.Sprintf("%s, %d locals", name, closurePerfLocals))
+		})
+	}
+}
+
+// bindPerfFuncs and bindPerfSites size TestBindPerf's program: its
+// functions, and the locals each binds to a call's value.
+const (
+	bindPerfFuncs = 1000
+	bindPerfSites = 100
+)
+
+// TestBindPerf is the performance tripwire for a program reporting many
+// warnings: bindPerfFuncs functions, each binding bindPerfSites locals
+// to a call's value, v%d := f(%d, 2), every local but the one it
+// returns unused, and a main ending in checkError, which
+// checkPerfAgainstGo checks and times against Go. It runs only as
+// TestPort does, and is not parallel.
+func TestBindPerf(t *testing.T) {
+	ready(t)
+	var b strings.Builder
+	b.WriteString("package main\n\nfunc f(a int64, b int64) int64 {\n    return b\n}\n\n")
+	for i := range bindPerfFuncs {
+		fmt.Fprintf(&b, "func h%d() int64 {\n", i)
+		for j := range bindPerfSites {
+			fmt.Fprintf(&b, "    v%d := f(%d, 2)\n", j, j)
+		}
+		b.WriteString("    return v0\n}\n\n")
+	}
+	b.WriteString("func main() {\n    " + checkError + "}\n")
+	checkPerfAgainstGo(t, t.TempDir(), "perf.tck", b.String(),
+		fmt.Sprintf("%d bindings to a call's value", bindPerfFuncs*bindPerfSites))
+}

@@ -944,18 +944,27 @@ func loadAndCheck(
 // at least S2a; one with none is S1, the declarations alone, unless
 // something else in it raises it.
 func treeStage(prog *tackast.Program, prefix string) (checkStage, string) {
+	s, why, _ := treeStages(prog, prefix)
+	return s, why
+}
+
+// treeStages is treeStage, with every stage some part of the whole
+// program's tree implies, imported packages' included, the ones below
+// the highest among them: a tree of S7 that implies S4 or S5 too waits
+// for those stages as well.
+func treeStages(prog *tackast.Program, prefix string) (checkStage, string, map[checkStage]bool) {
 	own := walkTree(prog, func(file string) bool { return strings.HasPrefix(file, prefix) })
 	all := walkTree(prog, func(string) bool { return true })
 	if all.stage > own.stage {
-		return all.stage, "an imported package's " + all.why
+		return all.stage, "an imported package's " + all.why, all.stages
 	}
-	return own.stage, own.why
+	return own.stage, own.why, all.stages
 }
 
 // walkTree walks the files of prog whose names keep says to, and
 // returns the walk, with the stage they imply and why.
 func walkTree(prog *tackast.Program, keep func(file string) bool) *treeWalk {
-	w := &treeWalk{stage: stageDecls, why: "declarations only"}
+	w := &treeWalk{stage: stageDecls, why: "declarations only", stages: map[checkStage]bool{}}
 	if prog == nil {
 		return w
 	}
@@ -1026,11 +1035,17 @@ type treeWalk struct {
 	why string
 	// stage is the highest stage found so far.
 	stage checkStage
+	// stages holds every stage some part of the tree implies, the ones
+	// below stage among them.
+	stages map[checkStage]bool
 }
 
 // raise raises the walk's stage to s, for the reason why, if s is
 // higher; of reasons for the same stage the first is kept.
 func (w *treeWalk) raise(s checkStage, why string) {
+	if w.stages != nil {
+		w.stages[s] = true
+	}
 	if s > w.stage {
 		w.stage, w.why = s, why
 	}
@@ -1065,7 +1080,30 @@ func (w *treeWalk) local(n tackast.Node) {
 		if w.owned(n.Type) {
 			w.raise(stageOwn, "an owned local")
 		}
+		if appendBound(n) {
+			w.raise(stageLoops, "an append's error bound")
+		}
 	}
+}
+
+// appendBound reports whether v is an immutable error declared with the
+// value of a call of append passing values to a mut list, which Go
+// records (recordAppend): the append's success then proves the list at
+// least as long as the values it adds, a proof S5's appendedLen gives.
+func appendBound(v *tackast.Var) bool {
+	call, ok := v.Value.(*tackast.Call)
+	if !ok || v.Mutable || v.Type != types.Error || len(call.Args) < 2 {
+		return false
+	}
+	if _, ok := call.Args[0].(*tackast.MutArg); !ok {
+		return false
+	}
+	id, ok := call.Fn.(*tackast.Ident)
+	if !ok || id.Pkg != "" || id.Name != "append" {
+		return false
+	}
+	fn, ok := id.Def.(*tackast.Func)
+	return ok && fn == nil
 }
 
 // function raises the walk's stage for fn's signature and body.
