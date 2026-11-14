@@ -176,9 +176,10 @@ func (mut c Checker) named_type(k Key, nm ast.Ident) (types.Type, bool, error) {
         return decl_type_of(c.decl_types, d), true, noerror
     }
     if nm.def.kind == ast.def_type_param {
-        // No case of a switch on a type parameter narrows anything
-        // before a body is checked.
-        return decl_type_of(c.decl_types, key_of_def(nm.def)), true, noerror
+        // A case of a switch on a type parameter around it narrows it
+        // (see narrow_type).
+        t := mut c.narrow_type(decl_type_of(c.decl_types, key_of_def(nm.def)))?
+        return t, true, noerror
     }
     return types.invalid, false, noerror
 }

@@ -28,11 +28,14 @@ whole, and
 inside it: the builtins' documentation and the C runtime with its
 header, which `tools/embed` writes into `builtin/embedded.tck` as
 string literals, since Tack has no `go:embed` (see package builtin).
-`typeck`, the type checker, has its declaration phase so far: every
-struct and union type, every global with its constant value, and every
-signature, checked as the Go compiler checks them before its first
-function body, and `constant` float constants with it, exact rationals
-rounded to float32 and float64.
+`typeck`, the type checker, has its declaration phase, every struct
+and union type, every global with its constant value, and every
+signature, and `constant` float constants with it, exact rationals
+rounded to float32 and float64; and the bodies, their statements and
+expressions, calls, facts, ownership, generics and closures, with the
+instances of generic functions a program needs, as the Go compiler
+checks them. What needs the proofs of arithmetic, loops and contracts
+is declined (see package typeck).
 The driver answers `tack --backends` as the Go compiler does; `tack
 --lex` and `tack --ast` of a single file, a directory or an import
 path, the token dump, a header line before each file's when there are
@@ -65,7 +68,9 @@ bindings of imports no qualified name uses, and dumps nothing for a
 program with an error; it stays until the builds check those.
 `--port-types` writes what the type checker finds, as flat JSON: every
 type of the table with every query it answers, every declaration with
-the types and the value the checker recorded on it, the errors, and
+the types and the value the checker recorded on it, the instances of
+generic functions, the errors, every node with what the checker
+recorded on it once every body is checked, and
 the kinds of judgment the port took as holding without proving them,
 which tackc's porttest compares with what the Go checker finds, on
 every program of the corpus the Go compiler accepts.

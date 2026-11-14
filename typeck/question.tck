@@ -13,31 +13,53 @@ import types from "tack/types"
 // whose contract must hold there, are declined with the function.
 
 // question checks the ? k whose one value is used, and returns that
-// value's type, Go's question.
+// value's type, Go's question. It and check_question each call the
+// three parts of the check, what the ? follows (see question_target),
+// the call (see questioned_results) and what follows it (see
+// question_end), so that none of them is inlined into the other's
+// frame, and only small ones are on the stack while a call nested in
+// the call's arguments is checked (see the stack discipline in
+// doc.tck).
 func (mut c Checker) question(k Key) (types.Type, error) {
+    x := mut c.question_target(k)?
+    mut all := make(list[types.Type], c_allocator)
+    mut name := msg()
+    mut ok := false
+    if !is_no_key(x) {
+        ok = mut c.questioned_results(x, mut all, mut name)?
+    }
     mut results := make(list[types.Type], c_allocator)
-    ok := mut c.check_question(k, mut results)?
-    t := mut c.question_value(k, ok, results)?
-    return t, noerror
-}
-
-// question_value returns the one value the ? k gives, results its values
-// when ok says it gives them, reporting none or several, Go's end of
-// question.
-func (mut c Checker) question_value(k Key, ok bool, results []types.Type) (types.Type, error) {
-    if !ok {
+    r := mut c.question_end(k, ok, all, name, true, mut results)?
+    if !r {
         return types.invalid, noerror
     }
-    if len(results) == 1 {
-        return type_at(results, 0), noerror
+    return type_at(results, 0), noerror
+}
+
+// question_end checks the ? k once the call it follows is checked, ok
+// saying whether that gives all, every result the call gives, its
+// callee called name, Go's end of checkQuestion: the call's last result
+// must be an error, and the ? must be written where it can return. It
+// appends the results before the error to out, records them on k, and
+// reports whether k gives them, and, when value says k's one value is
+// used, whether it gives one, reporting none or several, Go's end of
+// question.
+func (mut c Checker) question_end(k Key, ok bool, all []types.Type, name list[uint8], value bool, mut out list[types.Type]) (bool, error) {
+    mut got := ok
+    if ok {
+        got = mut c.question_error_last(k, all, name, mut out)?
+    }
+    r := mut c.question_record(k, got, mut out)?
+    if !r || !value || len(out) == 1 {
+        return r, noerror
     }
     w := mut c.source_text(span_at(c.prog.trees, k))?
-    if len(results) == 0 {
+    if len(out) == 0 {
         mut c.report(span_at(c.prog.trees, k), "%s gives no value", w[:])?
     } else {
-        mut c.report(span_at(c.prog.trees, k), "%s gives %d values", w[:], len(results))?
+        mut c.report(span_at(c.prog.trees, k), "%s gives %d values", w[:], len(out))?
     }
-    return types.invalid, noerror
+    return false, noerror
 }
 
 // question_results checks the ? k, the value of a binding of want names
@@ -80,10 +102,17 @@ func (mut c Checker) question_mark(k Key) source.Span {
 
 // check_question checks the ? k and the call it follows, Go's
 // checkQuestion, and appends the call's results before its error to
-// out, which it records on k, reporting whether k gives them.
+// out, which it records on k, reporting whether k gives them. It calls
+// the parts of the check as question does.
 func (mut c Checker) check_question(k Key, mut out list[types.Type]) (bool, error) {
-    ok := mut c.question_call(k, mut out)?
-    r := mut c.question_record(k, ok, mut out)?
+    x := mut c.question_target(k)?
+    mut all := make(list[types.Type], c_allocator)
+    mut name := msg()
+    mut ok := false
+    if !is_no_key(x) {
+        ok = mut c.questioned_results(x, mut all, mut name)?
+    }
+    r := mut c.question_end(k, ok, all, name, false, mut out)?
     return r, noerror
 }
 
@@ -113,16 +142,16 @@ func clear_types(mut l list[types.Type]) {
     }
 }
 
-// question_call checks what the ? k follows, which must be a call whose
-// last result is an error, Go's questionCall, and appends the call's
-// results before the error to out.
-func (mut c Checker) question_call(k Key, mut out list[types.Type]) (bool, error) {
+// question_target returns the call the ? k follows, which must call a
+// function, Go's start of questionCall, or no key when it is none, then
+// reported.
+func (mut c Checker) question_target(k Key) (Key, error) {
     mut x := no_key()
     switch kind_at(c.prog.trees, k) {
     case question(inner):
         x = sub(k, inner)
     default:
-        return false, noerror
+        return no_key(), noerror
     }
     mut is_call := false
     switch kind_at(c.prog.trees, x) {
@@ -132,16 +161,9 @@ func (mut c Checker) question_call(k Key, mut out list[types.Type]) (bool, error
     }
     if !is_call || mut c.not_calling(x) {
         mut c.question_not_call(k, x)?
-        return false, noerror
+        return no_key(), noerror
     }
-    mut all := make(list[types.Type], c_allocator)
-    mut name := msg()
-    ok := mut c.questioned_results(x, mut all, mut name)?
-    if !ok {
-        return false, noerror
-    }
-    r := mut c.question_error_last(k, all, name, mut out)?
-    return r, noerror
+    return x, noerror
 }
 
 // question_not_call reports the ? k on x, which calls nothing, after
@@ -158,10 +180,7 @@ func (mut c Checker) question_not_call(k Key, x Key) error {
 
 // question_error_last checks all, every result the call the ? k follows
 // gives, its callee called name, for an error last, Go's end of
-// questionCall, and appends the results before it to out. The checks of
-// the call and of what follows it are each a function of their own, so
-// that only a small frame is on the stack while the call's arguments are
-// checked (see the stack discipline in doc.tck).
+// questionCall, and appends the results before it to out.
 func (mut c Checker) question_error_last(k Key, all []types.Type, name list[uint8], mut out list[types.Type]) (bool, error) {
     if len(all) == 0 {
         mut c.report(mut c.question_mark(k), "cannot use ? on a call to %s, which returns no error", name[:])?
@@ -255,13 +274,13 @@ func (mut c Checker) question_callee(k Key, mut out list[types.Type], mut name l
     if !named {
         return false, noerror
     }
-    if is_value_call(c.prog.trees, k) {
+    if mut c.is_dynamic_unchecked(k) {
         return false, noerror
     }
     fn := mut c.callee_of(k)
     if !is_no_key(fn) {
         for i := range mut c.callee_result_count(fn) {
-            append(mut out, result_of(c.results, fn, i))?
+            append(mut out, mut c.call_result(k, fn, i))?
         }
     }
     return true, noerror

@@ -318,8 +318,8 @@ func (mut c Checker) tag_facts(k Key, s ast.Switch, cl Key, mut facts list[Fact]
 }
 
 // passes_mut reports whether any of the values of the case cl, at any
-// depth, passes something as mut, or holds a closure, Go's passesMut; a
-// closure is a later stage's, and declined.
+// depth, passes something as mut, or holds a closure that may write a
+// capture, Go's passesMut.
 func (mut c Checker) passes_mut(cl Key) (bool, error) {
     vs := clause_of(c.prog.trees, cl).values
     mut stack := make(list[id[ast.Node]], c_allocator)
@@ -337,7 +337,14 @@ func (mut c Checker) passes_mut(cl Key) (bool, error) {
         case mut_arg:
             return true, noerror
         case func_lit:
-            return false, not_ported
+            first, count := mut c.lit_captures(n)
+            for i := range count {
+                cp, has_cp := c.caps[first +% i]
+                if has_cp && cp.write {
+                    return true, noerror
+                }
+            }
+            continue
         default:
         }
         clear_nodes(mut kids)

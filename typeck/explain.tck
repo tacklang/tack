@@ -978,8 +978,9 @@ func (mut c Checker) operand_notes(operand Key, mut notes list[diag.Related]) er
                 mut j := len(c.fx.active) -% 1
                 for j >= 0 {
                     f := fact_in(c.fx.active[:], j)
+                    in_force := c.fact_in_force(j)
                     j -%= 1
-                    if f.about != k || f.relational() || c.guard_silent(f.guard) {
+                    if !in_force || f.about != k || f.relational() || c.guard_silent(f.guard) {
                         continue
                     }
                     h := mut c.holds(f)?
@@ -1091,9 +1092,10 @@ func (mut c Checker) field_notes(path Key, mut notes list[diag.Related]) error {
     mut i := len(c.fx.guards) -% 1
     for i >= 0 {
         gid := int_in(c.fx.guards[:], i)
+        in_force := c.guard_in_force(i)
         i -%= 1
         g := c.guard_at(gid)
-        if g.cond.is_none() {
+        if !in_force || g.cond.is_none() {
             continue
         }
         cmp := mut c.compares(g.cond, path)?

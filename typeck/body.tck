@@ -22,35 +22,37 @@ import types from "tack/types"
 // from any of them (S4); a loop that writes an integer variable declared
 // before it, whose bounds Go probes for, a call of a function with an
 // ensures clause, an ensures clause, unreachable and a successful append
-// a length is read from (S5); and a type parameter, a function value, a
-// closure, a scope parameter of a function type, a fields loop and a
-// switch on a type parameter (S7).
+// a length is read from (S5).
 //
 // A chain of else ifs, which nests an if in the else of the one before
 // for every link, is checked in a loop, as is a statement list; only
 // the nesting the source writes, up to the parser's limit, recurses.
 
 // BodyState is what the check of one function's body tracks, Go's
-// loops, deferred, deferLoops, inRejectedDefer and clauses: how many
-// loops and defers are around the statement being checked, how many
-// loops were around the innermost defer, whether a defer inside a defer
-// was reported, and the switch cases whose bodies are being checked.
+// loops, deferred, deferLoops, fieldLoop, inRejectedDefer and clauses:
+// how many loops and defers are around the statement being checked, how
+// many loops were around the innermost defer and the innermost fields
+// loop's body, whether a defer inside a defer was reported, and the
+// switch cases whose bodies are being checked.
 type BodyState struct {
     fn Key
     loops int64
     deferred int64
     defer_loops int64
+    field_loop int64
     in_rejected_defer bool
     clauses list[ClauseAt]
 }
 
 // ClauseAt is a switch case whose body is being checked, Go's clauseAt:
-// the clause, whether its switch is on a union, on_union, or a type
-// switch, on_type, and how many defers were around it.
+// the clause, whether its switch is on a union, on_union, a type switch,
+// on_type, or on a type parameter, on_param, and how many defers were
+// around it.
 type ClauseAt struct {
     cl Key
     on_union bool
     on_type bool
+    on_param bool
     deferred int64
 }
 
@@ -244,6 +246,7 @@ func (mut c Checker) check_body(d Key) error {
         loops: 0,
         deferred: 0,
         defer_loops: 0,
+        field_loop: 0,
         in_rejected_defer: false,
         clauses: make(list[ClauseAt], c_allocator),
     })
@@ -407,30 +410,13 @@ func (mut c Checker) discarded_pass(unit int64, body ast.Nodes) error {
 }
 
 // body_declined reports whether the port declines the body of d, fn,
-// before checking it: a function with type parameters or an ensures
-// clause, one whose signature has
-// a function type or a type parameter (see supported_type), which are
-// later stages', or whose body Go probes for its
-// loops' bounds, a loop that writes a variable declared before it (see
+// before checking it: a function with an ensures clause, which is a
+// later stage's, and it notes whether its body Go probes for its loops'
+// bounds, a loop that writes a variable declared before it (see
 // firstPasses).
 func (mut c Checker) body_declined(d Key, fn ast.Func) (bool, error) {
-    if count_items(c.prog.trees, d.unit, fn.type_params) > 0 || !ast.is_none(fn.contract) {
+    if !ast.is_none(fn.contract) {
         return true, noerror
-    }
-    for i := range count_items(c.prog.trees, d.unit, fn.params) {
-        p := item_at(c.prog.trees, d.unit, fn.params, i)
-        ok := mut c.supported_type(decl_type_of(c.decl_types, p))?
-        if !ok {
-            return true, noerror
-        }
-    }
-    n, _ := results_count(c.result_count, d)
-    for i := range n {
-        rt := result_of(c.results, d, i)
-        ok := mut c.supported_type(rt)?
-        if !ok {
-            return true, noerror
-        }
     }
     writes := mut c.loop_writes_outer(d.unit, fn.body)?
     c.probe_body = writes
@@ -795,8 +781,7 @@ func (mut c Checker) check_cond(cond Key) error {
 
 // check_in_loop reports a break or continue, keyword, at sp, that no
 // loop encloses, and one in deferred code whose loop is outside it, Go's
-// checkInLoop. No fields loop is checked by the port, so none encloses
-// it.
+// checkInLoop, and one that would leave a fields loop.
 func (mut c Checker) check_in_loop(sp source.Span, keyword string) error {
     if c.body.loops == 0 {
         mut m := msg()
@@ -806,6 +791,11 @@ func (mut c Checker) check_in_loop(sp source.Span, keyword string) error {
     if c.body.deferred > 0 && c.body.loops == c.body.defer_loops {
         mut m := msg()
         fmt.appendf(mut m, "cannot %s out of a defer", keyword)?
+        return mut c.errorf(sp, own m)
+    }
+    if c.body.loops == c.body.field_loop {
+        mut m := msg()
+        fmt.appendf(mut m, "%s is not allowed in a fields loop, whose body runs once for each field", keyword)?
         return mut c.errorf(sp, own m)
     }
     return noerror
@@ -860,6 +850,8 @@ func (mut c Checker) check_fallthrough(k Key) error {
         fmt.appendf(mut m, "cannot fall through in a type switch")?
     } else if in.on_union {
         fmt.appendf(mut m, "cannot fall through in a switch on a union")?
+    } else if in.on_param {
+        fmt.appendf(mut m, "cannot fall through in a switch on a type parameter")?
     } else if last != k {
         fmt.appendf(mut m, "fallthrough must be the last statement of a case")?
     } else if !linked {
@@ -937,7 +929,7 @@ func (mut c Checker) check_results(k Key, s ast.Return) error {
         mut c.note_pass_on(k, s, fnk)?
         for i := range got {
             v := item_at(c.prog.trees, k.unit, s.values, i)
-            rt := result_of(c.results, fnk, i)
+            rt := mut c.narrow_type(result_of(c.results, fnk, i))?
             if c.table.is_view(rt) {
                 mut c.return_view(v, rt, fnk)?
                 continue
@@ -1027,7 +1019,7 @@ func (mut c Checker) check_for(k Key, s ast.For) error {
 // its body, inside which break and continue are allowed. A variable
 // that refers in place into what it ranges over, a map's owned key or
 // an owned element, is recorded with it (see range_bindings). A fields
-// loop is S7's, and declined.
+// loop is check_fields_loop's.
 func (mut c Checker) check_for_range(k Key, s ast.ForRange) error {
     pd := mut c.probe_declines(k)?
     if pd {
@@ -1035,8 +1027,8 @@ func (mut c Checker) check_for_range(k Key, s ast.ForRange) error {
     }
     x := sub(k, s.x)
     switch kind_at(c.prog.trees, x) {
-    case fields_of:
-        return not_ported
+    case fields_of(texpr):
+        return mut c.check_fields_loop(k, s, x, sub(x, texpr))
     default:
     }
     mut c.allow_view_call(x)
@@ -1086,10 +1078,6 @@ func (mut c Checker) check_for_range(k Key, s ast.ForRange) error {
     }
     if has_elem {
         ek := sub(k, s.elem)
-        ok := mut c.supported_type(elem)?
-        if !ok {
-            return not_ported
-        }
         mut c.bind_range_var(ek, elem, x, range_elem)?
         mut c.any_local(ek, var_of(c.prog.trees, ek))?
     }
@@ -1265,10 +1253,6 @@ func (mut c Checker) check_multi(k Key, value Key, names ast.Nodes, assign bool)
         for i := range want {
             v := item_at(c.prog.trees, k.unit, names, i)
             t := type_at(results, i)
-            sup := mut c.supported_type(t)?
-            if !sup {
-                return not_ported
-            }
             mut c.set_decl_type(v, t)?
             mut c.any_local(v, var_of(c.prog.trees, v))?
             append(mut blank, bytes_equal(name_of(c.prog.trees, c.none, v), []uint8("_")))?
@@ -1428,14 +1412,14 @@ func (mut c Checker) call_results(k Key, want int64, sp source.Span, mut out lis
     if !named {
         return false, noerror
     }
-    if is_value_call(c.prog.trees, k) {
+    if mut c.is_dynamic_unchecked(k) {
         return false, noerror
     }
     fn := mut c.callee_of(k)
     if !is_no_key(fn) {
         clear_types(mut results)
         for i := range mut c.callee_result_count(fn) {
-            append(mut results, result_of(c.results, fn, i))?
+            append(mut results, mut c.call_result(k, fn, i))?
         }
     }
     got := len(results)
@@ -1498,8 +1482,7 @@ func (mut c Checker) has_fallible(value Key) (bool, error) {
 // for a local: its declared type if it has one, otherwise its value's,
 // an untyped constant being an int64, never a view and never a mutable
 // any. A value must be usable as the declared type, and only a mutable
-// variable whose type has a zero value may leave out its value. A
-// function type or a type parameter is S7's, and declined.
+// variable whose type has a zero value may leave out its value.
 func (mut c Checker) check_local_var(k Key, v ast.Var) error {
     e := mut c.check_local_var_at(k, v)
     if e.code != 0 {
@@ -1566,10 +1549,6 @@ func (mut c Checker) check_local_var_at(k Key, v ast.Var) error {
     mut declared := types.invalid
     if !ast.is_none(v.type_expr) {
         declared = mut c.declared_type(sub(k, v.type_expr))?
-        ok := mut c.supported_type(declared)?
-        if !ok {
-            return not_ported
-        }
     }
     mut name := msg()
     append(mut name, text_at(c.prog.trees, c.none, k.unit, v.name)...)?
@@ -1595,10 +1574,6 @@ func (mut c Checker) check_local_var_at(k Key, v ast.Var) error {
     mut c.note_holder(k, value, 1)?
     if ast.is_none(v.type_expr) {
         typ := mut c.value_of(value, got)?
-        ok := mut c.supported_type(typ)?
-        if !ok {
-            return not_ported
-        }
         mut c.set_decl_type(k, typ)?
         reported := mut c.any_local(k, v)?
         if reported {
@@ -1720,7 +1695,8 @@ func (mut c Checker) assignable(target Key) (types.Type, bool, error) {
             p := param_of(c.prog.trees, d)
             typ := decl_type_of(c.decl_types, d)
             if p.is_mut {
-                return typ, typ != types.invalid, noerror
+                t := mut c.narrow_ident(target, typ)?
+                return t, typ != types.invalid, noerror
             }
             mut m := msg()
             fmt.appendf(mut m, "cannot assign to parameter %s", text_at(c.prog.trees, c.none, target.unit, nm.name)[:])?
@@ -1737,11 +1713,8 @@ func (mut c Checker) assignable(target Key) (types.Type, bool, error) {
                 return types.invalid, false, noerror
             }
             typ := decl_type_of(c.decl_types, d)
-            ok := mut c.supported_type(typ)?
-            if !ok {
-                return types.invalid, false, not_ported
-            }
-            return typ, true, noerror
+            t := mut c.narrow_ident(target, typ)?
+            return t, true, noerror
         }
         return types.invalid, false, noerror
     case selector:
@@ -1772,6 +1745,9 @@ func (mut c Checker) target_name(target Key, mut out list[uint8]) error {
     root := root_ident(c.prog.trees, target)
     switch kind_at(c.prog.trees, target) {
     case selector(s):
+        if !ast.is_none(s.field) && !is_no_key(root) {
+            return mut c.reflect_path(target, mut out)
+        }
         fmt.appendf(mut out, "field %s", text_at(c.prog.trees, c.none, target.unit, s.name)[:])?
         if !is_no_key(root) {
             nm, _ := ident_at(c.prog.trees, root)
@@ -1789,6 +1765,45 @@ func (mut c Checker) target_name(target Key, mut out list[uint8]) error {
     }
     nm, _ := ident_at(c.prog.trees, root)
     fmt.appendf(mut out, "an element of %s", text_at(c.prog.trees, c.none, root.unit, nm.name)[:])?
+    return noerror
+}
+
+// reflect_path appends e, a place whose last step is a fields loop's
+// field, v.[f], as a message names it, Go's reflectPath: its variable
+// and every field after it, an element written [...]. The chain is
+// walked in a loop.
+func (mut c Checker) reflect_path(e Key, mut out list[uint8]) error {
+    mut parts := make(list[Key], c_allocator)
+    mut k := e
+    mut done := false
+    for !done {
+        switch kind_at(c.prog.trees, k) {
+        case selector(s):
+            append(mut parts, k)?
+            k = sub(k, s.x)
+        case index(ix):
+            append(mut parts, k)?
+            k = sub(k, ix.x)
+        case ident(nm):
+            append(mut out, text_at(c.prog.trees, c.none, k.unit, nm.name)...)?
+            done = true
+        default:
+            append(mut out, []uint8("...")...)?
+            done = true
+        }
+    }
+    mut i := len(parts) -% 1
+    for i >= 0 {
+        p := key_in(parts[:], i)
+        i -%= 1
+        switch kind_at(c.prog.trees, p) {
+        case selector(s):
+            append(mut out, '.')?
+            append(mut out, text_at(c.prog.trees, c.none, p.unit, s.name)...)?
+        default:
+            append(mut out, []uint8("[...]")...)?
+        }
+    }
     return noerror
 }
 

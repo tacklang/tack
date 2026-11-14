@@ -74,8 +74,14 @@ func (mut c Checker) place_target(target Key) (types.Type, bool, error) {
             append(mut links, cur)?
             cur = x
         case selector(s):
-            if !ast.is_none(s.field) {
-                return types.invalid, false, not_ported
+            fnm, is_name := ident_at(c.prog.trees, sub(cur, s.x))
+            if is_name && ast.is_none(s.field) && !is_no_key(mut c.field_var(fnm)) {
+                t := mut c.source_text(span_at(c.prog.trees, cur))?
+                mut m := msg()
+                fmt.appendf(mut m, "cannot assign to %s: the name and index of a fields loop's field cannot be assigned", t[:])?
+                mut c.errorf(span_at(c.prog.trees, cur), own m)?
+                failed = true
+                continue
             }
             append(mut links, cur)?
             cur = sub(cur, s.x)
@@ -166,7 +172,8 @@ func (mut c Checker) container_target_as(x Key, what string) (types.Type, bool, 
         d := key_of_def(nm.def)
         typ := decl_type_of(c.decl_types, d)
         if param_of(c.prog.trees, d).is_mut {
-            return typ, typ != types.invalid, noerror
+            t := mut c.narrow_ident(x, typ)?
+            return t, typ != types.invalid, noerror
         }
         mut m := msg()
         fmt.appendf(mut m, "cannot assign to %s of parameter %s", what, text_at(c.prog.trees, c.none, x.unit, nm.name)[:])?
@@ -177,7 +184,8 @@ func (mut c Checker) container_target_as(x Key, what string) (types.Type, bool, 
         d := key_of_def(nm.def)
         typ := decl_type_of(c.decl_types, d)
         if var_of(c.prog.trees, d).mutable {
-            return typ, typ != types.invalid, noerror
+            t := mut c.narrow_ident(x, typ)?
+            return t, typ != types.invalid, noerror
         }
         mut m := msg()
         fmt.appendf(mut m, "cannot assign to %s of immutable variable ", what)?

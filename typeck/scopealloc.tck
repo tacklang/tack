@@ -13,15 +13,15 @@ import types from "tack/types"
 // r and a scope Allocator parameter are scope allocators (see
 // is_scope_alloc), and any other use of one is reported. What is made
 // through r cannot outlive the block either: the escape rule (see
-// escape.tck). A scope parameter of a function type is S7's, and
-// declined.
+// escape.tck). A scope parameter of a function type is a closure's
+// place (see closure.tck).
 
 // bind_region is the binding of a region's allocator, which a message
 // about making it mut names (see binding_words).
 var bind_region uint8 = 4
 
 // declare_regions declares the name of every region in body, in the tree
-// unit, at any depth, an immutable variable of type Allocator recorded as
+// unit, at any depth outside the closures in it, an immutable variable of type Allocator recorded as
 // its region's allocator, Go's checkRegion, before the body is checked:
 // nothing reads it before its region's block, which check_stmt then
 // checks as any block, so that the frame every statement nests through
@@ -44,6 +44,11 @@ func (mut c Checker) declare_regions(unit int64, body ast.Nodes) error {
             mut c.set_decl_type(v, types.allocator)?
             put(mut c.regions, v, k)?
             put(mut c.bindings, v, bind_region)?
+        case func_lit:
+            // A closure's regions are declared when its body is checked
+            // (see check_func_lit), which a closure written anywhere but
+            // to a scope parameter never is.
+            continue
         default:
         }
         clear_nodes(mut kids)
@@ -80,7 +85,7 @@ func (mut c Checker) is_scope_alloc(nm ast.Ident) bool {
 }
 
 // is_scope_func reports whether nm names a scope parameter of a function
-// type, Go's isScopeParam, which is S7's.
+// type, Go's isScopeParam.
 func (mut c Checker) is_scope_func(nm ast.Ident) bool {
     if nm.def.kind != ast.def_param {
         return false
@@ -190,7 +195,7 @@ func (mut c Checker) alloc_arg(alloc Key) (types.Type, error) {
 // scopeArg: a scope Allocator parameter takes any Allocator (see
 // scope_alloc_arg); one whose type was reported, or is neither a
 // function type nor Allocator, takes anything without a further report;
-// one of a function type is S7's, and declined.
+// one of a function type takes what scope_func_arg says.
 func (mut c Checker) scope_arg(arg Key, p ArgParam, callee list[uint8]) error {
     if p.typ == types.allocator {
         return mut c.scope_alloc_arg(arg, p, callee)
@@ -203,13 +208,13 @@ func (mut c Checker) scope_arg(arg Key, p ArgParam, callee list[uint8]) error {
             return mut c.arg_expr(arg)
         }
     }
-    return not_ported
+    return mut c.scope_func_arg(arg, p, callee)
 }
 
 // scope_alloc_arg checks arg, passed to p, a scope Allocator parameter of
 // callee, Go's scopeAllocArg: any Allocator, a scope allocator among
 // them. A mut or an own argument is reported as for a plain parameter,
-// and a closure as a mismatch, which is S7's, and declined.
+// and a closure, which is no Allocator, as a mismatch.
 func (mut c Checker) scope_alloc_arg(arg Key, p ArgParam, callee list[uint8]) error {
     switch kind_at(c.prog.trees, arg) {
     case mut_arg, own_arg:
@@ -218,7 +223,10 @@ func (mut c Checker) scope_alloc_arg(arg Key, p ArgParam, callee list[uint8]) er
         mut c.check_arg_special(arg, plain, callee)?
         return noerror
     case func_lit:
-        return not_ported
+        fn := func_of(c.prog.trees, lit_func(c.prog.trees, arg))
+        mut m := msg()
+        fmt.appendf(mut m, "cannot use a closure as Allocator in argument to %s", callee[:])?
+        return mut c.errorf(fn.name_span, own m)
     case ident(nm):
         if mut c.is_scope_alloc(nm) {
             c.scope_use = arg
@@ -236,12 +244,16 @@ func (mut c Checker) scope_alloc_arg(arg Key, p ArgParam, callee list[uint8]) er
     return noerror
 }
 
-// scope_name_check reports k, nm, a name of a scope allocator used where
-// it may not be, Go's check in ident, and reports whether it did; a
-// scope parameter of a function type is declined.
+// scope_name_check reports k, nm, a name of a scope parameter of a
+// function type or of a scope allocator used where it may not be, Go's
+// checks in ident, scopeElsewhere and scopeAllocElsewhere, and reports
+// whether it did.
 func (mut c Checker) scope_name_check(k Key, nm ast.Ident) (bool, error) {
-    if mut c.is_scope_func(nm) {
-        return false, not_ported
+    if mut c.is_scope_func(nm) && c.scope_use != k {
+        mut m := msg()
+        fmt.appendf(mut m, "%s is a scope parameter, which can only be called or passed to another scope parameter", text_at(c.prog.trees, c.none, k.unit, nm.name)[:])?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return true, noerror
     }
     if mut c.is_scope_alloc(nm) && c.scope_use != k {
         mut c.scope_alloc_elsewhere(k, nm)?
@@ -252,19 +264,24 @@ func (mut c Checker) scope_name_check(k Key, nm ast.Ident) (bool, error) {
 
 // scope_case checks arg, passed to p in a call to callee, as mode says
 // (see scope_to_scope): to a scope parameter, as scope_arg does, or a
-// scope allocator to a parameter that is not scope, as
-// scope_alloc_to_plain reports, in one call, so that check_arg, which
+// scope allocator or a closure to a parameter that is not scope, as
+// scope_alloc_to_plain and func_lit_to_plain report, in one call, so that check_arg, which
 // every argument nests through, holds as little of either as it can
 // (see the stack discipline in doc.tck).
 func (mut c Checker) scope_case(arg Key, p ArgParam, callee list[uint8], mode uint8) error {
     if mode == scope_to_scope {
         return mut c.scope_arg(arg, p, callee)
     }
+    if mode == lit_to_plain {
+        return mut c.func_lit_to_plain(arg, p, callee)
+    }
     nm, _ := ident_at(c.prog.trees, arg)
     return mut c.scope_alloc_to_plain(arg, nm, p, callee)
 }
 
 // The ways scope_case checks an argument: passed to a scope parameter,
-// and a scope allocator passed to a parameter that is not scope.
+// a scope allocator passed to a parameter that is not scope, and a
+// closure passed to one, which is reported (see func_lit_to_plain).
 var scope_to_scope uint8 = 0
 var scope_to_plain uint8 = 1
+var lit_to_plain uint8 = 2

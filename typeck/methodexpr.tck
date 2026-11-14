@@ -5,9 +5,9 @@ import fmt from "std/fmt"
 import types from "tack/types"
 
 // Method expressions, Go's methodexpr.go: a method named through its
-// type, Pair.first, is the method as a function value, which is the
-// generics' and closures' stage's, S7, and declined; what Go reports of
-// a name selected through a type that names no method is reported here.
+// type, Pair.first, is the method as a function value, whose first
+// parameter is its receiver; what Go reports of a name selected through
+// a type that names no method is reported here.
 
 // type_operand reports whether x names a type rather than a value, Go's
 // ast.TypeOperand: a name bound to a type's declaration or a type
@@ -28,77 +28,30 @@ func type_operand(trees []ast.File, none []uint8, x Key) bool {
 }
 
 // method_expr checks the method expression s at k used as a value, Go's
-// methodExpr: one that names a method is a function value, declined;
-// one that names none is reported, as Go's namedMethod reports it, and
-// its type is invalid.
+// methodExpr: the method it names (see named_method) is a function
+// value of its signature's type, receiver first, recorded on the
+// selector; a method whose signature no function type can say is
+// reported, and anything else named_method reports gives invalid.
 func (mut c Checker) method_expr(k Key, s ast.Selector) (types.Type, error) {
-    x := sub(k, s.x)
-    nm, _ := ident_at(c.prog.trees, x)
-    written := mut c.source_text(span_at(c.prog.trees, x))?
-    mut name := msg()
-    append(mut name, text_at(c.prog.trees, c.none, k.unit, s.name)...)?
-    if nm.def.is_none() {
-        typ, _ := types.lookup(written[:])
-        _, _, is_field := c.table.find_field(typ, name[:])
-        mut m := msg()
-        if is_field {
-            fmt.appendf(mut m, "%s is a field of %s, not a method; only a method can be named through its type", name[:], written[:])?
-        } else {
-            fmt.appendf(mut m, "%s has no method %s", written[:], name[:])?
-        }
-        mut c.errorf(s.name_span, own m)?
+    fn := mut c.named_method(k, s, false)?
+    if is_no_key(fn) {
         return types.invalid, noerror
     }
-    if nm.def.kind != ast.def_type {
-        // A type parameter's methods: generics, S7.
-        return types.invalid, not_ported
-    }
-    d := key_of_def(nm.def)
-    if is_interface_decl(c.prog.trees, d) {
-        whole := mut c.source_text(span_at(c.prog.trees, k))?
+    mut why := msg()
+    bad := mut c.not_value(fn, mut why)?
+    if bad {
         mut m := msg()
-        fmt.appendf(mut m, "cannot use %s as a value: %s is an interface; only a struct or union type's methods are values", whole[:], written[:])?
+        fmt.appendf(mut m, "cannot use ")?
+        mut c.display_name(fn, mut m)?
+        fmt.appendf(mut m, " as a value: %s", why[:])?
         mut c.errorf(span_at(c.prog.trees, k), own m)?
         return types.invalid, noerror
     }
-    typ := decl_type_of(c.decl_types, d)
+    typ := mut c.signature_value(fn)?
     if typ == types.invalid {
         return types.invalid, noerror
     }
-    fn := method_named(c.prog.trees, c.none, d, name[:])
-    if !is_no_key(fn) {
-        mut why := msg()
-        hidden := mut c.hidden_method(fn, mut why)?
-        if hidden {
-            mut c.errorf(s.name_span, own why)?
-            return types.invalid, noerror
-        }
-        // The method as a value: S7's.
-        return types.invalid, not_ported
-    }
-    if c.table.is_struct(typ) {
-        ok := mut c.resolve_fields(typ, span_at(c.prog.trees, k))?
-        if ok {
-            _, _, is_field := c.table.find_field(typ, name[:])
-            if is_field {
-                n := mut c.type_name(typ)?
-                mut m := msg()
-                fmt.appendf(mut m, "%s is a field of %s, not a method; only a method can be named through its type", name[:], n[:])?
-                mut c.errorf(s.name_span, own m)?
-                return types.invalid, noerror
-            }
-        }
-    }
-    if mut c.lost_method_of(typ, name[:]) {
-        return types.invalid, noerror
-    }
-    n := mut c.type_name(typ)?
-    mut m := msg()
-    if c.table.is_union(typ) {
-        fmt.appendf(mut m, "%s has no case or method %s", n[:], name[:])?
-    } else {
-        fmt.appendf(mut m, "%s has no method %s", n[:], name[:])?
-    }
-    mut c.errorf(s.name_span, own m)?
-    return types.invalid, noerror
+    put(mut c.call_method, k, fn)?
+    mut c.set_node_type(k, typ)?
+    return typ, noerror
 }

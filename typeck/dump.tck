@@ -13,7 +13,8 @@ import types from "tack/types"
 // type the table added, with every query the Table answers about it;
 // decls every declaration of the program in Go's prog.Decls() order,
 // with what the checker recorded on it; instances the instances of
-// generic functions, none before bodies; errors the errors reported, in
+// generic functions, each its function's name and its type arguments,
+// none before bodies; errors the errors reported, in
 // order, each with its file, its span's start and end, its message and
 // its notes, each a file, a span and a message; and assumed the kinds of
 // judgment the port answered as holding without proving them. In the
@@ -53,7 +54,11 @@ pub func (mut c Checker) write_dump() (list[uint8], error) {
         }
         mut c.write_decl(mut out, decl_at(c.prog, i))?
     }
-    fmt.appendf(mut out, "],\"instances\":[],\"errors\":[")?
+    fmt.appendf(mut out, "],\"instances\":[")?
+    if c.bodies_done && c.instances_recorded {
+        mut c.write_instances(mut out)?
+    }
+    fmt.appendf(mut out, "],\"errors\":[")?
     for i, d := range c.diags {
         if i >= errors {
             break
@@ -244,7 +249,12 @@ func (mut c Checker) write_decl(mut out list[uint8], d Key) error {
         write_name(mut out, text_at(c.prog.trees, c.none, d.unit, fn.name))?
         // Go's Func.Value is set only where a body uses the function as
         // a value, so it is invalid in every declaration before bodies.
-        fmt.appendf(mut out, ",\"value\":0,\"type_params\":[")?
+        mut value := types.invalid
+        fv, has_value := c.func_values[d]
+        if has_value && c.bodies_done {
+            value = fv
+        }
+        fmt.appendf(mut out, ",\"value\":%d,\"type_params\":[", value.number())?
         for i := range count_items(c.prog.trees, d.unit, fn.type_params) {
             if i > 0 {
                 append(mut out, ',')?
@@ -436,5 +446,30 @@ func (mut c Checker) write_const(mut out list[uint8], k Const) error {
         }
     }
     fmt.appendf(mut out, "null")?
+    return noerror
+}
+
+// write_instances appends the instances of generic functions found,
+// Go's Program.Instances, each an object of its function's name and its
+// type arguments.
+func (mut c Checker) write_instances(mut out list[uint8]) error {
+    for i, inst := range c.instances {
+        if i > 0 {
+            append(mut out, ',')?
+        }
+        fmt.appendf(mut out, "{\"func\":\"")?
+        write_escaped(mut out, name_of(c.prog.trees, c.none, inst.fn))?
+        fmt.appendf(mut out, "\",\"type_args\":[")?
+        for j := range inst.count {
+            if j > 0 {
+                append(mut out, ',')?
+            }
+            a, has := c.inst_args[inst.first +% j]
+            if has {
+                fmt.appendf(mut out, "%d", a.number())?
+            }
+        }
+        fmt.appendf(mut out, "]}")?
+    }
     return noerror
 }

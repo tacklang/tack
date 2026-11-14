@@ -36,12 +36,13 @@ type PairKey struct {
     w FKey
 }
 
-// RelFact is what the index holds of the fact at one position of active:
-// how many edges it added and how many entries, each a node entry and
+// RelFact is what the index holds of the fact at one position of active,
+// at: how many edges it added and how many entries, each a node entry and
 // a pair entry, the lengths it
 // names, count of named_lens from named, and whether it is a relation, a
 // stored value's bounds, or neither and nothing.
 type RelFact struct {
+    at int64
     edges int64
     entries int64
     named int64
@@ -111,8 +112,21 @@ func (mut c Checker) build_rel_idx() error {
         return noerror
     }
     c.fx.rel.built = true
-    for i := range len(c.fx.active) {
+    // The facts in force: in a closure's body the outer ones it keeps,
+    // then its own (see enter_closure).
+    if c.fx.outer > 0 {
+        for k := range len(c.fx.kept) {
+            i := int_in(c.fx.kept[:], k)
+            if i >= c.fx.outer {
+                break
+            }
+            mut c.rel_push(i)?
+        }
+    }
+    mut i := c.fx.outer
+    for i < len(c.fx.active) {
         mut c.rel_push(i)?
+        i +%= 1
     }
     return noerror
 }
@@ -124,7 +138,7 @@ func (mut c Checker) build_rel_idx() error {
 // of the nodes, and the pairs, they touch.
 func (mut c Checker) rel_push(i int64) error {
     f := fact_in(c.fx.active[:], i)
-    mut rf := RelFact{edges: 0, entries: 0, named: len(c.fx.rel.named_lens), named_count: 0, relation: false, stored: false}
+    mut rf := RelFact{at: i, edges: 0, entries: 0, named: len(c.fx.rel.named_lens), named_count: 0, relation: false, stored: false}
     stored := c.guard_kind(f.guard) == guard_value
     mut prev_stored := -1
     if !f.in_map.is_zero() || !stored && c.guard_silent(f.guard) {
@@ -273,6 +287,11 @@ func key_at(l []FKey, i int64) FKey {
 // rel_pop takes the fact at position i of active, the last the index
 // holds, out of it, Go's relIndex.pop, in the reverse of rel_push.
 func (mut c Checker) rel_pop(i int64) error {
+    top, has_top := c.fx.rel.facts[len(c.fx.rel.facts) -% 1]
+    if !has_top || top.at != i {
+        // An index of the facts a closure's body keeps holds no other.
+        return noerror
+    }
     rf, ok := pop(mut c.fx.rel.facts)
     if !ok {
         return noerror
@@ -369,22 +388,68 @@ func (mut c Checker) rel_unlist() error {
 // rel_index_fact adds active's last fact, just pushed, to the index of
 // the relations, when it is kept.
 func (mut c Checker) rel_index_fact() error {
-    if !c.fx.rel.built {
-        return noerror
+    i := len(c.fx.active) -% 1
+    if c.fx.rel.built {
+        mut c.rel_push(i)?
     }
-    return mut c.rel_push(len(c.fx.active) -% 1)
+    if c.fx.deep_built > 0 && bool_at(c.fx.kept_at[:], i) {
+        mut c.rel_deep(i, true)?
+    }
+    return noerror
+}
+
+// rel_deep pushes the fact at position i of active, which
+// keeps_in_closure keeps, to every built index of rel_kept when push
+// says so, or pops it from each, Go's relIndex.push and pop on kept:
+// each such index is swapped in for the one in force while it changes.
+func (mut c Checker) rel_deep(i int64, push bool) error {
+    mut held := make(list[RelIdx], c_allocator)
+    for len(c.fx.rel_kept) > 0 {
+        x, ok := pop(mut c.fx.rel_kept)
+        if ok {
+            append(mut held, x)?
+        }
+    }
+    for len(held) > 0 {
+        x, ok := pop(mut held)
+        if !ok {
+            break
+        }
+        if !x.built {
+            append(mut c.fx.rel_kept, x)?
+            continue
+        }
+        cur := replace(mut c.fx.rel, x)
+        mut e := noerror
+        if push {
+            e = mut c.rel_push(i)
+        } else {
+            e = mut c.rel_pop(i)
+        }
+        back := replace(mut c.fx.rel, cur)
+        append(mut c.fx.rel_kept, back)?
+        if e.code != 0 {
+            return e
+        }
+    }
+    return noerror
 }
 
 // rel_unindex takes the facts of active from the one at n on, about to be
 // popped, out of the index of the relations, last first, when it is
 // kept.
 func (mut c Checker) rel_unindex(n int64) error {
-    if !c.fx.rel.built {
+    if !c.fx.rel.built && c.fx.deep_built == 0 {
         return noerror
     }
     mut i := len(c.fx.active) -% 1
     for i >= n {
-        mut c.rel_pop(i)?
+        if c.fx.rel.built {
+            mut c.rel_pop(i)?
+        }
+        if c.fx.deep_built > 0 && bool_at(c.fx.kept_at[:], i) {
+            mut c.rel_deep(i, false)?
+        }
         i -%= 1
     }
     return noerror

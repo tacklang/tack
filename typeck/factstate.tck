@@ -137,6 +137,18 @@ type Mark struct {
 // each when has_storing or has_defer says so; related the subjects a
 // note cannot claim anything literal about, Go's relatedSubjects; and
 // edited how many suppositions are checking, Go's factsEdited.
+//
+// In a closure's body, the facts before outer and the guards before
+// outer_guards are the code around it's, of which only those
+// keeps_in_closure keeps are in force there, Go's outerFacts and
+// outerGuards (see enter_closure): kept_at says, for each fact in
+// active, whether it keeps it, kept lists the positions of those it
+// keeps, in order, and guard_kept says, for each guard, whether it gave
+// one. rel_kept holds, for each depth deeper than the one being checked,
+// the index of the relations a closure's body at that depth reads, Go's
+// relIndex.kept, the next depth's last: built the first time a body
+// needs it and kept in step from then on, deep_built counting those
+// built.
 type FactState struct {
     active list[Fact]
     guards list[int64]
@@ -174,6 +186,13 @@ type FactState struct {
     index FactIndex
     rel RelIdx
     reach ReachStore
+    outer int64
+    outer_guards int64
+    kept_at list[bool]
+    kept list[int64]
+    guard_kept list[bool]
+    rel_kept list[RelIdx]
+    deep_built int64
 }
 
 // new_fact_state returns a FactState with nothing in force.
@@ -215,6 +234,13 @@ func new_fact_state() (FactState, error) {
         index: new_fact_index(),
         rel: new_rel_idx(),
         reach: new_reach_store(),
+        outer: 0,
+        outer_guards: 0,
+        kept_at: make(list[bool], c_allocator),
+        kept: make(list[int64], c_allocator),
+        guard_kept: make(list[bool], c_allocator),
+        rel_kept: make(list[RelIdx], c_allocator),
+        deep_built: 0,
     }
     // Path 0 is the empty path, a variable itself.
     t := text.new(c_allocator)
@@ -257,11 +283,47 @@ func (mut c Checker) release(m Mark) error {
     for len(c.fx.active) > m.facts {
         pop(mut c.fx.active)
     }
+    for len(c.fx.kept_at) > m.facts {
+        pop(mut c.fx.kept_at)
+    }
+    for len(c.fx.kept) > 0 && int_in(c.fx.kept[:], len(c.fx.kept) -% 1) >= m.facts {
+        pop(mut c.fx.kept)
+    }
     for len(c.fx.guards) > m.guards {
         pop(mut c.fx.guards)
     }
+    for len(c.fx.guard_kept) > m.guards {
+        pop(mut c.fx.guard_kept)
+    }
     for len(c.fx.proven) > m.proven {
         pop(mut c.fx.proven)
+    }
+    return noerror
+}
+
+// fact_in_force reports whether the fact at position i of active is in
+// force, Go's factInForce: one of the closure's body being checked, or
+// of none, or an outer one keeps_in_closure keeps.
+func (c Checker) fact_in_force(i int64) bool {
+    return i >= c.fx.outer || bool_at(c.fx.kept_at[:], i)
+}
+
+// guard_in_force reports whether the guard at position i of guards is
+// in force, Go's guardInForce: one of the closure's body being checked,
+// or of none, or an outer one that gave a fact keeps_in_closure keeps.
+func (c Checker) guard_in_force(i int64) bool {
+    return i >= c.fx.outer_guards || bool_at(c.fx.guard_kept[:], i)
+}
+
+// push_kept records whether keeps_in_closure keeps f, the fact just put
+// in force, last in active, Go's pushKept: in kept_at, in kept when it
+// does, and for its guard, the last, in guard_kept.
+func (mut c Checker) push_kept(f Fact) error {
+    keep := mut c.keeps_in_closure(f)
+    append(mut c.fx.kept_at, keep)?
+    if keep {
+        append(mut c.fx.kept, len(c.fx.active) -% 1)?
+        set_at(mut c.fx.guard_kept, len(c.fx.guard_kept) -% 1, true)
     }
     return noerror
 }

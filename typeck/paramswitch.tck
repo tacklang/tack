@@ -1,0 +1,715 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import text from "std/text"
+import types from "tack/types"
+
+// Switches on a type parameter, Go's paramswitch.go: switch T { case
+// int64: ... } is checked once, whatever T stands for. T must be a type
+// parameter constrained by Data, and each case value a type T may stand
+// for: a type that is Data and no struct but text.Text; list[E] or
+// map[text.Text]V, whose E or V is a type parameter of the case's own;
+// or struct. Data is closed, so the types T may stand for fall into a
+// fixed set of kinds, each a bit of a kind set: each integer and float
+// type, bool, text.Text, lists, maps and every other struct. A case
+// naming one type narrows T in its body (see narrow_type); a case naming
+// several, struct and the default leave T only the kinds they take.
+
+// The kinds of type a type parameter constrained by Data may stand for,
+// Go's dataKind, in Go's order.
+var kind_text int64 = 13
+var kind_list int64 = 14
+var kind_map int64 = 15
+var kind_struct int64 = 16
+var num_kinds int64 = 17
+
+// TypeCaseRec is how one value of a case of a switch on a type parameter
+// matches, Go's ast.TypeCase: its kind, the type it names or the type
+// parameter it declares, and a map's key type.
+type TypeCaseRec struct {
+    kind uint8
+    typ types.Type
+    key types.Type
+}
+
+// The kinds of TypeCaseRec, Go's TypeCaseKind.
+var tc_exact uint8 = 0
+var tc_list uint8 = 1
+var tc_map uint8 = 2
+var tc_struct uint8 = 3
+
+// Narrowing is one type parameter a case around the code being checked
+// narrows, and the type it is there, Go's narrowing's entry.
+type Narrowing struct {
+    param types.Type
+    to types.Type
+}
+
+// ParamKinds is the kinds a case around the code being checked leaves a
+// type parameter, Go's paramKinds' entry.
+type ParamKinds struct {
+    param types.Type
+    kinds uint64
+}
+
+// kind_bit returns the kind set holding the kind k alone.
+func kind_bit(k int64) uint64 {
+    mut b uint64 = 1
+    mut i int64 = 0
+    for i < k {
+        b = b *% 2
+        i +%= 1
+    }
+    return b
+}
+
+// all_kinds returns the kind set holding every kind, Go's allKinds.
+func all_kinds() uint64 {
+    return kind_bit(num_kinds) -% 1
+}
+
+// kind_names holds each kind's name as a case would name it, Go's
+// kindNames.
+var kind_names = [17]string{"bool", "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64", "unsafe_size_t", "unsafe_uintptr_t", "float32", "float64", "text.Text", "list[E]", "map[text.Text]V", "struct"}
+
+// data_kind_name returns the name of the kind k as a case would name it.
+func data_kind_name(k int64) string {
+    n, ok := kind_names[k]
+    if !ok {
+        return ""
+    }
+    return n
+}
+
+// basic_kind returns the kind of the basic type typ, and whether it is
+// one that is Data, Go's basicKinds.
+func basic_kind(typ types.Type) (int64, bool) {
+    if typ == types.bool_type {
+        return 0, true
+    }
+    if typ == types.int8_type {
+        return 1, true
+    }
+    if typ == types.int16_type {
+        return 2, true
+    }
+    if typ == types.int32_type {
+        return 3, true
+    }
+    if typ == types.int64_type {
+        return 4, true
+    }
+    if typ == types.uint8_type {
+        return 5, true
+    }
+    if typ == types.uint16_type {
+        return 6, true
+    }
+    if typ == types.uint32_type {
+        return 7, true
+    }
+    if typ == types.uint64_type {
+        return 8, true
+    }
+    if typ == types.unsafe_size {
+        return 9, true
+    }
+    if typ == types.unsafe_uintptr {
+        return 10, true
+    }
+    if typ == types.float32_type {
+        return 11, true
+    }
+    if typ == types.float64_type {
+        return 12, true
+    }
+    return 0, false
+}
+
+// narrow_type returns typ as it is where checking is, Go's narrowType:
+// each type parameter a case around it narrows replaced, in typ and in
+// every type it is made of, by the type it narrows it to.
+func (mut c Checker) narrow_type(typ types.Type) (types.Type, error) {
+    if len(c.narrowed) == 0 || typ == types.invalid {
+        return typ, noerror
+    }
+    mut args := make(map[int64]types.Type, c_allocator)
+    for _, n := range c.narrowed {
+        put(mut args, n.param.number(), n.to)?
+    }
+    t := mut c.substitute(typ, args)?
+    return t, noerror
+}
+
+// narrow_ident records on the name k, of a variable or a parameter whose
+// declared type is typ, the type its value is where k is written, when
+// a case around it narrows that type, Go's narrowIdent, and returns that
+// type.
+func (mut c Checker) narrow_ident(k Key, typ types.Type) (types.Type, error) {
+    delete(mut c.narrowed_names, k)
+    to := mut c.narrow_type(typ)?
+    if to != typ {
+        if to != types.invalid {
+            // Go's Ident.Narrowed, which stands for no narrowing when
+            // invalid, as for a case whose one value was reported.
+            put(mut c.narrowed_names, k, to)?
+        }
+        return to, noerror
+    }
+    return typ, noerror
+}
+
+// narrowed_of returns what a case around the code being checked narrows
+// the type parameter param to, and whether one does.
+func (mut c Checker) narrowed_of(param types.Type) (types.Type, bool) {
+    for _, n := range c.narrowed {
+        if n.param == param {
+            return n.to, true
+        }
+    }
+    return types.invalid, false
+}
+
+// kinds_of returns the kinds the type parameter param may stand for
+// where checking is, Go's kindsOf.
+func (mut c Checker) kinds_of(param types.Type) uint64 {
+    mut i := len(c.param_kinds) -% 1
+    for i >= 0 {
+        pk, ok := c.param_kinds[i]
+        i -%= 1
+        if ok && pk.param == param {
+            return pk.kinds
+        }
+    }
+    return all_kinds()
+}
+
+// check_param_switch checks the switch k, s, on a type parameter, Go's
+// checkParamSwitch: its tag, each case's values in source order with
+// what each takes, its body, narrowed when it names one type, and the
+// coverage of the whole.
+func (mut c Checker) check_param_switch(k Key, s ast.Switch) error {
+    param, ok := mut c.switch_param(k, s)?
+    mut possible := all_kinds()
+    if ok {
+        possible = mut c.kinds_of(param)
+    }
+    mut taken uint64 = 0
+    mut taken_by := make(map[int64]Key, c_allocator)
+    mut seen := make(map[text.Text]Key, c_allocator)
+    mut reported := !ok || has_bad_clause(c.prog.trees, k, s)
+    pname := mut c.type_name(param)?
+    mut default_cl := no_key()
+    n := count_items(c.prog.trees, k.unit, s.cases)
+    for i := range n {
+        cl := item_at(c.prog.trees, k.unit, s.cases, i)
+        if is_default(c.prog.trees, cl) {
+            default_cl = cl
+            continue
+        }
+        arm, arm_ok := mut c.case_types(cl, pname[:], possible, taken, mut taken_by, mut seen)?
+        reported = reported || !arm_ok
+        for kd := range num_kinds {
+            _, had := taken_by[kd]
+            if arm & kind_bit(kd) != 0 && !had {
+                v := mut c.case_value_for(cl, kd)?
+                put(mut taken_by, kd, v)?
+            }
+        }
+        taken = taken | arm
+        mut c.check_param_case(cl, param, ok, arm)?
+    }
+    left := possible &^ taken
+    if !is_no_key(default_cl) {
+        never := ok && left == 0 && !reported
+        if never {
+            mut m := msg()
+            fmt.appendf(mut m, "every type %s can stand for is already covered, so this default never runs", pname[:])?
+            mut c.errorf(span_at(c.prog.trees, default_cl), own m)?
+            c.in_covered_default +%= 1
+        }
+        mut c.check_param_case(default_cl, param, ok, left)?
+        if never {
+            c.in_covered_default -%= 1
+        }
+        return noerror
+    }
+    if reported || left == 0 {
+        _, was := c.exhaustive[k]
+        if !was {
+            c.exhaust_gen +%= 1
+        }
+        put(mut c.exhaustive, k, true)?
+        return noerror
+    }
+    mut missing := msg()
+    mut count int64 = 0
+    for kd := range num_kinds {
+        if left & kind_bit(kd) != 0 {
+            if count > 0 {
+                append(mut missing, []uint8(", ")...)?
+            }
+            append(mut missing, []uint8(data_kind_name(kd))...)?
+            count +%= 1
+        }
+    }
+    mut word := "case"
+    mut pronoun := "it"
+    if count > 1 {
+        word = "cases"
+        pronoun = "them"
+    }
+    mut header := span_at(c.prog.trees, k)
+    header.end = span_at(c.prog.trees, sub(k, s.tag)).end
+    mut m := msg()
+    fmt.appendf(mut m, "switch on %s misses %s %s; cover %s or add a default", pname[:], word, missing[:], pronoun)?
+    return mut c.errorf(header, own m)
+}
+
+// has_bad_clause reports whether a clause of the switch k, s, is one the
+// parser could not parse, Go's hasBadClause.
+func has_bad_clause(trees []ast.File, k Key, s ast.Switch) bool {
+    for i := range count_items(trees, k.unit, s.cases) {
+        if clause_of(trees, item_at(trees, k.unit, s.cases, i)).bad {
+            return true
+        }
+    }
+    return false
+}
+
+// case_value_for returns the value of the clause cl that takes the kind
+// kd, for a note to point at, Go's caseValueFor, or no key.
+func (mut c Checker) case_value_for(cl Key, kd int64) (Key, error) {
+    cc := clause_of(c.prog.trees, cl)
+    first, count := mut c.type_cases_of(cl)
+    for i := range count {
+        tc, ok := c.tc_recs[first +% i]
+        if !ok {
+            continue
+        }
+        if mut c.case_kinds(tc) & kind_bit(kd) != 0 && i < count_items(c.prog.trees, cl.unit, cc.values) {
+            return item_at(c.prog.trees, cl.unit, cc.values, i), noerror
+        }
+    }
+    return no_key(), noerror
+}
+
+// type_cases_of returns where the TypeCases of the clause cl start in
+// tc_recs, and how many it has.
+func (mut c Checker) type_cases_of(cl Key) (int64, int64) {
+    r, ok := c.tc_of[cl]
+    if !ok {
+        return 0, 0
+    }
+    return r.first, r.count
+}
+
+// switch_param returns the type parameter the switch k, s, switches on,
+// and whether it is one a switch can be on, Go's switchParam:
+// constrained by Data, and not narrowed by a case around k. Anything
+// else is reported.
+func (mut c Checker) switch_param(k Key, s ast.Switch) (types.Type, bool, error) {
+    tag := sub(k, s.tag)
+    nm, is_id := ident_at(c.prog.trees, tag)
+    if !is_id {
+        return types.invalid, false, noerror
+    }
+    unbound := mut c.unbound(tag, nm)?
+    if unbound {
+        return types.invalid, false, noerror
+    }
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, tag.unit, nm.name)...)?
+    if nm.def.kind != ast.def_type_param {
+        mut m := msg()
+        fmt.appendf(mut m, "cannot switch on %s: it is not a type parameter", name[:])?
+        mut c.errorf(span_at(c.prog.trees, tag), own m)?
+        return types.invalid, false, noerror
+    }
+    tk := key_of_def(nm.def)
+    typ := decl_type_of(c.decl_types, tk)
+    if typ == types.invalid {
+        return types.invalid, false, noerror
+    }
+    to, narrowed := mut c.narrowed_of(typ)
+    if narrowed {
+        n := mut c.type_name(to)?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot switch on %s: it is %s in this case", name[:], n[:])?
+        mut c.errorf(span_at(c.prog.trees, tag), own m)?
+        return types.invalid, false, noerror
+    }
+    data, has_data := c.tp_data[tk]
+    if has_data && data {
+        return typ, true, noerror
+    }
+    iface, has_iface := c.tp_iface[tk]
+    if has_iface {
+        mut m := msg()
+        fmt.appendf(mut m, "cannot switch on %s: it is constrained by ", name[:])?
+        mut c.iface_name(iface, mut m)?
+        append(mut m, []uint8(", not Data")...)?
+        mut c.errorf(span_at(c.prog.trees, tag), own m)?
+    }
+    return types.invalid, false, noerror
+}
+
+// case_types checks the values of the clause cl, a case of a switch on
+// the type parameter named name, which may stand for the kinds
+// possible, records how each matches, and returns the kinds the case
+// takes, those its values match that no case before it took, Go's
+// caseTypes, and whether no value was reported.
+func (mut c Checker) case_types(cl Key, name []uint8, possible uint64, taken uint64, mut taken_by map[int64]Key, mut seen map[text.Text]Key) (uint64, bool, error) {
+    cc := clause_of(c.prog.trees, cl)
+    nv := count_items(c.prog.trees, cl.unit, cc.values)
+    first := len(c.tc_recs)
+    mut ok := true
+    mut arm uint64 = 0
+    for i := range nv {
+        v := item_at(c.prog.trees, cl.unit, cc.values, i)
+        mut key := msg()
+        tc, valid := mut c.type_case(v, mut key)?
+        if !valid {
+            ok = false
+            continue
+        }
+        append(mut c.tc_recs, tc)?
+        put(mut c.tc_of, cl, TcRange{first: first, count: len(c.tc_recs) -% first})?
+        if len(key) > 0 {
+            ck := text.from_bytes(key[:], c_allocator)?
+            prev, dup := seen[ck]
+            if dup {
+                mut m := msg()
+                fmt.appendf(mut m, "%s appears twice in this switch", key[:])?
+                mut c.errorf(span_at(c.prog.trees, v), own m)?
+                mut n := msg()
+                fmt.appendf(mut n, "previous case")?
+                mut c.note_last(span_at(c.prog.trees, prev), own n)?
+                continue
+            }
+            put(mut seen, ck, v)?
+        }
+        if (tc.kind == tc_list || tc.kind == tc_map) && nv > 1 {
+            mut part := "value type of the map"
+            mut pk := no_key()
+            switch kind_at(c.prog.trees, v) {
+            case list_type(elem):
+                part = "element type of the list"
+                pk = sub(v, elem)
+            case map_type(mt):
+                pk = sub(v, mt.value)
+            default:
+            }
+            t := mut c.source_text(span_at(c.prog.trees, v))?
+            pt := mut c.source_text(span_at(c.prog.trees, pk))?
+            mut m := msg()
+            fmt.appendf(mut m, "a case naming %s names no other type, since %s stands for the %s it matches", t[:], pt[:], part)?
+            mut c.errorf(span_at(c.prog.trees, v), own m)?
+            ok = false
+            continue
+        }
+        kinds := mut c.case_kinds(tc)
+        if kinds & possible &^ (taken | arm) == 0 {
+            mut c.never_matches(v, name, kinds, possible, taken_by)?
+            continue
+        }
+        arm = arm | (kinds & possible &^ taken)
+    }
+    if !ok || nv == 0 {
+        _, has := c.tc_of[cl]
+        if !has {
+            put(mut c.tc_of, cl, TcRange{first: first, count: 0})?
+        }
+    }
+    return arm, ok, noerror
+}
+
+// TcRange is where the TypeCases of a clause are in tc_recs.
+type TcRange struct {
+    first int64
+    count int64
+}
+
+// never_matches reports the value v of a case of a switch on the type
+// parameter named param, which takes kinds, none of them possible here
+// or left by the values before it, with a note at a value that took one,
+// Go's neverMatches.
+func (mut c Checker) never_matches(v Key, param []uint8, kinds uint64, possible uint64, taken_by map[int64]Key) error {
+    name := mut c.source_text(span_at(c.prog.trees, v))?
+    mut m := msg()
+    if kinds & possible == 0 {
+        fmt.appendf(mut m, "case %s never matches: %s is never %s here", name[:], param, name[:])?
+        return mut c.errorf(span_at(c.prog.trees, v), own m)
+    }
+    fmt.appendf(mut m, "case %s never matches: an earlier case takes every type it names", name[:])?
+    mut c.errorf(span_at(c.prog.trees, v), own m)?
+    for kd := range num_kinds {
+        by, had := taken_by[kd]
+        if kinds & possible & kind_bit(kd) != 0 && had && !is_no_key(by) {
+            mut n := msg()
+            fmt.appendf(mut n, "earlier case")?
+            return mut c.note_last(span_at(c.prog.trees, by), own n)
+        }
+    }
+    return noerror
+}
+
+// case_kinds returns the kinds tc matches, Go's caseKinds.
+func (mut c Checker) case_kinds(tc TypeCaseRec) uint64 {
+    if tc.kind == tc_list {
+        return kind_bit(kind_list)
+    }
+    if tc.kind == tc_map {
+        return kind_bit(kind_map)
+    }
+    if tc.kind == tc_struct {
+        return kind_bit(kind_struct) | kind_bit(kind_text)
+    }
+    kd, basic := basic_kind(tc.typ)
+    if basic {
+        return kind_bit(kd)
+    }
+    return kind_bit(kind_text)
+}
+
+// type_case checks v, a value of a case of a switch on a type
+// parameter, and returns how it matches, appending to key what it names,
+// for a value naming the same type or struct again, nothing for a
+// list[E] or a map[text.Text]V, and whether it is one a case can name,
+// Go's typeCase; one that is not is reported, unless an earlier stage
+// reported it.
+func (mut c Checker) type_case(v Key, mut key list[uint8]) (TypeCaseRec, bool, error) {
+    bad := TypeCaseRec{kind: tc_exact, typ: types.invalid, key: types.invalid}
+    switch kind_at(c.prog.trees, v) {
+    case struct_case:
+        append(mut key, []uint8("struct")...)?
+        return TypeCaseRec{kind: tc_struct, typ: types.invalid, key: types.invalid}, true, noerror
+    case list_type(elem):
+        tp := mut c.case_param(sub(v, elem))?
+        if tp == types.invalid {
+            return bad, false, noerror
+        }
+        return TypeCaseRec{kind: tc_list, typ: tp, key: types.invalid}, true, noerror
+    case map_type(mt):
+        kt := mut c.declared_type(sub(v, mt.key))?
+        tp := mut c.case_param(sub(v, mt.value))?
+        if kt == types.invalid || tp == types.invalid {
+            return bad, false, noerror
+        }
+        if !mut c.is_text(kt) {
+            t := mut c.source_text(span_at(c.prog.trees, v))?
+            n := mut c.type_name(kt)?
+            mut m := msg()
+            fmt.appendf(mut m, "case %s never matches: a Data map's key is text.Text, not %s", t[:], n[:])?
+            mut c.errorf(span_at(c.prog.trees, sub(v, mt.key)), own m)?
+            return bad, false, noerror
+        }
+        return TypeCaseRec{kind: tc_map, typ: tp, key: kt}, true, noerror
+    default:
+    }
+    typ := mut c.declared_type(v)?
+    name := mut c.source_text(span_at(c.prog.trees, v))?
+    if typ == types.invalid {
+        return bad, false, noerror
+    }
+    if c.table.is_type_param(typ) {
+        mut m := msg()
+        fmt.appendf(mut m, "case %s names a type parameter; a case of a switch on a type parameter names a type, list[E], map[text.Text]V or struct", name[:])?
+        mut c.errorf(span_at(c.prog.trees, v), own m)?
+        return bad, false, noerror
+    }
+    mut why := msg()
+    bad_data := mut c.not_data(typ, mut why)?
+    if bad_data {
+        n := mut c.type_name(typ)?
+        mut m := msg()
+        fmt.appendf(mut m, "case %s never matches: %s does not satisfy Data: %s", name[:], n[:], why[:])?
+        mut c.errorf(span_at(c.prog.trees, v), own m)?
+        return bad, false, noerror
+    }
+    if c.table.is_struct(typ) && !mut c.is_text(typ) {
+        mut m := msg()
+        fmt.appendf(mut m, "case %s names a struct type; a case of a switch on a type parameter names text.Text or struct, which matches every struct", name[:])?
+        mut c.errorf(span_at(c.prog.trees, v), own m)?
+        return bad, false, noerror
+    }
+    n := mut c.type_name(typ)?
+    append(mut key, n[:]...)?
+    return TypeCaseRec{kind: tc_exact, typ: typ, key: types.invalid}, true, noerror
+}
+
+// case_param returns the type parameter the name part, a case's
+// list[E] or map[text.Text]V writes for its element or value type,
+// declares, giving it a type of its own, constrained by Data, the first
+// time, Go's caseParam, or invalid when the resolver declared none.
+func (mut c Checker) case_param(part Key) (types.Type, error) {
+    nm, is_id := ident_at(c.prog.trees, part)
+    if !is_id || nm.def.kind != ast.def_type_param {
+        return types.invalid, noerror
+    }
+    tk := key_of_def(nm.def)
+    typ := decl_type_of(c.decl_types, tk)
+    if typ != types.invalid {
+        return typ, noerror
+    }
+    mut name := msg()
+    mut c.type_param_name(tk, mut name)?
+    t := mut c.table.type_param(name[:])?
+    mut c.set_decl_type(tk, t)?
+    put(mut c.tp_data, tk, true)?
+    put(mut c.type_params, t.number(), tk)?
+    return t, noerror
+}
+
+// check_param_case checks the body of the clause cl, a case of a switch
+// on the type parameter param, which ok says is one, that takes the
+// kinds arm, Go's checkParamCase: with param narrowed to the one type it
+// names, if it names one and takes a kind, and held to arm otherwise. A
+// case whose one value was reported narrows param to invalid. The locals
+// named in its body declared outside it are marked unrolled.
+func (mut c Checker) check_param_case(cl Key, param types.Type, ok bool, arm uint64) error {
+    cc := clause_of(c.prog.trees, cl)
+    nv := count_items(c.prog.trees, cl.unit, cc.values)
+    first, count := mut c.type_cases_of(cl)
+    mut how uint8 = 0
+    mut to := types.invalid
+    if !ok {
+        how = 0
+    } else if !cc.is_default && nv == 1 && count == 0 {
+        how = 1
+    } else if !cc.is_default && count == 1 && nv == 1 && arm != 0 {
+        tc, has := c.tc_recs[first]
+        if has && tc.kind != tc_struct {
+            how = 1
+            to = mut c.narrowed_to(tc)?
+        } else {
+            how = 2
+        }
+    } else {
+        how = 2
+    }
+    if how == 1 {
+        mut c.narrow_push(param, to)?
+    } else if how == 2 {
+        append(mut c.param_kinds, ParamKinds{param: param, kinds: arm})?
+    }
+    append(mut c.body.clauses, ClauseAt{cl: cl, on_union: false, on_type: false, on_param: true, deferred: c.body.deferred})?
+    mut sp := span_at(c.prog.trees, cl)
+    if nv > 0 {
+        sp.end = span_at(c.prog.trees, item_at(c.prog.trees, cl.unit, cc.values, nv -% 1)).end
+    }
+    no_facts := make(list[Fact], c_allocator)
+    e := mut c.check_guarded(cl.unit, cc.body, Guard{cond: no_cond(), span: sp, kind: guard_case}, no_facts[:])
+    pop(mut c.body.clauses)
+    if how == 1 {
+        mut c.narrow_pop()?
+    } else if how == 2 {
+        pop(mut c.param_kinds)
+    }
+    if e.code != 0 {
+        return e
+    }
+    return mut c.mark_unrolled(cl.unit, cc.body)
+}
+
+// narrowed_to returns the type a case whose one value matches as tc
+// narrows its type parameter to, Go's narrowedTo: the type it names, or
+// a list or a map of the type parameter it declares.
+func (mut c Checker) narrowed_to(tc TypeCaseRec) (types.Type, error) {
+    if tc.kind == tc_list {
+        t := mut c.table.list_of(tc.typ)?
+        return t, noerror
+    }
+    if tc.kind == tc_map {
+        t := mut c.table.map_of(tc.key, tc.typ)?
+        return t, noerror
+    }
+    return tc.typ, noerror
+}
+
+// narrow_push narrows param to to, in every type narrowed so far as
+// well, Go's narrow before its check: the narrowings in force are saved
+// on narrow_saved, and narrow_pop puts them back.
+func (mut c Checker) narrow_push(param types.Type, to types.Type) error {
+    append(mut c.narrow_marks, len(c.narrow_saved))?
+    mut one := make(map[int64]types.Type, c_allocator)
+    put(mut one, param.number(), to)?
+    mut inner := make(list[Narrowing], c_allocator)
+    for i := range len(c.narrowed) {
+        n, has := c.narrowed[i]
+        if !has {
+            continue
+        }
+        append(mut c.narrow_saved, n)?
+        t := mut c.substitute(n.to, one)?
+        append(mut inner, Narrowing{param: n.param, to: t})?
+    }
+    append(mut inner, Narrowing{param: param, to: to})?
+    append(mut c.narrow_counts, len(c.narrowed))?
+    old := replace(mut c.narrowed, inner)
+    drop(own old)
+    return noerror
+}
+
+// narrow_pop puts back the narrowings narrow_push saved.
+func (mut c Checker) narrow_pop() error {
+    mark, ok := pop(mut c.narrow_marks)
+    n, has_n := pop(mut c.narrow_counts)
+    if !ok || !has_n {
+        return noerror
+    }
+    mut outer := make(list[Narrowing], c_allocator)
+    for i := range n {
+        s, has := c.narrow_saved[mark +% i]
+        if has {
+            append(mut outer, s)?
+        }
+    }
+    for len(c.narrow_saved) > mark {
+        pop(mut c.narrow_saved)
+    }
+    old := replace(mut c.narrowed, outer)
+    drop(own old)
+    return noerror
+}
+
+// arm_for returns the clause of the switch k, s, on a type parameter
+// that runs when its type parameter stands for typ, Go's ArmFor: the
+// first case one of whose values matches typ, or the default, and binds
+// on top of bound what each type parameter that case declares stands
+// for, returning the bindings, or no key when no case runs.
+func (mut c Checker) arm_for(k Key, s ast.Switch, typ types.Type, bound int64) (Key, int64, error) {
+    n := count_items(c.prog.trees, k.unit, s.cases)
+    for i := range n {
+        cl := item_at(c.prog.trees, k.unit, s.cases, i)
+        first, count := mut c.type_cases_of(cl)
+        for j := range count {
+            tc, ok := c.tc_recs[first +% j]
+            if !ok {
+                continue
+            }
+            if tc.kind == tc_exact && typ == tc.typ {
+                return cl, bound, noerror
+            }
+            if tc.kind == tc_list && c.table.is_list(typ) {
+                b := mut c.bind_one(bound, tc.typ, c.table.elem_of(typ))?
+                return cl, b, noerror
+            }
+            if tc.kind == tc_map && c.table.is_map(typ) {
+                b := mut c.bind_one(bound, tc.typ, c.table.elem_of(typ))?
+                return cl, b, noerror
+            }
+            if tc.kind == tc_struct && c.table.is_struct(typ) {
+                return cl, bound, noerror
+            }
+        }
+    }
+    for i := range n {
+        cl := item_at(c.prog.trees, k.unit, s.cases, i)
+        if is_default(c.prog.trees, cl) {
+            return cl, bound, noerror
+        }
+    }
+    return no_key(), bound, noerror
+}

@@ -499,7 +499,14 @@ func (mut c Checker) struct_lit(k Key, lit ast.CompositeLit, typ types.Type) (ty
         mut missing := msg()
         mut count int64 = 0
         for i := range c.table.field_count(typ) {
-            if !bool_at(set, i) {
+            // Go tracks the fields named by name: a field declared twice
+            // is set when its first declaration is, which find_field
+            // gives.
+            if bool_at(set, i) {
+                continue
+            }
+            _, first, _ := c.table.find_field(typ, c.table.field_name(typ, i))
+            if !bool_at(set, first) {
                 if count > 0 {
                     append(mut missing, []uint8(", ")...)?
                 }
@@ -637,11 +644,18 @@ func (mut c Checker) check_literal_fields(typ types.Type, sp source.Span) (bool,
 
 // index_expr checks an element read as a value, x[i], whose x is a name,
 // Go's index: a generic function named with type arguments and no call
-// is reported in words the port does not have yet.
+// is reported, as a generic function is never a value.
 func (mut c Checker) index_expr(k Key, ix ast.Index) (types.Type, error) {
     nm, _ := ident_at(c.prog.trees, sub(k, ix.x))
     if nm.def.kind == ast.def_func {
-        return types.invalid, not_ported
+        f := func_of(c.prog.trees, key_of_def(nm.def))
+        if count_items(c.prog.trees, nm.def.unit, f.type_params) > 0 {
+            t := mut c.source_text(span_at(c.prog.trees, k))?
+            mut m := msg()
+            fmt.appendf(mut m, "cannot use %s as a value: it is generic, and a generic function is only called", t[:])?
+            mut c.errorf(span_at(c.prog.trees, k), own m)?
+            return types.invalid, noerror
+        }
     }
     base := mut c.expr(sub(k, ix.x))?
     typ := mut c.index_of(k, ix, base)?
@@ -842,20 +856,25 @@ func (mut c Checker) checked_element(k Key, base types.Type, length bool, elem t
 
 // selector checks a field read as a value, x.f, whose x is a name, or a
 // union built from a case with no payload, Go's selector, or a name
-// selected through a type (see method_expr). A fields loop's field is
-// declined.
+// selected through a type (see method_expr), or a member of a fields
+// loop's variable, f.name or f.index (see field_member).
 func (mut c Checker) selector(k Key, s ast.Selector) (types.Type, error) {
     _, _, built := construction(c.prog.trees, c.none, k)
     if built {
         typ := mut c.construction_of(k)?
         return typ, noerror
     }
-    if !ast.is_none(s.field) {
-        return types.invalid, not_ported
-    }
-    if type_operand(c.prog.trees, c.none, sub(k, s.x)) {
+    if ast.is_none(s.field) && type_operand(c.prog.trees, c.none, sub(k, s.x)) {
         typ := mut c.method_expr(k, s)?
         return typ, noerror
+    }
+    fnm, is_name := ident_at(c.prog.trees, sub(k, s.x))
+    if is_name && ast.is_none(s.field) {
+        fo := mut c.field_var(fnm)
+        if !is_no_key(fo) {
+            typ := mut c.field_member(k, s, fo)?
+            return typ, noerror
+        }
     }
     x := mut c.expr(sub(k, s.x))?
     base := mut c.value_of(sub(k, s.x), x)?
@@ -868,7 +887,8 @@ func (mut c Checker) selector(k Key, s ast.Selector) (types.Type, error) {
 // Go's field.
 func (mut c Checker) field(k Key, s ast.Selector, base types.Type) (types.Type, error) {
     if !ast.is_none(s.field) {
-        return types.invalid, not_ported
+        t := mut c.reflect_field(k, s, base)?
+        return t, noerror
     }
     if base == types.invalid {
         return types.invalid, noerror
@@ -884,7 +904,8 @@ func (mut c Checker) field(k Key, s ast.Selector, base types.Type) (types.Type, 
     ft, i, found := c.table.find_field(base, name[:])
     if !found {
         if c.table.is_type_param(base) {
-            return types.invalid, not_ported
+            mut c.type_param_field(s, k, base)?
+            return types.invalid, noerror
         }
         d := decl_of_type(c.structs, c.unions, base)
         if !is_no_key(d) && has_method_in(c.prog.trees, c.none, d, name[:]) {

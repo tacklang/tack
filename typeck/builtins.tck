@@ -211,22 +211,40 @@ func (mut c Checker) make_arena(k Key, typ types.Type) (types.Type, error) {
 }
 
 // made_data returns typ, the type the name x names as make's first
-// argument, when make can make it by name, Go's madeData: a Data type. A
-// type parameter, a struct, a list and a map, whose Data rules are
-// generics', S7's, are declined; any other type is reported, as Go's
-// notData names it.
+// argument, when make can make it by name, Go's madeData: a Data type, a
+// type parameter constrained by Data among them. A type parameter
+// constrained by an interface, or a type that is not Data, is reported,
+// naming why, and gives invalid.
 func (mut c Checker) made_data(x Key, typ types.Type) (types.Type, error) {
-    if typ == types.bool_type || types.is_integer(typ) || types.is_float(typ) {
+    if c.table.is_type_param(typ) {
+        tk, has := c.type_params[typ.number()]
+        if !has {
+            return typ, noerror
+        }
+        data, has_data := c.tp_data[tk]
+        if has_data && data {
+            return typ, noerror
+        }
+        iface, has_iface := c.tp_iface[tk]
+        if has_iface {
+            n := mut c.type_name(typ)?
+            mut m := msg()
+            fmt.appendf(mut m, "cannot make %s: it is constrained by ", n[:])?
+            mut c.iface_name(iface, mut m)?
+            append(mut m, []uint8(", not Data")...)?
+            mut c.errorf(span_at(c.prog.trees, x), own m)?
+            return types.invalid, noerror
+        }
         return typ, noerror
     }
-    if c.table.is_type_param(typ) || c.table.is_struct(typ) || c.table.is_list(typ) || c.table.is_map(typ) {
-        return types.invalid, not_ported
+    mut why := msg()
+    bad := mut c.not_data(typ, mut why)?
+    if !bad {
+        return typ, noerror
     }
     n := mut c.type_name(typ)?
     mut m := msg()
-    fmt.appendf(mut m, "cannot make %s: ", n[:])?
-    mut c.kind_name(typ, mut m)?
-    append(mut m, []uint8(" is not Data")...)?
+    fmt.appendf(mut m, "cannot make %s: %s", n[:], why[:])?
     mut c.errorf(span_at(c.prog.trees, x), own m)?
     return types.invalid, noerror
 }

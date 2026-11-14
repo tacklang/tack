@@ -1,0 +1,465 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import types from "tack/types"
+
+// Data, Go's data.go: a builtin constraint, closed. A type satisfies it
+// when it is plain data, a bool, an integer or a float, a list of Data
+// elements, a map from text.Text to Data values, or a struct whose
+// fields are all Data, private ones included; a type parameter is Data
+// when its constraint is. Nothing else is. What a type parameter
+// constrained by Data may be made with, make(T), is checked once for
+// every instance (see made_data).
+
+// DataFrame is a type not_data is looking at: its type, the next of its
+// parts to look at, and whether that part's answer is awaited.
+type DataFrame struct {
+    typ types.Type
+    i int64
+    started bool
+    waiting bool
+}
+
+// text_path is the import path of std/text, whose Text is the key type
+// of every Data map, Go's textPath.
+var text_path = "std/text"
+
+// is_text reports whether typ is text.Text, std/text's Text, Go's
+// isText.
+func (mut c Checker) is_text(typ types.Type) bool {
+    d, has := c.structs[typ.number()]
+    p, has_pkg := c.struct_pkg[typ.number()]
+    if !has || !has_pkg {
+        return false
+    }
+    return pkg_path_is(c.prog.packages, p, []uint8(text_path)) && bytes_equal(name_of(c.prog.trees, c.none, d), []uint8("Text"))
+}
+
+// satisfies_data reports whether got, a type argument passed as at for
+// a type parameter constrained by Data, satisfies Data, reporting why it
+// does not, Go's satisfiesData.
+func (mut c Checker) satisfies_data(at Key, got types.Type) (bool, error) {
+    mut why := msg()
+    bad := mut c.not_data(got, mut why)?
+    if !bad {
+        return true, noerror
+    }
+    n := mut c.type_name(got)?
+    mut m := msg()
+    fmt.appendf(mut m, "%s does not satisfy Data: %s", n[:], why[:])?
+    mut c.errorf(span_at(c.prog.trees, at), own m)?
+    return false, noerror
+}
+
+// data_parts returns how many parts not_data looks at of typ once it
+// knows typ is made of them: a list's element, a map's value, a
+// struct's fields, and none for anything else.
+func (mut c Checker) data_parts(typ types.Type) int64 {
+    if c.table.is_list(typ) || c.table.is_map(typ) {
+        return 1
+    }
+    if c.table.is_struct(typ) {
+        return c.table.field_count(typ)
+    }
+    return 0
+}
+
+// data_part returns the i'th part not_data looks at of typ.
+func (mut c Checker) data_part(typ types.Type, i int64) types.Type {
+    if c.table.is_struct(typ) {
+        t, ok := c.table.field_type(typ, i)
+        if !ok {
+            return types.invalid
+        }
+        return t
+    }
+    return c.table.elem_of(typ)
+}
+
+// data_what appends how a message names the i'th part of typ, Go's
+// what of partNotData.
+func (mut c Checker) data_what(typ types.Type, i int64, mut out list[uint8]) error {
+    n := mut c.type_name(typ)?
+    if c.table.is_list(typ) {
+        fmt.appendf(mut out, "the element type of %s", n[:])?
+    } else if c.table.is_map(typ) {
+        fmt.appendf(mut out, "the value type of %s", n[:])?
+    } else {
+        fmt.appendf(mut out, "field %s of %s", c.table.field_name(typ, i), n[:])?
+    }
+    return noerror
+}
+
+// data_whole reports whether a part of type typ is one whose own reason
+// a reason passes on, Go's partNotData keeping it: a list, a map, a
+// struct or a type parameter.
+func (mut c Checker) data_whole(typ types.Type) bool {
+    return c.table.is_list(typ) || c.table.is_map(typ) || c.table.is_struct(typ) || c.table.is_type_param(typ)
+}
+
+// not_data reports whether typ is not Data, appending why, naming the
+// field, element or value type deepest in it that is not, Go's notData
+// and partNotData. A struct reached again through a list or a map counts
+// as Data, and a type parameter is Data when its constraint is. The
+// parts are walked with a stack of their own, so a chain of structs
+// each holding the next is walked in a bounded stack.
+func (mut c Checker) not_data(typ types.Type, mut out list[uint8]) (bool, error) {
+    mut seen := make(map[int64]bool, c_allocator)
+    mut stack := make(list[DataFrame], c_allocator)
+    mut why := msg()
+    mut bad := false
+    append(mut stack, DataFrame{typ: typ, i: 0, started: false, waiting: false})?
+    for len(stack) > 0 {
+        f, has := pop(mut stack)
+        if !has {
+            break
+        }
+        t := f.typ
+        if !f.started {
+            clear_bytes(mut why)
+            bad = false
+            if t == types.invalid || t == types.bool_type || types.is_integer(t) || types.is_float(t) {
+                continue
+            }
+            if c.table.is_type_param(t) {
+                bad = mut c.param_not_data(t, mut why)?
+                continue
+            }
+            if c.table.is_map(t) && !mut c.is_text(c.table.key_of(t)) {
+                a := mut c.type_name(t)?
+                b := mut c.type_name(c.table.key_of(t))?
+                fmt.appendf(mut why, "the key type of %s is %s, and a Data map's key is text.Text", a[:], b[:])?
+                bad = true
+                continue
+            }
+            if c.table.is_struct(t) {
+                _, was := seen[t.number()]
+                if was {
+                    continue
+                }
+                put(mut seen, t.number(), true)?
+                ok := mut c.resolve_fields(t, ast.unset_span())?
+                if !ok {
+                    continue
+                }
+            } else if !c.table.is_list(t) && !c.table.is_map(t) {
+                mut c.kind_name(t, mut why)?
+                append(mut why, []uint8(" is not Data")...)?
+                bad = true
+                continue
+            }
+            mut nf := f
+            nf.started = true
+            append(mut stack, nf)?
+            continue
+        }
+        if f.waiting {
+            part := mut c.data_part(t, f.i)
+            if bad {
+                if !mut c.data_whole(part) {
+                    clear_bytes(mut why)
+                    mut c.data_what(t, f.i, mut why)?
+                    n := mut c.type_name(part)?
+                    fmt.appendf(mut why, " is %s, which is not Data", n[:])?
+                }
+                continue
+            }
+            mut nf := f
+            nf.i +%= 1
+            nf.waiting = false
+            append(mut stack, nf)?
+            continue
+        }
+        if f.i < mut c.data_parts(t) {
+            part := mut c.data_part(t, f.i)
+            mut nf := f
+            nf.waiting = true
+            append(mut stack, nf)?
+            append(mut stack, DataFrame{typ: part, i: 0, started: false, waiting: false})?
+            continue
+        }
+        clear_bytes(mut why)
+        bad = false
+    }
+    if bad {
+        append(mut out, why[:]...)?
+    }
+    return bad, noerror
+}
+
+// param_not_data reports whether typ, a type parameter, is not Data,
+// appending why, Go's paramNotData: it is constrained by an interface.
+func (mut c Checker) param_not_data(typ types.Type, mut why list[uint8]) (bool, error) {
+    tk, has := c.type_params[typ.number()]
+    if !has {
+        return false, noerror
+    }
+    iface, has_iface := c.tp_iface[tk]
+    if !has_iface {
+        return false, noerror
+    }
+    n := mut c.type_name(typ)?
+    fmt.appendf(mut why, "%s is constrained by ", n[:])?
+    mut c.iface_name(iface, mut why)?
+    append(mut why, []uint8(", not Data")...)?
+    return true, noerror
+}
+
+// check_fields_loop checks the loop k, s, a fields loop ranging over fo,
+// fields(T), Go's checkFieldsLoop: T, which must be a type parameter
+// constrained by Data or a struct that satisfies Data (see
+// fields_type); the loop's variable, which only f.name, f.index and
+// v.[f] can use; and its body, once, as a range loop's is, with no
+// facts of its own, its break and continue reported. v.[f] has the
+// loop's own type parameter, made the first time, constrained by Data.
+// The locals the body names that are declared outside it are marked
+// unrolled (see mark_unrolled).
+func (mut c Checker) check_fields_loop(k Key, s ast.ForRange, fo Key, texpr Key) error {
+    has_var := !ast.is_none(s.var_node)
+    if !ast.is_none(s.elem) {
+        mut sp := span_at(c.prog.trees, sub(k, s.var_node))
+        sp.end = span_at(c.prog.trees, fo).end
+        t := mut c.source_text(span_at(c.prog.trees, fo))?
+        mut m := msg()
+        fmt.appendf(mut m, "assignment mismatch: 2 variables but range over %s gives 1 value", t[:])?
+        mut c.errorf(sp, own m)?
+    }
+    ftyp := mut c.fields_type(texpr)?
+    put(mut c.fo_types, fo, ftyp)?
+    _, has_field := c.fo_fields[fo]
+    if !has_field {
+        written := mut c.source_text(span_at(c.prog.trees, texpr))?
+        mut name := msg()
+        append(mut name, written[:]...)?
+        if has_var {
+            fmt.appendf(mut name, ".[%s]", name_of(c.prog.trees, c.none, sub(k, s.var_node))[:])?
+        } else {
+            append(mut name, []uint8(".[_]")...)?
+        }
+        ft := mut c.table.type_param(name[:])?
+        sp := span_at(c.prog.trees, fo)
+        u := fo.unit
+        str := add_str(mut c.prog.trees, u, name)?
+        mut none_node id[ast.Node]
+        tn := add_node(mut c.prog.trees, u, ast.Kind.type_param(ast.TypeParam{constraint: none_node, name: str, name_span: sp}), sp)?
+        tk := Key{unit: u, node: tn}
+        put(mut c.type_params, ft.number(), tk)?
+        put(mut c.tp_data, tk, true)?
+        mut c.set_decl_type(tk, ft)?
+        put(mut c.fo_fields, fo, ft)?
+    }
+    if has_var {
+        v := sub(k, s.var_node)
+        mut c.set_decl_type(v, types.invalid)?
+        put(mut c.bindings, v, bind_range)?
+        put(mut c.field_loops, v, fo)?
+    }
+    mut header := span_at(c.prog.trees, k)
+    header.end = span_at(c.prog.trees, fo).end
+    mut nodes := make(list[Key], c_allocator)
+    c.stmt_keys(k.unit, s.body, mut nodes)?
+    m := c.mark()
+    c.body.loops +%= 1
+    outer := c.body.field_loop
+    c.body.field_loop = c.body.loops
+    g := Guard{cond: no_cond(), span: header, kind: guard_range}
+    no_facts := make(list[Fact], c_allocator)
+    mut c.assume(g, no_facts[:], nodes[:])?
+    e := mut c.check_block(k.unit, s.body)
+    c.body.field_loop = outer
+    c.body.loops -%= 1
+    if e.code != 0 {
+        return e
+    }
+    mut c.release(m)?
+    return mut c.mark_unrolled(k.unit, s.body)
+}
+
+// mark_unrolled marks each local named in body, in the tree unit, and
+// declared outside it as unrolled, Go's markUnrolled: the backend lowers
+// body once for each field, or each case, so C may never see it named.
+func (mut c Checker) mark_unrolled(unit int64, body ast.Nodes) error {
+    mut inside := make(map[Key]bool, c_allocator)
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    mut names := make(list[Key], c_allocator)
+    for i := range count_items(c.prog.trees, unit, body) {
+        append(mut stack, item_at(c.prog.trees, unit, body, i).node)?
+    }
+    for len(stack) > 0 {
+        top, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        k := Key{unit: unit, node: top}
+        switch kind_at(c.prog.trees, k) {
+        case var_decl:
+            put(mut inside, k, true)?
+        case ident(nm):
+            if nm.def.kind == ast.def_var {
+                append(mut names, key_of_def(nm.def))?
+            }
+        default:
+        }
+        clear_nodes(mut kids)
+        children_of(c.prog.trees, unit, top, mut kids)?
+        for _, kid := range kids {
+            append(mut stack, kid)?
+        }
+    }
+    for _, v := range names {
+        _, in := inside[v]
+        if !in {
+            put(mut c.unrolled, v, true)?
+        }
+    }
+    return noerror
+}
+
+// fields_type returns the type the fields loop's T, at texpr, ranges
+// over the fields of, Go's fieldsType, reporting one that is neither a
+// type parameter constrained by Data nor a struct type that satisfies
+// Data, for which it returns invalid.
+func (mut c Checker) fields_type(texpr Key) (types.Type, error) {
+    typ := mut c.declared_type(texpr)?
+    if typ == types.invalid {
+        return types.invalid, noerror
+    }
+    if c.table.is_type_param(typ) {
+        tk, has := c.type_params[typ.number()]
+        if !has {
+            return typ, noerror
+        }
+        data, has_data := c.tp_data[tk]
+        if has_data && data {
+            return typ, noerror
+        }
+        iface, has_iface := c.tp_iface[tk]
+        if has_iface {
+            n := mut c.type_name(typ)?
+            mut m := msg()
+            fmt.appendf(mut m, "cannot range over the fields of %s: it is constrained by ", n[:])?
+            mut c.iface_name(iface, mut m)?
+            append(mut m, []uint8(", not Data")...)?
+            mut c.errorf(span_at(c.prog.trees, texpr), own m)?
+            return types.invalid, noerror
+        }
+        return typ, noerror
+    }
+    if !c.table.is_struct(typ) {
+        n := mut c.type_name(typ)?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot range over the fields of %s: it is not a struct", n[:])?
+        mut c.errorf(span_at(c.prog.trees, texpr), own m)?
+        return types.invalid, noerror
+    }
+    mut why := msg()
+    bad := mut c.not_data(typ, mut why)?
+    if bad {
+        n := mut c.type_name(typ)?
+        mut m := msg()
+        fmt.appendf(mut m, "%s does not satisfy Data: %s", n[:], why[:])?
+        mut c.errorf(span_at(c.prog.trees, texpr), own m)?
+        return types.invalid, noerror
+    }
+    return typ, noerror
+}
+
+// fields_elsewhere reports k, fields(T), written anywhere but as a range
+// loop's X, the one place it can be, Go's fieldsElsewhere.
+func (mut c Checker) fields_elsewhere(k Key) error {
+    t := mut c.source_text(span_at(c.prog.trees, k))?
+    mut m := msg()
+    fmt.appendf(mut m, "%s can only be ranged over: for f := range %s { ... }", t[:], t[:])?
+    return mut c.errorf(span_at(c.prog.trees, k), own m)
+}
+
+// field_var returns the fields loop the name nm ranges over, when nm
+// names a fields loop's variable, Go's fieldVar, or no key.
+func (mut c Checker) field_var(nm ast.Ident) Key {
+    if nm.def.kind != ast.def_var {
+        return no_key()
+    }
+    fo, has := c.field_loops[key_of_def(nm.def)]
+    if !has {
+        return no_key()
+    }
+    return fo
+}
+
+// field_var_value reports nm, at k, a fields loop's variable used as a
+// value, Go's fieldVarValue.
+func (mut c Checker) field_var_value(k Key, nm ast.Ident) error {
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, k.unit, nm.name)...)?
+    mut m := msg()
+    fmt.appendf(mut m, "%s is a field of a fields loop, not a value; use %s.name, %s.index or v.[%s]", name[:], name[:], name[:], name[:])?
+    return mut c.errorf(span_at(c.prog.trees, k), own m)
+}
+
+// field_member checks the selector k, s, f.name or f.index, where f is
+// the variable of the fields loop fo, Go's fieldMember, and returns its
+// type: a string for the field's name and an int64 for its position.
+func (mut c Checker) field_member(k Key, s ast.Selector, fo Key) (types.Type, error) {
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, k.unit, s.name)...)?
+    mut typ := types.invalid
+    if bytes_equal(name, []uint8("name")) {
+        put(mut c.fo_names, fo, true)?
+        typ = types.string_type
+    } else if bytes_equal(name, []uint8("index")) {
+        typ = types.int64_type
+    } else {
+        t := mut c.source_text(span_at(c.prog.trees, sub(k, s.x)))?
+        mut m := msg()
+        fmt.appendf(mut m, "%s has no %s: a field of a fields loop has only name and index", t[:], name[:])?
+        mut c.errorf(s.name_span, own m)?
+    }
+    mut c.set_node_type(k, typ)?
+    return typ, noerror
+}
+
+// reflect_field returns the type of the selector k, s, v.[f], a field of
+// a value of type base, Go's reflectField: the loop's own type
+// parameter, when f is a fields loop's variable and base the type it
+// ranges over the fields of; anything else is reported.
+func (mut c Checker) reflect_field(k Key, s ast.Selector, base types.Type) (types.Type, error) {
+    fk := sub(k, s.field)
+    nm, _ := ident_at(c.prog.trees, fk)
+    unbound := mut c.unbound(fk, nm)?
+    if unbound {
+        return types.invalid, noerror
+    }
+    fo := mut c.field_var(nm)
+    if is_no_key(fo) {
+        if !nm.def.is_none() {
+            mut m := msg()
+            fmt.appendf(mut m, "%s is not a fields loop's variable; v.[f] takes the f of for f := range fields(T)", text_at(c.prog.trees, c.none, fk.unit, nm.name)[:])?
+            mut c.errorf(span_at(c.prog.trees, fk), own m)?
+        }
+        return types.invalid, noerror
+    }
+    mut ftyp := types.invalid
+    known, has_known := c.fo_types[fo]
+    if has_known {
+        ftyp = known
+    }
+    if base == types.invalid || ftyp == types.invalid {
+        return types.invalid, noerror
+    }
+    if base != ftyp {
+        t := mut c.source_text(span_at(c.prog.trees, sub(k, s.x)))?
+        a := mut c.type_name(base)?
+        b := mut c.type_name(ftyp)?
+        mut m := msg()
+        fmt.appendf(mut m, "%s is %s, and %s is a field of %s", t[:], a[:], text_at(c.prog.trees, c.none, fk.unit, nm.name)[:], b[:])?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    }
+    f, has_f := c.fo_fields[fo]
+    if !has_f {
+        return types.invalid, noerror
+    }
+    return f, noerror
+}

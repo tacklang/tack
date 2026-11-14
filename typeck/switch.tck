@@ -9,16 +9,14 @@ import types from "tack/types"
 // Switches, Go's switch.go and the switch on a union of union.go. An
 // expression switch is checked as the chain of ifs it means: its tag,
 // then each case's values and body in the order tried, the default
-// last; the facts each case gives the next are left to the stages that
-// port them. A switch on a union matches its cases instead. A type
-// switch is declined, as any is, and a switch on a type parameter, as
-// generics are.
+// last. A switch on a union matches its cases instead, and a switch on
+// a type parameter is check_param_switch's.
 
 // check_switch checks the switch k in the function being checked, Go's
 // checkSwitch.
 func (mut c Checker) check_switch(k Key, s ast.Switch) error {
     if s.on_type {
-        return not_ported
+        return mut c.check_param_switch(k, s)
     }
     if mut c.is_type_switch(k, s) {
         return mut c.check_type_switch(k, s)
@@ -28,10 +26,6 @@ func (mut c Checker) check_switch(k Key, s ast.Switch) error {
     if !ast.is_none(s.tag) {
         t := mut c.expr(tag)?
         tag_type = mut c.value_of(tag, t)?
-        ok := mut c.supported_type(tag_type)?
-        if !ok {
-            return not_ported
-        }
     }
     if c.table.is_union(tag_type) {
         return mut c.check_union_switch(k, s, tag_type)
@@ -188,7 +182,7 @@ func (mut c Checker) facts_at_switch(k Key, s ast.Switch, mut out list[Fact]) er
 func (mut c Checker) facts_here(mut out list[Fact]) error {
     for i := range len(c.fx.active) {
         f := fact_in(c.fx.active[:], i)
-        if f.is_empty() || f.relational() || f.either >= 0 {
+        if !c.fact_in_force(i) || f.is_empty() || f.relational() || f.either >= 0 {
             continue
         }
         h := mut c.holds(f)?
@@ -299,7 +293,7 @@ func (mut c Checker) check_case_body(k Key, cl Key, on_union bool, g Guard, fact
         }
         append(mut c.fx.late_defaults, LateDefault{whole: whole, body: bsp})?
     }
-    append(mut c.body.clauses, ClauseAt{cl: cl, on_union: on_union, on_type: false, deferred: c.body.deferred})?
+    append(mut c.body.clauses, ClauseAt{cl: cl, on_union: on_union, on_type: false, on_param: false, deferred: c.body.deferred})?
     e := mut c.check_guarded(cl.unit, body, g, facts)
     pop(mut c.body.clauses)
     if late {
@@ -868,10 +862,6 @@ func (mut c Checker) check_binding(cl Key, clause ast.CaseClause, uc types.Case,
     }
     if ast.is_none(clause.var_node) {
         return false, noerror
-    }
-    ok := mut c.supported_type(uc.typ)?
-    if !ok {
-        return false, not_ported
     }
     vk := sub(cl, clause.var_node)
     mut c.set_decl_type(vk, uc.typ)?

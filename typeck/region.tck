@@ -730,7 +730,7 @@ func (mut c Checker) node_writes(n Key, at Write, i int64, judged bool, mut out 
             case mut_arg(x):
                 mut decl := no_key()
                 if judged {
-                    decl = mut c.written_decl(sub(arg, x))
+                    decl = mut c.written_decl(sub(arg, x))?
                 } else {
                     decl = root_decl(c.prog.trees, sub(arg, x))
                 }
@@ -768,7 +768,7 @@ func (mut c Checker) node_writes(n Key, at Write, i int64, judged bool, mut out 
 func (mut c Checker) target_write(target Key, at Write, i int64, judged bool, mut out list[FoundWrite]) error {
     mut decl := no_key()
     if judged {
-        decl = mut c.written_decl(target)
+        decl = mut c.written_decl(target)?
     } else {
         decl = root_decl(c.prog.trees, target)
     }
@@ -813,34 +813,40 @@ func root_decl(trees []ast.File, target Key) Key {
 // written_decl returns the declaration assigning to target changes, Go's
 // writtenDecl: its root's, unless it writes through a list (see
 // through_list).
-func (mut c Checker) written_decl(target Key) Key {
+func (mut c Checker) written_decl(target Key) (Key, error) {
     d := root_decl(c.prog.trees, target)
-    if is_no_key(d) || mut c.through_list(target) {
-        return no_key()
+    if is_no_key(d) {
+        return no_key(), noerror
     }
-    return d
+    through := mut c.through_list(target)?
+    if through {
+        return no_key(), noerror
+    }
+    return d, noerror
 }
 
 // through_list reports whether target, a place, is an element of a list
 // or a pool or a value of a map, or a part of one, at any depth, Go's
-// throughList.
-func (mut c Checker) through_list(target Key) bool {
+// throughList. A part's type is narrowed by the cases of switches on a
+// type parameter around it (see narrow_type), since its root may not
+// have been checked yet.
+func (mut c Checker) through_list(target Key) (bool, error) {
     mut t := target
     for {
         switch kind_at(c.prog.trees, t) {
         case index(ix):
-            typ := mut c.type_of(sub(t, ix.x))
+            typ := mut c.narrow_type(mut c.type_of(sub(t, ix.x)))?
             if c.table.is_list(typ) || c.table.is_map(typ) || c.table.is_pool(typ) {
-                return true
+                return true, noerror
             }
             t = sub(t, ix.x)
         case selector(s):
             t = sub(t, s.x)
         default:
-            return false
+            return false, noerror
         }
     }
-    return false
+    return false, noerror
 }
 
 // write_drop records why w, a write to decl, ends a fact, Go's

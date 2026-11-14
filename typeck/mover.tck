@@ -26,7 +26,8 @@ import types from "tack/types"
 // A chain of else ifs and a list of statements are followed in a loop,
 // and a chain of fields, elements, calls or operators with a stack of
 // its own (see mv_walk); only the nesting the source writes, up to the
-// parser's limit, recurses. A closure is S7's, and declined.
+// parser's limit, recurses, a closure's body among it (see
+// mv_func_lit).
 
 // The contexts a value is used in, Go's useCtx: read where it is, moved
 // into a new owner, or read through a view parameter.
@@ -99,7 +100,9 @@ type Matched struct {
 // are around the point, the defer reads of the blocks around it, the
 // places ranged over and matched around it, whether errors are reported
 // (not in a loop body's first pass), whether deferred code is being
-// followed, and the variables that code declares, which it may move.
+// followed, and the variables that code declares, which it may move,
+// and the closures whose bodies are being followed, innermost last,
+// Go's locals: a closure may move only what it declares.
 type MoverState struct {
     fn Key
     spans list[SpanNode]
@@ -112,6 +115,7 @@ type MoverState struct {
     report bool
     deferring bool
     defer_locals map[Key]bool
+    lits list[Key]
 }
 
 // new_mover_state returns the state of a mover following nothing.
@@ -128,6 +132,7 @@ func new_mover_state() MoverState {
         report: true,
         deferring: false,
         defer_locals: make(map[Key]bool, c_allocator),
+        lits: make(list[Key], c_allocator),
     }
 }
 
@@ -661,6 +666,41 @@ func (mut c Checker) mv_loop(mut cur Flow, may_end bool, cond Key, unit int64, b
     return noerror
 }
 
+// mv_func_lit follows lit, a closure whose function is fk, where it is
+// written, Go's funcLit: its body, from a copy of cur, as the body of a
+// function returning the closure's results, with no loop around it, so
+// that a name in it of a variable that may have been moved is a use
+// after a move, while what the body does leaves the code after it
+// untouched. A closure cannot move what it captures (see mv_can_move).
+func (mut c Checker) mv_func_lit(lit Key, fk Key, cur Flow) error {
+    fn := func_of(c.prog.trees, fk)
+    outer_fn := c.mv.fn
+    outer_loops := c.mv.loops
+    outer_loop := replace(mut c.mv.loop, no_loop())
+    outer_deferring := c.mv.deferring
+    outer_locals := replace(mut c.mv.defer_locals, make(map[Key]bool, c_allocator))
+    c.mv.fn = fk
+    c.mv.loops = 0
+    c.mv.deferring = false
+    append(mut c.mv.lits, lit)?
+    mut start := clone_flow(cur)?
+    e := mut c.mv_block(fk.unit, fn.body, mut start)
+    pop(mut c.mv.lits)
+    c.mv.fn = outer_fn
+    c.mv.loops = outer_loops
+    inner_loop := replace(mut c.mv.loop, outer_loop)
+    drop(own inner_loop)
+    c.mv.deferring = outer_deferring
+    inner_locals := replace(mut c.mv.defer_locals, outer_locals)
+    drop(own inner_locals)
+    return e
+}
+
+// span_within reports whether a lies within b, in the same file.
+func span_within(a source.Span, b source.Span) bool {
+    return a.file == b.file && a.start >= b.start && a.end <= b.end
+}
+
 // mv_defer follows a defer's body where it is written, from a copy of
 // cur, Go's deferStmt, since it runs when its block ends and what it
 // does leaves the statements after it untouched. It records the owned
@@ -942,7 +982,7 @@ func (mut c Checker) mv_given_results(value Key, mut what list[uint8], mut out l
         }
         append(mut what, []uint8(" returns")...)?
         for i := range mut c.callee_result_count(fn) {
-            append(mut out, result_of(c.results, fn, i))?
+            append(mut out, mut c.call_result(value, fn, i))?
         }
         return true, noerror
     default:
@@ -984,7 +1024,8 @@ func (mut c Checker) dropped_name(typ types.Type, mut out list[uint8]) error {
         return noerror
     }
     if c.table.is_type_param(typ) {
-        return not_ported
+        append(mut out, []uint8(", which may hold a list and cannot be discarded")...)?
+        return noerror
     }
     a := c.table.holds_arena(typ)?
     if a {
@@ -1049,7 +1090,7 @@ func (mut c Checker) mv_expr_stmt(e Key, mut cur Flow) error {
             if !is_no_key(fn) {
                 clear_types(mut results)
                 for i := range mut c.callee_result_count(fn) {
-                    append(mut results, result_of(c.results, fn, i))?
+                    append(mut results, mut c.call_result(e, fn, i))?
                 }
             }
         } else {
@@ -1442,8 +1483,8 @@ func (mut c Checker) mv_walk(e Key, ctx uint8, as_call bool, mut cur Flow) error
             append(mut st, MvFrame{k: sub(k, x), ctx: ctx_move, step: 0, base: 0, n: 0, as_call: false})?
         case key_value(kv):
             append(mut st, MvFrame{k: sub(k, kv.value), ctx: f.ctx, step: 0, base: 0, n: 0, as_call: false})?
-        case func_lit:
-            return not_ported
+        case func_lit(fn):
+            mut c.mv_func_lit(k, sub(k, fn), cur)?
         case slice(s):
             mut parts := make(list[Key], c_allocator)
             append(mut parts, sub(k, s.x))?
@@ -1626,12 +1667,19 @@ func (mut c Checker) mv_use(k Key, nm ast.Ident, mut cur Flow) error {
 // mv_can_move reports whether the value of v, named by k, nm, can be
 // moved where k is, and reports why not when it cannot, Go's canMove: a
 // union pattern's binding and a range loop's variable in place are
-// never moved, deferred code cannot move a variable declared outside
-// it, and a range loop cannot move a list it walks, or anything holding
+// never moved, a closure cannot move a variable it captures, deferred
+// code cannot move a variable declared outside it, and a range loop cannot move a list it walks, or anything holding
 // one.
 func (mut c Checker) mv_can_move(k Key, nm ast.Ident, v Key) (bool, error) {
     binding := mut c.mv_moves_binding(k, nm)?
     if binding {
+        return false, noerror
+    }
+    lit, in_lit := c.mv.lits[len(c.mv.lits) -% 1]
+    if in_lit && !span_within(span_at(c.prog.trees, v), span_at(c.prog.trees, lit)) {
+        mut m := msg()
+        fmt.appendf(mut m, "a closure cannot move %s, which it captures: the closure may run more than once", name_of(c.prog.trees, c.none, v)[:])?
+        mut c.mv_error(span_at(c.prog.trees, k), own m)?
         return false, noerror
     }
     _, local := c.mv.defer_locals[v]

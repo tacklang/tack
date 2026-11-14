@@ -72,6 +72,7 @@ func (mut c Checker) method_args(k Key, fn Key, recv_mut Key, through bool) erro
     }
     mut c.check_exclusive(all)?
     mut c.check_list_borrows(k)?
+    mut c.check_captures(k)?
     if is_variadic(params) {
         mut c.check_printf(k, fn, shift)?
     }
@@ -152,7 +153,7 @@ func (mut c Checker) receiver_type(recv Key) (types.Type, bool, error) {
     switch kind_at(c.prog.trees, recv) {
     case mut_arg(x):
         place := sub(recv, x)
-        t := mut c.place_type(place)
+        t := mut c.place_type(place)?
         if t != types.invalid {
             return t, false, noerror
         }
@@ -190,11 +191,12 @@ func method_named(trees []ast.File, none []uint8, td Key, name []uint8) Key {
 // method_of returns the method the selector f, s, names of a value of
 // type typ, Go's methodOf, reporting a type with no such method, a
 // field named instead, and a method the package being checked cannot
-// see. A type parameter's methods are S7's, and declined, as is a field
-// holding a function value.
+// see. A type parameter's methods are its constraint's (see
+// type_param_method).
 func (mut c Checker) method_of(typ types.Type, f Key, s ast.Selector) (Key, error) {
     if c.table.is_type_param(typ) {
-        return no_key(), not_ported
+        fn := mut c.type_param_method(typ, f, s)?
+        return fn, noerror
     }
     mut name := msg()
     append(mut name, text_at(c.prog.trees, c.none, f.unit, s.name)...)?
@@ -207,7 +209,12 @@ func (mut c Checker) method_of(typ types.Type, f Key, s ast.Selector) (Key, erro
         ft, _, is_field := c.table.find_field(typ, name)
         if is_field {
             if c.table.is_func(ft) {
-                return no_key(), not_ported
+                n := mut c.type_name(typ)?
+                t := mut c.source_text(span_at(c.prog.trees, f))?
+                mut m := msg()
+                fmt.appendf(mut m, "%s is a field of %s holding a function value, not a method; call it through a local, as in f := %s, then f(...)", name[:], n[:], t[:])?
+                mut c.errorf(s.name_span, own m)?
+                return no_key(), noerror
             }
             n := mut c.type_name(typ)?
             mut m := msg()
@@ -346,8 +353,7 @@ func (mut c Checker) check_method_expr_call(k Key, _ Key) error {
 
 // named_method returns the method the method expression f, s, names,
 // called when called says so, Go's namedMethod, or no key after
-// reporting why it names none. A type parameter's are S7's, and
-// declined.
+// reporting why it names none, a type parameter's among them.
 func (mut c Checker) named_method(f Key, s ast.Selector, called bool) (Key, error) {
     x := sub(f, s.x)
     nm, _ := ident_at(c.prog.trees, x)
@@ -367,7 +373,15 @@ func (mut c Checker) named_method(f Key, s ast.Selector, called bool) (Key, erro
         return no_key(), noerror
     }
     if nm.def.kind == ast.def_type_param {
-        return no_key(), not_ported
+        whole := mut c.source_text(span_at(c.prog.trees, f))?
+        mut m := msg()
+        if called {
+            fmt.appendf(mut m, "cannot call %s through its type: %s is a type parameter, and a type parameter's methods can only be called on a value of it", whole[:], written[:])?
+        } else {
+            fmt.appendf(mut m, "cannot use %s as a value: %s is a type parameter, and a type parameter's methods can only be called on a value of it", whole[:], written[:])?
+        }
+        mut c.errorf(span_at(c.prog.trees, f), own m)?
+        return no_key(), noerror
     }
     if nm.def.kind != ast.def_type {
         return no_key(), noerror

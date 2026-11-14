@@ -1,0 +1,647 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// Closures, Go's closure.go. A function literal, func(a T) R { ... },
+// is a closure: its body reads and writes the variables and parameters
+// of the functions and closures it is written in, its captures, in
+// place. It is allowed only as an argument to a scope parameter (see
+// scope_func_arg), anywhere else reported (see func_lit_elsewhere), and
+// a scope parameter of a function type is used only as a call's callee
+// or an argument to another scope parameter (see scope_name_check).
+//
+// A closure's body is checked where it is written, as a block of the
+// function holding it (see check_func_lit), but with the closure as the
+// function a return and a ? leave, no loop, defer or case around it,
+// and only the facts in force there whose every subject nothing can
+// write, an immutable local or global or a parameter that is not mut
+// (see keeps_in_closure): it runs later, zero times, once or many. As
+// Go's, the facts stay in place, whether each is kept recorded as it is
+// put in force, and the body's reads pass over those it may not read;
+// the index of the relations it reads is one of the kept facts, kept in
+// step from the first time a body at its depth needs it (see
+// rel_kept).
+//
+// Each closure records its captures, every variable or parameter
+// declared outside it that its body names, and whether it may write
+// one (see captures), which a call it is passed to checks against its
+// other operands (see check_captures).
+
+// CapRec is one capture of a closure, Go's ast.Capture: the variable or
+// parameter, the name of it first written, the first place the closure
+// may write it, and whether it may; place is a name of it at that
+// place, a node the checker adds, which a check of the call it is
+// passed to compares as a mut argument's place.
+type CapRec struct {
+    decl Key
+    at source.Span
+    write_at source.Span
+    write bool
+    place Key
+}
+
+// CapRange is where the captures of one closure are in caps.
+type CapRange struct {
+    first int64
+    count int64
+}
+
+// ClosureMarks is the part of the Checker that checking a closure's
+// body sets apart from the function it is written in and holds no
+// memory of its own, Go's closureState's pointers and counts; the rest
+// of what Go's closureState holds is set apart on stacks of its own in
+// the Checker (see enter_closure), so that no frame on the path a
+// closure nested in another nests through holds any of it (see the
+// stack discipline in doc.tck).
+type ClosureMarks struct {
+    chain_bin Key
+    at int64
+    inf int64
+    view_call Key
+    view_slice Key
+    view_span Key
+    checked_assert Key
+    checked_take Key
+    checked_index Key
+    checked_division Key
+    assign_target Key
+    assign_value Key
+    dropped_call Key
+    scope_use Key
+    covered int64
+    outer int64
+    outer_guards int64
+}
+
+// lit_func returns the function the closure lit holds.
+func lit_func(trees []ast.File, lit Key) Key {
+    switch kind_at(trees, lit) {
+    case func_lit(fn):
+        return sub(lit, fn)
+    default:
+        return no_key()
+    }
+}
+
+// scope_func_arg checks arg, passed to p, a scope parameter of callee
+// whose type is a function type, Go's rest of scopeArg: a closure, whose
+// type is its signature's, a scope parameter passed on, or any other
+// value of a function type. Its type must be p's, scope marks included,
+// and when p's type mentions a type parameter of a generic callee being
+// inferred, arg's type gives it its type arguments first. A closure's
+// body is checked once its type is known.
+func (mut c Checker) scope_func_arg(arg Key, p ArgParam, callee list[uint8]) error {
+    switch kind_at(c.prog.trees, arg) {
+    case mut_arg, own_arg:
+        mut plain := p
+        plain.is_scope = false
+        plain.is_mut = false
+        plain.is_own = false
+        if plain.infers {
+            mut c.infer_arg(arg, plain, callee)?
+            return noerror
+        }
+        mut c.check_arg_special(arg, plain, callee)?
+        return noerror
+    default:
+    }
+    mut is_lit := false
+    mut got := types.invalid
+    switch kind_at(c.prog.trees, arg) {
+    case func_lit:
+        is_lit = true
+        got = mut c.func_lit_type(arg)?
+    case ident:
+        c.scope_use = arg
+        t, e := mut c.expr(arg)
+        c.scope_use = no_key()
+        if e.code != 0 {
+            return e
+        }
+        got = t
+    default:
+        got = mut c.expr(arg)?
+    }
+    mut want := p.typ
+    if got != types.invalid {
+        mentioned := mut c.mentions_any(want)?
+        if mentioned {
+            unified := mut c.unify(arg, want, got, callee)?
+            if !unified {
+                got = types.invalid
+            } else {
+                want = mut c.subst_inf(want, c.inf)?
+            }
+        }
+    }
+    if got != types.invalid {
+        mut ctx := msg()
+        fmt.appendf(mut ctx, "in argument to %s", callee[:])?
+        mut c.use(arg, got, want, ctx)?
+    }
+    if is_lit && node_type_of(c.node_types, arg) != types.invalid {
+        mut c.check_func_lit(arg)?
+    }
+    return noerror
+}
+
+// func_lit_type returns the function type of the closure lit, which its
+// signature gives, recording it on lit and as its function's value, Go's
+// funcLitType: its parameters follow a function's rules, and its
+// signature must be one a function type can say (see not_value). A
+// signature that cannot, or with a part that was reported, gives
+// invalid.
+func (mut c Checker) func_lit_type(lit Key) (types.Type, error) {
+    fk := lit_func(c.prog.trees, lit)
+    mut c.set_node_type(lit, types.invalid)?
+    delete(mut c.func_values, fk)
+    fn := func_of(c.prog.trees, fk)
+    mut ok := true
+    mut params := make(list[types.FuncParam], c_allocator)
+    for i := range count_items(c.prog.trees, fk.unit, fn.params) {
+        p := item_at(c.prog.trees, fk.unit, fn.params, i)
+        typ := mut c.param_type(p, Sig{unit: fk.unit, params: fn.params, i: i, recv: false})?
+        mut c.set_decl_type(p, typ)?
+        ok = ok && typ != types.invalid
+        param := param_of(c.prog.trees, p)
+        scoped := mut c.scope_fits(p)
+        append(mut params, types.FuncParam{typ: typ, is_mut: param.is_mut, is_own: param.is_own, is_scope: scoped})?
+    }
+    mut c.resolve_result_types(fk)?
+    mut results := make(list[types.Type], c_allocator)
+    for i := range mut c.callee_result_count(fk) {
+        r := result_of(c.results, fk, i)
+        ok = ok && r != types.invalid
+        append(mut results, r)?
+    }
+    if !ok {
+        return types.invalid, noerror
+    }
+    mut why := msg()
+    bad := mut c.not_value(fk, mut why)?
+    if bad {
+        mut m := msg()
+        fmt.appendf(mut m, "this closure has no function type: %s", why[:])?
+        mut c.errorf(fn.name_span, own m)?
+        return types.invalid, noerror
+    }
+    t := mut c.table.func_of(params[:], results[:])?
+    mut c.set_node_type(lit, t)?
+    put(mut c.func_values, fk, t)?
+    return t, noerror
+}
+
+// keeps_in_closure reports whether f, a fact in force where a closure is
+// written, stays in force in its body, Go's keepsInClosure: every
+// subject it names, and every subject of each side it carries, is a
+// variable or a parameter nothing can write (see immutable_decl).
+func (mut c Checker) keeps_in_closure(f Fact) bool {
+    if !mut c.keeps_key(f.about) || !mut c.keeps_key(f.len_of) || !mut c.keeps_key(f.at_most_len) || !mut c.keeps_key(f.at_most) || !mut c.keeps_key(f.in_map) {
+        return false
+    }
+    if f.diff >= 0 {
+        d, has := c.fx.diffs[f.diff]
+        if has && (!mut c.keeps_key(d.x) || !mut c.keeps_key(d.y)) {
+            return false
+        }
+    }
+    if f.either < 0 {
+        return true
+    }
+    e, has_e := c.fx.eithers[f.either]
+    if !has_e {
+        return true
+    }
+    for i := range e.count {
+        sd, has_sd := c.fx.sides[e.first +% i]
+        if !has_sd {
+            continue
+        }
+        for j := range sd.count {
+            g, has_g := c.fx.side_facts[sd.start +% j]
+            if has_g && !mut c.keeps_in_closure(g) {
+                return false
+            }
+        }
+    }
+    return true
+}
+
+// keeps_key reports whether k, a subject a fact names, is none or one
+// nothing can write.
+func (mut c Checker) keeps_key(k FKey) bool {
+    return k.is_zero() || mut c.immutable_decl(k.decl)
+}
+
+// immutable_decl reports whether nothing can write the declaration d,
+// Go's immutableDecl: an immutable variable, or a parameter that is not
+// mut.
+func (mut c Checker) immutable_decl(d Key) bool {
+    switch kind_at(c.prog.trees, d) {
+    case var_decl(v):
+        return !v.mutable
+    case param_decl:
+        return !param_of(c.prog.trees, d).is_mut
+    default:
+        return false
+    }
+}
+
+// enter_closure sets the Checker up to check the body of a closure
+// whose function is fk, Go's enterClosure, setting apart what it
+// replaces on the Checker's stacks for leave_closure: its function is
+// the one a return and a ? leave, no loop, defer or case is around its
+// statements, and only the facts keeps_in_closure keeps are in force,
+// with only the guards that gave them. The facts and guards stay where
+// they are: those before outer and outer_guards are the code around
+// it's, and every read passes over those not kept (see fact_in_force),
+// so entering a closure copies none of them, as Go's view. What the call it is an argument of is
+// checking for itself, an inference among it, is nothing its body's
+// expressions are part of.
+func (mut c Checker) enter_closure(fk Key) error {
+    append(mut c.cs_body, replace(mut c.body, BodyState{fn: fk, loops: 0, deferred: 0, defer_loops: 0, field_loop: 0, in_rejected_defer: false, clauses: make(list[ClauseAt], c_allocator)}))?
+    // The index of the relations the body reads is the one kept for its
+    // depth, or a fresh one, built the first time a query needs it.
+    mut inner := new_rel_idx()
+    deeper, has_deeper := pop(mut c.fx.rel_kept)
+    if has_deeper {
+        if deeper.built {
+            c.fx.deep_built -%= 1
+        }
+        old := replace(mut inner, deeper)
+        drop(own old)
+    }
+    append(mut c.cs_rel, replace(mut c.fx.rel, inner))?
+    append(mut c.cs_proven, replace(mut c.fx.proven, make(list[ProofOnly], c_allocator)))?
+    append(mut c.cs_chain, replace(mut c.fx.chain, make(list[Fact], c_allocator)))?
+    append(mut c.cs_appended, replace(mut c.append_lists, make(map[FKey]bool, c_allocator)))?
+    append(mut c.cs_passed, replace(mut c.passed_on, make(map[Key]Key, c_allocator)))?
+    append(mut c.cs_marks, ClosureMarks{chain_bin: c.fx.chain_bin, at: c.fx.at, inf: c.inf, view_call: c.view_call, view_slice: c.view_slice, view_span: c.view_span, checked_assert: c.checked_assert, checked_take: c.checked_take, checked_index: c.checked_index, checked_division: c.checked_division, assign_target: c.assign_target, assign_value: c.assign_value, dropped_call: c.dropped_call, scope_use: c.scope_use, covered: c.in_covered_default, outer: c.fx.outer, outer_guards: c.fx.outer_guards})?
+    c.fx.outer = len(c.fx.active)
+    c.fx.outer_guards = len(c.fx.guards)
+    c.fx.chain_bin = no_key()
+    c.inf = -1
+    c.view_call = no_key()
+    c.view_slice = no_key()
+    c.view_span = no_key()
+    c.checked_assert = no_key()
+    c.checked_take = no_key()
+    c.checked_index = no_key()
+    c.checked_division = no_key()
+    c.assign_target = no_key()
+    c.assign_value = no_key()
+    c.dropped_call = no_key()
+    c.scope_use = no_key()
+    c.in_covered_default = 0
+    return noerror
+}
+
+// leave_closure puts back what enter_closure set apart, Go's
+// leaveClosure.
+func (mut c Checker) leave_closure() error {
+    b, has_b := pop(mut c.cs_body)
+    if has_b {
+        old := replace(mut c.body, b)
+        drop(own old)
+    }
+    r, has_r := pop(mut c.cs_rel)
+    if has_r {
+        mine := replace(mut c.fx.rel, r)
+        if mine.built {
+            c.fx.deep_built +%= 1
+        }
+        append(mut c.fx.rel_kept, mine)?
+    }
+    p, has_p := pop(mut c.cs_proven)
+    if has_p {
+        old := replace(mut c.fx.proven, p)
+        drop(own old)
+    }
+    ch, has_ch := pop(mut c.cs_chain)
+    if has_ch {
+        old := replace(mut c.fx.chain, ch)
+        drop(own old)
+    }
+    al, has_al := pop(mut c.cs_appended)
+    if has_al {
+        old := replace(mut c.append_lists, al)
+        drop(own old)
+    }
+    po, has_po := pop(mut c.cs_passed)
+    if has_po {
+        old := replace(mut c.passed_on, po)
+        drop(own old)
+    }
+    s, has_s := pop(mut c.cs_marks)
+    if !has_s {
+        return noerror
+    }
+    c.fx.outer = s.outer
+    c.fx.outer_guards = s.outer_guards
+    c.fx.chain_bin = s.chain_bin
+    c.fx.at = s.at
+    c.inf = s.inf
+    c.view_call = s.view_call
+    c.view_slice = s.view_slice
+    c.view_span = s.view_span
+    c.checked_assert = s.checked_assert
+    c.checked_take = s.checked_take
+    c.checked_index = s.checked_index
+    c.checked_division = s.checked_division
+    c.assign_target = s.assign_target
+    c.assign_value = s.assign_value
+    c.dropped_call = s.dropped_call
+    c.scope_use = s.scope_use
+    c.in_covered_default = s.covered
+    return noerror
+}
+
+// check_func_lit checks the body of the closure lit, whose type is
+// known, where it is written (see enter_closure), that one with results
+// ends in a return, and then records its captures, Go's checkFuncLit.
+// Its parameters are recorded as a closure's first.
+func (mut c Checker) check_func_lit(lit Key) error {
+    fk := lit_func(c.prog.trees, lit)
+    fn := func_of(c.prog.trees, fk)
+    for i := range count_items(c.prog.trees, fk.unit, fn.params) {
+        put(mut c.closure_params, item_at(c.prog.trees, fk.unit, fn.params, i), true)?
+    }
+    mut c.declare_regions(fk.unit, fn.body)?
+    mut c.enter_closure(fk)?
+    mut e := mut c.check_block(fk.unit, fn.body)
+    if e.code == 0 {
+        e = mut c.lit_must_return(fk)
+    }
+    mut c.leave_closure()?
+    if e.code != 0 {
+        return e
+    }
+    return mut c.record_captures(lit)
+}
+
+// lit_must_return reports the closure whose function is fk when it has
+// results and its body does not end in a return, Go's check after the
+// body in checkFuncLit.
+func (mut c Checker) lit_must_return(fk Key) error {
+    fn := func_of(c.prog.trees, fk)
+    if count_items(c.prog.trees, fk.unit, fn.results) == 0 {
+        return noerror
+    }
+    terminates := mut c.block_terminates(fk.unit, fn.body)?
+    if terminates {
+        return noerror
+    }
+    bad := first_bad_stmt(c.prog.trees, fk.unit, fn.body)?
+    if !is_no_key(bad) {
+        return noerror
+    }
+    mut m := msg()
+    mut c.display_name(fk, mut m)?
+    append(mut m, []uint8(" must end in a return")...)?
+    return mut c.errorf(fn.name_span, own m)
+}
+
+// assigned_targets appends the places the statement k assigns, Go's
+// assignedTargets: an assignment's, an increment's or a decrement's
+// target, or every target of an assignment of several values.
+func (mut c Checker) assigned_targets(k Key, mut out list[Key]) error {
+    switch kind_at(c.prog.trees, k) {
+    case assign(a):
+        append(mut out, sub(k, a.target))?
+    case inc_dec(a):
+        append(mut out, sub(k, a.target))?
+    case multi_assign(m):
+        c.stmt_keys(k.unit, m.targets, mut out)?
+    default:
+    }
+    return noerror
+}
+
+// record_captures records the captures of the closure lit, Go's
+// captures: each variable or parameter its body names, at any depth,
+// not declared inside lit, its own parameters and those of the closures
+// nested in it included, a package-level variable and a fields loop's
+// variable aside, in the order of their first names, with whether the
+// body may write it: a target assigned, incremented or bound, or a mut
+// argument's place, rooted at it.
+func (mut c Checker) record_captures(lit Key) error {
+    fk := lit_func(c.prog.trees, lit)
+    fn := func_of(c.prog.trees, fk)
+    u := fk.unit
+    mut inside := make(map[Key]bool, c_allocator)
+    for i := range count_items(c.prog.trees, u, fn.params) {
+        put(mut inside, item_at(c.prog.trees, u, fn.params, i), true)?
+    }
+    mut order := make(list[id[ast.Node]], c_allocator)
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    mut i := count_items(c.prog.trees, u, fn.body) -% 1
+    for i >= 0 {
+        append(mut stack, item_at(c.prog.trees, u, fn.body, i).node)?
+        i -%= 1
+    }
+    for len(stack) > 0 {
+        top, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        k := Key{unit: u, node: top}
+        append(mut order, top)?
+        switch kind_at(c.prog.trees, k) {
+        case var_decl, param_decl:
+            put(mut inside, k, true)?
+        default:
+        }
+        clear_nodes(mut kids)
+        children_of(c.prog.trees, u, top, mut kids)?
+        mut j := len(kids) -% 1
+        for j >= 0 {
+            kid, has := kids[j]
+            if has {
+                append(mut stack, kid)?
+            }
+            j -%= 1
+        }
+    }
+    first := len(c.caps)
+    mut targets := make(list[Key], c_allocator)
+    for _, n := range order {
+        k := Key{unit: u, node: n}
+        clear_keys(mut targets)
+        mut c.assigned_targets(k, mut targets)?
+        for _, t := range targets {
+            mut c.capture_write(t, first, inside)?
+        }
+        switch kind_at(c.prog.trees, k) {
+        case mut_arg(x):
+            mut c.capture_write(sub(k, x), first, inside)?
+        case ident:
+            mut c.captured(k, first, inside)?
+        default:
+        }
+    }
+    put(mut c.lit_caps, lit, CapRange{first: first, count: len(c.caps) -% first})?
+    return noerror
+}
+
+// captured returns the index in caps of the capture the name k is of,
+// recording it, after those from first, the closure's, when it is the
+// first name of it, or -1 when k names nothing the closure captures,
+// Go's captured.
+func (mut c Checker) captured(k Key, first int64, inside map[Key]bool) (int64, error) {
+    nm, is_id := ident_at(c.prog.trees, k)
+    if !is_id || nm.def.is_none() {
+        return -1, noerror
+    }
+    d := key_of_def(nm.def)
+    _, in := inside[d]
+    if in {
+        return -1, noerror
+    }
+    if nm.def.kind == ast.def_var {
+        _, global := c.globals[d]
+        _, field_var := c.field_loops[d]
+        if global || field_var {
+            return -1, noerror
+        }
+    } else if nm.def.kind != ast.def_param {
+        return -1, noerror
+    }
+    mut i := first
+    for i < len(c.caps) {
+        cp, ok := c.caps[i]
+        if ok && cp.decl == d {
+            return i, noerror
+        }
+        i +%= 1
+    }
+    append(mut c.caps, CapRec{decl: d, at: span_at(c.prog.trees, k), write_at: ast.unset_span(), write: false, place: no_key()})?
+    return len(c.caps) -% 1, noerror
+}
+
+// capture_write records that the closure whose captures start at first
+// may write the capture target is rooted at, Go's write in captures,
+// the first time, with a name of it at target, which writers_in gives
+// as the place written.
+func (mut c Checker) capture_write(target Key, first int64, inside map[Key]bool) error {
+    root := root_ident(c.prog.trees, target)
+    if is_no_key(root) {
+        return noerror
+    }
+    i := mut c.captured(root, first, inside)?
+    if i < 0 {
+        return noerror
+    }
+    cp, ok := c.caps[i]
+    if !ok || cp.write {
+        return noerror
+    }
+    nm, _ := ident_at(c.prog.trees, root)
+    sp := span_at(c.prog.trees, target)
+    place := add_node(mut c.prog.trees, root.unit, ast.Kind.ident(nm), sp)?
+    mut np := cp
+    np.write = true
+    np.write_at = sp
+    np.place = Key{unit: root.unit, node: place}
+    set_cap(mut c.caps, i, np)
+    return noerror
+}
+
+// set_cap replaces the i'th of caps with cp.
+func set_cap(mut caps list[CapRec], i int64, cp CapRec) {
+    if i >= 0 && i < len(caps) {
+        caps[i] = cp
+    }
+}
+
+// lit_captures returns where the captures of the closure lit are in
+// caps, and how many it has.
+func (mut c Checker) lit_captures(lit Key) (int64, int64) {
+    r, ok := c.lit_caps[lit]
+    if !ok {
+        return 0, 0
+    }
+    return r.first, r.count
+}
+
+// func_lit_elsewhere reports the closure lit written anywhere but as an
+// argument to a scope parameter, Go's funcLitElsewhere. Its body is not
+// checked.
+func (mut c Checker) func_lit_elsewhere(lit Key) error {
+    fn := func_of(c.prog.trees, lit_func(c.prog.trees, lit))
+    mut m := msg()
+    fmt.appendf(mut m, "a closure can only be passed to a scope parameter")?
+    return mut c.errorf(fn.name_span, own m)
+}
+
+// func_lit_to_plain reports the closure lit passed to p, a parameter of
+// callee that is not scope, Go's funcLitToPlain.
+func (mut c Checker) func_lit_to_plain(lit Key, p ArgParam, callee list[uint8]) error {
+    fn := func_of(c.prog.trees, lit_func(c.prog.trees, lit))
+    mut pname := msg()
+    mut c.arg_param_name(p, mut pname)?
+    mut m := msg()
+    fmt.appendf(mut m, "%s does not take %s as scope, and a closure can only be passed to a scope parameter", callee[:], pname[:])?
+    return mut c.errorf(fn.name_span, own m)
+}
+
+// check_captures reports each capture of each closure among the operands
+// of the call k that a writer in another operand may change, Go's
+// checkCaptures: a mut argument of the same variable, or another closure
+// that writes it, at any depth, with a note at that writer. Each
+// variable is reported once for the call.
+func (mut c Checker) check_captures(k Key) error {
+    mut ops := make(list[Key], c_allocator)
+    mut c.call_operands(k, mut ops)?
+    mut reported := make(map[Key]bool, c_allocator)
+    for i, arg := range ops {
+        switch kind_at(c.prog.trees, arg) {
+        case func_lit:
+        default:
+            continue
+        }
+        first, count := mut c.lit_captures(arg)
+        if count == 0 {
+            continue
+        }
+        mut ws := make(list[Writer], c_allocator)
+        for j, op := range ops {
+            if j != i {
+                mut c.writers_in(op, j, mut ws)?
+            }
+        }
+        for ci := range count {
+            cp, ok := c.caps[first +% ci]
+            if !ok {
+                continue
+            }
+            _, was := reported[cp.decl]
+            if was {
+                continue
+            }
+            for _, w := range ws {
+                root := root_ident(c.prog.trees, w.place)
+                nm, is_id := ident_at(c.prog.trees, root)
+                if !is_id || key_of_def(nm.def) != cp.decl {
+                    continue
+                }
+                put(mut reported, cp.decl, true)?
+                mut name := msg()
+                append(mut name, name_of(c.prog.trees, c.none, cp.decl)...)?
+                mut what := msg()
+                mut c.writer_what(w, mut what)?
+                mut only := msg()
+                mut c.writer_only(w, mut only)?
+                mut m := msg()
+                fmt.appendf(mut m, "cannot capture %s in a closure alongside %s in this call: a closure reaches its captures in place, and %s during the call", name[:], what[:], only[:])?
+                mut c.errorf(cp.at, own m)?
+                mut c.writer_note(w)?
+                break
+            }
+        }
+    }
+    return noerror
+}

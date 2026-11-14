@@ -28,23 +28,36 @@ func (mut c Checker) allow_view(e Key) {
 // a view of the same type, or an array or a list of exactly its element
 // type that is a place.
 func (mut c Checker) view_arg(arg Key, want types.Type, callee list[uint8]) error {
-    mut got := types.invalid
-    mut conv := false
+    got, conv := mut c.view_arg_value(arg)?
+    return mut c.view_arg_fits(arg, got, want, callee, conv)
+}
+
+// view_arg_value checks arg, passed to a view parameter, as a value
+// where a view may be, Go's viewArgValue, and returns its type, and
+// whether it is a conversion to a view, []uint8(s), which gives that
+// view.
+func (mut c Checker) view_arg_value(arg Key) (types.Type, bool, error) {
     switch kind_at(c.prog.trees, arg) {
     case call(acl):
         switch kind_at(c.prog.trees, sub(arg, acl.fn)) {
         case view_type:
-            got = mut c.view_conversion(arg)?
-            conv = true
+            got := mut c.view_conversion(arg)?
+            return got, true, noerror
         default:
         }
     default:
     }
-    if !conv {
-        mut c.allow_view(arg)
-        t := mut c.expr(arg)?
-        got = mut c.value_of(arg, t)?
-    }
+    mut c.allow_view(arg)
+    t := mut c.expr(arg)?
+    got := mut c.value_of(arg, t)?
+    return got, false, noerror
+}
+
+// view_arg_fits reports arg, of type got, checked by view_arg_value,
+// conv saying whether it is a conversion to a view, unless a view
+// parameter of type want in a call to callee can take it, Go's
+// viewArgFits.
+func (mut c Checker) view_arg_fits(arg Key, got types.Type, want types.Type, callee list[uint8], conv bool) error {
     mut ctx := msg()
     fmt.appendf(mut ctx, "in argument to %s", callee[:])?
     if conv {

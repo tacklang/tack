@@ -134,7 +134,7 @@ func (mut c Checker) spine_operand(k Key) Key {
         return sub(k, u.x)
     case question(inner):
         // So is the receiver of the method call a ? follows, which the
-        // ? checks first too (see question_call), so that a chain of
+        // ? checks first too (see question_target), so that a chain of
         // f()?.g()? links is one spine.
         if !c.in_body {
             return no_key()
@@ -405,16 +405,8 @@ func (mut c Checker) start_spine(k Key, mut links list[Key]) (ExprSpine, error) 
         // through expr_node, whose frame then stays off the stack of a
         // value nested in a call's argument, a ? or an element.
         typ = mut c.call_value(x)?
-        ok := mut c.supported_type(typ)?
-        if !ok {
-            return ExprSpine{base: base, left: 0, typ: types.invalid, view: no_key(), logic: false}, not_ported
-        }
     case question:
         typ = mut c.question(x)?
-        ok := mut c.supported_type(typ)?
-        if !ok {
-            return ExprSpine{base: base, left: 0, typ: types.invalid, view: no_key(), logic: false}, not_ported
-        }
     case composite_lit(lit):
         typ = mut c.composite_lit(x, lit)?
     default:
@@ -488,10 +480,6 @@ func (mut c Checker) finish_link(l Key, x types.Type) (types.Type, error) {
         if e.code != 0 {
             return types.invalid, e
         }
-        ok := mut c.supported_type(typ)?
-        if !ok {
-            return types.invalid, not_ported
-        }
         return typ, noerror
     case question(inner):
         c.recv_given = mut c.receiver_of(sub(l, inner))
@@ -500,10 +488,6 @@ func (mut c Checker) finish_link(l Key, x types.Type) (types.Type, error) {
         c.recv_given = no_key()
         if e.code != 0 {
             return types.invalid, e
-        }
-        ok := mut c.supported_type(typ)?
-        if !ok {
-            return types.invalid, not_ported
         }
         return typ, noerror
     default:
@@ -536,12 +520,6 @@ func (mut c Checker) expr_node(k Key) (types.Type, error) {
         return typ, noerror
     case call:
         typ := mut c.call_value(k)?
-        if c.in_body {
-            ok := mut c.supported_type(typ)?
-            if !ok {
-                return types.invalid, not_ported
-            }
-        }
         return typ, noerror
     case binary(b):
         x := mut c.expr(sub(k, b.x))?
@@ -581,10 +559,6 @@ func (mut c Checker) expr_node(k Key) (types.Type, error) {
     switch kind_at(c.prog.trees, k) {
     case question:
         typ := mut c.question(k)?
-        ok := mut c.supported_type(typ)?
-        if !ok {
-            return types.invalid, not_ported
-        }
         return typ, noerror
     case type_assert(a):
         typ := mut c.type_assert(k, a)?
@@ -598,13 +572,18 @@ func (mut c Checker) expr_node(k Key) (types.Type, error) {
     case map_type, arena_type, pool_type, ref_type:
         t := mut c.declared_type(k)?
         return types.invalid, mut c.type_value(k, t)
-    case array_type, view_type, struct_type, interface_type, union_type, key_value:
+    case array_type, view_type, struct_type, interface_type, union_type, key_value, func_type:
         mut m := msg()
         fmt.appendf(mut m, "unsupported expression: *ast.%s", node_kind_name(c.prog.trees, k))?
         mut c.errorf(span_at(c.prog.trees, k), own m)?
         return types.invalid, noerror
+    case fields_of:
+        mut c.fields_elsewhere(k)?
+        return types.invalid, noerror
+    case func_lit:
+        mut c.func_lit_elsewhere(k)?
+        return types.invalid, noerror
     default:
-        // A closure, a function type and fields(T) are S7's.
         return types.invalid, not_ported
     }
 }
@@ -626,8 +605,10 @@ func (mut c Checker) type_value(k Key, typ types.Type) error {
 // yet is checked now, or its check suspended (see ensure_global), and
 // then this name is where the check of the global naming it goes on
 // from. A variable an error holds needs the error checked first (see
-// require_checked). A function used as a value, a scope parameter and a
-// value of a function type or a type parameter are S7's, and declined.
+// require_checked). A function used as a value is a value of its
+// signature's type (see func_value), and a fields loop's variable is no
+// value (see field_var_value); a scope parameter and a scope allocator
+// are used only where scope_use marks them (see scope_name_check).
 func (mut c Checker) ident(k Key, nm ast.Ident) (types.Type, error) {
     if nm.def.is_none() {
         mut m := msg()
@@ -640,11 +621,23 @@ func (mut c Checker) ident(k Key, nm ast.Ident) (types.Type, error) {
     if unbound {
         return types.invalid, noerror
     }
+    if !is_no_key(mut c.field_var(nm)) {
+        mut c.field_var_value(k, nm)?
+        return types.invalid, noerror
+    }
     if nm.def.kind == ast.def_func || nm.def.kind == ast.def_builtin {
-        // A function used as a value: a global's initializer naming one
-        // is reported before it is checked; an array length naming one
-        // Go reports in words the port does not have yet.
-        return types.invalid, not_ported
+        if !c.in_body {
+            // A global's initializer naming a function is reported
+            // before it is checked; an array length naming one Go
+            // reports in words the port does not have yet.
+            return types.invalid, not_ported
+        }
+        if nm.def.kind == ast.def_builtin {
+            // The resolver reported a builtin used as a value.
+            return types.invalid, noerror
+        }
+        t := mut c.func_value(k, nm, key_of_def(nm.def))?
+        return t, noerror
     }
     if nm.def.kind == ast.def_var {
         v := key_of_def(nm.def)
@@ -674,12 +667,9 @@ func (mut c Checker) ident(k Key, nm ast.Ident) (types.Type, error) {
                 return types.invalid, noerror
             }
             mut c.require_checked(k, nm)?
-            ok := mut c.supported_type(typ)?
-            if !ok {
-                return types.invalid, not_ported
-            }
         }
-        return typ, noerror
+        t := mut c.narrow_ident(k, typ)?
+        return t, noerror
     }
     if nm.def.kind == ast.def_param {
         d := key_of_def(nm.def)
@@ -690,12 +680,9 @@ func (mut c Checker) ident(k Key, nm ast.Ident) (types.Type, error) {
                 return types.invalid, noerror
             }
             mut c.require_checked(k, nm)?
-            ok := mut c.supported_type(typ)?
-            if !ok {
-                return types.invalid, not_ported
-            }
         }
-        return typ, noerror
+        t := mut c.narrow_ident(k, typ)?
+        return t, noerror
     }
     return types.invalid, noerror
 }

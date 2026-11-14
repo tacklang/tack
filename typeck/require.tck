@@ -711,7 +711,10 @@ func (c Checker) is_length_key(k FKey) bool {
 // compared reports whether a fact in force, held or dropped, names both
 // a and b, Go's compared.
 func (c Checker) compared(a FKey, b FKey) bool {
-    for _, f := range c.fx.active {
+    for j, f := range c.fx.active {
+        if !c.fact_in_force(j) {
+            continue
+        }
         mut ha := false
         mut hb := false
         for i := range c.key_count(f) {

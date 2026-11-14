@@ -12,11 +12,10 @@ import types from "tack/types"
 // passed to (see check_arg), then what its arguments may do to each
 // other, and a printf's format.
 //
-// What a call does that a later stage decides is declined: a callee
-// with type parameters or a function value (S7), a parameter that is
-// own or scope or a testing.Site, two mut arguments, whose overlap is
-// S6's, and an argument a list borrow could make unsafe (see
-// check_list_borrows).
+// A generic callee's call infers its type arguments (see infer.tck), a
+// call through a function value is checked against the value's type
+// (see dynamic_callee), and a closure is passed only to a scope parameter
+// (see closure.tck).
 
 // ArgParam is what checking an argument needs to know about the
 // parameter it is passed to, Go's param: the parameter's declaration,
@@ -26,7 +25,9 @@ import types from "tack/types"
 // parameter called _ after (see arg_param_name), its type, and whether
 // it is mut, own, scope or variadic, a parameter of a function's
 // signature rather than of a builtin, sig, of an extern func, and a
-// testing.Site one.
+// testing.Site one; and whether its type mentions a type parameter of
+// the callee whose call the inference in force when it was made infers,
+// which an argument passed to it gives type arguments (see infer_arg).
 type ArgParam struct {
     decl Key
     lit string
@@ -41,12 +42,13 @@ type ArgParam struct {
     is_extern bool
     site bool
     site_callee bool
+    infers bool
 }
 
 // arg_param returns the parameter of a builtin named lit, of type typ,
 // plain in every other way.
 func arg_param(lit string, typ types.Type) ArgParam {
-    return ArgParam{decl: no_key(), lit: lit, pos: 0, recv: false, typ: typ, is_mut: false, is_own: false, is_scope: false, variadic: false, sig: false, is_extern: false, site: false, site_callee: false}
+    return ArgParam{decl: no_key(), lit: lit, pos: 0, recv: false, typ: typ, is_mut: false, is_own: false, is_scope: false, variadic: false, sig: false, is_extern: false, site: false, site_callee: false, infers: false}
 }
 
 // arg_param_name appends how a message about an argument names the
@@ -81,6 +83,10 @@ func (mut c Checker) func_params(d Key, first int64, recv bool) (list[ArgParam],
         param := param_of(c.prog.trees, p)
         pos := i -% first
         _, is_site := c.site_params[p]
+        mut infers := false
+        if c.inf >= 0 {
+            infers = mut c.mentions_any(decl_type_of(c.decl_types, p))?
+        }
         append(mut out, ArgParam{
             decl: p,
             lit: "",
@@ -95,6 +101,7 @@ func (mut c Checker) func_params(d Key, first int64, recv bool) (list[ArgParam],
             is_extern: fn.is_extern,
             site: is_site && (!recv || pos > 0),
             site_callee: false,
+            infers: infers,
         })?
         i +%= 1
     }
@@ -195,7 +202,7 @@ func (mut c Checker) is_method_expr(e Key) bool {
 }
 
 // is_value_call reports whether the call k calls through a name of a
-// variable or a parameter, Go's isValueCall: a function value, S7's.
+// variable or a parameter, Go's isValueCall: a function value.
 func is_value_call(trees []ast.File, k Key) bool {
     switch kind_at(trees, k) {
     case call(cl):
@@ -214,6 +221,10 @@ func (mut c Checker) callee_of(k Key) Key {
     m, has := c.call_method[k]
     if has {
         return m
+    }
+    dy, dynamic := c.call_dynamic[k]
+    if dynamic {
+        return dy
     }
     switch kind_at(c.prog.trees, k) {
     case call(cl):
@@ -303,7 +314,7 @@ func (mut c Checker) call_value(k Key) (types.Type, error) {
         return gtyp, noerror
     }
     mut c.check_value_call(k)?
-    if is_value_call(c.prog.trees, k) {
+    if mut c.is_dynamic_unchecked(k) {
         // What the call calls through was reported.
         return types.invalid, noerror
     }
@@ -314,7 +325,7 @@ func (mut c Checker) call_value(k Key) (types.Type, error) {
     }
     fn := mut c.callee_of(k)
     if !is_no_key(fn) && mut c.callee_result_count(fn) == 1 {
-        rt := result_of(c.results, fn, 0)
+        rt := mut c.call_result(k, fn, 0)
         t := mut c.view_call_value(k, rt, view_ok)?
         return t, noerror
     }
@@ -440,7 +451,14 @@ func (mut c Checker) check_value_call(k Key) error {
         return noerror
     }
     if is_value_call(c.prog.trees, k) {
-        return mut c.dynamic_call(k, f, nm)
+        stand := mut c.dynamic_callee(k, f, nm)?
+        if is_no_key(stand) {
+            return mut c.arg_exprs(k)
+        }
+        return mut c.dynamic_args(k, f, nm, stand)
+    }
+    if mut c.is_generic_callee(nm) {
+        return mut c.check_generic_named(k, f, nm)
     }
     return mut c.check_named_call(k, f, nm)
 }
@@ -475,78 +493,175 @@ func (mut c Checker) check_call(k Key) error {
         return noerror
     }
     if is_value_call(c.prog.trees, k) {
-        return mut c.dynamic_call(k, f, nm)
+        stand := mut c.dynamic_callee(k, f, nm)?
+        if is_no_key(stand) {
+            return mut c.arg_exprs(k)
+        }
+        return mut c.dynamic_args(k, f, nm, stand)
+    }
+    if mut c.is_generic_callee(nm) {
+        return mut c.check_generic_named(k, f, nm)
     }
     return mut c.check_named_call(k, f, nm)
 }
 
-// dynamic_call checks the call k through the variable or parameter f,
-// nm, Go's dynamicCall, as far as no function value is called: one of
-// a type that is no function's is reported, and one whose type is
-// unknown has its arguments checked on their own. A call of a function
-// value is S7's, and declined.
-func (mut c Checker) dynamic_call(k Key, f Key, nm ast.Ident) error {
-    if nm.def.kind == ast.def_param && param_of(c.prog.trees, key_of_def(nm.def)).is_scope {
-        return not_ported
+// dynamic_callee checks the callee of the call k through the variable
+// or parameter f, nm, Go's start of dynamicCall: it must hold a function
+// value, and the call is then checked against the value's type through
+// the stand-in it records and returns (see dynamic_func), as a call by
+// name is against its function's signature. One of a type that is no
+// function's is reported, and for it, as for one whose type is unknown,
+// no key is returned: the call's arguments are then checked on their
+// own. The callee may be a scope parameter, which is used where
+// scope_use marks it. check_call and check_value_call each call it and
+// then dynamic_args, so that neither is inlined into the other's frame
+// and only dynamic_args's small one is on the stack while the
+// arguments are checked (see the stack discipline in doc.tck).
+func (mut c Checker) dynamic_callee(k Key, f Key, nm ast.Ident) (Key, error) {
+    c.scope_use = f
+    typ, fe := mut c.expr(f)
+    c.scope_use = no_key()
+    if fe.code != 0 {
+        return no_key(), fe
     }
-    typ := mut c.expr(f)?
-    if typ != types.invalid && c.table.is_func(typ) {
-        return not_ported
-    }
-    if typ != types.invalid {
+    if typ != types.invalid && !c.table.is_func(typ) {
         n := mut c.type_name(typ)?
         mut m := msg()
         fmt.appendf(mut m, "cannot call ")?
         qualified(c.prog.trees, c.none, f.unit, nm, mut m)?
         fmt.appendf(mut m, ": it is %s, not a function", n[:])?
         mut c.errorf(span_at(c.prog.trees, f), own m)?
+        return no_key(), noerror
     }
-    return mut c.arg_exprs(k)
+    if typ == types.invalid {
+        return no_key(), noerror
+    }
+    stand := mut c.dynamic_func(typ, k.unit)?
+    put(mut c.call_dynamic, k, stand)?
+    return stand, noerror
+}
+
+// dynamic_args checks the arguments of the call k through the variable
+// or parameter f, nm, against stand, the stand-in for its function type,
+// Go's end of dynamicCall, and what they may do to each other, as
+// named_call_done does for a call by name.
+func (mut c Checker) dynamic_args(k Key, f Key, nm ast.Ident, stand Key) error {
+    params := mut c.func_params(stand, 0, false)?
+    mut name := msg()
+    qualified(c.prog.trees, c.none, f.unit, nm, mut name)?
+    muts, counted := mut c.check_args(k, name, params)?
+    return mut c.named_call_done(k, nm, muts, counted, params)
 }
 
 // check_named_call checks the call k to the function or builtin named
-// f, nm, Go's checkNamedCall. Type arguments and a generic callee are
-// S7's, and declined.
+// f, nm, Go's checkNamedCall: type arguments written for a function
+// that declares no type parameters are reported, and a generic callee's
+// call infers its type arguments (see check_generic_call).
 func (mut c Checker) check_named_call(k Key, f Key, nm ast.Ident) error {
-    cl := call_of(c.prog.trees, k)
-    mut c.hidden_value(nm)?
-    if cl.type_args.made {
-        return not_ported
-    }
-    if nm.def.kind == ast.def_func {
-        fn := func_of(c.prog.trees, key_of_def(nm.def))
-        if count_items(c.prog.trees, nm.def.unit, fn.type_params) > 0 {
-            return not_ported
-        }
-    }
+    mut c.named_call_prelude(k, f, nm)?
     params := mut c.callee_params(f, nm)?
     mut name := msg()
     qualified(c.prog.trees, c.none, f.unit, nm, mut name)?
     muts, counted := mut c.check_args(k, name, params)?
+    return mut c.named_call_done(k, nm, muts, counted, params)
+}
+
+// check_generic_named is check_named_call for a call of a generic
+// function, called from check_value_call and check_call as
+// check_named_call is, out of the frame of a call of any other (see the
+// stack discipline in doc.tck).
+func (mut c Checker) check_generic_named(k Key, f Key, nm ast.Ident) error {
+    mut c.named_call_prelude(k, f, nm)?
+    d := key_of_def(nm.def)
+    mut name := msg()
+    qualified(c.prog.trees, c.none, f.unit, nm, mut name)?
+    muts, counted := mut c.check_generic_call(k, d, name)?
+    params := mut c.func_params(d, 0, false)?
+    return mut c.named_call_done(k, nm, muts, counted, params)
+}
+
+// named_call_prelude checks the call k to the function or builtin named
+// f, nm, before its arguments, Go's start of checkNamedCall: the value
+// its name may mean instead (see hidden_value), and type arguments
+// written for a function that declares no type parameters.
+func (mut c Checker) named_call_prelude(k Key, f Key, nm ast.Ident) error {
+    mut c.hidden_value(f, nm)?
+    if nm.def.kind != ast.def_func {
+        return noerror
+    }
+    cl := call_of(c.prog.trees, k)
+    d := key_of_def(nm.def)
+    if cl.type_args.made && mut c.declared_type_param_count(d) == 0 {
+        mut name := msg()
+        qualified(c.prog.trees, c.none, f.unit, nm, mut name)?
+        mut sp := span_at(c.prog.trees, f)
+        sp.end = cl.type_args_span.end
+        mut m := msg()
+        fmt.appendf(mut m, "cannot write type arguments for %s: it declares no type parameters", name[:])?
+        mut c.errorf(sp, own m)?
+    }
+    return noerror
+}
+
+// is_generic_callee reports whether nm, a call's callee, names a
+// function with type parameters, whose call check_generic_named checks.
+func (mut c Checker) is_generic_callee(nm ast.Ident) bool {
+    if nm.def.kind != ast.def_func {
+        return false
+    }
+    fn := func_of(c.prog.trees, key_of_def(nm.def))
+    return count_items(c.prog.trees, nm.def.unit, fn.type_params) > 0
+}
+
+// named_call_done checks what the arguments of the call k to nm, matched
+// with params, may do to each other once each is checked, Go's end of
+// checkNamedCall and of dynamicCall, when counted says their count was
+// right: its mut arguments muts, its list borrows, its closures'
+// captures and, for a call of a function by name, a printf's format.
+func (mut c Checker) named_call_done(k Key, nm ast.Ident, muts []Key, counted bool, params []ArgParam) error {
     if !counted {
         return noerror
     }
     mut c.check_exclusive(muts)?
     mut c.check_list_borrows(k)?
+    mut c.check_captures(k)?
     if nm.def.kind == ast.def_func && is_variadic(params) {
         mut c.check_printf(k, key_of_def(nm.def), 0)?
     }
     return noerror
 }
 
-// hidden_value checks a call's callee, nm, bound to the function or the
-// builtin of its name, Go's hiddenValue: when the variable or the
-// parameter of that name it passed over holds a function value Go
-// reports the call, which is S7's, and declined.
-func (mut c Checker) hidden_value(nm ast.Ident) error {
+// hidden_value reports a call's callee, nm, at f, bound to the function
+// or the builtin of its name, when the variable or the parameter of
+// that name it passed over holds a function value, Go's hiddenValue:
+// the call may mean the value instead.
+func (mut c Checker) hidden_value(f Key, nm ast.Ident) error {
     if !nm.hidden.is_value() {
         return noerror
     }
-    typ := decl_type_of(c.decl_types, key_of_def(nm.hidden))
-    if c.table.is_func(typ) {
-        return not_ported
+    h := key_of_def(nm.hidden)
+    typ := decl_type_of(c.decl_types, h)
+    if !c.table.is_func(typ) {
+        return noerror
     }
-    return noerror
+    mut at := ast.unset_span()
+    if nm.hidden.kind == ast.def_param {
+        at = param_of(c.prog.trees, h).name_span
+    } else {
+        at = var_of(c.prog.trees, h).name_span
+    }
+    mut kind := "function"
+    if nm.def.kind == ast.def_builtin {
+        kind = "builtin"
+    }
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, f.unit, nm.name)...)?
+    mut m := msg()
+    fmt.appendf(mut m, "%s calls the %s %s, not the function value of that name; rename one of them", name[:], kind, name[:])?
+    mut c.errorf(span_at(c.prog.trees, f), own m)?
+    mut n := msg()
+    fmt.appendf(mut n, "the function value %s is declared here", name[:])?
+    return mut c.note_last(at, own n)
 }
 
 // check_args checks the arguments of the call k against params, the
@@ -605,7 +720,7 @@ type SiteArg struct {
 // parameters are params, is given, Go's passSite, for the dump, which
 // shows it among the arguments. Nothing reads it before the moves, which
 // read a copyable Site without a report. A callee with two Site
-// parameters was reported, and is declined.
+// parameters was reported, and the dump declines it.
 func (mut c Checker) pass_site(k Key, params []ArgParam) error {
     cl := call_of(c.prog.trees, k)
     mut at int64 = -1
@@ -613,7 +728,14 @@ func (mut c Checker) pass_site(k Key, params []ArgParam) error {
     for i, p := range params {
         if p.site {
             if at >= 0 {
-                return not_ported
+                // A callee with two Site parameters was reported; the
+                // dump, which shows every Site argument Go puts among
+                // the arguments, declines it, and nothing else reads
+                // them.
+                if c.dumping {
+                    return not_ported
+                }
+                return noerror
             }
             at = i
             st, has := c.site_params[p.decl]
@@ -690,11 +812,46 @@ func (mut c Checker) check_written_args(k Key, callee list[uint8], params []ArgP
         return muts, false, noerror
     }
     for i := range count_items(c.prog.trees, k.unit, cl.args) {
-        p, has := params[i]
-        if !has {
+        if i >= len(params) {
             continue
         }
-        m := mut c.check_arg(item_at(c.prog.trees, k.unit, cl.args, i), p, callee)?
+        mut p := param_in(params, i)
+        arg := item_at(c.prog.trees, k.unit, cl.args, i)
+        mut m := no_key()
+        // An argument giving a type argument is checked from here rather
+        // than through check_arg, as check_arg_special would, so that
+        // neither check_arg's frame nor check_arg_special's is on the
+        // path a generic call nested in an argument takes, and type_arg
+        // and check_arg are then called from here too, not from
+        // infer_arg's frame (see infer_step and the stack discipline in
+        // doc.tck).
+        held := c.inf
+        mut next := step_plain
+        if p.infers && mut c.inferable(arg, p) {
+            m, next = mut c.infer_step(arg, mut p, callee)?
+            if next == step_plain {
+                c.inf = -1
+            }
+        }
+        if next == step_type_arg {
+            m = mut c.type_arg(arg, p, callee)?
+        } else if next == step_plain && mut c.any_plain(arg, p) {
+            // A value passed as any is checked from here too, as
+            // check_arg would, so that check_arg's frame is not on the
+            // path a call nested in it takes.
+            e := mut c.any_arg(arg)
+            c.inf = held
+            if e.code != 0 {
+                return muts, false, e
+            }
+        } else if next == step_plain {
+            a, e := mut c.check_arg(arg, p, callee)
+            c.inf = held
+            if e.code != 0 {
+                return muts, false, e
+            }
+            m = a
+        }
         if !is_no_key(m) {
             append(mut muts, m)?
         }
@@ -780,7 +937,8 @@ func no_fix() ArgFix {
 func (mut c Checker) arg_fix(e Key) (ArgFix, error) {
     switch kind_at(c.prog.trees, e) {
     case index(ix):
-        if mut c.place_type(sub(e, ix.x)) == types.string_type {
+        pt := mut c.place_type(sub(e, ix.x))?
+        if pt == types.string_type {
             mut f := no_fix()
             append(mut f.problem, []uint8("strings are immutable")...)?
             return f, noerror
@@ -814,6 +972,12 @@ func (mut c Checker) mut_root_fix(root Key) (ArgFix, error) {
         }
         if c.table.is_view(decl_type_of(c.decl_types, d)) {
             fmt.appendf(mut f.problem, "%s is a read-only view", name[:])?
+            return f, noerror
+        }
+        _, of_closure := c.closure_params[d]
+        if of_closure {
+            fmt.appendf(mut f.problem, "%s is a closure parameter, whose type the call fixes", name[:])?
+            fmt.appendf(mut f.fix, "copy it into a mutable local")?
             return f, noerror
         }
         fmt.appendf(mut f.problem, "%s is immutable", name[:])?
@@ -944,10 +1108,19 @@ func names_variable(trees []ast.File, e Key) bool {
 // arg is one passed to a mut parameter with nothing reported, and no key
 // otherwise. A scope parameter takes what scope_arg says, a scope
 // allocator passed to a parameter that is not scope is reported, and an
-// own argument is checked as own_plan says. A closure is declined.
+// own argument is checked as own_plan says; a closure is reported
+// unless the parameter is scope (see func_lit_to_plain).
 func (mut c Checker) check_arg(arg Key, p ArgParam, callee list[uint8]) (Key, error) {
     plain := mut c.arg_is_plain(arg, p)
     if !plain {
+        if mut c.any_plain(arg, p) {
+            // A value passed to an any parameter, checked from here and
+            // not through check_arg_special, whose frame then stays off
+            // the path a value passed as any nests through (see the
+            // stack discipline in doc.tck).
+            mut c.any_arg(arg)?
+            return no_key(), noerror
+        }
         m := mut c.check_arg_special(arg, p, callee)?
         return m, noerror
     }
@@ -962,6 +1135,43 @@ func (mut c Checker) check_arg(arg Key, p ArgParam, callee list[uint8]) (Key, er
     return no_key(), noerror
 }
 
+// any_plain reports whether arg is a plain value passed to p, a plain
+// parameter of type any, which check_arg_special checks as any_arg
+// does: no mut or own argument, closure or scope allocator, to no scope,
+// mut or view parameter, and to none whose type gives type arguments.
+func (mut c Checker) any_plain(arg Key, p ArgParam) bool {
+    if p.typ != types.any_type || p.is_scope || p.is_mut || p.is_own || p.infers {
+        return false
+    }
+    switch kind_at(c.prog.trees, arg) {
+    case func_lit, mut_arg, own_arg:
+        return false
+    case ident(nm):
+        return !(p.sig && mut c.is_scope_alloc(nm))
+    default:
+        return true
+    }
+}
+
+// inferable reports whether arg, passed to p in a call being inferred,
+// is checked as inferring when p's type mentions a type parameter of
+// the callee, Go's order in checkArg: an argument to a scope parameter,
+// a closure and a scope allocator passed where it is not scope are
+// checked as such first.
+func (mut c Checker) inferable(arg Key, p ArgParam) bool {
+    if p.is_scope {
+        return false
+    }
+    switch kind_at(c.prog.trees, arg) {
+    case func_lit:
+        return false
+    case ident(nm):
+        return !(p.sig && mut c.is_scope_alloc(nm))
+    default:
+        return true
+    }
+}
+
 // arg_is_plain reports whether arg, passed to p, is a plain value passed
 // to a plain parameter, whose check is check_arg's own: no scope, mut,
 // view or any parameter, no mut or own argument, no closure, no scope
@@ -970,7 +1180,7 @@ func (mut c Checker) check_arg(arg Key, p ArgParam, callee list[uint8]) (Key, er
 // the frame plain arguments nest through (see the stack discipline in
 // doc.tck).
 func (mut c Checker) arg_is_plain(arg Key, p ArgParam) bool {
-    if p.is_scope || p.is_mut || c.table.is_view(p.typ) || p.typ == types.any_type {
+    if p.is_scope || p.is_mut || c.table.is_view(p.typ) || p.typ == types.any_type || p.infers {
         return false
     }
     switch kind_at(c.prog.trees, arg) {
@@ -983,26 +1193,33 @@ func (mut c Checker) arg_is_plain(arg Key, p ArgParam) bool {
     }
 }
 
-// check_arg_special is check_arg for an argument arg_is_plain says is
-// not plain.
-func (mut c Checker) check_arg_special(arg Key, p ArgParam, callee list[uint8]) (Key, error) {
-    mut scoped := p.is_scope
-    switch kind_at(c.prog.trees, arg) {
-    case func_lit:
-        if !scoped {
-            return no_key(), not_ported
+// check_arg_scoped is check_arg for an argument to a scope parameter,
+// and a closure or a scope allocator passed to any other, which
+// inferable says is not checked as inferring (see scope_case).
+func (mut c Checker) check_arg_scoped(arg Key, p ArgParam, callee list[uint8]) error {
+    mut mode := scope_to_plain
+    if p.is_scope {
+        mode = scope_to_scope
+    } else {
+        switch kind_at(c.prog.trees, arg) {
+        case func_lit:
+            mode = lit_to_plain
+        default:
         }
-    case ident(snm):
-        scoped = scoped || p.sig && mut c.is_scope_alloc(snm)
-    default:
     }
-    if scoped {
-        mut mode := scope_to_plain
-        if p.is_scope {
-            mode = scope_to_scope
-        }
-        mut c.scope_case(arg, p, callee, mode)?
+    return mut c.scope_case(arg, p, callee, mode)
+}
+
+// check_arg_special is check_arg for any other argument arg_is_plain
+// says is not plain.
+func (mut c Checker) check_arg_special(arg Key, p ArgParam, callee list[uint8]) (Key, error) {
+    if !mut c.inferable(arg, p) {
+        mut c.check_arg_scoped(arg, p, callee)?
         return no_key(), noerror
+    }
+    if p.infers {
+        m := mut c.infer_arg(arg, p, callee)?
+        return m, noerror
     }
     plan := mut c.own_plan(arg, p.is_own)?
     if plan.kind != own_fine && plan.kind != own_var {
@@ -1105,9 +1322,6 @@ func (mut c Checker) arg_expr(arg Key) error {
         mut c.expr(sub(arg, x))?
         return noerror
     case ident(nm):
-        if mut c.is_scope_func(nm) {
-            return not_ported
-        }
         if mut c.is_scope_alloc(nm) {
             c.scope_use = arg
             _, e := mut c.expr(arg)
@@ -1152,7 +1366,8 @@ func (mut c Checker) place(e Key, m Key) (types.Type, error) {
             append(mut chain, cur)?
             cur = sub(cur, s.x)
         case index(ix):
-            if mut c.place_type(sub(cur, ix.x)) == types.string_type {
+            pt := mut c.place_type(sub(cur, ix.x))?
+            if pt == types.string_type {
                 mut c.expr(sub(cur, ix.x))?
                 mut c.expr(sub(cur, ix.index))?
                 mut c.string_byte_place(m)?
@@ -1226,6 +1441,10 @@ func (mut c Checker) string_byte_place(m Key) error {
 // parameter, whose type it returns.
 func (mut c Checker) place_name(e Key, nm ast.Ident, m Key) (types.Type, error) {
     typ := mut c.ident(e, nm)?
+    if !is_no_key(mut c.field_var(nm)) {
+        // Reported as no value.
+        return types.invalid, noerror
+    }
     if nm.def.kind == ast.def_param || nm.def.kind == ast.def_var {
         f := mut c.mut_root_fix(e)?
         if len(f.problem) == 0 {
@@ -1247,26 +1466,44 @@ func (mut c Checker) place_name(e Key, nm ast.Ident, m Key) (types.Type, error) 
 // declarations already give, without checking it or reporting anything,
 // Go's placeType: a variable or a parameter, a field of a place, or an
 // element of one; invalid for anything else.
-func (mut c Checker) place_type(e Key) types.Type {
-    switch kind_at(c.prog.trees, e) {
-    case ident(nm):
-        if nm.def.kind == ast.def_var || nm.def.kind == ast.def_param {
-            return decl_type_of(c.decl_types, key_of_def(nm.def))
+func (mut c Checker) place_type(e Key) (types.Type, error) {
+    mut chain := make(list[Key], c_allocator)
+    mut cur := e
+    mut typ := types.invalid
+    mut more := true
+    for more {
+        switch kind_at(c.prog.trees, cur) {
+        case ident(nm):
+            if nm.def.kind == ast.def_var || nm.def.kind == ast.def_param {
+                typ = mut c.narrow_type(decl_type_of(c.decl_types, key_of_def(nm.def)))?
+            }
+            more = false
+        case selector(s):
+            append(mut chain, cur)?
+            cur = sub(cur, s.x)
+        case index(ix):
+            append(mut chain, cur)?
+            cur = sub(cur, ix.x)
+        default:
+            return types.invalid, noerror
         }
-        return types.invalid
-    case selector(s):
-        base := mut c.place_type(sub(e, s.x))
-        ft, _, ok := c.table.find_field(base, text_at(c.prog.trees, c.none, e.unit, s.name))
-        if !ok {
-            return types.invalid
-        }
-        return ft
-    case index(ix):
-        base := mut c.place_type(sub(e, ix.x))
-        return c.table.elem_of(base)
-    default:
-        return types.invalid
     }
+    mut i := len(chain) -% 1
+    for i >= 0 {
+        l := key_in(chain[:], i)
+        i -%= 1
+        switch kind_at(c.prog.trees, l) {
+        case selector(s):
+            ft, _, ok := c.table.find_field(typ, text_at(c.prog.trees, c.none, l.unit, s.name))
+            if !ok {
+                return types.invalid, noerror
+            }
+            typ = ft
+        default:
+            typ = c.table.elem_of(typ)
+        }
+    }
+    return typ, noerror
 }
 
 // arg_elsewhere reports e, a mut or an own argument written anywhere but
@@ -1441,7 +1678,8 @@ func (mut c Checker) sound_operand(e Key) (bool, error) {
 // argument in another part of it passes, Go's checkOwnExclusive, with a
 // note at that own argument. A variable passed as own twice is reported
 // at the second, and a name reported by a call nested in k is not
-// reported again.
+// reported again. An own argument in a closure's body is the closure's
+// calls', Go's ownArgsIn, though a name there is still among k's.
 func (mut c Checker) check_own_exclusive(k Key) error {
     if !c.body_owns {
         return noerror
@@ -1449,22 +1687,28 @@ func (mut c Checker) check_own_exclusive(k Key) error {
     mut owns := make(list[Key], c_allocator)
     mut names := make(list[Key], c_allocator)
     mut stack := make(list[id[ast.Node]], c_allocator)
+    mut in_lit := make(list[bool], c_allocator)
     mut kids := make(list[id[ast.Node]], c_allocator)
     append(mut stack, k.node)?
+    append(mut in_lit, false)?
     for len(stack) > 0 {
         top, ok := pop(mut stack)
-        if !ok {
+        lit, has_lit := pop(mut in_lit)
+        if !ok || !has_lit {
             break
         }
         n := sub(k, top)
+        mut inner := lit
         switch kind_at(c.prog.trees, n) {
         case own_arg(x):
             _, named := ident_at(c.prog.trees, sub(n, x))
-            if named {
+            if named && !lit {
                 append(mut owns, n)?
             }
         case ident:
             append(mut names, n)?
+        case func_lit:
+            inner = true
         default:
         }
         clear_nodes(mut kids)
@@ -1474,6 +1718,7 @@ func (mut c Checker) check_own_exclusive(k Key) error {
             kid, has := kids[j]
             if has {
                 append(mut stack, kid)?
+                append(mut in_lit, inner)?
             }
             j -%= 1
         }

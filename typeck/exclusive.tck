@@ -16,7 +16,7 @@ import fmt from "std/fmt"
 //
 // Whether two indexes differ is decided by their known values, or by
 // what the facts in force say about them (see step_overlap). A closure
-// that writes a variable is a writer too, which is S7's, and declined.
+// that writes a variable is a writer too (see writers_in).
 
 // The ways two places relate, Go's overlap.
 var ov_disjoint uint8 = 0
@@ -26,18 +26,22 @@ var ov_within uint8 = 3
 var ov_may uint8 = 4
 var ov_may_field uint8 = 5
 
-// Writer is a mut argument found at any depth in some operands, Go's
-// writer: the place it passes, and the mut argument, with the index of
-// the operand it is in.
+// Writer is a mut argument found at any depth in some operands, or a
+// variable a closure among them writes, Go's writer: the place it
+// passes, or a name of the variable where the closure first writes it,
+// and the mut argument, or no key and the capture, its index in caps,
+// with the index of the operand it is in.
 type Writer struct {
     place Key
     arg Key
+    cap int64
     op int64
 }
 
-// writers_in appends to out the mut arguments in e, at any depth, in the
-// order Go's walk meets them, Go's writersIn, each marked as found in
-// the operand op. A closure is declined.
+// writers_in appends to out the mut arguments in e, at any depth outside
+// a closure, and the variables each closure in it writes, in the order
+// Go's walk meets them, Go's writersIn, each marked as found in the
+// operand op.
 func (mut c Checker) writers_in(e Key, op int64, mut out list[Writer]) error {
     if is_no_key(e) {
         return noerror
@@ -53,9 +57,16 @@ func (mut c Checker) writers_in(e Key, op int64, mut out list[Writer]) error {
         n := sub(e, top)
         switch kind_at(c.prog.trees, n) {
         case mut_arg(x):
-            append(mut out, Writer{place: sub(n, x), arg: n, op: op})?
+            append(mut out, Writer{place: sub(n, x), arg: n, cap: -1, op: op})?
         case func_lit:
-            return not_ported
+            first, count := mut c.lit_captures(n)
+            for i := range count {
+                cp, has_cp := c.caps[first +% i]
+                if has_cp && cp.write {
+                    append(mut out, Writer{place: cp.place, arg: no_key(), cap: first +% i, op: op})?
+                }
+            }
+            continue
         default:
         }
         clear_nodes(mut kids)
@@ -75,6 +86,10 @@ func (mut c Checker) writers_in(e Key, op int64, mut out list[Writer]) error {
 // writer_what appends what names w in a message, Go's writer.what: mut
 // and its place's text.
 func (mut c Checker) writer_what(w Writer, mut out list[uint8]) error {
+    if w.cap >= 0 {
+        append(mut out, []uint8("a closure that writes ")...)?
+        return mut c.cap_name(w, mut out)
+    }
     t := mut c.source_text(span_at(c.prog.trees, w.place))?
     append(mut out, []uint8("mut ")...)?
     append(mut out, t[:]...)?
@@ -84,6 +99,12 @@ func (mut c Checker) writer_what(w Writer, mut out list[uint8]) error {
 // writer_only appends that w must be the only way to reach what it
 // changes, Go's writer.only.
 func (mut c Checker) writer_only(w Writer, mut out list[uint8]) error {
+    if w.cap >= 0 {
+        append(mut out, []uint8("a closure that writes ")...)?
+        mut c.cap_name(w, mut out)?
+        append(mut out, []uint8(" must be the only way to reach ")...)?
+        return mut c.cap_name(w, mut out)
+    }
     t := mut c.source_text(span_at(c.prog.trees, w.place))?
     append(mut out, []uint8("a mut argument must be the only way to reach ")...)?
     append(mut out, t[:]...)?
@@ -93,9 +114,31 @@ func (mut c Checker) writer_only(w Writer, mut out list[uint8]) error {
 // writer_note adds the note pointing at w's mut argument to the error
 // reported last, Go's writer.note.
 func (mut c Checker) writer_note(w Writer) error {
+    if w.cap >= 0 {
+        cp, ok := c.caps[w.cap]
+        if !ok {
+            return noerror
+        }
+        mut cn := msg()
+        mut c.cap_name(w, mut cn)?
+        mut n := msg()
+        fmt.appendf(mut n, "%s is written here, in a closure", cn[:])?
+        return mut c.note_last(cp.write_at, own n)
+    }
     mut n := msg()
     append(mut n, []uint8("passed as mut here")...)?
     return mut c.note_last(span_at(c.prog.trees, w.arg), own n)
+}
+
+// cap_name appends the name of the variable w, a closure's write,
+// changes, Go's declName of its capture.
+func (mut c Checker) cap_name(w Writer, mut out list[uint8]) error {
+    cp, ok := c.caps[w.cap]
+    if !ok {
+        return noerror
+    }
+    append(mut out, name_of(c.prog.trees, c.none, cp.decl)...)?
+    return noerror
 }
 
 // places_may_overlap reports whether the places a and b may share

@@ -1,0 +1,190 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import types from "tack/types"
+
+// Function values, Go's funcvalue.go: a package-level function's name
+// used anywhere but as a call's callee, and a method named through its
+// type (see method_expr), is a value of the function type of its
+// signature, recorded as the function's value, Go's Func.Value. A call
+// through a variable or a parameter holding one is checked against the
+// value's type through a stand-in function with no body (see
+// dynamic_func), as a call by name is checked against its function's
+// signature.
+
+// func_value checks nm, at k, a name of the function d used as a value,
+// Go's funcValue, and returns the function's type: one whose signature
+// no function type can say is reported (see not_value).
+func (mut c Checker) func_value(k Key, nm ast.Ident, d Key) (types.Type, error) {
+    mut why := msg()
+    bad := mut c.not_value(d, mut why)?
+    if bad {
+        mut m := msg()
+        fmt.appendf(mut m, "cannot use ")?
+        qualified(c.prog.trees, c.none, k.unit, nm, mut m)?
+        fmt.appendf(mut m, " as a value: %s", why[:])?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return types.invalid, noerror
+    }
+    t := mut c.signature_value(d)?
+    return t, noerror
+}
+
+// signature_value returns the function type of the signature of the
+// function d, every parameter's type, each mut, own and scope where it
+// is, a method's receiver first, and its results, recorded as d's value,
+// Go's signatureValue, or invalid when a type in it was reported.
+func (mut c Checker) signature_value(d Key) (types.Type, error) {
+    known, has := c.func_values[d]
+    if has {
+        return known, noerror
+    }
+    fn := func_of(c.prog.trees, d)
+    mut params := make(list[types.FuncParam], c_allocator)
+    for i := range count_items(c.prog.trees, d.unit, fn.params) {
+        p := item_at(c.prog.trees, d.unit, fn.params, i)
+        pt := decl_type_of(c.decl_types, p)
+        if pt == types.invalid {
+            return types.invalid, noerror
+        }
+        param := param_of(c.prog.trees, p)
+        scoped := mut c.scope_fits(p)
+        append(mut params, types.FuncParam{typ: pt, is_mut: param.is_mut, is_own: param.is_own, is_scope: scoped})?
+    }
+    mut results := make(list[types.Type], c_allocator)
+    for i := range mut c.callee_result_count(d) {
+        r := result_of(c.results, d, i)
+        if r == types.invalid {
+            return types.invalid, noerror
+        }
+        append(mut results, r)?
+    }
+    t := mut c.table.func_of(params[:], results[:])?
+    put(mut c.func_values, d, t)?
+    return t, noerror
+}
+
+// not_value reports whether the function d cannot be a value, appending
+// why, Go's notValue: it is generic or extern, or its signature has what
+// no function type can say, a variadic, an any or a testing.Site
+// parameter, or a view result.
+func (mut c Checker) not_value(d Key, mut why list[uint8]) (bool, error) {
+    fn := func_of(c.prog.trees, d)
+    if count_items(c.prog.trees, d.unit, fn.type_params) > 0 {
+        append(mut why, []uint8("it is generic, and a generic function is only called")...)?
+        return true, noerror
+    }
+    if fn.is_extern {
+        append(mut why, []uint8("it is an extern func, and a function value does not cross to C")...)?
+        return true, noerror
+    }
+    n := count_items(c.prog.trees, d.unit, fn.params)
+    for i := range n {
+        p := item_at(c.prog.trees, d.unit, fn.params, i)
+        param := param_of(c.prog.trees, p)
+        if param.variadic {
+            mut c.its_param(d, i, mut why)?
+            append(mut why, []uint8(" is variadic, which no function type's can be")...)?
+            return true, noerror
+        }
+        if decl_type_of(c.decl_types, p) == types.any_type {
+            mut c.its_param(d, i, mut why)?
+            append(mut why, []uint8(" is an any, which no function type's can be")...)?
+            return true, noerror
+        }
+    }
+    for i := range n {
+        p := item_at(c.prog.trees, d.unit, fn.params, i)
+        _, site := c.site_params[p]
+        if site && (!fn.method || i > 0) {
+            mut c.its_param(d, i, mut why)?
+            append(mut why, []uint8(" is a testing.Site, which no function type's parameter can be")...)?
+            return true, noerror
+        }
+    }
+    if mut c.callee_result_count(d) == 1 && c.table.is_view(result_of(c.results, d, 0)) {
+        append(mut why, []uint8("it returns a view, which no function type can")...)?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// its_param appends how a message names the i'th parameter of the
+// function d, Go's itsParam: its parameter n, or, for one named _, its
+// 2nd parameter, or its receiver.
+func (mut c Checker) its_param(d Key, i int64, mut out list[uint8]) error {
+    fn := func_of(c.prog.trees, d)
+    p := item_at(c.prog.trees, d.unit, fn.params, i)
+    mut name := msg()
+    append(mut name, name_of(c.prog.trees, c.none, p)...)?
+    if !bytes_equal(name, []uint8("_")) {
+        fmt.appendf(mut out, "its parameter %s", name[:])?
+        return noerror
+    }
+    append(mut out, []uint8("its ")...)?
+    return blank_position(mut out, i, fn.method)
+}
+
+// dynamic_func returns the stand-in for a call through a value of the
+// function type typ, Go's dynamicFunc: a function with no body, added
+// to the tree unit the first time, whose parameters, named by their
+// position, and results are typ's, and whose value is typ. Every call
+// through a value of one type shares one.
+func (mut c Checker) dynamic_func(typ types.Type, u int64) (Key, error) {
+    known, has := c.dynamics[typ.number()]
+    if has {
+        return known, noerror
+    }
+    mut items := make(list[id[ast.Node]], c_allocator)
+    mut ptypes := make(list[types.Type], c_allocator)
+    for i, p := range c.table.func_params(typ) {
+        mut name := msg()
+        fmt.appendf(mut name, "argument %d", i +% 1)?
+        s := add_str(mut c.prog.trees, u, name)?
+        mut none_node id[ast.Node]
+        param := ast.Param{type_expr: none_node, name: s, name_span: ast.unset_span(), mut_span: ast.unset_span(), own_span: ast.unset_span(), scope_span: ast.unset_span(), ellipsis_span: ast.unset_span(), is_mut: p.is_mut, is_own: p.is_own, is_scope: p.is_scope, variadic: false}
+        pid := add_param_to(mut c.prog.trees, u, param)?
+        pn := add_node(mut c.prog.trees, u, ast.Kind.param_decl(pid), ast.unset_span())?
+        append(mut items, pn)?
+        append(mut ptypes, p.typ)?
+    }
+    for i, pn := range items {
+        pt, has_t := ptypes[i]
+        if has_t {
+            put(mut c.decl_types, Key{unit: u, node: pn}, pt)?
+        }
+    }
+    params := add_list(mut c.prog.trees, u, items)?
+    n := mut c.type_name(typ)?
+    s := add_str(mut c.prog.trees, u, n)?
+    mut z ast.Func
+    mut fn := z
+    fn.name = s
+    fn.params = params
+    fn.name_span = ast.unset_span()
+    fn.no_body = true
+    fid := add_func_to(mut c.prog.trees, u, fn)?
+    fnode := add_node(mut c.prog.trees, u, ast.Kind.func_decl(fid), ast.unset_span())?
+    fk := Key{unit: u, node: fnode}
+    nr := len(c.table.func_results(typ))
+    put(mut c.result_count, fk, nr)?
+    for i, r := range c.table.func_results(typ) {
+        put(mut c.results, RKey{unit: u, node: fnode, i: i}, r)?
+    }
+    put(mut c.func_values, fk, typ)?
+    put(mut c.dynamics, typ.number(), fk)?
+    return fk, noerror
+}
+
+// is_dynamic_unchecked reports whether the call k calls through a
+// variable or a parameter and has no stand-in recorded, Go's
+// isValueCall(call) && call.Dynamic == nil: what it calls through was
+// reported.
+func (mut c Checker) is_dynamic_unchecked(k Key) bool {
+    if !is_value_call(c.prog.trees, k) {
+        return false
+    }
+    _, has := c.call_dynamic[k]
+    return !has
+}

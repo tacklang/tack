@@ -198,7 +198,7 @@ func (mut c Checker) type_clause(cl Key, is_any bool, mut seen map[int64]Key) er
         mut c.set_decl_type(vk, vt)?
         put(mut c.bindings, vk, bind_type_switch)?
     }
-    append(mut c.body.clauses, ClauseAt{cl: cl, on_union: false, on_type: true, deferred: c.body.deferred})?
+    append(mut c.body.clauses, ClauseAt{cl: cl, on_union: false, on_type: true, on_param: false, deferred: c.body.deferred})?
     g := Guard{cond: no_cond(), span: c.case_span(cl), kind: guard_case}
     none := make(list[Fact], c_allocator)
     e := mut c.check_guarded(cl.unit, clause.body, g, none[:])

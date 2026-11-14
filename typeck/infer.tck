@@ -1,0 +1,1358 @@
+package typeck
+
+import fmt from "std/fmt"
+import types from "tack/types"
+
+// Inference, Go's infer.go and the call side of generic.go: a call to a
+// generic function infers each type parameter from its arguments, in
+// order, matching each argument's type against its parameter's, part by
+// part (see unify), and the type arguments the call writes, f[T](x),
+// give the type parameters it declares theirs from the left (see
+// bind_written). A parameter all of whose type parameters are known is
+// checked as a parameter of the type it is with them in place (see
+// substitute). Once every type parameter has a type argument, the call
+// records them, and its callee's parameters' and results' types with
+// them in place, which are its results (see call_result).
+//
+// What a call has inferred so far, Go's inference, is kept in the
+// Checker's maps under a number of its own, inf the one in force, -1
+// for none, so that a call nested in an argument of another infers on
+// its own and the outer one's goes on once it is done, as Go's pointer
+// is saved and put back.
+
+// IKey names one type parameter of the inference numbered inf, by its
+// type.
+type IKey struct {
+    inf int64
+    tp int64
+}
+
+// MethodSig is what satisfying an interface compares of two methods, Go's
+// methodSig: the parameters after the receiver, the result types, and
+// whether the receiver is mut.
+type MethodSig struct {
+    params list[Key]
+    results list[types.Type]
+    is_mut bool
+}
+
+// SubstFrame is a type substitute is building, with how many of its
+// parts it has asked for and where its parts' results start.
+type SubstFrame struct {
+    typ types.Type
+    next int64
+    base int64
+}
+
+// UnifyPair is a pair of types unify has yet to match, want against got.
+type UnifyPair struct {
+    want types.Type
+    got types.Type
+}
+
+// begin_inference starts an inference for a call to the generic function
+// fn, makes it the one in force, and returns the one it replaced.
+func (mut c Checker) begin_inference(fn Key) (int64, error) {
+    outer := c.inf
+    fresh := c.inf_next
+    c.inf_next +%= 1
+    put(mut c.inf_fn, fresh, fn)?
+    c.inf = fresh
+    return outer, noerror
+}
+
+// inf_param_types appends the types of the type parameters of the
+// callee of the inference id, in order.
+func (mut c Checker) inf_param_types(inf_id int64, mut out list[types.Type]) error {
+    fn, has := c.inf_fn[inf_id]
+    if !has {
+        return noerror
+    }
+    f := func_of(c.prog.trees, fn)
+    for i := range count_items(c.prog.trees, fn.unit, f.type_params) {
+        append(mut out, decl_type_of(c.decl_types, item_at(c.prog.trees, fn.unit, f.type_params, i)))?
+    }
+    return noerror
+}
+
+// infers reports whether typ is a type parameter of the callee whose
+// call the inference in force infers, Go's inference.infers.
+func (mut c Checker) infers(typ types.Type) (bool, error) {
+    if c.inf < 0 {
+        return false, noerror
+    }
+    mut tps := make(list[types.Type], c_allocator)
+    mut c.inf_param_types(c.inf, mut tps)?
+    for _, tp := range tps {
+        if tp == typ {
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// inf_arg returns the type argument the inference id found for the type
+// parameter tp, and whether it found one.
+func (mut c Checker) inf_arg(inf_id int64, tp types.Type) (types.Type, bool) {
+    t, ok := c.inf_args[IKey{inf: inf_id, tp: tp.number()}]
+    return t, ok
+}
+
+// inf_wrote reports whether the call of the inference id wrote a type
+// argument for tp.
+func (mut c Checker) inf_wrote(inf_id int64, tp types.Type) bool {
+    w, ok := c.inf_written[IKey{inf: inf_id, tp: tp.number()}]
+    return ok && w
+}
+
+// mentions reports whether the type parameter tp is typ, or a part of
+// it, at any depth, Go's mentions. The parts are walked with a stack of
+// their own.
+func (mut c Checker) mentions(typ types.Type, tp types.Type) (bool, error) {
+    mut stack := make(list[types.Type], c_allocator)
+    append(mut stack, typ)?
+    for len(stack) > 0 {
+        t, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        if t == tp {
+            return true, noerror
+        }
+        if c.table.is_array(t) || c.table.is_view(t) || c.table.is_list(t) || c.table.is_arena(t) || c.table.is_ref(t) || c.table.is_pool(t) || c.table.is_handle(t) {
+            append(mut stack, c.table.elem_of(t))?
+        } else if c.table.is_map(t) || c.table.is_func(t) {
+            mut c.func_parts(t, mut stack)?
+        }
+    }
+    return false, noerror
+}
+
+// func_parts appends the types a map type or a function type is made of,
+// Go's funcParts: a map's key and value types, or a function type's
+// parameters' types and its results, in order.
+func (mut c Checker) func_parts(typ types.Type, mut out list[types.Type]) error {
+    if c.table.is_map(typ) {
+        append(mut out, c.table.key_of(typ))?
+        append(mut out, c.table.elem_of(typ))?
+        return noerror
+    }
+    for _, p := range c.table.func_params(typ) {
+        append(mut out, p.typ)?
+    }
+    for _, r := range c.table.func_results(typ) {
+        append(mut out, r)?
+    }
+    return noerror
+}
+
+// mentions_any reports whether the inference in force has a type
+// parameter typ mentions, Go's inference.mentionsAny.
+func (mut c Checker) mentions_any(typ types.Type) (bool, error) {
+    if c.inf < 0 {
+        return false, noerror
+    }
+    mut tps := make(list[types.Type], c_allocator)
+    mut c.inf_param_types(c.inf, mut tps)?
+    for _, tp := range tps {
+        m := mut c.mentions(typ, tp)?
+        if m {
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// inf_lost reports whether typ mentions a type parameter of the callee
+// being inferred whose type argument the call wrote and was reported,
+// Go's inference.lost.
+func (mut c Checker) inf_lost(typ types.Type) (bool, error) {
+    mut tps := make(list[types.Type], c_allocator)
+    mut c.inf_param_types(c.inf, mut tps)?
+    for _, tp := range tps {
+        _, has := mut c.inf_arg(c.inf, tp)
+        if !has && mut c.inf_wrote(c.inf, tp) {
+            m := mut c.mentions(typ, tp)?
+            if m {
+                return true, noerror
+            }
+        }
+    }
+    return false, noerror
+}
+
+// inf_complete reports whether every type parameter of the callee being
+// inferred that typ mentions has a type argument already, Go's
+// inference.complete.
+func (mut c Checker) inf_complete(typ types.Type) (bool, error) {
+    mut tps := make(list[types.Type], c_allocator)
+    mut c.inf_param_types(c.inf, mut tps)?
+    for _, tp := range tps {
+        _, has := mut c.inf_arg(c.inf, tp)
+        if !has {
+            m := mut c.mentions(typ, tp)?
+            if m {
+                return false, noerror
+            }
+        }
+    }
+    return true, noerror
+}
+
+// inf_bound fills args with the type arguments the inference id found,
+// each by its type parameter's type.
+func (mut c Checker) inf_bound(inf_id int64, mut args map[int64]types.Type) error {
+    mut tps := make(list[types.Type], c_allocator)
+    mut c.inf_param_types(inf_id, mut tps)?
+    for _, tp := range tps {
+        a, has := mut c.inf_arg(inf_id, tp)
+        if has {
+            put(mut args, tp.number(), a)?
+        }
+    }
+    return noerror
+}
+
+// substitute returns typ with each type parameter args has a type for
+// replaced by it, through every array, view, list, arena, id, span,
+// pool, handle, map and function type typ is made of, adding each type
+// it makes to the table, Go's substitute: a type's parts are made before
+// it, in order. A type parameter args has no type for is left as it is.
+// The parts are walked with a stack of their own.
+func (mut c Checker) substitute(typ types.Type, args map[int64]types.Type) (types.Type, error) {
+    mut frames := make(list[SubstFrame], c_allocator)
+    mut done := make(list[types.Type], c_allocator)
+    append(mut frames, SubstFrame{typ: typ, next: 0, base: 0})?
+    for len(frames) > 0 {
+        f, has := pop(mut frames)
+        if !has {
+            break
+        }
+        to, bound := args[f.typ.number()]
+        if bound {
+            append(mut done, to)?
+            continue
+        }
+        mut nf := f
+        if nf.next == 0 {
+            nf.base = len(done)
+        }
+        if nf.next < mut c.subst_parts(nf.typ) {
+            part := mut c.subst_part(nf.typ, nf.next)
+            nf.next +%= 1
+            append(mut frames, nf)?
+            append(mut frames, SubstFrame{typ: part, next: 0, base: 0})?
+            continue
+        }
+        base := nf.base
+        if base < 0 || base > len(done) {
+            break
+        }
+        made := mut c.subst_make(nf.typ, done[base:])?
+        for len(done) > base {
+            pop(mut done)
+        }
+        append(mut done, made)?
+    }
+    r, ok := done[0]
+    if !ok {
+        return typ, noerror
+    }
+    return r, noerror
+}
+
+// subst_parts returns how many parts substitute walks of typ.
+func (mut c Checker) subst_parts(typ types.Type) int64 {
+    if c.table.is_array(typ) || c.table.is_view(typ) || c.table.is_list(typ) || c.table.is_arena(typ) || c.table.is_ref(typ) || c.table.is_pool(typ) || c.table.is_handle(typ) {
+        return 1
+    }
+    if c.table.is_map(typ) {
+        return 2
+    }
+    if c.table.is_func(typ) {
+        return len(c.table.func_params(typ)) +% len(c.table.func_results(typ))
+    }
+    return 0
+}
+
+// subst_part returns the i'th part substitute walks of typ.
+func (mut c Checker) subst_part(typ types.Type, i int64) types.Type {
+    if c.table.is_map(typ) {
+        if i == 0 {
+            return c.table.key_of(typ)
+        }
+        return c.table.elem_of(typ)
+    }
+    if c.table.is_func(typ) {
+        p, is_param := c.table.func_params(typ)[i]
+        if is_param {
+            return p.typ
+        }
+        r, is_result := c.table.func_results(typ)[i -% len(c.table.func_params(typ))]
+        if is_result {
+            return r
+        }
+        return types.invalid
+    }
+    return c.table.elem_of(typ)
+}
+
+// subst_make returns the type of typ's kind made of parts, the parts
+// substitute found for it, adding it to the table.
+func (mut c Checker) subst_make(typ types.Type, parts []types.Type) (types.Type, error) {
+    if len(parts) == 0 {
+        return typ, noerror
+    }
+    p0, has0 := parts[0]
+    if !has0 {
+        return typ, noerror
+    }
+    if c.table.is_array(typ) {
+        t := mut c.table.array_of(p0, c.table.len_of(typ))?
+        return t, noerror
+    }
+    if c.table.is_view(typ) {
+        t := mut c.table.view_of(p0)?
+        return t, noerror
+    }
+    if c.table.is_list(typ) {
+        t := mut c.table.list_of(p0)?
+        return t, noerror
+    }
+    if c.table.is_arena(typ) {
+        t := mut c.table.arena_of(p0)?
+        return t, noerror
+    }
+    if c.table.is_id(typ) {
+        t := mut c.table.id_of(p0)?
+        return t, noerror
+    }
+    if c.table.is_span(typ) {
+        t := mut c.table.span_of(p0)?
+        return t, noerror
+    }
+    if c.table.is_pool(typ) {
+        t := mut c.table.pool_of(p0)?
+        return t, noerror
+    }
+    if c.table.is_handle(typ) {
+        t := mut c.table.handle_of(p0)?
+        return t, noerror
+    }
+    if c.table.is_map(typ) {
+        p1, has1 := parts[1]
+        if !has1 {
+            return typ, noerror
+        }
+        t := mut c.table.map_of(p0, p1)?
+        return t, noerror
+    }
+    mut params := make(list[types.FuncParam], c_allocator)
+    mut results := make(list[types.Type], c_allocator)
+    np := len(c.table.func_params(typ))
+    for i, p := range c.table.func_params(typ) {
+        mut pt := types.invalid
+        part, has_part := parts[i]
+        if has_part {
+            pt = part
+        }
+        append(mut params, types.FuncParam{typ: pt, is_mut: p.is_mut, is_own: p.is_own, is_scope: p.is_scope})?
+    }
+    for i := range len(c.table.func_results(typ)) {
+        mut rt := types.invalid
+        part, has_part := parts[np +% i]
+        if has_part {
+            rt = part
+        }
+        append(mut results, rt)?
+    }
+    t := mut c.table.func_of(params[:], results[:])?
+    return t, noerror
+}
+
+// subst_inf is substitute with the type arguments the inference id
+// found.
+func (mut c Checker) subst_inf(typ types.Type, inf_id int64) (types.Type, error) {
+    mut args := make(map[int64]types.Type, c_allocator)
+    mut c.inf_bound(inf_id, mut args)?
+    t := mut c.substitute(typ, args)?
+    return t, noerror
+}
+
+// check_generic_call checks the call k, to fn, a generic function named
+// callee, against its parameters, Go's checkGenericCall: the type
+// arguments it writes give the type parameters fn declares theirs (see
+// bind_written), and the arguments infer the rest (see infer_arg). It
+// records them, and the signature with them in place, when every type
+// parameter has one. A type parameter no argument could give is
+// reported (see uninferred). It returns the mut arguments passed to mut
+// parameters with nothing reported and whether the count was right.
+// What it does before the arguments and after them is generic_phase's,
+// called for both, so that, having two callers, it keeps a frame of its
+// own, off the path a generic call nested in an argument takes (see the
+// stack discipline in doc.tck).
+func (mut c Checker) check_generic_call(k Key, fn Key, callee list[uint8]) (list[Key], bool, error) {
+    outer := c.inf
+    mut c.generic_phase(k, fn, callee, -1, true)?
+    params := mut c.func_params(fn, 0, false)?
+    muts, counted := mut c.check_args(k, callee, params)?
+    mine := c.inf
+    c.inf = outer
+    if counted {
+        mut c.generic_phase(k, fn, callee, mine, false)?
+    } else {
+        mut c.clear_signature(k)?
+        mut c.uninferred(k, fn, mine, callee)?
+    }
+    return muts, counted, noerror
+}
+
+// generic_phase does what check_generic_call does for the call k, to fn,
+// named callee, before its arguments are checked, when before says so:
+// an inference begun and put in force and the type arguments the call
+// writes bound (see bind_written); or after them, mine being the
+// inference they were checked under and the count right: what the call
+// recorded before forgotten, a type parameter no argument could give
+// reported, and, when every type parameter has its type argument, the
+// type arguments and the signature with them in place recorded.
+func (mut c Checker) generic_phase(k Key, fn Key, callee list[uint8], mine int64, before bool) error {
+    if before {
+        mut c.begin_inference(fn)?
+        return mut c.bind_written(k, fn, callee)
+    }
+    mut c.clear_signature(k)?
+    un := mut c.uninferred(k, fn, mine, callee)?
+    if un {
+        return noerror
+    }
+    f := func_of(c.prog.trees, fn)
+    n := count_items(c.prog.trees, fn.unit, f.type_params)
+    for i := range n {
+        tp := decl_type_of(c.decl_types, item_at(c.prog.trees, fn.unit, f.type_params, i))
+        _, has := mut c.inf_arg(mine, tp)
+        if !has {
+            return noerror
+        }
+    }
+    for i := range n {
+        tp := decl_type_of(c.decl_types, item_at(c.prog.trees, fn.unit, f.type_params, i))
+        a, has_a := mut c.inf_arg(mine, tp)
+        if !has_a {
+            continue
+        }
+        put(mut c.call_targs, RKey{unit: k.unit, node: k.node, i: i}, a)?
+    }
+    put(mut c.call_targ_count, k, n)?
+    return mut c.record_signature(k, fn, mine)
+}
+
+// clear_signature forgets what an earlier check of the call k recorded
+// of its type arguments and signature, Go's setting them to nil.
+func (mut c Checker) clear_signature(k Key) error {
+    n, has := c.call_targ_count[k]
+    if has {
+        for i := range n {
+            delete(mut c.call_targs, RKey{unit: k.unit, node: k.node, i: i})
+        }
+        delete(mut c.call_targ_count, k)
+    }
+    r, has_r := c.call_rcount[k]
+    if has_r {
+        for i := range r {
+            delete(mut c.call_rtypes, RKey{unit: k.unit, node: k.node, i: i})
+        }
+        delete(mut c.call_rcount, k)
+    }
+    p, has_p := c.call_pcount[k]
+    if has_p {
+        for i := range p {
+            delete(mut c.call_ptypes, RKey{unit: k.unit, node: k.node, i: i})
+        }
+        delete(mut c.call_pcount, k)
+    }
+    return noerror
+}
+
+// record_signature records on the call k, to the generic function fn
+// whose type arguments the inference id found for every type parameter,
+// its parameters' and results' types with them in place, Go's
+// recordSignature.
+func (mut c Checker) record_signature(k Key, fn Key, inf_id int64) error {
+    mut args := make(map[int64]types.Type, c_allocator)
+    mut c.inf_bound(inf_id, mut args)?
+    f := func_of(c.prog.trees, fn)
+    np := count_items(c.prog.trees, fn.unit, f.params)
+    for i := range np {
+        p := item_at(c.prog.trees, fn.unit, f.params, i)
+        t := mut c.substitute(decl_type_of(c.decl_types, p), args)?
+        put(mut c.call_ptypes, RKey{unit: k.unit, node: k.node, i: i}, t)?
+    }
+    put(mut c.call_pcount, k, np)?
+    nr := mut c.callee_result_count(fn)
+    for i := range nr {
+        t := mut c.substitute(result_of(c.results, fn, i), args)?
+        put(mut c.call_rtypes, RKey{unit: k.unit, node: k.node, i: i}, t)?
+    }
+    put(mut c.call_rcount, k, nr)?
+    return noerror
+}
+
+// call_result returns the i'th result type of the call k, of fn, Go's
+// ast.CallResults: the one it recorded with its type arguments in place,
+// or, for a generic fn whose call recorded none, fn's own with a result
+// that is a whole type parameter replaced by the call's type argument
+// for it, invalid when it has none, as ast.Substitute does, or fn's own.
+func (mut c Checker) call_result(k Key, fn Key, i int64) types.Type {
+    _, has := c.call_rcount[k]
+    if has {
+        t, ok := c.call_rtypes[RKey{unit: k.unit, node: k.node, i: i}]
+        if ok {
+            return t
+        }
+        return types.invalid
+    }
+    r := result_of(c.results, fn, i)
+    if r == types.invalid {
+        return r
+    }
+    f := func_of(c.prog.trees, fn)
+    for j := range count_items(c.prog.trees, fn.unit, f.type_params) {
+        if decl_type_of(c.decl_types, item_at(c.prog.trees, fn.unit, f.type_params, j)) != r {
+            continue
+        }
+        a, has_a := c.call_targs[RKey{unit: k.unit, node: k.node, i: j}]
+        if has_a {
+            return a
+        }
+        return types.invalid
+    }
+    return r
+}
+
+// declared_type_param_count returns how many type parameters the
+// function fn's declaration writes, Go's len(declaredTypeParams): all
+// but those its interface parameters declare, which come after them.
+func (mut c Checker) declared_type_param_count(fn Key) int64 {
+    f := func_of(c.prog.trees, fn)
+    n := count_items(c.prog.trees, fn.unit, f.type_params)
+    for i := range n {
+        _, implicit := c.tp_implicit[item_at(c.prog.trees, fn.unit, f.type_params, i)]
+        if implicit {
+            return i
+        }
+    }
+    return n
+}
+
+// bind_written gives the type parameters fn declares, from the left,
+// the type arguments the call k writes, in the inference in force,
+// marking each written, Go's bindWritten. More type arguments than fn
+// declares are reported, and each is still checked as a type.
+func (mut c Checker) bind_written(k Key, fn Key, callee list[uint8]) error {
+    declared := mut c.declared_type_param_count(fn)
+    if declared == 0 {
+        return noerror
+    }
+    cl := call_of(c.prog.trees, k)
+    f := func_of(c.prog.trees, fn)
+    n := count_items(c.prog.trees, k.unit, cl.type_args)
+    for i := range n {
+        typ := item_at(c.prog.trees, k.unit, cl.type_args, i)
+        got := mut c.written_type(typ)?
+        if i >= declared {
+            continue
+        }
+        tp := decl_type_of(c.decl_types, item_at(c.prog.trees, fn.unit, f.type_params, i))
+        put(mut c.inf_written, IKey{inf: c.inf, tp: tp.number()}, true)?
+        if got != types.invalid {
+            mut c.bind_type_arg(typ, tp, got, callee, true)?
+        }
+    }
+    if n > declared {
+        mut sp := span_at(c.prog.trees, item_at(c.prog.trees, k.unit, cl.type_args, declared))
+        sp.end = span_at(c.prog.trees, item_at(c.prog.trees, k.unit, cl.type_args, n -% 1)).end
+        mut m := msg()
+        fmt.appendf(mut m, "too many type arguments for %s: it declares ", callee[:])?
+        if declared == 1 {
+            fmt.appendf(mut m, "1 type parameter")?
+        } else {
+            fmt.appendf(mut m, "%d type parameters", declared)?
+        }
+        mut c.errorf(sp, own m)?
+    }
+    return noerror
+}
+
+// written_type returns the type typ, a type argument a call writes,
+// names, Go's writtenType: a view and any as they are, for
+// bind_type_arg to report.
+func (mut c Checker) written_type(typ Key) (types.Type, error) {
+    switch kind_at(c.prog.trees, typ) {
+    case view_type(elem):
+        t := mut c.view_type(typ, elem)?
+        return t, noerror
+    default:
+    }
+    if is_any_name(c.prog.trees, c.none, typ) {
+        return types.any_type, noerror
+    }
+    t := mut c.declared_type(typ)?
+    return t, noerror
+}
+
+// uninferred reports the first type parameter of fn, in order, that the
+// call k, of the inference id, neither writes nor could infer from its
+// arguments, as no parameter's type mentions it, Go's uninferred, and
+// returns whether there was one.
+func (mut c Checker) uninferred(k Key, fn Key, inf_id int64, callee list[uint8]) (bool, error) {
+    f := func_of(c.prog.trees, fn)
+    for i := range count_items(c.prog.trees, fn.unit, f.type_params) {
+        tk := item_at(c.prog.trees, fn.unit, f.type_params, i)
+        tp := decl_type_of(c.decl_types, tk)
+        if mut c.inf_wrote(inf_id, tp) {
+            continue
+        }
+        mut mentioned := false
+        for j := range count_items(c.prog.trees, fn.unit, f.params) {
+            pt := decl_type_of(c.decl_types, item_at(c.prog.trees, fn.unit, f.params, j))
+            m := mut c.mentions(pt, tp)?
+            if pt == types.invalid || m {
+                mentioned = true
+            }
+        }
+        if mentioned {
+            continue
+        }
+        mut names := msg()
+        for j := range i +% 1 {
+            if j > 0 {
+                append(mut names, []uint8(", ")...)?
+            }
+            mut c.type_param_name(item_at(c.prog.trees, fn.unit, f.type_params, j), mut names)?
+        }
+        mut tn := msg()
+        mut c.type_param_name(tk, mut tn)?
+        cl := call_of(c.prog.trees, k)
+        mut m := msg()
+        fmt.appendf(mut m, "cannot infer %s in this call to %s: no argument gives it; write the type arguments through it, as in %s[%s](...)", tn[:], callee[:], callee[:], names[:])?
+        mut c.errorf(span_at(c.prog.trees, sub(k, cl.fn)), own m)?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// arg_place returns arg, or the place a mut argument names, Go's
+// argPlace.
+func (mut c Checker) arg_place(arg Key) Key {
+    switch kind_at(c.prog.trees, arg) {
+    case mut_arg(x):
+        return sub(arg, x)
+    default:
+        return arg
+    }
+}
+
+// not_type_arg appends why a value of type got cannot give a type
+// parameter its type argument, Go's notTypeArg, and reports whether it
+// cannot.
+func (mut c Checker) not_type_arg(got types.Type, mut out list[uint8]) (bool, error) {
+    if c.table.is_view(got) {
+        append(mut out, []uint8("a type argument cannot be a view")...)?
+        return true, noerror
+    }
+    if got == types.any_type {
+        append(mut out, []uint8("a type argument cannot be an any")...)?
+        return true, noerror
+    }
+    if c.table.has_type_param(got) && !c.table.is_type_param(got) {
+        append(mut out, []uint8("a type argument cannot be made of a type parameter, only be one")...)?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// bind_type_arg makes got, the type of arg, the type argument of tp, a
+// type parameter of the callee being inferred, named callee, Go's
+// bindTypeArg: got must be a type a type argument can be, satisfy tp's
+// constraint, and be the type any earlier argument, or the type argument
+// the call wrote for tp, gave it. Anything else is reported at arg, and
+// gives false. written says arg is a type argument the call wrote.
+func (mut c Checker) bind_type_arg(arg Key, tp types.Type, got types.Type, callee list[uint8], written bool) (bool, error) {
+    tk, has := c.type_params[tp.number()]
+    if !has || c.inf < 0 {
+        return false, noerror
+    }
+    at := mut c.arg_place(arg)
+    mut why := msg()
+    not_arg := mut c.not_type_arg(got, mut why)?
+    if not_arg {
+        n := mut c.type_name(got)?
+        mut pn := msg()
+        mut c.type_param_name(tk, mut pn)?
+        mut noun := "argument"
+        if written {
+            noun = "type argument"
+        }
+        mut m := msg()
+        fmt.appendf(mut m, "cannot use %s as %s in %s to %s: %s", n[:], pn[:], noun, callee[:], why[:])?
+        mut c.errorf(span_at(c.prog.trees, at), own m)?
+        return false, noerror
+    }
+    prev, had := mut c.inf_arg(c.inf, tp)
+    if had && prev != got {
+        mut c.type_arg_conflict(at, tk, tp, got, prev, callee)?
+        return false, noerror
+    }
+    ok := mut c.satisfies_constraint(at, got, tk)?
+    if !ok {
+        return false, noerror
+    }
+    put(mut c.inf_args, IKey{inf: c.inf, tp: tp.number()}, got)?
+    return true, noerror
+}
+
+// type_arg_conflict reports at, an argument of type got, which would
+// give the type parameter tp, declared at tk, of callee a type argument
+// other than prev, the one the call gave it already, Go's
+// typeArgConflict.
+func (mut c Checker) type_arg_conflict(at Key, tk Key, tp types.Type, got types.Type, prev types.Type, callee list[uint8]) error {
+    mut source_of := "an earlier argument"
+    if mut c.inf_wrote(c.inf, tp) {
+        source_of = "its type argument"
+    }
+    a := mut c.type_name(got)?
+    b := mut c.type_name(prev)?
+    mut pn := msg()
+    mut c.type_param_name(tk, mut pn)?
+    mut m := msg()
+    fmt.appendf(mut m, "cannot use %s as %s in argument to %s: %s is %s in this call, from %s", a[:], pn[:], callee[:], pn[:], b[:], source_of)?
+    return mut c.errorf(span_at(c.prog.trees, at), own m)
+}
+
+// satisfies_constraint reports whether got, a type argument given as
+// at, satisfies the constraint of the type parameter declared at tk, an
+// interface or Data, reporting why it does not, Go's
+// satisfiesConstraint. A constraint that was reported asks for nothing.
+func (mut c Checker) satisfies_constraint(at Key, got types.Type, tk Key) (bool, error) {
+    iface, has_iface := c.tp_iface[tk]
+    if has_iface {
+        ok := mut c.satisfies(at, got, iface)?
+        return ok, noerror
+    }
+    data, has_data := c.tp_data[tk]
+    if has_data && data {
+        ok := mut c.satisfies_data(at, got)?
+        return ok, noerror
+    }
+    return true, noerror
+}
+
+// satisfies reports whether got, a type argument passed as at, satisfies
+// the interface iface, reporting why it does not, Go's satisfies.
+func (mut c Checker) satisfies(at Key, got types.Type, iface Key) (bool, error) {
+    mut why := msg()
+    bad, here := mut c.unsatisfied(got, iface, mut why)?
+    if !bad {
+        return true, noerror
+    }
+    n := mut c.type_name(got)?
+    mut m := msg()
+    append(mut m, n[:]...)?
+    append(mut m, []uint8(" does not satisfy ")...)?
+    mut c.iface_name(iface, mut m)?
+    if here {
+        append(mut m, []uint8(" here")...)?
+    }
+    append(mut m, []uint8(": ")...)?
+    append(mut m, why[:]...)?
+    mut c.errorf(span_at(c.prog.trees, at), own m)?
+    return false, noerror
+}
+
+// iface_methods appends the methods of the interface declared at d, in
+// order.
+func (mut c Checker) iface_methods(d Key, mut out list[Key]) error {
+    switch kind_at(c.prog.trees, d) {
+    case type_decl(td):
+        switch kind_at(c.prog.trees, sub(d, td.type_expr)) {
+        case interface_type(ms):
+            for i := range count_items(c.prog.trees, d.unit, ms) {
+                append(mut out, item_at(c.prog.trees, d.unit, ms, i))?
+            }
+        default:
+        }
+    default:
+    }
+    return noerror
+}
+
+// unsatisfied reports whether typ, a struct or union type or a type
+// parameter, does not satisfy iface, appending why, Go's unsatisfied:
+// the first method of iface it lacks, cannot see, or has otherwise.
+// here says the method cannot be seen from the package being checked.
+func (mut c Checker) unsatisfied(typ types.Type, iface Key, mut why list[uint8]) (bool, bool, error) {
+    tk, is_tp := c.type_params[typ.number()]
+    if is_tp {
+        _, has_iface := c.tp_iface[tk]
+        data, has_data := c.tp_data[tk]
+        if !has_iface && !(has_data && data) {
+            return false, false, noerror
+        }
+    }
+    mut ms := make(list[Key], c_allocator)
+    mut c.iface_methods(iface, mut ms)?
+    for _, mk := range ms {
+        want := iface_method_of(c.prog.trees, mk)
+        mut name := msg()
+        append(mut name, text_at(c.prog.trees, c.none, mk.unit, want.name)...)?
+        mut have := MethodSig{params: make(list[Key], c_allocator), results: make(list[types.Type], c_allocator), is_mut: false}
+        mut owner := msg()
+        mut w := msg()
+        bad, here := mut c.method_for(typ, tk, is_tp, name[:], mut have, mut owner, mut w)?
+        if bad && mut c.lost_method_of(typ, name[:]) {
+            return false, false, noerror
+        }
+        if bad {
+            append(mut why, w[:]...)?
+            return true, here, noerror
+        }
+        mis := mut c.method_mismatch(have, owner[:], mk, iface, mut why)?
+        if mis {
+            return true, false, noerror
+        }
+    }
+    return false, false, noerror
+}
+
+// method_for finds the method called name that typ, a struct or union
+// type or, is_tp saying so, a type parameter declared at tk, has to
+// satisfy an interface's method with, Go's methodFor: its signature in
+// have and how a message names it in owner; when it has none, it
+// reports so, with why, and here when the type's method cannot be seen
+// from the package being checked.
+func (mut c Checker) method_for(typ types.Type, tk Key, is_tp bool, name []uint8, mut have MethodSig, mut owner list[uint8], mut why list[uint8]) (bool, bool, error) {
+    if is_tp {
+        data, has_data := c.tp_data[tk]
+        if has_data && data {
+            fmt.appendf(mut why, "its constraint Data has no method %s", name)?
+            return true, false, noerror
+        }
+        iface, has_iface := c.tp_iface[tk]
+        if !has_iface {
+            return false, false, noerror
+        }
+        mk := iface_method_named(c.prog.trees, c.none, iface, name)
+        if is_no_key(mk) {
+            append(mut why, []uint8("its constraint ")...)?
+            mut c.iface_name(iface, mut why)?
+            fmt.appendf(mut why, " has no method %s", name)?
+            return true, false, noerror
+        }
+        m := iface_method_of(c.prog.trees, mk)
+        for i := range count_items(c.prog.trees, mk.unit, m.params) {
+            append(mut have.params, item_at(c.prog.trees, mk.unit, m.params, i))?
+        }
+        n, _ := results_count(c.result_count, mk)
+        for i := range n {
+            append(mut have.results, result_of(c.results, mk, i))?
+        }
+        have.is_mut = m.is_mut
+        mut c.iface_name(iface, mut owner)?
+        fmt.appendf(mut owner, "'s %s", name)?
+        return false, false, noerror
+    }
+    td := decl_of_type(c.structs, c.unions, typ)
+    mut fn := no_key()
+    if !is_no_key(td) {
+        fn = method_named(c.prog.trees, c.none, td, name)
+    }
+    if is_no_key(fn) {
+        n := mut c.type_name(typ)?
+        fmt.appendf(mut why, "%s has no method %s", n[:], name)?
+        return true, false, noerror
+    }
+    hidden := mut c.hidden_method(fn, mut why)?
+    if hidden {
+        return true, true, noerror
+    }
+    f := func_of(c.prog.trees, fn)
+    for i := range count_items(c.prog.trees, fn.unit, f.params) {
+        if i > 0 {
+            append(mut have.params, item_at(c.prog.trees, fn.unit, f.params, i))?
+        }
+    }
+    for i := range mut c.callee_result_count(fn) {
+        append(mut have.results, result_of(c.results, fn, i))?
+    }
+    have.is_mut = mut c.takes_mut_receiver(fn)
+    n := mut c.type_name(typ)?
+    fmt.appendf(mut owner, "%s.%s", n[:], name)?
+    return false, false, noerror
+}
+
+// method_mismatch reports whether have, the method owner names, does
+// not satisfy the interface method mk of iface, appending why, Go's
+// methodMismatch.
+func (mut c Checker) method_mismatch(have MethodSig, owner []uint8, mk Key, iface Key, mut why list[uint8]) (bool, error) {
+    want := iface_method_of(c.prog.trees, mk)
+    mut wanted := msg()
+    mut c.iface_name(iface, mut wanted)?
+    fmt.appendf(mut wanted, "'s %s", text_at(c.prog.trees, c.none, mk.unit, want.name))?
+    if have.is_mut && !want.is_mut {
+        fmt.appendf(mut why, "%s takes its receiver as mut, and %s does not", owner, wanted[:])?
+        return true, noerror
+    }
+    if !have.is_mut && want.is_mut {
+        fmt.appendf(mut why, "%s does not take its receiver as mut, and %s does", owner, wanted[:])?
+        return true, noerror
+    }
+    mut wsig := MethodSig{params: make(list[Key], c_allocator), results: make(list[types.Type], c_allocator), is_mut: want.is_mut}
+    for i := range count_items(c.prog.trees, mk.unit, want.params) {
+        append(mut wsig.params, item_at(c.prog.trees, mk.unit, want.params, i))?
+    }
+    n, _ := results_count(c.result_count, mk)
+    for i := range n {
+        append(mut wsig.results, result_of(c.results, mk, i))?
+    }
+    have_site := mut c.sig_has_site(have.params[:])
+    want_site := mut c.sig_has_site(wsig.params[:])
+    if have_site && !want_site {
+        fmt.appendf(mut why, "%s takes a testing.Site, which no interface method can", owner)?
+        return true, noerror
+    }
+    if !mut c.same_sig(have, wsig) {
+        a := mut c.sig_text(have)?
+        b := mut c.sig_text(wsig)?
+        fmt.appendf(mut why, "%s is %s, and %s is %s", owner, a[:], wanted[:], b[:])?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// sig_has_site reports whether one of ps, parameters after a receiver,
+// is a testing.Site, Go's siteNotValue being non-empty for them.
+func (mut c Checker) sig_has_site(ps []Key) bool {
+    for _, p := range ps {
+        _, site := c.site_params[p]
+        if site {
+            return true
+        }
+    }
+    return false
+}
+
+// same_sig reports whether a and b have the same parameters, each of one
+// type and alike in being mut, own, scope or variadic, and the same
+// results, Go's sameSig.
+func (mut c Checker) same_sig(a MethodSig, b MethodSig) bool {
+    if len(a.params) != len(b.params) || len(a.results) != len(b.results) {
+        return false
+    }
+    for i, p := range a.params {
+        q, has_q := b.params[i]
+        if !has_q {
+            return false
+        }
+        pp := param_of(c.prog.trees, p)
+        qp := param_of(c.prog.trees, q)
+        if decl_type_of(c.decl_types, p) != decl_type_of(c.decl_types, q) || pp.is_mut != qp.is_mut || pp.is_own != qp.is_own || pp.is_scope != qp.is_scope || pp.variadic != qp.variadic {
+            return false
+        }
+    }
+    for i, r := range a.results {
+        s, has_s := b.results[i]
+        if !has_s || r != s {
+            return false
+        }
+    }
+    return true
+}
+
+// sig_text returns s as a diagnostic shows a method's signature, without
+// its receiver or its parameters' names, Go's sigText.
+func (mut c Checker) sig_text(s MethodSig) (list[uint8], error) {
+    mut out := msg()
+    append(mut out, []uint8("func(")...)?
+    for i, p := range s.params {
+        if i > 0 {
+            append(mut out, []uint8(", ")...)?
+        }
+        pp := param_of(c.prog.trees, p)
+        t := decl_type_of(c.decl_types, p)
+        if pp.variadic {
+            n := mut c.type_name(c.table.elem_of(t))?
+            fmt.appendf(mut out, "...%s", n[:])?
+            continue
+        }
+        if pp.is_mut {
+            append(mut out, []uint8("mut ")...)?
+        } else if pp.is_own {
+            append(mut out, []uint8("own ")...)?
+        } else if pp.is_scope {
+            append(mut out, []uint8("scope ")...)?
+        }
+        n := mut c.type_name(t)?
+        append(mut out, n[:]...)?
+    }
+    append(mut out, ')')?
+    if len(s.results) == 1 {
+        n := mut c.type_name(s.results[0])?
+        fmt.appendf(mut out, " %s", n[:])?
+    } else if len(s.results) > 1 {
+        append(mut out, []uint8(" (")...)?
+        for i, r := range s.results {
+            if i > 0 {
+                append(mut out, []uint8(", ")...)?
+            }
+            n := mut c.type_name(r)?
+            append(mut out, n[:]...)?
+        }
+        append(mut out, ')')?
+    }
+    return out, noerror
+}
+
+// infer_arg checks arg, passed to p, a parameter of the generic callee
+// being inferred, named callee, whose type mentions one of its type
+// parameters, Go's inferArg: one whose type argument was reported only
+// for itself; one that is a type parameter by type_arg; one every type
+// parameter it mentions has a type argument for already as a parameter
+// of that type with them in place; and any other by infer_from. It
+// returns the mut argument passed to a mut parameter with nothing
+// reported, or no key.
+func (mut c Checker) infer_arg(arg Key, p ArgParam, callee list[uint8]) (Key, error) {
+    mut q := p
+    m, next := mut c.infer_step(arg, mut q, callee)?
+    if next == step_type_arg {
+        t := mut c.type_arg(arg, q, callee)?
+        return t, noerror
+    }
+    if next != step_plain {
+        return m, noerror
+    }
+    held := c.inf
+    c.inf = -1
+    a, e := mut c.check_arg(arg, q, callee)
+    c.inf = held
+    return a, e
+}
+
+// What infer_step leaves its caller to do with an argument: nothing,
+// the argument checked; check it by type_arg; or check it by check_arg,
+// its parameter's type arguments in place and no inference in force.
+var step_done uint8 = 0
+var step_type_arg uint8 = 1
+var step_plain uint8 = 2
+
+// infer_step is infer_arg up to the check of an argument by type_arg or
+// by check_arg, which it leaves to its caller, saying which (see
+// step_done): for an argument to a parameter every type parameter its
+// type mentions has a type argument for already, it puts them in place
+// in p, which is then no parameter being inferred. check_written_args
+// calls it and then type_arg or check_arg itself, as infer_arg does, so
+// that neither infer_step's frame nor infer_arg's is on the path a call
+// nested in such an argument takes, and type_arg, having two callers,
+// keeps a frame of its own (see the stack discipline in doc.tck).
+func (mut c Checker) infer_step(arg Key, mut p ArgParam, callee list[uint8]) (Key, uint8, error) {
+    lost := mut c.inf_lost(p.typ)?
+    if lost {
+        mut c.arg_expr(arg)?
+        return no_key(), step_done, noerror
+    }
+    inf := mut c.infers(p.typ)?
+    if inf && !mut c.inf_wrote(c.inf, p.typ) {
+        return no_key(), step_type_arg, noerror
+    }
+    complete := mut c.inf_complete(p.typ)?
+    if complete {
+        p.typ = mut c.subst_inf(p.typ, c.inf)?
+        p.infers = false
+        return no_key(), step_plain, noerror
+    }
+    m := mut c.infer_from(arg, p, callee)?
+    return m, step_done, noerror
+}
+
+// inferred_own checks the own part of arg passed to p, as Go's ownArg
+// does for an argument being inferred, and returns what it passes on,
+// and whether there is more to check.
+func (mut c Checker) inferred_own(arg Key, p ArgParam, callee list[uint8]) (Key, bool, error) {
+    plan := mut c.own_plan(arg, p.is_own)?
+    if plan.kind != own_fine && plan.kind != own_var {
+        before := len(c.diags)
+        t := mut c.expr(plan.x)?
+        mut c.own_report(arg, plan, t != types.invalid && len(c.diags) == before, p, callee)?
+        return no_key(), false, noerror
+    }
+    return plan.x, true, noerror
+}
+
+// type_arg checks arg, passed to p, a parameter of a generic callee
+// whose type is one of its type parameters, in a call being inferred,
+// Go's typeArg: as a mut argument's place when p is mut, and as a value
+// otherwise, its type then giving p's type parameter its type argument.
+// It returns the mut argument when one passed to a mut parameter had
+// nothing reported.
+func (mut c Checker) type_arg(arg Key, p ArgParam, callee list[uint8]) (Key, error) {
+    a, more := mut c.inferred_own(arg, p, callee)?
+    if !more {
+        return no_key(), noerror
+    }
+    mut got := types.invalid
+    mut m := no_key()
+    switch kind_at(c.prog.trees, a) {
+    case mut_arg(x):
+        if !p.is_mut {
+            return no_key(), mut c.mut_mismatch(a, p, callee)
+        }
+        mut c.check_error_mut(a)?
+        got = mut c.place(sub(a, x), a)?
+        m = a
+    default:
+        if p.is_mut {
+            return no_key(), mut c.mut_mismatch(a, p, callee)
+        }
+        t := mut c.expr(a)?
+        got = mut c.value_of(a, t)?
+    }
+    if got == types.invalid {
+        return no_key(), noerror
+    }
+    ok := mut c.bind_type_arg(a, p.typ, got, callee, false)?
+    if !ok {
+        return no_key(), noerror
+    }
+    return m, noerror
+}
+
+// mut_mismatch reports a, an argument being inferred, as checkArg does:
+// a mut argument passed to p, a parameter that is not mut, after its
+// place is checked for errors of its own, or a plain one passed to p, a
+// mut parameter, after it is checked. type_arg and infer_from both
+// report through it, which gives it a frame of its own (see the stack
+// discipline in doc.tck).
+func (mut c Checker) mut_mismatch(a Key, p ArgParam, callee list[uint8]) error {
+    switch kind_at(c.prog.trees, a) {
+    case mut_arg(x):
+        mut c.expr(sub(a, x))?
+        t := mut c.source_text(span_at(c.prog.trees, sub(a, x)))?
+        mut msg1 := msg()
+        fmt.appendf(mut msg1, "%s does not take %s as mut; pass %s", callee[:], t[:], t[:])?
+        return mut c.errorf(span_at(c.prog.trees, a), own msg1)
+    default:
+        mut c.expr(a)?
+        return mut c.missing_mut(a, p, callee)
+    }
+}
+
+// infer_from checks arg, passed to p, a parameter of the generic callee
+// being inferred, named callee, whose type mentions a type parameter not
+// inferred yet, Go's inferFrom: a mut argument as a place (see
+// infer_mut), a view parameter's as a view's (see infer_view), and any
+// other as a value.
+func (mut c Checker) infer_from(arg Key, p ArgParam, callee list[uint8]) (Key, error) {
+    a, more := mut c.inferred_own(arg, p, callee)?
+    if !more {
+        return no_key(), noerror
+    }
+    switch kind_at(c.prog.trees, a) {
+    case mut_arg(x):
+        if p.is_mut {
+            mut c.check_error_mut(a)?
+            m := mut c.infer_mut(a, sub(a, x), p, callee)?
+            return m, noerror
+        }
+        return no_key(), mut c.mut_mismatch(a, p, callee)
+    default:
+    }
+    if p.is_mut {
+        return no_key(), mut c.mut_mismatch(a, p, callee)
+    }
+    if c.table.is_view(p.typ) {
+        mut c.infer_view(a, p, callee)?
+        return no_key(), noerror
+    }
+    t := mut c.expr(a)?
+    got := mut c.value_of(a, t)?
+    if got == types.invalid {
+        return no_key(), noerror
+    }
+    ok := mut c.unify(a, p.typ, got, callee)?
+    if ok {
+        want := mut c.subst_inf(p.typ, c.inf)?
+        mut ctx := msg()
+        fmt.appendf(mut ctx, "in argument to %s", callee[:])?
+        mut c.use(a, got, want, ctx)?
+    }
+    return no_key(), noerror
+}
+
+// infer_mut checks m, a mut argument whose place is x passed to p, a mut
+// parameter of the generic callee being inferred, whose type mentions a
+// type parameter not yet inferred, Go's inferMut: the place's type gives
+// them their type arguments, and must then be exactly p's type with them
+// in place. It returns m when nothing was reported.
+func (mut c Checker) infer_mut(m Key, x Key, p ArgParam, callee list[uint8]) (Key, error) {
+    got := mut c.place(x, m)?
+    if got == types.invalid {
+        return no_key(), noerror
+    }
+    ok := mut c.unify(m, p.typ, got, callee)?
+    if !ok {
+        return no_key(), noerror
+    }
+    want := mut c.subst_inf(p.typ, c.inf)?
+    if got != want {
+        a := mut c.type_name(got)?
+        b := mut c.type_name(want)?
+        mut msg1 := msg()
+        fmt.appendf(mut msg1, "cannot use %s as %s in argument to %s", a[:], b[:], callee[:])?
+        mut c.errorf(span_at(c.prog.trees, x), own msg1)?
+        return no_key(), noerror
+    }
+    return m, noerror
+}
+
+// infer_view checks arg, passed to p, a view parameter of the generic
+// callee being inferred, whose element type mentions a type parameter
+// not yet inferred, Go's inferView: the element type of the array, the
+// list or the view arg is gives them their type arguments, and arg must
+// then be what a view parameter of p's type with them in place takes.
+func (mut c Checker) infer_view(arg Key, p ArgParam, callee list[uint8]) error {
+    got, conv := mut c.view_arg_value(arg)?
+    if got == types.invalid {
+        return noerror
+    }
+    if !c.table.is_array(got) && !c.table.is_list(got) && !c.table.is_view(got) {
+        a := mut c.type_name(got)?
+        b := mut c.type_name(p.typ)?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot use %s as %s in argument to %s", a[:], b[:], callee[:])?
+        return mut c.errorf(span_at(c.prog.trees, arg), own m)
+    }
+    ok := mut c.unify(arg, c.table.elem_of(p.typ), c.table.elem_of(got), callee)?
+    if !ok {
+        return noerror
+    }
+    want := mut c.subst_inf(p.typ, c.inf)?
+    return mut c.view_arg_fits(arg, got, want, callee, conv)
+}
+
+// unify matches got, the type of arg, passed in a call to the generic
+// callee being inferred, named callee, against want, a type made of the
+// callee's type parameters, part by part, and gives each type parameter
+// want has where got has a type that type as its type argument, Go's
+// unify. A part of want with no type parameter of the callee in it is
+// left for the argument's check. A part got lacks is reported, as is a
+// type argument bind_type_arg rejects, and gives false. The pairs are
+// matched in Go's order, from a stack of their own.
+func (mut c Checker) unify(arg Key, want types.Type, got types.Type, callee list[uint8]) (bool, error) {
+    mut stack := make(list[UnifyPair], c_allocator)
+    append(mut stack, UnifyPair{want: want, got: got})?
+    mut wants := make(list[types.Type], c_allocator)
+    mut gots := make(list[types.Type], c_allocator)
+    for len(stack) > 0 {
+        pr, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        inf := mut c.infers(pr.want)?
+        if inf {
+            bound := mut c.bind_type_arg(arg, pr.want, pr.got, callee, false)?
+            if !bound {
+                return false, noerror
+            }
+            continue
+        }
+        wanted := mut c.mentions_any(pr.want)?
+        if !wanted {
+            continue
+        }
+        clear_types(mut wants)
+        clear_types(mut gots)
+        matched := mut c.matching_parts(pr.want, pr.got, mut wants, mut gots)?
+        if !matched {
+            a := mut c.type_name(pr.got)?
+            b := mut c.type_name(pr.want)?
+            mut m := msg()
+            fmt.appendf(mut m, "cannot use %s as %s in argument to %s", a[:], b[:], callee[:])?
+            ap := mut c.arg_place(arg)
+            mut c.errorf(span_at(c.prog.trees, ap), own m)?
+            return false, noerror
+        }
+        mut i := len(wants) -% 1
+        for i >= 0 {
+            w, has_w := wants[i]
+            g, has_g := gots[i]
+            if has_w && has_g {
+                append(mut stack, UnifyPair{want: w, got: g})?
+            }
+            i -%= 1
+        }
+    }
+    return true, noerror
+}
+
+// matching_parts appends the parts of want and of got that unify matches
+// against each other, when the two are made the same way, Go's
+// matchingParts, and reports whether they are.
+func (mut c Checker) matching_parts(want types.Type, got types.Type, mut wants list[types.Type], mut gots list[types.Type]) (bool, error) {
+    if mut c.same_elem_kind(want, got) {
+        append(mut wants, c.table.elem_of(want))?
+        append(mut gots, c.table.elem_of(got))?
+        return true, noerror
+    }
+    if c.table.is_func(want) && c.table.is_func(got) && mut c.same_shape(want, got) {
+        mut c.func_parts(want, mut wants)?
+        mut c.func_parts(got, mut gots)?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// same_elem_kind reports whether want and got are two lists, two views,
+// two arenas, two ids, two spans, two pools, two handles, or two maps of
+// one key type, Go's sameElemKind.
+func (mut c Checker) same_elem_kind(want types.Type, got types.Type) bool {
+    if c.table.is_list(want) {
+        return c.table.is_list(got)
+    }
+    if c.table.is_arena(want) {
+        return c.table.is_arena(got)
+    }
+    if c.table.is_id(want) {
+        return c.table.is_id(got)
+    }
+    if c.table.is_span(want) {
+        return c.table.is_span(got)
+    }
+    if c.table.is_pool(want) {
+        return c.table.is_pool(got)
+    }
+    if c.table.is_handle(want) {
+        return c.table.is_handle(got)
+    }
+    if c.table.is_view(want) {
+        return c.table.is_view(got)
+    }
+    if c.table.is_map(want) {
+        return c.table.is_map(got) && c.table.key_of(want) == c.table.key_of(got)
+    }
+    return false
+}
+
+// same_shape reports whether the function types a and b have as many
+// parameters, mut, own and scope at the same positions, and as many
+// results, Go's sameShape.
+func (mut c Checker) same_shape(a types.Type, b types.Type) bool {
+    if len(c.table.func_params(a)) != len(c.table.func_params(b)) || len(c.table.func_results(a)) != len(c.table.func_results(b)) {
+        return false
+    }
+    for i, p := range c.table.func_params(a) {
+        q, has_q := c.table.func_params(b)[i]
+        if !has_q || p.is_mut != q.is_mut || p.is_own != q.is_own || p.is_scope != q.is_scope {
+            return false
+        }
+    }
+    return true
+}

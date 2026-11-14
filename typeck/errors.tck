@@ -574,7 +574,7 @@ func (mut c Checker) dropped_error(e Key) error {
         mut name := msg()
         mut c.callee_name(e, mut name)?
         mut names := msg()
-        mut c.binding_names(fn, mut names)?
+        mut c.binding_names(e, fn, mut names)?
         mut text := msg()
         mut c.call_text(e, mut text)?
         mut m := msg()
@@ -588,12 +588,14 @@ func (mut c Checker) dropped_error(e Key) error {
 // binding_names appends the targets of a binding that keeps every result
 // of the function fn, whose last is an error, Go's bindingNames: err
 // for the error, a name for each result before it that is owned, x, y
-// and z, then x4, x5 and so on, and _ for each other.
-func (mut c Checker) binding_names(fn Key, mut out list[uint8]) error {
+// and z, then x4, x5 and so on, and _ for each other. The results are
+// the call k's, with any type arguments in place (see call_result).
+func (mut c Checker) binding_names(k Key, fn Key, mut out list[uint8]) error {
     n := mut c.callee_result_count(fn)
     mut owned_n int64 = 0
     for i := range n -% 1 {
-        owned := c.table.owned(result_of(c.results, fn, i))?
+        rt := mut c.call_result(k, fn, i)
+        owned := c.table.owned(rt)?
         if !owned {
             append(mut out, []uint8("_, ")...)?
             continue
@@ -791,14 +793,16 @@ func is_blank(trees []ast.File, none []uint8, e Key) bool {
     return ok && bytes_equal(text_at(trees, none, e.unit, nm.name), []uint8("_"))
 }
 
-// nothing_bound reports a binding at sp of value, a method call or a
-// call of a method expression whose results checked as valid, that
+// nothing_bound reports a binding at sp of value, a method call, a call
+// of a method expression or a call through a function value whose
+// results checked as valid, that
 // binds nothing, every name _, when the callee returns no error, Go's
 // nothingBound.
 func (mut c Checker) nothing_bound(value Key, blank []bool, sp source.Span) error {
     switch kind_at(c.prog.trees, value) {
     case call(cl):
-        if is_no_key(mut c.receiver_of(value)) && !mut c.is_method_expr(sub(value, cl.fn)) {
+        _, dynamic := c.call_dynamic[value]
+        if is_no_key(mut c.receiver_of(value)) && !dynamic && !mut c.is_method_expr(sub(value, cl.fn)) {
             return noerror
         }
     default:

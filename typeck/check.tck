@@ -127,6 +127,100 @@ pub type Checker struct {
     tp_data map[Key]bool
     tp_implicit map[Key]bool
     type_params map[int64]Key
+    // stand_ins holds the stand-in for each interface method called on
+    // a type parameter's values, Go's standIns, and stand_in_of the
+    // interface method of each stand-in, Go's Func.Interface (see
+    // type_param_method).
+    stand_ins map[StandInKey]Key
+    stand_in_of map[Key]Key
+
+    // The function values (see funcvalue.tck): each function's value,
+    // Go's Func.Value, the stand-in for a call through a value of each
+    // function type, Go's dynamics, and the stand-in each such call
+    // calls, Go's Call.Dynamic.
+    func_values map[Key]types.Type
+    dynamics map[int64]Key
+    call_dynamic map[Key]Key
+
+    // The fields loops (see data.tck): the type each fields(T) ranges
+    // over the fields of and the type parameter v.[f] has in its body,
+    // Go's FieldsOf.Type and Field, whether its body reads f.name, Go's
+    // Names, the loop each loop's variable ranges over, Go's fieldLoops,
+    // and the locals named in a body lowered once for each field or
+    // case, Go's Var.Unrolled.
+    fo_types map[Key]types.Type
+    // The closures (see closure.tck): the parameters of closures, Go's
+    // closureParams, and the captures of each closure, Go's
+    // FuncLit.Captures, their records in caps.
+    closure_params map[Key]bool
+    caps list[CapRec]
+    lit_caps map[Key]CapRange
+    // What checking each closure's body around the point set apart,
+    // innermost last (see enter_closure).
+    cs_body list[BodyState]
+    cs_rel list[RelIdx]
+    cs_proven list[list[ProofOnly]]
+    cs_chain list[list[Fact]]
+    cs_appended list[map[FKey]bool]
+    cs_passed list[map[Key]Key]
+    cs_marks list[ClosureMarks]
+    // The switches on a type parameter (see paramswitch.tck): the
+    // narrowings in force, Go's narrowed, those narrow_push saved, with
+    // where each push's start and how many were in force before it, the
+    // kinds the cases around leave a type parameter, Go's paramKinds,
+    // what each name was narrowed to, Go's Ident.Narrowed, how many
+    // defaults that never run are around, Go's inCoveredDefault, and how
+    // each case's values match, Go's CaseClause.TypeCases.
+    narrowed list[Narrowing]
+    narrow_saved list[Narrowing]
+    narrow_marks list[int64]
+    narrow_counts list[int64]
+    param_kinds list[ParamKinds]
+    narrowed_names map[Key]types.Type
+    in_covered_default int64
+    tc_recs list[TypeCaseRec]
+    tc_of map[Key]TcRange
+    fo_fields map[Key]types.Type
+    fo_names map[Key]bool
+    field_loops map[Key]Key
+    unrolled map[Key]bool
+
+    // The inferences (see infer.tck): the one in force, Go's
+    // inference, -1 for none, the number the next one takes, the callee
+    // of each, the type argument each found for each type parameter and
+    // which the call wrote; and what each call to a generic function
+    // recorded, Go's Call.TypeArgs, ParamTypes and ResultTypes, with
+    // their counts.
+    inf int64
+    inf_next int64
+    inf_fn map[int64]Key
+    inf_args map[IKey]types.Type
+    inf_written map[IKey]bool
+    call_targs map[RKey]types.Type
+    call_targ_count map[Key]int64
+    call_ptypes map[RKey]types.Type
+    call_pcount map[Key]int64
+    call_rtypes map[RKey]types.Type
+    call_rcount map[Key]int64
+
+    // The instances (see instance.tck), Go's Program.Instances, in the
+    // order found, the type arguments of all of them, a number for each
+    // generic function the instances' keys name it by, and whether they
+    // were recorded, Go's record, which a search stopped by an error
+    // never reaches.
+    instances list[Instance]
+    inst_args list[types.Type]
+    inst_fns map[Key]int64
+    // bounds holds the bindings the instances' bodies are walked with
+    // (see BoundRec), inst_unrolled counts the fields loop bodies walked,
+    // Go's unrolled, and unrolled_recs the fields each fields loop lists
+    // for each type, Go's FieldsOf.Unrolled, their positions in
+    // unrolled_fields.
+    bounds list[BoundRec]
+    instances_recorded bool
+    inst_unrolled int64
+    unrolled_recs list[UnrolledRec]
+    unrolled_fields list[int64]
 
     globals map[Key]bool
     global_state map[Key]uint8
@@ -193,8 +287,7 @@ pub type Checker struct {
     // that case, Go's Fallthrough.Next, the immutable locals' known
     // values, Go's knownVars, the switches on a union that name every
     // case, Go's Exhaustive, the names and calls a switch on a union
-    // took as patterns, whose binding and conversion Go then clears, and
-    // which types supported_type found supported.
+    // took as patterns, whose binding and conversion Go then clears.
     body BodyState
     in_body bool
     fall_next map[Key]Key
@@ -202,7 +295,6 @@ pub type Checker struct {
     exhaustive map[Key]bool
     pattern_cleared map[Key]bool
     conv_cleared map[Key]bool
-    plain_types map[int64]bool
 
     // The calls (see call.tck): the method each method call and each
     // call of a method expression calls, Go's Call.Method; the type a
@@ -356,6 +448,54 @@ pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error
         tp_data: make(map[Key]bool, c_allocator),
         tp_implicit: make(map[Key]bool, c_allocator),
         type_params: make(map[int64]Key, c_allocator),
+        stand_ins: make(map[StandInKey]Key, c_allocator),
+        stand_in_of: make(map[Key]Key, c_allocator),
+        func_values: make(map[Key]types.Type, c_allocator),
+        dynamics: make(map[int64]Key, c_allocator),
+        call_dynamic: make(map[Key]Key, c_allocator),
+        fo_types: make(map[Key]types.Type, c_allocator),
+        closure_params: make(map[Key]bool, c_allocator),
+        caps: make(list[CapRec], c_allocator),
+        lit_caps: make(map[Key]CapRange, c_allocator),
+        cs_body: make(list[BodyState], c_allocator),
+        cs_rel: make(list[RelIdx], c_allocator),
+        cs_proven: make(list[list[ProofOnly]], c_allocator),
+        cs_chain: make(list[list[Fact]], c_allocator),
+        cs_appended: make(list[map[FKey]bool], c_allocator),
+        cs_passed: make(list[map[Key]Key], c_allocator),
+        cs_marks: make(list[ClosureMarks], c_allocator),
+        narrowed: make(list[Narrowing], c_allocator),
+        narrow_saved: make(list[Narrowing], c_allocator),
+        narrow_marks: make(list[int64], c_allocator),
+        narrow_counts: make(list[int64], c_allocator),
+        param_kinds: make(list[ParamKinds], c_allocator),
+        narrowed_names: make(map[Key]types.Type, c_allocator),
+        in_covered_default: 0,
+        tc_recs: make(list[TypeCaseRec], c_allocator),
+        tc_of: make(map[Key]TcRange, c_allocator),
+        fo_fields: make(map[Key]types.Type, c_allocator),
+        fo_names: make(map[Key]bool, c_allocator),
+        field_loops: make(map[Key]Key, c_allocator),
+        unrolled: make(map[Key]bool, c_allocator),
+        inf: -1,
+        inf_next: 0,
+        inf_fn: make(map[int64]Key, c_allocator),
+        inf_args: make(map[IKey]types.Type, c_allocator),
+        inf_written: make(map[IKey]bool, c_allocator),
+        call_targs: make(map[RKey]types.Type, c_allocator),
+        call_targ_count: make(map[Key]int64, c_allocator),
+        call_ptypes: make(map[RKey]types.Type, c_allocator),
+        call_pcount: make(map[Key]int64, c_allocator),
+        call_rtypes: make(map[RKey]types.Type, c_allocator),
+        call_rcount: make(map[Key]int64, c_allocator),
+        instances: make(list[Instance], c_allocator),
+        inst_args: make(list[types.Type], c_allocator),
+        inst_fns: make(map[Key]int64, c_allocator),
+        bounds: make(list[BoundRec], c_allocator),
+        instances_recorded: false,
+        inst_unrolled: 0,
+        unrolled_recs: make(list[UnrolledRec], c_allocator),
+        unrolled_fields: make(list[int64], c_allocator),
         globals: make(map[Key]bool, c_allocator),
         global_state: make(map[Key]uint8, c_allocator),
         global_before: make(map[Key]int64, c_allocator),
@@ -388,14 +528,13 @@ pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error
         global_shapes: make(map[Key]uint8, c_allocator),
         in_clause: false,
         clause_upper: make(map[Key]bool, c_allocator),
-        body: BodyState{fn: no_key(), loops: 0, deferred: 0, defer_loops: 0, in_rejected_defer: false, clauses: make(list[ClauseAt], c_allocator)},
+        body: BodyState{fn: no_key(), loops: 0, deferred: 0, defer_loops: 0, field_loop: 0, in_rejected_defer: false, clauses: make(list[ClauseAt], c_allocator)},
         in_body: false,
         fall_next: make(map[Key]Key, c_allocator),
         known_locals: make(map[Key]KnownLocal, c_allocator),
         exhaustive: make(map[Key]bool, c_allocator),
         pattern_cleared: make(map[Key]bool, c_allocator),
         conv_cleared: make(map[Key]bool, c_allocator),
-        plain_types: make(map[int64]bool, c_allocator),
         call_method: make(map[Key]Key, c_allocator),
         view_convs: make(map[Key]types.Type, c_allocator),
         bindings: make(map[Key]uint8, c_allocator),
@@ -521,7 +660,8 @@ func key_of_def(d ast.Def) Key {
 // checked, the interfaces' methods resolved, every function's signature,
 // and then the exposure of every declaration, the C names of the extern
 // funcs and the tests; then every function's body (see body.tck), the
-// bad declarations and the declarations nothing uses. It returns
+// bad declarations, the instances of generic functions (see
+// instance.tck) and the declarations nothing uses. It returns
 // not_ported for anything the port does not check yet, or out of memory.
 pub func (mut c Checker) check() error {
     c.prior = c.prog.errors
@@ -554,9 +694,7 @@ pub func (mut c Checker) check() error {
     c.decl_error_count = len(c.diags)
     mut c.check_bodies()?
     mut c.check_bad_decls()?
-    // Go's instantiate checks the instances of generic functions, which
-    // only a call with type arguments makes, and the port declines every
-    // body that could make one.
+    mut c.instantiate()?
     mut c.check_unused_decls()?
     c.prog.errors +%= len(c.diags)
     c.bodies_done = true
@@ -581,8 +719,18 @@ pub func (mut c Checker) check_types() error {
 // warnings in theirs, or out of memory.
 pub func (mut c Checker) take_diags() (list[diag.Diagnostic], error) {
     mut out := replace(mut c.diags, make(list[diag.Diagnostic], c_allocator))
+    // The warnings are moved out from the end, last first, and then
+    // moved again from the end of what that gives, first first, each a
+    // step: taking each from the front would move every one after it.
+    mut reversed := make(list[diag.Diagnostic], c_allocator)
     for len(c.warnings) > 0 {
-        w, ok := remove(mut c.warnings, 0)
+        w, ok := pop(mut c.warnings)
+        if ok {
+            append(mut reversed, w)?
+        }
+    }
+    for len(reversed) > 0 {
+        w, ok := pop(mut reversed)
         if ok {
             append(mut out, w)?
         }

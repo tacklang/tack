@@ -6,8 +6,9 @@ import types from "tack/types"
 
 // type_of returns the type of the expression k as the checker recorded
 // it, Go's ast.TypeOf: a literal's fixed type, or an integer's or a
-// float's recorded one, untyped before; a name's variable's or
-// parameter's; a conversion's or a len call's; and any other's recorded
+// float's recorded one, untyped before; a name's type a switch on a type
+// parameter narrowed it to, or its variable's or parameter's, or its
+// function's value; a conversion's or a len call's; and any other's recorded
 // type.
 func (mut c Checker) type_of(k Key) types.Type {
     switch kind_at(c.prog.trees, k) {
@@ -34,8 +35,18 @@ func (mut c Checker) type_of(k Key) types.Type {
     case c_allocator_lit:
         return types.allocator
     case ident(nm):
+        nt, narrowed := c.narrowed_names[k]
+        if narrowed {
+            return nt
+        }
         if nm.def.kind == ast.def_var || nm.def.kind == ast.def_param {
             return decl_type_of(c.decl_types, key_of_def(nm.def))
+        }
+        if nm.def.kind == ast.def_func {
+            v, has := c.func_values[key_of_def(nm.def)]
+            if has {
+                return v
+            }
         }
         return types.invalid
     case call(cl):
@@ -55,7 +66,7 @@ func (mut c Checker) type_of(k Key) types.Type {
         }
         fn := mut c.callee_of(k)
         if !is_no_key(fn) && mut c.callee_result_count(fn) == 1 {
-            return result_of(c.results, fn, 0)
+            return mut c.call_result(k, fn, 0)
         }
         return types.invalid
     case mut_arg(x):

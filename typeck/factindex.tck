@@ -193,12 +193,20 @@ func (mut c Checker) held_facts_about(k FKey, mut out list[Fact]) error {
 // the held chain when held says so and no supposition is checking.
 func (mut c Checker) read_facts(k FKey, held bool, mut out list[Fact]) error {
     if len(c.fx.active) <= scan_limit {
-        for _, f := range c.fx.active {
-            if f.about == k {
+        for i, f := range c.fx.active {
+            if f.about == k && c.fact_in_force(i) {
                 append(mut out, f)?
             }
         }
         return noerror
+    }
+    // In a closure's body no outer fact about a subject some code can
+    // write is in force, so the chain is read only down to the body's
+    // own; any other is read through, each fact asked whether it is in
+    // force, Go's factsAt.
+    mut floor := -1
+    if c.fx.outer > 0 && !k.is_zero() && !mut c.immutable_decl(k.decl) {
+        floor = c.fx.outer -% 1
     }
     mut c.build_index()?
     use_held := held && c.fx.edited == 0
@@ -216,8 +224,10 @@ func (mut c Checker) read_facts(k FKey, held bool, mut out list[Fact]) error {
     }
     mut back := make(list[int64], c_allocator)
     mut cur := start
-    for cur >= 0 {
-        append(mut back, cur)?
+    for cur > floor {
+        if c.fact_in_force(cur) {
+            append(mut back, cur)?
+        }
         if use_held {
             cur = int_in(c.fx.index.held_prev[:], cur)
         } else {

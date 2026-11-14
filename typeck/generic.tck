@@ -229,3 +229,192 @@ func (mut c Checker) constraint(tk Key, tp ast.TypeParam) (Key, error) {
     mut c.errorf(span_at(c.prog.trees, ck), own m)?
     return no_key(), noerror
 }
+
+// StandInKey is what the stand-in for one interface method called on
+// values of one type parameter is found by, Go's standInKey: the
+// interface method's node and the type parameter's type.
+type StandInKey struct {
+    method Key
+    typ int64
+}
+
+// iface_method_named returns the method called name of the interface
+// declared at d, Go's Interface().Method, or no key.
+func iface_method_named(trees []ast.File, none []uint8, d Key, name []uint8) Key {
+    switch kind_at(trees, d) {
+    case type_decl(td):
+        switch kind_at(trees, sub(d, td.type_expr)) {
+        case interface_type(ms):
+            for i := range count_items(trees, d.unit, ms) {
+                mk := item_at(trees, d.unit, ms, i)
+                switch kind_at(trees, mk) {
+                case iface_method(m):
+                    if bytes_equal(text_at(trees, none, mk.unit, m.name), name) {
+                        return mk
+                    }
+                default:
+                }
+            }
+        default:
+        }
+    default:
+    }
+    return no_key()
+}
+
+// iface_method_of returns the IfaceMethod the node mk holds, a copy.
+func iface_method_of(trees []ast.File, mk Key) ast.IfaceMethod {
+    switch kind_at(trees, mk) {
+    case iface_method(m):
+        return m
+    default:
+        mut z ast.IfaceMethod
+        return z
+    }
+}
+
+// type_param_name appends the name of the type parameter declared at
+// tk, Go's TypeParam.Name.
+func (mut c Checker) type_param_name(tk Key, mut out list[uint8]) error {
+    switch kind_at(c.prog.trees, tk) {
+    case type_param(tp):
+        append(mut out, text_at(c.prog.trees, c.none, tk.unit, tp.name)...)?
+    default:
+    }
+    return noerror
+}
+
+// type_param_method returns the method the selector f, s, names of a
+// value of typ, a type parameter, Go's typeParamMethod: a stand-in for
+// its constraint's method of that name, a function with no body added
+// to the interface's tree whose receiver has type typ and whose other
+// parameters and results are the interface method's, so a call is
+// checked against it as against a struct's method. A name the
+// constraint has no method of is reported; a constraint that was
+// reported has none, and nothing more is reported.
+func (mut c Checker) type_param_method(typ types.Type, f Key, s ast.Selector) (Key, error) {
+    tk, has := c.type_params[typ.number()]
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, f.unit, s.name)...)?
+    if !has {
+        return no_key(), noerror
+    }
+    data, has_data := c.tp_data[tk]
+    if has_data && data {
+        mut m := msg()
+        mut c.type_param_name(tk, mut m)?
+        fmt.appendf(mut m, " has no method %s: its constraint Data has none", name[:])?
+        mut c.errorf(s.name_span, own m)?
+        return no_key(), noerror
+    }
+    iface, has_iface := c.tp_iface[tk]
+    if !has_iface {
+        return no_key(), noerror
+    }
+    mk := iface_method_named(c.prog.trees, c.none, iface, name[:])
+    if is_no_key(mk) {
+        mut m := msg()
+        mut c.type_param_name(tk, mut m)?
+        fmt.appendf(mut m, " has no method %s", name[:])?
+        mut c.errorf(s.name_span, own m)?
+        return no_key(), noerror
+    }
+    sk := StandInKey{method: mk, typ: typ.number()}
+    known, made := c.stand_ins[sk]
+    if made {
+        return known, noerror
+    }
+    fn := mut c.make_stand_in(mk, tk, typ)?
+    put(mut c.stand_ins, sk, fn)?
+    return fn, noerror
+}
+
+// make_stand_in adds to the tree of the interface method mk the stand-in
+// Go's typeParamMethod makes for it, called on values of typ, the type
+// parameter declared at tk: a method with no body whose receiver,
+// named as the type parameter, has type typ and is mut when mk's is,
+// followed by mk's parameters, with mk's results, and returns it.
+func (mut c Checker) make_stand_in(mk Key, tk Key, typ types.Type) (Key, error) {
+    u := mk.unit
+    m := iface_method_of(c.prog.trees, mk)
+    mut tname := msg()
+    mut c.type_param_name(tk, mut tname)?
+    tsp := span_at(c.prog.trees, tk)
+    mut tname_span := tsp
+    switch kind_at(c.prog.trees, tk) {
+    case type_param(tp):
+        tname_span = tp.name_span
+    default:
+    }
+    s := add_str(mut c.prog.trees, u, tname)?
+    mut none_node id[ast.Node]
+    recv := ast.Param{type_expr: none_node, name: s, name_span: tname_span, mut_span: ast.unset_span(), own_span: ast.unset_span(), scope_span: ast.unset_span(), ellipsis_span: ast.unset_span(), is_mut: m.is_mut, is_own: false, is_scope: false, variadic: false}
+    pid := add_param_to(mut c.prog.trees, u, recv)?
+    pn := add_node(mut c.prog.trees, u, ast.Kind.param_decl(pid), tsp)?
+    put(mut c.decl_types, Key{unit: u, node: pn}, typ)?
+    mut items := make(list[id[ast.Node]], c_allocator)
+    append(mut items, pn)?
+    for i := range count_items(c.prog.trees, u, m.params) {
+        append(mut items, item_at(c.prog.trees, u, m.params, i).node)?
+    }
+    params := add_list(mut c.prog.trees, u, items)?
+    mut z ast.Func
+    mut fn := z
+    fn.name = m.name
+    fn.params = params
+    fn.results = m.results
+    fn.name_span = m.name_span
+    fn.no_body = true
+    fn.method = true
+    fid := add_func_to(mut c.prog.trees, u, fn)?
+    fnode := add_node(mut c.prog.trees, u, ast.Kind.func_decl(fid), span_at(c.prog.trees, mk))?
+    fk := Key{unit: u, node: fnode}
+    n, _ := results_count(c.result_count, mk)
+    put(mut c.result_count, fk, n)?
+    for i := range n {
+        put(mut c.results, RKey{unit: u, node: fnode, i: i}, result_of(c.results, mk, i))?
+    }
+    put(mut c.stand_in_of, fk, mk)?
+    return fk, noerror
+}
+
+// add_param_to adds p to the params of the tree u.
+func add_param_to(mut trees list[ast.File], u int64, p ast.Param) (id[ast.Param], error) {
+    if u < 0 || u >= len(trees) {
+        mut z id[ast.Param]
+        return z, noerror
+    }
+    r := mut trees[u].add_param(p)?
+    return r, noerror
+}
+
+// add_func_to adds fn to the funcs of the tree u.
+func add_func_to(mut trees list[ast.File], u int64, fn ast.Func) (id[ast.Func], error) {
+    if u < 0 || u >= len(trees) {
+        mut z id[ast.Func]
+        return z, noerror
+    }
+    r := mut trees[u].add_func(fn)?
+    return r, noerror
+}
+
+// type_param_field reports the field s of a value of typ, a type
+// parameter, which has no fields, Go's typeParamField: a method of its
+// constraint named without a call is reported as such.
+func (mut c Checker) type_param_field(s ast.Selector, f Key, typ types.Type) error {
+    mut name := msg()
+    append(mut name, text_at(c.prog.trees, c.none, f.unit, s.name)...)?
+    n := mut c.type_name(typ)?
+    tk, has := c.type_params[typ.number()]
+    if has {
+        iface, has_iface := c.tp_iface[tk]
+        if has_iface && !is_no_key(iface_method_named(c.prog.trees, c.none, iface, name[:])) {
+            mut m := msg()
+            fmt.appendf(mut m, "%s is a method of %s, not a field; a method can only be called", name[:], n[:])?
+            return mut c.errorf(s.name_span, own m)
+        }
+    }
+    mut m := msg()
+    fmt.appendf(mut m, "%s has no field %s: a type parameter has only its constraint's methods", n[:], name[:])?
+    return mut c.errorf(s.name_span, own m)
+}

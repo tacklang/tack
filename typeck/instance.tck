@@ -1,0 +1,422 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import text from "std/text"
+import types from "tack/types"
+
+// Instances, Go's instance.go: once every body is checked, with nothing
+// reported, the instances of generic functions the program needs are
+// found, those called from the body of a function that is not generic
+// and, in turn, those called from the body of each instance found, with
+// the instance's type arguments in place of its type parameters. Each is
+// recorded once, in the order it is first found, from a worklist, as Go
+// finds them, so a chain of generic functions each calling the next is
+// walked in a loop. Past max_instances the call that would add another
+// is reported, and nothing more is looked for.
+
+// max_instances is the most instances of generic functions a program may
+// need, Go's MaxInstances.
+var max_instances int64 = 10000
+
+// Instance is an instance of a generic function found, Go's instance:
+// the function, and its type arguments, count of them from first in the
+// Checker's inst_args.
+type Instance struct {
+    fn Key
+    first int64
+    count int64
+}
+
+// max_unrolled is the most bodies of fields loops a program's lowered
+// code may hold, Go's MaxUnrolled.
+var max_unrolled int64 = 10000
+
+// BoundRec binds one type parameter, tp, to typ, on top of the bindings
+// parent names, -1 for none: what a body is walked with, Go's bound map,
+// copied and grown for a fields loop's body or a case's.
+type BoundRec struct {
+    parent int64
+    tp types.Type
+    typ types.Type
+}
+
+// InstItem is what inst_walk has yet to walk: a node, with the bindings
+// bound, or, unroll set, the i'th field of the fields loop fo for typ,
+// whose body is walked with the loop's type parameter bound to field.
+type InstItem struct {
+    node id[ast.Node]
+    bound int64
+    unroll bool
+    fo Key
+    loop Key
+    typ types.Type
+    field types.Type
+}
+
+// UnrolledRec is the fields a fields loop lists for one type, Go's
+// ast.Unrolled: the loop, the type, and the positions of its fields,
+// count of them from first in the Checker's unrolled_fields.
+type UnrolledRec struct {
+    fo Key
+    typ types.Type
+    first int64
+    count int64
+}
+
+// instantiate records every instance of a generic function the
+// program's code calls, Go's instantiate, when nothing was reported.
+func (mut c Checker) instantiate() error {
+    if len(c.diags) > 0 {
+        return noerror
+    }
+    mut seen := make(map[text.Text]bool, c_allocator)
+    for i := range count_decls(c.prog) {
+        d := decl_at(c.prog, i)
+        switch kind_at(c.prog.trees, d) {
+        case func_decl:
+            fn := func_of(c.prog.trees, d)
+            if count_items(c.prog.trees, d.unit, fn.type_params) > 0 {
+                continue
+            }
+            ok := mut c.inst_walk(d, -1, mut seen)?
+            if !ok {
+                return noerror
+            }
+        default:
+        }
+    }
+    mut i int64 = 0
+    for i < len(c.instances) {
+        inst, has := c.instances[i]
+        if !has {
+            break
+        }
+        mut bound int64 = -1
+        f := func_of(c.prog.trees, inst.fn)
+        for j := range count_items(c.prog.trees, inst.fn.unit, f.type_params) {
+            tp := decl_type_of(c.decl_types, item_at(c.prog.trees, inst.fn.unit, f.type_params, j))
+            a, has_a := c.inst_args[inst.first +% j]
+            if has_a {
+                bound = mut c.bind_one(bound, tp, a)?
+            }
+        }
+        ok := mut c.inst_walk(inst.fn, bound, mut seen)?
+        if !ok {
+            return noerror
+        }
+        i +%= 1
+    }
+    c.instances_recorded = true
+    return noerror
+}
+
+// bind_one returns the bindings parent with tp bound to typ as well.
+func (mut c Checker) bind_one(parent int64, tp types.Type, typ types.Type) (int64, error) {
+    append(mut c.bounds, BoundRec{parent: parent, tp: tp, typ: typ})?
+    return len(c.bounds) -% 1, noerror
+}
+
+// bound_of returns what the bindings b bind typ to, typ itself when
+// they bind it to nothing, Go's lookup in bound.
+func (mut c Checker) bound_of(b int64, typ types.Type) types.Type {
+    mut at := b
+    for at >= 0 {
+        r, ok := c.bounds[at]
+        if !ok {
+            break
+        }
+        if r.tp == typ {
+            return r.typ
+        }
+        at = r.parent
+    }
+    return typ
+}
+
+// inst_walk adds the instance every call to a generic function in the
+// body of fn needs, at any depth, with bound, the bindings fn's type
+// parameters stand for in the instance being walked, Go's walk and
+// walkStmts, from a stack of its own: a fields loop's body is walked
+// once for each field it lists, its type parameter bound to the field's
+// type, and the fields are recorded on the loop (see record_fields). It
+// returns false as soon as one would be one too many. A switch on a type
+// parameter has only the case its type parameter's binding takes walked
+// (see walk_arm).
+func (mut c Checker) inst_walk(fn Key, bound int64, mut seen map[text.Text]bool) (bool, error) {
+    f := func_of(c.prog.trees, fn)
+    mut stack := make(list[InstItem], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    mut c.push_stmts(mut stack, fn.unit, f.body, bound)?
+    for len(stack) > 0 {
+        it, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        if it.unroll {
+            if c.inst_unrolled == max_unrolled {
+                n := mut c.type_name(it.typ)?
+                mut m := msg()
+                fmt.appendf(mut m, "unrolling the fields loop over %s makes more than %d bodies of fields loops, the most a program may have", n[:], max_unrolled)?
+                mut c.errorf(span_at(c.prog.trees, it.fo), own m)?
+                return false, noerror
+            }
+            c.inst_unrolled +%= 1
+            mut ft := types.invalid
+            known, has_ft := c.fo_fields[it.fo]
+            if has_ft {
+                ft = known
+            }
+            inner := mut c.bind_one(it.bound, ft, it.field)?
+            switch kind_at(c.prog.trees, it.loop) {
+            case for_range(r):
+                mut c.push_stmts(mut stack, fn.unit, r.body, inner)?
+            default:
+            }
+            continue
+        }
+        k := Key{unit: fn.unit, node: it.node}
+        switch kind_at(c.prog.trees, k) {
+        case for_range(r):
+            fo := sub(k, r.x)
+            switch kind_at(c.prog.trees, fo) {
+            case fields_of:
+                mut c.unroll(mut stack, fn, k, fo, it.bound)?
+                continue
+            default:
+            }
+        case switch_stmt(s):
+            if s.on_type {
+                mut c.walk_arm(mut stack, fn, k, s, it.bound)?
+                continue
+            }
+        case call:
+            _, has := c.call_targ_count[k]
+            if has {
+                added := mut c.inst_add(k, it.bound, mut seen)?
+                if !added {
+                    return false, noerror
+                }
+            }
+        default:
+        }
+        clear_nodes(mut kids)
+        children_of(c.prog.trees, fn.unit, it.node, mut kids)?
+        mut j := len(kids) -% 1
+        for j >= 0 {
+            kid, has := kids[j]
+            if has {
+                append(mut stack, InstItem{node: kid, bound: it.bound, unroll: false, fo: no_key(), loop: no_key(), typ: types.invalid, field: types.invalid})?
+            }
+            j -%= 1
+        }
+    }
+    return true, noerror
+}
+
+// walk_arm pushes on stack the body of the one case of the switch k, s,
+// on a type parameter in fn, that runs when its type parameter stands
+// for what bound binds it to, with each type parameter that case
+// declares bound to what it stands for then, Go's walkArm. A switch
+// whose type parameter bound does not bind has no case walked.
+func (mut c Checker) walk_arm(mut stack list[InstItem], fn Key, k Key, s ast.Switch, bound int64) error {
+    nm, is_id := ident_at(c.prog.trees, sub(k, s.tag))
+    if !is_id || nm.def.kind != ast.def_type_param {
+        return noerror
+    }
+    tp := decl_type_of(c.decl_types, key_of_def(nm.def))
+    typ, found := mut c.bound_find(bound, tp)
+    if !found {
+        return noerror
+    }
+    arm, inner := mut c.arm_for(k, s, typ, bound)?
+    if is_no_key(arm) {
+        return noerror
+    }
+    return mut c.push_stmts(mut stack, fn.unit, clause_of(c.prog.trees, arm).body, inner)
+}
+
+// bound_find returns what the bindings b bind typ to, and whether they
+// bind it.
+func (mut c Checker) bound_find(b int64, typ types.Type) (types.Type, bool) {
+    mut at := b
+    for at >= 0 {
+        r, ok := c.bounds[at]
+        if !ok {
+            break
+        }
+        if r.tp == typ {
+            return r.typ, true
+        }
+        at = r.parent
+    }
+    return types.invalid, false
+}
+
+// push_stmts pushes the statements body, of the tree unit, on stack, to
+// be walked first to last with the bindings bound.
+func (mut c Checker) push_stmts(mut stack list[InstItem], unit int64, body ast.Nodes, bound int64) error {
+    mut i := count_items(c.prog.trees, unit, body) -% 1
+    for i >= 0 {
+        append(mut stack, InstItem{node: item_at(c.prog.trees, unit, body, i).node, bound: bound, unroll: false, fo: no_key(), loop: no_key(), typ: types.invalid, field: types.invalid})?
+        i -%= 1
+    }
+    return noerror
+}
+
+// unroll records the fields the loop k, ranging over fo, of fn lists for
+// the type it ranges over under bound, Go's unroll, and pushes on stack,
+// for each of them, an item that walks the loop's body with its type
+// parameter bound to the field's type, first field on top.
+func (mut c Checker) unroll(mut stack list[InstItem], fn Key, k Key, fo Key, bound int64) error {
+    mut typ := types.invalid
+    t, has := c.fo_types[fo]
+    if has {
+        typ = mut c.bound_of(bound, t)
+    }
+    first, count := mut c.record_fields(fn, fo, typ)?
+    mut i := count -% 1
+    for i >= 0 {
+        fi, ok := c.unrolled_fields[first +% i]
+        i -%= 1
+        if !ok {
+            continue
+        }
+        ft, has_ft := c.table.field_type(typ, fi)
+        if !has_ft {
+            continue
+        }
+        append(mut stack, InstItem{node: k.node, bound: bound, unroll: true, fo: fo, loop: k, typ: typ, field: ft})?
+    }
+    return noerror
+}
+
+// record_fields records on fo, a fields loop of fn, the fields it lists
+// for typ, Go's recordFields, and returns where they are in
+// unrolled_fields: those of typ's fields whose own mark lets the package
+// declaring fn see them, in declaration order (see visible_fields), and
+// none when typ is no struct. A loop records each type once.
+func (mut c Checker) record_fields(fn Key, fo Key, typ types.Type) (int64, int64, error) {
+    for _, r := range c.unrolled_recs {
+        if r.fo == fo && r.typ == typ {
+            return r.first, r.count, noerror
+        }
+    }
+    first := len(c.unrolled_fields)
+    if c.table.is_struct(typ) {
+        mut pkg int64 = -1
+        p, has_p := c.unit_pkg[fn.unit]
+        if has_p {
+            pkg = p
+        }
+        owner, has_owner := c.struct_pkg[typ.number()]
+        for i := range c.table.field_count(typ) {
+            mut seen := !has_owner || pkg < 0
+            if !seen {
+                vis := mut c.own_field_vis(typ, i)
+                seen = mut c.field_visible(vis, owner, pkg)?
+            }
+            if seen {
+                append(mut c.unrolled_fields, i)?
+            }
+        }
+    }
+    count := len(c.unrolled_fields) -% first
+    append(mut c.unrolled_recs, UnrolledRec{fo: fo, typ: typ, first: first, count: count})?
+    return first, count, noerror
+}
+
+// own_field_vis returns the visibility the i'th field of the struct
+// type typ is marked with, uncapped by its struct's, Go's ownFieldVis.
+func (mut c Checker) own_field_vis(typ types.Type, i int64) ast.Visibility {
+    d, ok := c.structs[typ.number()]
+    if !ok {
+        return ast.vis_private
+    }
+    td := type_decl_of(c.prog.trees, d)
+    switch kind_at(c.prog.trees, sub(d, td.type_expr)) {
+    case struct_type(fs):
+        switch kind_at(c.prog.trees, item_at(c.prog.trees, d.unit, fs, i)) {
+        case field(f):
+            return f.vis
+        default:
+            return ast.vis_private
+        }
+    default:
+        return ast.vis_private
+    }
+}
+
+// field_visible reports whether a name of the package owner marked vis
+// is visible from the package user, Go's ast.Visible.
+func (mut c Checker) field_visible(vis ast.Visibility, owner int64, user int64) (bool, error) {
+    if owner == user || vis == ast.vis_pub {
+        return true, noerror
+    }
+    if vis == ast.vis_lib {
+        mut a := msg()
+        append_pkg(c.prog.packages, owner, 2, mut a)?
+        mut b := msg()
+        append_pkg(c.prog.packages, user, 2, mut b)?
+        return bytes_equal(a[:], b[:]), noerror
+    }
+    return false, noerror
+}
+
+// inst_add records the instance the call k needs, its type arguments
+// under bound, unless it was recorded already, Go's add. It reports,
+// and returns false, when there is no room for another.
+func (mut c Checker) inst_add(k Key, bound int64, mut seen map[text.Text]bool) (bool, error) {
+    fn := mut c.callee_of(k)
+    mut n int64 = 0
+    counted, has_n := c.call_targ_count[k]
+    if has_n {
+        n = counted
+    }
+    mut args := make(list[types.Type], c_allocator)
+    mut fi := len(c.inst_fns)
+    known, has_fn := c.inst_fns[fn]
+    if has_fn {
+        fi = known
+    } else {
+        put(mut c.inst_fns, fn, fi)?
+    }
+    mut key := msg()
+    fmt.appendf(mut key, "%d", fi)?
+    for i := range n {
+        mut a := types.invalid
+        t, has := c.call_targs[RKey{unit: k.unit, node: k.node, i: i}]
+        if has {
+            a = t
+        }
+        a = mut c.bound_of(bound, a)
+        append(mut args, a)?
+        fmt.appendf(mut key, ",%d", a.number())?
+    }
+    kt := text.from_bytes(key[:], c_allocator)?
+    _, was := seen[kt]
+    if was {
+        return true, noerror
+    }
+    if len(c.instances) == max_instances {
+        mut m := msg()
+        fmt.appendf(mut m, "instantiating %s with ", name_of(c.prog.trees, c.none, fn))?
+        for i, a := range args {
+            if i > 0 {
+                append(mut m, []uint8(", ")...)?
+            }
+            tn := mut c.type_name(a)?
+            append(mut m, tn[:]...)?
+        }
+        fmt.appendf(mut m, " makes more than %d instances of generic functions, the most a program may have", max_instances)?
+        mut c.errorf(span_at(c.prog.trees, k), own m)?
+        return false, noerror
+    }
+    put(mut seen, kt, true)?
+    first := len(c.inst_args)
+    for _, a := range args {
+        append(mut c.inst_args, a)?
+    }
+    append(mut c.instances, Instance{fn: fn, first: first, count: n})?
+    return true, noerror
+}

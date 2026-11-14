@@ -17,8 +17,8 @@ import types from "tack/types"
 // declared at, its home, and may hold memory from the region at its
 // mark, at most its home. Marks are found by walking the body until none
 // rises, and each way out is then checked once, against them, as Go
-// does. A body holding no region is not walked. A closure, and a scope
-// parameter of a function type, are S7's, and declined.
+// does. A body holding no region is not walked. A closure's body is
+// walked where it is written (see esc_lit).
 //
 // Every expression is walked with a stack of its own (see esc_src), and
 // a chain of else ifs and a list of statements in a loop. The walks that
@@ -30,7 +30,9 @@ import types from "tack/types"
 // EscState is what the escape walk of one body tracks, Go's escaper: the
 // regions around the point, outermost first, each variable's home and
 // mark, each region's allocator's depth, how many errors it reported,
-// whether this walk reports, the last one, and whether a mark rose.
+// whether this walk reports, the last one, whether a mark rose, and the
+// closures around the walk, innermost last, whose results a return in
+// one returns, with how many there are.
 type EscState struct {
     fn Key
     regions list[Key]
@@ -40,6 +42,8 @@ type EscState struct {
     reported int64
     report bool
     changed bool
+    results list[Key]
+    closures int64
 }
 
 // new_esc_state returns the state of an escape walk of the function d.
@@ -53,6 +57,8 @@ func new_esc_state(d Key) EscState {
         reported: 0,
         report: false,
         changed: false,
+        results: make(list[Key], c_allocator),
+        closures: 0,
     }
 }
 
@@ -284,7 +290,12 @@ func opt_sub(k Key, n id[ast.Node]) Key {
 // esc_ret walks the return k, s, reporting a value from a region, Go's
 // ret: a function's results live outside every region.
 func (mut c Checker) esc_ret(k Key, s ast.Return) error {
-    n := mut c.callee_result_count(c.esc.fn)
+    mut fnk := c.esc.fn
+    inner, in_lit := c.esc.results[len(c.esc.results) -% 1]
+    if in_lit {
+        fnk = inner
+    }
+    n := mut c.callee_result_count(fnk)
     for i := range count_items(c.prog.trees, k.unit, s.values) {
         v := item_at(c.prog.trees, k.unit, s.values, i)
         d := mut c.esc_src(v)?
@@ -292,7 +303,7 @@ func (mut c Checker) esc_ret(k Key, s ast.Return) error {
             continue
         }
         if i < n {
-            owned := mut c.esc_owned(result_of(c.results, c.esc.fn, i))?
+            owned := mut c.esc_owned(result_of(c.results, fnk, i))?
             if !owned {
                 continue
             }
@@ -300,22 +311,56 @@ func (mut c Checker) esc_ret(k Key, s ast.Return) error {
         mut what := msg()
         mut c.esc_holding(v, d, mut what)?
         mut m := msg()
-        fmt.appendf(mut m, "cannot return %s: the region gives its memory back when its block ends", what[:])?
+        if c.esc.closures > 0 {
+            fmt.appendf(mut m, "cannot return %s from a closure: a closure's results count as outside every region", what[:])?
+        } else {
+            fmt.appendf(mut m, "cannot return %s: the region gives its memory back when its block ends", what[:])?
+        }
         mut c.esc_error(span_at(c.prog.trees, v), d, own m)?
     }
     return noerror
 }
 
+// esc_lit walks lit, a closure whose function is fk, and returns its
+// depth, that of the deepest of its captures, Go's lit: its body is
+// walked as a function's, its returns its own.
+func (mut c Checker) esc_lit(lit Key, fk Key) (int64, error) {
+    fn := func_of(c.prog.trees, fk)
+    append(mut c.esc.results, fk)?
+    c.esc.closures +%= 1
+    e := mut c.esc_stmts(fk.unit, fn.body)
+    c.esc.closures -%= 1
+    pop(mut c.esc.results)
+    if e.code != 0 {
+        return 0, e
+    }
+    mut d int64 = 0
+    first, count := mut c.lit_captures(lit)
+    for i := range count {
+        cp, ok := c.caps[first +% i]
+        if ok {
+            s := mut c.esc_decl_src(cp.decl)
+            if s > d {
+                d = s
+            }
+        }
+    }
+    return d, noerror
+}
+
 // EscFrame is an expression esc_src is walking: the node, whether its
 // parts were pushed to be walked, the deepest depth they gave, for a
 // call where its operands' depths start in the walk's list of them, and
-// where on the walk's stack the node it is a part of is, -1 for none.
+// where on the walk's stack the node it is a part of is, -1 for none,
+// and how many errors the walk had reported when it began the node's
+// parts, Go's before in call.
 type EscFrame struct {
     k Key
     pushed bool
     d int64
     base int64
     parent int64
+    before int64
 }
 
 // esc_src walks x and returns its depth, Go's src: the innermost region
@@ -332,7 +377,7 @@ func (mut c Checker) esc_src(x Key) (int64, error) {
     mut srcs := make(list[int64], c_allocator)
     mut kids := make(list[Key], c_allocator)
     mut result int64 = 0
-    append(mut st, EscFrame{k: x, pushed: false, d: 0, base: 0, parent: -1})?
+    append(mut st, EscFrame{k: x, pushed: false, d: 0, base: 0, parent: -1, before: 0})?
     for len(st) > 0 {
         top := len(st) -% 1
         mut f, has := st[top]
@@ -346,12 +391,13 @@ func (mut c Checker) esc_src(x Key) (int64, error) {
             if !nm.def.is_none() {
                 r = mut c.esc_decl_src(key_of_def(nm.def))
             }
-        case func_lit:
-            return 0, not_ported
+        case func_lit(fn):
+            r = mut c.esc_lit(k, sub(k, fn))?
         default:
             if !f.pushed {
                 f.pushed = true
                 f.base = len(srcs)
+                f.before = c.esc.reported
                 if top >= 0 && top < len(st) {
                     st[top] = f
                 }
@@ -359,7 +405,7 @@ func (mut c Checker) esc_src(x Key) (int64, error) {
                 mut c.esc_parts(k, mut kids)?
                 mut j := len(kids) -% 1
                 for j >= 0 {
-                    append(mut st, EscFrame{k: key_in(kids, j), pushed: false, d: 0, base: 0, parent: top})?
+                    append(mut st, EscFrame{k: key_in(kids, j), pushed: false, d: 0, base: 0, parent: top, before: 0})?
                     j -%= 1
                 }
                 continue
@@ -368,7 +414,7 @@ func (mut c Checker) esc_src(x Key) (int64, error) {
             case call:
                 mut ops := make(list[Key], c_allocator)
                 mut c.call_operands(k, mut ops)?
-                d := mut c.esc_call(k, ops, srcs, f.base)?
+                d := mut c.esc_call(k, ops, srcs, f.base, f.before)?
                 for len(srcs) > f.base {
                     pop(mut srcs)
                 }
@@ -433,14 +479,16 @@ func (mut c Checker) esc_if_owned(x Key, d int64) (int64, error) {
 }
 
 // esc_call checks the call k, whose operands are ops, walked with depths
-// srcs from base, and returns its depth, Go's call: that of the deepest
+// srcs from base, the walk having reported before errors when it began
+// them, and returns its depth, Go's call: that of the deepest
 // operand not passed as a view (see esc_views). Each mut argument whose
 // place may hold memory could be given that operand's memory by the
 // callee: it is reported when it lives outside the region the operand is
-// from, and its mark is raised to it otherwise. A call through a scope
-// parameter of a function type is S7's, and declined.
-func (mut c Checker) esc_call(k Key, ops []Key, srcs []int64, base int64) (int64, error) {
-    before := c.esc.reported
+// from, and its mark is raised to it otherwise; so is each variable a
+// closure among the operands writes (see esc_written), and a call
+// through a scope parameter, or passing one on, is reported (see
+// esc_unknown_writer).
+func (mut c Checker) esc_call(k Key, ops []Key, srcs []int64, base int64, before int64) (int64, error) {
     mut views := make(list[bool], c_allocator)
     mut c.esc_views(k, ops, mut views)?
     mut d int64 = 0
@@ -459,6 +507,9 @@ func (mut c Checker) esc_call(k Key, ops []Key, srcs []int64, base int64) (int64
         return 0, noerror
     }
     quiet := c.esc.reported > before
+    if c.esc.report && !quiet {
+        mut c.esc_unknown_writer(k, ops, source_at, d)?
+    }
     for i, op := range ops {
         switch kind_at(c.prog.trees, op) {
         case mut_arg(x):
@@ -467,11 +518,126 @@ func (mut c Checker) esc_call(k Key, ops []Key, srcs []int64, base int64) (int64
                 mut c.esc_target(k, sub(op, x), d, ops, source_at, i, quiet)?
             }
         case func_lit:
-            return 0, not_ported
+            first, count := mut c.lit_captures(op)
+            for ci := range count {
+                cp, ok := c.caps[first +% ci]
+                if !ok || !cp.write {
+                    continue
+                }
+                owned := mut c.esc_owned(decl_type_of(c.decl_types, cp.decl))?
+                if owned {
+                    mut c.esc_written(k, cp, op, d, ops, source_at, quiet)?
+                }
+            }
         default:
         }
     }
     return d, noerror
+}
+
+// esc_scope_func returns the scope parameter of a function type x names,
+// Go's scopeFunc, or no key.
+func (mut c Checker) esc_scope_func(x Key) Key {
+    nm, is_id := ident_at(c.prog.trees, x)
+    if !is_id || nm.def.kind != ast.def_param {
+        return no_key()
+    }
+    d := key_of_def(nm.def)
+    if !param_of(c.prog.trees, d).is_scope || !c.table.is_func(decl_type_of(c.decl_types, d)) {
+        return no_key()
+    }
+    return d
+}
+
+// esc_captured_scope_func returns a scope parameter of a function type
+// the closure lit captures, Go's capturedScopeFunc, or no key.
+func (mut c Checker) esc_captured_scope_func(lit Key) Key {
+    first, count := mut c.lit_captures(lit)
+    for i := range count {
+        cp, ok := c.caps[first +% i]
+        if !ok {
+            continue
+        }
+        switch kind_at(c.prog.trees, cp.decl) {
+        case param_decl:
+            if param_of(c.prog.trees, cp.decl).is_scope && c.table.is_func(decl_type_of(c.decl_types, cp.decl)) {
+                return cp.decl
+            }
+        default:
+        }
+    }
+    return no_key()
+}
+
+// esc_unknown_writer reports the call k, given a value of depth d by the
+// operand at ops[src_at], when it is a call through a scope parameter of a
+// function type, or passes one on, by name or captured in a closure
+// among its operands, Go's unknownWriter: the closure behind the
+// parameter may write anything it captures.
+func (mut c Checker) esc_unknown_writer(k Key, ops []Key, src_at int64, d int64) error {
+    value := key_in(ops, src_at)
+    mut what := msg()
+    mut c.esc_holding(value, d, mut what)?
+    if mut c.esc_is_region_alloc(value) {
+        append(mut what, ',')?
+    }
+    cl := call_of(c.prog.trees, k)
+    p := mut c.esc_scope_func(sub(k, cl.fn))
+    mut rname := msg()
+    mut c.esc_region_name(d, mut rname)?
+    if !is_no_key(p) {
+        mut m := msg()
+        fmt.appendf(mut m, "cannot pass %s to %s, a scope parameter: the closure behind it could keep memory from region %s in anything it captures", what[:], name_of(c.prog.trees, c.none, p)[:], rname[:])?
+        return mut c.esc_error(span_at(c.prog.trees, value), d, own m)
+    }
+    for _, op := range ops {
+        mut q := mut c.esc_scope_func(op)
+        switch kind_at(c.prog.trees, op) {
+        case func_lit:
+            q = mut c.esc_captured_scope_func(op)
+        default:
+        }
+        if is_no_key(q) {
+            continue
+        }
+        mut callee := msg()
+        mut c.esc_callee_name(k, mut callee)?
+        mut m := msg()
+        fmt.appendf(mut m, "cannot pass %s to %s alongside %s, a scope parameter: the closure behind it could keep memory from region %s in anything it captures", what[:], callee[:], name_of(c.prog.trees, c.none, q)[:], rname[:])?
+        return mut c.esc_error(span_at(c.prog.trees, value), d, own m)
+    }
+    return noerror
+}
+
+// esc_written checks cp, a variable the closure lit among the operands
+// ops of the call k writes, given a value of depth d by the operand at
+// ops[src_at], and raises its mark, Go's written.
+func (mut c Checker) esc_written(k Key, cp CapRec, lit Key, d int64, ops []Key, src_at int64, quiet bool) error {
+    h := map_int_in(c.esc.home, cp.decl)
+    if h >= d {
+        return mut c.esc_raise(cp.decl, d)
+    }
+    if !c.esc.report || quiet {
+        return noerror
+    }
+    fn := func_of(c.prog.trees, lit_func(c.prog.trees, lit))
+    mut name := msg()
+    append(mut name, name_of(c.prog.trees, c.none, cp.decl)...)?
+    mut rname := msg()
+    mut c.esc_region_name(d, mut rname)?
+    mut callee := msg()
+    mut c.esc_callee_name(k, mut callee)?
+    mut where := msg()
+    mut c.esc_outside(cp.place, cp.place, d, mut where)?
+    mut m := msg()
+    if key_in(ops, src_at) == lit {
+        fmt.appendf(mut m, "cannot pass a closure that writes %s and captures memory from region %s to %s: the call could keep memory from region %s in %s, and %s", name[:], rname[:], callee[:], rname[:], name[:], where[:])?
+        return mut c.esc_error(fn.name_span, d, own m)
+    }
+    mut holding := msg()
+    mut c.esc_holding(key_in(ops, src_at), d, mut holding)?
+    fmt.appendf(mut m, "cannot pass a closure that writes %s to %s alongside %s: the call could keep memory from region %s in %s, and %s", name[:], callee[:], holding[:], rname[:], name[:], where[:])?
+    return mut c.esc_error(fn.name_span, d, own m)
 }
 
 // esc_views appends, for each of ops, the operands of the call k, a
@@ -642,6 +808,12 @@ func (mut c Checker) esc_holding(x Key, d int64, mut out list[uint8]) error {
         fmt.appendf(mut out, "%s, the allocator of region %s", t[:], rname[:])?
         return noerror
     }
+    switch kind_at(c.prog.trees, x) {
+    case func_lit:
+        fmt.appendf(mut out, "a closure holding memory from region %s", rname[:])?
+        return noerror
+    default:
+    }
     t := mut c.type_of(x)
     if t != types.invalid {
         n := mut c.type_name(t)?
@@ -674,10 +846,12 @@ func (mut c Checker) esc_is_region_alloc(x Key) bool {
 
 // esc_callee_name appends how a message names what the call k calls,
 // Go's escaper.calleeName: a function or a method by its display name,
-// and anything else as written.
+// and anything else, a call through a function value among them, as
+// written.
 func (mut c Checker) esc_callee_name(k Key, mut out list[uint8]) error {
     fn := mut c.callee_of(k)
-    if !is_no_key(fn) {
+    _, dynamic := c.call_dynamic[k]
+    if !is_no_key(fn) && !dynamic {
         return mut c.display_name(fn, mut out)
     }
     cl := call_of(c.prog.trees, k)

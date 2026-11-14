@@ -129,19 +129,21 @@ func (mut c Checker) block_writes(b int64) error {
 
 // live_write reports whether w, a write a walk of a block found for
 // decl, writes decl as it is judged now, Go's liveWrite.
-func (mut c Checker) live_write(w Write, decl Key) bool {
+func (mut c Checker) live_write(w Write, decl Key) (bool, error) {
     if !is_no_key(w.call) {
         if is_builtin_call(c.prog.trees, c.none, w.call, "swap") {
-            return false
+            return false, noerror
         }
         switch kind_at(c.prog.trees, w.shown) {
         case mut_arg(x):
-            return mut c.written_decl(sub(w.shown, x)) == decl
+            d := mut c.written_decl(sub(w.shown, x))?
+            return d == decl, noerror
         default:
-            return false
+            return false, noerror
         }
     }
-    return mut c.written_decl(w.shown) == decl
+    d := mut c.written_decl(w.shown)?
+    return d == decl, noerror
 }
 
 // RegionIdx holds every write in a region for one use, Go's regionIndex:
@@ -203,7 +205,8 @@ func (mut c Checker) rest_writes(ri RegionIdx, decl Key, mut out list[int64]) er
         at := sp.start +% i
         i +%= 1
         w := idx_write_in(c.fx.blocks.writes[:], at).w
-        if !mut c.live_write(w, decl) {
+        live := mut c.live_write(w, decl)?
+        if !live {
             continue
         }
         if !is_no_key(w.call) {
@@ -394,6 +397,7 @@ func (mut c Checker) assume(g Guard, facts []Fact, head []Key) error {
 func (mut c Checker) assume_in(g Guard, facts []Fact, head []Key, blk int64, frm int64) error {
     gid := mut c.add_guard(g)?
     append(mut c.fx.guards, gid)?
+    append(mut c.fx.guard_kept, false)?
     mut ri := RegionIdx{head: new_write_index(), blk: blk, frm: frm, drops: make(map[int64]int64, c_allocator), share: true}
     mut indexed := false
     mut rgn := -1
@@ -419,6 +423,7 @@ func (mut c Checker) assume_in(g Guard, facts []Fact, head []Key, blk int64, frm
             f.ends = mut c.find_endings(mut ri, f)?
         }
         append(mut c.fx.active, f)?
+        mut c.push_kept(f)?
         mut c.index_fact()?
     }
     return noerror
