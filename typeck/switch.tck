@@ -637,7 +637,16 @@ func (mut c Checker) check_union_switch(k Key, s ast.Switch, typ types.Type) err
     }
     if !is_no_key(def) {
         mut c.union_clause_head(typ, tag, def, covered, mut seen)?
-        mut c.union_clause_body(def)?
+        if covered {
+            c.in_covered_default +%= 1
+        }
+        e := mut c.union_clause_body(def)
+        if covered {
+            c.in_covered_default -%= 1
+        }
+        if e.code != 0 {
+            return e
+        }
         mut c.union_clause_tail(def)?
     }
     return noerror
@@ -666,8 +675,8 @@ func (mut c Checker) union_clause_head(typ types.Type, tag Key, cl Key, covered 
     mut c.check_patterns(typ, cl, mut seen)?
     clause := clause_of(c.prog.trees, cl)
     if clause.is_default && covered {
-        // Go goes on to check the body with inCoveredDefault counted,
-        // which only an unreachable reads; the port declines that.
+        // Its body is checked with in_covered_default counted (see
+        // check_union_switch), which an unreachable reads.
         n := mut c.type_name(typ)?
         mut m := msg()
         fmt.appendf(mut m, "every case of %s is already covered, so this default never runs", n[:])?

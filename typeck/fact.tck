@@ -94,15 +94,18 @@ type Guard struct {
     kind uint8
 }
 
-// The kinds of drop, Go's dropKind; Go's dropWraps, a counting loop's,
-// is a later stage's.
+// The kinds of drop, Go's dropKind: a write, a counting loop's step that
+// could wrap (see counting.tck), whose note is all its text, and a mut
+// argument.
 var drop_assigned uint8 = 0
+var drop_wraps uint8 = 1
 var drop_mut uint8 = 2
 
 // Drop is why a fact does not hold where it is put in force, Go's drop:
 // the region assigns the variable decl names at at, or passes it as mut
 // to the function the bytes text_start and text_len of the FactState's
-// drop_text name there.
+// drop_text name there, or a counting loop's step there could wrap,
+// which those bytes then explain.
 type Drop struct {
     decl Key
     at source.Span

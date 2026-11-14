@@ -18,9 +18,15 @@ package typeck
 // closures: the bodies of generic functions, their calls, which infer
 // the type arguments (see infer.tck), switches on a type parameter (see
 // paramswitch.tck) and fields loops (see data.tck), function values
-// (see funcvalue.tck) and closures (see closure.tck), and, once every
-// body checks, the instances of generic functions the program needs
-// (see instance.tck), as far as none needs a later stage.
+// (see funcvalue.tck) and closures (see closure.tck), its loops and
+// contracts: the bound a counting loop counts from (see counting.tck),
+// the bounds a loop keeps on what it writes, which a probe of the body
+// finds first (see invariant.tck), ensures clauses, proven where a
+// function returns and given to its callers (see ensures.tck), the
+// unreachable statements (see unreachable.tck) and the lengths a
+// successful append proves (see appended.tck), and, once every body
+// checks, the instances of generic functions the program needs (see
+// instance.tck), as far as none needs a later stage.
 // It takes a resolved program and the source files its spans point
 // into, both taken over and given back, and gives every struct and union
 // type its ID, its fields and its cases, every global its type and its
@@ -58,9 +64,10 @@ package typeck
 // does every judgment it cannot make yet: before bodies a constant's
 // operands are all known values, so an overflow, a divisor, an index or
 // a conversion it cannot decide follows an error Go may follow with one
-// of its own; and an ensures clause whose operands give facts it cannot
-// tell from their shape alone (see ensures.tck). Nothing is taken as
-// holding unproven, and the dump's assumed list stays empty.
+// of its own. An ensures clause, checked with the signatures, is checked
+// as a body's expression is, its arithmetic proven by the provers (see
+// clause_type). Nothing is taken as holding unproven, and the dump's
+// assumed list stays empty.
 //
 // Go checks a global the first time it is needed, from inside the check
 // of the global that names it, and a chain of globals nests a check for
@@ -113,7 +120,20 @@ package typeck
 // instance's body, a fields loop's and a case's are walked from a stack
 // of their own (see inst_walk), and a type's name, which a switch on a
 // type parameter nested in another's case makes as deep as the nest, is
-// written from a stack of its own too (see types' write_name). clang inlines a function called from one place into its
+// written from a stack of its own too (see types' write_name). A
+// loop's probe and its contract calls work from stacks of their own too:
+// the candidate bounds a loop may keep are found in a walk of its nodes
+// (see candidates_at), and the writes to a variable in a region or in a
+// whole body from a stack (see each_write), the defers of a body alike
+// (see defers_of); a chain of operands of an ensures clause's && in a
+// loop (see check_contract); whether a statement terminates is
+// remembered for every link of an else-if chain walked (see
+// terminates), so a chain asked about at every link is walked once.
+// What a statement gives the code after it, the start a probe
+// remembers and whether its block has left included, is stmt_facts',
+// whose two callers keep it off the path a nest of statements takes,
+// and so is what a break, a continue and an unreachable check (see
+// check_leaf_stmt). clang inlines a function called from one place into its
 // caller, frame and all, so a function on the path a level of nesting
 // takes is kept small by giving what it calls only when it does not
 // nest a call of its own, or does so rarely, a frame of its own: a

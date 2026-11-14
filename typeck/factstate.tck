@@ -112,19 +112,22 @@ type LateDefault struct {
 }
 
 // LogicFrame is an && or || whose right operand is being checked with
-// what its left one says in force: the mark taken before, and where its
-// left operand's facts start among the FactState's logic_facts.
+// what its left one says in force: the mark taken before. Its left
+// operand's facts are the FactState's logic_facts' at the same depth,
+// handed over to the chain once the right operand is checked (see
+// logic_end).
 type LogicFrame struct {
     m Mark
-    start int64
 }
 
-// Mark is how many facts, guards and proof-only facts are in force, Go's
+// Mark is how many facts, guards and proof-only facts are in force, and
+// how many known values the probe remembers (see record_start), Go's
 // mark, for release.
 type Mark struct {
     facts int64
     guards int64
     proven int64
+    starts int64
 }
 
 // FactState is the facts of the body being checked and the records they
@@ -182,7 +185,7 @@ type FactState struct {
     fell map[Key]WSpan
     fell_facts list[Fact]
     logic list[LogicFrame]
-    logic_facts list[Fact]
+    logic_facts list[list[Fact]]
     blocks BlockStore
     index FactIndex
     rel RelIdx
@@ -231,7 +234,7 @@ func new_fact_state() (FactState, error) {
         fell: make(map[Key]WSpan, c_allocator),
         fell_facts: make(list[Fact], c_allocator),
         logic: make(list[LogicFrame], c_allocator),
-        logic_facts: make(list[Fact], c_allocator),
+        logic_facts: make(list[list[Fact]], c_allocator),
         blocks: new_block_store(),
         index: new_fact_index(),
         rel: new_rel_idx(),
@@ -275,11 +278,12 @@ func (mut c Checker) reset_facts() error {
 // mark returns how many facts, guards and proof-only facts are in
 // force, Go's mark.
 func (c Checker) mark() Mark {
-    return Mark{facts: len(c.fx.active), guards: len(c.fx.guards), proven: len(c.fx.proven)}
+    return Mark{facts: len(c.fx.active), guards: len(c.fx.guards), proven: len(c.fx.proven), starts: len(c.starts)}
 }
 
 // release takes out of force every fact, guard and proof-only fact put
-// in force since m was taken, Go's release.
+// in force since m was taken, and forgets every known value the probe
+// remembered since, Go's release.
 func (mut c Checker) release(m Mark) error {
     if len(c.fx.active) != m.facts {
         c.fact_gen +%= 1
@@ -301,9 +305,43 @@ func (mut c Checker) release(m Mark) error {
         pop(mut c.fx.guard_kept)
     }
     for len(c.fx.proven) > m.proven {
-        pop(mut c.fx.proven)
+        po, ok := pop(mut c.fx.proven)
+        if ok {
+            mut c.forget_proven(po)
+        }
+    }
+    for len(c.starts) > m.starts {
+        pop(mut c.starts)
     }
     return noerror
+}
+
+// forget_proven gives back the records of po, proof-only facts just
+// taken out of force, when they are the last of their arenas, as
+// keep_apart made them: its sides, and the facts of each. Nothing else
+// names them, and Go's collector frees them as their facts go, so a
+// chain of n operators, each putting the ones before it in force for the
+// next, keeps records growing with n, not n squared.
+func (mut c Checker) forget_proven(po ProofOnly) {
+    if po.either != len(c.fx.eithers) -% 1 {
+        return
+    }
+    e := c.either_at(po.either)
+    if e.count == 0 || e.first +% e.count != len(c.fx.sides) {
+        return
+    }
+    last := c.side_at(e.first +% e.count -% 1)
+    if last.start +% last.count != len(c.fx.side_facts) {
+        return
+    }
+    first := c.side_at(e.first)
+    for len(c.fx.side_facts) > first.start {
+        pop(mut c.fx.side_facts)
+    }
+    for len(c.fx.sides) > e.first {
+        pop(mut c.fx.sides)
+    }
+    pop(mut c.fx.eithers)
 }
 
 // fact_in_force reports whether the fact at position i of active is in

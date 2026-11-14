@@ -587,22 +587,22 @@ func (mut c Checker) add_edge(mut g RelGraph, e RelEdge) error {
 }
 
 // length_edges takes the range of the length k, once, Go's
-// graphBuilder.lengthRange: at most the largest int64, and at least 0.
-// The least length a successful append gives a list is a later stage's,
-// and declined where one was recorded (see record_append).
+// graphBuilder.lengthRange: at most the largest int64, and at least 0,
+// or the least length a successful append gives it (see appended_len).
 func (mut c Checker) length_edges(mut g RelGraph, mut b GraphBuild, k FKey) error {
     _, done := b.ranged[k]
     if done {
         return noerror
     }
     put(mut b.ranged, k, true)?
-    if mut c.appended_list(k) {
-        // Go's appendedLen narrows it by what a successful append
-        // recorded, S5's.
-        return not_ported
-    }
     mut c.add_edge(mut g, plain_edge(k, zero_fkey(), 9223372036854775807, -1))?
-    mut c.add_edge(mut g, plain_edge(zero_fkey(), k, 0, -1))?
+    least := mut c.appended_len(k, no_interval())?
+    mut w int64 = 0
+    v, ok := least.lo.negate()
+    if least.has_lo && ok && v.fits(64, true) {
+        w = v.to_int64()
+    }
+    mut c.add_edge(mut g, plain_edge(zero_fkey(), k, w, -1))?
     return noerror
 }
 

@@ -21,11 +21,26 @@ func no_guard() Guard {
 
 // stmt_facts puts in force, after the statement at position i of the
 // block blk, stmt, what it gives the rest of the block, Go's loop body in
-// checkStmts after checkStmt: an early exit's facts, or else what it
-// stores, then, for a call whose callee has a contract, a later stage's,
-// declined, and then what an if chain or a switch gives past its first
-// link.
-func (mut c Checker) stmt_facts(blk int64, i int64, stmt Key) error {
+// checkStmts after checkStmt: the known value it gives a variable, which
+// the probe remembers (see record_start), an early exit's facts, or else
+// what it stores, then, for a call whose callee has a contract, what it
+// ensures (see stmt_contract_facts), and then what an if chain or a
+// switch gives past its first link. Last, while dead, how many blocks
+// around stmt had left when its block began, is still the count, it
+// counts the block as left when stmt leaves it or terminates (see
+// count_dead); the links of an else-if chain, whose blocks hold nothing
+// after them, pass -1.
+func (mut c Checker) stmt_facts(blk int64, i int64, stmt Key, dead int64) error {
+    mut c.record_start(blk, i, stmt)?
+    mut e := mut c.stmt_facts_at(blk, i, stmt)
+    if e.code == 0 && c.dead == dead {
+        e = mut c.count_dead(stmt)
+    }
+    return e
+}
+
+// stmt_facts_at is stmt_facts past the start it records.
+func (mut c Checker) stmt_facts_at(blk int64, i int64, stmt Key) error {
     frm := i +% 1
     rest := c.rest_of(blk, frm)
     mut facts := make(list[Fact], c_allocator)
@@ -38,45 +53,16 @@ func (mut c Checker) stmt_facts(blk int64, i int64, stmt Key) error {
         mut c.falls_through(stmt, mut head)?
         mut c.assume_in(g, facts[:], head[:], rest, frm)?
     }
-    contract := mut c.has_contract_call(stmt)?
-    if contract {
-        return not_ported
+    mut ensured := make(list[Fact], c_allocator)
+    eg, has_ensured := mut c.stmt_contract_facts(stmt, mut ensured)?
+    if has_ensured {
+        none := make(list[Key], c_allocator)
+        mut c.assume_in(eg, ensured[:], none[:], rest, frm)?
     }
     if rest < 0 {
         return noerror
     }
     return mut c.chain_facts(stmt, rest, frm)
-}
-
-// has_contract_call reports whether stmt is, or has as its whole value,
-// a call whose callee has an ensures clause, Go's contractCall, whose
-// facts are a later stage's.
-func (mut c Checker) has_contract_call(stmt Key) (bool, error) {
-    mut value := no_key()
-    switch kind_at(c.prog.trees, stmt) {
-    case expr_stmt(s):
-        value = sub(stmt, s.x)
-    case var_decl(v):
-        value = sub(stmt, v.value)
-    case multi_var(m):
-        value = sub(stmt, m.value)
-    case assign(a):
-        value = sub(stmt, a.value)
-    case multi_assign(m):
-        value = sub(stmt, m.value)
-    default:
-        return false, noerror
-    }
-    switch kind_at(c.prog.trees, value) {
-    case call:
-        fnk := mut c.callee_of(value)
-        if is_no_key(fnk) {
-            return false, noerror
-        }
-        return !ast.is_none(func_of(c.prog.trees, fnk).contract), noerror
-    default:
-        return false, noerror
-    }
 }
 
 // if_guard returns the guard an if, the node k, s, is as an early exit,

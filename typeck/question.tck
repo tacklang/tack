@@ -9,8 +9,9 @@ import types from "tack/types"
 // call before it, and gives the call's other results. It applies to a
 // call whose last result is an error, written in a function whose last
 // result is an error, outside deferred code. A ? in a test, which
-// records where it is, and one in a function with an ensures clause,
-// whose contract must hold there, are declined with the function.
+// records where it is, is declined with the function; at one in a
+// function with an ensures clause its contract must hold (see
+// prove_question_contract).
 
 // question checks the ? k whose one value is used, and returns that
 // value's type, Go's question. It and check_question each call the
@@ -132,6 +133,7 @@ func (mut c Checker) question_record(k Key, ok bool, mut out list[types.Type]) (
     for i, t := range out {
         put(mut c.question_types, RKey{unit: k.unit, node: k.node, i: i}, t)?
     }
+    mut c.prove_question_contract(k)?
     return true, noerror
 }
 
@@ -219,6 +221,18 @@ func (mut c Checker) not_calling(k Key) bool {
 // to out and its callee's name to name, and reports false when the
 // call's own problems were reported.
 func (mut c Checker) questioned_results(k Key, mut out list[types.Type], mut name list[uint8]) (bool, error) {
+    // The call is checked where it ends, as any operand is (see expr), so
+    // what it writes through a mut argument is judged after it.
+    outer := c.fx.at
+    c.fx.at = span_at(c.prog.trees, k).end
+    r, e := mut c.questioned_results_at(k, mut out, mut name)
+    c.fx.at = outer
+    return r, e
+}
+
+// questioned_results_at is questioned_results with where checking has
+// reached at the call's end.
+func (mut c Checker) questioned_results_at(k Key, mut out list[types.Type], mut name list[uint8]) (bool, error) {
     unbound := mut c.unbound_call(k)?
     if unbound {
         return false, noerror
@@ -245,7 +259,8 @@ func (mut c Checker) is_generic_call(k Key) bool {
 
 // question_generic checks the call k of a generic builtin a ? follows,
 // Go's generic case of questionedResults: its one value, an error for
-// append, reserve and put, and none for swap and drop, which a use as a
+// append, reserve and put, what it gives and then an error for add,
+// add_all and insert, and none for swap and drop, which a use as a
 // value reports unless the call is a statement's.
 func (mut c Checker) question_generic(k Key, mut out list[types.Type], mut name list[uint8]) (bool, error) {
     bname, _ := builtin_name(c.prog.trees, c.none, k)?
@@ -264,6 +279,11 @@ func (mut c Checker) question_generic(k Key, mut out list[types.Type], mut name 
         return true, noerror
     }
     append(mut out, typ)?
+    if bytes_equal(bname, []uint8("add")) || bytes_equal(bname, []uint8("add_all")) || bytes_equal(bname, []uint8("insert")) {
+        // Go's call.ResultTypes, which add, add_all and insert record:
+        // what they give, then an error.
+        append(mut out, types.error_type)?
+    }
     return true, noerror
 }
 

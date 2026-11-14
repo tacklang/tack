@@ -1,0 +1,607 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import diag from "tack/diag"
+import types from "tack/types"
+
+// The unreachable statements, Go's unreachable.go. An unreachable marks
+// a place the checker must prove no run reaches; one it cannot prove is
+// an error. A place is proven when a statement before it in a block
+// around it leaves that block or terminates (see BodyState's dead), when
+// the facts there about some subject leave it no value, its type's
+// bounds and its facts' crossing or every value between them ruled out,
+// when every side of a true || or a false && on the path to it does so,
+// or when the relations in force hold a cycle of negative weight. The
+// facts counted are those in force and the proof-only ones kept apart
+// (see keep_apart), each only where it holds.
+
+// check_unreachable checks the unreachable k, which must be proven
+// unreachable, Go's checkUnreachable: a default that full coverage of a
+// union forbids is already reported, and its unreachable is not.
+func (mut c Checker) check_unreachable(k Key) error {
+    if c.in_covered_default > 0 {
+        return noerror
+    }
+    proven := mut c.unreachable_proven()?
+    if proven {
+        return noerror
+    }
+    mut notes := make(list[diag.Related], c_allocator)
+    mut c.unreachable_notes(mut notes)?
+    mut m := msg()
+    append(mut m, []uint8("unreachable may be reached; check a condition that rules this place out first, or handle the case here")...)?
+    return mut c.error_notes(span_at(c.prog.trees, k), own m, own notes)
+}
+
+// unreachable_proven reports whether the place checking has reached,
+// c.fx.at, is proven unreachable, Go's unreachableProven: a block around
+// it has already left, or the facts there contradict, every proof-only
+// fact first supposed to hold, a quick test before the writes that
+// could end them are looked for.
+func (mut c Checker) unreachable_proven() (bool, error) {
+    if c.dead > 0 {
+        return true, noerror
+    }
+    rc := mut c.relations_contradict()?
+    if rc {
+        return true, noerror
+    }
+    quick := mut c.facts_contradict(false)?
+    if !quick {
+        return false, noerror
+    }
+    r := mut c.facts_contradict(true)?
+    return r, noerror
+}
+
+// proof_side appends to into the facts of side s of the proof-only facts
+// at position p that count, Go's side in factsContradict: those that
+// hold when check is set, once the writes that may end them are found,
+// and those not dropped otherwise.
+func (mut c Checker) proof_side(p int64, s int64, check bool, mut into list[Fact]) error {
+    if check {
+        mut c.index_proven(p)?
+    }
+    po, ok := c.fx.proven[p]
+    if !ok {
+        return noerror
+    }
+    e := c.either_at(po.either)
+    side := c.side_at(e.first +% s)
+    mut i int64 = 0
+    for i < side.count {
+        f := fact_in(c.fx.side_facts[:], side.start +% i)
+        i +%= 1
+        if check {
+            h := mut c.holds(f)?
+            if h {
+                append(mut into, f)?
+            }
+        } else if f.drop < 0 {
+            append(mut into, f)?
+        }
+    }
+    return noerror
+}
+
+// proven_sides returns how many sides the proof-only facts at position
+// p of proven have.
+func (c Checker) proven_sides(p int64) int64 {
+    po, ok := c.fx.proven[p]
+    if !ok {
+        return 0
+    }
+    return c.either_at(po.either).count
+}
+
+// facts_contradict reports whether the facts there leave some subject
+// no value, Go's factsContradict: those in force and the proof-only
+// ones with one side together, or those with each side of some
+// proof-only facts with several taken in turn. A proof-only fact counts
+// only where it holds when check is set, and wherever it was not dropped
+// otherwise.
+func (mut c Checker) facts_contradict(check bool) (bool, error) {
+    mut base := make(list[Fact], c_allocator)
+    mut i int64 = 0
+    for i < len(c.fx.active) {
+        f := fact_in(c.fx.active[:], i)
+        in_force := c.fact_in_force(i)
+        i +%= 1
+        if !in_force {
+            continue
+        }
+        h := mut c.holds(f)?
+        if h {
+            append(mut base, f)?
+        }
+    }
+    mut p int64 = 0
+    for p < len(c.fx.proven) {
+        if c.proven_sides(p) == 1 {
+            mut c.proof_side(p, 0, check, mut base)?
+        }
+        p +%= 1
+    }
+    none := mut c.leaves_no_value(base[:])?
+    if none {
+        return true, noerror
+    }
+    n := len(base)
+    p = 0
+    for p < len(c.fx.proven) {
+        sides := c.proven_sides(p)
+        p +%= 1
+        if sides < 2 {
+            continue
+        }
+        mut every := true
+        mut s int64 = 0
+        for s < sides && every {
+            for len(base) > n {
+                pop(mut base)
+            }
+            mut c.proof_side(p -% 1, s, check, mut base)?
+            every = mut c.leaves_no_value(base[:])?
+            s +%= 1
+        }
+        for len(base) > n {
+            pop(mut base)
+        }
+        if every {
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// leaves_no_value reports whether facts, every one of which holds, leave
+// some subject no value, Go's leavesNoValue: for each subject, in the
+// order the facts first name it, what they and its type allow and the
+// values they rule out, Go's subjectState (see subject_empty). A
+// relation takes no part.
+func (mut c Checker) leaves_no_value(facts []Fact) (bool, error) {
+    mut at := make(map[FKey]int64, c_allocator)
+    mut states := make(list[Interval], c_allocator)
+    mut out_of := make(list[int64], c_allocator)
+    mut out_vals := make(list[constant.Int], c_allocator)
+    for _, f := range facts {
+        if f.relational() || f.about.is_zero() {
+            continue
+        }
+        mut i, seen := at[f.about]
+        if !seen {
+            i = len(states)
+            put(mut at, f.about, i)?
+            append(mut states, mut c.subject_interval(f.about))?
+        }
+        st, has := states[i]
+        if has {
+            set_at(mut states, i, st.narrow(f))
+        }
+        if f.out {
+            append(mut out_of, i)?
+            append(mut out_vals, f.ne)?
+        }
+    }
+    mut order := make(list[int64], c_allocator)
+    for i := range len(out_of) {
+        append(mut order, i)?
+    }
+    sorted := stable_sort_by(order[:], out_of[:])?
+    mut next int64 = 0
+    mut outs := make(list[constant.Int], c_allocator)
+    for i, st := range states {
+        for len(outs) > 0 {
+            pop(mut outs)
+        }
+        for next < len(sorted) && int_in(out_of[:], int_in(sorted[:], next)) == i {
+            v, has := out_vals[int_in(sorted[:], next)]
+            if has {
+                append(mut outs, v)?
+            }
+            next +%= 1
+        }
+        empty := subject_empty(st, mut outs)?
+        if empty {
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// subject_empty reports whether no value lies in known once the values
+// outs rules out, and zero when known rules it out, are taken away, Go's
+// subjectState.empty: its bounds cross, or it has both and every value
+// from its lower bound to its upper one is ruled out.
+func subject_empty(known Interval, mut outs list[constant.Int]) (bool, error) {
+    if known.nonzero {
+        append(mut outs, constant.from_int64(0))?
+    }
+    if known.has_lo && known.has_hi && known.lo.cmp(known.hi) > 0 {
+        return true, noerror
+    }
+    if !known.has_lo || !known.has_hi {
+        return false, noerror
+    }
+    sorted := sort_consts(outs[:])?
+    mut lo := known.lo
+    for _, v := range sorted {
+        if v.cmp(lo) != 0 {
+            continue
+        }
+        next, ok := lo.add(constant.from_int64(1))
+        if !ok {
+            // Every value up to the largest a constant holds is ruled
+            // out, and the upper bound is no larger.
+            return true, noerror
+        }
+        lo = next
+    }
+    return lo.cmp(known.hi) > 0, noerror
+}
+
+// sort_consts returns l sorted, smallest first: a merge sort, bottom up,
+// with no recursion.
+func sort_consts(l []constant.Int) (list[constant.Int], error) {
+    n := len(l)
+    mut src := make(list[constant.Int], c_allocator)
+    append(mut src, l...)?
+    mut width int64 = 1
+    for width < n {
+        mut to := make(list[constant.Int], c_allocator)
+        mut lo int64 = 0
+        for lo < n {
+            mut mid := lo +% width
+            if mid > n {
+                mid = n
+            }
+            mut hi := mid +% width
+            if hi > n {
+                hi = n
+            }
+            mut i := lo
+            mut j := mid
+            for i < mid || j < hi {
+                a, has_a := src[i]
+                b, has_b := src[j]
+                if i < mid && has_a && (j >= hi || !has_b || b.cmp(a) >= 0) {
+                    append(mut to, a)?
+                    i +%= 1
+                } else if has_b {
+                    append(mut to, b)?
+                    j +%= 1
+                } else {
+                    break
+                }
+            }
+            lo = hi
+        }
+        src = to
+        width = width *% 2
+    }
+    return src, noerror
+}
+
+// subject_interval returns the bounds the type of the subject k gives
+// it, Go's keyInterval: an integer's type bounds, 0 and 1 for a bool, 0
+// up to the largest int64 for the length a fact about a string, a view
+// or a list is about, and none for a path below a variable, whose type
+// the key does not carry.
+func (mut c Checker) subject_interval(k FKey) Interval {
+    mut known := no_interval()
+    typ := c.key_type(k)
+    if typ == types.bool_type {
+        known.lo = constant.from_int64(0)
+        known.hi = constant.from_int64(1)
+    } else if typ == types.string_type || c.table.is_view(typ) || c.table.is_list(typ) {
+        known.lo = constant.from_int64(0)
+        known.hi = constant.from_int64(9223372036854775807)
+    } else if types.is_integer(typ) && typ != types.untyped_int {
+        lo, hi := type_bounds(typ)
+        known.lo = lo
+        known.hi = hi
+    } else {
+        return known
+    }
+    known.has_lo = true
+    known.has_hi = true
+    return known
+}
+
+// key_type returns the type of the variable or parameter the subject k
+// is, or no type for a path below one, Go's keyType.
+func (c Checker) key_type(k FKey) types.Type {
+    if k.path != 0 || k.is_zero() {
+        return types.invalid
+    }
+    switch kind_at(c.prog.trees, k.decl) {
+    case var_decl, param_decl:
+        return decl_type_of(c.decl_types, k.decl)
+    default:
+        return types.invalid
+    }
+}
+
+// relations_contradict reports whether the relations in force hold a
+// cycle of negative weight through a subject one of them names, Go's
+// relationsContradict.
+func (mut c Checker) relations_contradict() (bool, error) {
+    mut seen := make(list[FKey], c_allocator)
+    mut i int64 = 0
+    for i < len(c.fx.active) {
+        f := fact_in(c.fx.active[:], i)
+        in_force := c.fact_in_force(i)
+        i +%= 1
+        if !in_force || !f.relational() {
+            continue
+        }
+        h := mut c.holds(f)?
+        if !h {
+            continue
+        }
+        mut node := f.about
+        mut is_len := false
+        if f.diff >= 0 {
+            d := c.diff_at(f.diff)
+            node = d.x
+            is_len = d.x_len
+        }
+        mut was := false
+        for _, s := range seen {
+            was = was || s == node
+        }
+        if node.is_zero() || was {
+            continue
+        }
+        append(mut seen, node)?
+        mut g, has := mut c.relation_graph(node, node, is_len, is_len, false)?
+        if !has {
+            return false, noerror
+        }
+        d, ok := mut c.bound(mut g, node, node)?
+        if ok && d < 0 {
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// unreachable_notes appends to notes the notes for an unreachable place
+// that is not proven, Go's unreachableNotes: for each guard in scope
+// that compares a field of a mutable variable or a mut parameter, or a
+// mutable global, that it proves nothing about it; and, for each
+// subject whose facts, dropped by a write, would have proven the place
+// had they held, the guards that gave them and the write (see
+// dropped_notes).
+func (mut c Checker) unreachable_notes(mut notes list[diag.Related]) error {
+    mut globals := make(list[Key], c_allocator)
+    mut seen := make(list[int64], c_allocator)
+    mut sides := make(list[Key], c_allocator)
+    mut i int64 = 0
+    for i < len(c.fx.guards) {
+        gid := int_in(c.fx.guards[:], i)
+        g := c.guard_at(gid)
+        in_force := c.guard_in_force(i)
+        i +%= 1
+        if g.cond.is_none() || !in_force {
+            continue
+        }
+        mut was := false
+        for _, s := range seen {
+            was = was || s == gid
+        }
+        if was {
+            continue
+        }
+        append(mut seen, gid)?
+        clear_keys(mut sides)
+        mut c.compared_sides(g.cond, mut sides)?
+        for _, side := range sides {
+            v, is_global := mut c.mutable_global(side)
+            if !is_global {
+                continue
+            }
+            mut dup := false
+            for _, w := range globals {
+                dup = dup || w == v
+            }
+            if !dup {
+                append(mut globals, v)?
+                c.global_note(v, mut notes)?
+            }
+        }
+        for _, side := range sides {
+            mf := mut c.mutable_field(side)?
+            if !mf {
+                continue
+            }
+            mut m := msg()
+            c.guard_subject(gid, mut m)?
+            append(mut m, []uint8(" proves nothing: a field of a mutable variable or a mut parameter never carries a fact; copy ")...)?
+            t := mut c.source_text(span_at(c.prog.trees, side))?
+            append(mut m, t[:]...)?
+            append(mut m, []uint8(" into a variable first")...)?
+            push_note(mut notes, span_at(c.prog.trees, g.cond.node), own m)?
+            break
+        }
+    }
+    return mut c.dropped_notes(mut notes)
+}
+
+// compared_sides appends to out the operands of every comparison cond
+// holds, through && || and !, in source order, Go's comparedSides; a
+// case's condition, tag == value, compares its tag and its value. A
+// chain of operators is walked from a stack of its own.
+func (mut c Checker) compared_sides(cond Cond, mut out list[Key]) error {
+    if !is_no_key(cond.tag) {
+        append(mut out, cond.tag)?
+        append(mut out, cond.node)?
+        return noerror
+    }
+    mut stack := make(list[Key], c_allocator)
+    append(mut stack, cond.node)?
+    for len(stack) > 0 {
+        x, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        switch kind_at(c.prog.trees, x) {
+        case unary(u):
+            if u.op == ast.unary_not {
+                append(mut stack, sub(x, u.x))?
+            }
+        case binary(b):
+            if b.op == ast.op_and || b.op == ast.op_or {
+                append(mut stack, sub(x, b.y))?
+                append(mut stack, sub(x, b.x))?
+            } else if is_comparison_op(b.op) {
+                append(mut out, sub(x, b.x))?
+                append(mut out, sub(x, b.y))?
+            }
+        default:
+        }
+    }
+    return noerror
+}
+
+// mutable_field reports whether e is a field, of an integer or a bool,
+// of a mutable local variable or a mut parameter, through any fields and
+// elements, which never carries a fact, Go's mutableField.
+func (mut c Checker) mutable_field(e Key) (bool, error) {
+    switch kind_at(c.prog.trees, e) {
+    case selector:
+    default:
+        return false, noerror
+    }
+    typ := mut c.type_of(e)
+    if !types.is_integer(typ) && typ != types.bool_type {
+        return false, noerror
+    }
+    mut root := e
+    for {
+        switch kind_at(c.prog.trees, root) {
+        case selector(s):
+            root = sub(root, s.x)
+        case index(ix):
+            root = sub(root, ix.x)
+        case ident(nm):
+            if nm.def.kind == ast.def_var {
+                v := key_of_def(nm.def)
+                _, global := c.globals[v]
+                return var_of(c.prog.trees, v).mutable && !global, noerror
+            }
+            if nm.def.kind == ast.def_param {
+                return param_of(c.prog.trees, key_of_def(nm.def)).is_mut, noerror
+            }
+            return false, noerror
+        default:
+            return false, noerror
+        }
+    }
+    return false, noerror
+}
+
+// dropped_notes appends to notes, for each integer subject, in the order
+// its first fact was put in force, whose facts a write dropped and which
+// would have proven the place on their own had they held, the notes
+// drop_notes gives them, Go's droppedNotes. A stored value's facts, the
+// bounds of a loop it keeps, a value ruled out and a relation take part
+// in no note.
+func (mut c Checker) dropped_notes(mut notes list[diag.Related]) error {
+    mut order := make(list[FKey], c_allocator)
+    mut first := make(map[FKey]int64, c_allocator)
+    mut at := make(list[int64], c_allocator)
+    mut i int64 = 0
+    for i < len(c.fx.active) {
+        f := fact_in(c.fx.active[:], i)
+        pos := i
+        i +%= 1
+        if !c.fact_in_force(pos) || f.relational() || f.has_ne || f.guard < 0 || c.guard_silent(f.guard) || c.guard_kind(f.guard) == guard_invariant || !types.is_integer(c.key_type(f.about)) {
+            continue
+        }
+        d := mut c.drop_of(f)?
+        if d < 0 {
+            continue
+        }
+        _, seen := first[f.about]
+        if !seen {
+            put(mut first, f.about, len(order))?
+            append(mut order, f.about)?
+        }
+        append(mut at, pos)?
+    }
+    mut mine := make(list[int64], c_allocator)
+    for _, k := range order {
+        clear_ints(mut mine)
+        for _, p := range at {
+            if fact_in(c.fx.active[:], p).about == k {
+                append(mut mine, p)?
+            }
+        }
+        pw := mut c.proven_without(mine[:])?
+        if !pw {
+            continue
+        }
+        mut dropped := make(list[Fact], c_allocator)
+        mut parts := make(map[Cond]int64, c_allocator)
+        for _, p := range mine {
+            mut f := fact_in(c.fx.active[:], p)
+            f.drop = mut c.drop_of(f)?
+            f.guard = mut c.part_guard(f, mut parts)?
+            append(mut dropped, f)?
+        }
+        mut name := msg()
+        c.key_name(k, mut name)?
+        mut c.drop_notes_named(name[:], dropped[:], mut notes)?
+    }
+    return noerror
+}
+
+// clear_ints empties l.
+func clear_ints(mut l list[int64]) {
+    for len(l) > 0 {
+        pop(mut l)
+    }
+}
+
+// part_guard returns the guard a note on f names, Go's partGuard: f's
+// own, but for a fact from one part of a condition, x > 0 of x > 0 &&
+// bump(mut x), where the condition as a whole may prove nothing of the
+// kind, a guard for that part alone, made once for each part, which
+// parts holds.
+func (mut c Checker) part_guard(f Fact, mut parts map[Cond]int64) (int64, error) {
+    g := c.guard_at(f.guard)
+    if g.kind != guard_cond || g.cond.is_none() || f.src.is_none() || f.src == g.cond {
+        return f.guard, noerror
+    }
+    part, has := parts[f.src]
+    if has {
+        return part, noerror
+    }
+    nid := mut c.add_guard(Guard{cond: f.src, span: span_at(c.prog.trees, f.src.node), kind: guard_cond})?
+    put(mut parts, f.src, nid)?
+    return nid, noerror
+}
+
+// proven_without reports whether the place would be proven unreachable
+// were the facts at the positions at of active held, every write that
+// ends them aside, Go's provenWithout, putting the facts back as they
+// were.
+func (mut c Checker) proven_without(at []int64) (bool, error) {
+    mut copy := make(list[Fact], c_allocator)
+    append(mut copy, c.fx.active[:]...)?
+    for _, p := range at {
+        mut f := fact_in(copy[:], p)
+        f.drop = -1
+        f.ends = -1
+        set_at(mut copy, p, f)
+    }
+    saved := replace(mut c.fx.active, copy)
+    c.fx.edited +%= 1
+    r, e := mut c.unreachable_proven()
+    c.fx.edited -%= 1
+    mine := replace(mut c.fx.active, saved)
+    drop(own mine)
+    return r, e
+}

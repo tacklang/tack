@@ -1,0 +1,208 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import types from "tack/types"
+
+// The counting loops, Go's counting.go. A three-clause loop's body knows
+// what its condition says, as any loop's does; a counting loop
+//
+//     for mut i := c; cond; post { body }
+//
+// which declares i with a known value c, steps it in post by a known
+// amount, up by i++ or i += k, or down by i-- or i -= k, k a known
+// positive value, tells it one thing more: that i is at least c,
+// counting up, or at most c, counting down. That holds at every entry to
+// the body, i starting at c and only post changing it, when the step
+// from any value the condition allows on entry to the body cannot wrap
+// past the end of i's type; a loop whose step could gets the fact
+// dropped, with a note that says so (see wrap_drop). The fact holds in
+// the condition and the body, and any write to i there drops it, since
+// the start is not tried again.
+
+// How a loop counts, Go's counting: not at all, or it counts, or it
+// would but for a step that could wrap.
+var not_counting uint8 = 0
+var loop_counts uint8 = 1
+var count_wraps uint8 = 2
+
+// assume_counting puts in force for the body of the loop k, s, with the
+// facts cond its condition gives when true, the bound it counts from,
+// Go's assumeLoop past its condition's facts: for the condition and the
+// body, dropped by any write in them, and dropped by its step when that
+// could wrap.
+func (mut c Checker) assume_counting(k Key, s ast.For, cond []Fact) error {
+    f0, how := mut c.counting_fact(k, s, cond)?
+    if how == not_counting {
+        return noerror
+    }
+    mut f := f0
+    if how == count_wraps {
+        f.drop = mut c.wrap_drop(k, s, f)?
+    }
+    mut rgn := make(list[Key], c_allocator)
+    append(mut rgn, sub(k, s.cond))?
+    c.stmt_keys(k.unit, s.body, mut rgn)?
+    mut counted := make(list[Fact], c_allocator)
+    append(mut counted, f)?
+    mut c.drop_assigned(mut counted, 0, rgn[:])?
+    g := Guard{cond: no_cond(), span: span_at(c.prog.trees, sub(k, s.init)), kind: guard_count}
+    return mut c.assume(g, counted[:], rgn[:])
+}
+
+// counting_fact returns the fact the loop k, s gives its body about its
+// variable, the bound it counts from, given cond, the facts its
+// condition gives when true, and how the loop counts, Go's
+// countingFact. For a loop whose step could wrap, it returns the fact
+// the loop would give.
+func (mut c Checker) counting_fact(k Key, s ast.For, cond []Fact) (Fact, uint8, error) {
+    none := new_fact(zero_fkey())
+    if ast.is_none(s.init) || ast.is_none(s.post) {
+        return none, not_counting, noerror
+    }
+    init := sub(k, s.init)
+    mut mutable := false
+    mut value := no_key()
+    switch kind_at(c.prog.trees, init) {
+    case var_decl(v):
+        mutable = v.mutable
+        if !ast.is_none(v.value) {
+            value = sub(init, v.value)
+        }
+    default:
+        return none, not_counting, noerror
+    }
+    typ := decl_type_of(c.decl_types, init)
+    if !mutable || is_no_key(value) || !types.is_integer(typ) {
+        return none, not_counting, noerror
+    }
+    start, known := mut c.known_value(value)?
+    if !known {
+        return none, not_counting, noerror
+    }
+    step, ok := mut c.counter_step(sub(k, s.post), init)?
+    if !ok {
+        return none, not_counting, noerror
+    }
+    mut f := new_fact(decl_fkey(init))
+    if step.is_negative() {
+        f.hi = start
+        f.has_hi = true
+    } else {
+        f.lo = start
+        f.has_lo = true
+    }
+    if !step_stays_in_type(decl_fkey(init), typ, step, cond) {
+        return f, count_wraps, noerror
+    }
+    return f, loop_counts, noerror
+}
+
+// wrap_drop records why f, the fact the loop k, s would give its body,
+// does not hold: its post could step its variable past the end of its
+// type, Go's wrapDrop. For a target-width type the text names the 32-bit
+// target, the only one on which that end is types.portable_max.
+func (mut c Checker) wrap_drop(k Key, s ast.For, f Fact) (int64, error) {
+    init := sub(k, s.init)
+    typ := decl_type_of(c.decl_types, init)
+    lo, hi := step_bounds(typ)
+    mut past := hi
+    mut start := f.lo
+    mut side := "above"
+    if f.has_hi {
+        past = lo
+        start = f.hi
+        side = "below"
+    }
+    tstart := len(c.fx.drop_text)
+    if types.target_width(typ) {
+        append(mut c.fx.drop_text, []uint8("on a 32-bit target, ")...)?
+    }
+    append(mut c.fx.drop_text, []uint8("this step could take ")...)?
+    append(mut c.fx.drop_text, name_of(c.prog.trees, c.none, init)...)?
+    append(mut c.fx.drop_text, []uint8(" past ")...)?
+    past.append_string(mut c.fx.drop_text)?
+    append(mut c.fx.drop_text, []uint8(", so the loop does not keep ")...)?
+    append(mut c.fx.drop_text, name_of(c.prog.trees, c.none, init)...)?
+    append(mut c.fx.drop_text, []uint8(" at or ")...)?
+    append(mut c.fx.drop_text, []uint8(side)...)?
+    append(mut c.fx.drop_text, []uint8(" ")...)?
+    start.append_string(mut c.fx.drop_text)?
+    nid := len(c.fx.drops)
+    sp := span_at(c.prog.trees, sub(k, s.post))
+    append(mut c.fx.drops, Drop{decl: init, at: sp, text_start: tstart, text_len: len(c.fx.drop_text) -% tstart, kind: drop_wraps})?
+    return nid, noerror
+}
+
+// counter_step returns how much post changes the variable v by, when it
+// steps v by a known non-zero amount, Go's counterStep: 1 for v++, -1
+// for v--, k for v += k and -k for v -= k, with k a known positive
+// value.
+func (mut c Checker) counter_step(post Key, v Key) (constant.Int, bool, error) {
+    z := constant.from_int64(0)
+    switch kind_at(c.prog.trees, post) {
+    case inc_dec(p):
+        if !names_decl(c.prog.trees, sub(post, p.target), v) {
+            return z, false, noerror
+        }
+        if p.dec {
+            return constant.from_int64(-1), true, noerror
+        }
+        return constant.from_int64(1), true, noerror
+    case assign(a):
+        if !names_decl(c.prog.trees, sub(post, a.target), v) {
+            return z, false, noerror
+        }
+        if a.op != ast.op_add && a.op != ast.op_sub {
+            return z, false, noerror
+        }
+        k, known := mut c.known_value(sub(post, a.value))?
+        if !known || k.is_zero() || k.is_negative() {
+            return z, false, noerror
+        }
+        if a.op == ast.op_sub {
+            n, ok := k.negate()
+            return n, ok, noerror
+        }
+        return k, true, noerror
+    default:
+        return z, false, noerror
+    }
+}
+
+// names_decl reports whether e is a name of the declaration d, Go's
+// isVar.
+func names_decl(trees []ast.File, e Key, d Key) bool {
+    nm, ok := ident_at(trees, e)
+    return ok && nm.def.is_decl() && key_of_def(nm.def) == d
+}
+
+// step_stays_in_type reports whether stepping the variable v, of the
+// type typ, by step, from any value the condition's facts cond allow it
+// on entry to the body, stays within typ, Go's stepStaysInType:
+// counting up, the highest such value plus step is at most the type's
+// largest; counting down, the lowest plus step is at least its
+// smallest. A bound by len(s) keeps v below the largest int64, which no
+// length exceeds.
+func step_stays_in_type(v FKey, typ types.Type, step constant.Int, cond []Fact) bool {
+    type_lo, type_hi := step_bounds(typ)
+    mut known := Interval{lo: type_lo, hi: type_hi, has_lo: true, has_hi: true, nonzero: false}
+    mut below_len := new_fact(zero_fkey())
+    below_len.hi = constant.from_int64(9223372036854775806)
+    below_len.has_hi = true
+    for _, f := range cond {
+        if f.about != v {
+            continue
+        }
+        known = known.narrow(f)
+        if !f.len_of.is_zero() {
+            known = known.narrow(below_len)
+        }
+    }
+    if step.is_negative() {
+        after, ok := known.lo.add(step)
+        return ok && after.cmp(type_lo) >= 0
+    }
+    after, ok := known.hi.add(step)
+    return ok && after.cmp(type_hi) <= 0
+}

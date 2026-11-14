@@ -198,24 +198,22 @@ func (mut c Checker) chain_facts_of(cond Cond, holds bool, mut out list[Fact]) (
     return true, noerror
 }
 
-// take_chain appends to out the facts facts_from gives for cond when its
-// value is holds, Go's takeChain: the facts of the last && or || checked,
-// when cond is that binary, handed over and forgotten, rather than
-// copied.
-func (mut c Checker) take_chain(cond Key, holds bool, mut out list[Fact]) error {
+// take_chain returns the facts facts_from gives for cond when its value
+// is holds, Go's takeChain: the facts of the last && or || checked, when
+// cond is that binary, handed over and forgotten, rather than copied.
+func (mut c Checker) take_chain(cond Key, holds bool) (list[Fact], error) {
     nc := node_cond(cond)
     if !is_no_key(c.fx.chain_bin) && cond == c.fx.chain_bin {
         op, _, _, _ := c.cond_binary(nc)
         if (op == ast.op_and) == holds {
             facts := replace(mut c.fx.chain, make(list[Fact], c_allocator))
             c.fx.chain_bin = no_key()
-            for _, f := range facts {
-                append(mut out, f)?
-            }
-            return noerror
+            return facts, noerror
         }
     }
-    return mut c.facts_from(nc, holds, mut out)
+    mut out := make(list[Fact], c_allocator)
+    mut c.facts_from(nc, holds, mut out)?
+    return out, noerror
 }
 
 // join_chain records the facts of bin, a checked && or || binary, whose
@@ -511,12 +509,17 @@ func (mut c Checker) add_side(side []Fact) error {
 func (mut c Checker) drop_assigned(mut facts list[Fact], frm int64, rgn []Key) error {
     mut idx := new_write_index()
     mut built := false
+    drops := len(c.fx.drops)
+    text := len(c.fx.drop_text)
+    keeps := len(c.fx.keeps)
+    mut named := false
     mut i := frm
     for i < len(facts) {
         mut f := fact_in(facts[:], i)
         if f.either >= 0 {
             f.either = mut c.drop_sides(f.either, rgn)?
             set_fact(mut facts, i, f)
+            named = true
         } else if f.drop < 0 && (!f.is_empty() || f.out) {
             if !built {
                 fresh := mut c.index_writes(rgn)?
@@ -526,8 +529,25 @@ func (mut c Checker) drop_assigned(mut facts list[Fact], frm int64, rgn []Key) e
             }
             f.drop = c.first_write_drop(idx, f)
             set_fact(mut facts, i, f)
+            named = named || f.drop >= 0
         }
         i +%= 1
+    }
+    if !named {
+        // The walk's drops and keeps are named by no fact, and by nothing
+        // else once its index goes: give them back, as Go's collector
+        // frees them, so a nest of loops, each walking the loops inside
+        // it, keeps records growing with what is put in force, not with
+        // what is walked.
+        for len(c.fx.drops) > drops {
+            pop(mut c.fx.drops)
+        }
+        for len(c.fx.drop_text) > text {
+            pop(mut c.fx.drop_text)
+        }
+        for len(c.fx.keeps) > keeps {
+            pop(mut c.fx.keeps)
+        }
     }
     return noerror
 }

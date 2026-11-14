@@ -2,24 +2,58 @@ package typeck
 
 import ast from "tack/ast"
 import constant from "tack/constant"
+import diag from "tack/diag"
 import fmt from "std/fmt"
+import source from "tack/source"
 import types from "tack/types"
 
-// A function's contract, func f(d int64) ensures d != 0, is checked with
-// its signature, before any body, as Go's checkContract checks it: the
-// clause's shape, that it is a bool, and that each operand of its
-// top-level && gives a fact. Proving the facts at each return is a body's
-// work, which the port does not do yet.
+// A function's contract, Go's ensures.go: func f(d int64) ensures d != 0
+// states facts about its parameters that hold whenever it returns,
+// which the checker proves in its body and gives to its callers.
 //
-// Go asks factsFrom, the facts machinery, which facts an operand gives.
-// The port does not have it yet, so leaf_gives answers only for the
-// operands whose facts follow from their shape alone: a comparison of a
-// parameter, a field of a parameter that is not mut, an error's code or
-// the length of a string, a view or a list such a thing is, with a
-// constant or with another of them; has of such a map; and those that
-// give none because they name only parts of a mut parameter, compare
-// with != a value other than 0, or join with || operands about different
-// subjects. Any other operand is declined.
+// The clause is checked with the signature, before any body, as Go's
+// checkContract checks it: its shape, that it is a bool, and that each
+// operand of its top-level && gives a fact, the facts facts_from gives
+// for it being true, each about a parameter or a path below one, which
+// are recorded as the function's contract (see ClauseFact). In the
+// body, every path that returns must prove each of them (see
+// prove_contract): each return, each ?, and the end of the body when it
+// can be reached, with the facts in force there; code after a statement
+// that leaves never runs and proves anything, and a defer written
+// before a return whose code writes a variable a fact names fails the
+// proof. At a call, the facts are put in force after the statement the
+// call is, or is the whole value of, for the rest of the block, each
+// parameter replaced by the variable of the caller passed for it (see
+// call_contract_facts).
+//
+// The clause is type-checked as a body's expression is, where it ends,
+// with what the left side of each && says in force for its right side,
+// so its arithmetic is proven, or reported, as in a body (see
+// clause_type).
+
+// ClauseFact is one fact a contract gives, Go's clauseFact: the fact,
+// leaf, the operand of the clause's top-level && that gives it, base,
+// what the fact's subject's type, or a length's range, says of it
+// without any fact, and is_len, whether that subject is a string, view
+// or list, whose length the fact is about. A difference bound's record,
+// which the facts of a body keep only for that body, is kept here,
+// diff, with its conditions, cond_count of contract_conds from conds.
+type ClauseFact struct {
+    leaf Key
+    f Fact
+    base Interval
+    is_len bool
+    diff DiffBound
+    conds int64
+    cond_count int64
+}
+
+// CRun is a function's contract: the count ClauseFacts of contract_facts
+// from start.
+type CRun struct {
+    start int64
+    count int64
+}
 
 // check_contract checks the ensures clause of the function at d, Go's
 // checkContract: an extern func's is reported; any other's shape, then
@@ -41,11 +75,7 @@ func (mut c Checker) check_contract(d Key) error {
     before := len(c.diags)
     mut c.clause_shape(d, clause)?
     if len(c.diags) == before {
-        c.in_clause = true
-        c.clause_upper = make(map[Key]bool, c_allocator)
-        got := mut c.expr(clause)?
-        v := mut c.value_of(clause, got)?
-        c.in_clause = false
+        v := mut c.clause_type(d, clause)?
         if v != types.invalid && v != types.bool_type {
             n := mut c.type_name(v)?
             mut m := msg()
@@ -56,30 +86,59 @@ func (mut c Checker) check_contract(d Key) error {
     if len(c.diags) > before {
         return noerror
     }
-    mut leaves := make(list[Key], c_allocator)
-    mut x := clause
-    for {
+    // The operands of the top-level &&, in source order, Go's
+    // conjuncts: an && on either side is walked through, from a stack of
+    // its own.
+    mut stack := make(list[Key], c_allocator)
+    append(mut stack, clause)?
+    start := len(c.contract_facts)
+    for len(stack) > 0 {
+        x, ok := pop(mut stack)
+        if !ok {
+            break
+        }
         switch kind_at(c.prog.trees, x) {
         case binary(b):
             if b.op == ast.op_and {
-                append(mut leaves, sub(x, b.y))?
-                x = sub(x, b.x)
+                append(mut stack, sub(x, b.y))?
+                append(mut stack, sub(x, b.x))?
                 continue
             }
         default:
         }
-        append(mut leaves, x)?
-        break
+        mut c.leaf_facts(x)?
     }
-    mut i := len(leaves)
-    for i > 0 {
-        i -%= 1
-        leaf, ok := leaves[i]
-        if ok {
-            mut c.leaf_facts(d, leaf)?
-        }
+    if len(c.diags) == before {
+        put(mut c.contracts, d, CRun{start: start, count: len(c.contract_facts) -% start})?
     }
     return noerror
+}
+
+// clause_type checks clause, the ensures clause of the function at d, of
+// the right shape, as an expression, Go's checkClauseType, and returns
+// its type: as a body's, with what the left side of an && says in force
+// for its right side and the provers judging its arithmetic, where it
+// ends.
+func (mut c Checker) clause_type(d Key, clause Key) (types.Type, error) {
+    outer := replace(mut c.body, BodyState{fn: d, loops: 0, deferred: 0, defer_loops: 0, field_loop: 0, in_rejected_defer: false, clauses: make(list[ClauseAt], c_allocator)})
+    was := c.in_body
+    c.in_body = true
+    at := c.fx.at
+    c.fx.at = span_at(c.prog.trees, clause).end
+    v, e := mut c.clause_value(clause)
+    c.fx.at = at
+    c.in_body = was
+    mine := replace(mut c.body, outer)
+    drop(own mine)
+    return v, e
+}
+
+// clause_value checks clause as an expression and returns its value's
+// type, for clause_type.
+func (mut c Checker) clause_value(clause Key) (types.Type, error) {
+    got := mut c.expr(clause)?
+    v := mut c.value_of(clause, got)?
+    return v, noerror
 }
 
 // clause_shape reports each part of e, the clause of the function at d,
@@ -183,21 +242,39 @@ func (mut c Checker) clause_cannot_hold(e Key) error {
     return mut c.errorf(span_at(c.prog.trees, e), own m)
 }
 
-// The answers of leaf_gives.
-var gives_fact uint8 = 0
-var gives_none uint8 = 1
-var gives_unknown uint8 = 2
-
-// leaf_facts reports leaf, an operand of the clause's top-level && of the
-// function at d, when it gives no fact, Go's leafFacts: naming the part
-// of a mut parameter it is about, when it is, and the facts a clause can
-// state otherwise. One the port cannot tell about is declined.
-func (mut c Checker) leaf_facts(d Key, leaf Key) error {
-    g := mut c.leaf_gives(d, leaf)?
-    if g == gives_unknown {
-        return not_ported
+// leaf_facts records the facts leaf, an operand of an ensures clause's
+// top-level &&, gives when true, Go's leafFacts,
+// and reports a leaf that gives none: naming the part of a mut
+// parameter it is about, when it is, and the facts a clause can state
+// otherwise. A value ruled out, r != -1, is a fact no clause gives: only
+// a division's proof asks about one.
+func (mut c Checker) leaf_facts(leaf Key) error {
+    mut facts := make(list[Fact], c_allocator)
+    mut c.facts_from(node_cond(leaf), true, mut facts)?
+    n := len(c.contract_facts)
+    for _, f0 := range facts {
+        if !(!f0.is_empty() && !f0.has_ne || !f0.in_map.is_zero()) {
+            continue
+        }
+        mut f := f0
+        f.src = no_cond()
+        f.guard = -1
+        f.ends = -1
+        base, is_len := mut c.base_of(leaf, f.about)?
+        mut cf := ClauseFact{leaf: leaf, f: f, base: base, is_len: is_len, diff: c.diff_at(-1), conds: 0, cond_count: 0}
+        if f.diff >= 0 {
+            cf.diff = c.diff_at(f.diff)
+            cf.conds = len(c.contract_conds)
+            cf.cond_count = cf.diff.conds.count
+            mut j int64 = 0
+            for j < cf.diff.conds.count {
+                append(mut c.contract_conds, c.cond_at(cf.diff.conds, j))?
+                j +%= 1
+            }
+        }
+        append(mut c.contract_facts, cf)?
     }
-    if g == gives_fact {
+    if len(c.contract_facts) > n {
         return noerror
     }
     t := mut c.source_text(span_at(c.prog.trees, leaf))?
@@ -210,6 +287,39 @@ func (mut c Checker) leaf_facts(d Key, leaf Key) error {
         fmt.appendf(mut m, "%s gives no fact; an ensures clause states facts an if's condition proves, such as d != 0, 0 <= i && i < len(a), err.code == 0 or has(m, k)", t[:])?
     }
     return mut c.errorf(span_at(c.prog.trees, leaf), own m)
+}
+
+// base_of returns what is known of the subject k, named in leaf,
+// without any fact, Go's baseOf: the range of a length, of an error's
+// code, or of the subject's integer type, or nothing for any other, and
+// whether k is a length. The first node of leaf, in Go's walk order,
+// whose subject is k decides.
+func (mut c Checker) base_of(leaf Key, k FKey) (Interval, bool, error) {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, leaf.node)?
+    for len(stack) > 0 {
+        n, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        e := sub(leaf, n)
+        got, is := mut c.subject(e)?
+        if !is || got != k {
+            push_children(c.prog.trees, e, mut stack)?
+            continue
+        }
+        _, is_len := mut c.string_var(e)?
+        _, is_len_call := mut c.string_len(e)?
+        _, is_code := mut c.error_code_key(e)?
+        if is_len || is_len_call {
+            return length_range(), true, noerror
+        }
+        if is_code {
+            return code_interval(), false, noerror
+        }
+        return type_interval(mut c.type_of(e)), false, noerror
+    }
+    return no_interval(), false, noerror
 }
 
 // mut_root returns the mut parameter e, a field or an element, is part
@@ -259,214 +369,727 @@ func (mut c Checker) mut_part(leaf Key) (Key, Key, bool, error) {
     return no_key(), no_key(), false, noerror
 }
 
-// The kinds of operand term_of finds.
-var term_const uint8 = 0
-var term_subject uint8 = 1
-var term_offset uint8 = 2
-var term_mut uint8 = 3
-var term_other uint8 = 4
-
-// term_of says what e, a side of a comparison in a clause, is as far as
-// its facts go: a known integer; a subject, one of the function's
-// parameters, a field of one that is not mut, an error parameter's code
-// or the length of a string, a view or a list subject, of a signed
-// integer type or a length; a subject plus or minus a known value; a
-// part of a mut parameter, which carries no facts; or anything else. A
-// subject of an unsigned type is anything else, whose facts the port
-// does not work out.
-func (mut c Checker) term_of(e Key) (uint8, error) {
-    _, known := mut c.known_value(e)?
-    if known {
-        return term_const, noerror
-    }
-    switch kind_at(c.prog.trees, e) {
-    case binary(b):
-        if b.op == ast.op_add || b.op == ast.op_sub {
-            x := mut c.term_of(sub(e, b.x))?
-            _, ky := mut c.known_value(sub(e, b.y))?
-            if x == term_subject && ky {
-                return term_offset, noerror
-            }
-        }
-        return term_other, noerror
-    case call(cl):
-        if is_len_call(c.prog.trees, c.none, e) && count_items(c.prog.trees, e.unit, cl.args) == 1 {
-            arg := item_at(c.prog.trees, e.unit, cl.args, 0)
-            at := mut c.type_of(arg)
-            if at != types.string_type && !c.table.is_view(at) && !c.table.is_list(at) {
-                return term_other, noerror
-            }
-            s := mut c.path_kind(arg)?
-            return s, noerror
-        }
-        return term_other, noerror
-    default:
-    }
-    typ := mut c.type_of(e)
-    if !types.is_integer(typ) || types.is_unsigned(typ) {
-        p := mut c.path_kind(e)?
-        if p == term_mut {
-            return term_mut, noerror
-        }
-        return term_other, noerror
-    }
-    s := mut c.path_kind(e)?
-    return s, noerror
+// DRun is the defers of a function's body: the count keys of defer_list
+// from start.
+type DRun struct {
+    start int64
+    count int64
 }
 
-// path_kind says whether e is a subject, a parameter or a path of fields
-// below a parameter that is not mut, or an error parameter's code; a
-// part of a mut parameter; or anything else.
-func (mut c Checker) path_kind(e Key) (uint8, error) {
-    _, under_mut := mut c.mut_root(e)
-    if under_mut {
-        return term_mut, noerror
-    }
-    switch kind_at(c.prog.trees, e) {
-    case ident(nm):
-        if nm.def.kind == ast.def_param {
-            return term_subject, noerror
-        }
-        return term_other, noerror
-    case selector(s):
-        if !ast.is_none(s.field) {
-            return term_other, noerror
-        }
-        mut x := sub(e, s.x)
-        for {
-            switch kind_at(c.prog.trees, x) {
-            case selector(t):
-                if !ast.is_none(t.field) {
-                    return term_other, noerror
-                }
-                x = sub(x, t.x)
-            case ident(nm):
-                if nm.def.kind == ast.def_param {
-                    return term_subject, noerror
-                }
-                return term_other, noerror
-            default:
-                return term_other, noerror
-            }
-        }
-    default:
-        return term_other, noerror
-    }
+// ContractArg is what a call passes for one parameter, as a contract's
+// facts are carried over, Go's contractArg: the caller's variable decl,
+// and the argument naming it, arg.
+type ContractArg struct {
+    decl Key
+    arg Key
 }
 
-// leaf_gives says whether leaf, an operand of the clause's top-level &&,
-// gives a fact, gives none, or is one the port cannot tell about (see
-// the top of the file).
-func (mut c Checker) leaf_gives(d Key, leaf Key) (uint8, error) {
-    switch kind_at(c.prog.trees, leaf) {
-    case call(cl):
-        nm, _ := ident_at(c.prog.trees, sub(leaf, cl.fn))
-        if !bytes_equal(text_at(c.prog.trees, c.none, leaf.unit, nm.name), []uint8("has")) || count_items(c.prog.trees, leaf.unit, cl.args) != 2 {
-            return gives_unknown, noerror
-        }
-        m := mut c.path_kind(item_at(c.prog.trees, leaf.unit, cl.args, 0))?
-        k := mut c.path_kind(item_at(c.prog.trees, leaf.unit, cl.args, 1))?
-        _, kc := mut c.known_value(item_at(c.prog.trees, leaf.unit, cl.args, 1))?
-        if m == term_subject && (k == term_subject || kc) {
-            return gives_fact, noerror
-        }
-        if m == term_mut {
-            return gives_none, noerror
-        }
-        return gives_unknown, noerror
-    case binary(b):
-        if b.op == ast.op_or {
-            l := mut c.leaf_gives(d, sub(leaf, b.x))?
-            r := mut c.leaf_gives(d, sub(leaf, b.y))?
-            lk, lok := mut c.single_subject(sub(leaf, b.x))?
-            rk, rok := mut c.single_subject(sub(leaf, b.y))?
-            if l == gives_fact && r == gives_fact && lok && rok && lk != rk {
-                return gives_none, noerror
-            }
-            return gives_unknown, noerror
-        }
-        if !is_comparison_op(b.op) {
-            return gives_unknown, noerror
-        }
-        x := mut c.term_of(sub(leaf, b.x))?
-        y := mut c.term_of(sub(leaf, b.y))?
-        if x == term_const && y == term_const {
-            return gives_unknown, noerror
-        }
-        if x == term_mut && (y == term_const || y == term_mut) || y == term_mut && x == term_const {
-            return gives_none, noerror
-        }
-        if x == term_subject && y == term_const || y == term_subject && x == term_const {
-            mut kside := sub(leaf, b.y)
-            if y == term_subject {
-                kside = sub(leaf, b.x)
-            }
-            v, _ := mut c.known_value(kside)?
-            if b.op == ast.op_ne {
-                if v.is_zero() {
-                    return gives_fact, noerror
-                }
-                return gives_none, noerror
-            }
-            _, up := v.add(constant.from_int64(1))
-            _, down := v.sub(constant.from_int64(1))
-            if !up || !down {
-                return gives_unknown, noerror
-            }
-            return gives_fact, noerror
-        }
-        if (x == term_subject || x == term_offset) && (y == term_subject || y == term_offset) && b.op != ast.op_eq && b.op != ast.op_ne {
-            return gives_fact, noerror
-        }
-        return gives_unknown, noerror
-    default:
-        return gives_unknown, noerror
+// clause_fact returns the fact of the clause fact cf, its difference
+// bound, if any, recorded again among the facts of the body being
+// checked, which name it by position.
+func (mut c Checker) clause_fact(cf ClauseFact) (Fact, error) {
+    mut f := cf.f
+    if f.diff < 0 {
+        return f, noerror
     }
+    mut d := cf.diff
+    d.conds = no_conds()
+    mut j int64 = 0
+    for j < cf.cond_count {
+        w, ok := c.contract_conds[cf.conds +% j]
+        j +%= 1
+        if ok {
+            d.conds = mut c.conds_push(d.conds, w)?
+        }
+    }
+    f.diff = len(c.fx.diffs)
+    append(mut c.fx.diffs, d)?
+    return f, noerror
 }
 
-// single_subject returns the one subject e, a comparison of a subject
-// with a known value, is about, and whether it is one.
-func (mut c Checker) single_subject(e Key) (Key, bool, error) {
-    switch kind_at(c.prog.trees, e) {
-    case binary(b):
-        if !is_comparison_op(b.op) {
-            return no_key(), false, noerror
+// prove_contract reports each fact the contract of the function fnk
+// gives that the facts in force do not prove where it returns, Go's
+// proveContractWhere: at the return ret, whose keyword is sp, at the end
+// of its body, its closing brace, or at a ?, for no ret, where naming
+// which. Only one error is reported for each operand of the clause's
+// &&. Code that never runs, after a statement that leaves, and deferred
+// code are not asked about.
+func (mut c Checker) prove_contract(fnk Key, sp source.Span, ret Key, where string) error {
+    run, has := c.contracts[fnk]
+    if !has || c.dead > 0 || c.body.deferred > 0 {
+        return noerror
+    }
+    m := c.mark()
+    mut e := mut c.assume_return_call(ret)
+    mut reported := make(list[Key], c_allocator)
+    mut i int64 = 0
+    for e.code == 0 && i < run.count {
+        cf, ok := c.contract_facts[run.start +% i]
+        i +%= 1
+        if !ok {
+            continue
         }
-        x := mut c.term_of(sub(e, b.x))?
-        y := mut c.term_of(sub(e, b.y))?
-        mut s := sub(e, b.x)
-        if x == term_const && y == term_subject {
-            s = sub(e, b.y)
-        } else if !(x == term_subject && y == term_const) {
-            return no_key(), false, noerror
+        mut was := false
+        for _, r := range reported {
+            was = was || r == cf.leaf
         }
-        switch kind_at(c.prog.trees, s) {
-        case ident(nm):
-            return key_of_def(nm.def), true, noerror
+        if was {
+            continue
+        }
+        mut notes := make(list[diag.Related], c_allocator)
+        held, e2 := mut c.contract_holds(fnk, cf, sp, mut notes)
+        if e2.code != 0 {
+            e = e2
+            break
+        }
+        if held {
+            continue
+        }
+        append(mut reported, cf.leaf)?
+        lsp := span_at(c.prog.trees, cf.leaf)
+        mut ensured := msg()
+        append(mut ensured, []uint8("ensured here")...)?
+        push_note(mut notes, lsp, own ensured)?
+        mut text := msg()
+        mut c.display_name(fnk, mut text)?
+        append(mut text, []uint8(" ensures ")...)?
+        t := mut c.source_text(lsp)?
+        append(mut text, t[:]...)?
+        append(mut text, []uint8(", which may not hold ")...)?
+        append(mut text, []uint8(where)...)?
+        e = mut c.error_notes(sp, own text, own notes)
+    }
+    r := mut c.release(m)
+    if e.code != 0 {
+        return e
+    }
+    return r
+}
+
+// prove_return_contract proves the contract of the function being
+// checked at the return k, once every value is computed, so that a write
+// that takes effect at the return's end, return f(mut d), counts, Go's
+// end of checkReturn.
+func (mut c Checker) prove_return_contract(k Key) error {
+    mut kw := span_at(c.prog.trees, k)
+    kw.end = kw.start +% 6
+    outer := c.fx.at
+    c.fx.at = span_at(c.prog.trees, k).end +% 1
+    e := mut c.prove_contract(c.body.fn, kw, k, "at this return")
+    c.fx.at = outer
+    return e
+}
+
+// prove_end_contract proves the contract of the function d, whose body
+// was just checked, at the end of its body, its closing brace, Go's
+// checkBody's proveContract.
+func (mut c Checker) prove_end_contract(d Key) error {
+    mut end := span_at(c.prog.trees, d)
+    end.start = end.end -% 1
+    outer := c.fx.at
+    c.fx.at = end.end
+    e := mut c.prove_contract(d, end, no_key(), "at the end of its body")
+    c.fx.at = outer
+    return e
+}
+
+// prove_question_contract proves the contract of the function holding
+// the ? k at it, which returns when its call's error is set, Go's
+// proveQuestionContract: the call is done by then, so a write it makes
+// through a mut argument counts.
+func (mut c Checker) prove_question_contract(k Key) error {
+    outer := c.fx.at
+    c.fx.at = span_at(c.prog.trees, k).end +% 1
+    e := mut c.prove_contract(c.body.fn, mut c.question_mark(k), no_key(), "at this ?")
+    c.fx.at = outer
+    return e
+}
+
+// assume_return_call puts in force the facts the one value of the
+// return ret gives, when it is a call to a function with a contract,
+// return fix(mut d), Go's assumeReturnCall: they hold once the call is
+// done, and nothing runs between it and the return but the defers,
+// whose writes prove_contract judges.
+func (mut c Checker) assume_return_call(ret Key) error {
+    if is_no_key(ret) {
+        return noerror
+    }
+    mut values := empty_nodes()
+    switch kind_at(c.prog.trees, ret) {
+    case return_stmt(s):
+        values = s.values
+    default:
+        return noerror
+    }
+    if count_items(c.prog.trees, ret.unit, values) != 1 {
+        return noerror
+    }
+    v := item_at(c.prog.trees, ret.unit, values, 0)
+    switch kind_at(c.prog.trees, v) {
+    case call:
+    default:
+        return noerror
+    }
+    mut facts := make(list[Fact], c_allocator)
+    none := make(list[Key], c_allocator)
+    g, has := mut c.call_contract_facts(v, none[:], mut facts)?
+    if !has {
+        return noerror
+    }
+    return mut c.assume(g, facts[:], none[:])
+}
+
+// contract_holds reports whether cf holds where the function fnk returns
+// at sp, Go's contractHolds, appending to notes the note on the deferred
+// code that ends it when that is why it does not.
+func (mut c Checker) contract_holds(fnk Key, cf ClauseFact, sp source.Span, mut notes list[diag.Related]) (bool, error) {
+    f := mut c.clause_fact(cf)?
+    d := mut c.defer_write(fnk, f, sp)?
+    if d >= 0 {
+        mut c.defer_note(d, fnk, mut notes)?
+        return false, noerror
+    }
+    r := mut c.contract_proves(cf, f)?
+    return r, noerror
+}
+
+// defer_write returns the first write to a variable f names in deferred
+// code of the function fnk written before sp, which runs after a return
+// at sp, or -1 when there is none, Go's deferWrite.
+func (mut c Checker) defer_write(fnk Key, f Fact, sp source.Span) (int64, error) {
+    run := mut c.defers_of(fnk)?
+    mut i int64 = 0
+    for i < run.count {
+        d := key_in(c.defer_list[:], run.start +% i)
+        i +%= 1
+        if span_at(c.prog.trees, d).end > sp.start {
+            continue
+        }
+        mut nodes := make(list[Key], c_allocator)
+        switch kind_at(c.prog.trees, d) {
+        case defer_stmt(ds):
+            c.stmt_keys(d.unit, ds.body, mut nodes)?
         default:
-            return no_key(), false, noerror
         }
+        idx := mut c.index_writes(nodes[:])?
+        why := c.first_write_drop(idx, f)
+        if why >= 0 {
+            return why, noerror
+        }
+    }
+    return -1, noerror
+}
+
+// defers_of returns every defer in the body of the function fnk, at any
+// depth, in Go's walk order, found once and kept, Go's defersOf.
+func (mut c Checker) defers_of(fnk Key) (DRun, error) {
+    run, has := c.defers[fnk]
+    if has {
+        return run, noerror
+    }
+    start := len(c.defer_list)
+    fn := func_of(c.prog.trees, fnk)
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut i := count_items(c.prog.trees, fnk.unit, fn.body)
+    for i > 0 {
+        i -%= 1
+        append(mut stack, item_at(c.prog.trees, fnk.unit, fn.body, i).node)?
+    }
+    for len(stack) > 0 {
+        n, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        k := Key{unit: fnk.unit, node: n}
+        switch kind_at(c.prog.trees, k) {
+        case defer_stmt:
+            append(mut c.defer_list, k)?
+        default:
+        }
+        push_children(c.prog.trees, k, mut stack)?
+    }
+    nrun := DRun{start: start, count: len(c.defer_list) -% start}
+    put(mut c.defers, fnk, nrun)?
+    return nrun, noerror
+}
+
+// defer_note appends to notes the note on the drop d, a write in
+// deferred code, that ends a fact the function fnk ensures, since the
+// code runs after it returns, Go's drop.deferNote.
+func (mut c Checker) defer_note(d int64, fnk Key, mut notes list[diag.Related]) error {
+    dr := c.drop_at(d)
+    mut m := msg()
+    append(mut m, []uint8("but ")...)?
+    append(mut m, name_of(c.prog.trees, c.none, dr.decl)...)?
+    if dr.kind == drop_mut {
+        append(mut m, []uint8(" is passed as mut to ")...)?
+        mut i int64 = 0
+        for i < dr.text_len {
+            append(mut m, byte_at(c.fx.drop_text[:], dr.text_start +% i))?
+            i +%= 1
+        }
+        append(mut m, []uint8(" here, in deferred code, which runs after ")...)?
+    } else {
+        append(mut m, []uint8(" is assigned here, in deferred code, which runs after ")...)?
+    }
+    mut c.display_name(fnk, mut m)?
+    append(mut m, []uint8(" returns")...)?
+    return push_note(mut notes, dr.at, own m)
+}
+
+// contract_proves reports whether the facts in force prove f, the fact of the
+// clause fact cf, Go's proves: a key in a map by a fact that says so, a
+// relation by the relations in force, or a bound by what is known of its
+// subject, or else by the relations.
+func (mut c Checker) contract_proves(cf ClauseFact, f Fact) (bool, error) {
+    about := lin_term(f.about, constant.from_int64(0), false)
+    minus_one := constant.from_int64(-1)
+    if !f.in_map.is_zero() {
+        r := mut c.proves_member(f)?
+        return r, noerror
+    }
+    if !f.len_of.is_zero() {
+        r := mut c.relates(about, lin_term(f.len_of, constant.from_int64(0), true), minus_one)?
+        return r, noerror
+    }
+    if !f.at_most_len.is_zero() {
+        r := mut c.relates(about, lin_term(f.at_most_len, constant.from_int64(0), true), constant.from_int64(0))?
+        return r, noerror
+    }
+    if !f.at_most.is_zero() {
+        mut w := constant.from_int64(0)
+        if f.strict {
+            w = minus_one
+        }
+        r := mut c.relates(about, lin_term(f.at_most, constant.from_int64(0), false), w)?
+        return r, noerror
+    }
+    if f.diff >= 0 {
+        r := mut c.proves_diff(c.diff_at(f.diff))?
+        return r, noerror
+    }
+    r := mut c.proves_bounds(cf, f)?
+    return r, noerror
+}
+
+// proves_diff reports whether the facts in force prove the difference
+// bound d, Go's provesDiff: the relations in force do, or a fact in force
+// is the same bound, or a tighter one, holding under no more conditions,
+// as the clause's own comparison tested in an early exit gives.
+func (mut c Checker) proves_diff(d DiffBound) (bool, error) {
+    x := lin_term(d.x, constant.from_int64(0), d.x_len)
+    y := lin_term(d.y, constant.from_int64(0), d.y_len)
+    r := mut c.relates(x, y, d.w)?
+    if r {
+        return true, noerror
+    }
+    mut i int64 = 0
+    for i < len(c.fx.active) {
+        g := fact_in(c.fx.active[:], i)
+        in_force := c.fact_in_force(i)
+        i +%= 1
+        if !in_force || g.diff < 0 {
+            continue
+        }
+        o := c.diff_at(g.diff)
+        if o.x != d.x || o.y != d.y || o.x_len != d.x_len || o.y_len != d.y_len || o.w.cmp(d.w) > 0 || !c.every_cond(o.conds, d.conds) {
+            continue
+        }
+        h := mut c.holds(g)?
+        if h {
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// every_cond reports whether each of conds is one of within, Go's
+// everyCond.
+func (c Checker) every_cond(conds Conds, within Conds) bool {
+    mut i int64 = 0
+    for i < conds.count {
+        a := c.cond_at(conds, i)
+        i +%= 1
+        mut found := false
+        mut j int64 = 0
+        for j < within.count && !found {
+            found = same_cond(a, c.cond_at(within, j))
+            j +%= 1
+        }
+        if !found {
+            return false
+        }
+    }
+    return true
+}
+
+// same_cond reports whether a and b are the same condition, Go's
+// sameCond.
+func same_cond(a NoWrap, b NoWrap) bool {
+    return a.of == b.of && a.is_len == b.is_len && a.has_lo == b.has_lo && a.has_hi == b.has_hi && (!a.has_lo || a.lo.cmp(b.lo) == 0) && (!a.has_hi || a.hi.cmp(b.hi) == 0)
+}
+
+// proves_bounds reports whether the facts in force keep the subject of f,
+// the fact of cf, of which cf.base is known without any, within the
+// bounds f puts on it, and away from zero when it does, Go's
+// provesBounds.
+func (mut c Checker) proves_bounds(cf ClauseFact, f Fact) (bool, error) {
+    known := mut c.known_of(cf, f)?
+    about := lin_term(f.about, constant.from_int64(0), cf.is_len)
+    if f.nonzero && !known.excludes_zero() {
+        return false, noerror
+    }
+    if f.has_lo {
+        lo := mut c.at_least_by(known, about, f.lo)?
+        if !lo {
+            return false, noerror
+        }
+    }
+    if f.has_hi {
+        hi := mut c.at_most_of(known, about, f.hi)?
+        if !hi {
+            return false, noerror
+        }
+    }
+    return true, noerror
+}
+
+// proves_member reports whether a fact in force says what f, a key's
+// being in a map, does: the same key in the same map, Go's provesMember.
+func (mut c Checker) proves_member(f Fact) (bool, error) {
+    mut facts := make(list[Fact], c_allocator)
+    mut c.held_facts_about(f.about, mut facts)?
+    for _, g := range facts {
+        if g.in_map == f.in_map && g.known == f.known {
+            h := mut c.holds(g)?
+            if h {
+                return true, noerror
+            }
+        }
+    }
+    return false, noerror
+}
+
+// known_of returns what the facts in force say of the subject of f, the
+// fact of cf, starting from what cf.base knows of it, and, for a length,
+// what a successful append proves, with a bound at zero moved past it
+// where zero is ruled out, Go's knownOf.
+func (mut c Checker) known_of(cf ClauseFact, f Fact) (Interval, error) {
+    mut known := cf.base
+    mut facts := make(list[Fact], c_allocator)
+    mut c.held_facts_about(f.about, mut facts)?
+    for _, g := range facts {
+        if !g.in_map.is_zero() {
+            continue
+        }
+        h := mut c.holds(g)?
+        if h {
+            known = known.narrow(g)
+        }
+    }
+    if cf.is_len {
+        known = mut c.appended_len(f.about, known)?
+    }
+    return known.tightened(), noerror
+}
+
+// contract_call returns the call stmt is, or is the whole value of, a
+// declaration or an assignment, of one value or several, appending to
+// targets every target the statement assigns once the call is done, or
+// no key, Go's contractCall.
+func (mut c Checker) contract_call(stmt Key, mut targets list[Key]) (Key, error) {
+    mut value := no_key()
+    switch kind_at(c.prog.trees, stmt) {
+    case expr_stmt(s):
+        value = sub(stmt, s.x)
+    case var_decl(v):
+        if !ast.is_none(v.value) {
+            value = sub(stmt, v.value)
+        }
+    case multi_var(m):
+        value = sub(stmt, m.value)
+    case assign(a):
+        value = sub(stmt, a.value)
+        append(mut targets, sub(stmt, a.target))?
+    case multi_assign(m):
+        value = sub(stmt, m.value)
+        c.stmt_keys(stmt.unit, m.targets, mut targets)?
     default:
+        return no_key(), noerror
+    }
+    switch kind_at(c.prog.trees, value) {
+    case call:
+        return value, noerror
+    default:
+        return no_key(), noerror
+    }
+}
+
+// stmt_contract_facts appends to facts what the call stmt is, or is the whole
+// value of, gives the statements after it in its block by its callee's
+// contract, and returns the guard they come from, Go's contractFacts.
+func (mut c Checker) stmt_contract_facts(stmt Key, mut facts list[Fact]) (Guard, bool, error) {
+    mut targets := make(list[Key], c_allocator)
+    call := mut c.contract_call(stmt, mut targets)?
+    if is_no_key(call) {
+        return no_guard(), false, noerror
+    }
+    g, has, e := mut c.call_contract_facts(call, targets[:], mut facts)
+    return g, has, e
+}
+
+// call_contract_facts appends to facts what call gives by its callee's
+// contract once it is done, and returns the guard they come from, or
+// false when it gives none, Go's callContractFacts: targets are what
+// the statement holding the call assigns after it, whose variables carry
+// nothing.
+func (mut c Checker) call_contract_facts(call Key, targets []Key, mut facts list[Fact]) (Guard, bool, error) {
+    fnk := mut c.callee_of(call)
+    if is_no_key(fnk) {
+        return no_guard(), false, noerror
+    }
+    run, has := c.contracts[fnk]
+    if !has {
+        return no_guard(), false, noerror
+    }
+    mut ops := make(list[Key], c_allocator)
+    mut c.call_operands(call, mut ops)?
+    fn := func_of(c.prog.trees, fnk)
+    if len(ops) != count_items(c.prog.trees, fnk.unit, fn.params) {
+        return no_guard(), false, noerror
+    }
+    args := mut c.contract_args(fnk, call, ops[:], targets)?
+    before := len(facts)
+    mut i int64 = 0
+    for i < run.count {
+        cf, ok := c.contract_facts[run.start +% i]
+        i +%= 1
+        if !ok {
+            continue
+        }
+        f := mut c.clause_fact(cf)?
+        out, carried := mut c.carry_contract_fact(f, args)?
+        if carried {
+            append(mut facts, out)?
+        }
+    }
+    if len(facts) == before {
+        return no_guard(), false, noerror
+    }
+    return Guard{cond: no_cond(), span: span_at(c.prog.trees, call), kind: guard_ensures}, true, noerror
+}
+
+// contract_args returns, for each parameter of the function fnk, what
+// call, whose operands are ops, passes for it, Go's contractArgs: a
+// local variable or a parameter of the caller by name, passed as mut, or
+// as a plain argument nothing else in the call writes, that the
+// statement holding the call does not assign once it is done, in
+// targets, nor write anywhere in them.
+func (mut c Checker) contract_args(fnk Key, call Key, ops []Key, targets []Key) (map[Key]ContractArg, error) {
+    mut assigned := make(map[Key]bool, c_allocator)
+    for _, t := range targets {
+        d := mut c.written_decl(t)?
+        if !is_no_key(d) {
+            put(mut assigned, d, true)?
+        }
+    }
+    mut args := make(map[Key]ContractArg, c_allocator)
+    fn := func_of(c.prog.trees, fnk)
+    for i, op := range ops {
+        p := item_at(c.prog.trees, fnk.unit, fn.params, i)
+        name, ok := mut c.carrier(p, op, call)?
+        if !ok {
+            continue
+        }
+        nm, _ := ident_at(c.prog.trees, name)
+        decl := key_of_def(nm.def)
+        _, was := assigned[decl]
+        if was {
+            continue
+        }
+        w := mut c.written_in(targets, decl)?
+        if !w {
+            put(mut args, p, ContractArg{decl: decl, arg: name})?
+        }
+    }
+    return args, noerror
+}
+
+// carrier returns the name arg, an argument of call passed for the
+// parameter p, is when facts about p can be about it, Go's carrier: a
+// local variable or a parameter of the caller by name, passed as mut, or
+// as a plain argument nothing else in the call writes; a view parameter
+// passed an array carries nothing, nor does a variadic one.
+func (mut c Checker) carrier(p Key, arg Key, call Key) (Key, bool, error) {
+    mut x := arg
+    mut is_mut := false
+    switch kind_at(c.prog.trees, arg) {
+    case mut_arg(inner):
+        x = sub(arg, inner)
+        is_mut = true
+    default:
+    }
+    nm, is_id := ident_at(c.prog.trees, x)
+    if !is_id || !nm.def.is_decl() || param_of(c.prog.trees, p).variadic {
         return no_key(), false, noerror
     }
+    decl := key_of_def(nm.def)
+    if !c.caller_var(decl) {
+        return no_key(), false, noerror
+    }
+    xt := mut c.type_of(x)
+    if c.table.is_view(decl_type_of(c.decl_types, p)) && c.table.is_array(xt) {
+        return no_key(), false, noerror
+    }
+    if is_mut {
+        return x, true, noerror
+    }
+    // The call itself is walked, so that its own mut arguments count:
+    // f(mut i, i) changes i after the callee was given its value.
+    mut nodes := make(list[Key], c_allocator)
+    append(mut nodes, call)?
+    w := mut c.written_in(nodes[:], decl)?
+    return x, !w, noerror
 }
 
-// clause_bound records, while a clause is checked, an operand of its
-// top-level && in force for the operands after it of the shape x <
-// len(s), x a parameter, whose x then has room for 1 more: Go's facts in
-// force where the right side of an && is checked, as far as the port
-// keeps them.
-func (mut c Checker) clause_bound(e Key) error {
-    switch kind_at(c.prog.trees, e) {
-    case binary(b):
-        if b.op != ast.op_lt || !is_len_call(c.prog.trees, c.none, sub(e, b.y)) {
-            return noerror
-        }
-        nm, is_id := ident_at(c.prog.trees, sub(e, b.x))
-        if is_id && nm.def.kind == ast.def_param && mut c.type_of(sub(e, b.x)) == types.int64_type {
-            put(mut c.clause_upper, key_of_def(nm.def), true)?
-        }
+// caller_var reports whether decl is a local variable or a parameter, of
+// the function being checked, Go's callerVar.
+func (c Checker) caller_var(decl Key) bool {
+    switch kind_at(c.prog.trees, decl) {
+    case param_decl:
+        return true
+    case var_decl:
+        _, global := c.globals[decl]
+        return !global
     default:
+        return false
     }
-    return noerror
+}
+
+// written_in reports whether anything in nodes writes decl, as
+// each_write finds writes, a call passing it as mut included, Go's
+// writtenIn.
+func (mut c Checker) written_in(nodes []Key, decl Key) (bool, error) {
+    mut found := make(list[EachWrite], c_allocator)
+    mut loops := make(list[source.Span], c_allocator)
+    mut c.each_write(nodes, decl, mut found, mut loops)?
+    return len(found) > 0, noerror
+}
+
+// carry_contract_fact returns f, a fact about a callee's parameters,
+// with each replaced by the caller's variable args holds for it, and
+// whether every one it names has one that can carry it, Go's carryFact
+// (see carriable); a key in a map is known as member_of knows the
+// argument.
+func (mut c Checker) carry_contract_fact(f Fact, args map[Key]ContractArg) (Fact, bool, error) {
+    mut ok := true
+    mut out := f
+    if f.in_map.is_zero() {
+        out.about, ok = mut c.carry_key_of(f.about, args, ok)?
+    } else {
+        k := f.about
+        if !k.is_zero() {
+            if k.path != 0 {
+                out.about, ok = mut c.carry_key_of(k, args, ok)?
+                ok = ok && mut c.immutable_decl(out.about.decl)
+            } else {
+                a, found := args[k.decl]
+                if !found {
+                    return f, false, noerror
+                }
+                about, known, member := mut c.member_of(a.arg)?
+                out.about = about
+                out.known = known
+                if !member {
+                    return f, false, noerror
+                }
+            }
+        }
+    }
+    out.len_of, ok = mut c.carry_key_of(f.len_of, args, ok)?
+    out.at_most_len, ok = mut c.carry_key_of(f.at_most_len, args, ok)?
+    out.at_most, ok = mut c.carry_key_of(f.at_most, args, ok)?
+    out.in_map, ok = mut c.carry_key_of(f.in_map, args, ok)?
+    if f.diff >= 0 {
+        mut d := c.diff_at(f.diff)
+        d.x, ok = mut c.carry_key_of(d.x, args, ok)?
+        d.y, ok = mut c.carry_key_of(d.y, args, ok)?
+        mut conds := no_conds()
+        mut j int64 = 0
+        for j < d.conds.count {
+            mut w := c.cond_at(d.conds, j)
+            j +%= 1
+            w.of, ok = mut c.carry_key_of(w.of, args, ok)?
+            conds = mut c.conds_push(conds, w)?
+        }
+        d.conds = conds
+        out.diff = len(c.fx.diffs)
+        append(mut c.fx.diffs, d)?
+    }
+    out.ends = -1
+    out.drop = -1
+    out.guard = -1
+    out.src = no_cond()
+    return out, ok, noerror
+}
+
+// carry_key_of returns k, a subject below a callee's parameter, carried
+// to the caller's variable args holds for that parameter, Go's sub in
+// carryFact, and ok still set when it can be; k itself and false when it
+// cannot, or once ok is not set.
+func (mut c Checker) carry_key_of(k FKey, args map[Key]ContractArg, ok bool) (FKey, bool, error) {
+    if k.is_zero() || !ok {
+        return k, ok, noerror
+    }
+    a, found := args[k.decl]
+    if !found {
+        return k, false, noerror
+    }
+    can := mut c.carriable(k, a.decl)?
+    if !can {
+        return k, false, noerror
+    }
+    return FKey{decl: a.decl, path: k.path}, true, noerror
+}
+
+// carriable reports whether a fact about k, a subject below a callee's
+// parameter, can be about the same path below decl, the caller's
+// variable passed for it, Go's carriable: the parameter itself always
+// can; a path only below an immutable variable or parameter, or as an
+// error's code, and only when every index in it is a known value.
+func (mut c Checker) carriable(k FKey, decl Key) (bool, error) {
+    if k.path == 0 {
+        return true, noerror
+    }
+    mut p := msg()
+    c.path_text(k.path, mut p)?
+    if named_index(p[:]) {
+        return false, noerror
+    }
+    if mut c.immutable_decl(decl) {
+        return true, noerror
+    }
+    return bytes_equal(p[:], []uint8(".code")) && decl_type_of(c.decl_types, decl) == types.error_type, noerror
+}
+
+// named_index reports whether path, a subject's path below its
+// variable, has an element whose index is written as a name rather than
+// a value, Go's namedIndex.
+func named_index(path []uint8) bool {
+    mut i int64 = 0
+    for i < len(path) {
+        b := byte_at(path, i)
+        i +%= 1
+        if b != '[' {
+            continue
+        }
+        if i >= len(path) {
+            return true
+        }
+        n := byte_at(path, i)
+        if n != '-' && (n < '0' || n > '9') {
+            return true
+        }
+    }
+    return false
 }

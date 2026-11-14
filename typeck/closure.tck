@@ -77,6 +77,7 @@ type ClosureMarks struct {
     checked_arith Key
     checked_slice Key
     deferring bool
+    dead int64
 }
 
 // lit_func returns the function the closure lit holds.
@@ -284,9 +285,11 @@ func (mut c Checker) enter_closure(fk Key) error {
     append(mut c.cs_rel, replace(mut c.fx.rel, inner))?
     append(mut c.cs_proven, replace(mut c.fx.proven, make(list[ProofOnly], c_allocator)))?
     append(mut c.cs_chain, replace(mut c.fx.chain, make(list[Fact], c_allocator)))?
-    append(mut c.cs_appended, replace(mut c.append_lists, make(map[FKey]bool, c_allocator)))?
+    append(mut c.cs_appended, replace(mut c.appends, make(list[AppendRec], c_allocator)))?
+    append(mut c.cs_starts, replace(mut c.starts, make(list[Start], c_allocator)))?
+    append(mut c.cs_frames, replace(mut c.inv_frames, make(list[InvFrame], c_allocator)))?
     append(mut c.cs_passed, replace(mut c.passed_on, make(map[Key]Key, c_allocator)))?
-    append(mut c.cs_marks, ClosureMarks{chain_bin: c.fx.chain_bin, at: c.fx.at, inf: c.inf, view_call: c.view_call, view_slice: c.view_slice, view_span: c.view_span, checked_assert: c.checked_assert, checked_take: c.checked_take, checked_index: c.checked_index, checked_division: c.checked_division, assign_target: c.assign_target, assign_value: c.assign_value, dropped_call: c.dropped_call, scope_use: c.scope_use, covered: c.in_covered_default, outer: c.fx.outer, outer_guards: c.fx.outer_guards, checked_arith: c.checked_arith, checked_slice: c.checked_slice, deferring: c.deferring})?
+    append(mut c.cs_marks, ClosureMarks{chain_bin: c.fx.chain_bin, at: c.fx.at, inf: c.inf, view_call: c.view_call, view_slice: c.view_slice, view_span: c.view_span, checked_assert: c.checked_assert, checked_take: c.checked_take, checked_index: c.checked_index, checked_division: c.checked_division, assign_target: c.assign_target, assign_value: c.assign_value, dropped_call: c.dropped_call, scope_use: c.scope_use, covered: c.in_covered_default, outer: c.fx.outer, outer_guards: c.fx.outer_guards, checked_arith: c.checked_arith, checked_slice: c.checked_slice, deferring: c.deferring, dead: c.dead})?
     append(mut c.cs_views, replace(mut c.slice_views, make(map[Key]bool, c_allocator)))?
     c.fx.outer = len(c.fx.active)
     c.fx.outer_guards = len(c.fx.guards)
@@ -304,6 +307,7 @@ func (mut c Checker) enter_closure(fk Key) error {
     c.dropped_call = no_key()
     c.scope_use = no_key()
     c.in_covered_default = 0
+    c.dead = 0
     c.checked_arith = no_key()
     c.checked_slice = no_key()
     c.deferring = false
@@ -341,7 +345,17 @@ func (mut c Checker) leave_closure() error {
     }
     al, has_al := pop(mut c.cs_appended)
     if has_al {
-        old := replace(mut c.append_lists, al)
+        old := replace(mut c.appends, al)
+        drop(own old)
+    }
+    st, has_st := pop(mut c.cs_starts)
+    if has_st {
+        old := replace(mut c.starts, st)
+        drop(own old)
+    }
+    fr, has_fr := pop(mut c.cs_frames)
+    if has_fr {
+        old := replace(mut c.inv_frames, fr)
         drop(own old)
     }
     po, has_po := pop(mut c.cs_passed)
@@ -379,6 +393,7 @@ func (mut c Checker) leave_closure() error {
     c.checked_arith = s.checked_arith
     c.checked_slice = s.checked_slice
     c.deferring = s.deferring
+    c.dead = s.dead
     return noerror
 }
 

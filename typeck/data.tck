@@ -260,11 +260,13 @@ func (mut c Checker) check_fields_loop(k Key, s ast.ForRange, fo Key, texpr Key)
     mut nodes := make(list[Key], c_allocator)
     c.stmt_keys(k.unit, s.body, mut nodes)?
     m := c.mark()
+    pushed := mut c.enter_loop(k)?
     c.body.loops +%= 1
     outer := c.body.field_loop
     c.body.field_loop = c.body.loops
     g := Guard{cond: no_cond(), span: header, kind: guard_range}
     no_facts := make(list[Fact], c_allocator)
+    bm := c.mark()
     mut c.assume(g, no_facts[:], nodes[:])?
     e := mut c.check_block(k.unit, s.body)
     c.body.field_loop = outer
@@ -272,6 +274,8 @@ func (mut c Checker) check_fields_loop(k Key, s ast.ForRange, fo Key, texpr Key)
     if e.code != 0 {
         return e
     }
+    mut c.release(bm)?
+    mut c.leave_loop(k, pushed)?
     mut c.release(m)?
     return mut c.mark_unrolled(k.unit, s.body)
 }

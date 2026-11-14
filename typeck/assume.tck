@@ -333,6 +333,10 @@ func (c Checker) shared_at(s int64) SharedRec {
 // f's own and, when ri shares its rest's endings, runs shared with every
 // fact over it; -1 when there are none.
 func (mut c Checker) find_endings(mut ri RegionIdx, f Fact) (int64, error) {
+    if ri.blk < 0 && len(ri.head.writes) == 0 {
+        // A region of no writes ends nothing.
+        return -1, noerror
+    }
     mut first := -1
     mut last := -1
     mut mine := make(list[Ending], c_allocator)

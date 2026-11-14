@@ -86,12 +86,8 @@ func (mut c Checker) min_len(s Key) (constant.Int, error) {
     if !ok {
         return constant.from_int64(0), noerror
     }
-    if mut c.appended_list(k) {
-        // Go's appendedLen narrows it by what a successful append
-        // recorded, S5's.
-        return constant.from_int64(0), not_ported
-    }
-    least := mut c.key_interval(k, no_interval())?
+    known := mut c.key_interval(k, no_interval())?
+    least := mut c.appended_len(k, known)?
     one := constant.from_int64(1)
     if least.has_lo && least.lo.cmp(one) >= 0 {
         return least.lo, noerror

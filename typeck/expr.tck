@@ -292,7 +292,6 @@ func (mut c Checker) body_expr(k Key) (types.Type, error) {
         c.fx.at = span_at(c.prog.trees, l).end
         switch kind_at(c.prog.trees, l) {
         case binary(b):
-            mut c.binary_clause(l, b)?
             logic := b.op == ast.op_and || b.op == ast.op_or
             if logic {
                 mut c.logic_step(l, true)?
@@ -341,15 +340,14 @@ func (mut c Checker) logic_step(k Key, start bool) error {
 func (mut c Checker) logic_start(k Key, b ast.Binary) error {
     m := c.mark()
     x := sub(k, b.x)
-    mut facts := make(list[Fact], c_allocator)
-    mut c.take_chain(x, b.op == ast.op_and, mut facts)?
-    start := len(c.fx.logic_facts)
-    append(mut c.fx.logic_facts, facts[:]...)?
-    append(mut c.fx.logic, LogicFrame{m: m, start: start})?
+    facts := mut c.take_chain(x, b.op == ast.op_and)?
     mut rgn := make(list[Key], c_allocator)
     append(mut rgn, sub(k, b.y))?
     g := Guard{cond: node_cond(x), span: span_at(c.prog.trees, x), kind: guard_cond}
-    return mut c.assume(g, facts[:], rgn[:])
+    e := mut c.assume(g, facts[:], rgn[:])
+    append(mut c.fx.logic, LogicFrame{m: m})?
+    append(mut c.fx.logic_facts, facts)?
+    return e
 }
 
 // logic_end takes out of force what logic_start put in force for the
@@ -360,14 +358,10 @@ func (mut c Checker) logic_end(k Key) error {
         return noerror
     }
     mut c.release(fr.m)?
-    mut facts := make(list[Fact], c_allocator)
-    mut i := fr.start
-    for i < len(c.fx.logic_facts) {
-        append(mut facts, fact_in(c.fx.logic_facts[:], i))?
-        i +%= 1
-    }
-    for len(c.fx.logic_facts) > fr.start {
-        pop(mut c.fx.logic_facts)
+    facts, has := pop(mut c.fx.logic_facts)
+    if !has {
+        none := make(list[Fact], c_allocator)
+        return mut c.join_chain(k, own none)
     }
     return mut c.join_chain(k, own facts)
 }
@@ -438,9 +432,10 @@ func (mut c Checker) mark_slice_views(k Key) error {
 }
 
 // allow_link_view marks x, the operand of the link parent of a spine, as
-// written where a view a call returns may be when parent indexes or
-// slices it, as Go's index and sliceType do with allowViewCall and
-// allowView before they check what they index or slice.
+// written where a view a call returns, or a span's view of an arena, may
+// be when parent indexes or slices it, as Go's index and sliceType do
+// with allowViewCall and allowView before they check what they index or
+// slice.
 func (mut c Checker) allow_link_view(parent Key, x Key) {
     switch kind_at(c.prog.trees, parent) {
     case index(ix):
@@ -448,6 +443,9 @@ func (mut c Checker) allow_link_view(parent Key, x Key) {
             switch kind_at(c.prog.trees, x) {
             case call:
                 c.view_call = x
+            case index:
+                // A span's view of an arena, which an index may index.
+                c.view_span = x
             default:
             }
         }
@@ -473,7 +471,6 @@ type SpineState struct {
 func (mut c Checker) finish_link(l Key, x types.Type) (types.Type, error) {
     switch kind_at(c.prog.trees, l) {
     case binary(b):
-        mut c.binary_clause(l, b)?
         y := mut c.expr(sub(l, b.y))?
         typ := mut c.binary(l, b, x, y)?
         mut c.set_node_type(l, typ)?
@@ -545,7 +542,6 @@ func (mut c Checker) expr_node(k Key) (types.Type, error) {
         return typ, noerror
     case binary(b):
         x := mut c.expr(sub(k, b.x))?
-        mut c.binary_clause(k, b)?
         y := mut c.expr(sub(k, b.y))?
         typ := mut c.binary(k, b, x, y)?
         mut c.set_node_type(k, typ)?
@@ -863,25 +859,6 @@ func (mut c Checker) set_const(k Key, v Const) error {
     return noerror
 }
 
-// binary_clause notes, in an ensures clause, the bound the left side of
-// k, an &&, puts in force on its right side, the part of Go's binary
-// done before the right operand is checked: the left side's last
-// operand from here on, the ones before it from the links below.
-func (mut c Checker) binary_clause(k Key, b ast.Binary) error {
-    if !c.in_clause || b.op != ast.op_and {
-        return noerror
-    }
-    mut last := sub(k, b.x)
-    switch kind_at(c.prog.trees, last) {
-    case binary(lb):
-        if lb.op == ast.op_and {
-            last = sub(last, lb.y)
-        }
-    default:
-    }
-    return mut c.clause_bound(last)
-}
-
 // binary checks an infix expression k, its left operand checked as x, and
 // returns its type, Go's binary: a bool for a comparison or a logical
 // operator, the operands' common type for arithmetic. What the left side
@@ -889,8 +866,8 @@ func (mut c Checker) binary_clause(k Key, b ast.Binary) error {
 // before the right side is checked and takes out after (see
 // logic_start and logic_end).
 //
-// Its right operand, checked as y, is checked by the caller, between
-// binary_clause and binary, so that a right operand nested deeply, as
+// Its right operand, checked as y, is checked by the caller, before
+// binary, so that a right operand nested deeply, as
 // in f(a == f(a == ...)), recurses through the caller's small frame
 // alone, not through this one's, which holds every operator's checks.
 func (mut c Checker) binary(k Key, b ast.Binary, x types.Type, y types.Type) (types.Type, error) {
@@ -1041,33 +1018,18 @@ func (mut c Checker) require_nonzero(divisor Key) (bool, error) {
 
 // arith_decidable reports whether the port decides the proof the
 // arithmetic b at k needs, Go's requireNoOverflow and
-// requireNoQuotientOverflow: in a body, by the provers; on known
-// operands, where knownOverflow has reported any that does not fit; and
-// before bodies, or in an ensures clause, only there. An operand not
-// known there follows an error, which Go may follow with one of its own,
-// and is declined, but for x + 1 in a clause with x < len(s) in force,
-// which no length lets reach the largest int64.
+// requireNoQuotientOverflow: in a body or an ensures clause, by the
+// provers; on known operands, where knownOverflow has reported any that
+// does not fit; and before bodies only there. An operand not known there
+// follows an error, which Go may follow with one of its own, and is
+// declined.
 func (mut c Checker) arith_decidable(k Key, b ast.Binary) (bool, error) {
-    if c.in_body && !c.in_clause {
+    if c.in_body {
         return true, noerror
     }
     _, ok_x := mut c.known_value(sub(k, b.x))?
     _, ok_y := mut c.known_value(sub(k, b.y))?
-    if ok_x && ok_y {
-        return true, noerror
-    }
-    // In an ensures clause, x + 1 with x < len(s) in force, which no
-    // length lets reach the largest int64, is proven, as Go's provers
-    // prove it.
-    if c.in_clause && b.op == ast.op_add {
-        nm, is_id := ident_at(c.prog.trees, sub(k, b.x))
-        one, ok_one := mut c.known_value(sub(k, b.y))?
-        _, bounded := c.clause_upper[key_of_def(nm.def)]
-        if is_id && nm.def.kind == ast.def_param && ok_one && one.cmp(constant.from_int64(1)) == 0 && bounded {
-            return true, noerror
-        }
-    }
-    return false, noerror
+    return ok_x && ok_y, noerror
 }
 
 // typed_arithmetic returns the type arithmetic on operands of types x and
@@ -1571,7 +1533,7 @@ func (mut c Checker) unary(k Key, u ast.Unary, x types.Type) (types.Type, error)
     if types.is_integer(x) && !types.is_unsigned(x) {
         v, known := mut c.known_value(operand)?
         if !known {
-            if !c.in_body || c.in_clause {
+            if !c.in_body {
                 // As arith_decidable declines a proof it cannot make.
                 return types.invalid, not_ported
             }

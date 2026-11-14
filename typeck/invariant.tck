@@ -1,0 +1,779 @@
+package typeck
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import source from "tack/source"
+import types from "tack/types"
+
+// The bounds a loop keeps, Go's invariant.go. A fact about a variable
+// ends at the first write to it that can reach the use, so a counter a
+// loop steps carries nothing into the loop's next pass but what its
+// condition says again. A loop invariant is a bound on such a variable
+// that holds everywhere in the loop, however many passes it has made: a
+// constant bound, i >= 0 or j <= 9, or a difference bound against
+// another node. A loop keeps one when the variable is a local or a
+// parameter of an integer type that can have facts, declared before the
+// loop; the bound holds where the loop is entered, from a fact in force
+// there or a known value the variable was last given (see record_start);
+// the loop's init does not write it; every write to it in the loop is
+// i++, i--, i += e, i -= e or i = e and keeps the bound, from the facts
+// in force where it is checked and the bound itself (see keeps); and
+// nothing in the loop writes the other node of a difference bound.
+//
+// Whether a write keeps a bound depends on the facts where it is, known
+// only once checking reaches it, while a use earlier in the loop needs
+// the answer first. So a body with a loop that writes a variable
+// declared before it is checked once more first, as a probe (see
+// check_body), with what it reports dropped: the probe takes the
+// candidate bounds at each loop's start, judges each write against
+// them, and keeps for each loop those every write in it kept (see
+// leave_loop); the check that counts puts those in force for the whole
+// loop (see enter_loop).
+
+// InvFrame is a loop the probe is checking, Go's invFrame: the loop,
+// what of it can run while it runs, the count keys of inv_nodes from
+// nodes, and the bounds it may keep, the count InvCands of inv_cands
+// from cands.
+type InvFrame struct {
+    loop Key
+    nodes int64
+    node_count int64
+    cands int64
+    cand_count int64
+}
+
+// InvCand is a bound a loop may keep, Go's invCand: f, the fact it is,
+// about the variable v, and id, which names it among the writes that
+// keep it (see InvKept).
+type InvCand struct {
+    id int64
+    v Key
+    f Fact
+}
+
+// InvKept is a write that keeps a bound: the candidate's id and the
+// write's target, Go's invCand.kept.
+type InvKept struct {
+    cand int64
+    target Key
+}
+
+// Start is a known value a mutable variable was last given, Go's start:
+// the fact f, holding in the rest of the block blk from the statement
+// frm on, and, once a loop's start has asked about it, ef, f with every
+// write in that rest that may end it, when ended says so.
+type Start struct {
+    f Fact
+    blk int64
+    frm int64
+    ended bool
+    ef Fact
+}
+
+// FRun is the facts a loop keeps: the count facts of inv_facts from
+// start.
+type FRun struct {
+    start int64
+    count int64
+}
+
+// inv_frame_cap is the most loops the probe judges writes for at once,
+// Go's invFrameCap: a loop nested inside that many others that may keep
+// bounds takes none of its own, which only proves less.
+var inv_frame_cap int64 = 8
+
+// declared_before reports whether decl is a parameter, or a variable
+// declared before pos, Go's declaredBefore.
+func (c Checker) declared_before(decl Key, pos int64) bool {
+    switch kind_at(c.prog.trees, decl) {
+    case param_decl:
+        return true
+    case var_decl:
+        return span_at(c.prog.trees, decl).start < pos
+    default:
+        return false
+    }
+}
+
+// loop_nodes appends to out what of the loop k can run while it runs,
+// Go's loopNodes: a three-clause loop's init, post, condition and body,
+// and a range loop's ranged value and body.
+func (c Checker) loop_nodes(k Key, mut out list[Key]) error {
+    switch kind_at(c.prog.trees, k) {
+    case for_stmt(s):
+        if !ast.is_none(s.init) {
+            append(mut out, sub(k, s.init))?
+        }
+        if !ast.is_none(s.post) {
+            append(mut out, sub(k, s.post))?
+        }
+        if !ast.is_none(s.cond) {
+            append(mut out, sub(k, s.cond))?
+        }
+        return c.stmt_keys(k.unit, s.body, mut out)
+    case for_range(s):
+        append(mut out, sub(k, s.x))?
+        return c.stmt_keys(k.unit, s.body, mut out)
+    default:
+        return noerror
+    }
+}
+
+// loop_header returns the span a note about a bound the loop k keeps
+// underlines, Go's loopHeader: its for keyword through its condition or
+// ranged value, or the keyword alone for a loop with neither.
+func (c Checker) loop_header(k Key) source.Span {
+    mut sp := span_at(c.prog.trees, k)
+    mut end := sp.start +% 3
+    switch kind_at(c.prog.trees, k) {
+    case for_stmt(s):
+        if !ast.is_none(s.cond) {
+            end = span_at(c.prog.trees, sub(k, s.cond)).end
+        }
+    case for_range(s):
+        end = span_at(c.prog.trees, sub(k, s.x)).end
+    default:
+    }
+    sp.end = end
+    return sp
+}
+
+// enter_loop is called as the loop k's header has been checked, as far
+// as what runs before its condition, Go's enterLoop, and reports whether
+// it pushed a frame for leave_loop to pop: in the probe, it takes the
+// bounds the loop may keep and judges the writes checked in it against
+// them; in the check that counts, it puts in force the bounds the probe
+// found the loop keeps, which the caller releases.
+func (mut c Checker) enter_loop(k Key) (bool, error) {
+    if !c.probing {
+        run, has := c.invariants[k]
+        if has && run.count > 0 {
+            mut facts := make(list[Fact], c_allocator)
+            mut i int64 = 0
+            for i < run.count {
+                append(mut facts, fact_in(c.inv_facts[:], run.start +% i))?
+                i +%= 1
+            }
+            none := make(list[Key], c_allocator)
+            g := Guard{cond: no_cond(), span: c.loop_header(k), kind: guard_invariant}
+            mut c.assume(g, facts[:], none[:])?
+        }
+        return false, noerror
+    }
+    if len(c.inv_frames) >= inv_frame_cap {
+        return false, noerror
+    }
+    nodes := len(c.inv_nodes)
+    mut ln := make(list[Key], c_allocator)
+    c.loop_nodes(k, mut ln)?
+    append(mut c.inv_nodes, ln[:]...)?
+    cands := len(c.inv_cands)
+    mut c.candidates(k, nodes)?
+    if len(c.inv_cands) == cands {
+        for len(c.inv_nodes) > nodes {
+            pop(mut c.inv_nodes)
+        }
+        return false, noerror
+    }
+    append(mut c.inv_frames, InvFrame{loop: k, nodes: nodes, node_count: len(c.inv_nodes) -% nodes, cands: cands, cand_count: len(c.inv_cands) -% cands})?
+    return true, noerror
+}
+
+// leave_loop pops the frame enter_loop pushed for the loop k, when
+// pushed says it did, and records the bounds every write checked in the
+// loop kept, Go's function enterLoop returns (see kept_through).
+func (mut c Checker) leave_loop(k Key, pushed bool) error {
+    if !pushed {
+        return noerror
+    }
+    fr, ok := pop(mut c.inv_frames)
+    if !ok {
+        return noerror
+    }
+    start := len(c.inv_facts)
+    mut i int64 = 0
+    for i < fr.cand_count {
+        cand, has := c.inv_cands[fr.cands +% i]
+        i +%= 1
+        if !has {
+            continue
+        }
+        kt := mut c.kept_through(fr, cand)?
+        if kt {
+            append(mut c.inv_facts, cand.f)?
+        }
+    }
+    put(mut c.invariants, k, FRun{start: start, count: len(c.inv_facts) -% start})?
+    for len(c.inv_cands) > fr.cands {
+        pop(mut c.inv_cands)
+    }
+    for len(c.inv_nodes) > fr.nodes {
+        pop(mut c.inv_nodes)
+    }
+    return noerror
+}
+
+// candidates appends to inv_cands the bounds the loop k may keep on each
+// variable it writes that can have one (see counter_var), each holding
+// at the loop's start, Go's candidates: the tightest constant bound
+// above and below that a fact in force there or a known value the
+// variable was last given says, and the tightest difference bound each
+// way to each other node a fact in force relates it to (see bounds_of).
+// The nodes the loop runs are those of inv_nodes from nodes on.
+func (mut c Checker) candidates(k Key, nodes int64) error {
+    outer := c.fx.at
+    c.fx.at = span_at(c.prog.trees, k).start
+    e := mut c.candidates_at(k, nodes)
+    c.fx.at = outer
+    return e
+}
+
+// candidates_at is candidates with where checking has reached at the
+// loop's start.
+func (mut c Checker) candidates_at(k Key, nodes int64) error {
+    start := span_at(c.prog.trees, k).start
+    mut seen := make(list[Key], c_allocator)
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut targets := make(list[Key], c_allocator)
+    n := len(c.inv_nodes)
+    mut i := nodes
+    for i < n {
+        root := key_in(c.inv_nodes[:], i)
+        i +%= 1
+        append(mut stack, root.node)?
+        for len(stack) > 0 {
+            top, ok := pop(mut stack)
+            if !ok {
+                break
+            }
+            x := Key{unit: root.unit, node: top}
+            clear_keys(mut targets)
+            mut c.assigned_targets(x, mut targets)?
+            for _, t := range targets {
+                nm, is_id := ident_at(c.prog.trees, t)
+                if !is_id || !nm.def.is_decl() {
+                    continue
+                }
+                d := key_of_def(nm.def)
+                if !mut c.counter_var(d, start) {
+                    continue
+                }
+                mut was := false
+                for _, s := range seen {
+                    was = was || s == d
+                }
+                if was {
+                    continue
+                }
+                append(mut seen, d)?
+                mut c.bounds_of(d)?
+            }
+            push_children(c.prog.trees, x, mut stack)?
+        }
+    }
+    return noerror
+}
+
+// counter_var reports whether decl is a variable a loop starting at pos
+// may keep a bound on, Go's counterVar: a parameter, or a variable
+// declared before the loop, of an integer type, that can have facts.
+func (mut c Checker) counter_var(decl Key, pos int64) bool {
+    if !c.declared_before(decl, pos) || !mut c.can_hold_fact(decl) {
+        return false
+    }
+    return types.is_integer(decl_type_of(c.decl_types, decl))
+}
+
+// add_cand appends the candidate f about the variable v to inv_cands.
+func (mut c Checker) add_cand(v Key, f Fact) error {
+    c.inv_next +%= 1
+    append(mut c.inv_cands, InvCand{id: c.inv_next, v: v, f: f})?
+    return noerror
+}
+
+// bounds_of appends to inv_cands the bounds on the variable v that hold
+// at c.fx.at, Go's boundsOf: the tightest constant bound each way, from
+// the facts in force and the known values v was last given (see starts),
+// and, for each other node a fact in force relates v to without
+// conditions, the tightest difference bound each way (see edge_bounds).
+// A constant bound its type already gives is left out.
+func (mut c Checker) bounds_of(v Key) error {
+    k := decl_fkey(v)
+    type_lo, type_hi := type_bounds(decl_type_of(c.decl_types, v))
+    mut known := no_interval()
+    mut i int64 = 0
+    for i < len(c.starts) {
+        s, ok := c.starts[i]
+        at := i
+        i +%= 1
+        if !ok || s.f.about != k {
+            continue
+        }
+        f := mut c.start_fact(at)?
+        h := mut c.holds(f)?
+        if h {
+            known = known.narrow(s.f)
+        }
+    }
+    mut diffs := make(list[DiffBound], c_allocator)
+    known = mut c.edge_bounds(k, known, mut diffs)?
+    if known.has_lo && known.lo.cmp(type_lo) > 0 {
+        mut f := new_fact(k)
+        f.lo = known.lo
+        f.has_lo = true
+        mut c.add_cand(v, f)?
+    }
+    if known.has_hi && known.hi.cmp(type_hi) < 0 {
+        mut f := new_fact(k)
+        f.hi = known.hi
+        f.has_hi = true
+        mut c.add_cand(v, f)?
+    }
+    for _, d := range diffs {
+        mut about := d.x
+        if about.is_zero() {
+            about = d.y
+        }
+        mut f := new_fact(about)
+        f.diff = len(c.fx.diffs)
+        append(mut c.fx.diffs, d)?
+        mut c.add_cand(v, f)?
+    }
+    return noerror
+}
+
+// edge_bounds returns known narrowed by the bounds on the node k that
+// the relations in force at c.fx.at give against the constant 0, and
+// appends to diffs, for each other node they relate k to with no
+// condition that a step not wrap, the tightest difference bound from k
+// to it and from it to k, in the order the relations first name them,
+// Go's edgeBounds and boundsOver: from the edges at k of every fact in
+// force but a stored value's whose fact holds, in the index's order,
+// then the stored value's bounds the graph takes at k.
+func (mut c Checker) edge_bounds(k FKey, known Interval, mut diffs list[DiffBound]) (Interval, error) {
+    mut c.build_rel_idx()?
+    mut out := known
+    mut at := make(map[PairKey]int64, c_allocator)
+    ends, has := c.fx.rel.ends[k]
+    mut cur := -1
+    if has {
+        cur = ends.head
+    }
+    for cur >= 0 {
+        en := entry_in(c.fx.rel.entries[:], cur)
+        cur = en.next
+        e := rel_edge_in(c.fx.rel.edges[:], en.edge)
+        h := mut c.holds(fact_in(c.fx.active[:], e.fact))?
+        if h {
+            out = mut c.bound_over(e, out, mut at, mut diffs)?
+        }
+    }
+    top, has_top := c.fx.rel.stored_top[k]
+    if has_top {
+        f := fact_in(c.fx.active[:], top)
+        if f.ends < 0 || c.ending_count(f.ends) <= reach_scan_limit {
+            h := mut c.holds(f)?
+            zero := zero_fkey()
+            if h && f.has_hi && f.hi.fits(64, true) {
+                out = mut c.bound_over(plain_edge(f.about, zero, f.hi.to_int64(), top), out, mut at, mut diffs)?
+            }
+            lo, ok := f.lo.negate()
+            if h && f.has_lo && ok && lo.fits(64, true) {
+                out = mut c.bound_over(plain_edge(zero, f.about, lo.to_int64(), top), out, mut at, mut diffs)?
+            }
+        }
+    }
+    return out, noerror
+}
+
+// bound_over takes the edge e, whose fact holds, into the bounds
+// edge_bounds finds, Go's boundsOver for one edge: one between a node
+// and 0 narrows known, and any other is a difference bound, kept as the
+// tightest between its two nodes, at holds where each pair's is in
+// diffs. An edge from a node to itself, or with conditions, says
+// nothing here.
+func (mut c Checker) bound_over(e RelEdge, known Interval, mut at map[PairKey]int64, mut diffs list[DiffBound]) (Interval, error) {
+    if e.frm == e.to || e.conds.count > 0 {
+        return known, noerror
+    }
+    w := constant.from_int64(e.w)
+    if e.frm.is_zero() || e.to.is_zero() {
+        mut f := new_fact(zero_fkey())
+        if e.to.is_zero() {
+            f.hi = w
+            f.has_hi = true
+        } else {
+            lo, ok := w.negate()
+            f.lo = lo
+            f.has_lo = ok
+        }
+        return known.narrow(f), noerror
+    }
+    d := DiffBound{x: e.frm, y: e.to, w: w, x_len: c.is_len_node(e.frm), y_len: c.is_len_node(e.to), conds: no_conds()}
+    pk := PairKey{u: e.frm, w: e.to}
+    i, seen := at[pk]
+    if !seen {
+        put(mut at, pk, len(diffs))?
+        append(mut diffs, d)?
+        return known, noerror
+    }
+    old, has := diffs[i]
+    if has && w.cmp(old.w) < 0 {
+        set_at(mut diffs, i, d)
+    }
+    return known, noerror
+}
+
+// record_start remembers, for a loop's start, the known value the
+// statement at position i of the block blk, stmt, gives a mutable
+// variable of an integer type, Go's recordStart: a declaration, mut i :=
+// 0 or mut i int64, or a plain assignment to a name, i = 0. The rest of
+// the block is where it holds. Only the probe takes candidate bounds, so
+// only the probe remembers.
+func (mut c Checker) record_start(blk int64, i int64, stmt Key) error {
+    if !c.probing {
+        return noerror
+    }
+    mut decl := no_key()
+    mut value := no_key()
+    switch kind_at(c.prog.trees, stmt) {
+    case var_decl(v):
+        if !v.mutable {
+            return noerror
+        }
+        decl = stmt
+        if !ast.is_none(v.value) {
+            value = sub(stmt, v.value)
+        }
+    case assign(a):
+        if a.op != ast.op_invalid {
+            return noerror
+        }
+        nm, is_id := ident_at(c.prog.trees, sub(stmt, a.target))
+        if !is_id || !nm.def.is_decl() {
+            return noerror
+        }
+        decl = key_of_def(nm.def)
+        value = sub(stmt, a.value)
+    default:
+        return noerror
+    }
+    if !types.is_integer(decl_type_of(c.decl_types, decl)) {
+        return noerror
+    }
+    mut v := constant.from_int64(0)
+    if !is_no_key(value) {
+        known, ok := mut c.known_value(value)?
+        if !ok {
+            return noerror
+        }
+        v = known
+    }
+    mut f := new_fact(decl_fkey(decl))
+    f.lo = v
+    f.hi = v
+    f.has_lo = true
+    f.has_hi = true
+    rest := c.rest_of(blk, i +% 1)
+    append(mut c.starts, Start{f: f, blk: rest, frm: i +% 1, ended: false, ef: f})?
+    return noerror
+}
+
+// start_fact returns the fact of the start at position i of starts with
+// every write in its region that may end it, for holds to judge, found
+// once, Go's startFact.
+func (mut c Checker) start_fact(i int64) (Fact, error) {
+    s, ok := c.starts[i]
+    if !ok {
+        return new_fact(zero_fkey()), noerror
+    }
+    if s.ended {
+        return s.ef, noerror
+    }
+    mut f := s.f
+    none := make(list[Key], c_allocator)
+    mut ri := mut c.index_region(none[:], s.blk, s.frm, true)?
+    f.ends = mut c.find_endings(mut ri, f)?
+    mut done := s
+    done.ended = true
+    done.ef = f
+    set_at(mut c.starts, i, done)
+    return f, noerror
+}
+
+// invariant_write judges stmt, an assignment, an increment or a
+// decrement just checked, in the probe, against every bound a loop
+// being checked may keep on the variable it writes, Go's invariantWrite
+// (see keeps).
+func (mut c Checker) invariant_write(stmt Key) error {
+    if len(c.inv_frames) == 0 {
+        return noerror
+    }
+    mut targets := make(list[Key], c_allocator)
+    mut c.assigned_targets(stmt, mut targets)?
+    if len(targets) != 1 {
+        return noerror
+    }
+    target := key_in(targets[:], 0)
+    nm, is_id := ident_at(c.prog.trees, target)
+    if !is_id || !nm.def.is_decl() {
+        return noerror
+    }
+    d := key_of_def(nm.def)
+    mut fi int64 = 0
+    for fi < len(c.inv_frames) {
+        fr, ok := c.inv_frames[fi]
+        fi +%= 1
+        if !ok {
+            continue
+        }
+        mut j int64 = 0
+        for j < fr.cand_count {
+            cand, has := c.inv_cands[fr.cands +% j]
+            j +%= 1
+            if !has || cand.v != d {
+                continue
+            }
+            kp := mut c.keeps(stmt, target, cand.f)?
+            if kp {
+                put(mut c.inv_kept, InvKept{cand: cand.id, target: target}, true)?
+            }
+        }
+    }
+    return noerror
+}
+
+// keeps reports whether stmt, which writes the variable target names,
+// keeps the bound f on it, Go's keeps: with f in force besides the facts
+// in force, the value stmt stores is proven within f, as a query's term
+// by the relations in force (see term_keeps), or, for a constant bound,
+// by its range (see stored_range). Either proof takes in that no step of
+// the value wraps.
+func (mut c Checker) keeps(stmt Key, target Key, f Fact) (bool, error) {
+    m := c.mark()
+    mut one := make(list[Fact], c_allocator)
+    append(mut one, f)?
+    none := make(list[Key], c_allocator)
+    g := Guard{cond: no_cond(), span: span_at(c.prog.trees, stmt), kind: guard_invariant}
+    mut e := mut c.assume(g, one[:], none[:])
+    mut r := false
+    if e.code == 0 {
+        r, e = mut c.keeps_under(stmt, target, f)
+    }
+    rel := mut c.release(m)
+    if e.code != 0 {
+        return false, e
+    }
+    return r, rel
+}
+
+// keeps_under is keeps with f in force.
+func (mut c Checker) keeps_under(stmt Key, target Key, f Fact) (bool, error) {
+    t, ok := mut c.stored_term(stmt, target)?
+    if ok {
+        tk := mut c.term_keeps(t, f, target)?
+        if tk {
+            return true, noerror
+        }
+    }
+    if f.diff >= 0 {
+        return false, noerror
+    }
+    known, has := mut c.stored_range(stmt, target)?
+    if !has {
+        return false, noerror
+    }
+    if f.has_lo {
+        return known.lo.cmp(f.lo) >= 0, noerror
+    }
+    return known.hi.cmp(f.hi) <= 0, noerror
+}
+
+// term_keeps reports whether the relations in force prove f, a bound on
+// the variable target names, of t, the value stored to it, Go's
+// termKeeps: t in the variable's place in a difference bound, or t
+// within a constant one.
+func (mut c Checker) term_keeps(t LinTerm, f Fact, target Key) (bool, error) {
+    nm, _ := ident_at(c.prog.trees, target)
+    v := decl_fkey(key_of_def(nm.def))
+    if f.diff >= 0 {
+        d := c.diff_at(f.diff)
+        mut x := lin_term(d.x, constant.from_int64(0), d.x_len)
+        mut y := lin_term(d.y, constant.from_int64(0), d.y_len)
+        if d.x == v {
+            x = t
+        } else {
+            y = t
+        }
+        r := mut c.relates(x, y, d.w)?
+        return r, noerror
+    }
+    if f.has_lo {
+        lo, ok := f.lo.negate()
+        if !ok {
+            return false, noerror
+        }
+        r := mut c.relates(zero_term(), t, lo)?
+        return r, noerror
+    }
+    r := mut c.relates(t, zero_term(), f.hi)?
+    return r, noerror
+}
+
+// stored_term returns the value stmt stores to the variable target
+// names, as a query's term, Go's storedTerm: the variable plus or minus
+// one for an increment or a decrement, plus or minus a known value for
+// += or -= of one, or the value of a plain assignment, when query_term
+// reads it.
+func (mut c Checker) stored_term(stmt Key, target Key) (LinTerm, bool, error) {
+    typ := mut c.type_of(target)
+    nm, _ := ident_at(c.prog.trees, target)
+    mut own_self := lin_term(decl_fkey(key_of_def(nm.def)), constant.from_int64(0), false)
+    own_self.own_bounds = type_interval(typ)
+    switch kind_at(c.prog.trees, stmt) {
+    case inc_dec(s):
+        mut step := constant.from_int64(1)
+        if s.dec {
+            step = constant.from_int64(-1)
+        }
+        r, ok := mut c.term_step(own_self, step, typ)?
+        return r, ok, noerror
+    case assign(a):
+        if a.op == ast.op_invalid {
+            r, ok := mut c.query_term(sub(stmt, a.value))?
+            return r, ok, noerror
+        }
+        if a.op != ast.op_add && a.op != ast.op_sub {
+            return own_self, false, noerror
+        }
+        k0, known := mut c.known_value(sub(stmt, a.value))?
+        if !known {
+            return own_self, false, noerror
+        }
+        mut k := k0
+        if a.op == ast.op_sub {
+            n, ok := k0.negate()
+            if !ok {
+                return own_self, false, noerror
+            }
+            k = n
+        }
+        r, ok := mut c.term_step(own_self, k, typ)?
+        return r, ok, noerror
+    default:
+        return own_self, false, noerror
+    }
+}
+
+// stored_range returns the range of the value stmt stores to the
+// variable target names, from the ranges of what it is computed from
+// (see range_of), Go's storedRange: the variable's own plus or minus
+// one, or the value's, for an increment or a decrement, += or -=, or the
+// value's own for a plain assignment. It is false when a step of it
+// could wrap.
+func (mut c Checker) stored_range(stmt Key, target Key) (Interval, bool, error) {
+    mut delta := no_key()
+    mut is_sub := false
+    switch kind_at(c.prog.trees, stmt) {
+    case inc_dec(s):
+        is_sub = s.dec
+    case assign(a):
+        if a.op == ast.op_invalid {
+            r, ok := mut c.range_of(sub(stmt, a.value))?
+            return r, ok, noerror
+        }
+        if a.op != ast.op_add && a.op != ast.op_sub {
+            return no_interval(), false, noerror
+        }
+        delta = sub(stmt, a.value)
+        is_sub = a.op == ast.op_sub
+    default:
+        return no_interval(), false, noerror
+    }
+    a, ok_a := mut c.range_of(target)?
+    if !ok_a {
+        return no_interval(), false, noerror
+    }
+    mut b := single(constant.from_int64(1))
+    if !is_no_key(delta) {
+        r, ok_b := mut c.range_of(delta)?
+        if !ok_b {
+            return no_interval(), false, noerror
+        }
+        b = r
+    }
+    mut known := no_interval()
+    mut ok_lo := false
+    mut ok_hi := false
+    if is_sub {
+        known.lo, ok_lo = a.lo.sub(b.hi)
+        known.hi, ok_hi = a.hi.sub(b.lo)
+    } else {
+        known.lo, ok_lo = a.lo.add(b.lo)
+        known.hi, ok_hi = a.hi.add(b.hi)
+    }
+    if !ok_lo || !ok_hi {
+        return no_interval(), false, noerror
+    }
+    r, ok := fitted(known, mut c.type_of(target))
+    return r, ok, noerror
+}
+
+// kept_through reports whether the loop of the frame fr keeps cand, Go's
+// keptThrough: every write checked in it kept it, every write to its
+// variable anywhere in the loop is one of those, so none went unjudged,
+// and nothing in the loop writes the other node of a difference bound. A
+// call's mut argument and an assignment of several values are never
+// judged (see invariant_write), so one keeps nothing.
+func (mut c Checker) kept_through(fr InvFrame, cand InvCand) (bool, error) {
+    mut nodes := make(list[Key], c_allocator)
+    mut i int64 = 0
+    for i < fr.node_count {
+        append(mut nodes, key_in(c.inv_nodes[:], fr.nodes +% i))?
+        i +%= 1
+    }
+    mut found := make(list[EachWrite], c_allocator)
+    mut loops := make(list[source.Span], c_allocator)
+    mut c.each_write(nodes[:], cand.v, mut found, mut loops)?
+    for _, w := range found {
+        _, kept := c.inv_kept[InvKept{cand: cand.id, target: w.shown}]
+        if !kept {
+            return false, noerror
+        }
+    }
+    if cand.f.diff < 0 {
+        return true, noerror
+    }
+    d := c.diff_at(cand.f.diff)
+    mut side int64 = 0
+    for side < 2 {
+        mut k := d.x
+        if side == 1 {
+            k = d.y
+        }
+        side +%= 1
+        if k.is_zero() || k.decl == cand.v {
+            continue
+        }
+        w := mut c.written_in(nodes[:], k.decl)?
+        if w {
+            return false, noerror
+        }
+    }
+    return true, noerror
+}
+
+// kept_bounds returns what the bounds a loop keeps on the subject k say
+// of it together, Go's keptBounds: such a bound never ends, and a
+// difference bound says nothing of k's own value.
+func (mut c Checker) kept_bounds(k FKey) (Interval, error) {
+    mut known := no_interval()
+    mut facts := make(list[Fact], c_allocator)
+    mut c.facts_about(k, mut facts)?
+    for _, f := range facts {
+        if c.guard_kind(f.guard) == guard_invariant {
+            known = known.narrow(f)
+        }
+    }
+    return known, noerror
+}

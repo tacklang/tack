@@ -98,10 +98,9 @@ func (mut c Checker) conversion(k Key) (types.Type, error) {
         }
         return to, noerror
     }
-    if !c.in_body || c.in_clause {
+    if !c.in_body {
         // Before bodies a value not known follows an error, which Go may
-        // follow with one of its own; in a clause the facts are a later
-        // stage's.
+        // follow with one of its own.
         return types.invalid, not_ported
     }
     fit := mut c.facts_fit(arg, to)?

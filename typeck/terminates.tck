@@ -28,9 +28,40 @@ func (mut c Checker) block_terminates(unit int64, body ast.Nodes) (bool, error) 
 // with no condition that no break leaves; a switch with a default, or on
 // a union naming every case, whose every case terminates; a region whose
 // body does.
+//
+// What it finds for an if, a switch or a loop it walks is remembered
+// while no switch is found to name every case since (see exhaust_gen),
+// for every link of an else-if chain walked: each terminates exactly
+// when the next does, so a chain asked about at every link is walked
+// once, Go's terminatesRemembered.
 func (mut c Checker) terminates(k Key) (bool, error) {
+    if c.term_gen != c.exhaust_gen {
+        old := replace(mut c.term_memo, make(map[Key]bool, c_allocator))
+        drop(own old)
+        c.term_gen = c.exhaust_gen
+    }
+    mut walked := make(list[Key], c_allocator)
+    r := mut c.terminates_walk(k, mut walked)?
+    for _, w := range walked {
+        put(mut c.term_memo, w, r)?
+    }
+    return r, noerror
+}
+
+// terminates_walk is terminates without remembering, appending to walked
+// each if, switch and loop it walks past whose answer is its own.
+func (mut c Checker) terminates_walk(k Key, mut walked list[Key]) (bool, error) {
     mut cur := k
     for {
+        switch kind_at(c.prog.trees, cur) {
+        case if_stmt, switch_stmt, for_stmt:
+            known, seen := c.term_memo[cur]
+            if seen {
+                return known, noerror
+            }
+            append(mut walked, cur)?
+        default:
+        }
         switch kind_at(c.prog.trees, cur) {
         case return_stmt, unreachable_stmt:
             return true, noerror

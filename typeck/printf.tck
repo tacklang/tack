@@ -203,7 +203,9 @@ func (mut c Checker) verb_takes(verb []uint8, typ types.Type) bool {
     if b == 'e' || b == 'f' || b == 'g' {
         return types.is_float(typ)
     }
-    return c.table.in_any_of(typ) || bytes
+    // A basic type a value can have, Go's types.InAny, not the table's,
+    // which takes a view of one too.
+    return types.in_any(typ) || bytes
 }
 
 // show_verb appends how a message shows verb, with its %, Go's showVerb:

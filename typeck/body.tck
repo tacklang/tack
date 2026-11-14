@@ -16,10 +16,9 @@ import types from "tack/types"
 // escapes Go checks after a body with nothing reported the port checks
 // too (see mover.tck and escape.tck).
 //
-// What is declined, and the stage that owns it: a loop that writes an
-// integer variable declared before it, whose bounds Go probes for, a
-// call of a function with an ensures clause, an ensures clause,
-// unreachable and a successful append a length is read from (S5).
+// A body whose loops write a variable declared before them is probed
+// first for the bounds the loops keep (see invariant.tck), and a
+// function's contract is proven where it returns (see ensures.tck).
 //
 // A chain of else ifs, which nests an if in the else of the one before
 // for every link, is checked in a loop, as is a statement list; only
@@ -225,19 +224,32 @@ func (mut c Checker) check_bad_decls() error {
 // binding ties together the results of a method call (see
 // discarded_pass), then what its bindings of errors tie together (see
 // collect_holds), each statement, the variables nothing read, and then
-// that it ends in a return when it declares a result. A body Go probes
-// for its loops' bounds the port declines before it starts (see
-// body_declined).
+// that it ends in a return when it declares a result. A body whose
+// loops write a variable declared before them is probed first for the
+// bounds they keep (see invariant.tck), after the pass for its method
+// bindings, and its contract, if any, proven at its end (see
+// ensures.tck).
 func (mut c Checker) check_body(d Key) error {
     fn := func_of(c.prog.trees, d)
-    declined := mut c.body_declined(d, fn)?
-    if declined {
-        return not_ported
-    }
+    mut c.note_probe(d, fn)?
     mut c.link_fallthroughs(d.unit, fn.body)?
     mut c.declare_regions(d.unit, fn.body)?
-    appended := replace(mut c.append_lists, make(map[FKey]bool, c_allocator))
+    appended := replace(mut c.appends, make(list[AppendRec], c_allocator))
     drop(own appended)
+    writes := replace(mut c.writes_by_decl, make(map[Key]WRun, c_allocator))
+    drop(own writes)
+    fws := replace(mut c.func_write_list, make(list[FuncWrite], c_allocator))
+    drop(own fws)
+    fwl := replace(mut c.fw_loops, make(list[source.Span], c_allocator))
+    drop(own fwl)
+    c.body_unit = d.unit
+    c.body_nodes = fn.body
+    invs := replace(mut c.invariants, make(map[Key]FRun, c_allocator))
+    drop(own invs)
+    ifs := replace(mut c.inv_facts, make(list[Fact], c_allocator))
+    drop(own ifs)
+    kept := replace(mut c.inv_kept, make(map[InvKept]bool, c_allocator))
+    drop(own kept)
     outer := replace(mut c.body, BodyState{
         fn: d,
         loops: 0,
@@ -255,21 +267,37 @@ func (mut c Checker) check_body(d Key) error {
     if binds {
         e = mut c.discarded_pass(d.unit, fn.body)
     }
+    if e.code == 0 && c.probe_body {
+        // The probe, Go's findInvariants: a discarded pass that finds
+        // the bounds the body's loops keep (see invariant.tck).
+        c.probing = true
+        e = mut c.discarded_pass(d.unit, fn.body)
+        c.probing = false
+    }
+    if e.code == 0 {
+        fresh := replace(mut c.writes_by_decl, make(map[Key]WRun, c_allocator))
+        drop(own fresh)
+    }
     if e.code == 0 {
         e = mut c.collect_holds(d.unit, fn.body)
     }
     body_mark := c.mark()
+    dead := c.dead
     if e.code == 0 {
         old_rel := replace(mut c.fx.related, make(map[FKey]bool, c_allocator))
         drop(own old_rel)
         e = mut c.check_stmts(d.unit, fn.body)
     }
     if e.code == 0 {
-        e = mut c.release(body_mark)
-    }
-    if e.code == 0 {
         e = mut c.report_unread(d.unit, fn.body)
     }
+    if e.code == 0 {
+        e = mut c.prove_end_contract(d)
+    }
+    if e.code == 0 {
+        e = mut c.release(body_mark)
+    }
+    c.dead = dead
     c.in_body = was
     done := replace(mut c.body, outer)
     drop(own done)
@@ -360,9 +388,12 @@ func (mut c Checker) holds_own_arg(unit int64, body ast.Nodes) (bool, error) {
 
 // discarded_pass checks body, in the tree unit, once before the check
 // for good, with what it reports dropped and with records of its own,
-// put back as they were after it, Go's discardedPass (see findCallees):
-// what it leaves is each method call's method, which collect_holds then
-// reads, and what the check for good records again.
+// put back as they were after it, Go's discardedPass and bodyRecords
+// (see findCallees): what has been reported, what working something out
+// found, the holders, the switches' tag writes, the union, range and key
+// bindings, the appends and the writes by declaration. What it leaves is
+// each method call's method, which collect_holds then reads, and what
+// the check for good records again.
 func (mut c Checker) discarded_pass(unit int64, body ast.Nodes) error {
     before := len(c.diags)
     warned := len(c.warnings)
@@ -371,10 +402,13 @@ func (mut c Checker) discarded_pass(unit int64, body ast.Nodes) error {
     locals := replace(mut c.known_locals, make(map[Key]KnownLocal, c_allocator))
     bins := replace(mut c.known_binaries, make(map[Key]KnownBinary, c_allocator))
     hs := replace(mut c.holders, make(map[Key]HolderAt, c_allocator))
-    mut kept_appends := make(map[FKey]bool, c_allocator)
-    for ak, av := range c.append_lists {
-        put(mut kept_appends, ak, av)?
-    }
+    apps := replace(mut c.appends, make(list[AppendRec], c_allocator))
+    wbd := replace(mut c.writes_by_decl, make(map[Key]WRun, c_allocator))
+    tws := replace(mut c.tag_writes, make(map[Key]int64, c_allocator))
+    tps := replace(mut c.tag_pos, make(map[Key]int64, c_allocator))
+    ubs := replace(mut c.union_bound, make(map[Key]Key, c_allocator))
+    rbs := replace(mut c.range_bindings, make(map[Key]Key, c_allocator))
+    rks := replace(mut c.range_keys, make(map[Key]bool, c_allocator))
     mut e := mut c.collect_holds(unit, body)
     if e.code == 0 {
         e = mut c.check_block(unit, body)
@@ -389,8 +423,20 @@ func (mut c Checker) discarded_pass(unit int64, body ast.Nodes) error {
     drop(own old_b)
     old_h := replace(mut c.holders, hs)
     drop(own old_h)
-    old_a := replace(mut c.append_lists, kept_appends)
+    old_a := replace(mut c.appends, apps)
     drop(own old_a)
+    old_w := replace(mut c.writes_by_decl, wbd)
+    drop(own old_w)
+    old_tw := replace(mut c.tag_writes, tws)
+    drop(own old_tw)
+    old_tp := replace(mut c.tag_pos, tps)
+    drop(own old_tp)
+    old_ub := replace(mut c.union_bound, ubs)
+    drop(own old_ub)
+    old_rb := replace(mut c.range_bindings, rbs)
+    drop(own old_rb)
+    old_rk := replace(mut c.range_keys, rks)
+    drop(own old_rk)
     for len(c.diags) > before {
         d, ok := pop(mut c.diags)
         if ok {
@@ -406,74 +452,19 @@ func (mut c Checker) discarded_pass(unit int64, body ast.Nodes) error {
     return e
 }
 
-// body_declined reports whether the port declines the body of d, fn,
-// before checking it: a function with an ensures clause, which is a
-// later stage's, and it notes whether its body Go probes for its loops'
+// note_probe notes whether the body of d, fn, is probed for its loops'
 // bounds, a loop that writes a variable declared before it (see
-// firstPasses).
-func (mut c Checker) body_declined(d Key, fn ast.Func) (bool, error) {
-    if !ast.is_none(fn.contract) {
-        return true, noerror
-    }
+// firstPasses and invariant.tck).
+func (mut c Checker) note_probe(d Key, fn ast.Func) error {
     writes := mut c.loop_writes_outer(d.unit, fn.body)?
     c.probe_body = writes
-    return false, noerror
-}
-
-// probe_declines reports whether the loop k is one Go's probe would take
-// a bound on, in a body Go probes (see loop_writes_outer): it assigns a
-// parameter or a variable declared before it, of an integer type, that
-// can have facts, Go's candidates and counterVar. What the probe finds
-// is S5's, so such a loop is declined; a body whose loops write no such
-// variable is probed to no effect, and checked as it is.
-func (mut c Checker) probe_declines(k Key) (bool, error) {
-    if !c.probe_body {
-        return false, noerror
-    }
-    start := span_at(c.prog.trees, k).start
-    mut stack := make(list[id[ast.Node]], c_allocator)
-    mut kids := make(list[id[ast.Node]], c_allocator)
-    append(mut stack, k.node)?
-    for len(stack) > 0 {
-        top, ok := pop(mut stack)
-        if !ok {
-            break
-        }
-        n := Key{unit: k.unit, node: top}
-        mut targets := make(list[Key], c_allocator)
-        switch kind_at(c.prog.trees, n) {
-        case assign(a):
-            append(mut targets, sub(n, a.target))?
-        case inc_dec(a):
-            append(mut targets, sub(n, a.target))?
-        case multi_assign(m):
-            c.stmt_keys(n.unit, m.targets, mut targets)?
-        default:
-        }
-        for _, t := range targets {
-            nm, is_id := ident_at(c.prog.trees, t)
-            if !is_id || !nm.def.is_decl() {
-                continue
-            }
-            d := key_of_def(nm.def)
-            before := nm.def.kind == ast.def_param || nm.def.kind == ast.def_var && span_at(c.prog.trees, d).start < start
-            if before && mut c.can_hold_fact(d) && types.is_integer(decl_type_of(c.decl_types, d)) {
-                return true, noerror
-            }
-        }
-        clear_nodes(mut kids)
-        children_of(c.prog.trees, n.unit, top, mut kids)?
-        for _, kid := range kids {
-            append(mut stack, kid)?
-        }
-    }
-    return false, noerror
+    return noerror
 }
 
 // loop_writes_outer reports whether a loop in body, in the tree unit,
 // assigns, increments or decrements a name declared before it, a
-// parameter or a variable, Go's hasCounterLoop: Go probes such a body
-// first, which is S5's.
+// parameter or a variable, Go's hasCounterLoop: such a body is probed
+// first (see invariant.tck).
 func (mut c Checker) loop_writes_outer(unit int64, body ast.Nodes) (bool, error) {
     // loops holds the spans of the loops around the node being looked
     // at, innermost last.
@@ -609,7 +600,9 @@ func last_stmt(trees []ast.File, cl Key) Key {
 // for them, and taken out of force once the block is checked.
 func (mut c Checker) check_block(unit int64, body ast.Nodes) error {
     m := c.mark()
+    dead := c.dead
     mut c.check_stmts(unit, body)?
+    c.dead = dead
     return mut c.release(m)
 }
 
@@ -618,13 +611,45 @@ func (mut c Checker) check_block(unit int64, body ast.Nodes) error {
 // what each gives the statements after it (see stmt_facts), and leaving
 // it in force for the caller to release.
 func (mut c Checker) check_stmts(unit int64, body ast.Nodes) error {
+    dead := c.dead
     blk := mut c.new_block_region(unit, body)?
     for i := range count_items(c.prog.trees, unit, body) {
         st := item_at(c.prog.trees, unit, body, i)
         mut c.check_stmt(st)?
-        mut c.stmt_facts(blk, i, st)?
+        mut c.stmt_facts(blk, i, st, dead)?
     }
     return noerror
+}
+
+// count_dead counts the block in dead when the statement st, just
+// checked, leaves it or terminates, Go's checkStmts' last step.
+func (mut c Checker) count_dead(st Key) error {
+    l := mut c.stmt_leaves(st)?
+    if l {
+        c.dead +%= 1
+        return noerror
+    }
+    t := mut c.terminates(st)?
+    if t {
+        c.dead +%= 1
+    }
+    return noerror
+}
+
+// stmt_leaves reports whether a block of the one statement st always
+// leaves the code around it, Go's leaves of body[i:i+1], remembering as
+// leaves does.
+func (mut c Checker) stmt_leaves(st Key) (bool, error) {
+    if c.leave_gen != c.exhaust_gen {
+        old := replace(mut c.leave_memo, make(map[LeaveKey]bool, c_allocator))
+        drop(own old)
+        c.leave_gen = c.exhaust_gen
+    }
+    mut memo := replace(mut c.leave_memo, make(map[LeaveKey]bool, c_allocator))
+    r, e := mut c.block_leaves(st, false, mut memo)
+    old := replace(mut c.leave_memo, memo)
+    drop(own old)
+    return r, e
 }
 
 // check_stmt checks the statement k and everything nested in it, Go's
@@ -657,11 +682,11 @@ func (mut c Checker) check_stmt_at(k Key) error {
     case region_stmt(r):
         return mut c.check_block(k.unit, r.body)
     case unreachable_stmt:
-        return not_ported
+        return mut c.check_leaf_stmt(k)
     case break_stmt:
-        return mut c.check_in_loop(span_at(c.prog.trees, k), "break")
+        return mut c.check_leaf_stmt(k)
     case continue_stmt:
-        return mut c.check_in_loop(span_at(c.prog.trees, k), "continue")
+        return mut c.check_leaf_stmt(k)
     case fallthrough_stmt:
         return mut c.check_fallthrough(k)
     case bad_stmt:
@@ -724,7 +749,7 @@ func (mut c Checker) check_if(k Key, s ast.If) error {
         if !ok {
             continue
         }
-        mut c.stmt_facts(l.blk, 0, l.inner)?
+        mut c.stmt_facts(l.blk, 0, l.inner, -1)?
         mut c.release(l.block)?
         mut c.release(l.branch)?
     }
@@ -775,6 +800,22 @@ func (mut c Checker) check_cond(cond Key) error {
         mut c.errorf(span_at(c.prog.trees, cond), own m)?
     }
     return noerror
+}
+
+// check_leaf_stmt checks k, a break, a continue or an unreachable, none
+// of which holds anything, Go's cases of checkStmtAt for them (see
+// check_in_loop and check_unreachable). One function, called for each,
+// keeps their work off the frame every level of a statement nest holds
+// (see the stack discipline in doc.tck).
+func (mut c Checker) check_leaf_stmt(k Key) error {
+    switch kind_at(c.prog.trees, k) {
+    case break_stmt:
+        return mut c.check_in_loop(span_at(c.prog.trees, k), "break")
+    case continue_stmt:
+        return mut c.check_in_loop(span_at(c.prog.trees, k), "continue")
+    default:
+        return mut c.check_unreachable(k)
+    }
 }
 
 // check_in_loop reports a break or continue, keyword, at sp, that no
@@ -892,7 +933,8 @@ func (mut c Checker) facts_at_fallthrough(k Key, cl Key) error {
 // values then checked only for what is inside them.
 func (mut c Checker) check_return(k Key, s ast.Return) error {
     if c.body.deferred == 0 {
-        return mut c.check_results(k, s)
+        mut c.check_results(k, s)?
+        return mut c.prove_return_contract(k)
     }
     mut m := msg()
     fmt.appendf(mut m, "cannot return from a defer")?
@@ -966,27 +1008,17 @@ func (mut c Checker) check_results(k Key, s ast.Return) error {
 }
 
 // check_for checks a loop's clauses, in source order, then its body,
-// inside which break and continue are allowed, Go's checkFor. A loop
-// whose init declares a mutable variable is declined: it may count, and
-// its counting is a later stage's. An operation of the post statement
-// the facts there do not prove is tried again after the body (see
-// recheck_post).
+// inside which break and continue are allowed, Go's checkFor. The body
+// knows what the condition says, and, when the loop counts its
+// variable, the bound it counts from (see counting.tck). An operation of
+// the post statement the facts there do not prove is tried again after
+// the body (see recheck_post).
 func (mut c Checker) check_for(k Key, s ast.For) error {
-    pd := mut c.probe_declines(k)?
-    if pd {
-        return not_ported
-    }
     if !ast.is_none(s.init) {
-        switch kind_at(c.prog.trees, sub(k, s.init)) {
-        case var_decl(v):
-            if v.mutable {
-                return not_ported
-            }
-        default:
-        }
         mut c.check_simple_stmt(sub(k, s.init))?
     }
     m := c.mark()
+    pushed := mut c.enter_loop(k)?
     if !ast.is_none(s.cond) {
         mut c.check_cond(sub(k, s.cond))?
     }
@@ -1009,6 +1041,7 @@ func (mut c Checker) check_for(k Key, s ast.For) error {
         c.stmt_keys(k.unit, s.body, mut nodes)?
         g := Guard{cond: node_cond(cond), span: span_at(c.prog.trees, cond), kind: guard_cond}
         mut c.assume(g, facts[:], nodes[:])?
+        mut c.assume_counting(k, s, facts[:])?
     }
     c.body.loops +%= 1
     e := mut c.check_block(k.unit, s.body)
@@ -1018,6 +1051,7 @@ func (mut c Checker) check_for(k Key, s ast.For) error {
     }
     mut c.release(body)?
     mut c.recheck_post(k, s, pending)?
+    mut c.leave_loop(k, pushed)?
     return mut c.release(m)
 }
 
@@ -1028,10 +1062,6 @@ func (mut c Checker) check_for(k Key, s ast.For) error {
 // an owned element, is recorded with it (see range_bindings). A fields
 // loop is check_fields_loop's.
 func (mut c Checker) check_for_range(k Key, s ast.ForRange) error {
-    pd := mut c.probe_declines(k)?
-    if pd {
-        return not_ported
-    }
     x := sub(k, s.x)
     switch kind_at(c.prog.trees, x) {
     case fields_of(texpr):
@@ -1096,14 +1126,18 @@ func (mut c Checker) check_for_range(k Key, s ast.ForRange) error {
     c.stmt_keys(k.unit, s.body, mut nodes)?
     mut c.drop_assigned(mut facts, 0, nodes[:])?
     m := c.mark()
+    pushed := mut c.enter_loop(k)?
     c.body.loops +%= 1
     g := Guard{cond: no_cond(), span: header, kind: guard_range}
+    bm := c.mark()
     mut c.assume(g, facts[:], nodes[:])?
     e := mut c.check_block(k.unit, s.body)
     c.body.loops -%= 1
     if e.code != 0 {
         return e
     }
+    mut c.release(bm)?
+    mut c.leave_loop(k, pushed)?
     return mut c.release(m)
 }
 
@@ -1613,58 +1647,6 @@ func (mut c Checker) check_local_var(k Key, v ast.Var) error {
     return mut c.record_append(k, v)
 }
 
-// record_append records the list the variable k, v, just checked, is
-// bound to an append to, when v is an immutable error and the append
-// adds a known number of values to a list that can have facts, Go's
-// recordAppend and appendCount: a successful append bounds the list's
-// length from below, which is S5's, so a length the facts are asked for
-// of a list with such a record is declined (see min_len).
-func (mut c Checker) record_append(k Key, v ast.Var) error {
-    if v.mutable || ast.is_none(v.value) || decl_type_of(c.decl_types, k) != types.error_type {
-        return noerror
-    }
-    value := sub(k, v.value)
-    if !is_builtin_call(c.prog.trees, c.none, value, "append") {
-        return noerror
-    }
-    cl := call_of(c.prog.trees, value)
-    nargs := count_items(c.prog.trees, value.unit, cl.args)
-    if nargs < 2 {
-        return noerror
-    }
-    first := item_at(c.prog.trees, value.unit, cl.args, 0)
-    mut x := no_key()
-    switch kind_at(c.prog.trees, first) {
-    case mut_arg(inner):
-        x = sub(first, inner)
-    default:
-        return noerror
-    }
-    lk, ok := mut c.string_var(x)?
-    if !ok {
-        return noerror
-    }
-    mut count := nargs -% 1
-    if cl.spread {
-        count = 0
-        st := mut c.type_of(item_at(c.prog.trees, value.unit, cl.args, 1))
-        if c.table.is_array(st) {
-            count = c.table.len_of(st)
-        }
-    }
-    if count > 0 {
-        put(mut c.append_lists, lk, true)?
-    }
-    return noerror
-}
-
-// appended_list reports whether k is a list an append recorded may
-// lengthen (see record_append), whose least length is then S5's.
-func (mut c Checker) appended_list(k FKey) bool {
-    _, has := c.append_lists[k]
-    return has
-}
-
 // check_local_var_at checks a local variable's declaration, as
 // check_local_var does before it looks for an append.
 func (mut c Checker) check_local_var_at(k Key, v ast.Var) error {
@@ -1752,7 +1734,8 @@ func (mut c Checker) check_assign(k Key, a ast.Assign) error {
             return e
         }
         mut c.check_compound(k, a, got)?
-        return mut c.check_error_assign(k, target)
+        mut c.check_error_assign(k, target)?
+        return mut c.invariant_write(k)
     }
     typ, ok := mut c.storing_assignable(k, target, value)?
     if ok {
@@ -1762,7 +1745,8 @@ func (mut c Checker) check_assign(k Key, a ast.Assign) error {
         mut c.use(value, got, typ, ctx)?
     }
     mut c.note_target_holder(target, value, 1)?
-    return mut c.check_error_assign(k, target)
+    mut c.check_error_assign(k, target)?
+    return mut c.invariant_write(k)
 }
 
 // check_compound checks a compound assignment whose value has type got,
@@ -1834,7 +1818,8 @@ func (mut c Checker) check_inc_dec(k Key, s ast.IncDec) error {
             mut c.require_step_no_overflow(k, typ)?
         }
     }
-    return mut c.check_error_assign(k, target)
+    mut c.check_error_assign(k, target)?
+    return mut c.invariant_write(k)
 }
 
 // assignable checks that target can be assigned, Go's assignable: a

@@ -161,7 +161,7 @@ pub type Checker struct {
     cs_rel list[RelIdx]
     cs_proven list[list[ProofOnly]]
     cs_chain list[list[Fact]]
-    cs_appended list[map[FKey]bool]
+    cs_appended list[list[AppendRec]]
     cs_passed list[map[Key]Key]
     cs_views list[map[Key]bool]
     cs_marks list[ClosureMarks]
@@ -279,12 +279,15 @@ pub type Checker struct {
     // node (see expr).
     spines map[Key]SpineState
 
-    // in_clause is whether an ensures clause is being checked, and
-    // clause_upper the parameters x an operand x < len(s) of its
-    // top-level && before the one being checked bounds (see
-    // clause_bound).
-    in_clause bool
-    clause_upper map[Key]bool
+    // contracts holds each function's contract, Go's contracts, its facts
+    // in contract_facts and their difference bounds' conditions in
+    // contract_conds (see ensures.tck); defers each function's defers,
+    // Go's defers, in defer_list.
+    contracts map[Key]CRun
+    contract_facts list[ClauseFact]
+    contract_conds list[NoWrap]
+    defers map[Key]DRun
+    defer_list list[Key]
 
     // none is empty, the view a lookup of a name of no tree gives.
     none list[uint8]
@@ -403,13 +406,48 @@ pub type Checker struct {
     // declared before it, which Go probes.
     checked_division Key
     probe_body bool
-    // append_lists holds the lists of the body being checked an append
-    // whose error a variable holds may lengthen, Go's appends (see
-    // record_append).
-    append_lists map[FKey]bool
+    // The probe (see invariant.tck): whether the body is being checked
+    // as one, Go's probing; the loops it is judging writes for, Go's
+    // invFrames, with what of each can run, inv_nodes, and the bounds
+    // each may keep, inv_cands, the next one's id one past inv_next,
+    // and the writes found to keep each, inv_kept; the bounds each loop
+    // keeps, Go's invariants, in inv_facts; and the known values
+    // mutable variables were last given, Go's starts.
+    probing bool
+    inv_frames list[InvFrame]
+    inv_nodes list[Key]
+    inv_cands list[InvCand]
+    inv_next int64
+    inv_kept map[InvKept]bool
+    invariants map[Key]FRun
+    inv_facts list[Fact]
+    starts list[Start]
+    cs_starts list[list[Start]]
+    cs_frames list[list[InvFrame]]
+    // appends holds the calls to append checked so far whose error
+    // proves what they added, Go's appends (see appended.tck), and
+    // writes_by_decl each declaration's writes anywhere in the body of
+    // the function being checked, Go's writesByDecl, their records in
+    // func_write_list and the loops holding them in fw_loops; body_unit
+    // and body_nodes are that body, Go's body.
+    appends list[AppendRec]
+    writes_by_decl map[Key]WRun
+    func_write_list list[FuncWrite]
+    fw_loops list[source.Span]
+    body_unit int64
+    body_nodes ast.Nodes
     leave_memo map[LeaveKey]bool
     leave_gen int64
     exhaust_gen int64
+    // term_memo remembers whether each if, switch and loop asked about
+    // terminates, while term_gen is exhaust_gen (see terminates).
+    term_memo map[Key]bool
+    term_gen int64
+    // dead counts the blocks around the statement being checked that a
+    // statement before it left or terminated, Go's dead: code there
+    // never runs, so an unreachable there is proven, and a contract
+    // proves anything there.
+    dead int64
 
     // The arithmetic (see overflow.tck): the operation a checked form
     // binds, Go's checkedArith, which needs no proof; the slice being
@@ -498,7 +536,7 @@ pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error
         cs_rel: make(list[RelIdx], c_allocator),
         cs_proven: make(list[list[ProofOnly]], c_allocator),
         cs_chain: make(list[list[Fact]], c_allocator),
-        cs_appended: make(list[map[FKey]bool], c_allocator),
+        cs_appended: make(list[list[AppendRec]], c_allocator),
         cs_passed: make(list[map[Key]Key], c_allocator),
         cs_views: make(list[map[Key]bool], c_allocator),
         cs_marks: make(list[ClosureMarks], c_allocator),
@@ -568,8 +606,11 @@ pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error
         none: make(list[uint8], c_allocator),
         spines: make(map[Key]SpineState, c_allocator),
         global_shapes: make(map[Key]uint8, c_allocator),
-        in_clause: false,
-        clause_upper: make(map[Key]bool, c_allocator),
+        contracts: make(map[Key]CRun, c_allocator),
+        contract_facts: make(list[ClauseFact], c_allocator),
+        contract_conds: make(list[NoWrap], c_allocator),
+        defers: make(map[Key]DRun, c_allocator),
+        defer_list: make(list[Key], c_allocator),
         body: BodyState{fn: no_key(), loops: 0, deferred: 0, defer_loops: 0, field_loop: 0, in_rejected_defer: false, clauses: make(list[ClauseAt], c_allocator)},
         in_body: false,
         fall_next: make(map[Key]Key, c_allocator),
@@ -619,10 +660,29 @@ pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error
         fx: fx,
         checked_division: no_key(),
         probe_body: false,
-        append_lists: make(map[FKey]bool, c_allocator),
+        probing: false,
+        inv_frames: make(list[InvFrame], c_allocator),
+        inv_nodes: make(list[Key], c_allocator),
+        inv_cands: make(list[InvCand], c_allocator),
+        inv_next: 0,
+        inv_kept: make(map[InvKept]bool, c_allocator),
+        invariants: make(map[Key]FRun, c_allocator),
+        inv_facts: make(list[Fact], c_allocator),
+        starts: make(list[Start], c_allocator),
+        cs_starts: make(list[list[Start]], c_allocator),
+        cs_frames: make(list[list[InvFrame]], c_allocator),
+        appends: make(list[AppendRec], c_allocator),
+        writes_by_decl: make(map[Key]WRun, c_allocator),
+        func_write_list: make(list[FuncWrite], c_allocator),
+        fw_loops: make(list[source.Span], c_allocator),
+        body_unit: 0,
+        body_nodes: empty_nodes(),
         leave_memo: make(map[LeaveKey]bool, c_allocator),
         leave_gen: 0,
         exhaust_gen: 0,
+        term_memo: make(map[Key]bool, c_allocator),
+        term_gen: 0,
+        dead: 0,
         checked_arith: no_key(),
         checked_slice: no_key(),
         slice_views: make(map[Key]bool, c_allocator),

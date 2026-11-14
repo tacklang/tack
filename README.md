@@ -32,10 +32,11 @@ string literals, since Tack has no `go:embed` (see package builtin).
 and union type, every global with its constant value, and every
 signature, and `constant` float constants with it, exact rationals
 rounded to float32 and float64; and the bodies, their statements and
-expressions, calls, facts, ownership, generics and closures, with the
-instances of generic functions a program needs, as the Go compiler
-checks them. What needs the proofs of arithmetic, loops and contracts
-is declined (see package typeck).
+expressions, calls, facts, arithmetic and relations, loops and
+contracts, ownership, generics and closures, with the instances of
+generic functions a program needs, as the Go compiler checks them. A
+judgment the port cannot make yet, as a declaration's constant after
+an error may need, is declined (see package typeck).
 The driver answers `tack --backends` as the Go compiler does; `tack
 --lex` and `tack --ast` of a single file, a directory or an import
 path, the token dump, a header line before each file's when there are

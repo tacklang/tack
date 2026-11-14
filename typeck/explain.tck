@@ -103,7 +103,7 @@ func (c Checker) guard_subject(g int64, mut out list[uint8]) error {
     if k == guard_range || k == guard_invariant {
         s = "this loop"
     } else if k == guard_count {
-        s = "counting frm this start"
+        s = "counting from this start"
     } else if k == guard_case || k == guard_later_case || k == guard_matched {
         s = "this case"
     } else if k == guard_exit {
@@ -149,6 +149,14 @@ func (c Checker) fact_span(f Fact) source.Span {
 func (c Checker) drop_note(d int64, mut notes list[diag.Related]) error {
     dr := c.drop_at(d)
     mut m := msg()
+    if dr.kind == drop_wraps {
+        mut i int64 = 0
+        for i < dr.text_len {
+            append(mut m, byte_at(c.fx.drop_text[:], dr.text_start +% i))?
+            i +%= 1
+        }
+        return push_note(mut notes, dr.at, own m)
+    }
     append(mut m, []uint8("but ")...)?
     append(mut m, name_of(c.prog.trees, c.none, dr.decl)...)?
     if dr.kind == drop_mut {
@@ -189,13 +197,14 @@ func (mut c Checker) explain(p Proof, mut notes list[diag.Related]) error {
     mut c.facts_about(p.about, mut all)?
     mut facts := make(list[Fact], c_allocator)
     mut dropped := make(list[Fact], c_allocator)
+    kept := mut c.kept_bounds(p.about)?
     for _, f0 := range all {
         if f0.relational() && !p.relations || f0.diff >= 0 || f0.has_ne || c.guard_silent(f0.guard) {
             continue
         }
         mut f := f0
         f.drop = mut c.drop_of(f0)?
-        if f.drop >= 0 && no_interval().implies(f) {
+        if f.drop >= 0 && kept.implies(f) {
             continue
         }
         append(mut facts, f)?
@@ -283,8 +292,8 @@ func (mut c Checker) held_value(k FKey) (bool, error) {
 // supposing, until unsuppose puts the facts back.
 func (mut c Checker) suppose() error {
     if c.fx.edited > 0 {
-        // Go supposes within a supposition only where a later stage's
-        // proofs do.
+        // A supposition within a supposition, which no proof the port
+        // makes asks for, is declined.
         return not_ported
     }
     mut copy := make(list[Fact], c_allocator)
@@ -372,6 +381,24 @@ func (mut c Checker) proven(p Proof) (bool, error) {
 // guard whose facts it dropped, in source order, saying what they prove,
 // and then one at the reason, Go's dropNotes.
 func (mut c Checker) drop_notes(p Proof, dropped []Fact, mut notes list[diag.Related]) error {
+    empty := msg()
+    return mut c.drop_notes_by(p, false, empty[:], dropped, mut notes)
+}
+
+// drop_notes_named is drop_notes with what some facts prove said as
+// describe says it of the subject called name, Go's dropNotes with
+// describe for its claim, as an unreachable's notes say it (see
+// dropped_notes).
+func (mut c Checker) drop_notes_named(name []uint8, dropped []Fact, mut notes list[diag.Related]) error {
+    ext := Extent{of: no_key(), label: msg(), unit: "byte", n: 0, known: false, at_end: false}
+    p := Proof{kind: proof_divisor, about: zero_fkey(), e: no_key(), ix: IxRef{node: no_key(), x: no_key(), index: no_key()}, n: 0, array: false, ext: ext, upper_only: false, to: types.invalid, lower: false, upper: false, relations: false}
+    return mut c.drop_notes_by(p, true, name, dropped, mut notes)
+}
+
+// drop_notes_by is drop_notes, saying what some facts prove as the
+// proof p claims it, or, when named is set, as describe says it of the
+// subject called name.
+func (mut c Checker) drop_notes_by(p Proof, named bool, name []uint8, dropped []Fact, mut notes list[diag.Related]) error {
     mut done := make(list[int64], c_allocator)
     for _, f := range dropped {
         mut seen := false
@@ -382,6 +409,10 @@ func (mut c Checker) drop_notes(p Proof, dropped []Fact, mut notes list[diag.Rel
             continue
         }
         append(mut done, f.drop)?
+        if c.drop_at(f.drop).kind == drop_wraps {
+            c.drop_note(f.drop, mut notes)?
+            continue
+        }
         mut guards := make(list[int64], c_allocator)
         mut starts := make(list[int64], c_allocator)
         for _, o := range dropped {
@@ -413,7 +444,11 @@ func (mut c Checker) drop_notes(p Proof, dropped []Fact, mut notes list[diag.Rel
             mut m := msg()
             c.guard_subject(g, mut m)?
             append(mut m, []uint8(" proves ")...)?
-            mut c.claim(p, mine[:], mut m)?
+            if named {
+                c.describe(name, mine[:], mut m)?
+            } else {
+                mut c.claim(p, mine[:], mut m)?
+            }
             c.guard_where(g, mut m)?
             push_note(mut notes, c.guard_at(g).span, own m)?
         }
