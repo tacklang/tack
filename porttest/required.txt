@@ -17,5 +17,6 @@ check-decls
 check-core
 check-calls
 check-facts
+check-arith
 types-bodies
 probes

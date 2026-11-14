@@ -1,0 +1,17 @@
+package main
+
+// The checked division of two untyped constants settles where it is
+// bound: q is an int64, which cannot be stored in a uint16.
+func f(p uint16) uint16 {
+    mut m := p
+    q, ok := 10 / 2
+    if !ok {
+        return 0
+    }
+    m /= q
+    return m
+}
+
+func main() {
+    return 1
+}

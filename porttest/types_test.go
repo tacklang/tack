@@ -34,7 +34,8 @@ const typesCheck = "types-decls"
 
 // bodiesCheck is the name in required.txt of TestTypes's check that the
 // port checks every body of an input whose Go typed tree's stage is S1,
-// S2a, S2b or S3 (see treeStage): its dump must be of the phase "bodies".
+// S2a, S2b, S3 or S4 (see treeStage): its dump must be of the phase
+// "bodies".
 const bodiesCheck = "types-bodies"
 
 // TestTypes checks what the port's type checker finds, so far in its
@@ -73,6 +74,10 @@ func TestTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	arith, err := checkInputs(stageArith)
+	if err != nil {
+		t.Fatal(err)
+	}
 	owns, err := checkInputs(stageOwn)
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +93,7 @@ func TestTypes(t *testing.T) {
 			{"single", singles, true}, {"packages", pkgs, true},
 			{"check-decls", decls, false}, {"check-core", core, false},
 			{"check-calls", calls, false}, {"check-facts", facts, false},
-			{"check-own", owns, false},
+			{"check-arith", arith, false}, {"check-own", owns, false},
 		} {
 			if group.name == checkStageInfo[stageOwn].stage && !env.required[group.name] {
 				// A declined case's errors are its bodies', which the
@@ -169,12 +174,11 @@ func checkTypes(t *testing.T, in input, portBin string, clean bool) (bool, []str
 }
 
 // bodiesStage reports whether stage, a Go typed tree's (see treeStage),
-// is one whose every body the port's body check covers: S1, S2a, S2b or
-// S3, and S6, ownership, once check-own is in required.txt: until then
-// some of its inputs need the arithmetic or the loops, and the port
-// declines them.
+// is one whose every body the port's body check covers: S1, S2a, S2b,
+// S3 or S4, and S6, ownership, once check-own is in required.txt: until
+// then some of its inputs need the loops, and the port declines them.
 func bodiesStage(stage checkStage) bool {
-	return stage <= stageFacts || stage == stageOwn && env.required[checkStageInfo[stageOwn].stage]
+	return stage <= stageArith || stage == stageOwn && env.required[checkStageInfo[stageOwn].stage]
 }
 
 // typesDiff returns how got, the port's dump, differs from want, Go's,

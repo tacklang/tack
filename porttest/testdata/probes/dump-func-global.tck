@@ -1,0 +1,12 @@
+// --port-types writes a function type's parameters as their types, as
+// Go's walk visits them, with no node for the parameter itself.
+package main
+
+mut f func(int64) int64
+
+func main() {
+    g := f
+    if g(1) == 2 {
+        print("two")
+    }
+}
