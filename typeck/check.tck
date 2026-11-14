@@ -171,7 +171,13 @@ pub type Checker struct {
     // kinds the cases around leave a type parameter, Go's paramKinds,
     // what each name was narrowed to, Go's Ident.Narrowed, how many
     // defaults that never run are around, Go's inCoveredDefault, and how
-    // each case's values match, Go's CaseClause.TypeCases.
+    // each case's values match, Go's CaseClause.TypeCases; and what the
+    // check of each switch on a type parameter being checked keeps
+    // between its cases, innermost last (see check_param_switch).
+    ps_frames list[ParamSwitchFrame]
+    ps_taken list[map[int64]Key]
+    ps_seen list[map[text.Text]Key]
+    ps_names list[list[uint8]]
     narrowed list[Narrowing]
     narrow_saved list[Narrowing]
     narrow_marks list[int64]
@@ -501,6 +507,10 @@ pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error
         narrow_marks: make(list[int64], c_allocator),
         narrow_counts: make(list[int64], c_allocator),
         param_kinds: make(list[ParamKinds], c_allocator),
+        ps_frames: make(list[ParamSwitchFrame], c_allocator),
+        ps_taken: make(list[map[int64]Key], c_allocator),
+        ps_seen: make(list[map[text.Text]Key], c_allocator),
+        ps_names: make(list[list[uint8]], c_allocator),
         narrowed_names: make(map[Key]types.Type, c_allocator),
         in_covered_default: 0,
         tc_recs: make(list[TypeCaseRec], c_allocator),

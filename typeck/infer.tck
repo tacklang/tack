@@ -664,7 +664,8 @@ func (mut c Checker) not_type_arg(got types.Type, mut out list[uint8]) (bool, er
         append(mut out, []uint8("a type argument cannot be an any")...)?
         return true, noerror
     }
-    if c.table.has_type_param(got) && !c.table.is_type_param(got) {
+    made_of := c.table.has_type_param(got)?
+    if made_of && !c.table.is_type_param(got) {
         append(mut out, []uint8("a type argument cannot be made of a type parameter, only be one")...)?
         return true, noerror
     }

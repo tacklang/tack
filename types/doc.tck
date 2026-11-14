@@ -5,11 +5,13 @@ package types
 // without a Table, and the Table (table.tck, Go's table.go), which gives
 // every other type its ID, in the order the type checker adds them,
 // Go's order, names them and answers what a type is made of, owns and
-// holds, and how C lays it out (size.tck, Go's size.go). The walks
-// along the structs and unions a type holds by value keep stacks of
-// their own, since such a chain is as long as its source makes it; the
-// walks into a type's own parts, an element, a key, a parameter, recurse,
-// since a type expression nests only as deeply as the parser allows.
+// holds, and how C lays it out (size.tck, Go's size.go). Every walk
+// keeps a stack of its own, none recursing: along the structs and
+// unions a type holds by value, a chain as long as its source makes it,
+// and into a type's own parts, an element, a key, a parameter, which
+// nest as deeply as the narrowings of nested switches on type
+// parameters build them, not only as deeply as a type expression the
+// parser bounds.
 // Go's Bind, which makes a type parameter stand for a type while the
 // backend lowers an instance, comes with the backend.
 //

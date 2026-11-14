@@ -108,9 +108,12 @@ package typeck
 // passed as any from check_written_args, out of check_arg's frame, or
 // from check_arg, out of check_arg_special's (see any_plain), what
 // checking a closure's body sets apart is kept on the Checker's stacks,
-// not in a frame (see enter_closure), and an instance's body, a fields
-// loop's and a case's are walked from a stack of their own (see
-// inst_walk). clang inlines a function called from one place into its
+// not in a frame (see enter_closure), as is what a switch on a type
+// parameter keeps between its cases (see check_param_switch), an
+// instance's body, a fields loop's and a case's are walked from a stack
+// of their own (see inst_walk), and a type's name, which a switch on a
+// type parameter nested in another's case makes as deep as the nest, is
+// written from a stack of its own too (see types' write_name). clang inlines a function called from one place into its
 // caller, frame and all, so a function on the path a level of nesting
 // takes is kept small by giving what it calls only when it does not
 // nest a call of its own, or does so rarely, a frame of its own: a

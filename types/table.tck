@@ -616,33 +616,39 @@ pub func (t Table) is_type_param(typ Type) bool {
 // has_type_param reports whether typ is a type parameter, or is made of
 // one, as an element, a map's key or value, or a function type's
 // parameter or result, Go's HasTypeParam. A struct or a union is never
-// made of one. Types nest only as deeply as their source, which the
-// parser bounds, so the walk recurses.
-pub func (t Table) has_type_param(typ Type) bool {
-    e, ok := t.entry(typ)
-    if !ok || e.kind == k_struct || e.kind == k_union {
-        return false
-    }
-    if e.kind == k_param {
-        return true
-    }
-    if e.kind == k_func {
-        for _, p := range t.func_params(typ) {
-            if t.has_type_param(p.typ) {
-                return true
-            }
+// made of one. A type may nest as deeply as the narrowings of nested
+// switches on type parameters build it, so its parts are walked with a
+// stack of their own.
+pub func (t Table) has_type_param(typ Type) (bool, error) {
+    mut stack := make(list[Type], c_allocator)
+    append(mut stack, typ)?
+    for len(stack) > 0 {
+        cur, ok := pop(mut stack)
+        if !ok {
+            break
         }
-        for _, r := range t.func_results(typ) {
-            if t.has_type_param(r) {
-                return true
-            }
+        e, known := t.entry(cur)
+        if !known || e.kind == k_struct || e.kind == k_union {
+            continue
         }
-        return false
+        if e.kind == k_param {
+            return true, noerror
+        }
+        if e.kind == k_func {
+            for _, p := range t.func_params(cur) {
+                append(mut stack, p.typ)?
+            }
+            for _, r := range t.func_results(cur) {
+                append(mut stack, r)?
+            }
+            continue
+        }
+        if e.kind == k_map {
+            append(mut stack, e.key)?
+        }
+        append(mut stack, e.elem)?
     }
-    if e.kind == k_map && t.has_type_param(e.key) {
-        return true
-    }
-    return t.has_type_param(e.elem)
+    return false, noerror
 }
 
 // is_array reports whether typ is an array type.
@@ -971,9 +977,60 @@ pub func (t Table) name_in(typ Type, pkg int64) (list[uint8], error) {
 
 // write_name appends typ's name to out, qualified as name_in says for
 // the package pkg, or not at all for a pkg of -1, Go's NameWith. A type
-// nests only as deeply as its source, which the parser bounds, so it
-// recurses.
+// may nest as deeply as the narrowings of nested switches on type
+// parameters build it, so its parts are written from a stack of their
+// own (see write_name_part), not by recursion.
 pub func (t Table) write_name(typ Type, mut out list[uint8], pkg int64) error {
+    mut stack := make(list[NamePart], c_allocator)
+    append(mut stack, NamePart{typ: typ, lit: "", is_lit: false})?
+    mut parts := make(list[NamePart], c_allocator)
+    for len(stack) > 0 {
+        part, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        if part.is_lit {
+            append(mut out, []uint8(part.lit)...)?
+            continue
+        }
+        t.write_name_part(part.typ, mut out, pkg, mut parts)?
+        mut i := len(parts) -% 1
+        for i >= 0 {
+            p, has := parts[i]
+            if has {
+                append(mut stack, p)?
+            }
+            i -%= 1
+        }
+    }
+    return noerror
+}
+
+// NamePart is a part of a type's name write_name has yet to write: the
+// name of the type typ, or, is_lit set, the text lit.
+type NamePart struct {
+    typ Type
+    lit string
+    is_lit bool
+}
+
+// type_part returns the part of a name that is typ's name.
+func type_part(typ Type) NamePart {
+    return NamePart{typ: typ, lit: "", is_lit: false}
+}
+
+// lit_part returns the part of a name that is the text lit.
+func lit_part(lit string) NamePart {
+    return NamePart{typ: invalid, lit: lit, is_lit: true}
+}
+
+// write_name_part appends to out what of typ's name comes before its
+// first part, and sets parts to the rest of it, in order, the names of
+// its parts among the text between them.
+func (t Table) write_name_part(typ Type, mut out list[uint8], pkg int64, mut parts list[NamePart]) error {
+    for len(parts) > 0 {
+        pop(mut parts)
+    }
     if typ.n >= 0 && typ.n < num_basic {
         append(mut out, []uint8(basic_name(typ))...)?
         return noerror
@@ -997,23 +1054,26 @@ pub func (t Table) write_name(typ Type, mut out list[uint8], pkg int64) error {
         return noerror
     }
     if e.kind == k_func {
-        return t.write_func_name(typ, mut out, pkg)
+        return t.func_name_parts(typ, mut out, mut parts)
     }
     if e.kind == k_map {
         append(mut out, []uint8("map[")...)?
-        t.write_name(e.key, mut out, pkg)?
-        append(mut out, ']')?
-        return t.write_name(e.elem, mut out, pkg)
+        append(mut parts, type_part(e.key))?
+        append(mut parts, lit_part("]"))?
+        append(mut parts, type_part(e.elem))?
+        return noerror
     }
     if e.kind == k_array {
         append(mut out, '[')?
         append_int(mut out, e.n)?
         append(mut out, ']')?
-        return t.write_name(e.elem, mut out, pkg)
+        append(mut parts, type_part(e.elem))?
+        return noerror
     }
     if e.kind == k_view {
         append(mut out, []uint8("[]")...)?
-        return t.write_name(e.elem, mut out, pkg)
+        append(mut parts, type_part(e.elem))?
+        return noerror
     }
     if e.kind == k_list {
         append(mut out, []uint8("list[")...)?
@@ -1028,50 +1088,51 @@ pub func (t Table) write_name(typ Type, mut out list[uint8], pkg int64) error {
     } else {
         append(mut out, []uint8("handle[")...)?
     }
-    t.write_name(e.elem, mut out, pkg)?
-    append(mut out, ']')?
+    append(mut parts, type_part(e.elem))?
+    append(mut parts, lit_part("]"))?
     return noerror
 }
 
-// write_func_name appends the name of the function type typ as Go's
-// funcName writes it: func, its parameters' types in parentheses, each
-// after mut, own or scope where it is one, and its results, none, one
-// alone, or several in parentheses.
-func (t Table) write_func_name(typ Type, mut out list[uint8], pkg int64) error {
+// func_name_parts appends to out the start of the name of the function
+// type typ as Go's funcName writes it, and sets parts to the rest: func,
+// its parameters' types in parentheses, each after mut, own or scope
+// where it is one, and its results, none, one alone, or several in
+// parentheses.
+func (t Table) func_name_parts(typ Type, mut out list[uint8], mut parts list[NamePart]) error {
     append(mut out, []uint8("func(")...)?
     for i, p := range t.func_params(typ) {
         if i > 0 {
-            append(mut out, []uint8(", ")...)?
+            append(mut parts, lit_part(", "))?
         }
         if p.is_scope {
-            append(mut out, []uint8("scope ")...)?
+            append(mut parts, lit_part("scope "))?
         }
         if p.is_own {
-            append(mut out, []uint8("own ")...)?
+            append(mut parts, lit_part("own "))?
         }
         if p.is_mut {
-            append(mut out, []uint8("mut ")...)?
+            append(mut parts, lit_part("mut "))?
         }
-        t.write_name(p.typ, mut out, pkg)?
+        append(mut parts, type_part(p.typ))?
     }
-    append(mut out, ')')?
+    append(mut parts, lit_part(")"))?
     nr := len(t.func_results(typ))
     if nr == 1 {
         for _, r := range t.func_results(typ) {
-            append(mut out, ' ')?
-            t.write_name(r, mut out, pkg)?
+            append(mut parts, lit_part(" "))?
+            append(mut parts, type_part(r))?
         }
         return noerror
     }
     if nr > 1 {
-        append(mut out, []uint8(" (")...)?
+        append(mut parts, lit_part(" ("))?
         for i, r := range t.func_results(typ) {
             if i > 0 {
-                append(mut out, []uint8(", ")...)?
+                append(mut parts, lit_part(", "))?
             }
-            t.write_name(r, mut out, pkg)?
+            append(mut parts, type_part(r))?
         }
-        append(mut out, ')')?
+        append(mut parts, lit_part(")"))?
     }
     return noerror
 }

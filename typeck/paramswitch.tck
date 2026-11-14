@@ -188,28 +188,110 @@ func (mut c Checker) kinds_of(param types.Type) uint64 {
 // check_param_switch checks the switch k, s, on a type parameter, Go's
 // checkParamSwitch: its tag, each case's values in source order with
 // what each takes, its body, narrowed when it names one type, and the
-// coverage of the whole.
+// coverage of the whole. What it keeps between its cases is on the
+// Checker's stacks, and everything it does but check the cases' bodies
+// is param_switch_phase's, called from here four times, so that only a
+// small frame is on the stack while a switch nested in a case is
+// checked (see the stack discipline in doc.tck).
 func (mut c Checker) check_param_switch(k Key, s ast.Switch) error {
-    param, ok := mut c.switch_param(k, s)?
-    mut possible := all_kinds()
-    if ok {
-        possible = mut c.kinds_of(param)
-    }
-    mut taken uint64 = 0
-    mut taken_by := make(map[int64]Key, c_allocator)
-    mut seen := make(map[text.Text]Key, c_allocator)
-    mut reported := !ok || has_bad_clause(c.prog.trees, k, s)
-    pname := mut c.type_name(param)?
-    mut default_cl := no_key()
-    n := count_items(c.prog.trees, k.unit, s.cases)
-    for i := range n {
+    mut c.param_switch_phase(k, s, no_key(), ps_start)?
+    for i := range count_items(c.prog.trees, k.unit, s.cases) {
         cl := item_at(c.prog.trees, k.unit, s.cases, i)
-        if is_default(c.prog.trees, cl) {
-            default_cl = cl
-            continue
+        arm, run := mut c.param_switch_phase(k, s, cl, ps_arm)?
+        if run {
+            f := mut c.ps_top()
+            mut c.check_param_case(cl, f.param, f.ok, arm)?
         }
-        arm, arm_ok := mut c.case_types(cl, pname[:], possible, taken, mut taken_by, mut seen)?
-        reported = reported || !arm_ok
+    }
+    left, run := mut c.param_switch_phase(k, s, no_key(), ps_default)?
+    if run {
+        f := mut c.ps_top()
+        mut c.check_param_case(f.default_cl, f.param, f.ok, left)?
+    }
+    mut c.param_switch_phase(k, s, no_key(), ps_end)?
+    return noerror
+}
+
+// ParamSwitchFrame is what checking a switch on a type parameter keeps
+// between its cases but its maps and its name (see check_param_switch):
+// the type parameter, whether the tag is one, the kinds it may stand
+// for, those the cases so far took, whether a case was reported, the
+// default, and whether it never runs.
+type ParamSwitchFrame struct {
+    param types.Type
+    ok bool
+    possible uint64
+    taken uint64
+    reported bool
+    default_cl Key
+    never bool
+}
+
+// The phases of param_switch_phase: before the cases, a case's values,
+// before the default's body, and the end.
+var ps_start uint8 = 0
+var ps_arm uint8 = 1
+var ps_default uint8 = 2
+var ps_end uint8 = 3
+
+// ps_top returns the frame of the innermost switch on a type parameter
+// being checked.
+func (mut c Checker) ps_top() ParamSwitchFrame {
+    f, has := c.ps_frames[len(c.ps_frames) -% 1]
+    if !has {
+        return ParamSwitchFrame{param: types.invalid, ok: false, possible: 0, taken: 0, reported: true, default_cl: no_key(), never: false}
+    }
+    return f
+}
+
+// param_switch_phase does the part phase names of checking the switch
+// k, s, on a type parameter, Go's checkParamSwitch around its cases'
+// bodies, and returns the kinds a body is checked as taking and whether
+// it is checked: ps_start puts its frame on the Checker's stacks; ps_arm
+// checks the values of the case cl, recording what it takes, or records
+// it as the default; ps_default reports a default that never runs and
+// says whether there is a default to check, with the kinds left to it;
+// and ps_end reports the kinds no case covers, or records the switch as
+// exhaustive, and takes the frame off.
+func (mut c Checker) param_switch_phase(k Key, s ast.Switch, cl Key, phase uint8) (uint64, bool, error) {
+    if phase == ps_start {
+        param, ok := mut c.switch_param(k, s)?
+        mut possible := all_kinds()
+        if ok {
+            possible = mut c.kinds_of(param)
+        }
+        reported := !ok || has_bad_clause(c.prog.trees, k, s)
+        pname := mut c.type_name(param)?
+        append(mut c.ps_frames, ParamSwitchFrame{param: param, ok: ok, possible: possible, taken: 0, reported: reported, default_cl: no_key(), never: false})?
+        append(mut c.ps_taken, make(map[int64]Key, c_allocator))?
+        append(mut c.ps_seen, make(map[text.Text]Key, c_allocator))?
+        append(mut c.ps_names, pname)?
+        return 0, false, noerror
+    }
+    mut f, has_f := pop(mut c.ps_frames)
+    if !has_f {
+        return 0, false, noerror
+    }
+    if phase == ps_arm {
+        if is_default(c.prog.trees, cl) {
+            f.default_cl = cl
+            append(mut c.ps_frames, f)?
+            return 0, false, noerror
+        }
+        mut taken_by, has_t := pop(mut c.ps_taken)
+        if !has_t {
+            return 0, false, noerror
+        }
+        mut seen, has_s := pop(mut c.ps_seen)
+        if !has_s {
+            return 0, false, noerror
+        }
+        pname, has_n := pop(mut c.ps_names)
+        if !has_n {
+            return 0, false, noerror
+        }
+        arm, arm_ok := mut c.case_types(cl, pname[:], f.possible, f.taken, mut taken_by, mut seen)?
+        f.reported = f.reported || !arm_ok
         for kd := range num_kinds {
             _, had := taken_by[kd]
             if arm & kind_bit(kd) != 0 && !had {
@@ -217,31 +299,49 @@ func (mut c Checker) check_param_switch(k Key, s ast.Switch) error {
                 put(mut taken_by, kd, v)?
             }
         }
-        taken = taken | arm
-        mut c.check_param_case(cl, param, ok, arm)?
+        f.taken = f.taken | arm
+        append(mut c.ps_frames, f)?
+        append(mut c.ps_taken, taken_by)?
+        append(mut c.ps_seen, seen)?
+        append(mut c.ps_names, pname)?
+        return arm, true, noerror
     }
-    left := possible &^ taken
-    if !is_no_key(default_cl) {
-        never := ok && left == 0 && !reported
-        if never {
+    left := f.possible &^ f.taken
+    if phase == ps_default {
+        if is_no_key(f.default_cl) {
+            append(mut c.ps_frames, f)?
+            return 0, false, noerror
+        }
+        f.never = f.ok && left == 0 && !f.reported
+        if f.never {
+            pname := text_last(c.ps_names[:])?
             mut m := msg()
             fmt.appendf(mut m, "every type %s can stand for is already covered, so this default never runs", pname[:])?
-            mut c.errorf(span_at(c.prog.trees, default_cl), own m)?
+            mut c.errorf(span_at(c.prog.trees, f.default_cl), own m)?
             c.in_covered_default +%= 1
         }
-        mut c.check_param_case(default_cl, param, ok, left)?
-        if never {
+        append(mut c.ps_frames, f)?
+        return left, true, noerror
+    }
+    pop(mut c.ps_taken)
+    pop(mut c.ps_seen)
+    pname, has_n := pop(mut c.ps_names)
+    if !has_n {
+        return 0, false, noerror
+    }
+    if !is_no_key(f.default_cl) {
+        if f.never {
             c.in_covered_default -%= 1
         }
-        return noerror
+        return 0, false, noerror
     }
-    if reported || left == 0 {
+    if f.reported || left == 0 {
         _, was := c.exhaustive[k]
         if !was {
             c.exhaust_gen +%= 1
         }
         put(mut c.exhaustive, k, true)?
-        return noerror
+        return 0, false, noerror
     }
     mut missing := msg()
     mut count int64 = 0
@@ -264,7 +364,17 @@ func (mut c Checker) check_param_switch(k Key, s ast.Switch) error {
     header.end = span_at(c.prog.trees, sub(k, s.tag)).end
     mut m := msg()
     fmt.appendf(mut m, "switch on %s misses %s %s; cover %s or add a default", pname[:], word, missing[:], pronoun)?
-    return mut c.errorf(header, own m)
+    mut c.errorf(header, own m)?
+    return 0, false, noerror
+}
+
+// text_last returns a copy of the last of names, or nothing.
+func text_last(names []list[uint8]) (list[uint8], error) {
+    mut out := msg()
+    if len(names) > 0 {
+        append(mut out, names[len(names) - 1][:]...)?
+    }
+    return out, noerror
 }
 
 // has_bad_clause reports whether a clause of the switch k, s, is one the
