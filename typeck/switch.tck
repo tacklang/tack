@@ -107,6 +107,14 @@ func (mut c Checker) check_switch_chain(k Key, s ast.Switch, tag_type types.Type
         }
     }
     mut c.release(m)?
+    // What the cases were tried with is not needed again, and a body a
+    // fallthrough enters may hold a switch of its own as deep as the
+    // nest, so none of it is kept while those bodies are checked: the
+    // facts of each body are taken out of matched_facts as it is
+    // reached, and matched_facts given back once the last is.
+    give_back_facts(mut at_switch)
+    give_back_facts(mut earlier)
+    mut left := len(entered)
     for i := range n {
         cl := item_at(c.prog.trees, k.unit, s.cases, i)
         _, in := entered[cl]
@@ -123,6 +131,10 @@ func (mut c Checker) check_switch_chain(k Key, s ast.Switch, tag_type types.Type
                 append(mut facts, fact_in(matched_facts[:], sp.start +% j))?
                 j +%= 1
             }
+        }
+        left -%= 1
+        if left == 0 {
+            give_back_facts(mut matched_facts)
         }
         _, is_late := late[cl]
         mut c.check_fallen_into(k, s, cl, f, is_late, mut facts)?
@@ -222,11 +234,30 @@ func (mut c Checker) check_fallen_into(k Key, s ast.Switch, cl Key, frm Key, lat
             j +%= 1
         }
         delete(mut c.fx.fell, frm)
+        // The facts at the fallthrough are read once, here. Those last
+        // recorded are taken off the end, as Go's are dropped with the
+        // map entry, so a nest of switches each falling into a body
+        // holding the next keeps no copy of its own for each level.
+        if sp.start +% sp.count == len(c.fx.fell_facts) {
+            for len(c.fx.fell_facts) > sp.start {
+                pop(mut c.fx.fell_facts)
+            }
+        }
     }
     mut joined := make(list[Fact], c_allocator)
     mut c.join_facts(fell[:], matched[:], mut joined)?
+    // Neither side of the join is read again while the body, which may
+    // hold a switch as deep as the nest, is checked.
+    give_back_facts(mut fell)
+    give_back_facts(mut matched)
     g := Guard{cond: no_cond(), span: c.case_span(cl), kind: guard_fallthrough}
     return mut c.check_case_body(k, cl, false, g, joined[:], late)
+}
+
+// give_back_facts empties facts and gives its memory back.
+func give_back_facts(mut facts list[Fact]) {
+    old := replace(mut facts, make(list[Fact], c_allocator))
+    drop(own old)
 }
 
 // join_facts appends to out what joinFacts gives for a and b, the facts
