@@ -1,0 +1,127 @@
+package main
+
+// The zero value of a type parameter that stands for a string, an error
+// or an Allocator, in instances for each: the result variable of a
+// generic function returning its value through a defer, alone and with
+// an error, and what a checked pop or remove of an empty list[T] and a
+// checked delete of a key a map of T lacks give, the value dropped when
+// there is one. (A type argument cannot be an any.) The C of each is
+// what the same function written for the type itself gets.
+
+type Any interface {
+}
+
+func note() {
+    print("deferred\n")
+}
+
+func keep[T Any](own x T) T {
+    defer {
+        note()
+    }
+    return x
+}
+
+func pair[T Any](own x T) (T, error) {
+    defer {
+        note()
+    }
+    return x, noerror
+}
+
+func last[T Any](mut l list[T], own d T) T {
+    x, ok := pop(mut l)
+    if ok {
+        return x
+    }
+    return d
+}
+
+func take[T Any](mut l list[T], own d T) T {
+    x, ok := remove(mut l, 0)
+    if ok {
+        return x
+    }
+    return d
+}
+
+func gone[T Any](mut m map[int64]T, own d T) T {
+    x, ok := delete(mut m, 1)
+    if ok {
+        return x
+    }
+    return d
+}
+
+func drained[T Any](mut l list[T]) int64 {
+    v, ok := pop(mut l)
+    if ok {
+        drop(own v)
+        return 1
+    }
+    return 0
+}
+
+func strings() error {
+    print(keep("abc"))
+    p, e := pair("p")
+    if e.code != 0 {
+        return e
+    }
+    print(p)
+    mut l := make(list[string], c_allocator)
+    append(mut l, "a")?
+    print(last(mut l, "none"))
+    print(last(mut l, "none"))
+    print(take(mut l, "none"))
+    mut m := make(map[int64]string, c_allocator)
+    print(gone(mut m, "none"))
+    print("\n")
+    return noerror
+}
+
+func errors() error {
+    e := keep(error{code: 3, msg: "bad"})
+    print(e.msg)
+    q, e2 := pair(error{code: 5, msg: "q"})
+    if e2.code != 0 {
+        return e2
+    }
+    print(q.msg)
+    mut es := make(list[error], c_allocator)
+    print(last(mut es, error{code: 4, msg: "default"}).msg)
+    print(take(mut es, error{code: 4, msg: "default"}).msg)
+    mut m := make(map[int64]error, c_allocator)
+    print(gone(mut m, error{code: 4, msg: "default"}).msg)
+    if drained(mut es) == 0 {
+        print(" drained")
+    }
+    print("\n")
+    return noerror
+}
+
+func allocators() error {
+    al := keep(c_allocator)
+    mut k := make(list[int64], al)
+    append(mut k, 1)?
+    mut as := make(list[Allocator], c_allocator)
+    a2 := last(mut as, c_allocator)
+    mut k2 := make(list[int64], a2)
+    append(mut k2, 2)?
+    a3 := take(mut as, c_allocator)
+    mut k3 := make(list[int64], a3)
+    append(mut k3, 3)?
+    if drained(mut as) == 0 {
+        print("allocators ok\n")
+    }
+    return noerror
+}
+
+func main() {
+    s := strings()
+    e := errors()
+    a := allocators()
+    if s.code != 0 || e.code != 0 || a.code != 0 {
+        exit(1)
+    }
+}

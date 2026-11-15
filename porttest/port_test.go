@@ -116,7 +116,8 @@ func (r result) notImplemented() bool {
 }
 
 // TestPort runs every stage over its inputs, comparing the port with the
-// Go compiler, as the package doc says.
+// Go compiler, as the package doc says, and fails a stage for each entry
+// of the divergence list of it whose case it does not have.
 func TestPort(t *testing.T) {
 	ready(t)
 	for _, st := range stages {
@@ -128,7 +129,8 @@ func TestPort(t *testing.T) {
 			if len(ins) == 0 {
 				t.Fatal("the stage has no inputs")
 			}
-			for _, in := range ins {
+			checkDivergencesListed(t, st.name, ins)
+			for _, in := range asSuite(ins, st.name) {
 				t.Run(in.name, func(t *testing.T) {
 					t.Parallel()
 					if st.run != nil {
@@ -164,10 +166,14 @@ func runCaseWith(t *testing.T, st stage, in input, portBin string) {
 }
 
 // declined skips t, the case in of the stage st, which the port answered
-// port, not implemented, or fails it when declineVerdict says it must.
+// port, not implemented, or fails it when declineVerdict says it must,
+// or when the divergence list holds the case, which is never a skip.
 func declined(t *testing.T, st stage, in input, port result) {
 	t.Helper()
 	msg := strings.TrimSuffix(string(port.stderr), "\n")
+	if d, listed := divergenceFor(t, st, in); listed {
+		t.Fatalf("%s, but the port says %q", divergedDecline(d, true), msg)
+	}
 	why, err := declineVerdict(st, in, env.required, func() (emitSet, error) {
 		return classifyCase(st, in, false)
 	})
@@ -209,9 +215,16 @@ func declineVerdict(
 }
 
 // compareResults reports how port, the port's run on in with args,
-// differs from want, the Go compiler's, as the stage st compares them.
+// differs from want, the Go compiler's, as the stage st compares them;
+// or, for a case the divergence list holds, from the output the list
+// records, failing too when Go's no longer differs from it (see
+// compareDivergence).
 func compareResults(t *testing.T, st stage, in input, args []string, want, port result) {
 	t.Helper()
+	if d, listed := divergenceFor(t, st, in); listed {
+		compareDivergence(t, st, in, args, d, want, port)
+		return
+	}
 	if port.code != want.code {
 		t.Errorf("exit status: port %d, Go %d", port.code, want.code)
 	}

@@ -299,6 +299,14 @@ func tallyVerdict(cases []tallyCase, required map[string]bool) []string {
 // declined, which fails one whose every stage is required.
 func runEmitDeep(t *testing.T, stageName string, srcs map[string]string, ports ...string) {
 	t.Helper()
+	runEmitSuite(t, stageName, "", srcs, ports...)
+}
+
+// runEmitSuite is runEmitDeep with suite as each case's suite in the
+// divergence list (see input.suite): none when it is empty, as for every
+// deep test, whose inputs no entry applies to.
+func runEmitSuite(t *testing.T, stageName, suite string, srcs map[string]string, ports ...string) {
+	t.Helper()
 	st := stageNamed(stageName)
 	if st == nil {
 		t.Fatalf("no %s stage", stageName)
@@ -316,7 +324,7 @@ func runEmitDeep(t *testing.T, stageName string, srcs map[string]string, ports .
 				if err := os.WriteFile(filepath.Join(sub, file), []byte(src), 0o600); err != nil {
 					t.Fatal(err)
 				}
-				in := input{name: file, dir: sub, file: file}
+				in := input{name: file, dir: sub, file: file, suite: suite}
 				// Deferred, so that a case the port declines, which skips,
 				// is noted too, as declined.
 				defer func() { tally.note(t, *st, in, !t.Skipped()) }()

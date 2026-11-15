@@ -1,0 +1,2191 @@
+# The known divergences: the cases where the port differs from the Go
+# compiler on purpose, because the Go compiler is wrong there and the
+# port does not copy its bug. Each entry is four sections, all named
+# <id>/<section>:
+#
+#   divergence  the case, as suite: and case:, the stage whose case it is
+#               and its subtest name (suite emit-probes for the programs
+#               of testdata/emit-probes), go:, what the Go compiler gets
+#               wrong, and why:, what the port does instead and what
+#               ruled it, with its date, and same:, none, or the streams,
+#               of exit, stdout and stderr, separated by ", ", that are
+#               not recorded, where the port must give what the Go
+#               compiler gives; a field goes on over the lines after it
+#               that start with two spaces
+#   exit        the port's exit status, or nothing when same names exit
+#   stdout      the port's standard output, as reviewed, or nothing when
+#               same names stdout
+#   stderr      the port's standard error, as reviewed, or nothing when
+#               same names stderr
+#
+# The port is compared with the recorded output in place of the Go
+# compiler's, and the case fails when the Go compiler gives the recorded
+# output, when the port declines it, and when its suite has no such case
+# (see the package doc, Known divergences).
+-- kw-struct/divergence --
+suite: check-backend
+case: invalid/extern-keyword-names/main.tck
+go: Go's claimStruct reports a struct whose tack.h name is a C keyword as
+  "type T", naming no package as tack.h's other messages about a type
+  do, and claims no name for it.
+why: The port names it "type T of package P" and claims its name, so a
+  later clash with it is reported as with any claimed name, decided by
+  the language owner 2026-11-15.
+same: none
+-- kw-struct/exit --
+1
+-- kw-struct/stdout --
+-- kw-struct/stderr --
+
+extern-keyword-names/main.tck:3:6: error: type int of package main cannot be named int in C: it is a C keyword
+02 |	
+03 |	type int struct {
+   |	     ^~~
+04 |	    while int64
+
+extern-keyword-names/main.tck:4:5: error: field while of type int cannot be named while in C: it is a C keyword
+03 |	type int struct {
+04 |	    while int64
+   |	    ^~~~~
+05 |	    x int64
+
+extern-keyword-names/main.tck:6:5: error: field char of type int cannot be named char in C: it is a C keyword
+05 |	    x int64
+06 |	    char bool
+   |	    ^~~~
+07 |	}
+
+extern-keyword-names/main.tck:10:5: error: field register of type Ok cannot be named register in C: it is a C keyword
+09 |	type Ok struct {
+10 |	    register int64
+   |	    ^~~~~~~~
+11 |	}
+
+extern-keyword-names/main.tck:13:6: warning: declared and not used: Unused
+12 |	
+13 |	type Unused struct {
+   |	     ^~~~~~
+14 |	    while int64
+
+extern-keyword-names/main.tck:17:13: warning: declared and not used: f
+16 |	
+17 |	extern func f(a int) Ok
+   |	            ^
+18 |	
+
+-- reserved-helper-clash/divergence --
+suite: check-backend
+case: invalid/extern-header-helper-clash/main.tck
+go: Go's newHeader reports an extern func's C name that tack.h reserves at
+  the func's name, not at the extern("...") C name it is about.
+why: The port reports it at the C name, as the type checker reports a C
+  name C cannot declare, decided by the language owner 2026-11-15.
+same: none
+-- reserved-helper-clash/exit --
+1
+-- reserved-helper-clash/stdout --
+-- reserved-helper-clash/stderr --
+
+extern-header-helper-clash/main.tck:3:6: error: type TACK_STR of package main cannot be named TACK_STR in tack.h: that is a tack.h string helper
+02 |	
+03 |	type TACK_STR struct {
+   |	     ^~~~~~~~
+04 |	}
+
+extern-header-helper-clash/main.tck:6:6: error: type TACK_C_STR_LEN of package main cannot be named TACK_C_STR_LEN in tack.h: that is a tack.h string helper
+05 |	
+06 |	type TACK_C_STR_LEN struct {
+   |	     ^~~~~~~~~~~~~~
+07 |	}
+
+extern-header-helper-clash/main.tck:9:8: error: extern func wrap of package main cannot be named TACK_STR_N in tack.h: that is a tack.h string helper
+08 |	
+09 |	extern("TACK_STR_N") func wrap(s string) TACK_STR
+   |	       ^~~~~~~~~~~~
+10 |	
+
+extern-header-helper-clash/main.tck:9:27: warning: declared and not used: wrap
+08 |	
+09 |	extern("TACK_STR_N") func wrap(s string) TACK_STR
+   |	                          ^~~~
+10 |	
+
+extern-header-helper-clash/main.tck:11:13: warning: declared and not used: size
+10 |	
+11 |	extern func size(t TACK_C_STR_LEN) int64
+   |	            ^~~~
+12 |	
+
+-- reserved-std-guard-clash/divergence --
+suite: check-backend
+case: invalid/extern-header-std-guard-clash/main.tck
+go: Go's newHeader reports an extern func's C name that tack.h reserves at
+  the func's name, not at the extern("...") C name it is about.
+why: The port reports it at the C name, as the type checker reports a C
+  name C cannot declare, decided by the language owner 2026-11-15.
+same: none
+-- reserved-std-guard-clash/exit --
+1
+-- reserved-std-guard-clash/stdout --
+-- reserved-std-guard-clash/stderr --
+
+extern-header-std-guard-clash/main.tck:3:6: error: type TACK_STD_TACK_H of package main cannot be named TACK_STD_TACK_H in tack.h: that is the include guard of std's tack.h
+02 |	
+03 |	type TACK_STD_TACK_H struct {
+   |	     ^~~~~~~~~~~~~~~
+04 |	}
+
+extern-header-std-guard-clash/main.tck:6:13: warning: declared and not used: take
+05 |	
+06 |	extern func take(s string, g TACK_STD_TACK_H)
+   |	            ^~~~
+07 |	
+
+extern-header-std-guard-clash/main.tck:8:8: error: extern func give of package main cannot be named TACK_STD_TACK_H in tack.h: that is the include guard of std's tack.h
+07 |	
+08 |	extern("TACK_STD_TACK_H") func give() string
+   |	       ^~~~~~~~~~~~~~~~~
+09 |	
+
+extern-header-std-guard-clash/main.tck:8:32: warning: declared and not used: give
+07 |	
+08 |	extern("TACK_STD_TACK_H") func give() string
+   |	                               ^~~~
+09 |	
+
+-- reserved-std-macro-clash/divergence --
+suite: check-backend
+case: invalid/extern-header-std-macro-clash/main.tck
+go: Go's newHeader reports an extern func's C name that tack.h reserves at
+  the func's name, not at the extern("...") C name it is about.
+why: The port reports it at the C name, as the type checker reports a C
+  name C cannot declare, decided by the language owner 2026-11-15.
+same: none
+-- reserved-std-macro-clash/exit --
+1
+-- reserved-std-macro-clash/stdout --
+-- reserved-std-macro-clash/stderr --
+
+extern-header-std-macro-clash/main.tck:3:6: error: type NULL of package main cannot be named NULL in tack.h: that is a macro of <stddef.h>
+02 |	
+03 |	type NULL struct {
+   |	     ^~~~
+04 |	}
+
+extern-header-std-macro-clash/main.tck:6:6: error: type INT8_MAX of package main cannot be named INT8_MAX in tack.h: that is a macro of <stdint.h>
+05 |	
+06 |	type INT8_MAX struct {
+   |	     ^~~~~~~~
+07 |	}
+
+extern-header-std-macro-clash/main.tck:9:6: error: type offsetof of package main cannot be named offsetof in tack.h: that is a macro of <stddef.h>
+08 |	
+09 |	type offsetof struct {
+   |	     ^~~~~~~~
+10 |	}
+
+extern-header-std-macro-clash/main.tck:12:13: warning: declared and not used: take
+11 |	
+12 |	extern func take(a NULL, b INT8_MAX, c offsetof)
+   |	            ^~~~
+13 |	
+
+extern-header-std-macro-clash/main.tck:14:13: error: extern func SIZE_MAX of package main cannot be named SIZE_MAX in tack.h: that is a macro of <stdint.h>
+13 |	
+14 |	extern func SIZE_MAX() int64
+   |	            ^~~~~~~~
+15 |	
+
+extern-header-std-macro-clash/main.tck:14:13: warning: declared and not used: SIZE_MAX
+13 |	
+14 |	extern func SIZE_MAX() int64
+   |	            ^~~~~~~~
+15 |	
+
+extern-header-std-macro-clash/main.tck:16:8: error: extern func stop of package main cannot be named unreachable in tack.h: that is a macro of <stddef.h>
+15 |	
+16 |	extern("unreachable") func stop()
+   |	       ^~~~~~~~~~~~~
+17 |	
+
+extern-header-std-macro-clash/main.tck:16:28: warning: declared and not used: stop
+15 |	
+16 |	extern("unreachable") func stop()
+   |	                           ^~~~
+17 |	
+
+extern-header-std-macro-clash/main.tck:18:8: error: extern func widen of package main cannot be named INT64_C in tack.h: that is a macro of <stdint.h>
+17 |	
+18 |	extern("INT64_C") func widen(x int32) int64
+   |	       ^~~~~~~~~
+19 |	
+
+extern-header-std-macro-clash/main.tck:18:24: warning: declared and not used: widen
+17 |	
+18 |	extern("INT64_C") func widen(x int32) int64
+   |	                       ^~~~~
+19 |	
+
+-- reserved-everywhere/divergence --
+suite: probes
+case: header-reserved-everywhere.tck
+go: Go's newHeader reports an extern func's C name that tack.h reserves at
+  the func's name, not at the extern("...") C name it is about.
+why: The port reports it at the C name, as the type checker reports a C
+  name C cannot declare, decided by the language owner 2026-11-15.
+same: none
+-- reserved-everywhere/exit --
+1
+-- reserved-everywhere/stdout --
+-- reserved-everywhere/stderr --
+
+header-reserved-everywhere.tck:9:6: error: type tack_list_grow_ of package main cannot be named tack_list_grow_ in tack.h: that is a tack.h list function
+08 |	
+09 |	type tack_list_grow_ struct {
+   |	     ^~~~~~~~~~~~~~~
+10 |	    TACK_C_ALLOCATOR int64
+
+header-reserved-everywhere.tck:10:5: error: field TACK_C_ALLOCATOR of type tack_list_grow_ cannot be named TACK_C_ALLOCATOR in tack.h: that is a tack.h allocator helper
+09 |	type tack_list_grow_ struct {
+10 |	    TACK_C_ALLOCATOR int64
+   |	    ^~~~~~~~~~~~~~~~
+11 |	    offsetof int64
+
+header-reserved-everywhere.tck:14:5: error: field TACK_TYPE_VIEW_STRING of type tack_list_grow_ cannot be named TACK_TYPE_VIEW_STRING in tack.h: that is a tack.h any type id
+13 |	    INT8_C int64
+14 |	    TACK_TYPE_VIEW_STRING int64
+   |	    ^~~~~~~~~~~~~~~~~~~~~
+15 |	    INT_FAST32_WIDTH int64
+
+header-reserved-everywhere.tck:15:5: error: field INT_FAST32_WIDTH of type tack_list_grow_ cannot be named INT_FAST32_WIDTH in tack.h: that is a macro of <stdint.h>
+14 |	    TACK_TYPE_VIEW_STRING int64
+15 |	    INT_FAST32_WIDTH int64
+   |	    ^~~~~~~~~~~~~~~~
+16 |	    UINTPTR_MAX int64
+
+header-reserved-everywhere.tck:16:5: error: field UINTPTR_MAX of type tack_list_grow_ cannot be named UINTPTR_MAX in tack.h: that is a macro of <stdint.h>
+15 |	    INT_FAST32_WIDTH int64
+16 |	    UINTPTR_MAX int64
+   |	    ^~~~~~~~~~~
+17 |	    TACK_TYPE_INVALID int64
+
+header-reserved-everywhere.tck:17:5: error: field TACK_TYPE_INVALID of type tack_list_grow_ cannot be named TACK_TYPE_INVALID in tack.h: that is a tack.h any type id
+16 |	    UINTPTR_MAX int64
+17 |	    TACK_TYPE_INVALID int64
+   |	    ^~~~~~~~~~~~~~~~~
+18 |	    __bool_true_false_are_defined int64
+
+header-reserved-everywhere.tck:18:5: error: field __bool_true_false_are_defined of type tack_list_grow_ cannot be named __bool_true_false_are_defined in tack.h: that is a macro of <stdbool.h>
+17 |	    TACK_TYPE_INVALID int64
+18 |	    __bool_true_false_are_defined int64
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+19 |	    _Bool int64
+
+header-reserved-everywhere.tck:19:5: error: field _Bool of type tack_list_grow_ cannot be named _Bool in C: it is a C keyword
+18 |	    __bool_true_false_are_defined int64
+19 |	    _Bool int64
+   |	    ^~~~~
+20 |	    register int64
+
+header-reserved-everywhere.tck:20:5: error: field register of type tack_list_grow_ cannot be named register in C: it is a C keyword
+19 |	    _Bool int64
+20 |	    register int64
+   |	    ^~~~~~~~
+21 |	    typedef int64
+
+header-reserved-everywhere.tck:21:5: error: field typedef of type tack_list_grow_ cannot be named typedef in C: it is a C keyword
+20 |	    register int64
+21 |	    typedef int64
+   |	    ^~~~~~~
+22 |	}
+
+header-reserved-everywhere.tck:24:6: error: type TACK_TYPE_VIEW_UNSAFE_SIZE_T of package main cannot be named TACK_TYPE_VIEW_UNSAFE_SIZE_T in tack.h: that is a tack.h any type id
+23 |	
+24 |	type TACK_TYPE_VIEW_UNSAFE_SIZE_T struct {
+   |	     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+25 |	    v int64
+
+header-reserved-everywhere.tck:28:6: error: type tack_any_unsafe_uintptr_t of package main cannot be named tack_any_unsafe_uintptr_t in tack.h: that is a tack.h any helper
+27 |	
+28 |	type tack_any_unsafe_uintptr_t struct {
+   |	     ^~~~~~~~~~~~~~~~~~~~~~~~~
+29 |	    v int64
+
+header-reserved-everywhere.tck:32:6: error: type INT_LEAST8_MAX of package main cannot be named INT_LEAST8_MAX in tack.h: that is a macro of <stdint.h>
+31 |	
+32 |	type INT_LEAST8_MAX struct {
+   |	     ^~~~~~~~~~~~~~
+33 |	    v int64
+
+header-reserved-everywhere.tck:36:6: error: type UINT64_C of package main cannot be named UINT64_C in tack.h: that is a macro of <stdint.h>
+35 |	
+36 |	type UINT64_C struct {
+   |	     ^~~~~~~~
+37 |	    v int64
+
+header-reserved-everywhere.tck:40:6: error: type INT16_C of package main cannot be named INT16_C in tack.h: that is a macro of <stdint.h>
+39 |	
+40 |	type INT16_C struct {
+   |	     ^~~~~~~
+41 |	    v int64
+
+header-reserved-everywhere.tck:44:6: error: type RSIZE_MAX of package main cannot be named RSIZE_MAX in tack.h: that is a macro of <stdint.h>
+43 |	
+44 |	type RSIZE_MAX struct {
+   |	     ^~~~~~~~~
+45 |	    v int64
+
+header-reserved-everywhere.tck:48:6: error: type tack_argv_ of package main cannot be named tack_argv_ in tack.h: that is a tack.h program global
+47 |	
+48 |	type tack_argv_ struct {
+   |	     ^~~~~~~~~~
+49 |	    v int64
+
+header-reserved-everywhere.tck:52:6: error: type tack_any_signed of package main cannot be named tack_any_signed in tack.h: that is a tack.h any helper
+51 |	
+52 |	type tack_any_signed struct {
+   |	     ^~~~~~~~~~~~~~~
+53 |	    v int64
+
+header-reserved-everywhere.tck:56:6: error: type TACK_LIST_POP of package main cannot be named TACK_LIST_POP in tack.h: that is a tack.h list helper
+55 |	
+56 |	type TACK_LIST_POP struct {
+   |	     ^~~~~~~~~~~~~
+57 |	    NULL int64
+
+header-reserved-everywhere.tck:57:5: error: field NULL of type TACK_LIST_POP cannot be named NULL in tack.h: that is a macro of <stddef.h>
+56 |	type TACK_LIST_POP struct {
+57 |	    NULL int64
+   |	    ^~~~
+58 |	}
+
+header-reserved-everywhere.tck:60:6: warning: declared and not used: unused_by_externs
+59 |	
+60 |	type unused_by_externs struct {
+   |	     ^~~~~~~~~~~~~~~~~
+61 |	    NULL int64
+
+header-reserved-everywhere.tck:65:13: warning: declared and not used: f
+64 |	
+65 |	extern func f(a tack_list_grow_, b []TACK_TYPE_VIEW_UNSAFE_SIZE_T, mut c tack_any_unsafe_uintptr_t, d [2]INT_LEAST8_MAX) (UINT64_C, RSIZE_MAX)
+   |	            ^
+66 |	extern func g(mut l list[INT16_C], xs ...tack_argv_) tack_any_signed
+
+header-reserved-everywhere.tck:66:13: warning: declared and not used: g
+65 |	extern func f(a tack_list_grow_, b []TACK_TYPE_VIEW_UNSAFE_SIZE_T, mut c tack_any_unsafe_uintptr_t, d [2]INT_LEAST8_MAX) (UINT64_C, RSIZE_MAX)
+66 |	extern func g(mut l list[INT16_C], xs ...tack_argv_) tack_any_signed
+   |	            ^
+67 |	extern func h(x [3][2]TACK_LIST_POP)
+
+header-reserved-everywhere.tck:67:13: warning: declared and not used: h
+66 |	extern func g(mut l list[INT16_C], xs ...tack_argv_) tack_any_signed
+67 |	extern func h(x [3][2]TACK_LIST_POP)
+   |	            ^
+68 |	extern("TACK_LIST_LEN") func e1()
+
+header-reserved-everywhere.tck:68:8: error: extern func e1 of package main cannot be named TACK_LIST_LEN in tack.h: that is a tack.h list helper
+67 |	extern func h(x [3][2]TACK_LIST_POP)
+68 |	extern("TACK_LIST_LEN") func e1()
+   |	       ^~~~~~~~~~~~~~~
+69 |	extern("INTMAX_C") func e2()
+
+header-reserved-everywhere.tck:68:30: warning: declared and not used: e1
+67 |	extern func h(x [3][2]TACK_LIST_POP)
+68 |	extern("TACK_LIST_LEN") func e1()
+   |	                             ^~
+69 |	extern("INTMAX_C") func e2()
+
+header-reserved-everywhere.tck:69:8: error: extern func e2 of package main cannot be named INTMAX_C in tack.h: that is a macro of <stdint.h>
+68 |	extern("TACK_LIST_LEN") func e1()
+69 |	extern("INTMAX_C") func e2()
+   |	       ^~~~~~~~~~
+70 |	extern("TACK_TYPE_VIEW_BOOL") func e3()
+
+header-reserved-everywhere.tck:69:25: warning: declared and not used: e2
+68 |	extern("TACK_LIST_LEN") func e1()
+69 |	extern("INTMAX_C") func e2()
+   |	                        ^~
+70 |	extern("TACK_TYPE_VIEW_BOOL") func e3()
+
+header-reserved-everywhere.tck:70:8: error: extern func e3 of package main cannot be named TACK_TYPE_VIEW_BOOL in tack.h: that is a tack.h any type id
+69 |	extern("INTMAX_C") func e2()
+70 |	extern("TACK_TYPE_VIEW_BOOL") func e3()
+   |	       ^~~~~~~~~~~~~~~~~~~~~
+71 |	extern("UINT8_WIDTH") func e4()
+
+header-reserved-everywhere.tck:70:36: warning: declared and not used: e3
+69 |	extern("INTMAX_C") func e2()
+70 |	extern("TACK_TYPE_VIEW_BOOL") func e3()
+   |	                                   ^~
+71 |	extern("UINT8_WIDTH") func e4()
+
+header-reserved-everywhere.tck:71:8: error: extern func e4 of package main cannot be named UINT8_WIDTH in tack.h: that is a macro of <stdint.h>
+70 |	extern("TACK_TYPE_VIEW_BOOL") func e3()
+71 |	extern("UINT8_WIDTH") func e4()
+   |	       ^~~~~~~~~~~~~
+72 |	extern("SIG_ATOMIC_WIDTH") func e5()
+
+header-reserved-everywhere.tck:71:28: warning: declared and not used: e4
+70 |	extern("TACK_TYPE_VIEW_BOOL") func e3()
+71 |	extern("UINT8_WIDTH") func e4()
+   |	                           ^~
+72 |	extern("SIG_ATOMIC_WIDTH") func e5()
+
+header-reserved-everywhere.tck:72:8: error: extern func e5 of package main cannot be named SIG_ATOMIC_WIDTH in tack.h: that is a macro of <stdint.h>
+71 |	extern("UINT8_WIDTH") func e4()
+72 |	extern("SIG_ATOMIC_WIDTH") func e5()
+   |	       ^~~~~~~~~~~~~~~~~~
+73 |	
+
+header-reserved-everywhere.tck:72:33: warning: declared and not used: e5
+71 |	extern("UINT8_WIDTH") func e4()
+72 |	extern("SIG_ATOMIC_WIDTH") func e5()
+   |	                                ^~
+73 |	
+
+-- header-clashes/divergence --
+suite: probes
+case: header-clashes.tck
+go: Go's newHeader reports extern func pp, whose C name P clashes with
+  type P, at the func's name, not at the extern("P") C name it is about,
+  and reports type char, a C keyword, naming no package and claiming no
+  name for it.
+why: The port reports the clash at the C name, and names char with its
+  package and claims its name, decided by the language owner 2026-11-15.
+same: none
+-- header-clashes/exit --
+1
+-- header-clashes/stdout --
+-- header-clashes/stderr --
+
+header-clashes.tck:13:6: error: type tack_array_2_tack_array_3_P of package main and array type [2][3]P are both named tack_array_2_tack_array_3_P in tack.h
+12 |	
+13 |	type tack_array_2_tack_array_3_P struct {
+   |	     ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+14 |	    v int64
+header-clashes.tck:37:17: note: array type [2][3]P is declared here
+36 |	
+37 |	extern func a(x [2][3]P, y tack_array_2_tack_array_3_P, z [2][3]P)
+   |	                ^~~~~~~
+38 |	extern func b(v []int64, w tack_view_int64, mut l list[P], m tack_list_P)
+
+header-clashes.tck:17:6: error: type tack_view_int64 of package main and view type []int64 are both named tack_view_int64 in tack.h
+16 |	
+17 |	type tack_view_int64 struct {
+   |	     ^~~~~~~~~~~~~~~
+18 |	    v int64
+header-clashes.tck:38:17: note: view type []int64 is declared here
+37 |	extern func a(x [2][3]P, y tack_array_2_tack_array_3_P, z [2][3]P)
+38 |	extern func b(v []int64, w tack_view_int64, mut l list[P], m tack_list_P)
+   |	                ^~~~~~~
+39 |	extern func r() (int64, tack_results_r)
+
+header-clashes.tck:21:6: error: type tack_list_P of package main and list type list[P] are both named tack_list_P in tack.h
+20 |	
+21 |	type tack_list_P struct {
+   |	     ^~~~~~~~~~~
+22 |	    v int64
+header-clashes.tck:38:51: note: list type list[P] is declared here
+37 |	extern func a(x [2][3]P, y tack_array_2_tack_array_3_P, z [2][3]P)
+38 |	extern func b(v []int64, w tack_view_int64, mut l list[P], m tack_list_P)
+   |	                                                  ^~~~~~~
+39 |	extern func r() (int64, tack_results_r)
+
+header-clashes.tck:29:6: warning: declared and not used: gs
+28 |	
+29 |	type gs struct {
+   |	     ^~
+30 |	    v int64
+
+header-clashes.tck:33:6: error: type char of package main cannot be named char in C: it is a C keyword
+32 |	
+33 |	type char struct {
+   |	     ^~~~
+34 |	    v int64
+
+header-clashes.tck:37:13: warning: declared and not used: a
+36 |	
+37 |	extern func a(x [2][3]P, y tack_array_2_tack_array_3_P, z [2][3]P)
+   |	            ^
+38 |	extern func b(v []int64, w tack_view_int64, mut l list[P], m tack_list_P)
+
+header-clashes.tck:38:13: warning: declared and not used: b
+37 |	extern func a(x [2][3]P, y tack_array_2_tack_array_3_P, z [2][3]P)
+38 |	extern func b(v []int64, w tack_view_int64, mut l list[P], m tack_list_P)
+   |	            ^
+39 |	extern func r() (int64, tack_results_r)
+
+header-clashes.tck:39:13: error: the results of extern func r and type tack_results_r of package main are both named tack_results_r in tack.h
+38 |	extern func b(v []int64, w tack_view_int64, mut l list[P], m tack_list_P)
+39 |	extern func r() (int64, tack_results_r)
+   |	            ^
+40 |	extern("gs") func g(c []char)
+header-clashes.tck:25:6: note: type tack_results_r of package main is declared here
+24 |	
+25 |	type tack_results_r struct {
+   |	     ^~~~~~~~~~~~~~
+26 |	    v int64
+
+header-clashes.tck:39:13: warning: declared and not used: r
+38 |	extern func b(v []int64, w tack_view_int64, mut l list[P], m tack_list_P)
+39 |	extern func r() (int64, tack_results_r)
+   |	            ^
+40 |	extern("gs") func g(c []char)
+
+header-clashes.tck:40:19: warning: declared and not used: g
+39 |	extern func r() (int64, tack_results_r)
+40 |	extern("gs") func g(c []char)
+   |	                  ^
+41 |	extern func q() (int64, bool)
+
+header-clashes.tck:41:13: warning: declared and not used: q
+40 |	extern("gs") func g(c []char)
+41 |	extern func q() (int64, bool)
+   |	            ^
+42 |	extern("P") func pp()
+
+header-clashes.tck:42:8: error: extern func pp of package main and type P of package main are both named P in tack.h
+41 |	extern func q() (int64, bool)
+42 |	extern("P") func pp()
+   |	       ^~~
+43 |	
+header-clashes.tck:9:6: note: type P of package main is declared here
+08 |	
+09 |	type P struct {
+   |	     ^
+10 |	    v int64
+
+header-clashes.tck:42:18: warning: declared and not used: pp
+41 |	extern func q() (int64, bool)
+42 |	extern("P") func pp()
+   |	                 ^~
+43 |	
+
+header-clashes.tck:47:6: warning: declared and not used: tack_results_q
+46 |	
+47 |	type tack_results_q struct {
+   |	     ^~~~~~~~~~~~~~
+48 |	    v int64
+
+-- value-statements/divergence --
+suite: emit-probes
+case: value-statements.tck
+go: Go's onlyValue leaves has out: has(m, k) written as a statement is not
+  reported, and its backend lowers it to a call of a C function that
+  does not exist, which does not compile. make(T, alloc) written as a
+  statement, for a T that owns nothing, is not reported.
+why: A builtin that only gives a value, written as a statement, is reported
+  as not used, as len is: has, and make whose value owns nothing; has's
+  value is dropped, as len's is, decided by the language owner
+  2026-11-15. The C compiles and runs under the address, undefined
+  behavior and leak sanitizers with clang -Wall -Werror.
+same: none
+-- value-statements/exit --
+0
+-- value-statements/stdout --
+// Generated by the Tack compiler. Do not edit.
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <tack/tack.h>
+
+typedef struct {
+    int64_t f_x;
+    int64_t f_y;
+} tack_4_main5_Point;
+
+typedef struct {
+    int64_t key;
+    int64_t val;
+    uint64_t hash;
+    bool live;
+} tack_ment_21;
+
+typedef struct {
+    tack_ment_21 *entries;
+    int64_t len;
+    int64_t used;
+    int64_t cap;
+    int64_t *slots;
+    int64_t nslots;
+    tack_allocator alloc;
+} tack_map_21;
+
+typedef struct {
+    int64_t value;
+    uint32_t gen;
+    uint32_t next;
+    bool live;
+} tack_pool_slot_22;
+
+typedef struct {
+    tack_pool_slot_22 *ptr;
+    int64_t len;
+    int64_t cap;
+    tack_allocator alloc;
+    int64_t count;
+    uint32_t free;
+    uint32_t tag;
+} tack_pool_22;
+
+static void tack_free_21(const tack_map_21 *m) {
+    tack_list_free_(m->entries, m->cap, sizeof (tack_ment_21), _Alignof (tack_ment_21), m->alloc);
+    tack_list_free_(m->slots, m->nslots, sizeof (int64_t), _Alignof (int64_t), m->alloc);
+}
+
+static void tack_free_22(const tack_pool_22 *v) {
+    tack_list_free_(v->ptr, v->cap, sizeof (tack_pool_slot_22), _Alignof (tack_pool_slot_22), v->alloc);
+}
+
+static tack_pool_slot_22 *tack_pool_find_22(const tack_pool_22 *p, tack_handle_ h) {
+    if (h.tag != p->tag || (int64_t)h.index >= p->len) {
+        return 0;
+    }
+    tack_pool_slot_22 *s = &p->ptr[h.index];
+    return s->live && s->gen == h.gen ? s : 0;
+}
+
+__attribute__((unused)) static int64_t *tack_pool_at_22(const tack_pool_22 *p, tack_handle_ h) {
+    return &p->ptr[h.index].value;
+}
+
+static tack_pool_inserted_ tack_pool_insert_22(tack_pool_22 *p, int64_t v) {
+    uint32_t i;
+    if (p->free != 0) {
+        i = p->free - 1;
+        p->free = p->ptr[i].next;
+    } else if (tack_pool_room_(p->len) && TACK_LIST_RESERVE(p, 1)) {
+        i = (uint32_t)p->len;
+        p->ptr[i].gen = tack_pool_gen0_();
+        p->len++;
+    } else {
+        return (tack_pool_inserted_){{0, 0, 0}, TACK_ERROR(1, "out of memory")};
+    }
+    tack_pool_slot_22 *s = &p->ptr[i];
+    s->value = v;
+    s->next = 0;
+    s->live = true;
+    p->count++;
+    return (tack_pool_inserted_){{i, s->gen, p->tag}, TACK_NO_ERROR};
+}
+
+__attribute__((unused)) static int64_t tack_pool_take_22(tack_pool_22 *p, tack_pool_slot_22 *s) {
+    int64_t v = s->value;
+    s->value = 0;
+    s->live = false;
+    p->count--;
+    if (s->gen != 4294967295u) {
+        s->gen++;
+        s->next = p->free;
+        p->free = (uint32_t)(s - p->ptr) + 1;
+    }
+    return v;
+}
+
+static uint64_t tack_mix_(uint64_t x) {
+    x ^= x >> 30;
+    x *= 0xbf58476d1ce4e5b9u;
+    x ^= x >> 27;
+    x *= 0x94d049bb133111ebu;
+    x ^= x >> 31;
+    return x;
+}
+
+static uint64_t tack_hash_1(const int64_t *k) {
+    return tack_mix_((uint64_t)(int64_t)*k);
+}
+
+static int64_t tack_mfind_21(const tack_map_21 *m, const int64_t *k, uint64_t h) {
+    if (m->nslots == 0) {
+        return -1;
+    }
+    uint64_t mask = (uint64_t)m->nslots - 1;
+    for (uint64_t i = h & mask;; i = (i + 1) & mask) {
+        int64_t s = m->slots[i];
+        if (s == 0) {
+            return -1;
+        }
+        if (s > 0 && m->entries[s - 1].hash == h && m->entries[s - 1].key == (*k)) {
+            return (int64_t)i;
+        }
+    }
+}
+
+static bool tack_mhas_21(const tack_map_21 *m, int64_t key) {
+    return tack_mfind_21(m, &key, tack_hash_1(&key)) >= 0;
+}
+
+__attribute__((unused)) static int64_t *tack_mat_21(const tack_map_21 *m, int64_t key) {
+    return (int64_t *)&m->entries[m->slots[tack_mfind_21(m, &key, tack_hash_1(&key))] - 1].val;
+}
+
+static bool tack_mgrow_21(tack_map_21 *m) {
+    if (m->used < m->cap && (m->used + 1) * 4 <= m->nslots * 3) {
+        return true;
+    }
+    int64_t ns = 8;
+    while (ns * 3 < (m->len + 1) * 8) {
+        if (ns > INT64_MAX / 8) {
+            return false;
+        }
+        ns *= 2;
+    }
+    int64_t got = 0;
+    int64_t *slots = tack_list_grow_(0, 0, ns, sizeof (int64_t), _Alignof (int64_t), m->alloc, &got);
+    if (slots == 0) {
+        return false;
+    }
+    ns = got;
+    tack_ment_21 *entries = m->entries;
+    int64_t cap = m->cap;
+    if (m->len + 1 > cap) {
+        entries = tack_list_grow_(m->entries, m->cap, m->len + 1, sizeof (tack_ment_21), _Alignof (tack_ment_21), m->alloc, &cap);
+        if (entries == 0) {
+            tack_list_free_(slots, ns, sizeof (int64_t), _Alignof (int64_t), m->alloc);
+            return false;
+        }
+    }
+    int64_t used = 0;
+    for (int64_t i = 0; i < m->used; i++) {
+        if (entries[i].live) {
+            entries[used++] = entries[i];
+        }
+    }
+    for (int64_t i = 0; i < ns; i++) {
+        slots[i] = 0;
+    }
+    uint64_t mask = (uint64_t)ns - 1;
+    for (int64_t i = 0; i < used; i++) {
+        uint64_t j = entries[i].hash & mask;
+        while (slots[j] != 0) {
+            j = (j + 1) & mask;
+        }
+        slots[j] = i + 1;
+    }
+    tack_list_free_(m->slots, m->nslots, sizeof (int64_t), _Alignof (int64_t), m->alloc);
+    m->entries = entries;
+    m->cap = cap;
+    m->used = used;
+    m->slots = slots;
+    m->nslots = ns;
+    return true;
+}
+
+static bool tack_mput_21(tack_map_21 *m, int64_t key, int64_t val) {
+    uint64_t h = tack_hash_1(&key);
+    int64_t s = tack_mfind_21(m, &key, h);
+    if (s >= 0) {
+        tack_ment_21 *e = &m->entries[m->slots[s] - 1];
+        e->val = val;
+        return true;
+    }
+    if (!tack_mgrow_21(m)) {
+        return false;
+    }
+    uint64_t mask = (uint64_t)m->nslots - 1;
+    uint64_t i = h & mask;
+    while (m->slots[i] > 0) {
+        i = (i + 1) & mask;
+    }
+    m->slots[i] = m->used + 1;
+    m->entries[m->used] = (tack_ment_21){.key = key, .val = val, .hash = h, .live = true};
+    m->used++;
+    m->len++;
+    return true;
+}
+
+__attribute__((unused)) static int64_t tack_mtake_21(tack_map_21 *m, int64_t s) {
+    tack_ment_21 *e = &m->entries[m->slots[s] - 1];
+    int64_t val = e->val;
+    e->live = false;
+    m->slots[s] = -1;
+    m->len--;
+    if (m->len == 0) {
+        m->used = 0;
+        for (int64_t i = 0; i < m->nslots; i++) {
+            m->slots[i] = 0;
+        }
+    }
+    return val;
+}
+
+static const unsigned char tack_str0[5] = {107, 101, 121, 10, 0};
+static const unsigned char tack_str1[6] = {98, 111, 116, 104, 10, 0};
+static const unsigned char tack_str2[14] = {111, 117, 116, 32, 111, 102, 32, 109, 101, 109, 111, 114, 121, 0};
+
+void tack_builtin_print(tack_string);
+_Noreturn void tack_builtin_exit(int32_t);
+
+static int64_t tack_4_main3_key(int64_t p_k);
+static tack_error tack_4_main3_run(void);
+static void tack_4_main4_main(void);
+
+static int64_t tack_4_main3_key(int64_t p_k) {
+    tack_builtin_print((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});
+    return p_k;
+}
+
+static tack_error tack_4_main3_run(void) {
+    tack_map_21 *tack_o0;
+    int64_t tack_o1;
+    int64_t tack_o2;
+    tack_map_21 tack_o5;
+    int64_t tack_o6;
+    tack_map_21 tack_o7;
+    int64_t tack_o8;
+    tack_error tack_ret4 = (tack_error){};
+    tack_map_21 v_m = ((tack_map_21){.alloc = TACK_C_ALLOCATOR});
+    ({ tack_error tack_q3 = (tack_o0 = &v_m, tack_o1 = 1, tack_o2 = 2, tack_mput_21(tack_o0, tack_o1, tack_o2) ? (tack_error){} : (tack_error){1, {tack_str2, TACK_C_STR_LEN(tack_str2)}}); if (tack_q3.code != 0) { tack_ret4 = tack_q3; goto tack_defer0_1; } });
+    (void)((tack_o5 = (v_m), tack_o6 = tack_4_main3_key(1), tack_mhas_21(&tack_o5, tack_o6)));
+    (void)((tack_o7 = (v_m), tack_o8 = tack_4_main3_key(5), tack_mhas_21(&tack_o7, tack_o8)));
+    (void)((v_m).len);
+    tack_pool_22 v_p = ((tack_pool_22){.alloc = TACK_C_ALLOCATOR, .tag = tack_pool_tag_()});
+    const tack_handle_ v_h = ({ tack_pool_inserted_ tack_q9 = tack_pool_insert_22(&v_p, 3); if (tack_q9.r1.code != 0) { tack_ret4 = tack_q9.r1; goto tack_defer0_2; } tack_q9.r0; });
+    (void)((tack_pool_find_22(&(v_p), v_h) != 0));
+    (void)(((void)(TACK_C_ALLOCATOR), 0));
+    (void)(((void)(TACK_C_ALLOCATOR), (tack_4_main5_Point){}));
+    if (tack_mhas_21(&(v_m), 1) && (tack_pool_find_22(&(v_p), v_h) != 0)) {
+        tack_builtin_print((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)});
+    }
+    tack_ret4 = (tack_error){};
+    goto tack_defer0_2;
+    tack_defer0_2: ;
+    tack_free_22(&v_p);
+    tack_defer0_1: ;
+    tack_free_21(&v_m);
+    return tack_ret4;
+}
+
+static void tack_4_main4_main(void) {
+    const tack_error v_e = tack_4_main3_run();
+    if (v_e.code != 0) {
+        tack_builtin_exit(1);
+    }
+}
+
+int tack_argc_;
+char **tack_argv_;
+
+int main(int argc, char **argv) {
+    tack_start_();
+    tack_argc_ = argc;
+    tack_argv_ = argv;
+    tack_4_main4_main();
+    tack_end_();
+    return 0;
+}
+-- value-statements/stderr --
+
+value-statements.tck:21:5: warning: has(m, key(1)) is not used
+20 |	    put(mut m, 1, 2)?
+21 |	    has(m, key(1));
+   |	    ^~~~~~~~~~~~~~
+22 |	    has(m, key(5));
+
+value-statements.tck:22:5: warning: has(m, key(5)) is not used
+21 |	    has(m, key(1));
+22 |	    has(m, key(5));
+   |	    ^~~~~~~~~~~~~~
+23 |	    len(m);
+
+value-statements.tck:23:5: warning: len(m) is not used
+22 |	    has(m, key(5));
+23 |	    len(m);
+   |	    ^~~~~~
+24 |	    mut p := make(pool[int64], c_allocator)
+
+value-statements.tck:26:5: warning: has(p, h) is not used
+25 |	    h := insert(mut p, 3)?
+26 |	    has(p, h);
+   |	    ^~~~~~~~~
+27 |	    make(int64, c_allocator);
+
+value-statements.tck:27:5: warning: make(int64, c_allocator) is not used
+26 |	    has(p, h);
+27 |	    make(int64, c_allocator);
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~
+28 |	    make(Point, c_allocator);
+
+value-statements.tck:28:5: warning: make(Point, c_allocator) is not used
+27 |	    make(int64, c_allocator);
+28 |	    make(Point, c_allocator);
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~
+29 |	    if has(m, 1) && has(p, h) {
+
+-- string-zero/divergence --
+suite: emit-probes
+case: string-zero.tck
+go: Go pools the empty string only where its walk sees a string start from
+  its zero value, so the zero value of a checked pop, remove, delete or
+  pool remove of strings gets an empty label, (tack_string){,
+  TACK_C_STR_LEN()}, and a pool[string]'s take helper names the pooled
+  empty string before the pool declares it: neither compiles.
+why: The port pools the empty string after the walk when a zero value needs
+  it, and the take helper leaves a zeroed string in the slot, under the
+  lead's ruling of 2026-11-15 that the language already defines the zero
+  values, which the language owner may overrule. The C compiles and runs
+  under the address, undefined behavior and leak sanitizers with clang
+  -Wall -Werror.
+same: none
+-- string-zero/exit --
+0
+-- string-zero/stdout --
+// Generated by the Tack compiler. Do not edit.
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <tack/tack.h>
+
+typedef struct {
+    tack_string *ptr;
+    int64_t len;
+    int64_t cap;
+    tack_allocator alloc;
+} tack_list_20;
+
+typedef struct {
+    int64_t key;
+    tack_string val;
+    uint64_t hash;
+    bool live;
+} tack_ment_21;
+
+typedef struct {
+    tack_ment_21 *entries;
+    int64_t len;
+    int64_t used;
+    int64_t cap;
+    int64_t *slots;
+    int64_t nslots;
+    tack_allocator alloc;
+} tack_map_21;
+
+typedef struct {
+    tack_string value;
+    uint32_t gen;
+    uint32_t next;
+    bool live;
+} tack_pool_slot_22;
+
+typedef struct {
+    tack_pool_slot_22 *ptr;
+    int64_t len;
+    int64_t cap;
+    tack_allocator alloc;
+    int64_t count;
+    uint32_t free;
+    uint32_t tag;
+} tack_pool_22;
+
+static void tack_free_21(const tack_map_21 *m) {
+    tack_list_free_(m->entries, m->cap, sizeof (tack_ment_21), _Alignof (tack_ment_21), m->alloc);
+    tack_list_free_(m->slots, m->nslots, sizeof (int64_t), _Alignof (int64_t), m->alloc);
+}
+
+static void tack_free_22(const tack_pool_22 *v) {
+    tack_list_free_(v->ptr, v->cap, sizeof (tack_pool_slot_22), _Alignof (tack_pool_slot_22), v->alloc);
+}
+
+static tack_pool_slot_22 *tack_pool_find_22(const tack_pool_22 *p, tack_handle_ h) {
+    if (h.tag != p->tag || (int64_t)h.index >= p->len) {
+        return 0;
+    }
+    tack_pool_slot_22 *s = &p->ptr[h.index];
+    return s->live && s->gen == h.gen ? s : 0;
+}
+
+__attribute__((unused)) static tack_string *tack_pool_at_22(const tack_pool_22 *p, tack_handle_ h) {
+    return &p->ptr[h.index].value;
+}
+
+static tack_pool_inserted_ tack_pool_insert_22(tack_pool_22 *p, tack_string v) {
+    uint32_t i;
+    if (p->free != 0) {
+        i = p->free - 1;
+        p->free = p->ptr[i].next;
+    } else if (tack_pool_room_(p->len) && TACK_LIST_RESERVE(p, 1)) {
+        i = (uint32_t)p->len;
+        p->ptr[i].gen = tack_pool_gen0_();
+        p->len++;
+    } else {
+        return (tack_pool_inserted_){{0, 0, 0}, TACK_ERROR(1, "out of memory")};
+    }
+    tack_pool_slot_22 *s = &p->ptr[i];
+    s->value = v;
+    s->next = 0;
+    s->live = true;
+    p->count++;
+    return (tack_pool_inserted_){{i, s->gen, p->tag}, TACK_NO_ERROR};
+}
+
+static tack_string tack_pool_take_22(tack_pool_22 *p, tack_pool_slot_22 *s) {
+    tack_string v = s->value;
+    s->value = (tack_string){};
+    s->live = false;
+    p->count--;
+    if (s->gen != 4294967295u) {
+        s->gen++;
+        s->next = p->free;
+        p->free = (uint32_t)(s - p->ptr) + 1;
+    }
+    return v;
+}
+
+static uint64_t tack_mix_(uint64_t x) {
+    x ^= x >> 30;
+    x *= 0xbf58476d1ce4e5b9u;
+    x ^= x >> 27;
+    x *= 0x94d049bb133111ebu;
+    x ^= x >> 31;
+    return x;
+}
+
+static uint64_t tack_hash_1(const int64_t *k) {
+    return tack_mix_((uint64_t)(int64_t)*k);
+}
+
+static int64_t tack_mfind_21(const tack_map_21 *m, const int64_t *k, uint64_t h) {
+    if (m->nslots == 0) {
+        return -1;
+    }
+    uint64_t mask = (uint64_t)m->nslots - 1;
+    for (uint64_t i = h & mask;; i = (i + 1) & mask) {
+        int64_t s = m->slots[i];
+        if (s == 0) {
+            return -1;
+        }
+        if (s > 0 && m->entries[s - 1].hash == h && m->entries[s - 1].key == (*k)) {
+            return (int64_t)i;
+        }
+    }
+}
+
+__attribute__((unused)) static bool tack_mhas_21(const tack_map_21 *m, int64_t key) {
+    return tack_mfind_21(m, &key, tack_hash_1(&key)) >= 0;
+}
+
+__attribute__((unused)) static tack_string *tack_mat_21(const tack_map_21 *m, int64_t key) {
+    return (tack_string *)&m->entries[m->slots[tack_mfind_21(m, &key, tack_hash_1(&key))] - 1].val;
+}
+
+static bool tack_mgrow_21(tack_map_21 *m) {
+    if (m->used < m->cap && (m->used + 1) * 4 <= m->nslots * 3) {
+        return true;
+    }
+    int64_t ns = 8;
+    while (ns * 3 < (m->len + 1) * 8) {
+        if (ns > INT64_MAX / 8) {
+            return false;
+        }
+        ns *= 2;
+    }
+    int64_t got = 0;
+    int64_t *slots = tack_list_grow_(0, 0, ns, sizeof (int64_t), _Alignof (int64_t), m->alloc, &got);
+    if (slots == 0) {
+        return false;
+    }
+    ns = got;
+    tack_ment_21 *entries = m->entries;
+    int64_t cap = m->cap;
+    if (m->len + 1 > cap) {
+        entries = tack_list_grow_(m->entries, m->cap, m->len + 1, sizeof (tack_ment_21), _Alignof (tack_ment_21), m->alloc, &cap);
+        if (entries == 0) {
+            tack_list_free_(slots, ns, sizeof (int64_t), _Alignof (int64_t), m->alloc);
+            return false;
+        }
+    }
+    int64_t used = 0;
+    for (int64_t i = 0; i < m->used; i++) {
+        if (entries[i].live) {
+            entries[used++] = entries[i];
+        }
+    }
+    for (int64_t i = 0; i < ns; i++) {
+        slots[i] = 0;
+    }
+    uint64_t mask = (uint64_t)ns - 1;
+    for (int64_t i = 0; i < used; i++) {
+        uint64_t j = entries[i].hash & mask;
+        while (slots[j] != 0) {
+            j = (j + 1) & mask;
+        }
+        slots[j] = i + 1;
+    }
+    tack_list_free_(m->slots, m->nslots, sizeof (int64_t), _Alignof (int64_t), m->alloc);
+    m->entries = entries;
+    m->cap = cap;
+    m->used = used;
+    m->slots = slots;
+    m->nslots = ns;
+    return true;
+}
+
+static bool tack_mput_21(tack_map_21 *m, int64_t key, tack_string val) {
+    uint64_t h = tack_hash_1(&key);
+    int64_t s = tack_mfind_21(m, &key, h);
+    if (s >= 0) {
+        tack_ment_21 *e = &m->entries[m->slots[s] - 1];
+        e->val = val;
+        return true;
+    }
+    if (!tack_mgrow_21(m)) {
+        return false;
+    }
+    uint64_t mask = (uint64_t)m->nslots - 1;
+    uint64_t i = h & mask;
+    while (m->slots[i] > 0) {
+        i = (i + 1) & mask;
+    }
+    m->slots[i] = m->used + 1;
+    m->entries[m->used] = (tack_ment_21){.key = key, .val = val, .hash = h, .live = true};
+    m->used++;
+    m->len++;
+    return true;
+}
+
+static tack_string tack_mtake_21(tack_map_21 *m, int64_t s) {
+    tack_ment_21 *e = &m->entries[m->slots[s] - 1];
+    tack_string val = e->val;
+    e->live = false;
+    m->slots[s] = -1;
+    m->len--;
+    if (m->len == 0) {
+        m->used = 0;
+        for (int64_t i = 0; i < m->nslots; i++) {
+            m->slots[i] = 0;
+        }
+    }
+    return val;
+}
+
+static const unsigned char tack_str0[10] = {112, 111, 112, 32, 110, 111, 110, 101, 10, 0};
+static const unsigned char tack_str1[2] = {97, 0};
+static const unsigned char tack_str2[13] = {114, 101, 109, 111, 118, 101, 32, 110, 111, 110, 101, 10, 0};
+static const unsigned char tack_str3[4] = {111, 110, 101, 0};
+static const unsigned char tack_str4[13] = {100, 101, 108, 101, 116, 101, 32, 110, 111, 110, 101, 10, 0};
+static const unsigned char tack_str5[2] = {98, 0};
+static const unsigned char tack_str6[2] = {10, 0};
+static const unsigned char tack_str7[11] = {112, 111, 111, 108, 32, 110, 111, 110, 101, 10, 0};
+static const unsigned char tack_str8[14] = {111, 117, 116, 32, 111, 102, 32, 109, 101, 109, 111, 114, 121, 0};
+static const unsigned char tack_str9[1] = {0};
+
+void tack_builtin_print(tack_string);
+_Noreturn void tack_builtin_exit(int32_t);
+
+static tack_error tack_4_main3_run(void);
+static void tack_4_main4_main(void);
+
+static tack_error tack_4_main3_run(void) {
+    tack_map_21 *tack_o9;
+    int64_t tack_o10;
+    tack_string tack_o11;
+    tack_error tack_ret4 = (tack_error){};
+    tack_list_20 v_l = ((tack_list_20){.alloc = TACK_C_ALLOCATOR});
+    tack_list_20 *const tack_r0 = &v_l;
+    const bool tack_r1 = tack_r0->len > 0;
+    const tack_string tack_r2 = tack_r1 ? TACK_LIST_POP(tack_r0) : (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)};
+    const tack_string v_x = tack_r2;
+    const bool v_ok = tack_r1;
+    if (!v_ok && ((v_x).len == 0)) {
+        tack_builtin_print((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});
+    }
+    ({ tack_error tack_q3 = (TACK_LIST_APPEND(&v_l, (tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}) ? (tack_error){} : (tack_error){1, {tack_str8, TACK_C_STR_LEN(tack_str8)}}); if (tack_q3.code != 0) { tack_ret4 = tack_q3; goto tack_defer0_1; } });
+    tack_list_20 *const tack_r5 = &v_l;
+    const int64_t tack_r6 = 3;
+    const bool tack_r7 = tack_r6 >= 0 && tack_r6 < tack_r5->len;
+    const tack_string tack_r8 = tack_r7 ? TACK_LIST_REMOVE(tack_r5, tack_r6) : (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)};
+    const tack_string v_y = tack_r8;
+    const bool v_ok2 = tack_r7;
+    if (!v_ok2 && ((v_y).len == 0)) {
+        tack_builtin_print((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
+    }
+    tack_map_21 v_m = ((tack_map_21){.alloc = TACK_C_ALLOCATOR});
+    ({ tack_error tack_q12 = (tack_o9 = &v_m, tack_o10 = 1, tack_o11 = (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}, tack_mput_21(tack_o9, tack_o10, tack_o11) ? (tack_error){} : (tack_error){1, {tack_str8, TACK_C_STR_LEN(tack_str8)}}); if (tack_q12.code != 0) { tack_ret4 = tack_q12; goto tack_defer0_2; } });
+    tack_map_21 *const tack_r13 = &v_m;
+    const int64_t tack_r14 = 2;
+    const int64_t tack_r15 = tack_mfind_21(tack_r13, &tack_r14, tack_hash_1(&tack_r14));
+    const tack_string tack_r16 = tack_r15 >= 0 ? tack_mtake_21(tack_r13, tack_r15) : (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)};
+    const tack_string v_z = tack_r16;
+    const bool v_ok3 = ((void)tack_r16, tack_r15 >= 0);
+    if (!v_ok3 && ((v_z).len == 0)) {
+        tack_builtin_print((tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)});
+    }
+    tack_pool_22 v_p = ((tack_pool_22){.alloc = TACK_C_ALLOCATOR, .tag = tack_pool_tag_()});
+    const tack_handle_ v_h = ({ tack_pool_inserted_ tack_q17 = tack_pool_insert_22(&v_p, (tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)}); if (tack_q17.r1.code != 0) { tack_ret4 = tack_q17.r1; goto tack_defer0_3; } tack_q17.r0; });
+    tack_pool_22 *const tack_r18 = &v_p;
+    const tack_handle_ tack_r19 = v_h;
+    tack_pool_slot_22 *const tack_r20 = tack_pool_find_22(tack_r18, tack_r19);
+    const tack_string tack_r21 = tack_r20 != 0 ? tack_pool_take_22(tack_r18, tack_r20) : (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)};
+    const tack_string v_v = tack_r21;
+    const bool v_ok4 = ((void)tack_r21, tack_r20 != 0);
+    if (v_ok4) {
+        tack_builtin_print(v_v);
+        tack_builtin_print((tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)});
+    }
+    tack_pool_22 *const tack_r22 = &v_p;
+    const tack_handle_ tack_r23 = v_h;
+    tack_pool_slot_22 *const tack_r24 = tack_pool_find_22(tack_r22, tack_r23);
+    const tack_string tack_r25 = tack_r24 != 0 ? tack_pool_take_22(tack_r22, tack_r24) : (tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)};
+    const tack_string v_w = tack_r25;
+    const bool v_ok5 = ((void)tack_r25, tack_r24 != 0);
+    if (!v_ok5 && ((v_w).len == 0)) {
+        tack_builtin_print((tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)});
+    }
+    tack_ret4 = (tack_error){};
+    goto tack_defer0_3;
+    tack_defer0_3: ;
+    tack_free_22(&v_p);
+    tack_defer0_2: ;
+    tack_free_21(&v_m);
+    tack_defer0_1: ;
+    tack_list_free_(v_l.ptr, v_l.cap, sizeof (tack_string), _Alignof (tack_string), v_l.alloc);
+    return tack_ret4;
+}
+
+static void tack_4_main4_main(void) {
+    const tack_error v_e = tack_4_main3_run();
+    if (v_e.code != 0) {
+        tack_builtin_exit(1);
+    }
+}
+
+int tack_argc_;
+char **tack_argv_;
+
+int main(int argc, char **argv) {
+    tack_start_();
+    tack_argc_ = argc;
+    tack_argv_ = argv;
+    tack_4_main4_main();
+    tack_end_();
+    return 0;
+}
+-- string-zero/stderr --
+-- zero-type-params/divergence --
+suite: emit-probes
+case: zero-type-params.tck
+go: Go's zeroValue and resultZero compare the type parameter itself with
+  string, error and Allocator, so they write 0 as the zero value of a T
+  standing for one, in a defer's result variable and in a checked pop,
+  remove or delete, which C cannot convert to their structs: the C does
+  not compile.
+why: The port writes a defer's result string zeroed in full and error
+  and Allocator values zeroed, the C Go writes in the same function
+  written for the type T stands for, and a checked form's string as the
+  pooled empty string, which Go's C for that function gets wrong too
+  when nothing else pools it (see string-zero), under the lead's ruling
+  of 2026-11-15 that the language already defines the zero values, which
+  the language owner may overrule. The C compiles and runs under the
+  address, undefined behavior and leak sanitizers with clang -Wall
+  -Werror -Wno-unused-variable: Go's drop of a T that owns nothing
+  leaves its const local unused, as Go writes it.
+same: none
+-- zero-type-params/exit --
+0
+-- zero-type-params/stdout --
+// Generated by the Tack compiler. Do not edit.
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <tack/tack.h>
+
+typedef struct {
+    tack_string *ptr;
+    int64_t len;
+    int64_t cap;
+    tack_allocator alloc;
+} tack_list_30;
+
+typedef struct {
+    int64_t key;
+    tack_string val;
+    uint64_t hash;
+    bool live;
+} tack_ment_31;
+
+typedef struct {
+    tack_ment_31 *entries;
+    int64_t len;
+    int64_t used;
+    int64_t cap;
+    int64_t *slots;
+    int64_t nslots;
+    tack_allocator alloc;
+} tack_map_31;
+
+typedef struct {
+    tack_error *ptr;
+    int64_t len;
+    int64_t cap;
+    tack_allocator alloc;
+} tack_list_32;
+
+typedef struct {
+    int64_t key;
+    tack_error val;
+    uint64_t hash;
+    bool live;
+} tack_ment_33;
+
+typedef struct {
+    tack_ment_33 *entries;
+    int64_t len;
+    int64_t used;
+    int64_t cap;
+    int64_t *slots;
+    int64_t nslots;
+    tack_allocator alloc;
+} tack_map_33;
+
+typedef struct {
+    int64_t *ptr;
+    int64_t len;
+    int64_t cap;
+    tack_allocator alloc;
+} tack_list_34;
+
+typedef struct {
+    tack_allocator *ptr;
+    int64_t len;
+    int64_t cap;
+    tack_allocator alloc;
+} tack_list_35;
+
+static void tack_free_31(const tack_map_31 *m) {
+    tack_list_free_(m->entries, m->cap, sizeof (tack_ment_31), _Alignof (tack_ment_31), m->alloc);
+    tack_list_free_(m->slots, m->nslots, sizeof (int64_t), _Alignof (int64_t), m->alloc);
+}
+
+static void tack_free_33(const tack_map_33 *m) {
+    tack_list_free_(m->entries, m->cap, sizeof (tack_ment_33), _Alignof (tack_ment_33), m->alloc);
+    tack_list_free_(m->slots, m->nslots, sizeof (int64_t), _Alignof (int64_t), m->alloc);
+}
+
+static uint64_t tack_mix_(uint64_t x) {
+    x ^= x >> 30;
+    x *= 0xbf58476d1ce4e5b9u;
+    x ^= x >> 27;
+    x *= 0x94d049bb133111ebu;
+    x ^= x >> 31;
+    return x;
+}
+
+static uint64_t tack_hash_1(const int64_t *k) {
+    return tack_mix_((uint64_t)(int64_t)*k);
+}
+
+static int64_t tack_mfind_31(const tack_map_31 *m, const int64_t *k, uint64_t h) {
+    if (m->nslots == 0) {
+        return -1;
+    }
+    uint64_t mask = (uint64_t)m->nslots - 1;
+    for (uint64_t i = h & mask;; i = (i + 1) & mask) {
+        int64_t s = m->slots[i];
+        if (s == 0) {
+            return -1;
+        }
+        if (s > 0 && m->entries[s - 1].hash == h && m->entries[s - 1].key == (*k)) {
+            return (int64_t)i;
+        }
+    }
+}
+
+__attribute__((unused)) static bool tack_mhas_31(const tack_map_31 *m, int64_t key) {
+    return tack_mfind_31(m, &key, tack_hash_1(&key)) >= 0;
+}
+
+__attribute__((unused)) static tack_string *tack_mat_31(const tack_map_31 *m, int64_t key) {
+    return (tack_string *)&m->entries[m->slots[tack_mfind_31(m, &key, tack_hash_1(&key))] - 1].val;
+}
+
+static bool tack_mgrow_31(tack_map_31 *m) {
+    if (m->used < m->cap && (m->used + 1) * 4 <= m->nslots * 3) {
+        return true;
+    }
+    int64_t ns = 8;
+    while (ns * 3 < (m->len + 1) * 8) {
+        if (ns > INT64_MAX / 8) {
+            return false;
+        }
+        ns *= 2;
+    }
+    int64_t got = 0;
+    int64_t *slots = tack_list_grow_(0, 0, ns, sizeof (int64_t), _Alignof (int64_t), m->alloc, &got);
+    if (slots == 0) {
+        return false;
+    }
+    ns = got;
+    tack_ment_31 *entries = m->entries;
+    int64_t cap = m->cap;
+    if (m->len + 1 > cap) {
+        entries = tack_list_grow_(m->entries, m->cap, m->len + 1, sizeof (tack_ment_31), _Alignof (tack_ment_31), m->alloc, &cap);
+        if (entries == 0) {
+            tack_list_free_(slots, ns, sizeof (int64_t), _Alignof (int64_t), m->alloc);
+            return false;
+        }
+    }
+    int64_t used = 0;
+    for (int64_t i = 0; i < m->used; i++) {
+        if (entries[i].live) {
+            entries[used++] = entries[i];
+        }
+    }
+    for (int64_t i = 0; i < ns; i++) {
+        slots[i] = 0;
+    }
+    uint64_t mask = (uint64_t)ns - 1;
+    for (int64_t i = 0; i < used; i++) {
+        uint64_t j = entries[i].hash & mask;
+        while (slots[j] != 0) {
+            j = (j + 1) & mask;
+        }
+        slots[j] = i + 1;
+    }
+    tack_list_free_(m->slots, m->nslots, sizeof (int64_t), _Alignof (int64_t), m->alloc);
+    m->entries = entries;
+    m->cap = cap;
+    m->used = used;
+    m->slots = slots;
+    m->nslots = ns;
+    return true;
+}
+
+__attribute__((unused)) static bool tack_mput_31(tack_map_31 *m, int64_t key, tack_string val) {
+    uint64_t h = tack_hash_1(&key);
+    int64_t s = tack_mfind_31(m, &key, h);
+    if (s >= 0) {
+        tack_ment_31 *e = &m->entries[m->slots[s] - 1];
+        e->val = val;
+        return true;
+    }
+    if (!tack_mgrow_31(m)) {
+        return false;
+    }
+    uint64_t mask = (uint64_t)m->nslots - 1;
+    uint64_t i = h & mask;
+    while (m->slots[i] > 0) {
+        i = (i + 1) & mask;
+    }
+    m->slots[i] = m->used + 1;
+    m->entries[m->used] = (tack_ment_31){.key = key, .val = val, .hash = h, .live = true};
+    m->used++;
+    m->len++;
+    return true;
+}
+
+static tack_string tack_mtake_31(tack_map_31 *m, int64_t s) {
+    tack_ment_31 *e = &m->entries[m->slots[s] - 1];
+    tack_string val = e->val;
+    e->live = false;
+    m->slots[s] = -1;
+    m->len--;
+    if (m->len == 0) {
+        m->used = 0;
+        for (int64_t i = 0; i < m->nslots; i++) {
+            m->slots[i] = 0;
+        }
+    }
+    return val;
+}
+
+static int64_t tack_mfind_33(const tack_map_33 *m, const int64_t *k, uint64_t h) {
+    if (m->nslots == 0) {
+        return -1;
+    }
+    uint64_t mask = (uint64_t)m->nslots - 1;
+    for (uint64_t i = h & mask;; i = (i + 1) & mask) {
+        int64_t s = m->slots[i];
+        if (s == 0) {
+            return -1;
+        }
+        if (s > 0 && m->entries[s - 1].hash == h && m->entries[s - 1].key == (*k)) {
+            return (int64_t)i;
+        }
+    }
+}
+
+__attribute__((unused)) static bool tack_mhas_33(const tack_map_33 *m, int64_t key) {
+    return tack_mfind_33(m, &key, tack_hash_1(&key)) >= 0;
+}
+
+__attribute__((unused)) static tack_error *tack_mat_33(const tack_map_33 *m, int64_t key) {
+    return (tack_error *)&m->entries[m->slots[tack_mfind_33(m, &key, tack_hash_1(&key))] - 1].val;
+}
+
+static bool tack_mgrow_33(tack_map_33 *m) {
+    if (m->used < m->cap && (m->used + 1) * 4 <= m->nslots * 3) {
+        return true;
+    }
+    int64_t ns = 8;
+    while (ns * 3 < (m->len + 1) * 8) {
+        if (ns > INT64_MAX / 8) {
+            return false;
+        }
+        ns *= 2;
+    }
+    int64_t got = 0;
+    int64_t *slots = tack_list_grow_(0, 0, ns, sizeof (int64_t), _Alignof (int64_t), m->alloc, &got);
+    if (slots == 0) {
+        return false;
+    }
+    ns = got;
+    tack_ment_33 *entries = m->entries;
+    int64_t cap = m->cap;
+    if (m->len + 1 > cap) {
+        entries = tack_list_grow_(m->entries, m->cap, m->len + 1, sizeof (tack_ment_33), _Alignof (tack_ment_33), m->alloc, &cap);
+        if (entries == 0) {
+            tack_list_free_(slots, ns, sizeof (int64_t), _Alignof (int64_t), m->alloc);
+            return false;
+        }
+    }
+    int64_t used = 0;
+    for (int64_t i = 0; i < m->used; i++) {
+        if (entries[i].live) {
+            entries[used++] = entries[i];
+        }
+    }
+    for (int64_t i = 0; i < ns; i++) {
+        slots[i] = 0;
+    }
+    uint64_t mask = (uint64_t)ns - 1;
+    for (int64_t i = 0; i < used; i++) {
+        uint64_t j = entries[i].hash & mask;
+        while (slots[j] != 0) {
+            j = (j + 1) & mask;
+        }
+        slots[j] = i + 1;
+    }
+    tack_list_free_(m->slots, m->nslots, sizeof (int64_t), _Alignof (int64_t), m->alloc);
+    m->entries = entries;
+    m->cap = cap;
+    m->used = used;
+    m->slots = slots;
+    m->nslots = ns;
+    return true;
+}
+
+__attribute__((unused)) static bool tack_mput_33(tack_map_33 *m, int64_t key, tack_error val) {
+    uint64_t h = tack_hash_1(&key);
+    int64_t s = tack_mfind_33(m, &key, h);
+    if (s >= 0) {
+        tack_ment_33 *e = &m->entries[m->slots[s] - 1];
+        e->val = val;
+        return true;
+    }
+    if (!tack_mgrow_33(m)) {
+        return false;
+    }
+    uint64_t mask = (uint64_t)m->nslots - 1;
+    uint64_t i = h & mask;
+    while (m->slots[i] > 0) {
+        i = (i + 1) & mask;
+    }
+    m->slots[i] = m->used + 1;
+    m->entries[m->used] = (tack_ment_33){.key = key, .val = val, .hash = h, .live = true};
+    m->used++;
+    m->len++;
+    return true;
+}
+
+static tack_error tack_mtake_33(tack_map_33 *m, int64_t s) {
+    tack_ment_33 *e = &m->entries[m->slots[s] - 1];
+    tack_error val = e->val;
+    e->live = false;
+    m->slots[s] = -1;
+    m->len--;
+    if (m->len == 0) {
+        m->used = 0;
+        for (int64_t i = 0; i < m->nslots; i++) {
+            m->slots[i] = 0;
+        }
+    }
+    return val;
+}
+
+static const unsigned char tack_str0[10] = {100, 101, 102, 101, 114, 114, 101, 100, 10, 0};
+static const unsigned char tack_str1[4] = {97, 98, 99, 0};
+static const unsigned char tack_str2[2] = {112, 0};
+static const unsigned char tack_str3[2] = {97, 0};
+static const unsigned char tack_str4[5] = {110, 111, 110, 101, 0};
+static const unsigned char tack_str5[2] = {10, 0};
+static const unsigned char tack_str6[4] = {98, 97, 100, 0};
+static const unsigned char tack_str7[2] = {113, 0};
+static const unsigned char tack_str8[8] = {100, 101, 102, 97, 117, 108, 116, 0};
+static const unsigned char tack_str9[9] = {32, 100, 114, 97, 105, 110, 101, 100, 0};
+static const unsigned char tack_str10[15] = {97, 108, 108, 111, 99, 97, 116, 111, 114, 115, 32, 111, 107, 10, 0};
+static const unsigned char tack_str11[14] = {111, 117, 116, 32, 111, 102, 32, 109, 101, 109, 111, 114, 121, 0};
+static const unsigned char tack_str12[1] = {0};
+
+void tack_builtin_print(tack_string);
+_Noreturn void tack_builtin_exit(int32_t);
+
+typedef struct {
+    tack_string r0;
+    tack_error r1;
+} tack_results_4_main16_pair_5bstring_5d;
+
+typedef struct {
+    tack_error r0;
+    tack_error r1;
+} tack_results_4_main15_pair_5berror_5d;
+
+static void tack_4_main4_note(void);
+static tack_error tack_4_main7_strings(void);
+static tack_error tack_4_main6_errors(void);
+static tack_error tack_4_main10_allocators(void);
+static void tack_4_main4_main(void);
+static tack_string tack_4_main16_keep_5bstring_5d(tack_string p_x);
+static tack_results_4_main16_pair_5bstring_5d tack_4_main16_pair_5bstring_5d(tack_string p_x);
+static tack_string tack_4_main16_last_5bstring_5d(tack_list_30 * p_l, tack_string p_d);
+static tack_string tack_4_main16_take_5bstring_5d(tack_list_30 * p_l, tack_string p_d);
+static tack_string tack_4_main16_gone_5bstring_5d(tack_map_31 * p_m, tack_string p_d);
+static tack_error tack_4_main15_keep_5berror_5d(tack_error p_x);
+static tack_results_4_main15_pair_5berror_5d tack_4_main15_pair_5berror_5d(tack_error p_x);
+static tack_error tack_4_main15_last_5berror_5d(tack_list_32 * p_l, tack_error p_d);
+static tack_error tack_4_main15_take_5berror_5d(tack_list_32 * p_l, tack_error p_d);
+static tack_error tack_4_main15_gone_5berror_5d(tack_map_33 * p_m, tack_error p_d);
+static int64_t tack_4_main18_drained_5berror_5d(tack_list_32 * p_l);
+static tack_allocator tack_4_main19_keep_5bAllocator_5d(tack_allocator p_x);
+static tack_allocator tack_4_main19_last_5bAllocator_5d(tack_list_35 * p_l, tack_allocator p_d);
+static tack_allocator tack_4_main19_take_5bAllocator_5d(tack_list_35 * p_l, tack_allocator p_d);
+static int64_t tack_4_main22_drained_5bAllocator_5d(tack_list_35 * p_l);
+
+static void tack_4_main4_note(void) {
+    tack_builtin_print((tack_string){tack_str0, TACK_C_STR_LEN(tack_str0)});
+}
+
+static tack_error tack_4_main7_strings(void) {
+    tack_error tack_ret2 = (tack_error){};
+    tack_builtin_print(tack_4_main16_keep_5bstring_5d((tack_string){tack_str1, TACK_C_STR_LEN(tack_str1)}));
+    const tack_results_4_main16_pair_5bstring_5d tack_r0 = tack_4_main16_pair_5bstring_5d((tack_string){tack_str2, TACK_C_STR_LEN(tack_str2)});
+    const tack_string v_p = tack_r0.r0;
+    const tack_error v_e = tack_r0.r1;
+    if (v_e.code != 0) {
+        return v_e;
+    }
+    tack_builtin_print(v_p);
+    tack_list_30 v_l = ((tack_list_30){.alloc = TACK_C_ALLOCATOR});
+    ({ tack_error tack_q1 = (TACK_LIST_APPEND(&v_l, (tack_string){tack_str3, TACK_C_STR_LEN(tack_str3)}) ? (tack_error){} : (tack_error){1, {tack_str11, TACK_C_STR_LEN(tack_str11)}}); if (tack_q1.code != 0) { tack_ret2 = tack_q1; goto tack_defer0_1; } });
+    tack_builtin_print(tack_4_main16_last_5bstring_5d(&v_l, (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)}));
+    tack_builtin_print(tack_4_main16_last_5bstring_5d(&v_l, (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)}));
+    tack_builtin_print(tack_4_main16_take_5bstring_5d(&v_l, (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)}));
+    tack_map_31 v_m = ((tack_map_31){.alloc = TACK_C_ALLOCATOR});
+    tack_builtin_print(tack_4_main16_gone_5bstring_5d(&v_m, (tack_string){tack_str4, TACK_C_STR_LEN(tack_str4)}));
+    tack_builtin_print((tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
+    tack_ret2 = (tack_error){};
+    goto tack_defer0_2;
+    tack_defer0_2: ;
+    tack_free_31(&v_m);
+    tack_defer0_1: ;
+    tack_list_free_(v_l.ptr, v_l.cap, sizeof (tack_string), _Alignof (tack_string), v_l.alloc);
+    return tack_ret2;
+}
+
+static tack_error tack_4_main6_errors(void) {
+    tack_error tack_ret4 = (tack_error){};
+    const tack_error v_e = tack_4_main15_keep_5berror_5d((tack_error){.code = 3, .msg = (tack_string){tack_str6, TACK_C_STR_LEN(tack_str6)}});
+    tack_builtin_print(v_e.msg);
+    const tack_results_4_main15_pair_5berror_5d tack_r3 = tack_4_main15_pair_5berror_5d((tack_error){.code = 5, .msg = (tack_string){tack_str7, TACK_C_STR_LEN(tack_str7)}});
+    const tack_error v_q = tack_r3.r0;
+    const tack_error v_e2 = tack_r3.r1;
+    if (v_e2.code != 0) {
+        return v_e2;
+    }
+    tack_builtin_print(v_q.msg);
+    tack_list_32 v_es = ((tack_list_32){.alloc = TACK_C_ALLOCATOR});
+    tack_builtin_print(tack_4_main15_last_5berror_5d(&v_es, (tack_error){.code = 4, .msg = (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)}}).msg);
+    tack_builtin_print(tack_4_main15_take_5berror_5d(&v_es, (tack_error){.code = 4, .msg = (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)}}).msg);
+    tack_map_33 v_m = ((tack_map_33){.alloc = TACK_C_ALLOCATOR});
+    tack_builtin_print(tack_4_main15_gone_5berror_5d(&v_m, (tack_error){.code = 4, .msg = (tack_string){tack_str8, TACK_C_STR_LEN(tack_str8)}}).msg);
+    if (tack_4_main18_drained_5berror_5d(&v_es) == 0) {
+        tack_builtin_print((tack_string){tack_str9, TACK_C_STR_LEN(tack_str9)});
+    }
+    tack_builtin_print((tack_string){tack_str5, TACK_C_STR_LEN(tack_str5)});
+    tack_ret4 = (tack_error){};
+    goto tack_defer1_2;
+    tack_defer1_2: ;
+    tack_free_33(&v_m);
+    tack_list_free_(v_es.ptr, v_es.cap, sizeof (tack_error), _Alignof (tack_error), v_es.alloc);
+    return tack_ret4;
+}
+
+static tack_error tack_4_main10_allocators(void) {
+    tack_error tack_ret6 = (tack_error){};
+    const tack_allocator v_al = tack_4_main19_keep_5bAllocator_5d(TACK_C_ALLOCATOR);
+    tack_list_34 v_k = ((tack_list_34){.alloc = v_al});
+    ({ tack_error tack_q5 = (TACK_LIST_APPEND(&v_k, 1) ? (tack_error){} : (tack_error){1, {tack_str11, TACK_C_STR_LEN(tack_str11)}}); if (tack_q5.code != 0) { tack_ret6 = tack_q5; goto tack_defer2_1; } });
+    tack_list_35 v_as = ((tack_list_35){.alloc = TACK_C_ALLOCATOR});
+    const tack_allocator v_a2 = tack_4_main19_last_5bAllocator_5d(&v_as, TACK_C_ALLOCATOR);
+    tack_list_34 v_k2 = ((tack_list_34){.alloc = v_a2});
+    ({ tack_error tack_q7 = (TACK_LIST_APPEND(&v_k2, 2) ? (tack_error){} : (tack_error){1, {tack_str11, TACK_C_STR_LEN(tack_str11)}}); if (tack_q7.code != 0) { tack_ret6 = tack_q7; goto tack_defer2_3; } });
+    const tack_allocator v_a3 = tack_4_main19_take_5bAllocator_5d(&v_as, TACK_C_ALLOCATOR);
+    tack_list_34 v_k3 = ((tack_list_34){.alloc = v_a3});
+    ({ tack_error tack_q8 = (TACK_LIST_APPEND(&v_k3, 3) ? (tack_error){} : (tack_error){1, {tack_str11, TACK_C_STR_LEN(tack_str11)}}); if (tack_q8.code != 0) { tack_ret6 = tack_q8; goto tack_defer2_4; } });
+    if (tack_4_main22_drained_5bAllocator_5d(&v_as) == 0) {
+        tack_builtin_print((tack_string){tack_str10, TACK_C_STR_LEN(tack_str10)});
+    }
+    tack_ret6 = (tack_error){};
+    goto tack_defer2_4;
+    tack_defer2_4: ;
+    tack_list_free_(v_k3.ptr, v_k3.cap, sizeof (int64_t), _Alignof (int64_t), v_k3.alloc);
+    tack_defer2_3: ;
+    tack_list_free_(v_k2.ptr, v_k2.cap, sizeof (int64_t), _Alignof (int64_t), v_k2.alloc);
+    tack_list_free_(v_as.ptr, v_as.cap, sizeof (tack_allocator), _Alignof (tack_allocator), v_as.alloc);
+    tack_defer2_1: ;
+    tack_list_free_(v_k.ptr, v_k.cap, sizeof (int64_t), _Alignof (int64_t), v_k.alloc);
+    return tack_ret6;
+}
+
+static void tack_4_main4_main(void) {
+    const tack_error v_s = tack_4_main7_strings();
+    const tack_error v_e = tack_4_main6_errors();
+    const tack_error v_a = tack_4_main10_allocators();
+    if (((v_s.code != 0) || (v_e.code != 0)) || (v_a.code != 0)) {
+        tack_builtin_exit(1);
+    }
+}
+
+static tack_string tack_4_main16_keep_5bstring_5d(tack_string p_x) {
+    tack_string tack_ret9 = (tack_string){};
+    tack_ret9 = p_x;
+    goto tack_defer3_1;
+    tack_defer3_1: ;
+    {
+        tack_4_main4_note();
+    }
+    return tack_ret9;
+}
+
+static tack_results_4_main16_pair_5bstring_5d tack_4_main16_pair_5bstring_5d(tack_string p_x) {
+    tack_results_4_main16_pair_5bstring_5d tack_ret10 = (tack_results_4_main16_pair_5bstring_5d){};
+    tack_ret10 = (tack_results_4_main16_pair_5bstring_5d){p_x, (tack_error){}};
+    goto tack_defer4_1;
+    tack_defer4_1: ;
+    {
+        tack_4_main4_note();
+    }
+    return tack_ret10;
+}
+
+static tack_string tack_4_main16_last_5bstring_5d(tack_list_30 * p_l, tack_string p_d) {
+    tack_list_30 *const tack_r11 = p_l;
+    const bool tack_r12 = tack_r11->len > 0;
+    const tack_string tack_r13 = tack_r12 ? TACK_LIST_POP(tack_r11) : (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)};
+    const tack_string v_x = tack_r13;
+    const bool v_ok = tack_r12;
+    if (v_ok) {
+        return v_x;
+    }
+    return p_d;
+}
+
+static tack_string tack_4_main16_take_5bstring_5d(tack_list_30 * p_l, tack_string p_d) {
+    tack_list_30 *const tack_r14 = p_l;
+    const int64_t tack_r15 = 0;
+    const bool tack_r16 = tack_r15 >= 0 && tack_r15 < tack_r14->len;
+    const tack_string tack_r17 = tack_r16 ? TACK_LIST_REMOVE(tack_r14, tack_r15) : (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)};
+    const tack_string v_x = tack_r17;
+    const bool v_ok = tack_r16;
+    if (v_ok) {
+        return v_x;
+    }
+    return p_d;
+}
+
+static tack_string tack_4_main16_gone_5bstring_5d(tack_map_31 * p_m, tack_string p_d) {
+    tack_map_31 *const tack_r18 = &(*p_m);
+    const int64_t tack_r19 = 1;
+    const int64_t tack_r20 = tack_mfind_31(tack_r18, &tack_r19, tack_hash_1(&tack_r19));
+    const tack_string tack_r21 = tack_r20 >= 0 ? tack_mtake_31(tack_r18, tack_r20) : (tack_string){tack_str12, TACK_C_STR_LEN(tack_str12)};
+    const tack_string v_x = tack_r21;
+    const bool v_ok = ((void)tack_r21, tack_r20 >= 0);
+    if (v_ok) {
+        return v_x;
+    }
+    return p_d;
+}
+
+static tack_error tack_4_main15_keep_5berror_5d(tack_error p_x) {
+    tack_error tack_ret22 = (tack_error){};
+    tack_ret22 = p_x;
+    goto tack_defer5_1;
+    tack_defer5_1: ;
+    {
+        tack_4_main4_note();
+    }
+    return tack_ret22;
+}
+
+static tack_results_4_main15_pair_5berror_5d tack_4_main15_pair_5berror_5d(tack_error p_x) {
+    tack_results_4_main15_pair_5berror_5d tack_ret23 = (tack_results_4_main15_pair_5berror_5d){};
+    tack_ret23 = (tack_results_4_main15_pair_5berror_5d){p_x, (tack_error){}};
+    goto tack_defer6_1;
+    tack_defer6_1: ;
+    {
+        tack_4_main4_note();
+    }
+    return tack_ret23;
+}
+
+static tack_error tack_4_main15_last_5berror_5d(tack_list_32 * p_l, tack_error p_d) {
+    tack_list_32 *const tack_r24 = p_l;
+    const bool tack_r25 = tack_r24->len > 0;
+    const tack_error tack_r26 = tack_r25 ? TACK_LIST_POP(tack_r24) : (tack_error){};
+    const tack_error v_x = tack_r26;
+    const bool v_ok = tack_r25;
+    if (v_ok) {
+        return v_x;
+    }
+    return p_d;
+}
+
+static tack_error tack_4_main15_take_5berror_5d(tack_list_32 * p_l, tack_error p_d) {
+    tack_list_32 *const tack_r27 = p_l;
+    const int64_t tack_r28 = 0;
+    const bool tack_r29 = tack_r28 >= 0 && tack_r28 < tack_r27->len;
+    const tack_error tack_r30 = tack_r29 ? TACK_LIST_REMOVE(tack_r27, tack_r28) : (tack_error){};
+    const tack_error v_x = tack_r30;
+    const bool v_ok = tack_r29;
+    if (v_ok) {
+        return v_x;
+    }
+    return p_d;
+}
+
+static tack_error tack_4_main15_gone_5berror_5d(tack_map_33 * p_m, tack_error p_d) {
+    tack_map_33 *const tack_r31 = &(*p_m);
+    const int64_t tack_r32 = 1;
+    const int64_t tack_r33 = tack_mfind_33(tack_r31, &tack_r32, tack_hash_1(&tack_r32));
+    const tack_error tack_r34 = tack_r33 >= 0 ? tack_mtake_33(tack_r31, tack_r33) : (tack_error){};
+    const tack_error v_x = tack_r34;
+    const bool v_ok = ((void)tack_r34, tack_r33 >= 0);
+    if (v_ok) {
+        return v_x;
+    }
+    return p_d;
+}
+
+static int64_t tack_4_main18_drained_5berror_5d(tack_list_32 * p_l) {
+    tack_list_32 *const tack_r35 = p_l;
+    const bool tack_r36 = tack_r35->len > 0;
+    const tack_error tack_r37 = tack_r36 ? TACK_LIST_POP(tack_r35) : (tack_error){};
+    const tack_error v_v = tack_r37;
+    const bool v_ok = tack_r36;
+    if (v_ok) {
+        return 1;
+    }
+    return 0;
+}
+
+static tack_allocator tack_4_main19_keep_5bAllocator_5d(tack_allocator p_x) {
+    tack_allocator tack_ret38 = (tack_allocator){};
+    tack_ret38 = p_x;
+    goto tack_defer7_1;
+    tack_defer7_1: ;
+    {
+        tack_4_main4_note();
+    }
+    return tack_ret38;
+}
+
+static tack_allocator tack_4_main19_last_5bAllocator_5d(tack_list_35 * p_l, tack_allocator p_d) {
+    tack_list_35 *const tack_r39 = p_l;
+    const bool tack_r40 = tack_r39->len > 0;
+    const tack_allocator tack_r41 = tack_r40 ? TACK_LIST_POP(tack_r39) : (tack_allocator){};
+    const tack_allocator v_x = tack_r41;
+    const bool v_ok = tack_r40;
+    if (v_ok) {
+        return v_x;
+    }
+    return p_d;
+}
+
+static tack_allocator tack_4_main19_take_5bAllocator_5d(tack_list_35 * p_l, tack_allocator p_d) {
+    tack_list_35 *const tack_r42 = p_l;
+    const int64_t tack_r43 = 0;
+    const bool tack_r44 = tack_r43 >= 0 && tack_r43 < tack_r42->len;
+    const tack_allocator tack_r45 = tack_r44 ? TACK_LIST_REMOVE(tack_r42, tack_r43) : (tack_allocator){};
+    const tack_allocator v_x = tack_r45;
+    const bool v_ok = tack_r44;
+    if (v_ok) {
+        return v_x;
+    }
+    return p_d;
+}
+
+static int64_t tack_4_main22_drained_5bAllocator_5d(tack_list_35 * p_l) {
+    tack_list_35 *const tack_r46 = p_l;
+    const bool tack_r47 = tack_r46->len > 0;
+    const tack_allocator tack_r48 = tack_r47 ? TACK_LIST_POP(tack_r46) : (tack_allocator){};
+    const tack_allocator v_v = tack_r48;
+    const bool v_ok = tack_r47;
+    if (v_ok) {
+        return 1;
+    }
+    return 0;
+}
+
+int tack_argc_;
+char **tack_argv_;
+
+int main(int argc, char **argv) {
+    tack_start_();
+    tack_argc_ = argc;
+    tack_argv_ = argv;
+    tack_4_main4_main();
+    tack_end_();
+    return 0;
+}
+-- zero-type-params/stderr --
+-- make-check-pkg/divergence --
+suite: check-clean
+case: examples/reflect-make
+go: Go's checker takes make(T, alloc) written as a statement, for a T that
+  owns nothing, for a call statement, and reports nothing; its C, which
+  drops the value, is right.
+why: make only gives a value, so the port reports it as not used, as len
+  is, decided by the language owner 2026-11-15; the C is Go's, and only
+  the warnings differ.
+same: exit, stdout
+-- make-check-pkg/exit --
+-- make-check-pkg/stdout --
+-- make-check-pkg/stderr --
+
+examples/reflect-make/main.tck:515:5: warning: make(int64, counted()) is not used
+514 |	    // evaluated, once.
+515 |	    make(int64, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+516 |	    make(Point, counted())
+
+examples/reflect-make/main.tck:516:5: warning: make(Point, counted()) is not used
+515 |	    make(int64, counted())
+516 |	    make(Point, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+517 |	    check(n == 0 && after_basic == 1 && t.len() == 0 && after_text == 2 && is_empty(it) &&
+
+-- make-check-dot/divergence --
+suite: check-clean
+case: examples/reflect-make/.
+go: Go's checker takes make(T, alloc) written as a statement, for a T that
+  owns nothing, for a call statement, and reports nothing; its C, which
+  drops the value, is right.
+why: make only gives a value, so the port reports it as not used, as len
+  is, decided by the language owner 2026-11-15; the C is Go's, and only
+  the warnings differ.
+same: exit, stdout
+-- make-check-dot/exit --
+-- make-check-dot/stdout --
+-- make-check-dot/stderr --
+
+main.tck:515:5: warning: make(int64, counted()) is not used
+514 |	    // evaluated, once.
+515 |	    make(int64, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+516 |	    make(Point, counted())
+
+main.tck:516:5: warning: make(Point, counted()) is not used
+515 |	    make(int64, counted())
+516 |	    make(Point, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+517 |	    check(n == 0 && after_basic == 1 && t.len() == 0 && after_text == 2 && is_empty(it) &&
+
+-- make-emit-single/divergence --
+suite: emit-single
+case: examples/reflect-make/main.tck
+go: Go's checker takes make(T, alloc) written as a statement, for a T that
+  owns nothing, for a call statement, and reports nothing; its C, which
+  drops the value, is right.
+why: make only gives a value, so the port reports it as not used, as len
+  is, decided by the language owner 2026-11-15; the C is Go's, and only
+  the warnings differ.
+same: exit, stdout
+-- make-emit-single/exit --
+-- make-emit-single/stdout --
+-- make-emit-single/stderr --
+
+examples/reflect-make/main.tck:6:19: error: cannot import reflectmake/vault: a single file can import only the standard library
+05 |	import text from "std/text"
+06 |	import vault from "reflectmake/vault"
+   |	                  ^~~~~~~~~~~~~~~~~~~
+07 |	
+
+examples/reflect-make/main.tck:515:5: warning: make(int64, counted()) is not used
+514 |	    // evaluated, once.
+515 |	    make(int64, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+516 |	    make(Point, counted())
+
+examples/reflect-make/main.tck:516:5: warning: make(Point, counted()) is not used
+515 |	    make(int64, counted())
+516 |	    make(Point, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+517 |	    check(n == 0 && after_basic == 1 && t.len() == 0 && after_text == 2 && is_empty(it) &&
+
+-- make-emit-pkg/divergence --
+suite: emit-packages
+case: examples/reflect-make
+go: Go's checker takes make(T, alloc) written as a statement, for a T that
+  owns nothing, for a call statement, and reports nothing; its C, which
+  drops the value, is right.
+why: make only gives a value, so the port reports it as not used, as len
+  is, decided by the language owner 2026-11-15; the C is Go's, and only
+  the warnings differ.
+same: exit, stdout
+-- make-emit-pkg/exit --
+-- make-emit-pkg/stdout --
+-- make-emit-pkg/stderr --
+
+examples/reflect-make/main.tck:515:5: warning: make(int64, counted()) is not used
+514 |	    // evaluated, once.
+515 |	    make(int64, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+516 |	    make(Point, counted())
+
+examples/reflect-make/main.tck:516:5: warning: make(Point, counted()) is not used
+515 |	    make(int64, counted())
+516 |	    make(Point, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+517 |	    check(n == 0 && after_basic == 1 && t.len() == 0 && after_text == 2 && is_empty(it) &&
+
+-- make-emit-dot/divergence --
+suite: emit-packages
+case: examples/reflect-make/.
+go: Go's checker takes make(T, alloc) written as a statement, for a T that
+  owns nothing, for a call statement, and reports nothing; its C, which
+  drops the value, is right.
+why: make only gives a value, so the port reports it as not used, as len
+  is, decided by the language owner 2026-11-15; the C is Go's, and only
+  the warnings differ.
+same: exit, stdout
+-- make-emit-dot/exit --
+-- make-emit-dot/stdout --
+-- make-emit-dot/stderr --
+
+main.tck:515:5: warning: make(int64, counted()) is not used
+514 |	    // evaluated, once.
+515 |	    make(int64, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+516 |	    make(Point, counted())
+
+main.tck:516:5: warning: make(Point, counted()) is not used
+515 |	    make(int64, counted())
+516 |	    make(Point, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+517 |	    check(n == 0 && after_basic == 1 && t.len() == 0 && after_text == 2 && is_empty(it) &&
+
+-- make-header-main/divergence --
+suite: emit-header
+case: examples/reflect-make/main.tck
+go: Go's checker takes make(T, alloc) written as a statement, for a T that
+  owns nothing, for a call statement, and reports nothing; its C, which
+  drops the value, is right.
+why: make only gives a value, so the port reports it as not used, as len
+  is, decided by the language owner 2026-11-15; the C is Go's, and only
+  the warnings differ.
+same: exit, stdout
+-- make-header-main/exit --
+-- make-header-main/stdout --
+-- make-header-main/stderr --
+
+examples/reflect-make/main.tck:6:19: error: cannot import reflectmake/vault: a single file can import only the standard library
+05 |	import text from "std/text"
+06 |	import vault from "reflectmake/vault"
+   |	                  ^~~~~~~~~~~~~~~~~~~
+07 |	
+
+examples/reflect-make/main.tck:515:5: warning: make(int64, counted()) is not used
+514 |	    // evaluated, once.
+515 |	    make(int64, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+516 |	    make(Point, counted())
+
+examples/reflect-make/main.tck:516:5: warning: make(Point, counted()) is not used
+515 |	    make(int64, counted())
+516 |	    make(Point, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+517 |	    check(n == 0 && after_basic == 1 && t.len() == 0 && after_text == 2 && is_empty(it) &&
+
+-- make-header-pkg/divergence --
+suite: emit-header
+case: examples/reflect-make
+go: Go's checker takes make(T, alloc) written as a statement, for a T that
+  owns nothing, for a call statement, and reports nothing; its C, which
+  drops the value, is right.
+why: make only gives a value, so the port reports it as not used, as len
+  is, decided by the language owner 2026-11-15; the C is Go's, and only
+  the warnings differ.
+same: exit, stdout
+-- make-header-pkg/exit --
+-- make-header-pkg/stdout --
+-- make-header-pkg/stderr --
+
+examples/reflect-make/main.tck:515:5: warning: make(int64, counted()) is not used
+514 |	    // evaluated, once.
+515 |	    make(int64, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+516 |	    make(Point, counted())
+
+examples/reflect-make/main.tck:516:5: warning: make(Point, counted()) is not used
+515 |	    make(int64, counted())
+516 |	    make(Point, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+517 |	    check(n == 0 && after_basic == 1 && t.len() == 0 && after_text == 2 && is_empty(it) &&
+
+-- make-header-dot/divergence --
+suite: emit-header
+case: examples/reflect-make/.
+go: Go's checker takes make(T, alloc) written as a statement, for a T that
+  owns nothing, for a call statement, and reports nothing; its C, which
+  drops the value, is right.
+why: make only gives a value, so the port reports it as not used, as len
+  is, decided by the language owner 2026-11-15; the C is Go's, and only
+  the warnings differ.
+same: exit, stdout
+-- make-header-dot/exit --
+-- make-header-dot/stdout --
+-- make-header-dot/stderr --
+
+main.tck:515:5: warning: make(int64, counted()) is not used
+514 |	    // evaluated, once.
+515 |	    make(int64, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+516 |	    make(Point, counted())
+
+main.tck:516:5: warning: make(Point, counted()) is not used
+515 |	    make(int64, counted())
+516 |	    make(Point, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+517 |	    check(n == 0 && after_basic == 1 && t.len() == 0 && after_text == 2 && is_empty(it) &&
+
+-- make-harvested/divergence --
+suite: emit-cases
+case: go/b4f084a6df8f
+go: Go's checker takes make(T, alloc) written as a statement, for a T that
+  owns nothing, for a call statement, and reports nothing; its C, which
+  drops the value, is right.
+why: make only gives a value, so the port reports it as not used, as len
+  is, decided by the language owner 2026-11-15; the C is Go's, and only
+  the warnings differ.
+same: exit, stdout
+-- make-harvested/exit --
+-- make-harvested/stdout --
+-- make-harvested/stderr --
+
+b4f084a6df8f/case.tck:27:5: warning: make(int64, pick()) is not used
+26 |	    n := make(int64, pick())
+27 |	    make(int64, pick())
+   |	    ^~~~~~~~~~~~~~~~~~~
+28 |	    make(Flat, pick())
+
+b4f084a6df8f/case.tck:28:5: warning: make(Flat, pick()) is not used
+27 |	    make(int64, pick())
+28 |	    make(Flat, pick())
+   |	    ^~~~~~~~~~~~~~~~~~
+29 |	    make(int64, c_allocator)
+
+b4f084a6df8f/case.tck:29:5: warning: make(int64, c_allocator) is not used
+28 |	    make(Flat, pick())
+29 |	    make(int64, c_allocator)
+   |	    ^~~~~~~~~~~~~~~~~~~~~~~~
+30 |	    mut m := 5
+

@@ -21,6 +21,12 @@ type input struct {
 	// file is the path, relative to dir and slash-separated, the compilers
 	// are given.
 	file string
+	// suite names the set of cases the input is one of in the divergence
+	// list: a stage's name for its own cases, as TestPort runs them, or
+	// emit-probes for TestEmitProbes's programs. It is empty for an input
+	// that is no case of a suite, as the deep tests make, which no entry
+	// applies to (see matchDivergence).
+	suite string
 	// env holds variables, each name=value, the compilers run with after
 	// the environment they share, overriding it, as PWD for a directory
 	// reached through a symbolic link; it is empty for the corpus.

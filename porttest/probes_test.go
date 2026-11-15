@@ -94,7 +94,7 @@ func TestProbesPairStack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, in := range ins {
+	for _, in := range asSuite(ins, probesStage) {
 		t.Run(in.name, func(t *testing.T) {
 			t.Parallel()
 			runCaseWith(t, *st, in, env.portPairs)

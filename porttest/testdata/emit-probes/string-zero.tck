@@ -1,0 +1,45 @@
+package main
+
+// The zero value of a string where no string starts from its zero value
+// otherwise, so nothing else pools the empty string: what a checked pop
+// or remove of an empty list[string] gives, a checked delete of a key a
+// map of strings lacks, a checked remove of a handle a pool[string] no
+// longer holds, and what the pool's take helper leaves in the slot.
+
+func run() error {
+    mut l := make(list[string], c_allocator)
+    x, ok := pop(mut l)
+    if !ok && len(x) == 0 {
+        print("pop none\n")
+    }
+    append(mut l, "a")?
+    y, ok2 := remove(mut l, 3)
+    if !ok2 && len(y) == 0 {
+        print("remove none\n")
+    }
+    mut m := make(map[int64]string, c_allocator)
+    put(mut m, 1, "one")?
+    z, ok3 := delete(mut m, 2)
+    if !ok3 && len(z) == 0 {
+        print("delete none\n")
+    }
+    mut p := make(pool[string], c_allocator)
+    h := insert(mut p, "b")?
+    v, ok4 := remove(mut p, h)
+    if ok4 {
+        print(v)
+        print("\n")
+    }
+    w, ok5 := remove(mut p, h)
+    if !ok5 && len(w) == 0 {
+        print("pool none\n")
+    }
+    return noerror
+}
+
+func main() {
+    e := run()
+    if e.code != 0 {
+        exit(1)
+    }
+}

@@ -145,6 +145,39 @@
 // the bytes or of the two values written out as indented JSON with
 // sorted keys.
 //
+// # Known divergences
+//
+// The port does not copy the Go compiler's bugs. Where an accepted
+// program reaches one, the port does what is right, as ruled, and the
+// case is a known divergence, an entry of testdata/divergences.txtar:
+// the case, by its suite, the name of the stage whose case it is, or
+// emit-probes for TestEmitProbes's programs, and by its subtest's name;
+// what the Go compiler gets wrong; what the port does instead and what
+// ruled it, with its date; and the port's output, reviewed: its exit
+// status, its standard output and its standard error, each but those
+// the entry's same names, where the port gives what Go gives, so an
+// entry whose C is Go's records its warnings alone. Wherever the case
+// runs, compareResults compares the port with that output in place of
+// Go's, as the stage compares the two, and fails the case when Go gives
+// it, the entry having gone stale, as much as when the port does not; a
+// case the list holds that the port declines fails, required or not, so
+// an entry is never a skip.
+//
+// An entry applies to its suite's cases alone. TestPort marks each case
+// of a stage as that stage's, TestProbesPairStack the probes as the
+// probes stage's, and TestEmitProbes its programs as emit-probes'. An
+// input of no suite, as the deep, perf and fuzz tests make, never takes
+// an entry, and fails when an entry of the stage it runs as names it, so
+// that no entry applies silently to an input that only shares a case's
+// name. TestPort fails a stage for each entry of it whose case the stage
+// does not have, and TestDivergencesFile, in every go test ./porttest,
+// reads the list, rejecting a malformed one, and fails an entry of the
+// probes or the emit probes naming no program of theirs. The files an
+// emit-header case leaves are no part of an entry, and are compared with
+// Go's always. TestParseDivergences, TestParseDivergencesRejects,
+// TestDivergenceVerdict, TestMatchDivergence, TestMissingDivergences and
+// TestDivergedDecline check the mechanism itself.
+//
 // # Corpus
 //
 // The single files are every .tck file under examples/, run from this

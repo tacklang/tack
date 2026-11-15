@@ -1,6 +1,7 @@
 package porttest
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,14 +26,34 @@ import (
 // passed to scope parameters; captures of owned values written through
 // nested closures and closures in loops; function values in structs and
 // lists, method expressions taking a mut receiver, and calls through
-// values of several results and of an error. It runs only as TestPort
-// does.
+// values of several results and of an error. And programs where Go's
+// backend writes C that does not compile, each a known divergence (see
+// the package doc), whose C the port writes as the divergence list
+// records it, which compiles and runs under the sanitizers, leaking
+// nothing: builtins that only give a value written as statements, the
+// zero value of a type parameter standing for a string, an error or an
+// Allocator, and the zero value of a string where nothing pools the
+// empty string. Its cases are emit-probes's in the divergence list. It
+// runs only as TestPort does.
 func TestEmitProbes(t *testing.T) {
 	ready(t)
+	srcs, err := emitProbeSources()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(srcs) == 0 {
+		t.Fatal("testdata/emit-probes holds no program")
+	}
+	runEmitSuite(t, emitSingleStage, emitProbesSuite, srcs, env.portRun)
+}
+
+// emitProbeSources returns the programs of testdata/emit-probes, each
+// source by its file's name.
+func emitProbeSources() (map[string]string, error) {
 	dir := filepath.Join(env.root, "porttest", "testdata", "emit-probes")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatal(err)
+		return nil, fmt.Errorf("listing the emit probes: %w", err)
 	}
 	srcs := map[string]string{}
 	for _, e := range entries {
@@ -41,12 +62,9 @@ func TestEmitProbes(t *testing.T) {
 		}
 		src, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
-			t.Fatal(err)
+			return nil, fmt.Errorf("reading an emit probe: %w", err)
 		}
 		srcs[e.Name()] = string(src)
 	}
-	if len(srcs) == 0 {
-		t.Fatal("testdata/emit-probes holds no program")
-	}
-	runEmitDeep(t, emitSingleStage, srcs, env.portRun)
+	return srcs, nil
 }
