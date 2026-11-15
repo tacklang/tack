@@ -69,9 +69,9 @@ func (g Gen) append_string_value(s []uint8, mut out list[uint8]) error {
 // the nodes it holds, but for a MultiVar's names, a range loop's
 // variables and a type switch's, which are never visited. The walk keeps
 // a stack of its own. The strings of a fields loop's field names, of a
-// testing.Site argument and of the errors append, reserve and put give
-// are pooled only for what the later stages lower, which the port
-// declines (see doc.tck).
+// testing.Site argument are pooled only for what the later stages
+// lower, which the port declines (see doc.tck). Then the messages of the
+// errors append, reserve and put can give, Go's listErrors.
 func (mut g Gen) collect_strings(mut t typeck.Typed) error {
     mut stack := make(list[typeck.Key], c_allocator)
     mut kids := make(list[id[ast.Node]], c_allocator)
@@ -84,6 +84,13 @@ func (mut g Gen) collect_strings(mut t typeck.Typed) error {
             }
             mut g.pool_visit(mut t, k, mut stack, mut kids)?
         }
+    }
+    errs := mut g.list_errors(mut t)?
+    if errs >= 1 {
+        mut g.add_str([]uint8(out_of_memory))?
+    }
+    if errs >= 2 {
+        mut g.add_str([]uint8(negative_count))?
     }
     return noerror
 }
@@ -136,11 +143,6 @@ func (mut g Gen) pool_visit(mut t typeck.Typed, k typeck.Key, mut stack list[typ
     case call:
         if mut t.site_len(k) > 0 {
             // A testing.Site argument is a struct literal, E2's.
-            return not_ported
-        }
-        if is_builtin_named(t, k, "append") || is_builtin_named(t, k, "reserve") || is_builtin_named(t, k, "put") {
-            // The errors listErrors pools are append's, reserve's and
-            // put's, E3's.
             return not_ported
         }
     case multi_var(m):

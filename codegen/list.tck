@@ -1,0 +1,1139 @@
+package codegen
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// Lists, Go's list.go: a list's C struct and its free helper, the
+// errors append, reserve and put give, make, append, reserve, pop and
+// remove, their checked forms and their statements, a move, the frees
+// of an owned value, and an assignment of an owned place; union.go's
+// free helpers, emitFrees and emitUnionFree, are here too. The routines
+// of the expression machine for them start at r_question (see
+// question.tck), after E2's.
+//
+// Go's frees recurses a frame a level of a struct's owned fields, and a
+// chain of structs, each holding the one before, is as long as its
+// source makes it, so frees walks a stack of its own (see FreeItem), and
+// so does the walk to the free helpers, emit_frees (see TypeFrame).
+
+// out_of_memory is the message of the error append, reserve and put
+// give when the allocator cannot grow, Go's outOfMemory; its code is 1.
+var out_of_memory = "out of memory"
+
+// negative_count is the message of the error reserve gives for a
+// negative count, Go's negativeCount; its code is 2.
+var negative_count = "negative count"
+
+// append_list_name appends the name of the C struct of the list type typ
+// stands for, Go's listName: tack_list_ and its ID.
+func append_list_name(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    b := mut t.table.bound(typ)?
+    fmt.appendf(mut out, "tack_list_%d", b.number())?
+    return noerror
+}
+
+// append_free_name appends the name of the free helper of the type typ
+// stands for, Go's freeName: tack_free_ and its ID.
+func append_free_name(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    b := mut t.table.bound(typ)?
+    fmt.appendf(mut out, "tack_free_%d", b.number())?
+    return noerror
+}
+
+// emit_list_def defines the C struct a list type lowers to, Go's
+// emitListDef: its buffer, its length, its capacity and its allocator.
+func (mut g Gen) emit_list_def(mut t typeck.Typed, typ types.Type) error {
+    append(mut g.buf, []uint8("typedef struct {\n    ")...)?
+    append_c_type(mut t, mut t.table.elem_of(typ)?, mut g.buf)?
+    append(mut g.buf, []uint8(" *ptr;\n    int64_t len;\n    int64_t cap;\n    tack_allocator alloc;\n} ")...)?
+    append_list_name(mut t, typ, mut g.buf)?
+    append(mut g.buf, []uint8(";\n\n")...)?
+    return noerror
+}
+
+// FreeItem is a value frees has yet to free: its type and the C place
+// that holds it.
+type FreeItem struct {
+    typ types.Type
+    ref list[uint8]
+}
+
+// frees returns the C statements, each ending in a semicolon, that free
+// the value of type typ at the place ref, when it owns any, Go's frees:
+// a union's, a map's, an arena's, a pool's and a list of owned
+// elements' through its free helper, a list's buffer through
+// tack_list_free_, and each owned field of a struct, last first, at any
+// depth. A type that owns nothing gives none. The fields wait on a stack
+// of their own, last on top, so each is freed whole before the one
+// before it, as Go's recursion frees them.
+func (mut g Gen) frees(mut t typeck.Typed, typ types.Type, ref []uint8) (list[list[uint8]], error) {
+    mut out := make(list[list[uint8]], c_allocator)
+    owned := mut g.owned(mut t, typ)?
+    if !owned {
+        return out, noerror
+    }
+    mut stack := make(list[FreeItem], c_allocator)
+    mut first := make(list[uint8], c_allocator)
+    append(mut first, ref...)?
+    append(mut stack, FreeItem{typ: typ, ref: first})?
+    for len(stack) > 0 {
+        item, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        it := item.typ
+        mut helper := mut t.table.is_union(it)?
+        if !helper {
+            helper = mut t.table.is_map(it)?
+        }
+        if !helper {
+            helper = mut t.table.is_arena(it)?
+        }
+        if !helper {
+            helper = mut t.table.is_pool(it)?
+        }
+        lst := mut t.table.is_list(it)?
+        if !helper && lst {
+            helper = mut g.owned(mut t, mut t.table.elem_of(it)?)?
+        }
+        if helper {
+            mut l := make(list[uint8], c_allocator)
+            append_free_name(mut t, it, mut l)?
+            fmt.appendf(mut l, "(&%s);", item.ref[:])?
+            append(mut out, l)?
+            continue
+        }
+        if lst {
+            mut elem := make(list[uint8], c_allocator)
+            append_c_type(mut t, mut t.table.elem_of(it)?, mut elem)?
+            mut l := make(list[uint8], c_allocator)
+            fmt.appendf(mut l, "tack_list_free_(%s.ptr, %s.cap, sizeof (%s), _Alignof (%s), %s.alloc);", item.ref[:], item.ref[:], elem[:], elem[:], item.ref[:])?
+            append(mut out, l)?
+            continue
+        }
+        n := mut t.table.field_count(it)?
+        for i := range n {
+            ft, has := mut t.table.field_type(it, i)?
+            if !has {
+                continue
+            }
+            fo := mut g.owned(mut t, ft)?
+            if !fo {
+                continue
+            }
+            mut r := make(list[uint8], c_allocator)
+            append(mut r, item.ref[:]...)?
+            append(mut r, '.')?
+            append_field_member(mut t, it, i, mut r)?
+            append(mut stack, FreeItem{typ: ft, ref: r})?
+        }
+    }
+    return out, noerror
+}
+
+// emit_list_free writes the free helper of the list type typ, whose
+// elements are owned, Go's emitListFree: each element it holds, last
+// first, then its buffer.
+func (mut g Gen) emit_list_free(mut t typeck.Typed, typ types.Type) error {
+    mut free := make(list[uint8], c_allocator)
+    append_free_name(mut t, typ, mut free)?
+    unused := mut g.maybe_unused(free[:])?
+    fmt.appendf(mut g.buf, "%sstatic void %s(const ", unused, free[:])?
+    append_list_name(mut t, typ, mut g.buf)?
+    append(mut g.buf, []uint8(" *v) {\n    for (int64_t i = v->len; i > 0; i--) {\n")...)?
+    elem := mut t.table.elem_of(typ)?
+    lines := mut g.frees(mut t, elem, []uint8("v->ptr[i - 1]"))?
+    for _, l := range lines {
+        fmt.appendf(mut g.buf, "        %s\n", l[:])?
+    }
+    mut ctype := make(list[uint8], c_allocator)
+    append_c_type(mut t, elem, mut ctype)?
+    fmt.appendf(mut g.buf, "    }\n    tack_list_free_(v->ptr, v->cap, sizeof (%s), _Alignof (%s), v->alloc);\n}\n\n", ctype[:], ctype[:])?
+    return noerror
+}
+
+// emit_union_free writes the free helper of the union type typ, which
+// owns, Go's emitUnionFree: what the payload of the case it holds owns,
+// and nothing for a case whose payload owns nothing.
+func (mut g Gen) emit_union_free(mut t typeck.Typed, typ types.Type) error {
+    mut free := make(list[uint8], c_allocator)
+    append_free_name(mut t, typ, mut free)?
+    unused := mut g.maybe_unused(free[:])?
+    fmt.appendf(mut g.buf, "%sstatic void %s(const ", unused, free[:])?
+    append_struct_name(mut t, typ, mut g.buf)?
+    append(mut g.buf, []uint8(" *v) {\n    switch (v->tag) {\n")...)?
+    n := mut t.table.case_count(typ)?
+    for i := range n {
+        uc, ok := mut t.table.case_at(typ, i)?
+        if !ok || !uc.payload {
+            continue
+        }
+        po := mut g.owned(mut t, uc.typ)?
+        if !po {
+            continue
+        }
+        fmt.appendf(mut g.buf, "    case %d:\n", i)?
+        mut ref := make(list[uint8], c_allocator)
+        append(mut ref, []uint8("v->u.c_")...)?
+        mut t.table.case_name(uc, mut ref)?
+        lines := mut g.frees(mut t, uc.typ, ref[:])?
+        for _, l := range lines {
+            fmt.appendf(mut g.buf, "        %s\n", l[:])?
+        }
+        append(mut g.buf, []uint8("        break;\n")...)?
+    }
+    append(mut g.buf, []uint8("    default:\n        break;\n    }\n}\n\n")...)?
+    return noerror
+}
+
+// emit_frees writes the free helper of every type that owns and has
+// one, each after those of the types it is made of, Go's emitFrees: a
+// union, a list of owned elements, a map, an arena and a pool. A type
+// is marked before its parts are visited.
+func (mut g Gen) emit_frees(mut t typeck.Typed) error {
+    mut emitted := make(map[types.Type]bool, c_allocator)
+    mut frames := make(list[TypeFrame], c_allocator)
+    mut parts := make(list[types.Type], c_allocator)
+    count := mut t.table.count()
+    for i := range count {
+        typ := types.added(i)
+        param := mut t.table.has_type_param(typ)?
+        if param {
+            continue
+        }
+        enter := mut g.enter_free(mut t, typ, mut emitted)?
+        if !enter {
+            continue
+        }
+        push_type_frame(mut t, typ, mut frames, mut parts)?
+        for len(frames) > 0 {
+            p, has, f := next_part(mut frames, mut parts)
+            if has {
+                in := mut g.enter_free(mut t, p, mut emitted)?
+                if in {
+                    push_type_frame(mut t, p, mut frames, mut parts)?
+                }
+                continue
+            }
+            mut g.emit_free_of(mut t, f.typ)?
+        }
+    }
+    return noerror
+}
+
+// enter_free reports whether emit_frees visits typ, marking it: not
+// visited already, and owned.
+func (mut g Gen) enter_free(mut t typeck.Typed, typ types.Type, mut emitted map[types.Type]bool) (bool, error) {
+    _, done := emitted[typ]
+    if done {
+        return false, noerror
+    }
+    owned := mut g.owned(mut t, typ)?
+    if !owned {
+        return false, noerror
+    }
+    put(mut emitted, typ, true)?
+    return true, noerror
+}
+
+// emit_free_of writes the free helper of typ, an owned type whose parts'
+// are written, by its kind, or nothing for a kind with none, a struct or
+// a list of elements that own nothing.
+func (mut g Gen) emit_free_of(mut t typeck.Typed, typ types.Type) error {
+    if mut t.table.is_union(typ)? {
+        mut g.emit_union_free(mut t, typ)?
+        return noerror
+    }
+    if mut t.table.is_list(typ)? {
+        eo := mut g.owned(mut t, mut t.table.elem_of(typ)?)?
+        if eo {
+            mut g.emit_list_free(mut t, typ)?
+            return noerror
+        }
+    }
+    if mut t.table.is_map(typ)? {
+        mut g.emit_map_free(mut t, typ)?
+        return noerror
+    }
+    if mut t.table.is_arena(typ)? {
+        mut g.emit_arena_free(mut t, typ)?
+        return noerror
+    }
+    if mut t.table.is_pool(typ)? {
+        mut g.emit_pool_free(mut t, typ)?
+    }
+    return noerror
+}
+
+// append_list_error appends the error code and message, a pooled
+// string, make, Go's listError.
+func (g Gen) append_list_error(code int64, msg string, mut out list[uint8]) error {
+    mut parts := make(list[uint8], c_allocator)
+    g.append_str_parts([]uint8(msg), mut parts)?
+    fmt.appendf(mut out, "(tack_error){%d, {%s}}", code, parts[:])?
+    return noerror
+}
+
+// list_errors returns how many of the errors append, reserve and put can
+// give the program's calls to them, Go's listErrors: 0, 1, out of memory
+// for any, or 2, negative count too, for a reserve whose count is no
+// constant.
+func (mut g Gen) list_errors(mut t typeck.Typed) (int64, error) {
+    mut grows := false
+    mut stack := make(list[typeck.Key], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for u := range len(t.prog.trees) {
+        walk_program(t, u, mut stack)?
+        for len(stack) > 0 {
+            k, has := pop(mut stack)
+            if !has {
+                break
+            }
+            switch kind_of(t.prog.trees[:], k) {
+            case call:
+                reserves := is_builtin_named(t, k, "reserve")
+                grows = grows || reserves || is_builtin_named(t, k, "append") || is_builtin_named(t, k, "put")
+                if reserves {
+                    c := mut g.const_count(mut t, k)?
+                    if !c {
+                        return 2, noerror
+                    }
+                }
+            default:
+            }
+            push_children(t.prog.trees[:], k, mut kids, mut stack)?
+        }
+    }
+    if grows {
+        return 1, noerror
+    }
+    return 0, noerror
+}
+
+// const_count reports whether the count of k, a call to reserve, is a
+// constant, Go's constCount: a literal, or a value the checker computed.
+func (mut g Gen) const_count(mut t typeck.Typed, k typeck.Key) (bool, error) {
+    cl := call_of(t.prog.trees[:], k)
+    mut lit := make(list[uint8], c_allocator)
+    ok := mut g.literal(mut t, node_at(t.prog.trees[:], k.unit, cl.args, 1), mut lit)?
+    return ok, noerror
+}
+
+// move_value renders the value of typ at ref moved, Go's moveValue: taken
+// through a temporary, the place emptied, (t = ref, ref = (T){}, t), when
+// it owns, and ref itself otherwise.
+func (mut g Gen) move_value(mut t typeck.Typed, typ types.Type, own ref list[uint8]) (list[uint8], error) {
+    owned := mut g.owned(mut t, typ)?
+    if !owned {
+        return ref, noerror
+    }
+    name := mut g.temp("o")?
+    mut ctype := make(list[uint8], c_allocator)
+    append_c_type(mut t, typ, mut ctype)?
+    mut g.add_temp_decl(ctype[:], name[:])?
+    mut out := make(list[uint8], c_allocator)
+    fmt.appendf(mut out, "(%s = %s, %s = (%s){}, %s)", name[:], ref[:], ref[:], ctype[:], name[:])?
+    return out, noerror
+}
+
+// owned_assign appends to lines an assignment of value, rendered, to the
+// place ref of the owned type typ, Go's ownedAssign: the value into a
+// temporary first, since it may read the old one, then the old value's
+// frees, then the place given the new one.
+func (mut g Gen) owned_assign(mut t typeck.Typed, typ types.Type, ref []uint8, value []uint8, mut lines list[Line]) error {
+    name := mut g.temp("o")?
+    mut ctype := make(list[uint8], c_allocator)
+    append_c_type(mut t, typ, mut ctype)?
+    mut g.add_temp_decl(ctype[:], name[:])?
+    mut a := make(list[uint8], c_allocator)
+    fmt.appendf(mut a, "%s = %s;", name[:], value)?
+    mut g.add_line(mut lines, a[:])?
+    frees := mut g.frees(mut t, typ, ref)?
+    for _, f := range frees {
+        mut g.add_line(mut lines, f[:])?
+    }
+    mut b := make(list[uint8], c_allocator)
+    fmt.appendf(mut b, "%s = %s;", ref, name[:])?
+    mut g.add_line(mut lines, b[:])?
+    return noerror
+}
+
+// first_arg returns the first argument of the call k, and the place it
+// names when it is a mut argument, and whether it is one.
+func first_arg(t typeck.Typed, k typeck.Key) (typeck.Key, typeck.Key, bool) {
+    cl := call_of(t.prog.trees[:], k)
+    a := node_at(t.prog.trees[:], k.unit, cl.args, 0)
+    switch kind_of(t.prog.trees[:], a) {
+    case mut_arg(x):
+        return a, at(a, x), true
+    default:
+    }
+    return a, a, false
+}
+
+// take_list renders the address of the list the call k, a call to pop,
+// remove or swap, takes an element of, its first argument, a mut
+// argument, Go's takeList.
+func (mut g Gen) take_list(mut t typeck.Typed, k typeck.Key) (list[uint8], error) {
+    a, _, is_mut := first_arg(t, k)
+    if !is_mut {
+        cl := call_of(t.prog.trees[:], k)
+        nm, _ := ident_of(t.prog.trees[:], at(k, cl.fn))
+        mut msg := make(list[uint8], c_allocator)
+        append(mut msg, text_of(t, k.unit, nm.name)...)?
+        append(mut msg, []uint8("'s list must be passed as mut")...)?
+        return make(list[uint8], c_allocator), mut g.fail(msg[:], span_of(t.prog.trees[:], a.unit, a.node))
+    }
+    lp := mut g.mut_arg_of(mut t, a)?
+    return lp, noerror
+}
+
+// mut_arg_of renders the mut argument a as Go's mutArg does.
+func (mut g Gen) mut_arg_of(mut t typeck.Typed, a typeck.Key) (list[uint8], error) {
+    mut m := new_machine()
+    mut m.push(r_mut_arg, a, types.invalid, false)?
+    mut g.run(mut t, mut m)?
+    return mut m.take(), noerror
+}
+
+// take_values lowers x, ok := pop(mut l) or x, ok := remove(mut l, i),
+// the call k, Go's takeValues: the list's address held, then remove's
+// index, as an int64, then whether the list holds what is taken, then
+// the element, taken only when it does, its type's zero value otherwise.
+func (mut g Gen) take_values(mut t typeck.Typed, k typeck.Key) (MultiSource, error) {
+    lp := mut g.take_list(mut t, k)?
+    _, lk, _ := first_arg(t, k)
+    ct := mut t.call_type(k)
+    mut elem := make(list[uint8], c_allocator)
+    append_c_type(mut t, ct, mut elem)?
+    mut zero := make(list[uint8], c_allocator)
+    mut g.append_zero_value(mut t, ct, mut zero)?
+    mut src := new_source(ms_reverse, k)
+    mut ltype := make(list[uint8], c_allocator)
+    append_c_type(mut t, mut t.type_of(lk), mut ltype)?
+    mut lt := plain_temp(own ltype, own lp)
+    lt.is_mut = true
+    append(mut src.temps, lt)?
+    if is_builtin_named(t, k, "pop") {
+        append(mut src.temps, from_temp([]uint8("bool"), from_pop_ok, []uint8(""), []uint8(""))?)?
+        append(mut src.temps, from_temp(elem[:], from_pop_take, []uint8(""), zero[:])?)?
+        return src, noerror
+    }
+    cl := call_of(t.prog.trees[:], k)
+    i := mut g.expr(mut t, node_at(t.prog.trees[:], k.unit, cl.args, 1), types.int64_type)?
+    mut it := make(list[uint8], c_allocator)
+    append(mut it, []uint8("int64_t")...)?
+    append(mut src.temps, plain_temp(own it, own i))?
+    append(mut src.temps, from_temp([]uint8("bool"), from_remove_ok, []uint8(""), []uint8(""))?)?
+    append(mut src.temps, from_temp(elem[:], from_remove_take, []uint8(""), zero[:])?)?
+    return src, noerror
+}
+
+// drop_take lowers pop(mut l) or remove(mut l, i) written as a
+// statement, the call k, Go's dropTake: the temporaries take_values
+// holds but the element, then, only when the list holds what is taken,
+// the element taken and dropped, freed when it owns.
+func (mut g Gen) drop_take(mut t typeck.Typed, k typeck.Key) (list[Line], error) {
+    mut src := mut g.take_values(mut t, k)?
+    pop(mut src.temps)
+    mut lines := make(list[Line], c_allocator)
+    names := mut g.hold_temps(src, mut lines)?
+    mut n0 := make(list[uint8], c_allocator)
+    copy_name(names[:], 0, mut n0)?
+    mut take := make(list[uint8], c_allocator)
+    if is_builtin_named(t, k, "remove") {
+        mut n1 := make(list[uint8], c_allocator)
+        copy_name(names[:], 1, mut n1)?
+        fmt.appendf(mut take, "TACK_LIST_REMOVE(%s, %s)", n0[:], n1[:])?
+    } else {
+        fmt.appendf(mut take, "TACK_LIST_POP(%s)", n0[:])?
+    }
+    ct := mut t.call_type(k)
+    body := mut g.drop_body(mut t, ct, take[:])?
+    mut last := make(list[uint8], c_allocator)
+    copy_name(names[:], len(names) -% 1, mut last)?
+    mut head := make(list[uint8], c_allocator)
+    fmt.appendf(mut head, "if (%s) {", last[:])?
+    mut g.add_line(mut lines, head[:])?
+    append_indented(mut lines, body[:])?
+    mut g.add_line(mut lines, []uint8("}"))?
+    return lines, noerror
+}
+
+// drop_body returns the body of a statement that takes a value of type
+// typ out, by take, and drops it: (void)take;, or, for a value that
+// owns, the value held in a const temporary, then freed.
+func (mut g Gen) drop_body(mut t typeck.Typed, typ types.Type, take []uint8) (list[Line], error) {
+    mut body := make(list[Line], c_allocator)
+    owned := mut g.owned(mut t, typ)?
+    if !owned {
+        mut l := make(list[uint8], c_allocator)
+        fmt.appendf(mut l, "(void)%s;", take)?
+        mut g.add_line(mut body, l[:])?
+        return body, noerror
+    }
+    name := mut g.temp("r")?
+    mut l := make(list[uint8], c_allocator)
+    append(mut l, []uint8("const ")...)?
+    append_c_type(mut t, typ, mut l)?
+    fmt.appendf(mut l, " %s = %s;", name[:], take)?
+    mut g.add_line(mut body, l[:])?
+    frees := mut g.frees(mut t, typ, name[:])?
+    for _, f := range frees {
+        mut g.add_line(mut body, f[:])?
+    }
+    return body, noerror
+}
+
+// drop_stmt lowers drop(own x), the call k, always a statement, Go's
+// dropStmt: the free the end of x's block would make, then x emptied, as
+// a move empties it, so that free frees nothing. The checker allows only
+// a local variable or an own parameter; for a type that owns nothing it
+// is no statement at all.
+func (mut g Gen) drop_stmt(mut t typeck.Typed, k typeck.Key) (list[Line], error) {
+    mut lines := make(list[Line], c_allocator)
+    cl := call_of(t.prog.trees[:], k)
+    a := node_at(t.prog.trees[:], k.unit, cl.args, 0)
+    mut x := no_key()
+    switch kind_of(t.prog.trees[:], a) {
+    case mut_arg(n):
+        x = at(a, n)
+    case own_arg(n):
+        x = at(a, n)
+    default:
+    }
+    nm, is_name := ident_of(t.prog.trees[:], x)
+    mut ref := make(list[uint8], c_allocator)
+    if is_name {
+        d := typeck.Key{unit: nm.def.unit, node: nm.def.node}
+        if nm.def.kind == ast.def_var {
+            g.append_var_ref(t, d, mut ref)?
+        } else if nm.def.kind == ast.def_param {
+            ref = mut g.param_ref(mut t, d)?
+        }
+    }
+    if len(ref) == 0 {
+        // Go's internal error, a drop of something other than a
+        // variable, which the checker rules out.
+        return lines, not_ported
+    }
+    typ := mut t.type_of(x)
+    owned := mut g.owned(mut t, typ)?
+    if !owned {
+        return lines, noerror
+    }
+    frees := mut g.frees(mut t, typ, ref[:])?
+    for _, f := range frees {
+        mut g.add_line(mut lines, f[:])?
+    }
+    mut l := make(list[uint8], c_allocator)
+    fmt.appendf(mut l, "%s = (", ref[:])?
+    append_c_type(mut t, typ, mut l)?
+    append(mut l, []uint8("){};")...)?
+    mut g.add_line(mut lines, l[:])?
+    return lines, noerror
+}
+
+// r_make is the routine of Go's makeValue and makeArena.
+var r_make uint8 = 47
+
+// r_append is the routine of Go's appendValue, appendOperands,
+// appendOwned and appendBuild, and of arena.go's addExpr and pool.go's
+// insertExpr, which render their operands as append does: the frame's a
+// is the next argument to render, its pend the values pending before.
+var r_append uint8 = 48
+
+// r_reserve is the routine of Go's reserveValue.
+var r_reserve uint8 = 49
+
+// r_take is the routine of Go's popValue and removeValue.
+var r_take uint8 = 50
+
+// r_replace is the routine of Go's replaceValue.
+var r_replace uint8 = 51
+
+// list_step runs the next step of f, a frame of one of the list
+// routines, and reports whether it was one.
+func (mut g Gen) list_step(mut t typeck.Typed, f MFrame, mut m Machine) (bool, error) {
+    if f.r == r_make {
+        mut g.step_make(mut t, f, mut m)?
+        return true, noerror
+    }
+    if f.r == r_append {
+        mut g.step_append(mut t, f, mut m)?
+        return true, noerror
+    }
+    if f.r == r_reserve {
+        mut g.step_reserve(mut t, f, mut m)?
+        return true, noerror
+    }
+    if f.r == r_take {
+        mut g.step_take(mut t, f, mut m)?
+        return true, noerror
+    }
+    if f.r == r_replace {
+        mut g.step_replace(mut t, f, mut m)?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// generic_routine returns the routine that renders a call of the generic
+// builtin name as a value, Go's genericValue and mapValue but for len,
+// and whether there is one.
+func generic_routine(name []uint8) (uint8, bool) {
+    if bytes_equal(name, []uint8("make")) {
+        return r_make, true
+    }
+    if bytes_equal(name, []uint8("append")) {
+        return r_append, true
+    }
+    if bytes_equal(name, []uint8("reserve")) {
+        return r_reserve, true
+    }
+    if bytes_equal(name, []uint8("pop")) || bytes_equal(name, []uint8("remove")) {
+        return r_take, true
+    }
+    if bytes_equal(name, []uint8("replace")) {
+        return r_replace, true
+    }
+    if bytes_equal(name, []uint8("put")) {
+        return r_put, true
+    }
+    if bytes_equal(name, []uint8("has")) {
+        return r_has, true
+    }
+    return 0, false
+}
+
+// step_make is Go's makeValue: make of a Data type, E4's; of an arena its
+// sentinel, then its allocator, held in order when it shows (Go's
+// makeArena); of anything else its allocator, then an empty map, pool or
+// list holding it.
+func (mut g Gen) step_make(mut t typeck.Typed, f MFrame, mut m Machine) error {
+    args := call_args_of(t, f.e)?
+    ct := mut t.call_type(f.e)
+    if f.step == 0 {
+        if len(args) < 2 {
+            return not_ported
+        }
+        _, named := ident_of(t.prog.trees[:], args[0])
+        if named {
+            // makeData, of makedata.go, E4's.
+            return not_ported
+        }
+        if mut t.table.is_arena(ct)? {
+            mut m.again(f, 1)?
+            mut m.push(r_expr, args[1], mut t.table.elem_of(ct)?, false)?
+            return noerror
+        }
+        mut m.again(f, 3)?
+        mut m.push(r_expr, args[1], types.allocator, false)?
+        return noerror
+    }
+    if f.step == 1 {
+        if len(args) < 3 {
+            return not_ported
+        }
+        mut m.again(f, 2)?
+        mut m.push(r_expr, args[2], types.allocator, false)?
+        return noerror
+    }
+    if f.step == 2 {
+        alloc := mut m.take()
+        sentinel := mut m.take()
+        mut name := make(list[uint8], c_allocator)
+        append_arena_name(mut t, ct, mut name)?
+        cl := call_of(t.prog.trees[:], f.e)
+        operands := [2]typeck.Key{node_at(t.prog.trees[:], f.e.unit, cl.args, 1), node_at(t.prog.trees[:], f.e.unit, cl.args, 2)}
+        mut rendered := make(list[list[uint8]], c_allocator)
+        append(mut rendered, sentinel)?
+        append(mut rendered, alloc)?
+        ctypes := operand_types(mut t, operands[:])?
+        steps := mut g.sequence(mut t, operands[:], mut rendered, ctypes[:], false)?
+        mut built := make(list[uint8], c_allocator)
+        if len(rendered) == 2 {
+            fmt.appendf(mut built, "((%s){.elems = {.alloc = %s}, .sentinel = %s})", name[:], rendered[1][:], rendered[0][:])?
+        }
+        v := wrap_steps(steps[:], own built)?
+        mut m.give(own v)?
+        return noerror
+    }
+    alloc := mut m.take()
+    mut out := make(list[uint8], c_allocator)
+    append(mut out, []uint8("((")...)?
+    if mut t.table.is_map(ct)? {
+        append_map_name(mut t, ct, mut out)?
+        fmt.appendf(mut out, "){.alloc = %s})", alloc[:])?
+    } else if mut t.table.is_pool(ct)? {
+        append_pool_name(mut t, ct, mut out)?
+        fmt.appendf(mut out, "){.alloc = %s, .tag = tack_pool_tag_()})", alloc[:])?
+    } else {
+        append_list_name(mut t, ct, mut out)?
+        fmt.appendf(mut out, "){.alloc = %s})", alloc[:])?
+    }
+    mut m.give(own out)?
+    return noerror
+}
+
+// mut_message returns the message of the error Go gives when the first
+// argument of the call k, to append, add, add_all or insert, is no mut
+// argument.
+func mut_message(t typeck.Typed, k typeck.Key, mut out list[uint8]) error {
+    if is_builtin_named(t, k, "append") {
+        append(mut out, []uint8("append's list must be passed as mut")...)?
+        return noerror
+    }
+    if is_builtin_named(t, k, "insert") {
+        append(mut out, []uint8("insert's pool must be passed as mut")...)?
+        return noerror
+    }
+    cl := call_of(t.prog.trees[:], k)
+    nm, _ := ident_of(t.prog.trees[:], at(k, cl.fn))
+    append(mut out, text_of(t, k.unit, nm.name)...)?
+    append(mut out, []uint8("'s arena must be passed as mut")...)?
+    return noerror
+}
+
+// step_append is Go's appendValue, addExpr and insertExpr: the first
+// argument's place, by mutArg, then each value, as the element type, or,
+// spread, as a view of it, each guarded (Go's appendOperands), then the
+// call built of them, held in order when it shows.
+func (mut g Gen) step_append(mut t typeck.Typed, f MFrame, mut m Machine) error {
+    cl := call_of(t.prog.trees[:], f.e)
+    args := call_args_of(t, f.e)?
+    a0, mx, is_mut := first_arg(t, f.e)
+    if f.step == 0 {
+        if !is_mut {
+            mut msg := make(list[uint8], c_allocator)
+            mut_message(t, f.e, mut msg)?
+            return mut g.fail(msg[:], span_of(t.prog.trees[:], a0.unit, a0.node))
+        }
+        mut s := f
+        s.a = 1
+        s.pend = len(g.pending)
+        s.glast = mut g.guard_last(mut t, args[:])?
+        mut m.again(s, 1)?
+        mut m.push(r_mut_arg, a0, types.invalid, false)?
+        return noerror
+    }
+    elem := mut t.table.elem_of(mut t.type_of(mx))?
+    if f.a > 1 {
+        x := mut m.take()
+        e := node_at(t.prog.trees[:], f.e.unit, cl.args, f.a -% 1)
+        held := mut g.guard_hold(mut t, e, f.a -% 1, f.glast, own x)?
+        mut m.give(own held)?
+    }
+    if f.a < len(args) {
+        mut s := f
+        s.a = f.a +% 1
+        mut m.again(s, 1)?
+        arg := node_at(t.prog.trees[:], f.e.unit, cl.args, f.a)
+        if cl.spread {
+            view := mut t.table.view_of(elem)?
+            mut vf := mframe(r_view_arg, arg, view, false, len(m.vals))
+            vf.k = f.e
+            append(mut m.frames, vf)?
+            return noerror
+        }
+        mut m.push(r_expr, arg, elem, false)?
+        return noerror
+    }
+    mut g.guard_done(f.pend)
+    n := len(args)
+    mut rendered := make(list[list[uint8]], c_allocator)
+    for range n {
+        append(mut rendered, make(list[uint8], c_allocator))?
+    }
+    mut j := n
+    for j > 0 {
+        j -%= 1
+        v := mut m.take()
+        if j >= 0 && j < len(rendered) {
+            rendered[j] = v
+        }
+    }
+    mut ctypes := make(list[list[uint8]], c_allocator)
+    for i, a := range args {
+        mut c := make(list[uint8], c_allocator)
+        if i > 0 && cl.spread {
+            append_view_name(mut t, mut t.table.view_of(elem)?, mut c)?
+        } else {
+            append_operand_type(mut t, a, mut c)?
+        }
+        append(mut ctypes, c)?
+    }
+    typ := mut t.type_of(mx)
+    if is_builtin_named(t, f.e, "append") {
+        eo := mut g.owned(mut t, elem)?
+        if eo && n > 1 {
+            if cl.spread {
+                // Go's appendOwned takes a spread view of owned
+                // elements for one owned value, which is not C at all, a
+                // Go bug no accepted program reaches: the checker
+                // rejects a spread of owned elements, since they would be
+                // copied. The port declines it as an internal error.
+                return not_ported
+            }
+            v := mut g.append_owned(mut t, args[:], elem, rendered[:])?
+            mut m.give(own v)?
+            return noerror
+        }
+    }
+    steps := mut g.sequence(mut t, args[:], mut rendered, ctypes[:], false)?
+    mut built := make(list[uint8], c_allocator)
+    if len(rendered) == 0 {
+        return not_ported
+    }
+    mut lp := make(list[uint8], c_allocator)
+    append(mut lp, rendered[0][:]...)?
+    mut values := make(list[list[uint8]], c_allocator)
+    for i, r := range rendered {
+        if i > 0 {
+            mut c := make(list[uint8], c_allocator)
+            append(mut c, r[:]...)?
+            append(mut values, c)?
+        }
+    }
+    if is_builtin_named(t, f.e, "insert") {
+        append_pool_helper(mut t, "insert", typ, mut built)?
+        mut v0 := make(list[uint8], c_allocator)
+        copy_name(values[:], 0, mut v0)?
+        fmt.appendf(mut built, "(%s, %s)", lp[:], v0[:])?
+        v := wrap_steps(steps[:], own built)?
+        mut m.give(own v)?
+        return noerror
+    }
+    if is_builtin_named(t, f.e, "add") {
+        append_arena_helper(mut t, "add", typ, mut built)?
+        mut v0 := make(list[uint8], c_allocator)
+        copy_name(values[:], 0, mut v0)?
+        fmt.appendf(mut built, "(%s, %s)", lp[:], v0[:])?
+        v := wrap_steps(steps[:], own built)?
+        mut m.give(own v)?
+        return noerror
+    }
+    mut grow := make(list[uint8], c_allocator)
+    mut one := make(list[uint8], c_allocator)
+    if is_builtin_named(t, f.e, "add_all") {
+        append_arena_helper(mut t, "add_all", typ, mut grow)?
+        append(mut one, grow[:]...)?
+    } else {
+        append(mut grow, []uint8("TACK_LIST_APPEND_N")...)?
+        append(mut one, []uint8("TACK_LIST_APPEND")...)?
+    }
+    if cl.spread {
+        name := mut g.temp("v")?
+        mut vn := make(list[uint8], c_allocator)
+        append_view_name(mut t, mut t.table.view_of(elem)?, mut vn)?
+        mut g.add_temp_decl(vn[:], name[:])?
+        mut v0 := make(list[uint8], c_allocator)
+        copy_name(values[:], 0, mut v0)?
+        fmt.appendf(mut built, "(%s = %s, %s(%s, %s.ptr, %s.len))", name[:], v0[:], grow[:], lp[:], name[:], name[:])?
+    } else if len(values) == 1 && !is_builtin_named(t, f.e, "add_all") {
+        mut v0 := make(list[uint8], c_allocator)
+        copy_name(values[:], 0, mut v0)?
+        fmt.appendf(mut built, "%s(%s, %s)", one[:], lp[:], v0[:])?
+    } else if len(values) == 0 {
+        fmt.appendf(mut built, "%s(%s, 0, 0)", grow[:], lp[:])?
+    } else {
+        mut ct := make(list[uint8], c_allocator)
+        append_c_type(mut t, elem, mut ct)?
+        fmt.appendf(mut built, "%s(%s, ((const %s[%d]){", grow[:], lp[:], ct[:], len(values))?
+        for i, v := range values {
+            if i > 0 {
+                append(mut built, []uint8(", ")...)?
+            }
+            append(mut built, v[:]...)?
+        }
+        fmt.appendf(mut built, "}), %d)", len(values))?
+    }
+    v := wrap_steps(steps[:], own built)?
+    if is_builtin_named(t, f.e, "add_all") {
+        mut m.give(own v)?
+        return noerror
+    }
+    mut out := make(list[uint8], c_allocator)
+    fmt.appendf(mut out, "(%s ? ", v[:])?
+    mut g.append_zero_value(mut t, types.error_type, mut out)?
+    append(mut out, []uint8(" : ")...)?
+    g.append_list_error(1, out_of_memory, mut out)?
+    append(mut out, ')')?
+    mut m.give(own out)?
+    return noerror
+}
+
+// append_owned renders err := append(mut l, a, b) onto a list of the
+// owned type elem, whose operands, args, are rendered as rendered, Go's
+// appendOwned: the list's address held unless it is pure, then each
+// value held in a temporary of its own, in order, so that when the
+// buffer cannot grow they are freed, last first, before the error is
+// given.
+func (mut g Gen) append_owned(mut t typeck.Typed, args []typeck.Key, elem types.Type, rendered []list[uint8]) (list[uint8], error) {
+    ctype := c_type_of(mut t, elem)?
+    mut lp := make(list[uint8], c_allocator)
+    if len(rendered) > 0 {
+        append(mut lp, rendered[0][:]...)?
+    }
+    mut steps := make(list[list[uint8]], c_allocator)
+    if len(args) > 0 {
+        p := mut g.pure(mut t, args[0])?
+        if !p {
+            name := mut g.temp("o")?
+            mut ot := make(list[uint8], c_allocator)
+            append_operand_type(mut t, args[0], mut ot)?
+            mut g.add_temp_decl(ot[:], name[:])?
+            mut s := make(list[uint8], c_allocator)
+            fmt.appendf(mut s, "%s = %s", name[:], lp[:])?
+            append(mut steps, s)?
+            lp = name
+        }
+    }
+    mut values := make(list[list[uint8]], c_allocator)
+    for i, v := range rendered {
+        if i == 0 {
+            continue
+        }
+        name := mut g.temp("o")?
+        mut g.add_temp_decl(ctype[:], name[:])?
+        mut s := make(list[uint8], c_allocator)
+        fmt.appendf(mut s, "%s = %s", name[:], v[:])?
+        append(mut steps, s)?
+        append(mut values, name)?
+    }
+    mut grow := make(list[uint8], c_allocator)
+    if len(values) == 1 {
+        fmt.appendf(mut grow, "TACK_LIST_APPEND(%s, %s)", lp[:], values[0][:])?
+    } else {
+        fmt.appendf(mut grow, "TACK_LIST_APPEND_N(%s, ((const %s[%d]){", lp[:], ctype[:], len(values))?
+        for i, v := range values {
+            if i > 0 {
+                append(mut grow, []uint8(", ")...)?
+            }
+            append(mut grow, v[:]...)?
+        }
+        fmt.appendf(mut grow, "}), %d)", len(values))?
+    }
+    mut frees := make(list[uint8], c_allocator)
+    mut i := len(values)
+    for i > 0 {
+        i -%= 1
+        if i < 0 || i >= len(values) {
+            continue
+        }
+        lines := mut g.frees(mut t, elem, values[i][:])?
+        for _, l := range lines {
+            append(mut frees, l[:]...)?
+            if len(frees) > 0 {
+                pop(mut frees)
+            }
+            append(mut frees, []uint8(", ")...)?
+        }
+    }
+    g.append_list_error(1, out_of_memory, mut frees)?
+    mut last := make(list[uint8], c_allocator)
+    fmt.appendf(mut last, "(%s ? ", grow[:])?
+    mut g.append_zero_value(mut t, types.error_type, mut last)?
+    fmt.appendf(mut last, " : (%s))", frees[:])?
+    append(mut steps, last)?
+    mut out := make(list[uint8], c_allocator)
+    append(mut out, '(')?
+    for k, s := range steps {
+        if k > 0 {
+            append(mut out, []uint8(", ")...)?
+        }
+        append(mut out, s[:]...)?
+    }
+    append(mut out, ')')?
+    return out, noerror
+}
+
+// step_reserve is Go's reserveValue: the list's place, then the count, as
+// an int64, then the reserve, after a count that is no constant is found
+// not to be negative, the two held in order when it shows.
+func (mut g Gen) step_reserve(mut t typeck.Typed, f MFrame, mut m Machine) error {
+    args := call_args_of(t, f.e)?
+    a0, mx, is_mut := first_arg(t, f.e)
+    if f.step == 0 {
+        if !is_mut {
+            return mut g.fail([]uint8("reserve's list must be passed as mut"), span_of(t.prog.trees[:], a0.unit, a0.node))
+        }
+        mut m.again(f, 1)?
+        mut m.push(r_mut_arg, a0, types.invalid, false)?
+        return noerror
+    }
+    if len(args) != 2 {
+        return not_ported
+    }
+    if f.step == 1 {
+        mut m.again(f, 2)?
+        mut m.push(r_expr, args[1], types.int64_type, false)?
+        return noerror
+    }
+    n := mut m.take()
+    place := mut m.take()
+    mut none := make(list[uint8], c_allocator)
+    mut g.append_zero_value(mut t, types.error_type, mut none)?
+    mut oom := make(list[uint8], c_allocator)
+    g.append_list_error(1, out_of_memory, mut oom)?
+    mut grow := make(list[uint8], c_allocator)
+    typ := mut t.type_of(mx)
+    if mut t.table.is_arena(typ)? {
+        append_arena_helper(mut t, "reserve", typ, mut grow)?
+    } else {
+        append(mut grow, []uint8("TACK_LIST_RESERVE")...)?
+    }
+    mut rendered := make(list[list[uint8]], c_allocator)
+    append(mut rendered, place)?
+    append(mut rendered, n)?
+    mut ctypes := make(list[list[uint8]], c_allocator)
+    mut c0 := make(list[uint8], c_allocator)
+    append_operand_type(mut t, a0, mut c0)?
+    append(mut ctypes, c0)?
+    mut c1 := make(list[uint8], c_allocator)
+    append(mut c1, []uint8("int64_t")...)?
+    append(mut ctypes, c1)?
+    steps := mut g.sequence(mut t, args[:], mut rendered, ctypes[:], false)?
+    if len(rendered) != 2 {
+        return not_ported
+    }
+    mut built := make(list[uint8], c_allocator)
+    c := mut g.const_count(mut t, f.e)?
+    if c {
+        fmt.appendf(mut built, "(%s(%s, %s) ? %s : %s)", grow[:], rendered[0][:], rendered[1][:], none[:], oom[:])?
+    } else {
+        mut count := make(list[uint8], c_allocator)
+        append(mut count, rendered[1][:]...)?
+        mut hold := make(list[uint8], c_allocator)
+        p := mut g.pure(mut t, args[1])?
+        if !p {
+            count = mut g.temp("n")?
+            mut g.add_temp_decl([]uint8("int64_t"), count[:])?
+            fmt.appendf(mut hold, "%s = %s, ", count[:], rendered[1][:])?
+        }
+        mut neg := make(list[uint8], c_allocator)
+        g.append_list_error(2, negative_count, mut neg)?
+        fmt.appendf(mut built, "(%s%s < 0 ? %s : %s(%s, %s) ? %s : %s)", hold[:], count[:], neg[:], grow[:], rendered[0][:], count[:], none[:], oom[:])?
+    }
+    v := wrap_steps(steps[:], own built)?
+    mut m.give(own v)?
+    return noerror
+}
+
+// step_take is Go's popValue and removeValue: the list's address, by
+// takeList, then remove's index, as an int64, then std's TACK_LIST_POP or
+// TACK_LIST_REMOVE.
+func (mut g Gen) step_take(mut t typeck.Typed, f MFrame, mut m Machine) error {
+    args := call_args_of(t, f.e)?
+    a0, _, is_mut := first_arg(t, f.e)
+    if f.step == 0 {
+        if !is_mut {
+            cl := call_of(t.prog.trees[:], f.e)
+            nm, _ := ident_of(t.prog.trees[:], at(f.e, cl.fn))
+            mut msg := make(list[uint8], c_allocator)
+            append(mut msg, text_of(t, f.e.unit, nm.name)...)?
+            append(mut msg, []uint8("'s list must be passed as mut")...)?
+            return mut g.fail(msg[:], span_of(t.prog.trees[:], a0.unit, a0.node))
+        }
+        mut m.again(f, 1)?
+        mut m.push(r_mut_arg, a0, types.invalid, false)?
+        return noerror
+    }
+    if f.step == 1 {
+        if is_builtin_named(t, f.e, "pop") {
+            lp := mut m.take()
+            mut out := make(list[uint8], c_allocator)
+            fmt.appendf(mut out, "TACK_LIST_POP(%s)", lp[:])?
+            mut m.give(own out)?
+            return noerror
+        }
+        if len(args) != 2 {
+            return not_ported
+        }
+        mut m.again(f, 2)?
+        mut m.push(r_expr, args[1], types.int64_type, false)?
+        return noerror
+    }
+    i := mut m.take()
+    lp := mut m.take()
+    mut out := make(list[uint8], c_allocator)
+    fmt.appendf(mut out, "TACK_LIST_REMOVE(%s, %s)", lp[:], i[:])?
+    mut m.give(own out)?
+    return noerror
+}
+
+// step_replace is Go's replaceValue: the place's address, then the new
+// value, as the place's type, then the comma expression that holds the
+// address, the new value and the old one in temporaries, stores the new
+// one and gives the old.
+func (mut g Gen) step_replace(mut t typeck.Typed, f MFrame, mut m Machine) error {
+    args := call_args_of(t, f.e)?
+    a0, _, is_mut := first_arg(t, f.e)
+    ct := mut t.call_type(f.e)
+    if f.step == 0 {
+        if !is_mut {
+            return mut g.fail([]uint8("replace's place must be passed as mut"), span_of(t.prog.trees[:], a0.unit, a0.node))
+        }
+        mut m.again(f, 1)?
+        mut m.push(r_mut_arg, a0, types.invalid, false)?
+        return noerror
+    }
+    if len(args) != 2 {
+        return not_ported
+    }
+    if f.step == 1 {
+        mut m.again(f, 2)?
+        mut m.push(r_expr, args[1], ct, false)?
+        return noerror
+    }
+    value := mut m.take()
+    addr := mut m.take()
+    ctype := c_type_of(mut t, ct)?
+    p := mut g.temp("o")?
+    n := mut g.temp("o")?
+    o := mut g.temp("o")?
+    mut g.add_temp_ptr_decl(ctype[:], p[:])?
+    mut g.add_temp_decl(ctype[:], n[:])?
+    mut g.add_temp_decl(ctype[:], o[:])?
+    mut out := make(list[uint8], c_allocator)
+    fmt.appendf(mut out, "(%s = %s, %s = %s, %s = *%s, *%s = %s, %s)", p[:], addr[:], n[:], value[:], o[:], p[:], p[:], n[:], o[:])?
+    mut m.give(own out)?
+    return noerror
+}
+
+// drop_replace lowers replace(mut place, new) written as a statement, the
+// call k, Go's dropReplace of replace.go: the call, and, when the place's
+// type owns, a free of the old value it gives.
+func (mut g Gen) drop_replace(mut t typeck.Typed, k typeck.Key) (list[Line], error) {
+    mut m := new_machine()
+    mut m.push(r_replace, k, types.invalid, false)?
+    mut g.run(mut t, mut m)?
+    value := mut m.take()
+    ct := mut t.call_type(k)
+    body := mut g.drop_body(mut t, ct, value[:])?
+    return body, noerror
+}
+
+// add_values lowers e, err := add(mut a, v), s, err := add_all(mut a,
+// ...) and h, err := insert(mut p, v), the call k, Go's addValues and
+// insertValues: the call to the helper, held as its results struct and
+// read field by field.
+func (mut g Gen) add_values(mut t typeck.Typed, k typeck.Key) (MultiSource, error) {
+    mut m := new_machine()
+    mut m.push(r_append, k, types.invalid, false)?
+    mut g.run(mut t, mut m)?
+    x := mut m.take()
+    mut src := new_source(ms_call, k)
+    mut ctype := make(list[uint8], c_allocator)
+    if is_builtin_named(t, k, "add_all") {
+        append(mut ctype, []uint8("tack_arena_spanned_")...)?
+    } else if is_builtin_named(t, k, "add") {
+        append(mut ctype, []uint8("tack_arena_added_")...)?
+    } else {
+        append(mut ctype, []uint8("tack_pool_inserted_")...)?
+    }
+    append(mut src.temps, plain_temp(own ctype, own x))?
+    return src, noerror
+}

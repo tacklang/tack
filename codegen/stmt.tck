@@ -16,65 +16,6 @@ import types from "tack/types"
 // loop, and every expression is rendered by the machine (see expr.tck),
 // so neither costs a frame a link.
 
-// func_frame lowers the body of fn as its frame, Go's funcFrame: the
-// declarations of the temporaries its operands are held in, then the
-// body. A return through defers, which holds its value in ret, and the
-// next variable of a route through cleanups are E3's.
-func (mut g Gen) func_frame(mut t typeck.Typed, fn typeck.Key) (list[Line], error) {
-    mut fr := new_frame()
-    fr.fn = fn
-    fr.first = true
-    fill_mutated(mut t, fn, mut fr.mutated)?
-    fill_case_vars_read(t, fn, mut fr.read)?
-    g.frame = fr
-    g.has_frame = true
-    f := func_at(t.prog.trees[:], fn)
-    body := mut g.block(mut t, fn, f.body, false)?
-    g.has_frame = false
-    mut out := replace(mut g.frame.temps, make(list[Line], c_allocator))
-    append(mut out, body[:]...)?
-    g.frame = new_frame()
-    return out, noerror
-}
-
-// block lowers the statements body of fn's tree in a scope of its own,
-// loop saying whether it is a loop's body, Go's block. The first block
-// of a frame frees the function's own parameters that own, E3's.
-func (mut g Gen) block(mut t typeck.Typed, fn typeck.Key, body ast.Nodes, loop bool) (list[Line], error) {
-    append(mut g.scopes, Scope{loop: loop})?
-    if g.has_frame && g.frame.first {
-        g.frame.first = false
-        mut g.check_param_frees(mut t)?
-    }
-    mut lines := make(list[Line], c_allocator)
-    n := node_count(t.prog.trees[:], fn.unit, body)
-    for i := range n {
-        s := node_at(t.prog.trees[:], fn.unit, body, i)
-        got := mut g.generate_stmt(mut t, fn, s)?
-        append(mut lines, got[:]...)?
-    }
-    pop(mut g.scopes)
-    return lines, noerror
-}
-
-// check_param_frees declines a function with an own parameter of an
-// owned type, whose free its body's block adds, Go's addParamFrees, E3's.
-func (mut g Gen) check_param_frees(mut t typeck.Typed) error {
-    fn := g.frame.fn
-    f := func_at(t.prog.trees[:], fn)
-    n := node_count(t.prog.trees[:], fn.unit, f.params)
-    for i := range n {
-        p := node_at(t.prog.trees[:], fn.unit, f.params, i)
-        if param_at(t.prog.trees[:], p).is_own {
-            owned := mut t.table.owned(mut t.decl_type(p))?
-            if owned {
-                return not_ported
-            }
-        }
-    }
-    return noerror
-}
-
 // generate_stmt lowers the statement s of fn to C lines, Go's
 // generateStmt.
 func (mut g Gen) generate_stmt(mut t typeck.Typed, fn typeck.Key, s typeck.Key) (list[Line], error) {
@@ -95,9 +36,11 @@ func (mut g Gen) generate_stmt(mut t typeck.Typed, fn typeck.Key, s typeck.Key) 
         lines := mut g.generate_switch(mut t, fn, s)?
         return lines, noerror
     case defer_stmt:
-        return make(list[Line], c_allocator), not_ported
+        mut g.add_defer(mut t, s)?
+        return make(list[Line], c_allocator), noerror
     case region_stmt:
-        return make(list[Line], c_allocator), not_ported
+        lines := mut g.generate_region(mut t, fn, s)?
+        return lines, noerror
     case break_stmt:
         lines := mut g.generate_jump([]uint8("break;"))?
         return lines, noerror
@@ -122,15 +65,6 @@ func (mut g Gen) generate_stmt(mut t typeck.Typed, fn typeck.Key, s typeck.Key) 
     default:
     }
     lines := mut g.generate_simple_stmt(mut t, s)?
-    return lines, noerror
-}
-
-// generate_jump lowers a break or a continue, jump being its C
-// statement, Go's generateJump: no block on its way out has a cleanup,
-// so it is the statement itself.
-func (mut g Gen) generate_jump(jump []uint8) (list[Line], error) {
-    mut lines := make(list[Line], c_allocator)
-    mut g.add_line(mut lines, jump)?
     return lines, noerror
 }
 
@@ -165,10 +99,16 @@ func (mut g Gen) generate_simple_stmt(mut t typeck.Typed, s typeck.Key) (list[Li
 }
 
 // generate_return lowers a return, Go's generateReturn: return and its
-// value, or return alone. A return that leaves blocks with defers to run
-// is E3's, and no block of the core has any.
+// value, or return alone, or, when it leaves blocks with entries to run,
+// deferred_return's form.
 func (mut g Gen) generate_return(mut t typeck.Typed, fn typeck.Key, s typeck.Key) (list[Line], error) {
     value := mut g.return_value(mut t, fn, s)?
+    route := g.stops(g.visible())?
+    if len(route) > 0 {
+        mut lines := make(list[Line], c_allocator)
+        mut g.deferred_return(value[:], route[:], mut lines)?
+        return lines, noerror
+    }
     mut l := make(list[uint8], c_allocator)
     if len(value) == 0 {
         append(mut l, []uint8("return;")...)?
@@ -200,18 +140,24 @@ func (mut g Gen) return_value(mut t typeck.Typed, fn typeck.Key, s typeck.Key) (
     mut rendered := make(list[list[uint8]], c_allocator)
     mut operands := make(list[typeck.Key], c_allocator)
     for i := range n {
+        append(mut operands, node_at(t.prog.trees[:], s.unit, ret.values, i))?
+    }
+    mark := len(g.pending)
+    last := mut g.guard_last(mut t, operands[:])?
+    for i := range n {
         v := node_at(t.prog.trees[:], s.unit, ret.values, i)
         rt := mut t.result(fn, i)
         view := mut t.table.is_view(rt)?
+        mut x := make(list[uint8], c_allocator)
         if view {
-            x := mut g.view_arg(mut t, v, rt, no_key())?
-            append(mut rendered, x)?
+            x = mut g.view_arg(mut t, v, rt, no_key())?
         } else {
-            x := mut g.expr(mut t, v, rt)?
-            append(mut rendered, x)?
+            x = mut g.expr(mut t, v, rt)?
         }
-        append(mut operands, v)?
+        held := mut g.guard_hold(mut t, v, i, last, own x)?
+        append(mut rendered, held)?
     }
+    mut g.guard_done(mark)
     if n == 1 {
         one, ok := pop(mut rendered)
         if !ok {
@@ -342,11 +288,12 @@ func (mut g Gen) generate_for(mut t typeck.Typed, fn typeck.Key, s typeck.Key) (
 // generate_clause_for lowers a three-clause loop to a C block holding
 // the init statement and a C for whose post expression is the post
 // statement, Go's generateClauseFor and clauseFor. The block is a scope
-// of its own. An assignment of several values as the post statement
+// of its own, whose chain frees what an init statement declares that
+// owns, once the loop is done. An assignment of several values as the post statement
 // declares its temporaries after the init statement's lines.
 func (mut g Gen) generate_clause_for(mut t typeck.Typed, fn typeck.Key, s typeck.Key) (list[Line], error) {
     lp := for_of(t.prog.trees[:], s)
-    append(mut g.scopes, Scope{loop: false})?
+    append(mut g.scopes, new_scope(false))?
     mut init := make(list[Line], c_allocator)
     if !ast.is_none(lp.init) {
         got := mut g.generate_simple_stmt(mut t, at(s, lp.init))?
@@ -372,7 +319,11 @@ func (mut g Gen) generate_clause_for(mut t typeck.Typed, fn typeck.Key, s typeck
         }
     }
     body := mut g.block(mut t, fn, lp.body, true)?
-    inner := mut g.loop_for(post[:], test[:], body[:])?
+    mut inner := mut g.loop_for(post[:], test[:], body[:])?
+    top := len(g.scopes) -% 1
+    if entry_count(g.scopes[:], top) > 0 {
+        mut g.chain(mut t, fn, top, false, mut inner)?
+    }
     pop(mut g.scopes)
     mut lines := make(list[Line], c_allocator)
     mut g.add_line(mut lines, []uint8("{"))?
@@ -556,18 +507,26 @@ func (mut g Gen) generate_for_range(mut t typeck.Typed, fn typeck.Key, s typeck.
     is_map := mut t.table.is_map(xt)?
     if !ast.is_none(lp.elem) {
         in_place := mut g.binds_in_place(mut t, s)?
-        if in_place {
-            return make(list[Line], c_allocator), not_ported
-        }
+        mut g.set_in_place(at(s, lp.elem), in_place)?
     }
-    if is_map {
-        return make(list[Line], c_allocator), not_ported
+    if is_map && !ast.is_none(lp.var_node) {
+        owned := mut g.owned(mut t, mut t.decl_type(at(s, lp.var_node)))?
+        mut g.set_in_place(at(s, lp.var_node), owned)?
     }
     mut body := mut g.block(mut t, fn, lp.body, true)?
+    if is_map {
+        lines := mut g.map_range(mut t, s, x[:], body[:])?
+        return lines, noerror
+    }
     is_arena := mut t.table.is_arena(xt)?
+    if is_arena {
+        lines := mut g.arena_range(mut t, s, addr[:], body[:])?
+        return lines, noerror
+    }
     is_pool := mut t.table.is_pool(xt)?
-    if is_arena || is_pool {
-        return make(list[Line], c_allocator), not_ported
+    if is_pool {
+        lines := mut g.pool_range(mut t, s, addr[:], body[:])?
+        return lines, noerror
     }
     if !types.is_integer(xt) {
         lines := mut g.collection_range(mut t, s, x[:], addr[:], body[:])?
@@ -603,6 +562,17 @@ func (mut g Gen) generate_for_range(mut t typeck.Typed, fn typeck.Key, s typeck.
     return lines, noerror
 }
 
+// set_in_place records whether the variable v is bound in place, read
+// through a pointer to its value, Go's inPlace[v] = in.
+func (mut g Gen) set_in_place(v typeck.Key, in bool) error {
+    if in {
+        put(mut g.in_place, v, true)?
+        return noerror
+    }
+    delete(mut g.in_place, v)
+    return noerror
+}
+
 // binds_in_place reports whether the range loop s binds its element in
 // place, a pointer to it, Go's bindsInPlace: an element variable not _
 // of an owned type.
@@ -611,7 +581,7 @@ func (mut g Gen) binds_in_place(mut t typeck.Typed, s typeck.Key) (bool, error) 
         return false, noerror
     }
     lp := range_of(t.prog.trees[:], s)
-    owned := mut t.table.owned(mut t.decl_type(at(s, lp.elem)))?
+    owned := mut g.owned(mut t, mut t.decl_type(at(s, lp.elem)))?
     return owned, noerror
 }
 
@@ -688,11 +658,23 @@ func (mut g Gen) collection_range(mut t typeck.Typed, s typeck.Key, x []uint8, a
         }
     }
     in_place := mut g.binds_in_place(mut t, s)?
-    if in_place {
-        return make(list[Line], c_allocator), not_ported
-    }
     elem := binds_elem(t, s)
-    if elem {
+    if in_place {
+        ek := at(s, lp.elem)
+        mut d := make(list[uint8], c_allocator)
+        append(mut d, []uint8("const ")...)?
+        append_c_type(mut t, mut t.decl_type(ek), mut d)?
+        append(mut d, []uint8(" *const ")...)?
+        append_decl_name(mut t, ek, mut d)?
+        append(mut d, []uint8(" = &")...)?
+        append(mut d, read[:]...)?
+        append(mut d, '.')?
+        append(mut d, []uint8(field)...)?
+        append(mut d, '[')?
+        append(mut d, k[:]...)?
+        append(mut d, []uint8("];")...)?
+        mut g.add_line(mut vars, d[:])?
+    } else if elem {
         ek := at(s, lp.elem)
         mut d := make(list[uint8], c_allocator)
         append(mut d, []uint8("const ")...)?
@@ -859,7 +841,8 @@ func assign_of(trees []ast.File, k typeck.Key) ast.Assign {
 // generate_assign sets a place to a new value, Go's generateAssign: the
 // target's indexes held first where the order could show, then the
 // value, then the target, a compound assignment spelled out as x = x op
-// v. A place of an owned type, which frees its old value, is E3's.
+// v; a place of an owned type through owned_assign, which frees its old
+// value once the new one is computed.
 func (mut g Gen) generate_assign(mut t typeck.Typed, s typeck.Key) (list[Line], error) {
     a := assign_of(t.prog.trees[:], s)
     target := at(s, a.target)
@@ -870,9 +853,10 @@ func (mut g Gen) generate_assign(mut t typeck.Typed, s typeck.Key) (list[Line], 
     mut g.clear_held()
     tt := mut t.type_of(target)
     if a.op == ast.op_invalid {
-        owned := mut t.table.owned(tt)?
+        owned := mut g.owned(mut t, tt)?
         if owned {
-            return make(list[Line], c_allocator), not_ported
+            mut g.owned_assign(mut t, tt, name[:], v[:], mut lines)?
+            return lines, noerror
         }
     }
     mut l := make(list[uint8], c_allocator)
@@ -1001,9 +985,12 @@ func (mut g Gen) generate_inc_dec(mut t typeck.Typed, s typeck.Key) (list[Line],
 // generate_expr_stmt lowers an expression statement, Go's
 // generateExprStmt: an expression that only gives a value, a union
 // built, a conversion or len, evaluated and dropped; a call of a method,
-// of a declared function or of a builtin with a C body; and swap. A ?
-// and the generic builtins that change a list, a map or a pool, drop and
-// make, are E3's.
+// of a declared function or of a builtin with a C body; a ?; and the
+// generic builtins written as statements, pop, remove, replace, delete,
+// swap and drop. make of a Data type is E4's. A generic builtin that
+// gives a value, has among them, written as a statement Go lowers to a
+// call of a C function that does not exist; the call has no callee, and
+// step_call_expr declines it.
 func (mut g Gen) generate_expr_stmt(mut t typeck.Typed, s typeck.Key) (list[Line], error) {
     mut es ast.ExprStmt
     switch kind_of(t.prog.trees[:], s) {
@@ -1014,7 +1001,8 @@ func (mut g Gen) generate_expr_stmt(mut t typeck.Typed, s typeck.Key) (list[Line
     x := at(s, es.x)
     switch kind_of(t.prog.trees[:], x) {
     case question:
-        return make(list[Line], c_allocator), not_ported
+        lines := mut g.question_stmt(mut t, x)?
+        return lines, noerror
     default:
     }
     _, _, built := construction_of(t, x)
@@ -1043,14 +1031,34 @@ func (mut g Gen) generate_expr_stmt(mut t typeck.Typed, s typeck.Key) (list[Line
         mut g.add_line(mut lines, l[:])?
         return lines, noerror
     }
-    if is_builtin_named(t, x, "pop") || is_builtin_named(t, x, "remove") ||
-        is_builtin_named(t, x, "replace") || is_builtin_named(t, x, "delete") ||
-        is_builtin_named(t, x, "drop") || is_builtin_named(t, x, "make") {
-        return make(list[Line], c_allocator), not_ported
+    pool_remove := mut g.is_pool_remove(mut t, x)?
+    if pool_remove {
+        lines := mut g.drop_pool_remove(mut t, x)?
+        return lines, noerror
+    }
+    if is_builtin_named(t, x, "pop") || is_builtin_named(t, x, "remove") {
+        lines := mut g.drop_take(mut t, x)?
+        return lines, noerror
+    }
+    if is_builtin_named(t, x, "replace") {
+        lines := mut g.drop_replace(mut t, x)?
+        return lines, noerror
+    }
+    if is_builtin_named(t, x, "delete") {
+        lines := mut g.drop_delete(mut t, x)?
+        return lines, noerror
     }
     if is_builtin_named(t, x, "swap") {
         lines := mut g.swap_stmt(mut t, x)?
         return lines, noerror
+    }
+    if is_builtin_named(t, x, "drop") {
+        lines := mut g.drop_stmt(mut t, x)?
+        return lines, noerror
+    }
+    if is_builtin_named(t, x, "make") {
+        // makeStmt, of makedata.go, E4's.
+        return make(list[Line], c_allocator), not_ported
     }
     _, is_name := ident_of(t.prog.trees[:], at(x, cl.fn))
     if !is_name {
@@ -1071,7 +1079,7 @@ func (mut g Gen) generate_expr_stmt(mut t typeck.Typed, s typeck.Key) (list[Line
 // an internal error, which the checker rules out, and E3's.
 func (mut g Gen) dropped_value(mut t typeck.Typed, e typeck.Key) (list[Line], error) {
     typ := mut t.type_of(e)
-    owned := mut t.table.owned(typ)?
+    owned := mut g.owned(mut t, typ)?
     if owned {
         return make(list[Line], c_allocator), not_ported
     }
@@ -1087,7 +1095,7 @@ func (mut g Gen) dropped_value(mut t typeck.Typed, e typeck.Key) (list[Line], er
 
 // generate_var declares a local, Go's generateVar: its C type, its name,
 // and its value or its type's zero value, const unless it is mutable or
-// owns. One that owns, whose free its block's chain runs, is E3's.
+// owns. One that owns adds its free to its block's chain.
 func (mut g Gen) generate_var(mut t typeck.Typed, v typeck.Key) (list[Line], error) {
     vr := var_at(t.prog.trees[:], v)
     typ := mut t.decl_type(v)
@@ -1096,7 +1104,7 @@ func (mut g Gen) generate_var(mut t typeck.Typed, v typeck.Key) (list[Line], err
     if !ast.is_none(vr.value) {
         value = mut g.expr(mut t, at(v, vr.value), typ)?
     }
-    owned := mut t.table.owned(typ)?
+    owned := mut g.owned(mut t, typ)?
     mut l := make(list[uint8], c_allocator)
     if !vr.mutable && !owned {
         append(mut l, []uint8("const ")...)?
@@ -1107,12 +1115,7 @@ func (mut g Gen) generate_var(mut t typeck.Typed, v typeck.Key) (list[Line], err
     append(mut l, []uint8(" = ")...)?
     append(mut l, value[:]...)?
     append(mut l, ';')?
-    if !is_blank(t.prog.trees[:], v.unit, vr.name) {
-        frees := mut t.table.owned(typ)?
-        if frees {
-            return make(list[Line], c_allocator), not_ported
-        }
-    }
+    mut g.add_frees(mut t, v)?
     mut lines := make(list[Line], c_allocator)
     mut g.add_line(mut lines, l[:])?
     return lines, noerror

@@ -272,6 +272,19 @@ func (mut g Gen) add_temp_decl(ctype []uint8, name []uint8) error {
     return noerror
 }
 
+// add_temp_ptr_decl adds to the frame the declaration of the temporary
+// name, a pointer to the C type ctype, "ctype *name;".
+func (mut g Gen) add_temp_ptr_decl(ctype []uint8, name []uint8) error {
+    mut d := make(list[uint8], c_allocator)
+    append(mut d, ctype...)?
+    append(mut d, []uint8(" *")...)?
+    append(mut d, name...)?
+    append(mut d, ';')?
+    l := mut g.line(d[:])?
+    append(mut g.frame.temps, l)?
+    return noerror
+}
+
 // hold_operands holds every operand of operands that is not pure in a
 // temporary of its C type in ctypes, in order, Go's hoist before it
 // builds: rendered's entry for each is replaced by the temporary, and

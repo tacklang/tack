@@ -56,10 +56,12 @@ pooled string numbered as Go numbers them; and values, E2, are here
 too: structs, arrays and unions with their equality helpers, methods,
 switches of every kind, slices, views, any, the division and shift
 helpers, several values and the checked forms, and globals too deep for
-a C initializer. What a later stage lowers, lists, maps, arenas, pools,
-defers, ?, regions, swap, generics, closures and function values, is
-answered as not implemented where the Go compiler would start lowering
-it: the program is lowered into buffers, so a decline writes nothing
+a C initializer; and owned values and containers, E3, are here too:
+lists, maps, arenas and pools with their helpers, hashes and frees,
+defers and the cleanup chains every exit runs, ?, moves, drop, replace,
+swap and regions. What a later stage lowers, generics, closures and
+function values, is answered as not implemented where the Go compiler
+would start lowering it: the program is lowered into buffers, so a decline writes nothing
 but its one line, neither C nor the warnings, which the driver writes
 only once the lowering, and any `tack.h`, is done (see package
 codegen). `types` has the

@@ -69,11 +69,18 @@ type Named struct {
 
 // Scope is what the generator knows of one block being lowered, Go's
 // deferScope: whether it is a loop's body, which a break or a continue
-// leaves. Its cleanups, the defers it reaches and the frees of the owned
-// locals it declares, are the later stages' (see doc.tck): a block of
-// the core has none, so an exit leaves it with nothing to run.
+// leaves; the entries of its cleanup chain reached so far, in order,
+// defers and the frees of owned locals alike (see defer.tck); the prefix
+// of its labels, named when first needed; the labels exits jump to, by
+// how many entries they run; the route numbers it tests; and the tests
+// at the end of its chain.
 type Scope struct {
     loop bool
+    label list[uint8]
+    jumped map[int64]bool
+    routed map[int64]bool
+    entries list[Cleanup]
+    routes list[list[uint8]]
 }
 
 // Traits is what evaluating an expression can do that its order shows,
@@ -91,8 +98,10 @@ type Traits struct {
 // as mut, moves or lets a closure write, mutated, the variables of type
 // switches' cases its body reads, read, what each expression asked about
 // can do, traits, whether its body's block has yet to open, first, Go's
-// owner, and the declarations of the temporaries it holds operands in,
-// temps.
+// owner, the declarations of the temporaries it holds operands in,
+// temps, the numbers of the routes its exits take through the cleanup
+// chains, by route, and the names of its next and ret variables, empty
+// until first needed (see defer.tck).
 type Frame struct {
     fn typeck.Key
     mutated map[typeck.Key]bool
@@ -100,6 +109,9 @@ type Frame struct {
     traits map[typeck.Key]Traits
     temps list[Line]
     first bool
+    routes map[text.Text]int64
+    next list[uint8]
+    ret list[uint8]
 }
 
 // Global is a package-level variable lowered, Go's global: its C name
@@ -118,7 +130,12 @@ type Global struct {
 // helpers called, the statements C's main gives the globals too deep for
 // an initializer their values with, and the variables read through a
 // pointer to what they refer to, Go's equalities, slices, globalInits and
-// inPlace.
+// inPlace; and E3's: whether a deferred body is being lowered, the owned
+// values the expression being rendered has made and not yet given to
+// what takes them, which a ? that returns frees, the first block an exit
+// can see (see defer.tck), and the C type of the call the last ?
+// rendered follows, Go's deferring and pending; and what owned found of
+// each type it was asked of.
 pub type Gen struct {
     set builtin.Set
     globals map[typeck.Key]bool
@@ -148,6 +165,11 @@ pub type Gen struct {
     slices map[SliceHelper]types.Type
     global_inits list[list[uint8]]
     in_place map[typeck.Key]bool
+    deferring bool
+    pending list[Pending]
+    scope_base int64
+    q_ctype list[uint8]
+    owned_types map[types.Type]bool
 }
 
 // new_frame returns a Frame for no function, which grows through
@@ -160,6 +182,9 @@ func new_frame() Frame {
         traits: make(map[typeck.Key]Traits, c_allocator),
         temps: make(list[Line], c_allocator),
         first: false,
+        routes: make(map[text.Text]int64, c_allocator),
+        next: make(list[uint8], c_allocator),
+        ret: make(list[uint8], c_allocator),
     }
 }
 
@@ -200,7 +225,97 @@ func new_gen(set builtin.Set) Gen {
         slices: make(map[SliceHelper]types.Type, c_allocator),
         global_inits: make(list[list[uint8]], c_allocator),
         in_place: make(map[typeck.Key]bool, c_allocator),
+        deferring: false,
+        pending: make(list[Pending], c_allocator),
+        scope_base: 0,
+        q_ctype: make(list[uint8], c_allocator),
+        owned_types: make(map[types.Type]bool, c_allocator),
     }
+}
+
+// owned reports whether typ is an owned type, Go's owned: a list, an
+// arena, a pool, a map or a type parameter, or an array, a struct or a
+// union holding one, the table's answer. Go asks it of every type the
+// table has, of each owned field of a struct freed and of each part of a
+// type walked, and the table walks a type's parts to answer, so a chain
+// of structs each holding the one before would cost the square of its
+// length; here each answer is kept, and an array's, a struct's or a
+// union's is made of its parts' kept ones, from a stack of its own. A
+// part that holds the type it is part of, which the checker rejects,
+// counts as owning nothing, as the table's walk counts it. No binding is
+// in force while the port lowers, since it declines every generic
+// instance (E4's), so an answer holds for the whole program.
+func (mut g Gen) owned(mut t typeck.Typed, typ types.Type) (bool, error) {
+    known, ok := g.owned_types[typ]
+    if ok {
+        return known, noerror
+    }
+    mut stack := make(list[types.Type], c_allocator)
+    mut open := make(map[types.Type]bool, c_allocator)
+    mut parts := make(list[types.Type], c_allocator)
+    append(mut stack, typ)?
+    for len(stack) > 0 {
+        top, has := pop(mut stack)
+        if !has {
+            break
+        }
+        _, done := g.owned_types[top]
+        if done {
+            continue
+        }
+        arr := mut t.table.is_array(top)?
+        st := mut t.table.is_struct(top)?
+        un := mut t.table.is_union(top)?
+        if !arr && !st && !un {
+            o := mut t.table.owned(top)?
+            put(mut g.owned_types, top, o)?
+            continue
+        }
+        for len(parts) > 0 {
+            pop(mut parts)
+        }
+        if arr {
+            append(mut parts, mut t.table.elem_of(top)?)?
+        } else {
+            nf := mut t.table.field_count(top)?
+            for i := range nf {
+                ft, fok := mut t.table.field_type(top, i)?
+                if fok {
+                    append(mut parts, ft)?
+                }
+            }
+            nc := mut t.table.case_count(top)?
+            for i := range nc {
+                c, cok := mut t.table.case_at(top, i)?
+                if cok && c.payload {
+                    append(mut parts, c.typ)?
+                }
+            }
+        }
+        _, expanded := open[top]
+        if !expanded {
+            put(mut open, top, true)?
+            append(mut stack, top)?
+            for _, p := range parts {
+                _, pd := g.owned_types[p]
+                _, po := open[p]
+                if !pd && !po {
+                    append(mut stack, p)?
+                }
+            }
+            continue
+        }
+        mut o := false
+        for _, p := range parts {
+            v, pd := g.owned_types[p]
+            if pd && v {
+                o = true
+            }
+        }
+        put(mut g.owned_types, top, o)?
+    }
+    r, got := g.owned_types[typ]
+    return got && r, noerror
 }
 
 // line returns s as a Line, its bytes copied into the text the lines are

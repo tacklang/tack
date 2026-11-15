@@ -1,0 +1,223 @@
+package codegen
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// Arenas, Go's arena.go: an arena's C struct, a list of its elements and
+// its sentinel, and its helpers, at, span, add, add_all and reserve, and
+// its free helper; make of an arena, its elements read and written, add
+// and add_all, which the append routine renders (see list.tck), and a
+// range over an arena.
+
+// append_arena_name appends the name of the C struct of the arena type
+// typ stands for, Go's arenaName.
+func append_arena_name(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    b := mut t.table.bound(typ)?
+    fmt.appendf(mut out, "tack_arena_%d", b.number())?
+    return noerror
+}
+
+// append_arena_helper appends the name of the helper what of the arena
+// type typ stands for, Go's arenaHelper.
+func append_arena_helper(mut t typeck.Typed, what string, typ types.Type, mut out list[uint8]) error {
+    b := mut t.table.bound(typ)?
+    fmt.appendf(mut out, "tack_arena_%s_%d", what, b.number())?
+    return noerror
+}
+
+// arena_list returns the list type of the elements of the arena type typ,
+// which the table added with it, Go's arenaList.
+func arena_list(mut t typeck.Typed, typ types.Type) (types.Type, error) {
+    e := mut t.table.elem_of(typ)?
+    l := mut t.table.list_of(e)?
+    return l, noerror
+}
+
+// emit_arena_def defines the C struct an arena type lowers to, Go's
+// emitArenaDef.
+func (mut g Gen) emit_arena_def(mut t typeck.Typed, typ types.Type) error {
+    mut g.wb("typedef struct {\n    ")?
+    append_list_name(mut t, arena_list(mut t, typ)?, mut g.buf)?
+    mut g.wb(" elems;\n    ")?
+    append_c_type(mut t, mut t.table.elem_of(typ)?, mut g.buf)?
+    mut g.wb(" sentinel;\n} ")?
+    append_arena_name(mut t, typ, mut g.buf)?
+    mut g.wb(";\n\n")?
+    return noerror
+}
+
+// arena_types returns every arena type C has, in the order the table
+// added them, Go's arenaTypes.
+func (mut g Gen) arena_types(mut t typeck.Typed) (list[types.Type], error) {
+    mut out := make(list[types.Type], c_allocator)
+    count := mut t.table.count()
+    for i := range count {
+        typ := types.added(i)
+        param := mut t.table.has_type_param(typ)?
+        if param {
+            continue
+        }
+        if mut t.table.is_arena(typ)? {
+            append(mut out, typ)?
+        }
+    }
+    return out, noerror
+}
+
+// emit_arenas writes the helpers of every arena type, Go's emitArenas.
+func (mut g Gen) emit_arenas(mut t typeck.Typed) error {
+    arenas := mut g.arena_types(mut t)?
+    for _, typ := range arenas {
+        mut g.emit_arena_lookups(mut t, typ)?
+        mut g.emit_arena_adds(mut t, typ)?
+    }
+    return noerror
+}
+
+// emit_arena_lookups writes the at and span helpers of the arena type
+// typ, Go's emitArenaLookups.
+func (mut g Gen) emit_arena_lookups(mut t typeck.Typed, typ types.Type) error {
+    mut a := make(list[uint8], c_allocator)
+    append_arena_name(mut t, typ, mut a)?
+    et := mut t.table.elem_of(typ)?
+    elem := c_type_of(mut t, et)?
+    mut at_name := make(list[uint8], c_allocator)
+    append_arena_helper(mut t, "at", typ, mut at_name)?
+    ua := mut g.maybe_unused(at_name[:])?
+    fmt.appendf(mut g.buf, "%sstatic %s *%s(const %s *a, uint32_t id) {\n", ua, elem[:], at_name[:], a[:])?
+    mut g.wb("    uint64_t i = (uint64_t)id - 1;\n")?
+    fmt.appendf(mut g.buf, "    return i < (uint64_t)a->elems.len ? &a->elems.ptr[i] : (%s *)&a->sentinel;\n}\n\n", elem[:])?
+    vt := mut t.table.view_of(mut t.table.elem_of(typ)?)?
+    mut view := make(list[uint8], c_allocator)
+    append_view_name(mut t, vt, mut view)?
+    mut span_name := make(list[uint8], c_allocator)
+    append_arena_helper(mut t, "span", typ, mut span_name)?
+    us := mut g.maybe_unused(span_name[:])?
+    fmt.appendf(mut g.buf, "%sstatic %s %s(const %s *a, uint64_t s) {\n", us, view[:], span_name[:], a[:])?
+    mut g.wb("    uint64_t start = s & 0xffffffffu, n = s >> 32;\n")?
+    mut g.wb("    if (n == 0 || start == 0 || start - 1 + n > (uint64_t)a->elems.len) {\n")?
+    fmt.appendf(mut g.buf, "        return (%s){0, 0};\n    }\n", view[:])?
+    fmt.appendf(mut g.buf, "    return (%s){a->elems.ptr + (start - 1), (int64_t)n};\n}\n\n", view[:])?
+    return noerror
+}
+
+// emit_arena_adds writes the add, add_all and reserve helpers of the
+// arena type typ, Go's emitArenaAdds: what add and add_all were given
+// freed, last first, when the arena cannot take it and it owns.
+func (mut g Gen) emit_arena_adds(mut t typeck.Typed, typ types.Type) error {
+    mut a := make(list[uint8], c_allocator)
+    append_arena_name(mut t, typ, mut a)?
+    et := mut t.table.elem_of(typ)?
+    elem := c_type_of(mut t, et)?
+    oom := "TACK_ERROR(1, \"out of memory\")"
+    mut add := make(list[uint8], c_allocator)
+    append_arena_helper(mut t, "add", typ, mut add)?
+    u1 := mut g.maybe_unused(add[:])?
+    fmt.appendf(mut g.buf, "%sstatic tack_arena_added_ %s(%s *a, %s v) {\n", u1, add[:], a[:], elem[:])?
+    mut g.wb("    if (tack_arena_room_(a->elems.len + 1, 1) && TACK_LIST_APPEND(&a->elems, v)) {\n")?
+    mut g.wb("        return (tack_arena_added_){(uint32_t)a->elems.len, TACK_NO_ERROR};\n    }\n")?
+    fv := mut g.frees(mut t, et, []uint8("v"))?
+    for _, l := range fv {
+        fmt.appendf(mut g.buf, "    %s\n", l[:])?
+    }
+    fmt.appendf(mut g.buf, "    return (tack_arena_added_){0, %s};\n}\n\n", oom)?
+    mut all := make(list[uint8], c_allocator)
+    append_arena_helper(mut t, "add_all", typ, mut all)?
+    u2 := mut g.maybe_unused(all[:])?
+    fmt.appendf(mut g.buf, "%sstatic tack_arena_spanned_ %s(%s *a, const %s *src, int64_t n) {\n", u2, all[:], a[:], elem[:])?
+    mut g.wb("    if (n == 0) {\n        return (tack_arena_spanned_){0, TACK_NO_ERROR};\n    }\n")?
+    mut g.wb("    int64_t start = a->elems.len + 1;\n")?
+    mut g.wb("    if (tack_arena_room_(start, n) && TACK_LIST_APPEND_N(&a->elems, src, n)) {\n")?
+    mut g.wb("        return (tack_arena_spanned_){(uint64_t)start | (uint64_t)n << 32, TACK_NO_ERROR};\n")?
+    mut g.wb("    }\n")?
+    fs := mut g.frees(mut t, et, []uint8("src[i - 1]"))?
+    if len(fs) > 0 {
+        mut g.wb("    for (int64_t i = n; i > 0; i--) {\n")?
+        for _, l := range fs {
+            fmt.appendf(mut g.buf, "        %s\n", l[:])?
+        }
+        mut g.wb("    }\n")?
+    }
+    fmt.appendf(mut g.buf, "    return (tack_arena_spanned_){0, %s};\n}\n\n", oom)?
+    mut reserve := make(list[uint8], c_allocator)
+    append_arena_helper(mut t, "reserve", typ, mut reserve)?
+    u3 := mut g.maybe_unused(reserve[:])?
+    fmt.appendf(mut g.buf, "%sstatic bool %s(%s *a, int64_t n) {\n", u3, reserve[:], a[:])?
+    mut g.wb("    return tack_arena_room_(a->elems.len + 1, n) && TACK_LIST_RESERVE(&a->elems, n);\n}\n\n")?
+    return noerror
+}
+
+// emit_arena_free writes the free helper of the arena type typ, Go's
+// emitArenaFree: the list of its elements, then its sentinel.
+func (mut g Gen) emit_arena_free(mut t typeck.Typed, typ types.Type) error {
+    mut free := make(list[uint8], c_allocator)
+    append_free_name(mut t, typ, mut free)?
+    unused := mut g.maybe_unused(free[:])?
+    fmt.appendf(mut g.buf, "%sstatic void %s(const ", unused, free[:])?
+    append_arena_name(mut t, typ, mut g.buf)?
+    mut g.wb(" *v) {\n")?
+    fl := mut g.frees(mut t, arena_list(mut t, typ)?, []uint8("v->elems"))?
+    for _, l := range fl {
+        fmt.appendf(mut g.buf, "    %s\n", l[:])?
+    }
+    fe := mut g.frees(mut t, mut t.table.elem_of(typ)?, []uint8("v->sentinel"))?
+    for _, l := range fe {
+        fmt.appendf(mut g.buf, "    %s\n", l[:])?
+    }
+    mut g.wb("}\n\n")?
+    return noerror
+}
+
+// arena_range lowers a range loop over an arena, s, whose address is
+// addr and lowered body body, Go's arenaRange: every id from 0, the
+// sentinel's, below the arena's length, each element read through the at
+// helper, bound in place when it owns.
+func (mut g Gen) arena_range(mut t typeck.Typed, s typeck.Key, addr []uint8, body []Line) (list[Line], error) {
+    lp := range_of(t.prog.trees[:], s)
+    typ := mut t.type_of(at(s, lp.x))
+    r := mut g.temp("r")?
+    k := mut g.temp("k")?
+    mut at_call := make(list[uint8], c_allocator)
+    append_arena_helper(mut t, "at", typ, mut at_call)?
+    fmt.appendf(mut at_call, "(%s, (uint32_t)%s)", r[:], k[:])?
+    mut vars := make(list[Line], c_allocator)
+    if !ast.is_none(lp.var_node) {
+        vk := at(s, lp.var_node)
+        vr := var_at(t.prog.trees[:], vk)
+        if !is_blank(t.prog.trees[:], vk.unit, vr.name) {
+            mut l := make(list[uint8], c_allocator)
+            append(mut l, []uint8("const uint32_t ")...)?
+            append_decl_name(mut t, vk, mut l)?
+            fmt.appendf(mut l, " = (uint32_t)%s;", k[:])?
+            mut g.add_line(mut vars, l[:])?
+        }
+    }
+    in_place := mut g.binds_in_place(mut t, s)?
+    if in_place || binds_elem(t, s) {
+        ek := at(s, lp.elem)
+        mut l := make(list[uint8], c_allocator)
+        append(mut l, []uint8("const ")...)?
+        append_c_type(mut t, mut t.decl_type(ek), mut l)?
+        if in_place {
+            append(mut l, []uint8(" *const ")...)?
+            append_decl_name(mut t, ek, mut l)?
+            fmt.appendf(mut l, " = %s;", at_call[:])?
+        } else {
+            append(mut l, ' ')?
+            append_decl_name(mut t, ek, mut l)?
+            fmt.appendf(mut l, " = *%s;", at_call[:])?
+        }
+        mut g.add_line(mut vars, l[:])?
+    }
+    append(mut vars, body...)?
+    mut eval := make(list[uint8], c_allocator)
+    append(mut eval, []uint8("const ")...)?
+    append_c_type(mut t, typ, mut eval)?
+    fmt.appendf(mut eval, " *const %s = %s;", r[:], addr)?
+    mut n := make(list[uint8], c_allocator)
+    fmt.appendf(mut n, "%s->elems.len + 1", r[:])?
+    lines := mut g.range_block(eval[:], []uint8("int64_t"), k[:], n[:], vars[:])?
+    return lines, noerror
+}

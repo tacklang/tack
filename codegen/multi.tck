@@ -18,15 +18,17 @@ import types from "tack/types"
 // conversionValues, fitsExpr, floatFitsExpr, targetFitsExpr, withinExpr
 // in array.tck, bounds); with array.go's indexValues, heldIndexed,
 // indexChanges, passesAsMut and indexIn, slice.go's sliceValues and
-// sliceIn, and any.go's assertValues. A ? after a call of several
-// results, and the checked forms of pop, remove, add, add_all, insert,
-// delete and of a map's or a pool's element, are E3's.
+// sliceIn, and any.go's assertValues; and E3's sources, a ? after a
+// call of several results and the checked forms of pop, remove, add,
+// add_all, insert, delete and of a map's or a pool's element.
 
 // MultiTemp is one temporary a MultiSource is held in, Go's multiTemp:
 // its C type and the expression that initializes it, a pointer to const
 // ctype when is_ref and to ctype when is_mut, or, when flag, the flag of
 // checked arithmetic, whose initializer reads the temporaries before it
-// (see append_init_of).
+// (see append_init_of); or, when init_kind is not 0, one of E3's
+// initializers that read the temporaries before it, Go's initFrom, made
+// of init, aux and zero (see append_init_kind).
 type MultiTemp struct {
     ctype list[uint8]
     init list[uint8]
@@ -34,6 +36,9 @@ type MultiTemp struct {
     is_mut bool
     flag bool
     op ast.BinaryOp
+    init_kind uint8
+    aux list[uint8]
+    zero list[uint8]
 }
 
 // The kinds of MultiSource, each Go's field closure of one source.
@@ -45,6 +50,11 @@ var ms_conversion uint8 = 5
 var ms_index uint8 = 6
 var ms_slice uint8 = 7
 var ms_assert uint8 = 8
+var ms_reverse uint8 = 9
+var ms_delete uint8 = 10
+var ms_pool_take uint8 = 11
+var ms_lookup uint8 = 12
+var ms_pool_lookup uint8 = 13
 
 // MultiSource is what gives a MultiVar or a MultiAssign its values, Go's
 // multiSource: its temporaries, and what its field renders the value in
@@ -85,13 +95,17 @@ func new_source(kind uint8, k typeck.Key) MultiSource {
 // plain_temp returns a MultiTemp of the C type ctype initialized with
 // init.
 func plain_temp(own ctype list[uint8], own init list[uint8]) MultiTemp {
-    return MultiTemp{ctype: ctype, init: init, is_ref: false, is_mut: false, flag: false, op: ast.op_invalid}
+    return MultiTemp{ctype: ctype, init: init, is_ref: false, is_mut: false, flag: false, op: ast.op_invalid, init_kind: 0, aux: make(list[uint8], c_allocator), zero: make(list[uint8], c_allocator)}
 }
 
 // append_init_of appends tm's initializer, given the names of the
 // temporaries held before it, Go's multiTemp.initOf: init, or, for the
 // flag of checked arithmetic, clang's overflow builtin on them.
 func append_init_of(tm MultiTemp, prev []list[uint8], mut out list[uint8]) error {
+    if tm.init_kind != 0 {
+        append_init_kind(tm, prev, mut out)?
+        return noerror
+    }
     if !tm.flag {
         append(mut out, tm.init[:]...)?
         return noerror
@@ -118,6 +132,61 @@ func append_init_of(tm MultiTemp, prev []list[uint8], mut out list[uint8]) error
         append(mut r, a[:]...)?
     }
     fmt.appendf(mut out, "!%s(%s, %s, &(%s){0})", builtin, l[:], r[:], tm.init[:])?
+    return noerror
+}
+
+// The kinds of E3's initializers, each one of Go's initFrom closures:
+// pop's and remove's tests and takes (takeValues), a map's find and
+// take (mapKeySource, deleteValues), and a pool's find and take
+// (poolHandleSource, poolTakeValues).
+var from_pop_ok uint8 = 1
+var from_pop_take uint8 = 2
+var from_remove_ok uint8 = 3
+var from_remove_take uint8 = 4
+var from_map_find uint8 = 5
+var from_map_take uint8 = 6
+var from_pool_find uint8 = 7
+var from_pool_take uint8 = 8
+
+// from_temp returns a MultiTemp of the C type ctype whose initializer is
+// of the kind kind, made of init, a helper's name, and zero, a zero
+// value.
+func from_temp(ctype []uint8, kind uint8, init []uint8, zero []uint8) (MultiTemp, error) {
+    mut c := make(list[uint8], c_allocator)
+    append(mut c, ctype...)?
+    mut i := make(list[uint8], c_allocator)
+    append(mut i, init...)?
+    mut z := make(list[uint8], c_allocator)
+    append(mut z, zero...)?
+    return MultiTemp{ctype: c, init: i, is_ref: false, is_mut: false, flag: false, op: ast.op_invalid, init_kind: kind, aux: make(list[uint8], c_allocator), zero: z}, noerror
+}
+
+// append_init_kind appends tm's initializer of an E3 kind, given the names of
+// the temporaries held before it, prev.
+func append_init_kind(tm MultiTemp, prev []list[uint8], mut out list[uint8]) error {
+    mut r0 := make(list[uint8], c_allocator)
+    copy_name(prev, 0, mut r0)?
+    mut r1 := make(list[uint8], c_allocator)
+    copy_name(prev, 1, mut r1)?
+    mut r2 := make(list[uint8], c_allocator)
+    copy_name(prev, 2, mut r2)?
+    if tm.init_kind == from_pop_ok {
+        fmt.appendf(mut out, "%s->len > 0", r0[:])?
+    } else if tm.init_kind == from_pop_take {
+        fmt.appendf(mut out, "%s ? TACK_LIST_POP(%s) : %s", r1[:], r0[:], tm.zero[:])?
+    } else if tm.init_kind == from_remove_ok {
+        fmt.appendf(mut out, "%s >= 0 && %s < %s->len", r1[:], r1[:], r0[:])?
+    } else if tm.init_kind == from_remove_take {
+        fmt.appendf(mut out, "%s ? TACK_LIST_REMOVE(%s, %s) : %s", r2[:], r0[:], r1[:], tm.zero[:])?
+    } else if tm.init_kind == from_map_find {
+        fmt.appendf(mut out, "%s(%s, &%s, %s(&%s))", tm.init[:], r0[:], r1[:], tm.aux[:], r1[:])?
+    } else if tm.init_kind == from_map_take {
+        fmt.appendf(mut out, "%s >= 0 ? %s(%s, %s) : %s", r2[:], tm.init[:], r0[:], r2[:], tm.zero[:])?
+    } else if tm.init_kind == from_pool_find {
+        fmt.appendf(mut out, "%s(%s, %s)", tm.init[:], r0[:], r1[:])?
+    } else if tm.init_kind == from_pool_take {
+        fmt.appendf(mut out, "%s != 0 ? %s(%s, %s) : %s", r2[:], tm.init[:], r0[:], r2[:], tm.zero[:])?
+    }
     return noerror
 }
 
@@ -191,8 +260,8 @@ func multi_assign_of(trees []ast.File, k typeck.Key) ast.MultiAssign {
 // generate_multi_var declares the variables of the MultiVar k, Go's
 // generateMultiVar: its source held once in const temporaries, then each
 // variable but _ declared from the value in its position, const unless
-// it is mutable or owns. One that owns, whose free its block's chain
-// runs, is E3's.
+// it is mutable or owns; one that owns adds its free to its block's
+// chain.
 func (mut g Gen) generate_multi_var(mut t typeck.Typed, k typeck.Key) (list[Line], error) {
     mv := multi_var_of(t.prog.trees[:], k)
     src := mut g.multi_values(mut t, at(k, mv.value))?
@@ -206,7 +275,7 @@ func (mut g Gen) generate_multi_var(mut t typeck.Typed, k typeck.Key) (list[Line
             continue
         }
         typ := mut t.decl_type(v)
-        owned := mut t.table.owned(typ)?
+        owned := mut g.owned(mut t, typ)?
         mut l := make(list[uint8], c_allocator)
         if !vr.mutable && !owned {
             append(mut l, []uint8("const ")...)?
@@ -220,17 +289,7 @@ func (mut g Gen) generate_multi_var(mut t typeck.Typed, k typeck.Key) (list[Line
         mut g.add_line(mut lines, l[:])?
     }
     for i := range n {
-        v := node_at(t.prog.trees[:], k.unit, mv.vars, i)
-        vr := var_at(t.prog.trees[:], v)
-        if is_blank(t.prog.trees[:], v.unit, vr.name) {
-            continue
-        }
-        owned := mut t.table.owned(mut t.decl_type(v))?
-        if owned {
-            // addFrees adds the variable's free to its block's chain,
-            // E3's.
-            return lines, not_ported
-        }
+        mut g.add_frees(mut t, node_at(t.prog.trees[:], k.unit, mv.vars, i))?
     }
     return lines, noerror
 }
@@ -297,8 +356,8 @@ func (mut g Gen) multi_assign_post(mut t typeck.Typed, k typeck.Key, mut decls l
 
 // field_assigns renders, for each target of the MultiAssign k but _, the
 // C assignment of the value in its position read from src's temporaries,
-// names, without a semicolon, Go's fieldAssigns. A target of an owned
-// type, whose old value is freed first, is E3's.
+// names, without a semicolon, Go's fieldAssigns, after the frees of
+// what a target of an owned type held.
 func (mut g Gen) field_assigns(mut t typeck.Typed, k typeck.Key, src MultiSource, names []list[uint8]) (list[list[uint8]], error) {
     ma := multi_assign_of(t.prog.trees[:], k)
     mut out := make(list[list[uint8]], c_allocator)
@@ -310,9 +369,14 @@ func (mut g Gen) field_assigns(mut t typeck.Typed, k typeck.Key, src MultiSource
             continue
         }
         r := mut g.target_ref(mut t, target)?
-        owned := mut t.table.owned(mut t.type_of(target))?
-        if owned {
-            return out, not_ported
+        frees := mut g.frees(mut t, mut t.type_of(target), r[:])?
+        for _, f := range frees {
+            mut fl := make(list[uint8], c_allocator)
+            append(mut fl, f[:]...)?
+            if len(fl) > 0 {
+                pop(mut fl)
+            }
+            append(mut out, fl)?
         }
         mut a := make(list[uint8], c_allocator)
         append(mut a, r[:]...)?
@@ -324,11 +388,12 @@ func (mut g Gen) field_assigns(mut t typeck.Typed, k typeck.Key, src MultiSource
 }
 
 // multi_values lowers the source of a MultiVar or a MultiAssign, Go's
-// multiValues, by its kind. A ? after a call is E3's.
+// multiValues, by its kind.
 func (mut g Gen) multi_values(mut t typeck.Typed, value typeck.Key) (MultiSource, error) {
     switch kind_of(t.prog.trees[:], value) {
     case question:
-        return new_source(0, value), not_ported
+        src := mut g.question_values(mut t, value)?
+        return src, noerror
     case binary(b):
         if b.op == ast.op_div || b.op == ast.op_rem {
             src := mut g.division_values(mut t, value, b)?
@@ -364,13 +429,25 @@ func (mut g Gen) multi_values(mut t typeck.Typed, value typeck.Key) (MultiSource
 }
 
 // call_values lowers a, b := f(), Go's callValues: the call, held as its
-// results struct, read field by field. The checked forms of pop, remove,
-// add, add_all, insert and delete, and of a pool's remove, are E3's.
+// results struct, read field by field, or the checked forms of pop,
+// remove, add, add_all, insert and delete, and of a pool's remove.
 func (mut g Gen) call_values(mut t typeck.Typed, k typeck.Key) (MultiSource, error) {
-    if is_builtin_named(t, k, "pop") || is_builtin_named(t, k, "remove") ||
-        is_builtin_named(t, k, "add") || is_builtin_named(t, k, "add_all") ||
-        is_builtin_named(t, k, "insert") || is_builtin_named(t, k, "delete") {
-        return new_source(0, k), not_ported
+    pool_remove := mut g.is_pool_remove(mut t, k)?
+    if pool_remove {
+        src := mut g.pool_take_values(mut t, k)?
+        return src, noerror
+    }
+    if is_builtin_named(t, k, "pop") || is_builtin_named(t, k, "remove") {
+        src := mut g.take_values(mut t, k)?
+        return src, noerror
+    }
+    if is_builtin_named(t, k, "add") || is_builtin_named(t, k, "add_all") || is_builtin_named(t, k, "insert") {
+        src := mut g.add_values(mut t, k)?
+        return src, noerror
+    }
+    if is_builtin_named(t, k, "delete") {
+        src := mut g.delete_values(mut t, k)?
+        return src, noerror
     }
     fn, has := callee_of(mut t, k)
     if !has {
@@ -486,7 +563,7 @@ func (mut g Gen) arith_values(mut t typeck.Typed, value typeck.Key) (MultiSource
     append(mut flag_type, []uint8("bool")...)?
     mut init := make(list[uint8], c_allocator)
     append(mut init, ctype[:]...)?
-    append(mut src.temps, MultiTemp{ctype: flag_type, init: init, is_ref: false, is_mut: false, flag: true, op: op})?
+    append(mut src.temps, MultiTemp{ctype: flag_type, init: init, is_ref: false, is_mut: false, flag: true, op: op, init_kind: 0, aux: make(list[uint8], c_allocator), zero: make(list[uint8], c_allocator)})?
     return src, true, noerror
 }
 
@@ -628,6 +705,44 @@ func (mut g Gen) append_field(mut t typeck.Typed, src MultiSource, names []list[
         fmt.appendf(mut out, "(%s ? *(const ", is[:])?
         append_c_type(mut t, typ, mut out)?
         fmt.appendf(mut out, " *)%s.ptr : %s)", v[:], src.zero[:])?
+        return noerror
+    }
+    mut t0 := make(list[uint8], c_allocator)
+    copy_name(names, 0, mut t0)?
+    mut t2 := make(list[uint8], c_allocator)
+    copy_name(names, 2, mut t2)?
+    mut t3 := make(list[uint8], c_allocator)
+    copy_name(names, 3, mut t3)?
+    if src.kind == ms_reverse {
+        copy_name(names, len(names) -% 1 -% i, mut out)?
+        return noerror
+    }
+    if src.kind == ms_delete || src.kind == ms_pool_take {
+        if i != 1 {
+            append(mut out, t3[:]...)?
+            return noerror
+        }
+        if src.kind == ms_delete {
+            fmt.appendf(mut out, "((void)%s, %s >= 0)", t3[:], t2[:])?
+        } else {
+            fmt.appendf(mut out, "((void)%s, %s != 0)", t3[:], t2[:])?
+        }
+        return noerror
+    }
+    if src.kind == ms_lookup {
+        if i == 1 {
+            fmt.appendf(mut out, "%s >= 0", t2[:])?
+            return noerror
+        }
+        fmt.appendf(mut out, "(%s >= 0 ? %s->entries[%s->slots[%s] - 1].val : %s)", t2[:], t0[:], t0[:], t2[:], src.zero[:])?
+        return noerror
+    }
+    if src.kind == ms_pool_lookup {
+        if i == 1 {
+            fmt.appendf(mut out, "%s != 0", t2[:])?
+            return noerror
+        }
+        fmt.appendf(mut out, "(%s != 0 ? %s->value : %s)", t2[:], t2[:], src.zero[:])?
         return noerror
     }
     return not_ported
@@ -781,14 +896,20 @@ func append_target_fits(src_t types.Type, to types.Type, v []uint8, mut out list
 // index_values lowers v, ok := a[i], Go's indexValues: what is indexed
 // rendered on its own, then the index, held as held_indexed says, and
 // the element read only when the index is in range, the element type's
-// zero value otherwise. A map's and a pool's are E3's.
+// zero value otherwise; a map's by lookup_values and a pool's by
+// pool_lookup_values.
 func (mut g Gen) index_values(mut t typeck.Typed, k typeck.Key, ix ast.Index) (MultiSource, error) {
     x := at(k, ix.x)
     xt := mut t.type_of(x)
     mp := mut t.table.is_map(xt)?
+    if mp {
+        src := mut g.lookup_values(mut t, k)?
+        return src, noerror
+    }
     is_pool := mut t.table.is_pool(xt)?
-    if mp || is_pool {
-        return new_source(0, k), not_ported
+    if is_pool {
+        src := mut g.pool_lookup_values(mut t, k)?
+        return src, noerror
     }
     steps, place := mut g.expr_steps(mut t, x)?
     mut amp := make(list[uint8], c_allocator)
@@ -844,7 +965,7 @@ func (mut g Gen) held_indexed(mut t typeck.Typed, k typeck.Key, ix ast.Index, ba
     }
     append(mut init, addr...)?
     src.held_ref = true
-    append(mut src.temps, MultiTemp{ctype: ctype, init: init, is_ref: true, is_mut: false, flag: false, op: ast.op_invalid})?
+    append(mut src.temps, MultiTemp{ctype: ctype, init: init, is_ref: true, is_mut: false, flag: false, op: ast.op_invalid, init_kind: 0, aux: make(list[uint8], c_allocator), zero: make(list[uint8], c_allocator)})?
     return noerror
 }
 

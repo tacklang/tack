@@ -1,0 +1,301 @@
+package codegen
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// Pools, Go's pool.go (pool.tck is the string pool's): a pool's C
+// structs, its slot's and its own, its helpers, find, at, insert and
+// take, and its free helper; make of a pool, its elements read and
+// written, has, insert, which the append routine renders (see list.tck),
+// remove, its checked lookup and a range over a pool.
+
+// append_pool_name appends the name of the C struct of the pool type typ
+// stands for, Go's poolName.
+func append_pool_name(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    b := mut t.table.bound(typ)?
+    fmt.appendf(mut out, "tack_pool_%d", b.number())?
+    return noerror
+}
+
+// append_pool_slot_name appends the name of the C struct of one slot of
+// the pool type typ stands for, Go's poolSlotName.
+func append_pool_slot_name(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    b := mut t.table.bound(typ)?
+    fmt.appendf(mut out, "tack_pool_slot_%d", b.number())?
+    return noerror
+}
+
+// append_pool_helper appends the name of the helper what of the pool type
+// typ stands for, Go's poolHelper.
+func append_pool_helper(mut t typeck.Typed, what string, typ types.Type, mut out list[uint8]) error {
+    b := mut t.table.bound(typ)?
+    fmt.appendf(mut out, "tack_pool_%s_%d", what, b.number())?
+    return noerror
+}
+
+// emit_pool_def defines the C structs a pool type lowers to, Go's
+// emitPoolDef.
+func (mut g Gen) emit_pool_def(mut t typeck.Typed, typ types.Type) error {
+    mut slot := make(list[uint8], c_allocator)
+    append_pool_slot_name(mut t, typ, mut slot)?
+    elem := c_type_of(mut t, mut t.table.elem_of(typ)?)?
+    fmt.appendf(mut g.buf, "typedef struct {\n    %s value;\n    uint32_t gen;\n    uint32_t next;\n    bool live;\n} %s;\n\n", elem[:], slot[:])?
+    fmt.appendf(mut g.buf, "typedef struct {\n    %s *ptr;\n    int64_t len;\n    int64_t cap;\n    tack_allocator alloc;\n    int64_t count;\n    uint32_t free;\n    uint32_t tag;\n} ", slot[:])?
+    append_pool_name(mut t, typ, mut g.buf)?
+    mut g.wb(";\n\n")?
+    return noerror
+}
+
+// pool_types returns every pool type C has, in the order the table added
+// them, Go's poolTypes.
+func (mut g Gen) pool_types(mut t typeck.Typed) (list[types.Type], error) {
+    mut out := make(list[types.Type], c_allocator)
+    count := mut t.table.count()
+    for i := range count {
+        typ := types.added(i)
+        param := mut t.table.has_type_param(typ)?
+        if param {
+            continue
+        }
+        if mut t.table.is_pool(typ)? {
+            append(mut out, typ)?
+        }
+    }
+    return out, noerror
+}
+
+// emit_pools writes the helpers of every pool type, Go's emitPools.
+func (mut g Gen) emit_pools(mut t typeck.Typed) error {
+    pools := mut g.pool_types(mut t)?
+    for _, typ := range pools {
+        mut p := make(list[uint8], c_allocator)
+        append_pool_name(mut t, typ, mut p)?
+        mut slot := make(list[uint8], c_allocator)
+        append_pool_slot_name(mut t, typ, mut slot)?
+        et := mut t.table.elem_of(typ)?
+        elem := c_type_of(mut t, et)?
+        mut find := make(list[uint8], c_allocator)
+        append_pool_helper(mut t, "find", typ, mut find)?
+        mut at_name := make(list[uint8], c_allocator)
+        append_pool_helper(mut t, "at", typ, mut at_name)?
+        uf := mut g.maybe_unused(find[:])?
+        fmt.appendf(mut g.buf, "%sstatic %s *%s(const %s *p, tack_handle_ h) {\n", uf, slot[:], find[:], p[:])?
+        mut g.wb("    if (h.tag != p->tag || (int64_t)h.index >= p->len) {\n        return 0;\n    }\n")?
+        fmt.appendf(mut g.buf, "    %s *s = &p->ptr[h.index];\n", slot[:])?
+        mut g.wb("    return s->live && s->gen == h.gen ? s : 0;\n}\n\n")?
+        ua := mut g.maybe_unused(at_name[:])?
+        fmt.appendf(mut g.buf, "%sstatic %s *%s(const %s *p, tack_handle_ h) {\n    return &p->ptr[h.index].value;\n}\n\n", ua, elem[:], at_name[:], p[:])?
+        mut insert := make(list[uint8], c_allocator)
+        append_pool_helper(mut t, "insert", typ, mut insert)?
+        ui := mut g.maybe_unused(insert[:])?
+        fmt.appendf(mut g.buf, "%sstatic tack_pool_inserted_ %s(%s *p, %s v) {\n", ui, insert[:], p[:], elem[:])?
+        mut g.wb("    uint32_t i;\n")?
+        mut g.wb("    if (p->free != 0) {\n        i = p->free - 1;\n        p->free = p->ptr[i].next;\n")?
+        mut g.wb("    } else if (tack_pool_room_(p->len) && TACK_LIST_RESERVE(p, 1)) {\n")?
+        mut g.wb("        i = (uint32_t)p->len;\n        p->ptr[i].gen = tack_pool_gen0_();\n        p->len++;\n")?
+        mut g.wb("    } else {\n")?
+        mut g.write_frees(mut t, "        ", et, []uint8("v"))?
+        mut g.wb("        return (tack_pool_inserted_){{0, 0, 0}, TACK_ERROR(1, \"out of memory\")};\n    }\n")?
+        fmt.appendf(mut g.buf, "    %s *s = &p->ptr[i];\n    s->value = v;\n    s->next = 0;\n    s->live = true;\n", slot[:])?
+        mut g.wb("    p->count++;\n    return (tack_pool_inserted_){{i, s->gen, p->tag}, TACK_NO_ERROR};\n}\n\n")?
+        mut take := make(list[uint8], c_allocator)
+        append_pool_helper(mut t, "take", typ, mut take)?
+        ut := mut g.maybe_unused(take[:])?
+        mut zero := make(list[uint8], c_allocator)
+        mut g.append_zero_value(mut t, et, mut zero)?
+        fmt.appendf(mut g.buf, "%sstatic %s %s(%s *p, %s *s) {\n", ut, elem[:], take[:], p[:], slot[:])?
+        fmt.appendf(mut g.buf, "    %s v = s->value;\n    s->value = %s;\n    s->live = false;\n    p->count--;\n", elem[:], zero[:])?
+        mut g.wb("    if (s->gen != 4294967295u) {\n        s->gen++;\n        s->next = p->free;\n")?
+        mut g.wb("        p->free = (uint32_t)(s - p->ptr) + 1;\n    }\n    return v;\n}\n\n")?
+    }
+    return noerror
+}
+
+// emit_pool_free writes the free helper of the pool type typ, Go's
+// emitPoolFree: each live element, last first, when it owns, then the
+// slots' buffer.
+func (mut g Gen) emit_pool_free(mut t typeck.Typed, typ types.Type) error {
+    mut free := make(list[uint8], c_allocator)
+    append_free_name(mut t, typ, mut free)?
+    mut slot := make(list[uint8], c_allocator)
+    append_pool_slot_name(mut t, typ, mut slot)?
+    et := mut t.table.elem_of(typ)?
+    unused := mut g.maybe_unused(free[:])?
+    fmt.appendf(mut g.buf, "%sstatic void %s(const ", unused, free[:])?
+    append_pool_name(mut t, typ, mut g.buf)?
+    mut g.wb(" *v) {\n")?
+    owned := mut g.owned(mut t, et)?
+    if owned {
+        mut g.wb("    for (int64_t i = v->len; i > 0; i--) {\n        if (v->ptr[i - 1].live) {\n")?
+        mut g.write_frees(mut t, "            ", et, []uint8("v->ptr[i - 1].value"))?
+        mut g.wb("        }\n    }\n")?
+    }
+    fmt.appendf(mut g.buf, "    tack_list_free_(v->ptr, v->cap, sizeof (%s), _Alignof (%s), v->alloc);\n}\n\n", slot[:], slot[:])?
+    return noerror
+}
+
+// is_pool_remove reports whether the call k calls remove on a pool, Go's
+// isPoolRemove.
+func (mut g Gen) is_pool_remove(mut t typeck.Typed, k typeck.Key) (bool, error) {
+    if !is_builtin_named(t, k, "remove") {
+        return false, noerror
+    }
+    cl := call_of(t.prog.trees[:], k)
+    if node_count(t.prog.trees[:], k.unit, cl.args) != 2 {
+        return false, noerror
+    }
+    _, x, is_mut := first_arg(t, k)
+    if !is_mut {
+        return false, noerror
+    }
+    p := mut t.table.is_pool(mut t.type_of(x))?
+    return p, noerror
+}
+
+// pool_handle_source returns the temporaries a lookup of the handle h in
+// the pool p holds, Go's poolHandleSource: the pool's address, the
+// handle, and the slot it names, or a null pointer, found once.
+func (mut g Gen) pool_handle_source(mut t typeck.Typed, p typeck.Key, h typeck.Key, is_mut bool, kind uint8, k0 typeck.Key) (MultiSource, error) {
+    steps, place := mut g.expr_steps(mut t, p)?
+    hx := mut g.expr(mut t, h, types.invalid)?
+    typ := mut t.type_of(p)
+    mut find := make(list[uint8], c_allocator)
+    append_pool_helper(mut t, "find", typ, mut find)?
+    mut src := new_source(kind, k0)
+    mut amp := make(list[uint8], c_allocator)
+    append(mut amp, '&')?
+    append(mut amp, place[:]...)?
+    init := with_steps(steps[:], own amp)?
+    mut pn := make(list[uint8], c_allocator)
+    append_pool_name(mut t, typ, mut pn)?
+    mut pt := plain_temp(own pn, own init)
+    pt.is_ref = !is_mut
+    pt.is_mut = is_mut
+    append(mut src.temps, pt)?
+    mut ht := make(list[uint8], c_allocator)
+    append(mut ht, []uint8("tack_handle_")...)?
+    append(mut src.temps, plain_temp(own ht, own hx))?
+    mut slot := make(list[uint8], c_allocator)
+    append_pool_slot_name(mut t, typ, mut slot)?
+    mut st := from_temp(slot[:], from_pool_find, find[:], []uint8(""))?
+    st.is_mut = true
+    append(mut src.temps, st)?
+    return src, noerror
+}
+
+// pool_lookup_values lowers v, ok := p[h], the index k0, Go's
+// poolLookupValues.
+func (mut g Gen) pool_lookup_values(mut t typeck.Typed, k0 typeck.Key) (MultiSource, error) {
+    ix := index_of(t.prog.trees[:], k0)
+    mut src := mut g.pool_handle_source(mut t, at(k0, ix.x), at(k0, ix.index), false, ms_pool_lookup, k0)?
+    mut g.append_zero_value(mut t, mut t.type_of(k0), mut src.zero)?
+    return src, noerror
+}
+
+// pool_take_values lowers v, ok := remove(mut p, h), the call k0, Go's
+// poolTakeValues: pool_handle_source's temporaries, then the element,
+// taken out only when there is one, the element type's zero value
+// otherwise.
+func (mut g Gen) pool_take_values(mut t typeck.Typed, k0 typeck.Key) (MultiSource, error) {
+    args := call_args_of(t, k0)?
+    _, px, _ := first_arg(t, k0)
+    if len(args) != 2 {
+        return new_source(0, k0), not_ported
+    }
+    mut src := mut g.pool_handle_source(mut t, px, args[1], true, ms_pool_take, k0)?
+    typ := mut t.type_of(px)
+    mut take := make(list[uint8], c_allocator)
+    append_pool_helper(mut t, "take", typ, mut take)?
+    ct := mut t.call_type(k0)
+    mut zero := make(list[uint8], c_allocator)
+    mut g.append_zero_value(mut t, ct, mut zero)?
+    c := c_type_of(mut t, ct)?
+    append(mut src.temps, from_temp(c[:], from_pool_take, take[:], zero[:])?)?
+    return src, noerror
+}
+
+// drop_pool_remove lowers remove(mut p, h) written as a statement, the
+// call k0, Go's dropPoolRemove.
+func (mut g Gen) drop_pool_remove(mut t typeck.Typed, k0 typeck.Key) (list[Line], error) {
+    args := call_args_of(t, k0)?
+    _, px, _ := first_arg(t, k0)
+    if len(args) != 2 {
+        return make(list[Line], c_allocator), not_ported
+    }
+    src := mut g.pool_handle_source(mut t, px, args[1], true, 0, k0)?
+    mut lines := make(list[Line], c_allocator)
+    names := mut g.hold_temps(src, mut lines)?
+    typ := mut t.type_of(px)
+    mut n0 := make(list[uint8], c_allocator)
+    copy_name(names[:], 0, mut n0)?
+    mut n2 := make(list[uint8], c_allocator)
+    copy_name(names[:], 2, mut n2)?
+    mut take := make(list[uint8], c_allocator)
+    append_pool_helper(mut t, "take", typ, mut take)?
+    fmt.appendf(mut take, "(%s, %s)", n0[:], n2[:])?
+    body := mut g.drop_body(mut t, mut t.call_type(k0), take[:])?
+    mut head := make(list[uint8], c_allocator)
+    fmt.appendf(mut head, "if (%s != 0) {", n2[:])?
+    mut g.add_line(mut lines, head[:])?
+    append_indented(mut lines, body[:])?
+    mut g.add_line(mut lines, []uint8("}"))?
+    return lines, noerror
+}
+
+// pool_range lowers a range loop over a pool, s, whose address is addr
+// and lowered body body, Go's poolRange: every slot in order, those not
+// live skipped, each live one's handle made, its element bound in place
+// when it owns.
+func (mut g Gen) pool_range(mut t typeck.Typed, s typeck.Key, addr []uint8, body []Line) (list[Line], error) {
+    lp := range_of(t.prog.trees[:], s)
+    typ := mut t.type_of(at(s, lp.x))
+    r := mut g.temp("r")?
+    k := mut g.temp("k")?
+    mut slot := make(list[uint8], c_allocator)
+    fmt.appendf(mut slot, "%s->ptr[%s]", r[:], k[:])?
+    mut vars := make(list[Line], c_allocator)
+    mut skip := make(list[uint8], c_allocator)
+    fmt.appendf(mut skip, "if (!%s.live) {", slot[:])?
+    mut g.add_line(mut vars, skip[:])?
+    mut g.add_line(mut vars, []uint8("    continue;"))?
+    mut g.add_line(mut vars, []uint8("}"))?
+    if !ast.is_none(lp.var_node) {
+        vk := at(s, lp.var_node)
+        vr := var_at(t.prog.trees[:], vk)
+        if !is_blank(t.prog.trees[:], vk.unit, vr.name) {
+            mut l := make(list[uint8], c_allocator)
+            append(mut l, []uint8("const tack_handle_ ")...)?
+            append_decl_name(mut t, vk, mut l)?
+            fmt.appendf(mut l, " = {(uint32_t)%s, %s.gen, %s->tag};", k[:], slot[:], r[:])?
+            mut g.add_line(mut vars, l[:])?
+        }
+    }
+    in_place := mut g.binds_in_place(mut t, s)?
+    if in_place || binds_elem(t, s) {
+        ek := at(s, lp.elem)
+        mut l := make(list[uint8], c_allocator)
+        append(mut l, []uint8("const ")...)?
+        append_c_type(mut t, mut t.decl_type(ek), mut l)?
+        if in_place {
+            append(mut l, []uint8(" *const ")...)?
+            append_decl_name(mut t, ek, mut l)?
+            fmt.appendf(mut l, " = &%s.value;", slot[:])?
+        } else {
+            append(mut l, ' ')?
+            append_decl_name(mut t, ek, mut l)?
+            fmt.appendf(mut l, " = %s.value;", slot[:])?
+        }
+        mut g.add_line(mut vars, l[:])?
+    }
+    append(mut vars, body...)?
+    mut eval := make(list[uint8], c_allocator)
+    append(mut eval, []uint8("const ")...)?
+    append_pool_name(mut t, typ, mut eval)?
+    fmt.appendf(mut eval, " *const %s = %s;", r[:], addr)?
+    mut n := make(list[uint8], c_allocator)
+    fmt.appendf(mut n, "%s->len", r[:])?
+    lines := mut g.range_block(eval[:], []uint8("int64_t"), k[:], n[:], vars[:])?
+    return lines, noerror
+}

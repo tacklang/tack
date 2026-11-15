@@ -206,7 +206,7 @@ func append_basic_c_type(typ types.Type, mut out list[uint8]) error {
 
 // handle_type is the C type every handle lowers to, Go's handleType of
 // pool.go, which the runtime's tack.h defines.
-var handle_type = "tack_handle"
+var handle_type = "tack_handle_"
 
 // func_ptr is the C type a function value is held in, Go's funcPtr of
 // funcvalue.go.
@@ -216,9 +216,7 @@ var func_ptr = "tack_fnptr"
 // force, Go's cType: a basic type's own, uint32_t for an id, uint64_t for
 // a span, the runtime's handle and function pointer types, or for an
 // array, a view, a list, a map, an arena, a pool, a struct or a union the
-// C struct named by its type's ID or its declaration. A list's, a map's,
-// an arena's and a pool's are E3's (see doc.tck), so the port declines
-// them.
+// C struct named by its type's ID or its declaration.
 func append_c_type(mut t typeck.Typed, typ0 types.Type, mut out list[uint8]) error {
     typ := mut t.table.bound(typ0)?
     if mut t.table.is_array(typ)? {
@@ -230,13 +228,16 @@ func append_c_type(mut t typeck.Typed, typ0 types.Type, mut out list[uint8]) err
         return noerror
     }
     if mut t.table.is_list(typ)? {
-        return not_ported
+        append_list_name(mut t, typ, mut out)?
+        return noerror
     }
     if mut t.table.is_map(typ)? {
-        return not_ported
+        append_map_name(mut t, typ, mut out)?
+        return noerror
     }
     if mut t.table.is_arena(typ)? {
-        return not_ported
+        append_arena_name(mut t, typ, mut out)?
+        return noerror
     }
     if mut t.table.is_id(typ)? {
         append(mut out, []uint8("uint32_t")...)?
@@ -247,7 +248,8 @@ func append_c_type(mut t typeck.Typed, typ0 types.Type, mut out list[uint8]) err
         return noerror
     }
     if mut t.table.is_pool(typ)? {
-        return not_ported
+        append_pool_name(mut t, typ, mut out)?
+        return noerror
     }
     if mut t.table.is_handle(typ)? {
         append(mut out, []uint8(handle_type)...)?

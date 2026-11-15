@@ -9,7 +9,7 @@ import types from "tack/types"
 // address, then i and then j, as int64s, each held in a const temporary
 // in that order, then the two elements exchanged through a temporary of
 // the element type, in a C block of its own. The list's address is
-// list.go's takeList, E3's, as a list's type is.
+// list.go's takeList (see list.tck).
 
 // swap_stmt lowers swap(mut l, i, j), the call k, Go's swapStmt.
 func (mut g Gen) swap_stmt(mut t typeck.Typed, k typeck.Key) (list[Line], error) {
@@ -26,7 +26,7 @@ func (mut g Gen) swap_stmt(mut t typeck.Typed, k typeck.Key) (list[Line], error)
     mut src := new_source(0, k)
     mut ltype := make(list[uint8], c_allocator)
     append_c_type(mut t, lt, mut ltype)?
-    append(mut src.temps, MultiTemp{ctype: ltype, init: lp, is_ref: false, is_mut: true, flag: false, op: ast.op_invalid})?
+    append(mut src.temps, MultiTemp{ctype: ltype, init: lp, is_ref: false, is_mut: true, flag: false, op: ast.op_invalid, init_kind: 0, aux: make(list[uint8], c_allocator), zero: make(list[uint8], c_allocator)})?
     n := node_count(t.prog.trees[:], k.unit, cl.args)
     for i := range n {
         if i == 0 {
@@ -66,10 +66,4 @@ func (mut g Gen) swap_stmt(mut t typeck.Typed, k typeck.Key) (list[Line], error)
     append(mut lines, indent_out)?
     mut g.add_line(mut lines, []uint8("}"))?
     return lines, noerror
-}
-
-// take_list renders the list a call's first argument, mut l, names, as
-// the address swap_stmt holds it by, Go's takeList of list.go, E3's.
-func (mut g Gen) take_list(mut _ typeck.Typed, _ typeck.Key) (list[uint8], error) {
-    return make(list[uint8], c_allocator), not_ported
 }

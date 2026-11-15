@@ -1,0 +1,388 @@
+package codegen
+
+import fmt from "std/fmt"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// The ?, Go's question.go: f(...)? lowers to a GNU C statement
+// expression that calls f into a temporary, tests the error's code, and,
+// when it is not 0, frees what the call gave beside the error that owns,
+// frees what the expression around the ? built before it and has not
+// given to what takes it, the values pending, and returns the error from
+// the function as a return written there would, through the cleanup
+// chain of every block it leaves (see defer.tck). The guard of a
+// construct's operands, Go's ownedGuard, keeps an owned value made for an
+// operand pending while the operands after it are rendered, when one of
+// them holds a ?.
+//
+// A ? in a test's own body stores its place first, Go's Site; the port
+// loads no program for its tests, so no ? it lowers has one.
+
+// r_question is the routine of Go's questionExpr: the frame's a is 1 when
+// the ? gives its value, its b how many results the call has, its error
+// included, and its k the call.
+var r_question uint8 = 46
+
+// Pending is an owned value the expression being rendered has made and
+// not yet given to what takes it, Go's pendingFree: the C place that
+// holds it and its type.
+type Pending struct {
+    ref list[uint8]
+    typ types.Type
+}
+
+// owned_step runs the next step of f, a frame of one of E3's routines,
+// and reports whether it was one.
+func (mut g Gen) owned_step(mut t typeck.Typed, f MFrame, mut m Machine) (bool, error) {
+    if f.r == r_question {
+        mut g.step_question(mut t, f, mut m)?
+        return true, noerror
+    }
+    done := mut g.list_step(mut t, f, mut m)?
+    if done {
+        return true, noerror
+    }
+    done_map := mut g.map_step(mut t, f, mut m)?
+    return done_map, noerror
+}
+
+// questioned returns the call the ? q follows, Go's ast.Questioned, and
+// whether it follows one.
+func questioned(t typeck.Typed, q typeck.Key) (typeck.Key, bool) {
+    switch kind_of(t.prog.trees[:], q) {
+    case question(x):
+        c := at(q, x)
+        switch kind_of(t.prog.trees[:], c) {
+        case call:
+            return c, true
+        default:
+        }
+    default:
+    }
+    return no_key(), false
+}
+
+// step_question is Go's questionExpr with questioned: the call rendered,
+// by callValue when it gives only its error, as a results struct
+// otherwise, then the statement expression.
+func (mut g Gen) step_question(mut t typeck.Typed, f MFrame, mut m Machine) error {
+    if f.step == 0 {
+        call, ok := questioned(t, f.e)
+        if !ok || g.deferring || !g.has_frame {
+            // Go's internal error, a ? that follows no call, and its
+            // report of a ? in a defer, both of which the checker rules
+            // out.
+            return not_ported
+        }
+        mut n int64 = 0
+        _, has := callee_of(mut t, call)
+        if is_builtin_named(t, call, "add") || is_builtin_named(t, call, "add_all") || is_builtin_named(t, call, "insert") {
+            // Go's checker records the two results of add, add_all and
+            // insert, the id, span or handle and an error, on the call,
+            // which its CallResults gives; the handover records none.
+            n = 2
+        } else if has {
+            n = mut t.call_result_count(call)
+        }
+        mut s := f
+        s.k = call
+        s.b = n
+        mut m.again(s, 1)?
+        if n <= 1 {
+            mut m.push(r_call_value, call, types.invalid, false)?
+            return noerror
+        }
+        if is_builtin_named(t, call, "add") || is_builtin_named(t, call, "add_all") || is_builtin_named(t, call, "insert") {
+            mut m.push(r_append, call, types.invalid, false)?
+            return noerror
+        }
+        if !typeck_no_key(mut t.dynamic(call)) {
+            // A call through a function value, E4's.
+            return not_ported
+        }
+        mut m.push(r_call_expr, call, types.invalid, false)?
+        return noerror
+    }
+    init := mut m.take()
+    call := f.k
+    mut ctype := make(list[uint8], c_allocator)
+    mut n := f.b
+    if n <= 1 {
+        n = 1
+        append_c_type(mut t, types.error_type, mut ctype)?
+    } else if is_builtin_named(t, call, "add") {
+        append(mut ctype, []uint8("tack_arena_added_")...)?
+    } else if is_builtin_named(t, call, "add_all") {
+        append(mut ctype, []uint8("tack_arena_spanned_")...)?
+    } else if is_builtin_named(t, call, "insert") {
+        append(mut ctype, []uint8("tack_pool_inserted_")...)?
+    } else {
+        fn, _ := callee_of(mut t, call)
+        mut cname := make(list[uint8], c_allocator)
+        append_func_cname(mut t, fn, mut cname)?
+        append_results_of(cname[:], mut ctype)?
+    }
+    name := mut g.temp("q")?
+    mut err_ref := make(list[uint8], c_allocator)
+    append(mut err_ref, name[:]...)?
+    if n > 1 {
+        fmt.appendf(mut err_ref, ".r%d", n -% 1)?
+    }
+    mut out := make(list[uint8], c_allocator)
+    fmt.appendf(mut out, "({ %s %s = %s; if (%s.code != 0) {", ctype[:], name[:], init[:], err_ref[:])?
+    nr := mut t.question_result_count(f.e)
+    mut i := nr
+    for i > 0 {
+        i -%= 1
+        mut ref := make(list[uint8], c_allocator)
+        fmt.appendf(mut ref, "%s.r%d", name[:], i)?
+        frees := mut g.frees(mut t, mut t.question_result(f.e, i), ref[:])?
+        for _, l := range frees {
+            append(mut out, ' ')?
+            append(mut out, l[:]...)?
+        }
+    }
+    mut ret := make(list[Line], c_allocator)
+    mut g.question_return(mut t, err_ref[:], mut ret)?
+    for _, l := range ret {
+        append(mut out, ' ')?
+        append(mut out, g.line_text(l)...)?
+    }
+    append(mut out, []uint8(" }")...)?
+    if f.a == 1 {
+        if nr == 1 {
+            fmt.appendf(mut out, " %s.r0;", name[:])?
+        } else if nr > 1 {
+            fmt.appendf(mut out, " %s;", name[:])?
+        }
+    }
+    append(mut out, []uint8(" })")...)?
+    g.q_ctype = ctype
+    mut m.give(own out)?
+    return noerror
+}
+
+// question_return appends to lines the C statements of a ? whose error,
+// at err_ref, is set, Go's questionReturn: the frees of every value
+// pending, last first, then the return of the error from the function
+// being lowered, the other results zeroed, as generate_return lowers a
+// return there.
+func (mut g Gen) question_return(mut t typeck.Typed, err_ref []uint8, mut lines list[Line]) error {
+    mut i := len(g.pending)
+    for i > 0 {
+        i -%= 1
+        mut ref := make(list[uint8], c_allocator)
+        typ := pending_at(g.pending[:], i, mut ref)?
+        frees := mut g.frees(mut t, typ, ref[:])?
+        for _, l := range frees {
+            mut g.add_line(mut lines, l[:])?
+        }
+    }
+    fn := g.frame.fn
+    mut value := make(list[uint8], c_allocator)
+    n := mut t.result_len(fn)
+    if n > 1 {
+        append(mut value, '(')?
+        mut g.append_results_name(mut t, fn, mut value)?
+        fmt.appendf(mut value, "){.r%d = %s}", n -% 1, err_ref)?
+    } else {
+        append(mut value, err_ref...)?
+    }
+    route := g.stops(g.visible())?
+    if len(route) > 0 {
+        mut g.deferred_return(value[:], route[:], mut lines)?
+        return noerror
+    }
+    mut l := make(list[uint8], c_allocator)
+    fmt.appendf(mut l, "return %s;", value[:])?
+    mut g.add_line(mut lines, l[:])?
+    return noerror
+}
+
+// pending_at appends the place of the value i of pending to ref and
+// returns its type.
+func pending_at(pending []Pending, i int64, mut ref list[uint8]) (types.Type, error) {
+    if i < 0 || i >= len(pending) {
+        return types.invalid, noerror
+    }
+    append(mut ref, pending[i].ref[:]...)?
+    return pending[i].typ, noerror
+}
+
+// question_expr renders the ? q, Go's questionExpr, value saying whether
+// it gives its value.
+func (mut g Gen) question_expr(mut t typeck.Typed, q typeck.Key, value bool) (list[uint8], error) {
+    mut m := new_machine()
+    mut f := mframe(r_question, q, types.invalid, false, 0)
+    if value {
+        f.a = 1
+    }
+    append(mut m.frames, f)?
+    mut g.run(mut t, mut m)?
+    return mut m.take(), noerror
+}
+
+// question_stmt lowers the ? q written as a statement, which drops what
+// it gives, Go's questionStmt. A result that owns, which the checker
+// rules out, is Go's internal error.
+func (mut g Gen) question_stmt(mut t typeck.Typed, q typeck.Key) (list[Line], error) {
+    mut lines := make(list[Line], c_allocator)
+    n := mut t.question_result_count(q)
+    for i := range n {
+        owned := mut g.owned(mut t, mut t.question_result(q, i))?
+        if owned {
+            return lines, not_ported
+        }
+    }
+    x := mut g.question_expr(mut t, q, false)?
+    mut l := make(list[uint8], c_allocator)
+    append(mut l, x[:]...)?
+    append(mut l, ';')?
+    mut g.add_line(mut lines, l[:])?
+    return lines, noerror
+}
+
+// question_values lowers a, b := f()?, Go's questionValues: the ? gives
+// the call's results struct, held in a temporary and read field by
+// field.
+func (mut g Gen) question_values(mut t typeck.Typed, q typeck.Key) (MultiSource, error) {
+    x := mut g.question_expr(mut t, q, true)?
+    mut src := new_source(ms_call, q)
+    mut ctype := make(list[uint8], c_allocator)
+    append(mut ctype, g.q_ctype[:]...)?
+    append(mut src.temps, plain_temp(own ctype, own x))?
+    return src, noerror
+}
+
+// guard_last returns the place of the last of ops that holds a ?, or -1,
+// Go's ownedGuard.last.
+func (mut g Gen) guard_last(mut t typeck.Typed, ops []typeck.Key) (int64, error) {
+    mut last int64 = -1
+    for i, e := range ops {
+        if e.unit < 0 {
+            continue
+        }
+        tr := mut g.traits_of(mut t, e)?
+        if tr.question {
+            last = i
+        }
+    }
+    return last, noerror
+}
+
+// guard_hold returns x, e rendered, the operand i of a construct whose
+// last operand holding a ? is last, kept pending when
+// it gives an owned value no variable holds and an operand after it holds
+// a ?, Go's ownedGuard.hold: held, as it is evaluated, in a temporary of
+// its own, or, in a deep scope, in a step's.
+func (mut g Gen) guard_hold(mut t typeck.Typed, e typeck.Key, i int64, last int64, own x list[uint8]) (list[uint8], error) {
+    if i >= last || !g.has_frame || e.unit < 0 {
+        return x, noerror
+    }
+    p := mut g.pure(mut t, e)?
+    if p {
+        return x, noerror
+    }
+    gives := mut g.gives_owned(mut t, e)?
+    if !gives {
+        return x, noerror
+    }
+    typ := mut t.type_of(e)
+    mut ctype := make(list[uint8], c_allocator)
+    append_operand_type(mut t, e, mut ctype)?
+    if g.spill >= 0 && scope_at(g.spills[:], g.spill).deep {
+        temp := is_temp_name(x[:])
+        mut held := x
+        if !temp {
+            name := mut g.temp("d")?
+            mut g.add_temp_decl(ctype[:], name[:])?
+            mut s := make(list[uint8], c_allocator)
+            fmt.appendf(mut s, "%s = %s", name[:], held[:])?
+            add_step(mut g.spill_steps, g.spill, own s)?
+            held = name
+        }
+        mut ref := make(list[uint8], c_allocator)
+        append(mut ref, held[:]...)?
+        append(mut g.pending, Pending{ref: ref, typ: typ})?
+        return held, noerror
+    }
+    name := mut g.temp("p")?
+    mut g.add_temp_decl(ctype[:], name[:])?
+    mut ref := make(list[uint8], c_allocator)
+    append(mut ref, name[:]...)?
+    append(mut g.pending, Pending{ref: ref, typ: typ})?
+    mut out := make(list[uint8], c_allocator)
+    fmt.appendf(mut out, "(%s = %s)", name[:], x[:])?
+    return out, noerror
+}
+
+// guard_done ends a construct whose operands were guarded, Go's
+// ownedGuard.done: every value it kept pending, those past mark, is
+// given to it.
+func (mut g Gen) guard_done(mark int64) {
+    for len(g.pending) > mark && len(g.pending) > 0 {
+        pop(mut g.pending)
+    }
+}
+
+// gives_owned reports whether evaluating e gives a value of an owned type
+// that no variable holds once it is given, Go's givesOwned: anything but
+// a place, which is lent, and a mut argument; a name whose value is
+// moved, and an own argument, give what the variable held.
+func (mut g Gen) gives_owned(mut t typeck.Typed, e typeck.Key) (bool, error) {
+    owned := mut g.owned(mut t, mut t.type_of(e))?
+    if !owned {
+        return false, noerror
+    }
+    switch kind_of(t.prog.trees[:], e) {
+    case mut_arg:
+        return false, noerror
+    case own_arg:
+        return true, noerror
+    case ident:
+        return mut t.is_move(e), noerror
+    case selector:
+        _, rooted := root_of(t.prog.trees[:], e)
+        return !rooted, noerror
+    case index:
+        _, rooted := root_of(t.prog.trees[:], e)
+        return !rooted, noerror
+    default:
+    }
+    return true, noerror
+}
+
+// is_temp_name reports whether x is the name of a temporary the generator
+// made, tack_ and a letter and a number, and nothing else, Go's
+// isTempName.
+func is_temp_name(x []uint8) bool {
+    if len(x) < 7 {
+        return false
+    }
+    if !bytes_equal(x[0:5], []uint8("tack_")) {
+        return false
+    }
+    first, okf := x[5]
+    if !okf || first < 'a' || first > 'z' {
+        return false
+    }
+    mut i int64 = 6
+    for i < len(x) {
+        b, ok := x[i]
+        if !ok || b < 'a' || b > 'z' {
+            break
+        }
+        i +%= 1
+    }
+    if i == len(x) {
+        return false
+    }
+    for i < len(x) {
+        b, ok := x[i]
+        if !ok || b < '0' || b > '9' {
+            return false
+        }
+        i +%= 1
+    }
+    return true
+}

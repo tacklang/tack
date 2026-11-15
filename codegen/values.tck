@@ -132,7 +132,24 @@ func (mut g Gen) step_composite(mut t typeck.Typed, f MFrame, mut m Machine) err
         return noerror
     }
     mut s := f
+    if f.step == 0 {
+        s.pend = len(g.pending)
+        mut ops := make(list[typeck.Key], c_allocator)
+        for i := range n {
+            v, named := lit_value(t, f.e, lit, i, is_struct)
+            if named {
+                append(mut ops, v)?
+            } else {
+                append(mut ops, no_key())?
+            }
+        }
+        s.glast = mut g.guard_last(mut t, ops[:])?
+    }
     if f.step == 1 {
+        x := mut m.take()
+        v, _ := lit_value(t, f.e, lit, f.a, is_struct)
+        held := mut g.guard_hold(mut t, v, f.a, f.glast, own x)?
+        mut m.give(own held)?
         s.a = f.a +% 1
     }
     if s.a < n {
@@ -145,6 +162,7 @@ func (mut g Gen) step_composite(mut t typeck.Typed, f MFrame, mut m Machine) err
         mut m.push(r_expr, v, types.invalid, false)?
         return noerror
     }
+    mut g.guard_done(f.pend)
     mut rendered := make(list[list[uint8]], c_allocator)
     for range n {
         append(mut rendered, make(list[uint8], c_allocator))?

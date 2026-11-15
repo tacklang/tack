@@ -11,13 +11,14 @@ import types from "tack/types"
 // comparesStrings and union.go's emitFrees. Every type the table added
 // that C has is defined before it is used, each after the types it is
 // made of: an array, a view, a struct and a union here, E2's (array.tck,
-// view.tck, struct.tck and union.tck); a list, a map, an arena and a
-// pool E3's, and a function type E4's, which the port declines. Then
-// the string comparison helper, when the lowered code compares strings,
-// directly or through an equality helper, and the equality helper of
-// every type == compares, each after those of the types it is made of.
-// No type of a program the port lowers owns anything, since only a list,
-// a map, an arena or a pool does, so none has a free helper.
+// view.tck, struct.tck and union.tck), a list, a map, an arena and a
+// pool E3's (list.tck, maps.tck, arena.tck and pools.tck); a function
+// type is E4's, which the port declines. Then the string comparison
+// helper, when the lowered code compares strings, directly, through an
+// equality helper or as a map's keys, the equality helper of every type
+// == or a map compares, each after those of the types it is made of,
+// the free helper of every type that owns and has one (list.tck), and
+// the helpers of every arena, pool and map.
 //
 // Go walks a type's parts by recursion, a frame a level, and a chain of
 // structs each holding the one before is as long as its source makes
@@ -80,12 +81,10 @@ func (mut g Gen) emit_types(mut t typeck.Typed) error {
             mut g.emit_equality_of(mut t, typ, mut emitted, mut frames, mut parts)?
         }
     }
-    // emitFrees writes a free helper for each type that owns, E3's: a
-    // list, a map, an arena or a pool, or a type holding one, each of
-    // which has a definition, E3's too, which emit_def has declined. A
-    // type parameter, which owns too, is no type C has. So nothing is
-    // left to free, and the walk, which asks Owned of every type, the
-    // depth of a chain of structs each time, is not made.
+    mut g.emit_frees(mut t)?
+    mut g.emit_arenas(mut t)?
+    mut g.emit_pools(mut t)?
+    mut g.emit_maps(mut t)?
     return noerror
 }
 
@@ -115,8 +114,8 @@ func (mut g Gen) has_def(mut t typeck.Typed, typ types.Type) (bool, error) {
 // append_parts appends to out the types a value of type typ is made of,
 // in order, Go's parts: an array's, a view's, a list's or a pool's
 // element type, a map's key and value types, a union's payloads' types,
-// or a struct's field types. An arena's parts hold the list of its
-// elements, which the table may add, E3's.
+// or a struct's field types, or an arena's list of its elements and its
+// element type.
 func append_parts(mut t typeck.Typed, typ types.Type, mut out list[types.Type]) error {
     arr := mut t.table.is_array(typ)?
     view := mut t.table.is_view(typ)?
@@ -134,7 +133,9 @@ func append_parts(mut t typeck.Typed, typ types.Type, mut out list[types.Type]) 
         return noerror
     }
     if mut t.table.is_arena(typ)? {
-        return not_ported
+        append(mut out, arena_list(mut t, typ)?)?
+        append(mut out, mut t.table.elem_of(typ)?)?
+        return noerror
     }
     if mut t.table.is_pool(typ)? {
         e := mut t.table.elem_of(typ)?
@@ -235,18 +236,27 @@ func (mut g Gen) enter_def(mut t typeck.Typed, typ types.Type, mut defined map[t
 }
 
 // emit_def defines the C struct of typ, whose parts are defined already,
-// Go's emitDef. A list's, a map's, an arena's and a pool's are E3's.
+// Go's emitDef.
 func (mut g Gen) emit_def(mut t typeck.Typed, typ types.Type) error {
     if mut t.table.is_view(typ)? {
         mut g.emit_view_def(mut t, typ)?
         return noerror
     }
-    lst := mut t.table.is_list(typ)?
-    mp := mut t.table.is_map(typ)?
-    is_arena := mut t.table.is_arena(typ)?
-    is_pool := mut t.table.is_pool(typ)?
-    if lst || mp || is_arena || is_pool {
-        return not_ported
+    if mut t.table.is_list(typ)? {
+        mut g.emit_list_def(mut t, typ)?
+        return noerror
+    }
+    if mut t.table.is_map(typ)? {
+        mut g.emit_map_def(mut t, typ)?
+        return noerror
+    }
+    if mut t.table.is_arena(typ)? {
+        mut g.emit_arena_def(mut t, typ)?
+        return noerror
+    }
+    if mut t.table.is_pool(typ)? {
+        mut g.emit_pool_def(mut t, typ)?
+        return noerror
     }
     if mut t.table.is_array(typ)? {
         mut g.emit_array_def(mut t, typ)?
@@ -274,13 +284,18 @@ func (mut g Gen) has_equality_helper(mut t typeck.Typed, typ types.Type) (bool, 
 
 // compared_types returns every type the lowered code compares through an
 // equality helper, and every such type they are made of, Go's
-// comparedTypes and markCompared. The walk's order shows nowhere: it
-// only fills a set.
+// comparedTypes and markCompared, with the key types of every map, whose
+// helpers compare keys (Go's keyTypes). The walk's order shows nowhere:
+// it only fills a set.
 func (mut g Gen) compared_types(mut t typeck.Typed) (map[types.Type]bool, error) {
     mut compared := make(map[types.Type]bool, c_allocator)
     mut stack := make(list[types.Type], c_allocator)
     for typ, _ := range g.equalities {
         append(mut stack, typ)?
+    }
+    maps := mut g.map_types(mut t)?
+    for _, mt := range maps {
+        append(mut stack, mut t.table.key_of(mt)?)?
     }
     mut parts := make(list[types.Type], c_allocator)
     for len(stack) > 0 {
@@ -309,10 +324,16 @@ func (mut g Gen) compared_types(mut t typeck.Typed) (map[types.Type]bool, error)
 }
 
 // compares_strings reports whether the lowered code compares two
-// strings, Go's comparesStrings: it compares them itself, or compares a
-// type among compared that holds a string. No map's keys are compared
-// in a program the port lowers.
+// strings, Go's comparesStrings: a map's keys are strings, it compares
+// them itself, or it compares a type among compared that holds a
+// string.
 func (mut g Gen) compares_strings(mut t typeck.Typed, compared map[types.Type]bool) (bool, error) {
+    maps := mut g.map_types(mut t)?
+    for _, mt := range maps {
+        if mut t.table.key_of(mt)? == types.string_type {
+            return true, noerror
+        }
+    }
     mut parts := make(list[types.Type], c_allocator)
     for typ, _ := range compared {
         for len(parts) > 0 {

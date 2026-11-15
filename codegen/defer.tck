@@ -1,0 +1,666 @@
+package codegen
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import text from "std/text"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// Defers and the cleanup chains, Go's defer.go, with gen.go's block,
+// generateBlock, generateLoopBody and generateRegion. A defer emits
+// nothing where it is written: each block that reaches defers, or
+// declares a local that owns, ends in its cleanup chain, its entries
+// last first, each lowered once. Falling off the block's end runs the
+// whole chain; a return, a break, a continue or a ? that leaves it jumps
+// into the chain with a C goto, at the label before the last entry it
+// reached, and, when it leaves further blocks with entries, stores the
+// number of its route in the frame's next variable, which each chain on
+// the way tests at its end (see Go's defer.go for the whole story).
+//
+// Go keeps a pointer to each block's deferScope; here a block is its
+// place in Gen.scopes, and the blocks an exit can see are those from
+// Gen.scope_base up: a deferred body is lowered with no enclosing block,
+// as Go's deferred sets g.scopes to nil, by moving the base past every
+// block there is, and back once it is done.
+
+// cleanup_defer is a Cleanup that is a defer, whose node is the defer.
+var cleanup_defer uint8 = 1
+
+// cleanup_free is a Cleanup that frees an owned local or own parameter,
+// Go's freeEntry, whose node is the variable or the parameter.
+var cleanup_free uint8 = 2
+
+// cleanup_pop is a Cleanup that ends a region, the C statement pop.
+var cleanup_pop uint8 = 3
+
+// Cleanup is one entry of a block's cleanup chain, Go's cleanup: a
+// defer, the free of an owned local or own parameter, which is lowered
+// as if a defer freeing it were written after its declaration, or the
+// C statement that pops a region, the first entry of its body's chain.
+// index is a parameter's place among its function's, which names it in
+// C when it is named _.
+type Cleanup struct {
+    kind uint8
+    node typeck.Key
+    param bool
+    index int64
+    pop list[uint8]
+}
+
+// Stop is one block on an exit's route, Go's stop: the block, by its
+// place in Gen.scopes, and how many of its entries the exit has reached.
+type Stop struct {
+    sc int64
+    entry int64
+}
+
+// new_scope returns the Scope of a block with nothing reached yet, loop
+// saying whether it is a loop's body.
+func new_scope(loop bool) Scope {
+    return Scope{
+        loop: loop,
+        label: make(list[uint8], c_allocator),
+        jumped: make(map[int64]bool, c_allocator),
+        routed: make(map[int64]bool, c_allocator),
+        entries: make(list[Cleanup], c_allocator),
+        routes: make(list[list[uint8]], c_allocator),
+    }
+}
+
+// add_entry appends c to the innermost block's chain.
+func (mut g Gen) add_entry(own c Cleanup) error {
+    top := len(g.scopes) -% 1
+    if top < g.scope_base {
+        return not_ported
+    }
+    append_entry(mut g.scopes, top, own c)?
+    return noerror
+}
+
+// append_entry appends c to the chain of the block i of scopes.
+func append_entry(mut scopes list[Scope], i int64, own c Cleanup) error {
+    if i < 0 || i >= len(scopes) {
+        return not_ported
+    }
+    append(mut scopes[i].entries, c)?
+    return noerror
+}
+
+// scope_enter is enter on scopes, the label prefix of a block that has
+// none named from labels, which it counts on.
+func scope_enter(mut scopes list[Scope], sc int64, entry int64, mut labels int64, mut out list[uint8]) error {
+    if sc < 0 || sc >= len(scopes) {
+        return not_ported
+    }
+    if len(scopes[sc].label) == 0 {
+        mut l := make(list[uint8], c_allocator)
+        fmt.appendf(mut l, "tack_defer%d", labels)?
+        labels +%= 1
+        scopes[sc].label = l
+    }
+    put(mut scopes[sc].jumped, entry, true)?
+    fmt.appendf(mut out, "%s_%d", scopes[sc].label[:], entry)?
+    return noerror
+}
+
+// append_label appends the label prefix of the block i of scopes.
+func append_label(scopes []Scope, i int64, mut out list[uint8]) error {
+    if i < 0 || i >= len(scopes) {
+        return noerror
+    }
+    append(mut out, scopes[i].label[:]...)?
+    return noerror
+}
+
+// scope_route records, in the block sc of scopes, the test at the end of
+// its chain that sends the route rid on with action, unless it has one,
+// next being the frame's next variable.
+func scope_route(mut scopes list[Scope], sc int64, rid int64, action []uint8, next []uint8) error {
+    if sc < 0 || sc >= len(scopes) || len(action) == 0 {
+        return noerror
+    }
+    _, done := scopes[sc].routed[rid]
+    if done {
+        return noerror
+    }
+    put(mut scopes[sc].routed, rid, true)?
+    mut r := make(list[uint8], c_allocator)
+    fmt.appendf(mut r, "if (%s == %d) %s", next, rid, action)?
+    append(mut scopes[sc].routes, r)?
+    return noerror
+}
+
+// entry_count returns how many entries the block i of scopes has.
+func entry_count(scopes []Scope, i int64) int64 {
+    if i < 0 || i >= len(scopes) {
+        return 0
+    }
+    return len(scopes[i].entries)
+}
+
+// route_count returns how many tests the block i of scopes ends in.
+func route_count(scopes []Scope, i int64) int64 {
+    if i < 0 || i >= len(scopes) {
+        return 0
+    }
+    return len(scopes[i].routes)
+}
+
+// is_loop reports whether the block i of scopes is a loop's body.
+func is_loop(scopes []Scope, i int64) bool {
+    if i < 0 || i >= len(scopes) {
+        return false
+    }
+    return scopes[i].loop
+}
+
+// jumped_to reports whether an exit jumps to the label before the entry
+// j of the block i of scopes.
+func jumped_to(scopes []Scope, i int64, j int64) bool {
+    if i < 0 || i >= len(scopes) {
+        return false
+    }
+    _, ok := scopes[i].jumped[j]
+    return ok
+}
+
+// entry_at returns what the entry j, from 0, of the block i of scopes
+// is, its kind, node, whether it is a parameter and its place, and
+// appends a pop's statement to pop.
+func entry_at(scopes []Scope, i int64, j int64, mut pop list[uint8]) (uint8, typeck.Key, bool, int64, error) {
+    if i < 0 || i >= len(scopes) || j < 0 || j >= len(scopes[i].entries) {
+        return 0, no_key(), false, 0, not_ported
+    }
+    append(mut pop, scopes[i].entries[j].pop[:]...)?
+    return scopes[i].entries[j].kind, scopes[i].entries[j].node, scopes[i].entries[j].param, scopes[i].entries[j].index, noerror
+}
+
+// append_routes appends the tests at the end of the chain of the block i
+// of scopes to lines, through g.
+func (mut g Gen) append_routes(i int64, mut lines list[Line]) error {
+    n := route_count(g.scopes[:], i)
+    for r := range n {
+        mut l := make(list[uint8], c_allocator)
+        route_text(g.scopes[:], i, r, mut l)?
+        mut g.add_line(mut lines, l[:])?
+    }
+    return noerror
+}
+
+// route_text appends the test r of the block i of scopes.
+func route_text(scopes []Scope, i int64, r int64, mut out list[uint8]) error {
+    if i < 0 || i >= len(scopes) || r < 0 || r >= len(scopes[i].routes) {
+        return noerror
+    }
+    append(mut out, scopes[i].routes[r][:]...)?
+    return noerror
+}
+
+// enter returns the label before the block sc's entry number entry,
+// counting from 1, which runs it and every entry before it, and records
+// it as jumped to, Go's enter. A block's labels are named when it first
+// needs one, from Gen.labels, apart from the temporaries.
+func (mut g Gen) enter(sc int64, entry int64) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    scope_enter(mut g.scopes, sc, entry, mut g.labels, mut out)?
+    return out, noerror
+}
+
+// route returns the number of the route through the chains labels names,
+// one label a stop, that ends in final, numbering it if it is new, Go's
+// deferFrame.route: the first stop is named by its block's label prefix,
+// so exits from different points of one block share a number.
+func (mut g Gen) route(first int64, labels []list[uint8], final []uint8) (int64, error) {
+    mut key := make(list[uint8], c_allocator)
+    append_label(g.scopes[:], first, mut key)?
+    append(mut key, ' ')?
+    for i, l := range labels {
+        if i == 0 {
+            continue
+        }
+        if i > 1 {
+            append(mut key, ' ')?
+        }
+        append(mut key, l[:]...)?
+    }
+    append(mut key, ' ')?
+    append(mut key, final...)?
+    k := text.from_bytes(key[:], c_allocator)?
+    known, ok := g.frame.routes[k]
+    if ok {
+        return known, noerror
+    }
+    n := len(g.frame.routes) +% 1
+    put(mut g.frame.routes, k, n)?
+    return n, noerror
+}
+
+// stops returns the route of an exit that leaves the innermost n blocks,
+// Go's stops: those of them with entries reached, innermost first.
+func (g Gen) stops(n int64) (list[Stop], error) {
+    mut out := make(list[Stop], c_allocator)
+    mut i := len(g.scopes) -% 1
+    for i >= len(g.scopes) -% n && i >= 0 {
+        k := entry_count(g.scopes[:], i)
+        if k > 0 {
+            append(mut out, Stop{sc: i, entry: k})?
+        }
+        i -%= 1
+    }
+    return out, noerror
+}
+
+// visible returns how many blocks an exit can see, Go's len(g.scopes).
+func (g Gen) visible() int64 {
+    return len(g.scopes) -% g.scope_base
+}
+
+// leave lowers an exit along route, which is not empty, final being the
+// C statement it ends with after the last chain, or empty when it falls
+// from that chain to where it is going, Go's leave.
+func (mut g Gen) leave(route []Stop, final []uint8, mut lines list[Line]) error {
+    mut labels := make(list[list[uint8]], c_allocator)
+    for _, st := range route {
+        l := mut g.enter(st.sc, st.entry)?
+        append(mut labels, l)?
+    }
+    if len(labels) == 0 {
+        return not_ported
+    }
+    mut l0 := make(list[uint8], c_allocator)
+    copy_name(labels[:], 0, mut l0)?
+    if len(route) == 1 && len(final) == 0 {
+        mut l := make(list[uint8], c_allocator)
+        fmt.appendf(mut l, "goto %s;", l0[:])?
+        mut g.add_line(mut lines, l[:])?
+        return noerror
+    }
+    next := mut g.next_var()?
+    mut first int64 = -1
+    for _, st := range route {
+        first = st.sc
+        break
+    }
+    rid := mut g.route(first, labels[:], final)?
+    for i, st := range route {
+        mut action := make(list[uint8], c_allocator)
+        if i +% 1 < len(labels) {
+            mut nl := make(list[uint8], c_allocator)
+            copy_name(labels[:], i +% 1, mut nl)?
+            fmt.appendf(mut action, "goto %s;", nl[:])?
+        } else {
+            append(mut action, final...)?
+        }
+        scope_route(mut g.scopes, st.sc, rid, action[:], next[:])?
+    }
+    mut a := make(list[uint8], c_allocator)
+    fmt.appendf(mut a, "%s = %d;", next[:], rid)?
+    mut g.add_line(mut lines, a[:])?
+    mut b := make(list[uint8], c_allocator)
+    fmt.appendf(mut b, "goto %s;", l0[:])?
+    mut g.add_line(mut lines, b[:])?
+    return noerror
+}
+
+// next_var returns the name of the frame's next variable, naming it on
+// its first use, Go's nextVar.
+func (mut g Gen) next_var() (list[uint8], error) {
+    if len(g.frame.next) == 0 {
+        g.frame.next = mut g.temp("next")?
+    }
+    mut out := make(list[uint8], c_allocator)
+    append(mut out, g.frame.next[:]...)?
+    return out, noerror
+}
+
+// deferred_return lowers a return that leaves blocks with entries to run,
+// along route, value its rendered value or empty for a bare return, Go's
+// deferredReturn: the value held in the frame's ret first, then the
+// route, which falls from the function body's chain to the frame's end,
+// where ret is returned.
+func (mut g Gen) deferred_return(value []uint8, route []Stop, mut lines list[Line]) error {
+    mut final := make(list[uint8], c_allocator)
+    append(mut final, []uint8("return;")...)?
+    if len(value) > 0 {
+        if len(g.frame.ret) == 0 {
+            g.frame.ret = mut g.temp("ret")?
+        }
+        mut l := make(list[uint8], c_allocator)
+        fmt.appendf(mut l, "%s = %s;", g.frame.ret[:], value)?
+        mut g.add_line(mut lines, l[:])?
+        final = make(list[uint8], c_allocator)
+        fmt.appendf(mut final, "return %s;", g.frame.ret[:])?
+    }
+    mut last int64 = -1
+    for _, st := range route {
+        last = st.sc
+    }
+    if last == g.scope_base {
+        final = make(list[uint8], c_allocator)
+    }
+    mut g.leave(route, final[:], mut lines)?
+    return noerror
+}
+
+// generate_jump lowers a break or a continue, jump being its C statement,
+// Go's generateJump: one that leaves blocks with entries to run, up to
+// and including the body of the innermost loop, takes the route through
+// their chains; a break clears the next variable as it leaves its loop.
+func (mut g Gen) generate_jump(jump []uint8) (list[Line], error) {
+    mut lines := make(list[Line], c_allocator)
+    mut body := g.scope_base
+    mut n := g.visible()
+    mut i := len(g.scopes) -% 1
+    for i >= g.scope_base && i >= 0 {
+        if is_loop(g.scopes[:], i) {
+            body = i
+            n = len(g.scopes) -% i
+            break
+        }
+        i -%= 1
+    }
+    route := g.stops(n)?
+    if len(route) == 0 {
+        mut g.add_line(mut lines, jump)?
+        return lines, noerror
+    }
+    mut final := make(list[uint8], c_allocator)
+    mut last int64 = -1
+    for _, st := range route {
+        last = st.sc
+    }
+    if bytes_equal(jump, []uint8("break;")) {
+        next := mut g.next_var()?
+        fmt.appendf(mut final, "{ %s = 0; break; }", next[:])?
+    } else if last != body {
+        append(mut final, jump...)?
+    }
+    mut g.leave(route[:], final[:], mut lines)?
+    return lines, noerror
+}
+
+// ends_in_jump reports whether the last statement of body, of fn's tree,
+// is a return, a break or a continue, so its end cannot be fallen into,
+// Go's endsInJump.
+func ends_in_jump(t typeck.Typed, unit int64, body ast.Nodes) bool {
+    n := node_count(t.prog.trees[:], unit, body)
+    if n == 0 {
+        return false
+    }
+    switch kind_of(t.prog.trees[:], node_at(t.prog.trees[:], unit, body, n -% 1)) {
+    case return_stmt:
+        return true
+    case break_stmt:
+        return true
+    case continue_stmt:
+        return true
+    default:
+    }
+    return false
+}
+
+// chain lowers the end of the block sc, Go's chain: the next variable
+// cleared when the chain has tests and its end can be fallen into, ends
+// saying it cannot, then its entries, last first, each after its label
+// if an exit jumps to it, then its tests.
+func (mut g Gen) chain(mut t typeck.Typed, fn typeck.Key, sc int64, ends bool, mut lines list[Line]) error {
+    if route_count(g.scopes[:], sc) > 0 && !ends {
+        mut l := make(list[uint8], c_allocator)
+        fmt.appendf(mut l, "%s = 0;", g.frame.next[:])?
+        mut g.add_line(mut lines, l[:])?
+    }
+    mut j := entry_count(g.scopes[:], sc)
+    for j >= 1 {
+        if jumped_to(g.scopes[:], sc, j) {
+            mut l := make(list[uint8], c_allocator)
+            append_label(g.scopes[:], sc, mut l)?
+            fmt.appendf(mut l, "_%d: ;", j)?
+            mut g.add_line(mut lines, l[:])?
+        }
+        mut pop := make(list[uint8], c_allocator)
+        kind, node, param, index := entry_at(g.scopes[:], sc, j -% 1, mut pop)?
+        if kind == cleanup_free {
+            mut g.lower_free(mut t, node, param, index, mut lines)?
+        } else if kind == cleanup_pop {
+            mut g.add_line(mut lines, pop[:])?
+        } else {
+            got := mut g.deferred(mut t, fn, node)?
+            append(mut lines, got[:]...)?
+        }
+        j -%= 1
+    }
+    mut g.append_routes(sc, mut lines)?
+    return noerror
+}
+
+// lower_free appends the statements that free what the variable or the
+// parameter node holds, Go's freeEntry.lower: a parameter named _ by its
+// place among its function's, any other by how it is read, a parameter
+// never mut, never captured.
+func (mut g Gen) lower_free(mut t typeck.Typed, node typeck.Key, param bool, index int64, mut lines list[Line]) error {
+    mut ref := make(list[uint8], c_allocator)
+    if param {
+        pa := param_at(t.prog.trees[:], node)
+        if is_blank(t.prog.trees[:], node.unit, pa.name) {
+            append_param_decl_name(t, node, index, mut ref)?
+        } else {
+            ref = mut g.param_ref(mut t, node)?
+        }
+    } else {
+        g.append_var_ref(t, node, mut ref)?
+    }
+    frees := mut g.frees(mut t, mut t.decl_type(node), ref[:])?
+    for _, f := range frees {
+        mut g.add_line(mut lines, f[:])?
+    }
+    return noerror
+}
+
+// add_defer records the defer d in the innermost block, whose chain
+// lowers it, Go's addDefer. One in a deferred body, which the checker
+// rejects, is reported instead.
+func (mut g Gen) add_defer(mut t typeck.Typed, d typeck.Key) error {
+    if g.deferring {
+        return mut g.fail([]uint8("cannot defer inside a defer"), span_of(t.prog.trees[:], d.unit, d.node))
+    }
+    mut g.add_entry(Cleanup{kind: cleanup_defer, node: d, param: false, index: 0, pop: make(list[uint8], c_allocator)})?
+    return noerror
+}
+
+// deferred lowers what the defer d defers, once, as a C block, Go's
+// deferred: with no enclosing blocks, so a break or a continue in it
+// finds the loop it is in, and a next variable of its own, declared with
+// the frame's temporaries, so the number an exit running it stored in
+// the frame's is still there once it is done.
+func (mut g Gen) deferred(mut t typeck.Typed, fn typeck.Key, d typeck.Key) (list[Line], error) {
+    mut body_nodes ast.Nodes
+    switch kind_of(t.prog.trees[:], d) {
+    case defer_stmt(ds):
+        body_nodes = ds.body
+    default:
+    }
+    outer_base := g.scope_base
+    outer_next := replace(mut g.frame.next, make(list[uint8], c_allocator))
+    g.scope_base = len(g.scopes)
+    g.deferring = true
+    body := mut g.block_first(mut t, fn, body_nodes, false, make(list[uint8], c_allocator))?
+    if len(g.frame.next) > 0 {
+        mut l := make(list[uint8], c_allocator)
+        fmt.appendf(mut l, "int %s = 0;", g.frame.next[:])?
+        dl := mut g.line(l[:])?
+        append(mut g.frame.temps, dl)?
+    }
+    g.scope_base = outer_base
+    g.deferring = false
+    g.frame.next = outer_next
+    mut out := make(list[Line], c_allocator)
+    mut g.add_line(mut out, []uint8("{"))?
+    append_indented(mut out, body[:])?
+    mut g.add_line(mut out, []uint8("}"))?
+    return out, noerror
+}
+
+// func_frame lowers the body of fn as its frame, Go's funcFrame: the
+// declarations of the temporaries its operands are held in, then, when
+// a return holds its value in ret, ret's declaration, and the next
+// variable's, then the body, ending, with ret, in its return. The body's
+// block frees fn's own parameters at its every exit (see block_first).
+func (mut g Gen) func_frame(mut t typeck.Typed, fn typeck.Key) (list[Line], error) {
+    mut fr := new_frame()
+    fr.fn = fn
+    fr.first = true
+    fill_mutated(mut t, fn, mut fr.mutated)?
+    fill_case_vars_read(t, fn, mut fr.read)?
+    g.frame = fr
+    g.has_frame = true
+    f := func_at(t.prog.trees[:], fn)
+    mut body := mut g.block(mut t, fn, f.body, false)?
+    g.has_frame = false
+    mut out := replace(mut g.frame.temps, make(list[Line], c_allocator))
+    if len(g.frame.ret) > 0 {
+        mut d := make(list[uint8], c_allocator)
+        mut g.append_result_type(mut t, fn, mut d)?
+        append(mut d, ' ')?
+        append(mut d, g.frame.ret[:]...)?
+        append(mut d, []uint8(" = ")...)?
+        mut g.append_result_zero(mut t, fn, mut d)?
+        append(mut d, ';')?
+        mut g.add_line(mut out, d[:])?
+        mut r := make(list[uint8], c_allocator)
+        fmt.appendf(mut r, "return %s;", g.frame.ret[:])?
+        mut g.add_line(mut body, r[:])?
+    }
+    if len(g.frame.next) > 0 {
+        mut d := make(list[uint8], c_allocator)
+        fmt.appendf(mut d, "int %s = 0;", g.frame.next[:])?
+        mut g.add_line(mut out, d[:])?
+    }
+    append(mut out, body[:]...)?
+    g.frame = new_frame()
+    return out, noerror
+}
+
+// append_result_zero appends a C zero value of fn's result type, to
+// start ret with, Go's resultZero: its results struct zeroed, a string
+// zeroed in full, which needs no pooled empty string, or its type's zero
+// value.
+func (mut g Gen) append_result_zero(mut t typeck.Typed, fn typeck.Key, mut out list[uint8]) error {
+    if mut t.result_len(fn) > 1 {
+        append(mut out, '(')?
+        mut g.append_results_name(mut t, fn, mut out)?
+        append(mut out, []uint8("){}")...)?
+        return noerror
+    }
+    typ := mut t.result(fn, 0)
+    if typ == types.string_type {
+        append(mut out, '(')?
+        append_c_type(mut t, typ, mut out)?
+        append(mut out, []uint8("){}")...)?
+        return noerror
+    }
+    mut g.append_zero_value(mut t, typ, mut out)?
+    return noerror
+}
+
+// block lowers the statements body of fn's tree in a scope of its own,
+// loop saying whether it is a loop's body, Go's block with no first
+// entry.
+func (mut g Gen) block(mut t typeck.Typed, fn typeck.Key, body ast.Nodes, loop bool) (list[Line], error) {
+    lines := mut g.block_first(mut t, fn, body, loop, make(list[uint8], c_allocator))?
+    return lines, noerror
+}
+
+// block_first lowers the statements body of fn's tree in a scope of its
+// own, Go's block: pop, when not empty, the chain's first entry, a
+// region's pop, which runs after every other; the first block of a
+// frame, its body, frees the function's own parameters that own; and
+// the block ends in its chain, when it has entries.
+func (mut g Gen) block_first(mut t typeck.Typed, fn typeck.Key, body ast.Nodes, loop bool, own pop list[uint8]) (list[Line], error) {
+    mut sc := new_scope(loop)
+    if len(pop) > 0 {
+        append(mut sc.entries, Cleanup{kind: cleanup_pop, node: no_key(), param: false, index: 0, pop: pop})?
+    }
+    append(mut g.scopes, sc)?
+    if g.has_frame && g.frame.first {
+        g.frame.first = false
+        mut g.add_param_frees(mut t)?
+    }
+    mut lines := make(list[Line], c_allocator)
+    n := node_count(t.prog.trees[:], fn.unit, body)
+    for i := range n {
+        s := node_at(t.prog.trees[:], fn.unit, body, i)
+        got := mut g.generate_stmt(mut t, fn, s)?
+        append(mut lines, got[:]...)?
+    }
+    top := len(g.scopes) -% 1
+    if entry_count(g.scopes[:], top) > 0 {
+        mut g.chain(mut t, fn, top, ends_in_jump(t, fn.unit, body), mut lines)?
+    }
+    pop(mut g.scopes)
+    return lines, noerror
+}
+
+// add_param_frees records, in the innermost block, the frame's body, a
+// free for each own parameter of the frame's function that holds an
+// owned value, in order, ahead of every statement, Go's addParamFrees.
+func (mut g Gen) add_param_frees(mut t typeck.Typed) error {
+    fn := g.frame.fn
+    f := func_at(t.prog.trees[:], fn)
+    n := node_count(t.prog.trees[:], fn.unit, f.params)
+    for i := range n {
+        p := node_at(t.prog.trees[:], fn.unit, f.params, i)
+        if param_at(t.prog.trees[:], p).is_own {
+            owned := mut g.owned(mut t, mut t.decl_type(p))?
+            if owned {
+                mut g.add_entry(Cleanup{kind: cleanup_free, node: p, param: true, index: i, pop: make(list[uint8], c_allocator)})?
+            }
+        }
+    }
+    return noerror
+}
+
+// add_frees records, in the innermost block, a free for the variable v
+// when it is not _ and holds an owned value, Go's addFrees of one.
+func (mut g Gen) add_frees(mut t typeck.Typed, v typeck.Key) error {
+    vr := var_at(t.prog.trees[:], v)
+    if is_blank(t.prog.trees[:], v.unit, vr.name) {
+        return noerror
+    }
+    owned := mut g.owned(mut t, mut t.decl_type(v))?
+    if owned {
+        mut g.add_entry(Cleanup{kind: cleanup_free, node: v, param: false, index: 0, pop: make(list[uint8], c_allocator)})?
+    }
+    return noerror
+}
+
+// generate_region lowers the region s of fn, Go's generateRegion: a C
+// block that opens the region, its allocator bound to a const local, a
+// temporary for one named _, then the body, a block whose chain starts
+// with the region's pop, which so runs after every other entry.
+func (mut g Gen) generate_region(mut t typeck.Typed, fn typeck.Key, s typeck.Key) (list[Line], error) {
+    mut r ast.Region
+    switch kind_of(t.prog.trees[:], s) {
+    case region_stmt(x):
+        r = x
+    default:
+    }
+    v := at(s, r.var_node)
+    vr := var_at(t.prog.trees[:], v)
+    mut name := make(list[uint8], c_allocator)
+    if is_blank(t.prog.trees[:], v.unit, vr.name) {
+        name = mut g.temp("region")?
+    } else {
+        append_var_name(t, v, mut name)?
+    }
+    mut pop := make(list[uint8], c_allocator)
+    fmt.appendf(mut pop, "tack_region_pop_(%s);", name[:])?
+    body := mut g.block_first(mut t, fn, r.body, false, own pop)?
+    mut lines := make(list[Line], c_allocator)
+    mut g.add_line(mut lines, []uint8("{"))?
+    mut push := make(list[uint8], c_allocator)
+    fmt.appendf(mut push, "    const tack_allocator %s = tack_region_push_();", name[:])?
+    mut g.add_line(mut lines, push[:])?
+    append_indented(mut lines, body[:])?
+    mut g.add_line(mut lines, []uint8("}"))?
+    return lines, noerror
+}
