@@ -489,7 +489,9 @@
 // a name was narrowed to, whether a switch is exhaustive, whether a
 // variable was unrolled and whether a name moves its variable's value,
 // Ident.Move; a call of a generic function with its type arguments and
-// its parameters' and results' types, a fields loop's fields(T) with
+// its parameters' and results' types, and a call of add, add_all or
+// insert with its results' types, the id, span or handle and an error,
+// which Go's checker records on it too, a fields loop's fields(T) with
 // what it ranges over, the type parameter its fields have, whether its
 // body reads their names and the fields it lists for each type, a
 // switch on a type parameter with how each value of each case matches,
@@ -844,14 +846,21 @@
 // query of the Table, each followed by the table's count, so the IDs of
 // the types they add, in order, which C names carry, are compared, with
 // the same from Go's Table, on every input of the corpus Go accepts with
-// instances of generic functions; TestBindDeep does the same on generic
-// functions making values of types nested in lists, maps and function
-// types nearly as deep as the parser allows, the port's stack held to
-// deepStack KB. TestHexFloats compares --port-floats, the C literal the
-// backend writes for a float constant, a hexadecimal float, with the Go
-// backend's floatLiteral, on float64s and float32s of every kind:
-// zeros, infinities, NaNs, subnormals, the extremes, powers of two over
-// every exponent, their neighbours and random bit patterns.
+// instances of generic functions, and on bindKinds, whose instances bind
+// type parameters to every kind a type argument can be, error and
+// Allocator among them. InAny, IsStruct, HasZero and Fields are asked of
+// what the type stands for, Bound's: Go's ask part of their question of
+// the type itself, so a type parameter bound to int64 takes no any, one
+// bound to error is no struct and has no fields, and one bound to
+// Allocator has a zero value, a Go bug the port does not copy, which no
+// program shows in what the backend writes; TestBindDeep does the same
+// on generic functions making values of types nested in lists, maps and
+// function types nearly as deep as the parser allows, the port's stack
+// held to deepStack KB. TestHexFloats compares --port-floats, the C
+// literal the backend writes for a float constant, a hexadecimal float,
+// with the Go backend's floatLiteral, on float64s and float32s of every
+// kind: zeros, infinities, NaNs, subnormals, the extremes, powers of two
+// over every exponent, their neighbours and random bit patterns.
 //
 // The header, H's, is checked the same way (see header_test.go).
 // TestHeaderRender compares --port-header, tack.h as the port's backend

@@ -727,3 +727,66 @@ func TestChainPerf(t *testing.T) {
 		})
 	}
 }
+
+// takePerfCount is how many checked forms each function of
+// TestTakePerf holds: enough that a check walking every binding made so
+// far for each one, quadratic in the count, shows against Go's.
+const takePerfCount = 40000
+
+// takePerfForms are the checked forms TestTakePerf repeats, by name:
+// what the function declares first, the form binding v%[1]d and ok%[1]d,
+// and the test of the ok before v%[1]d is read; the pops, removes and
+// deletes, of a list, a pool and a map, bind an ok that holds the value,
+// and the call of g an error that does.
+var takePerfForms = map[string]struct{ head, form, test string }{
+	"pop":         {"mut l := make(list[int64], c_allocator)\n", "v%[1]d, ok%[1]d := pop(mut l)\n", "ok%[1]d"},
+	"remove":      {"mut l := make(list[int64], c_allocator)\n", "v%[1]d, ok%[1]d := remove(mut l, 0)\n", "ok%[1]d"},
+	"delete":      {"mut l := make(map[int64]int64, c_allocator)\n", "v%[1]d, ok%[1]d := delete(mut l, %[1]d)\n", "ok%[1]d"},
+	"pool-remove": {"mut l := make(pool[int64], c_allocator)\n", "v%[1]d, ok%[1]d := remove(mut l, h)\n", "ok%[1]d"},
+	"error":       {"mut l := make(list[int64], c_allocator)\n", "v%[1]d, ok%[1]d := g()\n", "ok%[1]d.code == 0"},
+}
+
+// takePerfProgram returns the program of the form named name: a
+// function f of takePerfCount of its checked forms in one body, each
+// value read once its ok or error is tested, and a main holding, when
+// withError, TestCheckPerf's one error, so that --check stops before the
+// backend, and otherwise a call of f.
+func takePerfProgram(name string, withError bool) string {
+	fm := takePerfForms[name]
+	var b strings.Builder
+	b.WriteString("package main\n\nfunc g() (int64, error) {\n    return 1, noerror\n}\n\n")
+	b.WriteString("func f(h handle[int64]) int64 {\n    " + fm.head + "    mut s := 0\n")
+	for k := range takePerfCount {
+		fmt.Fprintf(&b, "    "+fm.form, k)
+		fmt.Fprintf(&b, "    if "+fm.test+" {\n        s +%%= v%[1]d\n    }\n", k)
+	}
+	b.WriteString("    drop(own l)\n    return s\n}\n\nfunc main() {\n")
+	if withError {
+		b.WriteString("    " + checkError)
+	} else {
+		b.WriteString("    mut p := make(pool[int64], c_allocator)\n    h, err := insert(mut p, 1)\n" +
+			"    if err.code == 0 && f(h) == 0 {\n        print(\"zero\\n\")\n    }\n    drop(own p)\n")
+	}
+	b.WriteString("}\n")
+	return b.String()
+}
+
+// TestTakePerf is the performance tripwire for a body of many checked
+// forms that bind a value beside an ok or an error holding it: for each
+// of takePerfForms, takePerfCount of them in one function, each value
+// read once its holder is tested, which the checker checks against the
+// ties every binding of the body made; a check that walked every tie for
+// each binding and each read took the port time quadratic in the count.
+// Each program's main has one error, so that --check stops before the
+// backend, and it fails as TestArithPerf does; TestEmitPerf's takes.tck
+// lowers the pops. It runs only as TestPort does, and is not parallel.
+func TestTakePerf(t *testing.T) {
+	ready(t)
+	for name := range takePerfForms {
+		t.Run(name, func(t *testing.T) {
+			file := name + ".tck"
+			checkPerfAgainstGo(t, t.TempDir(), file, takePerfProgram(name, true),
+				fmt.Sprintf("%s, %d checked forms", file, takePerfCount))
+		})
+	}
+}

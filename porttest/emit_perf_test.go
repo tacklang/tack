@@ -16,8 +16,9 @@ const emitPerfStrings = 20000
 // emitPerfPrograms are TestEmitPerf's generated programs, each one Go's
 // --emit lowers: TestCheckPerf's functions, which own, move, replace,
 // range, make regions and defer, with an empty main; TestGenericPerf's
-// program, its eight hundred instances and its closures; and a main
-// printing emitPerfStrings strings.
+// program, its eight hundred instances and its closures; TestTakePerf's
+// function of checked pops, called from main; and a main printing
+// emitPerfStrings strings.
 var emitPerfPrograms = map[string]func() string{
 	"owning.tck": func() string {
 		var b strings.Builder
@@ -29,6 +30,7 @@ var emitPerfPrograms = map[string]func() string{
 		return b.String()
 	},
 	"generic.tck": func() string { return genericPerfProgram(false) },
+	"takes.tck":   func() string { return takePerfProgram("pop", false) },
 	"strings.tck": func() string {
 		var b strings.Builder
 		b.WriteString("package main\n\nfunc main() {\n")

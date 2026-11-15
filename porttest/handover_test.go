@@ -49,12 +49,16 @@ func TestBind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	kinds, err := bindKindInputs(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	var compared atomic.Int64
 	t.Run("corpus", func(t *testing.T) {
 		for _, group := range []struct {
 			name string
 			ins  []input
-		}{{"single", singles}, {"packages", pkgs}} {
+		}{{"single", singles}, {"packages", pkgs}, {"kinds", kinds}} {
 			t.Run(group.name, func(t *testing.T) {
 				for _, in := range group.ins {
 					t.Run(in.name, func(t *testing.T) {
@@ -68,6 +72,75 @@ func TestBind(t *testing.T) {
 		}
 	})
 	t.Logf("%d inputs have instances and were compared", compared.Load())
+}
+
+// bindKinds are programs TestBind compares beside the corpus, whose
+// instances bind a type parameter to every kind of type a type argument
+// can be: error, Allocator, string, the integers, bool, the floats, a
+// struct, a union, an array and a list, and int64 through a view of T.
+// The corpus binds none to error or Allocator, so without them a port
+// whose IsStruct, Fields or HasZero asked the type itself before binding
+// it, as Go's do, would pass. An any cannot be a type argument.
+var bindKinds = map[string]string{
+	"kinds": `package main
+
+// Empty asks for no method, so any type argument satisfies it.
+type Empty interface {}
+
+// P is a struct.
+type P struct {
+    x int64
+}
+
+// U is a union.
+type U union {
+    a int64
+    b
+}
+
+// one returns 1 whatever x is.
+func one[T Empty](_ T) int64 {
+    return 1
+}
+
+// two returns 2 whatever x is, taking it as own.
+func two[T Empty](own x T) int64 {
+    drop(own x)
+    return 2
+}
+
+// three returns 3, its view of T read for its length.
+func three[T Empty](xs []T) int64 {
+    return 3 +% len(xs)
+}
+
+func main() {
+    arr := [2]int64{1, 2}
+    s := one(noerror) +% one(c_allocator) +% one("s") +% one(int64(1)) +% one(true) +% one(1.5) +% one(uint8(1)) +% one(P{x: 1}) +% one(U.b) +% one(arr) +% one(float32(1.5))
+    l := make(list[int64], c_allocator)
+    t := two(own l) +% three(arr[:])
+    if s +% t == 0 {
+        print("zero\n")
+    }
+}
+`,
+}
+
+// bindKindInputs writes each of bindKinds to a directory of its own
+// under dir and returns them as inputs, one main.tck each.
+func bindKindInputs(dir string) ([]input, error) {
+	var ins []input
+	for name, src := range bindKinds {
+		d := filepath.Join(dir, name)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(filepath.Join(d, "main.tck"), []byte(src), 0o600); err != nil {
+			return nil, err
+		}
+		ins = append(ins, input{name: name, dir: d, file: "main.tck"})
+	}
+	return ins, nil
 }
 
 // checkBind compares the port's --port-bind dump of in with bindDump's,
@@ -232,14 +305,27 @@ const queryCount = 31
 // numbered first on, in turn, wrapping, so each query is the first asked
 // about some types, the one that adds what a binding makes of them, and
 // one that adds a type out of Go's order shows.
+//
+// InAny, IsStruct, HasZero and Fields are asked of what typ stands for,
+// Bound(typ), rather than of typ: Go's ask part of their question of the
+// type itself before binding it, so a type parameter bound to int64 is
+// no type an any takes, one bound to error no struct, with no fields,
+// and one bound to Allocator has a zero value, which is Go's bug, not
+// the port's (see the port's types/query.tck). Every one of them binds
+// typ before it adds anything, so asking Bound first adds the same
+// types, in the same order.
 func writeQueries(b *strings.Builder, table *types.Table, typ types.Type, first int) {
+	bound := func(q func(types.Type) bool) func(types.Type) bool {
+		return func(typ types.Type) bool { return q(table.Bound(typ)) }
+	}
 	bools := []func(types.Type) bool{
 		table.IsFunc, table.IsUnion, table.IsTypeParam, table.IsArray, table.IsArena, table.IsID,
 		table.IsSpan, table.IsRef, table.IsPool, table.IsHandle, table.Buffered, table.IsList,
-		table.IsMap, table.IsView, table.InAny, table.IsStruct,
+		table.IsMap, table.IsView, bound(table.InAny), bound(table.IsStruct),
 	}
 	more := []func(types.Type) bool{
-		table.Owned, table.HasZero, table.HoldsList, table.HoldsArena, table.HoldsPool, table.HoldsUnion,
+		table.Owned, bound(table.HasZero), table.HoldsList, table.HoldsArena, table.HoldsPool,
+		table.HoldsUnion,
 	}
 	bit := func(v bool) string {
 		if v {
@@ -287,7 +373,7 @@ func writeQueries(b *strings.Builder, table *types.Table, typ types.Type, first 
 			}
 		default:
 			tag = "f"
-			for _, f := range table.Fields(typ) {
+			for _, f := range table.Fields(table.Bound(typ)) {
 				parts = append(parts, f.Type)
 			}
 		}

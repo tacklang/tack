@@ -644,6 +644,10 @@ func nodeEntry(n ast.Node) map[string]any {
 		if x.TypeArgs != nil {
 			e["type_args"] = typeList(x.TypeArgs)
 			e["param_types"] = typeList(x.ParamTypes)
+		}
+		// Apart from TypeArgs: a call to add, add_all or insert records
+		// its two results with no type arguments.
+		if x.ResultTypes != nil {
 			e["result_types"] = typeList(x.ResultTypes)
 		}
 	case *ast.Binary:
