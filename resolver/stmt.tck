@@ -88,7 +88,9 @@ func else_if(r Res, s ast.If) id[ast.Node] {
 }
 
 // unused reports every variable sc, the innermost scope, declared and
-// never read, unless it is excused, Go's unused.
+// never read, unless it is excused, Go's unused. Only sc's own
+// variables, the last of r.vars, are looked at, so closing a block costs
+// what it declared, not every variable in scope around it.
 func unused(mut r Res, sc Sc) error {
     mut start := len(r.vars)
     for start > 0 {
@@ -98,11 +100,8 @@ func unused(mut r Res, sc Sc) error {
         }
         start -%= 1
     }
-    for i := range len(r.vars) {
-        if i < start {
-            continue
-        }
-        v, ok := var_at(r.vars, i)
+    for i := range len(r.vars) -% start {
+        v, ok := var_at(r.vars, start +% i)
         if ok {
             unused_var(mut r, v.key)?
         }
