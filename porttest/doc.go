@@ -661,9 +661,11 @@
 // is required, and fails when it has such cases and none of them was
 // compared (see tallyVerdict), so none passes having compared what it
 // could. Their programs are valid ones, which every one needs E1 or a
-// later stage to lower, so until E1 is required they compare nothing
-// and pass: until then the depth of E0's and H's work, the header's
-// check before lowering, is guarded by TestHeaderDeep alone.
+// later stage to lower: with E1 required, those of the core's features
+// alone, the nests of blocks, loops and operators and the chains of
+// else ifs, statements, && and locals, are compared, and the rest skip
+// until their stages are; the depth of E0's and H's work, the header's
+// check before lowering, is guarded by TestHeaderDeep too.
 //
 // # Fuzzing
 //
