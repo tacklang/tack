@@ -1,0 +1,91 @@
+package main
+
+
+import text from "std/text"
+
+type Rec struct {
+    t text.Text
+    l list[int64]
+}
+
+func keep[T Data](own x T) T {
+    defer {
+        print("d\n")
+    }
+    return x
+}
+
+func kept[T Data](own x T) (T, int64) {
+    if true {
+        defer {
+            print("d2\n")
+        }
+        return x, 1
+    }
+    return x, 2
+}
+
+func main() {
+    t, e := text.from_bytes([]uint8("hi"), c_allocator)
+    if e.code == 0 {
+        u := keep(own t)
+        pn(len(u.bytes()))
+        r := Rec{t: u, l: make(list[int64], c_allocator)}
+        r2, n := kept(own r)
+        pn(len(r2.t.bytes()))
+        pn(n)
+    }
+    b := keep(true)
+    if b {
+        print("b\n")
+    }
+}
+
+func digit(d int64) string {
+    switch d {
+    case 0:
+        return "0"
+    case 1:
+        return "1"
+    case 2:
+        return "2"
+    case 3:
+        return "3"
+    case 4:
+        return "4"
+    case 5:
+        return "5"
+    case 6:
+        return "6"
+    case 7:
+        return "7"
+    case 8:
+        return "8"
+    default:
+        return "9"
+    }
+}
+
+func pdigits(n int64) {
+    if n >= 10 {
+        pdigits(n / 10)
+    }
+    r, ok := n % 10
+    if ok {
+        print(digit(r))
+    }
+}
+
+func pn(n int64) {
+    if n < 0 {
+        print("-")
+        if n == -9223372036854775807 - 1 {
+            print("9223372036854775808\n")
+            return
+        }
+        pdigits(-%n)
+    } else {
+        pdigits(n)
+    }
+    print("\n")
+}

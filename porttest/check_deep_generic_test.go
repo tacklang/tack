@@ -194,9 +194,10 @@ func TestCheckDeepGeneric(t *testing.T) {
 			for _, port := range []string{env.portRun, env.portPairs} {
 				if sh.clean {
 					if sh.typesDepth > 0 {
-						// The clean nest's --check is the backend's; only the
-						// stack of the whole nest is checked.
-						runStackOnly(t, in, port)
+						// The clean nest's --check runs the backend on the
+						// whole nest, whose output is compared; its types are
+						// compared on the shallower twin.
+						runCaseWith(t, *st, in, port)
 					}
 					compared, _, phase := checkTypes(t, types, port, true)
 					if !compared || phase != "bodies" {
@@ -244,18 +245,4 @@ func genericSource(a, b genericRoute, variant string, limit int) string {
 	}
 	body := genericNest(a, b, limit, inner)
 	return genericProgram(body, variant == "clean")
-}
-
-// runStackOnly runs the port on in, a program Go accepts, under --check
-// --max-errors 0, with its stack held as port's wrapper holds it, and
-// fails unless it checks the whole program and then answers that the
-// backend, which decides the rest, is not implemented: a port that runs
-// out of stack checking it fails here.
-func runStackOnly(t *testing.T, in input, port string) {
-	t.Helper()
-	res := runCompiler(t, port, env.portCache, in, []string{"--check", "--max-errors", "0", in.file})
-	if !res.notImplemented() {
-		t.Errorf("the port exited %d on %s, where it checks the program and declines the backend:\n%s",
-			res.code, in.file, res.stderr)
-	}
 }

@@ -1,0 +1,119 @@
+package main
+
+
+import text from "std/text"
+
+func each(v []int64, scope f func(int64)) {
+    for _, x := range v {
+        f(x)
+    }
+}
+
+func call(scope f func()) {
+    f()
+}
+
+func twice(scope f func() int64) int64 {
+    return f() +% f()
+}
+
+func pass(scope f func() int64) int64 {
+    return twice(f)
+}
+
+type Box struct {
+    l list[int64]
+    n int64
+}
+
+func main() {
+    mut l := make(list[int64], c_allocator)
+    mut b := Box{l: make(list[int64], c_allocator), n: 0}
+    t, te := text.from_bytes([]uint8("hey"), c_allocator)
+    if te.code != 0 {
+        return
+    }
+    a := [3]int64{1, 2, 3}
+    each(a, func(x int64) {
+        e := append(mut l, x)
+        if e.code != 0 {
+            return
+        }
+        e2 := append(mut b.l, x *% 2)
+        if e2.code != 0 {
+            return
+        }
+        b.n +%= x
+        call(func() {
+            b.n +%= len(t.bytes())
+            call(func() {
+                b.n +%= 1
+            })
+        })
+    })
+    pn(len(l))
+    pn(b.n)
+    n := pass(func() int64 {
+        return len(l) +% b.n
+    })
+    pn(n)
+    for i := range 3 {
+        call(func() {
+            pn(i)
+        })
+    }
+    k := 5
+    r := twice(func() int64 {
+        return k
+    })
+    pn(r)
+}
+
+func digit(d int64) string {
+    switch d {
+    case 0:
+        return "0"
+    case 1:
+        return "1"
+    case 2:
+        return "2"
+    case 3:
+        return "3"
+    case 4:
+        return "4"
+    case 5:
+        return "5"
+    case 6:
+        return "6"
+    case 7:
+        return "7"
+    case 8:
+        return "8"
+    default:
+        return "9"
+    }
+}
+
+func pdigits(n int64) {
+    if n >= 10 {
+        pdigits(n / 10)
+    }
+    r, ok := n % 10
+    if ok {
+        print(digit(r))
+    }
+}
+
+func pn(n int64) {
+    if n < 0 {
+        print("-")
+        if n == -9223372036854775807 - 1 {
+            print("9223372036854775808\n")
+            return
+        }
+        pdigits(-%n)
+    } else {
+        pdigits(n)
+    }
+    print("\n")
+}

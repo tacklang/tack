@@ -24,6 +24,8 @@ check-arith
 check-loops
 check-own
 check-generic
+check-backend
+check-clean
 types-bodies
 probes
 emit-E0
@@ -31,3 +33,4 @@ emit-H
 emit-E1
 emit-E2
 emit-E3
+emit-E4

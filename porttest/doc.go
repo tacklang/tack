@@ -645,19 +645,29 @@
 // TestEmitDeep runs --emit, compared as emit-single compares its cases,
 // on programs Go's backend lowers nested as deeply as the parser
 // allows, in every statement that holds a block, regions, closures,
-// parenthesized, negated and array literal expressions and list and
-// array types, and on chains a hundred thousand links long, else ifs,
+// closures each writing a capture of the one around it, fields loops
+// and switches on type parameters in an instance, calls through a
+// function value, parenthesized, negated and array literal expressions,
+// list and array types and a generic function's list type argument,
+// whose instances instantiate one another down it, and on chains a hundred thousand links long, else ifs,
 // statements, && chains and locals, the port's stack held to deepStack
 // KB at the -O3 it is built at. TestEmitTypeChains runs chains of
 // structs each holding the one before by value, plain, owning a list,
-// compared, a map's key and an extern func's parameter, under --emit and
+// compared, a map's key, an extern func's parameter, a fields loop's
+// instance for each, each instantiating the next's, and make of the
+// outermost, under --emit and
 // the last under --emit-header too, typeChainLength links long: Go's
 // backend takes time quadratic in such a chain, so TestEmitDeepPortOnly
 // runs them a hundred thousand links long on the port alone, at
 // deepStack KB against bigStack KB, as TestCheckDeepPortOnly does, a
 // decline judged by the shorter twin's stages. TestEmitDeepPairs runs
 // every program of TestCheckDeepPairs and TestCheckDeepStmts that Go
-// accepts, at deepStack KB and at pairStack KB. Each skips a case the
+// accepts, with the bool family's routes paired too with emitPairRoutes,
+// nested closures capturing through each other and a closure passed to
+// a generic function, each program whole and pruned of what it never
+// uses, at deepStack KB and at pairStack KB. TestEmitProbes runs --emit
+// on the programs of testdata/emit-probes, written against the port of
+// generics and functions, at deepStack KB. Each skips a case the
 // port declines as emit-single does, failing one whose every emit stage
 // is required, and fails when it has such cases and none of them was
 // compared (see tallyVerdict), so none passes having compared what it

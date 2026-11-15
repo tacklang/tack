@@ -1,0 +1,159 @@
+package main
+
+
+
+func double(x int64) int64 {
+    return x *% 2
+}
+
+func divmod(a int64, b int64) (int64, int64) {
+    if b == 0 {
+        return 0, 0
+    }
+    q, okq := a / b
+    r, okr := a % b
+    if !okq || !okr {
+        return 0, 0
+    }
+    return q, r
+}
+
+func fallible(x int64) (int64, error) {
+    if x < 0 {
+        return 0, error{code: 3, msg: "neg"}
+    }
+    return x, noerror
+}
+
+func errs(x int64) error {
+    if x == 9 {
+        return error{code: 9, msg: "nine"}
+    }
+    return noerror
+}
+
+type Pair struct {
+    a int64
+    b int64
+}
+
+func (p Pair) sum() int64 {
+    return p.a +% p.b
+}
+
+func (mut p Pair) bump(by int64) {
+    p.a +%= by
+}
+
+type Ops struct {
+    f func(int64) int64
+    g func(int64, int64) (int64, int64)
+    h func(Pair) int64
+}
+
+func each(v []int64, scope f func(int64) int64) int64 {
+    mut t := 0
+    for _, x := range v {
+        t +%= f(x)
+    }
+    return t
+}
+
+func apply2(scope f func(int64, int64) (int64, int64), a int64, b int64) int64 {
+    q, r := f(a, b)
+    return q +% r
+}
+
+func bumper(scope f func(mut Pair, int64), mut p Pair) {
+    f(mut p, 3)
+}
+
+func run() error {
+    o := Ops{f: double, g: divmod, h: Pair.sum}
+    og := o.g
+    q, r := og(17, 5)
+    pn(q)
+    pn(r)
+    gf := o.g
+    q2, r2 := gf(9, 2)
+    pn(q2 +% r2)
+    hf := o.h
+    pn(hf(Pair{a: 1, b: 2}))
+    mut fs := make(list[func(int64) int64], c_allocator)
+    append(mut fs, double)?
+    append(mut fs, o.f)?
+    for _, f := range fs {
+        pn(f(4))
+    }
+    fl := fallible
+    v := fl(5)?
+    pn(v)
+    ef := errs
+    ef(3)?
+    a := [3]int64{1, 2, 3}
+    pn(each(a, double))
+    pn(each(a, o.f))
+    pn(apply2(divmod, 7, 3))
+    pn(apply2(gf, 8, 3))
+    mut p := Pair{a: 1, b: 1}
+    bumper(Pair.bump, mut p)
+    pn(p.a)
+    bf := Pair.bump
+    bf(mut p, 10)
+    pn(p.a)
+    return noerror
+}
+
+func main() {
+    e := run()
+    pn(e.code)
+}
+
+func digit(d int64) string {
+    switch d {
+    case 0:
+        return "0"
+    case 1:
+        return "1"
+    case 2:
+        return "2"
+    case 3:
+        return "3"
+    case 4:
+        return "4"
+    case 5:
+        return "5"
+    case 6:
+        return "6"
+    case 7:
+        return "7"
+    case 8:
+        return "8"
+    default:
+        return "9"
+    }
+}
+
+func pdigits(n int64) {
+    if n >= 10 {
+        pdigits(n / 10)
+    }
+    r, ok := n % 10
+    if ok {
+        print(digit(r))
+    }
+}
+
+func pn(n int64) {
+    if n < 0 {
+        print("-")
+        if n == -9223372036854775807 - 1 {
+            print("9223372036854775808\n")
+            return
+        }
+        pdigits(-%n)
+    } else {
+        pdigits(n)
+    }
+    print("\n")
+}

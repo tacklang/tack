@@ -24,8 +24,10 @@ func emitMain(prelude, body string) string {
 // Go's --emit lowers: blocks of the statements that hold one, with a
 // condition the backend cannot fold, expressions the backend recurses
 // into a level at a time, regions, closures passed to a scope
-// parameter, each three of the parser's levels, and types nested in a
-// parameter's.
+// parameter, each three of the parser's levels, closures each writing a
+// capture of the one around it, fields loops and switches on type
+// parameters in an instance, calls through a function value, types
+// nested in a parameter's, and in a generic function's type argument.
 var emitNests = map[string]func(n int) string{
 	"ifs": func(n int) string {
 		return emitMain("", "b := len(\"a\") == 1\n"+rep("if b {\n", n)+emitLeaf+rep("}\n", n))
@@ -72,6 +74,52 @@ var emitNests = map[string]func(n int) string{
 			"\nif x"+rep("[0]", n/2)+" == 2 {\n"+emitLeaf+"}\n")
 	},
 	"listtypes": func(n int) string { return emitMain("func use(own l "+listType(n)+") {\n}\n\n", "") },
+	// Closures nested n/3 deep, each writing w, main's local, which
+	// each reaches through the pointer the closure around it holds.
+	"captures": func(n int) string {
+		return emitMain("func each(scope f func()) {\n    f()\n}\n\n",
+			"mut w := 0\n"+rep("each(func() {\nw +%= 1\n", n/3)+"if w > 0 {\n"+emitLeaf+"}\n"+rep("})\n", n/3))
+	},
+	// Fields loops nested in an instance, each unrolled once, a block a
+	// level, each with its type parameter bound to the field's type.
+	"fields": func(n int) string {
+		var b strings.Builder
+		b.WriteString("package main\n\ntype P struct {\n    v int64\n}\n\nfunc h[T Data](v T) {\n")
+		for i := range n - 4 {
+			fmt.Fprintf(&b, "for f%d := range fields(T) {\n", i)
+		}
+		b.WriteString(emitLeaf + rep("}\n", n-4) + "}\n\nfunc main() {\n    h(P{v: 1})\n}\n")
+		return b.String()
+	},
+	// Switches on type parameters nested in an instance, each declaring
+	// the element type of the list its type parameter stands for, which
+	// the next switches on, two levels each.
+	"param-switches": func(n int) string {
+		m := (n - 8) / 2
+		var b strings.Builder
+		b.WriteString("package main\n\nfunc h[T Data](v T) {\nswitch T {\ncase list[E0]:\n")
+		for i := range m - 1 {
+			fmt.Fprintf(&b, "switch E%d {\ncase list[E%d]:\n", i, i+1)
+		}
+		b.WriteString(emitLeaf + rep("default:\n}\n", m))
+		b.WriteString("}\n\nfunc main() {\n    l := make(" + listType(m) + ", c_allocator)\n    h(l)\n}\n")
+		return b.String()
+	},
+	// Calls through a function value, each the argument of the next.
+	"values": func(n int) string {
+		return emitMain("func fi(x int64) int64 {\n    return x\n}\n\n",
+			"f := fi\nx := "+rep("f(", n)+"len(\"a\")"+rep(")", n)+"\nif x == 2 {\n"+emitLeaf+"}\n")
+	},
+	// A generic function called with a list nested n-6 deep, whose
+	// instance calls the instance for its element type, and so on down:
+	// type arguments as deep as the parser lets a type nest, in a chain
+	// of instances each instantiating the next.
+	"generic-listtypes": func(n int) string {
+		return "package main\n\nfunc gx[V Data](x V) int64 {\n    switch V {\n    case list[E]:\n" +
+			"        mut n := 0\n        for _, e := range x {\n            n +%= gx(e)\n        }\n" +
+			"        return n\n    default:\n        return 1\n    }\n}\n\nfunc use(own l " + listType(n-6) +
+			") int64 {\n    return gx(l)\n}\n\nfunc main() {\n}\n"
+	},
 	"arraytypes": func(n int) string {
 		return emitMain("func use(l "+rep("[1]", n)+"int64) {\n}\n\n", "")
 	},
@@ -129,6 +177,18 @@ var typeChains = map[string]func(n int) string{
 	},
 	"keyed":  func(n int) string { return structChain(n, "v int64", "func k(own m map[S%d]int64) {\n}\n") },
 	"header": func(n int) string { return structChain(n, "v int64", "extern(\"f\") func f(x S%d)\n") },
+	// A fields loop's instance for each struct of the chain, each
+	// instantiating the next's for its one field.
+	"fields": func(n int) string {
+		return structChain(n, "v int64", "func deep[T Data](v T) int64 {\n    mut n := 0\n"+
+			"    for f := range fields(T) {\n        n = n +% 1 +% deep(v.[f])\n    }\n    return n\n}\n\n"+
+			"func use(x S%d) int64 {\n    return deep(x)\n}\n")
+	},
+	// make of the outermost struct, whose empty value nests a compound
+	// literal a link, down to the list the first holds.
+	"made": func(n int) string {
+		return structChain(n, "l list[int64]", "func use(scope alloc Allocator) S%[1]d {\n    return make(S%[1]d, alloc)\n}\n")
+	},
 }
 
 // structChain returns a program of the structs S0, whose one field is
@@ -315,20 +375,53 @@ func TestEmitTypeChains(t *testing.T) {
 	})
 }
 
+// emitPairRoutes are routes of the bool family of nestFamilies that
+// only TestEmitDeepPairs nests, each with itself and with every route of
+// the family, both ways round: a closure holding one that captures a
+// local of the outer closure's and a parameter of h through both, so
+// that each level's inner closure reaches h's variable through the
+// pointers every closure around it holds; and a closure passed to a
+// scope parameter of a generic function, whose instance calls it.
+// emitPairDecls declares what they call.
+var emitPairRoutes = map[string]nestRoute{
+	"capture-closure": {
+		"sc(func() (bool, error) {\nk$ := t.n\nreturn sc(func() (bool, error) {\nreturn k$ >= t.n && %s, noerror\n})\n})?",
+		6,
+	},
+	"generic-closure": {"gsc(t.n, func() (bool, error) {\nreturn %s, noerror\n})?", 3},
+}
+
+// emitPairDecls is what emitPairRoutes call beside what the bool family
+// declares: gsc, a generic function taking a scope function it calls.
+const emitPairDecls = "func gsc[V Data](own x V, scope f func() (bool, error)) (bool, error) {\n" +
+	"    return f()\n}\n\n"
+
 // TestEmitDeepPairs runs --emit, compared as emit-single compares its
 // cases, on every program in which TestCheckDeepPairs nests a pair of
-// the routes of nestFamilies and Go accepts, and every one in which
-// TestCheckDeepStmts nests a pair of statements, or a statement around a
-// value, and Go accepts, each as deeply as those tests nest it, the
-// port's stack held to deepStack KB and again to pairStack KB: every
-// level of every construct must cost the port's backend less than
-// pairStack KB over the nesting limit. Each program is pruned of what it
-// declares and never uses (see pruneEmit), so a pair needs only the
-// backend stages its routes use. It runs only as TestPort does.
+// the routes of nestFamilies and Go accepts, every one in which it
+// would nest a pair of the bool family's routes one of which is of
+// emitPairRoutes, and every one in which TestCheckDeepStmts nests a
+// pair of statements, or a statement around a value, and Go accepts,
+// each as deeply as those tests nest it, the port's stack held to
+// deepStack KB and again to pairStack KB: every level of every construct
+// must cost the port's backend less than pairStack KB over the nesting
+// limit. Each program runs twice: whole, with the generic functions and
+// the functions taking scope functions every family declares, which the
+// backend lowers whether or not the routes call them, so that the
+// stack's routes through instances and closures are covered at both
+// stacks; and pruned of what it declares and never uses (see pruneEmit),
+// which needs only the backend stages its routes use. It runs only as
+// TestPort does.
+//
+//nolint:cyclop // a nest of loops over the families and their routes, read straight down
 func TestEmitDeepPairs(t *testing.T) {
 	ready(t)
 	srcs := map[string]string{}
-	for _, fam := range nestFamilies {
+	add := func(name, src, params, args string) {
+		srcs[name+".tck"] = pruneEmit(src, params, args)
+		srcs[name+"-whole.tck"] = src
+	}
+	for i, fam := range nestFamilies {
 		pf := pairFamily{
 			decls:  fam.decls,
 			leaf:   fam.leaf,
@@ -336,19 +429,39 @@ func TestEmitDeepPairs(t *testing.T) {
 			args:   fam.args,
 			owned:  fam.owned,
 		}
-		for an, a := range fam.routes {
-			for bn, b := range fam.routes {
+		routes := fam.routes
+		if i == 0 {
+			pf.decls += emitPairDecls
+			routes = make(map[string]nestRoute, len(fam.routes)+len(emitPairRoutes))
+			for n, r := range fam.routes {
+				routes[n] = r
+			}
+			for n, r := range emitPairRoutes {
+				routes[n] = r
+			}
+		}
+		for an, a := range routes {
+			for bn, b := range routes {
 				if a.level == 0 && b.level == 0 ||
 					reportingRoutes[an] || reportingRoutes[bn] || reportingPairs[[2]string{an, bn}] {
 					continue
 				}
+				_, newA := emitPairRoutes[an]
+				_, newB := emitPairRoutes[bn]
 				src := pairProgram(pf, an, bn, a, b, fam.leaf, true)
-				srcs[an+"-"+bn+".tck"] = pruneEmit(src, fam.params, fam.args)
+				if i == 0 && !newA && !newB {
+					// The bool family's own pairs are the programs
+					// TestCheckDeepPairs checks, without gsc.
+					src = pairProgram(pairFamily{
+						decls: fam.decls, leaf: fam.leaf, params: fam.params, args: fam.args, owned: fam.owned,
+					}, an, bn, a, b, fam.leaf, true)
+				}
+				add(an+"-"+bn, src, fam.params, fam.args)
 			}
 		}
 	}
 	for name, body := range emitStmtNests() {
-		srcs[name+".tck"] = pruneEmit(stmtProgram(body, true), nestFamilies[0].params, nestFamilies[0].args)
+		add(name, stmtProgram(body, true), nestFamilies[0].params, nestFamilies[0].args)
 	}
 	runEmitDeep(t, emitSingleStage, srcs, env.portRun, env.portPairs)
 }

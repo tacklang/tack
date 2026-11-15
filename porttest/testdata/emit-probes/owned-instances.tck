@@ -1,0 +1,20 @@
+package main
+
+// Instances of one generic function whose own parameter, of a type
+// parameter's type, owns in one and not in the other, met in both
+// orders: each frees its parameter only where its type argument owns,
+// so what a lowering found the type parameter to own under one binding
+// must not answer for it under the next.
+
+func drop_it[T Data](own x T) {
+}
+
+func drop_too[T Data](own x T) {
+}
+
+func main() {
+    drop_it(1)
+    drop_it(make(list[int64], c_allocator))
+    drop_too(make(list[int64], c_allocator))
+    drop_too(2)
+}
