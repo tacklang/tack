@@ -103,5 +103,6 @@ pub func generate(mut t typeck.Typed, set builtin.Set) (list[uint8], list[diag.D
     if len(hd) > 0 {
         return out, hd, noerror
     }
-    return out, diags, not_ported
+    c, ld, le := lower(mut t, set)
+    return c, ld, le
 }

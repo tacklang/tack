@@ -47,7 +47,17 @@ being lowered; of the C backend, the header, `tack.h`, with the names
 it may not give: a program whose types, fields or extern funcs `tack.h`
 could not name is rejected as the Go compiler rejects it, before
 anything is lowered, and the header is rendered as Go's backend renders
-it; the lowering itself is not ported yet. `types` has the
+it. The lowering is ported in stages, as tackc's porttest stages its
+cases: the core, E1, is here, a program of scalars, strings, globals,
+functions, mut parameters, every loop and if, the operators, floats,
+conversions that cannot fail, extern funcs, print and exit lowered to
+the C the Go compiler writes, byte for byte, with every temporary and
+pooled string numbered as Go numbers them; what a later stage lowers,
+structs, arrays, unions, switches, slices, views, any, division and
+shifts, several values, lists, maps, arenas, pools, defers, ?, regions,
+generics, closures and function values, is answered as not implemented
+where the Go compiler would start lowering it, before anything is
+written (see package codegen). `types` has the
 bindings the backend lowers a generic function's instances under, Go's
 `Bind` and `Bound` among them, which add the types they make in Go's
 order, since C names carry type IDs, with a twin of every query of the
@@ -76,9 +86,13 @@ stage the port does not implement yet. A file or directory whose
 reading fails with an error the port cannot word exactly as the Go
 compiler would is answered the same way (see package loader). `--emit`
 and `--emit-header`, with `--check` or without, run every stage before
-the backend as the Go compiler does and report their diagnostics, and
-are answered so where the Go compiler starts lowering, past its check
-of `tack.h`'s names. `--check` of `std/builtin` or its `builtin.tck`
+the backend as the Go compiler does and report their diagnostics, then
+lower the program: `--emit` writes its C, `--emit-header` writes
+`tack.h` into the directories of the packages that need one, as the Go
+compiler's writeHeaders does, and `--check` alone shows what the
+backend reports, with the warnings; each is answered as not
+implemented for a program the backend's port does not lower yet, and
+`--emit-header` for a `tack.h` it cannot write. `--check` of `std/builtin` or its `builtin.tck`
 compares the copy with the compiler's own, as the Go compiler does. The flags
 `-O0` to `-Oz` and `--backend` are read, and their usage errors
 written, as the Go compiler writes them.

@@ -1,0 +1,403 @@
+package codegen
+
+import ast from "tack/ast"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// The walks of the program and of a body that the core asks, Go's gen.go
+// usesFloats, usesType, hasType, narrowsFloats, narrowing and the walk of
+// divisions, order.go's mutated, and switch.go's caseVarsRead. Each is
+// Go's ast.Walk from a stack of its own (see push_children), visiting a
+// node before the nodes it holds, since a program nests as deeply as its
+// source and chains, of operators among them, run as long as it makes
+// them.
+
+// walk_program pushes the declarations of the tree unit of t's program on
+// stack, last first, so a walk takes them in order, as Go's walk of
+// prog.Files() does.
+func walk_program(t typeck.Typed, unit int64, mut stack list[typeck.Key]) error {
+    if unit < 0 || unit >= len(t.prog.trees) {
+        return noerror
+    }
+    push_decls(t.prog.trees[unit].decls[:], unit, mut stack)?
+    return noerror
+}
+
+// push_decls pushes decls, the declarations of the tree unit, on stack,
+// last first.
+func push_decls(decls []id[ast.Node], unit int64, mut stack list[typeck.Key]) error {
+    mut i := len(decls)
+    for i > 0 {
+        i -%= 1
+        n, ok := decls[i]
+        if ok {
+            append(mut stack, typeck.Key{unit: unit, node: n})?
+        }
+    }
+    return noerror
+}
+
+// uses_floats reports whether the program has anything of a float type,
+// Go's usesFloats.
+func (mut g Gen) uses_floats(mut t typeck.Typed) (bool, error) {
+    f32 := mut g.uses_type(mut t, types.float32_type)?
+    if f32 {
+        return true, noerror
+    }
+    f64 := mut g.uses_type(mut t, types.float64_type)?
+    return f64, noerror
+}
+
+// uses_type reports whether the program has anything of the basic type
+// typ, Go's usesType: a part of a type the table added, or a function's
+// result, a parameter, a variable or an expression of it.
+func (mut g Gen) uses_type(mut t typeck.Typed, typ types.Type) (bool, error) {
+    count := mut t.table.count()
+    for i := range count {
+        found := mut g.has_part(mut t, types.added(i), typ)?
+        if found {
+            return true, noerror
+        }
+    }
+    mut stack := make(list[typeck.Key], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for u := range len(t.prog.trees) {
+        walk_program(t, u, mut stack)?
+        for len(stack) > 0 {
+            k, has := pop(mut stack)
+            if !has {
+                break
+            }
+            if has_type(mut t, k, typ) {
+                return true, noerror
+            }
+            push_children(t.prog.trees[:], k, mut kids, mut stack)?
+        }
+    }
+    return false, noerror
+}
+
+// has_part reports whether typ is among the parts of the type of, Go's
+// slices.Contains(g.parts(of), typ): an array's, a view's, a list's or a
+// pool's element, a map's key and value, or a struct's fields. An
+// arena's parts, whose list the table may add, and a union's payloads
+// are the later stages' (see doc.tck).
+func (mut g Gen) has_part(mut t typeck.Typed, of types.Type, typ types.Type) (bool, error) {
+    arr := mut t.table.is_array(of)?
+    view := mut t.table.is_view(of)?
+    lst := mut t.table.is_list(of)?
+    if arr || view || lst {
+        e := mut t.table.elem_of(of)?
+        return e == typ, noerror
+    }
+    if mut t.table.is_map(of)? {
+        key := mut t.table.key_of(of)?
+        e := mut t.table.elem_of(of)?
+        return key == typ || e == typ, noerror
+    }
+    if mut t.table.is_arena(of)? {
+        return false, not_ported
+    }
+    if mut t.table.is_pool(of)? {
+        e := mut t.table.elem_of(of)?
+        return e == typ, noerror
+    }
+    if mut t.table.is_union(of)? {
+        return false, not_ported
+    }
+    n := mut t.table.field_count(of)?
+    for i := range n {
+        ft, ok := mut t.table.field_type(of, i)?
+        if ok && ft == typ {
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// has_type reports whether the node k itself is of the basic type typ,
+// Go's hasType: a function with a result of it, a parameter or a variable
+// of it, or an expression of it. A statement, a type or interface
+// declaration, an import, and the parts of a switch, a struct type and a
+// union type the port keeps as nodes, which are no Go expressions, are
+// not.
+func has_type(mut t typeck.Typed, k typeck.Key, typ types.Type) bool {
+    switch kind_of(t.prog.trees[:], k) {
+    case func_decl:
+        n := mut t.result_len(k)
+        for i := range n {
+            if mut t.result(k, i) == typ {
+                return true
+            }
+        }
+        return false
+    case param_decl:
+        return mut t.decl_type(k) == typ
+    case var_decl:
+        return mut t.decl_type(k) == typ
+    case none:
+        return false
+    case import_decl:
+        return false
+    case type_decl:
+        return false
+    case bad_decl:
+        return false
+    case type_param:
+        return false
+    case iface_method:
+        return false
+    case expr_stmt:
+        return false
+    case return_stmt:
+        return false
+    case if_stmt:
+        return false
+    case assign:
+        return false
+    case for_stmt:
+        return false
+    case break_stmt:
+        return false
+    case continue_stmt:
+        return false
+    case unreachable_stmt:
+        return false
+    case fallthrough_stmt:
+        return false
+    case inc_dec:
+        return false
+    case multi_var:
+        return false
+    case multi_assign:
+        return false
+    case for_range:
+        return false
+    case switch_stmt:
+        return false
+    case case_clause:
+        return false
+    case defer_stmt:
+        return false
+    case region_stmt:
+        return false
+    case bad_stmt:
+        return false
+    case field:
+        return false
+    case union_case:
+        return false
+    default:
+        return mut t.type_of(k) == typ
+    }
+}
+
+// narrows_floats reports whether the program converts a float64 to a
+// float32 at run time, Go's narrowsFloats.
+func (mut g Gen) narrows_floats(mut t typeck.Typed) (bool, error) {
+    mut stack := make(list[typeck.Key], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for u := range len(t.prog.trees) {
+        walk_program(t, u, mut stack)?
+        for len(stack) > 0 {
+            k, has := pop(mut stack)
+            if !has {
+                break
+            }
+            if narrowing(mut t, k) {
+                return true, noerror
+            }
+            push_children(t.prog.trees[:], k, mut kids, mut stack)?
+        }
+    }
+    return false, noerror
+}
+
+// narrowing reports whether the node k is a call converting a float64 to
+// a float32 at run time, Go's narrowing: a conversion to float32, no
+// constant, of one float64.
+func narrowing(mut t typeck.Typed, k typeck.Key) bool {
+    switch kind_of(t.prog.trees[:], k) {
+    case call(cl):
+        c := mut t.const_of(k)
+        if cl.conv != types.float32_type || c.kind != typeck.cv_none {
+            return false
+        }
+        if node_count(t.prog.trees[:], k.unit, cl.args) != 1 {
+            return false
+        }
+        return mut t.type_of(node_at(t.prog.trees[:], k.unit, cl.args, 0)) == types.float64_type
+    default:
+    }
+    return false
+}
+
+// has_divisions reports whether the program divides, takes a remainder or
+// shifts at run time in a type below untyped_int, which Go's divisions
+// lists and emitConstantPool writes a helper for: an operator expression
+// that is no constant, or a compound assignment, in its target's type.
+func (mut g Gen) has_divisions(mut t typeck.Typed) (bool, error) {
+    mut stack := make(list[typeck.Key], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for u := range len(t.prog.trees) {
+        walk_program(t, u, mut stack)?
+        for len(stack) > 0 {
+            k, has := pop(mut stack)
+            if !has {
+                break
+            }
+            switch kind_of(t.prog.trees[:], k) {
+            case binary(b):
+                c := mut t.const_of(k)
+                bt := mut t.type_of(k)
+                if is_division_op(b.op) && c.kind == typeck.cv_none && bt.number() < types.untyped_int.number() {
+                    return true, noerror
+                }
+            case assign(a):
+                at_type := mut t.type_of(typeck.Key{unit: k.unit, node: a.target})
+                if is_division_op(a.op) && at_type.number() < types.untyped_int.number() {
+                    return true, noerror
+                }
+            default:
+            }
+            push_children(t.prog.trees[:], k, mut kids, mut stack)?
+        }
+    }
+    return false, noerror
+}
+
+// is_division_op reports whether op is / % << or >>, which go through a
+// helper.
+func is_division_op(op ast.BinaryOp) bool {
+    return op == ast.op_div || op == ast.op_rem || is_shift_op(op)
+}
+
+// root_of returns the name a place, a chain of fields and elements,
+// starts from, Go's ast.Root, and whether it starts from one.
+func root_of(trees []ast.File, start typeck.Key) (typeck.Key, bool) {
+    mut k := start
+    for {
+        switch kind_of(trees, k) {
+        case ident:
+            return k, true
+        case index(ix):
+            k = typeck.Key{unit: k.unit, node: ix.x}
+        case selector(s):
+            k = typeck.Key{unit: k.unit, node: s.x}
+        default:
+            return k, false
+        }
+    }
+    return k, false
+}
+
+// def_key returns the key of the declaration the name k is bound to, and
+// whether it is bound to one.
+func def_key(trees []ast.File, k typeck.Key) (typeck.Key, bool) {
+    switch kind_of(trees, k) {
+    case ident(nm):
+        if nm.def.is_decl() {
+            return typeck.Key{unit: nm.def.unit, node: nm.def.node}, true
+        }
+    default:
+    }
+    return k, false
+}
+
+// fill_mutated puts in out the variables and parameters fn's body passes
+// as mut, at any depth, the variables whose values it moves, and the
+// captures a closure in it may write, Go's mutated.
+func fill_mutated(mut t typeck.Typed, fn typeck.Key, mut out map[typeck.Key]bool) error {
+    f := func_at(t.prog.trees[:], fn)
+    mut stack := make(list[typeck.Key], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    push_items(t.prog.trees[:], fn.unit, f.body, mut stack)?
+    for len(stack) > 0 {
+        k, has := pop(mut stack)
+        if !has {
+            break
+        }
+        switch kind_of(t.prog.trees[:], k) {
+        case mut_arg(x):
+            root, ok := root_of(t.prog.trees[:], typeck.Key{unit: k.unit, node: x})
+            if ok {
+                d, bound := def_key(t.prog.trees[:], root)
+                if bound {
+                    put(mut out, d, true)?
+                }
+            }
+        case ident:
+            if mut t.is_move(k) {
+                d, bound := def_key(t.prog.trees[:], k)
+                if bound {
+                    put(mut out, d, true)?
+                }
+            }
+        case func_lit:
+            n := mut t.capture_count(k)
+            for i := range n {
+                decl, _, write, _ := mut t.capture(k, i)
+                if write {
+                    put(mut out, decl, true)?
+                }
+            }
+        default:
+        }
+        push_children(t.prog.trees[:], k, mut kids, mut stack)?
+    }
+    return noerror
+}
+
+// push_items pushes the nodes l holds in the tree unit on stack, last
+// first, so a walk takes them in order.
+func push_items(trees []ast.File, unit int64, l ast.Nodes, mut stack list[typeck.Key]) error {
+    n := node_count(trees, unit, l)
+    mut i := n
+    for i > 0 {
+        i -%= 1
+        append(mut stack, node_at(trees, unit, l, i))?
+    }
+    return noerror
+}
+
+// fill_case_vars_read puts in out the variables of the cases of the type
+// switches in fn's body, at any depth, that a name in the body reads,
+// found in one walk, Go's caseVarsRead.
+func fill_case_vars_read(t typeck.Typed, fn typeck.Key, mut out map[typeck.Key]bool) error {
+    f := func_at(t.prog.trees[:], fn)
+    mut vars := make(map[typeck.Key]bool, c_allocator)
+    mut stack := make(list[typeck.Key], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    push_items(t.prog.trees[:], fn.unit, f.body, mut stack)?
+    for len(stack) > 0 {
+        k, has := pop(mut stack)
+        if !has {
+            break
+        }
+        switch kind_of(t.prog.trees[:], k) {
+        case switch_stmt(s):
+            n := node_count(t.prog.trees[:], k.unit, s.cases)
+            for i := range n {
+                c := node_at(t.prog.trees[:], k.unit, s.cases, i)
+                switch kind_of(t.prog.trees[:], c) {
+                case case_clause(cl):
+                    if !ast.is_none(cl.var_node) {
+                        put(mut vars, typeck.Key{unit: c.unit, node: cl.var_node}, true)?
+                    }
+                default:
+                }
+            }
+        case ident(nm):
+            if nm.def.kind == ast.def_var {
+                d := typeck.Key{unit: nm.def.unit, node: nm.def.node}
+                _, is_case := vars[d]
+                if is_case {
+                    put(mut out, d, true)?
+                }
+            }
+        default:
+        }
+        push_children(t.prog.trees[:], k, mut kids, mut stack)?
+    }
+    return noerror
+}

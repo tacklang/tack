@@ -1,0 +1,301 @@
+package codegen
+
+import ast from "tack/ast"
+import bytes from "std/bytes"
+import text from "std/text"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// The string pool, Go's gen.go collectStrings, walkSwitchValues, poolVar,
+// poolConst, poolCheckedZero, holdsSlice, seenStr, addStr, strLabel,
+// stringValue and strParts, and string.go, which compares two strings.
+// Every string a body can use is pooled before any body is lowered, in
+// the order Go's walk meets them. Go finds a string in the pool by
+// scanning it; here a map finds it, which gives the same label.
+
+// add_str adds s to the string pool under the next label, unless it is
+// there already, Go's addStr.
+func (mut g Gen) add_str(s []uint8) error {
+    key := text.from_bytes(s, c_allocator)?
+    _, seen := g.strs_at[key]
+    if seen {
+        return noerror
+    }
+    start := len(g.strs_bytes)
+    append(mut g.strs_bytes, s...)?
+    put(mut g.strs_at, key, len(g.strs))?
+    append(mut g.strs, Pooled{start: start, end: len(g.strs_bytes)})?
+    return noerror
+}
+
+// append_str_label appends the label of the i'th pooled string, Go's
+// tack_str%d.
+func append_str_label(i int64, mut out list[uint8]) error {
+    append(mut out, []uint8("tack_str")...)?
+    bytes.append_int(mut out, i)?
+    return noerror
+}
+
+// append_str_parts appends the members of s, a pooled string, as a
+// tack_string, Go's strParts: its label and TACK_C_STR_LEN of it. A
+// string never pooled has the empty label, as Go's strLabel gives it.
+func (g Gen) append_str_parts(s []uint8, mut out list[uint8]) error {
+    mut label := make(list[uint8], c_allocator)
+    key := text.from_bytes(s, c_allocator)?
+    at, seen := g.strs_at[key]
+    if seen {
+        append_str_label(at, mut label)?
+    }
+    append(mut out, label[:]...)?
+    append(mut out, []uint8(", TACK_C_STR_LEN(")...)?
+    append(mut out, label[:]...)?
+    append(mut out, ')')?
+    return noerror
+}
+
+// append_string_value appends s, a pooled string, as a tack_string value,
+// Go's stringValue.
+func (g Gen) append_string_value(s []uint8, mut out list[uint8]) error {
+    append(mut out, []uint8("(tack_string){")...)?
+    g.append_str_parts(s, mut out)?
+    append(mut out, '}')?
+    return noerror
+}
+
+// collect_strings pools every string literal of the program, the empty
+// string where a string starts from its zero value, and the computed
+// value of a global whose initializer slices a string, in the order Go's
+// collectStrings walks the program: as ast.Walk does, each node before
+// the nodes it holds, but for a MultiVar's names, a range loop's
+// variables and a type switch's, which are never visited. The walk keeps
+// a stack of its own. The strings of a fields loop's field names, of a
+// testing.Site argument and of the errors append, reserve and put give
+// are pooled only for what the later stages lower, which the port
+// declines (see doc.tck).
+func (mut g Gen) collect_strings(mut t typeck.Typed) error {
+    mut stack := make(list[typeck.Key], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for u := range len(t.prog.trees) {
+        walk_program(t, u, mut stack)?
+        for len(stack) > 0 {
+            k, has := pop(mut stack)
+            if !has {
+                break
+            }
+            mut g.pool_visit(mut t, k, mut stack, mut kids)?
+        }
+    }
+    return noerror
+}
+
+// add_node_items appends the nodes l holds in the tree unit to kids.
+func add_node_items(trees []ast.File, unit int64, l ast.Nodes, mut kids list[id[ast.Node]]) error {
+    n := node_count(trees, unit, l)
+    for i := range n {
+        append(mut kids, node_at(trees, unit, l, i).node)?
+    }
+    return noerror
+}
+
+// push_reversed pushes the nodes kids holds, of the tree unit, on stack
+// last first, so they come off it in order, and empties kids.
+func push_reversed(unit int64, mut kids list[id[ast.Node]], mut stack list[typeck.Key]) error {
+    mut i := len(kids)
+    for i > 0 {
+        i -%= 1
+        n, ok := kids[i]
+        if ok {
+            append(mut stack, typeck.Key{unit: unit, node: n})?
+        }
+    }
+    for len(kids) > 0 {
+        pop(mut kids)
+    }
+    return noerror
+}
+
+// push_children pushes the nodes k holds on stack, in Go's walk order
+// (see push_reversed).
+func push_children(trees []ast.File, k typeck.Key, mut kids list[id[ast.Node]], mut stack list[typeck.Key]) error {
+    if k.unit < 0 || k.unit >= len(trees) {
+        return noerror
+    }
+    ast.children(trees[k.unit], k.node, mut kids)?
+    push_reversed(k.unit, mut kids, mut stack)?
+    return noerror
+}
+
+// pool_visit is collect_strings' visit of the node k: it pools what k
+// needs and pushes on stack the nodes the walk goes on to.
+func (mut g Gen) pool_visit(mut t typeck.Typed, k typeck.Key, mut stack list[typeck.Key], mut kids list[id[ast.Node]]) error {
+    switch kind_of(t.prog.trees[:], k) {
+    case str_lit(s):
+        mut g.add_str(text_of(t, k.unit, s))?
+    case var_decl:
+        mut g.pool_var(mut t, k)?
+    case call:
+        if mut t.site_len(k) > 0 {
+            // A testing.Site argument is a struct literal, E2's.
+            return not_ported
+        }
+        if is_builtin_named(t, k, "append") || is_builtin_named(t, k, "reserve") || is_builtin_named(t, k, "put") {
+            // The errors listErrors pools are append's, reserve's and
+            // put's, E3's.
+            return not_ported
+        }
+    case multi_var(m):
+        mut g.pool_checked_zero(mut t, typeck.Key{unit: k.unit, node: m.value})?
+        if !ast.is_none(m.value) {
+            append(mut stack, typeck.Key{unit: k.unit, node: m.value})?
+        }
+        return noerror
+    case multi_assign(m):
+        mut g.pool_checked_zero(mut t, typeck.Key{unit: k.unit, node: m.value})?
+    case for_range(r):
+        switch kind_of(t.prog.trees[:], typeck.Key{unit: k.unit, node: r.x}) {
+        case fields_of:
+            // poolFieldNames pools a fields loop's names, E4's.
+            return not_ported
+        default:
+        }
+        append(mut kids, r.x)?
+        add_node_items(t.prog.trees[:], k.unit, r.body, mut kids)?
+        push_reversed(k.unit, mut kids, mut stack)?
+        return noerror
+    case switch_stmt(s):
+        if !ast.is_none(s.tag) {
+            append(mut kids, s.tag)?
+        }
+        nc := node_count(t.prog.trees[:], k.unit, s.cases)
+        for i := range nc {
+            c := node_at(t.prog.trees[:], k.unit, s.cases, i)
+            switch kind_of(t.prog.trees[:], c) {
+            case case_clause(cl):
+                add_node_items(t.prog.trees[:], k.unit, cl.values, mut kids)?
+                add_node_items(t.prog.trees[:], k.unit, cl.body, mut kids)?
+            default:
+            }
+        }
+        push_reversed(k.unit, mut kids, mut stack)?
+        return noerror
+    default:
+    }
+    push_children(t.prog.trees[:], k, mut kids, mut stack)?
+    return noerror
+}
+
+// pool_var pools what the variable v needs, Go's poolVar: the empty
+// string when it is a string starting from its zero value, and, for a
+// global whose initializer slices a string, every string of its computed
+// value.
+func (mut g Gen) pool_var(mut t typeck.Typed, v typeck.Key) error {
+    vr := var_at(t.prog.trees[:], v)
+    if ast.is_none(vr.value) && mut t.decl_type(v) == types.string_type {
+        mut g.add_str([]uint8(""))?
+    }
+    _, global := g.globals[v]
+    if global && !ast.is_none(vr.value) {
+        slices := holds_slice(t.prog.trees[:], typeck.Key{unit: v.unit, node: vr.value})?
+        if slices {
+            c, has := mut t.var_const(v)
+            if has {
+                mut g.pool_const(t, c)?
+            }
+        }
+    }
+    return noerror
+}
+
+// pool_const pools every string of c, the computed value of a global, Go's
+// poolConst: a string's. One inside an array's elements, a struct's
+// fields or a union's payload is a composite type's, E2's.
+func (mut g Gen) pool_const(t typeck.Typed, c typeck.Const) error {
+    if c.kind == typeck.cv_str {
+        mut g.add_str(const_str(t, c))?
+        return noerror
+    }
+    if c.kind == typeck.cv_list || c.kind == typeck.cv_union {
+        return not_ported
+    }
+    return noerror
+}
+
+// pool_checked_zero pools the empty string when value is v, ok := a[i] on
+// an array of strings, x.(string) or s[i:j], each of which can give one,
+// Go's poolCheckedZero.
+func (mut g Gen) pool_checked_zero(mut t typeck.Typed, value typeck.Key) error {
+    switch kind_of(t.prog.trees[:], value) {
+    case index:
+        if mut t.type_of(value) == types.string_type {
+            mut g.add_str([]uint8(""))?
+        }
+    case type_assert:
+        if mut t.type_of(value) == types.string_type {
+            mut g.add_str([]uint8(""))?
+        }
+    case slice:
+        if mut t.type_of(value) == types.string_type {
+            mut g.add_str([]uint8(""))?
+        }
+    default:
+    }
+    return noerror
+}
+
+// holds_slice reports whether the expression e holds a slice, at any
+// depth, Go's holdsSlice, from a stack of its own.
+func holds_slice(trees []ast.File, e typeck.Key) (bool, error) {
+    mut stack := make(list[typeck.Key], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, e)?
+    for len(stack) > 0 {
+        k, has := pop(mut stack)
+        if !has {
+            break
+        }
+        switch kind_of(trees, k) {
+        case slice:
+            return true, noerror
+        default:
+        }
+        push_children(trees, k, mut kids, mut stack)?
+    }
+    return false, noerror
+}
+
+// is_builtin_named reports whether the call k calls the generic builtin
+// named name, Go's isBuiltin of list.go: its callee a name with no
+// package, bound to a builtin.
+func is_builtin_named(t typeck.Typed, k typeck.Key, name string) bool {
+    switch kind_of(t.prog.trees[:], k) {
+    case call(cl):
+        switch kind_of(t.prog.trees[:], typeck.Key{unit: k.unit, node: cl.fn}) {
+        case ident(nm):
+            if nm.def.kind != ast.def_builtin {
+                return false
+            }
+            if len(text_of(t, k.unit, nm.pkg)) > 0 {
+                return false
+            }
+            return bytes.equal(text_of(t, k.unit, nm.name), []uint8(name))
+        default:
+        }
+    default:
+    }
+    return false
+}
+
+// emit_string_compare writes tack_compare_strings, Go's
+// emitStringCompare of string.go.
+func (mut g Gen) emit_string_compare() error {
+    append(mut g.buf, []uint8("static int tack_compare_strings(tack_string a, tack_string b) {\n")...)?
+    append(mut g.buf, []uint8("    int64_t n = a.len < b.len ? a.len : b.len;\n")...)?
+    append(mut g.buf, []uint8("    for (int64_t i = 0; i < n; i++) {\n")...)?
+    append(mut g.buf, []uint8("        if (a.ptr[i] != b.ptr[i]) {\n")...)?
+    append(mut g.buf, []uint8("            return a.ptr[i] < b.ptr[i] ? -1 : 1;\n")...)?
+    append(mut g.buf, []uint8("        }\n")...)?
+    append(mut g.buf, []uint8("    }\n")...)?
+    append(mut g.buf, []uint8("    return (a.len > b.len) - (a.len < b.len);\n")...)?
+    append(mut g.buf, []uint8("}\n\n")...)?
+    return noerror
+}

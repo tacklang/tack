@@ -1,0 +1,74 @@
+package codegen
+
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// The program's types, Go's struct.go emitTypes, emittedTypes,
+// isComposite, emitTypeDef and comparedTypes, with the walks of the types
+// the later stages' helpers are written for, funcvalue.go's
+// usesFuncTypes, arena.go's arenaTypes, maps.go's mapTypes, pool.go's
+// poolTypes and union.go's emitFrees. Every type the table added that C
+// has is defined before it is used, and each kind's definition is its
+// own stage's: an array, a struct and a union E2's, a view E2's, a list,
+// a map, an arena and a pool E3's, and the function types E4's. A program
+// of the core has none of them; the types it may have, a type parameter
+// of a generic function never instantiated, an id, a span and a handle,
+// get no definition. So the walk declines at the first type that would
+// get one, and otherwise writes only the string comparison helper, when
+// the lowered code compares two strings: no type is compared through an
+// equality helper, no map's keys are, and no type has a free helper.
+
+// emit_types writes the types and their helpers, Go's emitTypes.
+func (mut g Gen) emit_types(mut t typeck.Typed) error {
+    count := mut t.table.count()
+    for i := range count {
+        typ := types.added(i)
+        param := mut t.table.has_type_param(typ)?
+        if param {
+            continue
+        }
+        if mut t.table.is_func(typ)? {
+            // emitFuncPtr and emitFuncTypes, E4's.
+            return not_ported
+        }
+    }
+    for i := range count {
+        typ := types.added(i)
+        param := mut t.table.has_type_param(typ)?
+        if param || typ == types.error_type {
+            continue
+        }
+        defined := mut g.has_def(mut t, typ)?
+        if defined {
+            // emitDef, whose every kind is a later stage's.
+            return not_ported
+        }
+    }
+    if g.compares_text {
+        mut g.emit_string_compare()?
+    }
+    return noerror
+}
+
+// has_def reports whether typ is an array, a view, a list, a map, an
+// arena, a pool, a struct or a union, which Go's emitTypeDef defines.
+func (mut g Gen) has_def(mut t typeck.Typed, typ types.Type) (bool, error) {
+    composite := mut g.is_composite(mut t, typ)?
+    if composite {
+        return true, noerror
+    }
+    if mut t.table.is_view(typ)? {
+        return true, noerror
+    }
+    if mut t.table.is_list(typ)? {
+        return true, noerror
+    }
+    if mut t.table.is_map(typ)? {
+        return true, noerror
+    }
+    if mut t.table.is_arena(typ)? {
+        return true, noerror
+    }
+    p := mut t.table.is_pool(typ)?
+    return p, noerror
+}

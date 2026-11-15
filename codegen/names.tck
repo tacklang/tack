@@ -1,0 +1,564 @@
+package codegen
+
+import ast from "tack/ast"
+import bytes from "std/bytes"
+import constant from "tack/constant"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// The C names the lowering writes, Go's gen.go mangle, mangledParts,
+// mangledPart, paramName, paramDeclName, varName, declName, funcCName,
+// methodCName, cType, basicCType and arrayNameOf, and names.go, which
+// makes every type's name from the type its argument stands for under
+// the binding in force; and the C literals of constants, Go's
+// intLiteral, typedConstLiteral, floatConst, floatLiteral, constLiteral
+// and constValue, with unreachable.go's cStringLiteral.
+
+// append_mangled_part appends c to out as Go's mangledPart writes it:
+// its length after escaping, an underscore, and c escaped, ASCII letters
+// and digits kept and every other byte an underscore and its two
+// lowercase hex digits.
+func append_mangled_part(mut out list[uint8], c []uint8) error {
+    mut n int64 = 0
+    for _, b := range c {
+        if is_alnum(b) {
+            n +%= 1
+        } else {
+            n +%= 3
+        }
+    }
+    bytes.append_int(mut out, n)?
+    append(mut out, '_')?
+    for _, b := range c {
+        if is_alnum(b) {
+            append(mut out, b)?
+            continue
+        }
+        append(mut out, '_')?
+        append(mut out, hex_digit(b >> 4))?
+        append(mut out, hex_digit(b & 15))?
+    }
+    return noerror
+}
+
+// is_alnum reports whether b is an ASCII letter or digit.
+func is_alnum(b uint8) bool {
+    return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
+}
+
+// hex_digit returns the lowercase hex digit of d, 0 to 15.
+func hex_digit(d uint8) uint8 {
+    if d < 10 {
+        return '0' +% d
+    }
+    return 'a' +% (d -% 10)
+}
+
+// append_mangled_parts appends each part of path, split at its slashes,
+// then name, each as append_mangled_part writes it, Go's mangledParts.
+func append_mangled_parts(mut out list[uint8], path []uint8, name []uint8) error {
+    mut start int64 = 0
+    for i := range len(path) +% 1 {
+        if i < len(path) {
+            b, ok := path[i]
+            if ok && b != '/' {
+                continue
+            }
+        }
+        if start >= 0 && start <= i && i <= len(path) {
+            append_mangled_part(mut out, path[start:i])?
+        }
+        start = i +% 1
+    }
+    append_mangled_part(mut out, name)?
+    return noerror
+}
+
+// append_mangle appends the C identifier of a package-level declaration
+// named name of the package pkg of t's program, Go's mangle: tack_ and
+// the parts of the package's import path and the name, each as
+// append_mangled_part writes it. pkg is the declaration's package, or
+// the main package, the last, for Go's nil declaration.
+func append_mangle(t typeck.Typed, pkg int64, name []uint8, mut out list[uint8]) error {
+    append(mut out, []uint8("tack_")...)?
+    if pkg >= 0 && pkg < len(t.prog.packages) {
+        append_mangled_parts(mut out, t.prog.packages[pkg].path.bytes(), name)?
+        return noerror
+    }
+    append_mangled_parts(mut out, []uint8(""), name)?
+    return noerror
+}
+
+// main_package returns the index of the main package of t's program, its
+// last, Go's prog.Main().
+func main_package(t typeck.Typed) int64 {
+    return len(t.prog.packages) -% 1
+}
+
+// append_func_cname appends the C name of the function fn to out, Go's
+// funcCName: its mangled name, or a method's, its receiver type's name
+// and its own joined by a period, as one name. A generic function's is
+// its instance's, which E4 lowers, so it is not ported.
+func append_func_cname(mut t typeck.Typed, fn typeck.Key, mut out list[uint8]) error {
+    f := func_at(t.prog.trees[:], fn)
+    if node_count(t.prog.trees[:], fn.unit, f.type_params) > 0 {
+        return not_ported
+    }
+    pkg := package_of_unit(t, fn.unit)
+    mut name := make(list[uint8], c_allocator)
+    if f.method && f.recv_type.is_decl() {
+        rk := typeck.Key{unit: f.recv_type.unit, node: f.recv_type.node}
+        switch kind_of(t.prog.trees[:], rk) {
+        case type_decl(td):
+            append_text(t.prog.trees[:], rk.unit, td.name, mut name)?
+        default:
+        }
+        append(mut name, '.')?
+    }
+    append_text(t.prog.trees[:], fn.unit, f.name, mut name)?
+    append_mangle(t, pkg, name[:], mut out)?
+    return noerror
+}
+
+// append_results_of appends the name of the results struct of the
+// function whose C name is cname, Go's resultsOf: tack_results_ and what
+// follows tack_ in cname.
+func append_results_of(cname []uint8, mut out list[uint8]) error {
+    append(mut out, []uint8("tack_results_")...)?
+    if len(cname) >= 5 && bytes.has_prefix(cname, []uint8("tack_")) {
+        append(mut out, cname[5:]...)?
+        return noerror
+    }
+    append(mut out, cname...)?
+    return noerror
+}
+
+// append_param_name appends the C name Go's paramName gives a parameter
+// named name: p_ and the name.
+func append_param_name(name []uint8, mut out list[uint8]) error {
+    append(mut out, []uint8("p_")...)?
+    append(mut out, name...)?
+    return noerror
+}
+
+// append_param_decl_name appends the C name of p, the i'th parameter of
+// its function, Go's paramDeclName: paramName's, or p_ and i for one
+// named _.
+func append_param_decl_name(t typeck.Typed, p typeck.Key, i int64, mut out list[uint8]) error {
+    pa := param_at(t.prog.trees[:], p)
+    if is_blank(t.prog.trees[:], p.unit, pa.name) {
+        append(mut out, []uint8("p_")...)?
+        bytes.append_int(mut out, i)?
+        return noerror
+    }
+    append(mut out, []uint8("p_")...)?
+    append_text(t.prog.trees[:], p.unit, pa.name, mut out)?
+    return noerror
+}
+
+// is_blank reports whether the name s of the tree unit is _, Go's
+// ast.Blank.
+func is_blank(trees []ast.File, unit int64, s span[uint8]) bool {
+    if unit < 0 || unit >= len(trees) {
+        return false
+    }
+    return bytes.equal(trees[unit].bytes[s], []uint8("_"))
+}
+
+// append_var_name appends Go's varName of the variable v: v_ and its
+// name.
+func append_var_name(t typeck.Typed, v typeck.Key, mut out list[uint8]) error {
+    vr := var_at(t.prog.trees[:], v)
+    append(mut out, []uint8("v_")...)?
+    append_text(t.prog.trees[:], v.unit, vr.name, mut out)?
+    return noerror
+}
+
+// append_decl_name appends the C name of the local v as its declaration
+// writes it, Go's declName: with __attribute__((unused)) after it when
+// the front end found it never read, Var.Unused, or a fields loop's
+// body names it, Var.Unrolled.
+func append_decl_name(mut t typeck.Typed, v typeck.Key, mut out list[uint8]) error {
+    append_var_name(t, v, mut out)?
+    if mut t.is_unused(v) || mut t.is_unrolled(v) {
+        append(mut out, []uint8(" __attribute__((unused))")...)?
+    }
+    return noerror
+}
+
+// var_at returns the Var the var_decl node k holds, a copy.
+func var_at(trees []ast.File, k typeck.Key) ast.Var {
+    switch kind_of(trees, k) {
+    case var_decl(v):
+        return v
+    default:
+    }
+    mut z ast.Var
+    return z
+}
+
+// append_basic_c_type appends the C type the basic type typ lowers to,
+// Go's basicCType.
+func append_basic_c_type(typ types.Type, mut out list[uint8]) error {
+    append(mut out, []uint8(basic_c_type(typ))...)?
+    return noerror
+}
+
+// handle_type is the C type every handle lowers to, Go's handleType of
+// pool.go, which the runtime's tack.h defines.
+var handle_type = "tack_handle"
+
+// func_ptr is the C type a function value is held in, Go's funcPtr of
+// funcvalue.go.
+var func_ptr = "tack_fnptr"
+
+// append_c_type appends the C type typ lowers to, under the binding in
+// force, Go's cType: a basic type's own, uint32_t for an id, uint64_t for
+// a span, the runtime's handle and function pointer types, or for an
+// array, a view, a list, a map, an arena, a pool, a struct or a union the
+// C struct named by its type's ID or its declaration. Those are the
+// later stages' (see doc.tck), so the port declines them.
+func append_c_type(mut t typeck.Typed, typ0 types.Type, mut out list[uint8]) error {
+    typ := mut t.table.bound(typ0)?
+    if mut t.table.is_array(typ)? {
+        return not_ported
+    }
+    if mut t.table.is_view(typ)? {
+        return not_ported
+    }
+    if mut t.table.is_list(typ)? {
+        return not_ported
+    }
+    if mut t.table.is_map(typ)? {
+        return not_ported
+    }
+    if mut t.table.is_arena(typ)? {
+        return not_ported
+    }
+    if mut t.table.is_id(typ)? {
+        append(mut out, []uint8("uint32_t")...)?
+        return noerror
+    }
+    if mut t.table.is_span(typ)? {
+        append(mut out, []uint8("uint64_t")...)?
+        return noerror
+    }
+    if mut t.table.is_pool(typ)? {
+        return not_ported
+    }
+    if mut t.table.is_handle(typ)? {
+        append(mut out, []uint8(handle_type)...)?
+        return noerror
+    }
+    if mut t.table.is_func(typ)? {
+        append(mut out, []uint8(func_ptr)...)?
+        return noerror
+    }
+    is_s := mut t.table.is_struct(typ)?
+    is_u := mut t.table.is_union(typ)?
+    if is_s || is_u {
+        if typ == types.error_type {
+            append(mut out, []uint8("tack_error")...)?
+            return noerror
+        }
+        return not_ported
+    }
+    append_basic_c_type(typ, mut out)?
+    return noerror
+}
+
+// c_type_is_void reports whether typ lowers to void, Go's cType(typ) ==
+// "void".
+func c_type_is_void(mut t typeck.Typed, typ types.Type) (bool, error) {
+    mut c := make(list[uint8], c_allocator)
+    append_c_type(mut t, typ, mut c)?
+    return bytes.equal(c[:], []uint8("void")), noerror
+}
+
+// append_int_literal appends the C literal of the integer constant v,
+// Go's intLiteral: a negative one parenthesised, the smallest int64 as an
+// expression, and one past int64 with a u suffix.
+func append_int_literal(v constant.Int, mut out list[uint8]) error {
+    if v.cmp(constant.min()) == 0 {
+        append(mut out, []uint8("(-9223372036854775807 - 1)")...)?
+        return noerror
+    }
+    if v.is_negative() {
+        append(mut out, '(')?
+        v.append_string(mut out)?
+        append(mut out, ')')?
+        return noerror
+    }
+    v.append_string(mut out)?
+    if !v.fits(64, true) {
+        append(mut out, 'u')?
+    }
+    return noerror
+}
+
+// append_float_const appends c, an untyped constant's exact value, given
+// the float type typ, as the C literal of the value of typ it rounds to,
+// Go's floatConst: a constant.Float or a constant.Int, rounded; any other
+// Const, which Go's switch leaves as its zero Float, as zero.
+func append_float_const(t typeck.Typed, c typeck.Const, typ types.Type, mut out list[uint8]) error {
+    mut f := constant.float_zero(c_allocator)?
+    if c.kind == typeck.cv_float {
+        if c.first >= 0 && c.first < len(t.store.floats) {
+            f = t.store.floats[c.first].clone(c_allocator)?
+        }
+    } else if c.kind == typeck.cv_int {
+        f = constant.float_from_int(c.i, c_allocator)?
+    }
+    append_float_value(f, typ, mut out)?
+    return noerror
+}
+
+// append_float_value appends the C literal of the float of type typ
+// nearest f, Go's floatConst once its constant is a Float.
+func append_float_value(f constant.Float, typ types.Type, mut out list[uint8]) error {
+    if typ == types.float32_type {
+        bits, _ := f.float32_bits(c_allocator)?
+        constant.append_float_literal(mut out, uint64(bits), true)?
+        return noerror
+    }
+    bits, _ := f.float64_bits(c_allocator)?
+    constant.append_float_literal(mut out, bits, false)?
+    return noerror
+}
+
+// append_const_literal appends the C literal of c, the value a constant
+// expression computed to, and reports whether there was one, Go's
+// constLiteral: an integer or a bool.
+func append_const_literal(c typeck.Const, mut out list[uint8]) (bool, error) {
+    if c.kind == typeck.cv_int {
+        append_int_literal(c.i, mut out)?
+        return true, noerror
+    }
+    if c.kind == typeck.cv_bool {
+        append_bool(c.b, mut out)?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// append_typed_const_literal appends c, the value an operator expression
+// of type typ computed to, as append_const_literal does, but as a float's
+// literal when typ is a float type, whatever kind of constant c is, Go's
+// typedConstLiteral.
+func append_typed_const_literal(t typeck.Typed, c typeck.Const, typ types.Type, mut out list[uint8]) (bool, error) {
+    if c.kind != typeck.cv_none && types.is_float(typ) {
+        append_float_const(t, c, typ, mut out)?
+        return true, noerror
+    }
+    ok := append_const_literal(c, mut out)?
+    return ok, noerror
+}
+
+// append_bool appends true or false, Go's strconv.FormatBool.
+func append_bool(b bool, mut out list[uint8]) error {
+    if b {
+        append(mut out, []uint8("true")...)?
+        return noerror
+    }
+    append(mut out, []uint8("false")...)?
+    return noerror
+}
+
+// append_c_string_literal appends s as a C string literal, Go's
+// cStringLiteral: printable ASCII as it is, but for a double quote, a
+// backslash and a question mark, escaped, and every other byte as a
+// three-digit octal escape.
+func append_c_string_literal(s []uint8, mut out list[uint8]) error {
+    append(mut out, '"')?
+    for _, ch := range s {
+        if ch == '"' || ch == '\\' || ch == '?' {
+            append(mut out, '\\')?
+            append(mut out, ch)?
+        } else if ch >= ' ' && ch <= '~' {
+            append(mut out, ch)?
+        } else {
+            append(mut out, '\\')?
+            append(mut out, '0' +% (ch >> 6))?
+            append(mut out, '0' +% ((ch >> 3) & 7))?
+            append(mut out, '0' +% (ch & 7))?
+        }
+    }
+    append(mut out, '"')?
+    return noerror
+}
+
+// binary_op_text returns the operator as source writes it, Go's
+// BinaryOp.String.
+func binary_op_text(op ast.BinaryOp) string {
+    n := op.number()
+    if n == 1 {
+        return "+"
+    }
+    if n == 2 {
+        return "-"
+    }
+    if n == 3 {
+        return "*"
+    }
+    if n == 4 {
+        return "/"
+    }
+    if n == 5 {
+        return "%"
+    }
+    if n == 6 {
+        return "=="
+    }
+    if n == 7 {
+        return "!="
+    }
+    if n == 8 {
+        return "<"
+    }
+    if n == 9 {
+        return "<="
+    }
+    if n == 10 {
+        return ">"
+    }
+    if n == 11 {
+        return ">="
+    }
+    if n == 12 {
+        return "&&"
+    }
+    if n == 13 {
+        return "||"
+    }
+    if n == 14 {
+        return "&"
+    }
+    if n == 15 {
+        return "|"
+    }
+    if n == 16 {
+        return "^"
+    }
+    if n == 17 {
+        return "&^"
+    }
+    if n == 18 {
+        return "<<"
+    }
+    if n == 19 {
+        return ">>"
+    }
+    if n == 20 {
+        return "+%"
+    }
+    if n == 21 {
+        return "-%"
+    }
+    if n == 22 {
+        return "*%"
+    }
+    return "invalid operator"
+}
+
+// is_comparison_op reports whether op is one of == != < <= > >=, Go's
+// IsComparison.
+func is_comparison_op(op ast.BinaryOp) bool {
+    return op.number() >= 6 && op.number() <= 11
+}
+
+// is_logical_op reports whether op is && or ||, Go's IsLogical.
+func is_logical_op(op ast.BinaryOp) bool {
+    return op == ast.op_and || op == ast.op_or
+}
+
+// is_shift_op reports whether op is << or >>, Go's IsShift.
+func is_shift_op(op ast.BinaryOp) bool {
+    return op == ast.op_shl || op == ast.op_shr
+}
+
+// is_integer_op reports whether op works on integers and yields one, Go's
+// IsInteger: an arithmetic, a bitwise, a shift or a wrapping operator.
+func is_integer_op(op ast.BinaryOp) bool {
+    n := op.number()
+    return n >= 1 && n <= 5 || n >= 14 && n <= 22
+}
+
+// unwrapped returns the operator a wrapping one wraps, Go's Unwrapped.
+func unwrapped(op ast.BinaryOp) ast.BinaryOp {
+    if op == ast.op_add_wrap {
+        return ast.op_add
+    }
+    if op == ast.op_sub_wrap {
+        return ast.op_sub
+    }
+    if op == ast.op_mul_wrap {
+        return ast.op_mul
+    }
+    return op
+}
+
+// append_division_name appends the name of the helper for op in typ, Go's
+// divisionName: tack_ and div, rem, shl or shr, _ and the type's name.
+func append_division_name(op ast.BinaryOp, typ types.Type, mut out list[uint8]) error {
+    append(mut out, []uint8("tack_")...)?
+    if op == ast.op_div {
+        append(mut out, []uint8("div")...)?
+    } else if op == ast.op_rem {
+        append(mut out, []uint8("rem")...)?
+    } else if op == ast.op_shl {
+        append(mut out, []uint8("shl")...)?
+    } else if op == ast.op_shr {
+        append(mut out, []uint8("shr")...)?
+    }
+    append(mut out, '_')?
+    append(mut out, []uint8(types.basic_name(typ))...)?
+    return noerror
+}
+
+// append_arith appends the arithmetic l op r in the type typ, Go's arith:
+// a float's C's own; an integer type's on uint64_t, converted back, but
+// division, remainder and shifts through their helper, and &^ as & of
+// the complement.
+func append_arith(op0 ast.BinaryOp, typ types.Type, l []uint8, r []uint8, mut out list[uint8]) error {
+    op := unwrapped(op0)
+    if types.is_float(typ) {
+        append(mut out, '(')?
+        append(mut out, l...)?
+        append(mut out, ' ')?
+        append(mut out, []uint8(binary_op_text(op))...)?
+        append(mut out, ' ')?
+        append(mut out, r...)?
+        append(mut out, ')')?
+        return noerror
+    }
+    if op == ast.op_div || op == ast.op_rem || is_shift_op(op) {
+        append_division_name(op, typ, mut out)?
+        append(mut out, '(')?
+        append(mut out, l...)?
+        append(mut out, []uint8(", ")...)?
+        append(mut out, r...)?
+        append(mut out, ')')?
+        return noerror
+    }
+    append(mut out, []uint8("((")...)?
+    append_basic_c_type(typ, mut out)?
+    append(mut out, []uint8(")((uint64_t)")...)?
+    append(mut out, l...)?
+    if op == ast.op_and_not {
+        append(mut out, []uint8(" & ~(uint64_t)")...)?
+    } else {
+        append(mut out, ' ')?
+        append(mut out, []uint8(binary_op_text(op))...)?
+        append(mut out, []uint8(" (uint64_t)")...)?
+    }
+    append(mut out, r...)?
+    append(mut out, []uint8("))")...)?
+    return noerror
+}
+
+// constant_parse_float returns the exact value of the float literal
+// text, as Go's FloatLit.Value holds it, and whether it is one.
+func constant_parse_float(s []uint8) (constant.Float, bool, error) {
+    f, ok := constant.parse_float(s, c_allocator)?
+    return f, ok, noerror
+}

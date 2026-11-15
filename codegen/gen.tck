@@ -1,0 +1,923 @@
+package codegen
+
+import ast from "tack/ast"
+import builtin from "tack/builtin"
+import bytes from "std/bytes"
+import constant from "tack/constant"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import source from "tack/source"
+import text from "std/text"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// The generator's state and its top level, Go's gen.go from generate to
+// emitEntryPoint: the walk that notes the globals and fills the string
+// pool, the lowering of every declaration before anything is written,
+// and then the file in C's order of declaration, the preamble, the types,
+// the pooled constants and the builtins' prototypes, the globals, the
+// results structs, the prototypes, the functions and the entry point.
+
+// gen_failed is the error a lowering returns once it has put a
+// diagnostic in Gen.diags, Go's non-empty []diag.Diagnostic: every caller
+// returns it at once, as Go's return on diagnostics, and lower turns it
+// back into the diagnostics.
+var gen_failed = error{code: 4, msg: "code generation reported a diagnostic"}
+
+// max_depth is how deeply the C of one subexpression may nest before its
+// value is held in a temporary, Go's maxDepth (order.go).
+var max_depth int64 = 32
+
+// max_chain is how many branches a chain of else ifs may have before it
+// is lowered flat, Go's maxChain.
+var max_chain int64 = 64
+
+// float_narrowing is the name of the helper that converts a float64 to a
+// float32, Go's floatNarrowing.
+var float_narrowing = "tack_f32_of_f64"
+
+// Line is one line of a lowered body, Go's string of a []string body: a
+// run of Gen.text from start to end, or, with start below zero, one of
+// the markers Go's indent puts around a nested block, indent_in, -1, and
+// indent_out, -2, which emit_func turns into indentation as it writes the
+// lines (see indent).
+type Line struct {
+    start int64
+    end int64
+}
+
+// indent_in is the marker that opens a nested block, Go's indentIn.
+var indent_in = Line{start: -1, end: -1}
+
+// indent_out is the marker that closes a nested block, Go's indentOut.
+var indent_out = Line{start: -2, end: -2}
+
+// Pooled is one string of the string pool, Go's str: where its bytes are
+// in Gen.pool_bytes. Its label is tack_str and its place in the pool.
+type Pooled struct {
+    start int64
+    end int64
+}
+
+// Named is what noteNames records of one identifier, Go's namedBy entry:
+// the first function whose lowered body names it, by its place in
+// Gen.owners, and whether another one does too.
+type Named struct {
+    first int64
+    multi bool
+}
+
+// Scope is what the generator knows of one block being lowered, Go's
+// deferScope: whether it is a loop's body, which a break or a continue
+// leaves. Its cleanups, the defers it reaches and the frees of the owned
+// locals it declares, are the later stages' (see doc.tck): a block of
+// the core has none, so an exit leaves it with nothing to run.
+type Scope struct {
+    loop bool
+}
+
+// Traits is what evaluating an expression can do that its order shows,
+// Go's traits: call a function, move a variable's value, read a variable
+// a call can change, or hold a ?.
+type Traits struct {
+    calls bool
+    moves bool
+    changeable bool
+    question bool
+}
+
+// Frame is what the generator knows of the function body being lowered,
+// Go's deferFrame: the function, the variables and parameters it passes
+// as mut, moves or lets a closure write, mutated, the variables of type
+// switches' cases its body reads, read, what each expression asked about
+// can do, traits, whether its body's block has yet to open, first, Go's
+// owner, and the declarations of the temporaries it holds operands in,
+// temps.
+type Frame struct {
+    fn typeck.Key
+    mutated map[typeck.Key]bool
+    read map[typeck.Key]bool
+    traits map[typeck.Key]Traits
+    temps list[Line]
+    first bool
+}
+
+// Global is a package-level variable lowered, Go's global: its C name
+// and its declaration, one line.
+type Global struct {
+    name list[uint8]
+    decl list[uint8]
+}
+
+// Gen is the state of lowering one program to C, Go's generator: the
+// builtins, the globals, the string pool, the output, the names the
+// lowered bodies hold, the counters of temporaries and labels, and what
+// lowering the body at hand keeps, its blocks, its frame and the
+// expression machine's scopes.
+pub type Gen struct {
+    set builtin.Set
+    globals map[typeck.Key]bool
+    strs list[Pooled]
+    strs_bytes list[uint8]
+    strs_at map[text.Text]int64
+    buf list[uint8]
+    text list[uint8]
+    temps int64
+    labels int64
+    named map[text.Text]Named
+    owners list[text.Text]
+    owner_at map[text.Text]int64
+    scopes list[Scope]
+    has_frame bool
+    frame Frame
+    compares_text bool
+    spills list[SpillScope]
+    spill_steps list[list[list[uint8]]]
+    spill int64
+    last_steps list[list[uint8]]
+    held map[typeck.Key]int64
+    held_names list[list[uint8]]
+    has_held bool
+    diags list[diag.Diagnostic]
+}
+
+// new_frame returns a Frame for no function, which grows through
+// c_allocator.
+func new_frame() Frame {
+    return Frame{
+        fn: typeck.Key{unit: -1, node: ast_none()},
+        mutated: make(map[typeck.Key]bool, c_allocator),
+        read: make(map[typeck.Key]bool, c_allocator),
+        traits: make(map[typeck.Key]Traits, c_allocator),
+        temps: make(list[Line], c_allocator),
+        first: false,
+    }
+}
+
+// ast_none returns the sentinel node's id, Go's nil node.
+func ast_none() id[ast.Node] {
+    mut z id[ast.Node]
+    return z
+}
+
+// new_gen returns a Gen for a program checked with set, empty.
+func new_gen(set builtin.Set) Gen {
+    return Gen{
+        set: set,
+        globals: make(map[typeck.Key]bool, c_allocator),
+        strs: make(list[Pooled], c_allocator),
+        strs_bytes: make(list[uint8], c_allocator),
+        strs_at: make(map[text.Text]int64, c_allocator),
+        buf: make(list[uint8], c_allocator),
+        text: make(list[uint8], c_allocator),
+        temps: 0,
+        labels: 0,
+        named: make(map[text.Text]Named, c_allocator),
+        owners: make(list[text.Text], c_allocator),
+        owner_at: make(map[text.Text]int64, c_allocator),
+        scopes: make(list[Scope], c_allocator),
+        has_frame: false,
+        frame: new_frame(),
+        compares_text: false,
+        spills: make(list[SpillScope], c_allocator),
+        spill_steps: make(list[list[list[uint8]]], c_allocator),
+        spill: -1,
+        last_steps: make(list[list[uint8]], c_allocator),
+        held: make(map[typeck.Key]int64, c_allocator),
+        held_names: make(list[list[uint8]], c_allocator),
+        has_held: false,
+        diags: make(list[diag.Diagnostic], c_allocator),
+    }
+}
+
+// line returns s as a Line, its bytes copied into the text the lines are
+// kept in.
+func (mut g Gen) line(s []uint8) (Line, error) {
+    start := len(g.text)
+    append(mut g.text, s...)?
+    return Line{start: start, end: len(g.text)}, noerror
+}
+
+// line_text returns the bytes of l, empty for a marker.
+func (g Gen) line_text(l Line) []uint8 {
+    if l.start < 0 || l.start > l.end || l.end > len(g.text) {
+        return g.text[0:0]
+    }
+    return g.text[l.start:l.end]
+}
+
+// add_line appends s to lines as a Line.
+func (mut g Gen) add_line(mut lines list[Line], s []uint8) error {
+    l := mut g.line(s)?
+    append(mut lines, l)?
+    return noerror
+}
+
+// fail records a diagnostic, msg at sp, and returns gen_failed, as Go's
+// lowering returns its diagnostic.
+func (mut g Gen) fail(msg []uint8, sp source.Span) error {
+    m := text.from_bytes(msg, c_allocator)?
+    d := diag.new_error(own m, sp, c_allocator)
+    append(mut g.diags, d)?
+    return gen_failed
+}
+
+// temp returns a fresh name for a temporary of the generated C, built
+// from prefix, Go's temp: tack_, prefix and a number unique in the file.
+func (mut g Gen) temp(prefix string) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    append(mut out, []uint8("tack_")...)?
+    append(mut out, []uint8(prefix)...)?
+    bytes.append_int(mut out, g.temps)?
+    g.temps +%= 1
+    return out, noerror
+}
+
+// append_indented appends lines to out, marked one level in, as Go's
+// append(out, indent(lines)...) does.
+func append_indented(mut out list[Line], lines []Line) error {
+    if len(lines) == 0 {
+        return noerror
+    }
+    append(mut out, indent_in)?
+    append(mut out, lines...)?
+    append(mut out, indent_out)?
+    return noerror
+}
+
+// lower lowers t, a program header_diags found nothing wrong with, to
+// its C, Go's generate past its check of tack.h: the globals noted, the
+// pool filled, every declaration lowered before anything is written, and
+// then the file. It returns the diagnostics a lowering reported instead,
+// and not_ported for what the later stages lower (see doc.tck).
+func lower(mut t typeck.Typed, set builtin.Set) (list[uint8], list[diag.Diagnostic], error) {
+    mut g := new_gen(set)
+    e := mut g.lower_program(mut t)
+    if e.code == gen_failed.code {
+        out := make(list[uint8], c_allocator)
+        return out, replace(mut g.diags, make(list[diag.Diagnostic], c_allocator)), noerror
+    }
+    if e.code != 0 {
+        out := make(list[uint8], c_allocator)
+        return out, make(list[diag.Diagnostic], c_allocator), e
+    }
+    return replace(mut g.buf, make(list[uint8], c_allocator)), make(list[diag.Diagnostic], c_allocator), noerror
+}
+
+// Lowered is every declaration lowered, Go's generateDecls's results: the
+// globals, and each function's signature and body, in source order.
+type Lowered struct {
+    globals list[Global]
+    funcs list[LoweredFunc]
+}
+
+// LoweredFunc is one function lowered: its signature and its body.
+type LoweredFunc struct {
+    sig list[uint8]
+    body list[Line]
+}
+
+// lower_program is Go's generate past headerDiags.
+func (mut g Gen) lower_program(mut t typeck.Typed) error {
+    decls := program_decl_keys(t)?
+    for _, d := range decls {
+        switch kind_of(t.prog.trees[:], d) {
+        case var_decl:
+            put(mut g.globals, d, true)?
+        default:
+        }
+    }
+    mut g.collect_strings(mut t)?
+    mut low := mut g.generate_decls(mut t, decls[:])?
+    if mut t.instance_count() > 0 {
+        // generateInstances lowers every instance of a generic function,
+        // E4's.
+        return not_ported
+    }
+    library := is_library(t)
+    if !library {
+        mut start := make(list[uint8], c_allocator)
+        append_mangle(t, main_package(t), []uint8("main"), mut start)?
+        mut one := make(list[Line], c_allocator)
+        mut g.add_line(mut one, start[:])?
+        mut g.note_names([]uint8("main"), one[:])?
+    }
+    used := g.set.used(t.prog)?
+    mut sizes := mut g.uses_type(mut t, types.unsafe_size)?
+    if !sizes {
+        for _, f := range used {
+            if f.param == types.unsafe_size {
+                sizes = true
+            }
+        }
+    }
+    floats := mut g.uses_floats(mut t)?
+    mut g.emit_preamble(sizes, floats)?
+    mut g.emit_types(mut t)?
+    mut g.emit_constant_pool(mut t, used[:], low.globals[:])?
+    mut g.emit_globals(low.globals[:])?
+    mut g.emit_result_structs(mut t, decls[:])?
+    mut g.emit_cname_macro(t, decls[:])?
+    mut g.emit_prototypes(mut t, decls[:])?
+    for _, lf := range low.funcs {
+        mut g.emit_func(lf.sig[:], lf.body[:])?
+    }
+    mut g.emit_entry_point(t, library)?
+    return noerror
+}
+
+// program_decl_keys returns the package-level declarations of every
+// package of t's program, package by package, Go's prog.Decls().
+func program_decl_keys(t typeck.Typed) (list[typeck.Key], error) {
+    mut out := make(list[typeck.Key], c_allocator)
+    for _, pkg := range t.prog.packages {
+        for u := range pkg.count {
+            unit := pkg.first +% u
+            if unit < 0 || unit >= len(t.prog.trees) {
+                continue
+            }
+            for _, n := range t.prog.trees[unit].decls {
+                append(mut out, typeck.Key{unit: unit, node: n})?
+            }
+        }
+    }
+    return out, noerror
+}
+
+// is_library reports whether t's program is a library, Go's isLibrary:
+// its main package is not named main. A program loaded for its tests,
+// which has an entry of its own, Go's Entry, the port does not check.
+func is_library(t typeck.Typed) bool {
+    p := main_package(t)
+    if p < 0 || p >= len(t.prog.packages) {
+        return true
+    }
+    return !t.prog.packages[p].name.equal([]uint8("main"))
+}
+
+// emit_preamble writes the headers, Go's emitPreamble: <stdbool.h>,
+// <stdint.h>, <stddef.h> when sizes says a type needs it, the runtime's
+// tack.h, and, for a program with floats, the pragma that turns off
+// FP_CONTRACT.
+func (mut g Gen) emit_preamble(sizes bool, floats bool) error {
+    append(mut g.buf, []uint8("// Generated by the Tack compiler. Do not edit.\n\n")...)?
+    append(mut g.buf, []uint8("#include <stdbool.h>\n")...)?
+    append(mut g.buf, []uint8("#include <stdint.h>\n")...)?
+    if sizes {
+        append(mut g.buf, []uint8("#include <stddef.h>\n")...)?
+    }
+    append(mut g.buf, []uint8(std_header)...)?
+    append(mut g.buf, '\n')?
+    if floats {
+        append(mut g.buf, []uint8("#pragma STDC FP_CONTRACT OFF\n\n")...)?
+    }
+    return noerror
+}
+
+// generate_decls lowers every top-level declaration, Go's generateDecls:
+// each global as one line, and each function with a body as its
+// signature and its lowered body, in source order.
+func (mut g Gen) generate_decls(mut t typeck.Typed, decls []typeck.Key) (Lowered, error) {
+    mut low := Lowered{
+        globals: make(list[Global], c_allocator),
+        funcs: make(list[LoweredFunc], c_allocator),
+    }
+    for _, d := range decls {
+        switch kind_of(t.prog.trees[:], d) {
+        case var_decl(v):
+            decl := mut g.generate_global(mut t, d)?
+            mut name := make(list[uint8], c_allocator)
+            append_mangle(t, package_of_unit(t, d.unit), text_of(t, d.unit, v.name), mut name)?
+            append(mut low.globals, Global{name: name, decl: decl})?
+        case func_decl:
+            if !has_body(t, d) {
+                continue
+            }
+            body := mut g.generate_func_body(mut t, d)?
+            sig := mut g.signature(mut t, d)?
+            append(mut low.funcs, LoweredFunc{sig: sig, body: body})?
+        case type_decl:
+        default:
+            // Go's unknown declaration type, which names it with %T.
+            return low, not_ported
+        }
+    }
+    return low, noerror
+}
+
+// text_of returns the bytes s names in the tree unit of t's program.
+func text_of(t typeck.Typed, unit int64, s span[uint8]) []uint8 {
+    if unit < 0 || unit >= len(t.prog.trees) {
+        return t.store.bytes[0:0]
+    }
+    return t.prog.trees[unit].bytes[s]
+}
+
+// has_body reports whether the function fn's body is lowered as it is
+// declared, Go's hasBody: neither an extern func nor a generic one.
+func has_body(t typeck.Typed, fn typeck.Key) bool {
+    f := func_at(t.prog.trees[:], fn)
+    return !f.is_extern && node_count(t.prog.trees[:], fn.unit, f.type_params) == 0
+}
+
+// generate_global lowers the package-level variable v to its C
+// declaration, Go's generateGlobal: static, const unless it is mutable,
+// initialized with the value the type checker computed.
+func (mut g Gen) generate_global(mut t typeck.Typed, v typeck.Key) (list[uint8], error) {
+    vr := var_at(t.prog.trees[:], v)
+    typ := mut t.decl_type(v)
+    c, has := mut t.var_const(v)
+    mut value := make(list[uint8], c_allocator)
+    mut ok := false
+    if has {
+        ok = mut g.const_of(mut t, typ, c, mut value)?
+    }
+    if ok && c_depth(value[:]) > max_depth {
+        // deepGlobal, of struct.go, gives a value too deep for an
+        // initializer to C's main, E2's.
+        return value, not_ported
+    }
+    if (!has || c.kind == typeck.cv_none) && ast.is_none(vr.value) {
+        composite := mut g.is_composite(mut t, typ)?
+        if composite {
+            return value, not_ported
+        }
+    }
+    if !ok {
+        mut msg := make(list[uint8], c_allocator)
+        append(mut msg, []uint8("package-level variable ")...)?
+        append(mut msg, text_of(t, v.unit, vr.name)...)?
+        append(mut msg, []uint8(" has no computed value")...)?
+        e := mut g.fail(msg[:], vr.name_span)
+        return make(list[uint8], c_allocator), e
+    }
+    mut out := make(list[uint8], c_allocator)
+    if vr.mutable {
+        append(mut out, []uint8("static ")...)?
+    } else {
+        append(mut out, []uint8("static const ")...)?
+    }
+    append_c_type(mut t, typ, mut out)?
+    append(mut out, ' ')?
+    append_mangle(t, package_of_unit(t, v.unit), text_of(t, v.unit, vr.name), mut out)?
+    append(mut out, []uint8(" = ")...)?
+    append(mut out, value[:]...)?
+    append(mut out, ';')?
+    return out, noerror
+}
+
+// const_of appends the computed constant c of type typ as a C constant
+// expression to out, and reports whether it has one, Go's constOf:
+// c_allocator's as an initializer, and a basic type's as constValue
+// writes it. A union's, an array's and a struct's are E2's.
+func (mut g Gen) const_of(mut t typeck.Typed, typ types.Type, c typeck.Const, mut out list[uint8]) (bool, error) {
+    if c.kind == typeck.cv_alloc {
+        append(mut out, []uint8("{0, 0}")...)?
+        return true, noerror
+    }
+    if c.kind == typeck.cv_union {
+        return false, not_ported
+    }
+    if c.kind == typeck.cv_list {
+        composite := mut g.is_composite(mut t, typ)?
+        if composite {
+            return false, not_ported
+        }
+    }
+    ok := mut g.const_value(t, c, mut out)?
+    return ok, noerror
+}
+
+// const_value appends a computed constant of a basic type as a C constant
+// expression, and reports whether it was one, Go's constValue: an
+// integer, a bool, a pooled string as its members in braces, and a typed
+// float.
+func (mut g Gen) const_value(t typeck.Typed, c typeck.Const, mut out list[uint8]) (bool, error) {
+    if c.kind == typeck.cv_int {
+        append_int_literal(c.i, mut out)?
+        return true, noerror
+    }
+    if c.kind == typeck.cv_bool {
+        append_bool(c.b, mut out)?
+        return true, noerror
+    }
+    if c.kind == typeck.cv_str {
+        append(mut out, '{')?
+        g.append_str_parts(const_str(t, c), mut out)?
+        append(mut out, '}')?
+        return true, noerror
+    }
+    if c.kind == typeck.cv_f64 {
+        constant_float_literal(c.bits, false, mut out)?
+        return true, noerror
+    }
+    if c.kind == typeck.cv_f32 {
+        constant_float_literal(c.bits, true, mut out)?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// is_composite reports whether typ is an array, a struct or a union
+// type, Go's isComposite.
+func (mut g Gen) is_composite(mut t typeck.Typed, typ types.Type) (bool, error) {
+    if mut t.table.is_array(typ)? {
+        return true, noerror
+    }
+    if mut t.table.is_struct(typ)? {
+        return true, noerror
+    }
+    u := mut t.table.is_union(typ)?
+    return u, noerror
+}
+
+// emit_globals writes the package-level variables' declarations, each
+// that no lowered body names declared unused, Go's emitGlobals.
+func (mut g Gen) emit_globals(globals []Global) error {
+    if len(globals) == 0 {
+        return noerror
+    }
+    for _, v := range globals {
+        unused := mut g.maybe_unused(v.name[:])?
+        append(mut g.buf, []uint8(unused)...)?
+        append(mut g.buf, v.decl[:]...)?
+        append(mut g.buf, '\n')?
+    }
+    append(mut g.buf, '\n')?
+    return noerror
+}
+
+// emit_constant_pool writes the pooled strings as byte arrays, then the
+// prototypes of the builtins the program calls, then the helpers its
+// code calls, Go's emitConstantPool. A division's, a shift's and a
+// slice's helpers are E2's.
+func (mut g Gen) emit_constant_pool(mut t typeck.Typed, used []builtin.Func, globals []Global) error {
+    for i := range len(g.strs) {
+        s, ok := g.strs[i]
+        if !ok {
+            continue
+        }
+        mut label := make(list[uint8], c_allocator)
+        append_str_label(i, mut label)?
+        mut named := false
+        lt := text.from_bytes(label[:], c_allocator)?
+        _, has := g.named[lt]
+        if has {
+            named = true
+        }
+        for _, v := range globals {
+            if names_ident(v.decl[:], label[:]) {
+                named = true
+            }
+        }
+        if !named {
+            append(mut g.buf, []uint8("__attribute__((unused)) ")...)?
+        }
+        fmt.appendf(mut g.buf, "static const unsigned char %s[%d] = {", label[:], s.end -% s.start +% 1)?
+        append_c_bytes(g.strs_bytes[:], s, mut g.buf)?
+        append(mut g.buf, []uint8("0};\n")...)?
+    }
+    append(mut g.buf, '\n')?
+    for _, f := range used {
+        mut g.builtin_prototype(mut t, f)?
+        append(mut g.buf, '\n')?
+    }
+    if len(used) > 0 {
+        append(mut g.buf, '\n')?
+    }
+    divides := mut g.has_divisions(mut t)?
+    if divides {
+        // emitDivision and emitShift, E2's.
+        return not_ported
+    }
+    narrows := mut g.narrows_floats(mut t)?
+    if narrows {
+        mut g.emit_float_narrowing()?
+    }
+    return noerror
+}
+
+// builtin_prototype writes the C prototype of f, a builtin with a C body,
+// Go's builtinPrototype: void, its one parameter's C type, and _Noreturn
+// before exit's.
+func (mut g Gen) builtin_prototype(mut t typeck.Typed, f builtin.Func) error {
+    if f.name == "exit" {
+        append(mut g.buf, []uint8("_Noreturn ")...)?
+    }
+    append(mut g.buf, []uint8("void ")...)?
+    append(mut g.buf, []uint8(f.cname)...)?
+    append(mut g.buf, '(')?
+    append_c_type(mut t, f.param, mut g.buf)?
+    append(mut g.buf, []uint8(");")...)?
+    return noerror
+}
+
+// emit_float_narrowing writes the helper that converts a float64 to a
+// float32, Go's emitFloatNarrowing.
+func (mut g Gen) emit_float_narrowing() error {
+    unused := mut g.maybe_unused([]uint8(float_narrowing))?
+    append(mut g.buf, []uint8(unused)...)?
+    fmt.appendf(mut g.buf, "static float %s(double d) {\n", float_narrowing)?
+    append(mut g.buf, []uint8("    if (d >= 0x1.ffffffp+127) {\n        return __builtin_inff();\n    }\n")...)?
+    append(mut g.buf, []uint8("    if (d <= -0x1.ffffffp+127) {\n        return -__builtin_inff();\n    }\n")...)?
+    append(mut g.buf, []uint8("    return (float)d;\n}\n\n")...)?
+    return noerror
+}
+
+// emit_result_structs defines, for each function with more than one
+// result, the C struct it returns them in, Go's emitResultStructs and
+// emitResultStruct; a generic function has none, and an instance's are
+// E4's, which the port declines before it gets here.
+func (mut g Gen) emit_result_structs(mut t typeck.Typed, decls []typeck.Key) error {
+    for _, d := range decls {
+        switch kind_of(t.prog.trees[:], d) {
+        case func_decl:
+            f := func_at(t.prog.trees[:], d)
+            if node_count(t.prog.trees[:], d.unit, f.type_params) > 0 {
+                continue
+            }
+            n := mut t.result_len(d)
+            if n < 2 {
+                continue
+            }
+            append(mut g.buf, []uint8("typedef struct {\n")...)?
+            for i := range n {
+                append(mut g.buf, []uint8("    ")...)?
+                append_c_type(mut t, mut t.result(d, i), mut g.buf)?
+                fmt.appendf(mut g.buf, " r%d;\n", i)?
+            }
+            append(mut g.buf, []uint8("} ")...)?
+            mut rn := make(list[uint8], c_allocator)
+            mut g.append_results_name(mut t, d, mut rn)?
+            append(mut g.buf, rn[:]...)?
+            append(mut g.buf, []uint8(";\n\n")...)?
+        default:
+        }
+    }
+    return noerror
+}
+
+// append_results_name appends the name of the struct fn, a function with
+// several results, returns them in, Go's resultsName; a closure's is its
+// function type's, E4's.
+func (mut g Gen) append_results_name(mut t typeck.Typed, fn typeck.Key, mut out list[uint8]) error {
+    f := func_at(t.prog.trees[:], fn)
+    if f.closure {
+        return not_ported
+    }
+    mut cname := make(list[uint8], c_allocator)
+    append_func_cname(mut t, fn, mut cname)?
+    append_results_of(cname[:], mut out)?
+    return noerror
+}
+
+// emit_cname_macro defines TACK_C_NAME when the program declares an
+// extern func, Go's emitCNameMacro.
+func (mut g Gen) emit_cname_macro(t typeck.Typed, decls []typeck.Key) error {
+    mut externs := false
+    for _, d := range decls {
+        switch kind_of(t.prog.trees[:], d) {
+        case func_decl:
+            if func_at(t.prog.trees[:], d).is_extern {
+                externs = true
+            }
+        default:
+        }
+    }
+    if !externs {
+        return noerror
+    }
+    append(mut g.buf, []uint8("#define TACK_C_STR(x) #x\n")...)?
+    append(mut g.buf, []uint8("#define TACK_C_XSTR(x) TACK_C_STR(x)\n")...)?
+    append(mut g.buf, []uint8("#define TACK_C_NAME(name) __asm__(TACK_C_XSTR(__USER_LABEL_PREFIX__) name)\n\n")...)?
+    return noerror
+}
+
+// emit_prototypes forward declares every function, Go's emitPrototypes:
+// an extern func under its mangled name bound to its C name, any other
+// unused when no other lowered body names it. A generic function has
+// none.
+func (mut g Gen) emit_prototypes(mut t typeck.Typed, decls []typeck.Key) error {
+    if len(decls) == 0 {
+        return noerror
+    }
+    for _, d := range decls {
+        switch kind_of(t.prog.trees[:], d) {
+        case func_decl:
+            f := func_at(t.prog.trees[:], d)
+            if node_count(t.prog.trees[:], d.unit, f.type_params) > 0 {
+                continue
+            }
+            sig := mut g.signature(mut t, d)?
+            if f.is_extern {
+                append(mut g.buf, []uint8("extern ")...)?
+                if bytes.has_prefix(sig[:], []uint8("static ")) && len(sig) >= 7 {
+                    append(mut g.buf, sig[7:]...)?
+                } else {
+                    append(mut g.buf, sig[:]...)?
+                }
+                append(mut g.buf, []uint8(" TACK_C_NAME(\"")...)?
+                append_text(t.prog.trees[:], d.unit, f.cname, mut g.buf)?
+                append(mut g.buf, []uint8("\");\n")...)?
+                continue
+            }
+            mut cname := make(list[uint8], c_allocator)
+            append_func_cname(mut t, d, mut cname)?
+            unused := mut g.maybe_unused(cname[:])?
+            append(mut g.buf, []uint8(unused)...)?
+            append(mut g.buf, sig[:]...)?
+            append(mut g.buf, []uint8(";\n")...)?
+        default:
+        }
+    }
+    append(mut g.buf, '\n')?
+    return noerror
+}
+
+// emit_func writes a function whose signature is sig and whose lowered
+// body is body, turning its markers into indentation, Go's emitFunc.
+func (mut g Gen) emit_func(sig []uint8, body []Line) error {
+    append(mut g.buf, sig...)?
+    append(mut g.buf, []uint8(" {\n")...)?
+    mut depth int64 = 1
+    for _, l := range body {
+        if l.start == -1 {
+            depth +%= 1
+            continue
+        }
+        if l.start == -2 {
+            depth -%= 1
+            continue
+        }
+        for range depth {
+            append(mut g.buf, []uint8("    ")...)?
+        }
+        append_line_text(g.text[:], l, mut g.buf)?
+        append(mut g.buf, '\n')?
+    }
+    append(mut g.buf, []uint8("}\n\n")...)?
+    return noerror
+}
+
+// append_c_bytes appends the bytes of the pooled string s, held in pool,
+// to out as C array initializer bytes, each followed by a comma, Go's
+// toBytes less its trailing zero.
+func append_c_bytes(held []uint8, s Pooled, mut out list[uint8]) error {
+    if s.start < 0 || s.start > s.end || s.end > len(held) {
+        return noerror
+    }
+    for i := range s.end -% s.start {
+        b, ok := held[s.start +% i]
+        if ok {
+            bytes.append_int(mut out, int64(b))?
+            append(mut out, []uint8(", ")...)?
+        }
+    }
+    return noerror
+}
+
+// append_line_text appends the bytes of l, held in text, to out.
+func append_line_text(held []uint8, l Line, mut out list[uint8]) error {
+    if l.start < 0 || l.start > l.end || l.end > len(held) {
+        return noerror
+    }
+    append(mut out, held[l.start:l.end]...)?
+    return noerror
+}
+
+// emit_entry_point writes C's main, which stores argc and argv for std/os
+// and calls Tack's main, between the runtime's start and end when the
+// program runs C beyond its own, Go's emitEntryPoint. A library has no
+// main, and its file ends in one newline. A global too deep for a C
+// initializer, which C's main gives its value, is E2's.
+func (mut g Gen) emit_entry_point(t typeck.Typed, library bool) error {
+    if library {
+        if bytes.has_suffix(g.buf[:], []uint8("\n\n")) {
+            pop(mut g.buf)
+        }
+        return noerror
+    }
+    runs := g.set.runs_c(t.prog)?
+    append(mut g.buf, []uint8("int tack_argc_;\nchar **tack_argv_;\n\n")...)?
+    append(mut g.buf, []uint8("int main(int argc, char **argv) {\n")...)?
+    if runs {
+        append(mut g.buf, []uint8("    ")...)?
+        append(mut g.buf, []uint8(builtin.start_symbol)...)?
+        append(mut g.buf, []uint8("();\n")...)?
+    }
+    append(mut g.buf, []uint8("    tack_argc_ = argc;\n    tack_argv_ = argv;\n")...)?
+    append(mut g.buf, []uint8("    ")...)?
+    append_mangle(t, main_package(t), []uint8("main"), mut g.buf)?
+    append(mut g.buf, []uint8("();\n")...)?
+    if runs {
+        append(mut g.buf, []uint8("    ")...)?
+        append(mut g.buf, []uint8(builtin.end_symbol)...)?
+        append(mut g.buf, []uint8("();\n")...)?
+    }
+    append(mut g.buf, []uint8("    return 0;\n")...)?
+    append(mut g.buf, []uint8("}\n")...)?
+    return noerror
+}
+
+// signature returns the C declaration of the function fn, without a body
+// or semicolon, Go's signature: static, its result type, its C name and
+// each parameter, a method's receiver first.
+func (mut g Gen) signature(mut t typeck.Typed, fn typeck.Key) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    append(mut out, []uint8("static ")...)?
+    mut g.append_result_type(mut t, fn, mut out)?
+    append(mut out, ' ')?
+    append_func_cname(mut t, fn, mut out)?
+    f := func_at(t.prog.trees[:], fn)
+    n := node_count(t.prog.trees[:], fn.unit, f.params)
+    if n == 0 {
+        append(mut out, []uint8("(void)")...)?
+        return out, noerror
+    }
+    append(mut out, '(')?
+    for i := range n {
+        if i > 0 {
+            append(mut out, []uint8(", ")...)?
+        }
+        p := node_at(t.prog.trees[:], fn.unit, f.params, i)
+        mut g.append_param_type(mut t, p, mut out)?
+        append(mut out, ' ')?
+        append_param_decl_name(t, p, i, mut out)?
+    }
+    append(mut out, ')')?
+    return out, noerror
+}
+
+// append_param_type appends the C type the parameter p is passed as, Go's
+// paramType: its type's, or a pointer to it for a mut one. A scope
+// parameter of a function type, a tack_scope, is E4's.
+func (mut g Gen) append_param_type(mut t typeck.Typed, p typeck.Key, mut out list[uint8]) error {
+    scoped := mut g.scope_func(mut t, p)?
+    if scoped {
+        return not_ported
+    }
+    pa := param_at(t.prog.trees[:], p)
+    append_c_type(mut t, mut t.decl_type(p), mut out)?
+    if pa.is_mut {
+        append(mut out, []uint8(" *")...)?
+    }
+    return noerror
+}
+
+// scope_func reports whether p is a scope parameter of a function type,
+// Go's scopeFunc of closure.go.
+func (mut g Gen) scope_func(mut t typeck.Typed, p typeck.Key) (bool, error) {
+    pa := param_at(t.prog.trees[:], p)
+    if !pa.is_scope {
+        return false, noerror
+    }
+    f := mut t.table.is_func(mut t.decl_type(p))?
+    return f, noerror
+}
+
+// append_result_type appends the C type the function fn returns, Go's
+// resultType: void, its one result's type, or its results struct.
+func (mut g Gen) append_result_type(mut t typeck.Typed, fn typeck.Key, mut out list[uint8]) error {
+    n := mut t.result_len(fn)
+    if n == 0 {
+        append(mut out, []uint8("void")...)?
+        return noerror
+    }
+    if n == 1 {
+        append_c_type(mut t, mut t.result(fn, 0), mut out)?
+        return noerror
+    }
+    mut g.append_results_name(mut t, fn, mut out)?
+    return noerror
+}
+
+// generate_func_body lowers the body of fn, Go's generateFuncBody: as its
+// frame, its names noted, led by a (void) cast of each parameter the
+// lowered body never names. The closures it holds are E4's.
+func (mut g Gen) generate_func_body(mut t typeck.Typed, fn typeck.Key) (list[Line], error) {
+    body := mut g.func_frame(mut t, fn)?
+    mut cname := make(list[uint8], c_allocator)
+    append_func_cname(mut t, fn, mut cname)?
+    mut g.note_names(cname[:], body[:])?
+    mut out := make(list[Line], c_allocator)
+    mut g.unused_params(t, fn, body[:], mut out)?
+    append(mut out, body[:]...)?
+    return out, noerror
+}
+
+// const_str returns the bytes of the string constant c, Go's string
+// held in a Const.
+func const_str(t typeck.Typed, c typeck.Const) []uint8 {
+    end := c.first +% c.count
+    if c.first < 0 || c.first > end || end > len(t.store.bytes) {
+        return t.store.bytes[0:0]
+    }
+    return t.store.bytes[c.first:end]
+}
+
+// constant_float_literal appends the C literal of the float whose bits
+// are bits, a float32's when is32 says so, Go's floatLiteral.
+func constant_float_literal(bits uint64, is32 bool, mut out list[uint8]) error {
+    constant.append_float_literal(mut out, bits, is32)?
+    return noerror
+}

@@ -591,7 +591,7 @@ func command(a []text.Text, rest []int64, fl Flags, d Dump, max_errors int64) (i
         }
         // With --emit or --emit-header, Go checks the target whatever it
         // is, never comparing a copy of the builtins' documentation.
-        code, e := check_target(a[k].bytes(), max_errors, !emits)
+        code, e := check_target(a[k].bytes(), max_errors, d)
         return code, e
     }
     if no_dump {
@@ -1205,14 +1205,14 @@ func emit_target(target []uint8, d Dump, max_errors int64) (int32, error) {
     }
     mut typed := mut c.take_typed()?
     gout, mut gdiags, ge := codegen.generate(mut typed, builtin.default_set())
-    if ge.code != 0 && ge.code != codegen.not_ported.code {
+    if ge.code == codegen.not_ported.code {
+        return unimplemented([]uint8(flag_name(d))), noerror
+    }
+    if ge.code != 0 {
         return exit_failure, ge
     }
-    if ge.code == 0 {
-        drop(own gout)
-    }
-    if ge.code == 0 && diag.has_errors(gdiags) {
-        // What tack.h cannot name, Go's compile appends after the
+    if diag.has_errors(gdiags) {
+        // What the backend reports, Go's compile appends after the
         // warnings of the stages before, and renders with them.
         for i := range len(gdiags) {
             append(mut all, replace(mut gdiags[i], make(diag.Diagnostic, c_allocator)))?
@@ -1221,9 +1221,90 @@ func emit_target(target []uint8, d Dump, max_errors int64) (int32, error) {
         fmt.ewrite(out)
         return exit_failure, noerror
     }
-    // Past its check of tack.h Go's Generate lowers the program, which
-    // the port's does not do yet.
-    return unimplemented([]uint8(flag_name(d))), noerror
+    // Go's compileWarned writes the warnings, then the dump is written.
+    for i := range len(gdiags) {
+        append(mut all, replace(mut gdiags[i], make(diag.Diagnostic, c_allocator)))?
+    }
+    if len(all) > 0 {
+        out := render_diagnostics(typed.files, all, max_errors)?
+        fmt.ewrite(out)
+    }
+    if d == dump_header {
+        hcode := write_headers(mut typed, d)?
+        return hcode, noerror
+    }
+    mut emitted := gout
+    with_trailing_newline(mut emitted)?
+    fmt.write(emitted)
+    return exit_ok, noerror
+}
+
+// write_headers writes tack.h, the header codegen renders for t's
+// program, into the directory of its main package and of every other
+// package of its module with C files or extern funcs, Go's writeHeaders:
+// a library's main package only when it has either, and no package of
+// another module. A file that cannot be written, whose error Go words
+// with the operating system's, is not implemented, naming the dump d.
+func write_headers(mut t typeck.Typed, d Dump) (int32, error) {
+    header := codegen.header(mut t)?
+    code := write_header_files(t.prog, header[:], d)?
+    return code, noerror
+}
+
+// write_header_files writes header, prog's tack.h, where write_headers
+// says, naming d when a file cannot be written.
+func write_header_files(prog ast.Program, header []uint8, d Dump) (int32, error) {
+    main := len(prog.packages) -% 1
+    if main < 0 || main >= len(prog.packages) {
+        return exit_ok, noerror
+    }
+    library := !prog.packages[main].name.equal([]uint8("main"))
+    for p := range len(prog.packages) {
+        if !header_wanted(prog, p, main, library) {
+            continue
+        }
+        name := path.join(prog.packages[p].dir.bytes(), []uint8(codegen.header_name), c_allocator)?
+        we := os.write_file(name.bytes(), header)
+        if we.code != 0 {
+            return unimplemented([]uint8(flag_name(d))), noerror
+        }
+    }
+    return exit_ok, noerror
+}
+
+// header_wanted reports whether write_headers writes tack.h into the
+// package p of prog, main being its main package and library whether
+// the program is a library.
+func header_wanted(prog ast.Program, p int64, main int64, library bool) bool {
+    if p < 0 || p >= len(prog.packages) || main < 0 || main >= len(prog.packages) {
+        return false
+    }
+    if !library && p == main {
+        return true
+    }
+    if !prog.packages[p].module.equal(prog.packages[main].module.bytes()) {
+        return false
+    }
+    if len(prog.packages[p].c_files) > 0 {
+        return true
+    }
+    first := prog.packages[p].first
+    for u := range prog.packages[p].count {
+        unit := first +% u
+        if unit < 0 || unit >= len(prog.trees) {
+            continue
+        }
+        for _, n := range prog.trees[unit].decls {
+            switch prog.trees[unit].nodes[n].k {
+            case func_decl(fid):
+                if prog.trees[unit].funcs[fid].is_extern {
+                    return true
+                }
+            default:
+            }
+        }
+    }
+    return false
 }
 
 // header_dump writes what --port-header writes for target: the standard
@@ -1365,9 +1446,11 @@ func check_failed(f loader.Fail) (int32, error) {
 // be std/builtin or its builtin.tck, which Go compares with the
 // compiler's own copy instead, is compared with it (see check_builtin_doc).
 //
-// doc says to look for that copy, as Go does without a dump; with --emit
-// and --emit-header Go does not, checking the target as it is.
-func check_target(target []uint8, max_errors int64, doc bool) (int32, error) {
+// d is the dump the check writes, none, --emit or --emit-header: Go
+// looks for that copy without a dump; with --emit and --emit-header it
+// does not, checking the target as it is.
+func check_target(target []uint8, max_errors int64, d Dump) (int32, error) {
+    doc := d.n == 0
     std_dir, sf := find_std()?
     if sf.failed {
         code, e := check_failed(sf)
@@ -1395,7 +1478,7 @@ func check_target(target []uint8, max_errors int64, doc bool) (int32, error) {
         code, e := check_failed(f)
         return code, e
     }
-    code, e := check_program(mut res, max_errors)
+    code, e := check_program(mut res, max_errors, d)
     return code, e
 }
 
@@ -1499,7 +1582,7 @@ func is_link(p []uint8) bool {
 // Otherwise Go goes on to the C backend, which the port does not have,
 // so the check is not implemented, as is a program the type checker
 // cannot check yet.
-func check_program(mut res loader.Result, max_errors int64) (int32, error) {
+func check_program(mut res loader.Result, max_errors int64, d Dump) (int32, error) {
     mut all := replace(mut res.diags, make(list[diag.Diagnostic], c_allocator))
     if !res.has_program {
         if len(all) > 0 {
@@ -1531,17 +1614,16 @@ func check_program(mut res loader.Result, max_errors int64) (int32, error) {
         append(mut all, replace(mut tdiags[i], make(diag.Diagnostic, c_allocator)))?
     }
     if !diag.has_errors(all) {
-        // Go runs the C backend here, whatever the missing main, and
-        // the port's is not ported yet.
+        // Go runs the C backend here, whatever the missing main.
         mut typed := mut c.take_typed()?
         gout, mut gdiags, ge := codegen.generate(mut typed, builtin.default_set())
-        if ge.code != codegen.not_ported.code && ge.code != 0 {
+        if ge.code == codegen.not_ported.code {
+            return unimplemented([]uint8("--check")), noerror
+        }
+        if ge.code != 0 {
             return exit_failure, ge
         }
-        if ge.code == 0 {
-            drop(own gout)
-        }
-        if ge.code == 0 && len(gdiags) > 0 {
+        if len(gdiags) > 0 || len(missing) > 0 {
             // Go's checkProgram puts the missing main first, then what
             // the backend reported, then the stages' warnings.
             for i := range len(gdiags) {
@@ -1557,9 +1639,24 @@ func check_program(mut res loader.Result, max_errors int64) (int32, error) {
             }
             return exit_ok, noerror
         }
-        // Past its check of tack.h Go's Generate lowers the program,
-        // which the port's does not do yet.
-        return unimplemented([]uint8("--check")), noerror
+        // Go's writeCheckOutput writes tack.h, or the C, then the
+        // warnings follow.
+        if d == dump_header {
+            hcode := write_headers(mut typed, d)?
+            if hcode != exit_ok {
+                return hcode, noerror
+            }
+        }
+        if d == dump_emit {
+            mut emitted := gout
+            with_trailing_newline(mut emitted)?
+            fmt.write(emitted)
+        }
+        if len(all) > 0 {
+            out := render_diagnostics(typed.files, all, max_errors)?
+            fmt.ewrite(out)
+        }
+        return exit_ok, noerror
     }
     checked, back := mut c.take_program()
     drop(own checked)

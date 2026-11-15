@@ -1,0 +1,444 @@
+package codegen
+
+import ast from "tack/ast"
+import builtin from "tack/builtin"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// The order of evaluation, Go's order.go but for its spills, which the
+// expression machine does (see expr.tck): what an expression can do that
+// its order shows, whether it is pure, whether the order of a construct's
+// operands shows, and the temporaries that hold them in order when it
+// does; and the helpers that keep C shallow, cDepth, withSteps and
+// commaList. Go's build closures are written by each caller after the
+// operands are held: hold_operands holds them and returns the steps, and
+// wrap_steps puts the steps before what the caller built, as Go's hoist
+// does.
+
+// traits_of returns what evaluating e can do, anywhere in it, Go's
+// traitsOf: kept for each expression asked about within a function, a
+// part already asked about not walked again. The walk keeps a stack of
+// its own, and leaves out a closure's body, which runs only when the
+// call it is passed to calls it.
+func (mut g Gen) traits_of(mut t typeck.Typed, e typeck.Key) (Traits, error) {
+    if g.has_frame {
+        known, ok := g.frame.traits[e]
+        if ok {
+            return known, noerror
+        }
+    }
+    mut tr := Traits{calls: false, moves: false, changeable: false, question: false}
+    mut stack := make(list[typeck.Key], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, e)?
+    for len(stack) > 0 {
+        k, has := pop(mut stack)
+        if !has {
+            break
+        }
+        switch kind_of(t.prog.trees[:], k) {
+        case func_lit:
+            continue
+        default:
+        }
+        if k != e && g.has_frame {
+            known, ok := g.frame.traits[k]
+            if ok {
+                tr = or_traits(tr, known)
+                continue
+            }
+        }
+        mine := mut g.own_traits(mut t, k)?
+        tr = or_traits(tr, mine)
+        push_children(t.prog.trees[:], k, mut kids, mut stack)?
+    }
+    if g.has_frame {
+        put(mut g.frame.traits, e, tr)?
+    }
+    return tr, noerror
+}
+
+// or_traits returns what either a or b can do, Go's traits.or.
+func or_traits(a Traits, b Traits) Traits {
+    return Traits{
+        calls: a.calls || b.calls,
+        moves: a.moves || b.moves,
+        changeable: a.changeable || b.changeable,
+        question: a.question || b.question,
+    }
+}
+
+// own_traits returns what the node k does itself, not counting its parts,
+// Go's ownTraits: a call calls, a name may move its variable or read one
+// a call can change, and a ? may return.
+func (mut g Gen) own_traits(mut t typeck.Typed, k typeck.Key) (Traits, error) {
+    mut tr := Traits{calls: false, moves: false, changeable: false, question: false}
+    switch kind_of(t.prog.trees[:], k) {
+    case call:
+        tr.calls = calls_itself(mut t, k)
+    case ident:
+        tr.moves = mut t.is_move(k)
+        tr.changeable = mut g.changeable(mut t, k)?
+    case question:
+        tr.question = true
+    default:
+    }
+    return tr, noerror
+}
+
+// calls_itself reports whether the call k, not counting its operands,
+// calls a Tack function, a method, a function value, or a builtin that
+// changes a list, Go's callsItself.
+func calls_itself(mut t typeck.Typed, k typeck.Key) bool {
+    if has_receiver(t, k) {
+        return true
+    }
+    if !typeck_no_key(mut t.method(k)) || !typeck_no_key(mut t.dynamic(k)) {
+        return true
+    }
+    switch kind_of(t.prog.trees[:], k) {
+    case call(cl):
+        switch kind_of(t.prog.trees[:], typeck.Key{unit: k.unit, node: cl.fn}) {
+        case ident(nm):
+            return nm.def.kind == ast.def_func || changes_list(t, k)
+        default:
+        }
+    default:
+    }
+    return false
+}
+
+// typeck_no_key reports whether k names no node, typeck's is_no_key.
+func typeck_no_key(k typeck.Key) bool {
+    return k.unit < 0
+}
+
+// changes_list reports whether the call k calls a builtin that changes a
+// list, a map, a pool or an arena, Go's changesList.
+func changes_list(t typeck.Typed, k typeck.Key) bool {
+    return is_builtin_named(t, k, "append") || is_builtin_named(t, k, "pop") ||
+        is_builtin_named(t, k, "remove") || is_builtin_named(t, k, "swap") ||
+        is_builtin_named(t, k, "replace") || is_builtin_named(t, k, "put") ||
+        is_builtin_named(t, k, "delete") || is_builtin_named(t, k, "insert") ||
+        is_builtin_named(t, k, "add") || is_builtin_named(t, k, "add_all")
+}
+
+// has_receiver reports whether the call k is a method call on a value,
+// Go's Receiver() != nil: its callee is a selector whose operand is no
+// type.
+func has_receiver(t typeck.Typed, k typeck.Key) bool {
+    switch kind_of(t.prog.trees[:], k) {
+    case call(cl):
+        switch kind_of(t.prog.trees[:], typeck.Key{unit: k.unit, node: cl.fn}) {
+        case selector(s):
+            return !type_operand(t, typeck.Key{unit: k.unit, node: s.x})
+        default:
+        }
+    default:
+    }
+    return false
+}
+
+// type_operand reports whether x names a type, Go's ast.TypeOperand: a
+// name bound to a type declaration or a type parameter, or, bound to
+// nothing, a basic type's name with no package.
+func type_operand(t typeck.Typed, x typeck.Key) bool {
+    switch kind_of(t.prog.trees[:], x) {
+    case ident(nm):
+        if nm.def.kind == ast.def_type || nm.def.kind == ast.def_type_param {
+            return true
+        }
+        if nm.def.kind == ast.def_none {
+            _, basic := types.lookup(text_of(t, x.unit, nm.name))
+            return basic && len(text_of(t, x.unit, nm.pkg)) == 0
+        }
+        return false
+    default:
+    }
+    return false
+}
+
+// changeable reports whether a call can change the variable the name k
+// reads while an expression is evaluated, Go's changeable: a mutable
+// global, or a variable or parameter the function being lowered passes
+// as mut somewhere.
+func (mut g Gen) changeable(mut t typeck.Typed, k typeck.Key) (bool, error) {
+    d, bound := def_key(t.prog.trees[:], k)
+    if !bound {
+        return false, noerror
+    }
+    switch kind_of(t.prog.trees[:], d) {
+    case var_decl(v):
+        _, global := g.globals[d]
+        if global && v.mutable {
+            return true, noerror
+        }
+    default:
+    }
+    if !g.has_frame {
+        return false, noerror
+    }
+    _, m := g.frame.mutated[d]
+    return m, noerror
+}
+
+// pure reports whether evaluating e can neither do anything a program
+// could see nor be changed by what another operand does, Go's pure: a mut
+// argument when its indexes are, and any other expression that calls no
+// function, moves no variable and reads none a call can change.
+func (mut g Gen) pure(mut t typeck.Typed, e typeck.Key) (bool, error) {
+    switch kind_of(t.prog.trees[:], e) {
+    case mut_arg(x):
+        p := mut g.pure_indexes(mut t, typeck.Key{unit: e.unit, node: x})?
+        return p, noerror
+    default:
+    }
+    tr := mut g.traits_of(mut t, e)?
+    return !tr.calls && !tr.moves && !tr.changeable, noerror
+}
+
+// pure_indexes reports whether every index in place, a chain of fields
+// and elements, is pure, Go's pureIndexes.
+func (mut g Gen) pure_indexes(mut t typeck.Typed, start typeck.Key) (bool, error) {
+    mut k := start
+    for {
+        switch kind_of(t.prog.trees[:], k) {
+        case index(ix):
+            p := mut g.pure(mut t, typeck.Key{unit: k.unit, node: ix.index})?
+            if !p {
+                return false, noerror
+            }
+            k = typeck.Key{unit: k.unit, node: ix.x}
+        case selector(s):
+            k = typeck.Key{unit: k.unit, node: s.x}
+        default:
+            return true, noerror
+        }
+    }
+    return true, noerror
+}
+
+// order_shows reports whether the order operands are evaluated in could
+// change what a program does, Go's orderShows: two of them are not pure
+// and one of those calls a function or moves a variable's value.
+func (mut g Gen) order_shows(mut t typeck.Typed, operands []typeck.Key) (bool, error) {
+    mut impure int64 = 0
+    mut calling := false
+    for _, e := range operands {
+        p := mut g.pure(mut t, e)?
+        if !p {
+            impure +%= 1
+            tr := mut g.traits_of(mut t, e)?
+            calling = calling || tr.calls || tr.moves
+        }
+    }
+    return impure >= 2 && calling, noerror
+}
+
+// append_operand_type appends the C type of a temporary holding operand,
+// Go's operandType: its type's, or a pointer to it for a mut argument.
+func append_operand_type(mut t typeck.Typed, operand typeck.Key, mut out list[uint8]) error {
+    append_c_type(mut t, mut t.type_of(operand), mut out)?
+    switch kind_of(t.prog.trees[:], operand) {
+    case mut_arg:
+        append(mut out, []uint8(" *")...)?
+    default:
+    }
+    return noerror
+}
+
+// operand_types returns the C type of a temporary holding each of
+// operands, Go's operandTypes.
+func operand_types(mut t typeck.Typed, operands []typeck.Key) (list[list[uint8]], error) {
+    mut out := make(list[list[uint8]], c_allocator)
+    for _, e := range operands {
+        mut c := make(list[uint8], c_allocator)
+        append_operand_type(mut t, e, mut c)?
+        append(mut out, c)?
+    }
+    return out, noerror
+}
+
+// add_temp_decl adds to the frame the declaration of the temporary name
+// of the C type ctype, "ctype name;", as Go appends to frame.temps.
+func (mut g Gen) add_temp_decl(ctype []uint8, name []uint8) error {
+    mut d := make(list[uint8], c_allocator)
+    append(mut d, ctype...)?
+    append(mut d, ' ')?
+    append(mut d, name...)?
+    append(mut d, ';')?
+    l := mut g.line(d[:])?
+    append(mut g.frame.temps, l)?
+    return noerror
+}
+
+// hold_operands holds every operand of operands that is not pure in a
+// temporary of its C type in ctypes, in order, Go's hoist before it
+// builds: rendered's entry for each is replaced by the temporary, and
+// the steps that assign them are returned.
+func (mut g Gen) hold_operands(mut t typeck.Typed, operands []typeck.Key, mut rendered list[list[uint8]], ctypes []list[uint8]) (list[list[uint8]], error) {
+    mut steps := make(list[list[uint8]], c_allocator)
+    for i, e := range operands {
+        p := mut g.pure(mut t, e)?
+        if p {
+            continue
+        }
+        name := mut g.temp("o")?
+        if i < len(ctypes) {
+            mut g.add_temp_decl(ctypes[i][:], name[:])?
+        }
+        mut step := make(list[uint8], c_allocator)
+        append(mut step, name[:]...)?
+        append(mut step, []uint8(" = ")...)?
+        if i < len(rendered) {
+            append(mut step, rendered[i][:]...)?
+            rendered[i] = name
+        }
+        append(mut steps, step)?
+    }
+    return steps, noerror
+}
+
+// sequence holds operands, rendered as rendered, in temporaries of the C
+// types ctypes when their order could show, or always when force says
+// so, Go's sequencedAs, and hoist for force, before the caller builds.
+func (mut g Gen) sequence(mut t typeck.Typed, operands []typeck.Key, mut rendered list[list[uint8]], ctypes []list[uint8], force bool) (list[list[uint8]], error) {
+    if !force {
+        shows := mut g.order_shows(mut t, operands)?
+        if !shows {
+            steps := make(list[list[uint8]], c_allocator)
+            return steps, noerror
+        }
+    }
+    steps := mut g.hold_operands(mut t, operands, mut rendered, ctypes)?
+    return steps, noerror
+}
+
+// wrap_steps returns built, what a caller built of its held operands,
+// after steps, Go's hoist: (s1, s2, built), or built alone with none.
+func wrap_steps(steps []list[uint8], own built list[uint8]) (list[uint8], error) {
+    if len(steps) == 0 {
+        return built, noerror
+    }
+    mut out := make(list[uint8], c_allocator)
+    append(mut out, '(')?
+    for _, s := range steps {
+        append(mut out, s[:]...)?
+        append(mut out, []uint8(", ")...)?
+    }
+    append(mut out, built[:]...)?
+    append(mut out, ')')?
+    return out, noerror
+}
+
+// with_steps returns the C expression that runs steps, in order, then
+// gives x, parenthesized twice, or x alone, Go's withSteps.
+func with_steps(steps []list[uint8], own x list[uint8]) (list[uint8], error) {
+    if len(steps) == 0 {
+        return x, noerror
+    }
+    mut out := make(list[uint8], c_allocator)
+    append(mut out, []uint8("((")...)?
+    append_comma_list(steps, mut out)?
+    append(mut out, []uint8(", ")...)?
+    append(mut out, x[:]...)?
+    append(mut out, []uint8("))")...)?
+    return out, noerror
+}
+
+// flat_commas is how many expressions a comma list joins in one run,
+// Go's flatCommas.
+var flat_commas int64 = 8
+
+// append_comma_list appends exprs joined with the comma operator, a long
+// run grouped in halves, each parenthesized, Go's commaList. Each half
+// is half as long, so the recursion is as deep as the length's logarithm.
+func append_comma_list(exprs []list[uint8], mut out list[uint8]) error {
+    if len(exprs) <= flat_commas {
+        for i, e := range exprs {
+            if i > 0 {
+                append(mut out, []uint8(", ")...)?
+            }
+            append(mut out, e[:]...)?
+        }
+        return noerror
+    }
+    half := len(exprs) / 2
+    if half < 0 || half > len(exprs) {
+        return noerror
+    }
+    append(mut out, '(')?
+    append_comma_list(exprs[:half], mut out)?
+    append(mut out, []uint8("), (")...)?
+    append_comma_list(exprs[half:], mut out)?
+    append(mut out, ')')?
+    return noerror
+}
+
+// c_depth returns how deeply x, rendered C, nests its parentheses,
+// brackets and braces outside its character and string literals, Go's
+// cDepth.
+func c_depth(x []uint8) int64 {
+    mut depth int64 = 0
+    mut deepest int64 = 0
+    mut i int64 = 0
+    for i < len(x) {
+        b, ok := x[i]
+        if !ok {
+            break
+        }
+        if b == '"' || b == '\'' {
+            i = literal_end(x, i)
+        } else if b == '(' || b == '[' || b == '{' {
+            depth +%= 1
+            if depth > deepest {
+                deepest = depth
+            }
+        } else if b == ')' || b == ']' || b == '}' {
+            depth -%= 1
+        }
+        i +%= 1
+    }
+    return deepest
+}
+
+// literal_end returns the index of the quote that closes the literal of
+// C that opens at x[start], or the end of x, Go's literalEnd.
+func literal_end(x []uint8, start int64) int64 {
+    q, has := x[start]
+    if !has {
+        return len(x)
+    }
+    mut i := start +% 1
+    for i < len(x) {
+        b, ok := x[i]
+        if !ok {
+            break
+        }
+        if b == '\\' {
+            i +%= 1
+        } else if b == q {
+            return i
+        }
+        i +%= 1
+    }
+    return len(x)
+}
+
+// called_builtin returns the builtin with a C body the call k calls, and
+// whether it calls one, Go's builtins.Called.
+func (g Gen) called_builtin(t typeck.Typed, k typeck.Key) (builtin.Func, bool) {
+    if k.unit < 0 || k.unit >= len(t.prog.trees) {
+        mut z builtin.Func
+        return z, false
+    }
+    f, ok := g.set.called(t.prog.trees[k.unit], k.node)
+    return f, ok
+}
+
+// lookup_builtin reports whether name is a builtin with a C body, Go's
+// builtins.Lookup.
+func (g Gen) lookup_builtin(name []uint8) bool {
+    _, ok := g.set.lookup(name)
+    return ok
+}
