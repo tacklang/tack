@@ -600,7 +600,8 @@
 // TestCheckDeepStmts nests every ordered pair of the statements that
 // hold a block, an if, an else, an else if, loops, a counting loop and
 // loops writing a variable declared before them, switches of every
-// kind, a defer, a region, an unreachable a return before it proves and
+// kind, one whose case falls through into the default holding the rest
+// among them, a defer, a region, an unreachable a return before it proves and
 // one the facts prove, and a call whose contract gives a variable a
 // fact, alternating, as deeply as the parser allows, and each around a
 // value nested in every route of the bool family, compared as
@@ -773,7 +774,13 @@
 // thousand && and || operands, each putting the facts of those before
 // it in force for itself: in an if's condition, values ruled out and
 // joined by && or || equalities, and in an ensures clause, values ruled
-// out and lower bounds, given to a caller. TestCheckSliceChains runs a spine of slices with no high
+// out and lower bounds, given to a caller. TestDivisionChainPerf does
+// the same, and runs --emit as TestEmitPerf does, for a block of a
+// hundred thousand checked divisions, each binding two locals and
+// closing an if's block among all of them. TestDeepFactsMemory runs
+// --check and --emit of ifs nested as deeply as the parser allows, each
+// on a write, and of switches nested as deeply, each falling through
+// into the default holding the next, failing as TestResPerf does. TestCheckSliceChains runs a spine of slices with no high
 // bound, under len and indexed, and chains of locals each slicing the one before, from a
 // parameter and from a literal, five thousand links long, under --check,
 // the port's stack held to deepStack KB and to a quarter of it.

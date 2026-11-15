@@ -822,8 +822,10 @@ func TestCheckDeepPairs(t *testing.T) {
 // the statements it holds, a %s, each taking one of the parser's nesting
 // levels: every statement that holds a block, an if, an else, an else
 // if, a loop with a condition, a range over a count and over a list, a
-// tagless switch, a switch on a value, on a union, binding its payload,
-// with its other case and with a default, a type switch, a defer and a
+// tagless switch, a switch on a value, one whose case writes w and falls
+// through into the default holding the rest, a switch on a union,
+// binding its payload, with its other case and with a default, a type
+// switch, a defer and a
 // region; a loop writing w, a variable declared before it, for, range
 // and over a list, whose bounds a probe looks for; a counting loop; an
 // unreachable a return before it proves, and one the facts prove; and a
@@ -840,6 +842,7 @@ var stmtRoutes = map[string]string{
 	"list-range":    "for _, e# := range l {\nif e# == 0 {\n}\n%s}\n",
 	"tagless":       "switch {\ncase b:\n%s}\n",
 	"value-switch":  "switch n {\ncase 1:\n%s}\n",
+	"fallthrough":   "switch n {\ncase #:\nw +%%= 1\nfallthrough\ndefault:\n%s}\n",
 	"union-bind":    "switch u {\ncase a(p#):\nif p# {\n}\n%scase b:\n}\n",
 	"union-default": "switch u {\ncase a(p#):\nif p# {\n}\ndefault:\n%s}\n",
 	"type-switch":   "switch t# := y.(type) {\ncase int64:\nif t# == 0 {\n}\n%s}\n",

@@ -523,6 +523,55 @@ func TestArithPerf(t *testing.T) {
 	}
 }
 
+// divChainLength is how many checked divisions TestDivisionChainPerf's
+// programs make, one after another, in one block.
+const divChainLength = 100000
+
+// divChainBody returns the statements of TestDivisionChainPerf's main:
+// a local, then divChainLength checked divisions of it, each binding
+// its quotient and whether it divided, two locals of its own, and an if
+// on the second. Every if's block is closed among some two hundred
+// thousand locals in scope, so a resolver or checker whose work closing
+// a block grows with what is in scope, not with what the block
+// declared, does work growing with the square of the length.
+func divChainBody() string {
+	var b strings.Builder
+	b.WriteString("    mut a int64 = 7\n")
+	for i := range divChainLength {
+		fmt.Fprintf(&b, "    q%d, ok%d := a / %d\n    if ok%d {\n        a +%%= q%d >> 1\n    }\n", i, i, i%9+1, i, i)
+	}
+	return b.String()
+}
+
+// TestDivisionChainPerf is the performance tripwire for long blocks: it
+// runs --check --max-errors 0 of a main of divChainBody ending in
+// checkError, as TestArithPerf does, through the resolver and the type
+// checker alone, and --emit of one Go accepts, as TestEmitPerf does,
+// each failing when the port takes more than perfTimeFactor times Go's
+// time and perfTimeSlack, or perfMemoryFactor times its peak memory,
+// after checking that both compilers give the same output. It runs only
+// as TestPort does, and is not parallel.
+func TestDivisionChainPerf(t *testing.T) {
+	ready(t)
+	body := divChainBody()
+	t.Run("check", func(t *testing.T) {
+		src := "package main\n\nfunc main() {\n" + body + "    " + checkError + "}\n"
+		checkPerfAgainstGo(t, t.TempDir(), "divchain.tck", src, fmt.Sprintf("%d checked divisions", divChainLength))
+	})
+	t.Run("emit", func(t *testing.T) {
+		st := stageNamed(emitSingleStage)
+		if st == nil {
+			t.Fatal("no emit-single stage")
+		}
+		dir := t.TempDir()
+		src := "package main\n\nfunc main() {\n" + body + "    if a > 0 {\n        print(\"x\")\n    }\n}\n"
+		if err := os.WriteFile(filepath.Join(dir, "divchain.tck"), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		emitPerf(t, *st, input{name: "divchain.tck", dir: dir, file: "divchain.tck"})
+	})
+}
+
 // loopPerfFuncs is how many functions the first program of TestLoopPerf
 // holds, and loopPerfCalls how many contract calls, unreachables and
 // appends its other programs repeat.
