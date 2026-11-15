@@ -35,7 +35,11 @@ func (mut g Gen) emit_view_def(mut t typeck.Typed, typ types.Type) error {
 func (mut g Gen) view_copies(mut t typeck.Typed, place typeck.Key, call typeck.Key) (bool, error) {
     root, has_root := root_of(t.prog.trees[:], place)
     if !has_root {
-        // Go reads the Def of a nil root, and panics.
+        // A viewed array that is no place, which the checker rules out:
+        // it views only a place whose root names a variable or a
+        // parameter (typeck/view.go:146 and isPlace). Go's viewCopies
+        // reads the Def of the nil root, and panics (view.go:166); the
+        // port declines it as an internal error.
         return false, not_ported
     }
     decl, bound := def_key(t.prog.trees[:], root)

@@ -346,6 +346,15 @@ func (mut g Gen) value_test(mut t typeck.Typed, k typeck.Key, s ast.Switch, tag_
         mut g.int_test(mut t, typ, tag_ref, v, own value, mut out)?
         return noerror
     }
+    if mut t.table.is_list(typ)? {
+        // A list tag, which the checker rules out: a switch's tag holds
+        // no list (typeck/switch.go:741, switchTagType). Go's valueTest
+        // compares one with C's ==, which C cannot apply to the list's
+        // struct, since it asks isComposite where == asks
+        // hasEqualityHelper (switch.go:333); the port declines it as an
+        // internal error.
+        return not_ported
+    }
     fmt.appendf(mut out, "%s == %s", tag_ref, value[:])?
     return noerror
 }

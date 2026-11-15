@@ -734,26 +734,7 @@ func (mut g Gen) param_ref(mut t typeck.Typed, p typeck.Key) (list[uint8], error
     }
     pa := param_at(t.prog.trees[:], p)
     mut name := make(list[uint8], c_allocator)
-    if is_blank(t.prog.trees[:], p.unit, pa.name) {
-        f := func_at(t.prog.trees[:], g.frame.fn)
-        n := node_count(t.prog.trees[:], g.frame.fn.unit, f.params)
-        mut found := false
-        for i := range n {
-            q := node_at(t.prog.trees[:], g.frame.fn.unit, f.params, i)
-            if q == p {
-                append_param_decl_name(t, q, i, mut name)?
-                found = true
-                break
-            }
-        }
-        if !found {
-            // Go panics: a parameter named _ of no function being
-            // lowered.
-            return name, not_ported
-        }
-    } else {
-        append_param_name(text_of(t, p.unit, pa.name), mut name)?
-    }
+    g.append_param_c_name(t, p, mut name)?
     if pa.is_mut {
         mut out := make(list[uint8], c_allocator)
         append(mut out, []uint8("(*")...)?
@@ -762,6 +743,26 @@ func (mut g Gen) param_ref(mut t typeck.Typed, p typeck.Key) (list[uint8], error
         return out, noerror
     }
     return name, noerror
+}
+
+// append_param_c_name appends the C name of the parameter p of the
+// function being lowered, as its signature declares it: paramName's, or
+// for one named _, its place among the function's, Go's blankParamName.
+func (g Gen) append_param_c_name(t typeck.Typed, p typeck.Key, mut out list[uint8]) error {
+    pa := param_at(t.prog.trees[:], p)
+    if !is_blank(t.prog.trees[:], p.unit, pa.name) {
+        return append_param_name(text_of(t, p.unit, pa.name), mut out)
+    }
+    f := func_at(t.prog.trees[:], g.frame.fn)
+    n := node_count(t.prog.trees[:], g.frame.fn.unit, f.params)
+    for i := range n {
+        q := node_at(t.prog.trees[:], g.frame.fn.unit, f.params, i)
+        if q == p {
+            return append_param_decl_name(t, q, i, mut out)
+        }
+    }
+    // Go panics: a parameter named _ of no function being lowered.
+    return not_ported
 }
 
 // append_var_ref appends the C name of the variable v, Go's varRef: a
@@ -1046,7 +1047,12 @@ func (mut g Gen) step_call_value(mut t typeck.Typed, f MFrame, mut m Machine) er
             return noerror
         }
     }
-    if g.lookup_builtin(name[:]) {
+    // A builtin by what the name is bound to; Go's callValue looks the
+    // name up among the builtins whatever it is bound to (gen.go:3314),
+    // which no program the checker accepts tells apart: a declaration
+    // named like a builtin is rejected, and a call by a bare name binds
+    // to the builtin before any local.
+    if nm.def.kind == ast.def_builtin && g.lookup_builtin(name[:]) {
         mut msg := make(list[uint8], c_allocator)
         append(mut msg, name[:]...)?
         append(mut msg, []uint8(" returns no value")...)?
@@ -1684,8 +1690,13 @@ func (mut g Gen) step_mut_arg(mut t typeck.Typed, f MFrame, mut m Machine) error
             p := typeck.Key{unit: nm.def.unit, node: nm.def.node}
             pa := param_at(t.prog.trees[:], p)
             if pa.is_mut {
+                // By the name its function's signature gives it, which
+                // for a parameter named _ is its place (see
+                // append_param_c_name). Go's mutArg writes paramName's,
+                // p__, which C does not declare (gen.go:3558); no program
+                // the checker accepts names a parameter _.
                 mut out := make(list[uint8], c_allocator)
-                append_param_name(text_of(t, p.unit, pa.name), mut out)?
+                g.append_param_c_name(t, p, mut out)?
                 mut m.give(own out)?
                 return noerror
             }

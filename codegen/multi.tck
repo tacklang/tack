@@ -41,19 +41,69 @@ type MultiTemp struct {
     zero list[uint8]
 }
 
-// The kinds of MultiSource, each Go's field closure of one source.
+// The kinds of MultiSource, each Go's field closure of one source (see
+// append_field).
+
+// ms_call is a results struct held in one temporary and read field by
+// field, .r0, .r1 and so on: a call of several results, a ?'s, and add,
+// add_all and insert's (Go's callValues, questionValues, addValues and
+// insertValues).
 var ms_call uint8 = 1
+
+// ms_division is q, ok := a / b or a % b: the operands held, ok whether
+// the divisor allows the division, and the quotient or remainder taken
+// only then, 0 otherwise (Go's divisionValues).
 var ms_division uint8 = 2
+
+// ms_arith is v, ok := a op b, or -a, checked: the operands held, then
+// whether the result fits, last, and the result only when it does, 0
+// otherwise (Go's arithValues).
 var ms_arith uint8 = 3
+
+// ms_constant is a checked form the checker computed: its value, held
+// in no temporary, and true (Go's constantValues).
 var ms_constant uint8 = 4
+
+// ms_conversion is v, ok := T(x): x held, ok whether it fits T, and the
+// converted value only then, 0 otherwise (Go's conversionValues).
 var ms_conversion uint8 = 5
+
+// ms_index is v, ok := a[i] on anything indexed but a map or a pool, a
+// string among them: see append_index_field (Go's indexValues).
 var ms_index uint8 = 6
+
+// ms_slice is s, ok := a[lo:hi]: see append_slice_field (Go's
+// sliceValues).
 var ms_slice uint8 = 7
+
+// ms_assert is v, ok := x.(T) on an any: x held, ok whether it holds a
+// T, and the T it points to only then, the zero value otherwise (Go's
+// assertValues).
 var ms_assert uint8 = 8
+
+// ms_reverse is x, ok := pop(mut l) or remove(mut l, i): the values are
+// its last temporaries in reverse, x the element held last and ok
+// whether the list held it the one before (Go's takeValues).
 var ms_reverse uint8 = 9
+
+// ms_delete is v, ok := delete(mut m, k): the value in the fourth
+// temporary, and ok whether the slot the third found is one (Go's
+// deleteValues).
 var ms_delete uint8 = 10
+
+// ms_pool_take is v, ok := remove(mut p, h): the element in the fourth
+// temporary, and ok whether the third, the slot h names, is live (Go's
+// poolTakeValues).
 var ms_pool_take uint8 = 11
+
+// ms_lookup is v, ok := m[k]: ok whether the slot the third temporary
+// found is one, and the value read from the map in the first only then,
+// the zero value otherwise (Go's lookupValues).
 var ms_lookup uint8 = 12
+
+// ms_pool_lookup is v, ok := p[h]: ok whether the third temporary, the
+// slot h names, is live, and its value only then, the zero value
+// otherwise (Go's poolLookupValues).
 var ms_pool_lookup uint8 = 13
 
 // MultiSource is what gives a MultiVar or a MultiAssign its values, Go's

@@ -21,7 +21,8 @@ import types from "tack/types"
 // fields loop unrolled, unrolled; and whether a name moves the value of
 // the variable it names, Go's Ident.Move (see mv_move). A call to a
 // generic function has its type arguments, parameters' and results'
-// types too (see write_call_types), a fields loop's fields(T) what it
+// types too, and a call to add, add_all or insert its results' types
+// (see write_call_types), a fields loop's fields(T) what it
 // ranges over and lists (see write_fields_of), a switch on a type
 // parameter how its cases match (see write_type_cases), a closure its
 // captures (see write_captures), and the nodes whatever else the backend
@@ -490,14 +491,34 @@ func is_type_switch_tag(trees []ast.File, tag Key) bool {
 }
 
 // write_call_types appends, for a call k to a generic function whose
-// type arguments every type parameter has, its type arguments, its
-// parameters' types and its results' types, Go's Call.TypeArgs,
-// ParamTypes and ResultTypes (see record_signature).
+// type arguments every type parameter has, its type arguments and its
+// parameters' types, Go's Call.TypeArgs and ParamTypes (see
+// record_signature), and, for that call and for one to add, add_all or
+// insert, its results' types, Go's ResultTypes (see record_added).
 func (mut c Typed) write_call_types(mut out list[uint8], k Key) error {
     n, has := mut c.type_arg_count(k)
-    if !has {
+    if has {
+        mut c.write_type_args(mut out, k, n)?
+    }
+    nr, has_r := mut c.result_type_count(k)
+    if !has_r {
         return noerror
     }
+    fmt.appendf(mut out, ",\"result_types\":[")?
+    for i := range nr {
+        if i > 0 {
+            append(mut out, ',')?
+        }
+        v_result_type := mut c.result_type(k, i)
+        fmt.appendf(mut out, "%d", v_result_type.number())?
+    }
+    append(mut out, ']')?
+    return noerror
+}
+
+// write_type_args appends the n type arguments recorded on the call k
+// and its parameters' types, Go's Call.TypeArgs and ParamTypes.
+func (mut c Typed) write_type_args(mut out list[uint8], k Key, n int64) error {
     fmt.appendf(mut out, ",\"type_args\":[")?
     for i := range n {
         if i > 0 {
@@ -513,15 +534,6 @@ func (mut c Typed) write_call_types(mut out list[uint8], k Key) error {
         }
         v_param_type := mut c.param_type(k, i)
         fmt.appendf(mut out, "%d", v_param_type.number())?
-    }
-    fmt.appendf(mut out, "],\"result_types\":[")?
-    nr, _ := mut c.result_type_count(k)
-    for i := range nr {
-        if i > 0 {
-            append(mut out, ',')?
-        }
-        v_result_type := mut c.result_type(k, i)
-        fmt.appendf(mut out, "%d", v_result_type.number())?
     }
     append(mut out, ']')?
     return noerror

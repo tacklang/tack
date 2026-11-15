@@ -17,11 +17,19 @@ import types from "tack/types"
 // remove's ok, makes, Go's holding.first: err, the error's or the ok's
 // variable, holds v, first tied by the binding at span. The ties are
 // kept in the order they were first made, which is the order Go's
-// heldBy and holds list them in.
+// heldBy and holds list them in. Each links back to the tie before it
+// of its v, prev_v, and of its err, prev_err, -1 for none, and the
+// Checker's held_by and holds_of give each variable's last, so that the
+// ties of one variable are found without a walk of every tie the body
+// makes, which made a body of many checked pops quadratic.
+// A walk of one variable's ties is still as long as its chain, so one
+// ok or error reused across many bindings stays quadratic, as in Go.
 type HoldTie struct {
     err Key
     v Key
     span source.Span
+    prev_v int64
+    prev_err int64
 }
 
 // HolderAt is what an unread variable holds, Go's holders: the value
@@ -149,10 +157,10 @@ func (mut c Checker) collect_holds(unit int64, body ast.Nodes) error {
     clear_ties(mut c.ties)
     old_oks := replace(mut c.oks, make(map[Key]Key, c_allocator))
     drop(own old_oks)
-    old_held := replace(mut c.held_any, make(map[Key]bool, c_allocator))
+    old_held := replace(mut c.held_by, make(map[Key]int64, c_allocator))
     drop(own old_held)
-    old_holder := replace(mut c.holder_any, make(map[Key]bool, c_allocator))
-    drop(own old_holder)
+    old_holds := replace(mut c.holds_of, make(map[Key]int64, c_allocator))
+    drop(own old_holds)
     mut stack := make(list[id[ast.Node]], c_allocator)
     mut kids := make(list[id[ast.Node]], c_allocator)
     mut i := count_items(c.prog.trees, unit, body) -% 1
@@ -234,19 +242,76 @@ func (mut c Checker) hold(value Key, targets []Key, sp source.Span) error {
         if !has_v || is_no_key(v) {
             continue
         }
-        mut seen := false
-        for _, t := range c.ties {
-            if t.err == err && t.v == v {
-                seen = true
-                break
-            }
-        }
-        if !seen {
-            append(mut c.ties, HoldTie{err: err, v: v, span: sp})?
-            put(mut c.held_any, v, true)?
-            put(mut c.holder_any, err, true)?
+        if mut c.tie_of(err, v) < 0 {
+            mut c.add_tie(err, v, sp)?
         }
     }
+    return noerror
+}
+
+// tie_of returns where among the Checker's ties the tie of err holding v
+// is, or -1 when there is none, walking the ties of err alone.
+func (mut c Checker) tie_of(err Key, v Key) int64 {
+    mut i := last_tie(c.holds_of, err)
+    for i >= 0 {
+        t := tie_in(c.ties, i)
+        if t.v == v {
+            return i
+        }
+        i = t.prev_err
+    }
+    return -1
+}
+
+// last_tie returns where the last tie of the variable k is, by last, the
+// Checker's held_by or holds_of, or -1 when it has none.
+func last_tie(last map[Key]int64, k Key) int64 {
+    i, has := last[k]
+    if !has {
+        return -1
+    }
+    return i
+}
+
+// ties_of appends to out, in the order they were made, where the ties
+// of the variable k are: those it is held by, when held, by last, the
+// Checker's held_by, and those it holds otherwise, by holds_of.
+func (mut c Checker) ties_of(k Key, held bool, mut out list[int64]) error {
+    start := len(out)
+    mut i := last_tie(c.holds_of, k)
+    if held {
+        i = last_tie(c.held_by, k)
+    }
+    for i >= 0 {
+        append(mut out, i)?
+        t := tie_in(c.ties, i)
+        if held {
+            i = t.prev_v
+        } else {
+            i = t.prev_err
+        }
+    }
+    // The chain runs from the last tie back; what it appended is put in
+    // the order the ties were made.
+    mut lo := start
+    mut hi := len(out) -% 1
+    for lo >= 0 && lo < hi && hi < len(out) {
+        swap(mut out, lo, hi)
+        lo +%= 1
+        hi -%= 1
+    }
+    return noerror
+}
+
+// add_tie appends the tie of err holding v, first made by the binding at
+// sp, which is not made yet, to the Checker's ties, last among those of
+// v and of err.
+func (mut c Checker) add_tie(err Key, v Key, sp source.Span) error {
+    at := len(c.ties)
+    t := HoldTie{err: err, v: v, span: sp, prev_v: last_tie(c.held_by, v), prev_err: last_tie(c.holds_of, err)}
+    append(mut c.ties, t)?
+    put(mut c.held_by, v, at)?
+    put(mut c.holds_of, err, at)?
     return noerror
 }
 
@@ -270,18 +335,11 @@ func (mut c Checker) ok_held(v Key) (bool, error) {
 // heldVars of holds[err]: all of them for an error, and for an ok those
 // ok_held says it holds.
 func (mut c Checker) held_vars(err Key, mut out list[Key]) error {
-    _, holds := c.holder_any[err]
-    if !holds {
-        return noerror
-    }
     _, is_ok := c.oks[err]
-    mut i int64 = 0
-    for i < len(c.ties) {
+    mut at := make(list[int64], c_allocator)
+    mut c.ties_of(err, false, mut at)?
+    for _, i := range at {
         t := tie_in(c.ties, i)
-        i +%= 1
-        if t.err != err {
-            continue
-        }
         if is_ok {
             h := mut c.ok_held(t.v)?
             if !h {
@@ -306,26 +364,15 @@ func (mut c Checker) require_checked(k Key, nm ast.Ident) error {
         return noerror
     }
     v := key_of_def(nm.def)
-    _, held := c.held_any[v]
+    _, held := c.held_by[v]
     if !held {
         return noerror
     }
-    mut seen := make(list[Key], c_allocator)
-    mut i int64 = 0
-    for i < len(c.ties) {
+    // Each tie of v is of an err of its own: hold makes no tie twice.
+    mut at := make(list[int64], c_allocator)
+    mut c.ties_of(v, true, mut at)?
+    for _, i := range at {
         t := tie_in(c.ties, i)
-        i +%= 1
-        if t.v != v {
-            continue
-        }
-        mut again := false
-        for _, s := range seen {
-            again = again || s == t.err
-        }
-        if again {
-            continue
-        }
-        append(mut seen, t.err)?
         _, is_ok := c.oks[t.err]
         if is_ok {
             h := mut c.ok_held(v)?
@@ -391,11 +438,8 @@ func (mut c Checker) note_pass_on(k Key, s ast.Return, fnk Key) error {
             continue
         }
         vd := key_of_def(vnm.def)
-        for _, t := range c.ties {
-            if t.err == err && t.v == vd {
-                put(mut c.passed_on, v, err)?
-                break
-            }
+        if mut c.tie_of(err, vd) >= 0 {
+            put(mut c.passed_on, v, err)?
         }
     }
     return noerror
@@ -514,11 +558,9 @@ func (mut c Checker) held_assigned(sp source.Span, err Key, missing []Key, prefi
     }
     first := key_in(missing, 0)
     mut at := ast.unset_span()
-    for _, t := range c.ties {
-        if t.err == err && t.v == first {
-            at = t.span
-            break
-        }
+    ti := mut c.tie_of(err, first)
+    if ti >= 0 {
+        at = tie_in(c.ties, ti).span
     }
     mut ename := msg()
     append(mut ename, name_of(c.prog.trees, c.none, err)...)?

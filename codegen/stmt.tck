@@ -719,19 +719,26 @@ func (mut g Gen) ranges_in_place(mut t typeck.Typed, s typeck.Key) (bool, error)
         return false, noerror
     }
     decl, bound := def_key(t.prog.trees[:], root)
+    if !bound {
+        // An array place whose root names no declaration, which the
+        // checker rules out: every name a program it accepts uses is
+        // bound, and an array's is to a variable or a parameter. Go's
+        // writesTo would then take every target whose root is bound to
+        // nothing for a write of it, nil == nil (gen.go:1819); the port
+        // declines it as an internal error.
+        return false, not_ported
+    }
     mut global := false
-    if bound {
-        switch kind_of(t.prog.trees[:], decl) {
-        case var_decl(v):
-            _, is_global := g.globals[decl]
-            global = is_global && v.mutable
-        default:
-        }
+    switch kind_of(t.prog.trees[:], decl) {
+    case var_decl(v):
+        _, is_global := g.globals[decl]
+        global = is_global && v.mutable
+    default:
     }
     n := node_count(t.prog.trees[:], s.unit, lp.body)
     for i := range n {
         st := node_at(t.prog.trees[:], s.unit, lp.body, i)
-        writes := writes_to(t, st, decl, bound)?
+        writes := writes_to(t, st, decl)?
         if writes {
             return false, noerror
         }
@@ -746,10 +753,11 @@ func (mut g Gen) ranges_in_place(mut t typeck.Typed, s typeck.Key) (bool, error)
 }
 
 // writes_to reports whether stmt, at any depth, assigns, increments,
-// decrements or passes as mut decl or a part of it, Go's writesTo: a
-// target whose root is bound to what decl is, Go's root.Def == decl,
-// an unbound root matching an unbound decl, both nil in Go.
-func writes_to(t typeck.Typed, stmt typeck.Key, decl typeck.Key, bound bool) (bool, error) {
+// decrements or passes as mut decl, a declaration, or a part of it, Go's
+// writesTo: a target whose root is bound to decl, Go's root.Def == decl.
+// A root bound to nothing writes no declaration; Go's would match an
+// unbound decl, nil == nil, which ranges_in_place never passes.
+func writes_to(t typeck.Typed, stmt typeck.Key, decl typeck.Key) (bool, error) {
     mut stack := make(list[typeck.Key], c_allocator)
     mut kids := make(list[id[ast.Node]], c_allocator)
     mut targets := make(list[typeck.Key], c_allocator)
@@ -780,7 +788,7 @@ func writes_to(t typeck.Typed, stmt typeck.Key, decl typeck.Key, bound bool) (bo
             r, ok := root_of(t.prog.trees[:], tk)
             if ok {
                 d, b := def_key(t.prog.trees[:], r)
-                if b == bound && (!b || d == decl) {
+                if b && d == decl {
                     return true, noerror
                 }
             }

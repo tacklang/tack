@@ -346,14 +346,16 @@ pub type Checker struct {
 
     // The errors (see errors.tck): the ties the bindings of the body
     // being checked make, in order, the ok variables among the holders
-    // with the call that bound each, which variables are held and which
-    // hold, what each unread variable holds, Go's holders, and the
-    // values the return being checked passes on beside their error, Go's
-    // passedOn.
+    // with the call that bound each, the ties of each held variable and
+    // of each holder, Go's heldBy and holds, by the last of them, what
+    // each unread variable holds, Go's holders, and the values the
+    // return being checked passes on beside their error, Go's passedOn.
+    // No field is added here lightly: a method of a Checker value is
+    // passed a copy of it, which every frame calling one holds.
     ties list[HoldTie]
     oks map[Key]Key
-    held_any map[Key]bool
-    holder_any map[Key]bool
+    held_by map[Key]int64
+    holds_of map[Key]int64
     holders map[Key]HolderAt
     passed_on map[Key]Key
 
@@ -649,8 +651,8 @@ pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error
         recv_type: types.invalid,
         ties: make(list[HoldTie], c_allocator),
         oks: make(map[Key]Key, c_allocator),
-        held_any: make(map[Key]bool, c_allocator),
-        holder_any: make(map[Key]bool, c_allocator),
+        held_by: make(map[Key]int64, c_allocator),
+        holds_of: make(map[Key]int64, c_allocator),
         holders: make(map[Key]HolderAt, c_allocator),
         passed_on: make(map[Key]Key, c_allocator),
         question_counts: make(map[Key]int64, c_allocator),

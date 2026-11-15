@@ -130,7 +130,9 @@ package typeck
 // checking a closure's body sets apart is kept on the Checker's stacks,
 // not in a frame (see enter_closure), as is what a switch on a type
 // parameter keeps between its cases (see check_param_switch) and what
-// an expression switch does (see check_switch_chain), an
+// an expression switch does (see check_switch_chain), its cases'
+// values checked out of the frame of every other part (see
+// chain_case_values), an
 // instance's body, a fields loop's and a case's are walked from a stack
 // of their own (see inst_walk), and a type's name, which a switch on a
 // type parameter nested in another's case makes as deep as the nest, is

@@ -130,7 +130,8 @@ func (mut c Checker) delete_call(k Key) (types.Type, error) {
 
 // add_call checks a call to add, k, Go's addCall: the arena, passed as
 // mut, then a value usable as its element type. It records the id type
-// it gives on the call and returns it.
+// it gives on the call, and its two results (see record_added), and
+// returns it.
 func (mut c Checker) add_call(k Key) (types.Type, error) {
     cl := call_of(c.prog.trees, k)
     name := builtin_msg("add")?
@@ -151,14 +152,15 @@ func (mut c Checker) add_call(k Key) (types.Type, error) {
         return types.invalid, noerror
     }
     t := mut c.table.id_of(elem)?
-    mut c.set_node_type(k, t)?
+    mut c.record_added(k, t)?
     return t, noerror
 }
 
 // add_all_call checks a call to add_all, k, Go's addAllCall: the arena,
 // passed as mut, then any number of values usable as its element type,
 // or a view of them spread whole, which an owned element type cannot
-// be. It records the span type it gives on the call and returns it.
+// be. It records the span type it gives on the call, and its two results
+// (see record_added), and returns it.
 func (mut c Checker) add_all_call(k Key) (types.Type, error) {
     cl := call_of(c.prog.trees, k)
     name := builtin_msg("add_all")?
@@ -198,13 +200,14 @@ func (mut c Checker) add_all_call(k Key) (types.Type, error) {
         return types.invalid, noerror
     }
     t := mut c.table.span_of(elem)?
-    mut c.set_node_type(k, t)?
+    mut c.record_added(k, t)?
     return t, noerror
 }
 
 // insert_call checks a call to insert, k, Go's insertCall: the pool,
 // passed as mut, then a value usable as its element type. It records
-// the handle type it gives on the call and returns it.
+// the handle type it gives on the call, and its two results (see
+// record_added), and returns it.
 func (mut c Checker) insert_call(k Key) (types.Type, error) {
     cl := call_of(c.prog.trees, k)
     name := builtin_msg("insert")?
@@ -225,8 +228,21 @@ func (mut c Checker) insert_call(k Key) (types.Type, error) {
         return types.invalid, noerror
     }
     t := mut c.table.handle_of(elem)?
-    mut c.set_node_type(k, t)?
+    mut c.record_added(k, t)?
     return t, noerror
+}
+
+// record_added records t, the id, span or handle type a call k to add,
+// add_all or insert gives, as the call's type, and its two results, t
+// and an error, as its result types, Go's added and the end of
+// insertCall: Call.Type and Call.ResultTypes, which ast.CallResults
+// gives for a call with no callee.
+func (mut c Checker) record_added(k Key, t types.Type) error {
+    mut c.set_node_type(k, t)?
+    put(mut c.call_rtypes, RKey{unit: k.unit, node: k.node, i: 0}, t)?
+    put(mut c.call_rtypes, RKey{unit: k.unit, node: k.node, i: 1}, types.error_type)?
+    put(mut c.call_rcount, k, 2)?
+    return noerror
 }
 
 // pool_remove checks the handle of the call k to remove whose first

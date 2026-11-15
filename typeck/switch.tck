@@ -48,27 +48,31 @@ func (mut c Checker) check_switch(k Key, s ast.Switch) error {
 // everything it does but check the cases' bodies is chain_phase's,
 // called from here six times, so that only a small frame is on the
 // stack while a switch nested in a body is checked (see the stack
-// discipline in doc.tck).
+// discipline in doc.tck); the values of each case are checked by
+// chain_case_values, whose frame is as small, so that none of
+// chain_phase's is on the stack while a switch nested in a value, in a
+// closure's body, is checked either.
 func (mut c Checker) check_switch_chain(k Key, s ast.Switch, tag_type types.Type) error {
     mut none := make(list[Fact], c_allocator)
-    start := mut c.chain_phase(k, s, tag_type, 0, sc_start, mut none)?
+    start := mut c.chain_phase(k, s, 0, sc_start, mut none)?
     for i := range start.count {
+        mut c.chain_case_values(k, s, tag_type, i)?
         mut facts := make(list[Fact], c_allocator)
-        st := mut c.chain_phase(k, s, tag_type, i, sc_case, mut facts)?
+        st := mut c.chain_phase(k, s, i, sc_case, mut facts)?
         if st.run {
             mut c.check_case_body(k, st.cl, false, st.g, facts[:], st.late)?
         }
-        mut c.chain_phase(k, s, tag_type, i, sc_after, mut none)?
+        mut c.chain_phase(k, s, i, sc_after, mut none)?
     }
-    mut c.chain_phase(k, s, tag_type, 0, sc_release, mut none)?
+    mut c.chain_phase(k, s, 0, sc_release, mut none)?
     for i := range count_items(c.prog.trees, k.unit, s.cases) {
         mut facts := make(list[Fact], c_allocator)
-        st := mut c.chain_phase(k, s, tag_type, i, sc_fallen, mut facts)?
+        st := mut c.chain_phase(k, s, i, sc_fallen, mut facts)?
         if st.run {
             mut c.check_case_body(k, st.cl, false, st.g, facts[:], st.late)?
         }
     }
-    mut c.chain_phase(k, s, tag_type, 0, sc_end, mut none)?
+    mut c.chain_phase(k, s, 0, sc_end, mut none)?
     return noerror
 }
 
@@ -128,20 +132,21 @@ func no_chain_step() ChainStep {
 }
 
 // chain_phase does the part phase names of checking the expression
-// switch k, s, whose tag has type tag_type, Go's checkSwitch around its
-// cases' bodies, with facts the facts a body it says to check is checked
-// with: sc_start puts the switch's ChainFrame on the Checker's stack and
-// says how many cases are tried; sc_case checks the values of the i-th
-// case tried and, unless a fallthrough enters it, gives what matching it
-// says for its body, and otherwise keeps that for later; sc_after puts
-// in force what it not matching says, for every case tried after it;
-// sc_release, once every case is tried, takes the cases' facts out of
-// force and gives back what only trying them needed; sc_fallen, for the i-th case
-// in source order when a fallthrough enters it, Go's checkFallenInto,
-// gives what both ways into it agree on: matched, each fact a value of
-// the switch assigns the variable of dropped, joined with the facts in
-// force at the fallthrough; and sc_end takes the frame off.
-func (mut c Checker) chain_phase(k Key, s ast.Switch, tag_type types.Type, i int64, phase uint8, mut facts list[Fact]) (ChainStep, error) {
+// switch k, s, Go's checkSwitch around its cases' bodies, with facts the
+// facts a body it says to check is checked with: sc_start puts the
+// switch's ChainFrame on the Checker's stack and says how many cases are
+// tried; sc_case, once chain_case_values has checked the values of the
+// i-th case tried, gives what matching it says for its body, unless a
+// fallthrough enters it, and otherwise keeps that for later; sc_after
+// puts in force what it not matching says, for every case tried after
+// it; sc_release, once every case is tried, takes the cases' facts out
+// of force and gives back what only trying them needed; sc_fallen, for
+// the i-th case in source order when a fallthrough enters it, Go's
+// checkFallenInto, gives what both ways into it agree on: matched, each
+// fact a value of the switch assigns the variable of dropped, joined
+// with the facts in force at the fallthrough; and sc_end takes the frame
+// off. A phase but sc_start that finds no frame is no_chain_frame.
+func (mut c Checker) chain_phase(k Key, s ast.Switch, i int64, phase uint8, mut facts list[Fact]) (ChainStep, error) {
     mut step := no_chain_step()
     if phase == sc_start {
         mut f := ChainFrame{
@@ -183,11 +188,10 @@ func (mut c Checker) chain_phase(k Key, s ast.Switch, tag_type types.Type, i int
     }
     mut f, has_f := pop(mut c.chain_frames)
     if !has_f {
-        return step, noerror
+        return step, no_chain_frame
     }
     if phase == sc_case {
         cl := key_in(f.order, i)
-        mut c.check_case_values(k, s, tag_type, cl, mut f.seen)?
         _, in := f.entered[cl]
         if in {
             start := len(f.matched_facts)
@@ -251,6 +255,57 @@ func (mut c Checker) chain_phase(k Key, s ast.Switch, tag_type types.Type, i int
     }
     append(mut c.chain_frames, f)?
     return step, noerror
+}
+
+// no_chain_frame is the internal error of a phase of chain_phase, or of
+// chain_case_values, that finds no ChainFrame on the Checker's stack:
+// check_switch_chain pushes one before every other phase and takes it
+// off only after the last, so the switch being checked always has one.
+// Go's checkSwitch keeps what this frame holds in locals, and has no
+// such case.
+var no_chain_frame = error{code: 2, msg: "internal error: a switch's cases were checked with no frame of the switch"}
+
+// chain_case_values checks the values of the i-th case tried of the
+// expression switch k, s, whose tag has type tag_type, Go's checkCase
+// before it checks the body, against the constant values seen in the
+// cases tried before it, which the switch's ChainFrame holds. Only the
+// case and the map of the values seen are taken from the frame, by
+// take_case_seen, whose own frame is gone by then, and the map is put
+// back after: a value may hold a closure whose body holds a switch, as
+// deep as the nest, so this frame, on the stack while it is checked, is
+// kept small.
+func (mut c Checker) chain_case_values(k Key, s ast.Switch, tag_type types.Type, i int64) error {
+    mut seen, cl := mut c.take_case_seen(i)?
+    mut c.check_case_values(k, s, tag_type, cl, mut seen)?
+    return mut c.put_case_seen(own seen)
+}
+
+// take_case_seen returns the constant values the cases tried so far of
+// the switch whose ChainFrame is on top of the Checker's stack have
+// seen, taken out of the frame, which is left an empty map, and its i-th
+// case tried.
+func (mut c Checker) take_case_seen(i int64) (map[CaseKey]Key, Key, error) {
+    mut f, has_f := pop(mut c.chain_frames)
+    if !has_f {
+        return make(map[CaseKey]Key, c_allocator), no_key(), no_chain_frame
+    }
+    cl := key_in(f.order, i)
+    seen := replace(mut f.seen, make(map[CaseKey]Key, c_allocator))
+    append(mut c.chain_frames, f)?
+    return seen, cl, noerror
+}
+
+// put_case_seen gives the constant values seen, which take_case_seen
+// took, back to the ChainFrame on top of the Checker's stack.
+func (mut c Checker) put_case_seen(own seen map[CaseKey]Key) error {
+    mut f, has_f := pop(mut c.chain_frames)
+    if !has_f {
+        return no_chain_frame
+    }
+    emptied := replace(mut f.seen, seen)
+    drop(own emptied)
+    append(mut c.chain_frames, f)?
+    return noerror
 }
 
 // fallen_facts appends to out what both ways into a body of the

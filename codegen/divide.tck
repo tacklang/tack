@@ -85,10 +85,18 @@ func (mut g Gen) emit_divisions(mut t typeck.Typed) error {
     return noerror
 }
 
-// emit_division writes the helper for op, / or %, in typ, Go's
-// emitDivision: a signed division by -1 written out, the quotient as the
-// negation on uint64_t and the remainder as 0.
+// emit_division writes the helper for op, / or %, in typ, an integer
+// type, Go's emitDivision: a signed division by -1 written out, the
+// quotient as the negation on uint64_t and the remainder as 0.
 func (mut g Gen) emit_division(mut t typeck.Typed, op ast.BinaryOp, typ types.Type) error {
+    if !types.is_integer(typ) {
+        // A float's division, which divisions never gives: it lists only
+        // the types below untyped_int, and a float divides with C's own
+        // /. Go's emitDivision would write a float the signed integer
+        // helper, its quotient negated through uint64_t (gen.go:672);
+        // the port declines it as an internal error.
+        return not_ported
+    }
     mut ct := make(list[uint8], c_allocator)
     append_c_type(mut t, typ, mut ct)?
     mut name := make(list[uint8], c_allocator)

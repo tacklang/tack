@@ -14,12 +14,12 @@ import types from "tack/types"
 // view.tck, struct.tck and union.tck), a list, a map, an arena and a
 // pool E3's (list.tck, maps.tck, arena.tck and pools.tck), with
 // tack_fnptr first, and the pointer types of the function types last
-// (funcvalue.tck). Then the string comparison
-// helper, when the lowered code compares strings, directly, through an
-// equality helper or as a map's keys, the equality helper of every type
-// == or a map compares, each after those of the types it is made of,
-// the free helper of every type that owns and has one (list.tck), and
-// the helpers of every arena, pool and map.
+// (funcvalue.tck). Then the string comparison helper, when the lowered
+// code compares strings, directly, through an equality helper or as a
+// map's keys, the equality helper of every type == or a map compares,
+// each after those of the types it is made of, the free helper of every
+// type that owns and has one (list.tck), and the helpers of every arena,
+// pool and map.
 //
 // Go walks a type's parts by recursion, a frame a level, and a chain of
 // structs each holding the one before is as long as its source makes

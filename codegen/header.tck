@@ -568,11 +568,14 @@ func (mut h Header) errorf(at source.Span, own m list[uint8]) error {
 // underscore unless it is in package main; an array type tack_array_, its
 // length, an underscore, and its element type's name; a view type
 // tack_view_ and its element type's name; and a list type tack_list_ and
-// its element type's name. An element is named as Go's elemName names
-// it: by its own tack.h name if it is an array or a struct but error, so
-// the walk goes on into it, and by its Tack name otherwise, a view or a
-// list among them, so [][]int64 is tack_view_[]int64, as Go names it.
-// Go recurses into each element; this walks them in a loop.
+// its element type's name. An element is named by its own tack.h name
+// if it is an array, a view, a list or a struct but error, so the walk
+// goes on into it, and by its Tack name otherwise. Go's elemName names a
+// view or a list element by its Tack name, so [][]int64 would be
+// tack_view_[]int64, which is no C name (header.go:311); the checker
+// lets no extern func's signature hold a view or a list of either, so no
+// program it accepts shows the difference. Go recurses into each
+// element; this walks them in a loop.
 func (mut h Header) append_cname(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
     mut cur := typ
     for {
@@ -601,8 +604,10 @@ func (mut h Header) append_cname(mut t typeck.Typed, typ types.Type, mut out lis
         }
         elem := mut t.table.elem_of(cur)?
         elem_arr := mut t.table.is_array(elem)?
+        elem_view := mut t.table.is_view(elem)?
+        elem_lst := mut t.table.is_list(elem)?
         elem_st := mut t.table.is_struct(elem)?
-        if elem_arr || elem_st && elem != types.error_type {
+        if elem_arr || elem_view || elem_lst || elem_st && elem != types.error_type {
             cur = elem
             continue
         }

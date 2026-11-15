@@ -76,12 +76,11 @@ func (mut g Gen) step_question(mut t typeck.Typed, f MFrame, mut m Machine) erro
         }
         mut n int64 = 0
         _, has := callee_of(mut t, call)
-        if is_builtin_named(t, call, "add") || is_builtin_named(t, call, "add_all") || is_builtin_named(t, call, "insert") {
-            // Go's checker records the two results of add, add_all and
-            // insert, the id, span or handle and an error, on the call,
-            // which its CallResults gives; the handover records none.
-            n = 2
-        } else if has {
+        adds := is_builtin_named(t, call, "add") || is_builtin_named(t, call, "add_all") || is_builtin_named(t, call, "insert")
+        if has || adds {
+            // The two results the checker records on a call to add,
+            // add_all or insert, the id, span or handle and an error,
+            // among them.
             n = mut t.call_result_count(call)
         }
         mut s := f
@@ -92,7 +91,9 @@ func (mut g Gen) step_question(mut t typeck.Typed, f MFrame, mut m Machine) erro
             mut m.push(r_call_value, call, types.invalid, false)?
             return noerror
         }
-        if is_builtin_named(t, call, "add") || is_builtin_named(t, call, "add_all") || is_builtin_named(t, call, "insert") {
+        if adds {
+            // Go's callValues, by addValues and insertValues, whose
+            // calls, addExpr and insertExpr, this routine renders.
             mut m.push(r_append, call, types.invalid, false)?
             return noerror
         }

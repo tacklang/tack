@@ -16,8 +16,11 @@ import text from "std/text"
 // the Table and gives out no other query, so no query it makes can skip
 // the binding.
 //
-// Each twin keeps what its Go query asks of the type itself before
-// binding it, as InAny, IsStruct, HasZero and Fields do. A query Go's
+// Each twin answers about what the type stands for alone. Go's InAny,
+// IsStruct, HasZero and Fields ask part of their question of the type
+// itself before binding it, and so answer wrongly for a type parameter
+// bound to a basic type an any takes, to error and to Allocator (see
+// each twin); the twins bind first. A query Go's
 // Table answers about a type's parts, as Owned, Size and Name do, binds
 // each part again; the parts of what Bound gave are
 // bound already, and bind declines any binding under which binding
@@ -110,27 +113,25 @@ func (mut t Table) bound_is_view(typ Type) (bool, error) {
     return t.is_view(b), noerror
 }
 
-// bound_in_any_of is in_any_of under the binding in force, Go's InAny,
-// which asks whether typ itself, not what it stands for, is a basic type
-// an any takes, and only then binds it, to ask whether it is a view of
-// one.
+// bound_in_any_of is in_any_of under the binding in force, Go's InAny.
+// Go's asks whether typ itself, not what it stands for, is a basic type
+// an any takes, so a type parameter bound to int64 is no such type there
+// (types/table.go:721); no query of Go's backend asks InAny, so no
+// program shows the difference.
 func (mut t Table) bound_in_any_of(typ Type) (bool, error) {
-    if in_any(typ) {
-        return true, noerror
-    }
     b := mut t.bound(typ)?
-    return t.is_view(b) && in_any(t.elem_of(b)), noerror
+    return in_any(b) || t.is_view(b) && in_any(t.elem_of(b)), noerror
 }
 
 // bound_is_struct is is_struct under the binding in force, Go's
-// IsStruct, which knows error by typ itself, and answers false for a
-// type that stands for error, which has no entry.
+// IsStruct, error included. Go's knows error by typ itself, and answers
+// false for a type parameter bound to error, which has no entry
+// (types/table.go:728); its backend asks that only of the zero value of
+// such a type parameter (see codegen's append_zero_value), which the
+// port declines.
 func (mut t Table) bound_is_struct(typ Type) (bool, error) {
-    if typ == error_type {
-        return true, noerror
-    }
     b := mut t.bound(typ)?
-    return b != error_type && t.is_struct(b), noerror
+    return b == error_type || t.is_struct(b), noerror
 }
 
 // bound_owner returns the package the struct or union type typ stands
@@ -176,14 +177,13 @@ func (mut t Table) bound_owned(typ Type) (bool, error) {
     return r, noerror
 }
 
-// bound_has_zero is has_zero under the binding in force, Go's HasZero,
-// which asks whether typ itself, not what it stands for, is the
-// allocator, before it binds it.
+// bound_has_zero is has_zero under the binding in force, Go's HasZero.
+// Go's asks whether typ itself, not what it stands for, is the
+// Allocator, so a type parameter bound to Allocator has a zero value
+// there (types/table.go:812); no query of Go's backend asks HasZero, so
+// no program shows the difference.
 func (mut t Table) bound_has_zero(typ Type) (bool, error) {
     b := mut t.bound(typ)?
-    if b == allocator && typ != allocator {
-        return true, noerror
-    }
     r := t.has_zero(b)?
     return r, noerror
 }
@@ -323,15 +323,14 @@ func (mut t Table) bound_find_field(typ Type, name []uint8) (Type, int64, bool, 
 }
 
 // fields_type returns the type whose fields Go's Fields gives for typ
-// under the binding in force: error for error itself, what typ stands
-// for when that is a struct the Table added, and invalid, which has
-// none, for anything else, a type standing for error among them.
+// under the binding in force: what typ stands for when that is error or
+// a struct the Table added, and invalid, which has none, for anything
+// else. Go's knows error by typ itself, as its IsStruct does, and gives
+// a type parameter bound to error no fields (types/table.go:764); its
+// backend asks no such type's fields, since error is no Data.
 func (mut t Table) fields_type(typ Type) (Type, error) {
-    if typ == error_type {
-        return typ, noerror
-    }
     b := mut t.bound(typ)?
-    if b == error_type || !t.is_struct(b) {
+    if b != error_type && !t.is_struct(b) {
         return invalid, noerror
     }
     return b, noerror

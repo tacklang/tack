@@ -63,7 +63,7 @@ func param_in(l []ArgParam, i int64) ArgParam {
 func tie_in(l []HoldTie, i int64) HoldTie {
     t, ok := l[i]
     if !ok {
-        return HoldTie{err: no_key(), v: no_key(), span: ast.unset_span()}
+        return HoldTie{err: no_key(), v: no_key(), span: ast.unset_span(), prev_v: -1, prev_err: -1}
     }
     return t
 }

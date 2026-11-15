@@ -771,10 +771,11 @@ func (mut g Gen) step_append(mut t typeck.Typed, f MFrame, mut m Machine) error 
         if eo && n > 1 {
             if cl.spread {
                 // Go's appendOwned takes a spread view of owned
-                // elements for one owned value, which is not C at all, a
-                // Go bug no accepted program reaches: the checker
-                // rejects a spread of owned elements, since they would be
-                // copied. The port declines it as an internal error.
+                // elements for one owned value, which is not C at all
+                // (list.go:182), a Go bug no accepted program reaches:
+                // the checker rejects a spread of owned elements, since
+                // they would be copied (typeck/list.go:336). The port
+                // declines it as an internal error.
                 return not_ported
             }
             v := mut g.append_owned(mut t, args[:], elem, rendered[:])?

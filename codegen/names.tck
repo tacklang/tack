@@ -304,16 +304,22 @@ func append_int_literal(v constant.Int, mut out list[uint8]) error {
 
 // append_float_const appends c, an untyped constant's exact value, given
 // the float type typ, as the C literal of the value of typ it rounds to,
-// Go's floatConst: a constant.Float or a constant.Int, rounded; any other
-// Const, which Go's switch leaves as its zero Float, as zero.
+// Go's floatConst: a constant.Float or a constant.Int, rounded. Any other
+// Const, which the checker never gives a float-typed expression, Go's
+// switch leaves as its zero Float and writes as 0 (gen.go:869); the port
+// declines it as an internal error, and so a float constant missing from
+// the store.
 func append_float_const(t typeck.Typed, c typeck.Const, typ types.Type, mut out list[uint8]) error {
     mut f := constant.float_zero(c_allocator)?
     if c.kind == typeck.cv_float {
-        if c.first >= 0 && c.first < len(t.store.floats) {
-            f = t.store.floats[c.first].clone(c_allocator)?
+        if c.first < 0 || c.first >= len(t.store.floats) {
+            return not_ported
         }
+        f = t.store.floats[c.first].clone(c_allocator)?
     } else if c.kind == typeck.cv_int {
         f = constant.float_from_int(c.i, c_allocator)?
+    } else {
+        return not_ported
     }
     append_float_value(f, typ, mut out)?
     return noerror

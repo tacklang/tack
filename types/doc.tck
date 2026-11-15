@@ -24,8 +24,10 @@ package types
 // Bound by typeck's Typed and never a Table, has no way to ask a query
 // that skips the binding in force. Some of Go's queries look at the type
 // they are given before they bind it, InAny, IsStruct, HasZero and
-// Fields, which their twins copy: a type parameter bound to int64 is not
-// in any by Go's InAny, nor one bound to error a struct by IsStruct.
+// Fields, so that a type parameter bound to int64 is not in any by Go's
+// InAny, nor one bound to error a struct by IsStruct: a Go bug their
+// twins do not copy, binding first. No program the type checker accepts
+// shows the difference in what code generation writes.
 //
 // A Type is an ID: a small integer that, for a composite type, a Table
 // gives meaning to. Every distinct type has exactly one ID within a
