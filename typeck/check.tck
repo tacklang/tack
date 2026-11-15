@@ -175,6 +175,9 @@ pub type Checker struct {
     // check of each switch on a type parameter being checked keeps
     // between its cases, innermost last (see check_param_switch).
     ps_frames list[ParamSwitchFrame]
+    // What the check of each expression switch being checked keeps
+    // between its cases, innermost last (see check_switch_chain).
+    chain_frames list[ChainFrame]
     ps_taken list[map[int64]Key]
     ps_seen list[map[text.Text]Key]
     ps_names list[list[uint8]]
@@ -554,6 +557,7 @@ pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error
         narrow_counts: make(list[int64], c_allocator),
         param_kinds: make(list[ParamKinds], c_allocator),
         ps_frames: make(list[ParamSwitchFrame], c_allocator),
+        chain_frames: make(list[ChainFrame], c_allocator),
         ps_taken: make(list[map[int64]Key], c_allocator),
         ps_seen: make(list[map[text.Text]Key], c_allocator),
         ps_names: make(list[list[uint8]], c_allocator),

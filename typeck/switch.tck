@@ -43,102 +43,260 @@ func (mut c Checker) check_switch(k Key, s ast.Switch) error {
 // body with what matching it says, and what it not matching says in
 // force for every case tried after it; and then the bodies a
 // fallthrough enters, in source order, with what both ways into each
-// agree on (see check_fallen_into).
+// agree on (see the phase sc_fallen of chain_phase). What it keeps
+// between its cases is on the Checker's stack of ChainFrames, and
+// everything it does but check the cases' bodies is chain_phase's,
+// called from here six times, so that only a small frame is on the
+// stack while a switch nested in a body is checked (see the stack
+// discipline in doc.tck).
 func (mut c Checker) check_switch_chain(k Key, s ast.Switch, tag_type types.Type) error {
-    mut seen := make(map[CaseKey]Key, c_allocator)
-    n := count_items(c.prog.trees, k.unit, s.cases)
-    mut entered := make(map[Key]bool, c_allocator)
-    for i := range n {
-        f := last_stmt(c.prog.trees, item_at(c.prog.trees, k.unit, s.cases, i))
-        next, linked := c.fall_next[f]
-        if linked {
-            put(mut entered, next, true)?
-        }
-    }
-    mut late := make(map[Key]bool, c_allocator)
-    mut c.late_bodies(k, s, mut late)?
-    mut order := make(list[Key], c_allocator)
-    c.try_order(k, s, mut order)?
-    // Every case after a case, its values and its body, is the region
-    // its condition being false holds in; rest[i] is where that region
-    // starts for the case at order[i].
-    mut later := make(list[Key], c_allocator)
-    mut rest := make(list[int64], c_allocator)
-    for _, cl := range order {
-        cc := clause_of(c.prog.trees, cl)
-        c.stmt_keys(cl.unit, cc.values, mut later)?
-        c.stmt_keys(cl.unit, cc.body, mut later)?
-        append(mut rest, len(later))?
-    }
-    mut earlier := make(list[Fact], c_allocator)
-    mut at_switch := make(list[Fact], c_allocator)
-    if len(entered) > 0 {
-        mut c.facts_at_switch(k, s, mut at_switch)?
-    }
-    // matched holds, for each case a fallthrough enters, where its facts
-    // start and end in matched_facts.
-    mut matched_facts := make(list[Fact], c_allocator)
-    mut matched := make(map[Key]WSpan, c_allocator)
-    later_start := mut c.push_nodes(later[:])?
-    m := c.mark()
-    for i, cl := range order {
-        mut c.check_case_values(k, s, tag_type, cl, mut seen)?
-        sp := c.case_span(cl)
-        _, in := entered[cl]
-        if in {
-            start := len(matched_facts)
-            append(mut matched_facts, at_switch[:]...)?
-            mut c.case_facts(k, s, cl, true, mut matched_facts)?
-            append(mut matched_facts, earlier[:]...)?
-            put(mut matched, cl, WSpan{start: start, count: len(matched_facts) -% start})?
-        } else {
-            mut facts := make(list[Fact], c_allocator)
-            mut c.case_facts(k, s, cl, true, mut facts)?
-            _, is_late := late[cl]
-            g := Guard{cond: no_cond(), span: sp, kind: guard_case}
-            mut c.check_case_body(k, cl, false, g, facts[:], is_late)?
-        }
-        mut not_matched := make(list[Fact], c_allocator)
-        mut c.case_facts(k, s, cl, false, mut not_matched)?
-        rest_at := int_in(rest[:], i)
-        mut c.assume_pushed(Guard{cond: no_cond(), span: sp, kind: guard_later_case}, not_matched[:], later_start +% rest_at, len(later) -% rest_at, -1, 0)?
-        if len(entered) > 0 {
-            append(mut earlier, not_matched[:]...)?
-        }
-    }
-    mut c.release(m)?
-    // What the cases were tried with is not needed again, and a body a
-    // fallthrough enters may hold a switch of its own as deep as the
-    // nest, so none of it is kept while those bodies are checked: the
-    // facts of each body are taken out of matched_facts as it is
-    // reached, and matched_facts given back once the last is.
-    give_back_facts(mut at_switch)
-    give_back_facts(mut earlier)
-    mut left := len(entered)
-    for i := range n {
-        cl := item_at(c.prog.trees, k.unit, s.cases, i)
-        _, in := entered[cl]
-        if !in {
-            continue
-        }
-        from_case := item_at(c.prog.trees, k.unit, s.cases, i -% 1)
-        f := last_stmt(c.prog.trees, from_case)
-        sp, has := matched[cl]
+    mut none := make(list[Fact], c_allocator)
+    start := mut c.chain_phase(k, s, tag_type, 0, sc_start, mut none)?
+    for i := range start.count {
         mut facts := make(list[Fact], c_allocator)
-        if has {
-            mut j int64 = 0
-            for j < sp.count {
-                append(mut facts, fact_in(matched_facts[:], sp.start +% j))?
-                j +%= 1
+        st := mut c.chain_phase(k, s, tag_type, i, sc_case, mut facts)?
+        if st.run {
+            mut c.check_case_body(k, st.cl, false, st.g, facts[:], st.late)?
+        }
+        mut c.chain_phase(k, s, tag_type, i, sc_after, mut none)?
+    }
+    mut c.chain_phase(k, s, tag_type, 0, sc_release, mut none)?
+    for i := range count_items(c.prog.trees, k.unit, s.cases) {
+        mut facts := make(list[Fact], c_allocator)
+        st := mut c.chain_phase(k, s, tag_type, i, sc_fallen, mut facts)?
+        if st.run {
+            mut c.check_case_body(k, st.cl, false, st.g, facts[:], st.late)?
+        }
+    }
+    mut c.chain_phase(k, s, tag_type, 0, sc_end, mut none)?
+    return noerror
+}
+
+// ChainFrame is what checking an expression switch keeps between its
+// cases (see check_switch_chain): the constant values seen, the cases a
+// fallthrough enters and those whose body may run late (see
+// late_bodies), the cases in the order tried, the nodes of every case
+// after each, later, where pushed and where each case's start in it,
+// rest, the facts of the cases tried so far not matching, earlier, and
+// those in force where the switch starts, at_switch, both kept only
+// when a fallthrough enters some body, the facts matching gives each
+// body a fallthrough enters, in matched_facts by matched, how many of
+// those bodies are left to check, and the mark the cases' facts are
+// released to.
+type ChainFrame struct {
+    seen map[CaseKey]Key
+    entered map[Key]bool
+    late map[Key]bool
+    order list[Key]
+    later list[Key]
+    later_start int64
+    rest list[int64]
+    earlier list[Fact]
+    at_switch list[Fact]
+    matched_facts list[Fact]
+    matched map[Key]WSpan
+    left int64
+    m Mark
+}
+
+// ChainStep is what a phase of chain_phase gives check_switch_chain: how
+// many cases are tried, for sc_start; and for sc_case and sc_fallen,
+// whether a body is checked now, run, and if so the case cl, the guard
+// g its facts come from and whether it may run late.
+type ChainStep struct {
+    count int64
+    run bool
+    cl Key
+    g Guard
+    late bool
+}
+
+// The phases of chain_phase: before the cases, the i-th case tried, its
+// values and what matching it gives its body, what it not matching gives
+// the cases after it, once every case is tried, the i-th case in source
+// order when a fallthrough enters it, and the end.
+var sc_start uint8 = 0
+var sc_case uint8 = 1
+var sc_after uint8 = 2
+var sc_release uint8 = 3
+var sc_fallen uint8 = 4
+var sc_end uint8 = 5
+
+// no_chain_step returns a step that checks no body.
+func no_chain_step() ChainStep {
+    return ChainStep{count: 0, run: false, cl: no_key(), g: Guard{cond: no_cond(), span: zero_span(), kind: guard_case}, late: false}
+}
+
+// chain_phase does the part phase names of checking the expression
+// switch k, s, whose tag has type tag_type, Go's checkSwitch around its
+// cases' bodies, with facts the facts a body it says to check is checked
+// with: sc_start puts the switch's ChainFrame on the Checker's stack and
+// says how many cases are tried; sc_case checks the values of the i-th
+// case tried and, unless a fallthrough enters it, gives what matching it
+// says for its body, and otherwise keeps that for later; sc_after puts
+// in force what it not matching says, for every case tried after it;
+// sc_release, once every case is tried, takes the cases' facts out of
+// force and gives back what only trying them needed; sc_fallen, for the i-th case
+// in source order when a fallthrough enters it, Go's checkFallenInto,
+// gives what both ways into it agree on: matched, each fact a value of
+// the switch assigns the variable of dropped, joined with the facts in
+// force at the fallthrough; and sc_end takes the frame off.
+func (mut c Checker) chain_phase(k Key, s ast.Switch, tag_type types.Type, i int64, phase uint8, mut facts list[Fact]) (ChainStep, error) {
+    mut step := no_chain_step()
+    if phase == sc_start {
+        mut f := ChainFrame{
+            seen: make(map[CaseKey]Key, c_allocator), entered: make(map[Key]bool, c_allocator),
+            late: make(map[Key]bool, c_allocator), order: make(list[Key], c_allocator),
+            later: make(list[Key], c_allocator), later_start: 0, rest: make(list[int64], c_allocator),
+            earlier: make(list[Fact], c_allocator), at_switch: make(list[Fact], c_allocator),
+            matched_facts: make(list[Fact], c_allocator), matched: make(map[Key]WSpan, c_allocator),
+            left: 0, m: c.mark(),
+        }
+        n := count_items(c.prog.trees, k.unit, s.cases)
+        for j := range n {
+            last := last_stmt(c.prog.trees, item_at(c.prog.trees, k.unit, s.cases, j))
+            next, linked := c.fall_next[last]
+            if linked {
+                put(mut f.entered, next, true)?
             }
         }
-        left -%= 1
-        if left == 0 {
-            give_back_facts(mut matched_facts)
+        f.left = len(f.entered)
+        mut c.late_bodies(k, s, mut f.late)?
+        c.try_order(k, s, mut f.order)?
+        // Every case after a case, its values and its body, is the region
+        // its condition being false holds in; rest[i] is where that region
+        // starts for the case at order[i].
+        for _, cl := range f.order {
+            cc := clause_of(c.prog.trees, cl)
+            c.stmt_keys(cl.unit, cc.values, mut f.later)?
+            c.stmt_keys(cl.unit, cc.body, mut f.later)?
+            append(mut f.rest, len(f.later))?
         }
-        _, is_late := late[cl]
-        mut c.check_fallen_into(k, s, cl, f, is_late, mut facts)?
+        if len(f.entered) > 0 {
+            mut c.facts_at_switch(k, s, mut f.at_switch)?
+        }
+        f.later_start = mut c.push_nodes(f.later[:])?
+        f.m = c.mark()
+        step.count = len(f.order)
+        append(mut c.chain_frames, f)?
+        return step, noerror
     }
+    mut f, has_f := pop(mut c.chain_frames)
+    if !has_f {
+        return step, noerror
+    }
+    if phase == sc_case {
+        cl := key_in(f.order, i)
+        mut c.check_case_values(k, s, tag_type, cl, mut f.seen)?
+        _, in := f.entered[cl]
+        if in {
+            start := len(f.matched_facts)
+            append(mut f.matched_facts, f.at_switch[:]...)?
+            mut c.case_facts(k, s, cl, true, mut f.matched_facts)?
+            append(mut f.matched_facts, f.earlier[:]...)?
+            put(mut f.matched, cl, WSpan{start: start, count: len(f.matched_facts) -% start})?
+        } else {
+            mut c.case_facts(k, s, cl, true, mut facts)?
+            _, is_late := f.late[cl]
+            step.run = true
+            step.cl = cl
+            step.g = Guard{cond: no_cond(), span: c.case_span(cl), kind: guard_case}
+            step.late = is_late
+        }
+    } else if phase == sc_after {
+        cl := key_in(f.order, i)
+        mut not_matched := make(list[Fact], c_allocator)
+        mut c.case_facts(k, s, cl, false, mut not_matched)?
+        rest_at := int_in(f.rest[:], i)
+        mut c.assume_pushed(Guard{cond: no_cond(), span: c.case_span(cl), kind: guard_later_case}, not_matched[:], f.later_start +% rest_at, len(f.later) -% rest_at, -1, 0)?
+        if len(f.entered) > 0 {
+            append(mut f.earlier, not_matched[:]...)?
+        }
+    } else if phase == sc_release {
+        mut c.release(f.m)?
+        // What the cases were tried with is not needed again, and a body
+        // a fallthrough enters may hold a switch of its own as deep as
+        // the nest, so none of it is kept while those bodies are checked.
+        give_back_facts(mut f.at_switch)
+        give_back_facts(mut f.earlier)
+    } else if phase == sc_fallen {
+        cl := item_at(c.prog.trees, k.unit, s.cases, i)
+        _, in := f.entered[cl]
+        if in {
+            frm := last_stmt(c.prog.trees, item_at(c.prog.trees, k.unit, s.cases, i -% 1))
+            mut matched := make(list[Fact], c_allocator)
+            sp, has := f.matched[cl]
+            if has {
+                mut j int64 = 0
+                for j < sp.count {
+                    append(mut matched, fact_in(f.matched_facts[:], sp.start +% j))?
+                    j +%= 1
+                }
+            }
+            // Each body's facts are taken out of matched_facts as it is
+            // reached, and matched_facts given back once the last is.
+            f.left -%= 1
+            if f.left == 0 {
+                give_back_facts(mut f.matched_facts)
+            }
+            mut c.fallen_facts(k, s, frm, mut matched, mut facts)?
+            _, is_late := f.late[cl]
+            step.run = true
+            step.cl = cl
+            step.g = Guard{cond: no_cond(), span: c.case_span(cl), kind: guard_fallthrough}
+            step.late = is_late
+        }
+    } else {
+        return step, noerror
+    }
+    append(mut c.chain_frames, f)?
+    return step, noerror
+}
+
+// fallen_facts appends to out what both ways into a body of the
+// expression switch k, s, that the fallthrough from enters agree on,
+// Go's checkFallenInto before it checks the body: matched, which
+// matching the body's case gives, each fact a value of the switch
+// assigns the variable of dropped, joined with the facts in force at
+// from. matched is given back, and so are the facts at from, which are
+// read only here.
+func (mut c Checker) fallen_facts(k Key, s ast.Switch, frm Key, mut matched list[Fact], mut out list[Fact]) error {
+    mut order := make(list[Key], c_allocator)
+    c.try_order(k, s, mut order)?
+    mut writes := false
+    for _, o := range order {
+        pm := mut c.passes_mut(o)?
+        writes = writes || pm
+    }
+    if writes {
+        mut values := make(list[Key], c_allocator)
+        for i := range count_items(c.prog.trees, k.unit, s.cases) {
+            o := item_at(c.prog.trees, k.unit, s.cases, i)
+            c.stmt_keys(o.unit, clause_of(c.prog.trees, o).values, mut values)?
+        }
+        mut c.drop_assigned(mut matched, 0, values[:])?
+    }
+    mut fell := make(list[Fact], c_allocator)
+    sp, has := c.fx.fell[frm]
+    if has {
+        mut j int64 = 0
+        for j < sp.count {
+            append(mut fell, fact_in(c.fx.fell_facts[:], sp.start +% j))?
+            j +%= 1
+        }
+        delete(mut c.fx.fell, frm)
+        // The facts at the fallthrough are read once, here. Those last
+        // recorded are taken off the end, as Go's are dropped with the
+        // map entry, so a nest of switches each falling into a body
+        // holding the next keeps no copy of its own for each level.
+        if sp.start +% sp.count == len(c.fx.fell_facts) {
+            for len(c.fx.fell_facts) > sp.start {
+                pop(mut c.fx.fell_facts)
+            }
+        }
+    }
+    mut c.join_facts(fell[:], matched[:], mut out)?
+    give_back_facts(mut matched)
     return noerror
 }
 
@@ -202,56 +360,6 @@ func (mut c Checker) facts_here(mut out list[Fact]) error {
         append(mut out, g)?
     }
     return noerror
-}
-
-// check_fallen_into checks the body of cl, a case of the expression
-// switch k, s, that the fallthrough from enters, with what both ways
-// into it agree on in force, Go's checkFallenInto: matched, which
-// matching it gives, each fact a value of the switch assigns the
-// variable of dropped, joined with the facts in force at from.
-func (mut c Checker) check_fallen_into(k Key, s ast.Switch, cl Key, frm Key, late bool, mut matched list[Fact]) error {
-    mut order := make(list[Key], c_allocator)
-    c.try_order(k, s, mut order)?
-    mut writes := false
-    for _, o := range order {
-        pm := mut c.passes_mut(o)?
-        writes = writes || pm
-    }
-    if writes {
-        mut values := make(list[Key], c_allocator)
-        for i := range count_items(c.prog.trees, k.unit, s.cases) {
-            o := item_at(c.prog.trees, k.unit, s.cases, i)
-            c.stmt_keys(o.unit, clause_of(c.prog.trees, o).values, mut values)?
-        }
-        mut c.drop_assigned(mut matched, 0, values[:])?
-    }
-    mut fell := make(list[Fact], c_allocator)
-    sp, has := c.fx.fell[frm]
-    if has {
-        mut j int64 = 0
-        for j < sp.count {
-            append(mut fell, fact_in(c.fx.fell_facts[:], sp.start +% j))?
-            j +%= 1
-        }
-        delete(mut c.fx.fell, frm)
-        // The facts at the fallthrough are read once, here. Those last
-        // recorded are taken off the end, as Go's are dropped with the
-        // map entry, so a nest of switches each falling into a body
-        // holding the next keeps no copy of its own for each level.
-        if sp.start +% sp.count == len(c.fx.fell_facts) {
-            for len(c.fx.fell_facts) > sp.start {
-                pop(mut c.fx.fell_facts)
-            }
-        }
-    }
-    mut joined := make(list[Fact], c_allocator)
-    mut c.join_facts(fell[:], matched[:], mut joined)?
-    // Neither side of the join is read again while the body, which may
-    // hold a switch as deep as the nest, is checked.
-    give_back_facts(mut fell)
-    give_back_facts(mut matched)
-    g := Guard{cond: no_cond(), span: c.case_span(cl), kind: guard_fallthrough}
-    return mut c.check_case_body(k, cl, false, g, joined[:], late)
 }
 
 // give_back_facts empties facts and gives its memory back.
