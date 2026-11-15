@@ -1,0 +1,4 @@
+package builtin
+
+// A copy of the builtins' documentation that is out of date: --check
+// of it says so, and how to refresh it.

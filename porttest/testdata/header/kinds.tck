@@ -1,0 +1,33 @@
+package main
+
+type P struct {
+    x int64
+    y [0]int64
+    s string
+    q [2]Q
+}
+
+type Q struct {
+    b bool
+    a any_holder
+}
+
+type any_holder struct {
+    f float32
+}
+
+type E struct {
+}
+
+extern func f0(a bool, b int8, c int16, d int32, e int64, f uint8, g uint16, h uint32, i uint64) float64
+extern func f1(a float32, b float64, c unsafe_size_t, d unsafe_uintptr_t, s string, x any) unsafe_size_t
+extern func f2(mut p P, e E, v []P, mut l list[P], a [0]int64) (int64, error)
+extern func f3(alloc Allocator, args ...int64) error
+extern func f4(int int64, char string, register bool) [3]int64
+extern func f5(va []any, xs ...string) ([2][3]P, string, bool)
+extern("c_name_6") func f6()
+extern func f7(mut b [4]E, xs ...[2]uint8) string
+extern func f8(mut e error, mut s string) error
+
+func main() {
+}

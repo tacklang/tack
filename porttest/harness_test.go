@@ -396,3 +396,72 @@ func TestDeclinedRatchet(t *testing.T) {
 		t.Error("a classification that fails is no error")
 	}
 }
+
+// tallyCases are TestTallyVerdict's: what is required, the cases a deep
+// test ran, and whether the test fails.
+var tallyCases = []struct {
+	name     string
+	required map[string]bool
+	cases    []tallyCase
+	fails    bool
+}{
+	{
+		name:     "nothing required",
+		required: requiredOf(),
+		cases:    []tallyCase{{needs: emitSet(0).with(emitE0).with(emitE1)}},
+	},
+	{
+		name:     "nothing fully required, none compared",
+		required: requiredOf("emit-E0", "emit-H"),
+		cases: []tallyCase{
+			{needs: emitSet(0).with(emitE0).with(emitE1)},
+			{needs: emitSet(0).with(emitE0).with(emitH).with(emitE2)},
+		},
+	},
+	{
+		name:     "fully required, none compared",
+		required: requiredOf("emit-E0", "emit-H", "emit-E1"),
+		cases:    []tallyCase{{needs: emitSet(0).with(emitE0).with(emitE1)}},
+		fails:    true,
+	},
+	{
+		name:     "fully required, compared",
+		required: requiredOf("emit-E0", "emit-H", "emit-E1"),
+		cases: []tallyCase{
+			{needs: emitSet(0).with(emitE0).with(emitE1), compared: true},
+			{needs: emitSet(0).with(emitE0).with(emitE2)},
+		},
+	},
+	{
+		name:     "fully required, one compared and one declined",
+		required: requiredOf("emit-E0", "emit-H", "emit-E1"),
+		cases: []tallyCase{
+			{needs: emitSet(0).with(emitE0).with(emitE1), compared: true},
+			{needs: emitSet(0).with(emitE0).with(emitH).with(emitE1)},
+		},
+		fails: true,
+	},
+	{
+		name:     "a required stage its fully required cases need, compared by none",
+		required: requiredOf("emit-E0", "emit-H", "emit-E1"),
+		cases: []tallyCase{
+			{needs: emitSet(0).with(emitE0).with(emitE1), compared: true},
+			{needs: emitSet(0).with(emitE0).with(emitH)},
+		},
+		fails: true,
+	},
+}
+
+// TestTallyVerdict checks tallyVerdict, the deep tests' tally, with
+// required stages of its own: a test with no case whose every stage is
+// required passes having compared nothing; one with such cases fails
+// when none was compared, and when one was declined; and passes when
+// they were all compared.
+func TestTallyVerdict(t *testing.T) {
+	for _, tc := range tallyCases {
+		why := tallyVerdict(tc.cases, tc.required)
+		if (len(why) > 0) != tc.fails {
+			t.Errorf("%s: tallyVerdict = %q, want failing %v", tc.name, why, tc.fails)
+		}
+	}
+}

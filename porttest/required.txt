@@ -26,3 +26,5 @@ check-own
 check-generic
 types-bodies
 probes
+emit-E0
+emit-H

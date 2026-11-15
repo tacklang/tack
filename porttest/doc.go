@@ -90,7 +90,8 @@
 //     whose --check output holds the backend's errors, and on those
 //     with no error before the backend, warnings aside, whose --check
 //     output the backend decides too (see Type checker stages).
-//   - probes runs the same on each program of testdata/probes, the
+//   - probes runs the same on each program of testdata/probes, and on
+//     the target each directory of it names in its file target, the
 //     probes of reviews that found the port giving other output than
 //     Go where no case of the corpus did, each kept so that it stays
 //     covered; TestProbesPairStack runs them again with the port's stack
@@ -656,9 +657,13 @@
 // decline judged by the shorter twin's stages. TestEmitDeepPairs runs
 // every program of TestCheckDeepPairs and TestCheckDeepStmts that Go
 // accepts, at deepStack KB and at pairStack KB. Each skips a case the
-// port declines as emit-single does, and fails when a stage is required
-// and none of its cases needing it was compared, so none passes having
-// compared nothing.
+// port declines as emit-single does, failing one whose every emit stage
+// is required, and fails when it has such cases and none of them was
+// compared (see tallyVerdict), so none passes having compared what it
+// could. Their programs are valid ones, which every one needs E1 or a
+// later stage to lower, so until E1 is required they compare nothing
+// and pass: until then the depth of E0's and H's work, the header's
+// check before lowering, is guarded by TestHeaderDeep alone.
 //
 // # Fuzzing
 //
@@ -795,4 +800,20 @@
 // backend's floatLiteral, on float64s and float32s of every kind:
 // zeros, infinities, NaNs, subnormals, the extremes, powers of two over
 // every exponent, their neighbours and random bit patterns.
+//
+// The header, H's, is checked the same way (see header_test.go).
+// TestHeaderRender compares --port-header, tack.h as the port's backend
+// renders it for a checked program, with nothing lowered, with Go's
+// backend's Header run in process, on every input of emit-header and
+// the programs of testdata/header, Go's --emit-header writing tack.h
+// only after lowering the whole program. TestReservedTables compares
+// --port-reserved, the names tack.h may not give and the any type ids,
+// with a program made of Go's own declarations of reservedNames,
+// anyIDs and viewAnyID, copied from codegen/c by go/parser and run with
+// go run from an overlay. TestHeaderDeep runs externs of arrays nested
+// nearly as deeply as the parser allows, chains of structs held by
+// value and many externs through --emit, whose check of tack.h comes
+// before any lowering, and --port-header, the port's stack held to
+// deepStack KB and pairStack KB, and TestHeaderDeepPortOnly the same
+// with chains of chainLength links on the port alone.
 package porttest

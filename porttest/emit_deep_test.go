@@ -145,54 +145,98 @@ func structChain(n int, bottom, use string) string {
 	return b.String()
 }
 
-// emitTally counts, for a deep test, the cases it compared that need
-// each emit stage, so that the test can fail when a stage is required
-// and none of its cases needing it was compared: a deep test of a stage
-// must not pass by comparing nothing.
+// emitTally records, for a deep test, each case it ran, compared or
+// declined, with the emit stages it needs, so that the test can fail
+// when it has cases whose every stage is required and they compared
+// nothing (see tallyVerdict): a deep test of a stage must not pass by
+// comparing nothing once its cases can be compared.
 type emitTally struct {
-	mu       sync.Mutex
-	compared [emitStages]int
+	cases []tallyCase
+	mu    sync.Mutex
 }
 
-// note counts in, a case of st compared, by the emit stages it needs,
-// when any emit stage is required; while none is, check has nothing to
-// check, and nothing is classified.
-func (tl *emitTally) note(t *testing.T, st stage, in input) {
+// tallyCase is one case a deep test ran: the emit stages it needs, and
+// whether it was compared, not declined.
+type tallyCase struct {
+	needs    emitSet
+	compared bool
+}
+
+// note records in, a case of st, compared unless the port declined it,
+// by the emit stages it needs, when any emit stage is required; while
+// none is, check has nothing to check, and nothing is classified. It
+// runs deferred, after a decline's skip too, so it reports a failure to
+// classify with Error, not Fatal.
+func (tl *emitTally) note(t *testing.T, st stage, in input, compared bool) {
 	t.Helper()
 	if !env.required[emitStageNames[emitE0]] {
 		return
 	}
 	needs, err := classifyCase(st, in, false)
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
+		return
 	}
 	tl.mu.Lock()
 	defer tl.mu.Unlock()
-	for s := range emitStages {
-		if needs.has(s) {
-			tl.compared[s]++
-		}
-	}
+	tl.cases = append(tl.cases, tallyCase{needs: needs, compared: compared})
 }
 
-// check fails t for each emit stage required.txt names of which no case
-// was compared.
+// check fails t for each failure tallyVerdict finds in the cases noted.
 func (tl *emitTally) check(t *testing.T) {
 	t.Helper()
 	tl.mu.Lock()
 	defer tl.mu.Unlock()
-	for s := range emitStages {
-		if env.required[emitStageNames[s]] && tl.compared[s] == 0 {
-			t.Errorf("%s is required, but no case needing it was compared", emitStageNames[s])
+	for _, why := range tallyVerdict(tl.cases, env.required) {
+		t.Error(why)
+	}
+}
+
+// tallyVerdict returns why a deep test whose cases ran as cases says
+// fails, with required the names required.txt holds, or nothing. Only
+// the cases whose every emit stage is required count: such a case that
+// declined fails, as declineVerdict fails it, and each required stage
+// one of them needs fails when none of them needing it was compared.
+// A test none of whose cases is wholly required, as every lowering deep
+// test is while only E0 and H are, compares nothing and passes.
+//
+//nolint:cyclop // two passes over the cases and the stages; split, it reads no plainer
+func tallyVerdict(cases []tallyCase, required map[string]bool) []string {
+	if !required[emitStageNames[emitE0]] {
+		return nil
+	}
+	var why []string
+	var needed, compared [emitStages]int
+	for _, c := range cases {
+		if !c.needs.required(required) {
+			continue
+		}
+		if !c.compared {
+			why = append(why, "a case needing "+c.needs.String()+", every stage required, was declined")
+		}
+		for s := range emitStages {
+			if c.needs.has(s) {
+				needed[s]++
+				if c.compared {
+					compared[s]++
+				}
+			}
 		}
 	}
+	for s := range emitStages {
+		if needed[s] > 0 && compared[s] == 0 {
+			why = append(why, emitStageNames[s]+" is required, but no case needing it was compared")
+		}
+	}
+	return why
 }
 
 // runEmitDeep writes each of srcs, by file name, to a temporary
 // directory and runs it as the stage named stageName runs its cases,
-// with each of ports as the port, in parallel, counting those compared
-// in a tally that fails t when a required emit stage's cases compared
-// nothing.
+// with each of ports as the port, in parallel, noting each in a tally
+// that fails t when cases whose every emit stage is required compared
+// nothing (see tallyVerdict). A case the port declines goes through
+// declined, which fails one whose every stage is required.
 func runEmitDeep(t *testing.T, stageName string, srcs map[string]string, ports ...string) {
 	t.Helper()
 	st := stageNamed(stageName)
@@ -213,6 +257,9 @@ func runEmitDeep(t *testing.T, stageName string, srcs map[string]string, ports .
 					t.Fatal(err)
 				}
 				in := input{name: file, dir: sub, file: file}
+				// Deferred, so that a case the port declines, which skips,
+				// is noted too, as declined.
+				defer func() { tally.note(t, *st, in, !t.Skipped()) }()
 				for _, port := range ports {
 					if st.run != nil {
 						st.run(t, *st, in, port)
@@ -220,7 +267,6 @@ func runEmitDeep(t *testing.T, stageName string, srcs map[string]string, ports .
 						runCaseWith(t, *st, in, port)
 					}
 				}
-				tally.note(t, *st, in)
 			})
 		}
 	})
@@ -233,8 +279,8 @@ func runEmitDeep(t *testing.T, stageName string, srcs map[string]string, ports .
 // KB, as every run of it is: a port whose backend costs more stack for
 // each level, or a frame a link, fails here. A case the port declines
 // skips, unless every emit stage it needs is required, and the test
-// fails when a required stage's cases compared nothing. It runs only as
-// TestPort does.
+// fails when its cases whose every stage is required compared nothing
+// (see tallyVerdict). It runs only as TestPort does.
 func TestEmitDeep(t *testing.T) {
 	ready(t)
 	srcs := map[string]string{}

@@ -1,0 +1,31 @@
+package main
+
+// Types tack.h names past the diagnostics its header reports, which Go's
+// Header renders all the same: a struct named as C's int, an array type's
+// name taken by a struct, a field that is a macro, a results struct's
+// name taken, and an extern whose C name is a struct's.
+
+type int struct {
+    NULL int64
+    TACK_H bool
+}
+
+type tack_array_2_int64 struct {
+    v int64
+}
+
+type tack_results_g struct {
+    w int64
+}
+
+type h struct {
+    x [2]int64
+}
+
+extern func f(a []int, b [2]int64, c tack_array_2_int64)
+extern func g(x h) (int64, tack_results_g)
+extern("h") func k(y [1][1]int)
+extern("TACK_STR") func s()
+
+func main() {
+}

@@ -1,0 +1,49 @@
+package main
+
+// Names two things in tack.h would share: a struct and an array, a view
+// and a list type's names; a results struct and a struct; an extern
+// func's C name and a struct's, and a results struct's; nested arrays of
+// a struct; a struct that is a C keyword reached only through a view;
+// and two types met twice, which are claimed once.
+
+type P struct {
+    v int64
+}
+
+type tack_array_2_tack_array_3_P struct {
+    v int64
+}
+
+type tack_view_int64 struct {
+    v int64
+}
+
+type tack_list_P struct {
+    v int64
+}
+
+type tack_results_r struct {
+    v int64
+}
+
+type gs struct {
+    v int64
+}
+
+type char struct {
+    v int64
+}
+
+extern func a(x [2][3]P, y tack_array_2_tack_array_3_P, z [2][3]P)
+extern func b(v []int64, w tack_view_int64, mut l list[P], m tack_list_P)
+extern func r() (int64, tack_results_r)
+extern("gs") func g(c []char)
+extern func q() (int64, bool)
+extern("P") func pp()
+
+func main() {
+}
+
+type tack_results_q struct {
+    v int64
+}

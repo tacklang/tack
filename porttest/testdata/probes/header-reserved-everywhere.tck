@@ -1,0 +1,76 @@
+package main
+
+// Names tack.h reserves, in every place a name can take one: a struct a
+// signature uses, under each kind of reservation, and its fields, the
+// object-like macros among them an error and the rest allowed; a struct
+// no signature uses, which tack.h never names; and extern funcs whose C
+// name is reserved.
+
+type tack_list_grow_ struct {
+    TACK_C_ALLOCATOR int64
+    offsetof int64
+    tack_string int64
+    INT8_C int64
+    TACK_TYPE_VIEW_STRING int64
+    INT_FAST32_WIDTH int64
+    UINTPTR_MAX int64
+    TACK_TYPE_INVALID int64
+    __bool_true_false_are_defined int64
+    _Bool int64
+    register int64
+    typedef int64
+}
+
+type TACK_TYPE_VIEW_UNSAFE_SIZE_T struct {
+    v int64
+}
+
+type tack_any_unsafe_uintptr_t struct {
+    v int64
+}
+
+type INT_LEAST8_MAX struct {
+    v int64
+}
+
+type UINT64_C struct {
+    v int64
+}
+
+type INT16_C struct {
+    v int64
+}
+
+type RSIZE_MAX struct {
+    v int64
+}
+
+type tack_argv_ struct {
+    v int64
+}
+
+type tack_any_signed struct {
+    v int64
+}
+
+type TACK_LIST_POP struct {
+    NULL int64
+}
+
+type unused_by_externs struct {
+    NULL int64
+    asm int64
+}
+
+extern func f(a tack_list_grow_, b []TACK_TYPE_VIEW_UNSAFE_SIZE_T, mut c tack_any_unsafe_uintptr_t, d [2]INT_LEAST8_MAX) (UINT64_C, RSIZE_MAX)
+extern func g(mut l list[INT16_C], xs ...tack_argv_) tack_any_signed
+extern func h(x [3][2]TACK_LIST_POP)
+extern("TACK_LIST_LEN") func e1()
+extern("INTMAX_C") func e2()
+extern("TACK_TYPE_VIEW_BOOL") func e3()
+extern("UINT8_WIDTH") func e4()
+extern("SIG_ATOMIC_WIDTH") func e5()
+
+func main() {
+
+}

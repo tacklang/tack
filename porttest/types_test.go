@@ -336,6 +336,13 @@ func goTypes(t *testing.T, in input, clean bool) ([]byte, checkStage, map[checkS
 // load fails.
 func typesLoad(t *testing.T, in input) (*loader.Result, bool) {
 	t.Helper()
+	return loadAs(t, in, false)
+}
+
+// loadAs is typesLoad, loading a directory or import path holding no
+// main package as a library, as --check loads it, when lib says so.
+func loadAs(t *testing.T, in input, lib bool) (*loader.Result, bool) {
+	t.Helper()
 	cwd, err := filepath.EvalSymlinks(in.dir)
 	if err != nil {
 		t.Fatal(err)
@@ -349,7 +356,7 @@ func typesLoad(t *testing.T, in input) (*loader.Result, bool) {
 	l := &loader.Loader{
 		FS: loader.OS{}, Builtins: builtin.Default(), MaxErrors: 10,
 		Std:     &loader.Std{Dir: filepath.ToSlash(filepath.Join(home, "src", "std"))},
-		Display: relativeTo(cwd),
+		Display: relativeTo(cwd), Lib: lib,
 	}
 	full := in.file
 	if !filepath.IsAbs(full) {

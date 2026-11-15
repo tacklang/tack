@@ -1,0 +1,24 @@
+package main
+
+// A field tack.h cannot name, in a struct nested in arrays and other
+// structs held by value, met through two signatures.
+
+type Leaf struct {
+    TACK_NO_ERROR int64
+    while int64
+}
+
+type Mid struct {
+    leaves [2][2]Leaf
+}
+
+type Top struct {
+    m Mid
+    ms [3]Mid
+}
+
+extern func f(t [1][1][1]Top, mut u Top)
+extern func g(v []Mid) Leaf
+
+func main() {
+}

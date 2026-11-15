@@ -1,6 +1,7 @@
 package porttest
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -30,7 +31,11 @@ import (
 // insert, an element of a span's view of an arena bound with ok, and
 // printf's %v given a view; and, from the backend's handover, what the
 // checker records for the backend beyond types, testing.Site arguments
-// in every position among them.
+// in every position among them, and a copy of the builtins'
+// documentation in a module std that differs from the compiler's; and,
+// from the header, names tack.h reserves in every place a name can take
+// one, names two things in tack.h share, and a field tack.h cannot name
+// deep in arrays and structs held by value.
 const probesStage = "probes"
 
 func init() {
@@ -43,8 +48,9 @@ func init() {
 }
 
 // probeInputs returns the programs of testdata/probes, each run with
-// --check --max-errors 0 from that directory, in the order of their
-// names.
+// --check --max-errors 0 from that directory, and each directory of it,
+// run so from that directory with the target its file target names, in
+// the order of their names.
 func probeInputs() ([]input, error) {
 	dir := filepath.Join(env.root, "porttest", "testdata", "probes")
 	entries, err := os.ReadDir(dir)
@@ -53,6 +59,15 @@ func probeInputs() ([]input, error) {
 	}
 	var ins []input
 	for _, e := range entries {
+		if e.IsDir() {
+			sub := filepath.Join(dir, e.Name())
+			target, err := os.ReadFile(filepath.Join(sub, "target"))
+			if err != nil {
+				return nil, fmt.Errorf("reading the target of probe %s: %w", e.Name(), err)
+			}
+			ins = append(ins, input{name: e.Name(), dir: sub, file: strings.TrimSpace(string(target))})
+			continue
+		}
 		if !strings.HasSuffix(e.Name(), ".tck") {
 			continue
 		}
