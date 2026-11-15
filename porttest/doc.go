@@ -102,6 +102,31 @@
 //     backend's: the port's --check declines every program in which
 //     the stages before the backend find no error. TestTypes covers
 //     the type checker on them.
+//   - emit-single runs --emit on each .tck file under examples/.
+//   - emit-packages runs --emit on each package and module of
+//     examples/, as the package stages name them.
+//   - emit-lib runs --check --emit on each package of std, by its path
+//     and by its import path, and on the port's driver: --emit of a
+//     package that is not main is an error, and --check checks one as a
+//     library, whose C it then emits.
+//   - emit-cases runs --emit on each case of the warnings archives, the
+//     programs with no error, and on each program harvested from the C
+//     backend's tests (see Backend stages).
+//   - emit-header runs --emit-header, and --check --emit-header for a
+//     package of std, on each input of emit-single, emit-packages and
+//     std whose package holds a C file or an extern func, a directory
+//     outside a module, which the loader rejects, left out: each
+//     compiler in a fresh copy of the tree at the same path, the
+//     input's directory and std, with TACK_HOME the copy's, and every
+//     tack.h of a package directory removed first, so that the tack.h
+//     files there afterwards are what the run wrote. It compares the
+//     files each copy holds afterwards, path and bytes, too, and fails
+//     a case Go passes without writing a tack.h.
+//
+// check-backend, check-clean and the emit stages classify their cases
+// by the stages of the backend's port each needs (see Backend stages),
+// and the emit stages compare standard output, standard error and the
+// exit status byte for byte.
 //
 // backends, the lex stages and the check stages compare standard
 // output, standard error and the exit status byte for byte. The ast and
@@ -254,6 +279,117 @@
 // check case: their diagnostics need a package's tests loaded, which
 // --check cannot ask for. They are compared when tack test is ported,
 // at M8.
+//
+// # Backend stages
+//
+// The C backend is ported in stages, M7's: E0 the handover, H the
+// header, E1 the core, E2 values, E3 owned values and containers and E4
+// generics and functions, named emit-E0, emit-H, emit-E1, emit-E2,
+// emit-E3 and emit-E4 in required.txt. What --emit, --emit-header and
+// --check give for a program the type checker accepts depends on the
+// backend's paths, the order it renders in, its spills, equality
+// helpers, frees, defers and thunks, which no walk of the typed tree
+// predicts, so a case is classified by what Go's backend runs on it: Go
+// is built once a run with go build -cover -covermode=set
+// -coverpkg=./tack,./codegen/...,./types, into the run's temporary
+// directory (the driver's package must be among them: built with only
+// other packages, go1.27's programs write no coverage when they exit),
+// each case is run through it as its stage runs it, with GOCOVERDIR set,
+// and go tool covdata textfmt lists the blocks it ran. Each block of
+// codegen and types gets a stage: by its file, as the M7 plan splits
+// them (emit_stages_test.go's emitFileStages), or by the function it is
+// in, found with go/parser as the type checker's split files' are, for
+// the functions emitFuncStages names: every function of gen.go, each
+// group with why, the functions of later stages' files every core
+// program runs for real, E1's (see below), union.go's free helpers but
+// emitFrees, E3's, and generate's leading
+// check of tack.h, headerDiags, and its return, H's (emitSplits). A
+// source file with no stage, a gen.go function the table does not stage
+// or stages twice, and a name it gives that its file does not declare
+// fail TestEmitStagesComplete. Every file of types, and the driver, are
+// E0's, which every case needs.
+//
+// That is a change to the plan's scope of E1, ruled so and overrulable:
+// these functions of later stages' files are E1's whole, every branch
+// of them, not only the paths a core program takes: array.go's indexExpr
+// and lenValue, whose array, arena and pool branches so count as E1,
+// slice.go's elementExpr, defer.go's funcFrame, generateJump and stops,
+// view.go's callArgs, argTypes, paramsOf, viewParamAt, packs and hasLen,
+// struct.go's walk of the types, emitTypes, emittedTypes, isComposite,
+// hasEqualityHelper, parts, emitTypeDef, emitDef and comparedTypes, and
+// its constOf and specialConst, the type walk's filters arena.go's
+// arenaTypes, maps.go's mapTypes, pool.go's poolTypes and funcvalue.go's
+// usesFuncTypes, union.go's emitFrees, whose dispatch to each kind's
+// free helper so counts as E1, and switch.go's caseVarsRead. The helpers
+// they dispatch to stay their own stages'.
+//
+// Code of a later stage runs in every program: the core asks, of every
+// name and every call, whether it is a capture, a generic call, a list's builtin, and so on, and the answer's
+// not-taken path is the core's to port. So each checkpoint, E1, E2 and
+// E3, has baseline programs written in its stages' features alone
+// (emit_baseline_test.go's baselinePrograms: hello, scalars, strings
+// and a library for E1; structs, arrays, unions, switches, slices, any,
+// several values and the checked forms for E2; lists, maps, arenas,
+// pools, defers, ?, own, replace, regions and drop for E3), each run
+// with --emit, or --check --emit for the library, and --check. A block
+// of a later stage that E1's baselines run is E1's, every lowered
+// program needing E1; one that only a later checkpoint's run is the
+// work of its own stage and of each such checkpoint, any of which may
+// be ported first, so a case that needs none of them for its other
+// blocks needs the first of them. TestEmitBaselineFeatures checks, from
+// each baseline's typed tree, not from what it runs, that it uses no
+// feature of a later stage, and TestFeatureStagesSeesLaterFeatures that
+// the check sees one. TestEmitFeatureBound checks the other way: every
+// single-file case of emit-single and emit-cases Go's front end accepts
+// needs no stage beyond its own features' and H, and so does every
+// directory case of emit-packages, emit-lib and emit-header, so every
+// not-taken path the corpus runs is some baseline's, with
+// featureBoundAllowed for exceptions, none so far. Its slack: a case given by its import path,
+// and the port's driver, which loads past typedTree's timeout, are not
+// bounded; and featureStages counts a division E2's even when the
+// checker folded it to a constant. Blocks a run of --backends covers, the
+// package variables' initializers, which every process runs, count for
+// nothing. TestStagesOfSynthetic checks each of these rules on coverage
+// and baselines made by hand. A case needs E0 and the stage of every other block it runs; the 26
+// cases the backend rejects, whose expected stage is codegen, need E0
+// and H alone, which TestEmitHeaderRejects checks. A case the port
+// declines skips, unless its stage is in required.txt, or every stage
+// it needs is; while emit-E0 is not, no case is classified for that,
+// and TestDeclinedRatchet checks the rule with required stages of its
+// own.
+//
+// What a case runs is cached, below $PORTTEST_COVER_CACHE, or
+// tack-porttest/cover in os.UserCacheDir, keyed on the
+// instrumented binary's SHA-256, the command line and the bytes the run
+// can read: the files of the input's module, or of its directory, or, for
+// a single file, the file and the C beside it, each named from the
+// working directory, so a case's key is the same wherever the archives
+// are written, and the std it runs with. A fuzz input's is never cached.
+// TestEmitCensus classifies every case of every stage that classifies
+// them and logs how many need each set of stages, by stage and in all,
+// how many each stage would leave required, ported in each order the
+// plan allows, and the same were the header's part of every program,
+// newHeader's walk of a program with no extern func, the core's;
+// TestEmitBaseline logs, for each checkpoint, the functions of later
+// stages its baselines run; TestEmitClassifyDeterministic runs every
+// case again, the cache left alone, and checks that it needs the stages
+// the cache's run gave it, logging how many cases run other blocks, as
+// a sort over a map's keys may.
+// They run only as TestPort does.
+//
+// emit-cases's programs from the C backend's tests are harvested by
+// running those tests, go test ./codegen/c, with -overlay swapping in
+// copies of gen_test.go and printf_test.go whose compile and
+// compileWithStd, the helpers every test's program goes through, first
+// write their src to a directory, and with a clang on PATH that only
+// writes, at its -o, a program that exits 0; no file of the frozen tree
+// changes. The programs, each once, those that start with a package
+// clause, are cached keyed on Go's version, porttest's harvest file
+// whole, every Go file of the module but porttest's, go.mod and go.sum,
+// and examples/, src/std, codegen/c/testdata and builtin/, which the
+// tests read or the compiler embeds; a key the cache misses harvests
+// anew. TestEmitHarvest pins how many there are and their
+// digest, so a harvest that changes fails.
 //
 // # Loading
 //
@@ -504,7 +640,34 @@
 // too deeply. Both run as TestPort does, with TACK_PORT_TEST=1 and
 // -count, and skip otherwise.
 //
+// TestEmitDeep runs --emit, compared as emit-single compares its cases,
+// on programs Go's backend lowers nested as deeply as the parser
+// allows, in every statement that holds a block, regions, closures,
+// parenthesized, negated and array literal expressions and list and
+// array types, and on chains a hundred thousand links long, else ifs,
+// statements, && chains and locals, the port's stack held to deepStack
+// KB at the -O3 it is built at. TestEmitTypeChains runs chains of
+// structs each holding the one before by value, plain, owning a list,
+// compared, a map's key and an extern func's parameter, under --emit and
+// the last under --emit-header too, typeChainLength links long: Go's
+// backend takes time quadratic in such a chain, so TestEmitDeepPortOnly
+// runs them a hundred thousand links long on the port alone, at
+// deepStack KB against bigStack KB, as TestCheckDeepPortOnly does, a
+// decline judged by the shorter twin's stages. TestEmitDeepPairs runs
+// every program of TestCheckDeepPairs and TestCheckDeepStmts that Go
+// accepts, at deepStack KB and at pairStack KB. Each skips a case the
+// port declines as emit-single does, and fails when a stage is required
+// and none of its cases needing it was compared, so none passes having
+// compared nothing.
+//
 // # Fuzzing
+//
+// FuzzEmitDiff generates a program from each input with
+// internal/progen, which reads its choices from the bytes, and runs
+// both compilers with --emit on it, compared as emit-single compares
+// its cases, after putting it through this module's front end and C
+// backend in process for the fuzz engine's coverage. It is seeded with
+// progen's own fuzz seeds, and run as a test checks them alone.
 //
 // FuzzLoadDiff writes each generated input as a file tree in a
 // temporary directory, entries separated by 0 bytes, each a path, a
@@ -545,6 +708,7 @@
 //	make port-fuzz PORT_FUZZ=FuzzParseDiff FUZZTIME=60s
 //	make port-fuzz PORT_FUZZ=FuzzResDiff FUZZTIME=60s
 //	make port-fuzz PORT_FUZZ=FuzzLoadDiff FUZZTIME=60s
+//	make port-fuzz PORT_FUZZ=FuzzEmitDiff FUZZTIME=60s
 //
 // # Embedded files
 //
@@ -606,7 +770,11 @@
 // bound, under len and indexed, and chains of locals each slicing the one before, from a
 // parameter and from a literal, five thousand links long, under --check,
 // the port's stack held to deepStack KB and to a quarter of it.
-// TestProbesTypes runs the probes with --port-types too.
+// TestProbesTypes runs the probes with --port-types too. TestEmitPerf
+// runs --emit, compared as emit-single compares its cases, and then
+// measures it as TestResPerf does, on the port's driver, on
+// TestCheckPerf's functions and TestGenericPerf's program, each with a
+// main Go accepts, and on a main printing twenty thousand strings.
 //
 // # The backend's parts
 //

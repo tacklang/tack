@@ -18,6 +18,10 @@ import (
 var env struct {
 	// root is this module's root, absolute.
 	root string
+	// tmp is the run's temporary directory, which TestMain removes, for
+	// what the tests write once a run, such as the instrumented Go
+	// compiler and the harvested programs.
+	tmp string
 	// goBin is the Go compiler's binary.
 	goBin string
 	// portBin is the port's binary.
@@ -115,6 +119,7 @@ func countGiven(fs *flag.FlagSet) bool {
 // cannot run, or nil.
 func setup(tmp string) error {
 	var err error
+	env.tmp = tmp
 	env.goCache = filepath.Join(tmp, "cache-go")
 	env.portCache = filepath.Join(tmp, "cache-port")
 	if env.required, err = readRequired("required.txt"); err != nil {
@@ -226,6 +231,9 @@ func compilerEnv(cache string) []string {
 // may hold: checks outside TestPort that a port can answer not
 // implemented to, which then fail rather than skip once required.
 // loaded is TestLoadOrder's, types-decls and types-bodies TestTypes'.
+// The emit stages, emit-E0 to emit-E4 and emit-H, are added by init (see
+// emitStageNames): a case of a stage that classifies its cases is
+// required once every one it needs is named.
 var requirableChecks = map[string]bool{loadedCheck: true, typesCheck: true, bodiesCheck: true}
 
 // readRequired reads the stage names in the file at path, one a line,

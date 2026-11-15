@@ -705,6 +705,48 @@ func ownedVars(nest string) (string, string) {
 	return b.String(), decls.String()
 }
 
+// pairFamily is what pairProgram takes of a family of nestFamilies.
+type pairFamily struct {
+	decls, leaf, params, args string
+	owned                     bool
+}
+
+// pairProgram returns the program TestCheckDeepPairs runs for the pair
+// of fam's routes a and b, named an and bn, nested around leaf: in h,
+// as deeply as the parser allows, a quarter as deeply for one of
+// shallowPairs or holding one of probedRoutes, and main ending in
+// checkError, or, when clean, calling h and reporting nothing.
+func pairProgram(fam pairFamily, an, bn string, a, b nestRoute, leaf string, clean bool) string {
+	ret := "bool"
+	if fam.leaf == "1" {
+		ret = "int64"
+	}
+	limit := deepLimit - 6
+	if shallowPairs[[2]string{an, bn}] || probedRoutes[an] || probedRoutes[bn] {
+		limit /= 4
+	}
+	nest, vars := ownedVars(pairNest(a, b, leaf, limit))
+	vars += nestLocals(nest)
+	if fam.owned {
+		ret = "list[int64]"
+	}
+	h := "func h(t T" + fam.params + ") (" + ret + ", error) {\n" + vars + "    x := " + nest +
+		"\n    return x, noerror\n}\n\n"
+	if fam.owned {
+		// A list bound with an error could be read only once
+		// the facts in force prove the error checked.
+		h = "func h(t T) list[int64] {\n" + vars + "    x := " + nest + "\n    return x\n}\n\n"
+	}
+	main := "func main() {\n    " + checkError + "}\n"
+	switch {
+	case clean && fam.owned:
+		main = "func main() {\n    l := h(T{n: 1})\n    if len(l) == 0 {\n        return\n    }\n}\n"
+	case clean:
+		main = "func main() {\n    _, err := h(T{n: 1}" + fam.args + ")\n    if err.code != 0 {\n        return\n    }\n}\n"
+	}
+	return "package main\n\n" + fam.decls + h + main
+}
+
 // TestCheckDeepPairs nests every ordered pair of the routes of each of
 // nestFamilies, alternating, as deeply as the parser allows: a valid
 // nest, one with a value of the wrong type at its bottom and one with an
@@ -750,34 +792,8 @@ func TestCheckDeepPairs(t *testing.T) {
 					case "untyped":
 						leaf = fam.untyped
 					}
-					ret := "bool"
-					if fam.leaf == "1" {
-						ret = "int64"
-					}
-					limit := deepLimit - 6
-					if shallowPairs[[2]string{an, bn}] || probedRoutes[an] || probedRoutes[bn] {
-						limit /= 4
-					}
-					nest, vars := ownedVars(pairNest(a, b, leaf, limit))
-					vars += nestLocals(nest)
-					if fam.owned {
-						ret = "list[int64]"
-					}
-					h := "func h(t T" + fam.params + ") (" + ret + ", error) {\n" + vars + "    x := " + nest +
-						"\n    return x, noerror\n}\n\n"
-					if fam.owned {
-						// A list bound with an error could be read only once
-						// the facts in force prove the error checked.
-						h = "func h(t T) list[int64] {\n" + vars + "    x := " + nest + "\n    return x\n}\n\n"
-					}
-					main := "func main() {\n    " + checkError + "}\n"
-					switch {
-					case variant == "clean" && fam.owned:
-						main = "func main() {\n    l := h(T{n: 1})\n    if len(l) == 0 {\n        return\n    }\n}\n"
-					case variant == "clean":
-						main = "func main() {\n    _, err := h(T{n: 1}" + fam.args + ")\n    if err.code != 0 {\n        return\n    }\n}\n"
-					}
-					src := "package main\n\n" + fam.decls + h + main
+					pf := pairFamily{decls: fam.decls, leaf: fam.leaf, params: fam.params, args: fam.args, owned: fam.owned}
+					src := pairProgram(pf, an, bn, a, b, leaf, variant == "clean")
 					file := an + "-" + bn + "-" + variant + ".tck"
 					t.Run(file, func(t *testing.T) {
 						t.Parallel()

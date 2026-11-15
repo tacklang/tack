@@ -1,6 +1,7 @@
 package porttest
 
 import (
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -274,5 +275,124 @@ func TestCountGiven(t *testing.T) {
 		if got := countGiven(fs); got != tc.want {
 			t.Errorf("countGiven after %q = %v, want %v", tc.args, got, tc.want)
 		}
+	}
+}
+
+// ratchetStages are the stages TestDeclinedRatchet decides for: one
+// that classifies its cases and one that does not.
+var ratchetStages = struct{ classifying, plain stage }{
+	classifying: stage{
+		name:     "emit-x",
+		classify: func(input, bool) (covered, error) { return nil, nil },
+	},
+	plain: stage{name: "plain"},
+}
+
+// requiredOf returns names as required.txt's set.
+func requiredOf(names ...string) map[string]bool {
+	m := map[string]bool{}
+	for _, n := range names {
+		m[n] = true
+	}
+	return m
+}
+
+// ratchetCases are TestDeclinedRatchet's: what is required, the case,
+// and whether it must fail and its needs be asked for.
+var ratchetCases = []struct {
+	required map[string]bool
+	name     string
+	st       stage
+	in       input
+	fails    bool
+	asked    bool
+}{
+	{requiredOf("plain"), "required stage", ratchetStages.plain, input{}, true, false},
+	{
+		requiredOf("emit-E0", "emit-H", "emit-E1"),
+		"stage not required",
+		ratchetStages.plain,
+		input{},
+		false,
+		false,
+	},
+	{
+		requiredOf("emit-E0", "emit-H", "emit-E1"),
+		"every needed stage required",
+		ratchetStages.classifying,
+		input{},
+		true,
+		true,
+	},
+	{
+		requiredOf("emit-E0", "emit-H"),
+		"one needed stage not required",
+		ratchetStages.classifying,
+		input{},
+		false,
+		true,
+	},
+	{
+		requiredOf("emit-H", "emit-E1"),
+		"E0 not required",
+		ratchetStages.classifying,
+		input{},
+		false,
+		false,
+	},
+	{
+		requiredOf("emit-x", "emit-E0", "emit-H", "emit-E1"), "input that may decline",
+		ratchetStages.classifying,
+		input{declines: true},
+		false, false,
+	},
+	{
+		requiredOf("emit-x"),
+		"classifying stage required",
+		ratchetStages.classifying,
+		input{},
+		true,
+		false,
+	},
+}
+
+// TestDeclinedRatchet checks declineVerdict with required stages of its
+// own: a declined case of a required stage fails; one of a stage that
+// classifies its cases fails once every emit stage it needs is
+// required, and skips while one is not, or while E0 is not, when what
+// it needs is not even asked; an input that may decline always skips;
+// and a classification that fails is an error.
+func TestDeclinedRatchet(t *testing.T) {
+	needs := emitSet(0).with(emitE0).with(emitH).with(emitE1)
+	for _, tc := range ratchetCases {
+		asked := false
+		why, err := declineVerdict(tc.st, tc.in, tc.required, func() (emitSet, error) {
+			asked = true
+			return needs, nil
+		})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if (why != "") != tc.fails || asked != tc.asked {
+			t.Errorf(
+				"%s: verdict %q, needs asked %v; want failing %v, asked %v",
+				tc.name,
+				why,
+				asked,
+				tc.fails,
+				tc.asked,
+			)
+		}
+	}
+	_, err := declineVerdict(
+		ratchetStages.classifying,
+		input{},
+		requiredOf("emit-E0"),
+		func() (emitSet, error) {
+			return 0, errors.New("no coverage")
+		},
+	)
+	if err == nil {
+		t.Error("a classification that fails is no error")
 	}
 }

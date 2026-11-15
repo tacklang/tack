@@ -3,7 +3,10 @@
 # implemented, so a stage the port implements cannot quietly stop
 # working. A stage is added once the port implements it. loaded,
 # types-decls and types-bodies, which are no stages, are TestLoadOrder's
-# and TestTypes' checks, required the same way.
+# and TestTypes' checks, required the same way. emit-E0, emit-H and
+# emit-E1 to emit-E4 are the stages of the backend's port: a case of a
+# stage that classifies its cases by them, check-backend, check-clean
+# and the emit stages, is required once every one it needs is named.
 backends
 lex-single
 ast-single

@@ -38,6 +38,16 @@ type stage struct {
 	args func(in input) []string
 	// inputs returns the inputs the stage runs on.
 	inputs func() ([]input, error)
+	// classify, when not nil, returns what the instrumented Go compiler
+	// covers running a case of the stage, whose blocks give the emit
+	// stages the case needs (see stagesOf and the package doc, Backend
+	// stages): a case the port declines fails, as in a required stage,
+	// once every one of them is in required.txt. fresh runs the
+	// compiler anew rather than reading what it covered before.
+	classify func(in input, fresh bool) (covered, error)
+	// run, when not nil, runs a case of the stage in place of
+	// runCaseWith, with portBin as the port.
+	run func(t *testing.T, st stage, in input, portBin string)
 	// name is the stage's name, in required.txt and as TestPort's subtest.
 	name string
 	// stdout is how the standard outputs are compared.
@@ -121,6 +131,10 @@ func TestPort(t *testing.T) {
 			for _, in := range ins {
 				t.Run(in.name, func(t *testing.T) {
 					t.Parallel()
+					if st.run != nil {
+						st.run(t, st, in, env.portRun)
+						return
+					}
 					runCase(t, st, in)
 				})
 			}
@@ -143,13 +157,61 @@ func runCaseWith(t *testing.T, st stage, in input, portBin string) {
 	args := st.args(in)
 	port := runCompiler(t, portBin, env.portCache, in, args)
 	if port.notImplemented() {
-		msg := strings.TrimSuffix(string(port.stderr), "\n")
-		if env.required[st.name] && !in.declines {
-			t.Fatalf("stage %s is required, but the port says %q", st.name, msg)
-		}
-		t.Skip(msg)
+		declined(t, st, in, port)
 	}
 	want := runCompiler(t, env.goBin, env.goCache, in, args)
+	compareResults(t, st, in, args, want, port)
+}
+
+// declined skips t, the case in of the stage st, which the port answered
+// port, not implemented, or fails it when declineVerdict says it must.
+func declined(t *testing.T, st stage, in input, port result) {
+	t.Helper()
+	msg := strings.TrimSuffix(string(port.stderr), "\n")
+	why, err := declineVerdict(st, in, env.required, func() (emitSet, error) {
+		return classifyCase(st, in, false)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if why != "" {
+		t.Fatalf("%s, but the port says %q", why, msg)
+	}
+	t.Skip(msg)
+}
+
+// declineVerdict returns why a case in of the stage st that the port
+// declines must fail, with required the names required.txt holds, or ""
+// when it skips: it fails when st is required, or when st classifies its
+// cases and every emit stage in needs, which needs gives, is, but for an
+// input that may decline. Every case needs E0, so while E0 is not
+// required no case of a stage that classifies them is, and needs is not
+// asked.
+func declineVerdict(
+	st stage, in input, required map[string]bool, needs func() (emitSet, error),
+) (string, error) {
+	switch {
+	case in.declines:
+		return "", nil
+	case required[st.name]:
+		return "stage " + st.name + " is required", nil
+	case st.classify == nil || !required[emitStageNames[emitE0]]:
+		return "", nil
+	}
+	set, err := needs()
+	if err != nil {
+		return "", err
+	}
+	if set.required(required) {
+		return "every emit stage the case needs, " + set.String() + ", is required", nil
+	}
+	return "", nil
+}
+
+// compareResults reports how port, the port's run on in with args,
+// differs from want, the Go compiler's, as the stage st compares them.
+func compareResults(t *testing.T, st stage, in input, args []string, want, port result) {
+	t.Helper()
 	if port.code != want.code {
 		t.Errorf("exit status: port %d, Go %d", port.code, want.code)
 	}

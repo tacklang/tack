@@ -24,21 +24,28 @@ const cleanStage = "check-clean"
 //
 // as the driver is run to check a program, every error reported, and
 // compares standard output, standard error and the exit status byte for
-// byte.
+// byte. check-backend and check-clean classify their cases by the emit
+// stages they need, as the emit stages do: what --check shows of a
+// program the type checker accepts is the backend's.
 func init() {
 	for s := stageDecls; s <= stageBackend; s++ {
-		stages = append(stages, stage{
+		st := stage{
 			name:   checkStageInfo[s].stage,
 			args:   checkArgs,
 			inputs: func() ([]input, error) { return checkInputs(s) },
 			stdout: compareBytes,
-		})
+		}
+		if s == stageBackend {
+			st.classify = classifyWith(checkArgs)
+		}
+		stages = append(stages, st)
 	}
 	stages = append(stages, stage{
-		name:   cleanStage,
-		args:   checkArgs,
-		inputs: cleanInputs,
-		stdout: compareBytes,
+		name:     cleanStage,
+		args:     checkArgs,
+		inputs:   cleanInputs,
+		stdout:   compareBytes,
+		classify: classifyWith(checkArgs),
 	})
 }
 

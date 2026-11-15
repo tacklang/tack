@@ -29,6 +29,10 @@ type input struct {
 	// the input even in a required stage: a failure of the file system
 	// the port cannot word as Go does, as TestLoadTrees makes.
 	declines bool
+	// uncached says the input's classification is neither read from the
+	// coverage cache nor written to it: a fuzz input's, which would fill
+	// the cache with programs seen once.
+	uncached bool
 }
 
 // archive is the cases of one txtar archive, written to disk.

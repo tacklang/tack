@@ -70,7 +70,7 @@ test:
 # TACK_PORT_TEST=1 and -count=1: go test cannot see a change to the port
 # or to the binaries, so a cached result could pass a broken port.
 port-test:
-	TACK_PORT_TEST=1 go test -count=1 -timeout 30m ./porttest
+	TACK_PORT_TEST=1 go test -count=1 -timeout 60m ./porttest
 
 # FUZZTIME is how long `make fuzz-progen` and `make port-fuzz` fuzz for.
 FUZZTIME := 10m
@@ -85,9 +85,10 @@ PORT_FUZZ_PARALLEL := 4
 
 # PORT_FUZZ is the fuzz test `make port-fuzz` runs: FuzzLexDiff, which
 # compares the port's --lex with this compiler's, FuzzParseDiff, which
-# compares their --ast, FuzzResDiff, which compares their --res, or
+# compares their --ast, FuzzResDiff, which compares their --res,
 # FuzzLoadDiff, which compares their --ast and --res of generated file
-# trees.
+# trees, or FuzzEmitDiff, which compares their --emit of programs
+# internal/progen generates.
 PORT_FUZZ := FuzzLexDiff
 
 # port-fuzz fuzzes $(PORT_FUZZ), which compares the port with this
