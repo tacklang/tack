@@ -284,9 +284,25 @@ func new_header(mut t typeck.Typed) (Header, error) {
         append_package_path(t, package_of_unit(t, d.unit), mut what)?
         mut name := make(list[uint8], c_allocator)
         append_text(trees_of(t), d.unit, fn.cname, mut name)?
-        mut h.claim(name, own what, fn.name_span, true)?
+        mut h.claim(name, own what, extern_cname_span(fn), true)?
     }
     return h, noerror
+}
+
+// extern_cname_span returns where the C name of fn, an extern func, is
+// written: the string of its extern("..."), or its name when it has
+// none, as the type checker's check_cname reports its C name. Go's
+// newHeader claims an extern func's C name at the func's name, so a
+// clash of it with a type's name, and a C name tack.h reserves, are
+// reported there, away from the C name they are about; the port reports
+// both at the C name, decided 2026-11-15, a known divergence from Go in
+// tackc's porttest for a program with an extern("...") name. A results
+// struct's clash stays at the func's name, as in Go.
+func extern_cname_span(fn ast.Func) source.Span {
+    if fn.cname_span != ast.unset_span() && fn.cname_span.end > fn.cname_span.start {
+        return fn.cname_span
+    }
+    return fn.name_span
 }
 
 // use_signature records every type the parameters and results of the
@@ -446,16 +462,21 @@ func (mut h Header) claim_struct(mut t typeck.Typed, typ types.Type) error {
     append_text(trees_of(t), d.unit, td.name, mut tname)?
     mut name := make(list[uint8], c_allocator)
     mut h.append_cname(mut t, typ, mut name)?
+    mut what := make(list[uint8], c_allocator)
+    fmt.appendf(mut what, "type %s of package ", tname[:])?
+    append_package_path(t, pkg, mut what)?
     if cname.is_keyword(name) {
+        // Go's claimStruct writes "type T cannot be named ...", naming
+        // no package, and claims no name for the type, so a later clash
+        // with it goes unreported. The port names the type as every
+        // other message of tack.h's names does, with its package, and
+        // claims its name, decided 2026-11-15: a known divergence from
+        // Go in tackc's porttest.
         mut m := make(list[uint8], c_allocator)
-        fmt.appendf(mut m, "type %s cannot be named %s in C: it is a C keyword", tname[:], name[:])?
+        fmt.appendf(mut m, "%s cannot be named %s in C: it is a C keyword", what[:], name[:])?
         mut h.errorf(td.name_span, own m)?
-    } else {
-        mut what := make(list[uint8], c_allocator)
-        fmt.appendf(mut what, "type %s of package ", tname[:])?
-        append_package_path(t, pkg, mut what)?
-        mut h.claim(name, own what, td.name_span, false)?
     }
+    mut h.claim(name, own what, td.name_span, false)?
     switch kind_of(trees_of(t), typeck.Key{unit: d.unit, node: td.type_expr}) {
     case struct_type(fields):
         for i := range node_count(trees_of(t), d.unit, fields) {

@@ -1209,9 +1209,10 @@ func (mut c Checker) check_simple_stmt(k Key) error {
 
 // check_expr_stmt checks the expression x written as a statement, Go's
 // case of *ast.ExprStmt: a ? is checked as one; one that only gives a
-// value, a union built, a conversion or len, is checked and its value
-// reported as not used; any other is checked as a call statement, whose
-// error cannot be dropped.
+// value, a union built, a conversion, len or has, is checked and its
+// value reported as not used; any other is checked as a call statement,
+// whose error cannot be dropped, and a make among them whose value owns
+// nothing is reported as not used too (see unused_make).
 func (mut c Checker) check_expr_stmt(x Key) error {
     switch kind_at(c.prog.trees, x) {
     case question:
@@ -1226,11 +1227,7 @@ func (mut c Checker) check_expr_stmt(x Key) error {
         if t == types.invalid || len(c.diags) != before {
             return noerror
         }
-        sp := span_at(c.prog.trees, x)
-        src := mut c.source_text(sp)?
-        mut m := msg()
-        fmt.appendf(mut m, "%s is not used", src[:])?
-        return mut c.unusedf(sp, own m)
+        return mut c.unused_value(x)
     }
     outer := c.dropped_call
     switch kind_at(c.prog.trees, x) {
@@ -1239,17 +1236,57 @@ func (mut c Checker) check_expr_stmt(x Key) error {
     default:
         c.dropped_call = no_key()
     }
+    before := len(c.diags)
     e := mut c.discard(x)
     c.dropped_call = outer
     if e.code != 0 {
         return e
     }
-    return mut c.dropped_error(x)
+    mut c.dropped_error(x)?
+    return mut c.unused_make(x, before)
+}
+
+// unused_value reports that the value of x, an expression statement
+// checked with no error, is not used, Go's unusedValue's warning.
+func (mut c Checker) unused_value(x Key) error {
+    sp := span_at(c.prog.trees, x)
+    src := mut c.source_text(sp)?
+    mut m := msg()
+    fmt.appendf(mut m, "%s is not used", src[:])?
+    return mut c.unusedf(sp, own m)
+}
+
+// unused_make reports that the value of x, a call statement whose check
+// left c.diags as long as before, is not used, as unused_value reports
+// len's, when it is a make whose value owns nothing: make allocates
+// nothing, so it does nothing but give a value, decided 2026-11-15. A
+// make whose value owns is an error the move check reports, as in Go,
+// and is not reported here. Go's checker reports neither, so a program
+// with such a make is a known divergence from Go in tackc's porttest.
+func (mut c Checker) unused_make(x Key, before int64) error {
+    if !is_builtin_call(c.prog.trees, c.none, x, "make") || len(c.diags) != before {
+        return noerror
+    }
+    t := mut c.type_of(x)
+    if t == types.invalid {
+        return noerror
+    }
+    owned := c.table.owned(t)?
+    if owned {
+        return noerror
+    }
+    return mut c.unused_value(x)
 }
 
 // only_value reports whether e, written as a statement, does nothing but
 // give a value, Go's onlyValue: a union built, a conversion, or a call
-// of len.
+// of len or has. Go's onlyValue leaves has out, so its checker takes
+// has(m, k) written as a statement for a call statement and reports
+// nothing, and its backend lowers it to a call of a C function that
+// does not exist, which does not compile (a Go bug, reached by accepted
+// programs). has, like len, only reports, so it is reported as not used
+// as len is and its value dropped, decided 2026-11-15; a program with
+// one is a known divergence from Go in tackc's porttest.
 func (mut c Checker) only_value(e Key) bool {
     _, _, built := construction(c.prog.trees, c.none, e)
     if built {
@@ -1257,7 +1294,7 @@ func (mut c Checker) only_value(e Key) bool {
     }
     switch kind_at(c.prog.trees, e) {
     case call(cl):
-        return cl.conv != types.invalid || is_len_call(c.prog.trees, c.none, e)
+        return cl.conv != types.invalid || is_len_call(c.prog.trees, c.none, e) || is_builtin_call(c.prog.trees, c.none, e, "has")
     default:
         return false
     }

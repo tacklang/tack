@@ -108,10 +108,23 @@ package codegen
 // until the C or tack.h is out: no number used by a lowering cut short
 // shows anywhere. The port answers not_ported, which the driver reports
 // as not implemented, exit status 3, where Go reports an internal error
-// (see below), and where the C Go writes for an accepted program is a
-// Go bug the port does not copy, each named in a comment: the zero value
-// of a type parameter that stands for a string, an Allocator, an any or
-// an error, which Go writes as 0 (see append_zero_value).
+// (see below). Where the C Go writes for an accepted program is a Go bug,
+// the port writes C that is right instead, each named in a comment, and
+// tackc's porttest lists the case as a known divergence from Go: the
+// zero value of a type parameter that stands for a string, an Allocator,
+// an any or an error, which Go writes as 0 (see append_zero_value); the
+// zero value of a string where Go's walk pooled no empty string, whose
+// label Go leaves empty, which the port pools after the walk (see
+// append_empty_string); the empty string a pool[string]'s take helper
+// leaves in its slot, which Go names before the pool declares it (see
+// emit_pools); and has written as a statement, which Go lowers to
+// a call of no C function, and which is evaluated and its value dropped,
+// as len's is (see generate_expr_stmt). The header reports an extern
+// func's C name that clashes with a type's or that tack.h reserves at
+// the C name, and names the package of a struct whose name is a C
+// keyword, claiming its name, where Go does neither (see header.tck).
+// Once every body is lowered the pool is closed, and a zero value that
+// would need the empty string pooled then is declined.
 //
 // # Numbering
 //

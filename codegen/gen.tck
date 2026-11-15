@@ -146,7 +146,13 @@ type Global struct {
 // Go's captured, the function types whose scope pointer types are
 // defined and whose adapters are written, Go's scopeFns, adapters and
 // adapterOrder, whether a scope parameter was lowered, Go's scopeUsed,
-// and how many bindings the lowering has made and not yet ended.
+// and how many bindings the lowering has made and not yet ended; and,
+// for the zero value of a string where Go's walk pooled no empty string
+// (see append_zero_value), the place of the empty string pooled after
+// the walk, late_empty, -1 while there is none, and whether the pool is
+// closed, pool_closed, once every body is lowered: what is written after
+// that comes before the pool in the file, or after its labels are
+// chosen, so nothing may join it.
 pub type Gen struct {
     set builtin.Set
     globals map[typeck.Key]bool
@@ -194,6 +200,8 @@ pub type Gen struct {
     adapter_order list[types.Type]
     scope_used bool
     binds int64
+    late_empty int64
+    pool_closed bool
 }
 
 // new_frame returns a Frame for no function, which grows through
@@ -267,6 +275,8 @@ func new_gen(set builtin.Set) Gen {
         adapter_order: make(list[types.Type], c_allocator),
         scope_used: false,
         binds: 0,
+        late_empty: -1,
+        pool_closed: false,
     }
 }
 
@@ -481,6 +491,7 @@ func (mut g Gen) lower_program(mut t typeck.Typed) error {
         }
     }
     floats := mut g.uses_floats(mut t)?
+    g.pool_closed = true
     mut g.emit_preamble(sizes, floats)?
     mut g.emit_types(mut t)?
     mut g.emit_constant_pool(mut t, used[:], low.globals[:])?
@@ -704,7 +715,11 @@ func (mut g Gen) emit_globals(globals []Global) error {
 // emit_constant_pool writes the pooled strings as byte arrays, then the
 // prototypes of the builtins the program calls, then the helpers its
 // code calls, Go's emitConstantPool. A division's, a shift's and a
-// slice's helpers are E2's.
+// slice's helpers are E2's. The empty string pooled after Go's walk,
+// late_empty (see append_zero_value), is written only when something
+// written names it, a body, a global or a helper already in the buffer:
+// one that only a zero value nothing kept named is left out, as Go has
+// no such string, so a program whose C Go writes right gets Go's pool.
 func (mut g Gen) emit_constant_pool(mut t typeck.Typed, used []builtin.Func, globals []Global) error {
     for i := range len(g.strs) {
         s, ok := g.strs[i]
@@ -723,6 +738,9 @@ func (mut g Gen) emit_constant_pool(mut t typeck.Typed, used []builtin.Func, glo
             if names_ident(v.decl[:], label[:]) {
                 named = true
             }
+        }
+        if i == g.late_empty && !named && !names_ident(g.buf[:], label[:]) {
+            continue
         }
         if !named {
             append(mut g.buf, []uint8("__attribute__((unused)) ")...)?

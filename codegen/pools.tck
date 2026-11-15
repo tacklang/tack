@@ -104,7 +104,23 @@ func (mut g Gen) emit_pools(mut t typeck.Typed) error {
         append_pool_helper(mut t, "take", typ, mut take)?
         ut := mut g.maybe_unused(take[:])?
         mut zero := make(list[uint8], c_allocator)
-        mut g.append_zero_value(mut t, et, mut zero)?
+        if et == types.string_type {
+            // Go's emitPools writes a string's zero value here, its
+            // pooled empty string, but the pool is written after the
+            // helpers, so the label is used before C declares it, when
+            // it is pooled at all, and the C does not compile (a Go bug,
+            // reached by every program with a pool[string]). The value
+            // left in a slot taken from is never read: the port writes
+            // a zeroed tack_string, a null pointer and a length of 0, as
+            // a zeroed struct holds, under the lead's ruling of
+            // 2026-11-15 that the language defines the zero values: a
+            // known divergence from Go in tackc's porttest.
+            append(mut zero, '(')?
+            append_c_type(mut t, et, mut zero)?
+            append(mut zero, []uint8("){}")...)?
+        } else {
+            mut g.append_zero_value(mut t, et, mut zero)?
+        }
         fmt.appendf(mut g.buf, "%sstatic %s %s(%s *p, %s *s) {\n", ut, elem[:], take[:], p[:], slot[:])?
         fmt.appendf(mut g.buf, "    %s v = s->value;\n    s->value = %s;\n    s->live = false;\n    p->count--;\n", elem[:], zero[:])?
         mut g.wb("    if (s->gen != 4294967295u) {\n        s->gen++;\n        s->next = p->free;\n")?

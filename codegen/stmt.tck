@@ -2,6 +2,7 @@ package codegen
 
 import ast from "tack/ast"
 import bytes from "std/bytes"
+import text from "std/text"
 import typeck from "tack/typeck"
 import types from "tack/types"
 
@@ -987,10 +988,12 @@ func (mut g Gen) generate_inc_dec(mut t typeck.Typed, s typeck.Key) (list[Line],
 // built, a conversion or len, evaluated and dropped; a call of a method,
 // of a declared function or of a builtin with a C body; a ?; and the
 // generic builtins written as statements, pop, remove, replace, delete,
-// swap and drop, and make (see make_stmt). A generic builtin that
-// gives a value, has among them, written as a statement Go lowers to a
-// call of a C function that does not exist; the call has no callee, and
-// step_call_expr declines it.
+// swap and drop, and make (see make_stmt). has, which like len only
+// gives a value, is evaluated and dropped too: Go lowers has(m, k)
+// written as a statement to a call of a C function that does not exist,
+// which does not compile (a Go bug, reached by accepted programs); the
+// port does not copy it, and the type checker reports the value as not
+// used (see typeck's only_value), decided 2026-11-15.
 func (mut g Gen) generate_expr_stmt(mut t typeck.Typed, s typeck.Key) (list[Line], error) {
     mut es ast.ExprStmt
     switch kind_of(t.prog.trees[:], s) {
@@ -1014,7 +1017,7 @@ func (mut g Gen) generate_expr_stmt(mut t typeck.Typed, s typeck.Key) (list[Line
         is_call = true
     default:
     }
-    if built || is_call && (mut t.conv(x) != types.invalid || is_builtin_named(t, x, "len")) {
+    if built || is_call && (mut t.conv(x) != types.invalid || is_builtin_named(t, x, "len") || is_builtin_named(t, x, "has")) {
         lines := mut g.dropped_value(mut t, x)?
         return lines, noerror
     }
@@ -1131,16 +1134,23 @@ func (mut g Gen) generate_var(mut t typeck.Typed, v typeck.Key) (list[Line], err
 // error for a struct only unbound, so in an instance of a generic
 // function it gives a type parameter that stands for one of those 0,
 // which C cannot convert to the struct the type lowers to: the C Go
-// writes for, say, the ret variable of a function returning T through a
-// defer, or pop's value of a list[T], with T bound to string, does not
-// compile (a Go bug, raised; reached by accepted programs). The port
-// declines those, not_ported, and writes Go's 0 for a type parameter
-// that stands for a bool, which C reads as false.
+// writes for, say, the value a checked pop of an empty list[T] gives, or
+// the ret variable of a function returning a T bound to an error through
+// a defer, does not compile (a Go bug, reached by accepted programs).
+// The port does not copy it: the zero value of each type is the
+// language's, so for such a type parameter it writes the C Go writes
+// for the type it stands for when no type parameter is in the way (see
+// append_bound_zero; the ret of a T standing for a string, which Go
+// zeroes in full when no type parameter is in the way, is
+// append_result_zero's), and a program that reaches it is a known
+// divergence from Go in tackc's porttest, under the lead's ruling of
+// 2026-11-15 that the language defines the zero values. It still asks the table what Go's
+// zeroValue asks, in Go's order, so the types a binding adds keep Go's
+// IDs, and writes Go's 0 for a type parameter that stands for a bool,
+// which C reads as false.
 func (mut g Gen) append_zero_value(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
     b := mut t.table.bound(typ)?
-    if b != typ && (b == types.string_type || b == types.allocator || b == types.any_type || b == types.error_type) {
-        return not_ported
-    }
+    stands_for := b != typ && (b == types.string_type || b == types.allocator || b == types.any_type || b == types.error_type)
     mut zeroed := mut g.is_composite(mut t, typ)?
     if !zeroed {
         zeroed = mut t.table.is_list(typ)?
@@ -1160,6 +1170,9 @@ func (mut g Gen) append_zero_value(mut t typeck.Typed, typ types.Type, mut out l
     if !zeroed {
         zeroed = mut t.table.is_handle(typ)?
     }
+    if stands_for {
+        return mut g.append_bound_zero(mut t, b, mut out)
+    }
     if zeroed || typ == types.allocator || typ == types.any_type {
         append(mut out, '(')?
         append_c_type(mut t, typ, mut out)?
@@ -1167,13 +1180,61 @@ func (mut g Gen) append_zero_value(mut t typeck.Typed, typ types.Type, mut out l
         return noerror
     }
     if typ == types.string_type {
-        g.append_string_value([]uint8(""), mut out)?
-        return noerror
+        return mut g.append_empty_string(mut out)
     }
     if typ == types.bool_type {
         append(mut out, []uint8("false")...)?
         return noerror
     }
     append(mut out, '0')?
+    return noerror
+}
+
+// append_bound_zero appends the zero value of b, the string, Allocator,
+// any or error a type parameter stands for, as Go's zeroValue writes it
+// for b itself: the pooled empty string for a string (see
+// append_empty_string), and a zeroed compound literal of its C type for
+// the rest (see append_zero_value).
+func (mut g Gen) append_bound_zero(mut t typeck.Typed, b types.Type, mut out list[uint8]) error {
+    if b == types.string_type {
+        return mut g.append_empty_string(mut out)
+    }
+    append(mut out, '(')?
+    append_c_type(mut t, b, mut out)?
+    append(mut out, []uint8("){}")...)?
+    return noerror
+}
+
+// append_empty_string appends the zero value of a string, the pooled
+// empty string, Go's stringValue(""). Go pools the empty string only
+// where its walk sees a string start from its zero value, a variable of
+// type string with no value or a checked index, assertion or slice of a
+// string; where else it writes a string's zero value, the value of a
+// checked pop or remove of a list[string], of a checked delete of a map
+// with string values, of a checked remove of a pool[string] and its take
+// helper, and the zero value of a type parameter standing for a string,
+// the label of a string never pooled is empty, and the C it writes,
+// (tack_string){, TACK_C_STR_LEN()}, does not compile (a Go bug, reached
+// by accepted programs). The port does not copy it: when the walk pooled
+// no empty string, it pools one now, after every string the walk pooled,
+// late_empty, which emit_constant_pool writes only when what it writes
+// names it, so a zero value thrown away, as a variable's with a value
+// is, leaves the pool as Go's. A program that reaches it is a known
+// divergence from Go in tackc's porttest, under the lead's ruling of
+// 2026-11-15 that the language defines the zero values. Once the
+// pool is closed, every body lowered (see Gen), nothing can join it, and
+// the port declines, not_ported, rather than name a string declared
+// after its use or not at all.
+func (mut g Gen) append_empty_string(mut out list[uint8]) error {
+    key := text.from_bytes([]uint8(""), c_allocator)?
+    _, pooled := g.strs_at[key]
+    if !pooled {
+        if g.pool_closed {
+            return not_ported
+        }
+        g.late_empty = len(g.strs)
+        mut g.add_str([]uint8(""))?
+    }
+    g.append_string_value([]uint8(""), mut out)?
     return noerror
 }

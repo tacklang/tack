@@ -68,8 +68,10 @@ passed to them through, function values and the thunks of functions of
 several results, fields loops, make of a Data type, calls through
 function values, and the testing.Site arguments a call passes. The
 whole of the lowering is ported. The C the Go compiler writes for a few
-shapes of accepted programs does not compile; the port answers those
-as not implemented rather than copy them (see package codegen). The
+shapes of accepted programs does not compile; the port writes C that
+does instead of copying it, and tackc's porttest lists each such case
+as a known divergence (see Known divergences from the Go compiler
+below, and package codegen). The
 program is lowered into buffers, so a decline
 writes nothing but its one line, neither C nor the warnings, which the
 driver writes only once the lowering, and any `tack.h`, is done. `types` has the
@@ -146,6 +148,40 @@ compiler's. `--port-header` writes `tack.h` for a checked program as the
 backend renders it, with nothing lowered, and `--port-reserved` the
 names `tack.h` may not give and the type ids an `any` holds; porttest
 compares them with the Go backend's `Header` and its own tables.
+
+### Known divergences from the Go compiler
+
+The port does not copy the Go compiler's bugs. Where an accepted
+program reaches one, the port does what was ruled right, and tackc's
+porttest lists the case in `porttest/testdata/divergences.txtar` with
+the port's reviewed output, which it compares the port with in place of
+Go's. The language owner decided these on 2026-11-15:
+
+- `has(m, k)` written as a statement is warned of as not used, as
+  `len(x)` is, and its value dropped; Go says nothing and lowers it to a
+  call of a C function that does not exist. `make(T, alloc)` written as
+  a statement, for a `T` that owns nothing, is warned of the same way,
+  where Go says nothing.
+- An extern func whose C name clashes with a type's name in `tack.h`, or
+  is a name `tack.h` reserves, is reported at its `extern("...")` C
+  name, not at the func's name.
+- A struct whose `tack.h` name is a C keyword is reported as `type T of
+  package P`, as the other `tack.h` messages name a type, and its name
+  is claimed, so a later clash with it is reported.
+
+These follow the lead's ruling of 2026-11-15 that the language already
+defines the zero values, which the language owner may still overrule:
+
+- The zero value of a type parameter standing for a string, an error or
+  an Allocator is what the same function written for that type gets,
+  where Go writes `0`: a defer's result variable of a string zeroed in
+  full, an error or an Allocator zeroed, and a checked pop, remove or
+  delete's string the pooled empty string.
+- The zero value of a string where nothing else pools the empty string,
+  a checked pop, remove or delete's among them, is the pooled empty
+  string, where Go writes an empty label; and a `pool[string]`'s take
+  helper leaves a zeroed string in its slot, where Go names the empty
+  string before the pool declares it.
 
 ### Known differences
 

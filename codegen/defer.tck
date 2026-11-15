@@ -544,6 +544,18 @@ func (mut g Gen) func_frame(mut t typeck.Typed, fn typeck.Key) (list[Line], erro
 // start ret with, Go's resultZero: its results struct zeroed, a string
 // zeroed in full, which needs no pooled empty string, or its type's zero
 // value.
+//
+// Go's resultZero compares the result type itself with string, so a
+// result of a type parameter standing for a string gets zeroValue's 0,
+// which does not compile (a Go bug, reached by accepted programs; see
+// append_zero_value). The port compares the type it stands for, so an
+// instance's ret starts as the same function written for a string
+// starts it, zeroed in full, under the lead's ruling of 2026-11-15 that
+// the language defines the zero values: a known divergence from Go in
+// tackc's porttest. append_zero_value
+// still runs there first, its value thrown away, so the table is asked
+// what Go's zeroValue asks, in Go's order; the empty string it may pool
+// is written only when named (see emit_constant_pool).
 func (mut g Gen) append_result_zero(mut t typeck.Typed, fn typeck.Key, mut out list[uint8]) error {
     if mut t.result_len(fn) > 1 {
         append(mut out, '(')?
@@ -552,6 +564,15 @@ func (mut g Gen) append_result_zero(mut t typeck.Typed, fn typeck.Key, mut out l
         return noerror
     }
     typ := mut t.result(fn, 0)
+    b := mut t.table.bound(typ)?
+    if b != typ && b == types.string_type {
+        mut asked := make(list[uint8], c_allocator)
+        mut g.append_zero_value(mut t, typ, mut asked)?
+        append(mut out, '(')?
+        append_c_type(mut t, b, mut out)?
+        append(mut out, []uint8("){}")...)?
+        return noerror
+    }
     if typ == types.string_type {
         append(mut out, '(')?
         append_c_type(mut t, typ, mut out)?
