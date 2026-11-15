@@ -77,6 +77,22 @@ func (l Loader) find_module(mut res Result, dir []uint8) (Module, bool, Fail, er
     }
 }
 
+// is_std_builtin_dir reports whether the directory dir is std/builtin,
+// Go's IsStdBuiltinDir: the directory builtin at the root of the module
+// std, the standard library or a checkout of it, found as find_module
+// finds the module of dir. A module that cannot be found or read, or a
+// malformed tack.mod, makes it none.
+pub func (l Loader) is_std_builtin_dir(dir []uint8) (bool, error) {
+    clean := path.clean(dir, l.alloc)?
+    mut res := new_result(l.alloc)
+    m, ok, f := l.find_module(mut res, clean.bytes())?
+    if !ok || f.failed || !m.name.equal([]uint8(std_name)) {
+        return false, noerror
+    }
+    p := m.path_of(clean.bytes(), l.alloc)?
+    return p.equal([]uint8("std/builtin")), noerror
+}
+
 // parse_module parses data, the tack.mod at name in the directory root,
 // taken over, recording it in res, and returns the module it declares
 // and true, or false with its diagnostics recorded in res.

@@ -82,18 +82,26 @@ pub func refuse(prog_errors int64, table_errors int64, mut out list[diag.Diagnos
     return true, noerror
 }
 
-// generate turns t, a checked program taken over, with set, the builtins
-// it was resolved and checked with, into its C, Go's Generate of
-// codegen/c: a program refuse refuses gives its diagnostics and no C,
-// and any other, for now, not_ported, since the C backend is not ported
-// yet.
-pub func generate(own t typeck.Typed, set builtin.Set) (list[uint8], list[diag.Diagnostic], error) {
+// generate turns t, a checked program, with set, the builtins it was
+// resolved and checked with, into its C, Go's Generate of codegen/c: a
+// program refuse refuses gives its diagnostics and no C; one whose types
+// tack.h could not name, header_diags', which Go's generate checks
+// before it lowers anything, gives those; and any other, for now,
+// not_ported, since the lowering is not ported yet. t is taken as mut,
+// so the driver still has its files to render the diagnostics with, and
+// its program to write tack.h from.
+pub func generate(mut t typeck.Typed, set builtin.Set) (list[uint8], list[diag.Diagnostic], error) {
     out := make(list[uint8], c_allocator)
     mut diags := make(list[diag.Diagnostic], c_allocator)
-    mut typed := t
-    refused := refuse(typed.prog.errors, mut typed.table.errors(), mut diags)?
+    refused := refuse(t.prog.errors, mut t.table.errors(), mut diags)?
     if refused {
         return out, diags, noerror
+    }
+    // tack.h is written only for a build with C files, but a name it
+    // cannot give is a problem with the program whatever is built.
+    hd := header_diags(mut t)?
+    if len(hd) > 0 {
+        return out, hd, noerror
     }
     return out, diags, not_ported
 }

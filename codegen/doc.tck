@@ -4,10 +4,29 @@ package codegen
 // its code generation backend, a port of the Go compiler's package
 // codegen (backend.go): the backends the driver may name, the
 // optimization levels a build may run at, and Refuse, which says whether
-// a program may be lowered at all. The C backend itself, Go's codegen/c,
-// is not ported yet: generate refuses what Go's Refuse refuses and
-// otherwise answers not_ported, which the driver reports as not
-// implemented, at the point where Go would start generating.
+// a program may be lowered at all; and of the C backend, Go's
+// codegen/c, kept in this package while it is the one backend, the
+// header, tack.h (header.tck, Go's header.go), with the names it may not
+// give (reserved.tck, Go's reserved.go and any.go's anyIDs and
+// viewAnyID). generate refuses what Go's Refuse refuses, then rejects,
+// with header_diags, a program whose types, fields, results structs or
+// extern funcs tack.h could not name, as Go's generate does before it
+// lowers anything, and otherwise answers not_ported, which the driver
+// reports as not implemented, at the point where Go starts lowering.
+// header renders tack.h as Go's Header does, which the driver's
+// --port-header writes with nothing lowered, so it is compared with Go's
+// before the lowering is ported; --emit-header, which writes it only
+// after lowering, declines until then.
+//
+// The header walks the parts of every type an extern func's signature
+// uses, each array, view and list after its element and each struct
+// after its fields' types, from a stack of its own, as Go's recursion
+// orders them: a chain of structs held by value is as long as its
+// source makes it. A name is built in a loop down an array's elements,
+// as deep as the parser lets a type nest. Go's names table starts with
+// every reserved name; here the reserved names are a map of their own,
+// looked up first, which answers the same, since a reserved owner is
+// never replaced.
 //
 // It takes a checked program as the type checker hands it over, a
 // typeck.Typed (see package typeck): the program, its files, its type

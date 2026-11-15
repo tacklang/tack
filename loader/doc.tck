@@ -47,6 +47,12 @@ package loader
 // a directory or an import path (relative_to), and as it is for a single
 // file.
 //
+// std/builtin. is_std_builtin_dir answers Go's IsStdBuiltinDir, whether
+// a directory is the builtin directory of the module std, which the
+// driver asks before it loads a --check target: that directory's
+// builtin.tck is a copy of the builtins' documentation, compared with
+// the compiler's own instead of loaded.
+//
 // Imports. Go loads a package's imports by recursion, a call for each
 // package down an import chain, on a stack that grows. The port's stack
 // does not grow, and an import chain is as long as a program makes it, so

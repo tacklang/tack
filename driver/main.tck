@@ -43,7 +43,11 @@ import typeck from "tack/typeck"
 // does not with a dump; when any stage found an error it reports every
 // diagnostic, exit status 1, and otherwise it hands the checked program,
 // the type checker's handover (see typeck.Typed), to package codegen,
-// whose C backend is not ported yet. Anything else
+// which rejects, with every diagnostic, a program whose types tack.h
+// could not name, as Go's backend does before it lowers anything, and
+// whose lowering is not ported yet. --check of std/builtin, or of its
+// builtin.tck, compares the copy with the compiler's own, as Go's
+// checkBuiltinDoc does. Anything else
 // it does not do yet, and says so in the form the differential harness
 // in tackc/porttest reads: on standard error,
 //
@@ -51,14 +55,14 @@ import typeck from "tack/typeck"
 //
 // and exit status 3, which the harness counts as a skip unless the stage
 // is one it requires. --check, --emit and --emit-header decline so when
-// no stage before the backend finds an error, since Go goes on to the C
-// backend then, which the port does not have yet, naming --check, or
-// the dump without it; when the type checker meets what it does not
-// check yet; --check when a dump flag other than --emit and
-// --emit-header comes with it, or --backends, with which Go checks an
-// empty target; and --check without a dump when the target may be
-// std/builtin or its builtin.tck, which Go compares with the compiler's
-// own copy of the builtins' documentation instead of checking it.
+// no stage before the backend finds an error and tack.h can name every
+// type, since Go goes on to lower the program then, which the port does
+// not do yet, naming --check, or the dump without it; when the type
+// checker meets what it does not check yet; --check when a dump flag
+// other than --emit and --emit-header comes with it, or --backends,
+// with which Go checks an empty target; and --check without a dump of a
+// std/builtin, or its builtin.tck, reached through a symbolic link,
+// which Go resolves and the port cannot.
 //
 // The command line is read as Go's flag package reads it: flags, each
 // starting with - or --, come first and stop at the first argument that
@@ -114,7 +118,12 @@ import typeck from "tack/typeck"
 // writes for each float a file lists by its bits (see floats_dump), and
 // --port-bind what the type table's bindings give a checked program's
 // types under each instance's binding (see typeck's write_bind_dump),
-// each of which tackc's porttest compares with Go's.
+// each of which tackc's porttest compares with Go's. --port-header writes
+// tack.h for a checked program as the backend renders it, without
+// lowering it first as --emit-header does (see header_dump), and
+// --port-reserved the names tack.h may not give and the any type ids,
+// whatever the target, each of which tackc's porttest compares with
+// Go's backend.
 
 // exit_ok means the requested work was done.
 var exit_ok int32 = 0
@@ -214,10 +223,23 @@ var dump_floats = Dump{n: 8}
 // Go's Table.
 var dump_bind = Dump{n: 9}
 
+// dump_port_header is --port-header, the port's too: tack.h as the
+// backend renders it for a checked program, written to standard output
+// (see header_dump), which tackc's porttest compares with Go's backend's
+// Header run in process. Go's --emit-header lowers the whole program
+// before it writes tack.h; this renders it with nothing lowered, so the
+// header is compared before the lowering is ported.
+var dump_port_header = Dump{n: 10}
+
+// dump_reserved is --port-reserved, the port's too: the names tack.h may
+// not give and the any type ids (see codegen.append_reserved_dump),
+// which tackc's porttest compares with Go's tables of them.
+var dump_reserved = Dump{n: 11}
+
 // dump_flags are the dump flags the port reads, in the order Go's dumpOf
 // lists them, which is the order a usage error names them in, each at
 // the index of its Dump's number less one; the port's own last.
-var dump_flags = [9]string{"--lex", "--ast", "--res", "--emit", "--emit-header", "--port-loaded", "--port-types", "--port-floats", "--port-bind"}
+var dump_flags = [11]string{"--lex", "--ast", "--res", "--emit", "--emit-header", "--port-loaded", "--port-types", "--port-floats", "--port-bind", "--port-header", "--port-reserved"}
 
 // Flags holds what the flags of a command line set, Go's flagValues as
 // far as the port reads them: whether each of dump_flags was given,
@@ -228,7 +250,7 @@ var dump_flags = [9]string{"--lex", "--ast", "--res", "--emit", "--emit-header",
 // --backend is: the index of the argument that holds it, -1 for none,
 // and its offset in it.
 type Flags struct {
-    asked [9]bool
+    asked [11]bool
     check bool
     backends bool
     opt [6]bool
@@ -250,7 +272,7 @@ type Flags struct {
 func run(a []text.Text) (int32, error) {
     // rest holds the index in a of each argument after the flags.
     mut rest := make(list[int64], c_allocator)
-    mut asked [9]bool
+    mut asked [11]bool
     mut opt [6]bool
     mut fl := Flags{asked: asked, check: false, backends: false, opt: opt, has_out: false, max_errors: default_max_errors, max_diags: default_max_errors, diags_set: false, backend_at: -1, backend_from: 0}
     mut flags_done := false
@@ -583,6 +605,16 @@ func command(a []text.Text, rest []int64, fl Flags, d Dump, max_errors int64) (i
         code, e := floats_dump(a[k].bytes())
         return code, e
     }
+    if d == dump_reserved {
+        mut out := make(list[uint8], c_allocator)
+        codegen.append_reserved_dump(mut out)?
+        fmt.write(out)
+        return exit_ok, noerror
+    }
+    if d == dump_port_header {
+        code, e := header_dump(a[k].bytes(), max_errors)
+        return code, e
+    }
     code, e := dump_target(a[k].bytes(), d, max_errors)
     return code, e
 }
@@ -643,6 +675,12 @@ func flag_name(d Dump) string {
     }
     if d == dump_bind {
         return "--port-bind"
+    }
+    if d == dump_port_header {
+        return "--port-header"
+    }
+    if d == dump_reserved {
+        return "--port-reserved"
     }
     return "--lex"
 }
@@ -1165,18 +1203,80 @@ func emit_target(target []uint8, d Dump, max_errors int64) (int32, error) {
         fmt.ewrite(out)
         return exit_failure, noerror
     }
-    typed := mut c.take_typed()?
-    gout, gdiags, ge := codegen.generate(own typed, builtin.default_set())
+    mut typed := mut c.take_typed()?
+    gout, mut gdiags, ge := codegen.generate(mut typed, builtin.default_set())
     if ge.code != 0 && ge.code != codegen.not_ported.code {
         return exit_failure, ge
     }
     if ge.code == 0 {
         drop(own gout)
-        drop(own gdiags)
     }
-    // Go's Generate refuses nothing here, every stage having reported no
-    // error, and the port's generate gives nothing else yet.
+    if ge.code == 0 && diag.has_errors(gdiags) {
+        // What tack.h cannot name, Go's compile appends after the
+        // warnings of the stages before, and renders with them.
+        for i := range len(gdiags) {
+            append(mut all, replace(mut gdiags[i], make(diag.Diagnostic, c_allocator)))?
+        }
+        out := render_diagnostics(typed.files, all, max_errors)?
+        fmt.ewrite(out)
+        return exit_failure, noerror
+    }
+    // Past its check of tack.h Go's Generate lowers the program, which
+    // the port's does not do yet.
     return unimplemented([]uint8(flag_name(d))), noerror
+}
+
+// header_dump writes what --port-header writes for target: the standard
+// library is found and the target loaded as --check loads it, a library
+// when it holds no main package, resolved with a missing main allowed,
+// and type-checked; when no stage reported an error, tack.h as the
+// backend's header renders it, written to standard output, whatever
+// header_diags finds, as Go's Header renders it whatever headerDiags
+// finds, and exit status 0. A program with an error, and one the type
+// checker cannot check yet, is not implemented, naming --port-header:
+// tack.h is only ever written for a program with none.
+func header_dump(target []uint8, max_errors int64) (int32, error) {
+    std_dir, sf := find_std()?
+    if sf.failed {
+        return unimplemented([]uint8("--port-header")), noerror
+    }
+    mut l := loader.Loader{
+        stop: loader.stage_none,
+        max_errors: max_errors,
+        builtins: true,
+        has_std: true,
+        std_dir: std_dir,
+        relative: false,
+        cwd: text.new(c_allocator),
+        library: true,
+        alloc: c_allocator,
+    }
+    mut res, _, f := load_with(mut l, target)?
+    if f.failed || !res.has_program || diag.has_errors(res.diags) {
+        return unimplemented([]uint8("--port-header")), noerror
+    }
+    prog := program_of(mut res.program.packages, res.program.errors)?
+    resolved, rdiags := resolver.resolve(own prog, builtin.default_set(), true)?
+    if diag.has_errors(rdiags) {
+        return unimplemented([]uint8("--port-header")), noerror
+    }
+    files := replace(mut res.files, source.new_set(c_allocator))
+    mut c := typeck.new_checker(own resolved, own files)?
+    e := mut c.check()
+    if e.code == typeck.not_ported.code {
+        return unimplemented([]uint8("--port-header")), noerror
+    }
+    if e.code != 0 {
+        return exit_failure, e
+    }
+    tdiags := mut c.take_diags()?
+    if diag.has_errors(tdiags) {
+        return unimplemented([]uint8("--port-header")), noerror
+    }
+    mut typed := mut c.take_typed()?
+    out := codegen.header(mut typed)?
+    fmt.write(out)
+    return exit_ok, noerror
 }
 
 // floats_dump writes what --port-floats writes for the file target: for
@@ -1263,7 +1363,7 @@ func check_failed(f loader.Fail) (int32, error) {
 // directory or import path holding no main package (see loader.Loader's
 // lib), and the program checked (see check_program). A target that may
 // be std/builtin or its builtin.tck, which Go compares with the
-// compiler's own copy instead, is not implemented (see may_be_builtin_doc).
+// compiler's own copy instead, is compared with it (see check_builtin_doc).
 //
 // doc says to look for that copy, as Go does without a dump; with --emit
 // and --emit-header Go does not, checking the target as it is.
@@ -1272,9 +1372,6 @@ func check_target(target []uint8, max_errors int64, doc bool) (int32, error) {
     if sf.failed {
         code, e := check_failed(sf)
         return code, e
-    }
-    if doc && may_be_builtin_doc(target)? {
-        return unimplemented([]uint8("--check")), noerror
     }
     mut l := loader.Loader{
         stop: loader.stage_none,
@@ -1287,6 +1384,12 @@ func check_target(target []uint8, max_errors int64, doc bool) (int32, error) {
         library: true,
         alloc: c_allocator,
     }
+    if doc {
+        handled, doc_code := check_builtin_doc(target, l)?
+        if handled {
+            return doc_code, noerror
+        }
+    }
     mut res, _, f := load_with(mut l, target)?
     if f.failed {
         code, e := check_failed(f)
@@ -1296,36 +1399,93 @@ func check_target(target []uint8, max_errors int64, doc bool) (int32, error) {
     return code, e
 }
 
-// may_be_builtin_doc reports whether target could be what Go's
-// checkBuiltinDoc takes apart from the loader: the directory
-// std/builtin of a module std, or its builtin.tck, directly or through a
-// symbolic link. Go resolves the links and asks which module the
-// directory is in; the port cannot resolve a link, so it answers true
-// for every target that could be one, which is then not implemented,
-// and false only where Go's answer is surely no: a target, made
-// absolute as Go's filepath.Abs makes it, that cannot be looked at; a
-// directory holding no builtin.tck; and a file that is no symbolic link
-// and is not named builtin.tck.
-func may_be_builtin_doc(target []uint8) (bool, error) {
+// check_builtin_doc checks target when it is std/builtin/builtin.tck, or
+// the directory std/builtin, and reports whether it was, with the exit
+// status, Go's checkBuiltinDoc, with l the loader that finds the module
+// std: that file is a copy of the builtins' documentation, which is
+// never checked as code. It is clean, exit status 0 and nothing written,
+// when it matches the compiler's own, builtin.doc, and an error saying
+// how to refresh it when it does not. Any other target is left to the
+// loader, and so is a file whose name as given makes it a test file, and
+// a target that cannot be looked at. Go resolves the symbolic links of
+// the target's path first; the port cannot resolve a link, so a target
+// with one among the parts of its path, made absolute as Go's
+// filepath.Abs makes it, is not implemented, naming --check.
+func check_builtin_doc(target []uint8, l loader.Loader) (bool, int32, error) {
     abs, af := abs_path(target)?
     if af.failed {
-        return false, noerror
+        return false, exit_ok, noerror
     }
     info, err := os.stat(abs.bytes())
     if err.code != 0 {
-        return false, noerror
-    }
-    if info.is_dir() {
-        doc := path.join(abs.bytes(), []uint8("builtin.tck"), c_allocator)?
-        _, doc_err := os.stat(doc.bytes())
-        return !loader.is_enoent(doc_err), noerror
+        return false, exit_ok, noerror
     }
     base := path.base(abs.bytes(), c_allocator)?
-    if base.equal([]uint8("builtin.tck")) {
-        return true, noerror
+    if !info.is_dir() && loader.is_test_file(base.bytes()) {
+        return false, exit_ok, noerror
     }
-    link, link_err := os.lstat(abs.bytes())
-    return link_err.code != 0 || !os.same_file(link, info), noerror
+    linked := has_link(abs.bytes())?
+    if linked {
+        return true, unimplemented([]uint8("--check")), noerror
+    }
+    mut file := text.new(c_allocator)
+    mut dir := text.new(c_allocator)
+    if info.is_dir() {
+        file = path.join(abs.bytes(), []uint8("builtin.tck"), c_allocator)?
+        dir = text.from_bytes(abs.bytes(), c_allocator)?
+    } else {
+        if !base.equal([]uint8("builtin.tck")) {
+            return false, exit_ok, noerror
+        }
+        file = text.from_bytes(abs.bytes(), c_allocator)?
+        dir = path.dir(abs.bytes(), c_allocator)?
+    }
+    is_std := l.is_std_builtin_dir(dir.bytes())?
+    if !is_std {
+        return false, exit_ok, noerror
+    }
+    data, rerr := os.read_file(file.bytes(), c_allocator)
+    if rerr.code != 0 {
+        return false, exit_ok, noerror
+    }
+    if bytes.equal(data[:], []uint8(builtin.doc)) {
+        return true, exit_ok, noerror
+    }
+    fmt.eprintf("tack: %s differs from the builtins built into the compiler; refresh it with make std-copies, or make install-std for an installed std\n", target)
+    return true, exit_failure, noerror
+}
+
+// has_link reports whether any part of the absolute path abs, from its
+// first directory to itself, is a symbolic link (see is_link).
+func has_link(abs []uint8) (bool, error) {
+    for i, b := range abs {
+        if i == 0 || b != '/' && i +% 1 != len(abs) {
+            continue
+        }
+        mut end := i
+        if b != '/' {
+            end = i +% 1
+        }
+        if end <= 0 || end > len(abs) {
+            continue
+        }
+        if is_link(abs[:end]) {
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// is_link reports whether p is a symbolic link: one whose lstat and stat
+// name different files, or whose stat fails, a link that leads nowhere.
+// A p that cannot be looked at is none.
+func is_link(p []uint8) bool {
+    link, lerr := os.lstat(p)
+    if lerr.code != 0 {
+        return false
+    }
+    info, serr := os.stat(p)
+    return serr.code != 0 || !os.same_file(link, info)
 }
 
 // check_program checks the program res holds, loaded in full, with the
@@ -1373,15 +1533,32 @@ func check_program(mut res loader.Result, max_errors int64) (int32, error) {
     if !diag.has_errors(all) {
         // Go runs the C backend here, whatever the missing main, and
         // the port's is not ported yet.
-        typed := mut c.take_typed()?
-        gout, gdiags, ge := codegen.generate(own typed, builtin.default_set())
+        mut typed := mut c.take_typed()?
+        gout, mut gdiags, ge := codegen.generate(mut typed, builtin.default_set())
         if ge.code != codegen.not_ported.code && ge.code != 0 {
             return exit_failure, ge
         }
         if ge.code == 0 {
             drop(own gout)
-            drop(own gdiags)
         }
+        if ge.code == 0 && len(gdiags) > 0 {
+            // Go's checkProgram puts the missing main first, then what
+            // the backend reported, then the stages' warnings.
+            for i := range len(gdiags) {
+                append(mut missing, replace(mut gdiags[i], make(diag.Diagnostic, c_allocator)))?
+            }
+            for i := range len(all) {
+                append(mut missing, replace(mut all[i], make(diag.Diagnostic, c_allocator)))?
+            }
+            out := render_diagnostics(typed.files, missing, max_errors)?
+            fmt.ewrite(out)
+            if diag.has_errors(missing) {
+                return exit_failure, noerror
+            }
+            return exit_ok, noerror
+        }
+        // Past its check of tack.h Go's Generate lowers the program,
+        // which the port's does not do yet.
         return unimplemented([]uint8("--check")), noerror
     }
     checked, back := mut c.take_program()

@@ -43,7 +43,11 @@ every annotation the Go compiler's checker writes on the tree that its
 C backend reads (see package typeck). `codegen` is the backend's
 contract, ported from Go's package codegen: the backends there are, the
 optimization levels, and Refuse, which keeps a program with errors from
-being lowered; the C backend itself is not ported yet. `types` has the
+being lowered; of the C backend, the header, `tack.h`, with the names
+it may not give: a program whose types, fields or extern funcs `tack.h`
+could not name is rejected as the Go compiler rejects it, before
+anything is lowered, and the header is rendered as Go's backend renders
+it; the lowering itself is not ported yet. `types` has the
 bindings the backend lowers a generic function's instances under, Go's
 `Bind` and `Bound` among them, which add the types they make in Go's
 order, since C names carry type IDs, with a twin of every query of the
@@ -73,11 +77,13 @@ reading fails with an error the port cannot word exactly as the Go
 compiler would is answered the same way (see package loader). `--emit`
 and `--emit-header`, with `--check` or without, run every stage before
 the backend as the Go compiler does and report their diagnostics, and
-are answered so where the Go compiler starts generating C. The flags
+are answered so where the Go compiler starts lowering, past its check
+of `tack.h`'s names. `--check` of `std/builtin` or its `builtin.tck`
+compares the copy with the compiler's own, as the Go compiler does. The flags
 `-O0` to `-Oz` and `--backend` are read, and their usage errors
 written, as the Go compiler writes them.
 
-The driver has two flags the Go compiler has not. `--port-loaded`
+The driver has flags the Go compiler has not. `--port-loaded`
 writes what a load in full gives: the program's packages, in order,
 their directories, files and C files, what each import is bound to, the
 error count, and every diagnostic in the order it was reported.
@@ -100,7 +106,10 @@ what each holds, among the rest. `--port-floats` writes the C literal
 the backend writes for each float a file lists by its bits, and
 `--port-bind` what the type table's bindings give a program's types
 under each instance's binding; porttest compares both with the Go
-compiler's.
+compiler's. `--port-header` writes `tack.h` for a checked program as the
+backend renders it, with nothing lowered, and `--port-reserved` the
+names `tack.h` may not give and the type ids an `any` holds; porttest
+compares them with the Go backend's `Header` and its own tables.
 
 ### Known differences
 

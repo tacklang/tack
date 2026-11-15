@@ -1,0 +1,272 @@
+package codegen
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import text from "std/text"
+import types from "tack/types"
+
+// The names tack.h may not give a type or an extern func, Go's
+// reserved.go, and the macros naming the type ids an any holds, Go's
+// anyIDs and viewAnyID of any.go. The tables are Go's, copied as data in
+// Go's order, which tackc's porttest compares with Go's own tables
+// through the --port-reserved dump (see append_reserved_dump), so an edit
+// to either side cannot drift unseen.
+
+// guard_name is the macro tack.h's include guard defines, Go's guardName,
+// which no name in it may be.
+var guard_name = "TACK_H"
+
+// std_guard_name is the macro the include guard of the runtime's tack.h
+// defines, Go's stdGuardName. The runtime's header defines tack_string
+// and the string helpers, and tack_any, its type ids and its helpers, and
+// a program's tack.h includes it, so these names are reserved in tack.h
+// as if it defined them itself.
+var std_guard_name = "TACK_STD_TACK_H"
+
+// Reservation is a name tack.h cannot give a type of package main or an
+// extern func, because tack.h, the runtime's tack.h or a standard header
+// tack.h includes defines it, Go's reservation: what defines it, as a
+// diagnostic describes it, what, or, for a macro of a standard header,
+// that header, header, with what empty; and whether the name is an
+// object-like macro, which replaces the name wherever it appears, so no
+// field of a struct tack.h defines can have it either.
+pub type Reservation struct {
+    pub what string
+    pub header string
+    pub object_macro bool
+}
+
+// append_what appends what defines r's name to out, as Go's
+// reservation.what reads: r's what, or "a macro of <" its header ">".
+pub func (r Reservation) append_what(mut out list[uint8]) error {
+    if len(r.header) > 0 {
+        fmt.appendf(mut out, "a macro of <%s>", r.header)?
+        return noerror
+    }
+    append(mut out, []uint8(r.what)...)?
+    return noerror
+}
+
+// AnyID is one entry of Go's anyIDs: a type a value can be passed as any
+// with, and the macro of the runtime's tack.h that names its type id,
+// which a tack_any holds.
+pub type AnyID struct {
+    pub typ types.Type
+    pub macro string
+}
+
+// any_ids are Go's anyIDs, in the order its literal lists them.
+pub var any_ids = [14]AnyID{
+    AnyID{typ: types.bool_type, macro: "TACK_TYPE_BOOL"},
+    AnyID{typ: types.int8_type, macro: "TACK_TYPE_INT8"},
+    AnyID{typ: types.int16_type, macro: "TACK_TYPE_INT16"},
+    AnyID{typ: types.int32_type, macro: "TACK_TYPE_INT32"},
+    AnyID{typ: types.int64_type, macro: "TACK_TYPE_INT64"},
+    AnyID{typ: types.uint8_type, macro: "TACK_TYPE_UINT8"},
+    AnyID{typ: types.uint16_type, macro: "TACK_TYPE_UINT16"},
+    AnyID{typ: types.uint32_type, macro: "TACK_TYPE_UINT32"},
+    AnyID{typ: types.uint64_type, macro: "TACK_TYPE_UINT64"},
+    AnyID{typ: types.unsafe_size, macro: "TACK_TYPE_UNSAFE_SIZE_T"},
+    AnyID{typ: types.unsafe_uintptr, macro: "TACK_TYPE_UNSAFE_UINTPTR_T"},
+    AnyID{typ: types.string_type, macro: "TACK_TYPE_STRING"},
+    AnyID{typ: types.float32_type, macro: "TACK_TYPE_FLOAT32"},
+    AnyID{typ: types.float64_type, macro: "TACK_TYPE_FLOAT64"},
+}
+
+// any_id returns the macro naming the type id of typ, Go's anyIDs[typ]:
+// "" for a type anyIDs does not hold, as Go's map gives.
+pub func any_id(typ types.Type) string {
+    for _, a := range any_ids {
+        if a.typ == typ {
+            return a.macro
+        }
+    }
+    return ""
+}
+
+// append_view_any_id appends to out the macro naming the type id of a
+// view of elem, Go's viewAnyID: TACK_TYPE_VIEW_ and the end of elem's
+// own macro, TACK_TYPE_VIEW_UNSAFE_SIZE_T for []unsafe_size_t, and
+// TACK_TYPE_VIEW_ alone for an elem anyIDs does not hold, as Go's
+// TrimPrefix of "" gives.
+pub func append_view_any_id(elem types.Type, mut out list[uint8]) error {
+    append(mut out, []uint8("TACK_TYPE_VIEW_")...)?
+    trim_prefix(any_id(elem), "TACK_TYPE_", mut out)?
+    return noerror
+}
+
+// trim_prefix appends s to out without prefix when s starts with it, and
+// whole otherwise, Go's strings.TrimPrefix.
+func trim_prefix(s string, prefix string, mut out list[uint8]) error {
+    if bytes.has_prefix([]uint8(s), []uint8(prefix)) {
+        append_from(mut out, []uint8(s), len(prefix))?
+    } else {
+        append(mut out, []uint8(s)...)?
+    }
+    return noerror
+}
+
+// append_from appends s from its byte at to its end to out.
+func append_from(mut out list[uint8], s []uint8, at int64) error {
+    if at >= 0 && at <= len(s) {
+        append(mut out, s[at:]...)?
+    }
+    return noerror
+}
+
+// reserve_name puts r under name in names, replacing what was there, as Go's
+// map assignment does.
+func reserve_name(mut names map[text.Text]Reservation, name []uint8, r Reservation) error {
+    key := text.from_bytes(name, c_allocator)?
+    put(mut names, key, r)?
+    return noerror
+}
+
+// reserve_what reserves name as what, an object-like macro when object
+// says so.
+func reserve_what(mut names map[text.Text]Reservation, name string, what string, object bool) error {
+    return reserve_name(mut names, []uint8(name), Reservation{what: what, header: "", object_macro: object})
+}
+
+// reserve_list reserves each of macros as a macro of the standard header
+// header, an object-like one when object says so, Go's add.
+func reserve_list(mut names map[text.Text]Reservation, header string, object bool, macros []string) error {
+    for _, name := range macros {
+        reserve_name(mut names, []uint8(name), Reservation{what: "", header: header, object_macro: object})?
+    }
+    return noerror
+}
+
+// reserved_names returns every name reserved in tack.h, Go's
+// reservedNames: tack.h's include guard; what the runtime's tack.h
+// defines, its include guard, tack_string and the string helpers,
+// tack_error and the error helpers, tack_any, its type ids and its
+// helpers, tack_allocator, TACK_C_ALLOCATOR, the list functions and
+// macros, c_allocator's testing hooks, the functions of the process's
+// start and end and the globals holding main's argc and argv; and the
+// macros the C standard specifies that <stdbool.h>, <stdint.h> and
+// <stddef.h> define, C23's and Annex K's among them. Each is reserved
+// whether or not tack.h includes the header that defines it. Of the
+// standard headers' macros, bool, true and false are left out: they are
+// C keywords, reported as such. For the macros named after a width N, N
+// is 8, 16, 32 and 64. Go builds its map once, at init; here it is built
+// for each header worked out, which is once a run.
+pub func reserved_names() (map[text.Text]Reservation, error) {
+    mut names := make(map[text.Text]Reservation, c_allocator)
+    reserve_what(mut names, guard_name, "tack.h's include guard", true)?
+    reserve_what(mut names, std_guard_name, "the include guard of std's tack.h", true)?
+    reserve_what(mut names, "tack_string", "tack.h's string type", false)?
+    reserve_what(mut names, "TACK_C_STR_LEN", "a tack.h string helper", false)?
+    reserve_what(mut names, "TACK_STR", "a tack.h string helper", false)?
+    reserve_what(mut names, "TACK_STR_N", "a tack.h string helper", false)?
+    reserve_what(mut names, "tack_any", "tack.h's any type", false)?
+    reserve_what(mut names, "TACK_ANY_IS", "a tack.h any helper", false)?
+    reserve_what(mut names, "tack_error", "tack.h's error type", false)?
+    reserve_what(mut names, "TACK_ERROR", "a tack.h error helper", false)?
+    reserve_what(mut names, "TACK_NO_ERROR", "a tack.h error helper", true)?
+
+    reserve_what(mut names, "tack_allocator", "tack.h's allocator type", false)?
+    reserve_what(mut names, "TACK_C_ALLOCATOR", "a tack.h allocator helper", true)?
+    reserve_what(mut names, "tack_list_grow_", "a tack.h list function", false)?
+    reserve_what(mut names, "tack_list_free_", "a tack.h list function", false)?
+    reserve_what(mut names, "tack_c_allocator_live_", "a tack.h allocator function", false)?
+    reserve_what(mut names, "tack_c_allocator_fail_after_", "a tack.h allocator function", false)?
+    reserve_what(mut names, "tack_allocators_release_all_", "a tack.h allocator function", false)?
+    reserve_what(mut names, "tack_start_", "a tack.h process function", false)?
+    reserve_what(mut names, "tack_end_", "a tack.h process function", false)?
+    reserve_what(mut names, "tack_stdio_failed_", "a tack.h process function", false)?
+    reserve_what(mut names, "tack_ending_", "a tack.h process function", false)?
+    reserve_what(mut names, "tack_argc_", "a tack.h program global", false)?
+    reserve_what(mut names, "tack_argv_", "a tack.h program global", false)?
+    reserve_what(mut names, "TACK_LIST_LEN", "a tack.h list helper", false)?
+    reserve_what(mut names, "TACK_LIST_AT", "a tack.h list helper", false)?
+    reserve_what(mut names, "TACK_LIST_APPEND", "a tack.h list helper", false)?
+    reserve_what(mut names, "TACK_LIST_APPEND_N", "a tack.h list helper", false)?
+    reserve_what(mut names, "TACK_LIST_RESERVE", "a tack.h list helper", false)?
+    reserve_what(mut names, "TACK_LIST_POP", "a tack.h list helper", false)?
+    reserve_what(mut names, "TACK_LIST_REMOVE", "a tack.h list helper", false)?
+
+    for _, a := range any_ids {
+        reserve_what(mut names, a.macro, "a tack.h any type id", true)?
+    }
+    reserve_what(mut names, "TACK_TYPE_INVALID", "a tack.h any type id", true)?
+    for _, a := range any_ids {
+        mut helper := make(list[uint8], c_allocator)
+        append(mut helper, []uint8("tack_any_")...)?
+        append(mut helper, []uint8(types.basic_name(a.typ))...)?
+        reserve_name(mut names, helper, Reservation{what: "a tack.h any helper", header: "", object_macro: false})?
+        mut view := make(list[uint8], c_allocator)
+        append_view_any_id(a.typ, mut view)?
+        reserve_name(mut names, view, Reservation{what: "a tack.h any type id", header: "", object_macro: true})?
+    }
+    reserve_what(mut names, "tack_any_signed", "a tack.h any helper", false)?
+    reserve_what(mut names, "tack_any_unsigned", "a tack.h any helper", false)?
+
+    stdbool := [1]string{"__bool_true_false_are_defined"}
+    reserve_list(mut names, "stdbool.h", true, stdbool[:])?
+    stddef := [1]string{"NULL"}
+    reserve_list(mut names, "stddef.h", true, stddef[:])?
+    stddef_fn := [2]string{"offsetof", "unreachable"}
+    reserve_list(mut names, "stddef.h", false, stddef_fn[:])?
+    for _, n := range [4]int64{8, 16, 32, 64} {
+        for _, kind := range [3]string{"", "_LEAST", "_FAST"} {
+            // INT8, INT_LEAST8, INT_FAST8 and their unsigned twins.
+            for _, suffix := range [3]string{"_MIN", "_MAX", "_WIDTH"} {
+                mut s := make(list[uint8], c_allocator)
+                fmt.appendf(mut s, "INT%s%d%s", kind, n, suffix)?
+                reserve_name(mut names, s, Reservation{what: "", header: "stdint.h", object_macro: true})?
+            }
+            for _, suffix := range [2]string{"_MAX", "_WIDTH"} {
+                mut u := make(list[uint8], c_allocator)
+                fmt.appendf(mut u, "UINT%s%d%s", kind, n, suffix)?
+                reserve_name(mut names, u, Reservation{what: "", header: "stdint.h", object_macro: true})?
+            }
+        }
+        mut sc := make(list[uint8], c_allocator)
+        fmt.appendf(mut sc, "INT%d_C", n)?
+        reserve_name(mut names, sc, Reservation{what: "", header: "stdint.h", object_macro: false})?
+        mut uc := make(list[uint8], c_allocator)
+        fmt.appendf(mut uc, "UINT%d_C", n)?
+        reserve_name(mut names, uc, Reservation{what: "", header: "stdint.h", object_macro: false})?
+    }
+    stdint := [25]string{
+        "INTPTR_MIN", "INTPTR_MAX", "INTPTR_WIDTH", "UINTPTR_MAX", "UINTPTR_WIDTH",
+        "INTMAX_MIN", "INTMAX_MAX", "INTMAX_WIDTH", "UINTMAX_MAX", "UINTMAX_WIDTH",
+        "PTRDIFF_MIN", "PTRDIFF_MAX", "PTRDIFF_WIDTH",
+        "SIG_ATOMIC_MIN", "SIG_ATOMIC_MAX", "SIG_ATOMIC_WIDTH",
+        "SIZE_MAX", "SIZE_WIDTH", "RSIZE_MAX",
+        "WCHAR_MIN", "WCHAR_MAX", "WCHAR_WIDTH",
+        "WINT_MIN", "WINT_MAX", "WINT_WIDTH",
+    }
+    reserve_list(mut names, "stdint.h", true, stdint[:])?
+    stdint_fn := [2]string{"INTMAX_C", "UINTMAX_C"}
+    reserve_list(mut names, "stdint.h", false, stdint_fn[:])?
+    return names, noerror
+}
+
+// append_reserved_dump appends the --port-reserved dump to out: every
+// reserved name, in the order first reserved, a line each, the name, a tab, 1 for an
+// object-like macro or 0, a tab and what defines it; then every entry of
+// any_ids in its order, a line each, "any", a tab, the type's name, a
+// tab and its macro, a tab and the macro of a view of it. tackc's
+// porttest writes Go's tables the same way, from Go's own source, and
+// compares the two, each sorted, since Go's map has no order.
+pub func append_reserved_dump(mut out list[uint8]) error {
+    names := reserved_names()?
+    for k, r := range names {
+        append(mut out, k.bytes()...)?
+        if r.object_macro {
+            append(mut out, []uint8("\t1\t")...)?
+        } else {
+            append(mut out, []uint8("\t0\t")...)?
+        }
+        r.append_what(mut out)?
+        append(mut out, '\n')?
+    }
+    for _, a := range any_ids {
+        fmt.appendf(mut out, "any\t%s\t%s\t", types.basic_name(a.typ), a.macro)?
+        append_view_any_id(a.typ, mut out)?
+        append(mut out, '\n')?
+    }
+    return noerror
+}

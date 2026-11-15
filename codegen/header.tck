@@ -1,0 +1,908 @@
+package codegen
+
+import ast from "tack/ast"
+import cname from "tack/cname"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import source from "tack/source"
+import text from "std/text"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// tack.h, Go's header.go: the C declarations the C files linked with a
+// program compile against, and the check, before anything is lowered,
+// that every name it gives a type, a field, a results struct or an
+// extern func is one C can declare and that no two things share one
+// (header_diags, Go's headerDiags). Go walks a type's parts by
+// recursion; here every walk keeps a stack of its own, since a chain of
+// structs held by value is as long as its source makes it and an array
+// type nests as deeply as the parser lets it.
+
+// header_name is the name of the header the C files of a program
+// include, Go's HeaderName: the driver writes the header under it.
+pub var header_name = "tack.h"
+
+// std_header is the line that includes the runtime's tack.h, Go's
+// stdHeader, which a program's tack.h writes when a signature uses a
+// string, an any, an error, an Allocator or a list.
+var std_header = "#include <tack/tack.h>\n"
+
+// Owner is what a name in tack.h belongs to, Go's owner: what, as a
+// diagnostic describes it, where that is declared, at, and whether it
+// is an extern func, is_fn, whose duplicates the type checker reports.
+type Owner struct {
+    what text.Text
+    at source.Span
+    is_fn bool
+}
+
+// UseFrame is one type of the walk use makes of a type's parts: the type
+// and how far its walk has got, the next field of a struct, or, for an
+// array, a view or a list, 1 once its element has been walked.
+type UseFrame struct {
+    typ types.Type
+    next int64
+}
+
+// Header is what tack.h declares for a program, and what is wrong with
+// it, Go's header: each struct type's declaration and its package, by
+// the type's number; every extern func, in program order; the arrays,
+// views, lists and structs to define, each after its parts, in order,
+// and which are among them, seen; what each name tack.h declares belongs
+// to, names, an index into owners; the names reserved in tack.h, which
+// Go's names starts with (see claim); the diagnostics; and whether a
+// type the runtime's tack.h defines is used, std, and whether size_t is,
+// sizes.
+pub type Header struct {
+    structs map[int64]typeck.Key
+    pkg_of map[int64]int64
+    externs list[typeck.Key]
+    order list[types.Type]
+    seen map[int64]bool
+    names map[text.Text]int64
+    owners list[Owner]
+    reserved map[text.Text]Reservation
+    pub diags list[diag.Diagnostic]
+    std bool
+    sizes bool
+}
+
+// header_diags returns the problems with the names tack.h would give
+// t's types and fields, Go's headerDiags: one C cannot declare, or one
+// given to two things.
+pub func header_diags(mut t typeck.Typed) (list[diag.Diagnostic], error) {
+    mut h := new_header(mut t)?
+    return replace(mut h.diags, make(list[diag.Diagnostic], c_allocator)), noerror
+}
+
+// header returns tack.h for t, Go's Header, which must have been
+// generated without diagnostics: every type an extern func's signature
+// uses, and every type those are made of, each after the types it holds,
+// then the results struct of each extern func with several results, then
+// a prototype for every extern func under its C name, package by
+// package, with its Tack declaration in a comment beside it.
+pub func header(mut t typeck.Typed) (list[uint8], error) {
+    mut h := new_header(mut t)?
+    mut out := make(list[uint8], c_allocator)
+    mut h.render(mut t, mut out)?
+    return out, noerror
+}
+
+// trees_of returns the trees of t's program, a view of them in place.
+func trees_of(t typeck.Typed) []ast.File {
+    return t.prog.trees[:]
+}
+
+// kind_of returns what the node k is, a copy, or none for a k naming no
+// node.
+func kind_of(trees []ast.File, k typeck.Key) ast.Kind {
+    if k.unit < 0 || k.unit >= len(trees) {
+        return ast.Kind.none
+    }
+    return trees[k.unit].nodes[k.node].k
+}
+
+// span_of returns the span of the node n of the tree unit.
+func span_of(trees []ast.File, unit int64, n id[ast.Node]) source.Span {
+    if unit < 0 || unit >= len(trees) {
+        return ast.unset_span()
+    }
+    return trees[unit].nodes[n].span
+}
+
+// append_text appends the bytes s names in the tree unit to out.
+func append_text(trees []ast.File, unit int64, s span[uint8], mut out list[uint8]) error {
+    if unit < 0 || unit >= len(trees) {
+        return noerror
+    }
+    append(mut out, trees[unit].bytes[s]...)?
+    return noerror
+}
+
+// node_count returns how many nodes l holds in the tree unit.
+func node_count(trees []ast.File, unit int64, l ast.Nodes) int64 {
+    if unit < 0 || unit >= len(trees) {
+        return 0
+    }
+    return len(trees[unit].lists[l.items])
+}
+
+// node_at returns the i'th node of l in the tree unit, as a Key.
+func node_at(trees []ast.File, unit int64, l ast.Nodes, i int64) typeck.Key {
+    if unit >= 0 && unit < len(trees) {
+        n, ok := trees[unit].lists[l.items][i]
+        if ok {
+            return typeck.Key{unit: unit, node: n}
+        }
+    }
+    mut z id[ast.Node]
+    return typeck.Key{unit: -1, node: z}
+}
+
+// func_at returns the Func the func_decl node k holds, a copy.
+func func_at(trees []ast.File, k typeck.Key) ast.Func {
+    switch kind_of(trees, k) {
+    case func_decl(fid):
+        if k.unit >= 0 && k.unit < len(trees) {
+            return trees[k.unit].funcs[fid]
+        }
+    default:
+    }
+    mut z ast.Func
+    return z
+}
+
+// param_at returns the Param the param_decl node k holds, a copy.
+func param_at(trees []ast.File, k typeck.Key) ast.Param {
+    switch kind_of(trees, k) {
+    case param_decl(pid):
+        if k.unit >= 0 && k.unit < len(trees) {
+            return trees[k.unit].params[pid]
+        }
+    default:
+    }
+    mut z ast.Param
+    return z
+}
+
+// package_of_unit returns the index of the package of t's program whose
+// trees hold the tree unit, Go's pkgOfFunc for a declaration in it: the
+// last, the main package, for a unit none holds, as Go's falls back to
+// prog.Main().
+func package_of_unit(t typeck.Typed, unit int64) int64 {
+    for p, pkg := range t.prog.packages {
+        if pkg.in(unit) {
+            return p
+        }
+    }
+    return len(t.prog.packages) -% 1
+}
+
+// append_package_path appends the import path of the package p of t's
+// program to out.
+func append_package_path(t typeck.Typed, p int64, mut out list[uint8]) error {
+    if p >= 0 && p < len(t.prog.packages) {
+        append(mut out, t.prog.packages[p].path.bytes()...)?
+    }
+    return noerror
+}
+
+// append_package_name appends the name of the package p of t's program
+// to out.
+func append_package_name(t typeck.Typed, p int64, mut out list[uint8]) error {
+    if p >= 0 && p < len(t.prog.packages) {
+        append(mut out, t.prog.packages[p].name.bytes()...)?
+    }
+    return noerror
+}
+
+// HeaderDecl is a declaration new_header takes note of: the struct or
+// union type declaration, or the extern func, as is_extern says, d, of
+// the package pkg.
+type HeaderDecl struct {
+    d typeck.Key
+    pkg int64
+    is_extern bool
+}
+
+// program_decls returns the declarations of t's program new_header takes
+// note of, in program order: every type declaration but an interface's,
+// and every extern func.
+func program_decls(t typeck.Typed) (list[HeaderDecl], error) {
+    mut out := make(list[HeaderDecl], c_allocator)
+    for p, pkg := range t.prog.packages {
+        for u := range pkg.count {
+            unit := pkg.first +% u
+            if unit < 0 || unit >= len(t.prog.trees) {
+                continue
+            }
+            for _, n := range t.prog.trees[unit].decls {
+                d := typeck.Key{unit: unit, node: n}
+                switch kind_of(t.prog.trees[:], d) {
+                case type_decl(td):
+                    switch kind_of(t.prog.trees[:], typeck.Key{unit: unit, node: td.type_expr}) {
+                    case interface_type:
+                    default:
+                        append(mut out, HeaderDecl{d: d, pkg: p, is_extern: false})?
+                    }
+                case func_decl(fid):
+                    if t.prog.trees[unit].funcs[fid].is_extern {
+                        append(mut out, HeaderDecl{d: d, pkg: p, is_extern: true})?
+                    }
+                default:
+                }
+            }
+        }
+    }
+    return out, noerror
+}
+
+// new_header works out what tack.h declares for t, Go's newHeader: the
+// types every extern func's signature uses, the names each gets, and any
+// problem with those names.
+func new_header(mut t typeck.Typed) (Header, error) {
+    reserved := reserved_names()?
+    mut h := Header{
+        structs: make(map[int64]typeck.Key, c_allocator),
+        pkg_of: make(map[int64]int64, c_allocator),
+        externs: make(list[typeck.Key], c_allocator),
+        order: make(list[types.Type], c_allocator),
+        seen: make(map[int64]bool, c_allocator),
+        names: make(map[text.Text]int64, c_allocator),
+        owners: make(list[Owner], c_allocator),
+        reserved: reserved,
+        diags: make(list[diag.Diagnostic], c_allocator),
+        std: false,
+        sizes: false,
+    }
+    decls := program_decls(t)?
+    for _, pd := range decls {
+        if pd.is_extern {
+            append(mut h.externs, pd.d)?
+            continue
+        }
+        typ := mut t.decl_type(pd.d)
+        put(mut h.structs, typ.number(), pd.d)?
+        put(mut h.pkg_of, typ.number(), pd.pkg)?
+    }
+    for i := range len(h.externs) {
+        fn, ok := h.externs[i]
+        if ok {
+            mut h.use_signature(mut t, fn)?
+        }
+    }
+    for i := range len(h.externs) {
+        d, ok := h.externs[i]
+        if !ok {
+            continue
+        }
+        fn := func_at(trees_of(t), d)
+        mut what := make(list[uint8], c_allocator)
+        append(mut what, []uint8("extern func ")...)?
+        append_text(trees_of(t), d.unit, fn.name, mut what)?
+        append(mut what, []uint8(" of package ")...)?
+        append_package_path(t, package_of_unit(t, d.unit), mut what)?
+        mut name := make(list[uint8], c_allocator)
+        append_text(trees_of(t), d.unit, fn.cname, mut name)?
+        mut h.claim(name, own what, fn.name_span, true)?
+    }
+    return h, noerror
+}
+
+// use_signature records every type the parameters and results of the
+// extern func d use, and claims d's results struct if it has several
+// results, Go's useSignature.
+func (mut h Header) use_signature(mut t typeck.Typed, d typeck.Key) error {
+    fn := func_at(trees_of(t), d)
+    for i := range node_count(trees_of(t), d.unit, fn.params) {
+        p := node_at(trees_of(t), d.unit, fn.params, i)
+        param := param_at(trees_of(t), p)
+        typ := mut t.decl_type(p)
+        mut h.use(mut t, typ, span_of(trees_of(t), p.unit, param.type_expr))?
+    }
+    n := mut t.result_len(d)
+    for i := range n {
+        typ := mut t.result(d, i)
+        r := node_at(trees_of(t), d.unit, fn.results, i)
+        mut h.use(mut t, typ, span_of(trees_of(t), r.unit, r.node))?
+    }
+    if n > 1 {
+        mut name := make(list[uint8], c_allocator)
+        append_results_cname(trees_of(t), d, mut name)?
+        mut what := make(list[uint8], c_allocator)
+        append(mut what, []uint8("the results of extern func ")...)?
+        append_text(trees_of(t), d.unit, fn.name, mut what)?
+        mut h.claim(name, own what, fn.name_span, false)?
+    }
+    return noerror
+}
+
+// is_std_type reports whether typ is a basic type whose C type the
+// runtime's tack.h defines, Go's stdTypes.
+func is_std_type(typ types.Type) bool {
+    return typ == types.string_type || typ == types.any_type || typ == types.error_type || typ == types.allocator
+}
+
+// enter is the start of Go's use for typ: it notes a type the runtime's
+// tack.h or <stddef.h> defines, and reports whether typ is an array,
+// view, list or struct type not met before, which it marks met, and
+// whose parts the walk goes on to. A list needs the runtime's tack.h,
+// for tack_allocator, as Go's useParts notes.
+func (mut h Header) enter(mut t typeck.Typed, typ types.Type) (bool, error) {
+    if is_std_type(typ) {
+        h.std = true
+        return false, noerror
+    }
+    if typ == types.unsafe_size {
+        h.sizes = true
+        return false, noerror
+    }
+    _, met := h.seen[typ.number()]
+    if met {
+        return false, noerror
+    }
+    arr := mut t.table.is_array(typ)?
+    st := mut t.table.is_struct(typ)?
+    view := mut t.table.is_view(typ)?
+    lst := mut t.table.is_list(typ)?
+    if !arr && !st && !view && !lst {
+        return false, noerror
+    }
+    put(mut h.seen, typ.number(), true)?
+    if lst && !arr {
+        h.std = true
+    }
+    return true, noerror
+}
+
+// use records that tack.h needs root, used at site, and every type it is
+// made of, which are defined before it, Go's use and useParts: each
+// array, view and list after its element, with its name claimed after
+// its element's, and each struct after its fields' types, in order, its
+// name claimed and its fields' names checked after theirs (see
+// claim_struct). Go recurses into each part; this walks them from a
+// stack of its own, in Go's order.
+func (mut h Header) use(mut t typeck.Typed, root types.Type, site source.Span) error {
+    go_on := mut h.enter(mut t, root)?
+    if !go_on {
+        return noerror
+    }
+    mut stack := make(list[UseFrame], c_allocator)
+    append(mut stack, UseFrame{typ: root, next: 0})?
+    for len(stack) > 0 {
+        f, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        arr := mut t.table.is_array(f.typ)?
+        view := mut t.table.is_view(f.typ)?
+        lst := mut t.table.is_list(f.typ)?
+        if arr || view || lst {
+            if f.next == 0 {
+                append(mut stack, UseFrame{typ: f.typ, next: 1})?
+                elem := mut t.table.elem_of(f.typ)?
+                more := mut h.enter(mut t, elem)?
+                if more {
+                    append(mut stack, UseFrame{typ: elem, next: 0})?
+                }
+                continue
+            }
+            mut what := make(list[uint8], c_allocator)
+            if arr {
+                append(mut what, []uint8("array type ")...)?
+            } else if view {
+                append(mut what, []uint8("view type ")...)?
+            } else {
+                append(mut what, []uint8("list type ")...)?
+            }
+            nm := mut t.table.name(f.typ)?
+            append(mut what, nm...)?
+            mut name := make(list[uint8], c_allocator)
+            mut h.append_cname(mut t, f.typ, mut name)?
+            mut h.claim(name, own what, site, false)?
+            append(mut h.order, f.typ)?
+            continue
+        }
+        n := mut t.table.field_count(f.typ)?
+        if f.next < n {
+            append(mut stack, UseFrame{typ: f.typ, next: f.next +% 1})?
+            ft, has := mut t.table.field_type(f.typ, f.next)?
+            if has {
+                more := mut h.enter(mut t, ft)?
+                if more {
+                    append(mut stack, UseFrame{typ: ft, next: 0})?
+                }
+            }
+            continue
+        }
+        mut h.claim_struct(mut t, f.typ)?
+        append(mut h.order, f.typ)?
+    }
+    return noerror
+}
+
+// claim_struct claims the name of the struct type typ, and checks its
+// name and its fields' names are ones C can declare, Go's claimStruct:
+// no field is a C keyword or an object-like macro tack.h defines or
+// includes, which would replace the member's name. A struct no
+// declaration of the program gives is left alone, as Go leaves it.
+func (mut h Header) claim_struct(mut t typeck.Typed, typ types.Type) error {
+    d, has := h.structs[typ.number()]
+    if !has {
+        return noerror
+    }
+    pkg, has_pkg := h.pkg_of[typ.number()]
+    if !has_pkg {
+        return noerror
+    }
+    mut td ast.TypeDecl
+    switch kind_of(trees_of(t), d) {
+    case type_decl(x):
+        td = x
+    default:
+        return noerror
+    }
+    mut tname := make(list[uint8], c_allocator)
+    append_text(trees_of(t), d.unit, td.name, mut tname)?
+    mut name := make(list[uint8], c_allocator)
+    mut h.append_cname(mut t, typ, mut name)?
+    if cname.is_keyword(name) {
+        mut m := make(list[uint8], c_allocator)
+        fmt.appendf(mut m, "type %s cannot be named %s in C: it is a C keyword", tname[:], name[:])?
+        mut h.errorf(td.name_span, own m)?
+    } else {
+        mut what := make(list[uint8], c_allocator)
+        fmt.appendf(mut what, "type %s of package ", tname[:])?
+        append_package_path(t, pkg, mut what)?
+        mut h.claim(name, own what, td.name_span, false)?
+    }
+    switch kind_of(trees_of(t), typeck.Key{unit: d.unit, node: td.type_expr}) {
+    case struct_type(fields):
+        for i := range node_count(trees_of(t), d.unit, fields) {
+            fk := node_at(trees_of(t), d.unit, fields, i)
+            switch kind_of(trees_of(t), fk) {
+            case field(f):
+                mut fname := make(list[uint8], c_allocator)
+                append_text(trees_of(t), d.unit, f.name, mut fname)?
+                if cname.is_keyword(fname) {
+                    mut m := make(list[uint8], c_allocator)
+                    fmt.appendf(mut m, "field %s of type %s cannot be named %s in C: it is a C keyword", fname[:], tname[:], fname[:])?
+                    mut h.errorf(f.name_span, own m)?
+                    continue
+                }
+                key := text.from_bytes(fname, c_allocator)?
+                r, reserved := h.reserved[key]
+                if reserved && r.object_macro {
+                    mut m := make(list[uint8], c_allocator)
+                    fmt.appendf(mut m, "field %s of type %s cannot be named %s in tack.h: that is ", fname[:], tname[:], fname[:])?
+                    r.append_what(mut m)?
+                    mut h.errorf(f.name_span, own m)?
+                }
+            default:
+            }
+        }
+    default:
+    }
+    return noerror
+}
+
+// claim records that name in tack.h belongs to what, declared at at,
+// an extern func when is_fn says so, and reports a clash if it belongs
+// to something else already, Go's claim. Two extern funcs with one C
+// name are left to the type checker. Go's names starts with every
+// reserved name, under an owner with no span, which no claim replaces;
+// here those are looked up in reserved, first, which answers the same.
+func (mut h Header) claim(name list[uint8], own what list[uint8], at source.Span, is_fn bool) error {
+    key := text.from_bytes(name, c_allocator)?
+    r, reserved := h.reserved[key]
+    if reserved {
+        mut m := make(list[uint8], c_allocator)
+        fmt.appendf(mut m, "%s cannot be named %s in tack.h: that is ", what[:], name[:])?
+        r.append_what(mut m)?
+        return mut h.errorf(at, own m)
+    }
+    idx, taken := h.names[key]
+    if !taken {
+        w := text.from_bytes(what, c_allocator)?
+        append(mut h.owners, Owner{what: w, at: at, is_fn: is_fn})?
+        put(mut h.names, key, len(h.owners) -% 1)?
+        return noerror
+    }
+    d, clash := owner_clash(h.owners, idx, what, name, at, is_fn)?
+    if clash {
+        append(mut h.diags, d)?
+    }
+    return noerror
+}
+
+// owner_clash returns the error for what, declared at at, an extern func
+// when is_fn says so, claiming name, which owners[idx] holds already, and
+// whether there is one: none for two extern funcs, which the type checker
+// reports, and otherwise Go's claim's, at at, with a note where the
+// owner is declared.
+func owner_clash(owners []Owner, idx int64, what []uint8, name []uint8, at source.Span, is_fn bool) (diag.Diagnostic, bool, error) {
+    if idx < 0 || idx >= len(owners) || owners[idx].is_fn && is_fn {
+        return diag.new_error(text.new(c_allocator), at, c_allocator), false, noerror
+    }
+    mut m := make(list[uint8], c_allocator)
+    fmt.appendf(mut m, "%s and %s are both named %s in tack.h", what, owners[idx].what.bytes(), name)?
+    mut d := diag.new_error(text.from_bytes(m, c_allocator)?, at, c_allocator)
+    mut n := make(list[uint8], c_allocator)
+    fmt.appendf(mut n, "%s is declared here", owners[idx].what.bytes())?
+    note := text.from_bytes(n, c_allocator)?
+    append(mut d.related, diag.Related{message: note, marker: text.new(c_allocator), span: owners[idx].at, severity: diag.note})?
+    return d, true, noerror
+}
+
+// errorf reports an error at at saying m, taken over.
+func (mut h Header) errorf(at source.Span, own m list[uint8]) error {
+    msg := text.from_bytes(m, c_allocator)?
+    append(mut h.diags, diag.new_error(own msg, at, c_allocator))?
+    return noerror
+}
+
+// append_cname appends the name tack.h gives typ to out, Go's cName: a
+// basic type's C type, as the generated source writes it, tack_error for
+// error; a struct type's Tack name, after its package's name and an
+// underscore unless it is in package main; an array type tack_array_, its
+// length, an underscore, and its element type's name; a view type
+// tack_view_ and its element type's name; and a list type tack_list_ and
+// its element type's name. An element is named as Go's elemName names
+// it: by its own tack.h name if it is an array or a struct but error, so
+// the walk goes on into it, and by its Tack name otherwise, a view or a
+// list among them, so [][]int64 is tack_view_[]int64, as Go names it.
+// Go recurses into each element; this walks them in a loop.
+func (mut h Header) append_cname(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    mut cur := typ
+    for {
+        if cur == types.error_type {
+            append(mut out, []uint8(basic_c_type(cur))...)?
+            return noerror
+        }
+        arr := mut t.table.is_array(cur)?
+        view := mut t.table.is_view(cur)?
+        lst := mut t.table.is_list(cur)?
+        if arr {
+            n := mut t.table.len_of(cur)?
+            fmt.appendf(mut out, "tack_array_%d_", n)?
+        } else if view {
+            append(mut out, []uint8("tack_view_")...)?
+        } else if lst {
+            append(mut out, []uint8("tack_list_")...)?
+        } else {
+            st := mut t.table.is_struct(cur)?
+            if st {
+                mut h.append_struct_cname(mut t, cur, mut out)?
+                return noerror
+            }
+            append(mut out, []uint8(basic_c_type(cur))...)?
+            return noerror
+        }
+        elem := mut t.table.elem_of(cur)?
+        elem_arr := mut t.table.is_array(elem)?
+        elem_st := mut t.table.is_struct(elem)?
+        if elem_arr || elem_st && elem != types.error_type {
+            cur = elem
+            continue
+        }
+        nm := mut t.table.name(elem)?
+        append(mut out, nm...)?
+        return noerror
+    }
+    return noerror
+}
+
+// append_struct_cname appends the name tack.h gives the struct type typ
+// to out, as Go's cName does: its Tack name, after its package's name
+// and an underscore unless it is in package main, the program's last;
+// and, for a struct no declaration gives, its Tack name.
+func (mut h Header) append_struct_cname(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    d, has := h.structs[typ.number()]
+    pkg, has_pkg := h.pkg_of[typ.number()]
+    if !has || !has_pkg {
+        nm := mut t.table.name(typ)?
+        append(mut out, nm...)?
+        return noerror
+    }
+    switch kind_of(trees_of(t), d) {
+    case type_decl(td):
+        if pkg != len(t.prog.packages) -% 1 {
+            append_package_name(t, pkg, mut out)?
+            append(mut out, '_')?
+        }
+        append_text(trees_of(t), d.unit, td.name, mut out)?
+    default:
+    }
+    return noerror
+}
+
+// basic_c_type returns the C type the Tack type typ lowers to, Go's
+// basicCType of gen.go and its cTypes, which tack.h writes as the
+// generated source does: void for a type cTypes does not hold.
+func basic_c_type(typ types.Type) string {
+    if typ == types.int8_type {
+        return "int8_t"
+    }
+    if typ == types.int16_type {
+        return "int16_t"
+    }
+    if typ == types.int32_type {
+        return "int32_t"
+    }
+    if typ == types.int64_type {
+        return "int64_t"
+    }
+    if typ == types.uint8_type {
+        return "uint8_t"
+    }
+    if typ == types.uint16_type {
+        return "uint16_t"
+    }
+    if typ == types.uint32_type {
+        return "uint32_t"
+    }
+    if typ == types.uint64_type {
+        return "uint64_t"
+    }
+    if typ == types.string_type {
+        return "tack_string"
+    }
+    if typ == types.bool_type {
+        return "bool"
+    }
+    if typ == types.any_type {
+        return "tack_any"
+    }
+    if typ == types.error_type {
+        return "tack_error"
+    }
+    if typ == types.allocator {
+        return "tack_allocator"
+    }
+    if typ == types.float32_type {
+        return "float"
+    }
+    if typ == types.float64_type {
+        return "double"
+    }
+    if typ == types.unsafe_size {
+        return "size_t"
+    }
+    if typ == types.unsafe_uintptr {
+        return "uintptr_t"
+    }
+    return "void"
+}
+
+// append_results_cname appends the name tack.h gives the struct the
+// extern func d, with several results, returns them in to out, Go's
+// resultsCName: tack_results_ and d's C name.
+func append_results_cname(trees []ast.File, d typeck.Key, mut out list[uint8]) error {
+    append(mut out, []uint8("tack_results_")...)?
+    append_text(trees, d.unit, func_at(trees, d).cname, mut out)?
+    return noerror
+}
+
+// render appends tack.h to out, Go's render: the comment, the include
+// guard, the standard headers and the runtime's, each type's definition
+// in order, each results struct, and the prototypes.
+func (mut h Header) render(mut t typeck.Typed, mut out list[uint8]) error {
+    append(mut out, []uint8("// Generated by the Tack compiler. Do not edit.\n//\n")...)?
+    append(mut out, []uint8("// It declares every extern func of the program, for the C files that\n")...)?
+    append(mut out, []uint8("// define them, and the types their signatures use.\n\n")...)?
+    fmt.appendf(mut out, "#ifndef %s\n#define %s\n\n", guard_name, guard_name)?
+    append(mut out, []uint8("#include <stdbool.h>\n#include <stdint.h>\n")...)?
+    if h.sizes {
+        append(mut out, []uint8("#include <stddef.h>\n")...)?
+    }
+    if h.std {
+        append(mut out, []uint8(std_header)...)?
+    }
+    for i := range len(h.order) {
+        typ, ok := h.order[i]
+        if ok {
+            append(mut out, '\n')?
+            mut h.append_type_def(mut t, typ, mut out)?
+        }
+    }
+    for i := range len(h.externs) {
+        d, ok := h.externs[i]
+        if !ok {
+            continue
+        }
+        n := mut t.result_len(d)
+        if n > 1 {
+            append(mut out, []uint8("\ntypedef struct {\n")...)?
+            for r := range n {
+                typ := mut t.result(d, r)
+                append(mut out, []uint8("    ")...)?
+                mut h.append_cname(mut t, typ, mut out)?
+                fmt.appendf(mut out, " r%d;\n", r)?
+            }
+            append(mut out, []uint8("} ")...)?
+            append_results_cname(trees_of(t), d, mut out)?
+            append(mut out, []uint8(";\n")...)?
+        }
+    }
+    mut h.render_prototypes(mut t, mut out)?
+    append(mut out, []uint8("\n#endif\n")...)?
+    return noerror
+}
+
+// append_type_def appends tack.h's definition of typ, an array, view,
+// list or struct type, to out, Go's typeDef and members: the same layout
+// as the generated source's. An array is a struct holding a C array, e,
+// of at least one element; a view a pointer to its first element, ptr,
+// to const, and its number of elements, len; a list a pointer to its
+// buffer, ptr, its number of elements, len, its capacity, cap, and its
+// allocator, alloc; a struct has a member per field, under the field's
+// Tack name, or one unused char if it has none.
+func (mut h Header) append_type_def(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    append(mut out, []uint8("typedef struct {\n    ")...)?
+    arr := mut t.table.is_array(typ)?
+    view := mut t.table.is_view(typ)?
+    lst := mut t.table.is_list(typ)?
+    if arr || view || lst {
+        elem := mut t.table.elem_of(typ)?
+        if view {
+            append(mut out, []uint8("const ")...)?
+        }
+        mut h.append_cname(mut t, elem, mut out)?
+        if arr {
+            mut n := mut t.table.len_of(typ)?
+            if n < 1 {
+                n = 1
+            }
+            fmt.appendf(mut out, " e[%d];", n)?
+        } else if view {
+            append(mut out, []uint8(" *ptr;\n    int64_t len;")...)?
+        } else {
+            append(mut out, []uint8(" *ptr;\n    int64_t len;\n    int64_t cap;\n    tack_allocator alloc;")...)?
+        }
+    } else {
+        n := mut t.table.field_count(typ)?
+        if n == 0 {
+            append(mut out, []uint8("char unused;")...)?
+        }
+        for i := range n {
+            if i > 0 {
+                append(mut out, []uint8("\n    ")...)?
+            }
+            ft, _ := mut t.table.field_type(typ, i)?
+            mut h.append_cname(mut t, ft, mut out)?
+            append(mut out, ' ')?
+            mut t.table.field_name(typ, i, mut out)?
+            append(mut out, ';')?
+        }
+    }
+    append(mut out, []uint8("\n} ")...)?
+    mut h.append_cname(mut t, typ, mut out)?
+    append(mut out, []uint8(";\n")...)?
+    return noerror
+}
+
+// render_prototypes appends a prototype for every extern func to out,
+// under a comment naming its package, Go's renderPrototypes.
+func (mut h Header) render_prototypes(mut t typeck.Typed, mut out list[uint8]) error {
+    for p := range len(t.prog.packages) {
+        mut protos := make(list[uint8], c_allocator)
+        mut any_proto := false
+        for i := range len(h.externs) {
+            d, ok := h.externs[i]
+            if !ok || package_of_unit(t, d.unit) != p {
+                continue
+            }
+            if any_proto {
+                append(mut protos, '\n')?
+            }
+            any_proto = true
+            mut h.append_prototype(mut t, d, mut protos)?
+            append(mut protos, []uint8(" // ")...)?
+            mut h.append_tack_signature(mut t, d, mut protos)?
+        }
+        if any_proto {
+            append(mut out, []uint8("\n// package ")...)?
+            append_package_path(t, p, mut out)?
+            append(mut out, '\n')?
+            append(mut out, protos...)?
+            append(mut out, '\n')?
+        }
+    }
+    return noerror
+}
+
+// append_prototype appends the prototype of the extern func d, as tack.h
+// declares it, to out, Go's prototype: its C name, and the C type of each
+// parameter and result, a parameter's name following its type in a
+// comment, and a mut parameter a pointer to its type, T *.
+func (mut h Header) append_prototype(mut t typeck.Typed, d typeck.Key, mut out list[uint8]) error {
+    fn := func_at(trees_of(t), d)
+    n := mut t.result_len(d)
+    if n == 0 {
+        append(mut out, []uint8("void")...)?
+    } else if n == 1 {
+        typ := mut t.result(d, 0)
+        mut h.append_cname(mut t, typ, mut out)?
+    } else {
+        append_results_cname(trees_of(t), d, mut out)?
+    }
+    append(mut out, ' ')?
+    append_text(trees_of(t), d.unit, fn.cname, mut out)?
+    append(mut out, '(')?
+    np := node_count(trees_of(t), d.unit, fn.params)
+    if np == 0 {
+        append(mut out, []uint8("void")...)?
+    }
+    for i := range np {
+        if i > 0 {
+            append(mut out, []uint8(", ")...)?
+        }
+        pk := node_at(trees_of(t), d.unit, fn.params, i)
+        param := param_at(trees_of(t), pk)
+        typ := mut t.decl_type(pk)
+        mut h.append_cname(mut t, typ, mut out)?
+        if param.is_mut {
+            append(mut out, []uint8(" *")...)?
+        }
+        append(mut out, []uint8(" /* ")...)?
+        append_text(trees_of(t), d.unit, param.name, mut out)?
+        append(mut out, []uint8(" */")...)?
+    }
+    append(mut out, []uint8(");")...)?
+    return noerror
+}
+
+// append_tack_signature appends the extern func d's declaration as Tack
+// writes it to out, Go's tackSignature: a struct or union type of
+// another package qualified by that package's name, and a variadic
+// parameter as args ...T, though C gets it as a view.
+func (mut h Header) append_tack_signature(mut t typeck.Typed, d typeck.Key, mut out list[uint8]) error {
+    fn := func_at(trees_of(t), d)
+    pkg := package_of_unit(t, d.unit)
+    mut prefixes := make(list[text.Text], c_allocator)
+    for _, p := range t.prog.packages {
+        append(mut prefixes, text.from_bytes(p.name.bytes(), c_allocator)?)?
+    }
+    append(mut out, []uint8("extern func ")...)?
+    append_text(trees_of(t), d.unit, fn.name, mut out)?
+    append(mut out, '(')?
+    for i := range node_count(trees_of(t), d.unit, fn.params) {
+        if i > 0 {
+            append(mut out, []uint8(", ")...)?
+        }
+        pk := node_at(trees_of(t), d.unit, fn.params, i)
+        param := param_at(trees_of(t), pk)
+        typ := mut t.decl_type(pk)
+        if param.variadic {
+            append_text(trees_of(t), d.unit, param.name, mut out)?
+            append(mut out, []uint8(" ...")...)?
+            elem := mut t.table.elem_of(typ)?
+            mut t.table.name_with(elem, pkg, prefixes, false, mut out)?
+            continue
+        }
+        if param.is_mut {
+            append(mut out, []uint8("mut ")...)?
+        }
+        append_text(trees_of(t), d.unit, param.name, mut out)?
+        append(mut out, ' ')?
+        mut t.table.name_with(typ, pkg, prefixes, false, mut out)?
+    }
+    append(mut out, ')')?
+    n := mut t.result_len(d)
+    if n == 1 {
+        append(mut out, ' ')?
+        typ := mut t.result(d, 0)
+        mut t.table.name_with(typ, pkg, prefixes, false, mut out)?
+    } else if n > 1 {
+        append(mut out, []uint8(" (")...)?
+        for i := range n {
+            if i > 0 {
+                append(mut out, []uint8(", ")...)?
+            }
+            typ := mut t.result(d, i)
+            mut t.table.name_with(typ, pkg, prefixes, false, mut out)?
+        }
+        append(mut out, ')')?
+    }
+    return noerror
+}
