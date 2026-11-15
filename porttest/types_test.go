@@ -26,6 +26,7 @@ import (
 	"github.com/tacklang/tack/diag"
 	"github.com/tacklang/tack/loader"
 	"github.com/tacklang/tack/resolver"
+	"github.com/tacklang/tack/source"
 	"github.com/tacklang/tack/typeck"
 	"github.com/tacklang/tack/types"
 )
@@ -227,7 +228,18 @@ func bodiesStage(stage checkStage, stages map[checkStage]bool) bool {
 // Go's is compared as it stood before bodies, invalid; and instances are
 // found only after bodies. The kinds of judgment the port assumed are
 // logged by the caller's run, not compared.
+//
+// want is json.Marshal's encoding, its keys sorted, so a port's dump of
+// the phase "bodies" that decodes and encodes again to the same bytes is
+// equal, which needs only the port's dump decoded: a large program's two
+// dumps decoded together hold more memory than the harness may take.
+// Only a dump that differs is decoded beside Go's, to find where.
 func typesDiff(want, got []byte) string {
+	if same, err := sameEncoding(want, got); err != nil {
+		return fmt.Sprintf("the port's dump: %v", err)
+	} else if same {
+		return ""
+	}
 	w, err := decodeJSON(want)
 	if err != nil {
 		return fmt.Sprintf("Go's dump: %v", err)
@@ -267,6 +279,24 @@ func typesDiff(want, got []byte) string {
 		return ""
 	}
 	return firstDiff(indent(wv), indent(gv))
+}
+
+// sameEncoding reports whether got, the port's dump, is of the phase
+// "bodies" and encodes again, decoded, to want's bytes, Go's dump as
+// json.Marshal encodes it.
+func sameEncoding(want, got []byte) (bool, error) {
+	g, err := decodeJSON(got)
+	if err != nil {
+		return false, err
+	}
+	if m, ok := g.(map[string]any); !ok || m["phase"] != "bodies" {
+		return false, nil
+	}
+	again, err := json.Marshal(g)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(again, want), nil
 }
 
 // goTypes returns the --port-types dump of in from this module's
@@ -342,7 +372,9 @@ func typesLoad(t *testing.T, in input) (*loader.Result, bool) {
 // and diags, the checker's diagnostics, as the port's typeck/dump.tck
 // describes it: the phase, every type of the table with every query it
 // answers, every declaration in prog.Decls() order with what the checker
-// recorded on it, the instances, the errors and nothing assumed.
+// recorded on it, the instances, the errors, nothing assumed, and what
+// the program needs of the runtime, builtin's Used, RunsC,
+// UsesUnreachable and UsesLists.
 func typesDump(prog *ast.Program, diags []diag.Diagnostic) map[string]any {
 	declPkg := make(map[ast.Decl]*ast.Package)
 	for _, pkg := range prog.Packages {
@@ -378,9 +410,15 @@ func typesDump(prog *ast.Program, diags []diag.Diagnostic) map[string]any {
 		e["notes"] = notes
 		errs = append(errs, e)
 	}
+	used := make([]any, 0)
+	for _, f := range builtin.Default().Used(prog) {
+		used = append(used, f.Name)
+	}
 	return map[string]any{
 		"phase": "bodies", "table": types, "decls": decls, "instances": instances,
 		"errors": errs, "nodes": nodesDump(prog), "assumed": []any{},
+		"used": used, "runs_c": builtin.Default().RunsC(prog),
+		"uses_unreachable": builtin.UsesUnreachable(prog), "uses_lists": builtin.UsesLists(prog),
 	}
 }
 
@@ -389,20 +427,195 @@ func typesDump(prog *ast.Program, diags []diag.Diagnostic) map[string]any {
 // port's typeck/nodes.tck describes it: each node's kind, its type, its
 // constant, what a call converts to, what a name was narrowed to,
 // whether a switch is exhaustive, whether a variable was unrolled and
-// whether a name moves its variable's value.
+// whether a name moves its variable's value, and what else of it the
+// backend reads (see handoverEntry).
 func nodesDump(prog *ast.Program) []any {
 	out := make([]any, 0)
+	decls := make(map[*ast.Func]int)
+	for i, d := range prog.Decls() {
+		if fn, ok := d.(*ast.Func); ok {
+			decls[fn] = i
+		}
+	}
+	sites := siteArgs(prog)
+	files := make(map[source.FileID]int)
+	for i, f := range prog.Files() {
+		files[f.Span.File] = i
+	}
 	for _, pkg := range prog.Packages {
 		for _, f := range pkg.Files {
 			ast.Walk(f, func(n ast.Node) bool {
 				if _, isFile := n.(*ast.File); !isFile {
-					out = append(out, nodeEntry(n))
+					e := nodeEntry(n)
+					handoverEntry(e, n, decls, sites, files)
+					out = append(out, e)
 				}
 				return true
 			})
 		}
 	}
 	return out
+}
+
+// siteArgs returns the testing.Site arguments the checker put among the
+// arguments of prog's calls (see typeck's passSite): each the argument
+// of a call with a Site whose span is the empty one at the call's end,
+// where the checker puts every node it makes for one, and no argument
+// written can be.
+func siteArgs(prog *ast.Program) map[ast.Expr]bool {
+	sites := make(map[ast.Expr]bool)
+	for _, f := range prog.Files() {
+		ast.Walk(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.Call)
+			if !ok || call.Site == nil {
+				return true
+			}
+			end := ast.Span{File: call.Span.File, Start: call.Span.End, End: call.Span.End}
+			for _, arg := range call.Args {
+				if arg.Spanned() == end {
+					sites[arg] = true
+				}
+			}
+			return true
+		})
+	}
+	return sites
+}
+
+// handoverEntry adds to e, the dump's entry for n, what of n the
+// backend reads that nodeEntry does not show, as the port's
+// typeck/nodes.tck's write_handover describes it: a call's Type,
+// Method and Dynamic, a method expression's Method, each as funcRef
+// writes it, a ?'s Results, an unreachable's Where, a variable's
+// Unused, a name's Def (see defEntry), the Types of each case of a type
+// switch, where the clause a
+// fallthrough enters starts, or -1, a closure's function's Value and
+// ResultTypes, and what a testing.Site argument the checker put among a
+// call's arguments holds (see siteArgs): a name's parameter, or a
+// literal's file, line, column and excerpt. decls holds each function's
+// place in prog.Decls(), and files each file's in prog.Files().
+func handoverEntry(e map[string]any, n ast.Node, decls map[*ast.Func]int, sites map[ast.Expr]bool, files map[source.FileID]int) {
+	switch x := n.(type) {
+	case *ast.Call:
+		e["call_type"] = int(x.Type)
+		e["method"] = funcRef(x.Method, decls)
+		e["dynamic"] = funcRef(x.Dynamic, decls)
+	case *ast.Selector:
+		e["method"] = funcRef(x.Method, decls)
+	case *ast.Question:
+		e["results"] = typeList(x.Results)
+	case *ast.Unreachable:
+		e["where"] = x.Where
+	case *ast.Var:
+		e["unused"] = x.Unused
+	case *ast.Switch:
+		if x.IsTypeSwitch() {
+			clauses := make([]any, 0, len(x.Cases))
+			for _, cl := range x.Cases {
+				clauses = append(clauses, typeList(cl.Types))
+			}
+			e["case_types"] = clauses
+		}
+	case *ast.Fallthrough:
+		e["next"] = -1
+		if x.Next != nil {
+			e["next"] = x.Next.Span.Start
+		}
+	case *ast.FuncLit:
+		e["value"], e["lit_results"] = int(x.Func.Value), typeList(x.Func.ResultTypes)
+	case *ast.Ident:
+		e["def"] = defEntry(x.Def, files)
+		if sites[x] {
+			e["site_param"] = x.Name
+		}
+	case *ast.CompositeLit:
+		if sites[x] {
+			e["site"] = siteValue(x)
+		}
+	}
+}
+
+// defEntry returns the dump's form of d, what a name is bound to: nil
+// for nothing, unbound for ast.Unbound, builtin for a builtin's nil
+// *Func, and for a declaration its kind, the place in prog.Files(),
+// files, of the file its name is in, where in it its name starts and
+// its name, in one string, which keeps a large program's dump small.
+func defEntry(d ast.Decl, files map[source.FileID]int) any {
+	if d == nil {
+		return nil
+	}
+	if d == ast.Unbound {
+		return "unbound"
+	}
+	ref := func(kind, name string, at ast.Span) any {
+		return fmt.Sprintf("%s %d %d %s", kind, files[at.File], at.Start, name)
+	}
+	switch x := d.(type) {
+	case *ast.Func:
+		if x == nil {
+			return "builtin"
+		}
+		return ref("Func", x.Name, x.NameSpan)
+	case *ast.Param:
+		return ref("Param", x.Name, x.NameSpan)
+	case *ast.Var:
+		return ref("Var", x.Name, x.NameSpan)
+	case *ast.TypeParam:
+		return ref("TypeParam", x.Name, x.NameSpan)
+	case *ast.TypeDecl:
+		return ref("Type", x.Name, x.NameSpan)
+	case *ast.Import:
+		return ref("Import", x.Name, x.NameSpan)
+	default:
+		return map[string]any{"unknown": fmt.Sprintf("%T", d)}
+	}
+}
+
+// siteValue returns what lit, a testing.Site literal the checker made,
+// holds: its file, line, column and excerpt, by field name.
+func siteValue(lit *ast.CompositeLit) map[string]any {
+	out := make(map[string]any)
+	for _, el := range lit.Elems {
+		kv, ok := el.(*ast.KeyValue)
+		if !ok {
+			continue
+		}
+		key, _ := kv.Key.(*ast.Ident)
+		switch v := kv.Value.(type) {
+		case *ast.StrLit:
+			out[key.Name] = v.Value
+		case *ast.IntLit:
+			out[key.Name] = json.Number(v.Value.String())
+		}
+	}
+	return out
+}
+
+// funcRef returns the dump's form of fn, a function a call or a method
+// expression names, or nil: its place among prog.Decls(), decls, or -1
+// for a stand-in the checker made, its name, its Value, its parameters'
+// and results' types, and the interface method a stand-in is for, or
+// nil.
+func funcRef(fn *ast.Func, decls map[*ast.Func]int) any {
+	if fn == nil {
+		return nil
+	}
+	at, declared := decls[fn]
+	if !declared {
+		at = -1
+	}
+	params := make([]any, 0, len(fn.Params))
+	for _, p := range fn.Params {
+		params = append(params, int(p.Type))
+	}
+	var iface any
+	if fn.Interface != nil {
+		iface = fn.Interface.Name
+	}
+	return map[string]any{
+		"decl": at, "name": fn.Name, "value": int(fn.Value), "params": params,
+		"results": typeList(fn.ResultTypes), "iface": iface,
+	}
 }
 
 // nodeEntry returns the dump's entry for n.

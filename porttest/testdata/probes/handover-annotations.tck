@@ -1,0 +1,216 @@
+package main
+
+import testing from "std/testing"
+
+// What the checker records for the backend beyond types, which the
+// --port-types dump shows: testing.Site arguments in every position a
+// parameter can take, a Site passed on, a method's, a variadic
+// function's, nested calls and a call over several lines; a union
+// clause's variable never read, which is marked unused; an unreachable
+// in a default every case covers, whose place is still recorded; the
+// types a type switch's cases name; fallthroughs; a method expression
+// and a call of one, a call through a function value, a stand-in for an
+// interface's method, a closure's value and a ?'s results. The default
+// every case covers is an error, so --check reports it.
+
+// Got holds a Site.
+type Got struct {
+    s testing.Site
+}
+
+// first takes its Site first.
+func first(s testing.Site, a int64) Got {
+    return Got{s: s}
+}
+
+// middle takes its Site between two others.
+func middle(a int64, s testing.Site, b int64) Got {
+    return Got{s: s}
+}
+
+// last takes its Site last.
+func last(a int64, b int64, s testing.Site) Got {
+    return Got{s: s}
+}
+
+// only takes a Site alone.
+func only(s testing.Site) Got {
+    return Got{s: s}
+}
+
+// many takes a Site and any number of values.
+func many(s testing.Site, xs ...int64) Got {
+    return Got{s: s}
+}
+
+// on passes its own Site on to every call.
+func on(_ testing.Site) Got {
+    g := first(1)
+    h := middle(1, 2)
+    return last(g.s.line, h.s.col)
+}
+
+// P has a method that takes a Site.
+type P struct {
+    x int64
+}
+
+// at returns where it was called from.
+func (p P) at(s testing.Site, y int64) Got {
+    return Got{s: s}
+}
+
+// plus returns p's x and y.
+func (p P) plus(y int64) int64 {
+    return p.x +% y
+}
+
+// sites calls each of them.
+func sites() int64 {
+    p := P{x: 1}
+    a := first(1)
+    b := middle(1, 2)
+    c := last(1, 2)
+    d := first(3)
+    e := only()
+    f := many()
+    g := many(1, 2, 3)
+    h := p.at(4)
+    i := first(middle(first(1).s.line, only().s.col).s.line)
+    j := last(
+        1,
+        2)
+    k := on()
+    return a.s.line +% b.s.line +% c.s.line +% d.s.line +% e.s.line +% f.s.line +% g.s.line +% h.s.line +% i.s.line +% j.s.line +% k.s.line
+}
+
+// U is a union with payloads.
+type U union {
+    num int64
+    word string
+    none
+}
+
+// clauses binds payloads, one never read.
+func clauses(u U) int64 {
+    switch u {
+    case num(n):
+        return 1
+    case word(w):
+        return len(w)
+    case none:
+        return 0
+    }
+}
+
+// covered has a default every case covers, holding an unreachable.
+func covered(u U) int64 {
+    switch u {
+    case num(n):
+        return n
+    case word:
+        return 1
+    case none:
+        return 2
+    default:
+        unreachable
+    }
+}
+
+// kinds is a type switch.
+func kinds(a any) int64 {
+    switch v := a.(type) {
+    case int64:
+        return v
+    case string, bool:
+        return 1
+    default:
+        return 2
+    }
+}
+
+// falls falls through twice.
+func falls(n int64) int64 {
+    mut got int64 = 0
+    switch n {
+    case 1:
+        got = 1
+        fallthrough
+    case 2:
+        got = got +% 2
+        fallthrough
+    default:
+        got = got +% 4
+    }
+    return got
+}
+
+// get is P's method as a value and called through its type.
+func get(p P) int64 {
+    f := P.plus
+    g := f(p, 1)
+    h := P.at(p, 2)
+    return g +% h.s.line +% P.plus(p, 3)
+}
+
+// Sizer is an interface.
+type Sizer interface {
+    size() int64
+}
+
+// S is a Sizer.
+type S struct {
+    n int64
+}
+
+// size returns s's n.
+func (s S) size() int64 {
+    return s.n
+}
+
+// sized calls through a type parameter's stand-in.
+func sized[T Sizer](t T) int64 {
+    return t.size()
+}
+
+// apply calls through a function value.
+func apply(f func(int64) int64, x int64) int64 {
+    return f(x)
+}
+
+// twice is a function value.
+func twice(x int64) int64 {
+    return x *% 2
+}
+
+// pair gives two values and an error.
+func pair(x int64) (int64, string, error) {
+    return x, "x", noerror
+}
+
+// asked uses a ? and a closure.
+func asked(x int64) (int64, error) {
+    a, b := pair(x)?
+    run(func(y int64) int64 {
+        return y +% a +% len(b)
+    })
+    return apply(twice, a) +% sized(S{n: 1}), noerror
+}
+
+// run calls f.
+func run(scope f func(int64) int64) int64 {
+    return f(1)
+}
+
+// main calls everything.
+func main() {
+    mut n := sites() +% clauses(U.none) +% covered(U.none) +% kinds(int64(1)) +% falls(1) +% get(P{x: 1})
+    m, err := asked(1)
+    if err.code != 0 {
+        return
+    }
+    n = n +% m
+    if n == 0 {
+        print("zero\n")
+    }
+}

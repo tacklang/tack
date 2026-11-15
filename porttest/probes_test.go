@@ -28,7 +28,9 @@ import (
 // lengths appends prove and an error declared with its type, which
 // proves none, and three found beside them: a ? on add, add_all and
 // insert, an element of a span's view of an arena bound with ok, and
-// printf's %v given a view.
+// printf's %v given a view; and, from the backend's handover, what the
+// checker records for the backend beyond types, testing.Site arguments
+// in every position among them.
 const probesStage = "probes"
 
 func init() {

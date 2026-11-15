@@ -1,0 +1,56 @@
+package main
+
+// A switch on a union unbinds every name it takes as a pattern, which
+// the resolver bound to what the name names where the switch is: here
+// cases named like the builtin print, the function num and the global
+// g, matched with a payload and without. The backend reads what a name
+// is bound to, and the builtins a program calls, so the dump shows both.
+// The default after every case is an error, so --check reports it.
+
+// U has cases named like a builtin, a function and a global.
+type U union {
+    print int64
+    num int64
+    g
+    none
+}
+
+mut g [3]int64 = [3]int64{1, 2, 3}
+
+// num returns x.
+func num(x int64) int64 {
+    return x
+}
+
+// pick matches every case.
+func pick(u U) int64 {
+    switch u {
+    case print(v):
+        return v
+    case num(w):
+        return num(w)
+    case g:
+        return g[0]
+    case none:
+        return 0
+    }
+}
+
+// all names each case in one clause.
+func all(u U) int64 {
+    switch u {
+    case print, num, g:
+        return 1
+    case none:
+        return 0
+    default:
+        return 2
+    }
+}
+
+// main calls exit and never print.
+func main() {
+    if pick(U.print(3)) +% all(U.none) > 5 {
+        exit(1)
+    }
+}

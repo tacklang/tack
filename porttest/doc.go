@@ -323,7 +323,19 @@
 // what it ranges over, the type parameter its fields have, whether its
 // body reads their names and the fields it lists for each type, a
 // switch on a type parameter with how each value of each case matches,
-// and a closure with its captures; and the kinds of
+// and a closure with its captures; what else the backend reads of a
+// node (see handoverEntry): a call's Type, Method and Dynamic, a method
+// expression's Method, each a function's place in prog.Decls(), name,
+// value, parameters' and results' types and the interface method a
+// stand-in is for, a ?'s Results, an unreachable's Where, a variable's
+// Unused, a name's Def, a union case pattern's cleared, the Types of
+// each case of a type switch, where the clause a
+// fallthrough enters starts, a closure's function's Value and
+// ResultTypes, and the testing.Site arguments the checker puts among a
+// call's arguments, with the parameter a name passes on and the file,
+// line, column and excerpt a literal holds; what the program needs of
+// the runtime, builtin's Used, RunsC, UsesUnreachable and UsesLists, in
+// "bodies"; and the kinds of
 // judgment the port took as holding without proving them, logged, not
 // compared, and none so far. The test builds the same from Go's checker
 // and compares what the port's phase covers: in "bodies", everything,
@@ -595,4 +607,24 @@
 // parameter and from a literal, five thousand links long, under --check,
 // the port's stack held to deepStack KB and to a quarter of it.
 // TestProbesTypes runs the probes with --port-types too.
+//
+// # The backend's parts
+//
+// What the backend will need that no stage shows until it is ported is
+// checked with flags of the port's own (see handover_test.go). TestBind
+// compares --port-bind, what the type table's bindings give a checked
+// program's types under each of its first sixteen instances' bindings,
+// Go's Bind, BindMore, Unbind, Binding, Bound, HasTypeParam, NameWith
+// with the qualifiers of generic.go and header.go, and every other
+// query of the Table, each followed by the table's count, so the IDs of
+// the types they add, in order, which C names carry, are compared, with
+// the same from Go's Table, on every input of the corpus Go accepts with
+// instances of generic functions; TestBindDeep does the same on generic
+// functions making values of types nested in lists, maps and function
+// types nearly as deep as the parser allows, the port's stack held to
+// deepStack KB. TestHexFloats compares --port-floats, the C literal the
+// backend writes for a float constant, a hexadecimal float, with the Go
+// backend's floatLiteral, on float64s and float32s of every kind:
+// zeros, infinities, NaNs, subnormals, the extremes, powers of two over
+// every exponent, their neighbours and random bit patterns.
 package porttest
