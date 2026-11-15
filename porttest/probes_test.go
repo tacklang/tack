@@ -35,7 +35,10 @@ import (
 // documentation in a module std that differs from the compiler's; and,
 // from the header, names tack.h reserves in every place a name can take
 // one, names two things in tack.h share, and a field tack.h cannot name
-// deep in arrays and structs held by value.
+// deep in arrays and structs held by value; and, from the backend's
+// values, the methods the unused pass counts as used, called as x.m(),
+// mut x.m() and T.m(x), which it warned of as unused until the backend
+// lowered them.
 const probesStage = "probes"
 
 func init() {
