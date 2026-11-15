@@ -1409,8 +1409,10 @@ func check_target(target []uint8, max_errors int64, doc bool) (int32, error) {
 // loader, and so is a file whose name as given makes it a test file, and
 // a target that cannot be looked at. Go resolves the symbolic links of
 // the target's path first; the port cannot resolve a link, so a target
-// with one among the parts of its path, made absolute as Go's
-// filepath.Abs makes it, is not implemented, naming --check.
+// that may still be the copy, a directory holding a builtin.tck, a file
+// named builtin.tck or a link, with a link among the parts of its path,
+// made absolute as Go's filepath.Abs makes it, is not implemented,
+// naming --check.
 func check_builtin_doc(target []uint8, l loader.Loader) (bool, int32, error) {
     abs, af := abs_path(target)?
     if af.failed {
@@ -1422,6 +1424,20 @@ func check_builtin_doc(target []uint8, l loader.Loader) (bool, int32, error) {
     }
     base := path.base(abs.bytes(), c_allocator)?
     if !info.is_dir() && loader.is_test_file(base.bytes()) {
+        return false, exit_ok, noerror
+    }
+    // What no link can change comes first, so that only a target that
+    // may still be the copy is declined for a link on its path: a
+    // directory holding no builtin.tck, which stat finds through any
+    // link, and a file that is no link itself, whose name, which Go
+    // resolves no further, is not builtin.tck.
+    if info.is_dir() {
+        doc := path.join(abs.bytes(), []uint8("builtin.tck"), c_allocator)?
+        _, doc_err := os.stat(doc.bytes())
+        if doc_err.code != 0 {
+            return false, exit_ok, noerror
+        }
+    } else if !base.equal([]uint8("builtin.tck")) && !is_link(abs.bytes()) {
         return false, exit_ok, noerror
     }
     linked := has_link(abs.bytes())?

@@ -79,7 +79,9 @@ and `--emit-header`, with `--check` or without, run every stage before
 the backend as the Go compiler does and report their diagnostics, and
 are answered so where the Go compiler starts lowering, past its check
 of `tack.h`'s names. `--check` of `std/builtin` or its `builtin.tck`
-compares the copy with the compiler's own, as the Go compiler does. The flags
+compares the copy with the compiler's own, as the Go compiler does;
+one that may be that copy reached through a symbolic link, which the
+port cannot resolve, is answered as not implemented. The flags
 `-O0` to `-Oz` and `--backend` are read, and their usage errors
 written, as the Go compiler writes them.
 
