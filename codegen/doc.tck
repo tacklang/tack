@@ -77,7 +77,8 @@ package codegen
 // lower the feature, the port answers not_ported, which the driver
 // reports as not implemented, exit status 3. Everything is lowered into
 // buffers before anything is written, as Go's generate does, so a
-// program declined at any point writes nothing: no partial C, and no
+// program declined at any point writes nothing, no partial C, and the
+// driver holds the warnings back until the C or tack.h is out: no
 // number used by a lowering cut short shows anywhere. The places the
 // core declines are each named in a comment, with the stage whose work
 // it is. A function Go's later stages own but every core program runs,

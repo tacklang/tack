@@ -512,6 +512,7 @@ func (mut c Checker) drop_assigned(mut facts list[Fact], frm int64, rgn []Key) e
     drops := len(c.fx.drops)
     text := len(c.fx.drop_text)
     keeps := len(c.fx.keeps)
+    side_facts := len(c.fx.side_facts)
     mut named := false
     mut i := frm
     for i < len(facts) {
@@ -548,6 +549,118 @@ func (mut c Checker) drop_assigned(mut facts list[Fact], frm int64, rgn []Key) e
         for len(c.fx.keeps) > keeps {
             pop(mut c.fx.keeps)
         }
+        return noerror
+    }
+    return mut c.keep_named_drops(mut facts, frm, drops, text, side_facts)
+}
+
+// keep_named_drops gives back every drop drop_assigned's walk made, from
+// drops on, with its name from text on, that no fact names: the facts
+// of facts from frm on and the side facts made since side_facts, which
+// are all that can name them. The walk makes a drop for every write of
+// its region, and a fact names only the first write of its variable, so
+// a nest of ifs, each walking the region inside it, would otherwise keep
+// drops growing with the square of its depth, where Go's collector frees
+// those its index alone held. The drops kept move down, in order, and
+// are renamed in the facts; drops are compared by what they hold (see
+// same_drop), never by their place, so nothing else changes.
+func (mut c Checker) keep_named_drops(mut facts list[Fact], frm int64, drops int64, text int64, side_facts int64) error {
+    if len(c.fx.drops) == drops {
+        return noerror
+    }
+    mut moved := make(map[int64]int64, c_allocator)
+    mut kept := make(list[Drop], c_allocator)
+    mut names := make(list[uint8], c_allocator)
+    mut i := frm
+    for i < len(facts) {
+        mut f := fact_in(facts[:], i)
+        f.drop = mut c.keep_drop(f.drop, drops, text, mut moved, mut kept, mut names)?
+        set_fact(mut facts, i, f)
+        i +%= 1
+    }
+    mut j := side_facts
+    for j < len(c.fx.side_facts) {
+        mut f := fact_in(c.fx.side_facts[:], j)
+        f.drop = mut c.keep_drop(f.drop, drops, text, mut moved, mut kept, mut names)?
+        set_fact(mut c.fx.side_facts, j, f)
+        j +%= 1
+    }
+    for len(c.fx.drops) > drops {
+        pop(mut c.fx.drops)
+    }
+    for len(c.fx.drop_text) > text {
+        pop(mut c.fx.drop_text)
+    }
+    append(mut c.fx.drops, kept[:]...)?
+    append(mut c.fx.drop_text, names[:]...)?
+    return noerror
+}
+
+// keep_ending_drops gives back every drop made from drops on, with its
+// name from text on, that no ending made from endings on names: an index
+// of a region makes a drop for every write it walks, judged as it walks
+// them, and a fact keeps only the endings of the writes to what it is
+// about, so a nest of ifs, each indexing the region inside it, would
+// otherwise keep drops growing with the square of its depth, where Go's
+// collector frees those its index alone held. assume_in and
+// index_proven call it once their indexes are gone, when only those
+// endings can name what they made. The drops kept move down, in order,
+// renamed in the endings, as keep_named_drops moves its.
+func (mut c Checker) keep_ending_drops(drops int64, text int64, endings int64) error {
+    if len(c.fx.drops) == drops {
+        return noerror
+    }
+    mut moved := make(map[int64]int64, c_allocator)
+    mut kept := make(list[Drop], c_allocator)
+    mut names := make(list[uint8], c_allocator)
+    mut e := endings
+    for e < len(c.fx.endings) {
+        mut en := c.ending_at(e)
+        en.drop = mut c.keep_drop(en.drop, drops, text, mut moved, mut kept, mut names)?
+        set_at(mut c.fx.endings, e, en)
+        e +%= 1
+    }
+    for len(c.fx.drops) > drops {
+        pop(mut c.fx.drops)
+    }
+    for len(c.fx.drop_text) > text {
+        pop(mut c.fx.drop_text)
+    }
+    append(mut c.fx.drops, kept[:]...)?
+    append(mut c.fx.drop_text, names[:]...)?
+    return noerror
+}
+
+// keep_drop returns where the drop d will be once keep_named_drops is
+// done: d itself when it was made before drops, or none, and otherwise
+// its place among the kept, which it takes, with its name, the first
+// time it is asked about.
+func (mut c Checker) keep_drop(d int64, drops int64, text int64, mut moved map[int64]int64, mut kept list[Drop], mut names list[uint8]) (int64, error) {
+    if d < drops {
+        return d, noerror
+    }
+    at, seen := moved[d]
+    if seen {
+        return at, noerror
+    }
+    nd := drops +% len(kept)
+    mut dr := c.drop_at(d)
+    if dr.text_len > 0 {
+        nstart := text +% len(names)
+        append_run(c.fx.drop_text[:], dr.text_start, dr.text_len, mut names)?
+        dr.text_start = nstart
+    }
+    append(mut kept, dr)?
+    put(mut moved, d, nd)?
+    return nd, noerror
+}
+
+// append_run appends the n bytes of held from start to out, or nothing
+// when they are not all there.
+func append_run(held []uint8, start int64, n int64, mut out list[uint8]) error {
+    end := start +% n
+    if start >= 0 && start <= end && end <= len(held) {
+        append(mut out, held[start:end]...)?
     }
     return noerror
 }

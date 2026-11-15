@@ -399,6 +399,9 @@ func (mut c Checker) assume(g Guard, facts []Fact, head []Key) error {
 // The guard is put in scope too. Everything stays until a release to a
 // mark taken before.
 func (mut c Checker) assume_in(g Guard, facts []Fact, head []Key, blk int64, frm int64) error {
+    drops := len(c.fx.drops)
+    text := len(c.fx.drop_text)
+    endings := len(c.fx.endings)
     gid := mut c.add_guard(g)?
     append(mut c.fx.guards, gid)?
     append(mut c.fx.guard_kept, false)?
@@ -431,7 +434,7 @@ func (mut c Checker) assume_in(g Guard, facts []Fact, head []Key, blk int64, frm
         mut c.push_kept(f)?
         mut c.index_fact()?
     }
-    return noerror
+    return mut c.keep_ending_drops(drops, text, endings)
 }
 
 // assume_pushed puts facts in force, from the guard g, for the region of
@@ -524,6 +527,9 @@ func (mut c Checker) index_proven(p int64) error {
     if !ok || po.indexed {
         return noerror
     }
+    drops := len(c.fx.drops)
+    text := len(c.fx.drop_text)
+    endings := len(c.fx.endings)
     mut done := po
     done.indexed = true
     set_at(mut c.fx.proven, p, done)
@@ -551,7 +557,7 @@ func (mut c Checker) index_proven(p int64) error {
             }
         }
     }
-    return noerror
+    return mut c.keep_ending_drops(drops, text, endings)
 }
 
 // note_related records in related each subject f relates to another,
