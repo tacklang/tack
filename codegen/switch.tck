@@ -13,7 +13,8 @@ import types from "tack/types"
 // id its any holds and declaring its variable (caseBody), and a switch
 // with a fallthrough lowered as gotos (hasFallthrough, fallChain). A
 // switch on a union is union.tck's, and one on a type parameter, which
-// only an instance of a generic function holds, E4's. A switch nests in
+// only an instance of a generic function holds, is the body of the one
+// case its type stands for matches (paramSwitch). A switch nests in
 // a block, and a block in a switch's case, as deeply as the parser lets
 // them, a few small frames a level.
 
@@ -21,9 +22,8 @@ import types from "tack/types"
 func (mut g Gen) generate_switch(mut t typeck.Typed, fn typeck.Key, k typeck.Key) (list[Line], error) {
     s := switch_of(t.prog.trees[:], k)
     if s.on_type {
-        // paramSwitch, which only an instance of a generic function
-        // lowers, E4's.
-        return make(list[Line], c_allocator), not_ported
+        lines := mut g.param_switch(mut t, fn, k, s)?
+        return lines, noerror
     }
     is_union := is_union_switch(mut t, k, s)?
     if is_union {
@@ -375,4 +375,86 @@ func (mut g Gen) int_test(mut t typeck.Typed, typ types.Type, tag_ref []uint8, v
         append(mut out, x[1:last]...)?
     }
     return noerror
+}
+
+// param_switch lowers s, the switch k in fn on a type parameter, Go's
+// paramSwitch: as the body of the one case the type its type parameter
+// stands for in the instance being lowered matches (see arm_for), in a
+// C block of its own, with each type parameter that case declares bound
+// to what it stands for. No other case is lowered, and nothing is tested
+// at run time.
+func (mut g Gen) param_switch(mut t typeck.Typed, fn typeck.Key, k typeck.Key, s ast.Switch) (list[Line], error) {
+    tag := at(k, s.tag)
+    nm, is_name := ident_of(t.prog.trees[:], tag)
+    if !is_name || nm.def.kind != ast.def_type_param {
+        e := mut g.fail([]uint8("a switch on a type parameter must name one"), span_of(t.prog.trees[:], tag.unit, tag.node))
+        return make(list[Line], c_allocator), e
+    }
+    tp := typeck.Key{unit: nm.def.unit, node: nm.def.node}
+    typ := mut t.table.bound(mut t.decl_type(tp))?
+    mut binds := make(map[types.Type]types.Type, c_allocator)
+    arm, found := mut g.arm_for(mut t, k, s, typ, mut binds)?
+    if !found {
+        mut msg := make(list[uint8], c_allocator)
+        append(mut msg, []uint8("a switch on a type parameter has no case for ")...)?
+        n := mut t.table.name(typ)?
+        append(mut msg, n[:]...)?
+        e := mut g.fail(msg[:], span_of(t.prog.trees[:], tag.unit, tag.node))
+        return make(list[Line], c_allocator), e
+    }
+    saved := mut g.bind_more_types(mut t, binds)?
+    body := mut g.block(mut t, fn, clause_of(t.prog.trees[:], arm).body, false)?
+    mut g.restore_types(mut t, own saved)
+    mut lines := make(list[Line], c_allocator)
+    mut g.add_line(mut lines, []uint8("{"))?
+    append_indented(mut lines, body[:])?
+    mut g.add_line(mut lines, []uint8("}"))?
+    return lines, noerror
+}
+
+// arm_for returns the clause of s, the switch k on a type parameter,
+// that runs when its type parameter stands for typ, Go's Switch.ArmFor:
+// the first, in source order, one of whose values matches typ (Go's
+// TypeCase.Matches), or the default when none does, and whether there is
+// one; binds gets what the type parameter a list's or a map's case
+// declares stands for, the element or value type of typ.
+func (mut g Gen) arm_for(mut t typeck.Typed, k typeck.Key, s ast.Switch, typ types.Type, mut binds map[types.Type]types.Type) (typeck.Key, bool, error) {
+    n := node_count(t.prog.trees[:], k.unit, s.cases)
+    for i := range n {
+        c := node_at(t.prog.trees[:], k.unit, s.cases, i)
+        nt := mut t.type_case_count(c)
+        for j := range nt {
+            kind, tt, _ := mut t.type_case(c, j)
+            if kind == 0 {
+                if typ == tt {
+                    return c, true, noerror
+                }
+                continue
+            }
+            if kind == 1 || kind == 2 {
+                mut matches := false
+                if kind == 1 {
+                    matches = mut t.table.is_list(typ)?
+                } else {
+                    matches = mut t.table.is_map(typ)?
+                }
+                if !matches {
+                    continue
+                }
+                put(mut binds, tt, mut t.table.elem_of(typ)?)?
+                return c, true, noerror
+            }
+            st := mut t.table.is_struct(typ)?
+            if st {
+                return c, true, noerror
+            }
+        }
+    }
+    for i := range n {
+        c := node_at(t.prog.trees[:], k.unit, s.cases, i)
+        if clause_of(t.prog.trees[:], c).is_default {
+            return c, true, noerror
+        }
+    }
+    return no_key(), false, noerror
 }

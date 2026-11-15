@@ -1,0 +1,556 @@
+package codegen
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// Closures and scope parameters, Go's closure.go. A scope parameter's
+// value is a tack_scope, a function pointer and an environment, which
+// the function is called with first: a call through a scope parameter f
+// of the function type typ is ((tack_sfn_ID)f.fn)(f.env, args). A
+// closure lowers to a static C function of its own, tack_closureN, N
+// counting the closures met so far, taking the environment and then its
+// parameters; its environment is a struct of its own, tack_envN, of a
+// pointer to each capture, in the order the checker recorded them, c0, c1
+// and so on, to const for one the closure never writes. In its body a
+// capture is read and written through its pointer, (*tack_env->cN). The
+// value passed for a scope parameter is (tack_scope){f, &(tack_envN){...}},
+// or a null environment for a closure with no captures. A plain function
+// value passed to a scope parameter is called through its function
+// type's adapter, tack_adapt_ID, its environment a pointer to a copy of
+// the value.
+//
+// The closures a body holds are lowered once the body is (see
+// flush_closures), each as a frame of its own under the binding and the
+// fields loops' fields in force where it was met, and the closures they
+// hold in turn: a loop over the closures met, never a recursion, however
+// deeply they nest. Every closure's environment struct and prototype is
+// written after every function's prototype, and its definition before
+// the first function's.
+
+// scope_type is the C type of a scope parameter's value, Go's scopeType.
+var scope_type = "tack_scope"
+
+// r_scope_arg is the routine of Go's scopeArg.
+var r_scope_arg uint8 = 57
+
+// Closure is a closure met while lowering a body, to be lowered once that
+// body is, Go's closure: its FuncLit node, its number, which names its C
+// function, tack_closureN, and its environment, tack_envN, the C type of
+// each capture's pointer, in order, its function type as the binding in
+// force where it was met makes it, that binding, whether one was in
+// force, and the fields the fields loops around it stand for; and, once
+// its body is lowered, its C function's signature and body.
+type Closure struct {
+    lit typeck.Key
+    n int64
+    ptrs list[list[uint8]]
+    typ types.Type
+    bound map[types.Type]types.Type
+    bound_on bool
+    reflect map[typeck.Key]Reflect
+    sig list[uint8]
+    lines list[Line]
+}
+
+// append_scope_fn_name appends the C pointer type a call through a scope
+// value of the function type typ converts the value's function to, Go's
+// scopeFnName: tack_sfn_ and the ID of the type typ stands for.
+func append_scope_fn_name(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    b := mut t.table.bound(typ)?
+    fmt.appendf(mut out, "tack_sfn_%d", b.number())?
+    return noerror
+}
+
+// append_adapter_name appends the adapter a plain function value of the
+// function type typ is called through as a scope value, Go's
+// adapterName: tack_adapt_ and the ID of the type typ stands for.
+func append_adapter_name(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    b := mut t.table.bound(typ)?
+    fmt.appendf(mut out, "tack_adapt_%d", b.number())?
+    return noerror
+}
+
+// uses_scope reports whether the program has a scope parameter, of a
+// function or of a function type, which tack_scope is the C type of,
+// Go's usesScope.
+func (mut g Gen) uses_scope(mut t typeck.Typed) (bool, error) {
+    if g.scope_used {
+        return true, noerror
+    }
+    count := mut t.table.count()
+    for i := range count {
+        typ, f := is_emitted_func(mut t, i)?
+        if !f {
+            continue
+        }
+        np := mut t.table.param_count(typ)?
+        for j := range np {
+            p, _ := mut t.table.param(typ, j)?
+            if p.is_scope {
+                pf := mut t.table.is_func(p.typ)?
+                if pf {
+                    return true, noerror
+                }
+            }
+        }
+    }
+    return false, noerror
+}
+
+// emit_scope_type defines tack_scope, after tack_fnptr, when the program
+// has a scope parameter, Go's emitScopeType.
+func (mut g Gen) emit_scope_type(mut t typeck.Typed) error {
+    uses := mut g.uses_scope(mut t)?
+    if uses {
+        fmt.appendf(mut g.buf, "typedef struct {\n    %s fn;\n    void *env;\n} %s;\n\n", func_ptr, scope_type)?
+    }
+    return noerror
+}
+
+// append_func_param_type appends the C type a parameter p of a function
+// type is passed as, Go's funcParamType: a scope value for a scope one of
+// a function type, a pointer to its type's for a mut one, and its type's
+// otherwise.
+func append_func_param_type(mut t typeck.Typed, p types.FuncParam, mut out list[uint8]) error {
+    if p.is_scope {
+        f := mut t.table.is_func(p.typ)?
+        if f {
+            append(mut out, []uint8(scope_type)...)?
+            return noerror
+        }
+    }
+    append_c_type(mut t, p.typ, mut out)?
+    if p.is_mut {
+        append(mut out, []uint8(" *")...)?
+    }
+    return noerror
+}
+
+// append_scope_fn_params appends the C parameter list of the function a
+// scope value of the function type typ calls, Go's scopeFnParams: the
+// environment, then typ's parameters, joined by commas.
+func append_scope_fn_params(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    append(mut out, []uint8("void *")...)?
+    np := mut t.table.param_count(typ)?
+    for j := range np {
+        p, _ := mut t.table.param(typ, j)?
+        append(mut out, []uint8(", ")...)?
+        append_func_param_type(mut t, p, mut out)?
+    }
+    return noerror
+}
+
+// emit_scope_fn defines the scope pointer type of the function type typ,
+// tack_sfn_ID, when a scope value of typ is called, made or adapted, Go's
+// emitScopeFn.
+func (mut g Gen) emit_scope_fn(mut t typeck.Typed, typ types.Type) error {
+    _, noted := g.scope_fns[typ]
+    if !noted {
+        return noerror
+    }
+    append(mut g.buf, []uint8("typedef ")...)?
+    append_func_type_result(mut t, typ, mut g.buf)?
+    append(mut g.buf, []uint8(" (*")...)?
+    append_scope_fn_name(mut t, typ, mut g.buf)?
+    append(mut g.buf, []uint8(")(")...)?
+    append_scope_fn_params(mut t, typ, mut g.buf)?
+    append(mut g.buf, []uint8(");\n\n")...)?
+    return noerror
+}
+
+// note_scope_fn records that a scope value of the function type typ is
+// called, made or adapted, Go's noteScopeFn.
+func (mut g Gen) note_scope_fn(mut t typeck.Typed, typ types.Type) error {
+    b := mut t.table.bound(typ)?
+    put(mut g.scope_fns, b, true)?
+    return noerror
+}
+
+// lit_func returns the function the closure lit, a FuncLit, is.
+func lit_func(t typeck.Typed, lit typeck.Key) typeck.Key {
+    switch kind_of(t.prog.trees[:], lit) {
+    case func_lit(n):
+        return at(lit, n)
+    default:
+    }
+    return no_key()
+}
+
+// is_func_lit reports whether k is a closure.
+func is_func_lit(t typeck.Typed, k typeck.Key) bool {
+    switch kind_of(t.prog.trees[:], k) {
+    case func_lit:
+        return true
+    default:
+    }
+    return false
+}
+
+// step_scope_arg is Go's scopeArg, of f.e passed to a scope parameter of
+// the function type f.want: a closure as its function and environment
+// (see closure_value), a scope parameter passed on as the value it holds,
+// and any other value, a plain function value, through its function
+// type's adapter, a pointer to a copy of the value its environment.
+func (mut g Gen) step_scope_arg(mut t typeck.Typed, f MFrame, mut m Machine) error {
+    if f.step == 0 {
+        if is_func_lit(t, f.e) {
+            v := mut g.closure_value(mut t, f.e)?
+            mut m.give(own v)?
+            return noerror
+        }
+        nm, is_name := ident_of(t.prog.trees[:], f.e)
+        if is_name && nm.def.kind == ast.def_param {
+            p := typeck.Key{unit: nm.def.unit, node: nm.def.node}
+            scoped := mut g.scope_func(mut t, p)?
+            if scoped {
+                v := mut g.ident_expr(mut t, f.e)?
+                mut m.give(own v)?
+                return noerror
+            }
+        }
+        mut m.again(f, 1)?
+        mut m.push(r_expr, f.e, types.invalid, false)?
+        return noerror
+    }
+    v := mut m.take()
+    b := mut t.table.bound(f.want)?
+    mut g.note_scope_fn(mut t, b)?
+    _, known := g.adapters[b]
+    if !known {
+        put(mut g.adapters, b, true)?
+        append(mut g.adapter_order, b)?
+    }
+    mut out := make(list[uint8], c_allocator)
+    fmt.appendf(mut out, "((%s){(%s)(", scope_type, func_ptr)?
+    append_scope_fn_name(mut t, b, mut out)?
+    append(mut out, []uint8("){")...)?
+    append_adapter_name(mut t, b, mut out)?
+    fmt.appendf(mut out, "}, &(%s){%s}})", func_ptr, v[:])?
+    mut m.give(own out)?
+    return noerror
+}
+
+// closure_value renders lit, a closure passed to a scope parameter, Go's
+// closureValue: a tack_scope of its function, which it records to be
+// lowered once the body being lowered is, and its environment, a
+// compound literal of pointers to its captures, or a null pointer when it
+// has none.
+func (mut g Gen) closure_value(mut t typeck.Typed, lit typeck.Key) (list[uint8], error) {
+    n := len(g.closures)
+    typ := mut t.table.bound(mut t.type_of(lit))?
+    bound, on := mut t.table.binding()?
+    mut reflect := make(map[typeck.Key]Reflect, c_allocator)
+    for v, r := range g.reflect {
+        put(mut reflect, v, r)?
+    }
+    mut cl := Closure{
+        lit: lit,
+        n: n,
+        ptrs: make(list[list[uint8]], c_allocator),
+        typ: typ,
+        bound: bound,
+        bound_on: on,
+        reflect: reflect,
+        sig: make(list[uint8], c_allocator),
+        lines: make(list[Line], c_allocator),
+    }
+    mut g.note_scope_fn(mut t, typ)?
+    mut env := make(list[uint8], c_allocator)
+    nc := mut t.capture_count(lit)
+    if nc == 0 {
+        append(mut env, '0')?
+    } else {
+        fmt.appendf(mut env, "&(tack_env%d){", n)?
+        for i := range nc {
+            decl, _, write, _ := mut t.capture(lit, i)
+            ptr := mut g.capture_ptr_type(mut t, decl, write)?
+            append(mut cl.ptrs, ptr)?
+            if i > 0 {
+                append(mut env, []uint8(", ")...)?
+            }
+            g.append_capture_addr(t, decl, mut env)?
+        }
+        append(mut env, '}')?
+    }
+    append(mut g.closures, cl)?
+    mut out := make(list[uint8], c_allocator)
+    fmt.appendf(mut out, "((%s){(%s)(", scope_type, func_ptr)?
+    append_scope_fn_name(mut t, typ, mut out)?
+    fmt.appendf(mut out, "){tack_closure%d}, %s})", n, env[:])?
+    return out, noerror
+}
+
+// capture_ptr_type returns the C type of the pointer a closure's
+// environment holds for the capture decl, Go's capturePtrType: a pointer
+// to the C type of the variable's value, a scope parameter's a
+// tack_scope, to const when the closure never writes it.
+func (mut g Gen) capture_ptr_type(mut t typeck.Typed, decl typeck.Key, write bool) (list[uint8], error) {
+    mut ctype := make(list[uint8], c_allocator)
+    switch kind_of(t.prog.trees[:], decl) {
+    case param_decl:
+        append_c_type(mut t, mut t.decl_type(decl), mut ctype)?
+        scoped := mut g.scope_func(mut t, decl)?
+        if scoped {
+            ctype = make(list[uint8], c_allocator)
+            append(mut ctype, []uint8(scope_type)...)?
+        }
+    case var_decl:
+        append_c_type(mut t, mut t.decl_type(decl), mut ctype)?
+    default:
+    }
+    mut out := make(list[uint8], c_allocator)
+    if !write {
+        append(mut out, []uint8("const ")...)?
+    }
+    append(mut out, ctype[:]...)?
+    append(mut out, []uint8(" *")...)?
+    return out, noerror
+}
+
+// append_capture_addr appends the address of the variable or parameter
+// decl, as the frame being lowered reaches it, Go's captureAddr: the
+// pointer the environment of the closure being lowered holds for it,
+// when it is one of its captures; the pointer a mut parameter, or a
+// variable bound in place, already is; and the address of the variable
+// or the parameter otherwise.
+func (g Gen) append_capture_addr(t typeck.Typed, decl typeck.Key, mut out list[uint8]) error {
+    i, captured := g.captured[decl]
+    if captured {
+        fmt.appendf(mut out, "tack_env->c%d", i)?
+        return noerror
+    }
+    switch kind_of(t.prog.trees[:], decl) {
+    case param_decl:
+        pa := param_at(t.prog.trees[:], decl)
+        if !pa.is_mut {
+            append(mut out, '&')?
+        }
+        append_param_name(text_of(t, decl.unit, pa.name), mut out)?
+    case var_decl:
+        _, in_place := g.in_place[decl]
+        if !in_place {
+            append(mut out, '&')?
+        }
+        append_var_name(t, decl, mut out)?
+    default:
+        append(mut out, '0')?
+    }
+    return noerror
+}
+
+// append_capture_ref appends how the body of the closure being lowered
+// reads and writes decl, when it is one of its captures, through the
+// pointer its environment holds, (*tack_env->cN), Go's captureRef, and
+// reports whether it is one.
+func (g Gen) append_capture_ref(decl typeck.Key, mut out list[uint8]) (bool, error) {
+    i, captured := g.captured[decl]
+    if !captured {
+        return false, noerror
+    }
+    fmt.appendf(mut out, "(*tack_env->c%d)", i)?
+    return true, noerror
+}
+
+// flush_closures lowers every closure met since the last flush, and the
+// closures their bodies hold in turn, each as a frame of its own (see
+// generate_closure), Go's flushClosures: those met while one is lowered
+// join the end of the list, so a loop over it takes them all, in Go's
+// order, however deeply they nest.
+func (mut g Gen) flush_closures(mut t typeck.Typed) error {
+    for g.next_closure < len(g.closures) {
+        i := g.next_closure
+        g.next_closure +%= 1
+        mut g.generate_closure(mut t, i)?
+    }
+    return noerror
+}
+
+// generate_closure lowers the body of the closure i as the body of its C
+// function, Go's generateClosure: under the binding and the fields
+// loops' fields in force where it was met, each capture read through the
+// environment, which a closure with captures first converts to a pointer
+// to its environment struct, tack_env, and one with none casts to void,
+// as it does each parameter its body never names. It records the
+// function's signature and lines, and what the body names.
+func (mut g Gen) generate_closure(mut t typeck.Typed, i int64) error {
+    mut bound := make(map[types.Type]types.Type, c_allocator)
+    mut reflect := make(map[typeck.Key]Reflect, c_allocator)
+    lit, n, typ := closure_parts(g.closures[:], i, mut bound, mut reflect)?
+    fn := lit_func(t, lit)
+    outer := replace(mut g.captured, make(map[typeck.Key]int64, c_allocator))
+    nc := mut t.capture_count(lit)
+    for j := range nc {
+        decl, _, _, _ := mut t.capture(lit, j)
+        put(mut g.captured, decl, j)?
+    }
+    outer_reflect := replace(mut g.reflect, reflect)
+    saved := mut g.bind_more_types(mut t, bound)?
+    body := mut g.func_frame(mut t, fn)?
+    mut lines := make(list[Line], c_allocator)
+    mut head := make(list[uint8], c_allocator)
+    if nc > 0 {
+        fmt.appendf(mut head, "tack_env%d *const tack_env = tack_envp;", n)?
+    } else {
+        append(mut head, []uint8("(void)tack_envp;")...)?
+    }
+    mut g.add_line(mut lines, head[:])?
+    mut g.unused_params(t, fn, body[:], mut lines)?
+    append(mut lines, body[:]...)?
+    mut name := make(list[uint8], c_allocator)
+    fmt.appendf(mut name, "tack_closure%d", n)?
+    mut g.note_names(name[:], lines[:])?
+    mut sig := make(list[uint8], c_allocator)
+    append(mut sig, []uint8("static ")...)?
+    append_func_type_result(mut t, typ, mut sig)?
+    fmt.appendf(mut sig, " %s(void *tack_envp", name[:])?
+    f := func_at(t.prog.trees[:], fn)
+    np := node_count(t.prog.trees[:], fn.unit, f.params)
+    for j := range np {
+        p := node_at(t.prog.trees[:], fn.unit, f.params, j)
+        append(mut sig, []uint8(", ")...)?
+        mut g.append_param_type(mut t, p, mut sig)?
+        append(mut sig, ' ')?
+        append_param_decl_name(t, p, j, mut sig)?
+    }
+    append(mut sig, ')')?
+    mut g.restore_types(mut t, own saved)
+    g.captured = outer
+    g.reflect = outer_reflect
+    set_closure_body(mut g.closures, i, own sig, own lines)
+    return noerror
+}
+
+// closure_parts returns the FuncLit, the number and the function type of
+// the closure i of closures, and copies its binding into bound and its
+// fields loops' fields into reflect.
+func closure_parts(closures []Closure, i int64, mut bound map[types.Type]types.Type, mut reflect map[typeck.Key]Reflect) (typeck.Key, int64, types.Type, error) {
+    if i < 0 || i >= len(closures) {
+        return no_key(), 0, types.invalid, not_ported
+    }
+    for k, v := range closures[i].bound {
+        put(mut bound, k, v)?
+    }
+    for v, r := range closures[i].reflect {
+        put(mut reflect, v, r)?
+    }
+    return closures[i].lit, closures[i].n, closures[i].typ, noerror
+}
+
+// set_closure_body records sig and lines, the closure i's lowered
+// signature and body, in closures.
+func set_closure_body(mut closures list[Closure], i int64, own sig list[uint8], own lines list[Line]) {
+    if i >= 0 && i < len(closures) {
+        closures[i].sig = sig
+        closures[i].lines = lines
+    }
+}
+
+// emit_closure_decls writes, after every function's prototype, the
+// environment struct of each closure that has captures and each
+// closure's prototype, then the adapter of each function type whose
+// plain values are passed to a scope parameter, Go's emitClosureDecls.
+func (mut g Gen) emit_closure_decls(mut t typeck.Typed) error {
+    closures := replace(mut g.closures, make(list[Closure], c_allocator))
+    for _, cl := range closures {
+        if len(cl.ptrs) == 0 {
+            continue
+        }
+        append(mut g.buf, []uint8("typedef struct {\n")...)?
+        for j, ptr := range cl.ptrs {
+            fmt.appendf(mut g.buf, "    %sc%d;\n", ptr[:], j)?
+        }
+        fmt.appendf(mut g.buf, "} tack_env%d;\n\n", cl.n)?
+    }
+    for _, cl := range closures {
+        mut name := make(list[uint8], c_allocator)
+        fmt.appendf(mut name, "tack_closure%d", cl.n)?
+        unused := mut g.maybe_unused(name[:])?
+        append(mut g.buf, []uint8(unused)...)?
+        append(mut g.buf, cl.sig[:]...)?
+        append(mut g.buf, []uint8(";\n")...)?
+    }
+    if len(closures) > 0 {
+        append(mut g.buf, '\n')?
+    }
+    g.closures = closures
+    adapters := replace(mut g.adapter_order, make(list[types.Type], c_allocator))
+    for _, typ := range adapters {
+        mut g.emit_adapter(mut t, typ)?
+    }
+    g.adapter_order = adapters
+    return noerror
+}
+
+// emit_adapter writes the adapter of the function type typ, Go's
+// emitAdapter: it reads the plain function value its environment points
+// to, converts it back to typ's pointer type, and calls it with the rest
+// of its parameters, returning what it returns.
+func (mut g Gen) emit_adapter(mut t typeck.Typed, typ types.Type) error {
+    mut params := make(list[uint8], c_allocator)
+    append(mut params, []uint8("void *tack_envp")...)?
+    mut args := make(list[uint8], c_allocator)
+    np := mut t.table.param_count(typ)?
+    for j := range np {
+        p, _ := mut t.table.param(typ, j)?
+        append(mut params, []uint8(", ")...)?
+        append_func_param_type(mut t, p, mut params)?
+        fmt.appendf(mut params, " p%d", j)?
+        if j > 0 {
+            append(mut args, []uint8(", ")...)?
+        }
+        fmt.appendf(mut args, "p%d", j)?
+    }
+    mut call := make(list[uint8], c_allocator)
+    append(mut call, []uint8("((")...)?
+    append_func_ptr_name(mut t, typ, mut call)?
+    fmt.appendf(mut call, ")*(const %s *)tack_envp)(%s)", func_ptr, args[:])?
+    mut ret := "return "
+    nr := mut t.table.result_count(typ)?
+    if nr == 0 {
+        ret = ""
+    }
+    append(mut g.buf, []uint8("static ")...)?
+    append_func_type_result(mut t, typ, mut g.buf)?
+    append(mut g.buf, ' ')?
+    append_adapter_name(mut t, typ, mut g.buf)?
+    fmt.appendf(mut g.buf, "(%s) {\n    %s%s;\n}\n\n", params[:], ret, call[:])?
+    return noerror
+}
+
+// emit_closures writes every closure's definition, Go's emitClosures.
+func (mut g Gen) emit_closures() error {
+    closures := replace(mut g.closures, make(list[Closure], c_allocator))
+    for _, cl := range closures {
+        mut g.emit_func(cl.sig[:], cl.lines[:])?
+    }
+    g.closures = closures
+    return noerror
+}
+
+// append_scope_callee appends the C callee of a call through rendered,
+// the value of a scope parameter of the function type typ, to callee, and
+// the environment it is called with first to env, Go's scopeCallee.
+func (mut g Gen) append_scope_callee(mut t typeck.Typed, typ types.Type, rendered []uint8, mut callee list[uint8], mut env list[uint8]) error {
+    mut g.note_scope_fn(mut t, typ)?
+    append(mut callee, []uint8("((")...)?
+    append_scope_fn_name(mut t, typ, mut callee)?
+    append(mut callee, ')')?
+    append(mut callee, rendered...)?
+    append(mut callee, []uint8(".fn)")...)?
+    append(mut env, rendered...)?
+    append(mut env, []uint8(".env")...)?
+    return noerror
+}
+
+// scope_func_at reports whether fn's i'th parameter, p, is a scope
+// parameter of a function type as the call k passes its argument, Go's
+// scopeFunc of atCall's parameter: of the type call_param_type gives.
+func (mut g Gen) scope_func_at(mut t typeck.Typed, k typeck.Key, fn typeck.Key, i int64, p typeck.Key) (bool, error) {
+    if !param_at(t.prog.trees[:], p).is_scope {
+        return false, noerror
+    }
+    f := mut t.table.is_func(call_param_type(mut t, k, fn, i, p))?
+    return f, noerror
+}

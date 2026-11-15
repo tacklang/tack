@@ -1,0 +1,249 @@
+package codegen
+
+import fmt from "std/fmt"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// make for Data, Go's makedata.go: make(T, alloc), with T written as a
+// name, a Data type or a type parameter standing for one, lowers to the
+// empty value of the type T stands for, as one C expression: its basic
+// type's zero, a list or a map holding alloc and no buffer, and for a
+// struct a compound literal setting every field the same way, at every
+// depth. alloc is evaluated once: in place when one list or map holds
+// it, or each does and it is a name or c_allocator; held in a temporary
+// when two or more hold it and it is any other expression; and cast to
+// void beside the value when none does. Go walks a struct's fields by
+// recursion, a frame a level of its nesting, and asks how many lists and
+// maps a struct holds once at each level, which costs the square of its
+// depth; here both walks keep a stack of their own, and the counts are
+// worked out once, in one walk.
+
+// r_make_data is the routine of Go's makeData.
+var r_make_data uint8 = 58
+
+// step_make_data is Go's makeData: the allocator rendered, then the empty
+// value of the type the call makes, as the comment at the top of the
+// file says.
+func (mut g Gen) step_make_data(mut t typeck.Typed, f MFrame, mut m Machine) error {
+    args := call_args_of(t, f.e)?
+    if len(args) < 2 {
+        return not_ported
+    }
+    if f.step == 0 {
+        mut m.again(f, 1)?
+        mut m.push(r_expr, args[1], types.allocator, false)?
+        return noerror
+    }
+    alloc := mut m.take()
+    typ := mut t.table.bound(mut t.call_type(f.e))?
+    mut uses := make(map[types.Type]int64, c_allocator)
+    n := mut g.alloc_uses(mut t, typ, mut uses)?
+    mut out := make(list[uint8], c_allocator)
+    if n == 0 {
+        fmt.appendf(mut out, "((void)(%s), ", alloc[:])?
+        mut g.append_zero_value(mut t, typ, mut out)?
+        append(mut out, ')')?
+        mut m.give(own out)?
+        return noerror
+    }
+    if n > 1 && !read_only(t, args[1]) {
+        tmp := mut g.temp("a")?
+        mut ct := make(list[uint8], c_allocator)
+        append_c_type(mut t, types.allocator, mut ct)?
+        mut g.add_temp_decl(ct[:], tmp[:])?
+        fmt.appendf(mut out, "(%s = %s, ", tmp[:], alloc[:])?
+        mut g.append_empty_value(mut t, typ, tmp[:], uses, mut out)?
+        append(mut out, ')')?
+        mut m.give(own out)?
+        return noerror
+    }
+    mut g.append_empty_value(mut t, typ, alloc[:], uses, mut out)?
+    mut m.give(own out)?
+    return noerror
+}
+
+// read_only reports whether alloc, an Allocator, is read without a side
+// effect, so it may be rendered more than once, Go's readOnly: a name, or
+// c_allocator.
+func read_only(t typeck.Typed, alloc typeck.Key) bool {
+    switch kind_of(t.prog.trees[:], alloc) {
+    case ident:
+        return true
+    case c_allocator_lit:
+        return true
+    default:
+    }
+    return false
+}
+
+// alloc_uses returns how many lists and maps the empty value of typ, a
+// Data type the binding in force has bound, holds, Go's allocUses: one
+// for a list or a map, the sum over its fields for a struct, and none
+// for a basic type. It puts each struct's count in uses, from a stack of
+// its own, each struct's fields counted before it.
+func (mut g Gen) alloc_uses(mut t typeck.Typed, root types.Type, mut uses map[types.Type]int64) (int64, error) {
+    mut frames := make(list[TypeFrame], c_allocator)
+    mut parts := make(list[types.Type], c_allocator)
+    top := mut g.enter_alloc(mut t, root, mut uses, mut frames, mut parts)?
+    if !top {
+        rb := mut t.table.bound(root)?
+        n, has := uses[rb]
+        if !has {
+            return 0, noerror
+        }
+        return n, noerror
+    }
+    for len(frames) > 0 {
+        part, more, done := next_part(mut frames, mut parts)
+        if more {
+            mut g.enter_alloc(mut t, part, mut uses, mut frames, mut parts)?
+            continue
+        }
+        nf := mut t.table.field_count(done.typ)?
+        mut sum int64 = 0
+        for i := range nf {
+            ft, ok := mut t.table.field_type(done.typ, i)?
+            if !ok {
+                continue
+            }
+            b := mut t.table.bound(ft)?
+            c, has := uses[b]
+            if has {
+                sum +%= c
+            }
+        }
+        put(mut uses, done.typ, sum)?
+    }
+    rb := mut t.table.bound(root)?
+    n, has := uses[rb]
+    if !has {
+        return 0, noerror
+    }
+    return n, noerror
+}
+
+// enter_alloc counts typ, bound, in uses when it is a list, a map or a
+// basic type, and reports false; a struct not yet counted it pushes, its
+// fields its parts, and reports true.
+func (mut g Gen) enter_alloc(mut t typeck.Typed, typ0 types.Type, mut uses map[types.Type]int64, mut frames list[TypeFrame], mut parts list[types.Type]) (bool, error) {
+    typ := mut t.table.bound(typ0)?
+    _, known := uses[typ]
+    if known {
+        return false, noerror
+    }
+    lst := mut t.table.is_list(typ)?
+    mp := mut t.table.is_map(typ)?
+    if lst || mp {
+        put(mut uses, typ, 1)?
+        return false, noerror
+    }
+    st := mut t.table.is_struct(typ)?
+    if !st {
+        put(mut uses, typ, 0)?
+        return false, noerror
+    }
+    start := len(parts)
+    nf := mut t.table.field_count(typ)?
+    for i := range nf {
+        ft, ok := mut t.table.field_type(typ, i)?
+        if ok {
+            append(mut parts, ft)?
+        }
+    }
+    append(mut frames, TypeFrame{typ: typ, start: start, next: start, end: len(parts)})?
+    return true, noerror
+}
+
+// EmptyFrame is one struct append_empty_value is writing the empty value
+// of: its type and the next of its fields to write.
+type EmptyFrame struct {
+    typ types.Type
+    next int64
+    count int64
+}
+
+// append_empty_value appends the empty value of typ, a Data type the
+// binding in force has bound, its lists and maps holding alloc, a C
+// expression of type tack_allocator that each reads, Go's emptyValue,
+// uses holding how many lists and maps each struct holds (see
+// alloc_uses), from a stack of its own.
+func (mut g Gen) append_empty_value(mut t typeck.Typed, root types.Type, alloc []uint8, uses map[types.Type]int64, mut out list[uint8]) error {
+    mut frames := make(list[EmptyFrame], c_allocator)
+    opened := mut g.open_empty(mut t, root, alloc, uses, mut frames, mut out)?
+    if !opened {
+        return noerror
+    }
+    for len(frames) > 0 {
+        top := len(frames) -% 1
+        fr, ok := frames[top]
+        if !ok {
+            break
+        }
+        if fr.next >= fr.count {
+            pop(mut frames)
+            append(mut out, []uint8("})")...)?
+            continue
+        }
+        if top >= 0 && top < len(frames) {
+            frames[top].next = fr.next +% 1
+        }
+        if fr.next > 0 {
+            append(mut out, []uint8(", ")...)?
+        }
+        ft, _ := mut t.table.field_type(fr.typ, fr.next)?
+        append(mut out, '.')?
+        mut fname := make(list[uint8], c_allocator)
+        mut t.table.field_name(fr.typ, fr.next, mut fname)?
+        append_member_name(fr.typ, fname[:], mut out)?
+        append(mut out, []uint8(" = ")...)?
+        mut g.open_empty(mut t, ft, alloc, uses, mut frames, mut out)?
+    }
+    return noerror
+}
+
+// open_empty appends the empty value of typ when it is a list, a map or
+// a type that holds neither, and reports false; for a struct that holds
+// one it appends the start of its compound literal, pushes its frame and
+// reports true.
+func (mut g Gen) open_empty(mut t typeck.Typed, typ0 types.Type, alloc []uint8, uses map[types.Type]int64, mut frames list[EmptyFrame], mut out list[uint8]) (bool, error) {
+    typ := mut t.table.bound(typ0)?
+    if mut t.table.is_list(typ)? {
+        append(mut out, []uint8("((")...)?
+        append_list_name(mut t, typ, mut out)?
+        fmt.appendf(mut out, "){.alloc = %s})", alloc)?
+        return false, noerror
+    }
+    if mut t.table.is_map(typ)? {
+        append(mut out, []uint8("((")...)?
+        append_map_name(mut t, typ, mut out)?
+        fmt.appendf(mut out, "){.alloc = %s})", alloc)?
+        return false, noerror
+    }
+    st := mut t.table.is_struct(typ)?
+    n, has := uses[typ]
+    if st && has && n > 0 {
+        append(mut out, []uint8("((")...)?
+        append_struct_name(mut t, typ, mut out)?
+        append(mut out, []uint8("){")...)?
+        nf := mut t.table.field_count(typ)?
+        append(mut frames, EmptyFrame{typ: typ, next: 0, count: nf})?
+        return true, noerror
+    }
+    mut g.append_zero_value(mut t, typ, mut out)?
+    return false, noerror
+}
+
+// make_stmt lowers make(T, alloc) written as a statement, the call k,
+// which the type checker allows only for a value that owns nothing, Go's
+// makeStmt: the value, its allocator evaluated once, cast to void.
+func (mut g Gen) make_stmt(mut t typeck.Typed, k typeck.Key) (list[Line], error) {
+    mut m := new_machine()
+    mut m.push(r_make, k, types.invalid, false)?
+    mut g.run(mut t, mut m)?
+    v := mut m.take()
+    mut l := make(list[uint8], c_allocator)
+    fmt.appendf(mut l, "(void)(%s);", v[:])?
+    mut lines := make(list[Line], c_allocator)
+    mut g.add_line(mut lines, l[:])?
+    return lines, noerror
+}

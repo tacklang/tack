@@ -96,10 +96,6 @@ func (mut g Gen) step_question(mut t typeck.Typed, f MFrame, mut m Machine) erro
             mut m.push(r_append, call, types.invalid, false)?
             return noerror
         }
-        if !typeck_no_key(mut t.dynamic(call)) {
-            // A call through a function value, E4's.
-            return not_ported
-        }
         mut m.push(r_call_expr, call, types.invalid, false)?
         return noerror
     }
@@ -118,9 +114,7 @@ func (mut g Gen) step_question(mut t typeck.Typed, f MFrame, mut m Machine) erro
         append(mut ctype, []uint8("tack_pool_inserted_")...)?
     } else {
         fn, _ := callee_of(mut t, call)
-        mut cname := make(list[uint8], c_allocator)
-        append_func_cname(mut t, fn, mut cname)?
-        append_results_of(cname[:], mut ctype)?
+        mut g.append_call_results_name(mut t, call, fn, mut ctype)?
     }
     name := mut g.temp("q")?
     mut err_ref := make(list[uint8], c_allocator)

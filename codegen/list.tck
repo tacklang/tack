@@ -608,7 +608,7 @@ func generic_routine(name []uint8) (uint8, bool) {
     return 0, false
 }
 
-// step_make is Go's makeValue: make of a Data type, E4's; of an arena its
+// step_make is Go's makeValue: make of a Data type by step_make_data; of an arena its
 // sentinel, then its allocator, held in order when it shows (Go's
 // makeArena); of anything else its allocator, then an empty map, pool or
 // list holding it.
@@ -621,8 +621,8 @@ func (mut g Gen) step_make(mut t typeck.Typed, f MFrame, mut m Machine) error {
         }
         _, named := ident_of(t.prog.trees[:], args[0])
         if named {
-            // makeData, of makedata.go, E4's.
-            return not_ported
+            mut m.push(r_make_data, f.e, types.invalid, false)?
+            return noerror
         }
         if mut t.table.is_arena(ct)? {
             mut m.again(f, 1)?

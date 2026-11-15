@@ -227,9 +227,10 @@ func (mut g Gen) step_composite(mut t typeck.Typed, f MFrame, mut m Machine) err
 
 // step_selector is Go's selectorExpr: a union built of a case with no
 // payload by constructionValue, a method named through its type as a
-// function value, E4's, and a field read, x.f_name, x parenthesized
-// unless C's postfix operators bind it. A field a fields loop's variable
-// stands for, v.[f], is E4's.
+// function value (see append_func_value_ref), a fields loop's f.name or
+// f.index (see field_member), and a field read, x.f_name, x
+// parenthesized unless C's postfix operators bind it, the field a fields
+// loop's v.[f] stands for among them.
 func (mut g Gen) step_selector(mut t typeck.Typed, f MFrame, mut m Machine) error {
     sel := selector_of(t.prog.trees[:], f.e)
     x := at(f.e, sel.x)
@@ -240,15 +241,20 @@ func (mut g Gen) step_selector(mut t typeck.Typed, f MFrame, mut m Machine) erro
             return noerror
         }
         if type_operand(t, x) {
-            if typeck_no_key(mut t.method(f.e)) {
+            mk := mut t.method(f.e)
+            if typeck_no_key(mk) {
                 return mut g.fail([]uint8("a method expression must be checked before code is generated for it"), span_of(t.prog.trees[:], f.e.unit, f.e.node))
             }
-            // funcValueRef, of funcvalue.go, E4's.
-            return not_ported
+            mut out := make(list[uint8], c_allocator)
+            mut g.append_func_value_ref(mut t, mk, mut out)?
+            mut m.give(own out)?
+            return noerror
         }
-        if !ast.is_none(sel.field) {
-            // fieldName of a fields loop's v.[f], E4's.
-            return not_ported
+        mut fm := make(list[uint8], c_allocator)
+        is_member := mut g.field_member(mut t, f.e, mut fm)?
+        if is_member {
+            mut m.give(own fm)?
+            return noerror
         }
         mut m.again(f, 1)?
         mut m.push(r_expr, x, types.invalid, false)?
@@ -275,7 +281,9 @@ func (mut g Gen) step_selector(mut t typeck.Typed, f MFrame, mut m Machine) erro
 func (mut g Gen) append_member(mut t typeck.Typed, k typeck.Key, mut out list[uint8]) error {
     sel := selector_of(t.prog.trees[:], k)
     typ := mut t.table.bound(mut t.type_of(at(k, sel.x)))?
-    append_member_name(typ, text_of(t, k.unit, sel.name), mut out)?
+    mut name := make(list[uint8], c_allocator)
+    g.append_field_name(mut t, k, mut name)?
+    append_member_name(typ, name[:], mut out)?
     return noerror
 }
 

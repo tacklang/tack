@@ -1,0 +1,154 @@
+package codegen
+
+import ast from "tack/ast"
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// Fields loops, Go's fields.go. for f := range fields(T) { body } is
+// unrolled: its body is lowered once for each field the type checker
+// recorded the loop lists for the type T stands for, in order, each time
+// in a C block of its own, with the loop's type parameter bound to that
+// field's type, and with the field remembered for the loop's variable,
+// so v.[f] lowers to the field's member, f.name to the field's name, a
+// pooled string, and f.index to its position among the fields listed. A
+// fields loop in a fields loop's body is lowered inside the outer one's
+// block, a block a level, as any block nests in a statement.
+
+// Reflect is the field a fields loop's variable stands for in the block
+// being lowered, Go's reflectField: the struct type, the field's place
+// among its fields, and its place among the fields the loop lists.
+type Reflect struct {
+    typ types.Type
+    field int64
+    index int64
+}
+
+// fields_loop lowers s, a fields loop of fn ranging over fo, as one C
+// block for each field it lists for the type its T stands for, Go's
+// fieldsLoop.
+func (mut g Gen) fields_loop(mut t typeck.Typed, fn typeck.Key, s typeck.Key, fo typeck.Key) (list[Line], error) {
+    lp := range_of(t.prog.trees[:], s)
+    typ := mut t.table.bound(mut t.fo_type(fo))?
+    mut rec int64 = -1
+    nu := mut t.unrolled_count(fo)
+    for j := range nu {
+        a := mut t.unrolled_at(fo, j)
+        ut, _ := mut t.unrolled_type(a)
+        if ut == typ {
+            rec = a
+            break
+        }
+    }
+    if rec < 0 {
+        e := mut g.fail([]uint8("a fields loop must have its fields recorded before code is generated for it"), span_of(t.prog.trees[:], fo.unit, fo.node))
+        return make(list[Line], c_allocator), e
+    }
+    _, nf := mut t.unrolled_type(rec)
+    field := mut t.fo_field(fo)
+    has_var := !ast.is_none(lp.var_node)
+    v := at(s, lp.var_node)
+    mut lines := make(list[Line], c_allocator)
+    for n := range nf {
+        i := mut t.unrolled_field(rec, n)
+        ft, _ := mut t.table.field_type(typ, i)?
+        mut args := make(map[types.Type]types.Type, c_allocator)
+        put(mut args, field, ft)?
+        saved := mut g.bind_more_types(mut t, args)?
+        if has_var {
+            put(mut g.reflect, v, Reflect{typ: typ, field: i, index: n})?
+        }
+        body := mut g.block(mut t, fn, lp.body, false)?
+        if has_var {
+            delete(mut g.reflect, v)
+        }
+        mut g.restore_types(mut t, own saved)
+        mut g.add_line(mut lines, []uint8("{"))?
+        append_indented(mut lines, body[:])?
+        mut g.add_line(mut lines, []uint8("}"))?
+    }
+    return lines, noerror
+}
+
+// reflect_of returns the field the name k, a fields loop's variable,
+// stands for in the block being lowered, and whether it is one, Go's
+// reflectOf.
+func (g Gen) reflect_of(t typeck.Typed, k typeck.Key) (Reflect, bool) {
+    nm, is_name := ident_of(t.prog.trees[:], k)
+    if !is_name || nm.def.kind != ast.def_var {
+        return Reflect{typ: types.invalid, field: 0, index: 0}, false
+    }
+    r, ok := g.reflect[typeck.Key{unit: nm.def.unit, node: nm.def.node}]
+    if !ok {
+        return Reflect{typ: types.invalid, field: 0, index: 0}, false
+    }
+    return r, true
+}
+
+// append_field_name appends the name of the field the selector k
+// selects, Go's fieldName: the field its fields loop's variable stands
+// for when k is v.[f], and the name written for any other.
+func (g Gen) append_field_name(mut t typeck.Typed, k typeck.Key, mut out list[uint8]) error {
+    sel := selector_of(t.prog.trees[:], k)
+    if !ast.is_none(sel.field) {
+        r, ok := g.reflect_of(t, at(k, sel.field))
+        if ok {
+            mut t.table.field_name(r.typ, r.field, mut out)?
+            return noerror
+        }
+    }
+    append(mut out, text_of(t, k.unit, sel.name)...)?
+    return noerror
+}
+
+// field_member renders the selector k, f.name or f.index, when f is a
+// fields loop's variable, and reports whether it is one, Go's
+// fieldMember: the field's name, a pooled string, or its place among the
+// fields the loop lists, an int64.
+func (mut g Gen) field_member(mut t typeck.Typed, k typeck.Key, mut out list[uint8]) (bool, error) {
+    sel := selector_of(t.prog.trees[:], k)
+    if !ast.is_none(sel.field) {
+        return false, noerror
+    }
+    r, ok := g.reflect_of(t, at(k, sel.x))
+    if !ok {
+        return false, noerror
+    }
+    mut name := make(list[uint8], c_allocator)
+    append(mut name, text_of(t, k.unit, sel.name)...)?
+    if bytes_equal(name[:], []uint8("name")) {
+        mut fname := make(list[uint8], c_allocator)
+        mut t.table.field_name(r.typ, r.field, mut fname)?
+        g.append_string_value(fname[:], mut out)?
+        return true, noerror
+    }
+    if bytes_equal(name[:], []uint8("index")) {
+        bytes.append_int(mut out, r.index)?
+        return true, noerror
+    }
+    mut msg := make(list[uint8], c_allocator)
+    fmt.appendf(mut msg, "a field of a fields loop has no %s", name[:])?
+    return true, mut g.fail(msg[:], sel.name_span)
+}
+
+// pool_field_names pools the names of the fields the fields loop fo
+// lists for every type it was recorded for, when its body reads f.name,
+// Go's poolFieldNames.
+func (mut g Gen) pool_field_names(mut t typeck.Typed, fo typeck.Key) error {
+    if !mut t.reads_names(fo) {
+        return noerror
+    }
+    nu := mut t.unrolled_count(fo)
+    for j := range nu {
+        a := mut t.unrolled_at(fo, j)
+        ut, nf := mut t.unrolled_type(a)
+        for n := range nf {
+            i := mut t.unrolled_field(a, n)
+            mut name := make(list[uint8], c_allocator)
+            mut t.table.field_name(ut, i, mut name)?
+            mut g.add_str(name[:])?
+        }
+    }
+    return noerror
+}

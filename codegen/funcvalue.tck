@@ -1,0 +1,236 @@
+package codegen
+
+import fmt from "std/fmt"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// Function values, Go's funcvalue.go: every function type shares one C
+// type, tack_fnptr, a pointer to a function taking and returning nothing;
+// a function named as a value is first a pointer of its function type's
+// pointer type, tack_fn_ and the type's ID, a compound literal the
+// function initializes, and only then converted to tack_fnptr; a call
+// through a value converts it back to that pointer type. A function of
+// several results named as a value is a thunk of its own, tack_value_ and
+// what follows tack_ in its C name, which calls it and copies its results
+// into the results struct of its function type, tack_fnres_ and the
+// type's ID.
+
+// append_func_ptr_name appends the C pointer type of the function type
+// typ stands for, Go's funcPtrName: tack_fn_ and its ID.
+func append_func_ptr_name(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    b := mut t.table.bound(typ)?
+    fmt.appendf(mut out, "tack_fn_%d", b.number())?
+    return noerror
+}
+
+// append_func_results_name appends the C struct a function of the
+// function type typ stands for, with several results, returns them in
+// when called through a value, Go's funcResultsName: tack_fnres_ and its
+// ID.
+func append_func_results_name(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    b := mut t.table.bound(typ)?
+    fmt.appendf(mut out, "tack_fnres_%d", b.number())?
+    return noerror
+}
+
+// is_emitted_func reports whether the i'th type the table added is a
+// function type C has, Go's emittedTypes filtered by IsFunc, and gives
+// it.
+func is_emitted_func(mut t typeck.Typed, i int64) (types.Type, bool, error) {
+    typ := types.added(i)
+    param := mut t.table.has_type_param(typ)?
+    if param {
+        return typ, false, noerror
+    }
+    f := mut t.table.is_func(typ)?
+    return typ, f, noerror
+}
+
+// uses_func_types reports whether the program has a function type, Go's
+// usesFuncTypes.
+func (mut g Gen) uses_func_types(mut t typeck.Typed) (bool, error) {
+    count := mut t.table.count()
+    for i := range count {
+        _, f := is_emitted_func(mut t, i)?
+        if f {
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// emit_func_ptr defines tack_fnptr, before any type that may hold one,
+// when the program has a function type, and then tack_scope, when it has
+// a scope parameter, Go's emitFuncPtr.
+func (mut g Gen) emit_func_ptr(mut t typeck.Typed) error {
+    uses := mut g.uses_func_types(mut t)?
+    if !uses {
+        return noerror
+    }
+    fmt.appendf(mut g.buf, "typedef void (*%s)(void);\n\n", func_ptr)?
+    mut g.emit_scope_type(mut t)?
+    return noerror
+}
+
+// emit_func_types defines, for every function type, after every other
+// type, the results struct of one with several results, the pointer type
+// a call through a value of it converts the value to, and, for one a
+// scope value of is called, made or adapted, its scope pointer type, Go's
+// emitFuncTypes.
+func (mut g Gen) emit_func_types(mut t typeck.Typed) error {
+    count := mut t.table.count()
+    for i := range count {
+        typ, f := is_emitted_func(mut t, i)?
+        if !f {
+            continue
+        }
+        nr := mut t.table.result_count(typ)?
+        if nr > 1 {
+            append(mut g.buf, []uint8("typedef struct {\n")...)?
+            for j := range nr {
+                append(mut g.buf, []uint8("    ")...)?
+                append_c_type(mut t, mut t.table.result(typ, j)?, mut g.buf)?
+                fmt.appendf(mut g.buf, " r%d;\n", j)?
+            }
+            append(mut g.buf, []uint8("} ")...)?
+            append_func_results_name(mut t, typ, mut g.buf)?
+            append(mut g.buf, []uint8(";\n\n")...)?
+        }
+        mut params := make(list[uint8], c_allocator)
+        np := mut t.table.param_count(typ)?
+        for j := range np {
+            if j > 0 {
+                append(mut params, []uint8(", ")...)?
+            }
+            p, _ := mut t.table.param(typ, j)?
+            append_func_param_type(mut t, p, mut params)?
+        }
+        if np == 0 {
+            append(mut params, []uint8("void")...)?
+        }
+        append(mut g.buf, []uint8("typedef ")...)?
+        append_func_type_result(mut t, typ, mut g.buf)?
+        append(mut g.buf, []uint8(" (*")...)?
+        append_func_ptr_name(mut t, typ, mut g.buf)?
+        fmt.appendf(mut g.buf, ")(%s);\n\n", params[:])?
+        mut g.emit_scope_fn(mut t, typ)?
+    }
+    return noerror
+}
+
+// append_func_type_result appends the C type a function of the function
+// type typ returns, called through a value, Go's funcTypeResult: void,
+// its one result's type, or its type's results struct.
+func append_func_type_result(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    nr := mut t.table.result_count(typ)?
+    if nr == 0 {
+        append(mut out, []uint8("void")...)?
+        return noerror
+    }
+    if nr == 1 {
+        append_c_type(mut t, mut t.table.result(typ, 0)?, mut out)?
+        return noerror
+    }
+    append_func_results_name(mut t, typ, mut out)?
+    return noerror
+}
+
+// append_func_value_ref appends fn, a function named as a value, as a
+// tack_fnptr, Go's funcValueRef: the function itself, or for one with
+// several results its thunk, which it records for emit_thunks, as a
+// pointer of its function type's pointer type first, which C checks it
+// has.
+func (mut g Gen) append_func_value_ref(mut t typeck.Typed, fn typeck.Key, mut out list[uint8]) error {
+    mut name := make(list[uint8], c_allocator)
+    append_func_cname(mut t, fn, mut name)?
+    if mut t.result_len(fn) > 1 {
+        _, done := g.thunked[fn]
+        if !done {
+            put(mut g.thunked, fn, true)?
+            append(mut g.thunks, fn)?
+            mut thunk := make(list[uint8], c_allocator)
+            append_thunk_name(name[:], mut thunk)?
+            mut one := make(list[Line], c_allocator)
+            mut g.add_line(mut one, name[:])?
+            mut g.note_names(thunk[:], one[:])?
+        }
+        mut thunk := make(list[uint8], c_allocator)
+        append_thunk_name(name[:], mut thunk)?
+        name = thunk
+    }
+    fmt.appendf(mut out, "((%s)(", func_ptr)?
+    append_func_ptr_name(mut t, mut t.func_value(fn), mut out)?
+    fmt.appendf(mut out, "){%s})", name[:])?
+    return noerror
+}
+
+// append_thunk_name appends the name of the thunk of the function whose
+// C name is cname, Go's thunkName: tack_value_ and what follows tack_ in
+// cname.
+func append_thunk_name(cname []uint8, mut out list[uint8]) error {
+    append(mut out, []uint8("tack_value_")...)?
+    if len(cname) >= 5 && bytes_equal(cname[0:5], []uint8("tack_")) {
+        append(mut out, cname[5:]...)?
+        return noerror
+    }
+    append(mut out, cname...)?
+    return noerror
+}
+
+// emit_thunks writes the thunk of every function of several results
+// named as a value, after every function's prototype, Go's emitThunks:
+// it takes what the function takes, calls it, and returns its results in
+// the results struct of its function type, member by member.
+func (mut g Gen) emit_thunks(mut t typeck.Typed) error {
+    for i := range len(g.thunks) {
+        fn, ok := g.thunks[i]
+        if !ok {
+            continue
+        }
+        mut cname := make(list[uint8], c_allocator)
+        append_func_cname(mut t, fn, mut cname)?
+        f := func_at(t.prog.trees[:], fn)
+        n := node_count(t.prog.trees[:], fn.unit, f.params)
+        mut params := make(list[uint8], c_allocator)
+        mut args := make(list[uint8], c_allocator)
+        for j := range n {
+            if j > 0 {
+                append(mut params, []uint8(", ")...)?
+                append(mut args, []uint8(", ")...)?
+            }
+            mut g.append_param_type(mut t, node_at(t.prog.trees[:], fn.unit, f.params, j), mut params)?
+            fmt.appendf(mut params, " p%d", j)?
+            fmt.appendf(mut args, "p%d", j)?
+        }
+        if n == 0 {
+            append(mut params, []uint8("void")...)?
+        }
+        mut results := make(list[uint8], c_allocator)
+        append_func_results_name(mut t, mut t.func_value(fn), mut results)?
+        mut thunk := make(list[uint8], c_allocator)
+        append_thunk_name(cname[:], mut thunk)?
+        fmt.appendf(mut g.buf, "static %s %s(%s) {\n", results[:], thunk[:], params[:])?
+        mut rs := make(list[uint8], c_allocator)
+        append_results_of(cname[:], mut rs)?
+        fmt.appendf(mut g.buf, "    const %s r = %s(%s);\n", rs[:], cname[:], args[:])?
+        fmt.appendf(mut g.buf, "    %s out;\n", results[:])?
+        nr := mut t.result_len(fn)
+        for j := range nr {
+            fmt.appendf(mut g.buf, "    out.r%d = r.r%d;\n", j, j)?
+        }
+        append(mut g.buf, []uint8("    return out;\n}\n\n")...)?
+    }
+    return noerror
+}
+
+// append_dynamic_callee appends the C callee of a call through rendered,
+// a function value of the function type typ, converted back to the
+// pointer type of its function, Go's dynamicCallee.
+func append_dynamic_callee(mut t typeck.Typed, typ types.Type, rendered []uint8, mut out list[uint8]) error {
+    append(mut out, []uint8("((")...)?
+    append_func_ptr_name(mut t, typ, mut out)?
+    append(mut out, ')')?
+    append(mut out, rendered...)?
+    append(mut out, ')')?
+    return noerror
+}

@@ -1,0 +1,256 @@
+package codegen
+
+import text from "std/text"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// Generic functions, Go's generic.go: each instance the type checker
+// recorded, Program.Instances, lowered as a function of its own, its
+// body lowered once with the type table binding each type parameter to
+// its type argument, so every type asked about and every C type written
+// is the type argument's; a call of an interface method on a value of a
+// type parameter, a stand-in, calls that struct or union type's method of
+// the name; and an instance's C name, its function's with the type
+// arguments written after it in brackets.
+//
+// Every binding the lowering makes goes through bind_instance,
+// bind_more_types, restore_types and unbind_types, which count the
+// bindings in force in Gen.binds, so what owned keeps (see gen.tck) is
+// asked only with none.
+
+// bind_instance binds the type parameters of the instance i to its type
+// arguments, Go's withInstance's Bind.
+func (mut g Gen) bind_instance(mut t typeck.Typed, i int64) error {
+    fn := mut t.instance_func(i)
+    f := func_at(t.prog.trees[:], fn)
+    n := node_count(t.prog.trees[:], fn.unit, f.type_params)
+    mut args := make(map[types.Type]types.Type, c_allocator)
+    for j := range n {
+        tp := node_at(t.prog.trees[:], fn.unit, f.type_params, j)
+        put(mut args, mut t.decl_type(tp), mut t.instance_arg(i, j))?
+    }
+    mut t.table.bind(own args)?
+    g.binds +%= 1
+    return noerror
+}
+
+// unbind_types ends the binding bind_instance made, Go's Unbind.
+func (mut g Gen) unbind_types(mut t typeck.Typed) {
+    mut t.table.unbind()
+    g.binds -%= 1
+}
+
+// bind_more_types adds args to the binding in force, Go's BindMore, and
+// returns what restore_types puts back.
+func (mut g Gen) bind_more_types(mut t typeck.Typed, args map[types.Type]types.Type) (types.Saved, error) {
+    s := mut t.table.bind_more(args)?
+    g.binds +%= 1
+    return s, noerror
+}
+
+// restore_types puts back the binding bind_more_types replaced, s, Go's
+// call of BindMore's restore.
+func (mut g Gen) restore_types(mut t typeck.Typed, own s types.Saved) {
+    mut t.table.restore(own s)
+    g.binds -%= 1
+}
+
+// note_structs records the declaration of each struct and union type,
+// every type declaration but an interface's, Go's structs, and the
+// import path of each package, which typeArgName writes.
+func (mut g Gen) note_structs(mut t typeck.Typed) error {
+    decls := program_decls(t)?
+    for _, pd := range decls {
+        if pd.is_extern {
+            continue
+        }
+        put(mut g.structs, mut t.decl_type(pd.d), pd.d)?
+    }
+    for _, pkg := range t.prog.packages {
+        p := text.from_bytes(pkg.path.bytes(), c_allocator)?
+        append(mut g.paths, p)?
+    }
+    return noerror
+}
+
+// generate_instances lowers the body of every instance of a generic
+// function the program needs, in the order the type checker recorded
+// them, with its signature, Go's generateInstances: each under its
+// binding, its results' C types asked for after its signature, which a
+// binding adds to the table as they are asked about.
+func (mut g Gen) generate_instances(mut t typeck.Typed, mut low Lowered) error {
+    n := mut t.instance_count()
+    for i := range n {
+        fn := mut t.instance_func(i)
+        mut g.bind_instance(mut t, i)?
+        body := mut g.generate_func_body(mut t, fn)?
+        sig := mut g.signature(mut t, fn)?
+        nr := mut t.result_len(fn)
+        for r := range nr {
+            mut discard := make(list[uint8], c_allocator)
+            append_c_type(mut t, mut t.result(fn, r), mut discard)?
+        }
+        mut g.unbind_types(mut t)
+        append(mut low.funcs, LoweredFunc{sig: sig, body: body})?
+    }
+    return noerror
+}
+
+// is_generic reports whether the function fn has type parameters, Go's
+// Func.Generic.
+func is_generic(t typeck.Typed, fn typeck.Key) bool {
+    f := func_at(t.prog.trees[:], fn)
+    return node_count(t.prog.trees[:], fn.unit, f.type_params) > 0
+}
+
+// bound_method returns, for fn, the stand-in of an interface method
+// called on a value of a type parameter, the method of that name of the
+// struct or union type the type parameter is bound to, Go's boundMethod,
+// and whether fn is one: a stand-in, whose receiver is its first
+// parameter, of a type the binding in force makes a declared one with
+// such a method.
+func (mut g Gen) bound_method(mut t typeck.Typed, fn typeck.Key) (typeck.Key, bool, error) {
+    if typeck_no_key(mut t.interface_of(fn)) {
+        return no_key(), false, noerror
+    }
+    f := func_at(t.prog.trees[:], fn)
+    if !f.method || node_count(t.prog.trees[:], fn.unit, f.params) == 0 {
+        return no_key(), false, noerror
+    }
+    recv := node_at(t.prog.trees[:], fn.unit, f.params, 0)
+    typ := mut t.table.bound(mut t.decl_type(recv))?
+    td, has := g.structs[typ]
+    if !has {
+        return no_key(), false, noerror
+    }
+    m, found := method_of_decl(t, td, text_of(t, fn.unit, f.name))
+    return m, found, noerror
+}
+
+// method_of_decl returns the method named name of the type declaration
+// td, Go's TypeDecl.Method, and whether it has one.
+func method_of_decl(t typeck.Typed, td typeck.Key, name []uint8) (typeck.Key, bool) {
+    if td.unit < 0 || td.unit >= len(t.prog.trees) {
+        return no_key(), false
+    }
+    switch kind_of(t.prog.trees[:], td) {
+    case type_decl(d):
+        for _, m := range t.prog.trees[td.unit].defs[d.methods] {
+            mk := typeck.Key{unit: m.unit, node: m.node}
+            mf := func_at(t.prog.trees[:], mk)
+            if bytes_equal(text_of(t, mk.unit, mf.name), name) {
+                return mk, true
+            }
+        }
+    default:
+    }
+    return no_key(), false
+}
+
+// target returns the function a call k to fn calls, Go's target: the
+// method a stand-in is bound to, or fn itself, and appends its C name to
+// out, an instance's for a generic function, made of the call's type
+// arguments as the binding in force binds them.
+func (mut g Gen) target(mut t typeck.Typed, fn typeck.Key, k typeck.Key, mut out list[uint8]) (typeck.Key, error) {
+    m, bound := mut g.bound_method(mut t, fn)?
+    if bound {
+        append_func_cname(mut t, m, mut out)?
+        return m, noerror
+    }
+    if is_generic(t, fn) {
+        n, _ := mut t.type_arg_count(k)
+        mut args := make(list[types.Type], c_allocator)
+        for i := range n {
+            append(mut args, mut t.type_arg(k, i))?
+        }
+        append_instance_cname(mut t, fn, args[:], mut out)?
+        return fn, noerror
+    }
+    append_func_cname(mut t, fn, mut out)?
+    return fn, noerror
+}
+
+// call_param_type returns the type of fn's i'th parameter, p, as the
+// call k passes its argument, Go's atCall: for a generic function whose
+// call recorded a type for each of its parameters, ParamTypes, the one
+// recorded, its type parameters replaced by the call's type arguments,
+// and p's own type otherwise.
+func call_param_type(mut t typeck.Typed, k typeck.Key, fn typeck.Key, i int64, p typeck.Key) types.Type {
+    if is_generic(t, fn) && !typeck_no_key(k) {
+        f := func_at(t.prog.trees[:], fn)
+        if mut t.param_type_count(k) == node_count(t.prog.trees[:], fn.unit, f.params) {
+            return mut t.param_type(k, i)
+        }
+    }
+    return mut t.decl_type(p)
+}
+
+// append_instance_cname appends the C name of the instance of fn, a
+// generic function, whose type arguments are args, Go's instanceCName:
+// fn's name followed by the type arguments in brackets, separated by
+// commas, each as typeArgName writes the type it stands for, mangled as
+// one name in fn's package.
+func append_instance_cname(mut t typeck.Typed, fn typeck.Key, args []types.Type, mut out list[uint8]) error {
+    f := func_at(t.prog.trees[:], fn)
+    mut paths := make(list[text.Text], c_allocator)
+    for _, pkg := range t.prog.packages {
+        p := text.from_bytes(pkg.path.bytes(), c_allocator)?
+        append(mut paths, p)?
+    }
+    mut name := make(list[uint8], c_allocator)
+    append(mut name, text_of(t, fn.unit, f.name)...)?
+    append(mut name, '[')?
+    for i, a := range args {
+        if i > 0 {
+            append(mut name, ',')?
+        }
+        b := mut t.table.bound(a)?
+        append_type_arg_name(mut t, b, paths[:], mut name)?
+    }
+    append(mut name, ']')?
+    append_mangle(t, package_of_unit(t, fn.unit), name[:], mut out)?
+    return noerror
+}
+
+// append_type_arg_name appends typ, a type argument, as an instance's C
+// name holds it, Go's typeArgName: a struct or union type as its
+// package's import path, a period and its name, and any other type as a
+// program writes it, each struct or union type in it written so.
+// paths are the packages' import paths. Go looks the type up among the
+// declarations first, and only a struct or a union is declared, which
+// name_with qualifies by its package's path the same way, so name_with
+// writes it whole.
+func append_type_arg_name(mut t typeck.Typed, typ types.Type, paths []text.Text, mut out list[uint8]) error {
+    mut t.table.name_with(typ, -1, paths, true, mut out)?
+    return noerror
+}
+
+// instance_args_of appends to out the types of fn's type parameters, the
+// arguments funcCName names a generic function's instance by under the
+// binding in force.
+func instance_args_of(mut t typeck.Typed, fn typeck.Key, mut out list[types.Type]) error {
+    f := func_at(t.prog.trees[:], fn)
+    n := node_count(t.prog.trees[:], fn.unit, f.type_params)
+    for j := range n {
+        append(mut out, mut t.decl_type(node_at(t.prog.trees[:], fn.unit, f.type_params, j)))?
+    }
+    return noerror
+}
+
+// append_call_results_name appends the results struct the call k, to fn,
+// of several results, gives them in, as Go's callValues names it once
+// the call is rendered: the function type's results struct for a call
+// through a value, and otherwise the results struct of the target's C
+// name, worked out again (see target).
+func (mut g Gen) append_call_results_name(mut t typeck.Typed, k typeck.Key, fn typeck.Key, mut out list[uint8]) error {
+    mut value := make(list[uint8], c_allocator)
+    append_func_results_name(mut t, mut t.func_value(fn), mut value)?
+    if !typeck_no_key(mut t.dynamic(k)) {
+        append(mut out, value[:]...)?
+        return noerror
+    }
+    mut cname := make(list[uint8], c_allocator)
+    mut g.target(mut t, fn, k, mut cname)?
+    append_results_of(cname[:], mut out)?
+    return noerror
+}

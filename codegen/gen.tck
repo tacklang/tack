@@ -134,8 +134,19 @@ type Global struct {
 // values the expression being rendered has made and not yet given to
 // what takes them, which a ? that returns frees, the first block an exit
 // can see (see defer.tck), and the C type of the call the last ?
-// rendered follows, Go's deferring and pending; and what owned found of
-// each type it was asked of.
+// rendered follows, Go's deferring and pending; what owned found of
+// each type it was asked of while no binding was in force; and E4's:
+// the declaration of each struct and union type and the packages'
+// paths, Go's structs and the paths typeArgName writes, the field each
+// fields loop's variable stands for in the block being lowered, Go's
+// reflect, the functions of several results named as values, Go's
+// thunks and thunked, the closures met so far, Go's closures, the first
+// of them whose body is yet to be lowered, Go's pendingClosures, each
+// capture of the closure being lowered by its place in its environment,
+// Go's captured, the function types whose scope pointer types are
+// defined and whose adapters are written, Go's scopeFns, adapters and
+// adapterOrder, whether a scope parameter was lowered, Go's scopeUsed,
+// and how many bindings the lowering has made and not yet ended.
 pub type Gen struct {
     set builtin.Set
     globals map[typeck.Key]bool
@@ -170,6 +181,19 @@ pub type Gen struct {
     scope_base int64
     q_ctype list[uint8]
     owned_types map[types.Type]bool
+    structs map[types.Type]typeck.Key
+    paths list[text.Text]
+    reflect map[typeck.Key]Reflect
+    thunks list[typeck.Key]
+    thunked map[typeck.Key]bool
+    closures list[Closure]
+    next_closure int64
+    captured map[typeck.Key]int64
+    scope_fns map[types.Type]bool
+    adapters map[types.Type]bool
+    adapter_order list[types.Type]
+    scope_used bool
+    binds int64
 }
 
 // new_frame returns a Frame for no function, which grows through
@@ -230,6 +254,19 @@ func new_gen(set builtin.Set) Gen {
         scope_base: 0,
         q_ctype: make(list[uint8], c_allocator),
         owned_types: make(map[types.Type]bool, c_allocator),
+        structs: make(map[types.Type]typeck.Key, c_allocator),
+        paths: make(list[text.Text], c_allocator),
+        reflect: make(map[typeck.Key]Reflect, c_allocator),
+        thunks: make(list[typeck.Key], c_allocator),
+        thunked: make(map[typeck.Key]bool, c_allocator),
+        closures: make(list[Closure], c_allocator),
+        next_closure: 0,
+        captured: make(map[typeck.Key]int64, c_allocator),
+        scope_fns: make(map[types.Type]bool, c_allocator),
+        adapters: make(map[types.Type]bool, c_allocator),
+        adapter_order: make(list[types.Type], c_allocator),
+        scope_used: false,
+        binds: 0,
     }
 }
 
@@ -242,10 +279,16 @@ func new_gen(set builtin.Set) Gen {
 // length; here each answer is kept, and an array's, a struct's or a
 // union's is made of its parts' kept ones, from a stack of its own. A
 // part that holds the type it is part of, which the checker rejects,
-// counts as owning nothing, as the table's walk counts it. No binding is
-// in force while the port lowers, since it declines every generic
-// instance (E4's), so an answer holds for the whole program.
+// counts as owning nothing, as the table's walk counts it. An answer
+// kept holds only while no binding is in force: under one, a type
+// parameter, or a type made of one, stands for another type, which may
+// own where the unbound type does or does not, so then the table is
+// asked, Go's own query, and nothing is kept.
 func (mut g Gen) owned(mut t typeck.Typed, typ types.Type) (bool, error) {
+    if g.binds > 0 {
+        o := mut t.table.owned(typ)?
+        return o, noerror
+    }
     known, ok := g.owned_types[typ]
     if ok {
         return known, noerror
@@ -407,7 +450,9 @@ type LoweredFunc struct {
 
 // lower_program is Go's generate past headerDiags.
 func (mut g Gen) lower_program(mut t typeck.Typed) error {
+    mut t.splice_sites()?
     decls := program_decl_keys(t)?
+    mut g.note_structs(mut t)?
     for _, d := range decls {
         switch kind_of(t.prog.trees[:], d) {
         case var_decl:
@@ -417,11 +462,7 @@ func (mut g Gen) lower_program(mut t typeck.Typed) error {
     }
     mut g.collect_strings(mut t)?
     mut low := mut g.generate_decls(mut t, decls[:])?
-    if mut t.instance_count() > 0 {
-        // generateInstances lowers every instance of a generic function,
-        // E4's.
-        return not_ported
-    }
+    mut g.generate_instances(mut t, mut low)?
     library := is_library(t)
     if !library {
         mut start := make(list[uint8], c_allocator)
@@ -447,6 +488,9 @@ func (mut g Gen) lower_program(mut t typeck.Typed) error {
     mut g.emit_result_structs(mut t, decls[:])?
     mut g.emit_cname_macro(t, decls[:])?
     mut g.emit_prototypes(mut t, decls[:])?
+    mut g.emit_thunks(mut t)?
+    mut g.emit_closure_decls(mut t)?
+    mut g.emit_closures()?
     for _, lf := range low.funcs {
         mut g.emit_func(lf.sig[:], lf.body[:])?
     }
@@ -732,9 +776,10 @@ func (mut g Gen) emit_float_narrowing() error {
 }
 
 // emit_result_structs defines, for each function with more than one
-// result, the C struct it returns them in, Go's emitResultStructs and
-// emitResultStruct; a generic function has none, and an instance's are
-// E4's, which the port declines before it gets here.
+// result, the C struct it returns them in, Go's emitResultStructs: a
+// generic function has none, and each instance of one its own, written
+// under the instance's binding, its members of its type arguments'
+// types.
 func (mut g Gen) emit_result_structs(mut t typeck.Typed, decls []typeck.Key) error {
     for _, d := range decls {
         switch kind_of(t.prog.trees[:], d) {
@@ -743,34 +788,49 @@ func (mut g Gen) emit_result_structs(mut t typeck.Typed, decls []typeck.Key) err
             if node_count(t.prog.trees[:], d.unit, f.type_params) > 0 {
                 continue
             }
-            n := mut t.result_len(d)
-            if n < 2 {
-                continue
-            }
-            append(mut g.buf, []uint8("typedef struct {\n")...)?
-            for i := range n {
-                append(mut g.buf, []uint8("    ")...)?
-                append_c_type(mut t, mut t.result(d, i), mut g.buf)?
-                fmt.appendf(mut g.buf, " r%d;\n", i)?
-            }
-            append(mut g.buf, []uint8("} ")...)?
-            mut rn := make(list[uint8], c_allocator)
-            mut g.append_results_name(mut t, d, mut rn)?
-            append(mut g.buf, rn[:]...)?
-            append(mut g.buf, []uint8(";\n\n")...)?
+            mut g.emit_result_struct(mut t, d)?
         default:
         }
+    }
+    n := mut t.instance_count()
+    for i := range n {
+        mut g.bind_instance(mut t, i)?
+        mut g.emit_result_struct(mut t, mut t.instance_func(i))?
+        mut g.unbind_types(mut t)
     }
     return noerror
 }
 
+// emit_result_struct defines fn's results struct, if it has more than
+// one result, Go's emitResultStruct.
+func (mut g Gen) emit_result_struct(mut t typeck.Typed, d typeck.Key) error {
+    n := mut t.result_len(d)
+    if n < 2 {
+        return noerror
+    }
+    append(mut g.buf, []uint8("typedef struct {\n")...)?
+    for i := range n {
+        append(mut g.buf, []uint8("    ")...)?
+        append_c_type(mut t, mut t.result(d, i), mut g.buf)?
+        fmt.appendf(mut g.buf, " r%d;\n", i)?
+    }
+    append(mut g.buf, []uint8("} ")...)?
+    mut rn := make(list[uint8], c_allocator)
+    mut g.append_results_name(mut t, d, mut rn)?
+    append(mut g.buf, rn[:]...)?
+    append(mut g.buf, []uint8(";\n\n")...)?
+    return noerror
+}
+
 // append_results_name appends the name of the struct fn, a function with
-// several results, returns them in, Go's resultsName; a closure's is its
-// function type's, E4's.
+// several results, returns them in, Go's resultsName: tack_results_ and
+// what follows tack_ in its C name, or, for a closure, its function
+// type's results struct.
 func (mut g Gen) append_results_name(mut t typeck.Typed, fn typeck.Key, mut out list[uint8]) error {
     f := func_at(t.prog.trees[:], fn)
     if f.closure {
-        return not_ported
+        append_func_results_name(mut t, mut t.func_value(fn), mut out)?
+        return noerror
     }
     mut cname := make(list[uint8], c_allocator)
     append_func_cname(mut t, fn, mut cname)?
@@ -836,6 +896,19 @@ func (mut g Gen) emit_prototypes(mut t typeck.Typed, decls []typeck.Key) error {
             append(mut g.buf, []uint8(";\n")...)?
         default:
         }
+    }
+    n := mut t.instance_count()
+    for i := range n {
+        mut g.bind_instance(mut t, i)?
+        fn := mut t.instance_func(i)
+        mut cname := make(list[uint8], c_allocator)
+        append_func_cname(mut t, fn, mut cname)?
+        unused := mut g.maybe_unused(cname[:])?
+        sig := mut g.signature(mut t, fn)?
+        append(mut g.buf, []uint8(unused)...)?
+        append(mut g.buf, sig[:]...)?
+        append(mut g.buf, []uint8(";\n")...)?
+        mut g.unbind_types(mut t)
     }
     append(mut g.buf, '\n')?
     return noerror
@@ -973,12 +1046,14 @@ func (mut g Gen) signature(mut t typeck.Typed, fn typeck.Key) (list[uint8], erro
 }
 
 // append_param_type appends the C type the parameter p is passed as, Go's
-// paramType: its type's, or a pointer to it for a mut one. A scope
-// parameter of a function type, a tack_scope, is E4's.
+// paramType: its type's, or a pointer to it for a mut one, and for a
+// scope parameter of a function type a tack_scope (see closure.tck).
 func (mut g Gen) append_param_type(mut t typeck.Typed, p typeck.Key, mut out list[uint8]) error {
     scoped := mut g.scope_func(mut t, p)?
     if scoped {
-        return not_ported
+        g.scope_used = true
+        append(mut out, []uint8(scope_type)...)?
+        return noerror
     }
     pa := param_at(t.prog.trees[:], p)
     append_c_type(mut t, mut t.decl_type(p), mut out)?
@@ -1016,13 +1091,15 @@ func (mut g Gen) append_result_type(mut t typeck.Typed, fn typeck.Key, mut out l
 }
 
 // generate_func_body lowers the body of fn, Go's generateFuncBody: as its
-// frame, its names noted, led by a (void) cast of each parameter the
-// lowered body never names. The closures it holds are E4's.
+// frame, its names noted, then the closures it holds (see
+// flush_closures), led by a (void) cast of each parameter the lowered
+// body never names.
 func (mut g Gen) generate_func_body(mut t typeck.Typed, fn typeck.Key) (list[Line], error) {
     body := mut g.func_frame(mut t, fn)?
     mut cname := make(list[uint8], c_allocator)
     append_func_cname(mut t, fn, mut cname)?
     mut g.note_names(cname[:], body[:])?
+    mut g.flush_closures(mut t)?
     mut out := make(list[Line], c_allocator)
     mut g.unused_params(t, fn, body[:], mut out)?
     append(mut out, body[:]...)?

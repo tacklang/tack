@@ -59,12 +59,20 @@ helpers, several values and the checked forms, and globals too deep for
 a C initializer; and owned values and containers, E3, are here too:
 lists, maps, arenas and pools with their helpers, hashes and frees,
 defers and the cleanup chains every exit runs, ?, moves, drop, replace,
-swap and regions. What a later stage lowers, generics, closures and
-function values, is answered as not implemented where the Go compiler
-would start lowering it: the program is lowered into buffers, so a decline writes nothing
-but its one line, neither C nor the warnings, which the driver writes
-only once the lowering, and any `tack.h`, is done (see package
-codegen). `types` has the
+swap and regions; and generics and functions, E4, are here too: each
+instance of a generic function lowered under its binding and named by
+its type arguments, interface methods called through their stand-ins,
+switches on type parameters, closures with their environments and
+captures, scope parameters and the adapters plain function values are
+passed to them through, function values and the thunks of functions of
+several results, fields loops, make of a Data type, calls through
+function values, and the testing.Site arguments a call passes. The
+whole of the lowering is ported. The C the Go compiler writes for a few
+shapes of accepted programs does not compile; the port answers those
+as not implemented rather than copy them (see package codegen). The
+program is lowered into buffers, so a decline
+writes nothing but its one line, neither C nor the warnings, which the
+driver writes only once the lowering, and any `tack.h`, is done. `types` has the
 bindings the backend lowers a generic function's instances under, Go's
 `Bind` and `Bound` among them, which add the types they make in Go's
 order, since C names carry type IDs, with a twin of every query of the
@@ -100,7 +108,7 @@ lower the program: `--emit` writes its C, `--emit-header` writes
 `tack.h` into the directories of the packages that need one, as the Go
 compiler's writeHeaders does, and `--check` alone shows what the
 backend reports, with the warnings; each is answered as not
-implemented for a program the backend's port does not lower yet.
+implemented for a shape whose Go output the port does not copy.
 `--emit-header` reports a `tack.h` it cannot open as the Go compiler
 does, `cannot write` and the file, and declines any other failed
 write; as in Go, the files it wrote before stay written. `--check` of

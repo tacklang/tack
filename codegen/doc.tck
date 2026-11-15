@@ -9,8 +9,9 @@ package codegen
 // header, tack.h (header.tck, Go's header.go), with the names it may not
 // give (reserved.tck, Go's reserved.go and any.go's anyIDs and
 // viewAnyID), and the lowering of a program to one C translation unit,
-// ported in stages, of which the core, E1, values, E2, and owned values
-// and containers, E3, are here.
+// ported in stages, of which the core, E1, values, E2, owned values and
+// containers, E3, and generics and functions, E4, are here: the whole of
+// it.
 //
 // generate refuses what Go's Refuse refuses, then rejects, with
 // header_diags, a program whose types, fields, results structs or
@@ -73,32 +74,44 @@ package codegen
 //     maps.go, arena.go and pool.go, their C structs, their helpers and
 //     the hash helpers, their builtins, lookups and ranges;
 //   - question.tck: the ?, Go's question.go, and the guard of a
-//     construct's owned operands.
+//     construct's owned operands;
+//   - generic.tck: generic functions, Go's generic.go: the instances,
+//     each lowered under its binding, the target of a call, an interface
+//     method's stand-in bound to its struct's or union's method, an
+//     instance's C name, and the bindings, counted so that what owned
+//     keeps is asked only with none in force;
+//   - closure.tck: closures and scope parameters, Go's closure.go: a
+//     closure's value, its environment and captures, the closures a body
+//     holds lowered once it is, the adapters a plain function value
+//     passed to a scope parameter is called through, and a call through
+//     a scope parameter;
+//   - funcvalue.tck: function values, Go's funcvalue.go: the function
+//     types' C types, a function named as a value, the thunks of
+//     functions of several results, and a call through a value;
+//   - fields.tck: fields loops, Go's fields.go, unrolled a block a field
+//     under the field's type, v.[f], f.name and f.index;
+//   - makedata.tck: make of a Data type, Go's makedata.go.
 //
 // # The stages
 //
 // The backend is ported in stages, as tackc's porttest stages its cases
-// by what Go's backend runs on them: E1, the core, here; E2, values,
-// structs, arrays, unions, switches, slices, views, any, swap, division
-// and shifts, several values and the checked forms, here too; E3, owned
-// values and containers, lists, maps, arenas, pools, defers, ?, drop,
-// replace, the free helpers and regions, here too; and E4, generics and
-// functions, instances,
-// closures, function values, fields loops and make of Data. The core
-// asks of every name, call and type whether a later stage's feature is
-// there, and ports what Go does when it is not; where Go would go on to
-// lower the feature, the port answers not_ported, which the driver
-// reports as not implemented, exit status 3. Everything is lowered into
-// buffers before anything is written, as Go's generate does, so a
-// program declined at any point writes nothing, no partial C, and the
-// driver holds the warnings back until the C or tack.h is out: no
-// number used by a lowering cut short shows anywhere. The places the
-// core declines are each named in a comment, with the stage whose work
-// it is. A function Go's later stages own but every core program runs,
-// a predicate whose answer is no, is ported here as that answer: the
-// type checker's frees of an own parameter, a list's builtins, a scope
-// parameter, an any parameter, a variadic, a view argument and a
-// generic callee among them.
+// by what Go's backend runs on them: E1, the core; E2, values, structs,
+// arrays, unions, switches, slices, views, any, swap, division and
+// shifts, several values and the checked forms; E3, owned values and
+// containers, lists, maps, arenas, pools, defers, ?, drop, replace, the
+// free helpers and regions; and E4, generics and functions, instances,
+// switches on type parameters, closures, scope parameters, function
+// values, fields loops, make of Data and calls through a value. All four
+// are here. Everything is lowered into buffers before anything is
+// written, as Go's generate does, so a program declined at any point
+// writes nothing, no partial C, and the driver holds the warnings back
+// until the C or tack.h is out: no number used by a lowering cut short
+// shows anywhere. The port answers not_ported, which the driver reports
+// as not implemented, exit status 3, where Go reports an internal error
+// (see below), and where the C Go writes for an accepted program is a
+// Go bug the port does not copy, each named in a comment: the zero value
+// of a type parameter that stands for a string, an Allocator, an any or
+// an error, which Go writes as 0 (see append_zero_value).
 //
 // # Numbering
 //
@@ -116,7 +129,16 @@ package codegen
 // elements a spread or an arena's span helper asks for, and the list of
 // an arena's elements, each asked in Go's order. Labels, tack_defer and
 // a number, are counted apart from the temporaries, as Go counts them,
-// and so are the routes of a frame's exits.
+// and so are the routes of a frame's exits. A closure is numbered,
+// tack_closureN, in the order its value is rendered, a render thrown
+// away and rendered again included, as Go's are, and its body, lowered
+// once the body holding it is, is lowered even then; a thunk and an
+// adapter are written once for each function and function type, in the
+// order first met. Every binding is made where Go makes one, an
+// instance's, a fields loop's field's, a switch on a type parameter's
+// case's and a closure's again where it was met, and every query of the
+// table asked in Go's order, the ones whose answers Go ignores among
+// them, so the types a binding adds get Go's IDs.
 //
 // # Stack discipline
 //
@@ -137,6 +159,15 @@ package codegen
 // (struct.tck, pool.tck). Every routine of the expression machine E3
 // adds, a ? among them, is a routine like the core's, so a ? in an
 // argument of a call in a ? costs no frame a level either.
+// The instances of generic functions are lowered in a loop, however
+// many instantiate further ones, and so are the closures a body holds,
+// those of the closures in them included, each its own frame once the
+// body around it is done, however deeply they nest; make of a Data type
+// walks the struct it makes from a stack of its own, and an instance's
+// name, its type arguments as deep as they are, is written by the
+// table's own walk (see package types). A fields loop and a switch on a
+// type parameter lower each block they hold as any block in a statement
+// is.
 // Statements nest in blocks, and blocks in statements, as deeply as the
 // parser lets them, a few frames a level, each kept small; a chain of
 // else ifs and a run of statements are walked in a loop, so neither
@@ -175,8 +206,10 @@ package codegen
 //
 // Where Go's backend reports an internal error whose message names a Go
 // type with %T, an unknown declaration, statement or expression, the
-// port declines instead. A call that passes a testing.Site argument, a
-// struct literal, is E2's, and declined where its strings are pooled.
+// port declines instead. The testing.Site arguments a call passes, which
+// Go's checker splices among its arguments, are put among them as nodes
+// of the tree before anything is lowered (see Typed.splice_sites), so
+// every walk and every rendering meets them where Go's does.
 //
 // The commands a build runs, Go's CompileCmd, CompileStdCmd, BuildCmd
 // and VersionCmd, come with the driver's builds, which the port does not

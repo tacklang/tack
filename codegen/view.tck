@@ -90,9 +90,9 @@ func (mut g Gen) view_copies(mut t typeck.Typed, place typeck.Key, call typeck.K
 // field of one differs from the other's at the same depth.
 func (mut g Gen) may_overlap(mut t typeck.Typed, a typeck.Key, b typeck.Key) (bool, error) {
     mut sa := make(list[list[uint8]], c_allocator)
-    ra, oka := place_path(t, a, mut sa)?
+    ra, oka := g.place_path(mut t, a, mut sa)?
     mut sb := make(list[list[uint8]], c_allocator)
-    rb, okb := place_path(t, b, mut sb)?
+    rb, okb := g.place_path(mut t, b, mut sb)?
     if !oka || !okb || ra != rb {
         return false, noerror
     }
@@ -115,15 +115,15 @@ func (mut g Gen) may_overlap(mut t typeck.Typed, a typeck.Key, b typeck.Key) (bo
 // place start after the variable or parameter it starts from, outermost
 // first, a field's name or nothing for an element, and returns that
 // declaration and whether the place starts from one, Go's placePath. A
-// field a fields loop's variable stands for, E4's, is never reached:
-// fields loops are declined before their bodies.
-func place_path(t typeck.Typed, start typeck.Key, mut steps list[list[uint8]]) (typeck.Key, bool, error) {
+// field a fields loop's variable stands for in the block being lowered
+// is that field's name, as Go's fieldName gives it.
+func (g Gen) place_path(mut t typeck.Typed, start typeck.Key, mut steps list[list[uint8]]) (typeck.Key, bool, error) {
     mut k := start
     for {
         switch kind_of(t.prog.trees[:], k) {
         case selector(s):
             mut name := make(list[uint8], c_allocator)
-            append(mut name, text_of(t, k.unit, s.name)...)?
+            g.append_field_name(mut t, k, mut name)?
             append(mut steps, name)?
             k = at(k, s.x)
         case index(ix):

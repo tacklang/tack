@@ -459,9 +459,7 @@ func (mut g Gen) call_values(mut t typeck.Typed, k typeck.Key) (MultiSource, err
     mut src := new_source(ms_call, k)
     call := mut g.call_value_of(mut t, k)?
     mut results := make(list[uint8], c_allocator)
-    mut cname := make(list[uint8], c_allocator)
-    append_func_cname(mut t, fn, mut cname)?
-    append_results_of(cname[:], mut results)?
+    mut g.append_call_results_name(mut t, k, fn, mut results)?
     append(mut src.temps, plain_temp(own results, own call))?
     return src, noerror
 }

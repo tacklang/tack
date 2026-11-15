@@ -140,11 +140,6 @@ func (mut g Gen) pool_visit(mut t typeck.Typed, k typeck.Key, mut stack list[typ
         mut g.add_str(text_of(t, k.unit, s))?
     case var_decl:
         mut g.pool_var(mut t, k)?
-    case call:
-        if mut t.site_len(k) > 0 {
-            // A testing.Site argument is a struct literal, E2's.
-            return not_ported
-        }
     case multi_var(m):
         mut g.pool_checked_zero(mut t, typeck.Key{unit: k.unit, node: m.value})?
         if !ast.is_none(m.value) {
@@ -156,8 +151,7 @@ func (mut g Gen) pool_visit(mut t typeck.Typed, k typeck.Key, mut stack list[typ
     case for_range(r):
         switch kind_of(t.prog.trees[:], typeck.Key{unit: k.unit, node: r.x}) {
         case fields_of:
-            // poolFieldNames pools a fields loop's names, E4's.
-            return not_ported
+            mut g.pool_field_names(mut t, typeck.Key{unit: k.unit, node: r.x})?
         default:
         }
         append(mut kids, r.x)?

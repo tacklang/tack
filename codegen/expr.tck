@@ -360,6 +360,12 @@ func (mut g Gen) step(mut t typeck.Typed, f MFrame, mut m Machine) error {
     if owned {
         return noerror
     }
+    if f.r == r_scope_arg {
+        return mut g.step_scope_arg(mut t, f, mut m)
+    }
+    if f.r == r_make_data {
+        return mut g.step_make_data(mut t, f, mut m)
+    }
     return not_ported
 }
 
@@ -654,14 +660,17 @@ func (mut g Gen) plain_literal(mut t typeck.Typed, e typeck.Key, mut out list[ui
 // moved for a name that moves it, which, for a type that owns nothing, is
 // the name itself, and otherwise taken through a temporary, its variable
 // emptied (see move_value), a payload a switch binds in place through
-// the pointer to it. A function named as a value and a capture are
-// E4's.
+// the pointer to it, a capture of the closure being lowered through the
+// pointer its environment holds, and a function named as a value as a
+// function pointer (see append_func_value_ref).
 func (mut g Gen) ident_expr(mut t typeck.Typed, e typeck.Key) (list[uint8], error) {
     nm, _ := ident_of(t.prog.trees[:], e)
     d := typeck.Key{unit: nm.def.unit, node: nm.def.node}
     if nm.def.kind == ast.def_func {
         if mut t.func_value(d) != types.invalid {
-            return make(list[uint8], c_allocator), not_ported
+            mut out := make(list[uint8], c_allocator)
+            mut g.append_func_value_ref(mut t, d, mut out)?
+            return out, noerror
         }
     } else if nm.def.kind == ast.def_param {
         r := mut g.param_ref(mut t, d)?
@@ -677,6 +686,11 @@ func (mut g Gen) ident_expr(mut t typeck.Typed, e typeck.Key) (list[uint8], erro
             mv := mut g.move_value(mut t, mut t.decl_type(d), own ref)?
             return mv, noerror
         } else {
+            mut cref := make(list[uint8], c_allocator)
+            captured := g.append_capture_ref(d, mut cref)?
+            if captured {
+                return cref, noerror
+            }
             _, in_place := g.in_place[d]
             if in_place {
                 mut out := make(list[uint8], c_allocator)
@@ -709,8 +723,15 @@ func ident_of(trees []ast.File, k typeck.Key) (ast.Ident, bool) {
 
 // param_ref renders how the parameter p is read and written, Go's
 // paramRef: by its C name, through the pointer of a mut one; a parameter
-// named _ by its place among its function's, Go's blankParamName.
+// named _ by its place among its function's, Go's blankParamName; a
+// capture of the closure being lowered through the pointer its
+// environment holds.
 func (mut g Gen) param_ref(mut t typeck.Typed, p typeck.Key) (list[uint8], error) {
+    mut cref := make(list[uint8], c_allocator)
+    captured := g.append_capture_ref(p, mut cref)?
+    if captured {
+        return cref, noerror
+    }
     pa := param_at(t.prog.trees[:], p)
     mut name := make(list[uint8], c_allocator)
     if is_blank(t.prog.trees[:], p.unit, pa.name) {
@@ -744,12 +765,17 @@ func (mut g Gen) param_ref(mut t typeck.Typed, p typeck.Key) (list[uint8], error
 }
 
 // append_var_ref appends the C name of the variable v, Go's varRef: a
-// global's mangled name, a local's varName.
+// global's mangled name, a capture of the closure being lowered through
+// the pointer its environment holds, a local's varName.
 func (g Gen) append_var_ref(t typeck.Typed, v typeck.Key, mut out list[uint8]) error {
     _, global := g.globals[v]
     if global {
         vr := var_at(t.prog.trees[:], v)
         append_mangle(t, package_of_unit(t, v.unit), text_of(t, v.unit, vr.name), mut out)?
+        return noerror
+    }
+    captured := g.append_capture_ref(v, mut out)?
+    if captured {
         return noerror
     }
     append_var_name(t, v, mut out)?
@@ -1121,76 +1147,96 @@ func callee_of(mut t typeck.Typed, k typeck.Key) (typeck.Key, bool) {
     return c, !typeck_no_key(c)
 }
 
-// step_call_expr is Go's callExpr with callArgs: each operand rendered,
-// left to right, a method call's receiver first, as Go's lowered passes
-// it, one passed to a view parameter, or a view passed as any, by
-// viewArg; then the call of the callee's C name, its operands held in
-// order when it shows, each passed as any made one (Go's boxed) and the
-// values of a variadic parameter packed into a view (Go's packed). A
-// call through a function value, of a generic function or of an
-// interface method's stand-in, and an argument to a scope parameter, are
-// the later stages' (see doc.tck), and so is a call of a builtin Go
-// names by its mangled name.
+// step_call_expr is Go's callExpr with callArgs, and dynamicCall: each
+// operand rendered, left to right, a method call's receiver first, as
+// Go's lowered passes it, one passed to a view parameter, or a view
+// passed as any, by viewArg, one passed to a scope parameter by scopeArg;
+// then the call of the callee's C name, the target's (see target),
+// worked out before the arguments as Go's is, its operands held in order
+// when it shows, each passed as any made one (Go's boxed) and the values
+// of a variadic parameter packed into a view (Go's packed). A call
+// through a function value renders the value first, step 5, then its
+// arguments, and calls the value converted back to its function's
+// pointer type, or a scope parameter's function with its environment
+// first. A call of a builtin Go names by its mangled name has no callee,
+// and is declined.
 func (mut g Gen) step_call_expr(mut t typeck.Typed, f MFrame, mut m Machine) error {
     cl := call_of(t.prog.trees[:], f.e)
-    nargs := call_operand_count(t, f.e)
-    fn, has := callee_of(mut t, f.e)
+    dyn := mut t.dynamic(f.e)
+    dynamic := !typeck_no_key(dyn)
+    mut nargs := call_operand_count(t, f.e)
+    if dynamic {
+        nargs = node_count(t.prog.trees[:], f.e.unit, cl.args)
+    }
+    c0, has := callee_of(mut t, f.e)
+    mut fn := c0
     if f.step == 0 {
         if has_receiver(t, f.e) && typeck_no_key(mut t.method(f.e)) {
             return mut g.fail([]uint8("a method call must be checked before code is generated for it"), span_of(t.prog.trees[:], f.e.unit, f.e.node))
         }
-        if !typeck_no_key(mut t.dynamic(f.e)) || !has {
+        if dynamic {
+            mut m.again(f, 5)?
+            mut m.push(r_expr, at(f.e, cl.fn), types.invalid, false)?
+            return noerror
+        }
+        if !has {
             return not_ported
         }
-        if !typeck_no_key(mut t.interface_of(fn)) {
-            return not_ported
-        }
-        ff := func_at(t.prog.trees[:], fn)
-        if node_count(t.prog.trees[:], fn.unit, ff.type_params) > 0 {
-            return not_ported
+        mut cname := make(list[uint8], c_allocator)
+        mut g.target(mut t, fn, f.e, mut cname)?
+        mut m.give(own cname)?
+    }
+    if dynamic {
+        fn = dyn
+    } else {
+        bm, bound := mut g.bound_method(mut t, fn)?
+        if bound {
+            fn = bm
         }
     }
     ff := func_at(t.prog.trees[:], fn)
     nparams := node_count(t.prog.trees[:], fn.unit, ff.params)
-    if f.step == 0 || f.step == 1 {
+    if f.step == 0 || f.step == 1 || f.step == 5 {
         mut s := f
-        if f.step == 0 {
+        if f.step == 0 || f.step == 5 {
+            s.a = 0
             s.pend = len(g.pending)
             mut ops := make(list[typeck.Key], c_allocator)
             for i := range nargs {
-                append(mut ops, call_operand(t, f.e, i))?
+                append(mut ops, call_arg_operand(t, f.e, dynamic, i))?
             }
             s.glast = mut g.guard_last(mut t, ops[:])?
         }
         if f.step == 1 {
             x := mut m.take()
-            held := mut g.guard_hold(mut t, call_operand(t, f.e, f.a), f.a, f.glast, own x)?
+            held := mut g.guard_hold(mut t, call_arg_operand(t, f.e, dynamic, f.a), f.a, f.glast, own x)?
             mut m.give(own held)?
             s.a +%= 1
         }
         if s.a < nargs {
             i := s.a
-            a := call_operand(t, f.e, i)
+            a := call_arg_operand(t, f.e, dynamic, i)
             mut m.again(s, 1)?
-            viewed := mut g.view_param_at(mut t, cl, fn, i)?
+            viewed := mut g.view_param_at(mut t, f.e, cl, fn, i)?
             if viewed {
                 p := node_at(t.prog.trees[:], fn.unit, ff.params, i)
-                mut vf := mframe(r_view_arg, a, mut t.decl_type(p), false, len(m.vals))
+                mut vf := mframe(r_view_arg, a, call_param_type(mut t, f.e, fn, i, p), false, len(m.vals))
                 vf.k = f.e
                 append(mut m.frames, vf)?
                 return noerror
             }
             if i < nparams {
-                scoped := mut g.scope_func(mut t, node_at(t.prog.trees[:], fn.unit, ff.params, i))?
+                p := node_at(t.prog.trees[:], fn.unit, ff.params, i)
+                scoped := mut g.scope_func_at(mut t, f.e, fn, i, p)?
                 if scoped {
-                    // scopeArg, of closure.go, E4's.
-                    return not_ported
+                    mut m.push(r_scope_arg, a, call_param_type(mut t, f.e, fn, i, p), false)?
+                    return noerror
                 }
             }
             at_type := mut t.type_of(a)
             view := mut t.table.is_view(at_type)?
             if view {
-                boxes := mut g.boxes_at(mut t, cl, fn, i, a)?
+                boxes := mut g.boxes_at(mut t, f.e, cl, fn, i, a)?
                 if boxes {
                     mut vf := mframe(r_view_arg, a, at_type, false, len(m.vals))
                     vf.k = f.e
@@ -1202,8 +1248,8 @@ func (mut g Gen) step_call_expr(mut t typeck.Typed, f MFrame, mut m Machine) err
             return noerror
         }
     }
-    // Every argument is rendered.
-    if f.step != 0 {
+    // Every argument is rendered; with none, no guard held anything.
+    if f.step == 1 {
         mut g.guard_done(f.pend)
     }
     mut rendered := make(list[list[uint8]], c_allocator)
@@ -1218,20 +1264,41 @@ func (mut g Gen) step_call_expr(mut t typeck.Typed, f MFrame, mut m Machine) err
             rendered[j] = v
         }
     }
+    head := mut m.take()
+    // Go's dynamicCall asks whether the value is a scope parameter's
+    // before its arguments' C types.
+    mut scoped_fn := false
+    if dynamic {
+        nm, is_name := ident_of(t.prog.trees[:], at(f.e, cl.fn))
+        if is_name && nm.def.kind == ast.def_param {
+            scoped_fn = mut g.scope_func(mut t, typeck.Key{unit: nm.def.unit, node: nm.def.node})?
+        }
+    }
     mut operands := make(list[typeck.Key], c_allocator)
     mut ctypes := make(list[list[uint8]], c_allocator)
     for i := range nargs {
-        a := call_operand(t, f.e, i)
+        a := call_arg_operand(t, f.e, dynamic, i)
         append(mut operands, a)?
         mut c := make(list[uint8], c_allocator)
-        viewed := mut g.view_param_at(mut t, cl, fn, i)?
+        viewed := mut g.view_param_at(mut t, f.e, cl, fn, i)?
+        mut scoped := false
+        if !viewed && i < nparams {
+            scoped = mut g.scope_func_at(mut t, f.e, fn, i, node_at(t.prog.trees[:], fn.unit, ff.params, i))?
+        }
         if viewed {
             p := node_at(t.prog.trees[:], fn.unit, ff.params, i)
-            append_c_type(mut t, mut t.decl_type(p), mut c)?
+            append_c_type(mut t, call_param_type(mut t, f.e, fn, i, p), mut c)?
+        } else if scoped {
+            append(mut c, []uint8(scope_type)...)?
         } else {
             append_operand_type(mut t, a, mut c)?
         }
         append(mut ctypes, c)?
+    }
+    if dynamic {
+        v := mut g.dynamic_built(mut t, f.e, dyn, scoped_fn, own head, own operands, own rendered, own ctypes)?
+        mut m.give(own v)?
+        return noerror
     }
     mut args := make(list[list[uint8]], c_allocator)
     for _, r := range rendered {
@@ -1242,7 +1309,7 @@ func (mut g Gen) step_call_expr(mut t typeck.Typed, f MFrame, mut m Machine) err
     steps := mut g.sequence(mut t, operands[:], mut rendered, ctypes[:], false)?
     for i := range nargs {
         a := call_operand(t, f.e, i)
-        boxes := mut g.boxes_at(mut t, cl, fn, i, a)?
+        boxes := mut g.boxes_at(mut t, f.e, cl, fn, i, a)?
         if !boxes || i >= len(rendered) || i >= len(args) {
             continue
         }
@@ -1253,7 +1320,7 @@ func (mut g Gen) step_call_expr(mut t typeck.Typed, f MFrame, mut m Machine) err
         rendered[i] = boxed
     }
     mut built := make(list[uint8], c_allocator)
-    append_func_cname(mut t, fn, mut built)?
+    append(mut built, head[:]...)?
     append(mut built, '(')?
     if packs(t, cl, fn) {
         fixed := nparams -% 1
@@ -1269,7 +1336,8 @@ func (mut g Gen) step_call_expr(mut t typeck.Typed, f MFrame, mut m Machine) err
         if fixed > 0 {
             append(mut built, []uint8(", ")...)?
         }
-        view := mut t.decl_type(node_at(t.prog.trees[:], fn.unit, ff.params, fixed))
+        lastp := node_at(t.prog.trees[:], fn.unit, ff.params, fixed)
+        view := call_param_type(mut t, f.e, fn, fixed, lastp)
         mut values := make(list[list[uint8]], c_allocator)
         mut i := fixed
         for i >= 0 && i < len(rendered) {
@@ -1289,6 +1357,83 @@ func (mut g Gen) step_call_expr(mut t typeck.Typed, f MFrame, mut m Machine) err
     v := wrap_steps(steps[:], own built)?
     mut m.give(own v)?
     return noerror
+}
+
+// call_arg_operand returns the i'th operand of the call k's arguments, a
+// call through a function value's argument i, and any other's as
+// call_operand gives it, its receiver first.
+func call_arg_operand(t typeck.Typed, k typeck.Key, dynamic bool, i int64) typeck.Key {
+    if dynamic {
+        cl := call_of(t.prog.trees[:], k)
+        return node_at(t.prog.trees[:], k.unit, cl.args, i)
+    }
+    return call_operand(t, k, i)
+}
+
+// dynamic_built builds the call k through a function value, Go's
+// dynamicCall past its arguments: the value, then the arguments, held in
+// order when it shows, the value converted back to its function's
+// pointer type and called with them, or, for a scope parameter's value,
+// scoped_fn, its function called with its environment first. dyn is the
+// call's stand-in, value the value rendered, and args, operands and
+// ctypes the arguments, their nodes and their C types.
+func (mut g Gen) dynamic_built(mut t typeck.Typed, k typeck.Key, dyn typeck.Key, scoped_fn bool, own value list[uint8], own operands list[typeck.Key], own args list[list[uint8]], own ctypes list[list[uint8]]) (list[uint8], error) {
+    cl := call_of(t.prog.trees[:], k)
+    fk := at(k, cl.fn)
+    mut ops := make(list[typeck.Key], c_allocator)
+    append(mut ops, fk)?
+    append(mut ops, operands[:]...)?
+    mut rendered := make(list[list[uint8]], c_allocator)
+    append(mut rendered, value)?
+    for _, a := range args {
+        mut c := make(list[uint8], c_allocator)
+        append(mut c, a[:]...)?
+        append(mut rendered, c)?
+    }
+    mut types_of := make(list[list[uint8]], c_allocator)
+    mut first := make(list[uint8], c_allocator)
+    if scoped_fn {
+        append(mut first, []uint8(scope_type)...)?
+    } else {
+        append(mut first, []uint8(func_ptr)...)?
+    }
+    append(mut types_of, first)?
+    for _, c := range ctypes {
+        mut d := make(list[uint8], c_allocator)
+        append(mut d, c[:]...)?
+        append(mut types_of, d)?
+    }
+    steps := mut g.sequence(mut t, ops[:], mut rendered, types_of[:], false)?
+    typ := mut t.func_value(dyn)
+    mut built := make(list[uint8], c_allocator)
+    mut env := make(list[uint8], c_allocator)
+    if len(rendered) == 0 {
+        return built, not_ported
+    }
+    if scoped_fn {
+        mut g.append_scope_callee(mut t, typ, rendered[0][:], mut built, mut env)?
+    } else {
+        append_dynamic_callee(mut t, typ, rendered[0][:], mut built)?
+    }
+    append(mut built, '(')?
+    mut n int64 = 0
+    if scoped_fn {
+        append(mut built, env[:]...)?
+        n = 1
+    }
+    for i, r := range rendered {
+        if i == 0 {
+            continue
+        }
+        if n > 0 {
+            append(mut built, []uint8(", ")...)?
+        }
+        append(mut built, r[:]...)?
+        n +%= 1
+    }
+    append(mut built, ')')?
+    v := wrap_steps(steps[:], own built)?
+    return v, noerror
 }
 
 // call_operand_count returns how many values the call k passes, Go's
@@ -1320,7 +1465,7 @@ func call_operand(t typeck.Typed, k typeck.Key, i int64) typeck.Key {
 // view_param_at reports whether the call's argument i is passed to a
 // parameter of fn as a view, Go's viewParamAt: a view parameter in its
 // place, or a variadic one the call spreads a view into.
-func (mut g Gen) view_param_at(mut t typeck.Typed, cl ast.Call, fn typeck.Key, i int64) (bool, error) {
+func (mut g Gen) view_param_at(mut t typeck.Typed, k typeck.Key, cl ast.Call, fn typeck.Key, i int64) (bool, error) {
     ff := func_at(t.prog.trees[:], fn)
     if i >= node_count(t.prog.trees[:], fn.unit, ff.params) {
         return false, noerror
@@ -1330,7 +1475,7 @@ func (mut g Gen) view_param_at(mut t typeck.Typed, cl ast.Call, fn typeck.Key, i
     if pa.variadic && !cl.spread {
         return false, noerror
     }
-    view := mut t.table.is_view(mut t.decl_type(p))?
+    view := mut t.table.is_view(call_param_type(mut t, k, fn, i, p))?
     return view, noerror
 }
 
@@ -1349,11 +1494,11 @@ func packs(t typeck.Typed, cl ast.Call, fn typeck.Key) bool {
 // boxes_at reports whether the call, to fn, makes an any of its argument
 // i, a, Go's boxesAt of any.go: a value that is no any, not passed as a
 // view, to an any parameter or as a value of an ...any one.
-func (mut g Gen) boxes_at(mut t typeck.Typed, cl ast.Call, fn typeck.Key, i int64, a typeck.Key) (bool, error) {
+func (mut g Gen) boxes_at(mut t typeck.Typed, k typeck.Key, cl ast.Call, fn typeck.Key, i int64, a typeck.Key) (bool, error) {
     if mut t.type_of(a) == types.any_type {
         return false, noerror
     }
-    viewed := mut g.view_param_at(mut t, cl, fn, i)?
+    viewed := mut g.view_param_at(mut t, k, cl, fn, i)?
     if viewed {
         return false, noerror
     }
@@ -1361,9 +1506,10 @@ func (mut g Gen) boxes_at(mut t typeck.Typed, cl ast.Call, fn typeck.Key, i int6
     n := node_count(t.prog.trees[:], fn.unit, ff.params)
     mut typ := types.invalid
     if packs(t, cl, fn) && i >= n -% 1 {
-        typ = mut t.table.elem_of(mut t.decl_type(node_at(t.prog.trees[:], fn.unit, ff.params, n -% 1)))?
+        last := node_at(t.prog.trees[:], fn.unit, ff.params, n -% 1)
+        typ = mut t.table.elem_of(call_param_type(mut t, k, fn, n -% 1, last))?
     } else if i < n {
-        typ = mut t.decl_type(node_at(t.prog.trees[:], fn.unit, ff.params, i))
+        typ = call_param_type(mut t, k, fn, i, node_at(t.prog.trees[:], fn.unit, ff.params, i))
     }
     return typ == types.any_type, noerror
 }
@@ -1513,9 +1659,9 @@ func binds_postfix(t typeck.Typed, x typeck.Key) bool {
     return false
 }
 
-// step_mut_arg is Go's mutArg: a mut parameter passed on as the pointer
-// it holds, any other place as its address. A capture of a closure is
-// E4's, and no core body has one.
+// step_mut_arg is Go's mutArg: a capture of the closure being lowered as
+// the pointer its environment holds, a mut parameter passed on as the
+// pointer it holds, any other place as its address.
 func (mut g Gen) step_mut_arg(mut t typeck.Typed, f MFrame, mut m Machine) error {
     mut x := f.e
     switch kind_of(t.prog.trees[:], f.e) {
@@ -1525,6 +1671,15 @@ func (mut g Gen) step_mut_arg(mut t typeck.Typed, f MFrame, mut m Machine) error
     }
     if f.step == 0 {
         nm, is_name := ident_of(t.prog.trees[:], x)
+        if is_name {
+            i, captured := g.captured[typeck.Key{unit: nm.def.unit, node: nm.def.node}]
+            if captured {
+                mut out := make(list[uint8], c_allocator)
+                fmt.appendf(mut out, "tack_env->c%d", i)?
+                mut m.give(own out)?
+                return noerror
+            }
+        }
         if is_name && nm.def.kind == ast.def_param {
             p := typeck.Key{unit: nm.def.unit, node: nm.def.node}
             pa := param_at(t.prog.trees[:], p)

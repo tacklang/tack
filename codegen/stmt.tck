@@ -486,15 +486,15 @@ func range_of(trees []ast.File, k typeck.Key) ast.ForRange {
 // generate_for_range lowers a range loop, Go's generateForRange: what it
 // ranges over evaluated once, before a counting for, the loop's
 // variables declared at the top of each pass. Over an integer the count
-// is held in a temporary; a string is collection_range's. A fields loop,
-// a range over a map, an arena or a pool, and an element of an owned
-// type, bound in place, are the later stages' (see doc.tck).
+// is held in a temporary; a string is collection_range's. A fields loop
+// is unrolled (see fields_loop).
 func (mut g Gen) generate_for_range(mut t typeck.Typed, fn typeck.Key, s typeck.Key) (list[Line], error) {
     lp := range_of(t.prog.trees[:], s)
     xk := at(s, lp.x)
     switch kind_of(t.prog.trees[:], xk) {
     case fields_of:
-        return make(list[Line], c_allocator), not_ported
+        lines := mut g.fields_loop(mut t, fn, s, xk)?
+        return lines, noerror
     default:
     }
     steps, place := mut g.expr_steps(mut t, xk)?
@@ -987,7 +987,7 @@ func (mut g Gen) generate_inc_dec(mut t typeck.Typed, s typeck.Key) (list[Line],
 // built, a conversion or len, evaluated and dropped; a call of a method,
 // of a declared function or of a builtin with a C body; a ?; and the
 // generic builtins written as statements, pop, remove, replace, delete,
-// swap and drop. make of a Data type is E4's. A generic builtin that
+// swap and drop, and make (see make_stmt). A generic builtin that
 // gives a value, has among them, written as a statement Go lowers to a
 // call of a C function that does not exist; the call has no callee, and
 // step_call_expr declines it.
@@ -1057,8 +1057,8 @@ func (mut g Gen) generate_expr_stmt(mut t typeck.Typed, s typeck.Key) (list[Line
         return lines, noerror
     }
     if is_builtin_named(t, x, "make") {
-        // makeStmt, of makedata.go, E4's.
-        return make(list[Line], c_allocator), not_ported
+        lines := mut g.make_stmt(mut t, x)?
+        return lines, noerror
     }
     _, is_name := ident_of(t.prog.trees[:], at(x, cl.fn))
     if !is_name {
@@ -1125,7 +1125,22 @@ func (mut g Gen) generate_var(mut t typeck.Typed, v typeck.Key) (list[Line], err
 // zeroed compound literal of its C type for a type that lowers to a
 // struct, a handle, an Allocator or an any, the pooled empty string for a
 // string, false for a bool and 0 for anything else.
+//
+// Go's zeroValue compares typ itself, not the type it stands for, with
+// string, Allocator, any and error, and its isComposite's IsStruct takes
+// error for a struct only unbound, so in an instance of a generic
+// function it gives a type parameter that stands for one of those 0,
+// which C cannot convert to the struct the type lowers to: the C Go
+// writes for, say, the ret variable of a function returning T through a
+// defer, or pop's value of a list[T], with T bound to string, does not
+// compile (a Go bug, raised; reached by accepted programs). The port
+// declines those, not_ported, and writes Go's 0 for a type parameter
+// that stands for a bool, which C reads as false.
 func (mut g Gen) append_zero_value(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    b := mut t.table.bound(typ)?
+    if b != typ && (b == types.string_type || b == types.allocator || b == types.any_type || b == types.error_type) {
+        return not_ported
+    }
     mut zeroed := mut g.is_composite(mut t, typ)?
     if !zeroed {
         zeroed = mut t.table.is_list(typ)?

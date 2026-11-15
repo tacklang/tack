@@ -2,6 +2,7 @@ package typeck
 
 import ast from "tack/ast"
 import bytes from "std/bytes"
+import constant from "tack/constant"
 import diag from "tack/diag"
 import source from "tack/source"
 import types from "tack/types"
@@ -78,7 +79,9 @@ import types from "tack/types"
 // ast.Walk visits Call.Args, so the strings Go's collectStrings pools
 // (gen.go:450), which walks the program as ast.Walk does, come in this
 // order: each call's written arguments and Site literals in argument
-// order, a literal's file before its excerpt.
+// order, a literal's file before its excerpt. Code generation first
+// puts them among the call's arguments as nodes, with splice_sites, so
+// that every walk and rendering of a call meets them as Go's does.
 pub type Typed struct {
     pub prog ast.Program
     pub files source.Set
@@ -996,4 +999,112 @@ pub func (mut t Typed) instance_arg(i int64, j int64) types.Type {
         return types.invalid
     }
     return a
+}
+
+// splice_sites puts each call's testing.Site arguments among its
+// arguments as nodes of its tree, at their indexes, as Go's passSite
+// splices them into Call.Args, for code generation, which walks and
+// lowers them as Go's does: a name bound to the Site parameter passed
+// on, or a CompositeLit of the Site type whose elements are file, line,
+// col and excerpt, each a KeyValue of a name and a StrLit or an IntLit
+// of type int64, every node at the call's end, an empty span, as Go's
+// siteLit makes it. The dump, which shows them from what the check
+// recorded, is never written from a Typed spliced so.
+pub func (mut t Typed) splice_sites() error {
+    mut calls := make(list[Key], c_allocator)
+    for k, _ := range t.site_count {
+        append(mut calls, k)?
+    }
+    for _, k := range calls {
+        n := mut t.site_len(k)
+        mut call ast.Call
+        switch kind_at(t.prog.trees, k) {
+        case call(cl):
+            call = cl
+        default:
+            continue
+        }
+        u := k.unit
+        if u < 0 || u >= len(t.prog.trees) {
+            continue
+        }
+        sp := span_at(t.prog.trees, k)
+        end := source.Span{file: sp.file, start: sp.end, end: sp.end}
+        mut items := make(list[id[ast.Node]], c_allocator)
+        for i := range count_items(t.prog.trees, u, call.args) {
+            append(mut items, item_at(t.prog.trees, u, call.args, i).node)?
+        }
+        for nth := range n {
+            at := mut t.site_index(k, nth)
+            if at < 0 || at > len(items) {
+                break
+            }
+            arg := mut t.site_node(k, nth, u, end)?
+            mut spliced := make(list[id[ast.Node]], c_allocator)
+            for j, it := range items {
+                if j == at {
+                    append(mut spliced, arg)?
+                }
+                append(mut spliced, it)?
+            }
+            if at == len(items) {
+                append(mut spliced, arg)?
+            }
+            items = spliced
+        }
+        mut ncl := call
+        ncl.args = add_list(mut t.prog.trees, u, items)?
+        set_kind_at(mut t.prog.trees, k, ast.Kind.call(ncl))
+    }
+    return noerror
+}
+
+// site_node adds to the tree u the node of the nth testing.Site argument
+// of the call k, at end (see splice_sites), and returns it.
+func (mut t Typed) site_node(k Key, nth int64, u int64, end source.Span) (id[ast.Node], error) {
+    param := mut t.site_param(k, nth)
+    if !is_no_key(param) {
+        mut name := make(list[uint8], c_allocator)
+        append(mut name, name_of(t.prog.trees, t.none, param)...)?
+        s := add_str(mut t.prog.trees, u, name)?
+        mut z span[uint8]
+        def := ast.Def{kind: ast.def_param, unit: param.unit, node: param.node}
+        nm := ast.Ident{pkg: z, name: s, pkg_span: end, def: def, hidden: ast.no_def()}
+        n := add_node(mut t.prog.trees, u, ast.Kind.ident(nm), end)?
+        return n, noerror
+    }
+    mut file := make(list[uint8], c_allocator)
+    mut excerpt := make(list[uint8], c_allocator)
+    line, col, _ := mut t.site_text(k, nth, mut file, mut excerpt)?
+    mut elems := make(list[id[ast.Node]], c_allocator)
+    fs := add_str(mut t.prog.trees, u, file)?
+    fv := add_node(mut t.prog.trees, u, ast.Kind.str_lit(fs), end)?
+    append(mut elems, mut t.site_field(u, "file", fv, end)?)?
+    lv := add_node(mut t.prog.trees, u, ast.Kind.int_lit(ast.IntLit{value: constant.from_int64(line)}), end)?
+    put(mut t.node_types, Key{unit: u, node: lv}, types.int64_type)?
+    append(mut elems, mut t.site_field(u, "line", lv, end)?)?
+    cv := add_node(mut t.prog.trees, u, ast.Kind.int_lit(ast.IntLit{value: constant.from_int64(col)}), end)?
+    put(mut t.node_types, Key{unit: u, node: cv}, types.int64_type)?
+    append(mut elems, mut t.site_field(u, "col", cv, end)?)?
+    es := add_str(mut t.prog.trees, u, excerpt)?
+    ev := add_node(mut t.prog.trees, u, ast.Kind.str_lit(es), end)?
+    append(mut elems, mut t.site_field(u, "excerpt", ev, end)?)?
+    list_of := add_list(mut t.prog.trees, u, elems)?
+    mut none id[ast.Node]
+    lit := add_node(mut t.prog.trees, u, ast.Kind.composite_lit(ast.CompositeLit{type_expr: none, elems: list_of}), end)?
+    put(mut t.node_types, Key{unit: u, node: lit}, mut t.site_type(k, nth))?
+    return lit, noerror
+}
+
+// site_field adds to the tree u a KeyValue of the name name and the
+// value v, at end, and returns it.
+func (mut t Typed) site_field(u int64, name string, v id[ast.Node], end source.Span) (id[ast.Node], error) {
+    mut b := make(list[uint8], c_allocator)
+    append(mut b, []uint8(name)...)?
+    s := add_str(mut t.prog.trees, u, b)?
+    mut z span[uint8]
+    nm := ast.Ident{pkg: z, name: s, pkg_span: end, def: ast.no_def(), hidden: ast.no_def()}
+    key := add_node(mut t.prog.trees, u, ast.Kind.ident(nm), end)?
+    kv := add_node(mut t.prog.trees, u, ast.Kind.key_value(ast.KeyValue{key: key, value: v, key_parens: false}), end)?
+    return kv, noerror
 }

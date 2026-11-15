@@ -97,12 +97,16 @@ func main_package(t typeck.Typed) int64 {
 
 // append_func_cname appends the C name of the function fn to out, Go's
 // funcCName: its mangled name, or a method's, its receiver type's name
-// and its own joined by a period, as one name. A generic function's is
-// its instance's, which E4 lowers, so it is not ported.
+// and its own joined by a period, as one name; a generic function's is
+// the name of its instance for its type parameters, as the binding in
+// force binds them (see append_instance_cname).
 func append_func_cname(mut t typeck.Typed, fn typeck.Key, mut out list[uint8]) error {
     f := func_at(t.prog.trees[:], fn)
     if node_count(t.prog.trees[:], fn.unit, f.type_params) > 0 {
-        return not_ported
+        mut args := make(list[types.Type], c_allocator)
+        instance_args_of(mut t, fn, mut args)?
+        append_instance_cname(mut t, fn, args[:], mut out)?
+        return noerror
     }
     pkg := package_of_unit(t, fn.unit)
     mut name := make(list[uint8], c_allocator)
