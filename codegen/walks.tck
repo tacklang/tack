@@ -5,8 +5,8 @@ import typeck from "tack/typeck"
 import types from "tack/types"
 
 // The walks of the program and of a body that the core asks, Go's gen.go
-// usesFloats, usesType, hasType, narrowsFloats, narrowing and the walk of
-// divisions, order.go's mutated, and switch.go's caseVarsRead. Each is
+// usesFloats, usesType, hasType, narrowsFloats and narrowing, order.go's
+// mutated and callsFunc, list.go's moves, and switch.go's caseVarsRead. Each is
 // Go's ast.Walk from a stack of its own (see push_children), visiting a
 // node before the nodes it holds, since a program nests as deeply as its
 // source and chains, of operators among them, run as long as it makes
@@ -78,37 +78,12 @@ func (mut g Gen) uses_type(mut t typeck.Typed, typ types.Type) (bool, error) {
 }
 
 // has_part reports whether typ is among the parts of the type of, Go's
-// slices.Contains(g.parts(of), typ): an array's, a view's, a list's or a
-// pool's element, a map's key and value, or a struct's fields. An
-// arena's parts, whose list the table may add, and a union's payloads
-// are the later stages' (see doc.tck).
+// slices.Contains(g.parts(of), typ) (see append_parts).
 func (mut g Gen) has_part(mut t typeck.Typed, of types.Type, typ types.Type) (bool, error) {
-    arr := mut t.table.is_array(of)?
-    view := mut t.table.is_view(of)?
-    lst := mut t.table.is_list(of)?
-    if arr || view || lst {
-        e := mut t.table.elem_of(of)?
-        return e == typ, noerror
-    }
-    if mut t.table.is_map(of)? {
-        key := mut t.table.key_of(of)?
-        e := mut t.table.elem_of(of)?
-        return key == typ || e == typ, noerror
-    }
-    if mut t.table.is_arena(of)? {
-        return false, not_ported
-    }
-    if mut t.table.is_pool(of)? {
-        e := mut t.table.elem_of(of)?
-        return e == typ, noerror
-    }
-    if mut t.table.is_union(of)? {
-        return false, not_ported
-    }
-    n := mut t.table.field_count(of)?
-    for i := range n {
-        ft, ok := mut t.table.field_type(of, i)?
-        if ok && ft == typ {
+    mut parts := make(list[types.Type], c_allocator)
+    append_parts(mut t, of, mut parts)?
+    for _, p := range parts {
+        if p == typ {
             return true, noerror
         }
     }
@@ -230,40 +205,6 @@ func narrowing(mut t typeck.Typed, k typeck.Key) bool {
     default:
     }
     return false
-}
-
-// has_divisions reports whether the program divides, takes a remainder or
-// shifts at run time in a type below untyped_int, which Go's divisions
-// lists and emitConstantPool writes a helper for: an operator expression
-// that is no constant, or a compound assignment, in its target's type.
-func (mut g Gen) has_divisions(mut t typeck.Typed) (bool, error) {
-    mut stack := make(list[typeck.Key], c_allocator)
-    mut kids := make(list[id[ast.Node]], c_allocator)
-    for u := range len(t.prog.trees) {
-        walk_program(t, u, mut stack)?
-        for len(stack) > 0 {
-            k, has := pop(mut stack)
-            if !has {
-                break
-            }
-            switch kind_of(t.prog.trees[:], k) {
-            case binary(b):
-                c := mut t.const_of(k)
-                bt := mut t.type_of(k)
-                if is_division_op(b.op) && c.kind == typeck.cv_none && bt.number() < types.untyped_int.number() {
-                    return true, noerror
-                }
-            case assign(a):
-                at_type := mut t.type_of(typeck.Key{unit: k.unit, node: a.target})
-                if is_division_op(a.op) && at_type.number() < types.untyped_int.number() {
-                    return true, noerror
-                }
-            default:
-            }
-            push_children(t.prog.trees[:], k, mut kids, mut stack)?
-        }
-    }
-    return false, noerror
 }
 
 // is_division_op reports whether op is / % << or >>, which go through a
@@ -400,4 +341,52 @@ func fill_case_vars_read(t typeck.Typed, fn typeck.Key, mut out map[typeck.Key]b
         push_children(t.prog.trees[:], k, mut kids, mut stack)?
     }
     return noerror
+}
+
+// calls_func reports whether evaluating e calls a Tack function, a
+// method, a function value or a builtin that changes a list, anywhere in
+// it, Go's callsFunc. The walk keeps a stack of its own.
+func calls_func(mut t typeck.Typed, e typeck.Key) (bool, error) {
+    mut stack := make(list[typeck.Key], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, e)?
+    for len(stack) > 0 {
+        k, has := pop(mut stack)
+        if !has {
+            break
+        }
+        switch kind_of(t.prog.trees[:], k) {
+        case call:
+            if calls_itself(mut t, k) {
+                return true, noerror
+            }
+        default:
+        }
+        push_children(t.prog.trees[:], k, mut kids, mut stack)?
+    }
+    return false, noerror
+}
+
+// moves_in reports whether evaluating e moves a variable's value, a name
+// in it marked as a move, Go's moves of list.go. The walk keeps a stack
+// of its own.
+func moves_in(mut t typeck.Typed, e typeck.Key) (bool, error) {
+    mut stack := make(list[typeck.Key], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, e)?
+    for len(stack) > 0 {
+        k, has := pop(mut stack)
+        if !has {
+            break
+        }
+        switch kind_of(t.prog.trees[:], k) {
+        case ident:
+            if mut t.is_move(k) {
+                return true, noerror
+            }
+        default:
+        }
+        push_children(t.prog.trees[:], k, mut kids, mut stack)?
+    }
+    return false, noerror
 }

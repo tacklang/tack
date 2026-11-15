@@ -1,0 +1,378 @@
+package codegen
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// Switches, Go's switch.go but for caseVarsRead, which every function's
+// frame is made with (see walks.tck): a switch lowered to a chain of C
+// ifs, never a C switch, its tag evaluated once into a const temporary
+// in a C block of its own (generateSwitch, hasValues, caseChain,
+// caseTest, valueTest, intTest), a type switch's case testing the type
+// id its any holds and declaring its variable (caseBody), and a switch
+// with a fallthrough lowered as gotos (hasFallthrough, fallChain). A
+// switch on a union is union.tck's, and one on a type parameter, which
+// only an instance of a generic function holds, E4's. A switch nests in
+// a block, and a block in a switch's case, as deeply as the parser lets
+// them, a few small frames a level.
+
+// generate_switch lowers the switch k of fn, Go's generateSwitch.
+func (mut g Gen) generate_switch(mut t typeck.Typed, fn typeck.Key, k typeck.Key) (list[Line], error) {
+    s := switch_of(t.prog.trees[:], k)
+    if s.on_type {
+        // paramSwitch, which only an instance of a generic function
+        // lowers, E4's.
+        return make(list[Line], c_allocator), not_ported
+    }
+    is_union := is_union_switch(mut t, k, s)?
+    if is_union {
+        lines := mut g.generate_union_switch(mut t, fn, k)?
+        return lines, noerror
+    }
+    if ast.is_none(s.tag) {
+        lines := mut g.case_chain(mut t, fn, k, []uint8(""))?
+        return lines, noerror
+    }
+    mut tag_expr := at(k, s.tag)
+    if is_type_switch(t, k, s) {
+        switch kind_of(t.prog.trees[:], tag_expr) {
+        case type_assert(ta):
+            tag_expr = at(k, ta.x)
+        default:
+        }
+    }
+    tag := mut g.expr(mut t, tag_expr, types.invalid)?
+    mut tag_ref := make(list[uint8], c_allocator)
+    mut eval := make(list[uint8], c_allocator)
+    if has_values(t, k, s) || !ast.is_none(s.bind) {
+        tag_ref = mut g.temp("s")?
+        append(mut eval, []uint8("const ")...)?
+        append_c_type(mut t, mut t.type_of(tag_expr), mut eval)?
+        append(mut eval, ' ')?
+        append(mut eval, tag_ref[:]...)?
+        append(mut eval, []uint8(" = ")...)?
+        append(mut eval, tag[:]...)?
+        append(mut eval, ';')?
+    } else {
+        append(mut eval, []uint8("(void)(")...)?
+        append(mut eval, tag[:]...)?
+        append(mut eval, []uint8(");")...)?
+    }
+    chain := mut g.case_chain(mut t, fn, k, tag_ref[:])?
+    mut inner := make(list[Line], c_allocator)
+    mut g.add_line(mut inner, eval[:])?
+    append(mut inner, chain[:]...)?
+    mut lines := make(list[Line], c_allocator)
+    mut g.add_line(mut lines, []uint8("{"))?
+    append_indented(mut lines, inner[:])?
+    mut g.add_line(mut lines, []uint8("}"))?
+    return lines, noerror
+}
+
+// has_values reports whether a case of the switch s, k, has a value, Go's
+// hasValues.
+func has_values(t typeck.Typed, k typeck.Key, s ast.Switch) bool {
+    n := node_count(t.prog.trees[:], k.unit, s.cases)
+    for i := range n {
+        c := node_at(t.prog.trees[:], k.unit, s.cases, i)
+        if node_count(t.prog.trees[:], c.unit, clause_of(t.prog.trees[:], c).values) > 0 {
+            return true
+        }
+    }
+    return false
+}
+
+// falls reports whether the body of the clause c ends in a fallthrough
+// into the next case, Go's FallsInto(cl.Body) != nil.
+func falls(mut t typeck.Typed, c typeck.Key) bool {
+    cl := clause_of(t.prog.trees[:], c)
+    n := node_count(t.prog.trees[:], c.unit, cl.body)
+    if n == 0 {
+        return false
+    }
+    last := node_at(t.prog.trees[:], c.unit, cl.body, n -% 1)
+    switch kind_of(t.prog.trees[:], last) {
+    case fallthrough_stmt:
+        return !typeck_no_key(mut t.falls_into(last))
+    default:
+    }
+    return false
+}
+
+// case_chain lowers the cases of the switch k of fn to a chain of an if,
+// else ifs and an else, the cases with values in source order and the
+// default the final else, Go's caseChain; tag_ref names the temporary
+// that holds the tag, empty for a switch with no tag. A switch with a
+// fallthrough is fall_chain's.
+func (mut g Gen) case_chain(mut t typeck.Typed, fn typeck.Key, k typeck.Key, tag_ref []uint8) (list[Line], error) {
+    s := switch_of(t.prog.trees[:], k)
+    n := node_count(t.prog.trees[:], k.unit, s.cases)
+    for i := range n {
+        c := node_at(t.prog.trees[:], k.unit, s.cases, i)
+        if falls(mut t, c) {
+            lines := mut g.fall_chain(mut t, fn, k, tag_ref)?
+            return lines, noerror
+        }
+    }
+    mut lines := make(list[Line], c_allocator)
+    mut def := no_key()
+    for i := range n {
+        c := node_at(t.prog.trees[:], k.unit, s.cases, i)
+        if clause_of(t.prog.trees[:], c).is_default {
+            if def.unit < 0 {
+                def = c
+            }
+            continue
+        }
+        test := mut g.case_test(mut t, k, s, tag_ref, c)?
+        body := mut g.case_body(mut t, fn, c, tag_ref)?
+        mut header := make(list[uint8], c_allocator)
+        if len(lines) > 0 {
+            append(mut header, []uint8("} else ")...)?
+        }
+        append(mut header, []uint8("if (")...)?
+        append(mut header, test[:]...)?
+        append(mut header, []uint8(") {")...)?
+        mut g.add_line(mut lines, header[:])?
+        append_indented(mut lines, body[:])?
+    }
+    if def.unit < 0 {
+        if len(lines) > 0 {
+            mut g.add_line(mut lines, []uint8("}"))?
+        }
+        return lines, noerror
+    }
+    body := mut g.case_body(mut t, fn, def, tag_ref)?
+    if len(lines) > 0 {
+        mut g.add_line(mut lines, []uint8("} else {"))?
+    } else {
+        mut g.add_line(mut lines, []uint8("{"))?
+    }
+    append_indented(mut lines, body[:])?
+    mut g.add_line(mut lines, []uint8("}"))?
+    return lines, noerror
+}
+
+// fall_chain lowers the cases of the switch k of fn, one of which ends
+// in a fallthrough, as gotos to their bodies, Go's fallChain: each case
+// with values tested in source order, jumping to its label, then a jump
+// to the default's, or past every body; then each body after its label,
+// in a block of its own, each but one that falls through and the last
+// jumping past the rest, to a label written only when some jump goes to
+// it.
+func (mut g Gen) fall_chain(mut t typeck.Typed, fn typeck.Key, k typeck.Key, tag_ref []uint8) (list[Line], error) {
+    s := switch_of(t.prog.trees[:], k)
+    n := node_count(t.prog.trees[:], k.unit, s.cases)
+    mut labels := make(list[list[uint8]], c_allocator)
+    for range n {
+        l := mut g.temp("case")?
+        append(mut labels, l)?
+    }
+    end := mut g.temp("end")?
+    mut end_used := false
+    mut lines := make(list[Line], c_allocator)
+    for i := range n {
+        c := node_at(t.prog.trees[:], k.unit, s.cases, i)
+        if clause_of(t.prog.trees[:], c).is_default {
+            continue
+        }
+        test := mut g.case_test(mut t, k, s, tag_ref, c)?
+        mut l := make(list[uint8], c_allocator)
+        mut lab := make(list[uint8], c_allocator)
+        copy_name(labels, i, mut lab)?
+        fmt.appendf(mut l, "if (%s) goto %s;", test[:], lab[:])?
+        mut g.add_line(mut lines, l[:])?
+    }
+    mut def_at int64 = -1
+    for i := range n {
+        c := node_at(t.prog.trees[:], k.unit, s.cases, i)
+        if clause_of(t.prog.trees[:], c).is_default {
+            def_at = i
+            break
+        }
+    }
+    mut first_goto := make(list[uint8], c_allocator)
+    if def_at >= 0 {
+        mut lab := make(list[uint8], c_allocator)
+        copy_name(labels, def_at, mut lab)?
+        fmt.appendf(mut first_goto, "goto %s;", lab[:])?
+    } else {
+        fmt.appendf(mut first_goto, "goto %s;", end[:])?
+        end_used = true
+    }
+    mut g.add_line(mut lines, first_goto[:])?
+    for i := range n {
+        c := node_at(t.prog.trees[:], k.unit, s.cases, i)
+        body := mut g.case_body(mut t, fn, c, tag_ref)?
+        mut l := make(list[uint8], c_allocator)
+        mut lab := make(list[uint8], c_allocator)
+        copy_name(labels, i, mut lab)?
+        fmt.appendf(mut l, "%s: ;", lab[:])?
+        mut g.add_line(mut lines, l[:])?
+        mut g.add_line(mut lines, []uint8("{"))?
+        append_indented(mut lines, body[:])?
+        mut g.add_line(mut lines, []uint8("}"))?
+        if i < n -% 1 && !falls(mut t, c) {
+            mut j := make(list[uint8], c_allocator)
+            fmt.appendf(mut j, "goto %s;", end[:])?
+            mut g.add_line(mut lines, j[:])?
+            end_used = true
+        }
+    }
+    if end_used {
+        mut l := make(list[uint8], c_allocator)
+        fmt.appendf(mut l, "%s: ;", end[:])?
+        mut g.add_line(mut lines, l[:])?
+    }
+    return lines, noerror
+}
+
+// case_body lowers the body of the clause c of a switch whose tag tag_ref
+// holds, in fn, Go's caseBody: after the declaration of the variable a
+// type switch's case declares, when the body reads it, the T its any
+// points at for a case of one type T, and the any itself otherwise.
+func (mut g Gen) case_body(mut t typeck.Typed, fn typeck.Key, c typeck.Key, tag_ref []uint8) (list[Line], error) {
+    cl := clause_of(t.prog.trees[:], c)
+    body := mut g.block(mut t, fn, cl.body, false)?
+    if ast.is_none(cl.var_node) {
+        return body, noerror
+    }
+    v := at(c, cl.var_node)
+    _, read := g.frame.read[v]
+    if !read {
+        return body, noerror
+    }
+    typ := mut t.decl_type(v)
+    mut d := make(list[uint8], c_allocator)
+    append(mut d, []uint8("const ")...)?
+    append_c_type(mut t, typ, mut d)?
+    append(mut d, ' ')?
+    append_decl_name(mut t, v, mut d)?
+    append(mut d, []uint8(" = ")...)?
+    if typ != types.any_type {
+        append(mut d, []uint8("*(const ")...)?
+        append_c_type(mut t, typ, mut d)?
+        append(mut d, []uint8(" *)")...)?
+        append(mut d, tag_ref...)?
+        append(mut d, []uint8(".ptr")...)?
+    } else {
+        append(mut d, tag_ref...)?
+    }
+    append(mut d, ';')?
+    mut out := make(list[Line], c_allocator)
+    mut g.add_line(mut out, d[:])?
+    append(mut out, body[:]...)?
+    return out, noerror
+}
+
+// case_test renders the C test of the clause c of the switch k, s, Go's
+// caseTest: each value's test, joined with || and each parenthesized
+// when there are several. A type switch's value is a type, tested
+// against the type id the tag's any holds.
+func (mut g Gen) case_test(mut t typeck.Typed, k typeck.Key, s ast.Switch, tag_ref []uint8, c typeck.Key) (list[uint8], error) {
+    cl := clause_of(t.prog.trees[:], c)
+    n := node_count(t.prog.trees[:], c.unit, cl.values)
+    type_switch := is_type_switch(t, k, s)
+    mut tests := make(list[list[uint8]], c_allocator)
+    for i := range n {
+        mut test := make(list[uint8], c_allocator)
+        if type_switch {
+            append(mut test, tag_ref...)?
+            append(mut test, []uint8(".type == ")...)?
+            append_any_id(mut t, mut t.case_type(c, i), mut test)?
+            append(mut tests, test)?
+            continue
+        }
+        v := node_at(t.prog.trees[:], c.unit, cl.values, i)
+        mut g.value_test(mut t, k, s, tag_ref, v, mut test)?
+        append(mut tests, test)?
+    }
+    mut out := make(list[uint8], c_allocator)
+    if len(tests) == 1 {
+        one, has := pop(mut tests)
+        if has {
+            return one, noerror
+        }
+    }
+    append(mut out, '(')?
+    for i, x := range tests {
+        if i > 0 {
+            append(mut out, []uint8(") || (")...)?
+        }
+        append(mut out, x[:]...)?
+    }
+    append(mut out, ')')?
+    return out, noerror
+}
+
+// value_test appends the C test of the case value v of the switch k, s,
+// without parentheses around the whole, Go's valueTest: the condition
+// itself in a switch with no tag, and otherwise whether the tag, held in
+// tag_ref, equals v as == compares them.
+func (mut g Gen) value_test(mut t typeck.Typed, k typeck.Key, s ast.Switch, tag_ref []uint8, v typeck.Key, mut out list[uint8]) error {
+    if ast.is_none(s.tag) {
+        cond := mut g.expr(mut t, v, types.bool_type)?
+        last := len(cond) -% 1
+        if parenthesised(mut t, v) && last >= 1 && last <= len(cond) {
+            append(mut out, cond[1:last]...)?
+        } else {
+            append(mut out, cond[:]...)?
+        }
+        return noerror
+    }
+    value := mut g.expr(mut t, v, types.invalid)?
+    typ := mut t.type_of(at(k, s.tag))
+    composite := mut g.is_composite(mut t, typ)?
+    if composite {
+        mut g.use_equality(mut t, typ, mut out)?
+        append(mut out, []uint8("(&")...)?
+        append(mut out, tag_ref...)?
+        append(mut out, []uint8(", ")...)?
+        mut g.address_of(mut t, v, typ, value[:], mut out)?
+        append(mut out, ')')?
+        return noerror
+    }
+    if typ == types.string_type {
+        g.compares_text = true
+        fmt.appendf(mut out, "tack_compare_strings(%s, %s) == 0", tag_ref, value[:])?
+        return noerror
+    }
+    if mut t.table.is_handle(typ)? {
+        fmt.appendf(mut out, "tack_handle_eq_(%s, %s)", tag_ref, value[:])?
+        return noerror
+    }
+    if types.is_integer(typ) {
+        mut g.int_test(mut t, typ, tag_ref, v, own value, mut out)?
+        return noerror
+    }
+    fmt.appendf(mut out, "%s == %s", tag_ref, value[:])?
+    return noerror
+}
+
+// int_test appends whether the integer tag of type typ, held in tag_ref,
+// equals the case value v, rendered as value, by value, without
+// parentheses around the whole, Go's intTest: a v that is not pure held
+// in a temporary first when the comparison reads it more than once or may
+// skip it.
+func (mut g Gen) int_test(mut t typeck.Typed, typ types.Type, tag_ref []uint8, v typeck.Key, own value list[uint8], mut out list[uint8]) error {
+    vt := mut t.type_of(v)
+    mut rendered := make(list[list[uint8]], c_allocator)
+    append(mut rendered, value)?
+    mut steps := make(list[list[uint8]], c_allocator)
+    if needs_once(typ, vt) {
+        operands := [1]typeck.Key{v}
+        ctypes := operand_types(mut t, operands[:])?
+        steps = mut g.sequence(mut t, operands[:], mut rendered, ctypes[:], true)?
+    }
+    mut built := make(list[uint8], c_allocator)
+    if len(rendered) > 0 {
+        append_int_comparison(ast.op_eq, typ, vt, tag_ref, rendered[0][:], mut built)?
+    }
+    x := wrap_steps(steps[:], own built)?
+    last := len(x) -% 1
+    if last >= 1 && last <= len(x) {
+        append(mut out, x[1:last]...)?
+    }
+    return noerror
+}

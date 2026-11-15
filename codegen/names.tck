@@ -216,15 +216,18 @@ var func_ptr = "tack_fnptr"
 // force, Go's cType: a basic type's own, uint32_t for an id, uint64_t for
 // a span, the runtime's handle and function pointer types, or for an
 // array, a view, a list, a map, an arena, a pool, a struct or a union the
-// C struct named by its type's ID or its declaration. Those are the
-// later stages' (see doc.tck), so the port declines them.
+// C struct named by its type's ID or its declaration. A list's, a map's,
+// an arena's and a pool's are E3's (see doc.tck), so the port declines
+// them.
 func append_c_type(mut t typeck.Typed, typ0 types.Type, mut out list[uint8]) error {
     typ := mut t.table.bound(typ0)?
     if mut t.table.is_array(typ)? {
-        return not_ported
+        append_array_name(mut t, typ, mut out)?
+        return noerror
     }
     if mut t.table.is_view(typ)? {
-        return not_ported
+        append_view_name(mut t, typ, mut out)?
+        return noerror
     }
     if mut t.table.is_list(typ)? {
         return not_ported
@@ -257,11 +260,8 @@ func append_c_type(mut t typeck.Typed, typ0 types.Type, mut out list[uint8]) err
     is_s := mut t.table.is_struct(typ)?
     is_u := mut t.table.is_union(typ)?
     if is_s || is_u {
-        if typ == types.error_type {
-            append(mut out, []uint8("tack_error")...)?
-            return noerror
-        }
-        return not_ported
+        append_struct_name(mut t, typ, mut out)?
+        return noerror
     }
     append_basic_c_type(typ, mut out)?
     return noerror

@@ -1,0 +1,600 @@
+package codegen
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// The routines of the expression machine (see expr.tck) that render
+// values of E2's types: array.go's compositeLit, struct.go's structLit
+// and selectorExpr, union.go's constructionValue, view.go's viewArg,
+// listView and bytesView, slice.go's sliceExpr, sliceOperands and
+// sliceBase, and gen.go's targetRef of a field. Each step does what Go's
+// function does between two of its calls, in Go's order, as the core's
+// routines do. Their numbers start at r_composite, clear of the core's
+// and of the other stages'.
+
+// r_composite is the routine of Go's compositeLit and structLit.
+var r_composite uint8 = 40
+
+// r_selector is the routine of Go's selectorExpr.
+var r_selector uint8 = 41
+
+// r_construct is the routine of Go's constructionValue.
+var r_construct uint8 = 42
+
+// r_view_arg is the routine of Go's viewArg: the frame's want is the
+// view type, and its k the call the argument is passed in, or no node
+// for a view returned.
+var r_view_arg uint8 = 43
+
+// r_slice is the routine of Go's sliceExpr: the frame's k is the call
+// the slice is an argument of, to a view parameter, or no node.
+var r_slice uint8 = 44
+
+// r_field_ref is the routine of Go's targetRef of a field, base.f_name.
+var r_field_ref uint8 = 45
+
+// values_step runs the next step of f, a frame of one of this file's
+// routines, and reports whether it was one.
+func (mut g Gen) values_step(mut t typeck.Typed, f MFrame, mut m Machine) (bool, error) {
+    if f.r == r_composite {
+        mut g.step_composite(mut t, f, mut m)?
+        return true, noerror
+    }
+    if f.r == r_selector {
+        mut g.step_selector(mut t, f, mut m)?
+        return true, noerror
+    }
+    if f.r == r_construct {
+        mut g.step_construct(mut t, f, mut m)?
+        return true, noerror
+    }
+    if f.r == r_view_arg {
+        mut g.step_view_arg(mut t, f, mut m)?
+        return true, noerror
+    }
+    if f.r == r_slice {
+        mut g.step_slice(mut t, f, mut m)?
+        return true, noerror
+    }
+    if f.r == r_field_ref {
+        mut g.step_field_ref(mut t, f, mut m)?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// no_key returns the key of no node.
+func no_key() typeck.Key {
+    return typeck.Key{unit: -1, node: ast_none()}
+}
+
+// composite_of returns the CompositeLit the node k is.
+func composite_of(trees []ast.File, k typeck.Key) ast.CompositeLit {
+    switch kind_of(trees, k) {
+    case composite_lit(c):
+        return c
+    default:
+    }
+    mut z ast.CompositeLit
+    return z
+}
+
+// selector_of returns the Selector the node k is.
+func selector_of(trees []ast.File, k typeck.Key) ast.Selector {
+    switch kind_of(trees, k) {
+    case selector(s):
+        return s
+    default:
+    }
+    mut z ast.Selector
+    return z
+}
+
+// lit_value returns the value of the i'th element of the literal lit, k:
+// the element of an array literal, the value of a struct literal's key
+// and value, and whether a struct literal's element has a name for a key.
+func lit_value(t typeck.Typed, k typeck.Key, lit ast.CompositeLit, i int64, is_struct bool) (typeck.Key, bool) {
+    e := node_at(t.prog.trees[:], k.unit, lit.elems, i)
+    if !is_struct {
+        return e, true
+    }
+    switch kind_of(t.prog.trees[:], e) {
+    case key_value(kv):
+        _, is_name := ident_of(t.prog.trees[:], at(e, kv.key))
+        return at(e, kv.value), is_name
+    default:
+    }
+    return e, false
+}
+
+// step_composite is Go's compositeLit and structLit: each element's
+// value rendered, in order, then the compound literal of the array's or
+// the struct's C struct, its values held in order when it shows, unless
+// the scope is deep (Go's sequencedLit). A struct literal's element must
+// name its field.
+func (mut g Gen) step_composite(mut t typeck.Typed, f MFrame, mut m Machine) error {
+    lit := composite_of(t.prog.trees[:], f.e)
+    n := node_count(t.prog.trees[:], f.e.unit, lit.elems)
+    typ := mut t.type_of(f.e)
+    is_struct := mut t.table.is_struct(typ)?
+    if f.step == 0 && n == 0 {
+        mut out := make(list[uint8], c_allocator)
+        append(mut out, '(')?
+        if is_struct {
+            append_struct_name(mut t, typ, mut out)?
+        } else {
+            append_array_name(mut t, typ, mut out)?
+        }
+        append(mut out, []uint8("){}")...)?
+        mut m.give(own out)?
+        return noerror
+    }
+    mut s := f
+    if f.step == 1 {
+        s.a = f.a +% 1
+    }
+    if s.a < n {
+        v, named := lit_value(t, f.e, lit, s.a, is_struct)
+        if !named {
+            e := node_at(t.prog.trees[:], f.e.unit, lit.elems, s.a)
+            return mut g.fail([]uint8("struct literal element without a field name"), span_of(t.prog.trees[:], e.unit, e.node))
+        }
+        mut m.again(s, 1)?
+        mut m.push(r_expr, v, types.invalid, false)?
+        return noerror
+    }
+    mut rendered := make(list[list[uint8]], c_allocator)
+    for range n {
+        append(mut rendered, make(list[uint8], c_allocator))?
+    }
+    mut j := n
+    for j > 0 {
+        j -%= 1
+        v := mut m.take()
+        if j >= 0 && j < len(rendered) {
+            rendered[j] = v
+        }
+    }
+    mut operands := make(list[typeck.Key], c_allocator)
+    for i := range n {
+        v, _ := lit_value(t, f.e, lit, i, is_struct)
+        append(mut operands, v)?
+    }
+    mut steps := make(list[list[uint8]], c_allocator)
+    deep := g.spill >= 0 && scope_at(g.spills[:], g.spill).deep
+    if !deep {
+        ctypes := operand_types(mut t, operands[:])?
+        steps = mut g.sequence(mut t, operands[:], mut rendered, ctypes[:], false)?
+    }
+    mut built := make(list[uint8], c_allocator)
+    append(mut built, '(')?
+    if is_struct {
+        append_struct_name(mut t, typ, mut built)?
+        append(mut built, []uint8("){")...)?
+        for i, r := range rendered {
+            if i > 0 {
+                append(mut built, []uint8(", ")...)?
+            }
+            e := node_at(t.prog.trees[:], f.e.unit, lit.elems, i)
+            mut key := make(list[uint8], c_allocator)
+            switch kind_of(t.prog.trees[:], e) {
+            case key_value(kv):
+                nm, _ := ident_of(t.prog.trees[:], at(e, kv.key))
+                append(mut key, text_of(t, e.unit, nm.name)...)?
+            default:
+            }
+            append(mut built, '.')?
+            append_member_name(typ, key[:], mut built)?
+            append(mut built, []uint8(" = ")...)?
+            append(mut built, r[:]...)?
+        }
+        append(mut built, '}')?
+    } else {
+        append_array_name(mut t, typ, mut built)?
+        append(mut built, []uint8("){{")...)?
+        for i, r := range rendered {
+            if i > 0 {
+                append(mut built, []uint8(", ")...)?
+            }
+            append(mut built, r[:]...)?
+        }
+        append(mut built, []uint8("}}")...)?
+    }
+    v := wrap_steps(steps[:], own built)?
+    mut m.give(own v)?
+    return noerror
+}
+
+// step_selector is Go's selectorExpr: a union built of a case with no
+// payload by constructionValue, a method named through its type as a
+// function value, E4's, and a field read, x.f_name, x parenthesized
+// unless C's postfix operators bind it. A field a fields loop's variable
+// stands for, v.[f], is E4's.
+func (mut g Gen) step_selector(mut t typeck.Typed, f MFrame, mut m Machine) error {
+    sel := selector_of(t.prog.trees[:], f.e)
+    x := at(f.e, sel.x)
+    if f.step == 0 {
+        _, _, built := construction_of(t, f.e)
+        if built {
+            mut m.push(r_construct, f.e, types.invalid, false)?
+            return noerror
+        }
+        if type_operand(t, x) {
+            if typeck_no_key(mut t.method(f.e)) {
+                return mut g.fail([]uint8("a method expression must be checked before code is generated for it"), span_of(t.prog.trees[:], f.e.unit, f.e.node))
+            }
+            // funcValueRef, of funcvalue.go, E4's.
+            return not_ported
+        }
+        if !ast.is_none(sel.field) {
+            // fieldName of a fields loop's v.[f], E4's.
+            return not_ported
+        }
+        mut m.again(f, 1)?
+        mut m.push(r_expr, x, types.invalid, false)?
+        return noerror
+    }
+    base := mut m.take()
+    mut out := make(list[uint8], c_allocator)
+    if binds_postfix(t, x) {
+        append(mut out, base[:]...)?
+    } else {
+        append(mut out, '(')?
+        append(mut out, base[:]...)?
+        append(mut out, ')')?
+    }
+    append(mut out, '.')?
+    mut g.append_member(mut t, f.e, mut out)?
+    mut m.give(own out)?
+    return noerror
+}
+
+// append_member appends the C member the field sel, a selector, selects
+// from its struct, Go's member: memberName of the struct type its operand
+// stands for and the field's name.
+func (mut g Gen) append_member(mut t typeck.Typed, k typeck.Key, mut out list[uint8]) error {
+    sel := selector_of(t.prog.trees[:], k)
+    typ := mut t.table.bound(mut t.type_of(at(k, sel.x)))?
+    append_member_name(typ, text_of(t, k.unit, sel.name), mut out)?
+    return noerror
+}
+
+// step_construct is Go's constructionValue: a union built of a case and
+// its payload, or of a case alone, as a compound literal of its C struct,
+// its tag the case's place and its payload in the case's member.
+func (mut g Gen) step_construct(mut t typeck.Typed, f MFrame, mut m Machine) error {
+    td, sk, _ := construction_of(t, f.e)
+    sel := selector_of(t.prog.trees[:], sk)
+    typ := mut t.decl_type(td)
+    mut case_name := make(list[uint8], c_allocator)
+    append(mut case_name, text_of(t, sk.unit, sel.name)...)?
+    uc, i, ok := mut t.table.find_case(typ, case_name[:])?
+    if f.step == 0 {
+        if !ok {
+            mut msg := make(list[uint8], c_allocator)
+            switch kind_of(t.prog.trees[:], td) {
+            case type_decl(d):
+                append(mut msg, text_of(t, td.unit, d.name)...)?
+            default:
+            }
+            append(mut msg, []uint8(" has no case ")...)?
+            append(mut msg, text_of(t, sk.unit, sel.name)...)?
+            return mut g.fail(msg[:], sel.name_span)
+        }
+        payload := construction_payload(t, f.e)
+        if !uc.payload || payload.unit < 0 {
+            mut out := make(list[uint8], c_allocator)
+            append(mut out, []uint8("((")...)?
+            append_struct_name(mut t, typ, mut out)?
+            fmt.appendf(mut out, "){.tag = %d})", i)?
+            mut m.give(own out)?
+            return noerror
+        }
+        mut m.again(f, 1)?
+        mut m.push(r_expr, payload, uc.typ, false)?
+        return noerror
+    }
+    v := mut m.take()
+    mut out := make(list[uint8], c_allocator)
+    append(mut out, []uint8("((")...)?
+    append_struct_name(mut t, typ, mut out)?
+    fmt.appendf(mut out, "){.tag = %d, .u.c_", i)?
+    mut t.table.case_name(uc, mut out)?
+    append(mut out, []uint8(" = ")...)?
+    append(mut out, v[:]...)?
+    append(mut out, []uint8("})")...)?
+    mut m.give(own out)?
+    return noerror
+}
+
+// append_view_name appends the name of the C struct the view type typ
+// stands for lowers to, Go's viewName: tack_view_ and its ID.
+func append_view_name(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    b := mut t.table.bound(typ)?
+    fmt.appendf(mut out, "tack_view_%d", b.number())?
+    return noerror
+}
+
+// step_view_arg is Go's viewArg: an argument passed to a parameter of the
+// view type f.want, or a view returned: []uint8(s) as the string's bytes
+// (Go's bytesView), a slice by sliceExpr, a list as its buffer and length
+// (Go's listView), an array, a place, as a view of all of it, copied
+// first when the call could change it (see view_copies), and a view as
+// it is.
+func (mut g Gen) step_view_arg(mut t typeck.Typed, f MFrame, mut m Machine) error {
+    if f.step == 0 {
+        switch kind_of(t.prog.trees[:], f.e) {
+        case call(cl):
+            if cl.conv != types.invalid {
+                arg := node_at(t.prog.trees[:], f.e.unit, cl.args, 0)
+                switch kind_of(t.prog.trees[:], arg) {
+                case str_lit(s):
+                    mut out := make(list[uint8], c_allocator)
+                    append(mut out, '(')?
+                    append_view_name(mut t, f.want, mut out)?
+                    append(mut out, []uint8("){")...)?
+                    g.append_str_parts(text_of(t, arg.unit, s), mut out)?
+                    append(mut out, '}')?
+                    mut m.give(own out)?
+                    return noerror
+                default:
+                }
+                mut m.again(f, 1)?
+                mut m.push(r_expr, arg, types.invalid, false)?
+                return noerror
+            }
+        case slice:
+            mut s := mframe(r_slice, f.e, types.invalid, false, len(m.vals))
+            s.k = f.k
+            append(mut m.frames, s)?
+            return noerror
+        default:
+        }
+        typ := mut t.type_of(f.e)
+        if mut t.table.is_list(typ)? {
+            mut m.again(f, 3)?
+            mut m.push(r_expr, f.e, types.invalid, false)?
+            return noerror
+        }
+        arr := mut t.table.is_array(typ)?
+        if !arr {
+            mut m.push(r_expr, f.e, types.invalid, false)?
+            return noerror
+        }
+        mut m.again(f, 2)?
+        mut m.push(r_expr, f.e, types.invalid, false)?
+        return noerror
+    }
+    x := mut m.take()
+    if f.step == 1 {
+        cl := call_of(t.prog.trees[:], f.e)
+        arg := node_at(t.prog.trees[:], f.e.unit, cl.args, 0)
+        out := mut g.bytes_view(mut t, arg, f.want, x[:])?
+        mut m.give(own out)?
+        return noerror
+    }
+    if f.step == 3 {
+        out := mut g.list_view(mut t, f.want, x[:])?
+        mut m.give(own out)?
+        return noerror
+    }
+    out := mut g.array_view(mut t, f.e, f.want, f.k, x[:])?
+    mut m.give(own out)?
+    return noerror
+}
+
+// bytes_view renders []uint8(s) as a view of type view of the string's
+// bytes, s, arg, rendered as x, Go's bytesView past its literal: a name
+// read twice, and anything else held in a temporary first.
+func (mut g Gen) bytes_view(mut t typeck.Typed, arg typeck.Key, view types.Type, x []uint8) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    _, is_name := ident_of(t.prog.trees[:], arg)
+    if is_name {
+        append(mut out, '(')?
+        append_view_name(mut t, view, mut out)?
+        fmt.appendf(mut out, "){%s.ptr, %s.len}", x, x)?
+        return out, noerror
+    }
+    name := mut g.temp("s")?
+    mut g.add_temp_decl([]uint8("tack_string"), name[:])?
+    fmt.appendf(mut out, "(%s = %s, (", name[:], x)?
+    append_view_name(mut t, view, mut out)?
+    fmt.appendf(mut out, "){%s.ptr, %s.len})", name[:], name[:])?
+    return out, noerror
+}
+
+// list_view renders a list place, rendered as x, as a view of type view
+// of its elements, Go's listView: its buffer and its length.
+func (mut g Gen) list_view(mut t typeck.Typed, view types.Type, x []uint8) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    append(mut out, '(')?
+    append_view_name(mut t, view, mut out)?
+    fmt.appendf(mut out, "){%s.ptr, %s.len}", x, x)?
+    return out, noerror
+}
+
+// array_view renders e, an array place rendered as x, as a view of type
+// view of all of it, Go's viewArg and sliceBase past rendering the place:
+// its elements and its length, or, when call, the call e is an argument
+// of, could change it, those of a copy held in a temporary first.
+func (mut g Gen) array_view(mut t typeck.Typed, e typeck.Key, view types.Type, call typeck.Key, x []uint8) (list[uint8], error) {
+    typ := mut t.type_of(e)
+    n := mut t.table.len_of(typ)?
+    mut out := make(list[uint8], c_allocator)
+    mut copies := false
+    if call.unit >= 0 {
+        copies = mut g.view_copies(mut t, e, call)?
+    }
+    if !copies {
+        append(mut out, '(')?
+        append_view_name(mut t, view, mut out)?
+        fmt.appendf(mut out, "){%s.e, %d}", x, n)?
+        return out, noerror
+    }
+    name := mut g.temp("c")?
+    mut ctype := make(list[uint8], c_allocator)
+    append_array_name(mut t, typ, mut ctype)?
+    mut g.add_temp_decl(ctype[:], name[:])?
+    fmt.appendf(mut out, "(%s = %s, (", name[:], x)?
+    append_view_name(mut t, view, mut out)?
+    fmt.appendf(mut out, "){%s.e, %d})", name[:], n)?
+    return out, noerror
+}
+
+// slice_of returns the Slice the node k is.
+func slice_of(trees []ast.File, k typeck.Key) ast.Slice {
+    switch kind_of(trees, k) {
+    case slice(s):
+        return s
+    default:
+    }
+    mut z ast.Slice
+    return z
+}
+
+// step_slice is Go's sliceExpr with sliceOperands and sliceBase: what is
+// sliced, a slice of it by sliceExpr again, a list as a view, an array as
+// a view of all of it, and a string or a view as it is; then each bound
+// written, in order; then the call of the slice helper, recorded as
+// called, the operands held in order when it shows. The frame's b says
+// how what is sliced is made a view: 1 for a list, 2 for an array; its a,
+// 1, that only the operands are rendered, Go's sliceOperands, and left
+// on the stack.
+func (mut g Gen) step_slice(mut t typeck.Typed, f MFrame, mut m Machine) error {
+    s := slice_of(t.prog.trees[:], f.e)
+    x := at(f.e, s.x)
+    if f.step == 0 {
+        switch kind_of(t.prog.trees[:], x) {
+        case slice:
+            mut m.again(f, 1)?
+            mut inner := mframe(r_slice, x, types.invalid, false, len(m.vals))
+            inner.k = f.k
+            append(mut m.frames, inner)?
+            return noerror
+        default:
+        }
+        xt := mut t.type_of(x)
+        mut sf := f
+        if mut t.table.is_list(xt)? {
+            sf.b = 1
+        } else if mut t.table.is_array(xt)? {
+            sf.b = 2
+        }
+        mut m.again(sf, 1)?
+        mut m.push(r_expr, x, types.invalid, false)?
+        return noerror
+    }
+    if f.step == 1 {
+        base := mut m.take()
+        st := mut t.type_of(f.e)
+        if f.b == 1 {
+            v := mut g.list_view(mut t, st, base[:])?
+            mut m.give(own v)?
+        } else if f.b == 2 {
+            v := mut g.array_view(mut t, x, st, f.k, base[:])?
+            mut m.give(own v)?
+        } else {
+            mut m.give(own base)?
+        }
+        if !ast.is_none(s.lo) {
+            mut m.again(f, 2)?
+            mut m.push(r_expr, at(f.e, s.lo), types.invalid, false)?
+            return noerror
+        }
+    }
+    if f.step <= 2 && !ast.is_none(s.hi) {
+        mut m.again(f, 3)?
+        mut m.push(r_expr, at(f.e, s.hi), types.invalid, false)?
+        return noerror
+    }
+    if f.a == 1 {
+        // Go's sliceOperands alone, for sliceValues: what is sliced and
+        // each bound, left on the stack in order.
+        return noerror
+    }
+    mut operands := make(list[typeck.Key], c_allocator)
+    append(mut operands, x)?
+    if !ast.is_none(s.lo) {
+        append(mut operands, at(f.e, s.lo))?
+    }
+    if !ast.is_none(s.hi) {
+        append(mut operands, at(f.e, s.hi))?
+    }
+    n := len(operands)
+    mut rendered := make(list[list[uint8]], c_allocator)
+    for range n {
+        append(mut rendered, make(list[uint8], c_allocator))?
+    }
+    mut j := n
+    for j > 0 {
+        j -%= 1
+        v := mut m.take()
+        if j >= 0 && j < len(rendered) {
+            rendered[j] = v
+        }
+    }
+    st := mut t.type_of(f.e)
+    mut ctypes := make(list[list[uint8]], c_allocator)
+    mut c0 := make(list[uint8], c_allocator)
+    append_c_type(mut t, st, mut c0)?
+    append(mut ctypes, c0)?
+    for i, op := range operands {
+        if i > 0 {
+            mut c := make(list[uint8], c_allocator)
+            append_operand_type(mut t, op, mut c)?
+            append(mut ctypes, c)?
+        }
+    }
+    mut name := make(list[uint8], c_allocator)
+    mut g.use_slice(mut t, st, ast.is_none(s.hi), mut name)?
+    steps := mut g.sequence(mut t, operands[:], mut rendered, ctypes[:], false)?
+    mut built := make(list[uint8], c_allocator)
+    append(mut built, name[:]...)?
+    append(mut built, '(')?
+    for i, r := range rendered {
+        if i == 0 {
+            append(mut built, r[:]...)?
+            if ast.is_none(s.lo) {
+                append(mut built, []uint8(", 0")...)?
+            }
+            continue
+        }
+        append(mut built, []uint8(", (int64_t)")...)?
+        append(mut built, r[:]...)?
+    }
+    append(mut built, ')')?
+    v := wrap_steps(steps[:], own built)?
+    mut m.give(own v)?
+    return noerror
+}
+
+// step_field_ref is Go's targetRef of a field: the place it is a field
+// of, then base.f_name.
+func (mut g Gen) step_field_ref(mut t typeck.Typed, f MFrame, mut m Machine) error {
+    sel := selector_of(t.prog.trees[:], f.e)
+    if f.step == 0 {
+        mut m.again(f, 1)?
+        mut m.push(r_target, at(f.e, sel.x), types.invalid, false)?
+        return noerror
+    }
+    base := mut m.take()
+    mut out := make(list[uint8], c_allocator)
+    append(mut out, base[:]...)?
+    append(mut out, '.')?
+    mut g.append_member(mut t, f.e, mut out)?
+    mut m.give(own out)?
+    return noerror
+}
+
+// view_arg renders e as a view of type view, Go's viewArg, call being the
+// call e is an argument of, or no node for a view returned.
+func (mut g Gen) view_arg(mut t typeck.Typed, e typeck.Key, view types.Type, call typeck.Key) (list[uint8], error) {
+    mut m := new_machine()
+    mut f := mframe(r_view_arg, e, view, false, 0)
+    f.k = call
+    append(mut m.frames, f)?
+    mut g.run(mut t, mut m)?
+    return mut m.take(), noerror
+}

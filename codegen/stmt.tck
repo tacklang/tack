@@ -92,7 +92,8 @@ func (mut g Gen) generate_stmt(mut t typeck.Typed, fn typeck.Key, s typeck.Key) 
         lines := mut g.generate_for_range(mut t, fn, s)?
         return lines, noerror
     case switch_stmt:
-        return make(list[Line], c_allocator), not_ported
+        lines := mut g.generate_switch(mut t, fn, s)?
+        return lines, noerror
     case defer_stmt:
         return make(list[Line], c_allocator), not_ported
     case region_stmt:
@@ -135,8 +136,8 @@ func (mut g Gen) generate_jump(jump []uint8) (list[Line], error) {
 
 // generate_simple_stmt lowers a statement that holds no other statement,
 // Go's generateSimpleStmt: a declaration, an assignment, an increment or
-// a decrement, or an expression. The statements of several values are
-// E2's.
+// a decrement, an expression, or a declaration or an assignment of
+// several values (see multi.tck).
 func (mut g Gen) generate_simple_stmt(mut t typeck.Typed, s typeck.Key) (list[Line], error) {
     switch kind_of(t.prog.trees[:], s) {
     case var_decl:
@@ -151,8 +152,15 @@ func (mut g Gen) generate_simple_stmt(mut t typeck.Typed, s typeck.Key) (list[Li
     case expr_stmt:
         lines := mut g.generate_expr_stmt(mut t, s)?
         return lines, noerror
+    case multi_var:
+        lines := mut g.generate_multi_var(mut t, s)?
+        return lines, noerror
+    case multi_assign:
+        lines := mut g.generate_multi_assign(mut t, s)?
+        return lines, noerror
     default:
     }
+    // Go's unknown statement type, which names it with %T.
     return make(list[Line], c_allocator), not_ported
 }
 
@@ -177,7 +185,7 @@ func (mut g Gen) generate_return(mut t typeck.Typed, fn typeck.Key, s typeck.Key
 // return_value renders the value a return gives, Go's returnValue: its
 // one value, a compound literal of fn's results struct holding several,
 // its values held in order when it shows, or empty for a bare return. A
-// view result is E2's.
+// view result is rendered as a view argument is, never copied.
 func (mut g Gen) return_value(mut t typeck.Typed, fn typeck.Key, s typeck.Key) (list[uint8], error) {
     mut ret ast.Return
     switch kind_of(t.prog.trees[:], s) {
@@ -196,10 +204,12 @@ func (mut g Gen) return_value(mut t typeck.Typed, fn typeck.Key, s typeck.Key) (
         rt := mut t.result(fn, i)
         view := mut t.table.is_view(rt)?
         if view {
-            return make(list[uint8], c_allocator), not_ported
+            x := mut g.view_arg(mut t, v, rt, no_key())?
+            append(mut rendered, x)?
+        } else {
+            x := mut g.expr(mut t, v, rt)?
+            append(mut rendered, x)?
         }
-        x := mut g.expr(mut t, v, rt)?
-        append(mut rendered, x)?
         append(mut operands, v)?
     }
     if n == 1 {
@@ -332,8 +342,8 @@ func (mut g Gen) generate_for(mut t typeck.Typed, fn typeck.Key, s typeck.Key) (
 // generate_clause_for lowers a three-clause loop to a C block holding
 // the init statement and a C for whose post expression is the post
 // statement, Go's generateClauseFor and clauseFor. The block is a scope
-// of its own. An assignment of several values as the post statement is
-// E2's.
+// of its own. An assignment of several values as the post statement
+// declares its temporaries after the init statement's lines.
 func (mut g Gen) generate_clause_for(mut t typeck.Typed, fn typeck.Key, s typeck.Key) (list[Line], error) {
     lp := for_of(t.prog.trees[:], s)
     append(mut g.scopes, Scope{loop: false})?
@@ -349,12 +359,17 @@ func (mut g Gen) generate_clause_for(mut t typeck.Typed, fn typeck.Key, s typeck
     }
     mut post := make(list[uint8], c_allocator)
     if !ast.is_none(lp.post) {
+        mut is_multi := false
         switch kind_of(t.prog.trees[:], at(s, lp.post)) {
         case multi_assign:
-            return make(list[Line], c_allocator), not_ported
+            is_multi = true
         default:
         }
-        mut g.post_expr(mut t, at(s, lp.post), mut post)?
+        if is_multi {
+            mut g.multi_assign_post(mut t, at(s, lp.post), mut init, mut post)?
+        } else {
+            mut g.post_expr(mut t, at(s, lp.post), mut post)?
+        }
     }
     body := mut g.block(mut t, fn, lp.body, true)?
     inner := mut g.loop_for(post[:], test[:], body[:])?
@@ -532,7 +547,11 @@ func (mut g Gen) generate_for_range(mut t typeck.Typed, fn typeck.Key, s typeck.
     default:
     }
     steps, place := mut g.expr_steps(mut t, xk)?
+    mut amp := make(list[uint8], c_allocator)
+    append(mut amp, '&')?
+    append(mut amp, place[:]...)?
     x := with_steps(steps[:], own place)?
+    addr := with_steps(steps[:], own amp)?
     xt := mut t.type_of(xk)
     is_map := mut t.table.is_map(xt)?
     if !ast.is_none(lp.elem) {
@@ -551,7 +570,7 @@ func (mut g Gen) generate_for_range(mut t typeck.Typed, fn typeck.Key, s typeck.
         return make(list[Line], c_allocator), not_ported
     }
     if !types.is_integer(xt) {
-        lines := mut g.collection_range(mut t, s, x[:], body[:])?
+        lines := mut g.collection_range(mut t, s, x[:], addr[:], body[:])?
         return lines, noerror
     }
     mut typ := make(list[uint8], c_allocator)
@@ -607,31 +626,54 @@ func binds_elem(t typeck.Typed, s typeck.Key) bool {
     return !is_blank(t.prog.trees[:], s.unit, v.name)
 }
 
-// collection_range lowers a range loop over a string, whose value is x
-// and lowered body body, Go's collectionRange: the string copied into a
-// const temporary, its bytes read from it. An array's, which a place may
-// be read from in place, is E2's.
-func (mut g Gen) collection_range(mut t typeck.Typed, s typeck.Key, x []uint8, body []Line) (list[Line], error) {
+// collection_range lowers a range loop over an array or a string, whose
+// value is x, its address addr, and lowered body body, Go's
+// collectionRange: the value copied into a const temporary, its elements
+// read from it, or, when the array cannot change while the loop runs
+// (see ranges_in_place), a pointer to it; an array's length a constant,
+// and an array no element variable reads only evaluated, cast to void.
+func (mut g Gen) collection_range(mut t typeck.Typed, s typeck.Key, x []uint8, addr []uint8, body []Line) (list[Line], error) {
     lp := range_of(t.prog.trees[:], s)
     xt := mut t.type_of(at(s, lp.x))
     r := mut g.temp("r")?
     k := mut g.temp("k")?
-    if mut t.table.is_array(xt)? {
-        return make(list[Line], c_allocator), not_ported
-    }
     mut n := make(list[uint8], c_allocator)
-    append(mut n, r[:]...)?
-    append(mut n, []uint8(".len")...)?
+    mut field := "ptr"
+    is_array := mut t.table.is_array(xt)?
+    if is_array {
+        count := mut t.table.len_of(xt)?
+        bytes.append_int(mut n, count)?
+        field = "e"
+    } else {
+        append(mut n, r[:]...)?
+        append(mut n, []uint8(".len")...)?
+    }
     mut ctype := make(list[uint8], c_allocator)
     append_c_type(mut t, xt, mut ctype)?
     mut eval := make(list[uint8], c_allocator)
-    append(mut eval, []uint8("const ")...)?
-    append(mut eval, ctype[:]...)?
-    append(mut eval, ' ')?
-    append(mut eval, r[:]...)?
-    append(mut eval, []uint8(" = ")...)?
-    append(mut eval, x...)?
-    append(mut eval, ';')?
+    mut read := make(list[uint8], c_allocator)
+    in_place_range := mut g.ranges_in_place(mut t, s)?
+    if in_place_range {
+        append(mut eval, []uint8("const ")...)?
+        append(mut eval, ctype[:]...)?
+        append(mut eval, []uint8(" *const ")...)?
+        append(mut eval, r[:]...)?
+        append(mut eval, []uint8(" = ")...)?
+        append(mut eval, addr...)?
+        append(mut eval, ';')?
+        append(mut read, []uint8("(*")...)?
+        append(mut read, r[:]...)?
+        append(mut read, ')')?
+    } else {
+        append(mut eval, []uint8("const ")...)?
+        append(mut eval, ctype[:]...)?
+        append(mut eval, ' ')?
+        append(mut eval, r[:]...)?
+        append(mut eval, []uint8(" = ")...)?
+        append(mut eval, x...)?
+        append(mut eval, ';')?
+        append(mut read, r[:]...)?
+    }
     mut vars := make(list[Line], c_allocator)
     if !ast.is_none(lp.var_node) {
         v := var_at(t.prog.trees[:], at(s, lp.var_node))
@@ -649,7 +691,8 @@ func (mut g Gen) collection_range(mut t typeck.Typed, s typeck.Key, x []uint8, b
     if in_place {
         return make(list[Line], c_allocator), not_ported
     }
-    if binds_elem(t, s) {
+    elem := binds_elem(t, s)
+    if elem {
         ek := at(s, lp.elem)
         mut d := make(list[uint8], c_allocator)
         append(mut d, []uint8("const ")...)?
@@ -657,15 +700,111 @@ func (mut g Gen) collection_range(mut t typeck.Typed, s typeck.Key, x []uint8, b
         append(mut d, ' ')?
         append_decl_name(mut t, ek, mut d)?
         append(mut d, []uint8(" = ")...)?
-        append(mut d, r[:]...)?
-        append(mut d, []uint8(".ptr[")...)?
+        append(mut d, read[:]...)?
+        append(mut d, '.')?
+        append(mut d, []uint8(field)...)?
+        append(mut d, '[')?
         append(mut d, k[:]...)?
         append(mut d, []uint8("];")...)?
         mut g.add_line(mut vars, d[:])?
     }
+    if is_array && !elem {
+        eval = make(list[uint8], c_allocator)
+        append(mut eval, []uint8("(void)")...)?
+        append(mut eval, x...)?
+        append(mut eval, ';')?
+    }
     append(mut vars, body...)?
     lines := mut g.range_block(eval[:], []uint8("int64_t"), k[:], n[:], vars[:])?
     return lines, noerror
+}
+
+// ranges_in_place reports whether the range loop s can read the elements
+// of the array it ranges over where they are, Go's rangesInPlace: it
+// binds the element, the array is a place, and no statement of the body
+// writes the variable it starts from, nor, for a mutable global, calls a
+// function.
+func (mut g Gen) ranges_in_place(mut t typeck.Typed, s typeck.Key) (bool, error) {
+    lp := range_of(t.prog.trees[:], s)
+    xk := at(s, lp.x)
+    root, has_root := root_of(t.prog.trees[:], xk)
+    if !has_root {
+        return false, noerror
+    }
+    arr := mut t.table.is_array(mut t.type_of(xk))?
+    if !arr || !binds_elem(t, s) {
+        return false, noerror
+    }
+    decl, bound := def_key(t.prog.trees[:], root)
+    mut global := false
+    if bound {
+        switch kind_of(t.prog.trees[:], decl) {
+        case var_decl(v):
+            _, is_global := g.globals[decl]
+            global = is_global && v.mutable
+        default:
+        }
+    }
+    n := node_count(t.prog.trees[:], s.unit, lp.body)
+    for i := range n {
+        st := node_at(t.prog.trees[:], s.unit, lp.body, i)
+        writes := writes_to(t, st, decl, bound)?
+        if writes {
+            return false, noerror
+        }
+        if global {
+            calls := calls_func(mut t, st)?
+            if calls {
+                return false, noerror
+            }
+        }
+    }
+    return true, noerror
+}
+
+// writes_to reports whether stmt, at any depth, assigns, increments,
+// decrements or passes as mut decl or a part of it, Go's writesTo: a
+// target whose root is bound to what decl is, Go's root.Def == decl,
+// an unbound root matching an unbound decl, both nil in Go.
+func writes_to(t typeck.Typed, stmt typeck.Key, decl typeck.Key, bound bool) (bool, error) {
+    mut stack := make(list[typeck.Key], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    mut targets := make(list[typeck.Key], c_allocator)
+    append(mut stack, stmt)?
+    for len(stack) > 0 {
+        k, has := pop(mut stack)
+        if !has {
+            break
+        }
+        for len(targets) > 0 {
+            pop(mut targets)
+        }
+        switch kind_of(t.prog.trees[:], k) {
+        case assign(a):
+            append(mut targets, at(k, a.target))?
+        case inc_dec(d):
+            append(mut targets, at(k, d.target))?
+        case multi_assign(ma):
+            nt := node_count(t.prog.trees[:], k.unit, ma.targets)
+            for i := range nt {
+                append(mut targets, node_at(t.prog.trees[:], k.unit, ma.targets, i))?
+            }
+        case mut_arg(x):
+            append(mut targets, at(k, x))?
+        default:
+        }
+        for _, tk := range targets {
+            r, ok := root_of(t.prog.trees[:], tk)
+            if ok {
+                d, b := def_key(t.prog.trees[:], r)
+                if b == bound && (!b || d == decl) {
+                    return true, noerror
+                }
+            }
+        }
+        push_children(t.prog.trees[:], k, mut kids, mut stack)?
+    }
+    return false, noerror
 }
 
 // range_block assembles a lowered range loop, Go's rangeBlock: a C block
@@ -860,11 +999,11 @@ func (mut g Gen) generate_inc_dec(mut t typeck.Typed, s typeck.Key) (list[Line],
 }
 
 // generate_expr_stmt lowers an expression statement, Go's
-// generateExprStmt: a call of a declared function or of a builtin with a
-// C body, or an expression that only gives a value, a conversion or len,
-// evaluated and dropped. A ?, a method call, a union's construction and
-// the generic builtins that change a list, a map or a pool, swap, drop
-// and make are the later stages' (see doc.tck).
+// generateExprStmt: an expression that only gives a value, a union
+// built, a conversion or len, evaluated and dropped; a call of a method,
+// of a declared function or of a builtin with a C body; and swap. A ?
+// and the generic builtins that change a list, a map or a pool, drop and
+// make, are E3's.
 func (mut g Gen) generate_expr_stmt(mut t typeck.Typed, s typeck.Key) (list[Line], error) {
     mut es ast.ExprStmt
     switch kind_of(t.prog.trees[:], s) {
@@ -873,32 +1012,49 @@ func (mut g Gen) generate_expr_stmt(mut t typeck.Typed, s typeck.Key) (list[Line
     default:
     }
     x := at(s, es.x)
+    switch kind_of(t.prog.trees[:], x) {
+    case question:
+        return make(list[Line], c_allocator), not_ported
+    default:
+    }
+    _, _, built := construction_of(t, x)
     mut cl ast.Call
+    mut is_call := false
     switch kind_of(t.prog.trees[:], x) {
     case call(c):
         cl = c
-    default:
-        // A ?, a union's construction by a selector, and Go's unknown
-        // expression type, which names it with %T.
-        return make(list[Line], c_allocator), not_ported
-    }
-    switch kind_of(t.prog.trees[:], at(x, cl.fn)) {
-    case selector:
-        return make(list[Line], c_allocator), not_ported
+        is_call = true
     default:
     }
-    if mut t.conv(x) != types.invalid || is_builtin_named(t, x, "len") {
+    if built || is_call && (mut t.conv(x) != types.invalid || is_builtin_named(t, x, "len")) {
         lines := mut g.dropped_value(mut t, x)?
+        return lines, noerror
+    }
+    if !is_call {
+        // Go's unknown expression type, which names it with %T.
+        return make(list[Line], c_allocator), not_ported
+    }
+    if has_receiver(t, x) || !typeck_no_key(mut t.method(x)) {
+        v := mut g.call_stmt(mut t, x)?
+        mut l := make(list[uint8], c_allocator)
+        append(mut l, v[:]...)?
+        append(mut l, ';')?
+        mut lines := make(list[Line], c_allocator)
+        mut g.add_line(mut lines, l[:])?
         return lines, noerror
     }
     if is_builtin_named(t, x, "pop") || is_builtin_named(t, x, "remove") ||
         is_builtin_named(t, x, "replace") || is_builtin_named(t, x, "delete") ||
-        is_builtin_named(t, x, "swap") || is_builtin_named(t, x, "drop") ||
-        is_builtin_named(t, x, "make") {
+        is_builtin_named(t, x, "drop") || is_builtin_named(t, x, "make") {
         return make(list[Line], c_allocator), not_ported
+    }
+    if is_builtin_named(t, x, "swap") {
+        lines := mut g.swap_stmt(mut t, x)?
+        return lines, noerror
     }
     _, is_name := ident_of(t.prog.trees[:], at(x, cl.fn))
     if !is_name {
+        // Go's unknown expression type, which names it with %T.
         return make(list[Line], c_allocator), not_ported
     }
     v := mut g.call_stmt(mut t, x)?

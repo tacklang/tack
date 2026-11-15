@@ -207,15 +207,38 @@ func (mut g Gen) pool_var(mut t typeck.Typed, v typeck.Key) error {
 }
 
 // pool_const pools every string of c, the computed value of a global, Go's
-// poolConst: a string's. One inside an array's elements, a struct's
-// fields or a union's payload is a composite type's, E2's.
-func (mut g Gen) pool_const(t typeck.Typed, c typeck.Const) error {
-    if c.kind == typeck.cv_str {
-        mut g.add_str(const_str(t, c))?
-        return noerror
-    }
-    if c.kind == typeck.cv_list || c.kind == typeck.cv_union {
-        return not_ported
+// poolConst: a string, or one inside an array's elements, a struct's
+// fields or a union's payload, in order. Go recurses a frame a level of
+// the value; here the values wait on a stack of their own.
+func (mut g Gen) pool_const(t typeck.Typed, root typeck.Const) error {
+    mut stack := make(list[typeck.Const], c_allocator)
+    append(mut stack, root)?
+    for len(stack) > 0 {
+        c, has := pop(mut stack)
+        if !has {
+            break
+        }
+        if c.kind == typeck.cv_str {
+            mut g.add_str(const_str(t, c))?
+            continue
+        }
+        if c.kind == typeck.cv_list {
+            mut i := c.count
+            for i > 0 {
+                i -%= 1
+                item, ok := t.store.items[c.first +% i]
+                if ok {
+                    append(mut stack, item)?
+                }
+            }
+            continue
+        }
+        if c.kind == typeck.cv_union && c.first >= 0 {
+            item, ok := t.store.items[c.first]
+            if ok {
+                append(mut stack, item)?
+            }
+        }
     }
     return noerror
 }

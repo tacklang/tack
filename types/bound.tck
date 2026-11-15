@@ -20,7 +20,8 @@ import text from "std/text"
 // struct's fields a part at a time, param_count and param, result_count
 // and result, case_count, case_at and case_name, find_case,
 // field_count, field_type, field_name and find_field; kind_name, the
-// dump's name of a type's kind; the constructors, array_of to func_of,
+// dump's name of a type's kind; owner, the package that declares a
+// struct or a union, which Go's backend reads from its declaration; the constructors, array_of to func_of,
 // which bind nothing, as Go's do not; and count and errors.
 pub type Bound struct {
     t Table
@@ -320,6 +321,15 @@ pub func (mut b Bound) find_field(typ Type, name []uint8) (Type, int64, bool, er
 pub func (mut b Bound) kind_name(typ Type) (string, error) {
     r := mut b.t.bound(typ)?
     return b.t.kind_name(r), noerror
+}
+
+// owner is the package the struct or union type typ stands for under
+// the binding in force is declared in, an index among the program's
+// packages, or -1 for none, which Go's backend reads from the
+// declaration it maps each struct to (see bound_owner).
+pub func (mut b Bound) owner(typ Type) (int64, error) {
+    r := mut b.t.bound_owner(typ)?
+    return r, noerror
 }
 
 // count is Go's Count: how many types the Table has added.

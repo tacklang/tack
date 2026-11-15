@@ -1,0 +1,361 @@
+package codegen
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// Unions, Go's union.go but for its free helpers, E3's, and
+// constructionValue, which the expression machine renders (see
+// values.tck): a union's C struct and its equality helper (unionTagType,
+// caseMember, emitUnionDef, payloads, emitUnionEquality), and a switch
+// on a union (isUnionSwitch, generateUnionSwitch, unionChain,
+// closeChain, holdUnion, tryOrder, matchesInPlace, unionTest,
+// unionClauseBody). unionConst renders with every computed constant (see
+// struct.tck).
+
+// union_tag_type returns the C type the tag of a union of n cases is
+// held in, Go's unionTagType: the narrowest unsigned type that holds
+// every position.
+func union_tag_type(n int64) string {
+    if n <= 256 {
+        return "uint8_t"
+    }
+    if n <= 65536 {
+        return "uint16_t"
+    }
+    return "uint32_t"
+}
+
+// emit_union_def defines the C struct a union type lowers to, Go's
+// emitUnionDef: its tag, and a C union of a member for each case with a
+// payload, c_ and the case's name, or one unused member for none.
+func (mut g Gen) emit_union_def(mut t typeck.Typed, typ types.Type) error {
+    n := mut t.table.case_count(typ)?
+    fmt.appendf(mut g.buf, "typedef struct {\n    %s tag;\n    union {\n", union_tag_type(n))?
+    mut members int64 = 0
+    for i := range n {
+        uc, ok := mut t.table.case_at(typ, i)?
+        if !ok || !uc.payload {
+            continue
+        }
+        append(mut g.buf, []uint8("        ")...)?
+        append_c_type(mut t, uc.typ, mut g.buf)?
+        append(mut g.buf, []uint8(" c_")...)?
+        mut t.table.case_name(uc, mut g.buf)?
+        append(mut g.buf, []uint8(";\n")...)?
+        members +%= 1
+    }
+    if members == 0 {
+        append(mut g.buf, []uint8("        char unused;\n")...)?
+    }
+    append(mut g.buf, []uint8("    } u;\n} ")...)?
+    append_struct_name(mut t, typ, mut g.buf)?
+    append(mut g.buf, []uint8(";\n\n")...)?
+    return noerror
+}
+
+// emit_union_equality writes the equality helper of a union type, Go's
+// emitUnionEquality: the tags compared, then, for the case both hold, the
+// payloads.
+func (mut g Gen) emit_union_equality(mut t typeck.Typed, typ types.Type) error {
+    mut name := make(list[uint8], c_allocator)
+    append_struct_name(mut t, typ, mut name)?
+    append_helper_head(mut t, typ, name[:], mut g.buf)?
+    append(mut g.buf, []uint8("    if (a->tag != b->tag) {\n        return false;\n    }\n")...)?
+    append(mut g.buf, []uint8("    switch (a->tag) {\n")...)?
+    n := mut t.table.case_count(typ)?
+    for i := range n {
+        uc, ok := mut t.table.case_at(typ, i)?
+        if !ok || !uc.payload {
+            continue
+        }
+        mut member := make(list[uint8], c_allocator)
+        append(mut member, []uint8("->u.c_")...)?
+        mut t.table.case_name(uc, mut member)?
+        mut l := make(list[uint8], c_allocator)
+        append(mut l, 'a')?
+        append(mut l, member[:]...)?
+        mut r := make(list[uint8], c_allocator)
+        append(mut r, 'b')?
+        append(mut r, member[:]...)?
+        fmt.appendf(mut g.buf, "    case %d:\n        return ", i)?
+        mut test := make(list[uint8], c_allocator)
+        mut g.append_equal_expr(mut t, uc.typ, l[:], r[:], mut test)?
+        append(mut g.buf, test[:]...)?
+        append(mut g.buf, []uint8(";\n")...)?
+    }
+    append(mut g.buf, []uint8("    default:\n        return true;\n    }\n}\n\n")...)?
+    return noerror
+}
+
+// switch_of returns the Switch the node k is.
+func switch_of(trees []ast.File, k typeck.Key) ast.Switch {
+    switch kind_of(trees, k) {
+    case switch_stmt(s):
+        return s
+    default:
+    }
+    mut z ast.Switch
+    return z
+}
+
+// clause_of returns the CaseClause the node k is.
+func clause_of(trees []ast.File, k typeck.Key) ast.CaseClause {
+    switch kind_of(trees, k) {
+    case case_clause(c):
+        return c
+    default:
+    }
+    mut z ast.CaseClause
+    return z
+}
+
+// is_type_switch reports whether the switch s is a type switch, Go's
+// IsTypeSwitch: its tag is x.(type).
+func is_type_switch(t typeck.Typed, k typeck.Key, s ast.Switch) bool {
+    switch kind_of(t.prog.trees[:], at(k, s.tag)) {
+    case type_assert(ta):
+        return ast.is_none(ta.type_expr)
+    default:
+    }
+    return false
+}
+
+// is_union_switch reports whether the switch s, k, matches the cases of
+// a union, Go's isUnionSwitch: its tag is a union's value, not x.(type).
+func is_union_switch(mut t typeck.Typed, k typeck.Key, s ast.Switch) (bool, error) {
+    if ast.is_none(s.tag) || is_type_switch(t, k, s) {
+        return false, noerror
+    }
+    u := mut t.table.is_union(mut t.type_of(at(k, s.tag)))?
+    return u, noerror
+}
+
+// clauses_in_order returns the clauses of the switch s, k, in the order
+// they are tried, Go's tryOrder: every one with values in source order,
+// then the default.
+func clauses_in_order(t typeck.Typed, k typeck.Key, s ast.Switch) (list[typeck.Key], error) {
+    mut out := make(list[typeck.Key], c_allocator)
+    n := node_count(t.prog.trees[:], k.unit, s.cases)
+    for i := range n {
+        c := node_at(t.prog.trees[:], k.unit, s.cases, i)
+        if !clause_of(t.prog.trees[:], c).is_default {
+            append(mut out, c)?
+        }
+    }
+    for i := range n {
+        c := node_at(t.prog.trees[:], k.unit, s.cases, i)
+        if clause_of(t.prog.trees[:], c).is_default {
+            append(mut out, c)?
+            break
+        }
+    }
+    return out, noerror
+}
+
+// case_pattern_name returns the name of the case the value v of a
+// switch on a union names, Go's CasePattern's name: v itself, a name, or
+// the name called, int(n)'s int.
+func case_pattern_name(t typeck.Typed, v typeck.Key) []uint8 {
+    switch kind_of(t.prog.trees[:], v) {
+    case ident(nm):
+        return text_of(t, v.unit, nm.name)
+    case call(cl):
+        nm, ok := ident_of(t.prog.trees[:], at(v, cl.fn))
+        if ok {
+            return text_of(t, v.unit, nm.name)
+        }
+    default:
+    }
+    return t.store.bytes[0:0]
+}
+
+// generate_union_switch lowers s, a switch on a union, in fn, Go's
+// generateUnionSwitch: the tag evaluated once, held through a pointer
+// when a clause tests it or binds its payload, and the clauses as a chain
+// of ifs on its tag (see union_chain), in a C block of their own.
+func (mut g Gen) generate_union_switch(mut t typeck.Typed, fn typeck.Key, k typeck.Key) (list[Line], error) {
+    s := switch_of(t.prog.trees[:], k)
+    tk := at(k, s.tag)
+    steps, place := mut g.expr_steps(mut t, tk)?
+    mut amp := make(list[uint8], c_allocator)
+    append(mut amp, '&')?
+    append(mut amp, place[:]...)?
+    tag := with_steps(steps[:], own place)?
+    addr := with_steps(steps[:], own amp)?
+    ref := mut g.temp("s")?
+    mut used := false
+    chain := mut g.union_chain(mut t, fn, k, ref[:], mut used)?
+    mut inner := make(list[Line], c_allocator)
+    if used {
+        mut g.hold_union(mut t, tk, tag[:], addr[:], ref[:], mut inner)?
+    } else {
+        mut l := make(list[uint8], c_allocator)
+        append(mut l, []uint8("(void)(")...)?
+        append(mut l, tag[:]...)?
+        append(mut l, []uint8(");")...)?
+        mut g.add_line(mut inner, l[:])?
+    }
+    append(mut inner, chain[:]...)?
+    mut out := make(list[Line], c_allocator)
+    mut g.add_line(mut out, []uint8("{"))?
+    append_indented(mut out, inner[:])?
+    mut g.add_line(mut out, []uint8("}"))?
+    return out, noerror
+}
+
+// union_chain lowers the clauses of the switch k on a union, held through
+// the pointer ref, in fn, to a chain of ifs, setting used when anything
+// in it reads ref, Go's unionChain and closeChain: the last clause, when
+// it is the default or the switch names every case, is the final else.
+func (mut g Gen) union_chain(mut t typeck.Typed, fn typeck.Key, k typeck.Key, ref []uint8, mut used bool) (list[Line], error) {
+    s := switch_of(t.prog.trees[:], k)
+    typ := mut t.type_of(at(k, s.tag))
+    exhaustive := mut t.is_exhaustive(k)
+    clauses := clauses_in_order(t, k, s)?
+    mut lines := make(list[Line], c_allocator)
+    for i, c := range clauses {
+        cl := clause_of(t.prog.trees[:], c)
+        last := i == len(clauses) -% 1 && (cl.is_default || exhaustive)
+        mut bound := false
+        body := mut g.union_clause_body(mut t, fn, typ, c, ref, mut bound)?
+        mut header := make(list[uint8], c_allocator)
+        if len(lines) > 0 {
+            append(mut header, []uint8("} else ")...)?
+        }
+        if last {
+            append(mut header, '{')?
+        } else {
+            append(mut header, []uint8("if (")...)?
+            mut g.append_union_test(mut t, typ, c, ref, mut header)?
+            append(mut header, []uint8(") {")...)?
+        }
+        used = used || bound || !last
+        mut g.add_line(mut lines, header[:])?
+        append_indented(mut lines, body[:])?
+    }
+    if len(lines) > 0 {
+        mut g.add_line(mut lines, []uint8("}"))?
+    } else if exhaustive {
+        mut g.add_line(mut lines, []uint8("__builtin_unreachable();"))?
+    }
+    return lines, noerror
+}
+
+// hold_union appends to out the declarations that hold the union tag,
+// rendered as rendered, with its address addr, through the pointer ref,
+// Go's holdUnion: a pointer to the place itself when it can be matched in
+// place, and otherwise to a copy.
+func (mut g Gen) hold_union(mut t typeck.Typed, tag typeck.Key, rendered []uint8, addr []uint8, ref []uint8, mut out list[Line]) error {
+    mut ctype := make(list[uint8], c_allocator)
+    append_c_type(mut t, mut t.type_of(tag), mut ctype)?
+    in_place := mut g.matches_in_place(mut t, tag)?
+    mut l := make(list[uint8], c_allocator)
+    if in_place {
+        fmt.appendf(mut l, "const %s *const %s = %s;", ctype[:], ref, addr)?
+        mut g.add_line(mut out, l[:])?
+        return noerror
+    }
+    value := mut g.temp("u")?
+    fmt.appendf(mut l, "const %s %s = %s;", ctype[:], value[:], rendered)?
+    mut g.add_line(mut out, l[:])?
+    mut p := make(list[uint8], c_allocator)
+    fmt.appendf(mut p, "const %s *const %s = &%s;", ctype[:], ref, value[:])?
+    mut g.add_line(mut out, p[:])?
+    return noerror
+}
+
+// matches_in_place reports whether a switch on a union can hold a pointer
+// to tag, the place it switches on, Go's matchesInPlace: a variable or a
+// parameter, or a field or an element of one, that calls nothing and
+// moves nothing, and is no mutable global.
+func (mut g Gen) matches_in_place(mut t typeck.Typed, tag typeck.Key) (bool, error) {
+    root, has_root := root_of(t.prog.trees[:], tag)
+    if !has_root {
+        return false, noerror
+    }
+    calls := calls_func(mut t, tag)?
+    if calls {
+        return false, noerror
+    }
+    mv := moves_in(mut t, tag)?
+    if mv {
+        return false, noerror
+    }
+    d, bound := def_key(t.prog.trees[:], root)
+    if !bound {
+        return true, noerror
+    }
+    switch kind_of(t.prog.trees[:], d) {
+    case var_decl(v):
+        _, global := g.globals[d]
+        return !global || !v.mutable, noerror
+    default:
+    }
+    return true, noerror
+}
+
+// append_union_test appends the C test of the clause c of a switch on the
+// union typ held through the pointer ref, Go's unionTest: whether the tag
+// is any of the cases it names.
+func (mut g Gen) append_union_test(mut t typeck.Typed, typ types.Type, c typeck.Key, ref []uint8, mut out list[uint8]) error {
+    cl := clause_of(t.prog.trees[:], c)
+    n := node_count(t.prog.trees[:], c.unit, cl.values)
+    if n > 1 {
+        append(mut out, '(')?
+    }
+    for i := range n {
+        if i > 0 {
+            append(mut out, []uint8(") || (")...)?
+        }
+        v := node_at(t.prog.trees[:], c.unit, cl.values, i)
+        mut name := make(list[uint8], c_allocator)
+        append(mut name, case_pattern_name(t, v)...)?
+        _, at_case, _ := mut t.table.find_case(typ, name[:])?
+        fmt.appendf(mut out, "%s->tag == %d", ref, at_case)?
+    }
+    if n > 1 {
+        append(mut out, ')')?
+    }
+    return noerror
+}
+
+// union_clause_body lowers the body of the clause c of a switch on the
+// union typ held through the pointer ref, in fn, Go's unionClauseBody:
+// after the declaration of the variable it binds the payload to, a
+// pointer to it, when the clause names one case and the body reads the
+// variable, which bound then says.
+func (mut g Gen) union_clause_body(mut t typeck.Typed, fn typeck.Key, typ types.Type, c typeck.Key, ref []uint8, mut bound bool) (list[Line], error) {
+    cl := clause_of(t.prog.trees[:], c)
+    v := at(c, cl.var_node)
+    if !ast.is_none(cl.var_node) && node_count(t.prog.trees[:], c.unit, cl.values) == 1 {
+        _, read := g.frame.read[v]
+        bound = read
+    }
+    if bound {
+        put(mut g.in_place, v, true)?
+    }
+    body := mut g.block(mut t, fn, cl.body, false)?
+    if !bound {
+        return body, noerror
+    }
+    value := node_at(t.prog.trees[:], c.unit, cl.values, 0)
+    mut name := make(list[uint8], c_allocator)
+    append(mut name, case_pattern_name(t, value)...)?
+    uc, _, _ := mut t.table.find_case(typ, name[:])?
+    mut d := make(list[uint8], c_allocator)
+    append(mut d, []uint8("const ")...)?
+    append_c_type(mut t, uc.typ, mut d)?
+    append(mut d, []uint8(" *const ")...)?
+    append_decl_name(mut t, v, mut d)?
+    append(mut d, []uint8(" = &")...)?
+    append(mut d, ref...)?
+    append(mut d, []uint8("->u.c_")...)?
+    mut t.table.case_name(uc, mut d)?
+    append(mut d, ';')?
+    mut out := make(list[Line], c_allocator)
+    mut g.add_line(mut out, d[:])?
+    append(mut out, body[:]...)?
+    return out, noerror
+}

@@ -1,0 +1,1125 @@
+package codegen
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import fmt from "std/fmt"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// Several values, Go's gen.go from generateMultiVar to bounds but for
+// generateVar: a MultiVar's and a MultiAssign's source evaluated once
+// into const temporaries, each variable or target then given the value
+// in its position (generateMultiVar, holdTemps, generateMultiAssign,
+// multiAssignPost, fieldAssigns); and the sources, a call of several
+// results and the checked forms, v, ok := of a division, of arithmetic,
+// of a conversion, of an element, of a string's slice and of a type
+// assertion, with what proves a value fits (multiValues, callValues,
+// divisionValues, divisionOk, arithValues, constantValues,
+// conversionValues, fitsExpr, floatFitsExpr, targetFitsExpr, withinExpr
+// in array.tck, bounds); with array.go's indexValues, heldIndexed,
+// indexChanges, passesAsMut and indexIn, slice.go's sliceValues and
+// sliceIn, and any.go's assertValues. A ? after a call of several
+// results, and the checked forms of pop, remove, add, add_all, insert,
+// delete and of a map's or a pool's element, are E3's.
+
+// MultiTemp is one temporary a MultiSource is held in, Go's multiTemp:
+// its C type and the expression that initializes it, a pointer to const
+// ctype when is_ref and to ctype when is_mut, or, when flag, the flag of
+// checked arithmetic, whose initializer reads the temporaries before it
+// (see append_init_of).
+type MultiTemp struct {
+    ctype list[uint8]
+    init list[uint8]
+    is_ref bool
+    is_mut bool
+    flag bool
+    op ast.BinaryOp
+}
+
+// The kinds of MultiSource, each Go's field closure of one source.
+var ms_call uint8 = 1
+var ms_division uint8 = 2
+var ms_arith uint8 = 3
+var ms_constant uint8 = 4
+var ms_conversion uint8 = 5
+var ms_index uint8 = 6
+var ms_slice uint8 = 7
+var ms_assert uint8 = 8
+
+// MultiSource is what gives a MultiVar or a MultiAssign its values, Go's
+// multiSource: its temporaries, and what its field renders the value in
+// a position from, by kind: the expression, k; a constant's value,
+// value; an operation's operator and type; a conversion's or an
+// element's types; the zero value it gives when it fails; and an index's
+// held operand, held, read through a pointer when held_ref.
+type MultiSource struct {
+    kind uint8
+    temps list[MultiTemp]
+    k typeck.Key
+    value list[uint8]
+    op ast.BinaryOp
+    typ types.Type
+    to types.Type
+    zero list[uint8]
+    held bool
+    held_ref bool
+}
+
+// new_source returns a MultiSource of the kind kind of k, with nothing
+// in it.
+func new_source(kind uint8, k typeck.Key) MultiSource {
+    return MultiSource{
+        kind: kind,
+        temps: make(list[MultiTemp], c_allocator),
+        k: k,
+        value: make(list[uint8], c_allocator),
+        op: ast.op_invalid,
+        typ: types.invalid,
+        to: types.invalid,
+        zero: make(list[uint8], c_allocator),
+        held: false,
+        held_ref: false,
+    }
+}
+
+// plain_temp returns a MultiTemp of the C type ctype initialized with
+// init.
+func plain_temp(own ctype list[uint8], own init list[uint8]) MultiTemp {
+    return MultiTemp{ctype: ctype, init: init, is_ref: false, is_mut: false, flag: false, op: ast.op_invalid}
+}
+
+// append_init_of appends tm's initializer, given the names of the
+// temporaries held before it, Go's multiTemp.initOf: init, or, for the
+// flag of checked arithmetic, clang's overflow builtin on them.
+func append_init_of(tm MultiTemp, prev []list[uint8], mut out list[uint8]) error {
+    if !tm.flag {
+        append(mut out, tm.init[:]...)?
+        return noerror
+    }
+    mut builtin := "__builtin_mul_overflow"
+    if tm.op == ast.op_add {
+        builtin = "__builtin_add_overflow"
+    } else if tm.op == ast.op_sub {
+        builtin = "__builtin_sub_overflow"
+    }
+    mut l := make(list[uint8], c_allocator)
+    mut r := make(list[uint8], c_allocator)
+    if len(prev) == 2 {
+        mut a := make(list[uint8], c_allocator)
+        copy_name(prev, 0, mut a)?
+        mut b := make(list[uint8], c_allocator)
+        copy_name(prev, 1, mut b)?
+        append(mut l, a[:]...)?
+        append(mut r, b[:]...)?
+    } else {
+        mut a := make(list[uint8], c_allocator)
+        copy_name(prev, 0, mut a)?
+        fmt.appendf(mut l, "(%s)0", tm.init[:])?
+        append(mut r, a[:]...)?
+    }
+    fmt.appendf(mut out, "!%s(%s, %s, &(%s){0})", builtin, l[:], r[:], tm.init[:])?
+    return noerror
+}
+
+// append_temp_decl appends the declaration of the temporary name, without
+// a semicolon or an initializer, Go's multiTemp.decl: a tm.ctype
+// qualified by qual, "const " or "", or a pointer to const ctype for a
+// ref, or to ctype for a mut, which the pointer itself is when qual is
+// "const ".
+func append_temp_decl(tm MultiTemp, qual string, name []uint8, mut out list[uint8]) error {
+    if tm.is_ref {
+        fmt.appendf(mut out, "const %s *%s%s", tm.ctype[:], qual, name)?
+        return noerror
+    }
+    if tm.is_mut {
+        fmt.appendf(mut out, "%s *%s%s", tm.ctype[:], qual, name)?
+        return noerror
+    }
+    fmt.appendf(mut out, "%s%s %s", qual, tm.ctype[:], name)?
+    return noerror
+}
+
+// copy_name appends to out the i'th of names, or nothing for an i out
+// of range.
+func copy_name(names []list[uint8], i int64, mut out list[uint8]) error {
+    if i >= 0 && i < len(names) {
+        append(mut out, names[i][:]...)?
+    }
+    return noerror
+}
+
+// hold_temps names a const temporary for each of src's temporaries and
+// declares it, initialized, into lines, returning the names, Go's
+// holdTemps.
+func (mut g Gen) hold_temps(src MultiSource, mut lines list[Line]) (list[list[uint8]], error) {
+    mut names := make(list[list[uint8]], c_allocator)
+    for _, tm := range src.temps {
+        name := mut g.temp("r")?
+        mut l := make(list[uint8], c_allocator)
+        append_temp_decl(tm, "const ", name[:], mut l)?
+        append(mut l, []uint8(" = ")...)?
+        append_init_of(tm, names[:], mut l)?
+        append(mut l, ';')?
+        mut g.add_line(mut lines, l[:])?
+        append(mut names, name)?
+    }
+    return names, noerror
+}
+
+// multi_var_of returns the MultiVar the node k is.
+func multi_var_of(trees []ast.File, k typeck.Key) ast.MultiVar {
+    switch kind_of(trees, k) {
+    case multi_var(m):
+        return m
+    default:
+    }
+    mut z ast.MultiVar
+    return z
+}
+
+// multi_assign_of returns the MultiAssign the node k is.
+func multi_assign_of(trees []ast.File, k typeck.Key) ast.MultiAssign {
+    switch kind_of(trees, k) {
+    case multi_assign(m):
+        return m
+    default:
+    }
+    mut z ast.MultiAssign
+    return z
+}
+
+// generate_multi_var declares the variables of the MultiVar k, Go's
+// generateMultiVar: its source held once in const temporaries, then each
+// variable but _ declared from the value in its position, const unless
+// it is mutable or owns. One that owns, whose free its block's chain
+// runs, is E3's.
+func (mut g Gen) generate_multi_var(mut t typeck.Typed, k typeck.Key) (list[Line], error) {
+    mv := multi_var_of(t.prog.trees[:], k)
+    src := mut g.multi_values(mut t, at(k, mv.value))?
+    mut lines := make(list[Line], c_allocator)
+    names := mut g.hold_temps(src, mut lines)?
+    n := node_count(t.prog.trees[:], k.unit, mv.vars)
+    for i := range n {
+        v := node_at(t.prog.trees[:], k.unit, mv.vars, i)
+        vr := var_at(t.prog.trees[:], v)
+        if is_blank(t.prog.trees[:], v.unit, vr.name) {
+            continue
+        }
+        typ := mut t.decl_type(v)
+        owned := mut t.table.owned(typ)?
+        mut l := make(list[uint8], c_allocator)
+        if !vr.mutable && !owned {
+            append(mut l, []uint8("const ")...)?
+        }
+        append_c_type(mut t, typ, mut l)?
+        append(mut l, ' ')?
+        append_decl_name(mut t, v, mut l)?
+        append(mut l, []uint8(" = ")...)?
+        mut g.append_field(mut t, src, names[:], i, mut l)?
+        append(mut l, ';')?
+        mut g.add_line(mut lines, l[:])?
+    }
+    for i := range n {
+        v := node_at(t.prog.trees[:], k.unit, mv.vars, i)
+        vr := var_at(t.prog.trees[:], v)
+        if is_blank(t.prog.trees[:], v.unit, vr.name) {
+            continue
+        }
+        owned := mut t.table.owned(mut t.decl_type(v))?
+        if owned {
+            // addFrees adds the variable's free to its block's chain,
+            // E3's.
+            return lines, not_ported
+        }
+    }
+    return lines, noerror
+}
+
+// generate_multi_assign lowers the MultiAssign k, Go's
+// generateMultiAssign: its source held in const temporaries, then each
+// target but _ assigned the value in its position.
+func (mut g Gen) generate_multi_assign(mut t typeck.Typed, k typeck.Key) (list[Line], error) {
+    ma := multi_assign_of(t.prog.trees[:], k)
+    src := mut g.multi_values(mut t, at(k, ma.value))?
+    mut lines := make(list[Line], c_allocator)
+    names := mut g.hold_temps(src, mut lines)?
+    assigns := mut g.field_assigns(mut t, k, src, names[:])?
+    for _, a := range assigns {
+        mut l := make(list[uint8], c_allocator)
+        append(mut l, a[:]...)?
+        append(mut l, ';')?
+        mut g.add_line(mut lines, l[:])?
+    }
+    return lines, noerror
+}
+
+// multi_assign_post lowers the MultiAssign k used as a three-clause
+// loop's post statement, Go's multiAssignPost: the temporaries' plain
+// declarations appended to decls, for the loop's block, and one C
+// expression, appended to post, that assigns them and then each target,
+// joined with the comma operator.
+func (mut g Gen) multi_assign_post(mut t typeck.Typed, k typeck.Key, mut decls list[Line], mut post list[uint8]) error {
+    ma := multi_assign_of(t.prog.trees[:], k)
+    src := mut g.multi_values(mut t, at(k, ma.value))?
+    mut names := make(list[list[uint8]], c_allocator)
+    mut exprs := make(list[list[uint8]], c_allocator)
+    for _, tm := range src.temps {
+        name := mut g.temp("r")?
+        mut d := make(list[uint8], c_allocator)
+        append_temp_decl(tm, "", name[:], mut d)?
+        append(mut d, ';')?
+        mut g.add_line(mut decls, d[:])?
+        mut e := make(list[uint8], c_allocator)
+        append(mut e, name[:]...)?
+        append(mut e, []uint8(" = ")...)?
+        append_init_of(tm, names[:], mut e)?
+        append(mut exprs, e)?
+        append(mut names, name)?
+    }
+    assigns := mut g.field_assigns(mut t, k, src, names[:])?
+    mut first := true
+    for _, e := range exprs {
+        if !first {
+            append(mut post, []uint8(", ")...)?
+        }
+        append(mut post, e[:]...)?
+        first = false
+    }
+    for _, a := range assigns {
+        if !first {
+            append(mut post, []uint8(", ")...)?
+        }
+        append(mut post, a[:]...)?
+        first = false
+    }
+    return noerror
+}
+
+// field_assigns renders, for each target of the MultiAssign k but _, the
+// C assignment of the value in its position read from src's temporaries,
+// names, without a semicolon, Go's fieldAssigns. A target of an owned
+// type, whose old value is freed first, is E3's.
+func (mut g Gen) field_assigns(mut t typeck.Typed, k typeck.Key, src MultiSource, names []list[uint8]) (list[list[uint8]], error) {
+    ma := multi_assign_of(t.prog.trees[:], k)
+    mut out := make(list[list[uint8]], c_allocator)
+    n := node_count(t.prog.trees[:], k.unit, ma.targets)
+    for i := range n {
+        target := node_at(t.prog.trees[:], k.unit, ma.targets, i)
+        nm, is_name := ident_of(t.prog.trees[:], target)
+        if is_name && bytes_equal(text_of(t, target.unit, nm.name), []uint8("_")) {
+            continue
+        }
+        r := mut g.target_ref(mut t, target)?
+        owned := mut t.table.owned(mut t.type_of(target))?
+        if owned {
+            return out, not_ported
+        }
+        mut a := make(list[uint8], c_allocator)
+        append(mut a, r[:]...)?
+        append(mut a, []uint8(" = ")...)?
+        mut g.append_field(mut t, src, names, i, mut a)?
+        append(mut out, a)?
+    }
+    return out, noerror
+}
+
+// multi_values lowers the source of a MultiVar or a MultiAssign, Go's
+// multiValues, by its kind. A ? after a call is E3's.
+func (mut g Gen) multi_values(mut t typeck.Typed, value typeck.Key) (MultiSource, error) {
+    switch kind_of(t.prog.trees[:], value) {
+    case question:
+        return new_source(0, value), not_ported
+    case binary(b):
+        if b.op == ast.op_div || b.op == ast.op_rem {
+            src := mut g.division_values(mut t, value, b)?
+            return src, noerror
+        }
+    default:
+    }
+    src, is_arith := mut g.arith_values(mut t, value)?
+    if is_arith {
+        return src, noerror
+    }
+    switch kind_of(t.prog.trees[:], value) {
+    case index(ix):
+        s := mut g.index_values(mut t, value, ix)?
+        return s, noerror
+    case slice:
+        s := mut g.slice_values(mut t, value)?
+        return s, noerror
+    case type_assert(ta):
+        s := mut g.assert_values(mut t, value, ta)?
+        return s, noerror
+    case call:
+    default:
+        // Go's unknown expression type, which names it with %T.
+        return new_source(0, value), not_ported
+    }
+    if mut t.conv(value) != types.invalid {
+        s := mut g.conversion_values(mut t, value)?
+        return s, noerror
+    }
+    s := mut g.call_values(mut t, value)?
+    return s, noerror
+}
+
+// call_values lowers a, b := f(), Go's callValues: the call, held as its
+// results struct, read field by field. The checked forms of pop, remove,
+// add, add_all, insert and delete, and of a pool's remove, are E3's.
+func (mut g Gen) call_values(mut t typeck.Typed, k typeck.Key) (MultiSource, error) {
+    if is_builtin_named(t, k, "pop") || is_builtin_named(t, k, "remove") ||
+        is_builtin_named(t, k, "add") || is_builtin_named(t, k, "add_all") ||
+        is_builtin_named(t, k, "insert") || is_builtin_named(t, k, "delete") {
+        return new_source(0, k), not_ported
+    }
+    fn, has := callee_of(mut t, k)
+    if !has {
+        cl := call_of(t.prog.trees[:], k)
+        fk := at(k, cl.fn)
+        e := mut g.fail([]uint8("a call of several results must call a declared function"), span_of(t.prog.trees[:], fk.unit, fk.node))
+        return new_source(0, k), e
+    }
+    mut src := new_source(ms_call, k)
+    call := mut g.call_value_of(mut t, k)?
+    mut results := make(list[uint8], c_allocator)
+    mut cname := make(list[uint8], c_allocator)
+    append_func_cname(mut t, fn, mut cname)?
+    append_results_of(cname[:], mut results)?
+    append(mut src.temps, plain_temp(own results, own call))?
+    return src, noerror
+}
+
+// call_value_of renders the call k as callExpr does, Go's callExpr.
+func (mut g Gen) call_value_of(mut t typeck.Typed, k typeck.Key) (list[uint8], error) {
+    mut m := new_machine()
+    mut m.push(r_call_expr, k, types.invalid, false)?
+    mut g.run(mut t, mut m)?
+    return mut m.take(), noerror
+}
+
+// division_values lowers q, ok := a / b or a % b, Go's divisionValues:
+// a constant's as its value and true, and otherwise both operands held,
+// the dividend first.
+func (mut g Gen) division_values(mut t typeck.Typed, k typeck.Key, b ast.Binary) (MultiSource, error) {
+    c := mut t.const_of(k)
+    if c.kind != typeck.cv_none {
+        src := mut g.constant_values(mut t, k)?
+        return src, noerror
+    }
+    a := mut g.expr(mut t, at(k, b.x), types.invalid)?
+    d := mut g.expr(mut t, at(k, b.y), types.invalid)?
+    typ := mut t.type_of(k)
+    mut src := new_source(ms_division, k)
+    src.op = b.op
+    src.typ = typ
+    mut ta := make(list[uint8], c_allocator)
+    append_c_type(mut t, typ, mut ta)?
+    mut tb := make(list[uint8], c_allocator)
+    append_c_type(mut t, typ, mut tb)?
+    append(mut src.temps, plain_temp(own ta, own a))?
+    append(mut src.temps, plain_temp(own tb, own d))?
+    return src, noerror
+}
+
+// append_division_ok appends the C condition under which a checked
+// division or remainder of type typ by op, of the dividend a by the
+// divisor b, held in temporaries, succeeds, Go's divisionOk: b is not
+// zero, and, for a signed division, a is not the smallest value of its
+// type or b is not -1.
+func append_division_ok(op ast.BinaryOp, typ types.Type, a []uint8, b []uint8, mut out list[uint8]) error {
+    if op != ast.op_div || types.is_unsigned(typ) {
+        fmt.appendf(mut out, "(%s != 0)", b)?
+        return noerror
+    }
+    lo, _ := int_bounds(typ)
+    mut least := make(list[uint8], c_allocator)
+    append_int_literal(lo, mut least)?
+    fmt.appendf(mut out, "(%s != 0 && (%s != -1 || %s != %s))", b, b, a, least[:])?
+    return noerror
+}
+
+// arith_values lowers v, ok := a + b, a - b, a * b or -a on integers,
+// and reports whether value is one of those, Go's arithValues: a
+// constant's as its value and true, and otherwise each operand held, left
+// first, then the flag of clang's overflow builtin on them.
+func (mut g Gen) arith_values(mut t typeck.Typed, value typeck.Key) (MultiSource, bool, error) {
+    mut operands := make(list[typeck.Key], c_allocator)
+    mut op := ast.op_invalid
+    switch kind_of(t.prog.trees[:], value) {
+    case binary(b):
+        if b.op != ast.op_add && b.op != ast.op_sub && b.op != ast.op_mul {
+            return new_source(0, value), false, noerror
+        }
+        append(mut operands, at(value, b.x))?
+        append(mut operands, at(value, b.y))?
+        op = b.op
+    case unary(u):
+        if u.op != ast.unary_neg {
+            return new_source(0, value), false, noerror
+        }
+        append(mut operands, at(value, u.x))?
+        op = ast.op_sub
+    default:
+        return new_source(0, value), false, noerror
+    }
+    typ := mut t.type_of(value)
+    if !types.is_integer(typ) {
+        return new_source(0, value), false, noerror
+    }
+    c := mut t.const_of(value)
+    if c.kind != typeck.cv_none {
+        src := mut g.constant_values(mut t, value)?
+        return src, true, noerror
+    }
+    mut ctype := make(list[uint8], c_allocator)
+    append_c_type(mut t, typ, mut ctype)?
+    mut src := new_source(ms_arith, value)
+    src.op = op
+    src.typ = typ
+    for _, x := range operands {
+        v := mut g.expr(mut t, x, types.invalid)?
+        mut ct := make(list[uint8], c_allocator)
+        append(mut ct, ctype[:]...)?
+        append(mut src.temps, plain_temp(own ct, own v))?
+    }
+    mut flag_type := make(list[uint8], c_allocator)
+    append(mut flag_type, []uint8("bool")...)?
+    mut init := make(list[uint8], c_allocator)
+    append(mut init, ctype[:]...)?
+    append(mut src.temps, MultiTemp{ctype: flag_type, init: init, is_ref: false, is_mut: false, flag: true, op: op})?
+    return src, true, noerror
+}
+
+// constant_values lowers a checked operation the checker computed, Go's
+// constantValues: its value, with no temporary, and true.
+func (mut g Gen) constant_values(mut t typeck.Typed, k typeck.Key) (MultiSource, error) {
+    v := mut g.expr(mut t, k, types.invalid)?
+    mut src := new_source(ms_constant, k)
+    src.value = v
+    return src, noerror
+}
+
+// conversion_values lowers v, ok := T(x), Go's conversionValues: a
+// constant's as its value and true, and otherwise x held, the value T's
+// cast of it when it fits T and 0 when it does not.
+func (mut g Gen) conversion_values(mut t typeck.Typed, k typeck.Key) (MultiSource, error) {
+    to := mut t.conv(k)
+    c := mut t.const_of(k)
+    if c.kind != typeck.cv_none {
+        mut src := new_source(ms_constant, k)
+        ok := append_typed_const_literal(t, c, to, mut src.value)?
+        if !ok {
+            src.value = make(list[uint8], c_allocator)
+        }
+        return src, noerror
+    }
+    cl := call_of(t.prog.trees[:], k)
+    arg := node_at(t.prog.trees[:], k.unit, cl.args, 0)
+    v := mut g.expr(mut t, arg, types.invalid)?
+    src_t := mut t.type_of(arg)
+    mut src := new_source(ms_conversion, k)
+    src.typ = src_t
+    src.to = to
+    mut ctype := make(list[uint8], c_allocator)
+    append_c_type(mut t, src_t, mut ctype)?
+    append(mut src.temps, plain_temp(own ctype, own v))?
+    return src, noerror
+}
+
+// append_field appends the value in position i of src, read from its
+// temporaries, names, Go's multiSource.field.
+func (mut g Gen) append_field(mut t typeck.Typed, src MultiSource, names []list[uint8], i int64, mut out list[uint8]) error {
+    if src.kind == ms_call {
+        mut n0 := make(list[uint8], c_allocator)
+        copy_name(names, 0, mut n0)?
+        fmt.appendf(mut out, "%s.r%d", n0[:], i)?
+        return noerror
+    }
+    if src.kind == ms_constant {
+        if i == 1 {
+            append(mut out, []uint8("true")...)?
+        } else {
+            append(mut out, src.value[:]...)?
+        }
+        return noerror
+    }
+    if src.kind == ms_division {
+        mut a := make(list[uint8], c_allocator)
+        copy_name(names, 0, mut a)?
+        mut b := make(list[uint8], c_allocator)
+        copy_name(names, 1, mut b)?
+        mut ok := make(list[uint8], c_allocator)
+        append_division_ok(src.op, src.typ, a[:], b[:], mut ok)?
+        if i == 1 {
+            append(mut out, ok[:]...)?
+            return noerror
+        }
+        fmt.appendf(mut out, "(%s ? ", ok[:])?
+        append_arith(src.op, src.typ, a[:], b[:], mut out)?
+        append(mut out, []uint8(" : 0)")...)?
+        return noerror
+    }
+    if src.kind == ms_arith {
+        mut fits := make(list[uint8], c_allocator)
+        copy_name(names, len(names) -% 1, mut fits)?
+        if i == 1 {
+            append(mut out, fits[:]...)?
+            return noerror
+        }
+        mut l := make(list[uint8], c_allocator)
+        mut r := make(list[uint8], c_allocator)
+        if len(names) == 3 {
+            mut a := make(list[uint8], c_allocator)
+            copy_name(names, 0, mut a)?
+            mut b := make(list[uint8], c_allocator)
+            copy_name(names, 1, mut b)?
+            append(mut l, a[:]...)?
+            append(mut r, b[:]...)?
+        } else {
+            mut a := make(list[uint8], c_allocator)
+            copy_name(names, 0, mut a)?
+            append(mut l, '0')?
+            append(mut r, a[:]...)?
+        }
+        fmt.appendf(mut out, "(%s ? ", fits[:])?
+        append_arith(src.op, src.typ, l[:], r[:], mut out)?
+        append(mut out, []uint8(" : 0)")...)?
+        return noerror
+    }
+    if src.kind == ms_conversion {
+        mut v := make(list[uint8], c_allocator)
+        copy_name(names, 0, mut v)?
+        mut fits := make(list[uint8], c_allocator)
+        append_fits(src.typ, src.to, v[:], mut fits)?
+        if i == 1 {
+            append(mut out, fits[:]...)?
+            return noerror
+        }
+        mut cast := make(list[uint8], c_allocator)
+        if src.typ == types.float64_type && src.to == types.float32_type {
+            fmt.appendf(mut cast, "%s(%s)", float_narrowing, v[:])?
+        } else {
+            append(mut cast, '(')?
+            append_c_type(mut t, src.to, mut cast)?
+            append(mut cast, ')')?
+            append(mut cast, v[:]...)?
+        }
+        fmt.appendf(mut out, "(%s ? %s : 0)", fits[:], cast[:])?
+        return noerror
+    }
+    if src.kind == ms_index {
+        mut g.append_index_field(mut t, src, names, i, mut out)?
+        return noerror
+    }
+    if src.kind == ms_slice {
+        mut g.append_slice_field(mut t, src, names, i, mut out)?
+        return noerror
+    }
+    if src.kind == ms_assert {
+        mut v := make(list[uint8], c_allocator)
+        copy_name(names, 0, mut v)?
+        typ := mut t.type_of(src.k)
+        mut is := make(list[uint8], c_allocator)
+        fmt.appendf(mut is, "(%s.type == %s)", v[:], any_id(typ))?
+        if i == 1 {
+            append(mut out, is[:]...)?
+            return noerror
+        }
+        fmt.appendf(mut out, "(%s ? *(const ", is[:])?
+        append_c_type(mut t, typ, mut out)?
+        fmt.appendf(mut out, " *)%s.ptr : %s)", v[:], src.zero[:])?
+        return noerror
+    }
+    return not_ported
+}
+
+// append_fits appends a C test of whether v, of the integer type from,
+// is a value of the integer type to, or, of a float type, truncates to
+// one, Go's fitsExpr: anything converts to a float.
+func append_fits(src_t types.Type, to types.Type, v []uint8, mut out list[uint8]) error {
+    if types.is_float(to) {
+        append(mut out, []uint8("true")...)?
+        return noerror
+    }
+    if types.is_float(src_t) {
+        append_float_fits(src_t, to, v, mut out)?
+        return noerror
+    }
+    if types.target_width(src_t) || types.target_width(to) {
+        append_target_fits(src_t, to, v, mut out)?
+        return noerror
+    }
+    lo, hi := int_bounds(to)
+    append_within(src_t, v, lo, hi, mut out)?
+    return noerror
+}
+
+// max_macro returns the C macro, of <stdint.h>, for the largest value of
+// the target-width type typ, Go's maxMacros.
+func max_macro(typ types.Type) string {
+    if typ == types.unsafe_size {
+        return "SIZE_MAX"
+    }
+    if typ == types.unsafe_uintptr {
+        return "UINTPTR_MAX"
+    }
+    return ""
+}
+
+// append_float_lit appends the C literal of the float of the type from
+// whose value is -(2^k), 2^k, or, with plus_one, -(2^k + 1), Go's lit of
+// floatFitsExpr: each a value of from exactly.
+func append_float_lit(src_t types.Type, k int64, neg bool, plus_one bool, mut out list[uint8]) error {
+    if src_t == types.float32_type {
+        e, e_ok := uint64(127 +% k)
+        mut bits uint64 = 0
+        if e_ok {
+            bits = e << 23
+        }
+        if plus_one {
+            sh, sh_ok := uint64(23 -% k)
+            if sh_ok && sh < 23 {
+                bits = bits | (uint64(1) << sh)
+            }
+        }
+        if neg {
+            bits = bits | (uint64(1) << 31)
+        }
+        constant.append_float_literal(mut out, bits, true)?
+        return noerror
+    }
+    e, e_ok := uint64(1023 +% k)
+    mut bits uint64 = 0
+    if e_ok {
+        bits = e << 52
+    }
+    if plus_one {
+        sh, sh_ok := uint64(52 -% k)
+        if sh_ok && sh < 52 {
+            bits = bits | (uint64(1) << sh)
+        }
+    }
+    if neg {
+        bits = bits | (uint64(1) << 63)
+    }
+    constant.append_float_literal(mut out, bits, false)?
+    return noerror
+}
+
+// append_float_fits appends a C test of whether v, of the float type
+// from, truncates toward zero to a value of the integer type to, Go's
+// floatFitsExpr, its bounds values of from exactly.
+func append_float_fits(src_t types.Type, to types.Type, v []uint8, mut out list[uint8]) error {
+    if types.target_width(to) {
+        fmt.appendf(mut out, "(%s > ", v)?
+        append_float_lit(src_t, 0, true, false, mut out)?
+        fmt.appendf(mut out, " && %s < (%s)(%s / 2 + 1) * ", v, basic_c_type(src_t), max_macro(to))?
+        append_float_lit(src_t, 1, false, false, mut out)?
+        append(mut out, ')')?
+        return noerror
+    }
+    n := types.bits(to)
+    if types.is_unsigned(to) {
+        fmt.appendf(mut out, "(%s > ", v)?
+        append_float_lit(src_t, 0, true, false, mut out)?
+        fmt.appendf(mut out, " && %s < ", v)?
+        append_float_lit(src_t, n, false, false, mut out)?
+        append(mut out, ')')?
+        return noerror
+    }
+    mut precision int64 = 53
+    if src_t == types.float32_type {
+        precision = 24
+    }
+    append(mut out, '(')?
+    if n <= precision {
+        fmt.appendf(mut out, "%s > ", v)?
+        append_float_lit(src_t, n -% 1, true, true, mut out)?
+    } else {
+        fmt.appendf(mut out, "%s >= ", v)?
+        append_float_lit(src_t, n -% 1, true, false, mut out)?
+    }
+    fmt.appendf(mut out, " && %s < ", v)?
+    append_float_lit(src_t, n -% 1, false, false, mut out)?
+    append(mut out, ')')?
+    return noerror
+}
+
+// append_target_fits is append_fits when from or to is a target-width
+// type, Go's targetFitsExpr: a from that widens to to always fits; a
+// signed from is tested against 0; a from that can exceed a
+// target-width to's narrowest largest value against its real largest;
+// and a target-width from against a to's largest below the largest
+// uint64, each compared as a uint64_t.
+func append_target_fits(src_t types.Type, to types.Type, v []uint8, mut out list[uint8]) error {
+    if types.widens(src_t, to) {
+        append(mut out, []uint8("true")...)?
+        return noerror
+    }
+    mut tests := make(list[list[uint8]], c_allocator)
+    from_lo, from_hi := int_bounds(src_t)
+    if from_lo.is_negative() {
+        mut s := make(list[uint8], c_allocator)
+        fmt.appendf(mut s, "%s >= 0", v)?
+        append(mut tests, s)?
+    }
+    _, to_hi := int_bounds(to)
+    if types.target_width(to) && from_hi.cmp(constant.from_uint64(types.portable_max)) > 0 {
+        mut s := make(list[uint8], c_allocator)
+        fmt.appendf(mut s, "(uint64_t)%s <= %s", v, max_macro(to))?
+        append(mut tests, s)?
+    } else if types.target_width(src_t) && to_hi.cmp(constant.from_uint64(18446744073709551615)) < 0 {
+        mut s := make(list[uint8], c_allocator)
+        fmt.appendf(mut s, "(uint64_t)%s <= ", v)?
+        append_int_literal(to_hi, mut s)?
+        append(mut tests, s)?
+    }
+    append_tests(tests[:], mut out)?
+    return noerror
+}
+
+// index_values lowers v, ok := a[i], Go's indexValues: what is indexed
+// rendered on its own, then the index, held as held_indexed says, and
+// the element read only when the index is in range, the element type's
+// zero value otherwise. A map's and a pool's are E3's.
+func (mut g Gen) index_values(mut t typeck.Typed, k typeck.Key, ix ast.Index) (MultiSource, error) {
+    x := at(k, ix.x)
+    xt := mut t.type_of(x)
+    mp := mut t.table.is_map(xt)?
+    is_pool := mut t.table.is_pool(xt)?
+    if mp || is_pool {
+        return new_source(0, k), not_ported
+    }
+    steps, place := mut g.expr_steps(mut t, x)?
+    mut amp := make(list[uint8], c_allocator)
+    append(mut amp, '&')?
+    append(mut amp, place[:]...)?
+    base := with_steps(steps[:], own place)?
+    addr := with_steps(steps[:], own amp)?
+    index := mut g.expr(mut t, at(k, ix.index), types.invalid)?
+    it := mut t.type_of(at(k, ix.index))
+    mut src := new_source(ms_index, k)
+    src.typ = xt
+    src.to = it
+    mut g.held_indexed(mut t, k, ix, base[:], addr[:], mut src)?
+    src.value = base
+    mut ictype := make(list[uint8], c_allocator)
+    append_c_type(mut t, it, mut ictype)?
+    append(mut src.temps, plain_temp(own ictype, own index))?
+    mut g.append_zero_value(mut t, mut t.type_of(k), mut src.zero)?
+    return src, noerror
+}
+
+// held_indexed adds to src the temporary that holds what the index k
+// indexes, base as lowered and addr its address, when it is not read
+// where it is, after the index, Go's heldIndexed: none when it calls no
+// function and its order with the index cannot show, unless it is a
+// string other than a name; otherwise its address for an array that is
+// a place the index cannot change, and a copy of it for anything else.
+func (mut g Gen) held_indexed(mut t typeck.Typed, k typeck.Key, ix ast.Index, base []uint8, addr []uint8, mut src MultiSource) error {
+    x := at(k, ix.x)
+    typ := mut t.type_of(x)
+    _, is_name := ident_of(t.prog.trees[:], x)
+    calls := calls_func(mut t, x)?
+    operands := [2]typeck.Key{x, at(k, ix.index)}
+    shows := mut g.order_shows(mut t, operands[:])?
+    read_after := !calls && !shows
+    lens := has_len(mut t, typ)?
+    if read_after && (is_name || !lens) {
+        return noerror
+    }
+    _, has_root := root_of(t.prog.trees[:], x)
+    mut copied := lens || !has_root
+    if !copied {
+        copied = mut g.index_changes(mut t, k, ix)?
+    }
+    mut ctype := make(list[uint8], c_allocator)
+    append_c_type(mut t, typ, mut ctype)?
+    src.held = true
+    mut init := make(list[uint8], c_allocator)
+    if copied {
+        append(mut init, base...)?
+        append(mut src.temps, plain_temp(own ctype, own init))?
+        return noerror
+    }
+    append(mut init, addr...)?
+    src.held_ref = true
+    append(mut src.temps, MultiTemp{ctype: ctype, init: init, is_ref: true, is_mut: false, flag: false, op: ast.op_invalid})?
+    return noerror
+}
+
+// index_changes reports whether evaluating the index of k can change the
+// array it indexes, a place, Go's indexChanges: the index calls a
+// function, and the array is part of a mutable global or of a variable
+// the index passes as mut.
+func (mut g Gen) index_changes(mut t typeck.Typed, k typeck.Key, ix ast.Index) (bool, error) {
+    calls := calls_func(mut t, at(k, ix.index))?
+    if !calls {
+        return false, noerror
+    }
+    root, _ := root_of(t.prog.trees[:], at(k, ix.x))
+    decl, bound := def_key(t.prog.trees[:], root)
+    if bound {
+        switch kind_of(t.prog.trees[:], decl) {
+        case var_decl(v):
+            _, global := g.globals[decl]
+            if global && v.mutable {
+                return true, noerror
+            }
+        default:
+        }
+    }
+    p := passes_as_mut(mut t, at(k, ix.index), decl, bound)?
+    return p, noerror
+}
+
+// passes_as_mut reports whether n passes decl, or a part of it, as a mut
+// argument anywhere within it, or holds a closure that may write it, Go's
+// passesAsMut. An unbound decl, Go's nil, is passed by nothing.
+func passes_as_mut(mut t typeck.Typed, n typeck.Key, decl typeck.Key, bound bool) (bool, error) {
+    mut stack := make(list[typeck.Key], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    append(mut stack, n)?
+    for len(stack) > 0 {
+        k, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        switch kind_of(t.prog.trees[:], k) {
+        case mut_arg(x):
+            root, has_root := root_of(t.prog.trees[:], at(k, x))
+            if has_root {
+                d, b := def_key(t.prog.trees[:], root)
+                if b && bound && d == decl {
+                    return true, noerror
+                }
+            }
+        case func_lit:
+            nc := mut t.capture_count(k)
+            for c := range nc {
+                cd, _, write, _ := mut t.capture(k, c)
+                if write && bound && cd == decl {
+                    return true, noerror
+                }
+            }
+            continue
+        default:
+        }
+        push_children(t.prog.trees[:], k, mut kids, mut stack)?
+    }
+    return false, noerror
+}
+
+// append_index_field appends the value in position i of src, a checked
+// element, Go's indexValues' field: whether the index is in range, or
+// the element when it is and the zero value when it is not.
+func (mut g Gen) append_index_field(mut t typeck.Typed, src MultiSource, names []list[uint8], i int64, mut out list[uint8]) error {
+    mut x := make(list[uint8], c_allocator)
+    mut at_name := make(list[uint8], c_allocator)
+    if src.held {
+        mut n0 := make(list[uint8], c_allocator)
+        copy_name(names, 0, mut n0)?
+        mut n1 := make(list[uint8], c_allocator)
+        copy_name(names, 1, mut n1)?
+        if src.held_ref {
+            append(mut x, []uint8("(*")...)?
+            append(mut x, n0[:]...)?
+            append(mut x, ')')?
+        } else {
+            append(mut x, n0[:]...)?
+        }
+        append(mut at_name, n1[:]...)?
+    } else {
+        mut n0 := make(list[uint8], c_allocator)
+        copy_name(names, 0, mut n0)?
+        append(mut x, src.value[:]...)?
+        append(mut at_name, n0[:]...)?
+    }
+    mut in := make(list[uint8], c_allocator)
+    mut read := make(list[uint8], c_allocator)
+    mut g.append_index_in(mut t, src.typ, src.to, x[:], at_name[:], mut in, mut read)?
+    if i == 1 {
+        append(mut out, in[:]...)?
+        return noerror
+    }
+    fmt.appendf(mut out, "(%s ? %s : %s)", in[:], read[:], src.zero[:])?
+    return noerror
+}
+
+// append_index_in appends to in the C test of whether the index at, of
+// type it, is in range for x, of type xt, and to read the read of the
+// element it guards, Go's indexIn: an array's constant bounds, only
+// those the index's type can cross, and a string's or a view's length.
+func (mut g Gen) append_index_in(mut t typeck.Typed, xt types.Type, it types.Type, x []uint8, at_name []uint8, mut in list[uint8], mut read list[uint8]) error {
+    lens := has_len(mut t, xt)?
+    if !lens {
+        n := mut t.table.len_of(xt)?
+        append_within(it, at_name, constant.from_int64(0), constant.from_int64(n -% 1), mut in)?
+        fmt.appendf(mut read, "%s.e[%s]", x, at_name)?
+        return noerror
+    }
+    mut upper := make(list[uint8], c_allocator)
+    if types.is_unsigned(it) && types.max_bits(it) == 64 {
+        fmt.appendf(mut upper, "(uint64_t)%s < (uint64_t)%s.len", at_name, x)?
+    } else {
+        fmt.appendf(mut upper, "%s < %s.len", at_name, x)?
+    }
+    lo, _ := int_bounds(it)
+    if lo.is_negative() {
+        fmt.appendf(mut in, "(%s >= 0 && %s)", at_name, upper[:])?
+    } else {
+        fmt.appendf(mut in, "(%s)", upper[:])?
+    }
+    fmt.appendf(mut read, "%s.ptr[%s]", x, at_name)?
+    return noerror
+}
+
+// slice_values lowers t, ok := s[lo:hi], a string's slice, Go's
+// sliceValues: the string held, then each bound in one of its own type,
+// and the slice taken only when the bounds are in range, "" otherwise.
+func (mut g Gen) slice_values(mut t typeck.Typed, k typeck.Key) (MultiSource, error) {
+    s := slice_of(t.prog.trees[:], k)
+    mut m := new_machine()
+    mut f := mframe(r_slice, k, types.invalid, false, 0)
+    f.a = 1
+    append(mut m.frames, f)?
+    mut g.run(mut t, mut m)?
+    mut bounds := make(list[typeck.Key], c_allocator)
+    if !ast.is_none(s.lo) {
+        append(mut bounds, at(k, s.lo))?
+    }
+    if !ast.is_none(s.hi) {
+        append(mut bounds, at(k, s.hi))?
+    }
+    mut rendered := make(list[list[uint8]], c_allocator)
+    for range len(bounds) +% 1 {
+        v := mut m.take()
+        append(mut rendered, v)?
+    }
+    mut src := new_source(ms_slice, k)
+    mut st := make(list[uint8], c_allocator)
+    append(mut st, []uint8("tack_string")...)?
+    base, has_base := pop(mut rendered)
+    if !has_base {
+        return src, not_ported
+    }
+    append(mut src.temps, plain_temp(own st, own base))?
+    for _, b := range bounds {
+        mut ct := make(list[uint8], c_allocator)
+        append_c_type(mut t, mut t.type_of(b), mut ct)?
+        bv, has_bv := pop(mut rendered)
+        if !has_bv {
+            return src, not_ported
+        }
+        append(mut src.temps, plain_temp(own ct, own bv))?
+    }
+    mut g.append_zero_value(mut t, types.string_type, mut src.zero)?
+    mut g.use_slice(mut t, types.string_type, ast.is_none(s.hi), mut src.value)?
+    return src, noerror
+}
+
+// append_slice_field appends the value in position i of src, a checked
+// slice of a string, Go's sliceValues' field: whether its bounds are in
+// range (see append_slice_in), or the slice when they are and "" when
+// they are not.
+func (mut g Gen) append_slice_field(mut t typeck.Typed, src MultiSource, names []list[uint8], i int64, mut out list[uint8]) error {
+    s := slice_of(t.prog.trees[:], src.k)
+    mut x := make(list[uint8], c_allocator)
+    copy_name(names, 0, mut x)?
+    mut lo := make(list[uint8], c_allocator)
+    mut hi := make(list[uint8], c_allocator)
+    mut args := make(list[uint8], c_allocator)
+    append(mut args, x[:]...)?
+    if !ast.is_none(s.lo) {
+        mut n1 := make(list[uint8], c_allocator)
+        copy_name(names, 1, mut n1)?
+        append(mut lo, n1[:]...)?
+        append(mut args, []uint8(", (int64_t)")...)?
+        append(mut args, lo[:]...)?
+    } else {
+        append(mut lo, '0')?
+        append(mut args, []uint8(", 0")...)?
+    }
+    if !ast.is_none(s.hi) {
+        mut nl := make(list[uint8], c_allocator)
+        copy_name(names, len(names) -% 1, mut nl)?
+        append(mut hi, nl[:]...)?
+        append(mut args, []uint8(", (int64_t)")...)?
+        append(mut args, hi[:]...)?
+    }
+    mut in := make(list[uint8], c_allocator)
+    mut g.append_slice_in(mut t, src.k, s, x[:], lo[:], hi[:], mut in)?
+    if i == 1 {
+        append(mut out, in[:]...)?
+        return noerror
+    }
+    fmt.appendf(mut out, "(%s ? %s(%s) : %s)", in[:], src.value[:], args[:], src.zero[:])?
+    return noerror
+}
+
+// append_slice_in appends the C test of whether the bounds of s, k, held
+// as lo and hi, are in range for the string held as x, Go's sliceIn:
+// each bound's sign when its type can be negative, lo against hi, or
+// each against the length, compared by value.
+func (mut g Gen) append_slice_in(mut t typeck.Typed, k typeck.Key, s ast.Slice, x []uint8, lo []uint8, hi []uint8, mut out list[uint8]) error {
+    mut length := make(list[uint8], c_allocator)
+    append(mut length, x...)?
+    append(mut length, []uint8(".len")...)?
+    mut tests := make(list[list[uint8]], c_allocator)
+    has_lo := !ast.is_none(s.lo)
+    has_hi := !ast.is_none(s.hi)
+    mut lt := types.invalid
+    mut ht := types.invalid
+    if has_lo {
+        lt = mut t.type_of(at(k, s.lo))
+        mut g.add_non_negative(lt, lo, mut tests)?
+    }
+    if has_hi {
+        ht = mut t.type_of(at(k, s.hi))
+    }
+    if has_lo && has_hi {
+        mut c := make(list[uint8], c_allocator)
+        append_int_comparison(ast.op_le, lt, ht, lo, hi, mut c)?
+        append(mut tests, c)?
+    } else if has_hi {
+        mut g.add_non_negative(ht, hi, mut tests)?
+    } else if has_lo {
+        mut c := make(list[uint8], c_allocator)
+        append_int_comparison(ast.op_le, lt, types.int64_type, lo, length[:], mut c)?
+        append(mut tests, c)?
+    }
+    if has_hi {
+        mut c := make(list[uint8], c_allocator)
+        append_int_comparison(ast.op_le, ht, types.int64_type, hi, length[:], mut c)?
+        append(mut tests, c)?
+    }
+    append_tests(tests[:], mut out)?
+    return noerror
+}
+
+// add_non_negative adds to tests v >= 0 when v's type typ can be
+// negative, Go's nonNegative of sliceIn.
+func (mut g Gen) add_non_negative(typ types.Type, v []uint8, mut tests list[list[uint8]]) error {
+    lo, _ := int_bounds(typ)
+    if lo.is_negative() {
+        mut s := make(list[uint8], c_allocator)
+        append(mut s, v...)?
+        append(mut s, []uint8(" >= 0")...)?
+        append(mut tests, s)?
+    }
+    return noerror
+}
+
+// assert_values lowers v, ok := x.(T), Go's assertValues: x, an any,
+// held, read as the T its pointer points at when its type id is T's, and
+// T's zero value otherwise.
+func (mut g Gen) assert_values(mut t typeck.Typed, k typeck.Key, ta ast.TypeAssert) (MultiSource, error) {
+    x := mut g.expr(mut t, at(k, ta.x), types.invalid)?
+    typ := mut t.type_of(k)
+    mut src := new_source(ms_assert, k)
+    mut g.append_zero_value(mut t, typ, mut src.zero)?
+    mut ctype := make(list[uint8], c_allocator)
+    append_c_type(mut t, types.any_type, mut ctype)?
+    append(mut src.temps, plain_temp(own ctype, own x))?
+    return src, noerror
+}

@@ -8,8 +8,11 @@ import fmt from "std/fmt"
 // and not used, when the program has no error. A function is used when
 // a name outside its own body names it; a type when a name outside its
 // own declaration and its methods does; a method when a call outside it
-// calls it or a method expression names it, both of which the port
-// declines, as it does every instance of a generic function. Exempt:
+// calls it, Go's usage.call, or a method expression names it, Go's
+// usage.methodValue, which uses it as a value too; and a type argument
+// of an instance, with each of its methods the constraint asks for, Go's
+// bindInstances, a method so bound keeping its parameters unwarned.
+// Exempt:
 // anything pub or lib, func main of package main, the receiver, a
 // parameter named _, and the parameters of a function used as a value
 // or with no body.
@@ -22,6 +25,7 @@ type Usage struct {
     read map[Key]bool
     value map[Key]bool
     callees map[Key]bool
+    bound map[Key]bool
 }
 
 // check_unused_decls warns of every private function and type, and
@@ -36,10 +40,12 @@ pub func (mut c Checker) check_unused_decls() error {
         read: make(map[Key]bool, c_allocator),
         value: make(map[Key]bool, c_allocator),
         callees: make(map[Key]bool, c_allocator),
+        bound: make(map[Key]bool, c_allocator),
     }
     for i := range count_decls(c.prog) {
         mut c.walk_decl_uses(decl_at(c.prog, i), mut u)?
     }
+    mut c.bind_instances(mut u)?
     for i := range count_decls(c.prog) {
         mut c.warn_unused(decl_at(c.prog, i), u)?
     }
@@ -83,6 +89,21 @@ func (mut c Checker) walk_decl_uses(d Key, mut u Usage) error {
                 _, is_id := ident_at(c.prog.trees, sub(k, cl.fn))
                 if is_id {
                     put(mut u.callees, sub(k, cl.fn), true)?
+                }
+                m, is_method := c.call_method[k]
+                if is_method {
+                    _, stand_in := c.stand_in_of[m]
+                    if !stand_in && m != own_func {
+                        put(mut u.used, m, true)?
+                    }
+                }
+            case selector:
+                m, is_method := c.call_method[k]
+                if is_method {
+                    if m != own_func {
+                        put(mut u.used, m, true)?
+                    }
+                    put(mut u.value, m, true)?
                 }
             case ident(nm):
                 _, cleared := c.pattern_cleared[k]
@@ -148,7 +169,8 @@ func (mut c Checker) warn_unused(d Key, u Usage) error {
             return mut c.unusedf(fn.name_span, own m)
         }
         _, as_value := u.value[d]
-        if as_value || fn.no_body {
+        _, is_bound := u.bound[d]
+        if as_value || is_bound || fn.no_body {
             return noerror
         }
         n := count_items(c.prog.trees, d.unit, fn.params)
@@ -174,6 +196,57 @@ func (mut c Checker) warn_unused(d Key, u Usage) error {
             mut c.unusedf(td.name_span, own m)?
         }
     default:
+    }
+    return noerror
+}
+
+// bind_instances records, for every instance of a generic function,
+// each type argument's declared type as used, and each of its methods the
+// constraint of the type parameter it is bound to asks for as used and
+// bound, Go's bindInstances: the instance calls it.
+func (mut c Checker) bind_instances(mut u Usage) error {
+    for _, inst := range c.instances {
+        fn := func_of(c.prog.trees, inst.fn)
+        n := count_items(c.prog.trees, inst.fn.unit, fn.type_params)
+        for i := range n {
+            if i >= inst.count {
+                break
+            }
+            arg, has := c.inst_args[inst.first +% i]
+            if !has {
+                continue
+            }
+            td := decl_of_type(c.structs, c.unions, arg)
+            if is_no_key(td) {
+                continue
+            }
+            put(mut u.used, td, true)?
+            tp := item_at(c.prog.trees, inst.fn.unit, fn.type_params, i)
+            iface, has_iface := c.tp_iface[tp]
+            if !has_iface || is_no_key(iface) {
+                continue
+            }
+            switch kind_at(c.prog.trees, iface) {
+            case type_decl(itd):
+                switch kind_at(c.prog.trees, sub(iface, itd.type_expr)) {
+                case interface_type(ms):
+                    for j := range count_items(c.prog.trees, iface.unit, ms) {
+                        mk := item_at(c.prog.trees, iface.unit, ms, j)
+                        switch kind_at(c.prog.trees, mk) {
+                        case iface_method(im):
+                            m := method_named(c.prog.trees, c.none, td, text_at(c.prog.trees, c.none, mk.unit, im.name))
+                            if !is_no_key(m) {
+                                put(mut u.used, m, true)?
+                                put(mut u.bound, m, true)?
+                            }
+                        default:
+                        }
+                    }
+                default:
+                }
+            default:
+            }
+        }
     }
     return noerror
 }

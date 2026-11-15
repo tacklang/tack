@@ -133,6 +133,24 @@ func (mut t Table) bound_is_struct(typ Type) (bool, error) {
     return b != error_type && t.is_struct(b), noerror
 }
 
+// bound_owner returns the package the struct or union type typ stands
+// for under the binding in force is declared in, an index among the
+// program's packages (see set_owner), or -1 for a type no package
+// declares. Go's backend finds a struct's declaration in a map of its
+// own, generator.structs, and names the struct by it (struct.go:283);
+// the declaring package and the type's name are all the name needs.
+func (mut t Table) bound_owner(typ Type) (int64, error) {
+    b := mut t.bound(typ)?
+    if b.n < num_basic {
+        return -1, noerror
+    }
+    owner, has := t.owners[b.n -% num_basic]
+    if !has {
+        return -1, noerror
+    }
+    return owner, noerror
+}
+
 // bound_key_of is key_of under the binding in force, Go's Key.
 func (mut t Table) bound_key_of(typ Type) (Type, error) {
     b := mut t.bound(typ)?

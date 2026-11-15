@@ -52,16 +52,21 @@ cases: the core, E1, is here, a program of scalars, strings, globals,
 functions, mut parameters, every loop and if, the operators, floats,
 conversions that cannot fail, extern funcs, print and exit lowered to
 the C the Go compiler writes, byte for byte, with every temporary and
-pooled string numbered as Go numbers them; what a later stage lowers,
-structs, arrays, unions, switches, slices, views, any, division and
-shifts, several values, lists, maps, arenas, pools, defers, ?, regions,
-generics, closures and function values, is answered as not implemented
+pooled string numbered as Go numbers them; and values, E2, are here
+too: structs, arrays and unions with their equality helpers, methods,
+switches of every kind, slices, views, any, the division and shift
+helpers, several values and the checked forms, and globals too deep for
+a C initializer. What a later stage lowers, lists, maps, arenas, pools,
+defers, ?, regions, swap, generics, closures and function values, is
+answered as not implemented
 where the Go compiler would start lowering it, before anything is
 written (see package codegen). `types` has the
 bindings the backend lowers a generic function's instances under, Go's
 `Bind` and `Bound` among them, which add the types they make in Go's
 order, since C names carry type IDs, with a twin of every query of the
-type table that answers, and adds, as Go's does under a binding; `builtin` what a program needs of
+type table that answers, and adds, as Go's does under a binding, and
+the package that declares a struct or a union, which names its C
+struct; `builtin` what a program needs of
 the runtime, Go's `Used`, `RunsC`, `UsesUnreachable` and `UsesLists`;
 and `constant` the hexadecimal float literals the backend writes.
 The driver answers `tack --backends` as the Go compiler does; `tack

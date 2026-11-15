@@ -1,0 +1,131 @@
+package codegen
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// The division and shift helpers, Go's gen.go divisions, divisionIn,
+// emitDivision, emitShift and divisionName: each division, remainder and
+// shift the program does at run time, by operator and type, gets a helper
+// of its own, written in a fixed order, since C leaves the smallest value
+// divided by -1 and a shift's count at or past the width undefined.
+
+// Division is one operator that goes through a helper, / % << or >>,
+// applied in one integer type, Go's division, by their numbers; the
+// type itself is what divisions maps it to.
+type Division struct {
+    op int64
+    typ int64
+}
+
+// DivisionUse is one division divisions gives: the operator and the type.
+type DivisionUse struct {
+    op ast.BinaryOp
+    typ types.Type
+}
+
+// divisions returns each division, remainder and shift the program does
+// at run time, in Go's fixed order: by operator, / % << >>, then by type,
+// below untyped_int, Go's divisions and divisionIn: an operator
+// expression that is no constant, or a compound assignment, which works
+// in its target's type. The walk keeps a stack of its own.
+func (mut g Gen) divisions(mut t typeck.Typed) (list[DivisionUse], error) {
+    mut used := make(map[Division]types.Type, c_allocator)
+    mut stack := make(list[typeck.Key], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for u := range len(t.prog.trees) {
+        walk_program(t, u, mut stack)?
+        for len(stack) > 0 {
+            k, has := pop(mut stack)
+            if !has {
+                break
+            }
+            switch kind_of(t.prog.trees[:], k) {
+            case binary(b):
+                c := mut t.const_of(k)
+                if is_division_op(b.op) && c.kind == typeck.cv_none {
+                    bt := mut t.type_of(k)
+                    put(mut used, Division{op: b.op.number(), typ: bt.number()}, bt)?
+                }
+            case assign(a):
+                if is_division_op(a.op) {
+                    tt := mut t.type_of(typeck.Key{unit: k.unit, node: a.target})
+                    put(mut used, Division{op: a.op.number(), typ: tt.number()}, tt)?
+                }
+            default:
+            }
+            push_children(t.prog.trees[:], k, mut kids, mut stack)?
+        }
+    }
+    mut out := make(list[DivisionUse], c_allocator)
+    ops := [4]ast.BinaryOp{ast.op_div, ast.op_rem, ast.op_shl, ast.op_shr}
+    for _, op := range ops {
+        for n := range types.untyped_int.number() {
+            typ, is_used := used[Division{op: op.number(), typ: n}]
+            if is_used {
+                append(mut out, DivisionUse{op: op, typ: typ})?
+            }
+        }
+    }
+    return out, noerror
+}
+
+// emit_divisions writes the helper of each division the program does, in
+// the order divisions gives them, Go's loop of emitConstantPool.
+func (mut g Gen) emit_divisions(mut t typeck.Typed) error {
+    uses := mut g.divisions(mut t)?
+    for _, d := range uses {
+        if is_shift_op(d.op) {
+            mut g.emit_shift(mut t, d.op, d.typ)?
+        } else {
+            mut g.emit_division(mut t, d.op, d.typ)?
+        }
+    }
+    return noerror
+}
+
+// emit_division writes the helper for op, / or %, in typ, Go's
+// emitDivision: a signed division by -1 written out, the quotient as the
+// negation on uint64_t and the remainder as 0.
+func (mut g Gen) emit_division(mut t typeck.Typed, op ast.BinaryOp, typ types.Type) error {
+    mut ct := make(list[uint8], c_allocator)
+    append_c_type(mut t, typ, mut ct)?
+    mut name := make(list[uint8], c_allocator)
+    append_division_name(op, typ, mut name)?
+    unused := mut g.maybe_unused(name[:])?
+    fmt.appendf(mut g.buf, "%sstatic %s %s(%s a, %s b) {\n", unused, ct[:], name[:], ct[:], ct[:])?
+    if types.is_unsigned(typ) && op == ast.op_div {
+        append(mut g.buf, []uint8("    return a / b;\n")...)?
+    } else if types.is_unsigned(typ) {
+        append(mut g.buf, []uint8("    return a % b;\n")...)?
+    } else if op == ast.op_div {
+        fmt.appendf(mut g.buf, "    return b == -1 ? (%s)(0 - (uint64_t)a) : (%s)(a / b);\n", ct[:], ct[:])?
+    } else {
+        fmt.appendf(mut g.buf, "    return b == -1 ? 0 : (%s)(a %% b);\n", ct[:])?
+    }
+    append(mut g.buf, []uint8("}\n\n")...)?
+    return noerror
+}
+
+// emit_shift writes the helper for the shift op in typ, Go's emitShift:
+// the count a uint64_t, one at or past the width shifting every bit out,
+// << on uint64_t, and a signed >> written out as an arithmetic shift.
+func (mut g Gen) emit_shift(mut t typeck.Typed, op ast.BinaryOp, typ types.Type) error {
+    mut ct := make(list[uint8], c_allocator)
+    append_c_type(mut t, typ, mut ct)?
+    mut name := make(list[uint8], c_allocator)
+    append_division_name(op, typ, mut name)?
+    unused := mut g.maybe_unused(name[:])?
+    fmt.appendf(mut g.buf, "%sstatic %s %s(%s a, uint64_t n) {\n", unused, ct[:], name[:], ct[:])?
+    if op == ast.op_shl {
+        fmt.appendf(mut g.buf, "    return n >= sizeof (%s) * 8 ? 0 : (%s)((uint64_t)a << n);\n", ct[:], ct[:])?
+    } else if types.is_unsigned(typ) {
+        fmt.appendf(mut g.buf, "    return n >= sizeof (%s) * 8 ? 0 : (%s)(a >> n);\n", ct[:], ct[:])?
+    } else {
+        fmt.appendf(mut g.buf, "    if (n >= sizeof (%s) * 8) {\n        n = sizeof (%s) * 8 - 1;\n    }\n", ct[:], ct[:])?
+        fmt.appendf(mut g.buf, "    return a < 0 ? (%s)~(~a >> n) : (%s)(a >> n);\n", ct[:], ct[:])?
+    }
+    append(mut g.buf, []uint8("}\n\n")...)?
+    return noerror
+}

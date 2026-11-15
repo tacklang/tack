@@ -4,19 +4,35 @@ import typeck from "tack/typeck"
 import types from "tack/types"
 
 // The program's types, Go's struct.go emitTypes, emittedTypes,
-// isComposite, emitTypeDef and comparedTypes, with the walks of the types
-// the later stages' helpers are written for, funcvalue.go's
-// usesFuncTypes, arena.go's arenaTypes, maps.go's mapTypes, pool.go's
-// poolTypes and union.go's emitFrees. Every type the table added that C
-// has is defined before it is used, and each kind's definition is its
-// own stage's: an array, a struct and a union E2's, a view E2's, a list,
-// a map, an arena and a pool E3's, and the function types E4's. A program
-// of the core has none of them; the types it may have, a type parameter
-// of a generic function never instantiated, an id, a span and a handle,
-// get no definition. So the walk declines at the first type that would
-// get one, and otherwise writes only the string comparison helper, when
-// the lowered code compares two strings: no type is compared through an
-// equality helper, no map's keys are, and no type has a free helper.
+// isComposite, parts, emitTypeDef, emitDef, comparedTypes,
+// markCompared and emitEqualityOf, with the walks of the types the
+// later stages' helpers are written for, funcvalue.go's usesFuncTypes,
+// emitFuncPtr and emitFuncTypes, maps.go's keyTypes, string.go's
+// comparesStrings and union.go's emitFrees. Every type the table added
+// that C has is defined before it is used, each after the types it is
+// made of: an array, a view, a struct and a union here, E2's (array.tck,
+// view.tck, struct.tck and union.tck); a list, a map, an arena and a
+// pool E3's, and a function type E4's, which the port declines. Then
+// the string comparison helper, when the lowered code compares strings,
+// directly or through an equality helper, and the equality helper of
+// every type == compares, each after those of the types it is made of.
+// No type of a program the port lowers owns anything, since only a list,
+// a map, an arena or a pool does, so none has a free helper.
+//
+// Go walks a type's parts by recursion, a frame a level, and a chain of
+// structs each holding the one before is as long as its source makes
+// it, so each walk here keeps a stack of its own (see TypeFrame).
+
+// TypeFrame is one type a walk of the types is in, Go's frame of
+// emitTypeDef or emitEqualityOf: the type, and where its parts are in
+// the walk's list of parts, from start to end, next the first it has
+// yet to visit.
+type TypeFrame struct {
+    typ types.Type
+    start int64
+    next int64
+    end int64
+}
 
 // emit_types writes the types and their helpers, Go's emitTypes.
 func (mut g Gen) emit_types(mut t typeck.Typed) error {
@@ -32,21 +48,44 @@ func (mut g Gen) emit_types(mut t typeck.Typed) error {
             return not_ported
         }
     }
+    mut defined := make(map[types.Type]bool, c_allocator)
+    mut frames := make(list[TypeFrame], c_allocator)
+    mut parts := make(list[types.Type], c_allocator)
     for i := range count {
         typ := types.added(i)
         param := mut t.table.has_type_param(typ)?
-        if param || typ == types.error_type {
+        if param {
             continue
         }
-        defined := mut g.has_def(mut t, typ)?
-        if defined {
-            // emitDef, whose every kind is a later stage's.
-            return not_ported
-        }
+        mut g.emit_type_def(mut t, typ, mut defined, mut frames, mut parts)?
     }
-    if g.compares_text {
+    compared := mut g.compared_types(mut t)?
+    strings := mut g.compares_strings(mut t, compared)?
+    if strings {
         mut g.emit_string_compare()?
     }
+    mut emitted := make(map[types.Type]bool, c_allocator)
+    _, err_compared := compared[types.error_type]
+    if err_compared {
+        mut g.emit_equality_of(mut t, types.error_type, mut emitted, mut frames, mut parts)?
+    }
+    for i := range count {
+        typ := types.added(i)
+        param := mut t.table.has_type_param(typ)?
+        if param {
+            continue
+        }
+        _, is_compared := compared[typ]
+        if is_compared {
+            mut g.emit_equality_of(mut t, typ, mut emitted, mut frames, mut parts)?
+        }
+    }
+    // emitFrees writes a free helper for each type that owns, E3's: a
+    // list, a map, an arena or a pool, or a type holding one, each of
+    // which has a definition, E3's too, which emit_def has declined. A
+    // type parameter, which owns too, is no type C has. So nothing is
+    // left to free, and the walk, which asks Owned of every type, the
+    // depth of a chain of structs each time, is not made.
     return noerror
 }
 
@@ -71,4 +110,269 @@ func (mut g Gen) has_def(mut t typeck.Typed, typ types.Type) (bool, error) {
     }
     p := mut t.table.is_pool(typ)?
     return p, noerror
+}
+
+// append_parts appends to out the types a value of type typ is made of,
+// in order, Go's parts: an array's, a view's, a list's or a pool's
+// element type, a map's key and value types, a union's payloads' types,
+// or a struct's field types. An arena's parts hold the list of its
+// elements, which the table may add, E3's.
+func append_parts(mut t typeck.Typed, typ types.Type, mut out list[types.Type]) error {
+    arr := mut t.table.is_array(typ)?
+    view := mut t.table.is_view(typ)?
+    lst := mut t.table.is_list(typ)?
+    if arr || view || lst {
+        e := mut t.table.elem_of(typ)?
+        append(mut out, e)?
+        return noerror
+    }
+    if mut t.table.is_map(typ)? {
+        key := mut t.table.key_of(typ)?
+        append(mut out, key)?
+        e := mut t.table.elem_of(typ)?
+        append(mut out, e)?
+        return noerror
+    }
+    if mut t.table.is_arena(typ)? {
+        return not_ported
+    }
+    if mut t.table.is_pool(typ)? {
+        e := mut t.table.elem_of(typ)?
+        append(mut out, e)?
+        return noerror
+    }
+    if mut t.table.is_union(typ)? {
+        n := mut t.table.case_count(typ)?
+        for i := range n {
+            c, ok := mut t.table.case_at(typ, i)?
+            if ok && c.payload {
+                append(mut out, c.typ)?
+            }
+        }
+        return noerror
+    }
+    n := mut t.table.field_count(typ)?
+    for i := range n {
+        ft, ok := mut t.table.field_type(typ, i)?
+        if ok {
+            append(mut out, ft)?
+        }
+    }
+    return noerror
+}
+
+// push_type_frame starts a walk's visit of typ: its parts appended to
+// parts and its frame pushed on frames.
+func push_type_frame(mut t typeck.Typed, typ types.Type, mut frames list[TypeFrame], mut parts list[types.Type]) error {
+    start := len(parts)
+    append_parts(mut t, typ, mut parts)?
+    append(mut frames, TypeFrame{typ: typ, start: start, next: start, end: len(parts)})?
+    return noerror
+}
+
+// next_part returns the next part the frame on top of frames has yet to
+// visit, moving past it, and true; or, for a frame with none left, pops
+// it, drops its parts from parts and returns false and the frame, done.
+func next_part(mut frames list[TypeFrame], mut parts list[types.Type]) (types.Type, bool, TypeFrame) {
+    top := len(frames) -% 1
+    if top < 0 || top >= len(frames) {
+        return types.invalid, false, TypeFrame{typ: types.invalid, start: 0, next: 0, end: 0}
+    }
+    f := frames[top]
+    if f.next < f.end {
+        frames[top].next = f.next +% 1
+        p, has := parts[f.next]
+        if has {
+            return p, true, f
+        }
+        return types.invalid, true, f
+    }
+    pop(mut frames)
+    for len(parts) > f.start {
+        pop(mut parts)
+    }
+    return types.invalid, false, f
+}
+
+// emit_type_def defines the C struct of root and of every type it is
+// made of, each after its parts, unless defined says it is defined
+// already, Go's emitTypeDef: a type is marked before its parts are
+// visited. error's struct is the runtime's tack.h's.
+func (mut g Gen) emit_type_def(mut t typeck.Typed, root types.Type, mut defined map[types.Type]bool, mut frames list[TypeFrame], mut parts list[types.Type]) error {
+    enter := mut g.enter_def(mut t, root, mut defined)?
+    if !enter {
+        return noerror
+    }
+    push_type_frame(mut t, root, mut frames, mut parts)?
+    for len(frames) > 0 {
+        p, has, f := next_part(mut frames, mut parts)
+        if has {
+            in := mut g.enter_def(mut t, p, mut defined)?
+            if in {
+                push_type_frame(mut t, p, mut frames, mut parts)?
+            }
+            continue
+        }
+        mut g.emit_def(mut t, f.typ)?
+    }
+    return noerror
+}
+
+// enter_def reports whether emit_type_def defines typ, and marks it
+// defined when it does: neither defined already, nor error, and a type
+// with a C struct of its own.
+func (mut g Gen) enter_def(mut t typeck.Typed, typ types.Type, mut defined map[types.Type]bool) (bool, error) {
+    _, done := defined[typ]
+    if done || typ == types.error_type {
+        return false, noerror
+    }
+    def := mut g.has_def(mut t, typ)?
+    if !def {
+        return false, noerror
+    }
+    put(mut defined, typ, true)?
+    return true, noerror
+}
+
+// emit_def defines the C struct of typ, whose parts are defined already,
+// Go's emitDef. A list's, a map's, an arena's and a pool's are E3's.
+func (mut g Gen) emit_def(mut t typeck.Typed, typ types.Type) error {
+    if mut t.table.is_view(typ)? {
+        mut g.emit_view_def(mut t, typ)?
+        return noerror
+    }
+    lst := mut t.table.is_list(typ)?
+    mp := mut t.table.is_map(typ)?
+    is_arena := mut t.table.is_arena(typ)?
+    is_pool := mut t.table.is_pool(typ)?
+    if lst || mp || is_arena || is_pool {
+        return not_ported
+    }
+    if mut t.table.is_array(typ)? {
+        mut g.emit_array_def(mut t, typ)?
+        return noerror
+    }
+    if mut t.table.is_union(typ)? {
+        mut g.emit_union_def(mut t, typ)?
+        return noerror
+    }
+    mut g.emit_struct_def(mut t, typ)?
+    return noerror
+}
+
+// has_equality_helper reports whether two values of type typ are
+// compared through an equality helper, Go's hasEqualityHelper: an
+// array, a struct, a union or a list.
+func (mut g Gen) has_equality_helper(mut t typeck.Typed, typ types.Type) (bool, error) {
+    composite := mut g.is_composite(mut t, typ)?
+    if composite {
+        return true, noerror
+    }
+    l := mut t.table.is_list(typ)?
+    return l, noerror
+}
+
+// compared_types returns every type the lowered code compares through an
+// equality helper, and every such type they are made of, Go's
+// comparedTypes and markCompared. The walk's order shows nowhere: it
+// only fills a set.
+func (mut g Gen) compared_types(mut t typeck.Typed) (map[types.Type]bool, error) {
+    mut compared := make(map[types.Type]bool, c_allocator)
+    mut stack := make(list[types.Type], c_allocator)
+    for typ, _ := range g.equalities {
+        append(mut stack, typ)?
+    }
+    mut parts := make(list[types.Type], c_allocator)
+    for len(stack) > 0 {
+        typ, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        _, seen := compared[typ]
+        if seen {
+            continue
+        }
+        helper := mut g.has_equality_helper(mut t, typ)?
+        if !helper {
+            continue
+        }
+        put(mut compared, typ, true)?
+        append_parts(mut t, typ, mut parts)?
+        for len(parts) > 0 {
+            p, has := pop(mut parts)
+            if has {
+                append(mut stack, p)?
+            }
+        }
+    }
+    return compared, noerror
+}
+
+// compares_strings reports whether the lowered code compares two
+// strings, Go's comparesStrings: it compares them itself, or compares a
+// type among compared that holds a string. No map's keys are compared
+// in a program the port lowers.
+func (mut g Gen) compares_strings(mut t typeck.Typed, compared map[types.Type]bool) (bool, error) {
+    mut parts := make(list[types.Type], c_allocator)
+    for typ, _ := range compared {
+        for len(parts) > 0 {
+            pop(mut parts)
+        }
+        append_parts(mut t, typ, mut parts)?
+        for _, p := range parts {
+            if p == types.string_type {
+                return true, noerror
+            }
+        }
+    }
+    return g.compares_text, noerror
+}
+
+// emit_equality_of writes the equality helper of root and of every type
+// it is made of, each after those of its parts, unless emitted says it
+// is written already, Go's emitEqualityOf.
+func (mut g Gen) emit_equality_of(mut t typeck.Typed, root types.Type, mut emitted map[types.Type]bool, mut frames list[TypeFrame], mut parts list[types.Type]) error {
+    enter := mut g.enter_equality(mut t, root, mut emitted)?
+    if !enter {
+        return noerror
+    }
+    push_type_frame(mut t, root, mut frames, mut parts)?
+    for len(frames) > 0 {
+        p, has, f := next_part(mut frames, mut parts)
+        if has {
+            in := mut g.enter_equality(mut t, p, mut emitted)?
+            if in {
+                push_type_frame(mut t, p, mut frames, mut parts)?
+            }
+            continue
+        }
+        arr := mut t.table.is_array(f.typ)?
+        lst := mut t.table.is_list(f.typ)?
+        if arr || lst {
+            mut g.emit_array_equality(mut t, f.typ)?
+            continue
+        }
+        if mut t.table.is_union(f.typ)? {
+            mut g.emit_union_equality(mut t, f.typ)?
+            continue
+        }
+        mut g.emit_struct_equality(mut t, f.typ)?
+    }
+    return noerror
+}
+
+// enter_equality reports whether emit_equality_of writes typ's helper,
+// and marks it written when it does: not written already, and a type
+// with an equality helper.
+func (mut g Gen) enter_equality(mut t typeck.Typed, typ types.Type, mut emitted map[types.Type]bool) (bool, error) {
+    _, done := emitted[typ]
+    if done {
+        return false, noerror
+    }
+    helper := mut g.has_equality_helper(mut t, typ)?
+    if !helper {
+        return false, noerror
+    }
+    put(mut emitted, typ, true)?
+    return true, noerror
 }

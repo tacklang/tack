@@ -1,0 +1,691 @@
+package codegen
+
+import ast from "tack/ast"
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// Structs, Go's struct.go but for the walk of the types (types.tck), and
+// what the other values share with them: a struct's C struct, its
+// equality helper, its name and its members' (emitStructDef,
+// emitStructEquality, equalExpr, structName, memberName); a computed
+// constant of an array, a struct or a union as a static initializer, and
+// a global too deep for one, given its value by C's main (constOf,
+// specialConst, zeroed, unionConst, deepGlobal, heldConst, heldParts,
+// heldUnion, compound); and the address an equality helper reads a value
+// through (addressOf, addressable, notPlace, encloses, closingQuote,
+// isCName). A struct literal and a field read are routines of the
+// expression machine (see values.tck).
+
+// append_struct_name appends the name of the C struct the struct or
+// union type typ0 stands for lowers to, Go's structName: the type's
+// name, mangled as a package-level name of the package that declares it
+// is, or of the main package for a type no package declares; error's is
+// tack_error, the runtime's.
+func append_struct_name(mut t typeck.Typed, typ0 types.Type, mut out list[uint8]) error {
+    typ := mut t.table.bound(typ0)?
+    if typ == types.error_type {
+        append(mut out, []uint8("tack_error")...)?
+        return noerror
+    }
+    mut pkg := mut t.table.owner(typ)?
+    if pkg < 0 || pkg >= len(t.prog.packages) {
+        pkg = main_package(t)
+    }
+    name := mut t.table.name(typ)?
+    append_mangle(t, pkg, name[:], mut out)?
+    return noerror
+}
+
+// append_member_name appends the C member a field called name of the
+// struct type typ lowers to, Go's memberName: f_ and the name, or, for
+// error's fields, the name itself, as tack.h names them.
+func append_member_name(typ types.Type, name []uint8, mut out list[uint8]) error {
+    if typ != types.error_type {
+        append(mut out, []uint8("f_")...)?
+    }
+    append(mut out, name...)?
+    return noerror
+}
+
+// append_field_member appends the C member of the i'th field of the
+// struct type typ, Go's memberName of the field's name.
+func append_field_member(mut t typeck.Typed, typ types.Type, i int64, mut out list[uint8]) error {
+    mut name := make(list[uint8], c_allocator)
+    mut t.table.field_name(typ, i, mut name)?
+    append_member_name(typ, name[:], mut out)?
+    return noerror
+}
+
+// emit_struct_def defines the C struct a struct type lowers to, Go's
+// emitStructDef: a member for each field, in order, or one unused member
+// for a struct with none.
+func (mut g Gen) emit_struct_def(mut t typeck.Typed, typ types.Type) error {
+    append(mut g.buf, []uint8("typedef struct {\n")...)?
+    n := mut t.table.field_count(typ)?
+    if n == 0 {
+        append(mut g.buf, []uint8("    char unused;\n")...)?
+    }
+    for i := range n {
+        ft, _ := mut t.table.field_type(typ, i)?
+        append(mut g.buf, []uint8("    ")...)?
+        append_c_type(mut t, ft, mut g.buf)?
+        append(mut g.buf, ' ')?
+        append_field_member(mut t, typ, i, mut g.buf)?
+        append(mut g.buf, []uint8(";\n")...)?
+    }
+    append(mut g.buf, []uint8("} ")...)?
+    append_struct_name(mut t, typ, mut g.buf)?
+    append(mut g.buf, []uint8(";\n\n")...)?
+    return noerror
+}
+
+// append_equality_name appends the name of the equality helper of the
+// type typ stands for, Go's equalityName: tack_eq_ and its ID.
+func append_equality_name(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    b := mut t.table.bound(typ)?
+    fmt.appendf(mut out, "tack_eq_%d", b.number())?
+    return noerror
+}
+
+// use_equality appends the name of the equality helper of the type typ
+// stands for, and records that the lowered code calls it, Go's
+// useEquality.
+func (mut g Gen) use_equality(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    b := mut t.table.bound(typ)?
+    put(mut g.equalities, b, true)?
+    append_equality_name(mut t, typ, mut out)?
+    return noerror
+}
+
+// append_helper_head appends the first line of an equality helper of
+// typ, whose C struct is named name: static bool, its name, and two
+// const pointers to name.
+func append_helper_head(mut t typeck.Typed, typ types.Type, name []uint8, mut out list[uint8]) error {
+    append(mut out, []uint8("static bool ")...)?
+    append_equality_name(mut t, typ, mut out)?
+    append(mut out, []uint8("(const ")...)?
+    append(mut out, name...)?
+    append(mut out, []uint8(" *a, const ")...)?
+    append(mut out, name...)?
+    append(mut out, []uint8(" *b) {\n")...)?
+    return noerror
+}
+
+// emit_struct_equality writes the equality helper of a struct type, Go's
+// emitStructEquality: its fields compared in order, joined with &&, or
+// true for a struct with none.
+func (mut g Gen) emit_struct_equality(mut t typeck.Typed, typ types.Type) error {
+    mut name := make(list[uint8], c_allocator)
+    append_struct_name(mut t, typ, mut name)?
+    append_helper_head(mut t, typ, name[:], mut g.buf)?
+    n := mut t.table.field_count(typ)?
+    if n == 0 {
+        append(mut g.buf, []uint8("    (void)a;\n    (void)b;\n    return true;\n}\n\n")...)?
+        return noerror
+    }
+    append(mut g.buf, []uint8("    return ")...)?
+    for i := range n {
+        if i > 0 {
+            append(mut g.buf, []uint8(" && ")...)?
+        }
+        ft, _ := mut t.table.field_type(typ, i)?
+        mut l := make(list[uint8], c_allocator)
+        append(mut l, []uint8("a->")...)?
+        append_field_member(mut t, typ, i, mut l)?
+        mut r := make(list[uint8], c_allocator)
+        append(mut r, []uint8("b->")...)?
+        append_field_member(mut t, typ, i, mut r)?
+        mut test := make(list[uint8], c_allocator)
+        mut g.append_equal_expr(mut t, ft, l[:], r[:], mut test)?
+        append(mut g.buf, test[:]...)?
+    }
+    append(mut g.buf, []uint8(";\n}\n\n")...)?
+    return noerror
+}
+
+// append_equal_expr appends the C test of whether l and r, two places of
+// type typ an equality helper reads, are equal, Go's equalExpr: the
+// type's equality helper on their addresses, tack_handle_eq_ for a
+// handle, the string comparison helper giving zero for a string, and
+// C's == otherwise.
+func (mut g Gen) append_equal_expr(mut t typeck.Typed, typ types.Type, l []uint8, r []uint8, mut out list[uint8]) error {
+    helper := mut g.has_equality_helper(mut t, typ)?
+    if helper {
+        append_equality_name(mut t, typ, mut out)?
+        append(mut out, []uint8("(&")...)?
+        append(mut out, l...)?
+        append(mut out, []uint8(", &")...)?
+        append(mut out, r...)?
+        append(mut out, ')')?
+        return noerror
+    }
+    if mut t.table.is_handle(typ)? {
+        append(mut out, []uint8("tack_handle_eq_(")...)?
+        append(mut out, l...)?
+        append(mut out, []uint8(", ")...)?
+        append(mut out, r...)?
+        append(mut out, ')')?
+        return noerror
+    }
+    if typ == types.string_type {
+        append_string_comparison(ast.op_eq, l, r, mut out)?
+        return noerror
+    }
+    append(mut out, l...)?
+    append(mut out, []uint8(" == ")...)?
+    append(mut out, r...)?
+    return noerror
+}
+
+// append_string_comparison appends l op r, two strings compared with op,
+// as the string comparison helper's result compared with zero, Go's
+// stringComparison of string.go.
+func append_string_comparison(op ast.BinaryOp, l []uint8, r []uint8, mut out list[uint8]) error {
+    append(mut out, []uint8("(tack_compare_strings(")...)?
+    append(mut out, l...)?
+    append(mut out, []uint8(", ")...)?
+    append(mut out, r...)?
+    append(mut out, []uint8(") ")...)?
+    append(mut out, []uint8(binary_op_text(op))...)?
+    append(mut out, []uint8(" 0)")...)?
+    return noerror
+}
+
+// ConstFrame is one composite value a rendering of a computed constant is
+// in, Go's frame of constOf or heldConst: its type and value, whether it
+// is a union's, which has one payload, of type payload, the next of its n
+// parts to render, and what closes it. The C it has rendered so far is
+// the matching entry of the rendering's list of buffers.
+type ConstFrame struct {
+    typ types.Type
+    c typeck.Const
+    is_union bool
+    payload types.Type
+    next int64
+    n int64
+    close string
+}
+
+// const_of appends the computed constant c of type typ as a C constant
+// expression to out, and reports whether it has one, Go's constOf: an
+// array's or a struct's as a brace-enclosed initializer of its parts,
+// each rendered as const_of renders it, a union's as its tag and its
+// payload, c_allocator's as an initializer, and a basic type's as
+// constValue writes it.
+func (mut g Gen) const_of(mut t typeck.Typed, typ types.Type, c typeck.Const, mut out list[uint8]) (bool, error) {
+    mut steps := make(list[list[uint8]], c_allocator)
+    ok := mut g.render_const(mut t, typ, c, false, mut steps, mut out)?
+    return ok, noerror
+}
+
+// render_const appends c, the computed value of type typ, to out as
+// const_of renders it, and reports whether it has one; with held, as
+// Go's heldConst renders it instead, every part whose C nests deeper than
+// half of max_depth, and the whole, held in a local temporary whose
+// declaration is appended to steps, in the order the parts are done,
+// inner ones first, and written in its place. Go renders a part by
+// recursion, a frame a level of the value's type; here the frames are a
+// stack of their own, each with the C it has rendered in bufs.
+func (mut g Gen) render_const(mut t typeck.Typed, typ types.Type, c typeck.Const, held bool, mut steps list[list[uint8]], mut out list[uint8]) (bool, error) {
+    mut frames := make(list[ConstFrame], c_allocator)
+    mut bufs := make(list[list[uint8]], c_allocator)
+    mut leaf := make(list[uint8], c_allocator)
+    mut done := false
+    mut ok := mut g.enter_const(mut t, typ, c, mut frames, mut bufs, mut leaf, mut done)?
+    if !ok {
+        return false, noerror
+    }
+    if done {
+        mut g.finish_const(mut t, typ, held, mut steps, mut leaf)?
+        append(mut out, leaf[:]...)?
+        return true, noerror
+    }
+    for len(frames) > 0 {
+        top := len(frames) -% 1
+        if top < 0 || top >= len(frames) {
+            break
+        }
+        f := frames[top]
+        if f.next >= f.n {
+            pop(mut frames)
+            mut fin, has := pop(mut bufs)
+            if !has {
+                return false, noerror
+            }
+            append(mut fin, []uint8(f.close)...)?
+            mut g.finish_const(mut t, f.typ, held, mut steps, mut fin)?
+            if len(frames) == 0 {
+                append(mut out, fin[:]...)?
+                return true, noerror
+            }
+            add_const_part(frames[:], mut bufs, fin[:])?
+            continue
+        }
+        part, pc, part_ok := mut g.const_part(mut t, f)?
+        if !part_ok {
+            return false, noerror
+        }
+        frames[top].next = f.next +% 1
+        mut pleaf := make(list[uint8], c_allocator)
+        mut pdone := false
+        ok = mut g.enter_const(mut t, part, pc, mut frames, mut bufs, mut pleaf, mut pdone)?
+        if !ok {
+            return false, noerror
+        }
+        if pdone {
+            mut g.finish_const(mut t, part, held, mut steps, mut pleaf)?
+            add_const_part(frames[:], mut bufs, pleaf[:])?
+        }
+    }
+    return true, noerror
+}
+
+// add_const_part appends part, a part rendered, to the buffer of the
+// frame on top of frames, after a comma when one came before it.
+func add_const_part(frames []ConstFrame, mut bufs list[list[uint8]], part []uint8) error {
+    top := len(frames) -% 1
+    if top < 0 || top >= len(frames) || top >= len(bufs) {
+        return noerror
+    }
+    if !frames[top].is_union && frames[top].next > 1 {
+        append(mut bufs[top], []uint8(", ")...)?
+    }
+    append(mut bufs[top], part...)?
+    return noerror
+}
+
+// finish_const holds rendered, the C of a value of type typ rendered in
+// full, in a temporary when held says so and it nests deeper than half
+// of max_depth, Go's heldConst: the temporary's declaration is appended
+// to steps, and rendered becomes its name.
+func (mut g Gen) finish_const(mut t typeck.Typed, typ types.Type, held bool, mut steps list[list[uint8]], mut rendered list[uint8]) error {
+    if !held || c_depth(rendered[:]) <= max_depth / 2 {
+        return noerror
+    }
+    name := mut g.temp("g")?
+    mut step := make(list[uint8], c_allocator)
+    append_c_type(mut t, typ, mut step)?
+    append(mut step, ' ')?
+    append(mut step, name[:]...)?
+    append(mut step, []uint8(" = ")...)?
+    append(mut step, rendered[:]...)?
+    append(mut step, ';')?
+    append(mut steps, step)?
+    rendered = name
+    return noerror
+}
+
+// const_part returns the type and the value of the part f renders next,
+// and whether it has one: an array's element type, a union's payload's,
+// or the struct's field's in its place, of which there may be too few.
+func (mut g Gen) const_part(mut t typeck.Typed, f ConstFrame) (types.Type, typeck.Const, bool, error) {
+    if f.is_union {
+        p, has := t.store.items[f.c.first]
+        if !has {
+            return types.invalid, typeck.no_const(), false, noerror
+        }
+        return f.payload, p, true, noerror
+    }
+    v, has := t.store.items[f.c.first +% f.next]
+    if !has {
+        return types.invalid, typeck.no_const(), false, noerror
+    }
+    if mut t.table.is_array(f.typ)? {
+        e := mut t.table.elem_of(f.typ)?
+        return e, v, true, noerror
+    }
+    if mut t.table.is_union(f.typ)? {
+        mut parts := make(list[types.Type], c_allocator)
+        append_parts(mut t, f.typ, mut parts)?
+        p, in := parts[f.next]
+        if !in {
+            return types.invalid, typeck.no_const(), false, noerror
+        }
+        return p, v, true, noerror
+    }
+    n := mut t.table.field_count(f.typ)?
+    if f.next >= n {
+        return types.invalid, typeck.no_const(), false, noerror
+    }
+    ft, _ := mut t.table.field_type(f.typ, f.next)?
+    return ft, v, true, noerror
+}
+
+// enter_const starts rendering c, a value of type typ: a value with no
+// parts to render is appended to leaf whole, and done set; any other is
+// pushed on frames, its opening written to a buffer pushed on bufs. It
+// reports false for a value const_of has no rendering of.
+func (mut g Gen) enter_const(mut t typeck.Typed, typ types.Type, c typeck.Const, mut frames list[ConstFrame], mut bufs list[list[uint8]], mut leaf list[uint8], mut done bool) (bool, error) {
+    if c.kind == typeck.cv_alloc {
+        append(mut leaf, []uint8("{0, 0}")...)?
+        done = true
+        return true, noerror
+    }
+    if c.kind == typeck.cv_union {
+        n := mut t.table.case_count(typ)?
+        if !c.i.fits(64, true) {
+            return false, noerror
+        }
+        at_case := c.i.to_int64()
+        if at_case < 0 || at_case >= n {
+            return false, noerror
+        }
+        uc, _ := mut t.table.case_at(typ, at_case)?
+        if !uc.payload || c.first < 0 {
+            fmt.appendf(mut leaf, "{.tag = %d}", at_case)?
+            done = true
+            return true, noerror
+        }
+        mut open := make(list[uint8], c_allocator)
+        fmt.appendf(mut open, "{.tag = %d, .u.c_", at_case)?
+        mut t.table.case_name(uc, mut open)?
+        append(mut open, []uint8(" = ")...)?
+        append(mut frames, ConstFrame{typ: typ, c: c, is_union: true, payload: uc.typ, next: 0, n: 1, close: "}"})?
+        append(mut bufs, open)?
+        return true, noerror
+    }
+    composite := mut g.is_composite(mut t, typ)?
+    if c.kind != typeck.cv_list || !composite {
+        ok := mut g.const_value(t, c, mut leaf)?
+        done = true
+        return ok, noerror
+    }
+    if c.count == 0 || typ == types.error_type && is_noerror_const(t, c) {
+        append(mut leaf, []uint8("{}")...)?
+        done = true
+        return true, noerror
+    }
+    arr := mut t.table.is_array(typ)?
+    mut open := make(list[uint8], c_allocator)
+    mut close := "}"
+    if arr {
+        append(mut open, []uint8("{{")...)?
+        close = "}}"
+    } else {
+        append(mut open, '{')?
+    }
+    append(mut frames, ConstFrame{typ: typ, c: c, is_union: false, payload: types.invalid, next: 0, n: c.count, close: close})?
+    append(mut bufs, open)?
+    return true, noerror
+}
+
+// is_noerror_const reports whether c, an error's computed fields, is
+// noerror's, Go's isNoError: code 0 and the empty message.
+func is_noerror_const(t typeck.Typed, c typeck.Const) bool {
+    if c.count != 2 {
+        return false
+    }
+    code, has_code := t.store.items[c.first]
+    msg, has_msg := t.store.items[c.first +% 1]
+    if !has_code || !has_msg {
+        return false
+    }
+    return code.kind == typeck.cv_int && code.i.is_zero() && msg.kind == typeck.cv_str && msg.count == 0
+}
+
+// deep_global gives v, a global whose initializer would nest deeper than
+// max_depth, its computed value c of type typ at the start of C's main,
+// and reports whether it has one, Go's deepGlobal: a C block that holds
+// each part nested deeper than half of max_depth in a local temporary,
+// inner ones first, then assigns the whole.
+func (mut g Gen) deep_global(mut t typeck.Typed, v typeck.Key, typ types.Type, c typeck.Const) (bool, error) {
+    mut steps := make(list[list[uint8]], c_allocator)
+    mut value := make(list[uint8], c_allocator)
+    ok := mut g.render_const(mut t, typ, c, true, mut steps, mut value)?
+    if !ok {
+        return false, noerror
+    }
+    mut open := make(list[uint8], c_allocator)
+    append(mut open, '{')?
+    append(mut g.global_inits, open)?
+    for _, s := range steps {
+        mut l := make(list[uint8], c_allocator)
+        append(mut l, []uint8("    ")...)?
+        append(mut l, s[:]...)?
+        append(mut g.global_inits, l)?
+    }
+    vr := var_at(t.prog.trees[:], v)
+    mut set := make(list[uint8], c_allocator)
+    append(mut set, []uint8("    ")...)?
+    append_mangle(t, package_of_unit(t, v.unit), text_of(t, v.unit, vr.name), mut set)?
+    append(mut set, []uint8(" = ")...)?
+    if bytes.has_prefix(value[:], []uint8("{")) {
+        append(mut set, '(')?
+        append_c_type(mut t, typ, mut set)?
+        append(mut set, ')')?
+    }
+    append(mut set, value[:]...)?
+    append(mut set, ';')?
+    append(mut g.global_inits, set)?
+    mut close := make(list[uint8], c_allocator)
+    append(mut close, '}')?
+    append(mut g.global_inits, close)?
+    return true, noerror
+}
+
+// address_of appends the address of e's value, of type typ, rendered as
+// rendered, for an equality helper to read through, Go's addressOf:
+// rendered's own address when it is a C name or a place C can take the
+// address of, and otherwise a temporary of typ's assigned rendered.
+func (mut g Gen) address_of(mut t typeck.Typed, e typeck.Key, typ types.Type, rendered []uint8, mut out list[uint8]) error {
+    mut place := is_cname(rendered)
+    if !place && addressable(t, e) {
+        np := not_place(rendered)?
+        place = !np
+    }
+    if place {
+        append(mut out, '&')?
+        append(mut out, rendered...)?
+        return noerror
+    }
+    name := mut g.temp("q")?
+    mut ctype := make(list[uint8], c_allocator)
+    append_c_type(mut t, typ, mut ctype)?
+    mut g.add_temp_decl(ctype[:], name[:])?
+    append(mut out, '(')?
+    append(mut out, name[:]...)?
+    append(mut out, []uint8(" = ")...)?
+    append(mut out, rendered...)?
+    append(mut out, []uint8(", &")...)?
+    append(mut out, name[:]...)?
+    append(mut out, ')')?
+    return noerror
+}
+
+// addressable reports whether the C rendered from e is a place C can
+// take the address of, Go's addressable: a name, a field or an element
+// of one, at any depth, or a compound literal, a struct or array
+// literal, noerror or a union's construction.
+func addressable(t typeck.Typed, start typeck.Key) bool {
+    mut e := start
+    for {
+        _, _, built := construction_of(t, e)
+        if built {
+            return true
+        }
+        switch kind_of(t.prog.trees[:], e) {
+        case composite_lit:
+            return true
+        case noerror_lit:
+            return true
+        case ident:
+            return true
+        case selector(s):
+            e = at(e, s.x)
+        case index(ix):
+            e = at(e, ix.x)
+        default:
+            return false
+        }
+    }
+    return false
+}
+
+// not_place reports whether rendered gives its value through a comma, a
+// conditional or an assignment outside every call's arguments, index and
+// initializer, which C counts as no place, Go's notPlace. A character or
+// string literal is skipped whole.
+func not_place(rendered []uint8) (bool, error) {
+    mut open := make(list[uint8], c_allocator)
+    mut enclosed int64 = 0
+    mut i int64 = 0
+    for i < len(rendered) {
+        c, ok := rendered[i]
+        if !ok {
+            break
+        }
+        if c == '\'' || c == '"' {
+            i = closing_quote(rendered, i)
+        } else if c == '(' || c == '[' || c == '{' {
+            k := encloses(rendered, i)
+            append(mut open, k)?
+            enclosed +%= int64(k)
+        } else if c == ')' || c == ']' || c == '}' {
+            k, popped := pop(mut open)
+            if popped {
+                enclosed -%= int64(k)
+            }
+        } else if c == ',' || c == '?' || c == '=' {
+            if enclosed == 0 {
+                return true, noerror
+            }
+        }
+        i +%= 1
+    }
+    return false, noerror
+}
+
+// encloses is 1 when the bracket at i of s opens a call's arguments, an
+// index or an initializer, and 0 when it is a parenthesis that groups or
+// casts, Go's encloses.
+func encloses(s []uint8, i int64) uint8 {
+    c, ok := s[i]
+    if !ok || c != '(' {
+        return 1
+    }
+    p, has := s[i -% 1]
+    if has && (is_ident_byte(p) || p == ')' || p == ']') {
+        return 1
+    }
+    return 0
+}
+
+// closing_quote returns the index of the quote that ends the literal
+// whose opening quote is at i of s, past every escaped character, or the
+// last index of s when none does, Go's closingQuote.
+func closing_quote(s []uint8, start int64) int64 {
+    quote, has := s[start]
+    if !has {
+        return len(s) -% 1
+    }
+    mut i := start +% 1
+    for i < len(s) {
+        c, ok := s[i]
+        if !ok || c == quote {
+            break
+        }
+        if c == '\\' {
+            i +%= 1
+        }
+        i +%= 1
+    }
+    last := len(s) -% 1
+    if i < last {
+        return i
+    }
+    return last
+}
+
+// is_cname reports whether s is a C identifier, Go's isCName: its bytes
+// letters, digits and underscores, not starting with a digit. Go's reads
+// runes and asks Unicode, which no byte the lowering writes needs.
+func is_cname(s []uint8) bool {
+    if len(s) == 0 {
+        return false
+    }
+    for i, c := range s {
+        letter := c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= 128
+        if letter {
+            continue
+        }
+        if i > 0 && c >= '0' && c <= '9' {
+            continue
+        }
+        return false
+    }
+    return true
+}
+
+// construction_of returns, when e builds a value of a union, Go's
+// ast.Construction, the union's type declaration and the selector that
+// names the case, and true: a call of, or a selector naming, a case of a
+// union a type declaration declares.
+func construction_of(t typeck.Typed, e typeck.Key) (typeck.Key, typeck.Key, bool) {
+    none := typeck.Key{unit: -1, node: ast_none()}
+    mut sel := none
+    switch kind_of(t.prog.trees[:], e) {
+    case call(cl):
+        switch kind_of(t.prog.trees[:], at(e, cl.fn)) {
+        case selector:
+            sel = at(e, cl.fn)
+        default:
+        }
+    case selector:
+        sel = e
+    default:
+    }
+    if sel.unit < 0 {
+        return none, none, false
+    }
+    mut s ast.Selector
+    switch kind_of(t.prog.trees[:], sel) {
+    case selector(v):
+        s = v
+    default:
+        return none, none, false
+    }
+    nm, is_name := ident_of(t.prog.trees[:], at(sel, s.x))
+    if !is_name || nm.def.kind != ast.def_type {
+        return none, none, false
+    }
+    td := typeck.Key{unit: nm.def.unit, node: nm.def.node}
+    mut decl ast.TypeDecl
+    switch kind_of(t.prog.trees[:], td) {
+    case type_decl(d):
+        decl = d
+    default:
+        return none, none, false
+    }
+    switch kind_of(t.prog.trees[:], at(td, decl.type_expr)) {
+    case union_type(cs):
+        n := node_count(t.prog.trees[:], td.unit, cs)
+        for i := range n {
+            uk := node_at(t.prog.trees[:], td.unit, cs, i)
+            switch kind_of(t.prog.trees[:], uk) {
+            case union_case(uc):
+                if bytes.equal(text_of(t, uk.unit, uc.name), text_of(t, sel.unit, s.name)) {
+                    return td, sel, true
+                }
+            default:
+            }
+        }
+    default:
+    }
+    return none, none, false
+}
+
+// construction_payload returns the payload the union built by e, a call
+// of a case, is given, Go's Construction's payload: its one argument, or
+// no node.
+func construction_payload(t typeck.Typed, e typeck.Key) typeck.Key {
+    switch kind_of(t.prog.trees[:], e) {
+    case call(cl):
+        if node_count(t.prog.trees[:], e.unit, cl.args) == 1 {
+            return node_at(t.prog.trees[:], e.unit, cl.args, 0)
+        }
+    default:
+    }
+    return typeck.Key{unit: -1, node: ast_none()}
+}

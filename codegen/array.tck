@@ -1,0 +1,182 @@
+package codegen
+
+import ast from "tack/ast"
+import constant from "tack/constant"
+import fmt from "std/fmt"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// Arrays, Go's array.go but for indexExpr and lenValue, which the
+// expression machine renders (see expr.tck), and compositeLit, which it
+// renders too (see values.tck): an array's C struct and its equality
+// helper (emitArrayDef, emitArrayEquality, equalityName), == on two
+// values with an equality helper (arrayComparison), and the checked
+// element v, ok := a[i] (indexValues, heldIndexed, indexChanges,
+// passesAsMut, indexIn).
+
+// append_array_name appends the name of the C struct the array type typ
+// stands for lowers to, Go's arrayName: tack_array_ and its ID.
+func append_array_name(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    b := mut t.table.bound(typ)?
+    fmt.appendf(mut out, "tack_array_%d", b.number())?
+    return noerror
+}
+
+// emit_array_def defines the C struct an array type lowers to, Go's
+// emitArrayDef: its elements as a C array e, of one element for an array
+// of none.
+func (mut g Gen) emit_array_def(mut t typeck.Typed, typ types.Type) error {
+    mut n := mut t.table.len_of(typ)?
+    if n == 0 {
+        n = 1
+    }
+    elem := mut t.table.elem_of(typ)?
+    append(mut g.buf, []uint8("typedef struct {\n    ")...)?
+    append_c_type(mut t, elem, mut g.buf)?
+    fmt.appendf(mut g.buf, " e[%d];\n} ", n)?
+    append_array_name(mut t, typ, mut g.buf)?
+    append(mut g.buf, []uint8(";\n\n")...)?
+    return noerror
+}
+
+// emit_array_equality writes the equality helper of an array or a list
+// type, Go's emitArrayEquality: the elements compared one by one, and,
+// for a list, the lengths first.
+func (mut g Gen) emit_array_equality(mut t typeck.Typed, typ types.Type) error {
+    lst := mut t.table.is_list(typ)?
+    mut name := make(list[uint8], c_allocator)
+    mut field := "e"
+    mut n := make(list[uint8], c_allocator)
+    if lst {
+        append_c_type(mut t, typ, mut name)?
+        field = "ptr"
+        append(mut n, []uint8("a->len")...)?
+    } else {
+        append_array_name(mut t, typ, mut name)?
+        count := mut t.table.len_of(typ)?
+        fmt.appendf(mut n, "%d", count)?
+    }
+    mut l := make(list[uint8], c_allocator)
+    fmt.appendf(mut l, "a->%s[i]", field)?
+    mut r := make(list[uint8], c_allocator)
+    fmt.appendf(mut r, "b->%s[i]", field)?
+    mut differ := make(list[uint8], c_allocator)
+    elem := mut t.table.elem_of(typ)?
+    helper := mut g.has_equality_helper(mut t, elem)?
+    is_handle := mut t.table.is_handle(elem)?
+    if helper || elem == types.string_type || is_handle {
+        append(mut differ, '!')?
+        mut g.append_equal_expr(mut t, elem, l[:], r[:], mut differ)?
+    } else {
+        append(mut differ, l[:]...)?
+        append(mut differ, []uint8(" != ")...)?
+        append(mut differ, r[:]...)?
+    }
+    append_helper_head(mut t, typ, name[:], mut g.buf)?
+    if lst {
+        append(mut g.buf, []uint8("    if (a->len != b->len) {\n        return false;\n    }\n")...)?
+    }
+    fmt.appendf(mut g.buf, "    for (int64_t i = 0; i < %s; i++) {\n", n[:])?
+    fmt.appendf(mut g.buf, "        if (%s) {\n            return false;\n        }\n    }\n", differ[:])?
+    append(mut g.buf, []uint8("    return true;\n}\n\n")...)?
+    return noerror
+}
+
+// append_array_comparison appends == or != on two values of the type
+// bin's operands have, which has an equality helper, rendered as l and
+// r, Go's arrayComparison: the helper, recorded as called, on their
+// addresses, parenthesized.
+func (mut g Gen) append_array_comparison(mut t typeck.Typed, k typeck.Key, b ast.Binary, l []uint8, r []uint8, mut out list[uint8]) error {
+    x := at(k, b.x)
+    typ := mut t.type_of(x)
+    mut eq := make(list[uint8], c_allocator)
+    mut g.use_equality(mut t, typ, mut eq)?
+    append(mut eq, '(')?
+    mut g.address_of(mut t, x, typ, l, mut eq)?
+    append(mut eq, []uint8(", ")...)?
+    mut g.address_of(mut t, at(k, b.y), typ, r, mut eq)?
+    append(mut eq, ')')?
+    if b.op == ast.op_ne {
+        append(mut out, []uint8("(!")...)?
+    } else {
+        append(mut out, '(')?
+    }
+    append(mut out, eq[:]...)?
+    append(mut out, ')')?
+    return noerror
+}
+
+// append_within appends a C test of whether v, of the integer type src,
+// lies in [lo, hi], Go's withinExpr: only the bounds a value of src can
+// fall outside are tested, and an empty range is never met.
+func append_within(src types.Type, v []uint8, lo constant.Int, hi constant.Int, mut out list[uint8]) error {
+    if hi.cmp(lo) < 0 {
+        append(mut out, []uint8("false")...)?
+        return noerror
+    }
+    from_lo, from_hi := int_bounds(src)
+    mut tests := make(list[list[uint8]], c_allocator)
+    if from_lo.cmp(lo) < 0 {
+        mut s := make(list[uint8], c_allocator)
+        append(mut s, v...)?
+        append(mut s, []uint8(" >= ")...)?
+        append_int_literal(lo, mut s)?
+        append(mut tests, s)?
+    }
+    if from_hi.cmp(hi) > 0 {
+        mut s := make(list[uint8], c_allocator)
+        append(mut s, v...)?
+        append(mut s, []uint8(" <= ")...)?
+        append_int_literal(hi, mut s)?
+        append(mut tests, s)?
+    }
+    append_tests(tests[:], mut out)?
+    return noerror
+}
+
+// append_tests appends tests joined with &&, parenthesized, or true for
+// none.
+func append_tests(tests []list[uint8], mut out list[uint8]) error {
+    if len(tests) == 0 {
+        append(mut out, []uint8("true")...)?
+        return noerror
+    }
+    append(mut out, '(')?
+    for i, s := range tests {
+        if i > 0 {
+            append(mut out, []uint8(" && ")...)?
+        }
+        append(mut out, s[:]...)?
+    }
+    append(mut out, ')')?
+    return noerror
+}
+
+// int_bounds returns the smallest and largest values of a sized integer
+// type, Go's bounds: a target-width type's largest the largest it can
+// have on any target, a 64-bit one's.
+func int_bounds(typ types.Type) (constant.Int, constant.Int) {
+    n := types.max_bits(typ)
+    if types.is_unsigned(typ) {
+        if n == 8 {
+            return constant.from_int64(0), constant.from_uint64(255)
+        }
+        if n == 16 {
+            return constant.from_int64(0), constant.from_uint64(65535)
+        }
+        if n == 32 {
+            return constant.from_int64(0), constant.from_uint64(4294967295)
+        }
+        return constant.from_int64(0), constant.from_uint64(18446744073709551615)
+    }
+    if n == 8 {
+        return constant.from_int64(-128), constant.from_int64(127)
+    }
+    if n == 16 {
+        return constant.from_int64(-32768), constant.from_int64(32767)
+    }
+    if n == 32 {
+        return constant.from_int64(-2147483648), constant.from_int64(2147483647)
+    }
+    return constant.min(), constant.from_int64(9223372036854775807)
+}

@@ -1,0 +1,347 @@
+package codegen
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// Views, Go's view.go but for the callArgs family, which the expression
+// machine renders (see expr.tck), and viewArg, listView and bytesView,
+// which it renders too (see values.tck): a view's C struct (emitViewDef),
+// whether an array viewed by an argument must be copied first
+// (viewCopies, mayOverlap, placePath), and the view a call packs the
+// values of a variadic parameter into (packed); with slice.go's helpers
+// (useSlice, sliceHelpers, emitSliceHelper, sliceIn) and any.go's boxing
+// (boxed, stable).
+
+// emit_view_def defines the C struct a view type lowers to, Go's
+// emitViewDef: a pointer to const elements and their number.
+func (mut g Gen) emit_view_def(mut t typeck.Typed, typ types.Type) error {
+    elem := mut t.table.elem_of(typ)?
+    append(mut g.buf, []uint8("typedef struct {\n    const ")...)?
+    append_c_type(mut t, elem, mut g.buf)?
+    append(mut g.buf, []uint8(" *ptr;\n    int64_t len;\n} ")...)?
+    append_view_name(mut t, typ, mut g.buf)?
+    append(mut g.buf, []uint8(";\n\n")...)?
+    return noerror
+}
+
+// view_copies reports whether the array place, viewed by an argument of
+// call, must be copied for the view, Go's viewCopies: it is part of a
+// mutable global, or call's arguments pass a place that may overlap it
+// as mut, at any depth, or hold a closure that may write the variable it
+// is part of. The walk of the arguments keeps a stack of its own and
+// leaves out a closure's body.
+func (mut g Gen) view_copies(mut t typeck.Typed, place typeck.Key, call typeck.Key) (bool, error) {
+    root, has_root := root_of(t.prog.trees[:], place)
+    if !has_root {
+        // Go reads the Def of a nil root, and panics.
+        return false, not_ported
+    }
+    decl, bound := def_key(t.prog.trees[:], root)
+    if bound {
+        switch kind_of(t.prog.trees[:], decl) {
+        case var_decl(v):
+            _, global := g.globals[decl]
+            if global && v.mutable {
+                return true, noerror
+            }
+        default:
+        }
+    }
+    mut stack := make(list[typeck.Key], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    n := call_operand_count(t, call)
+    mut found := false
+    for i := range n {
+        append(mut stack, call_operand(t, call, i))?
+        for len(stack) > 0 {
+            k, ok := pop(mut stack)
+            if !ok {
+                break
+            }
+            switch kind_of(t.prog.trees[:], k) {
+            case mut_arg(x):
+                over := mut g.may_overlap(mut t, place, at(k, x))?
+                found = found || over
+            case func_lit:
+                nc := mut t.capture_count(k)
+                for c := range nc {
+                    cd, _, write, _ := mut t.capture(k, c)
+                    found = found || write && bound && cd == decl
+                }
+                continue
+            default:
+            }
+            if found {
+                for len(stack) > 0 {
+                    pop(mut stack)
+                }
+                break
+            }
+            push_children(t.prog.trees[:], k, mut kids, mut stack)?
+        }
+    }
+    return found, noerror
+}
+
+// may_overlap reports whether the places a and b may share memory, Go's
+// mayOverlap: they start from the same variable or parameter, and no
+// field of one differs from the other's at the same depth.
+func (mut g Gen) may_overlap(mut t typeck.Typed, a typeck.Key, b typeck.Key) (bool, error) {
+    mut sa := make(list[list[uint8]], c_allocator)
+    ra, oka := place_path(t, a, mut sa)?
+    mut sb := make(list[list[uint8]], c_allocator)
+    rb, okb := place_path(t, b, mut sb)?
+    if !oka || !okb || ra != rb {
+        return false, noerror
+    }
+    mut n := len(sa)
+    if len(sb) < n {
+        n = len(sb)
+    }
+    for i := range n {
+        if i >= len(sa) || i >= len(sb) {
+            break
+        }
+        if len(sa[i]) > 0 && len(sb[i]) > 0 && !bytes_equal(sa[i][:], sb[i][:]) {
+            return false, noerror
+        }
+    }
+    return true, noerror
+}
+
+// place_path fills steps with a step for each field and element of the
+// place start after the variable or parameter it starts from, outermost
+// first, a field's name or nothing for an element, and returns that
+// declaration and whether the place starts from one, Go's placePath. A
+// field a fields loop's variable stands for, E4's, is never reached:
+// fields loops are declined before their bodies.
+func place_path(t typeck.Typed, start typeck.Key, mut steps list[list[uint8]]) (typeck.Key, bool, error) {
+    mut k := start
+    for {
+        switch kind_of(t.prog.trees[:], k) {
+        case selector(s):
+            mut name := make(list[uint8], c_allocator)
+            append(mut name, text_of(t, k.unit, s.name)...)?
+            append(mut steps, name)?
+            k = at(k, s.x)
+        case index(ix):
+            append(mut steps, make(list[uint8], c_allocator))?
+            k = at(k, ix.x)
+        case ident:
+            mut i int64 = 0
+            mut j := len(steps) -% 1
+            for i < j && i >= 0 && j < len(steps) {
+                a := replace(mut steps[i], make(list[uint8], c_allocator))
+                b := replace(mut steps[j], make(list[uint8], c_allocator))
+                steps[i] = b
+                steps[j] = a
+                i +%= 1
+                j -%= 1
+            }
+            d, bound := def_key(t.prog.trees[:], k)
+            return d, bound, noerror
+        default:
+            return k, false, noerror
+        }
+    }
+    return k, false, noerror
+}
+
+// bytes_equal reports whether a and b hold the same bytes.
+func bytes_equal(a []uint8, b []uint8) bool {
+    if len(a) != len(b) {
+        return false
+    }
+    for i, c := range a {
+        d, ok := b[i]
+        if !ok || c != d {
+            return false
+        }
+    }
+    return true
+}
+
+// append_packed appends the view of type view a call passes to a
+// variadic parameter of the values it gives it, rendered as values, Go's
+// packed: a compound literal array of them and their number, or a null
+// pointer and 0 for none.
+func append_packed(mut t typeck.Typed, view types.Type, values []list[uint8], mut out list[uint8]) error {
+    append(mut out, '(')?
+    append_view_name(mut t, view, mut out)?
+    if len(values) == 0 {
+        append(mut out, []uint8("){0, 0}")...)?
+        return noerror
+    }
+    append(mut out, []uint8("){(const ")...)?
+    elem := mut t.table.elem_of(view)?
+    append_c_type(mut t, elem, mut out)?
+    fmt.appendf(mut out, "[%d]){", len(values))?
+    for i, v := range values {
+        if i > 0 {
+            append(mut out, []uint8(", ")...)?
+        }
+        append(mut out, v[:]...)?
+    }
+    fmt.appendf(mut out, "}, %d}", len(values))?
+    return noerror
+}
+
+// SliceHelper is one helper a program's slices call, Go's sliceHelper:
+// the ID of the string or view type it slices, and whether its high
+// bound is left out; Gen.slices maps it to the type.
+type SliceHelper struct {
+    typ int64
+    no_hi bool
+}
+
+// append_slice_helper_name appends the C name of h, Go's
+// sliceHelper.name: tack_slice_, from_ for a high bound left out, and
+// string or the view's ID.
+func append_slice_helper_name(h SliceHelper, mut out list[uint8]) error {
+    append(mut out, []uint8("tack_slice_")...)?
+    if h.no_hi {
+        append(mut out, []uint8("from_")...)?
+    }
+    if h.typ == types.string_type.number() {
+        append(mut out, []uint8("string")...)?
+    } else {
+        fmt.appendf(mut out, "%d", h.typ)?
+    }
+    return noerror
+}
+
+// use_slice appends the name of the helper a slice of the type typ
+// stands for calls, from when its high bound is left out, and records it
+// as one the program calls, Go's useSlice.
+func (mut g Gen) use_slice(mut t typeck.Typed, typ types.Type, no_hi bool, mut out list[uint8]) error {
+    b := mut t.table.bound(typ)?
+    h := SliceHelper{typ: b.number(), no_hi: no_hi}
+    put(mut g.slices, h, b)?
+    append_slice_helper_name(h, mut out)?
+    return noerror
+}
+
+// emit_slice_helpers writes each helper the lowered slices call, by type
+// and then with a high bound before without, Go's sliceHelpers and
+// emitSliceHelper.
+func (mut g Gen) emit_slice_helpers(mut t typeck.Typed) error {
+    mut helpers := make(list[SliceHelper], c_allocator)
+    for h, _ := range g.slices {
+        append(mut helpers, h)?
+    }
+    if len(helpers) == 0 {
+        return noerror
+    }
+    // An insertion sort: a program slices few types.
+    for i := range len(helpers) {
+        mut j := i
+        for j > 0 && j < len(helpers) {
+            p := j -% 1
+            if p < 0 || p >= len(helpers) {
+                break
+            }
+            a := helpers[p]
+            b := helpers[j]
+            if !slice_helper_less(b, a) {
+                break
+            }
+            helpers[p] = b
+            helpers[j] = a
+            j = p
+        }
+    }
+    for _, h := range helpers {
+        mut name := make(list[uint8], c_allocator)
+        append_slice_helper_name(h, mut name)?
+        typ, has := g.slices[h]
+        if !has {
+            continue
+        }
+        mut ctype := make(list[uint8], c_allocator)
+        append_c_type(mut t, typ, mut ctype)?
+        unused := mut g.maybe_unused(name[:])?
+        append(mut g.buf, []uint8(unused)...)?
+        if h.no_hi {
+            fmt.appendf(mut g.buf, "static %s %s(%s s, int64_t lo) {\n", ctype[:], name[:], ctype[:])?
+            fmt.appendf(mut g.buf, "    return (%s){lo == 0 ? s.ptr : s.ptr + lo, s.len - lo};\n}\n\n", ctype[:])?
+        } else {
+            fmt.appendf(mut g.buf, "static %s %s(%s s, int64_t lo, int64_t hi) {\n", ctype[:], name[:], ctype[:])?
+            fmt.appendf(mut g.buf, "    return (%s){lo == 0 ? s.ptr : s.ptr + lo, hi - lo};\n}\n\n", ctype[:])?
+        }
+    }
+    return noerror
+}
+
+// slice_helper_less reports whether a sorts before b, Go's sort of the
+// slice helpers: by type, then with a high bound first.
+func slice_helper_less(a SliceHelper, b SliceHelper) bool {
+    if a.typ != b.typ {
+        return a.typ < b.typ
+    }
+    return !a.no_hi && b.no_hi
+}
+
+// append_any_id appends the macro naming the type id of typ, a type an
+// any may hold, Go's anyID: a view's, TACK_TYPE_VIEW_ and its element's
+// name, or a basic type's.
+func append_any_id(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
+    if mut t.table.is_view(typ)? {
+        elem := mut t.table.elem_of(typ)?
+        append_view_any_id(elem, mut out)?
+        return noerror
+    }
+    append(mut out, []uint8(any_id(typ))...)?
+    return noerror
+}
+
+// append_boxed appends arg, rendered as op, as the tack_any a call
+// passes for it, Go's boxed: its type's id and op's address, when held
+// says op is a temporary the call holds it in or arg names a variable no
+// call can change (see stable), and otherwise a copy's, made in a
+// temporary of its own.
+func (mut g Gen) append_boxed(mut t typeck.Typed, arg typeck.Key, op []uint8, held bool, mut out list[uint8]) error {
+    typ := mut t.type_of(arg)
+    mut type_id := make(list[uint8], c_allocator)
+    append_any_id(mut t, typ, mut type_id)?
+    st := g.stable(t, arg)
+    if held || st {
+        fmt.appendf(mut out, "(tack_any){%s, &%s}", type_id[:], op)?
+        return noerror
+    }
+    name := mut g.temp("a")?
+    mut ctype := make(list[uint8], c_allocator)
+    append_c_type(mut t, typ, mut ctype)?
+    mut g.add_temp_decl(ctype[:], name[:])?
+    fmt.appendf(mut out, "(%s = %s, (tack_any){%s, &%s})", name[:], op, type_id[:], name[:])?
+    return noerror
+}
+
+// stable reports whether arg names a variable or parameter whose value no
+// call can change while the function runs, Go's stable: a parameter not
+// mut, an immutable variable, or a mutable local the function never
+// passes as mut.
+func (g Gen) stable(t typeck.Typed, arg typeck.Key) bool {
+    nm, is_name := ident_of(t.prog.trees[:], arg)
+    if !is_name {
+        return false
+    }
+    d := typeck.Key{unit: nm.def.unit, node: nm.def.node}
+    if nm.def.kind == ast.def_param {
+        return !param_at(t.prog.trees[:], d).is_mut
+    }
+    if nm.def.kind == ast.def_var {
+        v := var_at(t.prog.trees[:], d)
+        _, global := g.globals[d]
+        if global || !v.mutable {
+            return !v.mutable
+        }
+        if !g.has_frame {
+            return true
+        }
+        _, m := g.frame.mutated[d]
+        return !m
+    }
+    return false
+}

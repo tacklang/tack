@@ -1,0 +1,75 @@
+package codegen
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import typeck from "tack/typeck"
+import types from "tack/types"
+
+// swap, Go's swap.go: swap(mut l, i, j), always a statement, the list's
+// address, then i and then j, as int64s, each held in a const temporary
+// in that order, then the two elements exchanged through a temporary of
+// the element type, in a C block of its own. The list's address is
+// list.go's takeList, E3's, as a list's type is.
+
+// swap_stmt lowers swap(mut l, i, j), the call k, Go's swapStmt.
+func (mut g Gen) swap_stmt(mut t typeck.Typed, k typeck.Key) (list[Line], error) {
+    lp := mut g.take_list(mut t, k)?
+    cl := call_of(t.prog.trees[:], k)
+    first := node_at(t.prog.trees[:], k.unit, cl.args, 0)
+    mut lk := first
+    switch kind_of(t.prog.trees[:], first) {
+    case mut_arg(x):
+        lk = at(first, x)
+    default:
+    }
+    lt := mut t.type_of(lk)
+    mut src := new_source(0, k)
+    mut ltype := make(list[uint8], c_allocator)
+    append_c_type(mut t, lt, mut ltype)?
+    append(mut src.temps, MultiTemp{ctype: ltype, init: lp, is_ref: false, is_mut: true, flag: false, op: ast.op_invalid})?
+    n := node_count(t.prog.trees[:], k.unit, cl.args)
+    for i := range n {
+        if i == 0 {
+            continue
+        }
+        x := mut g.expr(mut t, node_at(t.prog.trees[:], k.unit, cl.args, i), types.int64_type)?
+        mut it := make(list[uint8], c_allocator)
+        append(mut it, []uint8("int64_t")...)?
+        append(mut src.temps, plain_temp(own it, own x))?
+    }
+    mut lines := make(list[Line], c_allocator)
+    names := mut g.hold_temps(src, mut lines)?
+    mut elem := make(list[uint8], c_allocator)
+    append_c_type(mut t, mut t.table.elem_of(lt)?, mut elem)?
+    mut n0 := make(list[uint8], c_allocator)
+    copy_name(names, 0, mut n0)?
+    mut n1 := make(list[uint8], c_allocator)
+    copy_name(names, 1, mut n1)?
+    mut n2 := make(list[uint8], c_allocator)
+    copy_name(names, 2, mut n2)?
+    mut at1 := make(list[uint8], c_allocator)
+    fmt.appendf(mut at1, "%s->ptr[%s]", n0[:], n1[:])?
+    mut at2 := make(list[uint8], c_allocator)
+    fmt.appendf(mut at2, "%s->ptr[%s]", n0[:], n2[:])?
+    held := mut g.temp("r")?
+    mut g.add_line(mut lines, []uint8("{"))?
+    append(mut lines, indent_in)?
+    mut a := make(list[uint8], c_allocator)
+    fmt.appendf(mut a, "const %s %s = %s;", elem[:], held[:], at1[:])?
+    mut g.add_line(mut lines, a[:])?
+    mut b := make(list[uint8], c_allocator)
+    fmt.appendf(mut b, "%s = %s;", at1[:], at2[:])?
+    mut g.add_line(mut lines, b[:])?
+    mut c := make(list[uint8], c_allocator)
+    fmt.appendf(mut c, "%s = %s;", at2[:], held[:])?
+    mut g.add_line(mut lines, c[:])?
+    append(mut lines, indent_out)?
+    mut g.add_line(mut lines, []uint8("}"))?
+    return lines, noerror
+}
+
+// take_list renders the list a call's first argument, mut l, names, as
+// the address swap_stmt holds it by, Go's takeList of list.go, E3's.
+func (mut g Gen) take_list(mut _ typeck.Typed, _ typeck.Key) (list[uint8], error) {
+    return make(list[uint8], c_allocator), not_ported
+}

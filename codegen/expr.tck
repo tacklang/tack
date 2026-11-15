@@ -133,9 +133,10 @@ var r_target uint8 = 15
 var r_elem_ref uint8 = 16
 
 // MFrame is one routine of the machine at work: which, its step, the
-// node, the type its context wants, whether its scope is deep, and what
-// it keeps between steps, a and b, and base, how many values the stack
-// held when it started.
+// node, the type its context wants, whether its scope is deep, what it
+// keeps between steps, a and b, base, how many values the stack held
+// when it started, and k, a second node some routines take, as a view
+// argument takes the call it is passed in.
 type MFrame struct {
     r uint8
     step uint8
@@ -145,11 +146,12 @@ type MFrame struct {
     a int64
     b int64
     base int64
+    k typeck.Key
 }
 
 // mframe returns a frame of the routine r for e, at its first step.
 func mframe(r uint8, e typeck.Key, want types.Type, deep bool, base int64) MFrame {
-    return MFrame{r: r, step: 0, e: e, want: want, deep: deep, a: 0, b: 0, base: base}
+    return MFrame{r: r, step: 0, e: e, want: want, deep: deep, a: 0, b: 0, base: base, k: no_key()}
 }
 
 // Machine is the machine's stacks: its frames and its values.
@@ -342,6 +344,10 @@ func (mut g Gen) step(mut t typeck.Typed, f MFrame, mut m Machine) error {
     if f.r == r_elem_ref {
         return mut g.step_elem_ref(mut t, f, mut m)
     }
+    done := mut g.values_step(mut t, f, mut m)?
+    if done {
+        return noerror
+    }
     return not_ported
 }
 
@@ -500,16 +506,15 @@ func (mut g Gen) step_spilled(mut t typeck.Typed, f MFrame, mut m Machine) error
 }
 
 // builds reports whether e only builds a value of its parts, Go's
-// builds: an array or struct literal, or a union's construction, whose
-// selector the machine never renders here, since every selector is the
-// later stages' (see doc.tck).
+// builds: an array or struct literal, or a union's construction.
 func builds(t typeck.Typed, e typeck.Key) bool {
     switch kind_of(t.prog.trees[:], e) {
     case composite_lit:
         return true
     default:
     }
-    return false
+    _, _, built := construction_of(t, e)
+    return built
 }
 
 // holdable reports whether e's value can be held in a temporary, Go's
@@ -524,8 +529,8 @@ func holdable(mut t typeck.Typed, e typeck.Key) (bool, error) {
 }
 
 // step_node is Go's exprNode: an expression that is no literal, by its
-// kind. A composite literal, a slice, a selector, a ? and any other kind
-// are the later stages' (see doc.tck).
+// kind. A ? is E3's, and any other kind Go's unknown expression type,
+// which names it with %T.
 func (mut g Gen) step_node(mut t typeck.Typed, f MFrame, mut m Machine) error {
     switch kind_of(t.prog.trees[:], f.e) {
     case ident:
@@ -539,6 +544,12 @@ func (mut g Gen) step_node(mut t typeck.Typed, f MFrame, mut m Machine) error {
         mut m.push(r_call_value, f.e, types.invalid, false)?
     case index:
         mut m.push(r_index, f.e, types.invalid, false)?
+    case slice:
+        mut m.push(r_slice, f.e, types.invalid, false)?
+    case composite_lit:
+        mut m.push(r_composite, f.e, types.invalid, false)?
+    case selector:
+        mut m.push(r_selector, f.e, types.invalid, false)?
     case mut_arg:
         mut m.push(r_mut_arg, f.e, types.invalid, false)?
     case own_arg(x):
@@ -624,9 +635,9 @@ func (mut g Gen) plain_literal(mut t typeck.Typed, e typeck.Key, mut out list[ui
 // ident_expr renders a name, Go's identExpr: a parameter or a variable
 // by its C name, read through the pointer of a mut parameter, its value
 // moved for a name that moves it, which, for a type that owns nothing, is
-// the name itself. A function named as a value, a capture, a payload a
-// switch binds in place and a moved value that owns are the later
-// stages' (see doc.tck).
+// the name itself, a payload a switch binds in place through the pointer
+// to it. A function named as a value, a capture and a moved value that
+// owns are the later stages' (see doc.tck).
 func (mut g Gen) ident_expr(mut t typeck.Typed, e typeck.Key) (list[uint8], error) {
     nm, _ := ident_of(t.prog.trees[:], e)
     d := typeck.Key{unit: nm.def.unit, node: nm.def.node}
@@ -648,6 +659,15 @@ func (mut g Gen) ident_expr(mut t typeck.Typed, e typeck.Key) (list[uint8], erro
             owned := mut t.table.owned(mut t.decl_type(d))?
             if owned {
                 return make(list[uint8], c_allocator), not_ported
+            }
+        } else {
+            _, in_place := g.in_place[d]
+            if in_place {
+                mut out := make(list[uint8], c_allocator)
+                append(mut out, []uint8("(*")...)?
+                append_var_name(t, d, mut out)?
+                append(mut out, ')')?
+                return out, noerror
             }
         }
         mut out := make(list[uint8], c_allocator)
@@ -786,9 +806,9 @@ func (mut g Gen) step_binary(mut t typeck.Typed, f MFrame, mut m Machine) error 
 
 // binary_op_of appends bin, other than && and ||, applied to its
 // operands rendered as l and r, Go's binaryOf: integer arithmetic, a
-// comparison of strings through the helper, of integers by their values,
-// and any other C's own. A comparison through an equality helper or of
-// handles is the later stages' (see doc.tck).
+// comparison through an equality helper, of strings through the string
+// helper, of handles, of integers by their values, and any other C's
+// own.
 func (mut g Gen) binary_op_of(mut t typeck.Typed, k typeck.Key, b ast.Binary, l []uint8, r []uint8, mut out list[uint8]) error {
     if is_integer_op(b.op) {
         append_arith(b.op, mut t.type_of(k), l, r, mut out)?
@@ -796,10 +816,10 @@ func (mut g Gen) binary_op_of(mut t typeck.Typed, k typeck.Key, b ast.Binary, l 
     }
     xt := mut t.type_of(at(k, b.x))
     yt := mut t.type_of(at(k, b.y))
-    composite := mut g.is_composite(mut t, xt)?
-    lst := mut t.table.is_list(xt)?
-    if composite || lst {
-        return not_ported
+    helper := mut g.has_equality_helper(mut t, xt)?
+    if helper {
+        mut g.append_array_comparison(mut t, k, b, l, r, mut out)?
+        return noerror
     }
     if xt == types.string_type {
         g.compares_text = true
@@ -813,7 +833,17 @@ func (mut g Gen) binary_op_of(mut t typeck.Typed, k typeck.Key, b ast.Binary, l 
         return noerror
     }
     if mut t.table.is_handle(xt)? {
-        return not_ported
+        if b.op == ast.op_ne {
+            append(mut out, []uint8("(!")...)?
+        } else {
+            append(mut out, '(')?
+        }
+        append(mut out, []uint8("tack_handle_eq_(")...)?
+        append(mut out, l...)?
+        append(mut out, []uint8(", ")...)?
+        append(mut out, r...)?
+        append(mut out, []uint8("))")...)?
+        return noerror
     }
     if is_int_comparison(b.op, xt, yt) {
         append_int_comparison(b.op, xt, yt, l, r, mut out)?
@@ -936,21 +966,25 @@ func call_of(trees []ast.File, k typeck.Key) ast.Call {
     return z
 }
 
-// step_call_value is Go's callValue: a conversion, len, and a call of a
-// declared function. A callee that is a selector, a union's construction
-// or a method, the other generic builtins and a callee that is no name
-// are the later stages' (see doc.tck); print or exit used as a value
-// returns none.
+// step_call_value is Go's callValue: a union's construction, a
+// conversion, a method call, len, and a call of a declared function. The
+// other generic builtins are the later stages' (see doc.tck), and a
+// callee that is no name Go's unknown expression type; print or exit
+// used as a value returns none.
 func (mut g Gen) step_call_value(mut t typeck.Typed, f MFrame, mut m Machine) error {
     cl := call_of(t.prog.trees[:], f.e)
     fnk := at(f.e, cl.fn)
-    switch kind_of(t.prog.trees[:], fnk) {
-    case selector:
-        return not_ported
-    default:
+    _, _, built := construction_of(t, f.e)
+    if built {
+        mut m.push(r_construct, f.e, types.invalid, false)?
+        return noerror
     }
     if mut t.conv(f.e) != types.invalid {
         mut m.push(r_conv, f.e, types.invalid, false)?
+        return noerror
+    }
+    if has_receiver(t, f.e) || !typeck_no_key(mut t.method(f.e)) {
+        mut m.push(r_call_expr, f.e, types.invalid, false)?
         return noerror
     }
     nm, is_name := ident_of(t.prog.trees[:], fnk)
@@ -1029,8 +1063,8 @@ func (mut g Gen) step_conv(mut t typeck.Typed, f MFrame, mut m Machine) error {
 }
 
 // step_len is Go's lenValue: the length of a string, a view or a list,
-// read from it. An array's, an arena's and a pool's are the later
-// stages' (see doc.tck).
+// read from it, or an array's constant length after the array, cast to
+// void. An arena's and a pool's are E3's.
 func (mut g Gen) step_len(mut t typeck.Typed, f MFrame, mut m Machine) error {
     cl := call_of(t.prog.trees[:], f.e)
     arg := node_at(t.prog.trees[:], f.e.unit, cl.args, 0)
@@ -1041,10 +1075,20 @@ func (mut g Gen) step_len(mut t typeck.Typed, f MFrame, mut m Machine) error {
     }
     v := mut m.take()
     typ := mut t.type_of(arg)
-    arr := mut t.table.is_array(typ)?
+    if mut t.table.is_array(typ)? {
+        n := mut t.table.len_of(typ)?
+        mut out := make(list[uint8], c_allocator)
+        append(mut out, []uint8("((void)")...)?
+        append(mut out, v[:]...)?
+        append(mut out, []uint8(", (int64_t)")...)?
+        bytes.append_int(mut out, n)?
+        append(mut out, ')')?
+        mut m.give(own out)?
+        return noerror
+    }
     is_arena := mut t.table.is_arena(typ)?
     is_pool := mut t.table.is_pool(typ)?
-    if arr || is_arena || is_pool {
+    if is_arena || is_pool {
         return not_ported
     }
     mut out := make(list[uint8], c_allocator)
@@ -1063,18 +1107,24 @@ func callee_of(mut t typeck.Typed, k typeck.Key) (typeck.Key, bool) {
     return c, !typeck_no_key(c)
 }
 
-// step_call_expr is Go's callExpr with callArgs: each argument rendered,
-// left to right, then the call of the callee's C name, its arguments held
-// in order when it shows. A call through a function value, of a generic
-// function or of an interface method's stand-in, an argument passed as a
-// view, to a scope parameter or as any, and the values of a variadic
-// parameter are the later stages' (see doc.tck), and so is a call of a
-// builtin Go names by its mangled name.
+// step_call_expr is Go's callExpr with callArgs: each operand rendered,
+// left to right, a method call's receiver first, as Go's lowered passes
+// it, one passed to a view parameter, or a view passed as any, by
+// viewArg; then the call of the callee's C name, its operands held in
+// order when it shows, each passed as any made one (Go's boxed) and the
+// values of a variadic parameter packed into a view (Go's packed). A
+// call through a function value, of a generic function or of an
+// interface method's stand-in, and an argument to a scope parameter, are
+// the later stages' (see doc.tck), and so is a call of a builtin Go
+// names by its mangled name.
 func (mut g Gen) step_call_expr(mut t typeck.Typed, f MFrame, mut m Machine) error {
     cl := call_of(t.prog.trees[:], f.e)
-    nargs := node_count(t.prog.trees[:], f.e.unit, cl.args)
+    nargs := call_operand_count(t, f.e)
     fn, has := callee_of(mut t, f.e)
     if f.step == 0 {
+        if has_receiver(t, f.e) && typeck_no_key(mut t.method(f.e)) {
+            return mut g.fail([]uint8("a method call must be checked before code is generated for it"), span_of(t.prog.trees[:], f.e.unit, f.e.node))
+        }
         if !typeck_no_key(mut t.dynamic(f.e)) || !has {
             return not_ported
         }
@@ -1095,14 +1145,20 @@ func (mut g Gen) step_call_expr(mut t typeck.Typed, f MFrame, mut m Machine) err
         }
         if s.a < nargs {
             i := s.a
-            a := node_at(t.prog.trees[:], f.e.unit, cl.args, i)
+            a := call_operand(t, f.e, i)
+            mut m.again(s, 1)?
             viewed := mut g.view_param_at(mut t, cl, fn, i)?
             if viewed {
-                return not_ported
+                p := node_at(t.prog.trees[:], fn.unit, ff.params, i)
+                mut vf := mframe(r_view_arg, a, mut t.decl_type(p), false, len(m.vals))
+                vf.k = f.e
+                append(mut m.frames, vf)?
+                return noerror
             }
             if i < nparams {
                 scoped := mut g.scope_func(mut t, node_at(t.prog.trees[:], fn.unit, ff.params, i))?
                 if scoped {
+                    // scopeArg, of closure.go, E4's.
                     return not_ported
                 }
             }
@@ -1111,18 +1167,17 @@ func (mut g Gen) step_call_expr(mut t typeck.Typed, f MFrame, mut m Machine) err
             if view {
                 boxes := mut g.boxes_at(mut t, cl, fn, i, a)?
                 if boxes {
-                    return not_ported
+                    mut vf := mframe(r_view_arg, a, at_type, false, len(m.vals))
+                    vf.k = f.e
+                    append(mut m.frames, vf)?
+                    return noerror
                 }
             }
-            mut m.again(s, 1)?
             mut m.push(r_expr, a, at_type, false)?
             return noerror
         }
     }
     // Every argument is rendered.
-    if packs(t, cl, fn) {
-        return not_ported
-    }
     mut rendered := make(list[list[uint8]], c_allocator)
     for range nargs {
         append(mut rendered, make(list[uint8], c_allocator))?
@@ -1136,29 +1191,102 @@ func (mut g Gen) step_call_expr(mut t typeck.Typed, f MFrame, mut m Machine) err
         }
     }
     mut operands := make(list[typeck.Key], c_allocator)
+    mut ctypes := make(list[list[uint8]], c_allocator)
     for i := range nargs {
-        a := node_at(t.prog.trees[:], f.e.unit, cl.args, i)
-        boxes := mut g.boxes_at(mut t, cl, fn, i, a)?
-        if boxes {
-            return not_ported
-        }
+        a := call_operand(t, f.e, i)
         append(mut operands, a)?
+        mut c := make(list[uint8], c_allocator)
+        viewed := mut g.view_param_at(mut t, cl, fn, i)?
+        if viewed {
+            p := node_at(t.prog.trees[:], fn.unit, ff.params, i)
+            append_c_type(mut t, mut t.decl_type(p), mut c)?
+        } else {
+            append_operand_type(mut t, a, mut c)?
+        }
+        append(mut ctypes, c)?
     }
-    ctypes := operand_types(mut t, operands[:])?
+    mut args := make(list[list[uint8]], c_allocator)
+    for _, r := range rendered {
+        mut c := make(list[uint8], c_allocator)
+        append(mut c, r[:]...)?
+        append(mut args, c)?
+    }
     steps := mut g.sequence(mut t, operands[:], mut rendered, ctypes[:], false)?
+    for i := range nargs {
+        a := call_operand(t, f.e, i)
+        boxes := mut g.boxes_at(mut t, cl, fn, i, a)?
+        if !boxes || i >= len(rendered) || i >= len(args) {
+            continue
+        }
+        op := replace(mut rendered[i], make(list[uint8], c_allocator))
+        held := !bytes.equal(op[:], args[i][:])
+        mut boxed := make(list[uint8], c_allocator)
+        mut g.append_boxed(mut t, a, op[:], held, mut boxed)?
+        rendered[i] = boxed
+    }
     mut built := make(list[uint8], c_allocator)
     append_func_cname(mut t, fn, mut built)?
     append(mut built, '(')?
-    for i, r := range rendered {
-        if i > 0 {
+    if packs(t, cl, fn) {
+        fixed := nparams -% 1
+        for i, r := range rendered {
+            if i >= fixed {
+                break
+            }
+            if i > 0 {
+                append(mut built, []uint8(", ")...)?
+            }
+            append(mut built, r[:]...)?
+        }
+        if fixed > 0 {
             append(mut built, []uint8(", ")...)?
         }
-        append(mut built, r[:]...)?
+        view := mut t.decl_type(node_at(t.prog.trees[:], fn.unit, ff.params, fixed))
+        mut values := make(list[list[uint8]], c_allocator)
+        mut i := fixed
+        for i >= 0 && i < len(rendered) {
+            append(mut values, replace(mut rendered[i], make(list[uint8], c_allocator)))?
+            i +%= 1
+        }
+        append_packed(mut t, view, values[:], mut built)?
+    } else {
+        for i, r := range rendered {
+            if i > 0 {
+                append(mut built, []uint8(", ")...)?
+            }
+            append(mut built, r[:]...)?
+        }
     }
     append(mut built, ')')?
     v := wrap_steps(steps[:], own built)?
     mut m.give(own v)?
     return noerror
+}
+
+// call_operand_count returns how many values the call k passes, Go's
+// len(lowered(call).Args): a method call's receiver and its arguments.
+func call_operand_count(t typeck.Typed, k typeck.Key) int64 {
+    cl := call_of(t.prog.trees[:], k)
+    n := node_count(t.prog.trees[:], k.unit, cl.args)
+    if has_receiver(t, k) {
+        return n +% 1
+    }
+    return n
+}
+
+// call_operand returns the i'th value the call k passes, Go's
+// lowered(call).Args[i]: a method call's receiver first, then its
+// arguments.
+func call_operand(t typeck.Typed, k typeck.Key, i int64) typeck.Key {
+    cl := call_of(t.prog.trees[:], k)
+    if has_receiver(t, k) {
+        if i == 0 {
+            sel := selector_of(t.prog.trees[:], at(k, cl.fn))
+            return at(k, sel.x)
+        }
+        return node_at(t.prog.trees[:], k.unit, cl.args, i -% 1)
+    }
+    return node_at(t.prog.trees[:], k.unit, cl.args, i)
 }
 
 // view_param_at reports whether the call's argument i is passed to a
@@ -1386,8 +1514,7 @@ func (mut g Gen) step_mut_arg(mut t typeck.Typed, f MFrame, mut m Machine) error
 }
 
 // step_target is Go's targetRef: a variable, or a mut parameter through
-// its pointer, or an element. A field is E2's (see doc.tck); anything
-// else cannot be assigned.
+// its pointer, an element, or a field; anything else cannot be assigned.
 func (mut g Gen) step_target(mut t typeck.Typed, f MFrame, mut m Machine) error {
     switch kind_of(t.prog.trees[:], f.e) {
     case ident(nm):
@@ -1407,7 +1534,8 @@ func (mut g Gen) step_target(mut t typeck.Typed, f MFrame, mut m Machine) error 
         mut m.push(r_elem_ref, f.e, types.invalid, false)?
         return noerror
     case selector:
-        return not_ported
+        mut m.push(r_field_ref, f.e, types.invalid, false)?
+        return noerror
     default:
     }
     return mut g.fail([]uint8("cannot assign to this expression"), span_of(t.prog.trees[:], f.e.unit, f.e.node))

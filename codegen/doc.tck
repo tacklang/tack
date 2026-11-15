@@ -9,7 +9,7 @@ package codegen
 // header, tack.h (header.tck, Go's header.go), with the names it may not
 // give (reserved.tck, Go's reserved.go and any.go's anyIDs and
 // viewAnyID), and the lowering of a program to one C translation unit,
-// ported in stages, of which the core, E1, is here.
+// ported in stages, of which the core, E1, and values, E2, are here.
 //
 // generate refuses what Go's Refuse refuses, then rejects, with
 // header_diags, a program whose types, fields, results structs or
@@ -37,21 +37,38 @@ package codegen
 //   - unused.tck: what no other function names, Go's unused.go and
 //     unusedParams;
 //   - walks.tck: the walks of the program and of a body the core asks,
-//     usesType, narrowsFloats, the divisions, mutated and caseVarsRead;
-//   - types.tck: the walk of the program's types, Go's emitTypes;
+//     usesType, narrowsFloats, mutated, callsFunc, moves and
+//     caseVarsRead;
+//   - types.tck: the walk of the program's types, Go's emitTypes, with
+//     each type's definition after its parts' and the equality helpers;
 //   - stmt.tck: the statements, from generateBlock to generateVar, with
 //     defer.go's funcFrame, generateJump and stops;
 //   - expr.tck: the expressions, a machine of routines (see below);
 //   - order.tck: the order of evaluation, Go's order.go but its spills;
 //   - names.tck: the C names and literals, mangling among them, and
-//     names.go.
+//     names.go;
+//   - struct.tck, array.tck, union.tck, view.tck: E2's values, Go's
+//     struct.go, array.go, union.go and view.go, with slice.go's and
+//     any.go's helpers in view.tck: the C structs, the equality
+//     helpers, computed constants and globals too deep for an
+//     initializer, the addresses helpers read through, and a switch on a
+//     union;
+//   - values.tck: the routines of the expression machine for E2's
+//     values, a composite literal, a field, a union built, a view
+//     argument and a slice;
+//   - switch.tck: the switches, Go's switch.go;
+//   - multi.tck: several values and the checked forms, Go's gen.go from
+//     generateMultiVar to bounds;
+//   - divide.tck: the division and shift helpers;
+//   - swap.tck: swap, which E3's takeList declines.
 //
 // # The stages
 //
 // The backend is ported in stages, as tackc's porttest stages its cases
 // by what Go's backend runs on them: E1, the core, here; E2, values,
 // structs, arrays, unions, switches, slices, views, any, swap, division
-// and shifts, several values and the checked forms; E3, owned values and
+// and shifts, several values and the checked forms, here too, but swap,
+// which only a list reaches; E3, owned values and
 // containers, lists, maps, arenas, pools, defers, ?, drop, replace, the
 // free helpers and regions; and E4, generics and functions, instances,
 // closures, function values, fields loops and make of Data. The core
@@ -67,11 +84,11 @@ package codegen
 // a predicate whose answer is no, is ported here as that answer: the
 // type checker's frees of an own parameter, a list's builtins, a scope
 // parameter, an any parameter, a variadic, a view argument and a
-// generic callee among them. Two of Go's walks the port does not make,
-// since only a later stage acts on what they find: the guard of the
-// owned values a ? may need to free, guardOwned, which holds nothing
-// but around a ?, E3's, and the switch on a union's payloads bound in
-// place, inPlace, which only a payload or an owned element sets.
+// generic callee among them. One of Go's walks the port does not make,
+// since only a later stage acts on what it finds: the guard of the owned
+// values a ? may need to free, guardOwned, which holds nothing but around
+// a ?, E3's. Of Go's inPlace, the variables read through a pointer, only
+// a switch's payloads are E2's; a range loop's owned element is E3's.
 //
 // # Numbering
 //
@@ -96,7 +113,12 @@ package codegen
 // spilled, exprNode, binaryExpr, otherScope, unaryExpr, callValue,
 // callExpr and the rest, is a routine of it, whose steps do what Go's
 // function does between two of its calls, in Go's order. Every walk of
-// the tree keeps a stack of its own (see push_children in pool.tck).
+// the tree keeps a stack of its own (see push_children in pool.tck), and
+// so does every walk of the types, which Go makes by recursion a frame a
+// level of a type's parts, and a chain of structs, each holding the one
+// before, is as long as its source makes it: the definitions, the
+// equality helpers and the types compared (types.tck), and a computed
+// constant's rendering and pooling (struct.tck, pool.tck).
 // Statements nest in blocks, and blocks in statements, as deeply as the
 // parser lets them, a few frames a level, each kept small; a chain of
 // else ifs and a run of statements are walked in a loop, so neither
