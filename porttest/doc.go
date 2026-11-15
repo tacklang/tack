@@ -600,7 +600,8 @@
 // TestCheckDeepStmts nests every ordered pair of the statements that
 // hold a block, an if, an else, an else if, loops, a counting loop and
 // loops writing a variable declared before them, switches of every
-// kind, a defer, a region, an unreachable a return before it proves and
+// kind, one whose case falls through into the default holding the rest
+// among them, a defer, a region, an unreachable a return before it proves and
 // one the facts prove, and a call whose contract gives a variable a
 // fact, alternating, as deeply as the parser allows, and each around a
 // value nested in every route of the bool family, compared as
