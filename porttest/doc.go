@@ -774,7 +774,10 @@
 // thousand && and || operands, each putting the facts of those before
 // it in force for itself: in an if's condition, values ruled out and
 // joined by && or || equalities, and in an ensures clause, values ruled
-// out and lower bounds, given to a caller. TestDeepFactsMemory runs
+// out and lower bounds, given to a caller. TestDivisionChainPerf does
+// the same, and runs --emit as TestEmitPerf does, for a block of a
+// hundred thousand checked divisions, each binding two locals and
+// closing an if's block among all of them. TestDeepFactsMemory runs
 // --check and --emit of ifs nested as deeply as the parser allows, each
 // on a write, and of switches nested as deeply, each falling through
 // into the default holding the next, failing as TestResPerf does. TestCheckSliceChains runs a spine of slices with no high
