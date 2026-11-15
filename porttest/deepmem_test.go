@@ -36,18 +36,55 @@ func deepMemProgram(n int) string {
 	return b.String()
 }
 
+// deepFallthroughProgram returns a main of n nested switches, each on
+// the same variable, whose one case falls through into the default
+// holding the next switch: every level's body is entered by a
+// fallthrough, so a checker that keeps, for each level, a copy of the
+// facts in force at the switch, at the fallthrough or matching the
+// default while the body is checked keeps facts growing with the square
+// of the depth.
+func deepFallthroughProgram(n int) string {
+	var b strings.Builder
+	b.WriteString("package main\n\nfunc main() {\n    mut c int64 = 0\n")
+	for i := range n {
+		fmt.Fprintf(&b, "switch c {\ncase %d:\nfallthrough\ndefault:\n", i)
+	}
+	b.WriteString("    print(\"x\")\n")
+	b.WriteString(strings.Repeat("}\n", n))
+	b.WriteString("}\n")
+	return b.String()
+}
+
 // TestDeepFactsMemory is the memory tripwire for facts in deep nests: it
-// runs --check and --emit of deepMemProgram(deepMemLevels) through both
-// compilers, perfRuns times each, after checking that both give the same
-// output, and fails as TestResPerf does when the port's peak memory is
+// runs --check and --emit of deepMemProgram(deepMemLevels) and of
+// deepFallthroughProgram(deepMemLevels) through both compilers,
+// perfRuns times each, after checking that both give the same output,
+// and fails as TestResPerf does when the port's peak memory is
 // more than perfMemoryFactor times Go's, or its time more than
 // perfTimeFactor times Go's and perfTimeSlack. A port that declines
 // --emit is measured on --check alone. It runs only as TestPort does,
 // and is not parallel.
 func TestDeepFactsMemory(t *testing.T) {
 	ready(t)
+	for _, prog := range []struct {
+		name, what string
+		gen        func(int) string
+	}{
+		{"ifs", "nested ifs", deepMemProgram},
+		{"fallthrough", "nested switches falling through", deepFallthroughProgram},
+	} {
+		t.Run(prog.name, func(t *testing.T) {
+			deepFactsMemory(t, prog.what, prog.gen(deepMemLevels))
+		})
+	}
+}
+
+// deepFactsMemory runs --check and --emit of src, deepMemLevels levels
+// of what, through both compilers, as TestDeepFactsMemory says.
+func deepFactsMemory(t *testing.T, what, src string) {
+	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "deep.tck"), []byte(deepMemProgram(deepMemLevels)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "deep.tck"), []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	in := input{name: "deep.tck", dir: dir, file: "deep.tck"}
@@ -66,8 +103,8 @@ func TestDeepFactsMemory(t *testing.T) {
 			}
 			goTime, goMem := measure(t, env.goBin, env.goCache, dir, args, want.code)
 			portTime, portMem := measure(t, env.portRun, env.portCache, dir, args, want.code)
-			t.Logf("%s of %d nested ifs: Go %v, %d KB; port %v, %d KB",
-				flag, deepMemLevels, goTime, goMem, portTime, portMem)
+			t.Logf("%s of %d %s: Go %v, %d KB; port %v, %d KB",
+				flag, deepMemLevels, what, goTime, goMem, portTime, portMem)
 			if portTime > perfTimeFactor*goTime+perfTimeSlack {
 				t.Errorf("the port took %v, more than %d times Go's %v", portTime, perfTimeFactor, goTime)
 			}

@@ -774,7 +774,10 @@
 // thousand && and || operands, each putting the facts of those before
 // it in force for itself: in an if's condition, values ruled out and
 // joined by && or || equalities, and in an ensures clause, values ruled
-// out and lower bounds, given to a caller. TestCheckSliceChains runs a spine of slices with no high
+// out and lower bounds, given to a caller. TestDeepFactsMemory runs
+// --check and --emit of ifs nested as deeply as the parser allows, each
+// on a write, and of switches nested as deeply, each falling through
+// into the default holding the next, failing as TestResPerf does. TestCheckSliceChains runs a spine of slices with no high
 // bound, under len and indexed, and chains of locals each slicing the one before, from a
 // parameter and from a literal, five thousand links long, under --check,
 // the port's stack held to deepStack KB and to a quarter of it.
