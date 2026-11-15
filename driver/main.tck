@@ -1222,17 +1222,28 @@ func emit_target(target []uint8, d Dump, max_errors int64) (int32, error) {
         return exit_failure, noerror
     }
     // Go's compileWarned writes the warnings, then the dump is written.
+    // They are rendered first and written once tack.h is, so a header
+    // the port cannot write declines with nothing else written.
     for i := range len(gdiags) {
         append(mut all, replace(mut gdiags[i], make(diag.Diagnostic, c_allocator)))?
     }
+    mut warnings := make(list[uint8], c_allocator)
     if len(all) > 0 {
-        out := render_diagnostics(typed.files, all, max_errors)?
-        fmt.ewrite(out)
+        warnings = render_diagnostics(typed.files, all, max_errors)?
     }
     if d == dump_header {
-        hcode := write_headers(mut typed, d)?
+        mut msg := make(list[uint8], c_allocator)
+        hcode := write_headers(mut typed, mut msg)?
+        if hcode == not_implemented {
+            return unimplemented([]uint8(flag_name(d))), noerror
+        }
+        fmt.ewrite(warnings)
+        if hcode != exit_ok {
+            fmt.eprintf("tack: %s\n", msg[:])
+        }
         return hcode, noerror
     }
+    fmt.ewrite(warnings)
     mut emitted := gout
     with_trailing_newline(mut emitted)?
     fmt.write(emitted)
@@ -1243,17 +1254,20 @@ func emit_target(target []uint8, d Dump, max_errors int64) (int32, error) {
 // program, into the directory of its main package and of every other
 // package of its module with C files or extern funcs, Go's writeHeaders:
 // a library's main package only when it has either, and no package of
-// another module. A file that cannot be written, whose error Go words
-// with the operating system's, is not implemented, naming the dump d.
-func write_headers(mut t typeck.Typed, d Dump) (int32, error) {
+// another module. It writes nothing to the standard streams: it returns
+// exit_ok; or exit_failure, with msg holding Go's error, cannot write
+// and the file, for a file whose open fails with an errno Go's syscall
+// words (see loader.go_errno), which Go stops at, as the port does; or
+// not_implemented for any other failure, which the caller declines.
+func write_headers(mut t typeck.Typed, mut msg list[uint8]) (int32, error) {
     header := codegen.header(mut t)?
-    code := write_header_files(t.prog, header[:], d)?
+    code := write_header_files(t.prog, header[:], mut msg)?
     return code, noerror
 }
 
 // write_header_files writes header, prog's tack.h, where write_headers
-// says, naming d when a file cannot be written.
-func write_header_files(prog ast.Program, header []uint8, d Dump) (int32, error) {
+// says, wording a failure in msg as write_headers does.
+func write_header_files(prog ast.Program, header []uint8, mut msg list[uint8]) (int32, error) {
     main := len(prog.packages) -% 1
     if main < 0 || main >= len(prog.packages) {
         return exit_ok, noerror
@@ -1266,7 +1280,20 @@ func write_header_files(prog ast.Program, header []uint8, d Dump) (int32, error)
         name := path.join(prog.packages[p].dir.bytes(), []uint8(codegen.header_name), c_allocator)?
         we := os.write_file(name.bytes(), header)
         if we.code != 0 {
-            return unimplemented([]uint8(flag_name(d))), noerror
+            // Go's os.WriteFile fails at its open, a PathError of open,
+            // for every errno go_errno words; any other, a failed write
+            // or close among them, the port cannot word.
+            errno := loader.go_errno(we)
+            if len(errno) == 0 {
+                return not_implemented, noerror
+            }
+            append(mut msg, []uint8("cannot write ")...)?
+            append(mut msg, name.bytes()...)?
+            append(mut msg, []uint8(": open ")...)?
+            append(mut msg, name.bytes()...)?
+            append(mut msg, []uint8(": ")...)?
+            append(mut msg, []uint8(errno)...)?
+            return exit_failure, noerror
         }
     }
     return exit_ok, noerror
@@ -1658,8 +1685,15 @@ func check_program(mut res loader.Result, max_errors int64, d Dump) (int32, erro
         // Go's writeCheckOutput writes tack.h, or the C, then the
         // warnings follow.
         if d == dump_header {
-            hcode := write_headers(mut typed, d)?
+            // Go's executeCheck returns writeCheckOutput's error before
+            // it writes the warnings.
+            mut msg := make(list[uint8], c_allocator)
+            hcode := write_headers(mut typed, mut msg)?
+            if hcode == not_implemented {
+                return unimplemented([]uint8("--check")), noerror
+            }
             if hcode != exit_ok {
+                fmt.eprintf("tack: %s\n", msg[:])
                 return hcode, noerror
             }
         }

@@ -56,8 +56,10 @@ pooled string numbered as Go numbers them; what a later stage lowers,
 structs, arrays, unions, switches, slices, views, any, division and
 shifts, several values, lists, maps, arenas, pools, defers, ?, regions,
 generics, closures and function values, is answered as not implemented
-where the Go compiler would start lowering it, before anything is
-written (see package codegen). `types` has the
+where the Go compiler would start lowering it: the program is lowered
+into buffers, so a decline writes nothing but its one line, neither C
+nor the warnings, which the driver writes only once the lowering, and
+any `tack.h`, is done (see package codegen). `types` has the
 bindings the backend lowers a generic function's instances under, Go's
 `Bind` and `Bound` among them, which add the types they make in Go's
 order, since C names carry type IDs, with a twin of every query of the
@@ -91,8 +93,10 @@ lower the program: `--emit` writes its C, `--emit-header` writes
 `tack.h` into the directories of the packages that need one, as the Go
 compiler's writeHeaders does, and `--check` alone shows what the
 backend reports, with the warnings; each is answered as not
-implemented for a program the backend's port does not lower yet, and
-`--emit-header` for a `tack.h` it cannot write. `--check` of
+implemented for a program the backend's port does not lower yet.
+`--emit-header` reports a `tack.h` it cannot open as the Go compiler
+does, `cannot write` and the file, and declines any other failed
+write; as in Go, the files it wrote before stay written. `--check` of
 `std/builtin` or its `builtin.tck` compares the copy with the
 compiler's own, as the Go compiler does; one that may be that copy
 reached through a symbolic link, which the port cannot resolve, is
