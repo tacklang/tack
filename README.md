@@ -92,8 +92,11 @@ lower the program: `--emit` writes its C, `--emit-header` writes
 compiler's writeHeaders does, and `--check` alone shows what the
 backend reports, with the warnings; each is answered as not
 implemented for a program the backend's port does not lower yet, and
-`--emit-header` for a `tack.h` it cannot write. `--check` of `std/builtin` or its `builtin.tck`
-compares the copy with the compiler's own, as the Go compiler does. The flags
+`--emit-header` for a `tack.h` it cannot write. `--check` of
+`std/builtin` or its `builtin.tck` compares the copy with the
+compiler's own, as the Go compiler does; one that may be that copy
+reached through a symbolic link, which the port cannot resolve, is
+answered as not implemented. The flags
 `-O0` to `-Oz` and `--backend` are read, and their usage errors
 written, as the Go compiler writes them.
 
