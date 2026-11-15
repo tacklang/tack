@@ -1,0 +1,99 @@
+package codegen
+
+import builtin from "tack/builtin"
+import bytes from "std/bytes"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import source from "tack/source"
+import text from "std/text"
+import typeck from "tack/typeck"
+
+// not_ported is the error generate returns for what the port's backend
+// does not do yet, which the driver reports as not implemented, exit
+// status 3, as it does typeck's.
+pub var not_ported = error{code: 3, msg: "not implemented in the port"}
+
+// backend_names are the names of the backends, in sorted order, Go's
+// Names: the one backend, c, whose name the driver's --backend flag
+// selects it by.
+pub var backend_names = [1]string{"c"}
+
+// default_backend is the backend used when --backend is not given, Go's
+// driver's defaultBackend.
+pub var default_backend = "c"
+
+// c_ext is the file extension of the C backend's output, with the dot,
+// Go's Ext of codegen/c.
+pub var c_ext = ".c"
+
+// opts are the optimization levels a build runs at, as clang's -O flags
+// name them, in the order the flags are listed, Go's Opts: 0 for none, 1
+// to 3 for more, and s and z for smaller code.
+pub var opts = [6]string{"0", "1", "2", "3", "s", "z"}
+
+// default_opt is the level a build runs at unless asked for another, Go's
+// DefaultOpt: the highest that keeps the C standard's semantics.
+pub var default_opt = "3"
+
+// has_backend reports whether name is the name of a backend, Go's Get
+// finding one.
+pub func has_backend(name []uint8) bool {
+    for _, b := range backend_names {
+        if bytes.equal(name, []uint8(b)) {
+            return true
+        }
+    }
+    return false
+}
+
+// append_names appends the backends' names to out, in Go's order, joined
+// by sep, as Go's strings.Join(codegen.Names(), sep) writes them.
+pub func append_names(mut out list[uint8], sep []uint8) error {
+    for i, b := range backend_names {
+        if i > 0 {
+            append(mut out, sep...)?
+        }
+        append(mut out, []uint8(b)...)?
+    }
+    return noerror
+}
+
+// refuse appends to out the error a backend reports, before lowering
+// anything, for a program that must never have code generated from it,
+// and reports whether it did, Go's Refuse: one any stage reported an
+// error about, counted in prog_errors, the program's Errors, and in
+// table_errors, its type table's. A program the front end accepted is
+// not refused. Reaching it with errors is a bug in the caller, never the
+// program's fault. The error has no place in any file, Go's zero Span,
+// here a span of no file.
+pub func refuse(prog_errors int64, table_errors int64, mut out list[diag.Diagnostic]) (bool, error) {
+    if prog_errors <= 0 && table_errors <= 0 {
+        return false, noerror
+    }
+    mut n := prog_errors
+    if table_errors > n {
+        n = table_errors
+    }
+    mut m := make(list[uint8], c_allocator)
+    fmt.appendf(mut m, "internal error: code generation was given a program with %d errors", n)?
+    msg := text.from_bytes(m, c_allocator)?
+    sp := source.Span{file: source.FileID{n: -1}, start: 0, end: 0}
+    append(mut out, diag.new_error(own msg, sp, c_allocator))?
+    return true, noerror
+}
+
+// generate turns t, a checked program taken over, with set, the builtins
+// it was resolved and checked with, into its C, Go's Generate of
+// codegen/c: a program refuse refuses gives its diagnostics and no C,
+// and any other, for now, not_ported, since the C backend is not ported
+// yet.
+pub func generate(own t typeck.Typed, set builtin.Set) (list[uint8], list[diag.Diagnostic], error) {
+    out := make(list[uint8], c_allocator)
+    mut diags := make(list[diag.Diagnostic], c_allocator)
+    mut typed := t
+    refused := refuse(typed.prog.errors, mut typed.table.errors(), mut diags)?
+    if refused {
+        return out, diags, noerror
+    }
+    return out, diags, not_ported
+}

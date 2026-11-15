@@ -23,11 +23,15 @@ import types from "tack/types"
 // generic function has its type arguments, parameters' and results'
 // types too (see write_call_types), a fields loop's fields(T) what it
 // ranges over and lists (see write_fields_of), a switch on a type
-// parameter how its cases match (see write_type_cases) and a closure
-// its captures (see write_captures).
+// parameter how its cases match (see write_type_cases), a closure its
+// captures (see write_captures), and the nodes whatever else the backend
+// reads of them (see write_handover). Every field is read through the
+// handover's methods (see Typed), so the dump shows what code generation
+// will read.
 
 // write_nodes appends the nodes of every tree to out, as a list.
-func (mut c Checker) write_nodes(mut out list[uint8]) error {
+func (mut c Typed) write_nodes(mut out list[uint8]) error {
+    mut c.place_decls()?
     append(mut out, '[')?
     mut first := true
     mut stack := make(list[DumpItem], c_allocator)
@@ -80,7 +84,7 @@ func (mut c Checker) write_nodes(mut out list[uint8]) error {
 // a node's children, but for a closure, whose function Go's walk
 // passes over to visit its parameters, results and body, and a function
 // type, whose parameters' types Go's walk visits in place of them.
-func (mut c Checker) dump_children(k Key, mut kids list[id[ast.Node]]) error {
+func (mut c Typed) dump_children(k Key, mut kids list[id[ast.Node]]) error {
     switch kind_at(c.prog.trees, k) {
     case func_lit(fn):
         children_of(c.prog.trees, k.unit, fn, mut kids)?
@@ -114,12 +118,12 @@ type DumpItem struct {
 
 // dump_order sets order to the nodes Go's walk visits under k, kids, in
 // order, with the testing.Site arguments Go put among a call's arguments
-// each at its index among them (see pass_site).
-func (mut c Checker) dump_order(k Key, kids []id[ast.Node], mut order list[DumpItem]) error {
+// each at its index among them (see Typed.site_index).
+func (mut c Typed) dump_order(k Key, kids []id[ast.Node], mut order list[DumpItem]) error {
     clear_items(mut order)
-    n, has_sites := c.site_count[k]
+    n := mut c.site_len(k)
     mut base := len(kids)
-    if has_sites {
+    if n > 0 {
         switch kind_at(c.prog.trees, k) {
         case call(cl):
             base = 1 +% count_items(c.prog.trees, k.unit, cl.type_args)
@@ -134,14 +138,13 @@ func (mut c Checker) dump_order(k Key, kids []id[ast.Node], mut order list[DumpI
         }
         a +%= 1
     }
-    if !has_sites {
+    if n == 0 {
         return noerror
     }
     mut s int64 = 0
     mut at int64 = 0
     for a < len(kids) || s < n {
-        sa, has_sa := c.site_args[RKey{unit: k.unit, node: k.node, i: s}]
-        if s < n && has_sa && sa.index == at {
+        if s < n && mut c.site_index(k, s) == at {
             append(mut order, DumpItem{node: k.node, site: true, nth: s})?
             s +%= 1
         } else if a < len(kids) {
@@ -167,22 +170,38 @@ func clear_items(mut l list[DumpItem]) {
 
 // write_site_arg appends the nodes of the nth testing.Site argument Go
 // put among the arguments of the call k, Go's passSite: the Site
-// parameter of the function the call is in, a name, or a literal of the
-// Site type whose four fields hold the call's place, as siteLit builds
-// it.
-func (mut c Checker) write_site_arg(mut out list[uint8], k Key, nth int64) error {
-    sa, has := c.site_args[RKey{unit: k.unit, node: k.node, i: nth}]
-    if !has {
+// parameter of the function the call is in, a name, with the name of
+// the parameter it is bound to, site_param, or a literal of the Site
+// type whose four fields hold the call's place, as siteLit builds it,
+// with what they hold, site: the file, the line, the column and the
+// excerpt (see Typed.site_text).
+func (mut c Typed) write_site_arg(mut out list[uint8], k Key, nth int64) error {
+    if mut c.site_index(k, nth) < 0 {
         return noerror
     }
-    if !is_no_key(sa.param) {
-        fmt.appendf(mut out, ",{\"kind\":\"Ident\",\"type\":%d,\"const\":null,\"conv\":0,\"narrowed\":0,\"exhaustive\":false,\"unrolled\":false,\"move\":false}", decl_type_of(c.decl_types, sa.param).number())?
+    param := mut c.site_param(k, nth)
+    if !is_no_key(param) {
+        pt := mut c.decl_type(param)
+        fmt.appendf(mut out, ",{\"kind\":\"Ident\",\"type\":%d,\"const\":null,\"conv\":0,\"narrowed\":0,\"exhaustive\":false,\"unrolled\":false,\"move\":false,\"site_param\":", pt.number())?
+        write_name(mut out, name_of(c.prog.trees, c.none, param))?
+        fmt.appendf(mut out, ",\"def\":")?
+        mut c.write_def(mut out, ast.decl_def(ast.def_param, param.unit, param.node))?
+        append(mut out, '}')?
         return noerror
     }
-    write_plain_node(mut out, "CompositeLit", sa.typ.number())?
+    mut file := msg()
+    mut excerpt := msg()
+    line, col, _ := mut c.site_text(k, nth, mut file, mut excerpt)?
+    st := mut c.site_type(k, nth)
+    fmt.appendf(mut out, ",{\"kind\":\"CompositeLit\",\"type\":%d,\"const\":null,\"conv\":0,\"narrowed\":0,\"exhaustive\":false,\"unrolled\":false,\"move\":false,\"site\":{\"file\":", st.number())?
+    write_name(mut out, file[:])?
+    fmt.appendf(mut out, ",\"line\":%d,\"col\":%d,\"excerpt\":", line, col)?
+    write_name(mut out, excerpt[:])?
+    fmt.appendf(mut out, "}}")?
     for i := range 4 {
         write_plain_node(mut out, "KeyValue", 0)?
-        write_plain_node(mut out, "Ident", 0)?
+        // Go's field name in the literal is a name bound to nothing.
+        fmt.appendf(mut out, ",{\"kind\":\"Ident\",\"type\":0,\"const\":null,\"conv\":0,\"narrowed\":0,\"exhaustive\":false,\"unrolled\":false,\"move\":false,\"def\":null}")?
         if i == 0 || i == 3 {
             write_plain_node(mut out, "StrLit", types.string_type.number())?
         } else {
@@ -222,61 +241,41 @@ func tree_decl(trees []ast.File, unit int64, i int64) id[ast.Node] {
 }
 
 // write_node appends the object of the node k, of the kind name.
-func (mut c Checker) write_node(mut out list[uint8], k Key, name string) error {
+func (mut c Typed) write_node(mut out list[uint8], k Key, name string) error {
     mut typ := types.invalid
     mut conv := types.invalid
-    mut has_const := false
     mut cv := no_const()
     mut exhaustive := false
     switch kind_at(c.prog.trees, k) {
     case var_decl:
-        typ = decl_type_of(c.decl_types, k)
-        v, ok := c.var_consts[k]
-        has_const = ok
-        cv = v
+        typ = mut c.decl_type(k)
+        v, ok := mut c.var_const(k)
+        if ok {
+            cv = v
+        }
     case param_decl:
-        typ = decl_type_of(c.decl_types, k)
-    case call(cl):
-        _, cleared := c.conv_cleared[k]
-        if !cleared {
-            conv = cl.conv
-        }
-        vc, viewed := c.view_convs[k]
-        if viewed {
-            conv = vc
-        }
-        typ = mut c.node_type(k)
-        v, ok := c.consts[k]
-        has_const = ok
-        cv = v
+        typ = mut c.decl_type(k)
+    case call:
+        conv = mut c.conv(k)
+        typ = mut c.type_of(k)
+        cv = mut c.const_of(k)
     case binary, unary:
-        typ = mut c.node_type(k)
-        v, ok := c.consts[k]
-        has_const = ok
-        cv = v
+        typ = mut c.type_of(k)
+        cv = mut c.const_of(k)
     case switch_stmt:
-        _, ex := c.exhaustive[k]
-        exhaustive = ex
+        exhaustive = mut c.is_exhaustive(k)
     default:
         if is_expr_kind(c.prog.trees, k) {
-            typ = mut c.node_type(k)
+            typ = mut c.type_of(k)
         }
     }
     fmt.appendf(mut out, "{\"kind\":\"%s\",\"type\":%d,\"const\":", name, typ.number())?
-    if has_const {
-        mut c.write_const(mut out, cv)?
-    } else {
-        append(mut out, []uint8("null")...)?
-    }
-    mut narrowed := types.invalid
-    nt, has_narrowed := c.narrowed_names[k]
-    if has_narrowed {
-        narrowed = nt
-    }
+    mut c.write_const(mut out, cv)?
+    narrowed := mut c.narrowed(k)
     fmt.appendf(mut out, ",\"conv\":%d,\"narrowed\":%d,\"exhaustive\":", conv.number(), narrowed.number())?
     write_bool(mut out, exhaustive)?
-    _, moved := c.moves[k]
-    _, unrolled := c.unrolled[k]
+    moved := mut c.is_move(k)
+    unrolled := mut c.is_unrolled(k)
     fmt.appendf(mut out, ",\"unrolled\":")?
     write_bool(mut out, unrolled)?
     fmt.appendf(mut out, ",\"move\":")?
@@ -285,35 +284,246 @@ func (mut c Checker) write_node(mut out list[uint8], k Key, name string) error {
     mut c.write_fields_of(mut out, k)?
     mut c.write_type_cases(mut out, k)?
     mut c.write_captures(mut out, k)?
+    mut c.write_handover(mut out, k)?
     append(mut out, '}')?
     return noerror
+}
+
+// write_def appends what a name is bound to, Go's Ident.Def as the
+// --port-types dump writes it: null for nothing, unbound or builtin for
+// those bindings, and for a declaration a string of its kind, Go's type
+// name of it, the place among the program's trees, Go's prog.Files(),
+// of the file it is in, where in that file its name starts and its
+// name, a space between each,
+// a string rather than an object, which keeps the dump of a large
+// program small enough for porttest to decode.
+func (mut c Typed) write_def(mut out list[uint8], d ast.Def) error {
+    if d.kind == ast.def_none {
+        append(mut out, []uint8("null")...)?
+        return noerror
+    }
+    if d.kind == ast.def_unbound {
+        append(mut out, []uint8("\"unbound\"")...)?
+        return noerror
+    }
+    if d.kind == ast.def_builtin {
+        append(mut out, []uint8("\"builtin\"")...)?
+        return noerror
+    }
+    mut kind := "Import"
+    if d.kind == ast.def_func {
+        kind = "Func"
+    } else if d.kind == ast.def_param {
+        kind = "Param"
+    } else if d.kind == ast.def_var {
+        kind = "Var"
+    } else if d.kind == ast.def_type {
+        kind = "Type"
+    } else if d.kind == ast.def_type_param {
+        kind = "TypeParam"
+    }
+    dk := key_of_def(d)
+    sp := name_span_of(c.prog.trees, dk)
+    fmt.appendf(mut out, "\"%s %d %d ", kind, dk.unit, sp.start)?
+    write_escaped(mut out, name_of(c.prog.trees, c.none, dk))?
+    append(mut out, '"')?
+    return noerror
+}
+
+// write_handover appends what of k the backend reads that the fields
+// before do not show (see Typed): for a call, its type as recorded, Go's
+// Call.Type, the method it calls, Go's Call.Method, and the stand-in a
+// call through a value calls, Go's Call.Dynamic (see write_func_ref);
+// for a method expression, the method, Go's Selector.Method; for a ?,
+// the values it gives, Go's Question.Results; for an unreachable, the
+// place its abort reports, Go's Where; for a variable, whether it is
+// unused, Go's Var.Unused; for a name, what it is bound to, Go's
+// Ident.Def (see write_def); for a type switch, the types each case
+// names, Go's CaseClause.Types; for a fallthrough, where the clause it
+// enters starts, Go's Fallthrough.Next, or -1; and for a closure, its
+// function's value and results, Go's Func.Value and ResultTypes.
+func (mut c Typed) write_handover(mut out list[uint8], k Key) error {
+    switch kind_at(c.prog.trees, k) {
+    case call:
+        v_call_type := mut c.call_type(k)
+        fmt.appendf(mut out, ",\"call_type\":%d,\"method\":", v_call_type.number())?
+        mut c.write_func_ref(mut out, mut c.method(k))?
+        fmt.appendf(mut out, ",\"dynamic\":")?
+        mut c.write_func_ref(mut out, mut c.dynamic(k))?
+    case selector:
+        fmt.appendf(mut out, ",\"method\":")?
+        mut c.write_func_ref(mut out, mut c.method(k))?
+    case question:
+        fmt.appendf(mut out, ",\"results\":[")?
+        for i := range mut c.question_result_count(k) {
+            if i > 0 {
+                append(mut out, ',')?
+            }
+            v_question_result := mut c.question_result(k, i)
+            fmt.appendf(mut out, "%d", v_question_result.number())?
+        }
+        append(mut out, ']')?
+    case unreachable_stmt:
+        mut w := msg()
+        mut c.where(k, mut w)?
+        fmt.appendf(mut out, ",\"where\":\"")?
+        write_escaped(mut out, w[:])?
+        append(mut out, '"')?
+    case var_decl:
+        fmt.appendf(mut out, ",\"unused\":")?
+        write_bool(mut out, mut c.is_unused(k))?
+    case ident:
+        fmt.appendf(mut out, ",\"def\":")?
+        mut c.write_def(mut out, mut c.def_of(k))?
+    case switch_stmt(s):
+        if is_type_switch_tag(c.prog.trees, sub(k, s.tag)) {
+            fmt.appendf(mut out, ",\"case_types\":[")?
+            for i := range count_items(c.prog.trees, k.unit, s.cases) {
+                if i > 0 {
+                    append(mut out, ',')?
+                }
+                cl := item_at(c.prog.trees, k.unit, s.cases, i)
+                n, _ := mut c.case_type_count(cl)
+                append(mut out, '[')?
+                for j := range n {
+                    if j > 0 {
+                        append(mut out, ',')?
+                    }
+                    v_case_type := mut c.case_type(cl, j)
+                    fmt.appendf(mut out, "%d", v_case_type.number())?
+                }
+                append(mut out, ']')?
+            }
+            append(mut out, ']')?
+        }
+    case fallthrough_stmt:
+        next := mut c.falls_into(k)
+        mut at int64 = -1
+        if !is_no_key(next) {
+            at = span_at(c.prog.trees, next).start
+        }
+        fmt.appendf(mut out, ",\"next\":%d", at)?
+    case func_lit(fn):
+        fk := sub(k, fn)
+        v_func_value := mut c.func_value(fk)
+        fmt.appendf(mut out, ",\"value\":%d,\"lit_results\":[", v_func_value.number())?
+        for i := range mut c.result_len(fk) {
+            if i > 0 {
+                append(mut out, ',')?
+            }
+            v_result := mut c.result(fk, i)
+            fmt.appendf(mut out, "%d", v_result.number())?
+        }
+        append(mut out, ']')?
+    default:
+    }
+    return noerror
+}
+
+// write_func_ref appends the dump of fn, a function a call or a method
+// expression names, or null for no key: its place among the program's
+// declarations, Go's prog.Decls(), or -1 for a stand-in, which none
+// declares; its name; its value; its parameters' and results' types;
+// and, for a stand-in for a method of an interface, that method's name,
+// Go's Func.Interface, or null.
+func (mut c Typed) write_func_ref(mut out list[uint8], fn Key) error {
+    if is_no_key(fn) {
+        append(mut out, []uint8("null")...)?
+        return noerror
+    }
+    f := func_of(c.prog.trees, fn)
+    mut at int64 = -1
+    place, declared := c.decl_places[fn]
+    if declared {
+        at = place
+    }
+    fmt.appendf(mut out, "{\"decl\":%d,\"name\":", at)?
+    write_name(mut out, text_at(c.prog.trees, c.none, fn.unit, f.name))?
+    v_func_value := mut c.func_value(fn)
+    fmt.appendf(mut out, ",\"value\":%d,\"params\":[", v_func_value.number())?
+    for i := range count_items(c.prog.trees, fn.unit, f.params) {
+        if i > 0 {
+            append(mut out, ',')?
+        }
+        pk := item_at(c.prog.trees, fn.unit, f.params, i)
+        pt := mut c.decl_type(pk)
+        fmt.appendf(mut out, "%d", pt.number())?
+    }
+    fmt.appendf(mut out, "],\"results\":[")?
+    for i := range mut c.result_len(fn) {
+        if i > 0 {
+            append(mut out, ',')?
+        }
+        v_result := mut c.result(fn, i)
+        fmt.appendf(mut out, "%d", v_result.number())?
+    }
+    fmt.appendf(mut out, "],\"iface\":")?
+    m := mut c.interface_of(fn)
+    if is_no_key(m) {
+        append(mut out, []uint8("null")...)?
+    } else {
+        write_name(mut out, text_at(c.prog.trees, c.none, m.unit, iface_method_of(c.prog.trees, m).name))?
+    }
+    append(mut out, '}')?
+    return noerror
+}
+
+// place_decls records in c.decl_places the place of each declaration
+// of the program among them all, in Go's prog.Decls() order, which the
+// dump writes a function a call names by (see write_func_ref).
+func (mut c Typed) place_decls() error {
+    for i := range count_decls(c.prog) {
+        put(mut c.decl_places, decl_at(c.prog, i), i)?
+    }
+    return noerror
+}
+
+// is_type_switch_tag reports whether tag, a switch's, is x.(type), which
+// makes the switch a type switch, Go's IsTypeSwitch.
+func is_type_switch_tag(trees []ast.File, tag Key) bool {
+    switch kind_at(trees, tag) {
+    case type_assert(a):
+        return ast.is_none(a.type_expr)
+    default:
+        return false
+    }
 }
 
 // write_call_types appends, for a call k to a generic function whose
 // type arguments every type parameter has, its type arguments, its
 // parameters' types and its results' types, Go's Call.TypeArgs,
 // ParamTypes and ResultTypes (see record_signature).
-func (mut c Checker) write_call_types(mut out list[uint8], k Key) error {
-    n, has := c.call_targ_count[k]
+func (mut c Typed) write_call_types(mut out list[uint8], k Key) error {
+    n, has := mut c.type_arg_count(k)
     if !has {
         return noerror
     }
-    fmt.appendf(mut out, ",\"type_args\":")?
-    write_rtypes(mut out, c.call_targs, k, n)?
-    mut np int64 = 0
-    pc, has_p := c.call_pcount[k]
-    if has_p {
-        np = pc
+    fmt.appendf(mut out, ",\"type_args\":[")?
+    for i := range n {
+        if i > 0 {
+            append(mut out, ',')?
+        }
+        v_type_arg := mut c.type_arg(k, i)
+        fmt.appendf(mut out, "%d", v_type_arg.number())?
     }
-    fmt.appendf(mut out, ",\"param_types\":")?
-    write_rtypes(mut out, c.call_ptypes, k, np)?
-    mut nr int64 = 0
-    rc, has_r := c.call_rcount[k]
-    if has_r {
-        nr = rc
+    fmt.appendf(mut out, "],\"param_types\":[")?
+    for i := range mut c.param_type_count(k) {
+        if i > 0 {
+            append(mut out, ',')?
+        }
+        v_param_type := mut c.param_type(k, i)
+        fmt.appendf(mut out, "%d", v_param_type.number())?
     }
-    fmt.appendf(mut out, ",\"result_types\":")?
-    write_rtypes(mut out, c.call_rtypes, k, nr)?
+    fmt.appendf(mut out, "],\"result_types\":[")?
+    nr, _ := mut c.result_type_count(k)
+    for i := range nr {
+        if i > 0 {
+            append(mut out, ',')?
+        }
+        v_result_type := mut c.result_type(k, i)
+        fmt.appendf(mut out, "%d", v_result_type.number())?
+    }
+    append(mut out, ']')?
     return noerror
 }
 
@@ -321,44 +531,29 @@ func (mut c Checker) write_call_types(mut out list[uint8], k Key) error {
 // ranges over the fields of and the type parameter v.[f] has, Go's
 // FieldsOf.Type and Field, whether its body reads f.name, Go's Names, and
 // the fields it lists for each type it is lowered for, Go's Unrolled.
-func (mut c Checker) write_fields_of(mut out list[uint8], k Key) error {
+func (mut c Typed) write_fields_of(mut out list[uint8], k Key) error {
     switch kind_at(c.prog.trees, k) {
     case fields_of:
     default:
         return noerror
     }
-    mut ft := types.invalid
-    t, has_t := c.fo_types[k]
-    if has_t {
-        ft = t
-    }
-    mut ff := types.invalid
-    f, has_f := c.fo_fields[k]
-    if has_f {
-        ff = f
-    }
-    _, names := c.fo_names[k]
+    ft := mut c.fo_type(k)
+    ff := mut c.fo_field(k)
     fmt.appendf(mut out, ",\"fo_type\":%d,\"fo_field\":%d,\"names\":", ft.number(), ff.number())?
-    write_bool(mut out, names)?
+    write_bool(mut out, mut c.reads_names(k))?
     fmt.appendf(mut out, ",\"fields_for\":[")?
-    mut first := true
-    for _, r := range c.unrolled_recs {
-        if r.fo != k {
-            continue
-        }
-        if !first {
+    for j := range mut c.unrolled_count(k) {
+        if j > 0 {
             append(mut out, ',')?
         }
-        first = false
-        fmt.appendf(mut out, "{\"type\":%d,\"fields\":[", r.typ.number())?
-        for i := range r.count {
+        at := mut c.unrolled_at(k, j)
+        typ, n := mut c.unrolled_type(at)
+        fmt.appendf(mut out, "{\"type\":%d,\"fields\":[", typ.number())?
+        for i := range n {
             if i > 0 {
                 append(mut out, ',')?
             }
-            fi, ok := c.unrolled_fields[r.first +% i]
-            if ok {
-                fmt.appendf(mut out, "%d", fi)?
-            }
+            fmt.appendf(mut out, "%d", mut c.unrolled_field(at, i))?
         }
         fmt.appendf(mut out, "]}")?
     }
@@ -369,7 +564,7 @@ func (mut c Checker) write_fields_of(mut out list[uint8], k Key) error {
 // write_type_cases appends, for k a switch on a type parameter, how
 // each value of each of its cases matches, Go's CaseClause.TypeCases,
 // a list for each case, in order.
-func (mut c Checker) write_type_cases(mut out list[uint8], k Key) error {
+func (mut c Typed) write_type_cases(mut out list[uint8], k Key) error {
     mut cases := make(list[Key], c_allocator)
     switch kind_at(c.prog.trees, k) {
     case switch_stmt(s):
@@ -388,15 +583,12 @@ func (mut c Checker) write_type_cases(mut out list[uint8], k Key) error {
             append(mut out, ',')?
         }
         append(mut out, '[')?
-        first, count := mut c.type_cases_of(cl)
-        for j := range count {
+        for j := range mut c.type_case_count(cl) {
             if j > 0 {
                 append(mut out, ',')?
             }
-            tc, ok := c.tc_recs[first +% j]
-            if ok {
-                fmt.appendf(mut out, "{\"kind\":%d,\"type\":%d,\"key\":%d}", tc.kind, tc.typ.number(), tc.key.number())?
-            }
+            kind, typ, key := mut c.type_case(cl, j)
+            fmt.appendf(mut out, "{\"kind\":%d,\"type\":%d,\"key\":%d}", kind, typ.number(), key.number())?
         }
         append(mut out, ']')?
     }
@@ -407,72 +599,30 @@ func (mut c Checker) write_type_cases(mut out list[uint8], k Key) error {
 // write_captures appends, for k a closure, its captures, Go's
 // FuncLit.Captures: each the name of its variable, where it is first
 // named, whether the closure may write it and where it first does.
-func (mut c Checker) write_captures(mut out list[uint8], k Key) error {
+func (mut c Typed) write_captures(mut out list[uint8], k Key) error {
     switch kind_at(c.prog.trees, k) {
     case func_lit:
     default:
         return noerror
     }
-    first, count := mut c.lit_captures(k)
     fmt.appendf(mut out, ",\"captures\":[")?
-    for i := range count {
-        cp, ok := c.caps[first +% i]
-        if !ok {
-            continue
-        }
+    for i := range mut c.capture_count(k) {
         if i > 0 {
             append(mut out, ',')?
         }
+        decl, at, write, write_at := mut c.capture(k, i)
         fmt.appendf(mut out, "{\"decl\":\"")?
-        write_escaped(mut out, name_of(c.prog.trees, c.none, cp.decl))?
-        fmt.appendf(mut out, "\",\"at\":%d,\"write\":", cp.at.start)?
-        write_bool(mut out, cp.write)?
+        write_escaped(mut out, name_of(c.prog.trees, c.none, decl))?
+        fmt.appendf(mut out, "\",\"at\":%d,\"write\":", at.start)?
+        write_bool(mut out, write)?
         mut wa int64 = 0
-        if cp.write {
-            wa = cp.write_at.start
+        if write {
+            wa = write_at.start
         }
         fmt.appendf(mut out, ",\"write_at\":%d}", wa)?
     }
     append(mut out, ']')?
     return noerror
-}
-
-// write_rtypes appends the n types m holds for k, as a list of IDs.
-func write_rtypes(mut out list[uint8], m map[RKey]types.Type, k Key, n int64) error {
-    append(mut out, '[')?
-    for i := range n {
-        if i > 0 {
-            append(mut out, ',')?
-        }
-        t, has := m[RKey{unit: k.unit, node: k.node, i: i}]
-        if has {
-            fmt.appendf(mut out, "%d", t.number())?
-        } else {
-            fmt.appendf(mut out, "0")?
-        }
-    }
-    append(mut out, ']')?
-    return noerror
-}
-
-// node_type returns the type of the expression k as Go's ast.TypeOf
-// gives it once checking is done: as type_of does, but for a name a
-// switch on a union took as a pattern, which Go unbinds, and a call it
-// took as one, whose conversion Go forgets.
-func (mut c Checker) node_type(k Key) types.Type {
-    _, cleared := c.pattern_cleared[k]
-    if cleared {
-        return types.invalid
-    }
-    switch kind_at(c.prog.trees, k) {
-    case call(cl):
-        _, conv_gone := c.conv_cleared[k]
-        if conv_gone && cl.conv != types.invalid {
-            return node_type_of(c.node_types, k)
-        }
-    default:
-    }
-    return mut c.type_of(k)
 }
 
 // is_expr_kind reports whether the node k is an expression, a type as

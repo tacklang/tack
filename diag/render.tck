@@ -80,6 +80,18 @@ func render_ctx(f source.File, mut out list[uint8], line int64, col int64, marke
     return noerror
 }
 
+// excerpt appends to out the source context a diagnostic at sp, a range
+// of f, shows below its header line, exactly as render_pretty writes it
+// for a diagnostic with no marker text, Go's Excerpt: the line before
+// the one sp starts on, that line and a marker under sp, and the line
+// after, those of them f has. The type checker gives it to a
+// testing.Site, so a place a program reports at run time reads as a
+// diagnostic does.
+pub func excerpt(f source.File, sp source.Span, mut out list[uint8]) error {
+    line, col := f.position(sp.start)
+    return render_ctx(f, mut out, line, col, f.data[0:0], sp, 1)
+}
+
 // line_text returns b, a line of a file, without its newline: a trailing
 // \n, and a \r before it, but not a lone trailing \r, which is shown as
 // it is, being no newline.

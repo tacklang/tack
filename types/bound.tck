@@ -1,0 +1,393 @@
+package types
+
+import text from "std/text"
+
+// Bound is the type table as code generation reads it: a Table it holds
+// and hides, whose every query it answers under the binding in force,
+// as Go's Table answers every query (see query.tck), and whose bindings
+// it makes (see bind.tck). The Table's own queries, which answer about
+// the type they are given as the type checker asks them, are not
+// reachable through a Bound: its one field is private to this package,
+// and it gives out no Table, so a backend handed a Bound, as typeck's
+// Typed hands one, can ask no query that skips the binding. With
+// nothing bound, each answers as the Table's own does and adds nothing.
+//
+// Its methods are Go's Table's, by the port's names: bind, bind_more,
+// restore, unbind, binding and bound; the queries, is_func to
+// is_struct, key_of, elem_of, len_of, owned, has_zero, the holds_
+// queries, size, name, name_with and has_type_param, Go's HasTypeParam;
+// a function type's parameters and results, a union's cases and a
+// struct's fields a part at a time, param_count and param, result_count
+// and result, case_count, case_at and case_name, find_case,
+// field_count, field_type, field_name and find_field; kind_name, the
+// dump's name of a type's kind; the constructors, array_of to func_of,
+// which bind nothing, as Go's do not; and count and errors.
+pub type Bound struct {
+    t Table
+}
+
+// bound_table returns a Bound of t, taken over.
+pub func bound_table(own t Table) Bound {
+    return Bound{t: t}
+}
+
+// bind is Table.bind, Go's Bind: args, taken over, binds each type
+// parameter it holds a key of to its value, or unbindable.
+pub func (mut b Bound) bind(own args map[Type]Type) error {
+    return mut b.t.bind(own args)
+}
+
+// unbind is Go's Unbind.
+pub func (mut b Bound) unbind() {
+    mut b.t.unbind()
+}
+
+// bind_more is Go's BindMore: what restore puts back, or unbindable.
+pub func (mut b Bound) bind_more(args map[Type]Type) (Saved, error) {
+    s := mut b.t.bind_more(args)?
+    return s, noerror
+}
+
+// restore puts back the binding bind_more replaced, s, taken over.
+pub func (mut b Bound) restore(own s Saved) {
+    mut b.t.restore(own s)
+}
+
+// binding is Go's Binding: a copy of the binding in force, and whether
+// one is.
+pub func (mut b Bound) binding() (map[Type]Type, bool, error) {
+    m, on := b.t.binding()?
+    return m, on, noerror
+}
+
+// bound is Go's Bound: what typ stands for under the binding in force.
+pub func (mut b Bound) bound(typ Type) (Type, error) {
+    r := mut b.t.bound(typ)?
+    return r, noerror
+}
+
+// has_type_param is Go's HasTypeParam under the binding in force.
+pub func (mut b Bound) has_type_param(typ Type) (bool, error) {
+    r := mut b.t.bound_has_type_param(typ)?
+    return r, noerror
+}
+
+// name_with is Go's NameWith under the binding in force, with the
+// qualifier Table.name_with describes.
+pub func (mut b Bound) name_with(typ Type, pkg int64, prefixes []text.Text, every bool, mut out list[uint8]) error {
+    return mut b.t.name_with(typ, pkg, prefixes, every, mut out)
+}
+
+// name is Go's Name under the binding in force.
+pub func (mut b Bound) name(typ Type) (list[uint8], error) {
+    r := mut b.t.bound_name(typ)?
+    return r, noerror
+}
+
+// is_func is Go's IsFunc under the binding in force.
+pub func (mut b Bound) is_func(typ Type) (bool, error) {
+    r := mut b.t.bound_is_func(typ)?
+    return r, noerror
+}
+
+// is_union is Go's IsUnion under the binding in force.
+pub func (mut b Bound) is_union(typ Type) (bool, error) {
+    r := mut b.t.bound_is_union(typ)?
+    return r, noerror
+}
+
+// is_type_param is Go's IsTypeParam under the binding in force.
+pub func (mut b Bound) is_type_param(typ Type) (bool, error) {
+    r := mut b.t.bound_is_type_param(typ)?
+    return r, noerror
+}
+
+// is_array is Go's IsArray under the binding in force.
+pub func (mut b Bound) is_array(typ Type) (bool, error) {
+    r := mut b.t.bound_is_array(typ)?
+    return r, noerror
+}
+
+// is_arena is Go's IsArena under the binding in force.
+pub func (mut b Bound) is_arena(typ Type) (bool, error) {
+    r := mut b.t.bound_is_arena(typ)?
+    return r, noerror
+}
+
+// is_id is Go's IsID under the binding in force.
+pub func (mut b Bound) is_id(typ Type) (bool, error) {
+    r := mut b.t.bound_is_id(typ)?
+    return r, noerror
+}
+
+// is_span is Go's IsSpan under the binding in force.
+pub func (mut b Bound) is_span(typ Type) (bool, error) {
+    r := mut b.t.bound_is_span(typ)?
+    return r, noerror
+}
+
+// is_ref is Go's IsRef under the binding in force.
+pub func (mut b Bound) is_ref(typ Type) (bool, error) {
+    r := mut b.t.bound_is_ref(typ)?
+    return r, noerror
+}
+
+// is_pool is Go's IsPool under the binding in force.
+pub func (mut b Bound) is_pool(typ Type) (bool, error) {
+    r := mut b.t.bound_is_pool(typ)?
+    return r, noerror
+}
+
+// is_handle is Go's IsHandle under the binding in force.
+pub func (mut b Bound) is_handle(typ Type) (bool, error) {
+    r := mut b.t.bound_is_handle(typ)?
+    return r, noerror
+}
+
+// buffered is Go's Buffered under the binding in force.
+pub func (mut b Bound) buffered(typ Type) (bool, error) {
+    r := mut b.t.bound_buffered(typ)?
+    return r, noerror
+}
+
+// is_list is Go's IsList under the binding in force.
+pub func (mut b Bound) is_list(typ Type) (bool, error) {
+    r := mut b.t.bound_is_list(typ)?
+    return r, noerror
+}
+
+// is_map is Go's IsMap under the binding in force.
+pub func (mut b Bound) is_map(typ Type) (bool, error) {
+    r := mut b.t.bound_is_map(typ)?
+    return r, noerror
+}
+
+// is_view is Go's IsView under the binding in force.
+pub func (mut b Bound) is_view(typ Type) (bool, error) {
+    r := mut b.t.bound_is_view(typ)?
+    return r, noerror
+}
+
+// in_any_of is Go's InAny under the binding in force.
+pub func (mut b Bound) in_any_of(typ Type) (bool, error) {
+    r := mut b.t.bound_in_any_of(typ)?
+    return r, noerror
+}
+
+// is_struct is Go's IsStruct under the binding in force.
+pub func (mut b Bound) is_struct(typ Type) (bool, error) {
+    r := mut b.t.bound_is_struct(typ)?
+    return r, noerror
+}
+
+// key_of is Go's Key under the binding in force.
+pub func (mut b Bound) key_of(typ Type) (Type, error) {
+    r := mut b.t.bound_key_of(typ)?
+    return r, noerror
+}
+
+// elem_of is Go's Elem under the binding in force.
+pub func (mut b Bound) elem_of(typ Type) (Type, error) {
+    r := mut b.t.bound_elem_of(typ)?
+    return r, noerror
+}
+
+// len_of is Go's Len under the binding in force.
+pub func (mut b Bound) len_of(typ Type) (int64, error) {
+    r := mut b.t.bound_len_of(typ)?
+    return r, noerror
+}
+
+// owned is Go's Owned under the binding in force.
+pub func (mut b Bound) owned(typ Type) (bool, error) {
+    r := mut b.t.bound_owned(typ)?
+    return r, noerror
+}
+
+// has_zero is Go's HasZero under the binding in force.
+pub func (mut b Bound) has_zero(typ Type) (bool, error) {
+    r := mut b.t.bound_has_zero(typ)?
+    return r, noerror
+}
+
+// holds_list is Go's HoldsList under the binding in force.
+pub func (mut b Bound) holds_list(typ Type) (bool, error) {
+    r := mut b.t.bound_holds_list(typ)?
+    return r, noerror
+}
+
+// holds_arena is Go's HoldsArena under the binding in force.
+pub func (mut b Bound) holds_arena(typ Type) (bool, error) {
+    r := mut b.t.bound_holds_arena(typ)?
+    return r, noerror
+}
+
+// holds_pool is Go's HoldsPool under the binding in force.
+pub func (mut b Bound) holds_pool(typ Type) (bool, error) {
+    r := mut b.t.bound_holds_pool(typ)?
+    return r, noerror
+}
+
+// holds_union is Go's HoldsUnion under the binding in force.
+pub func (mut b Bound) holds_union(typ Type) (bool, error) {
+    r := mut b.t.bound_holds_union(typ)?
+    return r, noerror
+}
+
+// size is Go's Size under the binding in force.
+pub func (mut b Bound) size(typ Type) (Size, error) {
+    r := mut b.t.bound_size(typ)?
+    return r, noerror
+}
+
+// param_count is Go's len(FuncParams) under the binding in force.
+pub func (mut b Bound) param_count(typ Type) (int64, error) {
+    r := mut b.t.bound_param_count(typ)?
+    return r, noerror
+}
+
+// result_count is Go's len(FuncResults) under the binding in force.
+pub func (mut b Bound) result_count(typ Type) (int64, error) {
+    r := mut b.t.bound_result_count(typ)?
+    return r, noerror
+}
+
+// case_count is Go's len(Cases) under the binding in force.
+pub func (mut b Bound) case_count(typ Type) (int64, error) {
+    r := mut b.t.bound_case_count(typ)?
+    return r, noerror
+}
+
+// field_count is Go's len(Fields) under the binding in force.
+pub func (mut b Bound) field_count(typ Type) (int64, error) {
+    r := mut b.t.bound_field_count(typ)?
+    return r, noerror
+}
+
+// param is Go's FuncParams(typ)[i] under the binding in force, and
+// whether there is one.
+pub func (mut b Bound) param(typ Type, i int64) (FuncParam, bool, error) {
+    p, ok := mut b.t.bound_param(typ, i)?
+    return p, ok, noerror
+}
+
+// result is Go's FuncResults(typ)[i] under the binding in force, invalid
+// for none.
+pub func (mut b Bound) result(typ Type, i int64) (Type, error) {
+    r := mut b.t.bound_result(typ, i)?
+    return r, noerror
+}
+
+// case_at is Go's Cases(typ)[i] under the binding in force, and whether
+// there is one; case_name gives its name.
+pub func (mut b Bound) case_at(typ Type, i int64) (Case, bool, error) {
+    c, ok := mut b.t.bound_case(typ, i)?
+    return c, ok, noerror
+}
+
+// case_name appends to out the name of c, a case case_at gave.
+pub func (mut b Bound) case_name(c Case, mut out list[uint8]) error {
+    append(mut out, b.t.text(c.name.start, c.name.end)...)?
+    return noerror
+}
+
+// find_case is Go's Case under the binding in force.
+pub func (mut b Bound) find_case(typ Type, name []uint8) (Case, int64, bool, error) {
+    c, at, ok := mut b.t.bound_find_case(typ, name)?
+    return c, at, ok, noerror
+}
+
+// field_type is Go's Fields(typ)[i].Type under the binding in force, and
+// whether there is one.
+pub func (mut b Bound) field_type(typ Type, i int64) (Type, bool, error) {
+    f, ok := mut b.t.bound_field_type(typ, i)?
+    return f, ok, noerror
+}
+
+// field_name appends Go's Fields(typ)[i].Name under the binding in force.
+pub func (mut b Bound) field_name(typ Type, i int64, mut out list[uint8]) error {
+    return mut b.t.bound_field_name(typ, i, mut out)
+}
+
+// find_field is Go's Field under the binding in force.
+pub func (mut b Bound) find_field(typ Type, name []uint8) (Type, int64, bool, error) {
+    f, at, ok := mut b.t.bound_find_field(typ, name)?
+    return f, at, ok, noerror
+}
+
+// kind_name is Table.kind_name of what typ stands for under the binding
+// in force: the dump's name of its kind, Go's typeKind there.
+pub func (mut b Bound) kind_name(typ Type) (string, error) {
+    r := mut b.t.bound(typ)?
+    return b.t.kind_name(r), noerror
+}
+
+// count is Go's Count: how many types the Table has added.
+pub func (mut b Bound) count() int64 {
+    return b.t.count()
+}
+
+// errors is Go's Table.Errors: the errors of the compilation.
+pub func (mut b Bound) errors() int64 {
+    return b.t.errors
+}
+
+// array_of is Go's Array: the type, added if the Table does not have it.
+pub func (mut b Bound) array_of(elem Type, n int64) (Type, error) {
+    r := mut b.t.array_of(elem, n)?
+    return r, noerror
+}
+
+// view_of is Go's View: the type, added if the Table does not have it.
+pub func (mut b Bound) view_of(elem Type) (Type, error) {
+    r := mut b.t.view_of(elem)?
+    return r, noerror
+}
+
+// list_of is Go's List: the type, added if the Table does not have it.
+pub func (mut b Bound) list_of(elem Type) (Type, error) {
+    r := mut b.t.list_of(elem)?
+    return r, noerror
+}
+
+// arena_of is Go's Arena: the type, added if the Table does not have it.
+pub func (mut b Bound) arena_of(elem Type) (Type, error) {
+    r := mut b.t.arena_of(elem)?
+    return r, noerror
+}
+
+// id_of is Go's ID: the type, added if the Table does not have it.
+pub func (mut b Bound) id_of(elem Type) (Type, error) {
+    r := mut b.t.id_of(elem)?
+    return r, noerror
+}
+
+// span_of is Go's Span: the type, added if the Table does not have it.
+pub func (mut b Bound) span_of(elem Type) (Type, error) {
+    r := mut b.t.span_of(elem)?
+    return r, noerror
+}
+
+// pool_of is Go's Pool: the type, added if the Table does not have it.
+pub func (mut b Bound) pool_of(elem Type) (Type, error) {
+    r := mut b.t.pool_of(elem)?
+    return r, noerror
+}
+
+// handle_of is Go's Handle: the type, added if the Table does not have it.
+pub func (mut b Bound) handle_of(elem Type) (Type, error) {
+    r := mut b.t.handle_of(elem)?
+    return r, noerror
+}
+
+// map_of is Go's Map: the type, added if the Table does not have it.
+pub func (mut b Bound) map_of(key Type, value Type) (Type, error) {
+    r := mut b.t.map_of(key, value)?
+    return r, noerror
+}
+
+// func_of is Go's Func: the type, added if the Table does not have it.
+pub func (mut b Bound) func_of(params []FuncParam, results []Type) (Type, error) {
+    r := mut b.t.func_of(params, results)?
+    return r, noerror
+}

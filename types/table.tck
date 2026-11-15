@@ -28,9 +28,12 @@ import text from "std/text"
 //
 // Go's Bind, BindMore, Unbind, Binding and Bound, which make a type
 // parameter stand for a type while code is generated for one instance,
-// are not here yet: the type checker binds nothing, and they come with
-// the backend, which does. Every query here answers about the type it is
-// given, as Go's does with nothing bound.
+// are bind, bind_more, unbind, binding and bound (see bind.tck), which
+// the type checker never calls. Every query here answers about the type
+// it is given, as Go's does with nothing bound; each has a twin, bound_
+// and its name, which answers as Go's does under the binding in force,
+// adding what Go's adds (see query.tck), and which code generation asks
+// through a Bound (see bound.tck), the Table it holds hidden from it.
 //
 // owners holds, for each entry, the package of a struct or union type,
 // an index among the program's packages, or -1, and owner_names each
@@ -70,6 +73,14 @@ pub type Table struct {
     // errors counts the errors of the compilation the table was made
     // for, Go's Errors.
     pub errors int64
+
+    // The binding in force (see bind.tck): what each bound type
+    // parameter stands for, Go's bound, what bound gave for each type
+    // under it, Go's substituted, and whether one is in force, Go's
+    // bound being non-nil.
+    binds map[Type]Type
+    substituted map[Type]Type
+    binding_on bool
 }
 
 // Entry is one type a Table added: which kind of type it is, its element
@@ -178,6 +189,9 @@ pub func new_table(alloc Allocator) (Table, error) {
         owners: make(list[int64], alloc),
         owner_names: make(list[text.Text], alloc),
         errors: 0,
+        binds: make(map[Type]Type, alloc),
+        substituted: make(map[Type]Type, alloc),
+        binding_on: false,
     }
     // error's field names, code and msg, are the first names (see
     // field_name).
@@ -993,7 +1007,7 @@ pub func (t Table) write_name(typ Type, mut out list[uint8], pkg int64) error {
             append(mut out, []uint8(part.lit)...)?
             continue
         }
-        t.write_name_part(part.typ, mut out, pkg, mut parts)?
+        t.write_name_part(part.typ, mut out, pkg, t.owner_names[:], false, mut parts)?
         mut i := len(parts) -% 1
         for i >= 0 {
             p, has := parts[i]
@@ -1026,8 +1040,10 @@ func lit_part(lit string) NamePart {
 
 // write_name_part appends to out what of typ's name comes before its
 // first part, and sets parts to the rest of it, in order, the names of
-// its parts among the text between them.
-func (t Table) write_name_part(typ Type, mut out list[uint8], pkg int64, mut parts list[NamePart]) error {
+// its parts among the text between them. A struct or union type of the
+// package o is qualified by prefixes[o] when o is not pkg and either
+// every says to qualify every package's or pkg is a package, 0 or more.
+func (t Table) write_name_part(typ Type, mut out list[uint8], pkg int64, prefixes []text.Text, every bool, mut parts list[NamePart]) error {
     for len(parts) > 0 {
         pop(mut parts)
     }
@@ -1042,8 +1058,8 @@ func (t Table) write_name_part(typ Type, mut out list[uint8], pkg int64, mut par
     }
     if e.kind == k_struct || e.kind == k_union {
         owner, has := t.owners[typ.n -% num_basic]
-        if has && pkg >= 0 && owner >= 0 && owner != pkg && owner < len(t.owner_names) {
-            append(mut out, t.owner_names[owner].bytes()...)?
+        if has && (every || pkg >= 0) && owner >= 0 && owner != pkg && owner < len(prefixes) {
+            append(mut out, prefixes[owner].bytes()...)?
             append(mut out, '.')?
         }
         append(mut out, t.text(e.name_start, e.name_end)...)?

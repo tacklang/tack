@@ -476,6 +476,7 @@ func (mut c Checker) cannot_call(k Key, f Key) error {
 // parameter, and what the arguments may do to each other. Its result, if
 // any, is the caller's to use or discard.
 func (mut c Checker) check_call(k Key) error {
+    mut c.drop_site(k)
     cl := call_of(c.prog.trees, k)
     if !is_no_key(mut c.receiver_of(k)) {
         return mut c.check_method_call(k)
@@ -671,10 +672,11 @@ func (mut c Checker) hidden_value(f Key, nm ast.Ident) error {
 // without_site). It returns the mut arguments passed to mut parameters
 // with nothing reported, and false when the count was wrong. Go puts
 // the call's own place among its arguments then, as a literal or the
-// Site parameter of the function being checked, which only a later
-// stage's pass reads, and nothing reports; the --port-types dump, which
-// would show it, declines such a call.
+// Site parameter of the function being checked (see pass_site), which
+// the backend reads, and nothing reports. What an earlier check of the
+// call put there is taken out first, as Go's dropSite does.
 func (mut c Checker) check_args(k Key, callee list[uint8], params []ArgParam) (list[Key], bool, error) {
+    mut c.drop_site(k)
     cl := call_of(c.prog.trees, k)
     mut written := make(list[ArgParam], c_allocator)
     mut sites int64 = 0
@@ -708,12 +710,16 @@ func (mut c Checker) check_args(k Key, callee list[uint8], params []ArgParam) (l
 
 // SiteArg is the testing.Site argument Go puts among a call's arguments
 // once they are checked, Go's passSite: its index among them, the Site
-// type, and the Site parameter of the function the call is in, which is
-// passed on, or no key for a literal of the call's place.
+// type, the Site parameter of the function the call is in, which is
+// passed on, or no key for a literal of the call's place, and that
+// place, the call's span, whose file, line, column and excerpt the
+// literal holds (see Typed.site_text). Every node Go makes for it is at
+// the call's end, an empty span.
 type SiteArg struct {
     index int64
     typ types.Type
     param Key
+    place source.Span
 }
 
 // pass_site records the testing.Site arguments the call k, whose
@@ -751,13 +757,20 @@ func (mut c Checker) pass_site(k Key, params []ArgParam) error {
         if has {
             typ = st
         }
-        put(mut c.site_args, RKey{unit: k.unit, node: k.node, i: n}, SiteArg{index: i, typ: typ, param: param})?
+        put(mut c.site_args, RKey{unit: k.unit, node: k.node, i: n}, SiteArg{index: i, typ: typ, param: param, place: span_at(c.prog.trees, k)})?
         n +%= 1
     }
     if n > 0 {
         put(mut c.site_count, k, n)?
     }
     return noerror
+}
+
+// drop_site forgets the testing.Site arguments an earlier check of the
+// call k gave it, Go's dropSite, so a check that gives it none leaves it
+// none; the records past the count are not read.
+func (mut c Checker) drop_site(k Key) {
+    delete(mut c.site_count, k)
 }
 
 // site_arity reports the call k to callee, whose parameters but its Site

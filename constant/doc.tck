@@ -31,7 +31,12 @@ package constant
 // which the type checker computes with. float64_bits and float32_bits
 // round a value to the nearest float, ties to even, as Go's big.Rat
 // does, giving the float's bits, since the port has no float arithmetic
-// of its own to hold one in, and whether it is finite.
+// of its own to hold one in, and whether it is finite. The C backend
+// writes a float constant from those bits as a hexadecimal float
+// literal, Go's strconv.FormatFloat(f, 'x', -1, 64) and its backend's
+// floatLiteral: append_hex_float and append_float_literal, with
+// float32_widened, a float32's bits as the float64's it converts to
+// (see hexfloat.tck).
 //
 // It is a leaf package: the parser decodes literals into it, and the
 // later stages will compute with it.

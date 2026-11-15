@@ -1,0 +1,202 @@
+package builtin
+
+import ast from "tack/ast"
+import types from "tack/types"
+
+// What a program needs of the runtime, Go's used.go and builtin.go's
+// RunsC, UsesUnreachable and UsesLists, which the C backend and the
+// driver read: the builtins with a C body it calls, whether it runs any
+// C beyond its generated C, whether it holds an unreachable, and whether
+// it has a type whose buffers the runtime grows and frees. A program is
+// walked as Go's ast.Walk walks prog.Files(), every tree's declarations
+// in order, each node before the nodes it holds (see ast.children), from
+// a stack of its own, since a program nests as deeply as its source.
+
+// called returns the builtin of s that the node n of f calls, and whether
+// it calls one, Go's Called: n is a call whose callee is a name the
+// resolver bound to a builtin, Go's nil *ast.Func, and that name is one
+// of s's builtins with a C body. A generic builtin, such as len, is not
+// one; it has no Func.
+pub func (s Set) called(f ast.File, n id[ast.Node]) (Func, bool) {
+    switch f.nodes[n].k {
+    case call(cl):
+        switch f.nodes[cl.fn].k {
+        case ident(nm):
+            if nm.def.kind == ast.def_builtin {
+                fn, found := s.lookup(f.text(nm.name))
+                return fn, found
+            }
+        default:
+        }
+    default:
+    }
+    mut z Func
+    return z, false
+}
+
+// used returns every builtin of s with a C body that prog, which must
+// have been resolved, calls anywhere, in the order Go's Funcs lists
+// them, each once, Go's Used, or out of memory.
+pub func (s Set) used(prog ast.Program) (list[Func], error) {
+    mut called := make(list[bool], c_allocator)
+    mut k int64 = 0
+    for k < s.funcs_count() {
+        append(mut called, false)?
+        k +%= 1
+    }
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for u := range len(prog.trees) {
+        start_walk(prog.trees[u], mut stack)?
+        for len(stack) > 0 {
+            n, ok := pop(mut stack)
+            if !ok {
+                break
+            }
+            fn, is_builtin := s.called(prog.trees[u], n)
+            if is_builtin {
+                for i := range s.funcs_count() {
+                    g, has := s.func_at(i)
+                    if has && g.name == fn.name && i < len(called) {
+                        called[i] = true
+                    }
+                }
+            }
+            push_children(prog.trees[u], n, mut kids, mut stack)?
+        }
+    }
+    mut out := make(list[Func], c_allocator)
+    for i, on := range called {
+        g, has := s.func_at(i)
+        if on && has {
+            append(mut out, g)?
+        }
+    }
+    return out, noerror
+}
+
+// runs_c reports whether prog, which must have been resolved, runs any C
+// beyond its generated C, which writes to no descriptor but the abort of
+// an unreachable, Go's RunsC: whether it calls a builtin of s, each of
+// which has a C body, or declares an extern func, in any package, std's
+// included. The generated C's main of such a program, and of no other,
+// calls tack_start_ and tack_end_.
+pub func (s Set) runs_c(prog ast.Program) (bool, error) {
+    used := s.used(prog)?
+    if len(used) > 0 {
+        return true, noerror
+    }
+    for u := range len(prog.trees) {
+        if declares_extern(prog.trees[u]) {
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// uses_unreachable reports whether prog holds an unreachable statement
+// anywhere, whose abort its generated C calls through
+// tack_unreachable_, Go's UsesUnreachable, or out of memory.
+pub func uses_unreachable(prog ast.Program) (bool, error) {
+    mut stack := make(list[id[ast.Node]], c_allocator)
+    mut kids := make(list[id[ast.Node]], c_allocator)
+    for u := range len(prog.trees) {
+        start_walk(prog.trees[u], mut stack)?
+        for len(stack) > 0 {
+            n, ok := pop(mut stack)
+            if !ok {
+                break
+            }
+            if is_unreachable(prog.trees[u], n) {
+                return true, noerror
+            }
+            push_children(prog.trees[u], n, mut kids, mut stack)?
+        }
+    }
+    return false, noerror
+}
+
+// uses_lists reports whether t, a checked program's types, has a list, an
+// arena, a pool or a map type anywhere, Go's UsesLists, each asked as
+// Go asks it, under the binding in force (see types.Bound): an arena is
+// a list type's too (see types.Table's arena_of), and its generated C
+// grows and frees their buffers through the runtime's list symbols.
+pub func uses_lists(mut t types.Bound) (bool, error) {
+    for i := range mut t.count() {
+        typ := types.added(i)
+        // Asked in Go's order, each only when those before say no, as
+        // Go's || asks them.
+        l := mut t.is_list(typ)?
+        if l {
+            return true, noerror
+        }
+        m := mut t.is_map(typ)?
+        if m {
+            return true, noerror
+        }
+        p := mut t.is_pool(typ)?
+        if p {
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// declares_extern reports whether f declares an extern func.
+func declares_extern(f ast.File) bool {
+    for _, d := range f.decls {
+        switch f.nodes[d].k {
+        case func_decl(fid):
+            if f.funcs[fid].is_extern {
+                return true
+            }
+        default:
+        }
+    }
+    return false
+}
+
+// is_unreachable reports whether the node n of f is an unreachable
+// statement.
+func is_unreachable(f ast.File, n id[ast.Node]) bool {
+    switch f.nodes[n].k {
+    case unreachable_stmt:
+        return true
+    default:
+        return false
+    }
+}
+
+// start_walk sets stack to the declarations of f, the first on top.
+func start_walk(f ast.File, mut stack list[id[ast.Node]]) error {
+    for len(stack) > 0 {
+        pop(mut stack)
+    }
+    mut i := len(f.decls) -% 1
+    for i >= 0 {
+        d, ok := f.decls[i]
+        if ok {
+            append(mut stack, d)?
+        }
+        i -%= 1
+    }
+    return noerror
+}
+
+// push_children pushes on stack the nodes n of f holds, the first on
+// top, through kids, emptied first.
+func push_children(f ast.File, n id[ast.Node], mut kids list[id[ast.Node]], mut stack list[id[ast.Node]]) error {
+    for len(kids) > 0 {
+        pop(mut kids)
+    }
+    ast.children(f, n, mut kids)?
+    mut j := len(kids) -% 1
+    for j >= 0 {
+        k, ok := kids[j]
+        if ok {
+            append(mut stack, k)?
+        }
+        j -%= 1
+    }
+    return noerror
+}

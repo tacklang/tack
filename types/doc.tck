@@ -13,7 +13,19 @@ package types
 // parameters build them, not only as deeply as a type expression the
 // parser bounds.
 // Go's Bind, which makes a type parameter stand for a type while the
-// backend lowers an instance, comes with the backend.
+// backend lowers an instance, with BindMore, Unbind, Binding and Bound,
+// are in bind.tck: bound adds the types a binding makes in Go's order,
+// from a stack of its own. The queries answer about the type they are
+// given, as the type checker, which binds nothing, asks them; each has a
+// twin that binds as Go's does (see query.tck). A Bound (bound.tck) is
+// the table as code generation reads it: it holds a Table in a field
+// private to this package and gives out only the bindings, the twins,
+// the constructors, the count and the errors, so the backend, handed a
+// Bound by typeck's Typed and never a Table, has no way to ask a query
+// that skips the binding in force. Some of Go's queries look at the type
+// they are given before they bind it, InAny, IsStruct, HasZero and
+// Fields, which their twins copy: a type parameter bound to int64 is not
+// in any by Go's InAny, nor one bound to error a struct by IsStruct.
 //
 // A Type is an ID: a small integer that, for a composite type, a Table
 // gives meaning to. Every distinct type has exactly one ID within a

@@ -359,6 +359,14 @@ pub type Checker struct {
     question_counts map[Key]int64
     question_types map[RKey]types.Type
 
+    // The type switches (see assert.tck): how many types each case names
+    // and each of them, Go's CaseClause.Types; and the unreachables
+    // checked (see unreachable.tck), whose abort Go records the place
+    // of, Go's Unreachable.Where.
+    clause_type_count map[Key]int64
+    clause_types map[RKey]types.Type
+    unreachables map[Key]bool
+
     // The moves (see mover.tck): what the mover tracks while it follows
     // a body; the clause variables a switch on a union bound, each with
     // what its switch matches, Go's unionBindings, and the switch on a
@@ -643,6 +651,9 @@ pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error
         passed_on: make(map[Key]Key, c_allocator),
         question_counts: make(map[Key]int64, c_allocator),
         question_types: make(map[RKey]types.Type, c_allocator),
+        clause_type_count: make(map[Key]int64, c_allocator),
+        clause_types: make(map[RKey]types.Type, c_allocator),
+        unreachables: make(map[Key]bool, c_allocator),
         mv: new_mover_state(),
         union_bound: make(map[Key]Key, c_allocator),
         union_tag: no_key(),
@@ -812,6 +823,7 @@ pub func (mut c Checker) check() error {
     mut c.instantiate()?
     mut c.check_unused_decls()?
     c.prog.errors +%= len(c.diags)
+    c.table.errors = c.prog.errors
     c.bodies_done = true
     return noerror
 }

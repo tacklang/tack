@@ -1,0 +1,369 @@
+package typeck
+
+import fmt from "std/fmt"
+import text from "std/text"
+import types from "tack/types"
+
+// The --port-bind dump: what the type table's bindings (see types'
+// bind.tck) give a checked program's types, which tackc's porttest
+// compares with what Go's Table gives, run the same way. Since C names
+// carry type IDs, what it checks is that every type a binding adds gets
+// Go's ID, in Go's order, and that each binding answers as Go's.
+//
+// It writes types and how many types the table has; then, for each of
+// the first max_bind_instances instances of generic functions, in
+// order, instance and its number, and with the instance's type
+// parameters bound to its type arguments, a line for each of those
+// types, by ID: what it stands for, Go's Bound, whether it is or is made
+// of a type parameter no binding stands for, Go's HasTypeParam, 1 or 0,
+// and its name with every struct and union type qualified by its
+// package's import path, Go's NameWith as typeArgName calls it; then,
+// for each type parameter in turn, more and its place, and with it bound
+// to int64 on top of the instance's binding, Go's BindMore, a line for
+// each of those types of its ID and what it stands for, the binding put
+// back after. A name longer than max_dumped_name is written as its
+// length and its hash (see write_capped). Before its line, each type has a line of what every query
+// of the Table gives about it under the binding (see write_queries),
+// and one of its name qualified by package names, a struct or union of
+// any package but the instance's, Go's NameWith as header.go calls it;
+// and after instance, the binding (see write_binding), which is written
+// once more, as none, after the last. Last, count and how many types
+// the table has then, and a
+// line for each type the bindings added, of its ID, its kind and its
+// name, nothing bound.
+
+// max_bind_instances is how many instances the dump binds, which keeps
+// it small for a program with many.
+var max_bind_instances int64 = 16
+
+// write_bind_dump appends the --port-bind dump of c to out; a binding the
+// table declines is not_ported (see types' unbindable).
+pub func (mut c Typed) write_bind_dump(mut out list[uint8]) error {
+    mut paths := make(list[text.Text], c_allocator)
+    mut names := make(list[text.Text], c_allocator)
+    for _, p := range c.prog.packages {
+        path := text.from_bytes(p.path.bytes(), c_allocator)?
+        append(mut paths, path)?
+        name := text.from_bytes(p.name.bytes(), c_allocator)?
+        append(mut names, name)?
+    }
+    n0 := mut c.table.count()
+    fmt.appendf(mut out, "types %d\n", n0)?
+    for i := range mut c.instance_count() {
+        if i >= max_bind_instances {
+            break
+        }
+        fn := mut c.instance_func(i)
+        f := func_of(c.prog.trees, fn)
+        mut np := count_items(c.prog.trees, fn.unit, f.type_params)
+        if mut c.instance_arg_count(i) < np {
+            np = mut c.instance_arg_count(i)
+        }
+        mut args := make(map[types.Type]types.Type, c_allocator)
+        for j := range np {
+            tp := item_at(c.prog.trees, fn.unit, f.type_params, j)
+            put(mut args, mut c.decl_type(tp), mut c.instance_arg(i, j))?
+        }
+        mut c.table.bind(own args)?
+        fmt.appendf(mut out, "instance %d\n", i)?
+        mut c.write_binding(mut out)?
+        mut fn_pkg int64 = -1
+        p, has_p := c.unit_pkg[fn.unit]
+        if has_p {
+            fn_pkg = p
+        }
+        for x := range n0 {
+            typ := types.added(x)
+            mut c.write_queries(mut out, typ, x % query_count)?
+            fmt.appendf(mut out, "header %d ", typ.number())?
+            mut nm := make(list[uint8], c_allocator)
+            mut c.table.name_with(typ, fn_pkg, names[:], false, mut nm)?
+            write_capped(mut out, nm[:])?
+            append(mut out, '\n')?
+            b := mut c.table.bound(typ)?
+            h := mut c.table.has_type_param(typ)?
+            mut flag int64 = 0
+            if h {
+                flag = 1
+            }
+            fmt.appendf(mut out, "%d %d %d ", typ.number(), b.number(), flag)?
+            mut qn := make(list[uint8], c_allocator)
+            mut c.table.name_with(typ, -1, paths[:], true, mut qn)?
+            write_capped(mut out, qn[:])?
+            append(mut out, '\n')?
+        }
+        for j := range np {
+            tp := item_at(c.prog.trees, fn.unit, f.type_params, j)
+            mut more := make(map[types.Type]types.Type, c_allocator)
+            put(mut more, mut c.decl_type(tp), types.int64_type)?
+            saved := mut c.table.bind_more(more)?
+            fmt.appendf(mut out, "more %d\n", j)?
+            for x := range n0 {
+                typ := types.added(x)
+                b := mut c.table.bound(typ)?
+                fmt.appendf(mut out, "%d %d\n", typ.number(), b.number())?
+            }
+            mut c.table.restore(own saved)
+        }
+        mut c.table.unbind()
+    }
+    fmt.appendf(mut out, "unbound\n")?
+    mut c.write_binding(mut out)?
+    n := mut c.table.count()
+    fmt.appendf(mut out, "count %d\n", n)?
+    for x := range n {
+        if x < n0 {
+            continue
+        }
+        typ := types.added(x)
+        kind := mut c.table.kind_name(typ)?
+        fmt.appendf(mut out, "%d %s ", typ.number(), kind)?
+        mut nm := make(list[uint8], c_allocator)
+        mut c.table.name_with(typ, -1, paths[:], true, mut nm)?
+        write_capped(mut out, nm[:])?
+        append(mut out, '\n')?
+    }
+    return noerror
+}
+
+// write_binding appends binding and the binding in force, each type
+// parameter it binds and what to, in the order of the parameters' IDs,
+// or binding none when none is, Go's Binding being nil.
+func (mut c Typed) write_binding(mut out list[uint8]) error {
+    b, on := mut c.table.binding()?
+    if !on {
+        fmt.appendf(mut out, "binding none\n")?
+        return noerror
+    }
+    // Each parameter in turn, the least ID above the last written.
+    fmt.appendf(mut out, "binding")?
+    mut last int64 = -1
+    for {
+        mut next := types.invalid
+        mut found := false
+        for k, _ := range b {
+            if k.number() > last && (!found || k.number() < next.number()) {
+                next = k
+                found = true
+            }
+        }
+        if !found {
+            break
+        }
+        v, has := b[next]
+        if has {
+            fmt.appendf(mut out, " %d:%d", next.number(), v.number())?
+        }
+        last = next.number()
+    }
+    append(mut out, '\n')?
+    return noerror
+}
+
+// query_count is how many queries write_queries asks.
+var query_count int64 = 31
+
+// write_queries appends q and the ID of typ, then the answer of each of
+// the Table's queries under the binding in force about typ, each after
+// its number and followed by how many types the table has once it is
+// answered. The queries are numbered in this order, Go's names: IsFunc,
+// IsUnion, IsTypeParam, IsArray, IsArena, IsID, IsSpan, IsRef, IsPool,
+// IsHandle, Buffered, IsList, IsMap, IsView, InAny, IsStruct, Key,
+// Elem, Len, Owned, HasZero, HoldsList, HoldsArena, HoldsPool,
+// HoldsUnion, Size, Name, and the types of FuncParams, FuncResults,
+// Cases and Fields, each list's length first; they are asked starting
+// with the one numbered first, and on in turn, wrapping, so across the
+// types of a binding each query is the first asked about some, the one
+// that adds what the binding makes of it.
+func (mut c Typed) write_queries(mut out list[uint8], typ types.Type, first int64) error {
+    fmt.appendf(mut out, "q %d", typ.number())?
+    for k := range query_count {
+        which := (first +% k) % query_count
+        fmt.appendf(mut out, " %d:", which)?
+        mut c.write_query(mut out, typ, which)?
+        fmt.appendf(mut out, "/%d", mut c.table.count())?
+    }
+    append(mut out, '\n')?
+    return noerror
+}
+
+// write_query appends the answer of the query numbered which (see
+// write_queries) about typ.
+func (mut c Typed) write_query(mut out list[uint8], typ types.Type, which int64) error {
+    if which == 0 {
+        r := mut c.table.is_func(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 1 {
+        r := mut c.table.is_union(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 2 {
+        r := mut c.table.is_type_param(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 3 {
+        r := mut c.table.is_array(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 4 {
+        r := mut c.table.is_arena(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 5 {
+        r := mut c.table.is_id(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 6 {
+        r := mut c.table.is_span(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 7 {
+        r := mut c.table.is_ref(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 8 {
+        r := mut c.table.is_pool(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 9 {
+        r := mut c.table.is_handle(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 10 {
+        r := mut c.table.buffered(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 11 {
+        r := mut c.table.is_list(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 12 {
+        r := mut c.table.is_map(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 13 {
+        r := mut c.table.is_view(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 14 {
+        r := mut c.table.in_any_of(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 15 {
+        r := mut c.table.is_struct(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 16 {
+        k := mut c.table.key_of(typ)?
+        return fmt.appendf(mut out, "%d", k.number())
+    }
+    if which == 17 {
+        e := mut c.table.elem_of(typ)?
+        return fmt.appendf(mut out, "%d", e.number())
+    }
+    if which == 18 {
+        l := mut c.table.len_of(typ)?
+        return fmt.appendf(mut out, "%d", l)
+    }
+    if which == 19 {
+        r := mut c.table.owned(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 20 {
+        r := mut c.table.has_zero(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 21 {
+        r := mut c.table.holds_list(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 22 {
+        r := mut c.table.holds_arena(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 23 {
+        r := mut c.table.holds_pool(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 24 {
+        r := mut c.table.holds_union(typ)?
+        return write_bit(mut out, r)
+    }
+    if which == 25 {
+        size := mut c.table.size(typ)?
+        mut over int64 = 0
+        if size.overflow {
+            over = 1
+        }
+        return fmt.appendf(mut out, "%d,%d,%d", size.bytes, size.align, over)
+    }
+    if which == 26 {
+        name := mut c.table.name(typ)?
+        return write_capped(mut out, name[:])
+    }
+    if which == 27 {
+        np := mut c.table.param_count(typ)?
+        fmt.appendf(mut out, "p%d", np)?
+        for i := range np {
+            fp, _ := mut c.table.param(typ, i)?
+            fmt.appendf(mut out, ",%d", fp.typ.number())?
+        }
+        return noerror
+    }
+    if which == 28 {
+        nr := mut c.table.result_count(typ)?
+        fmt.appendf(mut out, "r%d", nr)?
+        for i := range nr {
+            rt := mut c.table.result(typ, i)?
+            fmt.appendf(mut out, ",%d", rt.number())?
+        }
+        return noerror
+    }
+    if which == 29 {
+        nc := mut c.table.case_count(typ)?
+        fmt.appendf(mut out, "c%d", nc)?
+        for i := range nc {
+            cs, _ := mut c.table.case_at(typ, i)?
+            fmt.appendf(mut out, ",%d", cs.typ.number())?
+        }
+        return noerror
+    }
+    nf := mut c.table.field_count(typ)?
+    fmt.appendf(mut out, "f%d", nf)?
+    for i := range nf {
+        ft, _ := mut c.table.field_type(typ, i)?
+        fmt.appendf(mut out, ",%d", ft.number())?
+    }
+    return noerror
+}
+
+// write_bit appends 1 or 0 for b.
+func write_bit(mut out list[uint8], b bool) error {
+    if b {
+        return append(mut out, '1')
+    }
+    return append(mut out, '0')
+}
+
+
+// max_dumped_name is the longest name the dump writes out; a longer one,
+// as a type nested deeply makes, is written as its length and its hash,
+// which keeps the dump of such a type linear in its depth.
+var max_dumped_name int64 = 200
+
+// write_capped appends name, or, when it is longer than
+// max_dumped_name, #, its length, a colon and its 64-bit FNV-1a hash in
+// hexadecimal.
+func write_capped(mut out list[uint8], name []uint8) error {
+    if len(name) <= max_dumped_name {
+        append(mut out, name...)?
+        return noerror
+    }
+    mut h uint64 = 14695981039346656037
+    for _, b := range name {
+        h = (h ^ uint64(b)) *% 1099511628211
+    }
+    fmt.appendf(mut out, "#%d:%x", len(name), h)?
+    return noerror
+}

@@ -36,7 +36,9 @@ package builtin
 //
 // Called and Used, which find the builtins a resolved program calls, and
 // UsesUnreachable, RunsC and UsesLists, which say what a program needs of
-// the runtime, are the C backend's and the driver's, and come with them.
+// the runtime, the C backend's and the driver's, are called, used,
+// uses_unreachable, runs_c and uses_lists (see used.tck), each walking
+// the program from a stack of its own.
 //
 // # The runtime and the documentation
 //

@@ -703,7 +703,21 @@ func (mut c Checker) union_clause_tail(cl Key) error {
     v := var_of(c.prog.trees, vk)
     mut m := msg()
     fmt.appendf(mut m, "declared and not used: %s", text_at(c.prog.trees, c.none, vk.unit, v.name)[:])?
-    return mut c.unusedf(v.name_span, own m)
+    mut c.unusedf(v.name_span, own m)?
+    // Go marks the variable unused too (union.go:205), which the backend
+    // reads to tell its compiler the declaration may go unused.
+    mut nv := v
+    nv.unused = true
+    set_kind_at(mut c.prog.trees, vk, ast.Kind.var_decl(nv))
+    return noerror
+}
+
+// set_kind_at makes the node k of trees the node of kind kind, as Go
+// writes a field of a node in place.
+func set_kind_at(mut trees list[ast.File], k Key, kind ast.Kind) {
+    if k.unit >= 0 && k.unit < len(trees) {
+        trees[k.unit].nodes[k.node].k = kind
+    }
 }
 
 // reads reports whether a name in body, in the tree unit, at any depth,

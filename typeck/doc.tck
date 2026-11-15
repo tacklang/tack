@@ -44,7 +44,14 @@ package typeck
 // ID Go gives it: what the --port-types dump shows, which tackc's
 // porttest compares with Go's checker run in process. What the checker
 // finds is kept beside the tree, in maps keyed by node (see Checker),
-// rather than written into nodes as Go writes it.
+// rather than written into nodes as Go writes it, but for a union
+// clause's variable found unused, which is marked on the tree as the
+// resolver marks the others. Once a check is done, take_typed moves
+// those maps, with the program, its files and its table, into a Typed,
+// the handover code generation reads through methods named for each Go
+// field and helper they stand for (see typed.tck); the --port-types dump
+// is written from a Typed, so what porttest compares is what the backend
+// will read.
 //
 // A body is checked with the facts Go keeps beside it, put in force as
 // conditions, loops, cases and early exits give them and taken out of

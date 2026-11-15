@@ -17,9 +17,12 @@ import types from "tack/types"
 // (see keep_apart), each only where it holds.
 
 // check_unreachable checks the unreachable k, which must be proven
-// unreachable, Go's checkUnreachable: a default that full coverage of a
+// unreachable, Go's checkUnreachable, first recording it as checked, as
+// Go records the file and line its abort reports, Go's Where, which the
+// handover gives (see Typed.where): a default that full coverage of a
 // union forbids is already reported, and its unreachable is not.
 func (mut c Checker) check_unreachable(k Key) error {
+    put(mut c.unreachables, k, true)?
     if c.in_covered_default > 0 {
         return noerror
     }

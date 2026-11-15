@@ -1,0 +1,176 @@
+package constant
+
+// Hexadecimal float literals, as the C backend writes a float constant:
+// Go's strconv.FormatFloat(f, 'x', -1, 64), its genericFtoa and fmtX
+// with no precision, of the float64 f, and the backend's floatLiteral
+// (codegen/c gen.go:889), which widens a float32 to that float64 first,
+// adds f to make it a C float, and parenthesizes a negative one. The
+// value is read from its IEEE 754 bits, so it is written exactly, with
+// no decimal rounding in between.
+
+// hex_digits are the lowercase hexadecimal digits, Go's lowerhex.
+var hex_digits = "0123456789abcdef"
+
+// low60 masks the 60 bits below the leading digit fmtX keeps at bit 60.
+var low60 uint64 = 1152921504606846975
+
+// append_hex_float appends the float64 whose bits are bits as Go's
+// strconv.FormatFloat(f, 'x', -1, 64) writes it: -0x1.8p+01, 0x0p+00,
+// +Inf, -Inf or NaN. The leading digit is 1 for every value but zero,
+// a subnormal shifted up into it, and the fraction has as few hex
+// digits as it needs, none for a whole power of two; the exponent has
+// two digits at least.
+pub func append_hex_float(mut out list[uint8], bits uint64) error {
+    neg := bits >> 63 != 0
+    // Eleven bits fit an int64, so the conversion never fails.
+    mut exp, exp_fits := int64((bits >> 52) & 2047)
+    if !exp_fits {
+        exp = 0
+    }
+    mut mant := bits & 4503599627370495
+    if exp == 2047 {
+        if mant != 0 {
+            append(mut out, []uint8("NaN")...)?
+        } else if neg {
+            append(mut out, []uint8("-Inf")...)?
+        } else {
+            append(mut out, []uint8("+Inf")...)?
+        }
+        return noerror
+    }
+    if exp == 0 {
+        exp = 1
+    } else {
+        mant = mant | 4503599627370496
+    }
+    // exp is 1 to 2046 here, so this is -1022 to 1023.
+    exp = exp -% 1023
+    if mant == 0 {
+        exp = 0
+    }
+    // mant is below 2^53, so this puts it below 2^61, its leading 1, if
+    // any, at bit 60 or below.
+    mant = (mant & 9007199254740991) << 8
+    for mant != 0 && mant & 1152921504606846976 == 0 {
+        // Bit 60 is clear, and mant is below 2^61, so it is below 2^60.
+        mant = (mant & low60) << 1
+        exp = exp -% 1
+    }
+    if neg {
+        append(mut out, '-')?
+    }
+    append(mut out, '0', 'x')?
+    if mant >> 60 & 1 != 0 {
+        append(mut out, '1')?
+    } else {
+        append(mut out, '0')?
+    }
+    mant = (mant & low60) << 4
+    if mant != 0 {
+        append(mut out, '.')?
+        for mant != 0 {
+            d := mant >> 60
+            if d < 16 {
+                append(mut out, hex_digits[d])?
+            }
+            mant = (mant & low60) << 4
+        }
+    }
+    append(mut out, 'p')?
+    if exp < 0 {
+        append(mut out, '-')?
+        exp = 0 -% exp
+    } else {
+        append(mut out, '+')?
+    }
+    // exp is at most 1074 here, so it has four digits at most.
+    if exp >= 1000 {
+        append_digit(mut out, exp / 1000)?
+    }
+    if exp >= 100 {
+        append_digit(mut out, exp / 100 % 10)?
+    }
+    append_digit(mut out, exp / 10 % 10)?
+    append_digit(mut out, exp % 10)?
+    return noerror
+}
+
+// append_digit appends the decimal digit d, 0 to 9.
+func append_digit(mut out list[uint8], d int64) error {
+    if d >= 0 && d < 10 {
+        append(mut out, hex_digits[d])?
+    }
+    return noerror
+}
+
+// float32_widened returns the bits of the float64 that the float32 whose
+// bits are bits converts to, exactly, as Go's float64(f) gives them: the
+// sign, a normal or subnormal value's exponent and fraction, renormalized
+// for a subnormal, which every float64 holds as a normal, and an
+// infinity's or a NaN's, a NaN's fraction moved to the top and quieted,
+// as the conversion on amd64 does.
+pub func float32_widened(bits uint32) uint64 {
+    sign := uint64(bits >> 31) << 63
+    // Eight bits fit an int64, so the conversion never fails.
+    mut exp, exp_fits := int64((bits >> 23) & 255)
+    if !exp_fits {
+        exp = 0
+    }
+    mut frac := uint64(bits & 8388607)
+    if exp == 255 {
+        if frac == 0 {
+            return sign | 9218868437227405312
+        }
+        return sign | 9221120237041090560 | (frac << 29)
+    }
+    if exp == 0 {
+        if frac == 0 {
+            return sign
+        }
+        // A subnormal float32 is frac * 2^-149, frac below 2^23: shift
+        // it up until its leading 1 is at bit 23, the implicit bit, each
+        // shift taking one from the exponent.
+        mut e int64 = -126
+        for frac & 8388608 == 0 {
+            frac = (frac & 8388607) << 1
+            e = e -% 1
+        }
+        biased, ok := uint64(e +% 1023)
+        if !ok {
+            return sign
+        }
+        return sign | biased << 52 | ((frac & 8388607) << 29)
+    }
+    biased, ok := uint64(exp -% 127 +% 1023)
+    if !ok {
+        return sign
+    }
+    return sign | biased << 52 | (frac << 29)
+}
+
+// append_float_literal appends the C literal of a float constant of the
+// value whose bits are bits, as the backend's floatLiteral writes it: a
+// float64's when is32 is false, and otherwise a float32's, bits holding
+// its 32 bits, widened to a float64 and followed by f. A negative one,
+// -0 included, is parenthesized, as a negative integer is.
+pub func append_float_literal(mut out list[uint8], bits uint64, is32 bool) error {
+    mut wide := bits
+    if is32 {
+        b32, fits := uint32(bits)
+        if fits {
+            wide = float32_widened(b32)
+        }
+    }
+    neg := wide >> 63 != 0
+    if neg {
+        append(mut out, '(')?
+    }
+    append_hex_float(mut out, wide)?
+    if is32 {
+        append(mut out, 'f')?
+    }
+    if neg {
+        append(mut out, ')')?
+    }
+    return noerror
+}

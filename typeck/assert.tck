@@ -160,14 +160,17 @@ func (mut c Checker) check_type_switch(k Key, s ast.Switch) error {
 }
 
 // type_clause checks one clause cl of a type switch, Go's loop body in
-// checkTypeSwitch: its types, its variable's type and then its body.
+// checkTypeSwitch: its types, recorded in clause_types as Go records
+// CaseClause.Types, its variable's type and then its body.
 func (mut c Checker) type_clause(cl Key, is_any bool, mut seen map[int64]Key) error {
     clause := clause_of(c.prog.trees, cl)
     mut one := types.invalid
     nv := count_items(c.prog.trees, cl.unit, clause.values)
+    put(mut c.clause_type_count, cl, nv)?
     for i := range nv {
         v := item_at(c.prog.trees, cl.unit, clause.values, i)
         typ := mut c.asserted_type(v)?
+        put(mut c.clause_types, RKey{unit: cl.unit, node: cl.node, i: i}, typ)?
         if i == 0 {
             one = typ
         }

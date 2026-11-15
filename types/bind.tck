@@ -1,0 +1,464 @@
+package types
+
+import text from "std/text"
+
+// Bindings, Go's Bind, BindMore, Unbind, Binding and Bound
+// (table.go:434-560): while code is generated for one instance of a
+// generic function, each of its type parameters stands for the instance's
+// type argument, and a type made of one, list[T], []T, map[K]T or
+// func(T) R, for the type made the same way of what it stands for, which
+// the Table adds the first time it is asked for, in the order Go's
+// recursive substitute adds it: a type's parts left to right, each part
+// whole before the next, a function type's parameters before its
+// results, a map's key before its value, and the type itself last. The C
+// backend's names carry type IDs, so the order is the output's.
+//
+// Go's Table answers every question about a type through Bound; here
+// each query has a twin that does, bound_ and its name (see query.tck),
+// which code generation asks through a Bound (see bound.tck), and the
+// plain queries, which the type checker asks, answer about the type they
+// are given. The bindings, like the twins, are reached only through a
+// Bound. A twin binds the
+// type once, as Go's entry does, which gives Go's answer, and adds what
+// Go's adds, when no type a binding binds to holds a type parameter
+// that binding binds: then Bound of what Bound gave is itself, adding
+// nothing, and Go's binding of a type's parts again binds parts already
+// bound. bind and bind_more decline any other binding, with unbindable,
+// rather than answer otherwise than Go would.
+// A type may nest as deeply as the narrowings of nested switches on type
+// parameters build it, so every walk here keeps a stack of its own.
+
+// unbindable is the error bind and bind_more return for a binding one of
+// whose types holds a type parameter it binds, which the port does not
+// answer for (see the comment at the top of the file); its code is the
+// one the driver reads as not implemented.
+pub var unbindable = error{code: 3, msg: "not implemented in the port: a binding to a type holding a type parameter it binds"}
+
+// Saved is a binding bind_more replaced, Go's restore closure: the
+// bindings and the types substituted under them, and whether one was in
+// force, which restore puts back.
+pub type Saved struct {
+    bound map[Type]Type
+    substituted map[Type]Type
+    on bool
+}
+
+// BindFrame is a type bound walks the parts of: the type, where its parts
+// start in the walk's list of parts and how many it has, and how many
+// are bound so far, whose types are the last of the walk's results.
+type BindFrame struct {
+    typ Type
+    first int64
+    count int64
+    done int64
+}
+
+// bind makes each type parameter args holds a key of stand for its
+// value until unbind is called, Go's Bind, replacing any earlier
+// binding: args is taken over. A binding to a type holding a type
+// parameter it binds is unbindable, and nothing is bound then.
+func (mut t Table) bind(own args map[Type]Type) error {
+    ok := t.bindable(args)?
+    if !ok {
+        return unbindable
+    }
+    t.binds = args
+    t.substituted = make(map[Type]Type, c_allocator)
+    t.binding_on = true
+    return noerror
+}
+
+// unbind ends the binding bind made, so every type parameter stands for
+// itself again, Go's Unbind.
+func (mut t Table) unbind() {
+    t.binds = make(map[Type]Type, c_allocator)
+    t.substituted = make(map[Type]Type, c_allocator)
+    t.binding_on = false
+}
+
+// bind_more adds args to the binding in force, if any, as bind would
+// bind both, args replacing what either binds alike, Go's BindMore, and
+// returns what restore puts back, which the caller must restore before
+// the binding in force is replaced or ended. A merged binding bind would
+// decline is declined, unbindable, and leaves the one in force.
+func (mut t Table) bind_more(args map[Type]Type) (Saved, error) {
+    mut merged := make(map[Type]Type, c_allocator)
+    for k, v := range t.binds {
+        put(mut merged, k, v)?
+    }
+    for k, v := range args {
+        put(mut merged, k, v)?
+    }
+    ok := t.bindable(merged)?
+    if !ok {
+        return Saved{bound: make(map[Type]Type, c_allocator), substituted: make(map[Type]Type, c_allocator), on: false}, unbindable
+    }
+    old := Saved{
+        bound: replace(mut t.binds, merged),
+        substituted: replace(mut t.substituted, make(map[Type]Type, c_allocator)),
+        on: t.binding_on,
+    }
+    t.binding_on = true
+    return old, noerror
+}
+
+// restore puts back the binding bind_more replaced, s, taken over, and
+// what was substituted under it.
+func (mut t Table) restore(own s Saved) {
+    mut saved := s
+    t.binds = replace(mut saved.bound, make(map[Type]Type, c_allocator))
+    t.substituted = replace(mut saved.substituted, make(map[Type]Type, c_allocator))
+    t.binding_on = saved.on
+}
+
+// binding returns a copy of the binding in force, and whether one is,
+// Go's Binding being nil when none is, so what is lowered later can be
+// lowered under it again (see bind_more).
+func (t Table) binding() (map[Type]Type, bool, error) {
+    mut b := make(map[Type]Type, c_allocator)
+    if !t.binding_on {
+        return b, false, noerror
+    }
+    for k, v := range t.binds {
+        put(mut b, k, v)?
+    }
+    return b, true, noerror
+}
+
+// bindable reports whether no type args binds to holds a type parameter
+// args binds: none is one, and none is made of one, as an element, a
+// map's key or value, or a function type's parameter or result.
+func (t Table) bindable(args map[Type]Type) (bool, error) {
+    mut stack := make(list[Type], c_allocator)
+    for _, v := range args {
+        append(mut stack, v)?
+    }
+    for len(stack) > 0 {
+        cur, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        _, bound := args[cur]
+        if bound {
+            return false, noerror
+        }
+        t.push_parts(cur, mut stack)?
+    }
+    return true, noerror
+}
+
+// push_parts appends to stack the types typ is made of, as Go's madeOf
+// gives them: a function type's parameters' and results' types, a map's
+// key and value types, or an element type; nothing for a struct, a
+// union, a type parameter, a basic type or a type the Table did not add.
+func (t Table) push_parts(typ Type, mut stack list[Type]) error {
+    e, known := t.entry(typ)
+    if !known || e.kind == k_struct || e.kind == k_union || e.kind == k_param {
+        return noerror
+    }
+    if e.kind == k_func {
+        for _, p := range t.func_params(typ) {
+            append(mut stack, p.typ)?
+        }
+        for _, r := range t.func_results(typ) {
+            append(mut stack, r)?
+        }
+        return noerror
+    }
+    if e.kind == k_map {
+        append(mut stack, e.key)?
+    }
+    append(mut stack, e.elem)?
+    return noerror
+}
+
+// bound returns the type typ stands for, Go's Bound: what the binding
+// binds it to, for a bound type parameter; the type made the same way of
+// what its parts stand for, for an array, a view, a list, an arena, an
+// id, a span, a pool, a handle, a map or a function type made of a bound
+// type parameter, added if the Table does not have it; and typ itself
+// for any other type, or for any type when nothing is bound. What it
+// gives under the binding in force is remembered until the binding
+// changes, as Go's substituted is. It walks typ's parts from a stack of
+// its own, each part bound whole before the next.
+func (mut t Table) bound(typ Type) (Type, error) {
+    if !t.binding_on {
+        return typ, noerror
+    }
+    known, found := mut t.bound_known(typ)?
+    if found {
+        return known, noerror
+    }
+    mut frames := make(list[BindFrame], c_allocator)
+    mut parts := make(list[Type], c_allocator)
+    mut results := make(list[Type], c_allocator)
+    t.push_frame(typ, mut frames, mut parts)?
+    for len(frames) > 0 {
+        at := len(frames) -% 1
+        f, has := frames[at]
+        if !has {
+            break
+        }
+        if f.done < f.count {
+            part, has_part := parts[f.first +% f.done]
+            if !has_part {
+                break
+            }
+            got, settled := mut t.bound_known(part)?
+            if settled {
+                append(mut results, got)?
+                if at >= 0 && at < len(frames) {
+                    frames[at].done = f.done +% 1
+                }
+                continue
+            }
+            t.push_frame(part, mut frames, mut parts)?
+            continue
+        }
+        // Every part of f's type is bound, its results the last f.count
+        // of results.
+        rstart := len(results) -% f.count
+        if rstart < 0 || rstart > len(results) {
+            // results holds a result for every part bound, so this does
+            // not happen.
+            break
+        }
+        to := mut t.rebuild(f.typ, results[rstart:])?
+        put(mut t.substituted, f.typ, to)?
+        pop(mut frames)
+        for len(parts) > f.first {
+            pop(mut parts)
+        }
+        for len(results) > rstart {
+            pop(mut results)
+        }
+        if len(frames) == 0 {
+            return to, noerror
+        }
+        append(mut results, to)?
+        last := len(frames) -% 1
+        p, has_p := frames[last]
+        if has_p && last >= 0 && last < len(frames) {
+            frames[last].done = p.done +% 1
+        }
+    }
+    return typ, noerror
+}
+
+// bound_known returns what typ stands for when bound need not walk its
+// parts, and whether it need not: a type the binding binds, a type
+// already substituted, and one made of no parts, which stands for
+// itself, remembered as Go's Bound remembers it.
+func (mut t Table) bound_known(typ Type) (Type, bool, error) {
+    to, is_bound := t.binds[typ]
+    if is_bound {
+        return to, true, noerror
+    }
+    done, was := t.substituted[typ]
+    if was {
+        return done, true, noerror
+    }
+    e, known := t.entry(typ)
+    if !known || e.kind == k_struct || e.kind == k_union || e.kind == k_param {
+        put(mut t.substituted, typ, typ)?
+        return typ, true, noerror
+    }
+    return invalid, false, noerror
+}
+
+// push_frame pushes on frames the walk of typ's parts, which it appends
+// to parts in the order Go's substitute binds them: a function type's
+// parameters, then its results; a map's key, then its value; or an
+// element type.
+func (t Table) push_frame(typ Type, mut frames list[BindFrame], mut parts list[Type]) error {
+    first := len(parts)
+    e, _ := t.entry(typ)
+    if e.kind == k_func {
+        for _, p := range t.func_params(typ) {
+            append(mut parts, p.typ)?
+        }
+        for _, r := range t.func_results(typ) {
+            append(mut parts, r)?
+        }
+    } else if e.kind == k_map {
+        append(mut parts, e.key)?
+        append(mut parts, e.elem)?
+    } else {
+        append(mut parts, e.elem)?
+    }
+    append(mut frames, BindFrame{typ: typ, first: first, count: len(parts) -% first, done: 0})?
+    return noerror
+}
+
+// rebuild returns the type made as typ is of the parts got, what each of
+// typ's parts, in push_frame's order, stands for: typ itself when every
+// one stands for itself, and otherwise the type made of them, added if
+// the Table does not have it, Go's substituteFunc, Map and
+// substituteElem.
+func (mut t Table) rebuild(typ Type, got []Type) (Type, error) {
+    e, _ := t.entry(typ)
+    if e.kind == k_func {
+        mut params := make(list[FuncParam], c_allocator)
+        mut results := make(list[Type], c_allocator)
+        mut changed := false
+        mut i int64 = 0
+        for _, p := range t.func_params(typ) {
+            mut b, has := got[i]
+            if !has {
+                b = p.typ
+            }
+            append(mut params, FuncParam{typ: b, is_mut: p.is_mut, is_own: p.is_own, is_scope: p.is_scope})?
+            changed = changed || b != p.typ
+            i +%= 1
+        }
+        for _, r := range t.func_results(typ) {
+            mut b, has := got[i]
+            if !has {
+                b = r
+            }
+            append(mut results, b)?
+            changed = changed || b != r
+            i +%= 1
+        }
+        if !changed {
+            return typ, noerror
+        }
+        f := mut t.func_of(params[:], results[:])?
+        return f, noerror
+    }
+    if e.kind == k_map {
+        mut key := e.key
+        mut value := e.elem
+        k, has_k := got[0]
+        if has_k {
+            key = k
+        }
+        v, has_v := got[1]
+        if has_v {
+            value = v
+        }
+        if key == e.key && value == e.elem {
+            return typ, noerror
+        }
+        m := mut t.map_of(key, value)?
+        return m, noerror
+    }
+    mut elem := e.elem
+    g, has_g := got[0]
+    if has_g {
+        elem = g
+    }
+    if elem == e.elem {
+        return typ, noerror
+    }
+    if e.kind == k_view {
+        r := mut t.view_of(elem)?
+        return r, noerror
+    }
+    if e.kind == k_list {
+        r := mut t.list_of(elem)?
+        return r, noerror
+    }
+    if e.kind == k_arena {
+        r := mut t.arena_of(elem)?
+        return r, noerror
+    }
+    if e.kind == k_id {
+        r := mut t.id_of(elem)?
+        return r, noerror
+    }
+    if e.kind == k_span {
+        r := mut t.span_of(elem)?
+        return r, noerror
+    }
+    if e.kind == k_pool {
+        r := mut t.pool_of(elem)?
+        return r, noerror
+    }
+    if e.kind == k_handle {
+        r := mut t.handle_of(elem)?
+        return r, noerror
+    }
+    r := mut t.array_of(elem, e.n)?
+    return r, noerror
+}
+
+// bound_has_type_param reports whether typ, under the binding in force,
+// is a type parameter, or is made of one, that no binding stands for,
+// Go's HasTypeParam: each type on the way is bound twice, as Go's binds
+// it and its entry binds it again, and its parts walked left to right
+// from a stack of its own, the walk ending at the first.
+func (mut t Table) bound_has_type_param(typ Type) (bool, error) {
+    mut stack := make(list[Type], c_allocator)
+    mut kids := make(list[Type], c_allocator)
+    append(mut stack, typ)?
+    for len(stack) > 0 {
+        cur, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        once := mut t.bound(cur)?
+        b := mut t.bound(once)?
+        e, known := t.entry(b)
+        if !known || e.kind == k_struct || e.kind == k_union {
+            continue
+        }
+        if e.kind == k_param {
+            return true, noerror
+        }
+        for len(kids) > 0 {
+            pop(mut kids)
+        }
+        t.push_parts(b, mut kids)?
+        // Pushed last first, so the first part is walked first.
+        mut i := len(kids) -% 1
+        for i >= 0 {
+            k, has := kids[i]
+            if has {
+                append(mut stack, k)?
+            }
+            i -%= 1
+        }
+    }
+    return false, noerror
+}
+
+// name_with appends typ's name, under the binding in force, to out, as
+// Go's NameWith writes it with a qualify function that writes a struct
+// or union type of the package o, o among prefixes' indexes, as
+// prefixes[o], a period and its name, when o is not pkg or every says
+// to qualify every package's: header.go's qualify, of the packages'
+// names, every false, and generic.go's typeArgName, of their paths,
+// every true. Any other declared type is written as its name. Each type
+// on the way is bound as Go's binds it, once, and again by its entry
+// for any but a basic type, and its parts written from a stack of their
+// own (see write_name).
+func (mut t Table) name_with(typ Type, pkg int64, prefixes []text.Text, every bool, mut out list[uint8]) error {
+    mut stack := make(list[NamePart], c_allocator)
+    append(mut stack, NamePart{typ: typ, lit: "", is_lit: false})?
+    mut parts := make(list[NamePart], c_allocator)
+    for len(stack) > 0 {
+        part, ok := pop(mut stack)
+        if !ok {
+            break
+        }
+        if part.is_lit {
+            append(mut out, []uint8(part.lit)...)?
+            continue
+        }
+        mut b := mut t.bound(part.typ)?
+        if b.n >= num_basic {
+            b = mut t.bound(b)?
+        }
+        t.write_name_part(b, mut out, pkg, prefixes, every, mut parts)?
+        mut i := len(parts) -% 1
+        for i >= 0 {
+            p, has := parts[i]
+            if has {
+                append(mut stack, p)?
+            }
+            i -%= 1
+        }
+    }
+    return noerror
+}

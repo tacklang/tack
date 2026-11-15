@@ -1,0 +1,320 @@
+package types
+
+import text from "std/text"
+
+// The queries under the binding in force, Go's: every question Go's
+// Table answers about a type, it answers about what the type stands for
+// under the binding in force (table.go:632), its Bound, which may add
+// the types the binding makes (see bind.tck). Here each such query has
+// a twin, bound_ and its name, which binds the type as Go's entry does
+// and then answers about what it stands for, adding what Go's adds, in
+// Go's order. The queries without the prefix answer about the type
+// they are given, as Go's do with nothing bound: the type checker,
+// which never binds, asks those, and with nothing bound a twin answers
+// as they do, adding nothing. The twins are this package's own: code
+// generation reaches them through a Bound (see bound.tck), which holds
+// the Table and gives out no other query, so no query it makes can skip
+// the binding.
+//
+// Each twin keeps what its Go query asks of the type itself before
+// binding it, as InAny, IsStruct, HasZero and Fields do. A query Go's
+// Table answers about a type's parts, as Owned, Size and Name do, binds
+// each part again; the parts of what Bound gave are
+// bound already, and bind declines any binding under which binding
+// them again would change them (see unbindable), so a twin binds once,
+// first, and its answer, and what it adds, are Go's. HasTypeParam and
+// NameWith, which bind twice at every step, are bound_has_type_param
+// and name_with, which do so too.
+
+// bound_is_func is is_func under the binding in force, Go's IsFunc.
+func (mut t Table) bound_is_func(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    return t.is_func(b), noerror
+}
+
+// bound_is_union is is_union under the binding in force, Go's IsUnion.
+func (mut t Table) bound_is_union(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    return t.is_union(b), noerror
+}
+
+// bound_is_type_param is is_type_param under the binding in force, Go's IsTypeParam.
+func (mut t Table) bound_is_type_param(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    return t.is_type_param(b), noerror
+}
+
+// bound_is_array is is_array under the binding in force, Go's IsArray.
+func (mut t Table) bound_is_array(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    return t.is_array(b), noerror
+}
+
+// bound_is_arena is is_arena under the binding in force, Go's IsArena.
+func (mut t Table) bound_is_arena(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    return t.is_arena(b), noerror
+}
+
+// bound_is_id is is_id under the binding in force, Go's IsID.
+func (mut t Table) bound_is_id(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    return t.is_id(b), noerror
+}
+
+// bound_is_span is is_span under the binding in force, Go's IsSpan.
+func (mut t Table) bound_is_span(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    return t.is_span(b), noerror
+}
+
+// bound_is_ref is is_ref under the binding in force, Go's IsRef.
+func (mut t Table) bound_is_ref(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    return t.is_ref(b), noerror
+}
+
+// bound_is_pool is is_pool under the binding in force, Go's IsPool.
+func (mut t Table) bound_is_pool(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    return t.is_pool(b), noerror
+}
+
+// bound_is_handle is is_handle under the binding in force, Go's IsHandle.
+func (mut t Table) bound_is_handle(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    return t.is_handle(b), noerror
+}
+
+// bound_buffered is buffered under the binding in force, Go's Buffered.
+func (mut t Table) bound_buffered(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    return t.buffered(b), noerror
+}
+
+// bound_is_list is is_list under the binding in force, Go's IsList.
+func (mut t Table) bound_is_list(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    return t.is_list(b), noerror
+}
+
+// bound_is_map is is_map under the binding in force, Go's IsMap.
+func (mut t Table) bound_is_map(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    return t.is_map(b), noerror
+}
+
+// bound_is_view is is_view under the binding in force, Go's IsView.
+func (mut t Table) bound_is_view(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    return t.is_view(b), noerror
+}
+
+// bound_in_any_of is in_any_of under the binding in force, Go's InAny,
+// which asks whether typ itself, not what it stands for, is a basic type
+// an any takes, and only then binds it, to ask whether it is a view of
+// one.
+func (mut t Table) bound_in_any_of(typ Type) (bool, error) {
+    if in_any(typ) {
+        return true, noerror
+    }
+    b := mut t.bound(typ)?
+    return t.is_view(b) && in_any(t.elem_of(b)), noerror
+}
+
+// bound_is_struct is is_struct under the binding in force, Go's
+// IsStruct, which knows error by typ itself, and answers false for a
+// type that stands for error, which has no entry.
+func (mut t Table) bound_is_struct(typ Type) (bool, error) {
+    if typ == error_type {
+        return true, noerror
+    }
+    b := mut t.bound(typ)?
+    return b != error_type && t.is_struct(b), noerror
+}
+
+// bound_key_of is key_of under the binding in force, Go's Key.
+func (mut t Table) bound_key_of(typ Type) (Type, error) {
+    b := mut t.bound(typ)?
+    return t.key_of(b), noerror
+}
+
+// bound_elem_of is elem_of under the binding in force, Go's Elem.
+func (mut t Table) bound_elem_of(typ Type) (Type, error) {
+    b := mut t.bound(typ)?
+    return t.elem_of(b), noerror
+}
+
+// bound_len_of is len_of under the binding in force, Go's Len.
+func (mut t Table) bound_len_of(typ Type) (int64, error) {
+    b := mut t.bound(typ)?
+    return t.len_of(b), noerror
+}
+
+// bound_owned is owned under the binding in force, Go's Owned.
+func (mut t Table) bound_owned(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    r := t.owned(b)?
+    return r, noerror
+}
+
+// bound_has_zero is has_zero under the binding in force, Go's HasZero,
+// which asks whether typ itself, not what it stands for, is the
+// allocator, before it binds it.
+func (mut t Table) bound_has_zero(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    if b == allocator && typ != allocator {
+        return true, noerror
+    }
+    r := t.has_zero(b)?
+    return r, noerror
+}
+
+// bound_holds_list is holds_list under the binding in force, Go's HoldsList.
+func (mut t Table) bound_holds_list(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    r := t.holds_list(b)?
+    return r, noerror
+}
+
+// bound_holds_arena is holds_arena under the binding in force, Go's HoldsArena.
+func (mut t Table) bound_holds_arena(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    r := t.holds_arena(b)?
+    return r, noerror
+}
+
+// bound_holds_pool is holds_pool under the binding in force, Go's HoldsPool.
+func (mut t Table) bound_holds_pool(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    r := t.holds_pool(b)?
+    return r, noerror
+}
+
+// bound_holds_union is holds_union under the binding in force, Go's HoldsUnion.
+func (mut t Table) bound_holds_union(typ Type) (bool, error) {
+    b := mut t.bound(typ)?
+    r := t.holds_union(b)?
+    return r, noerror
+}
+
+// bound_size is size under the binding in force, Go's Size.
+func (mut t Table) bound_size(typ Type) (Size, error) {
+    b := mut t.bound(typ)?
+    r := mut t.size(b)?
+    return r, noerror
+}
+
+// bound_name is name under the binding in force, Go's Name: name_with
+// qualifying no type.
+func (mut t Table) bound_name(typ Type) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    none := make(list[text.Text], c_allocator)
+    mut t.name_with(typ, -1, none[:], false, mut out)?
+    return out, noerror
+}
+
+// The queries that give a view of the Table's lists, Go's FuncParams,
+// FuncResults, Cases and Fields, are asked here a part at a time, since
+// a method that may add a type, and so may fail, cannot give a view:
+// how many there are, and each by its place, each binding typ first.
+
+// bound_param_count is len(func_params) under the binding in force, Go's
+// len(FuncParams).
+func (mut t Table) bound_param_count(typ Type) (int64, error) {
+    b := mut t.bound(typ)?
+    return len(t.func_params(b)), noerror
+}
+
+// bound_param is func_params(typ)[i] under the binding in force, Go's
+// FuncParams(typ)[i], and whether there is one.
+func (mut t Table) bound_param(typ Type, i int64) (FuncParam, bool, error) {
+    b := mut t.bound(typ)?
+    p, ok := t.func_params(b)[i]
+    return p, ok, noerror
+}
+
+// bound_result_count is len(func_results) under the binding in force,
+// Go's len(FuncResults).
+func (mut t Table) bound_result_count(typ Type) (int64, error) {
+    b := mut t.bound(typ)?
+    return len(t.func_results(b)), noerror
+}
+
+// bound_result is func_results(typ)[i] under the binding in force, Go's
+// FuncResults(typ)[i], invalid for none.
+func (mut t Table) bound_result(typ Type, i int64) (Type, error) {
+    b := mut t.bound(typ)?
+    r, ok := t.func_results(b)[i]
+    if !ok {
+        return invalid, noerror
+    }
+    return r, noerror
+}
+
+// bound_case_count is len(cases) under the binding in force, Go's
+// len(Cases).
+func (mut t Table) bound_case_count(typ Type) (int64, error) {
+    b := mut t.bound(typ)?
+    return len(t.cases(b)), noerror
+}
+
+// bound_case is cases(typ)[i] under the binding in force, Go's
+// Cases(typ)[i], and whether there is one.
+func (mut t Table) bound_case(typ Type, i int64) (Case, bool, error) {
+    b := mut t.bound(typ)?
+    c, ok := t.cases(b)[i]
+    return c, ok, noerror
+}
+
+// bound_find_case is find_case under the binding in force, Go's Case.
+func (mut t Table) bound_find_case(typ Type, name []uint8) (Case, int64, bool, error) {
+    b := mut t.bound(typ)?
+    c, at, ok := t.find_case(b, name)
+    return c, at, ok, noerror
+}
+
+// bound_field_count is field_count under the binding in force, Go's
+// len(Fields).
+func (mut t Table) bound_field_count(typ Type) (int64, error) {
+    b := mut t.fields_type(typ)?
+    return t.field_count(b), noerror
+}
+
+// bound_field_type is field_type under the binding in force, Go's
+// Fields(typ)[i].Type, and whether there is one.
+func (mut t Table) bound_field_type(typ Type, i int64) (Type, bool, error) {
+    b := mut t.fields_type(typ)?
+    f, ok := t.field_type(b, i)
+    return f, ok, noerror
+}
+
+// bound_field_name appends to out the name of field_type's field,
+// Go's Fields(typ)[i].Name.
+func (mut t Table) bound_field_name(typ Type, i int64, mut out list[uint8]) error {
+    b := mut t.fields_type(typ)?
+    append(mut out, t.field_name(b, i)...)?
+    return noerror
+}
+
+// bound_find_field is find_field under the binding in force, Go's Field.
+func (mut t Table) bound_find_field(typ Type, name []uint8) (Type, int64, bool, error) {
+    b := mut t.fields_type(typ)?
+    f, at, ok := t.find_field(b, name)
+    return f, at, ok, noerror
+}
+
+// fields_type returns the type whose fields Go's Fields gives for typ
+// under the binding in force: error for error itself, what typ stands
+// for when that is a struct the Table added, and invalid, which has
+// none, for anything else, a type standing for error among them.
+func (mut t Table) fields_type(typ Type) (Type, error) {
+    if typ == error_type {
+        return typ, noerror
+    }
+    b := mut t.bound(typ)?
+    if b == error_type || !t.is_struct(b) {
+        return invalid, noerror
+    }
+    return b, noerror
+}

@@ -1,0 +1,999 @@
+package typeck
+
+import ast from "tack/ast"
+import bytes from "std/bytes"
+import diag from "tack/diag"
+import source from "tack/source"
+import types from "tack/types"
+
+// The handover: what the checker found, as code generation reads it.
+// Go's checker records what it finds on the tree's nodes and its
+// backend reads the nodes; the port's checker keeps it in maps keyed by
+// node (see Checker), and once a check is done take_typed moves the
+// maps out into a Typed, with the program, its files and its type
+// table, for the backend to read through the methods below, each named
+// for the Go field or helper it stands for. The --port-types dump is
+// written from a Typed (see dump.tck and nodes.tck), so every annotation
+// it holds is compared with Go's tree by tackc's porttest.
+//
+// What Go's codegen/c reads that the checker records, and where a Typed
+// has it:
+//
+//   - Ident.Def as Go leaves it, unbound for every name a switch on a
+//     union took as a pattern: def_of, or the tree itself, which
+//     leave_tree writes the clears into, as it does Call.Conv;
+//   - Param.Type, Var.Type, TypeDecl.Type, TypeParam.Type: decl_type;
+//   - every expression's type, ast.TypeOf, as it stands once checking
+//     is done, Ident.Narrowed and Func.Value of a function used as a
+//     value included: type_of; Call.Type alone: call_type; Call.Conv,
+//     the resolver's or the checker's, as Go leaves it once a switch on
+//     a union has taken the call as a pattern: conv;
+//   - Binary.Const, Unary.Const, Call.Const: const_of; Var.Const:
+//     var_const, the strings, items and floats a Const names in store;
+//   - Func.ResultTypes and IfaceMethod.ResultTypes: result_len and
+//     result; Func.Value: func_value; Func.Interface of a stand-in:
+//     interface_of;
+//   - Call.Method and Selector.Method: method; Call.Dynamic: dynamic;
+//     ast.Callee: callee; ast.CallResults: call_result_count and
+//     call_result; Call.TypeArgs, ParamTypes and ResultTypes as
+//     recorded: type_arg_count, type_arg, param_type_count, param_type,
+//     result_type_count and result_type;
+//   - Call.Args with the testing.Site arguments Go splices in, Call.Site
+//     the first: site_len, site_index, site_type, site_param and
+//     site_text (see below);
+//   - Ident.Move: is_move; Ident.Narrowed alone: narrowed;
+//     Switch.Exhaustive: is_exhaustive; Var.Unrolled: is_unrolled;
+//     FieldsOf.Type, Field, Names and Unrolled: fo_type, fo_field,
+//     reads_names, unrolled_count, unrolled_at, unrolled_type and
+//     unrolled_field; CaseClause.TypeCases: type_case_count and
+//     type_case; CaseClause.Types: case_type_count and case_type;
+//   - FuncLit.Captures, Write and WriteAt included: capture_count and
+//     capture; Question.Results: question_result_count and
+//     question_result; Unreachable.Where: where; Fallthrough.Next:
+//     falls_into; Var.Unused, the resolver's and the checker's, which
+//     the tree holds: is_unused;
+//   - TypeParam.Iface, Data and Implicit: type_param_iface,
+//     type_param_data and type_param_implicit;
+//   - Program.Instances: instance_count, instance_func,
+//     instance_arg_count and instance_arg; Program.Types: table, with
+//     the program's error count, Go's Table.Errors, in table.errors(),
+//     a types.Bound, through which every query is asked under the
+//     binding in force, as Go's Table asks it, and which gives code
+//     generation no way to ask one that skips the binding.
+//
+// Every method takes the Typed as mut, which passes it by reference: a
+// Typed holds every map and list the check made, a few kilobytes, which
+// a plain receiver would copy at every call.
+//
+// Question.Site and SiteTo, which Go sets only on a ? in a test's body,
+// have no place here: the port does not check tests yet.
+//
+// The testing.Site arguments are not nodes of the port's tree: Go puts
+// each among the call's arguments at site_index, and its nodes at the
+// call's end, an empty span. One that passes on the Site parameter of
+// the function the call is in is a name bound to site_param; any other
+// is a CompositeLit of site_type whose elements are file, line, col and
+// excerpt, each a KeyValue of a name and a StrLit, an IntLit of type
+// int64, an IntLit and a StrLit. A walk of a call visits them where Go's
+// ast.Walk visits Call.Args, so the strings Go's collectStrings pools
+// (gen.go:450), which walks the program as ast.Walk does, come in this
+// order: each call's written arguments and Site literals in argument
+// order, a literal's file before its excerpt.
+pub type Typed struct {
+    pub prog ast.Program
+    pub files source.Set
+    pub table types.Bound
+    pub store ConstStore
+    none list[uint8]
+    unit_pkg list[int64]
+
+    decl_types map[Key]types.Type
+    node_types map[Key]types.Type
+    result_count map[Key]int64
+    results map[RKey]types.Type
+    consts map[Key]Const
+    var_consts map[Key]Const
+
+    tp_iface map[Key]Key
+    tp_data map[Key]bool
+    tp_implicit map[Key]bool
+    stand_in_of map[Key]Key
+
+    func_values map[Key]types.Type
+    call_dynamic map[Key]Key
+    call_method map[Key]Key
+
+    fo_types map[Key]types.Type
+    fo_fields map[Key]types.Type
+    fo_names map[Key]bool
+    unrolled_recs list[UnrolledRec]
+    unrolled_fields list[int64]
+    unrolled map[Key]bool
+
+    caps list[CapRec]
+    lit_caps map[Key]CapRange
+
+    narrowed_names map[Key]types.Type
+    tc_recs list[TypeCaseRec]
+    tc_of map[Key]TcRange
+
+    call_targs map[RKey]types.Type
+    call_targ_count map[Key]int64
+    call_ptypes map[RKey]types.Type
+    call_pcount map[Key]int64
+    call_rtypes map[RKey]types.Type
+    call_rcount map[Key]int64
+
+    instances list[Instance]
+    inst_args list[types.Type]
+    instances_recorded bool
+
+    exhaustive map[Key]bool
+    moves map[Key]bool
+    fall_next map[Key]Key
+
+    site_args map[RKey]SiteArg
+    site_count map[Key]int64
+    question_counts map[Key]int64
+    question_types map[RKey]types.Type
+    clause_type_count map[Key]int64
+    clause_types map[RKey]types.Type
+    unreachables map[Key]bool
+
+    // How far the check got, for the dump (see write_dump): whether
+    // every body was checked, and how many types the table and how many
+    // errors the checker had when the declaration phase was done.
+    bodies_done bool
+    decl_type_count int64
+    decl_error_count int64
+    // unrolled_of holds where each fields loop's lists are in
+    // unrolled_order, the places in unrolled_recs grouped by loop (see
+    // index_unrolled).
+    unrolled_of map[Key]TcRange
+    unrolled_order list[int64]
+    // decl_places holds each declaration's place among the program's,
+    // which only the dump fills (see place_decls).
+    decl_places map[Key]int64
+}
+
+// take_typed moves what the check found out of c into a Typed, with the
+// program, its files and its type table, leaving c empty of them: a
+// move of each map, no copy, or out of memory. It is taken once the
+// check is done, by the driver to hand to code generation, or by
+// write_dump.
+pub func (mut c Checker) take_typed() (Typed, error) {
+    blank := types.new_table(c_allocator)?
+    mut c.leave_tree()?
+    mut t := Typed{
+        prog: replace(mut c.prog, ast.new_program(c_allocator)),
+        files: replace(mut c.files, source.new_set(c_allocator)),
+        table: types.bound_table(replace(mut c.table, blank)),
+        store: replace(mut c.store, new_store(c_allocator)),
+        none: replace(mut c.none, make(list[uint8], c_allocator)),
+        unit_pkg: replace(mut c.unit_pkg, make(list[int64], c_allocator)),
+        decl_types: replace(mut c.decl_types, make(map[Key]types.Type, c_allocator)),
+        node_types: replace(mut c.node_types, make(map[Key]types.Type, c_allocator)),
+        result_count: replace(mut c.result_count, make(map[Key]int64, c_allocator)),
+        results: replace(mut c.results, make(map[RKey]types.Type, c_allocator)),
+        consts: replace(mut c.consts, make(map[Key]Const, c_allocator)),
+        var_consts: replace(mut c.var_consts, make(map[Key]Const, c_allocator)),
+        tp_iface: replace(mut c.tp_iface, make(map[Key]Key, c_allocator)),
+        tp_data: replace(mut c.tp_data, make(map[Key]bool, c_allocator)),
+        tp_implicit: replace(mut c.tp_implicit, make(map[Key]bool, c_allocator)),
+        stand_in_of: replace(mut c.stand_in_of, make(map[Key]Key, c_allocator)),
+        func_values: replace(mut c.func_values, make(map[Key]types.Type, c_allocator)),
+        call_dynamic: replace(mut c.call_dynamic, make(map[Key]Key, c_allocator)),
+        call_method: replace(mut c.call_method, make(map[Key]Key, c_allocator)),
+        fo_types: replace(mut c.fo_types, make(map[Key]types.Type, c_allocator)),
+        fo_fields: replace(mut c.fo_fields, make(map[Key]types.Type, c_allocator)),
+        fo_names: replace(mut c.fo_names, make(map[Key]bool, c_allocator)),
+        unrolled_recs: replace(mut c.unrolled_recs, make(list[UnrolledRec], c_allocator)),
+        unrolled_fields: replace(mut c.unrolled_fields, make(list[int64], c_allocator)),
+        unrolled: replace(mut c.unrolled, make(map[Key]bool, c_allocator)),
+        caps: replace(mut c.caps, make(list[CapRec], c_allocator)),
+        lit_caps: replace(mut c.lit_caps, make(map[Key]CapRange, c_allocator)),
+        narrowed_names: replace(mut c.narrowed_names, make(map[Key]types.Type, c_allocator)),
+        tc_recs: replace(mut c.tc_recs, make(list[TypeCaseRec], c_allocator)),
+        tc_of: replace(mut c.tc_of, make(map[Key]TcRange, c_allocator)),
+        call_targs: replace(mut c.call_targs, make(map[RKey]types.Type, c_allocator)),
+        call_targ_count: replace(mut c.call_targ_count, make(map[Key]int64, c_allocator)),
+        call_ptypes: replace(mut c.call_ptypes, make(map[RKey]types.Type, c_allocator)),
+        call_pcount: replace(mut c.call_pcount, make(map[Key]int64, c_allocator)),
+        call_rtypes: replace(mut c.call_rtypes, make(map[RKey]types.Type, c_allocator)),
+        call_rcount: replace(mut c.call_rcount, make(map[Key]int64, c_allocator)),
+        instances: replace(mut c.instances, make(list[Instance], c_allocator)),
+        inst_args: replace(mut c.inst_args, make(list[types.Type], c_allocator)),
+        instances_recorded: c.instances_recorded,
+        exhaustive: replace(mut c.exhaustive, make(map[Key]bool, c_allocator)),
+        moves: replace(mut c.moves, make(map[Key]bool, c_allocator)),
+        fall_next: replace(mut c.fall_next, make(map[Key]Key, c_allocator)),
+        site_args: replace(mut c.site_args, make(map[RKey]SiteArg, c_allocator)),
+        site_count: replace(mut c.site_count, make(map[Key]int64, c_allocator)),
+        question_counts: replace(mut c.question_counts, make(map[Key]int64, c_allocator)),
+        question_types: replace(mut c.question_types, make(map[RKey]types.Type, c_allocator)),
+        clause_type_count: replace(mut c.clause_type_count, make(map[Key]int64, c_allocator)),
+        clause_types: replace(mut c.clause_types, make(map[RKey]types.Type, c_allocator)),
+        unreachables: replace(mut c.unreachables, make(map[Key]bool, c_allocator)),
+        bodies_done: c.bodies_done,
+        decl_type_count: c.decl_type_count,
+        decl_error_count: c.decl_error_count,
+        decl_places: make(map[Key]int64, c_allocator),
+        unrolled_of: make(map[Key]TcRange, c_allocator),
+        unrolled_order: make(list[int64], c_allocator),
+    }
+    mut t.index_unrolled()?
+    return t, noerror
+}
+
+// leave_tree writes into the tree what Go's checker writes on nodes that
+// the port's keeps beside them and a reader of the tree's own fields
+// must see as Go's backend sees them: a view conversion's type, Go's
+// Call.Conv the checker sets (view.go:204), and the clears of a switch
+// on a union, which unbinds every name it takes as a pattern, Go's
+// name.Def = nil, and forgets the conversion of every call it takes as
+// one, Go's call.Conv = Invalid (union.go:233-235). Go clears after it
+// converts, so a call that is both keeps its view's type, as conv did.
+// The checker reads them from its maps while it checks, so this is done
+// once the check is done.
+func (mut c Checker) leave_tree() error {
+    for k, _ := range c.conv_cleared {
+        switch kind_at(c.prog.trees, k) {
+        case call(cl):
+            mut ncl := cl
+            ncl.conv = types.invalid
+            set_kind_at(mut c.prog.trees, k, ast.Kind.call(ncl))
+        default:
+        }
+    }
+    for k, vc := range c.view_convs {
+        switch kind_at(c.prog.trees, k) {
+        case call(cl):
+            mut ncl := cl
+            ncl.conv = vc
+            set_kind_at(mut c.prog.trees, k, ast.Kind.call(ncl))
+        default:
+        }
+    }
+    for k, _ := range c.pattern_cleared {
+        switch kind_at(c.prog.trees, k) {
+        case ident(nm):
+            mut nn := nm
+            nn.def = ast.no_def()
+            set_kind_at(mut c.prog.trees, k, ast.Kind.ident(nn))
+        default:
+        }
+    }
+    return noerror
+}
+
+// rkey returns the RKey of the i'th entry recorded for the node k.
+func rkey(k Key, i int64) RKey {
+    return RKey{unit: k.unit, node: k.node, i: i}
+}
+
+// def_of returns what the name k is bound to, Go's Ident.Def once
+// checking is done: the resolver's binding, or none for a name a switch
+// on a union took as a pattern (see leave_tree), and none for a node
+// that is no name.
+pub func (mut t Typed) def_of(k Key) ast.Def {
+    nm, ok := ident_at(t.prog.trees, k)
+    if !ok {
+        return ast.no_def()
+    }
+    return nm.def
+}
+
+// is_unused reports whether the variable k is marked unused, Go's
+// Var.Unused: by the resolver, or by the checker for a union clause's
+// variable never read.
+pub func (mut t Typed) is_unused(k Key) bool {
+    return var_of(t.prog.trees, k).unused
+}
+
+// decl_type returns the type of the declaration k, a parameter, a
+// variable, a type declaration or a type parameter, Go's Param.Type,
+// Var.Type, TypeDecl.Type and TypeParam.Type, invalid for none.
+pub func (mut t Typed) decl_type(k Key) types.Type {
+    return decl_type_of(t.decl_types, k)
+}
+
+// type_of returns the type of the expression k as Go's ast.TypeOf gives
+// it once checking is done: a literal's recorded type, or its fixed
+// one; a name's narrowed type, or its variable's or parameter's, or the
+// value of the function it names; a call's conversion, the type of a
+// call to make or append, len's int64 or its callee's one result; a mut
+// or own argument's operand's; and the type recorded on any other. A
+// name a switch on a union took as a pattern, which Go unbinds, has
+// none, and a call it took as one, whose conversion Go forgets, only
+// what is recorded on it. It walks down a chain of mut and own
+// arguments in a loop.
+pub func (mut t Typed) type_of(start Key) types.Type {
+    mut k := start
+    for {
+        switch kind_at(t.prog.trees, k) {
+        case int_lit:
+            return or_untyped(node_type_of(t.node_types, k), types.untyped_int)
+        case float_lit:
+            return or_untyped(node_type_of(t.node_types, k), types.untyped_float)
+        case char_lit:
+            return types.uint8_type
+        case str_lit:
+            return types.string_type
+        case bool_lit:
+            return types.bool_type
+        case noerror_lit:
+            return types.error_type
+        case c_allocator_lit:
+            return types.allocator
+        case ident(nm):
+            nt, narrowed := t.narrowed_names[k]
+            if narrowed {
+                return nt
+            }
+            if nm.def.kind == ast.def_var || nm.def.kind == ast.def_param {
+                return decl_type_of(t.decl_types, key_of_def(nm.def))
+            }
+            if nm.def.kind == ast.def_func {
+                v, has := t.func_values[key_of_def(nm.def)]
+                if has {
+                    return v
+                }
+            }
+            return types.invalid
+        case call:
+            return mut t.call_value_type(k)
+        case mut_arg(x):
+            k = sub(k, x)
+        case own_arg(x):
+            k = sub(k, x)
+        default:
+            return node_type_of(t.node_types, k)
+        }
+    }
+    return types.invalid
+}
+
+// or_untyped returns recorded, the type the checker recorded on a
+// literal, or untyped, its untyped type, when it recorded none, Go's
+// orUntyped.
+func or_untyped(recorded types.Type, untyped types.Type) types.Type {
+    if recorded == types.invalid {
+        return untyped
+    }
+    return recorded
+}
+
+// call_value_type returns the type the call k yields, Go's callType:
+// its conversion, the type recorded for a call to make or append, len's
+// int64, or its callee's result when it declares exactly one, and
+// invalid otherwise.
+func (mut t Typed) call_value_type(k Key) types.Type {
+    cv := mut t.conv(k)
+    if cv != types.invalid {
+        return cv
+    }
+    ct := node_type_of(t.node_types, k)
+    if ct != types.invalid {
+        return ct
+    }
+    if is_len_call(t.prog.trees, t.none, k) {
+        return types.int64_type
+    }
+    if mut t.call_result_count(k) == 1 {
+        return mut t.call_result(k, 0)
+    }
+    return types.invalid
+}
+
+// conv returns the type the call k converts to, Go's Call.Conv, as the
+// tree holds it once leave_tree has run: the basic type the resolver
+// found its callee names, or the view type the checker found, but none
+// for a call a switch on a union took as a pattern, whose conversion Go
+// clears.
+pub func (mut t Typed) conv(k Key) types.Type {
+    switch kind_at(t.prog.trees, k) {
+    case call(cl):
+        return cl.conv
+    default:
+        return types.invalid
+    }
+}
+
+// call_type returns the type the checker recorded on the call k, Go's
+// Call.Type: make's list type and the error of append and the builtins
+// like it, and invalid for any other call.
+pub func (mut t Typed) call_type(k Key) types.Type {
+    switch kind_at(t.prog.trees, k) {
+    case call:
+        return node_type_of(t.node_types, k)
+    default:
+        return types.invalid
+    }
+}
+
+// const_of returns the constant recorded on k, a binary, a unary or a
+// call, Go's Const of one, or none.
+pub func (mut t Typed) const_of(k Key) Const {
+    return const_of(t.consts, k)
+}
+
+// var_const returns the computed value of the global k, Go's Var.Const,
+// and whether it has one.
+pub func (mut t Typed) var_const(k Key) (Const, bool) {
+    v, ok := t.var_consts[k]
+    return v, ok
+}
+
+// result_len returns how many result types are recorded for the
+// function or interface method k, Go's len(ResultTypes).
+pub func (mut t Typed) result_len(k Key) int64 {
+    n, _ := results_count(t.result_count, k)
+    return n
+}
+
+// result returns the i'th result type of the function or interface
+// method k, Go's ResultTypes[i].
+pub func (mut t Typed) result(k Key, i int64) types.Type {
+    return result_of(t.results, k, i)
+}
+
+// func_value returns the type of the function k used as a value, Go's
+// Func.Value: set where a body uses it as one, on every closure's
+// function, and on a stand-in for a call through a value; invalid
+// otherwise.
+pub func (mut t Typed) func_value(k Key) types.Type {
+    v, has := t.func_values[k]
+    if !has {
+        return types.invalid
+    }
+    return v
+}
+
+// interface_of returns the interface method the stand-in k is made for,
+// Go's Func.Interface, or no key for any other function.
+pub func (mut t Typed) interface_of(k Key) Key {
+    m, has := t.stand_in_of[k]
+    if !has {
+        return no_key()
+    }
+    return m
+}
+
+// method returns the method the call k calls, or the method expression
+// k names, Go's Call.Method and Selector.Method, or no key: a declared
+// method, or, on a type parameter's value, a stand-in (see interface_of).
+pub func (mut t Typed) method(k Key) Key {
+    m, has := t.call_method[k]
+    if !has {
+        return no_key()
+    }
+    return m
+}
+
+// dynamic returns the stand-in the call k through a function value
+// calls, Go's Call.Dynamic, or no key.
+pub func (mut t Typed) dynamic(k Key) Key {
+    d, has := t.call_dynamic[k]
+    if !has {
+        return no_key()
+    }
+    return d
+}
+
+// callee returns the function the call k calls, Go's ast.Callee: its
+// method, its stand-in for a value, or the function its name is bound
+// to, or no key for a builtin, a conversion and a name a switch on a
+// union unbound.
+pub func (mut t Typed) callee(k Key) Key {
+    m := mut t.method(k)
+    if !is_no_key(m) {
+        return m
+    }
+    d := mut t.dynamic(k)
+    if !is_no_key(d) {
+        return d
+    }
+    switch kind_at(t.prog.trees, k) {
+    case call(cl):
+        nm, ok := ident_at(t.prog.trees, sub(k, cl.fn))
+        if ok && nm.def.kind == ast.def_func {
+            return key_of_def(nm.def)
+        }
+    default:
+    }
+    return no_key()
+}
+
+// call_result_count returns how many results the call k gives, Go's
+// len(ast.CallResults(call)): its callee's, or what is recorded on it,
+// for a call to a builtin that records two.
+pub func (mut t Typed) call_result_count(k Key) int64 {
+    fn := mut t.callee(k)
+    if is_no_key(fn) || generic_fn(t.prog.trees, fn) {
+        n, has := t.call_rcount[k]
+        if has || is_no_key(fn) {
+            return n
+        }
+    }
+    return mut t.result_len(fn)
+}
+
+// call_result returns the i'th result of the call k, Go's
+// ast.CallResults(call)[i]: a non-generic callee's own; for a generic
+// one, the results recorded with its type arguments in place, or its
+// own with a result that is one of its type parameters replaced by the
+// call's type argument for it, invalid when it has none, as
+// ast.Substitute does; and for no callee what is recorded.
+pub func (mut t Typed) call_result(k Key, i int64) types.Type {
+    fn := mut t.callee(k)
+    if !is_no_key(fn) && !generic_fn(t.prog.trees, fn) {
+        return result_of(t.results, fn, i)
+    }
+    _, has := t.call_rcount[k]
+    if has || is_no_key(fn) {
+        r, ok := t.call_rtypes[rkey(k, i)]
+        if ok {
+            return r
+        }
+        return types.invalid
+    }
+    r := result_of(t.results, fn, i)
+    if r == types.invalid {
+        return r
+    }
+    f := func_of(t.prog.trees, fn)
+    for j := range count_items(t.prog.trees, fn.unit, f.type_params) {
+        if decl_type_of(t.decl_types, item_at(t.prog.trees, fn.unit, f.type_params, j)) != r {
+            continue
+        }
+        a, has_a := t.call_targs[rkey(k, j)]
+        if has_a {
+            return a
+        }
+        return types.invalid
+    }
+    return r
+}
+
+// generic_fn reports whether the function fn has type parameters, Go's
+// Func.Generic.
+func generic_fn(trees []ast.File, fn Key) bool {
+    f := func_of(trees, fn)
+    return count_items(trees, fn.unit, f.type_params) > 0
+}
+
+// type_arg_count returns how many type arguments are recorded for the
+// call k, Go's len(Call.TypeArgs), and whether any list is, Go's
+// TypeArgs != nil.
+pub func (mut t Typed) type_arg_count(k Key) (int64, bool) {
+    n, has := t.call_targ_count[k]
+    return n, has
+}
+
+// type_arg returns the call k's i'th type argument, Go's TypeArgs[i].
+pub func (mut t Typed) type_arg(k Key, i int64) types.Type {
+    return rtype_of(t.call_targs, k, i)
+}
+
+// param_type_count returns how many parameter types are recorded for
+// the call k, Go's len(Call.ParamTypes).
+pub func (mut t Typed) param_type_count(k Key) int64 {
+    n, has := t.call_pcount[k]
+    if !has {
+        return 0
+    }
+    return n
+}
+
+// param_type returns the call k's i'th parameter type, Go's
+// ParamTypes[i].
+pub func (mut t Typed) param_type(k Key, i int64) types.Type {
+    return rtype_of(t.call_ptypes, k, i)
+}
+
+// result_type_count returns how many result types are recorded on the
+// call k, Go's len(Call.ResultTypes), and whether a list is.
+pub func (mut t Typed) result_type_count(k Key) (int64, bool) {
+    n, has := t.call_rcount[k]
+    return n, has
+}
+
+// result_type returns the i'th result type recorded on the call k, Go's
+// Call.ResultTypes[i].
+pub func (mut t Typed) result_type(k Key, i int64) types.Type {
+    return rtype_of(t.call_rtypes, k, i)
+}
+
+// rtype_of returns the i'th type m holds for k, or invalid.
+func rtype_of(m map[RKey]types.Type, k Key, i int64) types.Type {
+    r, ok := m[rkey(k, i)]
+    if !ok {
+        return types.invalid
+    }
+    return r
+}
+
+// narrowed returns the type the name k was narrowed to by a switch on a
+// type parameter around it, Go's Ident.Narrowed, or invalid.
+pub func (mut t Typed) narrowed(k Key) types.Type {
+    n, has := t.narrowed_names[k]
+    if !has {
+        return types.invalid
+    }
+    return n
+}
+
+// is_move reports whether the name k moves its variable's value, Go's
+// Ident.Move.
+pub func (mut t Typed) is_move(k Key) bool {
+    _, m := t.moves[k]
+    return m
+}
+
+// is_exhaustive reports whether the switch on a union k names every case,
+// Go's Switch.Exhaustive.
+pub func (mut t Typed) is_exhaustive(k Key) bool {
+    _, e := t.exhaustive[k]
+    return e
+}
+
+// is_unrolled reports whether the variable k is a local a body lowered once
+// for each field or case declares, Go's Var.Unrolled.
+pub func (mut t Typed) is_unrolled(k Key) bool {
+    _, u := t.unrolled[k]
+    return u
+}
+
+// fo_type returns the type the fields loop's fields(T) k ranges over the
+// fields of, Go's FieldsOf.Type.
+pub func (mut t Typed) fo_type(k Key) types.Type {
+    v, has := t.fo_types[k]
+    if !has {
+        return types.invalid
+    }
+    return v
+}
+
+// fo_field returns the type parameter v.[f] has in the body of the
+// fields loop whose fields(T) is k, Go's FieldsOf.Field.
+pub func (mut t Typed) fo_field(k Key) types.Type {
+    v, has := t.fo_fields[k]
+    if !has {
+        return types.invalid
+    }
+    return v
+}
+
+// reads_names reports whether the body of the fields loop whose fields(T)
+// is k reads f.name, Go's FieldsOf.Names.
+pub func (mut t Typed) reads_names(k Key) bool {
+    _, n := t.fo_names[k]
+    return n
+}
+
+// unrolled_count returns how many types the fields loop whose fields(T)
+// is k is lowered for, Go's len(FieldsOf.Unrolled), and unrolled_at
+// where the j'th of them is among them all, for unrolled_type and
+// unrolled_field, each found through an index built once (see
+// index_unrolled).
+pub func (mut t Typed) unrolled_count(k Key) int64 {
+    r, ok := t.unrolled_of[k]
+    if !ok {
+        return 0
+    }
+    return r.count
+}
+
+// unrolled_at returns the place among every fields loop's lists of the
+// j'th type the fields loop k is lowered for, or -1.
+pub func (mut t Typed) unrolled_at(k Key, j int64) int64 {
+    r, ok := t.unrolled_of[k]
+    if !ok || j < 0 || j >= r.count {
+        return -1
+    }
+    at, has := t.unrolled_order[r.first +% j]
+    if !has {
+        return -1
+    }
+    return at
+}
+
+// index_unrolled builds unrolled_of and unrolled_order, which give each
+// fields loop's lists in the order the checker found them: a count of
+// each loop's, then a place for each loop's run in unrolled_order, then
+// the lists put in their runs in order.
+func (mut t Typed) index_unrolled() error {
+    mut counts := make(map[Key]int64, c_allocator)
+    for _, r := range t.unrolled_recs {
+        n, has := counts[r.fo]
+        if has {
+            put(mut counts, r.fo, n +% 1)?
+        } else {
+            put(mut counts, r.fo, 1)?
+        }
+    }
+    mut next int64 = 0
+    for k, n := range counts {
+        put(mut t.unrolled_of, k, TcRange{first: next, count: 0})?
+        next +%= n
+    }
+    mut order := make(list[int64], c_allocator)
+    for range next {
+        append(mut order, -1)?
+    }
+    for i, r := range t.unrolled_recs {
+        run, has := t.unrolled_of[r.fo]
+        if !has {
+            continue
+        }
+        at := run.first +% run.count
+        if at >= 0 && at < len(order) {
+            order[at] = i
+        }
+        put(mut t.unrolled_of, r.fo, TcRange{first: run.first, count: run.count +% 1})?
+    }
+    t.unrolled_order = order
+    return noerror
+}
+
+// unrolled_type returns the type of the list at, from unrolled_at, Go's
+// Unrolled.Type, and how many fields it lists.
+pub func (mut t Typed) unrolled_type(at int64) (types.Type, int64) {
+    r, ok := t.unrolled_recs[at]
+    if !ok {
+        return types.invalid, 0
+    }
+    return r.typ, r.count
+}
+
+// unrolled_field returns the i'th field index the list at lists, Go's
+// Unrolled.Fields[i].
+pub func (mut t Typed) unrolled_field(at int64, i int64) int64 {
+    r, ok := t.unrolled_recs[at]
+    if !ok {
+        return -1
+    }
+    f, has := t.unrolled_fields[r.first +% i]
+    if !has {
+        return -1
+    }
+    return f
+}
+
+// type_case_count returns how many values the clause cl of a switch on a
+// type parameter has matches recorded for, Go's len(TypeCases).
+pub func (mut t Typed) type_case_count(cl Key) int64 {
+    r, ok := t.tc_of[cl]
+    if !ok {
+        return 0
+    }
+    return r.count
+}
+
+// type_case returns how the j'th value of the clause cl matches, Go's
+// TypeCases[j]: its kind, Go's TypeCaseKind, exact 0, list 1, map 2 or
+// struct 3, its type, and a map's key type parameter.
+pub func (mut t Typed) type_case(cl Key, j int64) (uint8, types.Type, types.Type) {
+    r, ok := t.tc_of[cl]
+    if !ok {
+        return 0, types.invalid, types.invalid
+    }
+    tc, has := t.tc_recs[r.first +% j]
+    if !has {
+        return 0, types.invalid, types.invalid
+    }
+    return tc.kind, tc.typ, tc.key
+}
+
+// case_type_count returns how many types the clause cl of a type switch
+// names, Go's len(CaseClause.Types), and whether they were recorded.
+pub func (mut t Typed) case_type_count(cl Key) (int64, bool) {
+    n, has := t.clause_type_count[cl]
+    return n, has
+}
+
+// case_type returns the i'th type the clause cl of a type switch names,
+// Go's CaseClause.Types[i], invalid for one reported.
+pub func (mut t Typed) case_type(cl Key, i int64) types.Type {
+    return rtype_of(t.clause_types, cl, i)
+}
+
+// capture_count returns how many variables the closure lit captures, Go's
+// len(FuncLit.Captures).
+pub func (mut t Typed) capture_count(lit Key) int64 {
+    r, ok := t.lit_caps[lit]
+    if !ok {
+        return 0
+    }
+    return r.count
+}
+
+// capture returns the i'th capture of the closure lit, Go's
+// Captures[i]: the variable or parameter, where the closure first names
+// it, whether it may write it, and where it first does.
+pub func (mut t Typed) capture(lit Key, i int64) (Key, source.Span, bool, source.Span) {
+    r, ok := t.lit_caps[lit]
+    if !ok {
+        return no_key(), ast.unset_span(), false, ast.unset_span()
+    }
+    cp, has := t.caps[r.first +% i]
+    if !has {
+        return no_key(), ast.unset_span(), false, ast.unset_span()
+    }
+    return cp.decl, cp.at, cp.write, cp.write_at
+}
+
+// question_result_count returns how many values the ? k gives, Go's
+// len(Question.Results).
+pub func (mut t Typed) question_result_count(k Key) int64 {
+    n, has := t.question_counts[k]
+    if !has {
+        return 0
+    }
+    return n
+}
+
+// question_result returns the i'th value the ? k gives, Go's
+// Question.Results[i].
+pub func (mut t Typed) question_result(k Key, i int64) types.Type {
+    return rtype_of(t.question_types, k, i)
+}
+
+// site_len returns how many testing.Site arguments Go puts among the
+// arguments of the call k (see the comment at the top of the file).
+pub func (mut t Typed) site_len(k Key) int64 {
+    n, has := t.site_count[k]
+    if !has {
+        return 0
+    }
+    return n
+}
+
+// site_index returns where among the arguments of the call k Go puts its
+// nth testing.Site argument, and site_type its type, testing.Site.
+pub func (mut t Typed) site_index(k Key, nth int64) int64 {
+    sa, has := t.site_args[rkey(k, nth)]
+    if !has {
+        return -1
+    }
+    return sa.index
+}
+
+// site_type returns the type of the nth testing.Site argument of the
+// call k, the Site type a literal is of.
+pub func (mut t Typed) site_type(k Key, nth int64) types.Type {
+    sa, has := t.site_args[rkey(k, nth)]
+    if !has {
+        return types.invalid
+    }
+    return sa.typ
+}
+
+// site_param returns the Site parameter the nth testing.Site argument of
+// the call k passes on, a name bound to it, or no key for a literal of
+// the call's place.
+pub func (mut t Typed) site_param(k Key, nth int64) Key {
+    sa, has := t.site_args[rkey(k, nth)]
+    if !has {
+        return no_key()
+    }
+    return sa.param
+}
+
+// site_text appends to file and to excerpt what the literal that is the
+// nth testing.Site argument of the call k holds, as Go's siteLit makes
+// it, the name of the call's file and diag's excerpt of the call, and
+// returns its line and column, the place of the call's start; it
+// reports false for no literal.
+pub func (mut t Typed) site_text(k Key, nth int64, mut file list[uint8], mut excerpt list[uint8]) (int64, int64, bool, error) {
+    sa, has := t.site_args[rkey(k, nth)]
+    if !has || !is_no_key(sa.param) {
+        return 0, 0, false, noerror
+    }
+    for _, f := range t.files.lookup(sa.place.file) {
+        line, col := f.position(sa.place.start)
+        append(mut file, f.filename.bytes()...)?
+        diag.excerpt(f, sa.place, mut excerpt)?
+        return line, col, true, noerror
+    }
+    return 0, 0, false, noerror
+}
+
+// where appends to out the file and line of the unreachable k, file:line,
+// the file named as diagnostics name it, which its abort reports, Go's
+// Unreachable.Where, and reports whether the checker checked it: Go
+// leaves an unreachable it never checks without one.
+pub func (mut t Typed) where(k Key, mut out list[uint8]) (bool, error) {
+    _, checked := t.unreachables[k]
+    if !checked {
+        return false, noerror
+    }
+    sp := span_at(t.prog.trees, k)
+    for _, f := range t.files.lookup(sp.file) {
+        line, _ := f.position(sp.start)
+        append(mut out, f.filename.bytes()...)?
+        append(mut out, ':')?
+        bytes.append_int(mut out, line)?
+        return true, noerror
+    }
+    return false, noerror
+}
+
+// falls_into returns the clause the fallthrough k enters, Go's
+// Fallthrough.Next, or no key.
+pub func (mut t Typed) falls_into(k Key) Key {
+    n, has := t.fall_next[k]
+    if !has {
+        return no_key()
+    }
+    return n
+}
+
+// type_param_iface returns the interface the type parameter tp's
+// constraint names, Go's TypeParam.Iface, or no key.
+pub func (mut t Typed) type_param_iface(tp Key) Key {
+    i, has := t.tp_iface[tp]
+    if !has {
+        return no_key()
+    }
+    return i
+}
+
+// type_param_data reports whether the type parameter tp is constrained
+// by Data, Go's TypeParam.Data.
+pub func (mut t Typed) type_param_data(tp Key) bool {
+    d, has := t.tp_data[tp]
+    return has && d
+}
+
+// type_param_implicit reports whether the checker made the type
+// parameter tp for a parameter whose type is an interface, Go's
+// TypeParam.Implicit.
+pub func (mut t Typed) type_param_implicit(tp Key) bool {
+    i, has := t.tp_implicit[tp]
+    return has && i
+}
+
+// instance_count returns how many instances of generic functions the
+// program needs, Go's len(Program.Instances), none when the search for
+// them did not run.
+pub func (mut t Typed) instance_count() int64 {
+    if !t.instances_recorded {
+        return 0
+    }
+    return len(t.instances)
+}
+
+// instance_func returns the generic function of the i'th instance, Go's
+// Instance.Func.
+pub func (mut t Typed) instance_func(i int64) Key {
+    inst, ok := t.instances[i]
+    if !ok {
+        return no_key()
+    }
+    return inst.fn
+}
+
+// instance_arg_count returns how many type arguments the i'th instance
+// has, Go's len(Instance.TypeArgs).
+pub func (mut t Typed) instance_arg_count(i int64) int64 {
+    inst, ok := t.instances[i]
+    if !ok {
+        return 0
+    }
+    return inst.count
+}
+
+// instance_arg returns the j'th type argument of the i'th instance, Go's
+// Instance.TypeArgs[j].
+pub func (mut t Typed) instance_arg(i int64, j int64) types.Type {
+    inst, ok := t.instances[i]
+    if !ok {
+        return types.invalid
+    }
+    a, has := t.inst_args[inst.first +% j]
+    if !has {
+        return types.invalid
+    }
+    return a
+}

@@ -1,0 +1,35 @@
+package codegen
+
+// Package codegen is the contract between the compiler's front end and
+// its code generation backend, a port of the Go compiler's package
+// codegen (backend.go): the backends the driver may name, the
+// optimization levels a build may run at, and Refuse, which says whether
+// a program may be lowered at all. The C backend itself, Go's codegen/c,
+// is not ported yet: generate refuses what Go's Refuse refuses and
+// otherwise answers not_ported, which the driver reports as not
+// implemented, at the point where Go would start generating.
+//
+// It takes a checked program as the type checker hands it over, a
+// typeck.Typed (see package typeck): the program, its files, its type
+// table and every annotation Go's checker writes on the tree that Go's
+// backend reads. The type table comes as a types.Bound, which answers
+// every query under the binding in force, as Go's Table does, and hides
+// the Table's own queries, which answer as if nothing were bound: the
+// backend binds a generic function's type parameters while it lowers an
+// instance, and C names carry the IDs of the types a binding adds, so
+// no query it makes may skip the binding, and through a Bound none can. It produces, once the backend is ported, the C of the
+// program, or diagnostics.
+//
+// Go registers its backends from init into a map, which Tack has no
+// place for: there is one backend, c, so the registry is the list
+// backend_names, in Go's sorted order, which has_backend searches, as
+// Go's Get does, and which --backends writes, one a line, as Go's Names
+// gives them. Go's Register, which panics on a name registered twice,
+// has nothing to check here. A Typed exists only for a program the type
+// checker has checked, so of Go's Refuse's refusals only the one for a
+// program with errors can be made here; the others, for no program and
+// for one never checked, cannot happen.
+//
+// The commands a build runs, Go's CompileCmd, CompileStdCmd, BuildCmd
+// and VersionCmd, come with the driver's builds, which the port does not
+// do yet.

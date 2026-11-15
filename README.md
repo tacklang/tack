@@ -37,6 +37,19 @@ contracts, ownership, generics and closures, with the instances of
 generic functions a program needs, as the Go compiler checks them. A
 judgment the port cannot make yet, as a declaration's constant after
 an error may need, is declined (see package typeck).
+The type checker hands what it found to code generation as one
+record, `typeck.Typed`: the program, its files, its type table and
+every annotation the Go compiler's checker writes on the tree that its
+C backend reads (see package typeck). `codegen` is the backend's
+contract, ported from Go's package codegen: the backends there are, the
+optimization levels, and Refuse, which keeps a program with errors from
+being lowered; the C backend itself is not ported yet. `types` has the
+bindings the backend lowers a generic function's instances under, Go's
+`Bind` and `Bound` among them, which add the types they make in Go's
+order, since C names carry type IDs, with a twin of every query of the
+type table that answers, and adds, as Go's does under a binding; `builtin` what a program needs of
+the runtime, Go's `Used`, `RunsC`, `UsesUnreachable` and `UsesLists`;
+and `constant` the hexadecimal float literals the backend writes.
 The driver answers `tack --backends` as the Go compiler does; `tack
 --lex` and `tack --ast` of a single file, a directory or an import
 path, the token dump, a header line before each file's when there are
@@ -57,7 +70,12 @@ to standard error, naming the first argument, an unknown flag, or what
 it cannot do, and exits with status 3, which the harness reads as a
 stage the port does not implement yet. A file or directory whose
 reading fails with an error the port cannot word exactly as the Go
-compiler would is answered the same way (see package loader).
+compiler would is answered the same way (see package loader). `--emit`
+and `--emit-header`, with `--check` or without, run every stage before
+the backend as the Go compiler does and report their diagnostics, and
+are answered so where the Go compiler starts generating C. The flags
+`-O0` to `-Oz` and `--backend` are read, and their usage errors
+written, as the Go compiler writes them.
 
 The driver has two flags the Go compiler has not. `--port-loaded`
 writes what a load in full gives: the program's packages, in order,
@@ -74,7 +92,15 @@ generic functions, the errors, every node with what the checker
 recorded on it once every body is checked, and
 the kinds of judgment the port took as holding without proving them,
 which tackc's porttest compares with what the Go checker finds, on
-every program of the corpus the Go compiler accepts.
+every program of the corpus the Go compiler accepts. It is written
+from the checker's handover, so it holds everything the backend will
+read: the method and the stand-in each call calls, a `?`'s values, an
+unreachable's place, the testing.Site arguments the checker passes and
+what each holds, among the rest. `--port-floats` writes the C literal
+the backend writes for each float a file lists by its bits, and
+`--port-bind` what the type table's bindings give a program's types
+under each instance's binding; porttest compares both with the Go
+compiler's.
 
 ### Known differences
 
