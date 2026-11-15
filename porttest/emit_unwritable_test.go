@@ -33,9 +33,9 @@ const unwritableHeaderC = "#include \"tack.h\"\n\nint64_t twice(int64_t x) { ret
 // in a tree whose tack.h is a directory, so the write fails after the
 // program is lowered: each compiler in a tree of its own, built afresh in
 // a temporary directory. The port must answer as Go does, its warnings
-// and then cannot write, or decline with its one line and nothing else:
-// a decline after the warnings are written is no decline, and fails. It
-// runs only as TestPort does.
+// and then cannot write: it words the error a directory gives itself, so
+// a decline, which it once made here, fails too. It runs only as TestPort
+// does.
 func TestEmitHeaderUnwritable(t *testing.T) {
 	ready(t)
 	tree := func(t *testing.T) string {
@@ -63,7 +63,7 @@ func TestEmitHeaderUnwritable(t *testing.T) {
 			}
 			got := runCompiler(t, env.portRun, env.portCache, input{name: "main.tck", dir: tree(t), file: "main.tck"}, args)
 			if got.notImplemented() {
-				t.Skipf("the port declines: %s", got.stderr)
+				t.Fatalf("the port declines: %s", got.stderr)
 			}
 			if got.code != want.code || !bytes.Equal(got.stdout, want.stdout) ||
 				!bytes.Equal(got.stderr, want.stderr) {

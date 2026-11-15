@@ -322,7 +322,9 @@ func TestEmitTypeChains(t *testing.T) {
 // value, and Go accepts, each as deeply as those tests nest it, the
 // port's stack held to deepStack KB and again to pairStack KB: every
 // level of every construct must cost the port's backend less than
-// pairStack KB over the nesting limit. It runs only as TestPort does.
+// pairStack KB over the nesting limit. Each program is pruned of what it
+// declares and never uses (see pruneEmit), so a pair needs only the
+// backend stages its routes use. It runs only as TestPort does.
 func TestEmitDeepPairs(t *testing.T) {
 	ready(t)
 	srcs := map[string]string{}
@@ -340,14 +342,103 @@ func TestEmitDeepPairs(t *testing.T) {
 					reportingRoutes[an] || reportingRoutes[bn] || reportingPairs[[2]string{an, bn}] {
 					continue
 				}
-				srcs[an+"-"+bn+".tck"] = pairProgram(pf, an, bn, a, b, fam.leaf, true)
+				src := pairProgram(pf, an, bn, a, b, fam.leaf, true)
+				srcs[an+"-"+bn+".tck"] = pruneEmit(src, fam.params, fam.args)
 			}
 		}
 	}
 	for name, body := range emitStmtNests() {
-		srcs[name+".tck"] = stmtProgram(body, true)
+		srcs[name+".tck"] = pruneEmit(stmtProgram(body, true), nestFamilies[0].params, nestFamilies[0].args)
 	}
 	runEmitDeep(t, emitSingleStage, srcs, env.portRun, env.portPairs)
+}
+
+// pruneEmit returns src, a program of TestEmitDeepPairs, without what it
+// declares and never uses: each top-level declaration but h and main
+// whose name no other declaration kept names, and h's function value
+// parameters, params, with the arguments main passes them, args, when h
+// calls neither. Every family declares a generic function and one that
+// takes a scope function, which the backend lowers as E4 does, so
+// without pruning every pair needs E4, and none of E1 to E3 could be
+// compared until it is ported; pruned, a pair needs only the stages of
+// what its routes use.
+func pruneEmit(src, params, args string) string {
+	if params != "" && !strings.Contains(src, "pf(") && !strings.Contains(src, "pq(") {
+		src = strings.Replace(src, params+")", ")", 1)
+		src = strings.Replace(src, args+")", ")", 1)
+	}
+	chunks := strings.Split(src, "\n\n")
+	name := func(c string) string {
+		rest, ok := strings.CutPrefix(c, "type ")
+		if !ok {
+			rest, ok = strings.CutPrefix(c, "func ")
+			if !ok {
+				return ""
+			}
+			if strings.HasPrefix(rest, "(") {
+				if i := strings.Index(rest, ") "); i >= 0 {
+					rest = rest[i+2:]
+				}
+			}
+		}
+		end := strings.IndexFunc(rest, func(r rune) bool {
+			return r != '_' && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
+		})
+		if end < 0 {
+			return rest
+		}
+		return rest[:end]
+	}
+	keep := make([]bool, len(chunks))
+	for i, c := range chunks {
+		n := name(c)
+		keep[i] = n == "" || n == "h" || n == "main" || n == "fix"
+	}
+	for changed := true; changed; {
+		changed = false
+		var used strings.Builder
+		for i, c := range chunks {
+			if keep[i] {
+				used.WriteString(c)
+				used.WriteString("\n")
+			}
+		}
+		text := used.String()
+		for i, c := range chunks {
+			if keep[i] {
+				continue
+			}
+			if namesWord(text, name(c)) {
+				keep[i], changed = true, true
+			}
+		}
+	}
+	var out []string
+	for i, c := range chunks {
+		if keep[i] {
+			out = append(out, c)
+		}
+	}
+	return strings.Join(out, "\n\n")
+}
+
+// namesWord reports whether text holds word whole, not as part of a
+// longer identifier.
+func namesWord(text, word string) bool {
+	isIdent := func(b byte) bool {
+		return b == '_' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
+	}
+	for i := 0; ; {
+		k := strings.Index(text[i:], word)
+		if k < 0 {
+			return false
+		}
+		start, end := i+k, i+k+len(word)
+		if (start == 0 || !isIdent(text[start-1])) && (end == len(text) || !isIdent(text[end])) {
+			return true
+		}
+		i = start + 1
+	}
 }
 
 // emitStmtNests returns the bodies TestCheckDeepStmts nests in its clean
