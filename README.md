@@ -144,7 +144,7 @@ temporary directory or file that cannot be made, written or removed,
 which Go words with a path or an operation the port cannot give, and a
 relative `--out` from a current directory that is gone, where Go's
 message names an empty path. The temporary directory is std/os's
-`tack-XXXXXX` where Go's is `tk-<digits>`, made with std/os's file
+`tk-XXXXXX`, six letters and digits, where Go's is `tk-<digits>`, made with std/os's file
 modes, and every failure Go words with a path in it, as a runtime
 directory that cannot be made, is declined; clang is given the path it was found at as its `argv[0]`, where
 Go gives `clang`; and clang's output is passed on once it has ended,

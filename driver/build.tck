@@ -40,9 +40,10 @@ import typeck from "tack/typeck"
 // runtime object at all.
 //
 // What differs from Go and cannot be seen in what a build writes: the
-// temporary directory is std/os's make_temp_dir's, $TMPDIR/tack- and
-// six characters, where Go's os.MkdirTemp makes tk- and decimal digits;
-// no message names it. Every failure Go words with a path below it, a
+// temporary directory is std/os's make_temp_dir's, $TMPDIR/tk- and six
+// letters and digits, where Go's os.MkdirTemp makes tk- and decimal
+// digits; no message the port words names it, and porttest hides the
+// characters after tk- of both in clang's notes. Every failure Go words with a path below it, a
 // directory of the runtime that cannot be made, mkdir and its path, or a
 // file that cannot be written, is declined, and clang names neither
 // program.c nor the runtime's header while it accepts them, as it does
@@ -202,7 +203,7 @@ func build(c []uint8, warnings []uint8, out []uint8, opt string) (int32, error) 
     // memory, tack: out of memory, where Go words the OS's error;
     // std/os's extension for the build, with os.run's, is to tell them
     // apart.
-    tmp, terr := os.make_temp_dir(c_allocator)
+    tmp, terr := os.make_temp_dir([]uint8("tk-"), c_allocator)
     if terr.code == 1 {
         return exit_failure, terr
     }
