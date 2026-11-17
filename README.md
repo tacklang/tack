@@ -1432,9 +1432,11 @@ section remains the description of the language.
   `err_out` could not. After an error while reading, run closes its
   ends of the pipes, so the child gets `EPIPE` or `SIGPIPE`, and waits
   for it, killing nothing; there is no timeout. An allocation that fails is `error{code: 1,
-  msg: "out of memory"}`; the OS refusing is code 3 and the message
-  macOS's strerror gives, the same on every target, `error{code: 3, msg:
-  "No such file or directory"}`. A function that fails returns an empty
+  msg: "out of memory"}`, and code 1 means nothing else; the OS refusing
+  is code 3 and the message macOS's strerror gives, the same on every
+  target, `error{code: 3, msg: "No such file or directory"}`, a kernel
+  that cannot allocate memory for a call, `ENOMEM`, among them, as
+  `error{code: 3, msg: "Cannot allocate memory"}`. A function that fails returns an empty
   list or Text and frees what it made; only `write_file` can leave work
   half done, a file created or truncated and partly written. Every file
   descriptor is opened close-on-exec and closed before the function

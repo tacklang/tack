@@ -50,6 +50,7 @@ failures allocate nothing ok
 a 0 byte in a path is an error ok
 failures freed ok
 every allocating function fails ok
+a kernel ENOMEM is the OS's error, not out of memory ok
 and allocates nothing ok
 env of an unset variable needs no allocation ok
 list_dir and args failing partway free what they made ok

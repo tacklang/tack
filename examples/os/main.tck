@@ -37,6 +37,11 @@ extern("os_live") func live() int64
 // none again when n is negative, in C.
 extern("os_fail_after") func failAfter(n int64)
 
+// enomemError returns the error std/os gives for the errno ENOMEM, a
+// kernel that cannot allocate memory for a call, through std/os's own C,
+// in C, since no call can be made to fail so on demand.
+extern("os_enomem_error") func enomemError() error
+
 // note writes s to the standard error, in C, which the example's tests
 // do not compare, so a check skipped on this machine says so without
 // changing the output.
@@ -470,6 +475,7 @@ func shortages(dir []uint8) {
     e5 := tempErr([]uint8("tk-"))
     failAfter(-1)
     check(oom(e1) && oom(e2) && oom(e3) && oom(e4) && oom(e5), "every allocating function fails")
+    check(osError(enomemError(), "Cannot allocate memory"), "a kernel ENOMEM is the OS's error, not out of memory")
     check(live() == base, "and allocates nothing")
     e6 := envErr([]uint8("TACK_OS_EXAMPLE_UNSET"))
     check(e6.code == 0, "env of an unset variable needs no allocation")

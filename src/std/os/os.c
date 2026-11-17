@@ -11,11 +11,13 @@
 // directory's names, an argument or a variable's value, is appended to a
 // list Tack owns and passed as mut, with TACK_LIST_APPEND_N, which grows it
 // through the list's own allocator, so Tack frees every byte; when that
-// append fails, the function returns -ENOMEM. A path or a name arrives as
-// a view, its bytes not followed by a 0, and is copied, with a 0 after
-// it, into a buffer on the stack for the call; std/os's Tack has already
-// refused a 0 byte inside it, and one too long for the buffer is
-// ENAMETOOLONG, which the OS would give for most such paths anyway.
+// append fails, the function returns -no_room, which no errno is, so
+// that an allocation that failed is told apart from a kernel ENOMEM. A
+// path or a name arrives as a view, its bytes not followed by a 0, and
+// is copied, with a 0 after it, into a buffer on the stack for the call;
+// std/os's Tack has already refused a 0 byte inside it, and one too long
+// for the buffer is ENAMETOOLONG, which the OS would give for most such
+// paths anyway.
 //
 // Every file descriptor and directory stream this file opens is closed on
 // every path out of the call that opened it, except the descriptors
@@ -86,11 +88,18 @@ static int c_path(tack_view_uint8 p, char *buf) {
     return 0;
 }
 
-// append_bytes appends the n bytes at p to l and returns 0, or -ENOMEM
+// no_room is what a function here returns, negated, when a list Tack
+// gave it cannot grow: an allocation of the program's that failed, which
+// tack_os_error gives as out of memory. It is no errno on any target os
+// builds for, whose errnos are below 256, so a kernel's ENOMEM, the OS
+// refusing a call for want of its own memory, stays the OS's error.
+enum { no_room = 1 << 20 };
+
+// append_bytes appends the n bytes at p to l and returns 0, or -no_room
 // when l cannot grow to hold them, l left as it was.
 static int64_t append_bytes(tack_list_uint8 *l, const char *p, size_t n) {
     if (!TACK_LIST_APPEND_N(l, (const uint8_t *)p, (int64_t)n)) {
-        return -ENOMEM;
+        return -no_room;
     }
     return 0;
 }
@@ -433,18 +442,21 @@ int64_t tack_os_eintr(void) {
     return EINTR;
 }
 
-// tack_os_error returns the error std/os gives for the errno e:
-// error{code: 1, msg: "out of memory"} for ENOMEM, as every std
-// allocation failure is, and otherwise code 3 and the message strerror
-// gives it, as a literal, since a Tack error's message must outlive every
+// tack_os_error returns the error std/os gives for e, an errno or
+// no_room: error{code: 1, msg: "out of memory"} for no_room, a list that
+// could not grow, as every std allocation failure is, and code 3 and the
+// message strerror gives for an errno, ENOMEM's "Cannot allocate memory"
+// included, as a literal, since a Tack error's message must outlive every
 // use of it, which strerror's text is not promised to. The texts are
 // macOS's, given on every target, so an error's message does not depend
 // on the C library: glibc's differ for a few, EBUSY's among them. An
 // errno not listed is "unknown OS error".
 tack_error tack_os_error(int64_t e) {
     switch (e) {
-    case ENOMEM:
+    case no_room:
         return TACK_ERROR(1, "out of memory");
+    case ENOMEM:
+        return TACK_ERROR(3, "Cannot allocate memory");
     case EPERM:
         return TACK_ERROR(3, "Operation not permitted");
     case ENOENT:

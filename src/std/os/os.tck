@@ -30,9 +30,12 @@ import text from "std/text"
 // Every byte from the OS lands in a list Tack owns, appended by C
 // through the list's own allocator, so Tack frees it. When an allocation
 // fails, the error is error{code: 1, msg: "out of memory"}, as for every
-// std function. When the OS refuses, the error is code 3 and the message
-// the C library's strerror gives on macOS, the same on every target:
-// error{code: 3, msg: "No such file or directory"}, for one. A function
+// std function, and code 1 means that and nothing else. When the OS
+// refuses, the error is code 3 and the message the C library's strerror
+// gives on macOS, the same on every target: error{code: 3, msg: "No such
+// file or directory"}, for one, and error{code: 3, msg: "Cannot allocate
+// memory"} for a kernel that cannot allocate memory for the call, ENOMEM,
+// which is the OS's refusal, not the program's allocation. A function
 // that fails returns an empty list or Text beside its error, and frees
 // what it had made; nothing it returns is partial.
 //
@@ -70,8 +73,8 @@ extern("tack_os_open") func c_open(path []uint8, mode int32) int64
 extern("tack_os_close") func c_close(fd int32) int64
 
 // c_read reads up to 65536 bytes from fd and appends them to l, and
-// returns how many, 0 at the end of the file, or the errno negated:
-// ENOMEM when l cannot grow to hold them.
+// returns how many, 0 at the end of the file, or the errno negated, or
+// -no_room when l cannot grow to hold them (see c_error).
 extern("tack_os_read") func c_read(fd int32, mut l list[uint8]) int64
 
 // c_write writes some of data to fd, with one write, and returns how many
@@ -100,15 +103,15 @@ extern("tack_os_stat") func c_stat(path []uint8, mut info Info) int64
 extern("tack_os_lstat") func c_lstat(path []uint8, mut info Info) int64
 
 // c_getwd appends the absolute path of the current directory to dir,
-// through getcwd, and returns 0, or the errno negated: ENOMEM when dir
-// cannot grow, and ERANGE for a path longer than the buffer getcwd is
-// given, path_max bytes with its 0.
+// through getcwd, and returns 0, or the errno negated: ERANGE for a path
+// longer than the buffer getcwd is given, path_max bytes with its 0; or
+// -no_room when dir cannot grow (see c_error).
 extern("tack_os_getwd") func c_getwd(mut dir list[uint8]) int64
 
 // c_list_dir appends the name of every entry of the directory path,
 // each followed by a 0, to names, in the order the OS gives them, "."
-// and ".." included, and returns 0, or the errno negated: ENOMEM when
-// names cannot grow.
+// and ".." included, and returns 0, or the errno negated, or -no_room
+// when names cannot grow (see c_error).
 extern("tack_os_list_dir") func c_list_dir(path []uint8, mut names list[uint8]) int64
 
 // c_make_temp_dir makes a new directory named by tmpl, a path ending in
@@ -117,16 +120,16 @@ extern("tack_os_list_dir") func c_list_dir(path []uint8, mut names list[uint8]) 
 extern("tack_os_make_temp_dir") func c_make_temp_dir(mut tmpl list[uint8]) int64
 
 // c_env appends the value of the environment variable name to value and
-// returns 1, or returns 0 when it is not set, or the errno negated:
-// ENOMEM when value cannot grow.
+// returns 1, or returns 0 when it is not set, or the errno negated, or
+// -no_room when value cannot grow (see c_error).
 extern("tack_os_env") func c_env(name []uint8, mut value list[uint8]) int64
 
 // c_argc returns how many arguments the program was given, its name
 // included.
 extern("tack_os_argc") func c_argc() int64
 
-// c_arg appends argument i to arg and returns 0, or the errno negated:
-// ENOMEM when arg cannot grow.
+// c_arg appends argument i to arg and returns 0, or the errno negated,
+// or -no_room when arg cannot grow (see c_error).
 extern("tack_os_arg") func c_arg(i int64, mut arg list[uint8]) int64
 
 // c_pipe makes a pipe, both its ends close-on-exec, puts its read end in
@@ -156,12 +159,14 @@ extern("tack_os_wait") func c_wait(pid int64) int64
 // c_eintr returns EINTR, the errno of a call a signal interrupted.
 extern("tack_os_eintr") func c_eintr() int64
 
-// c_error returns the error for the errno e: out of memory for ENOMEM,
-// and code 3 with strerror's message otherwise. The C functions here fail
-// with -errno, which -%r turns back into errno, and a result is compared
-// with c_eintr() as -%n. Errno values are small positive numbers, so the
-// negation never wraps; it is -% rather than - because C's contract, not
-// a proof, is what bounds it.
+// c_error returns the error for e, an errno or os.c's no_room, 1 << 20,
+// which no errno is: out of memory, code 1, for no_room, a list that
+// could not grow, and code 3 with strerror's message for an errno,
+// ENOMEM's "Cannot allocate memory" among them. The C functions here
+// fail with -errno or -no_room, which -%r turns back, and a result is
+// compared with c_eintr() as -%n. Both are small positive numbers, so
+// the negation never wraps; it is -% rather than - because C's contract,
+// not a proof, is what bounds it.
 extern("tack_os_error") func c_error(e int64) error
 
 // has_nul reports whether s holds a 0 byte.

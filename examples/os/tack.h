@@ -71,6 +71,7 @@ tack_error tack_os_error(int64_t /* e */); // extern func c_error(e int64) error
 // package main
 int64_t os_live(void); // extern func live() int64
 void os_fail_after(int64_t /* n */); // extern func failAfter(n int64)
+tack_error os_enomem_error(void); // extern func enomemError() error
 void os_note(tack_string /* s */); // extern func note(s string)
 int64_t os_symlink(tack_view_uint8 /* target */, tack_view_uint8 /* path */); // extern func symlink(target []uint8, path []uint8) int64
 int64_t os_truncate(tack_view_uint8 /* path */, int64_t /* size */); // extern func truncate(path []uint8, size int64) int64

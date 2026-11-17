@@ -1302,8 +1302,13 @@ These points were settled by consistency and could go another way:
 - An OS error's message is macOS's strerror text, the same on every
   target, so a program's output does not depend on the C library. An
   errno the table does not list is `"unknown OS error"`, and the errno
-  itself is not kept. `ENOMEM` from the OS is `error{code: 1, msg: "out
-  of memory"}`, as an allocation failure is.
+  itself is not kept.
+- `ENOMEM` from the OS is the OS's error, `error{code: 3, msg: "Cannot
+  allocate memory"}`, and code 1 is an allocation of the program's that
+  failed and nothing else (decided 2026-11-17, so that the port can word
+  a kernel's `ENOMEM` as Go does). os.c's C marks a list it cannot grow
+  with `no_room`, `1 << 20`, which no errno is on any target, rather
+  than with `ENOMEM`.
 - A 0 byte in an environment variable's name is `"name contains a NUL
   byte"`; in a path, `"path contains a NUL byte"`.
 - A path or a name too long for the C library's `PATH_MAX` is code 3,
