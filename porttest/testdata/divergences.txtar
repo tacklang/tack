@@ -2905,3 +2905,671 @@ no-main-package.tck:1:1: error: main package not found
    |	^
 02 |	// "main package not found" and binds nothing, and the port stops there,
 
+-- build-make-emit-single/divergence --
+suite: build-examples
+case: examples/reflect-make/main.tck
+go: Go's checker takes make(T, alloc) written as a statement, for a T that
+  owns nothing, for a call statement, and reports nothing; its C, which
+  drops the value, is right.
+why: make only gives a value, so the port reports it as not used, as len
+  is, decided by the language owner 2026-11-15; the C is Go's, and only
+  the warnings differ.
+same: exit, stdout
+-- build-make-emit-single/exit --
+-- build-make-emit-single/stdout --
+-- build-make-emit-single/stderr --
+
+examples/reflect-make/main.tck:6:19: error: cannot import reflectmake/vault: a single file can import only the standard library
+05 |	import text from "std/text"
+06 |	import vault from "reflectmake/vault"
+   |	                  ^~~~~~~~~~~~~~~~~~~
+07 |	
+
+examples/reflect-make/main.tck:515:5: warning: make(int64, counted()) is not used
+514 |	    // evaluated, once.
+515 |	    make(int64, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+516 |	    make(Point, counted())
+
+examples/reflect-make/main.tck:516:5: warning: make(Point, counted()) is not used
+515 |	    make(int64, counted())
+516 |	    make(Point, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+517 |	    check(n == 0 && after_basic == 1 && t.len() == 0 && after_text == 2 && is_empty(it) &&
+
+-- build-no-main-single-examples-extern-module-geo-geo-tck/divergence --
+suite: build-examples
+case: examples/extern-module/geo/geo.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-extern-module-geo-geo-tck/exit --
+-- build-no-main-single-examples-extern-module-geo-geo-tck/stdout --
+-- build-no-main-single-examples-extern-module-geo-geo-tck/stderr --
+
+examples/extern-module/geo/geo.tck:1:1: error: main package not found
+01 |	package geo
+   |	^
+02 |	
+
+-- build-no-main-single-examples-methods-strs-strs-tck/divergence --
+suite: build-examples
+case: examples/methods/strs/strs.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-methods-strs-strs-tck/exit --
+-- build-no-main-single-examples-methods-strs-strs-tck/stdout --
+-- build-no-main-single-examples-methods-strs-strs-tck/stderr --
+
+examples/methods/strs/strs.tck:1:1: error: main package not found
+01 |	package strs
+   |	^
+02 |	
+
+-- build-no-main-single-examples-method-exprs-shapes-shapes-tck/divergence --
+suite: build-examples
+case: examples/method-exprs/shapes/shapes.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-method-exprs-shapes-shapes-tck/exit --
+-- build-no-main-single-examples-method-exprs-shapes-shapes-tck/stdout --
+-- build-no-main-single-examples-method-exprs-shapes-shapes-tck/stderr --
+
+examples/method-exprs/shapes/shapes.tck:1:1: error: main package not found
+01 |	package shapes
+   |	^
+02 |	
+
+-- build-no-main-single-examples-member-names-geo-geo-tck/divergence --
+suite: build-examples
+case: examples/member-names/geo/geo.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-member-names-geo-geo-tck/exit --
+-- build-no-main-single-examples-member-names-geo-geo-tck/stdout --
+-- build-no-main-single-examples-member-names-geo-geo-tck/stderr --
+
+examples/member-names/geo/geo.tck:1:1: error: main package not found
+01 |	package geo
+   |	^
+02 |	
+
+-- build-no-main-single-examples-call-site-expect-expect-tck/divergence --
+suite: build-examples
+case: examples/call-site/expect/expect.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-call-site-expect-expect-tck/exit --
+-- build-no-main-single-examples-call-site-expect-expect-tck/stdout --
+-- build-no-main-single-examples-call-site-expect-expect-tck/stderr --
+
+examples/call-site/expect/expect.tck:1:1: error: main package not found
+01 |	package expect
+   |	^
+02 |	
+
+-- build-no-main-single-examples-interface-params-shapes-shapes-tck/divergence --
+suite: build-examples
+case: examples/interface-params/shapes/shapes.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-interface-params-shapes-shapes-tck/exit --
+-- build-no-main-single-examples-interface-params-shapes-shapes-tck/stdout --
+-- build-no-main-single-examples-interface-params-shapes-shapes-tck/stderr --
+
+examples/interface-params/shapes/shapes.tck:1:1: error: main package not found
+01 |	package shapes
+   |	^
+02 |	
+
+-- build-no-main-single-examples-tack-test-pass-pass-tck/divergence --
+suite: build-examples
+case: examples/tack-test/pass/pass.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-tack-test-pass-pass-tck/exit --
+-- build-no-main-single-examples-tack-test-pass-pass-tck/stdout --
+-- build-no-main-single-examples-tack-test-pass-pass-tck/stderr --
+
+examples/tack-test/pass/pass.tck:1:1: error: main package not found
+01 |	package pass
+   |	^
+02 |	
+
+-- build-no-main-single-examples-generics-sink-sink-tck/divergence --
+suite: build-examples
+case: examples/generics/sink/sink.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-generics-sink-sink-tck/exit --
+-- build-no-main-single-examples-generics-sink-sink-tck/stdout --
+-- build-no-main-single-examples-generics-sink-sink-tck/stderr --
+
+examples/generics/sink/sink.tck:1:1: error: main package not found
+01 |	package sink
+   |	^
+02 |	
+
+-- build-no-main-single-examples-generics-logs-logs-tck/divergence --
+suite: build-examples
+case: examples/generics/logs/logs.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-generics-logs-logs-tck/exit --
+-- build-no-main-single-examples-generics-logs-logs-tck/stdout --
+-- build-no-main-single-examples-generics-logs-logs-tck/stderr --
+
+examples/generics/logs/logs.tck:1:1: error: main package not found
+01 |	package logs
+   |	^
+02 |	
+
+-- build-no-main-single-examples-tack-test-imports-imports-tck/divergence --
+suite: build-examples
+case: examples/tack-test/imports/imports.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-tack-test-imports-imports-tck/exit --
+-- build-no-main-single-examples-tack-test-imports-imports-tck/stdout --
+-- build-no-main-single-examples-tack-test-imports-imports-tck/stderr --
+
+examples/tack-test/imports/imports.tck:1:1: error: main package not found
+01 |	package imports
+   |	^
+02 |	
+
+examples/tack-test/imports/imports.tck:3:18: error: cannot import tt/pass: a single file can import only the standard library
+02 |	
+03 |	import pass from "tt/pass"
+   |	                 ^~~~~~~~~
+04 |	
+
+-- build-no-main-single-examples-tack-lexer-lexer-lexer-tck/divergence --
+suite: build-examples
+case: examples/tack-lexer/lexer/lexer.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-tack-lexer-lexer-lexer-tck/exit --
+-- build-no-main-single-examples-tack-lexer-lexer-lexer-tck/stdout --
+-- build-no-main-single-examples-tack-lexer-lexer-lexer-tck/stderr --
+
+examples/tack-lexer/lexer/lexer.tck:1:1: error: main package not found
+01 |	package lexer
+   |	^
+02 |	
+
+-- build-no-main-single-examples-tack-lexer-lexer-scan-tck/divergence --
+suite: build-examples
+case: examples/tack-lexer/lexer/scan.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-tack-lexer-lexer-scan-tck/exit --
+-- build-no-main-single-examples-tack-lexer-lexer-scan-tck/stdout --
+-- build-no-main-single-examples-tack-lexer-lexer-scan-tck/stderr --
+
+examples/tack-lexer/lexer/scan.tck:1:1: error: main package not found
+01 |	package lexer
+   |	^
+02 |	
+
+-- build-no-main-single-examples-tack-lexer-lexer-literals-tck/divergence --
+suite: build-examples
+case: examples/tack-lexer/lexer/literals.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-tack-lexer-lexer-literals-tck/exit --
+-- build-no-main-single-examples-tack-lexer-lexer-literals-tck/stdout --
+-- build-no-main-single-examples-tack-lexer-lexer-literals-tck/stderr --
+
+examples/tack-lexer/lexer/literals.tck:1:1: error: main package not found
+01 |	package lexer
+   |	^
+02 |	
+
+-- build-no-main-single-examples-std-import-greet-greet-tck/divergence --
+suite: build-examples
+case: examples/std-import/greet/greet.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-std-import-greet-greet-tck/exit --
+-- build-no-main-single-examples-std-import-greet-greet-tck/stdout --
+-- build-no-main-single-examples-std-import-greet-greet-tck/stderr --
+
+examples/std-import/greet/greet.tck:1:1: error: main package not found
+01 |	package greet
+   |	^
+02 |	
+
+-- build-no-main-single-examples-reflect-fields-parts-parts-tck/divergence --
+suite: build-examples
+case: examples/reflect-fields/parts/parts.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-reflect-fields-parts-parts-tck/exit --
+-- build-no-main-single-examples-reflect-fields-parts-parts-tck/stdout --
+-- build-no-main-single-examples-reflect-fields-parts-parts-tck/stderr --
+
+examples/reflect-fields/parts/parts.tck:1:1: error: main package not found
+01 |	package parts
+   |	^
+02 |	
+
+-- build-no-main-single-examples-packages-lexer-token-tck/divergence --
+suite: build-examples
+case: examples/packages/lexer/token.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-packages-lexer-token-tck/exit --
+-- build-no-main-single-examples-packages-lexer-token-tck/stdout --
+-- build-no-main-single-examples-packages-lexer-token-tck/stderr --
+
+examples/packages/lexer/token.tck:1:1: error: main package not found
+01 |	package lexer
+   |	^
+02 |	
+
+-- build-no-main-single-examples-packages-lexer-lexer-tck/divergence --
+suite: build-examples
+case: examples/packages/lexer/lexer.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-packages-lexer-lexer-tck/exit --
+-- build-no-main-single-examples-packages-lexer-lexer-tck/stdout --
+-- build-no-main-single-examples-packages-lexer-lexer-tck/stderr --
+
+examples/packages/lexer/lexer.tck:1:1: error: main package not found
+01 |	package lexer
+   |	^
+02 |	
+
+examples/packages/lexer/lexer.tck:3:18: error: cannot import calc/internal/text: a single file can import only the standard library
+02 |	
+03 |	import text from "calc/internal/text"
+   |	                 ^~~~~~~~~~~~~~~~~~~~
+04 |	
+
+-- build-no-main-single-examples-packages-internal-text-text-tck/divergence --
+suite: build-examples
+case: examples/packages/internal/text/text.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-packages-internal-text-text-tck/exit --
+-- build-no-main-single-examples-packages-internal-text-text-tck/stdout --
+-- build-no-main-single-examples-packages-internal-text-text-tck/stderr --
+
+examples/packages/internal/text/text.tck:1:1: error: main package not found
+01 |	package text
+   |	^
+02 |	
+
+-- build-no-main-single-examples-reflect-make-vault-vault-tck/divergence --
+suite: build-examples
+case: examples/reflect-make/vault/vault.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-reflect-make-vault-vault-tck/exit --
+-- build-no-main-single-examples-reflect-make-vault-vault-tck/stdout --
+-- build-no-main-single-examples-reflect-make-vault-vault-tck/stderr --
+
+examples/reflect-make/vault/vault.tck:1:1: error: main package not found
+01 |	package vault
+   |	^
+02 |	
+
+-- build-no-main-single-examples-packages-geom-geom-tck/divergence --
+suite: build-examples
+case: examples/packages/geom/geom.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-packages-geom-geom-tck/exit --
+-- build-no-main-single-examples-packages-geom-geom-tck/stdout --
+-- build-no-main-single-examples-packages-geom-geom-tck/stderr --
+
+examples/packages/geom/geom.tck:1:1: error: main package not found
+01 |	package geom
+   |	^
+02 |	
+
+examples/packages/geom/geom.tck:3:18: error: cannot import calc/internal/text: a single file can import only the standard library
+02 |	
+03 |	import text from "calc/internal/text"
+   |	                 ^~~~~~~~~~~~~~~~~~~~
+04 |	import lexer from "calc/lexer"
+
+examples/packages/geom/geom.tck:4:19: error: cannot import calc/lexer: a single file can import only the standard library
+03 |	import text from "calc/internal/text"
+04 |	import lexer from "calc/lexer"
+   |	                  ^~~~~~~~~~~~
+05 |	
+
+-- build-no-main-single-examples-packages-chain-two-two-tck/divergence --
+suite: build-examples
+case: examples/packages/chain/two/two.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-packages-chain-two-two-tck/exit --
+-- build-no-main-single-examples-packages-chain-two-two-tck/stdout --
+-- build-no-main-single-examples-packages-chain-two-two-tck/stderr --
+
+examples/packages/chain/two/two.tck:1:1: error: main package not found
+01 |	package two
+   |	^
+02 |	
+
+examples/packages/chain/two/two.tck:3:19: error: cannot import calc/chain/three: a single file can import only the standard library
+02 |	
+03 |	import three from "calc/chain/three"
+   |	                  ^~~~~~~~~~~~~~~~~~
+04 |	
+
+-- build-no-main-single-examples-packages-chain-one-one-tck/divergence --
+suite: build-examples
+case: examples/packages/chain/one/one.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-packages-chain-one-one-tck/exit --
+-- build-no-main-single-examples-packages-chain-one-one-tck/stdout --
+-- build-no-main-single-examples-packages-chain-one-one-tck/stderr --
+
+examples/packages/chain/one/one.tck:1:1: error: main package not found
+01 |	package one
+   |	^
+02 |	
+
+examples/packages/chain/one/one.tck:3:17: error: cannot import calc/chain/two: a single file can import only the standard library
+02 |	
+03 |	import two from "calc/chain/two"
+   |	                ^~~~~~~~~~~~~~~~
+04 |	
+
+-- build-no-main-single-examples-tack-lexer-lexer-kinds-tck/divergence --
+suite: build-examples
+case: examples/tack-lexer/lexer/kinds.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-tack-lexer-lexer-kinds-tck/exit --
+-- build-no-main-single-examples-tack-lexer-lexer-kinds-tck/stdout --
+-- build-no-main-single-examples-tack-lexer-lexer-kinds-tck/stderr --
+
+examples/tack-lexer/lexer/kinds.tck:1:1: error: main package not found
+01 |	package lexer
+   |	^
+02 |	
+
+-- build-no-main-single-examples-unions-tok-tok-tck/divergence --
+suite: build-examples
+case: examples/unions/tok/tok.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-unions-tok-tok-tck/exit --
+-- build-no-main-single-examples-unions-tok-tok-tck/stdout --
+-- build-no-main-single-examples-unions-tok-tok-tck/stderr --
+
+examples/unions/tok/tok.tck:1:1: error: main package not found
+01 |	package tok
+   |	^
+02 |	
+
+-- build-no-main-single-examples-view-results-text-text-tck/divergence --
+suite: build-examples
+case: examples/view-results/text/text.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-view-results-text-text-tck/exit --
+-- build-no-main-single-examples-view-results-text-text-tck/stdout --
+-- build-no-main-single-examples-view-results-text-text-tck/stderr --
+
+examples/view-results/text/text.tck:1:1: error: main package not found
+01 |	package text
+   |	^
+02 |	
+
+-- build-no-main-single-examples-reflect-fields-geo-geo-tck/divergence --
+suite: build-examples
+case: examples/reflect-fields/geo/geo.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-reflect-fields-geo-geo-tck/exit --
+-- build-no-main-single-examples-reflect-fields-geo-geo-tck/stdout --
+-- build-no-main-single-examples-reflect-fields-geo-geo-tck/stderr --
+
+examples/reflect-fields/geo/geo.tck:1:1: error: main package not found
+01 |	package geo
+   |	^
+02 |	
+
+-- build-no-main-single-examples-errors-module-num-num-tck/divergence --
+suite: build-examples
+case: examples/errors-module/num/num.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-errors-module-num-num-tck/exit --
+-- build-no-main-single-examples-errors-module-num-num-tck/stdout --
+-- build-no-main-single-examples-errors-module-num-num-tck/stderr --
+
+examples/errors-module/num/num.tck:1:1: error: main package not found
+01 |	package num
+   |	^
+02 |	
+
+-- build-no-main-single-examples-union-methods-shapes-shapes-tck/divergence --
+suite: build-examples
+case: examples/union-methods/shapes/shapes.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-union-methods-shapes-shapes-tck/exit --
+-- build-no-main-single-examples-union-methods-shapes-shapes-tck/stdout --
+-- build-no-main-single-examples-union-methods-shapes-shapes-tck/stderr --
+
+examples/union-methods/shapes/shapes.tck:1:1: error: main package not found
+01 |	package shapes
+   |	^
+02 |	
+
+-- build-no-main-single-examples-type-args-lists-lists-tck/divergence --
+suite: build-examples
+case: examples/type-args/lists/lists.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-type-args-lists-lists-tck/exit --
+-- build-no-main-single-examples-type-args-lists-lists-tck/stdout --
+-- build-no-main-single-examples-type-args-lists-lists-tck/stderr --
+
+examples/type-args/lists/lists.tck:1:1: error: main package not found
+01 |	package lists
+   |	^
+02 |	
+
+-- build-no-main-single-examples-ensures-module-num-num-tck/divergence --
+suite: build-examples
+case: examples/ensures-module/num/num.tck
+go: Go's driver type-checks a program the resolver bound nothing of, its
+  last package no main package, after "main package not found", and
+  reports errors the program does not have, as undefined parameters and
+  len taking no arguments.
+why: The port stops at the resolver's "main package not found", as the
+  golden tests' pipeline does, and checks nothing more, decided by the
+  language owner 2026-11-16.
+same: exit, stdout
+-- build-no-main-single-examples-ensures-module-num-num-tck/exit --
+-- build-no-main-single-examples-ensures-module-num-num-tck/stdout --
+-- build-no-main-single-examples-ensures-module-num-num-tck/stderr --
+
+examples/ensures-module/num/num.tck:1:1: error: main package not found
+01 |	package num
+   |	^
+02 |	
+

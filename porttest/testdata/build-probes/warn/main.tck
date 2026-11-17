@@ -1,0 +1,9 @@
+package main
+
+// spare is never called, which the compiler warns of: a build of this
+// program writes a warning before anything else.
+func spare() {
+}
+
+func main() {
+}

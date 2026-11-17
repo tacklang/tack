@@ -147,8 +147,9 @@
 //     modes and the files' bytes, too, and fails
 //     a case Go passes without writing a tack.h.
 //   - build-examples builds each input of emit-single and emit-packages
-//     into a binary, with --out, and build-invalid-c each case of
-//     examples/invalid-c.txtar, whose C clang or the driver rejects;
+//     into a binary, with --out, build-invalid-c each case of
+//     examples/invalid-c.txtar, whose C clang or the driver rejects, and
+//     build-probes each of the probes of testdata/build-probes;
 //     each compares what the driver writes and leaves, and, where both
 //     compilers built one, the binaries and what they do when run (see
 //     Build stages).
@@ -463,7 +464,33 @@
 // the driver's errors; build-invalid-c on each case of
 // examples/invalid-c.txtar, written once a run to a directory of its
 // own, apart from the corpus's archives, and run from there with its
-// target, as TestInvalidC builds it. Each compiler builds a case in a
+// target, as TestInvalidC builds it; build-probes on each of
+// buildProbes, a main.tck of a directory of testdata/build-probes built
+// from there with what the corpus's builds never meet: an --out path Go's
+// checkOutPath refuses, a directory, one below a missing directory or a
+// file, and the input itself; a PATH with no clang, an empty one, and
+// one whose clang is testdata/build-probes/clang-fails/clang, which
+// writes a line to each stream and exits 1; an --out path in the case's
+// read-only TACK_HOME, where clang's link fails; an empty and a relative
+// element, neither holding a clang, before the PATH the compilers
+// inherit; a program that warns; and each -O flag but the default. A
+// probe's --out path, when it has one, is its own, relative to its
+// directory, in place of the case's, and its PATH, when it has one,
+// replaces the one the compilers inherit. build-probes is required, so
+// it holds no build the port declines: TestBuildDeclines runs those,
+// the port alone, the warning program built where Go words what the
+// port cannot, a TMPDIR that is missing or a file, one so long that the
+// runtime's directories cannot be made below it, a clang on a relative
+// element of PATH, one killed by a signal, a first clang on PATH that
+// cannot be started, its interpreter missing, its #! line missing or
+// not executable, before a real one, one that leaves in the temporary
+// directory what cannot be removed, a file and a dangling symbolic link
+// at --out before the build, and a current directory that is gone, and
+// checks that each declines as a case must to skip: exit status 3, the
+// one not implemented line with the case's reason, nothing else
+// written, nothing left in TMPDIR but what that clang left there, and
+// nothing at the --out path, but for what was there before the build,
+// which is left as it was. Each compiler builds a case in a
 // fresh copy of its tree, the directory of its module or of its file,
 // at the same path below the case's temporary directory, the port's
 // first; the Go compiler through a wrapper that holds its stack to the
@@ -488,16 +515,25 @@
 // binaries run in process groups of their own, as runCompiler's runs
 // do.
 //
-// Where both compilers built a binary, of a case of build-examples, the
-// two are compared by their SHA-256: build-identical, a name
-// required.txt may hold, fails a case whose binaries differ once it is
-// required, and logs the verdict until then, and fails a case the port
-// declines as a required stage does. The Go compiler, run as both
-// compilers, builds the same binary twice for every example it builds,
-// with a cache of its own each time, so a port that runs the same clang
-// and link commands builds it too; goIrreproducible lists, with why,
-// any case where Go does not, which is never compared, none so far. The
-// two binaries' modes must be the same. Each binary is then run, the
+// Where both compilers built a binary, of a case of build-examples or
+// build-probes, the two are compared by their SHA-256: build-identical,
+// a name required.txt may hold, fails a case whose binaries differ once
+// it is required, and logs the verdict until then, and fails a case of
+// either the port declines as a required stage does. A case of
+// build-probes is held to build-identical while build-probes is
+// required, whether required.txt names build-identical or not, so that
+// a port whose -O flags do not reach clang fails its -O probes;
+// required.txt cannot name build-identical itself while build-examples
+// has cases the port declines, each of which it would fail. The -O
+// probes' program is too small for every level to tell: Go's -O2 binary
+// of it is its -O3 one, so a port that lost -O2, or gave -O3 for it,
+// passes opt-2; a program using std, which D2 builds, makes the two
+// differ. The Go compiler, run as both compilers, builds the same binary
+// twice for every example it builds, with a cache of its own each time,
+// so a port that runs the same clang and link commands builds it too;
+// goIrreproducible lists, with why, any case where Go does not, which is
+// never compared, none so far. The two binaries' modes must be the
+// same. Each binary is then run, the
 // port's first, with defaultRun, no arguments and the environment of go
 // test, and with the runs buildRuns gives its case, each copied from
 // the Go compiler's test of the example: examples/os with its
@@ -514,7 +550,8 @@
 // the copies are compared. examples/broken-pipe's runs, which break a
 // pipe and read a descriptor of their own, are not covered: with no
 // arguments it only says what it takes. Each build is at the default
-// optimization level.
+// optimization level, but those of the build probes that give an -O
+// flag.
 //
 // Every case's cache is fresh, as the port's driver, with no cache
 // until it is ported, compiles std for every build anyway, and so no

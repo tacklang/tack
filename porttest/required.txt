@@ -36,3 +36,4 @@ emit-E1
 emit-E2
 emit-E3
 emit-E4
+build-probes

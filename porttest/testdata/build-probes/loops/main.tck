@@ -1,0 +1,24 @@
+package main
+
+// sum_below returns the sum of every int64 from 0 up to n, n left out,
+// wrapping as it adds.
+func sum_below(n int64) int64 {
+    mut s int64 = 0
+    for i := range n {
+        s +%= i
+    }
+    return s
+}
+
+// main adds up sum_below of 0 to 99, which is not 0, and so never
+// reaches the loop that never ends: one each -O level must keep.
+func main() {
+    mut total int64 = 0
+    for k := range 100 {
+        total +%= sum_below(k)
+    }
+    if total == 0 {
+        for {
+        }
+    }
+}

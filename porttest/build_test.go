@@ -26,6 +26,7 @@ import (
 const (
 	buildExamplesStage = "build-examples"
 	buildInvalidCStage = "build-invalid-c"
+	buildProbesStage   = "build-probes"
 	// buildIdenticalCheck is the check that the two compilers build the
 	// same binary, byte for byte, for a case of build-examples that both
 	// build (see checkIdentical).
@@ -41,7 +42,10 @@ const (
 //   - build-examples builds each input of emit-single and emit-packages,
 //     every .tck file, package and module of examples/;
 //   - build-invalid-c builds each case of examples/invalid-c.txtar, whose
-//     C files clang or the driver rejects.
+//     C files clang or the driver rejects;
+//   - build-probes builds each of buildProbes, a program of
+//     testdata/build-probes built with an --out path, flags or a PATH
+//     of its own, which the corpus's builds never meet.
 func init() {
 	requirableChecks[buildIdenticalCheck] = true
 	stages = append(stages,
@@ -59,6 +63,13 @@ func init() {
 			stdout: compareBytes,
 			run:    runBuildCase,
 		},
+		stage{
+			name:   buildProbesStage,
+			args:   func(in input) []string { return buildArgs(buildOutShown, in) },
+			inputs: buildProbeInputs,
+			stdout: compareBytes,
+			run:    runBuildCase,
+		},
 	)
 }
 
@@ -68,9 +79,122 @@ func init() {
 const buildOutShown = "<out>"
 
 // buildArgs returns the build stages' command line for in: --out with
-// out, then in's target.
+// out, then in's target; for a case of build-probes, its flags first,
+// and its own --out path in place of out when it has one.
 func buildArgs(out string, in input) []string {
-	return []string{"--out", out, in.file}
+	p, probe := buildProbes[in.name]
+	if !probe {
+		return []string{"--out", out, in.file}
+	}
+	switch {
+	case p.outInHome && out == buildOutShown:
+		out = "<home>/prog"
+	case p.outInHome:
+		out = filepath.Join(homeOfOut(out), "prog")
+	case p.out != "":
+		out = p.out
+	}
+	return append(slices.Clone(p.flags), "--out", out, in.file)
+}
+
+// homeOfOut returns the TACK_HOME of the case whose --out path is out,
+// as newBuildDirs lays them out: out is <base>/out/prog and the home
+// <base>/home, a read-only copy of std (see readOnlyHome).
+func homeOfOut(out string) string {
+	return filepath.Join(filepath.Dir(filepath.Dir(out)), "home")
+}
+
+// buildProbe is one case of build-probes: a program of
+// testdata/build-probes, its main.tck, built from its directory as a
+// single file, with the command line and the PATH it gives the two
+// compilers.
+type buildProbe struct {
+	// program is the directory below testdata/build-probes whose
+	// main.tck the case builds.
+	program string
+	// out, when not empty, is the --out argument, relative to the
+	// program's directory, in place of the case's own --out path: a
+	// path the driver must refuse before it builds, so neither compiler
+	// writes there.
+	out string
+	// pathDir, when not empty, is the directory below
+	// testdata/build-probes that PATH names, alone, for the compilers.
+	pathDir string
+	// flags go before --out on the command line.
+	flags []string
+	// pathFront, when not empty, are elements put before the PATH the
+	// compilers inherit, as they are: "" is an empty element, which
+	// means the current directory, and a relative one is taken from it.
+	pathFront []string
+	// emptyPath sets PATH empty, set but holding no element, which Go's
+	// exec.LookPath searches no directory of, in place of pathDir.
+	emptyPath bool
+	// outInHome makes the --out path prog in the case's TACK_HOME, a
+	// directory no one may write to, so that clang's link fails.
+	outInHome bool
+}
+
+// buildProbes are build-probes' cases, by name: the --out paths Go's
+// checkOutPath refuses, a directory, one below a missing directory and
+// one below a file, which are errors, and the input file itself, a
+// usage error; a PATH that holds no clang and one that is empty, where
+// Go's exec.LookPath fails; a clang that writes to both streams and
+// exits 1, whose output the driver passes on before its error; an --out
+// path in a directory no one may write to, where clang's link fails
+// with its own messages; an empty and a relative element of PATH, which
+// holds no clang, before the PATH the compilers inherit; a program that
+// warns, whose warning comes before the build; and a build at each -O
+// level but the default, which the examples build at. The builds the
+// port declines are TestBuildDeclines', not cases here: build-probes is
+// required.
+var buildProbes = map[string]buildProbe{
+	"build-probes/out-directory":      {program: "empty", out: "."},
+	"build-probes/out-parent-missing": {program: "empty", out: "missing/prog"},
+	"build-probes/out-below-file":     {program: "empty", out: "main.tck/prog"},
+	"build-probes/out-is-input":       {program: "empty", out: "main.tck"},
+	"build-probes/no-clang-on-path":   {program: "empty", pathDir: "empty"},
+	"build-probes/empty-path":         {program: "empty", emptyPath: true},
+	"build-probes/clang-fails":        {program: "empty", pathDir: "clang-fails"},
+	"build-probes/out-unwritable":     {program: "empty", outInHome: true},
+	"build-probes/path-empty-element": {program: "empty", pathFront: []string{""}},
+	"build-probes/path-relative":      {program: "empty", pathFront: []string{"missing"}},
+	"build-probes/warn-builds":        {program: "warn"},
+	"build-probes/opt-0":              {program: "loops", flags: []string{"-O0"}},
+	"build-probes/opt-1":              {program: "loops", flags: []string{"-O1"}},
+	"build-probes/opt-2":              {program: "loops", flags: []string{"-O2"}},
+	"build-probes/opt-s":              {program: "loops", flags: []string{"-Os"}},
+	"build-probes/opt-z":              {program: "loops", flags: []string{"-Oz"}},
+}
+
+// buildProbeInputs returns build-probes' inputs, each of buildProbes run
+// from its program's directory with main.tck as its target, and PATH as
+// it says, in the order of their names.
+func buildProbeInputs() ([]input, error) {
+	dir := filepath.Join(env.root, "porttest", "testdata", "build-probes")
+	names := make([]string, 0, len(buildProbes))
+	for name := range buildProbes {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	ins := make([]input, 0, len(names))
+	for _, name := range names {
+		p := buildProbes[name]
+		in := input{name: name, dir: filepath.Join(dir, p.program), file: "main.tck"}
+		if !fileExists(filepath.Join(in.dir, in.file)) {
+			return nil, fmt.Errorf("build probe %s: %s has no main.tck", name, p.program)
+		}
+		switch {
+		case p.emptyPath:
+			in.env = []string{"PATH="}
+		case p.pathDir != "":
+			in.env = []string{"PATH=" + filepath.Join(dir, p.pathDir)}
+		case len(p.pathFront) > 0:
+			in.env = []string{"PATH=" + strings.Join(append(slices.Clone(p.pathFront),
+				os.Getenv("PATH")), string(filepath.ListSeparator))}
+		}
+		ins = append(ins, in)
+	}
+	return ins, nil
 }
 
 // buildExampleInputs returns build-examples' inputs: every input of
@@ -503,8 +627,8 @@ func compareBuilt(t *testing.T, st stage, in input, d buildDirs, want, port buil
 	if want.mode != port.mode {
 		t.Errorf("binary mode: port's %v, Go's %v", port.mode, want.mode)
 	}
-	if st.name == buildExamplesStage {
-		checkIdentical(t, in, want.bin, port.bin, env.required)
+	if st.name == buildExamplesStage || st.name == buildProbesStage {
+		checkIdentical(t, in, want.bin, port.bin, identicalRequired(st.name, env.required))
 	}
 	for _, r := range append([]buildRun{defaultRun}, buildRuns[in.name]...) {
 		compareRun(t, r, d, want.bin, port.bin)
@@ -571,12 +695,35 @@ func isGo(bin string) bool {
 // buildDeclineVerdict returns why a case of the stage named stageName
 // that the port declines must fail, beyond what declined decides, with
 // required the names required.txt holds, or "": a case of build-examples
-// fails while build-identical is required, which it checks.
+// or build-probes fails while build-identical is required, which checks
+// their binaries.
 func buildDeclineVerdict(stageName string, required map[string]bool) string {
-	if stageName == buildExamplesStage && required[buildIdenticalCheck] {
+	if (stageName == buildExamplesStage || stageName == buildProbesStage) &&
+		required[buildIdenticalCheck] {
 		return "check " + buildIdenticalCheck + " is required"
 	}
 	return ""
+}
+
+// identicalRequired returns required, the names required.txt holds, as
+// build-identical reads them for a case of the stage named stageName:
+// with build-identical in them for a case of build-probes while
+// build-probes is required, whose binaries, built at every -O level,
+// must then be Go's, so that a port that loses its -O flag fails; and as
+// they are for any other. opt-2 cannot fail so: Go's -O2 binary of the
+// loops probe is its -O3 one, the same bytes, so a port that loses -O2,
+// or maps it to -O3, still matches; the probe needs a program whose -O2
+// and -O3 binaries differ, as one using std, which D2 builds.
+func identicalRequired(stageName string, required map[string]bool) map[string]bool {
+	if stageName != buildProbesStage || !required[buildProbesStage] || required[buildIdenticalCheck] {
+		return required
+	}
+	with := make(map[string]bool, len(required)+1)
+	for name, on := range required {
+		with[name] = on
+	}
+	with[buildIdenticalCheck] = true
+	return with
 }
 
 // checkIdentical compares goBin and portBin, the two compilers' builds of
@@ -803,9 +950,31 @@ func TestTempNamesHidden(t *testing.T) {
 	}
 }
 
+// TestIdenticalRequired checks identicalRequired: build-identical is
+// required for a case of build-probes while build-probes is, and for no
+// other stage's case unless required.txt holds it.
+func TestIdenticalRequired(t *testing.T) {
+	cases := []struct {
+		required map[string]bool
+		stage    string
+		want     bool
+	}{
+		{requiredOf(buildProbesStage), buildProbesStage, true},
+		{requiredOf(buildProbesStage), buildExamplesStage, false},
+		{requiredOf(), buildProbesStage, false},
+		{requiredOf(buildIdenticalCheck), buildExamplesStage, true},
+	}
+	for _, tc := range cases {
+		if got := identicalRequired(tc.stage, tc.required)[buildIdenticalCheck]; got != tc.want {
+			t.Errorf("%s with %v required: build-identical %v, want %v", tc.stage, tc.required, got,
+				tc.want)
+		}
+	}
+}
+
 // TestBuildDeclineVerdict checks buildDeclineVerdict with required names
-// of its own: a declined case of build-examples fails while
-// build-identical is required, and no other.
+// of its own: a declined case of build-examples or build-probes fails
+// while build-identical is required, and no other.
 func TestBuildDeclineVerdict(t *testing.T) {
 	cases := []struct {
 		required map[string]bool
@@ -813,6 +982,7 @@ func TestBuildDeclineVerdict(t *testing.T) {
 		fails    bool
 	}{
 		{requiredOf(buildIdenticalCheck), buildExamplesStage, true},
+		{requiredOf(buildIdenticalCheck), buildProbesStage, true},
 		{requiredOf(buildIdenticalCheck), buildInvalidCStage, false},
 		{requiredOf(), buildExamplesStage, false},
 		{requiredOf(buildExamplesStage), buildExamplesStage, false},

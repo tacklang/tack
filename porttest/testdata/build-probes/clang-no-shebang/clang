@@ -1,0 +1,3 @@
+# A clang with no #! line, which the kernel will not run: exec
+# fails with ENOEXEC, exec format error.
+exit 0

@@ -1,0 +1,2 @@
+#!/nonexistent/interpreter
+# A clang that cannot be started: the interpreter it names does not exist.
