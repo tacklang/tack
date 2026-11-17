@@ -65,11 +65,18 @@ const (
 // of the run: it builds the binaries and writes the corpus in a
 // temporary directory it removes afterwards. The harness's own tests
 // need none of it and run either way. With measureVar set, the binary is
-// TestResPerf's launcher instead, and runs no test.
+// TestResPerf's launcher instead, and with groupHelperVar the harness
+// the group tests stop, and runs no test. Otherwise it first makes a
+// signal that stops the harness kill the process groups it runs (see
+// handleSignals).
 func TestMain(m *testing.M) {
 	if cmdline := os.Getenv(measureVar); cmdline != "" {
 		os.Exit(launchMeasured(cmdline))
 	}
+	if script := os.Getenv(groupHelperVar); script != "" {
+		os.Exit(groupHelper(script))
+	}
+	handleSignals()
 	flag.Parse()
 	root, err := filepath.Abs("..")
 	if err != nil {

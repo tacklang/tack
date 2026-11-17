@@ -258,7 +258,9 @@ func compareResults(t *testing.T, st stage, in input, args []string, want, port 
 // environment with cache as TACK_CACHE and in's own variables after it,
 // and returns how it ended. It fails t when bin
 // cannot be run, is stopped by a signal, which no answer of a compiler
-// is, or runs for longer than compilerTimeout, when it is killed.
+// is, or runs for longer than compilerTimeout, when it is killed with
+// every process it started, or ends leaving one running (see
+// runInGroup), each with its standard error.
 func runCompiler(t *testing.T, bin, cache string, in input, args []string) result {
 	dir := in.dir
 	t.Helper()
@@ -276,21 +278,13 @@ func runCompiler(t *testing.T, bin, cache string, in input, args []string) resul
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
+	outlived, err := runInGroup(cmd)
 	if measured != "" && ctx.Err() == nil && cmd.ProcessState != nil {
 		logMeasured(t, measured, bin, dir, args, in.env, cmd.ProcessState.ExitCode())
 	}
-	var exit *exec.ExitError
-	switch {
-	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		t.Fatalf("running %s %s in %s: killed after %v", bin, strings.Join(args, " "), dir,
-			compilerTimeout)
-	case err == nil:
-	case errors.As(err, &exit) && exit.ExitCode() >= 0:
-	default:
-		t.Fatalf("running %s %s in %s: %v\nstderr:\n%s",
-			bin, strings.Join(args, " "), dir, err, stderr.Bytes())
-	}
+	running := fmt.Sprintf("running %s %s in %s", bin, strings.Join(args, " "), dir)
+	failEnd(t, endOf(ctx.Err(), err, outlived, false), running, cmd, err, outlived,
+		compilerTimeout, stderr.Bytes())
 	return result{stdout: stdout.Bytes(), stderr: stderr.Bytes(), code: cmd.ProcessState.ExitCode()}
 }
 

@@ -71,6 +71,25 @@
 // for a port built with the sanitizers, whose frames are larger (see
 // Sanitizers).
 //
+// runCompiler, through which every stage runs a compiler, starts each
+// run in a process group of its own (see runInGroup in group_test.go),
+// so a timeout kills the whole group, the toolchain and anything else
+// the compiler started, and a process the run started that is still
+// running two seconds after it ends fails the case, its standard error
+// shown, and is killed; a run that also failed is reported as that
+// first. Each run gets SIGKILL should the harness die first
+// (Pdeathsig), and TestMain makes SIGINT, SIGTERM and SIGHUP, which a
+// terminal's Ctrl-C and timeout send to their own process group, not
+// these, kill every such group before the harness exits with status 1.
+// What can still outlive the harness: a descendant of a run, which
+// Pdeathsig does not reach, when the harness ends with no signal it can
+// handle, as on SIGKILL or when go test's -timeout panics it. The
+// processes the harness starts with exec of its own, outside
+// runCompiler, run in the harness's group: TestMain's builds of the two
+// compilers, the coverage and harvest runs of the backend stages'
+// classification, and those of the allocation-failure, performance,
+// embed and header tests.
+//
 // # Stages
 //
 // TestPort has one subtest per stage, and under each one subtest per
