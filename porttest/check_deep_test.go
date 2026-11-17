@@ -1011,13 +1011,19 @@ const sliceChainLength = 5000
 // sliceChains are the programs TestCheckSliceChains writes n links long:
 // a spine of slices with no high bound under len, whose length is the
 // length of what each slices less its low bound, down the whole spine,
-// and one indexed;
+// and one indexed; a spine of slices with no bound at all of a string
+// literal under len, a condition asking for its value, the known string
+// each slices, cut at no bound, down the whole spine;
 // and locals each slicing the one before, from a parameter, and from a
 // string literal, whose value is known, down the whole chain.
 var sliceChains = map[string]func(n int) string{
 	"slice-spine": func(n int) string {
 		return "package main\n\nfunc f(s string) int64 {\n    if len(s) < 10 {\n        return 0\n    }\n" +
 			"    return len(s" + rep("[0:]", n) + ")\n}\n\nfunc main() {\n" + checkError + "}\n"
+	},
+	"bare-spine": func(n int) string {
+		return "package main\n\nfunc f() int64 {\n    n := len(\"hello\"" + rep("[:]", n) + ")\n" +
+			"    if n == 0 {\n        return 0\n    }\n    return n\n}\n\nfunc main() {\n" + checkError + "}\n"
 	},
 	"index-spine": func(n int) string {
 		return "package main\n\nfunc f(s string) uint8 {\n    if len(s) < 3 {\n        return 0\n    }\n" +
