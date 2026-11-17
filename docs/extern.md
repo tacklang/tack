@@ -87,10 +87,15 @@ with `divmod`.
   starts with -, which clang could read as an option; rename it`. Every
   path the driver hands clang is absolute, so none is read as an option.
 - Each C file is compiled on its own with
-  `clang -w -fno-finite-loops -O3 -c`, the generated C's flags: at the
+  `clang -w -fno-finite-loops -mllvm -indvars-predicate-loops=false -O3 -c`,
+  the generated C's flags: at the
   build's optimization level, `-O3` unless an `-O` flag says otherwise,
   with warnings off, so clang's warnings about the C are not shown, and
-  with `-fno-finite-loops`, so clang never assumes a loop ends; its
+  with `-fno-finite-loops`, so clang never assumes a loop ends, and with
+  `-mllvm -indvars-predicate-loops=false`, since clang 23.1.5's indvars
+  loop predication deletes a loop that never ends at `-Oz`, even with
+  `-fno-finite-loops` (llvm/llvm-project#183906; the flag can go once
+  the minimum clang has the fix); its
   errors are shown, and then `tack: cannot compile helpers.c: clang
   failed: exit status 1`. There is no way yet to pass a C file other flags, or to
   link a library.
@@ -702,7 +707,8 @@ $TACK_HOME/src/std/include`, where the installed copy is.
 A build compiles every C file of the runtime, when the program calls any
 builtin, has a list type, or has a C file whose object leaves a `tack_`
 symbol undefined, as it compiles a package's: with clang, `-w` and
-`-fno-finite-loops`, at the build's `-O` level, with the runtime header's
+`-fno-finite-loops` and `-mllvm -indvars-predicate-loops=false`, at the
+build's `-O` level, with the runtime header's
 directory on the include
 path but without the program's `tack.h`, or takes the object from the
 build cache. It reads each object's symbols, as it reads a package's, and

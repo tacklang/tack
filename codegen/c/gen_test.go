@@ -88,7 +88,8 @@ func TestBackendIdentity(t *testing.T) {
 func TestBuildCmdCompilesSourceToOutput(t *testing.T) {
 	got := c.New().BuildCmd("in.c", "/std/include", nil, "prog", "3")
 	want := []string{
-		"clang", "-w", "-fno-finite-loops", "-O3", "-I", "/std/include", "-o", "prog", "in.c",
+		"clang", "-w", "-fno-finite-loops", "-mllvm", "-indvars-predicate-loops=false", "-O3",
+		"-I", "/std/include", "-o", "prog", "in.c",
 	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("BuildCmd = %q, want %q", got, want)
@@ -101,7 +102,8 @@ func TestBuildCmdCompilesSourceToOutput(t *testing.T) {
 func TestBuildCmdLinksObjects(t *testing.T) {
 	got := c.New().BuildCmd("in.c", "/std/include", []string{"a.o", "b.o"}, "prog", "0")
 	want := []string{
-		"clang", "-w", "-fno-finite-loops", "-O0", "-I", "/std/include", "-o", "prog", "in.c",
+		"clang", "-w", "-fno-finite-loops", "-mllvm", "-indvars-predicate-loops=false", "-O0",
+		"-I", "/std/include", "-o", "prog", "in.c",
 		"a.o", "b.o",
 	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
@@ -121,6 +123,8 @@ func TestCompileCmdIncludesTheHeader(t *testing.T) {
 		"clang",
 		"-w",
 		"-fno-finite-loops",
+		"-mllvm",
+		"-indvars-predicate-loops=false",
 		"-Os",
 		"-c",
 		"-I",
@@ -144,7 +148,8 @@ func TestCompileCmdIncludesTheHeader(t *testing.T) {
 func TestCompileStdCmdSearchesStdHeaders(t *testing.T) {
 	got := c.New().CompileStdCmd("/std/builtin/print.c", "/std/include", "/tmp/b/std-print.o", "1")
 	want := []string{
-		"clang", "-w", "-fno-finite-loops", "-O1", "-c", "-I", "/std/include", "-o",
+		"clang", "-w", "-fno-finite-loops", "-mllvm", "-indvars-predicate-loops=false", "-O1",
+		"-c", "-I", "/std/include", "-o",
 		"/tmp/b/std-print.o", "/std/builtin/print.c",
 	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
@@ -168,6 +173,29 @@ func TestEveryCompileAssumesNoLoopEnds(t *testing.T) {
 		} {
 			if !slices.Contains(cmd, "-fno-finite-loops") {
 				t.Errorf("-O%s: %s = %q, want -fno-finite-loops", opt, name, cmd)
+			}
+		}
+	}
+}
+
+// TestEveryCompileTurnsOffLoopPredication checks that every command the
+// backend gives that compiles C, BuildCmd, CompileCmd and CompileStdCmd,
+// passes -mllvm -indvars-predicate-loops=false at every level, the two
+// arguments together and right after -fno-finite-loops. clang 23.1.5's
+// indvars loop predication deletes a loop that never ends at -Oz, even
+// with -fno-finite-loops (llvm/llvm-project#183906).
+func TestEveryCompileTurnsOffLoopPredication(t *testing.T) {
+	e := c.New()
+	want := []string{"-fno-finite-loops", "-mllvm", "-indvars-predicate-loops=false"}
+	for _, opt := range codegen.Opts {
+		for name, cmd := range map[string][]string{
+			"BuildCmd":      e.BuildCmd("/b/in.c", "/std/include", []string{"/b/a.o"}, "/b/prog", opt),
+			"CompileCmd":    e.CompileCmd("/p/a.c", "/b/tack.h", "/std/include", "/b/c0.o", opt),
+			"CompileStdCmd": e.CompileStdCmd("/std/builtin/print.c", "/std/include", "/b/p.o", opt),
+		} {
+			i := slices.Index(cmd, want[0])
+			if i < 0 || !slices.Equal(cmd[i:min(i+len(want), len(cmd))], want) {
+				t.Errorf("-O%s: %s = %q, want %q in a row", opt, name, cmd, want)
 			}
 		}
 	}

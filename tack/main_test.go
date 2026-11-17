@@ -1522,7 +1522,10 @@ const endlessGrace = 500 * time.Millisecond
 // driver's own, with -fno-finite-loops. The second runs every clang
 // through a shim that drops that flag, so the loop lowering, the first
 // layer, is checked at run time on its own, and a regression in it is not
-// hidden by the flag.
+// hidden by the flag. Both keep -mllvm -indvars-predicate-loops=false,
+// without which clang 23.1.5's indvars loop predication deletes the loops
+// of range-view and range-map at -Oz, flag or no flag
+// (llvm/llvm-project#183906).
 func TestBuiltEndlessLoopsNeverEnd(t *testing.T) {
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skip("clang not on PATH")

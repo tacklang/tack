@@ -153,7 +153,10 @@ is kept in one place.
   dir starts with -, which clang could read as an option; rename it`.
 - Each C file is compiled on its own with clang, at the build's
   optimization level, with `-w`, so clang's warnings are not shown, and
-  with `-fno-finite-loops`, so clang never assumes a loop ends. Its
+  with `-fno-finite-loops`, so clang never assumes a loop ends, and with
+  `-mllvm -indvars-predicate-loops=false`, since clang 23.1.5's indvars
+  loop predication deletes a loop that never ends at `-Oz` even with
+  `-fno-finite-loops` (llvm/llvm-project#183906). Its
   errors are shown, followed by `tack: cannot compile helpers.c: clang
   failed: exit status 1`. There is no way yet to pass a C file other
   flags, or to link a library.

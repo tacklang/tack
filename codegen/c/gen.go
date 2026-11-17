@@ -57,9 +57,16 @@ func (backend) BuildCmd(src, include string, objs []string, out string, opt code
 // assumes, as C11 6.8.5p6 lets it, that a loop ends, which keeps a loop
 // that never ends in the generated C, the runtime's, std's and a
 // package's own (clang marks no C function mustprogress with or without
-// the flag; it does so only in C++); and -O at opt.
+// the flag; it does so only in C++); -mllvm
+// -indvars-predicate-loops=false, which turns off the loop predication
+// of LLVM's indvars pass: clang 23.1.5's deletes a loop that never ends
+// at -Oz, even with -fno-finite-loops (llvm/llvm-project#183906, fixed
+// on LLVM's main by #194202 and not in 23.1.5), so the flag can go once
+// the minimum clang carries the fix; and -O at opt.
 func clangFlags(opt codegen.Opt) []string {
-	return []string{"-w", "-fno-finite-loops", "-O" + string(opt)}
+	return []string{
+		"-w", "-fno-finite-loops", "-mllvm", "-indvars-predicate-loops=false", "-O" + string(opt),
+	}
 }
 
 // CompileCmd runs clang as BuildCmd does, with clangFlags, to compile

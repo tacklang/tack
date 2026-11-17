@@ -22,16 +22,17 @@ import (
 // CompileStdCmd it returns appends the C file's path, one line, to the
 // file $TACK_TEST_STD_LOG names before running clang, so a test can count
 // the std files a build compiled. When $TACK_TEST_STD_DROP is set, the
-// argument it names is left out of every CompileStdCmd, as a compiler
-// from before that flag was added ran clang. Everything else, linking
+// arguments it names, separated by spaces, are left out of every
+// CompileStdCmd, as a compiler from before those flags were added ran
+// clang. Everything else, linking
 // included, is the c backend's own.
 const countBackend = "test-count"
 
 // stdLogVar is the variable naming countBackend's log.
 const stdLogVar = "TACK_TEST_STD_LOG"
 
-// stdDropVar is the variable naming the argument countBackend leaves out
-// of its std compiles.
+// stdDropVar is the variable naming the arguments, separated by spaces,
+// countBackend leaves out of its std compiles.
 const stdDropVar = "TACK_TEST_STD_DROP"
 
 // countingStd is countBackend's type.
@@ -40,13 +41,14 @@ type countingStd struct{ codegen.Backend }
 // Name returns countBackend.
 func (countingStd) Name() string { return countBackend }
 
-// CompileStdCmd is the c backend's command, without the argument
+// CompileStdCmd is the c backend's command, without the arguments
 // $TACK_TEST_STD_DROP names when it is set, run by a shell that first
 // logs src to $TACK_TEST_STD_LOG.
 func (b countingStd) CompileStdCmd(src, include, obj string, opt codegen.Opt) []string {
 	cmd := b.Backend.CompileStdCmd(src, include, obj, opt)
 	if drop := os.Getenv(stdDropVar); drop != "" {
-		cmd = slices.DeleteFunc(cmd, func(arg string) bool { return arg == drop })
+		dropped := strings.Fields(drop)
+		cmd = slices.DeleteFunc(cmd, func(arg string) bool { return slices.Contains(dropped, arg) })
 	}
 	return append([]string{
 		"sh", "-c", `printf '%s\n' "$1" >> "$` + stdLogVar + `"; shift; exec "$@"`, "sh", src,
@@ -338,18 +340,27 @@ func TestStdCacheMisses(t *testing.T) {
 }
 
 // A runtime object's key holds the whole command that compiles it, so an
-// object cached by a build without -fno-finite-loops, as one from before
-// the flag was added was, is never linked by a build that passes it: that
-// build misses the cache and compiles every runtime file again, and a
-// build after it hits.
+// object cached by a build without -fno-finite-loops, or without -mllvm
+// -indvars-predicate-loops=false, as one from before either flag was
+// added was, is never linked by a build that passes it: that build
+// misses the cache and compiles every runtime file again, and a build
+// after it hits.
 func TestStdCacheMissesWhenFlagsChange(t *testing.T) {
 	needClang(t)
+	for _, drop := range []string{"-fno-finite-loops", "-mllvm -indvars-predicate-loops=false"} {
+		t.Run(drop, func(t *testing.T) { stdCacheMissesWithout(t, drop) })
+	}
+}
+
+// stdCacheMissesWithout is TestStdCacheMissesWhenFlagsChange for the
+// flags drop names, separated by spaces.
+func stdCacheMissesWithout(t *testing.T, drop string) {
 	tmp := isolateTemp(t)
 	compiled := stdLog(t)
 	env := cacheEnv(t, stdtest.Home(), t.TempDir(), fakeVersion)
 	src := program(t, printExit)
 
-	t.Setenv(stdDropVar, "-fno-finite-loops")
+	t.Setenv(stdDropVar, drop)
 	buildCounted(t, env, tmp, src)
 	if got := compiled(); !slices.Equal(got, allStd) {
 		t.Fatalf("build without the flag compiled %q, want %q", got, allStd)

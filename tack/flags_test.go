@@ -97,12 +97,15 @@ func shimClang(t *testing.T, drop string) func() [][]string {
 	}
 }
 
-// Every C compile a build runs passes -fno-finite-loops, at every level,
-// as clang receives it: the link of the generated source, a package's own
+// Every C compile a build runs passes -fno-finite-loops, and right after
+// it -mllvm -indvars-predicate-loops=false, at every level, as clang
+// receives them: the link of the generated source, a package's own
 // C file (examples/extern's helpers.c), a std package's C files (std/fmt's,
 // in examples/fmt-write) and the runtime's, with an empty cache, so every
-// runtime file is compiled. Without the flag clang may assume a loop ends
-// and delete one that never does.
+// runtime file is compiled. Without the first clang may assume a loop
+// ends and delete one that never does; without the second clang
+// 23.1.5's indvars loop predication deletes one at -Oz anyway
+// (llvm/llvm-project#183906).
 func TestEveryCompilePassesNoFiniteLoops(t *testing.T) {
 	ran := shimClang(t, "")
 	for _, opt := range codegen.Opts {
@@ -114,8 +117,10 @@ func TestEveryCompilePassesNoFiniteLoops(t *testing.T) {
 			seen := make(map[string]bool)
 			for _, argv := range ran() {
 				kind := clangRunKind(argv)
-				if !slices.Contains(argv, "-fno-finite-loops") {
-					t.Errorf("%s: clang %q, want -fno-finite-loops", kind, argv)
+				want := []string{"-fno-finite-loops", "-mllvm", "-indvars-predicate-loops=false"}
+				i := slices.Index(argv, want[0])
+				if i < 0 || !slices.Equal(argv[i:min(i+len(want), len(argv))], want) {
+					t.Errorf("%s: clang %q, want %q in a row", kind, argv, want)
 				}
 				seen[kind] = true
 			}

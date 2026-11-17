@@ -205,23 +205,23 @@
 // everything that decides the object: the cache's format, the backend's
 // name, the whole CompileStdCmd with the paths of the C file, of the
 // include directory and of the object left out, since they are temporary
-// ones (the optimization level and every flag, -fno-finite-loops
-// included, are in it, so an object compiled with other flags is never
-// reused), the standard output of the
-// backend's VersionCmd, clang --version, run once per build, the runtime
-// header's bytes, and the C file's name and bytes. Every input but the
-// toolchain is built into the compiler, so nothing on disk, $TACK_HOME
-// included, changes what a key names. The C library's
-// headers are not hashed; the toolchain's identity stands for them. A
-// change to any input is a new key, never a stale hit. On a hit the object
-// is copied into the temporary directory as std-<name>.o, as a compiled
-// one would be there, so the link never reads the cache. An entry is not
-// trusted when its key does not hold a hash, its object is missing or does
-// not hash to it, or the object's symbols cannot be read: the file is
-// compiled again and the entry replaced. Every cache file is written to a
-// temporary file beside it and renamed into place, the object before the
-// key naming it, so builds running at once never read half an entry; two
-// that miss together both compile, and either's rename wins.
+// ones (the optimization level and every flag, -fno-finite-loops and
+// -mllvm -indvars-predicate-loops=false included, are in it, so an
+// object compiled with other flags is never reused), the standard output
+// of the backend's VersionCmd, clang --version, run once per build, the
+// runtime header's bytes, and the C file's name and bytes. Every input
+// but the toolchain is built into the compiler, so nothing on disk,
+// $TACK_HOME included, changes what a key names. The C library's headers
+// are not hashed; the toolchain's identity stands for them. A change to
+// any input is a new key, never a stale hit. On a hit the object is
+// copied into the temporary directory as std-<name>.o, as a compiled one
+// would be there, so the link never reads the cache. An entry is not
+// trusted when its key does not hold a hash, its object is missing or
+// does not hash to it, or the object's symbols cannot be read: the file
+// is compiled again and the entry replaced. Every cache file is written
+// to a temporary file beside it and renamed into place, the object
+// before the key naming it, so builds running at once never read half an
+// entry; two that miss together both compile, and either's rename wins.
 //
 // The cache is needed only by a build that links a std object: a dump, or a
 // program that calls no builtin, never looks for it. A build that needs it

@@ -24,7 +24,10 @@
 // clang's errors still reach the user. The package's own tests compile with
 // -Wall -Wextra -Werror, so the backend is still held to warning-free C for
 // what it controls. Every compile also passes -fno-finite-loops, so clang
-// never assumes a loop ends (see the loop lowering below).
+// never assumes a loop ends, and -mllvm -indvars-predicate-loops=false
+// after it, since clang 23.1.5's indvars loop predication deletes a loop
+// that never ends at -Oz, even with -fno-finite-loops (see the loop
+// lowering below).
 //
 // VersionCmd is clang --version, whose output names clang's version, its
 // default target and the directory it is installed in; the driver reuses a
@@ -890,6 +893,13 @@
 // and willreturn, and on a function LLVM's attribute inference has
 // proved returns, which it marks willreturn and mustprogress together.
 // clang 21, the minimum toolchain, takes the flag.
+// Every one of them also passes -mllvm -indvars-predicate-loops=false,
+// right after -fno-finite-loops: clang 23.1.5's indvars loop predication
+// deletes a loop that never ends at -Oz, even with -fno-finite-loops,
+// llvm/llvm-project#183906, which turning predication off avoids. The
+// fix, #194202, is on LLVM's main but not in 23.1.5, so the flag can go
+// once the minimum clang carries it. LLVM has had the option since
+// before clang 21, and its main still spells it the same.
 // The lowering stays, so the generated C keeps its meaning when compiled
 // without the flag, as --emit output may be. The loops of the helpers,
 // the runtime and std's C keep their controlling expressions: each is

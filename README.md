@@ -432,9 +432,9 @@ type Backend interface {
     Ext() string                                     // ".c"
     Generate(prog *ast.Program, builtins *builtin.Set) ([]byte, []diag.Diagnostic)
     Header(prog *ast.Program) []byte                 // tack.h
-    CompileCmd(src, header, include, obj string, opt Opt) []string // {"clang", "-w", "-fno-finite-loops", "-O3", "-c", ..., src}
+    CompileCmd(src, header, include, obj string, opt Opt) []string // {"clang", "-w", "-fno-finite-loops", "-mllvm", "-indvars-predicate-loops=false", "-O3", "-c", ..., src}
     CompileStdCmd(src, include, obj string, opt Opt) []string      // likewise, for the runtime's C
-    BuildCmd(src, include string, objs []string, out string, opt Opt) []string // {"clang", "-w", "-fno-finite-loops", "-O3", "-I", include, "-o", out, src, objs...}
+    BuildCmd(src, include string, objs []string, out string, opt Opt) []string // {"clang", "-w", "-fno-finite-loops", "-mllvm", "-indvars-predicate-loops=false", "-O3", "-I", include, "-o", out, src, objs...}
     VersionCmd() []string                            // {"clang", "--version"}
 }
 ```

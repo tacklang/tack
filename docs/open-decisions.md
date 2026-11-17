@@ -1173,9 +1173,12 @@ go another way:
   package. `--emit-header` writes it into the target's directory and into
   every package directory of its module with C files or extern funcs; a
   std package with C gets none.
-- C files are compiled with `-w` and `-fno-finite-loops`, as the
-  generated C is, so clang's warnings about a package's own C are not
-  shown, and clang never assumes one of its loops ends; its errors are
+- C files are compiled with `-w`, `-fno-finite-loops` and `-mllvm
+  -indvars-predicate-loops=false`, as the generated C is, so clang's
+  warnings about a package's own C are not shown, and clang never
+  assumes one of its loops ends, nor deletes one that never ends at
+  `-Oz` through clang 23.1.5's indvars loop predication
+  (llvm/llvm-project#183906); its errors are
   shown. There is
   no way yet to pass a C file other flags, or to link a library.
 - tack.h's prototypes leave out the parameters' names, which could be C
