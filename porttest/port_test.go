@@ -134,13 +134,23 @@ func (r result) notImplemented() bool {
 // whatever came before it.
 var lateLine = regexp.MustCompile(`(?:\A|\n)(tack: not implemented in the port: [^\n]*\n)\z`)
 
+// earlyDecline reports whether r, a build's, is a decline that wrote
+// nothing but its line: one notImplemented matches with nothing on
+// standard output. A build's clang writes to the driver's standard
+// output as it runs, so a build decline with anything there is late,
+// whatever its standard error holds, and is lateDecline's to check.
+func (r result) earlyDecline() bool {
+	return r.notImplemented() && len(r.stdout) == 0
+}
+
 // lateDecline returns the not implemented line of r and true when r is
 // a late decline: exit status notImplementedCode and standard error
-// ending in the line notImplemented matches, after other output, which a
-// build the port declines once clang has run writes first (see the
-// package doc, Protocol). An r that notImplemented matches is none.
+// ending in the line notImplemented matches, after other output on
+// either stream, which a build the port declines once clang has run
+// writes first (see the package doc, Protocol). An r that earlyDecline
+// matches is none.
 func (r result) lateDecline() (string, bool) {
-	if r.code != notImplementedCode || r.notImplemented() {
+	if r.code != notImplementedCode || r.earlyDecline() {
 		return "", false
 	}
 	m := lateLine.FindSubmatch(r.stderr)

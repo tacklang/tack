@@ -58,8 +58,9 @@
 // fails. A build stage's case may also decline late: once clang, which
 // writes to the driver's own outputs as it runs, has started, a decline
 // comes after the warnings and what clang wrote. Such a run exits 3
-// with that line last on standard error, after other output, and is a
-// decline only when what came before is what the Go compiler wrote
+// with that line last on standard error, after other output on either
+// stream, and a build's run with anything on standard output is such a
+// run, whatever its standard error holds; it is a decline only when what came before is what the Go compiler wrote
 // before its own final error: its standard output the Go compiler's,
 // and its standard error the Go compiler's with its last line removed
 // when that line starts tack: , then the not implemented line. The Go
@@ -538,6 +539,15 @@
 // compiler builds a binary for and the other does not. The built
 // binaries run in process groups of their own, as runCompiler's runs
 // do.
+//
+// Two declines have no case, for want of a clean way to make them:
+// "with a clang that cannot be run", which std/os's run_inherit gives
+// when /dev/null cannot be opened, which needs a file system without
+// it, or its wait fails, which the runtime's reset of SIGCHLD leaves no
+// way to make; and "with a clang that cannot be started" for an errno
+// the port has no Go words for, which on Linux is EHWPOISON alone, as
+// Go's words for it differ between amd64 and arm64, an errno no exec can
+// be made to give on demand.
 //
 // Where both compilers built a binary, of a case of build-examples or
 // build-probes, the two are compared by their SHA-256: build-identical,

@@ -542,7 +542,7 @@ func buildOnce(t *testing.T, bin string, d buildDirs, in input, keep string) bui
 		who = "Go"
 	}
 	r := runCompiler(t, bin, d.cache, copied, buildArgs(d.out, in))
-	if _, late := r.lateDecline(); r.notImplemented() || late {
+	if _, late := r.lateDecline(); r.earlyDecline() || late {
 		return built{res: r, in: copied}
 	}
 	if left := entries(t, d.tmp); len(left) > 0 {
@@ -657,7 +657,7 @@ func runBuildCase(t *testing.T, st stage, in input, portBin string) {
 	d := newBuildDirs(base)
 	readOnlyHome(t, d.home)
 	port := buildOnce(t, portBin, d, in, filepath.Join(base, "bin-port"))
-	if port.res.notImplemented() {
+	if port.res.earlyDecline() {
 		if why := buildDeclineVerdict(st.name, env.required); why != "" {
 			t.Fatalf("%s, but the port says %q", why,
 				strings.TrimSuffix(string(port.res.stderr), "\n"))
@@ -1077,9 +1077,10 @@ func TestBuildDeclineVerdict(t *testing.T) {
 	}
 }
 
-// TestLateDecline checks lateDecline and lateDeclineMismatch: a decline
-// after other output is late, one alone or one whose line is not last is
-// not; and a late decline matches Go's run only when its standard output
+// TestLateDecline checks earlyDecline, lateDecline and
+// lateDeclineMismatch: a decline after other output is late, standard
+// output alone included, one alone is early, and one whose line is not
+// last is neither; and a late decline matches Go's run only when its standard output
 // is Go's and its standard error Go's but for Go's last tack: line, then
 // the decline, a Go run with no such line kept whole.
 func TestLateDecline(t *testing.T) {
@@ -1088,6 +1089,25 @@ func TestLateDecline(t *testing.T) {
 	late := result{stdout: []byte("clang out\n"), stderr: []byte(warn + "clang err\n" + line), code: 3}
 	if got, ok := late.lateDecline(); !ok || got != line {
 		t.Errorf("lateDecline() = %q, %t; want the line, true", got, ok)
+	}
+	// clang wrote only to standard output and no warning came first:
+	// standard error is the line alone, yet the decline is late.
+	outOnly := result{stdout: []byte("clang out\n"), stderr: []byte(line), code: 3}
+	if outOnly.earlyDecline() {
+		t.Error("a decline after output on standard output alone is early, want late")
+	}
+	if got, ok := outOnly.lateDecline(); !ok || got != line {
+		t.Errorf("lateDecline() of a decline after standard output alone = %q, %t; want the line, true", got, ok)
+	}
+	goOut := result{stdout: []byte("clang out\n"), stderr: []byte("tack: failed to delete temp directory: x\n"), code: 1}
+	if why := lateDeclineMismatch(goOut, outOnly, line); why != "" {
+		t.Errorf("a decline after standard output alone, matching Go's: %s", why)
+	}
+	if why := lateDeclineMismatch(result{stderr: goOut.stderr, code: 1}, outOnly, line); why == "" {
+		t.Error("a decline after standard output Go did not write matches, want a mismatch")
+	}
+	if early := (result{stderr: []byte(line), code: 3}); !early.earlyDecline() {
+		t.Error("a decline that wrote nothing else is not early")
 	}
 	for _, r := range []result{
 		{stderr: []byte(line), code: 3},

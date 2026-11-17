@@ -1352,8 +1352,9 @@ These points were settled by consistency and could go another way:
 - os.c's errno table gives an errno macOS defines too macOS's text and
   one only Linux defines glibc's, inside `#ifdef`, both taken from Go's
   syscall tables with their first letter made capital; `EHWPOISON`,
-  which Go's Linux table lacks, has glibc's "Memory page has hardware
-  error". The C library's own `ENOMEM` while setting a start up, an
+  which Go's amd64 table lacks and its arm64 table has, has glibc's
+  "Memory page has hardware error", the text of Go's arm64 table with
+  its first letter made capital. The C library's own `ENOMEM` while setting a start up, an
   allocation of its own, is out of memory, code 1.
 - `run_inherit` is a function of its own beside `run`, not a mode of
   `run`, and flushes C's stdout and then its stderr before the child
