@@ -138,16 +138,18 @@ implemented, with nothing written but that line, and a file clang made
 at the `--out` path removed. What was at `--out` before the build is
 not restored: a decline after clang ran can leave a file clang
 overwrote, and a file clang wrote through a dangling symbolic link.
-The declines are these: any other program, a clang killed by a signal or that cannot be started, a clang on a `PATH` element that
-is not absolute, which Go refuses to run only when it is executable, a
+The declines are these: any other program, a clang killed by a
+signal or that cannot be started, a clang on a `PATH` element that is
+not absolute, which Go refuses to run only when it is executable, a
 temporary directory or file that cannot be made, written or removed,
 which Go words with a path or an operation the port cannot give, and a
 relative `--out` from a current directory that is gone, where Go's
 message names an empty path. The temporary directory is std/os's
-`tk-XXXXXX`, six letters and digits, where Go's is `tk-<digits>`, made with std/os's file
-modes, and every failure Go words with a path in it, as a runtime
-directory that cannot be made, is declined; clang is given the path it was found at as its `argv[0]`, where
-Go gives `clang`; and clang's output is passed on once it has ended,
+`tk-XXXXXX`, six letters and digits, where Go's is `tk-<digits>`, made
+with std/os's file modes, and every failure Go words with a path in
+it, as a runtime directory that cannot be made, is declined; clang is
+given the path it was found at as its `argv[0]`, where Go gives
+`clang`; and clang's output is passed on once it has ended,
 each stream whole, so a terminal shows it without colour, and where
 both streams reach one place its standard output comes before its
 standard error rather than as clang wrote them. No build the porttest

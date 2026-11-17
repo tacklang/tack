@@ -43,17 +43,17 @@ import typeck from "tack/typeck"
 // temporary directory is std/os's make_temp_dir's, $TMPDIR/tk- and six
 // letters and digits, where Go's os.MkdirTemp makes tk- and decimal
 // digits; no message the port words names it, and porttest hides the
-// characters after tk- of both in clang's notes. Every failure Go words with a path below it, a
-// directory of the runtime that cannot be made, mkdir and its path, or a
-// file that cannot be written, is declined, and clang names neither
-// program.c nor the runtime's header while it accepts them, as it does
-// for C the backend generates: given no C file of the program's, only a
-// backend bug that made clang reject them would show the name. Its
-// directories are made with mode 0755 and its files with 0644,
-// std/os's, where Go's are 0750 and 0600, inside the directory
-// make_temp_dir makes 0700, as Go's is. clang is
-// given the path find_clang found as its argv[0], where Go's gives
-// clang; clang's messages name it by its base name, clang, either way.
+// characters after tk- of both in clang's notes. Every failure Go words
+// with a path below it, a directory of the runtime that cannot be made,
+// mkdir and its path, or a file that cannot be written, is declined, and
+// clang names neither program.c nor the runtime's header while it
+// accepts them, as it does for C the backend generates: given no C file
+// of the program's, only a backend bug that made clang reject them would
+// show the name. Its directories are made with mode 0755 and its files
+// with 0644, std/os's, where Go's are 0750 and 0600, inside the
+// directory make_temp_dir makes 0700, as Go's is. clang is given the
+// path find_clang found as its argv[0], where Go's gives clang; clang's
+// messages name it by its base name, clang, either way.
 // clang's standard output and standard error are read through pipes and
 // written once it has ended, where Go's clang writes to the driver's
 // own: each stream's bytes are the same, but a terminal shows no colour,
@@ -198,11 +198,6 @@ func needs_more(mut t typeck.Typed) (bool, error) {
 // remove for want of memory is left behind, and a binary clang wrote at
 // out before memory ran out is left there, with exit status 1.
 func build(c []uint8, warnings []uint8, out []uint8, opt string) (int32, error) {
-    // std/os gives a kernel ENOMEM as code 1, the code of an allocation
-    // that failed, so an ENOMEM from mkdtemp ends the build as out of
-    // memory, tack: out of memory, where Go words the OS's error;
-    // std/os's extension for the build, with os.run's, is to tell them
-    // apart.
     tmp, terr := os.make_temp_dir([]uint8("tk-"), c_allocator)
     if terr.code == 1 {
         return exit_failure, terr
@@ -386,11 +381,6 @@ func make_below(dir []uint8, rel []uint8, mut msg list[uint8]) (int32, error) {
         if serr.code == 0 && info.is_dir() {
             continue
         }
-        // std/os gives a kernel ENOMEM as code 1, the code of an
-        // allocation that failed, so an ENOMEM from mkdir ends the
-        // build as out of memory, tack: out of memory, where Go words
-        // the OS's error; std/os's extension for the build, with
-        // os.run's, is to tell them apart.
         err := os.make_dir(at.bytes())
         if err.code == 1 {
             return exit_failure, err
@@ -412,11 +402,6 @@ func make_below(dir []uint8, rel []uint8, mut msg list[uint8]) (int32, error) {
 // opens, writes and closes in one call and does not say which failed,
 // so the port cannot tell Go's open, write or close error apart.
 func write_temp(p []uint8, data []uint8, mut msg list[uint8]) (int32, error) {
-    // std/os gives a kernel ENOMEM as code 1, the code of an allocation
-    // that failed, so an ENOMEM from open or write ends the build as
-    // out of memory, tack: out of memory, where Go words the OS's
-    // error; std/os's extension for the build, with os.run's, is to
-    // tell them apart.
     err := os.write_file(p, data)
     if err.code == 1 {
         return exit_failure, err
@@ -463,11 +448,6 @@ func run_tool(argv []text.Text, mut msg list[uint8], mut out list[uint8], mut er
             append(mut run_argv, text.from_bytes(a.bytes(), c_allocator)?)?
         }
     }
-    // std/os gives a kernel ENOMEM as code 1, the code of an allocation
-    // that failed, so an ENOMEM from posix_spawn, pipe or poll ends the
-    // build as out of memory, tack: out of memory, where Go words the
-    // OS's error; std/os's extension for the build, with os.run's, is
-    // to tell them apart.
     status, err := os.run(run_argv, mut out, mut err_out, c_allocator)
     // Only a child killed by a signal, or one that ran and was waited for,
     // started: run's other errors come before the child or instead of it,

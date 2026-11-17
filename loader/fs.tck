@@ -61,7 +61,9 @@ func wrap(prefix []uint8, own f Fail, alloc Allocator) (Fail, error) {
 
 // go_errno returns the text Go's syscall package gives on Linux for the
 // errno behind err, an error std/os returned, among those a path lookup,
-// an open or a read can fail with, or an empty string for any other.
+// an open or a read can fail with, a kernel's ENOMEM included, which
+// std/os gives as code 3 apart from an allocation that failed, or an
+// empty string for any other.
 // std/os refuses a path holding a 0 byte, code 4, before the OS sees
 // it, where Go's call fails with EINVAL.
 pub func go_errno(err error) string {
@@ -92,6 +94,8 @@ pub func go_errno(err error) string {
         return "text file busy"
     case "Resource busy":
         return "device or resource busy"
+    case "Cannot allocate memory":
+        return "cannot allocate memory"
     }
     return ""
 }
