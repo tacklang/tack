@@ -77,8 +77,11 @@ import typeck from "tack/typeck"
 // Go's strconv.ParseInt reads it with base 0, -out, a path, and
 // -backend, a backend's name, each given after = or as the next
 // argument. Any other flag, -lex= with a value among them, -h and -help
-// too, is not implemented, named in the line above, as is a build, which
-// -out without -check asks for. The usage errors such a command line can
+// too, is not implemented, named in the line above. A build, which -out
+// without -check or a dump flag asks for, at the level the -O flag
+// gives, -O3 by default, is done as Go's driver does it for a program
+// that needs nothing linked but its generated C, and declined for any
+// other (see build.tck). The usage errors such a command line can
 // make are reported as Go's driver reports them, with exit status 2, in
 // Go's order: a flag of bad syntax, such as ---lex, a value flag with no
 // value or a value that is no int, an error limit below 0, named as the
@@ -250,15 +253,17 @@ var dump_flags = [11]string{"--lex", "--ast", "--res", "--emit", "--emit-header"
 // --check, --backends, and each -O flag, in codegen.opts' order, whether
 // --out names a path, Go's outBin != "", the values of --max-errors and
 // --max-diags, and whether --max-diags was given, which makes its value
-// the limit, as Go's fs.Visit finds it, and where the value of the last
-// --backend is: the index of the argument that holds it, -1 for none,
-// and its offset in it.
+// the limit, as Go's fs.Visit finds it, and where the values of the
+// last --out and the last --backend are: the index of the argument that
+// holds each, -1 for none, and its offset in it.
 type Flags struct {
     asked [11]bool
     check bool
     backends bool
     opt [6]bool
     has_out bool
+    out_at int64
+    out_from int64
     max_errors int64
     max_diags int64
     diags_set bool
@@ -278,7 +283,7 @@ func run(a []text.Text) (int32, error) {
     mut rest := make(list[int64], c_allocator)
     mut asked [11]bool
     mut opt [6]bool
-    mut fl := Flags{asked: asked, check: false, backends: false, opt: opt, has_out: false, max_errors: default_max_errors, max_diags: default_max_errors, diags_set: false, backend_at: -1, backend_from: 0}
+    mut fl := Flags{asked: asked, check: false, backends: false, opt: opt, has_out: false, out_at: -1, out_from: 0, max_errors: default_max_errors, max_diags: default_max_errors, diags_set: false, backend_at: -1, backend_from: 0}
     mut flags_done := false
     // skip says the argument is the value of the flag before it.
     mut skip := false
@@ -506,6 +511,8 @@ func is_value_flag(name []uint8) bool {
 func apply_value(mut fl Flags, name []uint8, value []uint8, at int64, offset int64) (int32, bool, error) {
     if bytes.equal(name, []uint8("out")) {
         fl.has_out = len(value) > 0
+        fl.out_at = at
+        fl.out_from = offset
         return exit_ok, false, noerror
     }
     if bytes.equal(name, []uint8("backend")) {
@@ -545,9 +552,9 @@ func flag_is(name []uint8, flag string) bool {
 // the dump d, with the error limit max_errors, and whose arguments
 // after the flags are the ones at the indexes rest holds: the one
 // input, as Go's fileArg checks it, the flags checked together, as Go's
-// checkCombination checks them, and then the check or the dump. A
-// build, which the port cannot do, and a check with a dump are not
-// implemented.
+// checkCombination checks them, and then the build (see build_target),
+// the check or the dump. A check with a dump other than --emit and
+// --emit-header is not implemented.
 func command(a []text.Text, rest []int64, fl Flags, d Dump, max_errors int64) (int32, error) {
     if len(rest) == 0 {
         return usage([]uint8("no input file")), noerror
@@ -599,10 +606,11 @@ func command(a []text.Text, rest []int64, fl Flags, d Dump, max_errors int64) (i
         return code, e
     }
     if no_dump {
-        return unimplemented([]uint8("--out")), noerror
+        code, e := build_target(a, k, fl, max_errors)
+        return code, e
     }
     if emits {
-        code, e := emit_target(a[k].bytes(), d, max_errors)
+        code, e := emit_target(a[k].bytes(), d, max_errors, []uint8(""), "")
         return code, e
     }
     if d == dump_floats {
@@ -654,8 +662,12 @@ func backend_usage(arg []uint8, offset int64) (bool, int32, error) {
     return true, usage(msg), noerror
 }
 
-// flag_name returns the name of the dump flag of d.
+// flag_name returns the name of the dump flag of d, or --out for no
+// dump, d's n 0, a build, which the not implemented line names.
 func flag_name(d Dump) string {
+    if d.n == 0 {
+        return "--out"
+    }
     if d == dump_ast {
         return "--ast"
     }
@@ -1149,11 +1161,14 @@ func types_dump(mut res loader.Result, d Dump) (int32, error) {
 // there, exit status 1, where Go checks it on (see
 // resolver.missing_main_package); when any stage reported an error, every
 // diagnostic is rendered, exit status 1, and otherwise the checked
-// program is handed to code generation, where Go would generate the C,
-// which the port declines, naming d. A program the type checker cannot
-// check yet is declined too, as a failure to read the target the port
-// cannot word.
-func emit_target(target []uint8, d Dump, max_errors int64) (int32, error) {
+// program is handed to code generation, and its C written, or tack.h
+// for --emit-header. A program the type checker or the backend cannot
+// handle yet is declined, naming d. With no dump, d's n 0, it is a build
+// instead: the C is linked into out_bin at the level opt, the warnings
+// written with the build's outcome (see build), or the build declined,
+// with nothing else written, for a program that needs more than its C
+// linked (see needs_more).
+func emit_target(target []uint8, d Dump, max_errors int64, out_bin []uint8, opt string) (int32, error) {
     std_dir, sf := find_std()?
     if sf.failed {
         code, e := failed(sf, d)
@@ -1246,6 +1261,18 @@ func emit_target(target []uint8, d Dump, max_errors int64) (int32, error) {
     mut warnings := make(list[uint8], c_allocator)
     if len(all) > 0 {
         warnings = render_diagnostics(typed.files, all, max_errors)?
+    }
+    if d.n == 0 {
+        // A build: what the port's build cannot link is declined with
+        // nothing else written; build writes the warnings itself, once
+        // it knows the build ends in something the port words.
+        more := needs_more(mut typed)?
+        if more {
+            code := unimplemented_of(d, []uint8(" of a program that needs C files compiled or runtime objects linked"))?
+            return code, noerror
+        }
+        code := build(gout, warnings, out_bin, opt)?
+        return code, noerror
     }
     if d == dump_header {
         mut msg := make(list[uint8], c_allocator)

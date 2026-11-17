@@ -121,6 +121,39 @@ answered as not implemented. The flags
 `-O0` to `-Oz` and `--backend` are read, and their usage errors
 written, as the Go compiler writes them.
 
+`tack --out <path> <target>` builds a binary as the Go compiler does
+for a program that needs nothing linked but its generated C: one with
+no C file in any package, that calls no builtin, declares no extern
+func, has no list, map, arena or pool type and holds no `unreachable`.
+The `--out` path is checked first, as Go's `checkOutPath` does, the
+program compiled as `--emit` compiles it, and the runtime and the C
+written to a temporary directory, which clang's link, the Go
+compiler's command at the `-O` level asked for, turns into the binary,
+byte for byte the Go compiler's. clang is looked up on `PATH` as Go's
+`exec.LookPath` looks, and the path found is the one run. The
+warnings, clang's output and the build's failure are written as the Go
+compiler writes them, once the build has ended in a binary or in an
+error the port words as Go does. Anything else is answered as not
+implemented, with nothing written but that line, and a file clang made
+at the `--out` path removed. What was at `--out` before the build is
+not restored: a decline after clang ran can leave a file clang
+overwrote, and a file clang wrote through a dangling symbolic link.
+The declines are these: any other program, a clang killed by a signal or that cannot be started, a clang on a `PATH` element that
+is not absolute, which Go refuses to run only when it is executable, a
+temporary directory or file that cannot be made, written or removed,
+which Go words with a path or an operation the port cannot give, and a
+relative `--out` from a current directory that is gone, where Go's
+message names an empty path. The temporary directory is std/os's
+`tack-XXXXXX` where Go's is `tk-<digits>`, made with std/os's file
+modes, and every failure Go words with a path in it, as a runtime
+directory that cannot be made, is declined; clang is given the path it was found at as its `argv[0]`, where
+Go gives `clang`; and clang's output is passed on once it has ended,
+each stream whole, so a terminal shows it without colour, and where
+both streams reach one place its standard output comes before its
+standard error rather than as clang wrote them. No build the porttest
+stages compare shows these differences. Ctrl-C does not stop clang, and
+leaves the temporary directory behind.
+
 The driver has flags the Go compiler has not. `--port-loaded`
 writes what a load in full gives: the program's packages, in order,
 their directories, files and C files, what each import is bound to, the

@@ -35,6 +35,45 @@ pub var opts = [6]string{"0", "1", "2", "3", "s", "z"}
 // DefaultOpt: the highest that keeps the C standard's semantics.
 pub var default_opt = "3"
 
+// append_clang_flags appends to argv the flags every clang command of the
+// backend that compiles C starts with, Go's clangFlags: -w, warnings
+// off, since a warning about generated C names a temporary file and code
+// whoever runs tack never wrote; -fno-finite-loops, so clang never
+// assumes, as C11 6.8.5p6 lets it, that a loop ends; -mllvm
+// -indvars-predicate-loops=false, which turns off the loop predication
+// that deletes a loop that never ends at -Oz in clang 23.1.5
+// (llvm/llvm-project#183906); and -O at opt, one of opts. It fails only
+// for want of memory.
+pub func append_clang_flags(mut argv list[text.Text], opt []uint8) error {
+    flags := [4]string{"-w", "-fno-finite-loops", "-mllvm", "-indvars-predicate-loops=false"}
+    for _, f := range flags {
+        append(mut argv, text.from_bytes([]uint8(f), c_allocator)?)?
+    }
+    mut o := text.from_bytes([]uint8("-O"), c_allocator)?
+    mut o.append(opt)?
+    return append(mut argv, o)
+}
+
+// build_cmd returns the clang command that compiles src, the generated
+// C, and links it into the binary out, Go's BuildCmd: clang, its flags
+// (see append_clang_flags) at the level opt, -I include, the directory
+// the generated C finds <tack/tack.h> in, -o out and src. The driver
+// passes every path absolute, so none can be read as an option. Go's
+// BuildCmd also links the objects of the program's C files and the
+// runtime's after src; the driver builds with none of them yet, so it
+// takes none. It fails only for want of memory.
+pub func build_cmd(src []uint8, include []uint8, out []uint8, opt []uint8) (list[text.Text], error) {
+    mut argv := make(list[text.Text], c_allocator)
+    append(mut argv, text.from_bytes([]uint8("clang"), c_allocator)?)?
+    append_clang_flags(mut argv, opt)?
+    append(mut argv, text.from_bytes([]uint8("-I"), c_allocator)?)?
+    append(mut argv, text.from_bytes(include, c_allocator)?)?
+    append(mut argv, text.from_bytes([]uint8("-o"), c_allocator)?)?
+    append(mut argv, text.from_bytes(out, c_allocator)?)?
+    append(mut argv, text.from_bytes(src, c_allocator)?)?
+    return argv, noerror
+}
+
 // has_backend reports whether name is the name of a backend, Go's Get
 // finding one.
 pub func has_backend(name []uint8) bool {

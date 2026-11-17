@@ -1,0 +1,611 @@
+package main
+
+import builtin from "tack/builtin"
+import codegen from "tack/codegen"
+import conv from "std/conv"
+import fmt from "std/fmt"
+import loader from "tack/loader"
+import os from "std/os"
+import path from "std/path"
+import text from "std/text"
+import typeck from "tack/typeck"
+
+// The build: tack --out <path> <target>, Go's execute past the dump
+// flags and its builder (tack/build.go), as far as the port does it. The
+// --out path is checked before anything is compiled (check_out_path),
+// the target compiled as --emit compiles it (see emit_target), and the
+// generated C linked into the binary by clang (build), for a program that
+// needs neither C files compiled nor objects of the runtime linked: one
+// with no C file in any package, that calls no builtin, declares no
+// extern func, has no list, map, arena or pool type and holds no
+// unreachable (see needs_more). Any other program is declined, as not
+// implemented.
+//
+// Every message is Go's, its os errors in Go's words (see
+// loader.go_errno); what the port cannot word as Go does is declined:
+// an errno Go's words for are not known, a temporary directory or file
+// that cannot be made or written, a clang that cannot be started or is
+// killed by a signal, a clang on a PATH element that is not absolute
+// (see find_clang), a temporary directory that cannot be removed, and a
+// relative --out from a current directory that cannot be found, where
+// Go's message is wrong (see build_in). A decline writes nothing but its
+// one line: the warnings and clang's output are held until the build has
+// ended in something the port words, a binary or one of Go's errors, and
+// then written in Go's order, the warnings, clang's output, the error;
+// and a file the build made at the --out path is removed. The four
+// errors Go's linkStd gives for a runtime that defines no C function the
+// program needs (stdlink.go's stdRoots: a builtin's, the start and end,
+// unreachable's, the lists') cannot be reached with the runtime built
+// into the compiler, and are not ported; the link the port does needs no
+// runtime object at all.
+//
+// What differs from Go and cannot be seen in what a build writes: the
+// temporary directory is std/os's make_temp_dir's, $TMPDIR/tack- and
+// six characters, where Go's os.MkdirTemp makes tk- and decimal digits;
+// no message names it. Every failure Go words with a path below it, a
+// directory of the runtime that cannot be made, mkdir and its path, or a
+// file that cannot be written, is declined, and clang names neither
+// program.c nor the runtime's header while it accepts them, as it does
+// for C the backend generates: given no C file of the program's, only a
+// backend bug that made clang reject them would show the name. Its
+// directories are made with mode 0755 and its files with 0644,
+// std/os's, where Go's are 0750 and 0600, inside the directory
+// make_temp_dir makes 0700, as Go's is. clang is
+// given the path find_clang found as its argv[0], where Go's gives
+// clang; clang's messages name it by its base name, clang, either way.
+// clang's standard output and standard error are read through pipes and
+// written once it has ended, where Go's clang writes to the driver's
+// own: each stream's bytes are the same, but a terminal shows no colour,
+// and where both streams reach one place, clang's standard output comes
+// before its standard error rather than as clang wrote them. Ctrl-C does
+// not stop clang and leaves the temporary directory behind, where Go
+// cancels the build and removes it.
+
+// build_target builds the target, the input at index k of a, the
+// command line whose flags set fl, into the binary --out names, with the
+// error limit max_errors, as Go's execute does: the --out path checked
+// first (see check_out_path), then the target compiled and linked (see
+// emit_target and build). It returns the exit status.
+func build_target(a []text.Text, k int64, fl Flags, max_errors int64) (int32, error) {
+    if k < 0 || k >= len(a) || fl.out_at < 0 || fl.out_at >= len(a) {
+        // command found the input at k, and the --out flag set out_at,
+        // so this does not happen.
+        return unimplemented([]uint8("--out")), noerror
+    }
+    code, e := build_out(part_of(a[fl.out_at].bytes(), fl.out_from, a[fl.out_at].len()), a[k].bytes(), opt_of(fl), max_errors)
+    return code, e
+}
+
+// build_out is build_target for out, the --out path, and target, the
+// input, at the level opt.
+func build_out(out []uint8, target []uint8, opt string, max_errors int64) (int32, error) {
+    code := check_out_path(out, target)?
+    if code != exit_ok {
+        return code, noerror
+    }
+    code2, e := emit_target(target, Dump{n: 0}, max_errors, out, opt)
+    return code2, e
+}
+
+// opt_of returns the optimization level the -O flags of fl ask for, one
+// of codegen.opts, or codegen.default_opt when none is given, Go's optOf
+// for a build; two of them are a usage error opt_usage has reported.
+func opt_of(fl Flags) string {
+    for k, on := range fl.opt {
+        o, has := codegen.opts[k]
+        if on && has {
+            return o
+        }
+    }
+    return codegen.default_opt
+}
+
+// part_of returns the view of b from i up to j, or an empty view when
+// those are not bounds of b.
+func part_of(b []uint8, i int64, j int64) []uint8 {
+    if i < 0 || j < i || j > len(b) {
+        return b[:0]
+    }
+    return b[i:j]
+}
+
+// check_out_path checks out, the --out path, against input, the target,
+// before anything is compiled, as Go's checkOutPath does: a directory of
+// out that cannot be looked at, cannot write --out, out and Go's stat
+// error, or is not a directory, and an out that is a directory, are
+// errors, exit status 1; an out that is the input file is a usage error,
+// exit status 2, since linking would overwrite it. Any other failure to
+// look at out or at input is left for the build to meet, as Go leaves
+// it. It returns exit_ok when the build may go on, and otherwise the
+// exit status of what it wrote, not implemented for an errno whose Go
+// words are not known.
+func check_out_path(out []uint8, input []uint8) (int32, error) {
+    dir := path.dir(out, c_allocator)?
+    info, err := os.stat(dir.bytes())
+    if err.code != 0 {
+        errno := loader.go_errno(err)
+        if len(errno) == 0 {
+            return unimplemented([]uint8("--out of a directory that cannot be looked at")), noerror
+        }
+        fmt.eprintf("tack: cannot write --out %s: stat %s: %s\n", out, dir.bytes(), errno)
+        return exit_failure, noerror
+    }
+    if !info.is_dir() {
+        fmt.eprintf("tack: cannot write --out %s: %s is not a directory\n", out, dir.bytes())
+        return exit_failure, noerror
+    }
+    out_info, out_err := os.stat(out)
+    if out_err.code != 0 {
+        return exit_ok, noerror
+    }
+    if out_info.is_dir() {
+        fmt.eprintf("tack: cannot write --out %s: it is a directory\n", out)
+        return exit_failure, noerror
+    }
+    in_info, in_err := os.stat(input)
+    if in_err.code == 0 && os.same_file(in_info, out_info) {
+        mut msg := make(list[uint8], c_allocator)
+        fmt.appendf(mut msg, "--out %s is the input file; linking would overwrite it", out)?
+        return usage(msg), noerror
+    }
+    return exit_ok, noerror
+}
+
+// needs_more reports whether the checked program t holds needs more
+// than its generated C linked, which the port's build does not do yet:
+// a C file in any package, which Go's compileC compiles, or an object of
+// the runtime, which Go's linkStd links for a program that calls a
+// builtin or declares an extern func (builtin.Set.runs_c), has a list,
+// map, arena or pool type (builtin.uses_lists) or holds an unreachable
+// (builtin.uses_unreachable). It fails only for want of memory.
+func needs_more(mut t typeck.Typed) (bool, error) {
+    for _, pkg := range t.prog.packages {
+        if len(pkg.c_files) > 0 {
+            return true, noerror
+        }
+    }
+    runs := builtin.default_set().runs_c(t.prog)?
+    if runs {
+        return true, noerror
+    }
+    lists := builtin.uses_lists(mut t.table)?
+    if lists {
+        return true, noerror
+    }
+    holds := builtin.uses_unreachable(t.prog)?
+    return holds, noerror
+}
+
+// build links c, the generated C, into the binary out, at the level opt,
+// as Go's builder.build does for a program with no C files and no
+// runtime objects, warnings being what the stages before warned of,
+// rendered: in a fresh temporary directory, which is removed on every
+// path, it writes the runtime (see write_runtime) and c, as program.c,
+// and runs clang's link (see codegen.build_cmd). It returns the exit
+// status: exit_ok or exit_failure, with the warnings, what clang wrote
+// to each stream and, for a failure, Go's error, tack: and its text,
+// written then, as Go writes them; or not implemented, with nothing
+// written but the line saying so, and the file clang made at out, if it
+// started and nothing was at out before, removed. What was at out before
+// the build is not restored: a decline after clang ran can leave a file
+// clang overwrote, overwritten, and a symbolic link, dangling or not,
+// with the file clang wrote through it at its target. A temporary
+// directory that cannot be made or removed is declined: Go's messages
+// for them name a path the port's does not make. It fails only for
+// want of memory, writing nothing, having tried to remove the directory
+// first; the removal itself allocates, so a directory it could not
+// remove for want of memory is left behind, and a binary clang wrote at
+// out before memory ran out is left there, with exit status 1.
+func build(c []uint8, warnings []uint8, out []uint8, opt string) (int32, error) {
+    // std/os gives a kernel ENOMEM as code 1, the code of an allocation
+    // that failed, so an ENOMEM from mkdtemp ends the build as out of
+    // memory, tack: out of memory, where Go words the OS's error;
+    // std/os's extension for the build, with os.run's, is to tell them
+    // apart.
+    tmp, terr := os.make_temp_dir(c_allocator)
+    if terr.code == 1 {
+        return exit_failure, terr
+    }
+    if terr.code != 0 {
+        return unimplemented([]uint8("--out with a temp directory that cannot be made")), noerror
+    }
+    mut msg := make(list[uint8], c_allocator)
+    mut clang_out := make(list[uint8], c_allocator)
+    mut clang_err := make(list[uint8], c_allocator)
+    mut made := text.new(c_allocator)
+    code, e := build_in(tmp.bytes(), c, out, opt, mut msg, mut clang_out, mut clang_err, mut made)
+    removed, re := remove_tree(tmp.bytes())
+    if e.code != 0 {
+        return exit_failure, e
+    }
+    if re.code != 0 {
+        return exit_failure, re
+    }
+    mut outcome := code
+    if !removed {
+        outcome = not_implemented
+        msg = make(list[uint8], c_allocator)
+        append(mut msg, []uint8(" with a temp directory that cannot be removed")...)?
+    }
+    if outcome == not_implemented {
+        if made.len() > 0 {
+            remove_made(made.bytes())
+        }
+        mut what := make(list[uint8], c_allocator)
+        append(mut what, []uint8("--out")...)?
+        append(mut what, msg...)?
+        return unimplemented(what), noerror
+    }
+    fmt.ewrite(warnings)
+    fmt.write(clang_out)
+    fmt.ewrite(clang_err)
+    if outcome != exit_ok {
+        fmt.eprintf("tack: %s\n", msg[:])
+    }
+    return outcome, noerror
+}
+
+// remove_made removes p, the --out path, absolute, which a build that
+// is declined made: a file, or a symbolic link, never a directory, which
+// clang does not make. One that cannot be removed is left; the decline
+// is all that is said, so remove_made reports nothing.
+func remove_made(p []uint8) {
+    info, err := os.lstat(p)
+    if err.code != 0 || info.is_dir() {
+        return
+    }
+    rerr := os.remove_path(p)
+    if rerr.code != 0 {
+        return
+    }
+}
+
+// build_in is build's work in dir, the temporary directory, as
+// make_temp_dir gave it: it returns exit_ok, or exit_failure with Go's
+// error in msg, or not_implemented with what the port cannot do in msg,
+// after a space, for the not implemented line, with what clang wrote to
+// each stream in clang_out and clang_err, and, in made, the absolute
+// --out path when nothing was there before clang ran and clang started,
+// so that a build that is declined can remove what clang made. Go's
+// build makes the directory and out absolute first, each as
+// filepath.Abs does, failing
+// with cannot find the temp directory or cannot find --out and the
+// error. Go's filepath.Abs returns "" with its error, and build assigns
+// it to dir and outBin before it words the message: its RemoveAll("")
+// then removes nothing, leaving the directory, which the port removes,
+// and its cannot find --out names an empty path, cannot find --out :,
+// which the port declines rather than copy.
+func build_in(dir []uint8, c []uint8, out []uint8, opt string, mut msg list[uint8], mut clang_out list[uint8], mut clang_err list[uint8], mut made text.Text) (int32, error) {
+    abs_dir, df := abs_path(dir)?
+    if df.failed {
+        if df.unworded {
+            append(mut msg, []uint8(" in a current directory that cannot be found")...)?
+            return not_implemented, noerror
+        }
+        fmt.appendf(mut msg, "cannot find the temp directory: %s", df.msg[:])?
+        return exit_failure, noerror
+    }
+    abs_out, of := abs_path(out)?
+    if of.failed {
+        // Go's message names the empty path filepath.Abs returned, not
+        // out: a bug the port does not copy.
+        append(mut msg, []uint8(" in a current directory that cannot be found")...)?
+        return not_implemented, noerror
+    }
+    include, rcode := write_runtime(abs_dir.bytes(), mut msg)?
+    if rcode != exit_ok {
+        return rcode, noerror
+    }
+    mut name := text.from_bytes([]uint8("program"), c_allocator)?
+    mut name.append([]uint8(codegen.c_ext))?
+    src := path.join(abs_dir.bytes(), name.bytes(), c_allocator)?
+    wcode := write_temp(src.bytes(), c, mut msg)?
+    if wcode != exit_ok {
+        return wcode, noerror
+    }
+    argv := codegen.build_cmd(src.bytes(), include.bytes(), abs_out.bytes(), []uint8(opt))?
+    _, before := os.lstat(abs_out.bytes())
+    mut started := false
+    code := run_tool(argv, mut msg, mut clang_out, mut clang_err, mut started)?
+    if started && loader.is_enoent(before) {
+        made = text.from_bytes(abs_out.bytes(), c_allocator)?
+    }
+    return code, noerror
+}
+
+// write_runtime writes the runtime built into the compiler below dir,
+// the build's temporary directory, as Go's writeRuntime does: its
+// header at runtime/include/tack/tack.h and its C files in
+// runtime/builtin, each directory made as Go's os.MkdirAll makes it,
+// and returns runtime/include, the directory every C file of the build
+// is compiled against, with exit_ok; or, with an empty Text, exit_failure
+// with Go's error in msg, cannot write the runtime and Go's mkdir error,
+// or not_implemented, with what in msg, for a directory or file that
+// cannot be made or written as Go words it.
+func write_runtime(dir []uint8, mut msg list[uint8]) (text.Text, int32, error) {
+    root := path.join(dir, []uint8("runtime"), c_allocator)?
+    include := path.join(root.bytes(), []uint8("include"), c_allocator)?
+    header := path.join(include.bytes(), []uint8(builtin.header_path), c_allocator)?
+    mut rel := text.from_bytes([]uint8("runtime/include/"), c_allocator)?
+    header_dir := path.dir([]uint8(builtin.header_path), c_allocator)?
+    mut rel.append(header_dir.bytes())?
+    code := make_below(dir, rel.bytes(), mut msg)?
+    if code != exit_ok {
+        return text.new(c_allocator), code, noerror
+    }
+    wcode := write_temp(header.bytes(), []uint8(builtin.runtime_header()), mut msg)?
+    if wcode != exit_ok {
+        return text.new(c_allocator), wcode, noerror
+    }
+    code2 := make_below(dir, []uint8("runtime/builtin"), mut msg)?
+    if code2 != exit_ok {
+        return text.new(c_allocator), code2, noerror
+    }
+    builtin_dir := path.join(root.bytes(), []uint8("builtin"), c_allocator)?
+    for i := range builtin.runtime_count() {
+        f, has := builtin.runtime_file(i)
+        if !has {
+            continue
+        }
+        p := path.join(builtin_dir.bytes(), []uint8(f.name), c_allocator)?
+        fcode := write_temp(p.bytes(), []uint8(f.data), mut msg)?
+        if fcode != exit_ok {
+            return text.new(c_allocator), fcode, noerror
+        }
+    }
+    return include, exit_ok, noerror
+}
+
+// make_below makes the directories of rel, a slash-separated path below
+// dir, that are not there yet, each after the one above it, as Go's
+// os.MkdirAll makes the directories of dir joined with rel when dir
+// exists. A directory that cannot be made is not_implemented, with what
+// in msg: Go's error names its path, below the temporary directory,
+// whose name the port's does not share.
+func make_below(dir []uint8, rel []uint8, mut msg list[uint8]) (int32, error) {
+    mut at := text.from_bytes(dir, c_allocator)?
+    mut start int64 = 0
+    mut j int64 = 0
+    for j <= len(rel) {
+        c, has := rel[j]
+        if has && c != '/' {
+            j +%= 1
+            continue
+        }
+        lo := start
+        hi := j
+        j +%= 1
+        start = j
+        if hi <= lo {
+            continue
+        }
+        next := path.join(at.bytes(), part_of(rel, lo, hi), c_allocator)?
+        at = next
+        info, serr := os.stat(at.bytes())
+        if serr.code == 0 && info.is_dir() {
+            continue
+        }
+        // std/os gives a kernel ENOMEM as code 1, the code of an
+        // allocation that failed, so an ENOMEM from mkdir ends the
+        // build as out of memory, tack: out of memory, where Go words
+        // the OS's error; std/os's extension for the build, with
+        // os.run's, is to tell them apart.
+        err := os.make_dir(at.bytes())
+        if err.code == 1 {
+            return exit_failure, err
+        }
+        if err.code != 0 {
+            // Go's error, cannot write the runtime: mkdir, the path and
+            // the errno, names the temporary directory, whose name is
+            // not Go's.
+            append(mut msg, []uint8(" with a runtime directory that cannot be made")...)?
+            return not_implemented, noerror
+        }
+    }
+    return exit_ok, noerror
+}
+
+// write_temp writes data to the file at p, in the build's temporary
+// directory, as Go's writeFile does, and returns exit_ok, or
+// not_implemented, with what in msg, when it cannot: std/os's write_file
+// opens, writes and closes in one call and does not say which failed,
+// so the port cannot tell Go's open, write or close error apart.
+func write_temp(p []uint8, data []uint8, mut msg list[uint8]) (int32, error) {
+    // std/os gives a kernel ENOMEM as code 1, the code of an allocation
+    // that failed, so an ENOMEM from open or write ends the build as
+    // out of memory, tack: out of memory, where Go words the OS's
+    // error; std/os's extension for the build, with os.run's, is to
+    // tell them apart.
+    err := os.write_file(p, data)
+    if err.code == 1 {
+        return exit_failure, err
+    }
+    if err.code != 0 {
+        append(mut msg, []uint8(" with a temp file that cannot be written")...)?
+        return not_implemented, noerror
+    }
+    return exit_ok, noerror
+}
+
+// run_tool runs argv, a toolchain command whose program is clang, as
+// Go's runTool runs one with no C file to name: the program found on
+// PATH as Go's exec.LookPath finds it (see find_clang), and then that
+// path itself run, with std/os's run, so that nothing looks clang up
+// again. What it writes to its standard output and standard error is
+// appended to out and err_out. It returns exit_ok when clang exits 0,
+// and otherwise exit_failure, with Go's error in msg, clang failed: and
+// exit status and the status, or Go's exec error for a clang not found;
+// or not_implemented, with what in msg, for a clang on a PATH element
+// that is not absolute, one that cannot be started, whose error Go words
+// with its errno, which std/os's run does not give, and one killed by a
+// signal, whose number std/os's run does not give either. started is set
+// when clang was started, whatever it then did.
+func run_tool(argv []text.Text, mut msg list[uint8], mut out list[uint8], mut err_out list[uint8], mut started bool) (int32, error) {
+    mut found := text.new(c_allocator)
+    mut why := make(list[uint8], c_allocator)
+    fcode := find_clang(mut found, mut why)?
+    if fcode == not_implemented {
+        append(mut msg, why...)?
+        return not_implemented, noerror
+    }
+    if fcode != exit_ok {
+        fmt.appendf(mut msg, "clang failed: %s", why[:])?
+        return exit_failure, noerror
+    }
+    // argv with the path found in place of its program's name: a name
+    // with a slash, which run starts as it is.
+    mut run_argv := make(list[text.Text], c_allocator)
+    for i, a := range argv {
+        if i == 0 {
+            append(mut run_argv, text.from_bytes(found.bytes(), c_allocator)?)?
+        } else {
+            append(mut run_argv, text.from_bytes(a.bytes(), c_allocator)?)?
+        }
+    }
+    // std/os gives a kernel ENOMEM as code 1, the code of an allocation
+    // that failed, so an ENOMEM from posix_spawn, pipe or poll ends the
+    // build as out of memory, tack: out of memory, where Go words the
+    // OS's error; std/os's extension for the build, with os.run's, is
+    // to tell them apart.
+    status, err := os.run(run_argv, mut out, mut err_out, c_allocator)
+    // Only a child killed by a signal, or one that ran and was waited for,
+    // started: run's other errors come before the child or instead of it,
+    // but for a read or wait that failed once it had started, which run
+    // does not tell apart, and is taken as not started.
+    started = err.code == 0 || err.code == 5
+    if err.code == 1 {
+        return exit_failure, err
+    }
+    if err.code == 5 {
+        append(mut msg, []uint8(" with a clang killed by a signal")...)?
+        return not_implemented, noerror
+    }
+    if err.code != 0 {
+        append(mut msg, []uint8(" with a clang that cannot be started")...)?
+        return not_implemented, noerror
+    }
+    if status != 0 {
+        fmt.appendf(mut msg, "clang failed: exit status %d", status)?
+        return exit_failure, noerror
+    }
+    return exit_ok, noerror
+}
+
+// find_clang looks for clang on $PATH as Go's exec.LookPath looks for
+// it: each element of PATH in order, split at colons, an empty one
+// meaning ., joined with clang and cleaned, stat'ed, a path that cannot
+// be stat'ed or is a directory skipped. The first that is neither is the
+// clang found: it returns exit_ok, with its path in found, when that
+// path is absolute. Go's LookPath also skips a file that is not
+// executable, which std/os's Info cannot tell; the port takes it, and
+// run_tool, failing to start it, declines, so a build never runs a clang
+// Go would not. When there is none, the error is Go's exec: "clang":
+// executable file not found in $PATH, in msg, with exit_failure. A
+// clang found on an element that is not absolute is not implemented,
+// with what in msg: Go refuses to run one that is executable, with
+// exec.ErrDot, and skips one that is not, and the port cannot tell
+// which.
+func find_clang(mut found text.Text, mut msg list[uint8]) (int32, error) {
+    p, set := os.env([]uint8("PATH"), c_allocator)?
+    if set && p.len() > 0 {
+        mut start int64 = 0
+        mut j int64 = 0
+        for j <= p.len() {
+            c, has := p.bytes()[j]
+            if has && c != ':' {
+                j +%= 1
+                continue
+            }
+            lo := start
+            hi := j
+            j +%= 1
+            start = j
+            mut cand := text.new(c_allocator)
+            if hi <= lo {
+                cand = path.join([]uint8("."), []uint8("clang"), c_allocator)?
+            } else {
+                cand = path.join(part_of(p.bytes(), lo, hi), []uint8("clang"), c_allocator)?
+            }
+            info, serr := os.stat(cand.bytes())
+            if serr.code != 0 || info.is_dir() {
+                continue
+            }
+            if !path.is_abs(cand.bytes()) {
+                append(mut msg, []uint8(" with a clang on a PATH element that is not absolute")...)?
+                return not_implemented, noerror
+            }
+            found = cand
+            return exit_ok, noerror
+        }
+    }
+    append(mut msg, []uint8("exec: ")...)?
+    conv.append_quote(mut msg, []uint8("clang"))?
+    append(mut msg, []uint8(": executable file not found in $PATH")...)?
+    return exit_failure, noerror
+}
+
+// remove_tree removes root and everything below it without following a
+// symbolic link: each path is looked at with lstat, so a link is removed
+// itself, never what it points to. It walks with a list of its own, not
+// by recursion, so a tree however deep needs no more stack. It is not
+// Go's os.RemoveAll, which removes each entry through a descriptor of
+// its directory: between the lstat of a path and its listing or its
+// removal, another process could put a link in its place, which a
+// listing would then follow. root is the directory make_temp_dir made,
+// mode 0700, so only a process of the same user can. It reports whether
+// everything was removed; a failure stops it, leaving what is left,
+// which the caller declines, since Go's wording of a failure of
+// RemoveAll the port cannot give. It fails only for want of memory.
+func remove_tree(root []uint8) (bool, error) {
+    mut paths := make(list[text.Text], c_allocator)
+    // listed holds, for each of paths, whether it is a directory whose
+    // entries are already in paths, above it, to be removed first.
+    mut listed := make(list[bool], c_allocator)
+    append(mut paths, text.from_bytes(root, c_allocator)?)?
+    append(mut listed, false)?
+    for len(paths) > 0 {
+        p, has := pop(mut paths)
+        done, has_done := pop(mut listed)
+        if !has || !has_done {
+            return false, noerror
+        }
+        if done {
+            if os.remove_path(p.bytes()).code != 0 {
+                return false, noerror
+            }
+            continue
+        }
+        info, err := os.lstat(p.bytes())
+        if err.code != 0 {
+            return false, noerror
+        }
+        if !info.is_dir() {
+            if os.remove_path(p.bytes()).code != 0 {
+                return false, noerror
+            }
+            continue
+        }
+        names, lerr := os.list_dir(p.bytes(), c_allocator)
+        if lerr.code == 1 {
+            return false, lerr
+        }
+        if lerr.code != 0 {
+            return false, noerror
+        }
+        mut below := make(list[text.Text], c_allocator)
+        for _, n := range names {
+            append(mut below, path.join(p.bytes(), n.bytes(), c_allocator)?)?
+        }
+        append(mut paths, p)?
+        append(mut listed, true)?
+        for len(below) > 0 {
+            q, has_q := pop(mut below)
+            if !has_q {
+                break
+            }
+            append(mut paths, q)?
+            append(mut listed, false)?
+        }
+    }
+    return true, noerror
+}
