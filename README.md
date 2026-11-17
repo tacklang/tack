@@ -1446,7 +1446,15 @@ section remains the description of the language.
   have grown, when only `err_out` could not. After an error while
   reading, run closes its ends of the pipes, so the child gets `EPIPE`
   or `SIGPIPE`, and waits
-  for it, killing nothing; there is no timeout. An allocation that fails is `error{code: 1,
+  for it, killing nothing; there is no timeout. `status, err :=
+  os.run_inherit(prog, argv, alloc)` runs `prog` as `run` does, but the
+  child writes to the program's own standard output and standard
+  error, as Go's `exec` does given `os.Stdout` and `os.Stderr`, so a
+  terminal stays one to it and where both reach one place its writes
+  arrive as it makes them; it first flushes what `print`, `exit` and
+  `std/fmt` have written, so that comes first, a failed flush ending the
+  program on a broken pipe as `std/fmt`'s do. Its errors are `run`'s but
+  those of the pipes and reads it has none of. An allocation that fails is `error{code: 1,
   msg: "out of memory"}`, and code 1 means nothing else; the OS refusing
   is code 3 and the message macOS's strerror gives, the same on every
   target, `error{code: 3, msg: "No such file or directory"}`, a kernel

@@ -39,6 +39,10 @@ type input struct {
 	// coverage cache nor written to it: a fuzz input's, which would fill
 	// the cache with programs seen once.
 	uncached bool
+	// combined runs the compilers with standard output and standard error
+	// one pipe, read as standard output, so that the order in which the
+	// two streams were written is compared; standard error is then empty.
+	combined bool
 }
 
 // archive is the cases of one txtar archive, written to disk.

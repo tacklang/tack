@@ -1355,6 +1355,11 @@ These points were settled by consistency and could go another way:
   which Go's Linux table lacks, has glibc's "Memory page has hardware
   error". The C library's own `ENOMEM` while setting a start up, an
   allocation of its own, is out of memory, code 1.
+- `run_inherit` is a function of its own beside `run`, not a mode of
+  `run`, and flushes C's stdout and then its stderr before the child
+  starts, a failed flush going to `tack_stdio_failed_` as `std/fmt`'s
+  do. It opens `/dev/null` for the child's standard input, as `run` and
+  Go's `exec` do, and gives the child descriptors 1 and 2 as they are.
 - `can_execute` is a `bool`: a failure to look at the file is "may not
   run it", as Go's `LookPath` skips such a file.
 - `run` makes room in `out` before `err_out`, so when only `err_out`

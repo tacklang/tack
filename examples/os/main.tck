@@ -26,7 +26,8 @@ import text from "std/text"
 // want of memory at each of its allocations. It checks can_execute,
 // that every Linux errno has a message, and, running itself with
 // SIGCHLD ignored, that a program started so still waits for its
-// children. It renames files and directories,
+// children; and, running itself under run, that run_inherit's children
+// write to the program's own outputs, after what it printed before. It renames files and directories,
 // and makes rename fail each way the OS refuses it, and stats files,
 // directories, symbolic links, broken ones included, and, where the
 // file system makes holes, sparse files of 5 GiB and more, made through
@@ -1303,15 +1304,83 @@ func errnos() {
     check(osError(errnoError(80), "Accessing a corrupted shared library"), "ELIBBAD, which only Linux has, has the C library's message")
 }
 
-// ignoredMode reports whether the example was run as sigchld runs it,
-// with the one argument ignored-sigchld.
-func ignoredMode() bool {
+// inheritChild is the run the example makes of itself for inherits: it
+// prints before, which print buffers, then runs a child with
+// run_inherit that writes child-out to its standard output, child-err
+// to its standard error, reads its standard input, which is /dev/null,
+// and exits 4, then prints after. It then has run_inherit fail to start
+// a program not on PATH, and run a child SIGKILL kills. It exits 0 when
+// each run_inherit gives what it should, and otherwise 1, 2 or 3, by
+// the one that did not.
+func inheritChild() {
+    c0, e0 := command("tack-os-inherit", "-c", "printf child-out; printf child-err >&2; cat; exit 4")
+    c1, e1 := command("tack-os-example-no-such-program")
+    c2, e2 := command("sh", "-c", "kill -9 $$")
+    if e0.code != 0 || e1.code != 0 || e2.code != 0 {
+        exit(5)
+    }
+    print("before ")
+    s0, r0 := os.run_inherit([]uint8("sh"), c0, c_allocator)
+    print(" after")
+    if r0.code != 0 || !exitedWith(s0, 4) {
+        exit(1)
+    }
+    _, r1 := os.run_inherit([]uint8("tack-os-example-no-such-program"), c1, c_allocator)
+    if !spawnError(r1, "No such file or directory") {
+        exit(2)
+    }
+    s2, r2 := os.run_inherit([]uint8("sh"), c2, c_allocator)
+    if r2.code != 0 || !killedBy(s2, 9) {
+        exit(3)
+    }
+    exit(0)
+}
+
+// inherits runs the example itself, as inheritChild, with run, and
+// checks what reached each of its outputs: on its standard output what
+// it printed before the child, flushed first, then the child's, then
+// what it printed after, and on its standard error the child's alone;
+// and that each of its run_inherit calls gave what it should, which it
+// says by exiting 0.
+func inherits() {
+    a, e0 := os.args(c_allocator)
+    if e0.code != 0 {
+        check(false, "args for the inherit run")
+        return
+    }
+    mut self := text.new(c_allocator)
+    for i, x := range a {
+        if i == 0 {
+            t, e1 := text.from_bytes(x.bytes(), c_allocator)
+            if e1.code != 0 {
+                check(false, "the example's path")
+                return
+            }
+            self = t
+        }
+    }
+    c, e2 := command("tack-os-example", "inherit-child")
+    if e2.code != 0 {
+        check(false, "argv for the inherit run")
+        return
+    }
+    mut out := make(list[uint8], c_allocator)
+    mut errOut := make(list[uint8], c_allocator)
+    s, e3 := os.run(self.bytes(), c, mut out, mut errOut, c_allocator)
+    check(e3.code == 0 && exitedWith(s, 0), "run_inherit gives each child's Status, and code 13 for a program not on PATH")
+    check(bytes.equal(out, []uint8("before child-out after")), "run_inherit flushes what was printed first, and its child writes to the program's own standard output")
+    check(bytes.equal(errOut, []uint8("child-err")), "run_inherit's child writes to the program's own standard error")
+}
+
+// childMode reports whether the example was run with the one argument
+// name, as sigchld and inherits run it.
+func childMode(name string) bool {
     a, e := os.args(c_allocator)
     if e.code != 0 || len(a) != 2 {
         return false
     }
     for i, x := range a {
-        if i == 1 && bytes.equal(x.bytes(), []uint8("ignored-sigchld")) {
+        if i == 1 && bytes.equal(x.bytes(), []uint8(name)) {
             return true
         }
     }
@@ -1384,8 +1453,12 @@ func cleanup(dir []uint8) {
 }
 
 func main() {
-    if ignoredMode() {
+    if childMode("ignored-sigchld") {
         ignoredChild()
+        return
+    }
+    if childMode("inherit-child") {
+        inheritChild()
         return
     }
     check(live() == 0, "nothing live at the start")
@@ -1425,6 +1498,8 @@ func main() {
     check(live() == 1, "errnos freed")
     sigchld()
     check(live() == 1, "the SIGCHLD run freed")
+    inherits()
+    check(live() == 1, "the inherit run freed")
     renames(d.bytes())
     check(live() == 1, "renames freed")
     stats(d.bytes())

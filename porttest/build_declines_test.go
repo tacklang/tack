@@ -36,6 +36,11 @@ type buildDecline struct {
 	// starts, with --out relative to it, prog, so that nothing it can
 	// find takes it.
 	cwdGone bool
+	// late says the port declines once clang has run, after the warning
+	// and what clang wrote, so the Go compiler runs the case too, and the
+	// port's output must be Go's before its last error, then the decline
+	// (see lateDeclineMismatch).
+	late bool
 }
 
 // The reasons the port's declines give, after --out.
@@ -89,11 +94,11 @@ var buildDeclines = []buildDecline{
 		},
 	},
 	{
-		name: "temp-not-removable", reason: declineTempNotRemoved, leaves: true,
+		name: "temp-not-removable", reason: declineTempNotRemoved, leaves: true, late: true,
 		env: fakeClangFirst("clang-locks"),
 	},
 	{
-		name: "out-file-before", reason: declineTempNotRemoved, keepsOut: true, leaves: true,
+		name: "out-file-before", reason: declineTempNotRemoved, keepsOut: true, leaves: true, late: true,
 		env: fakeClangFirst("clang-locks-only"),
 		setup: func(t *testing.T, base, _ string) {
 			t.Helper()
@@ -110,7 +115,7 @@ var buildDeclines = []buildDecline{
 		},
 	},
 	{
-		name: "out-link-before", reason: declineTempNotRemoved, keepsOut: true, leaves: true,
+		name: "out-link-before", reason: declineTempNotRemoved, keepsOut: true, leaves: true, late: true,
 		env: fakeClangFirst("clang-locks-only"),
 		setup: func(t *testing.T, base, _ string) {
 			t.Helper()
@@ -167,11 +172,15 @@ func fakeClangFirst(name string) func(base, work string) []string {
 
 // TestBuildDeclines runs the port's build of testdata/build-probes/warn
 // in each of buildDeclines, where the port cannot word what Go writes,
-// and checks it declines cleanly, as a case of a build stage it declines
-// must to skip: exit status 3, the one not implemented line, giving the
-// case's reason, on standard error, nothing on standard output, no
-// warning, nothing left at the --out path, or what was there left as it
-// was, and nothing in TMPDIR but what a clang that leaves it left there.
+// and checks it declines as a case of a build stage it declines must to
+// skip: exit status 3 and the not implemented line, giving the case's
+// reason, last on standard error; for a decline before clang runs, that
+// line alone, nothing on standard output and no warning; for one after,
+// a late one, the Go compiler's build of the case run too, and the
+// port's output Go's before its last error, the warning among it, then
+// the line; nothing left at the --out path, or what was there left as
+// it was, and nothing in TMPDIR but what a clang that leaves it left
+// there.
 // These are no cases of build-probes, which is required, and one leaves
 // what the harness must make removable first. Only the port runs: Go
 // words each of these. It runs only as TestPort does.
@@ -216,16 +225,61 @@ func runBuildDecline(t *testing.T, c buildDecline, prog []byte) {
 	if code := cmd.ProcessState.ExitCode(); code != 3 {
 		t.Errorf("exit status %d, want 3", code)
 	}
-	if want := "tack: not implemented in the port: --out" + c.reason + "\n"; stderr.String() != want {
-		t.Errorf("standard error %q, want %q", stderr.Bytes(), want)
-	}
-	if stdout.Len() > 0 {
+	line := "tack: not implemented in the port: --out" + c.reason + "\n"
+	switch {
+	case c.late:
+		port := declineHidden(result{stdout: stdout.Bytes(), stderr: stderr.Bytes(),
+			code: cmd.ProcessState.ExitCode()}, d)
+		if got, ok := port.lateDecline(); !ok || got != line {
+			t.Errorf("standard error %q, want it to end in %q, after what came before", stderr.Bytes(), line)
+		} else if why := lateDeclineMismatch(goDeclineRun(t, c, prog), port, line); why != "" {
+			t.Errorf("the port declines after writing what Go does not: %s", why)
+		}
+	case stderr.String() != line:
+		t.Errorf("standard error %q, want %q", stderr.Bytes(), line)
+	case stdout.Len() > 0:
 		t.Errorf("standard output %q, want nothing", stdout.Bytes())
 	}
 	checkDeclineLeft(t, c, d)
 	if c.after != nil {
 		c.after(t, d)
 	}
+}
+
+// goDeclineRun runs the Go compiler on c's build, prog its target, in
+// directories of its own laid out as the port's are, and returns what
+// it wrote, hidden as declineHidden says.
+func goDeclineRun(t *testing.T, c buildDecline, prog []byte) result {
+	t.Helper()
+	d := prepareBuildDecline(t, c, prog)
+	goRun, err := goStackWrapper()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), compilerTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, goRun, "--out", d.out, d.target) //nolint:gosec // G204: the Go compiler
+	cmd.Dir, cmd.Env = d.work, d.vars
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	outlived, err := runInGroup(cmd)
+	failEnd(t, endOf(ctx.Err(), err, outlived, false), "running Go's build", cmd, err,
+		outlived, compilerTimeout, stderr.Bytes())
+	return declineHidden(result{stdout: stdout.Bytes(), stderr: stderr.Bytes(),
+		code: cmd.ProcessState.ExitCode()}, d)
+}
+
+// declineHidden returns r, the output of a build in d, with the
+// characters after tk- of the build directory's name hidden, as
+// tempNamesHidden hides them, and d's base directory, which holds every
+// path the build is given, written BASE, so that two builds in two
+// such directories compare.
+func declineHidden(r result, d declineDirs) result {
+	r = tempNamesHidden(r, d.tmp)
+	base := []byte(filepath.Dir(d.tmp))
+	r.stdout = bytes.ReplaceAll(r.stdout, base, []byte("BASE"))
+	r.stderr = bytes.ReplaceAll(r.stderr, base, []byte("BASE"))
+	return r
 }
 
 // declineDirs are the paths of one build of TestBuildDeclines: the

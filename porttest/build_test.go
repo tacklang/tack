@@ -143,6 +143,9 @@ type buildProbe struct {
 	// before the PATH the compilers inherit: a fake no script can be, as
 	// one that shows its argv[0].
 	fakeBuilt string
+	// combined runs the compilers with standard output and standard error
+	// one pipe (see input.combined).
+	combined bool
 }
 
 // buildProbes are build-probes' cases, by name: the --out paths Go's
@@ -162,7 +165,10 @@ type buildProbe struct {
 // kills, one signal 34, a real-time signal, kills, one whose
 // interpreter is missing, one with no #! line and one no one may run,
 // which LookPath skips for the real clang, and one built from C that
-// writes the argv[0] it is given, clang, and exits 1. No fake dumps
+// writes the argv[0] it is given, clang, and exits 1; and one that
+// writes to each stream in turn, built with both streams one pipe, so
+// the order of the warning, clang's lines and the error is compared, as
+// a terminal shows it. No fake dumps
 // core: whether one does depends on the machine's limits and core
 // pattern, and a dump may reach systemd-coredump. The builds the port
 // declines are TestBuildDeclines', not cases here: build-probes is
@@ -192,6 +198,7 @@ var buildProbes = map[string]buildProbe{
 	"build-probes/clang-no-shebang":   {program: "warn", fakeFirst: "clang-no-shebang"},
 	"build-probes/clang-not-runnable": {program: "warn", fakeFirst: "clang-not-executable"},
 	"build-probes/clang-argv0":        {program: "warn", fakeBuilt: "clang-argv0"},
+	"build-probes/clang-interleaves":  {program: "warn", fakeFirst: "clang-interleaves", combined: true},
 }
 
 // builtFake returns the directory holding the binary clang the real
@@ -231,7 +238,7 @@ func buildProbeInputs() ([]input, error) {
 	ins := make([]input, 0, len(names))
 	for _, name := range names {
 		p := buildProbes[name]
-		in := input{name: name, dir: filepath.Join(dir, p.program), file: "main.tck"}
+		in := input{name: name, dir: filepath.Join(dir, p.program), file: "main.tck", combined: p.combined}
 		if !fileExists(filepath.Join(in.dir, in.file)) {
 			return nil, fmt.Errorf("build probe %s: %s has no main.tck", name, p.program)
 		}
@@ -535,7 +542,7 @@ func buildOnce(t *testing.T, bin string, d buildDirs, in input, keep string) bui
 		who = "Go"
 	}
 	r := runCompiler(t, bin, d.cache, copied, buildArgs(d.out, in))
-	if r.notImplemented() {
+	if _, late := r.lateDecline(); r.notImplemented() || late {
 		return built{res: r, in: copied}
 	}
 	if left := entries(t, d.tmp); len(left) > 0 {
@@ -663,6 +670,15 @@ func runBuildCase(t *testing.T, st stage, in input, portBin string) {
 	}
 	want := buildOnce(t, goRun, d, in, filepath.Join(base, "bin-go"))
 	port.res, want.res = tempNamesHidden(port.res, d.tmp), tempNamesHidden(want.res, d.tmp)
+	if line, late := port.res.lateDecline(); late {
+		if why := lateDeclineMismatch(want.res, port.res, line); why != "" {
+			t.Fatalf("the port declines after writing what Go does not: %s", why)
+		}
+		if why := buildDeclineVerdict(st.name, env.required); why != "" {
+			t.Fatalf("%s, but the port says %q", why, strings.TrimSuffix(line, "\n"))
+		}
+		declined(t, st, in, result{stderr: []byte(line), code: notImplementedCode})
+	}
 	compareResults(t, st, want.in, buildArgs(d.out, in), want.res, port.res)
 	compareBuilt(t, st, in, d, want, port)
 }
@@ -1057,6 +1073,50 @@ func TestBuildDeclineVerdict(t *testing.T) {
 		if why := buildDeclineVerdict(tc.stage, tc.required); (why != "") != tc.fails {
 			t.Errorf("%s with %v required: verdict %q, want failing %v", tc.stage, tc.required, why,
 				tc.fails)
+		}
+	}
+}
+
+// TestLateDecline checks lateDecline and lateDeclineMismatch: a decline
+// after other output is late, one alone or one whose line is not last is
+// not; and a late decline matches Go's run only when its standard output
+// is Go's and its standard error Go's but for Go's last tack: line, then
+// the decline, a Go run with no such line kept whole.
+func TestLateDecline(t *testing.T) {
+	const line = "tack: not implemented in the port: --out with a temp directory that cannot be removed\n"
+	warn := "main.tck:5:6: warning: declared and not used: spare\n"
+	late := result{stdout: []byte("clang out\n"), stderr: []byte(warn + "clang err\n" + line), code: 3}
+	if got, ok := late.lateDecline(); !ok || got != line {
+		t.Errorf("lateDecline() = %q, %t; want the line, true", got, ok)
+	}
+	for _, r := range []result{
+		{stderr: []byte(line), code: 3},
+		{stderr: []byte(warn + line), code: 1},
+		{stderr: []byte(line + warn), code: 3},
+		{stderr: []byte(warn), code: 3},
+	} {
+		if _, ok := r.lateDecline(); ok {
+			t.Errorf("lateDecline(%q, exit %d) is late, want not", r.stderr, r.code)
+		}
+	}
+	goRun := result{stdout: []byte("clang out\n"), stderr: []byte(warn + "clang err\ntack: failed to delete temp directory: x\n"), code: 1}
+	if why := lateDeclineMismatch(goRun, late, line); why != "" {
+		t.Errorf("a matching late decline: %s", why)
+	}
+	for name, want := range map[string]result{
+		"other stdout":      {stdout: []byte("other\n"), stderr: goRun.stderr},
+		"other warning":     {stdout: goRun.stdout, stderr: []byte("other\nclang err\ntack: x\n")},
+		"no tack: line":     {stdout: goRun.stdout, stderr: []byte(warn + "clang err\n")},
+		"two lines removed": {stdout: goRun.stdout, stderr: []byte(warn + "clang err\ntack: a\ntack: b\n")},
+	} {
+		if name == "no tack: line" {
+			if why := lateDeclineMismatch(want, late, line); why != "" {
+				t.Errorf("%s: %s, want a match, Go's standard error kept whole", name, why)
+			}
+			continue
+		}
+		if why := lateDeclineMismatch(want, late, line); why == "" {
+			t.Errorf("%s: a match, want a mismatch", name)
 		}
 	}
 }

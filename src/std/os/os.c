@@ -436,6 +436,17 @@ int64_t tack_os_spawn(tack_view_uint8 prog, tack_view_uint8 flat, int64_t argc, 
     return pid;
 }
 
+void tack_os_flush_stdio(void) {
+    errno = 0;
+    if (fflush(stdout) == EOF) {
+        tack_stdio_failed_();
+    }
+    errno = 0;
+    if (fflush(stderr) == EOF) {
+        tack_stdio_failed_();
+    }
+}
+
 int64_t tack_os_can_execute(tack_view_uint8 path) {
     char buf[path_max];
     if (c_path(path, buf) != 0) {

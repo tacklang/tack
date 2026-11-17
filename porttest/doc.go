@@ -55,7 +55,16 @@
 // says the port cannot do that yet. Such a case skips, without running
 // the Go compiler, unless its stage is named in required.txt, one name a
 // line, where blank lines and lines starting with # are ignored; then it
-// fails. A stage enters required.txt once the port implements it, so it
+// fails. A build stage's case may also decline late: once clang, which
+// writes to the driver's own outputs as it runs, has started, a decline
+// comes after the warnings and what clang wrote. Such a run exits 3
+// with that line last on standard error, after other output, and is a
+// decline only when what came before is what the Go compiler wrote
+// before its own final error: its standard output the Go compiler's,
+// and its standard error the Go compiler's with its last line removed
+// when that line starts tack: , then the not implemented line. The Go
+// compiler runs to tell, and a late decline that writes anything else
+// fails the case, required or not. A stage enters required.txt once the port implements it, so it
 // cannot quietly stop working. required.txt also names loaded and
 // types-decls, the checks TestLoadOrder and TestTypes make outside
 // TestPort. A name in required.txt that is no
@@ -479,7 +488,10 @@
 // real one: one SIGKILL, SIGTERM or signal 34 kills, one that cannot be
 // started, its interpreter missing or its #! line, one no one may run,
 // which LookPath skips for the real clang, and one compiled from C,
-// once a run, that writes the argv[0] it is given. No fake dumps core,
+// once a run, that writes the argv[0] it is given; and one that writes
+// to each stream in turn, built with standard output and standard error
+// one pipe, read as standard output, so the order of the warning,
+// clang's lines and the error is compared. No fake dumps core,
 // which the machine's limits and core pattern decide. A
 // probe's --out path, when it has one, is its own, relative to its
 // directory, in place of the case's, and its PATH, when it has one,
@@ -492,8 +504,12 @@
 // symbolic link at --out before a build whose clang does that and
 // writes no binary, and a current directory that is gone, and
 // checks that each declines as a case must to skip: exit status 3, the
-// one not implemented line with the case's reason, nothing else
-// written, nothing left in TMPDIR but what that clang left there, and
+// not implemented line with the case's reason, nothing else written for
+// a decline before clang runs, and for the three after it, the late
+// declines, the Go compiler's build of the case run too, in directories
+// laid out alike, and what the port wrote before the line what Go wrote
+// before its last error (see Protocol); nothing left in TMPDIR but what
+// that clang left there, and
 // nothing at the --out path, but for what was there before the build,
 // which is left as it was. Each compiler builds a case in a
 // fresh copy of its tree, the directory of its module or of its file,

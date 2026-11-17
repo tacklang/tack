@@ -165,6 +165,12 @@ extern("tack_os_spawn") func c_spawn(prog []uint8, flat []uint8, argc int64, in 
 // os.c's no_room.
 extern("tack_os_spawn_failed") func c_spawn_failed() int64
 
+// c_flush_stdio flushes C's stdout, then its stderr, which print, exit
+// and std/fmt write through, handing a failure to the runtime as
+// std/fmt's flushes do: a broken pipe ends the process as exit(141)
+// does, and any other failure loses the bytes.
+extern("tack_os_flush_stdio") func c_flush_stdio()
+
 // c_can_execute returns 1 when the file at path may be run, as
 // can_execute says, and 0 otherwise.
 extern("tack_os_can_execute") func c_can_execute(path []uint8) int64
@@ -994,6 +1000,67 @@ pub func run(prog []uint8, argv []text.Text, mut out list[uint8], mut err_out li
     e5 := append(mut err_out, got_err...)
     if e4.code != 0 || e5.code != 0 {
         return none, error{code: 1, msg: "out of memory"}
+    }
+    return status_of(w), noerror
+}
+
+// run_inherit runs prog and waits for it to end, as run does, but the
+// child writes its standard output and its standard error to this
+// process's own, descriptors 1 and 2, as Go's exec does with cmd.Stdout
+// = os.Stdout and cmd.Stderr = os.Stderr: nothing is read or kept, a
+// terminal stays one to the child, and where both reach one place the
+// child's writes to each arrive as it makes them. Before the child
+// starts, run_inherit flushes what print, exit and std/fmt have written
+// and C still holds, standard output first, so it comes before
+// anything the child writes; a flush that fails ends the process with a
+// broken pipe as std/fmt's do, and otherwise loses the bytes. prog,
+// argv, the child's environment, its standard input, /dev/null, and the
+// Status are run's. Its errors are run's but those of the pipes and the
+// reads, which it has none of: code 4 for an empty argv or a 0 byte in
+// prog or an argument; code 13 and the OS's message for a program that
+// cannot be started; code 3 for /dev/null that cannot be opened, a
+// start that cannot be set up, or a wait that fails; and code 1 for an
+// allocation that failed. alloc makes run_inherit's one list, the
+// arguments as C takes them, freed before it returns.
+pub func run_inherit(prog []uint8, argv []text.Text, scope alloc Allocator) (Status, error) {
+    mut none Status
+    if len(argv) == 0 {
+        return none, error{code: 4, msg: "argv is empty"}
+    }
+    if has_nul(prog) {
+        return none, nul_prog
+    }
+    mut flat := make(list[uint8], alloc)
+    for _, a := range argv {
+        if has_nul(a.bytes()) {
+            return none, nul_arg
+        }
+        e0 := append(mut flat, a.bytes()...)
+        if e0.code != 0 {
+            return none, e0
+        }
+        e1 := append(mut flat, 0)
+        if e1.code != 0 {
+            return none, e1
+        }
+    }
+    rn := c_open([]uint8("/dev/null"), 0)
+    if rn < 0 {
+        return none, c_error(-%rn)
+    }
+    devnull, fits := int32(rn)
+    if !fits {
+        return none, fd_range
+    }
+    c_flush_stdio()
+    pid := c_spawn(prog, flat, len(argv), devnull, 1, 2)
+    c_close(devnull)
+    if pid < 0 {
+        return none, spawn_error(pid)
+    }
+    w := wait_for(pid)
+    if w < 0 {
+        return none, c_error(-%w)
     }
     return status_of(w), noerror
 }

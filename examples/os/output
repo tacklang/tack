@@ -104,6 +104,10 @@ ELIBBAD, which only Linux has, has the C library's message ok
 errnos freed ok
 a program started with SIGCHLD ignored still waits for its children ok
 the SIGCHLD run freed ok
+run_inherit gives each child's Status, and code 13 for a program not on PATH ok
+run_inherit flushes what was printed first, and its child writes to the program's own standard output ok
+run_inherit's child writes to the program's own standard error ok
+the inherit run freed ok
 rename a file to a new name ok
 rename onto a file replaces it ok
 rename onto itself changes nothing ok

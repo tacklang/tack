@@ -130,6 +130,48 @@ func (r result) notImplemented() bool {
 	return r.code == notImplementedCode && notImplemented.Match(r.stderr)
 }
 
+// lateLine matches the not implemented line ending standard error, after
+// whatever came before it.
+var lateLine = regexp.MustCompile(`(?:\A|\n)(tack: not implemented in the port: [^\n]*\n)\z`)
+
+// lateDecline returns the not implemented line of r and true when r is
+// a late decline: exit status notImplementedCode and standard error
+// ending in the line notImplemented matches, after other output, which a
+// build the port declines once clang has run writes first (see the
+// package doc, Protocol). An r that notImplemented matches is none.
+func (r result) lateDecline() (string, bool) {
+	if r.code != notImplementedCode || r.notImplemented() {
+		return "", false
+	}
+	m := lateLine.FindSubmatch(r.stderr)
+	if m == nil {
+		return "", false
+	}
+	return string(m[1]), true
+}
+
+// lateDeclineMismatch returns why port, a late decline whose not
+// implemented line is line, is not one the protocol allows beside want,
+// the Go compiler's run of the same case, or "" when it is: port's
+// standard output must be want's, and its standard error want's with
+// its last line removed when that line is one of the Go driver's
+// errors, starting tack: , followed by line. What the port wrote before
+// it declined is so what Go wrote before its own final error.
+func lateDeclineMismatch(want, port result, line string) string {
+	if !bytes.Equal(port.stdout, want.stdout) {
+		return fmt.Sprintf("its standard output %q is not Go's %q", port.stdout, want.stdout)
+	}
+	before := want.stderr
+	if i := bytes.LastIndexByte(bytes.TrimSuffix(before, []byte("\n")), '\n'); bytes.HasPrefix(before[i+1:], []byte("tack: ")) {
+		before = before[:i+1]
+	}
+	if wantErr := string(before) + line; string(port.stderr) != wantErr {
+		return fmt.Sprintf("its standard error %q is not Go's before its last tack: line, then the decline, %q",
+			port.stderr, wantErr)
+	}
+	return ""
+}
+
 // TestPort runs every stage over its inputs, comparing the port with the
 // Go compiler, as the package doc says, and fails a stage for each entry
 // of the divergence list of it whose case it does not have.
@@ -278,6 +320,9 @@ func runCompiler(t *testing.T, bin, cache string, in input, args []string) resul
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if in.combined {
+		cmd.Stderr = &stdout
+	}
 	outlived, err := runInGroup(cmd)
 	if measured != "" && ctx.Err() == nil && cmd.ProcessState != nil {
 		logMeasured(t, measured, bin, dir, args, in.env, cmd.ProcessState.ExitCode())
