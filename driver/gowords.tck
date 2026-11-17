@@ -1,0 +1,336 @@
+package main
+
+import fmt from "std/fmt"
+
+// Go's words for what std/os reports of a program clang's build runs:
+// an errno, as Go's syscall.Errno.Error gives it, and a signal, as Go's
+// syscall.Signal.String does. Both are Go's tables for Linux, the
+// zerrors_linux files of Go's syscall package, the same on every Linux
+// architecture but mips, whose signal numbers differ. mips and macOS,
+// whose tables differ too, are not ported until after self-hosting.
+
+// go_errno_text returns the text Go's syscall.Errno.Error gives on
+// Linux for the errno whose message std/os gives as msg: std/os words
+// every errno Linux defines, macOS's text where macOS defines it too and
+// glibc's otherwise, and Go words each with glibc's text, its first
+// letter made small, or as errno and the number for one its table lacks,
+// EHWPOISON. Any other msg, which std/os gives on Linux for no errno, is
+// an empty string.
+func go_errno_text(msg string) string {
+    switch msg {
+    case "Operation not permitted":
+        return "operation not permitted"
+    case "No such file or directory":
+        return "no such file or directory"
+    case "No such process":
+        return "no such process"
+    case "Interrupted system call":
+        return "interrupted system call"
+    case "Input/output error":
+        return "input/output error"
+    case "Device not configured":
+        return "no such device or address"
+    case "Argument list too long":
+        return "argument list too long"
+    case "Exec format error":
+        return "exec format error"
+    case "Bad file descriptor":
+        return "bad file descriptor"
+    case "No child processes":
+        return "no child processes"
+    case "Resource temporarily unavailable":
+        return "resource temporarily unavailable"
+    case "Cannot allocate memory":
+        return "cannot allocate memory"
+    case "Permission denied":
+        return "permission denied"
+    case "Bad address":
+        return "bad address"
+    case "Block device required":
+        return "block device required"
+    case "Resource busy":
+        return "device or resource busy"
+    case "File exists":
+        return "file exists"
+    case "Cross-device link":
+        return "invalid cross-device link"
+    case "Operation not supported by device":
+        return "no such device"
+    case "Not a directory":
+        return "not a directory"
+    case "Is a directory":
+        return "is a directory"
+    case "Invalid argument":
+        return "invalid argument"
+    case "Too many open files in system":
+        return "too many open files in system"
+    case "Too many open files":
+        return "too many open files"
+    case "Inappropriate ioctl for device":
+        return "inappropriate ioctl for device"
+    case "Text file busy":
+        return "text file busy"
+    case "File too large":
+        return "file too large"
+    case "No space left on device":
+        return "no space left on device"
+    case "Illegal seek":
+        return "illegal seek"
+    case "Read-only file system":
+        return "read-only file system"
+    case "Too many links":
+        return "too many links"
+    case "Broken pipe":
+        return "broken pipe"
+    case "Numerical argument out of domain":
+        return "numerical argument out of domain"
+    case "Result too large":
+        return "numerical result out of range"
+    case "Resource deadlock avoided":
+        return "resource deadlock avoided"
+    case "File name too long":
+        return "file name too long"
+    case "No locks available":
+        return "no locks available"
+    case "Function not implemented":
+        return "function not implemented"
+    case "Directory not empty":
+        return "directory not empty"
+    case "Too many levels of symbolic links":
+        return "too many levels of symbolic links"
+    case "No message of desired type":
+        return "no message of desired type"
+    case "Identifier removed":
+        return "identifier removed"
+    case "Channel number out of range":
+        return "channel number out of range"
+    case "Level 2 not synchronized":
+        return "level 2 not synchronized"
+    case "Level 3 halted":
+        return "level 3 halted"
+    case "Level 3 reset":
+        return "level 3 reset"
+    case "Link number out of range":
+        return "link number out of range"
+    case "Protocol driver not attached":
+        return "protocol driver not attached"
+    case "No CSI structure available":
+        return "no CSI structure available"
+    case "Level 2 halted":
+        return "level 2 halted"
+    case "Invalid exchange":
+        return "invalid exchange"
+    case "Invalid request descriptor":
+        return "invalid request descriptor"
+    case "Exchange full":
+        return "exchange full"
+    case "No anode":
+        return "no anode"
+    case "Invalid request code":
+        return "invalid request code"
+    case "Invalid slot":
+        return "invalid slot"
+    case "Bad font file format":
+        return "bad font file format"
+    case "Not a STREAM":
+        return "device not a stream"
+    case "No message available on STREAM":
+        return "no data available"
+    case "STREAM ioctl timeout":
+        return "timer expired"
+    case "No STREAM resources":
+        return "out of streams resources"
+    case "Machine is not on the network":
+        return "machine is not on the network"
+    case "Package not installed":
+        return "package not installed"
+    case "Too many levels of remote in path":
+        return "object is remote"
+    case "ENOLINK (Reserved)":
+        return "link has been severed"
+    case "Advertise error":
+        return "advertise error"
+    case "Srmount error":
+        return "srmount error"
+    case "Communication error on send":
+        return "communication error on send"
+    case "Protocol error":
+        return "protocol error"
+    case "EMULTIHOP (Reserved)":
+        return "multihop attempted"
+    case "RFS specific error":
+        return "RFS specific error"
+    case "Bad message":
+        return "bad message"
+    case "Value too large to be stored in data type":
+        return "value too large for defined data type"
+    case "Name not unique on network":
+        return "name not unique on network"
+    case "File descriptor in bad state":
+        return "file descriptor in bad state"
+    case "Remote address changed":
+        return "remote address changed"
+    case "Can not access a needed shared library":
+        return "can not access a needed shared library"
+    case "Accessing a corrupted shared library":
+        return "accessing a corrupted shared library"
+    case ".lib section in a.out corrupted":
+        return ".lib section in a.out corrupted"
+    case "Attempting to link in too many shared libraries":
+        return "attempting to link in too many shared libraries"
+    case "Cannot exec a shared library directly":
+        return "cannot exec a shared library directly"
+    case "Illegal byte sequence":
+        return "invalid or incomplete multibyte or wide character"
+    case "Interrupted system call should be restarted":
+        return "interrupted system call should be restarted"
+    case "Streams pipe error":
+        return "streams pipe error"
+    case "Too many users":
+        return "too many users"
+    case "Socket operation on non-socket":
+        return "socket operation on non-socket"
+    case "Destination address required":
+        return "destination address required"
+    case "Message too long":
+        return "message too long"
+    case "Protocol wrong type for socket":
+        return "protocol wrong type for socket"
+    case "Protocol not available":
+        return "protocol not available"
+    case "Protocol not supported":
+        return "protocol not supported"
+    case "Socket type not supported":
+        return "socket type not supported"
+    case "Operation not supported":
+        return "operation not supported"
+    case "Protocol family not supported":
+        return "protocol family not supported"
+    case "Address family not supported by protocol family":
+        return "address family not supported by protocol"
+    case "Address already in use":
+        return "address already in use"
+    case "Can't assign requested address":
+        return "cannot assign requested address"
+    case "Network is down":
+        return "network is down"
+    case "Network is unreachable":
+        return "network is unreachable"
+    case "Network dropped connection on reset":
+        return "network dropped connection on reset"
+    case "Software caused connection abort":
+        return "software caused connection abort"
+    case "Connection reset by peer":
+        return "connection reset by peer"
+    case "No buffer space available":
+        return "no buffer space available"
+    case "Socket is already connected":
+        return "transport endpoint is already connected"
+    case "Socket is not connected":
+        return "transport endpoint is not connected"
+    case "Can't send after socket shutdown":
+        return "cannot send after transport endpoint shutdown"
+    case "Too many references: can't splice":
+        return "too many references: cannot splice"
+    case "Operation timed out":
+        return "connection timed out"
+    case "Connection refused":
+        return "connection refused"
+    case "Host is down":
+        return "host is down"
+    case "No route to host":
+        return "no route to host"
+    case "Operation already in progress":
+        return "operation already in progress"
+    case "Operation now in progress":
+        return "operation now in progress"
+    case "Stale NFS file handle":
+        return "stale file handle"
+    case "Structure needs cleaning":
+        return "structure needs cleaning"
+    case "Not a XENIX named type file":
+        return "not a XENIX named type file"
+    case "No XENIX semaphores available":
+        return "no XENIX semaphores available"
+    case "Is a named type file":
+        return "is a named type file"
+    case "Remote I/O error":
+        return "remote I/O error"
+    case "Disc quota exceeded":
+        return "disk quota exceeded"
+    case "No medium found":
+        return "no medium found"
+    case "Wrong medium type":
+        return "wrong medium type"
+    case "Operation canceled":
+        return "operation canceled"
+    case "Required key not available":
+        return "required key not available"
+    case "Key has expired":
+        return "key has expired"
+    case "Key has been revoked":
+        return "key has been revoked"
+    case "Key was rejected by service":
+        return "key was rejected by service"
+    case "Previous owner died":
+        return "owner died"
+    case "State not recoverable":
+        return "state not recoverable"
+    case "Operation not possible due to RF-kill":
+        return "operation not possible due to RF-kill"
+    case "Memory page has hardware error":
+        return "errno 133"
+    }
+    return ""
+}
+
+// append_go_signal appends to msg the name Go's syscall.Signal.String
+// gives on Linux for the signal n: one of signal_names for 1 to 31, and
+// signal and the number for any other, as for a real-time signal. It
+// fails only for want of memory.
+func append_go_signal(mut msg list[uint8], n int64) error {
+    if n >= 1 && n < len(signal_names) {
+        name, has := signal_names[n]
+        if has {
+            return append(mut msg, []uint8(name)...)
+        }
+    }
+    return fmt.appendf(mut msg, "signal %d", n)
+}
+
+// signal_names are Go's names for Linux's signals 1 to 31, by number;
+// the first, for 0, is no signal's.
+var signal_names = [32]string{
+    "",
+    "hangup",
+    "interrupt",
+    "quit",
+    "illegal instruction",
+    "trace/breakpoint trap",
+    "aborted",
+    "bus error",
+    "floating point exception",
+    "killed",
+    "user defined signal 1",
+    "segmentation fault",
+    "user defined signal 2",
+    "broken pipe",
+    "alarm clock",
+    "terminated",
+    "stack fault",
+    "child exited",
+    "continued",
+    "stopped (signal)",
+    "stopped",
+    "stopped (tty input)",
+    "stopped (tty output)",
+    "urgent I/O condition",
+    "CPU time limit exceeded",
+    "file size limit exceeded",
+    "virtual timer expired",
+    "profiling timer expired",
+    "window changed",
+    "I/O possible",
+    "power failure",
+    "bad system call",
+}

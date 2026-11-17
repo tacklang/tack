@@ -22,13 +22,13 @@ import typeck from "tack/typeck"
 // implemented.
 //
 // Every message is Go's, its os errors in Go's words (see
-// loader.go_errno); what the port cannot word as Go does is declined:
-// an errno Go's words for are not known, a temporary directory or file
-// that cannot be made or written, a clang that cannot be started or is
-// killed by a signal, a clang on a PATH element that is not absolute
-// (see find_clang), a temporary directory that cannot be removed, and a
-// relative --out from a current directory that cannot be found, where
-// Go's message is wrong (see build_in). A decline writes nothing but its
+// loader.go_errno, and go_errno_text and append_go_signal for how clang
+// ended); what the port cannot word as Go does is declined: an errno
+// Go's words for are not known, a temporary directory or file that
+// cannot be made or written, a clang that fails in a way Go's exec does
+// not, a temporary directory that cannot be removed, and a relative
+// --out from a current directory that cannot be found, where Go's
+// message is wrong (see build_in). A decline writes nothing but its
 // one line: the warnings and clang's output are held until the build has
 // ended in something the port words, a binary or one of Go's errors, and
 // then written in Go's order, the warnings, clang's output, the error;
@@ -51,16 +51,14 @@ import typeck from "tack/typeck"
 // of the program's, only a backend bug that made clang reject them would
 // show the name. Its directories are made with mode 0755 and its files
 // with 0644, std/os's, where Go's are 0750 and 0600, inside the
-// directory make_temp_dir makes 0700, as Go's is. clang is given the
-// path find_clang found as its argv[0], where Go's gives clang; clang's
-// messages name it by its base name, clang, either way.
-// clang's standard output and standard error are read through pipes and
-// written once it has ended, where Go's clang writes to the driver's
-// own: each stream's bytes are the same, but a terminal shows no colour,
-// and where both streams reach one place, clang's standard output comes
-// before its standard error rather than as clang wrote them. Ctrl-C does
-// not stop clang and leaves the temporary directory behind, where Go
-// cancels the build and removes it.
+// directory make_temp_dir makes 0700, as Go's is. clang's standard
+// output and standard error are read through pipes and written once it
+// has ended, where Go's clang writes to the driver's own: each stream's
+// bytes are the same, but a terminal shows no colour, and where both
+// streams reach one place, clang's standard output comes before its
+// standard error rather than as clang wrote them. Ctrl-C does not stop
+// clang and leaves the temporary directory behind, where Go cancels the
+// build and removes it.
 
 // build_target builds the target, the input at index k of a, the
 // command line whose flags set fl, into the binary --out names, with the
@@ -416,57 +414,59 @@ func write_temp(p []uint8, data []uint8, mut msg list[uint8]) (int32, error) {
 // run_tool runs argv, a toolchain command whose program is clang, as
 // Go's runTool runs one with no C file to name: the program found on
 // PATH as Go's exec.LookPath finds it (see find_clang), and then that
-// path itself run, with std/os's run, so that nothing looks clang up
-// again. What it writes to its standard output and standard error is
-// appended to out and err_out. It returns exit_ok when clang exits 0,
-// and otherwise exit_failure, with Go's error in msg, clang failed: and
-// exit status and the status, or Go's exec error for a clang not found;
-// or not_implemented, with what in msg, for a clang on a PATH element
-// that is not absolute, one that cannot be started, whose error Go words
-// with its errno, which std/os's run does not give, and one killed by a
-// signal, whose number std/os's run does not give either. started is set
-// when clang was started, whatever it then did.
+// path run, with std/os's run, given argv as it is, its argv[0] clang,
+// as Go's exec.Cmd runs its Path with its Args, so that nothing looks
+// clang up again. What it writes to its standard output and standard
+// error is appended to out and err_out. It returns exit_ok when clang
+// exits 0, and otherwise exit_failure, with Go's error in msg, clang
+// failed: and Go's words for how it ended, exit status and the status,
+// signal: and Go's name for the signal, with (core dumped) when it
+// dumped core, or fork/exec, the path and Go's text for the errno when
+// it could not be started; or Go's exec error for a clang not found or
+// found relative to the current directory. A run that fails another
+// way, a pipe that cannot be made or a read or wait that fails, is
+// not_implemented, with what in msg: Go's exec does neither as the port
+// does. started is set when clang was started, whatever it then did.
 func run_tool(argv []text.Text, mut msg list[uint8], mut out list[uint8], mut err_out list[uint8], mut started bool) (int32, error) {
     mut found := text.new(c_allocator)
     mut why := make(list[uint8], c_allocator)
     fcode := find_clang(mut found, mut why)?
-    if fcode == not_implemented {
-        append(mut msg, why...)?
-        return not_implemented, noerror
-    }
     if fcode != exit_ok {
         fmt.appendf(mut msg, "clang failed: %s", why[:])?
         return exit_failure, noerror
     }
-    // argv with the path found in place of its program's name: a name
-    // with a slash, which run starts as it is.
-    mut run_argv := make(list[text.Text], c_allocator)
-    for i, a := range argv {
-        if i == 0 {
-            append(mut run_argv, text.from_bytes(found.bytes(), c_allocator)?)?
-        } else {
-            append(mut run_argv, text.from_bytes(a.bytes(), c_allocator)?)?
-        }
-    }
-    status, err := os.run(run_argv, mut out, mut err_out, c_allocator)
-    // Only a child killed by a signal, or one that ran and was waited for,
-    // started: run's other errors come before the child or instead of it,
-    // but for a read or wait that failed once it had started, which run
-    // does not tell apart, and is taken as not started.
-    started = err.code == 0 || err.code == 5
+    status, err := os.run(found.bytes(), argv, mut out, mut err_out, c_allocator)
+    // Only a child that ran and was waited for started: run's other
+    // errors come before the child or instead of it, but for a read or
+    // wait that failed once it had started, which run does not tell
+    // apart, and is taken as not started.
+    started = err.code == 0
     if err.code == 1 {
         return exit_failure, err
     }
-    if err.code == 5 {
-        append(mut msg, []uint8(" with a clang killed by a signal")...)?
-        return not_implemented, noerror
+    if err.code == 13 {
+        errno := go_errno_text(err.msg)
+        if len(errno) == 0 {
+            append(mut msg, []uint8(" with a clang that cannot be started")...)?
+            return not_implemented, noerror
+        }
+        fmt.appendf(mut msg, "clang failed: fork/exec %s: %s", found.bytes(), errno)?
+        return exit_failure, noerror
     }
     if err.code != 0 {
-        append(mut msg, []uint8(" with a clang that cannot be started")...)?
+        append(mut msg, []uint8(" with a clang that cannot be run")...)?
         return not_implemented, noerror
     }
-    if status != 0 {
-        fmt.appendf(mut msg, "clang failed: exit status %d", status)?
+    if !status.exited() {
+        append(mut msg, []uint8("clang failed: signal: ")...)?
+        append_go_signal(mut msg, status.signal())?
+        if status.core_dumped() {
+            append(mut msg, []uint8(" (core dumped)")...)?
+        }
+        return exit_failure, noerror
+    }
+    if status.exit_status() != 0 {
+        fmt.appendf(mut msg, "clang failed: exit status %d", status.exit_status())?
         return exit_failure, noerror
     }
     return exit_ok, noerror
@@ -474,18 +474,15 @@ func run_tool(argv []text.Text, mut msg list[uint8], mut out list[uint8], mut er
 
 // find_clang looks for clang on $PATH as Go's exec.LookPath looks for
 // it: each element of PATH in order, split at colons, an empty one
-// meaning ., joined with clang and cleaned, stat'ed, a path that cannot
-// be stat'ed or is a directory skipped. The first that is neither is the
-// clang found: it returns exit_ok, with its path in found, when that
-// path is absolute. Go's LookPath also skips a file that is not
-// executable, which std/os's Info cannot tell; the port takes it, and
-// run_tool, failing to start it, declines, so a build never runs a clang
-// Go would not. When there is none, the error is Go's exec: "clang":
-// executable file not found in $PATH, in msg, with exit_failure. A
-// clang found on an element that is not absolute is not implemented,
-// with what in msg: Go refuses to run one that is executable, with
-// exec.ErrDot, and skips one that is not, and the port cannot tell
-// which.
+// meaning ., joined with clang and cleaned, a path that is not a file
+// this process may run, as std/os's can_execute decides it as Go's
+// findExecutable does, skipped. The first that is one is the clang
+// found: it returns exit_ok, with its path in found, when that path is
+// absolute, and otherwise exit_failure with Go's exec.ErrDot error,
+// exec: "clang": cannot run executable found relative to current
+// directory, in msg. When there is none, the error is Go's exec:
+// "clang": executable file not found in $PATH, in msg, with
+// exit_failure.
 func find_clang(mut found text.Text, mut msg list[uint8]) (int32, error) {
     p, set := os.env([]uint8("PATH"), c_allocator)?
     if set && p.len() > 0 {
@@ -507,13 +504,14 @@ func find_clang(mut found text.Text, mut msg list[uint8]) (int32, error) {
             } else {
                 cand = path.join(part_of(p.bytes(), lo, hi), []uint8("clang"), c_allocator)?
             }
-            info, serr := os.stat(cand.bytes())
-            if serr.code != 0 || info.is_dir() {
+            if !os.can_execute(cand.bytes()) {
                 continue
             }
             if !path.is_abs(cand.bytes()) {
-                append(mut msg, []uint8(" with a clang on a PATH element that is not absolute")...)?
-                return not_implemented, noerror
+                append(mut msg, []uint8("exec: ")...)?
+                conv.append_quote(mut msg, []uint8("clang"))?
+                append(mut msg, []uint8(": cannot run executable found relative to current directory")...)?
+                return exit_failure, noerror
             }
             found = cand
             return exit_ok, noerror
