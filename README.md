@@ -169,6 +169,15 @@ Go's. The language owner decided these on 2026-11-15:
   package P`, as the other `tack.h` messages name a type, and its name
   is claimed, so a later clash with it is reported.
 
+The language owner decided this on 2026-11-16:
+
+- A package that is not main, given to `--emit` or `--emit-header`
+  without `--check`, is reported as Go reports it, `main package not
+  found`, and the port stops there. The resolver binds nothing of such
+  a program; Go's driver type-checks it on and reports errors the
+  program does not have, its parameters undefined and `len` taking no
+  arguments among them.
+
 These follow the lead's ruling of 2026-11-15 that the language already
 defines the zero values, which the language owner may still overrule:
 

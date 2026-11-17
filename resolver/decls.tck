@@ -423,6 +423,21 @@ pub func missing_main(prog ast.Program) (list[diag.Diagnostic], error) {
     return diags, noerror
 }
 
+// missing_main_package reports whether resolve, without main_optional,
+// reports that prog has no main package, "main package not found": its
+// last package is not named main. resolve then binds nothing, so a
+// caller stops there rather than check the unbound program, as the
+// driver's --emit and --emit-header do (Go's driver type-checks it on,
+// reporting errors no program has; see the README's known divergences).
+// A program with no package has no last package to report.
+pub func missing_main_package(prog ast.Program) bool {
+    last := len(prog.packages) -% 1
+    if last < 0 || last >= len(prog.packages) {
+        return false
+    }
+    return !main_name_is(prog.packages, last)
+}
+
 // may_declare_main reports whether the package k of prog declares a
 // main function, or has a bad declaration that may have been one, named
 // main or with no name, which the parser reported, Go's mayDeclareMain.

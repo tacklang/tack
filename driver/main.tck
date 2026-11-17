@@ -38,7 +38,11 @@ import typeck from "tack/typeck"
 // --emit and --emit-header, with --check or without, it does what Go
 // does up to code generation: without --check it loads the target as a
 // program, with the standard library, resolves it with its main function
-// required and type-checks it, and with --check it does what --check
+// required and type-checks it, but stops at the resolver's "main package
+// not found" for a program with no main package, whose names the
+// resolver binds none of, where Go's driver checks it on and reports
+// errors it does not have (decided 2026-11-16, see the README's known
+// divergences), and with --check it does what --check
 // does, but never compares a copy of the builtins' documentation, as Go
 // does not with a dump; when any stage found an error it reports every
 // diagnostic, exit status 1, and otherwise it hands the checked program,
@@ -1140,7 +1144,10 @@ func types_dump(mut res loader.Result, d Dump) (int32, error) {
 // the error limit max_errors, as Go's execute and runStages do: the
 // standard library is found, the target loaded in full as a program,
 // resolved with its main function required, and type-checked, whatever
-// the stages before reported; when any stage reported an error, every
+// the stages before reported, but for a program with no main package,
+// which the resolver binds nothing of, whose diagnostics are rendered
+// there, exit status 1, where Go checks it on (see
+// resolver.missing_main_package); when any stage reported an error, every
 // diagnostic is rendered, exit status 1, and otherwise the checked
 // program is handed to code generation, where Go would generate the C,
 // which the port declines, naming d. A program the type checker cannot
@@ -1179,9 +1186,18 @@ func emit_target(target []uint8, d Dump, max_errors int64) (int32, error) {
         return exit_failure, noerror
     }
     prog := program_of(mut res.program.packages, res.program.errors)?
+    no_main := resolver.missing_main_package(prog)
     resolved, mut rdiags := resolver.resolve(own prog, builtin.default_set(), false)?
     for i := range len(rdiags) {
         append(mut all, replace(mut rdiags[i], make(diag.Diagnostic, c_allocator)))?
+    }
+    if no_main {
+        // The resolver bound nothing: the port stops at its error, where
+        // Go's driver checks the unbound program on (decided 2026-11-16).
+        drop(own resolved)
+        out := render_diagnostics(res.files, all, max_errors)?
+        fmt.ewrite(out)
+        return exit_failure, noerror
     }
     files := replace(mut res.files, source.new_set(c_allocator))
     mut c := typeck.new_checker(own resolved, own files)?

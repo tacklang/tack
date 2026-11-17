@@ -16,6 +16,13 @@ package resolver
 // are the one function here. Packages are resolved in the program's
 // order, every package after those it imports. The builtins it binds
 // calls to are a builtin.Set's, and main_optional is Go's MainOptional.
+// Without it, a program whose last package is not main is reported,
+// "main package not found", and nothing of it is bound;
+// missing_main_package tells a caller so beforehand, and the driver
+// stops there, where Go's driver checks the unbound program on. Its
+// --port-types and --port-bind, harness hooks that tackc's porttest
+// compares with Go's checker run in process, check the program on as
+// Go's does, so they keep matching it.
 //
 // What it writes into the trees is Go's: each Ident's def, what the name
 // is bound to (see ast.Def), and, for a callee that passed over a
