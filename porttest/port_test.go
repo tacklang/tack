@@ -373,7 +373,7 @@ func logMeasured(t *testing.T, measured, bin, dir string, args, extra []string, 
 		t.Fatalf("the launcher wrote a malformed measurement: %q", data)
 	}
 	comp := "port"
-	if bin == env.goBin {
+	if isGo(bin) {
 		comp = "go"
 	}
 	line, err := json.Marshal(measuredRun{

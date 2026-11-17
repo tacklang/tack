@@ -341,23 +341,33 @@ func removeHeaders(work string) error {
 	return nil
 }
 
-// snapshot returns every regular file below work, by its slash-separated
-// path from work, with its bytes.
+// snapshot returns every regular file and directory below work, by its
+// slash-separated path from work, a directory's with a / after it: a
+// file with its mode on a line and then its bytes, a directory with its
+// mode alone.
 func snapshot(work string) (map[string]string, error) {
 	files := map[string]string{}
 	err := filepath.WalkDir(work, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil || p == work {
 			return err
 		}
 		rel, err := filepath.Rel(work, p)
 		if err != nil {
 			return fmt.Errorf("naming %s: %w", p, err)
 		}
+		info, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("reading the copy: %w", err)
+		}
+		if d.IsDir() {
+			files[filepath.ToSlash(rel)+"/"] = info.Mode().String() + "\n"
+			return nil
+		}
 		data, err := os.ReadFile(p) //nolint:gosec // G304: the copy's own files
 		if err != nil {
 			return fmt.Errorf("reading the copy: %w", err)
 		}
-		files[filepath.ToSlash(rel)] = string(data)
+		files[filepath.ToSlash(rel)] = info.Mode().String() + "\n" + string(data)
 		return nil
 	})
 	if err != nil {
@@ -368,7 +378,8 @@ func snapshot(work string) (map[string]string, error) {
 
 // filesDiff returns how got, the files the port left, differs from want,
 // the Go compiler's, each path that one has and the other has not, or
-// both have with other bytes, with the first line that differs, or ""
+// both have with another mode or other bytes, with the first line that
+// differs, or ""
 // when they agree.
 func filesDiff(want, got map[string]string) string {
 	var b strings.Builder
@@ -403,7 +414,8 @@ func filesDiff(want, got map[string]string) string {
 // made at the same path, the port's first, so that what either names by
 // its path is named the same, and compares their standard output,
 // standard error and exit status, as runCaseWith does, and the files
-// each copy holds afterwards, path and bytes. A not implemented answer
+// and directories each copy holds afterwards, with their modes and the
+// files' bytes (see snapshot). A not implemented answer
 // skips, or fails, as runCaseWith's does.
 func runHeaderCase(t *testing.T, st stage, in input, portBin string) {
 	t.Helper()

@@ -246,7 +246,9 @@ func compilerEnv(cache string) []string {
 // loaded is TestLoadOrder's, types-decls and types-bodies TestTypes'.
 // The emit stages, emit-E0 to emit-E4 and emit-H, are added by init (see
 // emitStageNames): a case of a stage that classifies its cases is
-// required once every one it needs is named.
+// required once every one it needs is named. build-identical, the check
+// that the two compilers build the same binary for a case of
+// build-examples, is added by init too (see buildIdenticalCheck).
 var requirableChecks = map[string]bool{loadedCheck: true, typesCheck: true, bodiesCheck: true}
 
 // readRequired reads the stage names in the file at path, one a line,

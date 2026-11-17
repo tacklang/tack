@@ -143,8 +143,15 @@
 //     input's directory and std, with TACK_HOME the copy's, and every
 //     tack.h of a package directory removed first, so that the tack.h
 //     files there afterwards are what the run wrote. It compares the
-//     files each copy holds afterwards, path and bytes, too, and fails
+//     files and directories each copy holds afterwards, with their
+//     modes and the files' bytes, too, and fails
 //     a case Go passes without writing a tack.h.
+//   - build-examples builds each input of emit-single and emit-packages
+//     into a binary, with --out, and build-invalid-c each case of
+//     examples/invalid-c.txtar, whose C clang or the driver rejects;
+//     each compares what the driver writes and leaves, and, where both
+//     compilers built one, the binaries and what they do when run (see
+//     Build stages).
 //
 // check-backend, check-clean and the emit stages classify their cases
 // by the stages of the backend's port each needs (see Backend stages),
@@ -212,8 +219,8 @@
 // it. The files of a case with several are each run alone, as single
 // files, its .std files among them. Every case is run with the
 // repository's std, which a case's .std does not replace. The spec's code
-// blocks in docs/spec and examples/invalid-c.txtar are not part of the
-// corpus yet.
+// blocks in docs/spec are not part of the corpus yet, and
+// examples/invalid-c.txtar is the build stages' alone (see Build stages).
 //
 // The packages are every directory under examples/ and under src/std
 // that holds a .tck file directly, run from this module's root and named
@@ -446,6 +453,74 @@
 // tests read or the compiler embeds; a key the cache misses harvests
 // anew. TestEmitHarvest pins how many there are and their
 // digest, so a harvest that changes fails.
+//
+// # Build stages
+//
+// The build stages check the port's driver, which M8 ports stage by
+// stage, building a program: tack --out <path> <target>, clang and the
+// link. build-examples runs on each input of emit-single and
+// emit-packages, whatever the driver makes of it, a program built or
+// the driver's errors; build-invalid-c on each case of
+// examples/invalid-c.txtar, written once a run to a directory of its
+// own, apart from the corpus's archives, and run from there with its
+// target, as TestInvalidC builds it. Each compiler builds a case in a
+// fresh copy of its tree, the directory of its module or of its file,
+// at the same path below the case's temporary directory, the port's
+// first; the Go compiler through a wrapper that holds its stack to the
+// port's, deepStack KB, so that the clang each runs has the same limit;
+// with TACK_HOME a copy of the repository's std made once for the case
+// and read-only, every file and directory, so that a build that writes
+// there fails; with a fresh TACK_CACHE and a fresh TMPDIR, each at the
+// same path for both, made anew for each; and with the same --out path,
+// in a directory of its own made anew, from which each binary is moved
+// aside before the other compiler runs. The stage compares the driver's
+// standard output, standard error and exit status byte for byte, but
+// for the digits of each path component tk-<digits> right below the
+// build's TMPDIR, the directory the Go driver makes with os.MkdirTemp
+// and writes the program's C to, which clang's notes name and which
+// differ run to run; what each copy holds afterwards, every file and
+// directory by its path and mode and each file's bytes, as emit-header
+// does; and the same of the --out path's directory, but for the
+// binary's bytes, which build-identical compares. A build that leaves
+// anything in its TMPDIR fails, and so do one that fails and leaves its
+// --out path, one that exits 0 and writes nothing there, and a case one
+// compiler builds a binary for and the other does not. The built
+// binaries run in process groups of their own, as runCompiler's runs
+// do.
+//
+// Where both compilers built a binary, of a case of build-examples, the
+// two are compared by their SHA-256: build-identical, a name
+// required.txt may hold, fails a case whose binaries differ once it is
+// required, and logs the verdict until then, and fails a case the port
+// declines as a required stage does. The Go compiler, run as both
+// compilers, builds the same binary twice for every example it builds,
+// with a cache of its own each time, so a port that runs the same clang
+// and link commands builds it too; goIrreproducible lists, with why,
+// any case where Go does not, which is never compared, none so far. The
+// two binaries' modes must be the same. Each binary is then run, the
+// port's first, with defaultRun, no arguments and the environment of go
+// test, and with the runs buildRuns gives its case, each copied from
+// the Go compiler's test of the example: examples/os with its
+// arguments, its variables and at most 64 open files, through sh as
+// that test runs it, writing examples/os/output, examples/endless-loops
+// with the one case whose loop ends, and examples/fmt-interleave with
+// both streams one pipe, whose bytes must also be
+// examples/fmt-interleave/combined. Every run's standard input is
+// /dev/null, its working directory and its TMPDIR fresh directories,
+// the TMPDIR empty when it ends, and it is killed, failing the case,
+// past a third of compilerTimeout. The stage compares the exit status,
+// or the signal that ended the run, standard output and standard error,
+// byte for byte, and what each run leaves in its working directory, as
+// the copies are compared. examples/broken-pipe's runs, which break a
+// pipe and read a descriptor of their own, are not covered: with no
+// arguments it only says what it takes. Each build is at the default
+// optimization level.
+//
+// Every case's cache is fresh, as the port's driver, with no cache
+// until it is ported, compiles std for every build anyway, and so no
+// case reads what another wrote; a build from a warm cache is not
+// compared, and neither is what a build writes to its cache, which D3,
+// the port of the cache, compares.
 //
 // # Loading
 //

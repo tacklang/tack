@@ -7,6 +7,8 @@
 # emit-E1 to emit-E4 are the stages of the backend's port: a case of a
 # stage that classifies its cases by them, check-backend, check-clean
 # and the emit stages, is required once every one it needs is named.
+# build-identical, which is no stage, is the build stages' check that the
+# two compilers build the same binary, required the same way.
 backends
 lex-single
 ast-single
