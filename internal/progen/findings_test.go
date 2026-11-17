@@ -113,3 +113,17 @@ func TestFindingUnusedStdConstWarns(t *testing.T) {
 		t.Error(msg)
 	}
 }
+
+// TestFindingNegationCompareWarns: v || !v and v && !v, which the
+// compiler accepts, lower to the same C, which clang 23's -Wall reports
+// as always true or always false, -Wtautological-negation-compare, so
+// -Werror fails the build. The generator never writes either.
+func TestFindingNegationCompareWarns(t *testing.T) {
+	t.Skip("finding: v || !v and v && !v lower to C clang reports, -Wtautological-negation-compare")
+	src := "package main\n\nfunc f(v bool) bool {\n    return v || !v\n}\n\n" +
+		"func g(v bool) bool {\n    return v && !v\n}\n\n" +
+		"func main() {\n    if !f(false) || g(true) {\n        exit(1)\n    }\n}\n"
+	if msg := strictC(t, src); msg != "" {
+		t.Error(msg)
+	}
+}

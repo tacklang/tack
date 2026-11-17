@@ -148,6 +148,9 @@ func TestFeatureCoverage(t *testing.T) {
 		"index proof": `0 <= [a-z][0-9]+ && `, "unreachable": `\n *unreachable\n`,
 		"question": `\)\?`, "question value": `\)\?[ )]`, "fallthrough": `\n *fallthrough\n`,
 		"method expr": `S[0-9]+\.m[0-9]+[^(0-9]`, "method expr call": `S[0-9]+\.m[0-9]+\(`,
+		"make data":   `:= make\((S[0-9]+|u?int[0-9]+|bool), c_allocator\)`,
+		"fields loop": `range fields\(`, "pg_sum": `pg_sum\(`, "pg_bump": `pg_bump\(mut`,
+		"closure capture": `pg_apply\(func`,
 	} {
 		marks[name] = regexp.MustCompile(re)
 	}

@@ -718,8 +718,12 @@
 // FuzzEmitDiff generates a program from each input with
 // internal/progen, which reads its choices from the bytes, and runs
 // both compilers with --emit on it, compared as emit-single compares
-// its cases, after putting it through this module's front end and C
-// backend in process for the fuzz engine's coverage. It is seeded with
+// its cases, with --check, compared as check-clean compares its cases,
+// and with --emit-header, each in a fresh copy of its directory,
+// compared as emit-header compares its cases, the files left included,
+// after putting it through this module's front end and C backend in
+// process for the fuzz engine's coverage. No program progen writes
+// reaches a known divergence, so none needs an entry. It is seeded with
 // progen's own fuzz seeds, and run as a test checks them alone.
 //
 // FuzzLoadDiff writes each generated input as a file tree in a
@@ -761,7 +765,7 @@
 //	make port-fuzz PORT_FUZZ=FuzzParseDiff FUZZTIME=60s
 //	make port-fuzz PORT_FUZZ=FuzzResDiff FUZZTIME=60s
 //	make port-fuzz PORT_FUZZ=FuzzLoadDiff FUZZTIME=60s
-//	make port-fuzz PORT_FUZZ=FuzzEmitDiff FUZZTIME=60s
+//	make port-fuzz PORT_FUZZ=FuzzEmitDiff FUZZTIME=60s PORT_FUZZ_MINIMIZE=20x
 //
 // # Embedded files
 //

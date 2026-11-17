@@ -83,12 +83,19 @@ PORT_FUZZ_BIN := bin/port-fuzz
 # running both compilers once per input.
 PORT_FUZZ_PARALLEL := 4
 
+# PORT_FUZZ_MINIMIZE is how long `make port-fuzz` lets the fuzz engine
+# minimize each input that finds new coverage, go test's default. One
+# execution of FuzzEmitDiff runs both compilers three times on a
+# program, so at the default it spends most of a run minimizing; run it
+# with PORT_FUZZ_MINIMIZE=20x, as make fuzz-progen does FuzzGenerated.
+PORT_FUZZ_MINIMIZE := 60s
+
 # PORT_FUZZ is the fuzz test `make port-fuzz` runs: FuzzLexDiff, which
 # compares the port's --lex with this compiler's, FuzzParseDiff, which
 # compares their --ast, FuzzResDiff, which compares their --res,
 # FuzzLoadDiff, which compares their --ast and --res of generated file
-# trees, or FuzzEmitDiff, which compares their --emit of programs
-# internal/progen generates.
+# trees, or FuzzEmitDiff, which compares their --emit, --check and
+# --emit-header of programs internal/progen generates.
 PORT_FUZZ := FuzzLexDiff
 
 # port-fuzz fuzzes $(PORT_FUZZ), which compares the port with this
@@ -105,7 +112,8 @@ port-fuzz:
 		"$(CURDIR)/$(PORT_FUZZ_BIN)/tack-go" --out "$(CURDIR)/$(PORT_FUZZ_BIN)/tack-port" ./driver
 	TACK_GO=$(PORT_FUZZ_BIN)/tack-go TACK_PORT_BIN=$(PORT_FUZZ_BIN)/tack-port TACK_PORT_TEST=1 \
 		go test -count=1 ./porttest -run '^$$' -fuzz '^$(PORT_FUZZ)$$' \
-		-fuzztime $(FUZZTIME) -parallel $(PORT_FUZZ_PARALLEL)
+		-fuzztime $(FUZZTIME) -fuzzminimizetime $(PORT_FUZZ_MINIMIZE) \
+		-parallel $(PORT_FUZZ_PARALLEL)
 
 # PORT_EMBED_BIN is where `make port-embed` builds the port's tools/embed,
 # under the ignored bin/.

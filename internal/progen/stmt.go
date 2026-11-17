@@ -27,13 +27,15 @@ func init() {
 		(*Gen).deferStmt,
 		(*Gen).stdStmt,
 		(*Gen).exprSwitchStmt,
+		(*Gen).reflectStmt,
+		(*Gen).closureStmt,
 	}
 }
 
 // stmtNames name stmtKinds, in order, for Program.Stats.
 var stmtNames = []string{
 	"obs", "decl", "assign", "compound", "incdec", "if", "loop", "div", "conv", "data", "call",
-	"control", "union", "funcval", "defer", "std", "switch",
+	"control", "union", "funcval", "defer", "std", "switch", "reflect", "closure",
 }
 
 // dataKind is the index of dataStmt in stmtKinds.

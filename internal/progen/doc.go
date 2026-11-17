@@ -46,8 +46,15 @@
 // returns one, as a statement, a binding or a value in an expression,
 // block-scoped defers, loops of a constant number of trips, if,
 // break, continue and early returns, the checked forms of division,
-// conversion, indexing, pop and map reads, std/bytes and std/sort, whose less may be a closure, and a
-// generic function, rev, reversing a list with swap.
+// conversion, indexing, pop and map reads, std/bytes and std/sort, whose less may be a closure, a
+// generic function, rev, reversing a list with swap, the empty values of
+// structs, integers and bools made with make(T, c_allocator), fields
+// loops over a struct type, generic functions constrained by Data,
+// pg_sum, folding a value's integers and bools into an int64 at any depth
+// with a switch on its type parameter and a fields loop passing each
+// v.[f] on, and pg_bump, changing them through mut, and closures passed
+// to a scope parameter, pg_apply's, that read a captured integer or
+// write a captured int64.
 //
 // # Valid by construction
 //
@@ -67,7 +74,10 @@
 // counter and a switch's union are never written; a value a call returned
 // with an error is read only where the error is proven checked; deferred
 // code allocates nothing, reads no list and never leaves its block; and
-// calls go only to functions generated earlier, so there is no recursion.
+// calls go only to functions generated earlier, so there is no recursion
+// but pg_sum's and pg_bump's calls of their own instances on each field,
+// which end one level down, a struct's fields being integers and bools;
+// and the operand passed with a closure names no variable it captures.
 // A program the compiler rejects is therefore a bug in the generator, or a
 // compiler that rejects a valid program.
 //

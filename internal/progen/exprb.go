@@ -104,6 +104,16 @@ func holds(op string, c int) bool {
 // decides the result.
 func (g *Gen) logicExpr(d int) Expr {
 	l, r := g.boolExpr(d+1), g.boolExpr(d+1)
+	if r.Text == "(!"+l.Text+")" || l.Text == "(!"+r.Text+")" {
+		// x || !x and x && !x lower to C combining a value with its
+		// negation, which clang warns of (finding: see
+		// TestFindingNegationCompareWarns), so r is a literal instead.
+		b := g.pick(2) == 1
+		r = Expr{
+			Text: strconv.FormatBool(b), T: boolType, Konst: true,
+			Eval: func(*frame) Value { return Value{Bool: b} },
+		}
+	}
 	and := g.pick(2) == 0
 	op := "||"
 	if and {

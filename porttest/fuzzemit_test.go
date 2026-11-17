@@ -23,12 +23,19 @@ const emitFuzzSeeds = 8
 // reads its choices from the input's bytes, a valid, terminating program
 // the backend lowers, writes it to main.tck in a temporary directory of
 // its own and runs both compilers on it with --emit, compared as
-// emit-single compares its cases, a not implemented answer skipping
-// unless emit-single is required or every emit stage the program needs
-// is. Before that it puts the program through this module's front end
-// and C backend, in process, as progen's FuzzGeneratedFrontEnd does, so
-// the fuzz engine's coverage, which cannot see into the compilers'
-// processes, has the Go backend's to guide it. A program's
+// emit-single compares its cases, then with --check, compared as
+// check-clean compares its cases, and then with --emit-header, each
+// compiler in a fresh copy of the directory, compared as emit-header
+// compares its cases, the tack.h written included: every program
+// declares extern funcs, so each writes one. A not implemented answer
+// skips, the runs after it unmade, unless the stage is required or every
+// emit stage the program needs is. Before that it puts the program
+// through this module's front end and C backend, in process, as progen's
+// FuzzGeneratedFrontEnd does, so the fuzz engine's coverage, which cannot
+// see into the compilers' processes, has the Go backend's to guide it.
+// No program progen writes reaches a known divergence (see
+// testdata/divergences.txtar), and an input of no suite never takes an
+// entry, so each is compared with Go's output. A program's
 // classification is never cached, so fuzzing for hours cannot fill the
 // cache.
 //
@@ -38,9 +45,13 @@ const emitFuzzSeeds = 8
 // as a test it checks them alone. It runs as FuzzLexDiff does.
 func FuzzEmitDiff(f *testing.F) {
 	ready(f)
-	st := stageNamed(emitSingleStage)
-	if st == nil {
-		f.Fatal("no emit-single stage")
+	sts := make([]*stage, 0, len(fuzzEmitStages))
+	for _, name := range fuzzEmitStages {
+		st := stageNamed(name)
+		if st == nil {
+			f.Fatalf("no %s stage", name)
+		}
+		sts = append(sts, st)
 	}
 	for seed := range uint64(emitFuzzSeeds) {
 		f.Add(progenSeed(seed, 64+int(seed)*48))
@@ -56,9 +67,21 @@ func FuzzEmitDiff(f *testing.F) {
 		); err != nil {
 			t.Fatal(err)
 		}
-		runCase(t, *st, input{name: "main.tck", dir: dir, file: "main.tck", uncached: true})
+		in := input{name: "main.tck", dir: dir, file: "main.tck", uncached: true}
+		for _, st := range sts {
+			if st.run != nil {
+				st.run(t, *st, in, env.portRun)
+			} else {
+				runCase(t, *st, in)
+			}
+		}
 	})
 }
+
+// fuzzEmitStages are the stages, by name, whose comparison FuzzEmitDiff
+// makes of each program, in the order it makes them: --emit, --check and
+// --emit-header.
+var fuzzEmitStages = []string{emitSingleStage, cleanStage, emitHeaderStage}
 
 // progenSeed returns n bytes drawn from progen.NewSeeded(seed), as
 // progen's seedBytes does.
