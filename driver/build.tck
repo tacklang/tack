@@ -28,11 +28,12 @@ import typeck from "tack/typeck"
 // cannot be made or written, a clang that fails in a way Go's exec does
 // not, a temporary directory that cannot be removed, and a relative
 // --out from a current directory that cannot be found, where Go's
-// message is wrong (see build_in). A decline writes nothing but its
-// one line: the warnings and clang's output are held until the build has
-// ended in something the port words, a binary or one of Go's errors, and
-// then written in Go's order, the warnings, clang's output, the error;
-// and a file the build made at the --out path is removed. The four
+// message is wrong (see build_in). clang writes to the driver's own
+// outputs as it runs, as Go's does, so the warnings are written just
+// before it starts (see run_tool): a decline decided before then writes
+// nothing but its one line, and one after, its line after what Go
+// writes before its own error, the warnings and clang's output; a file
+// the build made at the --out path is removed either way. The four
 // errors Go's linkStd gives for a runtime that defines no C function the
 // program needs (stdlink.go's stdRoots: a builtin's, the start and end,
 // unreachable's, the lists') cannot be reached with the runtime built
@@ -51,12 +52,7 @@ import typeck from "tack/typeck"
 // of the program's, only a backend bug that made clang reject them would
 // show the name. Its directories are made with mode 0755 and its files
 // with 0644, std/os's, where Go's are 0750 and 0600, inside the
-// directory make_temp_dir makes 0700, as Go's is. clang's standard
-// output and standard error are read through pipes and written once it
-// has ended, where Go's clang writes to the driver's own: each stream's
-// bytes are the same, but a terminal shows no colour, and where both
-// streams reach one place, clang's standard output comes before its
-// standard error rather than as clang wrote them. Ctrl-C does not stop
+// directory make_temp_dir makes 0700, as Go's is. Ctrl-C does not stop
 // clang and leaves the temporary directory behind, where Go cancels the
 // build and removes it.
 
@@ -180,12 +176,20 @@ func needs_more(mut t typeck.Typed) (bool, error) {
 // runtime objects, warnings being what the stages before warned of,
 // rendered: in a fresh temporary directory, which is removed on every
 // path, it writes the runtime (see write_runtime) and c, as program.c,
-// and runs clang's link (see codegen.build_cmd). It returns the exit
-// status: exit_ok or exit_failure, with the warnings, what clang wrote
-// to each stream and, for a failure, Go's error, tack: and its text,
-// written then, as Go writes them; or not implemented, with nothing
-// written but the line saying so, and the file clang made at out, if it
-// started and nothing was at out before, removed. What was at out before
+// and runs clang's link (see codegen.build_cmd), clang writing to the
+// driver's own standard output and standard error as it runs. The
+// warnings are written just before clang starts, or, when it does not,
+// once the build has ended in one of Go's errors; Go writes them before
+// its build begins, and nothing the port writes comes between. It
+// returns the exit status: exit_ok or exit_failure, with the warnings,
+// clang's output and, for a failure, Go's error, tack: and its text,
+// written as Go writes them; or not implemented, with the line saying
+// so written last, and the file clang made at out, if it started and
+// nothing was at out before, removed. A decline decided before clang
+// starts writes nothing else; one after, a temporary directory that
+// cannot be removed or a clang whose run fails in a way Go's exec does
+// not, comes after the warnings and clang's output, which are what Go
+// writes before its own error. What was at out before
 // the build is not restored: a decline after clang ran can leave a file
 // clang overwrote, overwritten, and a symbolic link, dangling or not,
 // with the file clang wrote through it at its target. A temporary
@@ -204,10 +208,9 @@ func build(c []uint8, warnings []uint8, out []uint8, opt string) (int32, error) 
         return unimplemented([]uint8("--out with a temp directory that cannot be made")), noerror
     }
     mut msg := make(list[uint8], c_allocator)
-    mut clang_out := make(list[uint8], c_allocator)
-    mut clang_err := make(list[uint8], c_allocator)
     mut made := text.new(c_allocator)
-    code, e := build_in(tmp.bytes(), c, out, opt, mut msg, mut clang_out, mut clang_err, mut made)
+    mut shown := false
+    code, e := build_in(tmp.bytes(), c, warnings, out, opt, mut msg, mut shown, mut made)
     removed, re := remove_tree(tmp.bytes())
     if e.code != 0 {
         return exit_failure, e
@@ -230,9 +233,9 @@ func build(c []uint8, warnings []uint8, out []uint8, opt string) (int32, error) 
         append(mut what, msg...)?
         return unimplemented(what), noerror
     }
-    fmt.ewrite(warnings)
-    fmt.write(clang_out)
-    fmt.ewrite(clang_err)
+    if !shown {
+        fmt.ewrite(warnings)
+    }
     if outcome != exit_ok {
         fmt.eprintf("tack: %s\n", msg[:])
     }
@@ -257,8 +260,9 @@ func remove_made(p []uint8) {
 // build_in is build's work in dir, the temporary directory, as
 // make_temp_dir gave it: it returns exit_ok, or exit_failure with Go's
 // error in msg, or not_implemented with what the port cannot do in msg,
-// after a space, for the not implemented line, with what clang wrote to
-// each stream in clang_out and clang_err, and, in made, the absolute
+// after a space, for the not implemented line, with shown set once the
+// warnings are written, just before clang starts (see run_tool), and, in
+// made, the absolute
 // --out path when nothing was there before clang ran and clang started,
 // so that a build that is declined can remove what clang made. Go's
 // build makes the directory and out absolute first, each as
@@ -269,7 +273,7 @@ func remove_made(p []uint8) {
 // then removes nothing, leaving the directory, which the port removes,
 // and its cannot find --out names an empty path, cannot find --out :,
 // which the port declines rather than copy.
-func build_in(dir []uint8, c []uint8, out []uint8, opt string, mut msg list[uint8], mut clang_out list[uint8], mut clang_err list[uint8], mut made text.Text) (int32, error) {
+func build_in(dir []uint8, c []uint8, warnings []uint8, out []uint8, opt string, mut msg list[uint8], mut shown bool, mut made text.Text) (int32, error) {
     abs_dir, df := abs_path(dir)?
     if df.failed {
         if df.unworded {
@@ -299,10 +303,13 @@ func build_in(dir []uint8, c []uint8, out []uint8, opt string, mut msg list[uint
     }
     argv := codegen.build_cmd(src.bytes(), include.bytes(), abs_out.bytes(), []uint8(opt))?
     _, before := os.lstat(abs_out.bytes())
+    // Made before clang runs, so that nothing after it needs memory to
+    // say what to remove.
+    candidate := text.from_bytes(abs_out.bytes(), c_allocator)?
     mut started := false
-    code := run_tool(argv, mut msg, mut clang_out, mut clang_err, mut started)?
+    code := run_tool(argv, warnings, mut msg, mut shown, mut started)?
     if started && loader.is_enoent(before) {
-        made = text.from_bytes(abs_out.bytes(), c_allocator)?
+        made = candidate
     }
     return code, noerror
 }
@@ -414,20 +421,23 @@ func write_temp(p []uint8, data []uint8, mut msg list[uint8]) (int32, error) {
 // run_tool runs argv, a toolchain command whose program is clang, as
 // Go's runTool runs one with no C file to name: the program found on
 // PATH as Go's exec.LookPath finds it (see find_clang), and then that
-// path run, with std/os's run, given argv as it is, its argv[0] clang,
-// as Go's exec.Cmd runs its Path with its Args, so that nothing looks
-// clang up again. What it writes to its standard output and standard
-// error is appended to out and err_out. It returns exit_ok when clang
-// exits 0, and otherwise exit_failure, with Go's error in msg, clang
-// failed: and Go's words for how it ended, exit status and the status,
-// signal: and Go's name for the signal, with (core dumped) when it
-// dumped core, or fork/exec, the path and Go's text for the errno when
-// it could not be started; or Go's exec error for a clang not found or
-// found relative to the current directory. A run that fails another
-// way, a pipe that cannot be made or a read or wait that fails, is
+// path run, with std/os's run_inherit, given argv as it is, its argv[0]
+// clang, as Go's exec.Cmd runs its Path with its Args, so that nothing
+// looks clang up again. clang writes to the driver's own standard output
+// and standard error, as Go's does, given os.Stdout and os.Stderr, so a
+// terminal shows its colour and both streams arrive as it writes them;
+// warnings, what the stages before warned of, are written just before it
+// starts, and shown set. It returns exit_ok when clang exits 0, and
+// otherwise exit_failure, with Go's error in msg, clang failed: and Go's
+// words for how it ended, exit status and the status, signal: and Go's
+// name for the signal, with (core dumped) when it dumped core, or
+// fork/exec, the path and Go's text for the errno when it could not be
+// started; or Go's exec error for a clang not found or found relative
+// to the current directory, before anything is written. A run that fails
+// another way, /dev/null that cannot be opened or a wait that fails, is
 // not_implemented, with what in msg: Go's exec does neither as the port
 // does. started is set when clang was started, whatever it then did.
-func run_tool(argv []text.Text, mut msg list[uint8], mut out list[uint8], mut err_out list[uint8], mut started bool) (int32, error) {
+func run_tool(argv []text.Text, warnings []uint8, mut msg list[uint8], mut shown bool, mut started bool) (int32, error) {
     mut found := text.new(c_allocator)
     mut why := make(list[uint8], c_allocator)
     fcode := find_clang(mut found, mut why)?
@@ -435,10 +445,12 @@ func run_tool(argv []text.Text, mut msg list[uint8], mut out list[uint8], mut er
         fmt.appendf(mut msg, "clang failed: %s", why[:])?
         return exit_failure, noerror
     }
-    status, err := os.run(found.bytes(), argv, mut out, mut err_out, c_allocator)
-    // Only a child that ran and was waited for started: run's other
-    // errors come before the child or instead of it, but for a read or
-    // wait that failed once it had started, which run does not tell
+    fmt.ewrite(warnings)
+    shown = true
+    status, err := os.run_inherit(found.bytes(), argv, c_allocator)
+    // Only a child that ran and was waited for started: run_inherit's
+    // other errors come before the child or instead of it, but for a
+    // wait that failed once it had started, which it does not tell
     // apart, and is taken as not started.
     started = err.code == 0
     if err.code == 1 {

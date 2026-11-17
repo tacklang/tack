@@ -135,27 +135,30 @@ found relative to the current directory, and the path found is the one
 run, given `clang` as its `argv[0]`, as Go gives it. A clang that exits
 other than 0, is killed by a signal or cannot be started is worded as
 Go words it, `clang failed:` and the exit status, the signal's name or
-`fork/exec`, its path and the errno. The
-warnings, clang's output and the build's failure are written as the Go
-compiler writes them, once the build has ended in a binary or in an
-error the port words as Go does. Anything else is answered as not
-implemented, with nothing written but that line, and a file clang made
-at the `--out` path removed. What was at `--out` before the build is
-not restored: a decline after clang ran can leave a file clang
-overwrote, and a file clang wrote through a dangling symbolic link.
-The declines are these: any other program, a clang whose run fails
-in a way Go's exec does not, a pipe that cannot be made or a read or
-wait that fails, a temporary directory or file that cannot be made,
+`fork/exec`, its path and the errno. clang writes to the driver's own
+standard output and standard error as it runs, as the Go compiler's
+does, so a terminal shows its colour and both streams arrive as it
+writes them; the warnings are written just before clang starts, or with
+the build's error when it does not, and the failure after, as the Go
+compiler writes them. Anything else is answered as not implemented,
+the line saying so written last, and a file clang made at the `--out`
+path removed: a decline decided before clang starts writes nothing but
+that line, and one after, a temporary directory that cannot be removed
+or a run that fails in a way Go's exec does not, writes it after the
+warnings and clang's output, what the Go compiler writes before its own
+error. What was at `--out` before the build is not restored: a
+decline after clang ran can leave a file clang overwrote, and a file
+clang wrote through a dangling symbolic link. The declines are these:
+any other program, a clang whose run fails in a way Go's exec does not,
+`/dev/null` that cannot be opened or a wait that fails, a temporary
+directory or file that cannot be made,
 written or removed, which Go words with a path or an operation the
 port cannot give, and a relative `--out` from a current directory that
 is gone, where Go's message names an empty path. The temporary
 directory is std/os's `tk-XXXXXX`, six letters and digits, where Go's
 is `tk-<digits>`, made with std/os's file modes, and every failure Go
 words with a path in it, as a runtime directory that cannot be made,
-is declined; and clang's output is passed on once it has ended, each
-stream whole, so a terminal shows it without colour, and where both
-streams reach one place its standard output comes before its standard
-error rather than as clang wrote them. No build the porttest
+is declined. No build the porttest
 stages compare shows these differences. Ctrl-C does not stop clang, and
 leaves the temporary directory behind.
 
