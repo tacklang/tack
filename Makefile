@@ -150,6 +150,13 @@ PORT_SANITIZE_SKIP := Perf|TestDeepFactsMemory
 # porttest's TestMalformed break, truncate and mutate.
 PORT_MALFORMED := 100
 
+# PORT_SANITIZE_PARALLEL is how many of porttest's cases `make
+# port-sanitize` runs at once (go test -parallel). Each sanitized port
+# and its clang take several times the memory of an unsanitized one, so
+# go test's default, one per core, ran past 8 GB on a 24-core machine;
+# 4 fits in it and took 2 h 44 min there.
+PORT_SANITIZE_PARALLEL := 4
+
 # port-sanitize runs porttest against the port built with SANITIZE_FLAGS,
 # from the C this compiler writes for it, through a clang on PATH that
 # adds them to every command but --version, with every stack
@@ -158,7 +165,8 @@ PORT_MALFORMED := 100
 # status 86, which fails the case it ran: the sanitizers linked together
 # share one exit status, the one the options read last set, so both
 # options are given 86. TestMalformed
-# runs too, on $(PORT_MALFORMED) programs. The port's
+# runs too, on $(PORT_MALFORMED) programs, and at most
+# $(PORT_SANITIZE_PARALLEL) cases run at once. The port's
 # source tree is $TACK_PORT, ../tack by default, as for port-test.
 port-sanitize:
 	mkdir -p $(PORT_SANITIZE_BIN)/clang
@@ -175,7 +183,8 @@ port-sanitize:
 		PORTTEST_STACK_SCALE=$(PORT_SANITIZE_STACK) PORTTEST_TIMEOUT_SCALE=$(PORT_SANITIZE_TIMEOUT) \
 		PORTTEST_MALFORMED=$(PORT_MALFORMED) \
 		TACK_GO=$(PORT_SANITIZE_BIN)/tack-go TACK_PORT_BIN=$(PORT_SANITIZE_BIN)/tack-port TACK_PORT_TEST=1 \
-		go test -count=1 -timeout 480m ./porttest -skip '$(PORT_SANITIZE_SKIP)'
+		go test -count=1 -timeout 480m -p 1 -parallel $(PORT_SANITIZE_PARALLEL) \
+		./porttest -skip '$(PORT_SANITIZE_SKIP)'
 
 # PORT_ALLOC_FAIL is how many points of allocation failure `make
 # port-alloc-fail` sweeps each run at.
