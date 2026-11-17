@@ -1735,6 +1735,14 @@ func (mut c Checker) check_own_exclusive(k Key) error {
     if len(owns) == 0 {
         return noerror
     }
+    // What owned_elsewhere asks of each own argument, read once for the
+    // call rather than once for each of its names.
+    mut sites := make(list[OwnSite], c_allocator)
+    for _, o := range owns {
+        x := own_operand(c.prog.trees, o)
+        xn, _ := ident_at(c.prog.trees, x)
+        append(mut sites, OwnSite{arg: o, operand: x, def: xn.def, start: span_at(c.prog.trees, o).start})?
+    }
     for _, n := range names {
         nm, _ := ident_at(c.prog.trees, n)
         sp := span_at(c.prog.trees, n)
@@ -1742,7 +1750,7 @@ func (mut c Checker) check_own_exclusive(k Key) error {
         if nm.def.is_none() || reported {
             continue
         }
-        o := mut c.owned_elsewhere(n, nm, owns)
+        o := owned_elsewhere(n, nm, span_at(c.prog.trees, n).start, sites)
         if is_no_key(o) {
             continue
         }
@@ -1774,22 +1782,30 @@ func own_operand(trees []ast.File, o Key) Key {
     }
 }
 
-// owned_elsewhere returns the own argument of owns, every one in a call
-// whose operand is a name, that passes the variable n, nm, names when n
-// is another name of it, Go's ownedElsewhere: when n is itself passed as
-// own, only an earlier own argument counts.
-func (mut c Checker) owned_elsewhere(n Key, nm ast.Ident, owns []Key) Key {
+// OwnSite is an own argument of a call whose operand is a name, with
+// what owned_elsewhere asks of it: the argument, its operand, what the
+// operand is bound to and where the argument starts.
+type OwnSite struct {
+    arg Key
+    operand Key
+    def ast.Def
+    start int64
+}
+
+// owned_elsewhere returns the own argument of sites, every one in a call
+// whose operand is a name, that passes the variable n, nm, names when n,
+// which starts at start, is another name of it, Go's ownedElsewhere: when
+// n is itself passed as own, only an earlier own argument counts.
+func owned_elsewhere(n Key, nm ast.Ident, start int64, sites []OwnSite) Key {
     mut is_owned := false
-    for _, o := range owns {
-        is_owned = is_owned || own_operand(c.prog.trees, o) == n
+    for _, s := range sites {
+        is_owned = is_owned || s.operand == n
     }
-    for _, o := range owns {
-        x := own_operand(c.prog.trees, o)
-        xn, _ := ident_at(c.prog.trees, x)
-        if x == n || xn.def != nm.def || is_owned && span_at(c.prog.trees, o).start > span_at(c.prog.trees, n).start {
+    for _, s := range sites {
+        if s.operand == n || s.def != nm.def || is_owned && s.start > start {
             continue
         }
-        return o
+        return s.arg
     }
     return no_key()
 }
