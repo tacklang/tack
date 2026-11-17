@@ -498,7 +498,7 @@ type KnownLocal struct {
     ok bool
 }
 
-// KnownBinary is what known_arithmetic found about a binary, Go's
+// KnownBinary is what arith_step found about a binary, Go's
 // knownBinary: its value, whether it is known, and the binary's type
 // then.
 type KnownBinary struct {

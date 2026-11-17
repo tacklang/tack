@@ -106,8 +106,31 @@ package typeck
 // nests in another through a few small frames, the check's work before
 // and after its part done by functions of their own, which return
 // before the part is checked (see field_key, question, dynamic_callee,
-// find_method and method_args); and a fold or a walk of the moves keeps
-// a stack of its own (see fold_run and mv_walk). The facts keep to it
+// find_method and method_args); and a fold, a known value or a walk of
+// the moves keeps a stack of its own (see fold_run and mv_walk). The
+// fold machine runs Go's fold and its knownValue family, which recurse
+// into one another through every field, element, operand, conversion,
+// string and slice bound of a value: each is a routine of the machine,
+// whose frames are on a list, a part's routine pushed above the frame
+// that asked for it and done before that frame goes on, each step doing
+// what its function does between two of its calls, in the order a
+// recursive fold takes them; the chains a routine walks down keep their
+// links on the machine's lists, from the place its frame records up,
+// and a routine takes its own off before it is done, so a routine finds
+// its own links where it left them. known_value, known_string,
+// extent_of and fold each run a machine of their own. The native stack
+// a known value or a fold takes is then the same however deep the value
+// nests, and however long a chain: the entry's frame, fold_run's, and
+// the frames of the one step at work and the helpers it calls, which
+// rests on two things. No step function calls another, or itself,
+// back: each walks its chain in a loop and returns to fold_run to have
+// a part worked out, never calling the part's routine. And nothing a
+// step calls, type_of, the constant store, the table or the memos,
+// asks for a known value or a fold, so no machine is run inside
+// another (see fold.tck's header). One helper a step calls still
+// recurses: equal_consts, through fold_bool_step, goes down the
+// constants it compares one level at a time, which the literal nesting
+// limit bounds. The facts keep to it
 // too: a condition's facts are worked out from a stack of frames (see
 // facts_from), a region's writes, whether a block leaves and the jumps
 // out of it from stacks of their own (see walk_writes, block_leaves and
@@ -119,7 +142,7 @@ package typeck
 // of known amounts in a loop (see linear), so a sum of any length is
 // proven in a bounded stack. A slice's length and a known string are
 // worked out down a chain of slices, and of locals each initialized
-// with the next, in a loop too (see extent_of and known_string). A
+// with the next, in a loop too (see extent_step and string_step). A
 // query's graph drops an edge alike to one it took, and where a search
 // for its bounds does not settle it is built again whole, keeping every
 // such edge, as Go's is (see relgraph.tck's header). A generic call's

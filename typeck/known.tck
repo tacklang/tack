@@ -117,37 +117,85 @@ func (mut c Checker) const_value(k Key) (constant.Int, bool) {
 // value, a field or an element of a known struct or array, a byte of a
 // known string, a conversion of a known value that fits, or arithmetic
 // on known values whose exact result fits its type. A float's value is
-// never known this way.
+// never known this way. What needs no part of k worked out is answered
+// here; anything else is worked out by the fold machine (see fold_run),
+// whose routines take each part Go's knownValue and fold recurse into
+// from a stack of their own.
 func (mut c Checker) known_value(k Key) (constant.Int, bool, error) {
+    v, ok, r := mut c.value_first(k)
+    if r == k_none {
+        return v, ok, noerror
+    }
+    mut m := new_folder()
+    start_value(mut m, k, r)?
+    mut c.fold_run(mut m)?
+    return m.rv.i, m.rok, noerror
+}
+
+// value_first is Go's knownValue up to the first part it works out: the
+// value of k, with k_none, when no part is needed, that of a float, a
+// constant, a variable or of a node that has none, or else the routine
+// that works k's value out: k_arith for a binary, k_call for a call,
+// k_unary for a unary and k_fold, a part's fold, for a field or an
+// element.
+func (mut c Checker) value_first(k Key) (constant.Int, bool, uint8) {
     if types.is_float(mut c.type_of(k)) {
-        return constant.from_int64(0), false, noerror
+        return constant.from_int64(0), false, k_none
     }
     v, ok := mut c.const_value(k)
     if ok {
-        return v, true, noerror
+        return v, true, k_none
     }
     switch kind_at(c.prog.trees, k) {
-    case binary(b):
-        r, known := mut c.known_arithmetic(k, b)?
-        return r, known, noerror
+    case binary:
+        return constant.from_int64(0), false, k_arith
     case call:
-        r, known := mut c.known_call(k)?
-        return r, known, noerror
+        return constant.from_int64(0), false, k_call
     case selector, index:
-        part, ok_part := mut c.fold_part(k)?
-        if ok_part && part.kind == cv_int {
-            return part.i, true, noerror
-        }
-        return constant.from_int64(0), false, noerror
-    case unary(u):
-        r, known := mut c.known_unary(k, u)?
-        return r, known, noerror
+        return constant.from_int64(0), false, k_fold
+    case unary:
+        return constant.from_int64(0), false, k_unary
     case ident(nm):
         r, known := mut c.known_var(nm)
-        return r, known, noerror
+        return r, known, k_none
     default:
-        return constant.from_int64(0), false, noerror
+        return constant.from_int64(0), false, k_none
     }
+}
+
+// start_value pushes the routine r, which value_first named, to work out
+// k's value: a field's or an element's is its fold as a part, under a
+// frame of known_value's that keeps it only if it is an integer.
+func start_value(mut m Folder, k Key, r uint8) error {
+    if r == k_fold {
+        mut f := value_frame(k_value, k)
+        f.step = 1
+        return mut m.call(f, fold_frame(k, true))
+    }
+    return mut m.push(value_frame(r, k))
+}
+
+// value_step runs a step of known_value's routine, k_value, for f's
+// node: at step 0 it answers what value_first answers or hands the node
+// to the routine that works it out, which gives its value in its place,
+// and at step 1 it keeps the integer the part's fold gave, Go's
+// knownValue of a selector or an index.
+func (mut c Checker) value_step(mut m Folder, f FoldFrame) error {
+    if f.step == 0 {
+        v, ok, r := mut c.value_first(f.k)
+        if r == k_none {
+            mut m.give(int_const(v), ok)
+            return noerror
+        }
+        return start_value(mut m, f.k, r)
+    }
+    part := m.rv
+    if m.rok && part.kind == cv_int {
+        mut m.give(int_const(part.i), true)
+        return noerror
+    }
+    mut m.give(int_const(constant.from_int64(0)), false)
+    return noerror
 }
 
 // known_var returns the value of the variable nm names, when it is an
@@ -173,278 +221,435 @@ func (mut c Checker) known_var(nm ast.Ident) (constant.Int, bool) {
     return constant.from_int64(0), false
 }
 
-// known_unary returns the value of -x, -%x or ^x, u at k, when x's value
-// is known and the result is a value of u's type, Go's knownUnary.
-func (mut c Checker) known_unary(k Key, u ast.Unary) (constant.Int, bool, error) {
-    v, ok := mut c.known_value(sub(k, u.x))?
-    if !ok {
-        return constant.from_int64(0), false, noerror
+// unary_step runs a step of the routine k_unary, Go's knownUnary: the
+// value of -x, -%x or ^x, f's node, when x's value, worked out at step
+// 0, is known and the result is a value of the unary's type.
+func (mut c Checker) unary_step(mut m Folder, mut f FoldFrame) error {
+    u := unary_at(c.prog.trees, f.k)
+    if f.step == 0 {
+        f.step = 1
+        return mut m.call(f, value_frame(k_value, sub(f.k, u.x)))
     }
-    typ := node_type_of(c.node_types, k)
+    v := m.rv.i
+    if !m.rok {
+        mut m.give(int_const(constant.from_int64(0)), false)
+        return noerror
+    }
+    typ := node_type_of(c.node_types, f.k)
     if u.op == ast.unary_neg {
         n, fits := v.negate()
-        r, f := fitting(n, fits, typ)
-        return r, f, noerror
+        r, ok := fitting(n, fits, typ)
+        mut m.give(int_const(r), ok)
+        return noerror
     }
     if u.op == ast.unary_neg_wrap {
-        r, f := wrap_step(ast.op_sub_wrap, constant.from_int64(0), v, typ)
-        return r, f, noerror
+        r, ok := wrap_step(ast.op_sub_wrap, constant.from_int64(0), v, typ)
+        mut m.give(int_const(r), ok)
+        return noerror
     }
     if u.op != ast.unary_complement || types.target_width(typ) {
-        return constant.from_int64(0), false, noerror
+        mut m.give(int_const(constant.from_int64(0)), false)
+        return noerror
     }
     if types.is_unsigned(typ) {
         sh, sh_ok := uint64(64 -% types.max_bits(typ))
         if !sh_ok || sh > 63 {
-            return constant.from_int64(0), false, noerror
+            mut m.give(int_const(constant.from_int64(0)), false)
+            return noerror
         }
         mask := uint64(18446744073709551615) >> sh
         x, fits := v.bit_xor(constant.from_uint64(mask))
-        r, f := fitting(x, fits, typ)
-        return r, f, noerror
+        r, ok := fitting(x, fits, typ)
+        mut m.give(int_const(r), ok)
+        return noerror
     }
     n, fits := v.complement()
-    r, f := fitting(n, fits, typ)
-    return r, f, noerror
+    r, ok := fitting(n, fits, typ)
+    mut m.give(int_const(r), ok)
+    return noerror
 }
 
-// known_call returns the value of a call when it is known, Go's
-// knownCall: a conversion of a known value that fits its type, or len of
-// a known string or of a slice of one at known bounds.
-func (mut c Checker) known_call(k Key) (constant.Int, bool, error) {
-    cl := call_of(c.prog.trees, k)
-    if cl.conv != types.invalid {
-        if count_items(c.prog.trees, k.unit, cl.args) != 1 || !types.is_integer(cl.conv) {
-            return constant.from_int64(0), false, noerror
-        }
-        v, ok := mut c.known_value(item_at(c.prog.trees, k.unit, cl.args, 0))?
-        if !ok || !fits_portably(v, cl.conv) {
-            return constant.from_int64(0), false, noerror
-        }
-        return v, true, noerror
-    }
-    if !is_len_call(c.prog.trees, c.none, k) || count_items(c.prog.trees, k.unit, cl.args) != 1 {
-        return constant.from_int64(0), false, noerror
-    }
-    arg := item_at(c.prog.trees, k.unit, cl.args, 0)
-    s, known := mut c.known_string(arg)?
-    if known {
-        return constant.from_int64(s.count), true, noerror
-    }
-    switch kind_at(c.prog.trees, arg) {
-    case slice:
-        has := has_call(c.prog.trees, arg)?
-        if !has {
-            n, ok := mut c.slice_extent(arg)?
-            if ok {
-                return constant.from_int64(n), true, noerror
-            }
-        }
+// unary_at returns the Unary the unary node k holds.
+func unary_at(trees []ast.File, k Key) ast.Unary {
+    switch kind_at(trees, k) {
+    case unary(u):
+        return u
     default:
+        mut z ast.Unary
+        return z
     }
-    return constant.from_int64(0), false, noerror
+}
+
+// call_step runs a step of the routine k_call, Go's knownCall: the value
+// of f's node, a call, when it is known. A conversion's is its
+// argument's, worked out at step 0 and kept at step 1 if it fits the
+// conversion's type; len's is the length of a known string, worked out
+// at step 0 and taken at step 2, or else of a slice that calls nothing,
+// at known bounds, worked out at step 2 and taken at step 3.
+func (mut c Checker) call_step(mut m Folder, mut f FoldFrame) error {
+    cl := call_of(c.prog.trees, f.k)
+    if f.step == 0 {
+        if cl.conv != types.invalid {
+            if count_items(c.prog.trees, f.k.unit, cl.args) != 1 || !types.is_integer(cl.conv) {
+                mut m.give(int_const(constant.from_int64(0)), false)
+                return noerror
+            }
+            f.step = 1
+            return mut m.call(f, value_frame(k_value, item_at(c.prog.trees, f.k.unit, cl.args, 0)))
+        }
+        if !is_len_call(c.prog.trees, c.none, f.k) || count_items(c.prog.trees, f.k.unit, cl.args) != 1 {
+            mut m.give(int_const(constant.from_int64(0)), false)
+            return noerror
+        }
+        f.step = 2
+        return mut m.call(f, value_frame(k_string, item_at(c.prog.trees, f.k.unit, cl.args, 0)))
+    }
+    if f.step == 1 {
+        v := m.rv.i
+        if !m.rok || !fits_portably(v, cl.conv) {
+            mut m.give(int_const(constant.from_int64(0)), false)
+            return noerror
+        }
+        mut m.give(int_const(v), true)
+        return noerror
+    }
+    if f.step == 2 {
+        if m.rok {
+            mut m.give(int_const(constant.from_int64(m.rv.count)), true)
+            return noerror
+        }
+        arg := item_at(c.prog.trees, f.k.unit, cl.args, 0)
+        switch kind_at(c.prog.trees, arg) {
+        case slice:
+            has := has_call(c.prog.trees, arg)?
+            if !has {
+                f.step = 3
+                return mut m.call(f, value_frame(k_extent, arg))
+            }
+        default:
+        }
+        mut m.give(int_const(constant.from_int64(0)), false)
+        return noerror
+    }
+    if m.rok {
+        mut m.give(int_const(constant.from_int64(m.rn)), true)
+        return noerror
+    }
+    mut m.give(int_const(constant.from_int64(0)), false)
+    return noerror
 }
 
 // known_string returns the value of k when it is a string the checker
 // knows, Go's knownString: a literal, an immutable variable initialized
 // with a known string, a field or an element of a known struct or
-// array, or a slice of a known string at known bounds. A chain of locals
-// each initialized with the next, and of slices each of the next, is
-// walked down in a loop to the string it starts from, and the slices'
-// bounds are then taken from the innermost out, so a chain of any length
-// takes no frame a link.
+// array, or a slice of a known string at known bounds. It is worked out
+// by the fold machine's routine k_string (see string_step).
 func (mut c Checker) known_string(k Key) (Const, bool, error) {
-    mut slices := make(list[Key], c_allocator)
-    mut x := k
-    mut str := no_const()
+    mut m := new_folder()
+    mut m.push(value_frame(k_string, k))?
+    mut c.fold_run(mut m)?
+    return m.rv, m.rok, noerror
+}
+
+// string_step runs a step of the routine k_string, Go's knownString of
+// f's node. A chain of locals each initialized with the next, and of
+// slices each of the next, is walked down in a loop to the string it
+// starts from, the slices pushed on the machine's links from f.links
+// up, at step 0, or the fold of a field or an element it starts from
+// taken, at step 1. The slices' bounds are then worked out from the
+// innermost out, Go's knownSlice once its string is known, the string so
+// far in f.acc: a low bound's value at step 2, f.at the slice, and a
+// high one's at step 3 (see string_up), so a chain of any length takes
+// no frame a link.
+func (mut c Checker) string_step(mut m Folder, mut f FoldFrame) error {
+    if f.step == 0 {
+        f.links = len(m.links)
+        mut x := f.k
+        for {
+            switch kind_at(c.prog.trees, x) {
+            case str_lit(s):
+                f.acc = mut c.store.str_const(text_at(c.prog.trees, c.none, x.unit, s))?
+                f.i = len(m.links) -% 1
+                return mut c.string_up(mut m, mut f, s_next, 0)
+            case selector, index:
+                f.step = 1
+                return mut m.call(f, fold_frame(x, true))
+            case slice(sl):
+                append(mut m.links, x)?
+                x = sub(x, sl.x)
+            case ident(nm):
+                if nm.def.kind != ast.def_var {
+                    return string_fail(mut m, f)
+                }
+                v := key_of_def(nm.def)
+                var_node := var_of(c.prog.trees, v)
+                if var_node.mutable || decl_type_of(c.decl_types, v) != types.string_type {
+                    return string_fail(mut m, f)
+                }
+                cv, ok := c.var_consts[v]
+                if ok && cv.kind == cv_str {
+                    f.acc = cv
+                    f.i = len(m.links) -% 1
+                    return mut c.string_up(mut m, mut f, s_next, 0)
+                }
+                // A local's initializer is followed; a global's value is its
+                // Const, computed before anything reads it.
+                _, global := c.globals[v]
+                if ast.is_none(var_node.value) || global {
+                    return string_fail(mut m, f)
+                }
+                x = sub(v, var_node.value)
+            default:
+                return string_fail(mut m, f)
+            }
+        }
+    }
+    if f.step == 1 {
+        if !m.rok || m.rv.kind != cv_str {
+            return string_fail(mut m, f)
+        }
+        f.acc = m.rv
+        f.i = len(m.links) -% 1
+        return mut c.string_up(mut m, mut f, s_next, 0)
+    }
+    v := m.rv.i
+    if !m.rok || v.is_negative() || v.cmp(constant.from_int64(f.acc.count)) > 0 {
+        return string_fail(mut m, f)
+    }
+    if f.step == 2 {
+        f.lo = v.to_int64()
+        return mut c.string_up(mut m, mut f, s_hi, 0)
+    }
+    return mut c.string_up(mut m, mut f, s_cut, v.to_int64())
+}
+
+// string_up takes the slices of f's chain from the innermost out, f.i
+// the next one's place on the machine's links, the string so far in
+// f.acc, Go's knownSlice of each, in a loop, so that a chain of slices
+// with no bounds takes no frame a link: start, the phase it starts at,
+// is s_next for the next slice, whose low bound's value is worked out
+// at step 2, or is 0 when there is none; s_hi for the high bound of
+// f.at, its low one in f.lo, worked out at step 3, or the length of the
+// string so far when there is none; and s_cut once the high bound, hi,
+// is known, slicing the string so far from f.lo to hi, bounds out of
+// order leaving it unknown. With every slice taken, f's string is known.
+func (mut c Checker) string_up(mut m Folder, mut f FoldFrame, start uint8, hi_in int64) error {
+    mut phase := start
+    mut hi := hi_in
     for {
-        switch kind_at(c.prog.trees, x) {
-        case str_lit(s):
-            str = mut c.store.str_const(text_at(c.prog.trees, c.none, x.unit, s))?
-            break
-        case selector, index:
-            part, ok := mut c.fold_part(x)?
-            if !ok || part.kind != cv_str {
-                return no_const(), false, noerror
+        if phase == s_next {
+            if f.i < f.links {
+                for len(m.links) > f.links {
+                    pop(mut m.links)
+                }
+                mut m.give(f.acc, true)
+                return noerror
             }
-            str = part
-            break
-        case slice(sl):
-            append(mut slices, x)?
-            x = sub(x, sl.x)
-            continue
-        case ident(nm):
-            if nm.def.kind != ast.def_var {
-                return no_const(), false, noerror
+            f.at = key_in(m.links, f.i)
+            f.i -%= 1
+            f.lo = 0
+            lo := slice_at(c.prog.trees, f.at).lo
+            if !ast.is_none(lo) {
+                f.step = 2
+                return mut m.call(f, value_frame(k_value, sub(f.at, lo)))
             }
-            v := key_of_def(nm.def)
-            var_node := var_of(c.prog.trees, v)
-            if var_node.mutable || decl_type_of(c.decl_types, v) != types.string_type {
-                return no_const(), false, noerror
-            }
-            cv, ok := c.var_consts[v]
-            if ok && cv.kind == cv_str {
-                str = cv
-                break
-            }
-            // A local's initializer is followed; a global's value is its
-            // Const, computed before anything reads it.
-            _, global := c.globals[v]
-            if ast.is_none(var_node.value) || global {
-                return no_const(), false, noerror
-            }
-            x = sub(v, var_node.value)
-            continue
-        default:
-            return no_const(), false, noerror
+            phase = s_hi
         }
-        break
-    }
-    mut i := len(slices) -% 1
-    for i >= 0 {
-        s := key_in(slices[:], i)
-        i -%= 1
-        r, ok := mut c.slice_of_known(s, str)?
-        if !ok {
-            return no_const(), false, noerror
+        if phase == s_hi {
+            high := slice_at(c.prog.trees, f.at).hi
+            if !ast.is_none(high) {
+                f.step = 3
+                return mut m.call(f, value_frame(k_value, sub(f.at, high)))
+            }
+            hi = f.acc.count
         }
-        str = r
+        if f.lo > hi {
+            return string_fail(mut m, f)
+        }
+        mut r := f.acc
+        r.first = f.acc.first +% f.lo
+        r.count = hi -% f.lo
+        f.acc = r
+        phase = s_next
     }
-    return str, true, noerror
+    return noerror
 }
 
-// slice_of_known returns the slice s of str, a known string, at known
-// bounds in range and in order, Go's knownSlice once its string is
-// known.
-func (mut c Checker) slice_of_known(s Key, str Const) (Const, bool, error) {
-    switch kind_at(c.prog.trees, s) {
+// s_next, s_hi and s_cut are the phases string_up takes a slice of a
+// chain in: the next slice's low bound, its high bound, and the cut.
+var s_next uint8 = 0
+var s_hi uint8 = 1
+var s_cut uint8 = 2
+
+// string_fail ends f, a k_string routine, with no string known, taking
+// its slices off the machine's links.
+func string_fail(mut m Folder, f FoldFrame) error {
+    for len(m.links) > f.links {
+        pop(mut m.links)
+    }
+    mut m.give(no_const(), false)
+    return noerror
+}
+
+// slice_at returns the Slice the slice node k holds.
+func slice_at(trees []ast.File, k Key) ast.Slice {
+    switch kind_at(trees, k) {
     case slice(sl):
-        mut lo int64 = 0
-        mut hi := str.count
-        if !ast.is_none(sl.lo) {
-            v, known := mut c.known_value(sub(s, sl.lo))?
-            if !known || v.is_negative() || v.cmp(constant.from_int64(str.count)) > 0 {
-                return no_const(), false, noerror
-            }
-            lo = v.to_int64()
-        }
-        if !ast.is_none(sl.hi) {
-            v, known := mut c.known_value(sub(s, sl.hi))?
-            if !known || v.is_negative() || v.cmp(constant.from_int64(str.count)) > 0 {
-                return no_const(), false, noerror
-            }
-            hi = v.to_int64()
-        }
-        if lo > hi {
-            return no_const(), false, noerror
-        }
-        mut r := str
-        r.first = str.first +% lo
-        r.count = hi -% lo
-        return r, true, noerror
+        return sl
     default:
-        return no_const(), false, noerror
-    }
-}
-
-// slice_extent returns the length of the slice s when its bounds are
-// known, in order and not negative, Go's sliceExtent (see extent_of).
-func (mut c Checker) slice_extent(s Key) (int64, bool, error) {
-    switch kind_at(c.prog.trees, s) {
-    case slice:
-        n, ok := mut c.extent_of(s)?
-        return n, ok, noerror
-    default:
-        return 0, false, noerror
+        mut z ast.Slice
+        return z
     }
 }
 
 // extent_of returns the length of x when it is known, Go's extentOf and
 // sliceExtent: a slice's at known bounds, the high one, or the length of
 // what it slices for one left out, less the low one, an array's, or a
-// known string's. A chain of slices each with no high bound is walked
-// down in a loop, its low bounds kept, and their lengths then worked out
-// from the innermost out, so a chain of any length takes no frame a link.
+// known string's. It is worked out by the fold machine's routine
+// k_extent (see extent_step).
 func (mut c Checker) extent_of(x Key) (int64, bool, error) {
-    mut los := make(list[constant.Int], c_allocator)
-    mut keys := make(list[Key], c_allocator)
-    mut cur := x
-    mut n := constant.from_int64(0)
-    mut found := false
-    for !found {
-        memo, seen := c.extents[cur]
-        if seen {
-            if !memo.ok {
-                mut c.extent_unknown(keys[:])?
-                return 0, false, noerror
-            }
-            n = constant.from_int64(memo.n)
-            break
-        }
-        switch kind_at(c.prog.trees, cur) {
-        case slice(sl):
-            mut lo := constant.from_int64(0)
-            if !ast.is_none(sl.lo) {
-                v, ok := mut c.known_value(sub(cur, sl.lo))?
-                if !ok {
-                    append(mut keys, cur)?
-                    mut c.extent_unknown(keys[:])?
-                    return 0, false, noerror
-                }
-                lo = v
-            }
-            append(mut los, lo)?
-            append(mut keys, cur)?
-            if !ast.is_none(sl.hi) {
-                v, ok := mut c.known_value(sub(cur, sl.hi))?
-                if !ok {
-                    mut c.extent_unknown(keys[:])?
-                    return 0, false, noerror
-                }
-                n = v
-                found = true
-            } else {
-                cur = sub(cur, sl.x)
-            }
-        default:
-            typ := mut c.type_of(cur)
-            if c.table.is_array(typ) {
-                n = constant.from_int64(c.table.len_of(typ))
-            } else if typ == types.string_type {
-                str, ok := mut c.known_string(cur)?
-                if !ok {
-                    mut c.extent_unknown(keys[:])?
-                    return 0, false, noerror
-                }
-                n = constant.from_int64(str.count)
-            } else {
-                mut c.extent_unknown(keys[:])?
-                return 0, false, noerror
-            }
-            found = true
-        }
+    mut m := new_folder()
+    mut m.push(value_frame(k_extent, x))?
+    mut c.fold_run(mut m)?
+    return m.rn, m.rok, noerror
+}
+
+// extent_step runs a step of the routine k_extent, Go's extentOf of f's
+// node. A chain of slices each with no high bound is walked down in a
+// loop, f.at the link it is at, its low bounds kept on the machine's
+// slots from f.slots up and the slices on its links from f.links up: a
+// low bound's value is worked out at step 1 and a high one's at step 2,
+// which ends the chain, as do an array and a known string, worked out at
+// step 3. Their lengths are then worked out from the innermost out (see
+// extent_up), so a chain of any length takes no frame a link.
+func (mut c Checker) extent_step(mut m Folder, mut f FoldFrame) error {
+    if f.step == 0 {
+        f.slots = len(m.slots)
+        f.links = len(m.links)
+        f.at = f.k
+        return mut c.extent_down(mut m, mut f, false, constant.from_int64(0))
     }
-    mut i := len(los) -% 1
-    for i >= 0 {
-        lo := const_in(los[:], i)
-        k := key_in(keys[:], i)
+    if f.step == 1 {
+        if !m.rok {
+            append(mut m.links, f.at)?
+            return mut c.extent_fail(mut m, f)
+        }
+        return mut c.extent_down(mut m, mut f, true, m.rv.i)
+    }
+    if !m.rok {
+        return mut c.extent_fail(mut m, f)
+    }
+    if f.step == 2 {
+        f.acc = int_const(m.rv.i)
+    } else {
+        f.acc = int_const(constant.from_int64(m.rv.count))
+    }
+    return mut c.extent_up(mut m, f)
+}
+
+// extent_down walks f's chain of slices down from f.at, a length
+// remembered or the end of the chain ending it: at_lo says the low bound
+// of f.at is known already, lo.
+func (mut c Checker) extent_down(mut m Folder, mut f FoldFrame, at_lo bool, lo constant.Int) error {
+    mut have_lo := at_lo
+    mut lo_value := lo
+    for {
+        if !have_lo {
+            memo, seen := c.extents[f.at]
+            if seen {
+                if !memo.ok {
+                    return mut c.extent_fail(mut m, f)
+                }
+                f.acc = int_const(constant.from_int64(memo.n))
+                return mut c.extent_up(mut m, f)
+            }
+            switch kind_at(c.prog.trees, f.at) {
+            case slice(sl):
+                if !ast.is_none(sl.lo) {
+                    f.step = 1
+                    return mut m.call(f, value_frame(k_value, sub(f.at, sl.lo)))
+                }
+                lo_value = constant.from_int64(0)
+            default:
+                typ := mut c.type_of(f.at)
+                if c.table.is_array(typ) {
+                    f.acc = int_const(constant.from_int64(c.table.len_of(typ)))
+                    return mut c.extent_up(mut m, f)
+                }
+                if typ == types.string_type {
+                    f.step = 3
+                    return mut m.call(f, value_frame(k_string, f.at))
+                }
+                return mut c.extent_fail(mut m, f)
+            }
+        }
+        have_lo = false
+        sl := slice_at(c.prog.trees, f.at)
+        append(mut m.slots, int_const(lo_value))?
+        append(mut m.links, f.at)?
+        if !ast.is_none(sl.hi) {
+            f.step = 2
+            return mut m.call(f, value_frame(k_value, sub(f.at, sl.hi)))
+        }
+        f.at = sub(f.at, sl.x)
+    }
+    return noerror
+}
+
+// extent_fail ends f, a k_extent routine, with no length known,
+// recording that none of the slices of its chain has one.
+func (mut c Checker) extent_fail(mut m Folder, f FoldFrame) error {
+    mut j := f.links
+    for j < len(m.links) {
+        mut c.remember_extent(key_in(m.links, j), 0, false)?
+        j +%= 1
+    }
+    return extent_end(mut m, f, 0, false)
+}
+
+// extent_up works out the lengths of f's chain of slices from the
+// innermost out, the length of what the innermost slices in f.acc: each
+// is what it slices' less its low bound, remembered (see
+// remember_extent), and a step that leaves the range of int64, or a
+// negative bound or length, leaves the slice and every one around it
+// unknown.
+func (mut c Checker) extent_up(mut m Folder, f FoldFrame) error {
+    mut n := f.acc.i
+    mut i := len(m.links) -% 1
+    for i >= f.links {
+        lo := slot_at(m.slots, f.slots +% (i -% f.links)).i
+        k := key_in(m.links, i)
         i -%= 1
         d, ok := n.sub(lo)
         if !ok || lo.is_negative() || d.is_negative() || !d.fits(64, true) {
             mut j := i +% 1
-            for j >= 0 {
-                mut c.remember_extent(key_in(keys[:], j), 0, false)?
+            for j >= f.links {
+                mut c.remember_extent(key_in(m.links, j), 0, false)?
                 j -%= 1
             }
-            return 0, false, noerror
+            return extent_end(mut m, f, 0, false)
         }
         n = d
         mut c.remember_extent(k, n.to_int64(), true)?
     }
     if !n.fits(64, true) {
-        return 0, false, noerror
+        return extent_end(mut m, f, 0, false)
     }
-    return n.to_int64(), true, noerror
+    return extent_end(mut m, f, n.to_int64(), true)
+}
+
+// extent_end ends f, a k_extent routine, giving the length n, known when
+// ok says so, its low bounds and slices taken off the machine.
+func extent_end(mut m Folder, f FoldFrame, n int64, ok bool) error {
+    for len(m.slots) > f.slots {
+        pop(mut m.slots)
+    }
+    for len(m.links) > f.links {
+        pop(mut m.links)
+    }
+    m.rn = n
+    m.rok = ok
+    return noerror
 }
 
 // ExtentMemo is what extent_of found the length of a slice to be: n, when
@@ -465,95 +670,100 @@ func (mut c Checker) remember_extent(k Key, n int64, ok bool) error {
     return noerror
 }
 
-// extent_unknown records that none of the slices keys, a chain walked
-// down from the first, has a length extent_of knows.
-func (mut c Checker) extent_unknown(keys []Key) error {
-    for _, k := range keys {
-        mut c.remember_extent(k, 0, false)?
+// arith_step runs a step of the routine k_arith, Go's knownArithmetic of
+// f's node, a binary: arithmetic on two known values, computed exactly,
+// the result kept only if it is a value of the expression's type, the
+// answer for a typed binary remembered. Go recurses into the left
+// operand, which a chain of operators makes as deep as its source, so
+// at step 0 the chain is walked down in a loop, its links pushed on the
+// machine's links from f.links up, to the first link whose value is
+// decided without its operands (see link_known), or to an operand that
+// is no binary, whose value is worked out and taken at step 1. Each
+// link's value is then worked out on the way back up (see arith_up),
+// its right operand's value taken at step 2.
+func (mut c Checker) arith_step(mut m Folder, mut f FoldFrame) error {
+    if f.step == 0 {
+        b := binary_at(c.prog.trees, f.k)
+        first := mut c.link_known(f.k, b)?
+        if first.done {
+            mut m.give(int_const(first.value), first.ok)
+            return noerror
+        }
+        f.links = len(m.links)
+        append(mut m.links, f.k)?
+        f.acc = int_const(constant.from_int64(0))
+        f.acc_ok = false
+        mut x := sub(f.k, b.x)
+        for {
+            mut decided := true
+            switch kind_at(c.prog.trees, x) {
+            case binary(xb):
+                if !types.is_float(mut c.type_of(x)) {
+                    v, is_const := mut c.const_value(x)
+                    if is_const {
+                        f.acc = int_const(v)
+                        f.acc_ok = true
+                    } else {
+                        st := mut c.link_known(x, xb)?
+                        if st.done {
+                            f.acc = int_const(st.value)
+                            f.acc_ok = st.ok
+                        } else {
+                            append(mut m.links, x)?
+                            x = sub(x, xb.x)
+                            decided = false
+                        }
+                    }
+                }
+            default:
+                f.i = len(m.links) -% 1
+                f.step = 1
+                return mut m.call(f, value_frame(k_value, x))
+            }
+            if decided {
+                f.i = len(m.links) -% 1
+                return mut c.arith_up(mut m, mut f)
+            }
+        }
     }
-    return noerror
+    if f.step == 1 {
+        f.acc = m.rv
+        f.acc_ok = m.rok
+        return mut c.arith_up(mut m, mut f)
+    }
+    l := f.at
+    lb := binary_at(c.prog.trees, l)
+    y := m.rv.i
+    typ := node_type_of(c.node_types, l)
+    mut r := constant.from_int64(0)
+    mut r_ok := false
+    if f.acc_ok && m.rok {
+        r, r_ok = known_step(lb.op, f.acc.i, y, typ)
+    }
+    if typ != types.invalid && typ != types.untyped_int {
+        put(mut c.known_binaries, l, KnownBinary{value: r, ok: r_ok, typ: typ})?
+    }
+    f.acc = int_const(r)
+    f.acc_ok = r_ok
+    return mut c.arith_up(mut m, mut f)
 }
 
-// known_slice returns the slice s of a known string at known bounds, in
-// range and in order, Go's knownSlice.
-func (mut c Checker) known_slice(s Key) (Const, bool, error) {
-    switch kind_at(c.prog.trees, s) {
-    case slice:
-        v, ok := mut c.known_string(s)?
-        return v, ok, noerror
-    default:
-        return no_const(), false, noerror
-    }
-}
-
-// known_arithmetic computes arithmetic on two known values, exactly, and
-// keeps the result only if it is a value of the expression's type, Go's
-// knownArithmetic, remembering the answer for a typed binary. Go
-// recurses into the left operand, which a chain of operators makes as
-// deep as its source, so here the walk goes down the chain in a loop to
-// the first link whose value is decided without its operands (see
-// link_known), and works each link's value out on the way back up; only
-// a right operand, which nests as deeply as the parser lets it, recurses.
-func (mut c Checker) known_arithmetic(k Key, b ast.Binary) (constant.Int, bool, error) {
-    first := mut c.link_known(k, b)?
-    if first.done {
-        return first.value, first.ok, noerror
-    }
-    mut links := make(list[Key], c_allocator)
-    append(mut links, k)?
-    mut x := sub(k, b.x)
-    mut value := constant.from_int64(0)
-    mut ok := false
-    for {
-        switch kind_at(c.prog.trees, x) {
-        case binary(xb):
-            if types.is_float(mut c.type_of(x)) {
-                break
-            }
-            v, is_const := mut c.const_value(x)
-            if is_const {
-                value = v
-                ok = true
-                break
-            }
-            st := mut c.link_known(x, xb)?
-            if st.done {
-                value = st.value
-                ok = st.ok
-                break
-            }
-            append(mut links, x)?
-            x = sub(x, xb.x)
-            continue
-        default:
-            v, known := mut c.known_value(x)?
-            value = v
-            ok = known
+// arith_up takes the next link of f's chain out, f.i its place on the
+// machine's links, the value of the operand it holds on its left in
+// f.acc and f.acc_ok: its right operand's value is worked out, and taken
+// at step 2. With every link taken, f's value is the outermost one's.
+func (mut c Checker) arith_up(mut m Folder, mut f FoldFrame) error {
+    if f.i < f.links {
+        for len(m.links) > f.links {
+            pop(mut m.links)
         }
-        break
+        mut m.give(f.acc, f.acc_ok)
+        return noerror
     }
-    mut i := len(links) -% 1
-    for i >= 0 {
-        l, has := links[i]
-        i -%= 1
-        if !has {
-            continue
-        }
-        lb := binary_at(c.prog.trees, l)
-        y, ok_y := mut c.known_value(sub(l, lb.y))?
-        typ := node_type_of(c.node_types, l)
-        mut r := constant.from_int64(0)
-        mut r_ok := false
-        if ok && ok_y {
-            r, r_ok = known_step(lb.op, value, y, typ)
-        }
-        if typ != types.invalid && typ != types.untyped_int {
-            put(mut c.known_binaries, l, KnownBinary{value: r, ok: r_ok, typ: typ})?
-        }
-        value = r
-        ok = r_ok
-    }
-    return value, ok, noerror
+    f.at = key_in(m.links, f.i)
+    f.i -%= 1
+    f.step = 2
+    return mut m.call(f, value_frame(k_value, sub(f.at, binary_at(c.prog.trees, f.at).y)))
 }
 
 // LinkKnown is what link_known found: whether a binary's value is

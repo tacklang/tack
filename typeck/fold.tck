@@ -4,55 +4,473 @@ import ast from "tack/ast"
 import constant from "tack/constant"
 import types from "tack/types"
 
-// fold_number computes k when it is a float literal or operator
-// expression, rounded to its float type, or an integer constant
-// expression or known value, Go's foldNumber, and reports whether it has
-// a value and whether it is one.
-func (mut c Checker) fold_number(k Key) (Const, bool, bool, error) {
+// The fold machine: Go's fold, foldNumber, foldPart, foldElement,
+// foldLiteral, foldBoolBinary and foldNot, and the knownValue family
+// they and the checks call, knownValue, knownArithmetic, knownUnary,
+// knownCall, knownString, knownSlice and extentOf. Go's recurse into one
+// another, a frame a level of the expression, and a field of a struct
+// literal read back, an element and an operator nest in each other as
+// deeply as the parser allows, so here each of them is a routine of a
+// machine with a stack of its own, Folder: a routine that needs a
+// part's value pushes itself, at the step after, and then the part's
+// routine, which leaves its value in the machine's result when it is
+// done. Each step does what the function it stands for does between two
+// of its calls, in the order the functions' recursion took them, so
+// every query of the type table, every answer remembered and every
+// value worked out comes in the same order as a recursive fold's, and
+// the native stack stays the same however deep the expression is. A
+// routine that ends with a part's value pushes the part's routine in
+// its place.
+//
+// The chains the routines walk down, of fields and elements, of
+// operators, of bool operators and of slices, keep their links on the
+// machine's links, and the literals' values and the slices' low bounds
+// on its slots, each routine's from the place its frame records up.
+// Every routine takes its own off before it is done, and a routine it
+// pushes is done before it goes on, so each finds its own where it left
+// them. An error, which only a failed allocation gives, ends the whole
+// machine, whose stacks are freed with it.
+
+// k_none is no routine: value_first answered without one.
+var k_none uint8 = 0
+
+// k_fold is the routine of Go's fold, and of its foldPart for a frame
+// whose part is set.
+var k_fold uint8 = 1
+
+// k_value is the routine of Go's knownValue (see value_step).
+var k_value uint8 = 2
+
+// k_arith is the routine of Go's knownArithmetic (see arith_step).
+var k_arith uint8 = 3
+
+// k_unary is the routine of Go's knownUnary (see unary_step).
+var k_unary uint8 = 4
+
+// k_call is the routine of Go's knownCall (see call_step).
+var k_call uint8 = 5
+
+// k_string is the routine of Go's knownString and knownSlice (see
+// string_step).
+var k_string uint8 = 6
+
+// k_extent is the routine of Go's extentOf (see extent_step).
+var k_extent uint8 = 7
+
+// Folder is the fold machine: its frames, st, the values the routines
+// keep, slots, and the links of the chains they walk, links, and the
+// result of the routine done last: its value, rv, whether it has one,
+// rok, and an extent's length, rn. A known value is an integer Const.
+type Folder struct {
+    st list[FoldFrame]
+    slots list[Const]
+    links list[Key]
+    rv Const
+    rok bool
+    rn int64
+}
+
+// new_folder returns a Folder with nothing on it.
+func new_folder() Folder {
+    return Folder{st: make(list[FoldFrame], c_allocator), slots: make(list[Const], c_allocator), links: make(list[Key], c_allocator), rv: no_const(), rok: false, rn: 0}
+}
+
+// give leaves v, a value when ok says so, as the result of the routine
+// done.
+func (mut m Folder) give(v Const, ok bool) {
+    m.rv = v
+    m.rok = ok
+}
+
+// push runs the frame f next.
+func (mut m Folder) push(f FoldFrame) error {
+    append(mut m.st, f)?
+    return noerror
+}
+
+// call runs the frame part next, and the frame f once it is done.
+func (mut m Folder) call(f FoldFrame, part FoldFrame) error {
+    append(mut m.st, f)?
+    append(mut m.st, part)?
+    return noerror
+}
+
+// FoldFrame is a routine of the fold machine at work: which, r, the
+// node, k, whether a fold is of a chain of fields and elements, part,
+// how far it got, step, where its values start on the machine's slots,
+// slots, where its links start on the machine's links, links, and n,
+// how many links a chain of fields and elements or of bool operators
+// has, or a string's index; and
+// what a routine keeps between its steps: the place of the next link
+// it takes, i, the node it is at, at, a slice's low bound, lo, and the
+// value worked out so far, acc and acc_ok.
+type FoldFrame struct {
+    r uint8
+    k Key
+    part bool
+    step int64
+    slots int64
+    links int64
+    n int64
+    i int64
+    at Key
+    lo int64
+    acc Const
+    acc_ok bool
+}
+
+// fold_frame returns a frame that folds k from its start, as a chain of
+// fields and elements when part says so.
+func fold_frame(k Key, part bool) FoldFrame {
+    mut f := value_frame(k_fold, k)
+    f.part = part
+    return f
+}
+
+// value_frame returns a frame of the routine r for k, at its first
+// step.
+func value_frame(r uint8, k Key) FoldFrame {
+    return FoldFrame{r: r, k: k, part: false, step: 0, slots: 0, links: 0, n: 0, i: 0, at: no_key(), lo: 0, acc: no_const(), acc_ok: false}
+}
+
+// slot_at returns the i'th of slots, or none.
+func slot_at(slots []Const, i int64) Const {
+    v, ok := slots[i]
+    if !ok {
+        return no_const()
+    }
+    return v
+}
+
+// fold returns the value of a checked constant expression, Go's fold: an
+// integer, computed exactly as it was checked, a float rounded to its
+// type, a string, a bool, c_allocator, an array's elements, a struct's
+// fields in declaration order, or a union's case and payload. A bool
+// expression is evaluated in full, both sides of && and || included.
+// It is worked out by the fold machine (see fold_step).
+func (mut c Checker) fold(k Key) (Const, bool, error) {
+    mut m := new_folder()
+    mut m.push(fold_frame(k, false))?
+    mut c.fold_run(mut m)?
+    return m.rv, m.rok, noerror
+}
+
+// fold_run runs the fold machine m until its frames are done, each step
+// by its routine's function, leaving the first frame's value in m's
+// result.
+func (mut c Checker) fold_run(mut m Folder) error {
+    for len(m.st) > 0 {
+        mut f, has := pop(mut m.st)
+        if !has {
+            break
+        }
+        if f.r == k_fold {
+            mut c.fold_step(mut m, mut f)?
+        } else if f.r == k_value {
+            mut c.value_step(mut m, f)?
+        } else if f.r == k_arith {
+            mut c.arith_step(mut m, mut f)?
+        } else if f.r == k_unary {
+            mut c.unary_step(mut m, mut f)?
+        } else if f.r == k_call {
+            mut c.call_step(mut m, mut f)?
+        } else if f.r == k_string {
+            mut c.string_step(mut m, mut f)?
+        } else {
+            mut c.extent_step(mut m, mut f)?
+        }
+    }
+    return noerror
+}
+
+// num_not, num_done and num_known are what number_first finds of a
+// node: that it is no number, that it is one whose value it gave, or
+// that it is one whose value is its known value.
+var num_not uint8 = 0
+var num_done uint8 = 1
+var num_known uint8 = 2
+
+// number_first is Go's foldNumber up to the known value it may ask for:
+// k's value, and whether it has one, when it is a float literal or
+// operator expression, rounded to its float type, or an integer
+// constant expression, with num_done; num_known for any other integer
+// of a type, whose value is its known value; and num_not for what is no
+// number.
+func (mut c Checker) number_first(k Key) (Const, bool, uint8, error) {
     typ := mut c.type_of(k)
     if types.is_float(typ) {
         switch kind_at(c.prog.trees, k) {
         case float_lit, int_lit, binary, unary:
             f, ok := mut c.float_value(k)?
             if !ok {
-                return no_const(), false, true, noerror
+                return no_const(), false, num_done, noerror
             }
             if typ == types.float32_type {
                 bits, _ := f.float32_bits(c_allocator)?
-                return float_bits_const(uint64(bits), true), true, true, noerror
+                return float_bits_const(uint64(bits), true), true, num_done, noerror
             }
             bits, _ := f.float64_bits(c_allocator)?
-            return float_bits_const(bits, false), true, true, noerror
+            return float_bits_const(bits, false), true, num_done, noerror
         default:
-            return no_const(), false, false, noerror
+            return no_const(), false, num_not, noerror
         }
     }
     v, ok := mut c.const_value(k)
     if ok {
-        return int_const(v), true, true, noerror
+        return int_const(v), true, num_done, noerror
     }
     if !types.is_integer(typ) || typ == types.untyped_int {
-        return no_const(), false, false, noerror
+        return no_const(), false, num_not, noerror
     }
-    known, is_known := mut c.known_value(k)?
-    return int_const(known), is_known, true, noerror
+    return no_const(), false, num_known, noerror
 }
 
-
-
-
-// is_bool_link reports whether k is a binary whose fold is Go's
-// foldBoolBinary: one that is no number and has no bool recorded.
-func (mut c Checker) is_bool_link(k Key) (bool, error) {
-    switch kind_at(c.prog.trees, k) {
+// fold_step runs a step of the routine k_fold for f's node, Go's fold
+// and the helpers it calls: a node with parts pushes the part it needs
+// next, its frame under it, and takes up again from where it got once
+// the part's value is the machine's result. A number's value is its
+// known value, worked out in the fold's place.
+func (mut c Checker) fold_step(mut m Folder, mut f FoldFrame) error {
+    e := f.k
+    if f.part {
+        return mut c.part_step(mut m, mut f)
+    }
+    if f.step == 0 {
+        v, ok, state := mut c.number_first(e)?
+        if state == num_done {
+            mut m.give(v, ok)
+            return noerror
+        }
+        if state == num_known {
+            return mut m.push(value_frame(k_value, e))
+        }
+    }
+    rv := m.rv
+    rok := m.rok
+    _, _, built := construction(c.prog.trees, c.none, e)
+    if built {
+        td, sel, _ := construction(c.prog.trees, c.none, e)
+        s := selector_of(c.prog.trees, sel)
+        _, at, found := c.table.find_case(decl_type_of(c.decl_types, td), text_at(c.prog.trees, c.none, sel.unit, s.name))
+        payload := construction_payload(c.prog.trees, e)
+        if !found {
+            mut m.give(no_const(), false)
+        } else if is_no_key(payload) {
+            u := mut c.store.union_const(at, no_const(), false)?
+            mut m.give(u, true)
+        } else if f.step == 0 {
+            f.step = 1
+            mut m.call(f, fold_frame(payload, false))?
+        } else if rok {
+            u := mut c.store.union_const(at, rv, true)?
+            mut m.give(u, true)
+        } else {
+            mut m.give(no_const(), false)
+        }
+        return noerror
+    }
+    switch kind_at(c.prog.trees, e) {
+    case str_lit(sl):
+        s := mut c.store.str_const(text_at(c.prog.trees, c.none, e.unit, sl))?
+        mut m.give(s, true)
+    case bool_lit(b):
+        mut m.give(bool_const(b), true)
+    case noerror_lit:
+        empty := mut c.store.str_const([]uint8(""))?
+        values := [2]Const{int_const(constant.from_int64(0)), empty}
+        l := mut c.store.list_const(values[:])?
+        mut m.give(l, true)
+    case c_allocator_lit:
+        mut m.give(alloc_const(), true)
+    case ident(nm):
+        mut m.give(no_const(), false)
+        g := mut c.constant_global(nm)
+        if !is_no_key(g) {
+            cv, has_cv := c.var_consts[g]
+            if has_cv && cv.kind != cv_none {
+                mut m.give(cv, true)
+            }
+        }
+    case composite_lit(lit):
+        child := mut c.literal_step(e, lit, mut f, mut m.slots, rv, rok)?
+        if !is_no_key(child) {
+            return mut m.call(f, fold_frame(child, false))
+        }
+        mut m.give(f.acc, f.acc_ok)
     case binary:
-        _, _, is_number := mut c.fold_number(k)?
-        return !is_number && const_of(c.consts, k).kind != cv_bool, noerror
+        child, value := mut c.bools_step(mut f, mut m.links, rv, rok)?
+        if value {
+            return mut m.call(f, value_frame(k_value, child))
+        }
+        if !is_no_key(child) {
+            return mut m.call(f, fold_frame(child, false))
+        }
+        mut m.give(f.acc, f.acc_ok)
+    case unary(u):
+        if f.step == 0 {
+            f.step = 1
+            return mut m.call(f, fold_frame(sub(e, u.x), false))
+        }
+        if rok && rv.kind == cv_bool && u.op == ast.unary_not {
+            mut m.give(bool_const(!rv.b), rok)
+        } else {
+            mut m.give(no_const(), false)
+        }
+    case selector, index:
+        f.part = true
+        f.step = 0
+        mut m.push(f)?
+    case slice:
+        mut m.push(value_frame(k_string, e))?
     default:
-        return false, noerror
+        mut m.give(no_const(), false)
     }
+    return noerror
 }
 
+// part_step runs a step of the routine k_fold for f's node, a field or
+// an element, as a part, Go's foldPart. An element of a string is the
+// byte at a known index, not negative and below the length, of a string
+// the checker knows, Go's foldElement for a string: the index's value
+// is worked out at step 0 and taken at step 2, and the string worked
+// out then and taken at step 3. Anything else is a chain of fields and
+// elements, pushed on the machine's links from f.links up, f.n of them,
+// and taken from what it is taken from, folded at step 0 and taken at
+// step 1 (see part_links).
+func (mut c Checker) part_step(mut m Folder, mut f FoldFrame) error {
+    e := f.k
+    if f.step == 0 {
+        switch kind_at(c.prog.trees, e) {
+        case index(ix):
+            if mut c.type_of(sub(e, ix.x)) == types.string_type {
+                f.step = 2
+                return mut m.call(f, value_frame(k_value, sub(e, ix.index)))
+            }
+        default:
+        }
+        f.links = len(m.links)
+        x := chain_base(c.prog.trees, c.none, e, mut m.links)?
+        f.n = len(m.links) -% f.links
+        if f.n == 0 {
+            mut m.give(no_const(), false)
+            return noerror
+        }
+        f.step = 1
+        return mut m.call(f, fold_frame(x, false))
+    }
+    if f.step == 2 {
+        v := m.rv.i
+        if !m.rok || v.is_negative() || !v.fits(64, true) {
+            mut m.give(no_const(), false)
+            return noerror
+        }
+        f.n = v.to_int64()
+        f.step = 3
+        return mut m.call(f, value_frame(k_string, sub(e, index_at(c.prog.trees, e).x)))
+    }
+    if f.step == 3 {
+        str := m.rv
+        if !m.rok || f.n >= str.count {
+            mut m.give(no_const(), false)
+            return noerror
+        }
+        b, has_b := c.store.str_bytes(str)[f.n]
+        if !has_b {
+            mut m.give(no_const(), false)
+            return noerror
+        }
+        mut m.give(int_const(constant.from_int64(int64(b))), true)
+        return noerror
+    }
+    if f.step == 1 {
+        f.acc = m.rv
+        f.acc_ok = m.rok
+        f.i = f.links +% f.n
+    } else {
+        mut c.part_index(mut f, m.links[:], m.rv.i, m.rok)
+    }
+    return mut c.part_links(mut m, mut f)
+}
+
+// part_links takes the links of f's chain of fields and elements from
+// the innermost out, f.i the place of the one taken last, from the value
+// they are taken from, in f.acc, known when f.acc_ok says so, Go's
+// foldPart's second loop: a field is taken here, and an element's index
+// worked out and taken at step 4 (see part_index). With every link
+// taken, the value is f's.
+func (mut c Checker) part_links(mut m Folder, mut f FoldFrame) error {
+    for f.i > f.links && f.acc_ok {
+        f.i -%= 1
+        l := key_in(m.links, f.i)
+        switch kind_at(c.prog.trees, l) {
+        case selector(s):
+            stype := mut c.type_of(sub(l, s.x))
+            _, at, found := c.table.find_field(stype, text_at(c.prog.trees, c.none, l.unit, s.name))
+            if !found || f.acc.kind != cv_list || at >= f.acc.count {
+                f.acc_ok = false
+            } else {
+                f.acc, f.acc_ok = c.store.item(f.acc, at)
+            }
+        case index(ix):
+            f.step = 4
+            return mut m.call(f, value_frame(k_value, sub(l, ix.index)))
+        default:
+            f.acc_ok = false
+        }
+    }
+    for len(m.links) > f.links {
+        pop(mut m.links)
+    }
+    if !f.acc_ok {
+        mut m.give(no_const(), false)
+        return noerror
+    }
+    mut m.give(f.acc, true)
+    return noerror
+}
+
+// part_index takes the element links[f.i], an index of f's chain, of
+// the value in f.acc, its index's value v, known when known says so: a
+// known index, not negative, into a string's bytes or an array's
+// elements, in range.
+func (mut c Checker) part_index(mut f FoldFrame, links []Key, v constant.Int, known bool) {
+    if !known || v.is_negative() || !v.fits(64, true) {
+        f.acc_ok = false
+        return
+    }
+    l := key_in(links, f.i)
+    at := v.to_int64()
+    xt := mut c.type_of(sub(l, index_at(c.prog.trees, l).x))
+    if xt == types.string_type {
+        if f.acc.kind != cv_str || at >= f.acc.count {
+            f.acc_ok = false
+            return
+        }
+        b, has_b := c.store.str_bytes(f.acc)[at]
+        if !has_b {
+            f.acc_ok = false
+            return
+        }
+        f.acc = int_const(constant.from_int64(int64(b)))
+        return
+    }
+    if f.acc.kind != cv_list || at >= f.acc.count {
+        f.acc_ok = false
+        return
+    }
+    f.acc, f.acc_ok = c.store.item(f.acc, at)
+}
+
+// index_at returns the Index the index node k holds.
+func index_at(trees []ast.File, k Key) ast.Index {
+    switch kind_at(trees, k) {
+    case index(ix):
+        return ix
+    default:
+        mut z ast.Index
+        return z
+    }
+}
 
 // fold_bool_step applies op, an operator giving a bool, to two folded
 // constants, Go's foldBoolBinary after its operands.
@@ -150,200 +568,6 @@ func (mut c Checker) equal_consts(left Const, right Const) (bool, bool, error) {
     }
     cmp, ok := mut c.compare_consts(left, right)
     return cmp == 0, ok, noerror
-}
-
-// fold returns the value of a checked constant expression, Go's fold: an
-// integer, computed exactly as it was checked, a float rounded to its
-// type, a string, a bool, c_allocator, an array's elements, a struct's
-// fields in declaration order, or a union's case and payload. A bool
-// expression is evaluated in full, both sides of && and || included.
-//
-// Go's fold recurses into each part of the value; here each part is
-// folded from a stack of the fold's own (see fold_run), so a value
-// nested as deeply as the parser allows, literals in literals or
-// payloads in payloads, and a chain of operators, fields or elements of
-// any length, folds in a bounded stack.
-func (mut c Checker) fold(k Key) (Const, bool, error) {
-    r, ok := mut c.fold_run(k, false)?
-    return r, ok, noerror
-}
-
-// fold_part returns the value of k, a field or an element of a value the
-// checker knows, Go's foldPart: what the chain of fields and elements is
-// taken from, folded, and then each link taken from it in turn.
-func (mut c Checker) fold_part(k Key) (Const, bool, error) {
-    r, ok := mut c.fold_run(k, true)?
-    return r, ok, noerror
-}
-
-// FoldFrame is a part of a value fold_run has yet to finish: the node,
-// whether it is folded as a chain of fields and elements, part, how far
-// it got, step, where the values of its elements start in the run's
-// list of them, slots, where its links start in the run's list of them
-// and how many there are, and, for a chain of bool operators, the value
-// folded so far, acc and acc_ok.
-type FoldFrame struct {
-    k Key
-    part bool
-    step int64
-    slots int64
-    links int64
-    n int64
-    acc Const
-    acc_ok bool
-}
-
-// fold_frame returns a frame that folds k from its start, as a chain of
-// fields and elements when part says so.
-func fold_frame(k Key, part bool) FoldFrame {
-    return FoldFrame{k: k, part: part, step: 0, slots: 0, links: 0, n: 0, acc: no_const(), acc_ok: false}
-}
-
-// fold_run folds k, as fold_part does when part says so and as fold does
-// otherwise. Each node is folded as Go's fold and its helpers fold it, a
-// node with parts pushing the part it needs next, its frame under it, and
-// taking up again from where it got once the part's value is known, in
-// rv and rok.
-func (mut c Checker) fold_run(k Key, part bool) (Const, bool, error) {
-    mut st := make(list[FoldFrame], c_allocator)
-    mut slots := make(list[Const], c_allocator)
-    mut links := make(list[Key], c_allocator)
-    mut rv := no_const()
-    mut rok := false
-    append(mut st, fold_frame(k, part))?
-    for len(st) > 0 {
-        mut f, has := pop(mut st)
-        if !has {
-            break
-        }
-        e := f.k
-        if f.part {
-            if f.step == 0 {
-                sv, sok, is_byte := mut c.string_element(e)?
-                if is_byte {
-                    rv = sv
-                    rok = sok
-                    continue
-                }
-                f.links = len(links)
-                x := chain_base(c.prog.trees, c.none, e, mut links)?
-                f.n = len(links) -% f.links
-                if f.n == 0 {
-                    rv = no_const()
-                    rok = false
-                    continue
-                }
-                f.step = 1
-                append(mut st, f)?
-                append(mut st, fold_frame(x, false))?
-                continue
-            }
-            rv, rok = mut c.fold_links(links, f.links, f.n, rv, rok)?
-            for len(links) > f.links {
-                pop(mut links)
-            }
-            continue
-        }
-        if f.step == 0 {
-            v, ok, is_number := mut c.fold_number(e)?
-            if is_number {
-                rv = v
-                rok = ok
-                continue
-            }
-        }
-        _, _, built := construction(c.prog.trees, c.none, e)
-        if built {
-            td, sel, _ := construction(c.prog.trees, c.none, e)
-            s := selector_of(c.prog.trees, sel)
-            _, at, found := c.table.find_case(decl_type_of(c.decl_types, td), text_at(c.prog.trees, c.none, sel.unit, s.name))
-            payload := construction_payload(c.prog.trees, e)
-            if !found {
-                rv = no_const()
-                rok = false
-            } else if is_no_key(payload) {
-                rv = mut c.store.union_const(at, no_const(), false)?
-                rok = true
-            } else if f.step == 0 {
-                f.step = 1
-                append(mut st, f)?
-                append(mut st, fold_frame(payload, false))?
-            } else if rok {
-                rv = mut c.store.union_const(at, rv, true)?
-            } else {
-                rv = no_const()
-            }
-            continue
-        }
-        switch kind_at(c.prog.trees, e) {
-        case str_lit(sl):
-            rv = mut c.store.str_const(text_at(c.prog.trees, c.none, e.unit, sl))?
-            rok = true
-        case bool_lit(b):
-            rv = bool_const(b)
-            rok = true
-        case noerror_lit:
-            empty := mut c.store.str_const([]uint8(""))?
-            values := [2]Const{int_const(constant.from_int64(0)), empty}
-            rv = mut c.store.list_const(values[:])?
-            rok = true
-        case c_allocator_lit:
-            rv = alloc_const()
-            rok = true
-        case ident(nm):
-            rv = no_const()
-            rok = false
-            g := mut c.constant_global(nm)
-            if !is_no_key(g) {
-                cv, has_cv := c.var_consts[g]
-                if has_cv && cv.kind != cv_none {
-                    rv = cv
-                    rok = true
-                }
-            }
-        case composite_lit(lit):
-            child := mut c.literal_step(e, lit, mut f, mut slots, rv, rok)?
-            if !is_no_key(child) {
-                append(mut st, f)?
-                append(mut st, fold_frame(child, false))?
-                continue
-            }
-            rv = f.acc
-            rok = f.acc_ok
-        case binary:
-            child := mut c.bools_step(mut f, mut links, rv, rok)?
-            if !is_no_key(child) {
-                append(mut st, f)?
-                append(mut st, fold_frame(child, false))?
-                continue
-            }
-            rv = f.acc
-            rok = f.acc_ok
-        case unary(u):
-            if f.step == 0 {
-                f.step = 1
-                append(mut st, f)?
-                append(mut st, fold_frame(sub(e, u.x), false))?
-                continue
-            }
-            if rok && rv.kind == cv_bool && u.op == ast.unary_not {
-                rv = bool_const(!rv.b)
-            } else {
-                rv = no_const()
-                rok = false
-            }
-        case selector, index:
-            f.part = true
-            f.step = 0
-            append(mut st, f)?
-        case slice:
-            rv, rok = mut c.known_slice(e)?
-        default:
-            rv = no_const()
-            rok = false
-        }
-    }
-    return rv, rok, noerror
 }
 
 // construction_payload returns the payload the union built by e is given,
@@ -470,32 +694,54 @@ func (mut c Checker) literal_fail(mut f FoldFrame, mut slots list[Const]) error 
 }
 
 // bools_step takes the fold of f's node, a binary, a step on, Go's
-// fold_bools: a bool constant recorded on it is its value; otherwise the
-// chain of bool links below it is folded, its bottom first and then each
+// foldBoolBinary, each link's operator applied as Go's foldBools
+// applies it (see fold_bool_step): a bool constant recorded on it is
+// its value; otherwise the chain of bool links below it is folded, its bottom first and then each
 // link's right operand, from the innermost link out, the last value
-// folded in rv and rok. It returns the operand to fold next, or no key
-// once the value is in f's acc and acc_ok.
-func (mut c Checker) bools_step(mut f FoldFrame, mut links list[Key], rv Const, rok bool) (Key, error) {
+// folded in rv and rok. A link is a binary that is no number and has no
+// bool recorded, Go's foldBoolBinary (see number_first). It returns the
+// operand to fold next, or no key once the value is in f's acc and
+// acc_ok; or, with value set, the operand whose known value is to be
+// worked out first: a number below the chain whose number_first asks for
+// it, as Go's foldNumber does, the value dropped, the operand folded
+// after it at bools_known.
+func (mut c Checker) bools_step(mut f FoldFrame, mut links list[Key], rv Const, rok bool) (Key, bool, error) {
     if f.step == 0 {
         rec := const_of(c.consts, f.k)
         if rec.kind == cv_bool {
             f.acc = rec
             f.acc_ok = true
-            return no_key(), noerror
+            return no_key(), false, noerror
         }
         f.links = len(links)
         mut x := f.k
-        for {
-            link := mut c.is_bool_link(x)?
-            if !link {
-                break
+        mut link := true
+        for link {
+            link = false
+            switch kind_at(c.prog.trees, x) {
+            case binary(xb):
+                _, _, state := mut c.number_first(x)?
+                if state == num_known {
+                    f.at = x
+                    f.step = bools_known
+                    return x, true, noerror
+                }
+                if state == num_not && const_of(c.consts, x).kind != cv_bool {
+                    append(mut links, x)?
+                    x = sub(x, xb.x)
+                    link = true
+                }
+            default:
             }
-            append(mut links, x)?
-            x = sub(x, binary_at(c.prog.trees, x).x)
         }
         f.n = len(links) -% f.links
         f.step = 1
-        return x, noerror
+        return x, false, noerror
+    }
+    if f.step == bools_known {
+        f.n = len(links) -% f.links
+        f.step = 1
+        return f.at, false, noerror
     }
     if f.step == 1 {
         f.acc = rv
@@ -513,97 +759,15 @@ func (mut c Checker) bools_step(mut f FoldFrame, mut links list[Key], rv Const, 
     if f.step <= f.n {
         l := key_in(links, f.links +% f.n -% f.step)
         f.step +%= 1
-        return sub(l, binary_at(c.prog.trees, l).y), noerror
+        return sub(l, binary_at(c.prog.trees, l).y), false, noerror
     }
     for len(links) > f.links {
         pop(mut links)
     }
-    return no_key(), noerror
+    return no_key(), false, noerror
 }
 
-// string_element folds e when it is an element of a string, Go's
-// foldElement for a string: the byte at a known index, not negative and
-// below the length, of a string the checker knows (see known_string), an
-// immutable local or a slice of one as much as a global, and reports
-// whether e is one.
-func (mut c Checker) string_element(e Key) (Const, bool, bool, error) {
-    switch kind_at(c.prog.trees, e) {
-    case index(ix):
-        x := sub(e, ix.x)
-        if mut c.type_of(x) != types.string_type {
-            return no_const(), false, false, noerror
-        }
-        v, known := mut c.known_value(sub(e, ix.index))?
-        if !known || v.is_negative() || !v.fits(64, true) {
-            return no_const(), false, true, noerror
-        }
-        str, ok := mut c.known_string(x)?
-        at := v.to_int64()
-        if !ok || at >= str.count {
-            return no_const(), false, true, noerror
-        }
-        b, has_b := c.store.str_bytes(str)[at]
-        if !has_b {
-            return no_const(), false, true, noerror
-        }
-        return int_const(constant.from_int64(int64(b))), true, true, noerror
-    default:
-        return no_const(), false, false, noerror
-    }
-}
-
-// fold_links takes the n links of a chain of fields and elements from
-// links, starting at first, the outermost first, from base, the value
-// the chain is taken from, and ok, whether it is known, the innermost
-// link first, Go's foldPart's second loop.
-func (mut c Checker) fold_links(links []Key, first int64, n int64, base_in Const, ok_in bool) (Const, bool, error) {
-    mut base := base_in
-    mut ok := ok_in
-    mut i := first +% n
-    for i > first && ok {
-        i -%= 1
-        l := key_in(links, i)
-        switch kind_at(c.prog.trees, l) {
-        case selector(s):
-            stype := mut c.type_of(sub(l, s.x))
-            _, at, found := c.table.find_field(stype, text_at(c.prog.trees, c.none, l.unit, s.name))
-            if !found || base.kind != cv_list || at >= base.count {
-                ok = false
-                continue
-            }
-            base, ok = c.store.item(base, at)
-        case index(ix):
-            v, known := mut c.known_value(sub(l, ix.index))?
-            if !known || v.is_negative() || !v.fits(64, true) {
-                ok = false
-                continue
-            }
-            at := v.to_int64()
-            xt := mut c.type_of(sub(l, ix.x))
-            if xt == types.string_type {
-                if base.kind != cv_str || at >= base.count {
-                    ok = false
-                    continue
-                }
-                b, has_b := c.store.str_bytes(base)[at]
-                if !has_b {
-                    ok = false
-                    continue
-                }
-                base = int_const(constant.from_int64(int64(b)))
-                continue
-            }
-            if base.kind != cv_list || at >= base.count {
-                ok = false
-                continue
-            }
-            base, ok = c.store.item(base, at)
-        default:
-            ok = false
-        }
-    }
-    if !ok {
-        return no_const(), false, noerror
-    }
-    return base, true, noerror
-}
+// bools_known is the step of a bool chain's fold whose bottom's known
+// value was worked out, and dropped, while its links were looked for:
+// the bottom, in f.at, is folded next.
+var bools_known int64 = -1
