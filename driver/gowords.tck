@@ -5,17 +5,24 @@ import fmt from "std/fmt"
 // Go's words for what std/os reports of a program clang's build runs:
 // an errno, as Go's syscall.Errno.Error gives it, and a signal, as Go's
 // syscall.Signal.String does. Both are Go's tables for Linux, the
-// zerrors_linux files of Go's syscall package, the same on every Linux
-// architecture but mips, whose signal numbers differ. mips and macOS,
-// whose tables differ too, are not ported until after self-hosting.
+// zerrors_linux files of Go's syscall package. The signal table is the
+// same on every Linux architecture but mips, whose signal numbers
+// differ. The errno table is the same on amd64 and arm64 but for 133,
+// EHWPOISON, which amd64's lacks, so Go words it errno 133 there, and
+// arm64's has, memory page has hardware error; the port cannot tell
+// which it runs on, so that one errno has no words here. Other
+// architectures differ more: arm words 133 unknown error 133, and
+// ppc64le has 58 too. mips and macOS, whose tables differ, are not
+// ported until after self-hosting.
 
 // go_errno_text returns the text Go's syscall.Errno.Error gives on
 // Linux for the errno whose message std/os gives as msg: std/os words
 // every errno Linux defines, macOS's text where macOS defines it too and
 // glibc's otherwise, and Go words each with glibc's text, its first
-// letter made small, or as errno and the number for one its table lacks,
-// EHWPOISON. Any other msg, which std/os gives on Linux for no errno, is
-// an empty string.
+// letter made small. EHWPOISON's msg, Memory page has hardware error,
+// whose words depend on the architecture (see above), and any other msg,
+// which std/os gives on Linux for no errno, is an empty string, which
+// the caller declines.
 func go_errno_text(msg string) string {
     switch msg {
     case "Operation not permitted":
@@ -278,8 +285,6 @@ func go_errno_text(msg string) string {
         return "state not recoverable"
     case "Operation not possible due to RF-kill":
         return "operation not possible due to RF-kill"
-    case "Memory page has hardware error":
-        return "errno 133"
     }
     return ""
 }
