@@ -33,7 +33,10 @@ import (
 // nothing: builtins that only give a value written as statements, the
 // zero value of a type parameter standing for a string, an error or an
 // Allocator, and the zero value of a string where nothing pools the
-// empty string. Its cases are emit-probes's in the divergence list. It
+// empty string. And a package that is not main, where Go's driver
+// checks the program the resolver bound nothing of and reports errors it
+// does not have, and the port stops at "main package not found", a known
+// divergence too. Its cases are emit-probes's in the divergence list. It
 // runs only as TestPort does.
 func TestEmitProbes(t *testing.T) {
 	ready(t)

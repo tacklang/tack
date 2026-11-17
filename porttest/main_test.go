@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // env is what TestMain sets up for TestPort: the two compilers, the
@@ -125,6 +126,11 @@ func setup(tmp string) error {
 	if env.required, err = readRequired("required.txt"); err != nil {
 		return err
 	}
+	scale, err := scaleFrom(timeoutScaleVar)
+	if err != nil {
+		return err
+	}
+	compilerTimeout = baseCompilerTimeout * time.Duration(scale)
 	if env.goBin, err = goCompiler(tmp); err != nil {
 		return err
 	}

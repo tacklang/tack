@@ -8,7 +8,7 @@ BIN := bin/tack
 BUILTIN_DOC := builtin/builtin.tck
 RUNTIME_HEADER := builtin/runtime/tack/tack.h
 
-.PHONY: build install install-std std-copies unicode-tables test port-test port-fuzz port-embed fuzz-progen fmt lint
+.PHONY: build install install-std std-copies unicode-tables test port-test port-fuzz port-sanitize port-alloc-fail port-measure port-embed fuzz-progen fmt lint
 
 # build compiles the compiler into $(BIN).
 build:
@@ -114,6 +114,96 @@ port-fuzz:
 		go test -count=1 ./porttest -run '^$$' -fuzz '^$(PORT_FUZZ)$$' \
 		-fuzztime $(FUZZTIME) -fuzzminimizetime $(PORT_FUZZ_MINIMIZE) \
 		-parallel $(PORT_FUZZ_PARALLEL)
+
+# PORT_SANITIZE_BIN is where `make port-sanitize` builds the two
+# compilers, and the clang it builds the port with, under the ignored bin/.
+PORT_SANITIZE_BIN := bin/port-sanitize
+
+# SANITIZE_FLAGS are what `make port-sanitize`'s clang adds to every
+# compile and link of the port: the address sanitizer, the leak sanitizer
+# with it, and the undefined behavior sanitizer, each ending the run at
+# its first report. -fno-sanitize-address-globals-dead-stripping keeps the
+# address sanitizer from defining one symbol in every object, which this
+# compiler's check of the C files' symbols rejects as defined twice.
+# porttest's TestAllocFail adds the same flags (sanitizeFlags).
+SANITIZE_FLAGS := -g -fno-omit-frame-pointer -fsanitize=address,undefined \
+	-fno-sanitize-recover=all -fno-sanitize-address-globals-dead-stripping
+
+# PORT_SANITIZE_STACK multiplies every stack porttest holds the port to
+# under `make port-sanitize` (PORTTEST_STACK_SCALE): the sanitizers'
+# frames are larger, so the deep inputs need more than the budgets give
+# a port built as the harness builds it.
+PORT_SANITIZE_STACK := 4
+
+# PORT_SANITIZE_TIMEOUT multiplies how long porttest lets one run of a
+# compiler take under `make port-sanitize` (PORTTEST_TIMEOUT_SCALE): the
+# sanitized port is several times slower, and the largest deep inputs
+# take it past the minute a port built as the harness builds it gets.
+PORT_SANITIZE_TIMEOUT := 8
+
+# PORT_SANITIZE_SKIP are the tests `make port-sanitize` skips: the
+# performance tests, whose bounds a sanitized port, several times slower
+# and larger, cannot meet.
+PORT_SANITIZE_SKIP := Perf|TestDeepFactsMemory
+
+# PORT_MALFORMED is how many accepted programs `make port-sanitize` has
+# porttest's TestMalformed break, truncate and mutate.
+PORT_MALFORMED := 100
+
+# port-sanitize runs porttest against the port built with SANITIZE_FLAGS,
+# from the C this compiler writes for it, through a clang on PATH that
+# adds them to every command but --version, with every stack
+# PORT_SANITIZE_STACK times larger and every run's time limit
+# PORT_SANITIZE_TIMEOUT times longer. A report ends the port with exit
+# status 86, which fails the case it ran: the sanitizers linked together
+# share one exit status, the one the options read last set, so both
+# options are given 86. TestMalformed
+# runs too, on $(PORT_MALFORMED) programs. The port's
+# source tree is $TACK_PORT, ../tack by default, as for port-test.
+port-sanitize:
+	mkdir -p $(PORT_SANITIZE_BIN)/clang
+	go build -o $(PORT_SANITIZE_BIN)/tack-go ./tack
+	clang="$$(command -v clang)" && \
+		printf '#!/bin/sh\ncase "$$1" in --version) exec "%s" "$$@";; esac\nexec "%s" "$$@" %s\n' \
+		"$$clang" "$$clang" '$(SANITIZE_FLAGS)' > $(PORT_SANITIZE_BIN)/clang/clang && \
+		chmod +x $(PORT_SANITIZE_BIN)/clang/clang
+	cd "$${TACK_PORT:-../tack}" && TACK_HOME="$(CURDIR)" \
+		TACK_CACHE="$(CURDIR)/$(PORT_SANITIZE_BIN)/cache" \
+		PATH="$(CURDIR)/$(PORT_SANITIZE_BIN)/clang:$$PATH" \
+		"$(CURDIR)/$(PORT_SANITIZE_BIN)/tack-go" --out "$(CURDIR)/$(PORT_SANITIZE_BIN)/tack-port" ./driver
+	ASAN_OPTIONS=detect_leaks=1:exitcode=86 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1:exitcode=86 \
+		PORTTEST_STACK_SCALE=$(PORT_SANITIZE_STACK) PORTTEST_TIMEOUT_SCALE=$(PORT_SANITIZE_TIMEOUT) \
+		PORTTEST_MALFORMED=$(PORT_MALFORMED) \
+		TACK_GO=$(PORT_SANITIZE_BIN)/tack-go TACK_PORT_BIN=$(PORT_SANITIZE_BIN)/tack-port TACK_PORT_TEST=1 \
+		go test -count=1 -timeout 480m ./porttest -skip '$(PORT_SANITIZE_SKIP)'
+
+# PORT_ALLOC_FAIL is how many points of allocation failure `make
+# port-alloc-fail` sweeps each run at.
+PORT_ALLOC_FAIL := 40
+
+# port-alloc-fail runs porttest's TestAllocFail, which builds the port
+# with the sanitizers and its allocations counted, and runs a sample of
+# the corpus failing every allocation from the Nth on, for
+# $(PORT_ALLOC_FAIL) values of N each. The port's source tree is
+# $TACK_PORT, ../tack by default, as for port-test.
+port-alloc-fail:
+	PORTTEST_ALLOC_FAIL=$(PORT_ALLOC_FAIL) TACK_PORT_TEST=1 \
+		go test -count=1 -timeout 240m ./porttest -run '^TestAllocFail$$'
+
+# PORT_MEASURE_LOG is the file `make port-measure` logs every run of
+# both compilers to, measured.
+PORT_MEASURE_LOG := bin/port-measure.jsonl
+
+# port-measure runs TestPort with every run of both compilers measured,
+# its wall time and peak memory appended to $(PORT_MEASURE_LOG), which it
+# empties first (PORTTEST_MEASURE_LOG), and then TestBudget on the log,
+# which lists the runs of the port over the budgets against Go's.
+port-measure:
+	mkdir -p $(dir $(PORT_MEASURE_LOG))
+	: > $(PORT_MEASURE_LOG)
+	PORTTEST_MEASURE_LOG=$(PORT_MEASURE_LOG) TACK_PORT_TEST=1 \
+		go test -count=1 -timeout 120m ./porttest -run '^TestPort$$'
+	PORTTEST_BUDGET_LOG=$(PORT_MEASURE_LOG) go test -count=1 ./porttest -run '^TestBudget$$' -v
 
 # PORT_EMBED_BIN is where `make port-embed` builds the port's tools/embed,
 # under the ignored bin/.

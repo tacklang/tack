@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -67,12 +68,25 @@ func TestResPerf(t *testing.T) {
 // its own.
 const measureVar = "PORTTEST_MEASURE"
 
+// measureToVar, set beside measureVar, makes the launcher measure a run
+// for runCompiler's log (see measureLogVar): it passes the command's
+// standard output on, kills the command when the launcher dies, as
+// runCompiler's timeout kills the launcher, and writes the command's wall
+// time, in nanoseconds, and peak resident memory, in KB, to the file the
+// variable names, as one line, rather than the peak to standard output.
+// It exits with the command's status, or 128 plus the signal that ended
+// it.
+const measureToVar = "PORTTEST_MEASURE_TO"
+
 // launchMeasured is the launcher measureVar asks for, given the command
 // cmdline, its arguments each followed by a newline. It returns the exit
 // status, the command's, or 1 when it could not be run.
 func launchMeasured(cmdline string) int {
 	argv := strings.Split(strings.TrimSuffix(cmdline, "\n"), "\n")
 	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // G204: a compiler under test
+	if to := os.Getenv(measureToVar); to != "" {
+		return launchLogged(cmd, to)
+	}
 	cmd.Stdout, cmd.Stderr = nil, os.Stderr
 	err := cmd.Run()
 	ru, ok := cmd.ProcessState.SysUsage().(*syscall.Rusage)
@@ -86,6 +100,39 @@ func launchMeasured(cmdline string) int {
 		return max(cmd.ProcessState.ExitCode(), 1)
 	}
 	return 0
+}
+
+// launchLogged runs cmd, its standard streams the launcher's, and writes
+// its wall time and peak memory to the file to, as measureToVar says. It
+// returns the command's exit status, 128 plus the signal that ended it,
+// or 1 when it could not be run or measured.
+func launchLogged(cmd *exec.Cmd, to string) int {
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	// Pdeathsig is sent when the thread that started the command ends,
+	// so the launcher keeps to the one thread.
+	runtime.LockOSThread()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
+	start := time.Now()
+	err := cmd.Run()
+	took := time.Since(start)
+	if cmd.ProcessState == nil {
+		fmt.Fprintln(os.Stderr, "porttest:", err)
+		return 1
+	}
+	ru, ok := cmd.ProcessState.SysUsage().(*syscall.Rusage)
+	if !ok {
+		fmt.Fprintln(os.Stderr, "porttest: no rusage")
+		return 1
+	}
+	line := fmt.Sprintf("%d %d\n", took.Nanoseconds(), ru.Maxrss)
+	if werr := os.WriteFile(to, []byte(line), 0o600); werr != nil {
+		fmt.Fprintln(os.Stderr, "porttest:", werr)
+		return 1
+	}
+	if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return 128 + int(ws.Signal())
+	}
+	return cmd.ProcessState.ExitCode()
 }
 
 // measure runs bin with args in dir perfRuns times, with cache as
@@ -285,6 +332,15 @@ func TestGenericPerf(t *testing.T) {
 // perfMemoryFactor allow, and logging both, what naming the program.
 func checkPerfAgainstGo(t *testing.T, dir, file, src, what string) {
 	t.Helper()
+	checkPerfWithin(t, dir, file, src, what, perfTimeFactor)
+}
+
+// checkPerfWithin is checkPerfAgainstGo with the port held to factor
+// times Go's time, plus perfTimeSlack, in place of perfTimeFactor: a
+// tighter bound pins a fix that left the port well under Go, where the
+// general budget would pass the port it fixed.
+func checkPerfWithin(t *testing.T, dir, file, src, what string, factor float64) {
+	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, file), []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -297,8 +353,9 @@ func checkPerfAgainstGo(t *testing.T, dir, file, src, what string) {
 	goTime, goMem := measure(t, env.goBin, env.goCache, dir, args, 1)
 	portTime, portMem := measure(t, env.portRun, env.portCache, dir, args, 1)
 	t.Logf("--check of %s: Go %v, %d KB; port %v, %d KB", what, goTime, goMem, portTime, portMem)
-	if portTime > perfTimeFactor*goTime+perfTimeSlack {
-		t.Errorf("the port took %v, more than %d times Go's %v", portTime, perfTimeFactor, goTime)
+	if limit := time.Duration(factor*float64(goTime)) + perfTimeSlack; portTime > limit {
+		t.Errorf("the port took %v, more than %g times Go's %v and %v",
+			portTime, factor, goTime, perfTimeSlack)
 	}
 	if portMem > perfMemoryFactor*goMem {
 		t.Errorf("the port's peak memory was %d KB, more than %d times Go's %d KB", portMem, perfMemoryFactor, goMem)
@@ -405,6 +462,48 @@ func TestBindPerf(t *testing.T) {
 	b.WriteString("func main() {\n    " + checkError + "}\n")
 	checkPerfAgainstGo(t, t.TempDir(), "perf.tck", b.String(),
 		fmt.Sprintf("%d bindings to a call's value", bindPerfFuncs*bindPerfSites))
+}
+
+// ownArgPerfFactor is how many times Go's time, plus perfTimeSlack,
+// TestOwnArgPerf lets the port take: well above the half of Go's the
+// port takes with OwnSite, and well below the twice it took before.
+const ownArgPerfFactor = 1.3
+
+// TestOwnArgPerf is the performance tripwire for the check that nothing
+// else in a call reaches a variable an own argument in it moves: a call
+// of ido(own a, own b) nested in its second argument as deeply as the
+// parser allows, each level passing a local of its own as own, which
+// TestCheckDeepPairs nests as its own-arg pair. Go's check, and the
+// port's, asks of each name in each call whether an own argument of the
+// call passes it, which takes time cubic in the depth; the port once read
+// each own argument's operand out of the tree again for every name, which
+// took it to about twice Go's time there. The bound is ownArgPerfFactor,
+// not the general budget: it pins that fix, reading each own argument
+// once per call (typeck's OwnSite), under which the port takes about
+// half Go's time, where the port before it, right at twice Go's, passed
+// the general budget as often as not. Both compilers are cubic in the
+// depth, so no larger input would widen the gap. checkPerfWithin checks
+// and times it against Go. It runs only as TestPort does, and is not
+// parallel.
+func TestOwnArgPerf(t *testing.T) {
+	ready(t)
+	n := deepLimit - 6
+	var b strings.Builder
+	b.WriteString("package main\n\n" +
+		"func mkl() list[int64] {\n    return make(list[int64], c_allocator)\n}\n\n" +
+		"func ido(own a list[int64], own b list[int64]) list[int64] {\n    return b\n}\n\n" +
+		"func h() list[int64] {\n")
+	for i := range n {
+		fmt.Fprintf(&b, "    mut v%d := mkl()\n", i)
+	}
+	b.WriteString("    x := ")
+	for i := range n {
+		fmt.Fprintf(&b, "ido(own v%d, ", i)
+	}
+	b.WriteString("mkl()" + strings.Repeat(")", n) + "\n    return x\n}\n\n")
+	b.WriteString("func main() {\n    " + checkError + "}\n")
+	checkPerfWithin(t, t.TempDir(), "perf.tck", b.String(),
+		fmt.Sprintf("%d own arguments nested", n), ownArgPerfFactor)
 }
 
 // arithPerfFuncs is how many functions the first program of

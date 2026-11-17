@@ -7,19 +7,34 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
 )
 
-// compilerTimeout is how long one run of a compiler may take before
+// baseCompilerTimeout is how long one run of a compiler may take before
 // runCompiler kills it and fails the case, so a compiler that hangs
-// fails its case rather than stall the run.
-const compilerTimeout = 60 * time.Second
+// fails its case rather than stall the run, times timeoutScaleVar's
+// multiplier (see compilerTimeout).
+const baseCompilerTimeout = 60 * time.Second
+
+// timeoutScaleVar is the environment variable that multiplies
+// baseCompilerTimeout: a whole number from 1 up, 1 when unset or empty.
+// A port built with the sanitizers, several times slower, runs the
+// largest deep inputs with it raised, as make port-sanitize runs it.
+const timeoutScaleVar = "PORTTEST_TIMEOUT_SCALE"
+
+// compilerTimeout is baseCompilerTimeout times $PORTTEST_TIMEOUT_SCALE,
+// which setup sets before any test runs and nothing changes after.
+var compilerTimeout = baseCompilerTimeout
 
 // compare is how a stage compares the two compilers' standard outputs.
 type compare int
@@ -252,9 +267,19 @@ func runCompiler(t *testing.T, bin, cache string, in input, args []string) resul
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
 	cmd.Env = append(compilerEnv(cache), in.env...)
+	measured := ""
+	if measureLog != "" {
+		cmd, measured = measuredCommand(ctx, t, bin, args)
+		cmd.Dir = dir
+		cmd.Env = append(append(compilerEnv(cache), in.env...),
+			measureVar+"="+bin+"\n"+strings.Join(args, "\n")+"\n", measureToVar+"="+measured)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
+	if measured != "" && ctx.Err() == nil && cmd.ProcessState != nil {
+		logMeasured(t, measured, bin, dir, args, in.env, cmd.ProcessState.ExitCode())
+	}
 	var exit *exec.ExitError
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
@@ -267,6 +292,117 @@ func runCompiler(t *testing.T, bin, cache string, in input, args []string) resul
 			bin, strings.Join(args, " "), dir, err, stderr.Bytes())
 	}
 	return result{stdout: stdout.Bytes(), stderr: stderr.Bytes(), code: cmd.ProcessState.ExitCode()}
+}
+
+// measureLogVar is the environment variable naming the file every run
+// of runCompiler is logged to, measured, when it is set and not empty:
+// each run goes through the launcher measureToVar makes of the test
+// binary, whose child, a fresh process, reports its own peak memory, and
+// is appended to the file as one JSON object a line: the test, the
+// binary, which compiler it is, go or port, the working directory, the arguments, the variables the input
+// adds, the exit status, the wall time in nanoseconds and the peak
+// resident memory in KB. A launcher killed at compilerTimeout logs
+// nothing. The whole-corpus budget sweep runs TestPort with it set and
+// compares each run of the port with the run of the Go compiler of the
+// same test, directory and arguments (see the package doc,
+// Performance). A command line can hold no newline when measured.
+const measureLogVar = "PORTTEST_MEASURE_LOG"
+
+// measureLog is $PORTTEST_MEASURE_LOG, read once.
+var measureLog = os.Getenv(measureLogVar)
+
+// measureLogMu serializes the appends to measureLog of the parallel
+// cases.
+var measureLogMu sync.Mutex
+
+// measuredCommand returns the command that runs bin with args through
+// the launcher, this test binary, and the file, in the test's temporary
+// directory, the launcher writes its measurement to. It fails the test
+// when an argument holds a newline, which the launcher's command line
+// cannot carry.
+func measuredCommand(
+	ctx context.Context,
+	t *testing.T,
+	bin string,
+	args []string,
+) (*exec.Cmd, string) {
+	t.Helper()
+	for _, a := range append([]string{bin}, args...) {
+		if strings.Contains(a, "\n") {
+			t.Fatalf("%s set, and the argument %q holds a newline", measureLogVar, a)
+		}
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.CreateTemp(t.TempDir(), "measure")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return exec.CommandContext(ctx, self), f.Name() //nolint:gosec // G204: this test binary
+}
+
+// measuredRun is one line of the measure log (see measureLogVar).
+type measuredRun struct {
+	Test   string   `json:"test"`
+	Bin    string   `json:"bin"`
+	Comp   string   `json:"compiler"`
+	Dir    string   `json:"dir"`
+	Args   []string `json:"args"`
+	Env    []string `json:"env,omitempty"`
+	Code   int      `json:"code"`
+	WallNS int64    `json:"wall_ns"`
+	RSSKB  int64    `json:"rss_kb"`
+}
+
+// logMeasured appends the run of bin with args in dir, with the input's
+// variables extra, which exited with code, to the measure log, from the
+// launcher's measurement in the file measured. It fails the test when
+// the measurement or the log cannot be read or written.
+func logMeasured(t *testing.T, measured, bin, dir string, args, extra []string, code int) {
+	t.Helper()
+	data, err := os.ReadFile(measured) //nolint:gosec // G304: the launcher's file
+	if err != nil {
+		t.Fatalf("reading the measurement: %v", err)
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) != 2 {
+		t.Fatalf("the launcher wrote no measurement: %q", data)
+	}
+	wall, werr := strconv.ParseInt(fields[0], 10, 64)
+	rss, rerr := strconv.ParseInt(fields[1], 10, 64)
+	if werr != nil || rerr != nil {
+		t.Fatalf("the launcher wrote a malformed measurement: %q", data)
+	}
+	comp := "port"
+	if bin == env.goBin {
+		comp = "go"
+	}
+	line, err := json.Marshal(measuredRun{
+		Test: t.Name(), Bin: filepath.Base(bin), Comp: comp, Dir: dir, Args: args, Env: extra,
+		Code: code, WallNS: wall, RSSKB: rss,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	measureLogMu.Lock()
+	defer measureLogMu.Unlock()
+	//nolint:gosec // G304: the log the variable names
+	f, err := os.OpenFile(fromRoot(measureLog), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatalf("opening the measure log: %v", err)
+	}
+	_, err = f.Write(append(line, '\n'))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		t.Fatalf("writing the measure log: %v", err)
+	}
 }
 
 // stdoutDiff returns how got, the port's standard output, differs from

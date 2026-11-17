@@ -44,8 +44,10 @@ const coverCacheVar = "PORTTEST_COVER_CACHE"
 
 // coverTimeout is how long one run of the instrumented Go compiler may
 // take before it is killed and the classification fails: the counters
-// slow it down, so it gets more than compilerTimeout.
-const coverTimeout = 3 * compilerTimeout
+// slow it down, so it gets more than baseCompilerTimeout. It is the Go
+// compiler's, which no sanitizer slows, so $PORTTEST_TIMEOUT_SCALE
+// leaves it as it is.
+const coverTimeout = 3 * baseCompilerTimeout
 
 // covered is what one run of the instrumented compiler covered: for each
 // source file of coverDirs, by its path from the module's root, the

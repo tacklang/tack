@@ -66,7 +66,10 @@
 // which holds its stack to 4 MB with ulimit -s before it runs the port:
 // half the 8 MB Linux gives a program by default, so a port whose
 // recursion needs more than that for any input fails, where it would
-// pass at the default.
+// pass at the default. $PORTTEST_STACK_SCALE, a whole number from 1 up,
+// multiplies that stack, and every other the harness holds the port to,
+// for a port built with the sanitizers, whose frames are larger (see
+// Sanitizers).
 //
 // # Stages
 //
@@ -802,7 +805,11 @@
 // locals and closures written under the facts on them, each shape one
 // that is quadratic when a closure's check copies the facts in force,
 // and TestBindPerf for a hundred thousand locals bound to a call's
-// value, nearly all unused, each a warning.
+// value, nearly all unused, each a warning. TestOwnArgPerf does the same
+// for a call of two own parameters nested in its second argument as
+// deeply as the parser allows, each level passing a local of its own as
+// own, whose check that nothing else in a call reaches what it moves
+// takes time cubic in the depth.
 // TestArithPerf does the same for the arithmetic and the relations: on
 // three thousand functions whose bodies Go accepts, each proving
 // overflows, indexes, a slice and a conversion, and on one body holding
@@ -838,6 +845,58 @@
 // measures it as TestResPerf does, on the port's driver, on
 // TestCheckPerf's functions and TestGenericPerf's program, each with a
 // main Go accepts, and on a main printing twenty thousand strings.
+//
+// Every run of runCompiler, the corpus's, the deep tests' and the
+// probes', is measured when $PORTTEST_MEASURE_LOG names a file: it goes
+// through the launcher, which then passes the compiler's standard
+// output on and writes its wall time and peak memory for the harness,
+// and is appended to the file as a line of JSON, with its test, its
+// compiler, its directory and its arguments. TestBudget, run with
+// $PORTTEST_BUDGET_LOG naming such a log, pairs each run of the port
+// with Go's of the same test and command line and fails each pair over
+// TestResPerf's bounds, logging the twenty worst ratios of time and of
+// memory, and fails a log with no pair in it. It measures nothing again:
+// the runs share the machine with the parallel cases, so a pair it fails
+// is to be rerun alone, its test named with -run and -parallel 1 into a
+// fresh log, and that log checked, before the failure is taken as the
+// port's. make port-measure runs TestPort so and then TestBudget.
+//
+// # Sanitizers
+//
+// make port-sanitize builds the port with clang's address, leak and
+// undefined behavior sanitizers, from the C the Go compiler writes for
+// it, through a clang on PATH that adds them to every command, and runs
+// every test but the performance ones against it, with
+// $PORTTEST_STACK_SCALE at 4 and $PORTTEST_TIMEOUT_SCALE, which
+// multiplies the minute each run of a compiler gets, at 8: a report of
+// any of the sanitizers ends the port with exit status 86, which fails
+// its case, the one status they share linked together. It sets $PORTTEST_MALFORMED, which asks
+// for TestMalformed: that many programs whose --emit Go passes, spread over
+// examples/, each cut short at each sixth of its length and mutated
+// eight times, byte by byte, from a generator seeded with its name, each
+// variant run with --check --max-errors 0 and with --emit through both
+// compilers and compared as emit-single compares its cases, but for the
+// --emit of a variant whose package a mutation made other than main,
+// where the port stops at "main package not found" and Go does not, a
+// known divergence: there the port's is compared with Go's --res, its
+// loader's and resolver's diagnostics. TestMalformedWant checks both.
+//
+// TestAllocFail, which runs only with $PORTTEST_ALLOC_FAIL set, as make
+// port-alloc-fail sets it, builds the port with the same sanitizers and a
+// C file of its own linked in, which counts the runtime's calls of malloc
+// and realloc and sets the runtime's hook,
+// tack_c_allocator_fail_after_, from $TACK_FAIL_AFTER. It runs a sample
+// of the corpus, a dozen cases of each stage but emit-header, the emit
+// probes with --emit and --check, and the port's driver, once counting
+// its allocations and then failing every one from the Nth on, for up to
+// $PORTTEST_ALLOC_FAIL values of N: a run that allocates nothing fails,
+// and each failing run must exit 1, ending in the driver's "tack: out of
+// memory", with no sanitizer report. That checks the C-level allocations
+// and the out-of-memory paths: exit frees every buffer c_allocator holds
+// before the leak sanitizer looks, so it sees only the C memory the
+// runtime does not track, and that Tack code frees what it owns the
+// checker enforces statically. Nothing is compared with Go there, whose runtime ends a process
+// out of memory with a fatal error of its own.
 //
 // # The backend's parts
 //

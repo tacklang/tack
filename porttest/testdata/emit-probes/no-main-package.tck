@@ -1,0 +1,14 @@
+// A package that is not main, given to --emit: the resolver reports
+// "main package not found" and binds nothing, and the port stops there,
+// where Go checks the unbound program on and reports a builtin taking no
+// arguments and parameters that are undefined.
+package man
+
+func main() {
+    exit(((7 + 3) - 2) * 3 / 2 % 7)
+}
+
+func twice(n int64) int64 {
+    print("twice\n")
+    return n + n
+}

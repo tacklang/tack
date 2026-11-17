@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -133,13 +134,45 @@ func rep(s string, n int) string { return strings.Repeat(s, n) }
 // nesting limit, room for what later stages add to the checker.
 const pairStack = 3584
 
+// stackScaleVar is the environment variable that multiplies every stack
+// a wrapper holds the port to, deepStack, pairStack, smallStack and
+// bigStack alike: a whole number from 1 up, 1 when unset or empty. A
+// port built with the sanitizers, whose frames are larger, runs the
+// deep inputs with it raised, as make port-sanitize runs it; a port
+// built as the harness builds it runs at 1, where the budgets hold.
+const stackScaleVar = "PORTTEST_STACK_SCALE"
+
+// stackScale returns the multiplier $PORTTEST_STACK_SCALE names, 1 when
+// it is unset or empty, or why it is not a whole number from 1 up.
+func stackScale() (int, error) { return scaleFrom(stackScaleVar) }
+
+// scaleFrom returns the multiplier the environment variable name holds, 1
+// when it is unset or empty, or why it is not a whole number from 1 up.
+func scaleFrom(name string) (int, error) {
+	v := os.Getenv(name)
+	if v == "" {
+		return 1, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("%s is %q, not a whole number from 1 up", name, v)
+	}
+	return n, nil
+}
+
 // writeStackWrapper writes, in dir, a shell script named name that runs
-// the port with its stack held to kb KB, and returns its path, or why it
-// could not write it. TestMain writes the one every run of the port goes
-// through, env.portRun, at deepStack KB, and env.portPairs, at pairStack.
+// the port with its stack held to kb KB, times stackScale, and returns
+// its path, or why it could not write it. TestMain writes the one every
+// run of the port goes through, env.portRun, at deepStack KB, and
+// env.portPairs, at pairStack.
 func writeStackWrapper(dir, name string, kb int) (string, error) {
+	scale, err := stackScale()
+	if err != nil {
+		return "", err
+	}
 	wrapper := filepath.Join(dir, name)
-	script := fmt.Sprintf("#!/bin/sh\nulimit -s %d || exit 125\nexec %q \"$@\"\n", kb, env.portBin)
+	script := fmt.Sprintf("#!/bin/sh\nulimit -s %d || exit 125\nexec %q \"$@\"\n",
+		kb*scale, env.portBin)
 	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil { //nolint:gosec // G306: a script it runs
 		return "", fmt.Errorf("writing the stack wrapper: %w", err)
 	}
