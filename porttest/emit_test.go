@@ -292,7 +292,8 @@ func headerCopy(in input, work string) (input, error) {
 }
 
 // copyTree copies every regular file and directory below src to dst,
-// which may not exist yet.
+// which may not exist yet: a directory with mode 0755, a file with 0644,
+// or 0755 when its mode has an execute bit, as a fake clang's has.
 func copyTree(src, dst string) error {
 	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -312,6 +313,16 @@ func copyTree(src, dst string) error {
 		data, err := os.ReadFile(p) //nolint:gosec // G304: the corpus
 		if err != nil {
 			return fmt.Errorf("copying: %w", err)
+		}
+		info, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("copying %s: %w", p, err)
+		}
+		if info.Mode()&0o111 != 0 {
+			if err := os.WriteFile(target, data, 0o755); err != nil { //nolint:gosec // G306: a fake clang
+				return fmt.Errorf("copying: %w", err)
+			}
+			return os.Chmod(target, 0o755) //nolint:gosec // G302: a fake clang, whatever the umask
 		}
 		return os.WriteFile(target, data, 0o644) //nolint:gosec // G306: test files
 	})

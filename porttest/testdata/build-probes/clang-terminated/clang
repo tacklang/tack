@@ -1,0 +1,3 @@
+#!/bin/sh
+# A clang that is killed by a signal, SIGTERM, before it does anything.
+kill -TERM $$

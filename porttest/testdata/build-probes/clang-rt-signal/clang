@@ -1,0 +1,4 @@
+#!/bin/sh
+# A clang that is killed by signal 34, a real-time signal, which Go names
+# by its number alone, before it does anything.
+kill -34 $$

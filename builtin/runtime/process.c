@@ -22,7 +22,12 @@
 //
 // An ignored signal stays ignored across exec, so std/os's run sets
 // SIGPIPE back to its default action in every child it starts: a child
-// behaves as it would started from a shell.
+// behaves as it would started from a shell. For the same reason a
+// program may start with SIGCHLD ignored, by a parent that ignored it,
+// and the kernel then reaps every child the program starts as it ends,
+// so std/os's run could not wait for one. tack_start_ sets SIGCHLD back
+// to its default action, as Go's runtime, which handles SIGCHLD itself,
+// makes it in effect for a Go program.
 //
 // Either end records its status, which tack_exit_status_ returns, so an
 // atexit handler, std/testing's, can tell what ended the process.
@@ -52,11 +57,13 @@ static bool ending = false;
 static int32_t exit_status = 0;
 static bool exit_known = false;
 
-// tack_start_ ignores SIGPIPE. signal fails only for a signal number that
-// is not one, or one that cannot be ignored, and SIGPIPE is neither, so
-// its result is not checked.
+// tack_start_ ignores SIGPIPE and sets SIGCHLD to its default action.
+// signal fails only for a signal number that is not one, or one whose
+// action cannot be changed, and neither is either, so its results are
+// not checked.
 void tack_start_(void) {
     (void)signal(SIGPIPE, SIG_IGN);
+    (void)signal(SIGCHLD, SIG_DFL);
 }
 
 // tack_end_ flushes stdout once Tack's main has returned, so a broken

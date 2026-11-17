@@ -65,19 +65,45 @@ run passes the environment on ok
 run passes no variable that is not set ok
 run reads both pipes at once, more than either holds ok
 run keeps every line of both ok
+run starts the program it is given, sh on PATH, with argv[0] as given ok
+run starts a program by its path, with argv[0] as given ok
+a zero Status is a child that exited with 0 ok
 run wrote: hi againdoneset by the testunset
 processes freed ok
-run of a child killed by a signal ok
+run of a child SIGKILL killed is no error and says signal 9 ok
+run keeps what a killed child wrote ok
+run of a child SIGTERM killed says signal 15 ok
+signals freed ok
 run of a program not on PATH ok
 run of a path that names nothing ok
+run of an empty program name ok
+run of a file no one may run ok
+run of a file with no #! line, which no shell is tried for ok
+run of a directory ok
+remove the files run cannot start ok
 run of an empty argv ok
 run of an argument with a 0 byte ok
+run of a program name with a 0 byte ok
 failed runs leave both outputs as they were ok
-run of an empty program name ok
 run failing for want of memory at each allocation leaves the outputs as they were ok
 process failures freed ok
 100 runs leave no descriptor open ok
 child descriptors freed ok
+can_execute of /bin/sh ok
+can_execute of a file of mode 0644 ok
+can_execute of a file of mode 0755 ok
+can_execute of a directory ok
+can_execute of a missing path ok
+can_execute of a path with a 0 byte ok
+can_execute follows a link to sh ok
+can_execute of a link to nothing ok
+remove what executables made ok
+executables freed ok
+every errno Linux defines has a message, and only those ok
+ELIBBAD, which only Linux has, has the C library's message ok
+errnos freed ok
+a program started with SIGCHLD ignored still waits for its children ok
+the SIGCHLD run freed ok
 rename a file to a new name ok
 rename onto a file replaces it ok
 rename onto itself changes nothing ok

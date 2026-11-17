@@ -43,9 +43,6 @@ const (
 	declineTempNotMade    = " with a temp directory that cannot be made"
 	declineTempNotRemoved = " with a temp directory that cannot be removed"
 	declineRuntimeDir     = " with a runtime directory that cannot be made"
-	declineRelativeClang  = " with a clang on a PATH element that is not absolute"
-	declineClangKilled    = " with a clang killed by a signal"
-	declineClangNotRun    = " with a clang that cannot be started"
 	declineNoCwd          = " in a current directory that cannot be found"
 )
 
@@ -54,15 +51,11 @@ const (
 // that is missing and one that is a file, where the temporary directory
 // cannot be made; a TMPDIR so long that the runtime's directories below
 // it cannot be made, whose Go error names the temporary directory; a
-// clang on a relative element of PATH, which Go runs or skips by its
-// mode; a clang killed by a signal; a first clang on PATH whose
-// interpreter is missing, one with no #! line and one that is not
-// executable, each before a real one, which the port must not run in
-// its place; a clang that writes the binary and leaves in the temporary
-// directory what the port cannot remove; a file and a dangling symbolic
-// link at the --out path before the build, which a decline leaves as
-// they were; and a current directory that is gone, where Go's message
-// names an empty --out path.
+// clang that writes the binary and leaves in the temporary directory
+// what the port cannot remove; a file and a dangling symbolic link at
+// the --out path before a build whose clang leaves that too but writes
+// no binary, which a decline leaves as they were; and a current
+// directory that is gone, where Go's message names an empty --out path.
 var buildDeclines = []buildDecline{
 	{name: "tmpdir-missing", reason: declineTempNotMade, env: func(base, _ string) []string {
 		return []string{"TMPDIR=" + filepath.Join(base, "missing")}
@@ -96,28 +89,12 @@ var buildDeclines = []buildDecline{
 		},
 	},
 	{
-		name: "clang-on-relative-path", reason: declineRelativeClang,
-		env: func(_, _ string) []string {
-			return []string{"PATH=rel" + string(filepath.ListSeparator) + os.Getenv("PATH")}
-		},
-		setup: func(t *testing.T, _, work string) {
-			t.Helper()
-			if err := copyTree(fakeClangDir("clang-fails"), filepath.Join(work, "rel")); err != nil {
-				t.Fatal(err)
-			}
-		},
-	},
-	{name: "clang-killed", reason: declineClangKilled, env: fakeClangFirst("clang-killed")},
-	{name: "clang-bad-interpreter", reason: declineClangNotRun, env: fakeClangFirst("clang-bad-interpreter")},
-	{name: "clang-no-shebang", reason: declineClangNotRun, env: fakeClangFirst("clang-no-shebang")},
-	{name: "clang-not-executable", reason: declineClangNotRun, env: fakeClangFirst("clang-not-executable")},
-	{
 		name: "temp-not-removable", reason: declineTempNotRemoved, leaves: true,
 		env: fakeClangFirst("clang-locks"),
 	},
 	{
-		name: "out-file-before", reason: declineClangKilled, keepsOut: true,
-		env: fakeClangFirst("clang-killed"),
+		name: "out-file-before", reason: declineTempNotRemoved, keepsOut: true, leaves: true,
+		env: fakeClangFirst("clang-locks-only"),
 		setup: func(t *testing.T, base, _ string) {
 			t.Helper()
 			if err := os.WriteFile(outOf(base), []byte("before\n"), 0o600); err != nil {
@@ -133,8 +110,8 @@ var buildDeclines = []buildDecline{
 		},
 	},
 	{
-		name: "out-link-before", reason: declineClangKilled, keepsOut: true,
-		env: fakeClangFirst("clang-killed"),
+		name: "out-link-before", reason: declineTempNotRemoved, keepsOut: true, leaves: true,
+		env: fakeClangFirst("clang-locks-only"),
 		setup: func(t *testing.T, base, _ string) {
 			t.Helper()
 			if err := os.Symlink(filepath.Join(base, "nowhere"), outOf(base)); err != nil {

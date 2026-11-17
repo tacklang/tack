@@ -35,7 +35,11 @@ import text from "std/text"
 // gives on macOS, the same on every target: error{code: 3, msg: "No such
 // file or directory"}, for one, and error{code: 3, msg: "Cannot allocate
 // memory"} for a kernel that cannot allocate memory for the call, ENOMEM,
-// which is the OS's refusal, not the program's allocation. A function
+// which is the OS's refusal, not the program's allocation. Every errno
+// Linux defines has its message, glibc's for one macOS does not define,
+// so none is "unknown OS error" on Linux. A program run cannot start is
+// code 13 and the OS's message, error{code: 13, msg: "No such file or
+// directory"} for one not on PATH. A function
 // that fails returns an empty list or Text beside its error, and frees
 // what it had made; nothing it returns is partial.
 //
@@ -59,6 +63,10 @@ var nul_path = error{code: 4, msg: "path contains a NUL byte"}
 
 // nul_arg is the error for an argument of run holding a 0 byte.
 var nul_arg = error{code: 4, msg: "argument contains a NUL byte"}
+
+// nul_prog is the error for a program run is given whose name holds a 0
+// byte.
+var nul_prog = error{code: 4, msg: "program contains a NUL byte"}
 
 // nul_name is the error for an environment variable's name holding a 0
 // byte.
@@ -137,14 +145,29 @@ extern("tack_os_arg") func c_arg(i int64, mut arg list[uint8]) int64
 // negated.
 extern("tack_os_pipe") func c_pipe(mut fds [2]int32) int64
 
-// c_spawn starts the program flat names, through posix_spawnp, which
-// looks it up on PATH: flat holds argc arguments, the program's name
-// first, each followed by a 0. The child reads /dev/null as its standard
-// input, writes its standard output to out and its standard error to
-// err, and starts with the process's environment and SIGPIPE's default
-// action. It returns the child's
-// process id, or the errno negated: E2BIG for more than 8192 arguments.
-extern("tack_os_spawn") func c_spawn(flat []uint8, argc int64, out int32, err int32) int64
+// c_spawn starts the program prog, through posix_spawnp, which looks it
+// up on PATH when it holds no /, with the arguments flat holds: argc of
+// them, each followed by a 0, argv[0] first, which need not name prog.
+// The child reads in as its standard input, writes its standard output
+// to out and its standard error to err, and starts with the
+// process's environment and SIGPIPE's default action. It returns the
+// child's process id; or the errno negated when setting the start up
+// fails, before any program is looked for, -no_room for the C library's
+// ENOMEM there, an allocation of its own that failed, and E2BIG for more
+// than 8192 arguments; or c_spawn_failed() plus the errno, negated, when
+// the program cannot be started: posix_spawnp's own failure, the
+// program not found, not run, or no process made for it, and
+// ENAMETOOLONG for a prog too long for a path.
+extern("tack_os_spawn") func c_spawn(prog []uint8, flat []uint8, argc int64, in int32, out int32, err int32) int64
+
+// c_spawn_failed returns the number c_spawn adds to an errno for a
+// program that cannot be started, 1 << 21, above every errno and above
+// os.c's no_room.
+extern("tack_os_spawn_failed") func c_spawn_failed() int64
+
+// c_can_execute returns 1 when the file at path may be run, as
+// can_execute says, and 0 otherwise.
+extern("tack_os_can_execute") func c_can_execute(path []uint8) int64
 
 // c_poll2 waits until a or b, each a descriptor or negative for none,
 // can be read without blocking, its writer has closed it, or it has
@@ -153,7 +176,8 @@ extern("tack_os_spawn") func c_spawn(flat []uint8, argc int64, out int32, err in
 extern("tack_os_poll2") func c_poll2(a int32, b int32) int64
 
 // c_wait waits for the child pid to end and returns its exit status, 0
-// to 255, or 256 plus the signal that killed it, or the errno negated.
+// to 255, or 256 plus the signal that killed it, or 512 plus the signal
+// when it also dumped core, or the errno negated.
 extern("tack_os_wait") func c_wait(pid int64) int64
 
 // c_eintr returns EINTR, the errno of a call a signal interrupted.
@@ -739,75 +763,177 @@ func wait_for(pid int64) int64 {
     }
 }
 
-// run runs a program and waits for it to end, and returns its exit
-// status, 0 to 255, and no error. argv[0] names the program, looked up on
-// PATH when it holds no /, and argv, argv[0] included, is what the child
-// is given as its arguments. The child starts with this process's
-// environment and SIGPIPE's default action, which this process ignores,
-// reads /dev/null as its standard input, and writes its
-// standard output and its standard error to pipes, which run reads at
-// once, whichever has something, until both reach their ends, so
-// neither can fill and block the child; it then appends all the child
-// wrote to its standard output to out, and all it wrote to its standard
-// error to err_out, after what each held. A status other than 0 is no
-// error: it is returned as it is. alloc makes run's own lists, the
+// Status is how a child that run started ended, read through its
+// methods: it exited, with an exit status from 0 to 255, or a signal
+// killed it, which may have made it dump core. Its fields are private, as
+// Info's are, so no program outside os writes a Status literal. A
+// program may still have a zero Status, from a declaration or
+// make(os.Status, alloc): a child that exited with status 0.
+pub type Status struct {
+    // code is the exit status, 0 to 255, when signo is 0, and -1 when it
+    // is not.
+    code int64
+    // signo is the number of the signal that killed the child, or 0 when
+    // it exited.
+    signo int64
+    // core is whether the child dumped core as the signal killed it.
+    core bool
+}
+
+// exited reports whether the child exited, rather than being killed by
+// a signal.
+pub func (s Status) exited() bool {
+    return s.signo == 0
+}
+
+// exit_status returns the status the child exited with, 0 to 255, or -1
+// when a signal killed it, as Go's ProcessState.ExitCode does.
+pub func (s Status) exit_status() int64 {
+    return s.code
+}
+
+// signal returns the number of the signal that killed the child, as the
+// OS numbers it, 9 for SIGKILL and 15 for SIGTERM, or 0 when it exited.
+pub func (s Status) signal() int64 {
+    return s.signo
+}
+
+// core_dumped reports whether the child dumped core as a signal killed
+// it, which the OS's limits and core pattern decide; false when it
+// exited.
+pub func (s Status) core_dumped() bool {
+    return s.core
+}
+
+// status_of returns the Status c_wait's result w, 0 or more, says: an
+// exit status below 256, a signal's number plus 256, or plus 512 for a
+// child that dumped core.
+func status_of(w int64) Status {
+    if w >= 512 {
+        return Status{code: -1, signo: w - 512, core: true}
+    }
+    if w >= 256 {
+        return Status{code: -1, signo: w - 256, core: false}
+    }
+    return Status{code: w, signo: 0, core: false}
+}
+
+// spawn_error returns the error for r, a negative result of c_spawn:
+// code 13 and the OS's message for a program that could not be started,
+// and c_error's error for a start that could not be set up.
+func spawn_error(r int64) error {
+    // r is an errno, no_room or c_spawn_failed() plus an errno, negated,
+    // each far from the ends of an int64, so -% never wraps.
+    n := -%r
+    base := c_spawn_failed()
+    if n >= base {
+        e := c_error(n -% base)
+        return error{code: 13, msg: e.msg}
+    }
+    return c_error(n)
+}
+
+// run runs prog and waits for it to end, and returns how it ended, a
+// Status, and no error. prog is looked up on PATH when it holds no /,
+// through posix_spawnp, and started as it is otherwise. argv, argv[0]
+// included, is what the child is given as its arguments; argv[0] need
+// not name prog, as with Go's exec.Cmd, whose Path and Args[0] differ.
+// The child starts with this process's environment and SIGPIPE's
+// default action, which this process ignores, reads /dev/null as its
+// standard input, and writes its standard output and its standard error
+// to pipes, which run reads at once, whichever has something, until both
+// reach their ends, so neither can fill and block the child; it then
+// appends all the child wrote to its standard output to out, and all it
+// wrote to its standard error to err_out, after what each held. A child
+// that exits with a status other than 0 is no error, and neither is one
+// a signal kills: the Status says which, and what it wrote before it
+// ended is appended as for any other. alloc makes run's own lists, the
 // arguments as C takes them and the bytes read, all freed before run
 // returns.
 //
-// On an error the status is -1, and out and err_out are left as they
-// were, their lengths and their bytes: what was read is appended only
-// once everything has succeeded. Errors are:
+// On an error the Status cannot be read, and out and err_out are left
+// as they were, their lengths and their bytes: what was read is appended
+// only once everything has succeeded. Errors are:
 //
 //   - error{code: 4, msg: "argv is empty"};
+//   - error{code: 4, msg: "program contains a NUL byte"};
 //   - error{code: 4, msg: "argument contains a NUL byte"};
-//   - error{code: 5, msg: "child killed by a signal"}, when it was;
-//   - code 3 and the OS's message, when a pipe cannot be made, the child
-//     cannot be started, "No such file or directory" for a program not on
-//     PATH, or a read, poll or wait fails;
-//   - error{code: 1, msg: "out of memory"}. Room for the bytes read is
-//     made in out first, then in err_out, so when only err_out cannot
-//     grow, out's capacity may have grown, though its length and bytes
-//     have not.
+//   - code 13 and the OS's message, when the program cannot be started:
+//     error{code: 13, msg: "No such file or directory"} for a program
+//     not on PATH, a path that names nothing, an empty prog, or a script
+//     whose interpreter is missing, "Permission denied" for a file no
+//     one may run or a directory, "Exec format error" for a file the
+//     kernel cannot run, which run tries no shell for, and "Cannot
+//     allocate memory" when the kernel has no memory to start it;
+//   - code 3 and the OS's message, when /dev/null cannot be opened, a
+//     pipe cannot be made or the start cannot be set up, before any
+//     program is looked for, or a
+//     read, poll or wait fails once it has started;
+//   - error{code: 1, msg: "out of memory"}, an allocation that failed,
+//     the C library's own while setting the start up included. Room for
+//     the bytes read is made in out first, then in err_out, so when only
+//     err_out cannot grow, out's capacity may have grown, though its
+//     length and bytes have not.
 //
 // Once the child has started, run waits for it on every path. After an
 // error while reading, it first closes its ends of the pipes, so a child
 // still writing gets EPIPE, or dies of SIGPIPE, and ends; it does not
 // kill it, and a child that never ends keeps run waiting, as it would
-// without the error.
-pub func run(argv []text.Text, mut out list[uint8], mut err_out list[uint8], scope alloc Allocator) (int64, error) {
+// without the error. A process whose parent left SIGCHLD ignored can
+// still wait for its children: the runtime sets SIGCHLD back to its
+// default action at the start.
+pub func run(prog []uint8, argv []text.Text, mut out list[uint8], mut err_out list[uint8], scope alloc Allocator) (Status, error) {
+    mut none Status
     if len(argv) == 0 {
-        return -1, error{code: 4, msg: "argv is empty"}
+        return none, error{code: 4, msg: "argv is empty"}
+    }
+    if has_nul(prog) {
+        return none, nul_prog
     }
     mut flat := make(list[uint8], alloc)
     for _, a := range argv {
         if has_nul(a.bytes()) {
-            return -1, nul_arg
+            return none, nul_arg
         }
         e0 := append(mut flat, a.bytes()...)
         if e0.code != 0 {
-            return -1, e0
+            return none, e0
         }
         e1 := append(mut flat, 0)
         if e1.code != 0 {
-            return -1, e1
+            return none, e1
         }
+    }
+    // /dev/null is opened here, as Go's exec opens it, so that a failure
+    // to open it is the OS's error, not the program's that could not be
+    // started.
+    rn := c_open([]uint8("/dev/null"), 0)
+    if rn < 0 {
+        return none, c_error(-%rn)
+    }
+    devnull, fits := int32(rn)
+    if !fits {
+        return none, fd_range
     }
     mut stdout_pipe [2]int32
     r0 := c_pipe(mut stdout_pipe)
     if r0 < 0 {
-        return -1, c_error(-%r0)
+        c_close(devnull)
+        return none, c_error(-%r0)
     }
     mut stderr_pipe [2]int32
     r1 := c_pipe(mut stderr_pipe)
     if r1 < 0 {
+        c_close(devnull)
         c_close(stdout_pipe[0])
         c_close(stdout_pipe[1])
-        return -1, c_error(-%r1)
+        return none, c_error(-%r1)
     }
-    pid := c_spawn(flat, len(argv), stdout_pipe[1], stderr_pipe[1])
-    // The child has its own copies of the write ends, if it started; run
-    // keeps none, so each read end reaches its end when the child's
-    // copies close.
+    pid := c_spawn(prog, flat, len(argv), devnull, stdout_pipe[1], stderr_pipe[1])
+    // The child has its own copies of /dev/null and the write ends, if it
+    // started; run keeps none, so each read end reaches its end when the
+    // child's copies close.
+    c_close(devnull)
     c_close(stdout_pipe[1])
     c_close(stderr_pipe[1])
     mut a := stdout_pipe[0]
@@ -815,7 +941,7 @@ pub func run(argv []text.Text, mut out list[uint8], mut err_out list[uint8], sco
     if pid < 0 {
         c_close(a)
         c_close(b)
-        return -1, c_error(-%pid)
+        return none, spawn_error(pid)
     }
     mut got_out := make(list[uint8], alloc)
     mut got_err := make(list[uint8], alloc)
@@ -848,29 +974,41 @@ pub func run(argv []text.Text, mut out list[uint8], mut err_out list[uint8], sco
     if b >= 0 {
         c_close(b)
     }
-    status := wait_for(pid)
+    w := wait_for(pid)
     if failure.code != 0 {
-        return -1, failure
+        return none, failure
     }
-    if status < 0 {
-        return -1, c_error(-%status)
-    }
-    if status >= 256 {
-        return -1, error{code: 5, msg: "child killed by a signal"}
+    if w < 0 {
+        return none, c_error(-%w)
     }
     e2 := reserve(mut out, len(got_out))
     if e2.code != 0 {
-        return -1, e2
+        return none, e2
     }
     e3 := reserve(mut err_out, len(got_err))
     if e3.code != 0 {
-        return -1, e3
+        return none, e3
     }
     // Neither append can fail: each list has room for what it appends.
     e4 := append(mut out, got_out...)
     e5 := append(mut err_out, got_err...)
     if e4.code != 0 || e5.code != 0 {
-        return -1, error{code: 1, msg: "out of memory"}
+        return none, error{code: 1, msg: "out of memory"}
     }
-    return status, noerror
+    return status_of(w), noerror
+}
+
+// can_execute reports whether the file at path is one this process may
+// run, as Go's exec.LookPath decides for each file it looks at: path,
+// following symbolic links, names a file that is not a directory, and
+// faccessat(2), with AT_EACCESS, so by the effective user and group,
+// lets it be run; where faccessat fails with ENOSYS or EPERM, as some
+// containers' seccomp filters make it, whether any of the file's mode's
+// execute bits is set. A path holding a 0 byte, a missing path, a
+// symbolic link to nothing and one stat(2) cannot reach are none.
+pub func can_execute(path []uint8) bool {
+    if has_nul(path) {
+        return false
+    }
+    return c_can_execute(path) == 1
 }

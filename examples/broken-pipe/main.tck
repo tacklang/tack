@@ -221,12 +221,12 @@ func child() {
     }
     mut out := make(list[uint8], c_allocator)
     mut errOut := make(list[uint8], c_allocator)
-    s, e2 := os.run(c, mut out, mut errOut, c_allocator)
+    s, e2 := os.run([]uint8("sh"), c, mut out, mut errOut, c_allocator)
     if e2.code != 0 {
         fmt.printf("run failed: %s\n", e2.msg)
         return
     }
-    fmt.printf("child %d %d ", s, len(out))
+    fmt.printf("child %d %d ", s.exit_status(), len(out))
     fmt.write(errOut)
 }
 

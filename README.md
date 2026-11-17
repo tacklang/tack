@@ -402,7 +402,8 @@ when it holds one, `unreachable.c`, a function one of its C files
 calls, and those that define what those objects need in turn, as a linker
 takes an archive's members. A program that calls a builtin or declares
 an extern func, std's included, runs C beyond its generated C, and its C
-`main` calls `process.c`'s `tack_start_` first, which ignores `SIGPIPE`,
+`main` calls `process.c`'s `tack_start_` first, which ignores `SIGPIPE`
+and sets `SIGCHLD` to its default action (see broken pipes),
 and `tack_end_` once Tack's `main` returns, which flushes standard output
 (see broken pipes); `print`, `exit` and `std/fmt`'s C call `process.c`
 when a write fails, and `process.c` needs `list.c`, since a broken pipe
@@ -1410,33 +1411,54 @@ section remains the description of the language.
   characters mkdtemp picks, letters and digits on glibc, which the
   caller removes; `prefix` may be empty, and one holding a `/` is
   `error{code: 4, msg: "prefix contains a slash"}` and one holding a 0
-  byte `error{code: 4, msg: "prefix contains a NUL byte"}`. `status, err := os.run(argv, mut out, mut
-  err_out, alloc)` runs the program `argv[0]` names, looked up on `PATH`
-  through `posix_spawnp`, with `argv` as its arguments, this process's
-  environment, and `/dev/null` as its standard input, and waits for it.
+  byte `error{code: 4, msg: "prefix contains a NUL byte"}`. `status, err := os.run(prog, argv, mut
+  out, mut err_out, alloc)` runs `prog`, looked up on `PATH` through
+  `posix_spawnp` when it holds no `/` and started as it is otherwise,
+  with `argv` as its arguments, `argv[0]` included, which need not name
+  `prog`, as Go's `exec.Cmd` keeps `Path` apart from `Args[0]`; with
+  this process's environment, and `/dev/null`, which run opens, as its
+  standard input; and waits for it.
   The child starts with `SIGPIPE`'s default action, though the program
   ignores it (see broken pipes), so `yes` writing into a closed pipe
-  dies of it, as it would started from a shell. It reads the child's standard output and standard error from two
-  pipes at once, whichever has something, so neither fills and blocks
-  the child, then appends each to `out` and `err_out`, and returns the
-  exit status, 0 to 255, a status other than 0 being no error. `alloc`
-  makes only run's own lists, all freed before it returns. On an error
-  the status is -1, which cannot be read before the error is checked,
-  and `out` and `err_out` keep their lengths and bytes: an empty `argv`
-  is `error{code: 4, msg: "argv is empty"}`, a 0 byte in an argument
-  `error{code: 4, msg: "argument contains a NUL byte"}`, a child killed
-  by a signal `error{code: 5, msg: "child killed by a signal"}`, and a
-  program not on `PATH` `error{code: 3, msg: "No such file or
-  directory"}`. Out of memory while making room for the bytes read is
-  the one path where `out`'s capacity may have grown, when only
-  `err_out` could not. After an error while reading, run closes its
-  ends of the pipes, so the child gets `EPIPE` or `SIGPIPE`, and waits
+  dies of it, as it would started from a shell. It reads the child's
+  standard output and standard error from two pipes at once, whichever
+  has something, so neither fills and blocks the child, then appends
+  each to `out` and `err_out`, and returns how the child ended, an
+  `os.Status`: `status.exited()`, `status.exit_status()`, 0 to 255 or
+  -1 when a signal killed it, `status.signal()`, the signal's number or
+  0, and `status.core_dumped()`. Its fields are private, and a zero
+  `Status` is a child that exited with 0. A status other than 0 is no
+  error, and neither is a child a signal killed, whose output is
+  appended as any other's. `alloc` makes only run's own lists, all
+  freed before it returns. On an error the `Status` cannot be read
+  before the error is checked, and `out` and `err_out` keep their
+  lengths and bytes: an empty `argv` is `error{code: 4, msg: "argv is
+  empty"}`, a 0 byte in `prog` `error{code: 4, msg: "program contains a
+  NUL byte"}` and one in an argument `error{code: 4, msg: "argument
+  contains a NUL byte"}`, and a program that cannot be started code 13
+  and the OS's message: `error{code: 13, msg: "No such file or
+  directory"}` for one not on `PATH` or a path that names nothing,
+  `"Permission denied"` for a file no one may run or a directory, and
+  `"Exec format error"` for a file the kernel cannot run, for which no
+  shell is tried. A pipe or `/dev/null` that cannot be opened, or a
+  read, poll or wait that fails, is code 3. Out of memory while making
+  room for the bytes read is the one path where `out`'s capacity may
+  have grown, when only `err_out` could not. After an error while
+  reading, run closes its ends of the pipes, so the child gets `EPIPE`
+  or `SIGPIPE`, and waits
   for it, killing nothing; there is no timeout. An allocation that fails is `error{code: 1,
   msg: "out of memory"}`, and code 1 means nothing else; the OS refusing
   is code 3 and the message macOS's strerror gives, the same on every
   target, `error{code: 3, msg: "No such file or directory"}`, a kernel
   that cannot allocate memory for a call, `ENOMEM`, among them, as
-  `error{code: 3, msg: "Cannot allocate memory"}`. A function that fails returns an empty
+  `error{code: 3, msg: "Cannot allocate memory"}`; every errno Linux
+  defines has its message, glibc's for those macOS does not define, so
+  none is `"unknown OS error"` on Linux. `os.can_execute(path)` reports
+  whether this process may run the file at `path`, as Go's
+  `exec.LookPath` decides for each file it looks at: a file, not a
+  directory, through symbolic links, that `faccessat` with
+  `AT_EACCESS` lets it run, or whose mode has an execute bit where
+  `faccessat` fails with `ENOSYS` or `EPERM`. A function that fails returns an empty
   list or Text and frees what it made; only `write_file` can leave work
   half done, a file created or truncated and partly written. Every file
   descriptor is opened close-on-exec and closed before the function
@@ -2640,7 +2662,7 @@ section remains the description of the language.
   behind it could keep memory from region r in anything it captures`,
   or `... to h alongside g, a scope parameter: ...`; values not from the
   region go to it freely.
-  So `os.run(argv, mut out, mut err_out, r)` with lists declared outside
+  So `os.run(prog, argv, mut out, mut err_out, r)` with lists declared outside
   the region is rejected, as any call given `r` beside an outer `mut`
   list is. Integers, bools, strings, ids, spans and handles computed
   from a region's values leave it freely, as does a list made through
@@ -4418,7 +4440,10 @@ section remains the description of the language.
   other descriptor gets `EPIPE` as an error the program sees, `error{code:
   3, msg: "Broken pipe"}` from `os.write_file`, as does extern C's own
   write, and a child `os.run` starts begins with `SIGPIPE`'s default
-  action. A program with no C to
+  action. Such a program also starts with `SIGCHLD` at its default
+  action, whatever its parent left it at: one started with it ignored
+  would have every child it starts reaped as it ends, before `os.run`
+  could wait for it. A program with no C to
   run, one that calls neither builtin and declares no extern func, std's
   included, writes nothing, and does none of this.
 - `exit` takes an `int32`, or an integer that widens to one

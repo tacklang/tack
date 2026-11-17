@@ -254,7 +254,7 @@ const specLateProgram = "" +
 	"    }\n" +
 	"    mut out := make(list[uint8], c_allocator)\n" +
 	"    mut errOut := make(list[uint8], c_allocator)\n" +
-	"    _, e := os.run(argv, mut out, mut errOut, c_allocator)\n" +
+	"    _, e := os.run([]uint8(\"sh\"), argv, mut out, mut errOut, c_allocator)\n" +
 	"    if e.code != 0 {\n" +
 	"        exit(1)\n" +
 	"    }\n" +

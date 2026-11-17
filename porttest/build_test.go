@@ -132,6 +132,17 @@ type buildProbe struct {
 	// outInHome makes the --out path prog in the case's TACK_HOME, a
 	// directory no one may write to, so that clang's link fails.
 	outInHome bool
+	// fakeFirst, when not empty, is the directory below
+	// testdata/build-probes whose fake clang is put before the PATH the
+	// compilers inherit, which the fake's own commands, and a real clang,
+	// are found on.
+	fakeFirst string
+	// fakeBuilt, when not empty, is the directory below
+	// testdata/build-probes whose clang.c the real clang compiles, once a
+	// run, to a binary named clang in a directory of the run's, put
+	// before the PATH the compilers inherit: a fake no script can be, as
+	// one that shows its argv[0].
+	fakeBuilt string
 }
 
 // buildProbes are build-probes' cases, by name: the --out paths Go's
@@ -142,10 +153,19 @@ type buildProbe struct {
 // exits 1, whose output the driver passes on before its error; an --out
 // path in a directory no one may write to, where clang's link fails
 // with its own messages; an empty and a relative element of PATH, which
-// holds no clang, before the PATH the compilers inherit; a program that
-// warns, whose warning comes before the build; and a build at each -O
-// level but the default, which the examples build at. The builds the
-// port declines are TestBuildDeclines', not cases here: build-probes is
+// holds no clang, before the PATH the compilers inherit; a relative
+// element that holds one, which Go's exec.LookPath refuses with
+// exec.ErrDot; a program that warns, whose warning comes before the
+// build; a build at each -O level but the default, which the examples
+// build at; and a fake clang first on PATH, before the real one, each
+// building the program that warns: one SIGKILL kills, one SIGTERM
+// kills, one signal 34, a real-time signal, kills, one whose
+// interpreter is missing, one with no #! line and one no one may run,
+// which LookPath skips for the real clang, and one built from C that
+// writes the argv[0] it is given, clang, and exits 1. No fake dumps
+// core: whether one does depends on the machine's limits and core
+// pattern, and a dump may reach systemd-coredump. The builds the port
+// declines are TestBuildDeclines', not cases here: build-probes is
 // required.
 var buildProbes = map[string]buildProbe{
 	"build-probes/out-directory":      {program: "empty", out: "."},
@@ -164,6 +184,38 @@ var buildProbes = map[string]buildProbe{
 	"build-probes/opt-2":              {program: "loops", flags: []string{"-O2"}},
 	"build-probes/opt-s":              {program: "loops", flags: []string{"-Os"}},
 	"build-probes/opt-z":              {program: "loops", flags: []string{"-Oz"}},
+	"build-probes/clang-relative":     {program: "relclang", pathFront: []string{"rel"}},
+	"build-probes/clang-killed":       {program: "warn", fakeFirst: "clang-killed"},
+	"build-probes/clang-terminated":   {program: "warn", fakeFirst: "clang-terminated"},
+	"build-probes/clang-rt-signal":    {program: "warn", fakeFirst: "clang-rt-signal"},
+	"build-probes/clang-bad-interp":   {program: "warn", fakeFirst: "clang-bad-interpreter"},
+	"build-probes/clang-no-shebang":   {program: "warn", fakeFirst: "clang-no-shebang"},
+	"build-probes/clang-not-runnable": {program: "warn", fakeFirst: "clang-not-executable"},
+	"build-probes/clang-argv0":        {program: "warn", fakeBuilt: "clang-argv0"},
+}
+
+// builtFake returns the directory holding the binary clang the real
+// clang compiles from the clang.c of the directory below
+// testdata/build-probes named name, compiling it first unless an earlier
+// call of the run has.
+func builtFake(name string) (string, error) {
+	if env.tmp == "" {
+		return "", fmt.Errorf("building the fake clang %s: no run directory", name)
+	}
+	dir := filepath.Join(env.tmp, "fake-"+name)
+	bin := filepath.Join(dir, "clang")
+	if fileExists(bin) {
+		return dir, nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("building the fake clang %s: %w", name, err)
+	}
+	src := filepath.Join(env.root, "porttest", "testdata", "build-probes", name, "clang.c")
+	cmd := exec.Command("clang", "-o", bin, src) //nolint:gosec // G204: the harness's own fake
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("building the fake clang %s: %w\n%s", name, err, out)
+	}
+	return dir, nil
 }
 
 // buildProbeInputs returns build-probes' inputs, each of buildProbes run
@@ -183,7 +235,17 @@ func buildProbeInputs() ([]input, error) {
 		if !fileExists(filepath.Join(in.dir, in.file)) {
 			return nil, fmt.Errorf("build probe %s: %s has no main.tck", name, p.program)
 		}
+		inherited := os.Getenv("PATH")
 		switch {
+		case p.fakeFirst != "":
+			in.env = []string{"PATH=" + filepath.Join(dir, p.fakeFirst) +
+				string(filepath.ListSeparator) + inherited}
+		case p.fakeBuilt != "":
+			built, err := builtFake(p.fakeBuilt)
+			if err != nil {
+				return nil, fmt.Errorf("build probe %s: %w", name, err)
+			}
+			in.env = []string{"PATH=" + built + string(filepath.ListSeparator) + inherited}
 		case p.emptyPath:
 			in.env = []string{"PATH="}
 		case p.pathDir != "":

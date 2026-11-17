@@ -51,7 +51,9 @@ int64_t tack_os_env(tack_view_uint8 /* name */, tack_list_uint8 * /* value */); 
 int64_t tack_os_argc(void); // extern func c_argc() int64
 int64_t tack_os_arg(int64_t /* i */, tack_list_uint8 * /* arg */); // extern func c_arg(i int64, mut arg list[uint8]) int64
 int64_t tack_os_pipe(tack_array_2_int32 * /* fds */); // extern func c_pipe(mut fds [2]int32) int64
-int64_t tack_os_spawn(tack_view_uint8 /* flat */, int64_t /* argc */, int32_t /* out */, int32_t /* err */); // extern func c_spawn(flat []uint8, argc int64, out int32, err int32) int64
+int64_t tack_os_spawn(tack_view_uint8 /* prog */, tack_view_uint8 /* flat */, int64_t /* argc */, int32_t /* in */, int32_t /* out */, int32_t /* err */); // extern func c_spawn(prog []uint8, flat []uint8, argc int64, in int32, out int32, err int32) int64
+int64_t tack_os_spawn_failed(void); // extern func c_spawn_failed() int64
+int64_t tack_os_can_execute(tack_view_uint8 /* path */); // extern func c_can_execute(path []uint8) int64
 int64_t tack_os_poll2(int32_t /* a */, int32_t /* b */); // extern func c_poll2(a int32, b int32) int64
 int64_t tack_os_wait(int64_t /* pid */); // extern func c_wait(pid int64) int64
 int64_t tack_os_eintr(void); // extern func c_eintr() int64

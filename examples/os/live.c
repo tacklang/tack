@@ -2,12 +2,13 @@
 // tack.h declares and std's C defines, so the example can assert that
 // every list std/os made or grew was freed exactly once, and make an
 // allocation fail on purpose; std/os's error for ENOMEM, which no call
-// can be made to give on demand; a note on the standard error for a check
-// the machine cannot run; and what its rename and stat checks need that
-// std/os does not do: making a symbolic or hard link, changing the current
-// directory, finding a second file
-// system to rename across, setting a file's size, and finding whether
-// a file larger than the disk can be made safely.
+// can be made to give on demand, and for any errno; a note on the
+// standard error for a check the machine cannot run; and what its
+// rename, stat and run checks need that std/os does not do: making a
+// symbolic or hard link, changing the current directory, finding a
+// second file system to rename across, setting a file's size or its
+// mode, and finding whether a file larger than the disk can be made
+// safely.
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
@@ -29,6 +30,10 @@ void os_fail_after(int64_t n) {
 
 tack_error os_enomem_error(void) {
     return tack_os_error(ENOMEM);
+}
+
+tack_error os_errno_error(int64_t e) {
+    return tack_os_error(e);
 }
 
 void os_note(tack_string s) {
@@ -143,4 +148,16 @@ int64_t os_sparse(tack_view_uint8 path) {
         return 0;
     }
     return (int64_t)st.st_blocks * 512 < probe_most;
+}
+
+int64_t os_chmod(tack_view_uint8 path, int64_t mode) {
+    char p[4096];
+    int e = c_str(path, p, sizeof p);
+    if (e != 0) {
+        return -e;
+    }
+    if (chmod(p, (mode_t)mode) != 0) {
+        return -errno;
+    }
+    return 0;
 }

@@ -473,25 +473,31 @@
 // writes a line to each stream and exits 1; an --out path in the case's
 // read-only TACK_HOME, where clang's link fails; an empty and a relative
 // element, neither holding a clang, before the PATH the compilers
-// inherit; a program that warns; and each -O flag but the default. A
+// inherit, and a relative element holding one, which Go's exec.LookPath
+// refuses; a program that warns; each -O flag but the default; and the
+// program that warns built with a fake clang first on PATH, before the
+// real one: one SIGKILL, SIGTERM or signal 34 kills, one that cannot be
+// started, its interpreter missing or its #! line, one no one may run,
+// which LookPath skips for the real clang, and one compiled from C,
+// once a run, that writes the argv[0] it is given. No fake dumps core,
+// which the machine's limits and core pattern decide. A
 // probe's --out path, when it has one, is its own, relative to its
 // directory, in place of the case's, and its PATH, when it has one,
 // replaces the one the compilers inherit. build-probes is required, so
 // it holds no build the port declines: TestBuildDeclines runs those,
 // the port alone, the warning program built where Go words what the
 // port cannot, a TMPDIR that is missing or a file, one so long that the
-// runtime's directories cannot be made below it, a clang on a relative
-// element of PATH, one killed by a signal, a first clang on PATH that
-// cannot be started, its interpreter missing, its #! line missing or
-// not executable, before a real one, one that leaves in the temporary
-// directory what cannot be removed, a file and a dangling symbolic link
-// at --out before the build, and a current directory that is gone, and
+// runtime's directories cannot be made below it, a clang that leaves in
+// the temporary directory what cannot be removed, a file and a dangling
+// symbolic link at --out before a build whose clang does that and
+// writes no binary, and a current directory that is gone, and
 // checks that each declines as a case must to skip: exit status 3, the
 // one not implemented line with the case's reason, nothing else
 // written, nothing left in TMPDIR but what that clang left there, and
 // nothing at the --out path, but for what was there before the build,
 // which is left as it was. Each compiler builds a case in a
 // fresh copy of its tree, the directory of its module or of its file,
+// each file copied with mode 0644, or 0755 when it may be run,
 // at the same path below the case's temporary directory, the port's
 // first; the Go compiler through a wrapper that holds its stack to the
 // port's, deepStack KB, so that the clang each runs has the same limit;

@@ -1290,8 +1290,12 @@ results as `text.Text`; the generated `main` taking `argc` and `argv`
 and storing them in `tack_argc_` and `tack_argv_`; code 3 for an OS
 failure with a literal message per errno; code 4 for a 0 byte in a path
 or name; `list_dir` as one extern, so no `DIR *` reaches Tack; and, for `run`,
-an `Allocator` as its last parameter, for its own lists only, code 5 for
-a child killed by a signal, the outputs' lengths and bytes left as they
+an `Allocator` as its last parameter, for its own lists only, the
+program apart from `argv[0]`, a `Status` with private fields for how the
+child ended, a child killed by a signal no error, its output kept, code
+13 with the OS's message for a program that cannot be started, and
+every errno Linux defines worded (decided 2026-11-17, replacing code 5
+for a child killed by a signal), the outputs' lengths and bytes left as they
 were on any error, an empty `argv` and a 0 byte in an argument as code
 4, a status other than 0 as no error, waiting for the child after an
 error without killing it, at most 8192 arguments, and no timeout.
@@ -1336,8 +1340,23 @@ These points were settled by consistency and could go another way:
 - `list_dir`'s sort is bytewise, with no locale or case folding, so
   capitals sort before lowercase and a name before every longer name it
   begins.
-- `run`'s status on an error is -1, though no caller can read it before
-  checking the error, so it is never seen.
+- `run`'s `Status` on an error is a zero `Status`, though no caller can
+  read it before checking the error, so it is never seen.
+- `run` opens `/dev/null` itself, as Go's `exec` does, rather than
+  having `posix_spawn` open it in the child, so that a `/dev/null` that
+  cannot be opened is code 3, the OS's error, not code 13, a program
+  that could not be started.
+- `run`'s `Status` decodes `WCOREDUMP`, where the C library defines it;
+  no test makes a child dump core, which depends on the machine's limits
+  and core pattern, so the flag is checked only as false.
+- os.c's errno table gives an errno macOS defines too macOS's text and
+  one only Linux defines glibc's, inside `#ifdef`, both taken from Go's
+  syscall tables with their first letter made capital; `EHWPOISON`,
+  which Go's Linux table lacks, has glibc's "Memory page has hardware
+  error". The C library's own `ENOMEM` while setting a start up, an
+  allocation of its own, is out of memory, code 1.
+- `can_execute` is a `bool`: a failure to look at the file is "may not
+  run it", as Go's `LookPath` skips such a file.
 - `run` makes room in `out` before `err_out`, so when only `err_out`
   cannot grow, `out`'s capacity has grown, though its length and bytes
   have not: two lists cannot grow atomically together.

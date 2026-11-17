@@ -1,0 +1,11 @@
+#!/bin/sh
+# A clang that writes no binary and leaves, in the directory of its last
+# argument, the build's temporary directory, a directory holding a file
+# that no one may list, so that the driver cannot remove the temporary
+# directory: a decline after clang has run that leaves the --out path
+# as clang found it.
+for a; do
+    last=$a
+done
+dir=$(dirname "$last")
+mkdir "$dir/locked" && : > "$dir/locked/file" && chmod 000 "$dir/locked"
