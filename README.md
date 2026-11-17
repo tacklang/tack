@@ -1405,9 +1405,12 @@ section remains the description of the language.
   a removed directory being `error{code: 3, msg: "No such file or
   directory"}` and a path past 4095 bytes `error{code: 3, msg: "Result
   too large"}`;
-  and `d, err := os.make_temp_dir(alloc)` makes a new directory,
-  mode 0700, in `$TMPDIR`, or `/tmp`, named `tack-` and six characters,
-  which the caller removes. `status, err := os.run(argv, mut out, mut
+  and `d, err := os.make_temp_dir(prefix, alloc)` makes a new
+  directory, mode 0700, in `$TMPDIR`, or `/tmp`, named `prefix` and six
+  characters mkdtemp picks, letters and digits on glibc, which the
+  caller removes; `prefix` may be empty, and one holding a `/` is
+  `error{code: 4, msg: "prefix contains a slash"}` and one holding a 0
+  byte `error{code: 4, msg: "prefix contains a NUL byte"}`. `status, err := os.run(argv, mut out, mut
   err_out, alloc)` runs the program `argv[0]` names, looked up on `PATH`
   through `posix_spawnp`, with `argv` as its arguments, this process's
   environment, and `/dev/null` as its standard input, and waits for it.

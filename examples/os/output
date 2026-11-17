@@ -11,7 +11,17 @@ env of an unset variable ok
 env of an empty name is unset ok
 env of a name with a 0 byte ok
 env freed ok
-make_temp_dir is an absolute path ending in tack- ok
+make_temp_dir is an absolute path ending in its prefix and six characters ok
+make_temp_dir makes directories ok
+make_temp_dir names them tk- and six letters and digits ok
+make_temp_dir makes a new name each time ok
+remove the tk- directories ok
+make_temp_dir with no prefix names it six letters and digits ok
+remove the unprefixed directory ok
+make_temp_dir of a prefix with a / ok
+make_temp_dir of a prefix with a 0 byte ok
+make_temp_dir of a prefix too long for a name ok
+temp names freed ok
 write_file and read_file ok
 write_file truncates ok
 an empty file ok

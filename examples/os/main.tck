@@ -11,8 +11,9 @@ import text from "std/text"
 //
 // The example reads its arguments and environment, which its test sets:
 // it is run as `os one "" "two words"` with TACK_OS_EXAMPLE set to "set
-// by the test" and TACK_OS_EXAMPLE_EMPTY set to "". It makes a temporary
-// directory, writes, reads, lists and removes files and directories in
+// by the test" and TACK_OS_EXAMPLE_EMPTY set to "". It makes temporary
+// directories, with a prefix and without, and has make_temp_dir refuse a
+// prefix holding a / or a 0 byte and one too long for a name, writes, reads, lists and removes files and directories in
 // it, makes each function fail as the OS fails it, a missing file, a
 // path through a file, a directory that is not empty or already exists,
 // and a 0 byte in a path, makes every allocating function fail for want
@@ -153,14 +154,90 @@ func envErr(name []uint8) error {
     return e
 }
 
-// tempErr returns the error make_temp_dir gives, removing the directory
-// when it makes one.
-func tempErr() error {
-    d, e := os.make_temp_dir(c_allocator)
+// tempErr returns the error make_temp_dir gives for prefix, removing
+// the directory when it makes one.
+func tempErr(prefix []uint8) error {
+    d, e := os.make_temp_dir(prefix, c_allocator)
     if e.code == 0 {
         return os.remove_path(d.bytes())
     }
     return e
+}
+
+// lastName returns the part of p after its last /, all of p when it has
+// none.
+func lastName(p []uint8) []uint8 {
+    mut at int64 = 0
+    for i, c := range p {
+        if c == '/' {
+            at = i + 1
+        }
+    }
+    if at < 0 || at > len(p) {
+        return p[:0]
+    }
+    return p[at:]
+}
+
+// isTempName reports whether name is prefix and six ASCII letters and
+// digits, the name make_temp_dir gives.
+func isTempName(name []uint8, prefix string) bool {
+    if !bytes.has_prefix(name, []uint8(prefix)) {
+        return false
+    }
+    mut n := 0
+    for i, c := range name {
+        if i < len(prefix) {
+            continue
+        }
+        if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
+            return false
+        }
+        n +%= 1
+    }
+    return n == 6
+}
+
+// tempNames checks make_temp_dir's names and refusals: two directories
+// made with the prefix tk-, each tk- and six letters and digits and not
+// the other, one made with no prefix, six letters and digits alone, and
+// the prefixes it refuses, one holding a /, one holding a 0 byte, and one
+// too long for a file name, which the OS refuses. Each directory it
+// makes is a directory, and is removed.
+func tempNames() {
+    a, e0 := os.make_temp_dir([]uint8("tk-"), c_allocator)
+    b, e1 := os.make_temp_dir([]uint8("tk-"), c_allocator)
+    if e0.code != 0 || e1.code != 0 {
+        check(false, "make_temp_dir with tk-")
+        return
+    }
+    ia, s0 := os.stat(a.bytes())
+    ib, s1 := os.stat(b.bytes())
+    check(s0.code == 0 && ia.is_dir() && s1.code == 0 && ib.is_dir(), "make_temp_dir makes directories")
+    check(isTempName(lastName(a.bytes()), "tk-") && isTempName(lastName(b.bytes()), "tk-"), "make_temp_dir names them tk- and six letters and digits")
+    check(!bytes.equal(a.bytes(), b.bytes()), "make_temp_dir makes a new name each time")
+    r0 := os.remove_path(a.bytes())
+    r1 := os.remove_path(b.bytes())
+    check(r0.code == 0 && r1.code == 0, "remove the tk- directories")
+    c, e2 := os.make_temp_dir([]uint8(""), c_allocator)
+    if e2.code != 0 {
+        check(false, "make_temp_dir with no prefix")
+        return
+    }
+    check(isTempName(lastName(c.bytes()), ""), "make_temp_dir with no prefix names it six letters and digits")
+    r2 := os.remove_path(c.bytes())
+    check(r2.code == 0, "remove the unprefixed directory")
+    e3 := tempErr([]uint8("tk/"))
+    check(e3.code == 4 && e3.msg == "prefix contains a slash", "make_temp_dir of a prefix with a /")
+    e4 := tempErr([]uint8("tk\x00"))
+    check(e4.code == 4 && e4.msg == "prefix contains a NUL byte", "make_temp_dir of a prefix with a 0 byte")
+    many, e5 := bytes.repeat([]uint8("a"), 300, c_allocator)
+    if e5.code != 0 {
+        check(false, "a long prefix")
+        return
+    }
+    e6 := tempErr(many)
+    check(osError(e6, "File name too long"), "make_temp_dir of a prefix too long for a name")
 }
 
 // arguments checks args: the program's name first, then each argument
@@ -390,7 +467,7 @@ func shortages(dir []uint8) {
     e2 := listErr(dir)
     e3 := argsErr()
     e4 := envErr([]uint8("TACK_OS_EXAMPLE"))
-    e5 := tempErr()
+    e5 := tempErr([]uint8("tk-"))
     failAfter(-1)
     check(oom(e1) && oom(e2) && oom(e3) && oom(e4) && oom(e5), "every allocating function fails")
     check(live() == base, "and allocates nothing")
@@ -1104,12 +1181,14 @@ func main() {
     freed("args freed")
     environment()
     freed("env freed")
-    d, err := os.make_temp_dir(c_allocator)
+    d, err := os.make_temp_dir([]uint8("tack-os-"), c_allocator)
     if err.code != 0 {
         check(false, "make_temp_dir")
         return
     }
-    check(bytes.has_prefix(d.bytes(), []uint8("/")) && bytes.index(d.bytes(), []uint8("/tack-")) > 0, "make_temp_dir is an absolute path ending in tack-")
+    check(bytes.has_prefix(d.bytes(), []uint8("/")) && isTempName(lastName(d.bytes()), "tack-os-"), "make_temp_dir is an absolute path ending in its prefix and six characters")
+    tempNames()
+    check(live() == 1, "temp names freed")
     files(d.bytes())
     check(live() == 1, "files freed")
     dirs(d.bytes())

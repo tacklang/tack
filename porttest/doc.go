@@ -502,10 +502,12 @@
 // in a directory of its own made anew, from which each binary is moved
 // aside before the other compiler runs. The stage compares the driver's
 // standard output, standard error and exit status byte for byte, but
-// for the digits of each path component tk-<digits> right below the
-// build's TMPDIR, the directory the Go driver makes with os.MkdirTemp
-// and writes the program's C to, which clang's notes name and which
-// differ run to run; what each copy holds afterwards, every file and
+// for the letters and digits after tk- of each path component
+// tk-<letters and digits> right below the build's TMPDIR, the directory
+// the Go driver makes with os.MkdirTemp, tk- and decimal digits, and the
+// port with std/os's make_temp_dir, tk- and six letters and digits, and
+// writes the program's C to, which clang's notes name and which differ
+// run to run; what each copy holds afterwards, every file and
 // directory by its path and mode and each file's bytes, as emit-header
 // does; and the same of the --out path's directory, but for the
 // binary's bytes, which build-identical compares. A build that leaves

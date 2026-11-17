@@ -654,11 +654,21 @@ func append_temp_base(mut tmpl list[uint8], dir []uint8) error {
 
 // make_temp_dir makes a new directory, with mode 0700, whose name no
 // other has, in $TMPDIR, or in /tmp when TMPDIR is unset or empty, and
-// returns its path, made through alloc: the directory, a /, and tack-
-// and six characters mkdtemp picks. The caller removes it. On an error,
-// the OS's or out of memory, the Text is empty and no directory is left
-// behind.
-pub func make_temp_dir(scope alloc Allocator) (text.Text, error) {
+// returns its path, made through alloc: the directory, a /, prefix, and
+// six characters mkdtemp picks, letters and digits on glibc. prefix may
+// be empty. The caller removes it. A prefix holding a / is error{code:
+// 4, msg: "prefix contains a slash"} and one holding a 0 byte
+// error{code: 4, msg: "prefix contains a NUL byte"}, refused before the
+// OS sees either; one too long for a name is error{code: 3, msg: "File
+// name too long"}. On an error, the OS's or out of memory, the Text is
+// empty and no directory is left behind.
+pub func make_temp_dir(prefix []uint8, scope alloc Allocator) (text.Text, error) {
+    if bytes.index_byte(prefix, '/') >= 0 {
+        return text.new(alloc), error{code: 4, msg: "prefix contains a slash"}
+    }
+    if has_nul(prefix) {
+        return text.new(alloc), error{code: 4, msg: "prefix contains a NUL byte"}
+    }
     dir, set, e0 := env([]uint8("TMPDIR"), alloc)
     if e0.code != 0 {
         return text.new(alloc), e0
@@ -673,18 +683,26 @@ pub func make_temp_dir(scope alloc Allocator) (text.Text, error) {
     if e1.code != 0 {
         return text.new(alloc), e1
     }
-    e2 := append(mut tmpl, []uint8("/tack-XXXXXX\x00")...)
+    e2 := append(mut tmpl, '/')
     if e2.code != 0 {
         return text.new(alloc), e2
+    }
+    e3 := append(mut tmpl, prefix...)
+    if e3.code != 0 {
+        return text.new(alloc), e3
+    }
+    e4 := append(mut tmpl, []uint8("XXXXXX\x00")...)
+    if e4.code != 0 {
+        return text.new(alloc), e4
     }
     r := c_make_temp_dir(mut tmpl)
     if r < 0 {
         return text.new(alloc), c_error(-%r)
     }
-    t, e3 := text.from_bytes(part(tmpl, 0, len(tmpl) - 1), alloc)
-    if e3.code != 0 {
+    t, e5 := text.from_bytes(part(tmpl, 0, len(tmpl) - 1), alloc)
+    if e5.code != 0 {
         c_remove(part(tmpl, 0, len(tmpl) - 1))
-        return text.new(alloc), e3
+        return text.new(alloc), e5
     }
     return t, noerror
 }

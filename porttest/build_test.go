@@ -539,14 +539,16 @@ func prepareBuild(d buildDirs, in input) (input, error) {
 	return copied, nil
 }
 
-// tempNamesHidden returns r with the random digits of the directory a
-// build makes in tmp, its TMPDIR, replaced by *: the Go driver makes it
-// with os.MkdirTemp("", "tk-*") (tack/build.go), as tk-3605748710, and
-// writes the program's C and tack.h there, which clang's notes name.
-// Those digits differ run to run; every other byte of the path must not,
-// and only a path component tk-<digits> right below tmp is changed.
+// tempNamesHidden returns r with the random part of the name of the
+// directory a build makes in tmp, its TMPDIR, replaced by *: the Go
+// driver makes it with os.MkdirTemp("", "tk-*") (tack/build.go), as
+// tk-3605748710, the port with std/os's make_temp_dir and the prefix
+// tk-, as tk-aB3xY9, and each writes the program's C and tack.h there,
+// which clang's notes name. That part differs run to run, and between
+// the compilers; every other byte of the path must not, and only a path
+// component tk-<letters and digits> right below tmp is changed.
 func tempNamesHidden(r result, tmp string) result {
-	re := regexp.MustCompile(regexp.QuoteMeta(tmp+string(filepath.Separator)) + `tk-[0-9]+\b`)
+	re := regexp.MustCompile(regexp.QuoteMeta(tmp+string(filepath.Separator)) + `tk-[0-9A-Za-z]+\b`)
 	hide := func(b []byte) []byte { return re.ReplaceAllLiteral(b, []byte(tmp+"/tk-*")) }
 	r.stdout, r.stderr = hide(r.stdout), hide(r.stderr)
 	return r
@@ -925,16 +927,17 @@ func TestIdenticalVerdict(t *testing.T) {
 	}
 }
 
-// TestTempNamesHidden checks that tempNamesHidden hides only the digits
-// ending a name made below the TMPDIR, on both streams, keeping its start,
+// TestTempNamesHidden checks that tempNamesHidden hides only the letters
+// and digits ending a name made below the TMPDIR, Go's digits and the
+// port's mkdtemp characters alike, on both streams, keeping its start,
 // the rest of the path and every other path.
 func TestTempNamesHidden(t *testing.T) {
 	const tmp = "/w/tmp"
 	r := tempNamesHidden(result{
-		stdout: []byte("/w/tmp/tk-123/tack.h:1:2: note\n"),
+		stdout: []byte("/w/tmp/tk-123/tack.h:1:2: note and /w/tmp/tk-aB3xY9/program.c\n"),
 		stderr: []byte("/w/tmp/tk-9/a.c and /w/tmp/tk-9/b7.c, /w/other/tk-1/x.c, /w/tmp/plain\n"),
 	}, tmp)
-	if want := "/w/tmp/tk-*/tack.h:1:2: note\n"; string(r.stdout) != want {
+	if want := "/w/tmp/tk-*/tack.h:1:2: note and /w/tmp/tk-*/program.c\n"; string(r.stdout) != want {
 		t.Errorf("stdout %q, want %q", r.stdout, want)
 	}
 	want := "/w/tmp/tk-*/a.c and /w/tmp/tk-*/b7.c, /w/other/tk-1/x.c, /w/tmp/plain\n"
@@ -942,7 +945,8 @@ func TestTempNamesHidden(t *testing.T) {
 		t.Errorf("stderr %q, want %q", r.stderr, want)
 	}
 	for _, kept := range []string{
-		"/w/tmp/tack.h:12:3: note\n", "/w/tmp/tk-12x/a.c\n", "/w/tmp/a/tk-12/b.c\n", "/w/tmp/xtk-1/a\n",
+		"/w/tmp/tack.h:12:3: note\n", "/w/tmp/tk-/a.c\n", "/w/tmp/tk_12/a.c\n", "/w/tmp/a/tk-12/b.c\n",
+		"/w/tmp/xtk-1/a\n", "/w/tmp/tack-aB3xY9/a.c\n",
 	} {
 		if got := tempNamesHidden(result{stderr: []byte(kept)}, tmp); string(got.stderr) != kept {
 			t.Errorf("tempNamesHidden(%q) = %q, want it unchanged", kept, got.stderr)

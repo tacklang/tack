@@ -1322,6 +1322,12 @@ These points were settled by consistency and could go another way:
 - `make_temp_dir` trims the slashes `$TMPDIR` ends in, and treats an
   empty `TMPDIR` as unset; its directory's mode is mkdtemp's, 0700. When
   making its Text fails, it removes the directory it made.
+- `make_temp_dir`'s name is its prefix and mkdtemp's six characters,
+  where Go's `os.MkdirTemp` puts a decimal number in place of the
+  pattern's last `*`; the prefix is the whole pattern, with no `*`. A
+  prefix holding a `/` is refused with code 4, as Go's `MkdirTemp`
+  refuses a pattern holding a separator, and so is one holding a 0
+  byte, as every path is.
 - `list_dir`'s sort is bytewise, with no locale or case folding, so
   capitals sort before lowercase and a name before every longer name it
   begins.

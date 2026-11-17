@@ -467,7 +467,7 @@ func stdThrough(mut inside int64) bool {
         if t.len() != 210000 {
             ok = false
         }
-        dir, e4 := os.make_temp_dir(r)
+        dir, e4 := os.make_temp_dir([]uint8("tk-"), r)
         if e4.code != 0 {
             return false
         }
