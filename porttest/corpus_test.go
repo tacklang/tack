@@ -170,28 +170,32 @@ func singleFiles() ([]input, error) {
 }
 
 // packageInputs returns every input of the corpus that is a package, as
-// the package doc lists them: each directory under examples/ and under
-// src/std that holds a .tck file directly, named from this module's
+// the package doc lists them: each directory under this module's
+// examples/ and under the src/std of env.home, the std the comparisons
+// read, that holds a .tck file directly, named and run from its tree's
 // root, examples/<path> and src/std/<path>; each module under
 // examples/, a directory holding a tack.mod, named . from its root, and
 // each of its main packages by its import path from there; std's
-// packages by their import paths from src/std, which is the module std;
+// packages by their import paths from env.home's src/std, which is the
+// module std;
 // and each case of an archive of several files a case that is built
 // from a directory, its target, from the archive's directory.
 func packageInputs() ([]input, error) {
 	var out []input
-	for _, top := range []string{"examples", filepath.Join("src", "std")} {
-		dirs, err := tackDirs(filepath.Join(env.root, top))
+	for _, top := range []struct{ base, dir string }{
+		{env.root, "examples"}, {env.home, filepath.Join("src", "std")},
+	} {
+		dirs, err := tackDirs(filepath.Join(top.base, top.dir))
 		if err != nil {
 			return nil, err
 		}
 		for _, d := range dirs {
-			rel, err := filepath.Rel(env.root, d)
+			rel, err := filepath.Rel(top.base, d)
 			if err != nil {
 				return nil, fmt.Errorf("naming %s: %w", d, err)
 			}
 			rel = filepath.ToSlash(rel)
-			out = append(out, input{name: rel, dir: env.root, file: rel})
+			out = append(out, input{name: rel, dir: top.base, file: rel})
 		}
 	}
 	mods, err := moduleInputs()
@@ -247,7 +251,8 @@ func tackDirs(root string) ([]string, error) {
 // moduleInputs returns, for each module under examples/, the module's
 // root named . from itself and each directory below it holding a .tck
 // file by its import path from the root, and std's packages by theirs
-// from src/std. A directory's import path is the module's name, from
+// from env.home's src/std, named src/std/... as from env.home. A
+// directory's import path is the module's name, from
 // the first module line of its tack.mod, and its path below the root.
 func moduleInputs() ([]input, error) {
 	var roots []string
@@ -264,14 +269,18 @@ func moduleInputs() ([]input, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listing modules: %w", err)
 	}
-	roots = append(roots, filepath.Join(env.root, "src", "std"))
+	roots = append(roots, homeStd())
 	var out []input
 	for _, root := range roots {
 		name, err := moduleName(filepath.Join(root, "tack.mod"))
 		if err != nil {
 			return nil, err
 		}
-		rel, err := filepath.Rel(env.root, root)
+		base := env.root
+		if root == homeStd() {
+			base = env.home
+		}
+		rel, err := filepath.Rel(base, root)
 		if err != nil {
 			return nil, fmt.Errorf("naming %s: %w", root, err)
 		}

@@ -109,7 +109,7 @@ func FuzzLoadDiff(f *testing.F) {
 }
 
 // goLoad loads in's target, a directory, with this module's loader, as
-// the driver loads it for --res, with the repository's std, and resolves
+// the driver loads it for --res, with the comparisons' std, homeStd's, and resolves
 // the program it builds with this module's resolver, dropping the
 // result: it is there for the coverage it gives the fuzz engine. The
 // Go compiler's run is what the port's is compared with.
@@ -122,7 +122,7 @@ func goLoad(t *testing.T, in input) {
 	}
 	l := &loader.Loader{
 		FS: loader.OS{}, Builtins: builtin.Default(), MaxErrors: 10,
-		Std: &loader.Std{Dir: filepath.ToSlash(filepath.Join(env.root, "src", "std"))},
+		Std: &loader.Std{Dir: filepath.ToSlash(homeStd())},
 	}
 	res, err := l.Dir(filepath.ToSlash(full))
 	if err != nil || res.Program == nil {

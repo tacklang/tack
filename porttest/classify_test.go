@@ -823,7 +823,7 @@ func stdFiles(c invalid.TreeCase, dir string) []invalid.TreeFile {
 
 // classify sets c's stages from c.expected matched against templates,
 // and from Go's typed tree of files, built from c.target, a file when
-// single, with std, or the repository's when nil; a case the backend
+// single, with std, or inProcessStd's when nil; a case the backend
 // rejects, or with no error before the backend, is stageBackend's. It
 // reports whether
 // the program loaded, and so was type checked; c's stages are set only
@@ -868,7 +868,7 @@ const typedTreeTimeout = 5 * time.Second
 
 // typedTree loads target from files as Go's --check loads it, a single
 // file when single and a directory otherwise, as a library may be, with
-// no limit on errors, with std or the repository's, and runs Go's
+// no limit on errors, with std or inProcessStd's, and runs Go's
 // resolver and type checker on it, whatever any stage reported,
 // returning the program they annotated, nil when the loader built none,
 // which --check then does not type check, and whether the loader, the
@@ -878,7 +878,7 @@ func typedTree(
 	files fstest.MapFS, target string, std *loader.Std, single bool,
 ) (*tackast.Program, bool, error) {
 	if std == nil {
-		std = stdtest.Std()
+		std = inProcessStd()
 	}
 	type outcome struct {
 		prog  *tackast.Program

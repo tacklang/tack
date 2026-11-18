@@ -271,16 +271,21 @@ func writesHeader(in input) (bool, error) {
 // every tack.h of the copy's package directories, those holding a .tck
 // file, so that the tack.h files there afterwards are what the run
 // wrote, and returns in as it runs in the copy, with TACK_HOME set to
-// work, whose std it reads, as the repository's is read from the
-// module's root.
+// work, whose std it reads, as homeStd is read from env.home. An input
+// of std, run from env.home or from its src/std, is copied by its path
+// from env.home, and every other by its path from the module's root.
 func headerCopy(in input, work string) (input, error) {
-	std := filepath.Join(env.root, "src", "std")
+	std := homeStd()
 	if err := copyTree(std, filepath.Join(work, "src", "std")); err != nil {
 		return input{}, err
 	}
 	out := in
 	out.env = append(slices.Clone(in.env), "TACK_HOME="+work)
-	rel, err := filepath.Rel(env.root, in.dir)
+	base := env.root
+	if strings.HasPrefix(in.name, "src/std/") {
+		base = env.home
+	}
+	rel, err := filepath.Rel(base, in.dir)
 	if err != nil || strings.HasPrefix(rel, "..") {
 		out.dir = filepath.Join(work, "case")
 		if err := copyTree(in.dir, out.dir); err != nil {
@@ -291,7 +296,7 @@ func headerCopy(in input, work string) (input, error) {
 	out.dir = filepath.Join(work, rel)
 	scope, _ := scopeOf(in)
 	if !strings.HasPrefix(scope, std+string(filepath.Separator)) && scope != std {
-		below, err := filepath.Rel(env.root, scope)
+		below, err := filepath.Rel(base, scope)
 		if err != nil {
 			return input{}, fmt.Errorf("copying %s: %w", in.name, err)
 		}

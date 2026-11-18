@@ -20,8 +20,21 @@
 // # Binaries
 //
 // TestMain gets two compilers, each once per run. The Go one is the
-// binary $TACK_GO names, or, when that is unset or empty, ./tack of this
-// module built into a temporary directory. The port is the binary
+// reference: ./tack of this module, its Go code the frozen compiler's,
+// built into a temporary directory with go build's -overlay replacing
+// the files its package builtin embeds, builtin.tck, the runtime header
+// and the runtime's C files, by the port's own in its runtime/, which
+// the port owns (per the owner's ruling, 2026-11-18). A program either
+// compiler builds links the runtime, and the build stages compare
+// binaries, cache keys and clang runs, so Go must compile the port's
+// runtime for them to agree when the port is right. $TACK_GO, when set
+// and not empty, names a reference already built, as the Makefile's
+// port-go builds one, through TestMain run with PORTTEST_BUILD_GO; it
+// must not name the frozen compiler as it is, whose runtime the port's
+// no longer equals. That one, ./tack built without the overlay, is
+// built only by the tests of where the port's runtime differs from it
+// on purpose (see File-size limit), and $TACK_GO never stands for it.
+// The port is the binary
 // $TACK_PORT_BIN names, or, when that is unset or empty, the program in
 // the driver directory of $TACK_PORT, the port's source tree, which
 // defaults to ../tack next to this module's root. A relative path in any
@@ -35,10 +48,23 @@
 // src/std, which the port owns (per the owner's ruling, 2026-11-18), and
 // TACK_CACHE set to the Go compiler's temporary cache; the build of the
 // port with its allocations counted and the build of its tools/embed
-// read the port's std the same way. Every comparison runs both compilers
-// with the same TACK_HOME, this module's root, whose src/std and builtin/
-// are frozen copies of the port's, kept for the comparisons (see Port
-// files). A
+// read the port's std the same way. Built by the reference, the port
+// carries the port's runtime, so it is the binary the port builds of
+// itself. Every comparison runs both compilers with the same
+// TACK_HOME, the port's source tree, so both read the port's std; std's
+// packages in the corpus are read from there too, named src/std/... as
+// from its root, and every copy of std a stage makes, a read-only
+// TACK_HOME or emit-header's copy, is of the port's. This module's
+// src/std and builtin/ are frozen, and TestPortFiles checks the port's
+// against them (see Port files). A source tree with no src/std fails
+// TestPort, even with TACK_PORT_BIN set. The in-process checks, which
+// load programs with this module's loader and typeck, the classification
+// of the archives' cases and the backend's baseline among them, read the
+// port's std (see inProcessStd) but this module's builtin package, and
+// so its builtin.tck. The harness's own tests that classify without
+// TACK_PORT_TEST, TestClassifyCounts and the baseline's feature tests
+// among them, have no port tree to read and read this module's frozen
+// std: they check the classifier, which reads only std's declarations. A
 // source tree with no driver directory, the default as much as one
 // TACK_PORT names, or a driver that does not build, fails TestPort: once
 // TACK_PORT_TEST asks for the check, nothing missing skips it. A checkout
@@ -246,6 +272,34 @@
 // an entry of the case records. TestParseDivergences, TestParseDivergencesRejects,
 // TestDivergenceVerdict, TestMatchDivergence, TestMissingDivergences and
 // TestDivergedDecline check the mechanism itself.
+//
+// # File-size limit
+//
+// The port's runtime ignores SIGXFSZ, as it does SIGPIPE, so a write
+// past the process's file-size limit, RLIMIT_FSIZE, fails with EFBIG
+// rather than kill the process, and std/os's run gives every child
+// SIGXFSZ's default action back, an ignored signal staying ignored
+// across exec (per the owner's ruling, 2026-11-15). The frozen Go
+// compiler's runtime does not ignore it: a program it builds dies of
+// SIGXFSZ there. That is a divergence of the runtime, not of a case of
+// a stage, so divergencesFile, whose entries record the two compilers'
+// runs of a case, does not hold it; TestFileSizeLimit records it,
+// running every program under sh's ulimit -f 1, which counts 512-byte
+// blocks in the sh it runs, bash in its POSIX mode, and ulimit -c 0. It
+// builds a program writing 64 KiB through std/os's write_file with the
+// port and the reference, and checks it prints "File too large" and
+// exits 0, and with the frozen Go compiler, and checks it dies of
+// SIGXFSZ; builds with the port one that starts sh -c 'exec yes > out'
+// through std/os's run, and checks the child dies of SIGXFSZ; and runs
+// both compilers' --emit with standard output a file under the limit.
+// There the two leave the same bytes and neither is killed, Go's
+// runtime ignoring SIGXFSZ too, but Go exits 1 with "tack: failed to
+// write output: write /dev/stdout: file too large" and the port, a
+// known gap, exits 0 and says nothing: it writes its output through
+// std/fmt's write, which reports no error, as print does, and loses
+// the bytes past the limit, as it loses them on a full disk. The test
+// asserts the gap, so it fails once the gap is closed, and the run is
+// then to be compared with Go's whole.
 //
 // # Corpus
 //
@@ -1174,8 +1228,10 @@
 // # Port files
 //
 // The port owns std and the runtime, and this module's src/std and
-// builtin/'s builtin.tck and runtime are frozen copies of them, which
-// every comparison runs both compilers with. TestPortFiles checks that
+// builtin/'s builtin.tck and runtime are frozen copies of them, as they
+// were when the port took them over; the comparisons run both compilers
+// with the port's, the reference Go compiler embedding the port's
+// runtime (see Binaries). TestPortFiles checks that
 // the port's src/std holds the same files as this module's, each with
 // the same bytes and executable bit, and every file below its runtime/
 // the same as builtin/builtin.tck for runtime/builtin.tck and as
@@ -1183,7 +1239,9 @@
 // only one side has fails too; a path listed in portFileDivergences,
 // with its reason, must differ instead, and an entry that names a file
 // the same on both sides, or none, fails, so the list cannot go stale.
-// It is empty. portOnlyFiles lists, each with its reason, the port's
+// It lists the files the port's handling of SIGXFSZ changed (see
+// File-size limit): runtime/process.c, runtime/tack/tack.h and std's
+// copy of it, and src/std/os's os.c and os.tck. portOnlyFiles lists, each with its reason, the port's
 // files with no frozen copy, runtime/tack.mod alone, each of which must
 // be in the port. It also checks that the port's
 // std copies, src/std/builtin/builtin.tck and

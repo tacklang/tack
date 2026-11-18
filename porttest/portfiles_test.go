@@ -20,11 +20,24 @@ const portRuntimeDir = "runtime"
 
 // portFileDivergences lists the paths, relative to the port's source
 // tree, of the files of its std and runtime allowed to differ from this
-// module's frozen copies, each with the reason it may. It is empty: the
-// port's std and runtime are still this module's, byte for byte. An
-// entry whose file is the same on both sides, or on neither, fails
-// TestPortFiles, so the list cannot outlive its reasons.
-var portFileDivergences = map[string]string{}
+// module's frozen copies, each with the reason it may. An entry whose
+// file is the same on both sides, or on neither, fails TestPortFiles,
+// so the list cannot outlive its reasons. The comparisons run both
+// compilers with the port's std and runtime, not the frozen copies (see
+// buildReference), so a file listed here is compared as the port has it.
+var portFileDivergences = map[string]string{
+	portRuntimeDir + "/process.c": "the runtime ignores SIGXFSZ, as it does SIGPIPE, so a write " +
+		"past RLIMIT_FSIZE fails with EFBIG rather than kill the process, per the owner's " +
+		"ruling, 2026-11-15",
+	portRuntimeDir + "/tack/tack.h": "tack_start_'s comment says it ignores SIGXFSZ too, per " +
+		"the owner's ruling, 2026-11-15",
+	"src/std/include/tack/tack.h": "std's copy of the runtime header, which says tack_start_ " +
+		"ignores SIGXFSZ too, per the owner's ruling, 2026-11-15",
+	"src/std/os/os.c": "a child std/os starts gets SIGXFSZ's default action, as it gets " +
+		"SIGPIPE's, since the runtime ignores SIGXFSZ, per the owner's ruling, 2026-11-15",
+	"src/std/os/os.tck": "its docs say a write past RLIMIT_FSIZE is File too large and a " +
+		"child starts with SIGXFSZ's default action, per the owner's ruling, 2026-11-15",
+}
 
 // portOnlyFiles lists the paths, relative to the port's source tree,
 // of the files of its runtime directory that have no frozen copy here,
@@ -42,12 +55,14 @@ type portFile struct {
 }
 
 // TestPortFiles checks the port's std and runtime against this module's
-// frozen copies, which the comparisons run with. The port owns std and
-// the runtime (per the owner's ruling, 2026-11-18), and builds itself
-// with its own, so a file the two trees do not share would be a
-// difference the comparisons never see. It checks that the port's
-// src/std holds the same files as this module's, by path, and that its
-// runtime directory, portRuntimeDir, holds the same files as builtin/'s
+// frozen copies. The port owns std and the runtime (per the owner's
+// ruling, 2026-11-18), and the comparisons run both compilers with the
+// port's (see buildReference and compilerEnv), so the frozen copies are
+// what the frozen compiler was frozen with, and a difference from them
+// must be one portFileDivergences names, with its reason. It checks
+// that the port's src/std holds the same files as this module's, by
+// path, and that its runtime directory, portRuntimeDir, holds the same
+// files as builtin/'s
 // builtin.tck and builtin/runtime, builtin.tck at its root and every
 // other at the same path below, each with the same bytes and the same
 // executable bit; but for the paths portFileDivergences lists, which
@@ -56,15 +71,12 @@ type portFile struct {
 // tack.h, src/std/builtin/builtin.tck and src/std/include/tack/tack.h,
 // are its runtime's, which the port's make std-copies writes, as this
 // module's builtin test checks its own. It needs the port's source
-// tree, and skips without one only when TACK_PORT_BIN names the port.
+// tree, env.home, which TestMain requires whatever TACK_PORT_BIN says.
 // It runs only as TestPort does, with TACK_PORT_TEST=1 and -count.
 func TestPortFiles(t *testing.T) {
 	ready(t)
-	src, _ := portSource(os.Getenv("TACK_PORT"))
+	src := env.home
 	if !dirExists(filepath.Join(src, portRuntimeDir)) {
-		if os.Getenv("TACK_PORT_BIN") != "" && !dirExists(filepath.Join(src, "driver")) {
-			t.Skip("no port source tree to check: TACK_PORT_BIN names the port")
-		}
 		t.Fatalf("the port's source tree, %s, has no %s directory", src, portRuntimeDir)
 	}
 	files, err := portFiles(src, env.root, portOnlyFiles)

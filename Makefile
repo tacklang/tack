@@ -11,7 +11,7 @@ BIN := bin/tack
 BUILTIN_DOC := builtin/builtin.tck
 RUNTIME_HEADER := builtin/runtime/tack/tack.h
 
-.PHONY: build install install-std std-copies unicode-tables test port-test port-fuzz port-sanitize port-alloc-fail port-measure port-embed fuzz-progen fmt lint
+.PHONY: build install install-std std-copies unicode-tables test port-test port-fuzz port-sanitize port-alloc-fail port-measure port-embed port-go-bin fuzz-progen fmt lint
 
 # build compiles the compiler into $(BIN).
 build:
@@ -67,13 +67,34 @@ test:
 # port-test checks the Tack compiler written in Tack, the port, against
 # this one, stage by stage, with the tests of porttest. The port's source
 # tree is $TACK_PORT, ../tack by default; TACK_PORT_BIN names a built
-# port instead, and TACK_GO a built Go compiler, relative paths taken
-# from this directory. Stages the port does not implement yet skip unless
+# port instead, and TACK_GO a built reference Go compiler, as
+# port-go-bin builds one, relative paths taken from this directory.
+# Stages the port does not implement yet skip unless
 # porttest/required.txt names them. TestPort runs only with
 # TACK_PORT_TEST=1 and -count=1: go test cannot see a change to the port
 # or to the binaries, so a cached result could pass a broken port.
 port-test:
 	TACK_PORT_TEST=1 go test -count=1 -timeout 60m ./porttest
+
+# port-go builds, at the path $(1) names, the reference Go compiler
+# porttest compares the port with: this compiler's Go code, frozen, with
+# the files its package builtin embeds, builtin.tck, the runtime header
+# and the runtime's C files, taken from the port's runtime/ through go
+# build's -overlay, so that what it builds links the port's runtime,
+# which the port owns. porttest's TestMain builds it, run with
+# PORTTEST_BUILD_GO, as it builds its own when TACK_GO is unset. The
+# port's source tree is $TACK_PORT, ../tack by default.
+port-go = PORTTEST_BUILD_GO="$(1)" go test -count=1 -run '^$$' ./porttest
+
+# PORT_GO_BIN is where `make port-go-bin` builds the reference Go
+# compiler, under the ignored bin/.
+PORT_GO_BIN := bin/port-go/tack
+
+# port-go-bin builds the reference Go compiler, as port-go does, at
+# $(PORT_GO_BIN): the compiler to build the port with, so that the port
+# links its own runtime, and to pass as TACK_GO.
+port-go-bin:
+	$(call port-go,$(PORT_GO_BIN))
 
 # FUZZTIME is how long `make fuzz-progen` and `make port-fuzz` fuzz for.
 FUZZTIME := 10m
@@ -103,14 +124,15 @@ PORT_FUZZ := FuzzLexDiff
 
 # port-fuzz fuzzes $(PORT_FUZZ), which compares the port with this
 # compiler on generated inputs, for $(FUZZTIME). It builds both
-# compilers once, into $(PORT_FUZZ_BIN), and passes them as TACK_GO and
-# TACK_PORT_BIN, so the fuzz workers, each a process of its own, build
-# neither. The port's source tree is $TACK_PORT, ../tack by default, as
-# for port-test, and the port is built with its own std, TACK_HOME that
-# tree, as porttest builds it.
+# compilers once, into $(PORT_FUZZ_BIN), the Go one the reference
+# port-go builds, and passes them as TACK_GO and TACK_PORT_BIN, so the
+# fuzz workers, each a process of its own, build neither. The port's
+# source tree is $TACK_PORT, ../tack by default, as for port-test, and
+# the port is built with its own std, TACK_HOME that tree, as porttest
+# builds it.
 port-fuzz:
 	mkdir -p $(PORT_FUZZ_BIN)
-	go build -o $(PORT_FUZZ_BIN)/tack-go ./tack
+	$(call port-go,$(PORT_FUZZ_BIN)/tack-go)
 	cd "$${TACK_PORT:-../tack}" && TACK_HOME="$$PWD" \
 		TACK_CACHE="$(CURDIR)/$(PORT_FUZZ_BIN)/cache" \
 		"$(CURDIR)/$(PORT_FUZZ_BIN)/tack-go" --out "$(CURDIR)/$(PORT_FUZZ_BIN)/tack-port" ./driver
@@ -162,7 +184,8 @@ PORT_MALFORMED := 100
 PORT_SANITIZE_PARALLEL := 4
 
 # port-sanitize runs porttest against the port built with SANITIZE_FLAGS,
-# from the C this compiler writes for it, through a clang on PATH that
+# from the C this compiler, the reference port-go builds, writes for
+# it, through a clang on PATH that
 # adds them to every command but --version, with every stack
 # PORT_SANITIZE_STACK times larger and every run's time limit
 # PORT_SANITIZE_TIMEOUT times longer. A report ends the port with exit
@@ -176,7 +199,7 @@ PORT_SANITIZE_PARALLEL := 4
 # builds it.
 port-sanitize:
 	mkdir -p $(PORT_SANITIZE_BIN)/clang
-	go build -o $(PORT_SANITIZE_BIN)/tack-go ./tack
+	$(call port-go,$(PORT_SANITIZE_BIN)/tack-go)
 	clang="$$(command -v clang)" && \
 		printf '#!/bin/sh\ncase "$$1" in --version) exec "%s" "$$@";; esac\nexec "%s" "$$@" %s\n' \
 		"$$clang" "$$clang" '$(SANITIZE_FLAGS)' > $(PORT_SANITIZE_BIN)/clang/clang && \
@@ -228,13 +251,14 @@ PORT_EMBED_BIN := bin/port-embed
 # compiler carries inside it as Tack string literals, with the port's
 # own `make embed`, from the port's own runtime/: builtin.tck, the
 # runtime's header and its C files, in the byte order of their names.
-# It builds this compiler and passes it as the port's TACK, which builds
+# It builds this compiler, the reference port-go builds, and passes it
+# as the port's TACK, which builds
 # the port's tools/embed with the port's std. porttest's TestEmbedded
 # fails while the port's copy differs from what this writes. The port's
 # source tree is $TACK_PORT, ../tack by default, as for port-test.
 port-embed:
 	mkdir -p $(PORT_EMBED_BIN)
-	go build -o $(PORT_EMBED_BIN)/tack-go ./tack
+	$(call port-go,$(PORT_EMBED_BIN)/tack-go)
 	$(MAKE) -C "$${TACK_PORT:-../tack}" embed TACK="$(CURDIR)/$(PORT_EMBED_BIN)/tack-go"
 
 # fuzz-progen fuzzes FuzzGenerated, which builds each generated program

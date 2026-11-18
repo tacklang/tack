@@ -54,7 +54,8 @@ func testArgs(in input) []string {
 }
 
 // testCorpusDirs are the corpus's packages tack test runs on, by their
-// paths from this module's root: every package of examples/tack-test,
+// paths from this module's root, or from env.home for std's (see
+// corpusDir): every package of examples/tack-test,
 // examples/test-files, whose test file _test.tck does not lex, and
 // std/hex, the one package of std with a test file.
 var testCorpusDirs = []string{
@@ -126,6 +127,16 @@ func testInputs() ([]input, error) {
 	return testInputsOnce.ins, testInputsOnce.err
 }
 
+// corpusDir returns the directory of the corpus at rel, a path with
+// slashes: below env.home for a path in src/std, the std the comparisons
+// read, and below this module's root for any other.
+func corpusDir(rel string) string {
+	if rel == "src/std" || strings.HasPrefix(rel, "src/std/") {
+		return filepath.Join(env.home, filepath.FromSlash(rel))
+	}
+	return filepath.Join(env.root, filepath.FromSlash(rel))
+}
+
 // makeTestInputs makes testInputs' inputs and fills testRuns.
 func makeTestInputs() ([]input, error) {
 	var ins []input
@@ -142,13 +153,13 @@ func makeTestInputs() ([]input, error) {
 	}
 	for _, d := range testCorpusDirs {
 		for _, fs := range testFlagSets {
-			add(d+fs.suffix, filepath.Join(env.root, filepath.FromSlash(d)), testRun{args: fs.flags})
+			add(d+fs.suffix, corpusDir(d), testRun{args: fs.flags})
 		}
 	}
 	add("examples/tack-test/pipe:closed", filepath.Join(env.root, "examples", "tack-test", "pipe"),
 		testRun{args: []string{"-v"}, closedStdout: true})
 	for _, tt := range testTargets {
-		add(tt.name, filepath.Join(env.root, filepath.FromSlash(tt.dir)), testRun{args: tt.args})
+		add(tt.name, corpusDir(tt.dir), testRun{args: tt.args})
 	}
 	root := filepath.Join(env.tmp, "test-probes")
 	for _, p := range testProbes {
@@ -500,7 +511,7 @@ func prepareModule(d buildDirs, in input) (input, error) {
 // an input in std, which the loader finds std's only at or below
 // TACK_HOME's, in as it runs in d's read-only TACK_HOME, and std there.
 func prepareTest(d buildDirs, in input) (input, string, error) {
-	std := filepath.Join(env.root, "src", "std")
+	std := homeStd()
 	rel, err := filepath.Rel(std, in.dir)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		copied, err := prepareModule(d, in)
@@ -510,10 +521,10 @@ func prepareTest(d buildDirs, in input) (input, string, error) {
 		return input{}, "", err
 	}
 	copied := in
-	homeStd := filepath.Join(d.home, "src", "std")
-	copied.dir = filepath.Join(homeStd, rel)
+	caseStd := filepath.Join(d.home, "src", "std")
+	copied.dir = filepath.Join(caseStd, rel)
 	copied.env = append(slices.Clone(copied.env), "TMPDIR="+d.tmp, "TACK_HOME="+d.home)
-	return copied, homeStd, nil
+	return copied, caseStd, nil
 }
 
 // testProbe is one probe of test-examples: a module named m, its files
@@ -806,10 +817,17 @@ func manyTests(n int) string {
 }
 
 // TestTestInputs checks test-examples' inputs without running a
-// compiler: every corpus directory exists, and every name is unique.
+// compiler: every corpus directory exists, as corpusDir finds it, and
+// every name is unique. Run without TACK_PORT_TEST, with no env.home,
+// it finds std's below this module's frozen src/std, whose files
+// TestPortFiles keeps the port's, path for path.
 func TestTestInputs(t *testing.T) {
 	for _, d := range testCorpusDirs {
-		if info, err := os.Stat(filepath.Join(env.root, filepath.FromSlash(d))); err != nil || !info.IsDir() {
+		dir := corpusDir(d)
+		if env.home == "" {
+			dir = filepath.Join(env.root, filepath.FromSlash(d))
+		}
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 			t.Errorf("corpus directory %s: %v", d, err)
 		}
 	}

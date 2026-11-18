@@ -77,7 +77,8 @@ var cover struct {
 	// instrumented compiler runs with, and scratch where its runs write
 	// their counters.
 	cacheDir, tackCache, scratch string
-	// stdHash is the fingerprint of the repository's std.
+	// stdHash is the fingerprint of the std the comparisons read,
+	// homeStd's.
 	stdHash string
 	mu      sync.Mutex
 	once    sync.Once
@@ -115,6 +116,13 @@ func setupCover() error {
 	if err := os.MkdirAll(cover.scratch, 0o755); err != nil {
 		return fmt.Errorf("making the coverage's scratch directory: %w", err)
 	}
+	// Built without the reference's overlay, embedding this module's
+	// frozen runtime: the classification reads only which blocks of the
+	// Go code a run covers, and the driver writes, hashes and compiles
+	// the embedded files the same way whatever their bytes, so the
+	// port's runtime would cover the same blocks, while a
+	// binary of its own would change cover.binHash with every runtime
+	// change and empty the coverage cache.
 	build := exec.Command("go", "build", "-cover", "-covermode=set", "-coverpkg="+coverPkgs,
 		"-o", cover.bin, "./tack")
 	build.Dir = env.root
@@ -146,7 +154,7 @@ func setupCover() error {
 	if cover.staged, err = stagedSources(env.root); err != nil {
 		return err
 	}
-	if cover.stdHash, err = treeHash(filepath.Join(env.root, "src", "std")); err != nil {
+	if cover.stdHash, err = treeHash(homeStd()); err != nil {
 		return err
 	}
 	cover.flights = map[string]*flight{}

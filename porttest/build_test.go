@@ -476,13 +476,13 @@ func fresh(dirs ...string) error {
 }
 
 // readOnlyHome writes, at home, a copy of what TACK_HOME holds for a
-// build, the repository's src/std, and makes it read-only, every file
-// and directory, so that a build writing to it fails, and fails the
+// build, the comparisons' std, homeStd, and makes it read-only, every
+// file and directory, so that a build writing to it fails, and fails the
 // case, rather than change std; t's cleanup makes it writable again, for
 // its removal.
 func readOnlyHome(t *testing.T, home string) {
 	t.Helper()
-	std := filepath.Join(env.root, "src", "std")
+	std := homeStd()
 	if err := copyTree(std, filepath.Join(home, "src", "std")); err != nil {
 		t.Fatal(err)
 	}

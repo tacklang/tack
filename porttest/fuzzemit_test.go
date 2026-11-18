@@ -104,7 +104,7 @@ func goBackend(src string) {
 	l := &loader.Loader{
 		FS:       loader.FromFS(fsys),
 		Builtins: stdtest.MustBuiltins(),
-		Std:      stdtest.Std(),
+		Std:      inProcessStd(),
 	}
 	res, err := l.File("main.tck")
 	if err != nil || len(res.Diags) > 0 {

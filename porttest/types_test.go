@@ -302,7 +302,7 @@ func sameEncoding(want, got []byte) (bool, error) {
 // goTypes returns the --port-types dump of in from this module's
 // compiler, in the phase "bodies", the stage its typed tree implies
 // (see treeStage), and whether in is an input of the check: loaded as the
-// driver loads it, with the repository's std or the one in's TACK_HOME
+// driver loads it, with the comparisons' std, homeStd's, or the one in's TACK_HOME
 // names, resolved, and checked in full by typeck.New(...).Check(). When
 // clean says so, only a program Go accepts with no error is one; when
 // not, any program the loader builds is, checked as the port's
@@ -332,7 +332,8 @@ func goTypes(t *testing.T, in input, clean bool) ([]byte, checkStage, map[checkS
 // typesLoad loads in's target as the driver's loadWith does: a directory,
 // an import path when it names nothing on disk and looks like one, or a
 // single file, from in's directory as the current one, files shown
-// relative to it, with the repository's std. It reports false when the
+// relative to it, with the comparisons' std, homeStd's, or the one in's
+// TACK_HOME names. It reports false when the
 // load fails.
 func typesLoad(t *testing.T, in input) (*loader.Result, bool) {
 	t.Helper()
@@ -347,7 +348,7 @@ func loadAs(t *testing.T, in input, lib bool) (*loader.Result, bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	home := env.root
+	home := env.home
 	for _, kv := range in.env {
 		if h, found := strings.CutPrefix(kv, "TACK_HOME="); found {
 			home = h

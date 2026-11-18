@@ -94,7 +94,7 @@ func checkLoaded(t *testing.T, in input, portBin string) {
 // a directory, or an import path when it names nothing on disk and looks
 // like one, from in's directory as the current one, as getcwd gives it,
 // its symbolic links resolved, with files shown relative to it, and the
-// repository's std. It reports false for a target that is a single
+// comparisons' std, homeStd's. It reports false for a target that is a single
 // file, which it does not load.
 func goLoaded(t *testing.T, in input) (string, bool) {
 	t.Helper()
@@ -104,7 +104,7 @@ func goLoaded(t *testing.T, in input) (string, bool) {
 	}
 	l := &loader.Loader{
 		FS: loader.OS{}, Builtins: builtin.Default(), MaxErrors: 10,
-		Std:     &loader.Std{Dir: filepath.ToSlash(filepath.Join(env.root, "src", "std"))},
+		Std:     &loader.Std{Dir: filepath.ToSlash(homeStd())},
 		Display: relativeTo(cwd),
 	}
 	full := in.file
