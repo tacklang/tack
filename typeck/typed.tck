@@ -66,8 +66,12 @@ import types from "tack/types"
 // Typed holds every map and list the check made, a few kilobytes, which
 // a plain receiver would copy at every call.
 //
-// Question.Site and SiteTo, which Go sets only on a ? in a test's body,
-// have no place here: the port does not check tests yet.
+// Question.Site and SiteTo, which Go sets only on a ? in a test's own
+// body, are not nodes of the port's tree either: the check records the
+// place in question_sites (see tests.tck), and code generation makes
+// their nodes, a CompositeLit as a call's Site literal is made and a
+// Selector of the test's T parameter, at with splice_sites, which
+// site_store gives.
 //
 // The testing.Site arguments are not nodes of the port's tree: Go puts
 // each among the call's arguments at site_index, and its nodes at the
@@ -137,6 +141,8 @@ pub type Typed struct {
 
     site_args map[RKey]SiteArg
     site_count map[Key]int64
+    question_sites map[Key]QuestionSite
+    site_stores map[Key]SiteStore
     question_counts map[Key]int64
     question_types map[RKey]types.Type
     clause_type_count map[Key]int64
@@ -212,6 +218,8 @@ pub func (mut c Checker) take_typed() (Typed, error) {
         fall_next: replace(mut c.fall_next, make(map[Key]Key, c_allocator)),
         site_args: replace(mut c.site_args, make(map[RKey]SiteArg, c_allocator)),
         site_count: replace(mut c.site_count, make(map[Key]int64, c_allocator)),
+        question_sites: replace(mut c.question_sites, make(map[Key]QuestionSite, c_allocator)),
+        site_stores: make(map[Key]SiteStore, c_allocator),
         question_counts: replace(mut c.question_counts, make(map[Key]int64, c_allocator)),
         question_types: replace(mut c.question_types, make(map[RKey]types.Type, c_allocator)),
         clause_type_count: replace(mut c.clause_type_count, make(map[Key]int64, c_allocator)),
@@ -1003,7 +1011,8 @@ pub func (mut t Typed) instance_arg(i int64, j int64) types.Type {
 
 // splice_sites puts each call's testing.Site arguments among its
 // arguments as nodes of its tree, at their indexes, as Go's passSite
-// splices them into Call.Args, for code generation, which walks and
+// splices them into Call.Args, and makes the nodes each ? in a test
+// stores its place with (see splice_questions), for code generation, which walks and
 // lowers them as Go's does: a name bound to the Site parameter passed
 // on, or a CompositeLit of the Site type whose elements are file, line,
 // col and excerpt, each a KeyValue of a name and a StrLit or an IntLit
@@ -1056,6 +1065,7 @@ pub func (mut t Typed) splice_sites() error {
         ncl.args = add_list(mut t.prog.trees, u, items)?
         set_kind_at(mut t.prog.trees, k, ast.Kind.call(ncl))
     }
+    mut t.splice_questions()?
     return noerror
 }
 
@@ -1076,6 +1086,14 @@ func (mut t Typed) site_node(k Key, nth int64, u int64, end source.Span) (id[ast
     mut file := make(list[uint8], c_allocator)
     mut excerpt := make(list[uint8], c_allocator)
     line, col, _ := mut t.site_text(k, nth, mut file, mut excerpt)?
+    lit := mut t.lit_node(u, file, line, col, excerpt, mut t.site_type(k, nth), end)?
+    return lit, noerror
+}
+
+// lit_node adds to the tree u a CompositeLit of typ, testing.Site,
+// holding file, line, col and excerpt, every node at end, as Go's siteLit
+// makes it, and returns it.
+func (mut t Typed) lit_node(u int64, file list[uint8], line int64, col int64, excerpt list[uint8], typ types.Type, end source.Span) (id[ast.Node], error) {
     mut elems := make(list[id[ast.Node]], c_allocator)
     fs := add_str(mut t.prog.trees, u, file)?
     fv := add_node(mut t.prog.trees, u, ast.Kind.str_lit(fs), end)?
@@ -1092,8 +1110,74 @@ func (mut t Typed) site_node(k Key, nth int64, u int64, end source.Span) (id[ast
     list_of := add_list(mut t.prog.trees, u, elems)?
     mut none id[ast.Node]
     lit := add_node(mut t.prog.trees, u, ast.Kind.composite_lit(ast.CompositeLit{type_expr: none, elems: list_of}), end)?
-    put(mut t.node_types, Key{unit: u, node: lit}, mut t.site_type(k, nth))?
+    put(mut t.node_types, Key{unit: u, node: lit}, typ)?
     return lit, noerror
+}
+
+// splice_questions makes the nodes of the place each ? in a test's own
+// body stores (see tests.tck), in the ?'s tree: the literal of the ?'s
+// place, as a call's Site literal is made, and the selector of the
+// test's T parameter's field at, every node at the ?'s end, an empty
+// span, as Go's recordQuestionSite makes them, and records them for
+// site_store.
+func (mut t Typed) splice_questions() error {
+    mut qs := make(list[Key], c_allocator)
+    for k, _ := range t.question_sites {
+        append(mut qs, k)?
+    }
+    for _, k := range qs {
+        qsite, has := t.question_sites[k]
+        if !has {
+            continue
+        }
+        u := k.unit
+        if u < 0 || u >= len(t.prog.trees) {
+            continue
+        }
+        sp := qsite.place
+        end := source.Span{file: sp.file, start: sp.end, end: sp.end}
+        mut file := make(list[uint8], c_allocator)
+        mut excerpt := make(list[uint8], c_allocator)
+        mut line int64 = 0
+        mut col int64 = 0
+        for _, f := range t.files.lookup(sp.file) {
+            l, c := f.position(sp.start)
+            line = l
+            col = c
+            append(mut file, f.filename.bytes()...)?
+            diag.excerpt(f, sp, mut excerpt)?
+        }
+        lit := mut t.lit_node(u, file, line, col, excerpt, qsite.typ, end)?
+        param := qsite.param
+        mut name := make(list[uint8], c_allocator)
+        append(mut name, name_of(t.prog.trees, t.none, param)...)?
+        s := add_str(mut t.prog.trees, u, name)?
+        mut z span[uint8]
+        def := ast.Def{kind: ast.def_param, unit: param.unit, node: param.node}
+        nm := ast.Ident{pkg: z, name: s, pkg_span: end, def: def, hidden: ast.no_def()}
+        x := add_node(mut t.prog.trees, u, ast.Kind.ident(nm), end)?
+        put(mut t.node_types, Key{unit: u, node: x}, mut t.decl_type(param))?
+        mut at := make(list[uint8], c_allocator)
+        append(mut at, []uint8("at")...)?
+        an := add_str(mut t.prog.trees, u, at)?
+        mut none id[ast.Node]
+        to := add_node(mut t.prog.trees, u, ast.Kind.selector(ast.Selector{x: x, name: an, name_span: end, field: none}), end)?
+        put(mut t.node_types, Key{unit: u, node: to}, qsite.typ)?
+        put(mut t.site_stores, k, SiteStore{to: to, lit: lit})?
+    }
+    return noerror
+}
+
+// site_store returns the nodes the ? k stores its place with, the
+// selector of the test's T's field at and the literal of its place, in
+// k's tree, and true; or false for a ? that stores none, one outside a
+// test's own body. splice_sites makes them.
+pub func (mut t Typed) site_store(k Key) (Key, Key, bool) {
+    st, has := t.site_stores[k]
+    if !has {
+        return no_key(), no_key(), false
+    }
+    return Key{unit: k.unit, node: st.to}, Key{unit: k.unit, node: st.lit}, true
 }
 
 // site_field adds to the tree u a KeyValue of the name name and the

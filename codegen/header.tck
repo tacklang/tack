@@ -620,8 +620,14 @@ func (mut h Header) append_cname(mut t typeck.Typed, typ types.Type, mut out lis
 
 // append_struct_cname appends the name tack.h gives the struct type typ
 // to out, as Go's cName does: its Tack name, after its package's name
-// and an underscore unless it is in package main, the program's last;
-// and, for a struct no declaration gives, its Tack name.
+// and an underscore unless its package is named main; and, for a struct
+// no declaration gives, its Tack name. Go leaves the prefix off the
+// program's last package's types, which is the main package of a
+// program but any package of a library, which --check loads, or of a
+// package loaded for its tests, so the tack.h it writes names a type of
+// that package as its own C, written against the names a program that
+// imports it gets, does not; the port names every package's types alike
+// (decided 2026-11-18, a known divergence).
 func (mut h Header) append_struct_cname(mut t typeck.Typed, typ types.Type, mut out list[uint8]) error {
     d, has := h.structs[typ.number()]
     pkg, has_pkg := h.pkg_of[typ.number()]
@@ -632,7 +638,7 @@ func (mut h Header) append_struct_cname(mut t typeck.Typed, typ types.Type, mut 
     }
     switch kind_of(trees_of(t), d) {
     case type_decl(td):
-        if pkg != len(t.prog.packages) -% 1 {
+        if !named_main(t.prog, pkg) {
             append_package_name(t, pkg, mut out)?
             append(mut out, '_')?
         }
@@ -640,6 +646,14 @@ func (mut h Header) append_struct_cname(mut t typeck.Typed, typ types.Type, mut 
     default:
     }
     return noerror
+}
+
+// named_main reports whether package p of prog is named main.
+func named_main(prog ast.Program, p int64) bool {
+    if p < 0 || p >= len(prog.packages) {
+        return false
+    }
+    return prog.packages[p].name.equal([]uint8("main"))
 }
 
 // basic_c_type returns the C type the Tack type typ lowers to, Go's

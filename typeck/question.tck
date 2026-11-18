@@ -133,6 +133,7 @@ func (mut c Checker) question_record(k Key, ok bool, mut out list[types.Type]) (
     for i, t := range out {
         put(mut c.question_types, RKey{unit: k.unit, node: k.node, i: i}, t)?
     }
+    mut c.record_question_site(k)?
     mut c.prove_question_contract(k)?
     return true, noerror
 }

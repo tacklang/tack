@@ -476,7 +476,7 @@ func (mut g Gen) lower_program(mut t typeck.Typed) error {
     library := is_library(t)
     if !library {
         mut start := make(list[uint8], c_allocator)
-        append_mangle(t, main_package(t), []uint8("main"), mut start)?
+        append_start_name(mut t, mut start)?
         mut one := make(list[Line], c_allocator)
         mut g.add_line(mut one, start[:])?
         mut g.note_names([]uint8("main"), one[:])?
@@ -505,7 +505,7 @@ func (mut g Gen) lower_program(mut t typeck.Typed) error {
     for _, lf := range low.funcs {
         mut g.emit_func(lf.sig[:], lf.body[:])?
     }
-    mut g.emit_entry_point(t, library)?
+    mut g.emit_entry_point(mut t, library)?
     return noerror
 }
 
@@ -528,14 +528,28 @@ func program_decl_keys(t typeck.Typed) (list[typeck.Key], error) {
 }
 
 // is_library reports whether t's program is a library, Go's isLibrary:
-// its main package is not named main. A program loaded for its tests,
-// which has an entry of its own, Go's Entry, the port does not check.
+// its main package is not named main, and it has no entry of its own,
+// Go's Entry, as a package loaded for its tests has, its tests'
+// generated main.
 func is_library(t typeck.Typed) bool {
+    if t.prog.entry_unit >= 0 {
+        return false
+    }
     p := main_package(t)
     if p < 0 || p >= len(t.prog.packages) {
         return true
     }
     return !t.prog.packages[p].name.equal([]uint8("main"))
+}
+
+// append_start_name appends to out the C name of the function C's main
+// calls, Go's startName: the program's entry, the generated main of a
+// package's tests, when it has one, and Tack's main otherwise.
+func append_start_name(mut t typeck.Typed, mut out list[uint8]) error {
+    if t.prog.entry_unit >= 0 {
+        return append_func_cname(mut t, typeck.Key{unit: t.prog.entry_unit, node: t.prog.entry_node}, mut out)
+    }
+    return append_mangle(t, main_package(t), []uint8("main"), mut out)
 }
 
 // emit_preamble writes the headers, Go's emitPreamble: <stdbool.h>,
@@ -984,12 +998,12 @@ func append_line_text(held []uint8, l Line, mut out list[uint8]) error {
 }
 
 // emit_entry_point writes C's main, which stores argc and argv for std/os
-// and calls Tack's main, between the runtime's start and end when the
+// and calls Tack's main, or the program's entry when it has one, between the runtime's start and end when the
 // program runs C beyond its own, Go's emitEntryPoint. A library has no
 // main, and its file ends in one newline, unless it has globals too deep
 // for a C initializer, whose statements are the body of tack_init_,
 // unused, which C's main otherwise runs first.
-func (mut g Gen) emit_entry_point(t typeck.Typed, library bool) error {
+func (mut g Gen) emit_entry_point(mut t typeck.Typed, library bool) error {
     if library {
         if len(g.global_inits) == 0 {
             if bytes.has_suffix(g.buf[:], []uint8("\n\n")) {
@@ -1022,7 +1036,7 @@ func (mut g Gen) emit_entry_point(t typeck.Typed, library bool) error {
         append(mut g.buf, '\n')?
     }
     append(mut g.buf, []uint8("    ")...)?
-    append_mangle(t, main_package(t), []uint8("main"), mut g.buf)?
+    append_start_name(mut t, mut g.buf)?
     append(mut g.buf, []uint8("();\n")...)?
     if runs {
         append(mut g.buf, []uint8("    ")...)?

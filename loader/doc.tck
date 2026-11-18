@@ -63,9 +63,9 @@ package loader
 // the package in the program, in Package.imports, -1 for none.
 //
 // Package names. Go checks a package name against the lexer's keywords,
-// package types' builtin type names and package builtin's functions; the
-// port has neither package types nor builtin yet, so their names are
-// listed here (see names.tck).
+// package types' builtin type names and package builtin's functions;
+// the port's loader imports neither package, so their names are listed
+// here (see names.tck).
 //
 // Libraries. Go's Loader.Lib, which the driver's --check sets, is
 // Loader.library (see lib.tck): a directory or import path holding no
@@ -79,8 +79,17 @@ package loader
 // port reads them with read_dir, which lstats each entry, so an entry
 // that cannot be looked at is unworded there too.
 //
-// Test mode. Go's Loader.TestMain, tack test's, is not ported yet: the
-// driver comes with it, at the end of the port.
+// Test mode. Go's Loader.TestMain, tack test's, is Loader.tests (see
+// load_tests): Go's TestMain is a function the driver gives, which calls
+// package testmain; the port's loader calls testmain itself, with the
+// -run pattern and -v the Loader holds, test_pattern and test_verbose,
+// since a Loader is a plain struct the driver fills in. The generated
+// main is named testmain's file_name, and added to the Set as any file
+// is, after the package's own. Go's graph marks the main package as
+// loading before its imports are loaded, so a package loaded for its
+// tests that one of its imports imports back closes an import cycle;
+// the port's Graph does so too, with the main package's path as its
+// first Seen.
 //
 // Invariants. A Result has a program, or diagnostics, or both, unless
 // loading was stopped at Loader.stop or failed. A program's errors is

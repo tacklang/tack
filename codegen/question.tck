@@ -15,8 +15,10 @@ import types from "tack/types"
 // operand pending while the operands after it are rendered, when one of
 // them holds a ?.
 //
-// A ? in a test's own body stores its place first, Go's Site; the port
-// loads no program for its tests, so no ? it lowers has one.
+// A ? in a test's own body stores its place first, Go's Site: one store
+// of the literal of its place into its test's T's field at, the nodes
+// Typed.splice_sites made (see Typed.site_store), rendered once the call
+// is, before the error is tested.
 
 // r_question is the routine of Go's questionExpr: the frame's a is 1 when
 // the ? gives its value, its b how many results the call has, its error
@@ -100,6 +102,23 @@ func (mut g Gen) step_question(mut t typeck.Typed, f MFrame, mut m Machine) erro
         mut m.push(r_call_expr, call, types.invalid, false)?
         return noerror
     }
+    to_key, lit_key, stores := mut t.site_store(f.e)
+    if stores && f.step == 1 {
+        // The call's rendering waits on the value stack, under the
+        // field's and the literal's, rendered next.
+        given := mut m.take()
+        mut m.give(own given)?
+        mut m.again(f, 2)?
+        mut m.push(r_expr, lit_key, types.invalid, false)?
+        mut m.push(r_expr, to_key, types.invalid, false)?
+        return noerror
+    }
+    mut store := make(list[uint8], c_allocator)
+    if stores {
+        lit := mut m.take()
+        to := mut m.take()
+        fmt.appendf(mut store, " %s = %s;", to[:], lit[:])?
+    }
     init := mut m.take()
     call := f.k
     mut ctype := make(list[uint8], c_allocator)
@@ -125,6 +144,7 @@ func (mut g Gen) step_question(mut t typeck.Typed, f MFrame, mut m Machine) erro
     }
     mut out := make(list[uint8], c_allocator)
     fmt.appendf(mut out, "({ %s %s = %s; if (%s.code != 0) {", ctype[:], name[:], init[:], err_ref[:])?
+    append(mut out, store[:]...)?
     nr := mut t.question_result_count(f.e)
     mut i := nr
     for i > 0 {

@@ -1,0 +1,40 @@
+package testmain
+
+// Package testmain writes the main tack test builds a package's tests
+// with, and deals with what the compiler reports in it. It is a port of
+// the Go compiler's package testmain, function by function, and writes
+// the same file, byte for byte, and the same diagnostics; Go's
+// testmain/doc.go documents what the file holds and why. What follows is
+// where the port differs and why.
+//
+// Role in the pipeline. The loader, in test mode (see Loader.tests),
+// reads a package's files and its test files, parses them, and calls
+// main_source for one file more, before anything is resolved; it parses that
+// file into the package as its last, named file_name, and loads what it
+// imports, std/testing. The driver then sets the program's entry to its
+// function (entry, ast.Program's entry_unit and entry_node), reports
+// what clashes finds before any stage runs, and passes what the stages
+// report through diagnostics.
+//
+// Names. Go's FileID is a file's name, so Go finds the generated file by
+// its name, FileName; the port's FileID is an index (see package
+// source), so generated finds the file named file_name in the Set once,
+// and every function here takes its FileID. Go's Source takes the
+// package and its files; the port's loader package cannot be imported
+// here, since the loader calls main_source, so main_source takes the package's
+// name, its import path and its trees.
+//
+// Input and output. main_source takes the package's name and import path,
+// its trees, the Set the files are in, which gives each test's place,
+// and -run's pattern and -v, and returns the Tack source of the
+// generated main, exactly Go's. clashes and entry take the program and
+// the FileID of the generated file, and diagnostics the stages'
+// diagnostics, taken over, that FileID and that of the package's first
+// file.
+//
+// Invariants. Every string in the generated file is a literal, each
+// byte outside printable ASCII, and every " and \, written \xHH, so a
+// name, a path or a pattern of any bytes reads back exactly. A test is
+// every function, not a method, of a test file whose name starts with
+// test_, in file order and then source order. Nothing here recurses;
+// each function walks the trees' top-level declarations once.

@@ -9,6 +9,7 @@ import modfile from "tack/modfile"
 import parser from "tack/parser"
 import path from "std/path"
 import source from "tack/source"
+import testmain from "tack/testmain"
 import text from "std/text"
 
 // Stage names the part of loading that reported a Result's diagnostics,
@@ -95,6 +96,17 @@ pub type Loader struct {
     // load_lib). A directory holding a main package loads as it does
     // without library. The driver sets it for --check.
     pub library bool
+    // tests, Go's TestMain set, makes dir and path load the package in
+    // the directory for its tests, tack test's mode, whatever its name:
+    // its test files are read with its other files, each marked as one
+    // (see ast.File's test), and the main that runs the tests, which
+    // package testmain writes from the parsed package with test_pattern,
+    // -run's, and test_verbose, -v's, is parsed into it as its last file
+    // before anything it imports is loaded (see load_tests). library is
+    // ignored then.
+    pub tests bool
+    pub test_pattern text.Text
+    pub test_verbose bool
     // alloc is what everything a load makes is made through.
     pub alloc Allocator
 }
@@ -333,6 +345,10 @@ pub func (l Loader) path(cwd []uint8, import_path []uint8) (Result, Fail, error)
 // no Tack files, or whose files make a package other than main, is
 // loaded as a library instead (see load_lib).
 func (l Loader) load_main(mut res Result, own mod Module, dir []uint8, import_path []uint8) (Fail, error) {
+    if l.tests {
+        tf := l.load_tests(mut res, own mod, dir, import_path)?
+        return tf, noerror
+    }
     files, c_files, f := l.read_package_files(res, dir)?
     if l.is_lib(files, f)? {
         lf := l.load_lib(mut res, own mod, dir, own files, own c_files, !f.failed)?
@@ -360,6 +376,86 @@ func (l Loader) load_main(mut res Result, own mod Module, dir []uint8, import_pa
     mut pkg.module.append(mod.name.bytes())?
     mut pkg.dir.append(dir)?
     pkg.c_files = c_files
+    mut g := new_graph(l, true, own mod, own pkg)?
+    mut g.finish(l, mut res)?
+    return replace(mut g.abort, no_fail(l.alloc)), noerror
+}
+
+// load_tests loads the package in dir, whose import path is import_path
+// in mod, for its tests, Go's loadTests: its Tack files and its test
+// files, those whose names do not start with a dot, in the byte order
+// of all their names, each test file marked, then the generated main,
+// named testmain's file_name, which is parsed into the package as its
+// last file, then every package it imports. A directory with neither is
+// a failure, as for any package.
+func (l Loader) load_tests(mut res Result, own mod Module, dir []uint8, import_path []uint8) (Fail, error) {
+    mut files := make(list[source.File], l.alloc)
+    mut marks := make(list[bool], l.alloc)
+    entries, rf := read_dir(dir, l.alloc)?
+    if rf.failed {
+        w := l.cannot_read_dir(dir, own rf)?
+        return w, noerror
+    }
+    for _, e := range entries {
+        if e.dir || !(is_package_file(e.name.bytes()) || is_test_file(e.name.bytes()) && !bytes.has_prefix(e.name.bytes(), []uint8("."))) {
+            continue
+        }
+        full := path.join(dir, e.name.bytes(), l.alloc)?
+        data, ff := read_file(full.bytes(), l.alloc)?
+        if ff.failed {
+            w := wrap([]uint8("failed to open file: "), own ff, l.alloc)?
+            return w, noerror
+        }
+        file := l.new_file(res, len(files), full.bytes(), own data)?
+        append(mut files, file)?
+        append(mut marks, is_test_file(e.name.bytes()))?
+    }
+    if len(files) == 0 {
+        mut msg := make(list[uint8], l.alloc)
+        shown := l.display(dir)?
+        fmt.appendf(mut msg, "no .tck files in %s", shown.bytes())?
+        mut nf := fail_with(own msg)
+        nf.no_tack = true
+        return nf, noerror
+    }
+    c_files, cf := l.c_files_in(dir, entries)?
+    if cf.failed {
+        return cf, noerror
+    }
+    mut pkg, ok := l.parse_package(mut res, own files)?
+    if !ok {
+        return no_fail(l.alloc), noerror
+    }
+    mut trees := replace(mut pkg.files, make(list[ast.File], l.alloc))
+    for i := range len(trees) {
+        mark, has := marks[i]
+        if has {
+            trees[i].test = mark
+        }
+    }
+    pkg.files = trees
+    mut diags := l.check_clauses(dir, import_path, pkg)?
+    if len(diags) > 0 {
+        report(mut res, stage_load, own diags)?
+        return no_fail(l.alloc), noerror
+    }
+    mut pkg.path.append(import_path)?
+    mut pkg.module.append(mod.name.bytes())?
+    mut pkg.dir.append(dir)?
+    pkg.c_files = c_files
+    src := testmain.main_source(pkg.name.bytes(), import_path, pkg.files[:], res.files, l.test_pattern.bytes(), l.test_verbose, l.alloc)?
+    name := text_of([]uint8(testmain.file_name), l.alloc)?
+    mut gen_files := make(list[source.File], l.alloc)
+    append(mut gen_files, source.new_file(res.files.next_id(), own name, own src, l.alloc))?
+    mut gen, gen_ok := l.parse_package(mut res, own gen_files)?
+    if !gen_ok {
+        return no_fail(l.alloc), noerror
+    }
+    mut gen_trees := replace(mut gen.files, make(list[ast.File], l.alloc))
+    for i := range len(gen_trees) {
+        append(mut pkg.files, replace(mut gen_trees[i], ast.new_file(l.alloc)))?
+    }
+    append(mut pkg.file_ids, gen.file_ids...)?
     mut g := new_graph(l, true, own mod, own pkg)?
     mut g.finish(l, mut res)?
     return replace(mut g.abort, no_fail(l.alloc)), noerror

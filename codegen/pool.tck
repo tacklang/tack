@@ -148,6 +148,16 @@ func (mut g Gen) pool_visit(mut t typeck.Typed, k typeck.Key, mut stack list[typ
         return noerror
     case multi_assign(m):
         mut g.pool_checked_zero(mut t, typeck.Key{unit: k.unit, node: m.value})?
+    case question:
+        // A ? in a test stores its place, a literal the checker made,
+        // whose strings are pooled as any are, before what the ? follows
+        // (see Typed.site_store).
+        push_children(t.prog.trees[:], k, mut kids, mut stack)?
+        _, lit, stores := mut t.site_store(k)
+        if stores {
+            append(mut stack, lit)?
+        }
+        return noerror
     case for_range(r):
         switch kind_of(t.prog.trees[:], typeck.Key{unit: k.unit, node: r.x}) {
         case fields_of:

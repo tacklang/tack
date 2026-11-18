@@ -10,7 +10,9 @@ import utf8 from "std/utf8"
 // take a format and ...any, and when the format is a string the checker
 // knows, every verb in it is checked against the value it takes, read
 // byte by byte as printf's C reads it. std/testing's T.errorf and
-// T.fatalf take a testing.Site first, which the port declines.
+// T.fatalf are checked too, their format the second argument once Go
+// has spliced the testing.Site their call passes among the arguments
+// (see check_printf).
 
 // check_printf checks the call k to fn, when fn is one of std/fmt's
 // format functions and its format is a string the checker knows, Go's
@@ -25,20 +27,43 @@ func (mut c Checker) check_printf(k Key, fn Key, shift int64) error {
     if !has_owner {
         return noerror
     }
-    if f.method {
-        if (bytes_equal(name, []uint8("errorf")) || bytes_equal(name, []uint8("fatalf"))) && pkg_path_is(c.prog.packages, owner, []uint8("std/testing")) {
-            return not_ported
-        }
-        return noerror
-    }
     mut at int64 = 0
-    if bytes_equal(name, []uint8("appendf")) {
-        at = 1
-    } else if !bytes_equal(name, []uint8("printf")) && !bytes_equal(name, []uint8("eprintf")) {
-        return noerror
-    }
-    if !pkg_path_is(c.prog.packages, owner, []uint8("std/fmt")) {
-        return noerror
+    if f.method {
+        // std/testing's T.errorf and T.fatalf, Go's formatMethods: Go
+        // reads the format at Args[1+shift] once the testing.Site the
+        // call passes is spliced among them, which the port's written
+        // arguments hold none of (see call.tck's SiteArg). With no Site
+        // spliced, that is written argument 1+shift; with one spliced
+        // at shift, std/testing's own shape, the Site before the
+        // format, it is written argument shift. Any other place of a
+        // Site, which only a module named std with a testing of its own
+        // makes, is declined rather than mapped.
+        if !bytes_equal(name, []uint8("errorf")) && !bytes_equal(name, []uint8("fatalf")) || !pkg_path_is(c.prog.packages, owner, []uint8("std/testing")) || f.recv_type.is_none() {
+            return noerror
+        }
+        rtd := type_decl_of(c.prog.trees, key_of_def(f.recv_type))
+        if !bytes_equal(text_at(c.prog.trees, c.none, f.recv_type.unit, rtd.name), []uint8("T")) {
+            return noerror
+        }
+        sites, has_sites := c.site_count[k]
+        if !has_sites || sites == 0 {
+            at = 1
+        } else {
+            sa, has_first := c.site_args[RKey{unit: k.unit, node: k.node, i: 0}]
+            if sites != 1 || !has_first || sa.index != shift {
+                return not_ported
+            }
+            at = 0
+        }
+    } else {
+        if bytes_equal(name, []uint8("appendf")) {
+            at = 1
+        } else if !bytes_equal(name, []uint8("printf")) && !bytes_equal(name, []uint8("eprintf")) {
+            return noerror
+        }
+        if !pkg_path_is(c.prog.packages, owner, []uint8("std/fmt")) {
+            return noerror
+        }
     }
     at +%= shift
     n := count_items(c.prog.trees, k.unit, cl.args)

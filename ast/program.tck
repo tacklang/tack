@@ -9,10 +9,18 @@ import text from "std/text"
 // its run of them, so that a Def can name a declaration of any package
 // by its tree's place, its unit, alone. errors counts the errors the
 // stages that have run reported about the program, Go's Errors.
+// entry_unit and entry_node are the function the program starts at when
+// it is not the main function of a main package, Go's Entry: the main
+// tack test generates for a package's tests, by its tree and its node,
+// which the driver sets; entry_unit is -1 for none. The backend calls it
+// where it would call main, and the type checker never reports it
+// unused.
 pub type Program struct {
     pub packages list[Package]
     pub trees list[File]
     pub errors int64
+    pub entry_unit int64
+    pub entry_node id[Node]
 }
 
 // Package is one package of a Program, Go's ast.Package: its name, its
@@ -35,7 +43,8 @@ pub type Package struct {
 // new_program returns a Program with no packages and no trees, which
 // grows through alloc.
 pub func new_program(alloc Allocator) Program {
-    return Program{packages: make(list[Package], alloc), trees: make(list[File], alloc), errors: 0}
+    mut none id[Node]
+    return Program{packages: make(list[Package], alloc), trees: make(list[File], alloc), errors: 0, entry_unit: -1, entry_node: none}
 }
 
 // in reports whether the tree unit is one of pkg's.

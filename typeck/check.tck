@@ -339,6 +339,11 @@ pub type Checker struct {
     // many each call has (see pass_site).
     site_args map[RKey]SiteArg
     site_count map[Key]int64
+    // test_funcs holds every test declared as a test must be, Go's tests,
+    // and question_sites the place each ? in such a test's own body
+    // stores, Go's Question.Site and SiteTo (see tests.tck).
+    test_funcs map[Key]bool
+    question_sites map[Key]QuestionSite
     // recv_given is a method call's receiver that the walk of a spine
     // has checked already, as recv_type (see expr and receiver_type).
     recv_given Key
@@ -647,6 +652,8 @@ pub func new_checker(own prog ast.Program, own files source.Set) (Checker, error
         own_reported: make(map[source.Span]bool, c_allocator),
         site_args: make(map[RKey]SiteArg, c_allocator),
         site_count: make(map[Key]int64, c_allocator),
+        test_funcs: make(map[Key]bool, c_allocator),
+        question_sites: make(map[Key]QuestionSite, c_allocator),
         recv_given: no_key(),
         recv_type: types.invalid,
         ties: make(list[HoldTie], c_allocator),

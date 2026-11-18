@@ -45,6 +45,16 @@ package typeck
 // a call of has, which Go's onlyValue leaves out and its backend lowers
 // to C that does not compile, and when it is a make whose value owns
 // nothing, which Go accepts in silence (see check_expr_stmt).
+//
+// With Checker.tests set, which tack test sets, the program is a package
+// loaded for its tests, checked as Go's tests.go checks it (see
+// tests.tck): every test of its test files must be declared func
+// test_x(mut t testing.T) error, or it is an error at its name; a ? in a
+// test's own body records the place it stores in its T's field at,
+// which code generation lowers; and the program's entry, the generated
+// main (see ast.Program), is never reported unused. The format of
+// std/testing's T.errorf and T.fatalf is checked as printf's is (see
+// printf.tck).
 
 // The types are added to a types.Table in Go's order, so each gets the
 // ID Go gives it: what the --port-types dump shows, which tackc's

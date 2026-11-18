@@ -25,10 +25,18 @@ import typeck from "tack/typeck"
 // ended); what the port cannot word as Go does is declined: an errno
 // Go's words for are not known, a temporary directory or file that
 // cannot be made or written, a clang that fails in a way Go's exec does
-// not, an object the ELF reader does not take (see elf.tck), a
-// temporary directory that cannot be removed, but after diagnostics
-// (see report_removal), and a relative --out from a current directory
-// that cannot be found, where Go's message is wrong (see build_in).
+// not, an object the ELF reader does not take (see elf.tck), and a
+// relative --out from a current directory that cannot be found, where
+// Go's message is wrong (see build_in). A temporary directory that
+// cannot be removed is reported as Go's report words the error joined
+// to the build's, std/os's remove_all failing as Go's RemoveAll does
+// (see remove_tree), and after diagnostics too, where Go drops it and
+// the port reports it (see report_removal). Its errno Go's words are
+// not known for, EHWPOISON alone on Linux, is declined where Go's output
+// ends in a tack: line, after a build that succeeded or failed with an
+// error of one line, nothing of that line written first, and written in
+// std/os's words after diagnostics, where Go writes nothing of it
+// (decided 2026-11-18).
 // clang writes to the driver's own outputs as it runs, as Go's does, so
 // the warnings are written just before the first such clang starts (see
 // run_tool): a decline decided before then writes nothing but its one
@@ -164,16 +172,36 @@ func check_out_path(out []uint8, input []uint8) (int32, error) {
 // What was at out before the build is not restored: a decline after
 // clang ran can leave a file clang overwrote, overwritten, and a
 // symbolic link, dangling or not, with the file clang wrote through it
-// at its target. A temporary directory that cannot be made or removed
-// is declined: Go's messages for them name a path the port's does not
-// make; but for one that cannot be removed after the definitions check
-// gave diagnostics, where Go drops the removal's error, which the port
-// reports (see report_removal). It fails only for want of memory,
+// at its target. A temporary directory that cannot be made is
+// declined: Go's message for it names a path the port's does not make.
+// One that cannot be removed is reported as Go's report words the
+// removal's error joined to the build's (see remove_tree), after the
+// diagnostics of the definitions check too, where Go drops it and the
+// port reports it (see report_removal), in std/os's words for an errno
+// Go's are not known for (decided 2026-11-18); elsewhere such an errno is
+// declined, before the line Go ends in, which the decline stands for. It fails only for want of memory,
 // writing nothing, having tried to remove the directory first; the
 // removal itself allocates, so a directory it could not remove for want
 // of memory is left behind, and a binary clang wrote at out before
 // memory ran out is left there, with exit status 1.
 func build(mut t typeck.Typed, c []uint8, warnings []uint8, out []uint8, opt string, max_errors int64) (int32, error) {
+    mut diagnosed := false
+    mut held := make(list[uint8], c_allocator)
+    code, e := build_said(mut t, c, warnings, out, opt, max_errors, mut diagnosed, false, mut held)
+    return code, e
+}
+
+// build_said is build, setting diagnosed when the build failed with the
+// diagnostics of its definitions check, Go's diagnosticsError, rather
+// than with an error of one line, tack: and its text, so that tack test
+// can word an error joined to it as Go's report does (see build_tests).
+//
+// With hold set, an error the build ends in that starts tack: , its
+// own or the removal's of its temporary directory, is appended to held
+// instead of written, for tack test to write
+// once its own temporary directory is removed, or to drop for the
+// decline that stands for it (see build_tests).
+func build_said(mut t typeck.Typed, c []uint8, warnings []uint8, out []uint8, opt string, max_errors int64, mut diagnosed bool, hold bool, mut held list[uint8]) (int32, error) {
     tmp, terr := os.make_temp_dir([]uint8("tk-"), c_allocator)
     if terr.code == 1 {
         return exit_failure, terr
@@ -202,32 +230,50 @@ func build(mut t typeck.Typed, c []uint8, warnings []uint8, out []uint8, opt str
         return exit_failure, re
     }
     mut outcome := code
-    if rm.failed {
+    if rm.failed && code != not_implemented {
         if code == exit_failure && len(rendered) > 0 {
-            reported := report_removal(mut st, rendered[:], rm)?
-            if reported {
-                return exit_failure, noerror
+            report_removal(mut st, rendered[:], rm)?
+            diagnosed = true
+            return exit_failure, noerror
+        } else if !rm.worded {
+            // Go's output ends in its tack: line, its error or the
+            // removal's joined to it, which the decline stands for;
+            // nothing of that line is written yet.
+            outcome = not_implemented
+            st.msg = make(list[uint8], c_allocator)
+            append(mut st.msg, []uint8(" with a temp directory that cannot be removed")...)?
+        } else {
+            // Go's report of the build's error joined to RemoveAll's: tack:
+            // and the build's error, its own line, then the removal's on
+            // the next, or tack: and the removal's alone after a build
+            // that succeeded.
+            if !st.shown {
+                fmt.ewrite(st.warnings[:])
             }
+            if code == exit_ok && hold {
+                fmt.appendf(mut held, "tack: failed to delete temp directory: %s %s: %s\n", rm.op.bytes(), rm.path.bytes(), os_errno_words(rm.err))?
+            } else if code == exit_ok {
+                fmt.eprintf("tack: failed to delete temp directory: %s %s: %s\n", rm.op.bytes(), rm.path.bytes(), os_errno_words(rm.err))
+            } else if hold {
+                fmt.appendf(mut held, "tack: %s\nfailed to delete temp directory: %s %s: %s\n", st.msg[:], rm.op.bytes(), rm.path.bytes(), os_errno_words(rm.err))?
+            } else {
+                fmt.eprintf("tack: %s\nfailed to delete temp directory: %s %s: %s\n", st.msg[:], rm.op.bytes(), rm.path.bytes(), os_errno_words(rm.err))
+            }
+            return exit_failure, noerror
         }
-        outcome = not_implemented
-        st.msg = make(list[uint8], c_allocator)
-        append(mut st.msg, []uint8(" with a temp directory that cannot be removed")...)?
     }
     if outcome == not_implemented {
         if made.len() > 0 {
             remove_made(made.bytes())
         }
-        if len(rendered) > 0 {
-            // The diagnostics are what Go writes, its removal's error
-            // dropped, so they come before the decline, after the
-            // warnings.
-            if !st.shown {
-                fmt.ewrite(st.warnings[:])
-            }
-            fmt.ewrite(rendered[:])
-        }
+        // A build for tack test names its command, test, as tack test's
+        // own declines do.
         mut what := make(list[uint8], c_allocator)
-        append(mut what, []uint8("--out")...)?
+        if hold {
+            append(mut what, []uint8("test")...)?
+        } else {
+            append(mut what, []uint8("--out")...)?
+        }
         append(mut what, st.msg...)?
         return unimplemented(what), noerror
     }
@@ -237,8 +283,13 @@ func build(mut t typeck.Typed, c []uint8, warnings []uint8, out []uint8, opt str
     if outcome != exit_ok {
         if len(rendered) > 0 {
             fmt.ewrite(rendered[:])
+            diagnosed = true
         } else {
-            fmt.eprintf("tack: %s\n", st.msg[:])
+            if hold {
+                fmt.appendf(mut held, "tack: %s\n", st.msg[:])?
+            } else {
+                fmt.eprintf("tack: %s\n", st.msg[:])
+            }
         }
     }
     return outcome, noerror
@@ -247,20 +298,20 @@ func build(mut t typeck.Typed, c []uint8, warnings []uint8, out []uint8, opt str
 // report_removal writes, for a build that ended in rendered, the
 // diagnostics of its definitions check, and whose temporary directory
 // rm says could not be removed, the warnings when they are not written
-// yet, rendered, and then tack: failed to delete temp directory: and
-// rm's error, as Go's RemoveAll would word it (see remove_tree), and
-// reports whether it did; it writes nothing when rm is not worded (see
-// Removal), which the caller declines. Go's build joins the
-// removal's error to the diagnostics' and then reports only the
-// diagnostics, dropping it, a bug the port does not copy (decided
-// 2026-11-18, a known divergence). Where several entries could not be
-// removed, the one named is the first in list_dir's sorted order, where
-// Go's would be the first readdir gives. It fails only for want of
-// memory.
-func report_removal(mut st Steps, rendered []uint8, rm Removal) (bool, error) {
-    words := os_errno_words(rm.err)
-    if !rm.worded || len(words) == 0 {
-        return false, noerror
+// yet, rendered, and then tack: failed to delete temp
+// directory: and rm's error, as Go's RemoveAll words it (see
+// remove_tree), or in std/os's words for an errno Go's are not known for. Go's build joins the removal's error to the
+// diagnostics' and then reports only the diagnostics, dropping it, a bug
+// the port does not copy (decided 2026-11-18, a known divergence). It
+// fails only for want of memory.
+func report_removal(mut st Steps, rendered []uint8, rm Removal) error {
+    mut words := os_errno_words(rm.err)
+    if len(words) == 0 {
+        // Go writes nothing of the removal here, so no decline could
+        // stand for it: an errno Go's words are not known for, EHWPOISON
+        // alone on Linux, is written in std/os's words (decided
+        // 2026-11-18).
+        words = rm.err.msg
     }
     if !st.shown {
         fmt.ewrite(st.warnings[:])
@@ -268,9 +319,9 @@ func report_removal(mut st Steps, rendered []uint8, rm Removal) (bool, error) {
     }
     fmt.ewrite(rendered)
     mut line := make(list[uint8], c_allocator)
-    fmt.appendf(mut line, "tack: failed to delete temp directory: %s %s: %s\n", rm.op, rm.path.bytes(), words)?
+    fmt.appendf(mut line, "tack: failed to delete temp directory: %s %s: %s\n", rm.op.bytes(), rm.path.bytes(), words)?
     fmt.ewrite(line[:])
-    return true, noerror
+    return noerror
 }
 
 // remove_made removes p, the --out path, absolute, which a build that is
@@ -598,204 +649,40 @@ func find_clang(mut found text.Text, mut msg list[uint8]) (int32, error) {
 }
 
 // Removal is how remove_tree ended: failed when it could not remove
-// everything, and then the first failure: worded when its errno is
-// EACCES or EPERM, the failures the port words as Go's os.RemoveAll
-// would, as a PathError: op, unlinkat or openfdat, the op Go's
-// removeAllFrom names for that failure (see remove_tree); path, the
-// entry's full path, as RemoveAll's error names it; and err, std/os's
-// error for it. A failure of any other errno is not worded, which the
-// caller declines: Go's RemoveAll, working relative to a descriptor of
-// each directory, fails otherwise than the port's, by path, for one, or
-// not at all, ENAMETOOLONG for a path past PATH_MAX among them.
+// everything, and then the failure Go's os.RemoveAll returns, which
+// std/os's remove_all gives exactly (see remove_tree): op and path, as
+// Go's PathError names them, and err, std/os's error, worded when Go's
+// words for its errno are known.
 type Removal struct {
     failed bool
     worded bool
-    op string
+    op text.Text
     path text.Text
     err error
 }
 
-// removal_failed returns the Removal of a failure of op at p with err,
-// worded when err is EACCES or EPERM. It fails only for want of memory.
-func removal_failed(op string, p []uint8, err error) (Removal, error) {
-    t := text.from_bytes(p, c_allocator)?
-    return Removal{failed: true, worded: is_denied(err), op: op, path: t, err: err}, noerror
-}
-
 // no_removal returns the Removal of nothing that failed.
 func no_removal() Removal {
-    return Removal{failed: false, worded: false, op: "", path: text.new(c_allocator), err: noerror}
+    return Removal{failed: false, worded: false, op: text.new(c_allocator), path: text.new(c_allocator), err: noerror}
 }
 
-// is_denied reports whether err is std/os's error for EACCES or EPERM.
-func is_denied(err error) bool {
-    return is_errno(err, "Permission denied") || is_errno(err, "Operation not permitted")
-}
-
-// is_errno reports whether err is std/os's error for the errno whose
-// message is msg.
-func is_errno(err error, msg string) bool {
-    return err.code == 3 && err.msg == msg
-}
-
-// RemoveFrame is one entry remove_tree is removing: its path, the index
-// among the frames of the directory holding it, -1 for the root, and,
-// for a directory, the first failure among what is below it, Go's
-// recurseErr.
-type RemoveFrame struct {
-    path text.Text
-    parent int64
-    below Removal
-}
-
-// remove_tree removes root, absolute, and everything below it as Go's
-// os.RemoveAll does on Linux, removeall_at.go's removeAllFrom, but with
-// lists of its own where Go recurses, so a tree however deep needs no
-// more stack, though every path it meets is kept until it ends, and
-// with std/os's calls, by path, where Go's are relative to a descriptor
-// of each directory. What it reports is worded only for EACCES and EPERM
-// (see Removal), the failures below; each entry, looked at with lstat,
-// so that a link is removed itself, never what it points to:
-//
-//   - that is not there, ENOENT, is no failure, as Go's IsNotExist is
-//     none;
-//   - that lstat cannot look at, the directory above it not searchable,
-//     with EACCES or EPERM, fails as openfdat and the errno, as Go's
-//     unlinkat and then its openDirAt fail;
-//   - that is not a directory is removed, a failure, but for ENOENT,
-//     unlinkat and the errno: Go's openDirAt of a file gives ENOTDIR,
-//     which Go answers with its unlinkat's error; but for a symbolic
-//     link, whose unlinkat fails with EACCES or EPERM, openfdat and the
-//     errno, since Go's openDirAt of a link gives errSymlink, which Go
-//     answers with openfdat and its unlinkat's error;
-//   - that is a directory is listed, and each entry below it removed,
-//     in list_dir's sorted order, the first failure among them kept,
-//     Go's recurseErr; one that cannot be listed, but for ENOENT, which
-//     is no failure, keeps openfdat and the errno, as Go's openDirAt
-//     failing; then the directory itself is removed, which succeeds, or
-//     fails with ENOENT, as no failure whatever was kept, and otherwise
-//     fails as what was kept, or, with nothing kept, unlinkat and the
-//     errno.
-//
-// A failure goes up to the directory above it, the first one kept
-// there, and the root's is what remove_tree returns (see Removal). It is
-// not Go's RemoveAll in four ways no build shows: between the lstat of
-// a path and its listing or its removal, another process could put a
-// link in its place, which a listing would then follow, where Go opens
-// each directory with O_NOFOLLOW; root is the directory make_temp_dir
-// made, mode 0700, so only a process of the same user can. Where several
-// entries cannot be removed, the first kept is the first in list_dir's
-// sorted order, where Go's is the first readdir gives. A directory that
-// can be opened but not read fails as openfdat, where Go's readdirnames
-// would fail as readdirnames, since list_dir does both. And Go first
-// tries to remove root whole, and opens the directory above it, whose
-// failure it reports as open: the port starts at root itself, which
-// make_temp_dir made below a directory it could write to. It fails only
-// for want of memory.
+// remove_tree removes root, absolute, and everything below it, Go's
+// os.RemoveAll, with std/os's remove_all, which works as Go's does,
+// relative to a descriptor of each directory, so a tree however deep is
+// removed and every failure is the one Go's gives, but for one known
+// limitation: a tree deeper than the descriptors the process may open,
+// some thousand levels, fails with EMFILE, openfdat and "too many open
+// files", as Go's would at its limit, where Go, whose runtime raises its
+// soft limit to the hard one, removes it. It fails only for want of
+// memory.
 func remove_tree(root []uint8) (Removal, error) {
-    mut frames := make(list[RemoveFrame], c_allocator)
-    append(mut frames, RemoveFrame{path: text.from_bytes(root, c_allocator)?, parent: -1, below: no_removal()})?
-    // work holds the frames still to be done, the next last: each a
-    // frame's index and whether its entries are already removed, so that
-    // only the directory itself is left.
-    mut work := make(list[int64], c_allocator)
-    mut finish := make(list[bool], c_allocator)
-    append(mut work, 0)?
-    append(mut finish, false)?
-    mut result := no_removal()
-    for len(work) > 0 {
-        i, has := pop(mut work)
-        fin, has_fin := pop(mut finish)
-        if !has || !has_fin || i < 0 || i >= len(frames) {
-            break
-        }
-        p := text.from_bytes(frames[i].path.bytes(), c_allocator)?
-        mut r := no_removal()
-        if fin {
-            r = remove_dir_itself(p.bytes(), frames[i].below)?
-        } else {
-            info, lerr := os.lstat(p.bytes())
-            if lerr.code == 1 {
-                return result, lerr
-            }
-            if is_errno(lerr, "No such file or directory") {
-                continue
-            }
-            if lerr.code != 0 {
-                r = removal_failed("openfdat", p.bytes(), lerr)?
-            } else if !info.is_dir() {
-                rerr := os.remove_path(p.bytes())
-                if rerr.code == 1 {
-                    return result, rerr
-                }
-                if rerr.code != 0 && !is_errno(rerr, "No such file or directory") {
-                    mut op := "unlinkat"
-                    if is_denied(rerr) && is_link(p.bytes()) {
-                        op = "openfdat"
-                    }
-                    r = removal_failed(op, p.bytes(), rerr)?
-                }
-            } else {
-                names, derr := os.list_dir(p.bytes(), c_allocator)
-                if derr.code == 1 {
-                    return result, derr
-                }
-                if is_errno(derr, "No such file or directory") {
-                    continue
-                }
-                if derr.code != 0 {
-                    kept := removal_failed("openfdat", p.bytes(), derr)?
-                    r = remove_dir_itself(p.bytes(), kept)?
-                } else {
-                    append(mut work, i)?
-                    append(mut finish, true)?
-                    // Pushed last first, so the first in sorted order is
-                    // done first.
-                    mut k := len(names) -% 1
-                    for k >= 0 && k < len(names) {
-                        q := path.join(p.bytes(), names[k].bytes(), c_allocator)?
-                        k -%= 1
-                        append(mut frames, RemoveFrame{path: q, parent: i, below: no_removal()})?
-                        append(mut work, len(frames) -% 1)?
-                        append(mut finish, false)?
-                    }
-                    continue
-                }
-            }
-        }
-        if !r.failed {
-            continue
-        }
-        up := frames[i].parent
-        if up < 0 || up >= len(frames) {
-            result = r
-            continue
-        }
-        if !frames[up].below.failed {
-            frames[up].below = r
-        }
-    }
-    return result, noerror
-}
-
-// remove_dir_itself removes the directory p, whose entries remove_tree
-// has removed, or tried to, kept being the first failure among them, and
-// returns how that ended, as Go's removeAllFrom ends: no failure when
-// the directory is gone, or was not there; kept when it is not; and,
-// with nothing kept, unlinkat and the errno of its removal. It fails
-// only for want of memory.
-func remove_dir_itself(p []uint8, kept Removal) (Removal, error) {
-    rerr := os.remove_path(p)
-    if rerr.code == 1 {
-        return no_removal(), rerr
-    }
-    if rerr.code == 0 || is_errno(rerr, "No such file or directory") {
+    mut r := os.remove_all(root, c_allocator)
+    if r.err.code == 0 {
         return no_removal(), noerror
     }
-    if kept.failed {
-        k := removal_failed(kept.op, kept.path.bytes(), kept.err)?
-        return k, noerror
+    if r.err.code == 1 {
+        return no_removal(), r.err
     }
-    r := removal_failed("unlinkat", p, rerr)?
-    return r, noerror
+    words := os_errno_words(r.err)
+    return Removal{failed: true, worded: r.err.code == 3 && len(words) > 0, op: replace(mut r.op, text.new(c_allocator)), path: replace(mut r.path, text.new(c_allocator)), err: r.err}, noerror
 }

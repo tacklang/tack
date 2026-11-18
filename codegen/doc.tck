@@ -222,7 +222,14 @@ package codegen
 // port declines instead. The testing.Site arguments a call passes, which
 // Go's checker splices among its arguments, are put among them as nodes
 // of the tree before anything is lowered (see Typed.splice_sites), so
-// every walk and every rendering meets them where Go's does.
+// every walk and every rendering meets them where Go's does, and so are
+// the place each ? in a test stores and the field it stores it in, which
+// question.tck lowers to one store before the ? returns, pooling the
+// place's strings before what the ? follows, as Go's collectStrings
+// does. A program with an entry, the main tack test generates (see
+// ast.Program), is no library: C's main calls the entry where it would
+// call main (see append_start_name), and the unused pass counts it as
+// named by C's main.
 //
 // The commands a build runs are here as Go's backend gives them, with
 // clangFlags as append_clang_flags: BuildCmd, the link of the generated

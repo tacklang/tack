@@ -21,6 +21,10 @@ pub type File struct {
     pub span source.Span
     // package_span is the span of the package clause's name.
     pub package_span source.Span
+    // test says the file is a test file, one whose name ends in
+    // _test.tck, read only by a load for tests, Go's File.Test, which the
+    // loader sets and the dump leaves out.
+    pub test bool
 
     // nodes holds every node, its sentinel, the none node, at id 0.
     pub nodes arena[Node]
@@ -51,6 +55,7 @@ pub func new_file(alloc Allocator) File {
         comments: make(list[Comment], alloc),
         span: sp,
         package_span: unset_span(),
+        test: false,
         nodes: make(arena[Node], Node{k: Kind.none, span: sp}, alloc),
         lists: make(arena[id[Node]], none_id, alloc),
         bytes: make(arena[uint8], 0, alloc),

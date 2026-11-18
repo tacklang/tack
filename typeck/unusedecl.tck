@@ -162,7 +162,7 @@ func (mut c Checker) warn_unused(d Key, u Usage) error {
             return noerror
         }
         _, used := u.used[d]
-        if !used && !c.is_main_func(d, fn) {
+        if !used && !c.is_main_func(d, fn) && !(d.unit == c.prog.entry_unit && d.node == c.prog.entry_node) {
             mut m := msg()
             append(mut m, []uint8("declared and not used: ")...)?
             mut c.display_name(d, mut m)?

@@ -79,10 +79,17 @@ func new_graph(l Loader, has_mod bool, own mod Module, own main Package) (Graph,
     mp := text_of(main.path.bytes(), l.alloc)?
     mn := text_of(main.name.bytes(), l.alloc)?
     mp2 := text_of(main.path.bytes(), l.alloc)?
+    mp3 := text_of(main.path.bytes(), l.alloc)?
     mut stack := make(list[Frame], l.alloc)
     append(mut stack, Frame{pkg: main, file: 0, imp: 0, seen: -1, root: false})?
     mut paths := make(list[text.Text], l.alloc)
     append(mut paths, mp2)?
+    // The main package is loading while its imports are, as Go's finish
+    // marks it, so a package loaded for its tests that one of them
+    // imports back closes an import cycle; a main package's path is
+    // never looked up, since importing it is an error before.
+    mut seen := make(list[Seen], l.alloc)
+    append(mut seen, Seen{path: mp3, loading: true, index: -1})?
     return Graph{
         has_mod: has_mod,
         mod: mod,
@@ -90,7 +97,7 @@ func new_graph(l Loader, has_mod bool, own mod Module, own main Package) (Graph,
         std: std,
         main_path: mp,
         main_name: mn,
-        seen: make(list[Seen], l.alloc),
+        seen: seen,
         stack: stack,
         paths: paths,
         order: make(list[Package], l.alloc),

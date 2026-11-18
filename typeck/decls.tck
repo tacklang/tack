@@ -147,14 +147,6 @@ func (mut c Checker) check_testing_t() error {
     return noerror
 }
 
-// check_tests checks the tests' declarations, Go's checkTests, when tests
-// are checked: the driver checks none yet, so it declines.
-func (mut c Checker) check_tests() error {
-    if c.tests {
-        return not_ported
-    }
-    return noerror
-}
 
 // check_exposure reports every type a pub or lib declaration exposes that
 // is less visible than it, Go's checkExposure.

@@ -1,0 +1,656 @@
+package main
+
+import ast from "tack/ast"
+import builtin from "tack/builtin"
+import bytes from "std/bytes"
+import codegen from "tack/codegen"
+import conv from "std/conv"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import loader from "tack/loader"
+import os from "std/os"
+import path from "std/path"
+import resolver from "tack/resolver"
+import source from "tack/source"
+import testmain from "tack/testmain"
+import text from "std/text"
+import typeck from "tack/typeck"
+
+// tack test, Go's tack/test.go: a command line whose first argument is
+// test builds the package a directory or an import path names with its
+// test files and the main package testmain writes for them (see
+// loader.Loader's tests), runs the binary in the package's directory,
+// its standard output and error the driver's own, and exits 0 when every
+// test passed and 1 when one failed, as the binary's last line says. The
+// program's diagnostics end the run with 1 before anything is built, as
+// a build's do, and a command-line mistake with 2; a binary that ends
+// any other way, killed by a signal or with another status, as a broken
+// pipe ends it, is reported as a failure of the package, with 1.
+//
+// The command line is read as Go's flag package reads tack test's own
+// FlagSet: -run, which takes a value, -v and the -O flags, which are
+// bools and take one only after =, -h and -help, with one dash or two;
+// flags stop at the first argument that is not one, or after --. Every
+// message is Go's: its flag package's, its parseTestArgs', its help, its
+// loader's and its build's (see build.tck), and how the binary ended.
+// What the port cannot word as Go does is declined, naming test: a
+// failure of the file system the loader cannot word, the build's own
+// declines (see build.tck), a temporary directory that cannot be made,
+// a binary that cannot be started for an errno whose Go words are not
+// known, and a temporary directory that cannot be removed for such an
+// errno where Go's output ends in a tack: line (see build_tests). Go's ctx, which Ctrl-C cancels, stopping clang and the binary
+// and removing the temporary directory, has no counterpart: Ctrl-C ends
+// the port and leaves them, as a build's does.
+//
+// The test binary is built at tests in a temporary directory of its own,
+// $TMPDIR/tk-test- and six letters and digits, which std/os's
+// make_temp_dir makes, where Go's os.MkdirTemp makes tk-test- and
+// decimal digits; no message the port words names it. It is run with
+// std/os's run_inherit_in, which starts it in the package's directory
+// with this process's standard output and error and /dev/null as its
+// standard input, as Go's exec does with cmd.Dir set and cmd.Stdin nil.
+//
+// Where the temporary directory cannot be removed, tack test words the
+// error as Go's report words its errors.Join, but where Go drops it,
+// after tests that failed, the port reports it too (see build_tests).
+
+// test_command is the first argument that makes the command line tack
+// test's.
+var test_command = "test"
+
+// TestOptions is tack test's validated command line, Go's testOptions:
+// the target, . by default, the -run pattern, -v and the -O level.
+type TestOptions struct {
+    target text.Text
+    pattern text.Text
+    verbose bool
+    opt string
+}
+
+// test_usage writes msg as Go's reportTest reports a command-line
+// mistake, with a pointer to tack test --help, and returns exit_usage.
+func test_usage(msg []uint8) int32 {
+    fmt.eprintf("tack test: %s\nRun 'tack test --help' for usage.\n", msg)
+    return exit_usage
+}
+
+// run_test is tack test, a the whole command line, test at index 1, Go's
+// runTest: its flags parsed and checked (see parse_test_args), the help
+// written for -h or -help, and the tests built and run otherwise (see
+// execute_test). It returns the exit status, and an error only when an
+// allocation failed.
+func run_test(a []text.Text) (int32, error) {
+    mut opts := TestOptions{target: text.new(c_allocator), pattern: text.new(c_allocator), verbose: false, opt: codegen.default_opt}
+    code, stop := parse_test_args(a, mut opts)?
+    if stop {
+        return code, noerror
+    }
+    code2, e := execute_test(opts)
+    return code2, e
+}
+
+// is_test_bool reports whether name, a flag's name past its dashes, is
+// one of tack test's bool flags, -v and the -O flags, and gives the index
+// of an -O flag in codegen.opts, -1 for -v.
+func is_test_bool(name []uint8) (bool, int64) {
+    if bytes_equal(name, []uint8("v")) {
+        return true, -1
+    }
+    for k, o := range codegen.opts {
+        if len(name) == 2 && bytes.has_prefix(name, []uint8("O")) && bytes.has_suffix(name, []uint8(o)) {
+            return true, k
+        }
+    }
+    return false, -1
+}
+
+// bytes_equal reports whether a and b hold the same bytes.
+func bytes_equal(a []uint8, b []uint8) bool {
+    return bytes.equal(a, b)
+}
+
+// parse_bool reads s as Go's strconv.ParseBool does, giving the value
+// and whether s is one: 1, t, T, TRUE, true and True, or 0, f, F, FALSE,
+// false and False.
+func parse_bool(s []uint8) (bool, bool) {
+    for _, t := range [6]string{"1", "t", "T", "TRUE", "true", "True"} {
+        if bytes_equal(s, []uint8(t)) {
+            return true, true
+        }
+    }
+    for _, f := range [6]string{"0", "f", "F", "FALSE", "false", "False"} {
+        if bytes_equal(s, []uint8(f)) {
+            return false, true
+        }
+    }
+    return false, false
+}
+
+// parse_test_args parses the arguments of a after test into opts as Go's
+// flag package and parseTestArgs do, and reports true with the exit
+// status when the command line ends there: the help, written to
+// standard output, exit_ok, or a usage error, exit_usage. Go's flag
+// package reports the first mistake it meets, in the order of the
+// arguments; then two -O flags, then more than one argument after the
+// flags, or an empty one.
+func parse_test_args(a []text.Text, mut opts TestOptions) (int32, bool, error) {
+    mut optset [6]bool
+    mut rest := make(list[int64], c_allocator)
+    mut flags_done := false
+    mut skip := false
+    for i, s := range a {
+        if i < 2 {
+            continue
+        }
+        if skip {
+            skip = false
+            continue
+        }
+        if flags_done {
+            append(mut rest, i)?
+            continue
+        }
+        mut b := make(list[uint8], c_allocator)
+        append(mut b, s.bytes()...)?
+        c0, has0 := b[0]
+        if len(b) < 2 || !has0 || c0 != '-' {
+            flags_done = true
+            append(mut rest, i)?
+            continue
+        }
+        mut start int64 = 1
+        c1, has1 := b[1]
+        if has1 && c1 == '-' {
+            if len(b) == 2 {
+                flags_done = true
+                continue
+            }
+            start = 2
+        }
+        cs, has_start := b[start]
+        if !has_start || cs == '-' || cs == '=' {
+            mut msg := make(list[uint8], c_allocator)
+            fmt.appendf(mut msg, "bad flag syntax: %s", b[:])?
+            return test_usage(msg), true, noerror
+        }
+        mut end := len(b)
+        mut has_value := false
+        for j, x := range b {
+            if j > start && x == '=' {
+                end = j
+                has_value = true
+                break
+            }
+        }
+        name := text.from_bytes(part_of(b[:], start, end), c_allocator)?
+        mut value := text.new(c_allocator)
+        if has_value {
+            mut value.append(part_of(b[:], end +% 1, len(b)))?
+        }
+        is_bool, k := is_test_bool(name.bytes())
+        if !is_bool && !bytes_equal(name.bytes(), []uint8("run")) {
+            if bytes_equal(name.bytes(), []uint8("h")) || bytes_equal(name.bytes(), []uint8("help")) {
+                print_test_usage()
+                return exit_ok, true, noerror
+            }
+            mut msg := make(list[uint8], c_allocator)
+            fmt.appendf(mut msg, "flag provided but not defined: -%s", name.bytes())?
+            return test_usage(msg), true, noerror
+        }
+        if is_bool {
+            mut on := true
+            if has_value {
+                v, ok := parse_bool(value.bytes())
+                if !ok {
+                    mut msg := make(list[uint8], c_allocator)
+                    append(mut msg, []uint8("invalid boolean value ")...)?
+                    conv.append_quote(mut msg, value.bytes())?
+                    fmt.appendf(mut msg, " for -%s: parse error", name.bytes())?
+                    return test_usage(msg), true, noerror
+                }
+                on = v
+            }
+            if k < 0 {
+                opts.verbose = on
+            } else if k < len(optset) {
+                optset[k] = on
+            }
+            continue
+        }
+        if !has_value {
+            next := i +% 1
+            if next < 0 || next >= len(a) {
+                mut msg := make(list[uint8], c_allocator)
+                fmt.appendf(mut msg, "flag needs an argument: -%s", name.bytes())?
+                return test_usage(msg), true, noerror
+            }
+            value = text.from_bytes(a[next].bytes(), c_allocator)?
+            skip = true
+        }
+        opts.pattern = value
+    }
+    mut names := make(list[uint8], c_allocator)
+    mut count int64 = 0
+    for k, on := range optset {
+        o, has := codegen.opts[k]
+        if !on || !has {
+            continue
+        }
+        if count > 0 {
+            append(mut names, []uint8(" and ")...)?
+        }
+        append(mut names, '-', 'O')?
+        append(mut names, []uint8(o)...)?
+        opts.opt = o
+        count +%= 1
+    }
+    if count > 1 {
+        append(mut names, []uint8(" cannot be combined; pick one")...)?
+        return test_usage(names), true, noerror
+    }
+    if len(rest) > 1 {
+        mut msg := make(list[uint8], c_allocator)
+        fmt.appendf(mut msg, "expected one directory or import path, got %d arguments: ", len(rest))?
+        for j, k := range rest {
+            if j > 0 {
+                append(mut msg, ' ')?
+            }
+            if k >= 0 && k < len(a) {
+                conv.append_quote(mut msg, a[k].bytes())?
+            }
+        }
+        append(mut msg, []uint8(" (flags must come before it)")...)?
+        return test_usage(msg), true, noerror
+    }
+    mut target := text.from_bytes([]uint8("."), c_allocator)?
+    for _, k := range rest {
+        if k >= 0 && k < len(a) {
+            if a[k].len() == 0 {
+                return test_usage([]uint8("the directory or import path is empty")), true, noerror
+            }
+            target = text.from_bytes(a[k].bytes(), c_allocator)?
+        }
+    }
+    opts.target = target
+    return exit_ok, false, noerror
+}
+
+// print_test_usage writes tack test's help to standard output, Go's
+// printTestUsage.
+func print_test_usage() {
+    fmt.printf("usage: tack test [-run text] [-v] [-O level] [directory or import path]\n\n")
+    fmt.printf("Builds the package in the directory, . by default, with its test files,\n")
+    fmt.printf("those whose names end in _test.tck, and runs every test in them: each\n")
+    fmt.printf("func test_x(mut t testing.T) error, in the order of their files' names\n")
+    fmt.printf("and then of the source. The binary runs in the package's directory.\n\nFlags:\n")
+    fmt.printf("  -run <text>\n        run only the tests whose names hold text, byte for byte, case and all\n")
+    fmt.printf("  -v\n        write a line for each test as it ends: ok or FAIL, and its name\n")
+    fmt.printf("  -O0, -O1, -O2, -O3, -Os, -Oz\n")
+    fmt.printf("        optimize the generated C and the C files at that level, as clang's\n")
+    fmt.printf("        -O flags do: 0 for none, 1 to 3 for faster code, s and z for smaller\n")
+    fmt.printf("        (default -O3)\n")
+    fmt.printf("  -h, --help\n        print this help and exit\n\n")
+    fmt.printf("Exit status: 0 when every test passed, 1 if one failed, the package has\n")
+    fmt.printf("errors or the build fails, 2 if the command line is wrong.\n")
+}
+
+// test_failed reports f, a failure finding std or loading the target,
+// as Go's report does, tack: and its text, exit status 1, or declines
+// one the port cannot word, naming test.
+func test_failed(f loader.Fail) (int32, error) {
+    if f.unworded {
+        mut msg := make(list[uint8], c_allocator)
+        append(mut msg, []uint8(test_command)...)?
+        append(mut msg, f.msg...)?
+        return unimplemented(msg), noerror
+    }
+    fmt.eprintf("tack: %s\n", f.msg[:])
+    return exit_failure, noerror
+}
+
+// execute_test carries out a validated tack test command line, Go's
+// executeTest: std found, the target loaded for its tests (see
+// load_tests), compiled (see compile_tests), built into a temporary
+// directory of its own and run there (see run_tests). It returns the
+// exit status.
+func execute_test(opts TestOptions) (int32, error) {
+    std_dir, sf := find_std()?
+    if sf.failed {
+        code, e := test_failed(sf)
+        return code, e
+    }
+    mut l := loader.Loader{
+        stop: loader.stage_none,
+        max_errors: default_max_errors,
+        builtins: true,
+        has_std: true,
+        std_dir: std_dir,
+        relative: false,
+        cwd: text.new(c_allocator),
+        library: false,
+        tests: true,
+        test_pattern: text.from_bytes(opts.pattern.bytes(), c_allocator)?,
+        test_verbose: opts.verbose,
+        alloc: c_allocator,
+    }
+    mut target := make(list[uint8], c_allocator)
+    append(mut target, opts.target.bytes()...)?
+    info, stat_err := os.stat(target)
+    mut res := no_result()
+    if stat_err.code == 0 && info.is_dir() {
+        r, f := load_dir(mut l, target[:])?
+        if f.failed {
+            code, e := test_failed(f)
+            return code, e
+        }
+        res = r
+    } else if stat_err.code == 0 {
+        mut msg := make(list[uint8], c_allocator)
+        fmt.appendf(mut msg, "%s is a file; tack test takes the directory of a package, or its import path", target[:])?
+        return test_usage(msg), noerror
+    } else if loader.is_enoent(stat_err) && looks_like_import_path(target[:]) {
+        r, f := load_path(mut l, target[:])?
+        if f.failed {
+            code, e := test_failed(f)
+            return code, e
+        }
+        res = r
+    } else {
+        f := path_fail("stat", target[:], stat_err, " of a target that cannot be looked at")?
+        mut prefix := make(list[uint8], c_allocator)
+        fmt.appendf(mut prefix, "cannot find %s: ", target[:])?
+        w := wrap_fail(prefix, own f)?
+        code, e := test_failed(w)
+        return code, e
+    }
+    code, e := compile_tests(mut res, opts.opt)
+    return code, e
+}
+
+// compile_tests runs the pipeline on res, a package loaded for its
+// tests, as Go's compileTests does, and, when it accepts the package,
+// builds and runs the tests at the level opt (see run_tests): a name of
+// the package's that the generated main declares too is reported before
+// any stage runs, and ends the run (see testmain.clashes); the resolver
+// asks for no main function, a main package with none reported as
+// --check reports it; the type checker checks the tests; and what is
+// reported in the generated main is dropped or made an internal error
+// (see testmain.diagnostics). It returns the exit status.
+func compile_tests(mut res loader.Result, opt string) (int32, error) {
+    mut all := replace(mut res.diags, make(list[diag.Diagnostic], c_allocator))
+    gen, _ := testmain.generated(res.files)
+    if !res.has_program {
+        if !diag.has_errors(all) {
+            fmt.eprintf("tack: internal error: the loader built no program and reported no error\n")
+            return exit_failure, noerror
+        }
+        out := render_diagnostics(res.files, all, default_max_errors)?
+        fmt.ewrite(out)
+        return exit_failure, noerror
+    }
+    mut prog := program_of(mut res.program.packages, res.program.errors)?
+    mut clashes := testmain.clashes(prog, gen, c_allocator)?
+    if len(clashes) > 0 {
+        for i := range len(clashes) {
+            append(mut all, replace(mut clashes[i], make(diag.Diagnostic, c_allocator)))?
+        }
+        out := render_diagnostics(res.files, all, default_max_errors)?
+        fmt.ewrite(out)
+        return exit_failure, noerror
+    }
+    first := first_file(prog)
+    eu, en, has_entry := testmain.entry(prog, gen)
+    prog.entry_unit = eu
+    prog.entry_node = en
+    mut missing := resolver.missing_main(prog)?
+    for i := range len(missing) {
+        append(mut all, replace(mut missing[i], make(diag.Diagnostic, c_allocator)))?
+    }
+    mut resolved, mut rdiags := resolver.resolve(own prog, builtin.default_set(), true)?
+    for i := range len(rdiags) {
+        append(mut all, replace(mut rdiags[i], make(diag.Diagnostic, c_allocator)))?
+    }
+    resolved.entry_unit = eu
+    resolved.entry_node = en
+    files := replace(mut res.files, source.new_set(c_allocator))
+    mut c := typeck.new_checker(own resolved, own files)?
+    c.tests = true
+    e := mut c.check()
+    if e.code == typeck.not_ported.code {
+        return unimplemented([]uint8(test_command)), noerror
+    }
+    if e.code != 0 {
+        return exit_failure, e
+    }
+    mut tdiags := mut c.take_diags()?
+    for i := range len(tdiags) {
+        append(mut all, replace(mut tdiags[i], make(diag.Diagnostic, c_allocator)))?
+    }
+    if diag.has_errors(all) {
+        checked, back := mut c.take_program()
+        drop(own checked)
+        kept := testmain.diagnostics(own all, gen, first, c_allocator)?
+        out := render_diagnostics(back, kept, default_max_errors)?
+        fmt.ewrite(out)
+        return exit_failure, noerror
+    }
+    if !has_entry {
+        fmt.eprintf("tack: internal error: tack test generated no main\n")
+        return exit_failure, noerror
+    }
+    mut typed := mut c.take_typed()?
+    gout, mut gdiags, ge := codegen.generate(mut typed, builtin.default_set())
+    if ge.code == codegen.not_ported.code {
+        return unimplemented([]uint8(test_command)), noerror
+    }
+    if ge.code != 0 {
+        return exit_failure, ge
+    }
+    for i := range len(gdiags) {
+        append(mut all, replace(mut gdiags[i], make(diag.Diagnostic, c_allocator)))?
+    }
+    kept := testmain.diagnostics(own all, gen, first, c_allocator)?
+    if diag.has_errors(kept) {
+        out := render_diagnostics(typed.files, kept, default_max_errors)?
+        fmt.ewrite(out)
+        return exit_failure, noerror
+    }
+    mut warnings := make(list[uint8], c_allocator)
+    if len(kept) > 0 {
+        warnings = render_diagnostics(typed.files, kept, default_max_errors)?
+    }
+    code, e2 := build_tests(mut typed, gout, warnings, opt)
+    return code, e2
+}
+
+// first_file returns the FileID of the first file of prog's last
+// package, the package loaded for its tests, where an internal error
+// about the generated main is reported (see testmain.diagnostics).
+func first_file(prog ast.Program) source.FileID {
+    n := len(prog.packages)
+    if n > 0 {
+        last := n -% 1
+        if last >= 0 && last < len(prog.packages) {
+            first := prog.packages[last].first
+            for u, t := range prog.trees {
+                if u == first {
+                    return t.span.file
+                }
+            }
+        }
+    }
+    return source.FileID{n: -1}
+}
+
+// build_tests builds t's program, c its generated C, into tests in a
+// temporary directory of its own, writing warnings as a build does, and
+// runs it (see run_tests), Go's executeTest past compileTests: the
+// directory made, absolute, the build, the run, and the directory
+// removed. It returns the exit status.
+//
+// A directory that cannot be removed is Go's failed to delete temp
+// directory: and RemoveAll's error, joined to what went wrong before,
+// and reported as Go's reportTest reports the join: after a run that
+// passed, tack: and the error alone; after an error of one line, the
+// build's or the run's, on the line after it, with no tack: of its own;
+// and where Go drops it, after the diagnostics of the build's
+// definitions check and after tests that failed, the port reports it
+// all the same, tack: and the error, exit status 1, known divergences
+// decided 2026-11-18, the first for builds, the second extending it to
+// tack test. After a decline nothing more is written. The removal is
+// std/os's remove_all, Go's RemoveAll, so its failure is Go's. One whose
+// errno Go's words are not known for, EHWPOISON alone on Linux, is
+// declined where Go's output ends in a tack: line, after a run that
+// passed or an error of one line, which the decline stands for: the
+// line tack: and the build's or the run's error is held
+// until the removal is done, so nothing of it is written then; after
+// tests that failed or diagnostics, where Go writes nothing of the
+// removal, it is written in std/os's words (decided 2026-11-18).
+func build_tests(mut t typeck.Typed, c []uint8, warnings []uint8, opt string) (int32, error) {
+    tmp, terr := os.make_temp_dir([]uint8("tk-test-"), c_allocator)
+    if terr.code == 1 {
+        return exit_failure, terr
+    }
+    if terr.code != 0 {
+        return unimplemented([]uint8("test with a temp directory that cannot be made")), noerror
+    }
+    abs_tmp, af := abs_path(tmp.bytes())?
+    if af.failed {
+        rm0, re0 := remove_tree(tmp.bytes())
+        if re0.code != 0 {
+            return exit_failure, re0
+        }
+        drop(own rm0)
+        return unimplemented([]uint8("test in a current directory that cannot be found")), noerror
+    }
+    bin := path.join(abs_tmp.bytes(), []uint8("tests"), c_allocator)?
+    mut diagnosed := false
+    // held is the line tack: and an error the build or the run ends in,
+    // Go's err, written once the directory is removed, after it or, for a
+    // decline, never (see the comment above).
+    mut held := make(list[uint8], c_allocator)
+    mut code := build_said(mut t, c, warnings, bin.bytes(), opt, default_max_errors, mut diagnosed, true, mut held)?
+    // said says what was written, or held, of how it ended: none, a test
+    // failure, a line tack: and an error, or the diagnostics.
+    mut said := said_none
+    if code == exit_failure {
+        said = said_line
+        if diagnosed {
+            said = said_diagnostics
+        }
+    }
+    if code == exit_ok {
+        dir, pkg := tested_package(t.prog)?
+        code, said = run_tests(bin.bytes(), dir.bytes(), pkg.bytes(), mut held)?
+    }
+    rm, re := remove_tree(abs_tmp.bytes())
+    if re.code != 0 {
+        return exit_failure, re
+    }
+    if !rm.failed || code == not_implemented {
+        fmt.ewrite(held[:])
+        return code, noerror
+    }
+    mut words := os_errno_words(rm.err)
+    if !rm.worded || len(words) == 0 {
+        if said == said_none || said == said_line {
+            // Go's output ends in a line starting tack: , its error or
+            // the join of the removal's to it, which the decline stands
+            // for; the held line is not written.
+            return unimplemented([]uint8("test with a temp directory that cannot be removed")), noerror
+        }
+        // After tests that failed, or diagnostics, Go writes nothing of
+        // the removal, so no decline could stand for it: an errno Go's
+        // words are not known for, EHWPOISON alone on Linux, is written
+        // in std/os's words (decided 2026-11-18).
+        words = rm.err.msg
+    }
+    fmt.ewrite(held[:])
+    if said == said_line {
+        fmt.eprintf("failed to delete temp directory: %s %s: %s\n", rm.op.bytes(), rm.path.bytes(), words)
+    } else {
+        fmt.eprintf("tack: failed to delete temp directory: %s %s: %s\n", rm.op.bytes(), rm.path.bytes(), words)
+    }
+    return exit_failure, noerror
+}
+
+// said_none, said_failed, said_line and said_diagnostics are what tack
+// test wrote of how a build or a run ended before its temporary
+// directory is removed (see build_tests): nothing, the run having
+// passed; the tests' failure, the binary's or the driver's FAIL line;
+// an error of one line, tack: and its text; or the build's diagnostics.
+var said_none uint8 = 0
+var said_failed uint8 = 1
+var said_line uint8 = 2
+var said_diagnostics uint8 = 3
+
+// tested_package returns the directory and the import path of prog's
+// last package, the package loaded for its tests, copies.
+func tested_package(prog ast.Program) (text.Text, text.Text, error) {
+    last := len(prog.packages) -% 1
+    if last < 0 || last >= len(prog.packages) {
+        return text.new(c_allocator), text.new(c_allocator), noerror
+    }
+    dir := text.from_bytes(prog.packages[last].dir.bytes(), c_allocator)?
+    pkg := text.from_bytes(prog.packages[last].path.bytes(), c_allocator)?
+    return dir, pkg, noerror
+}
+
+// run_tests runs bin, the tests of the package with import path pkg, in
+// dir, the package's directory, its outputs the driver's own, Go's
+// runTests and endMessage: exit_ok when it exits 0; exit_failure with
+// nothing more said for 1, the status of a run whose last line says it
+// failed, and with a line saying how it ended for any other status or a
+// signal. A binary that cannot be started is Go's cannot run the tests
+// of pkg: and exec's error, chdir and the directory when it cannot be
+// looked at, and fork/exec and the binary otherwise, each errno in Go's
+// words (see os_errno_words), which it appends to held rather than
+// writes, for build_tests to write after the removal of the temporary
+// directory; or declined for an errno Go's words are not known for. It
+// also returns what it wrote, or held, of how the run ended (see
+// said_none).
+func run_tests(bin []uint8, dir []uint8, pkg []uint8, mut held list[uint8]) (int32, uint8, error) {
+    mut argv := make(list[text.Text], c_allocator)
+    append(mut argv, text.from_bytes(bin, c_allocator)?)?
+    st, err := os.run_inherit_in(dir, bin, argv, c_allocator)
+    if err.code == 1 {
+        return exit_failure, said_none, err
+    }
+    if err.code != 0 {
+        if err.code == 13 {
+            _, derr := os.stat(dir)
+            mut msg := make(list[uint8], c_allocator)
+            if derr.code != 0 {
+                words := os_errno_words(derr)
+                if len(words) > 0 {
+                    fmt.appendf(mut msg, "chdir %s: %s", dir, words)?
+                }
+            } else {
+                words := os_errno_words(error{code: 3, msg: err.msg})
+                if len(words) > 0 {
+                    fmt.appendf(mut msg, "fork/exec %s: %s", bin, words)?
+                }
+            }
+            if len(msg) > 0 {
+                fmt.appendf(mut held, "tack: cannot run the tests of %s: %s\n", pkg, msg[:])?
+                return exit_failure, said_line, noerror
+            }
+        }
+        return unimplemented([]uint8("test with a test binary that cannot be run")), said_none, noerror
+    }
+    if !st.exited() {
+        mut line := make(list[uint8], c_allocator)
+        fmt.appendf(mut line, "FAIL %s: the test binary was killed by signal %d (", pkg, st.signal())?
+        append_go_signal(mut line, st.signal())?
+        append(mut line, []uint8(")\n")...)?
+        fmt.ewrite(line[:])
+        return exit_failure, said_failed, noerror
+    }
+    if st.exit_status() == 0 {
+        return exit_ok, said_none, noerror
+    }
+    if st.exit_status() != 1 {
+        fmt.eprintf("FAIL %s: the test binary exited with status %d\n", pkg, st.exit_status())
+    }
+    return exit_failure, said_failed, noerror
+}

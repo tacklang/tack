@@ -1,0 +1,351 @@
+package testmain
+
+import ast from "tack/ast"
+import bytes from "std/bytes"
+import diag from "tack/diag"
+import source from "tack/source"
+import text from "std/text"
+
+// file_name is the name of the generated main, Go's FileName: no file
+// on disk is shown by it, since the loader shows every file it reads by
+// its path, and no path is wrapped in angle brackets.
+pub var file_name = "<tack test main>"
+
+// test_prefix starts the name of every test.
+var test_prefix = "test_"
+
+// std_testing is the import path of std/testing, which the generated
+// main calls.
+var std_testing = "std/testing"
+
+// main_name, names_name and testing_name are the names the generated
+// main declares: its function, the global array of every test's name,
+// and the name it imports std/testing by (see Clashes in Go's
+// testmain.go).
+var main_name = "tack_test_main_"
+var names_name = "tack_test_names_"
+var testing_name = "tack_testing_"
+
+// generated returns the FileID of the generated main among files, the
+// one file named file_name, and whether there is one.
+pub func generated(files source.Set) (source.FileID, bool) {
+    for _, f := range files.files() {
+        if f.filename.equal([]uint8(file_name)) {
+            return f.id, true
+        }
+    }
+    return source.FileID{n: -1}, false
+}
+
+// is_test reports whether the declaration n of the tree t is a test, Go's
+// Tests' condition on one declaration: a function, not a method, of a
+// test file, whose name starts with test_.
+func is_test(t ast.File, n id[ast.Node]) bool {
+    if !t.test {
+        return false
+    }
+    switch t.kind(n) {
+    case func_decl(fid):
+        fn := t.funcs[fid]
+        return !fn.method && bytes.has_prefix(t.text(fn.name), []uint8(test_prefix))
+    default:
+    }
+    return false
+}
+
+// main_source returns the generated main of the package named pkg_name,
+// with the import path pkg_path, loaded for its tests from trees, the
+// trees of its files, which files holds, Go's Source: a file of the
+// package that declares the global array of every test's name and a
+// function that starts std/testing's runner, with pattern, -run's, and
+// verbose, -v's, runs each test through it, and exits with the status
+// its finish gives. A test is every function, not a method, of a test
+// file whose name starts with test_, in file order and then source
+// order; its place is its name's, as a diagnostic there shows it. Every
+// string is a literal, written in printable ASCII with any other byte,
+// and every " and \, as \xHH. It fails only for want of memory.
+pub func main_source(pkg_name []uint8, pkg_path []uint8, trees []ast.File, files source.Set, pattern []uint8, verbose bool, scope alloc Allocator) (list[uint8], error) {
+    mut b := make(list[uint8], alloc)
+    mut count int64 = 0
+    for _, t := range trees {
+        for _, d := range t.decls {
+            if is_test(t, d) {
+                count +%= 1
+            }
+        }
+    }
+    mut qual := make(list[uint8], alloc)
+    append(mut b, []uint8("package ")...)?
+    append(mut b, pkg_name...)?
+    append(mut b, []uint8("\n\n")...)?
+    if !bytes.equal(pkg_path, []uint8(std_testing)) {
+        append(mut qual, []uint8(testing_name)...)?
+        append(mut qual, '.')?
+        append(mut b, []uint8("import ")...)?
+        append(mut b, []uint8(testing_name)...)?
+        append(mut b, []uint8(" from ")...)?
+        append_quote(mut b, []uint8(std_testing))?
+        append(mut b, []uint8("\n\n")...)?
+    }
+    append(mut b, []uint8("var ")...)?
+    append(mut b, []uint8(names_name)...)?
+    append(mut b, []uint8(" = [")...)?
+    bytes.append_int(mut b, count)?
+    append(mut b, []uint8("]string{")...)?
+    mut first := true
+    for _, t := range trees {
+        for _, d := range t.decls {
+            if !is_test(t, d) {
+                continue
+            }
+            if !first {
+                append(mut b, []uint8(", ")...)?
+            }
+            first = false
+            append_quote(mut b, test_name(t, d))?
+        }
+    }
+    append(mut b, []uint8("}\n\n")...)?
+    append(mut b, []uint8("func ")...)?
+    append(mut b, []uint8(main_name)...)?
+    append(mut b, []uint8("() {\n    mut r := ")...)?
+    append(mut b, qual[:]...)?
+    append(mut b, []uint8("start(")...)?
+    append_quote(mut b, pkg_path)?
+    append(mut b, []uint8(", ")...)?
+    append_quote(mut b, pattern)?
+    if verbose {
+        append(mut b, []uint8(", true, ")...)?
+    } else {
+        append(mut b, []uint8(", false, ")...)?
+    }
+    append(mut b, []uint8(names_name)...)?
+    append(mut b, []uint8(")\n")...)?
+    for _, t := range trees {
+        for _, d := range t.decls {
+            if !is_test(t, d) {
+                continue
+            }
+            append(mut b, []uint8("    mut r.run(")...)?
+            append_quote(mut b, test_name(t, d))?
+            append(mut b, []uint8(", ")...)?
+            mut place_ok := false
+            for _, f := range files.lookup(t.span.file) {
+                sp := name_span(t, d)
+                line, col := f.position(sp.start)
+                append_quote(mut b, f.filename.bytes())?
+                append(mut b, []uint8(", ")...)?
+                bytes.append_int(mut b, line)?
+                append(mut b, []uint8(", ")...)?
+                bytes.append_int(mut b, col)?
+                append(mut b, []uint8(", ")...)?
+                mut excerpt := make(list[uint8], alloc)
+                diag.excerpt(f, sp, mut excerpt)?
+                append_quote(mut b, excerpt[:])?
+                place_ok = true
+            }
+            if !place_ok {
+                // Go panics on a test outside the files given, which a
+                // load never makes: every tree's file is in files.
+                return b, error{code: 2, msg: "internal error: a test outside the files given"}
+            }
+            append(mut b, []uint8(", ")...)?
+            append(mut b, test_name(t, d)...)?
+            append(mut b, []uint8(")\n")...)?
+        }
+    }
+    append(mut b, []uint8("    exit(mut r.finish())\n}\n")...)?
+    return b, noerror
+}
+
+// test_name returns the name of the function d of t.
+func test_name(t ast.File, d id[ast.Node]) []uint8 {
+    switch t.kind(d) {
+    case func_decl(fid):
+        return t.text(t.funcs[fid].name)
+    default:
+    }
+    return t.text(t.package_name)[:0]
+}
+
+// name_span returns the span of the name of the function d of t.
+func name_span(t ast.File, d id[ast.Node]) source.Span {
+    switch t.kind(d) {
+    case func_decl(fid):
+        return t.funcs[fid].name_span
+    default:
+    }
+    return t.spanned(d)
+}
+
+// append_quote appends s to b as a Tack string literal, Go's quote:
+// printable ASCII as it is, and any other byte, " and \ among them, as
+// \xHH, in lowercase hex.
+func append_quote(mut b list[uint8], s []uint8) error {
+    append(mut b, '"')?
+    for _, c := range s {
+        if c >= 32 && c < 127 && c != '"' && c != '\\' {
+            append(mut b, c)?
+            continue
+        }
+        append(mut b, '\\', 'x', hex_digit(c / 16), hex_digit(c % 16))?
+    }
+    append(mut b, '"')?
+    return noerror
+}
+
+// hex_digit returns the lowercase hex digit of n, which is below 16.
+func hex_digit(n uint8) uint8 {
+    if n < 10 {
+        return '0' +% n
+    }
+    return 'a' +% (n -% 10)
+}
+
+// clashes returns an error for every name of the last package of prog,
+// the package loaded for its tests, in its files but gen, the generated
+// main, that a name the generated main declares would clash with, at
+// the declaration, Go's Clashes: a package-level function, not a
+// method, variable or type named like any of the three, and an import
+// named like the function or the array, which share a scope with every
+// file's imports. An import named like the main's import of std/testing
+// is each file's own, and does not clash.
+pub func clashes(prog ast.Program, gen source.FileID, scope alloc Allocator) (list[diag.Diagnostic], error) {
+    mut out := make(list[diag.Diagnostic], alloc)
+    n := len(prog.packages)
+    if n == 0 {
+        return out, noerror
+    }
+    last := n -% 1
+    if last < 0 || last >= len(prog.packages) {
+        return out, noerror
+    }
+    first := prog.packages[last].first
+    count := prog.packages[last].count
+    for u, t := range prog.trees {
+        if u < first || u -% first >= count || t.span.file == gen {
+            continue
+        }
+        for _, imp := range t.imports {
+            switch t.kind(imp) {
+            case import_decl(i):
+                if bytes.equal(t.text(i.name), []uint8(main_name)) || bytes.equal(t.text(i.name), []uint8(names_name)) {
+                    append(mut out, clash(t.text(i.name), i.name_span, alloc)?)?
+                }
+            default:
+            }
+        }
+        for _, d := range t.decls {
+            mut nm span[uint8]
+            mut sp := t.spanned(d)
+            mut named := false
+            switch t.kind(d) {
+            case func_decl(fid):
+                fn := t.funcs[fid]
+                if !fn.method {
+                    nm = fn.name
+                    sp = fn.name_span
+                    named = true
+                }
+            case var_decl(v):
+                nm = v.name
+                sp = v.name_span
+                named = true
+            case type_decl(td):
+                nm = td.name
+                sp = td.name_span
+                named = true
+            default:
+            }
+            if named && (bytes.equal(t.text(nm), []uint8(main_name)) || bytes.equal(t.text(nm), []uint8(names_name)) || bytes.equal(t.text(nm), []uint8(testing_name))) {
+                append(mut out, clash(t.text(nm), sp, alloc)?)?
+            }
+        }
+    }
+    return out, noerror
+}
+
+// clash returns the error for name, at sp, which the generated main
+// declares too.
+func clash(name []uint8, sp source.Span, scope alloc Allocator) (diag.Diagnostic, error) {
+    mut m := text.from_bytes(name, alloc)?
+    mut m.append([]uint8(" is declared by the main tack test generates; rename it"))?
+    return diag.new_error(own m, sp, alloc), noerror
+}
+
+// entry returns the tree and the node of the generated main's function
+// in prog, a program loaded for its tests, Go's Entry, and true; or
+// false when its last package has no generated main, gen, as when a
+// problem stopped the load before it was parsed, or no such function,
+// as when the file did not parse into it.
+pub func entry(prog ast.Program, gen source.FileID) (int64, id[ast.Node], bool) {
+    mut none id[ast.Node]
+    n := len(prog.packages)
+    if n == 0 {
+        return -1, none, false
+    }
+    last := n -% 1
+    if last < 0 || last >= len(prog.packages) {
+        return -1, none, false
+    }
+    first := prog.packages[last].first
+    count := prog.packages[last].count
+    for u, t := range prog.trees {
+        if u < first || u -% first >= count || t.span.file != gen {
+            continue
+        }
+        for _, d := range t.decls {
+            switch t.kind(d) {
+            case func_decl(fid):
+                fn := t.funcs[fid]
+                if !fn.method && bytes.equal(t.text(fn.name), []uint8(main_name)) {
+                    return u, d, true
+                }
+            default:
+            }
+        }
+    }
+    return -1, none, false
+}
+
+// diagnostics returns diags, taken over, what the stages reported of a
+// program loaded for its tests, with those located in gen, the
+// generated main, dealt with, Go's Diagnostics: dropped when any other
+// is an error, since a mistake in a test is what makes the generated
+// main's call of it wrong, and otherwise each turned into an error
+// saying the compiler is wrong, at the start of first, the first file
+// of the package, with what it said. A note of another diagnostic
+// located there is dropped with it.
+pub func diagnostics(own diags list[diag.Diagnostic], gen source.FileID, first source.FileID, scope alloc Allocator) (list[diag.Diagnostic], error) {
+    mut ds := diags
+    mut kept := make(list[diag.Diagnostic], alloc)
+    mut in_gen := make(list[diag.Diagnostic], alloc)
+    mut other_errors := false
+    for i := range len(ds) {
+        mut d := replace(mut ds[i], make(diag.Diagnostic, alloc))
+        if d.span.file == gen {
+            append(mut in_gen, d)?
+            continue
+        }
+        mut notes := make(list[diag.Related], alloc)
+        mut rel := replace(mut d.related, make(list[diag.Related], alloc))
+        for j := range len(rel) {
+            if rel[j].span.file == gen {
+                continue
+            }
+            append(mut notes, replace(mut rel[j], make(diag.Related, alloc)))?
+        }
+        d.related = notes
+        other_errors = other_errors || d.severity == diag.error_severity
+        append(mut kept, d)?
+    }
+    if other_errors || len(in_gen) == 0 {
+        return kept, noerror
+    }
+    for _, d := range in_gen {
+        mut m := text.from_bytes([]uint8("internal error: tack test generated a main that does not compile: "), alloc)?
+        mut m.append(d.message.bytes())?
+        append(mut kept, diag.new_error(own m, source.Span{file: first, start: 0, end: 0}, alloc))?
+    }
+    return kept, noerror
+}

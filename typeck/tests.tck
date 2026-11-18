@@ -1,0 +1,159 @@
+package typeck
+
+import ast from "tack/ast"
+import fmt from "std/fmt"
+import source from "tack/source"
+import types from "tack/types"
+
+// Tests, Go's tests.go. With Checker.tests set, the program is the
+// package tack test loaded for its tests, its last, with its test files
+// (see ast.File's test) and the main the driver generated for them. Every
+// function of a test file of that package whose name starts with test_
+// is a test, and must be declared exactly
+//
+//     func test_x(mut t testing.T) error
+//
+// or it is an error at its name, unless a type of its signature is one
+// an earlier error left unknown (check_tests). A ? in a test's own body,
+// not a closure's, records where it is, its place and the parameter
+// whose field at it is stored in (record_question_site), which code
+// generation makes the nodes of (see Typed.splice_sites) and lowers to
+// one store before the ? returns.
+
+// QuestionSite is what a ? in a test's own body stores, Go's
+// Question.Site and SiteTo: the type of the test's T's field at, a
+// testing.Site, the test's T parameter, and the ?'s span, whose file,
+// line, column and excerpt the literal holds.
+pub type QuestionSite struct {
+    typ types.Type
+    param Key
+    place source.Span
+}
+
+// SiteStore is the nodes code generation stores a ?'s place with, made
+// by splice_sites in the ?'s tree: to, the selector of the T's field at,
+// and lit, the literal of the place.
+pub type SiteStore struct {
+    to id[ast.Node]
+    lit id[ast.Node]
+}
+
+// check_tests reports, when tests are checked, every test of the
+// program, with its signature resolved, that is not declared as a test
+// must be, and records the others in test_funcs, Go's checkTests.
+func (mut c Checker) check_tests() error {
+    if !c.tests {
+        return noerror
+    }
+    main := len(c.prog.packages) -% 1
+    for i := range count_decls(c.prog) {
+        d := decl_at(c.prog, i)
+        switch kind_at(c.prog.trees, d) {
+        case func_decl:
+        default:
+            continue
+        }
+        fn := func_of(c.prog.trees, d)
+        mut name := msg()
+        append(mut name, text_at(c.prog.trees, c.none, d.unit, fn.name)...)?
+        p, has_pkg := c.unit_pkg[d.unit]
+        if !bytes_has_prefix(name[:], []uint8("test_")) || !has_pkg || p != main || !tree_is_test(c.prog.trees, d.unit) {
+            continue
+        }
+        if mut c.signature_reported(d) {
+            continue
+        }
+        if !mut c.test_shaped(d) {
+            mut m := msg()
+            fmt.appendf(mut m, "%s is a test, so it must be declared func %s(mut t testing.T) error, not generic and not a method", name[:], name[:])?
+            mut c.errorf(fn.name_span, own m)?
+            continue
+        }
+        put(mut c.test_funcs, d, true)?
+    }
+    return noerror
+}
+
+// bytes_has_prefix reports whether b starts with p.
+func bytes_has_prefix(b []uint8, p []uint8) bool {
+    return len(b) >= len(p) && bytes_equal(b[:len(p)], p)
+}
+
+// tree_is_test reports whether the tree unit is a test file's.
+func tree_is_test(trees []ast.File, unit int64) bool {
+    for u, t := range trees {
+        if u == unit {
+            return t.test
+        }
+    }
+    return false
+}
+
+// signature_reported reports whether a parameter or a result type of the
+// function d is invalid, a type an earlier error left unknown, Go's
+// signatureReported.
+func (mut c Checker) signature_reported(d Key) bool {
+    fn := func_of(c.prog.trees, d)
+    for i := range count_items(c.prog.trees, d.unit, fn.params) {
+        p := item_at(c.prog.trees, d.unit, fn.params, i)
+        if decl_type_of(c.decl_types, p) == types.invalid {
+            return true
+        }
+    }
+    n, _ := results_count(c.result_count, d)
+    for i := range n {
+        if result_of(c.results, d, i) == types.invalid {
+            return true
+        }
+    }
+    return false
+}
+
+// test_shaped reports whether the function d, a test, is declared as
+// check_tests requires, Go's testShaped.
+func (mut c Checker) test_shaped(d Key) bool {
+    fn := func_of(c.prog.trees, d)
+    n, _ := results_count(c.result_count, d)
+    if fn.method || generic_fn(c.prog.trees, d) || fn.is_extern || count_items(c.prog.trees, d.unit, fn.params) != 1 || n != 1 {
+        return false
+    }
+    p := item_at(c.prog.trees, d.unit, fn.params, 0)
+    param := param_of(c.prog.trees, p)
+    return param.is_mut && !param.is_own && !param.is_scope && !param.variadic && mut c.is_testing_t(decl_type_of(c.decl_types, p)) && result_of(c.results, d, 0) == types.error_type
+}
+
+// testing_at returns the type of the field at of typ, std/testing's T,
+// and whether it has one that is a testing.Site, Go's testingAt.
+func (mut c Checker) testing_at(typ types.Type) (types.Type, bool) {
+    for j := range c.table.field_count(typ) {
+        if bytes_equal(c.table.field_name(typ, j), []uint8("at")) {
+            ft, _ := c.table.field_type(typ, j)
+            return ft, mut c.is_site(ft)
+        }
+    }
+    return types.invalid, false
+}
+
+// record_question_site records the place the ? k, checked in the
+// function being checked, stores when that function is a test, and
+// forgets any recorded before otherwise, as when a body is checked
+// again, Go's recordQuestionSite.
+func (mut c Checker) record_question_site(k Key) error {
+    delete(mut c.question_sites, k)
+    fnk := c.body.fn
+    _, is_test := c.test_funcs[fnk]
+    if !is_test {
+        return noerror
+    }
+    fn := func_of(c.prog.trees, fnk)
+    if count_items(c.prog.trees, fnk.unit, fn.params) < 1 {
+        return noerror
+    }
+    p := item_at(c.prog.trees, fnk.unit, fn.params, 0)
+    site, ok := mut c.testing_at(decl_type_of(c.decl_types, p))
+    if !ok {
+        return noerror
+    }
+    put(mut c.question_sites, k, QuestionSite{typ: site, param: p, place: span_at(c.prog.trees, k)})?
+    return noerror
+}

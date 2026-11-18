@@ -3,13 +3,17 @@ package ast
 // Package ast defines the syntax tree of a Tack source file, as the
 // parser builds it and the resolver binds it. It is a port of the Go
 // compiler's package ast, as far as the parser, the resolver and the
-// --ast and --res dumps need it so far: the nodes, what the parser and
-// the resolver put in them, a Program of trees, the walk Go's BadStmts
-// makes, and the dumps. The fields the type checker fills in, its types
-// and constants, are not here yet; they come with it, and the dumps
-// write them at the zero values the stages before it leave them at in
-// Go. Go's Walk with a visitor, and the helpers the later passes call,
-// are not ported yet either.
+// --ast and --res dumps and the later stages need it: the nodes, what
+// the parser and the resolver put in them, a Program of trees, the walk
+// Go's BadStmts makes, and the dumps. What the type checker finds of the
+// tree, its types and constants, Go's fields of the nodes, is kept in
+// the checker's handover instead (see typeck.Typed), so the dumps write
+// those fields at the zero values the stages before it leave them at in
+// Go. A File records whether it is a test file (test), which a load for
+// tests sets, and a Program the function it starts at when that is not
+// main, its entry_unit and entry_node, the main tack test generates,
+// which the driver sets (see package testmain); the dumps write neither,
+// as Go's leave out Test and Entry.
 //
 // A Program, Go's ast.Program, holds every tree of a compilation,
 // package by package, each package naming its run of them, so that a

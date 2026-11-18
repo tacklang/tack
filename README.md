@@ -19,8 +19,10 @@ needs it: integer constants in full, and whether a float literal can be
 held exactly, without the float constant's value yet; `modfile` and
 `loader`, which find a program's files, in a directory, a module
 (`tack.mod`) and the packages it imports, std's among them, and put
-them together, as the Go compiler's do, but for its libraries, which
-`--check` loads, and its test mode, which `tack test` uses; and
+them together, as the Go compiler's do, its libraries, which `--check`
+loads, and its test mode, which `tack test` uses, among it; `testmain`,
+which writes the main a package's tests are built with, byte for byte
+the Go compiler's; and
 `resolver`, which binds every name of the program, with `types`, the
 basic types and the `Table` that gives every other type its ID, `cname`,
 whole, and
@@ -121,6 +123,30 @@ answered as not implemented. The flags
 `-O0` to `-Oz` and `--backend` are read, and their usage errors
 written, as the Go compiler writes them.
 
+`tack test [-run text] [-v] [-O level] [directory or import path]`
+runs a package's tests as the Go compiler does: the package loaded with
+its test files and the generated main (see package testmain), checked
+with every test's declaration, built as `--out` builds a program into a
+temporary directory of its own, with the build cache, and run in the
+package's directory with std/os's `run_inherit_in`, its outputs the
+driver's own; the exit status is the binary's, 0 or 1, and a binary a
+signal kills or that exits with another status is reported as Go
+reports it, `FAIL <package>: the test binary ...`, exit status 1. Its
+flags are read as Go's flag package reads tack test's, `-h` and
+`--help` write its help, and every usage error, diagnostic and failure
+is written as the Go compiler writes it; a failure the port cannot word
+so is declined, naming `test`, and always before the line Go ends in,
+which the decline stands for: the line `tack:` and an error a build or
+a run ends in is held until the temporary directory is removed, and a
+removal error with no Go words, EHWPOISON alone, is declined after a
+run that passed or such an error, and written in std/os's words after
+failed tests or diagnostics, where Go writes nothing of it. tackc's
+porttest runs it, stage
+test-examples, on every package of `examples/tack-test`,
+`examples/test-files` and std/hex, with and without each flag, and on
+probes of every message and path, comparing the generated C of each
+test binary with Go's too.
+
 `tack --out <path> <target>` builds a binary as the Go compiler does,
 byte for byte the Go compiler's. The `--out` path is checked first, as
 Go's `checkOutPath` does, the program compiled as `--emit` compiles it,
@@ -178,14 +204,21 @@ object the ELF reader does not take, where Go's error is debug/elf's; a
 build cache that cannot be written, an object or a key that is a
 directory among it, where Go's error names a temporary file of a
 random name; a
-temporary directory or file that cannot be made, written or removed,
-which Go words with a path or an operation the port cannot give; and a
-current directory that is gone, where Go's message names an empty path
-or Go finds it by walking up. A temporary directory that cannot be
-removed after the check of the definitions gave diagnostics is reported
-after them, `tack: failed to delete temp directory:` and the error Go's
-`RemoveAll` would give, where the Go compiler drops it, a known
-divergence. The temporary directory is std/os's `tk-XXXXXX`, six
+temporary directory or file that cannot be made or written, which Go
+words with a path or an operation the port cannot give; and a current
+directory that is gone, where Go's message names an empty path or Go
+finds it by walking up. The temporary directory is removed with
+std/os's `remove_all`, which removes and fails as Go's `RemoveAll`
+does, relative to each directory, so one that cannot be removed is
+reported as Go reports it, joined to the build's error; after the
+diagnostics of the check of the definitions, where the Go compiler
+drops it, the port reports it, `tack: failed to delete temp
+directory:` and the error, a known divergence. An errno the port has no
+Go words for there, EHWPOISON alone on Linux, is declined where Go's
+output ends in a `tack:` line, after a build that succeeded or failed
+with an error of one line, nothing of that line written first, and
+written in std/os's words after diagnostics, where Go writes nothing
+of the removal. The temporary directory is std/os's `tk-XXXXXX`, six
 letters and digits, where Go's is `tk-<digits>`, made with std/os's
 file modes, and every failure Go words with a path in it, as a runtime
 directory that cannot be made, is declined. No build the porttest
@@ -260,10 +293,38 @@ Decided on 2026-11-18:
   and then `tack: failed to delete temp directory:` and the error Go's
   `RemoveAll` would give, `openfdat` or `unlinkat`, the entry's path
   and the errno, exit status 1; Go joins that error to the diagnostics
-  and reports only the diagnostics. Where several entries cannot be
-  removed, the port names the first in sorted order, where Go would
-  name the first its directory read gives. Any other errno there is
-  declined.
+  and reports only the diagnostics. The error is the one std/os's
+  `remove_all` gives, Go's `RemoveAll`'s.
+- Where the port reports a removal error that Go drops, after a build's
+  diagnostics and after `tack test`'s failed tests, an errno the port
+  has no Go words for, EHWPOISON alone on Linux, is written in std/os's
+  own words, `failed to delete temp directory: <op> <path>: <text>`
+  after `tack:`; nothing declines there, since Go writes no line a
+  decline could stand for. Decided 2026-11-18.
+
+- `tack.h` names a struct type of a package by its package's name and
+  an underscore first unless the package is named main, so the package's
+  own C, written against the names a program importing it gets,
+  compiles against it. Go leaves the prefix off the types of the
+  program's last package, which is main only in a program: in `tack
+  test` of a package whose C uses a type of the package, std/os among
+  them, its C does not compile, and the `tack.h` `--check
+  --emit-header` writes for a library names its types otherwise than
+  its C does.
+  Under this naming, a package loaded for its tests or checked as a
+  library is accepted and rejected exactly as a program importing it
+  is, where Go differs three ways: a type `auto` of package `p` is
+  `p_auto`, which Go rejects as `auto`, a C keyword; a type `q_X` of
+  `p`, which imports `q` and its `X`, is `p_q_X`, which Go rejects as
+  sharing `q_X`; and types `X` of `a/util` and of `b/util` are both
+  `util_X`, which the port rejects and Go accepts, naming the tested
+  one `X`.
+- A `tack test` whose temporary directory cannot be removed after
+  tests that failed, a test having left in it what may not be read,
+  writes the tests' failure and then `tack: failed to delete temp
+  directory:` and the error, exit status 1; Go drops that error then.
+  Decided 2026-11-18 for `tack test`, extending the ruling for builds
+  above.
 
 These follow the lead's ruling of 2026-11-15 that the language already
 defines the zero values, which the language owner may still overrule:

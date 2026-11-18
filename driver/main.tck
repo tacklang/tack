@@ -49,20 +49,21 @@ import typeck from "tack/typeck"
 // the type checker's handover (see typeck.Typed), to package codegen,
 // which rejects, with every diagnostic, a program whose types tack.h
 // could not name, as Go's backend does before it lowers anything, and
-// whose lowering is not ported yet. --check of std/builtin, or of its
+// lowers it. --check of std/builtin, or of its
 // builtin.tck, compares the copy with the compiler's own, as Go's
-// checkBuiltinDoc does. Anything else
+// checkBuiltinDoc does. A command line whose first argument is test is
+// tack test's, which builds and runs a package's tests (see test.tck).
+// Anything else
 // it does not do yet, and says so in the form the differential harness
 // in tackc/porttest reads: on standard error,
 //
 //     tack: not implemented in the port: <what>
 //
 // and exit status 3, which the harness counts as a skip unless the stage
-// is one it requires. --check, --emit and --emit-header decline so when
-// no stage before the backend finds an error and tack.h can name every
-// type, since Go goes on to lower the program then, which the port does
-// not do yet, naming --check, or the dump without it; when the type
-// checker meets what it does not check yet; --check when a dump flag
+// is one it requires. --check, --emit and --emit-header decline so,
+// naming --check, or the dump without it, when the type checker meets
+// what it does not check yet, or the backend a shape whose Go output the
+// port does not copy; --check when a dump flag
 // other than --emit and --emit-header comes with it, or --backends,
 // with which Go checks an empty target; and --check without a dump of a
 // std/builtin, or its builtin.tck, reached through a symbolic link,
@@ -287,6 +288,12 @@ type Flags struct {
 // comment), and then checked in the order Go's parseArgs checks them.
 // It returns an error only when an allocation failed.
 func run(a []text.Text) (int32, error) {
+    for i, s := range a {
+        if i == 1 && s.equal([]uint8(test_command)) {
+            code, e := run_test(a)
+            return code, e
+        }
+    }
     // rest holds the index in a of each argument after the flags.
     mut rest := make(list[int64], c_allocator)
     mut asked [12]bool
@@ -745,6 +752,9 @@ func dump_target(target []uint8, d Dump, max_errors int64) (int32, error) {
         relative: false,
         cwd: text.new(c_allocator),
         library: false,
+        tests: false,
+        test_pattern: text.new(c_allocator),
+        test_verbose: false,
         alloc: c_allocator,
     }
     if d == dump_lex {
@@ -938,6 +948,9 @@ func no_result() loader.Result {
         relative: false,
         cwd: text.new(c_allocator),
         library: false,
+        tests: false,
+        test_pattern: text.new(c_allocator),
+        test_verbose: false,
         alloc: c_allocator,
     }
     return l.empty_result()
@@ -1196,6 +1209,9 @@ func emit_target(target []uint8, d Dump, max_errors int64, out_bin []uint8, opt 
         relative: false,
         cwd: text.new(c_allocator),
         library: false,
+        tests: false,
+        test_pattern: text.new(c_allocator),
+        test_verbose: false,
         alloc: c_allocator,
     }
     mut res, _, f := load_with(mut l, target)?
@@ -1407,6 +1423,9 @@ func header_dump(target []uint8, max_errors int64) (int32, error) {
         relative: false,
         cwd: text.new(c_allocator),
         library: true,
+        tests: false,
+        test_pattern: text.new(c_allocator),
+        test_verbose: false,
         alloc: c_allocator,
     }
     mut res, _, f := load_with(mut l, target)?
@@ -1542,6 +1561,9 @@ func check_target(target []uint8, max_errors int64, d Dump) (int32, error) {
         relative: false,
         cwd: text.new(c_allocator),
         library: true,
+        tests: false,
+        test_pattern: text.new(c_allocator),
+        test_verbose: false,
         alloc: c_allocator,
     }
     if doc {
