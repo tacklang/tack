@@ -40,3 +40,5 @@ build-probes
 build-examples
 build-invalid-c
 build-identical
+build-warm
+build-cache

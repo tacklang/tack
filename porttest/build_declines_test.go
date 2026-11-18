@@ -3,6 +3,7 @@ package porttest
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -46,6 +47,10 @@ type buildDecline struct {
 	// goRemoves says Go's build removes what the port's clang leaves,
 	// which the port cannot, so the trees left are not compared.
 	goRemoves bool
+	// sameCache says the build cache, in the case's base directory, must
+	// hold afterwards what Go's build left in its own, every file and
+	// directory by its path, mode and bytes.
+	sameCache bool
 	// late says the port declines once clang has run, after the warning
 	// and what clang wrote, so the Go compiler runs the case too, and the
 	// port's output must be Go's before its last error, then the decline
@@ -64,27 +69,33 @@ const (
 )
 
 // buildDeclines are TestBuildDeclines' builds, each of a program that
-// warns but the last, so that a warning written before the decline is seen: a TMPDIR
-// that is missing and one that is a file, where the temporary directory
-// cannot be made; a TMPDIR so long that the runtime's directories below
-// it cannot be made, whose Go error names the temporary directory; a
-// clang that writes the binary and leaves in the temporary directory
-// what the port cannot remove; a file and a dangling symbolic link at
-// the --out path before a build whose clang leaves that too but writes
-// no binary, which a decline leaves as they were; and a current
-// directory that is gone, where Go's message names an empty --out path;
-// and a clang that writes no object where it compiles a file, which the
-// port cannot read, where Go's error is in debug/elf's words, building
-// a clang that leaves several things that cannot be removed, at several
-// depths, beside what can; a program that links objects of the
-// runtime, which writes nothing before, and one with a C file of its own and a warning, which writes
-// the warning first; a build cache whose objects or keys directory no
-// one may write to, where Go's cache.put fails naming a temporary file
-// of a random name; and a C file clang rejects, whose clang leaves in the
-// temporary directory what cannot be removed, where Go's error is two
-// joined, the compile's and the removal's, over two lines; and one that
-// leaves a path past PATH_MAX, which Go's RemoveAll removes and the
-// port's cannot, after diagnostics, which Go writes alone.
+// warns but the last, so that a warning written before the decline is
+// seen: a TMPDIR that is missing and one that is a file, where the
+// temporary directory cannot be made; a TMPDIR so long that the
+// runtime's directories below it cannot be made, whose Go error names
+// the temporary directory; a clang that writes the binary and leaves in
+// the temporary directory what the port cannot remove; a file and a
+// dangling symbolic link at the --out path before a build whose clang
+// leaves that too but writes no binary, which a decline leaves as they
+// were; and a current directory that is gone, where Go's message names
+// an empty --out path; and a clang that writes no object where it
+// compiles a file, which the port cannot read, where Go's error is in
+// debug/elf's words, building a clang that leaves several things that
+// cannot be removed, at several depths, beside what can; a program that
+// links objects of the runtime, which writes nothing before, and one
+// with a C file of its own and a warning, which writes the warning
+// first; a build cache whose objects or keys directory no one may write
+// to, and one Go filled whose every key, or every object, was then made
+// a directory, which Go's rename cannot replace, where Go's cache.put
+// fails naming a temporary file of a random name; one Go filled whose
+// every key then names an ELF32, a big-endian or a Mach-O object
+// defining foo, which Go reads, failing on foo defined twice, and the
+// port's ELF reader does not take; and a C file clang rejects, whose
+// clang leaves in the temporary directory what cannot be removed, where
+// Go's error is two joined, the compile's and the removal's, over two
+// lines; and one that leaves a path past PATH_MAX, which Go's RemoveAll
+// removes and the port's cannot, after diagnostics, which Go writes
+// alone.
 var buildDeclines = []buildDecline{
 	{name: "tmpdir-missing", reason: declineTempNotMade, env: func(base, _ string) []string {
 		return []string{"TMPDIR=" + filepath.Join(base, "missing")}
@@ -173,6 +184,26 @@ var buildDeclines = []buildDecline{
 		setup: readOnlyCacheDir("keys"),
 	},
 	{
+		name: "cache-key-is-directory", reason: declineCacheNotWrite, program: "missing-def", late: true,
+		sameCache: true, setup: filledCache(entriesDirs("keys")),
+	},
+	{
+		name: "cache-object-is-directory", reason: declineCacheNotWrite, program: "missing-def", late: true,
+		sameCache: true, setup: filledCache(entriesDirs("objects")),
+	},
+	{
+		name: "cache-hit-elf32", reason: declineBadObject, program: "missing-def", late: true,
+		sameCache: true, setup: filledCache(foreignObjects("i386-linux-gnu")),
+	},
+	{
+		name: "cache-hit-big-endian", reason: declineBadObject, program: "missing-def", late: true,
+		sameCache: true, setup: filledCache(foreignObjects("powerpc64-linux-gnu")),
+	},
+	{
+		name: "cache-hit-macho", reason: declineBadObject, program: "missing-def", late: true,
+		sameCache: true, setup: filledCache(foreignObjects("x86_64-apple-macos11")),
+	},
+	{
 		name: "temp-many-unremovable", reason: declineTempNotRemoved, leaves: true, late: true,
 		env: fakeClangFirst("clang-locks-many"),
 	},
@@ -214,6 +245,94 @@ func readOnlyCacheDir(sub string) func(t *testing.T, base, work string) {
 		if err := os.Chmod(filepath.Join(std, sub), 0o555); err != nil { //nolint:gosec // G302: a test's own directory
 			t.Fatal(err)
 		}
+	}
+}
+
+// filledCache returns a setup for buildDecline that fills the build
+// cache, in the case's base directory, where prepareBuildDecline puts
+// TACK_CACHE, with Go's build of testdata/build-probes/lists, which
+// must succeed, through runCompiler as every compiler run of the
+// harness, and then applies damage to the cache's std directory. The
+// keys depend on the runtime's C files, the -O level and the toolchain
+// alone, so they are those of the case's own program's build.
+func filledCache(damage func(t *testing.T, std string)) func(t *testing.T, base, work string) {
+	return func(t *testing.T, base, _ string) {
+		t.Helper()
+		cache := filepath.Join(base, "cache")
+		tmp := filepath.Join(base, "fill-tmp")
+		if err := fresh(tmp); err != nil {
+			t.Fatal(err)
+		}
+		goRun, err := goStackWrapper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		in := input{name: "fill", dir: fakeClangDir("lists"), file: "main.tck", env: []string{"TMPDIR=" + tmp}}
+		r := runCompiler(t, goRun, cache, in, []string{"--out", filepath.Join(tmp, "prog"), in.file})
+		if r.code != 0 {
+			t.Fatalf("Go's build to fill the cache: exit %d, stderr %q", r.code, r.stderr)
+		}
+		damage(t, filepath.Join(cache, "std"))
+		if err := os.RemoveAll(tmp); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// entriesDirs puts an empty directory in place of every file of the
+// cache's std/<sub>, a key or an object that is a directory: each is a
+// miss, and Go's cache.put, which cannot rename a file onto a
+// directory, fails naming its temporary file, of a random name, once
+// the first of the runtime's C files is compiled again.
+func entriesDirs(sub string) func(t *testing.T, std string) {
+	return eachEntry(sub, func(t *testing.T, p string) {
+		t.Helper()
+		if err := os.Remove(p); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(p, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+// foreignObjects returns a damage that points every key of the cache at
+// an object clang compiles for target, from a C file defining foo: one
+// the Go compiler's readSymbols reads, an ELF32, a big-endian ELF or a
+// Mach-O object, and the port's ELF reader does not take. Go then links the cached object
+// for every runtime file, and fails on foo defined twice; the port
+// cannot tell what Go reads there, so it declines.
+func foreignObjects(target string) func(t *testing.T, std string) {
+	return func(t *testing.T, std string) {
+		t.Helper()
+		dir := t.TempDir()
+		src, obj := filepath.Join(dir, "foo.c"), filepath.Join(dir, "foo.o")
+		if err := os.WriteFile(src, []byte("int foo(void) { return 1; }\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), compilerTimeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "clang", "--target="+target, "-c", "-o", obj, src) //nolint:gosec // G204: the harness's own object
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		outlived, err := runInGroup(cmd)
+		failEnd(t, endOf(ctx.Err(), err, outlived, false), "compiling a "+target+" object", cmd, err,
+			outlived, compilerTimeout, stderr.Bytes())
+		if cmd.ProcessState.ExitCode() != 0 {
+			t.Fatalf("clang --target=%s: exit %d: %s", target, cmd.ProcessState.ExitCode(), stderr.Bytes())
+		}
+		data, err := os.ReadFile(obj) //nolint:gosec // G304: the object just compiled
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := fmt.Sprintf("%x", sha256.Sum256(data))
+		if err := os.WriteFile(filepath.Join(std, "objects", sum+".o"), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		eachEntry("keys", func(t *testing.T, p string) {
+			t.Helper()
+			rewrite(t, p, func([]byte) []byte { return []byte(sum + "\n") })
+		})(t, std)
 	}
 }
 
@@ -341,6 +460,13 @@ func checkLateAgainstGo(t *testing.T, c buildDecline, prog []byte, d declineDirs
 	}
 	if c.leaves && !c.goRemoves {
 		checkSameLeft(t, d, goDirs)
+	}
+	if c.sameCache {
+		port := cacheSnapshot(t, filepath.Join(filepath.Dir(d.tmp), "cache"))
+		goCache := cacheSnapshot(t, filepath.Join(filepath.Dir(goDirs.tmp), "cache"))
+		if diff := filesDiff(goCache, port); diff != "" {
+			t.Errorf("the build caches differ:%s", diff)
+		}
 	}
 }
 

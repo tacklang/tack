@@ -83,7 +83,7 @@ const harvestTimeout = 20 * time.Minute
 // TestEmitHarvest.
 const (
 	harvestedPrograms = 743
-	harvestedDigest   = "8388482c9ff1cebae706600def7f382130fb692ae905c002890b37721c3982c9"
+	harvestedDigest   = "c09e74bda7c18281e12063035418f7c09ca3debdaff2cdeb21127c10ba961bde"
 )
 
 // harvested is one program of the harvest: its name, the first twelve

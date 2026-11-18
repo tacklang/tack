@@ -165,6 +165,12 @@
 //     each compares what the driver writes and leaves, and, where both
 //     compilers built one, the binaries and what they do when run (see
 //     Build stages).
+//   - build-warm builds each input of build-examples cold and warm, each
+//     compiler on its own cache and on the other's, and build-cache
+//     each of the probes of the build cache, a damaged cache, a build
+//     that must miss and two builds at once; each compares the driver's
+//     output, the binaries, what was compiled and the caches (see Build
+//     cache stages).
 //
 // check-backend, check-clean and the emit stages classify their cases
 // by the stages of the backend's port each needs (see Backend stages),
@@ -516,8 +522,11 @@
 // writes no binary, a current directory that is gone, and, building a
 // program that links objects of the runtime, a clang that writes no
 // object, which the port cannot read, where Go words debug/elf's error,
-// a build cache whose objects or keys directory cannot be written, where
-// Go's error names a temporary file of a random name, and a C file clang
+// a build cache whose objects or keys directory cannot be written, or one
+// whose every key, or every object, is a directory, where Go's error
+// names a temporary file of a random name, one whose every key names an
+// ELF32, a big-endian or a Mach-O object, which Go reads and the port's
+// ELF reader does not take, and a C file clang
 // rejects with a clang that leaves what cannot be removed, where Go's
 // error is two joined over two lines, and a temporary directory holding
 // a path past PATH_MAX, which Go's RemoveAll, relative to each
@@ -630,11 +639,79 @@
 // optimization level, but those of the build probes that give an -O
 // flag.
 //
-// Every case's cache is fresh, as the port's driver, with no cache
-// until it is ported, compiles std for every build anyway, and so no
-// case reads what another wrote; a build from a warm cache is not
-// compared, and neither is what a build writes to its cache, which D3,
-// the port of the cache, compares.
+// Every case's cache is fresh, so no case reads what another wrote; a
+// build from a warm cache, and what a build writes to its cache, are
+// the build cache stages' to compare.
+//
+// # Build cache stages
+//
+// build-warm and build-cache check the port's build cache, which holds
+// the objects compiled from the runtime's C files, against Go's, which
+// it must read and write exactly as Go does, so that the two compilers
+// share one cache. Each build of either stage runs as a build stage's
+// does, in a fresh copy of its tree, with a read-only TACK_HOME and a
+// fresh TMPDIR, which must be empty afterwards, at the same paths for
+// both compilers, but with a cache that is not made anew: each cache of
+// a case lives beside it and is moved, by a rename, which keeps every
+// mode and byte, to the one TACK_CACHE path every build of the case
+// runs with, and back. Every build runs with a counting clang first on
+// PATH, a script that runs the real clang by its absolute path and logs
+// each runtime object it compiles, std-<name>.o, so a build that
+// compiles what it should have found in the cache is seen; given
+// --version with PORTTEST_CLANG_VERSION set, it writes that line after
+// clang's output, a toolchain of another identity. A step compares the
+// driver's output and exit status as compareResults does, the binaries
+// by their SHA-256 and their modes, the objects each compiled, and the
+// caches, every file and directory by its path, mode and bytes.
+//
+// build-warm runs on each input of build-examples: Go builds it on an
+// empty cache, A, and the port on another, B, after which A and B must
+// hold the same files; then Go builds it on A again, a warm build, and
+// the port on A, Go on B and the port on B, each of which must give
+// what Go's warm build gave, compile nothing and leave its cache as it
+// was. A program that needs no object of the runtime leaves both
+// caches empty. Its cases are build-examples', built as that stage
+// builds them, so the port's runs are compared through build-examples'
+// entries of the divergence list, and one of Go's with another of Go's
+// byte for byte.
+//
+// build-cache runs on each of cacheProbes, each of the program lists,
+// which links objects of the runtime and has no C file of its own: a
+// cache Go filled, twice, each copy then damaged alike, every key cut
+// short, without its newline, in upper case, of bytes that are not hex,
+// naming a path, empty or unreadable, every object gone, with a byte
+// changed or unreadable, every other key gone, so a build mixes hits
+// and misses, or every key naming bytes that hash right but are no
+// object, which Go's cachedStdObject compiles again, where its
+// readSymbols fails; Go builds on one copy and the port on the other,
+// which must compile what Go's does and leave the cache Go's leaves,
+// and each builds again, which must compile nothing, the cache
+// repaired. miss-opt and miss-toolchain build on an empty cache at the
+// default level with clang, then at -O2, or with a clang whose
+// --version differs, which must miss, compiling every object again and
+// adding as many keys, then so again, which must not; Go and the port
+// each on a cache of its own, compared at each step. concurrent runs
+// two of the port's builds at once on one empty cache, each with a
+// TMPDIR, copy and --out path of its own, each of which must give what
+// Go's build on an empty cache gives, the cache afterwards holding what
+// Go's held, no temporary file of either among it.
+//
+// A key or an object that is a directory is no case of build-cache:
+// Go's put cannot rename a file onto one, and fails naming its
+// temporary file, of a random name, so the port declines, late, after
+// clang ran; TestBuildDeclines runs both, checking too that the port
+// leaves the cache Go leaves. So is a key naming an object Go's
+// readSymbols reads and the port's ELF reader does not take, ELF32,
+// big-endian or Mach-O, which Go links and the port declines; bytes
+// Go is sure to refuse, as those of key-not-elf, are compiled again by
+// both. So do the builds on a cache whose keys or
+// objects directory cannot be written, which Go's error words naming a
+// temporary file too: every error os.CreateTemp, a write, a close or a
+// rename gives names it, but for CreateTemp finding 10000 names taken,
+// which no build meets. Not covered: the port's retry on a temporary
+// name that is taken, which no build can be made to meet without a
+// hook in the driver for the test alone; the concurrent case shows only
+// that two builds at once succeed and leave no temporary file.
 //
 // # Loading
 //
@@ -1092,27 +1169,32 @@
 // loader's and resolver's diagnostics. TestMalformedWant checks both.
 //
 // TestAllocFail, which runs only with $PORTTEST_ALLOC_FAIL set, as make
-// port-alloc-fail sets it, builds the port with the same sanitizers and a
-// C file of its own linked in, which counts the runtime's calls of malloc
-// and realloc and sets the runtime's hook,
+// port-alloc-fail sets it, builds the port with the same sanitizers and
+// a C file of its own linked in, which counts the runtime's calls of
+// malloc and realloc and sets the runtime's hook,
 // tack_c_allocator_fail_after_, from $TACK_FAIL_AFTER. It runs a sample
 // of the corpus, a dozen cases of each stage but emit-header, the emit
 // probes with --emit and --check, the port's driver, and builds of
 // examples/conv, which uses std, and examples/extern, which has C files,
-// once counting its allocations and then failing every one from the Nth
-// on, for up to $PORTTEST_ALLOC_FAIL values of N: a run that allocates
-// nothing fails, a build that does not exit 0 with every allocation
-// granted fails, and each failing run must exit 1, ending in the
-// driver's "tack: out of memory", with no sanitizer report. Every run
-// has a fresh build cache of its own, so a build allocates as its count
+// and of examples/conv on a build cache Go's build of it warmed, so the
+// runtime's objects come from the cache, once counting its allocations
+// and then failing every one from the Nth on, for up to
+// $PORTTEST_ALLOC_FAIL values of N: a run that allocates nothing fails,
+// a build that does not exit 0 with every allocation granted fails, and
+// each failing run must exit 1, ending in the driver's "tack: out of
+// memory", with no sanitizer report. Every run has a fresh build cache
+// of its own, but the warm build's, whose cache every run shares and
+// none writes to, a hit never writing, which the sweep checks, the
+// cache the same after it as before, so a build allocates as its count
 // did, and half of a build's points fail an allocation of the build
-// itself, past where --emit of the same target ends; the temporary directories a build refused memory leaves, which
-// the driver documents, are in a TMPDIR of the case's. That checks the C-level allocations
-// and the out-of-memory paths: exit frees every buffer c_allocator holds
+// itself, past where --emit of the same target ends; the temporary
+// directories a build refused memory leaves, which the driver documents,
+// are in a TMPDIR of the case's. That checks the C-level allocations and
+// the out-of-memory paths: exit frees every buffer c_allocator holds
 // before the leak sanitizer looks, so it sees only the C memory the
 // runtime does not track, and that Tack code frees what it owns the
-// checker enforces statically. Nothing is compared with Go there, whose runtime ends a process
-// out of memory with a fatal error of its own.
+// checker enforces statically. Nothing is compared with Go there, whose
+// runtime ends a process out of memory with a fatal error of its own.
 //
 // # The backend's parts
 //

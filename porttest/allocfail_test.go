@@ -114,7 +114,9 @@ const sanitizeFlags = "-g -fno-omit-frame-pointer -fsanitize=address,undefined "
 // every allocation granted, counting them, and then failing each
 // allocation from the Nth on, for N at most $PORTTEST_ALLOC_FAIL points
 // spread evenly from 0 to the count, every one when there are no more,
-// each run with a fresh build cache of its own.
+// each run with a fresh build cache of its own, but for a build of the
+// example using std on a cache Go's build of it warmed, which every run
+// shares and none writes to.
 // A run with every allocation granted must allocate and end with no
 // sanitizer report; one that fails them must exit 1, with standard error
 // ending in the driver's "tack: out of memory", and with no sanitizer
@@ -153,7 +155,16 @@ func TestAllocFail(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
+			var before map[string]string
+			if c.warm != "" {
+				before = cacheSnapshot(t, c.warm)
+			}
 			sweepAllocFail(t, bin, c, points)
+			if c.warm != "" {
+				if diff := filesDiff(before, cacheSnapshot(t, c.warm)); diff != "" {
+					t.Errorf("a run on the warm cache changed it, so it missed:%s", diff)
+				}
+			}
 		})
 	}
 }
@@ -162,8 +173,12 @@ func TestAllocFail(t *testing.T) {
 // input and its command line, and whether it is a build, which must
 // succeed with every allocation granted.
 type allocFailCase struct {
-	args  []string
-	name  string
+	args []string
+	name string
+	// warm, when not empty, is the build cache every run of the case
+	// shares, which a build filled first and none may change: a run that
+	// missed would put what it compiled there.
+	warm  string
 	in    input
 	build bool
 }
@@ -235,10 +250,15 @@ func allocFailCases(t *testing.T, src string) ([]allocFailCase, error) {
 // runtime, and examples/extern, which has C files of its own, each built
 // from its main.tck, as a single file, with --out into a temporary directory of t's, with a TMPDIR of its
 // own there, so that the temporary directories a build refused memory
-// leaves, as the driver documents it may, are removed with t's.
+// leaves, as the driver documents it may, are removed with t's; and
+// examples/conv again on a warm cache, which Go's build of it filled
+// first, so the runtime's objects are read from the cache, every run's
+// a hit, a refused one included, which writes nothing there: the cache
+// must hold the same files, by path, mode and bytes, after the sweep as
+// before it, as it would not had any run missed and put an object.
 func allocFailBuilds(t *testing.T) []allocFailCase {
 	t.Helper()
-	cases := make([]allocFailCase, 0, 2)
+	cases := make([]allocFailCase, 0, 3)
 	for _, name := range []string{"conv", "extern"} {
 		dir := t.TempDir()
 		in := input{
@@ -254,7 +274,28 @@ func allocFailBuilds(t *testing.T) []allocFailCase {
 			args:  []string{"--out", filepath.Join(dir, "prog"), "main.tck"},
 		})
 	}
-	return cases
+	dir, cache := t.TempDir(), t.TempDir()
+	in := input{
+		name: "examples/conv",
+		dir:  filepath.Join(env.root, "examples", "conv"),
+		file: "main.tck",
+		env:  []string{"TMPDIR=" + dir, "TACK_CACHE=" + cache},
+	}
+	args := []string{"--out", filepath.Join(dir, "prog"), "main.tck"}
+	goRun, err := goStackWrapper()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := runCompiler(t, goRun, cache, in, args); r.code != 0 {
+		t.Fatalf("Go's build to warm the cache: exit %d, stderr %q", r.code, r.stderr)
+	}
+	if err := os.Remove(filepath.Join(dir, "prog")); err != nil {
+		t.Fatal(err)
+	}
+	if len(cacheSnapshot(t, cache)) == 0 {
+		t.Fatal("Go's build to warm the cache left it empty")
+	}
+	return append(cases, allocFailCase{name: "build/warm/examples/conv", in: in, build: true, args: args, warm: cache})
 }
 
 // buildFailingPort builds the port's driver, in the source tree src,
