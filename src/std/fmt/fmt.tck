@@ -1,0 +1,142 @@
+package fmt
+
+// Package fmt writes text and bytes to standard output, and to standard
+// error. A program imports it as
+//
+//     import fmt from "std/fmt"
+//
+// and the compiler reads it from $TACK_HOME/src/std/fmt, or
+// ~/.tack/src/std/fmt, as it does every std package. println
+// is written in Tack on top of the print builtin; printf's formatting is
+// C, in printf.c, and write's output is C, in write.c, which the driver
+// compiles and links with every program that imports fmt, as it does any
+// package's C files. All three write through C's stdout, as print does,
+// so their output interleaves in the order of the calls.
+//
+// appendf formats as printf does, byte for byte, but appends the output
+// to a list[uint8] instead of writing it, a signature like Go's
+// fmt.Appendf with printf's output, all or nothing, and returns the builtin append's error when the list cannot
+// grow. It is written in Tack, in appendf.tck, with a type switch over
+// each any, std/bytes' integer appends and std/conv's append_float, the
+// same algorithm as printf.c's floats; printf and eprintf stay in C.
+//
+// eprintln, eprintf and ewrite are their twins for standard error: each
+// does exactly what its twin does, but writes through C's stderr, so
+// their output interleaves with each other's in the order of the calls,
+// as the stdout ones' does. Each flushes both ways around its write:
+// C's stdout first, as C++ ties cerr to cout, and C's stderr after, so
+// where both streams reach one pipe, file or terminal, their bytes
+// arrive in the order of the calls, however the C library buffers
+// either stream. Like print, none reports an error: a closed descriptor
+// or a failed write loses the bytes, and a write to a pipe with no
+// reader, on either stream, ends the process as exit(141) does, as it
+// does for print: every allocator frees every buffer it still holds, no
+// defer runs, and the status is 141.
+
+// println writes s to standard output exactly as given, then a newline,
+// "\n". println("") writes the newline alone. Like print, it reports no
+// error, and a pipe with no reader ends the process as exit(141) does.
+pub func println(s string) {
+    print(s)
+    print("\n")
+}
+
+// printf writes format to standard output with each verb in it replaced
+// by the next of args, formatted as the verb says, and every other byte
+// as it is. A verb is % and the character after it:
+//
+//     %d  an integer of any type, in decimal, with - before a negative one
+//     %x  an integer of any type, in lowercase hexadecimal with no 0x,
+//         with - before a negative one: -1 is -1, as in Go, not ff
+//     %s  a string, its bytes exactly, or a []uint8, its bytes the same
+//         way: printf("undefined: %s\n", name.bytes())
+//     %t  a bool, true or false
+//     %c  a uint8, the byte itself
+//     %g  a float32 or a float64, as the shortest decimal that reads back
+//         as it, with an exponent when its decimal exponent is below -4
+//         or 6 or more: 0.1, 1e+06, 5e-324
+//     %e  a float, with six digits after the point and an exponent:
+//         1.000000e-01
+//     %f  a float, with six digits after the point: 0.100000
+//     %v  a value of any type above, as its own verb writes it: %d for an
+//         integer, %s for a string or a []uint8, %t for a bool, %g for a
+//         float
+//     %%  a %, taking no argument
+//
+// A float is written as Go's fmt writes it, NaN as NaN, the infinities as
+// +Inf and -Inf, and negative zero with its sign, -0; std/conv's
+// append_float writes the same, with any precision. There are no widths,
+// precisions or flags. An untyped constant argument
+// is an int64, and a character literal a uint8. No verb takes a view of
+// any other type, a []int64 or a []string, though one can be passed: it
+// is written as a verb given a value it does not take, %!v([]int64),
+// with its type and no value.
+//
+// When the compiler knows format, a literal or an immutable variable
+// holding one, it checks each verb against its argument, and every
+// mistake is a compile error. Otherwise each mistake is written into the
+// output where it happens, as Go's fmt writes it, never undefined:
+//
+//     %!d(string=hi)          a verb given a value it does not take, or
+//                             a verb printf does not know: the verb,
+//                             then the value's type and its %v
+//     %!d(MISSING)            a verb with no argument left
+//     %!(EXTRA int64=5, ...)  after the output, arguments no verb took
+//     %!(NOVERB)              a % that ends the format
+//
+// Like print, it writes through C's stdout, so the output of the two
+// interleaves in the order of the calls, and it reports no error.
+pub func printf(format string, args ...any) {
+    cprintf(format, args...)
+}
+
+// cprintf is printf's body, in C: tack_fmt_printf in printf.c.
+extern("tack_fmt_printf") func cprintf(format string, args ...any)
+
+// write writes the bytes of b to standard output exactly, each as it is,
+// 0 and 0xff included, and nothing else: no newline, no formatting. A
+// view of no bytes writes nothing. b is a view, so a list[uint8], an
+// array or a slice of uint8, or a string's bytes, []uint8(s), can be
+// passed. Like print and printf, it writes through C's stdout, so the
+// output of the three interleaves in the order of the calls, and it
+// reports no error.
+pub func write(b []uint8) {
+    cwrite(b)
+}
+
+// cwrite is write's body, in C: tack_fmt_write in write.c.
+extern("tack_fmt_write") func cwrite(b []uint8)
+
+// eprintln writes s to standard error exactly as given, then a newline,
+// as println does to standard output, and through the same C as eprintf:
+// eprintln("") writes the newline alone. It reports no error.
+pub func eprintln(s string) {
+    eprintf("%s\n", s)
+}
+
+// eprintf writes format with its verbs replaced by args to standard
+// error, exactly as printf writes it to standard output: the same verbs,
+// the same checking of a format the compiler knows, and the same markers
+// for the mistakes of one it does not. It flushes C's stdout, writes
+// through C's stderr, then flushes it, so the output of it, eprintln and
+// ewrite interleaves in the order of the calls, with standard output's
+// too where both streams reach one place, and it reports no error.
+pub func eprintf(format string, args ...any) {
+    ceprintf(format, args...)
+}
+
+// ceprintf is eprintf's body, in C: tack_fmt_eprintf in printf.c.
+extern("tack_fmt_eprintf") func ceprintf(format string, args ...any)
+
+// ewrite writes the bytes of b to standard error exactly, each as it is,
+// as write does to standard output: a view of no bytes writes nothing,
+// though both streams are still flushed. It flushes C's stdout, writes
+// through C's stderr, then flushes it, so the output of it, eprintln and
+// eprintf interleaves in the order of the calls, with standard output's
+// too where both streams reach one place, and it reports no error.
+pub func ewrite(b []uint8) {
+    cewrite(b)
+}
+
+// cewrite is ewrite's body, in C: tack_fmt_ewrite in write.c.
+extern("tack_fmt_ewrite") func cewrite(b []uint8)

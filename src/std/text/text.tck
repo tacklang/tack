@@ -1,0 +1,104 @@
+package text
+
+import bytes from "std/bytes"
+
+// Package text holds a growing sequence of bytes in a Text. A program
+// imports it as
+//
+//     import text from "std/text"
+//
+// and the compiler reads it from $TACK_HOME/src/std/text, or
+// ~/.tack/src/std/text, as it reads std/bytes. It is written in Tack
+// alone, with no C.
+//
+// A Text owns its bytes, in a list[uint8] no other package can name, so
+// only this package's functions change them, and frees them when it goes
+// out of scope, as any list does. Other packages read them through the
+// read-only view bytes returns, in place, with no copy: it can be passed
+// to fmt.write, to std/bytes' functions or to any []uint8 parameter.
+//
+// new and from_bytes take the Allocator a Text grows through, as scope, so
+// it may be a region's; no other function or method takes one. append and append_byte grow it, all or
+// nothing as the builtin append is: when the list cannot grow, the error
+// is error{code: 1, msg: "out of memory"} and the Text is left exactly as
+// it was, its length and its bytes.
+//
+// Bytes are bytes: nothing here knows UTF-8, so every byte, 0x00 and 0xff
+// included, is held, compared and hashed as it is, and len counts bytes.
+
+// fnv_offset is FNV-1a's 64-bit offset basis, 0xcbf29ce484222325, the
+// hash of no bytes.
+var fnv_offset uint64 = 14695981039346656037
+
+// fnv_prime is FNV-1a's 64-bit prime, 0x100000001b3, 2^40 + 2^8 + 0xb3.
+var fnv_prime uint64 = 1099511628211
+
+// Text owns a sequence of bytes that grows at its end.
+pub type Text struct {
+    b list[uint8]
+}
+
+// new returns an empty Text that grows through alloc. It allocates
+// nothing until bytes are appended, so it cannot fail.
+pub func new(scope alloc Allocator) Text {
+    return Text{b: make(list[uint8], alloc)}
+}
+
+// from_bytes returns a Text that grows through alloc, holding a copy of
+// the bytes of s, and no error. Changing what s views afterwards does not
+// change the Text. An empty s gives an empty Text, which allocates
+// nothing. When alloc cannot give the buffer, the error is error{code: 1,
+// msg: "out of memory"} and the Text is empty, having allocated nothing;
+// it must still be bound, as every Text must.
+pub func from_bytes(s []uint8, scope alloc Allocator) (Text, error) {
+    mut b := make(list[uint8], alloc)
+    err := append(mut b, s...)
+    return Text{b: b}, err
+}
+
+// len returns the number of bytes t holds.
+pub func (t Text) len() int64 {
+    return len(t.b)
+}
+
+// equal reports whether t holds exactly the bytes of s, in the same
+// order: the same length and each byte equal. An empty Text equals only
+// an empty view.
+pub func (t Text) equal(s []uint8) bool {
+    return bytes.equal(t.b, s)
+}
+
+// hash returns the 64-bit FNV-1a hash of t's bytes: from the offset
+// basis, 0xcbf29ce484222325, for each byte c in order, h = (h ^ c) *
+// 0x100000001b3, the multiplication wrapping at 64 bits. No bytes hash to
+// the offset basis, "a" to 0xaf63dc4c8601ec8c and "foobar" to
+// 0x85944171f73967e8. Equal Texts hash alike, however they were built.
+// The multiplication is *%, which wraps at 64 bits.
+pub func (t Text) hash() uint64 {
+    mut h := fnv_offset
+    for _, c := range t.b {
+        h = (h ^ uint64(c)) *% fnv_prime
+    }
+    return h
+}
+
+// append appends the bytes of s to t and returns no error, or, when t
+// cannot grow to hold them, error{code: 1, msg: "out of memory"}, the
+// builtin append's, leaving t exactly as it was. Appending an empty s
+// changes nothing and allocates nothing.
+pub func (mut t Text) append(s []uint8) error {
+    return append(mut t.b, s...)
+}
+
+// append_byte appends c to t and returns no error, or, when t cannot grow
+// to hold it, error{code: 1, msg: "out of memory"}, the builtin
+// append's, leaving t exactly as it was.
+pub func (mut t Text) append_byte(c uint8) error {
+    return append(mut t.b, c)
+}
+
+// bytes returns a read-only view of every byte t holds, in place. It
+// borrows t: while it is in use, t cannot be changed.
+pub func (t Text) bytes() []uint8 {
+    return t.b
+}

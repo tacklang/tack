@@ -1,0 +1,144 @@
+package sort
+
+// Package sort orders a list in place by a less function. A program
+// imports it as
+//
+//     import sort from "std/sort"
+//
+// and the compiler reads it from $TACK_HOME/src/std/sort, or
+// ~/.tack/src/std/sort, as it reads std/bytes. It is written in Tack
+// alone, with no C.
+//
+// by(mut l, less) sorts l so that no element is less than the one before
+// it, and is_sorted(v, less) reports whether v already is, as Go's
+// slices.SortFunc and slices.IsSortedFunc do with a less function in
+// place of a comparison. less(a, b) reports whether a goes before b; for
+// a sorted result it must be a strict weak ordering, as Go asks. less is
+// a scope parameter in both, so it may be a closure, which reads what it
+// captures where it is written, as in
+//
+//     sort.by(mut l, func(a int64, b int64) bool {
+//         return down && a > b || !down && a < b
+//     })
+//
+// as well as a named function or a function value; sort only calls it,
+// and passes it on to its own helpers.
+//
+// by is a heapsort, with an insertion sort for lists of at most
+// insertion_max elements. It never recurses and holds a fixed number of
+// locals, so its stack does not grow with the list; it allocates
+// nothing, so it cannot fail; and it moves elements only with the
+// builtin swap, so a list of owned elements, lists or Texts, is reordered
+// with nothing copied or freed. It makes O(n log n) comparisons and swaps
+// in the worst case. It is not stable: equal elements may change order.
+//
+// Every loop of by is bounded by indexes alone, never by what less says,
+// so a less that is no ordering at all, always true, always false, or
+// different on every call, still ends after O(n log n) calls, keeps every
+// element, and reads none out of range; the order it leaves is then
+// unspecified.
+
+// Any asks for no method, so a list of any element type can be sorted.
+pub type Any interface {
+}
+
+// insertion_max is the longest list by sorts by insertion, which makes
+// fewer comparisons than a heap at that size.
+var insertion_max int64 = 12
+
+// by sorts l in place so that no element is less than the one before it,
+// by less, a heapsort for longer lists and an insertion sort for lists of
+// at most 12 elements. It is not stable.
+pub func by[T Any](mut l list[T], scope less func(T, T) bool) {
+    n := len(l)
+    if n <= insertion_max {
+        insertion(mut l, less)
+        return
+    }
+    // Build a max-heap: each parent is not less than its children.
+    mut i := n / 2 - 1
+    for i >= 0 {
+        sift_down(mut l, less, i, n)
+        i--
+    }
+    // Move the largest to the end, one at a time, and restore the heap
+    // over what is left before it.
+    mut end := n - 1
+    for end > 0 {
+        if len(l) > 0 && end < len(l) {
+            swap(mut l, 0, end)
+        }
+        sift_down(mut l, less, 0, end)
+        end--
+    }
+}
+
+// sift_down moves the element at root down the heap held by l up to, not
+// including, end, swapping it with its greater child while that child is
+// greater than it. Each step goes at least one level down, so it ends
+// after about log2(end) steps whatever less answers.
+func sift_down[T Any](mut l list[T], scope less func(T, T) bool, root int64, end int64) {
+    mut r := root
+    for 0 <= r && r < len(l) && r < end {
+        // 2 * r + 1 passes an int64 only for an r at or past 2^62,
+        // whose children no list holds, which ends the sift as a child
+        // past the heap does.
+        twice, fits := 2 * r
+        left, fits2 := twice + 1
+        if !fits || !fits2 {
+            return
+        }
+        child := larger(l, less, left, end)
+        if child < 0 || child >= len(l) || child >= end || !less(l[r], l[child]) {
+            return
+        }
+        swap(mut l, r, child)
+        r = child
+    }
+}
+
+// larger returns the index of the greater of the children of a heap node,
+// left and left + 1, of the heap held by v up to end: left + 1 when it is
+// in the heap and left is less than it, left otherwise, or -1 when left
+// is not in the heap either.
+func larger[T Any](v []T, scope less func(T, T) bool, left int64, end int64) int64 {
+    if left < 0 || left >= end || left >= len(v) {
+        return -1
+    }
+    right := left + 1
+    if right < end && right < len(v) && less(v[left], v[right]) {
+        return right
+    }
+    return left
+}
+
+// insertion sorts l by less, moving each element back past those it is
+// less than by swapping neighbours. Each element moves back at most to
+// the start, so it ends after n * (n - 1) / 2 calls at most.
+func insertion[T Any](mut l list[T], scope less func(T, T) bool) {
+    for i := range len(l) {
+        mut j := i
+        for j > 0 {
+            k := j - 1
+            if j < len(l) && less(l[j], l[k]) {
+                swap(mut l, j, k)
+                j = k
+            } else {
+                j = 0
+            }
+        }
+    }
+}
+
+// is_sorted reports whether no element of v is less than the one before
+// it, by less, as Go's slices.IsSortedFunc does: an empty view and one of
+// a single element are sorted.
+pub func is_sorted[T Any](v []T, scope less func(T, T) bool) bool {
+    for i := range len(v) {
+        k := i - 1
+        if k >= 0 && k < len(v) && less(v[i], v[k]) {
+            return false
+        }
+    }
+    return true
+}

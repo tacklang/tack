@@ -1,0 +1,254 @@
+package sha256
+
+// Package sha256 computes the SHA-256 hash of bytes, as FIPS 180-4
+// defines it and Go's crypto/sha256 computes it. A program imports it as
+//
+//     import sha256 from "std/sha256"
+//
+// and the compiler reads it from $TACK_HOME/src/std/sha256, or
+// ~/.tack/src/std/sha256, as it reads std/bytes. It is written in Tack
+// alone, with no C, allocates nothing and cannot fail.
+//
+// sum hashes a view at once, as Go's sha256.Sum256 does. A Digest hashes
+// bytes written to it in any number of pieces, as Go's sha256.New's hash
+// does: new makes one, write adds bytes, and sum returns the hash of
+// every byte written so far, leaving the Digest as it was, so it can be
+// written further and summed again. A Digest is a value of fixed size,
+// with no list: copying one copies its state, and the copy goes on from
+// there on its own.
+//
+// The zero Digest, one declared as mut d sha256.Digest without new, is a
+// Digest of no bytes, as one from new is: write and sum load the initial
+// hash value into a Digest not yet started before anything else, so the
+// two hash alike from the first byte, and so do copies of either.
+//
+// A digest is a [32]uint8, the eight 32-bit words of the hash,
+// big-endian, as Go's [32]byte is. Nothing here writes it in hex.
+//
+// The words are uint32 and every addition of the algorithm is +%, which
+// wraps: FIPS 180-4 defines its additions modulo 2^32. A rotation is a
+// pair of shifts, which drop the bits shifted out. The message length
+// is counted in bytes in a uint64 that wraps, and written in bits as
+// that count shifted left by 3, so a message of 2^61 bytes or more is
+// hashed with its length modulo 2^64 bits, as Go's is; FIPS 180-4 does
+// not define SHA-256 for messages that long.
+
+// k holds the round constants of FIPS 180-4, section 4.2.2: the first 32
+// bits of the fractional parts of the cube roots of the first 64 primes.
+var k = [64]uint32{
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+}
+
+// initial holds the initial hash value of FIPS 180-4, section 5.3.3: the
+// first 32 bits of the fractional parts of the square roots of the first
+// 8 primes.
+var initial = [8]uint32{
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+}
+
+// Digest is the state of a SHA-256 hash of the bytes written to it so
+// far: the hash of every whole 64-byte block, the bytes of the block not
+// yet whole, and how many bytes were written. Its zero value is a Digest
+// of no bytes, as new's is.
+pub type Digest struct {
+    // h is the hash value after the last whole block, H(i) of FIPS
+    // 180-4.
+    h [8]uint32
+    // x holds the bytes written since the last whole block, x[:nx].
+    x [64]uint8
+    // nx counts the bytes in x, from 0 to 63: a 64th makes a whole block,
+    // which is hashed at once.
+    nx int64
+    // length counts every byte written, wrapping past the largest
+    // uint64, as Go's d.len does.
+    length uint64
+    // started is false only in a zero Digest none of whose methods has
+    // run, whose h is all zeros rather than the initial hash value, and
+    // whose x, nx and length are those of no bytes written.
+    started bool
+}
+
+// new returns a Digest of no bytes, whose sum is the SHA-256 of the
+// empty message. It is the zero Digest started, and hashes as the zero
+// Digest does.
+pub func new() Digest {
+    mut x [64]uint8
+    return Digest{h: initial, x: x, nx: 0, length: 0, started: true}
+}
+
+// start makes a zero Digest one of no bytes, as new returns, by loading
+// the initial hash value, and leaves a started one as it is.
+func (mut d Digest) start() {
+    if !d.started {
+        d.h = initial
+        d.started = true
+    }
+}
+
+// sum returns the SHA-256 of data, as Go's sha256.Sum256 does.
+pub func sum(data []uint8) [32]uint8 {
+    mut d := new()
+    mut d.write(data)
+    return d.sum()
+}
+
+// write adds the bytes of data to d, as writing them to Go's hash does.
+// Writing an empty view changes nothing, and writing a
+// message in pieces gives the hash of writing it at once.
+pub func (mut d Digest) write(data []uint8) {
+    mut d.start()
+    // The count wraps as Go's does: FIPS 180-4 defines no hash of a
+    // message of 2^64 bits or more, and Go hashes one with its length
+    // modulo 2^64 bits, which this count shifted left by 3 is.
+    d.length +%= uint64(len(data))
+    // i is the first byte of data not yet taken. It only grows, from 0,
+    // and never past len(data), so the loops' i >= 0 always holds; the
+    // checker does not follow that through a loop, so it is tested, as
+    // nx >= 0 and nx < 64 are below.
+    mut i int64 = 0
+    mut nx := d.nx
+    if nx > 0 {
+        // The block an earlier write began is filled first. d.nx is
+        // always from 0 to 63, so the loop stops only when data runs out
+        // or the block is whole.
+        for i >= 0 && i < len(data) && nx >= 0 && nx < 64 {
+            d.x[nx] = data[i]
+            nx++
+            i++
+        }
+        if nx < 64 {
+            d.nx = nx
+            return
+        }
+        block(mut d.h, d.x)
+        nx = 0
+    }
+    // Whole blocks are hashed where they are, with no copy.
+    for i >= 0 && i <= len(data) - 64 {
+        block(mut d.h, data[i:])
+        i += 64
+    }
+    // Less than a block is left, from 0 to 63 bytes, so nx < 64 holds
+    // until data runs out, and the rest is kept for the next write.
+    for i >= 0 && i < len(data) && nx >= 0 && nx < 64 {
+        d.x[nx] = data[i]
+        nx++
+        i++
+    }
+    d.nx = nx
+}
+
+// sum returns the SHA-256 of every byte written to d, as Go's Sum does,
+// without changing d: the padding is written to a copy, so d can be
+// written further and its sum goes on from the bytes written before.
+pub func (d Digest) sum() [32]uint8 {
+    mut c := d
+    mut c.start()
+    // FIPS 180-4, section 5.1.1: a 1 bit, then 0 bits until the length is
+    // 56 bytes past a block's start, then the length in bits, as a
+    // big-endian uint64, wrapped as write's count says.
+    bits := d.length << 3
+    r := d.length % 64
+    mut pad [64]uint8
+    pad[0] = 0x80
+    if r < 56 {
+        mut c.write(pad[:56 - r])
+    } else {
+        mut c.write(pad[:56 + 64 - r])
+    }
+    mut size [8]uint8
+    for i := range 8 {
+        size[i] = byte_of(bits >> (56 - 8 * uint64(i)))
+    }
+    mut c.write(size)
+    mut out [32]uint8
+    for i := range 8 {
+        v := c.h[i]
+        out[4 * i] = byte_of(v >> 24)
+        out[4 * i + 1] = byte_of(v >> 16)
+        out[4 * i + 2] = byte_of(v >> 8)
+        out[4 * i + 3] = byte_of(v)
+    }
+    return out
+}
+
+// byte_of returns the low byte of v. v & 0xFF is always 0 to 0xFF, so
+// the conversion always holds, but a bitwise operator gives the checker
+// no bound, so it is in the checked form, whose ok is always true.
+func byte_of(v uint64) uint8 {
+    b, ok := uint8(v & 0xFF)
+    if !ok {
+        return 0
+    }
+    return b
+}
+
+// block hashes the 64-byte block p[:64] into h, as FIPS 180-4, section
+// 6.2.2, computes H(i) from H(i-1). Every caller passes at least 64
+// bytes; the length is tested so the checker can prove the reads, and a
+// shorter p, which no caller passes, would change nothing.
+//
+// Every addition is +%, as the standard defines them modulo 2^32, and
+// each rotation right by n is x >> n | x << (32 - n), written out with
+// constant counts.
+func block(mut h [8]uint32, p []uint8) {
+    if len(p) < 64 {
+        return
+    }
+    // The message schedule, W(0) to W(63).
+    mut w [64]uint32
+    for t := range 16 {
+        w[t] = uint32(p[4 * t]) << 24 | uint32(p[4 * t + 1]) << 16 |
+            uint32(p[4 * t + 2]) << 8 | uint32(p[4 * t + 3])
+    }
+    for t := range 48 {
+        // W(t+16) from W(t+14), W(t+9), W(t+1) and W(t): sigma1 and
+        // sigma0 of the standard.
+        v1 := w[t + 14]
+        v0 := w[t + 1]
+        s1 := (v1 >> 17 | v1 << 15) ^ (v1 >> 19 | v1 << 13) ^ v1 >> 10
+        s0 := (v0 >> 7 | v0 << 25) ^ (v0 >> 18 | v0 << 14) ^ v0 >> 3
+        w[t + 16] = s1 +% w[t + 9] +% s0 +% w[t]
+    }
+    mut a := h[0]
+    mut b := h[1]
+    mut c := h[2]
+    mut d := h[3]
+    mut e := h[4]
+    mut f := h[5]
+    mut g := h[6]
+    mut hh := h[7]
+    for t := range 64 {
+        // Sigma1(e), Ch(e, f, g), Sigma0(a) and Maj(a, b, c) of the
+        // standard.
+        s1 := (e >> 6 | e << 26) ^ (e >> 11 | e << 21) ^ (e >> 25 | e << 7)
+        ch := e & f ^ ^e & g
+        t1 := hh +% s1 +% ch +% k[t] +% w[t]
+        s0 := (a >> 2 | a << 30) ^ (a >> 13 | a << 19) ^ (a >> 22 | a << 10)
+        maj := a & b ^ a & c ^ b & c
+        t2 := s0 +% maj
+        hh = g
+        g = f
+        f = e
+        e = d +% t1
+        d = c
+        c = b
+        b = a
+        a = t1 +% t2
+    }
+    h[0] +%= a
+    h[1] +%= b
+    h[2] +%= c
+    h[3] +%= d
+    h[4] +%= e
+    h[5] +%= f
+    h[6] +%= g
+    h[7] +%= hh
+}

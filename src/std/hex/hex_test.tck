@@ -1,0 +1,54 @@
+package hex
+
+import testing from "std/testing"
+
+// The tests of std/hex, which tack test runs on its directory. They are
+// in the package, so they read digit, which is private. std/testing
+// imports no std package, so importing it here makes no cycle.
+
+// expect_digit reports, at its caller, digit(v) when it is not want.
+func expect_digit(_ testing.Site, mut t testing.T, v uint8, want uint8) {
+    got := digit(v)
+    if got != want {
+        mut t.errorf("digit(%d) = %c, want %c", v, got, want)
+    }
+}
+
+// test_digit checks the digits at both ends and between, and that the
+// high four bits are ignored.
+func test_digit(mut t testing.T) error {
+    expect_digit(mut t, 0, '0')
+    expect_digit(mut t, 9, '9')
+    expect_digit(mut t, 10, 'a')
+    expect_digit(mut t, 15, 'f')
+    expect_digit(mut t, 0xF7, '7')
+    expect_digit(mut t, 0xFF, 'f')
+    return noerror
+}
+
+// test_append_encode checks append_encode appends after what the list
+// holds, two digits a byte, 0x00 and 0xff included.
+func test_append_encode(mut t testing.T) error {
+    mut out := make(list[uint8], c_allocator)
+    append(mut out, '>')?
+    input := [2]uint8{0x00, 0xff}
+    append_encode(mut out, input)?
+    if len(out) != 5 {
+        return mut t.fatalf("append_encode gave %d bytes, want 5", len(out))
+    }
+    if out[0] != '>' || out[1] != '0' || out[2] != '0' || out[3] != 'f' || out[4] != 'f' {
+        mut t.errorf("append_encode gave %c%c%c%c%c, want >00ff", out[0], out[1], out[2], out[3], out[4])
+    }
+    return noerror
+}
+
+// test_append_encode_empty checks an empty view appends nothing.
+func test_append_encode_empty(mut t testing.T) error {
+    mut out := make(list[uint8], c_allocator)
+    none := [0]uint8{}
+    append_encode(mut out, none)?
+    if len(out) != 0 {
+        mut t.errorf("append_encode of nothing gave %d bytes", len(out))
+    }
+    return noerror
+}

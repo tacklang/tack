@@ -1,0 +1,1935 @@
+package os
+
+import bytes from "std/bytes"
+import text from "std/text"
+
+// Package os reaches the operating system: the program's arguments and
+// environment, files and directories, and other programs, which run
+// starts and waits for. A program imports it as
+//
+//     import os from "std/os"
+//
+// and the compiler reads it from $TACK_HOME/src/std/os, or
+// ~/.tack/src/std/os, as it reads std/fmt. Its C, os.c, makes one POSIX
+// call at a time and decides nothing; every loop, every retry and every
+// allocation is here, in Tack.
+//
+// Paths and names are []uint8 views, passed to the OS as they are, with
+// no cleaning or joining. A path or a name holding a 0 byte, which C
+// would read as its end, is refused before the OS sees it, as error{code:
+// 4, msg: "path contains a NUL byte"} or "name contains a NUL byte". Text
+// the OS gives back, an argument, a variable's value, a directory's
+// names, is a text.Text, and a file's bytes a list[uint8]; each function
+// that returns one takes the Allocator it is made through, as scope, so it
+// may be a region's, and no other does. run takes its output lists as
+// mut beside its allocator, so a region's allocator goes to it only with
+// lists of that region's block: given one with lists declared outside the
+// block, the call is rejected, since the escape rule cannot tell that run
+// keeps nothing from the region in them.
+//
+// Every byte from the OS lands in a list Tack owns, appended by C
+// through the list's own allocator, so Tack frees it. When an allocation
+// fails, the error is error{code: 1, msg: "out of memory"}, as for every
+// std function, and code 1 means that and nothing else. When the OS
+// refuses, the error is code 3 and the message the C library's strerror
+// gives on macOS, the same on every target: error{code: 3, msg: "No such
+// file or directory"}, for one, and error{code: 3, msg: "Cannot allocate
+// memory"} for a kernel that cannot allocate memory for the call, ENOMEM,
+// which is the OS's refusal, not the program's allocation. Every errno
+// Linux defines has its message, glibc's for one macOS does not define,
+// so none is "unknown OS error" on Linux. A program run cannot start is
+// code 13 and the OS's message, error{code: 13, msg: "No such file or
+// directory"} for one not on PATH. A function
+// that fails returns an empty list or Text beside its error, and frees
+// what it had made; nothing it returns is partial.
+//
+// Every file descriptor os opens it closes before it returns, on every
+// path, and opens close-on-exec, so no child process inherits it, and
+// every child run starts it waits for before it returns, so none is left
+// a zombie.
+
+// read_size is how many bytes read_file makes room for before each read,
+// the most os.c reads at once.
+var read_size int64 = 65536
+
+// fd_range is the error for a file descriptor the OS gives that an int32
+// cannot hold, which no POSIX open gives, since C's int is 32 bits on
+// every target os builds for; it is there because the conversion's ok
+// is checked, and a descriptor it reports could not be closed.
+var fd_range = error{code: 2, msg: "internal error"}
+
+// nul_path is the error for a path holding a 0 byte.
+var nul_path = error{code: 4, msg: "path contains a NUL byte"}
+
+// nul_arg is the error for an argument of run holding a 0 byte.
+var nul_arg = error{code: 4, msg: "argument contains a NUL byte"}
+
+// nul_prog is the error for a program run is given whose name holds a 0
+// byte.
+var nul_prog = error{code: 4, msg: "program contains a NUL byte"}
+
+// nul_dir is the error for a directory run_in or run_inherit_in is
+// given whose name holds a 0 byte.
+var nul_dir = error{code: 4, msg: "directory contains a NUL byte"}
+
+// nul_name is the error for an environment variable's name holding a 0
+// byte.
+var nul_name = error{code: 4, msg: "name contains a NUL byte"}
+
+// bad_mode is the error for a mode make_dir_mode or write_file_mode is
+// given that is not permission bits alone, 0 to 0o777.
+var bad_mode = error{code: 4, msg: "mode out of range"}
+
+// perm_of returns mode as the permissions C's open and mkdir take, and
+// whether it is permission bits alone, 0 to 0o777: no file type, no
+// setuid, setgid or sticky bit, and nothing negative.
+func perm_of(mode int64) (int32, bool) {
+    if mode < 0 || mode > 0o777 {
+        return 0, false
+    }
+    perm, fits := int32(mode)
+    return perm, fits
+}
+
+// c_open opens path, for reading when mode is 0; for writing when it is
+// 1, creating the file with the permissions perm, before the umask, or
+// truncating it; and, when it is 2, for writing a file it creates with
+// perm, failing with EEXIST when anything is at path, a symbolic link
+// included, which it does not follow (O_CREAT, O_EXCL and O_NOFOLLOW);
+// close-on-exec each way. It returns the file descriptor, or the errno
+// negated. perm is not looked at for reading.
+extern("tack_os_open") func c_open(path []uint8, mode int32, perm int32) int64
+
+// c_close closes fd and returns 0, or the errno negated.
+extern("tack_os_close") func c_close(fd int32) int64
+
+// c_read reads up to 65536 bytes from fd and appends them to l, and
+// returns how many, 0 at the end of the file, or the errno negated, or
+// -no_room when l cannot grow to hold them (see c_error).
+extern("tack_os_read") func c_read(fd int32, mut l list[uint8]) int64
+
+// c_write writes some of data to fd, with one write, and returns how many
+// bytes, or the errno negated.
+extern("tack_os_write") func c_write(fd int32, data []uint8) int64
+
+// c_remove removes the file or empty directory at path, with C's remove,
+// and returns 0, or the errno negated.
+extern("tack_os_remove") func c_remove(path []uint8) int64
+
+// c_make_dir makes the directory path with the permissions perm, before
+// the umask, and returns 0, or the errno negated.
+extern("tack_os_make_dir") func c_make_dir(path []uint8, perm int32) int64
+
+// c_rename renames the file or directory old_path to new_path, with C's
+// rename, and returns 0, or the errno negated.
+extern("tack_os_rename") func c_rename(old_path []uint8, new_path []uint8) int64
+
+// c_stat fills info with what stat(2) reports of the file at path,
+// following symbolic links, and returns 0, or the errno negated; on a
+// failure info is left as it was.
+extern("tack_os_stat") func c_stat(path []uint8, mut info Info) int64
+
+// c_lstat is c_stat with lstat(2), which does not follow a symbolic link
+// at the end of path.
+extern("tack_os_lstat") func c_lstat(path []uint8, mut info Info) int64
+
+// c_getwd appends the absolute path of the current directory to dir,
+// through getcwd, and returns 0, or the errno negated: ERANGE for a path
+// longer than the buffer getcwd is given, path_max bytes with its 0; or
+// -no_room when dir cannot grow (see c_error).
+extern("tack_os_getwd") func c_getwd(mut dir list[uint8]) int64
+
+// c_list_dir appends the name of every entry of the directory path,
+// each followed by a 0, to names, in the order the OS gives them, "."
+// and ".." included, and returns 0, or the errno negated, or -no_room
+// when names cannot grow (see c_error).
+extern("tack_os_list_dir") func c_list_dir(path []uint8, mut names list[uint8]) int64
+
+// c_make_temp_dir makes a new directory named by tmpl, a path ending in
+// XXXXXX and a 0, through mkdtemp, which replaces the Xs, and returns 0,
+// or the errno negated.
+extern("tack_os_make_temp_dir") func c_make_temp_dir(mut tmpl list[uint8]) int64
+
+// c_env appends the value of the environment variable name to value and
+// returns 1, or returns 0 when it is not set, or the errno negated, or
+// -no_room when value cannot grow (see c_error).
+extern("tack_os_env") func c_env(name []uint8, mut value list[uint8]) int64
+
+// c_argc returns how many arguments the program was given, its name
+// included.
+extern("tack_os_argc") func c_argc() int64
+
+// c_arg appends argument i to arg and returns 0, or the errno negated,
+// or -no_room when arg cannot grow (see c_error).
+extern("tack_os_arg") func c_arg(i int64, mut arg list[uint8]) int64
+
+// c_pipe makes a pipe, both its ends close-on-exec, puts its read end in
+// fds[0] and its write end in fds[1], and returns 0, or the errno
+// negated.
+extern("tack_os_pipe") func c_pipe(mut fds [2]int32) int64
+
+// c_spawn starts the program prog, through posix_spawnp, which looks it
+// up on PATH when it holds no /, with the arguments flat holds: argc of
+// them, each followed by a 0, argv[0] first, which need not name prog.
+// The child reads in as its standard input, writes its standard output
+// to out and its standard error to err, and starts with the
+// process's environment and SIGPIPE's default action. It returns the
+// child's process id; or the errno negated when setting the start up
+// fails, before any program is looked for, -no_room for the C library's
+// ENOMEM there, an allocation of its own that failed, and E2BIG for more
+// than 8192 arguments; or c_spawn_failed() plus the errno, negated, when
+// the program cannot be started: posix_spawnp's own failure, the
+// program not found, not run, or no process made for it, and
+// ENAMETOOLONG for a prog too long for a path. When in_dir is not 0 the
+// child enters dir before the program is looked for, so a relative prog
+// or PATH entry is taken from there, and a dir it cannot enter, or one
+// too long for a path, ENAMETOOLONG, is a program that cannot be
+// started too; this process's directory never changes. The child's
+// environment is then this process's with every PWD dropped and pwd,
+// PWD= and dir made absolute and a 0, after the rest, the array of them
+// made in envbuf, through its own allocator, -no_room when it cannot
+// grow, so neither the number of variables nor pwd's length has a limit
+// of its own.
+extern("tack_os_spawn") func c_spawn(prog []uint8, dir []uint8, in_dir int32, pwd []uint8, mut envbuf list[uint8], flat []uint8, argc int64, in int32, out int32, err int32) int64
+
+// c_spawn_failed returns the number c_spawn adds to an errno for a
+// program that cannot be started, 1 << 21, above every errno and above
+// os.c's no_room.
+extern("tack_os_spawn_failed") func c_spawn_failed() int64
+
+// c_flush_stdio flushes C's stdout, then its stderr, which print, exit
+// and std/fmt write through, handing a failure to the runtime as
+// std/fmt's flushes do: a broken pipe ends the process as exit(141)
+// does, and any other failure loses the bytes.
+extern("tack_os_flush_stdio") func c_flush_stdio()
+
+// c_can_execute returns 1 when the file at path may be run, as
+// can_execute says, and 0 otherwise.
+extern("tack_os_can_execute") func c_can_execute(path []uint8) int64
+
+// c_poll2 waits until a or b, each a descriptor or negative for none,
+// can be read without blocking, its writer has closed it, or it has
+// failed, and returns 1 when a can, 2 when b can, 3 when both can, or the
+// errno negated.
+extern("tack_os_poll2") func c_poll2(a int32, b int32) int64
+
+// c_wait waits for the child pid to end and returns its exit status, 0
+// to 255, or 256 plus the signal that killed it, or 512 plus the signal
+// when it also dumped core, or the errno negated.
+extern("tack_os_wait") func c_wait(pid int64) int64
+
+// c_eintr returns EINTR, the errno of a call a signal interrupted.
+extern("tack_os_eintr") func c_eintr() int64
+
+// c_errno_named returns the errno remove_all compares with, by k: 0
+// ENOENT, 1 EISDIR, 2 EPERM, 3 EACCES, 4 ENOTDIR, 5 EINVAL, and 6 the
+// number c_open_dir_at gives, negated, for a symbolic link, above every
+// errno; 0 for any other k.
+extern("tack_os_errno_named") func c_errno_named(k int64) int64
+
+// c_unlink_at removes name of the directory fd, unlinkat(2), with
+// AT_REMOVEDIR when dir is not 0, retrying on EINTR, and returns 0, or
+// the errno negated.
+extern("tack_os_unlink_at") func c_unlink_at(fd int32, name []uint8, dir int32) int64
+
+// c_open_dir_at opens name of the directory fd as a directory, with
+// O_NOFOLLOW, O_DIRECTORY and O_CLOEXEC, retrying on EINTR, and returns
+// the descriptor, which std/os's Tack closes; or the errno negated; or
+// c_errno_named(6) negated for a name readlinkat reads, a symbolic link,
+// as Go's checkSymlink tells one.
+extern("tack_os_open_dir_at") func c_open_dir_at(fd int32, name []uint8) int64
+
+// c_read_names appends to names up to max names of the directory fd,
+// each followed by a 0, . and .. left out, read on from where the
+// descriptor's last read ended, and returns how many, fewer than max only
+// at the end of the listing; or the errno negated, -no_room among them.
+// done is how many it has read since fd was opened, which it reads past
+// from the start where Linux's getdents64 is not there; resume[0] is
+// where the next entry is when the last read stopped within what the OS
+// gave, -1 otherwise, sought first, set by the read for the next. A
+// record getdents64 gives that is too short or runs past what it gave is
+// EIO.
+extern("tack_os_read_names") func c_read_names(fd int32, done int64, max int64, mut names list[uint8], mut resume [1]int64) int64
+
+// c_error returns the error for e, an errno or os.c's no_room, 1 << 20,
+// which no errno is: out of memory, code 1, for no_room, a list that
+// could not grow, and code 3 with strerror's message for an errno,
+// ENOMEM's "Cannot allocate memory" among them. The C functions here
+// fail with -errno or -no_room, which -%r turns back, and a result is
+// compared with c_eintr() as -%n. Both are small positive numbers, so
+// the negation never wraps; it is -% rather than - because C's contract,
+// not a proof, is what bounds it.
+extern("tack_os_error") func c_error(e int64) error
+
+// has_nul reports whether s holds a 0 byte.
+func has_nul(s []uint8) bool {
+    return bytes.index_byte(s, 0) >= 0
+}
+
+// part returns the view of s from a up to b, or an empty view when those
+// are not bounds of s.
+func part(s []uint8, a int64, b int64) []uint8 {
+    if a < 0 || b < a || b > len(s) {
+        return s[:0]
+    }
+    return s[a:b]
+}
+
+// args returns the program's arguments, made through alloc: its name, as
+// it was run, first, then each argument, an empty one included, in
+// order. It fails only for want of memory, returning an empty list and
+// freeing what it had made.
+pub func args(scope alloc Allocator) (list[text.Text], error) {
+    empty := make(list[text.Text], alloc)
+    mut out := make(list[text.Text], alloc)
+    for i := range c_argc() {
+        mut b := make(list[uint8], alloc)
+        r := c_arg(i, mut b)
+        if r < 0 {
+            return empty, c_error(-%r)
+        }
+        t, e := text.from_bytes(b, alloc)
+        if e.code != 0 {
+            return empty, e
+        }
+        e2 := append(mut out, t)
+        if e2.code != 0 {
+            return empty, e2
+        }
+    }
+    return out, noerror
+}
+
+// env returns the value of the environment variable name, made through
+// alloc, and true, or an empty Text and false when it is not set, which
+// an empty name never is. A variable set to nothing is an empty Text and
+// true. A name holding a 0 byte is error{code: 4, msg: "name contains a
+// NUL byte"}; otherwise it fails only for want of memory. On an error the
+// Text is empty and the bool false.
+pub func env(name []uint8, scope alloc Allocator) (text.Text, bool, error) {
+    if has_nul(name) {
+        return text.new(alloc), false, nul_name
+    }
+    mut v := make(list[uint8], alloc)
+    r := c_env(name, mut v)
+    if r < 0 {
+        return text.new(alloc), false, c_error(-%r)
+    }
+    if r == 0 {
+        return text.new(alloc), false, noerror
+    }
+    t, e := text.from_bytes(v, alloc)
+    if e.code != 0 {
+        return text.new(alloc), false, e
+    }
+    return t, true, noerror
+}
+
+// read_file returns every byte of the file at path, in a list made
+// through alloc. It reads until the end of the file, retrying a read a
+// signal interrupted, and closes the file on every path. On an error,
+// the OS's or out of memory, the list is empty and what had been read is
+// freed. A directory is error{code: 3, msg: "Is a directory"}.
+pub func read_file(path []uint8, scope alloc Allocator) (list[uint8], error) {
+    empty := make(list[uint8], alloc)
+    if has_nul(path) {
+        return empty, nul_path
+    }
+    r := c_open(path, 0, 0)
+    if r < 0 {
+        return empty, c_error(-%r)
+    }
+    fd, fits := int32(r)
+    if !fits {
+        return empty, fd_range
+    }
+    // A file opened for reading has nothing to flush, so a failed close
+    // loses nothing that was read; its errno is not reported.
+    defer {
+        c_close(fd)
+    }
+    mut data := make(list[uint8], alloc)
+    for {
+        e := reserve(mut data, read_size)
+        if e.code != 0 {
+            return empty, e
+        }
+        n := c_read(fd, mut data)
+        if n == 0 {
+            return data, noerror
+        }
+        if n < 0 && -%n != c_eintr() {
+            return empty, c_error(-%n)
+        }
+    }
+}
+
+// write_file writes data to the file at path, creating it with mode 0644
+// when it does not exist and truncating it when it does, and returns no
+// error: write_file_mode with the mode 0o644.
+pub func write_file(path []uint8, data []uint8) error {
+    return write_file_mode(path, data, 0o644)
+}
+
+// write_file_mode writes data to the file at path, creating it with the
+// permissions mode, before the umask, when it does not exist and
+// truncating it when it does, and returns no error. A file that exists
+// keeps its mode: mode is used only to create one. mode is permission
+// bits alone, 0 to 0o777, as 0o600 for a file only its owner may read
+// and write; any other, a negative one, one with a setuid, setgid or
+// sticky bit or a file type, is error{code: 4, msg: "mode out of
+// range"}, refused before the OS sees path, as a path holding a 0 byte
+// is. It writes until every byte is written, retrying a write a
+// signal interrupted, and closes the file on every path; a failed close,
+// which can mean the bytes did not reach the file, is an error. On an
+// error the file may have been created or truncated, and hold some of
+// data: nothing makes the write all or nothing. A pipe with no reader is
+// error{code: 3, msg: "Broken pipe"}: the program ignores SIGPIPE, so the
+// write fails rather than end the process.
+pub func write_file_mode(path []uint8, data []uint8, mode int64) error {
+    if has_nul(path) {
+        return nul_path
+    }
+    perm, ok := perm_of(mode)
+    if !ok {
+        return bad_mode
+    }
+    r := c_open(path, 1, perm)
+    if r < 0 {
+        return c_error(-%r)
+    }
+    fd, fits := int32(r)
+    if !fits {
+        return fd_range
+    }
+    return write_and_close(fd, data)
+}
+
+// create_file_mode creates a new file at path with the permissions mode,
+// before the umask, writes data to it and returns no error, failing
+// when anything is at path already, as open(2) with O_CREAT, O_EXCL and
+// O_NOFOLLOW does: a file, a directory, or a symbolic link, a dangling
+// one included, which is not followed, is error{code: 3, msg: "File
+// exists"}, the error make_dir gives for a path that exists, the way to
+// tell that the path is taken; what is there is left as it was. So two
+// callers, in one process or two, never both create one path. mode is
+// permission bits alone, 0 to 0o777, as write_file_mode takes it. A
+// path holding a 0 byte is error{code: 4, msg: "path contains a NUL
+// byte"}, and then any other mode error{code: 4, msg: "mode out of
+// range"}, checked in that order, both before the OS sees path. It
+// writes as write_file_mode does, until every byte is written, and
+// closes the file on every path, a failed close an error. On an error
+// once the file is created, it removes path, by its name, after the
+// file is closed: what is at path then is removed, which is the file it
+// created unless something renamed another onto path in between, as
+// with Go's os.CreateTemp and a remove of its name. It does not report a
+// removal that fails: the write's error is the one returned.
+pub func create_file_mode(path []uint8, data []uint8, mode int64) error {
+    if has_nul(path) {
+        return nul_path
+    }
+    perm, ok := perm_of(mode)
+    if !ok {
+        return bad_mode
+    }
+    r := c_open(path, 2, perm)
+    if r < 0 {
+        return c_error(-%r)
+    }
+    fd, fits := int32(r)
+    if !fits {
+        return fd_range
+    }
+    e := write_and_close(fd, data)
+    if e.code != 0 {
+        c_remove(path)
+        return e
+    }
+    return noerror
+}
+
+// write_and_close writes every byte of data to fd, a file open for
+// writing, retrying a write a signal interrupted, then closes fd, on
+// every path, and returns no error, or the error of the write or of the
+// close, which can mean the bytes did not reach the file.
+func write_and_close(fd int32, data []uint8) error {
+    mut at int64 = 0
+    for at < len(data) {
+        n := c_write(fd, part(data, at, len(data)))
+        if n <= 0 && -%n != c_eintr() {
+            c_close(fd)
+            // A write of something that writes nothing has no errno; 0
+            // is none, so it is "unknown OS error".
+            return c_error(-%n)
+        }
+        if n > 0 {
+            // C's write contract bounds n by the bytes it was given, what
+            // is left of data, so at stays at most len(data) and never
+            // wraps; +% is there because only that contract bounds it.
+            at +%= n
+        }
+    }
+    c := c_close(fd)
+    if c < 0 {
+        return c_error(-%c)
+    }
+    return noerror
+}
+
+// remove_path removes the file, or the empty directory, at path, and returns
+// no error. A directory that is not empty is error{code: 3, msg:
+// "Directory not empty"}, and a missing path error{code: 3, msg: "No
+// such file or directory"}.
+pub func remove_path(path []uint8) error {
+    if has_nul(path) {
+        return nul_path
+    }
+    r := c_remove(path)
+    if r < 0 {
+        return c_error(-%r)
+    }
+    return noerror
+}
+
+// RemoveResult is how remove_all ended, Go's error from os.RemoveAll:
+// err, no error, or the error, and, for a failure of the OS's, code 3,
+// op, the call that failed, as Go's PathError names it, unlinkat,
+// openfdat, readdirnames, open or RemoveAll, and path, the path it
+// failed at, joined from the path remove_all was given, which may be
+// longer than PATH_MAX. op and path are empty for any other end. It is
+// one value, not a result beside an error, so that what failed can be
+// read once the error is seen.
+pub type RemoveResult struct {
+    pub err error
+    pub op text.Text
+    pub path text.Text
+}
+
+// RmFrame is one directory remove_all is emptying, Go's removeAllFrom
+// of it: a descriptor of it open, or -1 once it is closed or could not be
+// opened; its name in the directory above; the errno unlinkat gave for
+// it, Go's uErr, which a reopen that finds a link reports; the batch of
+// names last read from it, each followed by a 0, at the offset of the
+// next to remove, resp of them, read the names read since it was opened,
+// resume where its listing goes on, for c_read_names,
+// fresh when no batch has been read since, and how many of the batch
+// failed, Go's numErr; and the first failure below it, Go's recurseErr,
+// with its op and path.
+type RmFrame struct {
+    fd int32
+    name text.Text
+    uerr int64
+    names list[uint8]
+    next int64
+    resp int64
+    read int64
+    resume [1]int64
+    fresh bool
+    num_err int64
+    failed bool
+    op text.Text
+    at text.Text
+    err error
+}
+
+// rm_batch is Go's reqSize, how many names removeAllFrom reads from a
+// directory at once.
+var rm_batch int64 = 1024
+
+// remove_all removes path and everything below it, and returns no
+// error, as Go's os.RemoveAll does on Linux (os/removeall_at.go): an
+// empty path, and one that is not there, are no error; a path whose last
+// part is . is error{code: 3, msg: "Invalid argument"}, op RemoveAll;
+// anything else is removed with unlink, or rmdir once what it holds is,
+// each directory reached from the one above it, by a descriptor opened
+// with O_NOFOLLOW and O_DIRECTORY, so no symbolic link is followed,
+// whatever its target, and a tree however deep is removed, a path past
+// PATH_MAX included. A directory's names are read, rm_batch at a time,
+// in the order the OS lists them, each removed, or failing and left,
+// before the next, the directory reopened after a full batch some name
+// of which went, and removed itself once its listing ends, as Go 1.27's
+// removeAllFrom does it; the first failure is the one returned, but
+// where the directory could be removed all the same, as Go keeps it, and
+// a reopen's failure takes its place, as in Go. A failure is code 3 and
+// the OS's message, with the failure's op and path beside it in the
+// RemoveResult; a 0 byte in path is error{code: 4, msg: "path contains
+// a NUL byte"}, and an allocation that failed error{code: 1, msg: "out
+// of memory"}, each with no op or path.
+//
+// It works without recursion: the directories being emptied are a list,
+// one RmFrame each, which holds one descriptor and one batch of names
+// per level, as Go's recursion does, and opens no other. A tree deeper
+// than the process may open descriptors fails with EMFILE, the failure
+// Go's would give, openfdat and the directory that could not be opened,
+// "Too many open files", but at a smaller depth: Go's runtime raises its
+// soft limit on descriptors to the hard one as it starts, and Tack's
+// runtime does not, a known limitation. Every descriptor it opens it
+// closes on every path, an error and a failed allocation among them.
+// What it allocates through alloc is the failure's op and path and the
+// names it holds, freed before it returns but for the RemoveResult's.
+pub func remove_all(path []uint8, scope alloc Allocator) RemoveResult {
+    if len(path) == 0 {
+        return rm_result(noerror, alloc)
+    }
+    if has_nul(path) {
+        return rm_result(nul_path, alloc)
+    }
+    if ends_with_dot(path) {
+        return rm_failure(c_error(c_errno_named(5)), "RemoveAll", path, alloc)
+    }
+    r := c_remove(path)
+    if r == 0 || -%r == c_errno_named(0) {
+        return rm_result(noerror, alloc)
+    }
+    pstart, pend, bstart, bend, dot := split_path(path)
+    if pstart < 0 || pstart > pend || pend > len(path) || bstart < 0 || bstart > bend || bend > len(path) {
+        return rm_result(error{code: 2, msg: "internal error"}, alloc)
+    }
+    mut prefix := make(list[uint8], alloc)
+    mut e0 := noerror
+    if dot {
+        e0 = append(mut prefix, '.')
+    } else {
+        e0 = append(mut prefix, path[pstart:pend]...)
+    }
+    if e0.code != 0 {
+        return rm_result(e0, alloc)
+    }
+    rn := c_open(prefix[:], 0, 0)
+    if rn < 0 {
+        if -%rn == c_errno_named(0) {
+            return rm_result(noerror, alloc)
+        }
+        return rm_failure(c_error(-%rn), "open", prefix[:], alloc)
+    }
+    parent, fits := int32(rn)
+    if !fits {
+        return rm_result(fd_range, alloc)
+    }
+    e1 := append(mut prefix, '/')
+    if e1.code != 0 {
+        c_close(parent)
+        return rm_result(e1, alloc)
+    }
+    mut stack := make(list[RmFrame], alloc)
+    res := remove_from(parent, prefix[:], path[bstart:bend], mut stack, alloc)
+    // Every descriptor still open, after an allocation that failed,
+    // is closed here.
+    for _, fr := range stack {
+        if fr.fd >= 0 {
+            c_close(fr.fd)
+        }
+    }
+    c_close(parent)
+    return res
+}
+
+// ends_with_dot reports whether the last part of p is ., Go's
+// endsWithDot.
+func ends_with_dot(p []uint8) bool {
+    n := len(p)
+    if n == 1 && p[0] == '.' {
+        return true
+    }
+    if n >= 2 && p[n - 1] == '.' && p[n - 2] == '/' {
+        return true
+    }
+    return false
+}
+
+// split_path returns where, in p, the directory above its last part and
+// that part are, Go's splitPath: all but one of its leading slashes and
+// its trailing ones left out, the parent the part before the last slash,
+// / for one at the start, and . for none, which it says with true, the
+// parent's range then empty.
+func split_path(p []uint8) (int64, int64, int64, int64, bool) {
+    mut lo int64 = 0
+    for len(p) -% lo > 1 && byte_at(p, lo) == '/' && byte_at(p, lo +% 1) == '/' {
+        lo +%= 1
+    }
+    mut hi := len(p)
+    for hi -% 1 > lo && byte_at(p, hi -% 1) == '/' {
+        hi -%= 1
+    }
+    mut i := hi -% 2
+    for i >= lo {
+        if byte_at(p, i) == '/' {
+            if i == lo {
+                return lo, lo +% 1, i +% 1, hi, false
+            }
+            return lo, i, i +% 1, hi, false
+        }
+        i -%= 1
+    }
+    return lo, lo, lo, hi, true
+}
+
+// byte_at returns p[i], or 0 when i is no index of p.
+func byte_at(p []uint8, i int64) uint8 {
+    if i < 0 || i >= len(p) {
+        return 0
+    }
+    return p[i]
+}
+
+// top_fd returns the descriptor of the directory on top of stack, or
+// parent when stack is empty.
+func top_fd(stack []RmFrame, parent int32) int32 {
+    t := len(stack) -% 1
+    if t < 0 || t >= len(stack) {
+        return parent
+    }
+    return stack[t].fd
+}
+
+// rm_result returns the RemoveResult of err, with no op or path.
+func rm_result(err error, scope alloc Allocator) RemoveResult {
+    return RemoveResult{err: err, op: text.new(alloc), path: text.new(alloc)}
+}
+
+// rm_failure returns the RemoveResult of err, the failure of op at p, or
+// of out of memory when the op and path cannot be made.
+func rm_failure(err error, op string, p []uint8, scope alloc Allocator) RemoveResult {
+    o, e0 := text.from_bytes([]uint8(op), alloc)
+    if e0.code != 0 {
+        return rm_result(e0, alloc)
+    }
+    t, e1 := text.from_bytes(p, alloc)
+    if e1.code != 0 {
+        return rm_result(e1, alloc)
+    }
+    return RemoveResult{err: err, op: o, path: t}
+}
+
+// rm_path appends to out the path of the entry name of the directory
+// stack's top, below prefix and every directory of stack, joined by
+// slashes, as Go's PathError for it names it.
+func rm_path(prefix []uint8, stack []RmFrame, name []uint8, mut out list[uint8]) error {
+    append(mut out, prefix...)?
+    for _, fr := range stack {
+        append(mut out, fr.name.bytes()...)?
+        append(mut out, '/')?
+    }
+    return append(mut out, name...)
+}
+
+// remove_from removes the entry base of the directory parent, a
+// descriptor, and all below it, Go's removeAllFrom, without recursion:
+// stack holds a frame for each directory being emptied, which the
+// caller closes the descriptors of should remove_from return early, for
+// want of memory. Paths are named below prefix, the parent and a slash.
+// It returns the result remove_all returns.
+func remove_from(parent int32, prefix []uint8, base []uint8, mut stack list[RmFrame], scope alloc Allocator) RemoveResult {
+    mut res := rm_result(noerror, alloc)
+    e := remove_steps(parent, prefix, base, mut stack, mut res, alloc)
+    if e.code != 0 {
+        return rm_result(e, alloc)
+    }
+    return res
+}
+
+// remove_steps is remove_from's work, its result in res; it returns an
+// error only for want of memory, or an internal error, having closed no
+// descriptor it holds in stack, which the caller closes then.
+//
+// It steps through Go's removeAllFrom with stack for its recursion. An
+// entry is unlinked; failing with EISDIR, EPERM or EACCES, it is opened
+// as a directory and its frame pushed; its names are read rm_batch at a
+// time from that descriptor, each removed in turn, a directory among
+// them pushed above it; a batch whose every name failed is followed by
+// the next read on the same descriptor, and any other full batch by a
+// reopen of the directory, by name, since removing what it held may
+// have moved what is left; a batch short of rm_batch, the end of the
+// listing, by the removal of the directory itself.
+//
+// Why it ends, a tree that nothing else changes meanwhile: each name is
+// read once per open, so a batch ends; a batch whose names all failed
+// moves the descriptor's offset on, and the listing has an end; a
+// reopen follows only a full batch some name of which was removed or
+// was gone, ENOENT, which is no failure, as in Go, so the directory
+// lost an entry and the next listing is shorter; and a frame is pushed
+// only for an entry of the frame below, so the tree's depth bounds the
+// stack. A tree another process keeps adding to can keep it going, as
+// it can Go's.
+func remove_steps(parent int32, prefix []uint8, base []uint8, mut stack list[RmFrame], mut res RemoveResult, scope alloc Allocator) error {
+    enoent := c_errno_named(0)
+    mut entry := make(list[uint8], alloc)
+    append(mut entry, base...)?
+    mut have_entry := true
+    // The result of the entry or directory last finished: failed, and
+    // its op, path and error when so.
+    mut failed := false
+    mut op := text.new(alloc)
+    mut at := text.new(alloc)
+    mut err := noerror
+    for {
+        if have_entry {
+            have_entry = false
+            pfd := top_fd(stack[:], parent)
+            failed = false
+            u := c_unlink_at(pfd, entry[:], 0)
+            if u != 0 && -%u != enoent {
+                ue := -%u
+                if ue != c_errno_named(1) && ue != c_errno_named(2) && ue != c_errno_named(3) {
+                    failed = true
+                    op = text.from_bytes([]uint8("unlinkat"), alloc)?
+                    mut p := make(list[uint8], alloc)
+                    rm_path(prefix, stack[:], entry[:], mut p)?
+                    at = text.from_bytes(p[:], alloc)?
+                    err = c_error(ue)
+                } else {
+                    // Everything the frame needs is made before the
+                    // directory is opened, so that nothing can fail
+                    // between the open and the push that would leave its
+                    // descriptor held by no frame.
+                    nm := text.from_bytes(entry[:], alloc)?
+                    mut p := make(list[uint8], alloc)
+                    rm_path(prefix, stack[:], entry[:], mut p)?
+                    o := text.from_bytes([]uint8("openfdat"), alloc)?
+                    a := text.from_bytes(p[:], alloc)?
+                    mut fr := RmFrame{fd: -1, name: nm, uerr: ue, names: make(list[uint8], alloc), next: 0, resp: 0, read: 0, resume: [1]int64{-1}, fresh: true, num_err: 0, failed: false, op: o, at: a, err: noerror}
+                    reserve(mut stack, 1)?
+                    d := c_open_dir_at(pfd, entry[:])
+                    de := -%d
+                    if d >= 0 {
+                        fd, fits := int32(d)
+                        if !fits {
+                            return fd_range
+                        }
+                        fr.fd = fd
+                        e := append(mut stack, fr)
+                        if e.code != 0 {
+                            // reserve made room, so this does not happen.
+                            c_close(fd)
+                            return e
+                        }
+                        continue
+                    }
+                    if de == enoent {
+                        failed = false
+                    } else if de == c_errno_named(4) {
+                        failed = true
+                        op = text.from_bytes([]uint8("unlinkat"), alloc)?
+                        at = text.from_bytes(p[:], alloc)?
+                        err = c_error(ue)
+                    } else {
+                        // Go goes on to remove the directory itself,
+                        // having kept this as its first failure; a
+                        // symbolic link is no failure of its own.
+                        mut oe := de
+                        if de == c_errno_named(6) {
+                            oe = ue
+                        }
+                        fr.failed = true
+                        fr.err = c_error(oe)
+                        append(mut stack, fr)?
+                        continue
+                    }
+                }
+            }
+        } else {
+            top := len(stack) -% 1
+            if top < 0 || top >= len(stack) {
+                break
+            }
+            if stack[top].fd >= 0 && (stack[top].fresh || stack[top].next >= len(stack[top].names) && stack[top].num_err == rm_batch) {
+                // A batch is read: the first since the directory was
+                // opened, or the next after one whose every name failed.
+                stack[top].names = make(list[uint8], alloc)
+                r := c_read_names(stack[top].fd, stack[top].read, rm_batch, mut stack[top].names, mut stack[top].resume)
+                if r < 0 {
+                    c_close(stack[top].fd)
+                    stack[top].fd = -1
+                    if c_error(-%r).code == 1 {
+                        return error{code: 1, msg: "out of memory"}
+                    }
+                    fr, popped := pop(mut stack)
+                    if !popped {
+                        break
+                    }
+                    if -%r == enoent {
+                        failed = false
+                    } else {
+                        failed = true
+                        op = text.from_bytes([]uint8("readdirnames"), alloc)?
+                        mut p := make(list[uint8], alloc)
+                        rm_path(prefix, stack[:], fr.name.bytes(), mut p)?
+                        at = text.from_bytes(p[:], alloc)?
+                        err = c_error(-%r)
+                    }
+                    more := absorb(mut stack, failed, op.bytes(), at.bytes(), err, alloc)?
+                    if !more {
+                        break
+                    }
+                    continue
+                }
+                stack[top].resp = r
+                stack[top].read +%= r
+                stack[top].next = 0
+                stack[top].num_err = 0
+                stack[top].fresh = false
+                continue
+            }
+            if stack[top].fd >= 0 && stack[top].next < len(stack[top].names) {
+                // The batch's next name.
+                entry = make(list[uint8], alloc)
+                mut j := stack[top].next
+                for j < len(stack[top].names) {
+                    c, has := stack[top].names[j]
+                    if !has || c == 0 {
+                        break
+                    }
+                    append(mut entry, c)?
+                    j +%= 1
+                }
+                stack[top].next = j +% 1
+                have_entry = true
+                continue
+            }
+            if stack[top].fd >= 0 {
+                // The batch is done, not every name of it failed.
+                c_close(stack[top].fd)
+                stack[top].fd = -1
+                if stack[top].resp == rm_batch {
+                    // Go's next turn of its outer loop: the directory
+                    // reopened by name, its listing read from the start.
+                    pfd := below_fd(stack[:], parent)
+                    d := c_open_dir_at(pfd, stack[top].name.bytes())
+                    if d >= 0 {
+                        fd, fits := int32(d)
+                        if !fits {
+                            return fd_range
+                        }
+                        stack[top].fd = fd
+                        stack[top].read = 0
+                        stack[top].resume[0] = -1
+                        stack[top].fresh = true
+                        continue
+                    }
+                    de := -%d
+                    if de == enoent || de == c_errno_named(4) {
+                        fr, popped := pop(mut stack)
+                        if !popped {
+                            break
+                        }
+                        if de == enoent {
+                            failed = false
+                        } else {
+                            failed = true
+                            op = text.from_bytes([]uint8("unlinkat"), alloc)?
+                            mut p := make(list[uint8], alloc)
+                            rm_path(prefix, stack[:], fr.name.bytes(), mut p)?
+                            at = text.from_bytes(p[:], alloc)?
+                            err = c_error(fr.uerr)
+                        }
+                        more := absorb(mut stack, failed, op.bytes(), at.bytes(), err, alloc)?
+                        if !more {
+                            break
+                        }
+                        continue
+                    }
+                    // Go's recurseErr is the reopen's failure then,
+                    // whatever came before, and the directory itself is
+                    // removed next.
+                    mut oe := de
+                    if de == c_errno_named(6) {
+                        oe = stack[top].uerr
+                    }
+                    mut p := make(list[uint8], alloc)
+                    rm_path(prefix, stack[:top], stack[top].name.bytes(), mut p)?
+                    stack[top].failed = true
+                    stack[top].op = text.from_bytes([]uint8("openfdat"), alloc)?
+                    stack[top].at = text.from_bytes(p[:], alloc)?
+                    stack[top].err = c_error(oe)
+                }
+                continue
+            }
+            // Every entry is gone or failed: remove the directory itself.
+            mut fr, popped := pop(mut stack)
+            if !popped {
+                break
+            }
+            pfd := top_fd(stack[:], parent)
+            rm := c_unlink_at(pfd, fr.name.bytes(), 1)
+            if rm == 0 || -%rm == enoent {
+                failed = false
+            } else if fr.failed {
+                failed = true
+                op = replace(mut fr.op, text.new(alloc))
+                at = replace(mut fr.at, text.new(alloc))
+                err = fr.err
+            } else {
+                failed = true
+                op = text.from_bytes([]uint8("unlinkat"), alloc)?
+                mut p := make(list[uint8], alloc)
+                rm_path(prefix, stack[:], fr.name.bytes(), mut p)?
+                at = text.from_bytes(p[:], alloc)?
+                err = c_error(-%rm)
+            }
+        }
+        more := absorb(mut stack, failed, op.bytes(), at.bytes(), err, alloc)?
+        if !more {
+            break
+        }
+    }
+    if failed {
+        res = RemoveResult{err: err, op: op, path: at}
+    }
+    return noerror
+}
+
+// below_fd returns the descriptor of the directory below the top of
+// stack, or parent when the top is the only one.
+func below_fd(stack []RmFrame, parent int32) int32 {
+    t := len(stack) -% 2
+    if t < 0 || t >= len(stack) {
+        return parent
+    }
+    return stack[t].fd
+}
+
+// absorb gives the result of an entry just finished, failed and its op,
+// path and error when so, to the directory of stack's top, which counts
+// a failed entry, still there, and keeps the first failure, and reports
+// whether there is one; with none, the result is remove_from's.
+func absorb(mut stack list[RmFrame], failed bool, op []uint8, at []uint8, err error, scope alloc Allocator) (bool, error) {
+    top := len(stack) -% 1
+    if top < 0 || top >= len(stack) {
+        return false, noerror
+    }
+    if failed {
+        stack[top].num_err +%= 1
+        if !stack[top].failed {
+            stack[top].failed = true
+            stack[top].op = text.from_bytes(op, alloc)?
+            stack[top].at = text.from_bytes(at, alloc)?
+            stack[top].err = err
+        }
+    }
+    return true, noerror
+}
+
+// make_dir makes the directory path, with mode 0755 before the umask, and
+// returns no error. It makes no parent: a missing one is error{code: 3,
+// msg: "No such file or directory"}, and a path that exists is
+// error{code: 3, msg: "File exists"}. It is make_dir_mode with the mode
+// 0o755.
+pub func make_dir(path []uint8) error {
+    return make_dir_mode(path, 0o755)
+}
+
+// make_dir_mode makes the directory path, with the permissions mode
+// before the umask, and returns no error, as make_dir does with 0o755: a
+// missing parent is error{code: 3, msg: "No such file or directory"},
+// and a path that exists, whatever its mode, error{code: 3, msg: "File
+// exists"}. mode is permission bits alone, 0 to 0o777, as 0o750; any
+// other is error{code: 4, msg: "mode out of range"}, refused before the
+// OS sees path, as a path holding a 0 byte is.
+pub func make_dir_mode(path []uint8, mode int64) error {
+    if has_nul(path) {
+        return nul_path
+    }
+    perm, ok := perm_of(mode)
+    if !ok {
+        return bad_mode
+    }
+    r := c_make_dir(path, perm)
+    if r < 0 {
+        return c_error(-%r)
+    }
+    return noerror
+}
+
+// rename renames the file or directory at old_path to new_path, with
+// rename(2), and returns no error. What is at new_path, a file when
+// old_path is a file or an empty directory when it is a directory, is
+// replaced, at once: there is no moment with nothing at new_path.
+// Renaming a path onto itself changes nothing, and a symbolic link is
+// renamed itself, not the file it points to. It moves nothing between
+// file systems: two paths on different ones are error{code: 3, msg:
+// "Cross-device link"}. A missing old_path, or a missing directory to
+// rename into, is error{code: 3, msg: "No such file or directory"}, a
+// directory onto a file error{code: 3, msg: "Not a directory"}, a file
+// onto a directory error{code: 3, msg: "Is a directory"}, a directory
+// into itself or a directory below it error{code: 3, msg: "Invalid
+// argument"}, and a directory onto one that is not empty error{code: 3,
+// msg: "Directory not empty"}, or "File exists" on some file systems. A
+// 0 byte in either path is error{code: 4, msg: "path contains a NUL
+// byte"}, and the OS sees neither path. On an error nothing has been
+// renamed.
+pub func rename(old_path []uint8, new_path []uint8) error {
+    if has_nul(old_path) || has_nul(new_path) {
+        return nul_path
+    }
+    r := c_rename(old_path, new_path)
+    if r < 0 {
+        return c_error(-%r)
+    }
+    return noerror
+}
+
+// Info is what stat reports of a file, read through its methods. Its
+// fields are private, so no program outside os writes an Info literal,
+// and fields added to it later break none that reads one. A program may
+// still have a zero Info, from a declaration or make(os.Info, alloc):
+// one with size 0 that is not a directory, and is the same file as no
+// Info, itself included (see same_file).
+pub type Info struct {
+    // length is the file's size in bytes, as size returns it.
+    length int64
+    // directory is whether the file is a directory.
+    directory bool
+    // device and inode are the file's st_dev and st_ino, which together
+    // name it on the machine, as same_file compares them.
+    device uint64
+    inode uint64
+    // found is whether stat or lstat filled the Info in, which a zero
+    // Info's is not.
+    found bool
+}
+
+// size returns the file's length in bytes: for a regular file, how many
+// its contents hold, holes of a sparse file included; for anything
+// else, what the OS reports, which POSIX leaves unspecified.
+pub func (i Info) size() int64 {
+    return i.length
+}
+
+// is_dir reports whether the file is a directory.
+pub func (i Info) is_dir() bool {
+    return i.directory
+}
+
+// same_file reports whether a and b, each from stat or lstat, describe
+// the same file: the same device and the same inode, as Go's
+// os.SameFile compares them. Two paths reaching one file, by a symbolic
+// link that stat follows or by a hard link, are the same file. A zero
+// Info, which neither filled in, is the same file as none, not even
+// another zero Info. What a and b say is what was true when each was
+// made: a file removed since and another made may reuse the inode.
+pub func same_file(a Info, b Info) bool {
+    return a.found && b.found && a.device == b.device && a.inode == b.inode
+}
+
+// stat returns what the OS reports of the file at path, with stat(2),
+// and no error. It follows symbolic links, so a link reports the file it
+// points to, and a link to nothing is error{code: 3, msg: "No such file
+// or directory"}, as a missing path is; a chain of links too long, or a
+// loop of them, is error{code: 3, msg: "Too many levels of symbolic
+// links"}, and a path through a file error{code: 3, msg: "Not a
+// directory"}. On an error the Info's size is 0 and is_dir false.
+pub func stat(path []uint8) (Info, error) {
+    mut info Info
+    if has_nul(path) {
+        return info, nul_path
+    }
+    r := c_stat(path, mut info)
+    if r < 0 {
+        return info, c_error(-%r)
+    }
+    return info, noerror
+}
+
+// lstat is stat without following a symbolic link at the end of path,
+// with lstat(2): a link reports itself, a file that is not a directory,
+// whether what it points to exists or not, and a link to a directory is
+// not one. Links before the last element of path are followed, as stat
+// follows them, so a path through a missing directory is error{code: 3,
+// msg: "No such file or directory"} and one through a file error{code:
+// 3, msg: "Not a directory"}. On an error the Info is a zero Info.
+pub func lstat(path []uint8) (Info, error) {
+    mut info Info
+    if has_nul(path) {
+        return info, nul_path
+    }
+    r := c_lstat(path, mut info)
+    if r < 0 {
+        return info, c_error(-%r)
+    }
+    return info, noerror
+}
+
+// getwd returns the absolute path of the current directory, made
+// through alloc, as getcwd(3) gives it: the directory's own path, with
+// every symbolic link resolved, whatever path the process was started in
+// through, and whatever $PWD says. A current directory that was removed
+// is error{code: 3, msg: "No such file or directory"}, one an element
+// of whose path cannot be read error{code: 3, msg: "Permission
+// denied"}, and a path longer than 4095 bytes error{code: 3, msg:
+// "Result too large"}, ERANGE's, even where the OS could give it. On an
+// error the Text is empty and what had been made is freed.
+pub func getwd(scope alloc Allocator) (text.Text, error) {
+    mut dir := make(list[uint8], alloc)
+    r := c_getwd(mut dir)
+    if r < 0 {
+        return text.new(alloc), c_error(-%r)
+    }
+    t, e := text.from_bytes(dir, alloc)
+    if e.code != 0 {
+        return text.new(alloc), e
+    }
+    return t, noerror
+}
+
+// is_dot reports whether name is "." or "..".
+func is_dot(name []uint8) bool {
+    return bytes.equal(name, []uint8(".")) || bytes.equal(name, []uint8(".."))
+}
+
+// less reports whether a sorts before b bytewise: at the first byte that
+// differs, a's is smaller, or a ends first, being a prefix of b.
+func less(a []uint8, b []uint8) bool {
+    for i, x := range a {
+        y, ok := b[i]
+        if !ok {
+            return false
+        }
+        if x != y {
+            return x < y
+        }
+    }
+    return len(a) < len(b)
+}
+
+// name_at returns the bytes of name k of names, which run from starts[k]
+// up to ends[k] in buf, or an empty view for a k that is no name's.
+func name_at(buf []uint8, starts []int64, ends []int64, k int64) []uint8 {
+    a, ok := starts[k]
+    b, ok2 := ends[k]
+    if !ok || !ok2 {
+        return buf[:0]
+    }
+    return part(buf, a, b)
+}
+
+// sort_names returns the indexes of the names in buf, which run from
+// starts[k] up to ends[k] for each k, ordered by their bytes, through a
+// merge sort, bottom up, which is stable and takes O(n log n)
+// comparisons. It fails only for want of memory.
+func sort_names(buf []uint8, starts []int64, ends []int64, scope alloc Allocator) (list[int64], error) {
+    n := len(starts)
+    mut src := make(list[int64], alloc)
+    e0 := reserve(mut src, n)
+    if e0.code != 0 {
+        return src, e0
+    }
+    for i := range n {
+        e := append(mut src, i)
+        if e.code != 0 {
+            return src, e
+        }
+    }
+    // lo + width and mid + width may pass an int64 for an n past half of
+    // one, and so may width * 2; each is then past n, which is what the
+    // code after it does with a value past n: mid and hi stop at n, and
+    // the doubling ends the loop.
+    mut width int64 = 1
+    for width < n {
+        mut dst := make(list[int64], alloc)
+        e1 := reserve(mut dst, n)
+        if e1.code != 0 {
+            return dst, e1
+        }
+        mut lo int64 = 0
+        for lo < n {
+            mut mid, fits := lo + width
+            if !fits || mid > n {
+                mid = n
+            }
+            mut hi, fits2 := mid + width
+            if !fits2 || hi > n {
+                hi = n
+            }
+            mut i := lo
+            mut j := mid
+            for i < mid || j < hi {
+                // i < mid and j < hi are within src, so the run a name is
+                // taken from always has it: the left only while i < mid,
+                // when hasA, and the right only while j < hi, when hasB.
+                a, hasA := src[i]
+                b, hasB := src[j]
+                // The left run's name goes first unless the right's sorts
+                // strictly before it, which keeps equal names in order.
+                left := j >= hi || i < mid && !less(name_at(buf, starts, ends, b), name_at(buf, starts, ends, a))
+                // i steps only while below mid and j only while within
+                // src, so neither passes n, and +% never wraps.
+                if left && hasA {
+                    e := append(mut dst, a)
+                    if e.code != 0 {
+                        return dst, e
+                    }
+                    i +%= 1
+                } else if hasB {
+                    e := append(mut dst, b)
+                    if e.code != 0 {
+                        return dst, e
+                    }
+                    j +%= 1
+                } else {
+                    break
+                }
+            }
+            lo = hi
+        }
+        src = dst
+        twice, fits := width * 2
+        if !fits {
+            break
+        }
+        width = twice
+    }
+    return src, noerror
+}
+
+// list_dir returns the name of every entry of the directory path, made
+// through alloc, sorted bytewise, so the order does not depend on the
+// OS, without "." and "..". On an error, the OS's or out of memory, the
+// list is empty and what had been made is freed. A file is error{code:
+// 3, msg: "Not a directory"}.
+pub func list_dir(path []uint8, scope alloc Allocator) (list[text.Text], error) {
+    empty := make(list[text.Text], alloc)
+    if has_nul(path) {
+        return empty, nul_path
+    }
+    mut buf := make(list[uint8], alloc)
+    r := c_list_dir(path, mut buf)
+    if r < 0 {
+        return empty, c_error(-%r)
+    }
+    mut starts := make(list[int64], alloc)
+    mut ends := make(list[int64], alloc)
+    mut start int64 = 0
+    for i, c := range buf {
+        if c == 0 {
+            if !is_dot(part(buf, start, i)) {
+                e0 := append(mut starts, start)
+                e1 := append(mut ends, i)
+                if e0.code != 0 || e1.code != 0 {
+                    return empty, error{code: 1, msg: "out of memory"}
+                }
+            }
+            start = i + 1
+        }
+    }
+    order, e2 := sort_names(buf, starts, ends, alloc)
+    if e2.code != 0 {
+        return empty, e2
+    }
+    mut names := make(list[text.Text], alloc)
+    e3 := reserve(mut names, len(order))
+    if e3.code != 0 {
+        return empty, e3
+    }
+    for _, k := range order {
+        t, e4 := text.from_bytes(name_at(buf, starts, ends, k), alloc)
+        if e4.code != 0 {
+            return empty, e4
+        }
+        e5 := append(mut names, t)
+        if e5.code != 0 {
+            return empty, e5
+        }
+    }
+    return names, noerror
+}
+
+// append_temp_base appends to tmpl the directory make_temp_dir makes its
+// directory in, dir, or /tmp when dir is empty, without the slashes dir
+// ends in, unless it is all slashes.
+func append_temp_base(mut tmpl list[uint8], dir []uint8) error {
+    if len(dir) == 0 {
+        return append(mut tmpl, []uint8("/tmp")...)
+    }
+    mut n := len(dir)
+    for n > 1 {
+        c, ok := dir[n - 1]
+        if !ok || c != '/' {
+            break
+        }
+        n--
+    }
+    return append(mut tmpl, part(dir, 0, n)...)
+}
+
+// make_temp_dir makes a new directory, with mode 0700, whose name no
+// other has, in $TMPDIR, or in /tmp when TMPDIR is unset or empty, and
+// returns its path, made through alloc: the directory, a /, prefix, and
+// six characters mkdtemp picks, letters and digits on glibc. prefix may
+// be empty. The caller removes it. A prefix holding a / is error{code:
+// 4, msg: "prefix contains a slash"} and one holding a 0 byte
+// error{code: 4, msg: "prefix contains a NUL byte"}, refused before the
+// OS sees either; one too long for a name is error{code: 3, msg: "File
+// name too long"}. On an error, the OS's or out of memory, the Text is
+// empty and no directory is left behind.
+pub func make_temp_dir(prefix []uint8, scope alloc Allocator) (text.Text, error) {
+    if bytes.index_byte(prefix, '/') >= 0 {
+        return text.new(alloc), error{code: 4, msg: "prefix contains a slash"}
+    }
+    if has_nul(prefix) {
+        return text.new(alloc), error{code: 4, msg: "prefix contains a NUL byte"}
+    }
+    dir, set, e0 := env([]uint8("TMPDIR"), alloc)
+    if e0.code != 0 {
+        return text.new(alloc), e0
+    }
+    mut tmpl := make(list[uint8], alloc)
+    mut e1 := noerror
+    if set {
+        e1 = append_temp_base(mut tmpl, dir.bytes())
+    } else {
+        e1 = append_temp_base(mut tmpl, []uint8(""))
+    }
+    if e1.code != 0 {
+        return text.new(alloc), e1
+    }
+    e2 := append(mut tmpl, '/')
+    if e2.code != 0 {
+        return text.new(alloc), e2
+    }
+    e3 := append(mut tmpl, prefix...)
+    if e3.code != 0 {
+        return text.new(alloc), e3
+    }
+    e4 := append(mut tmpl, []uint8("XXXXXX\x00")...)
+    if e4.code != 0 {
+        return text.new(alloc), e4
+    }
+    r := c_make_temp_dir(mut tmpl)
+    if r < 0 {
+        return text.new(alloc), c_error(-%r)
+    }
+    t, e5 := text.from_bytes(part(tmpl, 0, len(tmpl) - 1), alloc)
+    if e5.code != 0 {
+        c_remove(part(tmpl, 0, len(tmpl) - 1))
+        return text.new(alloc), e5
+    }
+    return t, noerror
+}
+
+// drain reads what fd has into l, once: when fd is at its end, it closes
+// it and sets it to -1, so the next poll ignores it. A read a signal
+// interrupted reads nothing and is no error; the next poll tries again.
+func drain(mut fd int32, mut l list[uint8]) error {
+    n := c_read(fd, mut l)
+    if n == 0 {
+        c_close(fd)
+        fd = -1
+        return noerror
+    }
+    if n < 0 && -%n != c_eintr() {
+        return c_error(-%n)
+    }
+    return noerror
+}
+
+// wait_for waits for the child pid to end, retrying a wait a signal
+// interrupted, and returns what c_wait does.
+func wait_for(pid int64) int64 {
+    for {
+        s := c_wait(pid)
+        if s >= 0 || -%s != c_eintr() {
+            return s
+        }
+    }
+}
+
+// Status is how a child that run started ended, read through its
+// methods: it exited, with an exit status from 0 to 255, or a signal
+// killed it, which may have made it dump core. Its fields are private, as
+// Info's are, so no program outside os writes a Status literal. A
+// program may still have a zero Status, from a declaration or
+// make(os.Status, alloc): a child that exited with status 0.
+pub type Status struct {
+    // code is the exit status, 0 to 255, when signo is 0, and -1 when it
+    // is not.
+    code int64
+    // signo is the number of the signal that killed the child, or 0 when
+    // it exited.
+    signo int64
+    // core is whether the child dumped core as the signal killed it.
+    core bool
+}
+
+// exited reports whether the child exited, rather than being killed by
+// a signal.
+pub func (s Status) exited() bool {
+    return s.signo == 0
+}
+
+// exit_status returns the status the child exited with, 0 to 255, or -1
+// when a signal killed it, as Go's ProcessState.ExitCode does.
+pub func (s Status) exit_status() int64 {
+    return s.code
+}
+
+// signal returns the number of the signal that killed the child, as the
+// OS numbers it, 9 for SIGKILL and 15 for SIGTERM, or 0 when it exited.
+pub func (s Status) signal() int64 {
+    return s.signo
+}
+
+// core_dumped reports whether the child dumped core as a signal killed
+// it, which the OS's limits and core pattern decide; false when it
+// exited.
+pub func (s Status) core_dumped() bool {
+    return s.core
+}
+
+// status_of returns the Status c_wait's result w, 0 or more, says: an
+// exit status below 256, a signal's number plus 256, or plus 512 for a
+// child that dumped core.
+func status_of(w int64) Status {
+    if w >= 512 {
+        return Status{code: -1, signo: w - 512, core: true}
+    }
+    if w >= 256 {
+        return Status{code: -1, signo: w - 256, core: false}
+    }
+    return Status{code: w, signo: 0, core: false}
+}
+
+// spawn_error returns the error for r, a negative result of c_spawn:
+// code 13 and the OS's message for a program that could not be started,
+// and c_error's error for a start that could not be set up.
+func spawn_error(r int64) error {
+    // r is an errno, no_room or c_spawn_failed() plus an errno, negated,
+    // each far from the ends of an int64, so -% never wraps.
+    n := -%r
+    base := c_spawn_failed()
+    if n >= base {
+        e := c_error(n -% base)
+        return error{code: 13, msg: e.msg}
+    }
+    return c_error(n)
+}
+
+// run runs prog and waits for it to end, and returns how it ended, a
+// Status, and no error. prog is looked up on PATH when it holds no /,
+// through posix_spawnp, and started as it is otherwise. argv, argv[0]
+// included, is what the child is given as its arguments; argv[0] need
+// not name prog, as with Go's exec.Cmd, whose Path and Args[0] differ.
+// The child starts with this process's environment and SIGPIPE's
+// default action, which this process ignores, reads /dev/null as its
+// standard input, and writes its standard output and its standard error
+// to pipes, which run reads at once, whichever has something, until both
+// reach their ends, so neither can fill and block the child; it then
+// appends all the child wrote to its standard output to out, and all it
+// wrote to its standard error to err_out, after what each held. A child
+// that exits with a status other than 0 is no error, and neither is one
+// a signal kills: the Status says which, and what it wrote before it
+// ended is appended as for any other. alloc makes run's own lists, the
+// arguments as C takes them and the bytes read, all freed before run
+// returns.
+//
+// On an error the Status cannot be read, and out and err_out are left
+// as they were, their lengths and their bytes: what was read is appended
+// only once everything has succeeded. Errors are:
+//
+//   - error{code: 4, msg: "argv is empty"};
+//   - error{code: 4, msg: "program contains a NUL byte"};
+//   - error{code: 4, msg: "argument contains a NUL byte"};
+//   - code 13 and the OS's message, when the program cannot be started:
+//     error{code: 13, msg: "No such file or directory"} for a program
+//     not on PATH, a path that names nothing, an empty prog, or a script
+//     whose interpreter is missing, "Permission denied" for a file no
+//     one may run or a directory, "Exec format error" for a file the
+//     kernel cannot run, which run tries no shell for, and "Cannot
+//     allocate memory" when the kernel has no memory to start it;
+//   - code 3 and the OS's message, when /dev/null cannot be opened, a
+//     pipe cannot be made or the start cannot be set up, before any
+//     program is looked for, or a
+//     read, poll or wait fails once it has started;
+//   - error{code: 1, msg: "out of memory"}, an allocation that failed,
+//     the C library's own while setting the start up included. Room for
+//     the bytes read is made in out first, then in err_out, so when only
+//     err_out cannot grow, out's capacity may have grown, though its
+//     length and bytes have not.
+//
+// Once the child has started, run waits for it on every path. After an
+// error while reading, it first closes its ends of the pipes, so a child
+// still writing gets EPIPE, or dies of SIGPIPE, and ends; it does not
+// kill it, and a child that never ends keeps run waiting, as it would
+// without the error. A process whose parent left SIGCHLD ignored can
+// still wait for its children: the runtime sets SIGCHLD back to its
+// default action at the start.
+pub func run(prog []uint8, argv []text.Text, mut out list[uint8], mut err_out list[uint8], scope alloc Allocator) (Status, error) {
+    s, e := run_at([]uint8(""), 0, prog, argv, mut out, mut err_out, alloc)
+    return s, e
+}
+
+// run_in runs prog as run does, but in the directory dir: the child
+// enters dir before prog is looked for, so a prog holding a / that is
+// relative, and a relative entry of PATH, are taken from dir; Go's exec
+// looks prog up in this process's directory instead, and refuses one
+// PATH gives as relative (exec.ErrDot), so a caller that wants Go's
+// lookup gives an absolute prog. This process's own directory never
+// changes. dir is passed to the OS as it is, relative to this process's
+// directory when it is relative. The child's environment is this
+// process's with PWD set to dir made absolute, replacing any PWD this
+// process has, as Go's exec sets it given cmd.Dir and no cmd.Env: an
+// absolute dir cleaned, and a relative one joined to this process's
+// directory, $PWD when it is absolute and names the same directory as .,
+// as Go's os.Getwd finds it, and getcwd's answer otherwise, and
+// cleaned; a directory getcwd cannot give is getwd's error. Its errors are run's, and two more: a
+// 0 byte in dir is error{code: 4, msg: "directory contains a NUL byte"},
+// checked after prog's and before the arguments', and a dir the child
+// cannot enter, one that names nothing, is no directory or may not be
+// searched, is code 13 and the OS's message, as a program that cannot
+// be started is: error{code: 13, msg: "No such file or directory"},
+// "Not a directory" or "Permission denied". An empty dir is no
+// directory, ENOENT, where Go's exec takes an empty cmd.Dir for no
+// directory change at all.
+pub func run_in(dir []uint8, prog []uint8, argv []text.Text, mut out list[uint8], mut err_out list[uint8], scope alloc Allocator) (Status, error) {
+    s, e := run_at(dir, 1, prog, argv, mut out, mut err_out, alloc)
+    return s, e
+}
+
+// pwd_of appends to out PWD= and dir made absolute, and a 0, as run_in
+// describes, Go's filepath.Abs with os.Getwd: an absolute dir cleaned, a
+// relative one joined to this process's directory and cleaned. It
+// returns getwd's error when the directory cannot be found, and out of
+// memory, out then as it was or partly appended.
+func pwd_of(dir []uint8, mut out list[uint8], scope alloc Allocator) error {
+    e0 := append(mut out, []uint8("PWD=")...)
+    if e0.code != 0 {
+        return e0
+    }
+    if bytes.has_prefix(dir, []uint8("/")) {
+        e1 := append_rooted(mut out, dir, dir[:0])
+        if e1.code != 0 {
+            return e1
+        }
+        return append(mut out, 0)
+    }
+    mut wd := text.new(alloc)
+    pwd, set, e2 := env_pwd(alloc)
+    if e2.code != 0 {
+        return e2
+    }
+    if set {
+        wd = pwd
+    } else {
+        w, e3 := getwd(alloc)
+        if e3.code != 0 {
+            return e3
+        }
+        wd = w
+    }
+    e5 := append_rooted(mut out, wd.bytes(), dir)
+    if e5.code != 0 {
+        return e5
+    }
+    return append(mut out, 0)
+}
+
+// append_rooted appends to out the path a, absolute, joined to b and
+// cleaned, as Go's filepath.Join and Clean make an absolute path: its
+// parts, those of a and then of b, the empty ones and . left out, each
+// .. taking the part before it away and none above the root, after a /
+// each, or / alone when none is left. It needs no package path, whose
+// Clean for a path that is not absolute this does not need. It fails
+// only for want of memory.
+func append_rooted(mut out list[uint8], a []uint8, b []uint8) error {
+    base := len(out)
+    e0 := append(mut out, '/')
+    if e0.code != 0 {
+        return e0
+    }
+    e1 := append_parts(mut out, base, a)
+    if e1.code != 0 {
+        return e1
+    }
+    return append_parts(mut out, base, b)
+}
+
+// append_parts appends the parts of p to out, the path append_rooted
+// makes from base on, as it says.
+func append_parts(mut out list[uint8], base int64, p []uint8) error {
+    mut start int64 = 0
+    for i := range len(p) +% 1 {
+        if i < len(p) && p[i] != '/' {
+            continue
+        }
+        if start < 0 || start > i || i > len(p) {
+            start = i +% 1
+            continue
+        }
+        if len(p[start:i]) == 0 || bytes.equal(p[start:i], []uint8(".")) {
+            start = i +% 1
+            continue
+        }
+        if bytes.equal(p[start:i], []uint8("..")) {
+            for len(out) > base +% 1 {
+                c, has := pop(mut out)
+                if !has || c == '/' {
+                    break
+                }
+            }
+            start = i +% 1
+            continue
+        }
+        if len(out) > base +% 1 {
+            e1 := append(mut out, '/')
+            if e1.code != 0 {
+                return e1
+            }
+        }
+        e2 := append(mut out, p[start:i]...)
+        if e2.code != 0 {
+            return e2
+        }
+        start = i +% 1
+    }
+    return noerror
+}
+
+// env_pwd returns $PWD and true when it is absolute and names the same
+// directory as ., as Go's os.Getwd takes it, and false otherwise.
+func env_pwd(scope alloc Allocator) (text.Text, bool, error) {
+    pwd, set, e := env([]uint8("PWD"), alloc)
+    if e.code != 0 {
+        return text.new(alloc), false, e
+    }
+    if !set || !bytes.has_prefix(pwd.bytes(), []uint8("/")) {
+        return text.new(alloc), false, noerror
+    }
+    dot, e1 := stat([]uint8("."))
+    here, e2 := stat(pwd.bytes())
+    if e1.code != 0 || e2.code != 0 || !same_file(dot, here) {
+        return text.new(alloc), false, noerror
+    }
+    return pwd, true, noerror
+}
+
+// run_at is run, in dir when in_dir is not 0, as run_in says, and in
+// this process's directory otherwise.
+func run_at(dir []uint8, in_dir int32, prog []uint8, argv []text.Text, mut out list[uint8], mut err_out list[uint8], scope alloc Allocator) (Status, error) {
+    mut none Status
+    if len(argv) == 0 {
+        return none, error{code: 4, msg: "argv is empty"}
+    }
+    if has_nul(prog) {
+        return none, nul_prog
+    }
+    if in_dir != 0 && has_nul(dir) {
+        return none, nul_dir
+    }
+    mut pwd := make(list[uint8], alloc)
+    if in_dir != 0 {
+        pe := pwd_of(dir, mut pwd, alloc)
+        if pe.code != 0 {
+            return none, pe
+        }
+    }
+    mut flat := make(list[uint8], alloc)
+    for _, a := range argv {
+        if has_nul(a.bytes()) {
+            return none, nul_arg
+        }
+        e0 := append(mut flat, a.bytes()...)
+        if e0.code != 0 {
+            return none, e0
+        }
+        e1 := append(mut flat, 0)
+        if e1.code != 0 {
+            return none, e1
+        }
+    }
+    // /dev/null is opened here, as Go's exec opens it, so that a failure
+    // to open it is the OS's error, not the program's that could not be
+    // started.
+    rn := c_open([]uint8("/dev/null"), 0, 0)
+    if rn < 0 {
+        return none, c_error(-%rn)
+    }
+    devnull, fits := int32(rn)
+    if !fits {
+        return none, fd_range
+    }
+    mut stdout_pipe [2]int32
+    r0 := c_pipe(mut stdout_pipe)
+    if r0 < 0 {
+        c_close(devnull)
+        return none, c_error(-%r0)
+    }
+    mut stderr_pipe [2]int32
+    r1 := c_pipe(mut stderr_pipe)
+    if r1 < 0 {
+        c_close(devnull)
+        c_close(stdout_pipe[0])
+        c_close(stdout_pipe[1])
+        return none, c_error(-%r1)
+    }
+    mut envbuf := make(list[uint8], alloc)
+    pid := c_spawn(prog, dir, in_dir, pwd, mut envbuf, flat, len(argv), devnull, stdout_pipe[1], stderr_pipe[1])
+    // The child has its own copies of /dev/null and the write ends, if it
+    // started; run keeps none, so each read end reaches its end when the
+    // child's copies close.
+    c_close(devnull)
+    c_close(stdout_pipe[1])
+    c_close(stderr_pipe[1])
+    mut a := stdout_pipe[0]
+    mut b := stderr_pipe[0]
+    if pid < 0 {
+        c_close(a)
+        c_close(b)
+        return none, spawn_error(pid)
+    }
+    mut got_out := make(list[uint8], alloc)
+    mut got_err := make(list[uint8], alloc)
+    mut failure := noerror
+    for a >= 0 || b >= 0 {
+        m := c_poll2(a, b)
+        if m < 0 {
+            if -%m == c_eintr() {
+                continue
+            }
+            failure = c_error(-%m)
+            break
+        }
+        if m % 2 == 1 {
+            failure = drain(mut a, mut got_out)
+            if failure.code != 0 {
+                break
+            }
+        }
+        if m / 2 % 2 == 1 {
+            failure = drain(mut b, mut got_err)
+            if failure.code != 0 {
+                break
+            }
+        }
+    }
+    if a >= 0 {
+        c_close(a)
+    }
+    if b >= 0 {
+        c_close(b)
+    }
+    w := wait_for(pid)
+    if failure.code != 0 {
+        return none, failure
+    }
+    if w < 0 {
+        return none, c_error(-%w)
+    }
+    e2 := reserve(mut out, len(got_out))
+    if e2.code != 0 {
+        return none, e2
+    }
+    e3 := reserve(mut err_out, len(got_err))
+    if e3.code != 0 {
+        return none, e3
+    }
+    // Neither append can fail: each list has room for what it appends.
+    e4 := append(mut out, got_out...)
+    e5 := append(mut err_out, got_err...)
+    if e4.code != 0 || e5.code != 0 {
+        return none, error{code: 1, msg: "out of memory"}
+    }
+    return status_of(w), noerror
+}
+
+// run_inherit runs prog and waits for it to end, as run does, but the
+// child writes its standard output and its standard error to this
+// process's own, descriptors 1 and 2, as Go's exec does with cmd.Stdout
+// = os.Stdout and cmd.Stderr = os.Stderr: nothing is read or kept, a
+// terminal stays one to the child, and where both reach one place the
+// child's writes to each arrive as it makes them. Before the child
+// starts, run_inherit flushes what print, exit and std/fmt have written
+// and C still holds, standard output first, so it comes before
+// anything the child writes; a flush that fails ends the process with a
+// broken pipe as std/fmt's do, and otherwise loses the bytes. prog,
+// argv, the child's environment, its standard input, /dev/null, and the
+// Status are run's. Its errors are run's but those of the pipes and the
+// reads, which it has none of: code 4 for an empty argv or a 0 byte in
+// prog or an argument; code 13 and the OS's message for a program that
+// cannot be started; code 3 for /dev/null that cannot be opened, a
+// start that cannot be set up, or a wait that fails; and code 1 for an
+// allocation that failed. alloc makes run_inherit's one list, the
+// arguments as C takes them, freed before it returns.
+pub func run_inherit(prog []uint8, argv []text.Text, scope alloc Allocator) (Status, error) {
+    s, e := run_inherit_at([]uint8(""), 0, prog, argv, alloc)
+    return s, e
+}
+
+// run_inherit_in runs prog as run_inherit does, but in the directory
+// dir, as run_in runs it: the child enters dir before prog is looked
+// for, this process's directory never changes, a 0 byte in dir is
+// error{code: 4, msg: "directory contains a NUL byte"}, and a dir the
+// child cannot enter is code 13 and the OS's message.
+pub func run_inherit_in(dir []uint8, prog []uint8, argv []text.Text, scope alloc Allocator) (Status, error) {
+    s, e := run_inherit_at(dir, 1, prog, argv, alloc)
+    return s, e
+}
+
+// run_inherit_at is run_inherit, in dir when in_dir is not 0, as
+// run_inherit_in says, and in this process's directory otherwise.
+func run_inherit_at(dir []uint8, in_dir int32, prog []uint8, argv []text.Text, scope alloc Allocator) (Status, error) {
+    mut none Status
+    if len(argv) == 0 {
+        return none, error{code: 4, msg: "argv is empty"}
+    }
+    if has_nul(prog) {
+        return none, nul_prog
+    }
+    if in_dir != 0 && has_nul(dir) {
+        return none, nul_dir
+    }
+    mut pwd := make(list[uint8], alloc)
+    if in_dir != 0 {
+        pe := pwd_of(dir, mut pwd, alloc)
+        if pe.code != 0 {
+            return none, pe
+        }
+    }
+    mut flat := make(list[uint8], alloc)
+    for _, a := range argv {
+        if has_nul(a.bytes()) {
+            return none, nul_arg
+        }
+        e0 := append(mut flat, a.bytes()...)
+        if e0.code != 0 {
+            return none, e0
+        }
+        e1 := append(mut flat, 0)
+        if e1.code != 0 {
+            return none, e1
+        }
+    }
+    rn := c_open([]uint8("/dev/null"), 0, 0)
+    if rn < 0 {
+        return none, c_error(-%rn)
+    }
+    devnull, fits := int32(rn)
+    if !fits {
+        return none, fd_range
+    }
+    c_flush_stdio()
+    mut envbuf := make(list[uint8], alloc)
+    pid := c_spawn(prog, dir, in_dir, pwd, mut envbuf, flat, len(argv), devnull, 1, 2)
+    c_close(devnull)
+    if pid < 0 {
+        return none, spawn_error(pid)
+    }
+    w := wait_for(pid)
+    if w < 0 {
+        return none, c_error(-%w)
+    }
+    return status_of(w), noerror
+}
+
+// can_execute reports whether the file at path is one this process may
+// run, as Go's exec.LookPath decides for each file it looks at: path,
+// following symbolic links, names a file that is not a directory, and
+// faccessat(2), with AT_EACCESS, so by the effective user and group,
+// lets it be run; where faccessat fails with ENOSYS or EPERM, as some
+// containers' seccomp filters make it, whether any of the file's mode's
+// execute bits is set. A path holding a 0 byte, a missing path, a
+// symbolic link to nothing and one stat(2) cannot reach are none.
+pub func can_execute(path []uint8) bool {
+    if has_nul(path) {
+        return false
+    }
+    return c_can_execute(path) == 1
+}

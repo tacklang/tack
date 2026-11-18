@@ -1,0 +1,364 @@
+// Package builtin documents the types, values and functions Tack provides
+// without a declaration or an import. The compiler implements every one of
+// them itself; this file is built into the compiler and is never compiled
+// as code. It exists so editors can show each builtin's documentation and
+// go to its declaration. Changing a copy of it changes nothing.
+//
+// Some builtins take any list, map, arena, pool or type, which no Tack
+// declaration can say exactly. Their declarations below use stand-in types, Elem, Key,
+// Sized and ListType, declared at the end of this file for documentation
+// only; no program can name them.
+package builtin
+
+// Types
+
+// int64 is a signed 64-bit integer, from -9223372036854775808 to
+// 9223372036854775807. An integer constant with nothing to give it a type
+// is an int64.
+type int64 int64
+
+// int32 is a signed 32-bit integer, from -2147483648 to 2147483647.
+type int32 int32
+
+// int16 is a signed 16-bit integer, from -32768 to 32767.
+type int16 int16
+
+// int8 is a signed 8-bit integer, from -128 to 127.
+type int8 int8
+
+// uint64 is an unsigned 64-bit integer, from 0 to 18446744073709551615.
+type uint64 uint64
+
+// uint32 is an unsigned 32-bit integer, from 0 to 4294967295.
+type uint32 uint32
+
+// uint16 is an unsigned 16-bit integer, from 0 to 65535.
+type uint16 uint16
+
+// uint8 is an unsigned 8-bit integer, from 0 to 255: a byte.
+type uint8 uint8
+
+// unsafe_size_t is C's size_t: an unsigned integer as wide as the target
+// makes it, from 32 to 64 bits. Its rules hold whatever its width is.
+type unsafe_size_t unsafe_size_t
+
+// unsafe_uintptr_t is C's uintptr_t: an unsigned integer wide enough to
+// hold an address, from 32 to 64 bits, not necessarily as wide as
+// unsafe_size_t.
+type unsafe_uintptr_t unsafe_uintptr_t
+
+// float64 is an IEEE 754 binary64 float, with + - * and / and the six
+// comparisons. A float constant with nothing to give it a type is a
+// float64. Dividing by zero gives an infinity, or NaN for 0.0 / 0.0, and
+// NaN is equal to nothing, itself included. A float carries no facts,
+// cannot index, and is not converted to or from an integer implicitly.
+type float64 float64
+
+// float32 is an IEEE 754 binary32 float, as float64 is a binary64 one.
+type float32 float32
+
+// bool is true or false.
+type bool bool
+
+// string is an immutable string of bytes. Its length is len(s), and s[i]
+// is its byte i, a uint8.
+type string string
+
+// any refers to a value of one of the basic types, which one known only
+// at run time. It can only be the type of a parameter, or the element
+// type of a variadic or view parameter.
+type any any
+
+// error is a returned error: a code and a message, code 0 meaning no
+// error, whatever the message. A function that can fail returns one as its
+// last result, and the results beside it cannot be read until it is
+// checked.
+type error struct {
+    code int32
+    msg  string
+}
+
+// Allocator is an opaque handle on an allocator, which a list grows and is
+// freed through. It is copyable, and has no zero value, no order and no ==.
+// A region's allocator, the name of region r { ... }, is one too, but
+// second class: it is only given to make, passed to a parameter written
+// scope a Allocator, or captured by a closure, and such a parameter is
+// under the same rule in its function. Any Allocator may be passed to a
+// scope one. An extern func cannot take one as scope, so a region's
+// allocator never reaches C.
+type Allocator Allocator
+
+// id is written id[T]: an index into an arena[T], naming one of its
+// elements, given by add. It is 32 bits, copyable, has == and != and may
+// be a map's key, but has no order and no arithmetic, and converts to and
+// from no integer. Its zero value is the sentinel's id, 0. An arena reads
+// and writes the element an id names with no proof: an id at or past the
+// arena's length, which may come from another arena, names its sentinel.
+type id id
+
+// span is written span[T]: a run of consecutive elements of an arena[T],
+// its start and its length, each 32 bits, given by add_all. It is
+// copyable, has == and != and may be a map's key, and its zero value is
+// the empty span. a[s] is a read-only view of the span's elements, empty
+// when the span is not wholly in a.
+type span span
+
+// handle is written handle[T]: one element of a pool[T], given by insert:
+// its slot, the slot's generation and the pool's tag, 32 bits each. It
+// is copyable, has == and != and may be a map's key, but has no order and
+// no arithmetic, and converts to and from no integer. Its zero value is a
+// handle no pool gives. Removing the element moves its slot's generation
+// on, and a slot whose generation would wrap is never used again, so a
+// handle never names another element; nor does one from another pool,
+// whose tag differs, except that past 2^32 - 2 pools made, later pools
+// share the last tag and may accept each other's handles, a logic limit,
+// never a read of memory a pool does not hold. has(p, h) proves it live,
+// and so does a range over p, for its handle, in its body.
+type handle handle
+
+// Constraints
+
+// Data constrains a type parameter to plain data, [T Data]: a bool, an
+// integer or a float type, text.Text, a list[E] whose E is Data, a
+// map[text.Text]V whose V is Data, or a struct whose every field is Data,
+// private ones included, so a type is Data or not whichever package asks.
+// Nothing else is: no
+// string, which is only ever a literal, no union, array, view, any, id,
+// span, handle, arena, pool, function value or Allocator, and no type
+// parameter constrained by an interface. A call that binds T to a type
+// that is not Data is an error naming the field, element or value type
+// deepest in it that is not. A value of a type parameter constrained by
+// Data has no method, no field and no ==, and is borrowed, moved and freed
+// as any type parameter's value is; a fields loop walks its fields (see
+// fields), and switch T { case int64: ... } runs, in each instance, the
+// one case its type argument matches, in which a case naming one type
+// makes every value of type T a value of that type. Data is closed, so a
+// switch on T with no default must name every kind of type T may stand
+// for, and make(T, alloc) gives any Data type's empty value (see make).
+// Data is a builtin name, which no program can declare.
+type Data interface {
+}
+
+// Values
+
+// true is the bool that holds.
+var true bool
+
+// false is the bool that does not hold.
+var false bool
+
+// noerror is the error with code 0 and an empty message: no error.
+var noerror error
+
+// c_allocator is the Allocator that lowers to C's malloc, realloc and
+// free. The only other allocators are regions', whose chunks it gives.
+var c_allocator Allocator
+
+// Functions
+
+// print writes s to standard output exactly as given, adding no newline.
+// It reports no error: a closed descriptor or a failed write loses the
+// bytes. A write to a pipe with no reader, which fails with EPIPE since
+// the program ignores SIGPIPE, ends the process as exit(141) does: every
+// allocator frees every buffer it still holds, no defer runs, and the
+// status is 141, 128 plus SIGPIPE's 13. Standard output is buffered, so
+// the broken pipe may only be found by a later write, by exit, or by the
+// flush once main returns, which end the process the same way.
+func print(s string)
+
+// exit ends the process immediately with the given status. Pending defers
+// do not run, in the calling function or any other, but before the
+// process ends every allocator frees every buffer it still holds, so no
+// list outlives the program. It flushes standard output first, and when
+// that finds a pipe with no reader the status is 141, as print's broken
+// pipe ends the process, whatever code was. Only the low bits of the
+// status reach the operating system, the low 8 on Linux and macOS, so
+// exit(70000) ends with status 112.
+func exit(code int32)
+
+// len returns the number of elements of the array, view, list or arena v,
+// an arena's sentinel among them, the number of live elements of the pool
+// v, the number of keys of the map v, or the number of bytes of the string
+// v. The length of an array, and of a string literal, is a constant; a
+// view's, a list's, an arena's or a pool's is never known.
+func len(v Sized) int64
+
+// fields(T) is what a fields loop ranges over, its only use: T is a type
+// parameter constrained by Data, or a struct type that is Data, and
+//
+//     for f := range fields(T) {
+//         ...
+//     }
+//
+// runs its body once for each field of the type T stands for whose own
+// mark lets the package declaring the function holding the loop see it,
+// in declaration order: every field in the struct's own package, a pub
+// field anywhere, a lib field within its module, whatever the struct's
+// visibility; and not at all for a type with none, a basic type, a list,
+// a map or text.Text outside std/text. f is no value: it cannot be stored,
+// passed or returned, only used as f.name, the field's name, a string, as
+// f.index, the field's position among those the loop runs for, from 0, an
+// int64, and as v.[f], the field f of v, a value of type T. v.[f] is a
+// place, read, assigned and passed as mut as any field of v is, and a
+// field cannot be moved on its own; its type is a type parameter of the
+// loop's own, constrained by Data, which v.[f] of every v of type T
+// shares. The body is checked once, as a loop body that may run any
+// number of times, so what it may do does not depend on the fields, and
+// it may not break or continue the loop; return, ? and defer work in it
+// as in any loop body, a defer running at the end of each field's pass.
+func fields(t StructType)
+
+// make returns an empty list of elements of type T, written make(list[T],
+// alloc), or an empty map, make(map[K]V, alloc), which grows through alloc
+// and is freed through it when its owner's block ends. make(arena[T],
+// sentinel, alloc) returns an arena holding only sentinel, which it moves
+// in, as its element at id 0, and make(pool[T], alloc) an empty pool with
+// a tag of its own. make(T, alloc), T a Data type written by its name,
+// returns T's empty value: 0, 0.0 or false for a basic type, an empty
+// text.Text, list or map growing through alloc, and for a struct every
+// field made the same way, private ones included. T may be a type
+// parameter constrained by Data, a case's narrowed or declared one
+// among them, and the make is checked once, against Data. Each allocates
+// nothing, so it cannot fail. alloc may be a region's allocator, or a
+// scope Allocator parameter.
+func make(t ListType, alloc Allocator) ListType
+
+// append appends elems to the end of l, in order, growing its buffer
+// through l's allocator when it has no room for them, and returns no
+// error; or, when the allocator cannot grow it, or l's length would
+// overflow an int64, returns error{code: 1, msg: "out of memory"} and
+// leaves l as it was, all or nothing. It takes any number of values, none
+// included, append(mut l, a, b, c), or a view spread whole, append(mut l,
+// v...), never a view of l itself. Its error cannot be discarded.
+func append[T Elem](mut l list[T], elems ...T) error
+
+// reserve makes room in l for n more elements, so that its capacity is at
+// least its length plus n, and returns no error; its length and elements
+// never change, and n of 0 does nothing. A negative n returns
+// error{code: 2, msg: "negative count"}, and one the allocator cannot make
+// room for error{code: 1, msg: "out of memory"}, each leaving l as it was.
+// l may be an arena, reserve(mut a, n), which then fails too when a could
+// not hold n more without passing 2^32 - 1 elements. Its error cannot be
+// discarded.
+func reserve[T Elem](mut l list[T], n int64) error
+
+// pop moves the last element of l out of it and returns it, leaving l one
+// element shorter; nothing is copied, allocated or freed. Its plain form,
+// x := pop(mut l), needs len(l) > 0 proven where it is written. Its
+// checked form, x, ok := pop(mut l), may be written anywhere: ok is false
+// for an empty list, which is left as it was. Written as a statement,
+// pop(mut l) discards the last element when there is one.
+func pop[T Elem](mut l list[T]) T
+
+// remove moves element i of l out of it and returns it, moving every
+// element after it down one place, so the rest keep their order. Its plain
+// form needs i proven in range for l; its checked form, x, ok :=
+// remove(mut l, i), may be written anywhere, ok being false for an i out of
+// range. Written as a statement it discards element i only when i is in range.
+// l may be a pool, remove(mut p, h), which moves out the element the
+// handle h names: v, ok := remove(mut p, h) gives it and true, or, when h
+// names no live element of p, the element type's zero value and false,
+// leaving p as it was; written as a statement, remove(mut p, h) frees the
+// element when there is one. Neither needs a proof, and a pool's remove
+// has no plain form.
+func remove[T Elem](mut l list[T], i int64) T
+
+// swap swaps elements i and j of l in place; i equal to j leaves l as it
+// was. It moves, copies and frees nothing, so it reorders lists of owned
+// elements. Both indexes need proofs, as l[i] does, and a proof about
+// len(l) holds across it.
+func swap[T Elem](mut l list[T], i int64, j int64)
+
+// replace moves the value of place out, as its result, and moves new into
+// place, in one step, so the place never holds no value: old :=
+// replace(mut s.items, make(list[T], alloc)) takes a list out of a field,
+// which no move can do. place is anything a mut argument can be. Written
+// as a statement, replace(mut place, new) is an assignment, which frees the
+// old value.
+func replace[T Elem](mut place T, new T) T
+
+// put puts v under k in m: in place of the value k has, which it frees,
+// keeping k's position in m's order; or at the end of the order when k is
+// new. When the allocator cannot grow m it returns error{code: 1, msg:
+// "out of memory"}, leaves m exactly as it was, and frees k and v. k and v
+// are moved in. Its error cannot be discarded.
+func put[K Key, V Elem](mut m map[K]V, k K, v V) error
+
+// delete takes the value under k out of m, moving it, and frees the key m
+// held: v, ok := delete(mut m, k) gives the value and true, or, when k is
+// not in m, V's zero value and false. Written as a statement, delete(mut
+// m, k) frees the value it takes.
+func delete[K Key, V Elem](mut m map[K]V, k K) (V, bool)
+
+// has reports whether k is in m. Tested as a condition it proves k is in m
+// where the condition holds, so m[k] is then a place that can be read and
+// assigned in place. The proof ends at any write to m that can reach the
+// use. m may be a pool, has(p, h), which reports whether the handle h
+// names a live element of p and, tested as a condition, proves it, so
+// p[h] is a place in the same way, until any insert, remove, assignment
+// or mut use of p that can reach the use.
+func has[K Key, V Elem](m map[K]V, k K) bool
+
+// drop frees x at once, exactly as the end of its block would, and leaves
+// it moved from: a later use is a use after a move, until x is assigned a
+// new value, and the end of its block frees nothing more. x is a local
+// variable or an own parameter whose type owns something, written own x;
+// a field or an element cannot be dropped, since it cannot be moved out
+// of what holds it, and a value that owns nothing is an error, since there
+// is nothing to free. In a generic function, drop(own t) of a type
+// parameter's value is allowed, and drops nothing for a type argument
+// that owns nothing. It is only a statement; it has no value.
+func drop[T Elem](own x T)
+
+// add moves v into a as its new last element and returns its id, which
+// names it for as long as a lives, and no error; or, when the allocator
+// cannot grow a, or a would hold more than 2^32 - 1 elements, its
+// sentinel among them, the zero id and error{code: 1, msg: "out of
+// memory"}, leaving a as it was and freeing v. The id cannot be read
+// until the error is checked, and the error cannot be discarded.
+func add[T Elem](mut a arena[T], v T) (id[T], error)
+
+// add_all moves elems into a, in order, as its new last elements, all or
+// none, and returns their span and no error; or, as add fails, the empty
+// span and error{code: 1, msg: "out of memory"}, leaving a as it was and
+// freeing what it was given. It takes any number of values, none
+// included, which give the empty span, or a view spread whole,
+// add_all(mut a, v...), whose elements are copied, so not one of an owned
+// element type, and never a view of a itself. The span cannot be read
+// until the error is checked, and the error cannot be discarded.
+func add_all[T Elem](mut a arena[T], elems ...T) (span[T], error)
+
+// insert moves v into p and returns its handle, which names it until it is
+// removed, and no error, taking a slot an earlier remove freed when there
+// is one, and otherwise growing p through its allocator; or, when it
+// cannot grow p, or p would hold more than 2^32 - 1 slots, the zero handle
+// and error{code: 1, msg: "out of memory"}, leaving p as it was and
+// freeing v. The handle cannot be read until the error is checked, and
+// the error cannot be discarded.
+func insert[T Elem](mut p pool[T], v T) (handle[T], error)
+
+// Stand-ins, for documentation only
+
+// Elem stands for any type: a list's, an arena's or a pool's element, a
+// map's value, a place.
+type Elem interface {
+}
+
+// Key stands for any type a map key can have: one with ==.
+type Key interface {
+}
+
+// Sized stands for any array, view, list, arena or pool, of any element
+// type, a map, or a string.
+type Sized interface {
+}
+
+// ListType stands for a list, a map, an arena or a pool type written where
+// a value goes, as make(list[int64], c_allocator) does.
+type ListType interface {
+}
+
+// StructType stands for a struct type, or a type parameter constrained by
+// Data, written where a value goes, as fields(T) does.
+type StructType interface {
+}

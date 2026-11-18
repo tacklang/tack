@@ -1,0 +1,225 @@
+package json
+
+import bytes from "std/bytes"
+import sort from "std/sort"
+import text from "std/text"
+
+// Package json writes JSON, byte for byte as Go's json.Marshal writes
+// the same value, so a program and its Go twin can be checked against
+// each other. A program imports it as
+//
+//     import json from "std/json"
+//
+// and the compiler reads it from $TACK_HOME/src/std/json, or
+// ~/.tack/src/std/json, as it reads std/bytes. It is written in Tack
+// alone, with no C. There is no decoding yet.
+//
+// It writes in two ways. append_encode(mut out, v, alloc) appends any
+// Data value v to the list out, walking v's type at compile time (see
+// append_encode). A Writer appends JSON built by hand, one token at a
+// time, for values that are not Data, a union or an arena's id, which
+// the program writes as it sees fit (see the comment at the top of
+// writer.tck). append_encode is named as std names every function that
+// appends, hex.append_encode and conv.append_float among them, with the
+// list it appends to first.
+//
+// append_encode takes an Allocator for scratch alone, as std functions
+// take theirs explicitly: the JSON goes into out, and what is made
+// through alloc, the copies of a map's keys it sorts, is freed before
+// append_encode returns.
+//
+// append_encode writes, for each kind of Data:
+//
+//   - a struct as an object of the fields std/json sees, its pub ones,
+//     in declaration order, each keyed by its name, as Go writes a
+//     struct's exported fields keyed by their json tags; a private
+//     field, or a lib one of a module other than std, is not written,
+//     and a struct with none is {};
+//   - a list as an array, an empty one as []: there is no null, since a
+//     list always exists. A list[uint8] is an array of numbers too,
+//     where Go writes a []byte as a base64 string;
+//   - a map[text.Text]V as an object, its keys sorted bytewise, as Go
+//     sorts a map's string keys, whatever order they were put in, an
+//     empty one as {};
+//   - a text.Text as a string (see the comment at the top of
+//     string.tck);
+//   - a bool as true or false;
+//   - an integer, of any width, unsafe_size_t and unsafe_uintptr_t
+//     among them, in decimal;
+//   - a float as Go writes one: the shortest digits that read back as
+//     the same float32 or float64, in plain decimal for a magnitude from
+//     1e-6 up to but not including 1e21, and with an exponent outside
+//     that, 1e+21 and 1e-7, not 1e-07; 0 as 0 and negative zero as -0.
+//     The digits are std/conv's append_float, which is Go's
+//     strconv.AppendFloat.
+//
+// The errors are std's:
+//
+//   - error{code: 1, msg: "out of memory"}, the builtin append's, when
+//     out, or append_encode's scratch list of a map's keys, made through
+//     alloc, cannot grow;
+//   - error{code: 11, msg: "unsupported value"}, for a float that is NaN
+//     or infinite, which JSON has no way to write, as Go's
+//     UnsupportedValueError refuses it, the first code after std/big's
+//     10;
+//   - error{code: 12, ...}, for a call that would make a Writer's JSON
+//     malformed, with a message naming what was wrong (see writer.tck).
+//
+// append_encode and every Writer method are all or nothing: on an error,
+// out, or the Writer, is left exactly as it was before the call.
+//
+// Nothing recurses at run time. append_encode of a User calls the walk's
+// instance for each of User's field types, an Address among them, which
+// is another function, so the calls follow the type's fields down to its
+// basic types and end: a type cannot hold itself. A Writer keeps its
+// nesting in a list of its own, so its depth is bounded by memory, not by
+// C's stack.
+
+// unsupported is the error for a float that JSON cannot write: NaN or an
+// infinity.
+var unsupported = error{code: 11, msg: "unsupported value"}
+
+// internal is the error for a check the code makes true, which no input
+// reaches.
+var internal = error{code: 2, msg: "internal error"}
+
+// append_encode appends v to out as JSON, as Go's json.Marshal writes the
+// same value (see the comment at the top of this file), and returns no
+// error, or error{code: 1, msg: "out of memory"} when out, or the scratch
+// copies of a map's keys, cannot be made or grow, or error{code: 11, msg:
+// "unsupported value"} for a float in v that is NaN
+// or infinite. On an error out is left exactly as it was. alloc is for
+// scratch only: the JSON goes into out, which grows through its own
+// allocator, and the one thing made through alloc, a list of copies of a
+// map's keys for sorting them, is freed before append_encode returns, so
+// nothing made through alloc outlives the call. A value holding no map
+// allocates nothing through it.
+pub func append_encode[T Data](mut out list[uint8], v T, scope alloc Allocator) error {
+    start := len(out)
+    err := value(v, mut out, alloc)
+    if err.code != 0 {
+        truncate(mut out, start)
+        return err
+    }
+    return noerror
+}
+
+// truncate pops bytes from out until it holds n.
+func truncate(mut out list[uint8], n int64) {
+    for len(out) > n {
+        pop(mut out)
+    }
+}
+
+// value appends v to out as append_encode does, leaving what it appended
+// before an error in place, for append_encode to take off.
+func value[T Data](v T, mut out list[uint8], scope alloc Allocator) error {
+    switch T {
+    case bool:
+        if v {
+            return append(mut out, 't', 'r', 'u', 'e')
+        }
+        return append(mut out, 'f', 'a', 'l', 's', 'e')
+    case int8:
+        return bytes.append_int(mut out, int64(v))
+    case int16:
+        return bytes.append_int(mut out, int64(v))
+    case int32:
+        return bytes.append_int(mut out, int64(v))
+    case int64:
+        return bytes.append_int(mut out, v)
+    case uint8:
+        return bytes.append_uint(mut out, uint64(v))
+    case uint16:
+        return bytes.append_uint(mut out, uint64(v))
+    case uint32:
+        return bytes.append_uint(mut out, uint64(v))
+    case uint64:
+        return bytes.append_uint(mut out, v)
+    case unsafe_size_t:
+        // Both target-width types are at most 64 bits wide, so the
+        // conversion's ok is always true.
+        u, ok := uint64(v)
+        if !ok {
+            return internal
+        }
+        return bytes.append_uint(mut out, u)
+    case unsafe_uintptr_t:
+        u, ok := uint64(v)
+        if !ok {
+            return internal
+        }
+        return bytes.append_uint(mut out, u)
+    case float32:
+        return put_float32(mut out, v)
+    case float64:
+        return put_float64(mut out, v)
+    case text.Text:
+        return put_string(mut out, v.bytes())
+    case list[E]:
+        append(mut out, '[')?
+        for i, e := range v {
+            if i > 0 {
+                append(mut out, ',')?
+            }
+            value(e, mut out, alloc)?
+        }
+        return append(mut out, ']')
+    case map[text.Text]V:
+        // A map walks its keys in the order they were put, so value
+        // sorts copies of them, which a list may hold where a view of
+        // them may not, and reads each value by its copy.
+        mut keys := make(list[text.Text], alloc)
+        reserve(mut keys, len(v))?
+        for k := range v {
+            c := text.from_bytes(k.bytes(), alloc)?
+            append(mut keys, c)?
+        }
+        sort.by(mut keys, less)
+        append(mut out, '{')?
+        for i, k := range keys {
+            if i > 0 {
+                append(mut out, ',')?
+            }
+            put_string(mut out, k.bytes())?
+            append(mut out, ':')?
+            // k is a copy of one of v's keys, so v has it.
+            if !has(v, k) {
+                return internal
+            }
+            value(v[k], mut out, alloc)?
+        }
+        return append(mut out, '}')
+    case struct:
+        append(mut out, '{')?
+        for f := range fields(T) {
+            if f.index > 0 {
+                append(mut out, ',')?
+            }
+            put_string(mut out, []uint8(f.name))?
+            append(mut out, ':')?
+            value(v.[f], mut out, alloc)?
+        }
+        return append(mut out, '}')
+    }
+}
+
+// less reports whether a's bytes sort before b's, as before does.
+func less(a text.Text, b text.Text) bool {
+    return before(a.bytes(), b.bytes())
+}
+
+// before reports whether x sorts before y, bytewise, as Go's
+// strings.Compare orders strings: at the first byte that differs, or,
+// when one is a prefix of the other, the shorter first.
+func before(x []uint8, y []uint8) bool {
+    for i, c := range x {
+        if i >= len(y) {
+            return false
+        }
+        if c != y[i] {
+            return c < y[i]
+        }
+    }
+    return len(x) < len(y)
+}

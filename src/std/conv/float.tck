@@ -1,0 +1,1260 @@
+package conv
+
+// Floats as text, and text as floats, as Go's strconv.AppendFloat and
+// ParseFloat write and read them, to the digit: append_float writes the
+// shortest decimal that reads back as the same float, or one rounded
+// correctly to a precision, and parse_float reads any decimal or
+// hexadecimal float, rounding correctly to the nearest float32 or
+// float64. Both work exactly, on a decimal of up to 800 digits, which
+// holds every float64 exactly, as Go's own slow path does (see decimal),
+// so neither needs the C library, and neither depends on a locale.
+//
+// A float's sign, exponent and mantissa are found, and a float made from
+// them, by scaling with powers of two, which is exact, rather than by
+// reading its bits, which Tack has no way to do.
+//
+// Most arithmetic here is on a decimal's digit count and point, on a
+// float's exponent, and on the constants info gives, all of which stay
+// within a few thousand of 0 for any input, by bounds the checker cannot
+// follow through a struct's fields and across calls: a decimal holds at
+// most 800 digits, and its point stays within 2000 of 0 (see decimal); a
+// float's exponent within 1100 (see decompose and float_bits); info's
+// values are its constants. That arithmetic is written with +% -% and *%,
+// which never wrap there, and each names the bound it rests on. What the
+// input can drive past an int64, a precision or an exponent's digits, is
+// in the checked form, and fails as the function already fails.
+
+// decimal is a nonnegative number in decimal, and a sign: d[:nd] are its
+// digits, ASCII '0' to '9', with no trailing zero, and the point is dp
+// digits from d's start, before it when dp is negative; nd of 0 is zero.
+// trunc says nonzero digits past the 800 d holds were dropped, which
+// rounding half to even counts as more than half. Every float64 has at
+// most 767 significant digits, so a float's value is always held exactly.
+//
+// Every decimal holds 0 to 800 digits, which every write of nd keeps to,
+// and has dp within 2000 of 0: read_float may give any dp, but float_bits
+// takes only one within 330 of 0 any further, and append_float's come from
+// a float's exponent, within 1100, through shift, which moves dp by at
+// most 19 places for each 60 bits, and rounding, which moves it by 1.
+type decimal struct {
+    d [800]uint8
+    nd int64
+    dp int64
+    neg bool
+    trunc bool
+}
+
+// out_of_memory is the error append_float gives when b cannot grow, the
+// builtin append's.
+var out_of_memory = error{code: 1, msg: "out of memory"}
+
+// powtab holds, for each n below 9, the largest k for which 2^k is at most
+// 10^n: how far float_bits can shift a decimal of n integer digits at a
+// time without passing 1.
+var powtab = [9]int64{1, 3, 6, 9, 13, 16, 19, 23, 26}
+
+// dig returns digit i of a, or '0' outside a's 800 places.
+func dig(mut a decimal, i int64) uint8 {
+    c, ok := a.d[i]
+    if !ok {
+        return '0'
+    }
+    return c
+}
+
+// set_dig makes digit i of a c, when i is one of a's 800 places.
+func set_dig(mut a decimal, i int64, c uint8) {
+    if i >= 0 && i < 800 {
+        a.d[i] = c
+    }
+}
+
+// ascii returns the ASCII digit of v, 0 to 9, or '0' for any other v.
+func ascii(v uint64) uint8 {
+    if v > 9 {
+        return '0'
+    }
+    c, ok := uint8(v + '0')
+    if !ok {
+        return '0'
+    }
+    return c
+}
+
+// value returns the value of the ASCII digit c. Every caller passes a
+// digit, so c -% '0' never wraps.
+func value(c uint8) uint64 {
+    return uint64(c -% '0')
+}
+
+// trim drops a's trailing zeros, and makes its point 0 when no digit is
+// left.
+func trim(mut a decimal) {
+    for {
+        n := a.nd
+        if n <= 0 || dig(mut a, n - 1) != '0' {
+            break
+        }
+        a.nd = n - 1
+    }
+    if a.nd == 0 {
+        a.dp = 0
+    }
+}
+
+// assign makes a the integer v.
+func assign(mut a decimal, v uint64) {
+    mut buf [24]uint8
+    mut x := v
+    mut first := 24
+    for mut at := 23; at >= 0; at-- {
+        if x == 0 {
+            break
+        }
+        buf[at] = ascii(x % 10)
+        x = x / 10
+        first = at
+    }
+    a.nd = 0
+    a.trunc = false
+    for i, c := range buf {
+        if i >= first {
+            set_dig(mut a, a.nd, c)
+            // At most 24 digits, one for each byte of buf.
+            a.nd +%= 1
+        }
+    }
+    a.dp = a.nd
+    trim(mut a)
+}
+
+// right_shift divides a by 2^k, k at most 60, as Go's rightShift does:
+// it reads digits until their value reaches 2^k, then writes a quotient
+// digit for each digit read, carrying the remainder, and finally the
+// remainder's digits, as many as fit, setting trunc for a nonzero one
+// that does not.
+//
+// k at most 60 keeps n below 2^60 before each n * 10, and so below 2^64
+// after it; r and w stay within 19 places of nd, at most 800 (see
+// decimal).
+func right_shift(mut a decimal, k uint64) {
+    mut r := 0
+    mut w := 0
+    mut n := uint64(0)
+    for n >> k == 0 {
+        if r >= a.nd {
+            if n == 0 {
+                a.nd = 0
+                return
+            }
+            for n >> k == 0 {
+                n = n *% 10
+                r +%= 1
+            }
+            break
+        }
+        n = n *% 10 +% value(dig(mut a, r))
+        r +%= 1
+    }
+    a.dp = a.dp -% (r -% 1)
+    mask := (uint64(1) << k) -% 1
+    for r < a.nd {
+        c := dig(mut a, r)
+        set_dig(mut a, w, ascii(n >> k))
+        w +%= 1
+        n = (n & mask) *% 10 +% value(c)
+        r +%= 1
+    }
+    for n > 0 {
+        q := n >> k
+        n = n & mask
+        if w < 800 {
+            set_dig(mut a, w, ascii(q))
+            w++
+        } else if q > 0 {
+            a.trunc = true
+        }
+        n = n *% 10
+    }
+    a.nd = w
+    trim(mut a)
+}
+
+// left_shift multiplies a by 2^k, k at most 60, from its last digit up,
+// into a second buffer long enough for the at most 19 digits the product
+// gains, then copies back as many digits as fit, setting trunc for a
+// nonzero one that does not.
+//
+// k at most 60 keeps n below 2^60 after each n / 10, so n plus a digit
+// times 2^k stays below 10 * 2^60, within 64 bits; w stays within 820
+// places below 820, one for each digit, at most 800, and 20 more.
+func left_shift(mut a decimal, k uint64) {
+    mut tmp [820]uint8
+    mut w := 820
+    mut n := uint64(0)
+    for mut r := a.nd -% 1; r >= 0; r-- {
+        n = n +% (value(dig(mut a, r)) << k)
+        w -%= 1
+        if w >= 0 && w < 820 {
+            tmp[w] = ascii(n % 10)
+        }
+        n = n / 10
+    }
+    for n > 0 {
+        w -%= 1
+        if w >= 0 && w < 820 {
+            tmp[w] = ascii(n % 10)
+        }
+        n = n / 10
+    }
+    a.dp = a.dp +% (820 -% w) -% a.nd
+    mut nd := 0
+    for i, c := range tmp {
+        if i < w {
+            continue
+        }
+        if nd < 800 {
+            set_dig(mut a, nd, c)
+            nd++
+        } else if c != '0' {
+            a.trunc = true
+        }
+    }
+    a.nd = nd
+    trim(mut a)
+}
+
+// shift multiplies a by 2^k, dividing for a negative k, at most 60 places
+// at a time.
+func shift(mut a decimal, k int64) {
+    if a.nd == 0 {
+        return
+    }
+    mut s := k
+    for s > 60 {
+        left_shift(mut a, 60)
+        s = s - 60
+    }
+    for s < -60 {
+        right_shift(mut a, 60)
+        s = s + 60
+    }
+    if s > 0 {
+        u, ok := uint64(s)
+        if ok {
+            left_shift(mut a, u)
+        }
+    } else if s < 0 && s >= -60 {
+        // The loop above leaves s at -60 or more, as this tests too.
+        u, ok := uint64(0 - s)
+        if ok {
+            right_shift(mut a, u)
+        }
+    }
+}
+
+// should_round_up reports whether rounding a to nd digits rounds up: the
+// first digit dropped is 5 or more, but for exactly half, a 5 and no
+// digit after it, which rounds up past dropped digits and otherwise to
+// even.
+func should_round_up(mut a decimal, nd int64) bool {
+    count := a.nd
+    if nd < 0 || nd >= count {
+        return false
+    }
+    c := dig(mut a, nd)
+    if c == '5' && nd + 1 == count {
+        if a.trunc {
+            return true
+        }
+        return nd > 0 && value(dig(mut a, nd - 1)) % 2 != 0
+    }
+    return c >= '5'
+}
+
+// round rounds a to nd digits, to nearest, half to even.
+func round(mut a decimal, nd int64) {
+    if nd < 0 || nd >= a.nd {
+        return
+    }
+    if should_round_up(mut a, nd) {
+        round_up(mut a, nd)
+    } else {
+        round_down(mut a, nd)
+    }
+}
+
+// round_down truncates a to nd digits.
+func round_down(mut a decimal, nd int64) {
+    if nd < 0 || nd >= a.nd {
+        return
+    }
+    a.nd = nd
+    trim(mut a)
+}
+
+// round_up rounds a up to nd digits: the last kept digit that is not 9
+// gains one, and a run of nines becomes a 1 one place further up.
+func round_up(mut a decimal, nd int64) {
+    if nd < 0 || nd >= a.nd {
+        return
+    }
+    // i is below nd, which is below a.nd, at most 800, and the point
+    // moves by 1 (see decimal).
+    for mut i := nd - 1; i >= 0; i-- {
+        c := dig(mut a, i)
+        if c < '9' {
+            set_dig(mut a, i, c + 1)
+            a.nd = i +% 1
+            return
+        }
+    }
+    set_dig(mut a, 0, '1')
+    a.nd = 1
+    a.dp +%= 1
+}
+
+// rounded_integer returns a rounded to the nearest integer, half to even,
+// or the largest uint64 for an a past 20 integer digits.
+//
+// float_bits, its one caller, gives it a decimal below 2^54, of at most
+// 17 integer digits, so n * 10 and n + 1 stay below 10^18, within 64
+// bits.
+func rounded_integer(mut a decimal) uint64 {
+    dp := a.dp
+    if dp > 20 {
+        return 18446744073709551615
+    }
+    mut i := 0
+    mut n := uint64(0)
+    for i < dp && i < a.nd {
+        n = n *% 10 +% value(dig(mut a, i))
+        i++
+    }
+    for i < dp {
+        n = n *% 10
+        i++
+    }
+    if should_round_up(mut a, dp) {
+        n +%= 1
+    }
+    return n
+}
+
+// info returns what describes the floats of bit_size, 32 for float32 and
+// anything else for float64: how many mantissa bits it stores, as an
+// int64 and as a uint64, its exponent bias, and the largest stored
+// exponent, which is an infinity's.
+func info(bit_size int64) (int64, uint64, int64, int64) {
+    if bit_size == 32 {
+        return 23, 23, -127, 255
+    }
+    return 52, 52, -1023, 2047
+}
+
+// infinity returns the infinity of sign neg.
+func infinity(neg bool) float64 {
+    huge := 1e308
+    x := huge * 10.0
+    if neg {
+        return -x
+    }
+    return x
+}
+
+// decompose returns the mantissa and exponent of v, a positive finite
+// float whose values have mantbits mantissa bits and exponent bias bias,
+// as Go's ftoa takes them from its bits: v is mant * 2^(exp - mantbits),
+// mant holding its leading 1 for a normal v, and exp being bias + 1 for a
+// subnormal one. Each step scales by a power of two, which is exact. v
+// is a finite float64, so e stays within 1100 of 0, and mantbits and bias
+// are info's.
+func decompose(v float64, mantbits int64, bias int64) (uint64, int64) {
+    mut x := v
+    mut e := 0
+    for x >= 18446744073709551616.0 {
+        x = x / 18446744073709551616.0
+        e = e +% 64
+    }
+    for x >= 2.0 {
+        x = x / 2.0
+        e +%= 1
+    }
+    for x < 5.42101086242752217003726400434970855712890625e-20 {
+        x = x * 18446744073709551616.0
+        e = e -% 64
+    }
+    for x < 1.0 {
+        x = x * 2.0
+        e -%= 1
+    }
+    // Now 1 <= x < 2, and v is x * 2^e.
+    mut k := mantbits
+    mut exp := e
+    if e < bias +% 1 {
+        k = mantbits +% e -% (bias +% 1)
+        exp = bias +% 1
+    }
+    for k > 0 {
+        x = x * 2.0
+        k--
+    }
+    m, ok := uint64(x)
+    if !ok {
+        return 0, exp
+    }
+    return m, exp
+}
+
+// compose returns mant * 2^(exp - mantbits), a float's value from its
+// mantissa and exponent as decompose gives them, which is a value of the
+// float type they describe, scaling by powers of two, each step exact:
+// every value on the way is at least as large as the result, so it keeps
+// every bit the result has.
+//
+// exp is within 100000 of 0, as float_bits and hex_bits give it, and
+// mantbits is info's.
+func compose(mant uint64, exp int64, mantbits int64) float64 {
+    mut x := float64(mant)
+    mut k := exp -% mantbits
+    for k >= 64 {
+        x = x * 18446744073709551616.0
+        k = k - 64
+    }
+    for k > 0 {
+        x = x * 2.0
+        k--
+    }
+    for k <= -64 {
+        x = x / 18446744073709551616.0
+        k = k + 64
+    }
+    for k < 0 {
+        x = x / 2.0
+        k++
+    }
+    return x
+}
+
+// float_bits rounds d to the nearest float with mantbits mantissa bits,
+// exponent bias bias and largest stored exponent top, as Go's floatBits
+// does, and returns its mantissa and exponent as compose takes them, and
+// whether d is past the largest float, which is an infinity.
+//
+// Past the checks on d.dp, which is then within 330 of 0, each shift is
+// of at most 27 places, so exp stays within 1200 of 0; mantbits, umant,
+// bias and top are info's.
+func float_bits(mut d decimal, mantbits int64, umant uint64, bias int64, top int64) (uint64, int64, bool) {
+    if d.nd == 0 || d.dp < -330 {
+        return 0, bias +% 1, false
+    }
+    if d.dp > 310 {
+        return 0, 0, true
+    }
+    mut exp := 0
+    for d.dp > 0 {
+        mut n := 27
+        k := d.dp
+        if k >= 0 && k < 9 {
+            n = powtab[k]
+        }
+        shift(mut d, 0 -% n)
+        exp = exp +% n
+    }
+    for d.dp < 0 || d.dp == 0 && dig(mut d, 0) < '5' {
+        mut n := 27
+        k := 0 -% d.dp
+        if k >= 0 && k < 9 {
+            n = powtab[k]
+        }
+        shift(mut d, n)
+        exp = exp -% n
+    }
+    // d is now in [0.5, 1); a float's leading digit is worth 1.
+    exp -%= 1
+    if exp < bias +% 1 {
+        n := bias +% 1 -% exp
+        shift(mut d, 0 -% n)
+        exp = exp +% n
+    }
+    if exp -% bias >= top {
+        return 0, 0, true
+    }
+    shift(mut d, mantbits +% 1)
+    mut mant := rounded_integer(mut d)
+    if mant == uint64(2) << umant {
+        mant = mant >> 1
+        exp +%= 1
+        if exp -% bias >= top {
+            return 0, 0, true
+        }
+    }
+    return mant, exp, false
+}
+
+// hex_bits rounds mant * 2^exp, a hexadecimal float's value, trunc saying
+// nonzero bits were dropped from mant, to the nearest float described as
+// for float_bits, as Go's atofHex does, keeping two bits past the
+// mantissa and a sticky bit to round with, half to even, and returns what
+// float_bits does.
+//
+// An exp more than 100000 from 0 is far past every float's: the value is
+// an infinity above and rounds to 0 below, as it does for any exponent
+// past top or below the subnormals, and that is returned at once, which
+// keeps e within 100200 of 0 below, so its steps never wrap; m stays
+// within umant + 3 bits, and mantbits, umant, bias and top are info's.
+func hex_bits(mant uint64, exp int64, trunc bool, mantbits int64, umant uint64, bias int64, top int64) (uint64, int64, bool) {
+    if mant != 0 && exp > 100000 {
+        return 0, 0, true
+    }
+    if mant == 0 || exp < -100000 {
+        return 0, bias +% 1, false
+    }
+    max_exp := top +% bias -% 1
+    min_exp := bias +% 1
+    mut m := mant
+    mut e := exp +% mantbits
+    for m != 0 && m >> (umant +% 2) == 0 {
+        m = m << 1
+        e -%= 1
+    }
+    if trunc {
+        m = m | 1
+    }
+    for m >> (umant +% 3) != 0 {
+        m = m >> 1 | m & 1
+        e +%= 1
+    }
+    for m > 1 && e < min_exp -% 2 {
+        m = m >> 1 | m & 1
+        e +%= 1
+    }
+    mut r := m & 3
+    m = m >> 2
+    r = r | m & 1
+    e = e +% 2
+    if r == 3 {
+        m++
+        if m == uint64(1) << (umant +% 1) {
+            m = m >> 1
+            e +%= 1
+        }
+    }
+    if e > max_exp {
+        return 0, 0, true
+    }
+    return m, e, false
+}
+
+// prefix_len returns how many bytes of s, from start, match word, ASCII
+// letters in either case. Its callers pass a start of 0 or 1 and a word
+// of at most 8 bytes, so start +% i and n never wrap.
+func prefix_len(s []uint8, start int64, word string) int64 {
+    mut n := 0
+    for i, w := range word {
+        if lower(at(s, start +% i)) != w {
+            return n
+        }
+        n +%= 1
+    }
+    return n
+}
+
+// special returns the float s starts as when it is an infinity or NaN,
+// as Go's special reads one: a sign and inf or infinity, or nan without
+// a sign, in either case; how many bytes of s it took; and whether there
+// was one. The sign is read from the byte itself: lower is only right
+// for letters, and makes '-' of '\r' and '+' of '\v'.
+func special(s []uint8) (float64, int64, bool) {
+    if len(s) == 0 {
+        return 0.0, 0, false
+    }
+    b := at(s, 0)
+    c := lower(b)
+    mut start := 0
+    neg := b == '-'
+    if b == '+' || neg {
+        start = 1
+    }
+    if start == 1 || c == 'i' {
+        mut n := prefix_len(s, start, "infinity")
+        if n > 3 && n < 8 {
+            n = 3
+        }
+        if n == 3 || n == 8 {
+            // start is 0 or 1 and n 3 or 8.
+            return infinity(neg), start +% n, true
+        }
+        return 0.0, 0, false
+    }
+    if c == 'n' && prefix_len(s, 0, "nan") == 3 {
+        zero := 0.0
+        return zero / zero, 3, true
+    }
+    return 0.0, 0, false
+}
+
+// scan is what read_float found in a float's text: whether it is
+// hexadecimal, and for one, its mantissa and binary exponent, and
+// whether bits were dropped from the mantissa; how many bytes it took;
+// whether they are a float, but for where its underscores are; and
+// whether it has any, which parse_float checks the places of. A decimal one's digits go into the
+// decimal read_float is given.
+type scan struct {
+    hex bool
+    mant uint64
+    exp int64
+    trunc bool
+    n int64
+    ok bool
+    underscores bool
+}
+
+// read_float reads the float s starts with, as Go's readFloat and the
+// decimal reader of its slow path do: a sign, then decimal digits or 0x
+// and hexadecimal ones, with one point among them and _ between digits,
+// then an exponent, e and a decimal number for a decimal float, p and
+// one for a hexadecimal float, which must have one. A decimal float's
+// digits go into d, its sign too; a hexadecimal one's into the scan.
+func read_float(s []uint8, mut d decimal) scan {
+    mut sc := scan{hex: false, mant: 0, exp: 0, trunc: false, n: 0, ok: false, underscores: false}
+    d.nd = 0
+    d.dp = 0
+    d.neg = false
+    d.trunc = false
+    mut i := 0
+    if len(s) == 0 {
+        return sc
+    }
+    if at(s, 0) == '+' {
+        i = 1
+    } else if at(s, 0) == '-' {
+        d.neg = true
+        i = 1
+    }
+    mut base := uint64(10)
+    mut max_mant := 19
+    mut exp_char := 'e'
+    // i is 0 or 1 here.
+    if i +% 2 < len(s) && at(s, i) == '0' && lower(at(s, i +% 1)) == 'x' {
+        base = 16
+        max_mant = 16
+        i = i +% 2
+        exp_char = 'p'
+        sc.hex = true
+    }
+    mut underscores := false
+    mut sawdot := false
+    mut sawdigits := false
+    mut nd := 0
+    mut nd_mant := 0
+    mut dp := 0
+    for i < len(s) {
+        c := at(s, i)
+        lc := lower(c)
+        if c == '_' {
+            underscores = true
+            i++
+            continue
+        }
+        if c == '.' {
+            if sawdot {
+                break
+            }
+            sawdot = true
+            dp = nd
+            i++
+            continue
+        }
+        mut v := uint64(0)
+        if c >= '0' && c <= '9' {
+            v = value(c)
+        } else if sc.hex && lc >= 'a' && lc <= 'f' {
+            v = uint64(lc - 'a') + 10
+        } else {
+            break
+        }
+        sawdigits = true
+        i++
+        // nd and dp change by one for each byte of s read, so they stay
+        // within len(s) of 0; mant has at most max_mant digits, 19
+        // decimal or 16 hexadecimal ones, within 64 bits.
+        if c == '0' && nd == 0 {
+            // A leading zero moves the point instead.
+            dp -%= 1
+            continue
+        }
+        nd +%= 1
+        if nd_mant < max_mant {
+            sc.mant = sc.mant *% base +% v
+            nd_mant++
+        } else if c != '0' {
+            sc.trunc = true
+        }
+        if !sc.hex {
+            if d.nd < 800 {
+                set_dig(mut d, d.nd, c)
+                d.nd +%= 1
+            } else if c != '0' {
+                d.trunc = true
+            }
+        }
+    }
+    if !sawdigits {
+        sc.n = i
+        return sc
+    }
+    if !sawdot {
+        dp = nd
+    }
+    if sc.hex {
+        // nd_mant is at most 16; dp, within len(s) of 0, may not fit four
+        // times over, and a float that long is no float read_float takes.
+        hex_dp, fits := dp * 4
+        if !fits {
+            sc.n = i
+            return sc
+        }
+        dp = hex_dp
+        nd_mant = nd_mant *% 4
+    }
+    if i < len(s) && lower(at(s, i)) == exp_char {
+        i++
+        if i >= len(s) {
+            sc.n = i
+            return sc
+        }
+        mut esign := 1
+        // i is below len(s) here, which the checker does not follow into
+        // the else, past the first branch's step.
+        if at(s, i) == '+' {
+            i++
+        } else if at(s, i) == '-' {
+            i +%= 1
+            esign = -1
+        }
+        if i >= len(s) || at(s, i) < '0' || at(s, i) > '9' {
+            sc.n = i
+            return sc
+        }
+        mut e := 0
+        for i < len(s) && (at(s, i) >= '0' && at(s, i) <= '9' || at(s, i) == '_') {
+            c := at(s, i)
+            if c == '_' {
+                underscores = true
+            } else if e < 10000 {
+                // e is below 10000 and c a digit, which the loop's
+                // condition tested.
+                e = e *% 10 +% int64(c -% '0')
+            }
+            i++
+        }
+        // e is below 100000; dp may be anything within len(s) of 0, and
+        // a float whose point does not fit an int64 is no float
+        // read_float takes.
+        moved, fits := dp + e *% esign
+        if !fits {
+            sc.n = i
+            return sc
+        }
+        dp = moved
+    } else if sc.hex {
+        sc.n = i
+        return sc
+    }
+    sc.n = i
+    sc.underscores = underscores
+    if sc.hex {
+        if sc.mant != 0 {
+            // nd_mant is at most 64, but dp may be anywhere an int64 is.
+            exp, fits := dp - nd_mant
+            if !fits {
+                return sc
+            }
+            sc.exp = exp
+        }
+    } else {
+        d.dp = dp
+        if d.nd == 0 {
+            d.dp = 0
+        }
+    }
+    sc.ok = true
+    return sc
+}
+
+// parse_float returns the float s holds, rounded to the nearest float32
+// for a bit_size of 32 and to the nearest float64 for any other, as Go's
+// strconv.ParseFloat does: a decimal or hexadecimal float, as a Go
+// literal writes one, with a sign and _ between digits allowed, or an
+// infinity, inf or infinity, or nan, in either case. A float32's value is
+// returned as the float64 it is. Bad syntax, an empty s included, is
+// error{code: 6, msg: "invalid syntax"} beside 0; a value past the
+// largest float error{code: 7, msg: "value out of range"} beside an
+// infinity of its sign, as Go's is, though Tack lets no caller read it
+// before checking the error. A value too small rounds to zero, or a
+// subnormal, with no error.
+pub func parse_float(s []uint8, bit_size int64) (float64, error) {
+    sv, sn, is_special := special(s)
+    if is_special {
+        if sn == len(s) {
+            return sv, noerror
+        }
+        return 0.0, syntax
+    }
+    mantbits, umant, bias, top := info(bit_size)
+    mut d decimal
+    sc := read_float(s, mut d)
+    if !sc.ok || sc.n != len(s) || sc.underscores && !underscores_ok(s, 0) {
+        return 0.0, syntax
+    }
+    neg := d.neg
+    mut mant := uint64(0)
+    mut exp := 0
+    mut over := false
+    if sc.hex {
+        mant, exp, over = hex_bits(sc.mant, sc.exp, sc.trunc, mantbits, umant, bias, top)
+    } else {
+        mant, exp, over = float_bits(mut d, mantbits, umant, bias, top)
+    }
+    if over {
+        return infinity(neg), out_of_range
+    }
+    v := compose(mant, exp, mantbits)
+    if neg {
+        return -v, noerror
+    }
+    return v, noerror
+}
+
+// round_shortest rounds d, the exact value of the float mant *
+// 2^(exp - mantbits), to the fewest digits that still read back as that
+// float, as Go's roundShortest does: it finds the halfway points to the
+// floats on either side, lower and upper, which a round to even reading
+// would still take to this float when its mantissa is even, and walks
+// d's digits until one differs from both bounds, then rounds there, to
+// nearest, or the one way the bounds allow.
+func round_shortest(mut d decimal, mant uint64, exp int64, mantbits int64, umant uint64, bias int64) {
+    if mant == 0 {
+        d.nd = 0
+        return
+    }
+    // mant and exp are decompose's: mant is below 2^54 and exp within
+    // 1100 of 0, and mantbits, umant and bias are info's. The digit
+    // places below stay within the 2000 of 0 every decimal's point and
+    // digits are, three of them added at most, and ui passes no more of
+    // them (see decimal).
+    minexp := bias +% 1
+    if exp > minexp && 332 *% (d.dp -% d.nd) >= 100 *% (exp -% mantbits) {
+        // d is already as short as it can be.
+        return
+    }
+    mut upper decimal
+    assign(mut upper, mant *% 2 +% 1)
+    shift(mut upper, exp -% mantbits -% 1)
+    mut mantlo := mant - 1
+    mut explo := exp
+    if mant <= uint64(1) << umant && exp != minexp {
+        mantlo = mant *% 2 -% 1
+        explo = exp -% 1
+    }
+    mut lower decimal
+    assign(mut lower, mantlo *% 2 +% 1)
+    shift(mut lower, explo -% mantbits -% 1)
+    inclusive := mant % 2 == 0
+    mut upperdelta := 0
+    mut ui := 0
+    for {
+        mi := ui -% upper.dp +% d.dp
+        if mi >= d.nd {
+            break
+        }
+        li := ui -% upper.dp +% lower.dp
+        mut l := '0'
+        if li >= 0 && li < lower.nd {
+            l = dig(mut lower, li)
+        }
+        mut m := '0'
+        if mi >= 0 {
+            m = dig(mut d, mi)
+        }
+        mut u := '0'
+        if ui < upper.nd {
+            u = dig(mut upper, ui)
+        }
+        // m is a digit, as dig gives one.
+        okdown := l != m || inclusive && li +% 1 == lower.nd
+        if upperdelta == 0 && m +% 1 < u {
+            upperdelta = 2
+        } else if upperdelta == 0 && m != u {
+            upperdelta = 1
+        } else if upperdelta == 1 && (m != '9' || u != '0') {
+            upperdelta = 2
+        }
+        okup := upperdelta > 0 && (inclusive || upperdelta > 1 || ui +% 1 < upper.nd)
+        if okdown && okup {
+            round(mut d, mi +% 1)
+            return
+        }
+        if okdown {
+            round_down(mut d, mi +% 1)
+            return
+        }
+        if okup {
+            round_up(mut d, mi +% 1)
+            return
+        }
+        ui +%= 1
+    }
+}
+
+// out_byte appends c to b, unless an append has failed already, which failed
+// says, and says so when this one fails.
+func out_byte(mut b list[uint8], c uint8, mut failed bool) {
+    if failed {
+        return
+    }
+    e := append(mut b, c)
+    if e.code != 0 {
+        failed = true
+    }
+}
+
+// out_str appends each byte of s to b, as out_byte does.
+func out_str(mut b list[uint8], s string, mut failed bool) {
+    for _, c := range s {
+        out_byte(mut b, c, mut failed)
+    }
+}
+
+// out_zeros appends n zeros to b, as out_byte does.
+func out_zeros(mut b list[uint8], n int64, mut failed bool) {
+    for mut i := 0; i < n && !failed; i++ {
+        out_byte(mut b, '0', mut failed)
+    }
+}
+
+// out_reserve makes room in b for n more bytes, unless an append has
+// failed already, which failed says, and says so when it cannot: when n
+// did not fit an int64, which fits says, or the allocator refuses. Room
+// made at once is what keeps a precision past what memory holds from
+// growing b a byte at a time until the process is killed; once it is
+// made, no append of those n bytes can fail.
+func out_reserve(mut b list[uint8], n int64, fits bool, mut failed bool) {
+    if failed {
+        return
+    }
+    if !fits {
+        failed = true
+        return
+    }
+    e := reserve(mut b, n)
+    if e.code != 0 {
+        failed = true
+    }
+}
+
+// e_size returns the number of bytes put_e appends for a value with
+// sign neg, prec digits after the point and decimal exponent exp, and
+// whether that number fits an int64: the sign, the first digit, the
+// point and prec digits when prec is above 0, the format, the
+// exponent's sign and its two or three digits.
+func e_size(neg bool, prec int64, exp int64) (int64, bool) {
+    mut n := 5
+    if neg {
+        n = 6
+    }
+    if exp >= 100 || exp <= -100 {
+        n +%= 1
+    }
+    if prec <= 0 {
+        return n, true
+    }
+    // n is at most 7.
+    digits, fits := prec + n
+    if !fits {
+        return 0, false
+    }
+    total, fits2 := digits + 1
+    return total, fits2
+}
+
+// f_size returns the number of bytes put_f appends for a value with sign
+// neg, its point dp digits from its first digit and prec digits after
+// the point, and whether that number fits an int64: the sign, the dp
+// digits before the point, or a 0 when dp is 0 or less, and the point
+// and prec digits when prec is above 0.
+func f_size(neg bool, dp int64, prec int64) (int64, bool) {
+    mut n := 1
+    if dp > 0 {
+        n = dp
+    }
+    if neg {
+        // dp is within 2000 of 0 (see decimal).
+        n +%= 1
+    }
+    if prec <= 0 {
+        return n, true
+    }
+    digits, fits := prec + n
+    if !fits {
+        return 0, false
+    }
+    total, fits2 := digits + 1
+    return total, fits2
+}
+
+// least returns the smaller of x and y.
+func least(x int64, y int64) int64 {
+    if x < y {
+        return x
+    }
+    return y
+}
+
+// most returns the larger of x and y.
+func most(x int64, y int64) int64 {
+    if x > y {
+        return x
+    }
+    return y
+}
+
+// put_e appends d with prec digits after the point and an exponent, as
+// Go's fmtEFG writes %e: -d.ddde±dd, the exponent of at least two digits,
+// 0 having exponent 0. It makes room for all of it first, as
+// out_reserve does.
+func put_e(mut b list[uint8], mut d decimal, neg bool, prec int64, format uint8, mut failed bool) {
+    // The point is within 2000 of 0 (see decimal).
+    mut exp := d.dp -% 1
+    if d.nd == 0 {
+        exp = 0
+    }
+    size, sized := e_size(neg, prec, exp)
+    out_reserve(mut b, size, sized, mut failed)
+    if failed {
+        return
+    }
+    if neg {
+        out_byte(mut b, '-', mut failed)
+    }
+    mut first := '0'
+    if d.nd != 0 {
+        first = dig(mut d, 0)
+    }
+    out_byte(mut b, first, mut failed)
+    if prec > 0 {
+        // The digits would number more than an int64 counts, more than
+        // any list holds, so b cannot grow to hold them.
+        digits, fits := prec + 1
+        if !fits {
+            failed = true
+            return
+        }
+        out_byte(mut b, '.', mut failed)
+        mut i := 1
+        m := least(d.nd, digits)
+        for i < m {
+            out_byte(mut b, dig(mut d, i), mut failed)
+            i++
+        }
+        // i is from 1 to m, which is at most digits.
+        out_zeros(mut b, digits -% i, mut failed)
+    }
+    out_byte(mut b, format, mut failed)
+    if exp < 0 {
+        out_byte(mut b, '-', mut failed)
+        exp = 0 -% exp
+    } else {
+        out_byte(mut b, '+', mut failed)
+    }
+    u, ok := uint64(exp)
+    if !ok {
+        return
+    }
+    if u >= 100 {
+        out_byte(mut b, ascii(u / 100), mut failed)
+    }
+    out_byte(mut b, ascii(u / 10 % 10), mut failed)
+    out_byte(mut b, ascii(u % 10), mut failed)
+}
+
+// put_f appends d with prec digits after the point, as Go's fmtEFG
+// writes %f: -ddd.ddd, the integer part 0 when it has no digit. It
+// makes room for all of it first, as out_reserve does.
+func put_f(mut b list[uint8], mut d decimal, neg bool, prec int64, mut failed bool) {
+    size, sized := f_size(neg, d.dp, prec)
+    out_reserve(mut b, size, sized, mut failed)
+    if failed {
+        return
+    }
+    if neg {
+        out_byte(mut b, '-', mut failed)
+    }
+    // d's point and digit count are within 2000 of 0 (see decimal), lz
+    // is from 0 to prec, and m from 0 to prec - lz.
+    if d.dp > 0 {
+        m := least(d.nd, d.dp)
+        for mut i := 0; i < m && !failed; i++ {
+            out_byte(mut b, dig(mut d, i), mut failed)
+        }
+        out_zeros(mut b, d.dp -% m, mut failed)
+    } else {
+        out_byte(mut b, '0', mut failed)
+    }
+    if prec > 0 {
+        out_byte(mut b, '.', mut failed)
+        lz := least(prec, most(0, 0 -% d.dp))
+        off := d.dp +% lz
+        m := least(prec -% lz, most(0, d.nd -% off))
+        out_zeros(mut b, lz, mut failed)
+        for mut i := 0; i < m && !failed; i++ {
+            out_byte(mut b, dig(mut d, off +% i), mut failed)
+        }
+        out_zeros(mut b, most(0, prec -% lz -% m), mut failed)
+    }
+}
+
+// put_digits appends d, rounded already, in format with precision prec,
+// as Go's fmtEFG does: %g as %e when its exponent is below -4 or at least
+// the precision, 6 for the shortest form, and as %f otherwise, either
+// with its trailing zeros dropped; and an unknown format as % and it.
+func put_digits(mut b list[uint8], mut d decimal, neg bool, prec int64, format uint8, shortest bool, mut failed bool) {
+    mut f := format
+    mut p := prec
+    if f == 'g' || f == 'G' {
+        mut eprec := p
+        if eprec > d.nd && d.nd >= d.dp {
+            eprec = d.nd
+        }
+        if shortest {
+            eprec = 6
+        }
+        // The point is within 2000 of 0 (see decimal), and p is 0 or
+        // more: put_float, the one caller, passes no negative one.
+        exp := d.dp -% 1
+        if exp < -4 || exp >= eprec {
+            if p > d.nd {
+                p = d.nd
+            }
+            p -%= 1
+            f = 'e'
+            if format == 'G' {
+                f = 'E'
+            }
+        } else {
+            // p is now at most the larger of the point and the digit
+            // count, both within 2000 of 0.
+            if p > d.dp {
+                p = d.nd
+            }
+            p = most(p -% d.dp, 0)
+            f = 'f'
+        }
+    }
+    if f == 'e' || f == 'E' {
+        put_e(mut b, mut d, neg, p, f, mut failed)
+        return
+    }
+    if f == 'f' {
+        put_f(mut b, mut d, neg, p, mut failed)
+        return
+    }
+    out_byte(mut b, '%', mut failed)
+    out_byte(mut b, f, mut failed)
+}
+
+// append_float appends f to b as Go's strconv.AppendFloat does, in format
+// 'e' or 'E', -d.ddde±dd, 'f', -ddd.ddd, or 'g' or 'G', %e for a large or
+// small exponent and %f otherwise, and with prec digits: after the point
+// for e and f, and in all for g. A negative prec gives the fewest digits
+// that read back as f exactly. bit_size 32 writes f as the float32 it
+// rounds to, and any other as the float64 it is. NaN is NaN, the
+// infinities +Inf and -Inf, and negative zero has its sign; an unknown
+// format is written as % and it. It returns no error, or, when b cannot
+// grow, error{code: 1, msg: "out of memory"}, leaving b as it was. It
+// makes room in b for the whole of what it writes before writing any of
+// it, so a precision whose digits memory cannot hold, or an int64 cannot
+// count, fails at once, rather than growing b toward that size.
+pub func append_float(mut b list[uint8], f float64, format uint8, prec int64, bit_size int64) error {
+    start := len(b)
+    mut failed := false
+    put_float(mut b, f, format, prec, bit_size, mut failed)
+    if failed {
+        for len(b) > start {
+            pop(mut b)
+        }
+        return out_of_memory
+    }
+    return noerror
+}
+
+// put_float appends f to b as append_float does, as out_byte does.
+func put_float(mut b list[uint8], f float64, format uint8, prec int64, bit_size int64, mut failed bool) {
+    mantbits, umant, bias, _ := info(bit_size)
+    mut v := f
+    if bit_size == 32 {
+        v = float64(float32(f))
+    }
+    if v != v {
+        out_str(mut b, "NaN", mut failed)
+        return
+    }
+    neg := v < 0.0 || v == 0.0 && 1.0 / v < 0.0
+    mut a := v
+    if neg {
+        a = -v
+    }
+    if a > 1.7976931348623157e308 {
+        if neg {
+            out_str(mut b, "-Inf", mut failed)
+        } else {
+            out_str(mut b, "+Inf", mut failed)
+        }
+        return
+    }
+    mut d decimal
+    if a != 0.0 {
+        mant, exp := decompose(a, mantbits, bias)
+        assign(mut d, mant)
+        // exp is decompose's, within 1100 of 0, and mantbits info's.
+        shift(mut d, exp -% mantbits)
+        if prec < 0 {
+            round_shortest(mut d, mant, exp, mantbits, umant, bias)
+        }
+    }
+    shortest := prec < 0
+    mut p := prec
+    // The digit count and the point are within 2000 of 0 (see decimal);
+    // prec is the caller's, and a place past what an int64 counts is past
+    // what any list holds, so b cannot grow to hold the digits.
+    if shortest {
+        if format == 'e' || format == 'E' {
+            p = most(d.nd -% 1, 0)
+        } else if format == 'f' {
+            p = most(d.nd -% d.dp, 0)
+        } else {
+            p = d.nd
+        }
+    } else if format == 'e' || format == 'E' {
+        places, fits := p + 1
+        if !fits {
+            failed = true
+            return
+        }
+        round(mut d, places)
+    } else if format == 'f' {
+        places, fits := d.dp + p
+        if !fits {
+            failed = true
+            return
+        }
+        round(mut d, places)
+    } else if format == 'g' || format == 'G' {
+        if p == 0 {
+            p = 1
+        }
+        round(mut d, p)
+    }
+    put_digits(mut b, mut d, neg, p, format, shortest, mut failed)
+}

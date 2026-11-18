@@ -384,13 +384,48 @@ These are known, and not fixed yet:
 The port is built with the Go compiler. With tackc checked out next to this
 repository, as `../tackc`, and its compiler built there with `make build`:
 
-    TACK_HOME=../tackc ../tackc/bin/tack --out bin/tack ./driver
+    TACK_HOME=. ../tackc/bin/tack --out bin/tack ./driver
 
 run from this repository's root. `TACK_HOME` points the Go compiler at
-tackc, whose `src/std` is the standard library the port is written against
-until the standard library moves here. `TACK_CACHE` may also be set, to
-keep the Go compiler's build cache somewhere other than the default cache
-directory.
+this repository, whose `src/std` is the standard library. `TACK_CACHE`
+may also be set, to keep the Go compiler's build cache somewhere other
+than the default cache directory.
+
+## Std and the runtime
+
+This repository owns the standard library, the C runtime, its header
+and the builtins' documentation (per the owner's ruling, 2026-11-18):
+
+- `src/std`, the module `std`;
+- `runtime/builtin.tck`, the builtins' documentation;
+- `runtime/tack/tack.h`, the runtime header;
+- `runtime/*.c`, the runtime's C files.
+
+`runtime/` is no Tack package: its `tack.mod` makes it a module root
+only so that a library check of this repository, `tack --check .`,
+skips `builtin.tck`, which is documentation and no code. A change to
+std, a builtin or the runtime is made here. tackc's `src/std` and
+`builtin/` are frozen copies, kept for its `porttest`, which runs both
+compilers on the same std: its `TestPortFiles` fails while this
+repository's std and runtime differ from them, but for the paths it
+lists, each with its reason.
+
+`builtin/embedded.tck` holds the runtime and the builtins'
+documentation as string literals. It is written by `tools/embed`, from
+`runtime/`, the C files in the byte order of their names, by
+
+    make embed TACK=../tackc/bin/tack
+
+`TACK` is the compiler that builds `tools/embed`, `tack` on `PATH` by
+default; it builds with this repository's std. std keeps copies of
+`builtin.tck` and `tack.h`, `src/std/builtin/builtin.tck` and
+`src/std/include/tack/tack.h`, which
+
+    make std-copies
+
+refreshes after a change to either. tackc's porttest fails while
+`embedded.tck` differs from what `make embed` writes, or while std's
+copies differ from `runtime/`'s.
 
 ## Checking against the Go compiler
 
@@ -435,10 +470,9 @@ FuzzLexDiff, which compares their output on generated inputs.
 `PORT_FUZZ=FuzzResDiff` `--res`, and `PORT_FUZZ=FuzzLoadDiff` both
 dumps of generated file trees.
 
-`builtin/embedded.tck` is written by `tools/embed` from tackc's
-`builtin/` directory, which, from tackc,
+From tackc,
 
     TACK_PORT=<this repository> make port-embed
 
-runs; tackc's porttest fails while the file differs from what that
-writes, or from the files it holds.
+builds the Go compiler and runs this repository's `make embed` with it
+(see Std and the runtime).

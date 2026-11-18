@@ -1,0 +1,169 @@
+package json
+
+import conv from "std/conv"
+import utf8 from "std/utf8"
+
+// Strings and numbers as Go's json.Marshal writes them, to the byte. The
+// strings are a port of the AppendQuote of Go's
+// encoding/json/internal/jsonwire, which json.Marshal calls as Go 1.27
+// builds it by default, on top of encoding/json/v2, with the flags
+// json.Marshal sets: EscapeForHTML, EscapeForJS and AllowInvalidUTF8.
+//
+// The bytes are decoded as UTF-8 by std/utf8, one rune or one bad byte
+// at a time, and each written as Go writes it:
+//
+//   - a double quote and a backslash after a backslash;
+//   - \b \f \n \r \t for U+0008, U+000C, U+000A, U+000D and U+0009, and
+//     any other byte below 0x20 as \u00 and two lowercase hexadecimal
+//     digits;
+//   - <, > and & as \u003c, \u003e and \u0026, which keeps the JSON safe
+//     to put inside HTML, Go's default;
+//   - U+2028 and U+2029, the line and paragraph separators, as \u2028
+//     and \u2029, which keeps it safe to read as JavaScript;
+//   - a byte that starts no valid encoding, which decode gives as U+FFFD
+//     of width 1, as U+FFFD itself, the three bytes EF BF BD, as Go 1.27
+//     writes it by default. Its v1 encoder, encoding/json/encode.go,
+//     which it compiles only under GOEXPERIMENT=nojsonv2, writes the
+//     six bytes \ufffd instead;
+//   - anything else, 0x7F and every other valid rune U+FFFD among them,
+//     as it is.
+
+// lower_hex holds the lowercase hexadecimal digits, digit d at index d.
+var lower_hex = "0123456789abcdef"
+
+// hex_digit returns the lowercase hexadecimal digit of the low four bits
+// of v. Its index is always 0 to 15, but a bitwise operator gives the
+// checker no bound, so the read is in the checked form, whose ok is
+// always true.
+func hex_digit(v int32) uint8 {
+    c, ok := lower_hex[v & 0xF]
+    if !ok {
+        return '0'
+    }
+    return c
+}
+
+// put_string appends s to out as a JSON string, between double quotes,
+// escaped as Go escapes it (see the comment at the top of this file). On
+// an error it leaves what it appended in place, for its caller to take
+// off.
+func put_string(mut out list[uint8], s []uint8) error {
+    append(mut out, '"')?
+    // i only grows, by a width from 1 to 4 that decode took from s[i:],
+    // so it stays from 0 to len(s), and i +% width never wraps; the checker
+    // does not follow that through the loop, so the condition tests i >=
+    // 0, which always holds, to prove s[i:].
+    mut i int64 = 0
+    for i >= 0 && i < len(s) {
+        mut width int64 = 1
+        c := s[i]
+        if c < 0x80 {
+            put_ascii(mut out, c)?
+        } else {
+            r, w := utf8.decode(s[i:])
+            width = w
+            if r == 0xFFFD && w == 1 {
+                append(mut out, 0xEF, 0xBF, 0xBD)?
+            } else if r == 0x2028 || r == 0x2029 {
+                append(mut out, '\\', 'u', '2', '0', '2', hex_digit(r))?
+            } else {
+                // r is valid, so append_rune writes it as the w bytes
+                // decode read, its one valid encoding.
+                utf8.append_rune(mut out, r)?
+            }
+        }
+        i +%= width
+    }
+    return append(mut out, '"')
+}
+
+// put_ascii appends the byte c, below 0x80, to out as put_string writes
+// it.
+func put_ascii(mut out list[uint8], c uint8) error {
+    switch c {
+    case '"', '\\':
+        return append(mut out, '\\', c)
+    case 0x08:
+        return append(mut out, '\\', 'b')
+    case 0x0C:
+        return append(mut out, '\\', 'f')
+    case '\n':
+        return append(mut out, '\\', 'n')
+    case '\r':
+        return append(mut out, '\\', 'r')
+    case '\t':
+        return append(mut out, '\\', 't')
+    case '<', '>', '&':
+        return append(mut out, '\\', 'u', '0', '0', hex_digit(c >> 4), hex_digit(c))
+    }
+    if c < 0x20 {
+        return append(mut out, '\\', 'u', '0', '0', hex_digit(c >> 4), hex_digit(c))
+    }
+    return append(mut out, c)
+}
+
+// max64 is the largest finite float64; a magnitude past it is infinite.
+var max64 = 1.7976931348623157e308
+
+// max32 is the largest finite float32.
+var max32 float32 = 3.4028234663852886e38
+
+// put_float64 appends f to out as Go's json.Marshal writes a float64,
+// or returns error{code: 11, msg: "unsupported value"} for NaN or an
+// infinity, appending nothing. Go's jsonwire.AppendFloat picks plain
+// decimal, 'f', for a magnitude from 1e-6 up to but not including 1e21,
+// and zero, and an exponent, 'e', for any other, with the fewest digits
+// that read back as f, and then writes a negative exponent of one digit
+// without its leading 0, e-7 for e-07.
+func put_float64(mut out list[uint8], f float64) error {
+    if f != f || f > max64 || f < -max64 {
+        return unsupported
+    }
+    mut a := f
+    if a < 0.0 {
+        a = -a
+    }
+    mut format uint8 = 'f'
+    if a != 0.0 && (a < 0.000001 || a >= 1e21) {
+        format = 'e'
+    }
+    conv.append_float(mut out, f, format, -1, 64)?
+    if format == 'e' {
+        tidy_exponent(mut out)
+    }
+    return noerror
+}
+
+// put_float32 appends f to out as Go's json.Marshal writes a float32,
+// as put_float64 does a float64, but with the cutoffs compared as
+// float32s and the fewest digits that read back as the float32.
+func put_float32(mut out list[uint8], f float32) error {
+    if f != f || f > max32 || f < -max32 {
+        return unsupported
+    }
+    mut a := f
+    if a < 0.0 {
+        a = -a
+    }
+    mut format uint8 = 'f'
+    if a != 0.0 && (a < float32(0.000001) || a >= float32(1e21)) {
+        format = 'e'
+    }
+    conv.append_float(mut out, float64(f), format, -1, 32)?
+    if format == 'e' {
+        tidy_exponent(mut out)
+    }
+    return noerror
+}
+
+// tidy_exponent drops the leading 0 of a negative exponent of two
+// digits at the end of out, which append_float wrote in format 'e':
+// e-07 becomes e-7, as Go's jsonwire.AppendFloat does. An exponent of
+// three digits, or a positive one, is left as it is.
+func tidy_exponent(mut out list[uint8]) {
+    n := len(out)
+    if n >= 4 && out[n - 4] == 'e' && out[n - 3] == '-' && out[n - 2] == '0' {
+        out[n - 2] = out[n - 1]
+        pop(mut out)
+    }
+}

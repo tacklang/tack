@@ -1,0 +1,563 @@
+#include <stdlib.h>
+#include <string.h>
+
+#include <tack/tack.h>
+
+// The C of lists: the allocators a list grows and is freed through, and
+// the functions std's tack.h declares for them, the limit on an arena's
+// length, whose elements are a list's, and a pool's tags, the generation
+// its slots start at and the limit on its slots, which a list's buffer
+// holds. A list's buffer is only
+// ever obtained, grown and given back here, so every unchecked step of a
+// list's memory is in this file.
+//
+// An Allocator is a handle on an entry of allocators, the index of the
+// entry and its generation, or on an open region. allocators has one
+// entry, c_allocator's, index 0, which lowers to malloc, realloc and
+// free and counts the buffers it has given out and not had back, so
+// tests can check that every list was freed. A region's handle is the
+// index of its entry in the region table, plus 1, and its generation
+// (see Regions, below). A handle whose index or generation is no
+// entry's is no allocator: growing through one fails, and freeing
+// through one does nothing, since the memory, if any, is not this
+// allocator's to free.
+//
+// Every allocator keeps track of every buffer it has given out and not
+// had back, and can free them all at once: exit, the end a broken pipe
+// makes (tack_stdio_failed_) and the abort of an unreachable call
+// tack_allocators_release_all_ before they end the process, so nothing a
+// program allocated outlives it, whatever still held it. A region's
+// chunks, and the region table, are c_allocator's buffers, so c_allocator
+// frees them then, and they have no other owner to free them twice.
+
+// An allocator: its generation, which a handle must match, how it grows a
+// buffer and frees one, and how it frees every buffer it still holds.
+// grow returns a buffer of bytes bytes holding the first old bytes of
+// ptr, which it may move, or null, leaving ptr as it was. release_all
+// frees every buffer grow has given out and free has not had back, and
+// must allocate nothing, since it runs when an allocator may be refusing
+// every request.
+typedef struct {
+    uint64_t gen;
+    size_t align;
+    void *(*grow)(void *ptr, size_t old, size_t bytes);
+    void (*free)(void *ptr, size_t bytes);
+    void (*release_all)(void);
+} tack_alloc_entry_;
+
+// A c_header sits in front of every buffer c_allocator gives out, which
+// starts just past it, and links the buffer into c_held, the list of every
+// buffer c_allocator holds. It is a union with max_align_t so its size is
+// a multiple of max_align_t's alignment: malloc's memory is aligned for
+// max_align_t, so the buffer past the header is too, as it would be
+// without one.
+typedef union c_header {
+    struct {
+        union c_header *prev;
+        union c_header *next;
+    } link;
+    max_align_t align_;
+} c_header;
+
+// c_held is the head of the circular, doubly linked list of the headers
+// of every buffer c_allocator holds; it links to itself while there are
+// none.
+static c_header c_held = {.link = {&c_held, &c_held}};
+
+// How many buffers c_allocator has given out and not had back, and how
+// many more requests for memory it grants, or -1 for every one.
+static int64_t c_live = 0;
+static int64_t c_grants = -1;
+
+// c_link puts h at the front of c_held.
+static void c_link(c_header *h) {
+    h->link.prev = &c_held;
+    h->link.next = c_held.link.next;
+    c_held.link.next->link.prev = h;
+    c_held.link.next = h;
+}
+
+// c_unlink takes h out of c_held.
+static void c_unlink(c_header *h) {
+    h->link.prev->link.next = h->link.next;
+    h->link.next->link.prev = h->link.prev;
+}
+
+// c_grow is c_allocator's grow: malloc for a buffer it has not given out,
+// realloc for one it has, each with room for the header in front.
+static void *c_grow(void *ptr, size_t old, size_t bytes) {
+    (void)old;
+    if (c_grants == 0) {
+        return 0;
+    }
+    if (c_grants > 0) {
+        c_grants--;
+    }
+    // fits keeps bytes within PTRDIFF_MAX, but the header must fit on top.
+    uint64_t limit = PTRDIFF_MAX < SIZE_MAX ? (uint64_t)PTRDIFF_MAX : (uint64_t)SIZE_MAX;
+    if (bytes > limit - sizeof(c_header)) {
+        return 0;
+    }
+    if (ptr == 0) {
+        c_header *h = malloc(sizeof(c_header) + bytes);
+        if (h == 0) {
+            return 0;
+        }
+        c_link(h);
+        c_live++;
+        return h + 1;
+    }
+    // realloc copies the links with the header, so after a move the
+    // neighbors, which still point at the old header, are pointed at the
+    // new one; nothing reads the old header after realloc. On failure
+    // the old buffer, still linked, is left as it was.
+    c_header *h = realloc((c_header *)ptr - 1, sizeof(c_header) + bytes);
+    if (h == 0) {
+        return 0;
+    }
+    h->link.prev->link.next = h;
+    h->link.next->link.prev = h;
+    return h + 1;
+}
+
+// c_free is c_allocator's free.
+static void c_free(void *ptr, size_t bytes) {
+    (void)bytes;
+    c_header *h = (c_header *)ptr - 1;
+    c_unlink(h);
+    free(h);
+    c_live--;
+}
+
+// c_release_all is c_allocator's release_all: it frees every buffer in
+// c_held and leaves c_held empty. Nothing frees one of those buffers
+// again: only exit calls it, and exit returns to no list that held one.
+static void c_release_all(void) {
+    c_header *h = c_held.link.next;
+    while (h != &c_held) {
+        c_header *next = h->link.next;
+        free(h);
+        c_live--;
+        h = next;
+    }
+    c_held.link.prev = &c_held;
+    c_held.link.next = &c_held;
+}
+
+// The allocators, by index. c_allocator's buffers are aligned for any
+// type that has a fundamental alignment, max_align_t's: malloc's are,
+// and the header in front of each is a multiple of that alignment.
+static const tack_alloc_entry_ allocators[] = {
+    {0, _Alignof(max_align_t), c_grow, c_free, c_release_all},
+};
+
+// handle_gen returns the generation a holds, 48 bits in two parts.
+static uint64_t handle_gen(tack_allocator a) {
+    return (uint64_t)a.gen_high << 32 | a.gen_low;
+}
+
+// entry returns a's allocator, or null when a is no allocator's handle.
+static const tack_alloc_entry_ *entry(tack_allocator a) {
+    if (a.index >= sizeof allocators / sizeof allocators[0] || allocators[a.index].gen != handle_gen(a)) {
+        return 0;
+    }
+    return &allocators[a.index];
+}
+
+// fits returns the size in bytes of n elements of size elem in *bytes,
+// and whether it is a size an allocation can have: it fits a size_t and
+// a ptrdiff_t, so a pointer can move across all of it. A size of 0 is
+// asked for as 1, since a buffer must be a pointer that is not null.
+static bool fits(int64_t n, size_t elem, size_t *bytes) {
+    if (n < 0) {
+        return false;
+    }
+    if (elem == 0) {
+        *bytes = 1;
+        return true;
+    }
+    uint64_t un = (uint64_t)n;
+    uint64_t limit = PTRDIFF_MAX < SIZE_MAX ? (uint64_t)PTRDIFF_MAX : (uint64_t)SIZE_MAX;
+    if (un > limit / elem) {
+        return false;
+    }
+    *bytes = (size_t)(un * elem);
+    if (*bytes == 0) {
+        *bytes = 1;
+    }
+    return true;
+}
+
+// The regions. Regions nest strictly, since each is a block, so the open
+// ones are a stack, the region table, indexed by depth: the region opened
+// at depth d, counting from 0, is entry d, and its handle has index d + 1,
+// in 16 bits. Each entry holds its region's generation, which a handle
+// must match, whether it is open, and the chunks it took from
+// c_allocator, newest first. Every region opened takes a generation of
+// its own, the next of one 48-bit counter, so no handle of a region that
+// ended matches the entry its depth reuses. A handle is 8 bytes: the
+// index, then the generation's high 16 bits and its low 32.
+//
+// Both saturate. A region opens with the dead handle, index
+// REGION_DEAD_INDEX and generation REGION_DEAD_GEN, which no entry ever
+// holds, when its depth is REGION_SLOTS or more, so its index would not
+// fit below REGION_DEAD_INDEX, when the table cannot grow to hold its
+// entry, or once the counter has reached REGION_DEAD_GEN - 1, where it
+// stays, so no generation is ever taken twice: every allocation through
+// the dead handle fails, and its pop only counts it ended. The table is a c_allocator buffer, made
+// when the first region opens and freed when the last one ends, so it is
+// owned by exactly one end: the last pop, or release_all when the process
+// ends with regions open.
+//
+// A region hands out memory by bumping through its newest chunk, each
+// buffer aligned for max_align_t, as c_allocator's are. It remembers the
+// last buffer it handed out, so growing that one extends it in place when
+// the chunk has room, or, when it is the chunk's only buffer, grows the
+// chunk itself, so a list appended to in a loop does not copy each time;
+// any other buffer grows into a fresh one, the old one's bytes copied.
+// Freeing the last buffer hands its bytes out again; freeing any other
+// does nothing, its bytes held until the region ends.
+
+// REGION_DEAD_INDEX and REGION_DEAD_GEN are the dead handle's: the
+// largest 16-bit index and the largest 48-bit generation.
+#define REGION_DEAD_INDEX UINT16_MAX
+#define REGION_DEAD_GEN ((UINT64_C(1) << 48) - 1)
+
+// REGION_SLOTS is the most entries the region table may hold: every
+// entry's index, its depth plus 1, stays below REGION_DEAD_INDEX.
+#define REGION_SLOTS (UINT16_MAX - 1u)
+
+// REGION_FIRST_SLOTS is how many entries the table has room for when the
+// first region opens; it doubles from there.
+#define REGION_FIRST_SLOTS 16u
+
+// REGION_CHUNK is the size of the room a region's chunk has when the
+// buffer it is taken for needs less.
+#define REGION_CHUNK 65536u
+
+// A region_chunk sits in front of the room of a chunk a region took from
+// c_allocator, which starts just past it: the chunk taken before it, or
+// null, and the room's size. Like c_header it is a union with max_align_t,
+// so the room is aligned for max_align_t.
+typedef union region_chunk {
+    struct {
+        union region_chunk *prev;
+        size_t size;
+    } c;
+    max_align_t align_;
+} region_chunk;
+
+// A region_entry is an entry of the region table: the generation its
+// region took, whether that region is open, its newest chunk, or null
+// before its first allocation, how many bytes of that chunk's room are
+// handed out, and where in it the last buffer handed out starts, when
+// last is set.
+typedef struct {
+    uint64_t gen;
+    bool open;
+    bool haslast;
+    region_chunk *chunk;
+    size_t used;
+    size_t last;
+} region_entry;
+
+// The region table, null while no region is open, how many entries it has
+// room for, how many regions are open, dead ones included, and the
+// generation the last region opened took.
+static region_entry *regions = 0;
+static uint32_t region_cap = 0;
+static uint64_t region_depth = 0;
+static uint64_t region_gen = 0;
+
+// region_slots is the depth from which regions open dead: REGION_SLOTS,
+// or less while a test has lowered it (see tack_region_limit_).
+static uint32_t region_slots = REGION_SLOTS;
+
+// region_handle returns the handle of the region at index, of
+// generation gen.
+static tack_allocator region_handle(uint16_t index, uint64_t gen) {
+    return (tack_allocator){index, (uint16_t)(gen >> 32), (uint32_t)gen};
+}
+
+// region_room returns the first byte of c's room.
+static char *region_room(region_chunk *c) {
+    return (char *)(c + 1);
+}
+
+// region_of returns the open region a is the handle of, or null when it
+// is none's: c_allocator's, the dead handle, or a region's that ended.
+static region_entry *region_of(tack_allocator a) {
+    if (a.index == 0 || a.index == REGION_DEAD_INDEX || (uint32_t)a.index - 1 >= region_cap) {
+        return 0;
+    }
+    region_entry *e = &regions[a.index - 1];
+    if (!e->open || e->gen != handle_gen(a)) {
+        return 0;
+    }
+    return e;
+}
+
+// region_take returns a buffer of bytes bytes from e's newest chunk, or
+// from a new one it takes from c_allocator, with room for at least
+// REGION_CHUNK bytes, when the newest has too little room; or null,
+// leaving e as it was, when c_allocator cannot give one.
+static void *region_take(region_entry *e, size_t bytes) {
+    size_t align = _Alignof(max_align_t);
+    if (e->chunk != 0) {
+        size_t size = e->chunk->c.size;
+        size_t start = e->used + (align - e->used % align) % align;
+        if (start >= e->used && start <= size && bytes <= size - start) {
+            e->last = start;
+            e->haslast = true;
+            e->used = start + bytes;
+            return region_room(e->chunk) + start;
+        }
+    }
+    size_t size = bytes > REGION_CHUNK ? bytes : REGION_CHUNK;
+    if (size > SIZE_MAX - sizeof(region_chunk)) {
+        return 0;
+    }
+    region_chunk *c = c_grow(0, 0, sizeof(region_chunk) + size);
+    if (c == 0) {
+        return 0;
+    }
+    c->c.prev = e->chunk;
+    c->c.size = size;
+    e->chunk = c;
+    e->last = 0;
+    e->haslast = true;
+    e->used = bytes;
+    return region_room(c);
+}
+
+// region_grow is a region's grow, as an allocator's is: ptr, when not
+// null, is a buffer of old bytes e handed out, and the result holds its
+// bytes. The last buffer handed out grows in place when its chunk has
+// room, or, as its chunk's only buffer, by growing the chunk; any other
+// grows into a fresh buffer.
+static void *region_grow(region_entry *e, void *ptr, size_t old, size_t bytes) {
+    if (ptr != 0 && e->haslast && (char *)ptr == region_room(e->chunk) + e->last) {
+        if (bytes <= e->chunk->c.size - e->last) {
+            e->used = e->last + bytes;
+            return ptr;
+        }
+        if (e->last == 0 && bytes <= SIZE_MAX - sizeof(region_chunk)) {
+            region_chunk *c = c_grow(e->chunk, sizeof(region_chunk) + e->chunk->c.size, sizeof(region_chunk) + bytes);
+            if (c == 0) {
+                return 0;
+            }
+            c->c.size = bytes;
+            e->chunk = c;
+            e->used = bytes;
+            return region_room(c);
+        }
+    }
+    void *p = region_take(e, bytes);
+    if (p != 0 && ptr != 0) {
+        memcpy(p, ptr, old < bytes ? old : bytes);
+    }
+    return p;
+}
+
+// region_free is a region's free: it hands the bytes of ptr out again
+// when it is the last buffer e handed out, and does nothing otherwise.
+static void region_free(region_entry *e, void *ptr) {
+    if (e->haslast && (char *)ptr == region_room(e->chunk) + e->last) {
+        e->used = e->last;
+        e->haslast = false;
+    }
+}
+
+tack_allocator tack_region_push_(void) {
+    const tack_allocator dead = region_handle(REGION_DEAD_INDEX, REGION_DEAD_GEN);
+    uint64_t depth = region_depth++;
+    if (region_gen >= REGION_DEAD_GEN - 1 || depth >= region_slots) {
+        return dead;
+    }
+    if (depth >= region_cap) {
+        uint32_t cap = region_cap == 0 ? REGION_FIRST_SLOTS : region_cap;
+        if (region_cap != 0) {
+            cap = region_cap > REGION_SLOTS / 2 ? REGION_SLOTS : region_cap * 2;
+        }
+        if ((uint64_t)cap > (uint64_t)(SIZE_MAX / sizeof(region_entry))) {
+            return dead;
+        }
+        region_entry *grown = c_grow(regions, (size_t)region_cap * sizeof(region_entry), (size_t)cap * sizeof(region_entry));
+        if (grown == 0) {
+            return dead;
+        }
+        for (uint32_t i = region_cap; i < cap; i++) {
+            grown[i] = (region_entry){0};
+        }
+        regions = grown;
+        region_cap = cap;
+    }
+    region_entry *e = &regions[depth];
+    e->gen = ++region_gen;
+    e->open = true;
+    e->haslast = false;
+    e->chunk = 0;
+    e->used = 0;
+    e->last = 0;
+    return region_handle((uint16_t)(depth + 1), e->gen);
+}
+
+void tack_region_pop_(tack_allocator a) {
+    region_depth--;
+    region_entry *e = region_of(a);
+    if (e != 0) {
+        region_chunk *c = e->chunk;
+        while (c != 0) {
+            region_chunk *prev = c->c.prev;
+            c_free(c, sizeof(region_chunk) + c->c.size);
+            c = prev;
+        }
+        *e = (region_entry){0};
+    }
+    if (region_depth == 0 && regions != 0) {
+        c_free(regions, (size_t)region_cap * sizeof(region_entry));
+        regions = 0;
+        region_cap = 0;
+    }
+}
+
+void tack_region_generation_near_max_(uint64_t left) {
+    region_gen = left >= REGION_DEAD_GEN ? 0 : REGION_DEAD_GEN - 1 - left;
+}
+
+void tack_region_limit_(int64_t n) {
+    region_slots = n < 0 || n > (int64_t)REGION_SLOTS ? REGION_SLOTS : (uint32_t)n;
+}
+
+void *tack_list_grow_(void *ptr, int64_t cap, int64_t need, size_t elem, size_t align, tack_allocator a,
+                      int64_t *newcap) {
+    const tack_alloc_entry_ *al = entry(a);
+    region_entry *re = al == 0 ? region_of(a) : 0;
+    size_t most = al != 0 ? al->align : _Alignof(max_align_t);
+    if ((al == 0 && re == 0) || need < 0 || cap < 0 || align > most) {
+        return 0;
+    }
+    if (need <= cap && ptr != 0) {
+        return ptr;
+    }
+    // Double the capacity, from 4, so n appends move the buffer about
+    // log2(n) times, but never past what fits; then at least need.
+    int64_t want = cap < 4 ? 4 : cap;
+    if (want <= INT64_MAX / 2 && cap >= 4) {
+        want = cap * 2;
+    }
+    if (want < need) {
+        want = need;
+    }
+    size_t bytes, old = 0;
+    if (!fits(want, elem, &bytes)) {
+        want = need;
+        if (!fits(want, elem, &bytes)) {
+            return 0;
+        }
+    }
+    if (ptr != 0 && !fits(cap, elem, &old)) {
+        return 0;
+    }
+    void *p = al != 0 ? al->grow(ptr, old, bytes) : region_grow(re, ptr, old, bytes);
+    if (p == 0) {
+        return 0;
+    }
+    *newcap = want;
+    return p;
+}
+
+void tack_list_free_(void *ptr, int64_t cap, size_t elem, size_t align, tack_allocator a) {
+    (void)align;
+    const tack_alloc_entry_ *al = entry(a);
+    size_t bytes = 0;
+    if (ptr == 0) {
+        return;
+    }
+    if (al == 0) {
+        region_entry *re = region_of(a);
+        if (re != 0) {
+            region_free(re, ptr);
+        }
+        return;
+    }
+    if (!fits(cap, elem, &bytes)) {
+        bytes = 0;
+    }
+    al->free(ptr, bytes);
+}
+
+void tack_allocators_release_all_(void) {
+    for (size_t i = 0; i < sizeof allocators / sizeof allocators[0]; i++) {
+        allocators[i].release_all();
+    }
+}
+
+int64_t tack_c_allocator_live_(void) {
+    return c_live;
+}
+
+void tack_c_allocator_fail_after_(int64_t n) {
+    c_grants = n < 0 ? -1 : n;
+}
+
+// arenaMax is the most elements an arena may hold, its sentinel among
+// them: 2^32 - 1, so every id, below it, fits a uint32_t, or less while a
+// test has lowered it (see tack_arena_limit_).
+#define ARENA_MAX 4294967295u
+static uint64_t arenaMax = ARENA_MAX;
+
+bool tack_arena_room_(int64_t len, int64_t n) {
+    if (len < 0 || n < 0 || (uint64_t)len > arenaMax) {
+        return false;
+    }
+    return (uint64_t)n <= arenaMax - (uint64_t)len;
+}
+
+void tack_arena_limit_(int64_t n) {
+    arenaMax = n < 0 || (uint64_t)n > ARENA_MAX ? ARENA_MAX : (uint64_t)n;
+}
+
+// poolTag is the tag the next pool made takes: it starts at 1, so no pool
+// has tag 0, the zero handle's, and stops at POOL_MAX, which every pool
+// made after it is reached shares, so making a pool never fails (see
+// tack_pool_next_tag_).
+#define POOL_MAX 4294967295u
+static uint32_t poolTag = 1;
+
+uint32_t tack_pool_tag_(void) {
+    uint32_t tag = poolTag;
+    if (poolTag < POOL_MAX) {
+        poolTag++;
+    }
+    return tag;
+}
+
+void tack_pool_next_tag_(int64_t n) {
+    poolTag = n < 1 ? 1 : (uint64_t)n > POOL_MAX ? POOL_MAX : (uint32_t)n;
+}
+
+// poolGen0 is the generation a pool's new slot starts at: 0, or more while
+// a test has raised it (see tack_pool_first_gen_).
+static uint32_t poolGen0 = 0;
+
+uint32_t tack_pool_gen0_(void) {
+    return poolGen0;
+}
+
+void tack_pool_first_gen_(int64_t n) {
+    poolGen0 = n < 0 ? 0 : (uint64_t)n > POOL_MAX ? POOL_MAX : (uint32_t)n;
+}
+
+// poolMax is the most slots a pool may hold: 2^32 - 1, so every index,
+// below it, fits a uint32_t, or less while a test has lowered it (see
+// tack_pool_limit_).
+static uint64_t poolMax = POOL_MAX;
+
+bool tack_pool_room_(int64_t len) {
+    return len >= 0 && (uint64_t)len < poolMax;
+}
+
+void tack_pool_limit_(int64_t n) {
+    poolMax = n < 0 || (uint64_t)n > POOL_MAX ? POOL_MAX : (uint64_t)n;
+}
