@@ -1,6 +1,16 @@
 // process: the start of the process, its end after Tack's main returns,
 // and the end a broken pipe on standard output or standard error makes.
 //
+// tack_start_ ignores two signals whose default action kills the process
+// at once, freeing nothing, for a write that fails: SIGPIPE, below, and
+// SIGXFSZ, which a write past the process's file-size limit,
+// RLIMIT_FSIZE, raises (per the owner's ruling, 2026-11-15). With
+// SIGXFSZ ignored, such a write fails with EFBIG instead: std/os returns
+// it as an error, "File too large", and print, exit and std/fmt's
+// writes to a file past the limit lose the bytes, as for any failure
+// but EPIPE, ENOSPC's among them, since tack_stdio_failed_ ends the
+// process only for EPIPE.
+//
 // A write to a pipe or socket with no reader raises SIGPIPE, whose
 // default action kills the process at once, freeing nothing. So the
 // generated C's main calls tack_start_ first, which ignores SIGPIPE, and
@@ -21,8 +31,10 @@
 // is 141, whatever exit was asked for.
 //
 // An ignored signal stays ignored across exec, so std/os's run sets
-// SIGPIPE back to its default action in every child it starts: a child
-// behaves as it would started from a shell. For the same reason a
+// SIGPIPE and SIGXFSZ back to their default actions in every child it
+// starts: a child behaves as it would started from a shell, or from Go,
+// whose runtime handles both itself and so leaves their default actions
+// to a child. For the same reason a
 // program may start with SIGCHLD ignored, by a parent that ignored it,
 // and the kernel then reaps every child the program starts as it ends,
 // so std/os's run could not wait for one. tack_start_ sets SIGCHLD back
@@ -57,12 +69,13 @@ static bool ending = false;
 static int32_t exit_status = 0;
 static bool exit_known = false;
 
-// tack_start_ ignores SIGPIPE and sets SIGCHLD to its default action.
-// signal fails only for a signal number that is not one, or one whose
-// action cannot be changed, and neither is either, so its results are
-// not checked.
+// tack_start_ ignores SIGPIPE and SIGXFSZ and sets SIGCHLD to its
+// default action. signal fails only for a signal number that is not
+// one, or one whose action cannot be changed, and none of the three is
+// either, so its results are not checked.
 void tack_start_(void) {
     (void)signal(SIGPIPE, SIG_IGN);
+    (void)signal(SIGXFSZ, SIG_IGN);
     (void)signal(SIGCHLD, SIG_DFL);
 }
 

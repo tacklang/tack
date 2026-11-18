@@ -172,9 +172,9 @@ extern("tack_os_pipe") func c_pipe(mut fds [2]int32) int64
 // up on PATH when it holds no /, with the arguments flat holds: argc of
 // them, each followed by a 0, argv[0] first, which need not name prog.
 // The child reads in as its standard input, writes its standard output
-// to out and its standard error to err, and starts with the
-// process's environment and SIGPIPE's default action. It returns the
-// child's process id; or the errno negated when setting the start up
+// to out and its standard error to err, and starts with the process's
+// environment and SIGPIPE's and SIGXFSZ's default actions. It returns
+// the child's process id; or the errno negated when setting the start up
 // fails, before any program is looked for, -no_room for the C library's
 // ENOMEM there, an allocation of its own that failed, and E2BIG for more
 // than 8192 arguments; or c_spawn_failed() plus the errno, negated, when
@@ -385,7 +385,9 @@ pub func write_file(path []uint8, data []uint8) error {
 // error the file may have been created or truncated, and hold some of
 // data: nothing makes the write all or nothing. A pipe with no reader is
 // error{code: 3, msg: "Broken pipe"}: the program ignores SIGPIPE, so the
-// write fails rather than end the process.
+// write fails rather than end the process. A write past the process's
+// file-size limit, RLIMIT_FSIZE, is error{code: 3, msg: "File too
+// large"} the same way: the program ignores SIGXFSZ.
 pub func write_file_mode(path []uint8, data []uint8, mode int64) error {
     if has_nul(path) {
         return nul_path
@@ -1508,9 +1510,10 @@ func spawn_error(r int64) error {
 // through posix_spawnp, and started as it is otherwise. argv, argv[0]
 // included, is what the child is given as its arguments; argv[0] need
 // not name prog, as with Go's exec.Cmd, whose Path and Args[0] differ.
-// The child starts with this process's environment and SIGPIPE's
-// default action, which this process ignores, reads /dev/null as its
-// standard input, and writes its standard output and its standard error
+// The child starts with this process's environment and SIGPIPE's and
+// SIGXFSZ's default actions, which this process ignores, reads
+// /dev/null as its standard input, and writes its standard output and
+// its standard error
 // to pipes, which run reads at once, whichever has something, until both
 // reach their ends, so neither can fill and block the child; it then
 // appends all the child wrote to its standard output to out, and all it

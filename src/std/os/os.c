@@ -33,10 +33,13 @@
 // own directory never changes.
 //
 // The runtime ignores SIGPIPE, so a write here to a pipe with no reader
-// fails with EPIPE, an error returned, rather than kill the process. An
-// ignored signal stays ignored across exec, so tack_os_spawn sets SIGPIPE
-// back to its default action in the child, which then behaves as it
-// would started from a shell: yes writing into a closed pipe dies of it.
+// fails with EPIPE, an error returned, rather than kill the process; and
+// SIGXFSZ, so a write past the process's file-size limit, RLIMIT_FSIZE,
+// fails with EFBIG, "File too large", the same way. An ignored signal
+// stays ignored across exec, so tack_os_spawn sets both back to their
+// default actions in the child, which then behaves as it would started
+// from a shell or from Go: yes writing into a closed pipe dies of
+// SIGPIPE, and one writing past the limit of SIGXFSZ.
 //
 // The calls are POSIX.1-2008's, which the C library declares in the mode
 // the driver compiles every C file in, clang's default, but for
@@ -354,12 +357,13 @@ int64_t tack_os_pipe(tack_array_2_int32 *fds) {
     return 0;
 }
 
-// sigpipe_default makes a child started with attr begin with SIGPIPE's
-// default action, though this process ignores it, and returns 0, or the
-// errno of the call that failed.
-static int sigpipe_default(posix_spawnattr_t *attr) {
+// signals_default makes a child started with attr begin with SIGPIPE's
+// and SIGXFSZ's default actions, though this process ignores both, and
+// returns 0, or the errno of the call that failed.
+static int signals_default(posix_spawnattr_t *attr) {
     sigset_t sigs;
-    if (sigemptyset(&sigs) != 0 || sigaddset(&sigs, SIGPIPE) != 0) {
+    if (sigemptyset(&sigs) != 0 || sigaddset(&sigs, SIGPIPE) != 0 ||
+        sigaddset(&sigs, SIGXFSZ) != 0) {
         return errno;
     }
     int e = posix_spawnattr_setsigdefault(attr, &sigs);
@@ -457,7 +461,7 @@ int64_t tack_os_spawn(tack_view_uint8 prog, tack_view_uint8 dir, int32_t in_dir,
         posix_spawnattr_destroy(&attr);
         return setup_error(e);
     }
-    e = sigpipe_default(&attr);
+    e = signals_default(&attr);
     if (e == 0) {
         e = posix_spawn_file_actions_adddup2(&fa, in, 0);
     }

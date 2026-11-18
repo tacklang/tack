@@ -348,7 +348,14 @@ These are known, and not fixed yet:
   `fmt.ewrite` report no error, so when standard output or standard
   error cannot be written, to a full disk for one, the port exits 0
   where the Go compiler reports the failure and exits 1. Fixing it needs
-  a std write that returns an error, planned with the driver at M8.
+  a std write that returns an error, planned with the driver at M8. A
+  write past the file-size limit, `ulimit -f`, is lost the same way:
+  the runtime ignores SIGXFSZ, so the port no longer dies of it, but
+  `--emit` with standard output redirected to a file, past the limit,
+  exits 0 with the output cut short,
+  where Go reports `failed to write output: ... file too large`.
+  tackc's `TestFileSizeLimit` asserts this gap, so it fails once the
+  gap is closed.
 - The parser recurses, as the Go compiler's does, to the nesting limit
   of a thousand levels, on the C stack, which does not grow; the JSON
   dump walks the tree with a stack of its own. Binary operators are
@@ -381,15 +388,26 @@ These are known, and not fixed yet:
 
 ## Building
 
-The port is built with the Go compiler. With tackc checked out next to this
-repository, as `../tackc`, and its compiler built there with `make build`:
+The port is built with the reference Go compiler: tackc's compiler
+with this repository's `runtime/` embedded in place of its frozen one.
+With tackc checked out next to this repository, as `../tackc`, build
+it there with
 
-    TACK_HOME=. ../tackc/bin/tack --out bin/tack ./driver
+    make port-go-bin
 
-run from this repository's root. `TACK_HOME` points the Go compiler at
-this repository, whose `src/std` is the standard library. `TACK_CACHE`
-may also be set, to keep the Go compiler's build cache somewhere other
-than the default cache directory.
+which writes `bin/port-go/tack` in tackc from this repository, or the
+one `TACK_PORT` names, and then, from this repository's root:
+
+    TACK_HOME=. ../tackc/bin/port-go/tack --out bin/tack ./driver
+
+`TACK_HOME` points the Go compiler at this repository, whose `src/std`
+is the standard library. `TACK_CACHE` may also be set, to keep the Go
+compiler's build cache somewhere other than the default cache
+directory. The port built so links its own runtime, and is the same
+binary it then builds of itself. A compiler from tackc's `make build`
+embeds tackc's frozen runtime instead, so a port built with it links
+that runtime, not `runtime/`'s; build `port-go-bin` again after a
+change to `runtime/`.
 
 ## Std and the runtime
 
@@ -405,16 +423,30 @@ and the builtins' documentation (per the owner's ruling, 2026-11-18):
 only so that a library check of this repository, `tack --check .`,
 skips `builtin.tck`, which is documentation and no code. A change to
 std, a builtin or the runtime is made here. tackc's `src/std` and
-`builtin/` are frozen copies, kept for its `porttest`, which runs both
-compilers on the same std: its `TestPortFiles` fails while this
-repository's std and runtime differ from them, but for the paths it
+`builtin/` are frozen copies, as they were when this repository took
+them over. Its `porttest` runs both compilers on this repository's std,
+and compares the port with a reference Go compiler that embeds this
+repository's runtime. Its `TestPortFiles` fails while this repository's
+std and runtime differ from the frozen copies, except for the paths it
 lists, each with its reason.
+
+The runtime ignores SIGPIPE and SIGXFSZ (per the owner's ruling,
+2026-11-15, for SIGXFSZ). A write to a pipe with no reader fails with
+EPIPE, and a write past the file-size limit, RLIMIT_FSIZE, fails with
+EFBIG, instead of killing the process. std/os returns the error, `File
+too large` for EFBIG. A broken pipe on standard output or standard
+error ends the process with status 141. Any other failed write of
+`print`, `exit` or std/fmt, EFBIG and ENOSPC among them, loses the
+bytes. std/os's `run` gives every child SIGPIPE's and SIGXFSZ's default
+actions, so a child behaves as it does when a shell or Go starts it.
+The frozen Go compiler's runtime does not ignore SIGXFSZ, so this is
+one of the paths `TestPortFiles` lists.
 
 `builtin/embedded.tck` holds the runtime and the builtins'
 documentation as string literals. It is written by `tools/embed`, from
 `runtime/`, the C files in the byte order of their names, by
 
-    make embed TACK=../tackc/bin/tack
+    make embed TACK=../tackc/bin/port-go/tack
 
 `TACK` is the compiler that builds `tools/embed`, `tack` on `PATH` by
 default; it builds with this repository's std. std keeps copies of
@@ -447,7 +479,12 @@ harness reads:
 
 - `TACK_PORT`, this repository's path, `../tack` by default;
 - `TACK_PORT_BIN`, a built port to use instead of building one;
-- `TACK_GO`, a built Go compiler to use instead of building one.
+- `TACK_GO`, a built reference Go compiler to use instead of building
+  one: tackc's Go code with this repository's `runtime/` embedded, as
+  tackc's `make port-go-bin` builds it, at `bin/port-go/tack`. The
+  harness checks that it holds every file of `runtime/` it embeds, byte
+  for byte, and fails otherwise; a compiler from tackc's plain `make
+  build` is not one.
 
 A relative path in any of them is taken from tackc's root, wherever the
 command is run from, so `TACK_PORT=../tack` names this repository when it

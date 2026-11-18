@@ -386,13 +386,13 @@ void tack_allocators_release_all_(void);
 _Noreturn void tack_unreachable_(const char *msg);
 
 // tack_start_ ignores SIGPIPE, so a write to a pipe with no reader fails
-// with EPIPE rather than kill the process with nothing freed, and sets
-// SIGCHLD to its default action, so a parent that left it ignored does
-// not make every child the program starts reaped before it is waited
-// for. The
-// generated C's main calls it first, in a program that runs any C beyond
-// its own: one that calls print or exit, or declares an extern func,
-// std's included; nothing else may.
+// with EPIPE rather than kill the process with nothing freed, and
+// SIGXFSZ, so a write past the file-size limit fails with EFBIG the same
+// way, and sets SIGCHLD to its default action, so a parent that left it
+// ignored does not make every child the program starts reaped before it
+// is waited for. The generated C's main calls it first, in a program
+// that runs any C beyond its own: one that calls print or exit, or
+// declares an extern func, std's included; nothing else may.
 void tack_start_(void);
 
 // tack_end_ flushes stdout, ending the process as tack_stdio_failed_
