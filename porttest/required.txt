@@ -37,3 +37,6 @@ emit-E2
 emit-E3
 emit-E4
 build-probes
+build-examples
+build-invalid-c
+build-identical

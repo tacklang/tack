@@ -3573,3 +3573,55 @@ examples/ensures-module/num/num.tck:1:1: error: main package not found
    |	^
 02 |	
 
+-- make-build-dot/divergence --
+suite: build-examples
+case: examples/reflect-make/.
+go: Go's checker takes make(T, alloc) written as a statement, for a T that
+  owns nothing, for a call statement, and reports nothing; its C, which
+  drops the value, is right.
+why: make only gives a value, so the port reports it as not used, as len
+  is, decided by the language owner 2026-11-15; the binary is Go's, and
+  only the warnings differ.
+same: exit, stdout
+-- make-build-dot/exit --
+-- make-build-dot/stdout --
+-- make-build-dot/stderr --
+
+main.tck:515:5: warning: make(int64, counted()) is not used
+514 |	    // evaluated, once.
+515 |	    make(int64, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+516 |	    make(Point, counted())
+
+main.tck:516:5: warning: make(Point, counted()) is not used
+515 |	    make(int64, counted())
+516 |	    make(Point, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+517 |	    check(n == 0 && after_basic == 1 && t.len() == 0 && after_text == 2 && is_empty(it) &&
+
+-- make-build-pkg/divergence --
+suite: build-examples
+case: examples/reflect-make
+go: Go's checker takes make(T, alloc) written as a statement, for a T that
+  owns nothing, for a call statement, and reports nothing; its C, which
+  drops the value, is right.
+why: make only gives a value, so the port reports it as not used, as len
+  is, decided by the language owner 2026-11-15; the binary is Go's, and
+  only the warnings differ.
+same: exit, stdout
+-- make-build-pkg/exit --
+-- make-build-pkg/stdout --
+-- make-build-pkg/stderr --
+
+examples/reflect-make/main.tck:515:5: warning: make(int64, counted()) is not used
+514 |	    // evaluated, once.
+515 |	    make(int64, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+516 |	    make(Point, counted())
+
+examples/reflect-make/main.tck:516:5: warning: make(Point, counted()) is not used
+515 |	    make(int64, counted())
+516 |	    make(Point, counted())
+   |	    ^~~~~~~~~~~~~~~~~~~~~~
+517 |	    check(n == 0 && after_basic == 1 && t.len() == 0 && after_text == 2 && is_empty(it) &&
+

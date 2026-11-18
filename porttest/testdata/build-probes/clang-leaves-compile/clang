@@ -1,0 +1,53 @@
+#!/bin/sh
+# A clang that runs the real clang, found on the PATH after this fake's
+# directory, and, once it ran a compile of a file with -c, whether that
+# compile succeeded or not, leaves beside the object, in the build's
+# temporary directory, what $FAKE_LEAVES names, which the driver may not
+# be able to remove; it exits as the real clang did:
+#
+#   locked        a directory no one may list, holding a file;
+#   unsearchable  a directory b, mode 0600, which may be listed but not
+#                 searched, holding a file f1;
+#   link          a directory ro, mode 0500, holding a symbolic link ln
+#                 to nothing, which cannot be removed from it;
+#   empty         an empty directory no one may list, which can be
+#                 removed, beside what locked leaves;
+#   deep          25 directories, each named by 200 letters, one in the
+#                 next, and a file in the last, a path past PATH_MAX.
+compile=
+out=
+prev=
+for a; do
+    [ "$a" = -c ] && compile=1
+    [ "$prev" = -o ] && out=$a
+    prev=$a
+done
+PATH=${PATH#*:} clang "$@"
+status=$?
+if [ -n "$compile" ]; then
+    dir=$(dirname "$out")
+    if [ ! -e "$dir/left" ]; then
+        : > "$dir/left"
+        case "$FAKE_LEAVES" in
+        locked)
+            mkdir "$dir/locked" && : > "$dir/locked/file" && chmod 000 "$dir/locked" ;;
+        unsearchable)
+            mkdir "$dir/b" && : > "$dir/b/f1" && chmod 600 "$dir/b" ;;
+        link)
+            mkdir "$dir/ro" && ln -s nowhere "$dir/ro/ln" && chmod 500 "$dir/ro" ;;
+        empty)
+            mkdir "$dir/empty" && chmod 000 "$dir/empty" &&
+                mkdir "$dir/locked" && : > "$dir/locked/file" && chmod 000 "$dir/locked" ;;
+        deep)
+            (
+                cd "$dir" && mkdir deep && cd deep || exit 1
+                n=$(printf 'd%.0s' $(seq 200))
+                for i in $(seq 25); do
+                    mkdir "$n" && cd "$n" || exit 1
+                done
+                : > leaf
+            ) ;;
+        esac
+    fi
+fi
+exit $status

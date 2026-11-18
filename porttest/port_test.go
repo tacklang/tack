@@ -143,6 +143,18 @@ func (r result) earlyDecline() bool {
 	return r.notImplemented() && len(r.stdout) == 0
 }
 
+// goBeforeError returns stderr, the Go driver's standard error, up to
+// its last line that starts tack: , the start of its final error, or
+// all of it when no line does.
+func goBeforeError(stderr []byte) []byte {
+	for i := len(stderr) - 1; i >= 0; i-- {
+		if (i == 0 || stderr[i-1] == '\n') && bytes.HasPrefix(stderr[i:], []byte("tack: ")) {
+			return stderr[:i]
+		}
+	}
+	return stderr
+}
+
 // lateDecline returns the not implemented line of r and true when r is
 // a late decline: exit status notImplementedCode and standard error
 // ending in the line notImplemented matches, after other output on
@@ -164,17 +176,16 @@ func (r result) lateDecline() (string, bool) {
 // implemented line is line, is not one the protocol allows beside want,
 // the Go compiler's run of the same case, or "" when it is: port's
 // standard output must be want's, and its standard error want's with
-// its last line removed when that line is one of the Go driver's
-// errors, starting tack: , followed by line. What the port wrote before
-// it declined is so what Go wrote before its own final error.
+// everything from its last line starting tack: , the Go driver's final
+// error, to its end removed, followed by line. The Go driver's error
+// can run over several lines, as an errors.Join of two does, whose
+// second does not start tack: , so all of them go. What the port wrote
+// before it declined is so what Go wrote before its own final error.
 func lateDeclineMismatch(want, port result, line string) string {
 	if !bytes.Equal(port.stdout, want.stdout) {
 		return fmt.Sprintf("its standard output %q is not Go's %q", port.stdout, want.stdout)
 	}
-	before := want.stderr
-	if i := bytes.LastIndexByte(bytes.TrimSuffix(before, []byte("\n")), '\n'); bytes.HasPrefix(before[i+1:], []byte("tack: ")) {
-		before = before[:i+1]
-	}
+	before := goBeforeError(want.stderr)
 	if wantErr := string(before) + line; string(port.stderr) != wantErr {
 		return fmt.Sprintf("its standard error %q is not Go's before its last tack: line, then the decline, %q",
 			port.stderr, wantErr)

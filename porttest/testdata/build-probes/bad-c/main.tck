@@ -1,0 +1,15 @@
+package main
+
+// spare is never called, which the compiler warns of: a build of this
+// program writes a warning before anything else.
+func spare() {
+}
+
+// helper is declared in helpers.c, which clang rejects.
+extern func helper() int64
+
+func main() {
+    if helper() != 1 {
+        return
+    }
+}

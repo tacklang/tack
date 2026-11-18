@@ -1,0 +1,18 @@
+package main
+
+// main fills a list and checks its length: a program with no C file of
+// its own and no import whose build still links objects of the runtime,
+// the list functions, so a build of it runs clang --version and makes
+// the build cache's directories before it compiles anything.
+func main() {
+    mut l := make(list[int64], c_allocator)
+    for i := range 10 {
+        if append(mut l, i).code != 0 {
+            return
+        }
+    }
+    if len(l) != 10 {
+        for {
+        }
+    }
+}

@@ -1,0 +1,19 @@
+#!/bin/sh
+# A clang that writes an empty binary at the path after -o and leaves, in
+# the directory of its last argument, the build's temporary directory,
+# several things the driver cannot remove, beside files it can: a
+# directory no one may list, holding a file; a directory that may be
+# listed but not searched, holding two files; and, two levels down, a
+# directory no one may list, holding a directory.
+out=
+prev=
+for a; do
+    [ "$prev" = -o ] && out=$a
+    prev=$a
+    last=$a
+done
+dir=$(dirname "$last")
+mkdir "$dir/locked" && : > "$dir/locked/file" && chmod 000 "$dir/locked" &&
+    mkdir "$dir/b" && : > "$dir/b/f1" && : > "$dir/b/f2" && chmod 600 "$dir/b" &&
+    mkdir -p "$dir/c/d/locked2/e" && : > "$dir/c/keep" && chmod 000 "$dir/c/d/locked2" &&
+    : > "$out"

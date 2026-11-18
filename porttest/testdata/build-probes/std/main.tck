@@ -1,0 +1,20 @@
+package main
+
+import fmt from "std/fmt"
+
+// main sums a list of the squares below 1000 and prints the sum: a
+// program that links std's C and the runtime's lists, whose -O2 and
+// -O3 binaries differ.
+func main() {
+    mut squares := make(list[int64], c_allocator)
+    for i := range 1000 {
+        if append(mut squares, i *% i).code != 0 {
+            return
+        }
+    }
+    mut total int64 = 0
+    for _, s := range squares {
+        total +%= s
+    }
+    fmt.printf("%d\n", total)
+}

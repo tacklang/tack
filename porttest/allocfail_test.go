@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -108,10 +109,12 @@ const sanitizeFlags = "-g -fno-omit-frame-pointer -fsanitize=address,undefined "
 // TestAllocFail builds the port with the sanitizers and allocInject, and
 // runs it on a sample of the corpus: allocFailPerStage cases of each of
 // allocFailStages, every program of testdata/emit-probes with --emit and
-// --check, and the port's driver with --check and --emit, each first with
+// --check, the port's driver with --check and --emit, and builds of an
+// example using std and one with C files of its own, each first with
 // every allocation granted, counting them, and then failing each
 // allocation from the Nth on, for N at most $PORTTEST_ALLOC_FAIL points
-// spread evenly from 0 to the count, every one when there are no more.
+// spread evenly from 0 to the count, every one when there are no more,
+// each run with a fresh build cache of its own.
 // A run with every allocation granted must allocate and end with no
 // sanitizer report; one that fails them must exit 1, with standard error
 // ending in the driver's "tack: out of memory", and with no sanitizer
@@ -150,24 +153,27 @@ func TestAllocFail(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			sweepAllocFail(t, bin, c.in, c.args, points)
+			sweepAllocFail(t, bin, c, points)
 		})
 	}
 }
 
 // allocFailCase is one run TestAllocFail sweeps: its subtest's name, its
-// input and its command line.
+// input and its command line, and whether it is a build, which must
+// succeed with every allocation granted.
 type allocFailCase struct {
-	args []string
-	name string
-	in   input
+	args  []string
+	name  string
+	in    input
+	build bool
 }
 
 // allocFailCases returns what TestAllocFail sweeps: allocFailPerStage
 // cases of each of allocFailStages, spread evenly over its cases, each
 // with the stage's command line; every emit probe, written to a
 // temporary directory, with --emit and with --check; and the driver of
-// the port's source tree src with --check and --emit.
+// the port's source tree src with --check and --emit; and the builds
+// allocFailBuilds gives.
 func allocFailCases(t *testing.T, src string) ([]allocFailCase, error) {
 	var cases []allocFailCase
 	for _, name := range allocFailStages {
@@ -221,7 +227,34 @@ func allocFailCases(t *testing.T, src string) ([]allocFailCase, error) {
 		},
 		allocFailCase{name: "driver/emit", in: driver, args: []string{"--emit", "./driver"}},
 	)
-	return cases, nil
+	return append(cases, allocFailBuilds(t)...), nil
+}
+
+// allocFailBuilds returns the builds TestAllocFail sweeps: examples/conv,
+// which uses std, so its build compiles std's C and links objects of the
+// runtime, and examples/extern, which has C files of its own, each built
+// from its main.tck, as a single file, with --out into a temporary directory of t's, with a TMPDIR of its
+// own there, so that the temporary directories a build refused memory
+// leaves, as the driver documents it may, are removed with t's.
+func allocFailBuilds(t *testing.T) []allocFailCase {
+	t.Helper()
+	cases := make([]allocFailCase, 0, 2)
+	for _, name := range []string{"conv", "extern"} {
+		dir := t.TempDir()
+		in := input{
+			name: "examples/" + name,
+			dir:  filepath.Join(env.root, "examples", name),
+			file: "main.tck",
+			env:  []string{"TMPDIR=" + dir},
+		}
+		cases = append(cases, allocFailCase{
+			name:  "build/examples/" + name,
+			in:    in,
+			build: true,
+			args:  []string{"--out", filepath.Join(dir, "prog"), "main.tck"},
+		})
+	}
+	return cases
 }
 
 // buildFailingPort builds the port's driver, in the source tree src,
@@ -269,12 +302,47 @@ exec %[1]q "$@" %[2]s %[3]q -Wl,--wrap=malloc,--wrap=realloc
 	return bin
 }
 
-// sweepAllocFail runs bin, the port TestAllocFail builds, with args on in
-// with every allocation granted, counting them, and then once for each of
-// at most points values of N spread from 0 to the count, failing every
-// allocation from the Nth on, and fails the test for each run that does
-// not end as TestAllocFail says.
-func sweepAllocFail(t *testing.T, bin string, in input, args []string, points int) {
+// sweepAllocFail runs bin, the port TestAllocFail builds, with c's args
+// on its input with every allocation granted, counting them, and then
+// once for each of at most points values of N spread from 0 to the
+// count, failing every allocation from the Nth on, and fails the test
+// for each run that does not end as TestAllocFail says: exit status 1
+// with tack: out of memory last. A build's points lean to the build
+// itself (see buildFailPoints). Each run has a build cache of its own,
+// fresh, so a build compiles what the count did and allocates as it
+// did, and no two runs share one.
+func sweepAllocFail(t *testing.T, bin string, c allocFailCase, points int) {
+	in, args := c.in, c.args
+	base, total := countAllocs(t, bin, in, args)
+	if c.build && base.code != 0 {
+		t.Fatalf("with every allocation granted, %s %s exits %d, want 0, so a refused build cannot be told apart\nstderr:\n%s",
+			bin, strings.Join(args, " "), base.code, tail(base.stderr))
+	}
+	ns := failPoints(total, points)
+	if c.build {
+		// Points spread over the whole run land mostly in compiling the
+		// program, which the other cases sweep; half of them go to the
+		// build itself, from where --emit of the same target ends.
+		_, front := countAllocs(t, bin, in, []string{"--emit", in.file})
+		ns = buildFailPoints(total, front, points)
+		inBuild := 0
+		for _, n := range ns {
+			if n >= front {
+				inBuild++
+			}
+		}
+		t.Logf("%d of %d points fail an allocation of the build, from %d of %d on", inBuild, len(ns), front, total)
+	}
+	for _, n := range ns {
+		checkRefused(t, n, total, runFailing(t, bin, in, args, "TACK_FAIL_AFTER="+strconv.Itoa(n)))
+	}
+}
+
+// countAllocs runs bin with args on in with every allocation granted and
+// returns how it ended and how many allocations it made, failing t when
+// a sanitizer reports anything or it made none.
+func countAllocs(t *testing.T, bin string, in input, args []string) (result, int) {
+	t.Helper()
 	count := filepath.Join(t.TempDir(), "count")
 	base := runFailing(t, bin, in, args, "TACK_ALLOC_COUNT="+count)
 	if report := sanitizerReport(base); report != "" {
@@ -295,21 +363,48 @@ func sweepAllocFail(t *testing.T, bin string, in input, args []string, points in
 			strings.Join(args, " "),
 		)
 	}
-	for _, n := range failPoints(total, points) {
-		got := runFailing(t, bin, in, args, "TACK_FAIL_AFTER="+strconv.Itoa(n))
-		if report := sanitizerReport(got); report != "" {
-			t.Errorf("failing allocation %d of %d: %s", n, total, report)
-			continue
+	return base, total
+}
+
+// buildFailPoints returns the values of N sweepAllocFail fails a build's
+// allocations from, of total, the build's own starting about front:
+// half of points spread over the whole count, as failPoints spreads
+// them, and the other half spread from front to the end, each once, in
+// order.
+func buildFailPoints(total, front, points int) []int {
+	front = min(max(front, 0), total-1)
+	seen := map[int]bool{}
+	var ns []int
+	for _, n := range failPoints(total, max(points/2, 1)) {
+		seen[n] = true
+		ns = append(ns, n)
+	}
+	for _, n := range failPoints(total-front, max(points-points/2, 1)) {
+		if !seen[front+n] {
+			seen[front+n] = true
+			ns = append(ns, front+n)
 		}
-		if got.code != 1 || !bytes.HasSuffix(got.stderr, []byte("tack: out of memory\n")) {
-			t.Errorf(
-				"failing allocation %d of %d: exit status %d, want 1 with tack: out of memory last\nstderr:\n%s",
-				n,
-				total,
-				got.code,
-				tail(got.stderr),
-			)
-		}
+	}
+	slices.Sort(ns)
+	return ns
+}
+
+// checkRefused fails t unless got, the run that was refused every
+// allocation from the nth of total on, ended as sweepAllocFail says.
+func checkRefused(t *testing.T, n, total int, got result) {
+	t.Helper()
+	if report := sanitizerReport(got); report != "" {
+		t.Errorf("failing allocation %d of %d: %s", n, total, report)
+		return
+	}
+	if got.code != 1 || !bytes.HasSuffix(got.stderr, []byte("tack: out of memory\n")) {
+		t.Errorf(
+			"failing allocation %d of %d: exit status %d, want 1 with tack: out of memory last\nstderr:\n%s",
+			n,
+			total,
+			got.code,
+			tail(got.stderr),
+		)
 	}
 }
 
@@ -332,8 +427,9 @@ func failPoints(total, points int) []int {
 	return ns
 }
 
-// runFailing runs bin with args on in, with the sanitizers' exit status
-// sanitizerExit and the variable extra, and returns
+// runFailing runs bin with args on in, with a fresh build cache of its
+// own, the sanitizers' exit status sanitizerExit and the variable extra,
+// and returns
 // how it ended. A run that is killed after compilerTimeout, or that
 // cannot be run, fails the test.
 func runFailing(t *testing.T, bin string, in input, args []string, extra string) result {
@@ -342,7 +438,7 @@ func runFailing(t *testing.T, bin string, in input, args []string, extra string)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec // G204: the port under test
 	cmd.Dir = in.dir
-	cmd.Env = append(append(compilerEnv(env.portCache), in.env...),
+	cmd.Env = append(append(compilerEnv(t.TempDir()), in.env...),
 		fmt.Sprintf("ASAN_OPTIONS=detect_leaks=1:exitcode=%d", sanitizerExit),
 		fmt.Sprintf("UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1:exitcode=%d", sanitizerExit),
 		extra)

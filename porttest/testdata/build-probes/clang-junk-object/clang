@@ -1,0 +1,18 @@
+#!/bin/sh
+# A clang that, asked to compile a file with -c, writes at the path after
+# -o a file that is no object; any other command, clang --version and the
+# link among them, is the real clang's, found on the PATH after this
+# fake's directory.
+compile=
+out=
+prev=
+for a; do
+    [ "$a" = -c ] && compile=1
+    [ "$prev" = -o ] && out=$a
+    prev=$a
+done
+if [ -n "$compile" ]; then
+    echo "no object" > "$out"
+    exit 0
+fi
+PATH=${PATH#*:} exec clang "$@"

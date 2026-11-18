@@ -62,8 +62,10 @@
 // stream, and a build's run with anything on standard output is such a
 // run, whatever its standard error holds; it is a decline only when what came before is what the Go compiler wrote
 // before its own final error: its standard output the Go compiler's,
-// and its standard error the Go compiler's with its last line removed
-// when that line starts tack: , then the not implemented line. The Go
+// and its standard error the Go compiler's with everything from its
+// last line that starts tack: to its end removed, then the not
+// implemented line: the Go compiler's final error may run over several
+// lines, as two errors joined do, the second not starting tack: . The Go
 // compiler runs to tell, and a late decline that writes anything else
 // fails the case, required or not. A stage enters required.txt once the port implements it, so it
 // cannot quietly stop working. required.txt also names loaded and
@@ -492,21 +494,38 @@
 // once a run, that writes the argv[0] it is given; and one that writes
 // to each stream in turn, built with standard output and standard error
 // one pipe, read as standard output, so the order of the warning,
-// clang's lines and the error is compared. No fake dumps core,
-// which the machine's limits and core pattern decide. A
-// probe's --out path, when it has one, is its own, relative to its
-// directory, in place of the case's, and its PATH, when it has one,
-// replaces the one the compilers inherit. build-probes is required, so
+// clang's lines and the error is compared; a program using std, its C
+// and objects of the runtime linked, at the default level and at -O2,
+// and with a PATH whose clang fails, where compiling std's C fails; and a
+// program that links objects of the runtime but has no C file, with no
+// clang on PATH, an empty PATH, a clang that fails and one SIGKILL
+// kills, so that clang --version fails each way, and with a build cache
+// that cannot be made: below a file, in the read-only TACK_HOME, and
+// none found, $XDG_CACHE_HOME relative or neither it nor $HOME set. No
+// fake dumps core, which the machine's limits and core pattern decide.
+// A probe's --out path, when it has one, is its own, relative to its
+// directory, in place of the case's, its PATH, when it has one,
+// replaces the one the compilers inherit, and its variables, when it
+// has any, are set after every other. build-probes is required, so
 // it holds no build the port declines: TestBuildDeclines runs those,
 // the port alone, the warning program built where Go words what the
 // port cannot, a TMPDIR that is missing or a file, one so long that the
 // runtime's directories cannot be made below it, a clang that leaves in
 // the temporary directory what cannot be removed, a file and a dangling
 // symbolic link at --out before a build whose clang does that and
-// writes no binary, and a current directory that is gone, and
+// writes no binary, a current directory that is gone, and, building a
+// program that links objects of the runtime, a clang that writes no
+// object, which the port cannot read, where Go words debug/elf's error,
+// a build cache whose objects or keys directory cannot be written, where
+// Go's error names a temporary file of a random name, and a C file clang
+// rejects with a clang that leaves what cannot be removed, where Go's
+// error is two joined over two lines, and a temporary directory holding
+// a path past PATH_MAX, which Go's RemoveAll, relative to each
+// directory, removes and the port, by path, cannot, so it declines
+// after the diagnostics Go writes, and
 // checks that each declines as a case must to skip: exit status 3, the
 // not implemented line with the case's reason, nothing else written for
-// a decline before clang runs, and for the three after it, the late
+// a decline before clang runs, and for those after it, the late
 // declines, the Go compiler's build of the case run too, in directories
 // laid out alike, and what the port wrote before the line what Go wrote
 // before its last error (see Protocol); nothing left in TMPDIR but what
@@ -540,14 +559,36 @@
 // binaries run in process groups of their own, as runCompiler's runs
 // do.
 //
-// Two declines have no case, for want of a clean way to make them:
+// Four declines have no case, for want of a clean way to make them:
 // "with a clang that cannot be run", which std/os's run_inherit gives
 // when /dev/null cannot be opened, which needs a file system without
 // it, or its wait fails, which the runtime's reset of SIGCHLD leaves no
-// way to make; and "with a clang that cannot be started" for an errno
-// the port has no Go words for, which on Linux is EHWPOISON alone, as
-// Go's words for it differ between amd64 and arm64, an errno no exec can
-// be made to give on demand.
+// way to make, and "with a clang --version that cannot be run", which
+// std/os's run gives for those and for a pipe that cannot be made or a
+// read or poll that fails, which nothing a test controls makes either;
+// "with a clang that cannot be started" for an errno the port has no Go
+// words for, which on Linux is EHWPOISON alone, as Go's words for it
+// differ between amd64 and arm64, an errno no exec can be made to give
+// on demand; and "with a build cache that cannot be made" for a mkdir
+// that fails with an errno the port has no Go words for, the same one.
+// A temporary directory that cannot be removed after the definitions
+// check gave diagnostics, for EACCES or EPERM, is no decline: Go drops
+// the removal's error, which the port reports after them, a known
+// divergence TestBuildRemovalReported checks, outside the stages, since
+// its clang leaves what the harness must make removable first, against
+// the error os.RemoveAll gives for the same tree; any other errno there
+// is declined.
+//
+// TestObjectSymbols checks the port's ELF reader, which finds what
+// the objects of a build define and leave undefined, with no tool but
+// clang: its --port-symbols, on objects clang compiles from the
+// runtime's C files and a file holding every kind of symbol, at every
+// -O level, with -g, compressed debugging sections and -fcommon, and an
+// object of seventy thousand sections, read through extended section
+// numbering, must read what Go's readSymbols reads, and on damaged
+// copies of them, truncated or with bytes changed, extended numbering's
+// fields among them, what Go reads or that it cannot read the object,
+// wherever Go fails.
 //
 // Where both compilers built a binary, of a case of build-examples or
 // build-probes, the two are compared by their SHA-256: build-identical,
@@ -558,11 +599,13 @@
 // required, whether required.txt names build-identical or not, so that
 // a port whose -O flags do not reach clang fails its -O probes;
 // required.txt cannot name build-identical itself while build-examples
-// has cases the port declines, each of which it would fail. The -O
-// probes' program is too small for every level to tell: Go's -O2 binary
-// of it is its -O3 one, so a port that lost -O2, or gave -O3 for it,
-// passes opt-2; a program using std, which D2 builds, makes the two
-// differ. The Go compiler, run as both compilers, builds the same binary
+// has cases the port declines, each of which it would fail; it names it
+// now, so every case of build-examples and build-probes is held to it.
+// build-invalid-c builds no binary: every case of it fails. The loops
+// program of the -O probes is too small for every level to tell, its
+// -O2 binary its -O3 one, but std-opt-2's program, which uses std, has
+// two that differ, so a port that lost -O2, or gave -O3 for it, fails
+// it. The Go compiler, run as both compilers, builds the same binary
 // twice for every example it builds, with a cache of its own each time,
 // so a port that runs the same clang and link commands builds it too;
 // goIrreproducible lists, with why, any case where Go does not, which is
@@ -1054,11 +1097,17 @@
 // and realloc and sets the runtime's hook,
 // tack_c_allocator_fail_after_, from $TACK_FAIL_AFTER. It runs a sample
 // of the corpus, a dozen cases of each stage but emit-header, the emit
-// probes with --emit and --check, and the port's driver, once counting
-// its allocations and then failing every one from the Nth on, for up to
-// $PORTTEST_ALLOC_FAIL values of N: a run that allocates nothing fails,
-// and each failing run must exit 1, ending in the driver's "tack: out of
-// memory", with no sanitizer report. That checks the C-level allocations
+// probes with --emit and --check, the port's driver, and builds of
+// examples/conv, which uses std, and examples/extern, which has C files,
+// once counting its allocations and then failing every one from the Nth
+// on, for up to $PORTTEST_ALLOC_FAIL values of N: a run that allocates
+// nothing fails, a build that does not exit 0 with every allocation
+// granted fails, and each failing run must exit 1, ending in the
+// driver's "tack: out of memory", with no sanitizer report. Every run
+// has a fresh build cache of its own, so a build allocates as its count
+// did, and half of a build's points fail an allocation of the build
+// itself, past where --emit of the same target ends; the temporary directories a build refused memory leaves, which
+// the driver documents, are in a TMPDIR of the case's. That checks the C-level allocations
 // and the out-of-memory paths: exit frees every buffer c_allocator holds
 // before the leak sanitizer looks, so it sees only the C memory the
 // runtime does not track, and that Tack code frees what it owns the

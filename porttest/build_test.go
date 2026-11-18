@@ -106,8 +106,8 @@ func homeOfOut(out string) string {
 
 // buildProbe is one case of build-probes: a program of
 // testdata/build-probes, its main.tck, built from its directory as a
-// single file, with the command line and the PATH it gives the two
-// compilers.
+// single file, with the command line, the PATH and the variables it
+// gives the two compilers.
 type buildProbe struct {
 	// program is the directory below testdata/build-probes whose
 	// main.tck the case builds.
@@ -126,12 +126,20 @@ type buildProbe struct {
 	// compilers inherit, as they are: "" is an empty element, which
 	// means the current directory, and a relative one is taken from it.
 	pathFront []string
+	// env are variables set for the compilers after every other, as
+	// NAME=value, an empty value among them: the build cache's, to make
+	// one that cannot be found or made.
+	env []string
 	// emptyPath sets PATH empty, set but holding no element, which Go's
 	// exec.LookPath searches no directory of, in place of pathDir.
 	emptyPath bool
 	// outInHome makes the --out path prog in the case's TACK_HOME, a
 	// directory no one may write to, so that clang's link fails.
 	outInHome bool
+	// cacheInHome sets TACK_CACHE empty and XDG_CACHE_HOME to xdg in the
+	// case's TACK_HOME, which no one may write to, so that the cache's
+	// directories, found from $XDG_CACHE_HOME, cannot be made.
+	cacheInHome bool
 	// fakeFirst, when not empty, is the directory below
 	// testdata/build-probes whose fake clang is put before the PATH the
 	// compilers inherit, which the fake's own commands, and a real clang,
@@ -168,7 +176,18 @@ type buildProbe struct {
 // writes the argv[0] it is given, clang, and exits 1; and one that
 // writes to each stream in turn, built with both streams one pipe, so
 // the order of the warning, clang's lines and the error is compared, as
-// a terminal shows it. No fake dumps
+// a terminal shows it; a program with a C file whose object has more
+// sections than an ELF header can count, so its symbols are read through
+// extended section numbering; a program using std, which links its C and
+// objects of the runtime, built at the default level and at -O2, whose
+// binaries differ, and with a PATH whose clang fails, where compiling
+// std's C fails first; and a program whose build links objects of the
+// runtime but compiles no C file of its own, built with a PATH that holds
+// no clang, an empty one, one whose clang fails and a fake SIGKILL
+// kills, so that clang --version, which identifies the toolchain, fails
+// each way, and with a build cache that cannot be made: below a file, in
+// a directory no one may write to, and none found, its
+// $XDG_CACHE_HOME relative or neither it nor $HOME set. No fake dumps
 // core: whether one does depends on the machine's limits and core
 // pattern, and a dump may reach systemd-coredump. The builds the port
 // declines are TestBuildDeclines', not cases here: build-probes is
@@ -199,6 +218,18 @@ var buildProbes = map[string]buildProbe{
 	"build-probes/clang-not-runnable": {program: "warn", fakeFirst: "clang-not-executable"},
 	"build-probes/clang-argv0":        {program: "warn", fakeBuilt: "clang-argv0"},
 	"build-probes/clang-interleaves":  {program: "warn", fakeFirst: "clang-interleaves", combined: true},
+	"build-probes/many-sections":      {program: "many-sections"},
+	"build-probes/std-builds":         {program: "std"},
+	"build-probes/std-opt-2":          {program: "std", flags: []string{"-O2"}},
+	"build-probes/std-clang-fails":    {program: "std", pathDir: "clang-fails"},
+	"build-probes/lists-no-clang":     {program: "lists", pathDir: "empty"},
+	"build-probes/lists-empty-path":   {program: "lists", emptyPath: true},
+	"build-probes/lists-clang-fails":  {program: "lists", pathDir: "clang-fails"},
+	"build-probes/lists-clang-killed": {program: "lists", fakeFirst: "clang-killed"},
+	"build-probes/cache-below-file":   {program: "lists", env: []string{"TACK_CACHE=main.tck/cache"}},
+	"build-probes/cache-unwritable":   {program: "lists", cacheInHome: true},
+	"build-probes/cache-xdg-relative": {program: "lists", env: []string{"TACK_CACHE=", "XDG_CACHE_HOME=cache"}},
+	"build-probes/cache-no-home":      {program: "lists", env: []string{"TACK_CACHE=", "XDG_CACHE_HOME=", "HOME="}},
 }
 
 // builtFake returns the directory holding the binary clang the real
@@ -261,6 +292,7 @@ func buildProbeInputs() ([]input, error) {
 			in.env = []string{"PATH=" + strings.Join(append(slices.Clone(p.pathFront),
 				os.Getenv("PATH")), string(filepath.ListSeparator))}
 		}
+		in.env = append(in.env, p.env...)
 		ins = append(ins, in)
 	}
 	return ins, nil
@@ -605,6 +637,9 @@ func prepareBuild(d buildDirs, in input) (input, error) {
 		return input{}, err
 	}
 	copied.env = append(slices.Clone(copied.env), "TMPDIR="+d.tmp, "TACK_HOME="+d.home)
+	if p, ok := buildProbes[in.name]; ok && p.cacheInHome {
+		copied.env = append(copied.env, "TACK_CACHE=", "XDG_CACHE_HOME="+filepath.Join(d.home, "xdg"))
+	}
 	return copied, nil
 }
 
@@ -790,10 +825,12 @@ func buildDeclineVerdict(stageName string, required map[string]bool) string {
 // with build-identical in them for a case of build-probes while
 // build-probes is required, whose binaries, built at every -O level,
 // must then be Go's, so that a port that loses its -O flag fails; and as
-// they are for any other. opt-2 cannot fail so: Go's -O2 binary of the
-// loops probe is its -O3 one, the same bytes, so a port that loses -O2,
-// or maps it to -O3, still matches; the probe needs a program whose -O2
-// and -O3 binaries differ, as one using std, which D2 builds.
+// they are for any other. The loops probe is too small to tell -O2 from
+// -O3, its two binaries the same bytes; std-opt-2 builds a program using
+// std, whose two differ, so a port that loses -O2, or maps it to -O3,
+// fails it. With build-identical in required.txt, as it is once
+// build-examples has no case the port declines, every case of both
+// stages is held to it.
 func identicalRequired(stageName string, required map[string]bool) map[string]bool {
 	if stageName != buildProbesStage || !required[buildProbesStage] || required[buildIdenticalCheck] {
 		return required
@@ -1081,8 +1118,9 @@ func TestBuildDeclineVerdict(t *testing.T) {
 // lateDeclineMismatch: a decline after other output is late, standard
 // output alone included, one alone is early, and one whose line is not
 // last is neither; and a late decline matches Go's run only when its standard output
-// is Go's and its standard error Go's but for Go's last tack: line, then
-// the decline, a Go run with no such line kept whole.
+// is Go's and its standard error Go's up to its last tack: line, which
+// with what follows it, a joined error's second line among them, is
+// removed, then the decline, a Go run with no such line kept whole.
 func TestLateDecline(t *testing.T) {
 	const line = "tack: not implemented in the port: --out with a temp directory that cannot be removed\n"
 	warn := "main.tck:5:6: warning: declared and not used: spare\n"
@@ -1122,6 +1160,11 @@ func TestLateDecline(t *testing.T) {
 	goRun := result{stdout: []byte("clang out\n"), stderr: []byte(warn + "clang err\ntack: failed to delete temp directory: x\n"), code: 1}
 	if why := lateDeclineMismatch(goRun, late, line); why != "" {
 		t.Errorf("a matching late decline: %s", why)
+	}
+	joined := result{stdout: goRun.stdout, stderr: []byte(warn + "clang err\n" +
+		"tack: cannot compile a.c: clang failed: exit status 1\nfailed to delete temp directory: x\n"), code: 1}
+	if why := lateDeclineMismatch(joined, late, line); why != "" {
+		t.Errorf("a late decline beside Go's error of two lines: %s", why)
 	}
 	for name, want := range map[string]result{
 		"other stdout":      {stdout: []byte("other\n"), stderr: goRun.stderr},

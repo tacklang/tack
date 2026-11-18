@@ -1,0 +1,16 @@
+package main
+
+// spare is never called, which the compiler warns of: a build of this
+// program writes a warning before anything else.
+func spare() {
+}
+
+// helper is defined in no C file of the package: helpers.c defines
+// another function, so the build's check of the definitions fails.
+extern func helper() int64
+
+func main() {
+    if helper() != 1 {
+        return
+    }
+}

@@ -1,0 +1,7 @@
+package main
+
+// main does nothing: the build's point is many.c, whose object has more
+// sections than an ELF header's e_shnum can count, so the driver reads
+// its symbols through extended section numbering.
+func main() {
+}
