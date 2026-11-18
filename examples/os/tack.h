@@ -46,12 +46,12 @@ void tack_fmt_eprintf(tack_string /* format */, tack_view_any /* args */); // ex
 void tack_fmt_ewrite(tack_view_uint8 /* b */); // extern func cewrite(b []uint8)
 
 // package std/os
-int64_t tack_os_open(tack_view_uint8 /* path */, int32_t /* mode */); // extern func c_open(path []uint8, mode int32) int64
+int64_t tack_os_open(tack_view_uint8 /* path */, int32_t /* mode */, int32_t /* perm */); // extern func c_open(path []uint8, mode int32, perm int32) int64
 int64_t tack_os_close(int32_t /* fd */); // extern func c_close(fd int32) int64
 int64_t tack_os_read(int32_t /* fd */, tack_list_uint8 * /* l */); // extern func c_read(fd int32, mut l list[uint8]) int64
 int64_t tack_os_write(int32_t /* fd */, tack_view_uint8 /* data */); // extern func c_write(fd int32, data []uint8) int64
 int64_t tack_os_remove(tack_view_uint8 /* path */); // extern func c_remove(path []uint8) int64
-int64_t tack_os_make_dir(tack_view_uint8 /* path */); // extern func c_make_dir(path []uint8) int64
+int64_t tack_os_make_dir(tack_view_uint8 /* path */, int32_t /* perm */); // extern func c_make_dir(path []uint8, perm int32) int64
 int64_t tack_os_rename(tack_view_uint8 /* old_path */, tack_view_uint8 /* new_path */); // extern func c_rename(old_path []uint8, new_path []uint8) int64
 int64_t tack_os_stat(tack_view_uint8 /* path */, os_Info * /* info */); // extern func c_stat(path []uint8, mut info Info) int64
 int64_t tack_os_lstat(tack_view_uint8 /* path */, os_Info * /* info */); // extern func c_lstat(path []uint8, mut info Info) int64
@@ -77,6 +77,12 @@ void os_fail_after(int64_t /* n */); // extern func failAfter(n int64)
 tack_error os_enomem_error(void); // extern func enomemError() error
 tack_error os_errno_error(int64_t /* e */); // extern func errnoError(e int64) error
 int64_t os_chmod(tack_view_uint8 /* path */, int64_t /* mode */); // extern func chmod(path []uint8, mode int64) int64
+int64_t os_umask(int64_t /* mask */); // extern func umask(mask int64) int64
+int64_t os_limit_fsize(int64_t /* limit */); // extern func limitFsize(limit int64) int64
+int64_t os_restore_fsize(void); // extern func restoreFsize() int64
+int64_t os_xfsz_action(void); // extern func xfszAction() int64
+int64_t os_fsize_limit(void); // extern func fsizeLimit() int64
+int64_t os_mode(tack_view_uint8 /* path */); // extern func modeOf(path []uint8) int64
 void os_note(tack_string /* s */); // extern func note(s string)
 int64_t os_symlink(tack_view_uint8 /* target */, tack_view_uint8 /* path */); // extern func symlink(target []uint8, path []uint8) int64
 int64_t os_truncate(tack_view_uint8 /* path */, int64_t /* size */); // extern func truncate(path []uint8, size int64) int64

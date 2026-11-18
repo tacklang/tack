@@ -104,7 +104,7 @@ static int64_t append_bytes(tack_list_uint8 *l, const char *p, size_t n) {
     return 0;
 }
 
-int64_t tack_os_open(tack_view_uint8 path, int32_t mode) {
+int64_t tack_os_open(tack_view_uint8 path, int32_t mode, int32_t perm) {
     char buf[path_max];
     int e = c_path(path, buf);
     if (e != 0) {
@@ -113,8 +113,10 @@ int64_t tack_os_open(tack_view_uint8 path, int32_t mode) {
     int flags = O_RDONLY | O_CLOEXEC;
     if (mode == 1) {
         flags = O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC;
+    } else if (mode == 2) {
+        flags = O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC;
     }
-    int fd = open(buf, flags, 0644);
+    int fd = open(buf, flags, (mode_t)perm);
     if (fd < 0) {
         return -errno;
     }
@@ -164,13 +166,13 @@ int64_t tack_os_remove(tack_view_uint8 path) {
     return 0;
 }
 
-int64_t tack_os_make_dir(tack_view_uint8 path) {
+int64_t tack_os_make_dir(tack_view_uint8 path, int32_t perm) {
     char buf[path_max];
     int e = c_path(path, buf);
     if (e != 0) {
         return -e;
     }
-    if (mkdir(buf, 0755) != 0) {
+    if (mkdir(buf, (mode_t)perm) != 0) {
         return -errno;
     }
     return 0;

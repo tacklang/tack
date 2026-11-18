@@ -35,12 +35,12 @@ typedef struct {
 } tack_array_2_int32;
 
 // package std/os
-int64_t tack_os_open(tack_view_uint8 /* path */, int32_t /* mode */); // extern func c_open(path []uint8, mode int32) int64
+int64_t tack_os_open(tack_view_uint8 /* path */, int32_t /* mode */, int32_t /* perm */); // extern func c_open(path []uint8, mode int32, perm int32) int64
 int64_t tack_os_close(int32_t /* fd */); // extern func c_close(fd int32) int64
 int64_t tack_os_read(int32_t /* fd */, tack_list_uint8 * /* l */); // extern func c_read(fd int32, mut l list[uint8]) int64
 int64_t tack_os_write(int32_t /* fd */, tack_view_uint8 /* data */); // extern func c_write(fd int32, data []uint8) int64
 int64_t tack_os_remove(tack_view_uint8 /* path */); // extern func c_remove(path []uint8) int64
-int64_t tack_os_make_dir(tack_view_uint8 /* path */); // extern func c_make_dir(path []uint8) int64
+int64_t tack_os_make_dir(tack_view_uint8 /* path */, int32_t /* perm */); // extern func c_make_dir(path []uint8, perm int32) int64
 int64_t tack_os_rename(tack_view_uint8 /* old_path */, tack_view_uint8 /* new_path */); // extern func c_rename(old_path []uint8, new_path []uint8) int64
 int64_t tack_os_stat(tack_view_uint8 /* path */, os_Info * /* info */); // extern func c_stat(path []uint8, mut info Info) int64
 int64_t tack_os_lstat(tack_view_uint8 /* path */, os_Info * /* info */); // extern func c_lstat(path []uint8, mut info Info) int64

@@ -1381,8 +1381,17 @@ section remains the description of the language.
   and `names, err := os.list_dir(path, alloc)`, a directory's entries
   without `.` and `..`, sorted bytewise so the order does not depend on
   the OS. `os.write_file(path, data)` creates a file with mode 0644 or
-  truncates it and writes all of `data`; `os.make_dir(path)` makes one
-  directory, mode 0755, and no parents; `os.remove_path(path)` removes a
+  truncates it and writes all of `data`, and `os.write_file_mode(path,
+  data, mode)` does the same with the mode given, before the umask, a
+  file that exists keeping its own, and `os.create_file_mode(path, data,
+  mode)` creates a new file only, failing with `error{code: 3, msg:
+  "File exists"}` when anything is at `path`, a symbolic link included,
+  which it does not follow, and removing the file it made when the write
+  fails; `os.make_dir(path)` makes one
+  directory, mode 0755, and no parents, and `os.make_dir_mode(path,
+  mode)` one with the mode given, before the umask; a mode is permission
+  bits alone, 0 to 0o777, and any other is `error{code: 4, msg: "mode
+  out of range"}`; `os.remove_path(path)` removes a
   file or an empty directory, named `remove_path` because `remove` is a
   builtin; `os.rename(old_path, new_path)` renames a file or a
   directory with `rename(2)`, replacing a file, or an empty directory,

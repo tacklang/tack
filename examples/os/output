@@ -130,6 +130,52 @@ rename of a path too long ok
 rename of a path with a 0 byte ok
 remove what rename made ok
 renames freed ok
+make_dir_mode 0750 under umask 022 ok
+write_file_mode 0600 under umask 022 ok
+make_dir is 0755 under umask 022 ok
+write_file is 0644 under umask 022 ok
+make_dir_mode 0777 loses the umask's bits ok
+make_dir_mode 0777 under umask 027 ok
+write_file_mode 0666 under umask 027 ok
+write_file_mode 0777 under umask 0 ok
+write_file_mode 0 makes a file no one may open ok
+write_file_mode on a file that exists keeps its mode ok
+make_dir_mode on a directory that exists ok
+make_dir_mode on a file ok
+make_dir_mode refuses a mode that is not permission bits ok
+write_file_mode refuses a mode that is not permission bits ok
+make_dir_mode refuses a mode that is not permission bits ok
+write_file_mode refuses a mode that is not permission bits ok
+make_dir_mode refuses a mode that is not permission bits ok
+write_file_mode refuses a mode that is not permission bits ok
+make_dir_mode refuses a mode that is not permission bits ok
+write_file_mode refuses a mode that is not permission bits ok
+make_dir_mode refuses a mode that is not permission bits ok
+write_file_mode refuses a mode that is not permission bits ok
+make_dir_mode refuses a mode that is not permission bits ok
+write_file_mode refuses a mode that is not permission bits ok
+make_dir_mode of a path with a 0 byte, before the mode ok
+write_file_mode of a path with a 0 byte, before the mode ok
+remove what modes made ok
+modes freed ok
+create_file_mode makes a new file 0600 ok
+create_file_mode of nothing under umask 022 ok
+create_file_mode 0777 under umask 077 ok
+create_file_mode on a file leaves it ok
+create_file_mode on a directory ok
+create_file_mode on a link to a file follows nothing ok
+create_file_mode on a dangling link makes nothing where it points ok
+create_file_mode refuses a mode that is not permission bits ok
+create_file_mode refuses a mode that is not permission bits ok
+create_file_mode refuses a mode that is not permission bits ok
+create_file_mode refuses a mode that is not permission bits ok
+create_file_mode refuses a mode that is not permission bits ok
+create_file_mode refuses a mode that is not permission bits ok
+create_file_mode that cannot write removes the file it made ok
+the file size limit and SIGXFSZ's action are put back ok
+create_file_mode of a path with a 0 byte, before the mode ok
+remove what creates made ok
+creates freed ok
 stat a file ok
 stat an empty file ok
 stat a directory ok

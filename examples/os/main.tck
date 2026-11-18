@@ -31,7 +31,11 @@ import text from "std/text"
 // and makes rename fail each way the OS refuses it, and stats files,
 // directories, symbolic links, broken ones included, and, where the
 // file system makes holes, sparse files of 5 GiB and more, made through
-// live.c. Each check is
+// live.c. It makes directories and files with make_dir_mode and
+// write_file_mode under several umasks, set through live.c, and checks
+// their modes, read there too, and the modes it refuses, and creates
+// files with create_file_mode, which fails on a path that is taken, a
+// symbolic link's included. Each check is
 // printed, ok or FAIL, and c_allocator's count of live buffers, read
 // through live.c, is checked to be back to 0 after each group.
 
@@ -54,6 +58,33 @@ extern("os_errno_error") func errnoError(e int64) error
 // chmod sets the mode of the file at path to mode and returns 0, or the
 // errno negated, in C.
 extern("os_chmod") func chmod(path []uint8, mode int64) int64
+
+// umask sets the process's file mode creation mask to mask and returns
+// the one it replaces, in C.
+extern("os_umask") func umask(mask int64) int64
+
+// limitFsize sets the soft limit on the size of a file the process
+// writes to limit bytes, 0 or more, and ignores SIGXFSZ, so a write past
+// it fails with EFBIG rather than end the process, saving the limit and
+// the action before, and returns 0, or the errno negated, in C.
+extern("os_limit_fsize") func limitFsize(limit int64) int64
+
+// restoreFsize puts back the limit and SIGXFSZ's action limitFsize
+// saved and returns 0, or the errno negated, in C.
+extern("os_restore_fsize") func restoreFsize() int64
+
+// xfszAction returns SIGXFSZ's action, 0 for the default, 1 for
+// ignored, 2 for a handler, or the errno negated, in C.
+extern("os_xfsz_action") func xfszAction() int64
+
+// fsizeLimit returns the soft limit on a file's size, -1 for none, or
+// the errno negated below -1, in C.
+extern("os_fsize_limit") func fsizeLimit() int64
+
+// modeOf returns the permission bits, with the setuid, setgid and sticky
+// bits, of the file at path, a symbolic link itself, or the errno
+// negated, in C.
+extern("os_mode") func modeOf(path []uint8) int64
 
 // note writes s to the standard error, in C, which the example's tests
 // do not compare, so a check skipped on this machine says so without
@@ -550,6 +581,138 @@ func tidy(dir []uint8, names ...string) bool {
         }
     }
     return ok
+}
+
+// modes makes directories with make_dir_mode and files with
+// write_file_mode in dir, under the umasks 022, 027 and 0, each set
+// through live.c and the one before put back at the end, and checks the
+// mode each gets, the umask's bits taken out; that make_dir and
+// write_file still give 0755 and 0644; that write_file_mode on a file
+// that exists keeps its mode and replaces its bytes, and make_dir_mode
+// on a directory that exists fails, whatever its mode; that a mode that
+// is not permission bits alone, negative, with a setuid, setgid or
+// sticky bit, or larger, is refused, nothing made; and that a 0 byte in
+// the path is refused before the mode is looked at. It removes
+// everything it made, on every path.
+func modes(dir []uint8) {
+    defer {
+        check(tidy(dir, "m1", "m2", "m3", "m4", "f1", "f2", "f3", "f4", "f5", "bad"), "remove what modes made")
+    }
+    p1, e1 := join(dir, "m1")
+    p2, e2 := join(dir, "m2")
+    p3, e3 := join(dir, "m3")
+    p4, e4 := join(dir, "m4")
+    f1, e5 := join(dir, "f1")
+    f2, e6 := join(dir, "f2")
+    f3, e7 := join(dir, "f3")
+    f4, e8 := join(dir, "f4")
+    f5, e9 := join(dir, "f5")
+    bad, e10 := join(dir, "bad")
+    if e1.code != 0 || e2.code != 0 || e3.code != 0 || e4.code != 0 || e5.code != 0 || e6.code != 0 || e7.code != 0 || e8.code != 0 || e9.code != 0 || e10.code != 0 {
+        check(false, "join mode paths")
+        return
+    }
+    old := umask(0o22)
+    m0 := os.make_dir_mode(p1, 0o750)
+    check(m0.code == 0 && modeOf(p1) == 0o750, "make_dir_mode 0750 under umask 022")
+    w0 := os.write_file_mode(f1, []uint8("one"), 0o600)
+    check(w0.code == 0 && modeOf(f1) == 0o600 && readsBack(f1, []uint8("one")), "write_file_mode 0600 under umask 022")
+    m1 := os.make_dir(p2)
+    check(m1.code == 0 && modeOf(p2) == 0o755, "make_dir is 0755 under umask 022")
+    w1 := os.write_file(f2, []uint8("two"))
+    check(w1.code == 0 && modeOf(f2) == 0o644, "write_file is 0644 under umask 022")
+    m2 := os.make_dir_mode(p3, 0o777)
+    check(m2.code == 0 && modeOf(p3) == 0o755, "make_dir_mode 0777 loses the umask's bits")
+    umask(0o27)
+    m3 := os.make_dir_mode(p4, 0o777)
+    check(m3.code == 0 && modeOf(p4) == 0o750, "make_dir_mode 0777 under umask 027")
+    w2 := os.write_file_mode(f3, []uint8("three"), 0o666)
+    check(w2.code == 0 && modeOf(f3) == 0o640, "write_file_mode 0666 under umask 027")
+    umask(0)
+    w3 := os.write_file_mode(f4, []uint8("four"), 0o777)
+    check(w3.code == 0 && modeOf(f4) == 0o777, "write_file_mode 0777 under umask 0")
+    w4 := os.write_file_mode(f5, []uint8("five"), 0)
+    check(w4.code == 0 && modeOf(f5) == 0 && chmod(f5, 0o600) == 0 && readsBack(f5, []uint8("five")), "write_file_mode 0 makes a file no one may open")
+    w5 := os.write_file_mode(f1, []uint8("again"), 0o644)
+    check(w5.code == 0 && modeOf(f1) == 0o600 && readsBack(f1, []uint8("again")), "write_file_mode on a file that exists keeps its mode")
+    m4 := os.make_dir_mode(p1, 0o700)
+    check(osError(m4, "File exists") && modeOf(p1) == 0o750, "make_dir_mode on a directory that exists")
+    m5 := os.make_dir_mode(f1, 0o700)
+    check(osError(m5, "File exists"), "make_dir_mode on a file")
+    for _, mode := range [6]int64{-1, 0o1000, 0o1777, 0o4755, 0o100644, 9223372036854775807} {
+        md := os.make_dir_mode(bad, mode)
+        check(md.code == 4 && md.msg == "mode out of range" && gone(bad), "make_dir_mode refuses a mode that is not permission bits")
+        wf := os.write_file_mode(bad, []uint8("x"), mode)
+        check(wf.code == 4 && wf.msg == "mode out of range" && gone(bad), "write_file_mode refuses a mode that is not permission bits")
+    }
+    m6 := os.make_dir_mode([]uint8("a\x00b"), -1)
+    check(nulError(m6), "make_dir_mode of a path with a 0 byte, before the mode")
+    w6 := os.write_file_mode([]uint8("a\x00b"), []uint8("x"), -1)
+    check(nulError(w6), "write_file_mode of a path with a 0 byte, before the mode")
+    umask(old)
+}
+
+// creates creates files with create_file_mode in dir and checks that it
+// makes a new file with its bytes and its mode, the umask's bits taken
+// out, under the umasks 022 and 077, each set through live.c and the one
+// before put back at the end, an empty one among them; that it fails
+// with "File exists" on a file, a directory, a symbolic link to a file
+// and a dangling one, leaving each as it was and making nothing where a
+// link points; that a mode that is not permission bits alone is
+// refused, nothing made; that one whose write fails, past a file size
+// limit set through live.c, removes the file it made; and that a 0 byte
+// in the path is refused before the mode is looked at. It removes
+// everything it made, on every path.
+func creates(dir []uint8) {
+    defer {
+        check(tidy(dir, "c1", "c2", "c3", "cd", "cl", "cdl", "ct", "cbad"), "remove what creates made")
+    }
+    c1, e1 := join(dir, "c1")
+    c2, e2 := join(dir, "c2")
+    c3, e3 := join(dir, "c3")
+    cd, e4 := join(dir, "cd")
+    cl, e5 := join(dir, "cl")
+    cdl, e6 := join(dir, "cdl")
+    ct, e7 := join(dir, "ct")
+    cbad, e8 := join(dir, "cbad")
+    if e1.code != 0 || e2.code != 0 || e3.code != 0 || e4.code != 0 || e5.code != 0 || e6.code != 0 || e7.code != 0 || e8.code != 0 {
+        check(false, "join create paths")
+        return
+    }
+    old := umask(0o22)
+    w0 := os.create_file_mode(c1, []uint8("one"), 0o600)
+    check(w0.code == 0 && modeOf(c1) == 0o600 && readsBack(c1, []uint8("one")), "create_file_mode makes a new file 0600")
+    w1 := os.create_file_mode(c2, []uint8(""), 0o666)
+    check(w1.code == 0 && modeOf(c2) == 0o644 && readsBack(c2, []uint8("")), "create_file_mode of nothing under umask 022")
+    umask(0o77)
+    w2 := os.create_file_mode(c3, []uint8("three"), 0o777)
+    check(w2.code == 0 && modeOf(c3) == 0o700 && readsBack(c3, []uint8("three")), "create_file_mode 0777 under umask 077")
+    umask(0o22)
+    w3 := os.create_file_mode(c1, []uint8("again"), 0o644)
+    check(osError(w3, "File exists") && modeOf(c1) == 0o600 && readsBack(c1, []uint8("one")), "create_file_mode on a file leaves it")
+    m0 := os.make_dir(cd)
+    w4 := os.create_file_mode(cd, []uint8("x"), 0o600)
+    check(m0.code == 0 && osError(w4, "File exists") && modeOf(cd) == 0o755, "create_file_mode on a directory")
+    l0 := symlink(c1, cl)
+    w5 := os.create_file_mode(cl, []uint8("x"), 0o600)
+    check(l0 == 0 && osError(w5, "File exists") && readsBack(c1, []uint8("one")), "create_file_mode on a link to a file follows nothing")
+    l1 := symlink(ct, cdl)
+    w6 := os.create_file_mode(cdl, []uint8("x"), 0o600)
+    check(l1 == 0 && osError(w6, "File exists") && gone(ct), "create_file_mode on a dangling link makes nothing where it points")
+    for _, mode := range [6]int64{-1, 0o1000, 0o1777, 0o4755, 0o100644, 9223372036854775807} {
+        wb := os.create_file_mode(cbad, []uint8("x"), mode)
+        check(wb.code == 4 && wb.msg == "mode out of range" && gone(cbad), "create_file_mode refuses a mode that is not permission bits")
+    }
+    action := xfszAction()
+    limit := fsizeLimit()
+    l2 := limitFsize(4)
+    w8 := os.create_file_mode(cbad, []uint8("past the limit"), 0o600)
+    r2 := restoreFsize()
+    check(l2 == 0 && r2 == 0 && osError(w8, "File too large") && gone(cbad), "create_file_mode that cannot write removes the file it made")
+    check(action >= 0 && xfszAction() == action && fsizeLimit() == limit, "the file size limit and SIGXFSZ's action are put back")
+    w7 := os.create_file_mode([]uint8("a\x00b"), []uint8("x"), -1)
+    check(nulError(w7), "create_file_mode of a path with a 0 byte, before the mode")
+    umask(old)
 }
 
 // renames renames files, directories and links in dir: a file to a new
@@ -1502,6 +1665,10 @@ func main() {
     check(live() == 1, "the inherit run freed")
     renames(d.bytes())
     check(live() == 1, "renames freed")
+    modes(d.bytes())
+    check(live() == 1, "modes freed")
+    creates(d.bytes())
+    check(live() == 1, "creates freed")
     stats(d.bytes())
     check(live() == 1, "stats freed")
     lstats(d.bytes())

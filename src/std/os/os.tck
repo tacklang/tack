@@ -72,10 +72,29 @@ var nul_prog = error{code: 4, msg: "program contains a NUL byte"}
 // byte.
 var nul_name = error{code: 4, msg: "name contains a NUL byte"}
 
-// c_open opens path, for reading when mode is 0, and for writing when it
-// is 1, creating the file with mode 0644 or truncating it, close-on-exec
-// either way, and returns the file descriptor, or the errno negated.
-extern("tack_os_open") func c_open(path []uint8, mode int32) int64
+// bad_mode is the error for a mode make_dir_mode or write_file_mode is
+// given that is not permission bits alone, 0 to 0o777.
+var bad_mode = error{code: 4, msg: "mode out of range"}
+
+// perm_of returns mode as the permissions C's open and mkdir take, and
+// whether it is permission bits alone, 0 to 0o777: no file type, no
+// setuid, setgid or sticky bit, and nothing negative.
+func perm_of(mode int64) (int32, bool) {
+    if mode < 0 || mode > 0o777 {
+        return 0, false
+    }
+    perm, fits := int32(mode)
+    return perm, fits
+}
+
+// c_open opens path, for reading when mode is 0; for writing when it is
+// 1, creating the file with the permissions perm, before the umask, or
+// truncating it; and, when it is 2, for writing a file it creates with
+// perm, failing with EEXIST when anything is at path, a symbolic link
+// included, which it does not follow (O_CREAT, O_EXCL and O_NOFOLLOW);
+// close-on-exec each way. It returns the file descriptor, or the errno
+// negated. perm is not looked at for reading.
+extern("tack_os_open") func c_open(path []uint8, mode int32, perm int32) int64
 
 // c_close closes fd and returns 0, or the errno negated.
 extern("tack_os_close") func c_close(fd int32) int64
@@ -93,9 +112,9 @@ extern("tack_os_write") func c_write(fd int32, data []uint8) int64
 // and returns 0, or the errno negated.
 extern("tack_os_remove") func c_remove(path []uint8) int64
 
-// c_make_dir makes the directory path with mode 0755 and returns 0, or
-// the errno negated.
-extern("tack_os_make_dir") func c_make_dir(path []uint8) int64
+// c_make_dir makes the directory path with the permissions perm, before
+// the umask, and returns 0, or the errno negated.
+extern("tack_os_make_dir") func c_make_dir(path []uint8, perm int32) int64
 
 // c_rename renames the file or directory old_path to new_path, with C's
 // rename, and returns 0, or the errno negated.
@@ -273,7 +292,7 @@ pub func read_file(path []uint8, scope alloc Allocator) (list[uint8], error) {
     if has_nul(path) {
         return empty, nul_path
     }
-    r := c_open(path, 0)
+    r := c_open(path, 0, 0)
     if r < 0 {
         return empty, c_error(-%r)
     }
@@ -304,18 +323,35 @@ pub func read_file(path []uint8, scope alloc Allocator) (list[uint8], error) {
 
 // write_file writes data to the file at path, creating it with mode 0644
 // when it does not exist and truncating it when it does, and returns no
-// error. It writes until every byte is written, retrying a write a
+// error: write_file_mode with the mode 0o644.
+pub func write_file(path []uint8, data []uint8) error {
+    return write_file_mode(path, data, 0o644)
+}
+
+// write_file_mode writes data to the file at path, creating it with the
+// permissions mode, before the umask, when it does not exist and
+// truncating it when it does, and returns no error. A file that exists
+// keeps its mode: mode is used only to create one. mode is permission
+// bits alone, 0 to 0o777, as 0o600 for a file only its owner may read
+// and write; any other, a negative one, one with a setuid, setgid or
+// sticky bit or a file type, is error{code: 4, msg: "mode out of
+// range"}, refused before the OS sees path, as a path holding a 0 byte
+// is. It writes until every byte is written, retrying a write a
 // signal interrupted, and closes the file on every path; a failed close,
 // which can mean the bytes did not reach the file, is an error. On an
 // error the file may have been created or truncated, and hold some of
 // data: nothing makes the write all or nothing. A pipe with no reader is
 // error{code: 3, msg: "Broken pipe"}: the program ignores SIGPIPE, so the
 // write fails rather than end the process.
-pub func write_file(path []uint8, data []uint8) error {
+pub func write_file_mode(path []uint8, data []uint8, mode int64) error {
     if has_nul(path) {
         return nul_path
     }
-    r := c_open(path, 1)
+    perm, ok := perm_of(mode)
+    if !ok {
+        return bad_mode
+    }
+    r := c_open(path, 1, perm)
     if r < 0 {
         return c_error(-%r)
     }
@@ -323,6 +359,57 @@ pub func write_file(path []uint8, data []uint8) error {
     if !fits {
         return fd_range
     }
+    return write_and_close(fd, data)
+}
+
+// create_file_mode creates a new file at path with the permissions mode,
+// before the umask, writes data to it and returns no error, failing
+// when anything is at path already, as open(2) with O_CREAT, O_EXCL and
+// O_NOFOLLOW does: a file, a directory, or a symbolic link, a dangling
+// one included, which is not followed, is error{code: 3, msg: "File
+// exists"}, the error make_dir gives for a path that exists, the way to
+// tell that the path is taken; what is there is left as it was. So two
+// callers, in one process or two, never both create one path. mode is
+// permission bits alone, 0 to 0o777, as write_file_mode takes it. A
+// path holding a 0 byte is error{code: 4, msg: "path contains a NUL
+// byte"}, and then any other mode error{code: 4, msg: "mode out of
+// range"}, checked in that order, both before the OS sees path. It
+// writes as write_file_mode does, until every byte is written, and
+// closes the file on every path, a failed close an error. On an error
+// once the file is created, it removes path, by its name, after the
+// file is closed: what is at path then is removed, which is the file it
+// created unless something renamed another onto path in between, as
+// with Go's os.CreateTemp and a remove of its name. It does not report a
+// removal that fails: the write's error is the one returned.
+pub func create_file_mode(path []uint8, data []uint8, mode int64) error {
+    if has_nul(path) {
+        return nul_path
+    }
+    perm, ok := perm_of(mode)
+    if !ok {
+        return bad_mode
+    }
+    r := c_open(path, 2, perm)
+    if r < 0 {
+        return c_error(-%r)
+    }
+    fd, fits := int32(r)
+    if !fits {
+        return fd_range
+    }
+    e := write_and_close(fd, data)
+    if e.code != 0 {
+        c_remove(path)
+        return e
+    }
+    return noerror
+}
+
+// write_and_close writes every byte of data to fd, a file open for
+// writing, retrying a write a signal interrupted, then closes fd, on
+// every path, and returns no error, or the error of the write or of the
+// close, which can mean the bytes did not reach the file.
+func write_and_close(fd int32, data []uint8) error {
     mut at int64 = 0
     for at < len(data) {
         n := c_write(fd, part(data, at, len(data)))
@@ -364,12 +451,28 @@ pub func remove_path(path []uint8) error {
 // make_dir makes the directory path, with mode 0755 before the umask, and
 // returns no error. It makes no parent: a missing one is error{code: 3,
 // msg: "No such file or directory"}, and a path that exists is
-// error{code: 3, msg: "File exists"}.
+// error{code: 3, msg: "File exists"}. It is make_dir_mode with the mode
+// 0o755.
 pub func make_dir(path []uint8) error {
+    return make_dir_mode(path, 0o755)
+}
+
+// make_dir_mode makes the directory path, with the permissions mode
+// before the umask, and returns no error, as make_dir does with 0o755: a
+// missing parent is error{code: 3, msg: "No such file or directory"},
+// and a path that exists, whatever its mode, error{code: 3, msg: "File
+// exists"}. mode is permission bits alone, 0 to 0o777, as 0o750; any
+// other is error{code: 4, msg: "mode out of range"}, refused before the
+// OS sees path, as a path holding a 0 byte is.
+pub func make_dir_mode(path []uint8, mode int64) error {
     if has_nul(path) {
         return nul_path
     }
-    r := c_make_dir(path)
+    perm, ok := perm_of(mode)
+    if !ok {
+        return bad_mode
+    }
+    r := c_make_dir(path, perm)
     if r < 0 {
         return c_error(-%r)
     }
@@ -913,7 +1016,7 @@ pub func run(prog []uint8, argv []text.Text, mut out list[uint8], mut err_out li
     // /dev/null is opened here, as Go's exec opens it, so that a failure
     // to open it is the OS's error, not the program's that could not be
     // started.
-    rn := c_open([]uint8("/dev/null"), 0)
+    rn := c_open([]uint8("/dev/null"), 0, 0)
     if rn < 0 {
         return none, c_error(-%rn)
     }
@@ -1044,7 +1147,7 @@ pub func run_inherit(prog []uint8, argv []text.Text, scope alloc Allocator) (Sta
             return none, e1
         }
     }
-    rn := c_open([]uint8("/dev/null"), 0)
+    rn := c_open([]uint8("/dev/null"), 0, 0)
     if rn < 0 {
         return none, c_error(-%rn)
     }
