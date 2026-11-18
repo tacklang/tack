@@ -150,7 +150,7 @@ func emitCaseInputs() ([]input, error) {
 // emitHeaderInputs returns every input of emit-single and emit-packages,
 // and every package of std, by both its names, whose package holds a C
 // file or an extern func (see writesHeader): the inputs whose tack.h
-// --emit-header writes. A directory of examples/ outside a module,
+// --emit-header writes; and libraryHeaderCase. A directory of examples/ outside a module,
 // which the loader rejects, is left out.
 func emitHeaderInputs() ([]input, error) {
 	singles, err := emitSingleInputs()
@@ -178,8 +178,19 @@ func emitHeaderInputs() ([]input, error) {
 			out = append(out, in)
 		}
 	}
+	// A library of the corpus whose C uses a type of its own, checked as
+	// --check checks a library, so --emit-header writes its tack.h, which
+	// Go names that type in otherwise than the C does, a known divergence.
+	out = append(out, input{
+		name: libraryHeaderCase, dir: env.root, file: "examples/extern-module/geo",
+	})
 	return out, nil
 }
+
+// libraryHeaderCase is the case of emit-header that runs --check
+// --emit-header on examples/extern-module/geo, a library outside std
+// whose C file uses geo_Point, a type of its own.
+const libraryHeaderCase = "examples/extern-module/geo:check"
 
 // outsideModule reports whether in's target is a directory with no
 // tack.mod in it or above it, up to in.dir, which the loader rejects
@@ -195,10 +206,10 @@ func outsideModule(in input) bool {
 }
 
 // headerArgs returns emit-header's command line for in: --emit-header of
-// its target, and --check before it for a package of std, a library,
-// whose --emit-header alone is an error.
+// its target, and --check before it for a package of std and for
+// libraryHeaderCase, libraries, whose --emit-header alone is an error.
 func headerArgs(in input) []string {
-	if strings.HasPrefix(in.name, "src/std/") {
+	if strings.HasPrefix(in.name, "src/std/") || in.name == libraryHeaderCase {
 		return []string{"--check", "--emit-header", in.file}
 	}
 	return []string{"--emit-header", in.file}
@@ -426,8 +437,10 @@ func filesDiff(want, got map[string]string) string {
 // its path is named the same, and compares their standard output,
 // standard error and exit status, as runCaseWith does, and the files
 // and directories each copy holds afterwards, with their modes and the
-// files' bytes (see snapshot). A not implemented answer
-// skips, or fails, as runCaseWith's does.
+// files' bytes (see snapshot), Go's but for the file a known
+// divergence of the case records, which must hold what it records (see
+// fileVerdict). A not implemented answer skips, or fails, as
+// runCaseWith's does.
 func runHeaderCase(t *testing.T, st stage, in input, portBin string) {
 	t.Helper()
 	work := filepath.Join(t.TempDir(), "work")
@@ -456,6 +469,13 @@ func runHeaderCase(t *testing.T, st stage, in input, portBin string) {
 	}
 	want, goFiles := run(env.goBin, env.goCache)
 	compareResults(t, st, in, args, want, port)
+	if d, listed := divergenceFor(t, st, in); listed {
+		var why []string
+		why, goFiles = fileVerdict(d, goFiles, portFiles)
+		for _, w := range why {
+			t.Error(w)
+		}
+	}
 	if d := filesDiff(goFiles, portFiles); d != "" {
 		t.Errorf("the files the runs leave differ:%s", d)
 	}

@@ -38,7 +38,11 @@ import (
 // deep in arrays and structs held by value; and, from the backend's
 // values, the methods the unused pass counts as used, called as x.m(),
 // mut x.m() and T.m(x), which it warned of as unused until the backend
-// lowered them.
+// lowered them; and, from tack test's port, a module named std whose
+// std/testing's T.errorf and T.fatalf take no testing.Site, whose formats
+// Go reads at its second argument all the same, and three libraries
+// whose tack.h names the header ruling of 2026-11-18 changes, checked as
+// --check checks a library, each a known divergence.
 const probesStage = "probes"
 
 func init() {

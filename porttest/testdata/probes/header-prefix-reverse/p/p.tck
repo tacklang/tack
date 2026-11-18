@@ -1,0 +1,15 @@
+package p
+
+import q from "m/q"
+
+pub type q_X struct {
+    pub n int64
+}
+
+extern func p_fill(mut x q_X)
+
+pub func fill() int64 {
+    mut x := q_X{n: 0}
+    p_fill(mut x)
+    return x.n +% q.fill()
+}

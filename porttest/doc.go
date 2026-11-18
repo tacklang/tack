@@ -66,8 +66,9 @@
 // last line that starts tack: to its end removed, then the not
 // implemented line: the Go compiler's final error may run over several
 // lines, as two errors joined do, the second not starting tack: . The Go
-// compiler runs to tell, and a late decline that writes anything else
-// fails the case, required or not. A stage enters required.txt once the port implements it, so it
+// compiler runs to tell, and a late decline that writes anything else,
+// or one where Go's standard error has no line starting tack: , fails
+// the case, required or not. A stage enters required.txt once the port implements it, so it
 // cannot quietly stop working. required.txt also names loaded and
 // types-decls, the checks TestLoadOrder and TestTypes make outside
 // TestPort. A name in required.txt that is no
@@ -148,7 +149,8 @@
 //     programs with no error, and on each program harvested from the C
 //     backend's tests (see Backend stages).
 //   - emit-header runs --emit-header, and --check --emit-header for a
-//     package of std, on each input of emit-single, emit-packages and
+//     package of std and for examples/extern-module/geo:check, a library
+//     whose C uses its own type, on each input of emit-single, emit-packages and
 //     std whose package holds a C file or an extern func, a directory
 //     outside a module, which the loader rejects, left out: each
 //     compiler in a fresh copy of the tree at the same path, the
@@ -171,6 +173,10 @@
 //     that must miss and two builds at once; each compares the driver's
 //     output, the binaries, what was compiled and the caches (see Build
 //     cache stages).
+//   - test-examples runs tack test on each package of examples/tack-test,
+//     examples/test-files and std/hex, with each set of flags, and on
+//     each of testProbes, comparing what the driver writes, the files it
+//     leaves and the generated C of each test binary (see Test stage).
 //
 // check-backend, check-clean and the emit stages classify their cases
 // by the stages of the backend's port each needs (see Backend stages),
@@ -204,7 +210,15 @@
 // ruled it, with its date; and the port's output, reviewed: its exit
 // status, its standard output and its standard error, each but those
 // the entry's same names, where the port gives what Go gives, so an
-// entry whose C is Go's records its warnings alone. Wherever the case
+// entry whose C is Go's records its warnings alone. An entry of
+// emit-header may end in one more section, file: the path of a file its
+// case's copy holds afterwards, and that file's mode and bytes as the
+// port writes them, which runHeaderCase compares the port's copy with in
+// place of Go's file there, failing the case when Go's is the recorded
+// one; such an entry may name every stream in same. An entry of the
+// suite header-render records, as its standard output, the tack.h
+// TestHeaderRender compares the port's --port-header with in place of
+// Go's backend's, which must differ from it. Wherever the case
 // runs, compareResults compares the port with that output in place of
 // Go's, as the stage compares the two, and fails the case when Go gives
 // it, the entry having gone stale, as much as when the port does not; a
@@ -213,7 +227,8 @@
 //
 // An entry applies to its suite's cases alone. TestPort marks each case
 // of a stage as that stage's, TestProbesPairStack the probes as the
-// probes stage's, and TestEmitProbes its programs as emit-probes'. An
+// probes stage's, TestEmitProbes its programs as emit-probes', and
+// TestHeaderRender its inputs as header-render's. An
 // input of no suite, as the deep, perf and fuzz tests make, never takes
 // an entry, and fails when an entry of the stage it runs as names it, so
 // that no entry applies silently to an input that only shares a case's
@@ -221,8 +236,8 @@
 // does not have, and TestDivergencesFile, in every go test ./porttest,
 // reads the list, rejecting a malformed one, and fails an entry of the
 // probes or the emit probes naming no program of theirs. The files an
-// emit-header case leaves are no part of an entry, and are compared with
-// Go's always. TestParseDivergences, TestParseDivergencesRejects,
+// emit-header case leaves are compared with Go's, but for the one file
+// an entry of the case records. TestParseDivergences, TestParseDivergencesRejects,
 // TestDivergenceVerdict, TestMatchDivergence, TestMissingDivergences and
 // TestDivergedDecline check the mechanism itself.
 //
@@ -516,22 +531,15 @@
 // it holds no build the port declines: TestBuildDeclines runs those,
 // the port alone, the warning program built where Go words what the
 // port cannot, a TMPDIR that is missing or a file, one so long that the
-// runtime's directories cannot be made below it, a clang that leaves in
-// the temporary directory what cannot be removed, a file and a dangling
-// symbolic link at --out before a build whose clang does that and
-// writes no binary, a current directory that is gone, and, building a
+// runtime's directories cannot be made below it, a current directory
+// that is gone, and, building a
 // program that links objects of the runtime, a clang that writes no
 // object, which the port cannot read, where Go words debug/elf's error,
 // a build cache whose objects or keys directory cannot be written, or one
 // whose every key, or every object, is a directory, where Go's error
 // names a temporary file of a random name, one whose every key names an
 // ELF32, a big-endian or a Mach-O object, which Go reads and the port's
-// ELF reader does not take, and a C file clang
-// rejects with a clang that leaves what cannot be removed, where Go's
-// error is two joined over two lines, and a temporary directory holding
-// a path past PATH_MAX, which Go's RemoveAll, relative to each
-// directory, removes and the port, by path, cannot, so it declines
-// after the diagnostics Go writes, and
+// ELF reader does not take, and
 // checks that each declines as a case must to skip: exit status 3, the
 // not implemented line with the case's reason, nothing else written for
 // a decline before clang runs, and for those after it, the late
@@ -540,7 +548,17 @@
 // before its last error (see Protocol); nothing left in TMPDIR but what
 // that clang left there, and
 // nothing at the --out path, but for what was there before the build,
-// which is left as it was. Each compiler builds a case in a
+// which is left as it was. Its match cases, once declines, are builds
+// whose temporary directory cannot be removed whole, which std/os's
+// remove_all removes or fails at as Go's RemoveAll does, so the port
+// writes what Go writes: a clang that leaves in it what cannot be
+// removed, one directory or several at several depths, a file and a
+// dangling symbolic link at --out before a build whose clang does that
+// and writes no binary, a C file clang rejects with a clang that leaves
+// that, where Go's error is two joined over two lines, and a path past
+// PATH_MAX, which both remove, after diagnostics; each runs both
+// compilers and compares their output, what they leave in TMPDIR and
+// at --out. Each compiler builds a case in a
 // fresh copy of its tree, the directory of its module or of its file,
 // each file copied with mode 0644, or 0755 when it may be run,
 // at the same path below the case's temporary directory, the port's
@@ -585,8 +603,13 @@
 // the removal's error, which the port reports after them, a known
 // divergence TestBuildRemovalReported checks, outside the stages, since
 // its clang leaves what the harness must make removable first, against
-// the error os.RemoveAll gives for the same tree; any other errno there
-// is declined.
+// the error os.RemoveAll gives for the same tree; an errno the port has
+// no Go words for there, EHWPOISON alone, is written in std/os's words,
+// decided 2026-11-18, since Go writes no tack: line there that a late
+// decline could stand for; after a build that succeeded or failed with
+// an error of one line, where Go's output ends in its tack: line, such
+// an errno is declined, nothing of that line written first. A build
+// tack test runs declines naming test, not --out.
 //
 // TestObjectSymbols checks the port's ELF reader, which finds what
 // the objects of a build define and leave undefined, with no tool but
@@ -712,6 +735,77 @@
 // name that is taken, which no build can be made to meet without a
 // hook in the driver for the test alone; the concurrent case shows only
 // that two builds at once succeed and leave no temporary file.
+//
+// # Test stage
+//
+// test-examples checks the port's tack test. Its cases are each package
+// testCorpusDirs names, run from its own directory with . as its target
+// and each of testFlagSets: none, -v, a -run pattern, -v with another,
+// and -O2; examples/tack-test/pipe with -v and standard output a pipe
+// whose reader is closed, as the Go compiler's test runs it, so its
+// test's writes end the binary with status 141; each of testTargets, a
+// package named otherwise than ., by its import path from its module's
+// root, by a relative path from above it, one that names nothing, and
+// std/hex from std/testing as ../hex; and each of testProbes, a module
+// named m written once a run below the run's temporary directory and run
+// from its root: every command-line mistake Go's flag package and
+// parseTestArgs word, the help by each of its names, every way a flag
+// can be written, targets that are empty, a file, missing, in another
+// module, or a directory with no Tack file, test files alone and in
+// name order with ones that are no test files, -run matching no test,
+// every way a test can be declared wrongly, a syntax and a lex error, a
+// clause that does not match, each name the generated main declares,
+// an import cycle through the package tested, a warning, a test binary
+// SIGTERM, SIGKILL and SIGSEGV kill and one that exits 7, through C, 2000
+// tests, names and a pattern of odd bytes, the PWD a test sees, a
+// temporary directory a test leaves what may not be read in, after
+// tests that fail and pass, a test binary a hook on clang's link makes
+// one exec cannot run, of no format it knows or not executable, or
+// fills with a tree deeper than PATH_MAX, or fails beside a temporary
+// directory that cannot be removed, types
+// whose tack.h names the header ruling changes, a relative TMPDIR, every
+// mistake in the format of T.errorf and T.fatalf, called as methods and
+// through testing.T, and formats that are right, a main package with no
+// main function, and a package whose C uses a type of the package, as
+// package main and as another, which the Go compiler names wrongly in
+// tack.h, a known divergence.
+//
+// Each compiler runs the case as a build stage's case builds, in a fresh
+// copy of the case's whole module at the same path, the port first, with
+// a read-only TACK_HOME, a fresh TACK_CACHE and TMPDIR at the same paths,
+// the Go compiler through goStackWrapper, and a case in std, which the
+// loader finds std's only below TACK_HOME, in that read-only copy of
+// std; and each with a clang first on PATH that copies the generated C
+// it links, program.c, aside (see savingClangDir). The stage compares
+// standard output, standard error and the exit status byte for byte, but
+// for the random part of a build's temporary directory, the files the
+// copy holds afterwards, and the two generated C files where both
+// compilers linked one, one compiler linking a binary and the other
+// not failing a case the divergence list does not hold, and the stage
+// failing when no case compared any; a run that leaves anything in
+// TMPDIR fails, a decline's too, but for the probes whose test leaves
+// what may not be read, which must leave it, and whose TMPDIR is made
+// removable after each run. Paths below the case's TMPDIR are written
+// $TMPDIR, the random part of a build's or tack test's directory there
+// hidden too, so an entry can record them. A decline is held to the
+// Protocol, as a build's is. Where tack test still declines: a
+// failure the loader cannot word, before anything is built; the build's
+// own declines (see Build stages); a temporary directory that cannot be
+// made; a test binary that cannot be started for an errno the port has
+// no Go words for, in place of Go's tack: cannot run line; and a
+// temporary directory that cannot be removed for such an errno, EHWPOISON
+// alone on Linux, after a run that passed or an error of one line, in
+// place of the tack: line Go ends in, which the port holds back until the
+// removal is done, so nothing of it is written first. After tests that
+// failed or diagnostics, where Go writes nothing of the removal, such an
+// errno is written in std/os's words, decided 2026-11-18, and nothing is
+// declined. The temporary directory is removed with std/os's
+// remove_all, as Go's RemoveAll removes it, relative to each directory,
+// so a tree below it deeper than PATH_MAX, which a probe's hook on
+// clang's link makes, is removed as Go removes it. A known limitation no
+// probe covers: a tree deeper than the descriptors the port may open,
+// about a thousand levels at Linux's usual soft limit, fails with EMFILE
+// where Go, whose runtime raises that limit to the hard one, removes it.
 //
 // # Loading
 //

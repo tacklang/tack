@@ -1,0 +1,14 @@
+package testing
+
+pub type T struct {
+    pub n int64
+}
+
+pub func (mut t T) errorf(n int64, format string, args ...any) {
+    t.n = n
+}
+
+pub func (mut t T) fatalf(format string, at int64, args ...any) error {
+    t.n = at
+    return noerror
+}

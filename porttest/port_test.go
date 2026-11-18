@@ -63,6 +63,9 @@ type stage struct {
 	// run, when not nil, runs a case of the stage in place of
 	// runCaseWith, with portBin as the port.
 	run func(t *testing.T, st stage, in input, portBin string)
+	// done, when not nil, runs once every case of the stage has, with
+	// the stage's test, to check what the cases found together.
+	done func(t *testing.T)
 	// name is the stage's name, in required.txt and as TestPort's subtest.
 	name string
 	// stdout is how the standard outputs are compared.
@@ -180,8 +183,15 @@ func (r result) lateDecline() (string, bool) {
 // error, to its end removed, followed by line. The Go driver's error
 // can run over several lines, as an errors.Join of two does, whose
 // second does not start tack: , so all of them go. What the port wrote
-// before it declined is so what Go wrote before its own final error.
+// before it declined is so what Go wrote before its own final error. A
+// Go run with no such line, as after diagnostics alone or a test
+// binary's run, has no error a decline could stand for, and mismatches
+// whatever the port wrote.
 func lateDeclineMismatch(want, port result, line string) string {
+	if len(goBeforeError(want.stderr)) == len(want.stderr) {
+		return fmt.Sprintf("Go's standard error %q has no line starting tack: , an error the decline could stand for",
+			want.stderr)
+	}
 	if !bytes.Equal(port.stdout, want.stdout) {
 		return fmt.Sprintf("its standard output %q is not Go's %q", port.stdout, want.stdout)
 	}
@@ -208,6 +218,10 @@ func TestPort(t *testing.T) {
 				t.Fatal("the stage has no inputs")
 			}
 			checkDivergencesListed(t, st.name, ins)
+			if st.done != nil {
+				// Cleanup runs once every parallel case has ended.
+				t.Cleanup(func() { st.done(t) })
+			}
 			for _, in := range asSuite(ins, st.name) {
 				t.Run(in.name, func(t *testing.T) {
 					t.Parallel()
@@ -344,6 +358,14 @@ func runCompiler(t *testing.T, bin, cache string, in input, args []string) resul
 	if in.combined {
 		cmd.Stderr = &stdout
 	}
+	if in.closedStdout {
+		w, err := closedPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer w.Close()
+		cmd.Stdout = w
+	}
 	outlived, err := runInGroup(cmd)
 	if measured != "" && ctx.Err() == nil && cmd.ProcessState != nil {
 		logMeasured(t, measured, bin, dir, args, in.env, cmd.ProcessState.ExitCode())
@@ -352,6 +374,19 @@ func runCompiler(t *testing.T, bin, cache string, in input, args []string) resul
 	failEnd(t, endOf(ctx.Err(), err, outlived, false), running, cmd, err, outlived,
 		compilerTimeout, stderr.Bytes())
 	return result{stdout: stdout.Bytes(), stderr: stderr.Bytes(), code: cmd.ProcessState.ExitCode()}
+}
+
+// closedPipe returns the write end of a pipe whose read end is closed.
+func closedPipe() (*os.File, error) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		return nil, fmt.Errorf("making a pipe: %w", err)
+	}
+	if err := r.Close(); err != nil {
+		_ = w.Close()
+		return nil, fmt.Errorf("closing a pipe's read end: %w", err)
+	}
+	return w, nil
 }
 
 // measureLogVar is the environment variable naming the file every run

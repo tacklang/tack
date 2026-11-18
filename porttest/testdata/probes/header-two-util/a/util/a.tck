@@ -1,0 +1,15 @@
+package util
+
+import other from "m/b/util"
+
+pub type X struct {
+    pub n int64
+}
+
+extern func a_fill(mut x X)
+
+pub func fill() int64 {
+    mut x := X{n: 0}
+    a_fill(mut x)
+    return x.n +% other.fill()
+}

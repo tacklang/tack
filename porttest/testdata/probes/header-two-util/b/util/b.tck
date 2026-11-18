@@ -1,0 +1,13 @@
+package util
+
+pub type X struct {
+    pub n int64
+}
+
+extern func b_fill(mut x X)
+
+pub func fill() int64 {
+    mut x := X{n: 0}
+    b_fill(mut x)
+    return x.n
+}

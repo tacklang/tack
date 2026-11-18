@@ -1,0 +1,10 @@
+package main
+
+import testing from "std/testing"
+
+func main() {
+    mut t := testing.T{n: 0}
+    mut t.errorf(1, "%d %d", 5)
+    mut t.fatalf("%s", 2, 3)
+    testing.T.errorf(mut t, 1, "%d %d", 5)
+}

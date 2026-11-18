@@ -170,6 +170,11 @@ func TestReservedTables(t *testing.T) {
 	t.Logf("%d entries compared", strings.Count(string(want), "\n"))
 }
 
+// headerRenderSuite is the suite of TestHeaderRender's inputs in the
+// divergence list, whose entries record the port's tack.h as its
+// standard output (see checkHeader).
+const headerRenderSuite = "header-render"
+
 // headerRenderDir holds the programs TestHeaderRender renders besides
 // emit-header's inputs: externs of every kind of parameter and result,
 // in every mode, names C cannot take where tack.h writes them only in a
@@ -231,6 +236,15 @@ func checkHeader(t *testing.T, in input, port string) bool {
 	if got.code != 0 || len(got.stderr) > 0 {
 		t.Fatalf("the port exited %d, writing to standard error:\n%s", got.code, got.stderr)
 	}
+	if dv, listed := divergenceFor(t, stage{name: headerRenderSuite}, in); listed {
+		// A known divergence records the port's tack.h, which Go's must
+		// not be.
+		if bytes.Equal(want, dv.want.stdout) {
+			t.Errorf("divergence %s is stale: Go's backend renders its recorded tack.h; remove the entry from %s",
+				dv.id, divergencesFile)
+		}
+		want = dv.want.stdout
+	}
 	if d := firstDiff(want, got.stdout); d != "" {
 		t.Errorf("tack.h differs: %s\ncommand: (cd %s && tack --port-header %s)", d, in.dir, in.file)
 	}
@@ -241,7 +255,8 @@ func checkHeader(t *testing.T, in input, port string) bool {
 // backend renders it, with Go's backend's Header run in process, on
 // every input of emit-header and every program of headerRenderDir that
 // Go accepts with no error, whatever its header's diagnostics, which
-// Header renders past. It runs only as TestPort does.
+// Header renders past, or with the tack.h a known divergence of the
+// suite header-render records. It runs only as TestPort does.
 func TestHeaderRender(t *testing.T) {
 	ready(t)
 	ins, err := headerRenderInputs()
@@ -249,8 +264,9 @@ func TestHeaderRender(t *testing.T) {
 		t.Fatal(err)
 	}
 	var compared int
+	checkDivergencesListed(t, headerRenderSuite, ins)
 	t.Run("cases", func(t *testing.T) {
-		for _, in := range ins {
+		for _, in := range asSuite(ins, headerRenderSuite) {
 			t.Run(in.name, func(t *testing.T) {
 				if checkHeader(t, in, env.portRun) {
 					compared++

@@ -1,0 +1,13 @@
+package p
+
+pub type auto struct {
+    pub n int64
+}
+
+extern func p_fill(mut x auto)
+
+pub func fill() int64 {
+    mut x := auto{n: 0}
+    p_fill(mut x)
+    return x.n
+}

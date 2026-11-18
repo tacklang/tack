@@ -42,3 +42,4 @@ build-invalid-c
 build-identical
 build-warm
 build-cache
+test-examples

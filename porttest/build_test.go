@@ -647,13 +647,13 @@ func prepareBuild(d buildDirs, in input) (input, error) {
 // directory a build makes in tmp, its TMPDIR, replaced by *: the Go
 // driver makes it with os.MkdirTemp("", "tk-*") (tack/build.go), as
 // tk-3605748710, the port with std/os's make_temp_dir and the prefix
-// tk-, as tk-aB3xY9, and each writes the program's C and tack.h there,
+// tk-, as tk-aB3xY9, and for tack test's binary tk-test- and the same, and each writes the program's C and tack.h there,
 // which clang's notes name. That part differs run to run, and between
 // the compilers; every other byte of the path must not, and only a path
 // component tk-<letters and digits> right below tmp is changed.
 func tempNamesHidden(r result, tmp string) result {
-	re := regexp.MustCompile(regexp.QuoteMeta(tmp+string(filepath.Separator)) + `tk-[0-9A-Za-z]+\b`)
-	hide := func(b []byte) []byte { return re.ReplaceAllLiteral(b, []byte(tmp+"/tk-*")) }
+	re := regexp.MustCompile(regexp.QuoteMeta(tmp+string(filepath.Separator)) + `tk-(test-)?[0-9A-Za-z]+\b`)
+	hide := func(b []byte) []byte { return re.ReplaceAll(b, []byte(tmp+"/tk-${1}*")) }
 	r.stdout, r.stderr = hide(r.stdout), hide(r.stderr)
 	return r
 }
@@ -1120,7 +1120,7 @@ func TestBuildDeclineVerdict(t *testing.T) {
 // last is neither; and a late decline matches Go's run only when its standard output
 // is Go's and its standard error Go's up to its last tack: line, which
 // with what follows it, a joined error's second line among them, is
-// removed, then the decline, a Go run with no such line kept whole.
+// removed, then the decline, and never beside a Go run with no such line.
 func TestLateDecline(t *testing.T) {
 	const line = "tack: not implemented in the port: --out with a temp directory that cannot be removed\n"
 	warn := "main.tck:5:6: warning: declared and not used: spare\n"
@@ -1172,12 +1172,6 @@ func TestLateDecline(t *testing.T) {
 		"no tack: line":     {stdout: goRun.stdout, stderr: []byte(warn + "clang err\n")},
 		"two lines removed": {stdout: goRun.stdout, stderr: []byte(warn + "clang err\ntack: a\ntack: b\n")},
 	} {
-		if name == "no tack: line" {
-			if why := lateDeclineMismatch(want, late, line); why != "" {
-				t.Errorf("%s: %s, want a match, Go's standard error kept whole", name, why)
-			}
-			continue
-		}
 		if why := lateDeclineMismatch(want, late, line); why == "" {
 			t.Errorf("%s: a match, want a mismatch", name)
 		}

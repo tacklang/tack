@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -48,6 +49,12 @@ type divergence struct {
 	// want is the port's recorded output, but for the streams same
 	// names.
 	want result
+	// file, when it is not "", is the path, slash-separated, of a file a
+	// case of emit-header writes in its copy, where the port writes
+	// other bytes than the Go compiler, and fileWant what the port's
+	// copy holds there, as snapshot gives it, its mode and its bytes
+	// (see the entry's optional file section).
+	file, fileWant string
 }
 
 // divergenceFields are the fields of an entry's divergence section, in
@@ -61,6 +68,13 @@ var divergenceStreams = []string{"exit", "stdout", "stderr"}
 // divergenceSections are the sections of an entry, after its
 // divergence section, in order.
 var divergenceSections = []string{"divergence", "exit", "stdout", "stderr"}
+
+// fileSection is the kind of the section an entry may have after its
+// stderr, for a case of emit-header whose port writes a file other than
+// Go's: its first line is path: and the file's path in the case's copy,
+// slash-separated, its second the file's mode as snapshot writes it,
+// and the rest the file's bytes, as reviewed.
+const fileSection = "file"
 
 // sectionMarker matches the line that starts a section of the file,
 // -- <id>/<section> --.
@@ -80,10 +94,11 @@ var loadedDivergences = sync.OnceValues(func() ([]divergence, error) {
 })
 
 // knownSuites returns the suites an entry may name: every stage's name,
-// and emitProbesSuite. The files an emit-header case leaves are no part
-// of an entry: they are compared with the Go compiler's always.
+// emitProbesSuite and headerRenderSuite. A file an emit-header case
+// leaves is part of an entry only when its file section names it; every
+// other is compared with the Go compiler's always.
 func knownSuites() map[string]bool {
-	out := map[string]bool{emitProbesSuite: true}
+	out := map[string]bool{emitProbesSuite: true, headerRenderSuite: true}
 	for _, st := range stages {
 		out[st.name] = true
 	}
@@ -103,11 +118,20 @@ func parseDivergences(data []byte, suites map[string]bool) ([]divergence, error)
 	}
 	var out []divergence
 	seen := map[string]bool{}
-	for i := 0; i < len(secs); i += len(divergenceSections) {
-		d, err := parseEntry(secs[i:i+len(divergenceSections)], suites)
+	for i := 0; i < len(secs); {
+		n := len(divergenceSections)
+		if i+n > len(secs) {
+			return nil, fmt.Errorf("divergence %s: %d sections, not %d an entry", secs[i].id,
+				len(secs)-i, n)
+		}
+		if i+n < len(secs) && secs[i+n].kind == fileSection && secs[i+n].id == secs[i].id {
+			n++
+		}
+		d, err := parseEntry(secs[i:i+n], suites)
 		if err != nil {
 			return nil, err
 		}
+		i += n
 		if seen["id "+d.id] {
 			return nil, fmt.Errorf("divergence %s: listed twice", d.id)
 		}
@@ -134,7 +158,7 @@ type listSection struct {
 
 // listSections splits the divergence list data into its sections, with
 // nothing before the first but comment lines, starting #, and blank
-// lines, and as many as whole entries have.
+// lines; parseDivergences groups them into entries.
 func listSections(data []byte) ([]listSection, error) {
 	var secs []listSection
 	for i, line := range bytes.SplitAfter(data, []byte("\n")) {
@@ -151,10 +175,6 @@ func listSections(data []byte) ([]listSection, error) {
 				line,
 			)
 		}
-	}
-	if len(secs)%len(divergenceSections) != 0 {
-		return nil, fmt.Errorf("divergence list: %d sections, not %d an entry", len(secs),
-			len(divergenceSections))
 	}
 	return secs, nil
 }
@@ -180,10 +200,30 @@ func parseEntry(secs []listSection, suites map[string]bool) (divergence, error) 
 	case !datedRuling.MatchString(d.why):
 		return divergence{}, fmt.Errorf("divergence %s: its why names no date", id)
 	}
+	if len(secs) > len(divergenceSections) {
+		if d.suite != emitHeaderStage {
+			return divergence{}, fmt.Errorf("divergence %s: a file section, which only emit-header's cases take", id)
+		}
+		if err := d.readFile(secs[len(divergenceSections)].body); err != nil {
+			return divergence{}, fmt.Errorf("divergence %s: %w", id, err)
+		}
+	}
 	if err := d.readOutput(fields[4], secs[1:]); err != nil {
 		return divergence{}, fmt.Errorf("divergence %s: %w", id, err)
 	}
 	return d, nil
+}
+
+// readFile sets d's file and fileWant from body, its file section: a
+// line path: and the path, then the file's mode and bytes.
+func (d *divergence) readFile(body []byte) error {
+	first, rest, ok := strings.Cut(string(body), "\n")
+	p, named := strings.CutPrefix(first, "path: ")
+	if !ok || !named || p == "" || !strings.Contains(rest, "\n") {
+		return errors.New("its file section is no line path: and a path, then a mode and the bytes")
+	}
+	d.file, d.fileWant = p, rest
+	return nil
 }
 
 // readOutput sets d's same from same, the value of its field, and its
@@ -191,7 +231,7 @@ func parseEntry(secs []listSection, suites map[string]bool) (divergence, error) 
 // of which must be empty when same names its stream.
 func (d *divergence) readOutput(same string, secs []listSection) error {
 	var err error
-	if d.same, err = sameStreams(same); err != nil {
+	if d.same, err = sameStreams(same, d.file != ""); err != nil {
 		return err
 	}
 	for j, stream := range divergenceStreams {
@@ -240,8 +280,9 @@ func divergenceHeader(body []byte) ([]string, error) {
 
 // sameStreams reads an entry's field same: none, or a list of streams,
 // each one of divergenceStreams, once, separated by a comma and a space,
-// and not all of them, which would record nothing.
-func sameStreams(value string) (map[string]bool, error) {
+// and not all of them, which would record nothing, unless file says the
+// entry records a file.
+func sameStreams(value string, file bool) (map[string]bool, error) {
 	out := map[string]bool{}
 	if value == "none" {
 		return out, nil
@@ -256,7 +297,7 @@ func sameStreams(value string) (map[string]bool, error) {
 		}
 		out[stream] = true
 	}
-	if len(out) == len(divergenceStreams) {
+	if len(out) == len(divergenceStreams) && !file {
 		return nil, errors.New("same names every stream, recording nothing")
 	}
 	return out, nil
@@ -339,7 +380,9 @@ func asSuite(ins []input, suite string) []input {
 func divergenceVerdict(d divergence, c compare, goRun, portRun result) []string {
 	var why []string
 	want := d.expected(goRun)
-	if goRun.code == want.code && bytes.Equal(goRun.stderr, want.stderr) &&
+	// An entry that records a file is stale when Go writes that file as
+	// recorded, which the stage checks (see fileVerdict).
+	if d.file == "" && goRun.code == want.code && bytes.Equal(goRun.stderr, want.stderr) &&
 		stdoutDiff(c, want.stdout, goRun.stdout) == "" {
 		why = append(
 			why,
@@ -357,6 +400,29 @@ func divergenceVerdict(d divergence, c compare, goRun, portRun result) []string 
 		why = append(why, "standard output differs from the recorded: "+recordedDiff(diff))
 	}
 	return why
+}
+
+// fileVerdict returns why d, an entry of the divergence list for a case
+// of emit-header, fails, given goFiles and portFiles, what the two
+// compilers' copies hold afterwards (see snapshot), and goFiles as the
+// port's must be: Go's, but for d's file, which must hold what d
+// records, and which Go's must not, or the entry is stale. An entry
+// that records no file leaves goFiles as they are.
+func fileVerdict(d divergence, goFiles, portFiles map[string]string) ([]string, map[string]string) {
+	if d.file == "" {
+		return nil, goFiles
+	}
+	var why []string
+	if goFiles[d.file] == d.fileWant {
+		why = append(why, "divergence "+d.id+" is stale: the Go compiler writes its recorded "+d.file+
+			"; remove the entry from "+divergencesFile)
+	}
+	if _, ok := portFiles[d.file]; !ok {
+		why = append(why, "divergence "+d.id+" records "+d.file+", which the port does not write")
+	}
+	want := maps.Clone(goFiles)
+	want[d.file] = d.fileWant
+	return why, want
 }
 
 // recordedDiff rewords diff, a firstDiff of a recorded output and the
@@ -550,9 +616,11 @@ func normalized(list []divergence) []divergence {
 // malformed list: text before the first section, a missing or misordered
 // section or field, an unknown suite, an exit status that is no number,
 // a why with no date, a same that is no list of streams, names all of
-// them or one its section records, and an entry or a case listed twice.
+// them with no file recorded or one its section records, an entry or a
+// case listed twice, and a file section of an entry not emit-header's,
+// or with no path or no mode.
 func TestParseDivergencesRejects(t *testing.T) {
-	suites := map[string]bool{"probes": true}
+	suites := map[string]bool{"probes": true, emitHeaderStage: true}
 	for name, data := range malformedLists() {
 		got, err := parseDivergences([]byte(data), suites)
 		if err == nil {
@@ -560,6 +628,54 @@ func TestParseDivergencesRejects(t *testing.T) {
 			continue
 		}
 		t.Logf("%s: %v", name, err)
+	}
+}
+
+// headerEntry is an entry of emit-header recording a file, its every
+// stream Go's.
+var headerEntry = divergenceEntry("h", append([]string{"suite: " + emitHeaderStage, "case: src/os"},
+	append(slices.Clone(goodHeader[2:5]), "same: exit, stdout, stderr")...), "", "", "") +
+	"-- h/file --\npath: src/os/tack.h\n-rw-r--r--\nint os_x;\n"
+
+// TestParseDivergencesFile checks that parseDivergences reads an entry
+// of emit-header ending in a file section, its path and the file's mode
+// and bytes, with same naming every stream, and the entry after it.
+func TestParseDivergencesFile(t *testing.T) {
+	data := headerEntry + divergenceEntry("a", goodHeader, "1", "", "x\n")
+	got, err := parseDivergences([]byte(data), map[string]bool{"probes": true, emitHeaderStage: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].file != "src/os/tack.h" || got[0].fileWant != "-rw-r--r--\nint os_x;\n" ||
+		!got[0].same["exit"] || !got[0].same["stdout"] || !got[0].same["stderr"] ||
+		got[1].id != "a" || got[1].file != "" {
+		t.Errorf("parseDivergences = %+v", got)
+	}
+}
+
+// TestFileVerdict checks fileVerdict: the port's copy must hold the
+// recorded file where Go's does not, Go's elsewhere; an entry whose
+// file Go writes as recorded is stale, and one the port does not write
+// fails; an entry recording no file leaves Go's files as they are.
+func TestFileVerdict(t *testing.T) {
+	d := divergence{id: "h", file: "os/tack.h", fileWant: "-rw-r--r--\nos_x\n"}
+	goFiles := map[string]string{"os/": "drwxr-xr-x\n", "os/tack.h": "-rw-r--r--\nx\n"}
+	port := map[string]string{"os/": "drwxr-xr-x\n", "os/tack.h": d.fileWant}
+	why, want := fileVerdict(d, goFiles, port)
+	if len(why) != 0 || filesDiff(want, port) != "" {
+		t.Errorf("port as recorded: %q, %s", why, filesDiff(want, port))
+	}
+	if filesDiff(want, goFiles) == "" {
+		t.Error("Go's files pass for the port's")
+	}
+	if why, _ := fileVerdict(d, port, port); len(why) != 1 {
+		t.Errorf("stale: %q, want one failure", why)
+	}
+	if why, _ := fileVerdict(d, goFiles, map[string]string{"os/": "drwxr-xr-x\n"}); len(why) != 1 {
+		t.Errorf("not written: %q, want one failure", why)
+	}
+	if why, w := fileVerdict(divergence{id: "n"}, goFiles, port); len(why) != 0 || filesDiff(w, goFiles) != "" {
+		t.Errorf("no file: %q", why)
 	}
 }
 
@@ -578,26 +694,30 @@ func malformedLists() map[string]string {
 	good := entry(goodHeader, "0", "", "")
 	other := append([]string{"suite: probes", "case: other.tck"}, goodHeader[2:]...)
 	return map[string]string{
-		"text first":    "stray\n" + good,
-		"no suite":      entry(without(0), "0", "", ""),
-		"no case":       entry(without(1), "0", "", ""),
-		"no go":         entry(without(2), "0", "", ""),
-		"no why":        entry(without(3), "0", "", ""),
-		"no same":       entry(goodHeader[:5], "0", "", ""),
-		"empty field":   entry(with(2, "go: "), "0", "", ""),
-		"unknown":       entry(with(0, "suite: nowhere"), "0", "", ""),
-		"exit word":     entry(goodHeader, "one", "", ""),
-		"undated":       entry(slices.Delete(with(3, "why: because"), 4, 5), "0", "", ""),
-		"same word":     entry(with(5, "same: stdin"), "0", "", ""),
-		"same twice":    entry(with(5, "same: stdout, stdout"), "0", "", ""),
-		"same all":      entry(with(5, "same: exit, stdout, stderr"), "", "", ""),
-		"same recorded": entry(with(5, "same: stdout"), "0", "C\n", ""),
-		"same no space": entry(with(5, "same: exit,stdout"), "", "", "w\n"),
-		"same id":       good + divergenceEntry("a", other, "0", "", ""),
-		"same case":     good + divergenceEntry("b", goodHeader, "0", "", ""),
-		"no stderr":     strings.Split(good, "-- a/stderr --")[0],
-		"mixed ids":     strings.Replace(good, "-- a/exit --", "-- b/exit --", 1),
-		"out of order":  strings.Replace(good, "-- a/stdout --", "-- a/stderr --", 1),
+		"text first":           "stray\n" + good,
+		"no suite":             entry(without(0), "0", "", ""),
+		"no case":              entry(without(1), "0", "", ""),
+		"no go":                entry(without(2), "0", "", ""),
+		"no why":               entry(without(3), "0", "", ""),
+		"no same":              entry(goodHeader[:5], "0", "", ""),
+		"empty field":          entry(with(2, "go: "), "0", "", ""),
+		"unknown":              entry(with(0, "suite: nowhere"), "0", "", ""),
+		"exit word":            entry(goodHeader, "one", "", ""),
+		"undated":              entry(slices.Delete(with(3, "why: because"), 4, 5), "0", "", ""),
+		"same word":            entry(with(5, "same: stdin"), "0", "", ""),
+		"same twice":           entry(with(5, "same: stdout, stdout"), "0", "", ""),
+		"same all":             entry(with(5, "same: exit, stdout, stderr"), "", "", ""),
+		"same recorded":        entry(with(5, "same: stdout"), "0", "C\n", ""),
+		"same no space":        entry(with(5, "same: exit,stdout"), "", "", "w\n"),
+		"same id":              good + divergenceEntry("a", other, "0", "", ""),
+		"file not emit-header": good + "-- a/file --\npath: x/tack.h\n-rw-r--r--\nint x;\n",
+		"file no path":         strings.Replace(headerEntry, "path: src/os/tack.h\n", "", 1),
+		"file no mode":         strings.Replace(headerEntry, "-rw-r--r--\nint os_x;\n", "", 1),
+		"same all, no file":    strings.Split(headerEntry, "-- h/file --")[0],
+		"same case":            good + divergenceEntry("b", goodHeader, "0", "", ""),
+		"no stderr":            strings.Split(good, "-- a/stderr --")[0],
+		"mixed ids":            strings.Replace(good, "-- a/exit --", "-- b/exit --", 1),
+		"out of order":         strings.Replace(good, "-- a/stdout --", "-- a/stderr --", 1),
 	}
 }
 

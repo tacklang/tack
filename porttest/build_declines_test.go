@@ -51,6 +51,13 @@ type buildDecline struct {
 	// hold afterwards what Go's build left in its own, every file and
 	// directory by its path, mode and bytes.
 	sameCache bool
+	// matches says the port declines the case no more, but writes what
+	// Go writes: a temporary directory that cannot be removed, which
+	// std/os's remove_all removes or fails at as Go's RemoveAll does. The
+	// case then runs both compilers and compares what they write, how
+	// they exit, what they leave in TMPDIR and at the --out path (see
+	// runBuildMatch); reason and late are not read.
+	matches bool
 	// late says the port declines once clang has run, after the warning
 	// and what clang wrote, so the Go compiler runs the case too, and the
 	// port's output must be Go's before its last error, then the decline
@@ -73,11 +80,12 @@ const (
 // seen: a TMPDIR that is missing and one that is a file, where the
 // temporary directory cannot be made; a TMPDIR so long that the
 // runtime's directories below it cannot be made, whose Go error names
-// the temporary directory; a clang that writes the binary and leaves in
-// the temporary directory what the port cannot remove; a file and a
-// dangling symbolic link at the --out path before a build whose clang
-// leaves that too but writes no binary, which a decline leaves as they
-// were; and a current directory that is gone, where Go's message names
+// the temporary directory; and, matches, which the port declines no more
+// and must word as Go does (see runBuildMatch), a clang that writes the
+// binary and leaves in the temporary directory what cannot be removed,
+// and a file and a dangling symbolic link at the --out path before a
+// build whose clang leaves that too but writes no binary; and a current
+// directory that is gone, where Go's message names
 // an empty --out path; and a clang that writes no object where it
 // compiles a file, which the port cannot read, where Go's error is in
 // debug/elf's words, building a clang that leaves several things that
@@ -90,12 +98,11 @@ const (
 // fails naming a temporary file of a random name; one Go filled whose
 // every key then names an ELF32, a big-endian or a Mach-O object
 // defining foo, which Go reads, failing on foo defined twice, and the
-// port's ELF reader does not take; and a C file clang rejects, whose
-// clang leaves in the temporary directory what cannot be removed, where
-// Go's error is two joined, the compile's and the removal's, over two
-// lines; and one that leaves a path past PATH_MAX, which Go's RemoveAll
-// removes and the port's cannot, after diagnostics, which Go writes
-// alone.
+// port's ELF reader does not take; and, matches too, a C file clang
+// rejects, whose clang leaves in the temporary directory what cannot be
+// removed, where Go's error is two joined, the compile's and the
+// removal's, over two lines; and one that leaves a path past PATH_MAX,
+// which both remove, after diagnostics.
 var buildDeclines = []buildDecline{
 	{name: "tmpdir-missing", reason: declineTempNotMade, env: func(base, _ string) []string {
 		return []string{"TMPDIR=" + filepath.Join(base, "missing")}
@@ -129,11 +136,11 @@ var buildDeclines = []buildDecline{
 		},
 	},
 	{
-		name: "temp-not-removable", reason: declineTempNotRemoved, leaves: true, late: true,
+		name: "temp-not-removable", matches: true, leaves: true, late: true,
 		env: fakeClangFirst("clang-locks"),
 	},
 	{
-		name: "out-file-before", reason: declineTempNotRemoved, keepsOut: true, leaves: true, late: true,
+		name: "out-file-before", matches: true, keepsOut: true, leaves: true, late: true,
 		env: fakeClangFirst("clang-locks-only"),
 		setup: func(t *testing.T, base, _ string) {
 			t.Helper()
@@ -150,7 +157,7 @@ var buildDeclines = []buildDecline{
 		},
 	},
 	{
-		name: "out-link-before", reason: declineTempNotRemoved, keepsOut: true, leaves: true, late: true,
+		name: "out-link-before", matches: true, keepsOut: true, leaves: true, late: true,
 		env: fakeClangFirst("clang-locks-only"),
 		setup: func(t *testing.T, base, _ string) {
 			t.Helper()
@@ -204,15 +211,15 @@ var buildDeclines = []buildDecline{
 		sameCache: true, setup: filledCache(foreignObjects("x86_64-apple-macos11")),
 	},
 	{
-		name: "temp-many-unremovable", reason: declineTempNotRemoved, leaves: true, late: true,
+		name: "temp-many-unremovable", matches: true, leaves: true, late: true,
 		env: fakeClangFirst("clang-locks-many"),
 	},
 	{
-		name: "compile-fails-not-removable", reason: declineTempNotRemoved, program: "bad-c",
+		name: "compile-fails-not-removable", matches: true, program: "bad-c",
 		leaves: true, late: true, env: fakeLeaves("locked"),
 	},
 	{
-		name: "temp-path-too-long", reason: declineTempNotRemoved, program: "missing-def",
+		name: "temp-path-too-long", matches: true, program: "missing-def",
 		leaves: true, goRemoves: true, late: true, env: fakeLeaves("deep"),
 	},
 }
@@ -404,6 +411,10 @@ func TestBuildDeclines(t *testing.T) {
 // port declines it as TestBuildDeclines says.
 func runBuildDecline(t *testing.T, c buildDecline, prog []byte) {
 	t.Helper()
+	if c.matches {
+		runBuildMatch(t, c, prog)
+		return
+	}
 	d := prepareBuildDecline(t, c, prog)
 	ctx, cancel := context.WithTimeout(t.Context(), compilerTimeout)
 	defer cancel()
@@ -446,6 +457,80 @@ func runBuildDecline(t *testing.T, c buildDecline, prog []byte) {
 	if c.after != nil {
 		c.after(t, d)
 	}
+}
+
+// runBuildMatch runs c, a case the port no longer declines, the program
+// prog its target, with the port and then the Go compiler, each in
+// directories of its own laid out alike, and fails t unless the two
+// exit alike and write the same, each output hidden as declineHidden
+// says; leave the same in TMPDIR, every path at every depth (see
+// checkSameLeft), or both nothing for a case whose Go build removes
+// what its clang leaves; and leave the same at the --out path, nothing,
+// a file of the same bytes or a link to the same place.
+func runBuildMatch(t *testing.T, c buildDecline, prog []byte) {
+	t.Helper()
+	d := prepareBuildDecline(t, c, prog)
+	ctx, cancel := context.WithTimeout(t.Context(), compilerTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, env.portRun, "--out", d.out, d.target) //nolint:gosec // G204: the port
+	cmd.Dir, cmd.Env = d.work, d.vars
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	outlived, err := runInGroup(cmd)
+	failEnd(t, endOf(ctx.Err(), err, outlived, false), "running the port's build", cmd, err,
+		outlived, compilerTimeout, stderr.Bytes())
+	port := declineHidden(result{stdout: stdout.Bytes(), stderr: stderr.Bytes(),
+		code: cmd.ProcessState.ExitCode()}, d)
+	goRes, goDirs := goDeclineRun(t, c, prog)
+	if port.code != goRes.code {
+		t.Errorf("exit status: port %d, Go %d", port.code, goRes.code)
+	}
+	if diff := firstDiff(goRes.stderr, port.stderr); diff != "" {
+		t.Errorf("standard error differs: %s", diff)
+	}
+	if diff := firstDiff(goRes.stdout, port.stdout); diff != "" {
+		t.Errorf("standard output differs: %s", diff)
+	}
+	if c.goRemoves {
+		if left := entries(t, d.tmp); len(left) > 0 {
+			t.Errorf("the port leaves in TMPDIR %q, which Go's build removes", left)
+		}
+		if left := entries(t, goDirs.tmp); len(left) > 0 {
+			t.Errorf("Go leaves in TMPDIR %q", left)
+		}
+	} else {
+		checkSameLeft(t, d, goDirs)
+	}
+	if want, got := outState(t, goDirs.out), outState(t, d.out); want != got {
+		t.Errorf("at the --out path: port %s, Go %s", got, want)
+	}
+	if c.after != nil {
+		c.after(t, d)
+	}
+}
+
+// outState says what is at p: nothing, a link and where it points, or
+// a file and the SHA-256 of its bytes.
+func outState(t *testing.T, p string) string {
+	t.Helper()
+	info, err := os.Lstat(p)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "nothing"
+	case err != nil:
+		t.Fatal(err)
+	case info.Mode()&fs.ModeSymlink != 0:
+		to, err := os.Readlink(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return "a link to " + strings.TrimPrefix(to, filepath.Dir(filepath.Dir(p)))
+	}
+	data, err := os.ReadFile(p) //nolint:gosec // G304: a case's own --out path
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf("a file %x", sha256.Sum256(data))
 }
 
 // checkLateAgainstGo runs Go's build of c, prog its target, and fails t

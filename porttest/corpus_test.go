@@ -43,6 +43,10 @@ type input struct {
 	// one pipe, read as standard output, so that the order in which the
 	// two streams were written is compared; standard error is then empty.
 	combined bool
+	// closedStdout runs the compilers with standard output a pipe whose
+	// reader is closed, so that a write to it fails with EPIPE, or kills
+	// the writer with SIGPIPE; standard output is then empty.
+	closedStdout bool
 }
 
 // archive is the cases of one txtar archive, written to disk.

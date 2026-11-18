@@ -1,0 +1,10 @@
+package p
+
+import testing from "std/testing"
+
+func test_fill(mut t testing.T) error {
+    if fill() != 3 {
+        mut t.errorf("fill %d", fill())
+    }
+    return noerror
+}
