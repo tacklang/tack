@@ -1,13 +1,16 @@
 package main
 
+import binary from "std/binary"
 import builtin from "tack/builtin"
 import bytes from "std/bytes"
 import codegen from "tack/codegen"
 import diag from "tack/diag"
 import fmt from "std/fmt"
+import hex from "std/hex"
 import loader from "tack/loader"
 import os from "std/os"
 import path from "std/path"
+import sha256 from "std/sha256"
 import text from "std/text"
 import typeck from "tack/typeck"
 import unicode from "std/unicode"
@@ -24,18 +27,21 @@ import utf8 from "std/utf8"
 // archive; and every extern func checked to have its C definition in a
 // C file of its own package. Every message is Go's.
 //
-// The build cache is not read or written yet: every runtime object is
-// compiled, as Go compiles each on a cold cache, which is what every
-// build porttest compares has. Its directories are made, and clang
-// --version run, as Go's compileStd does before it compiles anything, so
-// that a cache that cannot be made, and a toolchain that cannot be
-// identified, end the build as Go's does. The directories are made with
-// std/os's mode 0755, where Go's are 0750. Where Go's cache.put writes
-// each object and its key, a temporary file in each directory, the port
-// writes a file of the same bytes there and removes it (see
-// probe_cache), so that a cache that cannot be written ends the build
-// where Go's does, declined, since Go's error names its temporary file,
-// whose name is random.
+// The runtime's objects are kept in the build cache, Go's objCache,
+// cachedStdObject, stdKey and their helpers (tack/cache.go and
+// tack/stdlink.go): each object is taken from the cache when it holds
+// one under the file's key, and compiled and put there otherwise, its
+// keys, its layout and the bytes it writes Go's, so the two compilers
+// share one cache, each giving the other hits (see ObjCache). Its
+// directories are made with mode 0750 and its files with 0600, Go's,
+// through std/os's make_dir_mode and create_file_mode. Every file is
+// written whole to a temporary file in the directory it belongs in,
+// created exclusively, as Go's os.CreateTemp creates its own, and
+// renamed into place (see cache_write).
+// Every failure to write the cache is declined: Go's error names its
+// temporary file, whose name is random, whether its open, write, close
+// or rename failed, and an object or a key that is a directory, which
+// its rename cannot replace, is one of those.
 //
 // The four errors Go's stdRoots gives for a runtime that defines no C
 // function the program needs, "builtin %s has no C definition: the
@@ -195,13 +201,15 @@ func link_std(mut t typeck.Typed, dir []uint8, builtin_dir []uint8, include []ui
     if ccode != exit_ok {
         return ccode, noerror
     }
-    vcode := tool_version(mut st)?
+    mut toolchain := make(list[uint8], c_allocator)
+    vcode := tool_version(mut st, mut toolchain)?
     if vcode != exit_ok {
         return vcode, noerror
     }
     mut objs := make(list[CObject], c_allocator)
     mut definer := make(map[text.Text]int64, c_allocator)
-    scode := compile_std(dir, builtin_dir, include, opt, cdir.bytes(), mut st, mut objs, mut definer)?
+    mut cache := ObjCache{dir: cdir, base: path.base(dir, c_allocator)?, made: 0}
+    scode := compile_std(dir, builtin_dir, include, opt, toolchain[:], mut cache, mut st, mut objs, mut definer)?
     if scode != exit_ok {
         return scode, noerror
     }
@@ -216,18 +224,26 @@ func link_std(mut t typeck.Typed, dir []uint8, builtin_dir []uint8, include []ui
     return exit_ok, noerror
 }
 
-// compile_std compiles every C file of the runtime, in name order, each
-// to std-<name>.o in dir, with codegen.compile_std_cmd at the level opt,
-// include the runtime's include directory, Go's compileStd on a cold
-// cache, and appends the objects to objs, with their symbols, and to
-// definer, for each symbol one defines, the index of that object. It
+// compile_std puts the object of every C file of the runtime into dir,
+// in name order, each as std-<name>.o, Go's compileStd and
+// cachedStdObject: the object cache holds under the file's key (see
+// std_key), toolchain the output of clang --version, when it holds a
+// sound one (see cache_get) whose symbols can be read; otherwise the
+// file compiled with codegen.compile_std_cmd at the level opt, include
+// the runtime's include directory, and the object put in cache (see
+// cache_put). Bytes from the cache that hash right but that Go's
+// readSymbols is sure to refuse (see go_refuses), which only something
+// other than tack caches, are compiled again, as Go compiles them; bytes
+// the ELF reader does not take and Go's may read, which Go then links,
+// are declined. It appends the objects to objs, with their symbols, and
+// to definer, for each symbol one defines, the index of that object. It
 // returns exit_ok, or the code of a step that failed, its message in st:
 // a clang that fails, an object defining main, or two defining one
-// symbol, Go's checkSymbol; an object that cannot be read, and a cache,
-// cdir its std directory, that cannot be written where Go's cache.put
-// writes each object once it is compiled and read (see probe_cache),
-// are declined.
-func compile_std(dir []uint8, builtin_dir []uint8, include []uint8, opt string, cdir []uint8, mut st Steps, mut objs list[CObject], mut definer map[text.Text]int64) (int32, error) {
+// symbol, Go's checkSymbol; an object compiled that cannot be read, a
+// hit that may be an object Go reads, a hit that cannot be written to
+// dir and a cache that cannot be written, where Go's error names a
+// temporary file, are declined.
+func compile_std(dir []uint8, builtin_dir []uint8, include []uint8, opt string, toolchain []uint8, mut cache ObjCache, mut st Steps, mut objs list[CObject], mut definer map[text.Text]int64) (int32, error) {
     mut first := make(map[text.Text]text.Text, c_allocator)
     for i := range builtin.runtime_count() {
         f, has := builtin.runtime_file(i)
@@ -245,21 +261,44 @@ func compile_std(dir []uint8, builtin_dir []uint8, include []uint8, opt string, 
         }
         mut base.append([]uint8(".o"))?
         obj := path.join(dir, base.bytes(), c_allocator)?
-        src := path.join(builtin_dir, []uint8(f.name), c_allocator)?
-        argv := codegen.compile_std_cmd(src.bytes(), include, obj.bytes(), []uint8(opt))?
-        mut started := false
-        code := run_tool(argv, shown.bytes(), mut st, mut started)?
-        if code != exit_ok {
-            return code, noerror
+        key := std_key([]uint8(f.name), []uint8(f.data), opt, toolchain)?
+        mut cached := make(list[uint8], c_allocator)
+        hit, gcode := cache_get(cache, key[:], obj.bytes(), mut cached, mut st)?
+        if gcode != exit_ok {
+            return gcode, noerror
         }
-        syms, readable := read_symbols(obj.bytes())?
-        if !readable {
-            append(mut st.msg, []uint8(" with an object file that cannot be read")...)?
-            return not_implemented, noerror
+        mut syms := no_symbols()
+        mut have := false
+        if hit {
+            got, readable := parse_symbols(cached[:])?
+            if readable {
+                syms = got
+                have = true
+            } else if !go_refuses(cached[:]) {
+                // Go's readSymbols may read what the ELF reader does not,
+                // an ELF32, a big-endian ELF or a Mach-O, and link it.
+                append(mut st.msg, []uint8(" with an object file that cannot be read")...)?
+                return not_implemented, noerror
+            }
         }
-        pcode := probe_cache(cdir, dir, i, obj.bytes(), mut st)?
-        if pcode != exit_ok {
-            return pcode, noerror
+        if !have {
+            src := path.join(builtin_dir, []uint8(f.name), c_allocator)?
+            argv := codegen.compile_std_cmd(src.bytes(), include, obj.bytes(), []uint8(opt))?
+            mut started := false
+            code := run_tool(argv, shown.bytes(), mut st, mut started)?
+            if code != exit_ok {
+                return code, noerror
+            }
+            got, readable := read_symbols(obj.bytes())?
+            if !readable {
+                append(mut st.msg, []uint8(" with an object file that cannot be read")...)?
+                return not_implemented, noerror
+            }
+            syms = got
+            pcode := cache_put(mut cache, key[:], obj.bytes(), mut st)?
+            if pcode != exit_ok {
+                return pcode, noerror
+            }
         }
         for _, sym := range syms.defined {
             bad := check_symbol(sym.bytes(), shown.bytes(), mut first, mut st.msg)?
@@ -432,8 +471,7 @@ func check_definitions(t typeck.Typed, objs []CObject, max_errors int64, mut st 
 }
 
 // open_cache makes the build cache's directories as Go's openCache
-// does, though nothing is read from it or written to it yet (see
-// above): the cache is $TACK_CACHE, or, when it is unset or empty, tack
+// does: the cache is $TACK_CACHE, or, when it is unset or empty, tack
 // in the cache directory, $XDG_CACHE_HOME, or $HOME/.cache when
 // that is unset or empty, as Go's os.UserCacheDir finds it on Linux,
 // made absolute, and std/keys and std/objects below it are made as Go's
@@ -523,7 +561,8 @@ func byte_of(p []uint8, i int64) uint8 {
 }
 
 // mkdir_all makes the directory p and each of its parents that is not
-// there, as Go's os.MkdirAll does, but with a list of its own where Go
+// there, with mode 0750 before the umask, as Go's os.MkdirAll does in
+// openCache, but with a list of its own where Go
 // recurses, so a path however deep needs no more stack: from p up, each
 // path that stat finds no directory at is to be made, until one is a
 // directory, which ends the walk, or a file, which is Go's mkdir error,
@@ -560,7 +599,7 @@ func mkdir_all(p []uint8, mut msg list[uint8]) (int32, error) {
         if !has {
             break
         }
-        err := os.make_dir(q.bytes())
+        err := os.make_dir_mode(q.bytes(), 0o750)
         if err.code == 1 {
             return exit_failure, err
         }
@@ -584,15 +623,15 @@ func mkdir_all(p []uint8, mut msg list[uint8]) (int32, error) {
 // tool_version runs clang --version, codegen.version_cmd, as Go's
 // toolchainVersion does, its output read and kept from the driver's
 // outputs, found on PATH as run_tool finds clang, and returns exit_ok
-// when it exits 0. The output, which only the cache's keys hash, is not
-// used yet. Otherwise it returns exit_failure with Go's error in st's
-// msg, cannot identify the toolchain: clang --version failed: and how it
-// failed, as run_tool words it, then a colon and what it wrote to
-// standard error, white space trimmed as Go's strings.TrimSpace trims
-// it, when that is not empty; or not_implemented for a run that fails as
-// Go's exec does not, or a clang that cannot be started for an errno
-// whose Go words are not known.
-func tool_version(mut st Steps) (int32, error) {
+// when it exits 0, its standard output, as it is, in out, which the
+// cache's keys hash (see std_key). Otherwise it returns exit_failure
+// with Go's error in st's msg, cannot identify the toolchain: clang
+// --version failed: and how it failed, as run_tool words it, then a
+// colon and what it wrote to standard error, white space trimmed as Go's
+// strings.TrimSpace trims it, when that is not empty; or not_implemented
+// for a run that fails as Go's exec does not, or a clang that cannot be
+// started for an errno whose Go words are not known.
+func tool_version(mut st Steps, mut out list[uint8]) (int32, error) {
     argv := codegen.version_cmd()?
     mut found := text.new(c_allocator)
     mut why := make(list[uint8], c_allocator)
@@ -601,7 +640,6 @@ func tool_version(mut st Steps) (int32, error) {
         fmt.appendf(mut st.msg, "cannot identify the toolchain: clang --version failed: %s", why[:])?
         return exit_failure, noerror
     }
-    mut out := make(list[uint8], c_allocator)
     mut errb := make(list[uint8], c_allocator)
     status, err := os.run(found.bytes(), argv[:], mut out, mut errb, c_allocator)
     if err.code == 1 {
@@ -687,21 +725,176 @@ func empty_object() CObject {
     return CObject{pkg: -1, shown: text.new(c_allocator), obj: text.new(c_allocator), syms: no_symbols()}
 }
 
-// probe_cache does, for the object obj of the runtime's C file at index
-// i, what Go's cache.put does to cdir, the cache's std directory, as far
-// as it can fail, without leaving an entry: put reads obj, then writes
-// it whole to a temporary file in objects and renames that into place,
-// and then the key, 65 bytes, likewise in keys. probe_cache reads obj
-// and writes its bytes to a file in objects, then 65 bytes to one in
-// keys, removing each once it is written; each is named .tmp-, the name
-// of the build's temporary directory dir, which no other build shares,
-// and i. It returns exit_ok, or, when a read, a write or a removal
-// fails, not_implemented, with what in st's msg: Go's error names its
-// temporary file, whose name is random. A rename, which Go's put does
-// and the port does not, cannot fail there but for a file system that
-// changed under it. It fails only for want of memory.
-func probe_cache(cdir []uint8, dir []uint8, i int64, obj []uint8, mut st Steps) (int32, error) {
-    data, rerr := os.read_file(obj, c_allocator)
+// cache_format names the layout of the cache and of its keys, Go's
+// cacheFormat: it is the first field every key hashes, so a change to
+// either, which must change it, leaves every older entry unused rather
+// than misread. It is Go's, byte for byte, so the two compilers share
+// one cache.
+var cache_format = "tack std object cache 2"
+
+// obj_placeholder stands for the object's path, and src_placeholder and
+// include_placeholder for the directories of the runtime's C files and
+// of its header, in the compile command a key hashes, Go's
+// objPlaceholder, srcPlaceholder and includePlaceholder: each build
+// writes them to a fresh temporary directory, which does not change
+// what an object holds.
+var obj_placeholder = "<object>"
+var src_placeholder = "<runtime>"
+var include_placeholder = "<runtime>/include"
+
+// cache_tries is how many temporary names cache_write tries in a
+// directory before it gives up, Go's CreateTemp's 10000.
+var cache_tries int64 = 10000
+
+// ObjCache is the part of the build cache that holds the objects
+// compiled from the runtime's C files, Go's objCache: dir, <cache>/std,
+// absolute, whose keys/<key> holds the hex SHA-256 of an object's bytes
+// and a newline, and objects/<that hash>.o the object, Go's layout, so
+// that a cache either compiler filled gives the other hits; base, the
+// name of the build's temporary directory, which make_temp_dir made and
+// no other build running in the same TMPDIR has, that the temporary
+// names of cache_write start from; and made, how many of those names
+// the build has tried, so that no two of its own are the same.
+type ObjCache struct {
+    dir text.Text
+    base text.Text
+    made int64
+}
+
+// key_field adds b to d as one field of a key, Go's keyHash.field: its
+// length, eight bytes big-endian, then its bytes, so no two different
+// sequences of fields hash the same bytes. It fails only for want of
+// memory.
+func key_field(mut d sha256.Digest, b []uint8) error {
+    mut n := make(list[uint8], c_allocator)
+    size, fits := uint64(len(b))
+    if !fits {
+        // len is never negative.
+        return error{code: 2, msg: "internal error: a negative length"}
+    }
+    binary.append_uint64_be(mut n, size)?
+    mut d.write(n[:])
+    mut d.write(b)
+    return noerror
+}
+
+// hex_sum returns the hex SHA-256 of data, in lower case, Go's hexSum.
+// It fails only for want of memory.
+func hex_sum(data []uint8) (list[uint8], error) {
+    sum := sha256.sum(data)
+    mut out := make(list[uint8], c_allocator)
+    hex.append_encode(mut out, sum[:])?
+    return out, noerror
+}
+
+// std_key returns the key of the object the runtime's C file name, whose
+// bytes are data, compiles to at the level opt with the toolchain whose
+// clang --version wrote toolchain, Go's stdKey: the hex SHA-256 of the
+// fields cache_format, the backend's name, the number of arguments of
+// the command codegen.compile_std_cmd gives for the file, in decimal,
+// and each argument, the file, the include directory and the object
+// given as the placeholders, then toolchain, the runtime's header, the
+// file's name and its bytes, each a field (see key_field), as Go hashes
+// them, so a key is Go's key for the same file. It fails only for want
+// of memory.
+func std_key(name []uint8, data []uint8, opt string, toolchain []uint8) (list[uint8], error) {
+    mut d := sha256.new()
+    key_field(mut d, []uint8(cache_format))?
+    key_field(mut d, []uint8(codegen.default_backend))?
+    mut src := text.from_bytes([]uint8(src_placeholder), c_allocator)?
+    mut src.append([]uint8("/"))?
+    mut src.append(name)?
+    cmd := codegen.compile_std_cmd(src.bytes(), []uint8(include_placeholder), []uint8(obj_placeholder), []uint8(opt))?
+    mut count := make(list[uint8], c_allocator)
+    fmt.appendf(mut count, "%d", len(cmd))?
+    key_field(mut d, count[:])?
+    for _, arg := range cmd {
+        key_field(mut d, arg.bytes())?
+    }
+    key_field(mut d, toolchain)?
+    key_field(mut d, []uint8(builtin.runtime_header()))?
+    key_field(mut d, name)?
+    key_field(mut d, data)?
+    sum := d.sum()
+    mut out := make(list[uint8], c_allocator)
+    hex.append_encode(mut out, sum[:])?
+    return out, noerror
+}
+
+// is_sum reports whether ref, what a key file holds, is a hex SHA-256,
+// in lower case, and a newline, Go's parseSum, whose sum is then its
+// first 64 bytes: only such a sum names an object, so a damaged key
+// never names a path outside the cache's objects.
+func is_sum(ref []uint8) bool {
+    if len(ref) != 65 || byte_of(ref, 64) != '\n' {
+        return false
+    }
+    for k := range 64 {
+        ch := byte_of(ref, k)
+        if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
+            return false
+        }
+    }
+    return true
+}
+
+// cache_get writes the object cache holds under key to dst, a file in
+// the build's temporary directory, and its bytes to data, which must be
+// empty, and returns whether there was one, with exit_ok, Go's
+// objCache.get: an entry that is absent, unreadable
+// or damaged, a key that is not a hash (see is_sum) or an object
+// whose bytes do not hash to it, is a miss, for the caller to compile
+// and put again. A dst that cannot be written, which Go words naming
+// the temporary directory, is declined, not_implemented with what in
+// st's msg, as write_temp declines it. It fails only for want of memory.
+func cache_get(cache ObjCache, key []uint8, dst []uint8, mut data list[uint8], mut st Steps) (bool, int32, error) {
+    keys := path.join(cache.dir.bytes(), []uint8("keys"), c_allocator)?
+    kp := path.join(keys.bytes(), key, c_allocator)?
+    ref, rerr := os.read_file(kp.bytes(), c_allocator)
+    if rerr.code == 1 {
+        return false, exit_failure, rerr
+    }
+    if rerr.code != 0 {
+        return false, exit_ok, noerror
+    }
+    if !is_sum(ref[:]) {
+        return false, exit_ok, noerror
+    }
+    mut name := text.from_bytes(part_of(ref[:], 0, 64), c_allocator)?
+    mut name.append([]uint8(".o"))?
+    objects := path.join(cache.dir.bytes(), []uint8("objects"), c_allocator)?
+    op := path.join(objects.bytes(), name.bytes(), c_allocator)?
+    read, derr := os.read_file(op.bytes(), c_allocator)
+    if derr.code == 1 {
+        return false, exit_failure, derr
+    }
+    if derr.code != 0 {
+        return false, exit_ok, noerror
+    }
+    got := hex_sum(read[:])?
+    if !bytes.equal(got[:], part_of(ref[:], 0, 64)) {
+        return false, exit_ok, noerror
+    }
+    wcode := write_temp(dst, read[:], mut st.msg)?
+    if wcode != exit_ok {
+        return false, wcode, noerror
+    }
+    data = read
+    return true, exit_ok, noerror
+}
+
+// cache_put caches the object at src, the build's own, under key, Go's
+// objCache.put: the object first, at objects/<its hex SHA-256>.o, then
+// the key naming it, holding that sum and a newline, each written whole
+// and renamed into place (see cache_write), replacing any entry there,
+// a damaged one included, so that a build running at the same time,
+// Go's or the port's, sees an entry whole or not at all, and never a key
+// before its object. It returns exit_ok, or not_implemented, with what
+// in st's msg, for an object that cannot be read or a cache that cannot
+// be written: Go's error names the build's temporary directory, or a
+// temporary file of a random name. It fails only for want of memory.
+func cache_put(mut cache ObjCache, key []uint8, src []uint8, mut st Steps) (int32, error) {
+    data, rerr := os.read_file(src, c_allocator)
     if rerr.code == 1 {
         return exit_failure, rerr
     }
@@ -709,37 +902,71 @@ func probe_cache(cdir []uint8, dir []uint8, i int64, obj []uint8, mut st Steps) 
         append(mut st.msg, []uint8(" with a build cache that cannot be written")...)?
         return not_implemented, noerror
     }
-    base := path.base(dir, c_allocator)?
-    mut name := make(list[uint8], c_allocator)
-    fmt.appendf(mut name, ".tmp-%s-%d", base.bytes(), i)?
-    mut key := make(list[uint8], c_allocator)
-    for range 64 {
-        append(mut key, '0')?
+    sum := hex_sum(data[:])?
+    mut name := text.from_bytes(sum[:], c_allocator)?
+    mut name.append([]uint8(".o"))?
+    objects := path.join(cache.dir.bytes(), []uint8("objects"), c_allocator)?
+    code := cache_write(mut cache, objects.bytes(), name.bytes(), data[:], mut st)?
+    if code != exit_ok {
+        return code, noerror
     }
-    append(mut key, '\n')?
-    for _, sub := range [2]string{"objects", "keys"} {
-        d := path.join(cdir, []uint8(sub), c_allocator)?
-        p := path.join(d.bytes(), name[:], c_allocator)?
-        mut werr := noerror
-        if sub == "objects" {
-            werr = os.write_file(p.bytes(), data[:])
-        } else {
-            werr = os.write_file(p.bytes(), key[:])
+    mut ref := make(list[uint8], c_allocator)
+    append(mut ref, sum[:]...)?
+    append(mut ref, '\n')?
+    keys := path.join(cache.dir.bytes(), []uint8("keys"), c_allocator)?
+    code2 := cache_write(mut cache, keys.bytes(), key, ref[:], mut st)?
+    return code2, noerror
+}
+
+// cache_write writes data to the file name in the directory dir of the
+// cache, whole, so that no reader ever sees it half written, Go's
+// objCache.write: to a temporary file in dir, then renamed to dir/name,
+// replacing what is there. The temporary file is dir/.tmp-<base>-<n>,
+// base the name of the build's temporary directory, tk- and six letters
+// and digits, and n the next of cache's, created by std/os's
+// create_file_mode with mode 0600, as Go's os.CreateTemp creates its
+// file, failing when anything is at the path, so no two builds, the
+// port's or Go's, whatever their TMPDIR and wherever they run, ever
+// write one file; Go's CreateTemp names its files .tmp- and decimal
+// digits alone, which no name here is. A name that is taken is passed
+// over for the next, at most cache_tries of them. A create that fails
+// leaves no file, and a file whose rename fails is removed. It returns
+// exit_ok, or not_implemented, with what in st's msg, when a step
+// fails: Go's error for each, open, write, close or rename, names its
+// temporary file, whose name is random. Its error for names all
+// taken, createtemp and the pattern .tmp-*, names no file, but it ends
+// 10000 random names Go found taken, which no build meets, and which
+// the port's names, tried in order, do not mirror, so a port out of
+// names declines rather than word a failure Go's build would not meet. No test takes a name
+// before a build does, so the retry on a taken name is not exercised:
+// it would need a hook in the driver for the test alone. It fails only
+// for want of memory, before the temporary file is made.
+func cache_write(mut cache ObjCache, dir []uint8, name []uint8, data []uint8, mut st Steps) (int32, error) {
+    target := path.join(dir, name, c_allocator)?
+    mut made := false
+    mut tmp := text.new(c_allocator)
+    for range cache_tries {
+        mut base := make(list[uint8], c_allocator)
+        fmt.appendf(mut base, ".tmp-%s-%d", cache.base.bytes(), cache.made)?
+        cache.made +%= 1
+        tmp = path.join(dir, base[:], c_allocator)?
+        cerr := os.create_file_mode(tmp.bytes(), data, 0o600)
+        if cerr.code == 0 {
+            made = true
+            break
         }
-        if werr.code == 1 {
-            return exit_failure, werr
+        if cerr.code != 3 || cerr.msg != "File exists" {
+            break
         }
-        if werr.code != 0 {
-            // A file the write made is removed, as remove_made removes
-            // one, reporting nothing: the decline is all that is said.
-            remove_made(p.bytes())
-            append(mut st.msg, []uint8(" with a build cache that cannot be written")...)?
-            return not_implemented, noerror
-        }
-        if os.remove_path(p.bytes()).code != 0 {
-            append(mut st.msg, []uint8(" with a build cache that cannot be written")...)?
-            return not_implemented, noerror
-        }
+    }
+    if !made {
+        append(mut st.msg, []uint8(" with a build cache that cannot be written")...)?
+        return not_implemented, noerror
+    }
+    if os.rename(tmp.bytes(), target.bytes()).code != 0 {
+        remove_made(tmp.bytes())
+        append(mut st.msg, []uint8(" with a build cache that cannot be written")...)?
+        return not_implemented, noerror
     }
     return exit_ok, noerror
 }

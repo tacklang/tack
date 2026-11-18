@@ -137,11 +137,18 @@ in Tack, with no tool but clang, so a C file that defines `main`, two
 that define one symbol and an extern func no C file of its package
 defines are reported as Go reports them; then clang's link turns the
 generated C and the objects into the binary. Every command is the Go
-compiler's at the `-O` level asked for. The build cache is not read or
-written yet: every runtime object is compiled, as Go compiles them on
-a cold cache, and where Go writes each object and its key to the
-cache, the port writes and removes a file of the same bytes, so a
-cache that cannot be written is declined where Go's build fails.
+compiler's at the `-O` level asked for. Each runtime object is taken
+from the build cache when it holds one compiled from the same inputs,
+and compiled and put there otherwise: its keys, its layout, its modes
+and the bytes it writes are the Go compiler's, so the two share one
+cache, a cache either filled giving the other hits, and an entry that
+is damaged, a key that is not a hash or an object whose bytes do not
+hash to it, is compiled again and replaced, as Go's are. Every file is
+written whole to a temporary file beside it, created only where nothing
+is, as Go's `os.CreateTemp` creates its own, and renamed into place, so
+builds running at once, the port's or Go's, never share a temporary
+file. A cached object the ELF reader does not take but Go's may read,
+an ELF32, big-endian or Mach-O one, is declined.
 
 clang is looked up on `PATH` as Go's `exec.LookPath` looks, skipping a
 file it may not run and refusing one found relative to the current
@@ -168,8 +175,9 @@ symbolic link. The declines are these: a clang whose run fails in a way
 Go's exec does not, `/dev/null` that cannot be opened, a pipe, read,
 poll or wait that fails; an errno Go's words for are not known; an
 object the ELF reader does not take, where Go's error is debug/elf's; a
-build cache that cannot be written, where Go's error names a temporary
-file of a random name; a
+build cache that cannot be written, an object or a key that is a
+directory among it, where Go's error names a temporary file of a
+random name; a
 temporary directory or file that cannot be made, written or removed,
 which Go words with a path or an operation the port cannot give; and a
 current directory that is gone, where Go's message names an empty path

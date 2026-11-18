@@ -273,10 +273,11 @@ func report_removal(mut st Steps, rendered []uint8, rm Removal) (bool, error) {
     return true, noerror
 }
 
-// remove_made removes p, the --out path, absolute, which a build that
-// is declined made, or a file probe_cache wrote: a file, or a symbolic
-// link, never a directory, which clang does not make. One that cannot be removed is left; the decline
-// is all that is said, so remove_made reports nothing.
+// remove_made removes p, the --out path, absolute, which a build that is
+// declined made, or a temporary file cache_write wrote: a file, or a
+// symbolic link, never a directory, which clang does not make. One that
+// cannot be removed is left; the decline is all that is said, so
+// remove_made reports nothing.
 func remove_made(p []uint8) {
     info, err := os.lstat(p)
     if err.code != 0 || info.is_dir() {
