@@ -299,7 +299,8 @@ func allocFailBuilds(t *testing.T) []allocFailCase {
 }
 
 // buildFailingPort builds the port's driver, in the source tree src,
-// with the Go compiler, with a clang on PATH that adds sanitizeFlags to
+// with the Go compiler and the port's own std (see portBuildEnv), with
+// a clang on PATH that adds sanitizeFlags to
 // every command but --version and, to the link, allocInject and the
 // wrapping of malloc and realloc, and returns the binary's path.
 func buildFailingPort(t *testing.T, src string) string {
@@ -336,7 +337,7 @@ exec %[1]q "$@" %[2]s %[3]q -Wl,--wrap=malloc,--wrap=realloc
 		"./driver",
 	) //nolint:gosec // G204: the Go compiler under test
 	cmd.Dir = src
-	cmd.Env = append(compilerEnv(filepath.Join(dir, "cache")), "PATH="+dir+":"+os.Getenv("PATH"))
+	cmd.Env = append(portBuildEnv(src, filepath.Join(dir, "cache")), "PATH="+dir+":"+os.Getenv("PATH"))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("building the port with its allocations counted: %v\n%s", err, out)
 	}

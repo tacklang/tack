@@ -100,6 +100,15 @@ make test        # runs go test -race ./...
 make port-test   # checks the Tack port in ../tack against this compiler
 ```
 
+The port in `../tack` owns the standard library, the runtime's C files,
+`tack.h` and `builtin.tck` (per the owner's ruling, 2026-11-18). This
+repository's [`src/std`](src/std) and [`builtin/`](builtin)'s
+`builtin.tck` and [`runtime`](builtin/runtime) are frozen copies, kept
+only so `porttest` can compare the two compilers on the same std; a
+change to std, a builtin or the runtime is made in `../tack`. `porttest`'s
+`TestPortFiles` fails while these frozen copies differ from the port's
+originals.
+
 The compiler needs its standard library, `src/std`, installed beside it:
 it reads the builtins from there and links their C bodies from there. It
 looks in `$TACK_HOME/src/std`, or `~/.tack/src/std` when `TACK_HOME` is

@@ -31,8 +31,14 @@
 //
 //	tack --out <temp>/tack-port ./driver
 //
-// with TACK_HOME set to this module's root, so std is the repository's
-// src/std, and TACK_CACHE set to the Go compiler's temporary cache. A
+// with TACK_HOME set to the port's source tree, so std is the port's own
+// src/std, which the port owns (per the owner's ruling, 2026-11-18), and
+// TACK_CACHE set to the Go compiler's temporary cache; the build of the
+// port with its allocations counted and the build of its tools/embed
+// read the port's std the same way. Every comparison runs both compilers
+// with the same TACK_HOME, this module's root, whose src/std and builtin/
+// are frozen copies of the port's, kept for the comparisons (see Port
+// files). A
 // source tree with no driver directory, the default as much as one
 // TACK_PORT names, or a driver that does not build, fails TestPort: once
 // TACK_PORT_TEST asks for the check, nothing missing skips it. A checkout
@@ -1154,12 +1160,36 @@
 // The Go compiler embeds the builtins' documentation, builtin.tck, and
 // the C runtime, its header and its C files, with go:embed; the port
 // holds them as string literals in its builtin/embedded.tck, which its
-// tools/embed writes, as make port-embed runs it. TestEmbedded reads that
-// file with this module's lexer and parser, as the Go compiler reads it
-// building the port, and checks that it holds each of builtin/'s
-// originals byte for byte, the C files in the byte order of their names,
-// as the Go compiler lists them; and builds tools/embed and runs it on
-// the originals, to check that the file is what it writes.
+// tools/embed writes, as its make embed runs it, and make port-embed
+// here. The port's originals are in its runtime/: builtin.tck,
+// tack/tack.h and the C files, and a tack.mod that makes the directory a
+// module root only so a library check of the port skips builtin.tck,
+// which is no code. TestEmbedded reads embedded.tck with this module's
+// lexer and parser, as the Go compiler reads it building the port, and
+// checks that it holds each of the port's originals byte for byte, the C
+// files in the byte order of their names, as the Go compiler lists them;
+// and builds tools/embed and runs it on the originals, to check that the
+// file is what it writes.
+//
+// # Port files
+//
+// The port owns std and the runtime, and this module's src/std and
+// builtin/'s builtin.tck and runtime are frozen copies of them, which
+// every comparison runs both compilers with. TestPortFiles checks that
+// the port's src/std holds the same files as this module's, each with
+// the same bytes and executable bit, and every file below its runtime/
+// the same as builtin/builtin.tck for runtime/builtin.tck and as
+// builtin/runtime/<p> for every other runtime/<p>, both ways, so a file
+// only one side has fails too; a path listed in portFileDivergences,
+// with its reason, must differ instead, and an entry that names a file
+// the same on both sides, or none, fails, so the list cannot go stale.
+// It is empty. portOnlyFiles lists, each with its reason, the port's
+// files with no frozen copy, runtime/tack.mod alone, each of which must
+// be in the port. It also checks that the port's
+// std copies, src/std/builtin/builtin.tck and
+// src/std/include/tack/tack.h, are its runtime's, which its make
+// std-copies writes. TestComparePortFiles checks the comparison itself
+// on small trees, and needs no port.
 //
 // # Performance
 //

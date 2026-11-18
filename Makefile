@@ -5,6 +5,9 @@ BIN := bin/tack
 
 # BUILTIN_DOC and RUNTIME_HEADER are the files built into the compiler that
 # std keeps copies of: the builtins' documentation and the runtime header.
+# They, the rest of builtin/runtime and src/std are frozen copies, kept for
+# porttest's comparisons: the port, ../tack, owns std and the runtime, and
+# a change to either is made there (per the owner's ruling, 2026-11-18).
 BUILTIN_DOC := builtin/builtin.tck
 RUNTIME_HEADER := builtin/runtime/tack/tack.h
 
@@ -103,11 +106,12 @@ PORT_FUZZ := FuzzLexDiff
 # compilers once, into $(PORT_FUZZ_BIN), and passes them as TACK_GO and
 # TACK_PORT_BIN, so the fuzz workers, each a process of its own, build
 # neither. The port's source tree is $TACK_PORT, ../tack by default, as
-# for port-test.
+# for port-test, and the port is built with its own std, TACK_HOME that
+# tree, as porttest builds it.
 port-fuzz:
 	mkdir -p $(PORT_FUZZ_BIN)
 	go build -o $(PORT_FUZZ_BIN)/tack-go ./tack
-	cd "$${TACK_PORT:-../tack}" && TACK_HOME="$(CURDIR)" \
+	cd "$${TACK_PORT:-../tack}" && TACK_HOME="$$PWD" \
 		TACK_CACHE="$(CURDIR)/$(PORT_FUZZ_BIN)/cache" \
 		"$(CURDIR)/$(PORT_FUZZ_BIN)/tack-go" --out "$(CURDIR)/$(PORT_FUZZ_BIN)/tack-port" ./driver
 	TACK_GO=$(PORT_FUZZ_BIN)/tack-go TACK_PORT_BIN=$(PORT_FUZZ_BIN)/tack-port TACK_PORT_TEST=1 \
@@ -167,7 +171,9 @@ PORT_SANITIZE_PARALLEL := 4
 # options are given 86. TestMalformed
 # runs too, on $(PORT_MALFORMED) programs, and at most
 # $(PORT_SANITIZE_PARALLEL) cases run at once. The port's
-# source tree is $TACK_PORT, ../tack by default, as for port-test.
+# source tree is $TACK_PORT, ../tack by default, as for port-test, and
+# the port is built with its own std, TACK_HOME that tree, as porttest
+# builds it.
 port-sanitize:
 	mkdir -p $(PORT_SANITIZE_BIN)/clang
 	go build -o $(PORT_SANITIZE_BIN)/tack-go ./tack
@@ -175,7 +181,7 @@ port-sanitize:
 		printf '#!/bin/sh\ncase "$$1" in --version) exec "%s" "$$@";; esac\nexec "%s" "$$@" %s\n' \
 		"$$clang" "$$clang" '$(SANITIZE_FLAGS)' > $(PORT_SANITIZE_BIN)/clang/clang && \
 		chmod +x $(PORT_SANITIZE_BIN)/clang/clang
-	cd "$${TACK_PORT:-../tack}" && TACK_HOME="$(CURDIR)" \
+	cd "$${TACK_PORT:-../tack}" && TACK_HOME="$$PWD" \
 		TACK_CACHE="$(CURDIR)/$(PORT_SANITIZE_BIN)/cache" \
 		PATH="$(CURDIR)/$(PORT_SANITIZE_BIN)/clang:$$PATH" \
 		"$(CURDIR)/$(PORT_SANITIZE_BIN)/tack-go" --out "$(CURDIR)/$(PORT_SANITIZE_BIN)/tack-port" ./driver
@@ -214,26 +220,22 @@ port-measure:
 		go test -count=1 -timeout 120m ./porttest -run '^TestPort$$'
 	PORTTEST_BUDGET_LOG=$(PORT_MEASURE_LOG) go test -count=1 ./porttest -run '^TestBudget$$' -v
 
-# PORT_EMBED_BIN is where `make port-embed` builds the port's tools/embed,
-# under the ignored bin/.
+# PORT_EMBED_BIN is where `make port-embed` builds this compiler, under
+# the ignored bin/.
 PORT_EMBED_BIN := bin/port-embed
 
-# port-embed writes the port's builtin/embedded.tck, the files this
-# compiler embeds with go:embed as Tack string literals, with the port's
-# tools/embed, built with this compiler, from builtin.tck, the runtime's
-# header and its C files, in the byte order of their names. porttest's
-# TestEmbedded fails while the port's copy differs from what this writes.
-# The port's source tree is $TACK_PORT, ../tack by default, as for
-# port-test.
+# port-embed writes the port's builtin/embedded.tck, the files the
+# compiler carries inside it as Tack string literals, with the port's
+# own `make embed`, from the port's own runtime/: builtin.tck, the
+# runtime's header and its C files, in the byte order of their names.
+# It builds this compiler and passes it as the port's TACK, which builds
+# the port's tools/embed with the port's std. porttest's TestEmbedded
+# fails while the port's copy differs from what this writes. The port's
+# source tree is $TACK_PORT, ../tack by default, as for port-test.
 port-embed:
 	mkdir -p $(PORT_EMBED_BIN)
 	go build -o $(PORT_EMBED_BIN)/tack-go ./tack
-	cd "$${TACK_PORT:-../tack}" && TACK_HOME="$(CURDIR)" \
-		TACK_CACHE="$(CURDIR)/$(PORT_EMBED_BIN)/cache" \
-		"$(CURDIR)/$(PORT_EMBED_BIN)/tack-go" --out "$(CURDIR)/$(PORT_EMBED_BIN)/embed" ./tools/embed && \
-		"$(CURDIR)/$(PORT_EMBED_BIN)/embed" builtin/embedded.tck builtin \
-		doc="$(CURDIR)/$(BUILTIN_DOC)" header="$(CURDIR)/$(RUNTIME_HEADER)" \
-		$(foreach c,$(sort $(wildcard builtin/runtime/*.c)),'runtime[]=$(CURDIR)/$(c)')
+	$(MAKE) -C "$${TACK_PORT:-../tack}" embed TACK="$(CURDIR)/$(PORT_EMBED_BIN)/tack-go"
 
 # fuzz-progen fuzzes FuzzGenerated, which builds each generated program
 # with clang under the sanitizers and runs it, for $(FUZZTIME). It caps

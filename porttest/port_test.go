@@ -558,15 +558,23 @@ func indent(v any) []byte {
 // number of the first line in which they differ, with that line of each,
 // quoted so that invisible bytes show.
 func firstDiff(want, got []byte) string {
+	return firstDiffLabeled("Go", "port", want, got)
+}
+
+// firstDiffLabeled is firstDiff with each line named by its label,
+// wantLabel and gotLabel, instead of Go and port, the two padded to the
+// same width.
+func firstDiffLabeled(wantLabel, gotLabel string, want, got []byte) string {
 	if bytes.Equal(want, got) {
 		return ""
 	}
+	width := max(len(wantLabel), len(gotLabel)) + 1
 	wantLines := bytes.SplitAfter(want, []byte("\n"))
 	gotLines := bytes.SplitAfter(got, []byte("\n"))
 	for i := 0; ; i++ {
 		w, g := lineAt(wantLines, i), lineAt(gotLines, i)
 		if w != g {
-			return fmt.Sprintf("line %d:\n  Go:   %s\n  port: %s", i+1, w, g)
+			return fmt.Sprintf("line %d:\n  %-*s %s\n  %-*s %s", i+1, width, wantLabel+":", w, width, gotLabel+":", g)
 		}
 	}
 }

@@ -183,7 +183,8 @@ func goCompiler(tmp string) (string, error) {
 }
 
 // portCompiler returns $TACK_PORT_BIN, or, when it is unset or empty, the
-// path of the port's driver built into tmp with the Go compiler. A source
+// path of the port's driver built into tmp with the Go compiler, with
+// the port's own std (see portBuildEnv). A source
 // tree with no driver directory is an error, whether $TACK_PORT names it
 // or it is the default.
 func portCompiler(tmp string) (string, error) {
@@ -204,7 +205,7 @@ func portCompiler(tmp string) (string, error) {
 	bin := filepath.Join(tmp, "tack-port")
 	cmd := exec.Command(env.goBin, "--out", bin, "./driver")
 	cmd.Dir = src
-	cmd.Env = compilerEnv(env.goCache)
+	cmd.Env = portBuildEnv(src, env.goCache)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("building the port in %s: %w\n%s", src, err, out)
 	}
@@ -238,6 +239,17 @@ func missingPort(src string, explicit bool) error {
 // cache.
 func compilerEnv(cache string) []string {
 	return append(os.Environ(), "TACK_HOME="+env.root, "TACK_CACHE="+cache)
+}
+
+// portBuildEnv returns the environment the Go compiler builds the port,
+// or one of its tools, in: this process's, with TACK_HOME set to src,
+// the port's source tree, so the build reads the port's own std, and
+// TACK_CACHE to cache. The port owns std and the runtime (per the
+// owner's ruling, 2026-11-18); this module's copies are frozen, for the
+// comparisons only, which run with compilerEnv. TestPortFiles keeps the
+// two the same.
+func portBuildEnv(src, cache string) []string {
+	return append(os.Environ(), "TACK_HOME="+src, "TACK_CACHE="+cache)
 }
 
 // requirableChecks are the names, besides the stages', that required.txt
