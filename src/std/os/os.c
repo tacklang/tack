@@ -21,11 +21,16 @@
 //
 // Every file descriptor and directory stream this file opens is closed on
 // every path out of the call that opened it, except the descriptors
-// tack_os_open and tack_os_pipe return, which std/os's Tack closes, and
+// tack_os_open, tack_os_open_dir_at and tack_os_pipe return, which
+// std/os's Tack closes, and
 // each is opened close-on-exec, so no child a later call starts inherits
 // it. The one thing here the C library may allocate for itself is
 // tack_os_spawn's posix_spawn_file_actions_t and posix_spawnattr_t, which
-// it destroys on every path.
+// it destroys on every path, and the DIR tack_os_list_dir reads a
+// directory through, and tack_os_read_names where Linux's getdents64 is
+// not there, which each closes before it returns. A child started in a directory of its own
+// enters it through posix_spawn_file_actions_addchdir_np; this process's
+// own directory never changes.
 //
 // The runtime ignores SIGPIPE, so a write here to a pipe with no reader
 // fails with EPIPE, an error returned, rather than kill the process. An
@@ -34,7 +39,9 @@
 // would started from a shell: yes writing into a closed pipe dies of it.
 //
 // The calls are POSIX.1-2008's, which the C library declares in the mode
-// the driver compiles every C file in, clang's default. The file cannot
+// the driver compiles every C file in, clang's default, but for
+// posix_spawn_file_actions_addchdir_np, an extension glibc declares
+// there too, under _DEFAULT_SOURCE. The file cannot
 // ask for them itself with a feature-test macro: the program's tack.h is
 // included before its first line, and its headers have already settled
 // what the C library declares.
@@ -50,6 +57,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
+#include <stddef.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -326,6 +335,7 @@ extern char **environ;
 // program's name included; the array of their pointers is on its stack.
 enum { max_args = 8192 };
 
+
 int64_t tack_os_pipe(tack_array_2_int32 *fds) {
     int p[2];
     if (pipe(p) != 0) {
@@ -378,7 +388,7 @@ static int64_t setup_error(int e) {
     return -e;
 }
 
-int64_t tack_os_spawn(tack_view_uint8 prog, tack_view_uint8 flat, int64_t argc, int32_t in, int32_t out, int32_t err) {
+int64_t tack_os_spawn(tack_view_uint8 prog, tack_view_uint8 dir, int32_t in_dir, tack_view_uint8 pwd, tack_list_uint8 *envbuf, tack_view_uint8 flat, int64_t argc, int32_t in, int32_t out, int32_t err) {
     if (argc < 1 || argc > max_args) {
         return -E2BIG;
     }
@@ -389,6 +399,40 @@ int64_t tack_os_spawn(tack_view_uint8 prog, tack_view_uint8 flat, int64_t argc, 
     int pe = c_path(prog, path);
     if (pe != 0) {
         return -(spawn_failed + (int64_t)pe);
+    }
+    char wd[path_max];
+    char **env = environ;
+    if (in_dir) {
+        int de = c_path(dir, wd);
+        if (de != 0) {
+            return -(spawn_failed + (int64_t)de);
+        }
+        // pwd is PWD= and the directory made absolute, and a 0, the
+        // variable a child started in a directory of its own gets in
+        // place of any PWD this process has, as Go's exec gives it; the
+        // array of the child's variables is made in envbuf, through its
+        // own allocator, as many as this process has and two more.
+        if (pwd.len < 5 || pwd.ptr[pwd.len - 1] != 0) {
+            return -EINVAL;
+        }
+        int64_t count = 0;
+        for (char **e = environ; *e != NULL; e++) {
+            count++;
+        }
+        int64_t need = (count + 2) * (int64_t)sizeof(char *);
+        if (!TACK_LIST_RESERVE(envbuf, need)) {
+            return -no_room;
+        }
+        char **envp = (char **)(void *)envbuf->ptr;
+        int64_t m = 0;
+        for (char **e = environ; *e != NULL; e++) {
+            if (strncmp(*e, "PWD=", 4) != 0) {
+                envp[m++] = *e;
+            }
+        }
+        envp[m++] = (char *)pwd.ptr;
+        envp[m] = NULL;
+        env = envp;
     }
     char *argv[max_args + 1];
     int64_t n = 0;
@@ -423,13 +467,20 @@ int64_t tack_os_spawn(tack_view_uint8 prog, tack_view_uint8 flat, int64_t argc, 
     if (e == 0) {
         e = posix_spawn_file_actions_adddup2(&fa, err, 2);
     }
+    // The child enters dir after its descriptors are set and before the
+    // program is looked for, so a relative prog or PATH entry is taken
+    // from dir; a dir it cannot enter fails the start, as a program that
+    // cannot be run does.
+    if (e == 0 && in_dir) {
+        e = posix_spawn_file_actions_addchdir_np(&fa, wd);
+    }
     if (e != 0) {
         posix_spawn_file_actions_destroy(&fa);
         posix_spawnattr_destroy(&attr);
         return setup_error(e);
     }
     pid_t pid = 0;
-    e = posix_spawnp(&pid, path, &fa, &attr, argv, environ);
+    e = posix_spawnp(&pid, path, &fa, &attr, argv, env);
     posix_spawn_file_actions_destroy(&fa);
     posix_spawnattr_destroy(&attr);
     if (e != 0) {
@@ -506,6 +557,202 @@ int64_t tack_os_wait(int64_t pid) {
 
 int64_t tack_os_eintr(void) {
     return EINTR;
+}
+
+// symlink_found is what tack_os_open_dir_at returns, negated, for a
+// name that is a symbolic link: above every errno, no_room and
+// spawn_failed.
+enum { symlink_found = 1 << 22 };
+
+int64_t tack_os_errno_named(int64_t k) {
+    switch (k) {
+    case 0:
+        return ENOENT;
+    case 1:
+        return EISDIR;
+    case 2:
+        return EPERM;
+    case 3:
+        return EACCES;
+    case 4:
+        return ENOTDIR;
+    case 5:
+        return EINVAL;
+    case 6:
+        return symlink_found;
+    }
+    return 0;
+}
+
+int64_t tack_os_unlink_at(int32_t fd, tack_view_uint8 name, int32_t dir) {
+    char buf[path_max];
+    int e = c_path(name, buf);
+    if (e != 0) {
+        return -e;
+    }
+    int r;
+    do {
+        r = unlinkat(fd, buf, dir ? AT_REMOVEDIR : 0);
+    } while (r != 0 && errno == EINTR);
+    return r == 0 ? 0 : -errno;
+}
+
+int64_t tack_os_open_dir_at(int32_t fd, tack_view_uint8 name) {
+    char buf[path_max];
+    int e = c_path(name, buf);
+    if (e != 0) {
+        return -e;
+    }
+    int d;
+    do {
+        d = openat(fd, buf, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    } while (d < 0 && errno == EINTR);
+    if (d >= 0) {
+        return d;
+    }
+    int oe = errno;
+    if (oe == ENOTSUP || oe == EOPNOTSUPP) {
+        // Go's rootOpenDir: either means a part of the path that is no
+        // directory.
+        return -ENOTDIR;
+    }
+    if (oe == ELOOP || oe == EMLINK || oe == ENOTDIR) {
+        // Go's checkSymlink: a name readlinkat reads is a symbolic link,
+        // which is no error of its own.
+        char one[1];
+        if (readlinkat(fd, buf, one, sizeof one) >= 0) {
+            return -(int64_t)symlink_found;
+        }
+    }
+    return -oe;
+}
+
+int64_t tack_os_read_names(int32_t fd, int64_t done, int64_t max, tack_list_uint8 *names, tack_array_1_int64 *resume) {
+    int64_t n = 0;
+#ifdef SYS_getdents64
+    // Linux: the descriptor's own offset says where the last batch
+    // ended, as Go's Readdirnames reads on from it. A batch that ended
+    // within what one getdents64 gave left in resume where its next
+    // entry is, which is sought only here, when the listing reads on, so
+    // a directory closed and reopened, as Go's is, seeks nothing.
+    (void)done;
+    if (resume->e[0] >= 0) {
+        if (lseek(fd, (off_t)resume->e[0], SEEK_SET) < 0) {
+            return -errno;
+        }
+        resume->e[0] = -1;
+    }
+    // Aligned for the records getdents64 writes in it.
+    union {
+        struct linux_dirent64 {
+            uint64_t d_ino;
+            int64_t d_off;
+            unsigned short d_reclen;
+            unsigned char d_type;
+            char d_name[];
+        } first;
+        char bytes[8192];
+    } buf;
+    // The least a record can be: its fixed fields and a name of one byte
+    // and its 0, as Go's direntReclen checks.
+    const long min_reclen = (long)offsetof(struct linux_dirent64, d_name) + 2;
+    while (n < max) {
+        long got;
+        do {
+            got = syscall(SYS_getdents64, fd, buf.bytes, sizeof buf.bytes);
+        } while (got < 0 && errno == EINTR);
+        if (got < 0) {
+            return -errno;
+        }
+        if (got == 0) {
+            break;
+        }
+        long at = 0;
+        while (at < got) {
+            if (got - at < min_reclen) {
+                return -EIO;
+            }
+            struct linux_dirent64 head;
+            memcpy(&head, buf.bytes + at, offsetof(struct linux_dirent64, d_name));
+            if (head.d_reclen < min_reclen || head.d_reclen > got - at) {
+                return -EIO;
+            }
+            const char *name = buf.bytes + at + offsetof(struct linux_dirent64, d_name);
+            size_t room = (size_t)head.d_reclen - offsetof(struct linux_dirent64, d_name);
+            size_t len = strnlen(name, room);
+            if (len == room) {
+                return -EIO;
+            }
+            at += head.d_reclen;
+            if ((len == 1 && name[0] == '.') || (len == 2 && name[0] == '.' && name[1] == '.')) {
+                continue;
+            }
+            int64_t r = append_bytes(names, name, len + 1);
+            if (r != 0) {
+                return r;
+            }
+            n++;
+            if (n == max) {
+                if (at < got) {
+                    // A negative offset, which a FUSE file system can
+                    // give, cannot be sought; the rest of the buffer
+                    // would be lost, so it is an error, as a malformed
+                    // record is.
+                    if (head.d_off < 0) {
+                        return -EIO;
+                    }
+                    resume->e[0] = head.d_off;
+                }
+                break;
+            }
+        }
+    }
+#else
+    // Elsewhere: a stream of a duplicate, read from the start, past the
+    // done names this open has read already.
+    int d = fcntl(fd, F_DUPFD_CLOEXEC, 0);
+    if (d < 0) {
+        return -errno;
+    }
+    DIR *dir = fdopendir(d);
+    if (dir == NULL) {
+        int e = errno;
+        close(d);
+        return -e;
+    }
+    rewinddir(dir);
+    int64_t seen = 0;
+    int64_t r = 0;
+    while (n < max) {
+        errno = 0;
+        struct dirent *ent = readdir(dir);
+        if (ent == NULL) {
+            if (errno != 0) {
+                r = -errno;
+            }
+            break;
+        }
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) {
+            continue;
+        }
+        if (seen < done) {
+            seen++;
+            continue;
+        }
+        r = append_bytes(names, ent->d_name, strlen(ent->d_name) + 1);
+        if (r != 0) {
+            break;
+        }
+        n++;
+    }
+    if (closedir(dir) != 0 && r == 0) {
+        r = -errno;
+    }
+    if (r != 0) {
+        return r;
+    }
+#endif
+    return n;
 }
 
 // tack_os_error returns the error std/os gives for e, an errno or

@@ -87,6 +87,59 @@ run of a program name with a 0 byte ok
 failed runs leave both outputs as they were ok
 run failing for want of memory at each allocation leaves the outputs as they were ok
 process failures freed ok
+run_in of a relative directory runs the child there ok
+run_in takes a relative program from the child's directory ok
+run_in leaves this process's directory as it was ok
+run_in of a directory that names nothing ok
+run_in of a file ok
+run_in of a directory that may not be searched ok
+run_in of a directory with a 0 byte ok
+run_in checks the program before the directory ok
+failed run_in calls leave both outputs as they were ok
+run_inherit_in of a directory that names nothing ok
+run_inherit_in of a directory with a 0 byte ok
+failed runs in a directory leave this process's directory as it was ok
+run_in of an empty directory ok
+run_in of a directory too long for a path ok
+run_in of a relative directory sets PWD to it made absolute and cleaned, once ok
+run_in of an absolute directory sets PWD to it cleaned, once ok
+run_in of a directory of 4095 bytes gives PWD whole ok
+remove the long directory ok
+change back after run_in ok
+remove what run_in looked at ok
+runs in a directory freed ok
+run keeps an inherited PWD, and run_in replaces it with its directory ok
+the PWD run freed ok
+make a tree 25 directories of 200 bytes deep, past PATH_MAX ok
+remove_all removes a tree deeper than PATH_MAX ok
+remove_all removes a link to a directory, not what it holds ok
+remove_all removes a directory and its file ok
+remove_all of a directory holding one of mode 0300 that holds a file fails, openfdat at it ok
+and removes an empty directory of mode 000 beside it ok
+make the 0300 directory readable again ok
+remove_all removes it then ok
+remove_all of a missing path is no error ok
+remove_all of an empty path is no error ok
+remove_all of a path with a 0 byte ok
+remove_all removes a file ok
+remove_all of a path ending in . is RemoveAll and EINVAL ok
+remove_all freed ok
+remove_all past a batch of 1024 names removes every file and leaves the locked directories ok
+remove the locked directories then ok
+remove_all past a batch of 1024 names removes every file and leaves the locked directories ok
+remove the locked directories then ok
+remove_all past a batch of 1024 names removes every file and leaves the locked directories ok
+remove the locked directories then ok
+remove_all reading on past a batch of 1024 failures removes every file after it and leaves the 1100 locked directories ok
+remove the read-on directory then ok
+remove_all of a directory of mode 0500 holding 3000 files fails at a file and leaves all 3000 ok
+remove it once it may be written ok
+remove_all's batches freed ok
+remove_all failing for want of memory at each allocation closes every descriptor and frees every buffer ok
+remove_all's shortages freed ok
+remove_all past a batch, failing for want of memory at every point, its batches and reopen among them, closes every descriptor and frees every buffer ok
+remove the batch shortage directory ok
+remove_all's batch shortages freed ok
 100 runs leave no descriptor open ok
 child descriptors freed ok
 can_execute of /bin/sh ok
@@ -105,7 +158,7 @@ errnos freed ok
 a program started with SIGCHLD ignored still waits for its children ok
 the SIGCHLD run freed ok
 run_inherit gives each child's Status, and code 13 for a program not on PATH ok
-run_inherit flushes what was printed first, and its child writes to the program's own standard output ok
+run_inherit flushes what was printed first, and its child, and run_inherit_in's in its directory, write to the program's own standard output ok
 run_inherit's child writes to the program's own standard error ok
 the inherit run freed ok
 rename a file to a new name ok

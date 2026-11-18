@@ -35,12 +35,20 @@ import text from "std/text"
 // write_file_mode under several umasks, set through live.c, and checks
 // their modes, read there too, and the modes it refuses, and creates
 // files with create_file_mode, which fails on a path that is taken, a
-// symbolic link's included. Each check is
+// symbolic link's included. It runs children in a directory of their
+// own with run_in and run_inherit_in, and makes them fail each way a
+// directory cannot be entered, and checks the PWD each such child gets,
+// running itself with PWD set to one it must replace. It removes trees
+// with remove_all, one deeper than PATH_MAX, one holding a link to a
+// directory outside it, and ones it cannot remove whole. Each check is
 // printed, ok or FAIL, and c_allocator's count of live buffers, read
 // through live.c, is checked to be back to 0 after each group.
 
 // live returns how many buffers c_allocator holds, in C.
 extern("os_live") func live() int64
+
+// openFds returns how many descriptors below 1024 are open, in C.
+extern("os_open_fds") func openFds() int64
 
 // failAfter makes c_allocator fail every allocation after the next n, or
 // none again when n is negative, in C.
@@ -1385,6 +1393,587 @@ func processFailures(dir []uint8) {
     check(ok && failed > 2, "run failing for want of memory at each allocation leaves the outputs as they were")
 }
 
+// runsIn runs children in a directory of their own with run_in, in dir
+// and below it: a relative directory, taken from the current one, and a
+// relative program, taken from the child's; and fails each way a child
+// cannot enter its directory, one that names nothing, a file, one that
+// may not be searched, and a name holding a 0 byte, each code 13 but
+// the last, code 4; and checks this process's directory is the same
+// afterwards. It changes back to the directory it started in, and
+// removes everything it made, on every path.
+func runsIn(dir []uint8) {
+    start, e0 := os.getwd(c_allocator)
+    if e0.code != 0 {
+        check(false, "getwd before run_in")
+        return
+    }
+    defer {
+        check(chdir(start.bytes()) == 0, "change back after run_in")
+        check(tidy(dir, "in-dir/here", "in-dir", "in-file", "in-locked"), "remove what run_in looked at")
+    }
+    sub, e1 := join(dir, "in-dir")
+    file, e2 := join(dir, "in-file")
+    locked, e3 := join(dir, "in-locked")
+    missing, e4 := join(dir, "in-missing")
+    if e1.code != 0 || e2.code != 0 || e3.code != 0 || e4.code != 0 {
+        check(false, "join run_in paths")
+        return
+    }
+    m0 := os.make_dir(sub)
+    w0 := os.write_file(file, []uint8("not a directory\n"))
+    m1 := os.make_dir_mode(locked, 0o600)
+    script := executable(sub, "here", "#!/bin/sh\nprintf 'here %s' \"$(pwd -P)\"\n", 0o755)
+    c0 := chdir(dir)
+    pwd, e5 := command("sh", "-c", "pwd -P")
+    here, e6 := command("./here")
+    if m0.code != 0 || w0.code != 0 || m1.code != 0 || len(script) == 0 || c0 != 0 || e5.code != 0 || e6.code != 0 {
+        check(false, "set up run_in")
+        return
+    }
+    real, e7 := os.getwd(c_allocator)
+    if e7.code != 0 {
+        check(false, "getwd of run_in's directory")
+        return
+    }
+    mut want := make(list[uint8], c_allocator)
+    e8 := append(mut want, real.bytes()...)
+    e9 := append(mut want, []uint8("/in-dir\n")...)
+    mut out := make(list[uint8], c_allocator)
+    mut errOut := make(list[uint8], c_allocator)
+    s0, r0 := os.run_in([]uint8("in-dir"), []uint8("sh"), pwd, mut out, mut errOut, c_allocator)
+    check(e8.code == 0 && e9.code == 0 && r0.code == 0 && exitedWith(s0, 0) && bytes.equal(out, want) && len(errOut) == 0, "run_in of a relative directory runs the child there")
+    mut out2 := make(list[uint8], c_allocator)
+    s1, r1 := os.run_in(sub, []uint8("./here"), here, mut out2, mut errOut, c_allocator)
+    check(r1.code == 0 && exitedWith(s1, 0) && bytes.has_prefix(out2, []uint8("here /")) && bytes.has_suffix(out2, []uint8("/in-dir")), "run_in takes a relative program from the child's directory")
+    after, e10 := os.getwd(c_allocator)
+    check(e10.code == 0 && after.equal(real.bytes()), "run_in leaves this process's directory as it was")
+
+    mut kept := make(list[uint8], c_allocator)
+    e11 := append(mut kept, []uint8("keep")...)
+    if e11.code != 0 {
+        check(false, "run_in outputs")
+        return
+    }
+    _, r2 := os.run_in(missing, []uint8("sh"), pwd, mut kept, mut errOut, c_allocator)
+    check(spawnError(r2, "No such file or directory"), "run_in of a directory that names nothing")
+    _, r3 := os.run_in(file, []uint8("sh"), pwd, mut kept, mut errOut, c_allocator)
+    check(spawnError(r3, "Not a directory"), "run_in of a file")
+    _, r4 := os.run_in(locked, []uint8("sh"), pwd, mut kept, mut errOut, c_allocator)
+    check(spawnError(r4, "Permission denied"), "run_in of a directory that may not be searched")
+    _, r5 := os.run_in([]uint8("in\x00dir"), []uint8("sh"), pwd, mut kept, mut errOut, c_allocator)
+    check(r5.code == 4 && r5.msg == "directory contains a NUL byte", "run_in of a directory with a 0 byte")
+    _, r6 := os.run_in([]uint8("in\x00dir"), []uint8("s\x00h"), pwd, mut kept, mut errOut, c_allocator)
+    check(r6.code == 4 && r6.msg == "program contains a NUL byte", "run_in checks the program before the directory")
+    check(bytes.equal(kept, []uint8("keep")) && len(errOut) == 0, "failed run_in calls leave both outputs as they were")
+    _, r7 := os.run_inherit_in(missing, []uint8("sh"), pwd, c_allocator)
+    check(spawnError(r7, "No such file or directory"), "run_inherit_in of a directory that names nothing")
+    _, r8 := os.run_inherit_in([]uint8("in\x00dir"), []uint8("sh"), pwd, c_allocator)
+    check(r8.code == 4 && r8.msg == "directory contains a NUL byte", "run_inherit_in of a directory with a 0 byte")
+    after2, e12 := os.getwd(c_allocator)
+    check(e12.code == 0 && after2.equal(real.bytes()), "failed runs in a directory leave this process's directory as it was")
+    _, r9 := os.run_in([]uint8(""), []uint8("sh"), pwd, mut kept, mut errOut, c_allocator)
+    check(spawnError(r9, "No such file or directory"), "run_in of an empty directory")
+    long, e13 := bytes.repeat([]uint8("d"), 5000, c_allocator)
+    if e13.code != 0 {
+        check(false, "a long directory name")
+        return
+    }
+    _, r10 := os.run_in(long, []uint8("sh"), pwd, mut kept, mut errOut, c_allocator)
+    check(spawnError(r10, "File name too long"), "run_in of a directory too long for a path")
+
+    envc, e14 := command("env")
+    if e14.code != 0 {
+        check(false, "command for env")
+        return
+    }
+    mut want_dir := make(list[uint8], c_allocator)
+    e17 := append(mut want_dir, real.bytes()...)
+    e18 := append(mut want_dir, []uint8("/in-dir")...)
+    if e17.code != 0 || e18.code != 0 {
+        check(false, "the directory PWD names")
+        return
+    }
+    mut rel_env := make(list[uint8], c_allocator)
+    s2, r11 := os.run_in([]uint8("./in-dir/../in-dir"), []uint8("env"), envc, mut rel_env, mut errOut, c_allocator)
+    check(r11.code == 0 && exitedWith(s2, 0) && onePwd(rel_env[:], want_dir[:]), "run_in of a relative directory sets PWD to it made absolute and cleaned, once")
+    mut abs_env := make(list[uint8], c_allocator)
+    mut dotted := make(list[uint8], c_allocator)
+    e15 := append(mut dotted, sub[:]...)
+    e16 := append(mut dotted, []uint8("/./")...)
+    if e15.code != 0 || e16.code != 0 {
+        check(false, "an absolute directory")
+        return
+    }
+    s3, r12 := os.run_in(dotted, []uint8("env"), envc, mut abs_env, mut errOut, c_allocator)
+    check(r12.code == 0 && exitedWith(s3, 0) && onePwd(abs_env[:], sub[:]), "run_in of an absolute directory sets PWD to it cleaned, once")
+
+    // A directory whose path is 4095 bytes, the longest a path can be:
+    // its PWD, with PWD= before it, is longer, and must be given whole.
+    top, e19 := join(dir, "in-long")
+    if e19.code != 0 || os.make_dir(top).code != 0 {
+        check(false, "make the long directory's top")
+        return
+    }
+    mut long_dir := make(list[uint8], c_allocator)
+    if append(mut long_dir, top[:]...).code != 0 {
+        check(false, "the long directory's path")
+        return
+    }
+    for len(long_dir) < 4095 {
+        // Each step adds a / and n bytes; it never leaves 1 byte to go,
+        // which no step could add, so a base path of any length reaches
+        // 4095 exactly.
+        left := 4095 -% len(long_dir)
+        mut n := left -% 1
+        if n > 200 {
+            n = 200
+            if left -% 201 == 1 {
+                n = 199
+            }
+        }
+        if n < 1 || append(mut long_dir, '/').code != 0 {
+            break
+        }
+        for j := range n {
+            if j < 0 || append(mut long_dir, 'p').code != 0 {
+                break
+            }
+        }
+        if os.make_dir(long_dir).code != 0 {
+            break
+        }
+    }
+    mut long_env := make(list[uint8], c_allocator)
+    s4, r13 := os.run_in(long_dir, []uint8("env"), envc, mut long_env, mut errOut, c_allocator)
+    check(len(long_dir) == 4095 && r13.code == 0 && exitedWith(s4, 0) && onePwd(long_env[:], long_dir[:]), "run_in of a directory of 4095 bytes gives PWD whole")
+    rl := os.remove_all(top, c_allocator)
+    check(rl.err.code == 0 && gone(top), "remove the long directory")
+}
+
+// onePwd reports whether env, what env(1) wrote, holds exactly one
+// variable PWD, whose value is want.
+func onePwd(env []uint8, want []uint8) bool {
+    mut count int64 = 0
+    mut good := false
+    mut start int64 = 0
+    for i, b := range env {
+        if b != '\n' {
+            continue
+        }
+        if i >= start && start >= 0 && i <= len(env) {
+            if bytes.has_prefix(env[start:i], []uint8("PWD=")) {
+                count +%= 1
+                v := start +% 4
+                good = v >= 0 && v <= i && bytes.equal(env[v:i], want)
+            }
+        }
+        start = i +% 1
+    }
+    return count == 1 && good
+}
+
+// pwdChild is the run the example makes of itself with PWD set to
+// /tack-os-inherited, which names no directory: run's child gets that
+// PWD as it is, and run_in's child, in /, PWD=/ in its place, once. It
+// exits 0 when both did, and 1, 2 or 3 otherwise.
+func pwdChild() {
+    c, e := command("env")
+    if e.code != 0 {
+        exit(3)
+    }
+    mut out := make(list[uint8], c_allocator)
+    mut errOut := make(list[uint8], c_allocator)
+    s0, r0 := os.run([]uint8("env"), c, mut out, mut errOut, c_allocator)
+    if r0.code != 0 || !exitedWith(s0, 0) || !onePwd(out[:], []uint8("/tack-os-inherited")) {
+        exit(1)
+    }
+    mut out2 := make(list[uint8], c_allocator)
+    s1, r1 := os.run_in([]uint8("/"), []uint8("env"), c, mut out2, mut errOut, c_allocator)
+    if r1.code != 0 || !exitedWith(s1, 0) || !onePwd(out2[:], []uint8("/")) {
+        exit(2)
+    }
+    exit(0)
+}
+
+// inheritedPwd runs the example itself, as pwdChild, through a shell
+// that sets PWD to a path that names nothing, and checks it exits 0.
+func inheritedPwd() {
+    a, e0 := os.args(c_allocator)
+    if e0.code != 0 {
+        check(false, "args for the PWD run")
+        return
+    }
+    mut c, e1 := command("sh", "-c", "PWD=/tack-os-inherited exec \"$0\" pwd-child")
+    if e1.code != 0 {
+        check(false, "command for the PWD run")
+        return
+    }
+    for i, x := range a {
+        if i == 0 {
+            t, e2 := text.from_bytes(x.bytes(), c_allocator)
+            if e2.code != 0 || append(mut c, t).code != 0 {
+                check(false, "argv for the PWD run")
+                return
+            }
+        }
+    }
+    mut out := make(list[uint8], c_allocator)
+    mut errOut := make(list[uint8], c_allocator)
+    s, e3 := os.run([]uint8("sh"), c, mut out, mut errOut, c_allocator)
+    check(e3.code == 0 && exitedWith(s, 0), "run keeps an inherited PWD, and run_in replaces it with its directory")
+}
+
+// makeFiles makes, in dir, n files named f0, f1, and so on, and the
+// directories named in locked, each of mode 0500 holding a file, which no
+// one may remove; it reports whether all were made.
+func makeFiles(dir []uint8, n int64, locked int64) bool {
+    for i := range n {
+        mut name := make(list[uint8], c_allocator)
+        if append(mut name, dir...).code != 0 || append(mut name, []uint8("/f")...).code != 0 || bytes.append_int(mut name, i).code != 0 {
+            return false
+        }
+        if os.write_file(name, []uint8("")).code != 0 {
+            return false
+        }
+    }
+    for i := range locked {
+        mut name := make(list[uint8], c_allocator)
+        if append(mut name, dir...).code != 0 || append(mut name, []uint8("/locked")...).code != 0 || bytes.append_int(mut name, i).code != 0 {
+            return false
+        }
+        mut f := make(list[uint8], c_allocator)
+        if append(mut f, name...).code != 0 || append(mut f, []uint8("/f")...).code != 0 {
+            return false
+        }
+        if os.make_dir(name).code != 0 || os.write_file(f, []uint8("")).code != 0 || chmod(name, 0o500) != 0 {
+            return false
+        }
+    }
+    return true
+}
+
+// unlock gives every entry of dir mode 0700, so that remove_all can
+// remove it then.
+func unlock(dir []uint8) bool {
+    names, e := os.list_dir(dir, c_allocator)
+    if e.code != 0 {
+        return false
+    }
+    for _, n := range names {
+        mut p := make(list[uint8], c_allocator)
+        if append(mut p, dir...).code != 0 || append(mut p, '/').code != 0 || append(mut p, n.bytes()...).code != 0 {
+            return false
+        }
+        info, se := os.lstat(p)
+        if se.code == 0 && info.is_dir() && chmod(p, 0o700) != 0 {
+            return false
+        }
+    }
+    return true
+}
+
+// removeBatches checks remove_all where a directory holds more names
+// than one batch Go reads, rm_batch, 1024, some of which fail: 1025
+// files and a locked directory, 2048 and two, 2049 and three, each
+// failing at one of its locked directories, unlinkat and its file,
+// with every file removed and only the locked directories left; 500
+// files and then 1100 locked directories, which reads on past a first
+// batch that all failed where the OS lists the newest first; and a
+// directory of mode 0500 holding 3000 files, every one of which fails,
+// all 3000 left. Each removes what it made.
+func removeBatches(dir []uint8) {
+    for k := range 3 {
+        mut n int64 = 1025
+        if k == 1 {
+            n = 2048
+        } else if k == 2 {
+            n = 2049
+        }
+        b, e0 := join(dir, "r-batch")
+        if e0.code != 0 || os.make_dir(b).code != 0 || !makeFiles(b, n, k +% 1) {
+            check(false, "make a directory of many entries")
+            return
+        }
+        r := os.remove_all(b, c_allocator)
+        left, e1 := os.list_dir(b, c_allocator)
+        mut prefix := make(list[uint8], c_allocator)
+        e2 := append(mut prefix, b[:]...)
+        e3 := append(mut prefix, []uint8("/locked")...)
+        check(e1.code == 0 && e2.code == 0 && e3.code == 0 && r.err.code == 3 && r.err.msg == "Permission denied" && r.op.equal([]uint8("unlinkat")) && bytes.has_prefix(r.path.bytes(), prefix[:]) && bytes.has_suffix(r.path.bytes(), []uint8("/f")) && len(left) == k +% 1, "remove_all past a batch of 1024 names removes every file and leaves the locked directories")
+        un := unlock(b)
+        r2 := os.remove_all(b, c_allocator)
+        check(un && r2.err.code == 0 && gone(b), "remove the locked directories then")
+    }
+    // 500 files and then 1100 locked directories: where the OS lists the
+    // newest first, as tmpfs does, a first batch of 1024 that all fail
+    // is followed by a read on from the same descriptor, where the batch
+    // stopped within what one read of the OS gave, which must find every
+    // file after it. Whatever the order, every file must go and every
+    // locked directory stay.
+    on, e8 := join(dir, "r-readon")
+    if e8.code != 0 || os.make_dir(on).code != 0 || !makeFiles(on, 500, 1100) {
+        check(false, "make a directory of 1100 locked directories after 500 files")
+        return
+    }
+    r5 := os.remove_all(on, c_allocator)
+    kept, e9 := os.list_dir(on, c_allocator)
+    if e9.code != 0 {
+        check(false, "list the read-on directory")
+        return
+    }
+    mut lockeds int64 = 0
+    for _, k := range kept {
+        if bytes.has_prefix(k.bytes(), []uint8("locked")) {
+            lockeds +%= 1
+        }
+    }
+    mut lp := make(list[uint8], c_allocator)
+    e10 := append(mut lp, on[:]...)
+    e11 := append(mut lp, []uint8("/locked")...)
+    check(e9.code == 0 && e10.code == 0 && e11.code == 0 && len(kept) == 1100 && lockeds == 1100 && r5.err.code == 3 && r5.op.equal([]uint8("unlinkat")) && bytes.has_prefix(r5.path.bytes(), lp[:]), "remove_all reading on past a batch of 1024 failures removes every file after it and leaves the 1100 locked directories")
+    un2 := unlock(on)
+    r6 := os.remove_all(on, c_allocator)
+    check(un2 && r6.err.code == 0 && gone(on), "remove the read-on directory then")
+    ro, e4 := join(dir, "r-readonly")
+    if e4.code != 0 || os.make_dir(ro).code != 0 || !makeFiles(ro, 3000, 0) || chmod(ro, 0o500) != 0 {
+        check(false, "make a directory of mode 0500 holding 3000 files")
+        return
+    }
+    r3 := os.remove_all(ro, c_allocator)
+    left, e5 := os.list_dir(ro, c_allocator)
+    mut want := make(list[uint8], c_allocator)
+    e6 := append(mut want, ro[:]...)
+    e7 := append(mut want, '/')
+    check(e5.code == 0 && e6.code == 0 && e7.code == 0 && r3.err.code == 3 && r3.err.msg == "Permission denied" && r3.op.equal([]uint8("unlinkat")) && bytes.has_prefix(r3.path.bytes(), want[:]) && len(left) == 3000, "remove_all of a directory of mode 0500 holding 3000 files fails at a file and leaves all 3000")
+    ch := chmod(ro, 0o700)
+    r4 := os.remove_all(ro, c_allocator)
+    check(ch == 0 && r4.err.code == 0 && gone(ro), "remove it once it may be written")
+}
+
+// shortRun refills b, a directory holding a locked directory, with 1025
+// files, and runs remove_all on it with every allocation after the
+// first n failing, n negative for none, and reports whether it closed
+// every descriptor and freed every buffer, and how it ended: 0, 1 or 3
+// for the locked directory's failure, or -1 when the files could not be
+// made.
+func shortRun(b []uint8, n int64) (bool, int64) {
+    if !makeFiles(b, 1025, 0) {
+        return false, -1
+    }
+    fds := openFds()
+    base := live()
+    failAfter(n)
+    r := os.remove_all(b, c_allocator)
+    code := r.err.code
+    drop(own r)
+    failAfter(-1)
+    return openFds() == fds && live() == base, code
+}
+
+// removeBatchShortages makes allocations of remove_all fail on a
+// directory past a batch of 1024 names, 1025 files and a directory of
+// mode 0500 holding a file, which fails: a run that fails nothing ends
+// in that failure, code 3, after a count of allocations it finds first,
+// about one an entry; then every failure point of the run, the reads of
+// both batches and the reopen between them among them, each of which
+// must end in out of memory or in the locked directory's failure, with
+// every descriptor closed and every buffer freed.
+func removeBatchShortages(dir []uint8) {
+    b, e0 := join(dir, "r-bshort")
+    if e0.code != 0 || os.make_dir(b).code != 0 || !makeFiles(b, 0, 1) {
+        check(false, "make the batch shortage directory")
+        return
+    }
+    // The run's allocations are counted by failing from ever later
+    // points until one ends in the locked directory's failure.
+    mut total int64 = 1
+    for total < 1000000 {
+        _, code := shortRun(b, total)
+        if code != 1 {
+            break
+        }
+        total *%= 2
+    }
+    mut lo int64 = total / 2
+    mut hi := total
+    for lo +% 1 < hi {
+        mid := lo +% (hi -% lo) / 2
+        _, code := shortRun(b, mid)
+        if code == 1 {
+            lo = mid
+        } else {
+            hi = mid
+        }
+    }
+    total = hi
+    clean, code := shortRun(b, -1)
+    mut ok := clean && code == 3
+    for n := range total {
+        good, c := shortRun(b, n)
+        if !good || c != 1 && c != 3 {
+            ok = false
+        }
+    }
+    check(ok && total > 1026, "remove_all past a batch, failing for want of memory at every point, its batches and reopen among them, closes every descriptor and frees every buffer")
+    un := unlock(b)
+    r := os.remove_all(b, c_allocator)
+    check(un && r.err.code == 0 && gone(b), "remove the batch shortage directory")
+}
+
+// removeShortages makes every allocation remove_all makes fail, the
+// first, the second and so on, on a tree t/a/b holding a file and a
+// directory, beside t/c, and checks each run ends in out of memory or in
+// success, with every descriptor it opened closed and every buffer it
+// made freed; then removes what is left.
+func removeShortages(dir []uint8) {
+    t, e0 := join(dir, "r-short")
+    if e0.code != 0 {
+        check(false, "join the shortage tree")
+        return
+    }
+    mut ok := true
+    mut n int64 = 0
+    for n < 40 {
+        b, e1 := join(dir, "r-short/a/b")
+        d, e2 := join(dir, "r-short/a/b/d")
+        f, e3 := join(dir, "r-short/a/b/f")
+        c, e4 := join(dir, "r-short/c")
+        a, e5 := join(dir, "r-short/a")
+        if e1.code != 0 || e2.code != 0 || e3.code != 0 || e4.code != 0 || e5.code != 0 {
+            ok = false
+            break
+        }
+        m0 := os.make_dir(t)
+        m1 := os.make_dir(a)
+        m2 := os.make_dir(b)
+        m3 := os.make_dir(d)
+        m4 := os.make_dir(c)
+        w0 := os.write_file(f, []uint8("x"))
+        if m0.code != 0 && n == 0 || m1.code != 0 && n == 0 || m2.code != 0 && n == 0 || m3.code != 0 && n == 0 || m4.code != 0 && n == 0 || w0.code != 0 {
+            ok = false
+            break
+        }
+        fds := openFds()
+        base := live()
+        failAfter(n)
+        r := os.remove_all(t, c_allocator)
+        code := r.err.code
+        drop(own r)
+        failAfter(-1)
+        if openFds() != fds || live() != base || code != 0 && code != 1 {
+            ok = false
+        }
+        if code == 0 {
+            break
+        }
+        n +%= 1
+    }
+    check(ok && n > 0 && gone(t), "remove_all failing for want of memory at each allocation closes every descriptor and frees every buffer")
+}
+
+// removeFailed reports whether r is remove_all's failure op at
+// the path dir/rel with the OS's message msg.
+func removeFailed(r os.RemoveResult, op string, dir []uint8, rel string, msg string) bool {
+    p, e0 := join(dir, rel)
+    return e0.code == 0 && r.err.code == 3 && r.err.msg == msg && r.op.equal([]uint8(op)) && r.path.equal(p[:])
+}
+
+// removeAlls checks remove_all: a tree deeper than PATH_MAX, made one
+// directory at a time from inside it, is removed; a symbolic link to a
+// directory outside the tree is removed, the directory and what it holds
+// left; a directory of mode 0300 holding a file fails, openfdat and the
+// directory, and one of mode 000 that is empty is removed; and a missing
+// path, an empty one, one with a 0 byte, a file and one ending in . are
+// each what Go's os.RemoveAll makes them. It changes back to the
+// directory it started in, and removes everything it made. It returns
+// the error of a path it could not join, for want of memory.
+func removeAlls(dir []uint8) error {
+    p_r_out_kept := join(dir, "r-out/kept")?
+    p_r_tree_link := join(dir, "r-tree/link")?
+    p_r_locked_wx := join(dir, "r-locked/wx")?
+    p_r_locked_wx_f := join(dir, "r-locked/wx/f")?
+    p_r_locked_none := join(dir, "r-locked/none")?
+    p_r_missing := join(dir, "r-missing")?
+    start, e0 := os.getwd(c_allocator)
+    if e0.code != 0 {
+        check(false, "getwd before remove_all")
+        return noerror
+    }
+    deep, e1 := join(dir, "r-deep")
+    out, e2 := join(dir, "r-out")
+    tree, e3 := join(dir, "r-tree")
+    locked, e4 := join(dir, "r-locked")
+    file, e5 := join(dir, "r-file")
+    if e1.code != 0 || e2.code != 0 || e3.code != 0 || e4.code != 0 || e5.code != 0 {
+        check(false, "join remove_all paths")
+        return noerror
+    }
+    m0 := os.make_dir(deep)
+    c0 := chdir(deep)
+    name, e6 := bytes.repeat([]uint8("d"), 200, c_allocator)
+    if m0.code != 0 || c0 != 0 || e6.code != 0 {
+        check(false, "set up a deep tree")
+        return noerror
+    }
+    mut depth int64 = 0
+    for depth < 25 {
+        m := os.make_dir(name)
+        w := os.write_file([]uint8("f"), []uint8("x"))
+        c := chdir(name)
+        if m.code != 0 || w.code != 0 || c != 0 {
+            break
+        }
+        depth +%= 1
+    }
+    check(chdir(start.bytes()) == 0 && depth == 25, "make a tree 25 directories of 200 bytes deep, past PATH_MAX")
+    r0 := os.remove_all(deep, c_allocator)
+    check(r0.err.code == 0 && r0.op.len() == 0 && r0.path.len() == 0 && gone(deep), "remove_all removes a tree deeper than PATH_MAX")
+
+    m1 := os.make_dir(out)
+    w1 := os.write_file(p_r_out_kept[:], []uint8("kept"))
+    m2 := os.make_dir(tree)
+    l1 := symlink(out, p_r_tree_link[:])
+    if m1.code != 0 || w1.code != 0 || m2.code != 0 || l1 != 0 {
+        check(false, "set up a link to a directory outside")
+        return noerror
+    }
+    r1 := os.remove_all(tree, c_allocator)
+    check(r1.err.code == 0 && gone(tree) && readsBack(p_r_out_kept[:], []uint8("kept")), "remove_all removes a link to a directory, not what it holds")
+    r2 := os.remove_all(out, c_allocator)
+    check(r2.err.code == 0 && gone(out), "remove_all removes a directory and its file")
+
+    m3 := os.make_dir(locked)
+    m4 := os.make_dir(p_r_locked_wx[:])
+    w4 := os.write_file(p_r_locked_wx_f[:], []uint8("x"))
+    m5 := os.make_dir(p_r_locked_none[:])
+    if m3.code != 0 || m4.code != 0 || w4.code != 0 || m5.code != 0 || chmod(p_r_locked_wx[:], 0o300) != 0 || chmod(p_r_locked_none[:], 0) != 0 {
+        check(false, "set up directories that may not be read")
+        return noerror
+    }
+    r3 := os.remove_all(locked, c_allocator)
+    check(removeFailed(r3, "openfdat", dir, "r-locked/wx", "Permission denied"), "remove_all of a directory holding one of mode 0300 that holds a file fails, openfdat at it")
+    check(gone(p_r_locked_none[:]), "and removes an empty directory of mode 000 beside it")
+    check(chmod(p_r_locked_wx[:], 0o700) == 0, "make the 0300 directory readable again")
+    r4 := os.remove_all(locked, c_allocator)
+    check(r4.err.code == 0 && gone(locked), "remove_all removes it then")
+
+    r5 := os.remove_all(p_r_missing[:], c_allocator)
+    check(r5.err.code == 0 && r5.op.len() == 0, "remove_all of a missing path is no error")
+    r6 := os.remove_all([]uint8(""), c_allocator)
+    check(r6.err.code == 0, "remove_all of an empty path is no error")
+    r7 := os.remove_all([]uint8("r\x00x"), c_allocator)
+    check(r7.err.code == 4 && r7.err.msg == "path contains a NUL byte", "remove_all of a path with a 0 byte")
+    w8 := os.write_file(file, []uint8("x"))
+    r8 := os.remove_all(file, c_allocator)
+    check(w8.code == 0 && r8.err.code == 0 && gone(file), "remove_all removes a file")
+    mut dotted := make(list[uint8], c_allocator)
+    e9 := append(mut dotted, dir...)
+    e10 := append(mut dotted, []uint8("/.")...)
+    r9 := os.remove_all(dotted, c_allocator)
+    check(e9.code == 0 && e10.code == 0 && r9.err.code == 3 && r9.err.msg == "Invalid argument" && r9.op.equal([]uint8("RemoveAll")) && r9.path.equal(dotted[:]), "remove_all of a path ending in . is RemoveAll and EINVAL")
+    return noerror
+}
+
 // childDescriptors runs 100 children that exit, 100 killed by a signal,
 // and 100 programs that do not exist, more than 64 open files could hold
 // if run left a pipe open each time.
@@ -1496,6 +2085,14 @@ func inheritChild() {
     if r2.code != 0 || !killedBy(s2, 9) {
         exit(3)
     }
+    c3, e3 := command("sh", "-c", "printf ' %s' \"$(pwd -P)\"")
+    if e3.code != 0 {
+        exit(5)
+    }
+    s3, r3 := os.run_inherit_in([]uint8("/"), []uint8("sh"), c3, c_allocator)
+    if r3.code != 0 || !exitedWith(s3, 0) {
+        exit(6)
+    }
     exit(0)
 }
 
@@ -1531,7 +2128,7 @@ func inherits() {
     mut errOut := make(list[uint8], c_allocator)
     s, e3 := os.run(self.bytes(), c, mut out, mut errOut, c_allocator)
     check(e3.code == 0 && exitedWith(s, 0), "run_inherit gives each child's Status, and code 13 for a program not on PATH")
-    check(bytes.equal(out, []uint8("before child-out after")), "run_inherit flushes what was printed first, and its child writes to the program's own standard output")
+    check(bytes.equal(out, []uint8("before child-out after /")), "run_inherit flushes what was printed first, and its child, and run_inherit_in's in its directory, write to the program's own standard output")
     check(bytes.equal(errOut, []uint8("child-err")), "run_inherit's child writes to the program's own standard error")
 }
 
@@ -1624,6 +2221,10 @@ func main() {
         inheritChild()
         return
     }
+    if childMode("pwd-child") {
+        pwdChild()
+        return
+    }
     check(live() == 0, "nothing live at the start")
     arguments()
     freed("args freed")
@@ -1653,6 +2254,18 @@ func main() {
     check(live() == 1, "signals freed")
     processFailures(d.bytes())
     check(live() == 1, "process failures freed")
+    runsIn(d.bytes())
+    check(live() == 1, "runs in a directory freed")
+    inheritedPwd()
+    check(live() == 1, "the PWD run freed")
+    re := removeAlls(d.bytes())
+    check(re.code == 0 && live() == 1, "remove_all freed")
+    removeBatches(d.bytes())
+    check(live() == 1, "remove_all's batches freed")
+    removeShortages(d.bytes())
+    check(live() == 1, "remove_all's shortages freed")
+    removeBatchShortages(d.bytes())
+    check(live() == 1, "remove_all's batch shortages freed")
     childDescriptors()
     check(live() == 1, "child descriptors freed")
     executables(d.bytes())

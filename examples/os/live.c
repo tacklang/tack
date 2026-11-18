@@ -5,12 +5,14 @@
 // can be made to give on demand, and for any errno; a note on the
 // standard error for a check the machine cannot run; and what its
 // rename, stat and run checks need that std/os does not do: making a
-// symbolic or hard link, changing the current directory, finding a
+// symbolic or hard link, counting the open descriptors, changing the
+// current directory, finding a
 // second file system to rename across, setting a file's size or its
 // mode, finding whether a file larger than the disk can be made safely,
 // and, for its modes checks, setting the umask and reading a file's
 // mode.
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
@@ -28,6 +30,16 @@ int64_t os_live(void) {
 
 void os_fail_after(int64_t n) {
     tack_c_allocator_fail_after_(n);
+}
+
+int64_t os_open_fds(void) {
+    int64_t n = 0;
+    for (int fd = 0; fd < 1024; fd++) {
+        if (fcntl(fd, F_GETFD) != -1) {
+            n++;
+        }
+    }
+    return n;
 }
 
 tack_error os_enomem_error(void) {

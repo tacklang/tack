@@ -1393,7 +1393,15 @@ section remains the description of the language.
   bits alone, 0 to 0o777, and any other is `error{code: 4, msg: "mode
   out of range"}`; `os.remove_path(path)` removes a
   file or an empty directory, named `remove_path` because `remove` is a
-  builtin; `os.rename(old_path, new_path)` renames a file or a
+  builtin; `res := os.remove_all(path, alloc)` removes `path` and
+  everything below it, as Go's `os.RemoveAll` does: each directory
+  opened relative to the one above it, with `O_NOFOLLOW`, so no
+  symbolic link is followed and a tree deeper than `PATH_MAX` goes too,
+  an empty or missing path no error, a path ending in `.` `"Invalid
+  argument"`; `res`, an `os.RemoveResult`, holds the error, code 3 and
+  the OS's message for a failure, and beside it the failure's `op` and
+  `path` as Go's `PathError` names them, so they can be read once the
+  error is seen; `os.rename(old_path, new_path)` renames a file or a
   directory with `rename(2)`, replacing a file, or an empty directory,
   at `new_path` at once, and moves nothing between file systems, which
   is `error{code: 3, msg: "Cross-device link"}`; `info, err :=
@@ -1463,7 +1471,21 @@ section remains the description of the language.
   arrive as it makes them; it first flushes what `print`, `exit` and
   `std/fmt` have written, so that comes first, a failed flush ending the
   program on a broken pipe as `std/fmt`'s do. Its errors are `run`'s but
-  those of the pipes and reads it has none of. An allocation that fails is `error{code: 1,
+  those of the pipes and reads it has none of. `os.run_in(dir, prog,
+  argv, mut out, mut err_out, alloc)` and `os.run_inherit_in(dir, prog,
+  argv, alloc)` are `run` and `run_inherit` with the child started in
+  the directory `dir`, as Go's `exec` starts it given `cmd.Dir`: the
+  child enters `dir`, relative to the program's own directory, before
+  `prog` is looked for, so a relative `prog` with a `/`, and a relative
+  `PATH` entry, are taken from `dir`, where Go's `exec` looks `prog` up
+  in the parent and refuses a relative result; the child's `PWD` is
+  `dir` made absolute, as Go's `os.Getwd` and `filepath.Abs` make it,
+  replacing any `PWD` the program has, as Go's `exec` sets it given
+  `cmd.Dir`; the program's own directory never changes; a 0 byte in
+  `dir` is `error{code: 4, msg: "directory contains a NUL byte"}`, and a
+  `dir` the child cannot enter, one that names nothing, is no directory
+  or may not be searched, is code 13 and the OS's message, as a program
+  that cannot be started is. An allocation that fails is `error{code: 1,
   msg: "out of memory"}`, and code 1 means nothing else; the OS refusing
   is code 3 and the message macOS's strerror gives, the same on every
   target, `error{code: 3, msg: "No such file or directory"}`, a kernel

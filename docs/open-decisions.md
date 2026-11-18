@@ -1361,6 +1361,39 @@ These points were settled by consistency and could go another way:
   starts, a failed flush going to `tack_stdio_failed_` as `std/fmt`'s
   do. It opens `/dev/null` for the child's standard input, as `run` and
   Go's `exec` do, and gives the child descriptors 1 and 2 as they are.
+- `run_in` and `run_inherit_in` are functions of their own beside `run`
+  and `run_inherit`, sharing their code, not a directory argument added
+  to them, decided 2026-11-18. The child enters its directory through
+  `posix_spawn_file_actions_addchdir_np`, after its descriptors are set
+  and before the program is looked for, so a relative program or `PATH`
+  entry is taken from there; Go's `exec` looks the program up in the
+  parent and refuses a relative result (`exec.ErrDot`), a difference
+  the driver avoids by giving an absolute path. The process's own
+  directory never changes, so no other thread sees it move. The child's
+  environment has `PWD` set to the directory made absolute, every
+  inherited `PWD` dropped, as Go's `exec` does given `cmd.Dir` and no
+  `cmd.Env` (decided 2026-11-18); a relative directory is joined to the
+  process's directory as Go's `os.Getwd` finds it, `$PWD` when it names
+  the same directory as `.`, `getcwd` otherwise. The child's array of
+  variables is made in a list of std/os's, through its allocator, so
+  their number has no limit of its own. An empty directory is ENOENT,
+  where Go's empty `cmd.Dir` means no directory change. A directory the child cannot enter is code 13 and the OS's
+  message, as a program that cannot be started is, and a directory too
+  long for a path `"File name too long"`, code 13 too. A 0 byte in it is
+  code 4, checked after the program's and before the arguments'. Go's
+  `exec` stats `cmd.Dir` first and words its failure as `chdir`; std/os
+  does not stat it, and leaves that wording to the caller.
+- `remove_all` returns one `RemoveResult`, the error with the failure's
+  op and path beside it, not a result beside an error, since a value
+  returned beside an error cannot be read once the error is set
+  (decided 2026-11-18). It mirrors Go 1.27's `removeAllFrom`, one
+  directory descriptor open per level as Go's recursion holds, so a
+  tree deeper than the descriptors a process may open fails with
+  EMFILE, but sooner than Go's, whose runtime raises the soft limit on
+  descriptors to the hard one, which Tack's does not, a known
+  limitation. It reads names in batches of 1024 from each directory's
+  own descriptor, with getdents64 on Linux, and reopens a directory after
+  a full batch as Go does, so it holds a batch a level.
 - `can_execute` is a `bool`: a failure to look at the file is "may not
   run it", as Go's `LookPath` skips such a file.
 - `run` makes room in `out` before `err_out`, so when only `err_out`
