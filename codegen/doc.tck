@@ -224,8 +224,9 @@ package codegen
 // of the tree before anything is lowered (see Typed.splice_sites), so
 // every walk and every rendering meets them where Go's does.
 //
-// Of the commands a build runs, BuildCmd, the link of the generated C,
-// is here as build_cmd, with clangFlags as append_clang_flags, for the
-// driver's build of a program with no C files and no runtime objects;
-// CompileCmd, CompileStdCmd and VersionCmd come with the builds that
-// need them, which the port does not do yet.
+// The commands a build runs are here as Go's backend gives them, with
+// clangFlags as append_clang_flags: BuildCmd, the link of the generated
+// C with the objects of the program's C files and the runtime's, as
+// build_cmd; CompileCmd, the compile of a C file of the program's, as
+// compile_cmd; CompileStdCmd, the compile of a C file of the runtime's,
+// as compile_std_cmd; and VersionCmd, clang --version, as version_cmd.

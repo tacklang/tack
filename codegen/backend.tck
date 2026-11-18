@@ -55,14 +55,13 @@ pub func append_clang_flags(mut argv list[text.Text], opt []uint8) error {
 }
 
 // build_cmd returns the clang command that compiles src, the generated
-// C, and links it into the binary out, Go's BuildCmd: clang, its flags
-// (see append_clang_flags) at the level opt, -I include, the directory
-// the generated C finds <tack/tack.h> in, -o out and src. The driver
-// passes every path absolute, so none can be read as an option. Go's
-// BuildCmd also links the objects of the program's C files and the
-// runtime's after src; the driver builds with none of them yet, so it
-// takes none. It fails only for want of memory.
-pub func build_cmd(src []uint8, include []uint8, out []uint8, opt []uint8) (list[text.Text], error) {
+// C, and links it with objs into the binary out, Go's BuildCmd: clang,
+// its flags (see append_clang_flags) at the level opt, -I include, the
+// directory the generated C finds <tack/tack.h> in, -o out, src, and
+// then each of objs, the objects of the program's C files and the
+// runtime's, in the order given. The driver passes every path absolute,
+// so none can be read as an option. It fails only for want of memory.
+pub func build_cmd(src []uint8, include []uint8, objs []text.Text, out []uint8, opt []uint8) (list[text.Text], error) {
     mut argv := make(list[text.Text], c_allocator)
     append(mut argv, text.from_bytes([]uint8("clang"), c_allocator)?)?
     append_clang_flags(mut argv, opt)?
@@ -71,6 +70,61 @@ pub func build_cmd(src []uint8, include []uint8, out []uint8, opt []uint8) (list
     append(mut argv, text.from_bytes([]uint8("-o"), c_allocator)?)?
     append(mut argv, text.from_bytes(out, c_allocator)?)?
     append(mut argv, text.from_bytes(src, c_allocator)?)?
+    for _, o := range objs {
+        append(mut argv, text.from_bytes(o.bytes(), c_allocator)?)?
+    }
+    return argv, noerror
+}
+
+// compile_cmd returns the clang command that compiles src, a C file of
+// one of the program's packages, to the object obj, Go's CompileCmd:
+// clang, its flags at the level opt, -c, -I the directory of header,
+// tack.h, which the C file may include by name, -I include, the
+// runtime's include directory, -include header, so tack.h's
+// declarations are in force whether the file includes it or not, -o obj
+// and src. It fails only for want of memory.
+pub func compile_cmd(src []uint8, header []uint8, header_dir []uint8, include []uint8, obj []uint8, opt []uint8) (list[text.Text], error) {
+    mut argv := make(list[text.Text], c_allocator)
+    append(mut argv, text.from_bytes([]uint8("clang"), c_allocator)?)?
+    append_clang_flags(mut argv, opt)?
+    append(mut argv, text.from_bytes([]uint8("-c"), c_allocator)?)?
+    append(mut argv, text.from_bytes([]uint8("-I"), c_allocator)?)?
+    append(mut argv, text.from_bytes(header_dir, c_allocator)?)?
+    append(mut argv, text.from_bytes([]uint8("-I"), c_allocator)?)?
+    append(mut argv, text.from_bytes(include, c_allocator)?)?
+    append(mut argv, text.from_bytes([]uint8("-include"), c_allocator)?)?
+    append(mut argv, text.from_bytes(header, c_allocator)?)?
+    append(mut argv, text.from_bytes([]uint8("-o"), c_allocator)?)?
+    append(mut argv, text.from_bytes(obj, c_allocator)?)?
+    append(mut argv, text.from_bytes(src, c_allocator)?)?
+    return argv, noerror
+}
+
+// compile_std_cmd returns the clang command that compiles src, a C file
+// of the runtime, to the object obj, Go's CompileStdCmd: clang, its
+// flags at the level opt, -c, -I include, the runtime's include
+// directory, -o obj and src. It fails only for want of memory.
+pub func compile_std_cmd(src []uint8, include []uint8, obj []uint8, opt []uint8) (list[text.Text], error) {
+    mut argv := make(list[text.Text], c_allocator)
+    append(mut argv, text.from_bytes([]uint8("clang"), c_allocator)?)?
+    append_clang_flags(mut argv, opt)?
+    append(mut argv, text.from_bytes([]uint8("-c"), c_allocator)?)?
+    append(mut argv, text.from_bytes([]uint8("-I"), c_allocator)?)?
+    append(mut argv, text.from_bytes(include, c_allocator)?)?
+    append(mut argv, text.from_bytes([]uint8("-o"), c_allocator)?)?
+    append(mut argv, text.from_bytes(obj, c_allocator)?)?
+    append(mut argv, text.from_bytes(src, c_allocator)?)?
+    return argv, noerror
+}
+
+// version_cmd returns the command that identifies the toolchain, Go's
+// VersionCmd: clang --version, whose output names clang's version, its
+// default target and where it is installed. It fails only for want of
+// memory.
+pub func version_cmd() (list[text.Text], error) {
+    mut argv := make(list[text.Text], c_allocator)
+    append(mut argv, text.from_bytes([]uint8("clang"), c_allocator)?)?
+    append(mut argv, text.from_bytes([]uint8("--version"), c_allocator)?)?
     return argv, noerror
 }
 

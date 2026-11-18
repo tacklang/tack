@@ -121,44 +121,66 @@ answered as not implemented. The flags
 `-O0` to `-Oz` and `--backend` are read, and their usage errors
 written, as the Go compiler writes them.
 
-`tack --out <path> <target>` builds a binary as the Go compiler does
-for a program that needs nothing linked but its generated C: one with
-no C file in any package, that calls no builtin, declares no extern
-func, has no list, map, arena or pool type and holds no `unreachable`.
-The `--out` path is checked first, as Go's `checkOutPath` does, the
-program compiled as `--emit` compiles it, and the runtime and the C
-written to a temporary directory, which clang's link, the Go
-compiler's command at the `-O` level asked for, turns into the binary,
-byte for byte the Go compiler's. clang is looked up on `PATH` as Go's
-`exec.LookPath` looks, skipping a file it may not run and refusing one
-found relative to the current directory, and the path found is the one
-run, given `clang` as its `argv[0]`, as Go gives it. A clang that exits
-other than 0, is killed by a signal or cannot be started is worded as
-Go words it, `clang failed:` and the exit status, the signal's name or
-`fork/exec`, its path and the errno. clang writes to the driver's own
-standard output and standard error as it runs, as the Go compiler's
-does, so a terminal shows its colour and both streams arrive as it
-writes them; the warnings are written just before clang starts, or with
-the build's error when it does not, and the failure after, as the Go
+`tack --out <path> <target>` builds a binary as the Go compiler does,
+byte for byte the Go compiler's. The `--out` path is checked first, as
+Go's `checkOutPath` does, the program compiled as `--emit` compiles it,
+and the runtime and the C written to a temporary directory. Every C
+file of every package, std's included, is compiled against the
+program's `tack.h`, in package order and then name order; when the
+program calls a builtin, declares an extern func, has a list, map,
+arena or pool type, holds an `unreachable` or a C file of its needs a
+`tack_` symbol, the build cache's directories are made, `clang
+--version` run, and the runtime's C files compiled, and those the
+program needs picked as a linker picks archive members. What each
+object defines and leaves undefined is read by an ELF reader written
+in Tack, with no tool but clang, so a C file that defines `main`, two
+that define one symbol and an extern func no C file of its package
+defines are reported as Go reports them; then clang's link turns the
+generated C and the objects into the binary. Every command is the Go
+compiler's at the `-O` level asked for. The build cache is not read or
+written yet: every runtime object is compiled, as Go compiles them on
+a cold cache, and where Go writes each object and its key to the
+cache, the port writes and removes a file of the same bytes, so a
+cache that cannot be written is declined where Go's build fails.
+
+clang is looked up on `PATH` as Go's `exec.LookPath` looks, skipping a
+file it may not run and refusing one found relative to the current
+directory, and the path found is the one run, given `clang` as its
+`argv[0]`, as Go gives it. A clang that exits other than 0, is killed
+by a signal or cannot be started is worded as Go words it, `clang
+failed:` and the exit status, the signal's name or `fork/exec`, its
+path and the errno, after `cannot compile` and the file for a C file's
+compile. clang writes to the driver's own standard output and
+standard error as it runs, as the Go compiler's does, so a terminal
+shows its colour and both streams arrive as it writes them; `clang
+--version`'s output is read, and its standard error, trimmed, ends
+Go's error when it fails. The warnings are written just before the
+first clang that writes to the driver's outputs starts, or with the
+build's error when none does, and the failure after, as the Go
 compiler writes them. Anything else is answered as not implemented,
 the line saying so written last, and a file clang made at the `--out`
 path removed: a decline decided before clang starts writes nothing but
-that line, and one after, a temporary directory that cannot be removed
-or a run that fails in a way Go's exec does not, writes it after the
-warnings and clang's output, what the Go compiler writes before its own
-error. What was at `--out` before the build is not restored: a
-decline after clang ran can leave a file clang overwrote, and a file
-clang wrote through a dangling symbolic link. The declines are these:
-any other program, a clang whose run fails in a way Go's exec does not,
-`/dev/null` that cannot be opened or a wait that fails, a temporary
-directory or file that cannot be made,
-written or removed, which Go words with a path or an operation the
-port cannot give, and a relative `--out` from a current directory that
-is gone, where Go's message names an empty path. The temporary
-directory is std/os's `tk-XXXXXX`, six letters and digits, where Go's
-is `tk-<digits>`, made with std/os's file modes, and every failure Go
-words with a path in it, as a runtime directory that cannot be made,
-is declined. No build the porttest
+that line, and one after writes it after the warnings and clang's
+output, what the Go compiler writes before its own error. What was at
+`--out` before the build is not restored: a decline after clang ran can
+leave a file clang overwrote, and a file clang wrote through a dangling
+symbolic link. The declines are these: a clang whose run fails in a way
+Go's exec does not, `/dev/null` that cannot be opened, a pipe, read,
+poll or wait that fails; an errno Go's words for are not known; an
+object the ELF reader does not take, where Go's error is debug/elf's; a
+build cache that cannot be written, where Go's error names a temporary
+file of a random name; a
+temporary directory or file that cannot be made, written or removed,
+which Go words with a path or an operation the port cannot give; and a
+current directory that is gone, where Go's message names an empty path
+or Go finds it by walking up. A temporary directory that cannot be
+removed after the check of the definitions gave diagnostics is reported
+after them, `tack: failed to delete temp directory:` and the error Go's
+`RemoveAll` would give, where the Go compiler drops it, a known
+divergence. The temporary directory is std/os's `tk-XXXXXX`, six
+letters and digits, where Go's is `tk-<digits>`, made with std/os's
+file modes, and every failure Go words with a path in it, as a runtime
+directory that cannot be made, is declined. No build the porttest
 stages compare shows these differences. Ctrl-C does not stop clang, and
 leaves the temporary directory behind.
 
@@ -189,6 +211,9 @@ compiler's. `--port-header` writes `tack.h` for a checked program as the
 backend renders it, with nothing lowered, and `--port-reserved` the
 names `tack.h` may not give and the type ids an `any` holds; porttest
 compares them with the Go backend's `Header` and its own tables.
+`--port-symbols` writes what an object file defines and leaves
+undefined as the build's ELF reader reads it, which porttest compares
+with the Go driver's `readSymbols`, damaged objects among them.
 
 ### Known divergences from the Go compiler
 
@@ -218,6 +243,19 @@ The language owner decided this on 2026-11-16:
   a program; Go's driver type-checks it on and reports errors the
   program does not have, its parameters undefined and `len` taking no
   arguments among them.
+
+Decided on 2026-11-18:
+
+- A build whose check of the definitions gives diagnostics, and whose
+  temporary directory then cannot be removed for want of permission,
+  EACCES or EPERM, writes the diagnostics
+  and then `tack: failed to delete temp directory:` and the error Go's
+  `RemoveAll` would give, `openfdat` or `unlinkat`, the entry's path
+  and the errno, exit status 1; Go joins that error to the diagnostics
+  and reports only the diagnostics. Where several entries cannot be
+  removed, the port names the first in sorted order, where Go would
+  name the first its directory read gives. Any other errno there is
+  declined.
 
 These follow the lead's ruling of 2026-11-15 that the language already
 defines the zero values, which the language owner may still overrule:

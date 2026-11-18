@@ -79,9 +79,10 @@ import typeck from "tack/typeck"
 // argument. Any other flag, -lex= with a value among them, -h and -help
 // too, is not implemented, named in the line above. A build, which -out
 // without -check or a dump flag asks for, at the level the -O flag
-// gives, -O3 by default, is done as Go's driver does it for a program
-// that needs nothing linked but its generated C, and declined for any
-// other (see build.tck). The usage errors such a command line can
+// gives, -O3 by default, is done as Go's driver does it: the program's
+// C files and the runtime's it needs compiled and linked with its
+// generated C, and what the port cannot word as Go does declined (see
+// build.tck and link.tck). The usage errors such a command line can
 // make are reported as Go's driver reports them, with exit status 2, in
 // Go's order: a flag of bad syntax, such as ---lex, a value flag with no
 // value or a value that is no int, an error limit below 0, named as the
@@ -130,7 +131,9 @@ import typeck from "tack/typeck"
 // lowering it first as --emit-header does (see header_dump), and
 // --port-reserved the names tack.h may not give and the any type ids,
 // whatever the target, each of which tackc's porttest compares with
-// Go's backend.
+// Go's backend; --port-symbols writes what an object file defines and
+// leaves undefined, as the build reads it (see symbols_dump), which
+// tackc's porttest compares with Go's readSymbols.
 
 // exit_ok means the requested work was done.
 var exit_ok int32 = 0
@@ -243,10 +246,15 @@ var dump_port_header = Dump{n: 10}
 // which tackc's porttest compares with Go's tables of them.
 var dump_reserved = Dump{n: 11}
 
+// dump_symbols is --port-symbols, the port's too: the symbols an object
+// file defines and leaves undefined, as the build reads them (see
+// symbols_dump), which tackc's porttest compares with Go's readSymbols.
+var dump_symbols = Dump{n: 12}
+
 // dump_flags are the dump flags the port reads, in the order Go's dumpOf
 // lists them, which is the order a usage error names them in, each at
 // the index of its Dump's number less one; the port's own last.
-var dump_flags = [11]string{"--lex", "--ast", "--res", "--emit", "--emit-header", "--port-loaded", "--port-types", "--port-floats", "--port-bind", "--port-header", "--port-reserved"}
+var dump_flags = [12]string{"--lex", "--ast", "--res", "--emit", "--emit-header", "--port-loaded", "--port-types", "--port-floats", "--port-bind", "--port-header", "--port-reserved", "--port-symbols"}
 
 // Flags holds what the flags of a command line set, Go's flagValues as
 // far as the port reads them: whether each of dump_flags was given,
@@ -257,7 +265,7 @@ var dump_flags = [11]string{"--lex", "--ast", "--res", "--emit", "--emit-header"
 // last --out and the last --backend are: the index of the argument that
 // holds each, -1 for none, and its offset in it.
 type Flags struct {
-    asked [11]bool
+    asked [12]bool
     check bool
     backends bool
     opt [6]bool
@@ -281,7 +289,7 @@ type Flags struct {
 func run(a []text.Text) (int32, error) {
     // rest holds the index in a of each argument after the flags.
     mut rest := make(list[int64], c_allocator)
-    mut asked [11]bool
+    mut asked [12]bool
     mut opt [6]bool
     mut fl := Flags{asked: asked, check: false, backends: false, opt: opt, has_out: false, out_at: -1, out_from: 0, max_errors: default_max_errors, max_diags: default_max_errors, diags_set: false, backend_at: -1, backend_from: 0}
     mut flags_done := false
@@ -617,6 +625,10 @@ func command(a []text.Text, rest []int64, fl Flags, d Dump, max_errors int64) (i
         code, e := floats_dump(a[k].bytes())
         return code, e
     }
+    if d == dump_symbols {
+        code, e := symbols_dump(a[k].bytes())
+        return code, e
+    }
     if d == dump_reserved {
         mut out := make(list[uint8], c_allocator)
         codegen.append_reserved_dump(mut out)?
@@ -697,6 +709,9 @@ func flag_name(d Dump) string {
     }
     if d == dump_reserved {
         return "--port-reserved"
+    }
+    if d == dump_symbols {
+        return "--port-symbols"
     }
     return "--lex"
 }
@@ -1164,10 +1179,8 @@ func types_dump(mut res loader.Result, d Dump) (int32, error) {
 // program is handed to code generation, and its C written, or tack.h
 // for --emit-header. A program the type checker or the backend cannot
 // handle yet is declined, naming d. With no dump, d's n 0, it is a build
-// instead: the C is linked into out_bin at the level opt, the warnings
-// written with the build's outcome (see build), or the build declined,
-// with nothing else written, for a program that needs more than its C
-// linked (see needs_more).
+// instead: the program is built into out_bin at the level opt, the
+// warnings written with the build's outcome (see build).
 func emit_target(target []uint8, d Dump, max_errors int64, out_bin []uint8, opt string) (int32, error) {
     std_dir, sf := find_std()?
     if sf.failed {
@@ -1263,15 +1276,9 @@ func emit_target(target []uint8, d Dump, max_errors int64, out_bin []uint8, opt 
         warnings = render_diagnostics(typed.files, all, max_errors)?
     }
     if d.n == 0 {
-        // A build: what the port's build cannot link is declined with
-        // nothing else written; build writes the warnings itself, once
-        // it knows the build ends in something the port words.
-        more := needs_more(mut typed)?
-        if more {
-            code := unimplemented_of(d, []uint8(" of a program that needs C files compiled or runtime objects linked"))?
-            return code, noerror
-        }
-        code := build(gout, warnings, out_bin, opt)?
+        // A build: build writes the warnings itself, once it knows the
+        // build ends in something the port words.
+        code := build(mut typed, gout, warnings, out_bin, opt, max_errors)?
         return code, noerror
     }
     if d == dump_header {

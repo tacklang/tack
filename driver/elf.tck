@@ -1,0 +1,472 @@
+package main
+
+import binary from "std/binary"
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import os from "std/os"
+import text from "std/text"
+
+// The symbols of an object file, Go's readSymbols (tack/symbols.go) for
+// the ELF clang writes on Linux: the object is read whole, with std/os's
+// read_file, and its header, its section headers and its symbol table
+// decoded here, in Tack, so a build needs no tool beyond clang, no nm
+// and no ar. Mach-O, which Go's readSymbols also reads, is not ported:
+// macOS comes after self-hosting.
+//
+// Go's readSymbols opens the file with debug/elf, whose NewFile checks
+// the header, the program headers and every section header, and then
+// reads the first SHT_SYMTAB section and the section it links to. Every
+// error it gives is in debug/elf's words, which only a damaged object,
+// never one clang wrote, can reach, so the port does not word them:
+// read_symbols says the object cannot be read, and the build declines.
+// The checks here are go1.27's NewFile's, Section.Open's and
+// getSymbols64's, extended section numbering included: an e_shnum of 0 takes the
+// count from the first section header's size, and an e_shstrndx of
+// SHN_XINDEX the index from its link. A symbol's section index is read
+// raw, as Go's is, so one of SHN_XINDEX, which an object of that many
+// sections gives, counts as defined. No symbol table, or an empty one,
+// is no symbols, Go's ErrNoSymbols, which its readSymbols takes as none;
+// and a symbol whose name is not in the string table, or runs to its
+// end with no 0 byte, has no name, as debug/elf's getString gives it,
+// and is skipped, as Go's readSymbols skips a symbol with no name.
+//
+// Where the port is stricter than Go, which it is only where Go would
+// read what the port does not, it declines: an ELF32 or big-endian
+// object, which Go reads and clang on Linux amd64 and arm64 never
+// writes; a Mach-O object, which Go's readSymbols tries first; and a
+// section name string table, symbol table or string table of symbol
+// names that is compressed, SHF_COMPRESSED, or by its name, a .zdebug
+// one starting ZLIB, whose bytes Go would decompress. A compressed
+// section the reader does not read is taken as Go takes it, its
+// compression header read and nothing more.
+//
+// Every offset and size the file gives is checked against the file's
+// length before it is used, each through at, which never makes a view
+// past the end; nothing is read by recursion, so a file however large
+// needs no more stack, and nothing the file says decides how much is
+// allocated but the section list, at most one entry for each 64 bytes
+// of the file, and the names, each at most the file's length.
+
+// elf_header_size is the size of an ELF64 file header, Go's Header64.
+var elf_header_size int64 = 64
+
+// elf_section_size is the size of an ELF64 section header, Go's
+// Section64, the least a section header may take, and the part of each
+// the reader reads.
+var elf_section_size int64 = 64
+
+// elf_symbol_size is the size of an ELF64 symbol, Go's Sym64Size.
+var elf_symbol_size int64 = 24
+
+// elf_prog_size is the least size of an ELF64 program header NewFile
+// takes, Go's Prog64's, and elf_chdr_size the size of an ELF64
+// compression header, Go's Chdr64's.
+var elf_prog_size int64 = 56
+var elf_chdr_size int64 = 24
+
+// The numbers of extended numbering, Go's: pn_xnum, an e_phnum saying
+// the count is in the first section header's info; shn_loreserve, the
+// least count or index that needs it; and shn_xindex, an e_shstrndx
+// saying the index is in the first section header's link.
+var pn_xnum int64 = 65535
+var shn_loreserve int64 = 65280
+var shn_xindex int64 = 65535
+
+// The section types and flags the reader looks at, Go's SHT_SYMTAB,
+// SHT_STRTAB, SHT_NOBITS and SHF_COMPRESSED.
+var sht_symtab int64 = 2
+var sht_strtab int64 = 3
+var sht_nobits int64 = 8
+var shf_compressed uint64 = 2048
+
+// The symbol bindings Go's readSymbols keeps, STB_GLOBAL and STB_WEAK.
+var stb_global int64 = 1
+var stb_weak int64 = 2
+
+// Symbols are the external symbols of an object file, by C name, Go's
+// symbols: defined, every symbol the file defines and exports, a weak
+// one, a common one and an absolute one included, as Go's readSymbols
+// counts every section index but SHN_UNDEF as defined; and undefined,
+// every symbol it uses and leaves for another object or a library, a
+// weak one included. Both are in the order of the file's symbol table.
+type Symbols struct {
+    defined list[text.Text]
+    undefined list[text.Text]
+}
+
+// no_symbols returns Symbols with none of either.
+func no_symbols() Symbols {
+    return Symbols{defined: make(list[text.Text], c_allocator), undefined: make(list[text.Text], c_allocator)}
+}
+
+// ElfSection is what the reader takes of one section header: where its
+// name is in the section name string table, its type and flags, where
+// its bytes are in the file and how many, the section it links to, and
+// whether Go's Section.Open would decompress it as zlib for its name
+// (see zlib_named).
+type ElfSection struct {
+    name int64
+    typ int64
+    flags uint64
+    off int64
+    size int64
+    link int64
+    zlib bool
+}
+
+// holds reports whether b holds n bytes from off.
+func holds(b []uint8, off int64, n int64) bool {
+    if off < 0 || n < 0 || off > len(b) {
+        return false
+    }
+    // off is at most len(b) here, so the subtraction cannot wrap.
+    return n <= len(b) -% off
+}
+
+// at returns the view of b of n bytes from off, or an empty view when b
+// does not hold them, which holds tells.
+func at(b []uint8, off int64, n int64) []uint8 {
+    if !holds(b, off, n) {
+        return b[:0]
+    }
+    // holds proved off + n is at most len(b), so it cannot wrap.
+    return part_of(b, off, off +% n)
+}
+
+// le16 returns the little-endian uint16 at off in b, and whether b holds
+// it.
+func le16(b []uint8, off int64) (int64, bool) {
+    n, has := binary.uint16_le(at(b, off, 2))
+    return int64(n), has
+}
+
+// le32 returns the little-endian uint32 at off in b, and whether b holds
+// it.
+func le32(b []uint8, off int64) (int64, bool) {
+    n, has := binary.uint32_le(at(b, off, 4))
+    return int64(n), has
+}
+
+// le64 returns the little-endian uint64 at off in b, and whether b holds
+// it.
+func le64(b []uint8, off int64) (uint64, bool) {
+    n, has := binary.uint64_le(at(b, off, 8))
+    return n, has
+}
+
+// le64_int returns the little-endian uint64 at off in b as an int64, and
+// whether b holds it and it is not negative as Go's int64 conversion
+// reads it, which NewFile requires of every offset and size.
+func le64_int(b []uint8, off int64) (int64, bool) {
+    u, ok := le64(b, off)
+    if !ok {
+        return 0, false
+    }
+    n, fits := int64(u)
+    return n, fits
+}
+
+// elf_string_end returns where the string at start in the string table
+// of b that size bytes from off hold ends, the offset in b of the 0 byte
+// after it, as debug/elf's getString finds it; or -1 when start is not
+// in the table or no 0 byte in it follows, where getString gives no
+// string. The table must be in b, as holds tells.
+func elf_string_end(b []uint8, off int64, size int64, start int64) int64 {
+    if !holds(b, off, size) || start < 0 || start >= size {
+        return -1
+    }
+    // start is below size, and off + size is at most len(b), so neither
+    // sum below can wrap.
+    end := bytes.index_byte(at(b, off +% start, size -% start), 0)
+    if end < 0 {
+        return -1
+    }
+    return off +% start +% end
+}
+
+// read_symbols returns the external symbols of the object file at p, as
+// Go's readSymbols does for ELF, and true; or no symbols and false when
+// the file cannot be read, or is not an object the reader takes (see
+// above), where Go's readSymbols fails, or may: the caller declines. It
+// fails only for want of memory: the object is read whole, where Go's
+// debug/elf reads only the parts it needs, so an object too large for
+// the memory the process can have ends the build out of memory, exit
+// status 1, where Go's may read it.
+func read_symbols(p []uint8) (Symbols, bool, error) {
+    data, err := os.read_file(p, c_allocator)
+    if err.code == 1 {
+        return no_symbols(), false, err
+    }
+    if err.code != 0 {
+        return no_symbols(), false, noerror
+    }
+    syms, ok := parse_symbols(data[:])?
+    return syms, ok, noerror
+}
+
+// parse_symbols is read_symbols for b, the object's bytes.
+func parse_symbols(b []uint8) (Symbols, bool, error) {
+    // The identifier: \x7fELF, ELFCLASS64, ELFDATA2LSB, EV_CURRENT; then
+    // the rest of the file header.
+    if !holds(b, 0, elf_header_size) || !bytes.equal(at(b, 0, 7), []uint8("\x7fELF\x02\x01\x01")) {
+        return no_symbols(), false, noerror
+    }
+    version, v_ok := le32(b, 20)
+    phoff, ph_ok := le64_int(b, 32)
+    shoff, sh_ok := le64_int(b, 40)
+    phentsize, pe_ok := le16(b, 54)
+    mut phnum, pn_ok := le16(b, 56)
+    shentsize, se_ok := le16(b, 58)
+    mut shnum, sn_ok := le16(b, 60)
+    mut shstrndx, ss_ok := le16(b, 62)
+    if !v_ok || !ph_ok || !sh_ok || !pe_ok || !pn_ok || !se_ok || !sn_ok || !ss_ok || version != 1 {
+        return no_symbols(), false, noerror
+    }
+    if shoff == 0 && shnum != 0 || shnum > 0 && shstrndx >= shnum || phnum > 0 && phentsize < elf_prog_size {
+        return no_symbols(), false, noerror
+    }
+    if shoff > 0 && (shnum == 0 || phnum == pn_xnum) {
+        // Extended numbering: the first section header, which must be
+        // SHT_NULL, holds what the file header could not.
+        if !holds(b, shoff, elf_section_size) {
+            return no_symbols(), false, noerror
+        }
+        // shoff + 64 is in b, so none of these sums can wrap.
+        typ0, t_ok := le32(b, shoff +% 4)
+        size0, z_ok := le64(b, shoff +% 32)
+        link0, l_ok := le32(b, shoff +% 40)
+        info0, i_ok := le32(b, shoff +% 44)
+        if !t_ok || !z_ok || !l_ok || !i_ok || typ0 != 0 {
+            return no_symbols(), false, noerror
+        }
+        if shnum == 0 {
+            // A count past what the file can hold fails Go's read of the
+            // section headers, as it does here.
+            n, fits := int64(size0)
+            if !fits || n < shn_loreserve || n > len(b) / elf_section_size {
+                return no_symbols(), false, noerror
+            }
+            shnum = n
+        }
+        if phnum == pn_xnum {
+            if info0 < pn_xnum {
+                return no_symbols(), false, noerror
+            }
+            phnum = info0
+        }
+        if shstrndx == shn_xindex {
+            shstrndx = link0
+            if shstrndx < shn_loreserve || shstrndx >= shnum {
+                return no_symbols(), false, noerror
+            }
+        }
+    }
+    progs_ok := check_progs(b, phoff, phnum, phentsize)
+    if !progs_ok || shnum > 0 && shentsize < elf_section_size {
+        return no_symbols(), false, noerror
+    }
+    if shnum == 0 {
+        // No sections: no symbol table.
+        return no_symbols(), true, noerror
+    }
+    // shnum is at most len(b) / 64 or 65535, and shentsize at most
+    // 65535, so the product cannot wrap.
+    if shnum > len(b) || !holds(b, shoff, shnum *% shentsize) {
+        return no_symbols(), false, noerror
+    }
+    mut secs := make(list[ElfSection], c_allocator)
+    for i := range shnum {
+        // i is below shnum, and the table is in b, so this cannot wrap.
+        s, ok := section_at(b, shoff +% i *% shentsize)
+        if !ok {
+            return no_symbols(), false, noerror
+        }
+        append(mut secs, s)?
+    }
+    if shstrndx != 0 {
+        // Go's NewFile reads the section names only when there is a
+        // table of them; with none, the sections go unnamed.
+        shstr, has_shstr := secs[shstrndx]
+        if !has_shstr || shstr.typ != sht_strtab || !readable(b, shstr) {
+            return no_symbols(), false, noerror
+        }
+        for k := range len(secs) {
+            if elf_string_end(b, shstr.off, shstr.size, secs[k].name) < 0 {
+                return no_symbols(), false, noerror
+            }
+            secs[k].zlib = zlib_named(b, shstr, secs[k])
+        }
+    }
+    for _, s := range secs {
+        if s.typ == sht_symtab {
+            syms, ok := symbols_of(b, secs[:], s)?
+            return syms, ok, noerror
+        }
+    }
+    return no_symbols(), true, noerror
+}
+
+// check_progs reports whether the phnum program headers of phentsize
+// bytes each at phoff in b are as Go's NewFile takes them: all in b,
+// and each one's offset and file size not negative as an int64 reads
+// them. phnum is below 2^32 and phentsize below 2^16, so their product
+// cannot wrap; none at all reads nothing, wherever phoff is.
+func check_progs(b []uint8, phoff int64, phnum int64, phentsize int64) bool {
+    if phnum == 0 {
+        return true
+    }
+    if !holds(b, phoff, phnum *% phentsize) {
+        return false
+    }
+    for i := range phnum {
+        // The headers are in b, so none of these sums can wrap.
+        p := phoff +% i *% phentsize
+        _, o_ok := le64_int(b, p +% 8)
+        _, f_ok := le64_int(b, p +% 32)
+        if !o_ok || !f_ok {
+            return false
+        }
+    }
+    return true
+}
+
+// readable reports whether Go's Section.Data reads s, a section of b,
+// as the port can: a section of no bytes reads none, wherever it is;
+// one of type SHT_NOBITS with bytes fails Go's read; and any other is
+// read from b, all of it there, but for a compressed one, SHF_COMPRESSED
+// or zlib by its name (see zlib_named), which Go would decompress and
+// the port declines.
+func readable(b []uint8, s ElfSection) bool {
+    if s.flags & shf_compressed != 0 || s.zlib {
+        return false
+    }
+    if s.size == 0 {
+        return true
+    }
+    return s.typ != sht_nobits && holds(b, s.off, s.size)
+}
+
+// zlib_named reports whether Go's Section.Open decompresses s, a
+// section of b whose name is in shstr, the section name string table,
+// as zlib for its name, debug/elf's old GNU form of compression: s is
+// not SHF_COMPRESSED, its name starts .zdebug, and its first 12 bytes,
+// all of them in its size and in the file, start ZLIB, a big-endian
+// size after it. Go's NewFile reads the section name string table before
+// it names any section, so that table itself is read as it is.
+func zlib_named(b []uint8, shstr ElfSection, s ElfSection) bool {
+    if s.flags & shf_compressed != 0 || s.size < 12 || !holds(b, s.off, 12) {
+        return false
+    }
+    // elf_string_end checked the name is in the table, which is in b.
+    start := shstr.off +% s.name
+    end := elf_string_end(b, shstr.off, shstr.size, s.name)
+    if end < start {
+        return false
+    }
+    return bytes.has_prefix(part_of(b, start, end), []uint8(".zdebug")) && bytes.equal(at(b, s.off, 4), []uint8("ZLIB"))
+}
+
+// section_at returns the section header at off in b, and true; or false
+// when it is not one NewFile takes: an offset or a size Go reads as
+// negative, or a compressed section whose compression header, 24 bytes
+// at its start, its own size does not hold or the file does not.
+func section_at(b []uint8, off int64) (ElfSection, bool) {
+    mut z ElfSection
+    if !holds(b, off, elf_section_size) {
+        return z, false
+    }
+    // off + 64 is at most len(b), so none of these sums can wrap.
+    name, n_ok := le32(b, off)
+    typ, t_ok := le32(b, off +% 4)
+    flags, f_ok := le64(b, off +% 8)
+    soff, o_ok := le64_int(b, off +% 24)
+    size, s_ok := le64_int(b, off +% 32)
+    link, l_ok := le32(b, off +% 40)
+    if !n_ok || !t_ok || !f_ok || !o_ok || !s_ok || !l_ok {
+        return z, false
+    }
+    if flags & shf_compressed != 0 && (size < elf_chdr_size || !holds(b, soff, elf_chdr_size)) {
+        return z, false
+    }
+    return ElfSection{name: name, typ: typ, flags: flags, off: soff, size: size, link: link, zlib: false}, true
+}
+
+// symbols_of returns the external symbols of sym, the first symbol
+// table section of b, whose sections are secs, as Go's getSymbols64 and
+// readSymbols read them: none for an empty table; the first entry, all
+// zeros, skipped; each symbol bound global or weak and named kept,
+// undefined when its section index is SHN_UNDEF, 0, and defined
+// otherwise. A table Go's Data cannot read (see readable), whose size is
+// not a whole number of symbols, or that links to no section or to one
+// Go cannot read, is false. It fails only for want of memory.
+func symbols_of(b []uint8, secs []ElfSection, sym ElfSection) (Symbols, bool, error) {
+    if !readable(b, sym) {
+        return no_symbols(), false, noerror
+    }
+    if sym.size == 0 {
+        return no_symbols(), true, noerror
+    }
+    if sym.size % elf_symbol_size != 0 || sym.link <= 0 || sym.link >= len(secs) {
+        return no_symbols(), false, noerror
+    }
+    strs, has_strs := secs[sym.link]
+    if !has_strs || !readable(b, strs) {
+        return no_symbols(), false, noerror
+    }
+    mut out := no_symbols()
+    count := sym.size / elf_symbol_size
+    mut i int64 = 1
+    for i < count {
+        // i is below count, so the entry is within the table, which is
+        // in b: none of these sums can wrap.
+        e := sym.off +% i *% elf_symbol_size
+        i +%= 1
+        name_at, n_ok := le32(b, e)
+        shndx, x_ok := le16(b, e +% 6)
+        info, i_ok := b[e +% 4]
+        if !n_ok || !x_ok || !i_ok {
+            return no_symbols(), false, noerror
+        }
+        bind := int64(info >> 4)
+        if bind != stb_global && bind != stb_weak {
+            continue
+        }
+        // strs.off + name_at is where the name starts, past which end
+        // lies when the name has a byte. A string table of no bytes,
+        // wherever it is, names nothing.
+        end := elf_string_end(b, strs.off, strs.size, name_at)
+        start := strs.off +% name_at
+        if end <= start {
+            continue
+        }
+        t := text.from_bytes(part_of(b, start, end), c_allocator)?
+        if shndx == 0 {
+            append(mut out.undefined, t)?
+        } else {
+            append(mut out.defined, t)?
+        }
+    }
+    return out, true, noerror
+}
+
+// symbols_dump writes, for --port-symbols, what read_symbols reads of
+// the object file at target: a line defined and the name for each
+// symbol it defines, then a line undefined and the name for each it
+// leaves undefined, in the order of its symbol table; or the one line
+// unreadable, for a file the build would decline. It returns exit_ok,
+// and fails only for want of memory.
+func symbols_dump(target []uint8) (int32, error) {
+    syms, ok := read_symbols(target)?
+    mut out := make(list[uint8], c_allocator)
+    if !ok {
+        append(mut out, []uint8("unreadable\n")...)?
+    }
+    for _, s := range syms.defined {
+        fmt.appendf(mut out, "defined %s\n", s.bytes())?
+    }
+    for _, s := range syms.undefined {
+        fmt.appendf(mut out, "undefined %s\n", s.bytes())?
+    }
+    fmt.write(out[:])
+    return exit_ok, noerror
+}

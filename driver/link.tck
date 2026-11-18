@@ -1,0 +1,745 @@
+package main
+
+import builtin from "tack/builtin"
+import bytes from "std/bytes"
+import codegen from "tack/codegen"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import loader from "tack/loader"
+import os from "std/os"
+import path from "std/path"
+import text from "std/text"
+import typeck from "tack/typeck"
+import unicode from "std/unicode"
+import utf8 from "std/utf8"
+
+// The C a build compiles and the objects it links, Go's compileC
+// (tack/build.go), linkStd, stdRoots, membersFor, stdSymbolsNeeded and
+// compileStd (tack/stdlink.go), openCache and toolchainVersion
+// (tack/cache.go), and checkDefinitions, definitions and checkSymbol
+// (tack/build.go): every C file of every package of the program
+// compiled against its tack.h, in package order and then name order;
+// the runtime's C files compiled, when the program needs any of them,
+// and those it needs picked as a linker picks the members of an
+// archive; and every extern func checked to have its C definition in a
+// C file of its own package. Every message is Go's.
+//
+// The build cache is not read or written yet: every runtime object is
+// compiled, as Go compiles each on a cold cache, which is what every
+// build porttest compares has. Its directories are made, and clang
+// --version run, as Go's compileStd does before it compiles anything, so
+// that a cache that cannot be made, and a toolchain that cannot be
+// identified, end the build as Go's does. The directories are made with
+// std/os's mode 0755, where Go's are 0750. Where Go's cache.put writes
+// each object and its key, a temporary file in each directory, the port
+// writes a file of the same bytes there and removes it (see
+// probe_cache), so that a cache that cannot be written ends the build
+// where Go's does, declined, since Go's error names its temporary file,
+// whose name is random.
+//
+// The four errors Go's stdRoots gives for a runtime that defines no C
+// function the program needs, "builtin %s has no C definition: the
+// runtime defines no %s", "the program's start and end have no C
+// definition: the runtime defines no %s", "unreachable has no C
+// definition: the runtime defines no %s" and "lists have no C
+// definition: the runtime defines no %s", cannot be reached with the
+// runtime built into the compiler, which defines every one: the port
+// reports any of them as an internal error naming the symbol (see
+// std_roots).
+
+// runtime_shown is the directory messages name the runtime's C files
+// in, Go's runtimeShown: they are built into the compiler, and the path
+// each build writes them to is a temporary one.
+var runtime_shown = "<runtime>"
+
+// CObject is a C file of the program's, or of the runtime's, and the
+// object it compiled to, Go's cObject and stdObject: pkg, the index
+// among the program's packages of the package whose directory holds the
+// file, or -1 for the runtime's; shown, the file's name as messages show
+// it; obj, the object's path; and syms, the symbols it defines and
+// leaves undefined, once read.
+type CObject struct {
+    pkg int64
+    shown text.Text
+    obj text.Text
+    syms Symbols
+}
+
+// Steps is what each step of a build needs to run clang and report as
+// Go does: warnings, what the stages before warned of, rendered, written
+// just before the first clang the driver's outputs pass through starts,
+// and shown set then; msg, where a step that fails puts Go's error, or,
+// for one the port declines, what it cannot do, after a space.
+type Steps struct {
+    warnings list[uint8]
+    msg list[uint8]
+    shown bool
+}
+
+// os_errno_words returns Go's words for the errno behind err, an error
+// std/os returned for a path, or an empty string when they are not
+// known: invalid argument for a 0 byte in the path, which Go's syscall
+// refuses with EINVAL, and Go's syscall.Errno text for the errno
+// otherwise (see go_errno_text).
+func os_errno_words(err error) string {
+    if err.code == 4 {
+        return "invalid argument"
+    }
+    if err.code != 3 {
+        return ""
+    }
+    return go_errno_text(err.msg)
+}
+
+// compile_c compiles every C file of every package of t's program, in
+// package order and then name order, each to the object c<i>.o in dir,
+// against tack.h, which it writes to dir first, Go's compileC: each with
+// codegen.compile_cmd at the level opt, include the runtime's include
+// directory, the file given to clang absolute and named in messages
+// relative to the current directory when it is below it, as Go's shower
+// names it. It appends the objects to objs, and returns exit_ok, or the
+// code of a step that failed, its message in st (see run_tool). A
+// program with no C file writes nothing. A current directory Go's
+// os.Getwd would find and the port cannot, by walking up, is declined.
+func compile_c(mut t typeck.Typed, dir []uint8, include []uint8, opt string, mut st Steps, mut objs list[CObject]) (int32, error) {
+    mut count int64 = 0
+    for _, pkg := range t.prog.packages {
+        count +%= len(pkg.c_files)
+    }
+    if count == 0 {
+        return exit_ok, noerror
+    }
+    header := path.join(dir, []uint8("tack.h"), c_allocator)?
+    h := codegen.header(mut t)?
+    wcode := write_temp(header.bytes(), h[:], mut st.msg)?
+    if wcode != exit_ok {
+        return wcode, noerror
+    }
+    wd, wf := go_getwd()?
+    if wf.failed && wf.unworded {
+        append(mut st.msg, []uint8(" in a current directory that cannot be found")...)?
+        return not_implemented, noerror
+    }
+    mut i int64 = 0
+    for p, pkg := range t.prog.packages {
+        for _, f := range pkg.c_files {
+            mut name := make(list[uint8], c_allocator)
+            fmt.appendf(mut name, "c%d.o", i)?
+            i +%= 1
+            obj := path.join(dir, name[:], c_allocator)?
+            mut shown := text.from_bytes(f.bytes(), c_allocator)?
+            if !wf.failed {
+                shown = loader.relative_to(wd.bytes(), f.bytes(), c_allocator)?
+            }
+            // Go's filepath.Abs, which gives an empty path with its error.
+            src, af := abs_path(f.bytes())?
+            if af.failed {
+                if af.unworded {
+                    append(mut st.msg, []uint8(" in a current directory that cannot be found")...)?
+                    return not_implemented, noerror
+                }
+                fmt.appendf(mut st.msg, "cannot find %s: %s", shown.bytes(), af.msg[:])?
+                return exit_failure, noerror
+            }
+            argv := codegen.compile_cmd(src.bytes(), header.bytes(), dir, include, obj.bytes(), []uint8(opt))?
+            mut started := false
+            code := run_tool(argv, shown.bytes(), mut st, mut started)?
+            if code != exit_ok {
+                return code, noerror
+            }
+            append(mut objs, CObject{pkg: p, shown: shown, obj: obj, syms: no_symbols()})?
+        }
+    }
+    return exit_ok, noerror
+}
+
+// link_std compiles the C files of the runtime, which write_runtime
+// wrote to builtin_dir, into dir and appends to out the objects among
+// them the program of t needs, in the order of their files' names, Go's
+// linkStd: those defining a builtin the program calls, the start and end
+// when it runs C beyond its generated C, the abort of an unreachable when
+// it holds one, the list functions when it uses lists, any symbol
+// starting tack_ that one of prog_objs, the objects of the program's own
+// C files, leaves undefined, and, in turn, those defining a symbol an
+// object already picked leaves undefined (see members_for). A program
+// that needs none of these needs no runtime object: nothing is compiled,
+// and no cache made. It records in each of prog_objs the symbols it
+// read. It returns exit_ok, or the code of a step that failed, its
+// message in st; an object that cannot be read, where Go's error is in
+// debug/elf's words, is declined.
+func link_std(mut t typeck.Typed, dir []uint8, builtin_dir []uint8, include []uint8, opt string, mut prog_objs list[CObject], mut st Steps, mut out list[CObject]) (int32, error) {
+    set := builtin.default_set()
+    used := set.used(t.prog)?
+    runs := set.runs_c(t.prog)?
+    lists := builtin.uses_lists(mut t.table)?
+    holds_unreachable := builtin.uses_unreachable(t.prog)?
+    mut need := make(list[text.Text], c_allocator)
+    for k := range len(prog_objs) {
+        syms, readable := read_symbols(prog_objs[k].obj.bytes())?
+        if !readable {
+            append(mut st.msg, []uint8(" with an object file that cannot be read")...)?
+            return not_implemented, noerror
+        }
+        for _, sym := range syms.undefined {
+            if bytes.has_prefix(sym.bytes(), []uint8("tack_")) {
+                append(mut need, text.from_bytes(sym.bytes(), c_allocator)?)?
+            }
+        }
+        prog_objs[k].syms = syms
+    }
+    if len(used) == 0 && !runs && !lists && !holds_unreachable && len(need) == 0 {
+        return exit_ok, noerror
+    }
+    mut cdir := text.new(c_allocator)
+    ccode := open_cache(mut st, mut cdir)?
+    if ccode != exit_ok {
+        return ccode, noerror
+    }
+    vcode := tool_version(mut st)?
+    if vcode != exit_ok {
+        return vcode, noerror
+    }
+    mut objs := make(list[CObject], c_allocator)
+    mut definer := make(map[text.Text]int64, c_allocator)
+    scode := compile_std(dir, builtin_dir, include, opt, cdir.bytes(), mut st, mut objs, mut definer)?
+    if scode != exit_ok {
+        return scode, noerror
+    }
+    mut roots := std_roots(used[:], runs, lists, holds_unreachable, definer, mut st)?
+    if len(st.msg) > 0 {
+        return exit_failure, noerror
+    }
+    for _, sym := range need {
+        append(mut roots, text.from_bytes(sym.bytes(), c_allocator)?)?
+    }
+    members_for(mut roots, mut objs, definer, mut out)?
+    return exit_ok, noerror
+}
+
+// compile_std compiles every C file of the runtime, in name order, each
+// to std-<name>.o in dir, with codegen.compile_std_cmd at the level opt,
+// include the runtime's include directory, Go's compileStd on a cold
+// cache, and appends the objects to objs, with their symbols, and to
+// definer, for each symbol one defines, the index of that object. It
+// returns exit_ok, or the code of a step that failed, its message in st:
+// a clang that fails, an object defining main, or two defining one
+// symbol, Go's checkSymbol; an object that cannot be read, and a cache,
+// cdir its std directory, that cannot be written where Go's cache.put
+// writes each object once it is compiled and read (see probe_cache),
+// are declined.
+func compile_std(dir []uint8, builtin_dir []uint8, include []uint8, opt string, cdir []uint8, mut st Steps, mut objs list[CObject], mut definer map[text.Text]int64) (int32, error) {
+    mut first := make(map[text.Text]text.Text, c_allocator)
+    for i := range builtin.runtime_count() {
+        f, has := builtin.runtime_file(i)
+        if !has {
+            continue
+        }
+        mut shown := text.from_bytes([]uint8(runtime_shown), c_allocator)?
+        mut shown.append([]uint8("/"))?
+        mut shown.append([]uint8(f.name))?
+        mut base := text.from_bytes([]uint8("std-"), c_allocator)?
+        if bytes.has_suffix([]uint8(f.name), []uint8(".c")) {
+            mut base.append(part_of([]uint8(f.name), 0, len(f.name) -% 2))?
+        } else {
+            mut base.append([]uint8(f.name))?
+        }
+        mut base.append([]uint8(".o"))?
+        obj := path.join(dir, base.bytes(), c_allocator)?
+        src := path.join(builtin_dir, []uint8(f.name), c_allocator)?
+        argv := codegen.compile_std_cmd(src.bytes(), include, obj.bytes(), []uint8(opt))?
+        mut started := false
+        code := run_tool(argv, shown.bytes(), mut st, mut started)?
+        if code != exit_ok {
+            return code, noerror
+        }
+        syms, readable := read_symbols(obj.bytes())?
+        if !readable {
+            append(mut st.msg, []uint8(" with an object file that cannot be read")...)?
+            return not_implemented, noerror
+        }
+        pcode := probe_cache(cdir, dir, i, obj.bytes(), mut st)?
+        if pcode != exit_ok {
+            return pcode, noerror
+        }
+        for _, sym := range syms.defined {
+            bad := check_symbol(sym.bytes(), shown.bytes(), mut first, mut st.msg)?
+            if bad {
+                return exit_failure, noerror
+            }
+            put(mut definer, text.from_bytes(sym.bytes(), c_allocator)?, len(objs))?
+        }
+        append(mut objs, CObject{pkg: -1, shown: shown, obj: obj, syms: syms})?
+    }
+    return exit_ok, noerror
+}
+
+// check_symbol records sym, a symbol the C file shown defines, in first,
+// and reports whether the file may not define it, with Go's error in
+// msg, Go's checkSymbol: it is main, or another file defined it already.
+// It fails only for want of memory.
+func check_symbol(sym []uint8, shown []uint8, mut first map[text.Text]text.Text, mut msg list[uint8]) (bool, error) {
+    if bytes.equal(sym, []uint8("main")) {
+        fmt.appendf(mut msg, "%s defines main; a Tack program's main is its Tack main, so no C file may define one", shown)?
+        return true, noerror
+    }
+    key := text.from_bytes(sym, c_allocator)?
+    if has(first, key) {
+        fmt.appendf(mut msg, "two C files define %s: %s and %s", sym, first[key].bytes(), shown)?
+        return true, noerror
+    }
+    put(mut first, key, text.from_bytes(shown, c_allocator)?)?
+    return false, noerror
+}
+
+// std_roots returns the symbols a program needs the runtime to define
+// whatever else it calls, Go's stdRoots: the C name of each builtin of
+// used; when it runs C, runs, the start and end its generated main
+// calls; when it holds an unreachable, the abort its generated C calls;
+// and, when it uses lists, the list functions. One no object defines, as
+// definer says, which the runtime built into the compiler never lacks,
+// is an internal error in st's msg, naming it (see above for Go's four
+// messages, which are not ported). It fails only for want of memory.
+func std_roots(used []builtin.Func, runs bool, lists bool, holds_unreachable bool, definer map[text.Text]int64, mut st Steps) (list[text.Text], error) {
+    mut need := make(list[text.Text], c_allocator)
+    for _, fn := range used {
+        add_root(mut need, []uint8(fn.cname), definer, mut st)?
+    }
+    if runs {
+        add_root(mut need, []uint8(builtin.start_symbol), definer, mut st)?
+        add_root(mut need, []uint8(builtin.end_symbol), definer, mut st)?
+    }
+    if holds_unreachable {
+        add_root(mut need, []uint8(builtin.unreachable_symbol), definer, mut st)?
+    }
+    if lists {
+        for _, sym := range builtin.list_symbols {
+            add_root(mut need, []uint8(sym), definer, mut st)?
+        }
+    }
+    return need, noerror
+}
+
+// add_root appends sym to need, or, when definer says no object defines
+// it and no error is in st's msg yet, puts the internal error naming it
+// there. It fails only for want of memory.
+func add_root(mut need list[text.Text], sym []uint8, definer map[text.Text]int64, mut st Steps) error {
+    key := text.from_bytes(sym, c_allocator)?
+    _, has := definer[key]
+    if !has {
+        if len(st.msg) == 0 {
+            fmt.appendf(mut st.msg, "internal error: the runtime built into the compiler defines no %s", sym)?
+        }
+        return noerror
+    }
+    return append(mut need, key)
+}
+
+// members_for appends to out, in their order, the objects of objs that
+// define a symbol of need, as definer says, or a symbol one already
+// picked leaves undefined, in turn: the members of an archive a linker
+// would pull in, Go's membersFor. need is used up as the work list, from
+// its end, so nothing recurses; objs are taken over.
+func members_for(mut need list[text.Text], mut objs list[CObject], definer map[text.Text]int64, mut out list[CObject]) error {
+    mut linked := make(list[bool], c_allocator)
+    for range len(objs) {
+        append(mut linked, false)?
+    }
+    for len(need) > 0 {
+        sym, has := pop(mut need)
+        if !has {
+            break
+        }
+        i, defined := definer[sym]
+        if !defined {
+            continue
+        }
+        if i < 0 || i >= len(linked) || i >= len(objs) || linked[i] {
+            continue
+        }
+        linked[i] = true
+        for _, u := range objs[i].syms.undefined {
+            append(mut need, text.from_bytes(u.bytes(), c_allocator)?)?
+        }
+    }
+    for i := range len(objs) {
+        on, has := linked[i]
+        if has && on {
+            o := replace(mut objs[i], CObject{pkg: -1, shown: text.new(c_allocator), obj: text.new(c_allocator), syms: no_symbols()})
+            append(mut out, o)?
+        }
+    }
+    return noerror
+}
+
+// check_definitions reads, from what objs, the program's objects and the
+// runtime's it links, in that order, say they define, Go's
+// checkDefinitions and definitions: a C file that defines main, or two
+// C files that define one symbol, the runtime's included, is an error,
+// in st's msg, exit_failure; and then every extern func of t's program
+// whose C name no C file of its own package defines is a diagnostic, at
+// its name, all of them rendered into rendered, at most max_errors
+// errors, as Go renders them, and exit_failure. Otherwise it returns
+// exit_ok. It fails only for want of memory.
+func check_definitions(t typeck.Typed, objs []CObject, max_errors int64, mut st Steps, mut rendered list[uint8]) (int32, error) {
+    mut first := make(map[text.Text]text.Text, c_allocator)
+    mut defined := make(list[map[text.Text]bool], c_allocator)
+    for range len(t.prog.packages) {
+        append(mut defined, make(map[text.Text]bool, c_allocator))?
+    }
+    for _, o := range objs {
+        for _, sym := range o.syms.defined {
+            bad := check_symbol(sym.bytes(), o.shown.bytes(), mut first, mut st.msg)?
+            if bad {
+                return exit_failure, noerror
+            }
+            if o.pkg >= 0 && o.pkg < len(defined) {
+                put(mut defined[o.pkg], text.from_bytes(sym.bytes(), c_allocator)?, true)?
+            }
+        }
+    }
+    mut diags := make(list[diag.Diagnostic], c_allocator)
+    for p, pkg := range t.prog.packages {
+        for u := range pkg.count {
+            unit := pkg.first +% u
+            if unit < 0 || unit >= len(t.prog.trees) {
+                continue
+            }
+            for _, n := range t.prog.trees[unit].decls {
+                switch t.prog.trees[unit].nodes[n].k {
+                case func_decl(fid):
+                    fn := t.prog.trees[unit].funcs[fid]
+                    if !fn.is_extern {
+                        continue
+                    }
+                    cname := text.from_bytes(t.prog.trees[unit].text(fn.cname), c_allocator)?
+                    if p < len(defined) && has(defined[p], cname) {
+                        continue
+                    }
+                    mut m := make(list[uint8], c_allocator)
+                    fmt.appendf(mut m, "extern func %s has no C definition in package %s", t.prog.trees[unit].text(fn.name), pkg.name.bytes())?
+                    msg := text.from_bytes(m[:], c_allocator)?
+                    append(mut diags, diag.new_error(own msg, fn.name_span, c_allocator))?
+                default:
+                }
+            }
+        }
+    }
+    if len(diags) == 0 {
+        return exit_ok, noerror
+    }
+    rendered = render_diagnostics(t.files, diags[:], max_errors)?
+    return exit_failure, noerror
+}
+
+// open_cache makes the build cache's directories as Go's openCache
+// does, though nothing is read from it or written to it yet (see
+// above): the cache is $TACK_CACHE, or, when it is unset or empty, tack
+// in the cache directory, $XDG_CACHE_HOME, or $HOME/.cache when
+// that is unset or empty, as Go's os.UserCacheDir finds it on Linux,
+// made absolute, and std/keys and std/objects below it are made as Go's
+// os.MkdirAll makes them (see mkdir_all). It returns exit_ok, or
+// exit_failure with Go's error in st's msg: cannot find the build cache,
+// for no user cache directory, a relative $XDG_CACHE_HOME or a current
+// directory that cannot be found, or cannot use the build cache, the
+// std directory and Go's mkdir error. A current directory Go would find
+// and the port cannot, and an errno whose Go words are not known, are
+// declined. The std directory is put in cdir.
+func open_cache(mut st Steps, mut cdir text.Text) (int32, error) {
+    mut root := text.new(c_allocator)
+    tc, tc_set := os.env([]uint8("TACK_CACHE"), c_allocator)?
+    if tc_set && tc.len() > 0 {
+        root = tc
+    } else {
+        mut user := text.new(c_allocator)
+        xdg, xdg_set := os.env([]uint8("XDG_CACHE_HOME"), c_allocator)?
+        if xdg_set && xdg.len() > 0 {
+            if !path.is_abs(xdg.bytes()) {
+                append(mut st.msg, []uint8("cannot find the build cache: TACK_CACHE is not set and the user cache directory is unknown: path in $XDG_CACHE_HOME is relative")...)?
+                return exit_failure, noerror
+            }
+            user = xdg
+        } else {
+            home, home_set := os.env([]uint8("HOME"), c_allocator)?
+            if !home_set || home.len() == 0 {
+                append(mut st.msg, []uint8("cannot find the build cache: TACK_CACHE is not set and the user cache directory is unknown: neither $XDG_CACHE_HOME nor $HOME are defined")...)?
+                return exit_failure, noerror
+            }
+            // Go's UserCacheDir adds /.cache as it is, not cleaned.
+            user = text.from_bytes(home.bytes(), c_allocator)?
+            mut user.append([]uint8("/.cache"))?
+        }
+        root = path.join(user.bytes(), []uint8("tack"), c_allocator)?
+    }
+    abs, af := abs_path(root.bytes())?
+    if af.failed {
+        if af.unworded {
+            append(mut st.msg, []uint8(" in a current directory that cannot be found")...)?
+            return not_implemented, noerror
+        }
+        fmt.appendf(mut st.msg, "cannot find the build cache: %s", af.msg[:])?
+        return exit_failure, noerror
+    }
+    cdir = path.join(abs.bytes(), []uint8("std"), c_allocator)?
+    for _, sub := range [2]string{"keys", "objects"} {
+        p := path.join(cdir.bytes(), []uint8(sub), c_allocator)?
+        mut why := make(list[uint8], c_allocator)
+        code := mkdir_all(p.bytes(), mut why)?
+        if code == not_implemented {
+            append(mut st.msg, []uint8(" with a build cache that cannot be made")...)?
+            return not_implemented, noerror
+        }
+        if code != exit_ok {
+            fmt.appendf(mut st.msg, "cannot use the build cache %s: %s", cdir.bytes(), why[:])?
+            return exit_failure, noerror
+        }
+    }
+    return exit_ok, noerror
+}
+
+// parent_end returns where Go's os.MkdirAll ends the parent of p: past
+// any trailing slashes, back to the slash before the last element, or 0
+// when there is none.
+func parent_end(p []uint8) int64 {
+    mut i := len(p) -% 1
+    for i >= 0 && byte_of(p, i) == '/' {
+        i -%= 1
+    }
+    for i >= 0 && byte_of(p, i) != '/' {
+        i -%= 1
+    }
+    if i < 0 {
+        return 0
+    }
+    return i
+}
+
+// byte_of returns the byte at i in p, or 0 when i is not in p.
+func byte_of(p []uint8, i int64) uint8 {
+    c, ok := p[i]
+    if !ok {
+        return 0
+    }
+    return c
+}
+
+// mkdir_all makes the directory p and each of its parents that is not
+// there, as Go's os.MkdirAll does, but with a list of its own where Go
+// recurses, so a path however deep needs no more stack: from p up, each
+// path that stat finds no directory at is to be made, until one is a
+// directory, which ends the walk, or a file, which is Go's mkdir error,
+// ENOTDIR, at it; then each is made, the topmost first, one that cannot
+// be made fine only when lstat finds a directory there after all. It
+// returns exit_ok, or exit_failure with Go's error, mkdir, the path and
+// the errno, in msg, or not_implemented for an errno whose Go words are
+// not known. It fails only for want of memory.
+func mkdir_all(p []uint8, mut msg list[uint8]) (int32, error) {
+    mut chain := make(list[text.Text], c_allocator)
+    mut cur := text.from_bytes(p, c_allocator)?
+    for {
+        info, err := os.stat(cur.bytes())
+        if err.code == 1 {
+            return exit_failure, err
+        }
+        if err.code == 0 {
+            if info.is_dir() {
+                break
+            }
+            fmt.appendf(mut msg, "mkdir %s: not a directory", cur.bytes())?
+            return exit_failure, noerror
+        }
+        end := parent_end(cur.bytes())
+        parent := text.from_bytes(part_of(cur.bytes(), 0, end), c_allocator)?
+        append(mut chain, cur)?
+        if parent.len() == 0 {
+            break
+        }
+        cur = parent
+    }
+    for len(chain) > 0 {
+        q, has := pop(mut chain)
+        if !has {
+            break
+        }
+        err := os.make_dir(q.bytes())
+        if err.code == 1 {
+            return exit_failure, err
+        }
+        if err.code == 0 {
+            continue
+        }
+        info, lerr := os.lstat(q.bytes())
+        if lerr.code == 0 && info.is_dir() {
+            continue
+        }
+        words := os_errno_words(err)
+        if len(words) == 0 {
+            return not_implemented, noerror
+        }
+        fmt.appendf(mut msg, "mkdir %s: %s", q.bytes(), words)?
+        return exit_failure, noerror
+    }
+    return exit_ok, noerror
+}
+
+// tool_version runs clang --version, codegen.version_cmd, as Go's
+// toolchainVersion does, its output read and kept from the driver's
+// outputs, found on PATH as run_tool finds clang, and returns exit_ok
+// when it exits 0. The output, which only the cache's keys hash, is not
+// used yet. Otherwise it returns exit_failure with Go's error in st's
+// msg, cannot identify the toolchain: clang --version failed: and how it
+// failed, as run_tool words it, then a colon and what it wrote to
+// standard error, white space trimmed as Go's strings.TrimSpace trims
+// it, when that is not empty; or not_implemented for a run that fails as
+// Go's exec does not, or a clang that cannot be started for an errno
+// whose Go words are not known.
+func tool_version(mut st Steps) (int32, error) {
+    argv := codegen.version_cmd()?
+    mut found := text.new(c_allocator)
+    mut why := make(list[uint8], c_allocator)
+    fcode := find_clang(mut found, mut why)?
+    if fcode != exit_ok {
+        fmt.appendf(mut st.msg, "cannot identify the toolchain: clang --version failed: %s", why[:])?
+        return exit_failure, noerror
+    }
+    mut out := make(list[uint8], c_allocator)
+    mut errb := make(list[uint8], c_allocator)
+    status, err := os.run(found.bytes(), argv[:], mut out, mut errb, c_allocator)
+    if err.code == 1 {
+        return exit_failure, err
+    }
+    mut m := make(list[uint8], c_allocator)
+    append(mut m, []uint8("cannot identify the toolchain: clang --version failed: ")...)?
+    if err.code == 13 {
+        errno := go_errno_text(err.msg)
+        if len(errno) == 0 {
+            append(mut st.msg, []uint8(" with a clang that cannot be started")...)?
+            return not_implemented, noerror
+        }
+        fmt.appendf(mut m, "fork/exec %s: %s", found.bytes(), errno)?
+    } else if err.code != 0 {
+        append(mut st.msg, []uint8(" with a clang --version that cannot be run")...)?
+        return not_implemented, noerror
+    } else if status.exited() && status.exit_status() == 0 {
+        return exit_ok, noerror
+    } else {
+        append_status(mut m, status)?
+    }
+    lo, hi := trim_space(errb[:])
+    if hi > lo {
+        append(mut m, []uint8(": ")...)?
+        append(mut m, part_of(errb[:], lo, hi)...)?
+    }
+    append(mut st.msg, m[:]...)?
+    return exit_failure, noerror
+}
+
+// append_status appends to msg Go's words for how status, a child that
+// did not exit 0, ended, as Go's exec.ExitError gives them: exit status
+// and the status, or signal: and Go's name for the signal, with (core
+// dumped) when it dumped core. It fails only for want of memory.
+func append_status(mut msg list[uint8], status os.Status) error {
+    if !status.exited() {
+        append(mut msg, []uint8("signal: ")...)?
+        append_go_signal(mut msg, status.signal())?
+        if status.core_dumped() {
+            append(mut msg, []uint8(" (core dumped)")...)?
+        }
+        return noerror
+    }
+    return fmt.appendf(mut msg, "exit status %d", status.exit_status())
+}
+
+// trim_space returns where b starts and ends with the white space at
+// each end left out, as Go's strings.TrimSpace leaves it out: runes
+// unicode.is_space says are space, decoded as UTF-8, a byte that is not
+// UTF-8 never one. The end is where the last rune that is not space
+// ends, found walking forward, which decodes every rune of b as walking
+// back from its end does, since a rune that is space is whole UTF-8 and
+// starts where the walk forward is.
+func trim_space(b []uint8) (int64, int64) {
+    mut i int64 = 0
+    mut lo int64 = len(b)
+    mut hi int64 = 0
+    for i >= 0 && i < len(b) {
+        r, n := utf8.decode(b[i:])
+        if n <= 0 {
+            break
+        }
+        // n is at most what is left of b, so the sum cannot wrap.
+        next := i +% n
+        if !unicode.is_space(r) {
+            if lo > i {
+                lo = i
+            }
+            hi = next
+        }
+        i = next
+    }
+    if hi < lo {
+        return 0, 0
+    }
+    return lo, hi
+}
+
+// empty_object returns a CObject of no file, which a moved one leaves in
+// its place.
+func empty_object() CObject {
+    return CObject{pkg: -1, shown: text.new(c_allocator), obj: text.new(c_allocator), syms: no_symbols()}
+}
+
+// probe_cache does, for the object obj of the runtime's C file at index
+// i, what Go's cache.put does to cdir, the cache's std directory, as far
+// as it can fail, without leaving an entry: put reads obj, then writes
+// it whole to a temporary file in objects and renames that into place,
+// and then the key, 65 bytes, likewise in keys. probe_cache reads obj
+// and writes its bytes to a file in objects, then 65 bytes to one in
+// keys, removing each once it is written; each is named .tmp-, the name
+// of the build's temporary directory dir, which no other build shares,
+// and i. It returns exit_ok, or, when a read, a write or a removal
+// fails, not_implemented, with what in st's msg: Go's error names its
+// temporary file, whose name is random. A rename, which Go's put does
+// and the port does not, cannot fail there but for a file system that
+// changed under it. It fails only for want of memory.
+func probe_cache(cdir []uint8, dir []uint8, i int64, obj []uint8, mut st Steps) (int32, error) {
+    data, rerr := os.read_file(obj, c_allocator)
+    if rerr.code == 1 {
+        return exit_failure, rerr
+    }
+    if rerr.code != 0 {
+        append(mut st.msg, []uint8(" with a build cache that cannot be written")...)?
+        return not_implemented, noerror
+    }
+    base := path.base(dir, c_allocator)?
+    mut name := make(list[uint8], c_allocator)
+    fmt.appendf(mut name, ".tmp-%s-%d", base.bytes(), i)?
+    mut key := make(list[uint8], c_allocator)
+    for range 64 {
+        append(mut key, '0')?
+    }
+    append(mut key, '\n')?
+    for _, sub := range [2]string{"objects", "keys"} {
+        d := path.join(cdir, []uint8(sub), c_allocator)?
+        p := path.join(d.bytes(), name[:], c_allocator)?
+        mut werr := noerror
+        if sub == "objects" {
+            werr = os.write_file(p.bytes(), data[:])
+        } else {
+            werr = os.write_file(p.bytes(), key[:])
+        }
+        if werr.code == 1 {
+            return exit_failure, werr
+        }
+        if werr.code != 0 {
+            // A file the write made is removed, as remove_made removes
+            // one, reporting nothing: the decline is all that is said.
+            remove_made(p.bytes())
+            append(mut st.msg, []uint8(" with a build cache that cannot be written")...)?
+            return not_implemented, noerror
+        }
+        if os.remove_path(p.bytes()).code != 0 {
+            append(mut st.msg, []uint8(" with a build cache that cannot be written")...)?
+            return not_implemented, noerror
+        }
+    }
+    return exit_ok, noerror
+}
