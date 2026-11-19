@@ -71,9 +71,11 @@
 // without the port still passes go test ./..., where TACK_PORT_TEST is
 // unset and TestPort skips. Setting TACK_PORT_BIN to the Go
 // binary runs the Go compiler against itself, which must pass every
-// stage but corpus-runner and bootstrap, which it skips, since Go has
-// none of the port's --port-case flags the corpus runner needs and the
-// port it builds is no copy of Go: it checks the harness, not the port.
+// stage but corpus-runner, bootstrap and fuzz-regress, which it skips,
+// since Go has none of the port's --port-case flags the corpus runner
+// needs, nor --port-header and --port-loaded, which the build of the
+// port's fuzz targets reads, and the port it builds is no copy of Go:
+// it checks the harness, not the port.
 //
 // # Protocol
 //
@@ -231,6 +233,9 @@
 //   - install runs the port's make test-install with the port as the
 //     compiler that builds it, which must pass; it compares nothing with
 //     Go (see Install).
+//   - fuzz-regress runs the port's make fuzz-regress with the port as
+//     the compiler that builds its fuzz targets, which must pass; it
+//     compares nothing with Go (see The port's own fuzzing).
 //
 // check-backend, check-clean and the emit stages classify their cases
 // by the stages of the backend's port each needs (see Backend stages),
@@ -1572,6 +1577,40 @@
 //	make port-fuzz PORT_FUZZ=FuzzResDiff FUZZTIME=60s
 //	make port-fuzz PORT_FUZZ=FuzzLoadDiff FUZZTIME=60s
 //	make port-fuzz PORT_FUZZ=FuzzEmitDiff FUZZTIME=60s PORT_FUZZ_MINIMIZE=20x
+//
+// # The port's own fuzzing
+//
+// The port fuzzes its own front end with no Go (decided 2026-11-19: a
+// third-party fuzzer until Tack has its own): its tools/fuzz holds fuzz
+// targets, each a package main whose main libFuzzer runs once for each
+// input, in process, built by its make fuzz-build from the C the port
+// emits with --emit, the runtime's and std's C, under clang's libFuzzer
+// with the address, leak and undefined behavior sanitizers. lex lexes
+// the input and parse lexes and parses it, each holding the result to
+// invariants of its own besides the sanitizers': the tokens in order
+// within the input, every byte between them white space or reported,
+// the line starts, every diagnostic's span in the file, a tree's dump
+// one JSON value, and a second parse the same as the first. Its make
+// fuzz FUZZ=<target> FUZZTIME=<seconds> fuzzes one, and its make
+// fuzz-regress replays, through every target, each committed input of
+// tools/fuzz/regress/<target> and every program of its corpus, whole,
+// once each, failing on any crash, sanitizer report, timeout or broken
+// invariant, and on a leak, found two ways: a buffer of c_allocator still
+// held once an input has run, by the runtime's count, which is how a
+// leak of Tack's memory is found, since the runtime keeps every buffer
+// it holds on a list LeakSanitizer sees as reachable; and memory C
+// allocated with malloc and lost, which LeakSanitizer finds, libFuzzer
+// checking after each input whose mallocs and frees do not balance and
+// at exit; make fuzz, unlike it, reads the seeds cut to 64 KiB, which
+// cuts two. The fuzz-regress stage, one case, runs make fuzz-regress in
+// the port's source tree with the port as TACK, in a process group of
+// its own, with FUZZ_BIN, where the build writes, and TMPDIR directories
+// of the case's own and no make variables or sanitizer options
+// inherited, fuzz.sh setting its own, and fails, showing
+// its output, unless it passes, or when it does not end within
+// fuzzRegressTimeouts times a compiler run's time limit. A port that is
+// the Go compiler, byte for byte, skips, as Go has neither --port-header
+// nor --port-loaded, which the build reads.
 //
 // # Embedded files
 //

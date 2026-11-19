@@ -49,3 +49,4 @@ unicode-tables
 check-tree
 lex-probes
 install
+fuzz-regress
