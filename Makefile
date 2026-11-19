@@ -84,13 +84,15 @@ unicode-tables:
 # check-unicode-tables fails when ucd-check does, and while
 # $(UNICODE_TABLES) differs from what tools/unicodegen writes from
 # $(UCD), cmp naming the first byte that differs; it writes only into
-# $(BIN). tackc's porttest unicode-tables stage makes the same checks.
-# It needs sha256sum and cmp, and no Go.
+# $(BIN), the tables as unicode-tables.tables, a name with no .tck
+# suffix, so that tack --check . of this tree never reads them. tackc's
+# porttest unicode-tables stage makes the same checks. It needs
+# sha256sum and cmp, and no Go.
 check-unicode-tables:
 	$(ucd-check)
 	$(unicodegen)
-	"$(CURDIR)/$(BIN)/unicodegen" $(UCD) $(BIN)/unicode-tables.tck
-	cmp $(UNICODE_TABLES) $(BIN)/unicode-tables.tck || \
+	"$(CURDIR)/$(BIN)/unicodegen" $(UCD) $(BIN)/unicode-tables.tables
+	cmp $(UNICODE_TABLES) $(BIN)/unicode-tables.tables || \
 		{ echo "$(UNICODE_TABLES) is not what tools/unicodegen writes from $(UCD); run make unicode-tables" >&2; exit 1; }
 
 # STD_TESTS are the packages of std that hold a test file, *_test.tck,
@@ -115,28 +117,38 @@ test-std:
 # missing or malformed in most.
 UNICODEGEN_CASES := $(sort $(patsubst %/,%,$(dir $(wildcard tools/unicodegen/testdata/*/want))))
 
+# UNICODEGEN_TABLES are the want.tables files of those cases, the tables
+# each of them must write; test-unicodegen fails while there is none, so
+# renaming them cannot turn the comparison of tables off unseen.
+UNICODEGEN_TABLES := $(sort $(wildcard tools/unicodegen/testdata/*/want.tables))
+
 .PHONY: test-unicodegen
 
 # test-unicodegen runs tools/unicodegen on each of $(UNICODEGEN_CASES),
-# writing into $(BIN), and fails unless what it writes on standard error,
-# followed by a line "exit <status>", is the case's file want, byte for
-# byte, and, for a case with a want.tck, the tables it writes are that
-# file. Each failed case is named, with the diff. It needs diff, and no
+# writing into $(BIN), the tables as unicodegen-case.tables, not a .tck
+# file, as check-unicode-tables writes its own, and fails unless what it
+# writes on standard error, followed by a line "exit <status>", is the
+# case's file want, byte for byte, and, for a case with a want.tables,
+# the tables it writes are that file, whose name is no .tck either: it
+# is expected output, not a Tack source of this tree. Each failed case
+# is named, with the diff. It fails before running any case while no
+# case has a want.tables (see UNICODEGEN_TABLES). It needs diff, and no
 # Go.
 test-unicodegen:
+	@[ -n "$(UNICODEGEN_TABLES)" ] || { echo "test-unicodegen: no case of tools/unicodegen/testdata has a want.tables, so no tables would be compared" >&2; exit 1; }
 	$(unicodegen)
 	@failed=0; \
 	for c in $(UNICODEGEN_CASES); do \
-		rm -f $(BIN)/unicodegen-case.tck; \
-		"$(CURDIR)/$(BIN)/unicodegen" "$$c" $(BIN)/unicodegen-case.tck 2> $(BIN)/unicodegen-case.err; \
+		rm -f $(BIN)/unicodegen-case.tables; \
+		"$(CURDIR)/$(BIN)/unicodegen" "$$c" $(BIN)/unicodegen-case.tables 2> $(BIN)/unicodegen-case.err; \
 		echo "exit $$?" >> $(BIN)/unicodegen-case.err; \
 		if ! diff -u "$$c/want" $(BIN)/unicodegen-case.err; then \
 			echo "FAIL: $$c: standard error and exit status"; failed=$$((failed + 1)); \
-		elif [ -f "$$c/want.tck" ] && ! diff -u "$$c/want.tck" $(BIN)/unicodegen-case.tck; then \
+		elif [ -f "$$c/want.tables" ] && ! diff -u "$$c/want.tables" $(BIN)/unicodegen-case.tables; then \
 			echo "FAIL: $$c: tables"; failed=$$((failed + 1)); \
 		fi; \
 	done; \
-	echo "unicodegen: $(words $(UNICODEGEN_CASES)) cases, $$failed failed"; \
+	echo "unicodegen: $(words $(UNICODEGEN_CASES)) cases, $(words $(UNICODEGEN_TABLES)) with tables, $$failed failed"; \
 	[ "$$failed" -eq 0 ]
 
 # corpus-tool builds tools/corpus, the corpus runner, with $(TACK), with
