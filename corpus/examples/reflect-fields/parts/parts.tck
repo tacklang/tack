@@ -1,0 +1,26 @@
+package parts
+
+// Package parts declares a struct with a field of each visibility, and a
+// generic function over Data that sees all three.
+
+// Part has a pub field, a lib one, which every package of the module
+// sees, and a private one.
+pub type Part struct {
+    pub id int64
+    lib note int64
+    secret  int64
+}
+
+// part returns a Part with id i, note n and secret s.
+pub func part(i int64, n int64, s int64) Part {
+    return Part{id: i, note: n, secret: s}
+}
+
+// count returns how many fields of v parts sees.
+pub func count[T Data](v T) int64 {
+    mut n := 0
+    for range fields(T) {
+        n +%= 1
+    }
+    return n
+}

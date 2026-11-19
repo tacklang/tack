@@ -1,0 +1,386 @@
+package main
+
+// Appending many values at once, and reserving room ahead. append takes
+// any number of values after the list, err := append(mut l, a, b, c), or
+// a view spread whole, err := append(mut l, v...), and reserve(mut l, n)
+// makes room for n more elements without changing the length. Either
+// grows the buffer once, to the final length, before writing anything,
+// so one that fails leaves the list exactly as it was: its length, its
+// capacity and its elements.
+//
+// Tack has no way to read a list's capacity, so this example's C, in
+// bulk.c, reads it, and the address of the buffer, to show what grew and
+// what did not. Every check that makes lists runs in a function of its
+// own, and main asserts after it that c_allocator's count of live buffers
+// is back to 0, so a free that never happens, or happens twice, fails a
+// check.
+
+// capOf returns how many elements l's buffer has room for, in C.
+extern("bulk_cap") func capOf(mut l list[int64]) int64
+
+// capBytes returns how many bytes b's buffer has room for, in C.
+extern("bulk_cap_bytes") func capBytes(mut b list[uint8]) int64
+
+// bufOf returns the address of l's buffer, 0 for none, in C.
+extern("bulk_buf") func bufOf(mut l list[int64]) unsafe_uintptr_t
+
+// live returns how many buffers c_allocator holds, in C.
+extern("bulk_live") func live() int64
+
+// failAfter makes c_allocator fail every allocation after the next n, or
+// none again when n is negative, in C.
+extern("bulk_fail_after") func failAfter(n int64)
+
+// Holder is a struct holding a list beside an array, which can be
+// spread into it.
+type Holder struct {
+    seed  [3]int64
+    items list[int64]
+}
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that nothing is live after a check, name saying which.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// holds reports whether l holds exactly want, in order.
+func holds(l list[int64], want ...int64) bool {
+    if len(l) != len(want) {
+        return false
+    }
+    for i, x := range l {
+        if i >= len(want) {
+            return false
+        }
+        if x != want[i] {
+            return false
+        }
+    }
+    return true
+}
+
+// bytesAre reports whether b holds exactly the bytes of s.
+func bytesAre(b list[uint8], s string) bool {
+    if len(b) != len(s) {
+        return false
+    }
+    for i, x := range b {
+        if i >= len(s) {
+            return false
+        }
+        if x != s[i] {
+            return false
+        }
+    }
+    return true
+}
+
+// addAll appends every element of v to l, a view spread into append.
+func addAll(mut l list[int64], v []int64) error {
+    return append(mut l, v...)
+}
+
+// addVals appends every value of vs to l, a variadic passed on whole.
+func addVals(mut l list[int64], vs ...int64) error {
+    return append(mut l, vs...)
+}
+
+// next adds one to n and returns it.
+func next(mut n int64) int64 {
+    n +%= 1
+    return n
+}
+
+// minusOne returns -1, a negative count no constant shows.
+func minusOne() int64 {
+    return -1
+}
+
+// values appends several values in one call.
+func values() {
+    mut l := make(list[int64], c_allocator)
+    e1 := append(mut l, 1, 2, 3)
+    check(e1.code == 0 && holds(l, 1, 2, 3), "three values")
+    check(capOf(mut l) == 4 && live() == 1, "one buffer for three")
+    e2 := append(mut l, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+    check(e2.code == 0 && holds(l, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12), "past doubling")
+    check(capOf(mut l) == 12, "an exact fit when doubling is short")
+    e3 := append(mut l, 13)
+    check(e3.code == 0 && capOf(mut l) == 24 && len(l) == 13, "one more doubles")
+
+    mut b := make(list[uint8], c_allocator)
+    eb := append(mut b, 'a', 66, 255)
+    check(eb.code == 0 && len(b) == 3, "constants take the element type")
+    if len(b) == 3 {
+        check(b[0] == 97 && b[1] == 66 && b[2] == 255, "bytes appended")
+    }
+
+    var small int8 = -7
+    mut w := make(list[int32], c_allocator)
+    ew := append(mut w, small, 70000, -2147483648)
+    check(ew.code == 0 && len(w) == 3, "narrower values widen")
+    if len(w) == 3 {
+        check(w[0] == -7 && w[1] == 70000 && w[2] == -2147483648, "widened values")
+    }
+}
+
+// spreads appends views spread whole: an array, a view, a variadic, a
+// slice of another list and the bytes of a string.
+func spreads() {
+    mut l := make(list[int64], c_allocator)
+    a := [3]int64{4, 5, 6}
+    e1 := append(mut l, a...)
+    check(e1.code == 0 && holds(l, 4, 5, 6), "spread an array")
+    e2 := append(mut l, a[1:]...)
+    check(e2.code == 0 && holds(l, 4, 5, 6, 5, 6), "spread a slice of an array")
+    e3 := addAll(mut l, a[:1])
+    check(e3.code == 0 && holds(l, 4, 5, 6, 5, 6, 4), "spread a view")
+    e4 := addVals(mut l, 7, 8)
+    check(e4.code == 0 && holds(l, 4, 5, 6, 5, 6, 4, 7, 8), "spread a variadic")
+
+    mut m := make(list[int64], c_allocator)
+    e5 := append(mut m, l...)
+    check(e5.code == 0 && holds(m, 4, 5, 6, 5, 6, 4, 7, 8), "spread another list")
+    if len(l) >= 6 {
+        e6 := append(mut m, l[6:]...)
+        check(e6.code == 0 && len(m) == 10 && holds(l, 4, 5, 6, 5, 6, 4, 7, 8), "spread a slice of a list")
+    }
+    if len(m) == 10 {
+        check(m[8] == 7 && m[9] == 8, "slice appended")
+    }
+
+    mut b := make(list[uint8], c_allocator)
+    s := "héllo"
+    eb := append(mut b, []uint8(s)...)
+    check(eb.code == 0 && bytesAre(b, s), "spread a string's bytes")
+    ec := append(mut b, []uint8("!")...)
+    check(ec.code == 0 && bytesAre(b, "héllo!"), "spread a literal's bytes")
+    check(live() == 3, "three buffers")
+}
+
+// nothing appends no values, and empty views: no error, nothing written,
+// and nothing allocated for an empty list.
+func nothing() {
+    mut l := make(list[int64], c_allocator)
+    e1 := append(mut l)
+    a := [2]int64{1, 2}
+    e2 := append(mut l, a[2:]...)
+    e3 := append(mut l, a[:0]...)
+    e4 := addVals(mut l)
+    mut empty := make(list[int64], c_allocator)
+    e5 := append(mut l, empty...)
+    mut b := make(list[uint8], c_allocator)
+    e6 := append(mut b, []uint8("")...)
+    ok := e1.code == 0 && e2.code == 0 && e3.code == 0 && e4.code == 0 &&
+        e5.code == 0 && e6.code == 0
+    check(ok && len(l) == 0 && len(b) == 0, "no values append nothing")
+    check(bufOf(mut l) == 0 && capOf(mut l) == 0 && live() == 0, "nothing allocated for nothing")
+    e7 := append(mut l, 1)
+    at := bufOf(mut l)
+    e8 := append(mut l)
+    e9 := append(mut l, empty...)
+    check(e7.code == 0 && e8.code == 0 && e9.code == 0 && holds(l, 1), "nothing after something")
+    check(bufOf(mut l) == at && capOf(mut l) == 4, "nothing moves no buffer")
+}
+
+// reserving reserves room, then appends into it with no allocation at
+// all: every allocation is made to fail in between.
+func reserving() {
+    mut l := make(list[int64], c_allocator)
+    e0 := reserve(mut l, 0)
+    check(e0.code == 0 && bufOf(mut l) == 0 && live() == 0, "reserving nothing allocates nothing")
+    e1 := reserve(mut l, 10)
+    check(e1.code == 0 && len(l) == 0 && capOf(mut l) == 10 && live() == 1, "reserve on an empty list")
+    at := bufOf(mut l)
+    failAfter(0)
+    e2 := append(mut l, 1)
+    e3 := append(mut l, 2, 3, 4)
+    a := [6]int64{5, 6, 7, 8, 9, 10}
+    e4 := append(mut l, a...)
+    e5 := reserve(mut l, 0)
+    failAfter(-1)
+    ok := e2.code == 0 && e3.code == 0 && e4.code == 0 && e5.code == 0
+    check(ok && holds(l, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10), "appends into reserved room")
+    check(bufOf(mut l) == at && capOf(mut l) == 10, "no reallocation in between")
+    e6 := reserve(mut l, 1)
+    check(e6.code == 0 && len(l) == 10 && capOf(mut l) == 20, "reserve doubles")
+    e7 := reserve(mut l, 25)
+    check(e7.code == 0 && capOf(mut l) == 40, "reserve doubles past what it needs")
+    e8 := reserve(mut l, 75)
+    check(e8.code == 0 && capOf(mut l) == 85 && holds(l, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
+        "an exact fit when doubling is short, elements kept")
+    e9 := reserve(mut l, 75)
+    check(e9.code == 0 && capOf(mut l) == 85 && len(l) == 10, "room already is no growth")
+
+    mut b := make(list[uint8], c_allocator)
+    eb := reserve(mut b, 3)
+    check(eb.code == 0 && capBytes(mut b) == 4 && len(b) == 0, "reserve starts at 4")
+}
+
+// amortized reserves room for one element before each of many appends,
+// as code building text does: the buffer still grows by doubling, not
+// once per append.
+func amortized() {
+    mut l := make(list[int64], c_allocator)
+    mut moves int64 = 0
+    mut last := capOf(mut l)
+    for i := range 10000 {
+        er := reserve(mut l, 1)
+        if er.code != 0 {
+            check(false, "reserve before append")
+            return
+        }
+        if capOf(mut l) != last {
+            moves +%= 1
+            last = capOf(mut l)
+        }
+        ea := append(mut l, i)
+        if ea.code != 0 {
+            check(false, "append after reserve")
+            return
+        }
+    }
+    check(len(l) == 10000 && moves <= 13, "reserve then append grows by doubling")
+}
+
+// negative reserves a negative count, which no constant shows: an error,
+// with nothing changed.
+func negative() {
+    mut l := make(list[int64], c_allocator)
+    e1 := append(mut l, 1, 2, 3)
+    at := bufOf(mut l)
+    e2 := reserve(mut l, minusOne())
+    check(e1.code == 0 && e2.code == 2 && e2.msg == "negative count", "negative reserve fails")
+    check(holds(l, 1, 2, 3) && capOf(mut l) == 4 && bufOf(mut l) == at, "unchanged by a negative reserve")
+    mut n int64 = -9223372036854775807
+    n--
+    e3 := reserve(mut l, n)
+    check(e3.code == 2 && holds(l, 1, 2, 3) && capOf(mut l) == 4, "the smallest int64 is negative too")
+}
+
+// huge reserves counts no buffer can hold, and counts that overflow the
+// length: out of memory, with nothing changed and nothing allocated.
+func huge() {
+    mut l := make(list[int64], c_allocator)
+    e0 := reserve(mut l, 9223372036854775807)
+    check(e0.code == 1 && e0.msg == "out of memory" && bufOf(mut l) == 0 && live() == 0, "reserve int64 max on an empty list")
+    e1 := append(mut l, 1, 2, 3)
+    at := bufOf(mut l)
+    e2 := reserve(mut l, 9223372036854775807)
+    check(e1.code == 0 && e2.code == 1 && e2.msg == "out of memory", "len plus n overflows")
+    e3 := reserve(mut l, 9223372036854775807 - 3)
+    check(e3.code == 1, "len plus n is int64 max")
+    e4 := reserve(mut l, 2305843009213693952)
+    check(e4.code == 1, "bytes past what a buffer holds")
+    check(holds(l, 1, 2, 3) && capOf(mut l) == 4 && bufOf(mut l) == at && live() == 1, "unchanged by huge reserves")
+}
+
+// failing makes every allocation fail and appends past the capacity: the
+// list keeps its length, capacity and elements, whatever was appended.
+func failing() {
+    mut l := make(list[int64], c_allocator)
+    e1 := append(mut l, 1, 2, 3)
+    at := bufOf(mut l)
+    failAfter(0)
+    e2 := append(mut l, 7, 8)
+    check(e1.code == 0 && e2.code == 1 && e2.msg == "out of memory", "values fail together")
+    check(holds(l, 1, 2, 3) && capOf(mut l) == 4 && bufOf(mut l) == at, "nothing written by failed values")
+    a := [5]int64{9, 9, 9, 9, 9}
+    e3 := append(mut l, a...)
+    e4 := append(mut l, a[3:]...)
+    check(e3.code == 1 && e4.code == 1 && holds(l, 1, 2, 3) && capOf(mut l) == 4, "nothing written by a failed spread")
+    e5 := reserve(mut l, 2)
+    check(e5.code == 1 && holds(l, 1, 2, 3) && capOf(mut l) == 4, "failed reserve")
+    e6 := append(mut l, 4)
+    e7 := append(mut l)
+    check(e6.code == 0 && e7.code == 0 && holds(l, 1, 2, 3, 4), "what fits needs no allocation")
+    failAfter(-1)
+    e8 := append(mut l, a...)
+    check(e8.code == 0 && holds(l, 1, 2, 3, 4, 9, 9, 9, 9, 9), "appends again")
+
+    mut empty := make(list[int64], c_allocator)
+    failAfter(0)
+    e9 := append(mut empty, 1, 2)
+    e10 := reserve(mut empty, 1)
+    failAfter(-1)
+    check(e9.code == 1 && e10.code == 1 && len(empty) == 0 && bufOf(mut empty) == 0, "failures on an empty list")
+}
+
+// order appends values whose evaluation counts: each is evaluated once,
+// left to right.
+func order() {
+    mut l := make(list[int64], c_allocator)
+    mut n int64 = 0
+    e := append(mut l, next(mut n), next(mut n), next(mut n))
+    check(e.code == 0 && n == 3 && holds(l, 1, 2, 3), "values evaluated once, in order")
+}
+
+// in_fields appends to and reserves a list a struct holds, spreading the
+// struct's own array into it.
+func in_fields() {
+    mut h := Holder{seed: [3]int64{1, 2, 3}, items: make(list[int64], c_allocator)}
+    e1 := reserve(mut h.items, 6)
+    e2 := append(mut h.items, h.seed...)
+    e3 := append(mut h.items, h.seed[1:]...)
+    e4 := append(mut h.items, h.seed[0])
+    check(e1.code == 0 && e2.code == 0 && e3.code == 0 && e4.code == 0, "a field appended to")
+    check(holds(h.items, 1, 2, 3, 2, 3, 1), "a field's elements")
+    mut moved := h
+    e5 := append(mut moved.items, 4, 5)
+    check(e5.code == 0 && holds(moved.items, 1, 2, 3, 2, 3, 1, 4, 5), "a moved struct's list appended to")
+}
+
+// deferred appends in a defer, which runs after the body's appends.
+func deferred() int64 {
+    mut l := make(list[int64], c_allocator)
+    defer {
+        e := append(mut l, 3, 4)
+        check(e.code == 0 && holds(l, 1, 2, 3, 4), "appended in a defer")
+    }
+    e := append(mut l, 1, 2)
+    if e.code != 0 {
+        return -1
+    }
+    return len(l)
+}
+
+func main() {
+    check(live() == 0, "nothing live at the start")
+    values()
+    freed("values freed")
+    spreads()
+    freed("spreads freed")
+    nothing()
+    freed("nothing freed")
+    reserving()
+    freed("reserving freed")
+    amortized()
+    freed("amortized freed")
+    negative()
+    freed("negative freed")
+    huge()
+    freed("huge freed")
+    failing()
+    freed("failing freed")
+    order()
+    freed("order freed")
+    in_fields()
+    freed("fields freed")
+    check(deferred() == 2, "deferred result")
+    freed("deferred freed")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

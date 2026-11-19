@@ -1,0 +1,161 @@
+package main
+
+// Proofs that hold through a fallthrough because both ways into the case
+// it enters give them, beside the proofs of examples/fallthrough-facts,
+// and fallthrough in the places it may be written: inside a defer's own
+// switch, in a loop, and down a chain of cases. main exits with a status
+// of its own at the first check that fails, and with 42 when all hold.
+
+// stored divides by k, which is 5 when the second case matches and 3
+// when the first falls into it: both ways keep k away from 0.
+func stored(n int64) int64 {
+    mut k := 5
+    mut r := 0
+    switch n {
+    case 1:
+        k = 3
+        fallthrough
+    case 2:
+        r = 15 / k
+    }
+    return r
+}
+
+// guarded divides by d in the case the first falls into, the first having
+// returned when d is 0, and the second matching only d == 2.
+func guarded(n int64) int64 {
+    mut d := n
+    switch d {
+    case 1:
+        if d == 0 {
+            return 0
+        }
+        fallthrough
+    case 2:
+        return 10 / d
+    }
+    return -1
+}
+
+// covered ends in an unreachable after a switch whose cases cover every
+// n, the first falling into the second, which returns.
+func covered(n int64) int64 {
+    switch {
+    case n < 0:
+        fallthrough
+    case n >= 0:
+        return 1
+    }
+    unreachable
+}
+
+// deferred falls through in a switch inside a defer, which runs when the
+// function returns, adding to out.
+func deferred(n int64, mut out int64) {
+    defer {
+        switch n {
+        case 1:
+            out = out +% 1
+            fallthrough
+        case 2:
+            out = out +% 10
+        }
+    }
+    out = 100
+}
+
+// chain falls through five cases, the tag's facts held only as far as
+// what every case on the way gives: d is between 1 and 5 in the last.
+func chain(d int64) int64 {
+    mut r := 0
+    switch d {
+    case 1:
+        r = r +% 1
+        fallthrough
+    case 2:
+        r = r +% 2
+        fallthrough
+    case 3:
+        r = r +% 3
+        fallthrough
+    case 4:
+        r = r +% 4
+        fallthrough
+    case 5:
+        r = r +% 60 / d
+    }
+    return r
+}
+
+// looped falls through in a loop, the index i proven in the case entered
+// by what the loop's range and both ways in give.
+func looped(a [4]int64) int64 {
+    mut r := 0
+    for i := range 4 {
+        switch {
+        case i == 0:
+            fallthrough
+        case i < 3:
+            r = r +% a[i]
+        default:
+            r = r +% 1000
+        }
+    }
+    return r
+}
+
+// question fails at a ? in the case a fallthrough entered, or not, as n
+// says.
+func question(n int64) (int64, error) {
+    mut r := 0
+    switch {
+    case n > 10:
+        r = 1
+        fallthrough
+    case n > 5:
+        r = r +% parse(n)?
+    }
+    return r, noerror
+}
+
+// parse gives n, or an error when n is 7.
+func parse(n int64) (int64, error) {
+    if n == 7 {
+        return 0, error{code: 3, msg: "seven"}
+    }
+    return n, noerror
+}
+
+func main() {
+    if stored(1) != 5 || stored(2) != 3 || stored(3) != 0 {
+        exit(1)
+    }
+    if guarded(1) != 10 || guarded(2) != 5 || guarded(3) != -1 {
+        exit(2)
+    }
+    if covered(-4) != 1 || covered(4) != 1 {
+        exit(3)
+    }
+    mut out int64 = 0
+    deferred(1, mut out)
+    if out != 111 {
+        exit(4)
+    }
+    deferred(2, mut out)
+    if out != 110 {
+        exit(5)
+    }
+    if chain(1) != 70 || chain(3) != 27 || chain(5) != 12 || chain(9) != 0 {
+        exit(6)
+    }
+    if looped([4]int64{1, 2, 4, 8}) != 1007 {
+        exit(7)
+    }
+    q, errQ := question(12)
+    _, e7 := question(7)
+    s, errS := question(3)
+    if errQ.code != 0 || q != 13 || e7.code != 3 || errS.code != 0 || s != 0 {
+        exit(8)
+    }
+    exit(42)
+}

@@ -1,0 +1,32 @@
+nothing live at the start ok
+two empty lists are equal ok
+equal bytes are equal ok
+a different last byte ok
+a different first byte ok
+different lengths, either way round ok
+empty and not empty ok
+a list equals itself ok
+equal whatever the capacity ok
+a prefix is not equal ok
+comparing allocates nothing ok
+bytes freed ok
+lists of int64 ok
+lists of int64 of different lengths ok
+lists of strings compare by their bytes ok
+lists of strings differing in the last ok
+lists of bools ok
+lists of arrays ok
+others freed ok
+equal lists of lists ok
+lists of lists of different lengths ok
+lists of lists differing in an inner list ok
+empty lists three deep ok
+lists three deep ok
+nested freed ok
+Texts with the same bytes are equal ok
+Texts with different bytes are not ok
+empty Texts ok
+texts freed ok
+structs holding lists ok
+unions holding lists ok
+structs freed ok

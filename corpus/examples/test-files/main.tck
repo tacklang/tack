@@ -1,0 +1,32 @@
+package main
+
+import count from "test-files/count"
+
+// A file whose name ends in _test.tck is a test file, which no build
+// loads: this directory's main_test.tck and _test.tck, and count's
+// count_test.tck, would each stop the build if they were read. The
+// suffix is matched exactly, so UPPER_TEST.tck, whose name ends in
+// _TEST.tck, is an ordinary file of this package, and so is test.tck.
+// The directory onlytests holds nothing but a test file, and is no
+// package: nothing imports it, and loading it would fail.
+func main() {
+    if count.three() != 3 {
+        exit(1)
+    }
+    if upper() != 30 {
+        exit(2)
+    }
+    if plain() != 9 {
+        exit(3)
+    }
+    print("test files left out\n")
+    code, ok := int32(count.three() +% upper() +% plain())
+    if !ok {
+        exit(4)
+    }
+    exit(code)
+}
+
+// The wrapping operators above stand where nothing proves a value's
+// bound but this program's own fixed data keeps the sum small, so none
+// of them wraps.

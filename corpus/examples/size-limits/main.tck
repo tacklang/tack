@@ -1,0 +1,49 @@
+package main
+
+// Size limits: no value may hold more than 2^31 bytes, and all of a
+// program's globals together no more than 2^30. Table is exactly 2^30
+// bytes, a byte and seven of padding before 134217727 cells of eight
+// bytes each, and table, the program's one global, takes all a program's
+// globals may hold. Static storage is given out a page at a time, so the
+// program uses only the pages it touches: the first and the last. Page is
+// exactly 2^31 bytes, the most a value may hold; a list of pages holds
+// none until one is appended, so the program makes one and appends
+// nothing. More data than that goes in a list.
+
+// Table is a count and as many cells as fit in 2^30 bytes beside it.
+type Table struct {
+    count int8
+    cells [134217727]int64
+}
+
+// Page is exactly 2^31 bytes.
+type Page struct {
+    bytes [2147483648]uint8
+}
+
+mut table Table
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+func main() {
+    check(table.count == 0 && table.cells[0] == 0 && table.cells[134217726] == 0, "a global at the limit starts zeroed")
+    table.cells[134217726] = 7
+    table.count = 1
+    check(table.cells[134217726] == 7 && table.count == 1, "its last cell")
+    check(len(table.cells) == 134217727, "its length")
+
+    pages := make(list[Page], c_allocator)
+    check(len(pages) == 0, "a list of values at the limit")
+
+    mut more := make(list[int64], c_allocator)
+    err := reserve(mut more, 1000)
+    check(err.code == 0 && len(more) == 0, "more data goes in a list")
+}

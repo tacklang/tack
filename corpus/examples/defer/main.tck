@@ -1,0 +1,149 @@
+package main
+
+// log records the order things run in, one decimal digit per step.
+mut log int64
+
+// mark appends the digit d to log.
+func mark(d int64) {
+    log = log *% 10 +% d
+}
+
+// expect exits with code unless log is want, then clears log.
+func expect(want int64, code int32) {
+    if log != want {
+        exit(code)
+    }
+    log = 0
+}
+
+// reverse runs its defers last first, after the body.
+func reverse() {
+    defer { mark(1) }
+    defer { mark(2) }
+    defer { mark(3) }
+    mark(4)
+}
+
+// nested runs an inner block's defers when that block ends, before the
+// rest of the outer one.
+func nested(n int64) {
+    defer { mark(1) }
+    if n > 0 {
+        defer { mark(2) }
+        mark(3)
+    }
+    mark(4)
+}
+
+// early returns from inside a loop and an if, running every reached
+// defer of every block it leaves, innermost first.
+func early(n int64) int64 {
+    defer { mark(1) }
+    for i := range 3 {
+        defer { mark(2) }
+        if i == n {
+            defer { mark(3) }
+            return i
+        }
+        mark(5)
+    }
+    mark(4)
+    return 9
+}
+
+// unreached registers its second defer only when it gets past the return.
+func unreached(n int64) {
+    defer { mark(1) }
+    if n > 0 {
+        return
+    }
+    defer { mark(2) }
+}
+
+// late reads x when its defer runs, not when the defer is reached.
+func late() {
+    mut x := 1
+    defer { mark(x) }
+    x = 3
+}
+
+// result computes its result before its defers run, so the defer that
+// changes x does not change what is returned.
+func result() int64 {
+    mut x := 5
+    defer { mark(x) }
+    defer { x = 7 }
+    return x
+}
+
+// pair returns two results computed before its defer changes them.
+func pair() (int64, int64) {
+    mut a := 1
+    mut b := 2
+    defer {
+        a = 8
+        b++
+        mark(a - b + 2)
+    }
+    return a, b
+}
+
+// guarded divides in a defer by what the if around it proves.
+func guarded(d int64) {
+    if d != 0 {
+        defer { mark(10 / d) }
+    }
+}
+
+// greet prints from defers, so the lines come out a, b, c.
+func greet() {
+    defer { print("c\n") }
+    defer { print("b\n") }
+    print("a\n")
+}
+
+func main() {
+    // exit ends the process without running this.
+    defer { print("never\n") }
+
+    reverse()
+    expect(4321, 1)
+    nested(1)
+    expect(3241, 2)
+    nested(0)
+    expect(41, 3)
+    if early(1) != 1 {
+        exit(4)
+    }
+    expect(52321, 5)
+    if early(7) != 9 {
+        exit(6)
+    }
+    expect(52525241, 7)
+    unreached(1)
+    expect(1, 8)
+    unreached(0)
+    expect(21, 9)
+    late()
+    expect(3, 10)
+    if result() != 5 {
+        exit(11)
+    }
+    expect(7, 12)
+    a, b := pair()
+    if a != 1 || b != 2 {
+        exit(13)
+    }
+    expect(7, 14)
+    guarded(5)
+    expect(2, 15)
+    guarded(0)
+    expect(0, 16)
+    greet()
+    exit(42)
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

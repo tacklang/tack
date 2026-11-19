@@ -1,0 +1,105 @@
+nothing live at the start ok
+equal empty ok
+equal one empty ok
+equal other empty ok
+equal same ok
+equal last differs ok
+equal first differs ok
+equal prefix is not equal ok
+equal longer is not equal ok
+equal 0x00 and 0xff ok
+equal 0x00 is not 0xff ok
+equal array, list slice and string ok
+equal list whole, itself and empty slices ok
+equal freed ok
+index empty in empty ok
+index empty in abc ok
+index in empty ok
+index sub longer than s ok
+index sub is s ok
+index first of two ok
+index after one ok
+index at the end ok
+index overlapping candidate ok
+index longer overlapping candidate ok
+index partial matches only ok
+index match runs past the end ok
+index 0xff and 0x00 ok
+index high bytes ok
+index_byte in empty ok
+index_byte at the start ok
+index_byte at the end ok
+index_byte first of two ok
+index_byte absent ok
+index_byte 0x00 ok
+index_byte 0xff ok
+index_byte 0xff is not 0x00 ok
+index a list and its slice ok
+index_byte a list and its slice ok
+index freed ok
+has_prefix empty of empty ok
+has_prefix empty ok
+has_prefix of empty ok
+has_prefix whole ok
+has_prefix longer than s ok
+has_prefix start ok
+has_prefix not at the start ok
+has_prefix last byte differs ok
+has_prefix 0xff and 0x00 ok
+has_suffix empty of empty ok
+has_suffix empty ok
+has_suffix of empty ok
+has_suffix whole ok
+has_suffix longer than s ok
+has_suffix end ok
+has_suffix not at the end ok
+has_suffix first byte differs ok
+has_suffix 0x00 and 0xff ok
+count empty in empty ok
+count empty in abc ok
+count in empty ok
+count sub longer than s ok
+count sub is s ok
+count overlapping, even ok
+count overlapping, odd ok
+count overlapping aba ok
+count bytes ok
+count 0x00 ok
+count 0xff 0x00 ok
+count after a partial match ok
+append_int 0 ok
+append_int small ok
+0 -1 9 10 -10
+append_int int64 max and min ok
+max=9223372036854775807 min=-9223372036854775808
+append_int min at run time ok
+append_uint ok
+0 1 10 9223372036854775808 18446744073709551615
+append_hex ok
+0 9 a 10 ff deadbeef 8000000000000000 ffffffffffffffff
+narrower integers widen ok
+appends freed ok
+a full list ok
+append_int and append_uint fail ok
+append_hex and a one-digit append_int fail ok
+nothing written by failed appends ok
+failure on an empty list ok
+what fits needs no allocation ok
+failures freed ok
+repeat 0 allocates nothing ok
+repeat 1 ok
+repeat 3 with 0x00 and 0xff ok
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+repeat empty int64 max times ok
+repeat large ok
+repeat a slice of a list ok
+repeats freed ok
+repeat negative count ok
+repeat empty s, int64 min count ok
+repeat overflowing int64 ok
+repeat to exactly 2^63 bytes ok
+repeat to int64 max bytes ok
+repeat to int64 max - 1 bytes ok
+repeat with a failing allocator ok
+repeat 0 needs no allocation ok
+repeat failures freed ok

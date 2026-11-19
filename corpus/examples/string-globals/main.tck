@@ -1,0 +1,41 @@
+package main
+
+// Comparisons of string constants at package level are computed at compile
+// time, with all six operators, on literals and on immutable globals that
+// hold strings. Strings compare by their bytes, unsigned, so a shorter
+// prefix is smaller and 0xff is above every ASCII byte.
+var a = "abc"
+var b string = "abd"
+var empty = ""
+
+var eq = "a" == "a"
+var ne = "a" != "a"
+var lt = a < b
+var le = a <= a
+var gt = b > a
+var ge = empty >= a
+var high = "\xff" > "a"
+var prefix = "ab" < "abc"
+var both = a == "abc" && b != a
+var notEqual = !(empty == a)
+
+// check exits with status when ok is false.
+func check(ok bool, status int32) {
+    if !ok {
+        exit(status)
+    }
+}
+
+func main() {
+    check(eq, 1)
+    check(!ne, 2)
+    check(lt, 3)
+    check(le, 4)
+    check(gt, 5)
+    check(!ge, 6)
+    check(high, 7)
+    check(prefix, 8)
+    check(both, 9)
+    check(notEqual, 10)
+    exit(42)
+}

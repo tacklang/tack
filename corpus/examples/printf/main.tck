@@ -1,0 +1,163 @@
+package main
+
+import fmt from "std/fmt"
+
+// Formatted printing with std/fmt's printf: each verb, %d %x %s %t %c %v
+// and %%, every basic type at its edges, arguments that are variables,
+// constants, call results and globals, formats the compiler cannot see,
+// whose mistakes are written into the output, and any parameters passed
+// on through Tack functions. Every argument is a copy taken at the call.
+
+type Box struct {
+    s string
+    n int64
+}
+
+// counter is a mutable global, which a call can change while another
+// argument of the same call is evaluated, so printf gets a copy of it.
+mut counter int64 = 1
+
+// greeting is an immutable global.
+var greeting = "hi"
+
+// bump adds one to counter and returns it.
+func bump() int64 {
+    counter +%= 1
+    return counter
+}
+
+// twice returns n doubled.
+func twice(n int64) int64 {
+    return n *% 2
+}
+
+// show prints format with args, a format the compiler does not know, so
+// each mistake in it is written into the output.
+func show(format string, args ...any) {
+    fmt.printf(format, args...)
+}
+
+// one passes a single any on, as one value of printf's variadic.
+func one(format string, a any) {
+    fmt.printf(format, a)
+}
+
+// changeThenShow sets x and counter, then prints a, which was copied when
+// the call began, so neither change shows in it.
+func changeThenShow(mut x int64, a any) {
+    x = 99
+    counter = 500
+    fmt.printf("copied %v\n", a)
+}
+
+// deferred prints a from a defer, after the body has printed.
+func deferred(a any) {
+    defer {
+        fmt.printf("deferred %v\n", a)
+    }
+    fmt.printf("body\n")
+}
+
+// depth passes a down n calls and prints it at the bottom.
+func depth(n int64, a any) {
+    if n == 0 {
+        fmt.printf("bottom %v\n", a)
+        return
+    }
+    depth(n -% 1, a)
+}
+
+// firstOf prints the first of args, an element of the view passed on,
+// when there is one.
+func firstOf(args ...any) {
+    if len(args) > 0 {
+        fmt.printf("first %v of %d\n", args[0], len(args))
+    }
+}
+
+// restOf prints every value of args but the first, a slice of the view
+// spread into printf.
+func restOf(format string, args ...any) {
+    if len(args) > 0 {
+        fmt.printf(format, args[1:]...)
+    }
+}
+
+func main() {
+    fmt.printf("no verbs\n")
+    fmt.printf("100%% sure\n")
+    fmt.printf("")
+
+    var i8 int8 = -128
+    var i16 int16 = -32768
+    var i32 int32 = -2147483648
+    var i64 int64 = -9223372036854775808
+    fmt.printf("signed %d %d %d %d\n", i8, i16, i32, i64)
+    fmt.printf("signed hex %x %x %x %x\n", i8, i16, i32, i64)
+    fmt.printf("signed max %v %v %v %v\n", int8(127), int16(32767), int32(2147483647), 9223372036854775807)
+
+    var u8 uint8 = 255
+    var u16 uint16 = 65535
+    var u32 uint32 = 4294967295
+    var u64 uint64 = 18446744073709551615
+    fmt.printf("unsigned %d %d %d %d\n", u8, u16, u32, u64)
+    fmt.printf("unsigned hex %x %x %x %x\n", u8, u16, u32, u64)
+    var size unsafe_size_t = 4294967295
+    var addr unsafe_uintptr_t = 0
+    fmt.printf("target width %d %x %v %d\n", size, size, addr, addr)
+    fmt.printf("constants %d %x %d %x %v\n", 0, 0, -1, -255, 255)
+
+    fmt.printf("bools %t %v %t\n", true, false, 1 < 2)
+    fmt.printf("strings [%s] [%v] [%s]\n", "", "héllo, 世界", "a\x00b")
+    mut b Box
+    fmt.printf("zero string [%s] %d\n", b.s, b.n)
+    var nl uint8 = 10
+    fmt.printf("%c%c%v%c", 'o', 'k', ' ', nl)
+    fmt.printf("zero byte [%c]\n", uint8(0))
+
+    fmt.printf("%s %d %d %d\n", greeting, counter, bump(), counter)
+    n := 20
+    fmt.printf("calls %d %v %d\n", twice(21), twice(-1) < 0, n + 1)
+    mut m int64 = 5
+    m++
+    fmt.printf("mutable local %d\n", m)
+    mut f string = "mutable format %d\n"
+    fmt.printf(f, 8)
+    format := "known %s=%d\n"
+    fmt.printf(format, "k", 1)
+    print("print and ")
+    fmt.printf("printf\n")
+    fmt.printf("%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d\n",
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0)
+
+    mut x int64 = 7
+    changeThenShow(mut x, x)
+    fmt.printf("after %d %d\n", x, counter)
+    counter = 3
+    changeThenShow(mut x, counter)
+    fmt.printf("after %d %d\n", x, counter)
+
+    show("%d-%s\n", 5, "five")
+    one("%x\n", uint16(48879))
+    deferred("x")
+    depth(3, true)
+    firstOf(7, "s")
+    firstOf()
+    restOf("rest %d %d\n", 0, 1, 2)
+
+    show("%d\n", "hi")
+    show("%s %t %c\n", 5, 'a', int64(65))
+    show("%d %d\n", 1)
+    show("%d\n", 1, "x", true)
+    fmt.printf("\n")
+    show("%z %é\n", 1)
+    show("%%%d%%\n", -3)
+    show("lone %")
+    fmt.printf("\n")
+    show("%v %x\n", size, -1)
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

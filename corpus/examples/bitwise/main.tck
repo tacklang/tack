@@ -1,0 +1,160 @@
+package main
+
+// Bitwise and shift operators: & | ^ &^ on two integers of one type, ^ on
+// one, and << >> by an unsigned count. A count at or past the width
+// shifts every bit out: << gives 0, and >> gives 0, or -1 for a negative
+// signed value, whose >> copies the sign bit in. << wraps at the width, as
+// +% does. Every operand goes through a function, so each check runs at
+// run time, and the compound forms are checked beside the operators.
+//
+// Every check prints its name and "ok", or "FAIL".
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// and8 returns a & b, through &= too.
+func and8(a int8, b int8) int8 {
+    mut c := a
+    c &= b
+    if c != a & b {
+        return 0
+    }
+    return a & b
+}
+
+// or8 returns a | b, through |= too.
+func or8(a int8, b int8) int8 {
+    mut c := a
+    c |= b
+    if c != a | b {
+        return 0
+    }
+    return a | b
+}
+
+// xor8 returns a ^ b, through ^= too.
+func xor8(a int8, b int8) int8 {
+    mut c := a
+    c ^= b
+    if c != a ^ b {
+        return 0
+    }
+    return a ^ b
+}
+
+// andNot8 returns a &^ b, through &^= too.
+func andNot8(a int8, b int8) int8 {
+    mut c := a
+    c &^= b
+    if c != a &^ b {
+        return 0
+    }
+    return a &^ b
+}
+
+// shl8 returns a << n, through <<= too.
+func shl8(a int8, n uint8) int8 {
+    mut c := a
+    c <<= n
+    if c != a << n {
+        return 0
+    }
+    return a << n
+}
+
+// shr8 returns a >> n, through >>= too.
+func shr8(a int8, n uint64) int8 {
+    mut c := a
+    c >>= n
+    if c != a >> n {
+        return 0
+    }
+    return a >> n
+}
+
+// shlU8 returns a << n.
+func shlU8(a uint8, n uint8) uint8 {
+    return a << n
+}
+
+// shrU8 returns a >> n.
+func shrU8(a uint8, n uint8) uint8 {
+    return a >> n
+}
+
+// shl64 returns a << n.
+func shl64(a int64, n uint64) int64 {
+    return a << n
+}
+
+// shr64 returns a >> n.
+func shr64(a int64, n uint64) int64 {
+    return a >> n
+}
+
+// shlU64 returns a << n.
+func shlU64(a uint64, n uint64) uint64 {
+    return a << n
+}
+
+// shrU64 returns a >> n.
+func shrU64(a uint64, n uint32) uint64 {
+    return a >> n
+}
+
+// not16 returns ^a.
+func not16(a int16) int16 {
+    return ^a
+}
+
+// notU32 returns ^a.
+func notU32(a uint32) uint32 {
+    return ^a
+}
+
+// and64 returns a & b.
+func and64(a uint64, b uint64) uint64 {
+    return a & b
+}
+
+// fnv returns the 64-bit FNV-1a hash of s.
+func fnv(s string) uint64 {
+    mut h uint64 = 14695981039346656037
+    for _, c := range s {
+        h ^= uint64(c)
+        h *%= 1099511628211
+    }
+    return h
+}
+
+func main() {
+    check(and8(-1, 127) == 127 && and8(-128, 127) == 0 && and8(-128, -1) == -128, "int8 &")
+    check(or8(-128, 127) == -1 && or8(0, 0) == 0 && or8(1, -128) == -127, "int8 |")
+    check(xor8(-1, 127) == -128 && xor8(5, 5) == 0 && xor8(-128, -1) == 127, "int8 ^")
+    check(andNot8(-1, 127) == -128 && andNot8(127, -1) == 0 && andNot8(6, 3) == 4, "int8 &^")
+    check(shl8(1, 0) == 1 && shl8(1, 6) == 64 && shl8(1, 7) == -128 && shl8(-1, 7) == -128, "int8 << within the width")
+    check(shl8(1, 8) == 0 && shl8(-1, 9) == 0 && shl8(127, 255) == 0, "int8 << at and past the width")
+    check(shl8(127, 1) == -2 && shl8(64, 1) == -128, "int8 << wraps")
+    check(shr8(-128, 1) == -64 && shr8(-1, 1) == -1 && shr8(-128, 7) == -1 && shr8(127, 6) == 1, "int8 >> keeps the sign")
+    check(shr8(-128, 8) == -1 && shr8(-5, 18446744073709551615) == -1 && shr8(127, 8) == 0, "int8 >> past the width")
+    check(shlU8(255, 1) == 254 && shlU8(1, 7) == 128 && shlU8(1, 8) == 0 && shlU8(255, 255) == 0, "uint8 <<")
+    check(shrU8(255, 7) == 1 && shrU8(255, 8) == 0 && shrU8(128, 255) == 0, "uint8 >>")
+    check(shl64(1, 63) == -9223372036854775808 && shl64(1, 64) == 0 && shl64(-1, 65) == 0, "int64 <<")
+    check(shr64(-9223372036854775808, 63) == -1 && shr64(-1, 64) == -1 && shr64(9223372036854775807, 62) == 1, "int64 >>")
+    check(shlU64(1, 63) == 9223372036854775808 && shlU64(18446744073709551615, 18446744073709551615) == 0, "uint64 <<")
+    check(shrU64(18446744073709551615, 63) == 1 && shrU64(18446744073709551615, 64) == 0 && shrU64(1, 4294967295) == 0, "uint64 >>")
+    check(not16(0) == -1 && not16(-32768) == 32767 && not16(32767) == -32768, "int16 ^")
+    check(notU32(0) == 4294967295 && notU32(4294967295) == 0, "uint32 ^")
+    check(and64(18446744073709551615, 9223372036854775808) == 9223372036854775808, "uint64 &")
+    check(1 << 10 == 1024 && -1 >> 3 == -1 && ^0 == -1 && 6 &^ 3 == 4 && (5 | 2) ^ 1 == 6, "constants")
+    check(uint8(1) << 7 == 128 && int16(-32768) >> 15 == -1, "typed constants")
+    check(1 + 2 << 3 == 17 && 6 & 3 * 2 == 4 && 2 | 1 + 4 == 7, "precedence")
+    check(fnv("") == 14695981039346656037 && fnv("a") == 12638187200555641996, "FNV-1a")
+}

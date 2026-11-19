@@ -1,0 +1,224 @@
+package main
+
+import text from "std/text"
+
+// == and != on lists: two lists are equal when they have the same length
+// and each element equals the one at the same index, whatever their
+// capacities. A list's elements need == themselves, so lists of lists,
+// arrays, structs and strings compare too, each element through its own
+// type's ==, and a struct or a union holding a list compares through it,
+// text.Text's private list included.
+//
+// Every comparison here is checked against what it should be, and
+// c_allocator's count of live buffers, read through live.c, against what
+// should be live: comparing reads both lists in place and allocates
+// nothing.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("listeq_live") func live() int64
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// bytesOf returns a new list holding the bytes of s.
+func bytesOf(s string) (list[uint8], error) {
+    mut l := make(list[uint8], c_allocator)
+    e := append(mut l, []uint8(s)...)
+    return l, e
+}
+
+// Named holds a list beside other fields.
+type Named struct {
+    name list[uint8]
+    n int64
+}
+
+// Shape holds a list in one case's payload.
+type Shape union {
+    points list[int64]
+    circle int64
+    none
+}
+
+// bytes compares lists of bytes: empty ones, different lengths, the same
+// length with the first or last byte different, equal ones built
+// differently, with different capacities, and a list with itself.
+func bytes() {
+    a := make(list[uint8], c_allocator)
+    b := make(list[uint8], c_allocator)
+    check(a == b && !(a != b), "two empty lists are equal")
+    x, e0 := bytesOf("abc")
+    y, e1 := bytesOf("abc")
+    z, e2 := bytesOf("abd")
+    w, e3 := bytesOf("ab")
+    v, e4 := bytesOf("xbc")
+    if e0.code != 0 || e1.code != 0 || e2.code != 0 || e3.code != 0 || e4.code != 0 {
+        check(false, "bytesOf")
+        return
+    }
+    check(x == y && !(x != y), "equal bytes are equal")
+    check(x != z && !(x == z), "a different last byte")
+    check(x != v, "a different first byte")
+    check(x != w && w != x, "different lengths, either way round")
+    check(x != a && a != x, "empty and not empty")
+    check(x == x, "a list equals itself")
+    mut r := make(list[uint8], c_allocator)
+    e5 := reserve(mut r, 100)
+    e6 := append(mut r, 'a', 'b', 'c')
+    check(e5.code == 0 && e6.code == 0 && r == x, "equal whatever the capacity")
+    mut h := make(list[uint8], c_allocator)
+    e7 := append(mut h, 0, 255)
+    mut k := make(list[uint8], c_allocator)
+    e8 := append(mut k, 0, 255)
+    e9 := append(mut k, 1)
+    check(e7.code == 0 && e8.code == 0 && e9.code == 0 && h != k, "a prefix is not equal")
+    check(live() == 8, "comparing allocates nothing")
+}
+
+// others compares lists of int64, bool, string and arrays.
+func others() {
+    mut a := make(list[int64], c_allocator)
+    mut b := make(list[int64], c_allocator)
+    e0 := append(mut a, -1, 0, 9223372036854775807)
+    e1 := append(mut b, -1, 0, 9223372036854775807)
+    check(e0.code == 0 && e1.code == 0 && a == b, "lists of int64")
+    e2 := append(mut b, 0)
+    check(e2.code == 0 && a != b, "lists of int64 of different lengths")
+    mut s := make(list[string], c_allocator)
+    mut t := make(list[string], c_allocator)
+    e3 := append(mut s, "x", "", "yz")
+    e4 := append(mut t, "x", "", "yz")
+    check(e3.code == 0 && e4.code == 0 && s == t, "lists of strings compare by their bytes")
+    mut u := make(list[string], c_allocator)
+    e5 := append(mut u, "x", "", "y")
+    check(e5.code == 0 && s != u, "lists of strings differing in the last")
+    mut p := make(list[bool], c_allocator)
+    mut q := make(list[bool], c_allocator)
+    e6 := append(mut p, true, false)
+    e7 := append(mut q, true, true)
+    check(e6.code == 0 && e7.code == 0 && p != q, "lists of bools")
+    mut m := make(list[[2]int64], c_allocator)
+    mut n := make(list[[2]int64], c_allocator)
+    e8 := append(mut m, [2]int64{1, 2}, [2]int64{3, 4})
+    e9 := append(mut n, [2]int64{1, 2}, [2]int64{3, 5})
+    check(e8.code == 0 && e9.code == 0 && m != n && m == m, "lists of arrays")
+}
+
+// nested compares lists of lists, element by element through their own
+// ==, empty inner lists included.
+func nested() {
+    mut a := make(list[list[uint8]], c_allocator)
+    mut b := make(list[list[uint8]], c_allocator)
+    x0, e0 := bytesOf("ab")
+    x1, e1 := bytesOf("")
+    y0, e2 := bytesOf("ab")
+    y1, e3 := bytesOf("")
+    if e0.code != 0 || e1.code != 0 || e2.code != 0 || e3.code != 0 {
+        check(false, "nested bytesOf")
+        return
+    }
+    e4 := append(mut a, x0, x1)
+    e5 := append(mut b, y0, y1)
+    check(e4.code == 0 && e5.code == 0 && a == b, "equal lists of lists")
+    z, e6 := bytesOf("c")
+    if e6.code != 0 {
+        check(false, "nested bytesOf c")
+        return
+    }
+    e7 := append(mut b, z)
+    check(e7.code == 0 && a != b, "lists of lists of different lengths")
+    mut c := make(list[list[uint8]], c_allocator)
+    w0, e8 := bytesOf("ab")
+    w1, e9 := bytesOf("x")
+    if e8.code != 0 || e9.code != 0 {
+        check(false, "nested bytesOf w")
+        return
+    }
+    e10 := append(mut c, w0, w1)
+    check(e10.code == 0 && a != c, "lists of lists differing in an inner list")
+    mut deep := make(list[list[list[int64]]], c_allocator)
+    mut deep2 := make(list[list[list[int64]]], c_allocator)
+    check(deep == deep2, "empty lists three deep")
+    mut inner := make(list[list[int64]], c_allocator)
+    mut inner2 := make(list[list[int64]], c_allocator)
+    mut i0 := make(list[int64], c_allocator)
+    mut i1 := make(list[int64], c_allocator)
+    e11 := append(mut i0, 7)
+    e12 := append(mut i1, 7)
+    e13 := append(mut inner, i0)
+    e14 := append(mut inner2, i1)
+    e15 := append(mut deep, inner)
+    e16 := append(mut deep2, inner2)
+    check(e11.code == 0 && e12.code == 0 && e13.code == 0 && e14.code == 0 && e15.code == 0 && e16.code == 0 && deep == deep2, "lists three deep")
+}
+
+// texts compares text.Text values, whose bytes are in a private list,
+// by their bytes: built differently, from_bytes or by appends, they are
+// equal when their bytes are.
+func texts() {
+    a, e0 := text.from_bytes([]uint8("if"), c_allocator)
+    if e0.code != 0 {
+        check(false, "from_bytes")
+        return
+    }
+    mut b := text.new(c_allocator)
+    e1 := mut b.append_byte('i')
+    e2 := mut b.append_byte('f')
+    check(e1.code == 0 && e2.code == 0 && a == b && !(a != b), "Texts with the same bytes are equal")
+    e3 := mut b.append_byte('!')
+    check(e3.code == 0 && a != b, "Texts with different bytes are not")
+    c := text.new(c_allocator)
+    d := text.new(c_allocator)
+    check(c == d && c != a, "empty Texts")
+}
+
+// structs compares a struct and a union holding lists.
+func structs() {
+    n0, e0 := bytesOf("ann")
+    n1, e1 := bytesOf("ann")
+    n2, e2 := bytesOf("bob")
+    if e0.code != 0 || e1.code != 0 || e2.code != 0 {
+        check(false, "struct bytesOf")
+        return
+    }
+    a := Named{name: n0, n: 1}
+    b := Named{name: n1, n: 1}
+    c := Named{name: n2, n: 1}
+    check(a == b && a != c, "structs holding lists")
+    mut p0 := make(list[int64], c_allocator)
+    mut p1 := make(list[int64], c_allocator)
+    e3 := append(mut p0, 1, 2)
+    e4 := append(mut p1, 1, 2)
+    if e3.code != 0 || e4.code != 0 {
+        check(false, "union payloads")
+        return
+    }
+    x := Shape.points(p0)
+    y := Shape.points(p1)
+    z := Shape.circle(1)
+    z2 := Shape.circle(1)
+    none0 := Shape.none
+    none1 := Shape.none
+    check(x == y && x != z && z == z2 && none0 == none1 && none0 != z, "unions holding lists")
+}
+
+func main() {
+    check(live() == 0, "nothing live at the start")
+    bytes()
+    check(live() == 0, "bytes freed")
+    others()
+    check(live() == 0, "others freed")
+    nested()
+    check(live() == 0, "nested freed")
+    texts()
+    check(live() == 0, "texts freed")
+    structs()
+    check(live() == 0, "structs freed")
+}

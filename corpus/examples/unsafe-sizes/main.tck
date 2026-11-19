@@ -1,0 +1,255 @@
+package main
+
+// Buffer holds the two target-width types as fields.
+type Buffer struct {
+    size unsafe_size_t
+    addr unsafe_uintptr_t
+}
+
+// limit is the largest constant either type can hold on every target.
+var limit unsafe_size_t = 4294967295
+
+// small widens into a target-width global's initializer.
+var small uint32 = 7
+
+var fromSmall unsafe_uintptr_t = small
+
+// grown counts the bytes grow has added, in a mutable global.
+mut grown unsafe_size_t
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// widenIn uses the three narrow unsigned types where the target-width
+// types are expected.
+func widenIn(a uint8, b uint16, c uint32) bool {
+    var x unsafe_size_t = a
+    var y unsafe_uintptr_t = b
+    var z unsafe_size_t = c
+    return x == 200 && y == 60000 && z == 4294967295
+}
+
+// widenOut uses both target-width types where a uint64 is expected.
+func widenOut(s unsafe_size_t, p unsafe_uintptr_t) bool {
+    var x uint64 = s
+    var y uint64 = p
+    return x == 4294967295 && y == 12
+}
+
+// commonTypes adds a uint32 to an unsafe_size_t, in unsafe_size_t, and
+// an unsafe_size_t to a uint64, in uint64, and compares across widths.
+func commonTypes(c uint32, s unsafe_size_t, w uint64) bool {
+    var sum unsafe_size_t = c +% s
+    var wide uint64 = s +% w
+    return sum == 3 && wide == 12 && c < s && s < w && w > c
+}
+
+// convertOk converts a uint64 above every 32-bit value to unsafe_size_t,
+// which fits on this 64-bit host, and a small unsafe_size_t to uint32 and
+// to unsafe_uintptr_t.
+func convertOk(big uint64, s unsafe_size_t) bool {
+    v, ok := unsafe_size_t(big)
+    u, okU := uint32(s)
+    p, okP := unsafe_uintptr_t(v)
+    var back uint64 = p
+    return ok && okU && okP && u == 5 && back == 5000000000
+}
+
+// convertFails converts a negative int64 to unsafe_size_t, and an
+// unsafe_size_t above every uint32 to uint32, both of which fail.
+func convertFails(n int64, big uint64) bool {
+    v, ok := unsafe_size_t(n)
+    s, okS := unsafe_size_t(big)
+    u, okU := uint32(s)
+    i, okI := int64(s)
+    return !ok && v == 0 && okS && !okU && u == 0 && okI && i == 5000000000
+}
+
+// wraps checks wrapping arithmetic wraps at the type's real width: 0 -% 1
+// is the largest value, which +% 1 is 0 again.
+func wraps(zero unsafe_size_t, one unsafe_uintptr_t) bool {
+    m := zero -% 1
+    p := one -% 2
+    var wide uint64 = m
+    return m +% 1 == 0 && m *% m == 1 && m > 4294967295 &&
+        wide == 18446744073709551615 && p +% 1 == 0
+}
+
+// knownPast32Bits does arithmetic on known values past every 32-bit
+// value, which is not an error but is left to run time, where it does
+// not wrap on this 64-bit host, and converts a known uint64 past them with
+// the checked form.
+func knownPast32Bits() bool {
+    s := unsafe_size_t(4294967295)
+    t := s +% 1
+    var wide uint64 = t
+    x := uint64(5000000000)
+    v, ok := unsafe_size_t(x)
+    var back uint64 = v
+    return wide == 4294967296 && ok && back == 5000000000
+}
+
+// divides divides by a proven divisor and with the checked form.
+func divides(n unsafe_size_t, d unsafe_size_t) bool {
+    q, ok := n / d
+    if d == 0 {
+        return false
+    }
+    return ok && q == 33 && n / d == 33 && n % d == 1
+}
+
+// grow adds n bytes to size, through a mut parameter.
+func grow(mut size unsafe_size_t, n uint32) {
+    size +%= n
+    grown +%= n
+}
+
+// sizes returns both its arguments, as two results.
+func sizes(s unsafe_size_t, p unsafe_uintptr_t) (unsafe_size_t, unsafe_uintptr_t) {
+    return s +% 1, p +% 1
+}
+
+// classify switches on an unsafe_size_t.
+func classify(s unsafe_size_t) int64 {
+    switch s {
+    case 0:
+        return 1
+    case 4294967295:
+        return 2
+    default:
+        return 3
+    }
+}
+
+// indexByGuard reads an array, a string and a view at an unsafe_size_t
+// and an unsafe_uintptr_t, each proven in range by a comparison with len.
+func indexByGuard(a [4]int64, str string, v []int64, s unsafe_size_t, p unsafe_uintptr_t) bool {
+    if s < len(a) && p < len(str) && s < len(v) && p < len(v) {
+        return a[s] == 30 && str[p] == 'c' && v[s] == 300 && v[p] == 300
+    }
+    return false
+}
+
+// indexByLoop sums a string's bytes and a view's elements counting up
+// with unsafe_size_t, whose condition proves each index and, by keeping i
+// below the largest value a 32-bit target holds, that i++ fits, and an
+// array's counting down with unsafe_uintptr_t, whose start proves each
+// index.
+func indexByLoop(a [4]int64, str string, v []int64) bool {
+    mut bytes int64 = 0
+    for mut i unsafe_size_t = 0; i < len(str) && i < 4294967295; i++ {
+        bytes +%= str[i]
+    }
+    mut elems int64 = 0
+    for mut i unsafe_size_t = 0; i < len(v) && i < 4294967295; i++ {
+        elems +%= v[i]
+    }
+    mut backwards int64 = 0
+    for mut i unsafe_uintptr_t = 3; i >= 1; i-- {
+        backwards = backwards *% 10 +% a[i]
+    }
+    return bytes == 294 && elems == 1000 && backwards == 40 * 100 + 30 * 10 + 20
+}
+
+// indexByKnown reads at known unsafe_size_t and unsafe_uintptr_t
+// indexes: a conversion of a constant, and immutable variables holding
+// one, into an array, a string literal, and a string whose length a
+// guard gives.
+func indexByKnown(a [4]int64, str string) bool {
+    s := unsafe_size_t(3)
+    p := unsafe_uintptr_t(0)
+    return a[unsafe_size_t(1)] == 20 && a[s] == 40 && a[p] == 10 && "tack"[s] == 'k' &&
+        "tack"[p] == 't' && len(str) == 3 && str[unsafe_uintptr_t(2)] == 'c'
+}
+
+// indexChecked reads with the checked form at unsafe_size_t and
+// unsafe_uintptr_t indexes: in range, at the length, four, at the largest
+// 32-bit value, wide, past it, from big, and at the type's largest value,
+// zero less one.
+func indexChecked(
+    a [4]int64,
+    str string,
+    v []int64,
+    zero unsafe_size_t,
+    four unsafe_size_t,
+    wide unsafe_uintptr_t,
+    big uint64,
+) bool {
+    top := zero -% 1
+    past, okPast := unsafe_size_t(big)
+    var p unsafe_uintptr_t = 2
+
+    x, okX := a[p]
+    y, okY := str[p]
+    w, okW := v[p]
+    _, aLen := a[four]
+    _, sLen := str[four]
+    _, vLen := v[four]
+    m, aTop := a[top]
+    _, sTop := str[top]
+    _, vTop := v[top]
+    _, aWide := a[wide]
+    _, sWide := str[wide]
+    _, aPast := a[past]
+    _, vPast := v[past]
+    return okX && x == 30 && okY && y == 'c' && okW && w == 300 &&
+        !aLen && !sLen && !vLen && !aTop && m == 0 && !sTop && !vTop &&
+        !aWide && !sWide && okPast && !aPast && !vPast
+}
+
+func main() {
+    check(widenIn(200, 60000, 4294967295), "widening in")
+    check(widenOut(4294967295, 12), "widening out")
+    check(commonTypes(1, 2, 10), "common types")
+    check(convertOk(5000000000, 5), "checked conversions that fit")
+    check(convertFails(-1, 5000000000), "checked conversions that fail")
+    check(wraps(0, 1), "wrapping")
+    check(knownPast32Bits(), "known values past 32 bits")
+    check(divides(100, 3), "division")
+
+    mut b := Buffer{size: 3, addr: 4}
+    grow(mut b.size, 5)
+    grow(mut b.size, 4294967295)
+    var total uint64 = b.size
+    var added uint64 = grown
+    check(total == 4294967303 && b.addr == 4 && added == 4294967300, "struct fields and mut parameters")
+
+    a := [3]unsafe_size_t{1, 2, 3}
+    mut sum unsafe_size_t = 0
+    for _, x := range a {
+        sum +%= x
+    }
+    check(sum == 6 && a == [3]unsafe_size_t{1, 2, 3}, "arrays")
+
+    mut count unsafe_uintptr_t = 0
+    for i := range fromSmall {
+        count +%= i
+    }
+    check(count == 21 && limit == 4294967295, "globals and a range count")
+
+    s, p := sizes(1, 2)
+    check(s == 2 && p == 3, "results")
+
+    check(classify(0) == 1 && classify(limit) == 2 && classify(7) == 3, "switch")
+
+    nums := [4]int64{10, 20, 30, 40}
+    hundreds := [4]int64{100, 200, 300, 400}
+    check(indexByGuard(nums, "abc", hundreds, 2, 2), "index proven by a guard")
+    check(!indexByGuard(nums, "abc", hundreds, 4, 0) && !indexByGuard(nums, "abc", hundreds, 0, 3),
+        "index guard that fails")
+    check(indexByLoop(nums, "abc", hundreds), "index proven by a counting loop")
+    check(indexByKnown(nums, "abc"), "known index")
+    check(indexChecked(nums, "abc", hundreds, 0, 4, 4294967295, 5000000000), "checked index")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

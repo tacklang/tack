@@ -1,0 +1,137 @@
+package main
+
+// An assignment evaluates its target's indexes before its value, and
+// x op= v reads x, at the indexes it had then, before it evaluates v. A
+// value that changes a variable an index reads, through a mutable global
+// or a mut argument, so stores where the index pointed before it ran.
+// Only an index that needs no proof can be changed so: a uint8 into an
+// array of 256, which every uint8 is in range of. An index proven by a
+// check cannot, since a write in the value ends the proof.
+//
+// Every check prints its name and "ok", or "FAIL".
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// g is the index the values below change.
+mut g uint8 = 1
+
+// h is a second index, for a target with two.
+mut h uint8 = 3
+
+// bump moves g and h on by one and returns 9.
+func bump() int64 {
+    g +%= 1
+    h +%= 1
+    return 9
+}
+
+// bump8 is bump for a uint8 element.
+func bump8() uint8 {
+    g +%= 1
+    h +%= 1
+    return 9
+}
+
+// next moves b on by one and returns 7.
+func next(mut b uint8) int64 {
+    b +%= 1
+    return 7
+}
+
+// Row holds an array, for a target that is a field's element.
+type Row struct {
+    cells [256]int64
+    n int64
+}
+
+// plain stores a value that moves its index, a global, into an array.
+func plain() {
+    g = 1
+    mut a [256]int64
+    a[g] = bump()
+    check(a[1] == 9 && a[2] == 0 && g == 2, "the index read before the value")
+}
+
+// compound adds a value that moves its index into an array's element:
+// the element read and the element stored are both the one the index
+// named first.
+func compound() {
+    g = 1
+    mut a [256]int64
+    a[1] = 5
+    a[2] = 100
+    a[g] +%= bump()
+    check(a[1] == 14 && a[2] == 100 && g == 2, "a compound assignment's index read before the value")
+}
+
+// local stores a value that moves its index, a local passed as mut.
+func local() {
+    mut a [256]int64
+    mut b uint8 = 4
+    a[b] = next(mut b)
+    check(a[4] == 7 && a[5] == 0 && b == 5, "a local index read before a mut argument moves it")
+}
+
+// localCompound adds a value that moves its index, a local passed as
+// mut, into an array's element: the element read and the element stored
+// are both the one the index named first.
+func localCompound() {
+    mut a [256]int64
+    a[4] = 5
+    mut b uint8 = 4
+    a[b] +%= next(mut b)
+    check(a[4] == 12 && a[5] == 0 && b == 5, "a compound assignment's local index read before a mut argument moves it")
+}
+
+// nested stores into an array of arrays with both indexes moved by the
+// value.
+func nested() {
+    g = 1
+    h = 3
+    mut grid [256][256]uint8
+    grid[g][h] = bump8()
+    check(grid[1][3] == 9 && grid[2][4] == 0 && g == 2 && h == 4, "both indexes of a nested array read before the value")
+}
+
+// field stores into an array held by a struct's field.
+func field() {
+    g = 1
+    mut r Row
+    r.cells[g] = bump()
+    r.n = 1
+    check(r.cells[1] == 9 && r.cells[2] == 0 && r.n == 1, "a field's element index read before the value")
+}
+
+// post stores in a loop's post statement, which runs the same way.
+func post() {
+    g = 1
+    mut a [256]int64
+    mut n := 0
+    for ; n < 2; a[g] = bump() {
+        n++
+    }
+    check(a[1] == 9 && a[2] == 9 && a[3] == 0 && g == 3, "the index read before the value in a loop's post statement")
+}
+
+func main() {
+    plain()
+    compound()
+    local()
+    localCompound()
+    nested()
+    field()
+    post()
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

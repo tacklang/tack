@@ -1,0 +1,60 @@
+nothing live at the start ok
+new is empty ok
+new equals only the empty view ok
+new allocates nothing ok
+from_bytes empty allocates nothing ok
+empty Texts hash alike ok
+empties freed ok
+from_bytes a string's bytes ok
+from_bytes a list with 0x00 and 0xff ok
+from_bytes an array slice and a list slice ok
+builds freed ok
+from_bytes copies ok
+copies freed ok
+append nothing allocates nothing ok
+append_byte twice ok
+append after append_byte ok
+append_byte 0x00 and 0xff ok
+append another Text's bytes ok
+append_byte 10000 times ok
+appends freed ok
+equal same ok
+equal prefix is not equal ok
+equal longer is not equal ok
+equal first or last differs ok
+equal is exact, not case-folded ok
+equal a list and its slice ok
+equal 0x00 and 0xff ok
+equals freed ok
+hash empty ok
+hash a ok
+hash foobar ok
+hash 0x00 ok
+hash 0x80 ok
+hash 0xff ok
+hash if ok
+hash bytes 0 to 255 ok
+hash bytes 255 to 0 ok
+hash depends on order ok
+hash of appended pieces ok
+hashes freed ok
+hello, world
+bytes.index of t.bytes() ok
+bytes.index_byte of t.bytes() ok
+bytes.has_prefix and has_suffix of t.bytes() ok
+bytes.count of t.bytes() ok
+bytes.equal of t.bytes() ok
+range over t.bytes() ok
+checked index of t.bytes() ok
+checked index past the end of t.bytes() ok
+slice of t.bytes() in a callee ok
+views freed ok
+append and append_byte fail ok
+a failed append on an empty Text allocates nothing ok
+from_bytes fails and allocates nothing ok
+from_bytes empty needs no allocation ok
+what fits needs no allocation ok
+a failed append leaves the Text as it was ok
+append works again once the allocator does ok
+from_bytes succeeds, the next growth fails ok
+failures freed ok

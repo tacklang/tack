@@ -1,0 +1,608 @@
+package main
+
+import big from "std/big"
+import os from "std/os"
+import text from "std/text"
+import vault from "reflectmake/vault"
+
+// make for Data: make(T, alloc) gives the empty value of any Data type
+// T, 0, 0.0 or false for a basic type, an empty Text, list or map growing
+// through alloc, and for a struct every field made the same way, private
+// ones included. It allocates nothing, so it cannot fail. T is named
+// directly, or is a type parameter constrained by Data, one a case of a
+// switch on a type parameter narrows or declares, or a field's, reached
+// by passing v.[f] to a generic function. Each check prints its name and
+// "ok", or "FAIL"; every check that allocates runs in a function of its
+// own, and main asserts after it that c_allocator's count of live
+// buffers is back to zero.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("go_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("go_fail_after") func fail_after(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// Point is a struct of an integer and a float.
+type Point struct {
+    x int64
+    y float64
+}
+
+// Empty is a struct with no fields.
+type Empty struct {
+}
+
+// Item holds a field of every kind of Data: a Text, a struct, a list, a
+// map, a float, a bool, a byte, a list of lists, a struct with no fields
+// and another package's struct with a private field.
+type Item struct {
+    name  text.Text
+    at    Point
+    tags  list[int64]
+    sizes map[text.Text]int64
+    ratio float32
+    ok    bool
+    small uint8
+    grid  list[list[int32]]
+    none  Empty
+    safe  vault.Safe
+}
+
+// reset gives v the empty value of its type, made through alloc,
+// freeing what v held. T is inferred from v, so a caller can make a
+// value of a type it cannot name, a field's.
+func reset[T Data](mut v T, scope alloc Allocator) {
+    v = make(T, alloc)
+}
+
+// clear_fields resets every field of v that main sees, each through
+// reset's instance for the field's type.
+func clear_fields[T Data](mut v T, scope alloc Allocator) {
+    for f := range fields(T) {
+        reset(mut v.[f], alloc)
+    }
+}
+
+// equal reports whether a and b hold the same value: == for a bool, an
+// integer or a float, the same bytes for a Text, and the same elements,
+// values or fields, at any depth, for a list, a map or a struct.
+func equal[T Data](a T, b T) bool {
+    switch T {
+    case bool:
+        return a == b
+    case int8:
+        return a == b
+    case int16:
+        return a == b
+    case int32:
+        return a == b
+    case int64:
+        return a == b
+    case uint8:
+        return a == b
+    case uint16:
+        return a == b
+    case uint32:
+        return a == b
+    case uint64:
+        return a == b
+    case unsafe_size_t:
+        return a == b
+    case unsafe_uintptr_t:
+        return a == b
+    case float32:
+        return a == b
+    case float64:
+        return a == b
+    case text.Text:
+        return a.equal(b.bytes())
+    case list[E]:
+        if len(a) != len(b) {
+            return false
+        }
+        for i, x := range a {
+            if i >= len(b) || !equal(x, b[i]) {
+                return false
+            }
+        }
+        return true
+    case map[text.Text]V:
+        if len(a) != len(b) {
+            return false
+        }
+        for k, x := range a {
+            if !has(b, k) || !equal(x, b[k]) {
+                return false
+            }
+        }
+        return true
+    case struct:
+        for f := range fields(T) {
+            if !equal(a.[f], b.[f]) {
+                return false
+            }
+        }
+        return true
+    }
+}
+
+// is_empty reports whether v holds its type's empty value, as equal
+// compares it with what make gives.
+func is_empty[T Data](v T) bool {
+    e := make(T, c_allocator)
+    return equal(v, e)
+}
+
+// fill gives every field of v that main sees a fresh value: a copy of
+// the field, which clone makes with make through alloc, given sample's
+// value with the field's name, and moved in with v.[f] = x, which frees
+// what the field held. A failed allocation is passed on, freeing the
+// copy, leaving the fields before it filled and the rest as they were.
+func fill[T Data](mut v T, scope alloc Allocator) error {
+    for f := range fields(T) {
+        mut x := clone(v.[f], alloc)?
+        sample(mut x, f.name, alloc)?
+        v.[f] = x
+    }
+    return noerror
+}
+
+// sample gives v a value of its own: true, 1 or 1.0 for a bool, an
+// int32, an int64, a uint8, a float32 or a float64; name appended for a
+// Text; one more element, made with make and sampled, for a list; name
+// put with a value made and sampled for a map; and every field filled
+// for a struct. Any other type is left as it is.
+func sample[T Data](mut v T, name string, scope alloc Allocator) error {
+    switch T {
+    case bool:
+        v = true
+    case int32:
+        v = 1
+    case int64:
+        v = 1
+    case uint8:
+        v = 1
+    case float32:
+        v = 1.0
+    case float64:
+        v = 1.0
+    case text.Text:
+        return mut v.append([]uint8(name))
+    case list[E]:
+        mut e := make(E, alloc)
+        sample(mut e, name, alloc)?
+        return append(mut v, e)
+    case map[text.Text]V:
+        mut k := make(text.Text, alloc)
+        mut k.append([]uint8(name))?
+        mut x := make(V, alloc)
+        sample(mut x, name, alloc)?
+        return put(mut v, k, x)
+    case struct:
+        return fill(mut v, alloc)
+    default:
+    }
+    return noerror
+}
+
+// copy_into makes dst a copy of src, which dst, an empty value, receives
+// element by element, field by field, each element and value made with
+// make through alloc first. A failed allocation is passed on, leaving dst
+// valid and holding part of src.
+func copy_into[T Data](mut dst T, src T, scope alloc Allocator) error {
+    switch T {
+    case bool:
+        dst = src
+    case int8:
+        dst = src
+    case int16:
+        dst = src
+    case int32:
+        dst = src
+    case int64:
+        dst = src
+    case uint8:
+        dst = src
+    case uint16:
+        dst = src
+    case uint32:
+        dst = src
+    case uint64:
+        dst = src
+    case unsafe_size_t:
+        dst = src
+    case unsafe_uintptr_t:
+        dst = src
+    case float32:
+        dst = src
+    case float64:
+        dst = src
+    case text.Text:
+        return mut dst.append(src.bytes())
+    case list[E]:
+        for _, e := range src {
+            mut x := make(E, alloc)
+            copy_into(mut x, e, alloc)?
+            append(mut dst, x)?
+        }
+    case map[text.Text]V:
+        for k, e := range src {
+            mut kk := make(text.Text, alloc)
+            mut kk.append(k.bytes())?
+            mut x := make(V, alloc)
+            copy_into(mut x, e, alloc)?
+            put(mut dst, kk, x)?
+        }
+    case struct:
+        for f := range fields(T) {
+            copy_into(mut dst.[f], src.[f], alloc)?
+        }
+    }
+    return noerror
+}
+
+// clone returns a copy of v, made with make through alloc and filled by
+// copy_into, and copy_into's error: the copy is valid either way, holding
+// part of v when the error is one.
+func clone[T Data](v T, scope alloc Allocator) (T, error) {
+    mut out := make(T, alloc)
+    err := copy_into(mut out, v, alloc)
+    return out, err
+}
+
+// narrowed returns what make gives in each case of a switch on T: the
+// narrowed type itself, an int64 to add to; a list of E and an E, made
+// separately and the E appended; and in a struct's case, T still a type
+// parameter, a value of T compared with v.
+func narrowed[T Data](v T) int64 {
+    switch T {
+    case int64:
+        z := make(T, c_allocator)
+        return z +% v +% 1
+    case list[E]:
+        mut l := make(T, c_allocator)
+        e := make(E, c_allocator)
+        if append(mut l, e).code != 0 {
+            return -1
+        }
+        return len(l) +% len(v)
+    case struct:
+        z := make(T, c_allocator)
+        if equal(z, v) {
+            return 100
+        }
+        return 200
+    default:
+        return 0
+    }
+}
+
+// basics checks make of every basic type, named directly and through a
+// type parameter.
+func basics() {
+    check(!make(bool, c_allocator) && make(int8, c_allocator) == 0 &&
+        make(int16, c_allocator) == 0 && make(int32, c_allocator) == 0 &&
+        make(int64, c_allocator) == 0 && make(uint8, c_allocator) == 0 &&
+        make(uint16, c_allocator) == 0 && make(uint32, c_allocator) == 0 &&
+        make(uint64, c_allocator) == 0 && make(unsafe_size_t, c_allocator) == 0 &&
+        make(unsafe_uintptr_t, c_allocator) == 0 && make(float32, c_allocator) == 0.0 &&
+        make(float64, c_allocator) == 0.0, "make basic")
+    mut cased := false
+    switch 0 {
+    case make(int64, c_allocator):
+        cased = true
+    default:
+    }
+    check(cased, "make as a case value")
+    mut b := true
+    mut i := int8(-128)
+    mut n := -9223372036854775807 - 1
+    mut u := uint64(18446744073709551615)
+    mut d := -1.5
+    mut f := float32(2)
+    reset(mut b, c_allocator)
+    reset(mut i, c_allocator)
+    reset(mut n, c_allocator)
+    reset(mut u, c_allocator)
+    reset(mut d, c_allocator)
+    reset(mut f, c_allocator)
+    check(!b && i == 0 && n == 0 && u == 0 && d == 0.0 && f == 0.0 && is_empty(0) &&
+        !is_empty(1) && is_empty(false) && !is_empty(true) && is_empty(unsafe_uintptr_t(0)) &&
+        !is_empty(-0.5), "make basic generic")
+}
+
+// texts checks make of text.Text: empty, growing through its allocator,
+// and freed.
+func texts() {
+    mut t := make(text.Text, c_allocator)
+    first := t.len() == 0 && is_empty(t)
+    err := mut t.append([]uint8("hi"))
+    check(first && err.code == 0 && t.equal([]uint8("hi")) && !is_empty(t), "make text")
+    reset(mut t, c_allocator)
+    check(t.len() == 0 && is_empty(t), "make text generic")
+}
+
+// structs checks make of structs: every field empty, at every depth,
+// another package's private list among them, each list and map growing
+// through the allocator the struct was made with.
+func structs() {
+    p := make(Point, c_allocator)
+    check(p.x == 0 && p.y == 0.0 && is_empty(p), "make point")
+    e := make(Empty, c_allocator)
+    check(is_empty(e), "make empty struct")
+    mut it := make(Item, c_allocator)
+    check(it.name.len() == 0 && it.at.x == 0 && len(it.tags) == 0 && len(it.sizes) == 0 &&
+        it.ratio == 0.0 && !it.ok && it.small == 0 && len(it.grid) == 0 &&
+        it.safe.count == 0 && vault.codes(it.safe) == 0 && is_empty(it), "make item")
+    e1 := append(mut it.tags, 1, 2, 3)
+    e2 := mut it.name.append([]uint8("box"))
+    e3 := vault.put_code(mut it.safe, 42)
+    check(e1.code == 0 && e2.code == 0 && e3.code == 0 && len(it.tags) == 3 &&
+        vault.codes(it.safe) == 1 && !is_empty(it), "made item grows")
+    // clear_fields resets each field main sees, safe among them, whose
+    // empty value make builds whole, private codes included.
+    clear_fields(mut it, c_allocator)
+    check(len(it.tags) == 0 && it.name.len() == 0 && vault.codes(it.safe) == 0 &&
+        is_empty(it), "clear fields")
+    e4 := vault.put_code(mut it.safe, 7)
+    reset(mut it, c_allocator)
+    check(e4.code == 0 && vault.codes(it.safe) == 0 && is_empty(it), "reset item")
+}
+
+// foreign checks make of std structs whose fields are private to their
+// packages: a big.Int made so is the Int zero, valid for every function
+// of big, and an os.Info the zero Info, as a declaration gives.
+func foreign() {
+    z := make(big.Int, c_allocator)
+    five, ferr := big.from_int64(5, c_allocator)
+    if ferr.code != 0 {
+        check(false, "make big.Int")
+        return
+    }
+    sum, serr := big.plus(z, five, c_allocator)
+    if serr.code != 0 {
+        check(false, "make big.Int")
+        return
+    }
+    n, fits := big.to_int64(sum)
+    check(big.is_zero(z) && big.sign(z) == 0 && big.cmp(z, five) < 0 && fits && n == 5,
+        "make big.Int")
+    i := make(os.Info, c_allocator)
+    mut d os.Info
+    check(i.size() == 0 && !i.is_dir() && d.size() == i.size(), "make os.Info")
+}
+
+// generics checks make of a type parameter, a case's narrowed type, a
+// list case's E and a field's type, each through a generic function.
+func generics() {
+    mut l := make(list[int64], c_allocator)
+    lerr := append(mut l, 5, 6)
+    full := !is_empty(l)
+    reset(mut l, c_allocator)
+    check(lerr.code == 0 && full && len(l) == 0 && is_empty(l), "make list generic")
+    mut g := make(map[text.Text]list[int32], c_allocator)
+    mut k := make(text.Text, c_allocator)
+    kerr := mut k.append([]uint8("k"))
+    perr := put(mut g, k, make(list[int32], c_allocator))
+    had := len(g) == 1
+    reset(mut g, c_allocator)
+    check(kerr.code == 0 && perr.code == 0 && had && len(g) == 0 && is_empty(g),
+        "make map generic")
+    check(narrowed(41) == 42 && narrowed(l) == 1 && narrowed(make(Point, c_allocator)) == 100 &&
+        narrowed(Point{x: 1, y: 0.0}) == 200 && narrowed(true) == 0, "make narrowed")
+}
+
+// filling checks fill, which makes each field's value with make through
+// a field's type and assigns it with v.[f] = x, at every depth, and fills
+// again on top of what it gave.
+func filling() {
+    mut it := make(Item, c_allocator)
+    err := fill(mut it, c_allocator)
+    if err.code != 0 {
+        check(false, "fill")
+        return
+    }
+    mut tag := 0
+    for _, t := range it.tags {
+        tag = t
+    }
+    mut row := 0
+    for _, r := range it.grid {
+        for _, c := range r {
+            row = int64(c)
+        }
+    }
+    check(it.name.equal([]uint8("name")) && it.at.x == 1 && it.at.y == 1.0 &&
+        len(it.tags) == 1 && tag == 1 && len(it.sizes) == 1 && it.ratio == 1.0 && it.ok &&
+        it.small == 1 && len(it.grid) == 1 && row == 1 && it.safe.count == 1 &&
+        vault.codes(it.safe) == 0, "fill")
+    // A second fill copies what the first gave, adds to the copy and
+    // frees the original.
+    again := fill(mut it, c_allocator)
+    check(again.code == 0 && len(it.tags) == 2 && it.name.equal([]uint8("namename")) &&
+        len(it.sizes) == 1 && len(it.grid) == 2 && it.at.x == 1, "fill again")
+}
+
+// cloning checks clone, which makes the copy and each element with make,
+// on a filled Item and on lists of Items, and that the copy is its own.
+func cloning() {
+    mut it := make(Item, c_allocator)
+    ferr := fill(mut it, c_allocator)
+    mut c, err := clone(it, c_allocator)
+    if ferr.code != 0 || err.code != 0 {
+        check(false, "clone item")
+        return
+    }
+    check(equal(c, it), "clone item")
+    // clone copies only the fields main sees, so another package's
+    // private codes are left empty in the copy.
+    perr := vault.put_code(mut it.safe, 5)
+    check(perr.code == 0 && vault.codes(it.safe) == 1 && vault.codes(c.safe) == 0 &&
+        equal(c, it), "clone leaves private fields empty")
+    more := append(mut c.tags, 9)
+    check(more.code == 0 && !equal(c, it) && len(it.tags) == 1, "clone is its own")
+    mut items := make(list[list[Item]], c_allocator)
+    mut row := make(list[Item], c_allocator)
+    first := make(Item, c_allocator)
+    rerr := append(mut row, first)
+    ierr := append(mut items, row)
+    copied, cerr := clone(items, c_allocator)
+    if cerr.code != 0 {
+        check(false, "clone lists of items")
+        return
+    }
+    check(rerr.code == 0 && ierr.code == 0 && equal(copied, items) && len(copied) == 1,
+        "clone lists of items")
+}
+
+// apply returns f(n).
+func apply(n int64, scope f func(int64) int64) int64 {
+    return f(n)
+}
+
+// pick returns c_allocator, through a call, so a make given it holds the
+// allocator in a temporary of its function.
+func pick() Allocator {
+    return c_allocator
+}
+
+// deferred returns what a defer that makes an Item, before the function
+// returns, writes: the length of the Item's empty list.
+func deferred() int64 {
+    mut seen := -1
+    if seen < 0 {
+        defer {
+            it := make(Item, pick())
+            seen = len(it.tags)
+        }
+    }
+    return seen
+}
+
+// calls counts the calls of counted.
+mut calls int64
+
+// counted returns c_allocator, counting the call.
+func counted() Allocator {
+    calls +%= 1
+    return c_allocator
+}
+
+// once checks make evaluates its allocator exactly once, whether the
+// value holds it in no place, one place or many, or is discarded.
+func once() {
+    n := make(int64, counted())
+    after_basic := calls
+    t := make(text.Text, counted())
+    after_text := calls
+    it := make(Item, counted())
+    after_item := calls
+    e := make(Empty, counted())
+    after_empty := calls
+    // A make that owns nothing may be discarded; its allocator is still
+    // evaluated, once.
+    make(int64, counted())
+    make(Point, counted())
+    check(n == 0 && after_basic == 1 && t.len() == 0 && after_text == 2 && is_empty(it) &&
+        after_item == 3 && is_empty(e) && after_empty == 4 && calls == 6,
+        "allocator evaluated once")
+}
+
+// closures checks make in a closure, through a type parameter and by
+// name, and in a defer.
+func closures() {
+    got := apply(3, func(n int64) int64 {
+        p := make(Point, c_allocator)
+        it := make(Item, pick())
+        return p.x +% n +% len(it.grid)
+    })
+    check(got == 3 && deferred() == 0, "make in a closure and a defer")
+}
+
+// regions checks make through a region's allocator: the made value, and
+// what fill and clone put in it, are given back with the region.
+func regions() {
+    mut ok := false
+    region r {
+        mut it := make(Item, r)
+        ferr := fill(mut it, r)
+        c, cerr := clone(it, r)
+        ok = ferr.code == 0 && cerr.code == 0 && equal(c, it)
+    }
+    check(ok, "make in a region")
+}
+
+// failing makes fill and then clone fail at every allocation in turn,
+// and checks each failure is passed on, and that nothing leaks however
+// far each got.
+func failing() {
+    mut fills := 0
+    mut filled := false
+    for k := range 40 {
+        if !filled {
+            mut it := make(Item, c_allocator)
+            fail_after(k)
+            err := fill(mut it, c_allocator)
+            fail_after(-1)
+            if err.code == 0 {
+                filled = it.name.equal([]uint8("name")) && it.ok
+            } else if err.code == 1 {
+                fills +%= 1
+            }
+        }
+    }
+    check(filled && fills > 0, "fill under failure")
+    mut clones := 0
+    mut cloned := false
+    for k := range 40 {
+        if !cloned {
+            mut it := make(Item, c_allocator)
+            if fill(mut it, c_allocator).code == 0 {
+                fail_after(k)
+                c, err := clone(it, c_allocator)
+                fail_after(-1)
+                if err.code == 0 {
+                    cloned = equal(c, it)
+                } else if err.code == 1 {
+                    clones +%= 1
+                }
+            }
+        }
+    }
+    check(cloned && clones > 0, "clone under failure")
+}
+
+func main() {
+    basics()
+    texts()
+    check(live() == 0, "texts freed")
+    structs()
+    check(live() == 0, "structs freed")
+    foreign()
+    check(live() == 0, "foreign freed")
+    generics()
+    check(live() == 0, "generics freed")
+    filling()
+    check(live() == 0, "filling freed")
+    cloning()
+    check(live() == 0, "cloning freed")
+    closures()
+    check(live() == 0, "closures freed")
+    once()
+    check(live() == 0, "once freed")
+    regions()
+    check(live() == 0, "regions freed")
+    failing()
+    check(live() == 0, "failing freed")
+}

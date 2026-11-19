@@ -1,0 +1,23 @@
+package main
+
+import geo from "shapes/geo"
+
+// Point is main's own, and tack.h names it Point; geo's is geo_Point.
+type Point struct {
+    x int64
+    y int64
+    label string
+}
+
+// lift turns geo's point into main's, in C, in main.c.
+extern func lift(p geo.Point, label string) Point
+
+func main() {
+    r := geo.Rect{min: geo.Point{x: 1, y: 2}, max: geo.Point{x: 4, y: 6}}
+    p := lift(r.max, "corner")
+    if geo.Area(r) == 12 && p == (Point{x: 4, y: 6, label: "corner"}) {
+        print("module ok\n")
+        exit(42)
+    }
+    exit(1)
+}

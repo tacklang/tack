@@ -1,0 +1,22 @@
+package lexer
+
+// Token is used by lexer.tck, in this package, without an import, and by
+// the main packages through one. Its kind is pub; where it starts is lib,
+// for the module's packages only; where it ends is private to lexer, so
+// only this package can write a Token literal.
+pub type Token struct {
+    pub kind int64
+    lib start int64
+    end int64
+}
+
+// KindNumber and KindPlus are constants: KindPlus names KindNumber, a
+// global of its own package, in its initializer.
+pub var KindNumber int64 = 1
+pub var KindPlus int64 = KindNumber + 1
+
+// MaxTokens sizes an array in another package.
+pub var MaxTokens int64 = 4
+
+// KindEnd is read by no package: an exported global may go unused.
+pub var KindEnd int64 = 3

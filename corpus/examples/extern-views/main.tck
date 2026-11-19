@@ -1,0 +1,56 @@
+package main
+
+// Every extern func below is written in C, in views.c, and takes a view,
+// which C gets as a tack_view_ struct of a pointer to the first element,
+// to read only during the call, and the number of elements.
+
+type Point struct {
+    x int64
+    y int64
+}
+
+// total adds every element of v, in C.
+extern func total(v []int64) int64
+
+// countByte counts the bytes of b equal to c, in C.
+extern func countByte(b []uint8, c uint8) int64
+
+// sumYs adds the y of every point of v, in C.
+extern func sumYs(v []Point) int64
+
+// cells adds every element of every row of v, in C.
+extern("sum_cells") func cells(v [][2]int64) int64
+
+// lengths adds the length of every string of v, in C.
+extern func lengths(v []string) int64
+
+// viaTack passes its own view on to C.
+func viaTack(v []int64) int64 {
+    return total(v)
+}
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+func main() {
+    a := [4]int64{1, 2, 3, -4}
+    check(total(a) == 2, "integers")
+    none := [0]int64{}
+    check(total(none) == 0, "empty array")
+    s := "mississippi"
+    check(countByte([]uint8(s), 's') == 4 && countByte([]uint8(""), 's') == 0, "string bytes")
+    pts := [3]Point{{x: 1, y: 10}, {x: 2, y: 20}, {x: 3, y: 30}}
+    check(sumYs(pts) == 60, "structs")
+    grid := [2][2]int64{{1, 2}, {3, 4}}
+    check(cells(grid) == 10, "arrays, C name")
+    words := [3]string{"a", "bc", ""}
+    check(lengths(words) == 3, "strings")
+    check(viaTack(a) == 2, "passed on to C")
+}

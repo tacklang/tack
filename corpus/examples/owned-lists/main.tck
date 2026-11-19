@@ -1,0 +1,629 @@
+package main
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+
+// Lists of owned elements: a list may hold lists, structs holding lists
+// and unions holding lists, nested to any depth. An element of an owned
+// type is never copied out of its list: it is a place inside the list, as
+// a struct's list field is, read, grown, matched and passed in place, and
+// it leaves the list only through pop or remove, which move it out. The
+// list frees each element it still holds, last first, before its buffer.
+//
+// Every check that makes a list runs in a function of its own, and main
+// asserts after it that c_allocator's count of live buffers is back to
+// zero, so every element was freed exactly once, however it was replaced,
+// popped, removed or left behind by an append that failed. The count is
+// read, and allocations made to fail, through live and fail_after, whose
+// C, in live.c, calls std's hooks.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("owned_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("owned_fail_after") func fail_after(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that nothing is live after a check, name saying which.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// word returns a new list holding the bytes of s, beside the error of
+// making it.
+func word(s string) (list[uint8], error) {
+    mut w := make(list[uint8], c_allocator)
+    err := append(mut w, []uint8(s)...)
+    return w, err
+}
+
+// passed_word passes word's list on beside its error without checking it:
+// the list moves out to the caller, which checks the error before reading
+// it and frees it either way.
+func passed_word(s string) (list[uint8], error) {
+    w, err := word(s)
+    return w, err
+}
+
+// add_word appends a new word holding the bytes of s to words.
+func add_word(mut words list[list[uint8]], s string) error {
+    w, err := word(s)
+    if err.code != 0 {
+        return err
+    }
+    return append(mut words, w)
+}
+
+// write_all writes every word of words, each followed by a space, then a
+// newline. Each word is passed to fmt.write in place.
+func write_all(words []list[uint8]) {
+    for _, w := range words {
+        fmt.write(w)
+        print(" ")
+    }
+    print("\n")
+}
+
+// total_len returns how many bytes the words of words hold together.
+func total_len(words []list[uint8]) int64 {
+    mut n := 0
+    for i := range len(words) {
+        n +%= len(words[i])
+    }
+    return n
+}
+
+// is reports whether w holds exactly the bytes of s.
+func is(w []uint8, s string) bool {
+    return bytes.equal(w, []uint8(s))
+}
+
+// test_words builds a list of words and reads, writes and grows its
+// elements in place.
+func test_words() {
+    mut words := make(list[list[uint8]], c_allocator)
+    e1 := add_word(mut words, "owned")
+    e2 := add_word(mut words, "lists")
+    e3 := add_word(mut words, "work")
+    check(e1.code == 0 && e2.code == 0 && e3.code == 0 && len(words) == 3, "words built")
+    check(live() == 4, "a buffer for each word and one for the list")
+    write_all(words)
+    check(total_len(words) == 14, "lengths read in place")
+    if len(words) < 3 {
+        return
+    }
+    fmt.write(words[1])
+    print("\n")
+    check(len(words[0]) == 5 && is(words[2], "work"), "elements read in place")
+    err := append(mut words[2], 's')
+    check(err.code == 0 && is(words[2], "works"), "an element grown in place")
+    b, ok := words[2][4]
+    check(ok && b == 's', "a byte of an element")
+    _, past := words[2][5]
+    check(!past, "a byte past an element's end")
+    mut firsts := 0
+    for _, w := range words {
+        if len(w) > 0 {
+            firsts +%= int64(w[0])
+        }
+    }
+    check(firsts == int64('o') + int64('l') + int64('w'), "range binds each word in place")
+    check(live() == 4, "growing in place allocates no new element")
+}
+
+// Bag is a name and a list of numbers, a struct holding a list.
+type Bag struct {
+    name  string
+    items list[int64]
+}
+
+// new_bag returns an empty bag called name.
+func new_bag(name string) Bag {
+    return Bag{name: name, items: make(list[int64], c_allocator)}
+}
+
+// total returns the sum of b's numbers.
+func (b Bag) total() int64 {
+    mut t := 0
+    for _, x := range b.items {
+        t +%= x
+    }
+    return t
+}
+
+// add appends x to b's numbers.
+func (mut b Bag) add(x int64) error {
+    return append(mut b.items, x)
+}
+
+// test_bags builds a list of structs holding lists, grows each through a
+// method with a mut receiver and through its field, reads them through a
+// plain method and a field, and replaces one, which frees the old.
+func test_bags() {
+    mut bags := make(list[Bag], c_allocator)
+    e1 := append(mut bags, new_bag("a"), new_bag("b"))
+    check(e1.code == 0 && len(bags) == 2 && live() == 1, "bags appended, none allocated yet")
+    if len(bags) < 2 {
+        return
+    }
+    e2 := mut bags[0].add(5)
+    e3 := mut bags[0].add(6)
+    e4 := append(mut bags[1].items, 7, 8, 9)
+    check(e2.code == 0 && e3.code == 0 && e4.code == 0, "grown through a method and a field")
+    check(bags[0].total() == 11 && bags[1].total() == 24, "read through a plain method")
+    check(bags[0].name == "a" && len(bags[1].items) == 3, "fields read in place")
+    check(live() == 3, "a buffer for each bag's numbers")
+    mut c := new_bag("c")
+    e5 := mut c.add(100)
+    check(e5.code == 0 && live() == 4, "a new bag")
+    bags[0] = c
+    check(live() == 3 && bags[0].total() == 100 && bags[0].name == "c", "replacing an element frees the old one")
+}
+
+// Adder is what has numbers added to it and totalled.
+type Adder interface {
+    mut add(x int64) error
+    total() int64
+}
+
+// add_twice adds x to a twice, through a generic function's mut
+// parameter, and returns a's total after.
+func add_twice[A Adder](mut a A, x int64) int64 {
+    e1 := mut a.add(x)
+    e2 := mut a.add(x)
+    if e1.code != 0 || e2.code != 0 {
+        return -1
+    }
+    return a.total()
+}
+
+// total_of returns a's total, through a generic function's plain
+// parameter, which borrows it.
+func total_of[A Adder](a A) int64 {
+    return a.total()
+}
+
+// test_generic passes elements of a list of bags to generic functions,
+// in place, as a mut argument and borrowed.
+func test_generic() {
+    mut bags := make(list[Bag], c_allocator)
+    e := append(mut bags, new_bag("g"))
+    if e.code != 0 || len(bags) == 0 {
+        check(false, "a bag for generics")
+        return
+    }
+    check(add_twice(mut bags[0], 21) == 42, "an element passed as mut to a generic function")
+    check(total_of(bags[0]) == 42 && live() == 2, "an element borrowed by a generic function")
+}
+
+// Val is a number, a list of numbers, a bag, or nothing: a union holding
+// a list.
+type Val union {
+    num   int64
+    items list[int64]
+    bag   Bag
+    none
+}
+
+// numbers returns a list of n numbers, 1 to n, beside the error of making
+// it.
+func numbers(n int64) (list[int64], error) {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i + 1)
+        if err.code != 0 {
+            return l, err
+        }
+    }
+    return l, noerror
+}
+
+// test_vals builds a list of unions holding lists and matches each in
+// place, by index and through a range binding.
+func test_vals() {
+    mut vals := make(list[Val], c_allocator)
+    l, err := numbers(4)
+    if err.code != 0 {
+        check(false, "numbers")
+        return
+    }
+    mut b := new_bag("bag")
+    e1 := mut b.add(40)
+    e2 := append(mut vals, Val.num(3), Val.items(l), Val.bag(b), Val.none)
+    check(e1.code == 0 && e2.code == 0 && len(vals) == 4 && live() == 3, "unions appended")
+    mut sum := 0
+    for i := range len(vals) {
+        switch vals[i] {
+        case num(n):
+            sum +%= n
+        case items(xs):
+            for _, x := range xs {
+                sum +%= x
+            }
+        case bag(g):
+            sum +%= g.total()
+        case none:
+            sum +%= 1000
+        }
+    }
+    check(sum == 3 + 10 + 40 + 1000, "matched in place by index")
+    mut lens := 0
+    for _, v := range vals {
+        switch v {
+        case items(xs):
+            lens +%= len(xs)
+        case bag(g):
+            lens +%= len(g.items)
+        default:
+        }
+    }
+    check(lens == 5, "matched in place through a range binding")
+    if len(vals) > 3 {
+        vals[3] = Val.num(7)
+        vals[1] = Val.none
+    }
+    check(live() == 2, "replacing a union frees its list")
+}
+
+// test_pop_owned pops and removes words, checked, at the ends, in the
+// middle and out of range.
+func test_pop_owned() {
+    mut words := make(list[list[uint8]], c_allocator)
+    e1 := add_word(mut words, "a")
+    e2 := add_word(mut words, "bb")
+    e3 := add_word(mut words, "ccc")
+    e4 := add_word(mut words, "dddd")
+    check(e1.code == 0 && e2.code == 0 && e3.code == 0 && e4.code == 0, "words to pop")
+    w, ok := pop(mut words)
+    if ok {
+        check(is(w, "dddd") && len(words) == 3, "the last word popped")
+    } else {
+        check(false, "the last word popped")
+    }
+    check(live() == 5, "a popped word is still live")
+    first, ok0 := remove(mut words, 0)
+    if !ok0 {
+        check(false, "the first word removed")
+        return
+    }
+    check(is(first, "a") && len(words) == 2, "the first word removed")
+    if len(words) == 2 {
+        check(is(words[0], "bb") && is(words[1], "ccc"), "the rest moved down in order")
+    }
+    // A word that is not there cannot be read: each is read only where
+    // its ok is true, which it never is here, so none of these checks
+    // runs.
+    at_len, past := remove(mut words, 2)
+    if past {
+        check(len(at_len) < 0, "removed at len")
+    }
+    check(!past && len(words) == 2, "an index at len removes nothing")
+    // A negative constant index is an error even in the checked form, as
+    // it never is in range; one known only at run time is not.
+    mut minus := 0
+    minus--
+    below, negative := remove(mut words, minus)
+    if negative {
+        check(len(below) < 0, "removed below 0")
+    }
+    check(!negative && len(words) == 2, "a negative index removes nothing")
+    var huge int64 = 9223372036854775807
+    beyond, wide := remove(mut words, huge)
+    if wide {
+        check(len(beyond) < 0, "removed at the largest int64")
+    }
+    check(!wide && len(words) == 2, "the largest int64 removes nothing")
+    last, okLast := remove(mut words, 1)
+    if okLast {
+        check(is(last, "ccc") && len(words) == 1, "the last word removed by index")
+    }
+    check(live() == 5, "every word taken out is still live")
+    only, okOnly := pop(mut words)
+    none, okNone := pop(mut words)
+    check(okOnly && !okNone && len(words) == 0, "popping an emptied list fails")
+    if okOnly && okNone {
+        check(len(only) +% len(none) < 0, "popped from an empty list")
+    }
+    check(live() == 5, "nothing freed for a failed pop")
+}
+
+// test_pop_copyable pops and removes numbers, whose zero value a failed
+// pop or remove gives.
+func test_pop_copyable() {
+    l, err := numbers(4)
+    if err.code != 0 {
+        check(false, "numbers to pop")
+        return
+    }
+    mut nums := l
+    x, ok := pop(mut nums)
+    check(ok && x == 4 && len(nums) == 3, "the last number popped")
+    y, ok1 := remove(mut nums, 1)
+    check(ok1 && y == 2 && len(nums) == 2, "a middle number removed")
+    if len(nums) == 2 {
+        check(nums[0] == 1 && nums[1] == 3, "the rest kept in order")
+    }
+    z, ok2 := remove(mut nums, 5)
+    check(!ok2 && z == 0, "out of range gives zero")
+    a, ok3 := remove(mut nums, 0)
+    b, ok4 := pop(mut nums)
+    c, ok5 := pop(mut nums)
+    check(ok3 && ok4 && !ok5 && a == 1 && b == 3 && c == 0, "emptied, then zero")
+    mut empty := make(list[int64], c_allocator)
+    e, okE := remove(mut empty, 0)
+    check(!okE && e == 0 && live() == 1, "nothing to remove from an empty list")
+}
+
+// bump appends 1000 to every list of plane, which it takes as mut.
+func bump(mut plane list[list[int64]]) error {
+    for j := range len(plane) {
+        err := append(mut plane[j], 1000)
+        if err.code != 0 {
+            return err
+        }
+    }
+    return noerror
+}
+
+// test_nested builds lists three deep, moving each inner list into the
+// one holding it every iteration, grows the innermost in place through a
+// mut parameter, and reassigns the outermost, which frees them all.
+func test_nested() {
+    mut cube := make(list[list[list[int64]]], c_allocator)
+    mut failed := false
+    for i := range 2 {
+        mut plane := make(list[list[int64]], c_allocator)
+        for j := range 3 {
+            mut row := make(list[int64], c_allocator)
+            e1 := append(mut row, i * 10 + j, 100)
+            e2 := append(mut plane, row)
+            failed = failed || e1.code != 0 || e2.code != 0
+        }
+        e3 := append(mut cube, plane)
+        failed = failed || e3.code != 0
+    }
+    check(!failed && len(cube) == 2 && live() == 1 + 2 + 6, "three deep, built")
+    mut sum := 0
+    for _, p := range cube {
+        for _, r := range p {
+            for _, x := range r {
+                sum +%= x
+            }
+        }
+    }
+    check(sum == 0 + 1 + 2 + 10 + 11 + 12 + 600, "three deep, summed in place")
+    for i := range len(cube) {
+        err := bump(mut cube[i])
+        failed = failed || err.code != 0
+    }
+    mut bumped := 0
+    for _, p := range cube {
+        for _, r := range p {
+            bumped +%= len(r)
+        }
+    }
+    check(!failed && bumped == 18, "the innermost grown through mut")
+    plane, ok := pop(mut cube)
+    if ok {
+        check(len(plane) == 3 && len(cube) == 1, "a plane popped whole")
+    }
+    cube = make(list[list[list[int64]]], c_allocator)
+    check(live() == 4, "reassigning frees every element left")
+}
+
+// deferred reads an element of a list from a defer, which runs before
+// the list is freed.
+func deferred() int64 {
+    mut words := make(list[list[uint8]], c_allocator)
+    err := add_word(mut words, "later")
+    if err.code != 0 || len(words) == 0 {
+        return 0
+    }
+    defer {
+        check(is(words[0], "later") && live() == 2, "a defer reads an element")
+    }
+    return len(words[0])
+}
+
+// conditional moves a word into a list on one path only, and appends a
+// word moved in every iteration of a loop.
+func conditional(take bool) int64 {
+    mut words := make(list[list[uint8]], c_allocator)
+    w, err := word("maybe")
+    if err.code != 0 {
+        return -1
+    }
+    if take {
+        e := append(mut words, w)
+        if e.code != 0 {
+            return -1
+        }
+    }
+    for _, c := range [3]uint8{'x', 'y', 'z'} {
+        mut each := make(list[uint8], c_allocator)
+        e1 := append(mut each, c)
+        e2 := append(mut words, each)
+        if e1.code != 0 || e2.code != 0 {
+            return -1
+        }
+    }
+    return len(words)
+}
+
+// test_failures makes allocations fail part way: an append to the outer
+// list that cannot grow frees the element it was given, an append to an
+// element in place leaves it as it was, and every list stays valid and
+// is freed.
+func test_failures() {
+    mut words := make(list[list[uint8]], c_allocator)
+    mut failed := false
+    for _, s := range [4]string{"w", "x", "y", "z"} {
+        err := add_word(mut words, s)
+        failed = failed || err.code != 0
+    }
+    check(!failed && len(words) == 4 && live() == 5, "four words, a full buffer")
+    fail_after(1)
+    err := add_word(mut words, "fifth")
+    fail_after(-1)
+    check(err.code == 1 && len(words) == 4 && live() == 5, "a failed append frees the word it took")
+    if len(words) == 4 {
+        fail_after(0)
+        e1 := append(mut words[0], []uint8("longer than four")...)
+        fail_after(-1)
+        check(e1.code == 1 && is(words[0], "w"), "a failed append in place changes nothing")
+    }
+    a, e2 := word("a")
+    b, e3 := word("b")
+    if e2.code != 0 || e3.code != 0 {
+        check(false, "two more words")
+        return
+    }
+    fail_after(0)
+    e4 := append(mut words, a, b)
+    fail_after(-1)
+    check(e4.code == 1 && len(words) == 4 && live() == 5, "a failed append of two frees both")
+    x, ok := pop(mut words)
+    if ok {
+        check(is(x, "z") && len(words) == 3, "pop after failures")
+    }
+    e5 := add_word(mut words, "again")
+    check(e5.code == 0 && len(words) == 4 && live() == 6, "appends again after failures")
+}
+
+// test_passed takes lists passed on unchecked beside their error, once
+// made and once failed, and frees both.
+func test_passed() {
+    w, err := passed_word("pass")
+    if err.code == 0 {
+        check(is(w, "pass") && live() == 1, "a list passed on unchecked")
+    } else {
+        check(false, "a list passed on unchecked")
+    }
+    fail_after(0)
+    f, ferr := passed_word("fails")
+    fail_after(-1)
+    check(ferr.code == 1, "a failed list passed on unchecked")
+    if ferr.code == 0 {
+        check(len(f) == 0, "a failed list is never read")
+    }
+}
+
+// Pair holds two lists, which are separate places: changing one leaves
+// the other where it is.
+type Pair struct {
+    left  list[int64]
+    right list[int64]
+}
+
+// grown appends enough numbers to l to move its buffer, and returns 1, or
+// 0 when an append fails.
+func grown(mut l list[int64]) int64 {
+    for i := range 64 {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return 0
+        }
+    }
+    return 1
+}
+
+// last_index returns the index of l's last element, reading l in place.
+func last_index(l list[int64]) int64 {
+    return len(l) - 1
+}
+
+// view_of returns a view of all of l.
+func view_of(l list[int64]) []int64 {
+    return l
+}
+
+// fresh returns a new list holding n, or an empty one when the append
+// fails.
+func fresh(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, n)
+    if err.code != 0 {
+        return l
+    }
+    return l
+}
+
+// test_index_borrows indexes and assigns lists while the index or the
+// value changes another list, which is allowed: a list is read in place
+// while its index is evaluated, so only a change to that list, or to what
+// holds it, is reported. Each change moves a buffer, so a read of the old
+// one would be caught.
+func test_index_borrows() {
+    a, e1 := numbers(3)
+    if e1.code != 0 {
+        check(false, "numbers for index borrows")
+        return
+    }
+    mut p := Pair{left: a, right: fresh(9)}
+    x, ok := p.left[grown(mut p.right)]
+    check(ok && x == 2 && len(p.right) == 65, "an index changes another field")
+    y, ok2 := p.left[last_index(p.left)]
+    check(ok2 && y == 3, "an index reads the list it indexes")
+    z, ok3 := view_of(p.left)[grown(mut p.right) +% 1]
+    check(ok3 && z == 3 && len(p.right) == 129, "a view's index changes another list")
+    mut l := fresh(1)
+    mut other := fresh(0)
+    if len(l) > 0 {
+        l[0] = grown(mut other) +% 40
+        l[0] +%= grown(mut other)
+    }
+    check(len(l) > 0 && l[0] == 42 && len(other) == 129, "an element assigned while another list grows")
+    mut ll := make(list[list[int64]], c_allocator)
+    e2 := append(mut ll, fresh(5))
+    check(e2.code == 0, "a list of lists")
+    if len(ll) > 0 {
+        ll[0] = fresh(grown(mut ll[0]) +% 6)
+        w, ok4 := ll[0][0]
+        check(ok4 && w == 7 && len(ll[0]) == 1, "an element replaced by a value that grew it")
+    }
+}
+
+func main() {
+    freed("nothing live at the start")
+    test_words()
+    freed("words freed")
+    test_bags()
+    freed("bags freed")
+    test_generic()
+    freed("generic calls freed")
+    test_vals()
+    freed("unions freed")
+    test_pop_owned()
+    freed("popped words freed")
+    test_pop_copyable()
+    freed("popped numbers freed")
+    test_nested()
+    freed("three deep freed")
+    check(deferred() == 5, "deferred result")
+    freed("deferred freed")
+    check(conditional(true) == 4, "moved into the list")
+    freed("moved freed")
+    check(conditional(false) == 3, "not moved into the list")
+    freed("not moved freed")
+    test_failures()
+    freed("failures freed")
+    test_passed()
+    freed("passed on freed")
+    test_index_borrows()
+    freed("index borrows freed")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

@@ -1,0 +1,26 @@
+package cexit
+
+import testing from "std/testing"
+
+// Package cexit's middle test ends the process through C's exit, not
+// Tack's: the runner reports it as ended from C, with the tests that did
+// not run, then the run's last line, and tack test exits 1.
+
+// quit calls C's exit with code, in C (see cexit.c).
+extern("cexit_quit") func quit(code int32)
+
+// test_first passes.
+func test_first(mut t testing.T) error {
+    return noerror
+}
+
+// test_quits ends the process from C, with a status of 0.
+func test_quits(mut t testing.T) error {
+    quit(0)
+    return noerror
+}
+
+// test_last never runs.
+func test_last(mut t testing.T) error {
+    return noerror
+}

@@ -1,0 +1,22 @@
+package exit141
+
+import testing from "std/testing"
+
+// Package exit141's test calls exit(141) itself, which the runner cannot
+// tell from the end a broken pipe makes: it writes nothing more, the
+// binary ends with status 141, and tack test says so and exits 1.
+
+// test_first passes.
+func test_first(mut t testing.T) error {
+    return noerror
+}
+
+// test_exit_141 ends the process with the broken pipe's status.
+func test_exit_141(mut t testing.T) error {
+    exit(141)
+}
+
+// test_last never runs.
+func test_last(mut t testing.T) error {
+    return noerror
+}

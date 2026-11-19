@@ -1,0 +1,32 @@
+package exits
+
+import fmt from "std/fmt"
+import testing from "std/testing"
+
+// test_before passes, before the exit.
+func test_before(mut t testing.T) error {
+    fmt.println("before ran")
+    return noerror
+}
+
+// test_exit holds a list and calls exit(3), which ends the process,
+// freeing the list, and fails the test.
+func test_exit(mut t testing.T) error {
+    mut l := make(list[int64], c_allocator)
+    values := Steps()
+    append(mut l, values...)?
+    fmt.println("exiting")
+    exit(3)
+}
+
+// test_after never runs.
+func test_after(mut t testing.T) error {
+    fmt.println("after ran")
+    return noerror
+}
+
+// test_after_too never runs either.
+func test_after_too(mut t testing.T) error {
+    fmt.println("after_too ran")
+    return noerror
+}

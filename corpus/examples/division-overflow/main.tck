@@ -1,0 +1,308 @@
+package main
+
+// Division by -1. A signed / or /= compiles only where the compiler
+// proves it is not the smallest value of its type divided by -1, besides
+// proving its divisor is not zero: a fact that rules out either side
+// proves it, the divisor not -1, or not negative, or the dividend not the
+// smallest value. Elsewhere q, ok := a / b gives 0 and false at that one
+// quotient, as it does for a zero divisor. An unsigned division never
+// overflows, and % is unaffected: the smallest value % -1 is 0. Each
+// check prints its name and "ok", or "FAIL".
+//
+// The helpers take parameters so that no operand is a known value: the
+// smallest value divided by -1 on known values is a compile error, not a
+// run-time failure.
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// div_i8, div_i16, div_i32 and div_i64 are the checked divisions.
+func div_i8(a int8, b int8) (int8, bool) {
+    q, ok := a / b
+    return q, ok
+}
+
+func div_i16(a int16, b int16) (int16, bool) {
+    q, ok := a / b
+    return q, ok
+}
+
+func div_i32(a int32, b int32) (int32, bool) {
+    q, ok := a / b
+    return q, ok
+}
+
+func div_i64(a int64, b int64) (int64, bool) {
+    q, ok := a / b
+    return q, ok
+}
+
+// assign_i64 is the checked division assigned with =, to names that
+// already hold a result.
+func assign_i64(a int64, b int64) (int64, bool) {
+    mut q int64 = 7
+    mut ok := true
+    q, ok = a / b
+    return q, ok
+}
+
+// rem_i8, rem_i16, rem_i32 and rem_i64 are the plain remainders, which
+// need only a divisor that is not zero.
+func rem_i8(a int8, b int8) int8 {
+    if b == 0 {
+        return 0
+    }
+    return a % b
+}
+
+func rem_i16(a int16, b int16) int16 {
+    if b == 0 {
+        return 0
+    }
+    return a % b
+}
+
+func rem_i32(a int32, b int32) int32 {
+    if b == 0 {
+        return 0
+    }
+    return a % b
+}
+
+func rem_i64(a int64, b int64) int64 {
+    if b == 0 {
+        return 0
+    }
+    return a % b
+}
+
+// checked_rem_i64 is the checked remainder, whose ok says only that the
+// divisor was not zero.
+func checked_rem_i64(a int64, b int64) (int64, bool) {
+    r, ok := a % b
+    return r, ok
+}
+
+// checked checks the checked division at the smallest value of each
+// width divided by -1, and next to it.
+func checked() {
+    mut q8, mut ok := div_i8(-128, -1)
+    check(!ok && q8 == 0, "int8 min / -1 fails, q is 0")
+    q8, ok = div_i8(-128, 1)
+    check(ok && q8 == -128, "int8 min / 1 is min")
+    q8, ok = div_i8(-128, -2)
+    check(ok && q8 == 64, "int8 min / -2 is 64")
+    q8, ok = div_i8(-127, -1)
+    check(ok && q8 == 127, "int8 (min + 1) / -1 is max")
+    q8, ok = div_i8(127, -1)
+    check(ok && q8 == -127, "int8 max / -1")
+    q8, ok = div_i8(-128, 0)
+    check(!ok && q8 == 0, "int8 min / 0 fails")
+
+    mut q16, mut ok16 := div_i16(-32768, -1)
+    check(!ok16 && q16 == 0, "int16 min / -1 fails, q is 0")
+    q16, ok16 = div_i16(-32768, 2)
+    check(ok16 && q16 == -16384, "int16 min / 2")
+    q16, ok16 = div_i16(-32767, -1)
+    check(ok16 && q16 == 32767, "int16 (min + 1) / -1 is max")
+
+    mut q32, mut ok32 := div_i32(-2147483648, -1)
+    check(!ok32 && q32 == 0, "int32 min / -1 fails, q is 0")
+    q32, ok32 = div_i32(-2147483648, -2147483648)
+    check(ok32 && q32 == 1, "int32 min / min is 1")
+    q32, ok32 = div_i32(2147483647, -1)
+    check(ok32 && q32 == -2147483647, "int32 max / -1")
+
+    mut q64, mut ok64 := div_i64(-9223372036854775807 - 1, -1)
+    check(!ok64 && q64 == 0, "int64 min / -1 fails, q is 0")
+    q64, ok64 = div_i64(-9223372036854775807 - 1, 1)
+    check(ok64 && q64 == -9223372036854775807 - 1, "int64 min / 1 is min")
+    q64, ok64 = div_i64(-9223372036854775807, -1)
+    check(ok64 && q64 == 9223372036854775807, "int64 (min + 1) / -1 is max")
+    q64, ok64 = div_i64(-7, -1)
+    check(ok64 && q64 == 7, "int64 -7 / -1 is 7")
+
+    q64, ok64 = assign_i64(-9223372036854775807 - 1, -1)
+    check(!ok64 && q64 == 0, "int64 min / -1 assigned with = fails, q is 0")
+    q64, ok64 = assign_i64(-9223372036854775807 - 1, 2)
+    check(ok64 && q64 == -4611686018427387904, "int64 min / 2 assigned with =")
+}
+
+// remainders checks that the smallest value % -1 is 0 at every width, in
+// the plain form and the checked one.
+func remainders() {
+    check(rem_i8(-128, -1) == 0, "int8 min % -1 is 0")
+    check(rem_i16(-32768, -1) == 0, "int16 min % -1 is 0")
+    check(rem_i32(-2147483648, -1) == 0, "int32 min % -1 is 0")
+    check(rem_i64(-9223372036854775807 - 1, -1) == 0, "int64 min % -1 is 0")
+    check(rem_i8(-127, -1) == 0 && rem_i8(-7, 2) == -1, "int8 remainders keep the dividend's sign")
+    r, ok := checked_rem_i64(-9223372036854775807 - 1, -1)
+    check(ok && r == 0, "int64 checked min % -1 is 0, and ok")
+    r2, ok2 := checked_rem_i64(5, 0)
+    check(!ok2 && r2 == 0, "int64 checked 5 % 0 fails")
+}
+
+// not_minus_one divides under a guard that rules the divisor out being -1.
+func not_minus_one(a int64, b int64) int64 {
+    if b != 0 && b != -1 {
+        return a / b
+    }
+    return 0
+}
+
+// positive divides under a guard that keeps the divisor above 0.
+func positive(a int8, b int8) int8 {
+    if b > 0 {
+        return a / b
+    }
+    return 0
+}
+
+// not_negative divides under a guard that keeps the divisor at or above
+// 0, and another that rules out 0.
+func not_negative(a int16, b int16) int16 {
+    if b >= 0 && b != 0 {
+        return a / b
+    }
+    return 0
+}
+
+// not_min divides under a guard that rules the dividend out being the
+// smallest value.
+func not_min(a int8, b int8) int8 {
+    if b != 0 && a != -128 {
+        return a / b
+    }
+    return 0
+}
+
+// above_min divides under a guard that keeps the dividend above the
+// smallest value.
+func above_min(a int32, b int32) int32 {
+    if b != 0 && a > -2147483648 {
+        return a / b
+    }
+    return 0
+}
+
+// early_exit divides after an if that leaves when the divisor is 0 or -1.
+func early_exit(a int64, b int64) int64 {
+    if b == 0 || b == -1 {
+        return 0
+    }
+    return a / b
+}
+
+// by_case divides in a switch's default, after the cases for 0 and -1.
+func by_case(a int64, b int64) int64 {
+    switch b {
+    case 0:
+        return 0
+    case -1:
+        return 1
+    default:
+        return a / b
+    }
+}
+
+// stored divides by a variable whose stored value is known until it is
+// next written.
+func stored(a int64) int64 {
+    mut d int64 = 3
+    q := a / d
+    d = q
+    return d
+}
+
+// widened divides a value widened from int8, which is never the smallest
+// int16.
+func widened(a int8, b int16) int16 {
+    if b == 0 {
+        return 0
+    }
+    return int16(a) / b
+}
+
+// shifted divides by arithmetic whose bounds keep it at 1 or more.
+func shifted(a int64, n int64) int64 {
+    if n >= 0 && n < 100 {
+        return a / (n + 1)
+    }
+    return 0
+}
+
+// halve_negated divides by a known value other than -1, which proves
+// itself.
+func halve_negated(a int8) int8 {
+    return a / -2
+}
+
+// compound divides in place, under a guard on the divisor.
+func compound(x int64, b int64) int64 {
+    mut y := x
+    if b > 0 {
+        y /= b
+    }
+    return y
+}
+
+// compound_min divides in place, under a guard on the target.
+func compound_min(x int64, b int64) int64 {
+    mut y := x
+    if b != 0 && y != -9223372036854775807 - 1 {
+        y /= b
+    }
+    return y
+}
+
+// counted divides by a loop's counter, which runs from 1.
+func counted(a int64) int64 {
+    mut total int64 = 0
+    for mut i int64 = 1; i <= 4; i++ {
+        total +%= a / i
+    }
+    return total
+}
+
+// unsigned divides two uint8s, which never overflow.
+func unsigned(a uint8, b uint8) uint8 {
+    if b == 0 {
+        return 0
+    }
+    return a / b
+}
+
+// guards checks each guard's division at the smallest value.
+func guards() {
+    check(not_minus_one(-9223372036854775807 - 1, 2) == -4611686018427387904, "b != -1 proves it")
+    check(not_minus_one(-9223372036854775807 - 1, -1) == 0, "b != -1 leaves out -1")
+    check(positive(-128, 1) == -128 && positive(-128, -1) == 0, "b > 0 proves it")
+    check(not_negative(-32768, 2) == -16384, "b >= 0 proves it")
+    check(not_min(-127, -1) == 127 && not_min(-128, -1) == 0, "a != min proves it")
+    check(above_min(-2147483647, -1) == 2147483647, "a > min proves it")
+    check(early_exit(-9223372036854775807 - 1, -1) == 0, "an early exit for -1 proves it")
+    check(early_exit(9, -3) == -3, "an early exit divides past it")
+    check(by_case(-9223372036854775807 - 1, -1) == 1 && by_case(9, -3) == -3, "a case for -1 proves it")
+    check(stored(-9223372036854775807 - 1) == -3074457345618258602, "a stored divisor proves it")
+    check(widened(-128, -1) == 128, "a widened dividend proves it")
+    check(shifted(-9223372036854775807 - 1, 1) == -4611686018427387904, "a divisor of 1 or more proves it")
+    check(halve_negated(-128) == 64, "a known divisor proves it")
+    check(compound(-9223372036854775807 - 1, 4) == -2305843009213693952, "/= under b > 0")
+    check(compound_min(-9223372036854775807, -1) == 9223372036854775807, "/= under y != min")
+    check(compound_min(-9223372036854775807 - 1, -1) == -9223372036854775807 - 1, "/= skipped at min")
+    check(counted(-12) == -25, "a counting loop from 1 proves it")
+    check(unsigned(255, 1) == 255 && unsigned(255, 255) == 1, "unsigned division")
+}
+
+func main() {
+    checked()
+    remainders()
+    guards()
+}

@@ -1,0 +1,206 @@
+package main
+
+import bytes from "std/bytes"
+import conv from "std/conv"
+import fmt from "std/fmt"
+import os from "std/os"
+import text from "std/text"
+
+// Running the compiler and clang, and saying how a case failed.
+
+// Ran is how one run of a command ended: its exit status, or -1 when a
+// signal killed it, its standard output and standard error, and, in
+// trouble, why the run says nothing of the case: it timed out, a signal
+// killed it, or, for the compiler, the port declined (see is_decline).
+type Ran struct {
+    code int64
+    out list[uint8]
+    err list[uint8]
+    trouble list[uint8]
+}
+
+// decline_line is how the port's line that it cannot do something yet
+// starts, on standard error with exit status 3.
+var decline_line = "tack: not implemented in the port: "
+
+// run_compiler runs r's compiler with args in root, through timeout and
+// env (see the package comment), and returns how it ended.
+func run_compiler(r Runner, args []text.Text) (Ran, error) {
+    mut argv := make(list[text.Text], c_allocator)
+    append_timeout(mut argv)?
+    append(mut argv, text.from_bytes([]uint8("env"), c_allocator)?)?
+    append(mut argv, setting("TACK_HOME=", r.root.bytes())?)?
+    append(mut argv, setting("TACK_CACHE=", r.cache.bytes())?)?
+    append(mut argv, setting("TMPDIR=", r.work.bytes())?)?
+    append(mut argv, text.from_bytes(r.compiler.bytes(), c_allocator)?)?
+    for _, a := range args {
+        append(mut argv, text.from_bytes(a.bytes(), c_allocator)?)?
+    }
+    mut res := run_argv(r.root.bytes(), argv)?
+    if res.code == 3 && bytes.has_prefix(res.err, []uint8(decline_line)) && len(res.trouble) == 0 {
+        append(mut res.trouble, []uint8("the compiler declined: ")...)?
+        append(mut res.trouble, part(res.err, 0, line_end(res.err, 0))...)?
+    }
+    return res, noerror
+}
+
+// setting returns name, which ends with =, followed by value, as env
+// takes a variable to set.
+func setting(name string, value []uint8) (text.Text, error) {
+    mut t := text.from_bytes([]uint8(name), c_allocator)?
+    mut t.append(value)?
+    return t, noerror
+}
+
+// append_timeout appends to argv the start of a command line that runs
+// what follows it under coreutils' timeout: timeout_secs seconds, then
+// TERM, and KILL ten seconds after that should it go on.
+func append_timeout(mut argv list[text.Text]) error {
+    append(mut argv, text.from_bytes([]uint8("timeout"), c_allocator)?)?
+    append(mut argv, text.from_bytes([]uint8("-k"), c_allocator)?)?
+    append(mut argv, text.from_bytes([]uint8("10"), c_allocator)?)?
+    return append(mut argv, text.from_bytes([]uint8(timeout_secs), c_allocator)?)
+}
+
+// run_argv runs argv, whose first element, timeout, is looked up on
+// PATH, in dir, and returns how it ended; a run that timed out, exit
+// status 124, or that a signal killed says so in trouble. A command that
+// cannot be started is an error, which it first writes, naming the
+// command and dir, on standard error, since every run after it would
+// fail the same way.
+func run_argv(dir []uint8, argv []text.Text) (Ran, error) {
+    mut res := Ran{code: 0, out: make(list[uint8], c_allocator), err: make(list[uint8], c_allocator), trouble: make(list[uint8], c_allocator)}
+    prog := text.from_bytes([]uint8("timeout"), c_allocator)?
+    st, e := os.run_in(dir, prog.bytes(), argv, mut res.out, mut res.err, c_allocator)
+    if e.code != 0 {
+        fmt.eprintf("corpus: cannot run timeout, from PATH, in %s: %s\n", dir, e.msg)
+        return res, e
+    }
+    if !st.exited() {
+        res.code = -1
+        fmt.appendf(mut res.trouble, "it was killed by signal %d", st.signal())?
+        return res, noerror
+    }
+    res.code = st.exit_status()
+    if res.code == 124 {
+        fmt.appendf(mut res.trouble, "it did not end within %s seconds", timeout_secs)?
+    }
+    return res, noerror
+}
+
+// fail writes the line that says the case named name, of the archive
+// or set what, failed, and why, and counts it in t.
+func fail(what []uint8, name []uint8, why []uint8, mut t Tally) {
+    fmt.printf("FAIL %s/%s: %s\n", what, name, why)
+    t.failures +%= 1
+}
+
+// fail_ran writes, for a run of the case named name of what that went
+// wrong, why, then its exit status and its standard error, and counts
+// it in t.
+func fail_ran(what []uint8, name []uint8, why []uint8, ran Ran, mut t Tally) error {
+    fail(what, name, why, mut t)
+    fmt.printf("  exit status %d\n", ran.code)
+    if len(ran.err) > 0 {
+        mut q := make(list[uint8], c_allocator)
+        conv.append_quote(mut q, part(ran.err, 0, first_lines(ran.err, 5)))?
+        fmt.printf("  standard error: %s\n", q[:])
+    }
+    return noerror
+}
+
+// first_lines returns the length of the first n lines of b, all of it
+// when it has no more.
+func first_lines(b []uint8, n int64) int64 {
+    mut seen int64 = 0
+    for i, c := range b {
+        if c == '\n' {
+            seen +%= 1
+            if seen >= n {
+                return i +% 1
+            }
+        }
+    }
+    return len(b)
+}
+
+// line_start returns where the line of b numbered k, from 0, starts, and
+// whether b has one: a final newline ends the last line, and starts none.
+func line_start(b []uint8, k int64) (int64, bool) {
+    mut start int64 = 0
+    mut at int64 = 0
+    for at < k {
+        stop := line_end(b, start)
+        if stop >= len(b) {
+            return 0, false
+        }
+        // stop is below len(b).
+        start = stop +% 1
+        at +%= 1
+    }
+    if start >= len(b) {
+        return 0, false
+    }
+    return start, true
+}
+
+// quoted_line appends to out the line of b that starts at start, quoted,
+// or (no such line) when has says b has none.
+func quoted_line(mut out list[uint8], b []uint8, start int64, has bool) error {
+    if !has {
+        return append(mut out, []uint8("(no such line)")...)
+    }
+    return conv.append_quote(mut out, part(b, start, line_end(b, start)))
+}
+
+// fail_diff writes that what the case named name of what gave differs
+// from what was expected, label naming the expected output, with the
+// first line that differs, each side quoted, and counts it in t.
+func fail_diff(what []uint8, name []uint8, label []uint8, want []uint8, got []uint8, mut t Tally) error {
+    mut why := make(list[uint8], c_allocator)
+    fmt.appendf(mut why, "the output differs from %s", label)?
+    fail(what, name, why[:], mut t)
+    mut k int64 = 0
+    for {
+        ws, has_w := line_start(want, k)
+        gs, has_g := line_start(got, k)
+        if !has_w && !has_g {
+            // Every line is the same; the difference is a final newline.
+            fmt.printf("  they differ only in a final newline: want %d bytes, got %d\n", len(want), len(got))
+            return noerror
+        }
+        same := has_w && has_g && bytes.equal(part(want, ws, line_end(want, ws)), part(got, gs, line_end(got, gs)))
+        if !same {
+            mut qw := make(list[uint8], c_allocator)
+            mut qg := make(list[uint8], c_allocator)
+            quoted_line(mut qw, want, ws, has_w)?
+            quoted_line(mut qg, got, gs, has_g)?
+            // k counts lines, fewer than the bytes of either side.
+            fmt.printf("  first difference, line %d:\n    want %s\n    got  %s\n", k +% 1, qw[:], qg[:])
+            return noerror
+        }
+        k +%= 1
+    }
+}
+
+// split_stage reads out, what --port-case writes, as its stage line,
+// ---, and the output, and returns the stage and whether out has that
+// shape.
+func split_stage(out []uint8) (text.Text, bool, error) {
+    if !bytes.has_prefix(out, []uint8("stage: ")) {
+        return text.new(c_allocator), false, noerror
+    }
+    nl := line_end(out, 0)
+    if nl < 7 || !bytes.has_prefix(part(out, nl, len(out)), []uint8("\n---\n")) {
+        return text.new(c_allocator), false, noerror
+    }
+    t := text.from_bytes(part(out, 7, nl), c_allocator)?
+    return t, true, noerror
+}
+
+// stage_body returns what out, which split_stage reads, holds after its
+// stage line and ---.
+func stage_body(out []uint8) []uint8 {
+    // line_end is at most len(out), so the sum does not wrap.
+    return part(out, line_end(out, 0) +% 5, len(out))
+}

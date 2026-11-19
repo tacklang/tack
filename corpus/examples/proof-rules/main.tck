@@ -1,0 +1,308 @@
+package main
+
+// A proof about a variable holds up to the first write that can reach
+// the code it guards. A write that runs after the use, on every path,
+// does not end it: later in the same statement, as the mut argument of
+// the call the proof is for, or as the target of the assignment, or later
+// in a loop's body when the guard runs again before the next use. A
+// successful append proves the list holds what it added, and pop and
+// remove written as statements drop an element when there is one, freeing
+// it when it is owned, and need no proof.
+//
+// Every check prints its name and "ok", or "FAIL".
+
+// live returns how many buffers c_allocator holds, in C.
+extern("proof_live") func live() int64
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// count returns a list holding 0 through n-1, or an empty one if an
+// append fails.
+func count(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return make(list[int64], c_allocator)
+        }
+    }
+    return l
+}
+
+// lastOr returns the last element of l, taken out of it, or or when l is
+// empty: the length check proves the pop's list is not empty, and the
+// pop's own mut argument does not end that proof.
+func lastOr(mut l list[int64], or int64) int64 {
+    if len(l) > 0 {
+        x := pop(mut l)
+        return x
+    }
+    return or
+}
+
+// takeOr returns element i of l, taken out of it, or or when i is out of
+// range.
+func takeOr(mut l list[int64], i int64, or int64) int64 {
+    if i >= 0 && i < len(l) {
+        x := remove(mut l, i)
+        return x
+    }
+    return or
+}
+
+// divideBy replaces d with n / d when d is not zero: the assignment's
+// target is written after the division it guards. A d of -1 is written
+// out as n negated, wrapping, as n / -1 did.
+func divideBy(n int64, mut d int64) {
+    if d == -1 {
+        d = -%n
+    } else if d != 0 {
+        d = n / d
+    }
+}
+
+// popPositive reports whether l's last element is positive, taking it
+// out of l, or false when l is empty.
+func popPositive(mut l list[int64]) bool {
+    return len(l) > 0 && pop(mut l) > 0
+}
+
+// walk follows the links in next from 0 until one is out of range, at
+// most n steps, and returns how many it took. The guard proves at is in
+// range for next[at], and the write to at after it reaches the next use
+// only through the guard again.
+func walk(next list[int64], n int64) int64 {
+    mut at := 0
+    mut steps := 0
+    for steps < n {
+        if at < 0 || at >= len(next) {
+            break
+        }
+        at = next[at]
+        steps++
+    }
+    return steps
+}
+
+// sumThenDrain adds up l's elements from its end, popping each, and the
+// first one again each pass: the loop's condition proves l not empty, and
+// the early exit top in range, before the pop that comes later in the
+// same pass.
+func sumThenDrain(mut l list[int64]) int64 {
+    mut sum := 0
+    for len(l) > 0 {
+        top := len(l) - 1
+        if top < 0 || top >= len(l) {
+            break
+        }
+        sum +%= l[top] +% l[0]
+        pop(mut l)
+    }
+    return sum
+}
+
+// appended returns the second element of l after appending 7 and 8 to
+// it, and 10 % its length, or -1 when the append fails: a successful
+// append proves the length.
+func appended(mut l list[int64]) int64 {
+    err := append(mut l, 7, 8)
+    if err.code != 0 {
+        return -1
+    }
+    return l[1] *% 100 +% 10 % len(l)
+}
+
+// spread appends a three-element array to an empty list and returns its
+// last element, or -1 when the append fails.
+func spread() int64 {
+    a := [3]int64{4, 5, 6}
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, a...)
+    if err.code != 0 {
+        return -1
+    }
+    return l[2]
+}
+
+// dropped pops and removes elements as statements, some out of range,
+// and returns what is left, joined into one number.
+func dropped() int64 {
+    mut l := count(5)
+    pop(mut l)
+    remove(mut l, 0)
+    remove(mut l, 9)
+    remove(mut l, -1 + len(l) - len(l))
+    mut empty := make(list[int64], c_allocator)
+    pop(mut empty)
+    remove(mut empty, 0)
+    mut joined := len(empty) *% 1000
+    for _, x := range l {
+        joined = joined *% 10 +% x
+    }
+    return joined
+}
+
+// emptied replaces l with an empty list and returns 0.
+func emptied(mut l list[int64]) int64 {
+    l = make(list[int64], c_allocator)
+    return 0
+}
+
+// droppedAfterIndex removes, as a statement, at an index whose own call
+// empties the list first: the list's length is tested once the index is
+// known, so nothing is removed.
+func droppedAfterIndex() bool {
+    mut l := count(3)
+    remove(mut l, emptied(mut l))
+    return len(l) == 0
+}
+
+// droppedOwned pops and removes lists out of a list of lists as
+// statements, which frees each one.
+func droppedOwned() {
+    mut ll := make(list[list[int64]], c_allocator)
+    for range 3 {
+        err := append(mut ll, count(4))
+        if err.code != 0 {
+            return
+        }
+    }
+    pop(mut ll)
+    remove(mut ll, 0)
+    remove(mut ll, 5)
+    check(len(ll) == 1, "owned elements dropped by statements")
+}
+
+// moved sets i far past the end of every list here and returns 1: a
+// value that writes its target's index, which an assignment's value
+// cannot be, since a proof the target needs holds to the statement's end.
+func moved(mut i int64) int64 {
+    i = 1000000
+    return 1
+}
+
+// next moves i on by one and returns 7.
+func next(mut i int64) int64 {
+    i +%= 1
+    return 7
+}
+
+// both returns two values, for an assignment of several targets.
+func both() (int64, int64) {
+    return 8, 9
+}
+
+// Spot is a struct with a field to assign in place in a list.
+type Spot struct {
+    at int64
+    tag int64
+}
+
+// assigned computes each value that writes an index into a local first,
+// then proves the index it left and assigns the element: in a list, at
+// i where next left it; skipped, where moved left i out of range; an
+// array's element, a nested array's, an element's field, through a
+// function value, and a compound assignment; and a value writing another
+// variable than its target's index, and a target of several beside one
+// that writes no index. It returns whether every element ended where it
+// should.
+func assigned() bool {
+    mut l := count(3)
+    mut i := 0
+    v := next(mut i)
+    if 0 <= i && i < len(l) {
+        l[i] = v
+    }
+    mut far := 2
+    w := moved(mut far)
+    if 0 <= far && far < len(l) {
+        l[far] = w
+    }
+    mut k := 0
+    if 0 <= i && i < len(l) {
+        l[i] +%= moved(mut k)
+    }
+    mut a := [3]int64{0, 0, 0}
+    mut grid := [2][3]int64{[3]int64{0, 0, 0}, [3]int64{0, 0, 0}}
+    mut j := 1
+    x := next(mut j)
+    if 0 <= j && j < 3 {
+        a[j] = x
+        grid[1][j] = x
+    }
+    mut spots := make(list[Spot], c_allocator)
+    err := append(mut spots, Spot{at: 0, tag: 0}, Spot{at: 1, tag: 0})
+    if err.code != 0 {
+        return false
+    }
+    f := next
+    mut s := 0
+    y := f(mut s)
+    mut other := 0
+    if 0 <= s && s < len(spots) && s < len(l) {
+        spots[s].tag = y
+        l[s], other = both()
+    }
+    mut tags := 0
+    for _, sp := range spots {
+        tags = tags *% 10 +% sp.tag
+    }
+    want := [3]int64{0, 8, 2}
+    mut same := len(l) == 3
+    for n, e := range l {
+        if n < 3 && 0 <= n {
+            same = same && e == want[n]
+        }
+    }
+    return same && k == 1000000 && far == 1000000 && a[2] == 7 && grid[1][2] == 7 &&
+        grid[0][2] == 0 && tags == 7 && other == 9
+}
+
+func main() {
+    mut l := count(3)
+    check(lastOr(mut l, -1) == 2 && len(l) == 2, "pop after a length check")
+    mut none := make(list[int64], c_allocator)
+    check(lastOr(mut none, -1) == -1, "pop after a length check, empty")
+    mut m := count(4)
+    check(takeOr(mut m, 1, -1) == 1 && len(m) == 3, "remove after a range check")
+    check(takeOr(mut m, 3, -1) == -1 && len(m) == 3, "remove after a range check, out of range")
+    mut d := 4
+    divideBy(20, mut d)
+    check(d == 5, "divisor guarded by its own assignment")
+    mut z := 0
+    divideBy(20, mut z)
+    check(z == 0, "divisor guarded by its own assignment, zero")
+    mut p := count(3)
+    check(popPositive(mut p) && len(p) == 2, "pop in its own length check")
+    mut nexts := make(list[int64], c_allocator)
+    err := append(mut nexts, 2, 3, 1, 9)
+    if err.code != 0 {
+        return
+    }
+    check(walk(nexts, 100) == 4, "write after the use in a loop")
+    mut s := count(4)
+    check(sumThenDrain(mut s) == 6 && len(s) == 0, "pop after the use in a loop")
+    mut a := count(1)
+    check(appended(mut a) == 701 && len(a) == 3, "append proves the length")
+    check(spread() == 6, "append of an array proves the length")
+    check(dropped() == 123, "pop and remove as statements")
+    check(droppedAfterIndex(), "remove as a statement after its index empties the list")
+    before := live()
+    droppedOwned()
+    check(live() == before, "every dropped list freed")
+    check(assigned(), "each value that writes an index computed before it is proven")
+    check(live() == before, "every assigned list freed")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

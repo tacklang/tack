@@ -1,0 +1,126 @@
+package main
+
+// Floats crossing to C, and held by an any. A float32 is C's float and a
+// float64 C's double, passed and returned by value, alone or in a
+// struct, an array or a view, and through a mut parameter as a pointer, as
+// any other basic type is. Every extern func below is written in C, in
+// floats.c, which does real float work without the C library: a square
+// root by Newton's method, a dot product, a sum. What C gives back may be
+// NaN or an infinity, which Tack's floats hold as IEEE 754 says. An any
+// holds a float32 or a float64 with its own type id, which C checks
+// before it reads, as for any other type, and a type switch matches. Each
+// check prints its name and "ok", or "FAIL".
+
+// Vec is a point in the plane.
+type Vec struct {
+    x float64
+    y float64
+}
+
+// Sample holds a float32 between other fields, so its layout must match
+// C's exactly.
+type Sample struct {
+    tag uint8
+    value float32
+    count int64
+}
+
+// root returns the square root of x, by Newton's method, or NaN for a
+// negative x.
+extern("ext_root") func root(x float64) float64
+
+// scale returns v with each coordinate times k, a float32 widened in C.
+extern("ext_scale") func scale(v Vec, k float32) Vec
+
+// dot returns the dot product of a and b, over the shorter's length.
+extern("ext_dot") func dot(a []float64, b []float64) float64
+
+// halve halves both of v's coordinates, through a pointer.
+extern("ext_halve") func halve(mut v Vec)
+
+// sum4 returns the sum of a's four float32 elements, in float32.
+extern("ext_sum4") func sum4(a [4]float32) float32
+
+// bump returns s with its value doubled and its count one more.
+extern("ext_bump") func bump(s Sample) Sample
+
+// infinity returns positive infinity, and nan32 a float32 NaN, both made
+// in C.
+extern("ext_infinity") func infinity() float64
+extern("ext_nan32") func nan32() float32
+
+// kind returns the type id a holds.
+extern("ext_kind") func kind(a any) uint32
+
+// twice returns twice the float64 a holds, or -1 when it holds anything
+// else, read through tack_any_float64.
+extern("ext_twice") func twice(a any) float64
+
+// halves returns half the float32 a holds, or -1 when it holds anything
+// else, read through tack_any_float32.
+extern("ext_halves") func halves(a any) float32
+
+// first returns the first element of the []float64 a holds, or -1.
+extern("ext_first") func first(a any) float64
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// describe returns which type a holds: 1 for a float64 equal to 1.5, 2 for
+// any other float64, 3 for a float32, 4 for an int64, and 0 for anything
+// else.
+func describe(a any) int64 {
+    switch v := a.(type) {
+    case float64:
+        if v == 1.5 {
+            return 1
+        }
+        return 2
+    case float32:
+        if v == 0.25 {
+            return 3
+        }
+        return 0
+    case int64:
+        return 4
+    default:
+        return 0
+    }
+}
+
+func main() {
+    check(root(2.0) > 1.414213 && root(2.0) < 1.414214 && root(0.0) == 0.0, "a square root in C")
+    r := root(-1.0)
+    check(r != r, "NaN from C")
+    v := scale(Vec{x: 1.5, y: -2.0}, 2.0)
+    check(v.x == 3.0 && v.y == -4.0, "a struct of float64 and a float32, by value")
+    a := [3]float64{1.0, 2.0, 3.0}
+    b := [3]float64{4.0, 5.0, 6.0}
+    check(dot(a[:], b[:]) == 32.0, "views of float64")
+    mut w := Vec{x: 3.0, y: 5.0}
+    halve(mut w)
+    check(w.x == 1.5 && w.y == 2.5, "a mut struct of floats")
+    check(sum4([4]float32{0.5, 0.25, 0.125, 0.125}) == 1.0, "an array of float32")
+    s := bump(Sample{tag: 7, value: 1.25, count: 41})
+    check(s.tag == 7 && s.value == 2.5 && s.count == 42, "a float32 between other fields")
+    inf := infinity()
+    check(inf > 1e308 && -inf < -1e308 && inf + 1.0 == inf, "infinity from C")
+    n := nan32()
+    check(n != n && !(n < 0.0) && !(n >= 0.0), "a float32 NaN from C")
+    x := 1.5
+    var y float32 = 0.25
+    check(kind(x) == 26 && kind(y) == 25 && kind(a[:]) == 28, "float type ids in C")
+    check(twice(x) == 3.0 && twice(y) == -1.0 && halves(y) == 0.125 && halves(x) == -1.0,
+        "floats unpacked in C")
+    check(first(a[:]) == 1.0 && first(x) == -1.0, "a view of float64 read in C")
+    check(describe(x) == 1 && describe(2.5) == 2 && describe(y) == 3 && describe(7) == 4 && describe(true) == 0,
+        "a type switch matches floats")
+    check(describe(inf) == 2 && describe(n) == 0, "an any holding infinity or NaN")
+}

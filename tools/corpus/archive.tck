@@ -1,0 +1,644 @@
+package main
+
+import bytes from "std/bytes"
+import conv from "std/conv"
+import fmt from "std/fmt"
+import path from "std/path"
+import text from "std/text"
+
+// The archives of the corpus, read and written as tackc's internal/invalid
+// reads and writes them. An archive is a txtar file: a comment, then
+// files, each introduced by a header line, -- name --, its bytes the
+// lines up to the next header or the end. Two formats share it:
+//
+//   - the single format, invalid.txtar's and warnings.txtar's: each case
+//     n is the file n/main.tck, the program, then n/expected, followed,
+//     for a program whose last line has no newline, by an empty marker
+//     n/no-final-newline, the newline before which the program does not
+//     hold;
+//   - the tree format, every other archive's: each case n is its files,
+//     n/<path> each, then n/expected.
+//
+// Cases come in strictly increasing byte order of their names, and an
+// expected section is never empty. parse_archive rejects what
+// internal/invalid's Parse and ParseTree reject, saying why and on which
+// line, and format_archive writes what its Format and FormatTree write,
+// refusing what they refuse, so a parse followed by a format gives the
+// archive back byte for byte, which the runner checks of every archive
+// it reads.
+
+// CaseFile is one file of a case: its path below the case's directory,
+// with slashes, main.tck for the single format's program, and its bytes.
+type CaseFile struct {
+    path text.Text
+    data list[uint8]
+}
+
+// Case is one case of an archive: its name, its files, in archive order,
+// and its expected section.
+type Case struct {
+    name text.Text
+    files list[CaseFile]
+    expected list[uint8]
+}
+
+// Archive is an archive read by parse_archive: whether it is in the tree
+// format, its comment, what comes before the first header, and its
+// cases, in order.
+type Archive struct {
+    tree bool
+    comment list[uint8]
+    cases list[Case]
+}
+
+// Section is one file of a txtar archive as split finds it, as offsets
+// into the archive's bytes: its header's name, from name_start up to
+// name_end, the number of the header's line, from 1, and its bytes, from
+// start up to end.
+type Section struct {
+    name_start int64
+    name_end int64
+    line int64
+    start int64
+    end int64
+}
+
+// main_file, expected_name and no_newline_name are the names, below a
+// case's directory, of the single format's program, of every case's
+// expected section and of the no-final-newline marker.
+var main_file = "main.tck"
+var expected_name = "expected"
+var no_newline_name = "no-final-newline"
+
+// part returns the view of s from a up to b, or an empty view when those
+// are not bounds of s.
+func part(s []uint8, a int64, b int64) []uint8 {
+    if a < 0 || b < a || b > len(s) {
+        return s[:0]
+    }
+    return s[a:b]
+}
+
+// compare_bytes compares a and b bytewise, as Go compares two strings:
+// -1 when a sorts first, a prefix of b included, 1 when b does, and 0
+// when they are equal.
+func compare_bytes(a []uint8, b []uint8) int64 {
+    for i, x := range a {
+        y, ok := b[i]
+        if !ok {
+            return 1
+        }
+        if x != y {
+            if x < y {
+                return -1
+            }
+            return 1
+        }
+    }
+    if len(a) < len(b) {
+        return -1
+    }
+    return 0
+}
+
+// is_header reports whether line, without its newline, would be read as
+// a header: it starts with "-- " and ends with " --". "-- --" counts, so
+// that it is rejected rather than taken as content, as internal/invalid
+// takes it.
+func is_header(line []uint8) bool {
+    return bytes.has_prefix(line, []uint8("-- ")) && bytes.has_suffix(line, []uint8(" --"))
+}
+
+// is_space_rune reports whether r is a space as Go's unicode.IsSpace
+// sees one, which strings.TrimSpace trims.
+func is_space_rune(r int64) bool {
+    return r == 9 || r == 10 || r == 11 || r == 12 || r == 13 || r == 32 || r == 0x85 || r == 0xa0 ||
+        r == 0x1680 || r >= 0x2000 && r <= 0x200a || r == 0x2028 || r == 0x2029 || r == 0x202f ||
+        r == 0x205f || r == 0x3000
+}
+
+// rune_at decodes the UTF-8 sequence of s that starts at i, and returns
+// the rune and its length in bytes, or -1 and 1 for a byte that starts
+// no valid sequence of two or three bytes, the only lengths a space
+// beyond ASCII has; an ASCII byte is itself.
+func rune_at(s []uint8, i int64) (int64, int64) {
+    c, ok := s[i]
+    if !ok {
+        return -1, 1
+    }
+    if c < 0x80 {
+        return int64(c), 1
+    }
+    next := i +% 1
+    c1, ok1 := s[next]
+    if !ok1 || c1 & 0xc0 != 0x80 {
+        return -1, 1
+    }
+    if c & 0xe0 == 0xc0 {
+        r := (int64(c & 0x1f) << 6) | int64(c1 & 0x3f)
+        if r < 0x80 {
+            return -1, 1
+        }
+        return r, 2
+    }
+    if c & 0xf0 == 0xe0 {
+        c2, ok2 := s[next +% 1]
+        if !ok2 || c2 & 0xc0 != 0x80 {
+            return -1, 1
+        }
+        r := (int64(c & 0x0f) << 12) | (int64(c1 & 0x3f) << 6) | int64(c2 & 0x3f)
+        if r < 0x800 {
+            return -1, 1
+        }
+        return r, 3
+    }
+    return -1, 1
+}
+
+// space_before returns how many bytes the space that ends s[:end] takes,
+// one to three, or 0 when no space ends it (see is_space_rune).
+func space_before(s []uint8, end int64) int64 {
+    for _, back := range [3]int64{1, 2, 3} {
+        at := end -% back
+        if at < 0 {
+            continue
+        }
+        r, n := rune_at(s, at)
+        if n == back && is_space_rune(r) {
+            return back
+        }
+    }
+    return 0
+}
+
+// is_trimmed reports whether s is what Go's strings.TrimSpace leaves of
+// it: it neither starts nor ends with a space (see is_space_rune).
+func is_trimmed(s []uint8) bool {
+    if len(s) == 0 {
+        return true
+    }
+    first, _ := rune_at(s, 0)
+    return !is_space_rune(first) && space_before(s, len(s)) == 0
+}
+
+// trim_space returns s without the spaces it starts and ends with, as
+// Go's strings.TrimSpace trims them (see is_space_rune).
+func trim_space(s []uint8) []uint8 {
+    mut start int64 = 0
+    for start < len(s) {
+        r, n := rune_at(s, start)
+        if !is_space_rune(r) {
+            break
+        }
+        // n is at most 3 and start below len(s).
+        start +%= n
+    }
+    mut end := len(s)
+    for end > start {
+        n := space_before(s, end)
+        if n == 0 || end -% n < start {
+            break
+        }
+        end = end -% n
+    }
+    return part(s, start, end)
+}
+
+// line_end returns the end of the line of data that starts at start: the
+// index of its newline, or len(data) when it has none.
+func line_end(data []uint8, start int64) int64 {
+    nl := bytes.index_byte(part(data, start, len(data)), '\n')
+    if nl < 0 || start < 0 {
+        return len(data)
+    }
+    // nl is an index of what follows start in data.
+    return start +% nl
+}
+
+// split finds the sections of data, which ends with a newline or is
+// empty, appending them to sections, and returns where the comment, the
+// lines before the first header, ends, as internal/invalid's split cuts
+// an archive. A header whose name is empty or starts or ends with a
+// space is reported in problem, which is otherwise left empty.
+func split(data []uint8, mut sections list[Section], mut problem list[uint8]) (int64, error) {
+    mut comment_end := len(data)
+    mut start int64 = 0
+    mut line int64 = 0
+    for start < len(data) {
+        stop := line_end(data, start)
+        // A line holds at least its newline, so there are fewer lines
+        // than bytes, and stop is below len(data).
+        line +%= 1
+        next := stop +% 1
+        if is_header(part(data, start, stop)) {
+            mut ns := start
+            mut ne := start
+            if stop -% start > 6 {
+                ns = start +% 3
+                ne = stop -% 3
+            }
+            if ne == ns || !is_trimmed(part(data, ns, ne)) {
+                fmt.appendf(mut problem, "line %d: malformed header ", line)?
+                conv.append_quote(mut problem, part(data, start, stop))?
+                return comment_end, noerror
+            }
+            if len(sections) == 0 {
+                comment_end = start
+            }
+            last := len(sections) -% 1
+            if last >= 0 && last < len(sections) {
+                sections[last].end = start
+            }
+            append(mut sections, Section{name_start: ns, name_end: ne, line: line, start: next, end: len(data)})?
+        }
+        start = next
+    }
+    return comment_end, noerror
+}
+
+// valid_name reports whether name can be a case's name: not empty, and
+// without a slash, a space, a tab, a carriage return or a newline, which
+// would make its headers ambiguous.
+func valid_name(name []uint8) bool {
+    if len(name) == 0 {
+        return false
+    }
+    for _, c := range name {
+        if c == '/' || c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+            return false
+        }
+    }
+    return true
+}
+
+// valid_tree_path reports whether rel can be the path of a file of a
+// tree case: not empty, clean, relative, not starting with .., without a
+// space, a tab, a carriage return or a newline, and not expected, the
+// expected section's name.
+func valid_tree_path(rel []uint8) (bool, error) {
+    if len(rel) == 0 || bytes.has_prefix(rel, []uint8("/")) || bytes.has_prefix(rel, []uint8("..")) ||
+        bytes.equal(rel, []uint8(expected_name)) {
+        return false, noerror
+    }
+    for _, c := range rel {
+        if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+            return false, noerror
+        }
+    }
+    clean := path.clean(rel, c_allocator)?
+    return clean.equal(rel), noerror
+}
+
+// joined returns name, a slash and what, as one list.
+func joined(name []uint8, what string) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    append(mut out, name...)?
+    append(mut out, '/')?
+    append(mut out, []uint8(what)...)?
+    return out, noerror
+}
+
+// order_problem reports in problem that the case name comes after the
+// last of cases or with its name, when it does: cases must be in strictly
+// increasing order.
+func order_problem(cases []Case, name []uint8, mut problem list[uint8]) error {
+    last := len(cases) -% 1
+    if last < 0 || last >= len(cases) {
+        return noerror
+    }
+    if compare_bytes(cases[last].name.bytes(), name) < 0 {
+        return noerror
+    }
+    append(mut problem, []uint8("case ")...)?
+    conv.append_quote(mut problem, name)?
+    append(mut problem, []uint8(" comes after ")...)?
+    conv.append_quote(mut problem, cases[last].name.bytes())?
+    return append(mut problem, []uint8(": cases must be in strictly increasing order")...)
+}
+
+// parse_archive reads data as an archive in the tree format when tree
+// says so, and in the single format otherwise, as internal/invalid's
+// ParseTree and Parse read one. It returns the archive, and in problem
+// why it is malformed, naming the line, when it is: an archive that does
+// not end with a newline, a malformed header, a case out of order, and
+// each shape the format rules out.
+func parse_archive(data []uint8, tree bool, mut problem list[uint8]) (Archive, error) {
+    mut a := Archive{tree: tree, comment: make(list[uint8], c_allocator), cases: make(list[Case], c_allocator)}
+    if len(data) > 0 && !bytes.has_suffix(data, []uint8("\n")) {
+        append(mut problem, []uint8("archive does not end with a newline")...)?
+        return a, noerror
+    }
+    mut sections := make(list[Section], c_allocator)
+    comment_end := split(data, mut sections, mut problem)?
+    if len(problem) > 0 {
+        return a, noerror
+    }
+    append(mut a.comment, part(data, 0, comment_end)...)?
+    mut k int64 = 0
+    for k < len(sections) {
+        mut c := Case{name: text.new(c_allocator), files: make(list[CaseFile], c_allocator), expected: make(list[uint8], c_allocator)}
+        mut next := k
+        if tree {
+            next = take_tree_case(data, sections, k, mut c, mut problem)?
+        } else {
+            next = take_case(data, sections, k, mut c, mut problem)?
+        }
+        if len(problem) > 0 {
+            return a, noerror
+        }
+        order_problem(a.cases, c.name.bytes(), mut problem)?
+        if len(problem) > 0 {
+            return a, noerror
+        }
+        append(mut a.cases, c)?
+        k = next
+    }
+    return a, noerror
+}
+
+// name_is reports whether the section s of the archive data is named
+// name.
+func name_is(data []uint8, s Section, name []uint8) bool {
+    return bytes.equal(part(data, s.name_start, s.name_end), name)
+}
+
+// case_problem appends to problem the start of a problem with the case
+// name found at line: line, the line, case and the name, quoted.
+func case_problem(mut problem list[uint8], line int64, name []uint8) error {
+    fmt.appendf(mut problem, "line %d: case ", line)?
+    return conv.append_quote(mut problem, name)
+}
+
+// take_case reads into c the case of the single format whose program is
+// the section k of sections, of the archive data, and returns the index
+// of the section after it, or reports in problem why it cannot, as
+// internal/invalid's takeCase does.
+func take_case(data []uint8, sections []Section, k int64, mut c Case, mut problem list[uint8]) (int64, error) {
+    s, has_s := sections[k]
+    if !has_s {
+        return k, noerror
+    }
+    suffix := bytes.has_suffix(part(data, s.name_start, s.name_end), []uint8("/main.tck"))
+    // With the suffix, the name holds its 9 bytes.
+    name_end := s.name_end -% 9
+    if !suffix || !valid_name(part(data, s.name_start, name_end)) {
+        fmt.appendf(mut problem, "line %d: want a header -- <case>/main.tck --, got ", s.line)?
+        conv.append_quote(mut problem, part(data, s.name_start, s.name_end))?
+        return k, noerror
+    }
+    mut c.name.append(part(data, s.name_start, name_end))?
+    want := joined(c.name.bytes(), expected_name)?
+    e, has_e := sections[k +% 1]
+    if !has_e || !name_is(data, e, want[:]) {
+        case_problem(mut problem, s.line, c.name.bytes())?
+        fmt.appendf(mut problem, ": want -- %s -- right after its program", want[:])?
+        return k, noerror
+    }
+    if e.end == e.start {
+        case_problem(mut problem, e.line, c.name.bytes())?
+        append(mut problem, []uint8(" has an empty expected output")...)?
+        return k, noerror
+    }
+    mut source := make(list[uint8], c_allocator)
+    append(mut source, part(data, s.start, s.end)...)?
+    append(mut c.expected, part(data, e.start, e.end)...)?
+    mut next := k +% 2
+    marker := joined(c.name.bytes(), no_newline_name)?
+    m, has_m := sections[next]
+    if has_m && name_is(data, m, marker[:]) {
+        if m.end != m.start {
+            case_problem(mut problem, m.line, c.name.bytes())?
+            append(mut problem, []uint8(": the no-final-newline marker must be empty")...)?
+            return k, noerror
+        }
+        if len(source) == 0 {
+            case_problem(mut problem, m.line, c.name.bytes())?
+            append(mut problem, []uint8(": an empty program has no newline to drop")...)?
+            return k, noerror
+        }
+        pop(mut source)
+        if len(source) == 0 || bytes.has_suffix(source, []uint8("\n")) {
+            case_problem(mut problem, m.line, c.name.bytes())?
+            append(mut problem, []uint8(": the program's last line is empty, so the no-final-newline marker would not leave it unterminated")...)?
+            return k, noerror
+        }
+        next +%= 1
+    }
+    p := text.from_bytes([]uint8(main_file), c_allocator)?
+    append(mut c.files, CaseFile{path: p, data: source})?
+    return next, noerror
+}
+
+// take_tree_case reads into c the case of the tree format that starts
+// at the section k of sections, of the archive data, and returns the
+// index of the section after it, or reports in problem why it cannot,
+// as internal/invalid's takeTreeCase does.
+func take_tree_case(data []uint8, sections []Section, k int64, mut c Case, mut problem list[uint8]) (int64, error) {
+    s, has_s := sections[k]
+    if !has_s {
+        return k, noerror
+    }
+    slash := bytes.index_byte(part(data, s.name_start, s.name_end), '/')
+    // slash is an index of the name, when it is one.
+    name_end := s.name_start +% slash
+    if slash < 0 || !valid_name(part(data, s.name_start, name_end)) {
+        fmt.appendf(mut problem, "line %d: want a header -- <case>/<file> --, got ", s.line)?
+        conv.append_quote(mut problem, part(data, s.name_start, s.name_end))?
+        return k, noerror
+    }
+    mut c.name.append(part(data, s.name_start, name_end))?
+    prefix := joined(c.name.bytes(), "")?
+    mut j := k
+    for j < len(sections) {
+        f, has_f := sections[j]
+        if !has_f {
+            break
+        }
+        if !bytes.has_prefix(part(data, f.name_start, f.name_end), prefix[:]) {
+            case_problem(mut problem, f.line, c.name.bytes())?
+            fmt.appendf(mut problem, " ends without its %s/%s file", c.name.bytes(), expected_name)?
+            return k, noerror
+        }
+        // The name starts with the prefix, so this is within it.
+        rel_start := f.name_start +% len(prefix)
+        if bytes.equal(part(data, rel_start, f.name_end), []uint8(expected_name)) {
+            if len(c.files) == 0 {
+                case_problem(mut problem, f.line, c.name.bytes())?
+                append(mut problem, []uint8(" has no files")...)?
+                return k, noerror
+            }
+            if f.end == f.start {
+                case_problem(mut problem, f.line, c.name.bytes())?
+                append(mut problem, []uint8(" has an empty expected output")...)?
+                return k, noerror
+            }
+            append(mut c.expected, part(data, f.start, f.end)...)?
+            return j +% 1, noerror
+        }
+        ok := valid_tree_path(part(data, rel_start, f.name_end))?
+        mut repeated := false
+        for _, x := range c.files {
+            if x.path.equal(part(data, rel_start, f.name_end)) {
+                repeated = true
+            }
+        }
+        if !ok || repeated {
+            case_problem(mut problem, f.line, c.name.bytes())?
+            append(mut problem, []uint8(": bad or repeated file ")...)?
+            conv.append_quote(mut problem, part(data, rel_start, f.name_end))?
+            return k, noerror
+        }
+        p := text.from_bytes(part(data, rel_start, f.name_end), c_allocator)?
+        mut d := make(list[uint8], c_allocator)
+        append(mut d, part(data, f.start, f.end)...)?
+        append(mut c.files, CaseFile{path: p, data: d})?
+        // j is an index of sections, so j + 1 is at most its length.
+        j +%= 1
+    }
+    mut line int64 = 0
+    last, has_last := sections[len(sections) -% 1]
+    if has_last {
+        line = last.line
+    }
+    case_problem(mut problem, line, c.name.bytes())?
+    fmt.appendf(mut problem, " ends without its %s/%s file", c.name.bytes(), expected_name)?
+    return k, noerror
+}
+
+// check_content reports in problem, naming what, a line of data that
+// would read as a header, as internal/invalid's checkContent does: the
+// lines are what splitting data at every newline gives, the piece after
+// the last one among them.
+func check_content(what []uint8, data []uint8, mut problem list[uint8]) error {
+    mut start int64 = 0
+    mut line int64 = 1
+    for start <= len(data) {
+        stop := line_end(data, start)
+        if is_header(part(data, start, stop)) {
+            fmt.appendf(mut problem, "%s: line %d reads as a txtar header: ", what, line)?
+            return conv.append_quote(mut problem, part(data, start, stop))
+        }
+        // stop is at most len(data), and each line one byte at least, so
+        // neither sum wraps.
+        start = stop +% 1
+        line +%= 1
+    }
+    return noerror
+}
+
+// format_archive returns a written as an archive that parse_archive
+// reads back as a, as internal/invalid's Format and FormatTree write
+// one, or reports in problem, naming the case, why a cannot be written
+// exactly: a comment or content with a line that reads as a header, a
+// comment that does not end with a newline, cases out of order, a bad
+// name or path, an expected section that is empty or does not end with
+// a newline, and, in the tree format, a file that does not end with one.
+func format_archive(a Archive, mut problem list[uint8]) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    check_content([]uint8("the comment"), a.comment, mut problem)?
+    if len(problem) > 0 {
+        return out, noerror
+    }
+    if len(a.comment) > 0 && !bytes.has_suffix(a.comment, []uint8("\n")) {
+        append(mut problem, []uint8("the comment does not end with a newline")...)?
+        return out, noerror
+    }
+    append(mut out, a.comment...)?
+    for i, c := range a.cases {
+        check_case_format(c, a.tree, mut problem)?
+        if len(problem) > 0 {
+            return out, noerror
+        }
+        order_problem(a.cases[:i], c.name.bytes(), mut problem)?
+        if len(problem) > 0 {
+            return out, noerror
+        }
+        write_case(mut out, c, a.tree)?
+    }
+    return out, noerror
+}
+
+// is_main_only reports whether files is one file, main.tck, a case of
+// the single format.
+func is_main_only(files []CaseFile) bool {
+    if len(files) != 1 {
+        return false
+    }
+    return files[0].path.equal([]uint8(main_file))
+}
+
+// check_case_format reports in problem why c cannot be written to an
+// archive in the tree format, when tree says so, or the single one, if
+// it cannot (see format_archive).
+func check_case_format(c Case, tree bool, mut problem list[uint8]) error {
+    if !valid_name(c.name.bytes()) {
+        append(mut problem, []uint8("invalid case name ")...)?
+        return conv.append_quote(mut problem, c.name.bytes())
+    }
+    if !tree && !is_main_only(c.files) {
+        return fmt.appendf(mut problem, "case %s: a case of this archive is its main.tck alone", c.name.bytes())
+    }
+    if tree && len(c.files) == 0 {
+        append(mut problem, []uint8("case ")...)?
+        conv.append_quote(mut problem, c.name.bytes())?
+        return append(mut problem, []uint8(" has no files")...)
+    }
+    for i, f := range c.files {
+        mut what := joined(c.name.bytes(), "")?
+        append(mut what, f.path.bytes()...)?
+        if tree {
+            ok := valid_tree_path(f.path.bytes())?
+            mut repeated := false
+            for j, g := range c.files {
+                if j < i && g.path.equal(f.path.bytes()) {
+                    repeated = true
+                }
+            }
+            if !ok || repeated {
+                append(mut problem, []uint8("case ")...)?
+                conv.append_quote(mut problem, c.name.bytes())?
+                append(mut problem, []uint8(": bad or repeated file ")...)?
+                return conv.append_quote(mut problem, f.path.bytes())
+            }
+        }
+        check_content(what[:], f.data, mut problem)?
+        if len(problem) > 0 {
+            return noerror
+        }
+        if tree && len(f.data) > 0 && !bytes.has_suffix(f.data, []uint8("\n")) {
+            return fmt.appendf(mut problem, "%s does not end with a newline", what[:])
+        }
+    }
+    what := joined(c.name.bytes(), expected_name)?
+    check_content(what[:], c.expected, mut problem)?
+    if len(problem) > 0 {
+        return noerror
+    }
+    if len(c.expected) == 0 || !bytes.has_suffix(c.expected, []uint8("\n")) {
+        append(mut problem, []uint8("case ")...)?
+        conv.append_quote(mut problem, c.name.bytes())?
+        return append(mut problem, []uint8(": the expected output must be non-empty and end with a newline")...)
+    }
+    return noerror
+}
+
+// write_case appends c, which check_case_format passed, to out, in the
+// tree format when tree says so, and in the single one otherwise, with
+// the no-final-newline marker when its program needs it.
+func write_case(mut out list[uint8], c Case, tree bool) error {
+    mut unterminated := false
+    for _, f := range c.files {
+        fmt.appendf(mut out, "-- %s/%s --\n", c.name.bytes(), f.path.bytes())?
+        append(mut out, f.data...)?
+        if !tree && len(f.data) > 0 && !bytes.has_suffix(f.data, []uint8("\n")) {
+            unterminated = true
+            append(mut out, '\n')?
+        }
+    }
+    fmt.appendf(mut out, "-- %s/%s --\n", c.name.bytes(), expected_name)?
+    append(mut out, c.expected...)?
+    if unterminated {
+        fmt.appendf(mut out, "-- %s/%s --\n", c.name.bytes(), no_newline_name)?
+    }
+    return noerror
+}

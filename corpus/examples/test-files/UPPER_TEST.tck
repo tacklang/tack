@@ -1,0 +1,7 @@
+package main
+
+// upper is in a file whose name ends in _TEST.tck, not _test.tck, so the
+// file is an ordinary one of the package.
+func upper() int64 {
+    return 30
+}

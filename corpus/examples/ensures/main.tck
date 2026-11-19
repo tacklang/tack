@@ -1,0 +1,414 @@
+package main
+
+// A function can state, after its results, facts it ensures about its
+// parameters when it returns: func must(err error) ensures err.code ==
+// 0. The compiler proves the clause on every path that returns, each
+// return and the end of the body, a path ending in exit never returning,
+// and a call that is a statement of its own, or the whole value of a
+// declaration or an assignment, gives its caller the facts after the
+// statement, about every argument that is a local variable the call does
+// not change otherwise. They prove what a guard would: a read of a value
+// bound beside an error, a divisor, an index, a slice's bounds, a map's
+// key. Every check prints its name and "ok", or "FAIL".
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// parse reads s as a decimal number, with error 3 for a byte that is not
+// a digit and error 1 for the empty string.
+func parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    mut n int64 = 0
+    for i := range s {
+        c := s[i]
+        if c < '0' || c > '9' {
+            return 0, error{code: 3, msg: "not a digit"}
+        }
+        n = n *% 10 +% (c - '0')
+    }
+    return n, noerror
+}
+
+// must ends the program with err's code when err is an error, so it
+// returns only when err holds none.
+func must(err error) ensures err.code == 0 {
+    if err.code != 0 {
+        print(err.msg)
+        exit(err.code)
+    }
+}
+
+// checked returns 1 for no error, after handling err as must does.
+func checked(err error) int64 ensures err.code == 0 {
+    if err.code == 0 {
+        return 1
+    }
+    exit(err.code)
+    return 0
+}
+
+// nonzero ends the program unless d is not zero.
+func nonzero(d int64) ensures d != 0 {
+    if d == 0 {
+        exit(2)
+    }
+}
+
+// fix makes d 1 where it is zero, so it is never zero once fix returns.
+func fix(mut d int64) ensures d != 0 {
+    if d != 0 {
+        return
+    }
+    d = 1
+    if d == 0 {
+        exit(2)
+    }
+}
+
+// fixed is fix again, proven by the call to fix its body ends with.
+func fixed(mut d int64) ensures d != 0 {
+    fix(mut d)
+}
+
+// settle makes a 1 where it is zero, and reads b, a copy of what was
+// passed for it.
+func settle(mut a int64, b int64) ensures a != 0 {
+    if b != 0 && a != 0 {
+        return
+    }
+    a = 1
+    if a == 0 {
+        exit(2)
+    }
+}
+
+// divide divides n by d, a parameter a call proves not zero, and an
+// early return not -1, for which it negates n, wrapping, as n / -1 did.
+func divide(n int64, d int64) int64 {
+    nonzero(d)
+    if d == -1 {
+        return -%n
+    }
+    return n / d
+}
+
+// inside ends the program unless i indexes a view of n elements.
+func inside(i int64, l []int64) ensures 0 <= i && i < len(l) {
+    if i < 0 || i >= len(l) {
+        exit(4)
+    }
+}
+
+// below ends the program unless 0 <= i < n.
+func below(i int64, n int64) ensures 0 <= i && i < n {
+    if 0 <= i && i < n {
+        return
+    }
+    exit(4)
+}
+
+// ordered ends the program unless lo <= hi <= len(s), bounds a slice
+// of s can take.
+func ordered(lo int64, hi int64, s string) ensures 0 <= lo && lo <= hi && hi <= len(s) {
+    if lo < 0 || lo > hi || hi > len(s) {
+        exit(5)
+    }
+}
+
+// room ends the program unless both i and i + 1 index l.
+func room(i int64, l []int64) ensures 0 <= i && i < len(l) && i + 1 < len(l) {
+    if i < 0 || i >= len(l) || i + 1 >= len(l) {
+        exit(5)
+    }
+}
+
+// grow appends x to l, ending the program if it cannot, so l holds at
+// least one element once grow returns.
+func grow(mut l list[int64], x int64) ensures len(l) > 0 {
+    err := append(mut l, x)
+    if err.code != 0 {
+        exit(6)
+    }
+}
+
+// need ends the program unless k is a key of m.
+func need(m map[int64]int64, k int64) ensures has(m, k) {
+    if !has(m, k) {
+        exit(7)
+    }
+}
+
+// positive ends the program unless n is above 0, counting down to it
+// through calls to itself.
+func positive(n int64) ensures n > 0 {
+    if n <= 0 {
+        exit(8)
+    }
+    if n > 1 {
+        positive(n - 1)
+    }
+}
+
+// Any asks for no method.
+type Any interface {
+}
+
+// some ends the program unless l holds an element, for elements of any
+// type.
+func some[T Any](l []T) ensures len(l) > 0 {
+    if len(l) == 0 {
+        exit(9)
+    }
+}
+
+// Stack holds a list of values.
+type Stack struct {
+    items list[int64]
+}
+
+// full ends the program unless s holds an item: a method ensuring a fact
+// about its receiver.
+func (s Stack) full() ensures len(s.items) > 0 {
+    if len(s.items) == 0 {
+        exit(10)
+    }
+}
+
+// fixv makes d 1 where it is zero, as fix does, and returns it.
+func fixv(mut d int64) int64 ensures d != 0 {
+    if d == 0 {
+        d = 1
+    }
+    if d == 0 {
+        exit(2)
+    }
+    return d
+}
+
+// refix returns what fixv returns, proven by the call that is its return's
+// value: its facts hold where refix returns.
+func refix(mut d int64) int64 ensures d != 0 {
+    return fixv(mut d)
+}
+
+// Writer is what bytes can be written to.
+type Writer interface {
+    mut write(b []uint8) error
+}
+
+// Counter counts the bytes written to it.
+type Counter struct {
+    n int64
+}
+
+// write counts b's bytes.
+func (mut c Counter) write(b []uint8) error {
+    c.n +%= len(b)
+    return noerror
+}
+
+// emit writes to w, an interface parameter, which makes emit generic, and
+// ends the program unless d is not zero.
+func emit(mut w Writer, d int64) ensures d != 0 {
+    e := mut w.write([]uint8("hi"))
+    if e.code != 0 || d == 0 {
+        exit(12)
+    }
+}
+
+// Box holds a count.
+type Box struct {
+    n int64
+}
+
+// set is a method with a mut receiver that ensures a fact about its other
+// parameter: a field of a mut parameter carries none, so set ensures
+// nothing about b.n.
+func (mut b Box) set(mut d int64) ensures d != 0 {
+    b.n = 0
+    d = 1
+    if d == 0 {
+        exit(13)
+    }
+}
+
+// tally counts how many times deferred code ran.
+mut tally int64 = 0
+
+// deferring ends the program unless d is not zero, with deferred code
+// that changes nothing the clause names.
+func deferring(d int64) ensures d != 0 {
+    defer {
+        tally +%= 1
+    }
+    if d == 0 {
+        exit(11)
+    }
+}
+
+// errors reads results bound beside an error once a call has ensured
+// the error is none.
+func errors() {
+    n, err := parse("42")
+    must(err)
+    check(n == 42, "must")
+
+    m, errM := parse("7")
+    one := checked(errM)
+    check(m +% one == 8, "checked as a value")
+
+    mut total int64 = 0
+    for _, s := range [3]string{"1", "20", "300"} {
+        v, e := parse(s)
+        must(e)
+        total +%= v
+    }
+    check(total == 321, "must in a loop")
+}
+
+// divisors divides by values a call has ensured are not zero.
+func divisors() {
+    mut d int64 = 5
+    nonzero(d)
+    check(100 / d == 20, "nonzero")
+
+    mut z int64 = 0
+    fix(mut z)
+    check(9 / z == 9, "fix through mut")
+
+    mut w int64 = 4
+    fix(mut w)
+    check(8 % w == 0, "fix leaves a nonzero value")
+
+    mut u int64 = 0
+    fixed(mut u)
+    check(7 / u == 7, "a contract proven by a call's")
+
+    mut i int64 = 0
+    settle(mut i, i)
+    check(6 / i == 6, "the same variable as mut and as a copy")
+
+    check(divide(12, 4) == 3, "a parameter of the caller")
+}
+
+// indexes reads elements at indexes a call has proven.
+func indexes() {
+    mut l := make(list[int64], c_allocator)
+    for k := range 5 {
+        err := append(mut l, k * k)
+        if err.code != 0 {
+            return
+        }
+    }
+    mut j int64 = 3
+    inside(j, l)
+    check(l[j] == 9, "inside a list")
+
+    n := len(l)
+    mut k int64 = 4
+    below(k, n)
+    check(l[k] == 16, "below a length stored")
+
+    s := "abcdef"
+    mut lo int64 = 1
+    mut hi int64 = 4
+    ordered(lo, hi, s)
+    check(s[lo:hi] == "bcd", "ordered slice bounds")
+
+    mut x int64 = 1
+    room(x, l)
+    y := x + 1
+    check(l[x] +% l[y] == 5, "room, chained through y := x + 1")
+}
+
+// lists reads a list a call has grown.
+func lists() {
+    mut l := make(list[int64], c_allocator)
+    grow(mut l, 7)
+    check(l[0] == 7, "grow")
+    top := pop(mut l)
+    check(top == 7 && len(l) == 0, "grow then pop")
+}
+
+// maps reads a key a call has ensured is there.
+func maps() {
+    mut m := make(map[int64]int64, c_allocator)
+    err := put(mut m, 3, 30)
+    if err.code != 0 {
+        return
+    }
+    k := 3
+    need(m, k)
+    check(m[k] == 30, "need")
+}
+
+// single returns a list holding x, or none when it cannot grow one.
+func single(x int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, x)
+    if err.code != 0 {
+        return l
+    }
+    return l
+}
+
+// others covers recursion, generics, methods and defers.
+func others() {
+    mut n int64 = 4
+    positive(n)
+    check(12 / n == 3, "recursive")
+
+    l := single(5)
+    some(l)
+    check(l[0] == 5, "generic")
+
+    mut items := make(list[int64], c_allocator)
+    errI := append(mut items, 6)
+    if errI.code != 0 {
+        return
+    }
+    st := Stack{items: items}
+    st.full()
+    check(st.items[0] == 6, "method on its receiver")
+
+    mut d int64 = 3
+    deferring(d)
+    check(9 / d == 3 && tally == 1, "deferred code ran, the fact held")
+
+    mut r int64 = 0
+    x := refix(mut r)
+    check(5 / r == 5 && x == 1, "a return's call proves the contract")
+
+    mut c := Counter{n: 0}
+    mut e int64 = 2
+    emit(mut c, e)
+    check(c.n == 2 && 6 / e == 3, "an interface parameter's function")
+
+    mut b := Box{n: 3}
+    mut z int64 = 0
+    mut b.set(mut z)
+    check(4 / z == 4 && b.n == 0, "a mut receiver's method")
+}
+
+func main() {
+    errors()
+    divisors()
+    indexes()
+    lists()
+    maps()
+    others()
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

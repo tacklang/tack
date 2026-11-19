@@ -1,0 +1,223 @@
+package main
+
+// A clause's last statement and the next clause's header on one line,
+// after a header that ends its own line: case 1: alone, then f(); case
+// 2: on the next line. The ; ends the statement and the next case or
+// default starts a clause, whatever line it is on, as it does when the
+// whole switch is on one line. Every function below writes its clauses
+// that way, and main checks each runs the clause it should, and only
+// that one.
+
+// Shape is a union a switch below takes apart.
+type Shape union {
+    square int64
+    rect   int64
+    none
+}
+
+// log records which clauses ran, in order, one decimal digit each.
+mut log int64
+
+// mark appends the digit d to log.
+func mark(d int64) {
+    log = log *% 10 +% d
+}
+
+// logged reports whether log is want, and clears it.
+func logged(want int64) bool {
+    got := log
+    log = 0
+    return got == want
+}
+
+// call calls f once.
+func call(scope f func()) {
+    f()
+}
+
+// caseThenCase has a case header alone on its line, then its one
+// statement and the next case on the line after.
+func caseThenCase(n int64) int64 {
+    switch n {
+    case 1:
+        return 10; case 2:
+        return 20
+    }
+    return 0
+}
+
+// defaultThenCase has a default header alone on its line, then its one
+// statement and the next case on the line after.
+func defaultThenCase(n int64) int64 {
+    switch n {
+    default:
+        return 30; case 4:
+        return 40
+    }
+}
+
+// caseThenDefault has a case alone on its line, then its statement and
+// the default on the line after.
+func caseThenDefault(n int64) int64 {
+    switch n {
+    case 5:
+        return 50; default:
+        return 60
+    }
+}
+
+// several has two statements of a clause and the next case on one line,
+// and a clause with a statement on its header's line too.
+func several(n int64) {
+    switch n {
+    case 1:
+        mark(1); mark(2); case 2:
+        mark(3); mark(4); case 3: mark(5); mark(6)
+    }
+}
+
+// falls ends a clause with a fallthrough on the line of the next case,
+// which it enters.
+func falls(n int64) {
+    switch n {
+    case 1:
+        mark(1); fallthrough; case 2:
+        mark(2); fallthrough; default:
+        mark(3)
+    }
+}
+
+// area takes a union apart with clauses written the same way.
+func area(s Shape) int64 {
+    switch s {
+    case square(x):
+        return x *% x; case rect(w):
+        return w *% 2; case none:
+        return -1
+    }
+}
+
+// kind is a type switch with clauses written the same way.
+func kind(a any) int64 {
+    switch v := a.(type) {
+    case int64:
+        mark(1); if v == 7 { mark(7) }; case string:
+        mark(2); default:
+        mark(3)
+    }
+    return 0
+}
+
+// closures holds a closure literal in a clause whose last statement is
+// on the line of the next case.
+func closures(n int64) int64 {
+    mut got := 0
+    switch n {
+    case 1:
+        call(func() { got = 11 }); case 2:
+        call(func() {
+            got = 22
+        }); default:
+        got = 33
+    }
+    return got
+}
+
+// parse gives n, or an error when n is 7.
+func parse(n int64) (int64, error) {
+    if n == 7 {
+        return 0, error{code: 3, msg: "seven"}
+    }
+    return n, noerror
+}
+
+// question holds a ? in a clause whose last statement is on the line of
+// the next case.
+func question(n int64) (int64, error) {
+    mut r := 0
+    switch {
+    case n > 5:
+        r = parse(n)?; case n > 0:
+        r = -1
+    }
+    return r, noerror
+}
+
+func main() {
+    if caseThenCase(1) != 10 || caseThenCase(2) != 20 || caseThenCase(3) != 0 {
+        exit(1)
+    }
+    if defaultThenCase(4) != 40 || defaultThenCase(0) != 30 {
+        exit(2)
+    }
+    if caseThenDefault(5) != 50 || caseThenDefault(6) != 60 {
+        exit(3)
+    }
+    several(1)
+    if !logged(12) {
+        exit(4)
+    }
+    several(2)
+    if !logged(34) {
+        exit(5)
+    }
+    several(3)
+    if !logged(56) {
+        exit(6)
+    }
+    several(4)
+    if !logged(0) {
+        exit(7)
+    }
+    falls(1)
+    if !logged(123) {
+        exit(8)
+    }
+    falls(2)
+    if !logged(23) {
+        exit(9)
+    }
+    falls(9)
+    if !logged(3) {
+        exit(10)
+    }
+    if area(Shape.square(3)) != 9 || area(Shape.rect(4)) != 8 || area(Shape.none) != -1 {
+        exit(11)
+    }
+    kind(7)
+    if !logged(17) {
+        exit(12)
+    }
+    kind(8)
+    if !logged(1) {
+        exit(13)
+    }
+    kind("s")
+    if !logged(2) {
+        exit(14)
+    }
+    kind(true)
+    if !logged(3) {
+        exit(15)
+    }
+    if closures(1) != 11 || closures(2) != 22 || closures(3) != 33 {
+        exit(16)
+    }
+    r, e := question(6)
+    if e.code != 0 || r != 6 {
+        exit(17)
+    }
+    _, e2 := question(7)
+    if e2.code != 3 {
+        exit(18)
+    }
+    r3, e3 := question(1)
+    if e3.code != 0 || r3 != -1 {
+        exit(19)
+    }
+    r4, e4 := question(0)
+    if e4.code != 0 || r4 != 0 {
+        exit(20)
+    }
+    exit(42)
+}

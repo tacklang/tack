@@ -16,7 +16,7 @@ BUILTIN_DOC := runtime/builtin.tck
 RUNTIME_HEADER := runtime/tack/tack.h
 RUNTIME_C := $(sort $(wildcard runtime/*.c))
 
-.PHONY: embed std-copies
+.PHONY: embed std-copies test-corpus update-corpus
 
 # embed writes builtin/embedded.tck, the files the compiler carries
 # inside it as Tack string literals: the builtins' documentation, the
@@ -38,3 +38,28 @@ embed:
 std-copies:
 	cp $(BUILTIN_DOC) src/std/builtin/builtin.tck
 	cp $(RUNTIME_HEADER) src/std/include/tack/tack.h
+
+# corpus-tool builds tools/corpus, the corpus runner, with $(TACK), with
+# TACK_HOME this tree, as embed builds tools/embed, and runs it on
+# corpus/ with this tree's std and $(TACK), looked up on PATH when it is
+# a bare name, as the compiler it checks, $(1) added to its command line.
+define corpus-tool
+	mkdir -p $(BIN)
+	TACK_HOME="$(CURDIR)" TACK_CACHE="$(CURDIR)/$(BIN)/cache" \
+		"$(TACK)" --out "$(CURDIR)/$(BIN)/corpus" ./tools/corpus
+	compiler="$$(command -v "$(TACK)")" && \
+		"$(CURDIR)/$(BIN)/corpus" $(1) "$$compiler" corpus src/std
+endef
+
+# test-corpus checks $(TACK), which must be the port, against the test
+# corpus, corpus/: every case of its archives, every golden and every
+# committed tack.h (see tools/corpus). It needs clang and coreutils, and
+# no Go.
+test-corpus:
+	$(call corpus-tool,)
+
+# update-corpus is test-corpus with the corpus rewritten where the
+# compiler's output differs from it, as go test ./test -update rewrites
+# tackc's; read the diff it leaves before keeping it.
+update-corpus:
+	$(call corpus-tool,--update)

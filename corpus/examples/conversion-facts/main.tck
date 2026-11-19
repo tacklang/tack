@@ -1,0 +1,331 @@
+package main
+
+// An integer conversion T(x) compiles in its plain form when the facts in
+// force where it is written prove x a value of T on every target: the
+// facts a guard, an early exit, a loop, a case, a contract or a relation
+// gives, which prove an index or a divisor too, and which the same writes
+// end. Each function below converts under such facts and returns -1, or
+// another marker, on the path where they do not hold. Every check prints
+// its name and "ok", or "FAIL", and is tried at the edges of the range
+// the facts allow and just past them.
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// positive converts v to uint64 when v > 0, and gives 0 otherwise.
+func positive(v int64) uint64 {
+    if v > 0 {
+        return uint64(v)
+    }
+    return 0
+}
+
+// natural converts v to uint64 past an early exit that rules out a
+// negative v.
+func natural(v int64) uint64 {
+    if v < 0 {
+        return 7
+    }
+    return uint64(v)
+}
+
+// signed converts u to int64 when u fits it, and gives -1 otherwise.
+func signed(u uint64) int64 {
+    if u <= 9223372036854775807 {
+        return int64(u)
+    }
+    return -1
+}
+
+// narrow32 converts v to int32 when both of its bounds hold.
+func narrow32(v int64) int64 {
+    if v >= -2147483648 && v <= 2147483647 {
+        return int64(int32(v))
+    }
+    return -1
+}
+
+// narrow8 converts v to int8 when -128 <= v < 128, written with < for
+// the upper bound.
+func narrow8(v int64) int64 {
+    if -128 <= v && v < 128 {
+        return int64(int8(v))
+    }
+    return 1000
+}
+
+// low converts x to uint8 when 0 <= x < 256.
+func low(x int64) int64 {
+    if 0 <= x && x < 256 {
+        return int64(uint8(x))
+    }
+    return -1
+}
+
+// small converts the uint64 u to uint32 when it is at most 4294967295.
+func small(u uint64) int64 {
+    if u > 4294967295 {
+        return -1
+    }
+    return int64(uint32(u))
+}
+
+// unsigned32 converts the int32 w to uint32 when it is not negative.
+func unsigned32(w int32) int64 {
+    if w >= 0 {
+        return int64(uint32(w))
+    }
+    return -1
+}
+
+// signed32 converts the uint32 w to int32 when it is at most 2147483647.
+func signed32(w uint32) int64 {
+    if w <= 2147483647 {
+        return int64(int32(w))
+    }
+    return -1
+}
+
+// byte8 converts the int8 b to uint8 when it is not negative, and the
+// uint8 it gives back to int8, which it fits since it is at most 127.
+func byte8(b int8) int64 {
+    if b < 0 {
+        return -1
+    }
+    u := uint8(b)
+    if u > 127 {
+        return -2
+    }
+    return int64(int8(u))
+}
+
+// counted sums uint8(i) for i counting from 0 below 256 and below n, the
+// start and the condition bounding i.
+func counted(n int64) int64 {
+    if n > 256 {
+        return -1
+    }
+    mut total int64 = 0
+    for mut i := 0; i < 256 && i < n; i++ {
+        total +%= int64(uint8(i))
+    }
+    return total
+}
+
+// ranged sums uint8(i) over a range of 256, whose index runs from 0 to
+// 255.
+func ranged() int64 {
+    mut total int64 = 0
+    for i := range 256 {
+        total +%= int64(uint8(i))
+    }
+    return total
+}
+
+// indexes sums uint32(i) over the indexes of s, which are never negative,
+// and at most 4294967295 when s is no longer than that.
+func indexes(s string) int64 {
+    if len(s) > 4294967295 {
+        return -1
+    }
+    mut total int64 = 0
+    for i := range s {
+        total +%= int64(uint32(i))
+    }
+    return total
+}
+
+// cased converts v to uint8 in the case that matches 1, 2 or 3, and in
+// the case of a tagless switch that bounds it.
+func cased(v int64) int64 {
+    switch v {
+    case 1, 2, 3:
+        return int64(uint8(v))
+    }
+    switch {
+    case v >= 10 && v <= 20:
+        return int64(uint8(v)) + 100
+    }
+    return -1
+}
+
+// later converts v to uint8 in a case after one that ruled v out of the
+// other cases' range: a case not matching proves the cases after it.
+func later(v int64) int64 {
+    switch {
+    case v < 0 || v > 255:
+        return -1
+    default:
+        return int64(uint8(v))
+    }
+}
+
+// nonneg ends the program unless v is not negative, which it ensures.
+func nonneg(v int64) ensures v >= 0 {
+    if v < 0 {
+        exit(4)
+    }
+}
+
+// contracted converts v to uint64 after a call whose contract proves it
+// is not negative.
+func contracted(v int64) uint64 {
+    nonneg(v)
+    return uint64(v)
+}
+
+// related converts i to uint8 when 0 <= i <= j <= 255, the bound on i
+// coming through j.
+func related(i int64, j int64) int64 {
+    if 0 <= i && i <= j && j <= 255 {
+        return int64(uint8(i))
+    }
+    return -1
+}
+
+// Pair holds two numbers.
+type Pair struct {
+    a int64
+    b int64
+}
+
+// field converts the field p.a of an immutable parameter to uint8.
+func field(p Pair) int64 {
+    if p.a < 0 || p.a > 255 {
+        return -1
+    }
+    return int64(uint8(p.a))
+}
+
+// skipped sums uint64(a[i]) over the elements of a that are not
+// negative, skipping each negative one through a branch that writes
+// the element's copy and continues, so the write never reaches the
+// conversion.
+func skipped(a [4]int64) uint64 {
+    mut total uint64 = 0
+    for i := range a {
+        mut v := a[i]
+        if v < 0 {
+            v = 0
+            continue
+        }
+        total +%= uint64(v)
+    }
+    return total
+}
+
+// deferred converts v to uint64 in deferred code, under the guard in
+// force at its defer, adding it to out.
+func deferred(v int64, mut out uint64) {
+    if v >= 0 {
+        defer {
+            out +%= uint64(v)
+        }
+    }
+}
+
+// checked binds v, ok := uint64(v) where the plain form is proven too, and
+// ok is true.
+func checked(v int64) bool {
+    if v >= 0 {
+        w, ok := uint64(v)
+        return ok && w == uint64(v)
+    }
+    return false
+}
+
+// size converts v to unsafe_size_t when it fits one on every target,
+// and back to uint64, which it widens to.
+func size(v int64) uint64 {
+    if v < 0 || v > 4294967295 {
+        return 9
+    }
+    return unsafe_size_t(v)
+}
+
+// from_size converts the unsafe_size_t s to uint32 and to
+// unsafe_uintptr_t when it is at most 4294967295, and reports whether
+// both hold its value.
+func from_size(s unsafe_size_t) bool {
+    if s > 4294967295 {
+        return false
+    }
+    var p uint64 = unsafe_uintptr_t(s)
+    var w uint64 = s
+    return uint32(s) == w && p == w
+}
+
+func main() {
+    check(positive(1) == 1 && positive(9223372036854775807) == 9223372036854775807 &&
+        positive(0) == 0 && positive(-1) == 0 && positive(-9223372036854775808) == 0,
+        "int64 to uint64 under v > 0")
+    check(natural(0) == 0 && natural(9223372036854775807) == 9223372036854775807 &&
+        natural(-1) == 7 && natural(-9223372036854775808) == 7,
+        "int64 to uint64 past an early exit")
+    check(signed(0) == 0 && signed(9223372036854775807) == 9223372036854775807 &&
+        signed(9223372036854775808) == -1 && signed(18446744073709551615) == -1,
+        "uint64 to int64")
+    check(narrow32(-2147483648) == -2147483648 && narrow32(2147483647) == 2147483647 &&
+        narrow32(-2147483649) == -1 && narrow32(2147483648) == -1 && narrow32(0) == 0,
+        "int64 to int32")
+    check(narrow8(-128) == -128 && narrow8(127) == 127 && narrow8(-129) == 1000 &&
+        narrow8(128) == 1000 && narrow8(-1) == -1,
+        "int64 to int8")
+    check(low(0) == 0 && low(255) == 255 && low(-1) == -1 && low(256) == -1,
+        "int64 to uint8")
+    check(small(4294967295) == 4294967295 && small(0) == 0 && small(4294967296) == -1 &&
+        small(18446744073709551615) == -1,
+        "uint64 to uint32")
+    check(unsigned32(0) == 0 && unsigned32(2147483647) == 2147483647 &&
+        unsigned32(-1) == -1 && unsigned32(-2147483648) == -1,
+        "int32 to uint32")
+    check(signed32(2147483647) == 2147483647 && signed32(2147483648) == -1 &&
+        signed32(4294967295) == -1 && signed32(0) == 0,
+        "uint32 to int32")
+    check(byte8(0) == 0 && byte8(127) == 127 && byte8(-1) == -1 && byte8(-128) == -1,
+        "int8 to uint8 and back")
+    check(counted(256) == 32640 && counted(0) == 0 && counted(3) == 3 && counted(257) == -1,
+        "a counting loop")
+    check(ranged() == 32640, "a range over 256")
+    check(indexes("abcd") == 6, "a range over a string")
+    check(cased(1) == 1 && cased(3) == 3 && cased(10) == 110 && cased(20) == 120 &&
+        cased(4) == -1 && cased(21) == -1 && cased(-1) == -1,
+        "switch cases")
+    check(later(0) == 0 && later(255) == 255 && later(-1) == -1 && later(256) == -1,
+        "a default after a case that leaves")
+    check(contracted(0) == 0 && contracted(9223372036854775807) == 9223372036854775807,
+        "a contract")
+    check(related(0, 0) == 0 && related(255, 255) == 255 && related(3, 200) == 3 &&
+        related(255, 256) == -1 && related(4, 3) == -1 && related(-1, 5) == -1,
+        "a relation")
+    check(field(Pair{a: 255, b: 0}) == 255 && field(Pair{a: 256, b: 0}) == -1 &&
+        field(Pair{a: -1, b: 0}) == -1,
+        "a field of an immutable parameter")
+    check(skipped([4]int64{3, -5, 9223372036854775807, -9223372036854775808}) == 9223372036854775810,
+        "a branch that writes and continues")
+    mut out uint64 = 1
+    deferred(5, mut out)
+    deferred(-5, mut out)
+    check(out == 6, "deferred code")
+    check(checked(0) && checked(9223372036854775807) && !checked(-1),
+        "the checked form where the plain one is proven")
+    check(size(0) == 0 && size(4294967295) == 4294967295 && size(4294967296) == 9 &&
+        size(-1) == 9,
+        "int64 to unsafe_size_t")
+    check(from_size(4294967295) && from_size(0),
+        "unsafe_size_t to uint32 and unsafe_uintptr_t")
+    contracted(-1)
+    check(false, "contracted(-1) returned")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

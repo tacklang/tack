@@ -1,0 +1,24 @@
+fields named id, int64, string, bool and unsafe_size_t, set by key and read by dot ok
+a span held in a field named span, viewed and measured by len ok
+a struct of such fields through a generic function, a copy written apart ok
+arena of nodes freed ok
+a handle in a field named handle, proved live by has ok
+a field named handle, copied and written ok
+pool freed ok
+len(w.len) measures a string field named len ok
+append to list fields named add and insert ok
+fields named print, exit and drop, read and written ok
+a field named len, reassigned ok
+replace in a field named add ok
+lists in fields named like builtins freed ok
+fields named span, id and handle, indexed and called through ok
+list in a field named span freed ok
+fields named error and any ok
+methods named span, string and bool ok
+a method named span, named through its type ok
+methods named like builtin types, through an interface ok
+pub fields named span, len and string of another package ok
+methods named int64 and handle of another package ok
+a field named len, written by a method named append and read across packages ok
+a method named int64 of another package, named through its type ok
+fields named int64, len and span, read by C ok

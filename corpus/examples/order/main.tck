@@ -1,0 +1,131 @@
+package main
+
+// Every place Tack evaluates several operands, each operand a call that
+// prints its name, so the output shows the order: always left to right.
+// Each line ends with "ok" when the values computed are also right.
+
+type Pair struct {
+    a int64
+    b int64
+}
+
+mut count int64
+
+func say(s string, n int64) int64 {
+    print(s)
+    return n
+}
+
+func word(s string) string {
+    print(s)
+    return s
+}
+
+func pair(s string, a int64, b int64) Pair {
+    print(s)
+    return Pair{a: a, b: b}
+}
+
+func two(a int64, b int64) int64 {
+    return a *% 10 +% b
+}
+
+func three(a int64, b int64, c int64) int64 {
+    return a *% 100 +% b *% 10 +% c
+}
+
+func both() (int64, int64) {
+    return say("a ", 1), say("b ", 2)
+}
+
+func digits() [3]int64 {
+    print("base ")
+    return [3]int64{7, 8, 9}
+}
+
+// bump adds one to count and returns how many it has added so far.
+func bump() int64 {
+    count +%= 1
+    return count
+}
+
+func check(cond bool) {
+    if cond {
+        print("ok\n")
+    } else {
+        print("FAIL\n")
+    }
+}
+
+func main() {
+    print("arithmetic: ")
+    check(say("a ", 1) +% say("b ", 2) *% say("c ", 3) == 7)
+
+    print("subtraction: ")
+    check(say("a ", 9) -% say("b ", 4) == 5)
+
+    print("comparison: ")
+    check(say("a ", 1) < say("b ", 2))
+
+    print("strings: ")
+    check(word("a ") < word("b "))
+
+    print("structs: ")
+    check(pair("a ", 1, 2) == pair("b ", 1, 2))
+
+    print("arguments: ")
+    check(three(say("a ", 1), say("b ", 2), say("c ", 3)) == 123)
+
+    print("nested arguments: ")
+    check(two(two(say("a ", 1), say("b ", 2)), say("c ", 3)) == 123)
+
+    print("results: ")
+    x, y := both()
+    check(x == 1 && y == 2)
+
+    print("array elements: ")
+    arr := [3]int64{say("a ", 1), say("b ", 2), say("c ", 3)}
+    check(arr[0] == 1 && arr[2] == 3)
+
+    print("struct fields: ")
+    p := Pair{b: say("b ", 2), a: say("a ", 1)}
+    check(p.a == 1 && p.b == 2)
+
+    print("index: ")
+    v, inRange := digits()[say("index ", 1)]
+    check(v == 8 && inRange)
+
+    print("division: ")
+    q, ok := say("a ", 9) / say("b ", 3)
+    check(q == 3 && ok)
+
+    print("a global read before a call: ")
+    count = 0
+    check(count +% bump() == 1)
+
+    print("a call before a global read: ")
+    count = 0
+    check(bump() +% count == 2)
+
+    print("a global in arguments: ")
+    count = 0
+    check(two(count, bump()) == 1 && two(bump(), count) == 22)
+
+    print("compound assignment: ")
+    count = 5
+    count +%= bump()
+    check(count == 11)
+
+    print("switch cases: ")
+    switch say("tag ", 2) {
+    case say("a ", 1), say("b ", 2), say("c ", 3):
+        check(true)
+    default:
+        check(false)
+    }
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

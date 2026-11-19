@@ -1,0 +1,386 @@
+package main
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import unicode from "std/unicode"
+import utf8 from "std/utf8"
+
+// std/utf8 decodes and encodes UTF-8 as Go's unicode/utf8 does: decode
+// gives the first rune of a view and its width, 0xFFFD and width 1 for
+// any byte that does not start a valid encoding, and 0xFFFD and width 0
+// for an empty view; valid reports whether a view is all valid UTF-8;
+// append_rune encodes a rune into a list, 0xFFFD for a surrogate or a
+// value outside 0 to 0x10FFFF. std/unicode classifies runes as Go's
+// unicode.IsPrint, IsGraphic, IsLetter, IsDigit and IsSpace do.
+//
+// Each case below was written from what Go gives for the same input;
+// codegen/c/utf8_test.go checks every function against Go again, over
+// every rune and random bytes. A failed case prints what it got; each
+// group prints ok when all its cases held.
+
+// Tack has no way to make c_allocator fail or to read its count of
+// live buffers, so this example's C, in live.c, does both.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("utf8_live") func live() int64
+
+// failAfter makes c_allocator fail every allocation after the next n, or
+// none again when n is negative, in C.
+extern("utf8_fail_after") func failAfter(n int64)
+
+// rune_error is the rune decode gives for bytes that are not UTF-8.
+var rune_error int32 = 0xFFFD
+
+// fails counts the cases that did not hold.
+mut fails int64 = 0
+
+// check prints name and whether no case failed since the count was
+// last read, and resets the count.
+func check(name string) {
+    print(name)
+    if fails == 0 {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+    fails = 0
+}
+
+// show prints the bytes of b in hexadecimal, each followed by a space.
+func show(b []uint8) {
+    for _, c := range b {
+        fmt.printf("%x ", c)
+    }
+}
+
+// decodes checks that utf8.decode of s gives the rune want and the
+// width width.
+func decodes(s string, want int32, width int64) {
+    r, w := utf8.decode([]uint8(s))
+    if r != want || w != width {
+        fails +%= 1
+        print("decode of ")
+        show([]uint8(s))
+        fmt.printf("gave %x, %d, want %x, %d\n", r, w, want, width)
+    }
+}
+
+// decoding covers every length of encoding at its edges, every way an
+// encoding can be invalid, and an empty view.
+func decoding() {
+    decodes("", rune_error, 0)
+    decodes("\x00", 0, 1)
+    decodes("a", 'a', 1)
+    decodes("\x7f", 0x7f, 1)
+    decodes("ab", 'a', 1)
+    // Two bytes: 0x80 to 0x7ff.
+    decodes("\xc2\x80", 0x80, 2)
+    decodes("\xdf\xbf", 0x7ff, 2)
+    decodes("é", 0xe9, 2)
+    // Three bytes: 0x800 to 0xffff, but for the surrogates.
+    decodes("\xe0\xa0\x80", 0x800, 3)
+    decodes("\xed\x9f\xbf", 0xd7ff, 3)
+    decodes("\xee\x80\x80", 0xe000, 3)
+    decodes("\xef\xbf\xbd", 0xfffd, 3)
+    decodes("\xef\xbf\xbf", 0xffff, 3)
+    decodes("世界", 0x4e16, 3)
+    // Four bytes: 0x10000 to 0x10ffff.
+    decodes("\xf0\x90\x80\x80", 0x10000, 4)
+    decodes("\xf4\x8f\xbf\xbf", 0x10ffff, 4)
+    decodes("\xf0\x9f\x98\x80", 0x1f600, 4)
+    // A continuation byte alone, bytes that start nothing, and overlong
+    // encodings: each is one bad byte.
+    decodes("\x80", rune_error, 1)
+    decodes("\xbf", rune_error, 1)
+    decodes("\xc0\x80", rune_error, 1)
+    decodes("\xc1\xbf", rune_error, 1)
+    decodes("\xe0\x9f\xbf", rune_error, 1)
+    decodes("\xf0\x8f\xbf\xbf", rune_error, 1)
+    decodes("\xf5\x80\x80\x80", rune_error, 1)
+    decodes("\xff", rune_error, 1)
+    decodes("\xfe", rune_error, 1)
+    // Surrogates, U+D800 to U+DFFF, are not UTF-8.
+    decodes("\xed\xa0\x80", rune_error, 1)
+    decodes("\xed\xbf\xbf", rune_error, 1)
+    // 0x110000, one past the last rune.
+    decodes("\xf4\x90\x80\x80", rune_error, 1)
+    // Truncated sequences, and a bad byte where a continuation belongs.
+    decodes("\xc2", rune_error, 1)
+    decodes("\xe0\xa0", rune_error, 1)
+    decodes("\xf0\x90\x80", rune_error, 1)
+    decodes("\xc2a", rune_error, 1)
+    decodes("\xe0\xa0a", rune_error, 1)
+    decodes("\xf0\x90\x80a", rune_error, 1)
+    decodes("\xf0\x90\x80\xc0", rune_error, 1)
+    check("decode")
+}
+
+// valids checks that utf8.valid of s is want.
+func valids(s string, want bool) {
+    if utf8.valid([]uint8(s)) != want {
+        fails +%= 1
+        print("valid of ")
+        show([]uint8(s))
+        fmt.printf("gave %t\n", !want)
+    }
+}
+
+// validating covers empty, ASCII, every length of encoding, U+FFFD
+// written out, which is valid, and a bad byte at the start, the middle
+// and the end.
+func validating() {
+    valids("", true)
+    valids("hello", true)
+    valids("\x00", true)
+    valids("aé世\xf0\x9f\x98\x80", true)
+    valids("\xef\xbf\xbd", true)
+    valids("\xf4\x8f\xbf\xbf", true)
+    valids("\xff", false)
+    valids("\x80abc", false)
+    valids("ab\xc0\x80cd", false)
+    valids("abc\xe4\xb8", false)
+    valids("\xed\xa0\x80", false)
+    valids("\xf4\x90\x80\x80", false)
+    check("valid")
+}
+
+// encodes checks that utf8.append_rune of r appends want to a list
+// already holding x.
+func encodes(r int32, want string) {
+    mut b := make(list[uint8], c_allocator)
+    e := append(mut b, 'x')
+    if e.code != 0 {
+        fails +%= 1
+        print("append failed\n")
+        return
+    }
+    e2 := utf8.append_rune(mut b, r)
+    if e2.code != 0 {
+        fails +%= 1
+        fmt.printf("append_rune(%x) gave error %d\n", r, e2.code)
+        return
+    }
+    if len(b) < 1 || b[0] != 'x' || !bytes.equal(b[1:], []uint8(want)) {
+        fails +%= 1
+        fmt.printf("append_rune(%x) gave ", r)
+        show(b)
+        print("\n")
+    }
+}
+
+// encoding covers the edges of every length, the surrogates and the
+// values past the last rune and below 0, which all encode as U+FFFD.
+func encoding() {
+    encodes(0, "\x00")
+    encodes('a', "a")
+    encodes(0x7f, "\x7f")
+    encodes(0x80, "\xc2\x80")
+    encodes(0x7ff, "\xdf\xbf")
+    encodes(0x800, "\xe0\xa0\x80")
+    encodes(0xd7ff, "\xed\x9f\xbf")
+    encodes(0xd800, "\xef\xbf\xbd")
+    encodes(0xdfff, "\xef\xbf\xbd")
+    encodes(0xe000, "\xee\x80\x80")
+    encodes(0xffff, "\xef\xbf\xbf")
+    encodes(0x10000, "\xf0\x90\x80\x80")
+    encodes(0x10ffff, "\xf4\x8f\xbf\xbf")
+    encodes(0x110000, "\xef\xbf\xbd")
+    encodes(-1, "\xef\xbf\xbd")
+    encodes(-2147483648, "\xef\xbf\xbd")
+    encodes(2147483647, "\xef\xbf\xbd")
+    check("append_rune")
+}
+
+// failing makes c_allocator fail under append_rune: the error is the
+// builtin append's, and the list is left exactly as it was, every byte
+// of the encoding or none appended. A list's first buffer holds 4 bytes,
+// so one holding "ab" has room for a 2-byte encoding and not a 3-byte
+// one.
+func failing() {
+    mut b := make(list[uint8], c_allocator)
+    failAfter(0)
+    e := utf8.append_rune(mut b, 0x4e16)
+    failAfter(-1)
+    if e.code != 1 || e.msg != "out of memory" || len(b) != 0 || live() != 0 {
+        fails +%= 1
+        fmt.printf("append_rune into an empty list gave %d, left %d bytes\n", e.code, len(b))
+    }
+    e1 := append(mut b, 'a', 'b')
+    if e1.code != 0 {
+        fails +%= 1
+        print("append failed\n")
+        return
+    }
+    failAfter(0)
+    e2 := utf8.append_rune(mut b, 0x1f600)
+    e3 := utf8.append_rune(mut b, 0x4e16)
+    e4 := utf8.append_rune(mut b, 0xe9)
+    e5 := utf8.append_rune(mut b, 'c')
+    failAfter(-1)
+    if e2.code != 1 || e3.code != 1 || e4.code != 0 || e5.code != 1 || !bytes.equal(b, []uint8("ab\xc3\xa9")) {
+        fails +%= 1
+        fmt.printf("append_rune into a full list gave %d %d %d %d, left ", e2.code, e3.code, e4.code, e5.code)
+        show(b)
+        print("\n")
+    }
+    drop(own b)
+    if live() != 0 {
+        fails +%= 1
+        print("a buffer was not freed\n")
+    }
+    check("append_rune out of memory")
+}
+
+// round_trip encodes every rune from 0 to 0x10ffff and checks that
+// decode gives it back with the width written, and that the surrogates
+// are the only runes that come back as U+FFFD without being it.
+func round_trip() {
+    mut b := make(list[uint8], c_allocator)
+    for mut r int32 = 0; r <= 0x10ffff; r++ {
+        drop(own b)
+        b = make(list[uint8], c_allocator)
+        e := utf8.append_rune(mut b, r)
+        if e.code != 0 {
+            fails +%= 1
+            print("append_rune failed\n")
+            return
+        }
+        got, w := utf8.decode(b)
+        surrogate := r >= 0xd800 && r <= 0xdfff
+        if surrogate && (got != rune_error || w != 3) || !surrogate && (got != r || w != len(b)) {
+            fails +%= 1
+            fmt.printf("round trip of %x gave %x, %d\n", r, got, w)
+            return
+        }
+        if !utf8.valid(b) {
+            fails +%= 1
+            fmt.printf("encoding of %x is not valid\n", r)
+            return
+        }
+    }
+    check("round trip")
+}
+
+// classes returns the classes of r as a string of five letters, one for
+// each of is_print, is_graphic, is_letter, is_digit and is_space, a
+// letter in place when r is in that class and - otherwise.
+func classes(r int32) string {
+    mut out [5]uint8
+    out[0] = '-'
+    out[1] = '-'
+    out[2] = '-'
+    out[3] = '-'
+    out[4] = '-'
+    if unicode.is_print(r) {
+        out[0] = 'p'
+    }
+    if unicode.is_graphic(r) {
+        out[1] = 'g'
+    }
+    if unicode.is_letter(r) {
+        out[2] = 'l'
+    }
+    if unicode.is_digit(r) {
+        out[3] = 'd'
+    }
+    if unicode.is_space(r) {
+        out[4] = 's'
+    }
+    // Every combination is one of these; anything else would be a bug.
+    switch out {
+    case [5]uint8{'-', '-', '-', '-', '-'}:
+        return "-----"
+    case [5]uint8{'p', 'g', '-', '-', '-'}:
+        return "pg---"
+    case [5]uint8{'p', 'g', 'l', '-', '-'}:
+        return "pgl--"
+    case [5]uint8{'p', 'g', '-', 'd', '-'}:
+        return "pg-d-"
+    case [5]uint8{'p', 'g', '-', '-', 's'}:
+        return "pg--s"
+    case [5]uint8{'-', 'g', '-', '-', 's'}:
+        return "-g--s"
+    case [5]uint8{'-', '-', '-', '-', 's'}:
+        return "----s"
+    }
+    return "?????"
+}
+
+// classed checks that r's classes are want.
+func classed(r int32, want string) {
+    got := classes(r)
+    if got != want {
+        fails +%= 1
+        fmt.printf("classes of %x are %s, want %s\n", r, got, want)
+    }
+}
+
+// classifying covers ASCII, Latin-1, which Go answers from a table of
+// its own, the spaces each class counts differently, letters and digits
+// of other scripts, marks, symbols, unassigned and private-use runes,
+// the surrogates, and values that are no rune.
+func classifying() {
+    classed(0, "-----")
+    classed('\t', "----s")
+    classed('\n', "----s")
+    classed(0x0b, "----s")
+    classed(0x0c, "----s")
+    classed('\r', "----s")
+    classed(0x1f, "-----")
+    classed(' ', "pg--s")
+    classed('!', "pg---")
+    classed('0', "pg-d-")
+    classed('9', "pg-d-")
+    classed('A', "pgl--")
+    classed('z', "pgl--")
+    classed('_', "pg---")
+    classed(0x7f, "-----")
+    classed(0x85, "----s")
+    classed(0x9f, "-----")
+    // A no-break space is a space, and graphic, but not printable.
+    classed(0xa0, "-g--s")
+    classed(0xaa, "pgl--")
+    classed(0xad, "-----")
+    classed(0xb2, "pg---")
+    classed(0xb5, "pgl--")
+    classed(0xe9, "pgl--")
+    classed(0xf7, "pg---")
+    classed(0xff, "pgl--")
+    classed(0x100, "pgl--")
+    classed(0x300, "pg---")
+    classed(0x660, "pg-d-")
+    classed(0x1680, "-g--s")
+    classed(0x2000, "-g--s")
+    classed(0x200b, "-----")
+    classed(0x2028, "----s")
+    classed(0x2029, "----s")
+    classed(0x202f, "-g--s")
+    classed(0x3000, "-g--s")
+    classed(0x4e16, "pgl--")
+    classed(0xd800, "-----")
+    classed(0xdfff, "-----")
+    classed(0xe000, "-----")
+    classed(0xfeff, "-----")
+    classed(0xff10, "pg-d-")
+    classed(0xfffd, "pg---")
+    classed(0xffff, "-----")
+    classed(0x1d7ce, "pg-d-")
+    classed(0x1f600, "pg---")
+    classed(0x20000, "pgl--")
+    classed(0xe0001, "-----")
+    classed(0x10ffff, "-----")
+    classed(0x110000, "-----")
+    classed(-1, "-----")
+    classed(-2147483648, "-----")
+    classed(2147483647, "-----")
+    check("classes")
+}
+
+func main() {
+    decoding()
+    validating()
+    encoding()
+    failing()
+    round_trip()
+    classifying()
+}

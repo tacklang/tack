@@ -1,0 +1,378 @@
+package main
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import text from "std/text"
+
+// std/text's Text owns a growing sequence of bytes, in a list no other
+// package can name, and lends them out as a read-only view.
+//
+// Every function and method runs at its edges: an empty Text, one built
+// from an empty view, a list, an array and a slice, appends of nothing,
+// of one byte and of many, bytes 0x00 and 0xff, equality against
+// literals that differ in length, in the first byte and in the last, and
+// hashes checked against FNV-1a values computed independently. The view
+// t.bytes() returns is passed to fmt.write, which writes it, and to
+// std/bytes' functions. Allocations are made to fail: a failed append
+// leaves the Text as it was, and a failed from_bytes returns an empty
+// Text, having allocated nothing.
+//
+// Tack has no way to read c_allocator's count of live buffers, so this
+// example's C, in live.c, reads it, and main checks it is back to 0
+// after every function that makes a Text, so a free that never happens,
+// or happens twice, fails a check.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("text_live") func live() int64
+
+// failAfter makes c_allocator fail every allocation after the next n, or
+// none again when n is negative, in C.
+extern("text_fail_after") func failAfter(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that nothing is live after a check, name saying which.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// same reports whether b holds exactly the bytes of s, reading each
+// itself rather than through std/text or std/bytes.
+func same(b []uint8, s string) bool {
+    if len(b) != len(s) {
+        return false
+    }
+    for i, x := range b {
+        y, ok := s[i]
+        if !ok || x != y {
+            return false
+        }
+    }
+    return true
+}
+
+// empties checks a new Text and one built from an empty view: no bytes,
+// equal only to an empty view, the empty input's hash, and nothing
+// allocated.
+func empties() {
+    t := text.new(c_allocator)
+    check(t.len() == 0 && len(t.bytes()) == 0, "new is empty")
+    check(t.equal([]uint8("")) && !t.equal([]uint8("a")), "new equals only the empty view")
+    check(live() == 0, "new allocates nothing")
+    u, err := text.from_bytes([]uint8(""), c_allocator)
+    if err.code != 0 {
+        check(false, "from_bytes empty")
+        return
+    }
+    check(u.len() == 0 && u.equal([]uint8("")) && live() == 0, "from_bytes empty allocates nothing")
+    check(t.hash() == u.hash(), "empty Texts hash alike")
+}
+
+// builds checks from_bytes from a string's bytes, a list, an array and
+// slices of them, and that the Text holds a copy: changing the list
+// afterwards leaves it as it was.
+func builds() {
+    t, e0 := text.from_bytes([]uint8("hello"), c_allocator)
+    if e0.code != 0 {
+        check(false, "from_bytes a string's bytes")
+        return
+    }
+    check(t.len() == 5 && same(t.bytes(), "hello"), "from_bytes a string's bytes")
+
+    mut l := make(list[uint8], c_allocator)
+    e1 := append(mut l, 'a', 0, 255, 'z')
+    u, e2 := text.from_bytes(l, c_allocator)
+    if e1.code != 0 || e2.code != 0 || len(l) != 4 {
+        check(false, "from_bytes a list")
+        return
+    }
+    check(same(u.bytes(), "a\x00\xffz"), "from_bytes a list with 0x00 and 0xff")
+
+    a := [3]uint8{'x', 'y', 'z'}
+    v, e4 := text.from_bytes(a[1:], c_allocator)
+    w, e5 := text.from_bytes(l[1:3], c_allocator)
+    if e4.code != 0 || e5.code != 0 {
+        check(false, "from_bytes slices")
+        return
+    }
+    check(same(v.bytes(), "yz") && same(w.bytes(), "\x00\xff"), "from_bytes an array slice and a list slice")
+}
+
+// copies checks that a Text holds a copy of what it was built from:
+// changing the list's bytes and growing it afterwards leaves the Text as
+// it was.
+func copies() {
+    mut l := make(list[uint8], c_allocator)
+    e0 := append(mut l, 'a', 'b')
+    t, e1 := text.from_bytes(l, c_allocator)
+    if e0.code != 0 || e1.code != 0 {
+        check(false, "from_bytes copies")
+        return
+    }
+    if len(l) > 0 {
+        l[0] = 'x'
+    }
+    e2 := append(mut l, 'c', 'd', 'e', 'f', 'g')
+    check(e2.code == 0 && same(l, "xbcdefg") && t.equal([]uint8("ab")), "from_bytes copies")
+}
+
+// appends checks append and append_byte: nothing, one byte, many bytes,
+// another Text's bytes, 0x00 and 0xff, and enough appends that the list
+// grows many times, its earlier bytes kept.
+func appends() {
+    mut t := text.new(c_allocator)
+    e0 := mut t.append([]uint8(""))
+    check(e0.code == 0 && t.len() == 0 && live() == 0, "append nothing allocates nothing")
+    e1 := mut t.append_byte('i')
+    e2 := mut t.append_byte('f')
+    check(e1.code == 0 && e2.code == 0 && t.equal([]uint8("if")), "append_byte twice")
+    e3 := mut t.append([]uint8(" else"))
+    check(e3.code == 0 && t.equal([]uint8("if else")) && t.len() == 7, "append after append_byte")
+    e4 := mut t.append_byte(0)
+    e5 := mut t.append_byte(255)
+    check(e4.code == 0 && e5.code == 0 && same(t.bytes(), "if else\x00\xff"), "append_byte 0x00 and 0xff")
+
+    u, e6 := text.from_bytes([]uint8(" then"), c_allocator)
+    if e6.code != 0 {
+        check(false, "append another Text")
+        return
+    }
+    mut v := text.new(c_allocator)
+    e7 := mut v.append(u.bytes())
+    e8 := mut v.append(u.bytes())
+    check(e7.code == 0 && e8.code == 0 && v.equal([]uint8(" then then")) && same(u.bytes(), " then"), "append another Text's bytes")
+
+    mut big := text.new(c_allocator)
+    mut ok := true
+    for i := range 10000 {
+        c, fits := uint8(i % 251)
+        e := mut big.append_byte(c)
+        if !fits || e.code != 0 {
+            ok = false
+        }
+    }
+    for i, x := range big.bytes() {
+        c, fits := uint8(i % 251)
+        if !fits || x != c {
+            ok = false
+        }
+    }
+    check(ok && big.len() == 10000, "append_byte 10000 times")
+}
+
+// equals checks equal against literals: the same bytes, a prefix, a
+// longer view, the first and the last byte differing, 0x00 and 0xff, and
+// a list and a slice holding the same bytes.
+func equals() {
+    t, err := text.from_bytes([]uint8("if"), c_allocator)
+    if err.code != 0 {
+        check(false, "equal")
+        return
+    }
+    check(t.equal([]uint8("if")), "equal same")
+    check(!t.equal([]uint8("i")) && !t.equal([]uint8("")), "equal prefix is not equal")
+    check(!t.equal([]uint8("iff")), "equal longer is not equal")
+    check(!t.equal([]uint8("of")) && !t.equal([]uint8("in")), "equal first or last differs")
+    check(!t.equal([]uint8("IF")), "equal is exact, not case-folded")
+    mut l := make(list[uint8], c_allocator)
+    e := append(mut l, 'x', 'i', 'f')
+    if e.code != 0 || len(l) != 3 {
+        check(false, "equal a list and its slice")
+        return
+    }
+    check(t.equal(l[1:]) && !t.equal(l), "equal a list and its slice")
+    u, e2 := text.from_bytes([]uint8("\x00\xff"), c_allocator)
+    if e2.code != 0 {
+        check(false, "equal 0x00 and 0xff")
+        return
+    }
+    check(u.equal([]uint8("\x00\xff")) && !u.equal([]uint8("\xff\x00")), "equal 0x00 and 0xff")
+}
+
+// hashOf returns the hash of a Text holding s, or 0 and a failed check
+// when it cannot be made.
+func hashOf(s []uint8) uint64 {
+    t, err := text.from_bytes(s, c_allocator)
+    if err.code != 0 {
+        check(false, "hash of a Text")
+        return 0
+    }
+    return t.hash()
+}
+
+// hashes checks hash against FNV-1a's 64-bit values, computed outside
+// Tack with Python, h = (h ^ c) * 0x100000001b3 mod 2^64 for each byte c
+// from h = 0xcbf29ce484222325, and written here in decimal: the empty
+// input, "a" and "foobar", the FNV reference vectors; 0x00, 0x80 and 0xff
+// alone, the edges of the byte the XOR changes; every byte value 0 to
+// 255, ascending and descending; and that equal Texts built differently
+// hash alike.
+func hashes() {
+    // 0xcbf29ce484222325, FNV-1a's offset basis.
+    check(hashOf([]uint8("")) == 14695981039346656037, "hash empty")
+    // 0xaf63dc4c8601ec8c.
+    check(hashOf([]uint8("a")) == 12638187200555641996, "hash a")
+    // 0x85944171f73967e8.
+    check(hashOf([]uint8("foobar")) == 9625390261332436968, "hash foobar")
+    // 0xaf63bd4c8601b7df, 0xaf643d4c8602915f and 0xaf64724c8602eb6e.
+    check(hashOf([]uint8("\x00")) == 12638153115695167455, "hash 0x00")
+    check(hashOf([]uint8("\x80")) == 12638293853183578463, "hash 0x80")
+    check(hashOf([]uint8("\xff")) == 12638352127299873646, "hash 0xff")
+    // 0x8b73007b55c3e26.
+    check(hashOf([]uint8("if")) == 628023482707099174, "hash if")
+
+    mut up := text.new(c_allocator)
+    mut down := text.new(c_allocator)
+    mut ok := true
+    for i := range 256 {
+        c, fitsC := uint8(i)
+        d, fitsD := uint8(255 - i)
+        e0 := mut up.append_byte(c)
+        e1 := mut down.append_byte(d)
+        if !fitsC || !fitsD || e0.code != 0 || e1.code != 0 {
+            ok = false
+        }
+    }
+    // 0x4242dc5249c33625 and 0x02a06ff442d86525.
+    check(ok && up.hash() == 4774620800949106213, "hash bytes 0 to 255")
+    check(ok && down.hash() == 189274279233742117, "hash bytes 255 to 0")
+    check(up.hash() != down.hash(), "hash depends on order")
+
+    mut built := text.new(c_allocator)
+    e2 := mut built.append([]uint8("hello, "))
+    e3 := mut built.append([]uint8("world"))
+    // 0x17a1a4f267be633d.
+    check(e2.code == 0 && e3.code == 0 && built.hash() == 1702823495152329533 && built.hash() == hashOf([]uint8("hello, world")), "hash of appended pieces")
+}
+
+// world_after_comma reports whether v, from byte 7 on, is "world": a
+// slice of a view another function returned, proven by the guard.
+func world_after_comma(v []uint8) bool {
+    if len(v) < 7 {
+        return false
+    }
+    return len(v[7:]) == 5 && bytes.equal(v[7:], []uint8("world"))
+}
+
+// views passes t.bytes() to fmt.write, which writes it, and to std/bytes'
+// functions, which read it in place.
+func views() {
+    mut t, err := text.from_bytes([]uint8("hello"), c_allocator)
+    if err.code != 0 {
+        check(false, "views")
+        return
+    }
+    e := mut t.append([]uint8(", world"))
+    if e.code != 0 {
+        check(false, "views append")
+        return
+    }
+    fmt.write(t.bytes())
+    print("\n")
+    check(bytes.index(t.bytes(), []uint8("world")) == 7, "bytes.index of t.bytes()")
+    check(bytes.index_byte(t.bytes(), ',') == 5, "bytes.index_byte of t.bytes()")
+    check(bytes.has_prefix(t.bytes(), []uint8("hello")) && bytes.has_suffix(t.bytes(), []uint8("world")), "bytes.has_prefix and has_suffix of t.bytes()")
+    check(bytes.count(t.bytes(), []uint8("o")) == 2, "bytes.count of t.bytes()")
+    check(bytes.equal(t.bytes(), []uint8("hello, world")), "bytes.equal of t.bytes()")
+    mut n := 0
+    for _, c := range t.bytes() {
+        if c == 'l' {
+            n +%= 1
+        }
+    }
+    check(n == 3, "range over t.bytes()")
+    c, ok := t.bytes()[4]
+    check(ok && c == 'o', "checked index of t.bytes()")
+    _, out := t.bytes()[12]
+    check(!out, "checked index past the end of t.bytes()")
+    check(world_after_comma(t.bytes()), "slice of t.bytes() in a callee")
+}
+
+// failures makes c_allocator fail: a failed append or append_byte
+// returns the builtin append's error and leaves the Text as it was, a
+// failed from_bytes returns an empty Text and allocates nothing, and
+// what fits needs no allocation.
+func failures() {
+    mut t := text.new(c_allocator)
+    failAfter(0)
+    e0 := mut t.append([]uint8("abc"))
+    e1 := mut t.append_byte('a')
+    failAfter(-1)
+    check(e0.code == 1 && e0.msg == "out of memory" && e1.code == 1 && e1.msg == "out of memory", "append and append_byte fail")
+    check(t.len() == 0 && live() == 0, "a failed append on an empty Text allocates nothing")
+
+    failAfter(0)
+    u, e2 := text.from_bytes([]uint8("abc"), c_allocator)
+    failAfter(-1)
+    check(e2.code == 1 && e2.msg == "out of memory" && live() == 0, "from_bytes fails and allocates nothing")
+    if e2.code == 0 {
+        check(u.len() < 0, "from_bytes succeeded")
+    }
+
+    failAfter(0)
+    v, e3 := text.from_bytes([]uint8(""), c_allocator)
+    failAfter(-1)
+    check(e3.code == 0 && v.len() == 0, "from_bytes empty needs no allocation")
+
+    // A list's first buffer holds 4 bytes, so a Text of "ab" has room
+    // for two more, and one of "abcd" has none.
+    mut w, e4 := text.from_bytes([]uint8("ab"), c_allocator)
+    if e4.code != 0 {
+        check(false, "from_bytes before a failure")
+        return
+    }
+    failAfter(0)
+    e5 := mut w.append_byte('c')
+    e6 := mut w.append([]uint8("d"))
+    e7 := mut w.append([]uint8("efghij"))
+    e8 := mut w.append_byte('e')
+    failAfter(-1)
+    check(e5.code == 0 && e6.code == 0 && w.equal([]uint8("abcd")), "what fits needs no allocation")
+    check(e7.code == 1 && e8.code == 1 && w.equal([]uint8("abcd")) && live() == 1, "a failed append leaves the Text as it was")
+    e9 := mut w.append_byte('!')
+    check(e9.code == 0 && w.equal([]uint8("abcd!")) && live() == 1, "append works again once the allocator does")
+
+    failAfter(1)
+    mut x, e10 := text.from_bytes([]uint8("wxyz"), c_allocator)
+    if e10.code != 0 {
+        failAfter(-1)
+        check(false, "from_bytes with one allocation left")
+        return
+    }
+    e11 := mut x.append_byte('!')
+    failAfter(-1)
+    check(e11.code == 1 && x.equal([]uint8("wxyz")) && live() == 2, "from_bytes succeeds, the next growth fails")
+}
+
+func main() {
+    check(live() == 0, "nothing live at the start")
+    empties()
+    freed("empties freed")
+    builds()
+    freed("builds freed")
+    copies()
+    freed("copies freed")
+    appends()
+    freed("appends freed")
+    equals()
+    freed("equals freed")
+    hashes()
+    freed("hashes freed")
+    views()
+    freed("views freed")
+    failures()
+    freed("failures freed")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

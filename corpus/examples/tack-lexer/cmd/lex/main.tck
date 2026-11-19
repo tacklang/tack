@@ -1,0 +1,86 @@
+package main
+
+// Command lex lexes its standard input with package lexer and prints one
+// line per token: its kind's name, its start and end offsets, and its text
+// quoted, as in
+//
+//     ident 8 12 "main"
+//
+// then one line per lexical error, "error", its offsets and its message.
+// It exits with the number of tokens, the EOF token included, of which
+// the operating system keeps the low 8 bits; with 254 when there were
+// lexical errors; with 255, printing nothing but the error, when the
+// source has more tokens than the lexer holds; with 253 when standard
+// input cannot be read; and with 252 if the token count does not fit an
+// int32, which the lexer's capacity rules out.
+//
+// It reads standard input rather than a file named by an argument because
+// a Tack program cannot see its arguments, and C reached through an extern
+// func can see them only through a platform's private interface.
+
+import lexer from "tack-lexer/lexer"
+
+// readStdin returns all of standard input, and false when it could not be
+// read. It is defined in input.c, and its bytes are never freed: nothing
+// yet says who owns a string C returns, so this program leaks the one
+// buffer it reads, for the life of the process.
+extern func readStdin() (string, bool)
+
+func main() {
+    src, ok := readStdin()
+    if !ok {
+        print("error: cannot read standard input\n")
+        exit(253)
+    }
+    mut lx lexer.Lexer
+    lexer.Lex(mut lx, src)
+    if lx.overflow {
+        print("error: more than ")
+        printInt(len(lx.toks))
+        print(" tokens\n")
+        exit(255)
+    }
+    // Each index is proven below len(lx.toks), which Lex keeps n within,
+    // rather than read with t, ok := lx.toks[i]: that compiles too, but
+    // copies the whole array for every token.
+    for i := range lexer.Count(mut lx) {
+        if i >= len(lx.toks) {
+            break
+        }
+        t := lx.toks[i]
+        print(lexer.Name(t))
+        print(" ")
+        printInt(t.start)
+        print(" ")
+        printInt(t.end)
+        print(" ")
+        printQuoted(src, t.start, t.end)
+        print("\n")
+    }
+    for i := range lx.nerr {
+        e, hasErr := lx.errs[i]
+        if !hasErr {
+            break
+        }
+        print("error ")
+        printInt(e.start)
+        print(" ")
+        printInt(e.end)
+        print(" ")
+        print(e.msg)
+        print("\n")
+    }
+    if lx.dropped > 0 {
+        print("error: ")
+        printInt(lx.dropped)
+        print(" more errors\n")
+    }
+    if lx.nerr > 0 {
+        exit(254)
+    }
+    code, fits := int32(lx.n)
+    if !fits {
+        exit(252)
+    }
+    exit(code)
+}

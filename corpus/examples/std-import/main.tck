@@ -1,0 +1,16 @@
+package main
+
+import fmt from "std/fmt"
+import greet from "hello/greet"
+
+// main prints through std/fmt directly and through greet, which imports
+// it too: std/fmt is loaded once and shared.
+func main() {
+    fmt.println("std ok")
+    fmt.println("")
+    fmt.println("two\nlines")
+    greet.Greet("tack")
+    s := "view"
+    fmt.println(s[1:3])
+    exit(42)
+}

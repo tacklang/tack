@@ -1,0 +1,40 @@
+package tok
+
+// Token is one token of a tiny language: a one-digit number, a word, or
+// the end of the input. Its cases are as visible as it is, so every
+// package can build one, Token.num(4) here and tok.Token.num(4) in
+// another, and match one.
+pub type Token union {
+    num  int64
+    word string
+    eof
+}
+
+// first returns the first token of src: a number when it starts with a
+// digit, the whole of src as a word otherwise, and eof when it is empty.
+pub func first(src string) Token {
+    if len(src) == 0 {
+        return Token.eof
+    }
+    c := src[0]
+    if c >= '0' && c <= '9' {
+        return Token.num(int64(c - '0'))
+    }
+    return Token.word(src)
+}
+
+// describe names what t holds: zero or number for a number, the word
+// itself for a word, and eof for the end.
+pub func describe(t Token) string {
+    switch t {
+    case num(n):
+        if n == 0 {
+            return "zero"
+        }
+        return "number"
+    case word(w):
+        return w
+    case eof:
+        return "eof"
+    }
+}

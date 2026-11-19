@@ -1,0 +1,49 @@
+package main
+
+// The worked example of docs/extern.md. Each extern func is defined in
+// guide.c, beside this file.
+
+type Point struct {
+    x int64
+    y int64
+}
+
+// count returns how many bytes of s are c.
+extern func count(s string, c uint8) int64
+
+// sum returns p.x + p.y, wrapping as Tack's +% does. It is defined in C as
+// point_sum.
+extern("point_sum") func sum(p Point) int64
+
+// c_divmod returns a / b and a % b. C's division is undefined when b is 0,
+// or when a is the smallest int64 and b is -1, so its callers must rule
+// both out: nothing checks that they do.
+extern func c_divmod(a int64, b int64) (int64, int64)
+
+// divmod is the Tack side of the promise: it calls C only with operands C
+// can divide, and reports whether it did.
+func divmod(a int64, b int64) (int64, int64, bool) {
+    if b == 0 || b == -1 {
+        return 0, 0, false
+    }
+    q, r := c_divmod(a, b)
+    return q, r, true
+}
+
+func main() {
+    if count("banana", 'a') != 3 || count("", 'a') != 0 {
+        exit(1)
+    }
+    if sum(Point{x: -3, y: 10}) != 7 {
+        exit(2)
+    }
+    q, r, ok := divmod(17, 5)
+    if !ok || q != 3 || r != 2 {
+        exit(3)
+    }
+    _, _, divided := divmod(1, 0)
+    if divided {
+        exit(4)
+    }
+    print("ok\n")
+}

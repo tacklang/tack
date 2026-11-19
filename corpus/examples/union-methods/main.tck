@@ -1,0 +1,373 @@
+package main
+
+// Methods on unions. A union type, like a struct type, may have methods
+// declared in its package, func (s Shape) len() int64, called on a value
+// of it, s.len(), and, with a mut receiver, func (mut s Shape) reset(),
+// called as mut s.reset(). A union's methods satisfy interfaces as a
+// struct's do, so a union is a type argument to a generic function, and
+// one generic function is compiled for unions and structs alike.
+//
+// Every check that makes a list runs in a function of its own, and main
+// asserts after it that c_allocator's count of live buffers is back to
+// zero, so a list a union held is freed exactly once, whichever method
+// reassigned it, and whichever generic function it went through. The
+// count is read through live, whose C, in live.c, reads std's hook.
+
+import shapes from "union-methods/shapes"
+
+// live returns how many buffers c_allocator holds, in C.
+extern("umethods_live") func live() int64
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that nothing is live after a check, name saying which.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// Sized knows its length and can say what it is.
+type Sized interface {
+    len() int64
+    describe() string
+}
+
+// Resetter can be emptied, and knows its length.
+type Resetter interface {
+    mut reset()
+    len() int64
+}
+
+// Shape is a circle of a radius, a square of a side, or a dot. It holds no
+// list, so it is copied.
+type Shape union {
+    circle int64
+    square int64
+    dot
+}
+
+// len returns s's perimeter, a circle's taken as six radii: a method named
+// like the builtin, ending in a switch on its receiver that covers every
+// case.
+func (s Shape) len() int64 {
+    switch s {
+    case circle(r):
+        return 6 *% r
+    case square(a):
+        return 4 *% a
+    case dot:
+        return 0
+    }
+}
+
+// describe names the case s holds.
+func (s Shape) describe() string {
+    switch s {
+    case circle:
+        return "circle"
+    case square:
+        return "square"
+    default:
+        return "dot"
+    }
+}
+
+// isDot reports whether s is a dot: a method calling another on its own
+// receiver, and comparing its receiver with ==.
+func (s Shape) isDot() bool {
+    return s == Shape.dot && s.len() == 0
+}
+
+// reset makes s a dot: a mut receiver reassigned whole.
+func (mut s Shape) reset() {
+    s = Shape.dot
+}
+
+// grow makes s by units larger: a mut method switching on its mut
+// receiver, which a clause binding a payload cannot assign, so the new
+// value is assigned after the switch, and which a clause binding nothing
+// may.
+func (mut s Shape) grow(by int64) {
+    mut next := s
+    switch s {
+    case circle(r):
+        next = Shape.circle(r +% by)
+    case square(a):
+        next = Shape.square(a +% by)
+    case dot:
+        s = Shape.circle(by)
+        return
+    }
+    s = next
+}
+
+// Value is a value of a tiny dynamic language: a number, a text, the
+// words of a list it owns, or nothing. It holds a list, so it is owned.
+type Value union {
+    num   int64
+    text  string
+    words list[string]
+    none
+}
+
+// len returns how long v is: 1 for a number, a text's bytes, a list's
+// words and 0 for nothing. Named like the builtin, it calls the builtin
+// on the payloads it binds in place.
+func (v Value) len() int64 {
+    switch v {
+    case num:
+        return 1
+    case text(s):
+        return len(s)
+    case words(ws):
+        return len(ws)
+    case none:
+        return 0
+    }
+}
+
+// describe names the case v holds.
+func (v Value) describe() string {
+    switch v {
+    case num:
+        return "num"
+    case text:
+        return "text"
+    case words:
+        return "words"
+    case none:
+        return "none"
+    }
+}
+
+// word returns the i'th word v holds, or "" when it holds no such word.
+func (v Value) word(i int64) string {
+    switch v {
+    case words(ws):
+        w, ok := ws[i]
+        if !ok {
+            return ""
+        }
+        return w
+    default:
+        return ""
+    }
+}
+
+// set makes v the text s, freeing any list it held.
+func (mut v Value) set(s string) {
+    v = Value.text(s)
+}
+
+// reset makes v nothing, freeing any list it held.
+func (mut v Value) reset() {
+    v = Value.none
+}
+
+// append adds w to v's words: a mut method named like the builtin. A
+// clause binding v's list copies it into a new one, since the payload is
+// read in place and cannot be moved out; v is reassigned after the
+// switch, which frees the old list. A text becomes its first word, and
+// anything else is dropped.
+func (mut v Value) append(w string) error {
+    mut next := make(list[string], c_allocator)
+    switch v {
+    case words(ws):
+        err := append(mut next, ws...)
+        if err.code != 0 {
+            return err
+        }
+    case text(s):
+        err := append(mut next, s)
+        if err.code != 0 {
+            return err
+        }
+    default:
+    }
+    err := append(mut next, w)
+    if err.code != 0 {
+        return err
+    }
+    v = Value.words(next)
+    return noerror
+}
+
+// Bag is a struct holding a list, to pass alongside the unions.
+type Bag struct {
+    items list[int64]
+}
+
+// len returns how many items b holds.
+func (b Bag) len() int64 {
+    return len(b.items)
+}
+
+// describe names a Bag.
+func (b Bag) describe() string {
+    return "bag"
+}
+
+// reset empties b, freeing its list.
+func (mut b Bag) reset() {
+    b = Bag{items: make(list[int64], c_allocator)}
+}
+
+// Holder holds a shape and a value, to call methods on fields.
+type Holder struct {
+    shape Shape
+    value Value
+}
+
+// measure returns x's length: one generic function compiled for every
+// union and struct type passed to it.
+func measure[S Sized](x S) int64 {
+    return x.len()
+}
+
+// label returns what x says it is.
+func label[S Sized](x S) string {
+    return x.describe()
+}
+
+// sum returns a's and b's lengths added: two type parameters, which may be
+// a union and a struct.
+func sum[A Sized, B Sized](a A, b B) int64 {
+    return a.len() +% b.len()
+}
+
+// wipe resets r and returns its length before: a mut method through a
+// generic function.
+func wipe[R Resetter](mut r R) int64 {
+    before := r.len()
+    mut r.reset()
+    return before
+}
+
+// longer returns x's length through measure: a type parameter passed on
+// to another generic function.
+func longer[S Sized](x S, y S) int64 {
+    a := measure(x)
+    b := measure(y)
+    if a > b {
+        return a
+    }
+    return b
+}
+
+// testShapes calls Shape's methods, plain and mut, on locals, temporaries,
+// elements and fields.
+func testShapes() {
+    c := Shape.circle(2)
+    check(c.len() == 12 && c.describe() == "circle", "a method of a union")
+    check(Shape.square(3).len() == 12, "a method on a union built in place")
+    check(Shape.dot.len() == 0 && Shape.dot.isDot(), "a method on a case with no payload")
+    check(!c.isDot(), "a method calling another on its receiver")
+
+    mut s := Shape.square(1)
+    mut s.grow(2)
+    check(s == Shape.square(3), "a mut method switching on its receiver")
+    mut s.reset()
+    check(s == Shape.dot, "a mut method reassigning its receiver")
+    mut s.grow(5)
+    check(s == Shape.circle(5), "a mut method assigning in a clause binding nothing")
+
+    mut all := [3]Shape{Shape.dot, Shape.circle(1), Shape.square(2)}
+    check(all[1].len() == 6 && all[2].len() == 8, "a method on an element")
+    mut all[0].grow(4)
+    check(all[0] == Shape.circle(4), "a mut method on an element")
+
+    mut h := Holder{shape: Shape.circle(3), value: Value.num(1)}
+    mut h.shape.reset()
+    check(h.shape.isDot() && h.value.len() == 1, "methods on fields")
+}
+
+// testValues calls Value's methods: a union holding a list, borrowed by a
+// plain receiver and reassigned through a mut one.
+func testValues() {
+    mut v := Value.num(7)
+    check(v.len() == 1 && v.describe() == "num", "a method of a union holding a list")
+    mut v.set("hello")
+    check(v.len() == 5 && v.describe() == "text", "a mut method setting a payload")
+    err := mut v.append("world")
+    check(err.code == 0 && v.len() == 2 && v.word(0) == "hello", "a mut method making a list")
+    err2 := mut v.append("again")
+    check(err2.code == 0 && v.len() == 3 && v.word(2) == "again", "a mut method replacing a list")
+    mut v.reset()
+    check(v.len() == 0 && v.describe() == "none", "a mut method freeing a list")
+    err3 := mut v.append("last")
+    check(err3.code == 0 && v.word(0) == "last", "a list made from nothing")
+
+    mut h := Holder{shape: Shape.dot, value: Value.none}
+    err4 := mut h.value.append("x")
+    check(err4.code == 0 && h.value.len() == 1, "a mut method on a field holding a list")
+}
+
+// testGenerics passes unions and structs through the same generic
+// functions.
+func testGenerics() {
+    c := Shape.circle(1)
+    mut v := Value.text("four")
+    mut b := Bag{items: make(list[int64], c_allocator)}
+    err := append(mut b.items, 1, 2, 3)
+    check(err.code == 0, "a bag filled")
+    check(measure(c) == 6 && measure(v) == 4 && measure(b) == 3,
+        "unions and a struct through one generic function")
+    check(label(c) == "circle" && label(v) == "text" && label(b) == "bag",
+        "a union's method through a generic function")
+    check(sum(c, v) == 10 && sum(v, b) == 7 && sum(b, c) == 9,
+        "a union and a struct as two type arguments")
+    three := Value.num(3)
+    check(longer(c, Shape.square(2)) == 8 && longer(v, three) == 4,
+        "a union passed on to another generic function")
+
+    mut s := Shape.square(5)
+    check(wipe(mut s) == 20 && s == Shape.dot, "a union's mut method through a generic function")
+    check(wipe(mut v) == 4 && v.describe() == "none", "a union holding a list reset generically")
+    err2 := mut v.append("a")
+    check(err2.code == 0 && wipe(mut v) == 1, "a list freed through a generic function")
+    check(wipe(mut b) == 3 && b.len() == 0, "a struct reset generically")
+}
+
+// testPackages passes unions to the generic functions of another package,
+// and calls the methods of that package's union.
+func testPackages() {
+    t := shapes.Tile.wide(4)
+    check(t.len() == 10, "a pub method of another package's union")
+    mut u := shapes.Tile.tall(2)
+    mut u.turn()
+    check(!shapes.IsTall(u) && u == shapes.Tile.wide(2), "a pub mut method of another package's union")
+    check(shapes.Larger(t, u) == 10, "another package's union through its generic function")
+    check(shapes.Larger(Shape.circle(3), t) == 18,
+        "a union with private methods through another package's generic function")
+    mut v := Value.text("abc")
+    check(shapes.Larger(v, Shape.dot) == 3, "a union holding a list through another package")
+    check(measure(shapes.Tile.blank) == 0 && label(shapes.Tile.tall(1)) == "tall",
+        "another package's union through a generic function here")
+    check(shapes.LargerTile(t, shapes.Tile.tall(9)) == 20,
+        "a generic call inside another package with its own union")
+    err := mut v.append("d")
+    check(err.code == 0 && shapes.Larger(v, u) == 6, "a list through another package's generic function")
+}
+
+func main() {
+    check(live() == 0, "nothing live at the start")
+    testShapes()
+    testValues()
+    freed("values freed")
+    testGenerics()
+    freed("generics freed")
+    testPackages()
+    freed("packages freed")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

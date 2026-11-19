@@ -1,0 +1,517 @@
+package main
+
+// Owned values a failing ? leaves behind, in every place an expression
+// can hold one before the ? runs: a call's own argument, append's and
+// put's values, a struct's field, a union's payload,
+// a return's value, a variable moved into an argument, a list a nested
+// call made, and one held deep in an expression too long for C to nest;
+// and the owned locals of every block a ? leaves, from a loop's
+// condition, its post statement, the right of &&, a range over a list
+// and a switch's clause; and a ? as a statement starting with a
+// parenthesis and as a loop's init and post statements. Each check runs in a function of its own, then
+// asserts that c_allocator's count of live buffers is back to zero, so a
+// leak or a double free shows. Every check prints its name and "ok", or
+// "FAIL".
+
+// live returns how many buffers c_allocator holds, in C.
+extern("qowned_live") func live() int64
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that c_allocator holds no buffer, name saying after what.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// bad is the error fallible and numbers fail with.
+var bad = error{code: 7, msg: "bad"}
+
+// fallible gives n, or bad when n is negative.
+func fallible(n int64) (int64, error) {
+    if n < 0 {
+        return 0, bad
+    }
+    return n, noerror
+}
+
+// numbers gives a list of n numbers, 1 to n, or bad, after making a list
+// of 2, when n is negative: the list beside the error holds a buffer.
+func numbers(n int64) (list[int64], error) {
+    mut l := make(list[int64], c_allocator)
+    if n < 0 {
+        if append(mut l, 1, 2).code != 0 {
+            return l, error{code: 1, msg: "out of memory"}
+        }
+        return l, bad
+    }
+    for i := range n {
+        err := append(mut l, i +% 1)
+        if err.code != 0 {
+            return l, err
+        }
+    }
+    return l, noerror
+}
+
+// take takes l, which it owns, and gives its length plus k.
+func take(own l list[int64], k int64) (int64, error) {
+    return len(l) +% k, noerror
+}
+
+// both takes two lists, which it owns, and gives their lengths' sum.
+func both(own a list[int64], own b list[int64]) (int64, error) {
+    return len(a) +% len(b), noerror
+}
+
+// wrapped takes l, which it owns, fails when k is negative, and gives
+// l back otherwise.
+func wrapped(own l list[int64], k int64) (list[int64], error) {
+    if k < 0 {
+        return l, bad
+    }
+    return l, noerror
+}
+
+// Bag is a name and a list of numbers.
+type Bag struct {
+    name  int64
+    items list[int64]
+}
+
+// Shape holds a list in one of its cases.
+type Shape union {
+    dot
+    path list[int64]
+}
+
+// shapeLen takes s, which it owns, and gives its list's length plus k.
+func shapeLen(own s Shape, k int64) (int64, error) {
+    switch s {
+    case dot:
+        return k, noerror
+    case path(l):
+        return len(l) +% k, noerror
+    }
+}
+
+// argument passes a list a ? gave to an own parameter, then fails on the
+// argument after it, when k is negative.
+func argument(k int64) (int64, error) {
+    return take(numbers(3)?, fallible(k)?)?, noerror
+}
+
+// twoLists passes two lists a ? gave to own parameters, the second
+// failing when k is negative, after the first is made.
+func twoLists(k int64) (int64, error) {
+    return both(numbers(2)?, numbers(k)?)?, noerror
+}
+
+// nested makes a list, passes it through wrapped, which may fail, and the
+// list wrapped gives to take, whose other argument may fail.
+func nested(a int64, b int64) (int64, error) {
+    return take(wrapped(numbers(2)?, a)?, fallible(b)?)?, noerror
+}
+
+// moved moves a local list into an own parameter, then fails on the
+// argument after it.
+func moved(k int64) (int64, error) {
+    l := numbers(4)?
+    return take(own l, fallible(k)?)?, noerror
+}
+
+// appended appends two lists to a list of lists, the second's ? failing
+// when k is negative, after the first is made.
+func appended(k int64) (int64, error) {
+    mut ll := make(list[list[int64]], c_allocator)
+    append(mut ll, numbers(2)?, numbers(k)?)?
+    return len(ll), noerror
+}
+
+// putValue puts a list into a map, its key made by a ? first and the list
+// by one that fails when k is negative.
+func putValue(k int64) (int64, error) {
+    mut m := make(map[int64]list[int64], c_allocator)
+    put(mut m, fallible(1)?, numbers(k)?)?
+    return len(m), noerror
+}
+
+// putTwice puts a list made before a key whose ? fails when k is
+// negative: the list is the value, after the key, so only the key's ? is
+// before it.
+func putTwice(k int64) (int64, error) {
+    mut m := make(map[int64]list[int64], c_allocator)
+    put(mut m, fallible(k)?, numbers(2)?)?
+    return len(m), noerror
+}
+
+// field builds a Bag whose list field comes before a field whose ? fails
+// when k is negative.
+func field(k int64) (Bag, error) {
+    return Bag{items: numbers(3)?, name: fallible(k)?}, noerror
+}
+
+// payload builds a union holding a list a ? gave, passed to an own
+// parameter before an argument whose ? fails when k is negative.
+func payload(k int64) (int64, error) {
+    return shapeLen(Shape.path(numbers(2)?), fallible(k)?)?, noerror
+}
+
+// pairs returns a list a ? gave beside a number whose ? fails when k is
+// negative.
+func pairs(k int64) (list[int64], int64, error) {
+    return numbers(2)?, fallible(k)?, noerror
+}
+
+// local returns a local list beside a number whose ? fails when k is
+// negative: the list, moved out of its variable for the return, is freed
+// once.
+func local(k int64) (list[int64], int64, error) {
+    l := numbers(3)?
+    return l, fallible(k)?, noerror
+}
+
+// deep passes a list a ? gave to an own parameter before an argument
+// nested past the depth C nests, whose ? fails when k is negative.
+func deep(k int64) (int64, error) {
+    return take(numbers(2)?, 1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% (1 +% fallible(k)?))))))))))))))))))))))))))))))))))))))))?, noerror
+}
+
+// loopCond holds a list in its three-clause loop's init, replaced in its
+// body, and fails in the loop's condition once k - t is negative.
+func loopCond(k int64) (int64, error) {
+    mut t int64 = 0
+    for mut l := numbers(2)?; t < fallible(k -% t)?; t +%= 1 {
+        t = t +% len(l)
+        l = numbers(1)?
+    }
+    return t, noerror
+}
+
+// loopPost fails in the post statement of a loop whose init holds a list,
+// when k is negative, and on a body's list of each pass.
+func loopPost(k int64) (int64, error) {
+    mut t int64 = 0
+    for mut l := numbers(2)?; t < 3; t = t +% fallible(k)? {
+        inner := numbers(1)?
+        t = t +% len(inner) +% len(l)
+    }
+    return t, noerror
+}
+
+// rightOfAnd fails on the right of && while a list is live, when k is
+// negative.
+func rightOfAnd(k int64) (bool, error) {
+    l := numbers(2)?
+    return len(l) > 1 && fallible(k)? >= 0, noerror
+}
+
+// ranged fails inside a range over a list, when k is negative.
+func ranged(k int64) (int64, error) {
+    l := numbers(3)?
+    mut t int64 = 0
+    for _, x := range l {
+        held := numbers(1)?
+        t = t +% x +% fallible(k)? +% len(held)
+    }
+    return t, noerror
+}
+
+// matched fails inside a switch's clause that binds a union's list in
+// place, when k is negative.
+func matched(k int64) (int64, error) {
+    s := Shape.path(numbers(2)?)
+    switch s {
+    case dot:
+        return 0, noerror
+    case path(l):
+        return len(l) +% fallible(k)?, noerror
+    }
+}
+
+// reassigned assigns a list a ? gives over one a variable holds, when it
+// passes, and leaves the old one held when it fails.
+func reassigned(k int64) (int64, error) {
+    mut l := numbers(2)?
+    l = numbers(k)?
+    return len(l), noerror
+}
+
+// rebound binds a list and a number a ? gives over two variables, the
+// list's old one freed only when the ? passes.
+func rebound(k int64) (int64, error) {
+    mut l := numbers(1)?
+    mut n int64 = 0
+    l, n = pairs(k)?
+    return len(l) +% n, noerror
+}
+
+// deferred frees a list declared before a defer that reads it, the ?
+// returning through both.
+func deferred(k int64, mut out int64) error {
+    l := numbers(2)?
+    defer {
+        out = len(l)
+    }
+    fallible(k)?
+    return noerror
+}
+
+// counter counts the calls of tick.
+mut counter int64
+
+// tick counts a call, and fails with bad once the count passes limit.
+func tick(limit int64) error {
+    counter +%= 1
+    if counter > limit {
+        return bad
+    }
+    return noerror
+}
+
+// noted counts the calls of note.
+mut noted int64
+
+// note counts a call.
+func note() {
+    noted +%= 1
+}
+
+// parens writes a call, and ?s on calls, as statements that start with a
+// parenthesis, a list made first, which a failing ? frees.
+func parens(limit int64) (int64, error) {
+    l := numbers(2)?
+    (note())
+    (tick(limit))?
+    (tick(limit)?)
+    ((tick(limit)))?
+    return len(l), noerror
+}
+
+// clauses makes a ? on a call a three-clause loop's init statement and
+// its post statement, a list live around the loop, which a failing one
+// frees.
+func clauses(limit int64) (int64, error) {
+    l := numbers(1)?
+    mut n int64 = 0
+    for tick(limit)?; n < 3; (tick(limit))? {
+        n +%= 1
+    }
+    for (tick(limit))?; n < 4; tick(limit)? {
+        n +%= 1
+    }
+    return n +% len(l), noerror
+}
+
+// testStatements checks a ? as a statement starting with a parenthesis,
+// and as a loop's init and post statements.
+func testStatements() {
+    counter = 0
+    noted = 0
+    p, errP := parens(10)
+    pc := counter
+    counter = 0
+    _, eP := parens(1)
+    if errP.code == 0 {
+        check(p == 2 && pc == 3 && eP == bad && counter == 2 && noted == 2,
+            "a ? in a parenthesized statement")
+    } else {
+        check(false, "a ? in a parenthesized statement")
+    }
+    freed("a parenthesized statement's list freed")
+    counter = 0
+    c, errC := clauses(10)
+    cc := counter
+    counter = 0
+    _, eC := clauses(2)
+    if errC.code == 0 {
+        check(c == 5 && cc == 6 && eC == bad && counter == 3, "a ? as a loop's init and post")
+    } else {
+        check(false, "a ? as a loop's init and post")
+    }
+    freed("a loop's clauses' list freed")
+}
+
+// testArguments checks the owned values arguments leave behind.
+func testArguments() {
+    a, errA := argument(1)
+    _, eA := argument(-1)
+    if errA.code == 0 {
+        check(a == 4 && eA == bad, "an own argument before a failing ?")
+    } else {
+        check(false, "an own argument before a failing ?")
+    }
+    freed("an own argument freed")
+    t, errT := twoLists(3)
+    _, eT := twoLists(-1)
+    if errT.code == 0 {
+        check(t == 5 && eT == bad, "two own arguments")
+    } else {
+        check(false, "two own arguments")
+    }
+    freed("the first own argument and the failing call's list freed")
+    n, errN := nested(1, 1)
+    _, eN1 := nested(-1, 1)
+    _, eN2 := nested(1, -1)
+    if errN.code == 0 {
+        check(n == 3 && eN1 == bad && eN2 == bad, "a list passed through a call that fails")
+    } else {
+        check(false, "a list passed through a call that fails")
+    }
+    freed("a list a failing call gave back freed")
+    m, errM := moved(1)
+    _, eM := moved(-1)
+    if errM.code == 0 {
+        check(m == 5 && eM == bad, "a moved variable before a failing ?")
+    } else {
+        check(false, "a moved variable before a failing ?")
+    }
+    freed("a moved variable freed")
+}
+
+// testBuiltins checks the owned values append and put leave behind.
+func testBuiltins() {
+    a, errA := appended(1)
+    _, eA := appended(-1)
+    if errA.code == 0 {
+        check(a == 2 && eA == bad, "append's values before a failing ?")
+    } else {
+        check(false, "append's values before a failing ?")
+    }
+    freed("append's values freed")
+    p, errP := putValue(1)
+    _, eP := putValue(-1)
+    _, eQ := putTwice(-1)
+    if errP.code == 0 {
+        check(p == 1 && eP == bad && eQ == bad, "put's key and value")
+    } else {
+        check(false, "put's key and value")
+    }
+    freed("put's value freed")
+}
+
+// testBuilt checks the owned values literals, unions and returns leave
+// behind.
+func testBuilt() {
+    b, errB := field(5)
+    empty, eB := field(-1)
+    if errB.code == 0 {
+        check(b.name == 5 && len(b.items) == 3 && eB == bad, "a struct's field before a failing ?")
+    } else {
+        check(false, "a struct's field before a failing ?")
+    }
+    if eB.code == 0 {
+        check(len(empty.items) == 99, "the struct a failing ? leaves")
+    }
+    u, errU := payload(1)
+    _, eU := payload(-1)
+    if errU.code == 0 {
+        check(u == 3 && eU == bad, "a union's payload before a failing ?")
+    } else {
+        check(false, "a union's payload before a failing ?")
+    }
+    l, v, errL := pairs(4)
+    none, _, eL := pairs(-1)
+    if errL.code == 0 {
+        check(len(l) == 2 && v == 4 && eL == bad, "a return's value before a failing ?")
+    } else {
+        check(false, "a return's value before a failing ?")
+    }
+    if eL.code == 0 {
+        check(len(none) == 99, "the list a failing ? leaves")
+    }
+    m, w, errM := local(5)
+    gone, _, eM := local(-1)
+    if errM.code == 0 {
+        check(len(m) == 3 && w == 5 && eM == bad, "a local list returned before a failing ?")
+    } else {
+        check(false, "a local list returned before a failing ?")
+    }
+    if eM.code == 0 {
+        check(len(gone) == 99, "the local list a failing ? leaves")
+    }
+    d, errD := deep(0)
+    _, eD := deep(-1)
+    if errD.code == 0 {
+        check(d == 42 && eD == bad, "an own argument before a ? nested deep")
+    } else {
+        check(false, "an own argument before a ? nested deep")
+    }
+}
+
+// testBlocks checks the owned locals of the blocks a ? leaves.
+func testBlocks() {
+    c, errC := loopCond(9)
+    _, eC := loopCond(1)
+    if errC.code == 0 {
+        check(c == 5 && eC == bad, "a ? in a loop's condition")
+    } else {
+        check(false, "a ? in a loop's condition")
+    }
+    freed("a loop's lists freed by its condition's ?")
+    p, errP := loopPost(1)
+    _, eP := loopPost(-1)
+    if errP.code == 0 {
+        check(p == 4 && eP == bad, "a ? in a loop's post statement")
+    } else {
+        check(false, "a ? in a loop's post statement")
+    }
+    freed("a loop's lists freed by its post's ?")
+    r, errR := rightOfAnd(1)
+    _, eR := rightOfAnd(-1)
+    if errR.code == 0 {
+        check(r && eR == bad, "a ? on the right of &&")
+    } else {
+        check(false, "a ? on the right of &&")
+    }
+    g, errG := ranged(0)
+    _, eG := ranged(-1)
+    if errG.code == 0 {
+        check(g == 9 && eG == bad, "a ? in a range over a list")
+    } else {
+        check(false, "a ? in a range over a list")
+    }
+    s, errS := matched(1)
+    _, eS := matched(-1)
+    if errS.code == 0 {
+        check(s == 3 && eS == bad, "a ? in a clause binding a payload")
+    } else {
+        check(false, "a ? in a clause binding a payload")
+    }
+    a, errA := reassigned(3)
+    _, eA := reassigned(-1)
+    if errA.code == 0 {
+        check(a == 3 && eA == bad, "a list assigned over another")
+    } else {
+        check(false, "a list assigned over another")
+    }
+    b, errB := rebound(2)
+    _, eB := rebound(-1)
+    if errB.code == 0 {
+        check(b == 4 && eB == bad, "a list bound over another")
+    } else {
+        check(false, "a list bound over another")
+    }
+    mut out int64 = 0
+    check(deferred(-1, mut out) == bad && out == 2, "a defer reads a list a ? frees after")
+}
+
+func main() {
+    freed("nothing live at the start")
+    testArguments()
+    freed("arguments freed")
+    testBuiltins()
+    freed("builtins freed")
+    testBuilt()
+    freed("built values freed")
+    testBlocks()
+    testStatements()
+    freed("nothing live at the end")
+}

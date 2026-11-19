@@ -1,0 +1,35 @@
+package num
+
+// Empty is the error Parse returns for the empty string, a sentinel other
+// packages compare with.
+pub var Empty = error{code: 1, msg: "empty"}
+
+// Parse reads s as a decimal number: Empty when s is empty, and error 3
+// when it holds a byte that is not a digit.
+pub func Parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, Empty
+    }
+    mut n int64 = 0
+    for i := range s {
+        c := s[i]
+        if c < '0' || c > '9' {
+            return 0, error{code: 3, msg: "not a digit"}
+        }
+        n = n *% 10 +% (c - '0')
+    }
+    return n, noerror
+}
+
+// Positive returns only an error: error 4 unless n is above 0.
+pub func Positive(n int64) error {
+    if n <= 0 {
+        return error{code: 4, msg: "not positive"}
+    }
+    return noerror
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

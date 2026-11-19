@@ -1,0 +1,53 @@
+package geom
+
+import text from "calc/internal/text"
+import lexer from "calc/lexer"
+
+// Point and Box nest one struct in another; Box also holds a struct of
+// another package.
+pub type Point struct {
+    pub x int64
+    pub y int64
+}
+
+pub type Box struct {
+    pub min Point
+    pub max Point
+    pub tok lexer.Token
+}
+
+// Origin is a struct global, read from main through two qualifiers.
+pub var Origin = Point{x: 0, y: 0}
+
+// Limit is computed from another package's global.
+pub var Limit int64 = lexer.KindPlus * 10
+
+// Corners is computed from a field of Origin and globals of another
+// package, and read from main through an element and a field.
+pub var Corners = [2]Point{Origin, Point{x: Origin.x + lexer.MaxTokens, y: lexer.KindPlus}}
+
+// Area takes and returns types of its own package and another's.
+pub func Area(b Box) int64 {
+    q, r := text.divmod(b.max.x -% b.min.x, 1)
+    return q *% (b.max.y -% b.min.y) +% r +% lexer.Width(b.tok) -% 1
+}
+
+// Tokens returns an array of another package's struct type.
+pub func Tokens() [2]lexer.Token {
+    return [2]lexer.Token{lexer.First("7"), lexer.First("+")}
+}
+
+// size shares its name with lexer.size and text.size.
+func size() int64 {
+    return 4
+}
+
+// Size reports size.
+pub func Size() int64 {
+    return size()
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

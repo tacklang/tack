@@ -1,0 +1,31 @@
+package main
+
+import num from "ensmod/num"
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// pick returns the element of a at i, moved into range first by
+// num.Clamp, whose contract proves the index.
+func pick(a []int64, i int64) int64 {
+    mut at := i
+    n := len(a)
+    num.Clamp(mut at, n)
+    return a[at]
+}
+
+func main() {
+    v, err := num.Parse("12")
+    num.Must(err)
+    check(v == 12, "a result read after another package's check")
+
+    a := [3]int64{10, 20, 30}
+    check(pick(a, -5) == 10 && pick(a, 1) == 20 && pick(a, 9) == 30, "an index another package proved")
+}

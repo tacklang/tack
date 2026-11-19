@@ -1,0 +1,44 @@
+package main
+
+var squares = [5]int64{0, 1, 4, 9, 16}
+
+func sum(v [5]int64) int64 {
+    mut total := 0
+    for i := range len(v) {
+        total +%= v[i]
+    }
+    return total
+}
+
+func at(v [5]int64, i int64) int64 {
+    if 0 <= i && i < len(v) {
+        return v[i]
+    }
+    return -1
+}
+
+func main() {
+    mut counts [4]int64
+    for i := range 4 {
+        counts[i] = i * 10
+    }
+    _, ok := counts[at(squares, 9)]
+    v, fine := counts[at(squares, 1)]
+
+    mut seen [256]bool
+    var b uint8 = 200
+    seen[b] = true
+    if ok || !fine || !seen[200] {
+        exit(1)
+    }
+    code, fits := int32(sum(squares) +% v +% counts[3])
+    if !fits {
+        exit(2)
+    }
+    exit(code)
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

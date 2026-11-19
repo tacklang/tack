@@ -1,0 +1,420 @@
+package main
+
+import builtin from "tack/builtin"
+import codegen from "tack/codegen"
+import diag from "tack/diag"
+import fmt from "std/fmt"
+import loader from "tack/loader"
+import os from "std/os"
+import resolver from "tack/resolver"
+import source from "tack/source"
+import testmain from "tack/testmain"
+import text from "std/text"
+import typeck from "tack/typeck"
+
+// --port-case and --port-test-case, the port's own test-only flags, which
+// the Go compiler does not have (per the owner's ruling, 2026-11-19):
+// each writes one case of the test corpus as tackc's in-process harness
+// renders it, test/golden_test.go's runPipeline and testmode_test.go's
+// runTestPipeline, so the corpus's expected sections and goldens, which
+// that harness wrote, are checked byte for byte without Go, by
+// tools/corpus. Neither is meant for use outside the corpus.
+//
+// A case is written to standard output as
+//
+//     stage: <stage>
+//     ---
+//     <output>
+//
+// the harness's result.String(), and the exit status is 0 whatever the
+// stage, so that a rendered rejection is told apart from a failure of
+// the driver, 1, and a decline, 3. The stage is ok for a program that
+// compiled, codegen when the backend reported anything, load when the
+// loader failed with an error rather than diagnostics, and otherwise the
+// stages that reported errors, in pipeline order, joined by +: the
+// loader's named by the first of its stages that reported anything
+// (lex, parse or load, see loader.Result's stage), then resolve, then
+// typeck. The output is, for ok, the generated C exactly as the backend
+// gives it; for codegen, the backend's diagnostics alone, in the order
+// it reported them, not sorted; for a loader's failure, its error and a
+// newline, with no tack: before it; and otherwise every diagnostic of
+// every stage, sorted by file and then by where each starts, with no
+// limit on how many, --max-errors and --max-diags notwithstanding. For
+// ok, the warnings the stages gave, rendered and sorted the same way, are
+// written to standard error, and nothing is otherwise.
+//
+// --port-case builds the target as the harness's runPipeline does,
+// mirroring --emit: a directory as its package, an import path as one,
+// and anything else as a single file, loaded with the standard library,
+// resolved with its main function required and type-checked whatever
+// the stages before reported, and handed to the backend when none
+// reported an error. A program with no main package stops at the
+// resolver, as --emit's does (decided 2026-11-16, see the README's known
+// divergences), where the harness type-checks it on; no case of the
+// corpus tells the two apart. --port-test-case builds the target, a
+// directory or an import path, as tack test does and the harness's
+// runTestPipeline mirrors: loaded with its test files and the main
+// testmain writes for them, a name the generated main declares too
+// reported as the load stage and ending the run, resolved with no main
+// function required, a main package with none reported as resolve,
+// type-checked as a test build, and what is reported in the generated
+// main dropped or made an internal error before the errors are counted.
+//
+// Every file's name is shown relative to the current directory when it
+// is below it, a single file's target and the standard library's files
+// included, as the harness names them relative to its in-memory root:
+// run from a root holding std at src/std, std's files are src/std/....
+// --port-std <dir> gives the standard library's directory, relative to
+// the current directory or absolute, in place of the one $TACK_HOME or
+// ~/.tack holds, as a case with a std of its own, its .std directory,
+// gives the harness one; it is a usage error without --port-case or
+// --port-test-case, and with an empty name. What the type checker or the
+// backend cannot do yet, and a failure the port cannot word, is
+// declined, naming the flag.
+
+// case_std returns the standard library's directory for a case dump:
+// the one --port-std names, at the argument std_at of a from offset
+// std_from, made absolute, when it is given, and the one find_std finds
+// otherwise; or the failure that stops the dump, which the caller reports.
+func case_std(a []text.Text, std_at int64, std_from int64) (text.Text, loader.Fail, error) {
+    if std_at < 0 || std_at >= len(a) {
+        dir, f := find_std()?
+        return dir, f, noerror
+    }
+    dir, f := std_named(a[std_at].bytes(), std_from)?
+    return dir, f, noerror
+}
+
+// std_named returns the standard library's directory --port-std names,
+// what arg holds from offset on, made absolute, or the failure that it
+// is no directory.
+func std_named(arg []uint8, offset int64) (text.Text, loader.Fail, error) {
+    if offset < 0 || offset > len(arg) {
+        // The offset is where the value starts in the argument, so this
+        // does not happen.
+        return text.new(c_allocator), loader.Fail{failed: true, unworded: true, not_exist: false, no_tack: false, msg: make(list[uint8], c_allocator)}, noerror
+    }
+    abs, af := abs_path(arg[offset:])?
+    if af.failed {
+        w := wrap_fail([]uint8("cannot find std: "), own af)?
+        return text.new(c_allocator), w, noerror
+    }
+    info, err := os.stat(abs.bytes())
+    if err.code != 0 || !info.is_dir() {
+        mut msg := make(list[uint8], c_allocator)
+        append(mut msg, []uint8("cannot find std at ")...)?
+        append(mut msg, abs.bytes()...)?
+        return text.new(c_allocator), loader.Fail{failed: true, unworded: false, not_exist: false, no_tack: false, msg: msg}, noerror
+    }
+    return abs, loader.no_fail(c_allocator), noerror
+}
+
+// stage_name returns the name the harness gives s, the first stage of
+// the loader that reported anything: lex, parse or load.
+func stage_name(s loader.Stage) string {
+    if s == loader.stage_lex {
+        return "lex"
+    }
+    if s == loader.stage_parse {
+        return "parse"
+    }
+    return "load"
+}
+
+// add_stage appends name to stages, the stages that reported errors so
+// far, after a + when it is not the first.
+func add_stage(mut stages list[uint8], name string) error {
+    if len(stages) > 0 {
+        append(mut stages, '+')?
+    }
+    return append(mut stages, []uint8(name)...)
+}
+
+// render_in_order renders diags, problems in the files of files, in the
+// order given, as Go's diag.RenderAllPretty renders a list: a blank
+// line, then each diagnostic followed by one.
+func render_in_order(files source.Set, diags []diag.Diagnostic) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    append(mut out, '\n')?
+    for _, d := range diags {
+        diag.render_pretty(files, mut out, d)?
+        append(mut out, '\n')?
+    }
+    return out, noerror
+}
+
+// write_case writes a case dump, stage, ---, and body, to standard
+// output, and then warnings, when there are any, to standard error, and
+// returns the exit status: exit_ok, or the failure of a write as
+// write_output reports it.
+func write_case(stage []uint8, body []uint8, warnings []uint8) (int32, error) {
+    mut out := make(list[uint8], c_allocator)
+    append(mut out, []uint8("stage: ")...)?
+    append(mut out, stage...)?
+    append(mut out, []uint8("\n---\n")...)?
+    append(mut out, body...)?
+    code := write_output(out)
+    if code != exit_ok || len(warnings) == 0 {
+        return code, noerror
+    }
+    return write_warnings(warnings), noerror
+}
+
+// case_loader returns the loader of a case dump: the program loaded in
+// full, with the standard library at std_dir, with no limit on how many
+// errors are reported, its files shown relative to the current
+// directory, for the test build when tests says so.
+func case_loader(own std_dir text.Text, tests bool) (loader.Loader, loader.Fail, error) {
+    mut l := loader.Loader{
+        stop: loader.stage_none,
+        max_errors: 0,
+        builtins: true,
+        has_std: true,
+        std_dir: std_dir,
+        relative: false,
+        cwd: text.new(c_allocator),
+        library: false,
+        tests: tests,
+        test_pattern: text.new(c_allocator),
+        test_verbose: false,
+        alloc: c_allocator,
+    }
+    cwd, cf := go_getwd()?
+    if cf.failed {
+        w := wrap_fail([]uint8("cannot find the current directory: "), own cf)?
+        return l, w, noerror
+    }
+    l.relative = true
+    l.cwd = cwd
+    return l, loader.no_fail(c_allocator), noerror
+}
+
+// case_dump carries out --port-case, or --port-test-case for d
+// dump_test_case, on target, with the standard library std_at and
+// std_from name (see case_std), as the comment at the top of this file
+// says, and returns the exit status.
+func case_dump(a []text.Text, target []uint8, d Dump, std_at int64, std_from int64) (int32, error) {
+    tests := d == dump_test_case
+    std_dir, sf := case_std(a, std_at, std_from)?
+    if sf.failed {
+        code, e := case_failed(own sf, d)
+        return code, e
+    }
+    mut l, lf := case_loader(own std_dir, tests)?
+    if lf.failed {
+        code, e := case_failed(own lf, d)
+        return code, e
+    }
+    if tests {
+        mut res, f := load_dir(mut l, target)?
+        if f.failed {
+            code, e := case_failed(own f, d)
+            return code, e
+        }
+        code, e := test_case(mut res)
+        return code, e
+    }
+    mut res, _, f := load_with(mut l, target)?
+    if f.failed {
+        code, e := case_failed(own f, d)
+        return code, e
+    }
+    code, e := build_case(mut res)
+    return code, e
+}
+
+// case_failed writes f, a failure finding std, the current directory or
+// the target, as the harness's load stage: its text and a newline, with
+// no tack: before it; or declines one the port cannot word, naming the
+// dump flag of d. It returns the exit status.
+func case_failed(own f loader.Fail, d Dump) (int32, error) {
+    if f.unworded {
+        code := unimplemented_of(d, f.msg)?
+        return code, noerror
+    }
+    mut body := make(list[uint8], c_allocator)
+    append(mut body, f.msg...)?
+    append(mut body, '\n')?
+    code, e := write_case([]uint8("load"), body, []uint8(""))
+    return code, e
+}
+
+// build_case writes the case dump of res, a program loaded for
+// --port-case, as the harness's runPipeline and checkAll render it (see
+// the comment at the top of this file), and returns the exit status.
+func build_case(mut res loader.Result) (int32, error) {
+    mut stages := make(list[uint8], c_allocator)
+    mut all := replace(mut res.diags, make(list[diag.Diagnostic], c_allocator))
+    if diag.has_errors(all) {
+        add_stage(mut stages, stage_name(res.stage))?
+    }
+    if !res.has_program {
+        if !diag.has_errors(all) {
+            fmt_internal("the loader built no program and reported no error")
+            return exit_failure, noerror
+        }
+        out := render_diagnostics(res.files, all, 0)?
+        code, e := write_case(stages, out, []uint8(""))
+        return code, e
+    }
+    prog := program_of(mut res.program.packages, res.program.errors)?
+    no_main := resolver.missing_main_package(prog)
+    resolved, mut rdiags := resolver.resolve(own prog, builtin.default_set(), false)?
+    if diag.has_errors(rdiags) {
+        add_stage(mut stages, "resolve")?
+    }
+    for i := range len(rdiags) {
+        append(mut all, replace(mut rdiags[i], make(diag.Diagnostic, c_allocator)))?
+    }
+    if no_main {
+        // The resolver bound nothing: the port stops at its error, as
+        // --emit does (decided 2026-11-16).
+        drop(own resolved)
+        out := render_diagnostics(res.files, all, 0)?
+        code, e := write_case(stages, out, []uint8(""))
+        return code, e
+    }
+    files := replace(mut res.files, source.new_set(c_allocator))
+    mut c := typeck.new_checker(own resolved, own files)?
+    ce := mut c.check()
+    if ce.code == typeck.not_ported.code {
+        return unimplemented([]uint8("--port-case")), noerror
+    }
+    if ce.code != 0 {
+        return exit_failure, ce
+    }
+    mut tdiags := mut c.take_diags()?
+    if diag.has_errors(tdiags) {
+        add_stage(mut stages, "typeck")?
+    }
+    for i := range len(tdiags) {
+        append(mut all, replace(mut tdiags[i], make(diag.Diagnostic, c_allocator)))?
+    }
+    if diag.has_errors(all) {
+        checked, back := mut c.take_program()
+        drop(own checked)
+        out := render_diagnostics(back, all, 0)?
+        code, e := write_case(stages, out, []uint8(""))
+        return code, e
+    }
+    mut typed := mut c.take_typed()?
+    code, e := generated_case(mut typed, all, "--port-case")
+    return code, e
+}
+
+// generated_case hands t, a checked program the stages reported no
+// error in, warned of with warnings, to the backend, and writes its case
+// dump: codegen and what the backend reported, in its order, when it
+// reported anything, and ok and the generated C, as it is, otherwise,
+// the warnings rendered to standard error. A shape the backend does not
+// copy yet is declined, naming flag. It returns the exit status.
+func generated_case(mut t typeck.Typed, warnings []diag.Diagnostic, flag string) (int32, error) {
+    gout, gdiags, ge := codegen.generate(mut t, builtin.default_set())
+    if ge.code == codegen.not_ported.code {
+        return unimplemented([]uint8(flag)), noerror
+    }
+    if ge.code != 0 {
+        return exit_failure, ge
+    }
+    if len(gdiags) > 0 {
+        out := render_in_order(t.files, gdiags)?
+        code, e := write_case([]uint8("codegen"), out, []uint8(""))
+        return code, e
+    }
+    mut rendered := make(list[uint8], c_allocator)
+    if len(warnings) > 0 {
+        rendered = render_diagnostics(t.files, warnings, 0)?
+    }
+    code, e := write_case([]uint8("ok"), gout, rendered)
+    return code, e
+}
+
+// fmt_internal writes tack: internal error: and msg, a state the driver
+// never reaches, to standard error, as the driver's other internal
+// errors are written.
+func fmt_internal(msg string) {
+    fmt.eprintf("tack: internal error: %s\n", msg)
+}
+
+// test_case writes the case dump of res, a package loaded for
+// --port-test-case, as the harness's runTestPipeline renders it, which
+// compile_tests' pipeline is (see the comment at the top of this file),
+// and returns the exit status.
+func test_case(mut res loader.Result) (int32, error) {
+    mut stages := make(list[uint8], c_allocator)
+    mut all := replace(mut res.diags, make(list[diag.Diagnostic], c_allocator))
+    if diag.has_errors(all) {
+        add_stage(mut stages, stage_name(res.stage))?
+    }
+    gen, _ := testmain.generated(res.files)
+    if !res.has_program {
+        if !diag.has_errors(all) {
+            fmt_internal("the loader built no program and reported no error")
+            return exit_failure, noerror
+        }
+        out := render_diagnostics(res.files, all, 0)?
+        code, e := write_case(stages, out, []uint8(""))
+        return code, e
+    }
+    mut prog := program_of(mut res.program.packages, res.program.errors)?
+    mut clashes := testmain.clashes(prog, gen, c_allocator)?
+    if len(clashes) > 0 {
+        for i := range len(clashes) {
+            append(mut all, replace(mut clashes[i], make(diag.Diagnostic, c_allocator)))?
+        }
+        out := render_diagnostics(res.files, all, 0)?
+        code, e := write_case([]uint8("load"), out, []uint8(""))
+        return code, e
+    }
+    first := first_file(prog)
+    eu, en, has_entry := testmain.entry(prog, gen)
+    prog.entry_unit = eu
+    prog.entry_node = en
+    mut missing := resolver.missing_main(prog)?
+    mut resolve_failed := diag.has_errors(missing)
+    for i := range len(missing) {
+        append(mut all, replace(mut missing[i], make(diag.Diagnostic, c_allocator)))?
+    }
+    mut resolved, mut rdiags := resolver.resolve(own prog, builtin.default_set(), true)?
+    resolve_failed = resolve_failed || diag.has_errors(rdiags)
+    if resolve_failed {
+        add_stage(mut stages, "resolve")?
+    }
+    for i := range len(rdiags) {
+        append(mut all, replace(mut rdiags[i], make(diag.Diagnostic, c_allocator)))?
+    }
+    resolved.entry_unit = eu
+    resolved.entry_node = en
+    files := replace(mut res.files, source.new_set(c_allocator))
+    mut c := typeck.new_checker(own resolved, own files)?
+    c.tests = true
+    ce := mut c.check()
+    if ce.code == typeck.not_ported.code {
+        return unimplemented([]uint8("--port-test-case")), noerror
+    }
+    if ce.code != 0 {
+        return exit_failure, ce
+    }
+    mut tdiags := mut c.take_diags()?
+    if diag.has_errors(tdiags) {
+        add_stage(mut stages, "typeck")?
+    }
+    for i := range len(tdiags) {
+        append(mut all, replace(mut tdiags[i], make(diag.Diagnostic, c_allocator)))?
+    }
+    kept := testmain.diagnostics(own all, gen, first, c_allocator)?
+    if diag.has_errors(kept) {
+        checked, back := mut c.take_program()
+        drop(own checked)
+        out := render_diagnostics(back, kept, 0)?
+        code, e := write_case(stages, out, []uint8(""))
+        return code, e
+    }
+    if !has_entry {
+        fmt_internal("tack test generated no main")
+        return exit_failure, noerror
+    }
+    mut typed := mut c.take_typed()?
+    code, e := generated_case(mut typed, kept, "--port-test-case")
+    return code, e
+}

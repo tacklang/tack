@@ -1,0 +1,295 @@
+package main
+
+import geo from "reflectfields/geo"
+import parts from "reflectfields/parts"
+import text from "std/text"
+
+// Fields loops: for f := range fields(T) runs its body once for each
+// field of T that the package declaring the function sees, in order, with
+// f.name the field's name, f.index its position among them and v.[f] the
+// field itself, a place of a type of its own, constrained by Data. Each
+// check prints its name and "ok", or "FAIL"; every check that allocates
+// runs in a function of its own, and main asserts after it that
+// c_allocator's count of live buffers is back to zero.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("go_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("go_fail_after") func fail_after(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// Empty has no fields, so a fields loop over it runs no body.
+type Empty struct {
+}
+
+// Pair has three private fields, which main sees.
+type Pair struct {
+    a int64
+    b int64
+    c int64
+}
+
+// Rec is private to main, with a pub field, a lib one and a private one:
+// geo, of main's module, lists the first two, and main all three.
+type Rec struct {
+    pub seen  int64
+    lib noted int64
+    hidden    int64
+}
+
+// Shape holds a field of every kind of Data: a Text, another package's
+// struct, a list, a map, a float, a bool and a byte.
+type Shape struct {
+    label text.Text
+    at    geo.Point
+    tags  list[int64]
+    sizes map[text.Text]int64
+    ratio float64
+    flag  bool
+    small uint8
+}
+
+// Outer nests structs, its own and geo's.
+type Outer struct {
+    in  Pair
+    box geo.Box
+    n   int64
+}
+
+// deep returns how many fields main sees in v and, through each, in the
+// fields of what it holds, at any depth: each v.[f] is passed on to the
+// instance of deep for its own type.
+func deep[T Data](v T) int64 {
+    mut n := 0
+    for f := range fields(T) {
+        n = n +% 1 +% deep(v.[f])
+    }
+    return n
+}
+
+// touch is deep through mut: each field is passed on as mut, so the
+// instance for its type gets a pointer to it.
+func touch[T Data](mut v T) int64 {
+    mut n := 0
+    for f := range fields(T) {
+        n = n +% 1 +% touch(mut v.[f])
+    }
+    return n
+}
+
+// names appends the name of each field of v, and of the fields of what it
+// holds, at any depth, to out, each followed by a comma, passing on the
+// first error appending gives with ?.
+func names[T Data](v T, mut out text.Text) error {
+    for f := range fields(T) {
+        mut out.append([]uint8(f.name))?
+        mut out.append([]uint8(","))?
+        names(v.[f], mut out)?
+    }
+    return noerror
+}
+
+// indexed reports whether each field's index is its position among the
+// fields the loop lists, in v and in what each field holds.
+func indexed[T Data](v T) bool {
+    mut i := 0
+    for f := range fields(T) {
+        if f.index != i || !indexed(v.[f]) {
+            return false
+        }
+        i +%= 1
+    }
+    return true
+}
+
+// find returns the index of the first field named name, among v's fields
+// or, at any depth, those of what they hold, returning from inside the
+// loop, or -1 when main sees none of that name.
+func find[T Data](v T, name string) int64 {
+    for f := range fields(T) {
+        if f.name == name {
+            return f.index
+        }
+        i := find(v.[f], name)
+        if i >= 0 {
+            return i
+        }
+    }
+    return -1
+}
+
+// pairs counts the pairs of fields of v, the first before the second, with
+// one fields loop inside another over the same type, and the pairs of
+// fields of what each field holds, at any depth.
+func pairs[T Data](v T) int64 {
+    mut n := 0
+    for f := range fields(T) {
+        for e := range fields(T) {
+            if f.index < e.index {
+                n +%= 1
+            }
+        }
+        n +%= pairs(v.[f])
+    }
+    return n
+}
+
+// deferred reports whether a defer in a fields loop's body runs at the end
+// of each pass, before the next one starts, in v and in what each field
+// holds.
+func deferred[T Data](v T) bool {
+    mut done := 0
+    mut passes := 0
+    mut ok := true
+    for f := range fields(T) {
+        defer {
+            done +%= 1
+        }
+        passes +%= 1
+        if done != f.index || !deferred(v.[f]) {
+            ok = false
+        }
+    }
+    return ok && done == passes
+}
+
+// run calls f.
+func run(scope f func()) {
+    f()
+}
+
+// closures sums the fields' indexes, and how many fields at any depth
+// what each holds has, in a closure each pass calls, which captures the
+// sum and v and reads f and v.[f], and keeps the last field's name.
+func closures[T Data](v T, mut last text.Text) (int64, error) {
+    mut total := 0
+    mut err := noerror
+    for f := range fields(T) {
+        run(func() {
+            total +%= f.index +% deep(v.[f])
+        })
+        mut fresh := text.new(c_allocator)
+        err = mut fresh.append([]uint8(f.name))
+        last = fresh
+        if err.code != 0 {
+            return total, err
+        }
+    }
+    return total, noerror
+}
+
+// concrete appends the names of Pair's fields to out, from a fields loop
+// over a struct type, outside any generic function.
+func concrete(mut out text.Text) error {
+    for f := range fields(Pair) {
+        mut out.append([]uint8(f.name))?
+    }
+    return noerror
+}
+
+// counts checks how many fields main and geo see of each type.
+func counts() {
+    p := Pair{a: 1, b: 2, c: 3}
+    check(deep(p) == 3 && deep(Empty{}) == 0, "count own")
+    check(deep(5) == 0 && deep(true) == 0 && deep(1.5) == 0 && deep('x') == 0, "count basic")
+    check(deep(geo.point(1, 2)) == 2, "count geo from main")
+    check(geo.count(geo.point(1, 2)) == 3, "count geo from geo")
+    check(geo.count(p) == 0, "count main from geo")
+    r := Rec{seen: 1, noted: 2, hidden: 3}
+    check(geo.count(r) == 2 && deep(r) == 3, "count marked from geo")
+    q := parts.part(1, 2, 3)
+    check(deep(q) == 2 && geo.count(q) == 2 && parts.count(q) == 3, "count lib")
+}
+
+// owned checks the fields of values that own buffers: a Text, which main
+// sees no field of, a list, a map, and structs holding them.
+func owned() {
+    t := text.new(c_allocator)
+    check(deep(t) == 0 && geo.count(t) == 0, "text has no fields here")
+    l := make(list[int64], c_allocator)
+    m := make(map[text.Text]int64, c_allocator)
+    check(deep(l) == 0 && deep(m) == 0, "list and map have no fields")
+    s := Shape{
+        label: text.new(c_allocator),
+        at:    geo.point(3, 4),
+        tags:  make(list[int64], c_allocator),
+        sizes: make(map[text.Text]int64, c_allocator),
+        ratio: 0.5,
+        flag:  true,
+        small: 9,
+    }
+    check(deep(s) == 9 && pairs(s) == 22, "shape")
+    o := Outer{in: Pair{a: 1, b: 2, c: 3}, box: geo.box(geo.point(5, 6), c_allocator), n: 4}
+    check(deep(o) == 9 && geo.deep(o) == 0, "outer deep")
+    b := geo.box(geo.point(1, 1), c_allocator)
+    check(geo.deep(b) == 5, "geo deep")
+    mut mo := Outer{in: Pair{a: 1, b: 2, c: 3}, box: geo.box(geo.point(5, 6), c_allocator), n: 4}
+    check(touch(mut mo) == 9 && deep(mo) == 9, "touch")
+}
+
+// listing checks the names, indexes and order of the fields loops list,
+// and loops that return, nest, defer and hold closures.
+func listing() {
+    p := Pair{a: 1, b: 2, c: 3}
+    o := Outer{in: Pair{a: 1, b: 2, c: 3}, box: geo.box(geo.point(5, 6), c_allocator), n: 4}
+    mut out := text.new(c_allocator)
+    err := names(o, mut out)
+    check(err.code == 0 && out.equal([]uint8("in,a,b,c,box,corner,x,y,n,")), "names")
+    check(indexed(p) && indexed(o) && indexed(parts.part(1, 2, 3)), "indexes")
+    check(find(p, "b") == 1 && find(p, "z") == -1 && find(geo.point(1, 2), "tag") == -1 &&
+        find(o, "y") == 1 && find(o, "n") == 2, "find")
+    check(pairs(p) == 3 && pairs(Empty{}) == 0 && pairs(o) == 7, "pairs")
+    check(deferred(p) && deferred(o) && deferred(Empty{}), "defer")
+    mut last := text.new(c_allocator)
+    total, cerr := closures(p, mut last)
+    mut outer := text.new(c_allocator)
+    deeper, derr := closures(o, mut outer)
+    check(cerr.code == 0 && total == 3 && last.equal([]uint8("c")) &&
+        derr.code == 0 && deeper == 9 && outer.equal([]uint8("n")), "closures")
+    mut abc := text.new(c_allocator)
+    oerr := concrete(mut abc)
+    check(oerr.code == 0 && abc.equal([]uint8("abc")), "concrete")
+}
+
+// failing makes names fail at every allocation in turn, and checks each
+// failure is passed on, and that nothing leaks however far it got.
+func failing() {
+    mut failures := 0
+    mut done := false
+    for k := range 40 {
+        if !done {
+            o := Outer{in: Pair{a: 1, b: 2, c: 3}, box: geo.box(geo.point(5, 6), c_allocator), n: 4}
+            mut out := text.new(c_allocator)
+            fail_after(k)
+            err := names(o, mut out)
+            fail_after(-1)
+            if err.code == 0 {
+                done = out.equal([]uint8("in,a,b,c,box,corner,x,y,n,"))
+            } else if err.code == 1 {
+                failures +%= 1
+            }
+        }
+    }
+    check(done && failures > 0, "names under failure")
+}
+
+func main() {
+    counts()
+    owned()
+    check(live() == 0, "owned freed")
+    listing()
+    check(live() == 0, "listing freed")
+    failing()
+    check(live() == 0, "failing freed")
+}

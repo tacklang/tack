@@ -1,0 +1,338 @@
+package main
+
+// Views as results. A function or a method may return a view, []T, of
+// data its caller passed it: a view parameter, a slice of one, or a list
+// or an array reached from a parameter that is not mut. The view is
+// second-class, as a view parameter is: a call returning one is used
+// inside the expression that consumes it, passed to a view parameter,
+// given to len, indexed with the checked form, sliced, ranged over, or
+// returned on, and never stored. It reads the caller's data in place,
+// so returning one copies nothing and allocates nothing.
+//
+// Every check that makes a list runs in a function of its own, and main
+// asserts after it that c_allocator's count of live buffers is back to
+// zero; the checks also assert that reading a view a call returns made
+// no buffer. The count is read through live, whose C, in live.c, reads
+// std's hook.
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import text from "viewresults/text"
+
+// live returns how many buffers c_allocator holds, in C.
+extern("viewres_live") func live() int64
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that nothing is live after a check, name saying which.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// minus_one returns -1, a value the checker does not know.
+func minus_one() int64 {
+    return -1
+}
+
+// is reports whether v holds exactly the bytes of s.
+func is(v []uint8, s string) bool {
+    return bytes.equal(v, []uint8(s))
+}
+
+// whole returns v itself: a view parameter returned as it is.
+func whole(v []uint8) []uint8 {
+    return v
+}
+
+// rest returns v without its first byte, or v when it has none: a slice
+// of a view parameter.
+func rest(v []uint8) []uint8 {
+    if len(v) == 0 {
+        return v
+    }
+    return v[1:]
+}
+
+// none returns no bytes of v: a slice of no length.
+func none(v []uint8) []uint8 {
+    return v[:0]
+}
+
+// rest_rest returns v without its first two bytes, as far as it has them:
+// a view-returning call of a view parameter, returned on.
+func rest_rest(v []uint8) []uint8 {
+    return rest(rest(v))
+}
+
+// deferred_rest returns rest(v), past defers that run as it returns and
+// count in ran: a view returned through the defers of two blocks.
+func deferred_rest(v []uint8, mut ran int64) []uint8 {
+    defer {
+        ran +%= 1
+    }
+    if len(v) > 0 {
+        defer {
+            ran +%= 10
+        }
+        return rest(v)
+    }
+    return v
+}
+
+// text_rest returns t's bytes after the first: a pub method of another
+// package called on a parameter, its view passed on and returned.
+func text_rest(t text.Text) []uint8 {
+    return rest(t.bytes())
+}
+
+// sum adds the bytes of v.
+func sum(v []uint8) int64 {
+    mut n := 0
+    for _, c := range v {
+        n +%= c
+    }
+    return n
+}
+
+// count returns how many values it was given: a variadic parameter a
+// view result is spread into.
+func count(xs ...uint8) int64 {
+    return len(xs)
+}
+
+// Words holds words, each a list of bytes it owns.
+type Words struct {
+    all list[list[uint8]]
+}
+
+// word returns a view of the i-th word of w, or of fallback when there is
+// none: an element of an owned-element list, viewed in place.
+func (w Words) word(i int64, fallback []uint8) []uint8 {
+    if i >= 0 && i < len(w.all) {
+        return w.all[i]
+    }
+    return fallback
+}
+
+// add_word appends a new word holding the bytes of s to w.
+func add_word(mut w Words, s string) error {
+    mut b := make(list[uint8], c_allocator)
+    err := append(mut b, []uint8(s)...)
+    if err.code != 0 {
+        return err
+    }
+    return append(mut w.all, b)
+}
+
+// Cell holds four bytes in an array.
+type Cell struct {
+    pix [4]uint8
+}
+
+// pixels returns a view of the array field of the i-th of cells, or
+// fallback when there is none: an array reached through a view's element,
+// which lives in the caller's data.
+func pixels(cells []Cell, i int64, fallback []uint8) []uint8 {
+    if i >= 0 && i < len(cells) {
+        return cells[i].pix
+    }
+    return fallback
+}
+
+// row returns a view of the whole of the i-th row of rows, as far as it
+// goes, or no bytes: an array element of a list parameter.
+func row(rows list[[3]uint8], i int64, fallback []uint8) []uint8 {
+    if i >= 0 && i < len(rows) {
+        return rows[i]
+    }
+    return fallback
+}
+
+// Bytes is anything that can show its bytes as a view.
+type Bytes interface {
+    bytes() []uint8
+}
+
+// Plain holds bytes in a list, and shows them through Bytes.
+type Plain struct {
+    b list[uint8]
+}
+
+// bytes returns a view of p's bytes.
+func (p Plain) bytes() []uint8 {
+    return p.b
+}
+
+// shown returns the view x's bytes method returns: a generic function
+// returning a view an interface method of its type parameter returned.
+func shown[T Bytes](x T) []uint8 {
+    return x.bytes()
+}
+
+// Tok is a word of bytes it owns, or a number.
+type Tok union {
+    word list[uint8]
+    num int64
+}
+
+// pick returns a when t is a word and b when it is a number: a method of
+// a union returning one of its view parameters.
+func (t Tok) pick(a []uint8, b []uint8) []uint8 {
+    switch t {
+    case word:
+        return a
+    case num:
+        return b
+    }
+}
+
+// methods checks a pub method of another package that returns a view of
+// a list its type holds, in every use a view result has, and that reading
+// it allocates nothing.
+func methods() {
+    mut t, err := text.of("hello")
+    if err.code != 0 {
+        check(false, "made a text")
+        return
+    }
+    before := live()
+    check(len(t.bytes()) == 5, "len of a method's view")
+    check(is(t.bytes(), "hello"), "a method's view passed on")
+    c, ok := t.bytes()[1]
+    check(ok && c == 'e', "checked index in range")
+    c2, ok2 := t.bytes()[5]
+    check(!ok2 && c2 == 0, "checked index at the length")
+    c3, ok3 := t.bytes()[minus_one()]
+    check(!ok3 && c3 == 0, "checked negative index")
+    mut n := 0
+    for i, b := range t.bytes() {
+        n +%= i *% b
+    }
+    check(n == 0 * 104 + 1 * 101 + 2 * 108 + 3 * 108 + 4 * 111, "range over a method's view")
+    check(count(t.bytes()...) == 5, "spread into a variadic")
+    check(is(t.after(2), "llo"), "a slice of a field returned")
+    check(len(t.after(9)) == 0 && len(t.after(-1)) == 0, "no bytes past the end")
+    check(is(t.bytes()[:], "hello") && len(t.bytes()[0:0]) == 0, "a method's view sliced")
+    check(is(text_rest(t), "ello"), "a method's view returned on")
+    fmt.write(t.bytes())
+    print("\n")
+    check(live() == before, "views made no buffer")
+    mut l := make(list[uint8], c_allocator)
+    e := append(mut l, t.bytes()...)
+    check(e.code == 0 && is(l, "hello"), "spread into append")
+    e2 := mut t.push('!')
+    check(e2.code == 0 && is(t.bytes(), "hello!"), "a view after the list grew")
+}
+
+// functions checks functions returning a view parameter, a slice of one,
+// and another call's view, and the empty edges.
+func functions() {
+    a := [5]uint8{1, 2, 3, 4, 5}
+    check(sum(whole(a)) == 15, "a view parameter returned")
+    check(sum(rest(a)) == 14 && len(rest(a)) == 4, "a slice of a view parameter returned")
+    check(sum(rest_rest(a)) == 12, "a nested call returned")
+    check(len(none(a)) == 0, "a slice of no length")
+    e := [0]uint8{}
+    check(len(whole(e)) == 0 && len(rest(e)) == 0 && len(rest_rest(e)) == 0, "an empty array")
+    for _, x := range rest(e) {
+        check(x == 255, "nothing to range over")
+    }
+    one := [1]uint8{7}
+    check(len(rest_rest(one)) == 0 && sum(whole(one)) == 7, "fewer bytes than sliced")
+    x, ok := whole(one)[0]
+    check(ok && x == 7, "checked index of a function's view")
+    check(is(rest([]uint8("abc")), "bc"), "a view of a string's bytes, sliced")
+    mut ran := 0
+    check(sum(deferred_rest(a, mut ran)) == 14 && ran == 11, "returned past defers")
+    check(len(deferred_rest(e, mut ran)) == 0 && ran == 12, "returned past one defer")
+}
+
+// empties checks a Text of no bytes, whose list has no buffer.
+func empties() {
+    t, err := text.of("")
+    if err.code != 0 {
+        check(false, "made an empty text")
+        return
+    }
+    check(len(t.bytes()) == 0, "len of an empty list's view")
+    mut n := 0
+    for range t.bytes() {
+        n +%= 1
+    }
+    check(n == 0, "range over an empty list's view")
+    c, ok := t.bytes()[0]
+    check(!ok && c == 0, "checked index of an empty list's view")
+    check(len(t.after(0)) == 0 && count(t.bytes()...) == 0, "slice and spread of nothing")
+}
+
+// owned checks views of elements of a list of lists, of array fields of
+// a view's elements, of a list of arrays, of a generic function's call of
+// an interface method, and of a union's method.
+func owned() {
+    mut w := Words{all: make(list[list[uint8]], c_allocator)}
+    e1 := add_word(mut w, "alpha")
+    e2 := add_word(mut w, "be")
+    check(e1.code == 0 && e2.code == 0, "words added")
+    check(is(w.word(0, []uint8("none")), "alpha"), "an element of a list of lists")
+    check(is(w.word(1, []uint8("none")), "be"), "the last element")
+    check(is(w.word(2, []uint8("none")), "none") && is(w.word(-1, []uint8("x")), "x"),
+        "the fallback past either end")
+    check(len(w.word(0, []uint8(""))[0:0]) == 0, "an element's view sliced to nothing")
+
+    cells := [2]Cell{Cell{pix: [4]uint8{1, 2, 3, 4}}, Cell{pix: [4]uint8{5, 6, 7, 8}}}
+    check(sum(pixels(cells, 1, []uint8(""))) == 26 && sum(pixels(cells, 7, []uint8("ab"))) == 195,
+        "an array field viewed")
+
+    mut rows := make(list[[3]uint8], c_allocator)
+    e3 := append(mut rows, [3]uint8{9, 9, 9}, [3]uint8{1, 1, 1})
+    check(e3.code == 0 && sum(row(rows, 1, []uint8(""))) == 3, "an array element of a list")
+
+    mut p := Plain{b: make(list[uint8], c_allocator)}
+    e4 := append(mut p.b, 'x', 'y')
+    check(e4.code == 0 && is(shown(p), "xy"), "through a generic function")
+
+    mut toks := make(list[Tok], c_allocator)
+    e5 := append(mut toks, Tok.num(3))
+    if e5.code == 0 && len(toks) > 0 {
+        check(is(toks[0].pick([]uint8("w"), []uint8("n")), "n"), "a union method's view")
+    }
+}
+
+// deferred checks a view a call returns, read in deferred code.
+func deferred() {
+    t, err := text.of("later")
+    if err.code != 0 {
+        check(false, "made a deferred text")
+        return
+    }
+    defer {
+        check(is(t.bytes(), "later") && len(t.after(4)) == 1, "read in a defer")
+    }
+}
+
+func main() {
+    check(live() == 0, "nothing live at the start")
+    methods()
+    freed("methods freed")
+    functions()
+    freed("functions freed")
+    empties()
+    freed("empties freed")
+    owned()
+    freed("owned freed")
+    deferred()
+    freed("deferred freed")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

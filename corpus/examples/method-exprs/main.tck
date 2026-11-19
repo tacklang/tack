@@ -1,0 +1,437 @@
+package main
+
+// Method expressions. A method named through its type, Pair.first, or
+// through its package and its type, shapes.Box.Wide, is a function value
+// whose first parameter is the receiver: func (p Pair) has(x int64) bool
+// gives a func(Pair, int64) bool, and a mut receiver a mut first
+// parameter, func (mut p Pair) put(x int64) giving a func(mut Pair,
+// int64). It is used wherever a function value is: assigned, passed,
+// returned, held by a struct, an array and a list, and called through a
+// local or a parameter with every rule a call through a function value
+// has, mut arguments and checked errors among them. Called through its
+// type, Pair.first(p), it is a call of the method with its receiver
+// passed first, as p.first() is, its contract in force after it.
+//
+// Every check that makes a list runs in a function of its own, and main
+// asserts after it that c_allocator's count of live buffers is back to
+// zero. Every check prints its name and "ok", or "FAIL". No check adds,
+// subtracts or multiplies: the values are moved, compared and swapped,
+// so no check depends on what the compiler proves about arithmetic.
+
+import shapes from "method-exprs/shapes"
+
+// live returns how many buffers c_allocator holds, in C.
+extern("mexprs_live") func live() int64
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that nothing is live after a check, name saying which.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// Pair holds two integers.
+type Pair struct {
+    a int64
+    b int64
+}
+
+// first returns p.a: Pair.first is a func(Pair) int64.
+func (p Pair) first() int64 {
+    return p.a
+}
+
+// second returns p.b: a function of the type Pair.first has, so the two
+// are values of one type.
+func second(p Pair) int64 {
+    return p.b
+}
+
+// has reports whether x is one of p's: Pair.has is a func(Pair, int64)
+// bool.
+func (p Pair) has(x int64) bool {
+    return p.a == x || p.b == x
+}
+
+// put sets p.b to x: Pair.put is a func(mut Pair, int64).
+func (mut p Pair) put(x int64) {
+    p.b = x
+}
+
+// swap exchanges p.a and p.b: Pair.swap is a func(mut Pair).
+func (mut p Pair) swap() {
+    t := p.a
+    p.a = p.b
+    p.b = t
+}
+
+// lower sets p.a to the smaller of the two and p.b to the larger: a plain
+// function of the type Pair.swap has.
+func lower(mut p Pair) {
+    if p.a > p.b {
+        t := p.a
+        p.a = p.b
+        p.b = t
+    }
+}
+
+// both returns p.a and p.b: several results, so Pair.both is a
+// func(Pair) (int64, int64).
+func (p Pair) both() (int64, int64) {
+    return p.a, p.b
+}
+
+// other returns the one of p's that x is not, or an error when x is
+// neither: Pair.other is a func(Pair, int64) (int64, error).
+func (p Pair) other(x int64) (int64, error) {
+    if p.a == x {
+        return p.b, noerror
+    }
+    if p.b == x {
+        return p.a, noerror
+    }
+    return 0, error{code: 1, msg: "not in the pair"}
+}
+
+// setA sets p.a to x, or returns an error and leaves p as it was for a
+// negative x: Pair.setA is a func(mut Pair, int64) error.
+func (mut p Pair) setA(x int64) error {
+    if x < 0 {
+        return error{code: 2, msg: "negative"}
+    }
+    p.a = x
+    return noerror
+}
+
+// viaSelf names its own type's method inside a method, and calls it on
+// its receiver.
+func (p Pair) viaSelf() int64 {
+    f := Pair.first
+    return f(p)
+}
+
+// larger reports whether p.a is larger than q.a.
+func (p Pair) larger(q Pair) bool {
+    return p.a > q.a
+}
+
+// test calls f on p and x: a method expression passed as a parameter.
+func test(f func(Pair, int64) bool, p Pair, x int64) bool {
+    return f(p, x)
+}
+
+// change calls f on the caller's p and x: a mut receiver's method
+// expression passed as a parameter, called with mut.
+func change(f func(mut Pair, int64), mut p Pair, x int64) {
+    f(mut p, x)
+}
+
+// picker returns Pair.first, a method expression, or second, a function,
+// as one function type.
+func picker(useFirst bool) func(Pair) int64 {
+    if useFirst {
+        return Pair.first
+    }
+    return second
+}
+
+// basics names methods through their type, and calls them through locals
+// and parameters, and as results of picker.
+func basics() {
+    p := Pair{a: 3, b: 7}
+    f := Pair.first
+    h := Pair.has
+    check(f(p) == 3 && h(p, 7) && !h(p, 5), "a plain receiver's method through a local")
+    check(f(Pair{a: 9, b: 1}) == 9, "a temporary receiver")
+    check(test(Pair.has, p, 3) && !test(Pair.has, p, 4), "passed as a parameter")
+    g1 := picker(true)
+    g2 := picker(false)
+    check(g1(p) == 3 && g2(p) == 7, "returned beside a function of its type")
+    mut g := second
+    g = Pair.first
+    check(g(p) == 3, "assigned over a function of its type")
+    check(p.viaSelf() == 3, "named inside a method of its own type")
+}
+
+// muts calls mut receivers' method expressions, which change the
+// caller's value through their first parameter.
+func muts() {
+    mut p := Pair{a: 1, b: 2}
+    store := Pair.put
+    store(mut p, 9)
+    check(p.a == 1 && p.b == 9, "a mut receiver through a local")
+    sw := Pair.swap
+    sw(mut p)
+    check(p.a == 9 && p.b == 1, "a mut receiver taking no arguments")
+    change(Pair.put, mut p, 4)
+    check(p.a == 9 && p.b == 4, "a mut receiver passed as a parameter")
+    mut m := sw
+    m = lower
+    m(mut p)
+    check(p.a == 4 && p.b == 9, "assigned to a function of its type")
+}
+
+// results calls method expressions of several results and of errors.
+func results() {
+    p := Pair{a: 5, b: 6}
+    both := Pair.both
+    x, y := both(p)
+    check(x == 5 && y == 6, "several results")
+    other := Pair.other
+    v, err := other(p, 5)
+    check(err.code == 0 && v == 6, "a result beside an error")
+    _, bad := other(p, 8)
+    check(bad.code == 1 && bad.msg == "not in the pair", "an error result")
+    mut q := Pair{a: 1, b: 1}
+    set := Pair.setA
+    errSet := set(mut q, 8)
+    errNeg := set(mut q, -1)
+    check(errSet.code == 0 && errNeg.code == 2 && q.a == 8, "a mut receiver returning an error")
+}
+
+// Rule pairs a test with the fix to apply when it holds.
+type Rule struct {
+    name string
+    test func(Pair, int64) bool
+    fix  func(mut Pair)
+}
+
+// stored keeps method expressions in a struct's fields, an array and a
+// list, beside functions of their types, and calls them from there
+// through locals.
+func stored() {
+    r := Rule{name: "has", test: Pair.has, fix: Pair.swap}
+    mut p := Pair{a: 1, b: 2}
+    t := r.test
+    fix := r.fix
+    if t(p, 2) {
+        fix(mut p)
+    }
+    check(p.a == 2 && p.b == 1, "held by a struct's fields")
+    gets := [2]func(Pair) int64{Pair.first, second}
+    get0 := gets[0]
+    get1 := gets[1]
+    check(get0(p) == 2 && get1(p) == 1, "held by an array")
+    mut steps := make(list[func(mut Pair)], c_allocator)
+    err := append(mut steps, Pair.swap, lower, Pair.swap)
+    if err.code != 0 {
+        check(false, "held by a list")
+        return
+    }
+    mut q := Pair{a: 1, b: 2}
+    for _, step := range steps {
+        step(mut q)
+    }
+    check(len(steps) == 3 && q.a == 2 && q.b == 1, "held by a list")
+}
+
+// Bag owns a list of integers.
+type Bag struct {
+    items list[int64]
+}
+
+// size returns how many items b holds: a plain receiver of a struct
+// holding a list, borrowed, so Bag.size is a func(Bag) int64.
+func (b Bag) size() int64 {
+    return len(b.items)
+}
+
+// push appends x to b: Bag.push is a func(mut Bag, int64) error.
+func (mut b Bag) push(x int64) error {
+    return append(mut b.items, x)
+}
+
+// owned calls method expressions on a receiver that owns a list, which
+// a plain receiver borrows and a mut one grows.
+func owned() {
+    mut b := Bag{items: make(list[int64], c_allocator)}
+    push := Bag.push
+    sizeOf := Bag.size
+    e1 := push(mut b, 4)
+    e2 := push(mut b, 5)
+    if e1.code != 0 || e2.code != 0 {
+        check(false, "a receiver owning a list")
+        return
+    }
+    check(sizeOf(b) == 2 && sizeOf(b) == len(b.items), "a receiver owning a list")
+}
+
+// Shape is a square of a side, a rectangle of two, or nothing.
+type Shape union {
+    square int64
+    rect   Pair
+    none
+}
+
+// corners returns how many corners s has.
+func (s Shape) corners() int64 {
+    switch s {
+    case square:
+        return 4
+    case rect:
+        return 4
+    case none:
+        return 0
+    }
+}
+
+// isNone reports whether s holds nothing.
+func (s Shape) isNone() bool {
+    return s == Shape.none
+}
+
+// empty makes s nothing: Shape.empty is a func(mut Shape).
+func (mut s Shape) empty() {
+    s = Shape.none
+}
+
+// unions names a union's methods through its type, where its cases are
+// named too: Shape.square builds a case and Shape.corners is a method.
+func unions() {
+    c := Shape.corners
+    n := Shape.isNone
+    mut s := Shape.square(3)
+    check(c(s) == 4 && !n(s) && c(Shape.rect(Pair{a: 1, b: 2})) == 4, "a union's plain methods")
+    e := Shape.empty
+    e(mut s)
+    check(n(s) && c(s) == 0, "a union's mut method")
+}
+
+// within ends the program unless i is an index of a pair, which its
+// contract ensures: called through its type, Pair.within(p, i), the
+// contract holds after the call, as it does after p.within(i).
+func (p Pair) within(i int64) ensures 0 <= i && i < 2 {
+    if i < 0 || i >= 2 {
+        exit(1)
+    }
+}
+
+// apply calls f on x: a scope parameter of its own, so Pair.apply is a
+// func(Pair, int64, scope func(int64) bool) bool.
+func (p Pair) apply(x int64, scope f func(int64) bool) bool {
+    return p.a == x && f(x)
+}
+
+// otherOf returns the one of p's that x is not, passing the error of
+// Pair.other, called through its type, on with ?.
+func otherOf(p Pair, x int64) (int64, error) {
+    v := Pair.other(p, x)?
+    return v, noerror
+}
+
+// direct calls methods through their types, the receiver passed first,
+// with i an index of a pair that only within's contract proves.
+func direct(i int64) {
+    mut p := Pair{a: 3, b: 0}
+    check(Pair.first(p) == 3 && Pair.has(p, 3) && !Pair.has(p, 4), "called through its type")
+    Pair.put(mut p, 8)
+    Pair.swap(mut p)
+    check(p.a == 8 && p.b == 3, "a mut receiver called through its type")
+    x, y := Pair.both(p)
+    v, err := Pair.other(p, 8)
+    check(x == 8 && y == 3 && err.code == 0 && v == 3, "several results called through its type")
+    errNeg := Pair.setA(mut p, -1)
+    check(errNeg.code == 2 && p.a == 8, "an error result called through its type")
+    Pair.within(p, i)
+    both := [2]int64{p.a, p.b}
+    check(both[i] == 3, "its contract holds after the call")
+    wide := shapes.Box.Wide(shapes.Box{w: 2, h: 1})
+    check(Shape.corners(Shape.square(2)) == 4 && wide, "a union's and another package's methods called")
+    w, errOther := otherOf(p, 3)
+    _, errNone := otherOf(p, 5)
+    check(errOther.code == 0 && w == 8 && errNone.code == 1, "passed on with ?")
+}
+
+// either reports whether keep holds of a or b and x: keep is a scope
+// parameter, which a method expression may be passed to.
+func either(a Pair, b Pair, x int64, scope keep func(Pair, int64) bool) bool {
+    return keep(a, x) || keep(b, x)
+}
+
+// scopes passes method expressions to scope parameters, calls one in a
+// closure, and names a method that has a scope parameter of its own.
+func scopes() {
+    p := Pair{a: 1, b: 2}
+    q := Pair{a: 3, b: 4}
+    check(either(p, q, 4, Pair.has) && !either(p, q, 5, Pair.has), "passed to a scope parameter")
+    check(either(p, q, 3, func(r Pair, x int64) bool { return Pair.first(r) == x }), "called in a closure")
+    var ap func(Pair, int64, scope func(int64) bool) bool = Pair.apply
+    held := ap(q, 3, func(x int64) bool { return x == q.a })
+    missed := ap(q, 3, func(x int64) bool { return x == q.b })
+    check(held && !missed && !ap(p, 3, func(x int64) bool { return true }), "a scope parameter in its type")
+}
+
+// Anything is satisfied by every type.
+type Anything interface {
+}
+
+// holds calls f on v and x: a generic function whose function parameter
+// takes its type parameter, given a method expression.
+func holds[T Anything](v T, x int64, f func(T, int64) bool) bool {
+    return f(v, x)
+}
+
+// better calls f on a and b, a generic function taking a func(T, T)
+// bool.
+func better[T Anything](a T, b T, f func(T, T) bool) bool {
+    return f(a, b)
+}
+
+// generics passes method expressions to generic functions, their type
+// arguments inferred from the receiver's type.
+func generics() {
+    p := Pair{a: 4, b: 8}
+    q := Pair{a: 2, b: 2}
+    check(holds(p, 8, Pair.has) && !holds(q, 8, Pair.has), "passed to a generic function")
+    check(better(p, q, Pair.larger) && !better(q, p, Pair.larger), "a func(T, T) bool")
+}
+
+// packages names methods of another package through the package and the
+// type, pub, lib and, through a pub function, private ones.
+func packages() {
+    b := shapes.Box{w: 3, h: 2}
+    wide := shapes.Box.Wide
+    check(wide(b) && !wide(shapes.Box{w: 1, h: 2}), "a pub method of another package")
+    mut t := b
+    turn := shapes.Box.Turn
+    turn(mut t)
+    check(t.w == 2 && t.h == 3 && !wide(t), "a pub mut method of another package")
+    width := shapes.Box.Width
+    check(width(b) == 3, "a lib method of the same module")
+    fit := shapes.Box.Fit
+    ok, err := fit(b, 3, 2)
+    _, errNeg := fit(b, -1, 2)
+    check(err.code == 0 && ok && errNeg.code == 3, "another package's method returning an error")
+    height := shapes.Heighter()
+    turner := shapes.Turner()
+    mut u := shapes.Box{w: 5, h: 6}
+    turner(mut u)
+    check(height(b) == 2 && u.w == 6 && u.h == 5, "returned from the method's own package")
+    flip := shapes.Dir.Flip
+    left := shapes.Dir.IsLeft
+    check(left(flip(shapes.Dir.right)) && !left(flip(shapes.Dir.left)), "another package's union")
+}
+
+func main() {
+    check(live() == 0, "nothing live at the start")
+    basics()
+    muts()
+    results()
+    stored()
+    freed("stored freed")
+    owned()
+    freed("owned freed")
+    unions()
+    generics()
+    packages()
+    direct(1)
+    scopes()
+}

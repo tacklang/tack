@@ -1,0 +1,652 @@
+package main
+
+import json from "std/json"
+import text from "std/text"
+
+// std/json writes values as JSON, byte for byte as Go's json.Marshal
+// writes the same values. append_encode takes any Data value: a struct
+// becomes an object of the fields std/json sees, its pub ones, in
+// declaration order; a list an array; a map an object with its keys
+// sorted bytewise; a Text a string, escaped as Go escapes it; a bool true
+// or false; an integer decimal; and a float as Go formats it, NaN and the
+// infinities refused. A Writer builds JSON by hand, one token at a time,
+// refusing any call that would make it malformed. Each check prints its
+// name and "ok", or "FAIL"; every check that allocates runs in a function
+// of its own, and main asserts after it that c_allocator's count of live
+// buffers is back to zero.
+//
+// Each text append_encode is expected to write below was written from
+// what Go's json.Marshal gives for the same value; codegen/c/json_test.go
+// checks append_encode and the Writer against Go again, over random
+// values.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("go_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("go_fail_after") func fail_after(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// Address is a struct of a Text, an integer and a list of Texts.
+type Address struct {
+    pub street text.Text
+    pub zip    int32
+    pub tags   list[text.Text]
+}
+
+// User holds a field of every kind of Data, and a private one, which
+// std/json does not see and so does not write.
+type User struct {
+    pub name  text.Text
+    pub age   int64
+    pub score float64
+    pub admin bool
+    pub home  Address
+    pub past  list[Address]
+    pub grid  list[list[int16]]
+    pub prefs map[text.Text]float32
+    secret    text.Text
+}
+
+// Empty is a struct with no fields.
+type Empty struct {
+}
+
+// Hollow holds an empty value of every kind.
+type Hollow struct {
+    pub e Empty
+    pub l list[Empty]
+    pub m map[text.Text]Empty
+    pub t text.Text
+    pub n list[list[int64]]
+}
+
+// same reports whether out holds exactly the bytes of s.
+func same(out list[uint8], s string) bool {
+    if len(out) != len(s) {
+        return false
+    }
+    for i, c := range out {
+        if i >= len(s) || c != s[i] {
+            return false
+        }
+    }
+    return true
+}
+
+// prefixed reports whether out holds exactly the bytes of p and then
+// those of s.
+func prefixed(out list[uint8], p string, s string) bool {
+    if len(out) != len(p) +% len(s) {
+        return false
+    }
+    for i, c := range out {
+        if i < len(p) {
+            if c != p[i] {
+                return false
+            }
+        } else {
+            j := i -% len(p)
+            if j < 0 || j >= len(s) || c != s[j] {
+                return false
+            }
+        }
+    }
+    return true
+}
+
+// encodes reports whether append_encode writes v as want, after a prefix
+// it leaves as it was.
+func encodes[T Data](v T, want string) bool {
+    mut out := make(list[uint8], c_allocator)
+    if append(mut out, '>').code != 0 {
+        return false
+    }
+    err := json.append_encode(mut out, v, c_allocator)
+    if err.code != 0 || len(out) < 1 || out[0] != '>' {
+        return false
+    }
+    mut rest := make(list[uint8], c_allocator)
+    for i, c := range out {
+        if i > 0 && append(mut rest, c).code != 0 {
+            return false
+        }
+    }
+    return same(rest, want)
+}
+
+// refuses reports whether append_encode refuses v with code, leaving out
+// as it was.
+func refuses[T Data](v T, code int32) bool {
+    mut out := make(list[uint8], c_allocator)
+    if append(mut out, 'x', 'y').code != 0 {
+        return false
+    }
+    err := json.append_encode(mut out, v, c_allocator)
+    return err.code == code && same(out, "xy")
+}
+
+// key returns a Text holding s.
+func key(s string) (text.Text, error) {
+    mut t := text.new(c_allocator)
+    mut t.append([]uint8(s))?
+    return t, noerror
+}
+
+// address returns an Address on street, with tags.
+func address(street string, zip int32, tags bool) (Address, error) {
+    mut a := make(Address, c_allocator)
+    mut a.street.append([]uint8(street))?
+    a.zip = zip
+    if tags {
+        append(mut a.tags, key("a")?)?
+        append(mut a.tags, key("b")?)?
+    }
+    return a, noerror
+}
+
+// user returns a User holding something of every kind, its prefs put in
+// an order that is not sorted.
+func user() (User, error) {
+    mut u := make(User, c_allocator)
+    mut u.name.append([]uint8("Ada <dev>"))?
+    u.age = 36
+    u.score = 0.5
+    u.admin = true
+    u.home = address("1 Main", 12345, true)?
+    append(mut u.past, address("", -1, false)?)?
+    append(mut u.past, address("2 Side", 0, true)?)?
+    mut row := make(list[int16], c_allocator)
+    append(mut row, 1, -2)?
+    append(mut u.grid, row)?
+    append(mut u.grid, make(list[int16], c_allocator))?
+    put(mut u.prefs, key("b")?, 1e21)?
+    put(mut u.prefs, key("a")?, 0.25)?
+    put(mut u.prefs, key("Z")?, 1.0)?
+    mut u.secret.append([]uint8("hidden"))?
+    return u, noerror
+}
+
+// userJSON is what append_encode writes for user's User, and Go's
+// json.Marshal for the same value.
+var userJSON = "{\"name\":\"Ada \\u003cdev\\u003e\",\"age\":36,\"score\":0.5,\"admin\":true,\"home\":{\"street\":\"1 Main\",\"zip\":12345,\"tags\":[\"a\",\"b\"]},\"past\":[{\"street\":\"\",\"zip\":-1,\"tags\":[]},{\"street\":\"2 Side\",\"zip\":0,\"tags\":[\"a\",\"b\"]}],\"grid\":[[1,-2],[]],\"prefs\":{\"Z\":1,\"a\":0.25,\"b\":1e+21}}"
+
+// scalars checks bools and integers of every type, at their edges.
+func scalars() {
+    check(encodes(true, "true") && encodes(false, "false"), "bool")
+    check(encodes(int8(-128), "-128") && encodes(int16(32767), "32767") &&
+        encodes(int32(-2147483648), "-2147483648") && encodes(0, "0") &&
+        encodes(-9223372036854775807 - 1, "-9223372036854775808") &&
+        encodes(9223372036854775807, "9223372036854775807"), "signed")
+    check(encodes(uint8(255), "255") && encodes(uint16(0), "0") &&
+        encodes(uint32(4294967295), "4294967295") &&
+        encodes(uint64(18446744073709551615), "18446744073709551615") &&
+        encodes(unsafe_size_t(42), "42") && encodes(unsafe_uintptr_t(7), "7"), "unsigned")
+}
+
+// floats checks floats on each side of Go's switch to an exponent, at
+// 1e21 and 1e-6, and at their edges.
+func floats() {
+    zero := 0.0
+    check(encodes(zero, "0") && encodes(-zero, "-0") && encodes(0.5, "0.5") &&
+        encodes(-1.25, "-1.25") && encodes(123456789.0, "123456789"), "float plain")
+    check(encodes(1e20, "100000000000000000000") && encodes(1e21, "1e+21") &&
+        encodes(-1e21, "-1e+21") && encodes(9.999999999999999e20, "999999999999999900000") &&
+        encodes(1.7976931348623157e308, "1.7976931348623157e+308"), "float large")
+    check(encodes(0.000001, "0.000001") && encodes(9.999999999999997e-7, "9.999999999999997e-7") &&
+        encodes(1e-7, "1e-7") && encodes(1.5e-10, "1.5e-10") && encodes(5e-324, "5e-324") &&
+        encodes(1e-100, "1e-100"), "float small")
+    check(encodes(float32(0.1), "0.1") && encodes(float32(16777216.0), "16777216") &&
+        encodes(float32(1e21), "1e+21") && encodes(float32(1e20), "100000000000000000000") &&
+        encodes(float32(0.000001), "0.000001") && encodes(float32(1e-7), "1e-7") &&
+        encodes(float32(3.4028234663852886e38), "3.4028235e+38"), "float32")
+}
+
+// refused checks NaN and the infinities are refused with code 11,
+// alone and inside a list, leaving out as it was.
+func refused() {
+    zero := 0.0
+    nan := zero / zero
+    inf := 1.0 / zero
+    check(refuses(nan, 11) && refuses(inf, 11) && refuses(-inf, 11) &&
+        refuses(float32(inf), 11), "non-finite refused")
+    mut l := make(list[float64], c_allocator)
+    e := append(mut l, 1.0, 2.0, nan)
+    check(e.code == 0 && refuses(l, 11), "non-finite refused in a list")
+}
+
+// escapes reports whether append_encode writes a Text holding s as want.
+func escapes(s string, want string) bool {
+    t, err := key(s)
+    if err.code != 0 {
+        return false
+    }
+    return encodes(t, want)
+}
+
+// strings checks Texts escaped as Go escapes them.
+func strings() {
+    check(escapes("\"\\/\x00\x01\x1f\b\f\n\r\t\x7f", "\"\\\"\\\\/\\u0000\\u0001\\u001f\\b\\f\\n\\r\\t\x7f\""),
+        "escape controls")
+    check(escapes("<a href='x'>&amp;</a>", "\"\\u003ca href='x'\\u003e\\u0026amp;\\u003c/a\\u003e\""),
+        "escape html")
+    check(escapes("\xe2\x80\xa8\xe2\x80\xa9\xe2\x80\xaa", "\"\\u2028\\u2029\xe2\x80\xaa\""), "escape separators")
+    check(escapes("\xff\xc0\x80\xe4\xb8 \xed\xa0\x80", "\"\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd \xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd\""),
+        "invalid utf8 as U+FFFD")
+    check(escapes("\xc3\xa9\xe4\xb8\x96\xf0\x9f\x98\x80\xef\xbf\xbd", "\"\xc3\xa9\xe4\xb8\x96\xf0\x9f\x98\x80\xef\xbf\xbd\"") &&
+        escapes("", "\"\""), "valid utf8 as it is")
+}
+
+// composites checks structs, lists and maps, nested in one another, and
+// empty ones.
+func composites() {
+    u, err := user()
+    check(err.code == 0 && encodes(u, userJSON), "user")
+    h := make(Hollow, c_allocator)
+    check(encodes(h, "{\"e\":{},\"l\":[],\"m\":{},\"t\":\"\",\"n\":[]}"), "empty everything")
+    check(encodes(make(Empty, c_allocator), "{}"), "empty struct")
+    mut ls := make(list[list[Empty]], c_allocator)
+    e1 := append(mut ls, make(list[Empty], c_allocator))
+    mut two := make(list[Empty], c_allocator)
+    e2 := append(mut two, make(Empty, c_allocator), make(Empty, c_allocator))
+    e3 := append(mut ls, two)
+    check(e1.code == 0 && e2.code == 0 && e3.code == 0 && encodes(ls, "[[],[{},{}]]"),
+        "lists of structs")
+}
+
+// put_key puts n under a Text holding s in m.
+func put_key(mut m map[text.Text]int64, s string, n int64) error {
+    return put(mut m, key(s)?, n)
+}
+
+// maps_of_lists returns a map of an empty map and a map of two lists, put
+// in an order that is not sorted.
+func maps_of_lists() (map[text.Text]map[text.Text]list[int64], error) {
+    mut deep := make(map[text.Text]map[text.Text]list[int64], c_allocator)
+    mut inner := make(map[text.Text]list[int64], c_allocator)
+    mut l := make(list[int64], c_allocator)
+    append(mut l, 1, 2)?
+    put(mut inner, key("y")?, l)?
+    put(mut inner, key("x")?, make(list[int64], c_allocator))?
+    put(mut deep, key("k")?, inner)?
+    put(mut deep, key("e")?, make(map[text.Text]list[int64], c_allocator))?
+    return deep, noerror
+}
+
+// odd_keys checks a map's keys are sorted bytewise and escaped: the
+// empty key first, then by byte, an invalid byte last, though it is
+// written as U+FFFD, and a value that is a map of lists.
+func odd_keys() {
+    mut m := make(map[text.Text]int64, c_allocator)
+    ok := put_key(mut m, "\xff", 5).code == 0 && put_key(mut m, "\xc3\xa9", 4).code == 0 &&
+        put_key(mut m, "a\x00", 3).code == 0 && put_key(mut m, "a", 6).code == 0 &&
+        put_key(mut m, "<", 2).code == 0 && put_key(mut m, "", 1).code == 0
+    check(ok && encodes(m, "{\"\":1,\"\\u003c\":2,\"a\":6,\"a\\u0000\":3,\"\xc3\xa9\":4,\"\xef\xbf\xbd\":5}"),
+        "map keys sorted")
+    deep, err := maps_of_lists()
+    check(err.code == 0 && encodes(deep, "{\"e\":{},\"k\":{\"x\":[],\"y\":[1,2]}}"), "map of maps")
+}
+
+// failing makes append_encode fail at every allocation in turn, and
+// checks each failure is out of memory, leaving out exactly as it was,
+// and that nothing leaks however far it got.
+func failing() {
+    mut failures := 0
+    mut bad := 0
+    mut done := false
+    for k := range 200 {
+        if !done {
+            u, err := user()
+            mut out := make(list[uint8], c_allocator)
+            perr := append(mut out, 'p', 'r', 'e')
+            if err.code == 0 && perr.code == 0 {
+                fail_after(k)
+                eerr := json.append_encode(mut out, u, c_allocator)
+                fail_after(-1)
+                if eerr.code == 0 {
+                    done = true
+                    if !prefixed(out, "pre", userJSON) {
+                        bad +%= 1
+                    }
+                } else if eerr.code == 1 && same(out, "pre") {
+                    failures +%= 1
+                } else {
+                    bad +%= 1
+                }
+            }
+        }
+    }
+    check(done && failures > 0 && bad == 0, "encode under failure")
+}
+
+// writes reports whether w finishes holding want.
+func writes(mut w json.Writer, want string) bool {
+    out, err := mut w.finish(c_allocator)
+    return err.code == 0 && same(out, want)
+}
+
+// call_object writes an object of every kind of value into w, stopping
+// at the first error.
+func call_object(mut w json.Writer) error {
+    mut w.begin_object()?
+    mut w.key([]uint8("kind"))?
+    mut w.string([]uint8("call <f>"))?
+    mut w.key([]uint8("args"))?
+    mut w.begin_array()?
+    mut w.int(1)?
+    mut w.int(-9223372036854775807 - 1)?
+    mut w.uint(18446744073709551615)?
+    mut w.float(0.5)?
+    mut w.float(1e21)?
+    mut w.float(1e-7)?
+    mut w.bool(true)?
+    mut w.bool(false)?
+    mut w.null()?
+    mut w.begin_array()?
+    mut w.end_array()?
+    mut w.begin_object()?
+    mut w.end_object()?
+    mut w.end_array()?
+    mut w.key([]uint8("\xff"))?
+    mut w.begin_object()?
+    mut w.end_object()?
+    return mut w.end_object()
+}
+
+// writer checks a Writer builds an object of every kind of value, and
+// is ready for another after finish.
+func writer() {
+    mut w := json.new_writer(c_allocator)
+    e := call_object(mut w)
+    check(e.code == 0 && writes(mut w, "{\"kind\":\"call \\u003cf\\u003e\",\"args\":[1,-9223372036854775808,18446744073709551615,0.5,1e+21,1e-7,true,false,null,[],{}],\"\xef\xbf\xbd\":{}}"),
+        "writer object")
+    e2 := mut w.int(7)
+    check(e2.code == 0 && writes(mut w, "7"), "writer again after finish")
+    e3 := mut w.string([]uint8(""))
+    check(e3.code == 0 && writes(mut w, "\"\""), "writer string alone")
+}
+
+// finish_refused reports whether finish refuses w with a misuse, code
+// 12.
+func finish_refused(mut w json.Writer) bool {
+    out, err := mut w.finish(c_allocator)
+    if err.code == 0 {
+        return len(out) < 0
+    }
+    return err.code == 12
+}
+
+// open_key writes { and the key a into w.
+func open_key(mut w json.Writer) error {
+    mut w.begin_object()?
+    return mut w.key([]uint8("a"))
+}
+
+// close_key writes the value 1 and } into w.
+func close_key(mut w json.Writer) error {
+    mut w.int(1)?
+    return mut w.end_object()
+}
+
+// open_two writes [ and { into w.
+func open_two(mut w json.Writer) error {
+    mut w.begin_array()?
+    return mut w.begin_object()
+}
+
+// close_two writes } and ] into w.
+func close_two(mut w json.Writer) error {
+    mut w.end_object()?
+    return mut w.end_array()
+}
+
+// misuse checks each call that would make a Writer's JSON malformed is
+// refused with code 12, leaving the Writer as it was.
+func misuse() {
+    mut w := json.new_writer(c_allocator)
+    zero := 0.0
+    e0 := mut w.begin_object()
+    m0 := mut w.int(1)
+    m00 := mut w.string([]uint8("v"))
+    m000 := mut w.begin_array()
+    e00 := mut w.end_object()
+    check(e0.code == 0 && m0.code == 12 && m00.code == 12 && m000.code == 12 && e00.code == 0 &&
+        writes(mut w, "{}"), "value where a key is expected")
+    e1 := open_key(mut w)
+    m1 := mut w.key([]uint8("b"))
+    m2 := mut w.end_object()
+    m3 := mut w.end_array()
+    e2 := close_key(mut w)
+    check(e1.code == 0 && e2.code == 0 && m1.code == 12 && m2.code == 12 && m3.code == 12 &&
+        writes(mut w, "{\"a\":1}"), "key, end after a key, wrong end")
+    e3 := mut w.begin_array()
+    m4 := mut w.key([]uint8("a"))
+    m5 := mut w.end_object()
+    e4 := mut w.end_array()
+    check(e3.code == 0 && e4.code == 0 && m4.code == 12 && m5.code == 12 && writes(mut w, "[]"),
+        "key in an array")
+    m6 := mut w.key([]uint8("a"))
+    m7 := mut w.end_array()
+    m8 := mut w.end_object()
+    e5 := mut w.null()
+    check(m6.code == 12 && m7.code == 12 && m8.code == 12 && e5.code == 0 && writes(mut w, "null"),
+        "key or end with nothing open")
+    e6 := mut w.int(1)
+    m9 := mut w.int(2)
+    m10 := mut w.begin_array()
+    m11 := mut w.key([]uint8("k"))
+    check(e6.code == 0 && m9.code == 12 && m10.code == 12 && m11.code == 12 && writes(mut w, "1"),
+        "second value at the top")
+    check(finish_refused(mut w), "finish before a value")
+    e7 := open_two(mut w)
+    m13 := finish_refused(mut w)
+    e8 := close_two(mut w)
+    check(e7.code == 0 && e8.code == 0 && m13 && writes(mut w, "[{}]"),
+        "finish with containers open")
+    e9 := mut w.begin_array()
+    m14 := mut w.float(zero / zero)
+    m15 := mut w.float(1.0 / zero)
+    m16 := mut w.float(-1.0 / zero)
+    e10 := mut w.end_array()
+    check(e9.code == 0 && e10.code == 0 && m14.code == 11 && m15.code == 11 && m16.code == 11 &&
+        writes(mut w, "[]"), "writer refuses non-finite")
+}
+
+// nest writes n arrays into w, one in another, and ends them.
+func nest(mut w json.Writer, n int64) error {
+    mut i := 0
+    for i < n {
+        mut w.begin_array()?
+        i +%= 1
+    }
+    for i > 0 {
+        mut w.end_array()?
+        i -%= 1
+    }
+    return noerror
+}
+
+// deep checks a Writer nests 100000 arrays, its depth on a stack of its
+// own in the heap, not C's.
+func deep() {
+    mut w := json.new_writer(c_allocator)
+    e := nest(mut w, 100000)
+    out, ferr := mut w.finish(c_allocator)
+    if e.code != 0 || ferr.code != 0 {
+        check(false, "writer deep nesting")
+        return
+    }
+    mut good := len(out) == 200000
+    for i, c := range out {
+        if i < 100000 && c != '[' || i >= 100000 && c != ']' {
+            good = false
+        }
+    }
+    check(good, "writer deep nesting")
+}
+
+// tokens is how many tokens token writes: {, the key, [, 50 integers
+// and 50 strings, ] and }.
+var tokens int64 = 105
+
+// token writes the i-th token of an object of an array of integers and
+// strings into w.
+func token(mut w json.Writer, i int64) error {
+    if i == 0 {
+        return mut w.begin_object()
+    }
+    if i == 1 {
+        return mut w.key([]uint8("xs"))
+    }
+    if i == 2 {
+        return mut w.begin_array()
+    }
+    if i == tokens - 2 {
+        return mut w.end_array()
+    }
+    if i == tokens - 1 {
+        return mut w.end_object()
+    }
+    if i % 2 == 1 {
+        return mut w.int(i)
+    }
+    return mut w.string([]uint8("<\xe2\x80\xa8>"))
+}
+
+// build writes every token into w, stopping at the first error.
+func build(mut w json.Writer) error {
+    mut i := 0
+    for i < tokens {
+        token(mut w, i)?
+        i +%= 1
+    }
+    return noerror
+}
+
+// writer_failing makes a Writer fail at every allocation in turn, and
+// checks each failure is out of memory and leaves the Writer as it was:
+// writing the refused token again, with allocation allowed, and the rest
+// after it, finishes exactly the JSON written with no failure.
+func writer_failing() {
+    mut whole := json.new_writer(c_allocator)
+    werr := build(mut whole)
+    want, ferr := mut whole.finish(c_allocator)
+    if werr.code != 0 || ferr.code != 0 {
+        check(false, "writer under failure")
+        return
+    }
+    mut failures := 0
+    mut bad := 0
+    for k := range 40 {
+        mut w := json.new_writer(c_allocator)
+        fail_after(k)
+        mut i := 0
+        for i < tokens {
+            err := token(mut w, i)
+            if err.code == 1 {
+                failures +%= 1
+                fail_after(-1)
+            } else if err.code != 0 {
+                bad +%= 1
+                i = tokens
+            } else {
+                i +%= 1
+            }
+        }
+        fail_after(-1)
+        out, e := mut w.finish(c_allocator)
+        if e.code != 0 || !bytes_equal(out, want) {
+            bad +%= 1
+        }
+    }
+    check(failures > 0 && bad == 0, "writer under failure")
+}
+
+// bytes_equal reports whether a and b hold the same bytes.
+func bytes_equal(a list[uint8], b list[uint8]) bool {
+    if len(a) != len(b) {
+        return false
+    }
+    for i, c := range a {
+        if i >= len(b) || c != b[i] {
+            return false
+        }
+    }
+    return true
+}
+
+// regions checks a Writer and append_encode work through a region's
+// allocator.
+func regions() {
+    mut ok := false
+    region r {
+        mut w := json.new_writer(r)
+        e := mut w.begin_array()
+        e2 := mut w.int(3)
+        e3 := mut w.end_array()
+        out, e4 := mut w.finish(r)
+        if e4.code == 0 {
+            mut more := make(list[uint8], r)
+            e5 := json.append_encode(mut more, out, r)
+            ok = e.code == 0 && e2.code == 0 && e3.code == 0 && e5.code == 0 && same(out, "[3]") &&
+                same(more, "[91,51,93]")
+        }
+    }
+    check(ok, "region")
+    check(region_scratch(), "region as scratch")
+}
+
+// region_scratch encodes a map, made outside any region, with a region's
+// allocator as append_encode's scratch for sorting the keys, into a list
+// made through the region too: a list from outside it cannot be passed as
+// mut beside the region's allocator, which the call could store in it.
+// The scratch is freed before append_encode returns, and the region gives
+// back the rest.
+func region_scratch() bool {
+    mut m := make(map[text.Text]int64, c_allocator)
+    if put_key(mut m, "b", 2).code != 0 || put_key(mut m, "a", 1).code != 0 {
+        return false
+    }
+    mut ok := false
+    region r {
+        mut out := make(list[uint8], r)
+        err := json.append_encode(mut out, m, r)
+        ok = err.code == 0 && same(out, "{\"a\":1,\"b\":2}")
+    }
+    return ok
+}
+
+func main() {
+    scalars()
+    floats()
+    refused()
+    check(live() == 0, "scalars freed")
+    strings()
+    check(live() == 0, "strings freed")
+    composites()
+    check(live() == 0, "composites freed")
+    odd_keys()
+    check(live() == 0, "odd keys freed")
+    failing()
+    check(live() == 0, "failing freed")
+    writer()
+    check(live() == 0, "writer freed")
+    misuse()
+    check(live() == 0, "misuse freed")
+    deep()
+    check(live() == 0, "deep freed")
+    writer_failing()
+    check(live() == 0, "writer failing freed")
+    regions()
+    check(live() == 0, "regions freed")
+}

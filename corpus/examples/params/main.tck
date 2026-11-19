@@ -1,0 +1,11 @@
+package main
+
+func greet(s string, code int32) {
+    print(s)
+    print("\n")
+    exit(code)
+}
+
+func main() {
+    greet("hello", 7)
+}

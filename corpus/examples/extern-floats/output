@@ -1,0 +1,14 @@
+a square root in C ok
+NaN from C ok
+a struct of float64 and a float32, by value ok
+views of float64 ok
+a mut struct of floats ok
+an array of float32 ok
+a float32 between other fields ok
+infinity from C ok
+a float32 NaN from C ok
+float type ids in C ok
+floats unpacked in C ok
+a view of float64 read in C ok
+a type switch matches floats ok
+an any holding infinity or NaN ok

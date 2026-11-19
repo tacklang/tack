@@ -1,0 +1,399 @@
+package main
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+
+// std/bytes, the first std package written in Tack alone: its read
+// functions take views and return indexes, counts and bools, its append_
+// functions format integers into the caller's list[uint8], all or
+// nothing, and repeat makes a new list through an allocator it is given.
+//
+// Every function runs at its edges: empty views, a sub longer than s, a
+// sub equal to s, matches at the start and the end, candidates that
+// overlap, bytes 0x00 and 0xff, int64's smallest and largest, uint64's
+// largest, repeat counts of 0, 1, many, negative and overflowing, and
+// allocations made to fail. Each result is checked against what is
+// written out here, by same, which reads bytes itself rather than through
+// std/bytes, and the built lists are also written with fmt.write, so the
+// output shows them.
+//
+// Tack has no way to read a list's capacity, so this example's C, in
+// live.c, reads it, and c_allocator's count of live buffers, which main
+// checks is back to 0 after every function that makes lists, so a free
+// that never happens, or happens twice, fails a check.
+
+// capOf returns how many bytes b's buffer has room for, in C.
+extern("bytes_cap") func capOf(mut b list[uint8]) int64
+
+// live returns how many buffers c_allocator holds, in C.
+extern("bytes_live") func live() int64
+
+// failAfter makes c_allocator fail every allocation after the next n, or
+// none again when n is negative, in C.
+extern("bytes_fail_after") func failAfter(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that nothing is live after a check, name saying which.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// same reports whether b holds exactly the bytes of s, reading each
+// itself.
+func same(b []uint8, s string) bool {
+    if len(b) != len(s) {
+        return false
+    }
+    for i, x := range b {
+        y, ok := s[i]
+        if !ok || x != y {
+            return false
+        }
+    }
+    return true
+}
+
+// minusOne returns -1, a value the compiler does not know.
+func minusOne() int64 {
+    return -1
+}
+
+// equals checks equal: lengths that differ, the empty views, bytes 0x00
+// and 0xff, and lists, arrays and slices compared with each other.
+func equals() {
+    check(bytes.equal([]uint8(""), []uint8("")), "equal empty")
+    check(!bytes.equal([]uint8("a"), []uint8("")), "equal one empty")
+    check(!bytes.equal([]uint8(""), []uint8("a")), "equal other empty")
+    check(bytes.equal([]uint8("abc"), []uint8("abc")), "equal same")
+    check(!bytes.equal([]uint8("abc"), []uint8("abd")), "equal last differs")
+    check(!bytes.equal([]uint8("abc"), []uint8("xbc")), "equal first differs")
+    check(!bytes.equal([]uint8("abc"), []uint8("ab")), "equal prefix is not equal")
+    check(!bytes.equal([]uint8("ab"), []uint8("abc")), "equal longer is not equal")
+    check(bytes.equal([]uint8("\x00\xff"), []uint8("\x00\xff")), "equal 0x00 and 0xff")
+    check(!bytes.equal([]uint8("\x00"), []uint8("\xff")), "equal 0x00 is not 0xff")
+    a := [3]uint8{'a', 'b', 'c'}
+    mut l := make(list[uint8], c_allocator)
+    e := append(mut l, 'x', 'a', 'b', 'c')
+    if e.code != 0 || len(l) != 4 {
+        check(false, "equal list")
+        return
+    }
+    check(bytes.equal(a, l[1:]) && bytes.equal(l[1:], []uint8("abc")), "equal array, list slice and string")
+    check(!bytes.equal(a, l) && bytes.equal(l, l) && bytes.equal(a[1:1], l[4:]), "equal list whole, itself and empty slices")
+}
+
+// indexes checks index and index_byte: the empty sub, a sub longer than
+// s, a sub equal to s, matches at the start and the end, candidates that
+// overlap the match, and bytes 0x00 and 0xff.
+func indexes() {
+    check(bytes.index([]uint8(""), []uint8("")) == 0, "index empty in empty")
+    check(bytes.index([]uint8("abc"), []uint8("")) == 0, "index empty in abc")
+    check(bytes.index([]uint8(""), []uint8("a")) == -1, "index in empty")
+    check(bytes.index([]uint8("ab"), []uint8("abc")) == -1, "index sub longer than s")
+    check(bytes.index([]uint8("abc"), []uint8("abc")) == 0, "index sub is s")
+    check(bytes.index([]uint8("abcab"), []uint8("ab")) == 0, "index first of two")
+    check(bytes.index([]uint8("xabc"), []uint8("abc")) == 1, "index after one")
+    check(bytes.index([]uint8("abc"), []uint8("c")) == 2, "index at the end")
+    check(bytes.index([]uint8("aab"), []uint8("ab")) == 1, "index overlapping candidate")
+    check(bytes.index([]uint8("aaab"), []uint8("aab")) == 1, "index longer overlapping candidate")
+    check(bytes.index([]uint8("abab"), []uint8("abc")) == -1, "index partial matches only")
+    check(bytes.index([]uint8("ab"), []uint8("b\x00")) == -1, "index match runs past the end")
+    check(bytes.index([]uint8("\x00\xff\x00"), []uint8("\xff\x00")) == 1, "index 0xff and 0x00")
+    check(bytes.index([]uint8("\xff\xfe"), []uint8("\xfe")) == 1, "index high bytes")
+
+    check(bytes.index_byte([]uint8(""), 'a') == -1, "index_byte in empty")
+    check(bytes.index_byte([]uint8("abc"), 'a') == 0, "index_byte at the start")
+    check(bytes.index_byte([]uint8("abc"), 'c') == 2, "index_byte at the end")
+    check(bytes.index_byte([]uint8("abab"), 'b') == 1, "index_byte first of two")
+    check(bytes.index_byte([]uint8("abc"), 'z') == -1, "index_byte absent")
+    check(bytes.index_byte([]uint8("a\x00"), 0) == 1, "index_byte 0x00")
+    check(bytes.index_byte([]uint8("a\xff"), 255) == 1, "index_byte 0xff")
+    check(bytes.index_byte([]uint8("\x00"), 255) == -1, "index_byte 0xff is not 0x00")
+
+    mut l := make(list[uint8], c_allocator)
+    e := append(mut l, []uint8("hello, world")...)
+    if e.code != 0 || len(l) != 12 {
+        check(false, "index list")
+        return
+    }
+    check(bytes.index(l, []uint8("world")) == 7 && bytes.index(l[7:], []uint8("o")) == 1, "index a list and its slice")
+    check(bytes.index_byte(l[:5], ',') == -1 && bytes.index_byte(l, ',') == 5, "index_byte a list and its slice")
+}
+
+// prefixes checks has_prefix and has_suffix: the empty prefix and suffix,
+// empty s, the whole of s, longer than s, and bytes 0x00 and 0xff.
+func prefixes() {
+    check(bytes.has_prefix([]uint8(""), []uint8("")), "has_prefix empty of empty")
+    check(bytes.has_prefix([]uint8("abc"), []uint8("")), "has_prefix empty")
+    check(!bytes.has_prefix([]uint8(""), []uint8("a")), "has_prefix of empty")
+    check(bytes.has_prefix([]uint8("abc"), []uint8("abc")), "has_prefix whole")
+    check(!bytes.has_prefix([]uint8("ab"), []uint8("abc")), "has_prefix longer than s")
+    check(bytes.has_prefix([]uint8("abc"), []uint8("ab")), "has_prefix start")
+    check(!bytes.has_prefix([]uint8("abc"), []uint8("b")), "has_prefix not at the start")
+    check(!bytes.has_prefix([]uint8("abc"), []uint8("abd")), "has_prefix last byte differs")
+    check(bytes.has_prefix([]uint8("\xff\x00x"), []uint8("\xff\x00")), "has_prefix 0xff and 0x00")
+
+    check(bytes.has_suffix([]uint8(""), []uint8("")), "has_suffix empty of empty")
+    check(bytes.has_suffix([]uint8("abc"), []uint8("")), "has_suffix empty")
+    check(!bytes.has_suffix([]uint8(""), []uint8("a")), "has_suffix of empty")
+    check(bytes.has_suffix([]uint8("abc"), []uint8("abc")), "has_suffix whole")
+    check(!bytes.has_suffix([]uint8("bc"), []uint8("abc")), "has_suffix longer than s")
+    check(bytes.has_suffix([]uint8("abc"), []uint8("bc")), "has_suffix end")
+    check(!bytes.has_suffix([]uint8("abc"), []uint8("b")), "has_suffix not at the end")
+    check(!bytes.has_suffix([]uint8("abc"), []uint8("xc")), "has_suffix first byte differs")
+    check(bytes.has_suffix([]uint8("x\x00\xff"), []uint8("\x00\xff")), "has_suffix 0x00 and 0xff")
+}
+
+// counts checks count: the empty sub, which counts len(s) + 1, candidates
+// that overlap, which count once, and a sub longer than s.
+func counts() {
+    check(bytes.count([]uint8(""), []uint8("")) == 1, "count empty in empty")
+    check(bytes.count([]uint8("abc"), []uint8("")) == 4, "count empty in abc")
+    check(bytes.count([]uint8(""), []uint8("a")) == 0, "count in empty")
+    check(bytes.count([]uint8("ab"), []uint8("abc")) == 0, "count sub longer than s")
+    check(bytes.count([]uint8("abc"), []uint8("abc")) == 1, "count sub is s")
+    check(bytes.count([]uint8("aaaa"), []uint8("aa")) == 2, "count overlapping, even")
+    check(bytes.count([]uint8("aaaaa"), []uint8("aa")) == 2, "count overlapping, odd")
+    check(bytes.count([]uint8("abababa"), []uint8("aba")) == 2, "count overlapping aba")
+    check(bytes.count([]uint8("cheese"), []uint8("e")) == 3, "count bytes")
+    check(bytes.count([]uint8("\x00\x00\x00"), []uint8("\x00")) == 3, "count 0x00")
+    check(bytes.count([]uint8("\xff\x00\xff\x00"), []uint8("\xff\x00")) == 2, "count 0xff 0x00")
+    check(bytes.count([]uint8("abcabd"), []uint8("abd")) == 1, "count after a partial match")
+}
+
+// appends checks append_int, append_uint and append_hex: 0, one digit and
+// two, -1, int64's smallest and largest, uint64's largest, each appended
+// after what the list holds, which stays as it was.
+func appends() {
+    mut b := make(list[uint8], c_allocator)
+    e0 := bytes.append_int(mut b, 0)
+    check(e0.code == 0 && same(b, "0"), "append_int 0")
+    e1 := append(mut b, ' ')
+    e2 := bytes.append_int(mut b, -1)
+    e3 := append(mut b, ' ')
+    e4 := bytes.append_int(mut b, 9)
+    e5 := append(mut b, ' ')
+    e6 := bytes.append_int(mut b, 10)
+    e7 := append(mut b, ' ')
+    e8 := bytes.append_int(mut b, -10)
+    check(e1.code == 0 && e2.code == 0 && e3.code == 0 && e4.code == 0 && e5.code == 0 && e6.code == 0 && e7.code == 0 && e8.code == 0 && same(b, "0 -1 9 10 -10"), "append_int small")
+    fmt.write(b)
+    print("\n")
+
+    mut m := make(list[uint8], c_allocator)
+    f0 := append(mut m, []uint8("max=")...)
+    f1 := bytes.append_int(mut m, 9223372036854775807)
+    f2 := append(mut m, []uint8(" min=")...)
+    f3 := bytes.append_int(mut m, -9223372036854775808)
+    check(f0.code == 0 && f1.code == 0 && f2.code == 0 && f3.code == 0 && same(m, "max=9223372036854775807 min=-9223372036854775808"), "append_int int64 max and min")
+    fmt.write(m)
+    print("\n")
+    mut v int64 = -9223372036854775807
+    v--
+    mut n := make(list[uint8], c_allocator)
+    f4 := bytes.append_int(mut n, v)
+    f5 := bytes.append_int(mut n, minusOne())
+    check(f4.code == 0 && f5.code == 0 && same(n, "-9223372036854775808-1"), "append_int min at run time")
+
+    mut u := make(list[uint8], c_allocator)
+    g0 := bytes.append_uint(mut u, 0)
+    g1 := append(mut u, ' ')
+    g2 := bytes.append_uint(mut u, 1)
+    g3 := append(mut u, ' ')
+    g4 := bytes.append_uint(mut u, 10)
+    g5 := append(mut u, ' ')
+    g6 := bytes.append_uint(mut u, 9223372036854775808)
+    g7 := append(mut u, ' ')
+    g8 := bytes.append_uint(mut u, 18446744073709551615)
+    check(g0.code == 0 && g1.code == 0 && g2.code == 0 && g3.code == 0 && g4.code == 0 && g5.code == 0 && g6.code == 0 && g7.code == 0 && g8.code == 0 && same(u, "0 1 10 9223372036854775808 18446744073709551615"), "append_uint")
+    fmt.write(u)
+    print("\n")
+
+    mut h := make(list[uint8], c_allocator)
+    h0 := bytes.append_hex(mut h, 0)
+    h1 := append(mut h, ' ')
+    h2 := bytes.append_hex(mut h, 9)
+    h3 := append(mut h, ' ')
+    h4 := bytes.append_hex(mut h, 10)
+    h5 := append(mut h, ' ')
+    h6 := bytes.append_hex(mut h, 16)
+    h7 := append(mut h, ' ')
+    h8 := bytes.append_hex(mut h, 255)
+    h9 := append(mut h, ' ')
+    h10 := bytes.append_hex(mut h, 3735928559)
+    h11 := append(mut h, ' ')
+    h12 := bytes.append_hex(mut h, 9223372036854775808)
+    h13 := append(mut h, ' ')
+    h14 := bytes.append_hex(mut h, 18446744073709551615)
+    check(h0.code == 0 && h1.code == 0 && h2.code == 0 && h3.code == 0 && h4.code == 0 && h5.code == 0 && h6.code == 0 && h7.code == 0 && h8.code == 0 && h9.code == 0 && h10.code == 0 && h11.code == 0 && h12.code == 0 && h13.code == 0 && h14.code == 0 && same(h, "0 9 a 10 ff deadbeef 8000000000000000 ffffffffffffffff"), "append_hex")
+    fmt.write(h)
+    print("\n")
+
+    mut w := make(list[uint8], c_allocator)
+    i0 := bytes.append_int(mut w, int8(-128))
+    i1 := bytes.append_uint(mut w, uint8(255))
+    i2 := bytes.append_hex(mut w, uint32(4294967295))
+    check(i0.code == 0 && i1.code == 0 && i2.code == 0 && same(w, "-128255ffffffff"), "narrower integers widen")
+}
+
+// failures makes c_allocator fail and appends past the capacity: each
+// append_ function returns out of memory and leaves the list as it was,
+// its length, its capacity and its bytes. What fits in room reserved
+// beforehand needs no allocation, so it succeeds whatever the allocator
+// would do.
+func failures() {
+    mut b := make(list[uint8], c_allocator)
+    e0 := append(mut b, 'a', 'b', 'c', 'd')
+    c := capOf(mut b)
+    check(e0.code == 0 && c == len(b), "a full list")
+    failAfter(0)
+    e1 := bytes.append_int(mut b, -9223372036854775808)
+    e2 := bytes.append_uint(mut b, 18446744073709551615)
+    e3 := bytes.append_hex(mut b, 255)
+    e4 := bytes.append_int(mut b, 0)
+    failAfter(-1)
+    check(e1.code == 1 && e1.msg == "out of memory" && e2.code == 1 && e2.msg == "out of memory", "append_int and append_uint fail")
+    check(e3.code == 1 && e3.msg == "out of memory" && e4.code == 1, "append_hex and a one-digit append_int fail")
+    check(same(b, "abcd") && capOf(mut b) == c, "nothing written by failed appends")
+
+    mut empty := make(list[uint8], c_allocator)
+    failAfter(0)
+    e5 := bytes.append_int(mut empty, 7)
+    failAfter(-1)
+    check(e5.code == 1 && len(empty) == 0 && capOf(mut empty) == 0 && live() == 1, "failure on an empty list")
+
+    mut room := make(list[uint8], c_allocator)
+    e6 := reserve(mut room, 20)
+    failAfter(0)
+    e7 := bytes.append_int(mut room, -9223372036854775808)
+    failAfter(-1)
+    check(e6.code == 0 && e7.code == 0 && same(room, "-9223372036854775808"), "what fits needs no allocation")
+}
+
+// repeats checks repeat: counts of 0 and 1, an empty s, a large count,
+// a negative count, counts whose length overflows an int64 or that no
+// buffer holds, and an allocator made to fail.
+func repeats() {
+    r0, e0 := bytes.repeat([]uint8("ab"), 0, c_allocator)
+    if e0.code != 0 {
+        check(false, "repeat 0")
+        return
+    }
+    check(len(r0) == 0 && live() == 0, "repeat 0 allocates nothing")
+
+    r1, e1 := bytes.repeat([]uint8("ab"), 1, c_allocator)
+    if e1.code != 0 {
+        check(false, "repeat 1")
+        return
+    }
+    check(same(r1, "ab"), "repeat 1")
+
+    r3, e3 := bytes.repeat([]uint8("a\x00\xff"), 3, c_allocator)
+    if e3.code != 0 {
+        check(false, "repeat 3")
+        return
+    }
+    check(same(r3, "a\x00\xffa\x00\xffa\x00\xff"), "repeat 3 with 0x00 and 0xff")
+
+    r4, e4 := bytes.repeat([]uint8("-="), 20, c_allocator)
+    if e4.code != 0 {
+        check(false, "repeat 20")
+        return
+    }
+    fmt.write(r4)
+    print("\n")
+
+    re, ee := bytes.repeat([]uint8(""), 9223372036854775807, c_allocator)
+    if ee.code != 0 {
+        check(false, "repeat empty")
+        return
+    }
+    check(len(re) == 0, "repeat empty int64 max times")
+
+    mut src := make(list[uint8], c_allocator)
+    es := append(mut src, []uint8("xyz")...)
+    mut big, eb := bytes.repeat(src, 100000, c_allocator)
+    if es.code != 0 || eb.code != 0 || len(src) != 3 {
+        check(false, "repeat large")
+        return
+    }
+    mut ok := len(big) == 300000 && capOf(mut big) == 300000
+    for i, x := range big {
+        r := i % 3
+        if r == 0 && x != 'x' || r == 1 && x != 'y' || r == 2 && x != 'z' {
+            ok = false
+        }
+    }
+    check(ok, "repeat large")
+
+    r5, e5 := bytes.repeat(src[1:], 2, c_allocator)
+    if e5.code != 0 {
+        check(false, "repeat a slice")
+        return
+    }
+    check(same(r5, "yzyz"), "repeat a slice of a list")
+}
+
+// repeatFails reports whether repeat(s, n) returns the error code with
+// msg while c_allocator holds nothing, before the list it returns beside
+// the error is freed: a failed repeat allocates nothing. A repeat that
+// succeeds instead fails a check of its own.
+func repeatFails(s []uint8, n int64, code int32, msg string) bool {
+    r, err := bytes.repeat(s, n, c_allocator)
+    if err.code == 0 {
+        check(len(r) < 0, "repeat succeeded")
+        return false
+    }
+    return err.code == code && err.msg == msg && live() == 0
+}
+
+// repeatFailures checks repeat's errors: a negative count, a length that
+// overflows an int64 or that no buffer holds, and an allocator made to
+// fail. None leaves anything allocated.
+func repeatFailures() {
+    check(repeatFails([]uint8("ab"), minusOne(), 2, "negative count"), "repeat negative count")
+    mut n int64 = -9223372036854775807
+    n--
+    check(repeatFails([]uint8(""), n, 2, "negative count"), "repeat empty s, int64 min count")
+    check(repeatFails([]uint8("ab"), 9223372036854775807, 1, "out of memory"), "repeat overflowing int64")
+    check(repeatFails([]uint8("ab"), 4611686018427387904, 1, "out of memory"), "repeat to exactly 2^63 bytes")
+    check(repeatFails([]uint8("a"), 9223372036854775807, 1, "out of memory"), "repeat to int64 max bytes")
+    check(repeatFails([]uint8("ab"), 4611686018427387903, 1, "out of memory"), "repeat to int64 max - 1 bytes")
+    failAfter(0)
+    failed := repeatFails([]uint8("ab"), 3, 1, "out of memory")
+    r, e := bytes.repeat([]uint8("ab"), 0, c_allocator)
+    failAfter(-1)
+    check(failed, "repeat with a failing allocator")
+    if e.code != 0 {
+        check(false, "repeat 0 with a failing allocator")
+        return
+    }
+    check(len(r) == 0, "repeat 0 needs no allocation")
+}
+
+func main() {
+    check(live() == 0, "nothing live at the start")
+    equals()
+    freed("equal freed")
+    indexes()
+    freed("index freed")
+    prefixes()
+    counts()
+    appends()
+    freed("appends freed")
+    failures()
+    freed("failures freed")
+    repeats()
+    freed("repeats freed")
+    repeatFailures()
+    freed("repeat failures freed")
+}

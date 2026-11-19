@@ -1,0 +1,158 @@
+package main
+
+// A union pattern's binding and a range loop's element variable over an
+// owned element refer in place into what they match or range over, so a
+// function may return a view of what they hold when that is rooted in a
+// parameter that is not mut, as it may of the parameter itself. A call
+// returning a view may also be written as a statement, which drops the
+// view.
+//
+// Every check prints its name and "ok", or "FAIL".
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// same reports whether v holds exactly the bytes of s.
+func same(v []uint8, s string) bool {
+    if len(v) != len(s) {
+        return false
+    }
+    for i, c := range v {
+        x, ok := s[i]
+        if !ok || x != c {
+            return false
+        }
+    }
+    return true
+}
+
+// bytesOf returns a list holding the bytes of s, or an empty one when an
+// append fails.
+func bytesOf(s string) list[uint8] {
+    mut l := make(list[uint8], c_allocator)
+    err := append(mut l, []uint8(s)...)
+    if err.code != 0 {
+        return make(list[uint8], c_allocator)
+    }
+    return l
+}
+
+// Name is an identifier's bytes.
+type Name struct {
+    bytes list[uint8]
+}
+
+// Expr is a name, or a word held directly.
+type Expr union {
+    name Name
+    word list[uint8]
+}
+
+// text returns a view of the bytes e holds, through the binding of
+// whichever case it is.
+func (e Expr) text() []uint8 {
+    switch e {
+    case name(n):
+        return n.bytes
+    case word(w):
+        return w
+    }
+}
+
+// firstLong returns the first of ws longer than two bytes, through the
+// range loop's element variable, or or when there is none.
+func firstLong(ws list[list[uint8]], or []uint8) []uint8 {
+    for _, w := range ws {
+        if len(w) > 2 {
+            return w
+        }
+    }
+    return or
+}
+
+// firstName returns the text of the first name among es, through a
+// pattern binding inside a range binding, or or when there is none.
+func firstName(es []Expr, or []uint8) []uint8 {
+    for _, e := range es {
+        switch e {
+        case name(n):
+            return n.bytes
+        default:
+        }
+    }
+    return or
+}
+
+// Cell is three bytes in place, or a list of them.
+type Cell union {
+    arr [3]uint8
+    many list[uint8]
+}
+
+// firstArr returns a view of the array of the first cell among cs that
+// holds one, or or: the array is in the caller's list, reached through
+// the range loop's element in place and the pattern's binding.
+func firstArr(cs []Cell, or []uint8) []uint8 {
+    for _, c := range cs {
+        switch c {
+        case arr(a):
+            return a[:]
+        default:
+        }
+    }
+    return or
+}
+
+// nameBytes returns a view of n's bytes.
+func nameBytes(n Name) []uint8 {
+    return n.bytes
+}
+
+// viaCall returns the text of e when it is a name, through a call given
+// the pattern's binding, or or.
+func viaCall(e Expr, or []uint8) []uint8 {
+    switch e {
+    case name(n):
+        return nameBytes(n)
+    default:
+        return or
+    }
+}
+
+func main() {
+    n := Expr.name(Name{bytes: bytesOf("abc")})
+    w := Expr.word(bytesOf("xy"))
+    check(same(n.text(), "abc") && same(w.text(), "xy"), "a view through a pattern binding")
+    n.text()
+    check(len(n.text()) == 3, "a view call written as a statement")
+    mut ws := make(list[list[uint8]], c_allocator)
+    e1 := append(mut ws, bytesOf("a"))
+    e2 := append(mut ws, bytesOf("bcd"))
+    if e1.code != 0 || e2.code != 0 {
+        return
+    }
+    check(same(firstLong(ws, []uint8("none")), "bcd"), "a view through a range binding")
+    mut es := make(list[Expr], c_allocator)
+    e3 := append(mut es, Expr.word(bytesOf("w")))
+    e4 := append(mut es, Expr.name(Name{bytes: bytesOf("nm")}))
+    if e3.code != 0 || e4.code != 0 {
+        return
+    }
+    check(same(firstName(es, []uint8("none")), "nm"), "a view through both")
+    mut cs := make(list[Cell], c_allocator)
+    e5 := append(mut cs, Cell.many(bytesOf("m")))
+    e6 := append(mut cs, Cell.arr([3]uint8{'p', 'q', 'r'}))
+    if e5.code != 0 || e6.code != 0 {
+        return
+    }
+    check(same(firstArr(cs, []uint8("none")), "pqr"), "a view of an array payload in a list")
+    check(same(viaCall(n, []uint8("none")), "abc") && same(viaCall(w, []uint8("none")), "none"),
+        "a view through a call given a binding")
+}

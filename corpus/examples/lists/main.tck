@@ -1,0 +1,516 @@
+package main
+
+// Owned, growable lists, list[T]. A list is made empty with make, through
+// an allocator, grows with append, which returns an error, and is freed
+// automatically when the block of the variable that owns it ends. A list
+// moves: assigning or returning one hands its buffer over, and the old
+// variable cannot be used again. A plain parameter borrows a list, a mut
+// parameter may grow it, and a view parameter reads its elements.
+//
+// Every check that makes lists runs in a function of its own, and main
+// asserts after it that c_allocator's count of live buffers is back where
+// it was, so a free that never happens, or happens twice, fails a check.
+// The count is read through live, whose C, in live.c, reads std's hook.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("lists_live") func live() int64
+
+// failAfter makes c_allocator fail every allocation after the next n, or
+// none again when n is negative, in C.
+extern("lists_fail_after") func failAfter(n int64)
+
+// Point is a struct a list holds by value.
+type Point struct {
+    x int64
+    y int64
+}
+
+// Stack is a struct holding a list, which it owns: a Stack moves, and is
+// freed with its list when its owner's block ends.
+type Stack struct {
+    name  string
+    items list[int64]
+    pops  int64
+}
+
+// Pair holds two lists, freed in reverse field order.
+type Pair struct {
+    first  list[int64]
+    second list[string]
+}
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that nothing is live after a check, name saying which.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// sum adds every element of v, a view.
+func sum(v []int64) int64 {
+    mut total int64 = 0
+    for _, x := range v {
+        total +%= x
+    }
+    return total
+}
+
+// sumAll adds base and every value of xs, a variadic.
+func sumAll(base int64, xs ...int64) int64 {
+    mut t := base
+    for _, x := range xs {
+        t +%= x
+    }
+    return t
+}
+
+// total adds every element of l, which it borrows: the caller keeps it.
+func total(l list[int64]) int64 {
+    mut t int64 = 0
+    for i := range l {
+        t +%= l[i]
+    }
+    return t
+}
+
+// fill appends 0 through n - 1 to l, which it may grow, and stops at the
+// first error.
+func fill(mut l list[int64], n int64) error {
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return err
+        }
+    }
+    return noerror
+}
+
+// double doubles every element of l in place.
+func double(mut l list[int64]) {
+    for i := range l {
+        l[i] = l[i] *% 2
+    }
+}
+
+// build returns a new list of 1 through n, made here and moved out.
+func build(n int64) (list[int64], error) {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i + 1)
+        if err.code != 0 {
+            return l, err
+        }
+    }
+    return l, noerror
+}
+
+// squares returns a list of the squares of 0 through n - 1, or an empty
+// one if an append fails.
+func squares(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i *% i)
+        if err.code != 0 {
+            return make(list[int64], c_allocator)
+        }
+    }
+    return l
+}
+
+// emptyList makes a list and appends nothing: nothing is allocated.
+func emptyList() {
+    l := make(list[int64], c_allocator)
+    check(len(l) == 0 && live() == 0, "empty list")
+    check(sum(l) == 0, "empty view")
+    v, ok := l[0]
+    check(!ok && v == 0, "empty checked index")
+}
+
+// appendAndIndex appends three values and reads them back.
+func appendAndIndex() {
+    mut l := make(list[int64], c_allocator)
+    e1 := append(mut l, 10)
+    e2 := append(mut l, 20)
+    e3 := append(mut l, 30)
+    check(e1.code == 0 && e2.code == 0 && e3.code == 0, "appends succeed")
+    check(len(l) == 3, "len after appends")
+    if len(l) == 3 {
+        check(l[0] == 10 && l[1] == 20 && l[2] == 30, "elements")
+    }
+    check(live() == 1, "one buffer")
+}
+
+// growth appends thousands of values, growing the buffer many times, and
+// checks every one survived the moves between buffers.
+func growth() {
+    mut l := make(list[int64], c_allocator)
+    for i := range 10000 {
+        err := append(mut l, i * 3)
+        if err.code != 0 {
+            check(false, "growth append")
+            return
+        }
+    }
+    check(len(l) == 10000, "len after growth")
+    mut good := true
+    for i, x := range l {
+        if x != i *% 3 {
+            good = false
+        }
+    }
+    check(good, "values after growth")
+    check(total(l) == 3 * 9999 * 10000 / 2, "total after growth")
+}
+
+// writes assigns elements with a proven index, and fields of elements.
+func writes() {
+    mut l := make(list[int64], c_allocator)
+    err := fill(mut l, 5)
+    check(err.code == 0, "fill")
+    if len(l) > 4 {
+        l[4] = 40
+        l[0] +%= 7
+        l[1] +%= 1
+    }
+    check(total(l) == 7 + 2 + 2 + 3 + 40, "element writes")
+    double(mut l)
+    check(total(l) == 2 * (7 + 2 + 2 + 3 + 40), "writes through mut")
+
+    mut pts := make(list[Point], c_allocator)
+    ep := append(mut pts, Point{x: 1, y: 2})
+    check(ep.code == 0, "append a struct")
+    if len(pts) > 0 {
+        pts[0].y = 9
+        check(pts[0].x == 1 && pts[0].y == 9, "field of an element")
+    }
+}
+
+// checked reads elements with the checked form, in and out of range.
+func checked() {
+    mut l := make(list[int64], c_allocator)
+    err := fill(mut l, 3)
+    check(err.code == 0, "fill for checked")
+    a, okA := l[2]
+    b, okB := l[3]
+    mut neg int64 = -1
+    c, okC := l[neg]
+    u := uint64(1)
+    d, okD := l[u]
+    check(okA && a == 2, "checked in range")
+    check(!okB && b == 0, "checked past the end")
+    check(!okC && c == 0, "checked negative")
+    check(okD && d == 1, "checked uint64 index")
+}
+
+// ranges walks a list with every range form.
+func ranges() {
+    mut l := make(list[int64], c_allocator)
+    err := fill(mut l, 4)
+    check(err.code == 0, "fill for ranges")
+    mut n int64 = 0
+    mut s int64 = 0
+    for i, x := range l {
+        n +%= 1
+        s +%= x *% 10 +% i
+    }
+    check(n == 4 && s == (0 + 10 + 20 + 30) + (0 + 1 + 2 + 3), "range index and element")
+    mut k int64 = 0
+    for range l {
+        k +%= 1
+    }
+    check(k == 4, "range with no variables")
+    for i := range l {
+        l[i] = l[i] +% 100
+    }
+    mut seen int64 = 0
+    for _, x := range l {
+        seen +%= x
+    }
+    check(seen == 400 + 6, "range sees element writes")
+}
+
+// views passes a list, and slices of it, to a view parameter, and spreads
+// it into a variadic one.
+func views() {
+    mut l := make(list[int64], c_allocator)
+    err := fill(mut l, 6)
+    check(err.code == 0, "fill for views")
+    check(sum(l) == 15, "whole list as a view")
+    if len(l) >= 4 {
+        check(sum(l[1:4]) == 6, "slice as a view")
+        check(sum(l[:2]) == 1 && sum(l[4:]) == 9, "open slices")
+    }
+    check(sum(l[:]) == 15, "full slice")
+    check(len(l[:]) == 6, "len of a slice")
+    check(sumAll(100, l...) == 115, "spread into a variadic")
+}
+
+// moves hands a list from one variable to another, to a function and back.
+func moves() {
+    mut l := make(list[int64], c_allocator)
+    err := fill(mut l, 3)
+    check(err.code == 0, "fill for moves")
+    m := l
+    check(len(m) == 3 && total(m) == 3, "moved by declaration")
+    mut n := make(list[int64], c_allocator)
+    n = m
+    check(len(n) == 3, "moved by assignment")
+    check(live() == 1, "one buffer after moves")
+    sq := squares(5)
+    check(total(sq) == 0 + 1 + 4 + 9 + 16, "returned list")
+    b, errB := build(4)
+    if errB.code == 0 {
+        check(total(b) == 10, "list beside an error")
+    }
+    check(live() == 3, "three buffers")
+}
+
+// conditional moves l on one path only: it is freed on the other.
+func conditional(move bool) {
+    mut l := make(list[int64], c_allocator)
+    err := fill(mut l, 2)
+    check(err.code == 0, "fill for conditional")
+    if move {
+        m := l
+        check(len(m) == 2, "moved on one path")
+    }
+}
+
+// reassign assigns new lists to a variable that owns one, freeing the old.
+func reassign() {
+    mut l := make(list[int64], c_allocator)
+    err := fill(mut l, 3)
+    check(err.code == 0 && live() == 1, "first list")
+    l = squares(3)
+    check(live() == 1 && total(l) == 5, "old list freed on assignment")
+    l = make(list[int64], c_allocator)
+    check(live() == 0 && len(l) == 0, "freed for an empty list")
+    errA := append(mut l, 1)
+    check(errA.code == 0 && live() == 1, "grown again")
+    mut b := squares(2)
+    check(live() == 2, "second list")
+    mut errB error
+    b, errB = build(5)
+    if errB.code == 0 {
+        check(live() == 2 && total(b) == 15, "freed on a binding")
+    }
+    l = l
+    check(live() == 2 && len(l) == 1, "assigned to itself")
+}
+
+// structs makes structs holding lists, moves one and frees them.
+func structs() {
+    mut s := Stack{name: "s", items: make(list[int64], c_allocator), pops: 0}
+    err := fill(mut s.items, 4)
+    check(err.code == 0 && len(s.items) == 4, "list in a struct")
+    setAt(mut s.items, 3, 30)
+    v, ok := s.items[3]
+    check(ok && v == 30, "element of a field")
+    check(total(s.items) == 0 + 1 + 2 + 30, "field borrowed")
+    t := s
+    check(t.name == "s" && len(t.items) == 4, "struct moved")
+    mut p := Pair{first: squares(3), second: make(list[string], c_allocator)}
+    errP := append(mut p.second, "x")
+    check(errP.code == 0 && live() == 3, "two lists in a struct")
+    p.first = squares(2)
+    check(live() == 3 && total(p.first) == 1, "field reassigned")
+    q := pairOf(2)
+    check(len(q.first) == 2 && live() == 4, "struct returned")
+}
+
+// setAt sets l[i] to v when i is in range.
+func setAt(mut l list[int64], i int64, v int64) {
+    if 0 <= i && i < len(l) {
+        l[i] = v
+    }
+}
+
+// pairOf returns a Pair whose first list holds n squares.
+func pairOf(n int64) Pair {
+    return Pair{first: squares(n), second: make(list[string], c_allocator)}
+}
+
+// deferred reads a list in a defer, which runs before the list is freed.
+func deferred() int64 {
+    mut seen int64 = 0
+    mut l := make(list[int64], c_allocator)
+    defer {
+        check(len(l) == 3 && live() == 1, "defer reads the list")
+    }
+    err := fill(mut l, 3)
+    check(err.code == 0, "fill for deferred")
+    seen = len(l)
+    return seen
+}
+
+// loops makes a list in every iteration of a loop: each is freed before
+// the next iteration starts, by break, by continue and by falling through.
+func loops() {
+    for i := range 5 {
+        check(live() == 0, "iteration starts empty")
+        mut l := make(list[int64], c_allocator)
+        err := fill(mut l, i + 1)
+        if err.code != 0 {
+            return
+        }
+        if i == 1 {
+            continue
+        }
+        if i == 3 {
+            break
+        }
+    }
+    check(live() == 0, "loop freed every iteration")
+    mut j int64 = 0
+    for j < 3 {
+        l := squares(j + 1)
+        j +%= len(l)
+    }
+}
+
+// early returns from inside nested blocks and a loop, with lists in
+// several of them, each freed on the way out.
+func early(at int64) int64 {
+    mut outer := make(list[int64], c_allocator)
+    err := fill(mut outer, 2)
+    if err.code != 0 {
+        return -1
+    }
+    for i := range 4 {
+        inner := squares(3)
+        if i == at {
+            return total(inner) +% i
+        }
+    }
+    return 0
+}
+
+// failing makes appends fail through failAfter: the error is returned,
+// and the list is left as it was.
+func failing() {
+    mut l := make(list[int64], c_allocator)
+    failAfter(0)
+    err := append(mut l, 1)
+    check(err.code != 0 && err.msg == "out of memory", "append fails")
+    check(len(l) == 0 && live() == 0, "list unchanged after a failure")
+    failAfter(1)
+    e1 := append(mut l, 1)
+    check(e1.code == 0, "first growth allowed")
+    mut failed := false
+    for i := range 1000 {
+        e := append(mut l, i)
+        if e.code != 0 {
+            failed = true
+            break
+        }
+    }
+    n := len(l)
+    check(failed && n >= 1, "a later growth fails")
+    first, okF := l[0]
+    last, okL := l[n - 1]
+    check(okF && first == 1 && okL && (n == 1 || last == n - 2), "elements kept after a failure")
+    failAfter(-1)
+    e2 := append(mut l, 7)
+    check(e2.code == 0 && len(l) == n +% 1, "appends again")
+    b, errB := build(3)
+    check(errB.code == 0, "build after failures")
+    if errB.code == 0 {
+        check(total(b) == 6, "built")
+    }
+}
+
+// kinds makes lists of other element types.
+func kinds() {
+    mut names := make(list[string], c_allocator)
+    e1 := append(mut names, "a")
+    e2 := append(mut names, "bc")
+    mut flags := make(list[bool], c_allocator)
+    e3 := append(mut flags, true)
+    mut rows := make(list[[2]int64], c_allocator)
+    e4 := append(mut rows, [2]int64{1, 2})
+    mut bytes := make(list[uint8], c_allocator)
+    e5 := append(mut bytes, 'z')
+    mut errs := make(list[error], c_allocator)
+    e6 := append(mut errs, error{code: 3, msg: "three"})
+    ok := e1.code == 0 && e2.code == 0 && e3.code == 0 && e4.code == 0 &&
+        e5.code == 0 && e6.code == 0
+    check(ok && live() == 5, "lists of other types")
+    if len(names) > 1 && len(flags) > 0 && len(rows) > 0 && len(bytes) > 0 && len(errs) > 0 {
+        check(names[1] == "bc" && flags[0] && rows[0][1] == 2, "elements of other types")
+        check(bytes[0] == 'z' && errs[0].code == 3, "bytes and errors")
+    }
+}
+
+// order appends values whose evaluation counts: each is evaluated once,
+// left to right, after the list's place.
+func order() {
+    mut l := make(list[int64], c_allocator)
+    mut n int64 = 0
+    e1 := append(mut l, next(mut n))
+    e2 := append(mut l, next(mut n))
+    check(e1.code == 0 && e2.code == 0 && n == 2, "values evaluated once")
+    if len(l) == 2 {
+        check(l[0] == 1 && l[1] == 2, "values in order")
+    }
+}
+
+// next adds one to n and returns it.
+func next(mut n int64) int64 {
+    n +%= 1
+    return n
+}
+
+func main() {
+    check(live() == 0, "nothing live at the start")
+    emptyList()
+    freed("empty list freed")
+    appendAndIndex()
+    freed("append and index freed")
+    growth()
+    freed("growth freed")
+    writes()
+    freed("writes freed")
+    checked()
+    freed("checked freed")
+    ranges()
+    freed("ranges freed")
+    views()
+    freed("views freed")
+    moves()
+    freed("moves freed")
+    conditional(true)
+    freed("moved on one path freed")
+    conditional(false)
+    freed("not moved freed")
+    reassign()
+    freed("reassign freed")
+    structs()
+    freed("structs freed")
+    check(deferred() == 3, "deferred result")
+    freed("deferred freed")
+    loops()
+    freed("loops freed")
+    check(early(2) == 5 + 2, "early return")
+    freed("early return freed")
+    check(early(9) == 0, "no early return")
+    freed("no early return freed")
+    failing()
+    freed("failing freed")
+    kinds()
+    freed("kinds freed")
+    order()
+    freed("order freed")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

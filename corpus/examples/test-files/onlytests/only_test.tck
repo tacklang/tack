@@ -1,0 +1,7 @@
+package onlytests
+
+// Never loaded: the directory holds no other Tack file, so it is no
+// package, and the undefined name below is never reported.
+func broken() {
+    undefined()
+}

@@ -1,0 +1,250 @@
+package main
+
+import sort from "std/sort"
+
+// Closures and scope parameters along the paths examples/closures does
+// not take: is_sorted's scope less, a defer and a ? inside a closure, a
+// closure of several results, closures with mut, own and scope parameters
+// of their own, a function with a scope parameter used as a value and
+// called through it, plain function values of one and of several results
+// passed to a scope parameter, a closure capturing a union's payload bound
+// in place and an array it ranges over, a scope parameter captured and
+// called by a nested closure, recursion through a scope parameter, and a
+// method an interface asks for that takes a scope parameter, called
+// through a type parameter. Every check prints its name and "ok", or
+// "FAIL".
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+
+// call calls f once.
+func call(scope f func()) {
+    f()
+}
+
+// twice calls f two times.
+func twice(scope f func()) {
+    f()
+    f()
+}
+
+// each calls f with every element of v, in order.
+func each(v []int64, scope f func(int64)) {
+    for _, x := range v {
+        f(x)
+    }
+}
+
+// pair calls f and returns both its results.
+func pair(scope f func(int64) (int64, int64)) (int64, int64) {
+    a, b := f(10)
+    return a, b
+}
+
+// halve calls f on n and returns what f left it.
+func halve(n int64, scope f func(mut int64)) int64 {
+    mut m := n
+    f(mut m)
+    return m
+}
+
+// fails calls f and passes its error on.
+func fails(scope f func() error) error {
+    return f()
+}
+
+// fail returns an error when bad.
+func fail(bad bool) error {
+    if bad {
+        return error{code: 3, msg: "bad"}
+    }
+    return noerror
+}
+
+// outer calls f with inner, a scope function of its own, which f may call
+// or pass on.
+func outer(scope f func(scope func())) {
+    mut n := 0
+    f(func() {
+        n = n +% 1
+    })
+    check(n == 2, "a closure's scope parameter called twice")
+}
+
+// count3 calls f with 3, 2 and 1, passing f on to itself.
+func count3(n int64, scope f func(int64)) {
+    if n > 0 && n < 4 {
+        f(n)
+        count3(n - 1, f)
+    }
+}
+
+// sub returns a - b and b - a.
+func sub(a int64) (int64, int64) {
+    return a -% 1, 1 -% a
+}
+
+// isEven reports whether x is even.
+func isEven(x int64) bool {
+    return x % 2 == 0
+}
+
+// all reports whether keep holds for every element of v.
+func all(v []int64, scope keep func(int64) bool) bool {
+    for _, x := range v {
+        if !keep(x) {
+            return false
+        }
+    }
+    return true
+}
+
+// Shape is a square or a circle.
+type Shape union {
+    square int64
+    circle int64
+}
+
+// Walker walks its numbers.
+type Walker interface {
+    walk(scope f func(int64))
+}
+
+// Row holds two numbers.
+type Row struct {
+    a int64
+    b int64
+}
+
+// walk calls f on r's numbers.
+func (r Row) walk(scope f func(int64)) {
+    f(r.a)
+    f(r.b)
+}
+
+// total sums what w walks, from a closure written in a generic function.
+func total[W Walker](w W) int64 {
+    mut sum := 0
+    w.walk(func(n int64) {
+        sum = sum +% n
+    })
+    return sum
+}
+
+// paths runs every check.
+func paths() {
+    v := [4]int64{1, 2, 3, 4}
+    down := false
+    check(sort.is_sorted(v, func(a int64, b int64) bool {
+        if down {
+            return a > b
+        }
+        return a < b
+    }), "is_sorted takes a closure")
+
+    mut order := 0
+    mut deferred := 0
+    call(func() {
+        defer {
+            func2(mut deferred, order)
+        }
+        order = 5
+    })
+    check(deferred == 5 && order == 5, "a defer in a closure runs when the closure returns")
+
+    mut bad := false
+    e := fails(func() error {
+        fail(bad)?
+        return error{code: 9, msg: "after"}
+    })
+    check(e.code == 9, "a ? in a closure passes nothing on without an error")
+    bad = true
+    e2 := fails(func() error {
+        fail(bad)?
+        return noerror
+    })
+    check(e2.code == 3, "a ? in a closure returns from the closure")
+
+    k := 7
+    x, y := pair(func(n int64) (int64, int64) {
+        return n +% k, n -% k
+    })
+    check(x == 17 && y == 3, "a closure of several results")
+    p, q := pair(sub)
+    check(p == 9 && q == -9, "a plain function of several results for a scope parameter")
+
+    check(halve(9, func(mut m int64) {
+        m = m / 2
+    }) == 4, "a closure with a mut parameter")
+
+    mut calls := 0
+    outer(func(scope inner func()) {
+        calls = calls +% 1
+        inner()
+        call(inner)
+    })
+    check(calls == 1, "a closure with a scope parameter")
+
+    h := each
+    mut seen := 0
+    h(v, func(n int64) {
+        seen = seen +% n
+    })
+    check(seen == 10, "a function with a scope parameter called through a value")
+
+    w := [3]int64{2, 4, 6}
+    check(all(w, isEven) && !all(v, isEven), "a named function for a scope parameter")
+    g := isEven
+    check(all(w, g), "a function value for a scope parameter")
+
+    s := Shape.circle(4)
+    mut area := 0
+    switch s {
+    case circle(r):
+        call(func() {
+            area = r *% 3
+        })
+    case square(n):
+        area = n
+    }
+    check(area == 12, "a closure reads a payload bound in place")
+
+    mut sum := 0
+    for _, el := range v {
+        call(func() {
+            sum = sum +% el
+        })
+    }
+    check(sum == 10, "a closure reads a range element")
+
+    mut steps := make(list[int64], c_allocator)
+    mut failed := false
+    count3(3, func(n int64) {
+        twice(func() {
+            e3 := append(mut steps, n)
+            if e3.code != 0 {
+                failed = true
+            }
+        })
+    })
+    check(!failed && len(steps) == 6, "recursion through a scope parameter, nested closures")
+
+    check(total(Row{a: 3, b: 4}) == 7, "a closure through an interface's scope parameter")
+}
+
+// func2 stores v in out.
+func func2(mut out int64, v int64) {
+    out = v
+}
+
+func main() {
+    paths()
+}

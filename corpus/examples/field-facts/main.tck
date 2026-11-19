@@ -1,0 +1,196 @@
+package main
+
+type Inner struct {
+    d int64
+}
+
+type P struct {
+    d     int64
+    i     int64
+    inner Inner
+    a     [3]int64
+    s     string
+}
+
+var cfg = P{d: 4, i: 1, inner: Inner{d: 2}, a: [3]int64{1, 2, 3}, s: "cfg"}
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// divide divides n by p.d, guarded by a field of an immutable parameter,
+// after an early return for -1, which negates n, wrapping, as n / -1 did.
+func divide(n int64, p P) int64 {
+    if p.d == -1 {
+        return -%n
+    }
+    if p.d != 0 {
+        return n / p.d
+    }
+    return -1
+}
+
+// pick reads a[p.i] after an early exit that keeps p.i in range.
+func pick(a [3]int64, p P) int64 {
+    if p.i < 0 || p.i >= 3 {
+        return -1
+    }
+    return a[p.i]
+}
+
+// nested divides by a field of a field.
+func nested(n int64, p P) int64 {
+    if p.inner.d == 0 {
+        return -1
+    }
+    if p.inner.d == -1 {
+        return -%n
+    }
+    return n / p.inner.d
+}
+
+// element divides by an element of an array field, at a known index and
+// at an immutable parameter's index.
+func element(n int64, p P, k int64) int64 {
+    if p.a[1] == 0 {
+        return -1
+    }
+    if p.a[1] == -1 {
+        return -%n
+    }
+    q := n / p.a[1]
+    if 0 <= k && k < 3 {
+        if p.a[k] == -1 {
+            return q +% -%n
+        }
+        if p.a[k] != 0 {
+            return q +% n / p.a[k]
+        }
+    }
+    return q
+}
+
+// first reads a string field's first byte, guarded by its length.
+func first(p P) uint8 {
+    if len(p.s) > 0 {
+        return p.s[0]
+    }
+    return 0
+}
+
+// sum adds a string field's bytes, indexed by a range over the field and
+// by a guard on its length.
+func sum(p P) int64 {
+    mut total int64 = 0
+    for i := range p.s {
+        total +%= int64(p.s[i])
+    }
+    for i := range 10 {
+        if i < len(p.s) {
+            total -%= int64(p.s[i])
+        }
+    }
+    return total
+}
+
+// cases divides by a field after a switch that returns on zero, and an
+// early return on -1 with n negated, wrapping, as n / -1 did.
+func cases(n int64, p P) int64 {
+    switch p.d {
+    case 0:
+        return -1
+    }
+    if p.d == -1 {
+        return -%n
+    }
+    return n / p.d
+}
+
+// deferred sets the caller's out to n / p.d in a defer, after an early
+// exit on p.d being zero, and one on -1 setting out to n negated,
+// wrapping, as n / -1 did, whose facts hold in deferred code too.
+func deferred(mut out int64, n int64, p P) {
+    if p.d == 0 {
+        out = -1
+        return
+    }
+    if p.d == -1 {
+        out = -%n
+        return
+    }
+    defer {
+        out = n / p.d
+    }
+    out = 0
+}
+
+// Pair holds two indexes.
+type Pair struct {
+    i int64
+    j int64
+}
+
+// swapHalves swaps a[q.i] and a[q.j], which the guard keeps in different
+// halves of a, so the two mut arguments cannot overlap.
+func swapHalves(mut a [4]int64, q Pair) {
+    if 0 <= q.i && q.i < 2 && 2 <= q.j && q.j < 4 {
+        t := a[q.i]
+        a[q.i] = a[q.j]
+        a[q.j] = t
+        exchange(mut a[q.i], mut a[q.j])
+        exchange(mut a[q.i], mut a[q.j])
+    }
+}
+
+// exchange swaps two integers.
+func exchange(mut x int64, mut y int64) {
+    t := x
+    x = y
+    y = t
+}
+
+// local guards a field of an immutable local.
+func local(n int64) int64 {
+    p := P{d: 5, i: 0, inner: Inner{d: 1}, a: [3]int64{0, 0, 0}, s: ""}
+    if p.d > 0 {
+        return n / p.d
+    }
+    return -1
+}
+
+func main() {
+    p := P{d: 2, i: 2, inner: Inner{d: 3}, a: [3]int64{1, 4, 5}, s: "ab"}
+    zero := P{d: 0, i: 7, inner: Inner{d: 0}, a: [3]int64{0, 0, 0}, s: ""}
+    a := [3]int64{10, 20, 30}
+
+    check(divide(10, p) == 5 && divide(10, zero) == -1, "field divisor")
+    check(pick(a, p) == 30 && pick(a, zero) == -1, "field index after an early exit")
+    check(nested(9, p) == 3 && nested(9, zero) == -1, "field of a field")
+    check(element(20, p, 2) == 5 + 4 && element(20, p, 9) == 5 && element(20, zero, 0) == -1, "element of an array field")
+    check(first(p) == 'a' && first(zero) == 0, "string field length")
+    check(sum(p) == 0, "range over a string field")
+    check(cases(8, p) == 4 && cases(8, zero) == -1, "switch on a field")
+    check(local(10) == 2, "field of an immutable local")
+    check(10 / cfg.d == 2 && 10 / cfg.inner.d == 5, "field of an immutable global")
+
+    mut out int64 = 0
+    deferred(mut out, 8, p)
+    check(out == 4, "field guard around a defer")
+    deferred(mut out, 8, zero)
+    check(out == -1, "field guard around a defer, not taken")
+
+    mut halves := [4]int64{1, 2, 3, 4}
+    swapHalves(mut halves, Pair{i: 0, j: 3})
+    check(halves == [4]int64{4, 2, 3, 1}, "mut elements apart by field facts")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

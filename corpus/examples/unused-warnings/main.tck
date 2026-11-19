@@ -1,0 +1,14 @@
+package main
+
+// unused-warnings declares a local it never reads, imports a package it
+// never uses, and drops the value of a call of len. Each is a warning,
+// not an error: the program builds, prints that it ran, and exits 0.
+
+import fmt from "std/fmt"
+
+func main() {
+    l := [3]int64{1, 2, 3}
+    count := 3
+    len(l)
+    print("ran\n")
+}

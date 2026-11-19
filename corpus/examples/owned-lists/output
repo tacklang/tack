@@ -1,0 +1,79 @@
+nothing live at the start ok
+words built ok
+a buffer for each word and one for the list ok
+owned lists work 
+lengths read in place ok
+lists
+elements read in place ok
+an element grown in place ok
+a byte of an element ok
+a byte past an element's end ok
+range binds each word in place ok
+growing in place allocates no new element ok
+words freed ok
+bags appended, none allocated yet ok
+grown through a method and a field ok
+read through a plain method ok
+fields read in place ok
+a buffer for each bag's numbers ok
+a new bag ok
+replacing an element frees the old one ok
+bags freed ok
+an element passed as mut to a generic function ok
+an element borrowed by a generic function ok
+generic calls freed ok
+unions appended ok
+matched in place by index ok
+matched in place through a range binding ok
+replacing a union frees its list ok
+unions freed ok
+words to pop ok
+the last word popped ok
+a popped word is still live ok
+the first word removed ok
+the rest moved down in order ok
+an index at len removes nothing ok
+a negative index removes nothing ok
+the largest int64 removes nothing ok
+the last word removed by index ok
+every word taken out is still live ok
+popping an emptied list fails ok
+nothing freed for a failed pop ok
+popped words freed ok
+the last number popped ok
+a middle number removed ok
+the rest kept in order ok
+out of range gives zero ok
+emptied, then zero ok
+nothing to remove from an empty list ok
+popped numbers freed ok
+three deep, built ok
+three deep, summed in place ok
+the innermost grown through mut ok
+a plane popped whole ok
+reassigning frees every element left ok
+three deep freed ok
+a defer reads an element ok
+deferred result ok
+deferred freed ok
+moved into the list ok
+moved freed ok
+not moved into the list ok
+not moved freed ok
+four words, a full buffer ok
+a failed append frees the word it took ok
+a failed append in place changes nothing ok
+a failed append of two frees both ok
+pop after failures ok
+appends again after failures ok
+failures freed ok
+a list passed on unchecked ok
+a failed list passed on unchecked ok
+passed on freed ok
+an index changes another field ok
+an index reads the list it indexes ok
+a view's index changes another list ok
+an element assigned while another list grows ok
+a list of lists ok
+an element replaced by a value that grew it ok
+index borrows freed ok

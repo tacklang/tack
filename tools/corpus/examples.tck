@@ -1,0 +1,637 @@
+package main
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import os from "std/os"
+import path from "std/path"
+import text from "std/text"
+
+// The programs under examples/, their goldens and their tack.h copies
+// (see the package comment).
+
+// Program is one program under examples/: top, the directory directly in
+// examples/ it is in; dir, its main package's directory below examples/,
+// which names its golden; target, what the compiler is given, from the
+// run's root, examples/ and the file or directory; and compiled, whether
+// --port-case gave it the stage ok, which check_examples sets.
+type Program struct {
+    top text.Text
+    dir text.Text
+    target text.Text
+    compiled bool
+}
+
+// test_golden is the golden of the one program built as tack test builds
+// it, examples/tack-test/fail, and test_target that program.
+var test_golden = "tack-test_fail.test.c.golden"
+var test_target = "examples/tack-test/fail"
+
+// find_programs appends to progs every program under ex, the run's copy
+// of examples/, in the order the harness's findExamples finds them: for
+// each directory directly in it, in name order, that holds Tack files
+// anywhere below it, those whose names end in .tck, one program built
+// from each main package when it holds a tack.mod (see main_dirs); the
+// file alone when its one Tack file is main.tck; and the package its
+// files make otherwise. It reports whether it could read every
+// directory.
+func find_programs(ex []uint8, mut progs list[Program]) (bool, error) {
+    names, e := os.list_dir(ex, c_allocator)
+    if e.code != 0 {
+        fmt.printf("FAIL: cannot list %s: %s\n", ex, e.msg)
+        return false, noerror
+    }
+    for _, n := range names {
+        full := path.join(ex, n.bytes(), c_allocator)?
+        info, se := os.lstat(full.bytes())
+        if se.code != 0 || !info.is_dir() {
+            continue
+        }
+        mut files := make(list[text.Text], c_allocator)
+        ok := walk_files(full.bytes(), mut files)?
+        if !ok {
+            return false, noerror
+        }
+        mut sources := make(list[text.Text], c_allocator)
+        mut module := false
+        for _, f := range files {
+            if bytes.has_suffix(f.bytes(), []uint8(".tck")) {
+                append(mut sources, text.from_bytes(f.bytes(), c_allocator)?)?
+            }
+            if f.equal([]uint8("tack.mod")) {
+                module = true
+            }
+        }
+        if len(sources) == 0 {
+            continue
+        }
+        top := path.join([]uint8("examples"), n.bytes(), c_allocator)?
+        if module {
+            mut dirs := make(list[text.Text], c_allocator)
+            ok2 := main_dirs(full.bytes(), sources, mut dirs)?
+            if !ok2 {
+                return false, noerror
+            }
+            for _, d := range dirs {
+                rel := path.join(top.bytes(), d.bytes(), c_allocator)?
+                p := program(n.bytes(), rel.bytes(), rel.bytes())?
+                append(mut progs, p)?
+            }
+            continue
+        }
+        target := lone_main(top.bytes(), sources)?
+        p := program(n.bytes(), top.bytes(), target.bytes())?
+        append(mut progs, p)?
+    }
+    return true, noerror
+}
+
+// lone_main returns what the program of the directory top, below the
+// run's root, whose Tack files are sources, relative to it, is built
+// from: its one Tack file when that is main.tck, and top otherwise.
+func lone_main(top []uint8, sources []text.Text) (text.Text, error) {
+    if len(sources) == 1 && bytes.equal(base_of(sources[0].bytes()), []uint8("main.tck")) {
+        t := path.join(top, sources[0].bytes(), c_allocator)?
+        return t, noerror
+    }
+    t := text.from_bytes(top, c_allocator)?
+    return t, noerror
+}
+
+// program returns the Program in the directory top directly in examples/
+// whose main package is in dir, examples/ and its path below it, and
+// which the compiler is given as target.
+func program(top []uint8, dir []uint8, target []uint8) (Program, error) {
+    t := text.from_bytes(top, c_allocator)?
+    d := text.from_bytes(part(dir, 9, len(dir)), c_allocator)?
+    g := text.from_bytes(target, c_allocator)?
+    return Program{top: t, dir: d, target: g, compiled: false}, noerror
+}
+
+// base_of returns the last element of the slash path p, what follows
+// its last slash, or p when it has none.
+func base_of(p []uint8) []uint8 {
+    mut start int64 = 0
+    for i, c := range p {
+        if c == '/' {
+            // i is an index of p, so i + 1 does not wrap.
+            start = i +% 1
+        }
+    }
+    return part(p, start, len(p))
+}
+
+// dir_of returns the directory part of the slash path p, before its last
+// slash, or the empty view when it has none.
+func dir_of(p []uint8) []uint8 {
+    mut end int64 = 0
+    for i, c := range p {
+        if c == '/' {
+            end = i
+        }
+    }
+    return part(p, 0, end)
+}
+
+// main_dirs appends to dirs, sorted, the directory, relative to mod, a
+// module's root, empty for the root itself, of each main package among
+// sources, the module's Tack files relative to it, as the harness's
+// mainDirs finds them: a directory whose first Tack file in name order
+// says package main, or might not parse (see is_main_source). It reports
+// whether it could read every file it looked at.
+func main_dirs(mod []uint8, sources []text.Text, mut dirs list[text.Text]) (bool, error) {
+    mut pkgs := make(list[PackageDir], c_allocator)
+    for _, s := range sources {
+        k := package_index(pkgs, dir_of(s.bytes()))
+        if k >= 0 && k < len(pkgs) {
+            if compare_bytes(s.bytes(), pkgs[k].first.bytes()) < 0 {
+                pkgs[k].first = text.from_bytes(s.bytes(), c_allocator)?
+            }
+        } else {
+            d := text.from_bytes(dir_of(s.bytes()), c_allocator)?
+            f := text.from_bytes(s.bytes(), c_allocator)?
+            append(mut pkgs, PackageDir{dir: d, first: f})?
+        }
+    }
+    mut found := make(list[text.Text], c_allocator)
+    for _, p := range pkgs {
+        full := path.join(mod, p.first.bytes(), c_allocator)?
+        data, e := os.read_file(full.bytes(), c_allocator)
+        if e.code != 0 {
+            fmt.printf("FAIL: cannot read %s: %s\n", full.bytes(), e.msg)
+            return false, noerror
+        }
+        if is_main_source(data) {
+            append(mut found, text.from_bytes(p.dir.bytes(), c_allocator)?)?
+        }
+    }
+    sorted := sort_texts(own found)?
+    for _, d := range sorted {
+        append(mut dirs, text.from_bytes(d.bytes(), c_allocator)?)?
+    }
+    return true, noerror
+}
+
+// PackageDir is a directory of a module's Tack files, relative to its
+// root, and the first of them in name order, which says its package.
+type PackageDir struct {
+    dir text.Text
+    first text.Text
+}
+
+// package_index returns the index of the entry of pkgs for the
+// directory dir, or -1 when it has none.
+func package_index(pkgs []PackageDir, dir []uint8) int64 {
+    for k, p := range pkgs {
+        if p.dir.equal(dir) {
+            return k
+        }
+    }
+    return -1
+}
+
+// sort_texts returns l sorted bytewise, by insertion: the lists it sorts
+// are a module's packages, a few dozen at most.
+func sort_texts(own l list[text.Text]) (list[text.Text], error) {
+    mut v := l
+    for i := range len(v) {
+        mut j := i
+        for j > 0 && j < len(v) {
+            prev := j -% 1
+            if prev < 0 || prev >= len(v) || compare_bytes(v[prev].bytes(), v[j].bytes()) <= 0 {
+                break
+            }
+            swap(mut v, prev, j)
+            j = prev
+        }
+    }
+    return v, noerror
+}
+
+// is_ident_byte reports whether c may be in a Tack identifier: a letter,
+// a digit or an underscore.
+func is_ident_byte(c uint8) bool {
+    return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+}
+
+// skip_space returns the index of the first byte of src at or past at
+// that is neither a space, a tab, a carriage return or a newline nor in
+// a comment: a line comment, // to the end of its line, or a block
+// comment, /* to its */, nested ones included, as the lexer reads them.
+// A block comment that never ends runs to the end of src.
+func skip_space(src []uint8, at int64) int64 {
+    mut i := at
+    for i >= 0 && i < len(src) {
+        c := src[i]
+        // i is an index of src, so the sums below are at most len(src).
+        n, has_n := src[i +% 1]
+        if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+            i +%= 1
+        } else if c == '/' && has_n && n == '/' {
+            i = line_end(src, i)
+        } else if c == '/' && has_n && n == '*' {
+            mut depth int64 = 1
+            i +%= 2
+            for depth > 0 && i < len(src) {
+                a, has_a := src[i]
+                b, has_b := src[i +% 1]
+                if has_a && has_b && a == '/' && b == '*' {
+                    depth +%= 1
+                    i +%= 2
+                } else if has_a && has_b && a == '*' && b == '/' {
+                    depth -%= 1
+                    i +%= 2
+                } else {
+                    i +%= 1
+                }
+            }
+        } else {
+            return i
+        }
+    }
+    return len(src)
+}
+
+// is_main_source reports whether src, the first Tack file of a
+// directory of a module, makes the directory a main package, as the
+// harness's mainDirs reads it: false only when it starts, past spaces and
+// comments, with the package clause, package and a name other than
+// main, and true for package main and for anything else, which might not
+// lex or parse, so that a broken example still fails. The harness also
+// counts a file with a lexing error past its package clause as main;
+// this reads no further than the clause, so such a file is counted by
+// its clause, a difference only an example that does not compile could
+// show.
+func is_main_source(src []uint8) bool {
+    i := skip_space(src, 0)
+    if !bytes.has_prefix(part(src, i, len(src)), []uint8("package")) {
+        return true
+    }
+    // The clause's seven bytes are in src from i on.
+    after := i +% 7
+    c, has_c := src[after]
+    if !has_c || c != ' ' && c != '\t' {
+        return true
+    }
+    start := skip_space(src, after)
+    mut j := start
+    for j >= 0 && j < len(src) && is_ident_byte(src[j]) {
+        j +%= 1
+    }
+    first, has_first := src[start]
+    if j == start || !has_first || first >= '0' && first <= '9' {
+        return true
+    }
+    return bytes.equal(part(src, start, j), []uint8("main"))
+}
+
+// golden_name returns the golden of the program whose main package is
+// in dir, below examples/: dir with each slash an underscore, then .c
+// for a program that compiled, then .golden.
+func golden_name(dir []uint8, compiled bool) (text.Text, error) {
+    mut t := text.new(c_allocator)
+    for _, c := range dir {
+        if c == '/' {
+            mut t.append_byte('_')?
+        } else {
+            mut t.append_byte(c)?
+        }
+    }
+    if compiled {
+        mut t.append([]uint8(".c"))?
+    }
+    mut t.append([]uint8(".golden"))?
+    return t, noerror
+}
+
+// check_examples checks every program under examples/ against its
+// golden, and tack-test/fail against test_golden, then that every golden
+// is one of theirs, and then the headers (see check_headers), counting in
+// t.
+func check_examples(r Runner, mut t Tally) error {
+    ex := path.join(r.root.bytes(), []uint8("examples"), c_allocator)?
+    mut progs := make(list[Program], c_allocator)
+    ok := find_programs(ex.bytes(), mut progs)?
+    if !ok {
+        t.failures +%= 1
+        return noerror
+    }
+    if len(progs) == 0 {
+        fail([]uint8("golden"), []uint8("(all)"), []uint8("no programs found under examples/"), mut t)
+        return noerror
+    }
+    mut wanted := make(map[text.Text]bool, c_allocator)
+    for i := range len(progs) {
+        t.cases +%= 1
+        mut args := make(list[text.Text], c_allocator)
+        append(mut args, text.from_bytes([]uint8("--port-case"), c_allocator)?)?
+        append(mut args, text.from_bytes(progs[i].target.bytes(), c_allocator)?)?
+        ran := run_compiler(r, args)?
+        if len(ran.trouble) > 0 {
+            fail_ran([]uint8("golden"), progs[i].target.bytes(), ran.trouble[:], ran, mut t)?
+            continue
+        }
+        stage, has_stage := split_stage(ran.out)?
+        if ran.code != 0 || !has_stage {
+            fail_ran([]uint8("golden"), progs[i].target.bytes(), []uint8("the compiler did not render the program: want exit status 0 and a stage line"), ran, mut t)?
+            continue
+        }
+        compiled := stage.equal([]uint8("ok"))
+        progs[i].compiled = compiled
+        g := golden_name(progs[i].dir.bytes(), compiled)?
+        check_golden(r, progs[i].target.bytes(), g.bytes(), ran.out, mut t)?
+        put(mut wanted, g, true)?
+        crlf_example(r, ex.bytes(), progs[i], args, ran.out, mut t)?
+    }
+    t.cases +%= 1
+    mut targs := make(list[text.Text], c_allocator)
+    append(mut targs, text.from_bytes([]uint8("--port-test-case"), c_allocator)?)?
+    append(mut targs, text.from_bytes([]uint8(test_target), c_allocator)?)?
+    tran := run_compiler(r, targs)?
+    tstage, has_tstage := split_stage(tran.out)?
+    if len(tran.trouble) > 0 {
+        fail_ran([]uint8("golden"), []uint8(test_target), tran.trouble[:], tran, mut t)?
+    } else if tran.code != 0 || !has_tstage || !tstage.equal([]uint8("ok")) || len(tran.err) > 0 {
+        fail_ran([]uint8("golden"), []uint8(test_target), []uint8("tack test's build must compile it with no warnings: want exit status 0, stage ok and nothing on standard error"), tran, mut t)?
+    } else {
+        check_golden(r, []uint8(test_target), []uint8(test_golden), tran.out, mut t)?
+    }
+    tg := text.from_bytes([]uint8(test_golden), c_allocator)?
+    put(mut wanted, tg, true)?
+    gdir := path.join(r.corpus.bytes(), []uint8("golden"), c_allocator)?
+    have, le := os.list_dir(gdir.bytes(), c_allocator)
+    if le.code != 0 {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "cannot list %s: %s", gdir.bytes(), le.msg)?
+        fail([]uint8("golden"), []uint8("(all)"), why[:], mut t)
+    } else {
+        for _, h := range have {
+            _, is_wanted := wanted[h]
+            if !is_wanted {
+                fail([]uint8("golden"), h.bytes(), []uint8("no program of examples/ gives this golden"), mut t)
+            }
+        }
+    }
+    check_headers(r, progs, mut t)?
+    return noerror
+}
+
+// crlf_example checks p, a program of ex, the run's copy of examples/,
+// as the harness's TestCRLFMatchesLF does: with every \n of every file of
+// its directory directly in examples/ turned into \r\n, the run of args
+// must write lf, what it wrote with the files as they are, failing it in
+// t when it does not. The files are put back as they were afterwards. A
+// directory one of whose files already holds a carriage return is left
+// out, since adding one before a line feed changes what that byte is.
+func crlf_example(r Runner, ex []uint8, p Program, args []text.Text, lf []uint8, mut t Tally) error {
+    top := path.join(ex, p.top.bytes(), c_allocator)?
+    mut names := make(list[text.Text], c_allocator)
+    ok := walk_files(top.bytes(), mut names)?
+    if !ok {
+        t.failures +%= 1
+        return noerror
+    }
+    mut files := make(list[CaseFile], c_allocator)
+    for _, n := range names {
+        full := path.join(top.bytes(), n.bytes(), c_allocator)?
+        data, e := os.read_file(full.bytes(), c_allocator)
+        if e.code != 0 {
+            mut why := make(list[uint8], c_allocator)
+            fmt.appendf(mut why, "cannot read %s: %s", full.bytes(), e.msg)?
+            fail([]uint8("crlf"), p.target.bytes(), why[:], mut t)
+            return noerror
+        }
+        append(mut files, CaseFile{path: full, data: data})?
+    }
+    if has_cr(files) {
+        return noerror
+    }
+    mut wrote := true
+    for _, f := range files {
+        crlf := crlf_of(f.data)?
+        w := write_with_dirs(f.path.bytes(), crlf)?
+        wrote = wrote && w
+    }
+    if wrote {
+        ran := run_compiler(r, args)?
+        if len(ran.trouble) > 0 || ran.code != 0 {
+            fail_ran([]uint8("crlf"), p.target.bytes(), []uint8("with CRLF line endings, the compiler did not render the program: want exit status 0"), ran, mut t)?
+        } else if !bytes.equal(ran.out, lf) {
+            fail_diff([]uint8("crlf"), p.target.bytes(), []uint8("what LF line endings give, which CRLF must give too"), lf, ran.out, mut t)?
+        }
+    } else {
+        t.failures +%= 1
+    }
+    for _, f := range files {
+        back := write_with_dirs(f.path.bytes(), f.data)?
+        if !back {
+            t.failures +%= 1
+        }
+    }
+    return noerror
+}
+
+// check_golden compares got, what the compiler gave the program target,
+// with the golden name of r's corpus, failing in t when they differ, or,
+// with r.update, writing got there instead; a golden that is missing
+// fails, or is written.
+func check_golden(r Runner, target []uint8, name []uint8, got []uint8, mut t Tally) error {
+    gdir := path.join(r.corpus.bytes(), []uint8("golden"), c_allocator)?
+    file := path.join(gdir.bytes(), name, c_allocator)?
+    want, e := os.read_file(file.bytes(), c_allocator)
+    if e.code == 0 && bytes.equal(want, got) {
+        return noerror
+    }
+    mut what := text.from_bytes([]uint8("golden "), c_allocator)?
+    mut what.append(name)?
+    if r.update {
+        ok := write_with_dirs(file.bytes(), got)?
+        if ok {
+            fmt.printf("updated %s\n", file.bytes())
+        } else {
+            t.failures +%= 1
+        }
+        return noerror
+    }
+    if e.code != 0 {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "cannot read %s: %s", file.bytes(), e.msg)?
+        fail([]uint8("golden"), target, why[:], mut t)
+        return noerror
+    }
+    fail_diff([]uint8("golden"), target, what.bytes(), want, got, mut t)?
+    return noerror
+}
+
+// header_files appends to out the paths, from the same root, of the
+// files among files named tack.h.
+func header_files(files []text.Text, mut out list[text.Text]) error {
+    for _, f := range files {
+        if bytes.equal(base_of(f.bytes()), []uint8("tack.h")) {
+            append(mut out, text.from_bytes(f.bytes(), c_allocator)?)?
+        }
+    }
+    return noerror
+}
+
+// dir_has_c reports whether files, paths from one root, hold a .c file
+// in the directory dir, a path from that root, empty for the root.
+func dir_has_c(files []text.Text, dir []uint8) bool {
+    for _, f := range files {
+        if bytes.has_suffix(f.bytes(), []uint8(".c")) && bytes.equal(dir_of(f.bytes()), dir) {
+            return true
+        }
+    }
+    return false
+}
+
+// contains reports whether l holds s.
+func contains(l []text.Text, s []uint8) bool {
+    for _, x := range l {
+        if x.equal(s) {
+            return true
+        }
+    }
+    return false
+}
+
+// check_headers checks the tack.h copies of the corpus's examples, as
+// the harness's TestHeaders does, counting in t. For each directory
+// directly in examples/ that holds a .c file, each of its programs
+// that compiled is given to --emit-header in the run's copy, its tack.h
+// copies removed first, and the tack.h files it writes are what it
+// wants when one is in a directory that holds a .c file: the main
+// package and every package of its module with C files or extern funcs
+// get one, so a .c file beside one is a package of the program's module
+// with C files, which is what makes the harness want them. Each one
+// wanted must be in the corpus with the bytes written, or, with
+// r.update, is written there; and every tack.h of the corpus's copy of
+// the directory must be one a program wants. A directory with no .c
+// file may hold no tack.h.
+func check_headers(r Runner, progs []Program, mut t Tally) error {
+    mut start int64 = 0
+    for start >= 0 && start < len(progs) {
+        mut end := start
+        for end >= 0 && end < len(progs) && start >= 0 && start < len(progs) && progs[end].top.equal(progs[start].top.bytes()) {
+            end +%= 1
+        }
+        top_rel := path.join([]uint8("examples"), progs[start].top.bytes(), c_allocator)?
+        copy_dir := path.join(r.root.bytes(), top_rel.bytes(), c_allocator)?
+        corpus_dir := path.join(r.corpus.bytes(), top_rel.bytes(), c_allocator)?
+        mut committed_all := make(list[text.Text], c_allocator)
+        ok := walk_files(corpus_dir.bytes(), mut committed_all)?
+        if !ok {
+            t.failures +%= 1
+            return noerror
+        }
+        mut committed := make(list[text.Text], c_allocator)
+        header_files(committed_all, mut committed)?
+        mut wanted := make(list[text.Text], c_allocator)
+        if has_name_ending(committed_all, ".c") {
+            for k := range len(progs) {
+                if k >= start && k < end && progs[k].compiled {
+                    header_of(r, progs[k], copy_dir.bytes(), corpus_dir.bytes(), mut wanted, mut t)?
+                }
+            }
+        }
+        for _, c := range committed {
+            if !contains(wanted, c.bytes()) {
+                full := path.join(top_rel.bytes(), c.bytes(), c_allocator)?
+                fail([]uint8("headers"), full.bytes(), []uint8("the corpus holds this tack.h, but no program here gets one there from tack --emit-header, with C files of its own module"), mut t)
+            }
+        }
+        start = end
+    }
+    return noerror
+}
+
+// header_of runs --emit-header on p in copy_dir, the run's copy of its
+// directory directly in examples/, its tack.h copies removed first, and
+// compares each tack.h it writes, when it wants them (see check_headers),
+// with corpus_dir's, appending its path to wanted, counting in t.
+func header_of(r Runner, p Program, copy_dir []uint8, corpus_dir []uint8, mut wanted list[text.Text], mut t Tally) error {
+    t.cases +%= 1
+
+    mut before := make(list[text.Text], c_allocator)
+    ok := walk_files(copy_dir, mut before)?
+    if !ok {
+        t.failures +%= 1
+        return noerror
+    }
+    mut old := make(list[text.Text], c_allocator)
+    header_files(before, mut old)?
+    for _, h := range old {
+        full := path.join(copy_dir, h.bytes(), c_allocator)?
+        e := os.remove_path(full.bytes())
+        if e.code != 0 {
+            mut why := make(list[uint8], c_allocator)
+            fmt.appendf(mut why, "cannot remove %s: %s", full.bytes(), e.msg)?
+            fail([]uint8("headers"), p.target.bytes(), why[:], mut t)
+            return noerror
+        }
+    }
+    mut args := make(list[text.Text], c_allocator)
+    append(mut args, text.from_bytes([]uint8("--emit-header"), c_allocator)?)?
+    append(mut args, text.from_bytes(p.target.bytes(), c_allocator)?)?
+    ran := run_compiler(r, args)?
+    if len(ran.trouble) > 0 {
+        fail_ran([]uint8("headers"), p.target.bytes(), ran.trouble[:], ran, mut t)?
+        return noerror
+    }
+    if ran.code != 0 {
+        fail_ran([]uint8("headers"), p.target.bytes(), []uint8("tack --emit-header failed"), ran, mut t)?
+        return noerror
+    }
+    mut after := make(list[text.Text], c_allocator)
+    ok2 := walk_files(copy_dir, mut after)?
+    if !ok2 {
+        t.failures +%= 1
+        return noerror
+    }
+    mut written := make(list[text.Text], c_allocator)
+    header_files(after, mut written)?
+    mut own_c := false
+    for _, w := range written {
+        if dir_has_c(after, dir_of(w.bytes())) {
+            own_c = true
+        }
+    }
+    if !own_c {
+        return noerror
+    }
+    for _, w := range written {
+        src_file := path.join(copy_dir, w.bytes(), c_allocator)?
+        to := path.join(corpus_dir, w.bytes(), c_allocator)?
+        got, ge := os.read_file(src_file.bytes(), c_allocator)
+        if ge.code != 0 {
+            mut why := make(list[uint8], c_allocator)
+            fmt.appendf(mut why, "cannot read %s: %s", src_file.bytes(), ge.msg)?
+            fail([]uint8("headers"), p.target.bytes(), why[:], mut t)
+            continue
+        }
+        if !contains(wanted, w.bytes()) {
+            append(mut wanted, text.from_bytes(w.bytes(), c_allocator)?)?
+        }
+        have, he := os.read_file(to.bytes(), c_allocator)
+        if he.code == 0 && bytes.equal(have, got) {
+            continue
+        }
+        if r.update {
+            wok := write_with_dirs(to.bytes(), got)?
+            if wok {
+                fmt.printf("updated %s\n", to.bytes())
+            } else {
+                t.failures +%= 1
+            }
+            continue
+        }
+        if he.code != 0 {
+            mut why := make(list[uint8], c_allocator)
+            fmt.appendf(mut why, "%s is missing: %s", to.bytes(), he.msg)?
+            fail([]uint8("headers"), p.target.bytes(), why[:], mut t)
+            continue
+        }
+        mut label := text.from_bytes(to.bytes(), c_allocator)?
+        fail_diff([]uint8("headers"), p.target.bytes(), label.bytes(), have, got, mut t)?
+    }
+    return noerror
+}

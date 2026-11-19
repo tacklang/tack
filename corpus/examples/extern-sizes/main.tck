@@ -1,0 +1,65 @@
+package main
+
+// Span is a buffer's length and address, as C sees them.
+type Span struct {
+    len  unsafe_size_t
+    addr unsafe_uintptr_t
+}
+
+// sizeOfSpan returns C's sizeof of Span, a size_t.
+extern func sizeOfSpan() unsafe_size_t
+
+// marker returns the address of a static C object, as a uintptr_t.
+extern func marker() unsafe_uintptr_t
+
+// isMarker reports whether p is the address marker returned.
+extern func isMarker(p unsafe_uintptr_t) bool
+
+// spanOf returns a Span of n bytes at marker's address, span in C.
+extern("span") func spanOf(n unsafe_size_t) Span
+
+// lengths returns the elements of a and their count, in C.
+extern func lengths(a [2]unsafe_size_t) (unsafe_size_t, unsafe_size_t)
+
+// halve halves the caller's n, in C.
+extern func halve(mut n unsafe_size_t)
+
+// largest returns SIZE_MAX, the largest size_t on this target.
+extern func largest() unsafe_size_t
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+func main() {
+    var size uint64 = sizeOfSpan()
+    check(size == 16, "size_t result")
+
+    p := marker()
+    check(isMarker(p) && !isMarker(p +% 1), "uintptr_t round trip")
+
+    s := spanOf(24)
+    check(s.len == 24 && s.addr == p, "struct of both types")
+
+    total, count := lengths([2]unsafe_size_t{40, 2})
+    check(total == 42 && count == 2, "array and two results")
+
+    mut n unsafe_size_t = 4294967295
+    halve(mut n)
+    check(n == 2147483647, "mut parameter")
+
+    max := largest()
+    var wide uint64 = max
+    check(max +% 1 == 0 && wide == 18446744073709551615, "SIZE_MAX")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

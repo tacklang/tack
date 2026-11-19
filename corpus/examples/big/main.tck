@@ -1,0 +1,708 @@
+package main
+
+import big from "std/big"
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+
+// std/big's Int is an integer of any size, owned, made through an
+// Allocator: from an int64 or a uint64, or parsed from text in a base
+// from 2 to 36, and written back by format. Arithmetic makes a new Int;
+// the queries and the checked conversions allocate nothing.
+//
+// Every expected value below was worked out by hand or with Go's
+// math/big, not copied from std/big's output: powers of two at the word
+// boundaries, 2^64 and 2^128, the edges of int64 and uint64, truncated
+// division and remainder in every sign, arithmetic shifts of negative
+// values, which round toward negative infinity, and 30!. Each group
+// prints ok when every case in it held, and a failed case prints what it
+// got. codegen/c/big_test.go checks std/big against Go's math/big again,
+// on random values of thousands of bits.
+//
+// Allocations are made to fail at each point an operation allocates:
+// the operation returns the builtin append's error, and every buffer is
+// freed, checked through c_allocator's count of live buffers, which only
+// this example's C, in live.c, can read.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("big_live") func live() int64
+
+// failAfter makes c_allocator fail every allocation after the next n, or
+// none again when n is negative, in C.
+extern("big_fail_after") func failAfter(n int64)
+
+// fails counts the cases that did not hold.
+mut fails int64 = 0
+
+// check prints name and whether no case failed since the count was
+// last read, and resets the count.
+func check(name string) {
+    print(name)
+    if fails == 0 {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+    fails = 0
+}
+
+// expect counts a failed case, named by what, unless cond holds.
+func expect(cond bool, what string) {
+    if !cond {
+        fails +%= 1
+        print(what)
+        print(" failed\n")
+    }
+}
+
+// made counts a failed case for x, made by an operation that should
+// have failed, named by what. It reads x, as a result bound beside an
+// error that is not checked must be read, and sign is never 2.
+func made(x big.Int, what string) {
+    expect(big.sign(x) == 2, what)
+}
+
+// num returns the Int s holds in base 10, and exits when it does not
+// parse, which no case below gives it.
+func num(s string) big.Int {
+    x, err := big.parse([]uint8(s), 10, c_allocator)
+    if err.code != 0 {
+        print("cannot parse ")
+        print(s)
+        print("\n")
+        exit(1)
+    }
+    return x
+}
+
+// written checks that format writes x in base as s, after a byte
+// already in the list, which it leaves.
+func written(x big.Int, base int64, s string) {
+    mut out := make(list[uint8], c_allocator)
+    e := append(mut out, '>')
+    err := big.format(mut out, x, base)
+    if e.code != 0 || err.code != 0 {
+        fails +%= 1
+        fmt.printf("format to %s gave error %d\n", s, err.code)
+        return
+    }
+    if len(out) < 1 || out[0] != '>' || !bytes.equal(out[1:], []uint8(s)) {
+        fails +%= 1
+        print("format gave ")
+        fmt.write(out)
+        print(", want >")
+        print(s)
+        print("\n")
+    }
+}
+
+// dec checks that x is s in base 10.
+func dec(x big.Int, s string) {
+    written(x, 10, s)
+}
+
+// parse_fails checks that parsing s in base gives the error code.
+func parse_fails(s string, base int64, code int32) {
+    v1, err := big.parse([]uint8(s), base, c_allocator)
+    if err.code == 0 {
+        made(v1, "an Int")
+    }
+    if err.code != code {
+        fails +%= 1
+        fmt.printf("parse of \"%s\" in base %d gave error %d, want %d\n", s, base, err.code, code)
+    }
+}
+
+// parses checks that s in base parses, and is want in base 10.
+func parses(s string, base int64, want string) {
+    x, err := big.parse([]uint8(s), base, c_allocator)
+    if err.code != 0 {
+        fails +%= 1
+        fmt.printf("parse of \"%s\" in base %d gave error %d\n", s, base, err.code)
+        return
+    }
+    dec(x, want)
+}
+
+// builds checks from_int64 and from_uint64 at their edges, and to_int64
+// and to_uint64 on them and just past them.
+func builds() {
+    zero, e0 := big.from_int64(0, c_allocator)
+    if e0.code != 0 {
+        expect(false, "from_int64(0)")
+        return
+    }
+    expect(live() == 0, "zero allocates nothing")
+    dec(zero, "0")
+    expect(big.is_zero(zero) && big.sign(zero) == 0, "zero is zero")
+    one, e1 := big.from_int64(1, c_allocator)
+    minus, e2 := big.from_int64(-1, c_allocator)
+    top, e3 := big.from_int64(9223372036854775807, c_allocator)
+    bottom, e4 := big.from_int64(-9223372036854775808, c_allocator)
+    if e1.code != 0 || e2.code != 0 || e3.code != 0 || e4.code != 0 {
+        expect(false, "from_int64")
+        return
+    }
+    dec(one, "1")
+    dec(minus, "-1")
+    dec(top, "9223372036854775807")
+    dec(bottom, "-9223372036854775808")
+    expect(big.sign(one) == 1 && big.sign(minus) == -1 && !big.is_zero(minus), "signs")
+    v0, ok0 := big.to_int64(zero)
+    v1, ok1 := big.to_int64(minus)
+    v2, ok2 := big.to_int64(top)
+    v3, ok3 := big.to_int64(bottom)
+    expect(ok0 && v0 == 0 && ok1 && v1 == -1, "to_int64 of 0 and -1")
+    expect(ok2 && v2 == 9223372036854775807 && ok3 && v3 == -9223372036854775808, "to_int64 of the int64 edges")
+
+    umax, e5 := big.from_uint64(18446744073709551615, c_allocator)
+    uzero, e6 := big.from_uint64(0, c_allocator)
+    if e5.code != 0 || e6.code != 0 {
+        expect(false, "from_uint64")
+        return
+    }
+    dec(umax, "18446744073709551615")
+    expect(big.is_zero(uzero), "from_uint64(0) is zero")
+    u0, ok4 := big.to_uint64(umax)
+    u1, ok5 := big.to_uint64(uzero)
+    _, ok6 := big.to_int64(umax)
+    _, ok7 := big.to_uint64(minus)
+    _, ok8 := big.to_uint64(bottom)
+    expect(ok4 && u0 == 18446744073709551615 && ok5 && u1 == 0, "to_uint64 of the uint64 edges")
+    expect(!ok6, "to_int64 of 2^64 - 1 does not fit")
+    expect(!ok7 && !ok8, "to_uint64 of a negative does not fit")
+    u2, ok9 := big.to_uint64(top)
+    expect(ok9 && u2 == 9223372036854775807, "to_uint64 of the largest int64")
+
+    t1 := num("9223372036854775808")
+    _, ok10 := big.to_int64(t1)
+    t2 := num("-9223372036854775808")
+    v4, ok11 := big.to_int64(t2)
+    t3 := num("-9223372036854775809")
+    _, ok12 := big.to_int64(t3)
+    t4 := num("18446744073709551616")
+    _, ok13 := big.to_uint64(t4)
+    expect(!ok10 && ok11 && v4 == -9223372036854775808 && !ok12, "to_int64 one past each edge")
+    expect(!ok13, "to_uint64 of 2^64 does not fit")
+}
+
+// texts checks parse and format: signs, leading zeros, either case,
+// every base's edges, and each error.
+func texts() {
+    parses("0", 10, "0")
+    parses("-0", 10, "0")
+    parses("+0", 10, "0")
+    parses("-000", 10, "0")
+    parses("000123", 10, "123")
+    parses("+12", 10, "12")
+    parses("-101", 2, "-5")
+    parses("zZ", 36, "1295")
+    parses("FF", 16, "255")
+    parses("ff", 16, "255")
+    parses("7", 8, "7")
+    parses("18446744073709551616", 10, "18446744073709551616")
+    parses("10000000000000000", 16, "18446744073709551616")
+    parses("-ffffffffffffffffffffffffffffffff", 16, "-340282366920938463463374607431768211455")
+
+    two64 := num("18446744073709551616")
+    written(two64, 2, "10000000000000000000000000000000000000000000000000000000000000000")
+    written(two64, 8, "2000000000000000000000")
+    written(two64, 16, "10000000000000000")
+    written(two64, 36, "3w5e11264sgsg")
+    t5 := num("-255")
+    written(t5, 16, "-ff")
+    t6 := num("-1295")
+    written(t6, 36, "-zz")
+    t7 := num("0")
+    written(t7, 2, "0")
+    t8 := num("-0")
+    written(t8, 36, "0")
+
+    parse_fails("", 10, 6)
+    parse_fails("", 1, 6)
+    parse_fails("-", 10, 6)
+    parse_fails("+", 10, 6)
+    parse_fails("--1", 10, 6)
+    parse_fails("12a", 10, 6)
+    parse_fails(" 1", 10, 6)
+    parse_fails("1 ", 10, 6)
+    parse_fails("1_0", 10, 6)
+    parse_fails("0x10", 16, 6)
+    parse_fails("2", 2, 6)
+    parse_fails("\x00", 10, 6)
+    parse_fails("\xff", 36, 6)
+    parse_fails("1", 1, 8)
+    parse_fails("1", 0, 8)
+    parse_fails("1", 37, 8)
+    parse_fails("1", -1, 8)
+
+    mut out := make(list[uint8], c_allocator)
+    e0 := append(mut out, 'a', 'b')
+    e1 := big.format(mut out, two64, 1)
+    e2 := big.format(mut out, two64, 37)
+    expect(e0.code == 0 && e1.code == 8 && e1.msg == "invalid base" && e2.code == 8, "format in a bad base")
+    expect(bytes.equal(out, []uint8("ab")), "a failed format leaves the list as it was")
+    t9 := num("-7")
+    e3 := big.format(mut out, t9, 10)
+    t10 := num("7")
+    e4 := big.format(mut out, t10, 10)
+    expect(e3.code == 0 && e4.code == 0 && bytes.equal(out, []uint8("ab-77")), "format appends")
+}
+
+// arithmetic checks plus, sub, mul, neg and abs across the word boundary
+// and in every sign, and that a result of zero is never negative.
+func arithmetic() {
+    umax := num("18446744073709551615")
+    one := num("1")
+    two64 := num("18446744073709551616")
+    two128 := num("340282366920938463463374607431768211456")
+    minus64, en := big.neg(two64, c_allocator)
+    if en.code != 0 {
+        expect(false, "neg")
+        return
+    }
+    s0, e0 := big.plus(umax, one, c_allocator)
+    t11 := num("-5")
+    t12 := num("3")
+    s1, e1 := big.plus(t11, t12, c_allocator)
+    t13 := num("5")
+    t14 := num("-5")
+    s2, e2 := big.plus(t13, t14, c_allocator)
+    s3, e3 := big.plus(minus64, umax, c_allocator)
+    if e0.code != 0 || e1.code != 0 || e2.code != 0 || e3.code != 0 {
+        expect(false, "plus")
+        return
+    }
+    dec(s0, "18446744073709551616")
+    dec(s1, "-2")
+    dec(s2, "0")
+    expect(big.sign(s2) == 0, "5 + -5 is zero, not negative")
+    dec(s3, "-1")
+
+    t15 := num("0")
+    d0, e4 := big.sub(t15, two128, c_allocator)
+    d1, e5 := big.sub(umax, two64, c_allocator)
+    d2, e6 := big.sub(two64, umax, c_allocator)
+    t16 := num("-3")
+    t17 := num("-3")
+    d3, e7 := big.sub(t16, t17, c_allocator)
+    t18 := num("-3")
+    t19 := num("4")
+    d4, e8 := big.sub(t18, t19, c_allocator)
+    if e4.code != 0 || e5.code != 0 || e6.code != 0 || e7.code != 0 || e8.code != 0 {
+        expect(false, "sub")
+        return
+    }
+    dec(d0, "-340282366920938463463374607431768211456")
+    dec(d1, "-1")
+    dec(d2, "1")
+    dec(d3, "0")
+    expect(big.sign(d3) == 0, "-3 - -3 is zero, not negative")
+    dec(d4, "-7")
+
+    p0, e9 := big.mul(two64, two64, c_allocator)
+    t20 := num("-3")
+    t21 := num("4")
+    p1, e10 := big.mul(t20, t21, c_allocator)
+    t22 := num("0")
+    t23 := num("-5")
+    p2, e11 := big.mul(t22, t23, c_allocator)
+    p3, e12 := big.mul(umax, umax, c_allocator)
+    t24 := num("-4")
+    t25 := num("-4")
+    p4, e13 := big.mul(t24, t25, c_allocator)
+    if e9.code != 0 || e10.code != 0 || e11.code != 0 || e12.code != 0 || e13.code != 0 {
+        expect(false, "mul")
+        return
+    }
+    expect(big.cmp(p0, two128) == 0, "2^64 * 2^64 is 2^128")
+    dec(p1, "-12")
+    dec(p2, "0")
+    expect(big.sign(p2) == 0, "0 * -5 is zero, not negative")
+    dec(p3, "340282366920938463426481119284349108225")
+    dec(p4, "16")
+
+    // 30!, 265252859812191058636308480000000, a product of 108 bits.
+    mut f := num("1")
+    for i := range 30 {
+        k, ek := big.from_int64(i + 1, c_allocator)
+        if ek.code != 0 {
+            expect(false, "factorial")
+            return
+        }
+        g, eg := big.mul(f, k, c_allocator)
+        if eg.code != 0 {
+            expect(false, "factorial")
+            return
+        }
+        f = g
+    }
+    dec(f, "265252859812191058636308480000000")
+
+    t26 := num("0")
+    n0, e14 := big.neg(t26, c_allocator)
+    t27 := num("-9223372036854775808")
+    n1, e15 := big.neg(t27, c_allocator)
+    t28 := num("-9223372036854775808")
+    a0, e16 := big.abs(t28, c_allocator)
+    a1, e17 := big.abs(two64, c_allocator)
+    t29 := num("0")
+    a2, e18 := big.abs(t29, c_allocator)
+    if e14.code != 0 || e15.code != 0 || e16.code != 0 || e17.code != 0 || e18.code != 0 {
+        expect(false, "neg and abs")
+        return
+    }
+    dec(n0, "0")
+    expect(big.sign(n0) == 0, "neg of zero is zero")
+    dec(n1, "9223372036854775808")
+    dec(a0, "9223372036854775808")
+    dec(a1, "18446744073709551616")
+    dec(a2, "0")
+}
+
+// divides checks that x divided by y is q, truncated toward zero, with
+// remainder r, which has x's sign, as Go's QuoRem gives.
+func divides(x string, y string, q string, r string) {
+    t30 := num(x)
+    t31 := num(y)
+    qq, rr, err := big.div_mod(t30, t31, c_allocator)
+    if err.code != 0 {
+        fails +%= 1
+        fmt.printf("%s / %s gave error %d\n", x, y, err.code)
+        return
+    }
+    dec(qq, q)
+    dec(rr, r)
+}
+
+// division checks div_mod in every sign, across words, and by zero.
+func division() {
+    divides("7", "2", "3", "1")
+    divides("-7", "2", "-3", "-1")
+    divides("7", "-2", "-3", "1")
+    divides("-7", "-2", "3", "-1")
+    divides("6", "-2", "-3", "0")
+    divides("-6", "3", "-2", "0")
+    divides("0", "5", "0", "0")
+    divides("0", "-5", "0", "0")
+    divides("3", "5", "0", "3")
+    divides("-3", "5", "0", "-3")
+    divides("5", "5", "1", "0")
+    divides("-9223372036854775808", "-1", "9223372036854775808", "0")
+    divides("340282366920938463463374607431768211456", "18446744073709551616", "18446744073709551616", "0")
+    // 2^128 + 5 is (2^64 + 1)(2^64 - 1) + 6.
+    divides("340282366920938463463374607431768211461", "18446744073709551617", "18446744073709551615", "6")
+    divides("-340282366920938463463374607431768211461", "18446744073709551617", "-18446744073709551615", "-6")
+    // 2^128 - 1 is (2^64 - 1)(2^64 + 1).
+    divides("340282366920938463463374607431768211455", "18446744073709551615", "18446744073709551617", "0")
+    divides("18446744073709551615", "340282366920938463463374607431768211456", "0", "18446744073709551615")
+
+    t32 := num("1")
+    t33 := num("0")
+    v2, w2, e0 := big.div_mod(t32, t33, c_allocator)
+    if e0.code == 0 {
+        made(v2, "a quotient")
+        made(w2, "a remainder")
+    }
+    t34 := num("0")
+    t35 := num("0")
+    v3, w3, e1 := big.div_mod(t34, t35, c_allocator)
+    if e1.code == 0 {
+        made(v3, "a quotient")
+        made(w3, "a remainder")
+    }
+    t36 := num("-340282366920938463463374607431768211456")
+    t37 := num("-0")
+    v4, w4, e2 := big.div_mod(t36, t37, c_allocator)
+    if e2.code == 0 {
+        made(v4, "a quotient")
+        made(w4, "a remainder")
+    }
+    expect(e0.code == 10 && e0.msg == "division by zero" && e1.code == 10 && e2.code == 10, "division by zero")
+}
+
+// shifts checks shl and shr: across words, of negatives, by 0, past
+// every bit, and by a negative count.
+func shifts() {
+    one := num("1")
+    two128 := num("340282366920938463463374607431768211456")
+    l0, e0 := big.shl(one, 128, c_allocator)
+    t38 := num("-3")
+    l1, e1 := big.shl(t38, 2, c_allocator)
+    t39 := num("0")
+    l2, e2 := big.shl(t39, 1000, c_allocator)
+    t40 := num("-5")
+    l3, e3 := big.shl(t40, 0, c_allocator)
+    t41 := num("18446744073709551615")
+    l4, e4 := big.shl(t41, 1, c_allocator)
+    l5, e5 := big.shl(one, 63, c_allocator)
+    l6, e6 := big.shl(one, 64, c_allocator)
+    if e0.code != 0 || e1.code != 0 || e2.code != 0 || e3.code != 0 || e4.code != 0 || e5.code != 0 || e6.code != 0 {
+        expect(false, "shl")
+        return
+    }
+    expect(big.cmp(l0, two128) == 0, "1 << 128 is 2^128")
+    dec(l1, "-12")
+    dec(l2, "0")
+    dec(l3, "-5")
+    dec(l4, "36893488147419103230")
+    dec(l5, "9223372036854775808")
+    dec(l6, "18446744073709551616")
+
+    t42 := num("-1")
+    r0, e7 := big.shr(t42, 100, c_allocator)
+    t43 := num("-5")
+    r1, e8 := big.shr(t43, 1, c_allocator)
+    t44 := num("5")
+    r2, e9 := big.shr(t44, 1, c_allocator)
+    r3, e10 := big.shr(two128, 64, c_allocator)
+    r4, e11 := big.shr(two128, 129, c_allocator)
+    t45 := num("-340282366920938463463374607431768211456")
+    r5, e12 := big.shr(t45, 129, c_allocator)
+    t46 := num("-340282366920938463463374607431768211456")
+    r6, e13 := big.shr(t46, 64, c_allocator)
+    t47 := num("-340282366920938463463374607431768211457")
+    r7, e14 := big.shr(t47, 64, c_allocator)
+    t48 := num("-4")
+    r8, e15 := big.shr(t48, 2, c_allocator)
+    t49 := num("7")
+    r9, e16 := big.shr(t49, 0, c_allocator)
+    if e7.code != 0 || e8.code != 0 || e9.code != 0 || e10.code != 0 || e11.code != 0 || e12.code != 0 ||
+        e13.code != 0 || e14.code != 0 || e15.code != 0 || e16.code != 0 {
+        expect(false, "shr")
+        return
+    }
+    dec(r0, "-1")
+    dec(r1, "-3")
+    dec(r2, "2")
+    dec(r3, "18446744073709551616")
+    dec(r4, "0")
+    dec(r5, "-1")
+    dec(r6, "-18446744073709551616")
+    dec(r7, "-18446744073709551617")
+    dec(r8, "-1")
+    dec(r9, "7")
+    // -(2^128 - 1) >> 64 rounds down to -2^64, a word longer than the
+    // magnitude shifted.
+    t50 := num("-340282366920938463463374607431768211455")
+    r10, e17 := big.shr(t50, 64, c_allocator)
+    if e17.code != 0 {
+        expect(false, "shr carrying into a new word")
+        return
+    }
+    dec(r10, "-18446744073709551616")
+
+    v5, e18 := big.shl(one, -1, c_allocator)
+    if e18.code == 0 {
+        made(v5, "an Int")
+    }
+    v6, e19 := big.shr(one, -1, c_allocator)
+    if e19.code == 0 {
+        made(v6, "an Int")
+    }
+    t51 := num("0")
+    v7, e20 := big.shl(t51, -9223372036854775808, c_allocator)
+    if e20.code == 0 {
+        made(v7, "an Int")
+    }
+    expect(e18.code == 2 && e18.msg == "negative count" && e19.code == 2 && e20.code == 2, "a negative count")
+    v8, e21 := big.shl(one, 9223372036854775807, c_allocator)
+    if e21.code == 0 {
+        made(v8, "an Int")
+    }
+    expect(e21.code == 1 && e21.msg == "out of memory", "a shift too large to hold")
+    r11, e22 := big.shr(one, 9223372036854775807, c_allocator)
+    t52 := num("-1")
+    r12, e23 := big.shr(t52, 9223372036854775807, c_allocator)
+    if e22.code != 0 || e23.code != 0 {
+        expect(false, "shr by the largest count")
+        return
+    }
+    dec(r11, "0")
+    dec(r12, "-1")
+}
+
+// compares checks cmp on every pair of seven values in order, and sign.
+func compares() {
+    mut vals := make(list[big.Int], c_allocator)
+    e := append(mut vals, num("-340282366920938463463374607431768211456"), num("-18446744073709551616"),
+        num("-18446744073709551615"), num("-1"), num("0"), num("1"), num("18446744073709551615"),
+        num("18446744073709551616"), num("340282366920938463463374607431768211456"))
+    if e.code != 0 {
+        expect(false, "compares")
+        return
+    }
+    for i, x := range vals {
+        for j, y := range vals {
+            mut want int64 = 0
+            if i < j {
+                want = -1
+            } else if i > j {
+                want = 1
+            }
+            if big.cmp(x, y) != want {
+                fails +%= 1
+                fmt.printf("cmp of values %d and %d is not %d\n", i, j, want)
+            }
+        }
+        mut s int64 = 0
+        if i < 4 {
+            s = -1
+        } else if i > 4 {
+            s = 1
+        }
+        expect(big.sign(x) == s && big.is_zero(x) == (i == 4), "sign")
+    }
+}
+
+// refuses checks that each operation making an Int that holds words
+// fails with the builtin append's error, allocation by allocation, and
+// frees everything, and that one making zero needs no allocation.
+func refuses() {
+    x := num("-340282366920938463463374607431768211457")
+    y := num("18446744073709551617")
+    zero := num("0")
+    before := live()
+    failAfter(0)
+    v9, e0 := big.from_int64(5, c_allocator)
+    if e0.code == 0 {
+        made(v9, "an Int")
+    }
+    v10, e1 := big.from_uint64(5, c_allocator)
+    if e1.code == 0 {
+        made(v10, "an Int")
+    }
+    v11, e2 := big.parse([]uint8("123456789012345678901234567890"), 10, c_allocator)
+    if e2.code == 0 {
+        made(v11, "an Int")
+    }
+    v12, e3 := big.plus(x, y, c_allocator)
+    if e3.code == 0 {
+        made(v12, "an Int")
+    }
+    v13, e4 := big.sub(x, y, c_allocator)
+    if e4.code == 0 {
+        made(v13, "an Int")
+    }
+    v14, e5 := big.mul(x, y, c_allocator)
+    if e5.code == 0 {
+        made(v14, "an Int")
+    }
+    v15, e6 := big.neg(x, c_allocator)
+    if e6.code == 0 {
+        made(v15, "an Int")
+    }
+    v16, e7 := big.abs(x, c_allocator)
+    if e7.code == 0 {
+        made(v16, "an Int")
+    }
+    v17, e8 := big.shl(x, 3, c_allocator)
+    if e8.code == 0 {
+        made(v17, "an Int")
+    }
+    v18, e9 := big.shr(x, 3, c_allocator)
+    if e9.code == 0 {
+        made(v18, "an Int")
+    }
+    v19, w19, e10 := big.div_mod(x, y, c_allocator)
+    if e10.code == 0 {
+        made(v19, "a quotient")
+        made(w19, "a remainder")
+    }
+    mut out := make(list[uint8], c_allocator)
+    e11 := big.format(mut out, x, 10)
+    failAfter(-1)
+    expect(e0.code == 1 && e0.msg == "out of memory" && e1.code == 1 && e2.code == 1, "constructors refused")
+    expect(e3.code == 1 && e4.code == 1 && e5.code == 1 && e6.code == 1 && e7.code == 1, "arithmetic refused")
+    expect(e8.code == 1 && e9.code == 1 && e10.code == 1 && e11.code == 1 && len(out) == 0, "shifts, division and format refused")
+    expect(live() == before, "nothing refused is left allocated")
+
+    // div_mod makes its quotient, then its remainder: refused at either.
+    for n := range 2 {
+        failAfter(n)
+        v20, w20, e := big.div_mod(x, y, c_allocator)
+        if e.code == 0 {
+            made(v20, "a quotient")
+            made(w20, "a remainder")
+        }
+        failAfter(-1)
+        expect(e.code == 1, "div_mod refused at an allocation")
+        expect(live() == before, "a refused div_mod frees what it made")
+    }
+    // y / y makes the quotient 1, then its remainder's buffer, which the
+    // division works in before it comes out zero, so it is refused too.
+    failAfter(1)
+    v21, w21, e24 := big.div_mod(y, y, c_allocator)
+    if e24.code == 0 {
+        made(v21, "a quotient")
+        made(w21, "a remainder")
+    }
+    failAfter(-1)
+    expect(e24.code == 1 && live() == before, "div_mod(y, y) refused at its remainder")
+    failAfter(2)
+    q, r, e12 := big.div_mod(x, y, c_allocator)
+    failAfter(-1)
+    if e12.code != 0 {
+        expect(false, "div_mod with two allocations left")
+        return
+    }
+    dec(q, "-18446744073709551615")
+    dec(r, "-2")
+
+    // Results of zero hold no words, so nothing is allocated: what is
+    // live is what was, q and r among it.
+    held := live()
+    failAfter(0)
+    z0, e13 := big.from_int64(0, c_allocator)
+    z1, e14 := big.mul(zero, x, c_allocator)
+    z2, e15 := big.sub(x, x, c_allocator)
+    z3, e16 := big.shr(y, 65, c_allocator)
+    z4, e17 := big.parse([]uint8("-0000"), 10, c_allocator)
+    z5, z6, e18 := big.div_mod(zero, y, c_allocator)
+    z7, e19 := big.neg(zero, c_allocator)
+    z8, e20 := big.plus(zero, zero, c_allocator)
+    z9, e21 := big.sub(zero, zero, c_allocator)
+    failAfter(-1)
+    if e13.code != 0 || e14.code != 0 || e15.code != 0 || e16.code != 0 || e17.code != 0 || e18.code != 0 || e19.code != 0 ||
+        e20.code != 0 || e21.code != 0 {
+        expect(false, "zero results need no allocation")
+        return
+    }
+    expect(big.is_zero(z0) && big.is_zero(z1) && big.is_zero(z2) && big.is_zero(z3), "zero results")
+    expect(big.is_zero(z4) && big.is_zero(z5) && big.is_zero(z6) && big.is_zero(z7), "more zero results")
+    expect(big.is_zero(z8) && big.is_zero(z9), "0 + 0 and 0 - 0")
+    expect(live() == held, "zero results allocate nothing")
+
+    // format needs no allocation when the list has room already.
+    mut room := make(list[uint8], c_allocator)
+    e22 := reserve(mut room, 100)
+    failAfter(0)
+    e23 := big.format(mut room, x, 36)
+    failAfter(-1)
+    expect(e22.code == 0 && e23.code == 0, "format into a list with room")
+    written(x, 36, "-f5lxx1zz5pnorynqglhzmsp35")
+}
+
+func main() {
+    expect(live() == 0, "nothing live at the start")
+    builds()
+    expect(live() == 0, "builds freed")
+    check("builds")
+    texts()
+    expect(live() == 0, "texts freed")
+    check("texts")
+    arithmetic()
+    expect(live() == 0, "arithmetic freed")
+    check("arithmetic")
+    division()
+    expect(live() == 0, "division freed")
+    check("division")
+    shifts()
+    expect(live() == 0, "shifts freed")
+    check("shifts")
+    compares()
+    expect(live() == 0, "compares freed")
+    check("compares")
+    refuses()
+    expect(live() == 0, "refuses freed")
+    check("refuses")
+}

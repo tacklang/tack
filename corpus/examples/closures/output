@@ -1,0 +1,45 @@
+sorted by a captured flag, descending ok
+sorted by a captured flag, ascending ok
+sorted by captured keys, which stay as they were ok
+sorted by a named function ok
+sorted by a function value in a local ok
+Texts sorted by length ok
+sorting frees once ok
+a mut capture sees every call, in order ok
+a closure never called writes nothing ok
+a closure that ignores its parameter ok
+sort.by's calls of a closure counted ok
+counting frees once ok
+the caller sees the last write ok
+each call sees what the one before it wrote ok
+a closure writes a mut parameter it captured ok
+a write in a closure is seen by an index after the call ok
+return gives the closure's result ok
+return leaves the closure, not the caller ok
+a closure's return in a function that returns ok
+returns free once ok
+a range variable read as it is at each call ok
+a loop counter read as it is at each call ok
+a closure's write ends the loop ok
+an owned range element read in place ok
+loops free once ok
+an inner closure reads the outer's parameter ok
+four closures deep ok
+a scope parameter passed on to its own function ok
+nesting frees once ok
+a closure through two scope parameters ok
+a closure through two scope parameters that matches nothing ok
+a closure for a generic function's scope parameter ok
+a closure over Texts ok
+a closure inside a generic function ok
+a type argument of a function type with a scope parameter ok
+generics free once ok
+a closure for a mut method's scope parameter ok
+a closure for a method's scope parameter ok
+methods free once ok
+a captured list read beside itself passed plainly ok
+a closure reads an own parameter ok
+a captured list replaced in a closure ok
+lists made in a closure ok
+owned values free once ok
+nothing leaks when an allocation fails ok

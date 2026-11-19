@@ -1,0 +1,18 @@
+package pass
+
+import testing from "std/testing"
+
+// more_test.tck sorts before pass_test.tck, so its tests run first.
+
+// test_first runs before every test of pass_test.tck.
+func test_first(mut t testing.T) error {
+    if sum(0, 0) != 0 {
+        mut t.errorf("sum(0, 0) = %d", sum(0, 0))
+    }
+    return noerror
+}
+
+// test_ is a test too: its name is test_ and nothing after it.
+func test_(mut t testing.T) error {
+    return noerror
+}

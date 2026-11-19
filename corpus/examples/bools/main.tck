@@ -1,0 +1,25 @@
+package main
+
+var verbose = true
+
+func not(b bool) bool {
+    if b {
+        return false
+    }
+    return true
+}
+
+func main() {
+    mut done = false
+    if verbose {
+        print("bools\n")
+        done = true
+    }
+    if not(done) {
+        exit(1)
+    }
+    if done != verbose {
+        exit(2)
+    }
+    exit(9)
+}

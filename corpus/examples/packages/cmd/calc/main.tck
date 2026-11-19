@@ -1,0 +1,74 @@
+package main
+
+import lexer from "calc/lexer"
+import geom from "calc/geom"
+import one from "calc/chain/one"
+
+// counts is sized by another package's global.
+mut counts [lexer.MaxTokens]int64
+
+// corner, far and atOrigin are computed at compile time from elements and
+// fields of another package's globals.
+var corner = geom.Corners[1].x
+var far = geom.Corners[len(geom.Corners) - 1].y * lexer.MaxTokens
+var atOrigin = geom.Corners[0] == geom.Origin && geom.Origin.y == 0
+
+// size shares its name with a function of every library package.
+func size() int64 {
+    return 8
+}
+
+// check exits with status when ok is false.
+func check(ok bool, status int32) {
+    if !ok {
+        exit(status)
+    }
+}
+
+func main() {
+    t := lexer.First("7")
+    check(t.kind == lexer.KindNumber, 1)
+    check(lexer.First("+").kind == lexer.KindPlus, 2)
+    check(lexer.KindPlus == 2, 3)
+    check(geom.Limit == 20, 4)
+
+    b := geom.Box{
+        min: geom.Point{x: 1, y: 1},
+        max: geom.Point{x: 4, y: 3},
+        tok: t,
+    }
+    check(geom.Area(b) == 6, 5)
+    check(b.tok == t, 6)
+    check(geom.Origin.x == 0 && geom.Origin == geom.Point{x: 0, y: 0}, 7)
+
+    toks := geom.Tokens()
+    check(toks[0].kind == lexer.KindNumber && toks[1].kind == lexer.KindPlus, 8)
+    check(len(counts) == 4, 9)
+    counts[3] = 5
+
+    check(one.Depth() == 3, 10)
+    check(size() == 8 && lexer.Size() == 3 && geom.Size() == 4, 11)
+
+    // A Token has a private field, so main cannot write a literal of one,
+    // but it can declare one at its zero value, copy one and compare two,
+    // which compares the private field too. start is lib, so main, in the
+    // same module, reads it.
+    mut z lexer.Token
+    check(z.kind == 0 && z.start == 0 && t.start == 0, 12)
+    w := t
+    check(w == t && z != t && lexer.First("7") == t && lexer.First("+") != t, 13)
+    check(lexer.Width(t) == 1, 14)
+    check(corner == 4 && far == 8 && atOrigin, 16)
+
+    print("packages ok\n")
+    code, fits := int32(counts[3] +% lexer.Size() +% geom.Size() +% one.Depth())
+    if !fits {
+        exit(17)
+    }
+    exit(code)
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

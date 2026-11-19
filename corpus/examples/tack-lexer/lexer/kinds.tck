@@ -1,0 +1,174 @@
+package lexer
+
+// Package lexer turns Tack source into tokens, as the compiler's own lexer
+// package does in Go, for a subset of the language: identifiers, keywords,
+// integers in every base, decimal floats, quoted and raw strings with
+// their escapes, character literals, every operator and punctuation
+// token, line comments (merged when consecutive), block comments
+// (reported), and Go's semicolon insertion at line ends. The UTF-8 check
+// on character literals is left out.
+//
+// Lex fills a Lexer, which holds every token in a fixed-size array, since
+// Tack has no growable list yet. A token is a kind and a span of byte
+// offsets into the source; it holds no text, since Tack cannot take a
+// substring.
+
+// The token kinds. Tack has no enums and no named integer types, so a kind
+// is an int64 and each kind is an immutable global; nothing stops a caller
+// from passing any other int64 where a kind is meant. Every operator shares
+// KindOp, and its token's sub says which one, an index into operators.
+pub var KindEOF int64 = 0
+pub var KindComment int64 = 1
+pub var KindIdent int64 = 2
+pub var KindKeyword int64 = 3
+pub var KindInt int64 = 4
+pub var KindChar int64 = 5
+pub var KindString int64 = 6
+pub var KindOp int64 = 7
+
+// KindSemi is a semicolon the lexer inserts at a line end; one written in
+// the source is a KindOp.
+pub var KindSemi int64 = 8
+
+// KindFloat is a float literal.
+pub var KindFloat int64 = 9
+
+// kindNames names each kind as the Go lexer's TokenKind.String does, by
+// the kind's value. An operator is named by its spelling instead (see Name).
+var kindNames = [...]string{"EOF", "comment", "ident", "keyword", "int", "char", "string", "op", ";", "float"}
+
+// spelling is a keyword's or an operator's text, and whether a line end
+// right after it inserts a semicolon.
+type spelling struct {
+    text string
+    ends bool
+}
+
+// keywords are every reserved word of the Go lexer, in its order. A
+// keyword's token has its index here as its sub. Break, continue, return,
+// true, false, noerror, c_allocator, unreachable and fallthrough end a
+// statement.
+var keywords = [...]spelling{
+    {text: "lib", ends: false},
+    {text: "pub", ends: false},
+    {text: "const", ends: false},
+    {text: "var", ends: false},
+    {text: "mut", ends: false},
+    {text: "type", ends: false},
+    {text: "func", ends: false},
+    {text: "struct", ends: false},
+    {text: "interface", ends: false},
+    {text: "map", ends: false},
+    {text: "extern", ends: false},
+    {text: "package", ends: false},
+    {text: "import", ends: false},
+    {text: "from", ends: false},
+    {text: "if", ends: false},
+    {text: "else", ends: false},
+    {text: "for", ends: false},
+    {text: "range", ends: false},
+    {text: "switch", ends: false},
+    {text: "case", ends: false},
+    {text: "default", ends: false},
+    {text: "select", ends: false},
+    {text: "break", ends: true},
+    {text: "continue", ends: true},
+    {text: "goto", ends: false},
+    {text: "return", ends: true},
+    {text: "async", ends: false},
+    {text: "defer", ends: false},
+    {text: "true", ends: true},
+    {text: "false", ends: true},
+    {text: "noerror", ends: true},
+    {text: "list", ends: false},
+    {text: "c_allocator", ends: true},
+    {text: "union", ends: false},
+    {text: "own", ends: false},
+    {text: "ensures", ends: false},
+    {text: "unreachable", ends: true},
+    {text: "fallthrough", ends: true},
+    {text: "scope", ends: false},
+    {text: "arena", ends: false},
+    {text: "pool", ends: false},
+    {text: "region", ends: false},
+}
+
+// operators are every operator and punctuation token, longest first, so
+// the first one the source starts with is the longest match. An operator's
+// token has its index here as its sub. Closing brackets, ++, -- and the
+// postfix ? end a statement.
+var operators = [...]spelling{
+    {text: "+%=", ends: false},
+    {text: "-%=", ends: false},
+    {text: "*%=", ends: false},
+    {text: "&^=", ends: false},
+    {text: "<<=", ends: false},
+    {text: ">>=", ends: false},
+    {text: "...", ends: false},
+    {text: "++", ends: true},
+    {text: "--", ends: true},
+    {text: "+=", ends: false},
+    {text: "-=", ends: false},
+    {text: "*=", ends: false},
+    {text: "/=", ends: false},
+    {text: "%=", ends: false},
+    {text: "&=", ends: false},
+    {text: "|=", ends: false},
+    {text: "^=", ends: false},
+    {text: "&&", ends: false},
+    {text: "||", ends: false},
+    {text: "&^", ends: false},
+    {text: "<<", ends: false},
+    {text: ">>", ends: false},
+    {text: "<=", ends: false},
+    {text: ">=", ends: false},
+    {text: "<-", ends: false},
+    {text: "==", ends: false},
+    {text: "!=", ends: false},
+    {text: ":=", ends: false},
+    {text: "+%", ends: false},
+    {text: "-%", ends: false},
+    {text: "*%", ends: false},
+    {text: "+", ends: false},
+    {text: "-", ends: false},
+    {text: "*", ends: false},
+    {text: "/", ends: false},
+    {text: "%", ends: false},
+    {text: "&", ends: false},
+    {text: "|", ends: false},
+    {text: "^", ends: false},
+    {text: "<", ends: false},
+    {text: ">", ends: false},
+    {text: "=", ends: false},
+    {text: "!", ends: false},
+    {text: "(", ends: false},
+    {text: ")", ends: true},
+    {text: "[", ends: false},
+    {text: "]", ends: true},
+    {text: "{", ends: false},
+    {text: "}", ends: true},
+    {text: ",", ends: false},
+    {text: ".", ends: false},
+    {text: ":", ends: false},
+    {text: ";", ends: false},
+    {text: "~", ends: false},
+    {text: "?", ends: true},
+}
+
+// Name returns the name the Go lexer's --lex dump gives t's kind: an
+// operator's spelling, or its kind's name. A kind or sub out of range,
+// which Lex never makes, names nothing.
+pub func Name(t Token) string {
+    if t.kind == KindOp {
+        op, ok := operators[t.sub]
+        if !ok {
+            return ""
+        }
+        return op.text
+    }
+    name, ok := kindNames[t.kind]
+    if !ok {
+        return ""
+    }
+    return name
+}

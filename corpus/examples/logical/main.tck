@@ -1,0 +1,22 @@
+package main
+
+func check(name string, ok bool) bool {
+    print(name)
+    print("\n")
+    return ok
+}
+
+func safe(n int64) bool {
+    return n != 0 && 100 / n > 10
+}
+
+func main() {
+    if check("first", false) && check("never", true) {
+        exit(1)
+    }
+    if check("second", true) || check("never", true) {
+        if !safe(0) && safe(5) {
+            exit(13)
+        }
+    }
+}

@@ -1,0 +1,37 @@
+package logs
+
+// Package logs declares Log, whose methods satisfy sink.Sink, and the
+// count-only interface of the main package, though logs imports neither:
+// a type satisfies an interface by having its methods, nothing more. A
+// method satisfies an interface where the package passing the type can
+// call it: put is pub, and count lib, which every package of the module
+// sees, main included.
+
+// Log keeps every word put into it, in a list it owns.
+pub type Log struct {
+    words list[string]
+}
+
+// New returns an empty Log.
+pub func New() Log {
+    return Log{words: make(list[string], c_allocator)}
+}
+
+// put keeps word.
+pub func (mut l Log) put(word string) error {
+    return append(mut l.words, word)
+}
+
+// count returns how many words l keeps.
+lib func (l Log) count() int64 {
+    return len(l.words)
+}
+
+// Last returns the last word l keeps, or "" when it keeps none.
+pub func (l Log) Last() string {
+    w, ok := l.words[len(l.words) - 1]
+    if !ok {
+        return ""
+    }
+    return w
+}

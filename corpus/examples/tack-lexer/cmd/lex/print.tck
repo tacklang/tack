@@ -1,0 +1,86 @@
+package main
+
+// print takes only a string, and a Tack program cannot build one, so every
+// number and byte printed here is printed as a piece of a table of string
+// literals: a digit's, a hex digit's, or a printable byte's.
+
+// digits are the decimal digits, by value.
+var digits = [10]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}
+
+// hexDigits are the lowercase hex digits, by value.
+var hexDigits = [16]string{
+    "0", "1", "2", "3", "4", "5", "6", "7",
+    "8", "9", "a", "b", "c", "d", "e", "f",
+}
+
+// printable holds each printable ASCII byte, from ' ' (32) to '~' (126),
+// as a one-byte string, at the byte's value less 32.
+var printable = [95]string{
+    " ", "!", "\"", "#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/",
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ":", ";", "<", "=", ">", "?",
+    "@", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O",
+    "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "[", "\\", "]", "^", "_",
+    "`", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o",
+    "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "{", "|", "}", "~",
+}
+
+// printInt prints n in decimal, with a leading - when it is negative. It
+// recurses once per digit. n / 10 and n % 10 keep n's sign, so no step
+// negates n itself, which for the smallest int64 would wrap.
+func printInt(n int64) {
+    if n < 0 {
+        print("-")
+    }
+    if n <= -10 || n >= 10 {
+        q := n / 10
+        if q < 0 {
+            printInt(0 - q)
+        } else {
+            printInt(q)
+        }
+    }
+    mut d := n % 10
+    if d < 0 {
+        d = 0 - d
+    }
+    s, ok := digits[d]
+    if ok {
+        print(s)
+    }
+}
+
+// printQuoted prints src[start:end] between double quotes, a quote or a
+// backslash escaped with a backslash, a printable ASCII byte as itself,
+// and any other byte as \x and two hex digits.
+func printQuoted(src string, start int64, end int64) {
+    print("\"")
+    for mut i := start; i < end; i++ {
+        c, ok := src[i]
+        if !ok {
+            break
+        }
+        printByte(c)
+    }
+    print("\"")
+}
+
+// printByte prints c as printQuoted does.
+func printByte(c uint8) {
+    if c == '"' || c == '\\' {
+        print("\\")
+    }
+    if c >= ' ' && c <= '~' {
+        s, ok := printable[c - ' ']
+        if ok {
+            print(s)
+        }
+        return
+    }
+    print("\\x")
+    hi, okHi := hexDigits[c / 16]
+    lo, okLo := hexDigits[c % 16]
+    if okHi && okLo {
+        print(hi)
+        print(lo)
+    }
+}

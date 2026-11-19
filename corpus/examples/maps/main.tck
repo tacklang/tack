@@ -1,0 +1,301 @@
+package main
+
+import text from "std/text"
+
+// Maps: map[K]V holds values of type V by keys of type K, which any
+// comparable type can be, in the order they were first put. put inserts a
+// key or replaces its value in place, keeping its position; v, ok := m[k]
+// reads a copyable value; delete takes one out; a range walks the
+// entries in insertion order. A map owns its keys and values, and frees
+// each it still holds, then its buffers, when its owner's block ends.
+//
+// Every check that makes a map runs in a function of its own, and main
+// asserts after it that c_allocator's count of live buffers is back to
+// zero. Every check prints its name and "ok", or "FAIL".
+
+// live returns how many buffers c_allocator holds, in C.
+extern("maps_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("maps_fail_after") func fail_after(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// order returns m's keys in the order a range gives them, as one number,
+// each key a digit.
+func order(m map[int64]int64) int64 {
+    mut n := 0
+    for k := range m {
+        n = n *% 10 +% k
+    }
+    return n
+}
+
+// basics puts, reads, replaces and deletes int64 values by int64 keys.
+func basics() {
+    mut m := make(map[int64]int64, c_allocator)
+    check(len(m) == 0, "a new map is empty")
+    e1 := put(mut m, 1, 10)
+    e2 := put(mut m, 2, 20)
+    e3 := put(mut m, 3, 30)
+    if e1.code != 0 || e2.code != 0 || e3.code != 0 {
+        return
+    }
+    v, ok := m[2]
+    w, found := m[9]
+    check(len(m) == 3 && ok && v == 20 && !found && w == 0, "put and look up")
+    e4 := put(mut m, 2, 22)
+    x, hasX := m[2]
+    check(e4.code == 0 && len(m) == 3 && hasX && x == 22 && order(m) == 123, "a replace keeps the position")
+    d, had := delete(mut m, 1)
+    n, none := delete(mut m, 1)
+    check(had && d == 10 && !none && n == 0 && len(m) == 2 && order(m) == 23, "delete")
+    e5 := put(mut m, 1, 11)
+    check(e5.code == 0 && order(m) == 231, "a key put again goes last")
+    delete(mut m, 3)
+    delete(mut m, 7)
+    mut sum := 0
+    for k, val := range m {
+        sum +%= k *% val
+    }
+    for _, val := range m {
+        sum +%= val
+    }
+    check(order(m) == 21 && sum == 2 * 22 + 1 * 11 + 22 + 11, "a bare delete and every range form")
+}
+
+// stringKeys counts words by strings.
+func stringKeys() {
+    mut m := make(map[string]int64, c_allocator)
+    words := [5]string{"a", "b", "a", "c", "a"}
+    for _, w := range words {
+        // A word not seen yet counts from 0.
+        mut n := 0
+        had, seen := m[w]
+        if seen {
+            n = had
+        }
+        err := put(mut m, w, n +% 1)
+        if err.code != 0 {
+            return
+        }
+    }
+    a, hasA := m["a"]
+    c, hasC := m["c"]
+    check(len(m) == 3 && hasA && a == 3 && hasC && c == 1, "string keys")
+}
+
+// textOf returns a Text holding s's bytes, or an empty one on failure.
+func textOf(s string) text.Text {
+    t, err := text.from_bytes([]uint8(s), c_allocator)
+    if err.code != 0 {
+        return text.new(c_allocator)
+    }
+    return t
+}
+
+// ownedKeys keys a map by Texts, which own their bytes: a put of a key
+// already there frees the key it was given, and delete frees the stored
+// one.
+func ownedKeys() {
+    mut m := make(map[text.Text]int64, c_allocator)
+    e1 := put(mut m, textOf("ab"), 1)
+    e2 := put(mut m, textOf("cd"), 2)
+    e3 := put(mut m, textOf("ab"), 3)
+    if e1.code != 0 || e2.code != 0 || e3.code != 0 {
+        return
+    }
+    ab := textOf("ab")
+    cd := textOf("cd")
+    v, ok := m[ab]
+    mut lens := 0
+    for k := range m {
+        lens = lens *% 10 +% k.len()
+    }
+    _, had := delete(mut m, cd)
+    check(ok && v == 3 && len(m) == 1 && lens == 22 && had, "owned keys")
+}
+
+// Bag holds a list.
+type Bag struct {
+    items list[int64]
+    tag int64
+}
+
+// count returns a list holding 0 through n-1.
+func count(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+// ownedValues holds lists and structs holding lists as values: a replace
+// frees the old value, delete moves one out, and the rest are freed with
+// the map.
+func ownedValues() {
+    mut m := make(map[int64]list[int64], c_allocator)
+    e1 := put(mut m, 1, count(3))
+    e2 := put(mut m, 2, count(4))
+    e3 := put(mut m, 1, count(5))
+    if e1.code != 0 || e2.code != 0 || e3.code != 0 {
+        return
+    }
+    mut lens := 0
+    for _, l := range m {
+        lens = lens *% 10 +% len(l)
+    }
+    taken, ok := delete(mut m, 2)
+    check(lens == 54 && ok && len(taken) == 4 && len(m) == 1, "list values")
+    mut bags := make(map[string]Bag, c_allocator)
+    e4 := put(mut bags, "x", Bag{items: count(2), tag: 7})
+    if e4.code != 0 {
+        return
+    }
+    mut tags := 0
+    for k, b := range bags {
+        tags +%= b.tag +% len(b.items) +% len(k)
+    }
+    delete(mut bags, "x")
+    check(tags == 7 + 2 + 1 && len(bags) == 0, "struct values holding lists")
+}
+
+// Index holds a map in a field.
+type Index struct {
+    byName map[string]int64
+}
+
+// Slot holds a map as a union's payload, or nothing.
+type Slot union {
+    table map[int64]list[int64]
+    empty
+}
+
+// nested keeps maps of maps, maps in a struct's field, in a union's
+// payload and in a list.
+func nested() {
+    mut outer := make(map[int64]map[int64]int64, c_allocator)
+    mut inner := make(map[int64]int64, c_allocator)
+    e1 := put(mut inner, 5, 50)
+    e2 := put(mut outer, 1, inner)
+    if e1.code != 0 || e2.code != 0 {
+        return
+    }
+    mut total := 0
+    for _, im := range outer {
+        for k, v := range im {
+            total +%= k +% v
+        }
+    }
+    mut ms := make(list[map[int64]int64], c_allocator)
+    e3 := append(mut ms, make(map[int64]int64, c_allocator))
+    mut ix := Index{byName: make(map[string]int64, c_allocator)}
+    e4 := put(mut ix.byName, "a", 1)
+    mut table := make(map[int64]list[int64], c_allocator)
+    e5 := put(mut table, 3, count(3))
+    slot := Slot.table(table)
+    mut held := 0
+    switch slot {
+    case table(t):
+        for _, l := range t {
+            held +%= len(l)
+        }
+    case empty:
+    }
+    check(total == 55 && e3.code == 0 && len(ms) == 1 && e4.code == 0 && len(ix.byName) == 1 &&
+        e5.code == 0 && held == 3, "nested maps")
+}
+
+// many puts and deletes enough entries to grow and compact the map many
+// times, and checks every entry and the order.
+func many() {
+    mut m := make(map[int64]int64, c_allocator)
+    for i := range 100000 {
+        err := put(mut m, i, i * 2)
+        if err.code != 0 {
+            return
+        }
+    }
+    for i := range 100000 {
+        if i % 2 == 0 {
+            delete(mut m, i)
+        }
+    }
+    mut good := len(m) == 50000
+    mut prev := -1
+    for k, v := range m {
+        good = good && k % 2 == 1 && v == k *% 2 && k > prev
+        prev = k
+    }
+    for i := range 1000 {
+        v, ok := m[i]
+        good = good && ok == (i % 2 == 1) && (!ok || v == i * 2)
+    }
+    check(good, "100000 entries")
+}
+
+// failing puts into a map of lists, and into one keyed by Texts, with
+// every allocation from the n'th on refused, and reports whether each put
+// either succeeded or left the map as it was, freeing what it was given.
+func failing(n int64) bool {
+    mut m := make(map[int64]list[int64], c_allocator)
+    mut byText := make(map[text.Text]list[int64], c_allocator)
+    fail_after(n)
+    mut ok := true
+    for i := range 20 {
+        before := len(m)
+        err := put(mut m, i, count(2))
+        ok = ok && (err.code == 0 && len(m) == before +% 1 || err.code == 1 && len(m) == before)
+        t := textOf("k")
+        mut key := text.new(c_allocator)
+        e1 := mut key.append(t.bytes())
+        c, fits := uint8(i)
+        e2 := mut key.append_byte(c)
+        if fits && e1.code == 0 && e2.code == 0 {
+            had := len(byText)
+            err2 := put(mut byText, key, count(1))
+            ok = ok && (err2.code == 0 && len(byText) == had +% 1 || err2.code == 1 && len(byText) == had)
+        }
+    }
+    fail_after(-1)
+    return ok
+}
+
+func main() {
+    basics()
+    check(live() == 0, "nothing left after basics")
+    stringKeys()
+    check(live() == 0, "nothing left after string keys")
+    ownedKeys()
+    check(live() == 0, "nothing left after owned keys")
+    ownedValues()
+    check(live() == 0, "nothing left after owned values")
+    nested()
+    check(live() == 0, "nothing left after nested maps")
+    many()
+    check(live() == 0, "nothing left after many")
+    mut all := true
+    for n := range 120 {
+        all = all && failing(n)
+        all = all && live() == 0
+    }
+    check(all, "a put that cannot grow changes nothing and frees what it was given")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

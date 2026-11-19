@@ -1,0 +1,305 @@
+package main
+
+// Member names. A struct's field and a method may be named like any
+// builtin, a builtin type, span, id, handle, int64, string, bool, any,
+// error, Allocator or unsafe_size_t, or a builtin function, len, add,
+// insert, drop or print: a field is reached only after a dot or as a
+// struct literal's key, and a method only after a dot, so neither can be
+// mistaken for the builtin. Such fields are read and written through a
+// dot, set by key in literals, compared, held in arenas, pools and lists,
+// passed to and returned from generic functions and through C, and used
+// in the same expression as the builtin they are named like, len(w.len);
+// methods named like builtin types are called, named through their type
+// and required by interfaces.
+//
+// Every check that makes a list, an arena or a pool runs in a function of
+// its own, and main asserts after it that c_allocator's count of live
+// buffers is back to zero. The count is read through live, whose C, in
+// live.c, reads std's hook; sum, also in live.c, reads a struct's fields
+// named like builtins from C.
+
+import geo from "membernames/geo"
+
+// live returns how many buffers c_allocator holds, in C.
+extern("names_live") func live() int64
+
+// sum returns w.int64 + w.len + w.span, in C, which declares w's fields
+// under their own names.
+extern("names_sum") func sum(w Wire) int64
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that nothing is live after a check, name saying which.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// Node is a node of a tree kept in an arena: every field is named like a
+// builtin type, and id and span hold its own id and its children's span,
+// values of the builtin types they are named like.
+type Node struct {
+    id            id[Node]
+    span          span[Node]
+    int64         int64
+    string        string
+    bool          bool
+    unsafe_size_t unsafe_size_t
+}
+
+// Enemy is kept in a pool, under a handle held in a field named handle.
+type Enemy struct {
+    handle handle[int64]
+    hp     int64
+}
+
+// Words holds fields named like builtin functions: len is a string,
+// whose own length len measures, add and insert are lists, and print,
+// exit and drop are plain values.
+type Words struct {
+    len    string
+    add    list[int64]
+    insert list[int64]
+    print  int64
+    exit   bool
+    drop   int32
+}
+
+// Table holds, under names that are written with a bracket when they
+// name types, a list, an array and a function value, so each is indexed
+// or read right after its name.
+type Table struct {
+    span   list[int64]
+    id     [3]int64
+    handle func(int64) int64
+}
+
+// twice returns x doubled, wrapping.
+func twice(x int64) int64 {
+    return x *% 2
+}
+
+// Wire is passed to C, which reads its fields by their Tack names; a
+// field named bool could not be, since C's bool is a keyword.
+type Wire struct {
+    int64 int64
+    len   int64
+    span  int64
+}
+
+// Err holds an error under the name error, and an any under any.
+type Err struct {
+    error error
+    any   int64
+}
+
+// Span is a type with methods named like builtin types, required by an
+// interface.
+type Span struct {
+    lo int64
+    hi int64
+}
+
+// span returns the width of s: a method named like a builtin type.
+func (s Span) span() int64 {
+    return s.hi -% s.lo
+}
+
+// string returns a label for s: a method named like a builtin type.
+func (s Span) string() string {
+    if s.lo == s.hi {
+        return "empty"
+    }
+    return "span"
+}
+
+// bool reports whether s is empty, through the method span: methods named
+// like builtin types calling one another.
+func (s Span) bool() bool {
+    return s.span() == 0
+}
+
+// Sized asks for methods named like builtin types.
+type Sized interface {
+    span() int64
+    string() string
+}
+
+// width returns x.span() for any T with the methods of Sized.
+func width[T Sized](x T) int64 {
+    return x.span()
+}
+
+// label returns x.string() for any T with the methods of Sized.
+func label[T Sized](x T) string {
+    return x.string()
+}
+
+// Any asks for no method, so every type satisfies it.
+type Any interface {
+}
+
+// same returns x: a generic function passing a struct whose fields are
+// named like builtins through a type parameter.
+func same[T Any](own x T) T {
+    return x
+}
+
+// node returns a Node holding v, s, b and u, with the zero id and span.
+func node(v int64, s string, b bool, u unsafe_size_t) Node {
+    mut i id[Node]
+    mut sp span[Node]
+    return Node{id: i, span: sp, int64: v, string: s, bool: b, unsafe_size_t: u}
+}
+
+// testFields reads and writes fields named like builtin types, through a
+// dot and by key, compares them, and copies them through a generic
+// function.
+func testFields() {
+    mut a := make(arena[Node], node(0, "sentinel", false, 0), c_allocator)
+    root, err := add(mut a, node(7, "root", true, 3))
+    if err.code != 0 {
+        check(false, "add a node with fields named like builtin types")
+        return
+    }
+    a[root].id = root
+    kids, err2 := add_all(mut a, node(1, "", false, 0), node(2, "", false, 0))
+    if err2.code != 0 {
+        check(false, "add_all nodes with fields named like builtin types")
+        return
+    }
+    a[root].span = kids
+    n := a[root]
+    check(n.id == root && n.int64 == 7 && n.string == "root" && n.bool && n.unsafe_size_t == 3,
+        "fields named id, int64, string, bool and unsafe_size_t, set by key and read by dot")
+    mut total int64 = 0
+    for _, k := range a[n.span] {
+        total +%= k.int64
+    }
+    check(total == 3 && len(a[n.span]) == 2, "a span held in a field named span, viewed and measured by len")
+    mut m := same(n)
+    m.int64 = 8
+    m.string = "copy"
+    check(m.int64 == 8 && n.int64 == 7 && m.string == "copy" && m.id == n.id && m.span == n.span,
+        "a struct of such fields through a generic function, a copy written apart")
+}
+
+// testHandles keeps a handle in a field named handle, and proves it live
+// through that field.
+func testHandles() {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 40)
+    if err.code != 0 {
+        check(false, "insert into a pool")
+        return
+    }
+    e := Enemy{handle: h, hp: 2}
+    if has(p, e.handle) {
+        p[e.handle] +%= e.hp
+        check(p[e.handle] == 42, "a handle in a field named handle, proved live by has")
+    } else {
+        check(false, "a handle in a field named handle, proved live by has")
+    }
+    mut f := e
+    f.hp = 0
+    f.handle = e.handle
+    check(f.handle == h && f.hp == 0 && e.hp == 2, "a field named handle, copied and written")
+}
+
+// testWords uses fields named like builtin functions beside the builtins
+// themselves, in the same expressions.
+func testWords() {
+    mut w := Words{
+        len:    "four",
+        add:    make(list[int64], c_allocator),
+        insert: make(list[int64], c_allocator),
+        print:  1,
+        exit:   false,
+        drop:   3,
+    }
+    check(len(w.len) == 4, "len(w.len) measures a string field named len")
+    err := append(mut w.add, 5, 6)
+    err2 := append(mut w.insert, 7)
+    check(err.code == 0 && err2.code == 0 && len(w.add) == 2 && len(w.insert) == 1,
+        "append to list fields named add and insert")
+    mut sum int64 = 0
+    for _, x := range w.add {
+        sum +%= x
+    }
+    w.print +%= sum
+    check(w.print == 12 && !w.exit && w.drop == 3, "fields named print, exit and drop, read and written")
+    w.len = "x"
+    check(len(w.len) == 1, "a field named len, reassigned")
+    old := replace(mut w.add, make(list[int64], c_allocator))
+    check(len(old) == 2 && len(w.add) == 0, "replace in a field named add")
+    drop(own old)
+}
+
+// testIndexed indexes a list field named span and an array field named
+// id, and calls a function value read from a field named handle.
+func testIndexed() {
+    mut t := Table{span: make(list[int64], c_allocator), id: [3]int64{1, 2, 3}, handle: twice}
+    err := append(mut t.span, 9)
+    v, ok := t.span[0]
+    f := t.handle
+    t.id[1] = f(t.id[2])
+    check(err.code == 0 && ok && v == 9 && t.id[1] == 6 && t.id[len(t.id) - 1] == 3,
+        "fields named span, id and handle, indexed and called through")
+}
+
+// testErr holds an error in a field named error.
+func testErr() {
+    e := Err{error: noerror, any: 1}
+    check(e.error.code == 0 && e.any == 1, "fields named error and any")
+}
+
+// testMethods calls methods named like builtin types, directly, through
+// their type and through interfaces.
+func testMethods() {
+    s := Span{lo: 2, hi: 5}
+    check(s.span() == 3 && s.string() == "span" && !s.bool(), "methods named span, string and bool")
+    f := Span.span
+    check(f(s) == 3, "a method named span, named through its type")
+    check(width(s) == 3 && label(Span{lo: 1, hi: 1}) == "empty", "methods named like builtin types, through an interface")
+}
+
+// testOtherPackage uses fields and methods named like builtins declared
+// in another package.
+func testOtherPackage() {
+    mut t := geo.New(10, 4, 99)
+    check(t.span == 10 && t.len == 4 && t.string == "tok", "pub fields named span, len and string of another package")
+    check(t.int64() == 14 && t.handle() == 99, "methods named int64 and handle of another package")
+    mut t.append(2)
+    t.span = 1
+    check(t.len == 6 && t.int64() == 7, "a field named len, written by a method named append and read across packages")
+    g := geo.Token.int64
+    check(g(t) == 7, "a method named int64 of another package, named through its type")
+}
+
+// testC passes a struct with fields named int64, len and span to C.
+func testC() {
+    w := Wire{int64: 1, len: 2, span: 4}
+    check(sum(w) == 7, "fields named int64, len and span, read by C")
+}
+
+func main() {
+    testFields()
+    freed("arena of nodes freed")
+    testHandles()
+    freed("pool freed")
+    testWords()
+    freed("lists in fields named like builtins freed")
+    testIndexed()
+    freed("list in a field named span freed")
+    testErr()
+    testMethods()
+    testOtherPackage()
+    testC()
+}

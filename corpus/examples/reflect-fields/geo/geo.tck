@@ -1,0 +1,49 @@
+package geo
+
+// Package geo declares structs with private fields, and generic functions
+// over Data that range over the fields of whatever they are passed: a
+// fields loop lists the fields visible from the package declaring its
+// function, so geo's functions see every field of geo's structs, and only
+// the pub fields of another package's.
+
+// Point has two pub fields and a private one.
+pub type Point struct {
+    pub x int64
+    pub y int64
+    tag   int64
+}
+
+// Box holds a Point and a private list.
+pub type Box struct {
+    pub corner Point
+    items      list[int64]
+}
+
+// point returns a Point at x, y, tagged 7.
+pub func point(x int64, y int64) Point {
+    return Point{x: x, y: y, tag: 7}
+}
+
+// box returns a Box at p holding no items, growing through alloc.
+pub func box(p Point, scope alloc Allocator) Box {
+    return Box{corner: p, items: make(list[int64], alloc)}
+}
+
+// count returns how many fields of v geo sees.
+pub func count[T Data](v T) int64 {
+    mut n := 0
+    for range fields(T) {
+        n +%= 1
+    }
+    return n
+}
+
+// deep returns how many fields geo sees in v and, through each, in the
+// fields of what it holds, at any depth.
+pub func deep[T Data](v T) int64 {
+    mut n := 0
+    for f := range fields(T) {
+        n = n +% 1 +% deep(v.[f])
+    }
+    return n
+}

@@ -1,0 +1,46 @@
+package main
+
+// divmod returns a divided by b and the remainder, or 0 and 0 for a b of
+// 0. A b of -1 is written out, since the smallest int64 divided by -1
+// overflows: the quotient wraps to -%a, as it did before that division
+// needed a proof.
+func divmod(a int64, b int64) (int64, int64) {
+    if b == 0 {
+        return 0, 0
+    }
+    if b == -1 {
+        return -%a, 0
+    }
+    return a / b, a % b
+}
+
+func classify(n int64) (string, bool) {
+    if n < 0 {
+        return "negative", false
+    }
+    return "non-negative", true
+}
+
+func main() {
+    q, r := divmod(17, 5)
+    label, ok := classify(-4)
+    if ok {
+        exit(1)
+    }
+    print(label)
+    print("\n")
+
+    mut total, count := divmod(100, 7)
+    total +%= count
+    divmod(1, 1)
+    code, fits := int32(q *% 10 +% r +% total)
+    if !fits {
+        exit(2)
+    }
+    exit(code)
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

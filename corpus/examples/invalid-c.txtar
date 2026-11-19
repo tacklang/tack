@@ -1,0 +1,338 @@
+Invalid example programs with C files, one case per program, in byte
+order of name.
+
+A case named n is its files, each a txtar file n/<path>, its .c files
+among them, followed by n/expected, what tack writes to stderr for it, with
+each file's path printed as n/<path>. The case is built with clang from
+the directory n, or from what an optional n/.target file names, relative
+to n: main.tck for a single-file program. Every file must end with a
+newline. When clang rejects a C file, its own report, which varies with
+its version, is not pinned: n/expected holds what tack writes after it.
+internal/invalid documents the format; go test ./tack -run TestInvalidC
+builds every case, and -update rewrites the expected sections.
+
+-- c-defines-main/.target --
+main.tck
+-- c-defines-main/main.tck --
+package main
+
+extern func sum(a int64, b int64) int64
+
+func main() {
+    code, fits := int32(sum(40, 2))
+    if fits { exit(code) }
+}
+-- c-defines-main/helpers.c --
+int64_t sum(int64_t a, int64_t b) {
+    return a + b;
+}
+
+int main(void) {
+    return 0;
+}
+-- c-defines-main/expected --
+tack: c-defines-main/helpers.c defines main; a Tack program's main is its Tack main, so no C file may define one
+-- c-redefines-type/.target --
+main.tck
+-- c-redefines-type/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+extern func norm(p Point) int64
+
+func main() {
+    code, fits := int32(norm(Point{x: 40, y: 2}))
+    if fits { exit(code) }
+}
+-- c-redefines-type/helpers.c --
+typedef struct {
+    int32_t x;
+    int32_t y;
+} Point;
+
+int64_t norm(Point p) {
+    return p.x + p.y;
+}
+-- c-redefines-type/expected --
+tack: cannot compile c-redefines-type/helpers.c: clang failed: exit status 1
+-- c-syntax-error/.target --
+main.tck
+-- c-syntax-error/main.tck --
+package main
+
+extern func sum(a int64, b int64) int64
+
+func main() {
+    code, fits := int32(sum(40, 2))
+    if fits { exit(code) }
+}
+-- c-syntax-error/helpers.c --
+int64_t sum(int64_t a, int64_t b) {
+    return a + b
+}
+-- c-syntax-error/expected --
+tack: cannot compile c-syntax-error/helpers.c: clang failed: exit status 1
+-- definition-in-another-package/tack.mod --
+module calc
+-- definition-in-another-package/main.tck --
+package main
+
+import util from "calc/util"
+
+extern func sum(a int64, b int64) int64
+
+func main() {
+    code, fits := int32(sum(util.Two(), 40))
+    if fits { exit(code) }
+}
+-- definition-in-another-package/util/util.tck --
+package util
+
+pub func Two() int64 {
+    return 2
+}
+-- definition-in-another-package/util/util.c --
+int64_t sum(int64_t a, int64_t b) {
+    return a + b;
+}
+-- definition-in-another-package/expected --
+
+definition-in-another-package/main.tck:5:13: error: extern func sum has no C definition in package main
+04 |	
+05 |	extern func sum(a int64, b int64) int64
+   |	            ^~~
+06 |	
+
+-- duplicate-definition/.target --
+main.tck
+-- duplicate-definition/main.tck --
+package main
+
+extern func sum(a int64, b int64) int64
+
+func main() {
+    code, fits := int32(sum(40, 2))
+    if fits { exit(code) }
+}
+-- duplicate-definition/a.c --
+int64_t sum(int64_t a, int64_t b) {
+    return a + b;
+}
+-- duplicate-definition/b.c --
+int64_t sum(int64_t a, int64_t b) {
+    return b + a;
+}
+-- duplicate-definition/expected --
+tack: two C files define sum: duplicate-definition/a.c and duplicate-definition/b.c
+-- duplicate-helper/.target --
+main.tck
+-- duplicate-helper/main.tck --
+package main
+
+extern func sum(a int64, b int64) int64
+
+func main() {
+    code, fits := int32(sum(40, 2))
+    if fits { exit(code) }
+}
+-- duplicate-helper/a.c --
+int counter = 0;
+
+int64_t sum(int64_t a, int64_t b) {
+    return a + b;
+}
+-- duplicate-helper/b.c --
+int counter = 1;
+-- duplicate-helper/expected --
+tack: two C files define counter: duplicate-helper/a.c and duplicate-helper/b.c
+-- empty-c-file/.target --
+main.tck
+-- empty-c-file/main.tck --
+package main
+
+extern func sum(a int64, b int64) int64
+
+func main() {
+    code, fits := int32(sum(40, 2))
+    if fits { exit(code) }
+}
+-- empty-c-file/empty.c --
+-- empty-c-file/expected --
+
+empty-c-file/main.tck:3:13: error: extern func sum has no C definition in package main
+02 |	
+03 |	extern func sum(a int64, b int64) int64
+   |	            ^~~
+04 |	
+
+-- missing-definition/.target --
+main.tck
+-- missing-definition/main.tck --
+package main
+
+extern func sum(a int64, b int64) int64
+
+extern func flip(b bool) bool
+
+extern func unused()
+
+func main() {
+    if flip(false) {
+        code, fits := int32(sum(40, 2))
+        if fits { exit(code) }
+    }
+}
+-- missing-definition/helpers.c --
+bool flip(bool b) {
+    return !b;
+}
+
+int64_t ad(int64_t a, int64_t b) {
+    return a + b;
+}
+-- missing-definition/expected --
+
+missing-definition/main.tck:7:13: warning: declared and not used: unused
+06 |	
+07 |	extern func unused()
+   |	            ^~~~~~
+08 |	
+
+
+missing-definition/main.tck:3:13: error: extern func sum has no C definition in package main
+02 |	
+03 |	extern func sum(a int64, b int64) int64
+   |	            ^~~
+04 |	
+
+missing-definition/main.tck:7:13: error: extern func unused has no C definition in package main
+06 |	
+07 |	extern func unused()
+   |	            ^~~~~~
+08 |	
+
+-- missing-in-library/tack.mod --
+module calc
+-- missing-in-library/main.tck --
+package main
+
+import util from "calc/util"
+
+func main() {
+    code, fits := int32(util.Sum(40, 2))
+    if fits { exit(code) }
+}
+-- missing-in-library/util/util.tck --
+package util
+
+extern func sum(a int64, b int64) int64
+
+pub func Sum(a int64, b int64) int64 {
+    return sum(a, b)
+}
+-- missing-in-library/expected --
+
+missing-in-library/util/util.tck:3:13: error: extern func sum has no C definition in package util
+02 |	
+03 |	extern func sum(a int64, b int64) int64
+   |	            ^~~
+04 |	
+
+-- mut-param-by-value/.target --
+main.tck
+-- mut-param-by-value/main.tck --
+package main
+
+extern func fill(mut n int64, v int64)
+
+func main() {
+    mut n int64 = 0
+    fill(mut n, 42)
+    code, fits := int32(n)
+    if fits { exit(code) }
+}
+-- mut-param-by-value/helpers.c --
+void fill(int64_t n, int64_t v) {
+    n = v;
+}
+-- mut-param-by-value/expected --
+tack: cannot compile mut-param-by-value/helpers.c: clang failed: exit status 1
+-- no-c-files/.target --
+main.tck
+-- no-c-files/main.tck --
+package main
+
+extern func sum(a int64, b int64) int64
+
+func main() {
+    code, fits := int32(sum(40, 2))
+    if fits { exit(code) }
+}
+-- no-c-files/expected --
+
+no-c-files/main.tck:3:13: error: extern func sum has no C definition in package main
+02 |	
+03 |	extern func sum(a int64, b int64) int64
+   |	            ^~~
+04 |	
+
+-- signature-mismatch/.target --
+main.tck
+-- signature-mismatch/main.tck --
+package main
+
+extern func sum(a int64, b int64) int64
+
+func main() {
+    code, fits := int32(sum(40, 2))
+    if fits { exit(code) }
+}
+-- signature-mismatch/helpers.c --
+int32_t sum(int32_t a) {
+    return a + 2;
+}
+-- signature-mismatch/expected --
+tack: cannot compile signature-mismatch/helpers.c: clang failed: exit status 1
+-- static-definition/.target --
+main.tck
+-- static-definition/main.tck --
+package main
+
+extern func sum(a int64, b int64) int64
+
+func main() {
+    code, fits := int32(sum(40, 2))
+    if fits { exit(code) }
+}
+-- static-definition/helpers.c --
+static int64_t sum(int64_t a, int64_t b) {
+    return a + b;
+}
+-- static-definition/expected --
+tack: cannot compile static-definition/helpers.c: clang failed: exit status 1
+-- struct-result-mismatch/.target --
+main.tck
+-- struct-result-mismatch/main.tck --
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+extern func origin() Point
+
+func main() {
+    code, fits := int32(origin().x)
+    if fits { exit(code) }
+}
+-- struct-result-mismatch/helpers.c --
+tack_string origin(void) {
+    return (tack_string){0, 0};
+}
+-- struct-result-mismatch/expected --
+tack: cannot compile struct-result-mismatch/helpers.c: clang failed: exit status 1

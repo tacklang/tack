@@ -1,0 +1,69 @@
+package sink
+
+// Package sink declares an interface and generic functions for other
+// packages to use. Sink is satisfied by any struct type with methods put
+// and count of the right signatures, wherever it is declared, as long as
+// the package passing it to Feed or Total can call those methods itself.
+
+// Sink takes words and counts them.
+pub type Sink interface {
+    mut put(word string) error
+    count() int64
+}
+
+// Feed puts each of words into s, in order, stopping at the first error:
+// a pub generic function with a variadic parameter.
+pub func Feed[S Sink](mut s S, words ...string) error {
+    for _, w := range words {
+        err := mut s.put(w)
+        if err.code != 0 {
+            return err
+        }
+    }
+    return noerror
+}
+
+// Total returns how many words a and b hold together: two type
+// parameters with one constraint.
+pub func Total[A Sink, B Sink](a A, b B) int64 {
+    return a.count() +% b.count()
+}
+
+// Tally counts the words put into it, and keeps none. Its methods are
+// private, so only this package can pass a Tally as a Sink, as Tallied
+// does.
+pub type Tally struct {
+    n int64
+}
+
+// NewTally returns a Tally that has counted nothing.
+pub func NewTally() Tally {
+    return Tally{n: 0}
+}
+
+// put counts word.
+func (mut t Tally) put(word string) error {
+    t.n +%= 1
+    return noerror
+}
+
+// count returns how many words t has counted.
+func (t Tally) count() int64 {
+    return t.n
+}
+
+// Tallied feeds words to a new Tally and returns its count, or -1 if
+// feeding failed.
+pub func Tallied(words ...string) int64 {
+    mut t := NewTally()
+    err := Feed(mut t, words...)
+    if err.code != 0 {
+        return -1
+    }
+    return t.count()
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

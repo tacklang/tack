@@ -1,0 +1,18 @@
+empty ok
+abc ok
+448-bit ok
+896-bit ok
+pieces ok
+million a ok
+million a in 999s ok
+million a in 4097s ok
+sum twice ok
+write after sum ok
+write nothing ok
+copy goes on ok
+source unchanged ok
+zero sum ok
+zero one write ok
+zero in pieces ok
+zero copy unchanged ok
+zero copy goes on ok

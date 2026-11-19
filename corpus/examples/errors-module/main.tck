@@ -1,0 +1,52 @@
+package main
+
+import num from "errmod/num"
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// sum parses a and b with num.Parse and adds them, passing the first
+// error on.
+func sum(a string, b string) (int64, error) {
+    x, errX := num.Parse(a)
+    if errX.code != 0 {
+        return 0, errX
+    }
+    y, errY := num.Parse(b)
+    if errY.code != 0 {
+        return 0, errY
+    }
+    return x +% y, noerror
+}
+
+func main() {
+    v, err := num.Parse("12")
+    if err.code != 0 {
+        check(false, "parsed")
+        return
+    }
+    check(v == 12, "parsed")
+
+    _, empty := num.Parse("")
+    check(empty == num.Empty, "sentinel of another package")
+
+    total, errSum := sum("30", "12")
+    _, errBad := sum("1", "z")
+    if errSum.code == 0 {
+        check(total == 42 && errBad.code == 3, "propagated across packages")
+    }
+
+    check(num.Positive(1) == noerror && num.Positive(0).msg == "not positive", "error alone")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

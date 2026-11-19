@@ -1,0 +1,9 @@
+package main
+
+func seven() int32 {
+    return 7
+}
+
+func main() {
+    exit(seven())
+}

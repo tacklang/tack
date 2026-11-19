@@ -1,0 +1,332 @@
+package main
+
+// Relations between two values prove an index, or a slice's bounds, with
+// no checked form. A comparison of two values, i < n, says how far apart
+// they are, i - n <= -1, and the checker chains such relations: i < n and
+// n <= len(a) together prove i < len(a). A declaration or an assignment
+// relates what it stores to what it was computed from, so k := j - 1 is
+// one less than j, and n := len(a) equals len(a). A relation through x +
+// c or x - c holds only where other facts keep it from overflowing, which
+// plain arithmetic must be proven not to do anyway: i + 1 < len(a) is
+// written after i < len(a), which proves it.
+//
+// Every check prints its name and "ok", or "FAIL", and runs each function
+// at the edges: the first and last index, one past them, empty views,
+// and int64's and uint64's extremes, where a relation that ignored
+// overflow would read out of range.
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// Pair holds two bounds, a path below an immutable parameter carrying
+// relations as a variable does.
+type Pair struct {
+    lo int64
+    hi int64
+}
+
+// chain reads a[i] through i < n and n <= len(a).
+func chain(a []int64, i int64, n int64) int64 {
+    if 0 <= i && i < n && n <= len(a) {
+        return a[i]
+    }
+    return -1
+}
+
+// three reads a[i] and a[j] through i < j < k <= len(a).
+func three(a []int64, i int64, j int64, k int64) int64 {
+    if 0 <= i && i < j && j < k && k <= len(a) {
+        return a[i] +% a[j]
+    }
+    return -1
+}
+
+// reversed is chain written with every comparison the other way round.
+func reversed(a []int64, i int64, n int64) int64 {
+    if i >= 0 && n > i && len(a) >= n {
+        return a[i]
+    }
+    return -1
+}
+
+// equal reads a[i] through i == j and j < len(a).
+func equal(a []int64, i int64, j int64) int64 {
+    if j < len(a) && i == j && 0 <= j {
+        return a[i]
+    }
+    return -1
+}
+
+// next reads a[i] and a[i + 1], i + 1 copied into j: i < len(a) keeps
+// i + 1 from overflowing, so i + 1 < len(a) relates i to len(a), and j is
+// one more than i.
+func next(a []int64, i int64) int64 {
+    if 0 <= i && i < len(a) && i + 1 < len(a) {
+        j := i + 1
+        return a[i] +% a[j]
+    }
+    return -1
+}
+
+// nextFirst is next with what bounds i below written after i + 1: i <
+// 100 keeps i + 1 from overflowing where it is written, i + 1 < len(a)
+// relates it to the length, and 0 <= i, after both, keeps it at or above
+// 0, which the index needs.
+func nextFirst(a []int64, i int64) int64 {
+    if i < 100 && i + 1 < len(a) && 0 <= i {
+        return a[i + 1]
+    }
+    return -1
+}
+
+// lenMinus reads a[i] and a[i + 1] after i < len(a) - 1, which never
+// overflows, since len(a) is never negative.
+func lenMinus(a []int64, i int64) int64 {
+    if 0 <= i && i < len(a) - 1 {
+        j := i + 1
+        return a[i] +% a[j]
+    }
+    return -1
+}
+
+// before reads a[i - 1] after 0 < i && i <= len(a), i - 1 copied into k.
+func before(a []int64, i int64) int64 {
+    if 0 < i && i <= len(a) {
+        k := i - 1
+        return a[k]
+    }
+    return -1
+}
+
+// back reads a[j - 1] and a[j] after 0 < j && j < len(a).
+func back(a []int64, j int64) int64 {
+    if 0 < j && j < len(a) {
+        k := j - 1
+        return a[k] +% a[j]
+    }
+    return -1
+}
+
+// backUnsigned is back for a uint64 j, whose j - 1 would go below 0 at
+// 0, which 0 < j rules out.
+func backUnsigned(a []int64, j uint64) int64 {
+    if 0 < j && j < len(a) {
+        k := j - 1
+        return a[k] +% a[j]
+    }
+    return -1
+}
+
+// nextNarrow is next for an int8 i, whose i + 1 overflows at 127: i <
+// 100 keeps it from overflowing, which i < len(a) would not for a long a.
+func nextNarrow(a []int64, i int8) int64 {
+    if 0 <= i && i < 100 && i + 1 < len(a) {
+        j := i + 1
+        return a[i] +% a[j]
+    }
+    return -1
+}
+
+// counted reads a[i] after n := len(a) and i < n.
+func counted(a []int64, i int64) int64 {
+    n := len(a)
+    if 0 <= i && i < n {
+        return a[i]
+    }
+    return -1
+}
+
+// lastOf reads the last element through last := len(a) - 1.
+func lastOf(a []int64) int64 {
+    last := len(a) - 1
+    if 0 <= last {
+        return a[last]
+    }
+    return -1
+}
+
+// pair reads a[p.lo] through fields of an immutable parameter.
+func pair(a []int64, p Pair) int64 {
+    if 0 <= p.lo && p.lo < p.hi && p.hi <= len(a) {
+        return a[p.lo]
+    }
+    return -1
+}
+
+// spanLen slices a[i:k] through i <= j <= k <= len(a).
+func spanLen(a []int64, i int64, j int64, k int64) int64 {
+    if 0 <= i && i <= j && j <= k && k <= len(a) {
+        return len(a[i:k])
+    }
+    return -1
+}
+
+// tail slices a[k:] through k := j - 1 after 0 < j && j <= len(a).
+func tail(a []int64, j int64) int64 {
+    if 0 < j && j <= len(a) {
+        k := j - 1
+        return len(a[k:])
+    }
+    return -1
+}
+
+// byteBefore reads the byte of s before j.
+func byteBefore(s string, j int64) int64 {
+    if 0 < j && j < len(s) {
+        k := j - 1
+        return int64(s[k])
+    }
+    return -1
+}
+
+// find is a binary search whose loop restates its bounds on every pass,
+// with mid checked against them: mid < hi <= len(a) and 0 <= lo <= mid.
+func find(a []int64, x int64) int64 {
+    mut lo int64 = 0
+    mut hi := len(a)
+    for 0 <= lo && lo < hi && hi <= len(a) {
+        mid := lo +% (hi - lo) / 2
+        if lo <= mid && mid < hi {
+            if a[mid] < x {
+                lo = mid + 1
+            } else {
+                hi = mid
+            }
+        } else {
+            return -1
+        }
+    }
+    return lo
+}
+
+// palindrome closes in from both ends, the loop restating
+// 0 <= i < j < len(a) on every pass.
+func palindrome(a []int64) bool {
+    mut i int64 = 0
+    mut j := len(a) - 1
+    for 0 <= i && i < j && j < len(a) {
+        if a[i] != a[j] {
+            return false
+        }
+        i++
+        j -%= 1
+    }
+    return true
+}
+
+// mutBack is back through a mutable k, whose relation to j holds until
+// one of them is assigned.
+func mutBack(a []int64, j int64) int64 {
+    if 0 < j && j < len(a) {
+        mut k := j - 1
+        t := a[k]
+        k = 0
+        return t +% k
+    }
+    return -1
+}
+
+// reassigned relates k to j again after assigning it: k = j - 1 holds
+// after the assignment as k := j - 1 does after the declaration.
+func reassigned(a []int64, j int64) int64 {
+    mut k int64 = 0
+    if 0 < j && j < len(a) {
+        k = j - 1
+        return a[k]
+    }
+    return k -% 1
+}
+
+// flip swaps l[i] and l[i + 1], i + 1 copied into j.
+func flip(mut l list[int64], i int64) {
+    if 0 <= i && i < len(l) && i + 1 < len(l) {
+        j := i + 1
+        swap(mut l, i, j)
+    }
+}
+
+// takeBefore removes the element of l before j.
+func takeBefore(mut l list[int64], j int64) int64 {
+    if 0 < j && j <= len(l) {
+        k := j - 1
+        return remove(mut l, k)
+    }
+    return -1
+}
+
+// lists checks flip and takeBefore on a list of 1, 2, 3, returning
+// whether every check held.
+func lists() bool {
+    mut l := make(list[int64], c_allocator)
+    err := append(mut l, 1, 2, 3)
+    if err.code != 0 {
+        return false
+    }
+    flip(mut l, 1)
+    flip(mut l, 2)
+    flip(mut l, -1)
+    flip(mut l, 9223372036854775807)
+    if len(l) != 3 {
+        return false
+    }
+    ok := l[0] == 1 && l[1] == 3 && l[2] == 2
+    taken := takeBefore(mut l, 3)
+    none := takeBefore(mut l, 0) == -1 && takeBefore(mut l, 3) == -1
+    return ok && taken == 2 && none && len(l) == 2
+}
+
+func main() {
+    arr := [4]int64{10, 20, 30, 40}
+    max := 9223372036854775807
+    min := -9223372036854775807 - 1
+    umax := uint64(18446744073709551615)
+
+    check(chain(arr[:], 0, 4) == 10 && chain(arr[:], 3, 4) == 40, "chain")
+    check(chain(arr[:], 4, 4) == -1 && chain(arr[:], 1, 5) == -1 && chain(arr[:], -1, 4) == -1, "chain outside")
+    check(chain(arr[0:0], 0, 0) == -1 && chain(arr[:], max, max) == -1, "chain edges")
+    check(three(arr[:], 0, 2, 4) == 40 && three(arr[:], 0, 3, 5) == -1 && three(arr[:], 2, 2, 3) == -1, "three")
+    check(reversed(arr[:], 3, 4) == 40 && reversed(arr[:], 3, 3) == -1, "reversed")
+    check(equal(arr[:], 3, 3) == 40 && equal(arr[:], 3, 2) == -1 && equal(arr[:], 4, 4) == -1, "equal")
+    check(next(arr[:], 2) == 70 && next(arr[:], 3) == -1 && next(arr[:], max) == -1, "next")
+    check(next(arr[:], min) == -1 && next(arr[0:0], 0) == -1, "next edges")
+    check(nextFirst(arr[:], 2) == 40 && nextFirst(arr[:], max) == -1, "next first")
+    check(lenMinus(arr[:], 2) == 70 && lenMinus(arr[:], 3) == -1 && lenMinus(arr[0:0], 0) == -1, "len minus")
+    check(lenMinus(arr[0:0], -1) == -1 && lenMinus(arr[:], max) == -1, "len minus edges")
+    check(before(arr[:], 4) == 40 && before(arr[:], 1) == 10 && before(arr[:], 0) == -1, "before")
+    check(before(arr[:], 5) == -1 && before(arr[:], min) == -1 && before(arr[0:0], 0) == -1, "before edges")
+    check(back(arr[:], 3) == 70 && back(arr[:], 0) == -1 && back(arr[:], 4) == -1, "back")
+    check(backUnsigned(arr[:], 3) == 70 && backUnsigned(arr[:], 0) == -1 && backUnsigned(arr[:], umax) == -1, "back unsigned")
+    mut big [200]int64
+    big[99] = 1
+    big[100] = 2
+    check(nextNarrow(big[:], 99) == 3 && nextNarrow(big[:], 100) == -1, "next narrow")
+    check(nextNarrow(big[:], 127) == -1 && nextNarrow(arr[:], 3) == -1, "next narrow edges")
+    check(counted(arr[:], 3) == 40 && counted(arr[:], 4) == -1 && counted(arr[0:0], 0) == -1, "counted")
+    check(lastOf(arr[:]) == 40 && lastOf(arr[0:0]) == -1, "last of")
+    check(pair(arr[:], Pair{lo: 1, hi: 4}) == 20 && pair(arr[:], Pair{lo: 1, hi: 5}) == -1, "pair")
+    check(spanLen(arr[:], 1, 2, 4) == 3 && spanLen(arr[:], 0, 0, 0) == 0 && spanLen(arr[:], 2, 1, 4) == -1, "span")
+    check(spanLen(arr[:], 0, 4, 5) == -1 && spanLen(arr[0:0], 0, 0, 0) == 0, "span edges")
+    check(tail(arr[:], 4) == 1 && tail(arr[:], 1) == 4 && tail(arr[:], 0) == -1 && tail(arr[:], 5) == -1, "tail")
+    check(byteBefore("tack", 3) == 99 && byteBefore("tack", 4) == -1 && byteBefore("", 0) == -1, "byte before")
+    sorted := [5]int64{1, 3, 5, 7, 9}
+    check(find(sorted[:], 7) == 3 && find(sorted[:], 0) == 0 && find(sorted[:], 10) == 5 && find(sorted[:], 6) == 3, "find")
+    check(find(arr[0:0], 4) == 0 && find(sorted[0:1], 1) == 0, "find edges")
+    p := [5]int64{1, 2, 3, 2, 1}
+    q := [4]int64{1, 2, 3, 1}
+    check(palindrome(p[:]) && !palindrome(q[:]) && palindrome(arr[0:0]) && palindrome(p[0:1]), "palindrome")
+    check(mutBack(arr[:], 3) == 30 && mutBack(arr[:], 0) == -1, "mut back")
+    check(reassigned(arr[:], 2) == 20 && reassigned(arr[:], 4) == -1, "reassigned")
+    check(lists(), "lists")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

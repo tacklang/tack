@@ -1,0 +1,77 @@
+package main
+
+// pattern is a package-level raw string: its backslashes are bytes.
+var pattern = `\d+\.\d+`
+
+// banner spans three lines, and is printed as it is written.
+var banner = `raw
+  strings
+"keep" \every\ byte // as written
+`
+
+// sum adds up the bytes of s, so a single wrong byte changes the result.
+func sum(s string) int64 {
+    mut n := 0
+    for _, b := range s {
+        n +%= int64(b)
+    }
+    return n
+}
+
+func main() {
+    // A backslash is a backslash: nothing after it is decoded.
+    if len(`\n`) != 2 || `\n`[0] != '\\' || `\n`[1] != 'n' || `\n` != "\\n" {
+        exit(1)
+    }
+    if len(`\"`) != 2 || `\"`[1] != '"' || `\\` != "\\\\" || len(`\\`) != 2 {
+        exit(2)
+    }
+
+    // A backslash just before the closing backquote does not escape it.
+    if len(`\`) != 1 || `\`[0] != 92 {
+        exit(3)
+    }
+
+    // The empty raw string is the empty string.
+    if len(``) != 0 || `` != "" {
+        exit(4)
+    }
+
+    // Quotes and comment markers are ordinary bytes inside backquotes.
+    q := `say "hi" // not a comment`
+    if len(q) != 25 || q[4] != '"' || q[9] != '/' || q != "say \"hi\" // not a comment" {
+        exit(5)
+    }
+
+    // A raw string spans lines; each line break is one newline byte.
+    two := `a
+b`
+    if len(two) != 3 || two[1] != '\n' || two != "a\nb" {
+        exit(6)
+    }
+
+    // Package-level raw strings, and a raw string equal to its quoted form.
+    if len(pattern) != 8 || pattern != "\\d+\\.\\d+" || sum(pattern) != sum("\\d+\\.\\d+") {
+        exit(7)
+    }
+    if len(banner) != 48 || banner[47] != '\n' || banner[21] != '\\' {
+        exit(8)
+    }
+
+    // Bytes from 0x80 up pass through as themselves.
+    if len(`é`) != 2 || `é`[0] != 195 || `é`[1] != 169 {
+        exit(9)
+    }
+
+    print(banner)
+    code, ok := int32(sum(`\t`) -% sum("\\"))
+    if !ok {
+        exit(10)
+    }
+    exit(code)
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

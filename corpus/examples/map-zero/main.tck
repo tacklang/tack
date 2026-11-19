@@ -1,0 +1,211 @@
+package main
+
+// A map is a C struct, so wherever the generated C starts a value at its
+// type's zero value, a map's is a zeroed struct, an empty map with no
+// buffer: the result a function returning a map starts as, before it
+// returns one built in a local; the value v, ok := pop(mut l) gives for a
+// list of maps that was empty; and the value v, ok := delete(mut m, k)
+// gives for a map of maps that had no k. None is read: each is either
+// replaced or, when ok is false, freed as an empty map.
+//
+// Every check that makes a map runs in a function of its own, and main
+// asserts after it that c_allocator's count of live buffers is back to
+// zero. Every check prints its name and "ok", or "FAIL".
+
+// live returns how many buffers c_allocator holds, in C.
+extern("zero_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("zero_fail_after") func fail_after(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// count returns a list holding 0 through n-1, or as many as fit.
+func count(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+// squares returns a map from 0 through n-1 to each one's square, built in
+// a local and returned, or as many entries as fit.
+func squares(n int64) map[int64]int64 {
+    mut m := make(map[int64]int64, c_allocator)
+    for i := range n {
+        err := put(mut m, i, i *% i)
+        if err.code != 0 {
+            return m
+        }
+    }
+    return m
+}
+
+// lists returns a map from 0 through n-1 to a list of that many elements,
+// built in a local, with a defer that runs after the result is chosen.
+func lists(n int64) map[int64]list[int64] {
+    mut m := make(map[int64]list[int64], c_allocator)
+    mut spare := count(3)
+    defer {
+        mut extra := count(1)
+        if len(extra) > 0 && len(spare) > 0 {
+            extra[0] = spare[0]
+        }
+    }
+    for i := range n {
+        err := put(mut m, i, count(i))
+        if err.code != 0 {
+            return m
+        }
+    }
+    return m
+}
+
+// pick returns one of two maps built in locals, the one cond names, and
+// frees the other.
+func pick(cond bool) map[int64]int64 {
+    a := squares(2)
+    b := squares(5)
+    if cond {
+        return a
+    }
+    return b
+}
+
+// returned returns maps built in locals, of copyable and of owned values,
+// by every way out of the function.
+func returned() {
+    m := squares(4)
+    v, hasV := m[3]
+    ls := lists(4)
+    mut n := 0
+    for _, l := range ls {
+        n +%= len(l)
+    }
+    check(len(m) == 4 && hasV && v == 9 && len(ls) == 4 && n == 0 + 1 + 2 + 3, "a map built in a local and returned")
+    two := pick(true)
+    five := pick(false)
+    check(len(two) == 2 && len(five) == 5, "one of two maps returned, the other freed")
+}
+
+// popped pops maps off a list with the checked form, past its end, so
+// the last pop gives false, and the zero map, which is never read.
+func popped() {
+    mut l := make(list[map[int64]int64], c_allocator)
+    e1 := append(mut l, squares(1))
+    e2 := append(mut l, squares(2))
+    if e1.code != 0 || e2.code != 0 {
+        check(false, "the checked pop of a list of maps")
+        return
+    }
+    a, ok1 := pop(mut l)
+    b, ok2 := pop(mut l)
+    c, ok3 := pop(mut l)
+    mut sizes := 0
+    if ok1 && ok2 {
+        sizes = len(a) *% 10 +% len(b)
+    }
+    if ok3 {
+        sizes = len(c)
+    }
+    check(ok1 && ok2 && !ok3 && sizes == 21 && len(l) == 0, "the checked pop of a list of maps")
+    mut nested := make(list[map[int64]map[int64]int64], c_allocator)
+    d, ok4 := pop(mut nested)
+    mut held := 0
+    if ok4 {
+        held = len(d)
+    }
+    check(!ok4 && held == 0, "the checked pop of an empty list of maps of maps")
+}
+
+// deleted deletes maps out of a map of maps with the checked form, a key
+// that is there and one that is not, which gives false, and the zero map,
+// which is never read.
+func deleted() {
+    mut m := make(map[int64]map[int64]int64, c_allocator)
+    e := put(mut m, 1, squares(3))
+    if e.code != 0 {
+        check(false, "the checked delete of a map of maps")
+        return
+    }
+    a, ok1 := delete(mut m, 1)
+    b, ok2 := delete(mut m, 2)
+    mut sizes := 0
+    if ok1 {
+        sizes = len(a)
+    }
+    if ok2 {
+        sizes = len(b)
+    }
+    check(ok1 && !ok2 && sizes == 3 && len(m) == 0, "the checked delete of a map of maps")
+}
+
+// failing builds, returns, pops and deletes maps with every allocation
+// from the n'th on refused.
+func failing(n int64) {
+    fail_after(n)
+    m := lists(6)
+    mut l := make(list[map[int64]int64], c_allocator)
+    for i := range 3 {
+        e := append(mut l, squares(i))
+        if e.code != 0 {
+            break
+        }
+    }
+    for range 4 {
+        x, ok := pop(mut l)
+        if ok && len(x) > 3 {
+            print("too many\n")
+        }
+    }
+    mut mm := make(map[int64]map[int64]int64, c_allocator)
+    for i := range 3 {
+        e := put(mut mm, i, squares(i))
+        if e.code != 0 {
+            break
+        }
+    }
+    for i := range 4 {
+        y, ok := delete(mut mm, i)
+        if ok && len(y) > 3 {
+            print("too many\n")
+        }
+    }
+    fail_after(-1)
+    if len(m) > 6 {
+        print("too many\n")
+    }
+}
+
+func main() {
+    returned()
+    check(live() == 0, "nothing left after returned")
+    popped()
+    check(live() == 0, "nothing left after popped")
+    deleted()
+    check(live() == 0, "nothing left after deleted")
+    mut clean := true
+    for n := range 80 {
+        failing(n)
+        clean = clean && live() == 0
+    }
+    check(clean, "nothing left after every allocation refused in turn")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

@@ -1,0 +1,397 @@
+package main
+
+import text from "std/text"
+import errors from "std/errors"
+
+// An own parameter takes its argument from the caller, who writes own
+// before it, as mut is written at both ends: func f(own t Text), and
+// f(own t). The caller's variable is moved, so it cannot be used again
+// until it is assigned, and the callee owns the value: it can read it,
+// borrow it, return it, store it, move it on, or leave it to be freed
+// when the function ends, at every exit. An own parameter is immutable;
+// mut u := t moves it into a variable that can change. A temporary, a
+// call's result, is passed to an own parameter with no own, since no
+// variable holds it. own is part of a function's type, func(own Text).
+//
+// Every check that allocates runs in a function of its own, and main
+// asserts after it that c_allocator's count of live buffers is back to
+// zero. Every check prints its name and "ok", or "FAIL".
+
+// live returns how many buffers c_allocator holds, in C.
+extern("own_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("own_fail_after") func fail_after(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// numbers returns a list of 1 to n, as far as c_allocator lets it grow.
+func numbers(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i + 1)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+// failure moves detail into the Failure it returns, with no copy: what
+// errors.new would be.
+func failure(err error, own detail text.Text) errors.Failure {
+    return errors.Failure{err: err, detail: detail}
+}
+
+// give_back returns the list it was given.
+func give_back(own l list[int64]) list[int64] {
+    return l
+}
+
+// keep_in_list moves l to the end of all; append frees l when all cannot
+// grow.
+func keep_in_list(mut all list[list[int64]], own l list[int64]) error {
+    return append(mut all, l)
+}
+
+// keep_in_map puts l in m under k, freeing what k held.
+func keep_in_map(mut m map[string]list[int64], k string, own l list[int64]) error {
+    return put(mut m, k, l)
+}
+
+// sum reads l and lets it go: l is freed at each of its exits, an early
+// return, a return from inside a loop and the end.
+func sum(own l list[int64], stop int64) int64 {
+    if stop == 0 {
+        return -1
+    }
+    mut s := 0
+    for i, x := range l {
+        if i == stop {
+            return s
+        }
+        s +%= x
+    }
+    return s
+}
+
+// seen counts, in a defer, the elements of l, which is freed after the
+// defer runs.
+func seen(own l list[int64], mut n int64) {
+    defer {
+        n = len(l)
+    }
+}
+
+// pass_on moves l on to give_back.
+func pass_on(own l list[int64]) list[int64] {
+    return give_back(own l)
+}
+
+// maybe_pass moves l on only when c holds; l is freed at the end only on
+// the path that kept it.
+func maybe_pass(own l list[int64], c bool) int64 {
+    if c {
+        k := give_back(own l)
+        return len(k)
+    }
+    return len(l)
+}
+
+// grown moves l into a mutable local, appends x and returns it with the
+// error of growing.
+func grown(own l list[int64], x int64) (list[int64], error) {
+    mut u := l
+    err := append(mut u, x)
+    return u, err
+}
+
+// borrows borrows l, its own parameter, to a plain parameter and a view
+// one, then returns it.
+func borrows(own l list[int64]) (int64, list[int64]) {
+    a := count(l)
+    b := len(l[0:])
+    return a +% b, l
+}
+
+// count returns len(l), borrowing it.
+func count(l list[int64]) int64 {
+    return len(l)
+}
+
+// Any asks for no method, so every type satisfies it.
+type Any interface {
+}
+
+// push moves x onto l; append frees x when l cannot grow.
+func push[T Any](mut l list[T], own x T) error {
+    return append(mut l, x)
+}
+
+// identity gives back the T it was given.
+func identity[T Any](own x T) T {
+    return x
+}
+
+// forward moves x on to push.
+func forward[T Any](mut l list[T], own x T) error {
+    return push(mut l, own x)
+}
+
+// Sink takes values it is given to keep.
+type Sink interface {
+    mut take(own l list[int64]) error
+}
+
+// Bin is a Sink holding every list it is given.
+type Bin struct {
+    held list[list[int64]]
+}
+
+// take moves l into the bin.
+func (mut b Bin) take(own l list[int64]) error {
+    return append(mut b.held, l)
+}
+
+// fill gives a Sink three lists through its own method.
+func fill[S Sink](mut s S) int64 {
+    mut failed := 0
+    for i := range 3 {
+        l := numbers(i + 1)
+        err := mut s.take(own l)
+        if err.code != 0 {
+            failed +%= 1
+        }
+    }
+    return failed
+}
+
+// consume returns the length of the list it was given, and frees it.
+func consume(own l list[int64]) int64 {
+    return len(l)
+}
+
+// apply calls f with l, moved through the function value.
+func apply(f func(own list[int64]) int64, own l list[int64]) int64 {
+    return f(own l)
+}
+
+func failures() {
+    t, e := text.from_bytes([]uint8("no such file"), c_allocator)
+    if e.code != 0 {
+        check(false, "detail made")
+        return
+    }
+    f := failure(error{code: 2, msg: "open"}, own t)
+    check(f.detail.equal([]uint8("no such file")) && f.err.code == 2, "detail moved into a Failure")
+    mut fs := make(list[errors.Failure], c_allocator)
+    err := append(mut fs, failure(error{code: 3, msg: "read"}, text.new(c_allocator)))
+    check(err.code == 0 && len(fs) == 1, "a temporary passed to own")
+}
+
+func callee_paths() {
+    l := numbers(2)
+    k := give_back(own l)
+    check(len(k) == 2, "given back")
+
+    mut all := make(list[list[int64]], c_allocator)
+    a := numbers(2)
+    e1 := keep_in_list(mut all, own a)
+    check(e1.code == 0 && len(all) == 1, "kept in a list")
+
+    mut m := make(map[string]list[int64], c_allocator)
+    b := numbers(2)
+    c := numbers(3)
+    e2 := keep_in_map(mut m, "k", own b)
+    e3 := keep_in_map(mut m, "k", own c)
+    check(e2.code == 0 && e3.code == 0, "kept in a map, replacing")
+
+    mut sums := 0
+    for stop := range 4 {
+        n := numbers(3)
+        sums +%= sum(own n, stop)
+    }
+    check(sums == -1 + 1 + 3 + 6, "freed at every exit")
+
+    mut seen_n := 0
+    d := numbers(2)
+    seen(own d, mut seen_n)
+    check(seen_n == 2, "a defer reads it before it is freed")
+
+    p := numbers(2)
+    q := pass_on(own p)
+    check(len(q) == 2, "moved on")
+
+    mut both := 0
+    for _, cond := range [2]bool{true, false} {
+        r := numbers(2)
+        both +%= maybe_pass(own r, cond)
+    }
+    check(both == 4, "maybe moved on")
+
+    s := numbers(2)
+    g, err := grown(own s, 9)
+    check(err.code == 0 && len(g) == 3, "rebound as mut and grown")
+
+    u := numbers(2)
+    n, v := borrows(own u)
+    check(n == 4 && len(v) == 2, "borrowed, then returned")
+}
+
+func caller_flow() {
+    for _, c := range [2]bool{true, false} {
+        l := numbers(1)
+        if c {
+            check(consume(own l) == 1, "moved on one path")
+        }
+    }
+    mut l := numbers(1)
+    mut total := 0
+    for range 3 {
+        total +%= consume(own l)
+        l = numbers(2)
+    }
+    check(total == 5, "moved in a loop, assigned again")
+    for _, c := range [2]bool{true, false} {
+        k := numbers(1)
+        if c && consume(own k) == 1 {
+            check(true, "moved on the right of &&")
+        }
+    }
+}
+
+func generics() {
+    mut ints := make(list[int64], c_allocator)
+    n := 7
+    e1 := push(mut ints, n)
+    check(e1.code == 0 && len(ints) == 1 && n == 7, "a copyable T is copied")
+    check(identity(n) == 7, "identity of an int64")
+
+    mut lists := make(list[list[int64]], c_allocator)
+    inner := numbers(3)
+    e2 := forward(mut lists, own inner)
+    check(e2.code == 0 && len(lists) == 1, "a list forwarded")
+    back := identity(numbers(2))
+    check(len(back) == 2, "identity of a temporary list")
+
+    t := text.new(c_allocator)
+    u := identity(own t)
+    check(u.len() == 0, "identity of a Text")
+
+    mut bin := Bin{held: make(list[list[int64]], c_allocator)}
+    failed := fill(mut bin)
+    check(failed == 0 && len(bin.held) == 3, "an interface's own method")
+}
+
+func values() {
+    f := consume
+    l := numbers(2)
+    check(apply(f, own l) == 2, "through a function value")
+    k := numbers(3)
+    check(f(own k) == 3, "a function value called")
+}
+
+// tried moves l in its switch's second case value. The first case's
+// body runs before that value is tried, so it may read l; the default,
+// written last and tried last, runs after it, so it does not.
+func tried(n int64) int64 {
+    l := numbers(3)
+    switch n {
+    case 0:
+        return len(l)
+    case consume(own l):
+        return 10
+    default:
+        return 20
+    }
+}
+
+// early_default writes its default first, though it is tried last: it
+// reads l, which no case value moves, while k, which one does, it leaves
+// alone. A case's body may move l, since no value after it is tried once
+// it matches.
+func early_default(n int64) int64 {
+    l := numbers(2)
+    k := numbers(4)
+    switch n {
+    default:
+        return len(l)
+    case 0:
+        return consume(own l)
+    case consume(own k):
+        return len(l) +% 10
+    }
+}
+
+// switches checks lists moved through the case values of switches, on
+// every path each switch takes.
+func switches() {
+    check(tried(0) == 3 && tried(3) == 10 && tried(5) == 20, "moved in a case value")
+    e := early_default(9) == 2 && early_default(0) == 2 && early_default(4) == 12
+    check(e, "a default written first, a later value moving another list")
+}
+
+// starved runs every allocating step of own calls with c_allocator
+// refusing each request in turn: whatever fails, the callee frees what
+// it was given, and the caller frees nothing twice.
+func starved() {
+    for i := range 8 {
+        mut all := make(list[list[int64]], c_allocator)
+        l := numbers(3)
+        fail_after(i)
+        e1 := keep_in_list(mut all, own l)
+        k := numbers(2)
+        g, e2 := grown(own k, 1)
+        mut m := make(map[string]list[int64], c_allocator)
+        if e2.code == 0 {
+            e3 := keep_in_map(mut m, "g", own g)
+            if e3.code != 0 && e3.code != 1 {
+                print("FAIL\n")
+            }
+        }
+        t, e4 := text.from_bytes([]uint8("x"), c_allocator)
+        if e4.code == 0 {
+            f := failure(error{code: 1, msg: "x"}, own t)
+            if f.err.code != 1 {
+                print("FAIL\n")
+            }
+        }
+        mut lists := make(list[list[int64]], c_allocator)
+        e5 := push(mut lists, numbers(4))
+        fail_after(-1)
+        if e1.code > 1 || e5.code > 1 {
+            print("FAIL\n")
+        }
+    }
+}
+
+func main() {
+    failures()
+    check(live() == 0, "failures free once")
+    callee_paths()
+    check(live() == 0, "callee paths free once")
+    caller_flow()
+    check(live() == 0, "caller flow frees once")
+    generics()
+    check(live() == 0, "generics free once")
+    values()
+    check(live() == 0, "function values free once")
+    switches()
+    check(live() == 0, "switches free once")
+    starved()
+    check(live() == 0, "nothing leaks when an allocation fails")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

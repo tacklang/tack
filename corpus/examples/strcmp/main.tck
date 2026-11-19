@@ -1,0 +1,143 @@
+package main
+
+// Person holds a string, so == compares its name by content.
+type Person struct {
+    name string
+    age  int64
+}
+
+// Team holds an array of strings and a struct holding one.
+type Team struct {
+    names [2]string
+    lead  Person
+}
+
+func greeting(formal bool) string {
+    if formal {
+        return "hello"
+    }
+    return "hi"
+}
+
+func fruit(i int64) string {
+    if i == 0 {
+        return "apple"
+    }
+    if i == 1 {
+        return "apricot"
+    }
+    return "banana"
+}
+
+func main() {
+    // Equality compares bytes; a prefix or an extension is not equal.
+    a := "tack"
+    b := "tack"
+    if a != b || !(a == b) || a == "tac" || a == "tacks" || "tacks" == a {
+        exit(1)
+    }
+
+    // Every ordering operator, both ways.
+    if !("abc" < "abd") || !("abc" <= "abd") || !("abc" <= "abc") {
+        exit(2)
+    }
+    if !("abd" > "abc") || !("abd" >= "abc") || !("abc" >= "abc") {
+        exit(3)
+    }
+    if "abc" < "abc" || "abc" > "abc" || "abd" <= "abc" || "abc" >= "abd" {
+        exit(4)
+    }
+
+    // A proper prefix is less, whatever follows it.
+    if !("tac" < "tack") || "tack" < "tac" || !("tack" > "tac") || "tac" >= "tack" {
+        exit(5)
+    }
+
+    // The empty string is the least, and a zero string is empty.
+    mut e string
+    if e != "" || !(e < "a") || e > "" || !(e <= "") || !("a" > e) {
+        exit(6)
+    }
+
+    // An embedded zero byte is a byte like any other.
+    if !("" < "\x00") || !("a\x00" > "a") || "a\x00b" == "a\x00c" || !("a\x00b" < "a\x00c") {
+        exit(7)
+    }
+    if !("a\x00" < "a\x00\x00") || "a\x00b" != "a\x00b" || !("a\x00z" < "ab") {
+        exit(8)
+    }
+
+    // Bytes compare unsigned: 0xff and 0x80 come after every ASCII byte.
+    if !("\xff" > "a") || !("\x80" > "\x7f") || !("é" > "z") || "\xff" < "\x80" {
+        exit(9)
+    }
+
+    // Strings returned by functions.
+    if greeting(true) != "hello" || !(greeting(false) > greeting(true)) || greeting(true) == greeting(false) {
+        exit(10)
+    }
+
+    // Structs compare their string fields by content, and a zero field
+    // equals the empty literal.
+    p := Person{name: "ann", age: 30}
+    if p != (Person{name: "ann", age: 30}) || p == (Person{name: "anne", age: 30}) {
+        exit(11)
+    }
+    mut z Person
+    if z != (Person{name: "", age: 0}) || !(z.name < p.name) {
+        exit(12)
+    }
+
+    // Arrays of strings compare element by element.
+    words := [3]string{"a", "b", "c"}
+    if words != [3]string{"a", "b", "c"} || words == [3]string{"a", "b", "d"} {
+        exit(13)
+    }
+    mut blank [2]string
+    if blank != [2]string{"", ""} || blank == [2]string{"", "x"} {
+        exit(14)
+    }
+
+    // Nested: a struct holding an array of strings and a struct.
+    t := Team{names: [2]string{"x", "y"}, lead: p}
+    if t != (Team{names: [2]string{"x", "y"}, lead: Person{name: "ann", age: 30}}) {
+        exit(15)
+    }
+    if t == (Team{names: [2]string{"x", "z"}, lead: p}) || t == (Team{names: t.names, lead: z}) {
+        exit(16)
+    }
+
+    // An ordered walk: each word after the first is greater than the last.
+    sorted := [5]string{"", "a", "ab", "b", "é"}
+    mut prev string
+    mut rising := 0
+    for _, w := range sorted {
+        if w > prev {
+            rising +%= 1
+        }
+        prev = w
+    }
+    if rising != 4 {
+        exit(17)
+    }
+
+    // A loop condition.
+    mut i := 0
+    for fruit(i) < "b" {
+        i +%= 1
+    }
+    if i != 2 {
+        exit(18)
+    }
+
+    code, ok := int32(40 + i)
+    if !ok {
+        exit(19)
+    }
+    exit(code)
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

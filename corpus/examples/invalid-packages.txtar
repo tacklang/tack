@@ -1,0 +1,6109 @@
+Invalid example programs of several files, one case per program, in byte
+order of name.
+
+A case named n is its files, each a txtar file n/<path>, followed by
+n/expected, the compiler's output for it, with each file's path printed as
+n/<path>. The case is built from the directory n, or from the directory an
+optional n/.target file names, relative to n. A directory is built in its
+module, so nearly every case has an n/tack.mod, usually module n. Every file must end with a
+newline; a program whose last line has none belongs in invalid.txtar.
+internal/invalid documents the format; go test ./test -run
+TestInvalidPackages checks every case, and -update rewrites the expected
+sections.
+
+-- arena-exposes/tack.mod --
+module calc
+-- arena-exposes/geo/geo.tck --
+package geo
+
+type secret struct {
+    n int64
+}
+
+pub type Store struct {
+    pub items arena[secret]
+    pub first id[secret]
+    pub run span[secret]
+}
+
+pub func Make() arena[secret] {
+    mut none secret
+    return make(arena[secret], none, c_allocator)
+}
+
+pub func First(l list[id[secret]]) {
+}
+
+lib func All(f func(span[secret])) {
+}
+
+pub func Nothing() {
+}
+-- arena-exposes/main.tck --
+package main
+
+import geo from "calc/geo"
+
+func main() {
+    geo.Nothing()
+}
+-- arena-exposes/expected --
+stage: typeck
+---
+
+arena-exposes/geo/geo.tck:8:15: error: pub field items of Store exposes secret, which is not pub
+07 |	pub type Store struct {
+08 |	    pub items arena[secret]
+   |	              ^~~~~~~~~~~~~
+09 |	    pub first id[secret]
+
+arena-exposes/geo/geo.tck:9:15: error: pub field first of Store exposes secret, which is not pub
+08 |	    pub items arena[secret]
+09 |	    pub first id[secret]
+   |	              ^~~~~~~~~~
+10 |	    pub run span[secret]
+
+arena-exposes/geo/geo.tck:10:13: error: pub field run of Store exposes secret, which is not pub
+09 |	    pub first id[secret]
+10 |	    pub run span[secret]
+   |	            ^~~~~~~~~~~~
+11 |	}
+
+arena-exposes/geo/geo.tck:13:17: error: pub function Make exposes secret, which is not pub
+12 |	
+13 |	pub func Make() arena[secret] {
+   |	                ^~~~~~~~~~~~~
+14 |	    mut none secret
+
+arena-exposes/geo/geo.tck:18:18: error: pub function First exposes secret, which is not pub
+17 |	
+18 |	pub func First(l list[id[secret]]) {
+   |	                 ^~~~~~~~~~~~~~~~
+19 |	}
+
+arena-exposes/geo/geo.tck:21:16: error: lib function All exposes secret, which is not lib or pub
+20 |	
+21 |	lib func All(f func(span[secret])) {
+   |	               ^~~~~~~~~~~~~~~~~~
+22 |	}
+
+-- assign-imported-immutable/tack.mod --
+module calc
+-- assign-imported-immutable/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- assign-imported-immutable/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    lexer.KindNumber = 3
+    lexer.KindNumber++
+}
+-- assign-imported-immutable/expected --
+stage: typeck
+---
+
+assign-imported-immutable/main.tck:6:5: error: cannot assign to immutable variable lexer.KindNumber
+05 |	func main() {
+06 |	    lexer.KindNumber = 3
+   |	    ^~~~~~~~~~~~~~~~
+07 |	    lexer.KindNumber++
+
+assign-imported-immutable/main.tck:7:5: error: cannot assign to immutable variable lexer.KindNumber
+06 |	    lexer.KindNumber = 3
+07 |	    lexer.KindNumber++
+   |	    ^~~~~~~~~~~~~~~~
+08 |	}
+
+-- clause-mismatch/tack.mod --
+module calc
+-- clause-mismatch/.target --
+lexer
+-- clause-mismatch/lexer/a.tck --
+package lexer
+-- clause-mismatch/lexer/b.tck --
+package lex
+-- clause-mismatch/lexer/c.tck --
+package parser
+-- clause-mismatch/expected --
+stage: load
+---
+
+clause-mismatch/lexer/b.tck:1:9: error: package lex does not match its directory; expected package lexer
+01 |	package lex
+   |	        ^~~
+02 |	
+
+clause-mismatch/lexer/c.tck:1:9: error: package parser does not match its directory; expected package lexer
+01 |	package parser
+   |	        ^~~~~~
+02 |	
+
+-- clause-mismatch-at-root/tack.mod --
+module calc
+-- clause-mismatch-at-root/main.tck --
+package main
+
+func main() {
+}
+-- clause-mismatch-at-root/other.tck --
+package other
+-- clause-mismatch-at-root/expected --
+stage: load
+---
+
+clause-mismatch-at-root/other.tck:1:9: error: package other does not match its directory; expected package calc
+01 |	package other
+   |	        ^~~~~
+02 |	
+
+-- data-private-field-other-package/tack.mod --
+module q1
+-- data-private-field-other-package/geo/geo.tck --
+package geo
+
+pub type Pool struct {
+    pub n int64
+    s     string
+}
+
+pub func mk() Pool {
+    return Pool{n: 1, s: "secret"}
+}
+
+pub func deep[T Data](v T) int64 {
+    mut n := 0
+    for f := range fields(T) {
+        n = n +% 1 +% deep(v.[f])
+    }
+    return n
+}
+
+pub func names[T Data](v T) {
+    for f := range fields(T) {
+        print(f.name)
+        print("\n")
+    }
+}
+-- data-private-field-other-package/main.tck --
+package main
+
+import geo from "q1/geo"
+
+func main() {
+    p := geo.mk()
+    geo.names(p)
+    if geo.deep(p) == 2 { print("two\n") } else { print("other\n") }
+}
+-- data-private-field-other-package/expected --
+stage: typeck
+---
+
+data-private-field-other-package/main.tck:7:15: error: geo.Pool does not satisfy Data: field s of geo.Pool is string, which is not Data
+06 |	    p := geo.mk()
+07 |	    geo.names(p)
+   |	              ^
+08 |	    if geo.deep(p) == 2 { print("two\n") } else { print("other\n") }
+
+data-private-field-other-package/main.tck:8:17: error: geo.Pool does not satisfy Data: field s of geo.Pool is string, which is not Data
+07 |	    geo.names(p)
+08 |	    if geo.deep(p) == 2 { print("two\n") } else { print("other\n") }
+   |	                ^
+09 |	}
+
+-- dir-builtin-func-name/tack.mod --
+module calc
+-- dir-builtin-func-name/.target --
+print
+-- dir-builtin-func-name/print/a.tck --
+package print
+-- dir-builtin-func-name/expected --
+stage: load
+---
+
+dir-builtin-func-name/print/a.tck:1:9: error: print is not a valid package name: it is a builtin function
+01 |	package print
+   |	        ^~~~~
+02 |	
+
+-- dir-builtin-type-name/tack.mod --
+module calc
+-- dir-builtin-type-name/.target --
+int64
+-- dir-builtin-type-name/int64/a.tck --
+package int64
+-- dir-builtin-type-name/expected --
+stage: load
+---
+
+dir-builtin-type-name/int64/a.tck:1:9: error: int64 is not a valid package name: it is a builtin type
+01 |	package int64
+   |	        ^~~~~
+02 |	
+
+-- dir-digit-name/tack.mod --
+module calc
+-- dir-digit-name/.target --
+7up
+-- dir-digit-name/7up/a.tck --
+package up
+-- dir-digit-name/expected --
+stage: load
+---
+
+dir-digit-name/7up/a.tck:1:9: error: 7up is not a valid package name: start with a letter
+01 |	package up
+   |	        ^~
+02 |	
+
+-- dir-from-name/tack.mod --
+module calc
+-- dir-from-name/.target --
+from
+-- dir-from-name/from/a.tck --
+package fn
+-- dir-from-name/expected --
+stage: load
+---
+
+dir-from-name/from/a.tck:1:9: error: from is not a valid package name: it is a keyword
+01 |	package fn
+   |	        ^~
+02 |	
+
+-- dir-invalid-name/tack.mod --
+module calc
+-- dir-invalid-name/.target --
+my-tools
+-- dir-invalid-name/my-tools/a.tck --
+package mytools
+-- dir-invalid-name/expected --
+stage: load
+---
+
+dir-invalid-name/my-tools/a.tck:1:9: error: my-tools is not a valid package name: use lowercase letters and digits
+01 |	package mytools
+   |	        ^~~~~~~
+02 |	
+
+-- dir-keyword-name/tack.mod --
+module calc
+-- dir-keyword-name/.target --
+func
+-- dir-keyword-name/func/a.tck --
+package fn
+-- dir-keyword-name/expected --
+stage: load
+---
+
+dir-keyword-name/func/a.tck:1:9: error: func is not a valid package name: it is a keyword
+01 |	package fn
+   |	        ^~
+02 |	
+
+-- dir-uppercase-name/tack.mod --
+module calc
+-- dir-uppercase-name/.target --
+Lexer
+-- dir-uppercase-name/Lexer/a.tck --
+package Lexer
+-- dir-uppercase-name/expected --
+stage: load
+---
+
+dir-uppercase-name/Lexer/a.tck:1:9: error: Lexer is not a valid package name: use lowercase letters and digits
+01 |	package Lexer
+   |	        ^~~~~
+02 |	
+
+-- divide-by-imported-mutable/tack.mod --
+module calc
+-- divide-by-imported-mutable/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- divide-by-imported-mutable/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    exit(10 / lexer.Count)
+}
+-- divide-by-imported-mutable/expected --
+stage: resolve
+---
+
+divide-by-imported-mutable/main.tck:6:15: error: Count is not pub in package calc/lexer
+05 |	func main() {
+06 |	    exit(10 / lexer.Count)
+   |	              ^~~~~~~~~~~
+07 |	}
+
+-- dup-func-across-files/tack.mod --
+module dup-func-across-files
+-- dup-func-across-files/a.tck --
+package main
+
+func helper() {
+}
+
+func main() {
+    helper()
+}
+-- dup-func-across-files/b.tck --
+package main
+
+func helper() {
+}
+-- dup-func-across-files/expected --
+stage: resolve
+---
+
+dup-func-across-files/b.tck:3:6: error: helper is already declared
+02 |	
+03 |	func helper() {
+   |	     ^~~~~~
+04 |	}
+dup-func-across-files/a.tck:3:6: note: previous declaration of helper
+02 |	
+03 |	func helper() {
+   |	     ^~~~~~
+04 |	}
+
+-- dup-global-across-files/tack.mod --
+module dup-global-across-files
+-- dup-global-across-files/a.tck --
+package main
+
+var limit int64 = 1
+
+func main() {
+    exit(limit)
+}
+-- dup-global-across-files/b.tck --
+package main
+
+type limit struct {
+    n int64
+}
+-- dup-global-across-files/expected --
+stage: resolve
+---
+
+dup-global-across-files/a.tck:3:5: error: limit is already declared
+02 |	
+03 |	var limit int64 = 1
+   |	    ^~~~~
+04 |	
+dup-global-across-files/b.tck:3:6: note: previous declaration of limit
+02 |	
+03 |	type limit struct {
+   |	     ^~~~~
+04 |	    n int64
+
+-- dup-param-across-files/tack.mod --
+module dup-param-across-files
+-- dup-param-across-files/a.tck --
+package main
+
+var size int64 = 1
+
+func main() {
+    exit(grow(size))
+}
+-- dup-param-across-files/b.tck --
+package main
+
+func grow(size int64) int64 {
+    return size + 1
+}
+-- dup-param-across-files/expected --
+stage: resolve+typeck
+---
+
+dup-param-across-files/a.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	func main() {
+06 |	    exit(grow(size))
+   |	         ^~~~~~~~~~
+07 |	}
+
+dup-param-across-files/b.tck:3:11: error: size is already declared
+02 |	
+03 |	func grow(size int64) int64 {
+   |	          ^~~~
+04 |	    return size + 1
+dup-param-across-files/a.tck:3:5: note: previous declaration of size
+02 |	
+03 |	var size int64 = 1
+   |	    ^~~~
+04 |	
+
+-- error-imported/tack.mod --
+module errs
+-- error-imported/num/num.tck --
+package num
+
+pub func Parse(s string) (int64, error) {
+    if len(s) == 0 {
+        return 0, error{code: 1, msg: "empty"}
+    }
+    return 1, noerror
+}
+-- error-imported/main.tck --
+package main
+
+import num from "errs/num"
+
+func main() {
+    num.Parse("1")
+    v, err := num.Parse("2")
+    print(err.msg)
+    if v > 0 {
+        print("parsed\n")
+    }
+}
+-- error-imported/expected --
+stage: typeck
+---
+
+error-imported/main.tck:6:5: error: the error num.Parse returns cannot be discarded; bind it, as in _, err := num.Parse(...)
+05 |	func main() {
+06 |	    num.Parse("1")
+   |	    ^~~~~~~~~~~~~~
+07 |	    v, err := num.Parse("2")
+
+error-imported/main.tck:9:8: error: v cannot be read before err is checked; check err.code == 0 first
+08 |	    print(err.msg)
+09 |	    if v > 0 {
+   |	       ^
+10 |	        print("parsed\n")
+
+-- extern-c-name-duplicate-packages/tack.mod --
+module calc
+-- extern-c-name-duplicate-packages/main.tck --
+package main
+
+import util from "calc/util"
+
+extern func sum(a int64, b int64) int64
+
+func main() {
+    code, fits := int32(sum(util.Two(), 40))
+    if fits { exit(code) }
+}
+-- extern-c-name-duplicate-packages/util/util.tck --
+package util
+
+extern("sum") func plus(a int64, b int64) int64
+
+pub func Two() int64 {
+    return plus(1, 1)
+}
+-- extern-c-name-duplicate-packages/expected --
+stage: typeck
+---
+
+extern-c-name-duplicate-packages/main.tck:5:13: error: extern funcs sum and util.plus both have the C name sum
+04 |	
+05 |	extern func sum(a int64, b int64) int64
+   |	            ^~~
+06 |	
+extern-c-name-duplicate-packages/util/util.tck:3:20: note: extern func util.plus is declared here
+02 |	
+03 |	extern("sum") func plus(a int64, b int64) int64
+   |	                   ^~~~
+04 |	
+
+-- extern-same-package-names/tack.mod --
+module calc
+-- extern-same-package-names/main.tck --
+package main
+
+import first from "calc/a/lexer"
+import second from "calc/b/lexer"
+
+type lexer_Token struct {
+}
+
+extern func mine(t lexer_Token)
+
+func main() {
+    code, fits := int32(first.Kind() +% second.Kind())
+    if fits { exit(code) }
+}
+-- extern-same-package-names/a/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    kind int64
+}
+
+extern func scan(t Token) int64
+
+pub func Kind() int64 {
+    return scan(Token{kind: 1})
+}
+-- extern-same-package-names/b/lexer/lexer.tck --
+package lexer
+
+type Token struct {
+    text string
+}
+
+type Unexposed struct {
+}
+
+extern func read(t Token) int64
+
+pub func Kind() int64 {
+    return read(Token{text: "x"})
+}
+-- extern-same-package-names/expected --
+stage: codegen
+---
+
+extern-same-package-names/b/lexer/lexer.tck:3:6: error: type Token of package calc/b/lexer and type Token of package calc/a/lexer are both named lexer_Token in tack.h
+02 |	
+03 |	type Token struct {
+   |	     ^~~~~
+04 |	    text string
+extern-same-package-names/a/lexer/lexer.tck:3:6: note: type Token of package calc/a/lexer is declared here
+02 |	
+03 |	type Token struct {
+   |	     ^~~~~
+04 |	    kind int64
+
+extern-same-package-names/main.tck:6:6: error: type lexer_Token of package calc and type Token of package calc/a/lexer are both named lexer_Token in tack.h
+05 |	
+06 |	type lexer_Token struct {
+   |	     ^~~~~~~~~~~
+07 |	}
+extern-same-package-names/a/lexer/lexer.tck:3:6: note: type Token of package calc/a/lexer is declared here
+02 |	
+03 |	type Token struct {
+   |	     ^~~~~
+04 |	    kind int64
+
+-- extern-visible/tack.mod --
+module calc
+-- extern-visible/main.tck --
+package main
+
+import util from "calc/util"
+
+func main() {
+    util.sum(1, 2)
+}
+-- extern-visible/util/util.tck --
+package util
+
+pub extern func sum(a int64, b int64) int64
+
+lib extern("sub") func minus(a int64, b int64) int64
+-- extern-visible/expected --
+stage: resolve
+---
+
+extern-visible/util/util.tck:3:1: error: an extern func cannot be pub; export a Tack function that calls it
+02 |	
+03 |	pub extern func sum(a int64, b int64) int64
+   |	^~~
+04 |	
+
+extern-visible/util/util.tck:5:1: error: an extern func cannot be lib; export a Tack function that calls it
+04 |	
+05 |	lib extern("sub") func minus(a int64, b int64) int64
+   |	^~~
+06 |	
+
+-- func-value-exposes/tack.mod --
+module calc
+-- func-value-exposes/geo/geo.tck --
+package geo
+
+type secret struct {
+    n int64
+}
+
+pub type Op struct {
+    pub run func(secret) int64
+}
+
+pub func Apply(f func(int64) secret) int64 {
+    return 0
+}
+
+pub func Pick() func(list[map[int64]secret]) {
+    return toss
+}
+
+func toss(l list[map[int64]secret]) {
+}
+
+pub func Nothing() {
+}
+-- func-value-exposes/main.tck --
+package main
+
+import geo from "calc/geo"
+
+func main() {
+    geo.Nothing()
+}
+-- func-value-exposes/expected --
+stage: typeck
+---
+
+func-value-exposes/geo/geo.tck:8:13: error: pub field run of Op exposes secret, which is not pub
+07 |	pub type Op struct {
+08 |	    pub run func(secret) int64
+   |	            ^~~~~~~~~~~~~~~~~~
+09 |	}
+
+func-value-exposes/geo/geo.tck:11:18: error: pub function Apply exposes secret, which is not pub
+10 |	
+11 |	pub func Apply(f func(int64) secret) int64 {
+   |	                 ^~~~~~~~~~~~~~~~~~
+12 |	    return 0
+
+func-value-exposes/geo/geo.tck:15:17: error: pub function Pick exposes secret, which is not pub
+14 |	
+15 |	pub func Pick() func(list[map[int64]secret]) {
+   |	                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+16 |	    return toss
+
+-- func-value-not-pub/tack.mod --
+module calc
+-- func-value-not-pub/geo/geo.tck --
+package geo
+
+pub func Area(w int64, h int64) int64 {
+    return w *% h
+}
+
+func secret(n int64) int64 {
+    return n
+}
+-- func-value-not-pub/main.tck --
+package main
+
+import geo from "calc/geo"
+
+func main() {
+    f := geo.secret
+    g := geo.Area
+    if f(1) == g(1, 1) {
+        print("same")
+    }
+}
+-- func-value-not-pub/expected --
+stage: resolve
+---
+
+func-value-not-pub/main.tck:6:10: error: secret is not pub in package calc/geo
+05 |	func main() {
+06 |	    f := geo.secret
+   |	         ^~~~~~~~~~
+07 |	    g := geo.Area
+
+-- generic-foreign-private-method/tack.mod --
+module calc
+-- generic-foreign-private-method/sink/sink.tck --
+package sink
+
+pub type Sink interface {
+    mut put(word string) error
+    count() int64
+}
+
+pub func Feed[S Sink](mut s S, word string) error {
+    return mut s.put(word)
+}
+
+pub type Tally struct {
+    n int64
+}
+
+pub func NewTally() Tally {
+    return Tally{n: 0}
+}
+
+func (mut t Tally) put(word string) error {
+    t.n +%= 1
+    return noerror
+}
+
+func (t Tally) count() int64 {
+    return t.n
+}
+-- generic-foreign-private-method/main.tck --
+package main
+
+import sink from "calc/sink"
+
+type Counted interface {
+    count() int64
+}
+
+func countOf[C Counted](c C) int64 {
+    return c.count()
+}
+
+func main() {
+    t := sink.NewTally()
+    if countOf(t) > 0 {
+        exit(1)
+    }
+}
+-- generic-foreign-private-method/expected --
+stage: typeck
+---
+
+generic-foreign-private-method/main.tck:15:16: error: sink.Tally does not satisfy Counted here: count is not pub in sink.Tally
+14 |	    t := sink.NewTally()
+15 |	    if countOf(t) > 0 {
+   |	               ^
+16 |	        exit(1)
+
+-- generic-interface-package-private-method/tack.mod --
+module calc
+-- generic-interface-package-private-method/sink/sink.tck --
+package sink
+
+pub type Sink interface {
+    mut put(word string) error
+    count() int64
+}
+
+pub func Feed[S Sink](mut s S, word string) error {
+    return mut s.put(word)
+}
+
+pub type Tally struct {
+    n int64
+}
+
+pub func NewTally() Tally {
+    return Tally{n: 0}
+}
+
+func (mut t Tally) put(word string) error {
+    t.n +%= 1
+    return noerror
+}
+
+func (t Tally) count() int64 {
+    return t.n
+}
+-- generic-interface-package-private-method/main.tck --
+package main
+
+import sink from "calc/sink"
+
+func main() {
+    mut t := sink.NewTally()
+    err := sink.Feed(mut t, "x")
+    exit(err.code)
+}
+-- generic-interface-package-private-method/expected --
+stage: typeck
+---
+
+generic-interface-package-private-method/main.tck:7:26: error: sink.Tally does not satisfy sink.Sink here: put is not pub in sink.Tally
+06 |	    mut t := sink.NewTally()
+07 |	    err := sink.Feed(mut t, "x")
+   |	                         ^
+08 |	    exit(err.code)
+
+-- generic-lib-method-other-module/tack.mod --
+module calc
+-- generic-lib-method-other-module/.std/util/util.tck --
+package util
+
+pub type Counted interface {
+    count() int64
+}
+
+pub func CountOf[C Counted](c C) int64 {
+    return c.count()
+}
+
+pub type Pair struct {
+    pub a int64
+}
+
+// count is lib: only std's packages may call it, so only they may pass a
+// Pair as a Counted.
+lib func (p Pair) count() int64 {
+    return p.a
+}
+
+// Counts is in Pair's module, so it may.
+pub func Counts(p Pair) int64 {
+    return CountOf(p)
+}
+-- generic-lib-method-other-module/words/words.tck --
+package words
+
+pub type Bag struct {
+    n int64
+}
+
+pub func New() Bag {
+    return Bag{n: 2}
+}
+
+// count is lib, so main, in this module, may pass a Bag to util.CountOf.
+lib func (b Bag) count() int64 {
+    return b.n
+}
+-- generic-lib-method-other-module/main.tck --
+package main
+
+import util from "std/util"
+import words from "calc/words"
+
+func main() {
+    p := util.Pair{a: 1}
+    n := util.Counts(p) +% util.CountOf(words.New())
+    if n +% util.CountOf(p) > 0 {
+        exit(1)
+    }
+}
+-- generic-lib-method-other-module/expected --
+stage: typeck
+---
+
+generic-lib-method-other-module/main.tck:9:26: error: util.Pair does not satisfy util.Counted here: count is lib in module std and cannot be used from module calc
+08 |	    n := util.Counts(p) +% util.CountOf(words.New())
+09 |	    if n +% util.CountOf(p) > 0 {
+   |	                         ^
+10 |	        exit(1)
+
+-- generic-private-method-passed-on/tack.mod --
+module calc
+-- generic-private-method-passed-on/sink/sink.tck --
+package sink
+
+pub type Sink interface {
+    mut put(word string) error
+    count() int64
+}
+
+pub func Feed[S Sink](mut s S, word string) error {
+    return mut s.put(word)
+}
+
+pub type Tally struct {
+    n int64
+}
+
+pub func NewTally() Tally {
+    return Tally{n: 0}
+}
+
+func (mut t Tally) put(word string) error {
+    t.n +%= 1
+    return noerror
+}
+
+func (t Tally) count() int64 {
+    return t.n
+}
+
+// Twice passes s on to Feed, twice: no visibility is checked here, only
+// where Twice is called with a struct type.
+pub func Twice[S Sink](mut s S, word string) error {
+    err := Feed(mut s, word)
+    if err.code != 0 {
+        return err
+    }
+    return Feed(mut s, word)
+}
+-- generic-private-method-passed-on/main.tck --
+package main
+
+import sink from "calc/sink"
+
+func main() {
+    mut t := sink.NewTally()
+    err := sink.Twice(mut t, "x")
+    exit(err.code)
+}
+-- generic-private-method-passed-on/expected --
+stage: typeck
+---
+
+generic-private-method-passed-on/main.tck:7:27: error: sink.Tally does not satisfy sink.Sink here: put is not pub in sink.Tally
+06 |	    mut t := sink.NewTally()
+07 |	    err := sink.Twice(mut t, "x")
+   |	                          ^
+08 |	    exit(err.code)
+
+-- generic-pub-private-constraint/tack.mod --
+module calc
+-- generic-pub-private-constraint/geo/geo.tck --
+package geo
+
+pub func Nothing() {
+}
+
+type hidden interface {
+    size() int64
+}
+
+pub func Size[S hidden](s S) int64 {
+    return s.size()
+}
+
+lib func Lib[S hidden](s S) int64 {
+    return s.size()
+}
+-- generic-pub-private-constraint/main.tck --
+package main
+
+import geo from "calc/geo"
+
+func main() {
+    geo.Nothing()
+}
+-- generic-pub-private-constraint/expected --
+stage: typeck
+---
+
+generic-pub-private-constraint/geo/geo.tck:10:17: error: pub function Size exposes hidden, which is not pub
+09 |	
+10 |	pub func Size[S hidden](s S) int64 {
+   |	                ^~~~~~
+11 |	    return s.size()
+
+generic-pub-private-constraint/geo/geo.tck:14:16: error: lib function Lib exposes hidden, which is not lib or pub
+13 |	
+14 |	lib func Lib[S hidden](s S) int64 {
+   |	               ^~~~~~
+15 |	    return s.size()
+
+-- generic-third-package-private-method/tack.mod --
+module calc
+-- generic-third-package-private-method/sink/sink.tck --
+package sink
+
+pub type Sink interface {
+    mut put(word string) error
+    count() int64
+}
+
+pub func Feed[S Sink](mut s S, word string) error {
+    return mut s.put(word)
+}
+
+pub type Tally struct {
+    n int64
+}
+
+pub func NewTally() Tally {
+    return Tally{n: 0}
+}
+
+func (mut t Tally) put(word string) error {
+    t.n +%= 1
+    return noerror
+}
+
+func (t Tally) count() int64 {
+    return t.n
+}
+-- generic-third-package-private-method/words/words.tck --
+package words
+
+pub type Bag struct {
+    n int64
+}
+
+pub func New() Bag {
+    return Bag{n: 0}
+}
+
+// put is private to words.
+func (mut b Bag) put(word string) error {
+    b.n +%= 1
+    return noerror
+}
+
+pub func (b Bag) count() int64 {
+    return b.n
+}
+-- generic-third-package-private-method/main.tck --
+package main
+
+import sink from "calc/sink"
+import words from "calc/words"
+
+func main() {
+    mut b := words.New()
+    err := sink.Feed(mut b, "x")
+    exit(err.code)
+}
+-- generic-third-package-private-method/expected --
+stage: typeck
+---
+
+generic-third-package-private-method/main.tck:8:26: error: words.Bag does not satisfy sink.Sink here: put is not pub in words.Bag
+07 |	    mut b := words.New()
+08 |	    err := sink.Feed(mut b, "x")
+   |	                         ^
+09 |	    exit(err.code)
+
+-- hidden-only/tack.mod --
+module hidden-only
+-- hidden-only/.main.tck --
+package main
+
+func main() {
+}
+-- hidden-only/expected --
+stage: load
+---
+no .tck files in hidden-only
+-- import-after-decl/tack.mod --
+module calc
+-- import-after-decl/main.tck --
+package main
+
+func main() {
+}
+
+import lexer from "calc/lexer"
+-- import-after-decl/expected --
+stage: parse
+---
+
+import-after-decl/main.tck:6:1: error: imports must come before every other declaration
+05 |	
+06 |	import lexer from "calc/lexer"
+   |	^~~~~~
+07 |	
+
+-- import-bad-paths/tack.mod --
+module calc
+-- import-bad-paths/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- import-bad-paths/main.tck --
+package main
+
+import a from "../lexer"
+import b from "/calc/lexer"
+import c from ""
+import d from "calc//lexer"
+import e from "calc/./lexer"
+import f from "calc/lexer/"
+import g from "./"
+
+func main() {
+}
+-- import-bad-paths/expected --
+stage: load
+---
+
+import-bad-paths/main.tck:3:15: error: import path must start with a module name, such as calc/lexer; relative paths are not allowed
+02 |	
+03 |	import a from "../lexer"
+   |	              ^~~~~~~~~~
+04 |	import b from "/calc/lexer"
+
+import-bad-paths/main.tck:4:15: error: import path must start with a module name, such as calc/lexer; absolute paths are not allowed
+03 |	import a from "../lexer"
+04 |	import b from "/calc/lexer"
+   |	              ^~~~~~~~~~~~~
+05 |	import c from ""
+
+import-bad-paths/main.tck:5:15: error: import path is empty
+04 |	import b from "/calc/lexer"
+05 |	import c from ""
+   |	              ^~
+06 |	import d from "calc//lexer"
+
+import-bad-paths/main.tck:6:15: error: invalid import path calc//lexer: a part between slashes is empty
+05 |	import c from ""
+06 |	import d from "calc//lexer"
+   |	              ^~~~~~~~~~~~~
+07 |	import e from "calc/./lexer"
+
+import-bad-paths/main.tck:7:15: error: invalid import path calc/./lexer: a part cannot be . or ..
+06 |	import d from "calc//lexer"
+07 |	import e from "calc/./lexer"
+   |	              ^~~~~~~~~~~~~~
+08 |	import f from "calc/lexer/"
+
+import-bad-paths/main.tck:8:15: error: invalid import path calc/lexer/: a part between slashes is empty
+07 |	import e from "calc/./lexer"
+08 |	import f from "calc/lexer/"
+   |	              ^~~~~~~~~~~~~
+09 |	import g from "./"
+
+import-bad-paths/main.tck:9:15: error: import path must start with a module name, such as calc/<package>; relative paths are not allowed
+08 |	import f from "calc/lexer/"
+09 |	import g from "./"
+   |	              ^~~~
+10 |	
+
+-- import-blank-name/tack.mod --
+module calc
+-- import-blank-name/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- import-blank-name/main.tck --
+package main
+
+import _ from "calc/lexer"
+
+func main() {
+}
+-- import-blank-name/expected --
+stage: resolve
+---
+
+import-blank-name/main.tck:3:8: error: cannot use _ as a name
+02 |	
+03 |	import _ from "calc/lexer"
+   |	       ^
+04 |	
+
+-- import-builtin-name/tack.mod --
+module calc
+-- import-builtin-name/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- import-builtin-name/main.tck --
+package main
+
+import print from "calc/lexer"
+
+func main() {
+    exit(print.KindNumber)
+}
+-- import-builtin-name/expected --
+stage: resolve
+---
+
+import-builtin-name/main.tck:3:8: error: print is a builtin and cannot be redeclared
+02 |	
+03 |	import print from "calc/lexer"
+   |	       ^~~~~
+04 |	
+
+-- import-clashes-with-func/tack.mod --
+module calc
+-- import-clashes-with-func/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- import-clashes-with-func/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func lexer() {
+}
+
+func main() {
+    exit(lexer.KindNumber)
+}
+-- import-clashes-with-func/expected --
+stage: resolve
+---
+
+import-clashes-with-func/main.tck:3:8: error: lexer is already declared
+02 |	
+03 |	import lexer from "calc/lexer"
+   |	       ^~~~~
+04 |	
+import-clashes-with-func/main.tck:5:6: note: previous declaration of lexer
+04 |	
+05 |	func lexer() {
+   |	     ^~~~~
+06 |	}
+
+-- import-clashes-with-global-in-other-file/tack.mod --
+module calc
+-- import-clashes-with-global-in-other-file/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- import-clashes-with-global-in-other-file/a.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    exit(lexer.KindNumber)
+}
+-- import-clashes-with-global-in-other-file/b.tck --
+package main
+
+var lexer int64 = 1
+-- import-clashes-with-global-in-other-file/expected --
+stage: resolve
+---
+
+import-clashes-with-global-in-other-file/a.tck:3:8: error: lexer is already declared
+02 |	
+03 |	import lexer from "calc/lexer"
+   |	       ^~~~~
+04 |	
+import-clashes-with-global-in-other-file/b.tck:3:5: note: previous declaration of lexer
+02 |	
+03 |	var lexer int64 = 1
+   |	    ^~~~~
+04 |	
+
+import-clashes-with-global-in-other-file/b.tck:3:5: warning: declared and not used: lexer
+02 |	
+03 |	var lexer int64 = 1
+   |	    ^~~~~
+04 |	
+
+-- import-clause-mismatch/tack.mod --
+module calc
+-- import-clause-mismatch/lexer/lexer.tck --
+package lex
+-- import-clause-mismatch/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+}
+-- import-clause-mismatch/expected --
+stage: load
+---
+
+import-clause-mismatch/lexer/lexer.tck:1:9: error: package lex does not match its directory; expected package lexer
+01 |	package lex
+   |	        ^~~
+02 |	
+
+-- import-cycle-self/tack.mod --
+module calc
+-- import-cycle-self/a/a.tck --
+package a
+
+import a from "calc/a"
+
+func F() int64 {
+    return a.F()
+}
+-- import-cycle-self/main.tck --
+package main
+
+import a from "calc/a"
+
+func main() {
+    exit(a.F())
+}
+-- import-cycle-self/expected --
+stage: load+resolve
+---
+
+import-cycle-self/a/a.tck:3:15: error: import cycle: calc/a imports calc/a
+02 |	
+03 |	import a from "calc/a"
+   |	              ^~~~~~~~
+04 |	
+
+import-cycle-self/main.tck:6:10: error: F is not pub in package calc/a
+05 |	func main() {
+06 |	    exit(a.F())
+   |	         ^~~
+07 |	}
+
+-- import-cycle-three/tack.mod --
+module calc
+-- import-cycle-three/a/a.tck --
+package a
+
+import b from "calc/b"
+
+func F() int64 {
+    return b.F()
+}
+-- import-cycle-three/b/b.tck --
+package b
+
+import c from "calc/c"
+
+func F() int64 {
+    return c.F()
+}
+-- import-cycle-three/c/c.tck --
+package c
+
+import a from "calc/a"
+
+func F() int64 {
+    return a.F()
+}
+-- import-cycle-three/main.tck --
+package main
+
+import a from "calc/a"
+
+func main() {
+    exit(a.F())
+}
+-- import-cycle-three/expected --
+stage: load+resolve
+---
+
+import-cycle-three/a/a.tck:6:12: error: F is not pub in package calc/b
+05 |	func F() int64 {
+06 |	    return b.F()
+   |	           ^~~
+07 |	}
+
+import-cycle-three/b/b.tck:6:12: error: F is not pub in package calc/c
+05 |	func F() int64 {
+06 |	    return c.F()
+   |	           ^~~
+07 |	}
+
+import-cycle-three/c/c.tck:3:15: error: import cycle: calc/a imports calc/b imports calc/c imports calc/a
+02 |	
+03 |	import a from "calc/a"
+   |	              ^~~~~~~~
+04 |	
+
+import-cycle-three/main.tck:6:10: error: F is not pub in package calc/a
+05 |	func main() {
+06 |	    exit(a.F())
+   |	         ^~~
+07 |	}
+
+-- import-cycle-two/tack.mod --
+module calc
+-- import-cycle-two/a/a.tck --
+package a
+
+import b from "calc/b"
+
+func F() int64 {
+    return b.G()
+}
+-- import-cycle-two/b/b.tck --
+package b
+
+import a from "calc/a"
+
+func G() int64 {
+    return a.F()
+}
+-- import-cycle-two/main.tck --
+package main
+
+import a from "calc/a"
+
+func main() {
+    exit(a.F())
+}
+-- import-cycle-two/expected --
+stage: load+resolve
+---
+
+import-cycle-two/a/a.tck:6:12: error: G is not pub in package calc/b
+05 |	func F() int64 {
+06 |	    return b.G()
+   |	           ^~~
+07 |	}
+
+import-cycle-two/b/b.tck:3:15: error: import cycle: calc/a imports calc/b imports calc/a
+02 |	
+03 |	import a from "calc/a"
+   |	              ^~~~~~~~
+04 |	
+
+import-cycle-two/main.tck:6:10: error: F is not pub in package calc/a
+05 |	func main() {
+06 |	    exit(a.F())
+   |	         ^~~
+07 |	}
+
+-- import-dir-without-tck/tack.mod --
+module calc
+-- import-dir-without-tck/empty/notes.txt --
+Not Tack.
+-- import-dir-without-tck/main.tck --
+package main
+
+import empty from "calc/empty"
+
+func main() {
+}
+-- import-dir-without-tck/expected --
+stage: load
+---
+
+import-dir-without-tck/main.tck:3:19: error: cannot find package calc/empty: no .tck files in import-dir-without-tck/empty
+02 |	
+03 |	import empty from "calc/empty"
+   |	                  ^~~~~~~~~~~~
+04 |	
+
+-- import-duplicate-name/tack.mod --
+module calc
+-- import-duplicate-name/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- import-duplicate-name/parser/parser.tck --
+package parser
+
+func Parse() {
+}
+-- import-duplicate-name/main.tck --
+package main
+
+import lexer from "calc/lexer"
+import lexer from "calc/parser"
+
+func main() {
+    exit(lexer.KindNumber)
+}
+-- import-duplicate-name/expected --
+stage: resolve
+---
+
+import-duplicate-name/main.tck:3:8: warning: imported and not used: lexer
+02 |	
+03 |	import lexer from "calc/lexer"
+   |	       ^~~~~
+04 |	import lexer from "calc/parser"
+
+import-duplicate-name/main.tck:4:8: error: lexer is already declared
+03 |	import lexer from "calc/lexer"
+04 |	import lexer from "calc/parser"
+   |	       ^~~~~
+05 |	
+import-duplicate-name/main.tck:3:8: note: previous declaration of lexer
+02 |	
+03 |	import lexer from "calc/lexer"
+   |	       ^~~~~
+04 |	import lexer from "calc/parser"
+
+-- import-duplicate-path/tack.mod --
+module calc
+-- import-duplicate-path/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- import-duplicate-path/main.tck --
+package main
+
+import a from "calc/lexer"
+import b from "calc/lexer"
+
+func main() {
+    exit(a.KindNumber + b.KindNumber)
+}
+-- import-duplicate-path/expected --
+stage: resolve
+---
+
+import-duplicate-path/main.tck:4:15: error: calc/lexer is already imported as a
+03 |	import a from "calc/lexer"
+04 |	import b from "calc/lexer"
+   |	              ^~~~~~~~~~~~
+05 |	
+import-duplicate-path/main.tck:3:15: note: previous import of calc/lexer
+02 |	
+03 |	import a from "calc/lexer"
+   |	              ^~~~~~~~~~~~
+04 |	import b from "calc/lexer"
+
+-- import-from-name/tack.mod --
+module calc
+-- import-from-name/lexer/lexer.tck --
+package lexer
+-- import-from-name/main.tck --
+package main
+
+import from from "calc/lexer"
+
+func main() {
+}
+-- import-from-name/expected --
+stage: parse
+---
+
+import-from-name/main.tck:3:8: error: expected 'import name' found 'from'
+02 |	
+03 |	import from from "calc/lexer"
+   |	       ^
+04 |	
+
+-- import-grouped/tack.mod --
+module calc
+-- import-grouped/main.tck --
+package main
+
+import (
+    lexer from "calc/lexer"
+)
+
+func main() {
+}
+-- import-grouped/expected --
+stage: parse
+---
+
+import-grouped/main.tck:3:8: error: grouped imports are not supported; write one import per line
+02 |	
+03 |	import (
+   |	       ^
+04 |	    lexer from "calc/lexer"
+
+-- import-invalid-package-name/tack.mod --
+module calc
+-- import-invalid-package-name/my-tools/tools.tck --
+package mytools
+-- import-invalid-package-name/main.tck --
+package main
+
+import tools from "calc/my-tools"
+
+func main() {
+}
+-- import-invalid-package-name/expected --
+stage: load
+---
+
+import-invalid-package-name/my-tools/tools.tck:1:9: error: my-tools is not a valid package name: use lowercase letters and digits
+01 |	package mytools
+   |	        ^~~~~~~
+02 |	
+
+-- import-lex-error/tack.mod --
+module calc
+-- import-lex-error/lexer/lexer.tck --
+package lexer
+
+func F() {
+    @
+}
+-- import-lex-error/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    lexer.F()
+}
+-- import-lex-error/expected --
+stage: lex
+---
+
+import-lex-error/lexer/lexer.tck:4:5: error: invalid character @
+03 |	func F() {
+04 |	    @
+   |	    ^
+05 |	}
+
+-- import-main-from-library/tack.mod --
+module calc
+-- import-main-from-library/a/a.tck --
+package a
+
+import root from "calc"
+
+func F() {
+}
+-- import-main-from-library/main.tck --
+package main
+
+import a from "calc/a"
+
+func main() {
+    a.F()
+}
+-- import-main-from-library/expected --
+stage: load+resolve
+---
+
+import-main-from-library/a/a.tck:3:18: error: cannot import calc: it is a main package
+02 |	
+03 |	import root from "calc"
+   |	                 ^~~~~~
+04 |	
+
+import-main-from-library/main.tck:6:5: error: F is not pub in package calc/a
+05 |	func main() {
+06 |	    a.F()
+   |	    ^~~
+07 |	}
+
+-- import-main-package/tack.mod --
+module calc
+-- import-main-package/cmd/tool/main.tck --
+package main
+
+func main() {
+}
+-- import-main-package/main.tck --
+package main
+
+import tool from "calc/cmd/tool"
+
+func main() {
+}
+-- import-main-package/expected --
+stage: load
+---
+
+import-main-package/main.tck:3:18: error: cannot import calc/cmd/tool: it is a main package
+02 |	
+03 |	import tool from "calc/cmd/tool"
+   |	                 ^~~~~~~~~~~~~~~
+04 |	
+
+-- import-missing-from/tack.mod --
+module calc
+-- import-missing-from/main.tck --
+package main
+
+import lexer "calc/lexer"
+
+func main() {
+}
+-- import-missing-from/expected --
+stage: parse
+---
+
+import-missing-from/main.tck:3:14: error: expected 'from' found 'calc/lexer'
+02 |	
+03 |	import lexer "calc/lexer"
+   |	             ^
+04 |	
+
+-- import-missing-name/tack.mod --
+module calc
+-- import-missing-name/main.tck --
+package main
+
+import "calc/lexer"
+
+func main() {
+}
+-- import-missing-name/expected --
+stage: parse
+---
+
+import-missing-name/main.tck:3:8: error: an import needs a name: import x from "path"
+02 |	
+03 |	import "calc/lexer"
+   |	       ^~~~~~~~~~~~
+04 |	
+
+-- import-parse-error/tack.mod --
+module calc
+-- import-parse-error/lexer/lexer.tck --
+package lexer
+
+func F( {
+}
+-- import-parse-error/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    lexer.F()
+}
+-- import-parse-error/expected --
+stage: parse
+---
+
+import-parse-error/lexer/lexer.tck:3:9: error: expected 'parameter name' found '{'
+02 |	
+03 |	func F( {
+   |	        ^
+04 |	}
+
+-- import-path-not-string/tack.mod --
+module calc
+-- import-path-not-string/main.tck --
+package main
+
+import lexer from calc
+
+func main() {
+}
+-- import-path-not-string/expected --
+stage: parse
+---
+
+import-path-not-string/main.tck:3:19: error: expected 'import path' found 'calc'
+02 |	
+03 |	import lexer from calc
+   |	                  ^
+04 |	
+
+-- import-per-file/tack.mod --
+module calc
+-- import-per-file/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- import-per-file/a.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    exit(lexer.KindNumber +% other())
+}
+-- import-per-file/b.tck --
+package main
+
+func other() int64 {
+    return lexer.KindNumber
+}
+-- import-per-file/expected --
+stage: resolve+typeck
+---
+
+import-per-file/a.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	func main() {
+06 |	    exit(lexer.KindNumber +% other())
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+07 |	}
+
+import-per-file/b.tck:4:12: error: undefined: lexer
+03 |	func other() int64 {
+04 |	    return lexer.KindNumber
+   |	           ^~~~~
+05 |	}
+
+-- import-shadowed-by-local/tack.mod --
+module calc
+-- import-shadowed-by-local/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- import-shadowed-by-local/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    lexer := 1
+    exit(lexer + lexer.KindNumber)
+}
+-- import-shadowed-by-local/expected --
+stage: resolve
+---
+
+import-shadowed-by-local/main.tck:6:5: error: lexer is an imported package and cannot be redeclared
+05 |	func main() {
+06 |	    lexer := 1
+   |	    ^~~~~
+07 |	    exit(lexer + lexer.KindNumber)
+
+-- import-shadowed-by-param/tack.mod --
+module calc
+-- import-shadowed-by-param/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- import-shadowed-by-param/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func f(lexer int64) int64 {
+    return lexer
+}
+
+func main() {
+    exit(f(1) +% lexer.KindNumber)
+}
+-- import-shadowed-by-param/expected --
+stage: resolve+typeck
+---
+
+import-shadowed-by-param/main.tck:5:8: error: lexer is an imported package and cannot be redeclared
+04 |	
+05 |	func f(lexer int64) int64 {
+   |	       ^~~~~
+06 |	    return lexer
+
+import-shadowed-by-param/main.tck:10:10: error: cannot use int64 as int32 in argument to exit
+09 |	func main() {
+10 |	    exit(f(1) +% lexer.KindNumber)
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~
+11 |	}
+
+-- import-shadowed-in-loop/tack.mod --
+module calc
+-- import-shadowed-in-loop/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- import-shadowed-in-loop/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    for lexer := range 3 {
+        exit(lexer)
+    }
+    exit(lexer.KindNumber)
+}
+-- import-shadowed-in-loop/expected --
+stage: resolve+typeck
+---
+
+import-shadowed-in-loop/main.tck:6:9: error: lexer is an imported package and cannot be redeclared
+05 |	func main() {
+06 |	    for lexer := range 3 {
+   |	        ^~~~~
+07 |	        exit(lexer)
+
+import-shadowed-in-loop/main.tck:9:10: error: cannot use int64 as int32 in argument to exit
+08 |	    }
+09 |	    exit(lexer.KindNumber)
+   |	         ^~~~~~~~~~~~~~~~
+10 |	}
+
+-- import-std/tack.mod --
+module calc
+-- import-std/main.tck --
+package main
+
+import net from "std/net"
+import s from "std"
+import f from "std//fmt"
+import t from "std/fmt/../fmt"
+
+func main() {
+}
+-- import-std/expected --
+stage: load
+---
+
+import-std/main.tck:3:17: error: cannot find package std/net: no directory std/net in module std
+02 |	
+03 |	import net from "std/net"
+   |	                ^~~~~~~~~
+04 |	import s from "std"
+
+import-std/main.tck:4:15: error: cannot find package std: no .tck files in src/std
+03 |	import net from "std/net"
+04 |	import s from "std"
+   |	              ^~~~~
+05 |	import f from "std//fmt"
+
+import-std/main.tck:5:15: error: invalid import path std//fmt: a part between slashes is empty
+04 |	import s from "std"
+05 |	import f from "std//fmt"
+   |	              ^~~~~~~~~~
+06 |	import t from "std/fmt/../fmt"
+
+import-std/main.tck:6:15: error: invalid import path std/fmt/../fmt: a part cannot be . or ..
+05 |	import f from "std//fmt"
+06 |	import t from "std/fmt/../fmt"
+   |	              ^~~~~~~~~~~~~~~~
+07 |	
+
+-- import-std-builtin/tack.mod --
+module calc
+-- import-std-builtin/main.tck --
+package main
+
+import builtin from "std/builtin"
+
+func main() {
+}
+-- import-std-builtin/expected --
+stage: load
+---
+
+import-std-builtin/main.tck:3:21: error: std/builtin documents the builtins and cannot be imported
+02 |	
+03 |	import builtin from "std/builtin"
+   |	                    ^~~~~~~~~~~~~
+04 |	
+
+-- import-two-on-a-line/tack.mod --
+module calc
+-- import-two-on-a-line/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- import-two-on-a-line/main.tck --
+package main
+
+import a from "calc/lexer" import b from "calc/lexer"
+
+func main() {
+}
+-- import-two-on-a-line/expected --
+stage: parse
+---
+
+import-two-on-a-line/main.tck:3:28: error: expected ';' found 'import'
+02 |	
+03 |	import a from "calc/lexer" import b from "calc/lexer"
+   |	                           ^
+04 |	
+
+-- import-type-name/tack.mod --
+module calc
+-- import-type-name/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- import-type-name/main.tck --
+package main
+
+import int64 from "calc/lexer"
+
+func main() {
+}
+-- import-type-name/expected --
+stage: resolve
+---
+
+import-type-name/main.tck:3:8: error: cannot use int64 as a name; it is a type
+02 |	
+03 |	import int64 from "calc/lexer"
+   |	       ^~~~~
+04 |	
+
+-- import-typeck-error/tack.mod --
+module calc
+-- import-typeck-error/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub func F() Token {
+    return 1
+}
+-- import-typeck-error/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    t := lexer.F()
+    code, fits := int32(t.kind)
+    if fits { exit(code) }
+}
+-- import-typeck-error/expected --
+stage: typeck
+---
+
+import-typeck-error/lexer/lexer.tck:8:12: error: cannot use int64 as Token in return from F
+07 |	pub func F() Token {
+08 |	    return 1
+   |	           ^
+09 |	}
+
+-- import-unknown-module/tack.mod --
+module calc
+-- import-unknown-module/main.tck --
+package main
+
+import x from "other/pkg"
+
+func main() {
+}
+-- import-unknown-module/expected --
+stage: load
+---
+
+import-unknown-module/main.tck:3:15: error: unknown module other in import path other/pkg
+02 |	
+03 |	import x from "other/pkg"
+   |	              ^~~~~~~~~~~
+04 |	
+
+-- import-unknown-package/tack.mod --
+module calc
+-- import-unknown-package/main.tck --
+package main
+
+import x from "calc/nothing"
+
+func main() {
+}
+-- import-unknown-package/expected --
+stage: load
+---
+
+import-unknown-package/main.tck:3:15: error: cannot find package calc/nothing: no directory calc/nothing in module calc
+02 |	
+03 |	import x from "calc/nothing"
+   |	              ^~~~~~~~~~~~~~
+04 |	
+
+-- import-unused-in-one-file/tack.mod --
+module calc
+-- import-unused-in-one-file/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- import-unused-in-one-file/a.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    exit(lexer.KindNumber)
+}
+-- import-unused-in-one-file/b.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func other() {
+}
+-- import-unused-in-one-file/expected --
+stage: typeck
+---
+
+import-unused-in-one-file/a.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	func main() {
+06 |	    exit(lexer.KindNumber)
+   |	         ^~~~~~~~~~~~~~~~
+07 |	}
+
+import-unused-in-one-file/b.tck:3:8: warning: imported and not used: lexer
+02 |	
+03 |	import lexer from "calc/lexer"
+   |	       ^~~~~
+04 |	
+
+-- imported-mutable-in-initializer/tack.mod --
+module calc
+-- imported-mutable-in-initializer/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- imported-mutable-in-initializer/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+var x int64 = lexer.Count + 1
+
+func main() {
+    exit(x)
+}
+-- imported-mutable-in-initializer/expected --
+stage: resolve+typeck
+---
+
+imported-mutable-in-initializer/main.tck:5:15: error: Count is not pub in package calc/lexer
+04 |	
+05 |	var x int64 = lexer.Count + 1
+   |	              ^~~~~~~~~~~
+06 |	
+
+imported-mutable-in-initializer/main.tck:8:10: error: cannot use int64 as int32 in argument to exit
+07 |	func main() {
+08 |	    exit(x)
+   |	         ^
+09 |	}
+
+-- init-selects-hidden-field/tack.mod --
+module calc
+-- init-selects-hidden-field/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+    end int64
+}
+
+pub var Eof = Token{kind: 3, end: 0}
+-- init-selects-hidden-field/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+var end = lexer.Eof.end
+
+func main() {
+    exit(end)
+}
+-- init-selects-hidden-field/expected --
+stage: typeck
+---
+
+init-selects-hidden-field/main.tck:5:21: error: end is not pub in lexer.Token
+04 |	
+05 |	var end = lexer.Eof.end
+   |	                    ^~~
+06 |	
+
+-- interface-foreign-as-type/tack.mod --
+module calc
+-- interface-foreign-as-type/sink/sink.tck --
+package sink
+
+pub type Sink interface {
+    mut put(word string) error
+    count() int64
+}
+
+pub func Feed[S Sink](mut s S, word string) error {
+    return mut s.put(word)
+}
+
+pub type Tally struct {
+    n int64
+}
+
+pub func NewTally() Tally {
+    return Tally{n: 0}
+}
+
+func (mut t Tally) put(word string) error {
+    t.n +%= 1
+    return noerror
+}
+
+func (t Tally) count() int64 {
+    return t.n
+}
+-- interface-foreign-as-type/main.tck --
+package main
+
+import sink from "calc/sink"
+
+type Holder struct {
+    s sink.Sink
+}
+
+func main() {
+}
+-- interface-foreign-as-type/expected --
+stage: typeck
+---
+
+interface-foreign-as-type/main.tck:6:7: error: sink.Sink is an interface; it can only constrain a type parameter
+05 |	type Holder struct {
+06 |	    s sink.Sink
+   |	      ^~~~~~~~~
+07 |	}
+
+-- interface-foreign-hidden-constraint/tack.mod --
+module calc
+-- interface-foreign-hidden-constraint/geo/geo.tck --
+package geo
+
+type hidden interface {
+    size() int64
+}
+
+pub func Nothing() {
+}
+-- interface-foreign-hidden-constraint/main.tck --
+package main
+
+import geo from "calc/geo"
+
+func f[S geo.hidden](s S) {
+}
+
+func main() {
+    geo.Nothing()
+}
+-- interface-foreign-hidden-constraint/expected --
+stage: resolve
+---
+
+interface-foreign-hidden-constraint/main.tck:5:10: error: hidden is not pub in package calc/geo
+04 |	
+05 |	func f[S geo.hidden](s S) {
+   |	         ^~~~~~~~~~
+06 |	}
+
+-- interface-main-pub/tack.mod --
+module calc
+-- interface-main-pub/main.tck --
+package main
+
+pub type Sizer interface {
+    size() int64
+}
+
+func main() {
+}
+-- interface-main-pub/expected --
+stage: resolve
+---
+
+interface-main-pub/main.tck:3:1: error: pub has no effect in package main, which no package can import
+02 |	
+03 |	pub type Sizer interface {
+   |	^~~
+04 |	    size() int64
+
+-- interface-pub-exposes/tack.mod --
+module calc
+-- interface-pub-exposes/geo/geo.tck --
+package geo
+
+pub func Nothing() {
+}
+
+type secret struct {
+    n int64
+}
+
+pub type Maker interface {
+    make() secret
+    take(s secret)
+}
+-- interface-pub-exposes/main.tck --
+package main
+
+import geo from "calc/geo"
+
+func main() {
+    geo.Nothing()
+}
+-- interface-pub-exposes/expected --
+stage: typeck
+---
+
+interface-pub-exposes/geo/geo.tck:11:12: error: pub interface Maker exposes secret, which is not pub
+10 |	pub type Maker interface {
+11 |	    make() secret
+   |	           ^~~~~~
+12 |	    take(s secret)
+
+interface-pub-exposes/geo/geo.tck:12:12: error: pub interface Maker exposes secret, which is not pub
+11 |	    make() secret
+12 |	    take(s secret)
+   |	           ^~~~~~
+13 |	}
+
+-- keep-going-bad-decl-in-import/tack.mod --
+module calc
+-- keep-going-bad-decl-in-import/lexer/lexer.tck --
+package lexer
+
+pub func Count( int64 {
+    return 1
+}
+
+pub func Size() int64 {
+    return 2
+}
+-- keep-going-bad-decl-in-import/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    n := lexer.Count() + lexer.Size()
+    var s string = lexer.Size()
+    if n == 3 {
+        print(s)
+    }
+}
+-- keep-going-bad-decl-in-import/expected --
+stage: parse+typeck
+---
+
+keep-going-bad-decl-in-import/lexer/lexer.tck:3:23: error: expected 'type name' found '{'
+02 |	
+03 |	pub func Count( int64 {
+   |	                      ^
+04 |	    return 1
+
+keep-going-bad-decl-in-import/main.tck:7:20: error: cannot use int64 as string in declaration of s
+06 |	    n := lexer.Count() + lexer.Size()
+07 |	    var s string = lexer.Size()
+   |	                   ^~~~~~~~~~~~
+08 |	    if n == 3 {
+
+-- lex-errors-in-two-files/tack.mod --
+module lex-errors-in-two-files
+-- lex-errors-in-two-files/a.tck --
+package main
+
+func main() {
+    @
+}
+-- lex-errors-in-two-files/b.tck --
+package main
+
+func f() {
+    print("unterminated)
+}
+-- lex-errors-in-two-files/expected --
+stage: lex
+---
+
+lex-errors-in-two-files/a.tck:4:5: error: invalid character @
+03 |	func main() {
+04 |	    @
+   |	    ^
+05 |	}
+
+lex-errors-in-two-files/b.tck:4:11: error: unterminated string
+03 |	func f() {
+04 |	    print("unterminated)
+   |	          ^~~~~~~~~~~~~~
+05 |	}
+
+-- library-target/tack.mod --
+module calc
+-- library-target/.target --
+lexer
+-- library-target/lexer/lexer.tck --
+package lexer
+
+func First() {
+}
+-- library-target/expected --
+stage: load
+---
+
+library-target/lexer/lexer.tck:1:9: error: calc/lexer is not a main package
+01 |	package lexer
+   |	        ^~~~~
+02 |	
+
+-- main-in-library/tack.mod --
+module calc
+-- main-in-library/a/a.tck --
+package a
+
+func main() {
+}
+
+pub func F() {
+}
+-- main-in-library/b/b.tck --
+package b
+
+var main int64 = 1
+
+pub var N int64 = main
+-- main-in-library/c/c.tck --
+package c
+
+type main struct {
+    x int64
+}
+
+pub func F() {
+}
+-- main-in-library/d/d.tck --
+package d
+
+mut main int64 = 1
+
+pub func F() int64 {
+    return main
+}
+-- main-in-library/main.tck --
+package main
+
+import a from "calc/a"
+import b from "calc/b"
+import c from "calc/c"
+import d from "calc/d"
+
+func main() {
+    a.F()
+    c.F()
+    exit(b.N +% d.F())
+}
+-- main-in-library/expected --
+stage: resolve+typeck
+---
+
+main-in-library/a/a.tck:3:6: error: func main is allowed only in package main
+02 |	
+03 |	func main() {
+   |	     ^~~~
+04 |	}
+
+main-in-library/b/b.tck:3:5: error: var main is allowed only in package main
+02 |	
+03 |	var main int64 = 1
+   |	    ^~~~
+04 |	
+
+main-in-library/c/c.tck:3:6: error: type main is allowed only in package main
+02 |	
+03 |	type main struct {
+   |	     ^~~~
+04 |	    x int64
+
+main-in-library/d/d.tck:3:5: error: mut main is allowed only in package main
+02 |	
+03 |	mut main int64 = 1
+   |	    ^~~~
+04 |	
+
+main-in-library/main.tck:11:10: error: cannot use int64 as int32 in argument to exit
+10 |	    c.F()
+11 |	    exit(b.N +% d.F())
+   |	         ^~~~~~~~~~~~
+12 |	}
+
+-- main-missing-across-files/tack.mod --
+module main-missing-across-files
+-- main-missing-across-files/a.tck --
+package main
+
+func a() {
+}
+-- main-missing-across-files/b.tck --
+package main
+
+func b() {
+}
+-- main-missing-across-files/expected --
+stage: resolve
+---
+
+main-missing-across-files/a.tck:1:1: error: main function not found
+01 |	package main
+   |	^
+02 |	
+
+-- make-data-qualified/tack.mod --
+module q1
+-- make-data-qualified/geo/geo.tck --
+package geo
+
+pub type Open struct {
+    pub n int64
+    s     string
+}
+
+type hidden struct {
+    n int64
+}
+
+pub var count = 0
+
+pub func mk() int64 {
+    return 1
+}
+-- make-data-qualified/main.tck --
+package main
+
+import geo from "q1/geo"
+
+func main() {
+    a := make(geo.Open, c_allocator)
+    b := make(geo.hidden, c_allocator)
+    c := make(geo.mk, c_allocator)
+    d := make(geo.count, c_allocator)
+    e := make(geo.Nope, c_allocator)
+    print("x")
+}
+-- make-data-qualified/expected --
+stage: resolve+typeck
+---
+
+make-data-qualified/main.tck:6:5: warning: declared and not used: a
+05 |	func main() {
+06 |	    a := make(geo.Open, c_allocator)
+   |	    ^
+07 |	    b := make(geo.hidden, c_allocator)
+
+make-data-qualified/main.tck:6:15: error: cannot make geo.Open: field s of geo.Open is string, which is not Data
+05 |	func main() {
+06 |	    a := make(geo.Open, c_allocator)
+   |	              ^~~~~~~~
+07 |	    b := make(geo.hidden, c_allocator)
+
+make-data-qualified/main.tck:7:15: error: hidden is not pub in package q1/geo
+06 |	    a := make(geo.Open, c_allocator)
+07 |	    b := make(geo.hidden, c_allocator)
+   |	              ^~~~~~~~~~
+08 |	    c := make(geo.mk, c_allocator)
+
+make-data-qualified/main.tck:8:5: warning: declared and not used: c
+07 |	    b := make(geo.hidden, c_allocator)
+08 |	    c := make(geo.mk, c_allocator)
+   |	    ^
+09 |	    d := make(geo.count, c_allocator)
+
+make-data-qualified/main.tck:8:15: error: make takes a list, a map, an arena, a pool or a Data type, as in make(list[int64], c_allocator)
+07 |	    b := make(geo.hidden, c_allocator)
+08 |	    c := make(geo.mk, c_allocator)
+   |	              ^~~~~~
+09 |	    d := make(geo.count, c_allocator)
+
+make-data-qualified/main.tck:9:5: warning: declared and not used: d
+08 |	    c := make(geo.mk, c_allocator)
+09 |	    d := make(geo.count, c_allocator)
+   |	    ^
+10 |	    e := make(geo.Nope, c_allocator)
+
+make-data-qualified/main.tck:9:15: error: make takes a list, a map, an arena, a pool or a Data type, as in make(list[int64], c_allocator)
+08 |	    c := make(geo.mk, c_allocator)
+09 |	    d := make(geo.count, c_allocator)
+   |	              ^~~~~~~~~
+10 |	    e := make(geo.Nope, c_allocator)
+
+make-data-qualified/main.tck:10:15: error: undefined: geo.Nope
+09 |	    d := make(geo.count, c_allocator)
+10 |	    e := make(geo.Nope, c_allocator)
+   |	              ^~~~~~~~
+11 |	    print("x")
+
+-- method-exposes/tack.mod --
+module calc
+-- method-exposes/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+type hidden struct {
+    n int64
+}
+
+lib type Mid struct {
+    n int64
+}
+
+pub func (t Token) Get() hidden {
+    return hidden{n: t.kind}
+}
+
+pub func (t Token) Put(h hidden) {
+}
+
+lib func (t Token) Lib(m Mid) hidden {
+    return hidden{n: m.n}
+}
+
+pub func (m Mid) Get() hidden {
+    return hidden{n: m.n}
+}
+
+pub func (m Mid) Fine() Mid {
+    return m
+}
+
+pub func (h hidden) Peek() hidden {
+    return h
+}
+-- method-exposes/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func use(t lexer.Token) {
+}
+
+func main() {
+    use(lexer.Token{kind: 1})
+}
+-- method-exposes/expected --
+stage: typeck
+---
+
+method-exposes/lexer/lexer.tck:15:26: error: pub method Token.Get exposes hidden, which is not pub
+14 |	
+15 |	pub func (t Token) Get() hidden {
+   |	                         ^~~~~~
+16 |	    return hidden{n: t.kind}
+
+method-exposes/lexer/lexer.tck:19:26: error: pub method Token.Put exposes hidden, which is not pub
+18 |	
+19 |	pub func (t Token) Put(h hidden) {
+   |	                         ^~~~~~
+20 |	}
+
+method-exposes/lexer/lexer.tck:22:31: error: lib method Token.Lib exposes hidden, which is not lib or pub
+21 |	
+22 |	lib func (t Token) Lib(m Mid) hidden {
+   |	                              ^~~~~~
+23 |	    return hidden{n: m.n}
+
+method-exposes/lexer/lexer.tck:26:24: error: lib method Mid.Get exposes hidden, which is not lib or pub
+25 |	
+26 |	pub func (m Mid) Get() hidden {
+   |	                       ^~~~~~
+27 |	    return hidden{n: m.n}
+
+-- method-expr-call-lib-other-module/tack.mod --
+module calc
+-- method-expr-call-lib-other-module/.std/util/util.tck --
+package util
+
+pub type Pair struct {
+    pub a int64
+}
+
+// Sum is lib: only std's packages may call it, through its type too.
+lib func (p Pair) Sum() int64 {
+    return p.a
+}
+-- method-expr-call-lib-other-module/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    if util.Pair.Sum(util.Pair{a: 1}) == 1 {
+        print("one")
+    }
+}
+-- method-expr-call-lib-other-module/expected --
+stage: typeck
+---
+
+method-expr-call-lib-other-module/main.tck:6:18: error: Sum is lib in module std and cannot be used from module calc
+05 |	func main() {
+06 |	    if util.Pair.Sum(util.Pair{a: 1}) == 1 {
+   |	                 ^~~
+07 |	        print("one")
+
+-- method-expr-call-private/tack.mod --
+module calc
+-- method-expr-call-private/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+// hidden is private to lexer, called through its type or not.
+func (t Token) hidden() int64 {
+    return t.kind
+}
+
+// Kind calls hidden.
+pub func (t Token) Kind() int64 {
+    return t.hidden()
+}
+-- method-expr-call-private/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    if lexer.Token.hidden(lexer.Token{kind: 1}) == 1 {
+        print("one")
+    }
+}
+-- method-expr-call-private/expected --
+stage: typeck
+---
+
+method-expr-call-private/main.tck:6:20: error: hidden is not pub in lexer.Token
+05 |	func main() {
+06 |	    if lexer.Token.hidden(lexer.Token{kind: 1}) == 1 {
+   |	                   ^~~~~~
+07 |	        print("one")
+
+-- method-expr-lib-other-module/tack.mod --
+module calc
+-- method-expr-lib-other-module/.std/util/util.tck --
+package util
+
+pub type Pair struct {
+    pub a int64
+}
+
+// Sum is lib: only std's packages may name it.
+lib func (p Pair) Sum() int64 {
+    return p.a
+}
+-- method-expr-lib-other-module/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    f := util.Pair.Sum
+    if f(util.Pair{a: 1}) == 1 {
+        print("one")
+    }
+}
+-- method-expr-lib-other-module/expected --
+stage: typeck
+---
+
+method-expr-lib-other-module/main.tck:6:20: error: Sum is lib in module std and cannot be used from module calc
+05 |	func main() {
+06 |	    f := util.Pair.Sum
+   |	                   ^~~
+07 |	    if f(util.Pair{a: 1}) == 1 {
+
+-- method-expr-private/tack.mod --
+module calc
+-- method-expr-private/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+// Kind is pub.
+pub func (t Token) Kind() int64 {
+    return t.kind
+}
+
+// hidden is private to lexer.
+func (t Token) hidden() int64 {
+    return t.kind
+}
+
+// secret is a private type; its pub method is capped at private.
+type secret struct {
+    v int64
+}
+
+// Peek is pub on a private type, so private in effect.
+pub func (s secret) Peek() int64 {
+    return s.v
+}
+
+// Make returns a Token, and uses secret.
+pub func Make() Token {
+    return Token{kind: secret{v: 1}.Peek()}
+}
+-- method-expr-private/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    f := lexer.Token.hidden
+    if f(lexer.Make()) == 1 {
+        print("one")
+    }
+}
+-- method-expr-private/expected --
+stage: typeck
+---
+
+method-expr-private/main.tck:6:22: error: hidden is not pub in lexer.Token
+05 |	func main() {
+06 |	    f := lexer.Token.hidden
+   |	                     ^~~~~~
+07 |	    if f(lexer.Make()) == 1 {
+
+-- method-expr-private-type/tack.mod --
+module calc
+-- method-expr-private-type/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+// Kind is pub.
+pub func (t Token) Kind() int64 {
+    return t.kind
+}
+
+// hidden is private to lexer.
+func (t Token) hidden() int64 {
+    return t.kind
+}
+
+// secret is a private type; its pub method is capped at private.
+type secret struct {
+    v int64
+}
+
+// Peek is pub on a private type, so private in effect.
+pub func (s secret) Peek() int64 {
+    return s.v
+}
+
+// Make returns a Token, and uses secret.
+pub func Make() Token {
+    return Token{kind: secret{v: 1}.Peek()}
+}
+-- method-expr-private-type/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+// Assumption: a pub method of a private type cannot be named from another
+// package, which cannot name the type.
+func main() {
+    f := lexer.secret.Peek
+    if f(lexer.Make()) == 1 {
+        print("one")
+    }
+}
+-- method-expr-private-type/expected --
+stage: resolve
+---
+
+method-expr-private-type/main.tck:8:10: error: secret is not pub in package calc/lexer
+07 |	func main() {
+08 |	    f := lexer.secret.Peek
+   |	         ^~~~~~~~~~~~
+09 |	    if f(lexer.Make()) == 1 {
+
+-- method-expr-qualified-interface/tack.mod --
+module calc
+-- method-expr-qualified-interface/lexer/lexer.tck --
+package lexer
+
+// Sizer is a constraint, whose methods are no values.
+pub type Sizer interface {
+    Size() int64
+}
+-- method-expr-qualified-interface/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    f := lexer.Sizer.Size
+}
+-- method-expr-qualified-interface/expected --
+stage: typeck
+---
+
+method-expr-qualified-interface/main.tck:6:5: warning: declared and not used: f
+05 |	func main() {
+06 |	    f := lexer.Sizer.Size
+   |	    ^
+07 |	}
+
+method-expr-qualified-interface/main.tck:6:10: error: cannot use lexer.Sizer.Size as a value: lexer.Sizer is an interface; only a struct or union type's methods are values
+05 |	func main() {
+06 |	    f := lexer.Sizer.Size
+   |	         ^~~~~~~~~~~~~~~~
+07 |	}
+
+-- method-expr-qualified-no-method/tack.mod --
+module calc
+-- method-expr-qualified-no-method/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+// Kind is pub.
+pub func (t Token) Kind() int64 {
+    return t.kind
+}
+
+// hidden is private to lexer.
+func (t Token) hidden() int64 {
+    return t.kind
+}
+
+// secret is a private type; its pub method is capped at private.
+type secret struct {
+    v int64
+}
+
+// Peek is pub on a private type, so private in effect.
+pub func (s secret) Peek() int64 {
+    return s.v
+}
+
+// Make returns a Token, and uses secret.
+pub func Make() Token {
+    return Token{kind: secret{v: 1}.Peek()}
+}
+-- method-expr-qualified-no-method/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    f := lexer.Token.Knd
+    if f(lexer.Make()) == 1 {
+        print("one")
+    }
+}
+-- method-expr-qualified-no-method/expected --
+stage: typeck
+---
+
+method-expr-qualified-no-method/main.tck:6:22: error: lexer.Token has no method Knd
+05 |	func main() {
+06 |	    f := lexer.Token.Knd
+   |	                     ^~~
+07 |	    if f(lexer.Make()) == 1 {
+
+-- method-expr-qualified-no-package/tack.mod --
+module calc
+-- method-expr-qualified-no-package/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+// Kind is pub.
+pub func (t Token) Kind() int64 {
+    return t.kind
+}
+
+// hidden is private to lexer.
+func (t Token) hidden() int64 {
+    return t.kind
+}
+
+// secret is a private type; its pub method is capped at private.
+type secret struct {
+    v int64
+}
+
+// Peek is pub on a private type, so private in effect.
+pub func (s secret) Peek() int64 {
+    return s.v
+}
+
+// Make returns a Token, and uses secret.
+pub func Make() Token {
+    return Token{kind: secret{v: 1}.Peek()}
+}
+-- method-expr-qualified-no-package/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    t := lexer.Make()
+    f := lexr.Token.Kind
+    if f(t) == 1 {
+        print("one")
+    }
+}
+-- method-expr-qualified-no-package/expected --
+stage: resolve
+---
+
+method-expr-qualified-no-package/main.tck:7:10: error: undefined: lexr
+06 |	    t := lexer.Make()
+07 |	    f := lexr.Token.Kind
+   |	         ^~~~
+08 |	    if f(t) == 1 {
+
+-- method-expr-qualified-no-type/tack.mod --
+module calc
+-- method-expr-qualified-no-type/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+// Kind is pub.
+pub func (t Token) Kind() int64 {
+    return t.kind
+}
+
+// hidden is private to lexer.
+func (t Token) hidden() int64 {
+    return t.kind
+}
+
+// secret is a private type; its pub method is capped at private.
+type secret struct {
+    v int64
+}
+
+// Peek is pub on a private type, so private in effect.
+pub func (s secret) Peek() int64 {
+    return s.v
+}
+
+// Make returns a Token, and uses secret.
+pub func Make() Token {
+    return Token{kind: secret{v: 1}.Peek()}
+}
+-- method-expr-qualified-no-type/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    f := lexer.Tokn.Kind
+    if f(lexer.Make()) == 1 {
+        print("one")
+    }
+}
+-- method-expr-qualified-no-type/expected --
+stage: resolve
+---
+
+method-expr-qualified-no-type/main.tck:6:10: error: undefined: lexer.Tokn
+05 |	func main() {
+06 |	    f := lexer.Tokn.Kind
+   |	         ^~~~~~~~~~
+07 |	    if f(lexer.Make()) == 1 {
+
+-- method-expr-qualified-value/tack.mod --
+module calc
+-- method-expr-qualified-value/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+// Kind is pub.
+pub func (t Token) Kind() int64 {
+    return t.kind
+}
+
+// hidden is private to lexer.
+func (t Token) hidden() int64 {
+    return t.kind
+}
+
+// secret is a private type; its pub method is capped at private.
+type secret struct {
+    v int64
+}
+
+// Peek is pub on a private type, so private in effect.
+pub func (s secret) Peek() int64 {
+    return s.v
+}
+
+// Make returns a Token, and uses secret.
+pub func Make() Token {
+    return Token{kind: secret{v: 1}.Peek()}
+}
+-- method-expr-qualified-value/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+// A bound method value of another package's type, t.Kind, is not part
+// of the language: only lexer.Token.Kind is a value.
+func main() {
+    t := lexer.Make()
+    f := t.Kind
+    if f() == 1 {
+        print("one")
+    }
+}
+-- method-expr-qualified-value/expected --
+stage: typeck
+---
+
+method-expr-qualified-value/main.tck:9:12: error: Kind is a method of lexer.Token, not a field; a method can only be called
+08 |	    t := lexer.Make()
+09 |	    f := t.Kind
+   |	           ^~~~
+10 |	    if f() == 1 {
+
+-- method-expression-qualified/tack.mod --
+module calc
+-- method-expression-qualified/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub func (t Token) Kind() int64 {
+    return t.kind
+}
+-- method-expression-qualified/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func use(n int64) {
+}
+
+// A method expression of another package's type called directly takes
+// its receiver as its first argument, a lexer.Token.
+func main() {
+    use(lexer.Token.Kind(1))
+}
+-- method-expression-qualified/expected --
+stage: typeck
+---
+
+method-expression-qualified/main.tck:11:26: error: cannot use int64 as lexer.Token in argument to lexer.Token.Kind
+10 |	func main() {
+11 |	    use(lexer.Token.Kind(1))
+   |	                         ^
+12 |	}
+
+-- method-lib-other-module/tack.mod --
+module calc
+-- method-lib-other-module/.std/util/util.tck --
+package util
+
+pub type Pair struct {
+    pub a int64
+}
+
+lib type Box struct {
+    pub n int64
+}
+
+// Sum is lib: only std's packages may call it.
+lib func (p Pair) Sum() int64 {
+    return p.a
+}
+
+// A is pub.
+pub func (p Pair) A() int64 {
+    return p.a
+}
+
+// Get is pub, capped at lib by its type.
+pub func (b Box) Get() int64 {
+    return b.n
+}
+-- method-lib-other-module/main.tck --
+package main
+
+import util from "std/util"
+
+func use(n int64) {
+}
+
+func main() {
+    p := util.Pair{a: 1}
+    use(p.A())
+    use(p.Sum())
+}
+-- method-lib-other-module/expected --
+stage: typeck
+---
+
+method-lib-other-module/main.tck:11:11: error: Sum is lib in module std and cannot be used from module calc
+10 |	    use(p.A())
+11 |	    use(p.Sum())
+   |	          ^~~
+12 |	}
+
+-- method-on-imported-type/tack.mod --
+module calc
+-- method-on-imported-type/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+-- method-on-imported-type/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func (t lexer.Token) twice() int64 {
+    return t.kind * 2
+}
+
+func main() {
+}
+-- method-on-imported-type/expected --
+stage: resolve
+---
+
+method-on-imported-type/main.tck:5:9: error: cannot declare a method on lexer.Token: only a struct or union type declared in this package can have methods
+04 |	
+05 |	func (t lexer.Token) twice() int64 {
+   |	        ^~~~~~~~~~~
+06 |	    return t.kind * 2
+
+-- method-visibility/tack.mod --
+module calc
+-- method-visibility/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+lib type Half struct {
+    pub n int64
+}
+
+// Kind is pub.
+pub func (t Token) Kind() int64 {
+    return t.kind
+}
+
+// Mid is lib, usable in module calc.
+lib func (t Token) Mid() int64 {
+    return t.kind
+}
+
+// hidden is private.
+func (t Token) hidden() int64 {
+    return t.kind
+}
+
+// Get is pub on a lib type, so lib in effect.
+pub func (h Half) Get() int64 {
+    return h.n
+}
+
+pub func Make() Token {
+    return Token{kind: 1}
+}
+-- method-visibility/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func use(n int64) {
+}
+
+func main() {
+    t := lexer.Make()
+    use(t.Kind() +% t.Mid())
+    use(t.hidden())
+    h := lexer.Half{n: 2}
+    use(h.Get())
+    use(t.nope())
+    k := t.Kind
+    use(k)
+}
+-- method-visibility/expected --
+stage: typeck
+---
+
+method-visibility/main.tck:11:11: error: hidden is not pub in lexer.Token
+10 |	    use(t.Kind() +% t.Mid())
+11 |	    use(t.hidden())
+   |	          ^~~~~~
+12 |	    h := lexer.Half{n: 2}
+
+method-visibility/main.tck:14:11: error: lexer.Token has no method nope
+13 |	    use(h.Get())
+14 |	    use(t.nope())
+   |	          ^~~~
+15 |	    k := t.Kind
+
+method-visibility/main.tck:15:12: error: Kind is a method of lexer.Token, not a field; a method can only be called
+14 |	    use(t.nope())
+15 |	    k := t.Kind
+   |	           ^~~~
+16 |	    use(k)
+
+-- mod-empty/tack.mod --
+// nothing but a comment
+-- mod-empty/main.tck --
+package main
+
+func main() {
+}
+-- mod-empty/expected --
+stage: load
+---
+
+mod-empty/tack.mod:1:1: error: tack.mod declares no module; write module <name>
+01 |	// nothing but a comment
+   |	^
+02 |	
+
+-- mod-empty-part/tack.mod --
+module calc/
+-- mod-empty-part/main.tck --
+package main
+
+func main() {
+}
+-- mod-empty-part/expected --
+stage: load
+---
+
+mod-empty-part/tack.mod:1:8: error: invalid module name calc/: a part between slashes is empty
+01 |	module calc/
+   |	       ^~~~~
+02 |	
+
+-- mod-every-line-wrong/tack.mod --
+go 1.27
+module Calc
+module calc x
+-- mod-every-line-wrong/main.tck --
+package main
+
+func main() {
+}
+-- mod-every-line-wrong/expected --
+stage: load
+---
+
+mod-every-line-wrong/tack.mod:1:1: error: unknown directive go; tack.mod holds only a module line
+01 |	go 1.27
+   |	^~
+02 |	module Calc
+
+mod-every-line-wrong/tack.mod:2:8: error: invalid module name Calc: use lowercase letters, digits, -, . and _
+01 |	go 1.27
+02 |	module Calc
+   |	       ^~~~
+03 |	module calc x
+
+mod-every-line-wrong/tack.mod:3:13: error: unexpected x after the module name; a module has one name
+02 |	module Calc
+03 |	module calc x
+   |	            ^
+04 |	
+
+-- mod-in-parent/tack.mod --
+module calc
+-- mod-in-parent/.target --
+cmd/calc
+-- mod-in-parent/cmd/calc/main.tck --
+package main
+
+func main() {
+    undefined()
+}
+-- mod-in-parent/expected --
+stage: resolve
+---
+
+mod-in-parent/cmd/calc/main.tck:4:5: error: undefined: undefined
+03 |	func main() {
+04 |	    undefined()
+   |	    ^~~~~~~~~
+05 |	}
+
+-- mod-leading-dash/tack.mod --
+module -calc
+-- mod-leading-dash/main.tck --
+package main
+
+func main() {
+}
+-- mod-leading-dash/expected --
+stage: load
+---
+
+mod-leading-dash/tack.mod:1:8: error: invalid module name -calc: a part cannot start or end with . or -
+01 |	module -calc
+   |	       ^~~~~
+02 |	
+
+-- mod-no-name/tack.mod --
+module
+-- mod-no-name/main.tck --
+package main
+
+func main() {
+}
+-- mod-no-name/expected --
+stage: load
+---
+
+mod-no-name/tack.mod:1:1: error: module needs a name: module <name>
+01 |	module
+   |	^~~~~~
+02 |	
+
+-- mod-odd-byte/tack.mod --
+module calc
+-- mod-odd-byte/main.tck --
+package main
+
+func main() {
+}
+-- mod-odd-byte/expected --
+stage: load
+---
+
+mod-odd-byte/tack.mod:1:8: error: invalid module name "ca\x01lc": use lowercase letters, digits, -, . and _
+01 |	module calc
+   |	       ^~~~~
+02 |	
+
+-- mod-trailing-dot/tack.mod --
+module calc.
+-- mod-trailing-dot/main.tck --
+package main
+
+func main() {
+}
+-- mod-trailing-dot/expected --
+stage: load
+---
+
+mod-trailing-dot/tack.mod:1:8: error: invalid module name calc.: a part cannot start or end with . or -
+01 |	module calc.
+   |	       ^~~~~
+02 |	
+
+-- mod-two-module-lines/tack.mod --
+module calc
+module calc
+-- mod-two-module-lines/main.tck --
+package main
+
+func main() {
+}
+-- mod-two-module-lines/expected --
+stage: load
+---
+
+mod-two-module-lines/tack.mod:2:1: error: module is already declared
+01 |	module calc
+02 |	module calc
+   |	^~~~~~
+03 |	
+mod-two-module-lines/tack.mod:1:8: note: previous declaration of module
+01 |	module calc
+   |	       ^~~~
+02 |	module calc
+
+-- mod-two-names/tack.mod --
+module calc tools
+-- mod-two-names/main.tck --
+package main
+
+func main() {
+}
+-- mod-two-names/expected --
+stage: load
+---
+
+mod-two-names/tack.mod:1:13: error: unexpected tools after the module name; a module has one name
+01 |	module calc tools
+   |	            ^~~~~
+02 |	
+
+-- mod-unknown-directive/tack.mod --
+module calc
+require other v1.0.0
+-- mod-unknown-directive/main.tck --
+package main
+
+func main() {
+}
+-- mod-unknown-directive/expected --
+stage: load
+---
+
+mod-unknown-directive/tack.mod:2:1: error: unknown directive require; tack.mod holds only a module line
+01 |	module calc
+02 |	require other v1.0.0
+   |	^~~~~~~
+03 |	
+
+-- mod-uppercase/tack.mod --
+module Calc
+-- mod-uppercase/main.tck --
+package main
+
+func main() {
+}
+-- mod-uppercase/expected --
+stage: load
+---
+
+mod-uppercase/tack.mod:1:8: error: invalid module name Calc: use lowercase letters, digits, -, . and _
+01 |	module Calc
+   |	       ^~~~
+02 |	
+
+-- mut-missing-imported-global/tack.mod --
+module calc
+-- mut-missing-imported-global/shapes/shapes.tck --
+package shapes
+
+pub type Box struct {
+    pub v int64
+    pub a [2]int64
+}
+
+pub func (mut b Box) set(n int64) {
+    b.v = n
+}
+
+pub var Origin Box = Box{v: 0, a: [2]int64{0, 0}}
+-- mut-missing-imported-global/main.tck --
+package main
+
+import shapes from "calc/shapes"
+
+func store(mut b shapes.Box, n int64) {
+    b.v = n
+}
+
+func bump(mut n int64) {
+    n +%= 1
+}
+
+func main() {
+    store(shapes.Origin, 1)
+    bump(shapes.Origin.v)
+    bump(shapes.Origin.a[1])
+    shapes.Origin.set(1)
+}
+-- mut-missing-imported-global/expected --
+stage: typeck
+---
+
+mut-missing-imported-global/main.tck:14:11: error: store takes b as mut, but shapes.Origin is immutable; copy it into a mutable local
+13 |	func main() {
+14 |	    store(shapes.Origin, 1)
+   |	          ^~~~~~~~~~~~~
+15 |	    bump(shapes.Origin.v)
+
+mut-missing-imported-global/main.tck:15:10: error: bump takes n as mut, but shapes.Origin is immutable; copy it into a mutable local
+14 |	    store(shapes.Origin, 1)
+15 |	    bump(shapes.Origin.v)
+   |	         ^~~~~~~~~~~~~~~
+16 |	    bump(shapes.Origin.a[1])
+
+mut-missing-imported-global/main.tck:16:10: error: bump takes n as mut, but shapes.Origin is immutable; copy it into a mutable local
+15 |	    bump(shapes.Origin.v)
+16 |	    bump(shapes.Origin.a[1])
+   |	         ^~~~~~~~~~~~~~~~~~
+17 |	    shapes.Origin.set(1)
+
+mut-missing-imported-global/main.tck:17:5: error: shapes.Box.set takes its receiver as mut, but shapes.Origin is immutable; copy it into a mutable local
+16 |	    bump(shapes.Origin.a[1])
+17 |	    shapes.Origin.set(1)
+   |	    ^~~~~~~~~~~~~
+18 |	}
+
+-- no-tack-mod/main.tck --
+package main
+
+func main() {
+}
+-- no-tack-mod/expected --
+stage: load
+---
+no tack.mod found in no-tack-mod or any parent directory
+-- no-tck-files/tack.mod --
+module no-tck-files
+-- no-tck-files/notes.txt --
+Not a Tack file.
+-- no-tck-files/expected --
+stage: load
+---
+no .tck files in no-tck-files
+-- not-main-package/tack.mod --
+module calc
+-- not-main-package/calc.tck --
+package calc
+
+func main() {
+}
+-- not-main-package/expected --
+stage: load
+---
+
+not-main-package/calc.tck:1:9: error: calc is not a main package
+01 |	package calc
+   |	        ^~~~
+02 |	
+
+-- own-imported-global/tack.mod --
+module calc
+-- own-imported-global/lexer/lexer.tck --
+package lexer
+
+pub var Count int64 = 1
+-- own-imported-global/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+type Any interface {
+}
+
+func keep[T Any](own t T) {
+}
+
+func main() {
+    keep(own lexer.Count)
+}
+-- own-imported-global/expected --
+stage: typeck
+---
+
+own-imported-global/main.tck:12:10: error: cannot pass own lexer.Count: int64 owns no list or map, so it is copied; pass lexer.Count
+11 |	func main() {
+12 |	    keep(own lexer.Count)
+   |	         ^~~~~~~~~~~~~~~
+13 |	}
+
+-- own-imported-union-case/tack.mod --
+module calc
+-- own-imported-union-case/lexer/lexer.tck --
+package lexer
+
+pub type Token union {
+    words list[string]
+    eof
+}
+-- own-imported-union-case/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func sink(own t lexer.Token) {
+}
+
+func main() {
+    sink(own lexer.Token.eof)
+}
+-- own-imported-union-case/expected --
+stage: typeck
+---
+
+own-imported-union-case/main.tck:9:10: error: cannot pass own lexer.Token.eof: only a variable can be passed as own; pass lexer.Token.eof without own
+08 |	func main() {
+09 |	    sink(own lexer.Token.eof)
+   |	         ^~~~~~~~~~~~~~~~~~~
+10 |	}
+
+-- package-misused/tack.mod --
+module calc
+-- package-misused/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- package-misused/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    x := lexer
+    var y lexer
+    lexer()
+    lexer = 1
+    exit(lexer.KindNumber)
+}
+-- package-misused/expected --
+stage: resolve+typeck
+---
+
+package-misused/main.tck:6:10: error: lexer is a package, not a value
+05 |	func main() {
+06 |	    x := lexer
+   |	         ^~~~~
+07 |	    var y lexer
+
+package-misused/main.tck:7:9: error: immutable variable y needs a value
+06 |	    x := lexer
+07 |	    var y lexer
+   |	        ^
+08 |	    lexer()
+
+package-misused/main.tck:7:11: error: lexer is a package, not a type
+06 |	    x := lexer
+07 |	    var y lexer
+   |	          ^~~~~
+08 |	    lexer()
+
+package-misused/main.tck:8:5: error: lexer is a package, not a function
+07 |	    var y lexer
+08 |	    lexer()
+   |	    ^~~~~
+09 |	    lexer = 1
+
+package-misused/main.tck:9:5: error: lexer is a package, not a variable
+08 |	    lexer()
+09 |	    lexer = 1
+   |	    ^~~~~
+10 |	    exit(lexer.KindNumber)
+
+package-misused/main.tck:10:10: error: cannot use int64 as int32 in argument to exit
+09 |	    lexer = 1
+10 |	    exit(lexer.KindNumber)
+   |	         ^~~~~~~~~~~~~~~~
+11 |	}
+
+-- parse-errors-in-two-files/tack.mod --
+module parse-errors-in-two-files
+-- parse-errors-in-two-files/a.tck --
+package main
+
+func main() {
+    x :=
+}
+-- parse-errors-in-two-files/b.tck --
+package main
+
+func f( {
+}
+-- parse-errors-in-two-files/expected --
+stage: parse
+---
+
+parse-errors-in-two-files/a.tck:5:1: error: expected 'value' found '}'
+04 |	    x :=
+05 |	}
+   |	^
+06 |	
+
+parse-errors-in-two-files/b.tck:3:9: error: expected 'parameter name' found '{'
+02 |	
+03 |	func f( {
+   |	        ^
+04 |	}
+
+-- qualified-field-key/tack.mod --
+module calc
+-- qualified-field-key/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- qualified-field-key/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    t := lexer.Token{lexer.kind: 1}
+    code, fits := int32(t.kind)
+    if fits { exit(code) }
+}
+-- qualified-field-key/expected --
+stage: typeck
+---
+
+qualified-field-key/main.tck:6:22: error: invalid field name in lexer.Token literal
+05 |	func main() {
+06 |	    t := lexer.Token{lexer.kind: 1}
+   |	                     ^~~~~~~~~~
+07 |	    code, fits := int32(t.kind)
+
+-- qualified-type-in-message/tack.mod --
+module calc
+-- qualified-type-in-message/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- qualified-type-in-message/lexer/bad.tck --
+package lexer
+
+func Bad() int64 {
+    return First("")
+}
+-- qualified-type-in-message/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    var x int64 = lexer.First("1")
+    var a [2]lexer.Token = 1
+    code, fits := int32(x +% a[0].kind)
+    if fits { exit(code) }
+}
+-- qualified-type-in-message/expected --
+stage: typeck
+---
+
+qualified-type-in-message/lexer/bad.tck:4:12: error: cannot use Token as int64 in return from Bad
+03 |	func Bad() int64 {
+04 |	    return First("")
+   |	           ^~~~~~~~~
+05 |	}
+
+qualified-type-in-message/main.tck:6:19: error: cannot use lexer.Token as int64 in declaration of x
+05 |	func main() {
+06 |	    var x int64 = lexer.First("1")
+   |	                  ^~~~~~~~~~~~~~~~
+07 |	    var a [2]lexer.Token = 1
+
+qualified-type-in-message/main.tck:7:28: error: cannot use int64 as [2]lexer.Token in declaration of a
+06 |	    var x int64 = lexer.First("1")
+07 |	    var a [2]lexer.Token = 1
+   |	                           ^
+08 |	    code, fits := int32(x +% a[0].kind)
+
+-- qualified-undefined/tack.mod --
+module calc
+-- qualified-undefined/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- qualified-undefined/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    exit(lexer.Nothing)
+    lexer.Missing()
+    var t lexer.Gone
+    lexer.Absent = 1
+}
+-- qualified-undefined/expected --
+stage: resolve+typeck
+---
+
+qualified-undefined/main.tck:6:10: error: undefined: lexer.Nothing
+05 |	func main() {
+06 |	    exit(lexer.Nothing)
+   |	         ^~~~~~~~~~~~~
+07 |	    lexer.Missing()
+
+qualified-undefined/main.tck:7:5: error: undefined: lexer.Missing
+06 |	    exit(lexer.Nothing)
+07 |	    lexer.Missing()
+   |	    ^~~~~~~~~~~~~
+08 |	    var t lexer.Gone
+
+qualified-undefined/main.tck:8:9: error: immutable variable t needs a value
+07 |	    lexer.Missing()
+08 |	    var t lexer.Gone
+   |	        ^
+09 |	    lexer.Absent = 1
+
+qualified-undefined/main.tck:8:11: error: undefined: lexer.Gone
+07 |	    lexer.Missing()
+08 |	    var t lexer.Gone
+   |	          ^~~~~~~~~~
+09 |	    lexer.Absent = 1
+
+qualified-undefined/main.tck:9:5: error: undefined: lexer.Absent
+08 |	    var t lexer.Gone
+09 |	    lexer.Absent = 1
+   |	    ^~~~~~~~~~~~
+10 |	}
+
+-- qualified-wrong-kind/tack.mod --
+module calc
+-- qualified-wrong-kind/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- qualified-wrong-kind/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    t := lexer.Token
+    f := lexer.First
+    var x lexer.First
+    lexer.Token()
+    lexer.KindNumber()
+    lexer.Token = 1
+    lexer.First = 1
+}
+-- qualified-wrong-kind/expected --
+stage: resolve+typeck
+---
+
+qualified-wrong-kind/main.tck:6:10: error: cannot use lexer.Token as a value; it is a type
+05 |	func main() {
+06 |	    t := lexer.Token
+   |	         ^~~~~~~~~~~
+07 |	    f := lexer.First
+
+qualified-wrong-kind/main.tck:7:5: warning: declared and not used: f
+06 |	    t := lexer.Token
+07 |	    f := lexer.First
+   |	    ^
+08 |	    var x lexer.First
+
+qualified-wrong-kind/main.tck:8:9: error: immutable variable x needs a value
+07 |	    f := lexer.First
+08 |	    var x lexer.First
+   |	        ^
+09 |	    lexer.Token()
+
+qualified-wrong-kind/main.tck:8:11: error: lexer.First is not a type
+07 |	    f := lexer.First
+08 |	    var x lexer.First
+   |	          ^~~~~~~~~~~
+09 |	    lexer.Token()
+
+qualified-wrong-kind/main.tck:9:5: error: cannot call lexer.Token; it is a type
+08 |	    var x lexer.First
+09 |	    lexer.Token()
+   |	    ^~~~~~~~~~~
+10 |	    lexer.KindNumber()
+
+qualified-wrong-kind/main.tck:10:5: error: undefined: lexer.KindNumber
+09 |	    lexer.Token()
+10 |	    lexer.KindNumber()
+   |	    ^~~~~~~~~~~~~~~~
+11 |	    lexer.Token = 1
+
+qualified-wrong-kind/main.tck:11:5: error: cannot assign to lexer.Token; it is a type
+10 |	    lexer.KindNumber()
+11 |	    lexer.Token = 1
+   |	    ^~~~~~~~~~~
+12 |	    lexer.First = 1
+
+qualified-wrong-kind/main.tck:12:5: error: undefined: lexer.First
+11 |	    lexer.Token = 1
+12 |	    lexer.First = 1
+   |	    ^~~~~~~~~~~
+13 |	}
+
+-- qualifier-not-a-package/tack.mod --
+module calc
+-- qualifier-not-a-package/main.tck --
+package main
+
+var p int64 = 1
+
+func main() {
+    var a p.T
+    var b q.T
+    exit(p)
+}
+-- qualifier-not-a-package/expected --
+stage: resolve+typeck
+---
+
+qualifier-not-a-package/main.tck:6:9: error: immutable variable a needs a value
+05 |	func main() {
+06 |	    var a p.T
+   |	        ^
+07 |	    var b q.T
+
+qualifier-not-a-package/main.tck:6:11: error: p is not a package
+05 |	func main() {
+06 |	    var a p.T
+   |	          ^
+07 |	    var b q.T
+
+qualifier-not-a-package/main.tck:7:9: error: immutable variable b needs a value
+06 |	    var a p.T
+07 |	    var b q.T
+   |	        ^
+08 |	    exit(p)
+
+qualifier-not-a-package/main.tck:7:11: error: undefined: q
+06 |	    var a p.T
+07 |	    var b q.T
+   |	          ^
+08 |	    exit(p)
+
+qualifier-not-a-package/main.tck:8:10: error: cannot use int64 as int32 in argument to exit
+07 |	    var b q.T
+08 |	    exit(p)
+   |	         ^
+09 |	}
+
+-- root-package-invalid-name/tack.mod --
+module example.com/my-tools
+-- root-package-invalid-name/tools.tck --
+package tools
+-- root-package-invalid-name/expected --
+stage: load
+---
+
+root-package-invalid-name/tools.tck:1:9: error: my-tools is not a valid package name: use lowercase letters and digits
+01 |	package tools
+   |	        ^~~~~
+02 |	
+
+-- site-std-module/tack.mod --
+module std
+-- site-std-module/testing/testing.tck --
+package testing
+
+pub type Site struct {
+    pub x int64
+}
+-- site-std-module/main.tck --
+package main
+
+import testing from "std/testing"
+
+func here(s testing.Site) int64 {
+    return s.x
+}
+
+func main() {
+    if here() == 0 {
+        exit(1)
+    }
+}
+-- site-std-module/expected --
+stage: typeck
+---
+
+site-std-module/testing/testing.tck:3:10: error: testing.Site must be struct { pub file string; pub line int64; pub col int64; pub excerpt string }: a call fills in those fields
+02 |	
+03 |	pub type Site struct {
+   |	         ^~~~
+04 |	    pub x int64
+
+-- size-globals-across-packages/tack.mod --
+module calc
+-- size-globals-across-packages/table/b.tck --
+package table
+
+mut second [536870912]uint8
+
+pub func Second() uint8 {
+    second[0] = 2
+    return second[0]
+}
+-- size-globals-across-packages/table/a.tck --
+package table
+
+mut first [536870911]uint8
+
+pub func First() uint8 {
+    first[0] = 1
+    return first[0]
+}
+-- size-globals-across-packages/main.tck --
+package main
+
+import table from "calc/table"
+
+mut last uint8
+mut over uint8
+
+func main() {
+    last = table.First() +% table.Second()
+    over = last
+    if over == 3 {
+        print("three\n")
+    }
+}
+-- size-globals-across-packages/expected --
+stage: typeck
+---
+
+size-globals-across-packages/main.tck:6:5: error: global over makes this program's globals hold 1073741825 bytes, more than the 2^30 a program's globals may hold
+05 |	mut last uint8
+06 |	mut over uint8
+   |	    ^~~~
+07 |	
+
+-- std-cycle/tack.mod --
+module calc
+-- std-cycle/.std/a/a.tck --
+package a
+
+import b from "std/b"
+
+pub func A() {
+    b.B()
+}
+-- std-cycle/.std/b/b.tck --
+package b
+
+import a from "std/a"
+
+pub func B() {
+    a.A()
+}
+-- std-cycle/main.tck --
+package main
+
+import a from "std/a"
+
+func main() {
+    a.A()
+}
+-- std-cycle/expected --
+stage: load
+---
+
+std-cycle/.std/b/b.tck:3:15: error: import cycle: std/a imports std/b imports std/a
+02 |	
+03 |	import a from "std/a"
+   |	              ^~~~~~~
+04 |	
+
+-- std-imports-user-module/tack.mod --
+module calc
+-- std-imports-user-module/lexer/lexer.tck --
+package lexer
+
+pub func First() int64 {
+    return 1
+}
+-- std-imports-user-module/.std/util/util.tck --
+package util
+
+import lexer from "calc/lexer"
+import local from "./lexer"
+
+pub func Twice(x int64) int64 {
+    return lexer.First() + x + x
+}
+-- std-imports-user-module/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    exit(util.Twice(1))
+}
+-- std-imports-user-module/expected --
+stage: load+typeck
+---
+
+std-imports-user-module/.std/util/util.tck:3:19: error: cannot import calc/lexer: a package of std can import only std packages
+02 |	
+03 |	import lexer from "calc/lexer"
+   |	                  ^~~~~~~~~~~~
+04 |	import local from "./lexer"
+
+std-imports-user-module/.std/util/util.tck:4:19: error: cannot import ./lexer: a package of std can import only std packages
+03 |	import lexer from "calc/lexer"
+04 |	import local from "./lexer"
+   |	                  ^~~~~~~~~
+05 |	
+
+std-imports-user-module/main.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	func main() {
+06 |	    exit(util.Twice(1))
+   |	         ^~~~~~~~~~~~~
+07 |	}
+
+-- std-lib-field-from-file/.target --
+main.tck
+-- std-lib-field-from-file/.std/util/util.tck --
+package util
+
+// Pair is pub, with a lib field, for std's packages, and a private one.
+pub type Pair struct {
+    pub a int64
+    lib b int64
+    c int64
+}
+
+// Make returns a Pair, which only util can write.
+pub func Make() Pair {
+    return Pair{a: 1, b: 2, c: 3}
+}
+
+// Twice is pub.
+pub func Twice(x int64) int64 {
+    return secret(x) +% secret(x)
+}
+
+// secret is lib: std's packages may call it, no other module's.
+lib func secret(x int64) int64 {
+    return x
+}
+
+// hidden is util's own.
+func hidden() int64 {
+    return 1
+}
+
+// Limit is lib.
+lib var Limit int64 = 10
+-- std-lib-field-from-file/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    p := util.Make()
+    q := util.Pair{a: 1, b: 2, c: 3}
+    exit(p.a + p.b + p.c + q.a)
+}
+-- std-lib-field-from-file/expected --
+stage: typeck
+---
+
+std-lib-field-from-file/main.tck:7:10: error: cannot write a util.Pair literal outside package util: fields b, c are not pub
+06 |	    p := util.Make()
+07 |	    q := util.Pair{a: 1, b: 2, c: 3}
+   |	         ^~~~~~~~~
+08 |	    exit(p.a + p.b + p.c + q.a)
+
+std-lib-field-from-file/main.tck:8:18: error: b is lib in module std and cannot be used from a single file, which has no module
+07 |	    q := util.Pair{a: 1, b: 2, c: 3}
+08 |	    exit(p.a + p.b + p.c + q.a)
+   |	                 ^
+09 |	}
+
+std-lib-field-from-file/main.tck:8:24: error: c is not pub in util.Pair
+07 |	    q := util.Pair{a: 1, b: 2, c: 3}
+08 |	    exit(p.a + p.b + p.c + q.a)
+   |	                       ^
+09 |	}
+
+-- std-lib-field-from-module/tack.mod --
+module calc
+-- std-lib-field-from-module/.std/util/util.tck --
+package util
+
+// Pair is pub, with a lib field, for std's packages, and a private one.
+pub type Pair struct {
+    pub a int64
+    lib b int64
+    c int64
+}
+
+// Make returns a Pair, which only util can write.
+pub func Make() Pair {
+    return Pair{a: 1, b: 2, c: 3}
+}
+
+// Twice is pub.
+pub func Twice(x int64) int64 {
+    return secret(x) +% secret(x)
+}
+
+// secret is lib: std's packages may call it, no other module's.
+lib func secret(x int64) int64 {
+    return x
+}
+
+// hidden is util's own.
+func hidden() int64 {
+    return 1
+}
+
+// Limit is lib.
+lib var Limit int64 = 10
+-- std-lib-field-from-module/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    p := util.Make()
+    q := util.Pair{a: 1, b: 2, c: 3}
+    exit(p.a + p.b + p.c + q.a)
+}
+-- std-lib-field-from-module/expected --
+stage: typeck
+---
+
+std-lib-field-from-module/main.tck:7:10: error: cannot write a util.Pair literal outside package util: fields b, c are not pub
+06 |	    p := util.Make()
+07 |	    q := util.Pair{a: 1, b: 2, c: 3}
+   |	         ^~~~~~~~~
+08 |	    exit(p.a + p.b + p.c + q.a)
+
+std-lib-field-from-module/main.tck:8:18: error: b is lib in module std and cannot be used from module calc
+07 |	    q := util.Pair{a: 1, b: 2, c: 3}
+08 |	    exit(p.a + p.b + p.c + q.a)
+   |	                 ^
+09 |	}
+
+std-lib-field-from-module/main.tck:8:24: error: c is not pub in util.Pair
+07 |	    q := util.Pair{a: 1, b: 2, c: 3}
+08 |	    exit(p.a + p.b + p.c + q.a)
+   |	                       ^
+09 |	}
+
+-- std-lib-from-file/.target --
+main.tck
+-- std-lib-from-file/.std/util/util.tck --
+package util
+
+// Pair is pub, with a lib field, for std's packages, and a private one.
+pub type Pair struct {
+    pub a int64
+    lib b int64
+    c int64
+}
+
+// Make returns a Pair, which only util can write.
+pub func Make() Pair {
+    return Pair{a: 1, b: 2, c: 3}
+}
+
+// Twice is pub.
+pub func Twice(x int64) int64 {
+    return secret(x) +% secret(x)
+}
+
+// secret is lib: std's packages may call it, no other module's.
+lib func secret(x int64) int64 {
+    return x
+}
+
+// hidden is util's own.
+func hidden() int64 {
+    return 1
+}
+
+// Limit is lib.
+lib var Limit int64 = 10
+-- std-lib-from-file/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    exit(util.Twice(1) + util.secret(2) + util.hidden() + util.Limit)
+}
+-- std-lib-from-file/expected --
+stage: resolve
+---
+
+std-lib-from-file/main.tck:6:26: error: secret is lib in module std and cannot be used from a single file, which has no module
+05 |	func main() {
+06 |	    exit(util.Twice(1) + util.secret(2) + util.hidden() + util.Limit)
+   |	                         ^~~~~~~~~~~
+07 |	}
+
+std-lib-from-file/main.tck:6:43: error: hidden is not pub in package std/util
+05 |	func main() {
+06 |	    exit(util.Twice(1) + util.secret(2) + util.hidden() + util.Limit)
+   |	                                          ^~~~~~~~~~~
+07 |	}
+
+std-lib-from-file/main.tck:6:59: error: Limit is lib in module std and cannot be used from a single file, which has no module
+05 |	func main() {
+06 |	    exit(util.Twice(1) + util.secret(2) + util.hidden() + util.Limit)
+   |	                                                          ^~~~~~~~~~
+07 |	}
+
+-- std-lib-from-module/tack.mod --
+module calc
+-- std-lib-from-module/.std/util/util.tck --
+package util
+
+// Pair is pub, with a lib field, for std's packages, and a private one.
+pub type Pair struct {
+    pub a int64
+    lib b int64
+    c int64
+}
+
+// Make returns a Pair, which only util can write.
+pub func Make() Pair {
+    return Pair{a: 1, b: 2, c: 3}
+}
+
+// Twice is pub.
+pub func Twice(x int64) int64 {
+    return secret(x) +% secret(x)
+}
+
+// secret is lib: std's packages may call it, no other module's.
+lib func secret(x int64) int64 {
+    return x
+}
+
+// hidden is util's own.
+func hidden() int64 {
+    return 1
+}
+
+// Limit is lib.
+lib var Limit int64 = 10
+-- std-lib-from-module/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    exit(util.Twice(1) + util.secret(2) + util.hidden() + util.Limit)
+}
+-- std-lib-from-module/expected --
+stage: resolve
+---
+
+std-lib-from-module/main.tck:6:26: error: secret is lib in module std and cannot be used from module calc
+05 |	func main() {
+06 |	    exit(util.Twice(1) + util.secret(2) + util.hidden() + util.Limit)
+   |	                         ^~~~~~~~~~~
+07 |	}
+
+std-lib-from-module/main.tck:6:43: error: hidden is not pub in package std/util
+05 |	func main() {
+06 |	    exit(util.Twice(1) + util.secret(2) + util.hidden() + util.Limit)
+   |	                                          ^~~~~~~~~~~
+07 |	}
+
+std-lib-from-module/main.tck:6:59: error: Limit is lib in module std and cannot be used from module calc
+05 |	func main() {
+06 |	    exit(util.Twice(1) + util.secret(2) + util.hidden() + util.Limit)
+   |	                                                          ^~~~~~~~~~
+07 |	}
+
+-- std-main-package/tack.mod --
+module calc
+-- std-main-package/.std/tool/main.tck --
+package main
+
+func main() {
+}
+-- std-main-package/main.tck --
+package main
+
+import tool from "std/tool"
+
+func main() {
+}
+-- std-main-package/expected --
+stage: load
+---
+
+std-main-package/main.tck:3:18: error: cannot import std/tool: it is a main package
+02 |	
+03 |	import tool from "std/tool"
+   |	                 ^~~~~~~~~~
+04 |	
+
+-- std-package-rules/tack.mod --
+module calc
+-- std-package-rules/.std/util/util.tck --
+package util
+
+pub mut Count int64 = 0
+lib mut Total int64 = 0
+
+pub extern("std_util_add") func sum(a int64, b int64) int64
+lib extern("std_util_sub") func sub(a int64, b int64) int64
+-- std-package-rules/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    exit(util.Count)
+}
+-- std-package-rules/expected --
+stage: resolve+typeck
+---
+
+std-package-rules/.std/util/util.tck:3:1: error: a mut variable cannot be pub; export a function that reads or changes it
+02 |	
+03 |	pub mut Count int64 = 0
+   |	^~~
+04 |	lib mut Total int64 = 0
+
+std-package-rules/.std/util/util.tck:4:1: error: a mut variable cannot be lib; export a function that reads or changes it
+03 |	pub mut Count int64 = 0
+04 |	lib mut Total int64 = 0
+   |	^~~
+05 |	
+
+std-package-rules/.std/util/util.tck:6:1: error: an extern func cannot be pub; export a Tack function that calls it
+05 |	
+06 |	pub extern("std_util_add") func sum(a int64, b int64) int64
+   |	^~~
+07 |	lib extern("std_util_sub") func sub(a int64, b int64) int64
+
+std-package-rules/.std/util/util.tck:7:1: error: an extern func cannot be lib; export a Tack function that calls it
+06 |	pub extern("std_util_add") func sum(a int64, b int64) int64
+07 |	lib extern("std_util_sub") func sub(a int64, b int64) int64
+   |	^~~
+08 |	
+
+std-package-rules/main.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	func main() {
+06 |	    exit(util.Count)
+   |	         ^~~~~~~~~~
+07 |	}
+
+-- tck-directory-is-skipped/tack.mod --
+module tck-directory-is-skipped
+-- tck-directory-is-skipped/main.tck --
+package main
+
+func main() {
+    helper()
+}
+-- tck-directory-is-skipped/sub.tck/helper.tck --
+package main
+
+func helper() {
+}
+-- tck-directory-is-skipped/expected --
+stage: resolve
+---
+
+tck-directory-is-skipped/main.tck:4:5: error: undefined: helper
+03 |	func main() {
+04 |	    helper()
+   |	    ^~~~~~
+05 |	}
+
+-- test-file-bare-name/tack.mod --
+module test-file-bare-name
+-- test-file-bare-name/_test.tck --
+package main
+
+func main() {
+}
+-- test-file-bare-name/expected --
+stage: load
+---
+no .tck files other than test files in test-file-bare-name
+-- test-file-target/.target --
+main_test.tck
+-- test-file-target/main_test.tck --
+package main
+
+func main() {
+}
+-- test-file-target/expected --
+stage: load
+---
+test-file-target/main_test.tck is a test file, which is never loaded on its own
+-- test-file-upper-case/tack.mod --
+module test-file-upper-case
+-- test-file-upper-case/MAIN_TEST.tck --
+package main
+
+func main() {
+    undefined()
+}
+-- test-file-upper-case/expected --
+stage: resolve
+---
+
+test-file-upper-case/MAIN_TEST.tck:4:5: error: undefined: undefined
+03 |	func main() {
+04 |	    undefined()
+   |	    ^~~~~~~~~
+05 |	}
+
+-- test-files-only/tack.mod --
+module test-files-only
+-- test-files-only/main_test.tck --
+package main
+
+func main() {
+}
+-- test-files-only/expected --
+stage: load
+---
+no .tck files other than test files in test-files-only
+-- test-files-only-import/tack.mod --
+module calc
+-- test-files-only-import/main.tck --
+package main
+
+import tests from "calc/tests"
+
+func main() {
+}
+-- test-files-only-import/tests/tests_test.tck --
+package tests
+-- test-files-only-import/expected --
+stage: load
+---
+
+test-files-only-import/main.tck:3:19: error: cannot find package calc/tests: no .tck files other than test files in test-files-only-import/tests
+02 |	
+03 |	import tests from "calc/tests"
+   |	                  ^~~~~~~~~~~~
+04 |	
+
+-- two-packages/tack.mod --
+module calc
+-- two-packages/.target --
+lexer
+-- two-packages/lexer/a.tck --
+package main
+
+func main() {
+}
+-- two-packages/lexer/b.tck --
+package lexer
+-- two-packages/expected --
+stage: load
+---
+
+two-packages/lexer/a.tck:1:9: error: directory two-packages/lexer holds two packages, lexer and main
+01 |	package main
+   |	        ^~~~
+02 |	
+two-packages/lexer/b.tck:1:9: note: package lexer is declared here
+01 |	package lexer
+   |	        ^~~~~
+02 |	
+
+-- union-exposes/tack.mod --
+module calc
+-- union-exposes/ast/ast.tck --
+package ast
+
+type binary struct {
+    lhs int64
+}
+
+lib type Pos struct {
+    at int64
+}
+
+pub type Expr union {
+    int    int64
+    binary binary
+    pos    Pos
+    eof
+}
+
+lib type Node union {
+    hidden binary
+    pos    Pos
+}
+
+type secret union {
+    a int64
+}
+
+pub func Secret() secret {
+    return secret.a(1)
+}
+-- union-exposes/main.tck --
+package main
+
+import ast from "calc/ast"
+
+func main() {
+    e := ast.Expr.eof
+    if e == ast.Expr.int(1) {
+    }
+}
+-- union-exposes/expected --
+stage: typeck
+---
+
+union-exposes/ast/ast.tck:13:12: error: pub case binary of Expr exposes binary, which is not pub
+12 |	    int    int64
+13 |	    binary binary
+   |	           ^~~~~~
+14 |	    pos    Pos
+
+union-exposes/ast/ast.tck:14:12: error: pub case pos of Expr exposes Pos, which is not pub
+13 |	    binary binary
+14 |	    pos    Pos
+   |	           ^~~
+15 |	    eof
+
+union-exposes/ast/ast.tck:19:12: error: lib case hidden of Node exposes binary, which is not lib or pub
+18 |	lib type Node union {
+19 |	    hidden binary
+   |	           ^~~~~~
+20 |	    pos    Pos
+
+union-exposes/ast/ast.tck:27:19: error: pub function Secret exposes secret, which is not pub
+26 |	
+27 |	pub func Secret() secret {
+   |	                  ^~~~~~
+28 |	    return secret.a(1)
+
+-- union-hidden/tack.mod --
+module calc
+-- union-hidden/ast/ast.tck --
+package ast
+
+type Expr union {
+    int int64
+    eof
+}
+
+pub func Make() int64 {
+    e := Expr.int(1)
+    switch e {
+    case int(n):
+        return n
+    case eof:
+        return 0
+    }
+}
+-- union-hidden/main.tck --
+package main
+
+import ast from "calc/ast"
+
+func main() {
+    e := ast.Expr.int(5)
+    f := ast.Expr.eof
+    if ast.Make() == 1 {
+    }
+}
+-- union-hidden/expected --
+stage: resolve
+---
+
+union-hidden/main.tck:6:10: error: Expr is not pub in package calc/ast
+05 |	func main() {
+06 |	    e := ast.Expr.int(5)
+   |	         ^~~~~~~~
+07 |	    f := ast.Expr.eof
+
+union-hidden/main.tck:7:10: error: Expr is not pub in package calc/ast
+06 |	    e := ast.Expr.int(5)
+07 |	    f := ast.Expr.eof
+   |	         ^~~~~~~~
+08 |	    if ast.Make() == 1 {
+
+-- union-method-exposes/tack.mod --
+module calc
+-- union-method-exposes/ast/ast.tck --
+package ast
+
+type hidden struct {
+    n int64
+}
+
+pub type Expr union {
+    int int64
+    eof
+}
+
+// Get is pub, and exposes hidden.
+pub func (e Expr) Get() hidden {
+    return hidden{n: 1}
+}
+
+// Take is pub, and exposes hidden.
+pub func (mut e Expr) Take(h hidden) {
+}
+
+// Fine is private, so it may name hidden.
+func (e Expr) fine() hidden {
+    return hidden{n: 2}
+}
+
+// Capped is pub on a private union, so private in effect.
+type inner union {
+    a int64
+}
+
+pub func (i inner) Capped() hidden {
+    return hidden{n: 3}
+}
+-- union-method-exposes/main.tck --
+package main
+
+import ast from "calc/ast"
+
+func main() {
+    e := ast.Expr.eof
+    switch e {
+    default:
+    }
+}
+-- union-method-exposes/expected --
+stage: typeck
+---
+
+union-method-exposes/ast/ast.tck:13:25: error: pub method Expr.Get exposes hidden, which is not pub
+12 |	// Get is pub, and exposes hidden.
+13 |	pub func (e Expr) Get() hidden {
+   |	                        ^~~~~~
+14 |	    return hidden{n: 1}
+
+union-method-exposes/ast/ast.tck:18:30: error: pub method Expr.Take exposes hidden, which is not pub
+17 |	// Take is pub, and exposes hidden.
+18 |	pub func (mut e Expr) Take(h hidden) {
+   |	                             ^~~~~~
+19 |	}
+
+-- union-method-lib-other-module/tack.mod --
+module calc
+-- union-method-lib-other-module/.std/util/util.tck --
+package util
+
+pub type Counted interface {
+    count() int64
+}
+
+pub func Count[C Counted](c C) int64 {
+    return c.count()
+}
+
+pub type Pair union {
+    one int64
+    none
+}
+
+lib func (p Pair) count() int64 {
+    return 2
+}
+-- union-method-lib-other-module/main.tck --
+package main
+
+import util from "std/util"
+
+func main() {
+    p := util.Pair.one(1)
+    n := p.count()
+    m := util.Count(p)
+    exit(int32(n + m))
+}
+-- union-method-lib-other-module/expected --
+stage: typeck
+---
+
+union-method-lib-other-module/main.tck:7:12: error: count is lib in module std and cannot be used from module calc
+06 |	    p := util.Pair.one(1)
+07 |	    n := p.count()
+   |	           ^~~~~
+08 |	    m := util.Count(p)
+
+union-method-lib-other-module/main.tck:8:21: error: util.Pair does not satisfy util.Counted here: count is lib in module std and cannot be used from module calc
+07 |	    n := p.count()
+08 |	    m := util.Count(p)
+   |	                    ^
+09 |	    exit(int32(n + m))
+
+-- union-method-on-imported-type/tack.mod --
+module calc
+-- union-method-on-imported-type/shapes/shapes.tck --
+package shapes
+
+pub type Sized interface {
+    len() int64
+}
+
+pub func Larger[A Sized, B Sized](a A, b B) int64 {
+    if a.len() > b.len() {
+        return a.len()
+    }
+    return b.len()
+}
+
+pub type Tile union {
+    wide int64
+    blank
+}
+
+// len is private: only this package can pass a Tile as a Sized.
+func (t Tile) len() int64 {
+    switch t {
+    case wide(n):
+        return n
+    case blank:
+        return 0
+    }
+}
+
+// Lib is lib, usable in module calc.
+lib func (t Tile) Lib() int64 {
+    return 1
+}
+
+// Twice passes a Tile to Larger, which this package may.
+pub func Twice(t Tile) int64 {
+    return Larger(t, t)
+}
+
+// Pass passes s on to Larger: no visibility is checked here, only where
+// Pass is called with a type.
+pub func Pass[S Sized](s S) int64 {
+    return Larger(s, s)
+}
+-- union-method-on-imported-type/main.tck --
+package main
+
+import shapes from "calc/shapes"
+
+func (t shapes.Tile) area() int64 {
+    return 0
+}
+
+func main() {
+}
+-- union-method-on-imported-type/expected --
+stage: resolve
+---
+
+union-method-on-imported-type/main.tck:5:9: error: cannot declare a method on shapes.Tile: only a struct or union type declared in this package can have methods
+04 |	
+05 |	func (t shapes.Tile) area() int64 {
+   |	        ^~~~~~~~~~~
+06 |	    return 0
+
+-- union-method-private-satisfy/tack.mod --
+module calc
+-- union-method-private-satisfy/shapes/shapes.tck --
+package shapes
+
+pub type Sized interface {
+    len() int64
+}
+
+pub func Larger[A Sized, B Sized](a A, b B) int64 {
+    if a.len() > b.len() {
+        return a.len()
+    }
+    return b.len()
+}
+
+pub type Tile union {
+    wide int64
+    blank
+}
+
+// len is private: only this package can pass a Tile as a Sized.
+func (t Tile) len() int64 {
+    switch t {
+    case wide(n):
+        return n
+    case blank:
+        return 0
+    }
+}
+
+// Lib is lib, usable in module calc.
+lib func (t Tile) Lib() int64 {
+    return 1
+}
+
+// Twice passes a Tile to Larger, which this package may.
+pub func Twice(t Tile) int64 {
+    return Larger(t, t)
+}
+
+// Pass passes s on to Larger: no visibility is checked here, only where
+// Pass is called with a type.
+pub func Pass[S Sized](s S) int64 {
+    return Larger(s, s)
+}
+-- union-method-private-satisfy/main.tck --
+package main
+
+import shapes from "calc/shapes"
+
+func use(n int64) {
+}
+
+func main() {
+    t := shapes.Tile.wide(2)
+    use(shapes.Twice(t))
+    use(shapes.Larger(t, t))
+    use(shapes.Pass(t))
+}
+-- union-method-private-satisfy/expected --
+stage: typeck
+---
+
+union-method-private-satisfy/main.tck:11:23: error: shapes.Tile does not satisfy shapes.Sized here: len is not pub in shapes.Tile
+10 |	    use(shapes.Twice(t))
+11 |	    use(shapes.Larger(t, t))
+   |	                      ^
+12 |	    use(shapes.Pass(t))
+
+union-method-private-satisfy/main.tck:11:26: error: shapes.Tile does not satisfy shapes.Sized here: len is not pub in shapes.Tile
+10 |	    use(shapes.Twice(t))
+11 |	    use(shapes.Larger(t, t))
+   |	                         ^
+12 |	    use(shapes.Pass(t))
+
+union-method-private-satisfy/main.tck:12:21: error: shapes.Tile does not satisfy shapes.Sized here: len is not pub in shapes.Tile
+11 |	    use(shapes.Larger(t, t))
+12 |	    use(shapes.Pass(t))
+   |	                    ^
+13 |	}
+
+-- union-method-visibility/tack.mod --
+module calc
+-- union-method-visibility/shapes/shapes.tck --
+package shapes
+
+pub type Sized interface {
+    len() int64
+}
+
+pub func Larger[A Sized, B Sized](a A, b B) int64 {
+    if a.len() > b.len() {
+        return a.len()
+    }
+    return b.len()
+}
+
+pub type Tile union {
+    wide int64
+    blank
+}
+
+// len is private: only this package can pass a Tile as a Sized.
+func (t Tile) len() int64 {
+    switch t {
+    case wide(n):
+        return n
+    case blank:
+        return 0
+    }
+}
+
+// Lib is lib, usable in module calc.
+lib func (t Tile) Lib() int64 {
+    return 1
+}
+
+// Twice passes a Tile to Larger, which this package may.
+pub func Twice(t Tile) int64 {
+    return Larger(t, t)
+}
+
+// Pass passes s on to Larger: no visibility is checked here, only where
+// Pass is called with a type.
+pub func Pass[S Sized](s S) int64 {
+    return Larger(s, s)
+}
+-- union-method-visibility/main.tck --
+package main
+
+import shapes from "calc/shapes"
+
+func use(n int64) {
+}
+
+func main() {
+    t := shapes.Tile.wide(2)
+    use(t.Lib())
+    use(t.len())
+    use(t.nope())
+    k := t.Lib
+    use(k)
+}
+-- union-method-visibility/expected --
+stage: typeck
+---
+
+union-method-visibility/main.tck:11:11: error: len is not pub in shapes.Tile
+10 |	    use(t.Lib())
+11 |	    use(t.len())
+   |	          ^~~
+12 |	    use(t.nope())
+
+union-method-visibility/main.tck:12:11: error: shapes.Tile has no method nope
+11 |	    use(t.len())
+12 |	    use(t.nope())
+   |	          ^~~~
+13 |	    k := t.Lib
+
+union-method-visibility/main.tck:13:12: error: Lib is a method of shapes.Tile, not a field; a method can only be called
+12 |	    use(t.nope())
+13 |	    k := t.Lib
+   |	           ^~~
+14 |	    use(k)
+
+-- union-other-package-switch/tack.mod --
+module calc
+-- union-other-package-switch/ast/ast.tck --
+package ast
+
+pub type Expr union {
+    int  int64
+    name string
+    eof
+}
+-- union-other-package-switch/main.tck --
+package main
+
+import ast from "calc/ast"
+
+func main() {
+    e := ast.Expr.int(5)
+    switch e {
+    case int(ast):
+    case name(s):
+        print(s)
+    case nope:
+    }
+    x := ast.Expr.nope
+    y := ast.Expr.int("s")
+    if x == y {
+    }
+}
+-- union-other-package-switch/expected --
+stage: typeck
+---
+
+union-other-package-switch/main.tck:7:5: error: switch on ast.Expr misses case eof; cover it or add a default
+06 |	    e := ast.Expr.int(5)
+07 |	    switch e {
+   |	    ^~~~~~~~
+08 |	    case int(ast):
+
+union-other-package-switch/main.tck:8:14: error: ast is an imported package and cannot be redeclared
+07 |	    switch e {
+08 |	    case int(ast):
+   |	             ^~~
+09 |	    case name(s):
+
+union-other-package-switch/main.tck:11:10: error: ast.Expr has no case nope
+10 |	        print(s)
+11 |	    case nope:
+   |	         ^~~~
+12 |	    }
+
+union-other-package-switch/main.tck:13:19: error: ast.Expr has no case or method nope
+12 |	    }
+13 |	    x := ast.Expr.nope
+   |	                  ^~~~
+14 |	    y := ast.Expr.int("s")
+
+union-other-package-switch/main.tck:14:23: error: cannot use string as int64 in argument to ast.Expr.int
+13 |	    x := ast.Expr.nope
+14 |	    y := ast.Expr.int("s")
+   |	                      ^~~
+15 |	    if x == y {
+
+-- vis-exposes/tack.mod --
+module calc
+-- vis-exposes/text/text.tck --
+package text
+
+lib type Thing struct {
+    lib n int64
+}
+-- vis-exposes/lexer/lexer.tck --
+package lexer
+
+import text from "calc/text"
+
+type hidden struct {
+    n int64
+}
+
+lib type shared struct {
+    n int64
+}
+
+pub type Token struct {
+    pub h hidden
+    pub all [2]hidden
+    lib s shared
+    pub ok int64
+    secret hidden
+}
+
+type inner struct {
+    pub h hidden
+}
+
+lib type Half struct {
+    pub h hidden
+    pub s shared
+}
+
+pub func Result() hidden {
+    return hidden{n: 1}
+}
+
+pub func Param(h hidden) {
+}
+
+pub func View(v [][2]hidden) {
+}
+
+pub func Array() [3]hidden {
+    mut a [3]hidden
+    return a
+}
+
+pub func Pair() (int64, hidden) {
+    return 1, hidden{n: 1}
+}
+
+pub func Shared(s shared) {
+}
+
+pub func Foreign() text.Thing {
+    mut t text.Thing
+    return t
+}
+
+lib func Lib(h hidden) shared {
+    return shared{n: h.n}
+}
+
+pub var Origin = hidden{n: 0}
+pub var Typed hidden = hidden{n: 0}
+lib var Mid = hidden{n: 0}
+pub var Wide = shared{n: 0}
+lib var Fine = shared{n: 0}
+
+func Private(h hidden) hidden {
+    return h
+}
+-- vis-exposes/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    mut t lexer.Token
+    code, fits := int32(t.ok)
+    if fits { exit(code) }
+}
+-- vis-exposes/expected --
+stage: typeck
+---
+
+vis-exposes/lexer/lexer.tck:14:11: error: pub field h of Token exposes hidden, which is not pub
+13 |	pub type Token struct {
+14 |	    pub h hidden
+   |	          ^~~~~~
+15 |	    pub all [2]hidden
+
+vis-exposes/lexer/lexer.tck:15:13: error: pub field all of Token exposes hidden, which is not pub
+14 |	    pub h hidden
+15 |	    pub all [2]hidden
+   |	            ^~~~~~~~~
+16 |	    lib s shared
+
+vis-exposes/lexer/lexer.tck:26:11: error: lib field h of Half exposes hidden, which is not lib or pub
+25 |	lib type Half struct {
+26 |	    pub h hidden
+   |	          ^~~~~~
+27 |	    pub s shared
+
+vis-exposes/lexer/lexer.tck:30:19: error: pub function Result exposes hidden, which is not pub
+29 |	
+30 |	pub func Result() hidden {
+   |	                  ^~~~~~
+31 |	    return hidden{n: 1}
+
+vis-exposes/lexer/lexer.tck:34:18: error: pub function Param exposes hidden, which is not pub
+33 |	
+34 |	pub func Param(h hidden) {
+   |	                 ^~~~~~
+35 |	}
+
+vis-exposes/lexer/lexer.tck:37:17: error: pub function View exposes hidden, which is not pub
+36 |	
+37 |	pub func View(v [][2]hidden) {
+   |	                ^~~~~~~~~~~
+38 |	}
+
+vis-exposes/lexer/lexer.tck:40:18: error: pub function Array exposes hidden, which is not pub
+39 |	
+40 |	pub func Array() [3]hidden {
+   |	                 ^~~~~~~~~
+41 |	    mut a [3]hidden
+
+vis-exposes/lexer/lexer.tck:45:25: error: pub function Pair exposes hidden, which is not pub
+44 |	
+45 |	pub func Pair() (int64, hidden) {
+   |	                        ^~~~~~
+46 |	    return 1, hidden{n: 1}
+
+vis-exposes/lexer/lexer.tck:49:19: error: pub function Shared exposes shared, which is not pub
+48 |	
+49 |	pub func Shared(s shared) {
+   |	                  ^~~~~~
+50 |	}
+
+vis-exposes/lexer/lexer.tck:52:20: error: pub function Foreign exposes text.Thing, which is not pub
+51 |	
+52 |	pub func Foreign() text.Thing {
+   |	                   ^~~~~~~~~~
+53 |	    mut t text.Thing
+
+vis-exposes/lexer/lexer.tck:57:16: error: lib function Lib exposes hidden, which is not lib or pub
+56 |	
+57 |	lib func Lib(h hidden) shared {
+   |	               ^~~~~~
+58 |	    return shared{n: h.n}
+
+vis-exposes/lexer/lexer.tck:61:9: error: pub variable Origin exposes hidden, which is not pub
+60 |	
+61 |	pub var Origin = hidden{n: 0}
+   |	        ^~~~~~
+62 |	pub var Typed hidden = hidden{n: 0}
+
+vis-exposes/lexer/lexer.tck:62:15: error: pub variable Typed exposes hidden, which is not pub
+61 |	pub var Origin = hidden{n: 0}
+62 |	pub var Typed hidden = hidden{n: 0}
+   |	              ^~~~~~
+63 |	lib var Mid = hidden{n: 0}
+
+vis-exposes/lexer/lexer.tck:63:9: error: lib variable Mid exposes hidden, which is not lib or pub
+62 |	pub var Typed hidden = hidden{n: 0}
+63 |	lib var Mid = hidden{n: 0}
+   |	        ^~~
+64 |	pub var Wide = shared{n: 0}
+
+vis-exposes/lexer/lexer.tck:64:9: error: pub variable Wide exposes shared, which is not pub
+63 |	lib var Mid = hidden{n: 0}
+64 |	pub var Wide = shared{n: 0}
+   |	        ^~~~
+65 |	lib var Fine = shared{n: 0}
+
+-- vis-field-nested/tack.mod --
+module calc
+-- vis-field-nested/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+    end int64
+}
+-- vis-field-nested/geom/geom.tck --
+package geom
+
+import lexer from "calc/lexer"
+
+pub type Box struct {
+    pub tok lexer.Token
+    pub toks [2]lexer.Token
+    size int64
+}
+-- vis-field-nested/main.tck --
+package main
+
+import geom from "calc/geom"
+
+func main() {
+    mut b geom.Box
+    b.tok.kind = 1
+    b.tok.end = 2
+    b.toks[1].end++
+    b.size += 1
+    exit(b.tok.kind + b.tok.end + b.toks[0].end + b.size)
+}
+-- vis-field-nested/expected --
+stage: typeck
+---
+
+vis-field-nested/main.tck:8:11: error: end is not pub in lexer.Token
+07 |	    b.tok.kind = 1
+08 |	    b.tok.end = 2
+   |	          ^~~
+09 |	    b.toks[1].end++
+
+vis-field-nested/main.tck:9:15: error: end is not pub in lexer.Token
+08 |	    b.tok.end = 2
+09 |	    b.toks[1].end++
+   |	              ^~~
+10 |	    b.size += 1
+
+vis-field-nested/main.tck:10:7: error: size is not pub in geom.Box
+09 |	    b.toks[1].end++
+10 |	    b.size += 1
+   |	      ^~~~
+11 |	    exit(b.tok.kind + b.tok.end + b.toks[0].end + b.size)
+
+vis-field-nested/main.tck:11:29: error: end is not pub in lexer.Token
+10 |	    b.size += 1
+11 |	    exit(b.tok.kind + b.tok.end + b.toks[0].end + b.size)
+   |	                            ^~~
+12 |	}
+
+vis-field-nested/main.tck:11:45: error: end is not pub in lexer.Token
+10 |	    b.size += 1
+11 |	    exit(b.tok.kind + b.tok.end + b.toks[0].end + b.size)
+   |	                                            ^~~
+12 |	}
+
+vis-field-nested/main.tck:11:53: error: size is not pub in geom.Box
+10 |	    b.size += 1
+11 |	    exit(b.tok.kind + b.tok.end + b.toks[0].end + b.size)
+   |	                                                    ^~~~
+12 |	}
+
+-- vis-field-read/tack.mod --
+module calc
+-- vis-field-read/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+    lib start int64
+    end int64
+}
+
+pub func First() Token {
+    return Token{kind: 1, start: 0, end: 1}
+}
+-- vis-field-read/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    t := lexer.First()
+    exit(t.kind +% t.start + t.end + lexer.First().end)
+}
+-- vis-field-read/expected --
+stage: typeck
+---
+
+vis-field-read/main.tck:7:32: error: end is not pub in lexer.Token
+06 |	    t := lexer.First()
+07 |	    exit(t.kind +% t.start + t.end + lexer.First().end)
+   |	                               ^~~
+08 |	}
+
+vis-field-read/main.tck:7:52: error: end is not pub in lexer.Token
+06 |	    t := lexer.First()
+07 |	    exit(t.kind +% t.start + t.end + lexer.First().end)
+   |	                                                   ^~~
+08 |	}
+
+-- vis-field-write/tack.mod --
+module calc
+-- vis-field-write/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+    end int64
+}
+-- vis-field-write/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    mut t lexer.Token
+    mut a [2]lexer.Token
+    t.kind = 1
+    t.end = 3
+    t.end += 1
+    t.end++
+    t.end--
+    a[0].end = 2
+    code, fits := int32(t.kind +% a[1].kind)
+    if fits { exit(code) }
+}
+-- vis-field-write/expected --
+stage: typeck
+---
+
+vis-field-write/main.tck:9:7: error: end is not pub in lexer.Token
+08 |	    t.kind = 1
+09 |	    t.end = 3
+   |	      ^~~
+10 |	    t.end += 1
+
+vis-field-write/main.tck:10:7: error: end is not pub in lexer.Token
+09 |	    t.end = 3
+10 |	    t.end += 1
+   |	      ^~~
+11 |	    t.end++
+
+vis-field-write/main.tck:11:7: error: end is not pub in lexer.Token
+10 |	    t.end += 1
+11 |	    t.end++
+   |	      ^~~
+12 |	    t.end--
+
+vis-field-write/main.tck:12:7: error: end is not pub in lexer.Token
+11 |	    t.end++
+12 |	    t.end--
+   |	      ^~~
+13 |	    a[0].end = 2
+
+vis-field-write/main.tck:13:10: error: end is not pub in lexer.Token
+12 |	    t.end--
+13 |	    a[0].end = 2
+   |	         ^~~
+14 |	    code, fits := int32(t.kind +% a[1].kind)
+
+-- vis-in-main/tack.mod --
+module calc
+-- vis-in-main/main.tck --
+package main
+
+pub type Point struct {
+    pub x int64
+    lib y int64
+    z int64
+}
+
+lib var origin = Point{x: 0, y: 0, z: 0}
+
+pub func helper() int64 {
+    return origin.x
+}
+
+pub func main() {
+    exit(helper())
+}
+-- vis-in-main/expected --
+stage: resolve+typeck
+---
+
+vis-in-main/main.tck:3:1: error: pub has no effect in package main, which no package can import
+02 |	
+03 |	pub type Point struct {
+   |	^~~
+04 |	    pub x int64
+
+vis-in-main/main.tck:9:1: error: lib has no effect in package main, which no package can import
+08 |	
+09 |	lib var origin = Point{x: 0, y: 0, z: 0}
+   |	^~~
+10 |	
+
+vis-in-main/main.tck:11:1: error: pub has no effect in package main, which no package can import
+10 |	
+11 |	pub func helper() int64 {
+   |	^~~
+12 |	    return origin.x
+
+vis-in-main/main.tck:15:1: error: pub has no effect in package main, which no package can import
+14 |	
+15 |	pub func main() {
+   |	^~~
+16 |	    exit(helper())
+
+vis-in-main/main.tck:16:10: error: cannot use int64 as int32 in argument to exit
+15 |	pub func main() {
+16 |	    exit(helper())
+   |	         ^~~~~~~~
+17 |	}
+
+-- vis-literal/tack.mod --
+module calc
+-- vis-literal/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+    start int64
+    end int64
+}
+
+pub type Pos struct {
+    pub line int64
+    lib col int64
+}
+-- vis-literal/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    t := lexer.Token{kind: 1, start: 0, end: 1}
+    u := lexer.Token{kind: 1}
+    p := lexer.Pos{line: 1, col: 2}
+    a := [1]lexer.Token{{kind: 1, start: 0, end: 0}}
+    code, fits := int32(t.kind +% u.kind +% p.line +% a[0].kind)
+    if fits { exit(code) }
+}
+-- vis-literal/expected --
+stage: typeck
+---
+
+vis-literal/main.tck:6:10: error: cannot write a lexer.Token literal outside package lexer: fields start, end are not pub
+05 |	func main() {
+06 |	    t := lexer.Token{kind: 1, start: 0, end: 1}
+   |	         ^~~~~~~~~~~
+07 |	    u := lexer.Token{kind: 1}
+
+vis-literal/main.tck:7:10: error: cannot write a lexer.Token literal outside package lexer: fields start, end are not pub
+06 |	    t := lexer.Token{kind: 1, start: 0, end: 1}
+07 |	    u := lexer.Token{kind: 1}
+   |	         ^~~~~~~~~~~
+08 |	    p := lexer.Pos{line: 1, col: 2}
+
+vis-literal/main.tck:9:25: error: cannot write a lexer.Token literal outside package lexer: fields start, end are not pub
+08 |	    p := lexer.Pos{line: 1, col: 2}
+09 |	    a := [1]lexer.Token{{kind: 1, start: 0, end: 0}}
+   |	                        ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+10 |	    code, fits := int32(t.kind +% u.kind +% p.line +% a[0].kind)
+
+-- vis-mut-exported/tack.mod --
+module calc
+-- vis-mut-exported/lexer/lexer.tck --
+package lexer
+
+pub mut counter int64 = 0
+lib mut total int64
+pub var limit int64 = 3
+
+pub func Count() int64 {
+    counter +%= 1
+    total +%= 1
+    return counter +% total
+}
+-- vis-mut-exported/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    exit(lexer.Count() +% lexer.limit)
+}
+-- vis-mut-exported/expected --
+stage: resolve+typeck
+---
+
+vis-mut-exported/lexer/lexer.tck:3:1: error: a mut variable cannot be pub; export a function that reads or changes it
+02 |	
+03 |	pub mut counter int64 = 0
+   |	^~~
+04 |	lib mut total int64
+
+vis-mut-exported/lexer/lexer.tck:4:1: error: a mut variable cannot be lib; export a function that reads or changes it
+03 |	pub mut counter int64 = 0
+04 |	lib mut total int64
+   |	^~~
+05 |	pub var limit int64 = 3
+
+vis-mut-exported/main.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	func main() {
+06 |	    exit(lexer.Count() +% lexer.limit)
+   |	         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+07 |	}
+
+-- vis-private-global-in-initializer/tack.mod --
+module calc
+-- vis-private-global-in-initializer/text/text.tck --
+package text
+
+var hiddenTotal int64 = 3
+
+lib var Shared int64 = hiddenTotal
+-- vis-private-global-in-initializer/lexer/lexer.tck --
+package lexer
+
+import text from "calc/text"
+
+pub var Total = text.hiddenTotal
+pub var Fine = text.Shared
+-- vis-private-global-in-initializer/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    exit(lexer.Total + lexer.Fine)
+}
+-- vis-private-global-in-initializer/expected --
+stage: resolve
+---
+
+vis-private-global-in-initializer/lexer/lexer.tck:5:17: error: hiddenTotal is not pub in package calc/text
+04 |	
+05 |	pub var Total = text.hiddenTotal
+   |	                ^~~~~~~~~~~~~~~~
+06 |	pub var Fine = text.Shared
+
+-- vis-private-names/tack.mod --
+module calc
+-- vis-private-names/lexer/lexer.tck --
+package lexer
+
+type token struct {
+    kind int64
+}
+
+var count int64 = 1
+mut state int64 = 0
+
+func lex() int64 {
+    state +%= 1
+    return count +% state
+}
+
+pub func Lex() int64 {
+    return lex()
+}
+-- vis-private-names/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+mut n [lexer.count]int64
+
+func use(t lexer.token) int64 {
+    return 0
+}
+
+func main() {
+    lexer.state = 2
+    exit(lexer.lex() + lexer.count + lexer.Lex() + len(n))
+}
+-- vis-private-names/expected --
+stage: resolve
+---
+
+vis-private-names/main.tck:5:8: error: count is not pub in package calc/lexer
+04 |	
+05 |	mut n [lexer.count]int64
+   |	       ^~~~~~~~~~~
+06 |	
+
+vis-private-names/main.tck:7:12: error: token is not pub in package calc/lexer
+06 |	
+07 |	func use(t lexer.token) int64 {
+   |	           ^~~~~~~~~~~
+08 |	    return 0
+
+vis-private-names/main.tck:12:5: error: state is not pub in package calc/lexer
+11 |	func main() {
+12 |	    lexer.state = 2
+   |	    ^~~~~~~~~~~
+13 |	    exit(lexer.lex() + lexer.count + lexer.Lex() + len(n))
+
+vis-private-names/main.tck:13:10: error: lex is not pub in package calc/lexer
+12 |	    lexer.state = 2
+13 |	    exit(lexer.lex() + lexer.count + lexer.Lex() + len(n))
+   |	         ^~~~~~~~~
+14 |	}
+
+vis-private-names/main.tck:13:24: error: count is not pub in package calc/lexer
+12 |	    lexer.state = 2
+13 |	    exit(lexer.lex() + lexer.count + lexer.Lex() + len(n))
+   |	                       ^~~~~~~~~~~
+14 |	}
+
+-- vis-unused-private-global/tack.mod --
+module calc
+-- vis-unused-private-global/lexer/lexer.tck --
+package lexer
+
+var hidden int64 = 1
+pub var Shown int64 = 2
+lib var Shared int64 = 3
+
+pub func One() int64 {
+    return 1
+}
+-- vis-unused-private-global/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+    exit(lexer.One())
+}
+-- vis-unused-private-global/expected --
+stage: typeck
+---
+
+vis-unused-private-global/lexer/lexer.tck:3:5: warning: declared and not used: hidden
+02 |	
+03 |	var hidden int64 = 1
+   |	    ^~~~~~
+04 |	pub var Shown int64 = 2
+
+vis-unused-private-global/main.tck:6:10: error: cannot use int64 as int32 in argument to exit
+05 |	func main() {
+06 |	    exit(lexer.One())
+   |	         ^~~~~~~~~~~
+07 |	}
+

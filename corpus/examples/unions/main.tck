@@ -1,0 +1,471 @@
+package main
+
+// Unions. type Expr union { ... } declares a tagged union: a value of it
+// holds exactly one of its cases, each named, with a payload of the type
+// written after its name or none. Expr.int(5) builds one, and a switch on
+// one runs the clause naming the case it holds, binding the payload of a
+// clause naming one case to a variable that refers to it in place.
+//
+// Every check that makes a list runs in a function of its own, and main
+// asserts after it that c_allocator's count of live buffers is back to
+// zero, so a list a union held is freed exactly once, however the union
+// was moved, reassigned or dropped. The count is read through live, whose
+// C, in live.c, reads std's hook.
+
+import tok from "unions/tok"
+
+// live returns how many buffers c_allocator holds, in C.
+extern("unions_live") func live() int64
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// freed checks that nothing is live after a check, name saying which.
+func freed(name string) {
+    check(live() == 0, name)
+}
+
+// Binary is an operator applied to two nodes of a tree, each named by its
+// index in the list holding the tree.
+type Binary struct {
+    op  uint8
+    lhs int64
+    rhs int64
+}
+
+// Expr is one node of an expression tree. The tree lives in a list of
+// nodes, and a node names its children by their indexes, so no node holds
+// another.
+type Expr union {
+    int    int64
+    name   string
+    neg    int64
+    binary Binary
+    eof
+}
+
+// eval evaluates node i of nodes, with x the value of every name. It ends
+// in a switch covering every case, each of which returns, so it needs no
+// return after it.
+func eval(nodes []Expr, i int64, x int64) int64 {
+    if i < 0 || i >= len(nodes) {
+        return 0
+    }
+    switch nodes[i] {
+    case int(n):
+        return n
+    case name:
+        return x
+    case neg(c):
+        return 0 -% eval(nodes, c, x)
+    case binary(b):
+        l := eval(nodes, b.lhs, x)
+        r := eval(nodes, b.rhs, x)
+        switch b.op {
+        case '+':
+            return l +% r
+        case '*':
+            return l *% r
+        default:
+            return l -% r
+        }
+    case eof:
+        return 0
+    }
+}
+
+// push appends e to nodes and returns its index.
+func push(mut nodes list[Expr], e Expr) int64 {
+    err := append(mut nodes, e)
+    if err.code != 0 {
+        exit(1)
+    }
+    return len(nodes) - 1
+}
+
+// depth returns how many nodes deep node i of nodes is, counting itself.
+func depth(nodes []Expr, i int64) int64 {
+    if i < 0 || i >= len(nodes) {
+        return 0
+    }
+    switch nodes[i] {
+    case neg(c):
+        return 1 +% depth(nodes, c)
+    case binary(b):
+        l := depth(nodes, b.lhs)
+        r := depth(nodes, b.rhs)
+        if l > r {
+            return 1 +% l
+        }
+        return 1 +% r
+    default:
+        return 1
+    }
+}
+
+// testTree builds (x + 2) * -3 in a list and evaluates it. A local named
+// like a case, neg, does not stop Expr.neg from naming the case.
+func testTree() {
+    mut nodes := make(list[Expr], c_allocator)
+    two := push(mut nodes, Expr.int(2))
+    x := push(mut nodes, Expr.name("x"))
+    sum := push(mut nodes, Expr.binary(Binary{op: '+', lhs: x, rhs: two}))
+    three := push(mut nodes, Expr.int(3))
+    neg := push(mut nodes, Expr.neg(three))
+    root := push(mut nodes, Expr.binary(Binary{op: '*', lhs: sum, rhs: neg}))
+    check(eval(nodes, root, 5) == -21, "expression tree")
+    check(eval(nodes, root, -2) == 0, "expression tree, another x")
+    check(depth(nodes, root) == 3, "default clause of a union switch")
+    check(len(nodes) == 6, "a list of unions")
+
+    // An element read is a copy, and assigning the element whole changes
+    // the node.
+    if 0 <= three && three < len(nodes) {
+        nodes[three] = Expr.int(4)
+    }
+    check(eval(nodes, root, 5) == -28, "an element assigned whole")
+    if len(nodes) > 0 {
+        first := nodes[0]
+        nodes[0] = Expr.eof
+        check(first == Expr.int(2) && nodes[0] == Expr.eof, "an element read is a copy")
+    }
+}
+
+// Token is a token of a lexer, compared with == as an enum is.
+type Token union {
+    num  int64
+    word string
+    plus
+    eof
+}
+
+// start is a package-level union, a constant expression.
+var start = Token.plus
+
+// keywords is a package-level array of unions.
+var keywords = [3]Token{Token.word("if"), Token.num(-9223372036854775808), Token.eof}
+
+// testTokens compares tokens with == and !=, which compare the case and
+// then the payloads.
+func testTokens() {
+    toks := [4]Token{Token.num(7), Token.word("hi"), Token.plus, Token.eof}
+    check(toks[3] == Token.eof, "a case with no payload compared with ==")
+    check(toks[0] == Token.num(7), "same case, equal payloads")
+    check(toks[0] != Token.num(8), "same case, different payloads")
+    check(toks[1] != Token.num(7) && toks[2] != Token.eof, "different cases")
+    check(Token.word("hi") == toks[1], "a string payload compares by its bytes")
+    check(Token.word("") != Token.word("hi"), "an empty string payload")
+    mut words := 0
+    for _, t := range toks {
+        if t != Token.eof {
+            words +%= 1
+        }
+    }
+    check(words == 3, "a range over an array of unions")
+    check(start == Token.plus && keywords[0] == Token.word("if"), "package-level unions")
+    check(keywords[1] == Token.num(-9223372036854775808), "the smallest int64 as a payload")
+    check(keywords[2] == Token.eof && toks == [4]Token{Token.num(7), Token.word("hi"), Token.plus, Token.eof},
+        "arrays of unions compared with ==")
+    mut t := Token.num(1)
+    check(t != Token.num(2), "a mutable union")
+    t = Token.num(2)
+    check(t == Token.num(2), "a union assigned")
+}
+
+// classify names what t holds, with a clause naming several cases, which
+// binds nothing.
+func classify(t Token) string {
+    switch t {
+    case num(n):
+        if n < 0 {
+            return "negative"
+        }
+        return "number"
+    case word, plus:
+        return "text"
+    case eof:
+        return "end"
+    }
+}
+
+// testClauses matches tokens with every kind of clause: one binding a
+// payload, one naming several cases, one naming a case alone, a payload
+// case named without its payload, and a default; break and continue in a
+// clause act on the loop around the switch.
+func testClauses() {
+    check(classify(Token.num(-1)) == "negative", "a binding read in its clause")
+    check(classify(Token.plus) == "text" && classify(Token.word("x")) == "text",
+        "a clause naming several cases")
+    check(classify(Token.eof) == "end", "a case with no payload")
+    toks := [5]Token{Token.num(1), Token.plus, Token.num(2), Token.eof, Token.num(9)}
+    mut sum := 0
+    for _, t := range toks {
+        switch t {
+        case num(n):
+            sum +%= n
+        case plus:
+            continue
+        case eof:
+            break
+        default:
+        }
+    }
+    check(sum == 3, "break and continue in a union switch act on the loop")
+    mut words := 0
+    for _, t := range toks {
+        switch t {
+        case num:
+            words +%= 10
+        default:
+            words +%= 1
+        }
+    }
+    check(words == 32, "a payload case named without binding it")
+    word := "a local named like a case"
+    plus := 2
+    switch Token.word(word) {
+    case word(w):
+        check(w == word && plus == 2, "a case named like a variable in scope")
+    case num, plus, eof:
+        check(false, "a case named like a variable in scope")
+    }
+}
+
+// fromCall returns a token, for a switch on a call's result.
+func fromCall(n int64) Token {
+    if n == 0 {
+        return Token.eof
+    }
+    return Token.num(n)
+}
+
+// testTemporaries switches on unions no variable holds: a call's result,
+// and a union built in place.
+func testTemporaries() {
+    mut got := 0
+    switch fromCall(4) {
+    case num(n):
+        got = n
+    default:
+        got = -1
+    }
+    check(got == 4, "a switch on a call's result")
+    switch fromCall(0) {
+    case eof:
+        got = 0
+    default:
+        got = -1
+    }
+    check(got == 0, "a switch on a call's result, no payload")
+}
+
+// Bag is a struct holding a list, a payload a union can carry.
+type Bag struct {
+    items list[int64]
+    tag   int64
+}
+
+// Value holds a number, a list, a struct holding a list, or nothing: it
+// holds a list, so it is owned as a list is.
+type Value union {
+    num   int64
+    items list[int64]
+    bag   Bag
+    none
+}
+
+// listOf returns a list of 0 through n - 1.
+func listOf(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i)
+        if err.code != 0 {
+            exit(1)
+        }
+    }
+    return l
+}
+
+// total sums what v holds. v is borrowed, so the switch's bindings refer
+// to the caller's lists in place.
+func total(v Value) int64 {
+    switch v {
+    case num(n):
+        return n
+    case items(l):
+        mut s := 0
+        for _, x := range l {
+            s +%= x
+        }
+        return s
+    case bag(b):
+        return b.tag +% len(b.items)
+    case none:
+        return 0
+    }
+}
+
+// makeItems returns a union holding a new list of n numbers.
+func makeItems(n int64) Value {
+    return Value.items(listOf(n))
+}
+
+// testOwned builds, reads, reassigns and drops unions holding lists.
+func testOwned() {
+    v := Value.items(listOf(4))
+    check(total(v) == 6, "a list payload")
+    mut w := Value.bag(Bag{items: listOf(3), tag: 10})
+    check(total(w) == 13, "a struct payload holding a list")
+    w = Value.num(5)
+    check(total(w) == 5 && live() == 1, "reassigning frees the old payload")
+    w = Value.items(listOf(2))
+    check(total(w) == 1 && live() == 2, "a new list payload")
+    w = Value.none
+    check(total(w) == 0 && live() == 1, "a case with no payload")
+    m := makeItems(5)
+    check(total(m) == 10, "a union returned")
+    l := listOf(3)
+    moved := Value.items(l)
+    check(total(moved) == 3, "a list moved into a payload")
+}
+
+// testLoops reassigns a union every iteration, and declares one in a
+// loop's body, freed at the end of each iteration.
+func testLoops() {
+    mut v := Value.none
+    mut sum := 0
+    for i := range 10 {
+        v = Value.items(listOf(i))
+        sum +%= total(v)
+    }
+    check(sum == 120, "reassigned every iteration")
+    for i := range 5 {
+        inner := Value.items(listOf(i))
+        sum +%= total(inner)
+        if i == 3 {
+            continue
+        }
+    }
+    check(sum == 130 && live() == 1, "declared in a loop's body")
+}
+
+// Holder holds a union holding a list, so it is owned too.
+type Holder struct {
+    v Value
+    n int64
+}
+
+// conditionalMove moves v into a Holder only when move is set.
+func conditionalMove(move bool) int64 {
+    v := Value.items(listOf(4))
+    if move {
+        h := Holder{v: v, n: 1}
+        return total(h.v) +% h.n
+    }
+    return 0
+}
+
+// deferRead sets out, from a defer, to the total of a union the defer
+// reads when its block ends, before the union is freed.
+func deferRead(mut out int64) {
+    v := Value.bag(Bag{items: listOf(3), tag: 1})
+    defer {
+        out = total(v)
+    }
+}
+
+// testMoves moves unions into structs, conditionally, and reads one from
+// a defer.
+func testMoves() {
+    check(conditionalMove(true) == 7, "a union moved into a struct")
+    check(conditionalMove(false) == 0, "a union not moved")
+    mut out := 0
+    deferRead(mut out)
+    check(out == 4, "a defer reading a union")
+}
+
+// Shape holds a Value, a union holding lists, so it is owned and frees
+// the lists of the Value it holds.
+type Shape union {
+    value Value
+    token Token
+    empty
+}
+
+// shapeTotal matches a union inside a union: the inner switch is on the
+// outer one's binding.
+func shapeTotal(s Shape) int64 {
+    switch s {
+    case value(v):
+        switch v {
+        case items(l):
+            return len(l)
+        default:
+            return total(v)
+        }
+    case token(t):
+        if t == Token.plus {
+            return -1
+        }
+        return -2
+    case empty:
+        return 0
+    }
+}
+
+// testNested builds unions holding unions.
+func testNested() {
+    s := Shape.value(Value.items(listOf(6)))
+    check(shapeTotal(s) == 6, "a union holding a union holding a list")
+    mut t := Shape.token(Token.plus)
+    check(shapeTotal(t) == -1, "a union holding a union of no list")
+    t = Shape.value(Value.bag(Bag{items: listOf(2), tag: 5}))
+    check(shapeTotal(t) == 7, "a nested union assigned")
+    t = Shape.empty
+    check(shapeTotal(t) == 0 && live() == 1, "a nested union's lists freed")
+}
+
+// testPackages builds and matches the unions of another package.
+func testPackages() {
+    t := tok.Token.num(4)
+    check(tok.describe(t) == "number", "a union of another package")
+    switch tok.first("7x") {
+    case num(n):
+        check(n == 7, "matching a union of another package")
+    case word, eof:
+        check(false, "matching a union of another package")
+    }
+    check(tok.first("") == tok.Token.eof, "a case with no payload of another package")
+    check(tok.first("go") == tok.Token.word("go"), "comparing unions of another package")
+    check(tok.describe(tok.Token.num(0)) == "zero", "a payload built in another package")
+}
+
+func main() {
+    check(live() == 0, "nothing live at the start")
+    testTree()
+    freed("trees freed")
+    testTokens()
+    testClauses()
+    testTemporaries()
+    testOwned()
+    freed("owned unions freed")
+    testLoops()
+    freed("loops freed")
+    testMoves()
+    freed("moves freed")
+    testNested()
+    freed("nested unions freed")
+    testPackages()
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

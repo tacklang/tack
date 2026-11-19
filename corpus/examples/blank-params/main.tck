@@ -1,0 +1,271 @@
+package main
+
+import text from "std/text"
+
+// Parameters named _: such a parameter carries a type and is never read.
+// Its argument is still evaluated and passed under the usual rules, so a
+// plain one borrows, an own one takes the value and frees it when the
+// function returns, a mut one is a mut argument for the call's overlap
+// rules, and a scope one takes a closure. Any number of a function's
+// parameters, a method's receiver, a closure's parameters and an extern
+// func's may be _. Each check prints its name and "ok", or "FAIL"; every
+// check that allocates runs in a function of its own, and main asserts
+// after it that c_allocator's count of live buffers is back to zero.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("go_live") func live() int64
+
+// second returns its second argument, in C, which never sees the first's
+// Tack name.
+extern("go_second") func second(_ int64, n int64) int64
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// Rec holds an integer, a Text and a list, each of which fresh builds
+// anew.
+type Rec struct {
+    n    int64
+    name text.Text
+    tags list[int64]
+}
+
+// Outer holds a Rec, which fresh makes whole, a struct like any Data.
+type Outer struct {
+    id  int64
+    rec Rec
+}
+
+// fresh returns a new, empty value of F, made with alloc. Its first
+// parameter is there only so that a call infers F from it: the value is
+// never read.
+func fresh[F Data](_ F, scope alloc Allocator) F {
+    return make(F, alloc)
+}
+
+// reset gives every field of v a fresh value: the old one is freed as the
+// field is assigned.
+func reset[T Data](mut v T, scope alloc Allocator) {
+    for f := range fields(T) {
+        v.[f] = fresh(v.[f], alloc)
+    }
+}
+
+// pick returns its third argument and ignores the two before it, of two
+// types.
+func pick(_ int64, _ string, n int64) int64 {
+    return n
+}
+
+// counter counts how many times next ran.
+mut counter = 0
+
+// next adds one to counter and returns its new value.
+func next() int64 {
+    counter +%= 1
+    return counter
+}
+
+// none takes any number of integers and reads none of them.
+func none(_ ...int64) int64 {
+    return 0
+}
+
+// width returns n, and takes a view and an any it never reads.
+func width(_ []uint8, _ any, n int64) int64 {
+    return n
+}
+
+// plain shows that arguments to _ parameters are evaluated, in order,
+// and that a function may name several of its parameters _, a variadic,
+// a view and an any one among them.
+func plain() {
+    counter = 0
+    check(pick(next(), "a", next() *% 10) == 20 && counter == 2, "evaluated in order")
+    check(pick(1, "b", 2) == 2 && second(5, 6) == 6, "several and extern")
+    counter = 0
+    check(none(next(), next(), next()) == 0 && none() == 0 && counter == 3, "variadic")
+    check(width([]uint8("abc"), next(), 4) == 4 && counter == 4, "view and any")
+}
+
+// Sizer is what measure asks of its type argument: a method whose
+// parameter, here and in Box's, is never read.
+type Sizer interface {
+    scaled(_ int64) int64
+}
+
+// scaled returns b's size, whatever it is asked to scale it by.
+func (b Box) scaled(_ int64) int64 {
+    return b.size
+}
+
+// measure calls the method Sizer asks for on v.
+func measure[T Sizer](v T) int64 {
+    return v.scaled(3)
+}
+
+// Box has a method whose receiver is _, and one whose mut receiver is.
+type Box struct {
+    size int64
+}
+
+// kind returns 7 whatever the Box: its receiver is never read.
+func (_ Box) kind() int64 {
+    return 7
+}
+
+// touched counts the calls to touch.
+mut touched = 0
+
+// touch is called on a Box as a mut receiver it never reads.
+func (mut _ Box) touch() {
+    touched +%= 1
+}
+
+// methods calls both methods, and kind as a method expression.
+func methods() {
+    mut b := Box{size: 2}
+    mut b.touch()
+    k := Box.kind
+    check(b.kind() == 7 && k(b) == 7 && touched == 1, "receiver")
+    check(measure(b) == 2, "interface")
+}
+
+// sink takes l and frees it, never reading it.
+func sink(own _ list[int64]) {
+}
+
+// sink_any takes v, of any Data type, and frees what it holds.
+func sink_any[T Data](own _ T) {
+}
+
+// sink_early takes l and frees it whichever return is taken.
+func sink_early(own _ list[int64], early bool) int64 {
+    if early {
+        return 1
+    }
+    return 2
+}
+
+// each_own passes a new list to f, which takes it as own.
+func each_own(scope f func(own list[int64])) {
+    l := make(list[int64], c_allocator)
+    f(own l)
+}
+
+// owned passes lists, a Text and a struct holding both to own _
+// parameters, which free them: main checks nothing is left.
+func owned() error {
+    mut l := make(list[int64], c_allocator)
+    append(mut l, 1, 2, 3)?
+    sink(own l)
+    mut t := text.new(c_allocator)
+    mut t.append([]uint8("held"))?
+    sink_any(own t)
+    mut r := Rec{n: 1, name: text.new(c_allocator), tags: make(list[int64], c_allocator)}
+    append(mut r.tags, 4)?
+    sink_any(own r)
+    sink_any(5)
+    mut a := make(list[int64], c_allocator)
+    append(mut a, 1)?
+    mut b := make(list[int64], c_allocator)
+    append(mut b, 2)?
+    mut taken := 0
+    each_own(func(own _ list[int64]) {
+        taken +%= 1
+    })
+    check(sink_early(own a, true) == 1 && sink_early(own b, false) == 2 && taken == 1,
+        "own returns and closure")
+    return noerror
+}
+
+// grow appends n to l and never reads its first parameter, which is mut.
+func grow(mut _ list[int64], mut l list[int64], n int64) error {
+    return append(mut l, n)
+}
+
+// muts passes two lists as mut arguments, one to a mut _ parameter.
+func muts() error {
+    mut a := make(list[int64], c_allocator)
+    mut b := make(list[int64], c_allocator)
+    grow(mut a, mut b, 9)?
+    check(len(a) == 0 && len(b) == 1 && b[0] == 9, "mut")
+    return noerror
+}
+
+// apply calls f on n.
+func apply(n int64, scope f func(int64, int64) int64) int64 {
+    return f(n, n)
+}
+
+// first_of returns its first argument, which has a function type's
+// signature, so it can be passed as a value.
+func first_of(n int64, _ int64) int64 {
+    return n
+}
+
+// never takes a closure it never calls.
+func never(scope _ func() int64) int64 {
+    return 1
+}
+
+// funcs passes a closure with a _ parameter, a function with one, and a
+// closure to a scope _ parameter, which never runs it.
+func funcs() {
+    mut runs := 0
+    by := 3
+    double := apply(4, func(_ int64, n int64) int64 {
+        runs +%= 1
+        return n *% by
+    })
+    g := first_of
+    ran := never(func() int64 {
+        runs +%= 100
+        return runs
+    })
+    check(double == 12 && apply(5, g) == 5 && ran == 1 && runs == 1, "functions")
+}
+
+// rec returns a Rec holding something in every field.
+func rec() (Rec, error) {
+    mut name := text.new(c_allocator)
+    mut name.append([]uint8("old"))?
+    mut tags := make(list[int64], c_allocator)
+    append(mut tags, 1, 2)?
+    return Rec{n: 5, name: name, tags: tags}, noerror
+}
+
+// resets checks reset over a Rec, twice, so the second frees what the
+// first made, and over an Outer, whose Rec field is made whole.
+func resets() error {
+    mut r := rec()?
+    check(r.n == 5 && r.name.len() == 3 && len(r.tags) == 2, "before reset")
+    reset(mut r, c_allocator)
+    check(r.n == 0 && r.name.len() == 0 && len(r.tags) == 0, "reset")
+    append(mut r.tags, 8)?
+    reset(mut r, c_allocator)
+    check(len(r.tags) == 0, "reset again")
+    mut o := Outer{id: 4, rec: rec()?}
+    reset(mut o, c_allocator)
+    check(o.id == 0 && o.rec.n == 0 && o.rec.name.len() == 0 && len(o.rec.tags) == 0,
+        "reset nested")
+    return noerror
+}
+
+func main() {
+    plain()
+    methods()
+    check(owned().code == 0, "own")
+    check(live() == 0, "own freed")
+    check(muts().code == 0 && live() == 0, "mut freed")
+    funcs()
+    check(resets().code == 0, "resets")
+    check(live() == 0, "resets freed")
+}

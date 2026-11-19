@@ -1,0 +1,74 @@
+package main
+
+type Point struct {
+    x int64
+    y int64
+}
+
+// fill sets the caller's n to v, in C.
+extern func fill(mut n int64, v int64)
+
+// grow multiplies the caller's point by k, in C.
+extern func grow(mut p Point, k int64)
+
+// clear zeroes every element of the caller's array, in C.
+extern func clear(mut a [4]int64)
+
+// toggle negates the caller's bool, in C, and returns what it was.
+extern func toggle(mut b bool) bool
+
+// order swaps a and b, in C, so that a is the smaller.
+extern("order_pair") func order(mut a int64, mut b int64)
+
+// twice passes its own mut parameter on to C, twice.
+func twice(mut n int64) {
+    fill(mut n, n *% 2)
+    fill(mut n, n *% 2)
+}
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+func main() {
+    mut n int64 = 0
+    fill(mut n, 42)
+    check(n == 42, "integer")
+
+    mut p := Point{x: 2, y: -3}
+    grow(mut p, 5)
+    check(p == Point{x: 10, y: -15}, "struct")
+
+    fill(mut p.y, 7)
+    check(p.y == 7 && p.x == 10, "field")
+
+    mut a := [4]int64{1, 2, 3, 4}
+    fill(mut a[2], 9)
+    check(a == [4]int64{1, 2, 9, 4}, "element")
+    clear(mut a)
+    check(a == [4]int64{0, 0, 0, 0}, "array")
+
+    mut on := true
+    was := toggle(mut on)
+    check(was && !on, "bool and a result")
+
+    mut x int64 = 9
+    mut y int64 = 3
+    order(mut x, mut y)
+    check(x == 3 && y == 9, "two mut parameters, C name")
+
+    mut t int64 = 5
+    twice(mut t)
+    check(t == 20, "passed on to C")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

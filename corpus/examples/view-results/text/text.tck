@@ -1,0 +1,37 @@
+package text
+
+// Package text holds bytes in a Text, which owns them in a list no other
+// package can name, and lets any package read them through views its pub
+// methods return: in place, with no copy and no pub field.
+
+// Text owns a sequence of bytes.
+pub type Text struct {
+    b list[uint8]
+}
+
+// of returns a Text holding the bytes of s, beside the error of making
+// it.
+pub func of(s string) (Text, error) {
+    mut b := make(list[uint8], c_allocator)
+    err := append(mut b, []uint8(s)...)
+    return Text{b: b}, err
+}
+
+// bytes returns a view of every byte t holds, in place.
+pub func (t Text) bytes() []uint8 {
+    return t.b
+}
+
+// after returns a view of t's bytes from n on, or of none when n is past
+// them or negative: a slice of a field of the receiver.
+pub func (t Text) after(n int64) []uint8 {
+    if n < 0 || n > len(t.b) {
+        return t.b[len(t.b):]
+    }
+    return t.b[n:]
+}
+
+// push appends c to t's bytes.
+pub func (mut t Text) push(c uint8) error {
+    return append(mut t.b, c)
+}

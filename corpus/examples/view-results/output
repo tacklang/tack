@@ -1,0 +1,45 @@
+nothing live at the start ok
+len of a method's view ok
+a method's view passed on ok
+checked index in range ok
+checked index at the length ok
+checked negative index ok
+range over a method's view ok
+spread into a variadic ok
+a slice of a field returned ok
+no bytes past the end ok
+a method's view sliced ok
+a method's view returned on ok
+hello
+views made no buffer ok
+spread into append ok
+a view after the list grew ok
+methods freed ok
+a view parameter returned ok
+a slice of a view parameter returned ok
+a nested call returned ok
+a slice of no length ok
+an empty array ok
+fewer bytes than sliced ok
+checked index of a function's view ok
+a view of a string's bytes, sliced ok
+returned past defers ok
+returned past one defer ok
+functions freed ok
+len of an empty list's view ok
+range over an empty list's view ok
+checked index of an empty list's view ok
+slice and spread of nothing ok
+empties freed ok
+words added ok
+an element of a list of lists ok
+the last element ok
+the fallback past either end ok
+an element's view sliced to nothing ok
+an array field viewed ok
+an array element of a list ok
+through a generic function ok
+a union method's view ok
+owned freed ok
+read in a defer ok
+deferred freed ok

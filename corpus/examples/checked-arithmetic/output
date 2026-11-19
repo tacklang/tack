@@ -1,0 +1,102 @@
+int8 max + 1 fails ok
+int8 max + 0 ok
+int8 100 + 100 fails, v is 0 and not the wrapped -56 ok
+int8 min + -1 fails ok
+int8 min + max ok
+int8 min + min fails ok
+int8 min - 1 fails ok
+int8 max - -1 fails ok
+int8 min - min is 0, and ok ok
+int8 -1 - max is min ok
+int8 0 - min fails ok
+int8 -1 - min is max ok
+int8 min * -1 fails ok
+int8 -1 * min fails ok
+int8 min * 1 ok
+int8 max * -1 ok
+int8 -64 * 2 is min ok
+int8 64 * 2 fails ok
+int8 0 * min ok
+int8 16 * 16 fails, v is 0 and not the wrapped 0 ok
+int8 -min fails ok
+int8 -max ok
+int8 -0 ok
+uint8 max + 1 fails ok
+uint8 254 + 1 is max ok
+uint8 0 - 1 fails ok
+uint8 0 - 0 ok
+uint8 max - max ok
+uint8 5 - 6 fails ok
+uint8 16 * 16 fails ok
+uint8 15 * 17 is max ok
+uint8 max * 0 ok
+int32 max + 1 fails ok
+int32 min + -1 fails ok
+int32 min + max ok
+int32 min - 1 fails ok
+int32 max - -1 fails ok
+int32 -1 - max is min ok
+int32 min * -1 fails ok
+int32 65536 * 32768 fails ok
+int32 -65536 * 32768 is min ok
+int32 46341 * 46341 fails ok
+int32 46340 * 46340 ok
+int32 -min fails ok
+int32 -max ok
+int64 max + 1 fails ok
+int64 min + -1 fails ok
+int64 max + max fails ok
+int64 min + max ok
+int64 min - 1 fails ok
+int64 max - -1 fails ok
+int64 0 - min fails ok
+int64 min - min is 0, and ok ok
+int64 min * -1 fails ok
+int64 -1 * min fails ok
+int64 2^32 * 2^31 fails ok
+int64 -2^32 * 2^31 is min ok
+int64 3037000500 squared fails ok
+int64 3037000499 squared ok
+int64 2^32 * 2^32 fails, v is 0 and not the wrapped 0 ok
+int64 -min fails ok
+int64 -max ok
+uint64 max + 1 fails ok
+uint64 max - 1 + 1 is max ok
+uint64 0 - 1 fails ok
+uint64 max - max ok
+uint64 1 - max fails ok
+uint64 max * 2 fails ok
+uint64 2^32 * 2^32 fails ok
+uint64 (2^32 - 1) * (2^32 + 1) is max ok
+uint64 max * 1 ok
+every int8 pair against int64 ok
+every uint8 pair against int64 ok
+ab
+both operands evaluated, left first ok
+a call's two results ok
+assigned with = ok
+in parentheses ok
+on constants, ok is true ok
+int8 + int64 overflows int64 ok
+int8 + int64 fits ok
+x + 1 under x < max ok
+x - 1 under x > min ok
+-x under x > min ok
+unsigned a - b under a >= b, and b - a in its else ok
+a + b and a - b under bounds on both ok
+a + b and a - b at the other bounds ok
+a * b under bounds on both ok
+a uint8's type bounds it ok
+i + 1 under i < n ok
+int8 steps under guards, at the bounds ok
+unsigned steps under guards, at the bounds ok
+a counting loop up, i * i in its body ok
+a counting loop down ok
+an unsigned loop down, i - 1 in its body ok
+a range loop's index ok
+a while loop's condition proves n++ ok
+an accumulator under the checked form ok
+float arithmetic needs no proof and overflows to infinity ok
+float32 unary minus and subtraction ok
+<< is a bit operation and wraps at the width ok
+<<= on an unsigned value ok

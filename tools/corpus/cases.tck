@@ -1,0 +1,408 @@
+package main
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import os from "std/os"
+import path from "std/path"
+import text from "std/text"
+
+// The checks of the archives' cases (see the package comment).
+
+// Kind is what an archive's cases are, and so how each is run and what
+// its expected section holds. It wraps a number because Tack declares
+// no named integer types.
+type Kind struct {
+    n uint8
+}
+
+// kind_rejected is invalid.txtar's and invalid-packages.txtar's: a
+// program --port-case must reject, its expected section what it writes.
+var kind_rejected = Kind{n: 1}
+
+// kind_warned is warnings.txtar's and warnings-packages.txtar's: a
+// program --port-case must compile with warnings, its expected section
+// the warnings.
+var kind_warned = Kind{n: 2}
+
+// kind_tests is invalid-tests.txtar's: a package --port-test-case must
+// reject, its expected section what it writes.
+var kind_tests = Kind{n: 3}
+
+// kind_c is invalid-c.txtar's: a program with C files a build must fail
+// on, its expected section the build's standard error (see check_c).
+var kind_c = Kind{n: 4}
+
+// kind_of returns the kind of the archive name, without .txtar, whether
+// it is in the tree format, and whether the runner knows it: one of the
+// six archives tackc's harness checks. An archive of another name has no
+// kind, so that no archive added to examples/ goes unchecked.
+func kind_of(name []uint8) (Kind, bool, bool) {
+    if bytes.equal(name, []uint8("invalid")) {
+        return kind_rejected, false, true
+    }
+    if bytes.equal(name, []uint8("invalid-packages")) {
+        return kind_rejected, true, true
+    }
+    if bytes.equal(name, []uint8("warnings")) {
+        return kind_warned, false, true
+    }
+    if bytes.equal(name, []uint8("warnings-packages")) {
+        return kind_warned, true, true
+    }
+    if bytes.equal(name, []uint8("invalid-tests")) {
+        return kind_tests, true, true
+    }
+    if bytes.equal(name, []uint8("invalid-c")) {
+        return kind_c, true, true
+    }
+    return kind_rejected, true, false
+}
+
+// check_archive checks the archive examples/<name>.txtar of r's corpus:
+// that it reads and writes back byte for byte, and each of its cases,
+// counting in t; and, with r.update, writes it back with the expected
+// sections the cases gave, when that changes it.
+func check_archive(r Runner, name []uint8, mut t Tally) error {
+    mut label := text.from_bytes(name, c_allocator)?
+    mut label.append([]uint8(".txtar"))?
+    file := path.join(r.corpus.bytes(), []uint8("examples"), c_allocator)?
+    file2 := path.join(file.bytes(), label.bytes(), c_allocator)?
+    data, re := os.read_file(file2.bytes(), c_allocator)
+    if re.code != 0 {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "cannot read %s: %s", file2.bytes(), re.msg)?
+        fail(label.bytes(), []uint8("(archive)"), why[:], mut t)
+        return noerror
+    }
+    kind, tree, known := kind_of(name)
+    if !known {
+        fail(label.bytes(), []uint8("(archive)"), []uint8("the runner does not know this archive, so it cannot check its cases: give it a kind in tools/corpus's kind_of"), mut t)
+        return noerror
+    }
+    mut problem := make(list[uint8], c_allocator)
+    mut a := parse_archive(data, tree, mut problem)?
+    if len(problem) > 0 {
+        fail(label.bytes(), []uint8("(archive)"), problem[:], mut t)
+        return noerror
+    }
+    back := format_archive(a, mut problem)?
+    if len(problem) > 0 {
+        fail(label.bytes(), []uint8("(archive)"), problem[:], mut t)
+        return noerror
+    }
+    if !bytes.equal(back, data) {
+        fail_diff(label.bytes(), []uint8("(archive)"), []uint8("the archive, written back as it was read"), data, back, mut t)?
+        return noerror
+    }
+    if len(a.cases) == 0 {
+        fail(label.bytes(), []uint8("(archive)"), []uint8("it holds no cases"), mut t)
+        return noerror
+    }
+    mut cases := replace(mut a.cases, make(list[Case], c_allocator))
+    for i := range len(cases) {
+        t.cases +%= 1
+        got, take := check_case(r, label.bytes(), kind, tree, cases[i], mut t)?
+        if r.update && take {
+            cases[i].expected = got
+        }
+    }
+    a.cases = cases
+    if !r.update {
+        return noerror
+    }
+    out := format_archive(a, mut problem)?
+    if len(problem) > 0 {
+        fail(label.bytes(), []uint8("(archive)"), problem[:], mut t)
+        return noerror
+    }
+    if !bytes.equal(out, data) {
+        e := os.write_file(file2.bytes(), out)
+        if e.code != 0 {
+            mut why := make(list[uint8], c_allocator)
+            fmt.appendf(mut why, "cannot write %s: %s", file2.bytes(), e.msg)?
+            fail(label.bytes(), []uint8("(archive)"), why[:], mut t)
+        } else {
+            fmt.printf("updated %s\n", file2.bytes())
+        }
+    }
+    return noerror
+}
+
+// case_target returns what c is built from, from root: its main.tck for
+// a case of the single format, and for a tree case its directory, or the
+// path its .target file names, relative to it, without the spaces it
+// starts and ends with, cleaned, as internal/invalid's Target gives it.
+func case_target(c Case, tree bool) (text.Text, error) {
+    if !tree {
+        t := path.join(c.name.bytes(), []uint8(main_file), c_allocator)?
+        return t, noerror
+    }
+    for _, f := range c.files {
+        if f.path.equal([]uint8(".target")) {
+            t := path.join(c.name.bytes(), trim_space(f.data), c_allocator)?
+            return t, noerror
+        }
+    }
+    t := text.from_bytes(c.name.bytes(), c_allocator)?
+    return t, noerror
+}
+
+// has_std reports whether c has a standard library of its own: a file
+// below its .std directory, as internal/invalid's StdDir finds one.
+func has_std(c Case) bool {
+    for _, f := range c.files {
+        if bytes.has_prefix(f.path.bytes(), []uint8(".std/")) {
+            return true
+        }
+    }
+    return false
+}
+
+// check_case lays c, a case of the archive label of the kind kind, in
+// the tree format when tree says so, out in r's root, checks it,
+// counting a failure in t, and removes it. It returns what the case's
+// expected section would be from now on, and whether that may replace
+// it: false when the case failed in a way --update does not paper over.
+func check_case(r Runner, label []uint8, kind Kind, tree bool, c Case, mut t Tally) (list[uint8], bool, error) {
+    if c.name.equal([]uint8("src")) || c.name.equal([]uint8("examples")) {
+        fail(label, c.name.bytes(), []uint8("a case cannot be named as a directory of the run's root, src or examples"), mut t)
+        return make(list[uint8], c_allocator), false, noerror
+    }
+    dir := path.join(r.root.bytes(), c.name.bytes(), c_allocator)?
+    for _, f := range c.files {
+        p := path.join(dir.bytes(), f.path.bytes(), c_allocator)?
+        ok := write_with_dirs(p.bytes(), f.data)?
+        if !ok {
+            t.failures +%= 1
+            return make(list[uint8], c_allocator), false, noerror
+        }
+    }
+    target := case_target(c, tree)?
+    mut got := make(list[uint8], c_allocator)
+    mut take := false
+    if kind == kind_c {
+        got, take = check_c(r, label, c, target.bytes(), mut t)?
+    } else {
+        mut args := make(list[text.Text], c_allocator)
+        if kind == kind_tests {
+            append(mut args, text.from_bytes([]uint8("--port-test-case"), c_allocator)?)?
+        } else {
+            append(mut args, text.from_bytes([]uint8("--port-case"), c_allocator)?)?
+        }
+        if has_std(c) {
+            append(mut args, text.from_bytes([]uint8("--port-std"), c_allocator)?)?
+            append(mut args, path.join(c.name.bytes(), []uint8(".std"), c_allocator)?)?
+        }
+        append(mut args, target)?
+        ran := run_compiler(r, args)?
+        got, take = judge_case(r, label, kind, c, ran, mut t)?
+        if kind == kind_rejected && len(ran.trouble) == 0 && ran.code == 0 {
+            crlf_case(r, label, c, dir.bytes(), args, ran.out, mut t)?
+        }
+    }
+    removed := remove_tree(dir.bytes())?
+    if !removed {
+        t.failures +%= 1
+    }
+    return got, take, noerror
+}
+
+// crlf_of returns data with every \n turned into \r\n.
+func crlf_of(data []uint8) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    for _, b := range data {
+        if b == '\n' {
+            append(mut out, '\r')?
+        }
+        append(mut out, b)?
+    }
+    return out, noerror
+}
+
+// has_cr reports whether any of files holds a carriage return.
+func has_cr(files []CaseFile) bool {
+    for _, f := range files {
+        if bytes.index_byte(f.data, '\r') >= 0 {
+            return true
+        }
+    }
+    return false
+}
+
+// crlf_case checks c, a case of the archive label laid out in dir, as
+// the harness's TestCRLFMatchesLF does: with every \n of every one of its
+// files, its .std's among them, turned into \r\n, the run of args must
+// write lf, what it wrote with the files as they are, failing the case
+// in t when it does not. A case that already holds a carriage return is
+// left out, since adding one before a line feed changes what that byte
+// is.
+func crlf_case(r Runner, label []uint8, c Case, dir []uint8, args []text.Text, lf []uint8, mut t Tally) error {
+    if has_cr(c.files) {
+        return noerror
+    }
+    for _, f := range c.files {
+        p := path.join(dir, f.path.bytes(), c_allocator)?
+        data := crlf_of(f.data)?
+        ok := write_with_dirs(p.bytes(), data)?
+        if !ok {
+            t.failures +%= 1
+            return noerror
+        }
+    }
+    ran := run_compiler(r, args)?
+    if len(ran.trouble) > 0 || ran.code != 0 {
+        fail_ran(label, c.name.bytes(), []uint8("with CRLF line endings, the compiler did not render the case: want exit status 0"), ran, mut t)?
+        return noerror
+    }
+    if !bytes.equal(ran.out, lf) {
+        fail_diff(label, c.name.bytes(), []uint8("what LF line endings give, which CRLF must give too"), lf, ran.out, mut t)?
+    }
+    return noerror
+}
+
+// judge_case checks ran, the run of --port-case or --port-test-case on
+// c, a case of the archive label of the kind kind, counting a failure in
+// t, and returns what c's expected section would be from now on and
+// whether it may replace it (see check_case).
+func judge_case(r Runner, label []uint8, kind Kind, c Case, ran Ran, mut t Tally) (list[uint8], bool, error) {
+    none := make(list[uint8], c_allocator)
+    if len(ran.trouble) > 0 {
+        fail_ran(label, c.name.bytes(), ran.trouble[:], ran, mut t)?
+        return none, false, noerror
+    }
+    if ran.code != 0 {
+        fail_ran(label, c.name.bytes(), []uint8("the compiler did not render the case: want exit status 0"), ran, mut t)?
+        return none, false, noerror
+    }
+    stage, has_stage := split_stage(ran.out)?
+    if !has_stage {
+        fail_ran(label, c.name.bytes(), []uint8("the output does not start with a stage line and ---"), ran, mut t)?
+        return none, false, noerror
+    }
+    compiled := stage.equal([]uint8("ok"))
+    if kind != kind_warned {
+        if compiled {
+            fail(label, c.name.bytes(), []uint8("the program compiled; an invalid example must be rejected"), mut t)
+            return none, false, noerror
+        }
+        if len(ran.err) > 0 {
+            fail_ran(label, c.name.bytes(), []uint8("a rejected case wrote to standard error"), ran, mut t)?
+            return none, false, noerror
+        }
+        got, take := compared(r, label, c.name.bytes(), c.expected, ran.out, mut t)?
+        return got, take, noerror
+    }
+    if !compiled {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "the program did not compile, at the %s stage", stage.bytes())?
+        fail(label, c.name.bytes(), why[:], mut t)
+        return none, false, noerror
+    }
+    if len(ran.err) == 0 {
+        fail(label, c.name.bytes(), []uint8("the program compiled with no warning; a warning example must warn"), mut t)
+        return none, false, noerror
+    }
+    strict := strict_c(r, label, c.name.bytes(), stage_body(ran.out), mut t)?
+    got, take := compared(r, label, c.name.bytes(), c.expected, ran.err, mut t)?
+    return got, take && strict, noerror
+}
+
+// compared compares got with want, the expected output of the case name
+// of label, failing it in t when they differ and r does not update, and
+// returns a copy of got and true, what the expected output is from now
+// on.
+func compared(r Runner, label []uint8, name []uint8, want []uint8, got []uint8, mut t Tally) (list[uint8], bool, error) {
+    if !bytes.equal(want, got) && !r.update {
+        fail_diff(label, name, []uint8("the expected section"), want, got, mut t)?
+    }
+    mut out := make(list[uint8], c_allocator)
+    append(mut out, got...)?
+    return out, true, noerror
+}
+
+// strict_c checks that c, the C generated for the case name of label,
+// passes clang's syntax and semantic checks with every warning an error,
+// -std=c11 -Wall -Wextra -Werror -fsyntax-only, with std's include
+// directory on the include path, as the harness's strictC checks it,
+// failing it in t when it does not, and reports whether it did.
+func strict_c(r Runner, label []uint8, name []uint8, c []uint8, mut t Tally) (bool, error) {
+    file := path.join(r.tmp.bytes(), []uint8("strict.c"), c_allocator)?
+    e := os.write_file(file.bytes(), c)
+    if e.code != 0 {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "cannot write %s: %s", file.bytes(), e.msg)?
+        fail(label, name, why[:], mut t)
+        return false, noerror
+    }
+    include := path.join(r.root.bytes(), []uint8("src/std/include"), c_allocator)?
+    mut argv := make(list[text.Text], c_allocator)
+    append_timeout(mut argv)?
+    for _, a := range [6]string{"clang", "-std=c11", "-Wall", "-Wextra", "-Werror", "-fsyntax-only"} {
+        append(mut argv, text.from_bytes([]uint8(a), c_allocator)?)?
+    }
+    append(mut argv, text.from_bytes([]uint8("-I"), c_allocator)?)?
+    append(mut argv, include)?
+    append(mut argv, file)?
+    ran := run_argv(r.root.bytes(), argv)?
+    if len(ran.trouble) > 0 || ran.code != 0 {
+        fail_ran(label, name, []uint8("clang -fsyntax-only -Wall -Wextra -Werror rejects the generated C"), ran, mut t)?
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// cannot_compile is the line, after a newline, from which the standard
+// error of a build clang's report of a C file comes first in is compared.
+var cannot_compile = "\ntack: cannot compile "
+
+// check_c builds c, a case of invalid-c.txtar, the archive label, from
+// its target, with --out, and checks the build failed as the harness's
+// buildInvalidC requires: exit status 1, nothing on standard output and
+// nothing left in the compiler's TMPDIR. It returns the standard error
+// from its first line, or, when clang's own report of a C file comes
+// first, from the line tack: cannot compile on, which report must name an
+// error, and whether that may replace the expected section (see
+// check_case), failing the case in t when it is not what was expected.
+func check_c(r Runner, label []uint8, c Case, target []uint8, mut t Tally) (list[uint8], bool, error) {
+    none := make(list[uint8], c_allocator)
+    mut args := make(list[text.Text], c_allocator)
+    append(mut args, text.from_bytes([]uint8("--out"), c_allocator)?)?
+    append(mut args, path.join(r.bin.bytes(), []uint8("prog"), c_allocator)?)?
+    append(mut args, text.from_bytes(target, c_allocator)?)?
+    ran := run_compiler(r, args)?
+    left, le := os.list_dir(r.work.bytes(), c_allocator)
+    if le.code != 0 {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "cannot list the compiler's TMPDIR, %s: %s", r.work.bytes(), le.msg)?
+        fail(label, c.name.bytes(), why[:], mut t)
+        return none, false, noerror
+    }
+    if len(left) > 0 {
+        fail(label, c.name.bytes(), []uint8("the build left files in the compiler's TMPDIR"), mut t)
+        for _, n := range left {
+            p := path.join(r.work.bytes(), n.bytes(), c_allocator)?
+            remove_tree(p.bytes())?
+        }
+        return none, false, noerror
+    }
+    if len(ran.trouble) > 0 {
+        fail_ran(label, c.name.bytes(), ran.trouble[:], ran, mut t)?
+        return none, false, noerror
+    }
+    if ran.code != 1 || len(ran.out) > 0 {
+        fail_ran(label, c.name.bytes(), []uint8("want a failed build: exit status 1 and nothing on standard output"), ran, mut t)?
+        return none, false, noerror
+    }
+    at := bytes.index(ran.err, []uint8(cannot_compile))
+    if bytes.has_prefix(ran.err, []uint8("tack: ")) || at < 0 {
+        got, take := compared(r, label, c.name.bytes(), c.expected, ran.err, mut t)?
+        return got, take, noerror
+    }
+    if bytes.index(part(ran.err, 0, at), []uint8("error")) < 0 {
+        fail_ran(label, c.name.bytes(), []uint8("clang's report before tack's does not name an error"), ran, mut t)?
+        return none, false, noerror
+    }
+    // at is an index of ran.err, so at + 1 does not wrap.
+    got, take := compared(r, label, c.name.bytes(), c.expected, part(ran.err, at +% 1, len(ran.err)), mut t)?
+    return got, take, noerror
+}

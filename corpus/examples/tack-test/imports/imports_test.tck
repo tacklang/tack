@@ -1,0 +1,24 @@
+package imports
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import testing from "std/testing"
+import pass from "tt/pass"
+
+// test_twice checks Twice against pass.Sum, which it calls.
+func test_twice(mut t testing.T) error {
+    if Twice(4) != pass.Sum(4, 4) {
+        mut t.errorf("Twice(4) = %d", Twice(4))
+    }
+    return noerror
+}
+
+// test_std uses std/bytes and std/fmt from a test.
+func test_std(mut t testing.T) error {
+    mut out := make(list[uint8], c_allocator)
+    fmt.appendf(mut out, "%d-%s", 7, "x")?
+    if !bytes.equal(out, []uint8("7-x")) {
+        mut t.errorf("appendf wrote %d bytes", len(out))
+    }
+    return noerror
+}

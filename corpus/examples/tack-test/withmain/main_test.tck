@@ -1,0 +1,12 @@
+package main
+
+import testing from "std/testing"
+
+// test_double checks double, which main exits with: had main run, the
+// process would have ended with 42 before any test.
+func test_double(mut t testing.T) error {
+    if double(21) != 42 {
+        mut t.errorf("double(21) = %d, want 42", double(21))
+    }
+    return noerror
+}

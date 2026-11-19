@@ -1,0 +1,120 @@
+package main
+
+// Values of every basic type passed to C as any, one at a time and as
+// ...any. C gets a tack_any, a type id and a pointer to the value, which
+// it inspects with TACK_ANY_IS and reads with the checked unpack helpers
+// of std's tack.h, during the call only. A view passed as any is a type
+// id of its own and a pointer to the view, which C reads as the view's
+// struct, tack_view_int64 for []int64, after checking the id.
+
+// kind returns the type id a holds, read in C.
+extern func kind(a any) uint32
+
+// holdsInt64 reports whether a holds an int64, with TACK_ANY_IS.
+extern("holds_int64") func holdsInt64(a any) bool
+
+// edges reports whether args holds, in order, the edge values main
+// passes, each of the type it should have, unpacked by its own helper.
+extern func edges(args ...any) bool
+
+// mismatches reports whether every unpack helper but the one for a's
+// type refuses a and leaves its out value alone.
+extern func mismatches(a any) bool
+
+// sumSigned adds every signed integer among args, each widened to
+// int64_t by tack_any_signed, skipping the rest.
+extern("sum_signed") func sumSigned(args ...any) int64
+
+// sumUnsigned adds every unsigned integer among args, each widened to
+// uint64_t by tack_any_unsigned, skipping the rest.
+extern("sum_unsigned") func sumUnsigned(args ...any) uint64
+
+// count returns how many values args holds.
+extern func count(args ...any) int64
+
+// total returns the sum of v's elements and those of the []int64 a holds,
+// or -1 when a holds anything else, read in C with TACK_ANY_IS and the
+// view struct v's type gives the program's tack.h.
+extern func total(v []int64, a any) int64
+
+// setThenRead sets x to 99, then returns the int64 a holds, or -1: a is
+// a copy taken at the call, so it is x's old value.
+extern("set_then_read") func setThenRead(mut x int64, a any) int64
+
+// order is the sequence of digits step has recorded.
+mut order int64
+
+// step records d in order and returns it.
+func step(d int64) int64 {
+    order = order *% 10 +% d
+    return d
+}
+
+// viaTack passes a on from Tack to C.
+func viaTack(a any) uint32 {
+    return kind(a)
+}
+
+// allVia passes args on from Tack to C with a spread.
+func allVia(args ...any) int64 {
+    return sumSigned(args...)
+}
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+func main() {
+    var b bool = true
+    var i8 int8 = -128
+    var i16 int16 = -32768
+    var i32 int32 = -2147483648
+    var u8 uint8 = 255
+    var u16 uint16 = 65535
+    var u32 uint32 = 4294967295
+    var u64 uint64 = 18446744073709551615
+    var size unsafe_size_t = 4294967295
+    var addr unsafe_uintptr_t = 0
+    s := "a\x00b"
+    check(kind(b) == 1 && kind(i8) == 2 && kind(i16) == 3 && kind(i32) == 4, "ids of bool and signed")
+    check(kind(-9223372036854775808) == 5 && kind(u8) == 6 && kind(u16) == 7 && kind(u32) == 8,
+        "ids of int64 and unsigned")
+    check(kind(u64) == 9 && kind(size) == 10 && kind(addr) == 11 && kind(s) == 12, "ids of the rest")
+    check(kind(5) == 5 && kind('a') == 6 && kind(1 < 2) == 1 && kind("") == 12, "ids of constants")
+    check(holdsInt64(9223372036854775807) && !holdsInt64(i32), "TACK_ANY_IS")
+    check(edges(false, i8, i16, i32, -9223372036854775808, u8, u16, u32, u64, size, addr, s, ""),
+        "every type at its edges")
+    check(mismatches(b) && mismatches(i8) && mismatches(addr) && mismatches(s), "mismatches refused")
+    check(sumSigned(i8, i16, 1, u8, s) == -32895 && sumUnsigned(u8, u64, i8, size) == 4294967549,
+        "widened by the helpers")
+    check(count() == 0 && count(1) == 1 && count(b, s, u8) == 3, "counts")
+    check(viaTack(u16) == 7 && allVia(1, 2, i8) == -125 && allVia() == 0, "passed on from Tack")
+    nums := [3]int64{1, 20, 300}
+    bs := [1]bool{true}
+    words := [2]string{"a", "b"}
+    check(kind(nums[:]) == 17 && kind(bs[:]) == 13 && kind(words[:]) == 24 && kind(s[1:]) == 12,
+        "ids of views")
+    check(total(nums, nums[1:]) == 641 && total(nums, nums[0:0]) == 321 && total(nums, 5) == -1,
+        "a view read in C")
+
+    mut x int64 = 7
+    check(setThenRead(mut x, x) == 7 && x == 99, "copy alongside mut")
+    order = 0
+    check(sumSigned(step(1), order, step(2), order) == 1 + 1 + 2 + 12 && order == 12, "evaluation order")
+    mut i int64 = 0
+    for holdsInt64(i +% 1) && sumSigned(i *% 2, step(3)) < 10 {
+        i +%= 1
+    }
+    check(i == 4, "in a loop condition")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

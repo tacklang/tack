@@ -1,0 +1,71 @@
+package main
+
+func isPrime(n int64) bool {
+    if n < 2 {
+        return false
+    }
+    mut d = 2
+    for d *% d <= n {
+        if d != 0 && n % d == 0 {
+            return false
+        }
+        d = d +% 1
+    }
+    return true
+}
+
+func nthPrime(n int64) int64 {
+    mut found = 0
+    mut candidate = 1
+    for {
+        candidate = candidate +% 1
+        if !isPrime(candidate) {
+            continue
+        }
+        found = found +% 1
+        if found == n {
+            return candidate
+        }
+    }
+}
+
+func main() {
+    mut i = 0
+    for {
+        i = i +% 1
+        if i > 3 {
+            break
+        }
+        print("tick\n")
+    }
+    mut sum = 0
+    for mut n := 1; n <= 10; n++ {
+        if n % 2 == 0 {
+            continue
+        }
+        sum +%= n
+    }
+    if sum != 25 {
+        exit(1)
+    }
+    mut squares = 0
+    for k := range 4 {
+        squares +%= k * k
+    }
+    for range 2 {
+        squares +%= 1
+    }
+    if squares != 16 {
+        exit(1)
+    }
+    code, ok := int32(nthPrime(10))
+    if !ok {
+        exit(2)
+    }
+    exit(code)
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

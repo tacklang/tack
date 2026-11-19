@@ -1,0 +1,185 @@
+package main
+
+// Uses of unreachable that the ruling did not settle, kept apart from
+// examples/unreachable so that each can be kept or dropped on its own.
+// Every function here is marked with the assumption it encodes. main
+// checks each one on every side of its guards and exits with 42 when
+// every answer is right.
+
+// Dir is a union with no payloads, as an enum is.
+type Dir union {
+    north
+    south
+    east
+    west
+}
+
+// ordered contradicts through a relation, not a range: a < b and b < a
+// never hold together.
+// Assumption: relations between two variables count as facts that can
+// contradict, as ranges do.
+func ordered(a int64, b int64) int64 {
+    if a < b && b < a {
+        unreachable
+    }
+    if a < b {
+        return -1
+    }
+    return 1
+}
+
+// split reaches unreachable through a true ||, each of whose sides
+// contradicts the range already in force.
+// Assumption: each side of a true || is checked against the facts in
+// force, rather than only the range their union spans, which here is
+// every int64.
+func split(i int64) int64 {
+    if i < 0 || i > 4 {
+        return -1
+    }
+    if i < 0 || i > 4 {
+        unreachable
+    }
+    return i
+}
+
+// hull reaches unreachable inside a true || whose sides each contradict
+// a fact that arrives later on the path: x == 1 and x == 3 each rule out
+// x == 2, though the range the two sides span, 1 to 3, does not.
+// Assumption: each side of a true || is checked against the facts in
+// force at the unreachable, those that arrive after the || included.
+func hull(x int64) int64 {
+    if x == 1 || x == 3 {
+        if x == 2 {
+            unreachable
+        }
+        return x
+    }
+    return 0
+}
+
+// band covers every int64 with early exits, the last of which leaves when
+// a && is true, so after it the && is false: c < 3 or c > 5, each of which
+// contradicts what the earlier exits leave, 3 <= c <= 5.
+// Assumption: each side of a false && is checked against the facts in
+// force, as each side of a true || is.
+func band(c int64) int64 {
+    if c < 3 {
+        return 0
+    }
+    if c > 5 {
+        return 2
+    }
+    if 3 <= c && c <= 5 {
+        return 1
+    }
+    unreachable
+}
+
+// turn ends in unreachable after a switch on a union whose clauses name
+// every case and all return, so no path reaches its end.
+// Assumption: a place after a terminating statement is proven
+// unreachable, though the switch already terminates the function.
+func turn(d Dir) int64 {
+    switch d {
+    case north:
+        return 0
+    case east:
+        return 1
+    case south:
+        return 2
+    case west:
+        return 3
+    }
+    unreachable
+}
+
+// stop calls exit, then marks the place after it.
+// Assumption: a place right after exit, in the same block, is proven
+// unreachable.
+func stop(x int64) int64 {
+    if x == 0 {
+        exit(0)
+        unreachable
+    }
+    return x
+}
+
+// later defers a block whose unreachable is proven by the facts in force
+// at the defer, which nothing assigns after it.
+// Assumption: unreachable may be written in deferred code, as exit may,
+// since it is not a way out of the block.
+func later(d int64) int64 {
+    if d == 0 {
+        return 0
+    }
+    defer {
+        if d == 0 {
+            unreachable
+        }
+    }
+    return d
+}
+
+// dead writes a statement after unreachable in the same block.
+// Assumption: code after unreachable is not an error, as code after a
+// return is not one today.
+func dead(x int64) int64 {
+    if x > 0 && x < 0 {
+        unreachable
+        return 7
+    }
+    return x
+}
+
+// truth covers a bool by testing it and its negation.
+// Assumption: a bool variable used as a condition gives a fact, so after
+// b and !b both leave, the facts contradict.
+func truth(b bool) int64 {
+    if b {
+        return 1
+    }
+    if !b {
+        return 0
+    }
+    unreachable
+}
+
+func main() {
+    if ordered(1, 2) != -1 || ordered(2, 1) != 1 || ordered(3, 3) != 1 {
+        exit(1)
+    }
+    if split(-1) != -1 || split(5) != -1 || split(0) != 0 || split(4) != 4 {
+        exit(2)
+    }
+    if hull(1) != 1 || hull(3) != 3 || hull(2) != 0 || hull(0) != 0 {
+        exit(8)
+    }
+    if band(2) != 0 || band(3) != 1 || band(5) != 1 || band(6) != 2 {
+        exit(9)
+    }
+    if band(-9223372036854775808) != 0 || band(9223372036854775807) != 2 {
+        exit(10)
+    }
+    n := Dir.north
+    e := Dir.east
+    s := Dir.south
+    w := Dir.west
+    if turn(n) != 0 || turn(e) != 1 || turn(s) != 2 || turn(w) != 3 {
+        exit(3)
+    }
+    if stop(5) != 5 {
+        exit(4)
+    }
+    if later(0) != 0 || later(3) != 3 {
+        exit(5)
+    }
+    if dead(1) != 1 || dead(-1) != -1 || dead(0) != 0 {
+        exit(6)
+    }
+    if truth(true) != 1 || truth(false) != 0 {
+        exit(7)
+    }
+
+    exit(42)
+}

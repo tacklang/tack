@@ -1,0 +1,284 @@
+nothing live at the start ok
+args has the name and three arguments ok
+[one]
+[]
+[two words]
+args are the name and the arguments, in order ok
+args freed ok
+env of a set variable ok
+env of a variable set to nothing ok
+env of an unset variable ok
+env of an empty name is unset ok
+env of a name with a 0 byte ok
+env freed ok
+make_temp_dir is an absolute path ending in its prefix and six characters ok
+make_temp_dir makes directories ok
+make_temp_dir names them tk- and six letters and digits ok
+make_temp_dir makes a new name each time ok
+remove the tk- directories ok
+make_temp_dir with no prefix names it six letters and digits ok
+remove the unprefixed directory ok
+make_temp_dir of a prefix with a / ok
+make_temp_dir of a prefix with a 0 byte ok
+make_temp_dir of a prefix too long for a name ok
+temp names freed ok
+write_file and read_file ok
+write_file truncates ok
+an empty file ok
+300000 bytes written and read back ok
+hi
+read_file of a path with a 0 byte ok
+files freed ok
+make_dir ok
+make_dir of a directory that exists ok
+write_file Zed ok
+list_dir: Zed a.txt b big sub
+list_dir has five names ok
+list_dir is sorted bytewise ok
+list_dir of an empty directory ok
+dirs freed ok
+read_file of a missing file ok
+read_file through a file ok
+read_file of a directory ok
+list_dir of a file ok
+list_dir of a missing directory ok
+write_file through a file ok
+remove of a missing file ok
+make_dir through a file ok
+remove of a directory that is not empty ok
+failures allocate nothing ok
+a 0 byte in a path is an error ok
+failures freed ok
+every allocating function fails ok
+a kernel ENOMEM is the OS's error, not out of memory ok
+and allocates nothing ok
+env of an unset variable needs no allocation ok
+list_dir and args failing partway free what they made ok
+shortages freed ok
+1000 rounds of each leave no descriptor open ok
+descriptors freed ok
+run captures both outputs and the status ok
+run appends after what out held ok
+run returns status 255 ok
+run gives the child an empty standard input ok
+run passes the environment on ok
+run passes no variable that is not set ok
+run reads both pipes at once, more than either holds ok
+run keeps every line of both ok
+run starts the program it is given, sh on PATH, with argv[0] as given ok
+run starts a program by its path, with argv[0] as given ok
+a zero Status is a child that exited with 0 ok
+run wrote: hi againdoneset by the testunset
+processes freed ok
+run of a child SIGKILL killed is no error and says signal 9 ok
+run keeps what a killed child wrote ok
+run of a child SIGTERM killed says signal 15 ok
+signals freed ok
+run of a program not on PATH ok
+run of a path that names nothing ok
+run of an empty program name ok
+run of a file no one may run ok
+run of a file with no #! line, which no shell is tried for ok
+run of a directory ok
+remove the files run cannot start ok
+run of an empty argv ok
+run of an argument with a 0 byte ok
+run of a program name with a 0 byte ok
+failed runs leave both outputs as they were ok
+run failing for want of memory at each allocation leaves the outputs as they were ok
+process failures freed ok
+run_in of a relative directory runs the child there ok
+run_in takes a relative program from the child's directory ok
+run_in leaves this process's directory as it was ok
+run_in of a directory that names nothing ok
+run_in of a file ok
+run_in of a directory that may not be searched ok
+run_in of a directory with a 0 byte ok
+run_in checks the program before the directory ok
+failed run_in calls leave both outputs as they were ok
+run_inherit_in of a directory that names nothing ok
+run_inherit_in of a directory with a 0 byte ok
+failed runs in a directory leave this process's directory as it was ok
+run_in of an empty directory ok
+run_in of a directory too long for a path ok
+run_in of a relative directory sets PWD to it made absolute and cleaned, once ok
+run_in of an absolute directory sets PWD to it cleaned, once ok
+run_in of a directory of 4095 bytes gives PWD whole ok
+remove the long directory ok
+change back after run_in ok
+remove what run_in looked at ok
+runs in a directory freed ok
+run keeps an inherited PWD, and run_in replaces it with its directory ok
+the PWD run freed ok
+make a tree 25 directories of 200 bytes deep, past PATH_MAX ok
+remove_all removes a tree deeper than PATH_MAX ok
+remove_all removes a link to a directory, not what it holds ok
+remove_all removes a directory and its file ok
+remove_all of a directory holding one of mode 0300 that holds a file fails, openfdat at it ok
+and removes an empty directory of mode 000 beside it ok
+make the 0300 directory readable again ok
+remove_all removes it then ok
+remove_all of a missing path is no error ok
+remove_all of an empty path is no error ok
+remove_all of a path with a 0 byte ok
+remove_all removes a file ok
+remove_all of a path ending in . is RemoveAll and EINVAL ok
+remove_all freed ok
+remove_all past a batch of 1024 names removes every file and leaves the locked directories ok
+remove the locked directories then ok
+remove_all past a batch of 1024 names removes every file and leaves the locked directories ok
+remove the locked directories then ok
+remove_all past a batch of 1024 names removes every file and leaves the locked directories ok
+remove the locked directories then ok
+remove_all reading on past a batch of 1024 failures removes every file after it and leaves the 1100 locked directories ok
+remove the read-on directory then ok
+remove_all of a directory of mode 0500 holding 3000 files fails at a file and leaves all 3000 ok
+remove it once it may be written ok
+remove_all's batches freed ok
+remove_all failing for want of memory at each allocation closes every descriptor and frees every buffer ok
+remove_all's shortages freed ok
+remove_all past a batch, failing for want of memory at every point, its batches and reopen among them, closes every descriptor and frees every buffer ok
+remove the batch shortage directory ok
+remove_all's batch shortages freed ok
+100 runs leave no descriptor open ok
+child descriptors freed ok
+can_execute of /bin/sh ok
+can_execute of a file of mode 0644 ok
+can_execute of a file of mode 0755 ok
+can_execute of a directory ok
+can_execute of a missing path ok
+can_execute of a path with a 0 byte ok
+can_execute follows a link to sh ok
+can_execute of a link to nothing ok
+remove what executables made ok
+executables freed ok
+every errno Linux defines has a message, and only those ok
+ELIBBAD, which only Linux has, has the C library's message ok
+errnos freed ok
+a program started with SIGCHLD ignored still waits for its children ok
+the SIGCHLD run freed ok
+run_inherit gives each child's Status, and code 13 for a program not on PATH ok
+run_inherit flushes what was printed first, and its child, and run_inherit_in's in its directory, write to the program's own standard output ok
+run_inherit's child writes to the program's own standard error ok
+the inherit run freed ok
+rename a file to a new name ok
+rename onto a file replaces it ok
+rename onto itself changes nothing ok
+rename into another directory ok
+rename out of it again ok
+rename a link moves the link ok
+and not its target ok
+the link reaches its target again ok
+rename of a missing file ok
+rename into a missing directory ok
+rename of a directory onto a file ok
+rename of a file onto a directory ok
+rename of a directory into its own subdirectory ok
+rename of a directory onto one that is not empty ok
+rename allocates nothing ok
+rename a directory onto an empty one replaces it ok
+rename onto another file system ok
+rename of an empty path ok
+rename of a path too long ok
+rename of a path with a 0 byte ok
+remove what rename made ok
+renames freed ok
+make_dir_mode 0750 under umask 022 ok
+write_file_mode 0600 under umask 022 ok
+make_dir is 0755 under umask 022 ok
+write_file is 0644 under umask 022 ok
+make_dir_mode 0777 loses the umask's bits ok
+make_dir_mode 0777 under umask 027 ok
+write_file_mode 0666 under umask 027 ok
+write_file_mode 0777 under umask 0 ok
+write_file_mode 0 makes a file no one may open ok
+write_file_mode on a file that exists keeps its mode ok
+make_dir_mode on a directory that exists ok
+make_dir_mode on a file ok
+make_dir_mode refuses a mode that is not permission bits ok
+write_file_mode refuses a mode that is not permission bits ok
+make_dir_mode refuses a mode that is not permission bits ok
+write_file_mode refuses a mode that is not permission bits ok
+make_dir_mode refuses a mode that is not permission bits ok
+write_file_mode refuses a mode that is not permission bits ok
+make_dir_mode refuses a mode that is not permission bits ok
+write_file_mode refuses a mode that is not permission bits ok
+make_dir_mode refuses a mode that is not permission bits ok
+write_file_mode refuses a mode that is not permission bits ok
+make_dir_mode refuses a mode that is not permission bits ok
+write_file_mode refuses a mode that is not permission bits ok
+make_dir_mode of a path with a 0 byte, before the mode ok
+write_file_mode of a path with a 0 byte, before the mode ok
+remove what modes made ok
+modes freed ok
+create_file_mode makes a new file 0600 ok
+create_file_mode of nothing under umask 022 ok
+create_file_mode 0777 under umask 077 ok
+create_file_mode on a file leaves it ok
+create_file_mode on a directory ok
+create_file_mode on a link to a file follows nothing ok
+create_file_mode on a dangling link makes nothing where it points ok
+create_file_mode refuses a mode that is not permission bits ok
+create_file_mode refuses a mode that is not permission bits ok
+create_file_mode refuses a mode that is not permission bits ok
+create_file_mode refuses a mode that is not permission bits ok
+create_file_mode refuses a mode that is not permission bits ok
+create_file_mode refuses a mode that is not permission bits ok
+create_file_mode that cannot write removes the file it made ok
+the file size limit and SIGXFSZ's action are put back ok
+create_file_mode of a path with a 0 byte, before the mode ok
+remove what creates made ok
+creates freed ok
+stat a file ok
+stat an empty file ok
+stat a directory ok
+stat follows a link to a file ok
+stat follows a link to a directory ok
+stat of a broken link ok
+stat of a link to itself ok
+stat a sparse file of 5 GiB ok
+stat a sparse file as large as the file system allows ok
+stat of a missing path ok
+stat through a file ok
+stat of an empty path ok
+stat allocates nothing ok
+stat of a path too long ok
+stat of a path with a 0 byte ok
+remove what stat looked at ok
+stats freed ok
+lstat a file ok
+lstat a directory ok
+lstat of a link to a file is the link ok
+lstat of a link to a directory is no directory ok
+lstat of a broken link ok
+lstat of a link to itself ok
+same_file of a file and a link to it ok
+same_file of a file through stat and lstat ok
+same_file of a file and the link itself ok
+same_file of two files with the same bytes ok
+same_file of a directory and a link to it ok
+same_file of a file and a hard link to it ok
+same_file of a zero Info is false ok
+lstat of a missing path ok
+lstat through a file ok
+lstat through a broken link ok
+lstat of an empty path ok
+lstat and same_file allocate nothing ok
+lstat of a path too long ok
+lstat of a path with a 0 byte ok
+remove what lstat looked at ok
+lstats freed ok
+getwd is the absolute path of . ok
+getwd resolves a symbolic link ok
+getwd names the directory changed into ok
+getwd out of memory ok
+getwd frees what it made out of memory ok
+getwd of a removed directory ok
+getwd frees what it made on an error ok
+getwd of a path past 4095 bytes ok
+remove the long path ok
+change back to the starting directory ok
+remove what getwd looked at ok
+workdir freed ok
+remove files and an empty directory ok
+remove the temporary directory ok

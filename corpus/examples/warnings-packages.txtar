@@ -1,0 +1,109 @@
+Example programs of several files the compiler accepts with warnings,
+one case per program, in byte order of name.
+
+A case named n is its files, each a txtar file n/<path>, followed by
+n/expected, the warnings the compiler gives it, with each file's path
+printed as n/<path>. The case is built as a case of
+invalid-packages.txtar is, in whose format it is written; go test ./test
+-run TestWarningsPackages checks that every case compiles with exactly
+its warnings, and -update rewrites the expected sections.
+
+-- import-unused/tack.mod --
+module calc
+-- import-unused/lexer/lexer.tck --
+package lexer
+
+pub type Token struct {
+    pub kind int64
+}
+
+pub var KindNumber int64 = 1
+
+mut Count int64 = 0
+
+pub func First(src string) Token {
+    return Token{kind: KindNumber}
+}
+
+pub func Get() int64 {
+    return Count
+}
+-- import-unused/main.tck --
+package main
+
+import lexer from "calc/lexer"
+
+func main() {
+}
+-- import-unused/expected --
+
+import-unused/main.tck:3:8: warning: imported and not used: lexer
+02 |	
+03 |	import lexer from "calc/lexer"
+   |	       ^~~~~
+04 |	
+
+-- unused-global-in-other-file/tack.mod --
+module unused-global-in-other-file
+-- unused-global-in-other-file/a.tck --
+package main
+
+func main() {
+}
+-- unused-global-in-other-file/b.tck --
+package main
+
+var spare int64 = 3
+-- unused-global-in-other-file/expected --
+
+unused-global-in-other-file/b.tck:3:5: warning: declared and not used: spare
+02 |	
+03 |	var spare int64 = 3
+   |	    ^~~~~
+04 |	
+
+-- unused-private-in-library/tack.mod --
+module calc
+-- unused-private-in-library/geo/geo.tck --
+package geo
+
+pub type Rect struct {
+    pub w int64
+    pub h int64
+}
+
+pub func Area(r Rect) int64 {
+    return r.w *% r.h
+}
+
+func spare(r Rect) int64 {
+    return r.w +% r.h
+}
+
+type hidden struct {
+    x int64
+}
+-- unused-private-in-library/main.tck --
+package main
+
+import geo from "calc/geo"
+
+func main() {
+    if geo.Area(geo.Rect{w: 2, h: 3}) == 6 {
+        print("ok\n")
+    }
+}
+-- unused-private-in-library/expected --
+
+unused-private-in-library/geo/geo.tck:12:6: warning: declared and not used: spare
+11 |	
+12 |	func spare(r Rect) int64 {
+   |	     ^~~~~
+13 |	    return r.w +% r.h
+
+unused-private-in-library/geo/geo.tck:16:6: warning: declared and not used: hidden
+15 |	
+16 |	type hidden struct {
+   |	     ^~~~~~
+17 |	    x int64
+

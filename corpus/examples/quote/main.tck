@@ -1,0 +1,251 @@
+package main
+
+import bytes from "std/bytes"
+import conv from "std/conv"
+import fmt from "std/fmt"
+import text from "std/text"
+
+// std/conv's append_quote writes bytes as a Go string literal, exactly as
+// Go's strconv.Quote does: between double quotes, a printable rune as it
+// is, a double quote and a backslash after a backslash, \a \b \f \n \r
+// \t \v for those control characters, \x and two hexadecimal digits for
+// any other byte below 0x20, for 0x7f and for each byte that is not
+// UTF-8, \u and four digits for any other rune below 0x10000 and \U and
+// eight for the rest.
+//
+// Each case below was written from what Go's strconv.Quote gives for the
+// same bytes; codegen/c/quote_test.go checks append_quote against Go
+// again, over every rune and random bytes. A failed case prints what it
+// got; each group prints ok when all its cases held.
+
+// Tack has no way to make c_allocator fail or to read its count of
+// live buffers, so this example's C, in live.c, does both.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("quote_live") func live() int64
+
+// failAfter makes c_allocator fail every allocation after the next n, or
+// none again when n is negative, in C.
+extern("quote_fail_after") func failAfter(n int64)
+
+// fails counts the cases that did not hold.
+mut fails int64 = 0
+
+// check prints name and whether no case failed since the count was
+// last read, and resets the count.
+func check(name string) {
+    print(name)
+    if fails == 0 {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+    fails = 0
+}
+
+// quotes checks that conv.append_quote of s appends want to a list
+// already holding >, and leaves the > before it.
+func quotes(s string, want string) {
+    mut b := make(list[uint8], c_allocator)
+    e := append(mut b, '>')
+    if e.code != 0 {
+        fails +%= 1
+        print("append failed\n")
+        return
+    }
+    e2 := conv.append_quote(mut b, []uint8(s))
+    if e2.code != 0 {
+        fails +%= 1
+        fmt.printf("append_quote of %s gave error %d\n", want, e2.code)
+        return
+    }
+    if len(b) < 1 || b[0] != '>' || !bytes.equal(b[1:], []uint8(want)) {
+        fails +%= 1
+        print("append_quote gave ")
+        fmt.write(b)
+        fmt.printf(", want %s\n", want)
+    }
+}
+
+// quoting covers the empty string, ASCII, every escape, each kind of
+// byte that is not UTF-8, printable runes of every length, and runes
+// that are valid but not printable, of every length.
+func quoting() {
+    quotes("", "\"\"")
+    quotes("a", "\"a\"")
+    quotes("hello, world", "\"hello, world\"")
+    quotes("\"", "\"\\\"\"")
+    quotes("\\", "\"\\\\\"")
+    quotes("say \"hi\"\\n", "\"say \\\"hi\\\"\\\\n\"")
+    quotes("\x07", "\"\\a\"")
+    quotes("\x08", "\"\\b\"")
+    quotes("\x0c", "\"\\f\"")
+    quotes("\x0a", "\"\\n\"")
+    quotes("\x0d", "\"\\r\"")
+    quotes("\x09", "\"\\t\"")
+    quotes("\x0b", "\"\\v\"")
+    quotes("\x00", "\"\\x00\"")
+    quotes("\x01", "\"\\x01\"")
+    quotes("\x1b", "\"\\x1b\"")
+    quotes("\x1f", "\"\\x1f\"")
+    quotes("\x7f", "\"\\x7f\"")
+    quotes(" ", "\" \"")
+    quotes("~", "\"~\"")
+    quotes("'", "\"'\"")
+    quotes("`", "\"`\"")
+    quotes("\x80", "\"\\x80\"")
+    quotes("\xbf", "\"\\xbf\"")
+    quotes("\xc0", "\"\\xc0\"")
+    quotes("\xff", "\"\\xff\"")
+    quotes("\xc0\x80", "\"\\xc0\\x80\"")
+    quotes("\xc1\xbf", "\"\\xc1\\xbf\"")
+    quotes("\xe0\x80\x80", "\"\\xe0\\x80\\x80\"")
+    quotes("\xed\xa0\x80", "\"\\xed\\xa0\\x80\"")
+    quotes("\xed\xbf\xbf", "\"\\xed\\xbf\\xbf\"")
+    quotes("\xf4\x90\x80\x80", "\"\\xf4\\x90\\x80\\x80\"")
+    quotes("\xf8\x88\x80\x80\x80", "\"\\xf8\\x88\\x80\\x80\\x80\"")
+    quotes("\xe4\xb8", "\"\\xe4\\xb8\"")
+    quotes("\xe4\xb8a", "\"\\xe4\\xb8a\"")
+    quotes("a\xffb", "\"a\\xffb\"")
+    quotes("é", "\"é\"")
+    quotes("世界", "\"世界\"")
+    quotes("é", "\"é\"")
+    quotes("\xc2\xa0", "\"\\u00a0\"")
+    quotes("\xc2\xad", "\"\\u00ad\"")
+    quotes("\xc2\x85", "\"\\u0085\"")
+    quotes("\xc2\x80", "\"\\u0080\"")
+    quotes("\xc2\x9f", "\"\\u009f\"")
+    quotes("\xe2\x80\xa8", "\"\\u2028\"")
+    quotes("\xe2\x80\x8b", "\"\\u200b\"")
+    quotes("\xe3\x80\x80", "\"\\u3000\"")
+    quotes("\xef\xbb\xbf", "\"\\ufeff\"")
+    quotes("�", "\"�\"")
+    quotes("\xef\xbf\xbf", "\"\\uffff\"")
+    quotes("\xef\xbf\xbe", "\"\\ufffe\"")
+    quotes("\xee\x80\x80", "\"\\ue000\"")
+    quotes("😀", "\"😀\"")
+    quotes("\xf3\xa0\x80\x81", "\"\\U000e0001\"")
+    quotes("\xf4\x8f\xbf\xbf", "\"\\U0010ffff\"")
+    quotes("\xf3\xb0\x80\x80", "\"\\U000f0000\"")
+    quotes("𠀀", "\"𠀀\"")
+    quotes("\x00\x01\x02", "\"\\x00\\x01\\x02\"")
+    quotes("tab\x09here", "\"tab\\there\"")
+    quotes("x\x00y", "\"x\\x00y\"")
+    quotes("�\xff", "\"�\\xff\"")
+    check("quote")
+}
+
+// sources quotes bytes from a Text, an array, a list and slices of
+// them, into one list, each quote appended after the last.
+func sources() {
+    t, e := text.from_bytes([]uint8("a\tb"), c_allocator)
+    if e.code != 0 {
+        fails +%= 1
+        print("from_bytes failed\n")
+        return
+    }
+    mut l := make(list[uint8], c_allocator)
+    e0 := append(mut l, '"', 'a', '\\', '"')
+    if e0.code != 0 || len(l) != 4 {
+        fails +%= 1
+        print("append failed\n")
+        return
+    }
+    mut b := make(list[uint8], c_allocator)
+    e1 := conv.append_quote(mut b, t.bytes())
+    a := [3]uint8{0, 'x', 0xff}
+    e2 := conv.append_quote(mut b, a)
+    e3 := conv.append_quote(mut b, a[1:2])
+    e4 := conv.append_quote(mut b, l[1:3])
+    e5 := conv.append_quote(mut b, l)
+    want := `"a\tb""\x00x\xff""x""a\\""\"a\\\""`
+    if e1.code != 0 || e2.code != 0 || e3.code != 0 || e4.code != 0 || e5.code != 0 ||
+        !bytes.equal(b, []uint8(want)) {
+        fails +%= 1
+        print("sources gave ")
+        fmt.write(b)
+        print("\n")
+    }
+    check("sources")
+}
+
+// long quotes 3000 bytes of 0xff, each written as \xff, and 1000 of a
+// three-byte rune kept as it is: the result is exactly as long as Go's.
+func long() {
+    mut s := make(list[uint8], c_allocator)
+    for range 3000 {
+        e := append(mut s, 0xff)
+        if e.code != 0 {
+            fails +%= 1
+            return
+        }
+    }
+    mut b := make(list[uint8], c_allocator)
+    e := conv.append_quote(mut b, s)
+    if e.code != 0 || len(b) != 12002 {
+        fails +%= 1
+        fmt.printf("3000 bad bytes quoted to %d bytes, error %d\n", len(b), e.code)
+    }
+    mut w := make(list[uint8], c_allocator)
+    for range 1000 {
+        e1 := append(mut w, 0xe4, 0xb8, 0x96)
+        if e1.code != 0 {
+            fails +%= 1
+            return
+        }
+    }
+    mut c := make(list[uint8], c_allocator)
+    e2 := conv.append_quote(mut c, w)
+    if e2.code != 0 || len(c) != 3002 {
+        fails +%= 1
+        fmt.printf("1000 runes quoted to %d bytes, error %d\n", len(c), e2.code)
+    }
+    check("long")
+}
+
+// failing makes c_allocator fail under append_quote: the error is
+// error{code: 1, msg: "out of memory"}, and the list is left exactly as
+// it was, the whole quote or none of it appended. A list's first buffer
+// holds 4 bytes, so one holding "ab" has room for the two quotes of an
+// empty string and for nothing longer.
+func failing() {
+    mut b := make(list[uint8], c_allocator)
+    failAfter(0)
+    e := conv.append_quote(mut b, []uint8("x"))
+    failAfter(-1)
+    if e.code != 1 || e.msg != "out of memory" || len(b) != 0 || live() != 0 {
+        fails +%= 1
+        fmt.printf("append_quote into an empty list gave %d, left %d bytes\n", e.code, len(b))
+    }
+    e1 := append(mut b, 'a', 'b')
+    if e1.code != 0 {
+        fails +%= 1
+        print("append failed\n")
+        return
+    }
+    failAfter(0)
+    e2 := conv.append_quote(mut b, []uint8("x"))
+    e3 := conv.append_quote(mut b, []uint8("\n"))
+    e4 := conv.append_quote(mut b, []uint8(""))
+    e5 := conv.append_quote(mut b, []uint8(""))
+    failAfter(-1)
+    if e2.code != 1 || e3.code != 1 || e4.code != 0 || e5.code != 1 || !bytes.equal(b, []uint8("ab\"\"")) {
+        fails +%= 1
+        fmt.printf("append_quote into a full list gave %d %d %d %d, left ", e2.code, e3.code, e4.code, e5.code)
+        fmt.write(b)
+        print("\n")
+    }
+    drop(own b)
+    if live() != 0 {
+        fails +%= 1
+        print("a buffer was not freed\n")
+    }
+    check("append_quote out of memory")
+}
+
+func main() {
+    quoting()
+    sources()
+    long()
+    failing()
+}

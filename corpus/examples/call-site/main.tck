@@ -1,0 +1,244 @@
+package main
+
+import bytes from "std/bytes"
+import testing from "std/testing"
+import expect from "callsite/expect"
+
+// A testing.Site parameter takes no argument at a call: the compiler
+// passes the place the call was written, its file, line, column and the
+// excerpt a diagnostic there prints, or, in a function with a Site
+// parameter of its own, that one. Each check prints its name and "ok",
+// or "FAIL". The checks name the lines and columns of calls in this
+// file, so a line added above one moves it.
+
+// Got holds a Site, for a check to read: a Site passed to a parameter of
+// type testing.Site would be one the call passes itself.
+type Got struct {
+    s testing.Site
+}
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// at reports whether g holds line and col of a file whose name ends in
+// file.
+func at(g Got, file string, line int64, col int64) bool {
+    s := g.s
+    return bytes.has_suffix([]uint8(s.file), []uint8(file)) && s.line == line && s.col == col
+}
+
+// here returns the place it was called from.
+func here(s testing.Site) Got {
+    return Got{s: s}
+}
+
+// once returns the place it was called from, passed on to here.
+func once(_ testing.Site) Got {
+    return here()
+}
+
+// twice returns the place it was called from, passed on to once and from
+// there to here.
+func twice(_ testing.Site) Got {
+    return once()
+}
+
+// mark stores the place it was called from in out.
+func mark(s testing.Site, mut out Got) {
+    out.s = s
+}
+
+// pair returns the place it was called from; a and b are only there to
+// make a call of several lines.
+func pair(s testing.Site, a int64, b int64) Got {
+    if a > b {
+        return Got{s: s}
+    }
+    return Got{s: s}
+}
+
+// Probe has methods that take a Site, a plain receiver's and a mut one's.
+type Probe struct {
+    n int64
+}
+
+// at returns the place it was called from.
+func (p Probe) at(s testing.Site) Got {
+    return Got{s: s}
+}
+
+// bump counts the call and returns the place it was called from.
+func (mut p Probe) bump(s testing.Site) Got {
+    p.n = p.n +% 1
+    return Got{s: s}
+}
+
+// through returns the place it was called from, passed on to a method.
+func (p Probe) through(_ testing.Site) Got {
+    return p.at()
+}
+
+// Sizer is what gen_here's type parameter needs.
+type Sizer interface {
+    size() int64
+}
+
+// size returns p's count.
+func (p Probe) size() int64 {
+    return p.n
+}
+
+// gen_here is generic: it returns the place it was called from, in every
+// instance.
+func gen_here[T Sizer](v T, s testing.Site) Got {
+    if v.size() > 0 {
+        return Got{s: s}
+    }
+    return Got{s: s}
+}
+
+// gen_once is generic and passes the place it was called from on.
+func gen_once[T Sizer](v T, _ testing.Site) Got {
+    return gen_here(v)
+}
+
+// placed returns the place it was called from, and an error when fail.
+func placed(s testing.Site, fail bool) (Got, error) {
+    if fail {
+        return Got{s: s}, error{code: 7, msg: "failed"}
+    }
+    return Got{s: s}, noerror
+}
+
+// questioned passes the place it was called from on to placed, through a
+// ?, which returns placed's error when fail.
+func questioned(_ testing.Site, fail bool) (Got, error) {
+    s := placed(fail)?
+    return s, noerror
+}
+
+// deferred stores in out, when it returns, the place of a call written in
+// its defer: deferred has no Site, so the call passes its own.
+func deferred(mut out Got) {
+    defer { mark(mut out) }
+}
+
+// deferred_on stores in out, when it returns, the place it was called
+// from, which its defer passes on.
+func deferred_on(_ testing.Site, mut out Got) {
+    defer { mark(mut out) }
+}
+
+// call calls f once.
+func call(scope f func()) {
+    f()
+}
+
+// closure_on stores in out the place of a call written in a closure's
+// body: a closure has no Site, so the call passes its own, though
+// closure_on has one.
+func closure_on(_ testing.Site, mut out Got) {
+    call(func() { mark(mut out) })
+}
+
+func main() {
+    s := here()
+    check(at(s, "main.tck", 152, 10), "direct place")
+    check(s.s.excerpt == "151 |\tfunc main() {\n152 |\t    s := here()\n   |\t         ^~~~~~\n153 |\t    check(at(s, \"main.tck\", 152, 10), \"direct place\")\n", "direct excerpt")
+
+    check(at(once(), "main.tck", 156, 14), "one helper")
+    check(at(twice(), "main.tck", 157, 14), "two helpers")
+
+    p := Probe{n: 1}
+    check(at(p.at(), "main.tck", 160, 14), "method")
+    check(at(p.through(), "main.tck", 161, 14), "method passing on")
+    check(at(Probe.at(p), "main.tck", 162, 14), "method through its type")
+    mut q := Probe{n: 0}
+    b := mut q.bump()
+    check(at(b, "main.tck", 164, 10) && q.n == 1, "mut method")
+
+    check(at(gen_here(p), "main.tck", 167, 14), "generic")
+    check(at(gen_once(p), "main.tck", 168, 14), "generic passing on")
+
+    m := pair(
+        1,
+        2)
+    check(at(m, "main.tck", 170, 10), "several lines")
+    check(m.s.excerpt == "169 |\t\n170 |\t    m := pair(\n   |\t         ^~~~~~~~~~~~~~~~~~~~~~~~~~~\n171 |\t        1,\n", "several lines excerpt")
+
+    ok, err := questioned(false)
+    check(err.code == 0 && at(ok, "main.tck", 176, 16), "question passing on")
+    _, failed := questioned(true)
+    check(failed.code == 7, "question returning")
+
+    mut d := here()
+    deferred(mut d)
+    check(at(d, "main.tck", 130, 13), "defer")
+    deferred_on(mut d)
+    check(at(d, "main.tck", 184, 5), "defer passing on")
+
+    mut c := here()
+    call(func() { mark(mut c) })
+    check(at(c, "main.tck", 188, 19), "closure")
+    closure_on(mut c)
+    check(at(c, "main.tck", 148, 19), "closure in a function with a site")
+
+    check(at(Got{s: expect.here()}, "main.tck", 193, 21), "other package")
+    check(at(Got{s: expect.again()}, "main.tck", 194, 21), "other package passing on")
+    check(at(Got{s: expect.inside()}, "expect/expect.tck", 23, 12), "other package's own call")
+
+    mut e := here()
+mark(mut e)
+    check(at(e, "main.tck", 198, 1), "column 1")
+	mark(mut e) // a tab before, é after
+    check(at(e, "main.tck", 200, 2), "after a tab")
+    check(e.s.excerpt == "199 |\t    check(at(e, \"main.tck\", 198, 1), \"column 1\")\n200 |\t\tmark(mut e) // a tab before, é after\n   |\t ^~~~~~~~~~~\n201 |\t    check(at(e, \"main.tck\", 200, 2), \"after a tab\")\n", "tab excerpt")
+
+    v := [3]int64{1, 2, 3}
+    t := total(v[:]...)
+    check(at(t.got, "main.tck", 205, 10) && t.sum == 6, "spread")
+    o := spread_on(v[:])
+    check(at(o.got, "main.tck", 207, 10) && o.sum == 6, "spread passing on")
+    check(pair_of(here(), here()) == 2, "generic parameter given a Site")
+}
+
+// Anything asks nothing of a type.
+type Anything interface {
+}
+
+// pair_of takes two values of any one type, a Site's included: a
+// parameter of a type parameter is not a Site parameter, so a call
+// writes an argument for each.
+func pair_of[T Anything](_ T, _ T) int64 {
+    return 2
+}
+
+// Total is the place a call was written and the sum of the values it
+// passed.
+type Total struct {
+    got Got
+    sum int64
+}
+
+// total returns the place it was called from and the sum of xs, which a
+// call may pass one by one or as a spread.
+func total(s testing.Site, xs ...int64) Total {
+    mut sum := 0
+    for _, x := range xs {
+        sum = sum +% x
+    }
+    return Total{got: Got{s: s}, sum: sum}
+}
+
+// spread_on passes the place it was called from on to total, with xs as
+// a spread.
+func spread_on(_ testing.Site, xs []int64) Total {
+    return total(xs...)
+}

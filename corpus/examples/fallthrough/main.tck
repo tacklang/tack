@@ -1,0 +1,309 @@
+package main
+
+// fallthrough, as the last statement of a switch case, enters the next
+// case's body without testing its values. Each function here prints the
+// path it took, one line per call, and main checks what can be checked
+// by value, exiting with a status of its own at the first failure. The
+// test checks the printed lines and the final status, 42.
+
+// valueCalled records a call to value, so main can tell that a
+// fallthrough evaluates none of the next case's values.
+mut valueCalled bool
+
+// value returns n, recording the call.
+func value(n int64) int64 {
+    valueCalled = true
+    return n
+}
+
+// digit prints d when it is a single digit, and nothing otherwise.
+func digit(d int64) {
+    s := [10]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}
+    if 0 <= d && d < 10 {
+        print(s[d])
+    }
+}
+
+// chain falls through several cases of a tagged switch in a row, and
+// into a default written last.
+func chain(n int64) {
+    switch n {
+    case 1:
+        print("1")
+        fallthrough
+    case 2:
+        print("2")
+        fallthrough
+    case 3:
+        print("3")
+    case 4:
+        print("4")
+        fallthrough
+    default:
+        print("d")
+    }
+    print("\n")
+}
+
+// middle has its default between cases: the default is still tried
+// last, and a fallthrough enters the case written after it, as in Go,
+// and enters the default from the case written before it.
+func middle(n int64) {
+    switch n {
+    case 1:
+        print("1")
+        fallthrough
+    default:
+        print("d")
+        fallthrough
+    case 2:
+        print("2")
+    case 3:
+        print("3")
+    }
+    print("\n")
+}
+
+// untested falls through a tagless switch into a case whose condition
+// is false, and whose value is never evaluated, and on into one whose
+// condition is false too.
+func untested(n int64) {
+    switch {
+    case n < 0:
+        print("neg ")
+        fallthrough
+    case value(n) > 100:
+        print("big ")
+        fallthrough
+    case n == 0:
+        print("zero")
+    default:
+        print("other")
+    }
+    print("\n")
+}
+
+// deferred falls through out of a case holding a defer.
+//
+// Assumption: a case's body is a block, so its defers run when the
+// fallthrough leaves it, before the next case's body runs.
+func deferred(n int64) {
+    defer { print("\n") }
+    switch n {
+    case 1:
+        defer { print("x") }
+        print("1")
+        fallthrough
+    case 2:
+        defer { print("y") }
+        print("2")
+    }
+}
+
+// walk falls through cases in a loop: a break before the fallthrough
+// leaves the loop, as break in a case always does, a continue in the
+// case entered runs that case's defer, and continue in the first case
+// skips the rest of the iteration.
+func walk() {
+    for i := range 10 {
+        switch {
+        case i == 1:
+            continue
+        case i == 2, i == 4, i == 7:
+            if i == 7 {
+                break
+            }
+            digit(i)
+            fallthrough
+        case i == 3:
+            defer { print("^") }
+            print("t")
+            if i == 4 {
+                continue
+            }
+            fallthrough
+        default:
+            print(".")
+        }
+        print(" ")
+    }
+    print("\n")
+}
+
+// nested falls through in an inner switch, which stays in it, and then
+// out of the outer case holding it.
+func nested(a int64, b int64) {
+    switch a {
+    case 0:
+        switch b {
+        case 0:
+            print("i0")
+            fallthrough
+        case 1:
+            print("i1")
+        }
+        fallthrough
+    case 1:
+        print("o1")
+    }
+    print("\n")
+}
+
+// ownFacts uses facts its cases prove inside their own bodies, up to the
+// fallthrough: an index proven by the case's values, and a division by
+// a tagless case's condition.
+func ownFacts(a [3]int64, i int64, d int64) {
+    switch i {
+    case 0, 1, 2:
+        digit(a[i])
+        fallthrough
+    case 9:
+        print("+")
+    }
+    switch {
+    case d != 0:
+        digit(6 / d)
+        fallthrough
+    default:
+        print("+")
+    }
+    print("\n")
+}
+
+// greet falls through a switch on a string.
+func greet(s string) {
+    switch s {
+    case "hi":
+        print("hi ")
+        fallthrough
+    case "hello":
+        print("hello")
+    default:
+        print("?")
+    }
+    print("\n")
+}
+
+// scopes declares the same name in two cases joined by a fallthrough:
+// each case's body is a block of its own.
+func scopes(n int64) {
+    switch n {
+    case 1:
+        x := 1
+        digit(x)
+        fallthrough
+    case 2:
+        x := 2
+        digit(x)
+    }
+    print("\n")
+}
+
+// carry changes the tag's variable before falling through: the next
+// case's body sees the change, and the tag is not evaluated again.
+func carry(n int64) int64 {
+    mut k := n
+    switch k {
+    case 1:
+        k = 5
+        fallthrough
+    case 2:
+        digit(k)
+    case 5:
+        k = 50
+    }
+    print("\n")
+    return k
+}
+
+// empty falls through from a case whose only statement is fallthrough.
+func empty(n int64) int64 {
+    mut r := 0
+    switch n {
+    case 0:
+        fallthrough
+    case 1:
+        r = 10
+    default:
+        r = 20
+    }
+    return r
+}
+
+func main() {
+    // Chains across several cases, into a default written last.
+    chain(1)
+    chain(2)
+    chain(3)
+    chain(4)
+    chain(5)
+    chain(-9223372036854775808)
+
+    // A default in the middle, entered and left by fallthrough.
+    middle(1)
+    middle(9)
+    middle(2)
+    middle(3)
+
+    // The next case's condition is never tested, nor its values evaluated.
+    valueCalled = false
+    untested(-1)
+    if valueCalled {
+        exit(1)
+    }
+    untested(0)
+    if !valueCalled {
+        exit(2)
+    }
+    valueCalled = false
+    untested(200)
+    untested(7)
+
+    // Defers in cases, and the function's own.
+    deferred(1)
+    deferred(2)
+    deferred(3)
+
+    // In a loop, with break, continue and a defer.
+    walk()
+
+    // Nested switches.
+    nested(0, 0)
+    nested(0, 1)
+    nested(0, 5)
+    nested(1, 0)
+    nested(2, 0)
+
+    // A case's own facts hold in its body up to the fallthrough.
+    a := [3]int64{4, 5, 6}
+    ownFacts(a, 1, 3)
+    ownFacts(a, 9, 0)
+    ownFacts(a, 5, 2)
+
+    // A string tag.
+    greet("hi")
+    greet("hello")
+    greet("hey")
+
+    // A name declared in each of two cases.
+    scopes(1)
+    scopes(2)
+
+    // State changed before a fallthrough carries into the next case.
+    if carry(1) != 5 {
+        exit(3)
+    }
+    if carry(2) != 2 {
+        exit(4)
+    }
+    if carry(5) != 50 {
+        exit(5)
+    }
+
+    // A case holding only a fallthrough.
+    if empty(0) != 10 || empty(1) != 10 || empty(2) != 20 {
+        exit(6)
+    }
+
+    exit(42)
+}

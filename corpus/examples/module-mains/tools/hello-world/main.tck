@@ -1,0 +1,8 @@
+package main
+
+// A main package in a directory whose name, hello-world, is not a valid
+// package name. Its import path is example.com/module-mains/tools/hello-world.
+func main() {
+    print("hello-world\n")
+    exit(4)
+}

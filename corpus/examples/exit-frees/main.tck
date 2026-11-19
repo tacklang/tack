@@ -1,0 +1,164 @@
+package main
+
+// exit frees every buffer before the process ends. exit runs no defers
+// and returns to no caller, so the lists still held by main and by every
+// call below it are never freed by the code that owns them; instead,
+// before the process ends, every allocator frees every buffer it still
+// holds.
+//
+// main builds lists of every owned kind, lists of lists three deep,
+// lists of unions and structs holding lists, grows some past their first
+// buffer so they were moved by realloc, makes appends fail part way, and
+// leaves c_allocator refusing every request. Then it calls down through
+// several frames, each holding a list of its own, and the deepest calls
+// exit(3). live.c checks, in a C destructor that runs as the process
+// ends, that c_allocator holds no buffer, and prints whether it does.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("exit_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("exit_fail_after") func fail_after(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// numbers returns a list of n numbers, 1 to n, beside the error of making
+// it.
+func numbers(n int64) (list[int64], error) {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i + 1)
+        if err.code != 0 {
+            return l, err
+        }
+    }
+    return l, noerror
+}
+
+// fill appends 1 to n to l, one at a time, and stops at the first append
+// that fails.
+func fill(mut l list[int64], n int64) error {
+    for i := range n {
+        err := append(mut l, i + 1)
+        if err.code != 0 {
+            return err
+        }
+    }
+    return noerror
+}
+
+// Bag is a name and a list of numbers, a struct holding a list.
+type Bag struct {
+    name  string
+    items list[int64]
+}
+
+// Val is a number, a list of numbers, a bag, or nothing: a union holding
+// a list.
+type Val union {
+    num   int64
+    items list[int64]
+    bag   Bag
+    none
+}
+
+// down holds a list of its own and calls itself until depth is 0, where
+// it ends the process with status 3. The lists of every frame above it
+// are still live when it does.
+func down(depth int64) {
+    l, err := numbers(depth +% 1)
+    if err.code != 0 || len(l) != depth +% 1 {
+        check(false, "a list for each frame")
+        return
+    }
+    if depth == 0 {
+        check(live() == 26, "every list live at exit")
+        // c_allocator refuses every request from here, so freeing
+        // everything at exit must allocate nothing.
+        fail_after(0)
+        exit(3)
+    }
+    down(depth -% 1)
+}
+
+func main() {
+    check(live() == 0, "nothing live at the start")
+
+    // Three deep: a cube of two planes of three rows each.
+    mut cube := make(list[list[list[int64]]], c_allocator)
+    for p := range 2 {
+        mut plane := make(list[list[int64]], c_allocator)
+        for r := range 3 {
+            row, err := numbers(p + r + 1)
+            if err.code != 0 {
+                check(false, "rows")
+                return
+            }
+            if append(mut plane, row).code != 0 {
+                check(false, "rows")
+                return
+            }
+        }
+        if append(mut cube, plane).code != 0 {
+            check(false, "planes")
+            return
+        }
+    }
+    check(live() == 9, "a cube of lists")
+
+    // Unions and structs holding lists, in a list.
+    mut vals := make(list[Val], c_allocator)
+    items, e1 := numbers(10)
+    bag_items, e2 := numbers(2)
+    if e1.code != 0 || e2.code != 0 {
+        check(false, "lists for unions")
+        return
+    }
+    e3 := append(mut vals, Val.num(1), Val.items(items), Val.bag(Bag{name: "bag", items: bag_items}), Val.none)
+    check(e3.code == 0 && live() == 12, "unions holding lists")
+
+    // A struct holding a list, in main's frame, grown past its first
+    // buffer so realloc moved it.
+    big, e4 := numbers(128)
+    if e4.code != 0 {
+        check(false, "a big list")
+        return
+    }
+    mut b := Bag{name: "big", items: big}
+    check(len(b.items) == 128 && live() == 13, "a list moved by realloc")
+
+    // Appends made to fail: a list grown part way before its allocator
+    // refused, and a list in a struct left as it was.
+    mut part := make(list[int64], c_allocator)
+    fail_after(1)
+    e5 := fill(mut part, 20)
+    check(e5.code == 1 && len(part) == 4 && live() == 14, "a list left part way")
+    e6 := append(mut b.items, 129)
+    check(e6.code == 1 && len(b.items) == 128, "an append refused")
+
+    // A list whose second growth is refused.
+    fail_after(-1)
+    mut grown := make(list[int64], c_allocator)
+    e8 := append(mut grown, 1)
+    fail_after(0)
+    e9 := append(mut grown, 2, 3, 4, 5)
+    fail_after(-1)
+    check(e8.code == 0 && e9.code == 1 && len(grown) == 1 && live() == 15, "a growth refused")
+
+    down(10)
+    check(false, "exit returned")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

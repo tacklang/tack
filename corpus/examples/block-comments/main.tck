@@ -1,0 +1,67 @@
+/* A block comment before the package clause,
+   over two lines. */
+package main /* after the package clause */
+
+/* Block comments, written between slash-star and star-slash, nest, so
+   code that holds one can be commented out whole:
+   /* an inner comment */
+   and this line is still inside the outer one. */
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// plus returns a plus b.
+func plus(a int64, /* the second */ b int64) int64 {
+    return /* the sum */ a +% b
+}
+
+/* disabled is commented out, a comment inside it included:
+func disabled() int64 {
+    return 1 /* one */
+}
+*/
+
+func main() {
+    x := 1 /* one */ + 2 /* two */ * 3
+    check(x == 7, "between operands")
+
+    y := 5 /* this comment spans lines, so it ends the statement
+    as a newline would */
+    check(y == 5, "a comment spanning lines ends a statement")
+
+    z := 4 /* one line */
+    check(z == 4, "a comment on one line before a newline")
+
+    mut w := 0 /* a
+    newline */ w = 6
+    check(w == 6, "a comment spanning lines acts as a newline")
+
+    check(plus(1, /* b */ 2) == 3, "inside an argument list")
+    check(plus(1, /* a comment
+        over lines after a comma */ 2) == 3, "spanning lines after a comma")
+
+    check(8 / /* the divisor */ 2 == 4, "after a division")
+
+    /* // a line comment inside a block comment is text */ v := 3
+    check(v == 3, "slashes inside a block comment")
+
+    // /* a block comment inside a line comment is text
+    check(true, "slash-star inside a line comment")
+
+    check(/**/ true /***/, "empty comments")
+
+    check(/* a /* b /* c */ b */ a */ true, "nested three deep")
+}
+
+/* at the end of the file, with no newline after it */
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

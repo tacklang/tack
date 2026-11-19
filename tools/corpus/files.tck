@@ -1,0 +1,159 @@
+package main
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import os from "std/os"
+import path from "std/path"
+import text from "std/text"
+
+// The file system work of a run: copying a tree, listing one, making a
+// directory and its parents. Every walk keeps the directories still to
+// visit in a list rather than recursing, so a tree however deep takes no
+// more stack.
+
+// walk_files appends to out the path of every file below dir, relative to
+// it and with slashes, a directory's files after the directory's own
+// entries' names, sorted bytewise within each directory, and reports
+// whether it could list every directory, having written why not
+// otherwise. An entry stat cannot look at fails the walk; a symbolic
+// link counts as the file it names, as a read of it does.
+func walk_files(dir []uint8, mut out list[text.Text]) (bool, error) {
+    mut todo := make(list[text.Text], c_allocator)
+    append(mut todo, text.new(c_allocator))?
+    for len(todo) > 0 {
+        rel := pop(mut todo)
+        here := path.join(dir, rel.bytes(), c_allocator)?
+        names, e := os.list_dir(here.bytes(), c_allocator)
+        if e.code != 0 {
+            fmt.printf("FAIL: cannot list %s: %s\n", here.bytes(), e.msg)
+            return false, noerror
+        }
+        mut subdirs := make(list[text.Text], c_allocator)
+        for _, n := range names {
+            sub := path.join(rel.bytes(), n.bytes(), c_allocator)?
+            full := path.join(dir, sub.bytes(), c_allocator)?
+            info, se := os.lstat(full.bytes())
+            if se.code != 0 {
+                fmt.printf("FAIL: cannot look at %s: %s\n", full.bytes(), se.msg)
+                return false, noerror
+            }
+            if info.is_dir() {
+                append(mut subdirs, sub)?
+            } else {
+                append(mut out, sub)?
+            }
+        }
+        // The last pushed is the first popped, so the subdirectories go
+        // in reverse, to be walked in name order.
+        for len(subdirs) > 0 {
+            s := pop(mut subdirs)
+            append(mut todo, s)?
+        }
+    }
+    return true, noerror
+}
+
+// copy_tree copies every file below src to the same path below dst,
+// which must not exist yet, making the directories on the way, and
+// reports whether it could, having written why not otherwise. Every
+// file is written with write_file's mode; no file of the corpus or of
+// std needs another.
+func copy_tree(src []uint8, dst []uint8) (bool, error) {
+    mut files := make(list[text.Text], c_allocator)
+    ok := walk_files(src, mut files)?
+    if !ok {
+        return false, noerror
+    }
+    e := os.make_dir(dst)
+    if e.code != 0 {
+        fmt.printf("FAIL: cannot make %s: %s\n", dst, e.msg)
+        return false, noerror
+    }
+    for _, f := range files {
+        src_file := path.join(src, f.bytes(), c_allocator)?
+        to := path.join(dst, f.bytes(), c_allocator)?
+        data, re := os.read_file(src_file.bytes(), c_allocator)
+        if re.code != 0 {
+            fmt.printf("FAIL: cannot read %s: %s\n", src_file.bytes(), re.msg)
+            return false, noerror
+        }
+        wok := write_with_dirs(to.bytes(), data)?
+        if !wok {
+            return false, noerror
+        }
+    }
+    return true, noerror
+}
+
+// make_dirs makes the directory p and every parent it lacks, as mkdir -p
+// does, and reports whether it could, having written why not otherwise:
+// a part of p that exists already is no failure.
+func make_dirs(p []uint8) (bool, error) {
+    for i, c := range p {
+        if i == 0 || c != '/' {
+            continue
+        }
+        ok := make_one(part(p, 0, i))?
+        if !ok {
+            return false, noerror
+        }
+    }
+    ok := make_one(p)?
+    return ok, noerror
+}
+
+// make_one makes the directory p, and reports whether it is one now,
+// having written why not otherwise.
+func make_one(p []uint8) (bool, error) {
+    info, se := os.stat(p)
+    if se.code == 0 && info.is_dir() {
+        return true, noerror
+    }
+    e := os.make_dir(p)
+    if e.code != 0 {
+        fmt.printf("FAIL: cannot make %s: %s\n", p, e.msg)
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// write_with_dirs writes data to the file p, making its directory first
+// when it lacks one, and reports whether it could, having written why
+// not otherwise.
+func write_with_dirs(p []uint8, data []uint8) (bool, error) {
+    dir := path.dir(p, c_allocator)?
+    ok := make_dirs(dir.bytes())?
+    if !ok {
+        return false, noerror
+    }
+    e := os.write_file(p, data)
+    if e.code != 0 {
+        fmt.printf("FAIL: cannot write %s: %s\n", p, e.msg)
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// remove_tree removes p and everything below it, and reports whether it
+// could, having written why not otherwise.
+func remove_tree(p []uint8) (bool, error) {
+    rm := os.remove_all(p, c_allocator)
+    if rm.err.code == 1 {
+        return false, rm.err
+    }
+    if rm.err.code != 0 {
+        fmt.printf("FAIL: cannot remove %s: %s %s: %s\n", p, rm.op.bytes(), rm.path.bytes(), rm.err.msg)
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// has_name_ending reports whether one of files ends with suffix.
+func has_name_ending(files []text.Text, suffix string) bool {
+    for _, f := range files {
+        if bytes.has_suffix(f.bytes(), []uint8(suffix)) {
+            return true
+        }
+    }
+    return false
+}

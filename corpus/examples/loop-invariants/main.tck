@@ -1,0 +1,418 @@
+package main
+
+// A loop's body knows what its condition says, but a mutable variable
+// the loop writes loses every other fact at its first write, so a
+// counter stepped in the body would carry nothing into the next pass.
+// The checker keeps a bound on such a variable through the whole loop,
+// its condition included, when the bound holds where the loop is entered
+// and every write to the variable in the loop keeps it, from the facts
+// in force at that write: i >= 0 for a counter that starts at 0 and only
+// steps up below a bound that keeps the step from overflowing, j < len(s)
+// for one that starts at len(s) - 1 and only steps down above a bound.
+//
+// Every check prints its name and "ok", or "FAIL", and runs each
+// function where its loop does not run at all, runs once, and runs to
+// the ends of what it reads.
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// countUp counts the bytes 'a' in s, i stepping up from 0 by i += 1
+// under i < len(s): i stays at or above 0 on every pass.
+func countUp(s string) int64 {
+    mut n int64 = 0
+    mut i := 0
+    for i < len(s) {
+        if s[i] == 'a' {
+            n +%= 1
+        }
+        i += 1
+    }
+    return n
+}
+
+// countDown counts the bytes 'a' in s from its end, j stepping down from
+// len(s) - 1 by j-- under j >= 0: j stays below len(s) on every pass.
+func countDown(s string) int64 {
+    mut n int64 = 0
+    mut j := len(s) - 1
+    for j >= 0 {
+        if s[j] == 'a' {
+            n +%= 1
+        }
+        j--
+    }
+    return n
+}
+
+// skipSpaces returns where the first byte of s that is not a space is:
+// the loop's condition reads s[i] itself, after its own i < len(s).
+func skipSpaces(s string) int64 {
+    mut i := 0
+    for i < len(s) && s[i] == ' ' {
+        i++
+    }
+    return i
+}
+
+// words counts the words of s, split by spaces. The counter steps on in
+// a branch that continues, and in an inner loop, whose condition reads
+// s[i] under the outer loop's bound on i.
+func words(s string) int64 {
+    mut n int64 = 0
+    mut i := 0
+    for i < len(s) {
+        if s[i] == ' ' {
+            i++
+            continue
+        }
+        n +%= 1
+        for i < len(s) && s[i] != ' ' {
+            i++
+        }
+    }
+    return n
+}
+
+// ring adds up a, round and round, for ten passes: i steps on only below
+// the end of a, and goes back to 0 at it.
+func ring(a [4]int64) int64 {
+    mut total int64 = 0
+    mut i := 0
+    mut n := 0
+    for n < 10 {
+        if i < len(a) {
+            total +%= a[i]
+            i++
+        } else {
+            i = 0
+        }
+        n++
+    }
+    return total
+}
+
+// marks walks steps, adding each one from 0 to 3 to a total kept below
+// 10, and marks each total it reaches: the total only grows, by a
+// bounded amount from below a bound, so it stays at or above 0. It
+// returns how many totals were marked, times 100, plus the last total.
+func marks(steps []int64) int64 {
+    mut seen [10]int64
+    mut total := 0
+    mut k := 0
+    for total < 10 && k < len(steps) {
+        seen[total] = 1
+        d := steps[k]
+        if 0 <= d && d <= 3 {
+            total += d
+        }
+        k++
+    }
+    mut count int64 = 0
+    for _, m := range seen {
+        count +%= m
+    }
+    return count *% 100 +% total
+}
+
+// fromOne adds up a, reading a[i - 1] for i from 1: the bound kept is
+// i >= 1.
+func fromOne(a [3]int64) int64 {
+    mut s int64 = 0
+    mut i := 1
+    for i <= len(a) {
+        s +%= a[i - 1]
+        i++
+    }
+    return s
+}
+
+// startingAt counts the bytes 'a' in s from lo on, i starting at lo, which an
+// early exit keeps at or above 0: the bound kept is that i is at least
+// lo, which the early exit's fact bounds in turn.
+func startingAt(s string, lo int64) int64 {
+    if lo < 0 {
+        return -1
+    }
+    mut n int64 = 0
+    mut i := lo
+    for i < len(s) {
+        if s[i] == 'a' {
+            n +%= 1
+        }
+        i++
+    }
+    return n
+}
+
+// lastSet returns the index of the last element of a that is not 0, or
+// -1, j stepping down from 9: the bound kept is j <= 9.
+func lastSet(a [10]int64) int64 {
+    mut j := 9
+    for j >= 0 {
+        if a[j] != 0 {
+            return j
+        }
+        j--
+    }
+    return -1
+}
+
+// sumDown adds up the first four elements of a, j stepping down from 4
+// by a uint64 j-- under j > 0, which keeps the step above 0. The
+// bound j <= 4 is kept after the write too, where the loop's condition no
+// longer holds.
+func sumDown(a [5]int64) int64 {
+    mut s int64 = 0
+    mut j uint64 = 4
+    for j > 0 {
+        j--
+        s +%= a[j]
+    }
+    return s
+}
+
+// pack copies the positive values of a into the first free slots of
+// four, in a range loop: k steps on only below the end of b.
+func pack(a []int64) int64 {
+    mut b [4]int64
+    mut k := 0
+    for _, x := range a {
+        if x > 0 && k < len(b) {
+            b[k] = x
+            k++
+        }
+    }
+    return b[0] *% 1000 +% b[1] *% 100 +% b[2] *% 10 +% b[3]
+}
+
+// skip moves i, a mut parameter, past the spaces of s from where it is,
+// when it is not negative.
+func skip(s string, mut i int64) {
+    if i < 0 {
+        return
+    }
+    for i < len(s) && s[i] == ' ' {
+        i++
+    }
+}
+
+// skipped returns where skip leaves i, from start.
+func skipped(s string, start int64) int64 {
+    mut i := start
+    skip(s, mut i)
+    return i
+}
+
+// reset counts the bytes 'a' in s twice over, the counter set back to 0
+// by a plain assignment between the two loops.
+func reset(s string) int64 {
+    mut n int64 = 0
+    mut i := 5
+    i = 0
+    for i < len(s) {
+        if s[i] == 'a' {
+            n +%= 1
+        }
+        i++
+    }
+    i = 0
+    for i < len(s) {
+        if s[i] == 'a' {
+            n +%= 1
+        }
+        i++
+    }
+    return n
+}
+
+// deferred counts the bytes 'a' in s, i stepped up by deferred code,
+// which runs at the end of every pass.
+func deferred(s string) int64 {
+    mut n int64 = 0
+    mut i := 0
+    for i < len(s) {
+        if s[i] == 'a' {
+            n +%= 1
+        }
+        defer {
+            i++
+        }
+    }
+    return n
+}
+
+// nearTop divides by i less the largest int64 less 8, for i from the
+// largest int64 less 7 up to the largest less 1: i < the largest int64
+// keeps i++ from overflowing, so i stays at or above where it started.
+func nearTop() int64 {
+    mut i := 9223372036854775800
+    mut n int64 = 0
+    for i < 9223372036854775807 {
+        n +%= 840 / (i - 9223372036854775799)
+        i++
+    }
+    return n
+}
+
+// toTop marks a[k] for a uint8 k from 250 up to 254, then reads a[k - 1]
+// after the step: k < 255 keeps k++ from overflowing, so k stays at or
+// above 250 after it too.
+func toTop() int64 {
+    mut a [256]int64
+    mut k uint8 = 250
+    mut n int64 = 0
+    for k < 255 {
+        a[k] = 1
+        k++
+        n +%= a[k - 1]
+    }
+    return n
+}
+
+// doubledDown adds up a[2*j] for j from start down to 0, when start is
+// at most 4: the bound kept is j <= 4, from the early exit, which bounds
+// 2*j as arithmetic, through j's own bounds.
+func doubledDown(a [10]int64, start int64) int64 {
+    mut j := start
+    if j > 4 {
+        return -1
+    }
+    mut s int64 = 0
+    for j >= 0 {
+        s +%= a[2*j]
+        j--
+    }
+    return s
+}
+
+// drain marks each level a store falls through, from 9 down, taking
+// each of steps that is from 0 to 3 off it while it is at or above 0:
+// the level only falls, by a bounded amount from above a bound, so it
+// stays at or below 9. It returns how many levels were marked, times
+// 100, plus 10 more than the last level.
+func drain(steps []int64) int64 {
+    mut seen [10]int64
+    mut left := 9
+    mut k := 0
+    for left >= 0 && k < len(steps) {
+        seen[left] = 1
+        d := steps[k]
+        if 0 <= d && d <= 3 {
+            left -= d
+        }
+        k++
+    }
+    mut count int64 = 0
+    for _, m := range seen {
+        count +%= m
+    }
+    return count *% 100 +% left +% 10
+}
+
+// everyOther counts the bytes 'a' at every other index of s from its
+// end, j stepping down from len(s) - 1 by j -= 2: j stays below len(s).
+func everyOther(s string) int64 {
+    mut n int64 = 0
+    mut j := len(s) - 1
+    for j >= 0 {
+        if s[j] == 'a' {
+            n +%= 1
+        }
+        j -= 2
+    }
+    return n
+}
+
+// stepBack counts the bytes 'a' in s, i stepping on by 1 and back by 2
+// on each 'b' it has passed: the step back is under i >= 2, which keeps
+// i at or above 0. It reads at most 20 bytes.
+func stepBack(s string) int64 {
+    mut n int64 = 0
+    mut k := 0
+    mut i := 0
+    for k < 20 && i < len(s) {
+        b := s[i]
+        if b == 'a' {
+            n +%= 1
+        }
+        i += 1
+        if b == 'b' && i >= 2 {
+            i -= 2
+        }
+        k++
+    }
+    return n
+}
+
+func main() {
+    check(countUp("") == 0 && countUp("a") == 1 && countUp("b") == 0 &&
+        countUp("banana") == 3 && countUp("aaaa") == 4,
+        "a counter stepping up from 0")
+    check(countDown("") == 0 && countDown("a") == 1 && countDown("b") == 0 &&
+        countDown("banana") == 3 && countDown("aaaa") == 4,
+        "a counter stepping down from len(s) - 1")
+    check(skipSpaces("") == 0 && skipSpaces("   ") == 3 && skipSpaces("x") == 0 &&
+        skipSpaces("  x ") == 2,
+        "a condition that reads s[i]")
+    check(words("") == 0 && words(" ") == 0 && words("a") == 1 && words("ab cd") == 2 &&
+        words("  ab   cd e ") == 3,
+        "a counter stepped in a branch that continues and in an inner loop")
+    check(ring([4]int64{1, 2, 3, 4}) == 20 && ring([4]int64{0, 0, 0, 0}) == 0,
+        "a counter set back to 0 in the body")
+    steps := [7]int64{1, 2, 5, -1, 3, 3, 3}
+    capped := [5]int64{3, 3, 3, 0, 1}
+    zeros := [2]int64{0, 0}
+    check(marks(steps[0:0]) == 0 && marks(steps[:]) == 512 && marks(capped[:]) == 410 &&
+        marks(zeros[:]) == 100,
+        "a total grown by bounded amounts")
+    check(fromOne([3]int64{1, 2, 3}) == 6 && fromOne([3]int64{0, 0, 7}) == 7,
+        "a counter kept at or above 1")
+    check(startingAt("banana", 0) == 3 && startingAt("banana", 2) == 2 && startingAt("banana", 6) == 0 &&
+        startingAt("banana", 100) == 0 && startingAt("banana", -1) == -1 && startingAt("", 0) == 0,
+        "a counter kept at or above another variable")
+    check(lastSet([10]int64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}) == -1 &&
+        lastSet([10]int64{0, 0, 0, 0, 0, 0, 0, 0, 0, 1}) == 9 &&
+        lastSet([10]int64{1, 0, 0, 0, 0, 0, 0, 0, 0, 0}) == 0,
+        "a counter kept at or below 9")
+    check(sumDown([5]int64{1, 2, 3, 4, 100}) == 10,
+        "a uint64 counter stepping down to 0")
+    mixed := [4]int64{-1, 2, 0, 3}
+    six := [6]int64{1, 2, 3, 4, 5, 6}
+    check(pack(mixed[0:0]) == 0 && pack(mixed[:]) == 2300 && pack(six[:]) == 1234,
+        "a counter in a range loop")
+    check(skipped("  x", 0) == 2 && skipped("  x", 1) == 2 && skipped("   ", 0) == 3 &&
+        skipped("x", 5) == 5 && skipped("  ", -3) == -3,
+        "a mut parameter")
+    check(reset("") == 0 && reset("aba") == 4,
+        "a counter set back to 0 between loops")
+    check(deferred("") == 0 && deferred("banana") == 3, "a counter stepped in deferred code")
+    check(nearTop() == 840 + 420 + 280 + 210 + 168 + 140 + 120,
+        "a counter stepping up to the largest int64")
+    check(toTop() == 5, "a uint8 counter stepping up to 255")
+    halves := [10]int64{1, 0, 2, 0, 3, 0, 4, 0, 5, 0}
+    check(doubledDown(halves, 4) == 15 && doubledDown(halves, 0) == 1 &&
+        doubledDown(halves, -1) == 0 && doubledDown(halves, 5) == -1,
+        "a bound kept below bounding arithmetic")
+    falls := [5]int64{3, 7, 3, -1, 3}
+    check(drain(falls[0:0]) == 19 && drain(falls[:]) == 310 && drain(steps[:]) == 507,
+        "a level fallen by bounded amounts")
+    check(everyOther("") == 0 && everyOther("a") == 1 && everyOther("banana") == 3 &&
+        everyOther("abab") == 0,
+        "a counter stepping down by 2")
+    check(stepBack("") == 0 && stepBack("aaa") == 3 && stepBack("ab") == 10 &&
+        stepBack("b") == 0,
+        "a counter stepping back under a guard")
+}
+
+// The wrapping operators in this file, +% -% *% and their compound
+// forms, stand where nothing proves a value's bound but this program's
+// own fixed data keeps it within its type, so none of them wraps; one
+// that is meant to wrap says so where it is.

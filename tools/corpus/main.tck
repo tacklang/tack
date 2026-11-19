@@ -1,0 +1,340 @@
+package main
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import os from "std/os"
+import path from "std/path"
+import text from "std/text"
+
+// Package main is corpus, the runner of the port's test corpus: the
+// programs under corpus/examples, the cases of its six txtar archives
+// and the goldens under corpus/golden, which tackc's test harness
+// checks for the Go compiler and this checks for any compiler that has
+// the port's --port-case and --port-test-case flags. It is run as
+//
+//     corpus [--update] <compiler> <corpus> <std>
+//
+// compiler is the compiler to check, corpus the directory holding
+// examples/ and golden/, and std the standard library to compile with, a
+// directory laid out as src/std is. Every path may be relative to the
+// current directory. A run copies std and the examples into a temporary
+// directory of its own, which std/os's make_temp_dir makes in $TMPDIR,
+// and runs every case there, one at a time, never in the corpus itself;
+// it removes the directory before it exits, however the run ends. A
+// temporary directory below a directory holding a tack.mod is refused
+// before anything runs, since every case with no tack.mod of its own
+// would be loaded as part of that module.
+//
+// What it checks, for each archive and the goldens, is what tackc's
+// harness checks (tackc's test/golden_test.go, testmode_test.go,
+// header_test.go and tack/extern_test.go), and each expected output is
+// compared byte for byte with what the compiler gives:
+//
+//   - invalid.txtar and invalid-packages.txtar: each case, laid out in a
+//     directory of its own, is given to --port-case, which writes the
+//     stage line, ---, and the output as the harness renders it; the
+//     case must be rejected, a stage other than ok. A tree case is built
+//     from its directory, or what its .target file names, and with the
+//     std its .std directory holds when it has one, given as --port-std;
+//   - warnings.txtar and warnings-packages.txtar: the same, but the case
+//     must compile, stage ok, with warnings, which --port-case writes to
+//     standard error, and the C it gets must pass clang's -fsyntax-only
+//     with -Wall -Wextra -Werror, as the harness's strictC checks it;
+//   - invalid-tests.txtar: each case is given to --port-test-case, which
+//     builds it as tack test does, and must be rejected;
+//   - invalid-c.txtar: each case is built into a binary with --out, as a
+//     user builds one, which must fail, exit status 1, with nothing on
+//     standard output and nothing left in the compiler's $TMPDIR; its
+//     expected section is the standard error from its first line, or,
+//     when clang's own report of a C file comes first, from the line
+//     tack: cannot compile on, the report having to name an error;
+//   - the goldens: every program under examples/, found as the harness's
+//     findExamples finds them (see find_programs), is given to
+//     --port-case, and the output must be its golden,
+//     <name>.c.golden for one that compiles and <name>.golden for one
+//     that does not, <name> its directory below examples/ with each
+//     slash an underscore; every golden must be some program's, and
+//     tack-test_fail.test.c.golden is what --port-test-case gives for
+//     examples/tack-test/fail, with no warnings;
+//   - the headers: for each program that compiles and whose example holds
+//     a .c file, --emit-header is run in the copy, and every tack.h it
+//     writes in a directory of its program that holds a .c file means
+//     the program has C files of its own module, and then every tack.h
+//     it writes must be in the corpus with those bytes; and every tack.h
+//     the corpus holds must be one of those (see check_headers);
+//   - line endings: each case of invalid.txtar and invalid-packages.txtar,
+//     and each program under examples/, with every \n of its files turned
+//     into \r\n, must give what it gave as it is, as the harness's
+//     TestCRLFMatchesLF requires; one whose files already hold a carriage
+//     return is left out.
+//
+// The archives are every file directly in examples/ whose name ends in
+// .txtar; one that is none of the six above fails, so a new archive is
+// never left unchecked. Each archive is also read and written back, and
+// must come back byte for byte, so the format cannot drift from tackc's
+// internal/invalid.
+//
+// Every run of the compiler is in the copy's root, with TACK_HOME set to
+// it, so std is the copy of std, named src/std/... in what the compiler
+// writes, and TACK_CACHE and TMPDIR set to directories of the run's
+// own. std/os's run neither bounds how long a child takes nor sets its
+// environment, so each run goes through coreutils' timeout, which kills
+// it after a while, and env, which sets those variables: a run that
+// times out is a failure.
+//
+// A failure is written on standard output as FAIL, the case's name and
+// why, with the first line that differs from what was expected; a
+// decline, the port's exit status 3 and its not implemented line, is a
+// failure too. The run ends with a line counting the cases and the
+// failures, and exits 1 when any failed, 0 when none did, and 2 for a
+// command line of the wrong shape.
+//
+// With --update, each expected section, golden and tack.h the compiler's
+// output differs from is rewritten in the corpus instead, and the
+// difference counted as no failure: what must hold whatever the output,
+// a case of invalid.txtar that compiles, a decline or a run that timed
+// out among them, still fails and rewrites nothing for it. An archive is
+// written only when it changed, so a run that changes nothing leaves
+// every file as it was. tack.h is written from what --emit-header wrote
+// in the copy, never by running it in the corpus.
+
+// timeout_secs is how long one run of the compiler, or of clang, may
+// take before coreutils' timeout stops it, as a decimal string: two
+// minutes, twice what tackc's porttest gives a run.
+var timeout_secs = "120"
+
+// Runner is what every check of a run reads: the compiler, the corpus,
+// std, all absolute, whether the run updates the corpus, and the run's
+// temporary directory, tmp, with root, below it, where every case runs
+// and std and the examples are copied, work, the compiler's TMPDIR,
+// cache, its TACK_CACHE, and bin, where invalid-c's builds write.
+type Runner struct {
+    compiler text.Text
+    corpus text.Text
+    std text.Text
+    update bool
+    tmp text.Text
+    root text.Text
+    work text.Text
+    cache text.Text
+    bin text.Text
+}
+
+// Tally counts the cases a run checked and those that failed.
+type Tally struct {
+    cases int64
+    failures int64
+}
+
+// main runs the corpus and exits with the status run gives. An error
+// run returns, which only an allocation that failed or the OS gives, is
+// written as corpus: and its message, with exit status 1.
+func main() {
+    a, err := os.args(c_allocator)
+    if err.code != 0 {
+        fmt.eprintf("corpus: %s\n", err.msg)
+        exit(1)
+    }
+    code, e := run(a)
+    if e.code != 0 {
+        fmt.eprintf("corpus: %s\n", e.msg)
+        exit(1)
+    }
+    exit(code)
+}
+
+// usage writes how corpus is run to standard error and returns 2.
+func usage() int32 {
+    fmt.eprintf("usage: corpus [--update] <compiler> <corpus> <std>\n")
+    return 2
+}
+
+// absolute returns p made absolute: as it is when it starts with a
+// slash, and joined to the current directory otherwise, cleaned. A
+// current directory that cannot be found is an error, written first,
+// naming p, on standard error.
+func absolute(p []uint8) (text.Text, error) {
+    if bytes.has_prefix(p, []uint8("/")) {
+        t := path.clean(p, c_allocator)?
+        return t, noerror
+    }
+    wd, e := os.getwd(c_allocator)
+    if e.code != 0 {
+        fmt.eprintf("corpus: cannot find the current directory, to make %s absolute: %s\n", p, e.msg)
+        return text.new(c_allocator), e
+    }
+    t := path.join(wd.bytes(), p, c_allocator)?
+    return t, noerror
+}
+
+// run reads the command line a, the program's name first, checks that
+// the compiler is a file it may run, failing once when it is not, makes
+// the run's temporary directory, runs every check in it (see run_in_tmp),
+// and removes it, whatever happened there, an error included, and
+// returns the exit status (see the package comment).
+func run(a []text.Text) (int32, error) {
+    mut update := false
+    mut paths := make(list[text.Text], c_allocator)
+    for i, s := range a {
+        if i == 0 {
+            continue
+        }
+        if s.equal([]uint8("--update")) && len(paths) == 0 && !update {
+            update = true
+            continue
+        }
+        if bytes.has_prefix(s.bytes(), []uint8("-")) || s.len() == 0 {
+            return usage(), noerror
+        }
+        p := absolute(s.bytes())?
+        append(mut paths, p)?
+    }
+    if len(paths) != 3 {
+        return usage(), noerror
+    }
+    compiler := replace(mut paths[0], text.new(c_allocator))
+    corpus := replace(mut paths[1], text.new(c_allocator))
+    std := replace(mut paths[2], text.new(c_allocator))
+    if !os.can_execute(compiler.bytes()) {
+        // Every case would fail the same way, once each.
+        fmt.eprintf("corpus: the compiler, %s, is no file this process may run\n", compiler.bytes())
+        return 1, noerror
+    }
+    made, te :=os.make_temp_dir([]uint8("tack-corpus-"), c_allocator)
+    if te.code != 0 {
+        fmt.eprintf("corpus: cannot make the run's temporary directory in $TMPDIR: %s\n", te.msg)
+        return 1, te
+    }
+    code, e := run_in_tmp(own compiler, own corpus, own std, update, made.bytes())
+    rm := os.remove_all(made.bytes(), c_allocator)
+    if rm.err.code != 0 {
+        fmt.printf("FAIL: cannot remove the run's temporary directory, %s: %s %s: %s\n", made.bytes(), rm.op.bytes(), rm.path.bytes(), rm.err.msg)
+        if e.code == 0 {
+            return 1, noerror
+        }
+    }
+    return code, e
+}
+
+// run_in_tmp runs every check of the package comment with the compiler,
+// the corpus and the std given, all absolute, updating the corpus when
+// update says so, in made, the run's temporary directory, which the
+// caller removes, and writes the count: it makes made absolute, makes sure no directory above it holds a
+// tack.mod (see module_above), sets the run up and checks the corpus. It
+// returns the exit status, or an error that stopped it, which it wrote
+// on standard error first when it was the OS's.
+func run_in_tmp(own compiler text.Text, own corpus text.Text, own std text.Text, update bool, made []uint8) (int32, error) {
+    tmp := absolute(made)?
+    above := module_above(tmp.bytes())?
+    if above.len() > 0 {
+        fmt.eprintf("corpus: %s/tack.mod is above the run's temporary directory, %s: every case without a tack.mod of its own would be loaded as part of that module; set TMPDIR to a directory outside every module\n", above.bytes(), tmp.bytes())
+        return 1, noerror
+    }
+    r := Runner{
+        compiler: compiler,
+        corpus: corpus,
+        std: std,
+        update: update,
+        root: path.join(tmp.bytes(), []uint8("root"), c_allocator)?,
+        work: path.join(tmp.bytes(), []uint8("work"), c_allocator)?,
+        cache: path.join(tmp.bytes(), []uint8("cache"), c_allocator)?,
+        bin: path.join(tmp.bytes(), []uint8("bin"), c_allocator)?,
+        tmp: tmp,
+    }
+    mut t := Tally{cases: 0, failures: 0}
+    ok := set_up(r)?
+    if !ok {
+        return 1, noerror
+    }
+    check_all(r, mut t)?
+    fmt.printf("corpus: %d cases, %d failed\n", t.cases, t.failures)
+    if t.failures > 0 {
+        return 1, noerror
+    }
+    return 0, noerror
+}
+
+// module_above returns the nearest directory above dir, an absolute
+// path, that holds a tack.mod, or an empty Text when none does. The
+// loader finds a target's module by looking up from its directory, so a
+// run below a module would load every case that has no tack.mod of its
+// own as part of that module, and the cases that test a program with no
+// module would fail.
+func module_above(dir []uint8) (text.Text, error) {
+    mut cur := path.dir(dir, c_allocator)?
+    for {
+        m := path.join(cur.bytes(), []uint8("tack.mod"), c_allocator)?
+        _, se := os.stat(m.bytes())
+        if se.code == 0 {
+            return cur, noerror
+        }
+        if cur.equal([]uint8("/")) {
+            return text.new(c_allocator), noerror
+        }
+        cur = path.dir(cur.bytes(), c_allocator)?
+    }
+}
+
+// set_up makes the directories of r below its temporary directory and
+// copies std to root/src/std and the corpus's examples to root/examples,
+// and reports whether it could, having written why not otherwise.
+func set_up(r Runner) (bool, error) {
+    for _, d := range [4]int64{0, 1, 2, 3} {
+        mut dir := text.new(c_allocator)
+        if d == 0 {
+            dir = text.from_bytes(r.root.bytes(), c_allocator)?
+        } else if d == 1 {
+            dir = text.from_bytes(r.work.bytes(), c_allocator)?
+        } else if d == 2 {
+            dir = text.from_bytes(r.cache.bytes(), c_allocator)?
+        } else {
+            dir = text.from_bytes(r.bin.bytes(), c_allocator)?
+        }
+        e := os.make_dir(dir.bytes())
+        if e.code != 0 {
+            fmt.printf("FAIL: cannot make %s: %s\n", dir.bytes(), e.msg)
+            return false, noerror
+        }
+    }
+    src := path.join(r.root.bytes(), []uint8("src"), c_allocator)?
+    e := os.make_dir(src.bytes())
+    if e.code != 0 {
+        fmt.printf("FAIL: cannot make %s: %s\n", src.bytes(), e.msg)
+        return false, noerror
+    }
+    std_copy := path.join(src.bytes(), []uint8("std"), c_allocator)?
+    ok := copy_tree(r.std.bytes(), std_copy.bytes())?
+    if !ok {
+        return false, noerror
+    }
+    examples := path.join(r.corpus.bytes(), []uint8("examples"), c_allocator)?
+    examples_copy := path.join(r.root.bytes(), []uint8("examples"), c_allocator)?
+    ok2 := copy_tree(examples.bytes(), examples_copy.bytes())?
+    return ok2, noerror
+}
+
+// check_all runs every check of the package comment, counting in t:
+// each archive directly in the corpus's examples/, every name there
+// ending in .txtar, in name order, and then the programs (see
+// check_examples).
+func check_all(r Runner, mut t Tally) error {
+    ex := path.join(r.corpus.bytes(), []uint8("examples"), c_allocator)?
+    names, e := os.list_dir(ex.bytes(), c_allocator)
+    if e.code != 0 {
+        fmt.printf("FAIL: cannot list %s: %s\n", ex.bytes(), e.msg)
+        t.failures +%= 1
+        return noerror
+    }
+    mut archives int64 = 0
+    for _, n := range names {
+        if bytes.has_suffix(n.bytes(), []uint8(".txtar")) && n.len() > 6 {
+            check_archive(r, part(n.bytes(), 0, n.len() -% 6), mut t)?
+            archives +%= 1
+        }
+    }
+    if archives == 0 {
+        fail([]uint8("archives"), []uint8("(all)"), []uint8("examples/ holds no txtar archive"), mut t)
+    }
+    check_examples(r, mut t)?
+    return noerror
+}

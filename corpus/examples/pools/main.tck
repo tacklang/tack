@@ -1,0 +1,870 @@
+package main
+
+// A pool[T] holds elements that can be removed one at a time; insert
+// gives a handle[T] for each, has(p, h) proves a handle live, and p[h]
+// is then a place. A removed slot's generation moves on, so a handle
+// issued before the removal never matches again, and a handle carries
+// its pool's tag, so one from another pool never matches either.
+//
+// The checks: insert giving handles and len counting live elements;
+// reading and writing through proven handles, a range's among them, an
+// element's field, a mut argument and an assignment included; remove
+// freeing an element, owned
+// ones by c_allocator's count of live buffers; a stale handle after
+// remove failing has, the checked form and both remove forms; a handle
+// from another pool, or from a dropped pool, failing; a reused slot
+// giving a new generation, so the old handle stays stale and cannot
+// remove the new element; the zero handle; insert failing out of memory
+// with the pool unchanged; ranging; many inserts and removes; drop of a
+// pool; pools in structs, in lists and in generic functions; a handle as
+// a map key; closures over a pool; ? with pools; and exit with a pool
+// still held, after which live.c checks, as the process ends, that
+// nothing is live. Every check prints its name and "ok", or "FAIL", and
+// main asserts after each function that the live count is back where it
+// was, so a leak or a double free shows, as the sanitizers would show
+// it.
+
+// live returns how many buffers c_allocator holds, in C.
+extern("pools_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("pools_fail_after") func fail_after(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// held checks that the live count is back to base, name saying after
+// what.
+func held(base int64, name string) {
+    check(live() == base, name)
+}
+
+// numbers gives a list of n numbers, 1 to n, which holds a buffer unless
+// n is 0 or it could not grow.
+func numbers(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i +% 1)
+        if err.code != 0 {
+            return l
+        }
+    }
+    return l
+}
+
+// Enemy owns nothing.
+type Enemy struct {
+    hp   int64
+    seen int64
+}
+
+// World holds a pool of enemies beside a plain field.
+type World struct {
+    enemies pool[Enemy]
+    turn    int64
+}
+
+// Any asks for no method, so every type satisfies it.
+type Any interface {
+}
+
+// bad is the error fallible fails with.
+var bad = error{code: 7, msg: "bad"}
+
+// fallible gives n, or bad when n is negative.
+func fallible(n int64) (int64, error) {
+    if n < 0 {
+        return 0, bad
+    }
+    return n, noerror
+}
+
+// bump adds one to x where it is.
+func bump(mut x int64) {
+    x +%= 1
+}
+
+// insert_gives inserts two values: each insert gives its own handle, has
+// proves each, a proven read gives the value inserted, and len counts
+// both.
+func insert_gives() bool {
+    mut p := make(pool[int64], c_allocator)
+    if len(p) != 0 {
+        return false
+    }
+    a, e1 := insert(mut p, 10)
+    if e1.code != 0 {
+        return false
+    }
+    b, e2 := insert(mut p, 20)
+    if e2.code != 0 {
+        return false
+    }
+    mut sum := 0
+    if has(p, a) {
+        sum +%= p[a]
+    }
+    if has(p, b) {
+        sum +%= p[b]
+    }
+    c := a
+    return a != b && c == a && sum == 30 && len(p) == 2
+}
+
+// extremes inserts int64's min and max and reads both back.
+func extremes() bool {
+    mut p := make(pool[int64], c_allocator)
+    lo, e1 := insert(mut p, -9223372036854775807 - 1)
+    if e1.code != 0 {
+        return false
+    }
+    hi, e2 := insert(mut p, 9223372036854775807)
+    if e2.code != 0 {
+        return false
+    }
+    mut ok := false
+    if has(p, lo) {
+        if has(p, hi) {
+            ok = p[lo] == -9223372036854775807 - 1 && p[hi] == 9223372036854775807
+        }
+    }
+    return ok
+}
+
+// write_through writes an element through a proven handle: a field, a mut
+// argument, then the whole element; none of these writes to an element
+// ends the proof.
+func write_through() bool {
+    mut p := make(pool[Enemy], c_allocator)
+    h, err := insert(mut p, Enemy{hp: 10, seen: 0})
+    if err.code != 0 {
+        return false
+    }
+    mut ok := false
+    if has(p, h) {
+        p[h].hp -%= 3
+        bump(mut p[h].seen)
+        p[h] = Enemy{hp: p[h].hp +% 100, seen: p[h].seen +% 1}
+        ok = p[h].hp == 107 && p[h].seen == 2
+    }
+    return ok
+}
+
+// checked_read reads a copyable element through the checked form: the
+// value and true for a live handle.
+func checked_read() bool {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 42)
+    if err.code != 0 {
+        return false
+    }
+    v, ok := p[h]
+    return ok && v == 42
+}
+
+// remove_frees removes an owned element by the statement form, which
+// frees its buffer at once and leaves the other element in place.
+func remove_frees() bool {
+    mut p := make(pool[list[int64]], c_allocator)
+    a, e1 := insert(mut p, numbers(2))
+    if e1.code != 0 {
+        return false
+    }
+    b, e2 := insert(mut p, numbers(3))
+    if e2.code != 0 {
+        return false
+    }
+    before := live()
+    remove(mut p, a)
+    freed := live() == before -% 1 && len(p) == 1
+    mut kept := false
+    if has(p, b) {
+        kept = len(p[b]) == 3
+    }
+    return freed && kept && !has(p, a)
+}
+
+// remove_moves_out takes an owned element out with the checked remove,
+// which frees nothing; a second remove of the same handle gives false.
+func remove_moves_out() bool {
+    mut p := make(pool[list[int64]], c_allocator)
+    h, err := insert(mut p, numbers(4))
+    if err.code != 0 {
+        return false
+    }
+    before := live()
+    v, ok := remove(mut p, h)
+    if !ok {
+        return false
+    }
+    moved := live() == before && len(v) == 4 && len(p) == 0
+    w, again := remove(mut p, h)
+    if again && len(w) >= 0 {
+        return false
+    }
+    return moved
+}
+
+// stale_after_remove removes a copyable element and tries the handle every
+// way: has is false, the checked form gives the zero value and false,
+// the statement remove does nothing to the other element, and the
+// checked remove gives false.
+func stale_after_remove() bool {
+    mut p := make(pool[int64], c_allocator)
+    a, e1 := insert(mut p, 5)
+    if e1.code != 0 {
+        return false
+    }
+    b, e2 := insert(mut p, 6)
+    if e2.code != 0 {
+        return false
+    }
+    remove(mut p, a)
+    x, found := p[a]
+    remove(mut p, a)
+    y, again := remove(mut p, a)
+    mut other := false
+    if has(p, b) {
+        other = p[b] == 6
+    }
+    return !has(p, a) && !found && x == 0 && !again && y == 0 && other && len(p) == 1
+}
+
+// foreign_handle inserts into two pools of one element type, whose first
+// handles have the same slot and generation, and checks that neither
+// pool accepts the other's: only the tag tells them apart.
+func foreign_handle() bool {
+    mut p := make(pool[int64], c_allocator)
+    mut q := make(pool[int64], c_allocator)
+    hp, e1 := insert(mut p, 1)
+    if e1.code != 0 {
+        return false
+    }
+    hq, e2 := insert(mut q, 2)
+    if e2.code != 0 {
+        return false
+    }
+    _, in_p := p[hq]
+    _, in_q := q[hp]
+    remove(mut p, hq)
+    mut kept := false
+    if has(p, hp) {
+        kept = p[hp] == 1
+    }
+    return hp != hq && !has(p, hq) && !has(q, hp) && !in_p && !in_q && kept && len(p) == 1
+}
+
+// dropped_pool_handle keeps a handle from a pool it drops, makes a new
+// pool and inserts into it, and checks the new pool rejects the old
+// handle.
+func dropped_pool_handle() bool {
+    mut p := make(pool[int64], c_allocator)
+    old, e1 := insert(mut p, 1)
+    if e1.code != 0 {
+        return false
+    }
+    drop(own p)
+    mut q := make(pool[int64], c_allocator)
+    fresh, e2 := insert(mut q, 2)
+    if e2.code != 0 {
+        return false
+    }
+    _, found := q[old]
+    return !has(q, old) && !found && has(q, fresh) && old != fresh
+}
+
+// slot_reuse removes an element and inserts another, which reuses the
+// free slot without growing: c_allocator refuses every request while it
+// inserts. The new handle differs from the old, which stays stale, and a
+// remove through the old handle leaves the new element in place.
+func slot_reuse() bool {
+    mut p := make(pool[int64], c_allocator)
+    a, e1 := insert(mut p, 1)
+    if e1.code != 0 {
+        return false
+    }
+    remove(mut p, a)
+    fail_after(0)
+    b, e2 := insert(mut p, 2)
+    fail_after(-1)
+    if e2.code != 0 {
+        return false
+    }
+    _, found_a := p[a]
+    remove(mut p, a)
+    mut kept := false
+    if has(p, b) {
+        kept = p[b] == 2
+    }
+    return a != b && !has(p, a) && !found_a && kept && len(p) == 1
+}
+
+// reuse_many reuses one slot many times, keeping every handle it was
+// given, and checks only the last is live.
+func reuse_many() bool {
+    mut p := make(pool[int64], c_allocator)
+    mut hs := make(list[handle[int64]], c_allocator)
+    for i := range 50 {
+        h, err := insert(mut p, i)
+        if err.code != 0 {
+            return false
+        }
+        if append(mut hs, h).code != 0 {
+            return false
+        }
+        if i < 49 {
+            remove(mut p, h)
+        }
+    }
+    mut alive := 0
+    for _, h := range hs {
+        if has(p, h) {
+            alive +%= 1
+        }
+    }
+    return alive == 1 && len(p) == 1
+}
+
+// zero_handle checks the zero handle is in no pool, empty or not, and
+// that removing it does nothing.
+func zero_handle() bool {
+    mut z handle[int64]
+    zero := z
+    mut p := make(pool[int64], c_allocator)
+    empty_miss := !has(p, zero)
+    h, err := insert(mut p, 3)
+    if err.code != 0 {
+        return false
+    }
+    _, found := p[zero]
+    remove(mut p, zero)
+    return empty_miss && !has(p, zero) && !found && has(p, h) && h != zero && len(p) == 1
+}
+
+// empty_pool removes from, reads from and ranges over a pool that never
+// grew.
+func empty_pool() bool {
+    mut z handle[list[int64]]
+    p0 := z
+    mut p := make(pool[list[int64]], c_allocator)
+    remove(mut p, p0)
+    v, ok := remove(mut p, p0)
+    if ok && len(v) >= 0 {
+        return false
+    }
+    mut n := 0
+    for _, l := range p {
+        n +%= len(l)
+    }
+    return n == 0 && len(p) == 0
+}
+
+// insert_fails makes c_allocator refuse every request, so insert into a
+// pool that never grew fails with code 1, leaves the pool empty and
+// frees the value it was given. Assumption: a failed insert frees the
+// value it could not add, as append and put do.
+func insert_fails() bool {
+    mut p := make(pool[list[int64]], c_allocator)
+    l := numbers(3)
+    before := live()
+    fail_after(0)
+    _, err := insert(mut p, l)
+    fail_after(-1)
+    return err.code == 1 && len(p) == 0 && live() == before -% 1
+}
+
+// insert_fails_keeps_elements fills a pool, then makes c_allocator refuse
+// every request and inserts until one fails: the elements already in
+// it stay live and readable.
+func insert_fails_keeps_elements() bool {
+    mut p := make(pool[int64], c_allocator)
+    first, e0 := insert(mut p, 100)
+    if e0.code != 0 {
+        return false
+    }
+    fail_after(0)
+    mut failed := false
+    for i := range 1000 {
+        _, err := insert(mut p, i)
+        if err.code != 0 {
+            failed = err.code == 1
+            break
+        }
+    }
+    fail_after(-1)
+    mut kept := false
+    if has(p, first) {
+        kept = p[first] == 100
+    }
+    return failed && kept && len(p) <= 1000
+}
+
+// ranging sums the live elements of a pool with some removed, and checks
+// every handle the range gives is live.
+func ranging() bool {
+    mut p := make(pool[int64], c_allocator)
+    a, e1 := insert(mut p, 1)
+    if e1.code != 0 {
+        return false
+    }
+    _, e2 := insert(mut p, 2)
+    if e2.code != 0 {
+        return false
+    }
+    _, e3 := insert(mut p, 4)
+    if e3.code != 0 {
+        return false
+    }
+    remove(mut p, a)
+    mut sum := 0
+    mut visited := 0
+    mut hs := make(list[handle[int64]], c_allocator)
+    for h, v := range p {
+        sum +%= v
+        visited +%= 1
+        if append(mut hs, h).code != 0 {
+            return false
+        }
+    }
+    mut all := true
+    for _, h := range hs {
+        all = all && has(p, h) && h != a
+    }
+    return sum == 6 && visited == 2 && all
+}
+
+// range_proven reads and writes each element through the handle a range
+// gives, which the range proves live while it locks the pool: in its own
+// body, in a range nested in it over the same pool, and in a closure over
+// a pool declared without mut.
+func range_proven() bool {
+    mut p := make(pool[int64], c_allocator)
+    for i := range 3 {
+        _, err := insert(mut p, i +% 1)
+        if err.code != 0 {
+            return false
+        }
+    }
+    mut sum := 0
+    for h, v := range p {
+        sum +%= p[h] -% v
+        p[h] = v *% 10
+    }
+    mut pairs := 0
+    for h := range p {
+        for g := range p {
+            pairs +%= p[h] +% p[g]
+        }
+    }
+    q := p
+    mut total := 0
+    for h := range q {
+        run(func() {
+            total +%= q[h]
+        })
+    }
+    return sum == 0 && pairs == 360 && total == 60
+}
+
+// range_owned ranges over owned elements, bound in place, and writes
+// none.
+func range_owned(p pool[list[int64]]) int64 {
+    mut n := 0
+    for _, l := range p {
+        n +%= len(l)
+    }
+    return n
+}
+
+// many inserts 1000 elements, removes the even ones, inserts 500 more,
+// which reuse the freed slots, and checks every even handle stays stale
+// and every other one live.
+func many() bool {
+    mut p := make(pool[int64], c_allocator)
+    mut hs := make(list[handle[int64]], c_allocator)
+    for i := range 1000 {
+        h, err := insert(mut p, i)
+        if err.code != 0 {
+            return false
+        }
+        if append(mut hs, h).code != 0 {
+            return false
+        }
+    }
+    for i, h := range hs {
+        if i % 2 == 0 {
+            remove(mut p, h)
+        }
+    }
+    half := len(p) == 500
+    mut more := make(list[handle[int64]], c_allocator)
+    for i := range 500 {
+        h, err := insert(mut p, i +% 1000)
+        if err.code != 0 {
+            return false
+        }
+        if append(mut more, h).code != 0 {
+            return false
+        }
+    }
+    mut ok := half && len(p) == 1000
+    for i, h := range hs {
+        ok = ok && has(p, h) == (i % 2 != 0)
+    }
+    for _, h := range more {
+        ok = ok && has(p, h)
+    }
+    for _, h := range more {
+        for _, old := range hs {
+            ok = ok && h != old
+        }
+    }
+    return ok
+}
+
+// drop_pool drops a pool holding owned elements, and the live count falls
+// back to what it was before the pool was made.
+func drop_pool() bool {
+    base := live()
+    mut p := make(pool[list[int64]], c_allocator)
+    for i := range 3 {
+        _, err := insert(mut p, numbers(i +% 1))
+        if err.code != 0 {
+            return false
+        }
+    }
+    full := live() > base +% 2 && range_owned(p) == 6
+    drop(own p)
+    return full && live() == base
+}
+
+// moved_pool moves a pool into another variable, which then owns it and
+// its elements, and inserts through the new owner.
+func moved_pool() bool {
+    mut p := make(pool[list[int64]], c_allocator)
+    h, e1 := insert(mut p, numbers(2))
+    if e1.code != 0 {
+        return false
+    }
+    mut q := p
+    _, e2 := insert(mut q, numbers(1))
+    if e2.code != 0 {
+        return false
+    }
+    mut ok := false
+    if has(q, h) {
+        ok = len(q[h]) == 2
+    }
+    return ok && len(q) == 2
+}
+
+// spawn inserts an enemy into w's pool, a field of a mut parameter.
+func spawn(mut w World, hp int64) (handle[Enemy], error) {
+    h, err := insert(mut w.enemies, Enemy{hp: hp, seen: 0})
+    return h, err
+}
+
+// hp_of reads the hp of the enemy h names in w, or -1 when h is stale.
+func hp_of(w World, h handle[Enemy]) int64 {
+    if has(w.enemies, h) {
+        return w.enemies[h].hp
+    }
+    return -1
+}
+
+// in_struct keeps a pool in a struct: inserts through a mut parameter's
+// field, reads through a plain one, removes through the field, and
+// writes an element of it in place.
+func in_struct() bool {
+    mut w := World{enemies: make(pool[Enemy], c_allocator), turn: 0}
+    a, e1 := spawn(mut w, 7)
+    if e1.code != 0 {
+        return false
+    }
+    b, e2 := spawn(mut w, 9)
+    if e2.code != 0 {
+        return false
+    }
+    first := hp_of(w, a) == 7 && hp_of(w, b) == 9
+    remove(mut w.enemies, a)
+    w.turn +%= 1
+    return first && hp_of(w, a) == -1 && hp_of(w, b) == 9 && len(w.enemies) == 1 && w.turn == 1
+}
+
+// in_list keeps pools holding owned elements in a list, which frees them
+// all with itself.
+func in_list() bool {
+    base := live()
+    mut ps := make(list[pool[list[int64]]], c_allocator)
+    for i := range 3 {
+        mut p := make(pool[list[int64]], c_allocator)
+        _, err := insert(mut p, numbers(i +% 1))
+        if err.code != 0 {
+            return false
+        }
+        if append(mut ps, p).code != 0 {
+            return false
+        }
+    }
+    mut total := 0
+    for _, p := range ps {
+        total +%= range_owned(p)
+    }
+    drop(own ps)
+    return total == 6 && live() == base
+}
+
+// insert_both inserts a and b into p, in a generic function; on a failed
+// insert the value not yet inserted is freed with the function's end.
+func insert_both[T Any](mut p pool[T], own a T, own b T) error {
+    _, e1 := insert(mut p, a)
+    if e1.code != 0 {
+        return e1
+    }
+    _, e2 := insert(mut p, b)
+    return e2
+}
+
+// remove_if_live removes h from p when it is live, in a generic function.
+func remove_if_live[T Any](mut p pool[T], h handle[T]) bool {
+    if has(p, h) {
+        remove(mut p, h)
+        return true
+    }
+    return false
+}
+
+// live_in gives how many elements p holds, in a generic function.
+func live_in[T Any](p pool[T]) int64 {
+    return len(p)
+}
+
+// generics instantiates generic functions over pools of a copyable and
+// of an owned element type.
+func generics() bool {
+    base := live()
+    mut p := make(pool[int64], c_allocator)
+    if insert_both(mut p, 1, 2).code != 0 {
+        return false
+    }
+    h, err := insert(mut p, 3)
+    if err.code != 0 {
+        return false
+    }
+    copyable := live_in(p) == 3 && remove_if_live(mut p, h) && !remove_if_live(mut p, h) && live_in(p) == 2
+    mut q := make(pool[list[int64]], c_allocator)
+    if insert_both(mut q, numbers(2), numbers(3)).code != 0 {
+        return false
+    }
+    k, e2 := insert(mut q, numbers(4))
+    if e2.code != 0 {
+        return false
+    }
+    before := live()
+    owned := remove_if_live(mut q, k) && live() == before -% 1 && live_in(q) == 2
+    drop(own p)
+    drop(own q)
+    return copyable && owned && live() == base
+}
+
+// handle_keys uses handles as a map's keys: two live handles and a stale
+// one, each its own key.
+func handle_keys() bool {
+    mut p := make(pool[Enemy], c_allocator)
+    mut names := make(map[handle[Enemy]]int64, c_allocator)
+    a, e1 := insert(mut p, Enemy{hp: 1, seen: 0})
+    if e1.code != 0 {
+        return false
+    }
+    b, e2 := insert(mut p, Enemy{hp: 2, seen: 0})
+    if e2.code != 0 {
+        return false
+    }
+    if put(mut names, a, 10).code != 0 {
+        return false
+    }
+    if put(mut names, b, 20).code != 0 {
+        return false
+    }
+    remove(mut p, a)
+    c, e3 := insert(mut p, Enemy{hp: 3, seen: 0})
+    if e3.code != 0 {
+        return false
+    }
+    if put(mut names, c, 30).code != 0 {
+        return false
+    }
+    mut sum := 0
+    if has(names, a) {
+        sum +%= names[a]
+    }
+    if has(names, b) {
+        sum +%= names[b]
+    }
+    if has(names, c) {
+        sum +%= names[c]
+    }
+    return sum == 60 && len(names) == 3 && !has(p, a) && has(p, c)
+}
+
+// run calls f.
+func run(scope f func()) {
+    f()
+}
+
+// closures inserts, reads and removes through closures that capture a
+// mut pool, each proving its own handle inside the closure.
+func closures() bool {
+    mut p := make(pool[list[int64]], c_allocator)
+    mut z handle[list[int64]]
+    mut got := z
+    mut inserted := false
+    run(func() {
+        h, err := insert(mut p, numbers(3))
+        if err.code == 0 {
+            got = h
+            inserted = true
+        }
+    })
+    if !inserted {
+        return false
+    }
+    g := got
+    mut n := 0
+    run(func() {
+        if has(p, g) {
+            n = len(p[g])
+            if append(mut p[g], 4).code != 0 {
+                n = -1
+            }
+        }
+    })
+    mut after := 0
+    if has(p, g) {
+        after = len(p[g])
+    }
+    before := live()
+    run(func() {
+        remove(mut p, g)
+    })
+    return n == 3 && after == 4 && live() == before -% 1 && !has(p, g) && len(p) == 0
+}
+
+// closure_immutable proves a handle live in an immutable pool outside a
+// closure and reads the element inside it. Assumption: a has fact on a
+// pool declared without mut enters a closure, as facts about immutable
+// variables do; only one on a mut pool does not.
+func closure_immutable() bool {
+    mut p := make(pool[int64], c_allocator)
+    h, err := insert(mut p, 8)
+    if err.code != 0 {
+        return false
+    }
+    q := p
+    mut v := 0
+    if has(q, h) {
+        run(func() {
+            v = q[h]
+        })
+    }
+    return v == 8
+}
+
+// fill inserts two lists into p, passing on with ? the error of either
+// insert, and gives the second's handle.
+func fill(mut p pool[list[int64]], n int64) (handle[list[int64]], error) {
+    a := insert(mut p, numbers(n))?
+    b := insert(mut p, numbers(n +% 1))?
+    if has(p, a) {
+        remove(mut p, a)
+    }
+    return b, noerror
+}
+
+// question fills a pool through ?, once with every request granted and
+// once with c_allocator refusing them all, which the second fill passes
+// on as its error.
+func question() bool {
+    mut p := make(pool[list[int64]], c_allocator)
+    b, err := fill(mut p, 2)
+    if err.code != 0 {
+        return false
+    }
+    mut good := false
+    if has(p, b) {
+        good = len(p[b]) == 3 && len(p) == 1
+    }
+    mut q := make(pool[list[int64]], c_allocator)
+    fail_after(0)
+    _, err2 := fill(mut q, 2)
+    fail_after(-1)
+    return good && err2.code == 1 && len(q) == 0
+}
+
+// owning makes a pool with an owned element, then a ? returns early when
+// k is negative, which frees the pool and its element.
+func owning(k int64) (int64, error) {
+    mut p := make(pool[list[int64]], c_allocator)
+    h := insert(mut p, numbers(2))?
+    n := fallible(k)?
+    mut m := 0
+    if has(p, h) {
+        m = len(p[h])
+    }
+    return n +% m, noerror
+}
+
+func main() {
+    base := live()
+    check(insert_gives(), "insert gives handles")
+    check(extremes(), "int64 min and max stored")
+    check(write_through(), "written through a proven handle")
+    check(checked_read(), "checked form reads a live element")
+    held(base, "after reads and writes")
+    check(remove_frees(), "remove frees an owned element")
+    check(remove_moves_out(), "checked remove moves an element out")
+    held(base, "after removes")
+    check(stale_after_remove(), "stale handle fails every form")
+    check(foreign_handle(), "handle from another pool fails")
+    check(dropped_pool_handle(), "handle from a dropped pool fails")
+    check(slot_reuse(), "reused slot gives a new generation")
+    check(reuse_many(), "one slot reused many times")
+    check(zero_handle(), "zero handle fails")
+    check(empty_pool(), "empty pool")
+    held(base, "after stale handles")
+    check(insert_fails(), "insert fails out of memory")
+    check(insert_fails_keeps_elements(), "failed insert keeps the pool")
+    held(base, "after failed inserts")
+    check(ranging(), "range gives live elements")
+    check(range_proven(), "a range proves its handles live")
+    check(many(), "many inserts and removes")
+    held(base, "after many")
+    check(drop_pool(), "drop frees a pool")
+    check(moved_pool(), "moved pool")
+    held(base, "after drop and move")
+    check(in_struct(), "pool in a struct")
+    check(in_list(), "pools in a list")
+    check(generics(), "pools in generic functions")
+    check(handle_keys(), "handles as map keys")
+    held(base, "after structs and generics")
+    check(closures(), "closures over a mut pool")
+    check(closure_immutable(), "has on an immutable pool enters a closure")
+    held(base, "after closures")
+    check(question(), "? passes an insert's error on")
+    _, err := owning(-1)
+    check(err.code == 7 && live() == base, "? frees a pool it leaves")
+    n, err2 := owning(1)
+    check(err2.code == 0 && n == 3 && live() == base, "? passing keeps the pool")
+    mut p := make(pool[list[int64]], c_allocator)
+    _, e := insert(mut p, numbers(3))
+    check(e.code == 0 && live() > base, "pool held at exit")
+    exit(0)
+}

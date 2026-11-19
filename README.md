@@ -256,6 +256,34 @@ compares them with the Go backend's `Header` and its own tables.
 undefined as the build's ELF reader reads it, which porttest compares
 with the Go driver's `readSymbols`, damaged objects among them.
 
+`--port-case` and `--port-test-case` are test-only (per the owner's
+ruling, 2026-11-19): each writes one case of the test corpus exactly as
+tackc's in-process harness renders it, so that `tools/corpus` checks the
+corpus without Go (see Testing). `--port-case` builds its target as
+`--emit` does, and `--port-test-case` a package as `tack test` does.
+Each writes to standard output
+
+    stage: <stage>
+    ---
+    <output>
+
+and exits 0 whatever the stage, 1 when the driver fails and 3 when it
+declines. The stage is `ok` for a program that compiled, `codegen` when
+the backend reported anything, `load` for a loader that failed with an
+error, or a name `tack test`'s generated main clashes with, and
+otherwise the stages that reported errors, in order, joined by `+`: the
+loader's first stage that reported anything, `lex`, `parse` or `load`,
+then `resolve`, then `typeck`. The output is the generated C, as it is,
+for `ok`; the backend's diagnostics, in its order, for `codegen`; the
+loader's error and a newline, with no `tack: `, for its failure; and
+every diagnostic otherwise, sorted, with no limit on how many. For `ok`
+the warnings go to standard error. Every file is named relative to the
+current directory, the standard library's and a single file's target
+included. `--port-std <dir>` gives either flag the standard library
+in place of `$TACK_HOME`'s, as a case of the corpus with a `.std`
+directory of its own needs; it is a usage error with any other flag,
+and with an empty name.
+
 ### Known divergences from the Go compiler
 
 The port does not copy the Go compiler's bugs. Where an accepted
@@ -459,6 +487,51 @@ refreshes after a change to either. tackc's porttest fails while
 `embedded.tck` differs from what `make embed` writes, or while std's
 copies differ from `runtime/`'s.
 
+## Testing
+
+`corpus/` is the test corpus: `examples/`, the example programs with
+their six txtar archives of invalid, warned, test-build and C cases and
+their committed `tack.h` copies, and `golden/`, the goldens, each the
+stage line and the generated C of a program of `examples/`. It started
+as a copy of tackc's `examples/` and `test/testdata`, and tackc's
+porttest `TestPortFiles` keeps it equal to tackc's but for the cases
+and files it lists with their reasons: the four cases of
+`invalid.txtar` where the port diverges from Go on purpose (see Known
+divergences), and the goldens and `tack.h` copies of the programs that
+import std/os, whose externs this repository's std adds to. Its
+`tack.mod` makes it a module root only so that `tack --check .` skips
+it.
+
+    make test-corpus TACK=bin/tack
+
+builds `tools/corpus` with the compiler `TACK` names and runs it over
+the corpus with that compiler and this repository's std. It needs clang
+and coreutils, and no Go. It checks every case of every archive, every
+golden and every committed `tack.h`, as tackc's `go test ./test` checks
+its own (see `tools/corpus`'s package comment), each case one run of
+the compiler in a temporary directory, through coreutils' `timeout`,
+two minutes at most, and `env`, which sets `TACK_HOME`, `TACK_CACHE`
+and `TMPDIR`, since std/os's `run` can neither bound a child's time nor
+set its environment. A failure says which case failed and the first line
+that differs; a decline fails too. It also checks that each case of
+`invalid.txtar` and `invalid-packages.txtar`, and each program, gives
+the same output with CRLF line endings, as tackc's `TestCRLFMatchesLF`
+does. The run ends with a count, and exits 1 when anything failed. The
+temporary directory, in `$TMPDIR`, must not be below a directory that
+holds a `tack.mod`, or the cases with no module of their own would load
+as part of that one: the runner refuses such a `$TMPDIR` before it runs
+anything.
+
+    make update-corpus TACK=bin/tack
+
+rewrites, in place, each expected section, golden and `tack.h` copy
+the compiler's output differs from, as `go test ./test -update` does in
+tackc; a run that changes nothing writes nothing. Read the diff it
+leaves, line by line, before keeping it. `tack.h` is written from a
+scratch copy where `--emit-header` ran, never by running it in
+`corpus/`. tackc's porttest runs the same check, its `corpus-runner`
+stage, with the port.
+
 ## Checking against the Go compiler
 
 From tackc:
@@ -493,7 +566,8 @@ that is not there fails it, whether `TACK_PORT` names the directory or
 it is the default: a source tree without `driver/` is never skipped.
 
 `TACK_PORT_BIN` set to the Go compiler's binary runs the Go compiler
-against itself, which passes every stage, and checks the harness rather
+against itself, which passes every stage but `corpus-runner`, which it
+skips, since Go has no `--port-case`, and checks the harness rather
 than the port. The package documentation of `porttest` describes the
 protocol, the stages and the corpus in full.
 

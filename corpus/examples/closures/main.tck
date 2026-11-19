@@ -1,0 +1,765 @@
+package main
+
+import sort from "std/sort"
+import text from "std/text"
+
+// Closures. A function literal, written as Go writes one, func(a int64, b
+// int64) bool { ... }, is a closure: it reads and writes the variables of
+// the function it is written in, its captures, by reference, never as a
+// copy. A closure is second class and never escapes: it is passed only
+// to a parameter marked scope, func each(v []int64, scope f
+// func(int64)), and a scope parameter is only called or passed on to
+// another scope parameter. A plain function value may be passed to a
+// scope parameter too, so sort.by, whose less is a scope parameter, still
+// takes a named function.
+//
+// Each check runs the closure where it is called zero, one and several
+// times, and asserts what the call left behind: writes to captures seen
+// by the caller after the call and by the closure's next call, reads
+// that see the value current at each call, a return that returns from
+// the closure alone, closures nested in closures, passed through scope
+// parameters of functions, generic functions and methods. Every check
+// that allocates runs in a function of its own, and main asserts after it
+// that c_allocator's count of live buffers is back to zero: a closure
+// reading a list it captured copies and frees nothing, and one making
+// lists of its own frees them on every return. Every check prints its
+// name and "ok", or "FAIL".
+
+// live returns how many buffers c_allocator holds, in C.
+extern("closures_live") func live() int64
+
+// fail_after makes c_allocator grant the next n requests and refuse every
+// one after them, or refuse none again for a negative n, in C.
+extern("closures_fail_after") func fail_after(n int64)
+
+// check prints name and whether cond held.
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+// Any asks for no method, so a generic function below takes any type.
+type Any interface {
+}
+
+// ascending orders int64s ascending.
+func ascending(a int64, b int64) bool {
+    return a < b
+}
+
+// descending orders int64s descending.
+func descending(a int64, b int64) bool {
+    return a > b
+}
+
+// call calls f once.
+func call(scope f func()) {
+    f()
+}
+
+// never takes f and does not call it.
+func never(scope f func()) {
+}
+
+// each calls f on every element of v, in order.
+func each(v []int64, scope f func(int64)) {
+    for _, x := range v {
+        f(x)
+    }
+}
+
+// first returns the index of the first element of v that keep holds
+// for, or -1 when there is none.
+func first(v []int64, scope keep func(int64) bool) int64 {
+    for i, x := range v {
+        if keep(x) {
+            return i
+        }
+    }
+    return -1
+}
+
+// middle passes keep on to first: a scope parameter passed to another.
+func middle(v []int64, scope keep func(int64) bool) int64 {
+    return first(v, keep)
+}
+
+// outer passes keep on to middle, so it reaches first through two
+// levels of scope parameters.
+func outer(v []int64, scope keep func(int64) bool) int64 {
+    return middle(v, keep)
+}
+
+// down calls f on n, n - 1, down to 1, passing f on to itself.
+func down(n int64, scope f func(int64)) {
+    if n > 0 {
+        f(n)
+        down(n - 1, f)
+    }
+}
+
+// numbers returns a list holding the elements of v, or an empty list and
+// the error when an append fails.
+func numbers(v []int64) (list[int64], error) {
+    mut l := make(list[int64], c_allocator)
+    for _, x := range v {
+        e := append(mut l, x)
+        if e.code != 0 {
+            return make(list[int64], c_allocator), e
+        }
+    }
+    return l, noerror
+}
+
+// same reports whether l holds exactly the elements of want, in order.
+func same(l []int64, want []int64) bool {
+    if len(l) != len(want) {
+        return false
+    }
+    for i, x := range want {
+        y, ok := l[i]
+        if !ok || x != y {
+            return false
+        }
+    }
+    return true
+}
+
+// sorting sorts by closures whose order depends on what they capture: a
+// flag, a list of keys read by index, and a flag over Texts.
+func sorting() {
+    vals1 := [6]int64{5, -3, 9, 0, 9, -8}
+    mut l, e := numbers(vals1)
+    if e.code != 0 {
+        check(false, "numbers")
+        return
+    }
+    down_first := true
+    sort.by(mut l, func(a int64, b int64) bool {
+        if down_first {
+            return a > b
+        }
+        return a < b
+    })
+    vals2 := [6]int64{9, 9, 5, 0, -3, -8}
+    check(same(l, vals2), "sorted by a captured flag, descending")
+    up := false
+    sort.by(mut l, func(a int64, b int64) bool {
+        if up {
+            return a > b
+        }
+        return a < b
+    })
+    vals3 := [6]int64{-8, -3, 0, 5, 9, 9}
+    check(same(l, vals3), "sorted by a captured flag, ascending")
+
+    // idx is sorted by the keys it indexes, a list the closure captures
+    // and only reads.
+    vals4 := [4]int64{30, 10, 40, 20}
+    keys, e2 := numbers(vals4)
+    vals5 := [4]int64{0, 1, 2, 3}
+    mut idx, e3 := numbers(vals5)
+    if e2.code != 0 || e3.code != 0 {
+        check(false, "numbers")
+        return
+    }
+    sort.by(mut idx, func(a int64, b int64) bool {
+        ka, oka := keys[a]
+        kb, okb := keys[b]
+        return oka && okb && ka < kb
+    })
+    vals6 := [4]int64{1, 3, 0, 2}
+    vals7 := [4]int64{30, 10, 40, 20}
+    check(same(idx, vals6) && same(keys, vals7), "sorted by captured keys, which stay as they were")
+
+    // A named function and a local holding one still pass for less.
+    sort.by(mut l, descending)
+    vals8 := [6]int64{9, 9, 5, 0, -3, -8}
+    check(same(l, vals8), "sorted by a named function")
+    f := ascending
+    sort.by(mut l, f)
+    vals9 := [6]int64{-8, -3, 0, 5, 9, 9}
+    check(same(l, vals9), "sorted by a function value in a local")
+
+    mut ts := make(list[text.Text], c_allocator)
+    for _, w := range [4]string{"pear", "fig", "banana", "kiwi"} {
+        t, e4 := text.from_bytes([]uint8(w), c_allocator)
+        if e4.code != 0 {
+            check(false, "from_bytes")
+            return
+        }
+        e5 := append(mut ts, t)
+        if e5.code != 0 {
+            check(false, "append a Text")
+            return
+        }
+    }
+    by_length := true
+    sort.by(mut ts, func(a text.Text, b text.Text) bool {
+        if by_length {
+            return a.len() < b.len()
+        }
+        return false
+    })
+    if len(ts) != 4 {
+        check(false, "Texts sorted by length")
+        return
+    }
+    check(ts[0].equal([]uint8("fig")) && ts[3].equal([]uint8("banana")), "Texts sorted by length")
+}
+
+// counting counts calls through a mut capture, a list the closure
+// appends to, and checks every call ran once, in order, including the
+// calls sort.by makes of its less.
+func counting() {
+    mut calls := make(list[int64], c_allocator)
+    mut failed := false
+    vals10 := [4]int64{7, 8, 9, 10}
+    each(vals10, func(x int64) {
+        e := append(mut calls, x)
+        if e.code != 0 {
+            failed = true
+        }
+    })
+    vals11 := [4]int64{7, 8, 9, 10}
+    check(!failed && same(calls, vals11), "a mut capture sees every call, in order")
+
+    mut none := make(list[int64], c_allocator)
+    never(func() {
+        e := append(mut none, 1)
+        if e.code != 0 {
+            failed = true
+        }
+    })
+    check(!failed && len(none) == 0, "a closure never called writes nothing")
+
+    // The closure ignores its parameter, as a named function may.
+    mut called := false
+    vals12 := [1]int64{5}
+    each(vals12, func(x int64) {
+        called = true
+    })
+    check(called, "a closure that ignores its parameter")
+
+    vals13 := [3]int64{3, 1, 2}
+    mut l, e := numbers(vals13)
+    if e.code != 0 {
+        check(false, "numbers")
+        return
+    }
+    mut compared := make(list[int64], c_allocator)
+    sort.by(mut l, func(a int64, b int64) bool {
+        e2 := append(mut compared, a)
+        if e2.code != 0 {
+            failed = true
+        }
+        return a < b
+    })
+    vals14 := [3]int64{1, 2, 3}
+    check(!failed && same(l, vals14) && len(compared) >= 2, "sort.by's calls of a closure counted")
+}
+
+// writes checks that a write to a capture is a write to the variable
+// itself: the caller sees it after the call, the closure's next call
+// sees what the last one wrote, and a write to a mut parameter reaches
+// the caller's variable through it.
+func writes() {
+    mut last := 0
+    vals15 := [3]int64{4, 5, 6}
+    each(vals15, func(x int64) {
+        last = x
+    })
+    check(last == 6, "the caller sees the last write")
+
+    mut prev := -1
+    mut rising := true
+    vals16 := [5]int64{1, 2, 2, 3, 4}
+    each(vals16, func(x int64) {
+        if x <= prev {
+            rising = false
+        }
+        prev = x
+    })
+    check(!rising && prev == 4, "each call sees what the one before it wrote")
+
+    mut best := 0
+    vals17 := [4]int64{3, 11, -2, 7}
+    raise(mut best, vals17)
+    check(best == 11, "a closure writes a mut parameter it captured")
+
+    // The fact that i is 0 does not survive a call whose closure writes
+    // i: the checked index finds it out of range.
+    a := [3]int64{1, 2, 3}
+    mut i := 0
+    call(func() {
+        i = 7
+    })
+    v, ok := a[i]
+    check(!ok && v == 0 && i == 7, "a write in a closure is seen by an index after the call")
+}
+
+// raise sets best to the greatest of v's elements that is greater than
+// it, from a closure that captures the mut parameter best.
+func raise(mut best int64, v []int64) {
+    each(v, func(x int64) {
+        if x > best {
+            best = x
+        }
+    })
+}
+
+// returns checks that return inside a closure returns from the closure,
+// with its value, and the function the closure is written in goes on.
+func returns() {
+    v := [5]int64{1, 4, 2, 8, 5}
+    limit := 3
+    at := first(v, func(x int64) bool {
+        if x > limit {
+            return true
+        }
+        return false
+    })
+    check(at == 1, "return gives the closure's result")
+
+    mut hits := make(list[int64], c_allocator)
+    mut failed := false
+    w := [2]int64{2, 5}
+    each(v, func(x int64) {
+        for _, y := range w {
+            if y == x {
+                e := append(mut hits, x)
+                if e.code != 0 {
+                    failed = true
+                }
+                return
+            }
+        }
+        // A return here, where nothing matched, also ends only the closure.
+        return
+    })
+    vals18 := [2]int64{2, 5}
+    check(!failed && same(hits, vals18), "return leaves the closure, not the caller")
+    check(none_over(v, 9) && !none_over(v, 4), "a closure's return in a function that returns")
+}
+
+// none_over reports whether no element of v is over n: the closure's
+// return true does not return from none_over.
+func none_over(v []int64, n int64) bool {
+    at := first(v, func(x int64) bool {
+        return x > n
+    })
+    return at < 0
+}
+
+// loops checks closures over loop variables and variables a loop
+// changes: each call reads the value current when it runs, and a write in
+// the closure is seen by the loop's condition.
+func loops() {
+    mut seen := make(list[int64], c_allocator)
+    mut failed := false
+    for i := range 3 {
+        call(func() {
+            e := append(mut seen, i)
+            if e.code != 0 {
+                failed = true
+            }
+        })
+    }
+    vals19 := [3]int64{0, 1, 2}
+    check(!failed && same(seen, vals19), "a range variable read as it is at each call")
+
+    mut counted := make(list[int64], c_allocator)
+    mut j := 0
+    for j < 3 {
+        call(func() {
+            e := append(mut counted, j)
+            if e.code != 0 {
+                failed = true
+            }
+        })
+        j++
+    }
+    vals20 := [3]int64{0, 1, 2}
+    check(!failed && same(counted, vals20), "a loop counter read as it is at each call")
+
+    mut k := 0
+    mut passes := make(list[int64], c_allocator)
+    for k < 5 {
+        e := append(mut passes, k)
+        if e.code != 0 {
+            failed = true
+        }
+        call(func() {
+            k = 5
+        })
+    }
+    vals21 := [1]int64{0}
+    check(!failed && same(passes, vals21), "a closure's write ends the loop")
+
+    mut ts := make(list[text.Text], c_allocator)
+    for _, w := range [3]string{"a", "bb", "ccc"} {
+        t, e := text.from_bytes([]uint8(w), c_allocator)
+        if e.code != 0 {
+            check(false, "from_bytes")
+            return
+        }
+        e2 := append(mut ts, t)
+        if e2.code != 0 {
+            check(false, "append a Text")
+            return
+        }
+    }
+    mut lens := make(list[int64], c_allocator)
+    for _, t := range ts {
+        call(func() {
+            e := append(mut lens, t.len())
+            if e.code != 0 {
+                failed = true
+            }
+        })
+    }
+    vals22 := [3]int64{1, 2, 3}
+    check(!failed && same(lens, vals22), "an owned range element read in place")
+}
+
+// nesting checks closures inside closures: the inner one reads the outer
+// one's parameter and writes the outer function's variables, which the
+// outer closure captured, four levels down.
+func nesting() {
+    a := [3]int64{1, 2, 3}
+    b := [2]int64{2, 3}
+    mut pairs := make(list[int64], c_allocator)
+    mut failed := false
+    each(a, func(x int64) {
+        each(b, func(y int64) {
+            if x < y {
+                e := append(mut pairs, y)
+                if e.code != 0 {
+                    failed = true
+                }
+            }
+        })
+    })
+    vals23 := [3]int64{2, 3, 3}
+    check(!failed && same(pairs, vals23), "an inner closure reads the outer's parameter")
+
+    mut deepest := 0
+    vals24 := [1]int64{1}
+    each(vals24, func(p int64) {
+        vals25 := [1]int64{2}
+        each(vals25, func(q int64) {
+            vals26 := [1]int64{3}
+            each(vals26, func(r int64) {
+                vals27 := [1]int64{4}
+                each(vals27, func(s int64) {
+                    if p == 1 && q == 2 && r == 3 {
+                        deepest = s
+                    }
+                })
+            })
+        })
+    })
+    check(deepest == 4, "four closures deep")
+
+    mut order := make(list[int64], c_allocator)
+    down(3, func(n int64) {
+        e := append(mut order, n)
+        if e.code != 0 {
+            failed = true
+        }
+    })
+    vals28 := [3]int64{3, 2, 1}
+    check(!failed && same(order, vals28), "a scope parameter passed on to its own function")
+}
+
+// through passes closures through two levels of scope parameters.
+func through() {
+    v := [4]int64{5, 6, 7, 8}
+    want := 7
+    check(outer(v, func(x int64) bool {
+        return x == want
+    }) == 2, "a closure through two scope parameters")
+    check(outer(v, func(x int64) bool {
+        return x < 0
+    }) == -1, "a closure through two scope parameters that matches nothing")
+}
+
+// find returns the index of the first element of v that match holds for,
+// or -1.
+func find[T Any](v []T, scope match func(T) bool) int64 {
+    for i, x := range v {
+        if match(x) {
+            return i
+        }
+    }
+    return -1
+}
+
+// contains reports whether eq holds for x and some element of v, from a
+// closure that captures x, a value of a type parameter, and eq, a scope
+// parameter of contains.
+func contains[T Any](v []T, x T, scope eq func(T, T) bool) bool {
+    return find(v, func(y T) bool {
+        return eq(x, y)
+    }) >= 0
+}
+
+// call_twice calls f twice.
+func call_twice(scope f func()) {
+    f()
+    f()
+}
+
+// kept returns x, a value of a type parameter it was given to own, so a
+// call whose type argument is a function type taking a scope parameter
+// gets back a function value of that type.
+func kept[T Any](own x T) T {
+    return x
+}
+
+// stash appends x, a value of a type parameter, to l.
+func stash[T Any](mut l list[T], own x T) error {
+    return append(mut l, x)
+}
+
+// drain pops every element of l, last first, and passes each to f.
+func drain[T Any](mut l list[T], scope f func(T)) {
+    for len(l) > 0 {
+        x := pop(mut l)
+        f(x)
+    }
+}
+
+// generics passes closures to generic functions, over int64 and over
+// Texts, and checks a closure in a generic function's body.
+func generics() {
+    v := [4]int64{3, 1, 4, 1}
+    limit := 3
+    check(find(v, func(x int64) bool {
+        return x > limit
+    }) == 2, "a closure for a generic function's scope parameter")
+
+    mut ts := make(list[text.Text], c_allocator)
+    for _, w := range [3]string{"ab", "cd", "ef"} {
+        t, e := text.from_bytes([]uint8(w), c_allocator)
+        if e.code != 0 {
+            check(false, "from_bytes")
+            return
+        }
+        e2 := append(mut ts, t)
+        if e2.code != 0 {
+            check(false, "append a Text")
+            return
+        }
+    }
+    want := "cd"
+    check(find(ts, func(t text.Text) bool {
+        return t.equal([]uint8(want))
+    }) == 1, "a closure over Texts")
+    check(contains(v, 4, func(a int64, b int64) bool {
+        return a == b
+    }) && !contains(v, 9, func(a int64, b int64) bool {
+        return a == b
+    }), "a closure inside a generic function")
+
+    // A type argument may be a function type taking a scope parameter: its
+    // values are plain function values, which a generic function stores,
+    // returns and pops, and a closure taking one plainly is a func(T).
+    mut n := 0
+    f := kept(call)
+    f(func() { n = n +% 1 })
+    mut fs := make(list[func(scope func())], c_allocator)
+    e1 := stash(mut fs, call)
+    e2 := stash(mut fs, call_twice)
+    e3 := stash(mut fs, f)
+    if e1.code != 0 || e2.code != 0 || e3.code != 0 {
+        check(false, "stash a function value")
+        return
+    }
+    mut order := make(list[int64], c_allocator)
+    drain(mut fs, func(g func(scope func())) {
+        before := n
+        g(func() { n = n +% 10 })
+        e := append(mut order, n -% before)
+        if e.code != 0 {
+            print("FAIL\n")
+        }
+    })
+    vals := [3]int64{10, 20, 10}
+    check(n == 41 && len(fs) == 0 && same(order, vals),
+        "a type argument of a function type with a scope parameter")
+}
+
+// Bag holds numbers in a list it owns.
+type Bag struct {
+    items list[int64]
+}
+
+// each calls f on every number b holds.
+func (b Bag) each(scope f func(int64)) {
+    for _, x := range b.items {
+        f(x)
+    }
+}
+
+// add_if appends x to b when keep holds for it, and returns the error
+// append gives, or noerror.
+func (mut b Bag) add_if(x int64, scope keep func(int64) bool) error {
+    if keep(x) {
+        return append(mut b.items, x)
+    }
+    return noerror
+}
+
+// methods passes closures to a method with a plain receiver and to one
+// with a mut receiver.
+func methods() {
+    mut bag := Bag{items: make(list[int64], c_allocator)}
+    limit := 2
+    mut failed := false
+    for _, x := range [4]int64{1, 3, 2, 5} {
+        e := mut bag.add_if(x, func(n int64) bool {
+            return n > limit
+        })
+        if e.code != 0 {
+            failed = true
+        }
+    }
+    vals29 := [2]int64{3, 5}
+    check(!failed && same(bag.items, vals29), "a closure for a mut method's scope parameter")
+    mut got := make(list[int64], c_allocator)
+    bag.each(func(n int64) {
+        e := append(mut got, n)
+        if e.code != 0 {
+            failed = true
+        }
+    })
+    vals30 := [2]int64{3, 5}
+    check(!failed && same(got, vals30), "a closure for a method's scope parameter")
+}
+
+// owned checks closures that capture owned values: a list read in place
+// beside the same list passed plainly, an own parameter, a list the
+// closure replaces, and lists made inside the closure, freed on each of
+// its returns.
+func owned() {
+    vals31 := [3]int64{1, 2, 3}
+    l, e := numbers(vals31)
+    if e.code != 0 {
+        check(false, "numbers")
+        return
+    }
+    at := first(l, func(x int64) bool {
+        return x == len(l)
+    })
+    vals32 := [3]int64{1, 2, 3}
+    check(at == 2 && same(l, vals32), "a captured list read beside itself passed plainly")
+
+    vals33 := [2]int64{4, 5}
+    k, e2 := numbers(vals33)
+    if e2.code != 0 {
+        check(false, "numbers")
+        return
+    }
+    check(holds_len(own k), "a closure reads an own parameter")
+
+    vals34 := [2]int64{6, 7}
+    mut held, e3 := numbers(vals34)
+    if e3.code != 0 {
+        check(false, "numbers")
+        return
+    }
+    mut failed := false
+    call(func() {
+        vals35 := [1]int64{8}
+        fresh, e4 := numbers(vals35)
+        if e4.code != 0 {
+            failed = true
+            return
+        }
+        held = fresh
+    })
+    vals36 := [1]int64{8}
+    check(!failed && same(held, vals36), "a captured list replaced in a closure")
+
+    vals37 := [4]int64{1, 2, 3, 4}
+    each(vals37, func(x int64) {
+        mut tmp := make(list[int64], c_allocator)
+        e5 := append(mut tmp, x)
+        if e5.code != 0 {
+            failed = true
+            return
+        }
+        if x > 2 {
+            return
+        }
+        e6 := append(mut tmp, x)
+        if e6.code != 0 {
+            failed = true
+        }
+    })
+    check(!failed, "lists made in a closure")
+}
+
+// holds_len reports whether l holds its own length, from a closure that
+// captures the own parameter l.
+func holds_len(own l list[int64]) bool {
+    return first(l, func(x int64) bool {
+        return x == len(l)
+    }) < 0
+}
+
+// starved runs closures that allocate, with c_allocator refusing each
+// request in turn: whatever fails, nothing a closure made or replaced is
+// leaked or freed twice.
+func starved() {
+    for i := range 6 {
+        mut got := make(list[int64], c_allocator)
+        mut held := make(list[int64], c_allocator)
+        fail_after(i)
+        vals38 := [3]int64{1, 2, 3}
+        each(vals38, func(x int64) {
+            e := append(mut got, x)
+            if e.code != 0 {
+                return
+            }
+            vals39 := [2]int64{x, x}
+            fresh, e2 := numbers(vals39)
+            if e2.code != 0 {
+                return
+            }
+            held = fresh
+        })
+        fail_after(-1)
+        if len(got) > 3 || len(held) > 2 {
+            print("FAIL\n")
+        }
+    }
+}
+
+func main() {
+    sorting()
+    check(live() == 0, "sorting frees once")
+    counting()
+    check(live() == 0, "counting frees once")
+    writes()
+    returns()
+    check(live() == 0, "returns free once")
+    loops()
+    check(live() == 0, "loops free once")
+    nesting()
+    check(live() == 0, "nesting frees once")
+    through()
+    generics()
+    check(live() == 0, "generics free once")
+    methods()
+    check(live() == 0, "methods free once")
+    owned()
+    check(live() == 0, "owned values free once")
+    starved()
+    check(live() == 0, "nothing leaks when an allocation fails")
+}

@@ -1,0 +1,16 @@
+package main
+
+func classify(n int64) string {
+    if n < 10 {
+        return "small"
+    } else {
+        return "large"
+    }
+}
+
+func main() {
+    print(classify(3))
+    print("\n")
+    print(classify(30))
+    print("\n")
+}
