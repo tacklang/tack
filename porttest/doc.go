@@ -293,13 +293,44 @@
 // through std/os's run, and checks the child dies of SIGXFSZ; and runs
 // both compilers' --emit with standard output a file under the limit.
 // There the two leave the same bytes and neither is killed, Go's
-// runtime ignoring SIGXFSZ too, but Go exits 1 with "tack: failed to
-// write output: write /dev/stdout: file too large" and the port, a
-// known gap, exits 0 and says nothing: it writes its output through
-// std/fmt's write, which reports no error, as print does, and loses
-// the bytes past the limit, as it loses them on a full disk. The test
-// asserts the gap, so it fails once the gap is closed, and the run is
-// then to be compared with Go's whole.
+// runtime ignoring SIGXFSZ too, and both exit 1 with "tack: failed to
+// write output: write /dev/stdout: file too large": the port writes its
+// output through std/os's write_stdout and its warnings through
+// write_stderr, port-only std that returns a failed write's error (per
+// the owner's ruling, 2026-11-18), where std/fmt's write reports none.
+//
+// TestOutputWriteFailure does the same for every other output Go's
+// driver reports a failed write of, each run's wait status, standard
+// streams and files compared byte for byte: --lex, --ast, --res and
+// --check --emit to standard output, --backends appended to a file at
+// the limit, and the warnings of --emit, --res, --check, --check --emit,
+// --emit-header and --check --emit-header to standard error, where a
+// failed write leaves no tack.h behind --emit-header, as in Go; and
+// tack.h itself, cut short by the limit with the warnings on a pipe,
+// cannot write and write tack.h: file too large, the port wording it
+// from std/os's write_file_result, which names the call that failed;
+// TestEmitHeaderReadOnly does the same for an open refused in a
+// read-only directory. TestNonblockingStdout checks that a non-blocking
+// standard output, full while its reader waits, gets every byte, in
+// order, from write_stdout and from --emit, as from Go, which waits for
+// it; TestWriteFileResult checks write_file_result's op and error for
+// a write that succeeds, an open and a write that fail.
+// TestOutputBrokenPipe checks that a broken pipe on either stream ends
+// both: Go by SIGPIPE, the port with status 141, as the runtime ends a
+// process whose standard output or standard error has no reader.
+// TestStdWrite checks write_stdout and write_stderr themselves, built
+// by the port and by the reference: "File too large" past the limit,
+// their bytes in order among print's and std/fmt's, an empty write no
+// error, and status 141 on a broken pipe. A build's warnings are no case
+// of these: the port writes them just before its first clang starts,
+// where Go writes them before it builds, and under the limit the port
+// declines a build, which cannot write its temporary files.
+// TestBuildWarningsUnwritable checks, with standard error a file opened
+// for reading alone, that a build whose warnings cannot be written ends
+// as Go's does: exit 1, no clang started, --out left as it was, missing
+// or holding its old bytes and mode, and the build cache as Go leaves
+// it; TestTestWarningsUnwritable checks that tack test so ends as Go's
+// does, exit 1 with no test run.
 //
 // # Corpus
 //

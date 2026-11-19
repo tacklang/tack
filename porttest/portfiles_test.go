@@ -28,15 +28,25 @@ const portRuntimeDir = "runtime"
 var portFileDivergences = map[string]string{
 	portRuntimeDir + "/process.c": "the runtime ignores SIGXFSZ, as it does SIGPIPE, so a write " +
 		"past RLIMIT_FSIZE fails with EFBIG rather than kill the process, per the owner's " +
-		"ruling, 2026-11-15",
+		"ruling, 2026-11-15; and its comment names std/os's write_stdout and write_stderr " +
+		"among the callers of tack_stdio_failed_, per the owner's ruling, 2026-11-18",
 	portRuntimeDir + "/tack/tack.h": "tack_start_'s comment says it ignores SIGXFSZ too, per " +
-		"the owner's ruling, 2026-11-15",
+		"the owner's ruling, 2026-11-15; and tack_stdio_failed_'s names std/os's write_stdout " +
+		"and write_stderr among its callers, per the owner's ruling, 2026-11-18",
 	"src/std/include/tack/tack.h": "std's copy of the runtime header, which says tack_start_ " +
-		"ignores SIGXFSZ too, per the owner's ruling, 2026-11-15",
+		"ignores SIGXFSZ too, per the owner's ruling, 2026-11-15, and names std/os's " +
+		"write_stdout and write_stderr among tack_stdio_failed_'s callers, per the owner's " +
+		"ruling, 2026-11-18",
 	"src/std/os/os.c": "a child std/os starts gets SIGXFSZ's default action, as it gets " +
-		"SIGPIPE's, since the runtime ignores SIGXFSZ, per the owner's ruling, 2026-11-15",
+		"SIGPIPE's, since the runtime ignores SIGXFSZ, per the owner's ruling, 2026-11-15; " +
+		"and it flushes and writes standard output and standard error for write_stdout and " +
+		"write_stderr, a broken pipe there ending the process with status 141, and polls a " +
+		"full non-blocking one, per the owner's ruling, 2026-11-18",
 	"src/std/os/os.tck": "its docs say a write past RLIMIT_FSIZE is File too large and a " +
-		"child starts with SIGXFSZ's default action, per the owner's ruling, 2026-11-15",
+		"child starts with SIGXFSZ's default action, per the owner's ruling, 2026-11-15; " +
+		"and it adds write_stdout and write_stderr, which return a failed write's error and " +
+		"wait for a full non-blocking stream, and write_file_result, which names the call " +
+		"that failed, per the owner's ruling, 2026-11-18",
 }
 
 // portOnlyFiles lists the paths, relative to the port's source tree,

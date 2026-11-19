@@ -129,10 +129,12 @@ type limitedRun struct {
 //   - compiler: the port itself, as --emit writes fsizeWrite's C to its
 //     standard output, a file under the limit, is not killed, and
 //     leaves the same bytes in the file as the reference Go compiler,
-//     whose Go runtime ignores SIGXFSZ too; Go then exits 1 with
-//     "failed to write output", and the port, a known gap, exits 0
-//     with nothing on standard error, which the test asserts so that
-//     closing the gap fails it (see the package doc, File-size limit).
+//     whose Go runtime ignores SIGXFSZ too, and ends as Go does, exit 1
+//     with "failed to write output" on standard error, byte for byte:
+//     it writes its output through std/os's write_stdout, which
+//     reports the failure (per the owner's ruling, 2026-11-18). Every
+//     other output the driver reports a failed write of is checked by
+//     TestOutputWriteFailure.
 //
 // It runs only as TestPort does, with TACK_PORT_TEST=1 and -count.
 func TestFileSizeLimit(t *testing.T) {
@@ -202,18 +204,12 @@ func TestFileSizeLimit(t *testing.T) {
 		if !goRun.status.Exited() || goRun.status.ExitStatus() != 1 || string(goRun.stderr) != goErr {
 			t.Fatalf("the Go compiler: %s, want exit 1 and the standard error %q", goRun, goErr)
 		}
-		if portRun.status.Signaled() {
-			t.Errorf("the port: %s, want no death by a signal: its runtime ignores SIGXFSZ", portRun)
-		}
-		// The known gap (see the package doc, File-size limit): the port
-		// writes --emit's output through std/fmt's write, which reports
-		// no error, so it exits 0 and says nothing where Go exits 1 with
-		// "failed to write output". Once the gap is closed, these fail,
-		// and the run is compared with Go's status and standard error.
-		if !portRun.status.Exited() || portRun.status.ExitStatus() != 0 || len(portRun.stderr) != 0 {
-			t.Errorf("the port: %s, want exit 0 and nothing on standard error, "+
-				"the known gap of a failed write of its output going unreported; "+
-				"if the gap is closed, compare with the Go compiler's %s instead", portRun, goRun)
+		// The port writes --emit's output through std/os's write_stdout,
+		// which reports the failure, so it answers as Go does, byte for
+		// byte (per the owner's ruling, 2026-11-18).
+		if portRun.status != goRun.status || !bytes.Equal(portRun.stdout, goRun.stdout) ||
+			!bytes.Equal(portRun.stderr, goRun.stderr) {
+			t.Errorf("the port: %s, want the Go compiler's %s", portRun, goRun)
 		}
 		if !bytes.Equal(outs[1], outs[0]) {
 			t.Errorf("the port wrote %d bytes to its standard output, the Go compiler %d, "+
