@@ -201,23 +201,25 @@ func (mut c Checker) func_lit_type(lit Key) (types.Type, error) {
 // keeps_in_closure reports whether f, a fact in force where a closure is
 // written, stays in force in its body, Go's keepsInClosure: every
 // subject it names, and every subject of each side it carries, is a
-// variable or a parameter nothing can write (see immutable_decl).
-func (mut c Checker) keeps_in_closure(f Fact) bool {
+// variable or a parameter nothing can write (see immutable_decl). It
+// checks each fact of each side the same way, and passes on the error
+// any of those checks returns.
+func (mut c Checker) keeps_in_closure(f Fact) (bool, error) {
     if !mut c.keeps_key(f.about) || !mut c.keeps_key(f.len_of) || !mut c.keeps_key(f.at_most_len) || !mut c.keeps_key(f.at_most) || !mut c.keeps_key(f.in_map) {
-        return false
+        return false, noerror
     }
     if f.diff >= 0 {
         d, has := c.fx.diffs[f.diff]
         if has && (!mut c.keeps_key(d.x) || !mut c.keeps_key(d.y)) {
-            return false
+            return false, noerror
         }
     }
     if f.either < 0 {
-        return true
+        return true, noerror
     }
     e, has_e := c.fx.eithers[f.either]
     if !has_e {
-        return true
+        return true, noerror
     }
     for i := range e.count {
         sd, has_sd := c.fx.sides[e.first +% i]
@@ -226,12 +228,16 @@ func (mut c Checker) keeps_in_closure(f Fact) bool {
         }
         for j := range sd.count {
             g, has_g := c.fx.side_facts[sd.start +% j]
-            if has_g && !mut c.keeps_in_closure(g) {
-                return false
+            if !has_g {
+                continue
+            }
+            kept := mut c.keeps_in_closure(g)?
+            if !kept {
+                return false, noerror
             }
         }
     }
-    return true
+    return true, noerror
 }
 
 // keeps_key reports whether k, a subject a fact names, is none or one

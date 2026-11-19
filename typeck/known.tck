@@ -8,74 +8,79 @@ import types from "tack/types"
 // it, Go's ast.TypeOf: a literal's fixed type, or an integer's or a
 // float's recorded one, untyped before; a name's type a switch on a type
 // parameter narrowed it to, or its variable's or parameter's, or its
-// function's value; a conversion's or a len call's; and any other's recorded
-// type.
-func (mut c Checker) type_of(k Key) types.Type {
-    switch kind_at(c.prog.trees, k) {
-    case int_lit:
-        t := node_type_of(c.node_types, k)
-        if t == types.invalid {
-            return types.untyped_int
-        }
-        return t
-    case float_lit:
-        t := node_type_of(c.node_types, k)
-        if t == types.invalid {
-            return types.untyped_float
-        }
-        return t
-    case char_lit:
-        return types.uint8_type
-    case str_lit:
-        return types.string_type
-    case bool_lit:
-        return types.bool_type
-    case noerror_lit:
-        return types.error_type
-    case c_allocator_lit:
-        return types.allocator
-    case ident(nm):
-        nt, narrowed := c.narrowed_names[k]
-        if narrowed {
-            return nt
-        }
-        if nm.def.kind == ast.def_var || nm.def.kind == ast.def_param {
-            return decl_type_of(c.decl_types, key_of_def(nm.def))
-        }
-        if nm.def.kind == ast.def_func {
-            v, has := c.func_values[key_of_def(nm.def)]
-            if has {
-                return v
+// function's value; a conversion's or a len call's; a mut or own
+// argument's operand's; and any other's recorded type. It walks down a
+// chain of mut and own arguments in a loop.
+func (mut c Checker) type_of(start Key) types.Type {
+    mut k := start
+    for {
+        switch kind_at(c.prog.trees, k) {
+        case int_lit:
+            t := node_type_of(c.node_types, k)
+            if t == types.invalid {
+                return types.untyped_int
             }
-        }
-        return types.invalid
-    case call(cl):
-        if cl.conv != types.invalid {
-            return cl.conv
-        }
-        vc, viewed := c.view_convs[k]
-        if viewed {
-            return vc
-        }
-        t := node_type_of(c.node_types, k)
-        if t != types.invalid {
             return t
+        case float_lit:
+            t := node_type_of(c.node_types, k)
+            if t == types.invalid {
+                return types.untyped_float
+            }
+            return t
+        case char_lit:
+            return types.uint8_type
+        case str_lit:
+            return types.string_type
+        case bool_lit:
+            return types.bool_type
+        case noerror_lit:
+            return types.error_type
+        case c_allocator_lit:
+            return types.allocator
+        case ident(nm):
+            nt, narrowed := c.narrowed_names[k]
+            if narrowed {
+                return nt
+            }
+            if nm.def.kind == ast.def_var || nm.def.kind == ast.def_param {
+                return decl_type_of(c.decl_types, key_of_def(nm.def))
+            }
+            if nm.def.kind == ast.def_func {
+                v, has := c.func_values[key_of_def(nm.def)]
+                if has {
+                    return v
+                }
+            }
+            return types.invalid
+        case call(cl):
+            if cl.conv != types.invalid {
+                return cl.conv
+            }
+            vc, viewed := c.view_convs[k]
+            if viewed {
+                return vc
+            }
+            t := node_type_of(c.node_types, k)
+            if t != types.invalid {
+                return t
+            }
+            if is_len_call(c.prog.trees, c.none, k) {
+                return types.int64_type
+            }
+            fn := mut c.callee_of(k)
+            if !is_no_key(fn) && mut c.callee_result_count(fn) == 1 {
+                return mut c.call_result(k, fn, 0)
+            }
+            return types.invalid
+        case mut_arg(x):
+            k = sub(k, x)
+        case own_arg(x):
+            k = sub(k, x)
+        default:
+            return node_type_of(c.node_types, k)
         }
-        if is_len_call(c.prog.trees, c.none, k) {
-            return types.int64_type
-        }
-        fn := mut c.callee_of(k)
-        if !is_no_key(fn) && mut c.callee_result_count(fn) == 1 {
-            return mut c.call_result(k, fn, 0)
-        }
-        return types.invalid
-    case mut_arg(x):
-        return mut c.type_of(sub(k, x))
-    case own_arg(x):
-        return mut c.type_of(sub(k, x))
-    default:
-        return node_type_of(c.node_types, k)
     }
+    return types.invalid
 }
 
 // const_of returns the constant recorded in consts on the expression k,

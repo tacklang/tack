@@ -362,7 +362,7 @@ func (c Checker) guard_in_force(i int64) bool {
 // in force, last in active, Go's pushKept: in kept_at, in kept when it
 // does, and for its guard, the last, in guard_kept.
 func (mut c Checker) push_kept(f Fact) error {
-    keep := mut c.keeps_in_closure(f)
+    keep := mut c.keeps_in_closure(f)?
     append(mut c.fx.kept_at, keep)?
     if keep {
         append(mut c.fx.kept, len(c.fx.active) -% 1)?
