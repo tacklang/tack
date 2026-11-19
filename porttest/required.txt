@@ -47,3 +47,4 @@ corpus-runner
 bootstrap
 unicode-tables
 lex-probes
+install

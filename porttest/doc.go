@@ -225,6 +225,9 @@
 //     requires what it writes from the port's copy of the Unicode
 //     Character Database to be std/unicode's committed tables; it
 //     compares nothing with Go (see Unicode tables).
+//   - install runs the port's make test-install with the port as the
+//     compiler that builds it, which must pass; it compares nothing with
+//     Go (see Install).
 //
 // check-backend, check-clean and the emit stages classify their cases
 // by the stages of the backend's port each needs (see Backend stages),
@@ -1078,6 +1081,59 @@
 // and FuzzLoadDiff's seed of a module named with U+0558, which would
 // fail the comparison, that it is skipped. TestMalformed and
 // TestProbesTypes skip such an input the same way.
+//
+// # Install
+//
+// The port installs itself with no Go (decided 2026-11-19): its make
+// install builds the compiler in three stages with an existing Tack
+// compiler, which builds stage 1, stage 1 stage 2 and stage 2 stage 3,
+// fails unless stage 2 and stage 3 are the same bytes, and installs
+// stage 3, to ~/.local/bin by default; its make install-std installs
+// its std where the compiler looks for it, as this module's make
+// install-std installs the frozen one, with the same rules for
+// TACK_HOME and HOME and the same message when neither is set. It
+// differs from this module's in what it refuses, a more correct
+// divergence, accepted: a TACK_HOME, or HOME, that is not absolute,
+// "install-std: TACK_HOME must be an absolute path, not <x>", and a
+// destination inside the port's tree or holding it, symbolic links
+// resolved, "install-std: <dest> is inside this source tree, <root>" or
+// "install-std: <dest> holds this source tree, <root>", install: in
+// place of install-std: when make install runs them, where this
+// module's removes whatever its destination names, its own src/std with
+// TACK_HOME=. among them. The port's also copies std beside the old one
+// and renames it into place, so a failed copy keeps the old one, and
+// make install replaces the compiler and std together, both or neither,
+// a run ended by SIGTERM included; what a run ended by SIGKILL leaves,
+// the next run removes, putting back an old std left with nothing in
+// its place.
+//
+// The install stage, one case, runs the port's make test-install in the
+// port's source tree with the port as TACK, in a process group of its
+// own, with TMPDIR and HOME directories of the case's own and no make
+// variables inherited, and fails, showing its output, unless it passes,
+// or when it does not end within installTimeouts times a compiler run's
+// time limit. The port's tools/test-install.sh installs from copies of
+// the tree into directories below TMPDIR, twice with the port, the
+// second time with the compiler the first installed, and more with
+// stand-ins for a compiler, and runs every make and installed compiler
+// in an environment of PATH, TMPDIR and a scratch HOME alone, so it
+// writes neither to the tree nor to the real home. It checks that the
+// installed compiler is the stage the bootstrap built, that it builds
+// and runs a program importing std/fmt and passes tack test of std/hex
+// on the installed std alone, that a file deleted from src/std, or a
+// stale one, does not linger, that the installed copies of the builtins'
+// documentation and runtime header are the port's runtime/'s,
+// read-only, that every destination that would delete part of the tree
+// is refused, deleting nothing, that an install whose stages differ, or
+// a failed copy, keeps the previous install, that a BINDIR that cannot
+// be written or holds a directory named tack fails before anything is
+// built, that a BINDIR holding quotes or a backtick runs nothing, that
+// a run ended by SIGTERM or SIGKILL between its renames, through a
+// stand-in for mv, leaves or recovers both as they were, and
+// how both targets fail with HOME or TACK_HOME unset, or with a TACK
+// that is not there, before anything is written. A port that is the Go
+// compiler, byte for byte, runs the case too: the install's stage 1 is
+// then the port, and its bootstrap compares stage 2 with stage 3 alone.
 //
 // # Loading
 //
