@@ -1,0 +1,53 @@
+Run records of tack/union_methods_test.go's TestBuilt tests, written by tackc's
+porttest/rungen and completed by tools/corpus --update; see
+tools/corpus/runs.tck for the format.
+-- union-methods-passes-every-check/record --
+replaces tack/union_methods_test.go TestBuiltUnionMethodsPassesEveryCheck/0
+replaces tack/union_methods_test.go TestBuiltUnionMethodsPassesEveryCheck/1
+replaces tack/union_methods_test.go TestBuiltUnionMethodsPassesEveryCheck/2
+replaces tack/union_methods_test.go TestBuiltUnionMethodsPassesEveryCheck/3
+replaces tack/union_methods_test.go TestBuiltUnionMethodsPassesEveryCheck/s
+replaces tack/union_methods_test.go TestBuiltUnionMethodsPassesEveryCheck/z
+dir examples/union-methods
+target .
+opt 0 1 2 3 s z
+exit 0
+stdout "nothing live at the start ok\n"
+stdout "a method of a union ok\n"
+stdout "a method on a union built in place ok\n"
+stdout "a method on a case with no payload ok\n"
+stdout "a method calling another on its receiver ok\n"
+stdout "a mut method switching on its receiver ok\n"
+stdout "a mut method reassigning its receiver ok\n"
+stdout "a mut method assigning in a clause binding nothing ok\n"
+stdout "a method on an element ok\n"
+stdout "a mut method on an element ok\n"
+stdout "methods on fields ok\n"
+stdout "a method of a union holding a list ok\n"
+stdout "a mut method setting a payload ok\n"
+stdout "a mut method making a list ok\n"
+stdout "a mut method replacing a list ok\n"
+stdout "a mut method freeing a list ok\n"
+stdout "a list made from nothing ok\n"
+stdout "a mut method on a field holding a list ok\n"
+stdout "values freed ok\n"
+stdout "a bag filled ok\n"
+stdout "unions and a struct through one generic function ok\n"
+stdout "a union's method through a generic function ok\n"
+stdout "a union and a struct as two type arguments ok\n"
+stdout "a union passed on to another generic function ok\n"
+stdout "a union's mut method through a generic function ok\n"
+stdout "a union holding a list reset generically ok\n"
+stdout "a list freed through a generic function ok\n"
+stdout "a struct reset generically ok\n"
+stdout "generics freed ok\n"
+stdout "a pub method of another package's union ok\n"
+stdout "a pub mut method of another package's union ok\n"
+stdout "another package's union through its generic function ok\n"
+stdout "a union with private methods through another package's generic function ok\n"
+stdout "a union holding a list through another package ok\n"
+stdout "another package's union through a generic function here ok\n"
+stdout "a generic call inside another package with its own union ok\n"
+stdout "a list through another package's generic function ok\n"
+stdout "packages freed ok\n"
+stderr ""

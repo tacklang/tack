@@ -1,0 +1,23 @@
+Run records of tack/std_test.go's TestBuilt tests, written by tackc's
+porttest/rungen and completed by tools/corpus --update; see
+tools/corpus/runs.tck for the format.
+-- builtins-at-every-opt-level/main.tck --
+package main
+
+func main() {
+    print("a")
+    print("")
+    print("b\n")
+    exit(70000)
+}
+-- builtins-at-every-opt-level/record --
+replaces tack/std_test.go TestBuiltinsAtEveryOptLevel/-O0
+replaces tack/std_test.go TestBuiltinsAtEveryOptLevel/-O1
+replaces tack/std_test.go TestBuiltinsAtEveryOptLevel/-O2
+replaces tack/std_test.go TestBuiltinsAtEveryOptLevel/-O3
+replaces tack/std_test.go TestBuiltinsAtEveryOptLevel/-Os
+replaces tack/std_test.go TestBuiltinsAtEveryOptLevel/-Oz
+opt 0 1 2 3 s z
+exit 112
+stdout "ab\n"
+stderr ""

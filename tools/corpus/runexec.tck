@@ -1626,6 +1626,36 @@ func compare_outcome(r Runner, c Rec, level []uint8, o Outcome, report bool, mut
             return class, noerror
         }
     }
+    for _, l := range c.rec.lacks {
+        mut want := make(list[uint8], c_allocator)
+        mut got := make(list[uint8], c_allocator)
+        if l.path.equal([]uint8("stdout")) {
+            append(mut want, want_out[:]...)?
+            append(mut got, o.out...)?
+        } else if l.path.equal([]uint8("stderr")) {
+            append(mut want, want_err[:]...)?
+            append(mut got, o.err...)?
+        } else if l.path.equal([]uint8("fd3")) {
+            append(mut want, c.rec.fd3...)?
+            append(mut got, o.fd3...)?
+        } else {
+            append(mut want, c.rec.fd4...)?
+            append(mut got, o.fd4...)?
+        }
+        // The streams are compared with each $ doubled (see normalized).
+        needle := replace_all(l.data, []uint8("$"), []uint8("$$"))?
+        if bytes.index(want[:], needle[:]) >= 0 || bytes.index(got[:], needle[:]) >= 0 {
+            if report {
+                mut held := make(list[uint8], c_allocator)
+                fmt.appendf(mut held, "the record's %s or the run's holds ", l.path.bytes())?
+                conv_quote(mut held, l.data)?
+                append(mut held, []uint8(", which a lacks line rules out")...)?
+                fail_why(c, level, "%s", held[:], mut t)?
+            }
+            fc := failure_class("lacks")?
+            return fc, noerror
+        }
+    }
     mut files_why := make(list[uint8], c_allocator)
     for _, f := range o.changed {
         if len(files_why) > 0 {

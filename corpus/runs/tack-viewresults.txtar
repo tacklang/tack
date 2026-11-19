@@ -1,0 +1,17 @@
+Run records of tack/viewresults_test.go's TestBuilt tests, written by tackc's
+porttest/rungen and completed by tools/corpus --update; see
+tools/corpus/runs.tck for the format.
+-- view-results-writes-its-output/record --
+replaces tack/viewresults_test.go TestBuiltViewResultsWritesItsOutput/0
+replaces tack/viewresults_test.go TestBuiltViewResultsWritesItsOutput/1
+replaces tack/viewresults_test.go TestBuiltViewResultsWritesItsOutput/2
+replaces tack/viewresults_test.go TestBuiltViewResultsWritesItsOutput/3
+replaces tack/viewresults_test.go TestBuiltViewResultsWritesItsOutput/s
+replaces tack/viewresults_test.go TestBuiltViewResultsWritesItsOutput/z
+dir examples/view-results
+target .
+opt 0 1 2 3 s z
+lacks stdout "FAIL"
+stdout-file examples/view-results/output
+exit 0
+stderr ""

@@ -1,0 +1,71 @@
+Run records of tack/errors_test.go's TestBuilt tests, written by tackc's
+porttest/rungen and completed by tools/corpus --update; see
+tools/corpus/runs.tck for the format.
+-- errors-passes-every-check-errors/record --
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/errors/0
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/errors/1
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/errors/2
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/errors/3
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/errors/s
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/errors/z
+dir examples/errors
+opt 0 1 2 3 s z
+exit 0
+stdout "success ok\n"
+stdout "failure ok\n"
+stdout "empty ok\n"
+stdout "error alone ok\n"
+stdout "propagated ok\n"
+stdout "nested ok\n"
+stdout "three results ok\n"
+stdout "the smallest int64 divided by -1 ok\n"
+stdout "loop ok\n"
+stdout "switch on code ok\n"
+stdout "switch default ok\n"
+stdout "rebinding ok\n"
+stdout "deferred ok\n"
+stdout "sentinel ok\n"
+stdout "sentinel success ok\n"
+stdout "mutable global ok\n"
+stdout "fields and arrays ok\n"
+stdout "zero value ok\n"
+stdout "fields assigned ok\n"
+stdout "code alone decides ok\n"
+stdout "message from a slice ok\n"
+stdout "passed on unchecked ok\n"
+stdout "passed on with two values ok\n"
+stdout "checked together ok\n"
+stderr ""
+-- errors-passes-every-check-errors-module/record --
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/errors-module/0
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/errors-module/1
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/errors-module/2
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/errors-module/3
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/errors-module/s
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/errors-module/z
+dir examples/errors-module
+target .
+opt 0 1 2 3 s z
+exit 0
+stdout "parsed ok\n"
+stdout "sentinel of another package ok\n"
+stdout "propagated across packages ok\n"
+stdout "error alone ok\n"
+stderr ""
+-- errors-passes-every-check-extern-errors/record --
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/extern-errors/0
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/extern-errors/1
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/extern-errors/2
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/extern-errors/3
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/extern-errors/s
+replaces tack/errors_test.go TestBuiltErrorsPassesEveryCheck/extern-errors/z
+dir examples/extern-errors
+opt 0 1 2 3 s z
+exit 0
+stdout "no error from C ok\n"
+stdout "error from C ok\n"
+stdout "results struct ok\n"
+stdout "error to C ok\n"
+stdout "struct field through a pointer ok\n"
+stdout "variadic errors ok\n"
+stderr ""

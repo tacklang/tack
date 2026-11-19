@@ -1,0 +1,51 @@
+Run records of tack/methods_test.go's TestBuilt tests, written by tackc's
+porttest/rungen and completed by tools/corpus --update; see
+tools/corpus/runs.tck for the format.
+-- methods-passes-every-check/record --
+replaces tack/methods_test.go TestBuiltMethodsPassesEveryCheck/0
+replaces tack/methods_test.go TestBuiltMethodsPassesEveryCheck/1
+replaces tack/methods_test.go TestBuiltMethodsPassesEveryCheck/2
+replaces tack/methods_test.go TestBuiltMethodsPassesEveryCheck/3
+replaces tack/methods_test.go TestBuiltMethodsPassesEveryCheck/s
+replaces tack/methods_test.go TestBuiltMethodsPassesEveryCheck/z
+dir examples/methods
+target .
+opt 0 1 2 3 s z
+exit 0
+stdout "nothing live at the start ok\n"
+stdout "empty builder ok\n"
+stdout "write through a mut receiver ok\n"
+stdout "methods named len and append ok\n"
+stdout "several results ok\n"
+stdout "several results past the end ok\n"
+stdout "result beside an error ok\n"
+stdout "recursion, and a function of the same name ok\n"
+stdout "variadic method ok\n"
+stdout "variadic method with no values ok\n"
+stdout "spread into a variadic method ok\n"
+stdout "any parameter ok\n"
+stdout "a method calling an extern func ok\n"
+stdout "builds freed ok\n"
+stdout "defer in a method ok\n"
+stdout "error from a method ok\n"
+stdout "lines freed ok\n"
+stdout "mut receiver through a field ok\n"
+stdout "deep chain ok\n"
+stdout "array element in a field ok\n"
+stdout "mut parameter passed on as a receiver ok\n"
+stdout "chains freed ok\n"
+stdout "temporary receiver ok\n"
+stdout "literal receiver ok\n"
+stdout "array elements ok\n"
+stdout "plain receiver of an element ok\n"
+stdout "receiver first, then left to right ok\n"
+stdout "plain receiver copied before the call ok\n"
+stdout "pub methods of another package ok\n"
+stdout "lib method in the module ok\n"
+stdout "pub method of a private type ok\n"
+stdout "a list of another package through its methods ok\n"
+stdout "packages freed ok\n"
+stdout "declared in another file, before the type ok\n"
+stdout "tallies freed ok\n"
+stdout "forwarded 42 ok\n"
+stderr ""

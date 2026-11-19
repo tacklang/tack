@@ -1,0 +1,145 @@
+Run records of tack/extern_test.go's TestBuilt tests, written by tackc's
+porttest/rungen and completed by tools/corpus --update; see
+tools/corpus/runs.tck for the format.
+-- at-every-opt-level/record --
+replaces tack/extern_test.go TestBuiltAtEveryOptLevel/0
+replaces tack/extern_test.go TestBuiltAtEveryOptLevel/1
+replaces tack/extern_test.go TestBuiltAtEveryOptLevel/2
+replaces tack/extern_test.go TestBuiltAtEveryOptLevel/3
+replaces tack/extern_test.go TestBuiltAtEveryOptLevel/s
+replaces tack/extern_test.go TestBuiltAtEveryOptLevel/z
+dir examples/extern-strings
+opt 0 1 2 3 s z
+partial the test counts " ok\n" in standard output, 7 of them, which the whole standard output pinned here holds
+exit 0
+stdout "literal ok\n"
+stdout "empty ok\n"
+stdout "prefix ok\n"
+stdout "prefix past the end ok\n"
+stdout "buffer ok\n"
+stdout "size ok\n"
+stdout "global ok\n"
+stderr ""
+-- extern-any-passes-every-check/record --
+replaces tack/extern_test.go TestBuiltExternAnyPassesEveryCheck/0
+replaces tack/extern_test.go TestBuiltExternAnyPassesEveryCheck/1
+replaces tack/extern_test.go TestBuiltExternAnyPassesEveryCheck/2
+replaces tack/extern_test.go TestBuiltExternAnyPassesEveryCheck/3
+replaces tack/extern_test.go TestBuiltExternAnyPassesEveryCheck/s
+replaces tack/extern_test.go TestBuiltExternAnyPassesEveryCheck/z
+dir examples/extern-any
+opt 0 1 2 3 s z
+exit 0
+stdout "ids of bool and signed ok\n"
+stdout "ids of int64 and unsigned ok\n"
+stdout "ids of the rest ok\n"
+stdout "ids of constants ok\n"
+stdout "TACK_ANY_IS ok\n"
+stdout "every type at its edges ok\n"
+stdout "mismatches refused ok\n"
+stdout "widened by the helpers ok\n"
+stdout "counts ok\n"
+stdout "passed on from Tack ok\n"
+stdout "ids of views ok\n"
+stdout "a view read in C ok\n"
+stdout "copy alongside mut ok\n"
+stdout "evaluation order ok\n"
+stdout "in a loop condition ok\n"
+stderr ""
+-- extern-exits42/record --
+replaces tack/extern_test.go TestBuiltExternExits42
+dir examples/extern
+exit 42
+stdout "extern ok\n"
+stderr ""
+-- extern-floats-passes-every-check/record --
+replaces tack/extern_test.go TestBuiltExternFloatsPassesEveryCheck/0
+replaces tack/extern_test.go TestBuiltExternFloatsPassesEveryCheck/1
+replaces tack/extern_test.go TestBuiltExternFloatsPassesEveryCheck/2
+replaces tack/extern_test.go TestBuiltExternFloatsPassesEveryCheck/3
+replaces tack/extern_test.go TestBuiltExternFloatsPassesEveryCheck/s
+replaces tack/extern_test.go TestBuiltExternFloatsPassesEveryCheck/z
+dir examples/extern-floats
+opt 0 1 2 3 s z
+lacks stdout "FAIL"
+stdout-file examples/extern-floats/output
+exit 0
+stderr ""
+-- extern-guide/record --
+replaces tack/extern_test.go TestBuiltExternGuide
+dir examples/extern-guide
+exit 0
+stdout "ok\n"
+stderr ""
+-- extern-module-exits42/record --
+replaces tack/extern_test.go TestBuiltExternModuleExits42
+dir examples/extern-module
+target .
+exit 42
+stdout "module ok\n"
+stderr ""
+-- extern-mut-passes-every-check/record --
+replaces tack/extern_test.go TestBuiltExternMutPassesEveryCheck
+dir examples/extern-mut
+exit 0
+stdout "integer ok\n"
+stdout "struct ok\n"
+stdout "field ok\n"
+stdout "element ok\n"
+stdout "array ok\n"
+stdout "bool and a result ok\n"
+stdout "two mut parameters, C name ok\n"
+stdout "passed on to C ok\n"
+stderr ""
+-- extern-sizes-passes-every-check/record --
+replaces tack/extern_test.go TestBuiltExternSizesPassesEveryCheck
+dir examples/extern-sizes
+exit 0
+stdout "size_t result ok\n"
+stdout "uintptr_t round trip ok\n"
+stdout "struct of both types ok\n"
+stdout "array and two results ok\n"
+stdout "mut parameter ok\n"
+stdout "SIZE_MAX ok\n"
+stderr ""
+-- extern-strings-passes-every-check/record --
+replaces tack/extern_test.go TestBuiltExternStringsPassesEveryCheck
+dir examples/extern-strings
+exit 0
+stdout "literal ok\n"
+stdout "empty ok\n"
+stdout "prefix ok\n"
+stdout "prefix past the end ok\n"
+stdout "buffer ok\n"
+stdout "size ok\n"
+stdout "global ok\n"
+stderr ""
+-- extern-values-exits42/record --
+replaces tack/extern_test.go TestBuiltExternValuesExits42
+dir examples/extern-values
+exit 42
+stdout "hello from C\n"
+stderr ""
+-- extern-variadics-passes-every-check/record --
+replaces tack/extern_test.go TestBuiltExternVariadicsPassesEveryCheck
+dir examples/extern-variadics
+exit 0
+stdout "integers ok\n"
+stdout "no values ok\n"
+stdout "spread of an array and a slice ok\n"
+stdout "strings, C name ok\n"
+stdout "spread of strings ok\n"
+stdout "passed on to C ok\n"
+stderr ""
+-- extern-views-passes-every-check/record --
+replaces tack/extern_test.go TestBuiltExternViewsPassesEveryCheck
+dir examples/extern-views
+exit 0
+stdout "integers ok\n"
+stdout "empty array ok\n"
+stdout "string bytes ok\n"
+stdout "structs ok\n"
+stdout "arrays, C name ok\n"
+stdout "strings ok\n"
+stdout "passed on to C ok\n"
+stderr ""

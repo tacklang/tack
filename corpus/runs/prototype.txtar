@@ -8671,6 +8671,7 @@ arg "two words"
 env "TACK_OS_EXAMPLE=set by the test"
 env "TACK_OS_EXAMPLE_EMPTY="
 limit nofile 64
+lacks stdout "FAIL"
 stdout-file examples/os/output
 exit 0
 stderr ""

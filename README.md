@@ -805,8 +805,9 @@ cwd-empty=... stdin=... stdout=... stderr=...`, `dir`, `target`,
 `stdout-file`, `stderr-file`, `must-fail`, a line per `opt`, `cflags`, `invoke`,
 `arg` and `env`, `stdin`, `nofile <n>`, `stream` and the four ways,
 `end exit=<n> signal=<n> running=<text> ends=<n>`, `stdout`, `stderr`,
-`fd3`, `fd4`, a `want <path> <bytes>` line per file line, and a `link
-<path> <target>` line per symlink line. Every
+`fd3`, `fd4`, a `want <path> <bytes>` line per file line, a `lacks <stream>
+<bytes>` line per lacks line, and a `link <path> <target>` line per
+symlink line. Every
 string is quoted as Go's `strconv.Quote` quotes it, and every flag is
 `true` or `false`; `tools/corpus/dump.tck` defines it.
 

@@ -1,0 +1,33 @@
+Run records of tack/stdimport_test.go's TestBuilt tests, written by tackc's
+porttest/rungen and completed by tools/corpus --update; see
+tools/corpus/runs.tck for the format.
+-- std-import-at-every-opt-level-module/record --
+replaces tack/stdimport_test.go TestBuiltStdImportAtEveryOptLevel/module/O0
+replaces tack/stdimport_test.go TestBuiltStdImportAtEveryOptLevel/module/O1
+replaces tack/stdimport_test.go TestBuiltStdImportAtEveryOptLevel/module/O2
+replaces tack/stdimport_test.go TestBuiltStdImportAtEveryOptLevel/module/O3
+replaces tack/stdimport_test.go TestBuiltStdImportAtEveryOptLevel/module/Os
+replaces tack/stdimport_test.go TestBuiltStdImportAtEveryOptLevel/module/Oz
+dir examples/std-import
+target .
+opt 0 1 2 3 s z
+exit 42
+stdout "std ok\n"
+stdout "\n"
+stdout "two\n"
+stdout "lines\n"
+stdout "hello, tack\n"
+stdout "ie\n"
+stderr ""
+-- std-import-at-every-opt-level-single-file/record --
+replaces tack/stdimport_test.go TestBuiltStdImportAtEveryOptLevel/single_file/O0
+replaces tack/stdimport_test.go TestBuiltStdImportAtEveryOptLevel/single_file/O1
+replaces tack/stdimport_test.go TestBuiltStdImportAtEveryOptLevel/single_file/O2
+replaces tack/stdimport_test.go TestBuiltStdImportAtEveryOptLevel/single_file/O3
+replaces tack/stdimport_test.go TestBuiltStdImportAtEveryOptLevel/single_file/Os
+replaces tack/stdimport_test.go TestBuiltStdImportAtEveryOptLevel/single_file/Oz
+dir examples/std-import-file
+opt 0 1 2 3 s z
+exit 0
+stdout "single file ok\n"
+stderr ""

@@ -192,6 +192,14 @@ stderr ""
 exit 0
 stdout "WRONG\n"
 stdout-file examples/hello/main.tck
+-- dir-dot/class --
+path
+-- dir-dot/record --
+selfcheck a record every reader must reject
+dir .
+stdout ""
+stderr ""
+exit 0
 -- empty-dir-then-set/class --
 empty
 -- empty-dir-then-set/record --
@@ -310,6 +318,79 @@ stdout ""
 stderr ""
 exit 0
 file+ "x"
+-- lacks-bad-stream/class --
+stream
+-- lacks-bad-stream/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+lacks stdin "x"
+exit 0
+-- lacks-empty-bytes/class --
+empty
+-- lacks-empty-bytes/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+lacks stdout ""
+exit 0
+-- lacks-fd3-not-captured/class --
+conflict
+-- lacks-fd3-not-captured/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+lacks fd3 "x"
+exit 0
+-- lacks-merged-stderr/class --
+conflict
+-- lacks-merged-stderr/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stream stderr merged
+lacks stderr "x"
+exit 0
+-- lacks-no-bytes/class --
+stream
+-- lacks-no-bytes/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+lacks stdout
+exit 0
+-- lacks-repeated/class --
+repeated
+-- lacks-repeated/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+lacks stdout "x"
+lacks stdout "x"
+exit 0
+-- lacks-trailing/class --
+quote
+-- lacks-trailing/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+lacks stdout "x" y
+exit 0
+-- lacks-unquoted/class --
+quote
+-- lacks-unquoted/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+lacks stdout x
+exit 0
 -- missing-both-streams/class --
 missing
 -- missing-both-streams/record --
@@ -1041,6 +1122,15 @@ dir examples/hello
 stdout ""
 stderr ""
 exit
+-- target-dot-dot/class --
+path
+-- target-dot-dot/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+target ..
+exit 0
 -- unknown-keyword/class --
 unknown
 -- unknown-keyword/record --

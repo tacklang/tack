@@ -45,7 +45,8 @@ import utf8 from "std/utf8"
 //     or of the whole directory of examples/ dir is below, so nothing one
 //     record writes reaches another;
 //   - target <path>: what the compiler builds, a clean path from dir,
-//     cmd/lex for one: main.tck when there is no target line;
+//     cmd/lex for one, or ., dir itself, a package's directory: main.tck
+//     when there is no target line;
 //   - opt <level>...: the optimization levels, each of 0 1 2 3 s z once:
 //     the program is built at each, given as -O<level>, and each build
 //     run and checked on its own against the same expectations;
@@ -87,7 +88,9 @@ import utf8 from "std/utf8"
 //     exit, it ended with another status or signal; still-running, it
 //     ended before it was to be stopped; did-not-end, it was still
 //     running when it was to end; stdout, stderr, fd3 and fd4, the
-//     stream differs, or a file stream's pipe got bytes; files, a file
+//     stream differs, or a file stream's pipe got bytes; lacks, a
+//     stream, or what the record says it must hold, holds bytes a lacks
+//     line names; files, a file
 //     line's file differs, is missing, a file not named changed or went,
 //     or a symbolic link no symlink line names is there; --update leaves such a record as it is;
 //   - cwd empty: the compiler of a record with invoke lines runs in an
@@ -141,6 +144,11 @@ import utf8 from "std/utf8"
 //     stream; a merged stderr holds nothing of its own; every record pins
 //     both streams, an empty one with stdout "" or stderr "", but
 //     --update, which writes them;
+//   - lacks <stream> <quoted>: bytes that stdout, stderr, fd3 or fd4,
+//     a captured one, neither holds when the run ends nor is to hold by
+//     the record's own expectation, its quoted bytes or its file, as the
+//     Go tests' guard that an example's output file holds no FAIL; each
+//     line once, of a stream with bytes of its own, not a merged stderr;
 //   - file <quoted> <quoted>, then file+ <quoted> lines, each appending to
 //     it: a file, by its path below the directory the program or compiler
 //     runs in, named once, and its bytes: the files of that directory that
@@ -237,6 +245,7 @@ type Record struct {
     fd4 list[uint8]
     files list[CaseFile]
     links list[CaseFile]
+    lacks list[CaseFile]
     open_path text.Text
     open_data list[uint8]
     has_open bool
@@ -295,6 +304,7 @@ func new_record() Record {
         fd4: make(list[uint8], c_allocator),
         files: make(list[CaseFile], c_allocator),
         links: make(list[CaseFile], c_allocator),
+        lacks: make(list[CaseFile], c_allocator),
         open_path: text.new(c_allocator),
         open_data: make(list[uint8], c_allocator),
         has_open: false,
@@ -447,7 +457,7 @@ func is_flag(f []uint8) bool {
 // failure_classes are the classes of the ways a run can fail, in the
 // order the runner checks them, the first one found being the run's;
 // must-fail names one. A run the runner cannot set up has none.
-var failure_classes = [15]string{"build", "build-tmpdir", "outlived", "cwd", "src-changed", "run-root", "tmpdir", "exit", "still-running", "did-not-end", "stdout", "stderr", "fd3", "fd4", "files"}
+var failure_classes = [16]string{"build", "build-tmpdir", "outlived", "cwd", "src-changed", "run-root", "tmpdir", "exit", "still-running", "did-not-end", "stdout", "stderr", "fd3", "fd4", "lacks", "files"}
 
 // is_failure_class reports whether s is one of failure_classes.
 func is_failure_class(s []uint8) bool {
@@ -599,14 +609,14 @@ func record_line(name []uint8, key []uint8, rest []uint8, k int64, mut rec Recor
         if !once {
             return record_problem(mut problem, name, k, "repeated", "a keyword that is given once at most is repeated")
         }
-        if !is_clean_path(rest) || is_word(key, "dir") && !bytes.has_prefix(rest, []uint8("examples/")) {
-            return record_problem(mut problem, name, k, "path", "want a clean relative path, below examples/ for dir")
+        if !(is_clean_path(rest) || is_word(key, "target") && is_word(rest, ".")) || is_word(key, "dir") && !bytes.has_prefix(rest, []uint8("examples/")) {
+            return record_problem(mut problem, name, k, "path", "want a clean relative path, below examples/ for dir, or . for target")
         }
         return noerror
     }
     if is_word(key, "must-fail") {
         if !is_failure_class(rest) {
-            return record_problem(mut problem, name, k, "failure", "must-fail takes one of the failure classes: build, build-tmpdir, outlived, cwd, src-changed, run-root, tmpdir, exit, still-running, did-not-end, stdout, stderr, fd3, fd4 and files")
+            return record_problem(mut problem, name, k, "failure", "must-fail takes one of the failure classes: build, build-tmpdir, outlived, cwd, src-changed, run-root, tmpdir, exit, still-running, did-not-end, stdout, stderr, fd3, fd4, lacks and files")
         }
         once := set_once(mut rec.must_fail, rest)?
         if !once {
@@ -629,6 +639,9 @@ func record_line(name []uint8, key []uint8, rest []uint8, k int64, mut rec Recor
     }
     if is_word(key, "stream") {
         return stream_line(name, rest, k, mut rec, mut problem)
+    }
+    if is_word(key, "lacks") {
+        return lacks_line(name, rest, k, mut rec, mut problem)
     }
     if is_word(key, "arg") || is_word(key, "env") || is_word(key, "invoke") {
         mut b := make(list[uint8], c_allocator)
@@ -844,6 +857,46 @@ func stream_line(name []uint8, rest []uint8, k int64, mut rec Record, mut proble
     return noerror
 }
 
+// lacks_line reads rest, the operands of the lacks line numbered k of the
+// record of the case named name, a stream and quoted bytes, into rec, or
+// reports in problem why it cannot.
+func lacks_line(name []uint8, rest []uint8, k int64, mut rec Record, mut problem list[uint8]) error {
+    sp := bytes.index_byte(rest, ' ')
+    if sp <= 0 {
+        return record_problem(mut problem, name, k, "stream", "lacks takes a stream and quoted bytes")
+    }
+    // sp is an index of rest.
+    mut stream := make(list[uint8], c_allocator)
+    append(mut stream, part(rest, 0, sp)...)?
+    if !(is_word(stream[:], "stdout") || is_word(stream[:], "stderr") || is_word(stream[:], "fd3") || is_word(stream[:], "fd4")) {
+        return record_problem(mut problem, name, k, "stream", "lacks takes stdout, stderr, fd3 or fd4")
+    }
+    mut b := make(list[uint8], c_allocator)
+    ok := quoted_operand(part(rest, sp +% 1, len(rest)), mut b)?
+    if !ok {
+        return record_problem(mut problem, name, k, "quote", "lacks takes a stream and quoted bytes")
+    }
+    if len(b) == 0 {
+        return record_problem(mut problem, name, k, "empty", "lacks takes bytes, none of them missing")
+    }
+    for _, l := range rec.lacks {
+        if l.path.equal(stream[:]) && bytes.equal(l.data, b[:]) {
+            return record_problem(mut problem, name, k, "repeated", "a lacks line is given once at most")
+        }
+    }
+    return append(mut rec.lacks, CaseFile{path: text.from_bytes(stream[:], c_allocator)?, data: b})
+}
+
+// lacks_stream reports whether a lacks line of rec names the stream s.
+func lacks_stream(rec Record, s string) bool {
+    for _, l := range rec.lacks {
+        if l.path.equal([]uint8(s)) {
+            return true
+        }
+    }
+    return false
+}
+
 // stream_mode sets the way of the descriptor fd to how in rec, and
 // reports whether fd is one and how a way it can be, and whether it was
 // not set yet.
@@ -901,6 +954,9 @@ func record_whole(name []uint8, has_files bool, rec Record, mut problem list[uin
     }
     if len(rec.fd3) > 0 && !rec.fd3_mode.equal([]uint8("capture")) || len(rec.fd4) > 0 && !rec.fd4_mode.equal([]uint8("capture")) {
         return whole_problem(mut problem, name, "conflict", "fd3 and fd4 bytes need the stream captured")
+    }
+    if lacks_stream(rec, "fd3") && !rec.fd3_mode.equal([]uint8("capture")) || lacks_stream(rec, "fd4") && !rec.fd4_mode.equal([]uint8("capture")) || lacks_stream(rec, "stderr") && merged {
+        return whole_problem(mut problem, name, "conflict", "a lacks line is of a stream the run captures and that holds bytes of its own")
     }
     if rec.empty_cwd && len(rec.invoke) == 0 {
         return whole_problem(mut problem, name, "conflict", "cwd empty is for a record that invokes the compiler; a program always runs in an empty directory")

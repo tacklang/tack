@@ -93,6 +93,22 @@ exit 0
 stdout "hi\n"
 stderr ""
 fd4 "nothing\n"
+-- class-lacks/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+// main prints a line with FAIL in it.
+func main() {
+    fmt.printf("check FAIL\n")
+}
+-- class-lacks/record --
+selfcheck the program prints FAIL, which its record expects and a lacks line rules out
+must-fail lacks
+lacks stdout "FAIL"
+exit 0
+stdout "check FAIL\n"
+stderr ""
 -- class-run-root/main.tck --
 package main
 

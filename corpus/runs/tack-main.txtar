@@ -1,0 +1,885 @@
+Run records of tack/main_test.go's TestBuilt tests, written by tackc's
+porttest/rungen and completed by tools/corpus --update; see
+tools/corpus/runs.tck for the format.
+-- any-switch-writes-its-output/record --
+replaces tack/main_test.go TestBuiltAnySwitchWritesItsOutput/0
+replaces tack/main_test.go TestBuiltAnySwitchWritesItsOutput/1
+replaces tack/main_test.go TestBuiltAnySwitchWritesItsOutput/2
+replaces tack/main_test.go TestBuiltAnySwitchWritesItsOutput/3
+replaces tack/main_test.go TestBuiltAnySwitchWritesItsOutput/s
+replaces tack/main_test.go TestBuiltAnySwitchWritesItsOutput/z
+dir examples/any-switch
+opt 0 1 2 3 s z
+lacks stdout "FAIL"
+stdout-file examples/any-switch/output
+exit 0
+stderr ""
+-- any-views-writes-its-output/record --
+replaces tack/main_test.go TestBuiltAnyViewsWritesItsOutput/0
+replaces tack/main_test.go TestBuiltAnyViewsWritesItsOutput/1
+replaces tack/main_test.go TestBuiltAnyViewsWritesItsOutput/2
+replaces tack/main_test.go TestBuiltAnyViewsWritesItsOutput/3
+replaces tack/main_test.go TestBuiltAnyViewsWritesItsOutput/s
+replaces tack/main_test.go TestBuiltAnyViewsWritesItsOutput/z
+dir examples/any-views
+opt 0 1 2 3 s z
+lacks stdout "FAIL"
+stdout-file examples/any-views/output
+exit 0
+stderr ""
+-- arithmetic-ranges-passes-every-check/record --
+replaces tack/main_test.go TestBuiltArithmeticRangesPassesEveryCheck
+dir examples/arithmetic-ranges
+exit 0
+stdout "-(v + 1) to uint64 under v < 0 ok\n"
+stdout "a[i + 1] of an array ok\n"
+stdout "a[i + 1] of a view under i < len(a) - 1 ok\n"
+stdout "a[2*i] and a[2*i + 1] ok\n"
+stdout "a divisor x - 5 under x > 5 ok\n"
+stdout "a[i + j] under bounds on both ok\n"
+stdout "s[len(s) - 1] under len(s) > 0 ok\n"
+stdout "s[i : i + 1] under i < len(s) ok\n"
+stdout "fields of an immutable parameter ok\n"
+stdout "a[u - 1] of a uint64 ok\n"
+stdout "b * 2 - 1 to int8 ok\n"
+stdout "n * 4 to unsafe_size_t ok\n"
+stdout "a[-(i - 3)] ok\n"
+stdout "t[:len(s)] under len(s) <= len(t) ok\n"
+stdout "\"abc\"[:len(w)] under len(w) <= 3 ok\n"
+stderr ""
+-- arrays-exits29/record --
+replaces tack/main_test.go TestBuiltArraysExits29
+dir examples/arrays
+exit 29
+stdout ""
+stderr ""
+-- blank-exits62/record --
+replaces tack/main_test.go TestBuiltBlankExits62
+dir examples/blank
+exit 62
+stdout ""
+stderr ""
+-- block-comments-passes-every-check/record --
+replaces tack/main_test.go TestBuiltBlockCommentsPassesEveryCheck
+dir examples/block-comments
+exit 0
+stdout "between operands ok\n"
+stdout "a comment spanning lines ends a statement ok\n"
+stdout "a comment on one line before a newline ok\n"
+stdout "a comment spanning lines acts as a newline ok\n"
+stdout "inside an argument list ok\n"
+stdout "spanning lines after a comma ok\n"
+stdout "after a division ok\n"
+stdout "slashes inside a block comment ok\n"
+stdout "slash-star inside a line comment ok\n"
+stdout "empty comments ok\n"
+stdout "nested three deep ok\n"
+stderr ""
+-- bools-prints-and-exits9/record --
+replaces tack/main_test.go TestBuiltBoolsPrintsAndExits9
+dir examples/bools
+exit 9
+stdout "bools\n"
+stderr ""
+-- bytes-passes-every-check/record --
+replaces tack/main_test.go TestBuiltBytesPassesEveryCheck/0
+replaces tack/main_test.go TestBuiltBytesPassesEveryCheck/1
+replaces tack/main_test.go TestBuiltBytesPassesEveryCheck/2
+replaces tack/main_test.go TestBuiltBytesPassesEveryCheck/3
+replaces tack/main_test.go TestBuiltBytesPassesEveryCheck/s
+replaces tack/main_test.go TestBuiltBytesPassesEveryCheck/z
+dir examples/bytes
+opt 0 1 2 3 s z
+lacks stdout "FAIL"
+stdout-file examples/bytes/output
+exit 0
+stderr ""
+-- chars-exits97/record --
+replaces tack/main_test.go TestBuiltCharsExits97
+dir examples/chars
+exit 97
+stdout ""
+stderr ""
+-- comments-exits37/record --
+replaces tack/main_test.go TestBuiltCommentsExits37
+dir examples/comments
+exit 37
+stdout ""
+stderr ""
+-- compound-exits14/record --
+replaces tack/main_test.go TestBuiltCompoundExits14
+dir examples/compound
+exit 14
+stdout ""
+stderr ""
+-- computed-globals-exits42/record --
+replaces tack/main_test.go TestBuiltComputedGlobalsExits42
+dir examples/computed-globals
+exit 42
+stdout ""
+stderr ""
+-- condition-writes-passes-every-check/record --
+replaces tack/main_test.go TestBuiltConditionWritesPassesEveryCheck
+dir examples/condition-writes
+exit 0
+stdout "written before && proves ok\n"
+stdout "written before || proves ok\n"
+stdout "written after the use ok\n"
+stdout "branch that leaves not taken ok\n"
+stdout "branch that leaves taken ok\n"
+stdout "case that leaves not taken ok\n"
+stdout "case that leaves taken ok\n"
+stdout "loop condition writes then proves ok\n"
+stderr ""
+-- conv-passes-every-check/record --
+replaces tack/main_test.go TestBuiltConvPassesEveryCheck/0
+replaces tack/main_test.go TestBuiltConvPassesEveryCheck/1
+replaces tack/main_test.go TestBuiltConvPassesEveryCheck/2
+replaces tack/main_test.go TestBuiltConvPassesEveryCheck/3
+replaces tack/main_test.go TestBuiltConvPassesEveryCheck/s
+replaces tack/main_test.go TestBuiltConvPassesEveryCheck/z
+dir examples/conv
+opt 0 1 2 3 s z
+lacks stdout "FAIL"
+stdout-file examples/conv/output
+exit 0
+stderr ""
+-- conversion-facts-passes-every-check/record --
+replaces tack/main_test.go TestBuiltConversionFactsPassesEveryCheck
+dir examples/conversion-facts
+exit 4
+stdout "int64 to uint64 under v > 0 ok\n"
+stdout "int64 to uint64 past an early exit ok\n"
+stdout "uint64 to int64 ok\n"
+stdout "int64 to int32 ok\n"
+stdout "int64 to int8 ok\n"
+stdout "int64 to uint8 ok\n"
+stdout "uint64 to uint32 ok\n"
+stdout "int32 to uint32 ok\n"
+stdout "uint32 to int32 ok\n"
+stdout "int8 to uint8 and back ok\n"
+stdout "a counting loop ok\n"
+stdout "a range over 256 ok\n"
+stdout "a range over a string ok\n"
+stdout "switch cases ok\n"
+stdout "a default after a case that leaves ok\n"
+stdout "a contract ok\n"
+stdout "a relation ok\n"
+stdout "a field of an immutable parameter ok\n"
+stdout "a branch that writes and continues ok\n"
+stdout "deferred code ok\n"
+stdout "the checked form where the plain one is proven ok\n"
+stdout "int64 to unsafe_size_t ok\n"
+stdout "unsafe_size_t to uint32 and unsafe_uintptr_t ok\n"
+stderr ""
+-- defer-loops-exits42/record --
+replaces tack/main_test.go TestBuiltDeferLoopsExits42
+dir examples/defer-loops
+exit 42
+stdout ""
+stderr ""
+-- defer-prints-and-exits42/record --
+replaces tack/main_test.go TestBuiltDeferPrintsAndExits42
+dir examples/defer
+exit 42
+stdout "a\n"
+stdout "b\n"
+stdout "c\n"
+stderr ""
+-- division-exits46/record --
+replaces tack/main_test.go TestBuiltDivisionExits46
+dir examples/division
+exit 46
+stdout ""
+stderr ""
+-- ensures-module-passes-every-check/record --
+replaces tack/main_test.go TestBuiltEnsuresModulePassesEveryCheck
+dir examples/ensures-module
+target .
+exit 0
+stdout "a result read after another package's check ok\n"
+stdout "an index another package proved ok\n"
+stderr ""
+-- ensures-passes-every-check/record --
+replaces tack/main_test.go TestBuiltEnsuresPassesEveryCheck
+dir examples/ensures
+exit 0
+stdout "must ok\n"
+stdout "checked as a value ok\n"
+stdout "must in a loop ok\n"
+stdout "nonzero ok\n"
+stdout "fix through mut ok\n"
+stdout "fix leaves a nonzero value ok\n"
+stdout "a contract proven by a call's ok\n"
+stdout "the same variable as mut and as a copy ok\n"
+stdout "a parameter of the caller ok\n"
+stdout "inside a list ok\n"
+stdout "below a length stored ok\n"
+stdout "ordered slice bounds ok\n"
+stdout "room, chained through y := x + 1 ok\n"
+stdout "grow ok\n"
+stdout "grow then pop ok\n"
+stdout "need ok\n"
+stdout "recursive ok\n"
+stdout "generic ok\n"
+stdout "method on its receiver ok\n"
+stdout "deferred code ran, the fact held ok\n"
+stdout "a return's call proves the contract ok\n"
+stdout "an interface parameter's function ok\n"
+stdout "a mut receiver's method ok\n"
+stderr ""
+-- equal-operands-exits23/record --
+replaces tack/main_test.go TestBuiltEqualOperandsExits23
+dir examples/equal-operands
+exit 23
+stdout ""
+stderr ""
+-- exit-leaves-passes-every-check/record --
+replaces tack/main_test.go TestBuiltExitLeavesPassesEveryCheck
+dir examples/exit-leaves
+exit 7
+stdout "divide ok\n"
+stdout "dividing\n"
+stdout "an else ending in exit ok\n"
+stdout "an index proven by an exit ok\n"
+stdout "a key proven by an exit ok\n"
+stdout "a switch ending in exit ends the function ok\n"
+stdout "an if ending in exit and return ends the function ok\n"
+stdout "a result read after an exit on its error ok\n"
+stdout "a divisor proven by an exit in a loop ok\n"
+stdout "a case ending in exit ok\n"
+stdout "failing\n"
+stderr ""
+-- failure-passes-every-check/record --
+replaces tack/main_test.go TestBuiltFailurePassesEveryCheck/0
+replaces tack/main_test.go TestBuiltFailurePassesEveryCheck/1
+replaces tack/main_test.go TestBuiltFailurePassesEveryCheck/2
+replaces tack/main_test.go TestBuiltFailurePassesEveryCheck/3
+replaces tack/main_test.go TestBuiltFailurePassesEveryCheck/s
+replaces tack/main_test.go TestBuiltFailurePassesEveryCheck/z
+dir examples/failure
+opt 0 1 2 3 s z
+lacks stdout "FAIL"
+stdout-file examples/failure/output
+exit 0
+stderr ""
+-- fib-exits55/record --
+replaces tack/main_test.go TestBuiltFibExits55
+dir examples/fib
+exit 55
+stdout ""
+stderr ""
+-- field-facts-passes-every-check/record --
+replaces tack/main_test.go TestBuiltFieldFactsPassesEveryCheck
+dir examples/field-facts
+exit 0
+stdout "field divisor ok\n"
+stdout "field index after an early exit ok\n"
+stdout "field of a field ok\n"
+stdout "element of an array field ok\n"
+stdout "string field length ok\n"
+stdout "range over a string field ok\n"
+stdout "switch on a field ok\n"
+stdout "field of an immutable local ok\n"
+stdout "field of an immutable global ok\n"
+stdout "field guard around a defer ok\n"
+stdout "field guard around a defer, not taken ok\n"
+stdout "mut elements apart by field facts ok\n"
+stderr ""
+-- float-conversions-passes-every-check/record --
+replaces tack/main_test.go TestBuiltFloatConversionsPassesEveryCheck/0
+replaces tack/main_test.go TestBuiltFloatConversionsPassesEveryCheck/1
+replaces tack/main_test.go TestBuiltFloatConversionsPassesEveryCheck/2
+replaces tack/main_test.go TestBuiltFloatConversionsPassesEveryCheck/3
+replaces tack/main_test.go TestBuiltFloatConversionsPassesEveryCheck/s
+replaces tack/main_test.go TestBuiltFloatConversionsPassesEveryCheck/z
+dir examples/float-conversions
+opt 0 1 2 3 s z
+lacks stdout "FAIL"
+stdout-file examples/float-conversions/output
+exit 0
+stderr ""
+-- float-format-passes-every-check/record --
+replaces tack/main_test.go TestBuiltFloatFormatPassesEveryCheck/0
+replaces tack/main_test.go TestBuiltFloatFormatPassesEveryCheck/1
+replaces tack/main_test.go TestBuiltFloatFormatPassesEveryCheck/2
+replaces tack/main_test.go TestBuiltFloatFormatPassesEveryCheck/3
+replaces tack/main_test.go TestBuiltFloatFormatPassesEveryCheck/s
+replaces tack/main_test.go TestBuiltFloatFormatPassesEveryCheck/z
+dir examples/float-format
+opt 0 1 2 3 s z
+lacks stdout "FAIL"
+stdout-file examples/float-format/output
+exit 0
+stderr ""
+-- floats-passes-every-check/record --
+replaces tack/main_test.go TestBuiltFloatsPassesEveryCheck/0
+replaces tack/main_test.go TestBuiltFloatsPassesEveryCheck/1
+replaces tack/main_test.go TestBuiltFloatsPassesEveryCheck/2
+replaces tack/main_test.go TestBuiltFloatsPassesEveryCheck/3
+replaces tack/main_test.go TestBuiltFloatsPassesEveryCheck/s
+replaces tack/main_test.go TestBuiltFloatsPassesEveryCheck/z
+dir examples/floats
+opt 0 1 2 3 s z
+lacks stdout "FAIL"
+stdout-file examples/floats/output
+exit 0
+stderr ""
+-- fmt-exit-flushes-both-streams/record --
+replaces tack/main_test.go TestBuiltFmtExitFlushesBothStreams/0
+replaces tack/main_test.go TestBuiltFmtExitFlushesBothStreams/1
+replaces tack/main_test.go TestBuiltFmtExitFlushesBothStreams/2
+replaces tack/main_test.go TestBuiltFmtExitFlushesBothStreams/3
+replaces tack/main_test.go TestBuiltFmtExitFlushesBothStreams/s
+replaces tack/main_test.go TestBuiltFmtExitFlushesBothStreams/z
+dir examples/fmt-exit
+opt 0 1 2 3 s z
+stdout-file examples/fmt-exit/output
+stderr-file examples/fmt-exit/stderr
+exit 3
+-- indexing-exits70/record --
+replaces tack/main_test.go TestBuiltIndexingExits70
+dir examples/indexing
+exit 70
+stdout ""
+stderr ""
+-- int-literals-passes-every-check/record --
+replaces tack/main_test.go TestBuiltIntLiteralsPassesEveryCheck
+dir examples/int-literals
+exit 0
+stdout "hexadecimal ok\n"
+stdout "binary ok\n"
+stdout "octal ok\n"
+stdout "separators ok\n"
+stdout "a typed global ok\n"
+stdout "the largest int64 ok\n"
+stdout "the smallest int64 ok\n"
+stdout "the largest uint64 ok\n"
+stdout "zero and a byte ok\n"
+stderr ""
+-- leaving-writes-passes-every-check/record --
+replaces tack/main_test.go TestBuiltLeavingWritesPassesEveryCheck
+dir examples/leaving-writes
+exit 3
+stdout "a branch that writes and continues ok\n"
+stdout "a branch that writes and breaks ok\n"
+stdout "a branch that writes and returns ok\n"
+stdout "a branch that writes and exits ok\n"
+stdout "an else that writes and returns ok\n"
+stdout "a nested branch that writes and returns ok\n"
+stdout "cases that write and leave ok\n"
+stdout "a switch on a byte whose cases write and leave ok\n"
+stdout "a branch that passes mut and returns ok\n"
+stdout "a branch that appends and returns ok\n"
+stdout "a branch that writes and breaks a loop after the early exit ok\n"
+stdout "a branch that writes and breaks after the read ok\n"
+stdout "a branch in a loop that writes and returns ok\n"
+stdout "a return against a loop's brace past a branch that breaks ok\n"
+stdout "a body's end against the brace of an if whose branch exits ok\n"
+stdout "a return right before an if or a loop that writes ok\n"
+stdout "a use past an inner branch that returns ok\n"
+stdout "a use in a loop past a branch that breaks around one that continues ok\n"
+stdout "a use after a loop whose branch returns ok\n"
+stdout "a use past a branch ending in an if that leaves ok\n"
+stdout "a use past an inner branch ending in an if that leaves ok\n"
+stdout "a use past a branch ending in a switch with its default first ok\n"
+stderr ""
+-- list-equality-passes-every-check/record --
+replaces tack/main_test.go TestBuiltListEqualityPassesEveryCheck/0
+replaces tack/main_test.go TestBuiltListEqualityPassesEveryCheck/1
+replaces tack/main_test.go TestBuiltListEqualityPassesEveryCheck/2
+replaces tack/main_test.go TestBuiltListEqualityPassesEveryCheck/3
+replaces tack/main_test.go TestBuiltListEqualityPassesEveryCheck/s
+replaces tack/main_test.go TestBuiltListEqualityPassesEveryCheck/z
+dir examples/list-equality
+opt 0 1 2 3 s z
+lacks stdout "FAIL"
+stdout-file examples/list-equality/output
+exit 0
+stderr ""
+-- loop-invariants-passes-every-check/record --
+replaces tack/main_test.go TestBuiltLoopInvariantsPassesEveryCheck
+dir examples/loop-invariants
+exit 0
+stdout "a counter stepping up from 0 ok\n"
+stdout "a counter stepping down from len(s) - 1 ok\n"
+stdout "a condition that reads s[i] ok\n"
+stdout "a counter stepped in a branch that continues and in an inner loop ok\n"
+stdout "a counter set back to 0 in the body ok\n"
+stdout "a total grown by bounded amounts ok\n"
+stdout "a counter kept at or above 1 ok\n"
+stdout "a counter kept at or above another variable ok\n"
+stdout "a counter kept at or below 9 ok\n"
+stdout "a uint64 counter stepping down to 0 ok\n"
+stdout "a counter in a range loop ok\n"
+stdout "a mut parameter ok\n"
+stdout "a counter set back to 0 between loops ok\n"
+stdout "a counter stepped in deferred code ok\n"
+stdout "a counter stepping up to the largest int64 ok\n"
+stdout "a uint8 counter stepping up to 255 ok\n"
+stdout "a bound kept below bounding arithmetic ok\n"
+stdout "a level fallen by bounded amounts ok\n"
+stdout "a counter stepping down by 2 ok\n"
+stdout "a counter stepping back under a guard ok\n"
+stderr ""
+-- loops-ticks-and-exits29/record --
+replaces tack/main_test.go TestBuiltLoopsTicksAndExits29
+dir examples/loops
+exit 29
+stdout "tick\n"
+stdout "tick\n"
+stdout "tick\n"
+stderr ""
+-- mixed-compare-passes-every-check/record --
+replaces tack/main_test.go TestBuiltMixedComparePassesEveryCheck/0
+replaces tack/main_test.go TestBuiltMixedComparePassesEveryCheck/1
+replaces tack/main_test.go TestBuiltMixedComparePassesEveryCheck/2
+replaces tack/main_test.go TestBuiltMixedComparePassesEveryCheck/3
+replaces tack/main_test.go TestBuiltMixedComparePassesEveryCheck/s
+replaces tack/main_test.go TestBuiltMixedComparePassesEveryCheck/z
+dir examples/mixed-compare
+opt 0 1 2 3 s z
+exit 0
+stdout "int64 and uint64 ok\n"
+stdout "narrow pairs ok\n"
+stdout "target widths ok\n"
+stdout "known values ok\n"
+stdout "evaluation order ok\n"
+stdout "guard on len ok\n"
+stdout "facts ok\n"
+stdout "switches ok\n"
+stderr ""
+-- multi-file-exits42/record --
+replaces tack/main_test.go TestBuiltMultiFileExits42
+dir examples/multi-file
+target .
+exit 42
+stdout "split across files\n"
+stderr ""
+-- mut-exclusive-passes-every-check/record --
+replaces tack/main_test.go TestBuiltMutExclusivePassesEveryCheck
+dir examples/mut-exclusive
+exit 0
+stdout "fields of one struct ok\n"
+stdout "fields of a mut parameter ok\n"
+stdout "elements at known indexes ok\n"
+stdout "elements at indexes proven apart ok\n"
+stdout "nested paths ok\n"
+stdout "elements of a field ok\n"
+stdout "two-level elements ok\n"
+stdout "different fields of elements at unknown indexes ok\n"
+stdout "overlapping plain argument copied ok\n"
+stdout "field of the mut place as a plain argument ok\n"
+stdout "inner call changes the place first ok\n"
+stdout "two variables ok\n"
+stderr ""
+-- mut-params-passes-every-check/record --
+replaces tack/main_test.go TestBuiltMutParamsPassesEveryCheck
+dir examples/mut-params
+exit 0
+stdout "in place ok\n"
+stdout "whole value ok\n"
+stdout "swap ok\n"
+stdout "passed on ok\n"
+stdout "array and string fields ok\n"
+stdout "defer reads and writes a mut parameter ok\n"
+stdout "mut argument in a defer ok\n"
+stdout "recursion ok\n"
+stdout "through five calls ok\n"
+stdout "element by known index ok\n"
+stdout "element by proven index ok\n"
+stdout "left to right ok\n"
+stdout "read before a later mut ok\n"
+stdout "checked index reads the array first ok\n"
+stdout "bool ok\n"
+stdout "deep path ok\n"
+stderr ""
+-- negate-exits19/record --
+replaces tack/main_test.go TestBuiltNegateExits19
+dir examples/negate
+exit 19
+stdout ""
+stderr ""
+-- order-is-left-to-right/record --
+replaces tack/main_test.go TestBuiltOrderIsLeftToRight
+dir examples/order
+exit 0
+stdout "arithmetic: a b c ok\n"
+stdout "subtraction: a b ok\n"
+stdout "comparison: a b ok\n"
+stdout "strings: a b ok\n"
+stdout "structs: a b ok\n"
+stdout "arguments: a b c ok\n"
+stdout "nested arguments: a b c ok\n"
+stdout "results: a b ok\n"
+stdout "array elements: a b c ok\n"
+stdout "struct fields: b a ok\n"
+stdout "index: base index ok\n"
+stdout "division: a b ok\n"
+stdout "a global read before a call: ok\n"
+stdout "a call before a global read: ok\n"
+stdout "a global in arguments: ok\n"
+stdout "compound assignment: ok\n"
+stdout "switch cases: tag a b ok\n"
+stderr ""
+-- path-passes-every-check/record --
+replaces tack/main_test.go TestBuiltPathPassesEveryCheck/0
+replaces tack/main_test.go TestBuiltPathPassesEveryCheck/1
+replaces tack/main_test.go TestBuiltPathPassesEveryCheck/2
+replaces tack/main_test.go TestBuiltPathPassesEveryCheck/3
+replaces tack/main_test.go TestBuiltPathPassesEveryCheck/s
+replaces tack/main_test.go TestBuiltPathPassesEveryCheck/z
+dir examples/path
+opt 0 1 2 3 s z
+lacks stdout "FAIL"
+stdout-file examples/path/output
+exit 0
+stderr ""
+-- printf-writes-its-output/record --
+replaces tack/main_test.go TestBuiltPrintfWritesItsOutput/0
+replaces tack/main_test.go TestBuiltPrintfWritesItsOutput/1
+replaces tack/main_test.go TestBuiltPrintfWritesItsOutput/2
+replaces tack/main_test.go TestBuiltPrintfWritesItsOutput/3
+replaces tack/main_test.go TestBuiltPrintfWritesItsOutput/s
+replaces tack/main_test.go TestBuiltPrintfWritesItsOutput/z
+dir examples/printf
+opt 0 1 2 3 s z
+stdout-file examples/printf/output
+exit 0
+stderr ""
+-- ranges-exits42/record --
+replaces tack/main_test.go TestBuiltRangesExits42
+dir examples/ranges
+exit 42
+stdout ""
+stderr ""
+-- raw-strings-prints-and-exits116/record --
+replaces tack/main_test.go TestBuiltRawStringsPrintsAndExits116
+dir examples/raw-strings
+exit 116
+stdout "raw\n"
+stdout "  strings\n"
+stdout "\"keep\" \\every\\ byte // as written\n"
+stderr ""
+-- relations-passes-every-check/record --
+replaces tack/main_test.go TestBuiltRelationsPassesEveryCheck/0
+replaces tack/main_test.go TestBuiltRelationsPassesEveryCheck/1
+replaces tack/main_test.go TestBuiltRelationsPassesEveryCheck/2
+replaces tack/main_test.go TestBuiltRelationsPassesEveryCheck/3
+replaces tack/main_test.go TestBuiltRelationsPassesEveryCheck/s
+replaces tack/main_test.go TestBuiltRelationsPassesEveryCheck/z
+dir examples/relations
+opt 0 1 2 3 s z
+lacks stdout "FAIL"
+stdout-file examples/relations/output
+exit 0
+stderr ""
+-- results-assign-exits87/record --
+replaces tack/main_test.go TestBuiltResultsAssignExits87
+dir examples/results-assign
+exit 87
+stdout ""
+stderr ""
+-- results-binds-every-result-and-exits48/record --
+replaces tack/main_test.go TestBuiltResultsBindsEveryResultAndExits48
+dir examples/results
+exit 48
+stdout "negative\n"
+stderr ""
+-- safety-passes-every-check/record --
+replaces tack/main_test.go TestBuiltSafetyPassesEveryCheck
+dir examples/safety
+exit 0
+stdout "half guarded ok\n"
+stdout "division by zero ok\n"
+stdout "remainder ok\n"
+stdout "compound guarded ok\n"
+stdout "get guarded ok\n"
+stdout "index out of range ok\n"
+stdout "index in range ok\n"
+stdout "set guarded ok\n"
+stdout "at guarded ok\n"
+stdout "first guarded ok\n"
+stdout "byte out of range ok\n"
+stdout "byte in range ok\n"
+stdout "conversion fails ok\n"
+stdout "conversion fits ok\n"
+stdout "known value converts ok\n"
+stdout "known string length ok\n"
+stdout "counting loops ok\n"
+stdout "or proves ok\n"
+stdout "case proves ok\n"
+stdout "zero string ok\n"
+stdout "zero bool ok\n"
+stdout "zero struct ok\n"
+stdout "int8 min / -1 fails ok\n"
+stdout "int8 min % -1 ok\n"
+stdout "assign index ok\n"
+stdout "assign conversion ok\n"
+stdout "assign division in parentheses ok\n"
+stdout "blank discards ok\n"
+stdout "both operands evaluated ok\n"
+stdout "constant index into a literal ok\n"
+stdout "unneeded ok on a division ok\n"
+stdout "unneeded ok on an index ok\n"
+stdout "unneeded ok on a conversion ok\n"
+stdout "unneeded ok on proven operations ok\n"
+stderr ""
+-- self-compare-is-silent-and-exits7/record --
+replaces tack/main_test.go TestBuiltSelfCompareIsSilentAndExits7
+dir examples/self-compare
+no-strict-c the example compares a value with itself on purpose, which the C does too and -Wtautological-compare rejects
+exit 7
+stdout ""
+stderr ""
+-- slices-passes-every-check/record --
+replaces tack/main_test.go TestBuiltSlicesPassesEveryCheck/0
+replaces tack/main_test.go TestBuiltSlicesPassesEveryCheck/1
+replaces tack/main_test.go TestBuiltSlicesPassesEveryCheck/2
+replaces tack/main_test.go TestBuiltSlicesPassesEveryCheck/3
+replaces tack/main_test.go TestBuiltSlicesPassesEveryCheck/s
+replaces tack/main_test.go TestBuiltSlicesPassesEveryCheck/z
+dir examples/slices
+opt 0 1 2 3 s z
+exit 0
+stdout "string slices ok\n"
+stdout "omitted and empty bounds ok\n"
+stdout "slices of slices ok\n"
+stdout "stored in a field, an array and a variable ok\n"
+stdout "results ok\n"
+stdout "bytes through a multi-byte character ok\n"
+stdout "zero strings ok\n"
+stdout "zero string field checked ok\n"
+stdout "known slice of a known string ok\n"
+stdout "globals ok\n"
+stdout "bytes of a slice ok\n"
+stdout "guard on the high bound ok\n"
+stdout "guard on both bounds ok\n"
+stdout "checked in range ok\n"
+stdout "checked out of range ok\n"
+stdout "checked uint64 bounds ok\n"
+stdout "checked omitted bounds ok\n"
+stdout "array slices ok\n"
+stdout "array slice ends ok\n"
+stdout "slices proven by loops ok\n"
+stdout "slice of a view passed on ok\n"
+stdout "unsafe_size_t bound ok\n"
+stdout "len of a view slice ok\n"
+stdout "field and element arrays ok\n"
+stdout "mut parameter's array ok\n"
+stdout "slice alongside mut of the same array ok\n"
+stdout "mutable global array ok\n"
+stdout "evaluation order ok\n"
+stderr ""
+-- sort-passes-every-check/record --
+replaces tack/main_test.go TestBuiltSortPassesEveryCheck/0
+replaces tack/main_test.go TestBuiltSortPassesEveryCheck/1
+replaces tack/main_test.go TestBuiltSortPassesEveryCheck/2
+replaces tack/main_test.go TestBuiltSortPassesEveryCheck/3
+replaces tack/main_test.go TestBuiltSortPassesEveryCheck/s
+replaces tack/main_test.go TestBuiltSortPassesEveryCheck/z
+dir examples/sort
+opt 0 1 2 3 s z
+lacks stdout "FAIL"
+stdout-file examples/sort/output
+exit 0
+stderr ""
+-- strcmp-exits42/record --
+replaces tack/main_test.go TestBuiltStrcmpExits42
+dir examples/strcmp
+exit 42
+stdout ""
+stderr ""
+-- string-globals-exits42/record --
+replaces tack/main_test.go TestBuiltStringGlobalsExits42
+dir examples/string-globals
+exit 42
+stdout ""
+stderr ""
+-- string-index-exits5/record --
+replaces tack/main_test.go TestBuiltStringIndexExits5
+dir examples/string-index
+exit 5
+stdout ""
+stderr ""
+-- structs-exits133/record --
+replaces tack/main_test.go TestBuiltStructsExits133
+dir examples/structs
+exit 133
+stdout ""
+stderr ""
+-- switch-exits42/record --
+replaces tack/main_test.go TestBuiltSwitchExits42
+dir examples/switch
+exit 42
+stdout ""
+stderr ""
+-- text-passes-every-check/record --
+replaces tack/main_test.go TestBuiltTextPassesEveryCheck/0
+replaces tack/main_test.go TestBuiltTextPassesEveryCheck/1
+replaces tack/main_test.go TestBuiltTextPassesEveryCheck/2
+replaces tack/main_test.go TestBuiltTextPassesEveryCheck/3
+replaces tack/main_test.go TestBuiltTextPassesEveryCheck/s
+replaces tack/main_test.go TestBuiltTextPassesEveryCheck/z
+dir examples/text
+opt 0 1 2 3 s z
+lacks stdout "FAIL"
+stdout-file examples/text/output
+exit 0
+stderr ""
+-- unreachable-assumed-exits42/record --
+replaces tack/main_test.go TestBuiltUnreachableAssumedExits42
+dir examples/unreachable-assumed
+no-strict-c the example's condition cannot hold on purpose, which the C keeps and -Wtautological-overlap-compare rejects
+exit 42
+stdout ""
+stderr ""
+-- unreachable-exits42/record --
+replaces tack/main_test.go TestBuiltUnreachableExits42
+dir examples/unreachable
+no-strict-c the example's condition cannot hold on purpose, which the C keeps and -Wtautological-overlap-compare rejects
+exit 42
+stdout ""
+stderr ""
+-- unsafe-sizes-passes-every-check/record --
+replaces tack/main_test.go TestBuiltUnsafeSizesPassesEveryCheck
+dir examples/unsafe-sizes
+exit 0
+stdout "widening in ok\n"
+stdout "widening out ok\n"
+stdout "common types ok\n"
+stdout "checked conversions that fit ok\n"
+stdout "checked conversions that fail ok\n"
+stdout "wrapping ok\n"
+stdout "known values past 32 bits ok\n"
+stdout "division ok\n"
+stdout "struct fields and mut parameters ok\n"
+stdout "arrays ok\n"
+stdout "globals and a range count ok\n"
+stdout "results ok\n"
+stdout "switch ok\n"
+stdout "index proven by a guard ok\n"
+stdout "index guard that fails ok\n"
+stdout "index proven by a counting loop ok\n"
+stdout "known index ok\n"
+stdout "checked index ok\n"
+stderr ""
+-- unused-warnings-check/record --
+replaces tack/main_test.go TestBuiltUnusedWarningsRuns
+partial its build half is not held: the build writes warnings, and a record's build must be silent
+dir examples/unused-warnings
+invoke "--check"
+invoke "main.tck"
+note the test requires standard error to hold "main.tck:7:8: warning: imported and not used: fmt"
+note the test requires standard error to hold "main.tck:11:5: warning: declared and not used: count"
+note the test requires standard error to hold "main.tck:12:5: warning: len(l) is not used"
+lacks stderr "error"
+exit 0
+stdout ""
+stderr "\n"
+stderr "main.tck:7:8: warning: imported and not used: fmt\n"
+stderr "06 |\t\n"
+stderr "07 |\timport fmt from \"std/fmt\"\n"
+stderr "   |\t       ^~~\n"
+stderr "08 |\t\n"
+stderr "\n"
+stderr "main.tck:11:5: warning: declared and not used: count\n"
+stderr "10 |\t    l := [3]int64{1, 2, 3}\n"
+stderr "11 |\t    count := 3\n"
+stderr "   |\t    ^~~~~\n"
+stderr "12 |\t    len(l)\n"
+stderr "\n"
+stderr "main.tck:12:5: warning: len(l) is not used\n"
+stderr "11 |\t    count := 3\n"
+stderr "12 |\t    len(l)\n"
+stderr "   |\t    ^~~~~~\n"
+stderr "13 |\t    print(\"ran\\n\")\n"
+stderr "\n"
+-- variadics-passes-every-check/record --
+replaces tack/main_test.go TestBuiltVariadicsPassesEveryCheck/0
+replaces tack/main_test.go TestBuiltVariadicsPassesEveryCheck/1
+replaces tack/main_test.go TestBuiltVariadicsPassesEveryCheck/2
+replaces tack/main_test.go TestBuiltVariadicsPassesEveryCheck/3
+replaces tack/main_test.go TestBuiltVariadicsPassesEveryCheck/s
+replaces tack/main_test.go TestBuiltVariadicsPassesEveryCheck/z
+dir examples/variadics
+opt 0 1 2 3 s z
+exit 0
+stdout "no values ok\n"
+stdout "one value ok\n"
+stdout "several values ok\n"
+stdout "many values ok\n"
+stdout "widened values ok\n"
+stdout "untyped constants ok\n"
+stdout "uint64 values ok\n"
+stdout "spread of an array ok\n"
+stdout "spread of a slice ok\n"
+stdout "spread of a variadic ok\n"
+stdout "spread passed on ok\n"
+stdout "spread of a variadic's slice ok\n"
+stdout "recursion ok\n"
+stdout "checked index ok\n"
+stdout "checked negative index ok\n"
+stdout "guard on len ok\n"
+stdout "range with index ok\n"
+stdout "strings ok\n"
+stdout "structs ok\n"
+stdout "arrays ok\n"
+stdout "bools ok\n"
+stdout "bytes ok\n"
+stdout "spread of a string's bytes ok\n"
+stdout "spread of the empty string's bytes ok\n"
+stdout "results ok\n"
+stdout "results with no values ok\n"
+stdout "evaluation order ok\n"
+stdout "reads between calls ok\n"
+stdout "nested calls ok\n"
+stdout "values alongside mut ok\n"
+stdout "spread alongside mut ok\n"
+stdout "spread of a mutable global ok\n"
+stdout "spread of a mut parameter's array ok\n"
+stdout "in a defer ok\n"
+stdout "in a loop condition ok\n"
+stderr ""
+-- views-passes-every-check/record --
+replaces tack/main_test.go TestBuiltViewsPassesEveryCheck/0
+replaces tack/main_test.go TestBuiltViewsPassesEveryCheck/1
+replaces tack/main_test.go TestBuiltViewsPassesEveryCheck/2
+replaces tack/main_test.go TestBuiltViewsPassesEveryCheck/3
+replaces tack/main_test.go TestBuiltViewsPassesEveryCheck/s
+replaces tack/main_test.go TestBuiltViewsPassesEveryCheck/z
+dir examples/views
+opt 0 1 2 3 s z
+exit 0
+stdout "arrays of two lengths ok\n"
+stdout "range loops ok\n"
+stdout "range without variables ok\n"
+stdout "zero length ok\n"
+stdout "last element ok\n"
+stdout "passed on ok\n"
+stdout "checked index ok\n"
+stdout "guard on len ok\n"
+stdout "guarded index ok\n"
+stdout "field of structs ok\n"
+stdout "element of a field ok\n"
+stdout "view of arrays ok\n"
+stdout "string variable ok\n"
+stdout "string literal ok\n"
+stdout "empty string ok\n"
+stdout "zero string field ok\n"
+stdout "mut parameter's array ok\n"
+stdout "view alongside mut of the same array ok\n"
+stdout "view before a later mut ok\n"
+stdout "view after the change ok\n"
+stdout "mutable global array ok\n"
+stdout "mutable global string ok\n"
+stdout "view of bools ok\n"
+stdout "view of strings ok\n"
+stdout "view of unsafe_size_t ok\n"
+stderr ""
+-- widths-exits54/record --
+replaces tack/main_test.go TestBuiltWidthsExits54
+dir examples/widths
+exit 54
+stdout ""
+stderr ""

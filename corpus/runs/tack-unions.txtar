@@ -1,0 +1,68 @@
+Run records of tack/unions_test.go's TestBuilt tests, written by tackc's
+porttest/rungen and completed by tools/corpus --update; see
+tools/corpus/runs.tck for the format.
+-- unions-passes-every-check/record --
+replaces tack/unions_test.go TestBuiltUnionsPassesEveryCheck/0
+replaces tack/unions_test.go TestBuiltUnionsPassesEveryCheck/1
+replaces tack/unions_test.go TestBuiltUnionsPassesEveryCheck/2
+replaces tack/unions_test.go TestBuiltUnionsPassesEveryCheck/3
+replaces tack/unions_test.go TestBuiltUnionsPassesEveryCheck/s
+replaces tack/unions_test.go TestBuiltUnionsPassesEveryCheck/z
+dir examples/unions
+target .
+opt 0 1 2 3 s z
+exit 0
+stdout "nothing live at the start ok\n"
+stdout "expression tree ok\n"
+stdout "expression tree, another x ok\n"
+stdout "default clause of a union switch ok\n"
+stdout "a list of unions ok\n"
+stdout "an element assigned whole ok\n"
+stdout "an element read is a copy ok\n"
+stdout "trees freed ok\n"
+stdout "a case with no payload compared with == ok\n"
+stdout "same case, equal payloads ok\n"
+stdout "same case, different payloads ok\n"
+stdout "different cases ok\n"
+stdout "a string payload compares by its bytes ok\n"
+stdout "an empty string payload ok\n"
+stdout "a range over an array of unions ok\n"
+stdout "package-level unions ok\n"
+stdout "the smallest int64 as a payload ok\n"
+stdout "arrays of unions compared with == ok\n"
+stdout "a mutable union ok\n"
+stdout "a union assigned ok\n"
+stdout "a binding read in its clause ok\n"
+stdout "a clause naming several cases ok\n"
+stdout "a case with no payload ok\n"
+stdout "break and continue in a union switch act on the loop ok\n"
+stdout "a payload case named without binding it ok\n"
+stdout "a case named like a variable in scope ok\n"
+stdout "a switch on a call's result ok\n"
+stdout "a switch on a call's result, no payload ok\n"
+stdout "a list payload ok\n"
+stdout "a struct payload holding a list ok\n"
+stdout "reassigning frees the old payload ok\n"
+stdout "a new list payload ok\n"
+stdout "a case with no payload ok\n"
+stdout "a union returned ok\n"
+stdout "a list moved into a payload ok\n"
+stdout "owned unions freed ok\n"
+stdout "reassigned every iteration ok\n"
+stdout "declared in a loop's body ok\n"
+stdout "loops freed ok\n"
+stdout "a union moved into a struct ok\n"
+stdout "a union not moved ok\n"
+stdout "a defer reading a union ok\n"
+stdout "moves freed ok\n"
+stdout "a union holding a union holding a list ok\n"
+stdout "a union holding a union of no list ok\n"
+stdout "a nested union assigned ok\n"
+stdout "a nested union's lists freed ok\n"
+stdout "nested unions freed ok\n"
+stdout "a union of another package ok\n"
+stdout "matching a union of another package ok\n"
+stdout "a case with no payload of another package ok\n"
+stdout "comparing unions of another package ok\n"
+stdout "a payload built in another package ok\n"
+stderr ""

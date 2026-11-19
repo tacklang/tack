@@ -1,0 +1,15 @@
+Run records of tack/fallthrough_test.go's TestBuilt tests, written by tackc's
+porttest/rungen and completed by tools/corpus --update; see
+tools/corpus/runs.tck for the format.
+-- fallthrough-facts-exits42/record --
+replaces tack/fallthrough_test.go TestBuiltFallthroughFactsExits42
+dir examples/fallthrough-facts
+exit 42
+stdout ""
+stderr ""
+-- fallthrough-prints-and-exits42/record --
+replaces tack/fallthrough_test.go TestBuiltFallthroughPrintsAndExits42
+dir examples/fallthrough
+stdout-file examples/fallthrough/output
+exit 42
+stderr ""

@@ -1,0 +1,10 @@
+Run records of tack/testfiles_test.go's TestBuilt tests, written by tackc's
+porttest/rungen and completed by tools/corpus --update; see
+tools/corpus/runs.tck for the format.
+-- test-files-exits42/record --
+replaces tack/testfiles_test.go TestBuiltTestFilesExits42
+dir examples/test-files
+target .
+exit 42
+stdout "test files left out\n"
+stderr ""

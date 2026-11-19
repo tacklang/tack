@@ -1,0 +1,21 @@
+Run records of tack/generics_test.go's TestBuilt tests, written by tackc's
+porttest/rungen and completed by tools/corpus --update; see
+tools/corpus/runs.tck for the format.
+-- interface-params-passes-every-check/record --
+replaces tack/generics_test.go TestBuiltInterfaceParamsPassesEveryCheck/0
+replaces tack/generics_test.go TestBuiltInterfaceParamsPassesEveryCheck/1
+replaces tack/generics_test.go TestBuiltInterfaceParamsPassesEveryCheck/2
+replaces tack/generics_test.go TestBuiltInterfaceParamsPassesEveryCheck/3
+replaces tack/generics_test.go TestBuiltInterfaceParamsPassesEveryCheck/s
+replaces tack/generics_test.go TestBuiltInterfaceParamsPassesEveryCheck/z
+dir examples/interface-params
+target .
+opt 0 1 2 3 s z
+exit 0
+stdout "a mut interface parameter ok\n"
+stdout "two parameters of one interface, two types ok\n"
+stdout "an interface of another package ok\n"
+stdout "the same function, another type ok\n"
+stdout "beside an explicit type parameter ok\n"
+stdout "an own interface parameter ok\n"
+stderr ""
