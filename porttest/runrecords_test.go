@@ -63,6 +63,13 @@ type runRecord struct {
 	wantOrder []string
 	links     map[string]string // symlink lines: each link's path and its target
 	linkOrder []string
+	lacks     []runLacks
+}
+
+// runLacks is one lacks line: a stream and bytes it must not hold.
+type runLacks struct {
+	stream string
+	bytes  []byte
 }
 
 // runRecordsSuite is the suite of testdata/divergences.txtar whose
@@ -76,7 +83,10 @@ const runInvalidArchive = "invalid.txtar"
 
 // runRecordArchives are the archives corpus/runs must hold, no more and
 // no fewer.
-var runRecordArchives = []string{runInvalidArchive, runMustFailArchive, "prototype.txtar"}
+var runRecordArchives = []string{runInvalidArchive, runMustFailArchive, "prototype.txtar",
+	"tack-errors.txtar", "tack-extern.txtar", "tack-fallthrough.txtar", "tack-generics.txtar", "tack-lists.txtar",
+	"tack-main.txtar", "tack-methods.txtar", "tack-std.txtar", "tack-stdimport.txtar", "tack-testfiles.txtar",
+	"tack-union-methods.txtar", "tack-unions.txtar", "tack-viewresults.txtar"}
 
 // runMustFailArchive is the archive of corpus/runs whose records must
 // fail, each with the failure class its must-fail line names, and the
@@ -87,7 +97,7 @@ const runMustFailArchive = "must-fail.txtar"
 // order both runners check them, the first one found being the run's,
 // as runs.tck's failure_classes lists them; must-fail names one.
 var runFailureClasses = []string{"build", "build-tmpdir", "outlived", "cwd", "src-changed", "run-root", "tmpdir",
-	"exit", "still-running", "did-not-end", "stdout", "stderr", "fd3", "fd4", "files"}
+	"exit", "still-running", "did-not-end", "stdout", "stderr", "fd3", "fd4", "lacks", "files"}
 
 // runStreamWays are the ways a record may make each descriptor.
 var runStreamWays = map[string][]string{
@@ -451,8 +461,8 @@ func recordLine(r *runRecord, key, rest string, once map[string]bool, openFile *
 		if err := single(key); err != nil {
 			return bad("repeated", "a keyword that is given once at most is repeated")
 		}
-		if !cleanPath(rest) || key == "dir" && !strings.HasPrefix(rest, "examples/") {
-			return bad("path", "want a clean relative path, below examples/ for dir")
+		if !(cleanPath(rest) || key == "target" && rest == ".") || key == "dir" && !strings.HasPrefix(rest, "examples/") {
+			return bad("path", "want a clean relative path, below examples/ for dir, or . for target")
 		}
 		switch key {
 		case "dir":
@@ -509,6 +519,27 @@ func recordLine(r *runRecord, key, rest string, once map[string]bool, openFile *
 			return bad("repeated", "a descriptor's way is given once at most")
 		}
 		r.streams[fd] = how
+	case "lacks":
+		stream, after, ok := strings.Cut(rest, " ")
+		if !ok || stream == "" {
+			return bad("stream", "lacks takes a stream and quoted bytes")
+		}
+		if !slices.Contains([]string{"stdout", "stderr", "fd3", "fd4"}, stream) {
+			return bad("stream", "lacks takes stdout, stderr, fd3 or fd4")
+		}
+		b, ok := quoted(after)
+		if !ok {
+			return bad("quote", "lacks takes a stream and quoted bytes")
+		}
+		if len(b) == 0 {
+			return bad("empty", "lacks takes bytes, none of them missing")
+		}
+		for _, l := range r.lacks {
+			if l.stream == stream && bytes.Equal(l.bytes, b) {
+				return bad("repeated", "a lacks line is given once at most")
+			}
+		}
+		r.lacks = append(r.lacks, runLacks{stream, b})
 	case "arg", "env", "invoke", "stdin", "stdout", "stderr", "fd3", "fd4":
 		b, err := operand()
 		if err != nil {
@@ -650,6 +681,10 @@ func wholeRecord(r runRecord, hasFiles bool) error {
 		return bad("conflict", "standard error cannot be merged into a closed or broken standard output")
 	case len(r.fds["fd3"]) > 0 && r.streams["fd3"] != "capture" || len(r.fds["fd4"]) > 0 && r.streams["fd4"] != "capture":
 		return bad("conflict", "fd3 and fd4 bytes need the stream captured")
+	case slices.ContainsFunc(r.lacks, func(l runLacks) bool {
+		return (l.stream == "fd3" || l.stream == "fd4") && r.streams[l.stream] != "capture" || l.stream == "stderr" && merged
+	}):
+		return bad("conflict", "a lacks line is of a stream the run captures and that holds bytes of its own")
 	case r.emptyCwd && len(r.invoke) == 0:
 		return bad("conflict", "cwd empty is for a record that invokes the compiler")
 	case len(r.invoke) > 0 && (r.target != "" || len(r.opts) > 0 || len(r.cflags) > 0 || !r.strict || r.cold ||

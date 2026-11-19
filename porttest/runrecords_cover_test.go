@@ -20,8 +20,9 @@ import (
 // inventoried Go tests whose runtime assertions are to be run records,
 // one per line: the file below this module's root, a tab, the test with
 // its subtests, a tab, the class the inventory gave its function, a or b,
-// a tab, and its status: covered, partial, todo, not yet converted, or
-// excluded, then a tab and why.
+// a tab, and its status: covered, partial, todo, not yet converted, then
+// a tab and why it waits when the reason is known, or excluded, then a
+// tab and why.
 const runRecordsInventory = "testdata/runrecords.tsv"
 
 // runRecordsCounts is the committed count of runRecordsInventory's lines
@@ -182,8 +183,10 @@ func readInventory(t *testing.T) map[string]inventoryLine {
 		ok := len(f) >= 4 && (f[2] == "a" || f[2] == "b")
 		if ok {
 			switch f[3] {
-			case "covered", "partial", "todo":
+			case "covered", "partial":
 				ok = len(f) == 4
+			case "todo":
+				ok = len(f) == 4 || len(f) == 5 && f[4] != ""
 			case "excluded":
 				ok = len(f) == 5 && f[4] != ""
 			default:
@@ -191,7 +194,7 @@ func readInventory(t *testing.T) map[string]inventoryLine {
 			}
 		}
 		if !ok {
-			t.Fatalf("%s:%d: want file, test, class a or b, and covered, partial, todo, or excluded and why, tab separated", runRecordsInventory, i+1)
+			t.Fatalf("%s:%d: want file, test, class a or b, and covered, partial, todo and maybe why, or excluded and why, tab separated", runRecordsInventory, i+1)
 		}
 		l := inventoryLine{file: f[0], test: f[1], class: f[2], status: f[3]}
 		if len(f) == 5 {
@@ -290,8 +293,9 @@ func testFuncs(t *testing.T, path string) []string {
 }
 
 // TestRungenLines runs porttest/rungen into a directory of its own and
-// checks what it writes against the committed corpus/runs/prototype.txtar:
-// every case it writes is a case of the committed archive with the same
+// checks each archive it writes against the committed one of corpus/runs
+// of the same name, prototype.txtar and batch 1's tack-*.txtar: every
+// case it writes is a case of the committed archive with the same
 // files, and every line of its record is a line of the committed one,
 // verbatim, so a value typed into a record by hand, an stdin, arg, env,
 // opt or stream line among them, that is not what the Go test holds fails
@@ -317,8 +321,24 @@ func TestRungenLines(t *testing.T) {
 		}
 		return out
 	}
-	generated := read(filepath.Join(dir, "prototype.txtar"))
-	committed := read(filepath.Join(env.home, portRunsDir, "prototype.txtar"))
+	written, err := os.ReadDir(dir)
+	mustDo(t, err)
+	if len(written) == 0 {
+		t.Fatal("rungen writes no archive")
+	}
+	for _, w := range written {
+		t.Run(w.Name(), func(t *testing.T) {
+			generated := read(filepath.Join(dir, w.Name()))
+			committed := read(filepath.Join(env.home, portRunsDir, w.Name()))
+			compareRungen(t, generated, committed)
+		})
+	}
+}
+
+// compareRungen checks the cases rungen wrote, generated, against the
+// committed archive's, as TestRungenLines describes.
+func compareRungen(t *testing.T, generated, committed map[string]recordCase) {
+	t.Helper()
 	for name, g := range generated {
 		c, ok := committed[name]
 		if !ok {

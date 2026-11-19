@@ -1,0 +1,20 @@
+-- a/record --
+selfcheck a lacks line of each stream
+dir examples/hello
+stream fd3 capture
+stream fd4 capture
+lacks stdout "FAIL"
+lacks stderr "error"
+lacks fd3 "x"
+lacks fd4 "\x00"
+exit 0
+stdout "Hello, World!\n"
+stderr ""
+-- b/record --
+selfcheck lacks with a merged standard error
+dir examples/hello
+stream stderr merged
+lacks stdout "FAIL"
+lacks stderr "FAIL"
+exit 0
+stdout ""

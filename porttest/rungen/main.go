@@ -1,6 +1,8 @@
 // Command rungen writes the port's run records that it knows how to make
 // from this module's Go tests: corpus/runs/prototype.txtar, the records
-// of phase 1 of moving the Go tests' runtime assertions into data. Each
+// of phase 1 of moving the Go tests' runtime assertions into data, and
+// the archives of batch 1, tack-<file>.txtar, one per test file of tack/,
+// from its TestBuilt tests (see builtArchives). Each
 // record names the Go tests it replaces. The programs, inputs, tables
 // and expectations the Go tests assert are read from the tests' own
 // source with go/parser and evaluated as constants (see the source type):
@@ -24,7 +26,7 @@
 //
 //	go run ./porttest/rungen <dir>
 //
-// and writes prototype.txtar in dir, the port's corpus/runs or another.
+// and writes its archives in dir, the port's corpus/runs or another.
 package main
 
 import (
@@ -155,8 +157,11 @@ func (s *source) str(name string) string { return s.eval(s.decl(name), nil).(str
 // eval returns the value of e, evaluated as a constant: a string, an
 // int64, a bool or a time.Duration; an identifier is one of locals, or a
 // top-level constant or variable of s; filepath.Join(x, parts...) gives
-// the literal parts joined, x being the directory the test joins them
-// to.
+// the literal parts joined, x being examplesDir, or root, the
+// directory of examples/ TestBuiltPackagesRunsBothMains's table is below,
+// the paths below it what the prototype's packages records name, and
+// strings.Join of a literal list and a separator the list
+// joined.
 func (s *source) eval(e ast.Expr, locals map[string]any) any {
 	switch x := e.(type) {
 	case *ast.BasicLit:
@@ -209,12 +214,25 @@ func (s *source) eval(e ast.Expr, locals map[string]any) any {
 			}
 		}
 	case *ast.CallExpr:
-		if sel, ok := x.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Join" && len(x.Args) > 1 {
+		if isSel(x.Fun, "filepath", "Join") && len(x.Args) > 1 {
+			if base := exprString(x.Args[0]); base != "examplesDir" && base != "root" {
+				fail(fmt.Errorf("%s: filepath.Join of %s, neither examplesDir nor root, which rungen does not read", s.path, base))
+			}
 			var parts []string
 			for _, a := range x.Args[1:] {
 				parts = append(parts, s.eval(a, locals).(string))
 			}
 			return path.Join(parts...)
+		}
+		if isSel(x.Fun, "strings", "Join") && len(x.Args) == 2 {
+			list, ok := x.Args[0].(*ast.CompositeLit)
+			if ok {
+				var parts []string
+				for _, e := range list.Elts {
+					parts = append(parts, s.eval(e, locals).(string))
+				}
+				return strings.Join(parts, s.eval(x.Args[1], locals).(string))
+			}
 		}
 	}
 	fail(fmt.Errorf("%s: %T is no constant rungen evaluates", s.path, e))
@@ -279,7 +297,7 @@ func structFields(t ast.Expr) []string {
 func tryEval(s *source, e ast.Expr, locals map[string]any) (v any, ok bool) {
 	switch x := e.(type) {
 	case *ast.CallExpr:
-		if sel, isSel := x.Fun.(*ast.SelectorExpr); !isSel || sel.Sel.Name != "Join" {
+		if !isSel(x.Fun, "filepath", "Join") && !isSel(x.Fun, "strings", "Join") {
 			return nil, false
 		}
 	case *ast.SelectorExpr:
@@ -338,6 +356,21 @@ func (s *source) strs(name string) []string {
 		out = append(out, s.eval(e, nil).(string))
 	}
 	return out
+}
+
+// hasFailGuard reports whether body tests strings.Contains(x, "FAIL"),
+// the Go tests' guard that an example's output file holds no FAIL.
+func hasFailGuard(body *ast.BlockStmt) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		if c, ok := n.(*ast.CallExpr); ok && isSel(c.Fun, "strings", "Contains") && len(c.Args) == 2 {
+			if l, ok := c.Args[1].(*ast.BasicLit); ok && l.Value == `"FAIL"` {
+				found = true
+			}
+		}
+		return true
+	})
+	return found
 }
 
 // tackLexerFull returns a source of exactly 4096 tokens and what
@@ -409,7 +442,11 @@ func records() []record {
 	for _, kv := range mainT.returnStrings("osExampleEnv") {
 		osLines = append(osLines, "env "+q(kv))
 	}
-	osLines = append(osLines, "limit nofile 64", "exit 0", "stdout-file examples/os/output")
+	osLines = append(osLines, "limit nofile 64")
+	if hasFailGuard(mainT.fn("TestBuiltOsPassesEveryCheck")) {
+		osLines = append(osLines, "lacks stdout "+q("FAIL"))
+	}
+	osLines = append(osLines, "exit 0", "stdout-file examples/os/output")
 	rs = append(rs, record{"os", nil, osLines})
 
 	for _, row := range mainT.rows(mainT.rangeTable("TestBuiltPackagesRunsBothMains", 0), nil, nil) {
@@ -568,13 +605,19 @@ func checkFile(p string, data string) error {
 	return nil
 }
 
-// render returns the archive of rs, which must have names of their own,
-// and files every one of which checkFile passes.
+// render returns prototype.txtar, the archive of rs (see renderWith).
 func render(rs []record) ([]byte, error) {
+	return renderWith("Run records of the prototype, written by tackc's porttest/rungen and completed\n"+
+		"by tools/corpus --update; see tools/corpus/runs.tck for the format.\n", rs)
+}
+
+// renderWith returns the archive of rs, its comment header, which must
+// have names of their own, and files every one of which checkFile
+// passes.
+func renderWith(header string, rs []record) ([]byte, error) {
 	sort.Slice(rs, func(i, j int) bool { return rs[i].name < rs[j].name })
 	var b bytes.Buffer
-	b.WriteString("Run records of the prototype, written by tackc's porttest/rungen and completed\n" +
-		"by tools/corpus --update; see tools/corpus/runs.tck for the format.\n")
+	b.WriteString(header)
 	for i, r := range rs {
 		if i > 0 && rs[i-1].name == r.name {
 			return nil, fmt.Errorf("two records named %s", r.name)
@@ -595,13 +638,36 @@ func render(rs []record) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// run writes prototype.txtar in dir.
+// run writes prototype.txtar and batch 1's archives (see builtArchives)
+// in dir.
 func run(dir string) error {
 	data, err := render(records())
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "prototype.txtar"), data, 0o644) //nolint:gosec // G306: a corpus file
+	if err := os.WriteFile(filepath.Join(dir, "prototype.txtar"), data, 0o644); err != nil { //nolint:gosec // G306: a corpus file
+		return err
+	}
+	archives, err := builtArchives(levels())
+	if err != nil {
+		return err
+	}
+	for name, data := range archives {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil { //nolint:gosec // G306: a corpus file
+			return err
+		}
+	}
+	return nil
+}
+
+// levels returns codegen.Opts, the optimization levels, read from
+// codegen/backend.go.
+func levels() []string {
+	var opts []string
+	for _, e := range src("codegen/backend.go").decl("Opts").(*ast.CompositeLit).Elts {
+		opts = append(opts, src("codegen/backend.go").eval(e, nil).(string))
+	}
+	return opts
 }
 
 // pathsProgram prints its argv[0], arguments and TMPDIR, and writes its

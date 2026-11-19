@@ -68,6 +68,9 @@ func dumpArchive(data []byte) string {
 		for _, p := range r.wantOrder {
 			fmt.Fprintf(&b, "want %s %s\n", q(p), q(string(r.want[p])))
 		}
+		for _, l := range r.lacks {
+			fmt.Fprintf(&b, "lacks %s %s\n", l.stream, q(string(l.bytes)))
+		}
 		for _, p := range r.linkOrder {
 			fmt.Fprintf(&b, "link %s %s\n", q(p), q(r.links[p]))
 		}

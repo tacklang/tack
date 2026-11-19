@@ -1219,21 +1219,26 @@
 // each case of invalid.txtar and testdata/run-record-seeds, the reviews'
 // probes, and gated as FuzzLexDiff is. TestRunRecordsCoverage checks
 // testdata/runrecords.tsv, every leaf test of the 449 inventoried Go
-// tests whose assertions are to be records, each covered, partial, todo
-// or excluded with why: every line a leaf go test runs, a replaces key a
-// leaf unless its record says partial, every leaf of a listed test
-// listed, a test covered only when no record replacing it says partial,
-// and the counts by status testdata/runrecords-counts.txt's, which each
-// conversion changes on purpose; it writes the counts on standard error.
+// tests whose assertions are to be records, each covered, partial, todo,
+// with why it waits when that is known, or excluded with why: every line
+// a leaf go test runs, a replaces key a leaf unless its record says
+// partial, every leaf of a listed test listed, a test covered only when
+// no record replacing it says partial, and the counts by status
+// testdata/runrecords-counts.txt's, which each conversion changes on
+// purpose; it writes the counts on standard error.
 // Every replaces key must be in testdata/gotest-names.txt, every test and
 // subtest go test runs in those packages, which go generate (make
 // port-test-names) writes through testnames, refusing to when go test
 // fails, and whose top-level tests must be those packages' test
 // functions. rungen writes the records it knows how to make from the Go
 // tests' own source, read with go/parser and evaluated, leaving the
-// expectations the Go tests do not pin to the port's --update, and
-// TestRungenLines runs it and requires every line it writes to be in the
-// committed archive verbatim. TestPortFiles leaves corpus/runs out, as
+// expectations the Go tests do not pin to the port's --update:
+// prototype.txtar, and one archive per test file of tack/,
+// tack-<file>.txtar, of the TestBuilt tests that build an example and
+// assert its run, at the compiler's level or at each of codegen.Opts
+// (batch 1 of the conversion); TestRungenLines runs it and requires every
+// line it writes to be in the committed archive of the same name
+// verbatim. TestPortFiles leaves corpus/runs out, as
 // the port's own.
 //
 // # Loading
@@ -1647,7 +1652,10 @@
 // copy of it, and src/std/os's os.c and os.tck; and std/unicode's
 // tables.tck, unicode.tck and unicode_test.tck, the Unicode 18.0.0
 // upgrade's, the last a file of std the frozen copy has not got (see
-// Unicode tables). portOnlyFiles lists, each with its reason, the port's
+// Unicode tables); and src/std/os's os_test.tck, the tests of
+// run_streams, std/os's pseudo-terminals and anonymous pipes (owner
+// ruling 2026-11-19), which os.c and os.tck add to too, another file the
+// frozen copy has not got. portOnlyFiles lists, each with its reason, the port's
 // files with no frozen copy, runtime/tack.mod alone, each of which must
 // be in the port. It also checks that the port's
 // std copies, src/std/builtin/builtin.tck and

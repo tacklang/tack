@@ -630,6 +630,20 @@ func (o runOutcome) differences(rec runRecord) []runFailure {
 			add(s.class, "%s differs from the record's:\ngot  %q\nwant %q", s.name, firstK(s.got), firstK(s.want))
 		}
 	}
+	for _, l := range rec.lacks {
+		want, got := rec.fds[l.stream], o.fds[l.stream]
+		switch l.stream {
+		case "stdout":
+			want, got = rec.stdout, o.stdout
+		case "stderr":
+			want, got = rec.stderr, o.stderr
+		}
+		// The streams are compared with each $ doubled (see normalize).
+		needle := bytes.ReplaceAll(l.bytes, []byte("$"), []byte("$$"))
+		if bytes.Contains(want, needle) || bytes.Contains(got, needle) {
+			add("lacks", "the record's %s or the run's holds %q, which a lacks line rules out", l.stream, l.bytes)
+		}
+	}
 	named := append(slices.Collect(maps.Keys(rec.want)), slices.Collect(maps.Keys(rec.links))...)
 	for _, p := range slices.Sorted(maps.Keys(o.changed)) {
 		if strings.HasSuffix(p, "/") && slices.ContainsFunc(named, func(w string) bool { return strings.HasPrefix(w, p) }) {
