@@ -189,3 +189,67 @@ bootstrap:
 		"$(CURDIR)/$(BOOTSTRAP)/stage2" -O3 --out "$(CURDIR)/$(BOOTSTRAP)/stage3" ./driver
 	sha256sum $(BOOTSTRAP)/stage2 $(BOOTSTRAP)/stage3
 	cmp $(BOOTSTRAP)/stage2 $(BOOTSTRAP)/stage3
+
+# BINDIR is the directory `make install` installs the compiler to, and
+# PREFIX the directory whose bin/ it is when BINDIR is unset or empty;
+# with both unset or empty it is ~/.local/bin, the home directory
+# $HOME, which must then be set, rather than install to /.local/bin.
+# Neither is defined here: tools/install.sh reads them, and TACK_HOME
+# and HOME, from the environment, where make puts them whether they are
+# set there or on its command line, so no path is pasted into a command.
+# INSTALL_STAGE1 is where `make install` builds stage 1 with $(TACK),
+# and INSTALL_BOOTSTRAP where it runs the bootstrap with stage 1, apart
+# from `make bootstrap`'s, both under the ignored bin/.
+INSTALL_STAGE1 := $(BIN)/install-stage1
+INSTALL_BOOTSTRAP := $(BIN)/install
+
+.PHONY: install install-std test-install
+
+# install builds the compiler in three stages: $(TACK), an existing
+# Tack compiler, tack on PATH by default, builds stage 1 from ./driver
+# at -O3, with TACK_HOME this tree and a fresh cache, and stage 1 runs
+# the bootstrap, as `make bootstrap` runs it but in $(INSTALL_BOOTSTRAP),
+# building stage 2 and stage 3, so it fails unless the two are the same
+# bytes, even when $(TACK) is an older compiler whose output differs.
+# It then installs stage 3 to $(BINDIR) as tack, and std as install-std
+# does, both or neither (see tools/install.sh). It runs install.sh's
+# checks first, so a destination that is missing, cannot be written, or
+# would put std in this tree fails before anything is built, and
+# replaces nothing until the compiler is built, so a failed build leaves
+# a previous install as it was. stage 1 is written under another name
+# and renamed, so $(TACK) may be a previous stage 1. That directory
+# needs to be on PATH for `tack` to be runnable by name. It needs
+# clang, coreutils and cmp, and no Go.
+install:
+	@sh tools/install.sh check
+	rm -rf $(INSTALL_STAGE1)/cache
+	mkdir -p $(INSTALL_STAGE1)
+	TACK_HOME="$(CURDIR)" TACK_CACHE="$(CURDIR)/$(INSTALL_STAGE1)/cache" \
+		"$(TACK)" -O3 --out "$(CURDIR)/$(INSTALL_STAGE1)/stage1.new" ./driver
+	mv -f $(INSTALL_STAGE1)/stage1.new $(INSTALL_STAGE1)/stage1
+	$(MAKE) bootstrap BOOTSTRAP=$(INSTALL_BOOTSTRAP) TACK="$(CURDIR)/$(INSTALL_STAGE1)/stage1"
+	@sh tools/install.sh install $(INSTALL_BOOTSTRAP)/stage3
+
+# install-std copies the standard library, src/std, to $TACK_HOME/src/std,
+# or to ~/.tack/src/std when TACK_HOME is unset or empty, where the
+# compiler looks for it, with the builtins' documentation,
+# std/builtin/builtin.tck, and the runtime header,
+# std/include/tack/tack.h, written from runtime/, read-only: they are
+# for reading, by people and editors, and no build reads them. What was
+# there is replaced whole, so a file deleted from src/std does not
+# linger, and only once the copy is complete, so a failed copy leaves it
+# as it was. It refuses a TACK_HOME that is not absolute, and a
+# destination inside this tree or holding it (see tools/install.sh). It
+# needs coreutils, and no Go.
+install-std:
+	@sh tools/install.sh std
+
+# test-install runs tools/test-install.sh with $(TACK): it installs, with
+# install and install-std, into directories of its own below $TMPDIR,
+# from a copy of this tree, and checks what they install, what the
+# installed compiler does and how they fail (see the script). It never
+# writes to this tree or the real home. tackc's porttest install stage
+# runs it with the port. It needs clang, coreutils, cmp and diff, and no
+# Go.
+test-install:
+	sh tools/test-install.sh "$(TACK)"

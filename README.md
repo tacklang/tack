@@ -478,6 +478,72 @@ porttest checks all three with its `bootstrap` stage, and tackc's
 builds stage 2 the same way and runs the whole of porttest with it as
 the port.
 
+### Installing
+
+From this repository's root,
+
+    make install
+
+builds the compiler in three stages, each from `./driver` at `-O3`:
+`TACK`, an existing Tack compiler (`tack` on `PATH` by default, the
+port built by the Go compiler, or a previous install), builds stage 1
+into `bin/install-stage1/`, and stage 1 runs the bootstrap, as `make
+bootstrap` does but into `bin/install/`, so it fails unless stage 2 and
+stage 3 are the same bytes, even when `TACK` is an older compiler whose
+output has changed since. It installs stage 3 to `~/.local/bin/tack`.
+`BINDIR` names another directory to install it to, and `PREFIX` one
+whose `bin/` it is; with neither set, `HOME` must be. That directory
+needs to be on `PATH` for `tack` to be runnable by name. It installs
+std too, as
+
+    make install-std
+
+does: it copies `src/std` to `$TACK_HOME/src/std`, or to
+`~/.tack/src/std` when `TACK_HOME` is unset or empty, where the
+compiler looks for it, with the builtins' documentation and the runtime
+header written from `runtime/`, read-only, for reading: no build reads
+them. The copy is made beside the std there and renamed into place, the
+old one removed after, so a file deleted from `src/std` does not
+linger, and a failed copy leaves the old one as it was. With neither
+`TACK_HOME` nor `HOME` set it fails, saying so. It also refuses, before
+it writes anything, a `TACK_HOME` (or a `HOME`) that is not absolute,
+and a destination inside this repository or holding it, symbolic links
+resolved, so `TACK_HOME=.`, as the build commands above set it, cannot
+remove this repository's own `src/std`.
+
+`make install` checks every destination before it builds anything: that
+it is allowed, can be written, and that `$BINDIR/tack` is not a
+directory. Once stage 3 is built, it copies std beside the old one and
+the compiler into `BINDIR` under a name of its own, and only then
+renames both into place, so a reinstall replaces both or neither, never
+leaves a half-written `tack`, and leaves a process already running the
+old one unaffected. Either target ended by SIGHUP, SIGINT or SIGTERM
+undoes what it did; one ended by SIGKILL leaves its temporary files,
+named for its PID, beside std and the compiler, and the next run
+removes those of a run no longer running, putting back an old std left
+aside with nothing in its place. `BINDIR`, `PREFIX`, `TACK_HOME` and
+`HOME` are read from the environment, where make puts them when they are given on its
+command line, never pasted into a command, so a path holding quotes or
+a backtick is taken as it is. `tools/install.sh` does the work of both.
+Neither needs Go: `make install` needs clang, coreutils and `cmp`, and
+`make install-std` coreutils alone.
+
+    make test-install TACK=bin/tack
+
+checks both, with no Go: it installs from copies of this repository
+into directories of its own below `$TMPDIR`, with a `HOME` of its own,
+twice with the port, the second time with the compiler the first
+installed as `TACK`, over itself, and more times with stand-ins for a
+compiler, small scripts. It checks that the installed compiler builds
+and runs a program that imports std/fmt and passes `tack test` of
+std/hex with nothing but `HOME` pointing at its std; that a file deleted
+from `src/std` does not linger; that every destination that would
+delete part of this repository is refused, deleting nothing; that an
+install whose stages differ, or into a `BINDIR` that cannot be written,
+fails, keeping the previous install; and how both fail without `HOME`
+or `TACK_HOME`. `tools/test-install.sh` lists what it checks. tackc's
+porttest `install` stage runs it with the port.
+
 ## Std and the runtime
 
 This repository owns the standard library, the C runtime, its header
