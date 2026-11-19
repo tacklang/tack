@@ -71,9 +71,9 @@
 // without the port still passes go test ./..., where TACK_PORT_TEST is
 // unset and TestPort skips. Setting TACK_PORT_BIN to the Go
 // binary runs the Go compiler against itself, which must pass every
-// stage but corpus-runner, which it skips, since Go has none of the
-// port's --port-case flags the corpus runner needs: it checks the
-// harness, not the port.
+// stage but corpus-runner and bootstrap, which it skips, since Go has
+// none of the port's --port-case flags the corpus runner needs and the
+// port it builds is no copy of Go: it checks the harness, not the port.
 //
 // # Protocol
 //
@@ -214,6 +214,9 @@
 //   - corpus-runner builds the port's tools/corpus with the port and runs
 //     it over the port's corpus with the port, which must pass; it
 //     compares nothing with Go (see Corpus runner).
+//   - bootstrap builds stage 2, the port's driver built by the port, and
+//     stage 3, the driver built by stage 2, and requires the port, stage
+//     1, and both to be the same bytes (see Bootstrap).
 //
 // check-backend, check-clean and the emit stages classify their cases
 // by the stages of the backend's port each needs (see Backend stages),
@@ -902,6 +905,32 @@
 // probe covers: a tree deeper than the descriptors the port may open,
 // about a thousand levels at Linux's usual soft limit, fails with EMFILE
 // where Go, whose runtime raises that limit to the hard one, removes it.
+//
+// # Bootstrap
+//
+// The bootstrap stage, one case, checks that the port builds itself:
+// stage 1, the port porttest builds with the Go compiler or the one
+// TACK_PORT_BIN names, builds stage 2 from the port's ./driver, and
+// stage 2 builds stage 3 the same way, each with -O3, the level the
+// compiler is built at and the Go compiler's default, in the port's
+// source tree with the port's std and a fresh cache of its own, so every
+// object is compiled anew. Each build runs with its stack held to
+// deepStack KB, through sh's ulimit given on its command line rather
+// than a wrapper script, since stage 2 is written during the case (see
+// the scripts written once a run, below), in a process group of its own,
+// and fails the case when it does not end within bootstrapTimeouts times
+// a compiler run's time limit. The case fails unless the three binaries
+// are the same bytes, naming each neighboring pair that differs, the
+// first byte offset where it does and both sizes, and the three SHA-256
+// sums: stage 1 equals stage 2 because the C the port writes is Go's,
+// and stage 2 equals stage 3 because stage 2 is then stage 1. A decline
+// of a build fails once the stage is required, as any case's does. A
+// port that is the Go compiler, byte for byte, skips the case, and make
+// port-sanitize skips the stage, since its stage 1 is sanitized and the
+// stage 2 it builds is not. TestBootstrapDiffs checks the comparison on
+// small files and needs no port. The port's make bootstrap runs the same
+// two builds with no Go, and make port-test-stage2 runs porttest with
+// stage 2 as the port.
 //
 // # Corpus runner
 //

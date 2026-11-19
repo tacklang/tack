@@ -44,3 +44,4 @@ build-warm
 build-cache
 test-examples
 corpus-runner
+bootstrap

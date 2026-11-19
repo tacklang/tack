@@ -76,6 +76,34 @@ test:
 port-test:
 	TACK_PORT_TEST=1 go test -count=1 -timeout 60m ./porttest
 
+# PORT_STAGE2_BIN is where `make port-test-stage2` builds the reference
+# Go compiler, stage 1 and stage 2, under the ignored bin/.
+PORT_STAGE2_BIN := bin/port-stage2
+
+.PHONY: port-test-stage2
+
+# port-test-stage2 runs port-test with stage 2 as the port: it builds
+# the reference Go compiler, as port-go builds it, stage 1, the port's
+# driver built with it at -O3, and then runs the port's `make bootstrap`
+# with stage 1, which builds stage 2 and stage 3 and fails unless they
+# are the same bytes, fails unless stage 1 is those bytes too, and runs
+# porttest with TACK_GO the reference and
+# TACK_PORT_BIN stage 2, copied out of the port's bin/bootstrap. The
+# port's source tree is $TACK_PORT, ../tack by default, as for
+# port-test, and stage 1 is built with its own std, TACK_HOME that tree,
+# as porttest builds it.
+port-test-stage2:
+	mkdir -p $(PORT_STAGE2_BIN)
+	$(call port-go,$(PORT_STAGE2_BIN)/tack-go)
+	cd "$${TACK_PORT:-../tack}" && TACK_HOME="$$PWD" \
+		TACK_CACHE="$(CURDIR)/$(PORT_STAGE2_BIN)/cache" \
+		"$(CURDIR)/$(PORT_STAGE2_BIN)/tack-go" -O3 --out "$(CURDIR)/$(PORT_STAGE2_BIN)/stage1" ./driver
+	$(MAKE) -C "$${TACK_PORT:-../tack}" bootstrap TACK="$(CURDIR)/$(PORT_STAGE2_BIN)/stage1"
+	cp "$${TACK_PORT:-../tack}/bin/bootstrap/stage2" $(PORT_STAGE2_BIN)/stage2
+	cmp $(PORT_STAGE2_BIN)/stage1 $(PORT_STAGE2_BIN)/stage2
+	TACK_GO=$(PORT_STAGE2_BIN)/tack-go TACK_PORT_BIN=$(PORT_STAGE2_BIN)/stage2 TACK_PORT_TEST=1 \
+		go test -count=1 -timeout 60m ./porttest
+
 # port-go builds, at the path $(1) names, the reference Go compiler
 # porttest compares the port with: this compiler's Go code, frozen, with
 # the files its package builtin embeds, builtin.tck, the runtime header
@@ -169,8 +197,10 @@ PORT_SANITIZE_TIMEOUT := 8
 
 # PORT_SANITIZE_SKIP are the tests `make port-sanitize` skips: the
 # performance tests, whose bounds a sanitized port, several times slower
-# and larger, cannot meet.
-PORT_SANITIZE_SKIP := Perf|TestDeepFactsMemory
+# and larger, cannot meet; and TestPort's bootstrap stage, whose stage
+# 1, the sanitized port, cannot be the same bytes as the stage 2 it
+# builds, which clang builds without the sanitizers.
+PORT_SANITIZE_SKIP := Perf|TestDeepFactsMemory|^TestPort$$/^bootstrap$$
 
 # PORT_MALFORMED is how many accepted programs `make port-sanitize` has
 # porttest's TestMalformed break, truncate and mutate.
