@@ -125,14 +125,10 @@ The README (especially "The language today"), the affected `doc.go`
 files, and `docs/tracking.md` are updated in the same change as the
 feature.
 
-The builtins are built into the compiler, so their documentation and the
-runtime header live in `builtin/`: `builtin/builtin.tck` documents every
-builtin type and function, and `builtin/runtime/tack/tack.h` is the header
-C code includes. A change to a builtin, or to what the runtime header
-declares, updates the file in `builtin/` and then runs `make std-copies`,
-which refreshes std's copies, `src/std/builtin/builtin.tck` and
-`src/std/include/tack/tack.h`. Never edit the copies: a test of package
-builtin fails while they differ from the originals.
+builtin.tck, tack.h and the runtime C live in ../tack/runtime/, and a
+change there runs `make embed` and `make std-copies` in ../tack. tackc's
+`builtin/` and `src/std` are frozen copies kept for the harness and are
+never edited.
 
 ## 8. One feature per change
 
