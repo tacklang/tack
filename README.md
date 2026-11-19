@@ -427,6 +427,29 @@ embeds tackc's frozen runtime instead, so a port built with it links
 that runtime, not `runtime/`'s; build `port-go-bin` again after a
 change to `runtime/`.
 
+### Bootstrapping
+
+The port built by the Go compiler is stage 1. From this repository's
+root,
+
+    make bootstrap TACK=bin/tack
+
+builds stage 2, the port built by stage 1, and stage 3, the port built
+by stage 2, both into `bin/bootstrap/`. Each is built from `./driver`
+at `-O3`, the level the compiler is built at and the Go compiler's
+default, with `TACK_HOME` this repository and a fresh build cache of
+its own under `bin/bootstrap/`, so every object is compiled anew. It
+prints both SHA-256 sums and fails unless stage 2 and stage 3 are the
+same bytes, `cmp` naming the first byte that differs. It needs clang,
+`sha256sum` and `cmp`, and no Go. Stage 1 is also the same bytes as
+stage 2, since the C the port writes is the Go compiler's; tackc's
+porttest checks all three with its `bootstrap` stage, and tackc's
+
+    make port-test-stage2
+
+builds stage 2 the same way and runs the whole of porttest with it as
+the port.
+
 ## Std and the runtime
 
 This repository owns the standard library, the C runtime, its header
@@ -566,10 +589,11 @@ that is not there fails it, whether `TACK_PORT` names the directory or
 it is the default: a source tree without `driver/` is never skipped.
 
 `TACK_PORT_BIN` set to the Go compiler's binary runs the Go compiler
-against itself, which passes every stage but `corpus-runner`, which it
-skips, since Go has no `--port-case`, and checks the harness rather
-than the port. The package documentation of `porttest` describes the
-protocol, the stages and the corpus in full.
+against itself, which passes every stage but `corpus-runner` and
+`bootstrap`, which it skips, since Go has no `--port-case` and the port
+it builds is not Go, and checks the harness rather than the port. The
+package documentation of `porttest` describes the protocol, the stages
+and the corpus in full.
 
 From tackc,
 

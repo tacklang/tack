@@ -63,3 +63,29 @@ test-corpus:
 # tackc's; read the diff it leaves before keeping it.
 update-corpus:
 	$(call corpus-tool,--update)
+
+# BOOTSTRAP is where `make bootstrap` builds stages 2 and 3 of the
+# compiler, with a cache for each, under the ignored bin/.
+BOOTSTRAP := $(BIN)/bootstrap
+
+.PHONY: bootstrap
+
+# bootstrap builds the compiler from ./driver twice, at -O3, the level
+# the compiler is built at: stage 2 with $(TACK), stage 1, and stage 3
+# with stage 2, each with TACK_HOME this tree, so std is the port's own,
+# and a cache of its own, removed first, so every object is compiled
+# anew. It prints both SHA-256 sums and fails unless the two are the
+# same bytes, cmp naming the first byte that differs, counted from 1.
+# With $(TACK) the port, built by the reference Go compiler as the
+# README says, stage 2 is also stage 1, byte for byte; tackc's porttest
+# bootstrap stage checks that. It needs clang, sha256sum and cmp, and
+# no Go.
+bootstrap:
+	rm -rf $(BOOTSTRAP)
+	mkdir -p $(BOOTSTRAP)
+	TACK_HOME="$(CURDIR)" TACK_CACHE="$(CURDIR)/$(BOOTSTRAP)/cache2" \
+		"$(TACK)" -O3 --out "$(CURDIR)/$(BOOTSTRAP)/stage2" ./driver
+	TACK_HOME="$(CURDIR)" TACK_CACHE="$(CURDIR)/$(BOOTSTRAP)/cache3" \
+		"$(CURDIR)/$(BOOTSTRAP)/stage2" -O3 --out "$(CURDIR)/$(BOOTSTRAP)/stage3" ./driver
+	sha256sum $(BOOTSTRAP)/stage2 $(BOOTSTRAP)/stage3
+	cmp $(BOOTSTRAP)/stage2 $(BOOTSTRAP)/stage3
