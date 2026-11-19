@@ -209,7 +209,7 @@ func build_said(mut t typeck.Typed, c []uint8, warnings []uint8, out []uint8, op
     if terr.code != 0 {
         return unimplemented([]uint8("--out with a temp directory that cannot be made")), noerror
     }
-    mut st := Steps{warnings: make(list[uint8], c_allocator), msg: make(list[uint8], c_allocator), shown: false}
+    mut st := Steps{warnings: make(list[uint8], c_allocator), msg: make(list[uint8], c_allocator), shown: false, lost: noerror, dirs: make(list[text.Text], c_allocator)}
     append(mut st.warnings, warnings...)?
     mut made := text.new(c_allocator)
     mut rendered := make(list[uint8], c_allocator)
@@ -230,8 +230,21 @@ func build_said(mut t typeck.Typed, c []uint8, warnings []uint8, out []uint8, op
         return exit_failure, re
     }
     mut outcome := code
+    if st.lost.code != 0 {
+        // The warnings were written and failed, so no clang started (see
+        // run_tool): Go's report of the failed write is the build's end,
+        // whatever else failed, a removal of the temporary directory
+        // among them, as Go's build never made one.
+        lcode := warnings_lost(st.lost, st.dirs[:], hold, mut held)?
+        return lcode, noerror
+    }
     if rm.failed && code != not_implemented {
         if code == exit_failure && len(rendered) > 0 {
+            show_warnings(mut st)
+            if st.lost.code != 0 {
+                lcode := warnings_lost(st.lost, st.dirs[:], hold, mut held)?
+                return lcode, noerror
+            }
             report_removal(mut st, rendered[:], rm)?
             diagnosed = true
             return exit_failure, noerror
@@ -247,8 +260,10 @@ func build_said(mut t typeck.Typed, c []uint8, warnings []uint8, out []uint8, op
             // and the build's error, its own line, then the removal's on
             // the next, or tack: and the removal's alone after a build
             // that succeeded.
-            if !st.shown {
-                fmt.ewrite(st.warnings[:])
+            show_warnings(mut st)
+            if st.lost.code != 0 {
+                lcode := warnings_lost(st.lost, st.dirs[:], hold, mut held)?
+                return lcode, noerror
             }
             if code == exit_ok && hold {
                 fmt.appendf(mut held, "tack: failed to delete temp directory: %s %s: %s\n", rm.op.bytes(), rm.path.bytes(), os_errno_words(rm.err))?
@@ -277,8 +292,11 @@ func build_said(mut t typeck.Typed, c []uint8, warnings []uint8, out []uint8, op
         append(mut what, st.msg...)?
         return unimplemented(what), noerror
     }
-    if !st.shown {
-        fmt.ewrite(st.warnings[:])
+    show_warnings(mut st)
+    if st.lost.code != 0 {
+        // Go's report of the failed write (see show_warnings).
+        lcode := warnings_lost(st.lost, st.dirs[:], hold, mut held)?
+        return lcode, noerror
     }
     if outcome != exit_ok {
         if len(rendered) > 0 {
@@ -293,6 +311,42 @@ func build_said(mut t typeck.Typed, c []uint8, warnings []uint8, out []uint8, op
         }
     }
     return outcome, noerror
+}
+
+// warnings_lost answers lost, the error of a failed write of a build's
+// warnings, as Go's report answers writeWarnings' (see output_failed):
+// tack: failed to write output: write /dev/stderr: and the errno's
+// words, with exit status 1, appended to held instead with hold set, as
+// build_said's other tack: lines are. An errno Go's words are not known
+// for, EHWPOISON, or a write that wrote nothing, "unknown OS error", is
+// written in std/os's own words, as output_failed writes it, since the
+// warnings' write came first and no decline could stand for it
+// (decided 2026-11-18). No clang started (see run_tool), so nothing is
+// at --out but what was there before; first it removes dirs, the
+// directories open_cache made, the last made first, each empty since no
+// clang filled it, so the build cache is left as Go, which made none,
+// leaves it. A directory that cannot be removed is left, unreported,
+// as Go's report has no line for it. It fails only for want of memory.
+func warnings_lost(lost error, dirs []text.Text, hold bool, mut held list[uint8]) (int32, error) {
+    mut k := len(dirs)
+    for k > 0 {
+        k -= 1
+        if k < len(dirs) {
+            rerr := os.remove_path(dirs[k].bytes())
+            if rerr.code != 0 {
+                continue
+            }
+        }
+    }
+    mut words := os_errno_words(lost)
+    if len(words) == 0 {
+        words = lost.msg
+    }
+    if hold {
+        fmt.appendf(mut held, "tack: failed to write output: write /dev/stderr: %s\n", words)?
+        return exit_failure, noerror
+    }
+    return output_failed(lost, "/dev/stderr"), noerror
 }
 
 // report_removal writes, for a build that ended in rendered, the
@@ -313,10 +367,7 @@ func report_removal(mut st Steps, rendered []uint8, rm Removal) error {
         // 2026-11-18).
         words = rm.err.msg
     }
-    if !st.shown {
-        fmt.ewrite(st.warnings[:])
-        st.shown = true
-    }
+    show_warnings(mut st)
     fmt.ewrite(rendered)
     mut line := make(list[uint8], c_allocator)
     fmt.appendf(mut line, "tack: failed to delete temp directory: %s %s: %s\n", rm.op.bytes(), rm.path.bytes(), words)?
@@ -536,7 +587,9 @@ func write_temp(p []uint8, data []uint8, mut msg list[uint8]) (int32, error) {
 // as Go's does, given os.Stdout and os.Stderr, so a terminal shows its
 // colour and both streams arrive as it writes them; st's warnings, what
 // the stages before warned of, are written just before it starts,
-// unless they were already, and st's shown set. It returns exit_ok when
+// unless they were already, and st's shown set; when that write fails,
+// its error kept in st's lost, clang is not started and it returns
+// exit_failure, as Go builds nothing then. It returns exit_ok when
 // clang exits 0, and otherwise exit_failure, with Go's error in st's
 // msg: for file, a C file of the program's or the runtime's as messages
 // name it, cannot compile, file and a colon first, then clang failed:
@@ -562,9 +615,12 @@ func run_tool(argv []text.Text, file []uint8, mut st Steps, mut started bool) (i
         append(mut st.msg, why[:]...)?
         return exit_failure, noerror
     }
-    if !st.shown {
-        fmt.ewrite(st.warnings[:])
-        st.shown = true
+    show_warnings(mut st)
+    if st.lost.code != 0 {
+        // Go builds nothing once the warnings cannot be written, so no
+        // clang starts: the build ends here, in Go's report of the
+        // failed write (see build_said).
+        return exit_failure, noerror
     }
     status, err := os.run_inherit(found.bytes(), argv, c_allocator)
     // Only a child that ran and was waited for started: run_inherit's

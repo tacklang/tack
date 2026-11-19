@@ -484,8 +484,9 @@ func symbols_of(b []uint8, secs []ElfSection, sym ElfSection) (Symbols, bool, er
 // the object file at target: a line defined and the name for each
 // symbol it defines, then a line undefined and the name for each it
 // leaves undefined, in the order of its symbol table; or the one line
-// unreadable, for a file the build would decline. It returns exit_ok,
-// and fails only for want of memory.
+// unreadable, for a file the build would decline. It returns exit_ok, or
+// a failed write's status as write_output reports it, and fails only for
+// want of memory.
 func symbols_dump(target []uint8) (int32, error) {
     syms, ok := read_symbols(target)?
     mut out := make(list[uint8], c_allocator)
@@ -498,6 +499,5 @@ func symbols_dump(target []uint8) (int32, error) {
     for _, s := range syms.undefined {
         fmt.appendf(mut out, "undefined %s\n", s.bytes())?
     }
-    fmt.write(out[:])
-    return exit_ok, noerror
+    return write_output(out[:]), noerror
 }

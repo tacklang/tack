@@ -2,7 +2,8 @@
 //
 // Each function makes one call into the C library, or a fixed few that
 // are one operation, as list_dir's opendir, readdir and closedir are, and
-// decides nothing: retrying, looping, sorting, which errors mean what,
+// decides nothing, but for a broken pipe on standard output or standard
+// error (see below): retrying, looping, sorting, which errors mean what,
 // and every allocation's failure are std/os's Tack. A function that can
 // fail returns 0 or more on success and the errno, negated, on failure,
 // and tack_os_error turns an errno into the error Tack returns.
@@ -33,7 +34,13 @@
 // own directory never changes.
 //
 // The runtime ignores SIGPIPE, so a write here to a pipe with no reader
-// fails with EPIPE, an error returned, rather than kill the process; and
+// fails with EPIPE, an error returned, rather than kill the process,
+// but for tack_os_write_std's, to standard output or standard error,
+// which follows the runtime's rule for those two (see the runtime's
+// process.c) and hands a failure to tack_stdio_failed_, as print does:
+// EPIPE ends the process as exit(141) does, the one decision made here,
+// so that a broken pipe on either stream ends the process one way
+// whatever wrote to it (per the owner's ruling, 2026-11-18); and
 // SIGXFSZ, so a write past the process's file-size limit, RLIMIT_FSIZE,
 // fails with EFBIG, "File too large", the same way. An ignored signal
 // stays ignored across exec, so tack_os_spawn sets both back to their
@@ -504,6 +511,34 @@ void tack_os_flush_stdio(void) {
     }
 }
 
+void tack_os_flush_stdout(void) {
+    errno = 0;
+    if (fflush(stdout) == EOF) {
+        tack_stdio_failed_();
+    }
+}
+
+int64_t tack_os_write_std(int32_t fd, tack_view_uint8 data) {
+    if (fd != 1 && fd != 2) {
+        return -EBADF;
+    }
+    if (data.len <= 0) {
+        return 0;
+    }
+    errno = 0;
+    ssize_t n = write(fd, data.ptr, (size_t)data.len);
+    if (n < 0) {
+        int e = errno;
+        // The runtime's rule for a broken pipe on standard output or
+        // standard error: EPIPE ends the process as exit(141) does, and
+        // tack_stdio_failed_ returns only when the process is ending
+        // already, the error then returned.
+        tack_stdio_failed_();
+        return -(int64_t)e;
+    }
+    return n;
+}
+
 int64_t tack_os_can_execute(tack_view_uint8 path) {
     char buf[path_max];
     if (c_path(path, buf) != 0) {
@@ -538,6 +573,14 @@ int64_t tack_os_poll2(int32_t a, int32_t b) {
         mask += 2;
     }
     return mask;
+}
+
+int64_t tack_os_poll_out(int32_t fd) {
+    struct pollfd p = {.fd = fd, .events = POLLOUT};
+    if (poll(&p, 1, -1) < 0) {
+        return -errno;
+    }
+    return 0;
 }
 
 int64_t tack_os_wait(int64_t pid) {
@@ -584,6 +627,10 @@ int64_t tack_os_errno_named(int64_t k) {
         return EINVAL;
     case 6:
         return symlink_found;
+    case 7:
+        return EAGAIN;
+    case 8:
+        return EWOULDBLOCK;
     }
     return 0;
 }

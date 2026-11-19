@@ -402,14 +402,17 @@ void tack_start_(void);
 void tack_end_(void);
 
 // tack_stdio_failed_ is called right after a write or a flush of C's
-// stdout or stderr fails, with errno as the failure left it; the caller
+// stdout or stderr fails, or a write(2) to descriptor 1 or 2, with errno
+// as the failure left it; the caller
 // sets errno to 0 just before the call, so a failure that sets no errno,
 // as fwrite on a wide-oriented stream does, is not taken for an earlier
 // call's EPIPE. When errno
 // is EPIPE, the stream's pipe has no reader, and it ends the process as
 // exit(141) does: every allocator frees every buffer it still holds, no
 // defer runs, and the status is 141, 128 plus SIGPIPE's 13. Otherwise it
-// returns, and the bytes are lost. print, exit and std/fmt's C call it;
+// returns, and the bytes are lost. print, exit and std/fmt's C call it,
+// and so does std/os's C for its flushes and for write_stdout's and
+// write_stderr's writes, which return any other failure as an error;
 // a write to any other descriptor must not, since its EPIPE is an error
 // for the program to see.
 void tack_stdio_failed_(void);

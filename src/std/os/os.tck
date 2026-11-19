@@ -47,6 +47,19 @@ import text from "std/text"
 // path, and opens close-on-exec, so no child process inherits it, and
 // every child run starts it waits for before it returns, so none is left
 // a zombie.
+//
+// write_stdout and write_stderr write to standard output and standard
+// error and, unlike print and std/fmt's writes, return the error of a
+// write that fails, "File too large" past the file-size limit among
+// them, having flushed C's buffers first so that their bytes keep their
+// place among print's. A broken pipe on either stream is no error they
+// return: as for print, it ends the process as exit(141) does, the
+// runtime's rule for those two streams (per the owner's ruling,
+// 2026-11-18). A write to any other descriptor os writes, a file's or a
+// pipe's, gets EPIPE as error{code: 3, msg: "Broken pipe"}. A standard
+// stream set non-blocking is waited for while it is full, so every byte
+// is written. write_file_result is write_file telling which call failed,
+// open, write or close, as Go's os.WriteFile does.
 
 // read_size is how many bytes read_file makes room for before each read,
 // the most os.c reads at once.
@@ -203,6 +216,19 @@ extern("tack_os_spawn_failed") func c_spawn_failed() int64
 // does, and any other failure loses the bytes.
 extern("tack_os_flush_stdio") func c_flush_stdio()
 
+// c_flush_stdout flushes C's stdout alone, handing a failure to the
+// runtime as c_flush_stdio does: a broken pipe ends the process as
+// exit(141) does, and any other failure loses the bytes.
+extern("tack_os_flush_stdout") func c_flush_stdout()
+
+// c_write_std writes some of data to fd, 1 for standard output or 2 for
+// standard error, with one write(2), and returns how many bytes, or the
+// errno negated; EBADF for any other fd. A write that fails with EPIPE
+// ends the process as exit(141) does, the runtime's rule for a broken
+// pipe on either stream, unless the process is ending already, when
+// EPIPE is returned as any other errno is.
+extern("tack_os_write_std") func c_write_std(fd int32, data []uint8) int64
+
 // c_can_execute returns 1 when the file at path may be run, as
 // can_execute says, and 0 otherwise.
 extern("tack_os_can_execute") func c_can_execute(path []uint8) int64
@@ -213,6 +239,12 @@ extern("tack_os_can_execute") func c_can_execute(path []uint8) int64
 // errno negated.
 extern("tack_os_poll2") func c_poll2(a int32, b int32) int64
 
+// c_poll_out waits, with poll(2) and no time limit, until fd can be
+// written without blocking, or is broken or has failed, which the next
+// write then reports, and returns 0, or the errno negated: EINTR for a
+// wait a signal interrupted, which the caller retries.
+extern("tack_os_poll_out") func c_poll_out(fd int32) int64
+
 // c_wait waits for the child pid to end and returns its exit status, 0
 // to 255, or 256 plus the signal that killed it, or 512 plus the signal
 // when it also dumped core, or the errno negated.
@@ -221,10 +253,11 @@ extern("tack_os_wait") func c_wait(pid int64) int64
 // c_eintr returns EINTR, the errno of a call a signal interrupted.
 extern("tack_os_eintr") func c_eintr() int64
 
-// c_errno_named returns the errno remove_all compares with, by k: 0
-// ENOENT, 1 EISDIR, 2 EPERM, 3 EACCES, 4 ENOTDIR, 5 EINVAL, and 6 the
-// number c_open_dir_at gives, negated, for a symbolic link, above every
-// errno; 0 for any other k.
+// c_errno_named returns the errno remove_all and write_std compare
+// with, by k: 0 ENOENT, 1 EISDIR, 2 EPERM, 3 EACCES, 4 ENOTDIR, 5
+// EINVAL, 6 the number c_open_dir_at gives, negated, for a symbolic
+// link, above every errno, 7 EAGAIN and 8 EWOULDBLOCK, the same errno
+// on Linux and macOS; 0 for any other k.
 extern("tack_os_errno_named") func c_errno_named(k int64) int64
 
 // c_unlink_at removes name of the directory fd, unlinkat(2), with
@@ -389,22 +422,67 @@ pub func write_file(path []uint8, data []uint8) error {
 // file-size limit, RLIMIT_FSIZE, is error{code: 3, msg: "File too
 // large"} the same way: the program ignores SIGXFSZ.
 pub func write_file_mode(path []uint8, data []uint8, mode int64) error {
+    return write_file_op(path, data, mode).err
+}
+
+// WriteEnd is how write_file_op or write_and_close_op ended: err, no
+// error or the error, and op, the call that failed, open, write or
+// close, or an empty string for none. It is one value so that op can be
+// read once err is seen, as a result beside an error cannot be.
+type WriteEnd struct {
+    err error
+    op string
+}
+
+// WriteResult is how write_file_result ended: err, no error, or the
+// error, as write_file gives it, and op, the call that failed, as Go's
+// os.WriteFile names it in its PathError: open, write or close; or
+// empty, for a write that succeeded, or an allocation of op that failed.
+// It is one value, not a result beside an error, as remove_all's
+// RemoveResult is, so that what failed can be read once the error is
+// seen.
+pub type WriteResult struct {
+    pub err error
+    pub op text.Text
+}
+
+// write_file_result is write_file, telling which call failed: it writes
+// data to the file at path as write_file does, creating it with mode
+// 0644 or truncating it, with the same errors, and returns them in a
+// WriteResult with op, made through alloc, the call that failed: open
+// for the open and for a path refused before it, one holding a 0 byte
+// among them, as Go's open refuses it; write for a write; close for the
+// close (per the owner's ruling, 2026-11-18). op is made after the
+// write, so an allocation of it that fails is error{code: 1, msg: "out
+// of memory"}, with no op, whatever the write did.
+pub func write_file_result(path []uint8, data []uint8, scope alloc Allocator) WriteResult {
+    w := write_file_op(path, data, 0o644)
+    o, oe := text.from_bytes([]uint8(w.op), alloc)
+    if oe.code != 0 {
+        return WriteResult{err: oe, op: text.new(alloc)}
+    }
+    return WriteResult{err: w.err, op: o}
+}
+
+// write_file_op is write_file_mode, returning its error with the call
+// that failed (see write_file_result).
+func write_file_op(path []uint8, data []uint8, mode int64) WriteEnd {
     if has_nul(path) {
-        return nul_path
+        return WriteEnd{err: nul_path, op: "open"}
     }
     perm, ok := perm_of(mode)
     if !ok {
-        return bad_mode
+        return WriteEnd{err: bad_mode, op: "open"}
     }
     r := c_open(path, 1, perm)
     if r < 0 {
-        return c_error(-%r)
+        return WriteEnd{err: c_error(-%r), op: "open"}
     }
     fd, fits := int32(r)
     if !fits {
-        return fd_range
+        return WriteEnd{err: fd_range, op: "open"}
     }
-    return write_and_close(fd, data)
+    return write_and_close_op(fd, data)
 }
 
 // create_file_mode creates a new file at path with the permissions mode,
@@ -455,6 +533,12 @@ pub func create_file_mode(path []uint8, data []uint8, mode int64) error {
 // every path, and returns no error, or the error of the write or of the
 // close, which can mean the bytes did not reach the file.
 func write_and_close(fd int32, data []uint8) error {
+    return write_and_close_op(fd, data).err
+}
+
+// write_and_close_op is write_and_close, returning its error with the
+// call that failed, write or close.
+func write_and_close_op(fd int32, data []uint8) WriteEnd {
     mut at int64 = 0
     for at < len(data) {
         n := c_write(fd, part(data, at, len(data)))
@@ -462,7 +546,7 @@ func write_and_close(fd int32, data []uint8) error {
             c_close(fd)
             // A write of something that writes nothing has no errno; 0
             // is none, so it is "unknown OS error".
-            return c_error(-%n)
+            return WriteEnd{err: c_error(-%n), op: "write"}
         }
         if n > 0 {
             // C's write contract bounds n by the bytes it was given, what
@@ -473,7 +557,93 @@ func write_and_close(fd int32, data []uint8) error {
     }
     c := c_close(fd)
     if c < 0 {
-        return c_error(-%c)
+        return WriteEnd{err: c_error(-%c), op: "close"}
+    }
+    return WriteEnd{err: noerror, op: ""}
+}
+
+// write_stdout writes every byte of b to standard output, file
+// descriptor 1, and returns no error, or the error of the write that
+// failed, worded as every errno is (see the package comment): a write
+// past the process's file-size limit, RLIMIT_FSIZE, is error{code: 3,
+// msg: "File too large"}, and a full disk error{code: 3, msg: "No space
+// left on device"}. It flushes C's stdout first, which print, exit and
+// std/fmt's write and printf write through, so its bytes come after
+// theirs; a failure of that flush is theirs, and is handled as theirs
+// are, not returned: a broken pipe ends the process as exit(141) does,
+// and any other failure loses those bytes. It then writes b with
+// write(2), past C's buffers, looping over a partial write and retrying
+// one a signal interrupted, until every byte is written or a write
+// fails; on an error some of b may have been written. A standard output
+// set non-blocking, whose write is refused with EAGAIN while it is full,
+// is waited for with poll(2) until it takes more, and written on, as
+// Go's runtime waits for one, so every byte is written there too (per
+// the owner's ruling, 2026-11-18); a poll that fails is the error. C's
+// flush before it is not waited for so: print's bytes a full
+// non-blocking stream refuses are lost, as for any failed flush. An empty b writes
+// nothing and is no error. A write that fails with EPIPE, standard
+// output a pipe with no reader, ends the process as exit(141) does, as
+// a broken pipe on standard output does for print: every allocator
+// frees every buffer it holds, no defer runs, and the status is 141
+// (per the owner's ruling, 2026-11-18). It allocates nothing, so it
+// never fails for want of memory.
+pub func write_stdout(b []uint8) error {
+    c_flush_stdout()
+    return write_std(1, b)
+}
+
+// write_stderr writes every byte of b to standard error, file
+// descriptor 2, and returns no error, or the error of the write that
+// failed, as write_stdout does for standard output, EPIPE ending the
+// process as exit(141) does the same way. It flushes C's stdout first,
+// then C's stderr, as std/fmt's ewrite does, so where both streams reach
+// one place its bytes come after what print, printf, eprintf and ewrite
+// wrote before it. A failure of either flush belongs to those earlier
+// writes, and is handled as theirs are, not returned: a broken pipe ends
+// the process as exit(141) does, and any other failure loses those
+// bytes. An empty b writes nothing and is no error, though both streams
+// are still flushed. It allocates nothing, so it never fails for want of
+// memory.
+pub func write_stderr(b []uint8) error {
+    c_flush_stdio()
+    return write_std(2, b)
+}
+
+// write_std writes every byte of b to fd, 1 or 2, with c_write_std,
+// looping over a partial write and retrying one a signal interrupted,
+// and returns no error, or the error of the write that failed. A write
+// refused with EAGAIN or EWOULDBLOCK, fd non-blocking and full, waits
+// for fd to take more, with c_poll_out, retrying a wait a signal
+// interrupted, and is made again; a wait that fails is the error.
+func write_std(fd int32, b []uint8) error {
+    eagain := c_errno_named(7)
+    ewouldblock := c_errno_named(8)
+    mut at int64 = 0
+    for at < len(b) {
+        n := c_write_std(fd, part(b, at, len(b)))
+        if n < 0 && (-%n == eagain || -%n == ewouldblock) {
+            for {
+                p := c_poll_out(fd)
+                if p >= 0 {
+                    break
+                }
+                if -%p != c_eintr() {
+                    return c_error(-%p)
+                }
+            }
+            continue
+        }
+        if n <= 0 && -%n != c_eintr() {
+            // A write of something that writes nothing has no errno; 0
+            // is none, so it is "unknown OS error".
+            return c_error(-%n)
+        }
+        if n > 0 {
+            // C's write contract bounds n by the bytes it was given, what
+            // is left of b, so at stays at most len(b) and never wraps;
+            // +% is there because only that contract bounds it.
+            at +%= n
+        }
     }
     return noerror
 }

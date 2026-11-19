@@ -135,6 +135,16 @@ import typeck from "tack/typeck"
 // Go's backend; --port-symbols writes what an object file defines and
 // leaves undefined, as the build reads it (see symbols_dump), which
 // tackc's porttest compares with Go's readSymbols.
+//
+// Every dump, and the list of backends, is written to standard output
+// through std/os's write_stdout, and the warnings of a run that
+// succeeded to standard error through write_stderr, so a write that
+// fails is reported as Go's writeAll and writeWarnings report it, tack:
+// failed to write output: write /dev/stdout, or /dev/stderr, and the
+// errno's words, exit status 1 (see write_output); a broken pipe on
+// either ends the process with status 141, as Go's dies of SIGPIPE.
+// Diagnostics and the driver's own errors go through std/fmt, whose
+// failed writes are lost, as Go's report ignores them.
 
 // exit_ok means the requested work was done.
 var exit_ok int32 = 0
@@ -178,6 +188,50 @@ func main() {
 func unimplemented(what []uint8) int32 {
     fmt.eprintf("tack: not implemented in the port: %s\n", what)
     return not_implemented
+}
+
+// write_output writes out, a dump or the list of backends, to standard
+// output through std/os's write_stdout, as Go's writeAll does, and
+// returns exit_ok, or, when a write fails, the failure as Go's report
+// writes it (see output_failed).
+func write_output(out []uint8) int32 {
+    e := os.write_stdout(out)
+    if e.code == 0 {
+        return exit_ok
+    }
+    return output_failed(e, "/dev/stdout")
+}
+
+// write_warnings writes warnings, the rendered warnings of a run that
+// succeeded, to standard error through std/os's write_stderr, as Go's
+// writeWarnings does, and returns exit_ok, or, when a write fails, the
+// failure as Go's report writes it (see output_failed). An empty
+// warnings writes nothing.
+func write_warnings(warnings []uint8) int32 {
+    e := os.write_stderr(warnings)
+    if e.code == 0 {
+        return exit_ok
+    }
+    return output_failed(e, "/dev/stderr")
+}
+
+// output_failed writes e, the error of a failed write to the standard
+// stream Go's os package names name, as Go's report writes writeAll's
+// error, tack: failed to write output: write, name and the errno's
+// words, and returns exit_failure; written to standard error, which
+// fails in turn when it is the stream that failed, the bytes lost as
+// Go's report loses them. An errno Go's words are not known for (see
+// os_errno_words), EHWPOISON, or a write that wrote nothing, which
+// std/os gives as "unknown OS error", is written in std/os's own words:
+// some of the output may be written already, so no decline could stand
+// for it (decided 2026-11-18).
+func output_failed(e error, name string) int32 {
+    mut words := os_errno_words(e)
+    if len(words) == 0 {
+        words = e.msg
+    }
+    fmt.eprintf("tack: failed to write output: write %s: %s\n", name, words)
+    return exit_failure
 }
 
 // usage writes msg as Go's driver reports a command-line mistake, with a
@@ -362,8 +416,7 @@ func run(a []text.Text) (int32, error) {
         mut out := make(list[uint8], c_allocator)
         codegen.append_names(mut out, []uint8("\n"))?
         append(mut out, '\n')?
-        fmt.write(out)
-        return exit_ok, noerror
+        return write_output(out), noerror
     }
     mut count int64 = 0
     mut d := Dump{n: 0}
@@ -639,8 +692,7 @@ func command(a []text.Text, rest []int64, fl Flags, d Dump, max_errors int64) (i
     if d == dump_reserved {
         mut out := make(list[uint8], c_allocator)
         codegen.append_reserved_dump(mut out)?
-        fmt.write(out)
-        return exit_ok, noerror
+        return write_output(out), noerror
     }
     if d == dump_port_header {
         code, e := header_dump(a[k].bytes(), max_errors)
@@ -779,8 +831,7 @@ func dump_target(target []uint8, d Dump, max_errors int64) (int32, error) {
             return code, e
         }
         out := write_loaded(res, f)?
-        fmt.write(out)
-        return exit_ok, noerror
+        return write_output(out), noerror
     }
     if f.failed {
         code, e := failed(f, d)
@@ -814,8 +865,7 @@ func dump_target(target []uint8, d Dump, max_errors int64) (int32, error) {
     if d == dump_lex {
         mut out := format_file_tokens(res, single)?
         with_trailing_newline(mut out)?
-        fmt.write(out)
-        return exit_ok, noerror
+        return write_output(out), noerror
     }
     code, e := ast_dump(res, single)
     return code, e
@@ -1122,12 +1172,16 @@ func res_dump(mut res loader.Result, single bool, max_errors int64) (int32, erro
         return exit_failure, noerror
     }
     if len(all) > 0 {
+        // Go's compileWarned writes the warnings and returns a failed
+        // write before the dump is written.
         w := render_diagnostics(res.files, all, max_errors)?
-        fmt.ewrite(w)
+        wcode := write_warnings(w)
+        if wcode != exit_ok {
+            return wcode, noerror
+        }
     }
     with_trailing_newline(mut out)?
-    fmt.write(out)
-    return exit_ok, noerror
+    return write_output(out), noerror
 }
 
 // types_dump writes the --port-types dump of the program res holds:
@@ -1165,8 +1219,7 @@ func types_dump(mut res loader.Result, d Dump) (int32, error) {
         if be.code != 0 {
             return exit_failure, be
         }
-        fmt.write(bout)
-        return exit_ok, noerror
+        return write_output(bout), noerror
     }
     e := mut c.check_types()
     if e.code == typeck.not_ported.code {
@@ -1176,8 +1229,7 @@ func types_dump(mut res loader.Result, d Dump) (int32, error) {
         return exit_failure, e
     }
     out := mut c.write_dump()?
-    fmt.write(out)
-    return exit_ok, noerror
+    return write_output(out), noerror
 }
 
 // emit_target carries out --emit or --emit-header, d, of target, with
@@ -1281,9 +1333,8 @@ func emit_target(target []uint8, d Dump, max_errors int64, out_bin []uint8, opt 
         fmt.ewrite(out)
         return exit_failure, noerror
     }
-    // Go's compileWarned writes the warnings, then the dump is written.
-    // They are rendered first and written once tack.h is, so a header
-    // the port cannot write declines with nothing else written.
+    // Go's compileWarned writes the warnings, then the dump is written,
+    // and a failed write of the warnings is returned before it is.
     for i := range len(gdiags) {
         append(mut all, replace(mut gdiags[i], make(diag.Diagnostic, c_allocator)))?
     }
@@ -1298,22 +1349,29 @@ func emit_target(target []uint8, d Dump, max_errors int64, out_bin []uint8, opt 
         return code, noerror
     }
     if d == dump_header {
-        mut msg := make(list[uint8], c_allocator)
-        hcode := write_headers(mut typed, mut msg)?
-        if hcode == not_implemented {
-            return unimplemented([]uint8(flag_name(d))), noerror
+        // tack.h is rendered before the warnings are written, so that
+        // nothing the port cannot do is found after them (see
+        // write_headers); a failed write of the warnings leaves no
+        // tack.h, as in Go.
+        header := codegen.header(mut typed)?
+        wcode := write_warnings(warnings)
+        if wcode != exit_ok {
+            return wcode, noerror
         }
-        fmt.ewrite(warnings)
+        mut msg := make(list[uint8], c_allocator)
+        hcode := write_header_files(typed.prog, header[:], mut msg)?
         if hcode != exit_ok {
             fmt.eprintf("tack: %s\n", msg[:])
         }
         return hcode, noerror
     }
-    fmt.ewrite(warnings)
+    wcode := write_warnings(warnings)
+    if wcode != exit_ok {
+        return wcode, noerror
+    }
     mut emitted := gout
     with_trailing_newline(mut emitted)?
-    fmt.write(emitted)
-    return exit_ok, noerror
+    return write_output(emitted), noerror
 }
 
 // write_headers writes tack.h, the header codegen renders for t's
@@ -1321,10 +1379,12 @@ func emit_target(target []uint8, d Dump, max_errors int64, out_bin []uint8, opt 
 // package of its module with C files or extern funcs, Go's writeHeaders:
 // a library's main package only when it has either, and no package of
 // another module. It writes nothing to the standard streams: it returns
-// exit_ok; or exit_failure, with msg holding Go's error, cannot write
-// and the file, for a file whose open fails with an errno Go's syscall
-// words (see loader.go_errno), which Go stops at, as the port does; or
-// not_implemented for any other failure, which the caller declines.
+// exit_ok; or exit_failure, with msg holding Go's error, cannot write,
+// the file and os.WriteFile's error, the call that failed, open, write
+// or close, the file and the errno's words (see std/os's
+// write_file_result), which Go stops at, as the port does, EHWPOISON's,
+// whose words Go gives by architecture, in std/os's own words. It never
+// declines, and fails only for want of memory.
 func write_headers(mut t typeck.Typed, mut msg list[uint8]) (int32, error) {
     header := codegen.header(mut t)?
     code := write_header_files(t.prog, header[:], mut msg)?
@@ -1344,18 +1404,27 @@ func write_header_files(prog ast.Program, header []uint8, mut msg list[uint8]) (
             continue
         }
         name := path.join(prog.packages[p].dir.bytes(), []uint8(codegen.header_name), c_allocator)?
-        we := os.write_file(name.bytes(), header)
-        if we.code != 0 {
-            // Go's os.WriteFile fails at its open, a PathError of open,
-            // for every errno go_errno words; any other, a failed write
-            // or close among them, the port cannot word.
-            errno := loader.go_errno(we)
+        wr := os.write_file_result(name.bytes(), header, c_allocator)
+        if wr.err.code == 1 {
+            return exit_failure, wr.err
+        }
+        if wr.err.code != 0 {
+            // Go's os.WriteFile's PathError: the call that failed, open,
+            // write or close, the path and the errno's words, which the
+            // port has for every errno Linux gives but EHWPOISON (see
+            // go_errno_text), whose words depend on the architecture:
+            // that one is written in std/os's own words, as a removal
+            // error with none is, since the warnings may be out already
+            // and no decline could stand for them (decided 2026-11-18).
+            mut errno := os_errno_words(wr.err)
             if len(errno) == 0 {
-                return not_implemented, noerror
+                errno = wr.err.msg
             }
             append(mut msg, []uint8("cannot write ")...)?
             append(mut msg, name.bytes()...)?
-            append(mut msg, []uint8(": open ")...)?
+            append(mut msg, ':', ' ')?
+            append(mut msg, wr.op.bytes()...)?
+            append(mut msg, ' ')?
             append(mut msg, name.bytes()...)?
             append(mut msg, []uint8(": ")...)?
             append(mut msg, []uint8(errno)...)?
@@ -1452,8 +1521,7 @@ func header_dump(target []uint8, max_errors int64) (int32, error) {
     }
     mut typed := mut c.take_typed()?
     out := codegen.header(mut typed)?
-    fmt.write(out)
-    return exit_ok, noerror
+    return write_output(out), noerror
 }
 
 // floats_dump writes what --port-floats writes for the file target: for
@@ -1486,8 +1554,7 @@ func floats_dump(target []uint8) (int32, error) {
         }
         start = end +% 1
     }
-    fmt.write(out)
-    return exit_ok, noerror
+    return write_output(out), noerror
 }
 
 // float_line appends to out the literal of the float line names, as
@@ -1700,14 +1767,17 @@ func is_link(p []uint8) bool {
 func check_program(mut res loader.Result, max_errors int64, d Dump) (int32, error) {
     mut all := replace(mut res.diags, make(list[diag.Diagnostic], c_allocator))
     if !res.has_program {
-        if len(all) > 0 {
-            out := render_diagnostics(res.files, all, max_errors)?
-            fmt.ewrite(out)
+        if len(all) == 0 {
+            return exit_ok, noerror
         }
+        out := render_diagnostics(res.files, all, max_errors)?
         if diag.has_errors(all) {
+            fmt.ewrite(out)
             return exit_failure, noerror
         }
-        return exit_ok, noerror
+        // Warnings alone, which Go's writeWarnings writes, reporting a
+        // failed write.
+        return write_warnings(out), noerror
     }
     prog := program_of(mut res.program.packages, res.program.errors)?
     mut missing := resolver.missing_main(prog)?
@@ -1748,11 +1818,13 @@ func check_program(mut res loader.Result, max_errors int64, d Dump) (int32, erro
                 append(mut missing, replace(mut all[i], make(diag.Diagnostic, c_allocator)))?
             }
             out := render_diagnostics(typed.files, missing, max_errors)?
-            fmt.ewrite(out)
             if diag.has_errors(missing) {
+                // Go's report writes diagnostics and leaves a failed
+                // write of them unreported.
+                fmt.ewrite(out)
                 return exit_failure, noerror
             }
-            return exit_ok, noerror
+            return write_warnings(out), noerror
         }
         // Go's writeCheckOutput writes tack.h, or the C, then the
         // warnings follow.
@@ -1761,22 +1833,24 @@ func check_program(mut res loader.Result, max_errors int64, d Dump) (int32, erro
             // it writes the warnings.
             mut msg := make(list[uint8], c_allocator)
             hcode := write_headers(mut typed, mut msg)?
-            if hcode == not_implemented {
-                return unimplemented([]uint8("--check")), noerror
-            }
             if hcode != exit_ok {
                 fmt.eprintf("tack: %s\n", msg[:])
                 return hcode, noerror
             }
         }
         if d == dump_emit {
+            // Go's executeCheck returns writeCheckOutput's failed write
+            // before it writes the warnings.
             mut emitted := gout
             with_trailing_newline(mut emitted)?
-            fmt.write(emitted)
+            ocode := write_output(emitted)
+            if ocode != exit_ok {
+                return ocode, noerror
+            }
         }
         if len(all) > 0 {
             out := render_diagnostics(typed.files, all, max_errors)?
-            fmt.ewrite(out)
+            return write_warnings(out), noerror
         }
         return exit_ok, noerror
     }
@@ -1843,8 +1917,7 @@ func ast_dump(res loader.Result, single bool) (int32, error) {
         return exit_failure, noerror
     }
     with_trailing_newline(mut out)?
-    fmt.write(out)
-    return exit_ok, noerror
+    return write_output(out), noerror
 }
 
 // format_file_tokens renders the tokens of every file res holds, as Go's

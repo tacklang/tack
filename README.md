@@ -300,7 +300,9 @@ Decided on 2026-11-18:
   has no Go words for, EHWPOISON alone on Linux, is written in std/os's
   own words, `failed to delete temp directory: <op> <path>: <text>`
   after `tack:`; nothing declines there, since Go writes no line a
-  decline could stand for. Decided 2026-11-18.
+  decline could stand for. Decided 2026-11-18. The same holds for a
+  failed write of `tack.h`, which may follow the warnings: EHWPOISON is
+  written in std/os's words, `cannot write <path>: <op> <path>: <text>`.
 
 - `tack.h` names a struct type of a package by its package's name and
   an underscore first unless the package is named main, so the package's
@@ -344,18 +346,6 @@ defines the zero values, which the language owner may still overrule:
 
 These are known, and not fixed yet:
 
-- A failed write of the output is not reported. std's `fmt.write` and
-  `fmt.ewrite` report no error, so when standard output or standard
-  error cannot be written, to a full disk for one, the port exits 0
-  where the Go compiler reports the failure and exits 1. Fixing it needs
-  a std write that returns an error, planned with the driver at M8. A
-  write past the file-size limit, `ulimit -f`, is lost the same way:
-  the runtime ignores SIGXFSZ, so the port no longer dies of it, but
-  `--emit` with standard output redirected to a file, past the limit,
-  exits 0 with the output cut short,
-  where Go reports `failed to write output: ... file too large`.
-  tackc's `TestFileSizeLimit` asserts this gap, so it fails once the
-  gap is closed.
 - The parser recurses, as the Go compiler's does, to the nesting limit
   of a thousand levels, on the C stack, which does not grow; the JSON
   dump walks the tree with a stack of its own. Binary operators are
@@ -435,9 +425,19 @@ The runtime ignores SIGPIPE and SIGXFSZ (per the owner's ruling,
 EPIPE, and a write past the file-size limit, RLIMIT_FSIZE, fails with
 EFBIG, instead of killing the process. std/os returns the error, `File
 too large` for EFBIG. A broken pipe on standard output or standard
-error ends the process with status 141. Any other failed write of
-`print`, `exit` or std/fmt, EFBIG and ENOSPC among them, loses the
-bytes. std/os's `run` gives every child SIGPIPE's and SIGXFSZ's default
+error ends the process with status 141, whatever wrote to it. Any other
+failed write of `print`, `exit` or std/fmt, EFBIG and ENOSPC among them,
+loses the bytes; std/os's `write_stdout` and `write_stderr` return it
+as an error instead (per the owner's ruling, 2026-11-18), and the
+driver writes its output and its warnings through them, so a failed
+write is reported as the Go compiler reports it, `tack: failed to write
+output: write /dev/stdout: file too large` past the limit, exit status
+1. A standard stream set non-blocking is waited for with poll(2) while
+it is full, as Go's runtime waits for one, so every byte is written.
+std/os's `write_file_result` writes a file as `write_file` does and
+says which call failed, open, write or close, so the driver words a
+failed write of `tack.h` as Go does, `cannot write <path>: write
+<path>: file too large` past the limit. std/os's `run` gives every child SIGPIPE's and SIGXFSZ's default
 actions, so a child behaves as it does when a shell or Go starts it.
 The frozen Go compiler's runtime does not ignore SIGXFSZ, so this is
 one of the paths `TestPortFiles` lists.

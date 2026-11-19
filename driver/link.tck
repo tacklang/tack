@@ -75,11 +75,35 @@ type CObject struct {
 // Go does: warnings, what the stages before warned of, rendered, written
 // just before the first clang the driver's outputs pass through starts,
 // and shown set then; msg, where a step that fails puts Go's error, or,
-// for one the port declines, what it cannot do, after a space.
+// for one the port declines, what it cannot do, after a space; and
+// lost, the error of the write of warnings when it failed, noerror
+// otherwise (see show_warnings); and dirs, the directories open_cache
+// made, in the order it made them, which a build ending in a lost write
+// of its warnings removes (see warnings_lost).
 type Steps struct {
     warnings list[uint8]
     msg list[uint8]
     shown bool
+    lost error
+    dirs list[text.Text]
+}
+
+// show_warnings writes st's warnings to standard error, unless they are
+// shown already, through std/os's write_stderr, and marks them shown,
+// keeping the error of a write that failed in st's lost: run_tool then
+// starts no clang, and the build ends in Go's report of that failed
+// write (see build_said), as Go's compileWarned writes the warnings
+// before it builds and builds nothing once their write fails, so --out
+// is left as it was (per the owner's ruling, 2026-11-18).
+func show_warnings(mut st Steps) {
+    if st.shown {
+        return
+    }
+    st.shown = true
+    e := os.write_stderr(st.warnings[:])
+    if e.code != 0 {
+        st.lost = e
+    }
 }
 
 // os_errno_words returns Go's words for the errno behind err, an error
@@ -521,7 +545,7 @@ func open_cache(mut st Steps, mut cdir text.Text) (int32, error) {
     for _, sub := range [2]string{"keys", "objects"} {
         p := path.join(cdir.bytes(), []uint8(sub), c_allocator)?
         mut why := make(list[uint8], c_allocator)
-        code := mkdir_all(p.bytes(), mut why)?
+        code := mkdir_all(p.bytes(), mut why, mut st.dirs)?
         if code == not_implemented {
             append(mut st.msg, []uint8(" with a build cache that cannot be made")...)?
             return not_implemented, noerror
@@ -570,8 +594,9 @@ func byte_of(p []uint8, i int64) uint8 {
 // be made fine only when lstat finds a directory there after all. It
 // returns exit_ok, or exit_failure with Go's error, mkdir, the path and
 // the errno, in msg, or not_implemented for an errno whose Go words are
-// not known. It fails only for want of memory.
-func mkdir_all(p []uint8, mut msg list[uint8]) (int32, error) {
+// not known. Each directory it makes it appends to made. It fails only
+// for want of memory.
+func mkdir_all(p []uint8, mut msg list[uint8], mut made list[text.Text]) (int32, error) {
     mut chain := make(list[text.Text], c_allocator)
     mut cur := text.from_bytes(p, c_allocator)?
     for {
@@ -604,6 +629,7 @@ func mkdir_all(p []uint8, mut msg list[uint8]) (int32, error) {
             return exit_failure, err
         }
         if err.code == 0 {
+            append(mut made, q)?
             continue
         }
         info, lerr := os.lstat(q.bytes())

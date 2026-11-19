@@ -21,8 +21,11 @@
 // status a shell reports for a process SIGPIPE killed. print, exit and
 // std/fmt's C call tack_stdio_failed_ after every write and flush of
 // either stream that fails, which ends the process so when the failure
-// is EPIPE. A write to any other descriptor, std/os's, gets EPIPE as an
-// error it returns.
+// is EPIPE, and so does std/os's C after its flushes of either stream
+// and its write(2)s to descriptors 1 and 2, write_stdout's and
+// write_stderr's, which return every other failure as an error (per the
+// owner's ruling, 2026-11-18). A write to any other descriptor, std/os's,
+// gets EPIPE as an error it returns.
 //
 // C's stdout is buffered, so a broken pipe may only be found when the
 // buffer is flushed: by a later write, by exit, which flushes stdout
