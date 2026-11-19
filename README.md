@@ -695,6 +695,66 @@ needs no Go. tackc's porttest `test-examples` stage runs the same
 packages' tests with both compilers, and its `unicode-tables` stage
 requires std/unicode's to pass.
 
+`corpus/runs/` holds run records: programs built with `--out` and run,
+at each optimization level a record names, or runs of the compiler
+itself, each record saying what the run must do: its exit status,
+signal or that it is still running after a while, its whole standard
+output and error, descriptors 3 and 4, and the files it leaves. They are
+the runtime assertions of tackc's Go tests, moved into data, and
+`invalid.txtar` there holds records every reader must reject, each with
+the class of its problem. `tools/corpus/runs.tck` describes the format.
+Each run is on copies of its own, so no record sees what another wrote,
+its TACK_CACHE a copy of the warm cache of its clang flags, and every
+program's `--emit` output is held to clang's strict warnings,
+as `warnings.txtar`'s are. A program runs through `env -i`, `sh`,
+coreutils' `timeout`, the runner itself as a launcher (`corpus
+--launch`, in `tools/corpus/launch.c`) and `env -i` again, so its
+environment is PATH, TMPDIR and the record's own alone; `sh` sets its
+standard input and descriptors (closed, a file, or a broken pipe made
+from a FIFO with `mkfifo`), and `timeout`'s own lines go to a file the
+program never has. The launcher is a child subreaper: it starts the
+program in a session of its own, with its limit of open files, judges
+its end and the deadline with `waitpid`, and fails the record when
+anything the program started is still alive as the program ends,
+killing what is left at the deadline by the pids
+`/proc/self/task/<pid>/children` lists, the one file under `/proc` the
+runner reads. Each run has a private root holding its `$SRC`, `$TMP`,
+`$RUN` and `$PROG`, which must hold exactly those afterwards, and every
+tree it checks is walked without following symbolic links, which a
+`symlink` line pins. The runner closes every
+descriptor it inherited, with a small C file of its own, so a program
+sees 0, 1, 2 and what its record opens alone, and it refuses to run the
+records with a `timeout` that is not coreutils', with `-v` and `-k`. The runner checks the
+records after the rest, or alone with `--runs`, which needs no flag of
+the port's own, so any compiler can be checked against them; with
+`--update` it rewrites each record's expectations from the runs, which
+`tackc`'s `porttest/rungen` leaves for it to fill: read that diff line by
+line. tackc's porttest `TestRunRecords` checks each record against the
+reference Go compiler, with no shell, and `TestRunRecordsRejects`
+checks its reader rejects `invalid.txtar`'s records as this one does.
+`must-fail.txtar` holds records that must fail, each with a `must-fail`
+line naming the class of the first thing that must fail, from one list
+both runners share (`failure_classes` in `tools/corpus/runs.tck`): a
+record of it that passes, or fails another way, fails the check, on
+both sides.
+
+    bin/corpus --parse-runs corpus/runs/prototype.txtar
+
+only reads a run archive and writes what it read, for tackc's
+`FuzzRunRecordReaders` to compare with its own reader's: `archive ok`
+or `archive error`; then, for each case, `case` and its name, a line
+`file <path> <length>` for each of its files, and either `error
+<class>` or `record` and its fields, one line each in a fixed order:
+`replaces <count>`, `flags selfcheck=... partial=... cold=... strict=...
+cwd-empty=... stdin=... stdout=... stderr=...`, `dir`, `target`,
+`stdout-file`, `stderr-file`, `must-fail`, a line per `opt`, `cflags`, `invoke`,
+`arg` and `env`, `stdin`, `nofile <n>`, `stream` and the four ways,
+`end exit=<n> signal=<n> running=<text> ends=<n>`, `stdout`, `stderr`,
+`fd3`, `fd4`, a `want <path> <bytes>` line per file line, and a `link
+<path> <target>` line per symlink line. Every
+string is quoted as Go's `strconv.Quote` quotes it, and every flag is
+`true` or `false`; `tools/corpus/dump.tck` defines it.
+
 ## Checking against the Go compiler
 
 From tackc:

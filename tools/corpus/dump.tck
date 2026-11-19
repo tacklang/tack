@@ -1,0 +1,167 @@
+package main
+
+import conv from "std/conv"
+import fmt from "std/fmt"
+import os from "std/os"
+import text from "std/text"
+
+// The parse-only mode, corpus --parse-runs <file>: the run archive file
+// read as check_runs reads one, and what was read written on standard
+// output in a canonical form, so that tackc's porttest can feed the same
+// bytes to its own reader and require the same answer (its
+// FuzzRunRecordReaders). The form is lines:
+//
+//   - archive ok, or archive error and nothing more when the archive does
+//     not read (see parse_runs);
+//   - for each case, case and its name, quoted, then a line file, the
+//     path quoted, and the length, for each of its files in order, then
+//     error and the class of the problem when its record does not read
+//     (see parse_record), every file of the case counting as one of its
+//     own, or record and its fields:
+//
+//     replaces <count>
+//     flags selfcheck=<b> partial=<b> cold=<b> strict=<b> cwd-empty=<b> stdin=<b> stdout=<b> stderr=<b>
+//     dir, target, stdout-file, stderr-file and must-fail, each quoted
+//     opt, cflags, invoke, arg and env, a line each, quoted, in order
+//     stdin, quoted
+//     nofile <n>
+//     stream, then the ways of stdout, stderr, fd3 and fd4, each quoted
+//     end exit=<n> signal=<n> running=<quoted> ends=<n>
+//     stdout, stderr, fd3 and fd4, each quoted
+//     want, a path and its bytes, each quoted, for each file line, in order
+//     link, a path and its target, each quoted, for each symlink line, in order
+//
+// every quoted operand as std/conv's append_quote writes it, which is Go's
+// strconv.Quote, and every <b> true or false.
+
+// dump_line writes key, a space and s quoted, and a newline.
+func dump_line(key string, s []uint8) error {
+    mut b := make(list[uint8], c_allocator)
+    conv.append_quote(mut b, s)?
+    fmt.printf("%s %s\n", key, b[:])
+    return noerror
+}
+
+// bool_word returns true or false for b.
+func bool_word(b bool) string {
+    if b {
+        return "true"
+    }
+    return "false"
+}
+
+// dump_record writes rec's fields in the form of the comment above.
+func dump_record(rec Record) error {
+    fmt.printf("record\nreplaces %d\n", rec.replaces)
+    fmt.printf("flags selfcheck=%s partial=%s cold=%s strict=%s cwd-empty=%s stdin=%s stdout=%s stderr=%s\n", bool_word(rec.selfcheck), bool_word(rec.partial), bool_word(rec.cold), bool_word(rec.strict), bool_word(rec.empty_cwd), bool_word(rec.has_stdin), bool_word(rec.has_stdout), bool_word(rec.has_stderr))
+    dump_line("dir", rec.dir.bytes())?
+    dump_line("target", rec.target.bytes())?
+    dump_line("stdout-file", rec.stdout_file.bytes())?
+    dump_line("stderr-file", rec.stderr_file.bytes())?
+    dump_line("must-fail", rec.must_fail.bytes())?
+    for _, o := range rec.opts {
+        dump_line("opt", o.bytes())?
+    }
+    for _, f := range rec.cflags {
+        dump_line("cflags", f.bytes())?
+    }
+    for _, v := range rec.invoke {
+        dump_line("invoke", v.bytes())?
+    }
+    for _, v := range rec.args {
+        dump_line("arg", v.bytes())?
+    }
+    for _, v := range rec.env {
+        dump_line("env", v.bytes())?
+    }
+    dump_line("stdin", rec.stdin)?
+    fmt.printf("nofile %d\n", rec.nofile)
+    mut ways := make(list[uint8], c_allocator)
+    append(mut ways, []uint8("stream")...)?
+    for k := range 4 {
+        append(mut ways, ' ')?
+        if k == 0 {
+            conv.append_quote(mut ways, rec.out_mode.bytes())?
+        } else if k == 1 {
+            conv.append_quote(mut ways, rec.err_mode.bytes())?
+        } else if k == 2 {
+            conv.append_quote(mut ways, rec.fd3_mode.bytes())?
+        } else {
+            conv.append_quote(mut ways, rec.fd4_mode.bytes())?
+        }
+    }
+    fmt.printf("%s\n", ways[:])
+    mut running := make(list[uint8], c_allocator)
+    conv.append_quote(mut running, rec.running.bytes())?
+    fmt.printf("end exit=%d signal=%d running=%s ends=%d\n", rec.code, rec.signo, running[:], rec.ends)
+    dump_line("stdout", rec.stdout)?
+    dump_line("stderr", rec.stderr)?
+    dump_line("fd3", rec.fd3)?
+    dump_line("fd4", rec.fd4)?
+    for _, f := range rec.files {
+        mut w := make(list[uint8], c_allocator)
+        conv.append_quote(mut w, f.path.bytes())?
+        append(mut w, ' ')?
+        conv.append_quote(mut w, f.data)?
+        fmt.printf("want %s\n", w[:])
+    }
+    for _, f := range rec.links {
+        mut w := make(list[uint8], c_allocator)
+        conv.append_quote(mut w, f.path.bytes())?
+        append(mut w, ' ')?
+        conv.append_quote(mut w, f.data)?
+        fmt.printf("link %s\n", w[:])
+    }
+    return noerror
+}
+
+// parse_runs_dump reads the run archive at file and writes what it read
+// in the form of the comment above, returning the exit status: 0, or 1
+// when the file cannot be read, which it writes on standard error.
+func parse_runs_dump(file []uint8) (int32, error) {
+    data, e := os.read_file(file, c_allocator)
+    if e.code != 0 {
+        fmt.eprintf("corpus: cannot read %s: %s\n", file, e.msg)
+        return 1, noerror
+    }
+    mut cases := make(list[RunCase], c_allocator)
+    mut problem := make(list[uint8], c_allocator)
+    parse_runs(data[:], mut cases, mut problem)?
+    if len(problem) > 0 || len(cases) == 0 {
+        fmt.printf("archive error\n")
+        return 0, noerror
+    }
+    fmt.printf("archive ok\n")
+    for _, c := range cases {
+        dump_line("case", c.name.bytes())?
+        for _, f := range c.files {
+            mut q := make(list[uint8], c_allocator)
+            conv.append_quote(mut q, f.path.bytes())?
+            fmt.printf("file %s %d\n", q[:], len(f.data))
+        }
+        mut rec := new_record()
+        mut why := make(list[uint8], c_allocator)
+        parse_record(c.name.bytes(), c.record, len(c.files) > 0, mut rec, mut why)?
+        if len(why) > 0 {
+            start, end := class_of(why[:])
+            fmt.printf("error %s\n", part(why[:], start, end))
+            continue
+        }
+        dump_record(rec)?
+    }
+    return 0, noerror
+}
+
+// is_parse_runs reports whether a, the command line, is --parse-runs and
+// one file, the parse-only mode.
+func is_parse_runs(a []text.Text) bool {
+    if len(a) != 3 {
+        return false
+    }
+    for i, s := range a {
+        if i == 1 && !s.equal([]uint8("--parse-runs")) {
+            return false
+        }
+    }
+    return true
+}

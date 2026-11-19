@@ -1,0 +1,909 @@
+Records that must fail: each one's must-fail line names the failure class of
+the first thing that must fail (see tools/corpus/runs.tck), which tools/corpus
+and tackc's porttest must both find. A record that passes, or fails as another
+class, fails the check. They are the reviews' probes and mutations that a record
+can express, and one record for each class no probe shows.
+-- class-build/main.tck --
+package main
+
+// main does not compile.
+func main() {
+    x := 
+}
+-- class-build/record --
+selfcheck the program does not compile
+must-fail build
+exit 0
+stdout ""
+stderr ""
+-- class-cwd/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+// main prints a line.
+func main() {
+    fmt.printf("hi\n")
+}
+-- class-cwd/record --
+selfcheck the compiler, run in an empty directory, writes the program there
+must-fail cwd
+cwd empty
+invoke "--out"
+invoke "prog"
+invoke "$SRC/main.tck"
+exit 0
+stdout ""
+stderr ""
+-- class-empty-dir/main.tck --
+package main
+
+import os from "std/os"
+
+// main makes the directory its first argument names, and leaves it empty.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 && os.make_dir(a.bytes()).code != 0 {
+            exit(2)
+        }
+    }
+}
+-- class-empty-dir/record --
+selfcheck the program leaves an empty directory in $RUN, which no file line can name
+must-fail files
+arg "$RUN/empty"
+exit 0
+stdout ""
+stderr ""
+-- class-fd3/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+// main prints a line.
+func main() {
+    fmt.printf("hi\n")
+}
+-- class-fd3/record --
+selfcheck the record pins fd3 bytes the program never writes
+must-fail fd3
+stream fd3 capture
+exit 0
+stdout "hi\n"
+stderr ""
+fd3 "nothing\n"
+-- class-fd4/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+// main prints a line.
+func main() {
+    fmt.printf("hi\n")
+}
+-- class-fd4/record --
+selfcheck the record pins fd4 bytes the program never writes
+must-fail fd4
+stream fd4 capture
+exit 0
+stdout "hi\n"
+stderr ""
+fd4 "nothing\n"
+-- class-run-root/main.tck --
+package main
+
+import os from "std/os"
+
+// main writes x to the file its first argument names.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 && os.write_file(a.bytes(), []uint8("x")).code != 0 {
+            exit(2)
+        }
+    }
+}
+-- class-run-root/record --
+selfcheck the program writes a file beside $RUN, in its private root
+must-fail run-root
+arg "$RUN/../outside"
+exit 0
+stdout ""
+stderr ""
+-- class-stderr/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+// main prints a line.
+func main() {
+    fmt.printf("hi\n")
+}
+-- class-stderr/record --
+selfcheck the record pins standard error the program never writes
+must-fail stderr
+exit 0
+stdout "hi\n"
+stderr "nothing\n"
+-- class-tmpdir/main.tck --
+package main
+
+import os from "std/os"
+
+// main writes x to the file its first argument names.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 && os.write_file(a.bytes(), []uint8("x")).code != 0 {
+            exit(2)
+        }
+    }
+}
+-- class-tmpdir/record --
+selfcheck the program leaves a file in its TMPDIR
+must-fail tmpdir
+arg "$TMP/left"
+exit 0
+stdout ""
+stderr ""
+-- q2-child-holds-stdout/hold.c --
+#include <unistd.h>
+#include "tack.h"
+
+int64_t spawn_holder(void) {
+    pid_t p = fork();
+    if (p < 0) {
+        return 1;
+    }
+    if (p == 0) {
+        sleep(2);
+        _exit(0);
+    }
+    return 0;
+}
+-- q2-child-holds-stdout/main.tck --
+package main
+
+extern("spawn_holder") func spawn_holder() int64
+
+// main leaves a child holding its standard output and ends at once.
+func main() {
+    if spawn_holder() != 0 {
+        exit(1)
+    }
+}
+-- q2-child-holds-stdout/record --
+selfcheck review
+must-fail outlived
+still-running 0.5
+stdout ""
+stderr ""
+-- r1-opt-one-level/lvl.c --
+#include "tack.h"
+
+int64_t lvl_optimized(void) {
+#ifdef __OPTIMIZE__
+    return 1;
+#else
+    return 0;
+#endif
+}
+-- r1-opt-one-level/main.tck --
+package main
+
+extern("lvl_optimized") func optimized() int64
+
+// main exits 1 when its C was optimized.
+func main() {
+    if optimized() != 0 {
+        exit(1)
+    }
+}
+-- r1-opt-one-level/record --
+selfcheck review
+must-fail exit
+opt 0 2
+exit 0
+stdout ""
+stderr ""
+-- r2-running-but-exits/main.tck --
+package main
+
+// main ends at once.
+func main() {
+}
+-- r2-running-but-exits/record --
+selfcheck review
+must-fail still-running
+still-running 0.5
+stdout ""
+stderr ""
+-- r4-argv0/main.tck --
+package main
+
+import fmt from "std/fmt"
+import os from "std/os"
+
+// main prints its argv[0].
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 0 {
+            fmt.printf("argv0 %s\n", a.bytes())
+        }
+    }
+}
+-- r4-argv0/record --
+selfcheck review
+must-fail stdout
+exit 0
+stdout ""
+stderr ""
+-- r5-writes-src/main.tck --
+package main
+
+import os from "std/os"
+
+// main writes x to the file its first argument names.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 {
+            e2 := os.write_file(a.bytes(), []uint8("x"))
+            if e2.code != 0 {
+                exit(2)
+            }
+        }
+    }
+}
+-- r5-writes-src/record --
+selfcheck review
+must-fail src-changed
+arg "$SRC/stray.txt"
+exit 0
+stdout ""
+stderr ""
+-- r7-files/main.tck --
+package main
+
+import os from "std/os"
+
+// main writes files whose bytes test file and file+ lines.
+func main() {
+    if os.write_file([]uint8("nonl.txt"), []uint8("a\nb")).code != 0 {
+        exit(1)
+    }
+    if os.write_file([]uint8("empty.txt"), []uint8("")).code != 0 {
+        exit(2)
+    }
+    if os.write_file([]uint8("hdr.txt"), []uint8("-- x/record --\n\n\n")).code != 0 {
+        exit(3)
+    }
+    if os.write_file([]uint8("bin.txt"), []uint8("\x00\xff\r\n\"q\"")).code != 0 {
+        exit(4)
+    }
+}
+-- r7-files/record --
+selfcheck review
+must-fail files
+exit 0
+stdout ""
+stderr ""
+-- review-emit-header-changed/helpers.c --
+#include "tack.h"
+
+int64_t sum(int64_t a, int64_t b) {
+    return a + b;
+}
+-- review-emit-header-changed/main.tck --
+package main
+
+extern func sum(a int64, b int64) int64
+
+func main() {
+    code, fits := int32(sum(40, 2))
+    if fits { exit(code) }
+}
+-- review-emit-header-changed/record --
+selfcheck review-1 mutation
+must-fail files
+invoke "--emit-header"
+invoke "$RUN/main.tck"
+exit 0
+stdout ""
+stderr ""
+file "tack.h" "// Generated by the Tack compiler. Do not edit.\n"
+file+ "//\n"
+file+ "// It declares every extern func of the program, for the C files that\n"
+file+ "// define them, and the types their signatures use.\n"
+file+ "\n"
+file+ "#ifndef TACK_H\n"
+file+ "#define TACK_H\n"
+file+ "\n"
+file+ "#include <stdbool.h>\n"
+file+ "#include <stdint.h>\n"
+file+ "\n"
+file+ "// package main\n"
+file+ "int64_t sum(int64_t /* a */, int64_t /* b */); // extern func sum(a int64, b int64) int64\n"
+file+ "\n"
+file+ "#endif /* changed */\n"
+-- review-emit-header-unnamed/record --
+selfcheck review: the same run, with no file line
+must-fail files
+dir examples/hello
+invoke "--emit-header"
+invoke "main.tck"
+exit 0
+stdout ""
+stderr ""
+-- review-extern-keyword-names-exit-0/extern-keyword-names/main.tck --
+package main
+
+type int struct {
+    while int64
+    x int64
+    char bool
+}
+
+type Ok struct {
+    register int64
+}
+
+type Unused struct {
+    while int64
+}
+
+extern func f(a int) Ok
+
+func main() {
+}
+-- review-extern-keyword-names-exit-0/record --
+selfcheck review-1 mutation
+must-fail exit
+invoke "--emit"
+invoke "extern-keyword-names/main.tck"
+exit 0
+stdout ""
+stderr "\n"
+stderr "extern-keyword-names/main.tck:3:6: error: type int of package main cannot be named int in C: it is a C keyword\n"
+stderr "02 |\t\n"
+stderr "03 |\ttype int struct {\n"
+stderr "   |\t     ^~~\n"
+stderr "04 |\t    while int64\n"
+stderr "\n"
+stderr "extern-keyword-names/main.tck:4:5: error: field while of type int cannot be named while in C: it is a C keyword\n"
+stderr "03 |\ttype int struct {\n"
+stderr "04 |\t    while int64\n"
+stderr "   |\t    ^~~~~\n"
+stderr "05 |\t    x int64\n"
+stderr "\n"
+stderr "extern-keyword-names/main.tck:6:5: error: field char of type int cannot be named char in C: it is a C keyword\n"
+stderr "05 |\t    x int64\n"
+stderr "06 |\t    char bool\n"
+stderr "   |\t    ^~~~\n"
+stderr "07 |\t}\n"
+stderr "\n"
+stderr "extern-keyword-names/main.tck:10:5: error: field register of type Ok cannot be named register in C: it is a C keyword\n"
+stderr "09 |\ttype Ok struct {\n"
+stderr "10 |\t    register int64\n"
+stderr "   |\t    ^~~~~~~~\n"
+stderr "11 |\t}\n"
+stderr "\n"
+stderr "extern-keyword-names/main.tck:13:6: warning: declared and not used: Unused\n"
+stderr "12 |\t\n"
+stderr "13 |\ttype Unused struct {\n"
+stderr "   |\t     ^~~~~~\n"
+stderr "14 |\t    while int64\n"
+stderr "\n"
+stderr "extern-keyword-names/main.tck:17:13: warning: declared and not used: f\n"
+stderr "16 |\t\n"
+stderr "17 |\textern func f(a int) Ok\n"
+stderr "   |\t            ^\n"
+stderr "18 |\t\n"
+stderr "\n"
+-- review-fake-timeout/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.eprintf("timeout: sending signal TERM to command 'x'\n")
+}
+-- review-fake-timeout/record --
+selfcheck review: a program that ends at once, recorded as still running
+must-fail still-running
+still-running 0.5
+stdout ""
+stderr ""
+-- review-leak-asan/leak.c --
+#include <stdlib.h>
+#include "tack.h"
+
+static void *keep;
+
+void c_leak(void) {
+    keep = malloc(64);
+    keep = 0;
+}
+-- review-leak-asan/main.tck --
+package main
+
+extern("c_leak") func leak()
+
+func main() {
+    leak()
+}
+-- review-leak-asan/record --
+selfcheck review: a C leak under ASan must fail this record
+must-fail exit
+opt 0
+cflags -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-sanitize-address-globals-dead-stripping
+exit 0
+stdout ""
+stderr ""
+-- zz-a-tmp-sibling/main.tck --
+package main
+
+import os from "std/os"
+
+// main writes x to the file its first argument names.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 && os.write_file(a.bytes(), []uint8("x")).code != 0 {
+            exit(2)
+        }
+    }
+}
+-- zz-a-tmp-sibling/record --
+selfcheck probe: a file beside TMPDIR, a name joined to TMPDIR with no slash
+must-fail run-root
+arg "$TMPleft"
+exit 0
+stdout ""
+stderr ""
+-- zz-b-grandparent/main.tck --
+package main
+
+import os from "std/os"
+
+// main writes x to the file its first argument names.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 && os.write_file(a.bytes(), []uint8("x")).code != 0 {
+            exit(2)
+        }
+    }
+}
+-- zz-b-grandparent/record --
+selfcheck probe: a file two levels above $RUN
+must-fail run-root
+arg "$RUN/../../stray"
+exit 0
+stdout ""
+stderr ""
+-- zz-c-prog-sibling/main.tck --
+package main
+
+import os from "std/os"
+
+// main writes x to the file its first argument names.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 && os.write_file(a.bytes(), []uint8("x")).code != 0 {
+            exit(2)
+        }
+    }
+}
+-- zz-c-prog-sibling/record --
+selfcheck probe: a file beside the program
+must-fail run-root
+arg "$PROG.left"
+exit 0
+stdout ""
+stderr ""
+-- zz-d-setsid-escape/esc.c --
+#include <fcntl.h>
+#include <string.h>
+#include <unistd.h>
+#include "tack.h"
+
+int64_t escape(tack_view_uint8 rv, tack_view_uint8 wv) {
+    const uint8_t *run = rv.ptr, *wit = wv.ptr; int64_t run_len = rv.len, wit_len = wv.len;
+    char r[4096], w[4096];
+    if (run_len >= 4096 || wit_len >= 4096) return 1;
+    memcpy(r, run, run_len); r[run_len] = 0;
+    memcpy(w, wit, wit_len); w[wit_len] = 0;
+    pid_t p = fork();
+    if (p < 0) return 1;
+    if (p == 0) {
+        setsid();
+        close(0); close(1); close(2);
+        sleep(3);
+        int fd = open(w, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd >= 0) { write(fd, "setsid ", 7); write(fd, r, strlen(r)); write(fd, "\n", 1); close(fd); }
+        _exit(0);
+    }
+    return 0;
+}
+-- zz-d-setsid-escape/main.tck --
+package main
+
+import os from "std/os"
+
+extern("escape") func escape(run []uint8, wit []uint8) int64
+
+// main starts a child that outlives it, and ends at once.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 {
+            for j, b := range args {
+                if j == 2 && escape(a.bytes(), b.bytes()) != 0 {
+                    exit(3)
+                }
+            }
+        }
+    }
+}
+-- zz-d-setsid-escape/record --
+selfcheck probe: a child in a session of its own outlives the program by 3 s
+must-fail outlived
+no-strict-c probe
+arg "$RUN"
+arg "/dev/null"
+exit 0
+stdout ""
+stderr ""
+-- zz-e-short-outlive/esc.c --
+#include <fcntl.h>
+#include <string.h>
+#include <unistd.h>
+#include "tack.h"
+
+int64_t linger(tack_view_uint8 rv, tack_view_uint8 wv) {
+    const uint8_t *run = rv.ptr, *wit = wv.ptr; int64_t run_len = rv.len, wit_len = wv.len;
+    char r[4096], w[4096];
+    if (run_len >= 4096 || wit_len >= 4096) return 1;
+    memcpy(r, run, run_len); r[run_len] = 0;
+    memcpy(w, wit, wit_len); w[wit_len] = 0;
+    pid_t p = fork();
+    if (p < 0) return 1;
+    if (p == 0) {
+        close(0); close(1); close(2);
+        sleep(3);
+        int fd = open(w, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd >= 0) { write(fd, "group ", 6); write(fd, r, strlen(r)); write(fd, "\n", 1); close(fd); }
+        _exit(0);
+    }
+    return 0;
+}
+-- zz-e-short-outlive/main.tck --
+package main
+
+import os from "std/os"
+
+extern("linger") func linger(run []uint8, wit []uint8) int64
+
+// main starts a child that outlives it, and ends at once.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 {
+            for j, b := range args {
+                if j == 2 && linger(a.bytes(), b.bytes()) != 0 {
+                    exit(3)
+                }
+            }
+        }
+    }
+}
+-- zz-e-short-outlive/record --
+selfcheck probe: a child in the program's group outlives it by 3 s
+must-fail outlived
+no-strict-c probe
+arg "$RUN"
+arg "/dev/null"
+exit 0
+stdout ""
+stderr ""
+-- zz-f-symlink/data.txt --
+hello
+-- zz-f-symlink/ln.c --
+#include <string.h>
+#include <unistd.h>
+#include "tack.h"
+
+int64_t mklink(tack_view_uint8 tv) {
+    const uint8_t *to = tv.ptr; int64_t to_len = tv.len;
+    char t[4096];
+    if (to_len >= 4096) return 1;
+    memcpy(t, to, to_len); t[to_len] = 0;
+    return symlink(t, "out") == 0 ? 0 : 1;
+}
+-- zz-f-symlink/main.tck --
+package main
+
+import os from "std/os"
+
+extern("mklink") func mklink(to []uint8) int64
+
+// main makes out in its directory a symbolic link to its first argument.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 && mklink(a.bytes()) != 0 {
+            exit(2)
+        }
+    }
+}
+-- zz-f-symlink/record --
+selfcheck probe: the program leaves a symbolic link, recorded as a file
+must-fail files
+no-strict-c probe
+arg "$SRC/data.txt"
+exit 0
+stdout ""
+stderr ""
+file "out" "hello\n"
+-- zz-k-move-tmp/p.c --
+#define _GNU_SOURCE
+#include <fcntl.h>
+#include <sched.h>
+#include <signal.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/prctl.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include "tack.h"
+
+static void cstr(char *d, tack_view_uint8 v) { memcpy(d, v.ptr, (size_t)v.len); d[v.len] = 0; }
+static void note(const char *w, const char *what) { int fd = open(w, O_WRONLY | O_CREAT | O_APPEND, 0644); if (fd >= 0) { write(fd, what, strlen(what)); write(fd, "\n", 1); close(fd); } }
+int64_t probe(tack_view_uint8 a, tack_view_uint8 b) {
+    char t[4096], s[4096], f[4200]; cstr(t, a); cstr(s, b);
+    snprintf(f, sizeof f, "%s/left", t);
+    note(f, "x");
+    if (rename(t, s) != 0) return 1;
+    if (mkdir(t, 0755) != 0) return 1;
+    return 0;
+}
+-- zz-k-move-tmp/main.tck --
+package main
+
+import os from "std/os"
+
+extern("probe") func probe(a []uint8, b []uint8) int64
+
+// main hands its first two arguments to C, which does the probe.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 {
+            for j, b := range args {
+                if j == 2 && probe(a.bytes(), b.bytes()) != 0 {
+                    exit(3)
+                }
+            }
+        }
+    }
+}
+-- zz-k-move-tmp/record --
+selfcheck probe: a file left in TMPDIR, TMPDIR then moved above base and made again empty
+must-fail run-root
+no-strict-c probe
+arg "$TMP"
+arg "$RUN/../../../stash"
+exit 0
+stdout ""
+stderr ""
+-- zz-probe-a-literal/main.tck --
+package main
+
+func main() {
+    print("arg $RUN/x\n")
+}
+-- zz-probe-a-literal/record --
+selfcheck probe: the program prints a literal and never its argument
+must-fail stdout
+arg "$RUN/x"
+exit 0
+stdout "arg $RUN/x\n"
+stderr ""
+-- zz-probe-d-dirs/main.tck --
+package main
+
+import os from "std/os"
+
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 && os.make_dir(a.bytes()).code != 0 {
+            exit(2)
+        }
+    }
+    if os.make_dir([]uint8("made")).code != 0 {
+        exit(3)
+    }
+    if os.write_file([]uint8("../outside"), []uint8("x")).code != 0 {
+        exit(4)
+    }
+}
+-- zz-probe-d-dirs/record --
+selfcheck probe: the program makes a directory in $SRC and in $RUN and writes a file beside $RUN
+must-fail src-changed
+arg "$SRC/newdir"
+exit 0
+stdout ""
+stderr ""
+-- zz-probe-g-gokill/main.tck --
+package main
+
+extern("probe_stage") func stage() int64
+
+func main() {
+    code, fits := int32(stage())
+    if fits { exit(code) }
+}
+-- zz-probe-g-gokill/sig.c --
+#include <signal.h>
+#include <unistd.h>
+#include "tack.h"
+
+int64_t probe_stage(void) {
+    if (getpgrp() != getpid()) {
+        for (;;) {
+            pause();
+        }
+    }
+    if (fork() == 0) {
+        usleep(800000);
+        _exit(0);
+    }
+    raise(SIGKILL);
+    return 0;
+}
+-- zz-probe-g-gokill/record --
+selfcheck probe: under the Go launcher the program is killed by its own SIGKILL at once
+must-fail outlived
+still-running 0.5
+stdout ""
+stderr ""
+-- zz-probe-h-sigterm-plain/main.tck --
+package main
+
+extern("probe_stage") func stage() int64
+
+func main() {
+    code, fits := int32(stage())
+    if fits { exit(code) }
+}
+-- zz-probe-h-sigterm-plain/sig.c --
+#include <signal.h>
+#include <unistd.h>
+#include "tack.h"
+
+int64_t probe_stage(void) {
+    signal(SIGTERM, SIG_IGN);
+    kill(0, SIGTERM);
+    return 0;
+}
+-- zz-probe-h-sigterm-plain/record --
+selfcheck probe: the program signals its group and exits 0 at once
+must-fail still-running
+still-running 5
+stdout ""
+stderr ""
+-- zz-probe-i-gokill-plain/main.tck --
+package main
+
+extern("probe_stage") func stage() int64
+
+func main() {
+    code, fits := int32(stage())
+    if fits { exit(code) }
+}
+-- zz-probe-i-gokill-plain/sig.c --
+#include <signal.h>
+#include <unistd.h>
+#include "tack.h"
+
+int64_t probe_stage(void) {
+    if (fork() == 0) {
+        usleep(800000);
+        _exit(0);
+    }
+    raise(SIGKILL);
+    return 0;
+}
+-- zz-probe-i-gokill-plain/record --
+selfcheck probe: the program is killed by its own SIGKILL at once, a child holding stdout for 0.8 s
+must-fail outlived
+still-running 0.5
+stdout ""
+stderr ""
+-- zz-probe-j-both/main.tck --
+package main
+
+extern("probe_stage") func stage() int64
+
+func main() {
+    code, fits := int32(stage())
+    if fits { exit(code) }
+}
+-- zz-probe-j-both/sig.c --
+#include <signal.h>
+#include <unistd.h>
+#include "tack.h"
+
+int64_t probe_stage(void) {
+    signal(SIGTERM, SIG_IGN);
+    kill(0, SIGTERM);
+    if (fork() == 0) {
+        usleep(800000);
+        _exit(0);
+    }
+    raise(SIGKILL);
+    return 0;
+}
+-- zz-probe-j-both/record --
+selfcheck probe: the program signals its group, starts a child that holds stdout for 0.8 s, and is killed by its own SIGKILL at once
+must-fail outlived
+still-running 0.5
+stdout ""
+stderr ""
+-- zzz-mf-a-build-masks/main.tck --
+package main
+
+func main() {
+    x :=
+}
+-- zzz-mf-a-build-masks/record --
+selfcheck probe: the build fails, its record claiming exit 1
+must-fail build
+exit 1
+stdout ""
+stderr ""

@@ -1,0 +1,1150 @@
+package main
+
+import bytes from "std/bytes"
+import conv from "std/conv"
+import fmt from "std/fmt"
+import text from "std/text"
+import utf8 from "std/utf8"
+
+// The run records of corpus/runs, and how they are read and written:
+// what a program does when it is built and run, or what the compiler
+// does when it is run, as tackc's Go tests asserted it, written as data.
+// runexec.tck runs them.
+//
+// Each file directly in corpus/runs whose name ends in .txtar is a
+// record archive but invalid.txtar: a txtar file, a comment, then cases,
+// each in strictly increasing byte order of its name: the files of the
+// case, n/<path> each, none or more, then n/record, the record, which
+// ends the case. A record is lines, each a keyword, a space and its
+// operands; a quoted operand is a Go string literal as std/conv's
+// append_quote writes one (see unquote), so a record holds any bytes, an
+// output with no final newline or with a line that reads as a txtar
+// header among them. invalid.txtar holds records every reader must
+// reject: each case's file n/class names the class of the problem (see
+// the classes below), which the reader must give.
+//
+// What the record is of:
+//
+//   - replaces <file> <test>: the Go test, by its file below tackc's root,
+//     a clean path ending in _test.go, and its name, Test or Fuzz and
+//     more, with /<subtest> when it is one, the record stands for; a
+//     record has at least one, or a selfcheck line;
+//   - partial <why>: the record holds only part of what the Go tests it
+//     replaces assert, and why; tackc's porttest never counts a test
+//     only partial records replace as covered;
+//   - selfcheck <why>: the record checks the runner itself, no Go test;
+//   - note <text>: what a reader should know; nothing reads it;
+//
+// what is built or run, and where:
+//
+//   - dir <path>: the directory, a clean path below examples/ of the
+//     corpus, examples/hello for one, the program is built in, or the
+//     compiler runs in; a case with files of its own uses a directory
+//     holding them instead, and has no dir line, and one with none has one;
+//     either way the record runs on a copy of its own, of the case's files
+//     or of the whole directory of examples/ dir is below, so nothing one
+//     record writes reaches another;
+//   - target <path>: what the compiler builds, a clean path from dir,
+//     cmd/lex for one: main.tck when there is no target line;
+//   - opt <level>...: the optimization levels, each of 0 1 2 3 s z once:
+//     the program is built at each, given as -O<level>, and each build
+//     run and checked on its own against the same expectations;
+//   - cflags <flag>...: flags, each a - and then letters, digits and
+//     _ = , . + / : alone, none of them -O and more, which opt alone sets,
+//     nor one that changes where clang writes, -o, -M and its kin,
+//     -save-temps, --output or a linker's ,-o, that every clang the
+//     build runs is given after
+//     its own, but for clang --version: the build runs with a clang of
+//     the run's own first on PATH, a script that runs the clang PATH
+//     gives this process with them added and leaves a mark when it runs a
+//     compile or a link, one given -c or -o, which must be there after
+//     the build; the record's TACK_CACHE starts
+//     as a copy of the warm cache the first build with exactly these
+//     flags, or with none, left, and that cache is never written again;
+//   - cold-cache <why>: the record's builds start from an empty
+//     TACK_CACHE instead, and why;
+//   - no-strict-c <why>: the program's --emit output is not held to
+//     clang's -std=c11 -Wall -Wextra -Werror -fsyntax-only, which every
+//     other program record's is, and why;
+//   - invoke <quoted>: one argument of the compiler, in order: a record
+//     with invoke lines runs the compiler with them, in dir, and checks
+//     that run, building nothing; it has no target, opt, cflags,
+//     no-strict-c, arg, stdin, limit, stream, signal or still-running
+//     line;
+//   - must-fail <class>: the record is one of corpus/runs/must-fail.txtar,
+//     every one of which has this line and no other record does: it
+//     shows a failure the runners must catch, and it passes only when
+//     a run of it, at one of its levels at least, fails, and the first
+//     thing that fails in each run that fails, in the order
+//     failure_classes lists, is of that class: build, the build failed,
+//     was not silent, ran no compile through the cflags shim or gave C
+//     that is not strict; build-tmpdir, a build left something in its
+//     TMPDIR; outlived, a process the program started was alive when
+//     the program's own process ended; cwd, the compiler left something
+//     in its empty directory; src-changed, something in $SRC changed;
+//     run-root, the run's private root, or the directory it is in, holds
+//     other entries than the runner made there; tmpdir, the run left something in its TMPDIR;
+//     exit, it ended with another status or signal; still-running, it
+//     ended before it was to be stopped; did-not-end, it was still
+//     running when it was to end; stdout, stderr, fd3 and fd4, the
+//     stream differs, or a file stream's pipe got bytes; files, a file
+//     line's file differs, is missing, a file not named changed or went,
+//     or a symbolic link no symlink line names is there; --update leaves such a record as it is;
+//   - cwd empty: the compiler of a record with invoke lines runs in an
+//     empty directory of its own, which must stay empty, instead of dir,
+//     so that a path it is given is outside the directory it runs in;
+//   - arg <quoted>: one argument of the program, in order;
+//   - env <quoted>: one NAME=value the program's, or the compiler's,
+//     environment holds besides PATH and TMPDIR: a program's environment
+//     is those and nothing else; NAME is never PATH, TMPDIR, TACK_HOME or
+//     TACK_CACHE, which the runner sets;
+//
+// how the program runs:
+//
+//   - stdin <quoted>: bytes of the program's standard input, a regular
+//     file, each line's after the one before; with none, the input is
+//     /dev/null;
+//   - limit nofile <n>: at most n open files, 1 to 65536, which the
+//     launcher sets in the program's process before it starts it;
+//   - stream <name> <how>: what a descriptor of the program is: stdout
+//     closed, broken, a pipe whose reader closed before the start, or
+//     file, a regular file; stderr the same, or merged, the same pipe or
+//     file as stdout, written in the order of the writes, which stdout
+//     closed or broken rules out; fd3 and fd4 capture, a regular file, or
+//     broken; standard output and error are pipes the runner reads when no
+//     line says otherwise, and every other descriptor is closed, whatever
+//     the runner itself was given;
+//
+// how it must end and what it must leave:
+//
+//   - exit <n>, signal <n> or still-running <seconds>: how the run must
+//     end, exactly one: with that exit status, 0 to 255, killed by that
+//     signal, 1 to 255, or still running after that many seconds, one or
+//     two digits and up to three after a dot, from 0.1 to 10, when it is
+//     stopped: its own process still alive then, which the launcher,
+//     the program's parent, alone decides by waitpid (see launch.c),
+//     never its streams; a run ends within 120 seconds otherwise; a
+//     number is digits alone, no sign; whatever the end, a process the
+//     program started that is still alive when the program's own
+//     process ends outlived it, which fails the record: the launcher is
+//     a child subreaper, so every descendant, one that left the
+//     program's process group or session among them, is its child once
+//     its parent ends; it waits for them until the deadline and kills
+//     what is left then, finding them in /proc/self/task/<tid>/children,
+//     the one file under /proc the runner reads, or, on a kernel with
+//     none, killing the program's process group alone and saying so;
+//   - stdout <quoted>, stderr <quoted>, fd3 <quoted> and fd4 <quoted>:
+//     bytes the stream must hold, a file one included, each line's after
+//     the one before, nothing when there is none; or stdout-file <path>
+//     and stderr-file <path>, a file of the run's copy of the corpus
+//     holding them, examples/os/output for one, never both for one
+//     stream; a merged stderr holds nothing of its own; every record pins
+//     both streams, an empty one with stdout "" or stderr "", but
+//     --update, which writes them;
+//   - file <quoted> <quoted>, then file+ <quoted> lines, each appending to
+//     it: a file, by its path below the directory the program or compiler
+//     runs in, named once, and its bytes: the files of that directory that
+//     are new or changed after the run must be exactly those these lines
+//     name, with those bytes, and none may be gone; the path is a clean
+//     relative path: not empty, no part of it empty, . or .., no 0 byte;
+//     a new directory is named by the file lines of the files in it, and
+//     an empty one by none, so it fails; nothing may change in $SRC, the
+//     copy a program is built from, its directories included, by the
+//     build or the run; a build's own TMPDIR, of the run's own, must be
+//     empty after it;
+//   - symlink <quoted> <quoted>: a symbolic link, by its path, as a file
+//     line's, named once among the file and symlink lines, and its
+//     target, as readlink gives it, $RUN and the rest replaced as in the
+//     outputs: every tree the runner checks is walked without following
+//     a link, and a link that is new or changed in the directory file
+//     lines are of must be one a symlink line names, as a link anywhere
+//     else in a checked tree must have been there before.
+//
+// Every run has a private root of its own, which holds $SRC, $TMP, the
+// directory $RUN when it is its own and $PROG, the program, and must hold
+// exactly those afterwards, in a directory that must hold the root alone;
+// the io directory, the warm caches, the builds' TMPDIR and every other
+// run's directories are outside it. A write anywhere in the root, or
+// beside it, fails the record, as does the root, the directory it is in,
+// $SRC, $TMP or $RUN being another directory afterwards, by device and
+// inode, as one moved away and made again is. Checking stops at the
+// directory the root is in: a program that walks above it on purpose,
+// as $RUN/../../../x does, is not caught, a limit of the checks, which
+// take records for reviewed code, not for adversaries.
+//
+// $RUN, $TMP, $SRC and $PROG in an arg, env or invoke line stand for the
+// directory the program or compiler runs in, for its TMPDIR, for the
+// directory it is built in, or the compiler is given its files in, and
+// for the program, all absolute; and before its outputs and files are
+// compared, each occurrence of those, the longest first, is replaced by
+// $RUN, $TMP, $SRC and $PROG, so a record never holds a path of one run;
+// a $ the run itself wrote is written $$ first, so that no output can
+// read as a placeholder, and $$ in an operand stands for one $.
+// An operand is never empty, and a quoted one is bytes exactly, a byte
+// that is no UTF-8 among them. The file lines of a
+// record with invoke lines are of the directory its files are in.
+//
+// A record that cannot be read is rejected with one of these classes,
+// which tackc's porttest's reader gives for the same records: syntax, a
+// line that is no keyword, a space and operands; empty, an empty operand;
+// failure, a must-fail class that is none;
+// replaces, a replaces line of another shape; unknown, a keyword no
+// record has; quote, an operand that is no one quoted string or file's
+// two; repeated, a line given once at most given again, or a file named
+// twice; number, a number out of its range, signal 0 among them; opt, a
+// level that is none or is repeated; env, no NAME= or a NAME that is
+// none; cflags, a flag of
+// other bytes; stream, no such descriptor or way; path, a path that is
+// no clean relative one, or a dir outside examples/; missing, no replaces or selfcheck, no end
+// line, or no dir and no files; conflict, lines that cannot go together.
+
+// Record is one record of a run archive, as parse_record reads it (see
+// the comment above).
+type Record struct {
+    replaces int64
+    selfcheck bool
+    partial bool
+    dir text.Text
+    target text.Text
+    opts list[text.Text]
+    cflags list[text.Text]
+    strict bool
+    invoke list[text.Text]
+    empty_cwd bool
+    args list[text.Text]
+    env list[text.Text]
+    stdin list[uint8]
+    has_stdin bool
+    has_stdout bool
+    has_stderr bool
+    cold bool
+    lenient bool
+    nofile int64
+    out_mode text.Text
+    err_mode text.Text
+    fd3_mode text.Text
+    fd4_mode text.Text
+    code int64
+    signo int64
+    running text.Text
+    must_fail text.Text
+    ends int64
+    stdout list[uint8]
+    stdout_file text.Text
+    stderr list[uint8]
+    stderr_file text.Text
+    fd3 list[uint8]
+    fd4 list[uint8]
+    files list[CaseFile]
+    links list[CaseFile]
+    open_path text.Text
+    open_data list[uint8]
+    has_open bool
+}
+
+// RunCase is one case of a run archive: its name, its files, in archive
+// order, and its record section, unread.
+type RunCase struct {
+    name text.Text
+    files list[CaseFile]
+    record list[uint8]
+}
+
+// record_name is the name, below a case's directory, of its record, and
+// class_name that of the file a case of invalid.txtar names its class in.
+var record_name = "record"
+var class_name = "class"
+
+// new_record returns a Record with nothing read into it, held to strict
+// C.
+func new_record() Record {
+    return Record{
+        replaces: 0,
+        selfcheck: false,
+        partial: false,
+        dir: text.new(c_allocator),
+        target: text.new(c_allocator),
+        opts: make(list[text.Text], c_allocator),
+        cflags: make(list[text.Text], c_allocator),
+        strict: true,
+        invoke: make(list[text.Text], c_allocator),
+        empty_cwd: false,
+        args: make(list[text.Text], c_allocator),
+        env: make(list[text.Text], c_allocator),
+        stdin: make(list[uint8], c_allocator),
+        has_stdin: false,
+        has_stdout: false,
+        has_stderr: false,
+        cold: false,
+        lenient: false,
+        nofile: 0,
+        out_mode: text.new(c_allocator),
+        err_mode: text.new(c_allocator),
+        fd3_mode: text.new(c_allocator),
+        fd4_mode: text.new(c_allocator),
+        code: 0,
+        signo: 0,
+        running: text.new(c_allocator),
+        must_fail: text.new(c_allocator),
+        ends: 0,
+        stdout: make(list[uint8], c_allocator),
+        stdout_file: text.new(c_allocator),
+        stderr: make(list[uint8], c_allocator),
+        stderr_file: text.new(c_allocator),
+        fd3: make(list[uint8], c_allocator),
+        fd4: make(list[uint8], c_allocator),
+        files: make(list[CaseFile], c_allocator),
+        links: make(list[CaseFile], c_allocator),
+        open_path: text.new(c_allocator),
+        open_data: make(list[uint8], c_allocator),
+        has_open: false,
+    }
+}
+
+// close_file adds to rec.files the file the last file line named, with
+// what the file+ lines after it added, when one is open.
+func close_file(mut rec Record) error {
+    if !rec.has_open {
+        return noerror
+    }
+    rec.has_open = false
+    p := replace(mut rec.open_path, text.new(c_allocator))
+    d := replace(mut rec.open_data, make(list[uint8], c_allocator))
+    return append(mut rec.files, CaseFile{path: p, data: d})
+}
+
+// is_word reports whether w is s.
+func is_word(w []uint8, s string) bool {
+    return bytes.equal(w, []uint8(s))
+}
+
+// is_seconds reports whether s is a number of seconds still-running
+// takes: one or two digits, then, when there is a dot, one to three
+// digits after it, from 0.1 to 10.
+func is_seconds(s []uint8) bool {
+    mut whole int64 = 0
+    mut frac int64 = 0
+    mut whole_digits int64 = 0
+    mut frac_digits int64 = 0
+    mut dot := false
+    for _, c := range s {
+        if c == '.' {
+            if dot {
+                return false
+            }
+            dot = true
+        } else if c < '0' || c > '9' {
+            return false
+        } else if dot {
+            frac_digits +%= 1
+            frac = frac *% 10 +% int64(c - '0')
+        } else {
+            whole_digits +%= 1
+            whole = whole *% 10 +% int64(c - '0')
+        }
+        if whole_digits > 2 || frac_digits > 3 {
+            return false
+        }
+    }
+    if whole_digits == 0 || dot && frac_digits == 0 {
+        return false
+    }
+    for frac_digits < 3 {
+        frac = frac *% 10
+        frac_digits +%= 1
+    }
+    // Two digits and three are at most 99 and 999, so this does not wrap.
+    millis := whole *% 1000 +% frac
+    return millis >= 100 && millis <= 10000
+}
+
+// is_count reports whether s is digits alone, one to nine of them, so
+// that it is a number from 0 below a billion, and sets n to it.
+func is_count(s []uint8, mut n int64) bool {
+    if len(s) == 0 || len(s) > 9 {
+        return false
+    }
+    mut v int64 = 0
+    for _, c := range s {
+        if c < '0' || c > '9' {
+            return false
+        }
+        // Nine digits are below a billion, so this does not wrap.
+        v = v *% 10 +% int64(c - '0')
+    }
+    n = v
+    return true
+}
+
+// is_clean_path reports whether p is a path every record takes for a
+// file below a directory of its own: not empty, relative, its parts
+// between slashes none empty, none . or .., and no 0 byte, so it names a
+// file below that directory and nothing above it.
+func is_clean_path(p []uint8) bool {
+    if len(p) == 0 {
+        return false
+    }
+    mut start int64 = 0
+    for start <= len(p) {
+        slash := bytes.index_byte(part(p, start, len(p)), '/')
+        mut end := len(p)
+        if slash >= 0 {
+            // slash is an index of p after start.
+            end = start +% slash
+        }
+        if end == start || is_word(part(p, start, end), ".") || is_word(part(p, start, end), "..") {
+            return false
+        }
+        start = end +% 1
+    }
+    return bytes.index_byte(p, 0) < 0
+}
+
+// is_env_name reports whether s is a name env takes: a letter or _, then
+// letters, digits and _.
+func is_env_name(s []uint8) bool {
+    if len(s) == 0 {
+        return false
+    }
+    for i, c := range s {
+        letter := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_'
+        if !letter && (i == 0 || c < '0' || c > '9') {
+            return false
+        }
+    }
+    return true
+}
+
+// is_replaces reports whether rest is what replaces takes: a clean path
+// of a Go test file, ending in _test.go, a space, and a test, Test or
+// Fuzz and more, with no space in it.
+func is_replaces(rest []uint8) bool {
+    sp := bytes.index_byte(rest, ' ')
+    if sp <= 0 || bytes.count(rest, []uint8(" ")) != 1 {
+        return false
+    }
+    // sp is an index of rest.
+    test_ok := bytes.has_prefix(part(rest, sp +% 1, len(rest)), []uint8("Test")) || bytes.has_prefix(part(rest, sp +% 1, len(rest)), []uint8("Fuzz"))
+    return is_clean_path(part(rest, 0, sp)) && bytes.has_suffix(part(rest, 0, sp), []uint8("_test.go")) && test_ok
+}
+
+// is_flag reports whether f is a flag cflags takes: a - and then one or
+// more letters, digits and _ = , . + / : alone, bytes a shell takes as
+// they are inside single quotes and that make no second word.
+func is_flag(f []uint8) bool {
+    if len(f) < 2 || !bytes.has_prefix(f, []uint8("-")) {
+        return false
+    }
+    for _, c := range f {
+        ok := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '=' || c == ',' || c == '.' || c == '+' || c == '/' || c == ':'
+        if !ok {
+            return false
+        }
+    }
+    return true
+}
+
+// failure_classes are the classes of the ways a run can fail, in the
+// order the runner checks them, the first one found being the run's;
+// must-fail names one. A run the runner cannot set up has none.
+var failure_classes = [15]string{"build", "build-tmpdir", "outlived", "cwd", "src-changed", "run-root", "tmpdir", "exit", "still-running", "did-not-end", "stdout", "stderr", "fd3", "fd4", "files"}
+
+// is_failure_class reports whether s is one of failure_classes.
+func is_failure_class(s []uint8) bool {
+    for _, c := range failure_classes {
+        if is_word(s, c) {
+            return true
+        }
+    }
+    return false
+}
+
+// is_reserved_env reports whether name is one of the variables the
+// runner sets for every run: PATH, TMPDIR, TACK_HOME and TACK_CACHE.
+func is_reserved_env(name []uint8) bool {
+    return is_word(name, "PATH") || is_word(name, "TMPDIR") || is_word(name, "TACK_HOME") || is_word(name, "TACK_CACHE")
+}
+
+// is_reserved_flag reports whether f is a clang flag cflags may not
+// give: -O and anything after it, the level, which opt alone sets; and
+// the flags that change where clang writes: -o, -M and its kin,
+// -save-temps, --output and a linker's -o, given as ,-o in -Wl,.
+func is_reserved_flag(f []uint8) bool {
+    return bytes.has_prefix(f, []uint8("-O")) || bytes.has_prefix(f, []uint8("-o")) || bytes.has_prefix(f, []uint8("-M")) ||
+        bytes.has_prefix(f, []uint8("-save-temps")) || bytes.has_prefix(f, []uint8("--output")) || bytes.index(f, []uint8(",-o")) >= 0
+}
+
+// set_once appends rest to t, which must be empty, and reports whether
+// it was.
+func set_once(mut t text.Text, rest []uint8) (bool, error) {
+    if t.len() > 0 {
+        return false, noerror
+    }
+    mut t.append(rest)?
+    return true, noerror
+}
+
+// record_problem appends to problem that line k, from 1, of the record of
+// the case named name is wrong, of the class class, and why, as
+// [class] why (see class_of).
+func record_problem(mut problem list[uint8], name []uint8, k int64, class string, why string) error {
+    return fmt.appendf(mut problem, "record of %s, line %d: [%s] %s", name, k, class, why)
+}
+
+// whole_problem appends to problem that the record of the case named
+// name is wrong as a whole, of the class class, and why.
+func whole_problem(mut problem list[uint8], name []uint8, class string, why string) error {
+    return fmt.appendf(mut problem, "record of %s: [%s] %s", name, class, why)
+}
+
+// class_of returns where in problem, a message record_problem or
+// whole_problem wrote, its class starts and ends, or 0 and 0 when it
+// holds none.
+func class_of(problem []uint8) (int64, int64) {
+    open := bytes.index(problem, []uint8(": ["))
+    if open < 0 {
+        return 0, 0
+    }
+    // open is an index of problem, and ": [" three bytes of it.
+    start := open +% 3
+    close := bytes.index_byte(part(problem, start, len(problem)), ']')
+    if close < 0 {
+        return 0, 0
+    }
+    return start, start +% close
+}
+
+// quoted_operand reads the line rest, all of it one quoted operand, into
+// out, and reports whether it is one.
+func quoted_operand(rest []uint8, mut out list[uint8]) (bool, error) {
+    end, ok := unquote(rest, 0, mut out)?
+    return ok && end == len(rest), noerror
+}
+
+// parse_record reads data, the record of the case named name, which has
+// files of its own when has_files says so, into rec, or reports in
+// problem why it cannot (see the comment at the top of this file).
+func parse_record(name []uint8, data []uint8, has_files bool, mut rec Record, mut problem list[uint8]) error {
+    mut start int64 = 0
+    mut k int64 = 0
+    for start < len(data) {
+        stop := line_end(data, start)
+        k +%= 1
+        sp := bytes.index_byte(part(data, start, stop), ' ')
+        if sp <= 0 {
+            return record_problem(mut problem, name, k, "syntax", "want a keyword, a space and its operands")
+        }
+        if start +% sp +% 1 == stop {
+            return record_problem(mut problem, name, k, "empty", "an operand is empty")
+        }
+        // sp is an index of the line, which starts at start.
+        record_line(name, part(data, start, start +% sp), part(data, start +% sp +% 1, stop), k, mut rec, mut problem)?
+        if len(problem) > 0 {
+            return noerror
+        }
+        // A line holds its newline, so the sum does not wrap.
+        start = stop +% 1
+    }
+    close_file(mut rec)?
+    return record_whole(name, has_files, rec, mut problem)
+}
+
+// record_line reads into rec the line numbered k of the record of the
+// case named name, its keyword key and its operands rest, or reports in
+// problem why it cannot; a file+ line goes on the file the line before
+// it opened, which any other line closes.
+func record_line(name []uint8, key []uint8, rest []uint8, k int64, mut rec Record, mut problem list[uint8]) error {
+    if !is_word(key, "file+") {
+        close_file(mut rec)?
+    }
+    if is_word(key, "note") {
+        return noerror
+    }
+    if is_word(key, "replaces") {
+        if !is_replaces(rest) {
+            return record_problem(mut problem, name, k, "replaces", "replaces takes a clean path of a _test.go file, a space and a Test or Fuzz name")
+        }
+        rec.replaces +%= 1
+        return noerror
+    }
+    if is_word(key, "partial") || is_word(key, "selfcheck") || is_word(key, "no-strict-c") || is_word(key, "cold-cache") {
+        if is_word(key, "cold-cache") {
+            if rec.cold {
+                return record_problem(mut problem, name, k, "repeated", "cold-cache is given once at most")
+            }
+            rec.cold = true
+        } else if is_word(key, "partial") {
+            rec.partial = true
+        } else if is_word(key, "selfcheck") {
+            rec.selfcheck = true
+        } else {
+            if !rec.strict {
+                return record_problem(mut problem, name, k, "repeated", "no-strict-c is given once at most")
+            }
+            rec.strict = false
+        }
+        return noerror
+    }
+    if is_word(key, "dir") || is_word(key, "target") || is_word(key, "stdout-file") || is_word(key, "stderr-file") {
+        mut once := false
+        if is_word(key, "dir") {
+            once = set_once(mut rec.dir, rest)?
+        } else if is_word(key, "target") {
+            once = set_once(mut rec.target, rest)?
+        } else if is_word(key, "stdout-file") {
+            once = set_once(mut rec.stdout_file, rest)?
+        } else {
+            once = set_once(mut rec.stderr_file, rest)?
+        }
+        if !once {
+            return record_problem(mut problem, name, k, "repeated", "a keyword that is given once at most is repeated")
+        }
+        if !is_clean_path(rest) || is_word(key, "dir") && !bytes.has_prefix(rest, []uint8("examples/")) {
+            return record_problem(mut problem, name, k, "path", "want a clean relative path, below examples/ for dir")
+        }
+        return noerror
+    }
+    if is_word(key, "must-fail") {
+        if !is_failure_class(rest) {
+            return record_problem(mut problem, name, k, "failure", "must-fail takes one of the failure classes: build, build-tmpdir, outlived, cwd, src-changed, run-root, tmpdir, exit, still-running, did-not-end, stdout, stderr, fd3, fd4 and files")
+        }
+        once := set_once(mut rec.must_fail, rest)?
+        if !once {
+            return record_problem(mut problem, name, k, "repeated", "must-fail is given once at most")
+        }
+        return noerror
+    }
+    if is_word(key, "cwd") {
+        if !is_word(rest, "empty") {
+            return record_problem(mut problem, name, k, "syntax", "want cwd empty")
+        }
+        if rec.empty_cwd {
+            return record_problem(mut problem, name, k, "repeated", "cwd is given once at most")
+        }
+        rec.empty_cwd = true
+        return noerror
+    }
+    if is_word(key, "opt") || is_word(key, "cflags") {
+        return words_line(name, key, rest, k, mut rec, mut problem)
+    }
+    if is_word(key, "stream") {
+        return stream_line(name, rest, k, mut rec, mut problem)
+    }
+    if is_word(key, "arg") || is_word(key, "env") || is_word(key, "invoke") {
+        mut b := make(list[uint8], c_allocator)
+        ok := quoted_operand(rest, mut b)?
+        if !ok {
+            return record_problem(mut problem, name, k, "quote", "want one quoted operand")
+        }
+        if is_word(key, "env") && (bytes.index_byte(b, '=') <= 0 || !is_env_name(part(b[:], 0, bytes.index_byte(b, '='))) || is_reserved_env(part(b[:], 0, bytes.index_byte(b, '=')))) {
+            return record_problem(mut problem, name, k, "env", "env takes NAME=value, NAME a letter or _ and then letters, digits and _, and none of PATH, TMPDIR, TACK_HOME and TACK_CACHE, which the runner sets")
+        }
+        t := text.from_bytes(b, c_allocator)?
+        if is_word(key, "env") {
+            append(mut rec.env, t)?
+        } else if is_word(key, "arg") {
+            append(mut rec.args, t)?
+        } else {
+            append(mut rec.invoke, t)?
+        }
+        return noerror
+    }
+    if is_word(key, "stdin") || is_word(key, "stdout") || is_word(key, "stderr") || is_word(key, "fd3") || is_word(key, "fd4") {
+        mut b := make(list[uint8], c_allocator)
+        ok := quoted_operand(rest, mut b)?
+        if !ok {
+            return record_problem(mut problem, name, k, "quote", "want one quoted operand")
+        }
+        if is_word(key, "stdin") {
+            append(mut rec.stdin, b...)?
+            rec.has_stdin = true
+        } else if is_word(key, "stdout") {
+            append(mut rec.stdout, b...)?
+            rec.has_stdout = true
+        } else if is_word(key, "stderr") {
+            append(mut rec.stderr, b...)?
+            rec.has_stderr = true
+        } else if is_word(key, "fd3") {
+            append(mut rec.fd3, b...)?
+        } else {
+            append(mut rec.fd4, b...)?
+        }
+        return noerror
+    }
+    if is_word(key, "limit") {
+        if !bytes.has_prefix(rest, []uint8("nofile ")) {
+            return record_problem(mut problem, name, k, "syntax", "want limit nofile <n>")
+        }
+        if rec.nofile != 0 {
+            return record_problem(mut problem, name, k, "repeated", "limit is given once at most")
+        }
+        mut n int64 = 0
+        counted := is_count(part(rest, 7, len(rest)), mut n)
+        if !counted || n <= 0 || n > 65536 {
+            return record_problem(mut problem, name, k, "number", "the limit is a number from 1 to 65536")
+        }
+        rec.nofile = n
+        return noerror
+    }
+    if is_word(key, "still-running") {
+        if !is_seconds(rest) {
+            return record_problem(mut problem, name, k, "number", "still-running takes seconds from 0.1 to 10, with three digits after the dot at most")
+        }
+        if rec.running.len() == 0 {
+            mut rec.running.append(rest)?
+        }
+        rec.ends +%= 1
+        return noerror
+    }
+    if is_word(key, "exit") || is_word(key, "signal") {
+        mut n int64 = 0
+        counted := is_count(rest, mut n)
+        if !counted || n > 255 || is_word(key, "signal") && n == 0 {
+            return record_problem(mut problem, name, k, "number", "want an exit status from 0 to 255, or a signal from 1 to 255")
+        }
+        if is_word(key, "exit") {
+            rec.code = n
+        } else {
+            rec.signo = n
+        }
+        rec.ends +%= 1
+        return noerror
+    }
+    if is_word(key, "file+") {
+        mut d := make(list[uint8], c_allocator)
+        ok := quoted_operand(rest, mut d)?
+        if !ok {
+            return record_problem(mut problem, name, k, "quote", "want one quoted operand")
+        }
+        if !rec.has_open {
+            return record_problem(mut problem, name, k, "syntax", "file+ goes on the file line before it, and follows none")
+        }
+        return append(mut rec.open_data, d...)
+    }
+    if is_word(key, "file") {
+        mut p := make(list[uint8], c_allocator)
+        end, ok := unquote(rest, 0, mut p)?
+        mut d := make(list[uint8], c_allocator)
+        mut ok2 := false
+        if ok && end < len(rest) && bytes.has_prefix(part(rest, end, len(rest)), []uint8(" ")) {
+            ok2 = quoted_operand(part(rest, end +% 1, len(rest)), mut d)?
+        }
+        if !ok2 {
+            return record_problem(mut problem, name, k, "quote", "file takes a quoted path and quoted bytes")
+        }
+        if !is_clean_path(p[:]) {
+            return record_problem(mut problem, name, k, "path", "the file's path is no clean relative path")
+        }
+        if names_entry(rec, p[:]) {
+            return record_problem(mut problem, name, k, "repeated", "the file is named twice")
+        }
+        rec.open_path = text.from_bytes(p, c_allocator)?
+        rec.open_data = d
+        rec.has_open = true
+        return noerror
+    }
+    if is_word(key, "symlink") {
+        mut p := make(list[uint8], c_allocator)
+        end, ok := unquote(rest, 0, mut p)?
+        mut target := make(list[uint8], c_allocator)
+        mut ok2 := false
+        if ok && end < len(rest) && bytes.has_prefix(part(rest, end, len(rest)), []uint8(" ")) {
+            ok2 = quoted_operand(part(rest, end +% 1, len(rest)), mut target)?
+        }
+        if !ok2 {
+            return record_problem(mut problem, name, k, "quote", "symlink takes a quoted path and a quoted target")
+        }
+        if !is_clean_path(p[:]) || len(target) == 0 || bytes.index_byte(target[:], 0) >= 0 {
+            return record_problem(mut problem, name, k, "path", "the link's path is no clean relative path, or its target is empty or holds a 0 byte")
+        }
+        if names_entry(rec, p[:]) {
+            return record_problem(mut problem, name, k, "repeated", "the file is named twice")
+        }
+        return append(mut rec.links, CaseFile{path: text.from_bytes(p[:], c_allocator)?, data: target})
+    }
+    return record_problem(mut problem, name, k, "unknown", "unknown keyword")
+}
+
+// names_entry reports whether a file or symlink line of rec names p.
+func names_entry(rec Record, p []uint8) bool {
+    for _, f := range rec.files {
+        if f.path.equal(p) {
+            return true
+        }
+    }
+    for _, f := range rec.links {
+        if f.path.equal(p) {
+            return true
+        }
+    }
+    return false
+}
+
+// is_level reports whether w is an optimization level: 0 1 2 3 s or z.
+func is_level(w []uint8) bool {
+    return is_word(w, "0") || is_word(w, "1") || is_word(w, "2") || is_word(w, "3") || is_word(w, "s") || is_word(w, "z")
+}
+
+// words_line reads the operands rest, words with one space between
+// each, of the opt or cflags line, key, numbered k of the record of the
+// case named name into rec, or reports in problem why it cannot.
+func words_line(name []uint8, key []uint8, rest []uint8, k int64, mut rec Record, mut problem list[uint8]) error {
+    opt := is_word(key, "opt")
+    if opt && len(rec.opts) > 0 || !opt && len(rec.cflags) > 0 {
+        return record_problem(mut problem, name, k, "repeated", "opt and cflags are given once at most")
+    }
+    mut at int64 = 0
+    for at <= len(rest) {
+        sp := bytes.index_byte(part(rest, at, len(rest)), ' ')
+        mut end := len(rest)
+        if sp >= 0 {
+            // sp is an index of rest after at.
+            end = at +% sp
+        }
+        if opt {
+            mut seen := false
+            for _, o := range rec.opts {
+                if o.equal(part(rest, at, end)) {
+                    seen = true
+                }
+            }
+            if !is_level(part(rest, at, end)) || seen {
+                return record_problem(mut problem, name, k, "opt", "each level is one of 0 1 2 3 s z, given once")
+            }
+            append(mut rec.opts, text.from_bytes(part(rest, at, end), c_allocator)?)?
+        } else {
+            if !is_flag(part(rest, at, end)) || is_reserved_flag(part(rest, at, end)) {
+                return record_problem(mut problem, name, k, "cflags", "each flag is a - and then letters, digits and _ = , . + / : alone, and none sets the level, which opt does, or where clang writes")
+            }
+            append(mut rec.cflags, text.from_bytes(part(rest, at, end), c_allocator)?)?
+        }
+        at = end +% 1
+    }
+    return noerror
+}
+
+// stream_line reads the operands rest of the stream line numbered k of
+// the record of the case named name into rec, or reports in problem why
+// it cannot: a descriptor, stdout, stderr, fd3 or fd4, given once, and
+// how it is, one of the ways the comment at the top of this file names
+// for it.
+func stream_line(name []uint8, rest []uint8, k int64, mut rec Record, mut problem list[uint8]) error {
+    sp := bytes.index_byte(rest, ' ')
+    if sp <= 0 {
+        return record_problem(mut problem, name, k, "stream", "stream takes a descriptor and how it is")
+    }
+    // sp is an index of rest.
+    known, fresh := stream_mode(part(rest, 0, sp), part(rest, sp +% 1, len(rest)), mut rec)?
+    if !known {
+        return record_problem(mut problem, name, k, "stream", "no such descriptor, or a way it cannot be")
+    }
+    if !fresh {
+        return record_problem(mut problem, name, k, "repeated", "a descriptor's way is given once at most")
+    }
+    return noerror
+}
+
+// stream_mode sets the way of the descriptor fd to how in rec, and
+// reports whether fd is one and how a way it can be, and whether it was
+// not set yet.
+func stream_mode(fd []uint8, how []uint8, mut rec Record) (bool, bool, error) {
+    if is_word(fd, "stdout") && (is_word(how, "closed") || is_word(how, "broken") || is_word(how, "file")) {
+        ok := set_once(mut rec.out_mode, how)?
+        return true, ok, noerror
+    }
+    if is_word(fd, "stderr") && (is_word(how, "closed") || is_word(how, "broken") || is_word(how, "file") || is_word(how, "merged")) {
+        ok := set_once(mut rec.err_mode, how)?
+        return true, ok, noerror
+    }
+    if is_word(fd, "fd3") && (is_word(how, "capture") || is_word(how, "broken")) {
+        ok := set_once(mut rec.fd3_mode, how)?
+        return true, ok, noerror
+    }
+    if is_word(fd, "fd4") && (is_word(how, "capture") || is_word(how, "broken")) {
+        ok := set_once(mut rec.fd4_mode, how)?
+        return true, ok, noerror
+    }
+    return false, false, noerror
+}
+
+// record_whole reports in problem what rec, the whole record of the case
+// named name, which has files of its own when has_files says so, lacks
+// or holds that cannot go together.
+func record_whole(name []uint8, has_files bool, rec Record, mut problem list[uint8]) error {
+    if rec.replaces == 0 && !rec.selfcheck {
+        return whole_problem(mut problem, name, "missing", "it names no Go test it replaces, and is no selfcheck")
+    }
+    if rec.ends == 0 {
+        return whole_problem(mut problem, name, "missing", "it has no exit, signal or still-running line")
+    }
+    if !has_files && rec.dir.len() == 0 {
+        return whole_problem(mut problem, name, "missing", "it has no files of its own and no dir line")
+    }
+    if rec.ends > 1 {
+        return whole_problem(mut problem, name, "repeated", "it has more than one exit, signal or still-running line")
+    }
+    if rec.replaces > 0 && rec.selfcheck {
+        return whole_problem(mut problem, name, "conflict", "a selfcheck replaces no Go test")
+    }
+    if has_files && rec.dir.len() > 0 {
+        return whole_problem(mut problem, name, "conflict", "a case has files of its own or a dir line, not both")
+    }
+    if rec.has_stdout && rec.stdout_file.len() > 0 || rec.has_stderr && rec.stderr_file.len() > 0 {
+        return whole_problem(mut problem, name, "conflict", "a stream has both quoted bytes and a file")
+    }
+    merged := rec.err_mode.equal([]uint8("merged"))
+    if merged && (rec.has_stderr || rec.stderr_file.len() > 0) {
+        return whole_problem(mut problem, name, "conflict", "a merged standard error holds nothing of its own")
+    }
+    if merged && (rec.out_mode.equal([]uint8("closed")) || rec.out_mode.equal([]uint8("broken"))) {
+        return whole_problem(mut problem, name, "conflict", "standard error cannot be merged into a closed or broken standard output")
+    }
+    if len(rec.fd3) > 0 && !rec.fd3_mode.equal([]uint8("capture")) || len(rec.fd4) > 0 && !rec.fd4_mode.equal([]uint8("capture")) {
+        return whole_problem(mut problem, name, "conflict", "fd3 and fd4 bytes need the stream captured")
+    }
+    if rec.empty_cwd && len(rec.invoke) == 0 {
+        return whole_problem(mut problem, name, "conflict", "cwd empty is for a record that invokes the compiler; a program always runs in an empty directory")
+    }
+    if len(rec.invoke) > 0 {
+        if rec.target.len() > 0 || len(rec.opts) > 0 || len(rec.cflags) > 0 || !rec.strict || rec.cold || len(rec.args) > 0 || rec.has_stdin || rec.nofile > 0 || rec.out_mode.len() > 0 || rec.err_mode.len() > 0 || rec.fd3_mode.len() > 0 || rec.fd4_mode.len() > 0 || rec.signo > 0 || rec.running.len() > 0 {
+            return whole_problem(mut problem, name, "conflict", "a record that invokes the compiler builds and runs no program")
+        }
+    }
+    pins_out := rec.has_stdout || rec.stdout_file.len() > 0
+    pins_err := rec.has_stderr || rec.stderr_file.len() > 0 || rec.err_mode.equal([]uint8("merged"))
+    if !rec.lenient && (!pins_out || !pins_err) {
+        return whole_problem(mut problem, name, "missing", "it pins no standard output or no standard error: every record pins both, with a stdout and a stderr line, an empty one too, or a file")
+    }
+    return noerror
+}
+
+// hex_value returns the value of the hexadecimal digit c, either case,
+// or -1 when c is none.
+func hex_value(c uint8) int64 {
+    if c >= '0' && c <= '9' {
+        return int64(c - '0')
+    }
+    if c >= 'a' && c <= 'f' {
+        return int64(c - 'a') +% 10
+    }
+    if c >= 'A' && c <= 'F' {
+        return int64(c - 'A') +% 10
+    }
+    return -1
+}
+
+// hex_run returns the value of the n hexadecimal digits of s from at,
+// and whether s has n digits there.
+func hex_run(s []uint8, at int64, n int64) (int64, bool) {
+    mut v int64 = 0
+    for k := range n {
+        c, ok := s[at +% k]
+        if !ok {
+            return 0, false
+        }
+        d := hex_value(c)
+        if d < 0 {
+            return 0, false
+        }
+        // n is at most 8, so v stays below 2^32.
+        v = v *% 16 +% d
+    }
+    return v, true
+}
+
+// unquote reads the Go string literal of s that starts at at, as
+// append_quote writes one: a double quote, then bytes as they are but a
+// double quote, a backslash and a newline, and the escapes \a \b \f \n
+// \r \t \v \\ \", \x and two hexadecimal digits, a byte, and \u and four
+// or \U and eight, a rune, encoded as UTF-8; then a double quote. It
+// appends what the literal stands for to out and returns the index after
+// it, and whether s holds one there.
+func unquote(s []uint8, at int64, mut out list[uint8]) (int64, bool, error) {
+    first, has := s[at]
+    if !has || first != '"' {
+        return at, false, noerror
+    }
+    mut i := at +% 1
+    for i >= 0 && i < len(s) {
+        c, has_c := s[i]
+        if !has_c {
+            return at, false, noerror
+        }
+        if c == '"' {
+            return i +% 1, true, noerror
+        }
+        if c == '\n' {
+            return at, false, noerror
+        }
+        if c != '\\' {
+            append(mut out, c)?
+            i +%= 1
+            continue
+        }
+        e, has_e := s[i +% 1]
+        if !has_e {
+            return at, false, noerror
+        }
+        mut letter uint8 = 0
+        switch e {
+        case 'a':
+            letter = 0x07
+        case 'b':
+            letter = 0x08
+        case 'f':
+            letter = 0x0C
+        case 'n':
+            letter = 0x0A
+        case 'r':
+            letter = 0x0D
+        case 't':
+            letter = 0x09
+        case 'v':
+            letter = 0x0B
+        case '\\':
+            letter = '\\'
+        case '"':
+            letter = '"'
+        }
+        if letter != 0 {
+            append(mut out, letter)?
+            i +%= 2
+            continue
+        }
+        mut digits int64 = 0
+        if e == 'x' {
+            digits = 2
+        } else if e == 'u' {
+            digits = 4
+        } else if e == 'U' {
+            digits = 8
+        } else {
+            return at, false, noerror
+        }
+        v, ok := hex_run(s, i +% 2, digits)
+        if !ok {
+            return at, false, noerror
+        }
+        if e == 'x' {
+            // Two digits are at most 0xFF.
+            b, fits_b := uint8(v)
+            if !fits_b {
+                return at, false, noerror
+            }
+            append(mut out, b)?
+        } else {
+            r, fits := int32(v)
+            if !fits || r > 0x10FFFF || r >= 0xD800 && r <= 0xDFFF {
+                return at, false, noerror
+            }
+            utf8.append_rune(mut out, r)?
+        }
+        // digits is at most 8, and i below len(s).
+        i +%= 2 +% digits
+    }
+    return at, false, noerror
+}
+
+
+// parse_runs reads data, a run archive, into cases, and returns where
+// its comment ends, or reports in problem why it cannot: what split
+// rejects, a case out of order, a header that is not <case>/<path>, a bad
+// or repeated path, and a case that does not end with its record.
+func parse_runs(data []uint8, mut cases list[RunCase], mut problem list[uint8]) (int64, error) {
+    if len(data) > 0 && !bytes.has_suffix(data, []uint8("\n")) {
+        append(mut problem, []uint8("archive does not end with a newline")...)?
+        return 0, noerror
+    }
+    mut sections := make(list[Section], c_allocator)
+    comment_end := split(data, mut sections, mut problem)?
+    if len(problem) > 0 {
+        return 0, noerror
+    }
+    mut c := RunCase{name: text.new(c_allocator), files: make(list[CaseFile], c_allocator), record: make(list[uint8], c_allocator)}
+    for _, s := range sections {
+        slash := bytes.index_byte(part(data, s.name_start, s.name_end), '/')
+        if slash <= 0 {
+            case_problem(mut problem, s.line, part(data, s.name_start, s.name_end))?
+            append(mut problem, []uint8(": want a header -- <case>/<path> --")...)?
+            return 0, noerror
+        }
+        // slash is an index of the header's name.
+        cut := s.name_start +% slash
+        take_run_section(part(data, s.name_start, cut), part(data, cut +% 1, s.name_end), part(data, s.start, s.end), s.line, mut c, mut cases, mut problem)?
+        if len(problem) > 0 {
+            return 0, noerror
+        }
+    }
+    if c.name.len() > 0 {
+        mut line int64 = 0
+        for _, s := range sections {
+            line = s.line
+        }
+        case_problem(mut problem, line, c.name.bytes())?
+        append(mut problem, []uint8(" ends without its record")...)?
+        return 0, noerror
+    }
+    return comment_end, noerror
+}
+
+// format_runs returns the run archive whose comment is comment and whose
+// cases are cases, as parse_runs reads it back: the comment, then each
+// case's files, each its header and bytes, and its record.
+func format_runs(comment []uint8, cases []RunCase) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    append(mut out, comment...)?
+    for _, c := range cases {
+        for _, f := range c.files {
+            fmt.appendf(mut out, "-- %s/%s --\n", c.name.bytes(), f.path.bytes())?
+            append(mut out, f.data...)?
+        }
+        fmt.appendf(mut out, "-- %s/%s --\n", c.name.bytes(), record_name)?
+        append(mut out, c.record...)?
+    }
+    return out, noerror
+}
+
+// take_run_section takes the section of a run archive whose header, at
+// line, names the case name and the path rel, and whose bytes are body:
+// into c, the case being read, as a file, or, for its record, as the
+// record, and then c, done, into cases. It reports in problem why it
+// cannot (see parse_runs).
+func take_run_section(name []uint8, rel []uint8, body []uint8, line int64, mut c RunCase, mut cases list[RunCase], mut problem list[uint8]) error {
+    if c.name.len() > 0 && !c.name.equal(name) {
+        case_problem(mut problem, line, c.name.bytes())?
+        return append(mut problem, []uint8(" ends without its record")...)
+    }
+    if c.name.len() == 0 {
+        if !valid_name(name) {
+            case_problem(mut problem, line, name)?
+            return append(mut problem, []uint8(": invalid case name")...)
+        }
+        for _, done := range cases {
+            if compare_bytes(done.name.bytes(), name) >= 0 {
+                case_problem(mut problem, line, name)?
+                return append(mut problem, []uint8(": out of order")...)
+            }
+        }
+        mut c.name.append(name)?
+    }
+    if bytes.equal(rel, []uint8(record_name)) {
+        append(mut c.record, body...)?
+        done := replace(mut c, RunCase{name: text.new(c_allocator), files: make(list[CaseFile], c_allocator), record: make(list[uint8], c_allocator)})
+        return append(mut cases, done)
+    }
+    ok := is_clean_path(rel) && !bytes.equal(rel, []uint8(record_name))
+    mut repeated := false
+    for _, f := range c.files {
+        if f.path.equal(rel) {
+            repeated = true
+        }
+    }
+    if !ok || repeated {
+        case_problem(mut problem, line, c.name.bytes())?
+        append(mut problem, []uint8(": bad or repeated file ")...)?
+        return conv.append_quote(mut problem, rel)
+    }
+    mut d := make(list[uint8], c_allocator)
+    append(mut d, body...)?
+    return append(mut c.files, CaseFile{path: text.from_bytes(rel, c_allocator)?, data: d})
+}

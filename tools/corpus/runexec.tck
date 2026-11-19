@@ -1,0 +1,1935 @@
+package main
+
+import bytes from "std/bytes"
+import conv from "std/conv"
+import fmt from "std/fmt"
+import hex from "std/hex"
+import os from "std/os"
+import path from "std/path"
+import sha256 from "std/sha256"
+import text from "std/text"
+
+// Running the run records of corpus/runs (see runs.tck): each program is
+// built with the compiler, its C checked, and run in a directory of its
+// own, at each optimization level its record names, or the compiler is
+// run, and what each run did is checked against the record, or, with
+// --update, written into it.
+
+// Rec is a case of a run archive, read, as check_run takes it: its
+// archive's label, its name, its files and its record.
+type Rec struct {
+    label text.Text
+    name text.Text
+    files list[CaseFile]
+    rec Record
+}
+
+// Dirs are the directories of one run of a case, all absolute and the
+// run's own: base, which holds root alone; root, the run's private root,
+// which holds src, tmp, run when the run has a directory of its own, and
+// bin, as prog, and nothing else (see root_as_made); src, the copy the
+// case is built from, which build is in or is; btmp, the TMPDIR of the builds, which must be empty
+// after each; build, where the program is built or the compiler is given
+// its files, a copy, run, where the program or the compiler runs (build
+// again for a record that invokes the compiler, unless it says cwd
+// empty), tmp, the run's TMPDIR, io, where the descriptors a record
+// makes files of are and where the wrapper notes how the run went, bin,
+// the program, cache, the TACK_CACHE of the case's builds, and shim,
+// the clang of a record with cflags.
+type Dirs struct {
+    base text.Text
+    root text.Text
+    src text.Text
+    btmp text.Text
+    build text.Text
+    run text.Text
+    tmp text.Text
+    io text.Text
+    bin text.Text
+    cache text.Text
+    shim text.Text
+}
+
+// Outcome is what one run of a case did, its outputs normalized: how it
+// ended, its exit status or signal, or that it was stopped after its
+// time, its standard output and error as the record compares them, what
+// its captured descriptors got, the files of the directory its file
+// lines are of that are new or changed, and in trouble, when there is
+// any, why the run says nothing of the record: it could not be set up,
+// left something in its TMPDIR, removed a file and so on, and in class
+// the failure class of that trouble (see runs.tck's failure_classes),
+// empty when the run could not be set up or looked at, which no class
+// names.
+type Outcome struct {
+    code int64
+    signo int64
+    timed_out bool
+    out list[uint8]
+    err list[uint8]
+    fd3 list[uint8]
+    fd4 list[uint8]
+    changed list[CaseFile]
+    trouble list[uint8]
+    class text.Text
+}
+
+// core_line is what coreutils' timeout writes to its own standard error,
+// a file the program never has, when the program it ran dumped core:
+// the one line it may write there; anything else is a failure of the
+// wrapper.
+var core_line = "timeout: the monitored command dumped core\n"
+
+// outer_script is what the outermost sh runs, with $1 the run's io
+// directory, $2 the seconds the run may take, $3 inner_script, $4 this
+// program, the launcher, and the rest inner_script's arguments. It makes
+// its own standard error, and so timeout's, the file timeout-stderr in
+// $1, keeping the run's as descriptor 9, and replaces itself with
+// coreutils' timeout, which runs inner_script and so the launcher it
+// becomes. timeout's own limit, 150 seconds, is only a bound past every
+// deadline, should the launcher not end: the launcher alone judges the
+// deadline (see launch.c), and a launcher timeout stops writes no
+// result, which fails the run as the wrapper's failure.
+var outer_script = "w=$1; s=$2; inner=$3; launcher=$4; shift 4; exec 9>&2 2>\"$w/timeout-stderr\" || exit 125; exec timeout -k 10 150 sh -c \"$inner\" sh \"$s\" \"$launcher\" \"$@\""
+
+// inner_script is what sh runs under timeout for each program. Its
+// standard error is the run's again, from descriptor 9, which it closes.
+// $1 is the seconds the run may take, $2 the launcher, and after them $3
+// is the file standard input is read from, $4 the limit of open files
+// or empty, $5 to $8 how standard output, standard error, descriptor 3
+// and descriptor 4 are, each - for the default, $9 the run's io
+// directory, and the rest env -i's arguments: PATH, TMPDIR and the
+// record's env lines, then the program and its arguments, so the
+// program's environment is those alone. Descriptors 3 to 8 are closed,
+// then made as the record says. A broken descriptor is the write end of
+// a FIFO whose one reader, opened with it on descriptor 8, is closed
+// before the program starts, so a write to it fails with EPIPE as a
+// write to a pipe whose reader closed does; the FIFO is unlinked first.
+// It then replaces itself with the launcher, corpus --launch, which
+// starts the program in a session of its own, with the limit of open
+// files, and judges how it ended (see launch.c). A failure to set the
+// run up writes why to the file wrapper-failed in $9, where the program
+// does not write, and exits 125.
+var inner_script = "exec 2>&9 9>&-; s=$1; launcher=$2; shift 2; w=$7; fail() { echo \"$1\" > \"$w/wrapper-failed\"; exit 125; }; ulimit -c 0 || fail 'cannot turn core dumps off'; n=$2; i=$1; o=$3; e=$4; f3=$5; f4=$6; shift 7; exec 3>&- 4>&- 5>&- 6>&- 7>&- 8>&-; broken() { mkfifo \"$w/fifo$1\" || fail 'cannot make a fifo'; exec 8<>\"$w/fifo$1\" || fail 'cannot open a fifo'; eval \"exec $1>\\\"\\$w/fifo$1\\\"\" || fail 'cannot open a fifo'; exec 8<&-; rm -f \"$w/fifo$1\"; }; case $f3 in capture) exec 3>\"$w/fd3\" || fail 'cannot open fd3';; broken) broken 3;; esac; case $f4 in capture) exec 4>\"$w/fd4\" || fail 'cannot open fd4';; broken) broken 4;; esac; case $o in closed) exec >&-;; broken) broken 1;; file) exec >\"$w/stdout\" || fail 'cannot open stdout';; esac; case $e in closed) exec 2>&-;; broken) broken 2;; file) exec 2>\"$w/stderr\" || fail 'cannot open stderr';; merged) exec 2>&1;; esac; exec \"$launcher\" --launch \"$w\" \"$s\" \"$n\" env -i \"$@\" < \"$i\""
+
+// invalid_archive is the name of the archive of runs/ whose cases are
+// records every reader must reject (see runs.tck).
+var invalid_archive = "invalid.txtar"
+
+// must_fail_archive is the name of the archive of runs/ whose records
+// must each fail, with the class its must-fail line names (see runs.tck).
+var must_fail_archive = "must-fail.txtar"
+
+// check_runs checks every run archive directly in the corpus's runs/,
+// in name order, counting in t (see runs.tck): invalid.txtar's records
+// must each be rejected with their class, must-fail.txtar's, which must
+// hold at least one, must each fail with theirs, and every other
+// archive's records must hold. runs/ missing, a name in it that is no .txtar
+// archive, and a runs/ with no record to run, are failures.
+func check_runs(r Runner, mut t Tally) error {
+    usable := timeout_usable(r)?
+    if !usable {
+        fail([]uint8("runs"), []uint8("(timeout)"), []uint8("coreutils' timeout is needed on PATH: timeout -k 1 10 sh -c 'kill -TERM $$' must end by SIGTERM, silently, and timeout -k 1 0.2 sleep 5 must exit 124, silently"), mut t)
+        return noerror
+    }
+    dir := path.join(r.corpus.bytes(), []uint8("runs"), c_allocator)?
+    names, e := os.list_dir(dir.bytes(), c_allocator)
+    if e.code != 0 {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "cannot list %s: %s", dir.bytes(), e.msg)?
+        fail([]uint8("runs"), []uint8("(dir)"), why[:], mut t)
+        return noerror
+    }
+    mut n int64 = 0
+    mut ran int64 = 0
+    mut must_fails int64 = 0
+    for _, name := range names {
+        if !bytes.has_suffix(name.bytes(), []uint8(".txtar")) {
+            mut why := make(list[uint8], c_allocator)
+            fmt.appendf(mut why, "%s is no run archive: runs/ holds only .txtar files", name.bytes())?
+            fail([]uint8("runs"), []uint8("(dir)"), why[:], mut t)
+            continue
+        }
+        if name.equal([]uint8(invalid_archive)) {
+            check_invalid_archive(dir.bytes(), name.bytes(), mut t)?
+            continue
+        }
+        before := t.cases
+        check_run_archive(r, dir.bytes(), name.bytes(), mut n, mut t)?
+        if name.equal([]uint8(must_fail_archive)) {
+            must_fails = t.cases -% before
+        } else {
+            ran +%= t.cases -% before
+        }
+    }
+    if ran == 0 {
+        fail([]uint8("runs"), []uint8("(dir)"), []uint8("runs/ holds no record to run"), mut t)
+    }
+    if must_fails == 0 {
+        fail([]uint8("runs"), []uint8("(dir)"), []uint8("runs/ holds no must-fail.txtar with a record in it"), mut t)
+    }
+    return noerror
+}
+
+// timeout_usable reports whether the timeout on PATH is coreutils', as
+// the runs need it: timeout -k ends with the end of what it runs, a
+// signal re-raised on itself, and stops what does not end in time with
+// exit status 124.
+func timeout_usable(r Runner) (bool, error) {
+    for _, k := range [2]int64{0, 1} {
+        mut argv := make(list[text.Text], c_allocator)
+        append(mut argv, text.from_bytes([]uint8("env"), c_allocator)?)?
+        append(mut argv, text.from_bytes([]uint8("LC_ALL=C"), c_allocator)?)?
+        if k == 0 {
+            for _, a := range [7]string{"timeout", "-k", "1", "10", "sh", "-c", "kill -TERM $$"} {
+                append(mut argv, text.from_bytes([]uint8(a), c_allocator)?)?
+            }
+        } else {
+            for _, a := range [6]string{"timeout", "-k", "1", "0.2", "sleep", "5"} {
+                append(mut argv, text.from_bytes([]uint8(a), c_allocator)?)?
+            }
+        }
+        ran := run_env(r.tmp.bytes(), argv)?
+        if k == 0 && (ran.signo != 15 || len(ran.err) > 0 || len(ran.out) > 0) {
+            return false, noerror
+        }
+        if k == 1 && (ran.code != 124 || len(ran.err) > 0) {
+            return false, noerror
+        }
+    }
+    return true, noerror
+}
+
+// read_runs reads and parses the run archive named name in dir, the
+// archive label, into cases, and returns its bytes and where its
+// comment ends, and whether it could, having written why not and
+// counted it in t otherwise.
+func read_runs(dir []uint8, name []uint8, label []uint8, mut cases list[RunCase], mut t Tally) (list[uint8], int64, bool, error) {
+    file := path.join(dir, name, c_allocator)?
+    data, re := os.read_file(file.bytes(), c_allocator)
+    if re.code != 0 {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "cannot read %s: %s", file.bytes(), re.msg)?
+        fail(label, []uint8("(archive)"), why[:], mut t)
+        return make(list[uint8], c_allocator), 0, false, noerror
+    }
+    mut problem := make(list[uint8], c_allocator)
+    comment_end := parse_runs(data, mut cases, mut problem)?
+    if len(problem) == 0 && len(cases) == 0 {
+        append(mut problem, []uint8("it holds no cases")...)?
+    }
+    if len(problem) > 0 {
+        fail(label, []uint8("(archive)"), problem[:], mut t)
+        return data, 0, false, noerror
+    }
+    return data, comment_end, true, noerror
+}
+
+// check_invalid_archive checks the archive name in dir, invalid.txtar:
+// each case's record must be rejected, with the class its class file
+// names (see runs.tck), counting each in t.
+func check_invalid_archive(dir []uint8, name []uint8, mut t Tally) error {
+    mut label := text.from_bytes([]uint8("runs/"), c_allocator)?
+    mut label.append(name)?
+    mut cases := make(list[RunCase], c_allocator)
+    raw, _, ok := read_runs(dir, name, label.bytes(), mut cases, mut t)?
+    if !ok || len(raw) == 0 {
+        return noerror
+    }
+    for _, c := range cases {
+        t.cases +%= 1
+        k := find_file(c.files, []uint8(class_name))
+        mut want := make(list[uint8], c_allocator)
+        class := file_data(c.files, k)?
+        append(mut want, trim_space(class[:])...)?
+        if len(want) == 0 {
+            fail(label.bytes(), c.name.bytes(), []uint8("a case of invalid.txtar names its class in its class file"), mut t)
+            continue
+        }
+        mut rec := new_record()
+        mut problem := make(list[uint8], c_allocator)
+        // The class file is no file of the record's case.
+        has_files := len(c.files) > 1 || len(c.files) == 1 && k < 0
+        parse_record(c.name.bytes(), c.record, has_files, mut rec, mut problem)?
+        start, end := class_of(problem[:])
+        if len(problem) == 0 || !bytes.equal(part(problem[:], start, end), want[:]) {
+            mut why := make(list[uint8], c_allocator)
+            fmt.appendf(mut why, "want the record rejected as [%s], got ", want[:])?
+            if len(problem) == 0 {
+                append(mut why, []uint8("no problem")...)?
+            } else {
+                append(mut why, problem[:]...)?
+            }
+            fail(label.bytes(), c.name.bytes(), why[:], mut t)
+        }
+    }
+    return noerror
+}
+
+// check_run_archive checks the run archive named name in dir, counting
+// each case in t; n numbers the cases of the whole run, so each has
+// directories of its own. With r.update it writes the archive back with
+// each record's expectations as its runs gave them, when that changes it.
+func check_run_archive(r Runner, dir []uint8, name []uint8, mut n int64, mut t Tally) error {
+    mut label := text.from_bytes([]uint8("runs/"), c_allocator)?
+    mut label.append(name)?
+    mut cases := make(list[RunCase], c_allocator)
+    data, comment_end, ok := read_runs(dir, name, label.bytes(), mut cases, mut t)?
+    if !ok {
+        return noerror
+    }
+    mut problem := make(list[uint8], c_allocator)
+    mut changed := false
+    mut rewritten := make(list[bool], c_allocator)
+    for i := range len(cases) {
+        append(mut rewritten, false)?
+        t.cases +%= 1
+        n +%= 1
+        mut rec := new_record()
+        rec.lenient = r.update
+        parse_record(cases[i].name.bytes(), cases[i].record, len(cases[i].files) > 0, mut rec, mut problem)?
+        if len(problem) > 0 {
+            fail(label.bytes(), cases[i].name.bytes(), problem[:], mut t)
+            problem = make(list[uint8], c_allocator)
+            continue
+        }
+        in_must_fail := bytes.equal(name, []uint8(must_fail_archive))
+        if in_must_fail != (rec.must_fail.len() > 0) {
+            if in_must_fail {
+                fail(label.bytes(), cases[i].name.bytes(), []uint8("every record of must-fail.txtar has a must-fail line"), mut t)
+            } else {
+                fail(label.bytes(), cases[i].name.bytes(), []uint8("only a record of must-fail.txtar has a must-fail line"), mut t)
+            }
+            continue
+        }
+        mut c := Rec{
+            label: text.from_bytes(label.bytes(), c_allocator)?,
+            name: text.from_bytes(cases[i].name.bytes(), c_allocator)?,
+            files: make(list[CaseFile], c_allocator),
+            rec: rec,
+        }
+        for _, f := range cases[i].files {
+            mut copy := make(list[uint8], c_allocator)
+            append(mut copy, f.data...)?
+            append(mut c.files, CaseFile{path: text.from_bytes(f.path.bytes(), c_allocator)?, data: copy})?
+        }
+        updated, take := check_run(r, c, cases[i].record, n, mut t)?
+        if take && !bytes.equal(updated[:], cases[i].record) {
+            cases[i].record = updated
+            changed = true
+            for j := range len(rewritten) {
+                if j == i {
+                    rewritten[j] = true
+                }
+            }
+        }
+    }
+    if !r.update || !changed {
+        return noerror
+    }
+    out := format_runs(part(data[:], 0, comment_end), cases[:])?
+    sound := reads_back(out[:], rewritten[:])?
+    if !sound {
+        fail(label.bytes(), []uint8("(archive)"), []uint8("--update: the rewritten archive does not read back as written, so it is not written"), mut t)
+        return noerror
+    }
+    file := path.join(dir, name, c_allocator)?
+    e := os.write_file(file.bytes(), out[:])
+    if e.code != 0 {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "cannot write %s: %s", file.bytes(), e.msg)?
+        fail(label.bytes(), []uint8("(archive)"), why[:], mut t)
+        return noerror
+    }
+    fmt.printf("updated %s\n", file.bytes())
+    return noerror
+}
+
+// reads_back reports whether data, an archive --update made, reads back:
+// it parses into as many cases as rewritten has, every record rewritten
+// says --update rewrote reads, and writing it again gives data; a record
+// --update left as it was is as it was.
+func reads_back(data []uint8, rewritten []bool) (bool, error) {
+    mut cases := make(list[RunCase], c_allocator)
+    mut problem := make(list[uint8], c_allocator)
+    comment_end := parse_runs(data, mut cases, mut problem)?
+    if len(problem) > 0 || len(cases) != len(rewritten) {
+        return false, noerror
+    }
+    for i, c := range cases {
+        mut again := false
+        for j, w := range rewritten {
+            if j == i {
+                again = w
+            }
+        }
+        if !again {
+            continue
+        }
+        mut rec := new_record()
+        parse_record(c.name.bytes(), c.record, len(c.files) > 0, mut rec, mut problem)?
+        if len(problem) > 0 {
+            return false, noerror
+        }
+    }
+    again := format_runs(part(data, 0, comment_end), cases[:])?
+    return bytes.equal(again[:], data), noerror
+}
+
+// numbered returns the path below r's temporary directory named what, a
+// dash and n, then, when level is not empty, -O and level.
+func numbered(r Runner, what string, n int64, level []uint8) (text.Text, error) {
+    mut b := make(list[uint8], c_allocator)
+    fmt.appendf(mut b, "%s-%d", what, n)?
+    if len(level) > 0 {
+        fmt.appendf(mut b, "-O%s", level)?
+    }
+    p := path.join(r.tmp.bytes(), b[:], c_allocator)?
+    return p, noerror
+}
+
+// fail_why writes and counts in t that the case c failed, at the level
+// level when it is not empty, why being made of format and its one
+// operand s.
+func fail_why(c Rec, level []uint8, format string, s []uint8, mut t Tally) error {
+    mut why := make(list[uint8], c_allocator)
+    if len(level) > 0 {
+        fmt.appendf(mut why, "at -O%s: ", level)?
+    }
+    fmt.appendf(mut why, format, s)?
+    fail(c.label.bytes(), c.name.bytes(), why[:], mut t)
+    return noerror
+}
+
+// replace_all returns b with each occurrence of p, when p is not empty,
+// replaced by with.
+func replace_all(b []uint8, p []uint8, with []uint8) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    mut at int64 = 0
+    for at <= len(b) {
+        k := bytes.index(part(b, at, len(b)), p)
+        if k < 0 || len(p) == 0 {
+            append(mut out, part(b, at, len(b))...)?
+            return out, noerror
+        }
+        // k is an index of b after at, and p fits after it.
+        append(mut out, part(b, at, at +% k)...)?
+        append(mut out, with...)?
+        at = at +% k +% len(p)
+    }
+    return out, noerror
+}
+
+// run_dir_path returns d's path numbered k: 0 for run, 1 for tmp, 2 for
+// build and 3 for the program.
+func run_dir_path(d Dirs, k int64) []uint8 {
+    if k == 0 {
+        return d.run.bytes()
+    }
+    if k == 1 {
+        return d.tmp.bytes()
+    }
+    if k == 2 {
+        return d.build.bytes()
+    }
+    return d.bin.bytes()
+}
+
+// run_dir_name returns the name records give the path numbered k (see
+// run_dir_path): $RUN, $TMP, $SRC or $PROG.
+func run_dir_name(k int64) string {
+    if k == 0 {
+        return "$RUN"
+    }
+    if k == 1 {
+        return "$TMP"
+    }
+    if k == 2 {
+        return "$SRC"
+    }
+    return "$PROG"
+}
+
+// run_dir_name_len returns how many bytes run_dir_name(k) has.
+func run_dir_name_len(k int64) int64 {
+    if k == 3 {
+        return 5
+    }
+    return 4
+}
+
+// normalized returns b with each $ it holds written $$, so that no byte
+// of a run can read as a placeholder, and then d's run directory,
+// TMPDIR, build directory and program replaced by $RUN, $TMP, $SRC and
+// $PROG, the longest first, so that one holding another is replaced
+// whole; the build directory is left when it is the run directory, which
+// $RUN names. A path holding a $ is replaced with its $ doubled, as it
+// then stands in b.
+func normalized(b []uint8, d Dirs) (list[uint8], error) {
+    mut out := replace_all(b, []uint8("$"), []uint8("$$"))?
+    mut done := [4]bool{false, false, false, false}
+    if d.build.equal(d.run.bytes()) {
+        done[2] = true
+    }
+    if d.bin.len() == 0 {
+        done[3] = true
+    }
+    for range 4 {
+        mut best int64 = -1
+        mut best_len int64 = -1
+        for k := range 4 {
+            taken, has := done[k]
+            if has && !taken && len(run_dir_path(d, k)) > best_len {
+                best = k
+                best_len = len(run_dir_path(d, k))
+            }
+        }
+        if best < 0 || best > 3 {
+            return out, noerror
+        }
+        done[best] = true
+        doubled := replace_all(run_dir_path(d, best), []uint8("$"), []uint8("$$"))?
+        next := replace_all(out[:], doubled[:], []uint8(run_dir_name(best)))?
+        out = next
+    }
+    return out, noerror
+}
+
+// expanded returns s, an arg, env or invoke operand, with $RUN, $TMP,
+// $SRC and $PROG replaced by d's run directory, TMPDIR, build directory
+// and program, and $$ by one $, read left to right; any other $ stays.
+func expanded(s []uint8, d Dirs) (text.Text, error) {
+    mut out := make(list[uint8], c_allocator)
+    mut i int64 = 0
+    for i >= 0 && i < len(s) {
+        c, has := s[i]
+        if !has {
+            break
+        }
+        if c != '$' {
+            append(mut out, c)?
+            i +%= 1
+            continue
+        }
+        if bytes.has_prefix(part(s, i, len(s)), []uint8("$$")) {
+            append(mut out, '$')?
+            i +%= 2
+            continue
+        }
+        mut taken := false
+        for k := range 4 {
+            if !taken && bytes.has_prefix(part(s, i, len(s)), []uint8(run_dir_name(k))) {
+                append(mut out, run_dir_path(d, k)...)?
+                // A name is four or five bytes, all of them in s from i.
+                i +%= run_dir_name_len(k)
+                taken = true
+            }
+        }
+        if !taken {
+            append(mut out, c)?
+            i +%= 1
+        }
+    }
+    t := text.from_bytes(out[:], c_allocator)?
+    return t, noerror
+}
+
+// snapshot appends to out every file below dir, by its path below it,
+// with its bytes, every directory, by its path and a slash, with none,
+// empty ones among them, and every symbolic link, never followed, by its
+// path and a 0 byte, which no file's path holds, with its target, and
+// reports whether it could, appending why not to
+// trouble otherwise.
+func snapshot(dir []uint8, mut out list[CaseFile], mut trouble list[uint8]) (bool, error) {
+    mut names := make(list[text.Text], c_allocator)
+    ok := walk_entries(dir, mut names)?
+    if !ok {
+        fmt.appendf(mut trouble, "cannot list %s", dir)?
+        return false, noerror
+    }
+    for _, n := range names {
+        if bytes.has_suffix(n.bytes(), []uint8("/")) {
+            append(mut out, CaseFile{path: text.from_bytes(n.bytes(), c_allocator)?, data: make(list[uint8], c_allocator)})?
+            continue
+        }
+        p := path.join(dir, n.bytes(), c_allocator)?
+        mut target := make(list[uint8], c_allocator)
+        link := link_target(p.bytes(), mut target)
+        if link < 0 {
+            fmt.appendf(mut trouble, "cannot look at %s", p.bytes())?
+            return false, noerror
+        }
+        if link > 0 {
+            mut marked := text.from_bytes(n.bytes(), c_allocator)?
+            mut marked.append([]uint8("\x00"))?
+            append(mut out, CaseFile{path: marked, data: target})?
+            continue
+        }
+        data, e := os.read_file(p.bytes(), c_allocator)
+        if e.code != 0 {
+            fmt.appendf(mut trouble, "cannot read %s: %s", p.bytes(), e.msg)?
+            return false, noerror
+        }
+        append(mut out, CaseFile{path: text.from_bytes(n.bytes(), c_allocator)?, data: data})?
+    }
+    return true, noerror
+}
+
+// link_target appends to out the target of the symbolic link at at and
+// returns 1, or returns 0 when it is no link and -1 when it cannot be
+// looked at (see links.c).
+extern("corpus_link_target") func link_target(at []uint8, mut out list[uint8]) int64
+
+// walk_entries appends to out the path of every file and directory
+// below dir, relative to it and with slashes, a directory's with a slash
+// after it, as walk_files walks, and reports whether it could, having
+// written why not otherwise.
+func walk_entries(dir []uint8, mut out list[text.Text]) (bool, error) {
+    mut todo := make(list[text.Text], c_allocator)
+    append(mut todo, text.new(c_allocator))?
+    for len(todo) > 0 {
+        rel := pop(mut todo)
+        here := path.join(dir, rel.bytes(), c_allocator)?
+        names, e := os.list_dir(here.bytes(), c_allocator)
+        if e.code != 0 {
+            fmt.printf("FAIL: cannot list %s: %s\n", here.bytes(), e.msg)
+            return false, noerror
+        }
+        for _, n := range names {
+            sub := path.join(rel.bytes(), n.bytes(), c_allocator)?
+            full := path.join(dir, sub.bytes(), c_allocator)?
+            info, se := os.lstat(full.bytes())
+            if se.code != 0 {
+                fmt.printf("FAIL: cannot look at %s: %s\n", full.bytes(), se.msg)
+                return false, noerror
+            }
+            if info.is_dir() {
+                mut marked := text.from_bytes(sub.bytes(), c_allocator)?
+                mut marked.append([]uint8("/"))?
+                append(mut out, marked)?
+                append(mut todo, sub)?
+            } else {
+                append(mut out, sub)?
+            }
+        }
+    }
+    return true, noerror
+}
+
+// find_file returns the index in files of the file at p, or -1.
+func find_file(files []CaseFile, p []uint8) int64 {
+    for i, f := range files {
+        if f.path.equal(p) {
+            return i
+        }
+    }
+    return -1
+}
+
+// file_data returns a copy of the bytes of the file at index k of
+// files, or none when k is no index of it.
+func file_data(files []CaseFile, k int64) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    for i, f := range files {
+        if i == k {
+            append(mut out, f.data...)?
+        }
+    }
+    return out, noerror
+}
+
+// set_up_dirs makes the directories of the run of the case c, the n-th
+// of the run, at the level level, or of its only run when level is
+// empty, below r's temporary directory, each the run's own: build, a copy
+// of the case's files or of the directory of examples/ its dir is below,
+// so nothing the run writes reaches the corpus's copy or another run, run
+// when the case runs a program or says cwd empty, tmp and io. It reports
+// whether it could, appending why not to trouble otherwise.
+func set_up_dirs(r Runner, c Rec, n int64, level []uint8, mut d Dirs, mut trouble list[uint8]) (bool, error) {
+    d.base = numbered(r, "case", n, level)?
+    d.root = path.join(d.base.bytes(), []uint8("root"), c_allocator)?
+    src := path.join(d.root.bytes(), []uint8("src"), c_allocator)?
+    d.src = text.from_bytes(src.bytes(), c_allocator)?
+    if len(c.files) > 0 {
+        d.build = text.from_bytes(src.bytes(), c_allocator)?
+        for _, f := range c.files {
+            p := path.join(src.bytes(), f.path.bytes(), c_allocator)?
+            ok := write_with_dirs(p.bytes(), f.data)?
+            if !ok {
+                append(mut trouble, []uint8("cannot write the case's files")...)?
+                return false, noerror
+            }
+        }
+    } else {
+        if !bytes.has_prefix(c.rec.dir.bytes(), []uint8("examples/")) || c.rec.dir.len() <= 9 {
+            fmt.appendf(mut trouble, "dir %s is below no directory of examples/", c.rec.dir.bytes())?
+            return false, noerror
+        }
+        // dir is examples/ and more; the copy is of examples/<first part>.
+        slash := bytes.index_byte(part(c.rec.dir.bytes(), 9, c.rec.dir.len()), '/')
+        mut top_end := c.rec.dir.len()
+        if slash >= 0 {
+            top_end = 9 +% slash
+        }
+        src_dir := path.join(r.corpus.bytes(), part(c.rec.dir.bytes(), 0, top_end), c_allocator)?
+        to := path.join(src.bytes(), part(c.rec.dir.bytes(), 0, top_end), c_allocator)?
+        parent := path.dir(to.bytes(), c_allocator)?
+        made := make_dirs(parent.bytes())?
+        mut copied := false
+        if made {
+            copied = copy_tree(src_dir.bytes(), to.bytes())?
+        }
+        if !copied {
+            fmt.appendf(mut trouble, "cannot copy %s", src_dir.bytes())?
+            return false, noerror
+        }
+        d.build = path.join(src.bytes(), c.rec.dir.bytes(), c_allocator)?
+    }
+    own_run := len(c.rec.invoke) == 0 || c.rec.empty_cwd
+    if own_run {
+        d.run = path.join(d.root.bytes(), []uint8("run"), c_allocator)?
+    } else {
+        d.run = text.from_bytes(d.build.bytes(), c_allocator)?
+    }
+    d.tmp = path.join(d.root.bytes(), []uint8("tmp"), c_allocator)?
+    d.io = numbered(r, "io", n, level)?
+    d.bin = path.join(d.root.bytes(), []uint8("prog"), c_allocator)?
+    d.btmp = numbered(r, "buildtmp", n, level)?
+    for _, k := range [4]int64{1, 2, 3, 4} {
+        if k == 1 && !own_run {
+            continue
+        }
+        mut p := text.from_bytes(d.run.bytes(), c_allocator)?
+        if k == 2 {
+            p = text.from_bytes(d.tmp.bytes(), c_allocator)?
+        } else if k == 3 {
+            p = text.from_bytes(d.io.bytes(), c_allocator)?
+        } else if k == 4 {
+            p = text.from_bytes(d.btmp.bytes(), c_allocator)?
+        }
+        e := os.make_dir(p.bytes())
+        if e.code != 0 {
+            fmt.appendf(mut trouble, "cannot make %s: %s", p.bytes(), e.msg)?
+            return false, noerror
+        }
+    }
+    return true, noerror
+}
+
+// new_outcome returns an Outcome with nothing in it.
+func new_outcome() Outcome {
+    return Outcome{
+        code: 0,
+        signo: 0,
+        timed_out: false,
+        out: make(list[uint8], c_allocator),
+        err: make(list[uint8], c_allocator),
+        fd3: make(list[uint8], c_allocator),
+        fd4: make(list[uint8], c_allocator),
+        changed: make(list[CaseFile], c_allocator),
+        trouble: make(list[uint8], c_allocator),
+        class: text.new(c_allocator),
+    }
+}
+
+// check_run runs the case c, the n-th of the run, whose record's bytes
+// are record, at each level its record names, or once, and checks each
+// run against the record, counting a failure in t. With r.update it
+// returns the record with its expectations as the runs gave them, and
+// whether that may replace it: every run went as far as its outputs, and
+// all of them gave the same.
+func check_run(r Runner, c Rec, record []uint8, n int64, mut t Tally) (list[uint8], bool, error) {
+    mut levels := make(list[text.Text], c_allocator)
+    for _, o := range c.rec.opts {
+        append(mut levels, text.from_bytes(o.bytes(), c_allocator)?)?
+    }
+    if len(levels) == 0 {
+        append(mut levels, text.new(c_allocator))?
+    }
+    cache := numbered(r, "cache", n, []uint8(""))?
+    seed := seed_dir(r, c.rec)?
+    mut seeded := false
+    if !c.rec.cold {
+        _, se := os.stat(seed.bytes())
+        if se.code == 0 {
+            seeded = copy_tree(seed.bytes(), cache.bytes())?
+            if !seeded {
+                fail_why(c, []uint8(""), "%s", []uint8("cannot copy the warm cache"), mut t)?
+                return make(list[uint8], c_allocator), false, noerror
+            }
+        }
+    }
+    mut first := make(list[uint8], c_allocator)
+    mut take := r.update
+    mut must_failed := false
+    for i, level := range levels {
+        mut d := Dirs{
+            base: text.new(c_allocator),
+            root: text.new(c_allocator),
+            src: text.new(c_allocator),
+            btmp: text.new(c_allocator),
+            build: text.new(c_allocator),
+            run: text.new(c_allocator),
+            tmp: text.new(c_allocator),
+            io: text.new(c_allocator),
+            bin: text.new(c_allocator),
+            cache: text.from_bytes(cache.bytes(), c_allocator)?,
+            shim: numbered(r, "clang", n, []uint8(""))?,
+        }
+        mut o := new_outcome()
+        ok := set_up_dirs(r, c, n, level.bytes(), mut d, mut o.trouble)?
+        if ok {
+            run_once(r, c, level.bytes(), d, mut o)?
+        }
+        if !c.rec.cold && !seeded && len(o.trouble) == 0 && len(c.rec.invoke) == 0 && c.rec.must_fail.len() == 0 {
+            // The first build of these flags fills the seed every later
+            // record with them starts from, and which none writes again.
+            _, ce := os.stat(cache.bytes())
+            if ce.code == 0 {
+                seeded = copy_tree(cache.bytes(), seed.bytes())?
+            }
+        }
+        if c.rec.must_fail.len() > 0 {
+            take = false
+            failed := must_fail(r, c, level.bytes(), o, mut t)?
+            if failed {
+                must_failed = true
+            }
+            continue
+        }
+        if len(o.trouble) > 0 {
+            fail_why(c, level.bytes(), "%s", o.trouble[:], mut t)?
+            take = false
+            continue
+        }
+        if r.update {
+            rendered := render_record(r, c, record, o, mut t)?
+            if len(rendered) == 0 {
+                take = false
+            } else if i == 0 {
+                first = rendered
+            } else if !bytes.equal(first[:], rendered[:]) {
+                fail_why(c, level.bytes(), "%s", []uint8("--update: this level's run differs from the first level's, which one record cannot hold"), mut t)?
+                take = false
+            }
+            continue
+        }
+        compared := compare_outcome(r, c, level.bytes(), o, true, mut t)?
+        if compared.len() > 0 {
+            take = false
+        }
+    }
+    if c.rec.must_fail.len() > 0 && !must_failed {
+        fail_why(c, []uint8(""), "must-fail %s: no run of it failed", c.rec.must_fail.bytes(), mut t)?
+    }
+    usable := take && len(first) > 0
+    return first, usable, noerror
+}
+
+// failure_class returns the class name as a text, for a result.
+func failure_class(name string) (text.Text, error) {
+    t := text.from_bytes([]uint8(name), c_allocator)?
+    return t, noerror
+}
+
+// must_fail checks o, a run of the must-fail record of the case c at the
+// level level, and reports whether it failed: a run that fails must
+// fail first, by its trouble or, with none, by what compare_outcome
+// finds, as the class its must-fail line names, and one that fails
+// another way is written and counted in t as a failure. check_run
+// requires that one run at least failed, as a record fails when one of
+// its levels does.
+func must_fail(r Runner, c Rec, level []uint8, o Outcome, mut t Tally) (bool, error) {
+    mut class := text.new(c_allocator)
+    mut why := make(list[uint8], c_allocator)
+    if len(o.trouble) > 0 {
+        class = text.from_bytes(o.class.bytes(), c_allocator)?
+        if class.len() == 0 {
+            class = text.from_bytes([]uint8("setup"), c_allocator)?
+        }
+        append(mut why, o.trouble[:]...)?
+    } else {
+        class = compare_outcome(r, c, level, o, false, mut t)?
+    }
+    if class.len() == 0 {
+        return false, noerror
+    }
+    if class.equal(c.rec.must_fail.bytes()) {
+        return true, noerror
+    }
+    mut msg := make(list[uint8], c_allocator)
+    fmt.appendf(mut msg, "must-fail %s: the run failed as %s", c.rec.must_fail.bytes(), class.bytes())?
+    if len(why) > 0 {
+        append(mut msg, []uint8(": ")...)?
+        append(mut msg, why[:]...)?
+    }
+    fail_why(c, level, "%s", msg[:], mut t)?
+    return true, noerror
+}
+
+// seed_dir returns the directory the warm cache of the builds with
+// rec's cflags is kept in, below r's temporary directory: named by the
+// SHA-256 of the flags, as cflags gives them, so each exact set of flags
+// has one, and no flags one of their own.
+func seed_dir(r Runner, rec Record) (text.Text, error) {
+    mut flags := make(list[uint8], c_allocator)
+    for i, f := range rec.cflags {
+        if i > 0 {
+            append(mut flags, ' ')?
+        }
+        append(mut flags, f.bytes()...)?
+    }
+    sum := sha256.sum(flags[:])
+    mut name := text.from_bytes([]uint8("seed-"), c_allocator)?
+    mut digits := make(list[uint8], c_allocator)
+    hex.append_encode(mut digits, sum[:])?
+    mut name.append(digits[:])?
+    p := path.join(r.tmp.bytes(), name.bytes(), c_allocator)?
+    return p, noerror
+}
+
+// run_once runs the case c once, at the level level, in d: it builds and
+// runs its program, or runs the compiler, and sets in o what happened,
+// or why the run says nothing of the record.
+func run_once(r Runner, c Rec, level []uint8, d Dirs, mut o Outcome) error {
+    invoking := len(c.rec.invoke) > 0
+    mut judged := text.from_bytes(d.run.bytes(), c_allocator)?
+    if invoking {
+        judged = text.from_bytes(d.build.bytes(), c_allocator)?
+    }
+    mut before := make(list[CaseFile], c_allocator)
+    took := snapshot(judged.bytes(), mut before, mut o.trouble)?
+    if !took {
+        return noerror
+    }
+    mut src_before := make(list[CaseFile], c_allocator)
+    took_src := snapshot(d.src.bytes(), mut src_before, mut o.trouble)?
+    if !took_src {
+        return noerror
+    }
+    mut ids_before := make(list[os.Info], c_allocator)
+    took_ids := dir_ids(d, mut ids_before, mut o.trouble)?
+    if !took_ids {
+        return noerror
+    }
+    if invoking {
+        mut args := make(list[text.Text], c_allocator)
+        for _, a := range c.rec.invoke {
+            append(mut args, expanded(a.bytes(), d)?)?
+        }
+        mut extra := make(list[text.Text], c_allocator)
+        append(mut extra, setting("TMPDIR=", d.tmp.bytes())?)?
+        append(mut extra, setting("TACK_CACHE=", d.cache.bytes())?)?
+        for _, v := range c.rec.env {
+            append(mut extra, expanded(v.bytes(), d)?)?
+        }
+        ran := run_compiler_in(r, d.run.bytes(), extra, args)?
+        if ran.signo == 0 && len(ran.trouble) > 0 || res_declined(ran) {
+            append(mut o.trouble, ran.trouble...)?
+            return noerror
+        }
+        o.code = ran.code
+        o.signo = ran.signo
+        o.out = normalized(ran.out, d)?
+        o.err = normalized(ran.err, d)?
+        if !d.run.equal(d.build.bytes()) {
+            mut stray := make(list[text.Text], c_allocator)
+            walked := walk_entries(d.run.bytes(), mut stray)?
+            if !walked {
+                append(mut o.trouble, []uint8("cannot list the directory the compiler ran in")...)?
+                return noerror
+            }
+            for _, f := range stray {
+                fmt.appendf(mut o.trouble, "the compiler left %s in the empty directory it ran in", f.bytes())?
+                o.class = text.from_bytes([]uint8("cwd"), c_allocator)?
+                return noerror
+            }
+        }
+    } else {
+        built := build_program(r, c, level, d, mut o.trouble, mut o.class)?
+        if !built {
+            return noerror
+        }
+        run_program(r, c, d, mut o)?
+        if len(o.trouble) > 0 {
+            return noerror
+        }
+    }
+    src_ok := src_unchanged(d, invoking, src_before, mut o.trouble, mut o.class)?
+    if !src_ok {
+        return noerror
+    }
+    root_ok := root_as_made(d, invoking, ids_before[:], mut o)?
+    if !root_ok {
+        return noerror
+    }
+    if !invoking {
+        removed := remove_tree(d.bin.bytes())?
+        if !removed {
+            append(mut o.trouble, []uint8("cannot remove the program")...)?
+            return noerror
+        }
+    }
+    left, e := os.list_dir(d.tmp.bytes(), c_allocator)
+    if e.code != 0 {
+        fmt.appendf(mut o.trouble, "cannot list its TMPDIR, %s", d.tmp.bytes())?
+        return noerror
+    }
+    for _, entry := range left {
+        fmt.appendf(mut o.trouble, "it left an entry in its TMPDIR, %s", entry.bytes())?
+        o.class = text.from_bytes([]uint8("tmpdir"), c_allocator)?
+        return noerror
+    }
+    mut after := make(list[CaseFile], c_allocator)
+    took2 := snapshot(judged.bytes(), mut after, mut o.trouble)?
+    if !took2 {
+        return noerror
+    }
+    for _, f := range before {
+        if find_file(after, f.path.bytes()) < 0 {
+            fmt.appendf(mut o.trouble, "the run removed %s", f.path.bytes())?
+            o.class = text.from_bytes([]uint8("files"), c_allocator)?
+            return noerror
+        }
+    }
+    for _, f := range after {
+        was := find_file(before, f.path.bytes())
+        old := file_data(before, was)?
+        if was < 0 || !bytes.equal(old[:], f.data) {
+            g := normalized(f.data, d)?
+            append(mut o.changed, CaseFile{path: text.from_bytes(f.path.bytes(), c_allocator)?, data: g})?
+        }
+    }
+    return noerror
+}
+
+// root_as_made checks that the run's private root, d.root, holds after
+// the run exactly the entries the runner made in it: src, tmp, run when
+// the run has a directory of its own, and prog, the program, unless the
+// record invokes the compiler, invoking; and that d.base, the directory
+// the root is in, holds the root alone; so that a write anywhere in or
+// beside the root, or a removal there, is seen, and checking stops
+// there; and that each directory dir_ids names is the directory it was
+// before the run, ids_before, by device and inode, so that one moved
+// away and made again is seen. What differs is trouble of the class
+// run-root in o. It reports whether all of that held.
+func root_as_made(d Dirs, invoking bool, ids_before []os.Info, mut o Outcome) (bool, error) {
+    mut ids_after := make(list[os.Info], c_allocator)
+    took := dir_ids(d, mut ids_after, mut o.trouble)?
+    if !took {
+        o.class = text.from_bytes([]uint8("run-root"), c_allocator)?
+        return false, noerror
+    }
+    for i, was := range ids_before {
+        for j, now := range ids_after {
+            if i == j && !os.same_file(was, now) {
+                fmt.appendf(mut o.trouble, "the run replaced %s with another directory", dir_id_path(d, i))?
+                o.class = text.from_bytes([]uint8("run-root"), c_allocator)?
+                return false, noerror
+            }
+        }
+    }
+    for k := range 2 {
+        mut dir := text.from_bytes(d.root.bytes(), c_allocator)?
+        mut want := make(list[text.Text], c_allocator)
+        if k == 0 {
+            append(mut want, text.from_bytes([]uint8("src"), c_allocator)?)?
+            append(mut want, text.from_bytes([]uint8("tmp"), c_allocator)?)?
+            if !d.run.equal(d.build.bytes()) {
+                append(mut want, text.from_bytes([]uint8("run"), c_allocator)?)?
+            }
+            if !invoking {
+                append(mut want, text.from_bytes([]uint8("prog"), c_allocator)?)?
+            }
+        } else {
+            dir = text.from_bytes(d.base.bytes(), c_allocator)?
+            append(mut want, text.from_bytes([]uint8("root"), c_allocator)?)?
+        }
+        got, e := os.list_dir(dir.bytes(), c_allocator)
+        if e.code != 0 {
+            fmt.appendf(mut o.trouble, "cannot list %s", dir.bytes())?
+            return false, noerror
+        }
+        for _, g := range got {
+            mut known := false
+            for _, w := range want {
+                if w.equal(g.bytes()) {
+                    known = true
+                }
+            }
+            if !known {
+                if k == 0 {
+                    fmt.appendf(mut o.trouble, "the run left %s in its private root, beside $RUN, $TMP, $SRC and $PROG", g.bytes())?
+                } else {
+                    fmt.appendf(mut o.trouble, "the run left %s beside its private root", g.bytes())?
+                }
+                o.class = text.from_bytes([]uint8("run-root"), c_allocator)?
+                return false, noerror
+            }
+        }
+        if len(got) != len(want) {
+            append(mut o.trouble, []uint8("the run removed an entry of its private root")...)?
+            o.class = text.from_bytes([]uint8("run-root"), c_allocator)?
+            return false, noerror
+        }
+    }
+    return true, noerror
+}
+
+// dir_id_path returns the k-th directory dir_ids looks at, of d: base,
+// root, src, tmp and run, in that order.
+func dir_id_path(d Dirs, k int64) []uint8 {
+    if k == 0 {
+        return d.base.bytes()
+    }
+    if k == 1 {
+        return d.root.bytes()
+    }
+    if k == 2 {
+        return d.src.bytes()
+    }
+    if k == 3 {
+        return d.tmp.bytes()
+    }
+    return d.run.bytes()
+}
+
+// dir_ids appends to out what lstat gives for each of d's base, root,
+// src, tmp and run, its device and inode among it, and reports whether
+// it could, appending why not to trouble otherwise.
+func dir_ids(d Dirs, mut out list[os.Info], mut trouble list[uint8]) (bool, error) {
+    for k := range 5 {
+        info, e := os.lstat(dir_id_path(d, k))
+        if e.code != 0 {
+            fmt.appendf(mut trouble, "the run left no directory %s: %s", dir_id_path(d, k), e.msg)?
+            return false, noerror
+        }
+        append(mut out, info)?
+    }
+    return true, noerror
+}
+
+// src_unchanged checks that $SRC, d.src, the copy the case is built
+// from, holds after the run what it held before, src_before, files and
+// directories, appending to trouble what changed otherwise, and setting
+// class to src-changed then: for a record
+// that invokes the compiler, invoking, but for what changed in its build
+// directory, which its file lines judge.
+func src_unchanged(d Dirs, invoking bool, src_before []CaseFile, mut trouble list[uint8], mut class text.Text) (bool, error) {
+    mut after := make(list[CaseFile], c_allocator)
+    took := snapshot(d.src.bytes(), mut after, mut trouble)?
+    if !took {
+        return false, noerror
+    }
+    mut inside := make(list[uint8], c_allocator)
+    if invoking && !d.build.equal(d.src.bytes()) {
+        // The build directory is below src, and its path below it is
+        // what follows src and a slash.
+        append(mut inside, part(d.build.bytes(), d.src.len() +% 1, d.build.len())...)?
+        append(mut inside, '/')?
+    }
+    same := src_side(after[:], src_before, invoking, inside[:], "the run wrote %s into $SRC, the copy it was built from", mut trouble)?
+    mut same2 := false
+    if same {
+        same2 = src_side(src_before, after[:], invoking, inside[:], "the run removed %s from $SRC, the copy it was built from", mut trouble)?
+    }
+    if !same2 {
+        class = text.from_bytes([]uint8("src-changed"), c_allocator)?
+    }
+    return same2, noerror
+}
+
+// src_side checks that each entry of a is in b with the same bytes, but
+// for those below inside, a path and a slash, when invoking says so,
+// appending what is not, made of format, to trouble otherwise.
+func src_side(a []CaseFile, b []CaseFile, invoking bool, inside []uint8, format string, mut trouble list[uint8]) (bool, error) {
+    for _, f := range a {
+        if invoking && (len(inside) == 0 || bytes.has_prefix(f.path.bytes(), inside)) {
+            continue
+        }
+        was := find_file(b, f.path.bytes())
+        other := file_data(b, was)?
+        if was < 0 || !bytes.equal(other[:], f.data) {
+            fmt.appendf(mut trouble, format, f.path.bytes())?
+            return false, noerror
+        }
+    }
+    return true, noerror
+}
+
+// res_declined reports whether ran, a run of the compiler, is the port's
+// decline, which run_compiler_in notes in its trouble.
+func res_declined(ran Ran) bool {
+    return bytes.has_prefix(ran.trouble, []uint8("the compiler declined: "))
+}
+
+// conv_quote appends s to out quoted, as std/conv's append_quote writes
+// it.
+func conv_quote(mut out list[uint8], s []uint8) error {
+    return conv.append_quote(mut out, s)
+}
+
+// build_program builds the program of the case c at the level level, or
+// at the compiler's own when level is empty, into d.bin, as a user builds
+// one, which must succeed silently, and, unless its record opts out,
+// checks that the C its --emit gives is strict C (see strict_c). It
+// reports whether both held, appending why not to trouble otherwise and
+// setting class to the failure class, build, or build-tmpdir when a
+// build left something in its TMPDIR.
+func build_program(r Runner, c Rec, level []uint8, d Dirs, mut trouble list[uint8], mut class text.Text) (bool, error) {
+    class = text.from_bytes([]uint8("build"), c_allocator)?
+    mut target := text.from_bytes([]uint8(main_file), c_allocator)?
+    if c.rec.target.len() > 0 {
+        target = text.from_bytes(c.rec.target.bytes(), c_allocator)?
+    }
+    mut args := make(list[text.Text], c_allocator)
+    if len(level) > 0 {
+        mut o := text.from_bytes([]uint8("-O"), c_allocator)?
+        mut o.append(level)?
+        append(mut args, o)?
+    }
+    append(mut args, text.from_bytes([]uint8("--out"), c_allocator)?)?
+    append(mut args, text.from_bytes(d.bin.bytes(), c_allocator)?)?
+    append(mut args, text.from_bytes(target.bytes(), c_allocator)?)?
+    mut extra := make(list[text.Text], c_allocator)
+    append(mut extra, setting("TACK_CACHE=", d.cache.bytes())?)?
+    append(mut extra, setting("TMPDIR=", d.btmp.bytes())?)?
+    mut marker := text.new(c_allocator)
+    if len(c.rec.cflags) > 0 {
+        ok := clang_shim(d, c, mut extra, mut marker, mut trouble)?
+        if !ok {
+            return false, noerror
+        }
+    }
+    built := run_compiler_in(r, d.build.bytes(), extra, args)?
+    if len(built.trouble) > 0 || built.code != 0 || len(built.out) > 0 || len(built.err) > 0 {
+        append(mut trouble, []uint8("the build did not succeed silently: ")...)?
+        append(mut trouble, built.trouble...)?
+        fmt.appendf(mut trouble, " exit status %d, standard error ", built.code)?
+        conv_quote(mut trouble, part(built.err, 0, first_lines(built.err, 5)))?
+        return false, noerror
+    }
+    if marker.len() > 0 {
+        _, se := os.stat(marker.bytes())
+        if se.code != 0 {
+            append(mut trouble, []uint8("the build ran no compile or link of clang through the record's shim, so its cflags reached none")...)?
+            return false, noerror
+        }
+    }
+    clean := btmp_empty(d, mut trouble)?
+    if !clean {
+        class = text.from_bytes([]uint8("build-tmpdir"), c_allocator)?
+        return false, noerror
+    }
+    if !c.rec.strict {
+        return true, noerror
+    }
+    mut emit := make(list[text.Text], c_allocator)
+    append(mut emit, text.from_bytes([]uint8("--emit"), c_allocator)?)?
+    append(mut emit, target)?
+    emitted := run_compiler_in(r, d.build.bytes(), extra, emit)?
+    if len(emitted.trouble) > 0 || emitted.code != 0 || len(emitted.err) > 0 {
+        append(mut trouble, []uint8("--emit of the program did not succeed silently")...)?
+        return false, noerror
+    }
+    clean2 := btmp_empty(d, mut trouble)?
+    if !clean2 {
+        class = text.from_bytes([]uint8("build-tmpdir"), c_allocator)?
+        return false, noerror
+    }
+    mut t := Tally{cases: 0, failures: 0}
+    strict := strict_c(r, c.label.bytes(), c.name.bytes(), emitted.out, mut t)?
+    if !strict {
+        append(mut trouble, []uint8("the generated C is not strict C (see the lines above)")...)?
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// btmp_empty reports whether the builds' TMPDIR, d.btmp, is empty, as
+// a build must leave it, appending what it holds to trouble otherwise.
+func btmp_empty(d Dirs, mut trouble list[uint8]) (bool, error) {
+    left, e := os.list_dir(d.btmp.bytes(), c_allocator)
+    if e.code != 0 {
+        fmt.appendf(mut trouble, "cannot list the build's TMPDIR, %s", d.btmp.bytes())?
+        return false, noerror
+    }
+    for _, entry := range left {
+        fmt.appendf(mut trouble, "the build left %s in its TMPDIR", entry.bytes())?
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// mode_or_dash returns m, or - when it is empty, as inner_script takes
+// a descriptor's way.
+func mode_or_dash(m text.Text) (text.Text, error) {
+    if m.len() == 0 {
+        t := text.from_bytes([]uint8("-"), c_allocator)?
+        return t, noerror
+    }
+    t := text.from_bytes(m.bytes(), c_allocator)?
+    return t, noerror
+}
+
+// run_program runs d.bin, the program of the case c, as its record says,
+// through env -i, which gives outer_script PATH and LC_ALL=C alone,
+// outer_script, coreutils' timeout, inner_script and env -i again, in
+// d.run, and sets in o how it ended and what it wrote, normalized, or
+// why the run says nothing of the record.
+func run_program(r Runner, c Rec, d Dirs, mut o Outcome) error {
+    p, has_path := os.env([]uint8("PATH"), c_allocator)?
+    mut path_setting := setting("PATH=", []uint8(""))?
+    if has_path {
+        path_setting = setting("PATH=", p.bytes())?
+    }
+    mut argv := make(list[text.Text], c_allocator)
+    for _, a := range [2]string{"env", "-i"} {
+        append(mut argv, text.from_bytes([]uint8(a), c_allocator)?)?
+    }
+    append(mut argv, text.from_bytes(path_setting.bytes(), c_allocator)?)?
+    for _, a := range [5]string{"LC_ALL=C", "sh", "-c", outer_script, "sh"} {
+        append(mut argv, text.from_bytes([]uint8(a), c_allocator)?)?
+    }
+    append(mut argv, text.from_bytes(d.io.bytes(), c_allocator)?)?
+    if c.rec.running.len() > 0 {
+        append(mut argv, text.from_bytes(c.rec.running.bytes(), c_allocator)?)?
+    } else {
+        append(mut argv, text.from_bytes([]uint8(timeout_secs), c_allocator)?)?
+    }
+    append(mut argv, text.from_bytes([]uint8(inner_script), c_allocator)?)?
+    append(mut argv, text.from_bytes(r.self.bytes(), c_allocator)?)?
+    if c.rec.has_stdin {
+        stdin := path.join(d.io.bytes(), []uint8("stdin"), c_allocator)?
+        e := os.write_file(stdin.bytes(), c.rec.stdin)
+        if e.code != 0 {
+            fmt.appendf(mut o.trouble, "cannot write %s: %s", stdin.bytes(), e.msg)?
+            return noerror
+        }
+        append(mut argv, stdin)?
+    } else {
+        append(mut argv, text.from_bytes([]uint8("/dev/null"), c_allocator)?)?
+    }
+    mut limit := text.new(c_allocator)
+    if c.rec.nofile > 0 {
+        mut lb := make(list[uint8], c_allocator)
+        bytes.append_int(mut lb, c.rec.nofile)?
+        mut limit.append(lb[:])?
+    }
+    append(mut argv, limit)?
+    append(mut argv, mode_or_dash(c.rec.out_mode)?)?
+    append(mut argv, mode_or_dash(c.rec.err_mode)?)?
+    append(mut argv, mode_or_dash(c.rec.fd3_mode)?)?
+    append(mut argv, mode_or_dash(c.rec.fd4_mode)?)?
+    append(mut argv, text.from_bytes(d.io.bytes(), c_allocator)?)?
+    append(mut argv, path_setting)?
+    append(mut argv, setting("TMPDIR=", d.tmp.bytes())?)?
+    for _, v := range c.rec.env {
+        append(mut argv, expanded(v.bytes(), d)?)?
+    }
+    append(mut argv, text.from_bytes(d.bin.bytes(), c_allocator)?)?
+    for _, a := range c.rec.args {
+        append(mut argv, expanded(a.bytes(), d)?)?
+    }
+    ran := run_env(d.run.bytes(), argv)?
+    wrapper := path.join(d.io.bytes(), []uint8("wrapper-failed"), c_allocator)?
+    why, we := os.read_file(wrapper.bytes(), c_allocator)
+    if we.code == 0 {
+        append(mut o.trouble, []uint8("the run could not be set up: ")...)?
+        append(mut o.trouble, trim_space(why[:])...)?
+        return noerror
+    }
+    timeout_err := path.join(d.io.bytes(), []uint8("timeout-stderr"), c_allocator)?
+    noted, te := os.read_file(timeout_err.bytes(), c_allocator)
+    if te.code != 0 {
+        append(mut o.trouble, []uint8("the run could not be set up: the wrapper made no timeout-stderr")...)?
+        return noerror
+    }
+    mut at int64 = 0
+    for at < len(noted) {
+        stop := line_end(noted[:], at)
+        mut end := stop
+        if stop < len(noted) {
+            // stop is the newline's index, below len(noted).
+            end = stop +% 1
+        }
+        if !bytes.equal(part(noted[:], at, end), []uint8(core_line)) {
+            append(mut o.trouble, []uint8("the run could not be set up: coreutils' timeout wrote ")...)?
+            conv_quote(mut o.trouble, part(noted[:], at, stop))?
+            return noerror
+        }
+        at = end
+    }
+    if len(ran.trouble) > 0 || ran.signo != 0 || ran.code != 0 {
+        fmt.appendf(mut o.trouble, "the run could not be set up: the wrapper ended with exit status %d, signal %d, and wrote no reason", ran.code, ran.signo)?
+        return noerror
+    }
+    took := read_result(d, mut o)?
+    if !took {
+        return noerror
+    }
+    mut out_bytes := make(list[uint8], c_allocator)
+    append(mut out_bytes, ran.out...)?
+    if c.rec.out_mode.equal([]uint8("file")) {
+        if len(ran.out) > 0 {
+            append(mut o.trouble, []uint8("standard output is a file, yet the pipe got bytes")...)?
+            o.class = text.from_bytes([]uint8("stdout"), c_allocator)?
+            return noerror
+        }
+        out_bytes = read_io(d, "stdout", mut o.trouble)?
+    }
+    mut err_bytes := make(list[uint8], c_allocator)
+    append(mut err_bytes, ran.err...)?
+    if c.rec.err_mode.equal([]uint8("file")) {
+        if len(ran.err) > 0 {
+            append(mut o.trouble, []uint8("standard error is a file, yet the pipe got bytes")...)?
+            o.class = text.from_bytes([]uint8("stderr"), c_allocator)?
+            return noerror
+        }
+        err_bytes = read_io(d, "stderr", mut o.trouble)?
+    }
+    if c.rec.fd3_mode.equal([]uint8("capture")) {
+        g := read_io(d, "fd3", mut o.trouble)?
+        o.fd3 = normalized(g[:], d)?
+    }
+    if c.rec.fd4_mode.equal([]uint8("capture")) {
+        g := read_io(d, "fd4", mut o.trouble)?
+        o.fd4 = normalized(g[:], d)?
+    }
+    o.out = normalized(out_bytes[:], d)?
+    o.err = normalized(err_bytes[:], d)?
+    return noerror
+}
+
+// read_result sets in o how the run ended, from the file result the
+// launcher wrote in d's io directory (see launch.c): the program's exit
+// status, the signal that ended it, or that it was alive at the
+// deadline, timed_out; and, when it says outlived, the trouble that a
+// process the program started outlived it, of the class outlived. A
+// result that is missing or that does not read is the trouble that the
+// run could not be set up, as the launcher not ending is. It reports
+// whether the result read.
+func read_result(d Dirs, mut o Outcome) (bool, error) {
+    p := path.join(d.io.bytes(), []uint8("result"), c_allocator)?
+    data, e := os.read_file(p.bytes(), c_allocator)
+    if e.code != 0 {
+        append(mut o.trouble, []uint8("the run could not be set up: the launcher wrote no result")...)?
+        return false, noerror
+    }
+    mut at int64 = 0
+    mut k int64 = 0
+    mut outlived := false
+    mut no_children := false
+    for at < len(data) {
+        stop := line_end(data[:], at)
+        if stop >= len(data) {
+            break
+        }
+        mut line := make(list[uint8], c_allocator)
+        append(mut line, part(data[:], at, stop)...)?
+        mut good := false
+        mut n int64 = 0
+        if k == 0 && is_word(line[:], "deadline") {
+            o.timed_out = true
+            good = true
+        } else if k == 0 && bytes.has_prefix(line[:], []uint8("exit ")) && is_count(part(line[:], 5, len(line)), mut n) && n <= 255 {
+            o.code = n
+            good = true
+        } else if k == 0 && bytes.has_prefix(line[:], []uint8("signal ")) && is_count(part(line[:], 7, len(line)), mut n) && n > 0 && n <= 255 {
+            o.signo = n
+            good = true
+        } else if k > 0 && is_word(line[:], "outlived") && !outlived {
+            outlived = true
+            good = true
+        } else if k > 0 && is_word(line[:], "no-children-file") && !no_children {
+            no_children = true
+            good = true
+        }
+        if !good {
+            break
+        }
+        // stop is the newline's index, below len(data).
+        at = stop +% 1
+        k +%= 1
+    }
+    if at != len(data) || k == 0 {
+        append(mut o.trouble, []uint8("the run could not be set up: the launcher's result does not read: ")...)?
+        conv_quote(mut o.trouble, data[:])?
+        return false, noerror
+    }
+    if outlived {
+        append(mut o.trouble, []uint8("a process the program started was alive when the program ended, and outlived it")...)?
+        if no_children {
+            append(mut o.trouble, []uint8(" (the kernel has no /proc/self/task/<tid>/children to find what was left by, so only the program's process group was killed)")...)?
+        }
+        o.class = text.from_bytes([]uint8("outlived"), c_allocator)?
+        return false, noerror
+    }
+    if no_children {
+        append(mut o.trouble, []uint8("the run could not be set up: what was left at the deadline could not be found to kill, the kernel having no /proc/self/task/<tid>/children")...)?
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// read_io returns the bytes of the file name in d's io directory, or
+// none, appending why to trouble, when it cannot be read.
+func read_io(d Dirs, name string, mut trouble list[uint8]) (list[uint8], error) {
+    p := path.join(d.io.bytes(), []uint8(name), c_allocator)?
+    data, e := os.read_file(p.bytes(), c_allocator)
+    if e.code != 0 {
+        fmt.appendf(mut trouble, "cannot read the run's file %s: %s", p.bytes(), e.msg)?
+        return make(list[uint8], c_allocator), noerror
+    }
+    return data, noerror
+}
+
+// run_env runs argv, which starts with env, in dir, and returns how it
+// ended: its exit status, or -1 and the signal when one killed it, and
+// what it wrote. A command that cannot be started is an error, which it
+// first writes on standard error.
+func run_env(dir []uint8, argv []text.Text) (Ran, error) {
+    mut res := Ran{code: 0, signo: 0, out: make(list[uint8], c_allocator), err: make(list[uint8], c_allocator), trouble: make(list[uint8], c_allocator)}
+    st, e := os.run_in(dir, []uint8("env"), argv, mut res.out, mut res.err, c_allocator)
+    if e.code != 0 {
+        fmt.eprintf("corpus: cannot run env, from PATH, in %s: %s\n", dir, e.msg)
+        return res, e
+    }
+    if !st.exited() {
+        res.code = -1
+        res.signo = st.signal()
+        return res, noerror
+    }
+    res.code = st.exit_status()
+    return res, noerror
+}
+
+// expected_stream returns what a stream of the run must hold: the
+// record's quoted bytes, given, or the file of the run's copy of the
+// corpus that file names, when it names one, and whether it could read
+// that file, appending why not to trouble otherwise.
+func expected_stream(r Runner, given []uint8, file []uint8, mut trouble list[uint8]) (list[uint8], bool, error) {
+    mut out := make(list[uint8], c_allocator)
+    if len(file) == 0 {
+        append(mut out, given...)?
+        return out, true, noerror
+    }
+    p := path.join(r.corpus.bytes(), file, c_allocator)?
+    data, e := os.read_file(p.bytes(), c_allocator)
+    if e.code != 0 {
+        fmt.appendf(mut trouble, "cannot read %s: %s", p.bytes(), e.msg)?
+        return out, false, noerror
+    }
+    // The run's bytes are compared with each $ doubled (see normalized),
+    // and so are the file's.
+    escaped := replace_all(data[:], []uint8("$"), []uint8("$$"))?
+    return escaped, true, noerror
+}
+
+// end_differs appends to why how the end of the run, o, differs from
+// what the record rec says, and reports whether it does.
+func end_differs(rec Record, o Outcome, mut why list[uint8]) (bool, error) {
+    if rec.running.len() > 0 {
+        if !o.timed_out {
+            fmt.appendf(mut why, "it ended, exit status %d, signal %d, before it was to be stopped, still running", o.code, o.signo)?
+            return true, noerror
+        }
+        return false, noerror
+    }
+    if o.timed_out {
+        fmt.appendf(mut why, "it did not end within %s seconds", timeout_secs)?
+        return true, noerror
+    }
+    if rec.signo != 0 && o.signo == rec.signo || rec.signo == 0 && o.signo == 0 && o.code == rec.code {
+        return false, noerror
+    }
+    if rec.signo != 0 {
+        fmt.appendf(mut why, "want an end by signal %d, got ", rec.signo)?
+    } else {
+        fmt.appendf(mut why, "want exit status %d, got ", rec.code)?
+    }
+    if o.signo != 0 {
+        fmt.appendf(mut why, "signal %d", o.signo)?
+    } else {
+        fmt.appendf(mut why, "exit status %d", o.code)?
+    }
+    return true, noerror
+}
+
+// compare_outcome checks o, a run of the case c at the level level,
+// against its record, and returns the failure class of the first thing
+// that differs, in the order of failure_classes, or nothing when none
+// does; with report it also writes and counts that in t, and otherwise
+// writes nothing. A stream file that cannot be read is setup, a class
+// no record names.
+func compare_outcome(r Runner, c Rec, level []uint8, o Outcome, report bool, mut t Tally) (text.Text, error) {
+    mut why := make(list[uint8], c_allocator)
+    differs := end_differs(c.rec, o, mut why)?
+    if differs {
+        mut class := text.from_bytes([]uint8("exit"), c_allocator)?
+        if c.rec.running.len() > 0 {
+            class = text.from_bytes([]uint8("still-running"), c_allocator)?
+        } else if o.timed_out {
+            class = text.from_bytes([]uint8("did-not-end"), c_allocator)?
+        }
+        if report {
+            append(mut why, []uint8("; its standard error: ")...)?
+            conv_quote(mut why, part(o.err, 0, first_lines(o.err, 5)))?
+            fail_why(c, level, "%s", why[:], mut t)?
+        }
+        return class, noerror
+    }
+    mut trouble := make(list[uint8], c_allocator)
+    want_out, ok := expected_stream(r, c.rec.stdout, c.rec.stdout_file.bytes(), mut trouble)?
+    want_err, ok2 := expected_stream(r, c.rec.stderr, c.rec.stderr_file.bytes(), mut trouble)?
+    if !ok || !ok2 {
+        if report {
+            fail_why(c, level, "%s", trouble[:], mut t)?
+        }
+        fc := failure_class("setup")?
+        return fc, noerror
+    }
+    mut lab := make(list[uint8], c_allocator)
+    if len(level) > 0 {
+        fmt.appendf(mut lab, " at -O%s", level)?
+    }
+    for k := range 4 {
+        mut label := make(list[uint8], c_allocator)
+        mut want := make(list[uint8], c_allocator)
+        mut got := make(list[uint8], c_allocator)
+        mut class := text.new(c_allocator)
+        if k == 0 && !bytes.equal(want_out[:], o.out) {
+            append(mut label, []uint8("the record's standard output")...)?
+            append(mut want, want_out[:]...)?
+            append(mut got, o.out...)?
+            class = text.from_bytes([]uint8("stdout"), c_allocator)?
+        } else if k == 1 && !bytes.equal(want_err[:], o.err) {
+            append(mut label, []uint8("the record's standard error")...)?
+            append(mut want, want_err[:]...)?
+            append(mut got, o.err...)?
+            class = text.from_bytes([]uint8("stderr"), c_allocator)?
+        } else if k == 2 && !bytes.equal(c.rec.fd3, o.fd3) {
+            append(mut label, []uint8("the record's fd3")...)?
+            append(mut want, c.rec.fd3...)?
+            append(mut got, o.fd3...)?
+            class = text.from_bytes([]uint8("fd3"), c_allocator)?
+        } else if k == 3 && !bytes.equal(c.rec.fd4, o.fd4) {
+            append(mut label, []uint8("the record's fd4")...)?
+            append(mut want, c.rec.fd4...)?
+            append(mut got, o.fd4...)?
+            class = text.from_bytes([]uint8("fd4"), c_allocator)?
+        }
+        if class.len() > 0 {
+            if report {
+                append(mut label, lab[:]...)?
+                fail_diff(c.label.bytes(), c.name.bytes(), label[:], want[:], got[:], mut t)?
+            }
+            return class, noerror
+        }
+    }
+    mut files_why := make(list[uint8], c_allocator)
+    for _, f := range o.changed {
+        if len(files_why) > 0 {
+            break
+        }
+        if bytes.has_suffix(f.path.bytes(), []uint8("/")) && (names_below(c.rec.files, f.path.bytes()) || names_below(c.rec.links, f.path.bytes())) {
+            continue
+        }
+        if bytes.has_suffix(f.path.bytes(), []uint8("\x00")) {
+            mut name := make(list[uint8], c_allocator)
+            append(mut name, part(f.path.bytes(), 0, f.path.len() -% 1)...)?
+            k := find_file(c.rec.links, name[:])
+            if k < 0 {
+                fmt.appendf(mut files_why, "the run left the symbolic link %s, which no symlink line names", name[:])?
+            } else {
+                want := file_data(c.rec.links, k)?
+                if !bytes.equal(want[:], f.data) {
+                    fmt.appendf(mut files_why, "the symbolic link %s points at ", name[:])?
+                    conv_quote(mut files_why, f.data)?
+                    append(mut files_why, []uint8(", not at ")...)?
+                    conv_quote(mut files_why, want[:])?
+                }
+            }
+            continue
+        }
+        if find_file(c.rec.files, f.path.bytes()) < 0 {
+            fmt.appendf(mut files_why, "the run left the file %s, new or changed, which the record does not name", f.path.bytes())?
+        }
+    }
+    for _, w := range c.rec.links {
+        mut marked := text.from_bytes(w.path.bytes(), c_allocator)?
+        mut marked.append([]uint8("\x00"))?
+        if len(files_why) == 0 && find_file(o.changed, marked.bytes()) < 0 {
+            fmt.appendf(mut files_why, "the run left no new or changed symbolic link %s", w.path.bytes())?
+        }
+    }
+    for _, w := range c.rec.files {
+        if len(files_why) > 0 {
+            break
+        }
+        k := find_file(o.changed, w.path.bytes())
+        if k < 0 {
+            fmt.appendf(mut files_why, "the run left no new or changed file %s", w.path.bytes())?
+            break
+        }
+        got := file_data(o.changed, k)?
+        if !bytes.equal(w.data, got[:]) {
+            if report {
+                mut flab := make(list[uint8], c_allocator)
+                fmt.appendf(mut flab, "the record's file %s%s", w.path.bytes(), lab[:])?
+                fail_diff(c.label.bytes(), c.name.bytes(), flab[:], w.data, got[:], mut t)?
+            }
+            fc := failure_class("files")?
+            return fc, noerror
+        }
+    }
+    if len(files_why) > 0 {
+        if report {
+            fail_why(c, level, "%s", files_why[:], mut t)?
+        }
+        fc := failure_class("files")?
+        return fc, noerror
+    }
+    return text.new(c_allocator), noerror
+}
+
+// names_below reports whether one of files is below the directory dir,
+// a path and a slash, as a new directory a file line's file is in is.
+func names_below(files []CaseFile, dir []uint8) bool {
+    for _, f := range files {
+        if !bytes.has_suffix(f.path.bytes(), []uint8("/")) && bytes.has_prefix(f.path.bytes(), dir) {
+            return true
+        }
+    }
+    return false
+}
+
+// is_expectation reports whether key is the keyword of a line --update
+// rewrites: how the run ends, but still-running, and what it leaves, files and symbolic links.
+func is_expectation(key []uint8) bool {
+    return is_word(key, "exit") || is_word(key, "signal") || is_word(key, "stdout") || is_word(key, "stderr") || is_word(key, "fd3") || is_word(key, "fd4") || is_word(key, "file") || is_word(key, "file+") || is_word(key, "symlink")
+}
+
+// append_chunks appends to out a line key "<q>" for each line of b, each
+// with its newline, and one for what follows the last newline, so they
+// read back as b.
+func append_chunks(mut out list[uint8], key string, b []uint8) error {
+    mut start int64 = 0
+    for start < len(b) {
+        stop := line_end(b, start)
+        mut end := stop
+        if stop < len(b) {
+            // stop is the newline's index, below len(b).
+            end = stop +% 1
+        }
+        fmt.appendf(mut out, "%s ", key)?
+        conv_quote(mut out, part(b, start, end))?
+        append(mut out, '\n')?
+        start = end
+    }
+    return noerror
+}
+
+// append_pinned is append_chunks, but it writes key "" for no bytes,
+// so that a stream that is empty is pinned as empty.
+func append_pinned(mut out list[uint8], key string, b []uint8) error {
+    if len(b) == 0 {
+        return fmt.appendf(mut out, "%s \"\"\n", key)
+    }
+    return append_chunks(mut out, key, b)
+}
+
+// append_file_lines appends to out the file line of the file at p with
+// the bytes data and the file+ lines that go on it, one line of data
+// each, as parse_record reads them back.
+func append_file_lines(mut out list[uint8], p []uint8, data []uint8) error {
+    append(mut out, []uint8("file ")...)?
+    conv_quote(mut out, p)?
+    append(mut out, ' ')?
+    if len(data) == 0 {
+        return append(mut out, []uint8("\"\"\n")...)
+    }
+    mut start int64 = 0
+    mut first := true
+    for start < len(data) {
+        stop := line_end(data, start)
+        mut end := stop
+        if stop < len(data) {
+            // stop is the newline's index, below len(data).
+            end = stop +% 1
+        }
+        if !first {
+            append(mut out, []uint8("file+ ")...)?
+        }
+        conv_quote(mut out, part(data, start, end))?
+        append(mut out, '\n')?
+        first = false
+        start = end
+    }
+    return noerror
+}
+
+// render_record returns record, the case c's record's bytes, with the
+// expectations the run o gave in place of its own: every line but those
+// is_expectation names kept, in order, then the end, unless the record
+// says still-running, the standard output and error, unless a file holds
+// them, which must then hold what the run gave, the captured descriptors
+// and the files. A run that cannot be written so is a failure, which it
+// writes and counts in t, and returns an empty record for.
+func render_record(r Runner, c Rec, record []uint8, o Outcome, mut t Tally) (list[uint8], error) {
+    mut out := make(list[uint8], c_allocator)
+    mut start int64 = 0
+    for start < len(record) {
+        stop := line_end(record, start)
+        sp := bytes.index_byte(part(record, start, stop), ' ')
+        if sp > 0 && !is_expectation(part(record, start, start +% sp)) {
+            append(mut out, part(record, start, stop)...)?
+            append(mut out, '\n')?
+        }
+        // A line holds its newline, so the sum does not wrap.
+        start = stop +% 1
+    }
+    if c.rec.running.len() > 0 && !o.timed_out {
+        fail_why(c, []uint8(""), "%s", []uint8("--update: the run ended, which a still-running record cannot hold"), mut t)?
+        return make(list[uint8], c_allocator), noerror
+    }
+    if c.rec.running.len() == 0 {
+        if o.timed_out {
+            fail_why(c, []uint8(""), "%s", []uint8("--update: the run did not end, which a record of an exit or a signal cannot hold"), mut t)?
+            return make(list[uint8], c_allocator), noerror
+        }
+        if o.signo != 0 {
+            fmt.appendf(mut out, "signal %d\n", o.signo)?
+        } else {
+            fmt.appendf(mut out, "exit %d\n", o.code)?
+        }
+    }
+    mut trouble := make(list[uint8], c_allocator)
+    if c.rec.stdout_file.len() == 0 {
+        append_pinned(mut out, "stdout", o.out)?
+    } else {
+        held, ok := expected_stream(r, []uint8(""), c.rec.stdout_file.bytes(), mut trouble)?
+        if !ok || !bytes.equal(held[:], o.out) {
+            fail_why(c, []uint8(""), "--update: the run gives other bytes than %s holds, which --update does not rewrite", c.rec.stdout_file.bytes(), mut t)?
+            return make(list[uint8], c_allocator), noerror
+        }
+    }
+    if c.rec.stderr_file.len() == 0 {
+        if !c.rec.err_mode.equal([]uint8("merged")) {
+            append_pinned(mut out, "stderr", o.err)?
+        }
+    } else {
+        held, ok := expected_stream(r, []uint8(""), c.rec.stderr_file.bytes(), mut trouble)?
+        if !ok || !bytes.equal(held[:], o.err) {
+            fail_why(c, []uint8(""), "--update: the run gives other bytes than %s holds, which --update does not rewrite", c.rec.stderr_file.bytes(), mut t)?
+            return make(list[uint8], c_allocator), noerror
+        }
+    }
+    append_chunks(mut out, "fd3", o.fd3)?
+    append_chunks(mut out, "fd4", o.fd4)?
+    for _, f := range o.changed {
+        if bytes.has_suffix(f.path.bytes(), []uint8("/")) {
+            if !names_below(o.changed[:], f.path.bytes()) {
+                fail_why(c, []uint8(""), "--update: the run left the directory %s, which no file line can name", f.path.bytes(), mut t)?
+                return make(list[uint8], c_allocator), noerror
+            }
+            continue
+        }
+        if bytes.has_suffix(f.path.bytes(), []uint8("\x00")) {
+            append(mut out, []uint8("symlink ")...)?
+            conv_quote(mut out, part(f.path.bytes(), 0, f.path.len() -% 1))?
+            append(mut out, ' ')?
+            conv_quote(mut out, f.data)?
+            append(mut out, '\n')?
+            continue
+        }
+        append_file_lines(mut out, f.path.bytes(), f.data)?
+    }
+    return out, noerror
+}
+
+// find_clang returns the clang PATH, p, gives: the first entry of it,
+// an empty one meaning ., holding a file named clang this process may
+// run, or an empty Text when none does.
+func find_clang(p []uint8) (text.Text, error) {
+    t := find_on_path(p, []uint8("clang"))?
+    return t, noerror
+}
+
+// find_on_path returns the first file named name in a directory of p, a
+// PATH, that this process may run, made absolute, or an empty Text when
+// there is none.
+func find_on_path(p []uint8, name []uint8) (text.Text, error) {
+    mut at int64 = 0
+    for at <= len(p) {
+        colon := bytes.index_byte(part(p, at, len(p)), ':')
+        mut end := len(p)
+        if colon >= 0 {
+            // colon is an index of p after at.
+            end = at +% colon
+        }
+        mut dir := text.from_bytes(part(p, at, end), c_allocator)?
+        if dir.len() == 0 {
+            dir = text.from_bytes([]uint8("."), c_allocator)?
+        }
+        cand := path.join(dir.bytes(), name, c_allocator)?
+        if os.can_execute(cand.bytes()) {
+            full := absolute(cand.bytes())?
+            return full, noerror
+        }
+        at = end +% 1
+    }
+    return text.new(c_allocator), noerror
+}
+
+// clang_shim writes, for the case c, whose record has cflags, the clang
+// that adds them to every run but clang --version and leaves the file
+// marker beside it when it runs (see runs.tck), in d.shim, and appends to
+// extra the setting that puts it first on PATH. It sets marker, removed
+// first, and reports whether it could, appending why not to trouble
+// otherwise.
+func clang_shim(d Dirs, c Rec, mut extra list[text.Text], mut marker text.Text, mut trouble list[uint8]) (bool, error) {
+    p, has_path := os.env([]uint8("PATH"), c_allocator)?
+    mut real := text.new(c_allocator)
+    if has_path {
+        real = find_clang(p.bytes())?
+    }
+    if real.len() == 0 || bytes.index_byte(real.bytes(), '\'') >= 0 {
+        append(mut trouble, []uint8("cflags needs a clang on PATH, at a path with no single quote")...)?
+        return false, noerror
+    }
+    shim := path.join(d.shim.bytes(), []uint8("clang"), c_allocator)?
+    marker = path.join(d.shim.bytes(), []uint8("ran"), c_allocator)?
+    if bytes.index_byte(marker.bytes(), '\'') >= 0 {
+        append(mut trouble, []uint8("the shim's directory holds a single quote")...)?
+        return false, noerror
+    }
+    mut script := make(list[uint8], c_allocator)
+    fmt.appendf(mut script, "#!/bin/sh\nfor a in \"$@\"; do if [ \"$a\" = --version ]; then exec '%s' \"$@\"; fi; done\nfor a in \"$@\"; do case \"$a\" in -c|-o) : > '%s';; esac; done\nexec '%s' \"$@\"", real.bytes(), marker.bytes(), real.bytes())?
+    for _, f := range c.rec.cflags {
+        fmt.appendf(mut script, " '%s'", f.bytes())?
+    }
+    append(mut script, '\n')?
+    made := make_dirs(d.shim.bytes())?
+    if !made {
+        append(mut trouble, []uint8("cannot make the shim's directory")...)?
+        return false, noerror
+    }
+    _, gone := os.stat(marker.bytes())
+    if gone.code == 0 {
+        re := os.remove_path(marker.bytes())
+        if re.code != 0 {
+            append(mut trouble, []uint8("cannot remove the shim's mark")...)?
+            return false, noerror
+        }
+    }
+    e := os.write_file_mode(shim.bytes(), script, 0o755)
+    if e.code != 0 {
+        fmt.appendf(mut trouble, "cannot write %s: %s", shim.bytes(), e.msg)?
+        return false, noerror
+    }
+    mut path_setting := setting("PATH=", d.shim.bytes())?
+    mut path_setting.append([]uint8(":"))?
+    mut path_setting.append(p.bytes())?
+    append(mut extra, path_setting)?
+    return true, noerror
+}

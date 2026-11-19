@@ -1,0 +1,1057 @@
+Records every reader of run records must reject: each case's class file names
+the class of the problem (see tools/corpus/runs.tck), which tools/corpus and
+tackc's porttest must both give. Each record is valid but for that one problem.
+-- cflags-bad-byte/class --
+cflags
+-- cflags-bad-byte/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+cflags -O0 -DX='1'
+exit 0
+-- cflags-dependency-file/class --
+cflags
+-- cflags-dependency-file/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+cflags -MD
+exit 0
+-- cflags-linker-output/class --
+cflags
+-- cflags-linker-output/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+cflags -Wl,-o,x
+exit 0
+-- cflags-no-dash/class --
+cflags
+-- cflags-no-dash/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+cflags O0
+exit 0
+-- cflags-output/class --
+cflags
+-- cflags-output/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+cflags -o
+exit 0
+-- cflags-output-joined/class --
+cflags
+-- cflags-output-joined/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+cflags -ofoo
+exit 0
+-- cflags-save-temps/class --
+cflags
+-- cflags-save-temps/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+cflags -save-temps
+exit 0
+-- cflags-semicolon/class --
+cflags
+-- cflags-semicolon/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+cflags -O0;true
+exit 0
+-- cflags-sets-level/class --
+cflags
+-- cflags-sets-level/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+opt 2 3
+cflags -O0
+exit 0
+-- cflags-sets-level-later/class --
+cflags
+-- cflags-sets-level-later/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+cflags -g -O3
+exit 0
+-- conflict-closed-merged/class --
+conflict
+-- conflict-closed-merged/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+stream stdout closed
+stream stderr merged
+exit 0
+-- conflict-cold-cache-with-invoke/class --
+conflict
+-- conflict-cold-cache-with-invoke/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+invoke "--version"
+cold-cache why
+exit 0
+-- conflict-cwd-without-invoke/class --
+conflict
+-- conflict-cwd-without-invoke/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+cwd empty
+exit 0
+-- conflict-empty-stdout-and-file/class --
+conflict
+-- conflict-empty-stdout-and-file/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+stdout ""
+stdout-file examples/hello/main.tck
+-- conflict-fd3-not-captured/class --
+conflict
+-- conflict-fd3-not-captured/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+fd3 "x"
+-- conflict-files-and-dir/class --
+conflict
+-- conflict-files-and-dir/main.tck --
+package main
+
+func main() {
+}
+-- conflict-files-and-dir/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+-- conflict-invoke-with-arg/class --
+conflict
+-- conflict-invoke-with-arg/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+invoke "--emit"
+arg "x"
+exit 0
+-- conflict-merged-with-stderr/class --
+conflict
+-- conflict-merged-with-stderr/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+stream stderr merged
+exit 0
+stderr "x"
+-- conflict-selfcheck-replaces/class --
+conflict
+-- conflict-selfcheck-replaces/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+replaces tack/main_test.go TestBuiltHelloPrints
+exit 0
+-- conflict-stdout-and-file/class --
+conflict
+-- conflict-stdout-and-file/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+stdout "WRONG\n"
+stdout-file examples/hello/main.tck
+-- empty-dir-then-set/class --
+empty
+-- empty-dir-then-set/record --
+selfcheck review
+dir 
+dir examples/hello
+exit 0
+-- empty-no-strict-c/class --
+empty
+-- empty-no-strict-c/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+no-strict-c 
+exit 0
+-- empty-stdout-file/class --
+empty
+-- empty-stdout-file/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+stdout-file 
+stdout-file examples/hello/main.tck
+-- empty-target/class --
+empty
+-- empty-target/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+target 
+target main.tck
+exit 0
+-- env-name-digit-first/class --
+env
+-- env-name-digit-first/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+env "1A=1"
+exit 0
+-- env-name-space/class --
+env
+-- env-name-space/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+env "A B=1"
+exit 0
+-- env-no-equals/class --
+env
+-- env-no-equals/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+env "NOEQUALS"
+exit 0
+-- env-reserved-path/class --
+env
+-- env-reserved-path/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+env "PATH=/x"
+exit 0
+-- env-reserved-tack-cache/class --
+env
+-- env-reserved-tack-cache/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+env "TACK_CACHE=/x"
+exit 0
+-- env-reserved-tack-home/class --
+env
+-- env-reserved-tack-home/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+env "TACK_HOME=/x"
+exit 0
+-- env-reserved-tmpdir/class --
+env
+-- env-reserved-tmpdir/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+env "TMPDIR=$TMP/../leak"
+exit 0
+-- file-after-symlink-same-path/class --
+repeated
+-- file-after-symlink-same-path/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+symlink "x" "t"
+file "x" "a"
+-- file-plus-alone/class --
+syntax
+-- file-plus-alone/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+file+ "x"
+-- missing-both-streams/class --
+missing
+-- missing-both-streams/record --
+selfcheck a record every reader must reject
+dir examples/hello
+exit 0
+-- missing-dir-and-files/class --
+missing
+-- missing-dir-and-files/record --
+selfcheck a record every reader must reject
+exit 0
+-- missing-end/class --
+missing
+-- missing-end/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+-- missing-replaces/class --
+missing
+-- missing-replaces/record --
+dir examples/hello
+exit 0
+-- missing-stderr/class --
+missing
+-- missing-stderr/record --
+selfcheck a record every reader must reject
+dir examples/hello
+exit 0
+stdout ""
+-- missing-stdout/class --
+missing
+-- missing-stdout/record --
+selfcheck a record every reader must reject
+dir examples/hello
+exit 0
+stderr ""
+-- must-fail-unknown-class/class --
+failure
+-- must-fail-unknown-class/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+must-fail nope
+exit 0
+-- number-exit-256/class --
+number
+-- number-exit-256/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 256
+-- number-exit-huge/class --
+number
+-- number-exit-huge/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 99999999999999999999999
+-- number-exit-plus/class --
+number
+-- number-exit-plus/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit +0
+-- number-limit-above-65536/class --
+number
+-- number-limit-above-65536/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+limit nofile 65537
+exit 0
+-- number-limit-huge/class --
+number
+-- number-limit-huge/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+limit nofile 99999999999999
+exit 0
+-- number-limit-negative/class --
+number
+-- number-limit-negative/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+limit nofile -1
+exit 0
+-- number-limit-zero/class --
+number
+-- number-limit-zero/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+limit nofile 0
+exit 0
+-- number-running-above-ten/class --
+number
+-- number-running-above-ten/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+still-running 10.001
+-- number-running-below-a-tenth/class --
+number
+-- number-running-below-a-tenth/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+still-running 0.099
+-- number-running-four-digits/class --
+number
+-- number-running-four-digits/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+still-running 1.2345
+-- number-running-huge-with-invoke/class --
+number
+-- number-running-huge-with-invoke/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+invoke "--version"
+still-running 99999999999999999999
+-- number-running-no-fraction/class --
+number
+-- number-running-no-fraction/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+still-running 1.
+-- number-running-three-whole-digits/class --
+number
+-- number-running-three-whole-digits/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+still-running 100
+-- number-running-tiny-with-invoke/class --
+number
+-- number-running-tiny-with-invoke/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+invoke "--version"
+still-running 0.0000000001
+-- number-signal-zero/class --
+number
+-- number-signal-zero/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+signal 0
+-- number-still-running-zero/class --
+number
+-- number-still-running-zero/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+still-running 0
+-- opt-repeated-level/class --
+opt
+-- opt-repeated-level/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+opt 0 0
+exit 0
+-- opt-unknown-level/class --
+opt
+-- opt-unknown-level/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+opt 4
+exit 0
+-- path-dir-escapes/class --
+path
+-- path-dir-escapes/record --
+selfcheck review
+dir examples/../../../../etc
+exit 0
+-- path-dir-outside-examples/class --
+path
+-- path-dir-outside-examples/record --
+selfcheck review
+dir golden
+exit 0
+-- path-escapes/class --
+path
+-- path-escapes/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+file "../x" "y"
+-- path-file-absolute/class --
+path
+-- path-file-absolute/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+file "/x" "y"
+-- path-file-dot/class --
+path
+-- path-file-dot/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+file "." "y"
+-- path-file-double-slash/class --
+path
+-- path-file-double-slash/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+file "a//b" "y"
+-- path-file-trailing-slash/class --
+path
+-- path-file-trailing-slash/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+file "a/" "y"
+-- path-stderr-file-escapes/class --
+path
+-- path-stderr-file-escapes/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+stderr-file examples/../../x
+-- path-stdout-file-absolute/class --
+path
+-- path-stdout-file-absolute/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+stdout-file /etc/hostname
+-- path-stdout-file-escapes/class --
+path
+-- path-stdout-file-escapes/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+stdout-file ../../../../etc/hostname
+-- path-target-dot/class --
+path
+-- path-target-dot/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+target ./main.tck
+exit 0
+-- path-target-escapes/class --
+path
+-- path-target-escapes/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+target ../../../../x.tck
+exit 0
+-- probe-cflags-level/class --
+cflags
+-- probe-cflags-level/main.tck --
+package main
+
+extern("probe_opt") func optimized() int64
+
+func main() {
+    code, fits := int32(optimized())
+    if fits { exit(code) }
+}
+-- probe-cflags-level/opt.c --
+#include "tack.h"
+
+int64_t probe_opt(void) {
+#ifdef __OPTIMIZE__
+    return 1;
+#else
+    return 0;
+#endif
+}
+-- probe-cflags-level/record --
+selfcheck probe: built at -O2 and -O3, the C is not optimized
+opt 2 3
+cflags -O0
+exit 0
+stdout ""
+stderr ""
+-- probe-closed-merged/class --
+conflict
+-- probe-closed-merged/record --
+selfcheck review: stdout closed and stderr merged
+dir examples/hello
+stream stdout closed
+stream stderr merged
+exit 0
+stdout ""
+-- probe-dup-opt/class --
+repeated
+-- probe-dup-opt/record --
+selfcheck review: opt given twice
+dir examples/hello
+opt 0
+opt 2
+exit 0
+stdout "Hello, World!\n"
+stderr ""
+-- probe-env-tmpdir/class --
+env
+-- probe-env-tmpdir/main.tck --
+package main
+
+import os from "std/os"
+
+func main() {
+    tmp, set, e := os.env([]uint8("TMPDIR"), c_allocator)
+    if e.code != 0 || !set {
+        exit(1)
+    }
+    if os.make_dir(tmp.bytes()).code != 0 {
+    }
+    mut p := make(list[uint8], c_allocator)
+    if append(mut p, tmp.bytes()...).code != 0 {
+        exit(3)
+    }
+    if append(mut p, []uint8("/left")...).code != 0 {
+        exit(3)
+    }
+    if os.write_file(p[:], []uint8("x")).code != 0 {
+        exit(4)
+    }
+}
+-- probe-env-tmpdir/record --
+selfcheck probe: the program leaves a file in its TMPDIR
+env "TMPDIR=$TMP/../leak"
+exit 0
+stdout ""
+stderr ""
+-- probe-leak-asan-level/class --
+cflags
+-- probe-leak-asan-level/leak.c --
+#include <stdlib.h>
+#include "tack.h"
+
+static void *keep;
+
+void c_leak(void) {
+    keep = malloc(64);
+    keep = 0;
+}
+-- probe-leak-asan-level/main.tck --
+package main
+
+extern("c_leak") func leak()
+
+func main() {
+    leak()
+}
+-- probe-leak-asan-level/record --
+selfcheck review: a C leak under ASan must fail this record
+cflags -O0 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-sanitize-address-globals-dead-stripping
+exit 0
+stdout ""
+stderr ""
+-- probe-running-tiny/class --
+number
+-- probe-running-tiny/main.tck --
+package main
+
+// main ends at once.
+func main() {
+}
+-- probe-running-tiny/record --
+selfcheck review
+still-running 0.0000000001
+stdout ""
+stderr ""
+-- probe-signal-zero/class --
+number
+-- probe-signal-zero/record --
+selfcheck review: signal 0
+dir examples/hello
+signal 0
+stdout "Hello, World!\n"
+stderr ""
+-- probe-stdout-and-file/class --
+conflict
+-- probe-stdout-and-file/record --
+selfcheck review: quoted stdout and a stdout-file
+dir examples/hello
+exit 0
+stdout "WRONG\n"
+stdout-file examples/hello/main.tck
+stderr ""
+-- quote-bare-word/class --
+quote
+-- quote-bare-word/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+stdout hello
+-- quote-cr-inside/class --
+quote
+-- quote-cr-inside/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+stdout "a"
+-- quote-file-trailing/class --
+quote
+-- quote-file-trailing/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+file "a" "x" trailing
+exit 0
+-- quote-octal-escape/class --
+quote
+-- quote-octal-escape/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+stdout "\101"
+-- quote-rune-too-big/class --
+quote
+-- quote-rune-too-big/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+stdout "\UFFFFFFFF"
+-- quote-short-u/class --
+quote
+-- quote-short-u/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+stdout "\u00"
+-- quote-surrogate/class --
+quote
+-- quote-surrogate/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+stdout "\uD800"
+-- quote-unterminated-escape/class --
+quote
+-- quote-unterminated-escape/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+stdout "\x
+-- repeated-cflags/class --
+repeated
+-- repeated-cflags/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+cflags -g
+cflags -g
+exit 0
+-- repeated-cold-cache/class --
+repeated
+-- repeated-cold-cache/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+cold-cache one
+cold-cache two
+exit 0
+-- repeated-cwd/class --
+repeated
+-- repeated-cwd/record --
+selfcheck a record every reader must reject
+dir examples/hello
+invoke "--emit"
+cwd empty
+cwd empty
+exit 0
+-- repeated-dir/class --
+repeated
+-- repeated-dir/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+dir examples/print
+exit 0
+-- repeated-end/class --
+repeated
+-- repeated-end/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+exit 1
+-- repeated-file/class --
+repeated
+-- repeated-file/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+file "a" "x"
+file "a" "y"
+-- repeated-limit/class --
+repeated
+-- repeated-limit/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+limit nofile 5
+limit nofile 6
+exit 0
+-- repeated-no-strict-c/class --
+repeated
+-- repeated-no-strict-c/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+no-strict-c one
+no-strict-c two
+exit 0
+-- repeated-opt/class --
+repeated
+-- repeated-opt/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+opt 0
+opt 2
+exit 0
+-- repeated-stream/class --
+repeated
+-- repeated-stream/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+stream stdout file
+stream stdout closed
+exit 0
+-- repeated-target/class --
+repeated
+-- repeated-target/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+target main.tck
+target main.tck
+exit 0
+-- replaces-garbage/class --
+replaces
+-- replaces-garbage/record --
+replaces x y
+dir examples/hello
+exit 0
+-- replaces-not-a-test/class --
+replaces
+-- replaces-not-a-test/record --
+replaces tack/main_test.go helper
+dir examples/hello
+exit 0
+-- stream-no-such-descriptor/class --
+stream
+-- stream-no-such-descriptor/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+stream fd5 capture
+exit 0
+-- stream-no-such-way/class --
+stream
+-- stream-no-such-way/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+stream stdout merged
+exit 0
+-- stream-no-way/class --
+stream
+-- stream-no-way/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+stream fd3
+exit 0
+-- symlink-and-file-same-path/class --
+repeated
+-- symlink-and-file-same-path/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+file "x" "a"
+symlink "x" "t"
+-- symlink-empty-target/class --
+path
+-- symlink-empty-target/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+symlink "x" ""
+-- symlink-no-target/class --
+quote
+-- symlink-no-target/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+symlink "x"
+-- symlink-nul-target/class --
+path
+-- symlink-nul-target/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+symlink "x" "a\x00b"
+-- symlink-trailing/class --
+quote
+-- symlink-trailing/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+symlink "x" "t" more
+-- symlink-twice/class --
+repeated
+-- symlink-twice/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+symlink "x" "t"
+symlink "x" "u"
+-- symlink-unclean-path/class --
+path
+-- symlink-unclean-path/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
+symlink "../x" "t"
+-- syntax-blank-lines/class --
+syntax
+-- syntax-blank-lines/record --
+
+
+
+-- syntax-no-operands/class --
+syntax
+-- syntax-no-operands/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit
+-- unknown-keyword/class --
+unknown
+-- unknown-keyword/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+frobnicate 1
+exit 0
+-- unknown-nul-bytes/class --
+unknown
+-- unknown-nul-bytes/record --
+ ÿ  
+exit  0

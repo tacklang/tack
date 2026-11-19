@@ -12,7 +12,8 @@ import text from "std/text"
 // checks for the Go compiler and this checks for any compiler that has
 // the port's --port-case and --port-test-case flags. It is run as
 //
-//     corpus [--update] <compiler> <corpus> <std>
+//     corpus [--update] [--runs] <compiler> <corpus> <std>
+//     corpus --parse-runs <file>
 //
 // compiler is the compiler to check, corpus the directory holding
 // examples/ and golden/, and std the standard library to compile with, a
@@ -89,6 +90,13 @@ import text from "std/text"
 // failures, and exits 1 when any failed, 0 when none did, and 2 for a
 // command line of the wrong shape.
 //
+// With --parse-runs, it only reads the run archive file and writes what
+// it read (see dump.tck), running nothing.
+//
+// With --runs, only the run records of corpus/runs are checked (see
+// runs.tck), which needs no flag of the port's own, so any compiler, the
+// reference Go one among them, can be checked against them.
+//
 // With --update, each expected section, golden and tack.h the compiler's
 // output differs from is rewritten in the corpus instead, and the
 // difference counted as no failure: what must hold whatever the output,
@@ -104,7 +112,9 @@ import text from "std/text"
 var timeout_secs = "120"
 
 // Runner is what every check of a run reads: the compiler, the corpus,
-// std, all absolute, whether the run updates the corpus, and the run's
+// std, all absolute, whether the run updates the corpus, whether it
+// checks the run records alone, self, this program, which a run of a
+// record runs as its launcher (see launch), and the run's
 // temporary directory, tmp, with root, below it, where every case runs
 // and std and the examples are copied, work, the compiler's TMPDIR,
 // cache, its TACK_CACHE, and bin, where invalid-c's builds write.
@@ -113,6 +123,8 @@ type Runner struct {
     corpus text.Text
     std text.Text
     update bool
+    runs_only bool
+    self text.Text
     tmp text.Text
     root text.Text
     work text.Text
@@ -126,15 +138,55 @@ type Tally struct {
     failures int64
 }
 
-// main runs the corpus and exits with the status run gives. An error
-// run returns, which only an allocation that failed or the OS gives, is
-// written as corpus: and its message, with exit status 1.
+// close_inherited closes every descriptor from 3 up that this process
+// was started with, in C (see fds.c), so that a program a run starts sees
+// exactly 0, 1, 2 and the descriptors its record makes, whatever this
+// one inherited. It returns 0, or 1 when the kernel had no close_range.
+extern("corpus_close_inherited") func close_inherited() int64
+
+// launch_arg hands one argument of the launcher to the C half (see
+// launch.c), and returns 0, or 1 when it cannot keep it.
+extern("corpus_launch_arg") func launch_arg(a []uint8) int64
+
+// launch_run runs the launcher with the arguments launch_arg handed over
+// (see launch.c) and returns its exit status.
+extern("corpus_launch") func launch_run() int64
+
+// launch is corpus --launch <io> <seconds> <nofile> <program>...: the
+// launcher a run's sh wrapper replaces itself with (see launch.c). It
+// hands the arguments after --launch to the C half, runs it and returns
+// its exit status, 125 when an argument cannot be handed over.
+func launch(a []text.Text) int32 {
+    for i, s := range a {
+        if i >= 2 && launch_arg(s.bytes()) != 0 {
+            return 125
+        }
+    }
+    code := launch_run()
+    if code == 0 {
+        return 0
+    }
+    return 125
+}
+
+// main runs the launcher when the first argument is --launch, before
+// anything else, so that the program's descriptors stay as the wrapper
+// made them; otherwise it closes the inherited descriptors, runs the
+// corpus and exits with the status run gives. An error run returns,
+// which only an allocation that failed or the OS gives, is written as
+// corpus: and its message, with exit status 1.
 func main() {
     a, err := os.args(c_allocator)
     if err.code != 0 {
         fmt.eprintf("corpus: %s\n", err.msg)
         exit(1)
     }
+    for i, s := range a {
+        if i == 1 && s.equal([]uint8("--launch")) {
+            exit(launch(a[:]))
+        }
+    }
+    close_inherited()
     code, e := run(a)
     if e.code != 0 {
         fmt.eprintf("corpus: %s\n", e.msg)
@@ -143,9 +195,31 @@ func main() {
     exit(code)
 }
 
+// self_path returns the absolute path of this program, from a[0], its
+// name as it was run: made absolute when it has a slash, and looked up
+// on PATH otherwise, or an empty Text when it cannot be found. The sh
+// wrapper of a run runs it as the launcher (see launch).
+func self_path(a []text.Text) (text.Text, error) {
+    for i, s := range a {
+        if i != 0 {
+            continue
+        }
+        if bytes.index_byte(s.bytes(), '/') >= 0 {
+            t := absolute(s.bytes())?
+            return t, noerror
+        }
+        p, has := os.env([]uint8("PATH"), c_allocator)?
+        if has {
+            t := find_on_path(p.bytes(), s.bytes())?
+            return t, noerror
+        }
+    }
+    return text.new(c_allocator), noerror
+}
+
 // usage writes how corpus is run to standard error and returns 2.
 func usage() int32 {
-    fmt.eprintf("usage: corpus [--update] <compiler> <corpus> <std>\n")
+    fmt.eprintf("usage: corpus [--update] [--runs] <compiler> <corpus> <std>\n       corpus --parse-runs <file>\n")
     return 2
 }
 
@@ -173,7 +247,16 @@ func absolute(p []uint8) (text.Text, error) {
 // and removes it, whatever happened there, an error included, and
 // returns the exit status (see the package comment).
 func run(a []text.Text) (int32, error) {
+    if is_parse_runs(a) {
+        for i, s := range a {
+            if i == 2 {
+                code := parse_runs_dump(s.bytes())?
+                return code, noerror
+            }
+        }
+    }
     mut update := false
+    mut runs_only := false
     mut paths := make(list[text.Text], c_allocator)
     for i, s := range a {
         if i == 0 {
@@ -181,6 +264,10 @@ func run(a []text.Text) (int32, error) {
         }
         if s.equal([]uint8("--update")) && len(paths) == 0 && !update {
             update = true
+            continue
+        }
+        if s.equal([]uint8("--runs")) && len(paths) == 0 && !runs_only {
+            runs_only = true
             continue
         }
         if bytes.has_prefix(s.bytes(), []uint8("-")) || s.len() == 0 {
@@ -205,7 +292,12 @@ func run(a []text.Text) (int32, error) {
         fmt.eprintf("corpus: cannot make the run's temporary directory in $TMPDIR: %s\n", te.msg)
         return 1, te
     }
-    code, e := run_in_tmp(own compiler, own corpus, own std, update, made.bytes())
+    me := self_path(a)?
+    if me.len() == 0 {
+        fmt.eprintf("corpus: cannot find this program's own path, for the launcher of the runs\n")
+        return 1, noerror
+    }
+    code, e := run_in_tmp(own compiler, own corpus, own std, own me, update, runs_only, made.bytes())
     rm := os.remove_all(made.bytes(), c_allocator)
     if rm.err.code != 0 {
         fmt.printf("FAIL: cannot remove the run's temporary directory, %s: %s %s: %s\n", made.bytes(), rm.op.bytes(), rm.path.bytes(), rm.err.msg)
@@ -218,12 +310,12 @@ func run(a []text.Text) (int32, error) {
 
 // run_in_tmp runs every check of the package comment with the compiler,
 // the corpus and the std given, all absolute, updating the corpus when
-// update says so, in made, the run's temporary directory, which the
+// update says so, and the run records alone when runs_only does, in made, the run's temporary directory, which the
 // caller removes, and writes the count: it makes made absolute, makes sure no directory above it holds a
 // tack.mod (see module_above), sets the run up and checks the corpus. It
 // returns the exit status, or an error that stopped it, which it wrote
 // on standard error first when it was the OS's.
-func run_in_tmp(own compiler text.Text, own corpus text.Text, own std text.Text, update bool, made []uint8) (int32, error) {
+func run_in_tmp(own compiler text.Text, own corpus text.Text, own std text.Text, own me text.Text, update bool, runs_only bool, made []uint8) (int32, error) {
     tmp := absolute(made)?
     above := module_above(tmp.bytes())?
     if above.len() > 0 {
@@ -235,6 +327,8 @@ func run_in_tmp(own compiler text.Text, own corpus text.Text, own std text.Text,
         corpus: corpus,
         std: std,
         update: update,
+        runs_only: runs_only,
+        self: me,
         root: path.join(tmp.bytes(), []uint8("root"), c_allocator)?,
         work: path.join(tmp.bytes(), []uint8("work"), c_allocator)?,
         cache: path.join(tmp.bytes(), []uint8("cache"), c_allocator)?,
@@ -315,9 +409,13 @@ func set_up(r Runner) (bool, error) {
 
 // check_all runs every check of the package comment, counting in t:
 // each archive directly in the corpus's examples/, every name there
-// ending in .txtar, in name order, and then the programs (see
-// check_examples).
+// ending in .txtar, in name order, then the programs (see
+// check_examples), and then the run records (see check_runs); only the
+// run records when r.runs_only says so.
 func check_all(r Runner, mut t Tally) error {
+    if r.runs_only {
+        return check_runs(r, mut t)
+    }
     ex := path.join(r.corpus.bytes(), []uint8("examples"), c_allocator)?
     names, e := os.list_dir(ex.bytes(), c_allocator)
     if e.code != 0 {
@@ -336,5 +434,6 @@ func check_all(r Runner, mut t Tally) error {
         fail([]uint8("archives"), []uint8("(all)"), []uint8("examples/ holds no txtar archive"), mut t)
     }
     check_examples(r, mut t)?
+    check_runs(r, mut t)?
     return noerror
 }

@@ -9,11 +9,13 @@ import text from "std/text"
 // Running the compiler and clang, and saying how a case failed.
 
 // Ran is how one run of a command ended: its exit status, or -1 when a
-// signal killed it, its standard output and standard error, and, in
+// signal killed it, the number of that signal, or 0 when none did, its
+// standard output and standard error, and, in
 // trouble, why the run says nothing of the case: it timed out, a signal
 // killed it, or, for the compiler, the port declined (see is_decline).
 type Ran struct {
     code int64
+    signo int64
     out list[uint8]
     err list[uint8]
     trouble list[uint8]
@@ -26,17 +28,29 @@ var decline_line = "tack: not implemented in the port: "
 // run_compiler runs r's compiler with args in root, through timeout and
 // env (see the package comment), and returns how it ended.
 func run_compiler(r Runner, args []text.Text) (Ran, error) {
+    none := make(list[text.Text], c_allocator)
+    res := run_compiler_in(r, r.root.bytes(), none, args)?
+    return res, noerror
+}
+
+// run_compiler_in is run_compiler, in the directory dir instead of root,
+// with the settings extra, each NAME=value, given to env after its own,
+// which they override.
+func run_compiler_in(r Runner, dir []uint8, extra []text.Text, args []text.Text) (Ran, error) {
     mut argv := make(list[text.Text], c_allocator)
     append_timeout(mut argv)?
     append(mut argv, text.from_bytes([]uint8("env"), c_allocator)?)?
     append(mut argv, setting("TACK_HOME=", r.root.bytes())?)?
     append(mut argv, setting("TACK_CACHE=", r.cache.bytes())?)?
     append(mut argv, setting("TMPDIR=", r.work.bytes())?)?
+    for _, x := range extra {
+        append(mut argv, text.from_bytes(x.bytes(), c_allocator)?)?
+    }
     append(mut argv, text.from_bytes(r.compiler.bytes(), c_allocator)?)?
     for _, a := range args {
         append(mut argv, text.from_bytes(a.bytes(), c_allocator)?)?
     }
-    mut res := run_argv(r.root.bytes(), argv)?
+    mut res := run_argv(dir, argv)?
     if res.code == 3 && bytes.has_prefix(res.err, []uint8(decline_line)) && len(res.trouble) == 0 {
         append(mut res.trouble, []uint8("the compiler declined: ")...)?
         append(mut res.trouble, part(res.err, 0, line_end(res.err, 0))...)?
@@ -69,7 +83,7 @@ func append_timeout(mut argv list[text.Text]) error {
 // command and dir, on standard error, since every run after it would
 // fail the same way.
 func run_argv(dir []uint8, argv []text.Text) (Ran, error) {
-    mut res := Ran{code: 0, out: make(list[uint8], c_allocator), err: make(list[uint8], c_allocator), trouble: make(list[uint8], c_allocator)}
+    mut res := Ran{code: 0, signo: 0, out: make(list[uint8], c_allocator), err: make(list[uint8], c_allocator), trouble: make(list[uint8], c_allocator)}
     prog := text.from_bytes([]uint8("timeout"), c_allocator)?
     st, e := os.run_in(dir, prog.bytes(), argv, mut res.out, mut res.err, c_allocator)
     if e.code != 0 {
@@ -78,6 +92,7 @@ func run_argv(dir []uint8, argv []text.Text) (Ran, error) {
     }
     if !st.exited() {
         res.code = -1
+        res.signo = st.signal()
         fmt.appendf(mut res.trouble, "it was killed by signal %d", st.signal())?
         return res, noerror
     }
