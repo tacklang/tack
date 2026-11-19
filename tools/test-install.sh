@@ -70,6 +70,11 @@
 #     that the install after one ended by SIGKILL there removes what it
 #     left and installs both.
 #
+# Every run of clang goes through a stand-in for it that records each
+# failed run, with clang's standard error, the free space of the
+# temporary directory and the same command again with -v, which shows
+# the linker's command; a failed check shows that record.
+#
 # The checks of directories that cannot be written or read are skipped,
 # saying so, when it runs as root, which can write and read them all.
 # It stops at the first check that fails, saying which, with exit status
@@ -104,9 +109,51 @@ done
 root=0
 [ "$(id -u)" -ne 0 ] || root=1
 
-# fail reports the check that failed, its arguments, and stops.
+# clanglog records each run of clang that fails, from a stand-in for
+# clang first on PATH for every run the script makes: the command line,
+# clang's standard error, the free space of the temporary directory, and
+# the same command run again with -v, which names the linker's command
+# line, and how that ended. The stand-in passes clang's output and exit
+# status through unchanged, its standard error once clang ends.
+clanglog="$tmp/clang-failures.log"
+realclang=$(command -v clang) || {
+	echo "test-install: FAIL: no clang on PATH" >&2
+	exit 1
+}
+mkdir "$tmp/clang"
+cat >"$tmp/clang/clang" <<EOF
+#!/bin/sh
+err=\$(mktemp "$runtmp/clang-stderr.XXXXXX") || exit 1
+"$realclang" "\$@" 2>"\$err"
+status=\$?
+cat "\$err" >&2
+if [ \$status -ne 0 ]; then
+	{
+		echo "== clang exited \$status at \$(date +%T.%N)"
+		for a in "\$@"; do printf '  %s\n' "\$a"; done
+		echo "-- its standard error:"
+		cat "\$err"
+		echo "-- free space where TMPDIR, \${TMPDIR:-/tmp}, is:"
+		df -h "\${TMPDIR:-/tmp}"
+		echo "-- the same command again, with -v:"
+		"$realclang" -v "\$@" 2>&1
+		echo "-- which exited \$?"
+	} >>"$clanglog"
+fi
+rm -f "\$err"
+exit \$status
+EOF
+chmod +x "$tmp/clang/clang"
+PATH="$tmp/clang:$PATH"
+
+# fail reports the check that failed, its arguments, and every run of
+# clang that failed, and stops.
 fail() {
 	echo "test-install: FAIL: $*" >&2
+	if [ -s "$clanglog" ]; then
+		echo "test-install: the runs of clang that failed:" >&2
+		cat "$clanglog" >&2
+	fi
 	exit 1
 }
 
