@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/too-many-fields/UnicodeData.txt:5: a line has 15 fields, separated by ;
+exit 1

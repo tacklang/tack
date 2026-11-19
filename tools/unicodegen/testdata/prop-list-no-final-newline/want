@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/prop-list-no-final-newline/PropList.txt:9: the file does not end in a newline, so it may be cut short
+exit 1

@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/two-semicolons/PropList.txt:9: a line is a range, a ; and a property
+exit 1

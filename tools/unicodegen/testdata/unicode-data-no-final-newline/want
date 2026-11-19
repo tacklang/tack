@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/unicode-data-no-final-newline/UnicodeData.txt:13: the file does not end in a newline, so it may be cut short
+exit 1

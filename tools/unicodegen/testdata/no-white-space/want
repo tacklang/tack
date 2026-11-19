@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/no-white-space/PropList.txt: no line gives the White_Space property
+exit 1

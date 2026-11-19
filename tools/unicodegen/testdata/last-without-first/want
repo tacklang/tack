@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/last-without-first/UnicodeData.txt:11: a Last line with no First before it
+exit 1

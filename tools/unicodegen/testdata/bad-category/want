@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/bad-category/UnicodeData.txt:3: Nx is no General_Category
+exit 1

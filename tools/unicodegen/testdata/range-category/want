@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/range-category/UnicodeData.txt:12: a Last line has another name or category than its First
+exit 1

@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/duplicate-code/UnicodeData.txt:6: 0041 is not above the code points before it
+exit 1

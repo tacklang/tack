@@ -1,0 +1,2 @@
+unicodegen: reading tools/unicodegen/testdata/missing-prop-list/PropList.txt: No such file or directory
+exit 1

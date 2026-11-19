@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/empty-unicode-data/UnicodeData.txt: the file is empty
+exit 1

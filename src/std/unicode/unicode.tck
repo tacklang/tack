@@ -10,18 +10,22 @@ package unicode
 // alone, with no C, allocates nothing and cannot fail.
 //
 // A rune is an int32, as in std/utf8. is_print, is_graphic, is_letter,
-// is_digit and is_space each answer for any int32 exactly as Go's
-// unicode.IsPrint, IsGraphic, IsLetter, IsDigit and IsSpace do, Latin-1
-// included, and false for a negative value or one past 0x10FFFF, which
-// is no rune. The surrogates, unassigned runes and private-use runes are
-// in no class.
+// is_digit and is_space each answer for any int32 as Go's
+// unicode.IsPrint, IsGraphic, IsLetter, IsDigit and IsSpace define their
+// classes, Latin-1 included, at Unicode 18.0.0, the version tables.tck
+// names, and false for a negative value or one past 0x10FFFF, which is
+// no rune. A Go whose unicode package is at another Unicode version
+// answers otherwise for the runes the two versions classify differently:
+// Go's at 17.0.0, for the 13007 runes Unicode 18.0.0 assigns. The
+// surrogates, unassigned runes and private-use runes are in no class.
 //
-// The tables are in tables.tck, which internal/unicodegen writes from
-// the Go unicode package that ran it, `make unicode-tables`, and names
-// that package's Unicode version; a test fails while the committed file
-// differs from what the installed Go would write. Each class is an array
-// of runs of consecutive runes, a first rune and a last, in ascending
-// order, searched by halves: at most 10 steps for a class of 741 runs.
+// The tables are in tables.tck, which tools/unicodegen writes from the
+// copy of the Unicode Character Database in tools/unicodegen/ucd,
+// `make unicode-tables`, and names its Unicode version; `make
+// check-unicode-tables` fails while the committed file differs from
+// what it writes. Each class is an array of runs of consecutive runes,
+// a first rune and a last, in ascending order, searched by halves: at
+// most 10 steps for a class of 741 runs.
 
 // max_rune is the largest rune, U+10FFFF.
 var max_rune int32 = 0x10FFFF

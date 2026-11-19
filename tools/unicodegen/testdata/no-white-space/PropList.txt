@@ -1,0 +1,4 @@
+# PropList-9.9.9.txt
+# A comment line.
+
+2000..200A    ; Pattern_White_Space # another property, ignored

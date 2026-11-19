@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/first-without-last/UnicodeData.txt:12: a First line is not followed by its Last
+exit 1

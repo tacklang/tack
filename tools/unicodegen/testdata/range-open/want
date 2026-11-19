@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/range-open/PropList.txt:7: 1680.. is no code point or range of code points
+exit 1

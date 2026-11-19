@@ -1,0 +1,159 @@
+package unicode
+
+import testing from "std/testing"
+
+// The tests of std/unicode, which tack test runs on its directory: a
+// rune Unicode 18.0.0 assigns in each class the upgrade from 17.0.0
+// changed, the first rune, the last and the runes either side of runs of
+// every class, Latin-1's space set and the values that are no rune. The
+// runes are written as numbers, never in a literal, so the lexer's dump
+// of this package is the same whichever Unicode version quotes it.
+// std/testing imports no std package, so importing it here makes no
+// cycle.
+
+// Classes is what each of std/unicode's five functions answers for one
+// rune.
+type Classes struct {
+    print bool
+    graphic bool
+    letter bool
+    digit bool
+    space bool
+}
+
+// none is the classes of a rune in no class.
+var none = Classes{print: false, graphic: false, letter: false, digit: false, space: false}
+
+// expect reports, at its caller, each of r's classes that is not want's.
+func expect(_ testing.Site, mut t testing.T, r int32, want Classes) {
+    if is_print(r) != want.print {
+        mut t.errorf("is_print(0x%x) = %t, want %t", r, is_print(r), want.print)
+    }
+    if is_graphic(r) != want.graphic {
+        mut t.errorf("is_graphic(0x%x) = %t, want %t", r, is_graphic(r), want.graphic)
+    }
+    if is_letter(r) != want.letter {
+        mut t.errorf("is_letter(0x%x) = %t, want %t", r, is_letter(r), want.letter)
+    }
+    if is_digit(r) != want.digit {
+        mut t.errorf("is_digit(0x%x) = %t, want %t", r, is_digit(r), want.digit)
+    }
+    if is_space(r) != want.space {
+        mut t.errorf("is_space(0x%x) = %t, want %t", r, is_space(r), want.space)
+    }
+}
+
+// letter is the classes of a letter, which is printable and graphic.
+var letter = Classes{print: true, graphic: true, letter: true, digit: false, space: false}
+
+// mark is the classes of a mark, punctuation or symbol: printable and
+// graphic, and nothing else.
+var mark = Classes{print: true, graphic: true, letter: false, digit: false, space: false}
+
+// digit is the classes of a decimal digit.
+var digit = Classes{print: true, graphic: true, letter: false, digit: true, space: false}
+
+// zs_space is the classes of a space of category Zs other than U+0020:
+// graphic and space, but not printable.
+var zs_space = Classes{print: false, graphic: true, letter: false, digit: false, space: true}
+
+// control_space is the classes of a space that is no Zs, as '\t' and
+// U+0085 are: space alone.
+var control_space = Classes{print: false, graphic: false, letter: false, digit: false, space: true}
+
+// test_new_in_18 checks runes Unicode 18.0.0 assigns, unassigned and in
+// no class at 17.0.0: U+0558, a modifier letter, Lm, for the letter
+// class, and U+0B53, a nonspacing mark, Mn, for print and graphic alone.
+// digit and space are the same at both versions.
+func test_new_in_18(mut t testing.T) error {
+    expect(mut t, 0x0558, letter)
+    expect(mut t, 0x0B53, mark)
+    return noerror
+}
+
+// test_letter_runs checks the bounds of letter runs: the first, A to Z,
+// the one U+0558 opens at 18.0.0, U+0558 and U+0559, and the last, from
+// U+3D000 to U+3FC3F, each with the runes either side.
+func test_letter_runs(mut t testing.T) error {
+    expect(mut t, 0x40, mark)
+    expect(mut t, 0x41, letter)
+    expect(mut t, 0x5A, letter)
+    expect(mut t, 0x5B, mark)
+    expect(mut t, 0x0557, none)
+    expect(mut t, 0x0559, letter)
+    expect(mut t, 0x055A, mark)
+    expect(mut t, 0x3CFFF, none)
+    expect(mut t, 0x3D000, letter)
+    expect(mut t, 0x3FC3F, letter)
+    expect(mut t, 0x3FC40, none)
+    return noerror
+}
+
+// test_print_runs checks the bounds of print runs: the first, U+0020 to
+// U+007E, the one U+0B53 opens at 18.0.0, to U+0B57, and the last, the
+// variation selectors from U+E0100 to U+E01EF.
+func test_print_runs(mut t testing.T) error {
+    expect(mut t, 0x1F, none)
+    expect(mut t, 0x7E, mark)
+    expect(mut t, 0x7F, none)
+    expect(mut t, 0x0B52, none)
+    expect(mut t, 0x0B57, mark)
+    expect(mut t, 0x0B58, none)
+    expect(mut t, 0xE00FF, none)
+    expect(mut t, 0xE0100, mark)
+    expect(mut t, 0xE01EF, mark)
+    expect(mut t, 0xE01F0, none)
+    return noerror
+}
+
+// test_digit_runs checks the bounds of the first digit run, '0' to '9',
+// and of the last, U+1FBF0 to U+1FBF9, between two symbols.
+func test_digit_runs(mut t testing.T) error {
+    expect(mut t, 0x2F, mark)
+    expect(mut t, 0x30, digit)
+    expect(mut t, 0x39, digit)
+    expect(mut t, 0x3A, mark)
+    expect(mut t, 0x1FBEF, mark)
+    expect(mut t, 0x1FBF0, digit)
+    expect(mut t, 0x1FBF9, digit)
+    expect(mut t, 0x1FBFA, mark)
+    return noerror
+}
+
+// test_spaces checks Go's Latin-1 space set, '\t' to '\r', U+0020,
+// U+0085 and U+00A0, with the runes either side of each, and the first
+// and last White_Space runes above it, U+1680 and U+3000. U+0020 is the
+// one space is_print holds for.
+func test_spaces(mut t testing.T) error {
+    expect(mut t, 0x08, none)
+    expect(mut t, 0x09, control_space)
+    expect(mut t, 0x0D, control_space)
+    expect(mut t, 0x0E, none)
+    expect(mut t, 0x20, Classes{print: true, graphic: true, letter: false, digit: false, space: true})
+    expect(mut t, 0x21, mark)
+    expect(mut t, 0x84, none)
+    expect(mut t, 0x85, control_space)
+    expect(mut t, 0x86, none)
+    expect(mut t, 0x9F, none)
+    expect(mut t, 0xA0, zs_space)
+    expect(mut t, 0xA1, mark)
+    expect(mut t, 0x167F, letter)
+    expect(mut t, 0x1680, zs_space)
+    expect(mut t, 0x1681, letter)
+    expect(mut t, 0x2FFF, mark)
+    expect(mut t, 0x3000, zs_space)
+    expect(mut t, 0x3001, mark)
+    return noerror
+}
+
+// test_no_rune checks the values that are no rune, and the last rune,
+// U+10FFFF, a noncharacter, are in no class.
+func test_no_rune(mut t testing.T) error {
+    expect(mut t, -1, none)
+    expect(mut t, -2147483648, none)
+    expect(mut t, 0x10FFFF, none)
+    expect(mut t, 0x110000, none)
+    expect(mut t, 2147483647, none)
+    expect(mut t, 0, none)
+    return noerror
+}

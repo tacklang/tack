@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/out-of-order/UnicodeData.txt:5: 0031 is not above the code points before it
+exit 1

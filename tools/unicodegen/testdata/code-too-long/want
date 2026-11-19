@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/code-too-long/UnicodeData.txt:13: 0004DC0 is not a code point of 4 to 6 uppercase hex digits up to 10FFFF
+exit 1

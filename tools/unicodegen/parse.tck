@@ -1,0 +1,423 @@
+package main
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import text from "std/text"
+
+// The readers of the two UCD files: UnicodeData.txt's categories, and
+// PropList.txt's version and White_Space ranges. Each reports what is
+// wrong with its input on standard error, naming the file and the line,
+// counted from 1, and returns false.
+//
+// A view cannot be held in a variable, so the readers hold the bounds
+// of a line or a field in data, a and b, and pass part(data, a, b) on
+// where the bytes are wanted.
+
+// categories are the 30 values of General_Category, each two letters.
+var categories = "LuLlLtLmLoMnMcMeNdNlNoPcPdPsPePiPfPoSmScSkSoZsZlZpCcCfCsCoCn"
+
+// part returns s[a:b]. Every caller passes bounds of s, a from 0 to b
+// and b at most len(s), which the scans that found them hold; for any
+// other a and b, which no caller passes, it returns an empty view.
+func part(s []uint8, a int64, b int64) []uint8 {
+    if a < 0 || b < a || b > len(s) {
+        return s[:0]
+    }
+    return s[a:b]
+}
+
+// line_end returns where the line of data that starts at start ends:
+// the index of its newline, or len(data) for a last line with none.
+func line_end(data []uint8, start int64) int64 {
+    mut i := start
+    for i < len(data) {
+        c, ok := data[i]
+        if !ok || c == '\n' {
+            return i
+        }
+        i +%= 1
+    }
+    return len(data)
+}
+
+// field_at returns the bounds in data of the k-th field, counted from 0,
+// of the line data[a:b], whose fields are separated by ';', and true, or
+// false when the line has no k-th field.
+func field_at(data []uint8, a int64, b int64, k int64) (int64, int64, bool) {
+    mut start := a
+    mut n int64 = 0
+    mut i := a
+    for i < b {
+        c, ok := data[i]
+        if !ok {
+            return 0, 0, false
+        }
+        if c == ';' {
+            if n == k {
+                return start, i, true
+            }
+            n +%= 1
+            // i is below b, so i + 1 does not wrap.
+            start = i +% 1
+        }
+        i +%= 1
+    }
+    if n != k {
+        return 0, 0, false
+    }
+    return start, b, true
+}
+
+// count_byte returns how many times c is in data[a:b].
+func count_byte(data []uint8, a int64, b int64, c uint8) int64 {
+    mut n int64 = 0
+    for _, x := range part(data, a, b) {
+        if x == c {
+            n +%= 1
+        }
+    }
+    return n
+}
+
+// trim_bounds returns the bounds of data[a:b] without its leading and
+// trailing spaces and tabs.
+func trim_bounds(data []uint8, a int64, b int64) (int64, int64) {
+    mut x := a
+    mut y := b
+    for x < y {
+        c, ok := data[x]
+        if !ok || c != ' ' && c != '\t' {
+            break
+        }
+        x +%= 1
+    }
+    for y > x {
+        // y is above x, which is at least 0, so y - 1 does not wrap.
+        c, ok := data[y -% 1]
+        if !ok || c != ' ' && c != '\t' {
+            break
+        }
+        y -%= 1
+    }
+    return x, y
+}
+
+// parse_code returns the code point s holds, 4 to 6 uppercase hex
+// digits, as the UCD writes one, and true, or false when s is not that
+// or is above U+10FFFF.
+func parse_code(s []uint8) (int32, bool) {
+    if len(s) < 4 || len(s) > 6 {
+        return 0, false
+    }
+    mut v int64 = 0
+    for _, c := range s {
+        mut d int64 = 0
+        if c >= '0' && c <= '9' {
+            d = int64(c -% '0')
+        } else if c >= 'A' && c <= 'F' {
+            d = int64(c -% 'A') +% 10
+        } else {
+            return 0, false
+        }
+        // At most six digits, so v stays below 16^6 and cannot wrap.
+        v = v *% 16 +% d
+    }
+    r, fits := int32(v)
+    if !fits || r > max_rune {
+        return 0, false
+    }
+    return r, true
+}
+
+// is_category reports whether gc is one of the 30 General_Category
+// values.
+func is_category(gc []uint8) bool {
+    if len(gc) != 2 {
+        return false
+    }
+    g0, ok := gc[0]
+    g1, ok2 := gc[1]
+    if !ok || !ok2 {
+        return false
+    }
+    return in_pairs([]uint8(categories), g0, g1)
+}
+
+// in_pairs reports whether all, read as pairs of bytes, holds the pair
+// g0 and g1.
+func in_pairs(all []uint8, g0 uint8, g1 uint8) bool {
+    mut i int64 = 0
+    for i < len(all) {
+        a, ok := all[i]
+        b, ok2 := all[i +% 1]
+        if !ok || !ok2 {
+            return false
+        }
+        if a == g0 && b == g1 {
+            return true
+        }
+        i +%= 2
+    }
+    return false
+}
+
+// classify adds the runes first to last, all of General_Category gc, a
+// category is_category holds for, to each class of t that holds them,
+// as the package documentation defines the classes. space is not
+// General_Category's, and read_prop_list adds it.
+func classify(mut t Tables, gc []uint8, first int32, last int32) error {
+    major, ok := gc[0]
+    if !ok {
+        return internal
+    }
+    lmnps := major == 'L' || major == 'M' || major == 'N' || major == 'P' || major == 'S'
+    zs := bytes.equal(gc, []uint8("Zs"))
+    if lmnps {
+        mut t.print.add(first, last)?
+    } else if zs && first <= 0x20 && last >= 0x20 {
+        mut t.print.add(0x20, 0x20)?
+    }
+    if lmnps || zs {
+        mut t.graphic.add(first, last)?
+    }
+    if major == 'L' {
+        mut t.letter.add(first, last)?
+    }
+    if bytes.equal(gc, []uint8("Nd")) {
+        mut t.digit.add(first, last)?
+    }
+    return noerror
+}
+
+// read_unicode_data reads data, the UnicodeData.txt at file, adding each
+// of its runes to the classes of t that hold it, and reports whether its
+// every line is as the package documentation says, it has one and it
+// ends in a newline, having written what is wrong otherwise.
+func read_unicode_data(file []uint8, data []uint8, mut t Tables) (bool, error) {
+    mut start int64 = 0
+    mut line_no int64 = 0
+    // above is the lowest code point a line may have: one past the last
+    // rune of the line before it.
+    mut above int64 = 0
+    mut in_range := false
+    mut range_first int32 = 0
+    mut range_gc := text.new(c_allocator)
+    mut range_name := text.new(c_allocator)
+    if len(data) == 0 {
+        fmt.eprintf("unicodegen: %s: the file is empty\n", file)
+        return false, noerror
+    }
+    for start < len(data) {
+        a := start
+        b := line_end(data, start)
+        // b is at most len(data), so b + 1 does not wrap.
+        start = b +% 1
+        line_no +%= 1
+        if count_byte(data, a, b, ';') != 14 {
+            fmt.eprintf("unicodegen: %s:%d: a line has 15 fields, separated by ;\n", file, line_no)
+            return false, noerror
+        }
+        ca, cb, ok0 := field_at(data, a, b, 0)
+        na, nb, ok1 := field_at(data, a, b, 1)
+        ga, gb, ok2 := field_at(data, a, b, 2)
+        if !ok0 || !ok1 || !ok2 {
+            return false, internal
+        }
+        code, cok := parse_code(part(data, ca, cb))
+        if !cok {
+            fmt.eprintf("unicodegen: %s:%d: %s is not a code point of 4 to 6 uppercase hex digits up to 10FFFF\n", file, line_no, part(data, ca, cb))
+            return false, noerror
+        }
+        if !is_category(part(data, ga, gb)) {
+            fmt.eprintf("unicodegen: %s:%d: %s is no General_Category\n", file, line_no, part(data, ga, gb))
+            return false, noerror
+        }
+        if int64(code) < above {
+            fmt.eprintf("unicodegen: %s:%d: %s is not above the code points before it\n", file, line_no, part(data, ca, cb))
+            return false, noerror
+        }
+        is_first := bytes.has_suffix(part(data, na, nb), []uint8(", First>"))
+        is_last := bytes.has_suffix(part(data, na, nb), []uint8(", Last>"))
+        if in_range != is_last {
+            if in_range {
+                fmt.eprintf("unicodegen: %s:%d: a First line is not followed by its Last\n", file, line_no)
+            } else {
+                fmt.eprintf("unicodegen: %s:%d: a Last line with no First before it\n", file, line_no)
+            }
+            return false, noerror
+        }
+        // above is one past the last rune of this line, the Last's of a
+        // range, at most 0x110000, so + 1 does not wrap.
+        above = int64(code) +% 1
+        if is_first {
+            in_range = true
+            range_first = code
+            range_gc = text.new(c_allocator)
+            mut range_gc.append(part(data, ga, gb))?
+            // The name before ", First>", its < included, must be the
+            // Last's before ", Last>". has_suffix holds, so nb - 8 is
+            // from na to nb.
+            range_name = text.new(c_allocator)
+            mut range_name.append(part(data, na, nb -% 8))?
+            continue
+        }
+        mut first := code
+        if is_last {
+            // has_suffix holds, so nb - 7 is from na to nb.
+            if !range_gc.equal(part(data, ga, gb)) || !range_name.equal(part(data, na, nb -% 7)) {
+                fmt.eprintf("unicodegen: %s:%d: a Last line has another name or category than its First\n", file, line_no)
+                return false, noerror
+            }
+            in_range = false
+            first = range_first
+        }
+        classify(mut t, part(data, ga, gb), first, code)?
+    }
+    if in_range {
+        fmt.eprintf("unicodegen: %s:%d: the file ends between a First line and its Last\n", file, line_no)
+        return false, noerror
+    }
+    if !ends_in_newline(data) {
+        fmt.eprintf("unicodegen: %s:%d: the file does not end in a newline, so it may be cut short\n", file, line_no)
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// ends_in_newline reports whether data's last byte is a newline, as the
+// last byte of every UCD file is: a file cut short mid-line has none.
+func ends_in_newline(data []uint8) bool {
+    if len(data) == 0 {
+        return false
+    }
+    last, ok := data[len(data) -% 1]
+    return ok && last == '\n'
+}
+
+// read_version appends to version the Unicode version that data, a
+// PropList.txt, names on its first line, "# PropList-<version>.txt",
+// and reports whether that line has that shape: a version of digits and
+// dots, not empty, with no dot first, last or after another.
+func read_version(data []uint8, mut version text.Text) (bool, error) {
+    b := line_end(data, 0)
+    if !bytes.has_prefix(part(data, 0, b), []uint8("# PropList-")) || !bytes.has_suffix(part(data, 0, b), []uint8(".txt")) {
+        return false, noerror
+    }
+    // The version is what is between the prefix, 11 bytes, and the
+    // suffix, 4; b is at least 4, the suffix being there.
+    va := int64(11)
+    vb := b -% 4
+    if vb <= va {
+        return false, noerror
+    }
+    mut i := va
+    mut after_digit := false
+    for i < vb {
+        c, ok := data[i]
+        if !ok {
+            return false, noerror
+        }
+        if c >= '0' && c <= '9' {
+            after_digit = true
+        } else if c == '.' && after_digit && i < vb -% 1 {
+            after_digit = false
+        } else {
+            return false, noerror
+        }
+        i +%= 1
+    }
+    mut version.append(part(data, va, vb))?
+    return true, noerror
+}
+
+// parse_range returns the range s holds, a code point or two joined by
+// "..", the first no greater than the second, as PropList.txt writes
+// one, and true, or false when s is not that.
+func parse_range(s []uint8) (int32, int32, bool) {
+    dots := bytes.index(s, []uint8(".."))
+    if dots < 0 {
+        r, ok := parse_code(s)
+        return r, r, ok
+    }
+    // dots is an index of s, so dots + 2 is at most len(s) + 1, which
+    // part refuses.
+    first, ok := parse_code(part(s, 0, dots))
+    last, ok2 := parse_code(part(s, dots +% 2, len(s)))
+    if !ok || !ok2 || last < first {
+        return 0, 0, false
+    }
+    return first, last, true
+}
+
+// read_prop_list reads data, the PropList.txt at file, adding to t's
+// space class each White_Space rune above U+00FF, and reports whether
+// its every line is as the package documentation says, at least one
+// gives White_Space and it ends in a newline, having written what is
+// wrong otherwise. A line's comment,
+// from its first #, is dropped first.
+func read_prop_list(file []uint8, data []uint8, mut t Tables) (bool, error) {
+    mut start int64 = 0
+    mut line_no int64 = 0
+    // above is the lowest rune the next White_Space range may start at.
+    mut above int64 = 0
+    mut white_space := false
+    for start < len(data) {
+        a := start
+        mut b := line_end(data, start)
+        // b is at most len(data), so b + 1 does not wrap.
+        start = b +% 1
+        line_no +%= 1
+        hash := bytes.index_byte(part(data, a, b), '#')
+        if hash >= 0 {
+            // hash is an index of data[a:b], so a + hash is below b.
+            b = a +% hash
+        }
+        la, lb := trim_bounds(data, a, b)
+        if la >= lb {
+            continue
+        }
+        if count_byte(data, la, lb, ';') != 1 {
+            fmt.eprintf("unicodegen: %s:%d: a line is a range, a ; and a property\n", file, line_no)
+            return false, noerror
+        }
+        ra0, rb0, ok0 := field_at(data, la, lb, 0)
+        pa0, pb0, ok1 := field_at(data, la, lb, 1)
+        if !ok0 || !ok1 {
+            return false, internal
+        }
+        ra, rb := trim_bounds(data, ra0, rb0)
+        pa, pb := trim_bounds(data, pa0, pb0)
+        first, last, rok := parse_range(part(data, ra, rb))
+        if !rok {
+            fmt.eprintf("unicodegen: %s:%d: %s is no code point or range of code points\n", file, line_no, part(data, ra, rb))
+            return false, noerror
+        }
+        if !bytes.equal(part(data, pa, pb), []uint8("White_Space")) {
+            continue
+        }
+        white_space = true
+        if int64(first) < above {
+            fmt.eprintf("unicodegen: %s:%d: a White_Space range is not above the one before it\n", file, line_no)
+            return false, noerror
+        }
+        // last is at most 0x10FFFF, so + 1 does not wrap.
+        above = int64(last) +% 1
+        if last <= 0xFF {
+            continue
+        }
+        mut lo := first
+        if lo <= 0xFF {
+            lo = 0x100
+        }
+        mut t.space.add(lo, last)?
+    }
+    if !white_space {
+        fmt.eprintf("unicodegen: %s: no line gives the White_Space property\n", file)
+        return false, noerror
+    }
+    if !ends_in_newline(data) {
+        fmt.eprintf("unicodegen: %s:%d: the file does not end in a newline, so it may be cut short\n", file, line_no)
+        return false, noerror
+    }
+    return true, noerror
+}

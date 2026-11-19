@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/lowercase-hex/UnicodeData.txt:5: 004a is not a code point of 4 to 6 uppercase hex digits up to 10FFFF
+exit 1

@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/white-space-order/PropList.txt:10: a White_Space range is not above the one before it
+exit 1

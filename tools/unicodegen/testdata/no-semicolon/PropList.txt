@@ -1,0 +1,9 @@
+# PropList-9.9.9.txt
+# A comment line.
+
+0009..000D    ; White_Space # Cc   [5] <control-0009>..<control-000D>
+0020          ; White_Space # Zs       SPACE
+00F0..0101    ; White_Space # a range across U+00FF
+1680          ; White_Space # Zs       OGHAM SPACE MARK
+2000..200A    ; Pattern_White_Space # another property, ignored
+3000 White_Space

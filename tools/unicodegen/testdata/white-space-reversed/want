@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/white-space-reversed/PropList.txt:7: 1690..1680 is no code point or range of code points
+exit 1

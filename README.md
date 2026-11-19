@@ -370,6 +370,34 @@ defines the zero values, which the language owner may still overrule:
   helper leaves a zeroed string in its slot, where Go names the empty
   string before the pool declares it.
 
+Decided on 2026-11-19, following the owner's ruling of that day that
+std/unicode is at Unicode 18.0.0, which covers every place the compiler
+quotes or classifies a rune, diagnostic wording included:
+
+- A rune Unicode 18.0.0 assigns is quoted and classified as 18.0.0
+  has it, where Go's unicode package is at 17.0.0 and has it
+  unassigned: Go writes U+0558 as `\u0558` where the port writes `՘`
+  itself. tackc's porttest records each such place with a probe:
+  - `--lex`'s dump of a string, char or comment, `string("՘")`;
+  - a printf verb, `unknown printf verb %՘`, where Go writes
+    `"%\u0558"`;
+  - a duplicate string case, `duplicate case "՘" in switch`;
+  - an extern func's C name that is no C identifier, `cannot be named
+    "՘" in C`;
+  - a module name in `tack.mod`, `invalid module name "m՘"`;
+  - a package name from a directory, `"՘" is not a valid package name`;
+  - the driver's usage errors that quote an argument: a flag's value it
+    cannot parse, `invalid value "՘" for flag -max-errors`, arguments
+    past the one file, and an unknown backend, `unknown backend "՘"`;
+  - `tack test`'s: a boolean flag's value, `invalid boolean value "՘"
+    for -v`, and arguments past the one target.
+
+  The lexer's invalid escape sequence quotes at most one byte past the
+  backslash, never a whole rune, and a map fact's key is compared and
+  never written, so neither differs; nor does white space, which is the
+  same at both versions. tackc's porttest fuzz targets skip every input
+  holding a rune the two versions classify apart.
+
 ### Known differences
 
 These are known, and not fixed yet:
@@ -510,6 +538,41 @@ refreshes after a change to either. tackc's porttest fails while
 `embedded.tck` differs from what `make embed` writes, or while std's
 copies differ from `runtime/`'s.
 
+std/unicode classifies runes as Go's unicode package defines its
+classes, at Unicode 18.0.0 (owner ruling 2026-11-19), where the Go
+compiler's unicode package, and tackc's frozen copy of the tables, are
+at 17.0.0; the two differ only on the 13007 runes Unicode 18.0.0
+assigns. Its tables, `src/std/unicode/tables.tck`, are written by
+`tools/unicodegen`, a Tack program, from this repository's copy of the
+Unicode Character Database, `tools/unicodegen/ucd/18.0.0`:
+`UnicodeData.txt` and `PropList.txt` as unicode.org publishes them,
+with `license.txt`, the Unicode License V3 they are under, and
+`SHA256SUMS`, the SHA-256 of each of the three as unicode.org
+publishes them. After a change to the generator or to that copy,
+
+    make unicode-tables TACK=../tackc/bin/port-go/tack
+
+rewrites the tables, and
+
+    make check-unicode-tables TACK=bin/tack
+
+fails while they differ from what the generator writes. Both first
+check the copy: every file of it must have the SHA-256 `SHA256SUMS`
+pins, and `PropList.txt` must name the version the directory is named
+for. And
+
+    make test-unicodegen TACK=bin/tack
+
+runs the generator on the cases of `tools/unicodegen/testdata`, small
+UCDs, most of them missing or malformed, each with the standard error
+and exit status it must give, and the tables for those it accepts. None
+of them needs Go. tackc's porttest `unicode-tables` stage makes the
+same checks with the port. A new Unicode version replaces the copy's
+directory, which must be the only one in `tools/unicodegen/ucd`, its
+`SHA256SUMS` and `UCD` in the Makefile. std/unicode's tests,
+`src/std/unicode/unicode_test.tck`, check a rune of each class the
+upgrade to 18.0.0 changed and the bounds of the tables' runs.
+
 ## Testing
 
 `corpus/` is the test corpus: `examples/`, the example programs with
@@ -520,8 +583,11 @@ as a copy of tackc's `examples/` and `test/testdata`, and tackc's
 porttest `TestPortFiles` keeps it equal to tackc's but for the cases
 and files it lists with their reasons: the four cases of
 `invalid.txtar` where the port diverges from Go on purpose (see Known
-divergences), and the goldens and `tack.h` copies of the programs that
-import std/os, whose externs this repository's std adds to. Its
+divergences), the goldens and `tack.h` copies of the programs that
+import std/os, whose externs this repository's std adds to, and the
+goldens of the programs that import std/unicode, through std/conv,
+std/fmt or themselves, whose tables this repository's std has at
+Unicode 18.0.0. Its
 `tack.mod` makes it a module root only so that `tack --check .` skips
 it.
 
@@ -554,6 +620,14 @@ leaves, line by line, before keeping it. `tack.h` is written from a
 scratch copy where `--emit-header` ran, never by running it in
 `corpus/`. tackc's porttest runs the same check, its `corpus-runner`
 stage, with the port.
+
+    make test-std TACK=bin/tack
+
+runs `tack test` on every package of std that holds a test file,
+`std/hex` and `std/unicode` today, and fails when any of them fails. It
+needs no Go. tackc's porttest `test-examples` stage runs the same
+packages' tests with both compilers, and its `unicode-tables` stage
+requires std/unicode's to pass.
 
 ## Checking against the Go compiler
 

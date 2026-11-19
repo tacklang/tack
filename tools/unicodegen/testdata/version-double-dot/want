@@ -1,0 +1,2 @@
+unicodegen: tools/unicodegen/testdata/version-double-dot/PropList.txt:1: the first line is not # PropList-<version>.txt
+exit 1

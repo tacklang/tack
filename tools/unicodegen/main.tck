@@ -1,0 +1,142 @@
+package main
+
+import fmt from "std/fmt"
+import os from "std/os"
+import path from "std/path"
+import text from "std/text"
+
+// Package main is unicodegen, the tool that writes std/unicode's tables,
+// src/std/unicode/tables.tck, from the Unicode Character Database (UCD).
+// It is run as
+//
+//     unicodegen <ucd-dir> <out>
+//
+// or `make unicode-tables`, which runs it on the copy of the UCD under
+// tools/unicodegen/ucd/<version>: UnicodeData.txt and PropList.txt as
+// https://www.unicode.org/Public/<version>/ucd/ publishes them, with
+// license.txt, the Unicode License V3 they are under; `make
+// check-unicode-tables` fails while tables.tck is not what it writes
+// from that copy, and `make test-unicodegen` runs it on the cases of
+// tools/unicodegen/testdata, each a small UCD with what it must write. It
+// reads two files of ucd-dir, UnicodeData.txt
+// and PropList.txt, and writes out. A file it cannot read, input it
+// cannot parse or an out it cannot write is reported on standard error,
+// with exit status 1, and 2 for a command line of the wrong shape.
+//
+// It writes the classes std/unicode answers, each defined exactly as Go's
+// unicode package defines its predicate, which the Go program that wrote
+// the tables before it, tackc's internal/unicodegen, asked of every rune:
+//
+//     print_runs    unicode.IsPrint: General_Category L, M, N, P or S,
+//                   and U+0020, the one space it counts
+//     graphic_runs  unicode.IsGraphic: L, M, N, P, S or Zs
+//     letter_runs   unicode.IsLetter: L (Lu, Ll, Lt, Lm, Lo)
+//     digit_runs    unicode.IsDigit: Nd
+//     space_runs    unicode.IsSpace: from U+0000 to U+00FF, Go's own set,
+//                   '\t', '\n', '\v', '\f', '\r', ' ', U+0085 and U+00A0;
+//                   above U+00FF, the White_Space property of PropList.txt
+//
+// General_Category is UnicodeData.txt's third field. A rune the file
+// does not list is unassigned, Cn, and in no class; a pair of lines
+// whose names end in ", First>" and ", Last>" gives the category of
+// every rune from the first's to the last's. Each class is written as
+// the runs of consecutive runes it holds, each run's first rune and its
+// last, in ascending order with no two runs touching, as one array of
+// int32 pairs, in the format the Go program wrote, so that std/unicode
+// answers a class by a binary search of its runs.
+//
+// The header names the Unicode version, which the first line of
+// PropList.txt, "# PropList-<version>.txt", gives. The rest of the file
+// is what Go's internal/unicodegen wrote for the same Unicode version,
+// byte for byte: its comments name Go's predicates, whose definitions
+// these are.
+//
+// The input is parsed strictly, and anything it does not expect is an
+// error, never skipped: a UnicodeData.txt line must have its 15 fields,
+// a code point of 4 to 6 uppercase hex digits no greater than U+10FFFF,
+// one of the 30 General_Category values and a code point above every
+// line's before it, and a First line must be followed at once by its
+// Last, with the same category and name, and the file must not be
+// empty. A PropList.txt line, past its comment, is empty or a code
+// point or range, a ';' and a property name, White_Space's ranges must
+// ascend and at least one line must give White_Space. Each file must
+// end in a newline, as one cut short mid-line does not. Every pass is a
+// loop over the
+// bytes or the lines, with no recursion.
+
+// max_rune is the largest rune, U+10FFFF.
+var max_rune int32 = 0x10FFFF
+
+// main runs the tool and exits with the status run gives.
+func main() {
+    a, err := os.args(c_allocator)
+    if err.code != 0 {
+        fmt.eprintf("unicodegen: %s\n", err.msg)
+        exit(1)
+    }
+    code, e := run(a)
+    if e.code != 0 {
+        fmt.eprintf("unicodegen: %s\n", e.msg)
+        exit(1)
+    }
+    exit(code)
+}
+
+// run does main's work for the arguments a, the program's name first,
+// and returns the exit status, or an error that stopped it: out of
+// memory, or an internal error, which no input causes.
+func run(a []text.Text) (int32, error) {
+    if len(a) != 3 {
+        fmt.eprintf("usage: unicodegen <ucd-dir> <out>\n")
+        return 2, noerror
+    }
+    mut dir := text.new(c_allocator)
+    mut out_path := text.new(c_allocator)
+    for i, arg := range a {
+        if i == 1 {
+            mut dir.append(arg.bytes())?
+        } else if i == 2 {
+            mut out_path.append(arg.bytes())?
+        }
+    }
+    ud_path := path.join(dir.bytes(), []uint8("UnicodeData.txt"), c_allocator)?
+    pl_path := path.join(dir.bytes(), []uint8("PropList.txt"), c_allocator)?
+    ud, e := os.read_file(ud_path.bytes(), c_allocator)
+    if e.code != 0 {
+        fmt.eprintf("unicodegen: reading %s: %s\n", ud_path.bytes(), e.msg)
+        return 1, noerror
+    }
+    pl, e2 := os.read_file(pl_path.bytes(), c_allocator)
+    if e2.code != 0 {
+        fmt.eprintf("unicodegen: reading %s: %s\n", pl_path.bytes(), e2.msg)
+        return 1, noerror
+    }
+    mut version := text.new(c_allocator)
+    vok := read_version(pl, mut version)?
+    if !vok {
+        fmt.eprintf("unicodegen: %s:1: the first line is not # PropList-<version>.txt\n", pl_path.bytes())
+        return 1, noerror
+    }
+    mut t := new_tables()
+    uok := read_unicode_data(ud_path.bytes(), ud, mut t)?
+    if !uok {
+        return 1, noerror
+    }
+    // Go's own set for U+0000 to U+00FF, then White_Space above it.
+    mut t.space.add(0x09, 0x0D)?
+    mut t.space.add(0x20, 0x20)?
+    mut t.space.add(0x85, 0x85)?
+    mut t.space.add(0xA0, 0xA0)?
+    pok := read_prop_list(pl_path.bytes(), pl, mut t)?
+    if !pok {
+        return 1, noerror
+    }
+    mut out := make(list[uint8], c_allocator)
+    write_tables(mut out, version.bytes(), mut t)?
+    we := os.write_file(out_path.bytes(), out)
+    if we.code != 0 {
+        fmt.eprintf("unicodegen: writing %s: %s\n", out_path.bytes(), we.msg)
+        return 1, noerror
+    }
+    return 0, noerror
+}
