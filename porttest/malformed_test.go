@@ -106,11 +106,18 @@ func writeVariant(sub, file, name string, variant []byte) (input, error) {
 
 // runMalformed runs in, a variant of TestMalformed, with --check
 // --max-errors 0 and with --emit, each in a parallel subtest, comparing
-// the port with what malformedWant says Go gives.
+// the port with what malformedWant says Go gives. A variant holding a
+// rune whose class Go's unicode package and the port's std/unicode
+// differ on skips (see skipUnicodeDrift): a mutation can make one.
 func runMalformed(t *testing.T, in input) {
 	for _, args := range [][]string{{"--check", "--max-errors", "0", in.file}, {"--emit", in.file}} {
 		t.Run(in.name+"/"+args[0], func(t *testing.T) {
 			t.Parallel()
+			src, err := os.ReadFile(filepath.Join(in.dir, in.file)) //nolint:gosec // G304: the variant written
+			if err != nil {
+				t.Fatal(err)
+			}
+			skipUnicodeDrift(t, src)
 			port := runCompiler(t, env.portRun, env.portCache, in, args)
 			if port.notImplemented() {
 				t.Skip(string(port.stderr))

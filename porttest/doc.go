@@ -165,6 +165,9 @@
 //     Go where no case of the corpus did, each kept so that it stays
 //     covered; TestProbesPairStack runs them again with the port's stack
 //     held to pairStack KB.
+//   - lex-probes runs --lex on each program of testdata/lex-probes, the
+//     files whose dump a known divergence records, which no file of the
+//     corpus can hold.
 //   - check-clean runs the same on each package input that is no case of
 //     an archive: the examples, std and the port's driver. Go accepts
 //     nearly all of them and runs its backend on each it accepts, so
@@ -208,7 +211,8 @@
 //     output, the binaries, what was compiled and the caches (see Build
 //     cache stages).
 //   - test-examples runs tack test on each package of examples/tack-test,
-//     examples/test-files and std/hex, with each set of flags, and on
+//     examples/test-files, std/hex and std/unicode, with each set of
+//     flags, and on
 //     each of testProbes, comparing what the driver writes, the files it
 //     leaves and the generated C of each test binary (see Test stage).
 //   - corpus-runner builds the port's tools/corpus with the port and runs
@@ -217,6 +221,10 @@
 //   - bootstrap builds stage 2, the port's driver built by the port, and
 //     stage 3, the driver built by stage 2, and requires the port, stage
 //     1, and both to be the same bytes (see Bootstrap).
+//   - unicode-tables builds the port's tools/unicodegen with the port and
+//     requires what it writes from the port's copy of the Unicode
+//     Character Database to be std/unicode's committed tables; it
+//     compares nothing with Go (see Unicode tables).
 //
 // check-backend, check-clean and the emit stages classify their cases
 // by the stages of the backend's port each needs (see Backend stages),
@@ -978,6 +986,99 @@
 // writing by a child between its fork and its exec, and running it then
 // fails with ETXTBSY.
 //
+// # Unicode tables
+//
+// The port's std/unicode classifies runes by its tables,
+// src/std/unicode/tables.tck, which the port's tools/unicodegen, a
+// program written in Tack, writes from the port's copy of the Unicode
+// Character Database, tools/unicodegen/ucd/<version>, as Go's unicode
+// package defines its classes, at Unicode 18.0.0 (owner ruling
+// 2026-11-19), where this module's frozen copy is Go's, at 17.0.0. The
+// unicode-tables stage, one case, builds tools/unicodegen with the port
+// in the port's source tree, runs it on the one directory below
+// tools/unicodegen/ucd, which must hold nothing else, once each file of
+// it has the SHA-256 its SHA256SUMS pins, every file but SHA256SUMS is
+// pinned and its PropList.txt names the version the directory is named
+// for, and fails unless it writes the committed tables byte for byte,
+// the checks the port's make check-unicode-tables makes with no Go; then
+// runs the tool on each
+// case of tools/unicodegen/testdata, a small UCD, most of them missing or
+// malformed, and fails unless its standard error and exit status are the
+// case's want, and its tables the case's want.tck where it has one, as
+// the port's make test-unicodegen checks; and runs std/unicode's tests,
+// tack test ./src/std/unicode, with the port, which must pass, as the
+// port's make test-std requires: test-examples runs them with both
+// compilers and compares them, which agree when both fail. A decline of
+// the build fails once the stage is required, as any case's does. TestPortFiles lists
+// tables.tck and unicode.tck among the files the port's std may differ
+// in, and unicode_test.tck, std/unicode's tests, which the frozen copy
+// has not got, the first file of std only the port has; and the goldens
+// whose C holds the tables among the corpus's (see Port files). The reference Go compiler classifies with Go's unicode
+// package, at 17.0.0, where the port's lexer, type checker and driver
+// classify and quote with std/unicode, at 18.0.0, wherever the port
+// mirrors one of Go's: the owner's ruling of 2026-11-19 covers every
+// place the compiler quotes or classifies a rune, diagnostic wording
+// included. Each such place of the Go compiler, with the port's, is
+// either a known divergence, a probe recording the port's output on
+// U+0558, a letter 18.0.0 assigns, which Go writes as \u0558; or
+// a place no such rune can reach, for the reason given:
+//
+//   - lexer/token.go's dump of a string, char or comment token, %q;
+//     lexer/token.tck: unicode18-lex, a case of lex-probes.
+//   - typeck/printf.go's printf verb, unicode.IsGraphic, IsSpace and
+//     strconv.Quote; typeck/printf.tck: unicode18-printf-verb, a case of
+//     probes.
+//   - typeck/switch.go's duplicate string case, strconv.Quote;
+//     typeck/switch.tck: unicode18-switch-case, of probes.
+//   - typeck/extern.go's C name that is no C identifier, strconv.Quote;
+//     typeck/extern.tck: unicode18-extern-name, of probes.
+//   - modfile/modfile.go's show of a module name, strconv.Quote;
+//     modfile/modfile.tck: unicode18-module-name, a directory probe.
+//   - loader/names.go's show of a package name from a directory,
+//     strconv.Quote; the port's loader, through modfile.tck's show:
+//     unicode18-package-dir, a directory probe.
+//   - tack/main.go's flag value Go's flag package cannot parse, %q;
+//     driver/main.tck: unicode18-flag-value, a command line of
+//     lex-probes.
+//   - tack/main.go's arguments past the one file, strconv.Quote;
+//     driver/main.tck: unicode18-two-files, of lex-probes.
+//   - tack/main.go's unknown backend, %q; driver/main.tck:
+//     unicode18-backend, of lex-probes.
+//   - tack test's boolean flag value Go's flag package cannot parse, %q;
+//     driver/test.tck: unicode18-bool-value, a probe of test-examples.
+//   - tack test's arguments past the one target, strconv.Quote;
+//     driver/test.tck: unicode18-two-targets, of test-examples.
+//   - lexer/lex.go's invalid escape sequence, %q; lexer/lex.tck: no
+//     divergence, since the sequence quoted is the backslash and at most
+//     the one byte after it, or \x and the hex digits after it, never a
+//     whole rune of two bytes or more, as "\՘" and "\x՘" show.
+//   - lexer/lex.go's token that ends after EOF, %q: an invariant of the
+//     lexer, which only a bug in it breaks; the port has none.
+//   - typeck/maps.go's key of a fact of a known string, strconv.Quote;
+//     typeck/cond.tck: a key that facts are compared by and never
+//     written, the messages naming the key as the source spells it.
+//   - codegen/c/gen.go's TACK_C_NAME(%q): a C name the checker has
+//     accepted, ASCII alone, as cname.IsIdent requires.
+//   - codegen/c/arena.go's and pool.go's %q, codegen/backend.go's: the
+//     compiler's own constant ASCII strings.
+//   - codegen/c/struct.go's isCName, unicode.IsLetter and IsDigit: C the
+//     backend writes, whose names are ASCII, as identifiers are, and a
+//     string literal's starts with a quote, which no name holds.
+//   - the port's driver/build.tck, which quotes "clang", a constant.
+//   - the port's lexer/space.tck and driver/link.tck, unicode.is_space:
+//     White_Space and Go's Latin-1 set are the same at 17.0.0 and
+//     18.0.0, so no rune's space class differs.
+//
+// The README's Known divergences lists the same. A fuzz input is no
+// case of a suite, so every fuzz target skips an input holding a rune
+// the two tables classify apart, as itself, spelt by \x escapes or in a
+// token's value, the runes computed from this module's frozen tables and
+// the port's (see skipUnicodeDrift); TestUnicodeDriftFilter checks the
+// filter, TestFuzzTargetsFilterDrift that every fuzz target calls it,
+// and FuzzLoadDiff's seed of a module named with U+0558, which would
+// fail the comparison, that it is skipped. TestMalformed and
+// TestProbesTypes skip such an input the same way.
+//
 // # Loading
 //
 // TestLoadTrees makes file trees the corpus has none of, in a temporary
@@ -1352,7 +1453,10 @@
 // the same on both sides, or none, fails, so the list cannot go stale.
 // It lists the files the port's handling of SIGXFSZ changed (see
 // File-size limit): runtime/process.c, runtime/tack/tack.h and std's
-// copy of it, and src/std/os's os.c and os.tck. portOnlyFiles lists, each with its reason, the port's
+// copy of it, and src/std/os's os.c and os.tck; and std/unicode's
+// tables.tck, unicode.tck and unicode_test.tck, the Unicode 18.0.0
+// upgrade's, the last a file of std the frozen copy has not got (see
+// Unicode tables). portOnlyFiles lists, each with its reason, the port's
 // files with no frozen copy, runtime/tack.mod alone, each of which must
 // be in the port. It also checks that the port's
 // std copies, src/std/builtin/builtin.tck and

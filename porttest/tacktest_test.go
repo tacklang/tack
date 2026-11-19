@@ -60,7 +60,7 @@ func testArgs(in input) []string {
 // paths from this module's root, or from env.home for std's (see
 // corpusDir): every package of examples/tack-test,
 // examples/test-files, whose test file _test.tck does not lex, and
-// std/hex, the one package of std with a test file.
+// std/hex and std/unicode, the packages of std with a test file.
 var testCorpusDirs = []string{
 	"examples/tack-test/cexit",
 	"examples/tack-test/cwd",
@@ -77,6 +77,7 @@ var testCorpusDirs = []string{
 	"examples/test-files",
 	"examples/test-files/onlytests",
 	"src/std/hex",
+	"src/std/unicode",
 }
 
 // testFlagSets are the flags each corpus package is run with, each a
@@ -578,8 +579,11 @@ const passingTest = "package p\n" + testingImport + "\nfunc test_ok(mut t testin
 // exec cannot run, the types of testdata/probes whose tack.h names the
 // header ruling changes, a relative TMPDIR, every mistake in the format of T.errorf and T.fatalf, called
 // as methods and through testing.T, and formats that are right, a main
-// package with no main function, and a package whose C uses a type of
-// the package, which the Go compiler names wrongly in tack.h.
+// package with no main function, a package whose C uses a type of the
+// package, which the Go compiler names wrongly in tack.h, and two usage
+// errors that quote U+0558, a rune Unicode 18.0.0 assigns, which the
+// port writes as itself and Go escapes (see the unicode18 entries of
+// testdata/divergences.txtar).
 var testProbes = []testProbe{
 	{name: "usage-two-targets", args: []string{"p", "q"}, files: map[string]string{"p/p_test.tck": passingTest}},
 	{name: "usage-three-opts", args: []string{"-O0", "-O2", "-Os", "p"}},
@@ -757,6 +761,8 @@ var testProbes = []testProbe{
 	}},
 	{name: "main-with-c-type", args: []string{"-v", "p"}, files: cTypeProbe("main", "Info")},
 	{name: "c-uses-package-type", args: []string{"-v", "p"}, files: cTypeProbe("p", "p_Info")},
+	{name: "unicode18-bool-value", args: []string{"-v=\u0558", "p"}, files: map[string]string{"p/p_test.tck": passingTest}},
+	{name: "unicode18-two-targets", args: []string{"p", "\u0558"}, files: map[string]string{"p/p_test.tck": passingTest}},
 }
 
 // lockTest returns a test file of package p whose test makes, in the

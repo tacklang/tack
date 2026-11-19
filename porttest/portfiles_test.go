@@ -47,6 +47,15 @@ var portFileDivergences = map[string]string{
 		"and it adds write_stdout and write_stderr, which return a failed write's error and " +
 		"wait for a full non-blocking stream, and write_file_result, which names the call " +
 		"that failed, per the owner's ruling, 2026-11-18",
+	"src/std/unicode/tables.tck": "Unicode 18.0.0 upgrade (owner ruling 2026-11-19): the port's " +
+		"tools/unicodegen writes it from the port's copy of the UCD 18.0.0, where Go's " +
+		"internal/unicodegen wrote the frozen copy from Go's unicode package, Unicode 17.0.0",
+	"src/std/unicode/unicode.tck": "Unicode 18.0.0 upgrade (owner ruling 2026-11-19): its " +
+		"package comment names Unicode 18.0.0 and the port's tools/unicodegen, which writes " +
+		"tables.tck",
+	"src/std/unicode/unicode_test.tck": "Unicode 18.0.0 upgrade (owner ruling 2026-11-19): the " +
+		"port's std/unicode has tests, of runes 18.0.0 assigns and of run bounds, where the " +
+		"frozen copy has none, so this module's std has no such file",
 }
 
 // portOnlyFiles lists the paths, relative to the port's source tree,

@@ -1,0 +1,9 @@
+package main
+
+import fmt from "std/fmt"
+
+// A printf verb of U+0558, a letter Unicode 18.0.0 assigns, which the
+// port shows in its error as itself and Go quotes.
+func main() {
+    fmt.printf("%՘\n", 1)
+}

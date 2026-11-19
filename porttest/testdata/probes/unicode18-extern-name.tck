@@ -1,0 +1,8 @@
+package main
+
+// An extern func whose C name is U+0558, a letter Unicode 18.0.0
+// assigns and no C identifier, which the error quotes: as itself in the
+// port, escaped by Go.
+extern("՘") func f() int64
+
+func main() {}

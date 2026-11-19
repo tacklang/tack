@@ -1,0 +1,7 @@
+package main
+
+// Strings of U+0558, a letter Unicode 18.0.0 assigns, written as itself
+// and spelt by \x escapes: the port quotes them in its --lex dump with
+// std/unicode, at 18.0.0, and Go with its unicode package, at 17.0.0.
+var s = "՘"
+var t = "\xd5\x98"

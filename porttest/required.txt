@@ -45,3 +45,5 @@ build-cache
 test-examples
 corpus-runner
 bootstrap
+unicode-tables
+lex-probes

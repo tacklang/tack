@@ -96,7 +96,9 @@ func FuzzResDiff(f *testing.F) {
 // committed seeds its caller has added: it adds every single file of the
 // corpus too when fuzzing, and runs each input through inProcess, for
 // the fuzz engine's coverage, and then through both compilers, compared
-// as the stage named stage compares them.
+// as the stage named stage compares them. An input holding a rune whose
+// class Go's unicode package and the port's std/unicode differ on skips
+// first (see skipUnicodeDrift).
 func fuzzDiff(f *testing.F, stage string, inProcess func([]byte)) {
 	st := stageNamed(stage)
 	if st == nil {
@@ -117,6 +119,7 @@ func fuzzDiff(f *testing.F, stage string, inProcess func([]byte)) {
 		f.Add(src)
 	}
 	f.Fuzz(func(t *testing.T, src []byte) {
+		skipUnicodeDrift(t, src)
 		inProcess(src)
 		dir := t.TempDir()
 		if err := os.WriteFile(filepath.Join(dir, fuzzFile), src, 0o600); err != nil {

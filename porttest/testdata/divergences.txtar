@@ -4401,3 +4401,228 @@ b/util/b.tck:3:10: note: type X of package m/b/util is declared here
    |	         ^
 04 |	    pub n int64
 
+-- unicode18-lex/divergence --
+suite: lex-probes
+case: unicode18-string.tck
+go: Go quotes a string's value in --lex's dump with strconv.Quote, whose
+  unicode package is at Unicode 17.0.0, where U+0558 is unassigned, so
+  it writes the rune as \u0558.
+why: The port quotes with std/unicode, at Unicode 18.0.0, where U+0558
+  is a letter and printable, so it writes the rune itself: the Unicode
+  18.0.0 upgrade, owner ruling 2026-11-19, accepted as a divergence
+  2026-11-19. The fuzz targets skip every input holding a rune the two
+  versions classify apart (see skipUnicodeDrift).
+same: exit, stderr
+-- unicode18-lex/exit --
+-- unicode18-lex/stdout --
+[000:007] keyword(package)
+[008:012] ident("main")
+[012:012] ;
+[014:229] comment("Strings of U+0558, a letter Unicode 18.0.0 assigns, written as itself\nand spelt by \\x escapes: the port quotes them in its --lex dump with\nstd/unicode, at 18.0.0, and Go with its unicode package, at 17.0.0.")
+[230:233] keyword(var)
+[234:235] ident("s")
+[236:237] =
+[238:242] string("՘")
+[242:242] ;
+[243:246] keyword(var)
+[247:248] ident("t")
+[249:250] =
+[251:261] string("՘")
+[261:261] ;
+[262:262] EOF
+-- unicode18-lex/stderr --
+-- unicode18-printf-verb/divergence --
+suite: probes
+case: unicode18-printf-verb.tck
+go: Go shows a printf verb that is not valid UTF-8 of graphic runes
+  quoted, and its unicode package, at Unicode 17.0.0, has U+0558
+  unassigned, so not graphic: it writes the verb as "%\u0558".
+why: The port classifies with std/unicode, at Unicode 18.0.0, where
+  U+0558 is a graphic letter, so it shows the verb as written, %՘:
+  the Unicode 18.0.0 upgrade, owner ruling 2026-11-19, accepted as a
+  divergence 2026-11-19 (see unicode18-lex).
+same: exit, stdout
+-- unicode18-printf-verb/exit --
+-- unicode18-printf-verb/stdout --
+-- unicode18-printf-verb/stderr --
+
+unicode18-printf-verb.tck:8:16: error: unknown printf verb %՘
+07 |	func main() {
+08 |	    fmt.printf("%՘\n", 1)
+   |	               ^~~~~~~
+09 |	}
+
+-- unicode18-switch-case/divergence --
+suite: probes
+case: unicode18-switch-case.tck
+go: Go's checker names a duplicate string case by strconv.Quote of its
+  value (typeck/switch.go's caseKeyOf), whose unicode package, at
+  Unicode 17.0.0, has U+0558 unassigned, so it writes "\u0558".
+why: The port quotes with std/conv and std/unicode, at Unicode 18.0.0,
+  where U+0558 is a printable letter, so it writes the rune itself:
+  the Unicode 18.0.0 upgrade, owner ruling 2026-11-19, which covers every
+  place the compiler quotes or classifies a rune, diagnostic wording
+  included (see unicode18-lex).
+same: exit, stdout
+-- unicode18-switch-case/exit --
+-- unicode18-switch-case/stdout --
+-- unicode18-switch-case/stderr --
+
+unicode18-switch-case.tck:9:10: error: duplicate case "՘" in switch
+08 |	    case "՘":
+09 |	    case "՘":
+   |	         ^~~~
+10 |	    }
+unicode18-switch-case.tck:8:10: note: previous case
+07 |	    switch s {
+08 |	    case "՘":
+   |	         ^~~~
+09 |	    case "՘":
+
+-- unicode18-extern-name/divergence --
+suite: probes
+case: unicode18-extern-name.tck
+go: Go's checker quotes a C name that is no C identifier with
+  strconv.Quote (typeck/extern.go's checkCName), at Unicode 17.0.0,
+  so it writes U+0558 as "\u0558".
+why: The port quotes with std/conv and std/unicode, at Unicode 18.0.0,
+  where U+0558 is a printable letter, so it writes the rune itself:
+  the Unicode 18.0.0 upgrade, owner ruling 2026-11-19, which covers every
+  place the compiler quotes or classifies a rune, diagnostic wording
+  included (see unicode18-lex).
+same: exit, stdout
+-- unicode18-extern-name/exit --
+-- unicode18-extern-name/stdout --
+-- unicode18-extern-name/stderr --
+
+unicode18-extern-name.tck:6:8: error: extern func f cannot be named "՘" in C: it is not a C identifier
+05 |	// port, escaped by Go.
+06 |	extern("՘") func f() int64
+   |	       ^~~~
+07 |	
+
+-- unicode18-module-name/divergence --
+suite: probes
+case: unicode18-module-name
+go: Go's modfile quotes a module name that is not printable ASCII with
+  strconv.Quote (modfile/modfile.go's show), at Unicode 17.0.0, so it
+  writes "m\u0558".
+why: The port quotes with std/conv and std/unicode, at Unicode 18.0.0,
+  where U+0558 is a printable letter, so it writes the rune itself:
+  the Unicode 18.0.0 upgrade, owner ruling 2026-11-19, which covers every
+  place the compiler quotes or classifies a rune, diagnostic wording
+  included (see unicode18-lex).
+same: exit, stdout
+-- unicode18-module-name/exit --
+-- unicode18-module-name/stdout --
+-- unicode18-module-name/stderr --
+
+tack.mod:1:8: error: invalid module name "m՘": use lowercase letters, digits, -, . and _
+01 |	module m՘
+   |	       ^~~
+02 |	
+
+-- unicode18-package-dir/divergence --
+suite: probes
+case: unicode18-package-dir
+go: Go's loader quotes a package name from a directory that is not
+  printable ASCII with strconv.Quote (loader/names.go's show), at
+  Unicode 17.0.0, so it writes "\u0558".
+why: The port quotes with std/conv and std/unicode, at Unicode 18.0.0,
+  where U+0558 is a printable letter, so it writes the rune itself:
+  the Unicode 18.0.0 upgrade, owner ruling 2026-11-19, which covers every
+  place the compiler quotes or classifies a rune, diagnostic wording
+  included (see unicode18-lex).
+same: exit, stdout
+-- unicode18-package-dir/exit --
+-- unicode18-package-dir/stdout --
+-- unicode18-package-dir/stderr --
+
+՘/x.tck:1:9: error: "՘" is not a valid package name: use lowercase letters and digits
+01 |	package zz
+   |	        ^~
+02 |	
+
+-- unicode18-flag-value/divergence --
+suite: lex-probes
+case: unicode18-flag-value.args
+go: Go's flag package quotes a flag's value it cannot parse with %q, at
+  Unicode 17.0.0, so it writes "\u0558".
+why: The port quotes with std/conv and std/unicode, at Unicode 18.0.0,
+  where U+0558 is a printable letter, so it writes the rune itself:
+  the Unicode 18.0.0 upgrade, owner ruling 2026-11-19, which covers every
+  place the compiler quotes or classifies a rune, diagnostic wording
+  included (see unicode18-lex).
+same: exit, stdout
+-- unicode18-flag-value/exit --
+-- unicode18-flag-value/stdout --
+-- unicode18-flag-value/stderr --
+tack: invalid value "՘" for flag -max-errors: parse error
+Run 'tack --help' for usage.
+-- unicode18-two-files/divergence --
+suite: lex-probes
+case: unicode18-two-files.args
+go: Go's driver quotes each argument of a command line with more than
+  one file with strconv.Quote (tack/main.go), at Unicode 17.0.0, so it
+  writes "\u0558".
+why: The port quotes with std/conv and std/unicode, at Unicode 18.0.0,
+  where U+0558 is a printable letter, so it writes the rune itself:
+  the Unicode 18.0.0 upgrade, owner ruling 2026-11-19, which covers every
+  place the compiler quotes or classifies a rune, diagnostic wording
+  included (see unicode18-lex).
+same: exit, stdout
+-- unicode18-two-files/exit --
+-- unicode18-two-files/stdout --
+-- unicode18-two-files/stderr --
+tack: expected one input file, got 2 arguments: "main.tck" "՘" (flags must come before the file)
+Run 'tack --help' for usage.
+-- unicode18-backend/divergence --
+suite: lex-probes
+case: unicode18-backend.args
+go: Go's driver quotes an unknown backend's name with %q (tack/main.go),
+  at Unicode 17.0.0, so it writes "\u0558".
+why: The port quotes with std/conv and std/unicode, at Unicode 18.0.0,
+  where U+0558 is a printable letter, so it writes the rune itself:
+  the Unicode 18.0.0 upgrade, owner ruling 2026-11-19, which covers every
+  place the compiler quotes or classifies a rune, diagnostic wording
+  included (see unicode18-lex).
+same: exit, stdout
+-- unicode18-backend/exit --
+-- unicode18-backend/stdout --
+-- unicode18-backend/stderr --
+tack: unknown backend "՘"; available: c
+Run 'tack --help' for usage.
+-- unicode18-bool-value/divergence --
+suite: test-examples
+case: probe/unicode18-bool-value
+go: Go's tack test, through Go's flag package, quotes a boolean flag's
+  value it cannot parse with %q, at Unicode 17.0.0, so it writes
+  "\u0558".
+why: The port quotes with std/conv and std/unicode, at Unicode 18.0.0,
+  where U+0558 is a printable letter, so it writes the rune itself:
+  the Unicode 18.0.0 upgrade, owner ruling 2026-11-19, which covers every
+  place the compiler quotes or classifies a rune, diagnostic wording
+  included (see unicode18-lex).
+same: exit, stdout
+-- unicode18-bool-value/exit --
+-- unicode18-bool-value/stdout --
+-- unicode18-bool-value/stderr --
+tack test: invalid boolean value "՘" for -v: parse error
+Run 'tack test --help' for usage.
+-- unicode18-two-targets/divergence --
+suite: test-examples
+case: probe/unicode18-two-targets
+go: Go's tack test quotes each argument of a command line with more than
+  one target with strconv.Quote, at Unicode 17.0.0, so it writes
+  "\u0558".
+why: The port quotes with std/conv and std/unicode, at Unicode 18.0.0,
+  where U+0558 is a printable letter, so it writes the rune itself:
+  the Unicode 18.0.0 upgrade, owner ruling 2026-11-19, which covers every
+  place the compiler quotes or classifies a rune, diagnostic wording
+  included (see unicode18-lex).
+same: exit, stdout
+-- unicode18-two-targets/exit --
+-- unicode18-two-targets/stdout --
+-- unicode18-two-targets/stderr --
+tack test: expected one directory or import path, got 2 arguments: "p" "՘" (flags must come before it)
+Run 'tack test --help' for usage.

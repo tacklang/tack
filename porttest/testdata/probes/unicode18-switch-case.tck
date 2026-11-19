@@ -1,0 +1,11 @@
+package main
+
+// A duplicate case of a string of U+0558, a letter Unicode 18.0.0
+// assigns, which the error quotes: as itself in the port, escaped by Go.
+func main() {
+    s := "a"
+    switch s {
+    case "՘":
+    case "՘":
+    }
+}

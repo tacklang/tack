@@ -42,7 +42,9 @@ import (
 // std/testing's T.errorf and T.fatalf take no testing.Site, whose formats
 // Go reads at its second argument all the same, and three libraries
 // whose tack.h names the header ruling of 2026-11-18 changes, checked as
-// --check checks a library, each a known divergence.
+// --check checks a library, each a known divergence; and, from the
+// Unicode 18.0.0 upgrade, a printf verb of a rune 18.0.0 assigns, which
+// Go quotes and the port does not, a known divergence too.
 const probesStage = "probes"
 
 func init() {
@@ -109,7 +111,13 @@ func TestProbesPairStack(t *testing.T) {
 // TestProbesTypes runs the programs of the probes stage with
 // --port-types too, compared as TestTypes compares a case of the type
 // checker's: some probes found the port's dump differing from Go's
-// checker. It runs only as TestPort does.
+// checker. A probe holding a rune whose class Go's unicode package and
+// the port's std/unicode differ on, in a file or, for a directory probe,
+// in a path below it, skips (see skipUnicodeDrift and probeBytes): the
+// dump holds the checker's messages, which quote it apart, and no entry
+// of the divergence list applies to a dump; the probes stage compares
+// such a probe's --check with its entry, unicode18-printf-verb. It runs
+// only as TestPort does.
 func TestProbesTypes(t *testing.T) {
 	ready(t)
 	ins, err := probeInputs()
@@ -119,7 +127,48 @@ func TestProbesTypes(t *testing.T) {
 	for _, in := range ins {
 		t.Run(in.name, func(t *testing.T) {
 			t.Parallel()
+			srcs, err := probeBytes(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			skipUnicodeDrift(t, srcs...)
 			checkTypes(t, in, env.portRun, false)
 		})
 	}
+}
+
+// probeBytes returns what in, a probe, gives the compilers: the bytes of
+// its file, for a probe of one file, which probeInputs runs from
+// testdata/probes; or, for a directory probe, which it runs from the
+// probe's own directory, the path of every file and directory below that
+// directory and the bytes of every file, each as one entry.
+func probeBytes(in input) ([][]byte, error) {
+	if filepath.Base(in.dir) == "probes" {
+		src, err := os.ReadFile(filepath.Join(in.dir, in.file)) //nolint:gosec // G304: a probe of this module
+		if err != nil {
+			return nil, err
+		}
+		return [][]byte{src}, nil
+	}
+	var out [][]byte
+	err := filepath.WalkDir(in.dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(in.dir, p)
+		if err != nil {
+			return err
+		}
+		out = append(out, []byte(filepath.ToSlash(rel)))
+		if d.IsDir() {
+			return nil
+		}
+		data, err := os.ReadFile(p) //nolint:gosec // G304: a probe of this module
+		if err != nil {
+			return err
+		}
+		out = append(out, data)
+		return nil
+	})
+	return out, err
 }

@@ -35,7 +35,9 @@ const emitFuzzSeeds = 8
 // see into the compilers' processes, has the Go backend's to guide it.
 // No program progen writes reaches a known divergence (see
 // testdata/divergences.txtar), and an input of no suite never takes an
-// entry, so each is compared with Go's output. A program's
+// entry, so each is compared with Go's output; a program holding a rune
+// whose class Go's unicode package and the port's std/unicode differ on
+// skips first (see skipUnicodeDrift). A program's
 // classification is never cached, so fuzzing for hours cannot fill the
 // cache.
 //
@@ -58,6 +60,7 @@ func FuzzEmitDiff(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		p := progen.Generate(progen.NewBytes(data))
+		skipUnicodeDrift(t, []byte(p.Source))
 		goBackend(p.Source)
 		dir := t.TempDir()
 		if err := os.WriteFile(

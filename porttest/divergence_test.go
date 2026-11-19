@@ -494,9 +494,9 @@ func checkDivergencesListed(t *testing.T, suite string, ins []input) {
 
 // TestDivergencesFile checks that the divergence list reads, so a
 // mistake in it shows in a plain go test, and that each entry of a
-// suite whose cases are files of this module, the probes' and the emit
-// probes', names one there is. TestPort checks the rest of the entries'
-// cases, which only a run of the corpus lists.
+// suite whose cases are files of this module, the probes', the lex
+// probes' and the emit probes', names one there is. TestPort checks the
+// rest of the entries' cases, which only a run of the corpus lists.
 func TestDivergencesFile(t *testing.T) {
 	list, err := loadedDivergences()
 	if err != nil {
@@ -507,6 +507,11 @@ func TestDivergencesFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkDivergencesListed(t, probesStage, probes)
+	lexProbes, err := lexProbeInputs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkDivergencesListed(t, lexProbesStage, lexProbes)
 	srcs, err := emitProbeSources()
 	if err != nil {
 		t.Fatal(err)

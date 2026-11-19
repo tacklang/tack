@@ -17,9 +17,14 @@ import (
 // writeFuzzTree's form: a module with a main package, a deep target, a
 // package clause that does not match, a malformed tack.mod, a hidden
 // file, an import chain, a cycle, an import of the main package and one
-// of std, a module named std, test files, and a lexing error in an
-// imported package, which stops the load so the port can answer --res.
+// of std, a module named std, test files, a lexing error in an
+// imported package, which stops the load so the port can answer --res,
+// and a module named with U+0558, a rune Unicode 18.0.0 assigns, whose
+// error Go and the port quote apart (see unicode18-module-name): the
+// one seed skipUnicodeDrift skips, which would fail the comparison
+// without it.
 var loadDiffSeeds = []string{
+	"tack.mod\nmodule m\u0558\n\x00main.tck\npackage main\nfunc main() {}\n",
 	"tack.mod\nmodule calc\n\x00main.tck\npackage main\nfunc main() {}\n",
 	"a/b/c/main.tck\npackage main\nfunc main() {}\n\x00tack.mod\nmodule m\n",
 	"lexer/a.tck\npackage lexer\n\x00tack.mod\nmodule calc\n",
@@ -80,7 +85,9 @@ func writeFuzzTree(dir string, data []byte) string {
 // deepStack KB, as every run of it does. Before that it loads the tree
 // with this module's loader and resolves it with its resolver, in
 // process, as the driver does for --res, so the fuzz engine's coverage
-// has the Go loader's and resolver's to guide it.
+// has the Go loader's and resolver's to guide it. An input holding a
+// rune whose class Go's unicode package and the port's std/unicode
+// differ on, in a path or a file, skips first (see skipUnicodeDrift).
 //
 // It is seeded with loadDiffSeeds; run as a test, without -fuzz, it
 // checks them alone. It runs as FuzzLexDiff does.
@@ -95,6 +102,7 @@ func FuzzLoadDiff(f *testing.F) {
 	}
 	wrapper := env.portRun
 	f.Fuzz(func(t *testing.T, data []byte) {
+		skipUnicodeDrift(t, data)
 		dir := t.TempDir()
 		// The target is written ./ first, which keeps a directory named
 		// like a flag, --lex or -, from being read as one by either
