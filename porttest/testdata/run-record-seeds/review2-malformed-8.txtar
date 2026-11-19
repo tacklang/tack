@@ -1,0 +1,29 @@
+c
+-- a/record --
+selfcheck review
+dir examples/hello
+exit 99999999999999999999999
+-- b/record --
+selfcheck review
+dir examples/hello
+limit nofile -1
+exit 0
+-- c/record --
+selfcheck review
+dir examples/hello
+still-running 1.
+-- d/record --
+selfcheck review
+dir examples/hello
+file+ "x"
+exit 0
+-- e/record --
+selfcheck review
+dir examples/hello
+file "a" "x" trailing
+exit 0
+-- f/record --
+selfcheck review
+dir examples/hello
+stream fd3
+exit 0

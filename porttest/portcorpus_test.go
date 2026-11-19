@@ -111,6 +111,13 @@ var portCaseDivergences = map[string]string{
 	"invalid.txtar#extern-header-std-macro-clash": "reserved-std-macro-clash" + reservedClash,
 }
 
+// portRunsDir is the directory of the port's corpus holding the run
+// records, which this module has no copy of: they are the port's own,
+// moved out of this module's Go tests into data (decided 2026-11-19),
+// and TestRunRecords checks them against the reference Go compiler
+// instead, so corpusFiles leaves every file below it out.
+const portRunsDir = portCorpusDir + "/runs"
+
 // portCorpusOnly lists the files of the port's corpus that this module
 // has no copy of, each with its reason.
 var portCorpusOnly = map[string]string{
@@ -124,7 +131,7 @@ var portCorpusOnly = map[string]string{
 // in the port or below examples in this module, at the same path below
 // each, and each below portCorpusDir/golden in the port or below
 // test/testdata in this module, likewise; but for the port's files
-// portOnly lists. Every other file below portCorpusDir is paired with
+// portOnly lists and those below portRunsDir. Every other file below portCorpusDir is paired with
 // the same path in this module, which has none, so a stray file there
 // fails too, as does a file one tree has and the other has not.
 func corpusFiles(portRoot, frozenRoot string, portOnly map[string]string) ([]portFile, error) {
@@ -138,6 +145,9 @@ func corpusFiles(portRoot, frozenRoot string, portOnly map[string]string) ([]por
 		return nil, err
 	}
 	for _, p := range port {
+		if strings.HasPrefix(p, portRunsDir+"/") {
+			continue
+		}
 		paths[p] = p
 		for _, pair := range pairs {
 			if rest, ok := strings.CutPrefix(p, pair[0]+"/"); ok {

@@ -80,7 +80,8 @@ const (
 // temporary directory it removes afterwards. The harness's own tests
 // need none of it and run either way. With measureVar set, the binary is
 // TestResPerf's launcher instead, with groupHelperVar the harness the
-// group tests stop, and with buildGoVar it builds the reference Go
+// group tests stop, with runExecVar the launcher of a run record's
+// program (see runExec), and with buildGoVar it builds the reference Go
 // compiler for the Makefile (see buildGoMain); each runs no test.
 // Otherwise it first makes a
 // signal that stops the harness kill the process groups it runs (see
@@ -91,6 +92,9 @@ func TestMain(m *testing.M) {
 	}
 	if script := os.Getenv(groupHelperVar); script != "" {
 		os.Exit(groupHelper(script))
+	}
+	if spec := os.Getenv(runExecVar); spec != "" {
+		os.Exit(runExec(spec))
 	}
 	handleSignals()
 	flag.Parse()

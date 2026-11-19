@@ -1,0 +1,127 @@
+review parse probes
+-- p01-dir-empty-then-set/class --
+none
+-- p01-dir-empty-then-set/record --
+selfcheck review
+dir 
+dir examples/hello
+exit 0
+-- p02-file-expected/class --
+none
+-- p02-file-expected/record --
+selfcheck review
+dir examples/hello
+exit 0
+file "expected" "x"
+-- p03-file-space/class --
+none
+-- p03-file-space/record --
+selfcheck review
+dir examples/hello
+exit 0
+file "a b" "x"
+-- p04-file-dotdotx/class --
+none
+-- p04-file-dotdotx/record --
+selfcheck review
+dir examples/hello
+exit 0
+file "..x" "y"
+-- p06-exit-plus/class --
+none
+-- p06-exit-plus/record --
+selfcheck review
+dir examples/hello
+exit +0
+-- p07-running-tiny-invoke/class --
+none
+-- p07-running-tiny-invoke/record --
+selfcheck review
+dir examples/hello
+invoke "--version"
+still-running 0.0000000001
+-- p08-running-huge-invoke/class --
+none
+-- p08-running-huge-invoke/record --
+selfcheck review
+dir examples/hello
+invoke "--version"
+still-running 99999999999999999999
+-- p10-dir-escapes/class --
+none
+-- p10-dir-escapes/record --
+selfcheck review
+dir examples/../../../../etc
+exit 0
+-- p11-target-escapes/class --
+none
+-- p11-target-escapes/record --
+selfcheck review
+dir examples/hello
+target ../../../../x.tck
+exit 0
+-- p12-stdout-file-escapes/class --
+none
+-- p12-stdout-file-escapes/record --
+selfcheck review
+dir examples/hello
+exit 0
+stdout-file ../../../../etc/hostname
+-- p13-env-name-space/class --
+none
+-- p13-env-name-space/record --
+selfcheck review
+dir examples/hello
+env "A B=1"
+exit 0
+-- p16-nofile-huge/class --
+none
+-- p16-nofile-huge/record --
+selfcheck review
+dir examples/hello
+limit nofile 99999999999999
+exit 0
+-- p23-empty-stdout-and-file/class --
+none
+-- p23-empty-stdout-and-file/record --
+selfcheck review
+dir examples/hello
+exit 0
+stdout ""
+stdout-file examples/hello/main.tck
+-- p37-stdout-file-empty-then-set/class --
+none
+-- p37-stdout-file-empty-then-set/record --
+selfcheck review
+dir examples/hello
+exit 0
+stdout-file 
+stdout-file examples/hello/main.tck
+-- p38-no-strict-c-no-why/class --
+none
+-- p38-no-strict-c-no-why/record --
+selfcheck review
+dir examples/hello
+no-strict-c 
+exit 0
+-- p41-target-empty-then-set/class --
+none
+-- p41-target-empty-then-set/record --
+selfcheck review
+dir examples/hello
+target 
+target main.tck
+exit 0
+-- p42-file-dot/class --
+none
+-- p42-file-dot/record --
+selfcheck review
+dir examples/hello
+exit 0
+file "." "y"
+-- p43-replaces-garbage/class --
+none
+-- p43-replaces-garbage/record --
+replaces x y
+dir examples/hello
+exit 0

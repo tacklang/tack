@@ -94,11 +94,11 @@ var loadedDivergences = sync.OnceValues(func() ([]divergence, error) {
 })
 
 // knownSuites returns the suites an entry may name: every stage's name,
-// emitProbesSuite and headerRenderSuite. A file an emit-header case
+// emitProbesSuite, headerRenderSuite and runRecordsSuite. A file an emit-header case
 // leaves is part of an entry only when its file section names it; every
 // other is compared with the Go compiler's always.
 func knownSuites() map[string]bool {
-	out := map[string]bool{emitProbesSuite: true, headerRenderSuite: true}
+	out := map[string]bool{emitProbesSuite: true, headerRenderSuite: true, runRecordsSuite: true}
 	for _, st := range stages {
 		out[st.name] = true
 	}

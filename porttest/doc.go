@@ -1135,6 +1135,84 @@
 // compiler, byte for byte, runs the case too: the install's stage 1 is
 // then the port, and its bootstrap compares stage 2 with stage 3 alone.
 //
+// # Run records
+//
+// The port's corpus/runs holds run records: programs, each built and run
+// at each optimization level its record names, or runs of the compiler,
+// with what the run must do, its exit status, signal or that it is still
+// running, its whole streams and descriptors and the files it leaves,
+// the runtime assertions of this module's Go tests moved into data
+// (decided 2026-11-19); tools/corpus's runs.tck describes the format, and
+// the port's runner checks them with any compiler, with --runs alone, or
+// rewrites their expectations with --update. corpus/runs must hold
+// exactly the archives runRecordArchives names. TestRunRecords reads them
+// with a parser of its own and checks each against the reference Go
+// compiler, the records in parallel: each run on copies of its own, of
+// the case's files or of the directory of examples/ it is built in, with
+// a TACK_CACHE of the record's own that starts as a copy of the warm
+// cache of its cflags unless it says cold-cache, its --emit output held
+// to clang's strict warnings, and its program run with os/exec, never a
+// shell, always through this test binary as a launcher (runExecVar,
+// runExec): its environment PATH, TMPDIR and the record's alone, its
+// standard input a regular file, its descriptors 0 to 2 and those it
+// makes and no other, whatever the test inherited, its broken pipes
+// pipes whose reader is closed, its limits set by the launcher, which
+// writes its own failures where the program never does. The launcher's
+// first stage, the reaper (runReaper), is a child subreaper that starts
+// the program in a session of its own and judges its end by wait4: a
+// run still running is one whose own process was alive at the deadline,
+// never one whose output or a process holding its pipes ran on; and a
+// descendant still alive when the program's own process ended, one that
+// left its group or session among them, outlived it, which fails the
+// record: the reaper waits for the descendants until the deadline and
+// kills what is left by the pids /proc/self/task/<pid>/children lists,
+// the one file it reads under /proc. So does any change the run makes
+// to $SRC, the copy it was built from, directories included; any entry
+// of the run's private root but src, tmp, run and prog, or any beside
+// the root in the directory that holds it, where checking stops (a
+// program that walks above that directory on purpose, as
+// $RUN/../../../x does, is a stated limit: records are reviewed code,
+// not adversaries); any of those directories, or src, tmp and run, being
+// another directory afterwards, by device and inode;
+// anything a build leaves in its private TMPDIR; and a symbolic link,
+// never followed, that no symlink line names. A $ the run wrote is compared as
+// $$, so no output reads as a placeholder. Each record of
+// corpus/runs/must-fail.txtar, the only archive whose records have
+// must-fail lines, must fail instead, at one level at least, and the
+// first failure of each run that fails, in the order the port's runner
+// checks them, must be of the class its must-fail line names, from
+// runFailureClasses, the list runs.tck's failure_classes is; such a
+// record replaces no test and fills no warm cache. A record whose output is the port's where the port diverges from
+// Go on purpose has an entry of the suite run-records in
+// testdata/divergences.txtar whose case names it, <archive>#<name>: each
+// stream the entry's same names must be Go's, and each other must be the
+// entry's and differ from Go's, or the entry is stale, as is one that
+// names no record. TestRunRecordsRejects checks that the reader rejects
+// every case of corpus/runs/invalid.txtar with the class its class file
+// names, as the port's runner must, and FuzzRunRecordReaders feeds the
+// same bytes to both readers, the port's through its runner's
+// --parse-runs, and requires the same dump, each record read to the same
+// fields or rejected with the same class; it is seeded with corpus/runs,
+// each case of invalid.txtar and testdata/run-record-seeds, the reviews'
+// probes, and gated as FuzzLexDiff is. TestRunRecordsCoverage checks
+// testdata/runrecords.tsv, every leaf test of the 449 inventoried Go
+// tests whose assertions are to be records, each covered, partial, todo
+// or excluded with why: every line a leaf go test runs, a replaces key a
+// leaf unless its record says partial, every leaf of a listed test
+// listed, a test covered only when no record replacing it says partial,
+// and the counts by status testdata/runrecords-counts.txt's, which each
+// conversion changes on purpose; it writes the counts on standard error.
+// Every replaces key must be in testdata/gotest-names.txt, every test and
+// subtest go test runs in those packages, which go generate (make
+// port-test-names) writes through testnames, refusing to when go test
+// fails, and whose top-level tests must be those packages' test
+// functions. rungen writes the records it knows how to make from the Go
+// tests' own source, read with go/parser and evaluated, leaving the
+// expectations the Go tests do not pin to the port's --update, and
+// TestRungenLines runs it and requires every line it writes to be in the
+// committed archive verbatim. TestPortFiles leaves corpus/runs out, as
+// the port's own.
+//
 // # Loading
 //
 // TestLoadTrees makes file trees the corpus has none of, in a temporary
@@ -1540,7 +1618,8 @@
 // standard error with its warnings left out, as the harness renders a
 // case the backend rejects; an entry for a case that does not differ, or
 // that neither side has, fails, so neither list can go stale.
-// portCorpusOnly lists the port's corpus/tack.mod, which must be there.
+// portCorpusOnly lists the port's corpus/tack.mod, which must be there,
+// and corpus/runs is left out (see Run records).
 // TestCompareCorpus and TestWithoutWarnings check that comparison on
 // small corpora, and need no port.
 //

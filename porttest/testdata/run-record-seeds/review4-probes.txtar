@@ -1,0 +1,219 @@
+-- zz-a-tmp-sibling/main.tck --
+package main
+
+import os from "std/os"
+
+// main writes x to the file its first argument names.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 && os.write_file(a.bytes(), []uint8("x")).code != 0 {
+            exit(2)
+        }
+    }
+}
+-- zz-a-tmp-sibling/record --
+selfcheck probe: a file beside TMPDIR, a name joined to TMPDIR with no slash
+arg "$TMPleft"
+exit 0
+stdout ""
+stderr ""
+-- zz-b-grandparent/main.tck --
+package main
+
+import os from "std/os"
+
+// main writes x to the file its first argument names.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 && os.write_file(a.bytes(), []uint8("x")).code != 0 {
+            exit(2)
+        }
+    }
+}
+-- zz-b-grandparent/record --
+selfcheck probe: a file two levels above $RUN
+arg "$RUN/../../stray"
+exit 0
+stdout ""
+stderr ""
+-- zz-c-prog-sibling/main.tck --
+package main
+
+import os from "std/os"
+
+// main writes x to the file its first argument names.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 && os.write_file(a.bytes(), []uint8("x")).code != 0 {
+            exit(2)
+        }
+    }
+}
+-- zz-c-prog-sibling/record --
+selfcheck probe: a file beside the program
+arg "$PROG.left"
+exit 0
+stdout ""
+stderr ""
+-- zz-d-setsid-escape/esc.c --
+#include <fcntl.h>
+#include <string.h>
+#include <unistd.h>
+#include "tack.h"
+
+int64_t escape(tack_view_uint8 rv, tack_view_uint8 wv) {
+    const uint8_t *run = rv.ptr, *wit = wv.ptr; int64_t run_len = rv.len, wit_len = wv.len;
+    char r[4096], w[4096];
+    if (run_len >= 4096 || wit_len >= 4096) return 1;
+    memcpy(r, run, run_len); r[run_len] = 0;
+    memcpy(w, wit, wit_len); w[wit_len] = 0;
+    pid_t p = fork();
+    if (p < 0) return 1;
+    if (p == 0) {
+        setsid();
+        close(0); close(1); close(2);
+        sleep(3);
+        int fd = open(w, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd >= 0) { write(fd, "setsid ", 7); write(fd, r, strlen(r)); write(fd, "\n", 1); close(fd); }
+        _exit(0);
+    }
+    return 0;
+}
+-- zz-d-setsid-escape/main.tck --
+package main
+
+import os from "std/os"
+
+extern("escape") func escape(run []uint8, wit []uint8) int64
+
+// main starts a child that outlives it, and ends at once.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 {
+            for j, b := range args {
+                if j == 2 && escape(a.bytes(), b.bytes()) != 0 {
+                    exit(3)
+                }
+            }
+        }
+    }
+}
+-- zz-d-setsid-escape/record --
+selfcheck probe: a child in a session of its own outlives the program by 3 s
+no-strict-c probe
+arg "$RUN"
+arg "/dev/null"
+exit 0
+stdout ""
+stderr ""
+-- zz-e-short-outlive/esc.c --
+#include <fcntl.h>
+#include <string.h>
+#include <unistd.h>
+#include "tack.h"
+
+int64_t linger(tack_view_uint8 rv, tack_view_uint8 wv) {
+    const uint8_t *run = rv.ptr, *wit = wv.ptr; int64_t run_len = rv.len, wit_len = wv.len;
+    char r[4096], w[4096];
+    if (run_len >= 4096 || wit_len >= 4096) return 1;
+    memcpy(r, run, run_len); r[run_len] = 0;
+    memcpy(w, wit, wit_len); w[wit_len] = 0;
+    pid_t p = fork();
+    if (p < 0) return 1;
+    if (p == 0) {
+        close(0); close(1); close(2);
+        sleep(3);
+        int fd = open(w, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd >= 0) { write(fd, "group ", 6); write(fd, r, strlen(r)); write(fd, "\n", 1); close(fd); }
+        _exit(0);
+    }
+    return 0;
+}
+-- zz-e-short-outlive/main.tck --
+package main
+
+import os from "std/os"
+
+extern("linger") func linger(run []uint8, wit []uint8) int64
+
+// main starts a child that outlives it, and ends at once.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 {
+            for j, b := range args {
+                if j == 2 && linger(a.bytes(), b.bytes()) != 0 {
+                    exit(3)
+                }
+            }
+        }
+    }
+}
+-- zz-e-short-outlive/record --
+selfcheck probe: a child in the program's group outlives it by 3 s
+no-strict-c probe
+arg "$RUN"
+arg "/dev/null"
+exit 0
+stdout ""
+stderr ""
+-- zz-f-symlink/data.txt --
+hello
+-- zz-f-symlink/ln.c --
+#include <string.h>
+#include <unistd.h>
+#include "tack.h"
+
+int64_t mklink(tack_view_uint8 tv) {
+    const uint8_t *to = tv.ptr; int64_t to_len = tv.len;
+    char t[4096];
+    if (to_len >= 4096) return 1;
+    memcpy(t, to, to_len); t[to_len] = 0;
+    return symlink(t, "out") == 0 ? 0 : 1;
+}
+-- zz-f-symlink/main.tck --
+package main
+
+import os from "std/os"
+
+extern("mklink") func mklink(to []uint8) int64
+
+// main makes out in its directory a symbolic link to its first argument.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 && mklink(a.bytes()) != 0 {
+            exit(2)
+        }
+    }
+}
+-- zz-f-symlink/record --
+selfcheck probe: the program leaves a symbolic link, recorded as a file
+no-strict-c probe
+arg "$SRC/data.txt"
+exit 0
+stdout ""
+stderr ""
+file "out" "hello\n"

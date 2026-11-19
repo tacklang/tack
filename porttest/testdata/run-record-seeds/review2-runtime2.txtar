@@ -1,0 +1,39 @@
+review probes 2
+-- q1-running-tiny/main.tck --
+package main
+
+// main ends at once.
+func main() {
+}
+-- q1-running-tiny/record --
+selfcheck review
+still-running 0.0000000001
+-- q2-child-holds-stdout/hold.c --
+#include <unistd.h>
+#include "tack.h"
+
+int64_t spawn_holder(void) {
+    pid_t p = fork();
+    if (p < 0) {
+        return 1;
+    }
+    if (p == 0) {
+        sleep(2);
+        _exit(0);
+    }
+    return 0;
+}
+-- q2-child-holds-stdout/main.tck --
+package main
+
+extern("spawn_holder") func spawn_holder() int64
+
+// main leaves a child holding its standard output and ends at once.
+func main() {
+    if spawn_holder() != 0 {
+        exit(1)
+    }
+}
+-- q2-child-holds-stdout/record --
+selfcheck review
+still-running 0.5

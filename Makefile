@@ -11,7 +11,7 @@ BIN := bin/tack
 BUILTIN_DOC := builtin/builtin.tck
 RUNTIME_HEADER := builtin/runtime/tack/tack.h
 
-.PHONY: build install install-std std-copies unicode-tables test port-test port-fuzz port-sanitize port-alloc-fail port-measure port-embed port-go-bin fuzz-progen fmt lint
+.PHONY: build install install-std std-copies unicode-tables test port-test port-fuzz port-sanitize port-alloc-fail port-measure port-embed port-go-bin port-test-names fuzz-progen fmt lint
 
 # build compiles the compiler into $(BIN).
 build:
@@ -123,6 +123,14 @@ PORT_GO_BIN := bin/port-go/tack
 # links its own runtime, and to pass as TACK_GO.
 port-go-bin:
 	$(call port-go,$(PORT_GO_BIN))
+
+# port-test-names rewrites porttest/testdata/gotest-names.txt, every test
+# and subtest go test runs in the packages whose runtime assertions are
+# the port's run records, by running those tests (see porttest/testnames).
+# porttest's TestRunRecordsCoverage fails while the list's top-level tests
+# differ from those packages' test functions.
+port-test-names:
+	go generate ./porttest
 
 # FUZZTIME is how long `make fuzz-progen` and `make port-fuzz` fuzz for.
 FUZZTIME := 10m

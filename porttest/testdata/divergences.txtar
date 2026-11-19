@@ -4401,6 +4401,56 @@ b/util/b.tck:3:10: note: type X of package m/b/util is declared here
    |	         ^
 04 |	    pub n int64
 
+-- kw-struct-emit/divergence --
+suite: run-records
+case: prototype.txtar#extern-keyword-names-emit
+go: Go's claimStruct reports a struct whose tack.h name is a C keyword as
+  "type T", naming no package, in tack --emit's diagnostics as in
+  --check's (see kw-struct).
+why: The port names it "type T of package P" and claims its name, as
+  kw-struct records for --check, decided 2026-11-15; this entry is the
+  run record of tack --emit on the case, added 2026-11-19.
+same: exit, stdout
+-- kw-struct-emit/exit --
+-- kw-struct-emit/stdout --
+-- kw-struct-emit/stderr --
+
+extern-keyword-names/main.tck:3:6: error: type int of package main cannot be named int in C: it is a C keyword
+02 |	
+03 |	type int struct {
+   |	     ^~~
+04 |	    while int64
+
+extern-keyword-names/main.tck:4:5: error: field while of type int cannot be named while in C: it is a C keyword
+03 |	type int struct {
+04 |	    while int64
+   |	    ^~~~~
+05 |	    x int64
+
+extern-keyword-names/main.tck:6:5: error: field char of type int cannot be named char in C: it is a C keyword
+05 |	    x int64
+06 |	    char bool
+   |	    ^~~~
+07 |	}
+
+extern-keyword-names/main.tck:10:5: error: field register of type Ok cannot be named register in C: it is a C keyword
+09 |	type Ok struct {
+10 |	    register int64
+   |	    ^~~~~~~~
+11 |	}
+
+extern-keyword-names/main.tck:13:6: warning: declared and not used: Unused
+12 |	
+13 |	type Unused struct {
+   |	     ^~~~~~
+14 |	    while int64
+
+extern-keyword-names/main.tck:17:13: warning: declared and not used: f
+16 |	
+17 |	extern func f(a int) Ok
+   |	            ^
+18 |	
+
 -- unicode18-lex/divergence --
 suite: lex-probes
 case: unicode18-string.tck

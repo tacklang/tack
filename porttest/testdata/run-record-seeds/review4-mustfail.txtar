@@ -1,0 +1,40 @@
+-- zzz-mf-a-build-masks/main.tck --
+package main
+
+func main() {
+    x :=
+}
+-- zzz-mf-a-build-masks/record --
+selfcheck probe: claims exit, but the build fails
+must-fail exit
+exit 1
+stdout ""
+stderr ""
+-- zzz-mf-b-level-build/lvl.c --
+#include "tack.h"
+
+#ifdef __OPTIMIZE__
+#error optimized
+#endif
+
+int64_t lvl(void) {
+    return 0;
+}
+-- zzz-mf-b-level-build/main.tck --
+package main
+
+extern("lvl") func lvl() int64
+
+// main prints hi.
+func main() {
+    if lvl() == 0 {
+        print("hi\n")
+    }
+}
+-- zzz-mf-b-level-build/record --
+selfcheck probe: stdout fails at -O0, the build fails at -O2
+must-fail stdout
+opt 0 2
+exit 0
+stdout ""
+stderr ""

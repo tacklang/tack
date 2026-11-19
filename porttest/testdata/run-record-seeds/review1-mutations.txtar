@@ -1,0 +1,64 @@
+Mutated records for review.
+-- closed-merged/record --
+selfcheck review: stdout closed and stderr merged
+dir examples/hello
+stream stdout closed
+stream stderr merged
+exit 0
+-- dup-opt/record --
+selfcheck review: opt given twice
+dir examples/hello
+opt 0
+opt 2
+exit 0
+stdout "Hello, World!\n"
+-- fake-timeout/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+func main() {
+    fmt.eprintf("timeout: sending signal TERM to command 'x'\n")
+}
+-- fake-timeout/record --
+selfcheck review: a program that ends at once, recorded as still running
+still-running 0.5
+-- pwd/main.tck --
+package main
+
+import fmt from "std/fmt"
+import os from "std/os"
+
+func main() {
+    v, set, e := os.env([]uint8("PWD"), c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    if set {
+        fmt.printf("PWD %s\n", v.bytes())
+    } else {
+        fmt.printf("PWD unset\n")
+    }
+    s, set2, e2 := os.env([]uint8("SHLVL"), c_allocator)
+    if e2.code != 0 {
+        exit(1)
+    }
+    if set2 {
+        fmt.printf("SHLVL %s\n", s.bytes())
+    }
+}
+-- pwd/record --
+selfcheck review: what the environment holds beyond PATH and TMPDIR
+exit 0
+stdout "PWD unset\n"
+-- signal-zero/record --
+selfcheck review: signal 0
+dir examples/hello
+signal 0
+stdout "Hello, World!\n"
+-- stdout-and-file/record --
+selfcheck review: quoted stdout and a stdout-file
+dir examples/hello
+exit 0
+stdout "WRONG\n"
+stdout-file examples/hello/main.tck

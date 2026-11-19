@@ -1,0 +1,23 @@
+ASan reaches the build.
+-- leak-asan/leak.c --
+#include <stdlib.h>
+#include "tack.h"
+
+static void *keep;
+
+void c_leak(void) {
+    keep = malloc(64);
+    keep = 0;
+}
+-- leak-asan/main.tck --
+package main
+
+extern("c_leak") func leak()
+
+func main() {
+    leak()
+}
+-- leak-asan/record --
+selfcheck review: a C leak under ASan must fail this record
+cflags -O0 -g -fsanitize=address,undefined -fno-sanitize-recover=all
+exit 0

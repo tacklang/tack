@@ -1,0 +1,131 @@
+review runtime probes
+-- r1-opt-one-level/lvl.c --
+#include "tack.h"
+
+int64_t lvl_optimized(void) {
+#ifdef __OPTIMIZE__
+    return 1;
+#else
+    return 0;
+#endif
+}
+-- r1-opt-one-level/main.tck --
+package main
+
+extern("lvl_optimized") func optimized() int64
+
+// main exits 1 when its C was optimized.
+func main() {
+    if optimized() != 0 {
+        exit(1)
+    }
+}
+-- r1-opt-one-level/record --
+selfcheck review
+opt 0 2
+exit 0
+-- r2-running-but-exits/main.tck --
+package main
+
+// main ends at once.
+func main() {
+}
+-- r2-running-but-exits/record --
+selfcheck review
+still-running 0.5
+-- r3-high-fds/fds.c --
+#include <fcntl.h>
+#include "tack.h"
+
+int64_t high_open_fds(void) {
+    int64_t bits = 0;
+    for (int fd = 10; fd <= 40; fd++) {
+        if (fcntl(fd, F_GETFD) != -1) {
+            bits |= (int64_t)1 << (fd - 10);
+        }
+    }
+    return bits;
+}
+-- r3-high-fds/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+extern("high_open_fds") func high() int64
+
+// main prints which of descriptors 10 to 40 are open.
+func main() {
+    fmt.printf("open %d\n", high())
+}
+-- r3-high-fds/record --
+selfcheck review
+exit 0
+stdout "open 0\n"
+-- r4-argv0/main.tck --
+package main
+
+import fmt from "std/fmt"
+import os from "std/os"
+
+// main prints its argv[0].
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 0 {
+            fmt.printf("argv0 %s\n", a.bytes())
+        }
+    }
+}
+-- r4-argv0/record --
+selfcheck review
+exit 0
+-- r5-writes-src/main.tck --
+package main
+
+import os from "std/os"
+
+// main writes x to the file its first argument names.
+func main() {
+    args, e := os.args(c_allocator)
+    if e.code != 0 {
+        exit(1)
+    }
+    for i, a := range args {
+        if i == 1 {
+            e2 := os.write_file(a.bytes(), []uint8("x"))
+            if e2.code != 0 {
+                exit(2)
+            }
+        }
+    }
+}
+-- r5-writes-src/record --
+selfcheck review
+arg "$SRC/stray.txt"
+exit 0
+-- r7-files/main.tck --
+package main
+
+import os from "std/os"
+
+// main writes files whose bytes test file and file+ lines.
+func main() {
+    if os.write_file([]uint8("nonl.txt"), []uint8("a\nb")).code != 0 {
+        exit(1)
+    }
+    if os.write_file([]uint8("empty.txt"), []uint8("")).code != 0 {
+        exit(2)
+    }
+    if os.write_file([]uint8("hdr.txt"), []uint8("-- x/record --\n\n\n")).code != 0 {
+        exit(3)
+    }
+    if os.write_file([]uint8("bin.txt"), []uint8("\x00\xff\r\n\"q\"")).code != 0 {
+        exit(4)
+    }
+}
+-- r7-files/record --
+selfcheck review
+exit 0

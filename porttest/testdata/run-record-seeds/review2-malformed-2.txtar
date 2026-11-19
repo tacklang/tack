@@ -1,0 +1,16 @@
+c
+-- a/record --
+selfcheck review
+dir examples/hello
+exit 0
+stdout "\UFFFFFFFF"
+-- b/record --
+selfcheck review
+dir examples/hello
+exit 0
+stdout "\u00"
+-- c/record --
+selfcheck review
+dir examples/hello
+exit 0
+stdout "\uD800"
