@@ -177,8 +177,28 @@ func setup(tmp string) error {
 	if env.portSmall, err = writeStackWrapper(tmp, "port-small", smallStack); err != nil {
 		return err
 	}
+	if err := writeScripts(); err != nil {
+		return err
+	}
 	env.archives, err = writeArchives(filepath.Join(tmp, "corpus"))
 	return err
+}
+
+// writeScripts writes, before any test runs, the scripts the tests run
+// that are written once a run: the Go compiler's stack wrapper, the
+// counting clang and the saving clang. Written lazily, as a case first
+// needed one, a script could be written while parallel cases fork, and a
+// child forked then holds it open for writing until it execs, so that
+// running the script fails with ETXTBSY, text file busy. A clang that
+// cannot be found is no failure here: the clang scripts keep the error,
+// and the tests that need them report it, as before.
+func writeScripts() error {
+	if _, err := goStackWrapper(); err != nil {
+		return err
+	}
+	_, _ = countingClangDir()
+	_, _ = savingClangDir()
+	return nil
 }
 
 // fromRoot returns p, a path from an environment variable, made absolute:

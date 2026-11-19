@@ -898,6 +898,14 @@
 // about a thousand levels at Linux's usual soft limit, fails with EMFILE
 // where Go, whose runtime raises that limit to the hard one, removes it.
 //
+// The scripts the tests run that are written once a run, the Go
+// compiler's stack wrapper and the counting and saving clangs, are
+// written in TestMain's setup, before any test runs, and the link hooks
+// of test-examples' probes with its inputs, before any case of it runs:
+// a script written while parallel cases fork can be held open for
+// writing by a child between its fork and its exec, and running it then
+// fails with ETXTBSY.
+//
 // # Loading
 //
 // TestLoadTrees makes file trees the corpus has none of, in a temporary

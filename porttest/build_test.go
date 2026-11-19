@@ -776,6 +776,8 @@ var goStack struct {
 // stack held to deepStack KB, times stackScale, as the port's every run
 // is (see writeStackWrapper): the clang a build runs inherits the
 // limit, so both compilers' clang runs under the same one.
+// writeScripts calls it in TestMain's setup, before any test runs,
+// so no fork overlaps the write.
 func goStackWrapper() (string, error) {
 	goStack.once.Do(func() {
 		scale, err := stackScale()

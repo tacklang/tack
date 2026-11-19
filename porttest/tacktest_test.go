@@ -34,11 +34,14 @@ func init() {
 // testRun is how one case of test-examples runs tack test: the
 // arguments after test, the target among them or none, and whether the
 // compilers' standard output is a pipe whose reader is closed, as the
-// Go compiler's TestTackTestBrokenPipe runs examples/tack-test/pipe.
+// Go compiler's TestTackTestBrokenPipe runs examples/tack-test/pipe;
+// and, for a probe with a hook on clang's link, the directory of the
+// clang that runs it, written once with the inputs (see linkHookDir).
 type testRun struct {
 	args         []string
 	env          []string
 	linkHook     string
+	hookDir      string
 	closedStdout bool
 	leaves       bool
 }
@@ -183,7 +186,21 @@ func makeTestInputs() ([]input, error) {
 				return nil, fmt.Errorf("writing test probe %s: %w", p.name, err)
 			}
 		}
-		add("probe/"+p.name, dir, testRun{args: p.args, env: p.env, linkHook: p.linkHook, leaves: p.leaves})
+		run := testRun{args: p.args, env: p.env, linkHook: p.linkHook, leaves: p.leaves}
+		if p.linkHook != "" {
+			// Written here, before any case runs, and not as a case
+			// runs: a script written while parallel cases fork can be
+			// held open by a child between its fork and its exec, and
+			// then cannot be run, ETXTBSY.
+			clangDir, err := savingClangDir()
+			if err != nil {
+				return nil, err
+			}
+			if run.hookDir, err = linkHookDir(filepath.Join(env.tmp, "test-hooks"), p.name, clangDir, p.linkHook); err != nil {
+				return nil, err
+			}
+		}
+		add("probe/"+p.name, dir, run)
 	}
 	slices.SortFunc(ins, func(a, b input) int { return strings.Compare(a.name, b.name) })
 	return ins, nil
@@ -338,6 +355,7 @@ var savedC struct {
 // runs the real clang, the one first on the PATH the test inherits, by
 // its absolute path, with the arguments it is given. test-examples puts
 // it first on PATH for both compilers.
+// writeScripts writes it in TestMain's setup, before any test runs.
 func savingClangDir() (string, error) {
 	savedC.once.Do(func() {
 		clang, err := exec.LookPath("clang")
@@ -393,12 +411,8 @@ func testOnce(t *testing.T, bin string, d buildDirs, in input, saveC string) bui
 	copied.env = append(copied.env, "PATH="+clangDir+string(filepath.ListSeparator)+os.Getenv("PATH"),
 		saveCVar+"="+saveC)
 	run := testRuns[in.name]
-	if run.linkHook != "" {
-		hookDir, err := linkHookDir(filepath.Dir(saveC), filepath.Base(saveC), clangDir, run.linkHook)
-		if err != nil {
-			t.Fatal(err)
-		}
-		copied.env = append(copied.env, "PATH="+hookDir+string(filepath.ListSeparator)+clangDir+
+	if run.hookDir != "" {
+		copied.env = append(copied.env, "PATH="+run.hookDir+string(filepath.ListSeparator)+clangDir+
 			string(filepath.ListSeparator)+os.Getenv("PATH"))
 	}
 	copied.env = append(copied.env, run.env...)
@@ -433,7 +447,7 @@ func testOnce(t *testing.T, bin string, d buildDirs, in input, saveC string) bui
 	return built{res: r, files: files, in: copied, bin: saveC}
 }
 
-// linkHookDir writes, in a directory beside where the saved C goes, a
+// linkHookDir writes, in a directory hook-name below base, a
 // clang that runs the saving clang in clangDir and then, after a link
 // of the test binary, a command whose -o ends in /tests, the shell
 // commands hook with $o the binary's path, and returns the directory.

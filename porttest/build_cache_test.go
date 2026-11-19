@@ -76,6 +76,7 @@ var countingClang struct {
 // clang's output. The build cache's stages put it first on PATH for
 // both compilers, so that a build that compiles a runtime object it
 // should have found in the cache is seen to.
+// writeScripts writes it in TestMain's setup, before any test runs.
 func countingClangDir() (string, error) {
 	countingClang.once.Do(func() {
 		clang, err := exec.LookPath("clang")
