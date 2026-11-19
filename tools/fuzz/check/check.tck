@@ -1,0 +1,248 @@
+package check
+
+import fmt from "std/fmt"
+import diag from "tack/diag"
+import lexer from "tack/lexer"
+import source from "tack/source"
+
+// Package check holds the invariants the fuzz targets of tools/fuzz hold
+// the compiler's front end to, beyond what the sanitizers and libFuzzer
+// catch, a crash, an abort, a leak or a timeout: each is a property
+// package lexer, parser or diag documents, checked on what they return
+// for one input.
+//
+// Each check appends to why, when the input breaks the property, what
+// broke, and appends nothing when it holds, so a target calls the checks
+// in turn and fails the input once why is not empty. Each returns only
+// the builtin append's out of memory, which the target reports as a
+// failure too.
+
+// tokens checks ts, what lexer.lex made of data, against the lexer's
+// documented guarantees: the stream ends in its only EOF token; every
+// token lies within data, its start at most its end; tokens come in
+// source order, none starting before the end of one before it, but for
+// the empty semicolon a line comment of several lines puts at the end
+// of its first line, inside it, which must sit on that line's newline; only a semicolon or the EOF covers no
+// bytes; an identifier's, an integer's and a float's value is its source
+// text; a kind with no text has no value; and every byte between tokens
+// is white space, a space, a tab, a line feed or a carriage return, or
+// lies within the span of a diagnostic of diags, since the lexer skips
+// what it cannot read only once it has reported it.
+pub func tokens(data []uint8, ts lexer.Tokens, diags []diag.Diagnostic, mut why list[uint8]) error {
+    n := len(ts.tokens())
+    if n == 0 {
+        return fmt.appendf(mut why, "no tokens, not even EOF\n")
+    }
+    mut end int64 = 0
+    mut prev_kind := lexer.kind_invalid
+    mut prev_start int64 = 0
+    mut prev_end int64 = 0
+    for i, t := range ts.tokens() {
+        k := t.kind()
+        s := t.offset_start()
+        e := t.offset_end()
+        if k == lexer.kind_eof && i != n -% 1 {
+            fmt.appendf(mut why, "token %d of %d is an EOF\n", i, n)?
+        }
+        if i == n -% 1 && k != lexer.kind_eof {
+            fmt.appendf(mut why, "the last token, %d, is no EOF\n", i)?
+        }
+        if s < 0 || s > e || e > len(data) {
+            fmt.appendf(mut why, "token %d covers [%d, %d) of %d bytes\n", i, s, e, len(data))?
+            continue
+        }
+        in_comment := k == lexer.kind_semi && s == e && prev_kind == lexer.kind_comment &&
+            prev_start < s && s < prev_end && at_newline(data, s)
+        if s < end && !in_comment {
+            fmt.appendf(mut why, "token %d starts at %d, before %d, the end of one before it\n", i, s, end)?
+        }
+        if s >= end {
+            gap(data, end, s, diags, mut why)?
+        }
+        if s == e && k != lexer.kind_semi && k != lexer.kind_eof {
+            fmt.appendf(mut why, "token %d, of kind %d, covers no bytes at %d\n", i, k.number(), s)?
+        }
+        if k == lexer.kind_ident || k == lexer.kind_int || k == lexer.kind_float {
+            if !same(ts.value(t), data[s:e]) {
+                fmt.appendf(mut why, "token %d, of kind %d, has the value \"%s\", not its text \"%s\"\n", i, k.number(), ts.value(t), data[s:e])?
+            }
+        } else if !lexer.has_text(k) && len(ts.value(t)) != 0 {
+            fmt.appendf(mut why, "token %d, of kind %d, which has no text, has the value \"%s\"\n", i, k.number(), ts.value(t))?
+        }
+        if e > end {
+            end = e
+        }
+        prev_kind = k
+        prev_start = s
+        prev_end = e
+    }
+    if end <= len(data) {
+        gap(data, end, len(data), diags, mut why)?
+    }
+    return noerror
+}
+
+// at_newline reports whether a newline starts at offset at of data: a
+// line feed, or a carriage return followed by one, whose first byte is
+// where the lexer puts the semicolon a newline implies.
+func at_newline(data []uint8, at int64) bool {
+    c, ok := data[at]
+    if !ok {
+        return false
+    }
+    if c == '\n' {
+        return true
+    }
+    d, ok2 := data[at +% 1]
+    return c == '\r' && ok2 && d == '\n'
+}
+
+// gap checks the bytes [lo, hi) of data, which no token covers, as
+// tokens does: each must be white space or lie within a diagnostic's
+// span. It reports the first byte that is neither.
+func gap(data []uint8, lo int64, hi int64, diags []diag.Diagnostic, mut why list[uint8]) error {
+    for p := range hi -% lo {
+        at := lo +% p
+        c, ok := data[at]
+        if !ok {
+            return fmt.appendf(mut why, "the gap [%d, %d) is past the end of %d bytes\n", lo, hi, len(data))
+        }
+        if c == ' ' || c == '\t' || c == '\n' || c == '\r' || reported(at, diags) {
+            continue
+        }
+        return fmt.appendf(mut why, "byte %d, %d, is in no token, no white space and no diagnostic\n", at, c)
+    }
+    return noerror
+}
+
+// reported reports whether the byte at offset at lies within the span of
+// one of diags.
+func reported(at int64, diags []diag.Diagnostic) bool {
+    for _, d := range diags {
+        if d.span.start <= at && at < d.span.end {
+            return true
+        }
+    }
+    return false
+}
+
+// same reports whether a and b hold the same bytes.
+func same(a []uint8, b []uint8) bool {
+    if len(a) != len(b) {
+        return false
+    }
+    for i, c := range a {
+        d, ok := b[i]
+        if !ok || c != d {
+            return false
+        }
+    }
+    return true
+}
+
+// line_starts checks the line starts the lexer recorded in f against
+// the bytes of f: 0, and one past each line feed, in order, no other.
+pub func line_starts(f source.File, mut why list[uint8]) error {
+    mut want int64 = 0
+    mut k int64 = 0
+    for p := range len(f.data) +% 1 {
+        if p > 0 {
+            prev, ok := f.data[p -% 1]
+            if !ok || prev != '\n' {
+                continue
+            }
+        }
+        want = p
+        got, ok := f.line_starts()[k]
+        if !ok {
+            return fmt.appendf(mut why, "line %d should start at %d, and there are only %d line starts\n", k +% 1, want, len(f.line_starts()))
+        }
+        if got != want {
+            return fmt.appendf(mut why, "line %d starts at %d, not %d\n", k +% 1, got, want)
+        }
+        k +%= 1
+    }
+    if k != len(f.line_starts()) {
+        return fmt.appendf(mut why, "%d line starts recorded, for %d lines\n", len(f.line_starts()), k)
+    }
+    return noerror
+}
+
+// diagnostics checks diags, reported by stage for a file of size bytes
+// with the ID fid: each diagnostic, and each of its related notes, has a
+// message and a span in that file, its start at most its end, which is
+// at most size; and each is an error, the only severity the lexer and
+// the parser report.
+pub func diagnostics(stage string, fid source.FileID, size int64, diags []diag.Diagnostic, mut why list[uint8]) error {
+    for i, d := range diags {
+        check_span(stage, i, d.span, fid, size, mut why)?
+        if len(d.message.bytes()) == 0 {
+            fmt.appendf(mut why, "%s diagnostic %d has no message\n", stage, i)?
+        }
+        if d.severity != diag.error_severity {
+            fmt.appendf(mut why, "%s diagnostic %d is a %s, not an error\n", stage, i, d.severity.string())?
+        }
+        for _, r := range d.related {
+            check_span(stage, i, r.span, fid, size, mut why)?
+            if len(r.message.bytes()) == 0 {
+                fmt.appendf(mut why, "a note of %s diagnostic %d has no message\n", stage, i)?
+            }
+        }
+    }
+    return noerror
+}
+
+// check_span checks sp, the span of diagnostic i of stage or of one of its
+// notes, as diagnostics does.
+func check_span(stage string, i int64, sp source.Span, fid source.FileID, size int64, mut why list[uint8]) error {
+    if sp.file.n != fid.n {
+        return fmt.appendf(mut why, "%s diagnostic %d is in file %d, not %d\n", stage, i, sp.file.n, fid.n)
+    }
+    if sp.start < 0 || sp.start > sp.end || sp.end > size {
+        return fmt.appendf(mut why, "%s diagnostic %d covers [%d, %d) of %d bytes\n", stage, i, sp.start, sp.end, size)
+    }
+    return noerror
+}
+
+// json checks that out, a JSON dump, is one value whose strings end and
+// whose objects and arrays close in the order they opened, with nothing
+// after it but a newline; it does not check the grammar further.
+pub func json(out []uint8, mut why list[uint8]) error {
+    mut stack := make(list[uint8], c_allocator)
+    mut in_string := false
+    mut escaped := false
+    mut closed := false
+    for i, c := range out {
+        if in_string {
+            if escaped {
+                escaped = false
+            } else if c == '\\' {
+                escaped = true
+            } else if c == '"' {
+                in_string = false
+            } else if c < 0x20 {
+                return fmt.appendf(mut why, "the dump has the control byte %d in a string, at %d\n", c, i)
+            }
+            continue
+        }
+        if closed && c != '\n' {
+            return fmt.appendf(mut why, "the dump goes on past its value, at %d\n", i)
+        }
+        if c == '"' {
+            in_string = true
+        } else if c == '{' || c == '[' {
+            append(mut stack, c)?
+        } else if c == '}' || c == ']' {
+            top, ok := stack[len(stack) -% 1]
+            if !ok || (c == '}') != (top == '{') {
+                return fmt.appendf(mut why, "the dump closes %c at %d, which matches nothing open\n", c, i)
+            }
+            pop(mut stack)
+            closed = len(stack) == 0
+        }
+    }
+    if in_string || len(stack) != 0 || !closed {
+        return fmt.appendf(mut why, "the dump ends with a string or %d objects and arrays open\n", len(stack))
+    }
+    return noerror
+}

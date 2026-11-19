@@ -1,0 +1,49 @@
+package input
+
+// Package input is what every fuzz target of tools/fuzz shares: the
+// input libFuzzer is running, and the way to report that it broke one of
+// the target's invariants. Its C half, input.c, defines both extern
+// funcs; tools/fuzz/entry.c, the C that hands each input to a target,
+// sets the input before every run (see tools/fuzz/fuzz.sh).
+//
+// A target is a package main whose main runs once for each input
+// libFuzzer generates, never at the start of a process: it reads the
+// input with read, checks it, and reports a broken invariant with fail,
+// which ends the process with abort, so libFuzzer saves the input as a
+// crash. Everything a run allocates must be freed by the time main
+// returns, as Tack frees what main owns: entry.c aborts after any input
+// that leaves a buffer of c_allocator held, the runtime's count of them,
+// which is how a leak of Tack's memory is caught, since the runtime
+// keeps every buffer it holds where LeakSanitizer finds it reachable.
+// LeakSanitizer catches only memory C allocates with malloc and loses
+// (see tools/fuzz/fuzz.sh for when it runs).
+
+// c_read appends the bytes of the input libFuzzer is running to out, and
+// returns false when out cannot grow, or when no input is running.
+extern("fuzz_input") func c_read(mut out list[uint8]) bool
+
+// c_fail writes what and then detail, a target's account of the
+// invariant the input broke, to standard error, and ends the process
+// with abort.
+extern("fuzz_fail") func c_fail(what []uint8, detail []uint8)
+
+// read appends the bytes of the input libFuzzer is running to out. It
+// returns false when out cannot grow, which a target reports with fail.
+pub func read(mut out list[uint8]) bool {
+    return c_read(mut out)
+}
+
+// fail reports that the input broke an invariant, what saying which, and
+// ends the process with abort, so libFuzzer saves the input as a crash.
+// It does not return.
+pub func fail(what []uint8) {
+    c_fail(what, []uint8(""))
+}
+
+// fail_error reports that a stage or a check returned e, an error the
+// front end returns only when it is out of memory or breaks an invariant
+// of its own, such as the lexer's order of tokens, and ends the process
+// with abort as fail does. It does not return.
+pub func fail_error(e error) {
+    c_fail([]uint8("an error was returned: "), []uint8(e.msg))
+}

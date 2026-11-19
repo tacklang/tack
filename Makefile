@@ -265,3 +265,39 @@ install-std:
 # Go.
 test-install:
 	sh tools/test-install.sh "$(TACK)"
+
+# FUZZ_TARGETS are the fuzz targets of tools/fuzz, each a package main
+# there that libFuzzer runs once for each input (see tools/fuzz/fuzz.sh):
+# lex, the lexer, and parse, the lexer and the parser, on arbitrary
+# bytes. FUZZ is the target `make fuzz` runs, and FUZZTIME how many
+# seconds it runs for.
+FUZZ_TARGETS := lex parse
+FUZZ ?= lex
+FUZZTIME ?= 60
+
+.PHONY: fuzz-build fuzz fuzz-regress
+
+# fuzz-build builds every target of $(FUZZ_TARGETS) with $(TACK) into
+# bin/fuzz/<target>/fuzz, from the C --emit writes for it, the runtime's
+# C and std's, under libFuzzer with the address, leak and undefined
+# behavior sanitizers. It needs clang with libFuzzer, and no Go.
+fuzz-build:
+	sh tools/fuzz/fuzz.sh build "$(TACK)" $(FUZZ_TARGETS)
+
+# fuzz builds $(FUZZ) as fuzz-build does and fuzzes it for $(FUZZTIME)
+# seconds, from the corpus it kept before, its committed inputs in
+# tools/fuzz/regress/$(FUZZ) and seeds from corpus/examples, with at
+# most 2048 MB of memory; each crash, sanitizer report, leak, timeout or
+# broken invariant is saved into bin/fuzz/crashes/$(FUZZ)/. It needs
+# clang with libFuzzer, and no Go.
+fuzz:
+	sh tools/fuzz/fuzz.sh build "$(TACK)" "$(FUZZ)"
+	sh tools/fuzz/fuzz.sh run "$(FUZZ)" "$(FUZZTIME)"
+
+# fuzz-regress replays, through every target of $(FUZZ_TARGETS), each
+# input of tools/fuzz/regress/<target> and each seed from
+# corpus/examples once, with no fuzzing, and fails when any of them
+# fails, or a regress directory is empty. tackc's porttest fuzz-regress
+# stage runs it with the port. It needs clang with libFuzzer, and no Go.
+fuzz-regress: fuzz-build
+	sh tools/fuzz/fuzz.sh regress $(FUZZ_TARGETS)

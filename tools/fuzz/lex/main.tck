@@ -1,0 +1,59 @@
+package main
+
+import diag from "tack/diag"
+import lexer from "tack/lexer"
+import source from "tack/source"
+import text from "std/text"
+import check from "tack/tools/fuzz/check"
+import input from "tack/tools/fuzz/input"
+
+// Package main is the lex fuzz target: libFuzzer runs its main once for
+// each input, which lexes the input's bytes as a file and holds what the
+// lexer returns to the invariants of package check, then renders the
+// tokens as --lex does and the diagnostics in both of diag's forms, so a
+// renderer that misreads a span is found too (see tools/fuzz/fuzz.sh,
+// which builds it, and package input).
+
+// main runs the target on the input libFuzzer is running, and fails the
+// input, aborting, when any check fails or anything returns an error.
+func main() {
+    mut why := make(list[uint8], c_allocator)
+    e := run(mut why)
+    if e.code != 0 {
+        input.fail_error(e)
+    } else if len(why) > 0 {
+        input.fail(why)
+    }
+}
+
+// run lexes the input once and checks it, appending to why what broke.
+// It returns only an error a stage or a check returned, out of memory or
+// the lexer's internal error.
+func run(mut why list[uint8]) error {
+    mut data := make(list[uint8], c_allocator)
+    if !input.read(mut data) {
+        append(mut why, []uint8("lex target: cannot read the input")...)?
+        return noerror
+    }
+    mut copy := make(list[uint8], c_allocator)
+    append(mut copy, data...)?
+    size := len(data)
+    fid := source.FileID{n: 0}
+    name := text.from_bytes([]uint8("fuzz.tck"), c_allocator)?
+    mut f := source.new_file(fid, own name, own data, c_allocator)
+    toks, diags := lexer.lex(mut f, c_allocator)?
+    check.tokens(copy, toks, diags, mut why)?
+    check.line_starts(f, mut why)?
+    check.diagnostics("lex", fid, size, diags, mut why)?
+    mut dump := make(list[uint8], c_allocator)
+    for _, t := range toks.tokens() {
+        lexer.append_padded(mut dump, t, toks.value(t), 1)?
+        append(mut dump, '\n')?
+    }
+    mut files := source.new_set(c_allocator)
+    mut files.add(own f)?
+    mut out := make(list[uint8], c_allocator)
+    diag.render_all(files, mut out, diags)?
+    diag.render_all_pretty(files, mut out, diags)?
+    return noerror
+}

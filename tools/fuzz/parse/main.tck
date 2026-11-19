@@ -1,0 +1,116 @@
+package main
+
+import diag from "tack/diag"
+import ast from "tack/ast"
+import lexer from "tack/lexer"
+import parser from "tack/parser"
+import source from "tack/source"
+import text from "std/text"
+import check from "tack/tools/fuzz/check"
+import input from "tack/tools/fuzz/input"
+
+// Package main is the parse fuzz target: libFuzzer runs its main once
+// for each input, which lexes the input's bytes as a file and parses the
+// tokens, whatever the lexer reported, as the loader's clause_name
+// parses a file with lexing errors, and holds what the parser returns to
+// the invariants of package check and these: a parse with no tree has
+// reported an error; a tree's --ast dump, when the dump does not refuse
+// it as nested too deeply, is one JSON value whose strings end and whose
+// objects and arrays close; parsing the same bytes again gives the same
+// diagnostics and the same dump, byte for byte; and with an error limit
+// of limit, the parse reports at most limit errors and one more (see
+// parser.parse). The diagnostics are rendered in both of diag's forms
+// (see tools/fuzz/fuzz.sh, which builds it, and package input).
+
+// limit is the error limit of the third parse, which stops past it.
+var limit int64 = 3
+
+// main runs the target on the input libFuzzer is running, and fails the
+// input, aborting, when any check fails or anything returns an error.
+func main() {
+    mut why := make(list[uint8], c_allocator)
+    e := run(mut why)
+    if e.code != 0 {
+        input.fail_error(e)
+    } else if len(why) > 0 {
+        input.fail(why)
+    }
+}
+
+// run parses the input three times, twice with no error limit and once
+// with limit, and checks each parse and that the first two agree,
+// appending to why what broke. It returns only an error a stage or a
+// check returned, out of memory or an internal error.
+func run(mut why list[uint8]) error {
+    mut data := make(list[uint8], c_allocator)
+    if !input.read(mut data) {
+        append(mut why, []uint8("parse target: cannot read the input")...)?
+        return noerror
+    }
+    first, _ := once(data, 0, mut why)?
+    second, _ := once(data, 0, mut why)?
+    if !same(first, second) {
+        append(mut why, []uint8("parsing the input again gives other diagnostics or another dump\n")...)?
+    }
+    limited, errors := once(data, limit, mut why)?
+    drop(own limited)
+    if errors > limit +% 1 {
+        append(mut why, []uint8("a parse limited to 3 errors reports more than 4\n")...)?
+    }
+    return noerror
+}
+
+// once lexes and parses data with the error limit max_errors, 0 for
+// none, checks what it gives, appending to why what broke, and returns
+// the rendered diagnostics and the dump, for comparing with another
+// parse, and how many errors the parser reported.
+func once(data []uint8, max_errors int64, mut why list[uint8]) (list[uint8], int64, error) {
+    mut out := make(list[uint8], c_allocator)
+    mut bytes := make(list[uint8], c_allocator)
+    append(mut bytes, data...)?
+    size := len(data)
+    fid := source.FileID{n: 0}
+    name := text.from_bytes([]uint8("fuzz.tck"), c_allocator)?
+    mut f := source.new_file(fid, own name, own bytes, c_allocator)
+    toks, lex_diags := lexer.lex(mut f, c_allocator)?
+    check.diagnostics("lex", fid, size, lex_diags, mut why)?
+    tree, has_tree, parse_diags := parser.parse(fid, own toks, max_errors, c_allocator)?
+    check.diagnostics("parse", fid, size, parse_diags, mut why)?
+    errors := diag.error_count(parse_diags)
+    if !has_tree && errors == 0 {
+        append(mut why, []uint8("the parse has no tree and reported no error\n")...)?
+    }
+    mut files := source.new_set(c_allocator)
+    mut files.add(own f)?
+    diag.render_all(files, mut out, lex_diags)?
+    diag.render_all_pretty(files, mut out, lex_diags)?
+    diag.render_all(files, mut out, parse_diags)?
+    diag.render_all_pretty(files, mut out, parse_diags)?
+    if has_tree {
+        if tree.span.start < 0 || tree.span.start > tree.span.end || tree.span.end > size {
+            append(mut why, []uint8("the tree's span is not within the file\n")...)?
+        }
+        trees := make(list[ast.File], c_allocator)
+        dump, refused := ast.dump(tree, files, trees, c_allocator)?
+        if len(refused) == 0 {
+            check.json(dump, mut why)?
+        }
+        append(mut out, dump...)?
+        append(mut out, []uint8(refused)...)?
+    }
+    return out, errors, noerror
+}
+
+// same reports whether a and b hold the same bytes.
+func same(a []uint8, b []uint8) bool {
+    if len(a) != len(b) {
+        return false
+    }
+    for i, c := range a {
+        d, ok := b[i]
+        if !ok || c != d {
+            return false
+        }
+    }
+    return true
+}

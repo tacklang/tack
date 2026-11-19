@@ -687,6 +687,61 @@ scratch copy where `--emit-header` ran, never by running it in
 `corpus/`. tackc's porttest runs the same check, its `corpus-runner`
 stage, with the port.
 
+    make fuzz-build TACK=bin/tack
+    make fuzz FUZZ=parse FUZZTIME=600 TACK=bin/tack
+    make fuzz-regress TACK=bin/tack
+
+fuzz the compiler's front end in process, with clang's libFuzzer and the
+address, leak and undefined behavior sanitizers, and no Go (decided
+2026-11-19: a third-party fuzzer until Tack has its own). Each target of `tools/fuzz` is a package main whose main
+libFuzzer runs once for each input: `lex` lexes the input as a file,
+and `parse` lexes and parses it, whatever the lexer reported, three
+times, the third with an error limit. Each holds what it gets to
+invariants of its own besides the sanitizers' (see package
+`tools/fuzz/check`): the tokens in order within the input, every byte
+between them white space or inside a diagnostic's span, the line
+starts, every diagnostic's span within the file, a parse with no tree
+having reported an error, a tree's `--ast` dump one JSON value, a
+second parse giving the same diagnostics and dump, and a limited parse
+stopping at its limit. It renders every diagnostic too. A broken
+invariant aborts, so libFuzzer saves the input as a crash. Every input
+must free what it allocated, checked two ways: `tools/fuzz/entry.c`
+aborts after any input that leaves a buffer of `c_allocator` held, by
+the runtime's count of them, which catches a leak of Tack's memory,
+since the runtime keeps every buffer it holds on a list LeakSanitizer
+sees as reachable; and LeakSanitizer finds memory C allocates with
+`malloc` and loses, libFuzzer checking after each input whose mallocs
+and frees do not balance, and at exit. `fuzz.sh` sets the sanitizers'
+options itself, so an inherited `LSAN_OPTIONS` cannot turn that off.
+
+`fuzz-build` builds every target into `bin/fuzz/<target>/fuzz`: the C
+`--emit` writes for it, with the program's `tack.h` from
+`--port-header`, the C files `--port-loaded` lists and the runtime's,
+compiled with the driver's flags at `-O1` and the sanitizers.
+`tools/fuzz/entry.c` includes the emitted C, its `main` renamed, since
+every Tack function there is `static`, and calls that `main` for each
+input; the target reads the input through package `tools/fuzz/input`,
+whose C half holds it, so no Tack name or type is spelt in C. `fuzz`
+fuzzes `FUZZ`, `lex` by default, for `FUZZTIME` seconds, 60 by
+default, with at most 2048 MB of memory and 60 seconds an input, from
+the inputs it kept before in `bin/fuzz/corpus/<target>`, the target's
+committed inputs in `tools/fuzz/regress/<target>`, and every `.tck`
+file of `corpus/examples` and every `.tck` section of its txtar
+archives as seeds, cut to 64 KiB, which cuts two of them, the `conv`
+and `os` programs; each finding is saved into
+`bin/fuzz/crashes/<target>/`. `fuzz-regress` replays the committed
+inputs and the seeds, whole, through every target, once each, and fails
+on any finding, or when a target has no committed input; tackc's porttest
+`fuzz-regress` stage runs it with the port. A finding, once fixed, is
+committed to `tools/fuzz/regress/<target>`. Every run's stack is 40 MB:
+the parser recurses on the C stack (see Known differences), and the
+stack gives the sanitized target about the headroom the default 8 MB
+gives the compiler built at `-O3`. On a thousand nested ifs, switches
+or struct literals, measured, the compiler needs more than 2 MB and at
+most 3 MB, and the sanitized parse target more than 12 MB and at most
+16 MB, so 8 MB is 2.7 to 4 times the one's need and 40 MB 2.5 to 3.3
+times the other's. It needs clang with libFuzzer, and no Go.
+
     make test-std TACK=bin/tack
 
 runs `tack test` on every package of std that holds a test file,
@@ -789,9 +844,10 @@ that is not there fails it, whether `TACK_PORT` names the directory or
 it is the default: a source tree without `driver/` is never skipped.
 
 `TACK_PORT_BIN` set to the Go compiler's binary runs the Go compiler
-against itself, which passes every stage but `corpus-runner` and
-`bootstrap`, which it skips, since Go has no `--port-case` and the port
-it builds is not Go, and checks the harness rather than the port. The
+against itself, which passes every stage but `corpus-runner`,
+`bootstrap` and `fuzz-regress`, which it skips, since Go has no
+`--port-case`, `--port-header` or `--port-loaded` and the port it builds
+is not Go, and checks the harness rather than the port. The
 package documentation of `porttest` describes the protocol, the stages
 and the corpus in full.
 
