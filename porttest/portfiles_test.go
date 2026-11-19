@@ -80,7 +80,12 @@ type portFile struct {
 // alone. It also checks that the port's std copies of builtin.tck and
 // tack.h, src/std/builtin/builtin.tck and src/std/include/tack/tack.h,
 // are its runtime's, which the port's make std-copies writes, as this
-// module's builtin test checks its own. It needs the port's source
+// module's builtin test checks its own. And it checks the port's copy of
+// the test corpus, portCorpusDir, against this module's examples/ and
+// test/testdata goldens: every file the same, but for those
+// portCorpusDivergences lists and portCorpusOnly's tack.mod, and every
+// case of each archive the same, but for those portCaseDivergences lists
+// (see compareCorpus). It needs the port's source
 // tree, env.home, which TestMain requires whatever TACK_PORT_BIN says.
 // It runs only as TestPort does, with TACK_PORT_TEST=1 and -count.
 func TestPortFiles(t *testing.T) {
@@ -93,10 +98,25 @@ func TestPortFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, msg := range comparePortFiles(src, env.root, files, portFileDivergences) {
+	for _, msg := range comparePortFiles(src, env.root, files, portFileDivergences, "portFileDivergences") {
 		t.Error(msg)
 	}
-	for _, msg := range checkPortOnly(src, portOnlyFiles) {
+	for _, msg := range checkPortOnly(src, portOnlyFiles, "portOnlyFiles") {
+		t.Error(msg)
+	}
+	corpus, err := corpusFiles(src, env.root, portCorpusOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := caseRecords()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, msg := range compareCorpus(src, env.root, corpus, portCorpusDivergences, portCaseDivergences, records) {
+		t.Error(msg)
+	}
+	checkDrift(t)
+	for _, msg := range checkPortOnly(src, portCorpusOnly, "portCorpusOnly") {
 		t.Error(msg)
 	}
 	for _, c := range []portFile{
@@ -177,8 +197,8 @@ func addRuntimePairs(paths map[string]string, portRoot, frozenRoot string, portO
 
 // checkPortOnly returns a message for each path portOnly lists that is
 // not a regular file in portRoot, the port's source tree, sorted, so the
-// list cannot outlive its files.
-func checkPortOnly(portRoot string, portOnly map[string]string) []string {
+// list cannot outlive its files, each naming the list by listName.
+func checkPortOnly(portRoot string, portOnly map[string]string, listName string) []string {
 	paths := make([]string, 0, len(portOnly))
 	for p := range portOnly {
 		paths = append(paths, p)
@@ -187,7 +207,7 @@ func checkPortOnly(portRoot string, portOnly map[string]string) []string {
 	var msgs []string
 	for _, p := range paths {
 		if _, _, err := readFileMode(filepath.Join(portRoot, filepath.FromSlash(p))); err != nil {
-			msgs = append(msgs, fmt.Sprintf("%s is listed in portOnlyFiles, but: %v", p, err))
+			msgs = append(msgs, fmt.Sprintf("%s is listed in %s, but: %v", p, listName, err))
 		}
 	}
 	return msgs
@@ -227,8 +247,9 @@ func treeFiles(root, dir string) ([]string, error) {
 // each failure, in files' order: a file that differs and is not in
 // allowed, the paths allowed to differ, each with its reason; and an
 // entry of allowed whose file is the same in both trees, or that names
-// no file of files, which says the list is stale.
-func comparePortFiles(portRoot, frozenRoot string, files []portFile, allowed map[string]string) []string {
+// no file of files, which says the list is stale, each naming the list
+// by listName.
+func comparePortFiles(portRoot, frozenRoot string, files []portFile, allowed map[string]string, listName string) []string {
 	var msgs []string
 	listed := map[string]bool{}
 	for _, f := range files {
@@ -239,8 +260,8 @@ func comparePortFiles(portRoot, frozenRoot string, files []portFile, allowed map
 		case msg != "" && !ok:
 			msgs = append(msgs, fmt.Sprintf("%s differs from this module's frozen %s: %s", f.port, f.frozen, msg))
 		case msg == "" && ok:
-			msgs = append(msgs, fmt.Sprintf("%s is allowed to differ from %s, but does not: drop it from portFileDivergences",
-				f.port, f.frozen))
+			msgs = append(msgs, fmt.Sprintf("%s is allowed to differ from %s, but does not: drop it from %s",
+				f.port, f.frozen, listName))
 		}
 	}
 	stale := make([]string, 0, len(allowed))
@@ -251,7 +272,7 @@ func comparePortFiles(portRoot, frozenRoot string, files []portFile, allowed map
 	}
 	sort.Strings(stale)
 	for _, p := range stale {
-		msgs = append(msgs, fmt.Sprintf("%s is allowed to differ, but neither tree has it: drop it from portFileDivergences", p))
+		msgs = append(msgs, fmt.Sprintf("%s is allowed to differ, but neither tree has it: drop it from %s", p, listName))
 	}
 	return msgs
 }
@@ -352,7 +373,7 @@ func TestComparePortFiles(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			msgs := comparePortFiles(port, frozen, c.files, c.allowed)
+			msgs := comparePortFiles(port, frozen, c.files, c.allowed, "portFileDivergences")
 			if len(msgs) != c.want {
 				t.Errorf("got %d failures, want %d: %q", len(msgs), c.want, msgs)
 			}
@@ -375,7 +396,7 @@ func testPortFileList(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return append(comparePortFiles(port, frozen, files, nil), checkPortOnly(port, portOnly)...), nil
+		return append(comparePortFiles(port, frozen, files, nil, "portFileDivergences"), checkPortOnly(port, portOnly, "portOnlyFiles")...), nil
 	}
 	cases := []struct {
 		change  func(t *testing.T, port, frozen string)

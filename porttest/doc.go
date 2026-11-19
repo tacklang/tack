@@ -71,7 +71,9 @@
 // without the port still passes go test ./..., where TACK_PORT_TEST is
 // unset and TestPort skips. Setting TACK_PORT_BIN to the Go
 // binary runs the Go compiler against itself, which must pass every
-// stage: it checks the harness, not the port.
+// stage but corpus-runner, which it skips, since Go has none of the
+// port's --port-case flags the corpus runner needs: it checks the
+// harness, not the port.
 //
 // # Protocol
 //
@@ -209,6 +211,9 @@
 //     examples/test-files and std/hex, with each set of flags, and on
 //     each of testProbes, comparing what the driver writes, the files it
 //     leaves and the generated C of each test binary (see Test stage).
+//   - corpus-runner builds the port's tools/corpus with the port and runs
+//     it over the port's corpus with the port, which must pass; it
+//     compares nothing with Go (see Corpus runner).
 //
 // check-backend, check-clean and the emit stages classify their cases
 // by the stages of the backend's port each needs (see Backend stages),
@@ -898,6 +903,44 @@
 // about a thousand levels at Linux's usual soft limit, fails with EMFILE
 // where Go, whose runtime raises that limit to the hard one, removes it.
 //
+// # Corpus runner
+//
+// The port keeps a copy of this module's test corpus in its corpus/:
+// examples/, with its archives and committed tack.h files, and golden/,
+// test/testdata's goldens, with a tack.mod that makes corpus/ a module
+// root only so a library check of the port skips the examples. Its
+// tools/corpus, a program written in Tack, checks that copy with the
+// port alone, as this module's test/ harness checks examples/ with Go
+// (per the owner's ruling, 2026-11-19): each archive's cases, each
+// golden and each committed tack.h, through the port's test-only
+// --port-case and --port-test-case, which write a case's stage line and
+// output as test/'s in-process harness renders them, and through
+// --emit-header in a scratch copy and --out for invalid-c.txtar; the
+// port's README says how to run it and how to update the corpus. The
+// corpus-runner stage, one case, builds tools/corpus with the port in
+// the port's source tree and runs it over corpus/ with the port's std and
+// the port as the compiler, in a temporary directory of the case's own
+// and a process group of its own, as every run of a compiler is, and
+// fails, showing its FAIL lines, unless it passes, or when it does not
+// end within corpusRunnerTimeouts times a compiler run's time limit; a
+// decline of the build fails once the stage is required, as any case's
+// does. A port that is the Go compiler, byte for byte, as TACK_PORT_BIN
+// names it to check the harness, skips the case. The runner also checks
+// each case of invalid.txtar and invalid-packages.txtar and each
+// program with CRLF line endings, as TestCRLFMatchesLF does, and refuses
+// a $TMPDIR below a directory holding a tack.mod. TestPortFiles keeps
+// the copy equal to this module's (see
+// Port files), so the corpus the port checks itself against is the one
+// Go's harness checks this compiler against, but for the cases and files
+// whose differences it lists. TestFailLines checks how a failed run's
+// output is shown, and needs no port. TestCorpusRunnerChecks builds the
+// runner with the port and checks what a passing run cannot show: the
+// refusal of a $TMPDIR below a tack.mod, the temporary directory removed
+// when a run stops on an error, an archive of an unknown kind failing, a
+// stub compiler whose output changes with CRLF line endings caught, a
+// compiler that is not there failing once, before any case, and the
+// port's --port-std with an empty name a usage error.
+//
 // The scripts the tests run that are written once a run, the Go
 // compiler's stack wrapper and the counting and saving clangs, are
 // written in TestMain's setup, before any test runs, and the link hooks
@@ -1287,6 +1330,30 @@
 // src/std/include/tack/tack.h, are its runtime's, which its make
 // std-copies writes. TestComparePortFiles checks the comparison itself
 // on small trees, and needs no port.
+//
+// TestPortFiles checks the port's corpus/ the same way (see Corpus
+// runner): every file of its examples/ the same as this module's at the
+// same path, and of its golden/ as test/testdata's, both ways, and any
+// other file below corpus/ a failure, but for the paths
+// portCorpusDivergences lists, each with its reason, which must differ:
+// the goldens and tack.h copies of the programs that import std/os,
+// which the port's std adds to, each of which must also be what the
+// reference Go compiler's --emit or --emit-header writes on the port's
+// std, so that the drift is std's alone (see checkDrift), unless
+// portCorpusUnchecked lists it with the reason it cannot be. Each txtar
+// archive directly in examples/ is compared case by case instead, read
+// with internal/invalid, its comment too: a case only one side has
+// fails, and so does a case whose files or expected section differ
+// unless portCaseDivergences lists it, each entry naming the divergence
+// of testdata/divergences.txtar whose output the port's expected section
+// holds. A listed case may differ only in its expected section, which
+// must be this module's stage line and --- and then the record's
+// standard error with its warnings left out, as the harness renders a
+// case the backend rejects; an entry for a case that does not differ, or
+// that neither side has, fails, so neither list can go stale.
+// portCorpusOnly lists the port's corpus/tack.mod, which must be there.
+// TestCompareCorpus and TestWithoutWarnings check that comparison on
+// small corpora, and need no port.
 //
 // # Performance
 //
