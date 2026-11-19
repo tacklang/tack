@@ -225,6 +225,9 @@
 //     requires what it writes from the port's copy of the Unicode
 //     Character Database to be std/unicode's committed tables; it
 //     compares nothing with Go (see Unicode tables).
+//   - check-tree runs the port's tack --check . at the root of the port's
+//     source tree, which must pass; it compares nothing with Go (see
+//     Check of the tree).
 //   - install runs the port's make test-install with the port as the
 //     compiler that builds it, which must pass; it compares nothing with
 //     Go (see Install).
@@ -1007,8 +1010,9 @@
 // runs the tool on each
 // case of tools/unicodegen/testdata, a small UCD, most of them missing or
 // malformed, and fails unless its standard error and exit status are the
-// case's want, and its tables the case's want.tck where it has one, as
-// the port's make test-unicodegen checks; and runs std/unicode's tests,
+// case's want, and its tables the case's want.tables where it has one,
+// failing too when no case has one, so the tables cannot go unchecked,
+// as the port's make test-unicodegen checks; and runs std/unicode's tests,
 // tack test ./src/std/unicode, with the port, which must pass, as the
 // port's make test-std requires: test-examples runs them with both
 // compilers and compares them, which agree when both fail. A decline of
@@ -1081,6 +1085,20 @@
 // and FuzzLoadDiff's seed of a module named with U+0558, which would
 // fail the comparison, that it is skipped. TestMalformed and
 // TestProbesTypes skip such an input the same way.
+//
+// # Check of the tree
+//
+// The check-tree stage, one case, runs the port with --check . in the
+// port's source tree, which checks it as a library: each directory
+// below its root holding a .tck file, but those below another tack.mod,
+// as corpus/ and runtime/ are, is checked as a package of the module,
+// the ignored bin/ among them. It fails unless the check exits 0, so a
+// .tck file that is no package's source, as tools/unicodegen's expected
+// tables were while they were named want.tck, cannot reach the tree
+// unseen. The generator's expected tables are testdata/<case>/want.tables,
+// and the port's make test-unicodegen and check-unicode-tables write
+// their tables into bin/ under names with no .tck suffix, for the same
+// reason.
 //
 // # Install
 //

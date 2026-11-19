@@ -122,9 +122,11 @@ const unicodegenCases = "tools/unicodegen/testdata"
 // case of unicodegenCases, from the port's source tree's root with the
 // case's path relative to it, writing into tmp, and fails the case of
 // each whose standard error, followed by a line "exit <status>", is not
-// its file want, or whose tables are not its want.tck when it has one,
+// its file want, or whose tables are not its want.tables when it has one,
 // as the port's make test-unicodegen checks without Go. A directory of
-// no cases is an error, so the check cannot pass by finding none.
+// no cases is an error, and so is one where no case has a want.tables,
+// so the check cannot pass by finding none, nor by comparing no tables
+// once they are renamed.
 func checkUnicodegenCases(t *testing.T, tool, tmp string) {
 	t.Helper()
 	wants, err := filepath.Glob(filepath.Join(env.home, filepath.FromSlash(unicodegenCases), "*", "want"))
@@ -134,6 +136,7 @@ func checkUnicodegenCases(t *testing.T, tool, tmp string) {
 	if len(wants) == 0 {
 		t.Fatalf("no case of tools/unicodegen in %s", unicodegenCases)
 	}
+	tables := 0
 	for _, want := range wants {
 		name := filepath.Base(filepath.Dir(want))
 		rel := unicodegenCases + "/" + name
@@ -156,21 +159,25 @@ func checkUnicodegenCases(t *testing.T, tool, tmp string) {
 			t.Errorf("%s: standard error and exit status: %s", rel, d)
 			continue
 		}
-		wantTck := filepath.Join(filepath.Dir(want), "want.tck")
-		if _, err := os.Stat(wantTck); err != nil {
+		wantTables := filepath.Join(filepath.Dir(want), "want.tables")
+		if _, err := os.Stat(wantTables); err != nil {
 			if !errors.Is(err, fs.ErrNotExist) {
 				t.Errorf("%s: %v", rel, err)
 			}
 			continue
 		}
+		tables++
 		got, err := os.ReadFile(out) //nolint:gosec // G304: the file the tool wrote
 		if err != nil {
 			t.Errorf("%s: %v", rel, err)
 			continue
 		}
-		if d := firstDiffLabeled("want.tck", "tools/unicodegen", []byte(readString(t, wantTck)), got); d != "" {
+		if d := firstDiffLabeled("want.tables", "tools/unicodegen", []byte(readString(t, wantTables)), got); d != "" {
 			t.Errorf("%s: tables: %s", rel, d)
 		}
+	}
+	if tables == 0 {
+		t.Errorf("no case of tools/unicodegen in %s has a want.tables, so no tables were compared", unicodegenCases)
 	}
 }
 
