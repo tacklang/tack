@@ -56,11 +56,13 @@ not hold up other work.
 The goal of testing is to find every edge case and failure mode we can, not
 to show that the happy path works.
 
-- Every feature gets programs under `examples/` that compile and run, with
-  their runtime behavior asserted, not just their output pinned.
-- Every diagnostic gets its own case in `examples/invalid.txtar`: a
-  `-- <name>/main.tck --` section with the program, followed by
-  `-- <name>/expected --` with the compiler's output.
+- Every feature gets programs under ../tack's `corpus/examples/` (tackc's
+  `examples/` is frozen) that compile and run, with their runtime behavior
+  asserted, not just their output pinned.
+- Every diagnostic gets its own case in ../tack's
+  `corpus/examples/invalid.txtar`: a `-- <name>/main.tck --` section,
+  followed by `-- <name>/expected --` with the stage line, `---` and the
+  output, as `tack --port-case` writes them.
 - Go looking for breakage: boundaries (zero, negative, `int` min and max,
   overflow, division by zero, `min / -1`), empty and huge inputs, deep nesting
   and recursion, malformed and truncated source, odd bytes, and interactions
@@ -116,8 +118,9 @@ feature.
 
 ## 6. Read the golden diff before accepting it
 
-`go test ./test -update` runs only after an intentional output change, and
-every changed line in the resulting diff is explained.
+`make update-corpus` in ../tack (tackc's `go test ./test -update` for the
+frozen corpus) runs only after an intentional output change, and every
+changed line in the resulting diff is explained.
 
 ## 7. Docs change in the same step as code
 
