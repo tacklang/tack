@@ -1,0 +1,630 @@
+package os
+
+import bytes from "std/bytes"
+import testing from "std/testing"
+import text from "std/text"
+
+// The tests of std/os's run_streams and run_streams_in, which tack test
+// runs on its directory. They are in the package, so they read c_open
+// and c_close, which are private, to see which descriptors are free
+// before and after runs: a descriptor a run left open would make them
+// differ. The children are /bin/sh scripts.
+// std/testing imports no std package, so importing it here makes no
+// cycle.
+
+// sh_argv returns the argv of /bin/sh running script, sh -c script.
+func sh_argv(script string) (list[text.Text], error) {
+    mut argv := make(list[text.Text], c_allocator)
+    append(mut argv, text.from_bytes([]uint8("sh"), c_allocator)?)?
+    append(mut argv, text.from_bytes([]uint8("-c"), c_allocator)?)?
+    append(mut argv, text.from_bytes([]uint8(script), c_allocator)?)?
+    return argv, noerror
+}
+
+// c_locale is what every script sh runs starts with, so that what the
+// shell and the programs it runs write is not translated.
+var c_locale = "LC_ALL=C; export LC_ALL; "
+
+// sh runs script with /bin/sh, its descriptors 0 to 4 as streams says,
+// after c_locale.
+func sh(script string, streams [5]Stream) (Ran, error) {
+    mut full := make(list[uint8], c_allocator)
+    append(mut full, []uint8(c_locale)...)?
+    append(mut full, []uint8(script)...)?
+    mut argv := make(list[text.Text], c_allocator)
+    append(mut argv, text.from_bytes([]uint8("sh"), c_allocator)?)?
+    append(mut argv, text.from_bytes([]uint8("-c"), c_allocator)?)?
+    append(mut argv, text.from_bytes(full[:], c_allocator)?)?
+    r, e := run_streams([]uint8("/bin/sh"), argv, streams, c_allocator)
+    return r, e
+}
+
+// refusal returns the error run_streams_in, in dir when in_dir, or
+// run_streams otherwise, gives for prog, argv and streams, or
+// error{code: 99, msg: "the run succeeded"} when it gives none.
+func refusal(in_dir bool, dir string, prog string, argv []text.Text, streams [5]Stream) error {
+    if in_dir {
+        r, e := run_streams_in([]uint8(dir), []uint8(prog), argv, streams, c_allocator)
+        if e.code != 0 {
+            return e
+        }
+        drop(own r)
+    } else {
+        r, e := run_streams([]uint8(prog), argv, streams, c_allocator)
+        if e.code != 0 {
+            return e
+        }
+        drop(own r)
+    }
+    return error{code: 99, msg: "the run succeeded"}
+}
+
+// free_fds returns the 32 lowest descriptors free, in order, found by
+// opening /dev/null that many times, then closing each: a descriptor a
+// run left open, among or below them, makes the list differ after it.
+// It stops early at a /dev/null it cannot open, which the caller sees as
+// fewer than 32.
+func free_fds() (list[int64], error) {
+    mut got := make(list[int64], c_allocator)
+    mut fds := make(list[int32], c_allocator)
+    reserve(mut got, 32)?
+    reserve(mut fds, 32)?
+    for range 32 {
+        r := c_open([]uint8("/dev/null"), 0, 0)
+        if r < 0 {
+            break
+        }
+        fd, fits := int32(r)
+        if !fits {
+            break
+        }
+        // Room for both was reserved, so neither append fails.
+        e0 := append(mut fds, fd)
+        e1 := append(mut got, r)
+        if e0.code != 0 || e1.code != 0 {
+            break
+        }
+    }
+    for _, fd := range fds {
+        c_close(fd)
+    }
+    return got, noerror
+}
+
+// expect_same_fds reports, at its caller, free descriptors after runs
+// that are not those before them, or fewer than 32 of them.
+func expect_same_fds(_ testing.Site, mut t testing.T, before []int64, after []int64, what string) {
+    if len(before) != 32 || len(after) != 32 {
+        mut t.errorf("found %d and %d free descriptors around %s, want 32", len(before), len(after), what)
+        return
+    }
+    for i, b := range before {
+        a, has := after[i]
+        if !has || a != b {
+            mut t.errorf("free descriptor %d was %d before %s and %d after: a descriptor was left open", i, b, what, a)
+            return
+        }
+    }
+}
+
+// expect_bytes reports, at its caller, what the stream name got when it
+// is not want: both lengths and the first byte that differs.
+func expect_bytes(_ testing.Site, mut t testing.T, name string, got []uint8, want string) {
+    if bytes.equal(got, []uint8(want)) {
+        return
+    }
+    mut i int64 = 0
+    for i < len(got) && i < len(want) && got[i] == want[i] {
+        i++
+    }
+    g, has_g := got[i]
+    x, has_x := want[i]
+    mut t.errorf("%s got %d bytes, want %d; first difference at byte %d: got %d (%t), want %d (%t)", name, len(got), len(want), i, g, has_g, x, has_x)
+}
+
+// expect_exit reports, at its caller, a run that did not exit with
+// status want.
+func expect_exit(_ testing.Site, mut t testing.T, r Ran, want int64) {
+    if !r.status.exited() || r.status.exit_status() != want {
+        mut t.errorf("exited %t, status %d, signal %d; want exit status %d", r.status.exited(), r.status.exit_status(), r.status.signal(), want)
+    }
+}
+
+// test_capture checks that every captured stream gets what the child
+// wrote to it alone, descriptors 3 and 4 anonymous pipes as 1 and 2 are,
+// and the exit status.
+func test_capture(mut t testing.T) error {
+    r := sh("printf out; printf err >&2; printf three >&3; printf four >&4; exit 7", [5]Stream{Stream.null, Stream.capture, Stream.capture, Stream.capture, Stream.capture})?
+    expect_exit(mut t, r, 7)
+    expect_bytes(mut t, "stdout", r.stdout, "out")
+    expect_bytes(mut t, "stderr", r.stderr, "err")
+    expect_bytes(mut t, "fd3", r.fd3, "three")
+    expect_bytes(mut t, "fd4", r.fd4, "four")
+    return noerror
+}
+
+// test_capture_more_than_a_pipe_holds checks that four streams each
+// given more than a pipe holds, 64 KiB, are all read to their ends, so
+// no full pipe blocks the child.
+func test_capture_more_than_a_pipe_holds(mut t testing.T) error {
+    r := sh("yes 1234567 | head -c 300000 >&3; yes abc | head -c 300000 >&4; yes | head -c 300000; yes | head -c 300000 >&2", [5]Stream{Stream.null, Stream.capture, Stream.capture, Stream.capture, Stream.capture})?
+    expect_exit(mut t, r, 0)
+    if len(r.stdout) != 300000 || len(r.stderr) != 300000 || len(r.fd3) != 300000 || len(r.fd4) != 300000 {
+        mut t.errorf("got %d, %d, %d and %d bytes, want 300000 each", len(r.stdout), len(r.stderr), len(r.fd3), len(r.fd4))
+    }
+    for i, c := range r.fd3 {
+        k := i % 8
+        want, has := "1234567\n"[k]
+        if !has {
+            return mut t.fatalf("no byte %d", k)
+        }
+        if c != want {
+            return mut t.fatalf("fd3 byte %d is %d, want %d", i, c, want)
+        }
+    }
+    return noerror
+}
+
+// test_broken checks that a write to a broken descriptor fails with
+// EPIPE, its reader closed before the child started, both written to
+// and reopened through /dev/fd, which does not block as a FIFO's reopen
+// does, the child ignoring SIGPIPE; and that a child that does not
+// ignore it dies of it, signal 13.
+func test_broken(mut t testing.T) error {
+    streams := [5]Stream{Stream.null, Stream.capture, Stream.capture, Stream.closed, Stream.broken}
+    r := sh("trap '' PIPE; printf x >&4; echo \"dup $?\"; printf x > /dev/fd/4; echo \"reopen $?\"; env printf x >&4; echo \"env $?\"", streams)?
+    expect_exit(mut t, r, 0)
+    expect_bytes(mut t, "stdout", r.stdout, "dup 1\nreopen 1\nenv 1\n")
+    if bytes.index(r.stderr, []uint8("Broken pipe")) < 0 {
+        mut t.errorf("stderr, %d bytes, names no broken pipe", len(r.stderr))
+    }
+    r2 := sh("printf x >&4; echo after", streams)?
+    if r2.status.signal() != 13 || len(r2.stdout) != 0 {
+        mut t.errorf("signal %d, stdout %d bytes; want SIGPIPE, 13, before anything is written", r2.status.signal(), len(r2.stdout))
+    }
+    r3 := sh("trap '' PIPE; echo x; echo \"$?\" >&2", [5]Stream{Stream.null, Stream.broken, Stream.capture, Stream.closed, Stream.closed})?
+    expect_exit(mut t, r3, 0)
+    expect_bytes(mut t, "stderr", r3.stderr, "1\n")
+    return noerror
+}
+
+// test_own_number checks a stream whose descriptor in this process is
+// the child's descriptor it is given as, descriptor 4 the write end of
+// the broken pipe here, every lower one closed, so that the pipe's read
+// end, closed, was 3 and its write end 4: the child must still get it,
+// not lose it to close-on-exec, and die of SIGPIPE writing to it.
+func test_own_number(mut t testing.T) error {
+    require_free_3_4(mut t)?
+    r := sh("printf x 2>&- >&4", [5]Stream{Stream.closed, Stream.closed, Stream.closed, Stream.closed, Stream.broken})?
+    if r.status.signal() != 13 {
+        mut t.errorf("exit status %d, signal %d; want SIGPIPE, 13", r.status.exit_status(), r.status.signal())
+    }
+    r2 := sh("echo x >&3", [5]Stream{Stream.closed, Stream.closed, Stream.closed, Stream.null, Stream.capture})?
+    expect_exit(mut t, r2, 0)
+    expect_bytes(mut t, "fd4", r2.fd4, "")
+    return noerror
+}
+
+// require_free_3_4 fails the test, at its caller, unless descriptors 3
+// and 4 are the lowest this process has free, which the tests of a
+// descriptor given as itself, or as another of the child's, need.
+func require_free_3_4(_ testing.Site, mut t testing.T) error {
+    free := free_fds()?
+    a, has_a := free[0]
+    b, has_b := free[1]
+    if !has_a || !has_b || a != 3 || b != 4 {
+        return mut t.fatalf("descriptors 3 and 4 must be the lowest free, not %d and %d", a, b)
+    }
+    return noerror
+}
+
+// test_lift checks a stream whose descriptor in this process is another
+// of the child's: /dev/null, opened as 3, given as the child's 4, with
+// its 3 closed, which a dup2 onto 4 after the close of 3 would lose, and
+// without a copy above 4 first does.
+func test_lift(mut t testing.T) error {
+    require_free_3_4(mut t)?
+    r := sh("printf x >&4 || exit 9; [ -e /dev/fd/3 ] && exit 8; exit 0", [5]Stream{Stream.closed, Stream.closed, Stream.closed, Stream.closed, Stream.null})?
+    expect_exit(mut t, r, 0)
+    r2 := sh("printf x >&3 || exit 9; printf y >&4 || exit 7", [5]Stream{Stream.closed, Stream.closed, Stream.closed, Stream.null, Stream.capture})?
+    expect_exit(mut t, r2, 0)
+    expect_bytes(mut t, "fd4", r2.fd4, "y")
+    return noerror
+}
+
+// open_fds is a script that writes the number of every descriptor below
+// 64 it has open, each followed by a space, then a newline, testing each
+// with -e on /dev/fd, which opens none.
+var open_fds = "i=0; while [ $i -lt 64 ]; do if [ -e /dev/fd/$i ]; then printf '%s ' $i; fi; i=$((i + 1)); done; echo"
+
+// expect_child_fds reports, at its caller, a child given streams whose
+// open descriptors, open_fds lists them, are not want; standard output
+// is where the list is read, a capture, a terminal, or merged.
+func expect_child_fds(_ testing.Site, mut t testing.T, streams [5]Stream, want string) error {
+    r := sh(open_fds, streams)?
+    expect_exit(mut t, r, 0)
+    expect_bytes(mut t, "the child's descriptors", r.stdout, want)
+    return noerror
+}
+
+// test_child_fds checks that a child has its descriptors 0 to 4 as its
+// streams say and no other: none of this process's, a terminal's master
+// or slave or a pipe's other end among them, so none leaks into it.
+func test_child_fds(mut t testing.T) error {
+    expect_child_fds(mut t, [5]Stream{Stream.null, Stream.capture, Stream.capture, Stream.capture, Stream.capture}, "0 1 2 3 4 \n")?
+    expect_child_fds(mut t, [5]Stream{Stream.null, Stream.terminal, Stream.terminal, Stream.broken, Stream.capture}, "0 1 2 3 4 \n")?
+    expect_child_fds(mut t, [5]Stream{Stream.null, Stream.terminal, Stream.merged, Stream.terminal, Stream.terminal}, "0 1 2 3 4 \n")?
+    expect_child_fds(mut t, [5]Stream{Stream.closed, Stream.capture, Stream.closed, Stream.closed, Stream.terminal}, "1 4 \n")?
+    expect_child_fds(mut t, [5]Stream{Stream.closed, Stream.terminal, Stream.closed, Stream.closed, Stream.closed}, "1 \n")?
+    return noerror
+}
+
+// test_window_size checks that a terminal's window size is 0 rows and 0
+// columns, as run_streams says, stty asking it of standard output.
+func test_window_size(mut t testing.T) error {
+    r := sh("stty size <&1", [5]Stream{Stream.null, Stream.terminal, Stream.capture, Stream.closed, Stream.closed})?
+    expect_exit(mut t, r, 0)
+    expect_bytes(mut t, "stdout", r.stdout, "0 0\n")
+    return noerror
+}
+
+// test_terminal_stdout checks that a terminal stream is a terminal to
+// the child, that its newlines reach the reader as they were written,
+// not as \r\n, output processing being off, and that a captured stream
+// beside it is no terminal.
+func test_terminal_stdout(mut t testing.T) error {
+    r := sh("[ -t 1 ] && printf 'tty\\n'; [ -t 2 ] || printf 'a\\nb\\n\\n'; printf 'e\\n' >&2", [5]Stream{Stream.null, Stream.terminal, Stream.capture, Stream.closed, Stream.closed})?
+    expect_exit(mut t, r, 0)
+    expect_bytes(mut t, "stdout", r.stdout, "tty\na\nb\n\n")
+    expect_bytes(mut t, "stderr", r.stderr, "e\n")
+    return noerror
+}
+
+// test_terminal_stderr checks a terminal on standard error, standard
+// output a pipe.
+func test_terminal_stderr(mut t testing.T) error {
+    r := sh("[ -t 2 ] && printf 'tty\\n' >&2; [ -t 1 ] || printf 'o\\n'; exit 3", [5]Stream{Stream.null, Stream.capture, Stream.terminal, Stream.closed, Stream.closed})?
+    expect_exit(mut t, r, 3)
+    expect_bytes(mut t, "stdout", r.stdout, "o\n")
+    expect_bytes(mut t, "stderr", r.stderr, "tty\n")
+    return noerror
+}
+
+// test_terminal_more_than_it_holds checks that a terminal given far more
+// than its buffer holds is read while the child runs and to its end, the
+// EIO a master's read gives once the child's side is closed taken as the
+// end, nothing lost before it.
+func test_terminal_more_than_it_holds(mut t testing.T) error {
+    r := sh("yes 1234567 | head -c 200000; printf end", [5]Stream{Stream.null, Stream.terminal, Stream.terminal, Stream.closed, Stream.closed})?
+    expect_exit(mut t, r, 0)
+    if len(r.stdout) != 200003 {
+        return mut t.fatalf("stdout got %d bytes, want 200003", len(r.stdout))
+    }
+    for i := range 200000 {
+        c, in := r.stdout[i]
+        if !in {
+            return mut t.fatalf("no byte %d", i)
+        }
+        k := i % 8
+        want, has := "1234567\n"[k]
+        if !has {
+            return mut t.fatalf("no byte %d", k)
+        }
+        if c != want {
+            return mut t.fatalf("stdout byte %d is %d, want %d", i, c, want)
+        }
+    }
+    e0, has0 := r.stdout[200000]
+    e1, has1 := r.stdout[200001]
+    e2, has2 := r.stdout[200002]
+    if !has0 || !has1 || !has2 || e0 != 'e' || e1 != 'n' || e2 != 'd' {
+        mut t.errorf("stdout does not end in end")
+    }
+    expect_bytes(mut t, "stderr", r.stderr, "")
+    return noerror
+}
+
+// test_terminal_grandchild checks that a terminal is read until every
+// process holding its child's side has closed it, a grandchild that
+// outlives the child included, as a pipe is: the parent holds no copy of
+// that side once the child has started, or the read would never end,
+// and what the grandchild writes after the child exits is read.
+func test_terminal_grandchild(mut t testing.T) error {
+    r := sh("(sleep 1; echo late; echo late2 >&2) & echo early; exit 5", [5]Stream{Stream.null, Stream.terminal, Stream.terminal, Stream.closed, Stream.closed})?
+    expect_exit(mut t, r, 5)
+    expect_bytes(mut t, "stdout", r.stdout, "early\nlate\n")
+    expect_bytes(mut t, "stderr", r.stderr, "late2\n")
+    return noerror
+}
+
+// test_merged checks that a merged standard error is standard output's
+// stream, a pipe or a terminal, the writes in the order they were made,
+// and that standard error's bytes are then empty.
+func test_merged(mut t testing.T) error {
+    script := "printf a; printf b >&2; printf 'c\\n'; [ -t 2 ] && printf t >&2; exit 0"
+    r := sh(script, [5]Stream{Stream.null, Stream.capture, Stream.merged, Stream.closed, Stream.closed})?
+    expect_exit(mut t, r, 0)
+    expect_bytes(mut t, "stdout", r.stdout, "abc\n")
+    expect_bytes(mut t, "stderr", r.stderr, "")
+    r2 := sh(script, [5]Stream{Stream.null, Stream.terminal, Stream.merged, Stream.closed, Stream.closed})?
+    expect_exit(mut t, r2, 0)
+    expect_bytes(mut t, "stdout", r2.stdout, "abc\nt")
+    expect_bytes(mut t, "stderr", r2.stderr, "")
+    return noerror
+}
+
+// test_closed checks that a closed stream is no descriptor in the child,
+// standard input, standard output and descriptor 3 each, and that a null
+// standard input reads nothing.
+func test_closed(mut t testing.T) error {
+    r := sh("{ printf x >&3; } 2>&- || echo \"fd3 failed\" >&2; printf x 2>&- || echo \"stdout failed\" >&2", [5]Stream{Stream.null, Stream.closed, Stream.capture, Stream.closed, Stream.capture})?
+    expect_exit(mut t, r, 0)
+    expect_bytes(mut t, "stderr", r.stderr, "fd3 failed\nstdout failed\n")
+    r2 := sh("cat 2>&-; echo \"closed $?\"", [5]Stream{Stream.closed, Stream.capture, Stream.capture, Stream.closed, Stream.closed})?
+    expect_exit(mut t, r2, 0)
+    expect_bytes(mut t, "stdout", r2.stdout, "closed 1\n")
+    r3 := sh("cat; echo \"null $?\"", [5]Stream{Stream.null, Stream.capture, Stream.capture, Stream.closed, Stream.closed})?
+    expect_exit(mut t, r3, 0)
+    expect_bytes(mut t, "stdout", r3.stdout, "null 0\n")
+    r4 := sh("echo out; echo err >&2; echo three >&3", [5]Stream{Stream.null, Stream.null, Stream.null, Stream.null, Stream.capture})?
+    expect_exit(mut t, r4, 0)
+    expect_bytes(mut t, "stdout", r4.stdout, "")
+    return noerror
+}
+
+// test_in checks that run_streams_in runs the child in its directory.
+func test_in(mut t testing.T) error {
+    argv := sh_argv("pwd; [ -t 1 ] || echo no")?
+    r := run_streams_in([]uint8("/"), []uint8("/bin/sh"), argv, [5]Stream{Stream.null, Stream.capture, Stream.terminal, Stream.closed, Stream.closed}, c_allocator)?
+    expect_exit(mut t, r, 0)
+    expect_bytes(mut t, "stdout", r.stdout, "/\nno\n")
+    return noerror
+}
+
+// expect_error reports, at its caller, a run whose error is not want.
+func expect_error(_ testing.Site, mut t testing.T, e error, code int64, msg string) {
+    if e.code != code || !bytes.equal([]uint8(e.msg), []uint8(msg)) {
+        mut t.errorf("error code %d, %s; want code %d, %s", e.code, e.msg, code, msg)
+    }
+}
+
+// test_refused checks the streams run_streams refuses, and the other
+// errors, each leaving no descriptor open.
+func test_refused(mut t testing.T) error {
+    before := free_fds()?
+    truth := sh_argv("true")?
+    stdin_msg := "standard input can only be closed or null"
+    e0 := refusal(false, "", "/bin/sh", truth, [5]Stream{Stream.capture, Stream.capture, Stream.capture, Stream.closed, Stream.closed})
+    expect_error(mut t, e0, 4, stdin_msg)
+    e1 := refusal(false, "", "/bin/sh", truth, [5]Stream{Stream.terminal, Stream.capture, Stream.capture, Stream.closed, Stream.closed})
+    expect_error(mut t, e1, 4, stdin_msg)
+    e2 := refusal(false, "", "/bin/sh", truth, [5]Stream{Stream.broken, Stream.capture, Stream.capture, Stream.closed, Stream.closed})
+    expect_error(mut t, e2, 4, stdin_msg)
+    merged_msg := "only standard error can be merged"
+    e3 := refusal(false, "", "/bin/sh", truth, [5]Stream{Stream.null, Stream.capture, Stream.capture, Stream.terminal, Stream.merged})
+    expect_error(mut t, e3, 4, merged_msg)
+    e4 := refusal(false, "", "/bin/sh", truth, [5]Stream{Stream.null, Stream.merged, Stream.capture, Stream.closed, Stream.closed})
+    expect_error(mut t, e4, 4, merged_msg)
+    e5 := refusal(false, "", "/bin/sh", truth, [5]Stream{Stream.merged, Stream.capture, Stream.capture, Stream.closed, Stream.closed})
+    expect_error(mut t, e5, 4, stdin_msg)
+    e6 := refusal(false, "", "/bin/sh", truth, [5]Stream{Stream.null, Stream.closed, Stream.merged, Stream.closed, Stream.closed})
+    expect_error(mut t, e6, 4, "standard error cannot be merged with a closed standard output")
+    empty := make(list[text.Text], c_allocator)
+    e7 := refusal(false, "", "/bin/sh", empty, [5]Stream{Stream.null, Stream.capture, Stream.capture, Stream.closed, Stream.closed})
+    expect_error(mut t, e7, 4, "argv is empty")
+    argv := sh_argv("true")?
+    e8 := refusal(false, "", "/bin/s\x00h", argv, [5]Stream{Stream.null, Stream.capture, Stream.capture, Stream.closed, Stream.closed})
+    expect_error(mut t, e8, 4, "program contains a NUL byte")
+    e9 := refusal(true, "/\x00", "/bin/sh", argv, [5]Stream{Stream.null, Stream.capture, Stream.capture, Stream.closed, Stream.closed})
+    expect_error(mut t, e9, 4, "directory contains a NUL byte")
+    after := free_fds()?
+    expect_same_fds(mut t, before, after, "the refused runs")
+    return noerror
+}
+
+// fill_cap is the most descriptors fill opens: a limit of open files
+// above it, which the tests that fill the table cannot reach, skips them.
+var fill_cap int64 = 1 << 20
+
+// too_many is fill's error for a limit of open files above fill_cap.
+var too_many = error{code: 99, msg: "the limit of open files is above 1048576"}
+
+// skip_filled writes, to standard error, that the test name is skipped
+// for e, fill's too_many, and returns no error; or returns e, any other
+// error of fill's, for the test to fail with.
+func skip_filled(name string, e error) error {
+    if e.code != too_many.code {
+        return e
+    }
+    mut line := make(list[uint8], c_allocator)
+    append(mut line, []uint8(name)...)?
+    append(mut line, []uint8(": skipped: the limit of open files is above 1048576, more than the test opens\n")...)?
+    return write_stderr(line[:])
+}
+
+// fill opens /dev/null into fds until the OS refuses, EMFILE, the
+// process's limit of open files reached, then closes the last free of
+// them, so that exactly free descriptors are left, and returns no error;
+// or the error of an open refused otherwise, or too_many, every
+// descriptor it opened closed then, after fill_cap opens.
+func fill(mut fds list[int32], free int64) error {
+    for range fill_cap {
+        r := c_open([]uint8("/dev/null"), 0, 0)
+        if r < 0 {
+            e := c_error(-%r)
+            if !bytes.equal([]uint8(e.msg), []uint8("Too many open files")) {
+                return e
+            }
+            for range free {
+                fd, has := pop(mut fds)
+                if has {
+                    c_close(fd)
+                }
+            }
+            return noerror
+        }
+        fd, fits := int32(r)
+        if !fits {
+            return error{code: 2, msg: "descriptor out of range"}
+        }
+        e := append(mut fds, fd)
+        if e.code != 0 {
+            c_close(fd)
+            return e
+        }
+    }
+    for _, fd := range fds {
+        c_close(fd)
+    }
+    fds = make(list[int32], c_allocator)
+    return too_many
+}
+
+// still_free returns how many descriptors can be opened, up to limit,
+// closing each it opens.
+func still_free(limit int64) (int64, error) {
+    mut fds := make(list[int32], c_allocator)
+    reserve(mut fds, limit)?
+    for range limit {
+        r := c_open([]uint8("/dev/null"), 0, 0)
+        if r < 0 {
+            break
+        }
+        fd, fits := int32(r)
+        if !fits {
+            break
+        }
+        // Room was reserved, so the append does not fail.
+        e := append(mut fds, fd)
+        if e.code != 0 {
+            c_close(fd)
+            break
+        }
+    }
+    for _, fd := range fds {
+        c_close(fd)
+    }
+    return len(fds), noerror
+}
+
+// open_fails runs /bin/sh with streams, exactly free descriptors left,
+// and returns its error, every descriptor fill opened closed after; or
+// error{code: 98} when the run did not leave exactly free descriptors
+// free again, having left one open, however high its number.
+func open_fails(free int64, streams [5]Stream) error {
+    argv := sh_argv("true")?
+    mut fds := make(list[int32], c_allocator)
+    ef := fill(mut fds, free)
+    mut e := ef
+    mut left int64 = -1
+    if ef.code == 0 {
+        e = refusal(false, "", "/bin/sh", argv, streams)
+        n, en := still_free(free +% 1)
+        if en.code == 0 {
+            left = n
+        }
+    }
+    for _, fd := range fds {
+        c_close(fd)
+    }
+    if ef.code != 0 {
+        return ef
+    }
+    if left != free {
+        return error{code: 98, msg: "a descriptor was left open"}
+    }
+    return e
+}
+
+// test_open_fails checks that a stream that cannot be opened, the
+// process out of descriptors, is code 3 and the OS's message, and that
+// every descriptor opened before it is closed: /dev/null, a pipe, a
+// pseudo-terminal's master opened before its slave could be, and a
+// broken pipe's write end.
+func test_open_fails(mut t testing.T) error {
+    before := free_fds()?
+    msg := "Too many open files"
+    streams := [5]Stream{Stream.null, Stream.capture, Stream.terminal, Stream.broken, Stream.closed}
+    // null 1, capture 2, terminal 2 (master, then slave), broken 2.
+    for _, free := range [7]int64{0, 1, 2, 3, 4, 5, 6} {
+        e := open_fails(free, streams)
+        if e.code == too_many.code {
+            return skip_filled("test_open_fails", e)
+        }
+        expect_error(mut t, e, 3, msg)
+    }
+    after := free_fds()?
+    expect_same_fds(mut t, before, after, "the runs that ran out of descriptors")
+    return noerror
+}
+
+// test_lift_fails checks that the copy above 4 setting the start up
+// makes, of /dev/null opened as 3 and given as the child's 4, fails with
+// EMFILE when 3 is the one descriptor free, as code 3, "Too many open
+// files", and that /dev/null is closed after, 3 free again.
+func test_lift_fails(mut t testing.T) error {
+    require_free_3_4(mut t)?
+    argv := sh_argv("true")?
+    mut fds := make(list[int32], c_allocator)
+    ef := fill(mut fds, 0)
+    if ef.code != 0 {
+        return skip_filled("test_lift_fails", ef)
+    }
+    // fill opened 3 first; closing it leaves it the one free.
+    mut e := error{code: 97, msg: "descriptor 3 was not the first fill opened"}
+    mut left int64 = -1
+    mut closed_first := false
+    first, has := fds[0]
+    if has && first == 3 {
+        c_close(first)
+        closed_first = true
+        e = refusal(false, "", "/bin/sh", argv, [5]Stream{Stream.closed, Stream.closed, Stream.closed, Stream.closed, Stream.null})
+        n, en := still_free(2)
+        if en.code == 0 {
+            left = n
+        }
+    }
+    for i, fd := range fds {
+        if i > 0 || !closed_first {
+            c_close(fd)
+        }
+    }
+    expect_error(mut t, e, 3, "Too many open files")
+    if left != 1 {
+        mut t.errorf("%d descriptors free after the run, want 1", left)
+    }
+    return noerror
+}
+
+// test_cannot_start checks that a program that cannot be started is code
+// 13 and the OS's message, every kind of stream set up for it, and that
+// every descriptor set up is closed: the pipes, the terminals, the
+// broken pipe's write end and /dev/null.
+func test_cannot_start(mut t testing.T) error {
+    before := free_fds()?
+    argv := sh_argv("true")?
+    e := refusal(false, "", "/nonexistent/tack-os-test", argv, [5]Stream{Stream.null, Stream.terminal, Stream.capture, Stream.broken, Stream.capture})
+    expect_error(mut t, e, 13, "No such file or directory")
+    e2 := refusal(true, "/nonexistent", "/bin/sh", argv, [5]Stream{Stream.null, Stream.capture, Stream.terminal, Stream.terminal, Stream.broken})
+    expect_error(mut t, e2, 13, "No such file or directory")
+    after := free_fds()?
+    expect_same_fds(mut t, before, after, "the failed starts")
+    return noerror
+}
+
+// test_no_descriptor_left checks that runs of every kind of stream that
+// succeed leave no descriptor open either.
+func test_no_descriptor_left(mut t testing.T) error {
+    before := free_fds()?
+    for range 3 {
+        r := sh("echo a; echo b >&2; echo c >&3; trap '' PIPE; echo d 2>&- >&4 || true", [5]Stream{Stream.null, Stream.terminal, Stream.merged, Stream.capture, Stream.broken})?
+        expect_exit(mut t, r, 0)
+        expect_bytes(mut t, "stdout", r.stdout, "a\nb\n")
+        expect_bytes(mut t, "fd3", r.fd3, "c\n")
+        r2 := sh("echo a", [5]Stream{Stream.closed, Stream.capture, Stream.terminal, Stream.terminal, Stream.closed})?
+        expect_exit(mut t, r2, 0)
+    }
+    after := free_fds()?
+    expect_same_fds(mut t, before, after, "the runs")
+    return noerror
+}

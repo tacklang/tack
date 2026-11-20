@@ -46,7 +46,11 @@ import text from "std/text"
 // Every file descriptor os opens it closes before it returns, on every
 // path, and opens close-on-exec, so no child process inherits it, and
 // every child run starts it waits for before it returns, so none is left
-// a zombie.
+// a zombie. No descriptor leaves a call, so os has no type that holds
+// one: run_streams, which gives a child pipes, pseudo-terminals and a
+// pipe whose reader is closed as its descriptors 0 to 4, opens and
+// closes them all within the call (per the owner's ruling, 2026-11-19,
+// that std/os gains pty support and an anonymous pipe).
 //
 // write_stdout and write_stderr write to standard output and standard
 // error and, unlike print and std/fmt's writes, return the error of a
@@ -106,11 +110,12 @@ func perm_of(mode int64) (int32, bool) {
 
 // c_open opens path, for reading when mode is 0; for writing when it is
 // 1, creating the file with the permissions perm, before the umask, or
-// truncating it; and, when it is 2, for writing a file it creates with
+// truncating it; when it is 2, for writing a file it creates with
 // perm, failing with EEXIST when anything is at path, a symbolic link
 // included, which it does not follow (O_CREAT, O_EXCL and O_NOFOLLOW);
-// close-on-exec each way. It returns the file descriptor, or the errno
-// negated. perm is not looked at for reading.
+// and, when it is 3, for reading and writing; close-on-exec each way.
+// It returns the file descriptor, or the errno negated. perm is not
+// looked at for reading.
 extern("tack_os_open") func c_open(path []uint8, mode int32, perm int32) int64
 
 // c_close closes fd and returns 0, or the errno negated.
@@ -181,14 +186,21 @@ extern("tack_os_arg") func c_arg(i int64, mut arg list[uint8]) int64
 // negated.
 extern("tack_os_pipe") func c_pipe(mut fds [2]int32) int64
 
+// c_pty opens a new pseudo-terminal, with posix_openpt, grantpt, unlockpt
+// and ptsname, both its sides close-on-exec and neither the process's
+// controlling terminal (O_NOCTTY), turns its output processing off,
+// OPOST, so no newline written to it becomes \r\n, puts its master in
+// fds[0] and the side a child is given, its slave, in fds[1], and returns
+// 0, or the errno negated, having closed what it had opened.
+extern("tack_os_pty") func c_pty(mut fds [2]int32) int64
+
 // c_spawn starts the program prog, through posix_spawnp, which looks it
 // up on PATH when it holds no /, with the arguments flat holds: argc of
 // them, each followed by a 0, argv[0] first, which need not name prog.
-// The child reads in as its standard input, writes its standard output
-// to out and its standard error to err, and starts with the process's
-// environment and SIGPIPE's and SIGXFSZ's default actions. It returns
-// the child's process id; or the errno negated when setting the start up
-// fails, before any program is looked for, -no_room for the C library's
+// The child's descriptors are as fds says, below, and it starts with
+// the process's environment and SIGPIPE's and SIGXFSZ's default
+// actions. It returns the child's process id; or the errno negated
+// when setting the start up fails, before any program is looked for, -no_room for the C library's
 // ENOMEM there, an allocation of its own that failed, and E2BIG for more
 // than 8192 arguments; or c_spawn_failed() plus the errno, negated, when
 // the program cannot be started: posix_spawnp's own failure, the
@@ -197,13 +209,17 @@ extern("tack_os_pipe") func c_pipe(mut fds [2]int32) int64
 // child enters dir before the program is looked for, so a relative prog
 // or PATH entry is taken from there, and a dir it cannot enter, or one
 // too long for a path, ENAMETOOLONG, is a program that cannot be
-// started too; this process's directory never changes. The child's
-// environment is then this process's with every PWD dropped and pwd,
-// PWD= and dir made absolute and a 0, after the rest, the array of them
+// started too; this process's directory never changes. fds holds five
+// descriptors, what the child's 0 to 4 are: a descriptor of this
+// process, dup2'd onto it, from a copy above 4 when it is itself
+// another of 0 to 4, so that no descriptor is replaced before it is
+// read; -1 for one closed in the child; or -2 for one left as this
+// process has it. Any other fds is EINVAL. The child's environment is
+// then this process's with every PWD dropped and pwd, PWD= and dir made absolute and a 0, after the rest, the array of them
 // made in envbuf, through its own allocator, -no_room when it cannot
 // grow, so neither the number of variables nor pwd's length has a limit
 // of its own.
-extern("tack_os_spawn") func c_spawn(prog []uint8, dir []uint8, in_dir int32, pwd []uint8, mut envbuf list[uint8], flat []uint8, argc int64, in int32, out int32, err int32) int64
+extern("tack_os_spawn") func c_spawn(prog []uint8, dir []uint8, in_dir int32, pwd []uint8, mut envbuf list[uint8], flat []uint8, argc int64, fds []int32) int64
 
 // c_spawn_failed returns the number c_spawn adds to an errno for a
 // program that cannot be started, 1 << 21, above every errno and above
@@ -239,6 +255,13 @@ extern("tack_os_can_execute") func c_can_execute(path []uint8) int64
 // errno negated.
 extern("tack_os_poll2") func c_poll2(a int32, b int32) int64
 
+// c_poll_in waits until one of the four descriptors fds holds, each
+// negative for none, can be read without blocking, its writer has closed
+// it, or it has failed, and returns a mask with bit i set for each fds[i]
+// that can, or the errno negated: EINTR for a wait a signal interrupted.
+// Any fds but four is EINVAL.
+extern("tack_os_poll_in") func c_poll_in(fds []int32) int64
+
 // c_poll_out waits, with poll(2) and no time limit, until fd can be
 // written without blocking, or is broken or has failed, which the next
 // write then reports, and returns 0, or the errno negated: EINTR for a
@@ -257,7 +280,7 @@ extern("tack_os_eintr") func c_eintr() int64
 // with, by k: 0 ENOENT, 1 EISDIR, 2 EPERM, 3 EACCES, 4 ENOTDIR, 5
 // EINVAL, 6 the number c_open_dir_at gives, negated, for a symbolic
 // link, above every errno, 7 EAGAIN and 8 EWOULDBLOCK, the same errno
-// on Linux and macOS; 0 for any other k.
+// on Linux and macOS, and 9 EIO; 0 for any other k.
 extern("tack_os_errno_named") func c_errno_named(k int64) int64
 
 // c_unlink_at removes name of the directory fd, unlinkat(2), with
@@ -1579,11 +1602,14 @@ pub func make_temp_dir(prefix []uint8, scope alloc Allocator) (text.Text, error)
 }
 
 // drain reads what fd has into l, once: when fd is at its end, it closes
-// it and sets it to -1, so the next poll ignores it. A read a signal
-// interrupted reads nothing and is no error; the next poll tries again.
-func drain(mut fd int32, mut l list[uint8]) error {
+// it and sets it to -1, so the next poll ignores it. The end is a read of
+// nothing, or, when tty, fd a pseudo-terminal's master, EIO too, which
+// Linux's read of a master gives once every descriptor of its slave is
+// closed. A read a signal interrupted reads nothing and is no error; the
+// next poll tries again.
+func drain(mut fd int32, mut l list[uint8], tty bool) error {
     n := c_read(fd, mut l)
-    if n == 0 {
+    if n == 0 || tty && n < 0 && -%n == c_errno_named(9) {
         c_close(fd)
         fd = -1
         return noerror
@@ -1711,7 +1737,11 @@ func spawn_error(r int64) error {
 //   - code 3 and the OS's message, when /dev/null cannot be opened, a
 //     pipe cannot be made or the start cannot be set up, before any
 //     program is looked for, or a
-//     read, poll or wait fails once it has started;
+//     read, poll or wait fails once it has started; setting the start
+//     up copies a descriptor the child is given as another of its
+//     descriptors 0 to 4, which happens when this process has some of
+//     0 to 2 closed, above 4 first, so it needs one descriptor free,
+//     "Too many open files" when none is;
 //   - error{code: 1, msg: "out of memory"}, an allocation that failed,
 //     the C library's own while setting the start up included. Room for
 //     the bytes read is made in out first, then in err_out, so when only
@@ -1934,7 +1964,8 @@ func run_at(dir []uint8, in_dir int32, prog []uint8, argv []text.Text, mut out l
         return none, c_error(-%r1)
     }
     mut envbuf := make(list[uint8], alloc)
-    pid := c_spawn(prog, dir, in_dir, pwd, mut envbuf, flat, len(argv), devnull, stdout_pipe[1], stderr_pipe[1])
+    fds := [5]int32{devnull, stdout_pipe[1], stderr_pipe[1], -2, -2}
+    pid := c_spawn(prog, dir, in_dir, pwd, mut envbuf, flat, len(argv), fds[:])
     // The child has its own copies of /dev/null and the write ends, if it
     // started; run keeps none, so each read end reaches its end when the
     // child's copies close.
@@ -1961,13 +1992,13 @@ func run_at(dir []uint8, in_dir int32, prog []uint8, argv []text.Text, mut out l
             break
         }
         if m % 2 == 1 {
-            failure = drain(mut a, mut got_out)
+            failure = drain(mut a, mut got_out, false)
             if failure.code != 0 {
                 break
             }
         }
         if m / 2 % 2 == 1 {
-            failure = drain(mut b, mut got_err)
+            failure = drain(mut b, mut got_err, false)
             if failure.code != 0 {
                 break
             }
@@ -2080,7 +2111,8 @@ func run_inherit_at(dir []uint8, in_dir int32, prog []uint8, argv []text.Text, s
     }
     c_flush_stdio()
     mut envbuf := make(list[uint8], alloc)
-    pid := c_spawn(prog, dir, in_dir, pwd, mut envbuf, flat, len(argv), devnull, 1, 2)
+    fds := [5]int32{devnull, 1, 2, -2, -2}
+    pid := c_spawn(prog, dir, in_dir, pwd, mut envbuf, flat, len(argv), fds[:])
     c_close(devnull)
     if pid < 0 {
         return none, spawn_error(pid)
@@ -2090,6 +2122,312 @@ func run_inherit_at(dir []uint8, in_dir int32, prog []uint8, argv []text.Text, s
         return none, c_error(-%w)
     }
     return status_of(w), noerror
+}
+
+// Stream is what one of descriptors 0 to 4 of a child run_streams starts
+// is, each closed in this process by the time run_streams returns:
+//
+//   - closed: no descriptor; the child's is closed, whatever this
+//     process has there;
+//   - null: /dev/null, opened for reading and writing;
+//   - capture: the write end of a pipe whose bytes run_streams reads
+//     while the child runs and returns; not for descriptor 0;
+//   - terminal: the slave side of a new pseudo-terminal, its output
+//     processing off, so the bytes run_streams reads from its master and
+//     returns are those the child wrote, no newline turned into \r\n;
+//     the child sees a terminal, isatty(3) true, and C's stdio buffers it
+//     by line; it is not the child's controlling terminal; each terminal
+//     stream is a pseudo-terminal of its own; not for descriptor 0;
+//   - broken: the write end of a pipe whose read end is closed before
+//     the child starts, so that a write to it fails with EPIPE, or kills
+//     a child that does not ignore SIGPIPE; reopening it through
+//     /dev/fd, on Linux, does not block as a FIFO's reopen does; not for
+//     descriptor 0;
+//   - merged: for descriptor 2 alone, the same stream as descriptor 1,
+//     a pipe, a terminal, /dev/null or a broken pipe, the child's writes
+//     to both in the order it makes them, returned as its standard
+//     output's.
+pub type Stream union {
+    closed
+    null
+    capture
+    terminal
+    broken
+    merged
+}
+
+// Ran is how a child run_streams started ended, status, and the bytes it
+// wrote to each of its descriptors 1 to 4 that was a capture or terminal
+// stream, stdout, stderr, fd3 and fd4, empty for any other stream; a
+// merged standard error's bytes are in stdout.
+pub type Ran struct {
+    pub status Status
+    pub stdout list[uint8]
+    pub stderr list[uint8]
+    pub fd3 list[uint8]
+    pub fd4 list[uint8]
+}
+
+// no_ran returns the Ran of a failed run_streams: a zero Status and
+// empty lists made through alloc.
+func no_ran(scope alloc Allocator) Ran {
+    mut none Status
+    return Ran{status: none, stdout: make(list[uint8], alloc), stderr: make(list[uint8], alloc), fd3: make(list[uint8], alloc), fd4: make(list[uint8], alloc)}
+}
+
+// run_streams runs prog as run does, with argv, this process's
+// environment and SIGPIPE's and SIGXFSZ's default actions, and waits for
+// it to end, but with its descriptors 0 to 4 as streams says, one Stream
+// each, streams[0] its standard input; every descriptor above 4 is as
+// run leaves it. It returns how the child ended, and what it wrote to
+// each capture and terminal stream, in a Ran made through alloc, and no
+// error. It reads every capture and terminal stream at once, whichever
+// has something, while the child runs, so that none fills and blocks
+// the child, until each reaches its end: a pipe's when every process
+// holding its write end has closed it, and a terminal's, the EIO a read
+// of its master gives on Linux, when every process holding its slave
+// has: this process holds none once the child has started, but a
+// process the child started that keeps one, a grandchild in the
+// background, keeps run_streams reading, as it would a pipe, and what
+// it writes before it closes it, after the child has exited too, is
+// returned. A child that exits with a status other than 0, or is killed
+// by a signal, is no error, as for run.
+//
+// Every descriptor run_streams opens, /dev/null, the pipes and the
+// pseudo-terminals, is opened close-on-exec and closed before it
+// returns, on every path: the child's sides once the child has started,
+// or could not be, and this process's as each stream ends, or on an
+// error. On an error the Ran's Status cannot be read and its lists are
+// empty. Its errors are the three of code 4 below, checked first, in
+// this order; then run's, in run's order, a 0 byte in an argument among
+// them; then code 3, below, for a stream that cannot be opened:
+//
+//   - error{code: 4, msg: "standard input can only be closed or null"},
+//     for any other streams[0], checked first;
+//   - error{code: 4, msg: "only standard error can be merged"}, for
+//     merged in any other place;
+//   - error{code: 4, msg: "standard error cannot be merged with a closed
+//     standard output"};
+//   - code 3 and the OS's message when a pipe or a pseudo-terminal
+//     cannot be opened or set up, "No such file or directory" among them
+//     where /dev/ptmx is missing, as when /dev/null cannot be opened,
+//     and "Too many open files" when the process has no descriptor free
+//     for one, or for the copy above 4 that setting the start up makes
+//     of a descriptor the child is given as another of its 0 to 4, as
+//     run's error list says.
+//
+// After an error reading a stream, run_streams closes this process's
+// side of every stream and waits for the child, as run does: a child
+// that writes on to a pipe gets EPIPE, or dies of SIGPIPE, and one that
+// writes on to a terminal gets EIO, its slave's master gone. A
+// pseudo-terminal's window size is never set, so a child that asks for
+// it, with TIOCGWINSZ, is told 0 rows and 0 columns.
+//
+// The pseudo-terminal is opened with posix_openpt, grantpt, unlockpt and
+// ptsname, and its output processing turned off with tcsetattr, all
+// POSIX; run_streams is tested on Linux only, where an end of a terminal
+// stream is EIO, and a read of nothing ends one too, should another OS
+// end it so.
+pub func run_streams(prog []uint8, argv []text.Text, streams [5]Stream, scope alloc Allocator) (Ran, error) {
+    r, e := run_streams_at([]uint8(""), 0, prog, argv, streams, alloc)
+    return r, e
+}
+
+// run_streams_in runs prog as run_streams does, but in the directory
+// dir, as run_in runs it: the child enters dir before prog is looked
+// for, its PWD is dir made absolute, this process's directory never
+// changes, a 0 byte in dir is error{code: 4, msg: "directory contains a
+// NUL byte"}, and a dir the child cannot enter is code 13 and the OS's
+// message.
+pub func run_streams_in(dir []uint8, prog []uint8, argv []text.Text, streams [5]Stream, scope alloc Allocator) (Ran, error) {
+    r, e := run_streams_at(dir, 1, prog, argv, streams, alloc)
+    return r, e
+}
+
+// close_open closes each descriptor of fds that is not negative and sets
+// it to -1.
+func close_open(mut fds [5]int32) {
+    for i := range 5 {
+        if fds[i] >= 0 {
+            c_close(fds[i])
+            fds[i] = -1
+        }
+    }
+}
+
+// check_streams returns the error run_streams gives for streams that it
+// refuses, or no error.
+func check_streams(streams [5]Stream) error {
+    if streams[0] != Stream.closed && streams[0] != Stream.null {
+        return error{code: 4, msg: "standard input can only be closed or null"}
+    }
+    if streams[1] == Stream.merged || streams[3] == Stream.merged || streams[4] == Stream.merged {
+        return error{code: 4, msg: "only standard error can be merged"}
+    }
+    if streams[2] == Stream.merged && streams[1] == Stream.closed {
+        return error{code: 4, msg: "standard error cannot be merged with a closed standard output"}
+    }
+    return noerror
+}
+
+// open_streams opens what streams says the child's descriptors are and
+// sets child to them, -1 for a closed one, and each of reads[1] to
+// reads[4] to this process's end of a capture or terminal stream of that
+// descriptor, -1 for none, with tty[i] true for a terminal's, and gives
+// sides every descriptor of the child's side it opened, /dev/null in
+// sides[0], to close once the child has started. On an error it returns
+// it, what it opened still in sides and reads, for the caller to close.
+func open_streams(streams [5]Stream, mut child [5]int32, mut reads [5]int32, mut tty [5]bool, mut sides [5]int32) error {
+    for i := range 5 {
+        s := streams[i]
+        if s == Stream.null {
+            if sides[0] < 0 {
+                rn := c_open([]uint8("/dev/null"), 3, 0)
+                if rn < 0 {
+                    return c_error(-%rn)
+                }
+                fd, fits := int32(rn)
+                if !fits {
+                    return fd_range
+                }
+                sides[0] = fd
+            }
+            child[i] = sides[0]
+        } else if s == Stream.capture || s == Stream.broken {
+            mut p [2]int32
+            r := c_pipe(mut p)
+            if r < 0 {
+                return c_error(-%r)
+            }
+            sides[i] = p[1]
+            child[i] = p[1]
+            if s == Stream.broken {
+                c_close(p[0])
+            } else {
+                reads[i] = p[0]
+            }
+        } else if s == Stream.terminal {
+            mut p [2]int32
+            r := c_pty(mut p)
+            if r < 0 {
+                return c_error(-%r)
+            }
+            sides[i] = p[1]
+            child[i] = p[1]
+            reads[i] = p[0]
+            tty[i] = true
+        } else if s == Stream.merged {
+            child[i] = child[1]
+        }
+    }
+    return noerror
+}
+
+// run_streams_at is run_streams, in dir when in_dir is not 0, as
+// run_streams_in says, and in this process's directory otherwise.
+func run_streams_at(dir []uint8, in_dir int32, prog []uint8, argv []text.Text, streams [5]Stream, scope alloc Allocator) (Ran, error) {
+    es := check_streams(streams)
+    if es.code != 0 {
+        return no_ran(alloc), es
+    }
+    if len(argv) == 0 {
+        return no_ran(alloc), error{code: 4, msg: "argv is empty"}
+    }
+    if has_nul(prog) {
+        return no_ran(alloc), nul_prog
+    }
+    if in_dir != 0 && has_nul(dir) {
+        return no_ran(alloc), nul_dir
+    }
+    mut pwd := make(list[uint8], alloc)
+    if in_dir != 0 {
+        pe := pwd_of(dir, mut pwd, alloc)
+        if pe.code != 0 {
+            return no_ran(alloc), pe
+        }
+    }
+    mut flat := make(list[uint8], alloc)
+    for _, a := range argv {
+        if has_nul(a.bytes()) {
+            return no_ran(alloc), nul_arg
+        }
+        e0 := append(mut flat, a.bytes()...)
+        if e0.code != 0 {
+            return no_ran(alloc), e0
+        }
+        e1 := append(mut flat, 0)
+        if e1.code != 0 {
+            return no_ran(alloc), e1
+        }
+    }
+    mut child := [5]int32{-1, -1, -1, -1, -1}
+    mut reads := [5]int32{-1, -1, -1, -1, -1}
+    mut sides := [5]int32{-1, -1, -1, -1, -1}
+    mut tty := [5]bool{false, false, false, false, false}
+    eo := open_streams(streams, mut child, mut reads, mut tty, mut sides)
+    if eo.code != 0 {
+        close_open(mut sides)
+        close_open(mut reads)
+        return no_ran(alloc), eo
+    }
+    mut envbuf := make(list[uint8], alloc)
+    pid := c_spawn(prog, dir, in_dir, pwd, mut envbuf, flat, len(argv), child[:])
+    // The child has its own copies of its sides, if it started; this
+    // process keeps none, so each read end reaches its end when the
+    // child's copies, and those of whatever it started, close.
+    close_open(mut sides)
+    if pid < 0 {
+        close_open(mut reads)
+        return no_ran(alloc), spawn_error(pid)
+    }
+    mut got1 := make(list[uint8], alloc)
+    mut got2 := make(list[uint8], alloc)
+    mut got3 := make(list[uint8], alloc)
+    mut got4 := make(list[uint8], alloc)
+    mut failure := noerror
+    for reads[1] >= 0 || reads[2] >= 0 || reads[3] >= 0 || reads[4] >= 0 {
+        m := c_poll_in(reads[1:5])
+        if m < 0 {
+            if -%m == c_eintr() {
+                continue
+            }
+            failure = c_error(-%m)
+            break
+        }
+        if m % 2 == 1 {
+            failure = drain(mut reads[1], mut got1, tty[1])
+            if failure.code != 0 {
+                break
+            }
+        }
+        if m / 2 % 2 == 1 {
+            failure = drain(mut reads[2], mut got2, tty[2])
+            if failure.code != 0 {
+                break
+            }
+        }
+        if m / 4 % 2 == 1 {
+            failure = drain(mut reads[3], mut got3, tty[3])
+            if failure.code != 0 {
+                break
+            }
+        }
+        if m / 8 % 2 == 1 {
+            failure = drain(mut reads[4], mut got4, tty[4])
+            if failure.code != 0 {
+                break
+            }
+        }
+    }
+    close_open(mut reads)
+    w := wait_for(pid)
+    if failure.code != 0 {
+        return no_ran(alloc), failure
+    }
+    if w < 0 {
+        return no_ran(alloc), c_error(-%w)
+    }
+    return Ran{status: status_of(w), stdout: got1, stderr: got2, fd3: got3, fd4: got4}, noerror
 }
 
 // can_execute reports whether the file at path is one this process may

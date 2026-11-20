@@ -587,6 +587,24 @@ actions, so a child behaves as it does when a shell or Go starts it.
 The frozen Go compiler's runtime does not ignore SIGXFSZ, so this is
 one of the paths `TestPortFiles` lists.
 
+std/os's `run_streams` and `run_streams_in` run a child as `run` and
+`run_in` do, with each of its descriptors 0 to 4 given as an
+`os.Stream`: `closed`, `null` (/dev/null), `capture` (a pipe it reads
+and returns), `terminal` (the slave side of a new pseudo-terminal,
+output processing off, so no newline becomes `\r\n`, its master read
+until the EIO that ends it on Linux), `broken` (an anonymous pipe whose
+reader is closed before the start, so a write fails with EPIPE, and a
+reopen through `/dev/fd` does not block as a FIFO's does) or, for
+descriptor 2, `merged`, descriptor 1's stream. It returns an `os.Ran`:
+the child's `Status` and the bytes of `stdout`, `stderr`, `fd3` and
+`fd4`. Standard input can be only `closed` or `null`. No descriptor
+leaves the call: each is opened close-on-exec and closed before it
+returns, on every path, so std/os still hands no descriptor to a
+program (per the owner's ruling, 2026-11-19, that std/os gains pty
+support and an anonymous pipe). A process the child started that holds
+a capture or terminal stream keeps `run_streams` reading until it closes
+it. The pseudo-terminal is POSIX's `posix_openpt`; only Linux is tested.
+
 `builtin/embedded.tck` holds the runtime and the builtins'
 documentation as string literals. It is written by `tools/embed`, from
 `runtime/`, the C files in the byte order of their names, by

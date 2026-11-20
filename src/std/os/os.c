@@ -22,8 +22,8 @@
 //
 // Every file descriptor and directory stream this file opens is closed on
 // every path out of the call that opened it, except the descriptors
-// tack_os_open, tack_os_open_dir_at and tack_os_pipe return, which
-// std/os's Tack closes, and
+// tack_os_open, tack_os_open_dir_at, tack_os_pipe and tack_os_pty
+// return, which std/os's Tack closes, and
 // each is opened close-on-exec, so no child a later call starts inherits
 // it. The one thing here the C library may allocate for itself is
 // tack_os_spawn's posix_spawn_file_actions_t and posix_spawnattr_t, which
@@ -51,7 +51,10 @@
 // The calls are POSIX.1-2008's, which the C library declares in the mode
 // the driver compiles every C file in, clang's default, but for
 // posix_spawn_file_actions_addchdir_np, an extension glibc declares
-// there too, under _DEFAULT_SOURCE. The file cannot
+// there too, under _DEFAULT_SOURCE, and for posix_openpt, grantpt,
+// unlockpt and ptsname, XSI's, which glibc declares only under
+// _XOPEN_SOURCE and this file declares itself (see tack_os_pty). The
+// file cannot
 // ask for them itself with a feature-test macro: the program's tack.h is
 // included before its first line, and its headers have already settled
 // what the C library declares.
@@ -71,6 +74,7 @@
 #include <stddef.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <termios.h>
 #include <unistd.h>
 
 #include <tack/tack.h>
@@ -134,6 +138,8 @@ int64_t tack_os_open(tack_view_uint8 path, int32_t mode, int32_t perm) {
         flags = O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC;
     } else if (mode == 2) {
         flags = O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC;
+    } else if (mode == 3) {
+        flags = O_RDWR | O_CLOEXEC;
     }
     int fd = open(buf, flags, (mode_t)perm);
     if (fd < 0) {
@@ -364,6 +370,64 @@ int64_t tack_os_pipe(tack_array_2_int32 *fds) {
     return 0;
 }
 
+// posix_openpt, grantpt, unlockpt and ptsname are POSIX's, XSI's, which
+// the C library declares only for _XOPEN_SOURCE, a feature-test macro
+// this file cannot set (see above); they are declared here as POSIX
+// declares them, which agrees with every C library's declaration.
+int posix_openpt(int flags);
+int grantpt(int fd);
+int unlockpt(int fd);
+char *ptsname(int fd);
+
+int64_t tack_os_pty(tack_array_2_int32 *fds) {
+    int m = posix_openpt(O_RDWR | O_NOCTTY);
+    if (m < 0) {
+        return -errno;
+    }
+    // macOS's posix_openpt takes no O_CLOEXEC, so close-on-exec is set
+    // after, as tack_os_pipe sets it.
+    int e = 0;
+    if (fcntl(m, F_SETFD, FD_CLOEXEC) != 0 || grantpt(m) != 0 || unlockpt(m) != 0) {
+        e = errno;
+    }
+    // ptsname's name is in a buffer of the C library's that the next
+    // call overwrites; the process runs no other thread that could call
+    // it in between.
+    const char *name = e == 0 ? ptsname(m) : NULL;
+    if (e == 0 && name == NULL) {
+        e = errno;
+    }
+    int s = -1;
+    if (e == 0) {
+        s = open(name, O_RDWR | O_NOCTTY | O_CLOEXEC);
+        if (s < 0) {
+            e = errno;
+        }
+    }
+    // Output processing off, so that what the child writes is read as
+    // it wrote it, no newline turned into \r\n.
+    struct termios tio;
+    if (e == 0 && tcgetattr(s, &tio) != 0) {
+        e = errno;
+    }
+    if (e == 0) {
+        tio.c_oflag &= ~(tcflag_t)OPOST;
+        if (tcsetattr(s, TCSANOW, &tio) != 0) {
+            e = errno;
+        }
+    }
+    if (e != 0) {
+        if (s >= 0) {
+            close(s);
+        }
+        close(m);
+        return -e;
+    }
+    fds->e[0] = m;
+    fds->e[1] = s;
+    return 0;
+}
+
 // signals_default makes a child started with attr begin with SIGPIPE's
 // and SIGXFSZ's default actions, though this process ignores both, and
 // returns 0, or the errno of the call that failed.
@@ -399,12 +463,35 @@ static int64_t setup_error(int e) {
     return -e;
 }
 
-int64_t tack_os_spawn(tack_view_uint8 prog, tack_view_uint8 dir, int32_t in_dir, tack_view_uint8 pwd, tack_list_uint8 *envbuf, tack_view_uint8 flat, int64_t argc, int32_t in, int32_t out, int32_t err) {
+// child_fds is how many descriptors tack_os_spawn sets in the child, 0
+// to 4; leave_fd and close_fd are what fds holds for one it leaves as
+// this process has it and one it closes.
+enum { child_fds = 5, leave_fd = -2, close_fd = -1 };
+
+// unlift closes the descriptors lifted holds that are not -1, the
+// copies tack_os_spawn made above the child's.
+static void unlift(const int lifted[child_fds]) {
+    for (int i = 0; i < child_fds; i++) {
+        if (lifted[i] >= 0) {
+            close(lifted[i]);
+        }
+    }
+}
+
+int64_t tack_os_spawn(tack_view_uint8 prog, tack_view_uint8 dir, int32_t in_dir, tack_view_uint8 pwd, tack_list_uint8 *envbuf, tack_view_uint8 flat, int64_t argc, tack_view_int32 fds) {
     if (argc < 1 || argc > max_args) {
         return -E2BIG;
     }
     if (flat.len < argc || flat.ptr[flat.len - 1] != 0) {
         return -EINVAL;
+    }
+    if (fds.len != child_fds) {
+        return -EINVAL;
+    }
+    for (int i = 0; i < child_fds; i++) {
+        if (fds.ptr[i] < leave_fd) {
+            return -EINVAL;
+        }
     }
     char path[path_max];
     int pe = c_path(prog, path);
@@ -457,26 +544,51 @@ int64_t tack_os_spawn(tack_view_uint8 prog, tack_view_uint8 dir, int32_t in_dir,
         return -EINVAL;
     }
     argv[n] = NULL;
+    // A descriptor given for the child that is itself another of 0 to 4
+    // is copied above them first, close-on-exec, so that no dup2 into
+    // one of the child's descriptors replaces one a later dup2 reads
+    // from; the copies are closed on every path below. One given as
+    // itself, run_inherit's 1 and 2, is dup2'd onto itself, as before
+    // there were copies, which clears its close-on-exec in the child, as
+    // POSIX.1-2024 specifies and glibc does (std/os's test_own_number
+    // checks it), and fails the start, in the child, when this process
+    // has it closed.
+    int lifted[child_fds] = {-1, -1, -1, -1, -1};
+    int src[child_fds];
+    for (int i = 0; i < child_fds; i++) {
+        src[i] = fds.ptr[i];
+        if (src[i] >= 0 && src[i] < child_fds && src[i] != i) {
+            lifted[i] = fcntl(src[i], F_DUPFD_CLOEXEC, child_fds);
+            if (lifted[i] < 0) {
+                int le = errno;
+                unlift(lifted);
+                return -le;
+            }
+            src[i] = lifted[i];
+        }
+    }
     posix_spawnattr_t attr;
     int e = posix_spawnattr_init(&attr);
     if (e != 0) {
+        unlift(lifted);
         return setup_error(e);
     }
     posix_spawn_file_actions_t fa;
     e = posix_spawn_file_actions_init(&fa);
     if (e != 0) {
         posix_spawnattr_destroy(&attr);
+        unlift(lifted);
         return setup_error(e);
     }
     e = signals_default(&attr);
-    if (e == 0) {
-        e = posix_spawn_file_actions_adddup2(&fa, in, 0);
-    }
-    if (e == 0) {
-        e = posix_spawn_file_actions_adddup2(&fa, out, 1);
-    }
-    if (e == 0) {
-        e = posix_spawn_file_actions_adddup2(&fa, err, 2);
+    // A descriptor to close that is not open in the child is no error:
+    // glibc's posix_spawn ignores the EBADF of such a close.
+    for (int i = 0; i < child_fds && e == 0; i++) {
+        if (src[i] >= 0) {
+            e = posix_spawn_file_actions_adddup2(&fa, src[i], i);
+        } else if (src[i] == close_fd) {
+            e = posix_spawn_file_actions_addclose(&fa, i);
+        }
     }
     // The child enters dir after its descriptors are set and before the
     // program is looked for, so a relative prog or PATH entry is taken
@@ -488,12 +600,14 @@ int64_t tack_os_spawn(tack_view_uint8 prog, tack_view_uint8 dir, int32_t in_dir,
     if (e != 0) {
         posix_spawn_file_actions_destroy(&fa);
         posix_spawnattr_destroy(&attr);
+        unlift(lifted);
         return setup_error(e);
     }
     pid_t pid = 0;
     e = posix_spawnp(&pid, path, &fa, &attr, argv, env);
     posix_spawn_file_actions_destroy(&fa);
     posix_spawnattr_destroy(&attr);
+    unlift(lifted);
     if (e != 0) {
         return -(spawn_failed + (int64_t)e);
     }
@@ -575,6 +689,28 @@ int64_t tack_os_poll2(int32_t a, int32_t b) {
     return mask;
 }
 
+int64_t tack_os_poll_in(tack_view_int32 fds) {
+    struct pollfd p[4];
+    if (fds.len != 4) {
+        return -EINVAL;
+    }
+    for (int i = 0; i < 4; i++) {
+        p[i].fd = fds.ptr[i];
+        p[i].events = POLLIN;
+        p[i].revents = 0;
+    }
+    if (poll(p, 4, -1) < 0) {
+        return -errno;
+    }
+    int64_t mask = 0;
+    for (int i = 0; i < 4; i++) {
+        if (fds.ptr[i] >= 0 && p[i].revents != 0) {
+            mask += (int64_t)1 << i;
+        }
+    }
+    return mask;
+}
+
 int64_t tack_os_poll_out(int32_t fd) {
     struct pollfd p = {.fd = fd, .events = POLLOUT};
     if (poll(&p, 1, -1) < 0) {
@@ -631,6 +767,8 @@ int64_t tack_os_errno_named(int64_t k) {
         return EAGAIN;
     case 8:
         return EWOULDBLOCK;
+    case 9:
+        return EIO;
     }
     return 0;
 }
