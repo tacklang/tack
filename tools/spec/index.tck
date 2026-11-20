@@ -1,0 +1,336 @@
+package main
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import os from "std/os"
+import path from "std/path"
+import sort from "std/sort"
+import text from "std/text"
+
+// The spec's index, README.md, and the directory it indexes, as tackc's
+// TestSpecIndex checks them: the index links every chapter, and only
+// chapters that exist, every other file is a chapter named NN-name.md,
+// and the directory holds nothing else.
+
+// index_name is the name of the spec's index.
+var index_name = "README.md"
+
+// is_title_byte reports whether c may be in a chapter's title in the
+// index: an ASCII letter or digit, a space, or one of , . : ; ( ) ' & -.
+func is_title_byte(c uint8) bool {
+    if is_lower(c) || is_digit(c) || (c >= 'A' && c <= 'Z') {
+        return true
+    }
+    return bytes.index_byte([]uint8(" ,.:;()'&-"), c) >= 0
+}
+
+// is_chapter_name reports whether name is of the form of a chapter's
+// file name, ^[0-9]{2}-[a-z0-9-]+\.md$: two digits, a dash, one or more
+// lowercase letters, digits and dashes, and .md.
+func is_chapter_name(name []uint8) bool {
+    if !bytes.has_suffix(name, []uint8(".md")) || len(name) < 7 {
+        return false
+    }
+    // name is at least 7 bytes long, so this does not wrap.
+    mid_end := len(name) -% 3
+    for i, c := range name {
+        if i < 2 && !is_digit(c) {
+            return false
+        }
+        if i == 2 && c != '-' {
+            return false
+        }
+        if i > 2 && i < mid_end && !is_lower(c) && !is_digit(c) && c != '-' {
+            return false
+        }
+    }
+    return true
+}
+
+// to_lower_has_www reports whether s, lowercased, holds www.
+func to_lower_has_www(s []uint8) (bool, error) {
+    mut low := make(list[uint8], c_allocator)
+    for _, c := range s {
+        if c >= 'A' && c <= 'Z' {
+            append(mut low, c +% 32)?
+        } else {
+            append(mut low, c)?
+        }
+    }
+    return bytes.index(low[:], []uint8("www.")) >= 0, noerror
+}
+
+// digit_run returns how many digits s starts with.
+func digit_run(s []uint8) int64 {
+    mut n int64 = 0
+    for _, c := range s {
+        if !is_digit(c) {
+            break
+        }
+        n +%= 1
+    }
+    return n
+}
+
+// Link is where a line of the index's form holds its title and the
+// chapter it links, as offsets into the line: the title from
+// title_start up to title_end, the chapter's file name from name_start up
+// to name_end.
+type Link struct {
+    title_start int64
+    title_end int64
+    name_start int64
+    name_end int64
+}
+
+// index_line reports whether line is, as a whole, a line of the index's
+// form, ^[0-9]{1,9}\. \[(title)\]\((chapter)\)$: one to nine digits, a
+// dot and one space, a title of one or more of is_title_byte's bytes in
+// brackets, and a chapter's file name, as is_chapter_name has it, in
+// parentheses, with nothing after them; and where it holds the two.
+func index_line(line []uint8) (Link, bool) {
+    mut l := Link{title_start: 0, title_end: 0, name_start: 0, name_end: 0}
+    d := digit_run(line)
+    if d < 1 || d > 9 || !bytes.has_prefix(part(line, d, len(line)), []uint8(". [")) {
+        return l, false
+    }
+    // d is at most 9, so the sum does not wrap.
+    l.title_start = d +% 3
+    close := bytes.index_byte(part(line, l.title_start, len(line)), ']')
+    if close < 1 {
+        return l, false
+    }
+    // close is an index of what follows title_start in line.
+    l.title_end = l.title_start +% close
+    for _, c := range part(line, l.title_start, l.title_end) {
+        if !is_title_byte(c) {
+            return l, false
+        }
+    }
+    // title_end is an index of line, so these sums do not wrap.
+    l.name_start = l.title_end +% 2
+    l.name_end = len(line) -% 1
+    if !bytes.has_prefix(part(line, l.title_end, len(line)), []uint8("](")) || !bytes.has_suffix(line, []uint8(")")) ||
+        l.name_end < l.name_start || !is_chapter_name(part(line, l.name_start, l.name_end)) {
+        return l, false
+    }
+    return l, true
+}
+
+// counts_link reports whether line, of the index, counts as linking a
+// chapter where it stands, when starts_block says a line there starts a
+// block and in_fence that the line is inside a fenced block, and returns
+// where its chapter's name is.
+func counts_link(line []uint8, starts_block bool, in_fence bool) (Link, bool, error) {
+    l, ok := index_line(line)
+    if !ok || !starts_block || in_fence {
+        return l, false, noerror
+    }
+    www := to_lower_has_www(part(line, l.title_start, l.title_end))?
+    return l, !www, noerror
+}
+
+// index_links appends to linked, once each, the chapters index, the
+// content of the spec's index, links, as tackc's specIndexLinks counts
+// them: the file name of each line index_line accepts whose title,
+// lowercased, holds no www., that is outside every fenced block
+// scan_fences finds, and that starts the file, follows a blank line, or
+// follows another line counted so (see docs/spec/README.md, The Markdown
+// dialect).
+func index_links(index []uint8, mut linked list[text.Text]) error {
+    mut fences := make(list[Fence], c_allocator)
+    mut ignored := new_problems()
+    scan_fences([]uint8(index_name), index, mut fences, mut ignored)?
+    mut starts_block := true
+    mut start int64 = 0
+    mut n int64 = 1
+    for {
+        stop := line_end(index, start)
+        mut in_fence := false
+        for _, f := range fences {
+            if n >= f.start && n <= f.end {
+                in_fence = true
+            }
+        }
+        l, counts := counts_link(part(index, start, stop), starts_block, in_fence)?
+        if !counts {
+            starts_block = is_blank(part(index, start, stop))
+        } else {
+            // Both offsets are within the line, which is within index.
+            name_s := start +% l.name_start
+            name_e := start +% l.name_end
+            if !has_text(linked[:], part(index, name_s, name_e)) {
+                t := text.from_bytes(part(index, name_s, name_e), c_allocator)?
+                append(mut linked, t)?
+            }
+        }
+        if stop >= len(index) {
+            break
+        }
+        // stop is below len(index), and there are fewer lines than bytes.
+        start = stop +% 1
+        n +%= 1
+    }
+    return noerror
+}
+
+// is_blank reports whether line is empty once Go's strings.TrimSpace
+// has trimmed it: whether every rune of it is white space, as Go's
+// unicode.IsSpace has it: a tab, a newline, a vertical tab, a form feed,
+// a carriage return or a space; or, encoded in UTF-8, U+0085, U+00A0,
+// U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F or U+3000.
+// A byte that is not white space, an invalid one among them, is not.
+func is_blank(line []uint8) bool {
+    mut at int64 = 0
+    for at < len(line) {
+        n := space_len(part(line, at, len(line)))
+        if n == 0 {
+            return false
+        }
+        // n is at most 3 bytes of what follows at in line.
+        at +%= n
+    }
+    return true
+}
+
+// space_len returns the length of the white space rune s starts with,
+// as is_blank has it, or 0 when s starts with none.
+func space_len(s []uint8) int64 {
+    c, ok := s[0]
+    if !ok {
+        return 0
+    }
+    if c == ' ' || (c >= 9 && c <= 13) {
+        return 1
+    }
+    if bytes.has_prefix(s, []uint8("\xc2\x85")) || bytes.has_prefix(s, []uint8("\xc2\xa0")) {
+        return 2
+    }
+    if bytes.has_prefix(s, []uint8("\xe1\x9a\x80")) || bytes.has_prefix(s, []uint8("\xe2\x80\xa8")) ||
+        bytes.has_prefix(s, []uint8("\xe2\x80\xa9")) || bytes.has_prefix(s, []uint8("\xe2\x80\xaf")) ||
+        bytes.has_prefix(s, []uint8("\xe2\x81\x9f")) || bytes.has_prefix(s, []uint8("\xe3\x80\x80")) {
+        return 3
+    }
+    c2, ok2 := s[2]
+    if bytes.has_prefix(s, []uint8("\xe2\x80")) && ok2 && c2 >= 0x80 && c2 <= 0x8a {
+        return 3
+    }
+    return 0
+}
+
+// has_text reports whether one of l is s.
+func has_text(l []text.Text, s []uint8) bool {
+    for _, t := range l {
+        if t.equal(s) {
+            return true
+        }
+    }
+    return false
+}
+
+// text_less reports whether a sorts before b, bytewise, as Go compares
+// two strings.
+func text_less(a text.Text, b text.Text) bool {
+    return less_bytes(a.bytes(), b.bytes())
+}
+
+// less_bytes reports whether x sorts before y, bytewise.
+func less_bytes(x []uint8, y []uint8) bool {
+    for i, c := range x {
+        d, ok := y[i]
+        if !ok {
+            return false
+        }
+        if c != d {
+            return c < d
+        }
+    }
+    return len(x) < len(y)
+}
+
+// link_problems records in probs what is wrong between index, the
+// content of the spec's index, and chapters, the names of the Markdown
+// files beside it, the index's among them, sorted, as tackc's
+// specLinkProblems finds it: a file other than the index not named
+// NN-name.md, a chapter the index does not link, and, in name order, a
+// link to a chapter that is not among them.
+func link_problems(index []uint8, chapters []text.Text, mut probs Problems) error {
+    mut linked := make(list[text.Text], c_allocator)
+    index_links(index, mut linked)?
+    for _, name := range chapters {
+        mut msg := make(list[uint8], c_allocator)
+        if name.equal([]uint8(index_name)) {
+            continue
+        }
+        if !is_chapter_name(name.bytes()) {
+            fmt.appendf(mut msg, "%s: a chapter's file is named NN-name.md", name.bytes())?
+            mut probs.add_raw(msg[:])?
+        } else if !has_text(linked[:], name.bytes()) {
+            fmt.appendf(mut msg, "%s does not link the chapter %s", index_name, name.bytes())?
+            mut probs.add_raw(msg[:])?
+        }
+    }
+    sort.by(mut linked, text_less)
+    for _, name := range linked {
+        if !has_text(chapters, name.bytes()) {
+            mut msg := make(list[uint8], c_allocator)
+            fmt.appendf(mut msg, "%s links %s, which does not exist", index_name, name.bytes())?
+            mut probs.add_raw(msg[:])?
+        }
+    }
+    return noerror
+}
+
+// md_names appends to out the names of names that end in .md, in their
+// order, as Go's filepath.Glob(dir/*.md) matches them, a directory
+// among them.
+func md_names(names []text.Text, mut out list[text.Text]) error {
+    for _, n := range names {
+        if bytes.has_suffix(n.bytes(), []uint8(".md")) {
+            t := text.from_bytes(n.bytes(), c_allocator)?
+            append(mut out, t)?
+        }
+    }
+    return noerror
+}
+
+// index_problems records in probs what is wrong with dir, the spec's
+// directory, as tackc's specIndexProblems finds it: an entry that is a
+// directory or not a .md file, and then what link_problems finds. It
+// reports whether it could read dir and its index, having recorded why
+// not otherwise.
+func index_problems(dir []uint8, mut probs Problems) (bool, error) {
+    names, e := os.list_dir(dir, c_allocator)
+    mut msg := make(list[uint8], c_allocator)
+    if e.code != 0 {
+        fmt.appendf(mut msg, "reading %s: %s", dir, e.msg)?
+        mut probs.add_raw(msg[:])?
+        return false, noerror
+    }
+    for _, n := range names {
+        p := path.join(dir, n.bytes(), c_allocator)?
+        info, se := os.lstat(p.bytes())
+        if se.code != 0 {
+            mut m := make(list[uint8], c_allocator)
+            fmt.appendf(mut m, "reading %s: %s", p.bytes(), se.msg)?
+            mut probs.add_raw(m[:])?
+            return false, noerror
+        }
+        if info.is_dir() || !bytes.has_suffix(n.bytes(), []uint8(".md")) {
+            mut m := make(list[uint8], c_allocator)
+            fmt.appendf(mut m, "%s: docs/spec holds only the index and the chapters, .md files", n.bytes())?
+            mut probs.add_raw(m[:])?
+        }
+    }
+    ip := path.join(dir, []uint8(index_name), c_allocator)?
+    data, re := os.read_file(ip.bytes(), c_allocator)
+    if re.code != 0 {
+        fmt.appendf(mut msg, "reading the index: %s: %s", ip.bytes(), re.msg)?
+        mut probs.add_raw(msg[:])?
+        return false, noerror
+    }
+    mut chapters := make(list[text.Text], c_allocator)
+    md_names(names[:], mut chapters)?
+    link_problems(data[:], chapters[:], mut probs)?
+    return true, noerror
+}

@@ -1,0 +1,8 @@
+FAIL 01-stand-in.md:5 (check): --check wrote to stdout
+  standard output:
+    "checked\n"
+FAIL 01-stand-in.md:12 (error): --check wrote a line that is not part of a diagnostic: "not part of a diagnostic"
+FAIL 01-stand-in.md:22 (run): the program could not be run: cannot start the program: Permission denied
+spec: 3 tack blocks in tools/spec/testdata/fake/spec; fragments, not compiled: 0 ()
+spec: run 1, check 1, error 1, warn 0, fragment 0; not built 0; 3 failed
+exit 1

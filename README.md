@@ -768,6 +768,57 @@ needs no Go. tackc's porttest `test-examples` stage runs the same
 packages' tests with both compilers, and its `unicode-tables` stage
 requires std/unicode's to pass.
 
+`docs/spec/` is the language specification, which this repository
+maintains, with its checker, `tools/spec` (decided 2026-11-19: tackc
+keeps a frozen copy, and its porttest `TestPortSpec` keeps the two the
+same but for the paths it lists with their reasons, the index alone).
+Its README describes the examples, every fenced `tack` block a test,
+the strict Markdown dialect they are written in, and the links to
+tackc's documents not yet resolved here.
+
+    make test-spec TACK=bin/tack
+
+builds `tools/spec` and runs it on `docs/spec` with the compiler `TACK`
+names, which may be any Tack compiler, and this tree as its
+`TACK_HOME`. It checks what tackc's `TestSpecExamples` and
+`TestSpecIndex` check (see `tools/spec`'s package comment): the index
+links every chapter and the directory holds nothing else, every file
+is in the dialect, and every `tack` block does what its kind says: a
+`tack run exit=N` program passes `--check`, builds, and exits with N
+within 10 seconds, writing its `output` block, if it has one, and
+nothing on standard error; a `tack check` passes `--check` with no
+diagnostic; a `tack error` or `tack warn` reports exactly the
+diagnostics of its `diagnostics` block; a `tack fragment` is counted.
+A program runs through a launcher (`spec --launch`, in
+`tools/spec/launch.c`) that starts it in a process group of its own,
+waits for its output pipes to close too, kills the group once the run
+ends, and on a SIGINT, SIGTERM or SIGHUP, and hands its output back on
+a pipe the program never has, so nothing a program leaves behind keeps
+the checker waiting or outlives it. Each failure names the file and the
+block's line, with the first line that differs; the run ends with
+counts of the blocks by kind and of the failures, and exits 1 when
+anything failed. Every example shares one `TACK_CACHE`, removed with
+the run. Without clang on PATH a run example is checked with `--check`
+alone and counted as not built, as tackc's test skips it.
+
+    make test-spec-tool TACK=bin/tack
+
+runs `tools/spec/fixtures.sh`, which runs the checker on its own
+fixtures and fails unless it writes on each what the fixture's `want`
+holds, byte for byte, and every process group its runs started is gone
+once they end, read from the log the launcher writes when
+`TACK_SPEC_GROUPS` names one: `testdata/fail`, with `TACK`, a spec
+that fails every way the checker reports, beside examples that pass,
+one of which leaves a process behind for the launcher to kill; and
+`testdata/fake`, with the stand-in compiler `testdata/fake/tack`, for
+what only a compiler that misbehaves gives. It takes about 10 seconds.
+`make test-corpus` runs both first. `tools/spec --parse <file>` only
+reads a file and writes the problems and blocks it found, which tackc's
+porttest `TestSpecParse` compares with tackc's reader on each file of
+`tools/spec/testdata/parse` and both copies of the spec. They need
+clang and coreutils, and no Go. tackc's porttest `spec` stage runs the
+checker on the spec and both fixtures with the port.
+
 `corpus/runs/` holds run records: programs built with `--out` and run,
 at each optimization level a record names, or runs of the compiler
 itself, each record saying what the run must do: its exit status,

@@ -1,0 +1,40 @@
+#!/bin/sh
+# A stand-in for the compiler, which make test-spec-tool and tackc's
+# porttest spec stage give tools/spec as the compiler it checks on the
+# fixture spec/ beside it, so the checker meets what the real compiler
+# never does. It is called as the checker calls a compiler,
+#
+#     tack --check --max-errors 0 main.tck
+#     tack --out <program> main.tck
+#
+# and answers by the marker line main.tck holds:
+#
+#   // stdout  --check writes a line to standard output and passes;
+#   // stray   --check reports an error and then a line that is no part
+#              of a diagnostic, with exit status 1;
+#   // noexec  --check passes and --out writes a program no one may run,
+#              so the launcher cannot start it.
+#
+# Anything else is a mistake of the fixture's, exit status 2.
+case "$1" in
+--check) src=$4 ;;
+--out) out=$2; src=$3 ;;
+*) echo "fake tack: unexpected arguments: $*" >&2; exit 2 ;;
+esac
+if grep -qx '// stdout' "$src" && [ "$1" = --check ]; then
+    echo "checked"
+    exit 0
+fi
+if grep -qx '// stray' "$src" && [ "$1" = --check ]; then
+    printf '\nmain.tck:1:1: error: undefined: x\nnot part of a diagnostic\n\n' >&2
+    exit 1
+fi
+if grep -qx '// noexec' "$src"; then
+    if [ "$1" = --check ]; then
+        exit 0
+    fi
+    printf 'not a program\n' > "$out" && chmod 644 "$out"
+    exit
+fi
+echo "fake tack: $src holds no marker" >&2
+exit 2

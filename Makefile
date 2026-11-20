@@ -165,9 +165,10 @@ endef
 
 # test-corpus checks $(TACK), which must be the port, against the test
 # corpus, corpus/: every case of its archives, every golden and every
-# committed tack.h (see tools/corpus). It needs clang and coreutils, and
-# no Go.
-test-corpus:
+# committed tack.h (see tools/corpus), after the spec's examples and
+# its checker's own fixtures (see test-spec and test-spec-tool). It needs
+# clang and coreutils, and no Go.
+test-corpus: test-spec test-spec-tool
 	$(call corpus-tool,)
 
 # update-corpus is test-corpus with the corpus rewritten where the
@@ -175,6 +176,38 @@ test-corpus:
 # tackc's; read the diff it leaves before keeping it.
 update-corpus:
 	$(call corpus-tool,--update)
+
+.PHONY: spec-tool test-spec test-spec-tool
+
+# spec-tool builds tools/spec, the checker of the language
+# specification's examples, into $(BIN)/spec with $(TACK), with
+# TACK_HOME this tree, as embed builds tools/embed. test-spec and
+# test-spec-tool both need it, so under make -j it is built once rather
+# than by both at once.
+spec-tool:
+	mkdir -p $(BIN)
+	TACK_HOME="$(CURDIR)" TACK_CACHE="$(CURDIR)/$(BIN)/cache" \
+		"$(TACK)" --out "$(CURDIR)/$(BIN)/spec" ./tools/spec
+
+# test-spec runs tools/spec on docs/spec with $(TACK), looked up on PATH
+# when it is a bare name, as the compiler it checks, and this tree as
+# its TACK_HOME: the spec's index and Markdown dialect, and every tack
+# block by its kind, as tackc's TestSpecExamples and TestSpecIndex check
+# them (see tools/spec). It needs clang and coreutils, and no Go.
+test-spec: spec-tool
+	compiler="$$(command -v "$(TACK)")" && \
+		"$(CURDIR)/$(BIN)/spec" "$$compiler" "$(CURDIR)" docs/spec
+
+# test-spec-tool runs tools/spec on its own fixtures, testdata/fail with
+# $(TACK) and testdata/fake with the stand-in compiler there, with
+# tools/spec/fixtures.sh, writing into $(BIN), and fails unless what it
+# writes on each is the fixture's want and every process group its runs
+# started is gone once they end (see the script). It takes about 10
+# seconds, the deadline a held output runs into. It needs clang,
+# coreutils, sed, diff and grep, and no Go.
+test-spec-tool: spec-tool
+	compiler="$$(command -v "$(TACK)")" && \
+		sh tools/spec/fixtures.sh "$(CURDIR)/$(BIN)/spec" "$$compiler" "$(CURDIR)" "$(CURDIR)/$(BIN)"
 
 # BOOTSTRAP is where `make bootstrap` builds stages 2 and 3 of the
 # compiler, with a cache for each, under the ignored bin/.

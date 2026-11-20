@@ -1,0 +1,475 @@
+package main
+
+import bytes from "std/bytes"
+import conv from "std/conv"
+import fmt from "std/fmt"
+import text from "std/text"
+
+// The spec's dialect of Markdown, as tackc's tack/spec_test.go reads it:
+// the fenced code blocks of a file, and the problems that put a line
+// outside the dialect (see docs/spec/README.md, The Markdown dialect).
+
+// Fence is one fenced code block of a file, as offsets into the file's
+// bytes: its info string, what follows the opening run, from info_start
+// up to info_end; its content, the lines between the fences, each with
+// its newline, from body_start up to body_end; and the lines of its
+// opening and closing fences, from 1.
+type Fence struct {
+    info_start int64
+    info_end int64
+    body_start int64
+    body_end int64
+    start int64
+    end int64
+}
+
+// Problems is what a check of a file found wrong, each problem a line
+// that starts with the file's name and a line number, in the order
+// found.
+type Problems struct {
+    items list[text.Text]
+}
+
+// new_problems returns an empty Problems.
+func new_problems() Problems {
+    return Problems{items: make(list[text.Text], c_allocator)}
+}
+
+// add records msg, the problem at line n of the file name, as
+// name:n: msg.
+func (mut p Problems) add(name []uint8, n int64, msg []uint8) error {
+    mut b := make(list[uint8], c_allocator)
+    fmt.appendf(mut b, "%s:%d: %s", name, n, msg)?
+    t := text.from_bytes(b[:], c_allocator)?
+    return append(mut p.items, t)
+}
+
+// add_raw records msg as it is, already named.
+func (mut p Problems) add_raw(msg []uint8) error {
+    t := text.from_bytes(msg, c_allocator)?
+    return append(mut p.items, t)
+}
+
+// part returns the view of s from a up to b, or an empty view when those
+// are not bounds of s.
+func part(s []uint8, a int64, b int64) []uint8 {
+    if a < 0 || b < a || b > len(s) {
+        return s[:0]
+    }
+    return s[a:b]
+}
+
+// line_end returns where the line of data that starts at start ends: the
+// index of its newline, or len(data) when it has none.
+func line_end(data []uint8, start int64) int64 {
+    nl := bytes.index_byte(part(data, start, len(data)), '\n')
+    if nl < 0 || start < 0 {
+        return len(data)
+    }
+    // nl is an index of what follows start in data.
+    return start +% nl
+}
+
+// trim_space returns s without the spaces at either end. It is Go's
+// strings.TrimSpace only on a line of a file bad_byte passes, which
+// holds no other white space byte, and is used on no other: the
+// scanner's lines and the parser's, which it reads only once bad_byte
+// has passed the file. index_links reads any index, and asks is_blank
+// instead.
+func trim_space(s []uint8) []uint8 {
+    mut a int64 = 0
+    mut b := len(s)
+    for a < b {
+        c, ok := s[a]
+        if !ok || c != ' ' {
+            break
+        }
+        a +%= 1
+    }
+    for b > a {
+        // b is above a, which is at least 0, so b - 1 does not wrap.
+        c, ok := s[b -% 1]
+        if !ok || c != ' ' {
+            break
+        }
+        b -%= 1
+    }
+    return part(s, a, b)
+}
+
+// trim_left_spaces returns s without the spaces it starts with.
+func trim_left_spaces(s []uint8) []uint8 {
+    mut a int64 = 0
+    for a < len(s) {
+        c, ok := s[a]
+        if !ok || c != ' ' {
+            break
+        }
+        a +%= 1
+    }
+    return part(s, a, len(s))
+}
+
+// all_byte reports whether every byte of s is c, true for an empty s.
+func all_byte(s []uint8, c uint8) bool {
+    for _, x := range s {
+        if x != c {
+            return false
+        }
+    }
+    return true
+}
+
+// hex_digit returns the lowercase hex digit of d, which is below 16.
+func hex_digit(d uint8) uint8 {
+    if d < 10 {
+        return '0' +% d
+    }
+    return 'a' +% (d -% 10)
+}
+
+// bad_byte records, in p, the line and column, from 1, of the first byte
+// of data, the file name, that is neither printable ASCII, 0x20 to 0x7E,
+// nor a newline, and reports whether there is one.
+func bad_byte(name []uint8, data []uint8, mut p Problems) (bool, error) {
+    mut line int64 = 1
+    mut col int64 = 0
+    for _, b := range data {
+        if b == '\n' {
+            line +%= 1
+            col = 0
+            continue
+        }
+        col +%= 1
+        if b < 0x20 || b > 0x7e {
+            mut msg := make(list[uint8], c_allocator)
+            fmt.appendf(mut msg, "%s:%d:%d: byte 0x", name, line, col)?
+            append(mut msg, hex_digit(b >> 4))?
+            append(mut msg, hex_digit(b & 15))?
+            append(mut msg, []uint8(": a spec file holds only printable ASCII and newlines (no tab, carriage return or non-ASCII byte)")...)?
+            mut p.add_raw(msg[:])?
+            return true, noerror
+        }
+    }
+    return false, noerror
+}
+
+// fence_run returns the character and the length of the run of three or
+// more backticks or tildes that starts line at column 0, and false when
+// line starts with no such run.
+func fence_run(line []uint8) (uint8, int64, bool) {
+    first, ok := line[0]
+    if !ok || (first != '`' && first != '~') {
+        return 0, 0, false
+    }
+    mut run int64 = 0
+    for _, c := range line {
+        if c != first {
+            break
+        }
+        run +%= 1
+    }
+    return first, run, run >= 3
+}
+
+// is_lower reports whether c is a lowercase ASCII letter.
+func is_lower(c uint8) bool {
+    return c >= 'a' && c <= 'z'
+}
+
+// is_digit reports whether c is an ASCII digit.
+func is_digit(c uint8) bool {
+    return c >= '0' && c <= '9'
+}
+
+// info_grammar reports whether info, an opening fence's info string, is
+// of the dialect's grammar, ^([a-z][a-z0-9]*( [a-z0-9=]+)*)?$: nothing,
+// or a lowercase word followed by attributes, each a space and then one
+// or more lowercase letters, digits and =.
+func info_grammar(info []uint8) bool {
+    if len(info) == 0 {
+        return true
+    }
+    // state 0: in the word; 1: just after a space; 2: in an attribute.
+    mut state int64 = 0
+    for i, c := range info {
+        if i == 0 {
+            if !is_lower(c) {
+                return false
+            }
+            continue
+        }
+        if c == ' ' {
+            if state == 1 {
+                return false
+            }
+            state = 1
+            continue
+        }
+        if state == 0 {
+            if !is_lower(c) && !is_digit(c) {
+                return false
+            }
+            continue
+        }
+        if !is_lower(c) && !is_digit(c) && c != '=' {
+            return false
+        }
+        state = 2
+    }
+    return state != 1
+}
+
+// Fields is the words of an info string, as Go's strings.Fields splits
+// it, each as offsets into the string: word k is from starts[k] up to
+// ends[k]. Only a space separates words, since a file of the dialect
+// holds no other white space byte.
+type Fields struct {
+    starts list[int64]
+    ends list[int64]
+}
+
+// split_fields returns the words of s (see Fields).
+func split_fields(s []uint8) (Fields, error) {
+    mut f := Fields{starts: make(list[int64], c_allocator), ends: make(list[int64], c_allocator)}
+    mut in_word := false
+    for i, c := range s {
+        if c == ' ' {
+            if in_word {
+                append(mut f.ends, i)?
+                in_word = false
+            }
+            continue
+        }
+        if !in_word {
+            append(mut f.starts, i)?
+            in_word = true
+        }
+    }
+    if in_word {
+        append(mut f.ends, len(s))?
+    }
+    return f, noerror
+}
+
+// count returns how many words f holds.
+func (f Fields) count() int64 {
+    return len(f.ends)
+}
+
+// word returns word k of s, whose Fields f are, or an empty view when it
+// has no word k.
+func (f Fields) word(s []uint8, k int64) []uint8 {
+    a, ok := f.starts[k]
+    b, ok2 := f.ends[k]
+    if !ok || !ok2 {
+        return s[:0]
+    }
+    return part(s, a, b)
+}
+
+// info_word returns the first word of info, a fence's info string, as Go's
+// strings.Fields finds it, or an empty view when it has none.
+func info_word(info []uint8) []uint8 {
+    mut a int64 = 0
+    for a < len(info) {
+        c, ok := info[a]
+        if !ok || c != ' ' {
+            break
+        }
+        a +%= 1
+    }
+    mut b := a
+    for b < len(info) {
+        c, ok := info[b]
+        if !ok || c == ' ' {
+            break
+        }
+        b +%= 1
+    }
+    return part(info, a, b)
+}
+
+// info_words are the first words an opening fence's info string may
+// have: none, tack and the blocks that follow a tack block, and text and
+// markdown for blocks shown without being checked.
+var info_words = [6]string{"", "tack", "output", "diagnostics", "text", "markdown"}
+
+// allowed_word reports whether w is one of info_words.
+func allowed_word(w []uint8) bool {
+    for _, x := range info_words {
+        if bytes.equal(w, []uint8(x)) {
+            return true
+        }
+    }
+    return false
+}
+
+// Scanner finds the fenced code blocks of one file of the spec, a line at
+// a time, as tackc's fenceScanner does, the lines outside the dialect
+// going to the Problems each step is given: the file's name, the blocks
+// read so far, whether a block is open, the open block, and its fence
+// character and the length of its opening run.
+type Scanner struct {
+    name list[uint8]
+    fences list[Fence]
+    open bool
+    cur Fence
+    ch uint8
+    run int64
+}
+
+// check_info records a problem at line n when info, the info string of
+// an opening fence, is not of the dialect's grammar, or its first word
+// is not one of info_words.
+func check_info(name []uint8, n int64, info []uint8, mut p Problems) error {
+    mut msg := make(list[uint8], c_allocator)
+    if !info_grammar(info) {
+        append(mut msg, []uint8("fence info string ")...)?
+        conv.append_quote(mut msg, info)?
+        append(mut msg, []uint8(": write nothing, or a lowercase word and attributes of lowercase letters, digits and =, separated by one space")...)?
+        return mut p.add(name, n, msg[:])
+    }
+    if allowed_word(info_word(info)) {
+        return noerror
+    }
+    append(mut msg, []uint8("fence info word ")...)?
+    conv.append_quote(mut msg, info_word(info))?
+    append(mut msg, []uint8(": use one of [")...)?
+    for i, x := range info_words {
+        if i > 0 {
+            append(mut msg, ' ')?
+        }
+        conv.append_quote(mut msg, []uint8(x))?
+    }
+    append(mut msg, ']')?
+    return mut p.add(name, n, msg[:])
+}
+
+// has_html reports whether line could hold raw HTML: a < followed by a
+// letter, /, ! or ?, which starts a tag, a comment or a processing
+// instruction.
+func has_html(line []uint8) bool {
+    mut lt := false
+    for _, c := range line {
+        if lt && ((c >= 'A' && c <= 'Z') || is_lower(c) || c == '/' || c == '!' || c == '?') {
+            return true
+        }
+        lt = c == '<'
+    }
+    return false
+}
+
+// line reads line n of the file, line, which runs from ls up to le in
+// the file's bytes, with s's state.
+func (mut s Scanner) line(line []uint8, n int64, ls int64, le int64, mut p Problems) error {
+    if s.open {
+        return mut s.inside(line, n, ls, mut p)
+    }
+    ch, run, is_fence := fence_run(line)
+    if is_fence {
+        // A renderer opens a block whatever the info string, so the block
+        // is read as one even when its info string is a problem.
+        // run is at most the line's length, so ls + run is within data.
+        check_info(s.name[:], n, part(line, run, len(line)), mut p)?
+        s.open = true
+        s.ch = ch
+        s.run = run
+        s.cur = Fence{info_start: ls +% run, info_end: le, body_start: le +% 1, body_end: le +% 1, start: n, end: 0}
+        return noerror
+    }
+    if bytes.index(line, []uint8("```")) >= 0 || bytes.index(line, []uint8("~~~")) >= 0 {
+        return mut p.add(s.name[:], n, []uint8("three backticks or tildes outside a fence at column 0; use single-backtick inline code, and start every fence at column 0"))
+    }
+    if bytes.has_prefix(trim_left_spaces(line), []uint8("$$")) {
+        return mut p.add(s.name[:], n, []uint8("a line starting with $$ would start a math block on GitHub; the spec uses none"))
+    }
+    if has_html(line) {
+        return mut p.add(s.name[:], n, []uint8("a < followed by a letter, /, ! or ? could be raw HTML, which the spec does not use; write a comparison with spaces, a < b"))
+    }
+    return noerror
+}
+
+// inside reads line n, line, which starts at ls in the file's bytes, of
+// the open block: a run of its
+// character at column 0, at least as long as the opening one and
+// followed by nothing but spaces, closes it, as a renderer would, and is
+// a problem unless it is exactly the opening run; an indented line that
+// is nothing but such a run is a problem, since a renderer may close the
+// block there; any other line is the block's content.
+func (mut s Scanner) inside(line []uint8, n int64, ls int64, mut p Problems) error {
+    ch, run, is_fence := fence_run(line)
+    if is_fence && ch == s.ch && run >= s.run && len(trim_space(part(line, run, len(line)))) == 0 {
+        if len(line) != s.run {
+            mut p.add(s.name[:], n, []uint8("a closing fence is exactly the opening fence's run, with nothing after it"))?
+        }
+        s.cur.end = n
+        s.cur.body_end = ls
+        append(mut s.fences, s.cur)?
+        s.open = false
+        return noerror
+    }
+    if len(trim_space(line)) != len(line) && len(trim_space(line)) >= s.run && all_byte(trim_space(line), s.ch) {
+        return mut p.add(s.name[:], n, []uint8("an indented fence: a closing fence starts at column 0"))
+    }
+    return noerror
+}
+
+// is_front_matter reports whether first, a file's first line, is --- and
+// nothing after it but spaces, which would start front matter.
+func is_front_matter(first []uint8) bool {
+    mut fe := len(first)
+    for fe > 0 {
+        // fe is above 0, so fe - 1 does not wrap.
+        c, ok := first[fe -% 1]
+        if !ok || c != ' ' {
+            break
+        }
+        fe -%= 1
+    }
+    return bytes.equal(part(first, 0, fe), []uint8("---"))
+}
+
+// scan_fences appends to fences the fenced code blocks of data, the file
+// name, in order, backtick and tilde fences alike, and records in p a
+// problem for everything outside the dialect, as tackc's scanFences
+// does: the first byte that is not printable ASCII or a newline, after
+// which nothing else is read; a first line of ---; an opening fence
+// whose info string is not of the dialect's grammar; a closing fence
+// that is not exactly the opening run; outside a block, a line holding
+// three backticks or tildes that is not a fence, or one holding what
+// could be raw HTML, or starting with $$; inside a block, an indented
+// line that could close it; and a block that is never closed. The file's
+// lines are what Go's strings.Split(data, "\n") gives, so a final
+// newline is followed by one more, empty, line.
+func scan_fences(name []uint8, data []uint8, mut fences list[Fence], mut p Problems) error {
+    bad := bad_byte(name, data, mut p)?
+    if bad {
+        return noerror
+    }
+    mut s := Scanner{name: make(list[uint8], c_allocator), fences: make(list[Fence], c_allocator), open: false,
+        cur: Fence{info_start: 0, info_end: 0, body_start: 0, body_end: 0, start: 0, end: 0}, ch: 0, run: 0}
+    append(mut s.name, name...)?
+    if is_front_matter(part(data, 0, line_end(data, 0))) {
+        mut p.add(name, 1, []uint8("a first line of --- would start front matter, which the spec does not use"))?
+    }
+    mut start int64 = 0
+    mut n int64 = 1
+    for {
+        stop := line_end(data, start)
+        mut s.line(part(data, start, stop), n, start, stop, mut p)?
+        if stop >= len(data) {
+            break
+        }
+        // stop is below len(data), and there are fewer lines than bytes.
+        start = stop +% 1
+        n +%= 1
+    }
+    if s.open {
+        mut p.add(name, s.cur.start, []uint8("the fenced block is never closed"))?
+    }
+    for _, f := range s.fences {
+        append(mut fences, f)?
+    }
+    return noerror
+}

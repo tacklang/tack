@@ -1,0 +1,411 @@
+package main
+
+import bytes from "std/bytes"
+import conv from "std/conv"
+import fmt from "std/fmt"
+import os from "std/os"
+import path from "std/path"
+import sort from "std/sort"
+import text from "std/text"
+
+// Package main is spec, the checker of the language specification's
+// examples, docs/spec, which this repository maintains (decided
+// 2026-11-19; tackc keeps a frozen copy). It does what tackc's
+// TestSpecExamples and TestSpecIndex, in tack/spec_test.go, do, with any
+// compiler and no Go. It is run as
+//
+//     spec [-v] <compiler> <tack-home> <spec-dir>
+//     spec --parse <file>
+//     spec --launch <seconds> <program>
+//
+// compiler is the compiler to check, tack-home the TACK_HOME it runs
+// with, whose src/std is the std it compiles with, and spec-dir the
+// directory of the spec; each may be relative to the current directory.
+//
+// First the directory is checked as TestSpecIndex checks it (see
+// index.tck): its index, README.md, links every chapter by a list line of
+// the dialect's form, and only chapters that exist; every other file is
+// a chapter named NN-name.md; and it holds nothing else. Then every
+// Markdown file in it, the index among them, in name order, is read in
+// the spec's dialect of Markdown (see dialect.tck), its tack blocks found
+// with what follows each (see examples.tck), and each checked by its
+// kind, as docs/spec/README.md says:
+//
+//   - tack run exit=N: --check accepts it with no diagnostic, the
+//     compiler builds it with --out with nothing on standard error, and
+//     the program writes nothing to standard error and exits with status
+//     N within 10 seconds; an output block after it pins its standard
+//     output, byte for byte. Without clang on PATH the build is skipped,
+//     after the check, and the example counted as not built, as tackc's
+//     test skips it;
+//   - tack check: --check accepts it with no diagnostic;
+//   - tack error: --check rejects it, exit status 1, with exactly the
+//     first lines of diagnostics its diagnostics block holds, in order;
+//   - tack warn: --check accepts it, exit status 0, with exactly those of
+//     its diagnostics block;
+//   - tack fragment: not compiled; the fragments are counted and listed.
+//
+// --check never writes to standard output for any of them. Each program
+// is written alone as main.tck in a directory of its own below a
+// temporary directory, which std/os's make_temp_dir makes in $TMPDIR, so
+// its diagnostics name main.tck, and the compiler run there as tack
+// --check --max-errors 0 main.tck, through coreutils' timeout, two
+// minutes at most, and env, which sets TACK_HOME to tack-home, and
+// TACK_CACHE and TMPDIR to directories of the run's own. The cache is
+// shared by every example of a run, where tackc's test gives each run of
+// the compiler a new one (decided 2026-11-20). The cache holds the
+// compiled objects of the runtime's and std's C, which every example
+// builds the same, so sharing it is meant to change how long a run
+// takes, not what an example gives; it is removed with the run's
+// temporary directory.
+//
+// A program runs in its directory through the launcher, this program run
+// as spec --launch (see launch.c), as tackc's runSpecBinary runs one: in
+// a process group of its own, with this process's environment, /dev/null
+// as its standard input and a pipe each as its standard output and
+// error, which the launcher writes, with how the program ended, as a
+// record on its own standard output, which the program cannot reach. It
+// must have exited, and both pipes closed, which a process it started
+// can keep open, within 10 seconds of starting, or it is stopped and
+// fails; either way its group is killed with SIGKILL once the run ends,
+// so a process it started dies with it unless it left the group, and no
+// process left behind keeps the checker waiting. A SIGINT, SIGTERM or
+// SIGHUP of the launcher, as a Ctrl-C sends the checker's group, kills
+// the program's group too, and the program dies with the launcher
+// however the launcher ends. A program a signal kills fails as killed by
+// that signal, where tackc's test says it exited -1. With
+// TACK_SPEC_GROUPS set, the launcher logs each program's group as it
+// starts and ends, for a harness to check (see launch.c). A temporary directory below a directory holding a tack.mod
+// is refused before anything runs, since every main.tck would load as
+// part of that module; the temporary directory is removed before the
+// checker exits.
+//
+// A failure is written on standard output as FAIL and why, starting with
+// the file and line it is about, as chapter:line (kind) for an example,
+// with the first line that differs from what was expected where there
+// is one, indented under it. The run ends with two lines that count the
+// tack blocks, as tackc's test logs them, the blocks of each kind, the
+// run examples not built and the failures, and exits 1 when anything
+// failed, 0 when nothing did, and 2 for a command line of the wrong
+// shape. With -v, each tack block checked is named as it is reached,
+// example chapter:line kind.
+//
+// With --parse, it only reads file as a chapter named by its base name
+// and writes what it found (see dump), running nothing, so its reading
+// can be compared with tackc's, as tackc's porttest TestSpecParse
+// compares it on testdata/parse and both copies of the spec.
+//
+// testdata/fail and testdata/fake are the checker's own fixtures, each
+// spec/, a spec, and want, what the checker must write on it: fail's
+// spec fails every way the checker reports with a real compiler, beside
+// examples that pass, one of which leaves a process its run must kill;
+// fake's is checked with the stand-in compiler fake/tack, for the
+// failures only a compiler that misbehaves gives. fixtures.sh, which
+// make test-spec-tool runs, and tackc's porttest spec stage compare
+// each with its want and check that no process group outlives its run.
+
+// Checker is what every check reads: the compiler, its TACK_HOME, the
+// spec's directory and self, this program, which runs each run
+// example's program as its launcher (see launch.c), all absolute;
+// whether clang is on PATH and whether to name each block checked; and the run's temporary directory, tmp,
+// with cache, the compiler's TACK_CACHE, and work, its TMPDIR, below it.
+type Checker struct {
+    compiler text.Text
+    home text.Text
+    dir text.Text
+    self text.Text
+    clang bool
+    verbose bool
+    tmp text.Text
+    cache text.Text
+    work text.Text
+}
+
+// launch_arg hands one argument of the launcher to the C half (see
+// launch.c), and returns 0, or 1 when it cannot keep it.
+extern("spec_launch_arg") func launch_arg(a []uint8) int64
+
+// launch_run runs the launcher with the arguments launch_arg handed over
+// (see launch.c), frees them, and returns its exit status.
+extern("spec_launch") func launch_run() int64
+
+// launch_free frees the arguments launch_arg handed over (see launch.c).
+extern("spec_launch_free") func launch_free()
+
+// launch is spec --launch <seconds> <program>: the launcher a run
+// example's program is started through (see launch.c). It hands the
+// arguments after --launch, a, the program's name first, to the C half,
+// runs it and returns its exit status, 125 when an argument cannot be
+// handed over, the arguments handed over then freed, or it could not
+// write its record.
+func launch(a []text.Text) int32 {
+    for i, s := range a {
+        if i >= 2 && launch_arg(s.bytes()) != 0 {
+            launch_free()
+            return 125
+        }
+    }
+    if launch_run() == 0 {
+        return 0
+    }
+    return 125
+}
+
+// main runs the launcher when the first argument is --launch, and the
+// checker otherwise, and exits with the status it gives. An error run
+// returns, which only an allocation that failed or the OS gives, is
+// written as spec: and its message, with exit status 1.
+func main() {
+    a, err := os.args(c_allocator)
+    if err.code != 0 {
+        fmt.eprintf("spec: %s\n", err.msg)
+        exit(1)
+    }
+    for i, s := range a {
+        if i == 1 && s.equal([]uint8("--launch")) {
+            exit(launch(a[:]))
+        }
+    }
+    code, e := run(a[:])
+    if e.code != 0 {
+        fmt.eprintf("spec: %s\n", e.msg)
+        exit(1)
+    }
+    exit(code)
+}
+
+// usage writes how spec is run to standard error and returns 2.
+func usage() int32 {
+    fmt.eprintf("usage: spec [-v] <compiler> <tack-home> <spec-dir>\n       spec --parse <file>\n       spec --launch <seconds> <program>\n")
+    return 2
+}
+
+// absolute returns p made absolute: as it is when it starts with a
+// slash, and joined to the current directory otherwise, cleaned. A
+// current directory that cannot be found is an error, written first,
+// naming p, on standard error.
+func absolute(p []uint8) (text.Text, error) {
+    if bytes.has_prefix(p, []uint8("/")) {
+        t := path.clean(p, c_allocator)?
+        return t, noerror
+    }
+    wd, e := os.getwd(c_allocator)
+    if e.code != 0 {
+        fmt.eprintf("spec: cannot find the current directory, to make %s absolute: %s\n", p, e.msg)
+        return text.new(c_allocator), e
+    }
+    t := path.join(wd.bytes(), p, c_allocator)?
+    return t, noerror
+}
+
+// run reads the command line a, the program's name first, and runs the
+// mode it asks for, returning the exit status (see the package comment).
+func run(a []text.Text) (int32, error) {
+    mut verbose := false
+    mut parse := false
+    mut paths := make(list[text.Text], c_allocator)
+    for i, s := range a {
+        if i == 0 {
+            continue
+        }
+        if i == 1 && s.equal([]uint8("-v")) {
+            verbose = true
+            continue
+        }
+        if i == 1 && s.equal([]uint8("--parse")) {
+            parse = true
+            continue
+        }
+        if bytes.has_prefix(s.bytes(), []uint8("-")) || s.len() == 0 {
+            return usage(), noerror
+        }
+        t := text.from_bytes(s.bytes(), c_allocator)?
+        append(mut paths, t)?
+    }
+    if parse {
+        if len(paths) != 1 {
+            return usage(), noerror
+        }
+        for _, p := range paths {
+            code := dump(p.bytes())?
+            return code, noerror
+        }
+    }
+    if len(paths) != 3 {
+        return usage(), noerror
+    }
+    compiler := absolute(paths[0].bytes())?
+    home := absolute(paths[1].bytes())?
+    dir := absolute(paths[2].bytes())?
+    if !os.can_execute(compiler.bytes()) {
+        // Every example would fail the same way, once each.
+        fmt.eprintf("spec: the compiler, %s, is no file this process may run\n", compiler.bytes())
+        return 1, noerror
+    }
+    me := self_path(a)?
+    if me.len() == 0 {
+        fmt.eprintf("spec: cannot find this program's own path, for the launcher of the run examples\n")
+        return 1, noerror
+    }
+    made, te := os.make_temp_dir([]uint8("tack-spec-"), c_allocator)
+    if te.code != 0 {
+        fmt.eprintf("spec: cannot make the run's temporary directory in $TMPDIR: %s\n", te.msg)
+        return 1, te
+    }
+    code, e := run_in_tmp(own compiler, own home, own dir, own me, verbose, made.bytes())
+    rm := os.remove_all(made.bytes(), c_allocator)
+    if rm.err.code != 0 {
+        fmt.printf("FAIL: cannot remove the run's temporary directory, %s: %s %s: %s\n", made.bytes(), rm.op.bytes(), rm.path.bytes(), rm.err.msg)
+        if e.code == 0 {
+            return 1, noerror
+        }
+    }
+    return code, e
+}
+
+// run_in_tmp checks the spec with the compiler, its TACK_HOME, the
+// spec's directory and me, this program, given, all absolute, in made, the run's temporary
+// directory, which the caller removes: it makes sure no directory above
+// it holds a tack.mod (see module_above), makes the directories of the
+// run, checks the spec and writes the counts. It returns the exit
+// status, or an error that stopped it.
+func run_in_tmp(own compiler text.Text, own home text.Text, own dir text.Text, own me text.Text, verbose bool, made []uint8) (int32, error) {
+    tmp := absolute(made)?
+    above := module_above(tmp.bytes())?
+    if above.len() > 0 {
+        fmt.eprintf("spec: %s/tack.mod is above the run's temporary directory, %s: every example would be loaded as part of that module; set TMPDIR to a directory outside every module\n", above.bytes(), tmp.bytes())
+        return 1, noerror
+    }
+    clang := has_clang()?
+    c := Checker{
+        compiler: compiler,
+        home: home,
+        dir: dir,
+        self: me,
+        clang: clang,
+        verbose: verbose,
+        cache: path.join(tmp.bytes(), []uint8("cache"), c_allocator)?,
+        work: path.join(tmp.bytes(), []uint8("work"), c_allocator)?,
+        tmp: tmp,
+    }
+    for _, d := range [2]int64{0, 1} {
+        mut p := text.new(c_allocator)
+        if d == 0 {
+            p = text.from_bytes(c.cache.bytes(), c_allocator)?
+        } else {
+            p = text.from_bytes(c.work.bytes(), c_allocator)?
+        }
+        e := os.make_dir(p.bytes())
+        if e.code != 0 {
+            fmt.eprintf("spec: cannot make %s: %s\n", p.bytes(), e.msg)
+            return 1, noerror
+        }
+    }
+    mut t := Tally{blocks: 0, kinds: [5]int64{0, 0, 0, 0, 0}, failures: 0, not_built: 0, fragments: make(list[uint8], c_allocator)}
+    check_spec(c, mut t)?
+    mut nfrag int64 = 0
+    n, ok := t.kinds[kind_fragment]
+    if ok {
+        nfrag = n
+    }
+    fmt.printf("spec: %d tack blocks in %s; fragments, not compiled: %d (%s)\n", t.blocks, c.dir.bytes(), nfrag, t.fragments[:])
+    fmt.printf("spec: run %d, check %d, error %d, warn %d, fragment %d; not built %d; %d failed\n",
+        t.kinds[0], t.kinds[1], t.kinds[2], t.kinds[3], t.kinds[4], t.not_built, t.failures)
+    if t.failures > 0 {
+        return 1, noerror
+    }
+    return 0, noerror
+}
+
+// self_path returns the absolute path of this program, from a[0], its
+// name as it was run: made absolute when it has a slash, and looked up
+// on PATH otherwise, or an empty Text when it cannot be found.
+func self_path(a []text.Text) (text.Text, error) {
+    for i, s := range a {
+        if i != 0 {
+            continue
+        }
+        if bytes.index_byte(s.bytes(), '/') >= 0 {
+            t := absolute(s.bytes())?
+            return t, noerror
+        }
+        p, has := os.env([]uint8("PATH"), c_allocator)?
+        if has {
+            found := find_on_path(p.bytes(), s.bytes())?
+            if found.len() > 0 {
+                t := absolute(found.bytes())?
+                return t, noerror
+            }
+        }
+    }
+    return text.new(c_allocator), noerror
+}
+
+// module_above returns the nearest directory above dir, an absolute
+// path, that holds a tack.mod, or an empty Text when none does. The
+// loader finds a program's module by looking up from its directory, so a
+// run below a module would load every example as part of it.
+func module_above(dir []uint8) (text.Text, error) {
+    mut cur := path.dir(dir, c_allocator)?
+    for {
+        m := path.join(cur.bytes(), []uint8("tack.mod"), c_allocator)?
+        _, se := os.stat(m.bytes())
+        if se.code == 0 {
+            return cur, noerror
+        }
+        if cur.equal([]uint8("/")) {
+            return text.new(c_allocator), noerror
+        }
+        cur = path.dir(cur.bytes(), c_allocator)?
+    }
+}
+
+// quoted appends s, quoted as Go's strconv.Quote quotes it, and a
+// newline, to out.
+func quoted(mut out list[uint8], s []uint8) error {
+    conv.append_quote(mut out, s)?
+    return append(mut out, '\n')
+}
+
+// dump reads the file p as a chapter named by its base name, and the
+// index's links in it, and writes, running nothing: a line problem and
+// the problem, quoted, for each problem parse_examples finds; for each
+// example, a line example <chapter>:<line> <kind> exit=<n> expect=<bool>,
+// then src and its content, quoted, and expect and the content of the
+// block after it, quoted; and a line link and the chapter for each link
+// index_links counts, were the file the index. It returns 0, or 1 when
+// the file cannot be read.
+func dump(p []uint8) (int32, error) {
+    data, re := os.read_file(p, c_allocator)
+    if re.code != 0 {
+        fmt.eprintf("spec: cannot read %s: %s\n", p, re.msg)
+        return 1, noerror
+    }
+    name := path.base(p, c_allocator)?
+    mut examples := make(list[Example], c_allocator)
+    mut probs := new_problems()
+    parse_examples(name.bytes(), data[:], mut examples, mut probs)?
+    mut out := make(list[uint8], c_allocator)
+    for _, pr := range probs.items {
+        append(mut out, []uint8("problem ")...)?
+        quoted(mut out, pr.bytes())?
+    }
+    for _, ex := range examples {
+        fmt.appendf(mut out, "example %s:%d %s exit=%d expect=%t\n", name.bytes(), ex.line, kind_name(ex.kind), ex.exit, ex.has_exp)?
+        append(mut out, []uint8("src ")...)?
+        quoted(mut out, part(data[:], ex.src_start, ex.src_end))?
+        append(mut out, []uint8("expect ")...)?
+        quoted(mut out, part(data[:], ex.exp_start, ex.exp_end))?
+    }
+    mut linked := make(list[text.Text], c_allocator)
+    index_links(data[:], mut linked)?
+    sort.by(mut linked, text_less)
+    for _, l := range linked {
+        fmt.appendf(mut out, "link %s\n", l.bytes())?
+    }
+    e := os.write_stdout(out[:])
+    if e.code != 0 {
+        return 1, noerror
+    }
+    return 0, noerror
+}

@@ -1,0 +1,422 @@
+package main
+
+import bytes from "std/bytes"
+import conv from "std/conv"
+import fmt from "std/fmt"
+import os from "std/os"
+import path from "std/path"
+import text from "std/text"
+
+// Checking the examples of the spec, as tackc's checkSpecExample and its
+// judges do, and saying how one failed.
+
+// Tally counts what a check of the spec found: the tack blocks, those of
+// each kind, numbered as kind_run and the others are, the failures, the
+// run examples not built, and where the fragments are, each chapter:line
+// and a comma and a space between them.
+type Tally struct {
+    blocks int64
+    kinds [5]int64
+    failures int64
+    not_built int64
+    fragments list[uint8]
+}
+
+// fail writes the line that says what failed, why, and counts it in t:
+// FAIL and why, which starts with the chapter and line it is about.
+func fail(why []uint8, mut t Tally) {
+    fmt.printf("FAIL %s\n", why)
+    t.failures +%= 1
+}
+
+// fail_at writes the line that says the example ex of chapter failed,
+// why, as FAIL chapter:line (kind): why, and counts it in t.
+func fail_at(chapter []uint8, ex Example, why []uint8, mut t Tally) {
+    fmt.printf("FAIL %s:%d (%s): %s\n", chapter, ex.line, kind_name(ex.kind), why)
+    t.failures +%= 1
+}
+
+// show writes what, labeled label, under a failure: each of its lines
+// indented and quoted, or (none) when it is empty.
+func show(label string, what []uint8) error {
+    if len(what) == 0 {
+        fmt.printf("  %s: (none)\n", label)
+        return noerror
+    }
+    fmt.printf("  %s:\n", label)
+    mut start int64 = 0
+    for start < len(what) {
+        stop := line_end(what, start)
+        mut q := make(list[uint8], c_allocator)
+        // A line shown with its newline, when it has one, so a missing
+        // final newline shows.
+        mut end := stop
+        if stop < len(what) {
+            end = stop +% 1
+        }
+        conv.append_quote(mut q, part(what, start, end))?
+        fmt.printf("    %s\n", q[:])
+        start = end
+    }
+    return noerror
+}
+
+// line_start returns where the line of b numbered k, from 0, starts, and
+// whether b has one: a final newline ends the last line, and starts none.
+func line_start(b []uint8, k int64) (int64, bool) {
+    mut start int64 = 0
+    mut at int64 = 0
+    for at < k {
+        stop := line_end(b, start)
+        if stop >= len(b) {
+            return 0, false
+        }
+        // stop is below len(b).
+        start = stop +% 1
+        at +%= 1
+    }
+    if start >= len(b) {
+        return 0, false
+    }
+    return start, true
+}
+
+// quoted_line appends to out the line of b that starts at start, quoted,
+// or (no such line) when has says b has none.
+func quoted_line(mut out list[uint8], b []uint8, start int64, has bool) error {
+    if !has {
+        return append(mut out, []uint8("(no such line)")...)
+    }
+    return conv.append_quote(mut out, part(b, start, line_end(b, start)))
+}
+
+// show_diff writes the first line where got differs from want, each side
+// quoted, or that they differ only in a final newline.
+func show_diff(want []uint8, got []uint8) error {
+    mut k int64 = 0
+    for {
+        ws, has_w := line_start(want, k)
+        gs, has_g := line_start(got, k)
+        if !has_w && !has_g {
+            // Every line is the same; the difference is a final newline.
+            fmt.printf("  they differ only in a final newline: want %d bytes, got %d\n", len(want), len(got))
+            return noerror
+        }
+        same := has_w && has_g && bytes.equal(part(want, ws, line_end(want, ws)), part(got, gs, line_end(got, gs)))
+        if !same {
+            mut qw := make(list[uint8], c_allocator)
+            mut qg := make(list[uint8], c_allocator)
+            quoted_line(mut qw, want, ws, has_w)?
+            quoted_line(mut qg, got, gs, has_g)?
+            // k counts lines, fewer than the bytes of either side.
+            fmt.printf("  first difference, line %d:\n    want %s\n    got  %s\n", k +% 1, qw[:], qg[:])
+            return noerror
+        }
+        k +%= 1
+    }
+}
+
+// is_excerpt reports whether line is a line of the source the driver
+// shows under a diagnostic, numbered, or the marker under the line it
+// points at: ^([0-9]{2,} |   )\|\t.
+func is_excerpt(line []uint8) bool {
+    if bytes.has_prefix(line, []uint8("   |\t")) {
+        return true
+    }
+    mut at int64 = 0
+    for {
+        c, ok := line[at]
+        if !ok || !is_digit(c) {
+            break
+        }
+        at +%= 1
+    }
+    return at >= 2 && bytes.has_prefix(part(line, at, len(line)), []uint8(" |\t"))
+}
+
+// diagnostic_lines splits stderr, the driver's diagnostics for main.tck,
+// as tackc's diagnosticLines does: it appends to headers the first line
+// of each diagnostic, error, warning or note, each ending in a newline,
+// and to unexpected, each with a newline after it, the lines that are
+// neither such a line, nor a line of the source shown under one, nor
+// empty, as the line the driver writes before each diagnostic and after
+// the last is.
+func diagnostic_lines(stderr []uint8, mut headers list[uint8], mut unexpected list[text.Text]) error {
+    mut start int64 = 0
+    for start < len(stderr) {
+        stop := line_end(stderr, start)
+        sort_line(part(stderr, start, stop), mut headers, mut unexpected)?
+        start = stop +% 1
+    }
+    return noerror
+}
+
+// sort_line appends line, one line of the driver's diagnostics, to
+// headers, with a newline, when it is a diagnostic's first line, and to
+// unexpected when it is neither that, nor a line of source shown under
+// one, nor empty (see diagnostic_lines).
+func sort_line(line []uint8, mut headers list[uint8], mut unexpected list[text.Text]) error {
+    if header_severity(line) != sev_none {
+        append(mut headers, line...)?
+        return append(mut headers, '\n')
+    }
+    if len(line) > 0 && !is_excerpt(line) {
+        t := text.from_bytes(line, c_allocator)?
+        return append(mut unexpected, t)
+    }
+    return noerror
+}
+
+// judge_check reports what is wrong with r, the --check run of the
+// example ex of chapter, whose expectation is expect, as tackc's
+// judgeCheck finds it: anything on standard output; for a check or run
+// example, an exit status other than 0 or any diagnostic; for an error or
+// warn example, an exit status other than 1 or 0, a line that is not
+// part of a diagnostic, or diagnostics other than those the example's
+// diagnostics block holds. It returns whether nothing was.
+func judge_check(chapter []uint8, ex Example, expect []uint8, r Ran, mut t Tally) (bool, error) {
+    if len(r.trouble) > 0 {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "--check: %s", r.trouble[:])?
+        fail_at(chapter, ex, why[:], mut t)
+        show("its standard error", r.err[:])?
+        return false, noerror
+    }
+    mut ok := true
+    if len(r.out) > 0 {
+        fail_at(chapter, ex, []uint8("--check wrote to stdout"), mut t)
+        show("standard output", r.out[:])?
+        ok = false
+    }
+    if ex.kind == kind_check || ex.kind == kind_run {
+        if r.code != 0 || len(r.err) > 0 {
+            mut why := make(list[uint8], c_allocator)
+            fmt.appendf(mut why, "--check exited %d, want 0 and no diagnostic", r.code)?
+            fail_at(chapter, ex, why[:], mut t)
+            show("it reported", r.err[:])?
+            ok = false
+        }
+        return ok, noerror
+    }
+    mut want int64 = 1
+    if ex.kind == kind_warn {
+        want = 0
+    }
+    if r.code != want {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "--check exited %d, want %d", r.code, want)?
+        fail_at(chapter, ex, why[:], mut t)
+        show("it reported", r.err[:])?
+        ok = false
+    }
+    mut got := make(list[uint8], c_allocator)
+    mut unexpected := make(list[text.Text], c_allocator)
+    diagnostic_lines(r.err[:], mut got, mut unexpected)?
+    for _, line := range unexpected {
+        mut why := make(list[uint8], c_allocator)
+        append(mut why, []uint8("--check wrote a line that is not part of a diagnostic: ")...)?
+        conv.append_quote(mut why, line.bytes())?
+        fail_at(chapter, ex, why[:], mut t)
+        ok = false
+    }
+    if !bytes.equal(got[:], expect) {
+        fail_at(chapter, ex, []uint8("diagnostics differ from the block after the example"), mut t)
+        show_diff(expect, got[:])?
+        show("in full", r.err[:])?
+        ok = false
+    }
+    return ok, noerror
+}
+
+// judge_build reports what is wrong with r, the build of the run example
+// ex of chapter: an exit status other than 0, or anything on standard
+// error. It returns whether nothing was.
+func judge_build(chapter []uint8, ex Example, r Ran, mut t Tally) (bool, error) {
+    if len(r.trouble) > 0 {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "build: %s", r.trouble[:])?
+        fail_at(chapter, ex, why[:], mut t)
+        show("its standard error", r.err[:])?
+        return false, noerror
+    }
+    if r.code == 0 && len(r.err) == 0 {
+        return true, noerror
+    }
+    mut why := make(list[uint8], c_allocator)
+    fmt.appendf(mut why, "build exited %d, want 0 and no diagnostic", r.code)?
+    fail_at(chapter, ex, why[:], mut t)
+    show("it reported", r.err[:])?
+    return false, noerror
+}
+
+// judge_run reports what is wrong with r, what the program of the run
+// example ex of chapter did, whose output block, when it has one, is
+// expect, as tackc's judgeRun finds it: that it could not be run, ran
+// past its time, wrote to standard error, ended other than by exiting
+// with the example's status, or, when the example pins it, wrote other
+// than its output block to standard output.
+func judge_run(chapter []uint8, ex Example, expect []uint8, r Ran, mut t Tally) error {
+    if len(r.trouble) > 0 {
+        fail_at(chapter, ex, r.trouble[:], mut t)
+        return noerror
+    }
+    if len(r.err) > 0 {
+        fail_at(chapter, ex, []uint8("the program wrote to stderr"), mut t)
+        show("standard error", r.err[:])?
+    }
+    mut why := make(list[uint8], c_allocator)
+    if !r.exited {
+        fmt.appendf(mut why, "the program was killed by signal %d, want exit status %d", r.code, ex.exit)?
+        fail_at(chapter, ex, why[:], mut t)
+    } else if r.code != ex.exit {
+        fmt.appendf(mut why, "the program exited %d, want %d", r.code, ex.exit)?
+        fail_at(chapter, ex, why[:], mut t)
+    }
+    if ex.has_exp && !bytes.equal(r.out[:], expect) {
+        fail_at(chapter, ex, []uint8("the program wrote other than its output block"), mut t)
+        show_diff(expect, r.out[:])?
+    }
+    return noerror
+}
+
+// args_of returns words as a command line's arguments.
+func args_of(words []string) (list[text.Text], error) {
+    mut out := make(list[text.Text], c_allocator)
+    for _, w := range words {
+        append(mut out, arg([]uint8(w))?)?
+    }
+    return out, noerror
+}
+
+// check_example checks ex, an example of chapter, whose bytes are data,
+// that is not a fragment, against its kind, as tackc's checkSpecExample
+// does: its program is written alone as main.tck to dir, a directory of
+// its own that does not exist yet, which is removed afterwards, and
+// given to tack --check --max-errors 0 main.tck there; a run example
+// that passes is built into dir/prog with tack --out, unless clang is
+// not on PATH, and its program run. A directory that cannot be made,
+// written or removed is a failure.
+func check_example(c Checker, chapter []uint8, data []uint8, ex Example, dir []uint8, mut t Tally) error {
+    e := os.make_dir(dir)
+    if e.code != 0 {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "cannot make %s: %s", dir, e.msg)?
+        fail_at(chapter, ex, why[:], mut t)
+        return noerror
+    }
+    check_in(c, chapter, data, ex, dir, mut t)?
+    rm := os.remove_all(dir, c_allocator)
+    if rm.err.code != 0 {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "cannot remove %s: %s %s: %s", dir, rm.op.bytes(), rm.path.bytes(), rm.err.msg)?
+        fail_at(chapter, ex, why[:], mut t)
+    }
+    return noerror
+}
+
+// check_in is check_example's work in dir, made for it.
+func check_in(c Checker, chapter []uint8, data []uint8, ex Example, dir []uint8, mut t Tally) error {
+    src := path.join(dir, []uint8("main.tck"), c_allocator)?
+    we := os.write_file(src.bytes(), part(data, ex.src_start, ex.src_end))
+    if we.code != 0 {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "cannot write %s: %s", src.bytes(), we.msg)?
+        fail_at(chapter, ex, why[:], mut t)
+        return noerror
+    }
+    words := [4]string{"--check", "--max-errors", "0", "main.tck"}
+    check_args := args_of(words[:])?
+    checked := run_compiler(c, dir, check_args[:])?
+    ok := judge_check(chapter, ex, part(data, ex.exp_start, ex.exp_end), checked, mut t)?
+    if ex.kind != kind_run || !ok {
+        return noerror
+    }
+    if !c.clang {
+        fmt.printf("not built: %s:%d: clang not on PATH\n", chapter, ex.line)
+        t.not_built +%= 1
+        return noerror
+    }
+    bin := path.join(dir, []uint8("prog"), c_allocator)?
+    mut build_args := make(list[text.Text], c_allocator)
+    append(mut build_args, arg([]uint8("--out"))?)?
+    append(mut build_args, arg(bin.bytes())?)?
+    append(mut build_args, arg([]uint8("main.tck"))?)?
+    built := run_compiler(c, dir, build_args[:])?
+    bok := judge_build(chapter, ex, built, mut t)?
+    if !bok {
+        return noerror
+    }
+    ran := run_program(c, dir, bin.bytes())?
+    return judge_run(chapter, ex, part(data, ex.exp_start, ex.exp_end), ran, mut t)
+}
+
+// check_chapter checks the chapter name of c's spec directory: it parses
+// it, writing each problem parse_examples finds as a failure, and checks
+// each example that is not a fragment with check_example, each in a
+// directory of its own below c's tmp, counting in t.
+func check_chapter(c Checker, name []uint8, mut t Tally) error {
+    p := path.join(c.dir.bytes(), name, c_allocator)?
+    data, re := os.read_file(p.bytes(), c_allocator)
+    if re.code != 0 {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "cannot read %s: %s", p.bytes(), re.msg)?
+        fail(why[:], mut t)
+        return noerror
+    }
+    mut examples := make(list[Example], c_allocator)
+    mut probs := new_problems()
+    parse_examples(name, data[:], mut examples, mut probs)?
+    for _, pr := range probs.items {
+        fail(pr.bytes(), mut t)
+    }
+    for _, ex := range examples {
+        t.blocks +%= 1
+        if ex.kind >= 0 && ex.kind < 5 {
+            t.kinds[ex.kind] +%= 1
+        }
+        if c.verbose {
+            fmt.printf("example %s:%d %s\n", name, ex.line, kind_name(ex.kind))
+        }
+        if ex.kind == kind_fragment {
+            if len(t.fragments) > 0 {
+                append(mut t.fragments, []uint8(", ")...)?
+            }
+            fmt.appendf(mut t.fragments, "%s:%d", name, ex.line)?
+            continue
+        }
+        dir := path.join(c.tmp.bytes(), []uint8("example"), c_allocator)?
+        check_example(c, name, data[:], ex, dir.bytes(), mut t)?
+    }
+    return noerror
+}
+
+// check_spec checks c's spec directory: its index, with index_problems,
+// and then every Markdown file in it, the index among them, in name
+// order, with check_chapter, counting in t. A directory with no Markdown
+// file fails.
+func check_spec(c Checker, mut t Tally) error {
+    mut probs := new_problems()
+    index_problems(c.dir.bytes(), mut probs)?
+    for _, pr := range probs.items {
+        fail(pr.bytes(), mut t)
+    }
+    names, e := os.list_dir(c.dir.bytes(), c_allocator)
+    if e.code != 0 {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "cannot list %s: %s", c.dir.bytes(), e.msg)?
+        fail(why[:], mut t)
+        return noerror
+    }
+    mut chapters := make(list[text.Text], c_allocator)
+    md_names(names[:], mut chapters)?
+    if len(chapters) == 0 {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "no Markdown files in %s", c.dir.bytes())?
+        fail(why[:], mut t)
+        return noerror
+    }
+    for _, ch := range chapters {
+        check_chapter(c, ch.bytes(), mut t)?
+    }
+    return noerror
+}

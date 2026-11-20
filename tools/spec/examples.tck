@@ -1,0 +1,426 @@
+package main
+
+import bytes from "std/bytes"
+import conv from "std/conv"
+import fmt from "std/fmt"
+
+// The tack blocks of a chapter, as tackc's parseSpecExamples reads them:
+// each with the block after it that states what it must produce, and
+// the problems found in them.
+
+// The kinds of tack block, named by the word after tack in the block's
+// info string (see kind_names).
+var kind_run int64 = 0
+var kind_check int64 = 1
+var kind_error int64 = 2
+var kind_warn int64 = 3
+var kind_fragment int64 = 4
+
+// kind_names are the words that name the kinds, in the order of their
+// numbers above.
+var kind_names = [5]string{"run", "check", "error", "warn", "fragment"}
+
+// kind_name returns the word that names kind.
+func kind_name(kind int64) string {
+    w, ok := kind_names[kind]
+    if !ok {
+        return ""
+    }
+    return w
+}
+
+// Example is one tack block of a chapter: the line of its opening
+// fence, its kind, its content, from src_start up to src_end in the
+// chapter's bytes, the content of the block after it that states what it
+// must produce, from exp_start up to exp_end, and whether that block is
+// there, and, for a run block, the status its program must exit with.
+type Example struct {
+    line int64
+    kind int64
+    src_start int64
+    src_end int64
+    exp_start int64
+    exp_end int64
+    has_exp bool
+    exit int64
+}
+
+// Parser reads the tack blocks of one chapter: its name, its bytes and
+// where each of its lines starts, the first at index 0, and records the
+// problems it finds in them.
+type Parser struct {
+    name list[uint8]
+    data list[uint8]
+    starts list[int64]
+}
+
+// bad records msg, the problem at the opening fence of f.
+func (p Parser) bad(f Fence, msg []uint8, mut probs Problems) error {
+    return mut probs.add(p.name[:], f.start, msg)
+}
+
+// blank reports whether line n of the chapter, from 1, is blank, nothing
+// but spaces; a line it has not got is not.
+func (p Parser) blank(n int64) bool {
+    // n is a line number from 1, so n - 1 does not wrap.
+    ls, ok := p.starts[n -% 1]
+    if !ok {
+        return false
+    }
+    return len(trim_space(part(p.data[:], ls, line_end(p.data[:], ls)))) == 0
+}
+
+// adjacent reports whether only blank lines separate the closing fence
+// of a from the opening fence of b.
+func (p Parser) adjacent(a Fence, b Fence) bool {
+    mut l := a.end +% 1
+    for l < b.start {
+        if !p.blank(l) {
+            return false
+        }
+        l +%= 1
+    }
+    return true
+}
+
+// info returns the info string of f.
+func (p Parser) info(f Fence) []uint8 {
+    return part(p.data[:], f.info_start, f.info_end)
+}
+
+// expect_word returns the info string of the block that may follow a
+// tack block of kind, or "" for a kind that takes none.
+func expect_word(kind int64) string {
+    if kind == kind_run {
+        return "output"
+    }
+    if kind == kind_error || kind == kind_warn {
+        return "diagnostics"
+    }
+    return ""
+}
+
+// describe_expect says, for a problem, what may directly follow a tack
+// block of kind.
+func describe_expect(kind int64) string {
+    if kind == kind_run {
+        return "only an output block may follow it there"
+    }
+    if kind == kind_error || kind == kind_warn {
+        return "only a diagnostics block may follow it there"
+    }
+    return "no block may follow it there"
+}
+
+// The severities of a diagnostic, as header_severity reads them, and
+// none for a line that is no diagnostic's first. A note is 3, which no
+// variable names, since nothing asks for one.
+var sev_none int64 = 0
+var sev_error int64 = 1
+var sev_warning int64 = 2
+
+// severity_of returns the severity a diagnostics block of a tack block of
+// kind, error or warn, must hold at least one of.
+func severity_of(kind int64) int64 {
+    if kind == kind_warn {
+        return sev_warning
+    }
+    return sev_error
+}
+
+// severity_name returns the word that names sev, error or warning.
+func severity_name(sev int64) string {
+    if sev == sev_warning {
+        return "warning"
+    }
+    return "error"
+}
+
+// header_severity returns the severity of line, sev_error, sev_warning
+// or 3 for a note, when it is the first line of a diagnostic the driver
+// renders for main.tck, ^main\.tck:[0-9]+:[0-9]+: (error|warning|note): ,
+// and sev_none when it is not.
+func header_severity(line []uint8) int64 {
+    if !bytes.has_prefix(line, []uint8("main.tck:")) {
+        return sev_none
+    }
+    mut at int64 = 9
+    mut field int64 = 0
+    for field < 2 {
+        mut digits int64 = 0
+        for {
+            c, ok := line[at]
+            if !ok || !is_digit(c) {
+                break
+            }
+            // at is an index of line, so at + 1 does not wrap.
+            at +%= 1
+            digits +%= 1
+        }
+        c, ok := line[at]
+        if digits == 0 || !ok || c != ':' {
+            return sev_none
+        }
+        at +%= 1
+        field +%= 1
+    }
+    for k, sev := range [3]string{" error: ", " warning: ", " note: "} {
+        if bytes.has_prefix(part(line, at, len(line)), []uint8(sev)) {
+            // k is 0, 1 or 2, so k + 1 does not wrap.
+            return k +% 1
+        }
+    }
+    return sev_none
+}
+
+// has_severity reports whether expect, the content of a diagnostics
+// block, holds the header line of a diagnostic of severity, read from
+// the line's own severity field, never from its message.
+func has_severity(expect []uint8, severity int64) bool {
+    mut start int64 = 0
+    for start < len(expect) {
+        stop := line_end(expect, start)
+        if header_severity(part(expect, start, stop)) == severity {
+            return true
+        }
+        start = stop +% 1
+    }
+    return false
+}
+
+// is_exit_attr reports whether attr is exit=N, ^exit=([0-9]+)$.
+func is_exit_attr(attr []uint8) bool {
+    if !bytes.has_prefix(attr, []uint8("exit=")) || len(attr) < 6 {
+        return false
+    }
+    for i, c := range attr {
+        if i >= 5 && !is_digit(c) {
+            return false
+        }
+    }
+    return true
+}
+
+// exit_value returns N of attr, exit=N, which is_exit_attr accepts, or
+// 256 when it is past 255.
+func exit_value(attr []uint8) int64 {
+    mut code int64 = 0
+    for i, c := range attr {
+        if i >= 5 && code <= 255 {
+            // code is at most 255, so the sum is at most 2559.
+            code = code *% 10 +% int64(c -% '0')
+        }
+    }
+    if code > 255 {
+        return 256
+    }
+    return code
+}
+
+// exit_of returns the status the attributes of the tack run block f
+// name, the words of info, its info string, from the third on: exactly
+// one, exit=N with N from 0 to 255, recording a problem and returning
+// false for anything else.
+func (p Parser) exit_of(f Fence, info []uint8, words Fields, mut probs Problems) (int64, bool, error) {
+    if words.count() != 3 {
+        p.bad(f, []uint8("a tack run block takes exactly one attribute, exit=N"), mut probs)?
+        return 0, false, noerror
+    }
+    mut msg := make(list[uint8], c_allocator)
+    if !is_exit_attr(words.word(info, 2)) {
+        append(mut msg, []uint8("attribute ")...)?
+        conv.append_quote(mut msg, words.word(info, 2))?
+        append(mut msg, []uint8(": want exit=N")...)?
+        p.bad(f, msg[:], mut probs)?
+        return 0, false, noerror
+    }
+    code := exit_value(words.word(info, 2))
+    if code > 255 {
+        append(mut msg, []uint8("exit status ")...)?
+        append(mut msg, part(words.word(info, 2), 5, len(words.word(info, 2)))...)?
+        append(mut msg, []uint8(": want 0 to 255")...)?
+        p.bad(f, msg[:], mut probs)?
+        return 0, false, noerror
+    }
+    return code, true, noerror
+}
+
+// kind_of returns the kind word names, or -1 for none.
+func kind_of(word []uint8) int64 {
+    for k, name := range kind_names {
+        if bytes.equal(word, []uint8(name)) {
+            return k
+        }
+    }
+    return -1
+}
+
+// example_of reads the tack block f, whose info string is info, into ex,
+// recording a problem and returning false when its info string names no
+// kind, an unknown one, or attributes the kind does not take.
+func (p Parser) example_of(f Fence, info []uint8, mut ex Example, mut probs Problems) (bool, error) {
+    words := split_fields(info)?
+    if words.count() < 2 {
+        p.bad(f, []uint8("untagged tack block: write tack run exit=N, tack check, tack error, tack warn or tack fragment"), mut probs)?
+        return false, noerror
+    }
+    kind := kind_of(words.word(info, 1))
+    ex.kind = kind
+    if kind == kind_run {
+        code, ok := p.exit_of(f, info, words, mut probs)?
+        ex.exit = code
+        return ok, noerror
+    }
+    mut msg := make(list[uint8], c_allocator)
+    if kind < 0 {
+        append(mut msg, []uint8("unknown kind ")...)?
+        conv.append_quote(mut msg, words.word(info, 1))?
+        append(mut msg, []uint8(": want run, check, error, warn or fragment")...)?
+        p.bad(f, msg[:], mut probs)?
+        return false, noerror
+    }
+    if words.count() != 2 {
+        fmt.appendf(mut msg, "a tack %s block takes no attributes", kind_name(kind))?
+        p.bad(f, msg[:], mut probs)?
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// tack_block reads the fence f, whose info string's first word is word,
+// into ex, and returns false when f is not a tack block or is a bad one,
+// recording a problem for a bad one and for an output or diagnostics
+// block, which belongs to no tack block when it gets here.
+func (p Parser) tack_block(f Fence, word []uint8, mut ex Example, mut probs Problems) (bool, error) {
+    if bytes.equal(word, []uint8("output")) || bytes.equal(word, []uint8("diagnostics")) {
+        mut msg := make(list[uint8], c_allocator)
+        fmt.appendf(mut msg, "%s block: it must directly follow the tack block it belongs to", word)?
+        p.bad(f, msg[:], mut probs)?
+        return false, noerror
+    }
+    if !bytes.equal(word, []uint8("tack")) {
+        return false, noerror
+    }
+    ok := p.example_of(f, p.info(f), mut ex, mut probs)?
+    return ok, noerror
+}
+
+// attach_next gives ex the block next that directly follows its tack
+// block, whose info string is ni, and reports whether next was taken, as
+// ex's expectation or as a block that is wrong there.
+func (p Parser) attach_next(mut ex Example, next Fence, ni []uint8, mut probs Problems) (bool, error) {
+    mut msg := make(list[uint8], c_allocator)
+    if len(expect_word(ex.kind)) > 0 && bytes.equal(info_word(ni), []uint8(expect_word(ex.kind))) {
+        if !bytes.equal(ni, []uint8(expect_word(ex.kind))) {
+            fmt.appendf(mut msg, "the %s block of a tack block takes no attributes", expect_word(ex.kind))?
+            p.bad(next, msg[:], mut probs)?
+        }
+        ex.exp_start = next.body_start
+        ex.exp_end = next.body_end
+        ex.has_exp = true
+        return true, noerror
+    }
+    append(mut msg, []uint8("a ")...)?
+    conv.append_quote(mut msg, ni)?
+    fmt.appendf(mut msg, " block directly after a tack %s block: %s; put text between them", kind_name(ex.kind), describe_expect(ex.kind))?
+    p.bad(next, msg[:], mut probs)?
+    return !bytes.equal(info_word(ni), []uint8("tack")), noerror
+}
+
+// attach gives ex, the example of the tack block f, the block next that
+// directly follows it, when has_next says one does. It reports whether
+// next was taken, as ex's expectation or as a block that is wrong there,
+// and whether ex is complete enough to check.
+func (p Parser) attach(mut ex Example, f Fence, next Fence, has_next bool, mut probs Problems) (bool, bool, error) {
+    needed := ex.kind == kind_error || ex.kind == kind_warn
+    mut consumed := false
+    if has_next {
+        consumed = p.attach_next(mut ex, next, p.info(next), mut probs)?
+    }
+    if !needed {
+        return consumed, true, noerror
+    }
+    ok := p.has_diagnostics(ex, f, mut probs)?
+    return consumed, ok, noerror
+}
+
+// has_diagnostics reports whether ex, the example of the tack error or
+// warn block f, has its diagnostics block and the block holds at least
+// one diagnostic of the severity its kind names, recording a problem when
+// it does not.
+func (p Parser) has_diagnostics(ex Example, f Fence, mut probs Problems) (bool, error) {
+    mut msg := make(list[uint8], c_allocator)
+    if !ex.has_exp {
+        fmt.appendf(mut msg, "a tack %s block must be followed directly by a diagnostics block", kind_name(ex.kind))?
+        p.bad(f, msg[:], mut probs)?
+        return false, noerror
+    }
+    if !has_severity(part(p.data[:], ex.exp_start, ex.exp_end), severity_of(ex.kind)) {
+        fmt.appendf(mut msg, "the diagnostics block of a tack %s block must hold at least one %s", kind_name(ex.kind), severity_name(severity_of(ex.kind)))?
+        p.bad(f, msg[:], mut probs)?
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// line_starts appends to starts where each line of data starts, as Go's
+// strings.Split(data, "\n") cuts it, so a final newline starts one more,
+// empty, line.
+func line_starts(data []uint8, mut starts list[int64]) error {
+    append(mut starts, 0)?
+    for i, c := range data {
+        if c == '\n' {
+            // i is an index of data, so i + 1 does not wrap.
+            append(mut starts, i +% 1)?
+        }
+    }
+    return noerror
+}
+
+// parse_examples appends to examples the tack blocks of the chapter
+// name, whose content is data, each with the block that follows it when
+// its kind takes one, and records in probs the problems found, in
+// tackc's parseSpecExamples' order: those scan_fences finds; then, block
+// by block, a tack block that is untagged, of an unknown kind, or with a
+// bad attribute; an error or warn block without a diagnostics block after
+// it that names at least one error or warning, which is left out of the
+// examples; a block directly after a tack block that is not the one its
+// kind takes; and an output or diagnostics block that follows no tack
+// block.
+func parse_examples(name []uint8, data []uint8, mut examples list[Example], mut probs Problems) error {
+    mut fences := make(list[Fence], c_allocator)
+    scan_fences(name, data, mut fences, mut probs)?
+    mut p := Parser{name: make(list[uint8], c_allocator), data: make(list[uint8], c_allocator), starts: make(list[int64], c_allocator)}
+    append(mut p.name, name...)?
+    append(mut p.data, data...)?
+    line_starts(data, mut p.starts)?
+    mut i int64 = 0
+    for i < len(fences) {
+        f, ok := fences[i]
+        if !ok {
+            break
+        }
+        mut ex := Example{line: f.start, kind: -1, src_start: f.body_start, src_end: f.body_end, exp_start: 0, exp_end: 0, has_exp: false, exit: 0}
+        is_tack := p.tack_block(f, info_word(p.info(f)), mut ex, mut probs)?
+        // i is below len(fences), so i + 1 does not wrap.
+        i +%= 1
+        if !is_tack {
+            continue
+        }
+        mut next := f
+        mut has_next := false
+        n, nok := fences[i]
+        if nok && p.adjacent(f, n) {
+            next = n
+            has_next = true
+        }
+        consumed, valid := p.attach(mut ex, f, next, has_next, mut probs)?
+        if consumed {
+            i +%= 1
+        }
+        if valid {
+            append(mut examples, ex)?
+        }
+    }
+    return noerror
+}

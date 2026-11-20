@@ -1,0 +1,3 @@
+```tck check
+package main
+```

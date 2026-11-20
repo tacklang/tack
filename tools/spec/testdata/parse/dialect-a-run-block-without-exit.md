@@ -1,0 +1,3 @@
+```tack run
+package main
+```

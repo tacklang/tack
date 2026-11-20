@@ -1,0 +1,122 @@
+FAIL notes.txt: docs/spec holds only the index and the chapters, .md files
+FAIL README.md does not link the chapter 07-unlinked.md
+FAIL README.md links 06-gone.md, which does not exist
+FAIL 01-run.md:30 (run): the program wrote other than its output block
+  first difference, line 1:
+    want "bye"
+    got  "hi"
+FAIL 01-run.md:44 (run): the program wrote other than its output block
+  first difference, line 2:
+    want (no such line)
+    got  ""
+FAIL 01-run.md:58 (run): the program exited 3, want 4
+FAIL 01-run.md:68 (run): the program wrote to stderr
+  standard error:
+    "oops\n"
+FAIL 01-run.md:83 (run): the program was killed by signal 9, want exit status 0
+FAIL 01-run.md:109 (run): build exited 1, want 0 and no diagnostic
+  it reported:
+    "\n"
+    "main.tck:3:29: error: extern func nowhere has no C definition in package main\n"
+    "02 |\t\n"
+    "03 |\textern(\"spec_nowhere\") func nowhere()\n"
+    "   |\t                            ^~~~~~~\n"
+    "04 |\t\n"
+    "\n"
+FAIL 01-run.md:121 (run): --check exited 1, want 0 and no diagnostic
+  it reported:
+    "\n"
+    "main.tck:4:5: error: undefined: nothing\n"
+    "03 |\tfunc main() {\n"
+    "04 |\t    nothing()\n"
+    "   |\t    ^~~~~~~\n"
+    "05 |\t}\n"
+    "\n"
+FAIL 01-run.md:132 (run): the program did not finish within 10s
+FAIL 01-run.md:158 (run): the program was killed by signal 1, want exit status 0
+FAIL 01-run.md:187 (run): the program wrote other than its output block
+  first difference, line 1:
+    want "forged"
+    got  (no such line)
+FAIL 02-check.md:14 (check): --check exited 0, want 0 and no diagnostic
+  it reported:
+    "\n"
+    "main.tck:4:5: warning: declared and not used: x\n"
+    "03 |\tfunc main() {\n"
+    "04 |\t    x := 1\n"
+    "   |\t    ^\n"
+    "05 |\t}\n"
+    "\n"
+FAIL 02-check.md:24 (check): --check exited 1, want 0 and no diagnostic
+  it reported:
+    "\n"
+    "main.tck:4:5: error: undefined: nothing\n"
+    "03 |\tfunc main() {\n"
+    "04 |\t    nothing()\n"
+    "   |\t    ^~~~~~~\n"
+    "05 |\t}\n"
+    "\n"
+FAIL 03-error.md:26 (error): diagnostics differ from the block after the example
+  first difference, line 1:
+    want "main.tck:4:10: error: wrong"
+    got  "main.tck:4:10: error: undefined: y"
+  in full:
+    "\n"
+    "main.tck:4:10: error: undefined: y\n"
+    "03 |\tfunc main() {\n"
+    "04 |\t    x := y\n"
+    "   |\t         ^\n"
+    "05 |\t}\n"
+    "\n"
+FAIL 03-error.md:40 (error): --check exited 0, want 1
+  it reported: (none)
+FAIL 03-error.md:40 (error): diagnostics differ from the block after the example
+  first difference, line 1:
+    want "main.tck:4:10: error: wrong"
+    got  (no such line)
+  in full: (none)
+FAIL 03-error.md:53 (error): diagnostics differ from the block after the example
+  first difference, line 2:
+    want (no such line)
+    got  "main.tck:5:5: error: undefined: f2"
+  in full:
+    "\n"
+    "main.tck:4:5: error: undefined: f1\n"
+    "03 |\tfunc main() {\n"
+    "04 |\t    f1()\n"
+    "   |\t    ^~\n"
+    "05 |\t    f2()\n"
+    "\n"
+    "main.tck:5:5: error: undefined: f2\n"
+    "04 |\t    f1()\n"
+    "05 |\t    f2()\n"
+    "   |\t    ^~\n"
+    "06 |\t}\n"
+    "\n"
+FAIL 04-warn.md:19 (warn): --check exited 1, want 0
+  it reported:
+    "\n"
+    "main.tck:4:5: warning: declared and not used: x\n"
+    "03 |\tfunc main() {\n"
+    "04 |\t    x := 1\n"
+    "   |\t    ^\n"
+    "05 |\t    y := z\n"
+    "\n"
+    "main.tck:5:10: error: undefined: z\n"
+    "04 |\t    x := 1\n"
+    "05 |\t    y := z\n"
+    "   |\t         ^\n"
+    "06 |\t}\n"
+    "\n"
+FAIL 05-dialect.md:23: fence info word "tak": use one of ["" "tack" "output" "diagnostics" "text" "markdown"]
+FAIL 05-dialect.md:49: a < followed by a letter, /, ! or ? could be raw HTML, which the spec does not use; write a comparison with spaces, a < b
+FAIL 05-dialect.md:53: the fenced block is never closed
+FAIL 05-dialect.md:5: untagged tack block: write tack run exit=N, tack check, tack error, tack warn or tack fragment
+FAIL 05-dialect.md:11: unknown kind "build": want run, check, error, warn or fragment
+FAIL 05-dialect.md:17: attribute "exit=3x": want exit=N
+FAIL 05-dialect.md:33: a "tack fragment" block directly after a tack fragment block: no block may follow it there; put text between them
+FAIL 05-dialect.md:39: output block: it must directly follow the tack block it belongs to
+FAIL 05-dialect.md:45: a tack error block must be followed directly by a diagnostics block
+spec: 24 tack blocks in tools/spec/testdata/fail/spec; fragments, not compiled: 2 (05-dialect.md:29, 05-dialect.md:33)
+spec: run 13, check 3, error 4, warn 2, fragment 2; not built 0; 29 failed
+exit 1

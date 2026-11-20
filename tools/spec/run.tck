@@ -1,0 +1,269 @@
+package main
+
+import bytes from "std/bytes"
+import conv from "std/conv"
+import fmt from "std/fmt"
+import os from "std/os"
+import path from "std/path"
+import text from "std/text"
+
+// Running the compiler and the programs it builds. std/os's run neither
+// bounds how long a child takes nor sets its environment, so each run of
+// the compiler goes through coreutils' timeout and env, and each program
+// through the launcher (see launch.c).
+
+// compiler_secs is how long one run of the compiler may take before
+// timeout stops it, as a decimal string: two minutes, as the corpus
+// runner gives one.
+var compiler_secs = "120"
+
+// program_secs is how long a run example's program may run, as a
+// decimal string: ten seconds, tackc's specRunTimeout.
+var program_secs = "10"
+
+
+// Ran is how one run ended: its exit status, or the number of the
+// signal that killed it, with exited saying which, its standard output
+// and standard error, and, in trouble, why the run says nothing of the
+// example, when it says nothing: it timed out, or could not be started.
+type Ran struct {
+    exited bool
+    code int64
+    out list[uint8]
+    err list[uint8]
+    trouble list[uint8]
+}
+
+// new_ran returns a Ran with nothing in it.
+func new_ran() Ran {
+    return Ran{exited: true, code: 0, out: make(list[uint8], c_allocator), err: make(list[uint8], c_allocator), trouble: make(list[uint8], c_allocator)}
+}
+
+// arg returns s as an argument of a command line.
+func arg(s []uint8) (text.Text, error) {
+    t := text.from_bytes(s, c_allocator)?
+    return t, noerror
+}
+
+// setting returns name, which ends with =, followed by value, as env
+// takes a variable to set.
+func setting(name string, value []uint8) (text.Text, error) {
+    mut t := text.from_bytes([]uint8(name), c_allocator)?
+    mut t.append(value)?
+    return t, noerror
+}
+
+// run_compiler runs c's compiler with args in dir, through timeout and
+// env, with TACK_HOME, TACK_CACHE and TMPDIR set to c's home, cache and
+// work, and returns how it ended; a run that timed out, timeout's status
+// 124, or that a signal killed says so in trouble. A command that cannot
+// be started is an error, which it first writes on standard error, since
+// every run after it would fail the same way.
+func run_compiler(c Checker, dir []uint8, args []text.Text) (Ran, error) {
+    mut argv := make(list[text.Text], c_allocator)
+    for _, a := range [4]string{"timeout", "-k", "10", compiler_secs} {
+        append(mut argv, arg([]uint8(a))?)?
+    }
+    append(mut argv, arg([]uint8("env"))?)?
+    append(mut argv, setting("TACK_HOME=", c.home.bytes())?)?
+    append(mut argv, setting("TACK_CACHE=", c.cache.bytes())?)?
+    append(mut argv, setting("TMPDIR=", c.work.bytes())?)?
+    append(mut argv, arg(c.compiler.bytes())?)?
+    for _, a := range args {
+        append(mut argv, arg(a.bytes())?)?
+    }
+    mut res := new_ran()
+    st, e := os.run_in(dir, []uint8("timeout"), argv, mut res.out, mut res.err, c_allocator)
+    if e.code != 0 {
+        fmt.eprintf("spec: cannot run timeout, from PATH, in %s: %s\n", dir, e.msg)
+        return res, e
+    }
+    if !st.exited() {
+        res.exited = false
+        res.code = st.signal()
+        fmt.appendf(mut res.trouble, "the compiler was killed by signal %d", st.signal())?
+        return res, noerror
+    }
+    res.code = st.exit_status()
+    if res.code == 124 {
+        fmt.appendf(mut res.trouble, "the compiler did not end within %s seconds", compiler_secs)?
+    }
+    return res, noerror
+}
+
+// run_program runs the program bin through the launcher, this program
+// run as spec --launch <program_secs> <bin> (see launch.c), in dir, the
+// example's directory, and returns how it ended, read from the record
+// the launcher writes on its standard output, a pipe the program never
+// has, so nothing the program does can stand in for it. trouble says the
+// program did not finish within program_secs seconds, or could not be
+// run, with the launcher's own words. Its standard input is /dev/null
+// and its environment this process's, as tackc's test gives it the
+// test's. A launcher that cannot be started at all is an error, which it
+// first writes on standard error, since every run after it would fail
+// the same way.
+func run_program(c Checker, dir []uint8, bin []uint8) (Ran, error) {
+    mut argv := make(list[text.Text], c_allocator)
+    append(mut argv, arg(c.self.bytes())?)?
+    append(mut argv, arg([]uint8("--launch"))?)?
+    append(mut argv, arg([]uint8(program_secs))?)?
+    append(mut argv, arg(bin)?)?
+    mut res := new_ran()
+    mut rec := make(list[uint8], c_allocator)
+    mut lerr := make(list[uint8], c_allocator)
+    st, e := os.run_in(dir, c.self.bytes(), argv, mut rec, mut lerr, c_allocator)
+    if e.code != 0 {
+        fmt.eprintf("spec: cannot run the launcher, %s, in %s: %s\n", c.self.bytes(), dir, e.msg)
+        return res, e
+    }
+    if !st.exited() || st.exit_status() != 0 || len(lerr) > 0 {
+        fmt.appendf(mut res.trouble, "the program could not be run: the launcher ended with status %d, signal %d, and wrote ", st.exit_status(), st.signal())?
+        conv.append_quote(mut res.trouble, lerr[:])?
+        return res, noerror
+    }
+    ok := read_record(rec[:], mut res)?
+    if !ok {
+        res.out = make(list[uint8], c_allocator)
+        res.err = make(list[uint8], c_allocator)
+        append(mut res.trouble, []uint8("the program could not be run: the launcher's record is malformed: ")...)?
+        conv.append_quote(mut res.trouble, rec[:])?
+    }
+    return res, noerror
+}
+
+// chunk_size returns n of line, a chunk's header, o <n> or e <n>, when
+// n is a decimal of one to six digits, and -1 otherwise.
+func chunk_size(line []uint8) int64 {
+    if len(line) < 3 || len(line) > 8 {
+        return -1
+    }
+    mut n int64 = 0
+    for i, c := range line {
+        if i < 2 {
+            continue
+        }
+        if !is_digit(c) {
+            return -1
+        }
+        // At most six digits, so n stays below a million.
+        n = n *% 10 +% int64(c -% '0')
+    }
+    return n
+}
+
+// read_record reads rec, the launcher's record (see launch.c), into
+// res: each o and e chunk's bytes appended to res.out and res.err, and
+// the last line read by read_last. It reports whether rec has that
+// shape, every chunk whole and the last line ending rec.
+func read_record(rec []uint8, mut res Ran) (bool, error) {
+    mut at int64 = 0
+    for at < len(rec) {
+        le := line_end(rec, at)
+        if le >= len(rec) {
+            return false, noerror
+        }
+        // le is below len(rec), so le + 1 does not wrap.
+        next := le +% 1
+        is_out := bytes.has_prefix(part(rec, at, le), []uint8("o "))
+        is_err := bytes.has_prefix(part(rec, at, le), []uint8("e "))
+        if !is_out && !is_err {
+            if next != len(rec) {
+                return false, noerror
+            }
+            ok := read_last(part(rec, at, le), mut res)?
+            return ok, noerror
+        }
+        n := chunk_size(part(rec, at, le))
+        // n is below a million and next at most len(rec), so the sum
+        // does not wrap.
+        end := next +% n
+        if n < 0 || end > len(rec) {
+            return false, noerror
+        }
+        if is_out {
+            append(mut res.out, part(rec, next, end)...)?
+        } else {
+            append(mut res.err, part(rec, next, end)...)?
+        }
+        at = end
+    }
+    return false, noerror
+}
+
+// read_last reads line, the record's last line without its newline,
+// into res: exit <n> or signal <n> sets how the program ended, timeout
+// says in res.trouble that it did not finish in time, and failed and why
+// that it could not be run. It reports whether line is one of those.
+func read_last(line []uint8, mut res Ran) (bool, error) {
+    if bytes.equal(line, []uint8("timeout")) {
+        fmt.appendf(mut res.trouble, "the program did not finish within %ss", program_secs)?
+        return true, noerror
+    }
+    if bytes.has_prefix(line, []uint8("failed ")) {
+        append(mut res.trouble, []uint8("the program could not be run: ")...)?
+        append(mut res.trouble, part(line, 7, len(line))...)?
+        return true, noerror
+    }
+    mut at int64 = 0
+    if bytes.has_prefix(line, []uint8("exit ")) {
+        at = 5
+    } else if bytes.has_prefix(line, []uint8("signal ")) {
+        at = 7
+        res.exited = false
+    } else {
+        return false, noerror
+    }
+    if len(line) < at +% 1 || len(line) > at +% 3 {
+        return false, noerror
+    }
+    mut n int64 = 0
+    for i, c := range line {
+        if i < at {
+            continue
+        }
+        if !is_digit(c) {
+            return false, noerror
+        }
+        // At most three digits, so n stays below 1000.
+        n = n *% 10 +% int64(c -% '0')
+    }
+    res.code = n
+    return true, noerror
+}
+
+// find_on_path returns the first file named name in a directory of p, a
+// PATH, that this process may run, or an empty Text when there is none,
+// as Go's exec.LookPath looks: an empty entry is the current directory.
+func find_on_path(p []uint8, name []uint8) (text.Text, error) {
+    mut at int64 = 0
+    for at <= len(p) {
+        colon := bytes.index_byte(part(p, at, len(p)), ':')
+        mut end := len(p)
+        if colon >= 0 {
+            // colon is an index of p after at.
+            end = at +% colon
+        }
+        mut dir := text.from_bytes(part(p, at, end), c_allocator)?
+        if dir.len() == 0 {
+            dir = text.from_bytes([]uint8("."), c_allocator)?
+        }
+        cand := path.join(dir.bytes(), name, c_allocator)?
+        if os.can_execute(cand.bytes()) {
+            return cand, noerror
+        }
+        // end is at most len(p), so end + 1 does not wrap.
+        at = end +% 1
+    }
+    return text.new(c_allocator), noerror
+}
+
+// has_clang reports whether clang is on this process's PATH, which a run
+// example's build needs.
+func has_clang() (bool, error) {
+    p, has := os.env([]uint8("PATH"), c_allocator)?
+    if !has {
+        return false, noerror
+    }
+    found := find_on_path(p.bytes(), []uint8("clang"))?
+    return found.len() > 0, noerror
+}
