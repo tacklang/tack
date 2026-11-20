@@ -1,5 +1,7 @@
 # The Tack language specification
 
+This is a frozen copy; the port's docs/spec is the maintained one (decided 2026-11-19).
+
 This is the normative description of the language the Tack compiler
 accepts: what a program may say, what it means, and what the compiler
 rejects. It records decisions already made, in the compiler and in the

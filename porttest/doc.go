@@ -236,6 +236,9 @@
 //   - fuzz-regress runs the port's make fuzz-regress with the port as
 //     the compiler that builds its fuzz targets, which must pass; it
 //     compares nothing with Go (see The port's own fuzzing).
+//   - spec builds the port's tools/spec with the port and runs it over
+//     the port's docs/spec with the port, which must pass; it compares
+//     nothing with Go (see Spec).
 //
 // check-backend, check-clean and the emit stages classify their cases
 // by the stages of the backend's port each needs (see Backend stages),
@@ -371,8 +374,9 @@
 // it. The files of a case with several are each run alone, as single
 // files, its .std files among them. Every case is run with the
 // repository's std, which a case's .std does not replace. The spec's code
-// blocks in docs/spec are not part of the corpus yet, and
-// examples/invalid-c.txtar is the build stages' alone (see Build stages).
+// blocks in docs/spec are not part of the corpus: the spec stage checks
+// the port's copy (see Spec), and examples/invalid-c.txtar is the build
+// stages' alone (see Build stages).
 //
 // The packages are every directory under examples/ and under src/std
 // that holds a .tck file directly, run from this module's root and named
@@ -1616,6 +1620,59 @@
 // fuzzRegressTimeouts times a compiler run's time limit. A port that is
 // the Go compiler, byte for byte, skips, as Go has neither --port-header
 // nor --port-loaded, which the build reads.
+//
+// # Spec
+//
+// The port maintains the language specification, docs/spec, and its
+// checker, tools/spec (decided 2026-11-19); this module's docs/spec is a
+// frozen copy, which TestSpecExamples and TestSpecIndex check with the
+// frozen compiler. tools/spec does what those two do, with any compiler
+// and no Go: the index links every chapter, and only chapters, the
+// directory holds nothing else, every file is in the spec's Markdown
+// dialect, and every tack block does what its kind says. Each run of the
+// compiler goes through coreutils' timeout, which bounds it; each
+// example's program runs through the checker's own launcher, which
+// bounds it to 10 seconds, its output pipes closed included, runs it in
+// a process group of its own, kills that group once the run ends and
+// when the launcher is signaled, gives the program SIGKILL should the
+// launcher die, and hands its output back on a pipe the program never
+// has. With TACK_SPEC_GROUPS naming a file, the launcher logs each
+// program's group as it starts and ends.
+//
+// The spec stage, one case, builds tools/spec with the port, in a
+// temporary directory of the case's own, and runs it over the port's
+// docs/spec, with the port's source tree as TACK_HOME and the port as
+// the compiler it checks, in a process group of its own, with a TMPDIR
+// of the case's own and TACK_SPEC_GROUPS a log of its own, and fails,
+// showing its output, unless it passes, or when it does not end within
+// specTimeouts times a compiler run's time limit. It then runs it over
+// the checker's fixtures, tools/spec/testdata/fail/spec with the port
+// and tools/spec/testdata/fake/spec with the stand-in compiler beside
+// it, whose output must be each fixture's want, as the port's make
+// test-spec-tool requires. On every run it follows the launcher's log:
+// each example's group is registered while it runs, so a signal to the
+// harness kills it as it kills the checker's (see handleSignals); a
+// group whose run has ended must empty within outlivedGrace, as
+// reapGroup checks one, or the case fails; and every group left when
+// the checker ends, as when it is killed at its time limit, is killed.
+// The checker skips a run example's build without clang on PATH, as
+// TestSpecExamples does, so the case fails first when clang is not on
+// PATH. A port that is the Go compiler, byte for byte, runs the case
+// too: the checker uses only --check and --out.
+//
+// TestPortSpec checks that the port's docs/spec holds the same files as
+// this module's, by path, both ways, each with the same bytes and
+// executable bit, but for the paths portSpecDivergences lists, each with
+// its reason, which must differ: README.md alone, the port's naming
+// tools/spec, linking only what the port's tree holds and listing the
+// chapters' links to tackc's documents not yet resolved there, the
+// frozen one naming TestSpecExamples and saying the port's is the
+// maintained one; an entry that names a file the same on both sides, or
+// none, fails. TestSpecParse builds tools/spec with the port and
+// requires what its --parse writes to be what specparse_test.go, a copy
+// of tackc's reader of the spec from tack/spec_test.go at the frozen
+// tag, reads, for each fixture of the port's tools/spec/testdata/parse
+// and each chapter of both copies of the spec.
 //
 // # Embedded files
 //

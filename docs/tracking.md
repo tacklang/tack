@@ -20,7 +20,8 @@ conversions from failing at runtime, proofs and the `v, ok :=` form, are in
 [extern.md](extern.md). Checks for a future `tack vet`, for code that is
 valid but says more than it needs to, are in [vet.md](vet.md). A
 topic-organized language specification is being assembled in
-[spec/](spec/README.md).
+[spec/](spec/README.md), a frozen copy now that the port's docs/spec,
+checked by its tools/spec, is the maintained one (decided 2026-11-19).
 
 ## Today
 
