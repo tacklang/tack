@@ -41,12 +41,21 @@ var portFileDivergences = map[string]string{
 		"SIGPIPE's, since the runtime ignores SIGXFSZ, per the owner's ruling, 2026-11-15; " +
 		"and it flushes and writes standard output and standard error for write_stdout and " +
 		"write_stderr, a broken pipe there ending the process with status 141, and polls a " +
-		"full non-blocking one, per the owner's ruling, 2026-11-18",
+		"full non-blocking one, per the owner's ruling, 2026-11-18; and it opens " +
+		"pseudo-terminals, polls four descriptors and sets a child's descriptors 0 to 4 for " +
+		"run_streams, per the owner's ruling, 2026-11-19, that std/os gains pty support and " +
+		"an anonymous pipe",
 	"src/std/os/os.tck": "its docs say a write past RLIMIT_FSIZE is File too large and a " +
 		"child starts with SIGXFSZ's default action, per the owner's ruling, 2026-11-15; " +
 		"and it adds write_stdout and write_stderr, which return a failed write's error and " +
 		"wait for a full non-blocking stream, and write_file_result, which names the call " +
-		"that failed, per the owner's ruling, 2026-11-18",
+		"that failed, per the owner's ruling, 2026-11-18; and it adds run_streams and " +
+		"run_streams_in, which give a child pipes, pseudo-terminals and pipes whose reader " +
+		"is closed as its descriptors 0 to 4, per the owner's ruling, 2026-11-19, that " +
+		"std/os gains pty support and an anonymous pipe",
+	"src/std/os/os_test.tck": "pty support and an anonymous pipe (owner ruling 2026-11-19): " +
+		"the port's std/os has tests, of run_streams, where the frozen copy has none, so this " +
+		"module's std has no such file",
 	"src/std/unicode/tables.tck": "Unicode 18.0.0 upgrade (owner ruling 2026-11-19): the port's " +
 		"tools/unicodegen writes it from the port's copy of the UCD 18.0.0, where Go's " +
 		"internal/unicodegen wrote the frozen copy from Go's unicode package, Unicode 17.0.0",
