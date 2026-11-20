@@ -18,3 +18,16 @@ lacks stdout "FAIL"
 lacks stderr "FAIL"
 exit 0
 stdout ""
+-- c/record --
+selfcheck count lines of each stream
+dir examples/hello
+stream fd3 capture
+stream fd4 capture
+count stdout 1 "Hello"
+count stdout 0 "FAIL"
+count stderr 0 "x"
+count fd3 0 "x"
+count fd4 999999999 "\x00"
+exit 0
+stdout "Hello, World!\n"
+stderr ""

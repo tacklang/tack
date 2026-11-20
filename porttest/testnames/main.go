@@ -1,8 +1,12 @@
 // Command testnames writes porttest/testdata/gotest-names.txt: every
 // test and subtest go test runs in the packages whose runtime
 // assertions are moving to the port's run records, one per line, the
-// package's directory below the module's root, a tab and the name, in
-// byte order. porttest's TestRunRecordsCoverage checks every record's
+// package's directory below the module's root, a tab and the name, and,
+// for a test that has subtests, a tab and parent, in byte order. A test
+// is the parent of another when the other started while it ran: its run
+// event came while the test was running, not paused or done. A name
+// alone cannot tell, as t.Run("-O0/-fsanitize=...") of filepath.Join of
+// flags names a sibling of -O0 that reads as its child. porttest's TestRunRecordsCoverage checks every record's
 // replaces line against it, and checks its top-level tests against the
 // test functions of those packages, so a list gone stale fails there.
 //
@@ -64,6 +68,10 @@ func run() error {
 		return err
 	}
 	seen := map[string]bool{}
+	// running holds the tests of each package that run now, started or
+	// continued, not paused or done; parent the tests a test started in.
+	running := map[string]bool{}
+	parent := map[string]bool{}
 	sc := bufio.NewScanner(out)
 	sc.Buffer(nil, 1<<26)
 	for sc.Scan() {
@@ -71,10 +79,35 @@ func run() error {
 		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
 			continue // a line that is no event, as a build failure prints
 		}
-		if e.Test == "" || (e.Action != "pass" && e.Action != "fail" && e.Action != "skip") {
+		if e.Test == "" {
 			continue
 		}
-		seen[strings.TrimPrefix(e.Package, module)+"\t"+e.Test] = true
+		key := strings.TrimPrefix(e.Package, module) + "\t" + e.Test
+		switch e.Action {
+		case "run":
+			// Its parent is the longest name it extends of a test that
+			// runs now.
+			for p := e.Test; ; {
+				i := strings.LastIndex(p, "/")
+				if i < 0 {
+					break
+				}
+				p = p[:i]
+				pk := strings.TrimPrefix(e.Package, module) + "\t" + p
+				if running[pk] {
+					parent[pk] = true
+					break
+				}
+			}
+			running[key] = true
+		case "cont":
+			running[key] = true
+		case "pause":
+			running[key] = false
+		case "pass", "fail", "skip":
+			running[key] = false
+			seen[key] = true
+		}
 	}
 	if err := sc.Err(); err != nil {
 		return err
@@ -89,6 +122,9 @@ func run() error {
 	}
 	names := make([]string, 0, len(seen))
 	for n := range seen {
+		if parent[n] {
+			n += "\tparent"
+		}
 		names = append(names, n)
 	}
 	sort.Strings(names)

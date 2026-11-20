@@ -33,8 +33,11 @@ const runRecordsCounts = "testdata/runrecords-counts.txt"
 
 // runRecordsNames is the committed list of every test and subtest go
 // test runs in the packages whose tests are moving to records, one per
-// line, the package's directory, a tab and the name, which go generate
-// writes (see testnames) and checkNamesFresh keeps in step.
+// line, the package's directory, a tab and the name, and a tab and parent
+// for a test with subtests, which go generate writes from go test's
+// events (see testnames) and checkNamesFresh keeps in step: a test's
+// leaves come from that structure, not its name, which t.Run of a name
+// holding a slash makes ambiguous.
 const runRecordsNames = "testdata/gotest-names.txt"
 
 // recordPackages are the packages whose Go tests are moving to records.
@@ -95,7 +98,7 @@ func TestRunRecordsCoverage(t *testing.T) {
 				}
 				file, test, _ := strings.Cut(rep, " ")
 				key := path2pkg(file) + "\t" + test
-				if !names[key] {
+				if _, runs := names[key]; !runs {
 					t.Errorf("%s/%s replaces %s, which go test does not run (see %s)", archive, c.name, rep, runRecordsNames)
 				} else if !isLeaf(names, key) && !r.partial {
 					t.Errorf("%s/%s replaces %s, which has subtests: name each leaf, or say partial", archive, c.name, rep)
@@ -109,7 +112,7 @@ func TestRunRecordsCoverage(t *testing.T) {
 	funcs := map[string]string{}
 	for _, l := range listed {
 		key := path2pkg(l.file) + "\t" + l.test
-		if !names[key] {
+		if _, runs := names[key]; !runs {
 			t.Errorf("%s lists %s %s, which go test does not run", runRecordsInventory, l.file, l.test)
 		} else if !isLeaf(names, key) {
 			t.Errorf("%s lists %s %s, which has subtests: list its leaves instead", runRecordsInventory, l.file, l.test)
@@ -156,15 +159,10 @@ func TestRunRecordsCoverage(t *testing.T) {
 	}
 }
 
-// isLeaf reports whether the test key, "<pkg>\t<name>", has no subtest
-// in names.
+// isLeaf reports whether the test key, "<pkg>\t<name>", is a leaf: no
+// subtest started while it ran, as go test's events showed testnames.
 func isLeaf(names map[string]bool, key string) bool {
-	for n := range names {
-		if strings.HasPrefix(n, key+"/") {
-			return false
-		}
-	}
-	return true
+	return names[key]
 }
 
 // readInventory reads runRecordsInventory, by "<file> <test>", and checks
@@ -227,7 +225,9 @@ func readNames(t *testing.T) map[string]bool {
 	}
 	names := map[string]bool{}
 	for line := range strings.Lines(string(data)) {
-		names[strings.TrimSuffix(line, "\n")] = true
+		line = strings.TrimSuffix(line, "\n")
+		name, isParent := strings.CutSuffix(line, "\tparent")
+		names[name] = !isParent
 	}
 	checkNamesFresh(t, names)
 	return names

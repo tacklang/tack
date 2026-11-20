@@ -27,43 +27,53 @@ import (
 // runRecord is one case of a run archive, read by parseRecord: the
 // case's files, none when it is built from dir, and what the record says.
 type runRecord struct {
-	name      string
-	files     map[string][]byte
-	replaces  []string // "<file> <test>"
-	partial   bool
-	selfcheck bool
-	cold      bool
-	dir       string
-	target    string
-	opts      []string
-	cflags    []string
-	strict    bool
-	invoke    []string
-	emptyCwd  bool
-	args      []string
-	env       []string
-	stdin     []byte
-	hasStdin  bool
-	nofile    int
-	streams   map[string]string // stdout, stderr, fd3, fd4: how each is
-	code      int
-	signo     int
-	running   time.Duration
-	runText   string
-	mustFail  string // the failure class a must-fail record must fail with
-	ends      int
-	stdout    []byte
-	hasStdout bool
-	stdoutF   string
-	stderr    []byte
-	hasStderr bool
-	stderrF   string
-	fds       map[string][]byte // fd3, fd4: what each captured must hold
-	want      map[string][]byte
-	wantOrder []string
-	links     map[string]string // symlink lines: each link's path and its target
-	linkOrder []string
-	lacks     []runLacks
+	name       string
+	files      map[string][]byte
+	replaces   []string // "<file> <test>"
+	partial    bool
+	selfcheck  bool
+	cold       bool
+	strictLibs bool // the runner compiles the record's C as its Go test does (see runrecords_strict_test.go)
+	dir        string
+	target     string
+	opts       []string
+	cflags     []string
+	strict     bool
+	invoke     []string
+	emptyCwd   bool
+	args       []string
+	env        []string
+	stdin      []byte
+	hasStdin   bool
+	nofile     int
+	streams    map[string]string // stdout, stderr, fd3, fd4: how each is
+	code       int
+	signo      int
+	running    time.Duration
+	runText    string
+	mustFail   string // the failure class a must-fail record must fail with
+	ends       int
+	stdout     []byte
+	hasStdout  bool
+	stdoutF    string
+	stderr     []byte
+	hasStderr  bool
+	stderrF    string
+	fds        map[string][]byte // fd3, fd4: what each captured must hold
+	want       map[string][]byte
+	wantOrder  []string
+	links      map[string]string // symlink lines: each link's path and its target
+	linkOrder  []string
+	lacks      []runLacks
+	counts     []runCount
+}
+
+// runCount is one count line: a stream, how many times it holds the
+// bytes, without overlap, and the bytes.
+type runCount struct {
+	stream string
+	n      int
+	bytes  []byte
 }
 
 // runLacks is one lacks line: a stream and bytes it must not hold.
@@ -83,7 +93,26 @@ const runInvalidArchive = "invalid.txtar"
 
 // runRecordArchives are the archives corpus/runs must hold, no more and
 // no fewer.
-var runRecordArchives = []string{runInvalidArchive, runMustFailArchive, "prototype.txtar",
+var runRecordArchives = []string{
+	"codegen-c-appendf.txtar", "codegen-c-arena-union.txtar", "codegen-c-arena.txtar", "codegen-c-binary.txtar",
+	"codegen-c-bitwise.txtar", "codegen-c-blankparam.txtar", "codegen-c-case-exits.txtar",
+	"codegen-c-case-lines.txtar", "codegen-c-checked-arith.txtar", "codegen-c-closure-paths.txtar",
+	"codegen-c-compare.txtar", "codegen-c-conv.txtar", "codegen-c-drop.txtar", "codegen-c-errors.txtar",
+	"codegen-c-exit.txtar", "codegen-c-failure.txtar", "codegen-c-fallthrough-owned.txtar",
+	"codegen-c-fallthrough-proofs.txtar", "codegen-c-fallthrough.txtar", "codegen-c-fields.txtar",
+	"codegen-c-floatconv.txtar", "codegen-c-funcvalue.txtar", "codegen-c-generic-owned.txtar",
+	"codegen-c-hex.txtar", "codegen-c-json.txtar", "codegen-c-length-proof.txtar", "codegen-c-list.txtar",
+	"codegen-c-listeq.txtar", "codegen-c-maps.txtar", "codegen-c-member-names.txtar",
+	"codegen-c-methodexpr.txtar", "codegen-c-order.txtar", "codegen-c-own.txtar", "codegen-c-owned.txtar",
+	"codegen-c-paramswitch.txtar", "codegen-c-path.txtar", "codegen-c-pool.txtar", "codegen-c-printf.txtar",
+	"codegen-c-proof.txtar", "codegen-c-question-owned.txtar", "codegen-c-question.txtar",
+	"codegen-c-quote.txtar", "codegen-c-region-edges.txtar", "codegen-c-region.txtar",
+	"codegen-c-replace.txtar", "codegen-c-sha256.txtar", "codegen-c-site.txtar", "codegen-c-slice.txtar",
+	"codegen-c-sort.txtar", "codegen-c-stored-relations.txtar", "codegen-c-struct.txtar",
+	"codegen-c-text.txtar", "codegen-c-typeargs.txtar", "codegen-c-typeswitch.txtar", "codegen-c-union.txtar",
+	"codegen-c-utf8.txtar", "codegen-c-variadic.txtar", "codegen-c-view.txtar", "codegen-c-viewbinding.txtar",
+	"codegen-c-viewresult.txtar",
+	runInvalidArchive, runMustFailArchive, "prototype.txtar",
 	"tack-errors.txtar", "tack-extern.txtar", "tack-fallthrough.txtar", "tack-generics.txtar", "tack-lists.txtar",
 	"tack-main.txtar", "tack-methods.txtar", "tack-std.txtar", "tack-stdimport.txtar", "tack-testfiles.txtar",
 	"tack-union-methods.txtar", "tack-unions.txtar", "tack-viewresults.txtar"}
@@ -97,7 +126,7 @@ const runMustFailArchive = "must-fail.txtar"
 // order both runners check them, the first one found being the run's,
 // as runs.tck's failure_classes lists them; must-fail names one.
 var runFailureClasses = []string{"build", "build-tmpdir", "outlived", "cwd", "src-changed", "run-root", "tmpdir",
-	"exit", "still-running", "did-not-end", "stdout", "stderr", "fd3", "fd4", "lacks", "files"}
+	"exit", "still-running", "did-not-end", "stdout", "stderr", "fd3", "fd4", "lacks", "count", "files"}
 
 // runStreamWays are the ways a record may make each descriptor.
 var runStreamWays = map[string][]string{
@@ -448,13 +477,16 @@ func recordLine(r *runRecord, key, rest string, once map[string]bool, openFile *
 		r.partial = true
 	case "selfcheck":
 		r.selfcheck = true
-	case "no-strict-c", "cold-cache":
+	case "no-strict-c", "cold-cache", "strict-libs":
 		if err := single(key); err != nil {
 			return err
 		}
-		if key == "cold-cache" {
+		switch key {
+		case "cold-cache":
 			r.cold = true
-		} else {
+		case "strict-libs":
+			r.strictLibs = true
+		default:
 			r.strict = false
 		}
 	case "dir", "target", "stdout-file", "stderr-file":
@@ -540,6 +572,32 @@ func recordLine(r *runRecord, key, rest string, once map[string]bool, openFile *
 			}
 		}
 		r.lacks = append(r.lacks, runLacks{stream, b})
+	case "count":
+		stream, after, ok := strings.Cut(rest, " ")
+		if !ok || stream == "" {
+			return bad("stream", "count takes a stream, a count and quoted bytes")
+		}
+		if !slices.Contains([]string{"stdout", "stderr", "fd3", "fd4"}, stream) {
+			return bad("stream", "count takes stdout, stderr, fd3 or fd4")
+		}
+		num, quotedPart, ok := strings.Cut(after, " ")
+		n, isNum := count(num)
+		if !ok || num == "" || !isNum {
+			return bad("number", "count takes a count, digits alone, after the stream")
+		}
+		b, ok := quoted(quotedPart)
+		if !ok {
+			return bad("quote", "count takes a stream, a count and quoted bytes")
+		}
+		if len(b) == 0 {
+			return bad("empty", "count takes bytes, none of them missing")
+		}
+		for _, c := range r.counts {
+			if c.stream == stream && bytes.Equal(c.bytes, b) {
+				return bad("repeated", "a count line of a stream and bytes is given once at most")
+			}
+		}
+		r.counts = append(r.counts, runCount{stream, n, b})
 	case "arg", "env", "invoke", "stdin", "stdout", "stderr", "fd3", "fd4":
 		b, err := operand()
 		if err != nil {
@@ -685,9 +743,15 @@ func wholeRecord(r runRecord, hasFiles bool) error {
 		return (l.stream == "fd3" || l.stream == "fd4") && r.streams[l.stream] != "capture" || l.stream == "stderr" && merged
 	}):
 		return bad("conflict", "a lacks line is of a stream the run captures and that holds bytes of its own")
+	case slices.ContainsFunc(r.counts, func(c runCount) bool {
+		return (c.stream == "fd3" || c.stream == "fd4") && r.streams[c.stream] != "capture" || c.stream == "stderr" && merged
+	}):
+		return bad("conflict", "a count line is of a stream the run captures and that holds bytes of its own")
 	case r.emptyCwd && len(r.invoke) == 0:
 		return bad("conflict", "cwd empty is for a record that invokes the compiler")
-	case len(r.invoke) > 0 && (r.target != "" || len(r.opts) > 0 || len(r.cflags) > 0 || !r.strict || r.cold ||
+	case r.strictLibs && !r.strict:
+		return bad("conflict", "strict-libs compiles the program's --emit output, which no-strict-c leaves unbuilt")
+	case len(r.invoke) > 0 && (r.target != "" || len(r.opts) > 0 || len(r.cflags) > 0 || !r.strict || r.cold || r.strictLibs ||
 		len(r.args) > 0 || r.hasStdin || r.nofile > 0 || len(r.streams) > 0 || r.signo > 0 || r.running > 0):
 		return bad("conflict", "a record that invokes the compiler builds and runs no program")
 	case !(r.hasStdout || r.stdoutF != "") || !(r.hasStderr || r.stderrF != "" || merged):

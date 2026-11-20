@@ -46,8 +46,8 @@ func dumpArchive(data []byte) string {
 			continue
 		}
 		fmt.Fprintf(&b, "record\nreplaces %d\n", len(r.replaces))
-		fmt.Fprintf(&b, "flags selfcheck=%t partial=%t cold=%t strict=%t cwd-empty=%t stdin=%t stdout=%t stderr=%t\n",
-			r.selfcheck, r.partial, r.cold, r.strict, r.emptyCwd, r.hasStdin, r.hasStdout, r.hasStderr)
+		fmt.Fprintf(&b, "flags selfcheck=%t partial=%t cold=%t strict=%t strict-libs=%t cwd-empty=%t stdin=%t stdout=%t stderr=%t\n",
+			r.selfcheck, r.partial, r.cold, r.strict, r.strictLibs, r.emptyCwd, r.hasStdin, r.hasStdout, r.hasStderr)
 		for _, kv := range [][2]string{{"dir", r.dir}, {"target", r.target}, {"stdout-file", r.stdoutF}, {"stderr-file", r.stderrF}, {"must-fail", r.mustFail}} {
 			fmt.Fprintf(&b, "%s %s\n", kv[0], q(kv[1]))
 		}
@@ -70,6 +70,9 @@ func dumpArchive(data []byte) string {
 		}
 		for _, l := range r.lacks {
 			fmt.Fprintf(&b, "lacks %s %s\n", l.stream, q(string(l.bytes)))
+		}
+		for _, c := range r.counts {
+			fmt.Fprintf(&b, "count %s %d %s\n", c.stream, c.n, q(string(c.bytes)))
 		}
 		for _, p := range r.linkOrder {
 			fmt.Fprintf(&b, "link %s %s\n", q(p), q(r.links[p]))

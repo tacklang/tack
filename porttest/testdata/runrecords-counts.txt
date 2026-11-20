@@ -1,4 +1,4 @@
-covered 315
-partial 10
-todo 4033
-excluded 0
+covered 505
+partial 8
+todo 3846
+excluded 1

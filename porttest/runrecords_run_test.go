@@ -449,6 +449,45 @@ func TestRunRecords(t *testing.T) {
 			})
 		}
 	}
+	// The strict-c check, once per flag set of the records with a
+	// strict-libs line (see checkStrictLibs).
+	var uses []strictUse
+	for _, archive := range runRecordArchives {
+		if archive == runInvalidArchive {
+			continue
+		}
+		for _, c := range archives[archive] {
+			rec, err := parseRecord(c, len(c.files) > 0)
+			if err == nil && rec.strictLibs {
+				for _, u := range strictUses(rec) {
+					if !slices.Contains(uses, u) {
+						uses = append(uses, u)
+					}
+				}
+			}
+		}
+	}
+	if len(uses) > 0 {
+		t.Run("(strict-c)", func(t *testing.T) {
+			header := stdHeader(t)
+			var sets []string
+			dirs := map[string][]string{}
+			for _, u := range uses {
+				if !slices.Contains(sets, u.set) {
+					sets = append(sets, u.set)
+				}
+				if u.dir != "" && !slices.Contains(dirs[u.set], u.dir) {
+					dirs[u.set] = append(dirs[u.set], u.dir)
+				}
+			}
+			for _, set := range sets {
+				t.Run(set, func(t *testing.T) {
+					t.Parallel()
+					checkStrictLibs(t, set, dirs[set], header)
+				})
+			}
+		})
+	}
 	t.Cleanup(func() {
 		for _, why := range missingDivergences(divs, runRecordsSuite, keys) {
 			t.Error(why)
@@ -642,6 +681,19 @@ func (o runOutcome) differences(rec runRecord) []runFailure {
 		needle := bytes.ReplaceAll(l.bytes, []byte("$"), []byte("$$"))
 		if bytes.Contains(want, needle) || bytes.Contains(got, needle) {
 			add("lacks", "the record's %s or the run's holds %q, which a lacks line rules out", l.stream, l.bytes)
+		}
+	}
+	for _, c := range rec.counts {
+		got := o.fds[c.stream]
+		switch c.stream {
+		case "stdout":
+			got = o.stdout
+		case "stderr":
+			got = o.stderr
+		}
+		// The streams are compared with each $ doubled (see normalize).
+		if n := bytes.Count(got, bytes.ReplaceAll(c.bytes, []byte("$"), []byte("$$"))); n != c.n {
+			add("count", "the run's %s holds %q %d times, not %d", c.stream, c.bytes, n, c.n)
 		}
 	}
 	named := append(slices.Collect(maps.Keys(rec.want)), slices.Collect(maps.Keys(rec.links))...)
@@ -894,8 +946,9 @@ func finish(t *testing.T, ctx context.Context, cmd *exec.Cmd, stopAtDeadline boo
 // into d.bin, with a clang that adds rec's cflags but to --version, and
 // leaves a mark when it compiles or links, which must be there afterwards, when it has
 // them, and, unless rec opts out, checks the C the compiler's --emit
-// gives with clang -std=c11 -Wall -Wextra -Werror -fsyntax-only. It
-// returns the first of these that fails, in the order the port's runner
+// gives with clang -std=c11 -Wall -Wextra -Werror -fsyntax-only and, for
+// a record with a strict-libs line, compiles it as its Go test does (see
+// strictProgramC). It returns the first of these that fails, in the order the port's runner
 // checks them, as a failure of the class build, or build-tmpdir when a
 // build left something in its TMPDIR, and nil when none does.
 func buildRecord(t *testing.T, ctx context.Context, d runDirs, tmp string, rec runRecord, level string) *runFailure {
@@ -950,6 +1003,11 @@ func buildRecord(t *testing.T, ctx context.Context, d runDirs, tmp string, rec r
 			"-I", filepath.Join(env.home, "src", "std", "include"), c)
 		if msg, err := strict.CombinedOutput(); err != nil {
 			return build("the generated C is not strict C: %v\n%s", err, msg)
+		}
+		if rec.strictLibs {
+			if why := strictProgramC(t, rec, level, out.Bytes()); why != "" {
+				return build("%s", why)
+			}
 		}
 	}
 	return nil

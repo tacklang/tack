@@ -58,8 +58,9 @@ var builtNotStrict = map[string]string{
 // the leaves it replaces, the directory of examples/ it builds in and the
 // target there, main.tck for example(name) and . for the directory, or
 // the program a helper writes, the levels it builds at, none for the
-// compiler's own, and what the test asserts of the run: its exit status
-// and its standard output and error, as bytes or a file of examples/.
+// compiler's own, and what the test asserts of the run: its exit status,
+// its standard output and error, as bytes or a file of examples/, and in
+// checks its lacks and count lines.
 type builtCase struct {
 	name       string
 	leaves     []string
@@ -73,7 +74,7 @@ type builtCase struct {
 	stdoutFile string
 	stderr     *string
 	stderrFile string
-	lacks      []string
+	checks     []string
 	partial    string
 }
 
@@ -129,7 +130,7 @@ func (c builtCase) record(file, fn string) record {
 	if c.partial != "" {
 		lines = append(lines, "partial "+c.partial)
 	}
-	lines = append(lines, c.lacks...)
+	lines = append(lines, c.checks...)
 	// The file lines come before the end, which tools/corpus --update
 	// writes after every line it keeps.
 	if c.stdoutFile != "" {
@@ -398,8 +399,7 @@ func (r builtReader) str(e ast.Expr, vars map[string]string) string {
 //     read, either way round;
 //   - strings.Contains(string(f), "FAIL") on such a file, the guard that
 //     the expectation holds no FAIL: a lacks line;
-//   - strings.Count(out, s) != n, which the record holds with the whole
-//     output --update pins: the record says partial and why.
+//   - strings.Count(out, s) != n, either way round: a count line.
 func (r builtReader) read(fd *ast.FuncDecl, c *builtCase) {
 	name := fd.Name.Name
 	stop := func(format string, a ...any) {
@@ -443,7 +443,7 @@ func (r builtReader) read(fd *ast.FuncDecl, c *builtCase) {
 				r.target(x.Args[len(x.Args)-1], c, stop)
 			}
 		case *ast.IfStmt:
-			for _, atom := range conditionAtoms(x.Cond) {
+			for _, atom := range conditionAtoms(x.Cond, stop) {
 				r.condition(atom, c, runErr, &exit0, &guards, stop)
 			}
 		}
@@ -458,25 +458,35 @@ func (r builtReader) read(fd *ast.FuncDecl, c *builtCase) {
 	}
 	for _, f := range guards {
 		line := "lacks " + r.streamOf(f, c, stop) + " " + q("FAIL")
-		if !slicesContains(c.lacks, line) {
-			c.lacks = append(c.lacks, line)
+		if !slicesContains(c.checks, line) {
+			c.checks = append(c.checks, line)
 		}
 	}
 }
 
-// conditionAtoms returns the parts of e, a condition, that || and &&
-// join, a ! before one dropped.
-func conditionAtoms(e ast.Expr) []ast.Expr {
+// conditionAtoms returns the parts of e, an assertion's condition, that
+// || joins: the test fails when any holds. A ! is read only before
+// errors.As, the one negation an assertion of the tests holds, and a &&
+// not at all, as an assertion's parts it joins fail only together; either
+// elsewhere stops rungen, through stop, rather than read a part the wrong
+// way round.
+func conditionAtoms(e ast.Expr, stop func(string, ...any)) []ast.Expr {
 	switch x := e.(type) {
 	case *ast.ParenExpr:
-		return conditionAtoms(x.X)
+		return conditionAtoms(x.X, stop)
 	case *ast.UnaryExpr:
 		if x.Op == token.NOT {
-			return conditionAtoms(x.X)
+			if call, ok := x.X.(*ast.CallExpr); ok && isSel(call.Fun, "errors", "As") {
+				return []ast.Expr{call}
+			}
+			stop("it asserts !%s, a negation rungen does not read", exprString(x.X))
 		}
 	case *ast.BinaryExpr:
-		if x.Op == token.LOR || x.Op == token.LAND {
-			return append(conditionAtoms(x.X), conditionAtoms(x.Y)...)
+		switch x.Op {
+		case token.LOR:
+			return append(conditionAtoms(x.X, stop), conditionAtoms(x.Y, stop)...)
+		case token.LAND:
+			stop("it asserts two conditions joined by &&, which rungen does not read")
 		}
 	}
 	return []ast.Expr{e}
@@ -526,8 +536,10 @@ func (r builtReader) condition(atom ast.Expr, c *builtCase, runErr map[string]bo
 				return
 			}
 			if call, ok := side[0].(*ast.CallExpr); ok && isSel(call.Fun, "strings", "Count") && len(call.Args) == 2 {
-				c.partial = fmt.Sprintf("the test counts %s in standard output, %d of them, which the whole standard output pinned here holds",
-					q(r.str(call.Args[1], nil)), r.int(side[1]))
+				if exprString(call.Args[0]) != "out" && exprString(call.Args[0]) != "string(out)" {
+					stop("it counts in %s, which rungen does not read", exprString(call.Args[0]))
+				}
+				c.checks = append(c.checks, fmt.Sprintf("count stdout %d %s", r.int(side[1]), q(r.str(call.Args[1], nil))))
 				return
 			}
 		}

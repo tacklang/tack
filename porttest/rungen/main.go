@@ -2,7 +2,11 @@
 // from this module's Go tests: corpus/runs/prototype.txtar, the records
 // of phase 1 of moving the Go tests' runtime assertions into data, and
 // the archives of batch 1, tack-<file>.txtar, one per test file of tack/,
-// from its TestBuilt tests (see builtArchives). Each
+// from its TestBuilt tests (see builtArchives), and of batch 2,
+// codegen-c-<file>.txtar, one per test file of codegen/c, from its tests
+// that build a program with clang flags of their own and run it (see
+// sanArchives); rungen -survey lists the tests of batch 2's family it
+// cannot read. Each
 // record names the Go tests it replaces. The programs, inputs, tables
 // and expectations the Go tests assert are read from the tests' own
 // source with go/parser and evaluated as constants (see the source type):
@@ -57,8 +61,17 @@ type record struct {
 
 // main writes the archive, exiting 1 with a message when it cannot.
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "-fingerprints" {
+		printFingerprints()
+		return
+	}
+	checkModelled()
+	if len(os.Args) == 2 && os.Args[1] == "-survey" {
+		sanSurvey()
+		return
+	}
 	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: rungen <dir>")
+		fmt.Fprintln(os.Stderr, "usage: rungen <dir> | rungen -survey | rungen -fingerprints")
 		os.Exit(2)
 	}
 	if err := run(os.Args[1]); err != nil {
@@ -466,10 +479,6 @@ func records() []record {
 		append([]string{"replaces codegen/c/arena_runtime_test.go TestArenaFreedAtUnreachable/-O0",
 			"replaces codegen/c/arena_runtime_test.go TestArenaFreedAtUnreachable/-O1",
 			"opt 0 1", "cflags " + flags, "signal 6"}, chunks("stdout", "held\nlive 0\n")...)})
-	rs = append(rs, record{"exit-frees-asan", nil, []string{
-		"replaces codegen/c/exit_test.go TestExitFreesExampleIsSanitizerClean/-O0",
-		"replaces codegen/c/exit_test.go TestExitFreesExampleIsSanitizerClean/-O1",
-		"dir examples/exit-frees", "opt 0 1", "cflags " + flags, "exit 3", "stdout-file examples/exit-frees/output"}})
 
 	pipeRows := pipeT.rows(pipeT.decl("brokenPipeRuns").(*ast.CompositeLit), []string{"name", "stream", "other", "report", "status"}, nil)
 	for _, row := range pipeRows {
@@ -651,6 +660,19 @@ func run(dir string) error {
 	archives, err := builtArchives(levels())
 	if err != nil {
 		return err
+	}
+	san, unread, err := sanArchives()
+	if err != nil {
+		return err
+	}
+	if len(unread) > 0 {
+		for _, why := range unread {
+			fmt.Fprintln(os.Stderr, why)
+		}
+		return fmt.Errorf("%d tests of batch 2 rungen does not read, and sanSkipped does not name", len(unread))
+	}
+	for name, data := range san {
+		archives[name] = data
 	}
 	for name, data := range archives {
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil { //nolint:gosec // G306: a corpus file

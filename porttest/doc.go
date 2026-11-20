@@ -1237,12 +1237,57 @@
 // functions. rungen writes the records it knows how to make from the Go
 // tests' own source, read with go/parser and evaluated, leaving the
 // expectations the Go tests do not pin to the port's --update:
-// prototype.txtar, and one archive per test file of tack/,
+// prototype.txtar; one archive per test file of tack/,
 // tack-<file>.txtar, of the TestBuilt tests that build an example and
 // assert its run, at the compiler's level or at each of codegen.Opts
-// (batch 1 of the conversion); TestRungenLines runs it and requires every
-// line it writes to be in the committed archive of the same name
-// verbatim. TestPortFiles leaves corpus/runs out, as
+// (batch 1 of the conversion); and one per test file of codegen/c,
+// codegen-c-<file>.txtar, of the tests that build an example, or a
+// program of their own, with clang flags of their own, the sanitizers
+// most often, and run it (batch 2), read by evaluating the tests. A
+// helper a test calls is either interpreted, its statements evaluated as
+// the test's are (runArithmeticExample, runBig, printfExample and
+// program), or modelled: rungen knows what it builds or asserts and
+// writes the lines for that, and each modelled helper, the build, run
+// and assertion helpers of both packages (modelled in rungen's
+// helpers.go: buildWithClang, buildTargetWithClang, example and
+// runBuilt of tack/; atO0Too, the front-end helpers, the build helpers
+// with their flags, runChecks, runRegionChecks, leakChecked,
+// runExample, runStatus and checkWrites of codegen/c), is fingerprinted
+// by the SHA-256 of its declaration's source, and rungen stops when one
+// differs from the one it models. rungen stops, too, on what it would
+// otherwise read wrong: a loop that assigns a variable outside it, a
+// run at a test's top level beside subtests, a negation in an assertion
+// but !errors.As, a && there, and a skip or failure in a branch it takes.
+// Those tests compile the C of their builds themselves with -std=c11
+// -Wall -Wextra -Werror -fstrict-flex-arrays=3 at their level and flags,
+// to objects, which the driver's -w turns off, so each such record says
+// strict-libs, and the runner compiles that C so, as the port's runner
+// does: the program's own C, --emit's, at each of the record's runs; and,
+// in TestRunRecords's strict-c subtests, once per flag set such a record
+// names, the runtime's C, std's, all of it against one header, the one the
+// reference compiler emits for a program importing every std package
+// with C, but std/testing's, which only a test build's header compiles,
+// and the C files below the dir of each record of the set, each against
+// the tack.h nearest above it in its example. A record's cflags carry
+// -D_DEFAULT_SOURCE only when its test's build helper compiles with it
+// (buildProgram, and buildWithStd and buildWithStdAndC through it, not
+// buildExternWith or buildWith); the check gives it to std's and the
+// examples' C alone, compiles std's only for a set that has it, and
+// leaves it out of the runtime's and the program's, as buildProgram
+// does. The driver compiles with -w -fno-finite-loops -mllvm
+// -indvars-predicate-loops=false, which codegen/c's tests leave out on
+// purpose, to run the generated C as --emit output compiled without them
+// runs, on the loop lowering alone (see buildCWith there); each record's
+// cflags end with -ffinite-loops -mllvm -indvars-predicate-loops=true,
+// which clang takes last-wins, so the binary a record runs is compiled
+// as the test's is but for -w, which no later flag undoes and the strict
+// compile stands in for, and for a while or do loop of a constant
+// condition, which -ffinite-loops takes to be finite and C11's default,
+// which no flag restores, does not; no C the records compile holds one
+// (see sanLoopFlags in rungen). A record whose test hands the build C of
+// its own stays partial, as the strict compile takes no C a case holds;
+// TestRungenLines runs it and requires every line it writes to be in the
+// committed archive of the same name verbatim. TestPortFiles leaves corpus/runs out, as
 // the port's own.
 //
 // # Loading

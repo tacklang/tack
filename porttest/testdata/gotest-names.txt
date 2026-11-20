@@ -1,15 +1,15 @@
-codegen/c	FuzzBigMatchesGo
+codegen/c	FuzzBigMatchesGo	parent
 codegen/c	FuzzBigMatchesGo/seed#0
 codegen/c	FuzzBigMatchesGo/seed#1
 codegen/c	FuzzBigMatchesGo/seed#2
-codegen/c	FuzzBinaryMatchesGo
+codegen/c	FuzzBinaryMatchesGo	parent
 codegen/c	FuzzBinaryMatchesGo/seed#0
 codegen/c	FuzzBinaryMatchesGo/seed#1
 codegen/c	FuzzBinaryMatchesGo/seed#2
 codegen/c	FuzzBinaryMatchesGo/seed#3
 codegen/c	FuzzBinaryMatchesGo/seed#4
 codegen/c	FuzzBinaryMatchesGo/seed#5
-codegen/c	FuzzConvMatchesGo
+codegen/c	FuzzConvMatchesGo	parent
 codegen/c	FuzzConvMatchesGo/seed#0
 codegen/c	FuzzConvMatchesGo/seed#1
 codegen/c	FuzzConvMatchesGo/seed#10
@@ -22,7 +22,7 @@ codegen/c	FuzzConvMatchesGo/seed#6
 codegen/c	FuzzConvMatchesGo/seed#7
 codegen/c	FuzzConvMatchesGo/seed#8
 codegen/c	FuzzConvMatchesGo/seed#9
-codegen/c	FuzzFloatFormattingMatchesGo
+codegen/c	FuzzFloatFormattingMatchesGo	parent
 codegen/c	FuzzFloatFormattingMatchesGo/12fea198c64230d6
 codegen/c	FuzzFloatFormattingMatchesGo/seed#0
 codegen/c	FuzzFloatFormattingMatchesGo/seed#1
@@ -39,19 +39,19 @@ codegen/c	FuzzFloatFormattingMatchesGo/seed#6
 codegen/c	FuzzFloatFormattingMatchesGo/seed#7
 codegen/c	FuzzFloatFormattingMatchesGo/seed#8
 codegen/c	FuzzFloatFormattingMatchesGo/seed#9
-codegen/c	FuzzHexMatchesGo
+codegen/c	FuzzHexMatchesGo	parent
 codegen/c	FuzzHexMatchesGo/seed#0
 codegen/c	FuzzHexMatchesGo/seed#1
 codegen/c	FuzzHexMatchesGo/seed#2
 codegen/c	FuzzHexMatchesGo/seed#3
 codegen/c	FuzzHexMatchesGo/seed#4
 codegen/c	FuzzHexMatchesGo/seed#5
-codegen/c	FuzzInstanceCNamesAreDistinct
+codegen/c	FuzzInstanceCNamesAreDistinct	parent
 codegen/c	FuzzInstanceCNamesAreDistinct/seed#0
 codegen/c	FuzzInstanceCNamesAreDistinct/seed#1
 codegen/c	FuzzInstanceCNamesAreDistinct/seed#2
 codegen/c	FuzzInstanceCNamesAreDistinct/seed#3
-codegen/c	FuzzJSONMatchesGo
+codegen/c	FuzzJSONMatchesGo	parent
 codegen/c	FuzzJSONMatchesGo/seed#0
 codegen/c	FuzzJSONMatchesGo/seed#1
 codegen/c	FuzzJSONMatchesGo/seed#2
@@ -62,15 +62,15 @@ codegen/c	FuzzJSONMatchesGo/seed#6
 codegen/c	FuzzJSONMatchesGo/seed#7
 codegen/c	FuzzJSONMatchesGo/seed#8
 codegen/c	FuzzJSONMatchesGo/seed#9
-codegen/c	FuzzMangleIsInjective
+codegen/c	FuzzMangleIsInjective	parent
 codegen/c	FuzzMangleIsInjective/seed#0
 codegen/c	FuzzMangleIsInjective/seed#1
 codegen/c	FuzzMangleIsInjective/seed#2
-codegen/c	FuzzMethodCNamesAreDistinct
+codegen/c	FuzzMethodCNamesAreDistinct	parent
 codegen/c	FuzzMethodCNamesAreDistinct/seed#0
 codegen/c	FuzzMethodCNamesAreDistinct/seed#1
 codegen/c	FuzzMethodCNamesAreDistinct/seed#2
-codegen/c	FuzzQuoteMatchesGo
+codegen/c	FuzzQuoteMatchesGo	parent
 codegen/c	FuzzQuoteMatchesGo/seed#0
 codegen/c	FuzzQuoteMatchesGo/seed#1
 codegen/c	FuzzQuoteMatchesGo/seed#2
@@ -80,7 +80,7 @@ codegen/c	FuzzQuoteMatchesGo/seed#5
 codegen/c	FuzzQuoteMatchesGo/seed#6
 codegen/c	FuzzQuoteMatchesGo/seed#7
 codegen/c	FuzzQuoteMatchesGo/seed#8
-codegen/c	FuzzSHA256MatchesGo
+codegen/c	FuzzSHA256MatchesGo	parent
 codegen/c	FuzzSHA256MatchesGo/seed#0
 codegen/c	FuzzSHA256MatchesGo/seed#1
 codegen/c	FuzzSHA256MatchesGo/seed#2
@@ -89,7 +89,7 @@ codegen/c	FuzzSHA256MatchesGo/seed#4
 codegen/c	FuzzSHA256MatchesGo/seed#5
 codegen/c	FuzzSHA256MatchesGo/seed#6
 codegen/c	FuzzSHA256MatchesGo/seed#7
-codegen/c	FuzzSortMatchesGo
+codegen/c	FuzzSortMatchesGo	parent
 codegen/c	FuzzSortMatchesGo/seed#0
 codegen/c	FuzzSortMatchesGo/seed#1
 codegen/c	FuzzSortMatchesGo/seed#2
@@ -97,7 +97,7 @@ codegen/c	FuzzSortMatchesGo/seed#3
 codegen/c	FuzzSortMatchesGo/seed#4
 codegen/c	FuzzSortMatchesGo/seed#5
 codegen/c	FuzzSortMatchesGo/seed#6
-codegen/c	FuzzUTF8DecodeMatchesGo
+codegen/c	FuzzUTF8DecodeMatchesGo	parent
 codegen/c	FuzzUTF8DecodeMatchesGo/seed#0
 codegen/c	FuzzUTF8DecodeMatchesGo/seed#1
 codegen/c	FuzzUTF8DecodeMatchesGo/seed#2
@@ -105,84 +105,84 @@ codegen/c	FuzzUTF8DecodeMatchesGo/seed#3
 codegen/c	FuzzUTF8DecodeMatchesGo/seed#4
 codegen/c	FuzzUTF8DecodeMatchesGo/seed#5
 codegen/c	FuzzUTF8DecodeMatchesGo/seed#6
-codegen/c	FuzzUnionCaseMembersAreDistinct
+codegen/c	FuzzUnionCaseMembersAreDistinct	parent
 codegen/c	FuzzUnionCaseMembersAreDistinct/seed#0
 codegen/c	FuzzUnionCaseMembersAreDistinct/seed#1
 codegen/c	FuzzUnionCaseMembersAreDistinct/seed#2
-codegen/c	TestAllocatorTracksEveryBuffer
+codegen/c	TestAllocatorTracksEveryBuffer	parent
 codegen/c	TestAllocatorTracksEveryBuffer/-O0
 codegen/c	TestAllocatorTracksEveryBuffer/-O1
 codegen/c	TestAnyArgumentsRunStrictly
 codegen/c	TestAnyHelpersCompileFor32Bits
-codegen/c	TestAnyViewsExampleIsSanitizerClean
+codegen/c	TestAnyViewsExampleIsSanitizerClean	parent
 codegen/c	TestAnyViewsExampleIsSanitizerClean/-O0
 codegen/c	TestAnyViewsExampleIsSanitizerClean/-O1
-codegen/c	TestAppendfMatchesPrintf
+codegen/c	TestAppendfMatchesPrintf	parent
 codegen/c	TestAppendfMatchesPrintf/-O0
 codegen/c	TestAppendfMatchesPrintf/-O1
-codegen/c	TestArenaAddsRunAfterEarlierOperands
+codegen/c	TestArenaAddsRunAfterEarlierOperands	parent
 codegen/c	TestArenaAddsRunAfterEarlierOperands/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenaAddsRunAfterEarlierOperands/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenaAddsRunAfterEarlierOperands/-O2
-codegen/c	TestArenaBorrowVariants
+codegen/c	TestArenaBorrowVariants	parent
 codegen/c	TestArenaBorrowVariants/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenaBorrowVariants/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenaBorrowVariants/-O2
-codegen/c	TestArenaClampNeverReadsOutOfBounds
-codegen/c	TestArenaClampNeverReadsOutOfBounds/grown_arena
+codegen/c	TestArenaClampNeverReadsOutOfBounds	parent
+codegen/c	TestArenaClampNeverReadsOutOfBounds/grown_arena	parent
 codegen/c	TestArenaClampNeverReadsOutOfBounds/grown_arena/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenaClampNeverReadsOutOfBounds/grown_arena/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
-codegen/c	TestArenaClampNeverReadsOutOfBounds/sentinel-only_array
+codegen/c	TestArenaClampNeverReadsOutOfBounds/sentinel-only_array	parent
 codegen/c	TestArenaClampNeverReadsOutOfBounds/sentinel-only_array/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenaClampNeverReadsOutOfBounds/sentinel-only_array/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
-codegen/c	TestArenaClampNeverReadsOutOfBounds/sentinel-only_int64
+codegen/c	TestArenaClampNeverReadsOutOfBounds/sentinel-only_int64	parent
 codegen/c	TestArenaClampNeverReadsOutOfBounds/sentinel-only_int64/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenaClampNeverReadsOutOfBounds/sentinel-only_int64/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
-codegen/c	TestArenaClampNeverReadsOutOfBounds/sentinel-only_lists
+codegen/c	TestArenaClampNeverReadsOutOfBounds/sentinel-only_lists	parent
 codegen/c	TestArenaClampNeverReadsOutOfBounds/sentinel-only_lists/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenaClampNeverReadsOutOfBounds/sentinel-only_lists/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
-codegen/c	TestArenaClampNeverReadsOutOfBounds/sentinel-only_struct
+codegen/c	TestArenaClampNeverReadsOutOfBounds/sentinel-only_struct	parent
 codegen/c	TestArenaClampNeverReadsOutOfBounds/sentinel-only_struct/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenaClampNeverReadsOutOfBounds/sentinel-only_struct/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
-codegen/c	TestArenaFreedAtExit
-codegen/c	TestArenaFreedAtExit/a_sentinel-only_arena
+codegen/c	TestArenaFreedAtExit	parent
+codegen/c	TestArenaFreedAtExit/a_sentinel-only_arena	parent
 codegen/c	TestArenaFreedAtExit/a_sentinel-only_arena/-O0
 codegen/c	TestArenaFreedAtExit/a_sentinel-only_arena/-O1
-codegen/c	TestArenaFreedAtExit/an_arena_in_a_struct
+codegen/c	TestArenaFreedAtExit/an_arena_in_a_struct	parent
 codegen/c	TestArenaFreedAtExit/an_arena_in_a_struct/-O0
 codegen/c	TestArenaFreedAtExit/an_arena_in_a_struct/-O1
-codegen/c	TestArenaFreedAtExit/an_arena_of_lists
+codegen/c	TestArenaFreedAtExit/an_arena_of_lists	parent
 codegen/c	TestArenaFreedAtExit/an_arena_of_lists/-O0
 codegen/c	TestArenaFreedAtExit/an_arena_of_lists/-O1
-codegen/c	TestArenaFreedAtExit/an_arena_whose_first_add_was_refused
+codegen/c	TestArenaFreedAtExit/an_arena_whose_first_add_was_refused	parent
 codegen/c	TestArenaFreedAtExit/an_arena_whose_first_add_was_refused/-O0
 codegen/c	TestArenaFreedAtExit/an_arena_whose_first_add_was_refused/-O1
-codegen/c	TestArenaFreedAtExit/exit_while_refusing_every_request
+codegen/c	TestArenaFreedAtExit/exit_while_refusing_every_request	parent
 codegen/c	TestArenaFreedAtExit/exit_while_refusing_every_request/-O0
 codegen/c	TestArenaFreedAtExit/exit_while_refusing_every_request/-O1
-codegen/c	TestArenaFreedAtUnreachable
+codegen/c	TestArenaFreedAtUnreachable	parent
 codegen/c	TestArenaFreedAtUnreachable/-O0
 codegen/c	TestArenaFreedAtUnreachable/-O1
-codegen/c	TestArenaHeapRangeViews
+codegen/c	TestArenaHeapRangeViews	parent
 codegen/c	TestArenaHeapRangeViews/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenaHeapRangeViews/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenaHeapRangeViews/-O2
-codegen/c	TestArenaLimit
+codegen/c	TestArenaLimit	parent
 codegen/c	TestArenaLimit/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenaLimit/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenaLimit/-O2
-codegen/c	TestArenaSpansClampToTheArena
+codegen/c	TestArenaSpansClampToTheArena	parent
 codegen/c	TestArenaSpansClampToTheArena/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenaSpansClampToTheArena/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
-codegen/c	TestArenaUnionsExampleIsSanitizerClean
+codegen/c	TestArenaUnionsExampleIsSanitizerClean	parent
 codegen/c	TestArenaUnionsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenaUnionsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenaUnionsExampleIsSanitizerClean/-O2
-codegen/c	TestArenasExampleIsSanitizerClean
+codegen/c	TestArenasExampleIsSanitizerClean	parent
 codegen/c	TestArenasExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenasExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestArenasExampleIsSanitizerClean/-O2
-codegen/c	TestArithmeticWrapsAtRuntime
+codegen/c	TestArithmeticWrapsAtRuntime	parent
 codegen/c	TestArithmeticWrapsAtRuntime/-%min
 codegen/c	TestArithmeticWrapsAtRuntime/compound_assignments
 codegen/c	TestArithmeticWrapsAtRuntime/max_*%_2
@@ -195,7 +195,7 @@ codegen/c	TestArithmeticWrapsAtRuntime/min_-%_1
 codegen/c	TestArithmeticWrapsAtRuntime/min_/_-1_fails_in_the_checked_form,_its_remainder_0
 codegen/c	TestArithmeticWrapsAtRuntime/ordinary_division_still_truncates
 codegen/c	TestArrayLowering
-codegen/c	TestArrayReadsKeepEvaluationOrder
+codegen/c	TestArrayReadsKeepEvaluationOrder	parent
 codegen/c	TestArrayReadsKeepEvaluationOrder/a_variable_passed_as_mut_elsewhere_is_read_in_place
 codegen/c	TestArrayReadsKeepEvaluationOrder/an_index_inside_the_array_is_evaluated_before_the_outer_index
 codegen/c	TestArrayReadsKeepEvaluationOrder/checked_index_of_a_mut_parameter_its_index_passes_on
@@ -206,7 +206,7 @@ codegen/c	TestArrayReadsKeepEvaluationOrder/range_over_a_field_of_a_variable_who
 codegen/c	TestArrayReadsKeepEvaluationOrder/range_over_a_mut_parameter_the_body_passes_as_mut
 codegen/c	TestArrayReadsKeepEvaluationOrder/range_over_a_mutable_global_a_call_in_the_body_changes
 codegen/c	TestArrayReadsKeepEvaluationOrder/range_over_a_mutable_global_the_body_only_reads
-codegen/c	TestArraysAtRuntime
+codegen/c	TestArraysAtRuntime	parent
 codegen/c	TestArraysAtRuntime/assignment_copies
 codegen/c	TestArraysAtRuntime/constant_indexes_from_constants
 codegen/c	TestArraysAtRuntime/element_assigned_several_values
@@ -220,7 +220,7 @@ codegen/c	TestArraysAtRuntime/returned
 codegen/c	TestArraysAtRuntime/strings
 codegen/c	TestArraysAtRuntime/zero_value
 codegen/c	TestAsmIsAName
-codegen/c	TestAssignOrderExampleRunsAtEveryLevel
+codegen/c	TestAssignOrderExampleRunsAtEveryLevel	parent
 codegen/c	TestAssignOrderExampleRunsAtEveryLevel/-O0
 codegen/c	TestAssignOrderExampleRunsAtEveryLevel/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestAssignOrderExampleRunsAtEveryLevel/-O1
@@ -229,39 +229,39 @@ codegen/c	TestAssignOrderExampleRunsAtEveryLevel/-O2
 codegen/c	TestAssignOrderExampleRunsAtEveryLevel/-O3
 codegen/c	TestAssignmentToANonVariableIsReported
 codegen/c	TestBackendIdentity
-codegen/c	TestBigExampleIsSanitizerClean
+codegen/c	TestBigExampleIsSanitizerClean	parent
 codegen/c	TestBigExampleIsSanitizerClean/-O0
 codegen/c	TestBigExampleIsSanitizerClean/-O1
 codegen/c	TestBigExampleValuesMatchGo
-codegen/c	TestBigMatchesGo
+codegen/c	TestBigMatchesGo	parent
 codegen/c	TestBigMatchesGo/-O0
 codegen/c	TestBigMatchesGo/-O1
-codegen/c	TestBinaryExampleIsSanitizerClean
+codegen/c	TestBinaryExampleIsSanitizerClean	parent
 codegen/c	TestBinaryExampleIsSanitizerClean/-O0
 codegen/c	TestBinaryExampleIsSanitizerClean/-O1
-codegen/c	TestBinaryReadMatchesGo
+codegen/c	TestBinaryReadMatchesGo	parent
 codegen/c	TestBinaryReadMatchesGo/-O0
 codegen/c	TestBinaryReadMatchesGo/-O1
-codegen/c	TestBinaryWriteMatchesGo
+codegen/c	TestBinaryWriteMatchesGo	parent
 codegen/c	TestBinaryWriteMatchesGo/-O0
 codegen/c	TestBinaryWriteMatchesGo/-O1
-codegen/c	TestBitwiseExampleRuns
+codegen/c	TestBitwiseExampleRuns	parent
 codegen/c	TestBitwiseExampleRuns/-O0
 codegen/c	TestBitwiseExampleRuns/-O1
 codegen/c	TestBitwiseExampleRuns/-O2
 codegen/c	TestBitwiseExampleRuns/-O3
-codegen/c	TestBitwiseMatrixRuns
+codegen/c	TestBitwiseMatrixRuns	parent
 codegen/c	TestBitwiseMatrixRuns/-O0
 codegen/c	TestBitwiseMatrixRuns/-O1
 codegen/c	TestBitwiseMatrixRuns/-O2
 codegen/c	TestBitwiseMatrixRuns/-O3
 codegen/c	TestBitwiseMatrixValues
 codegen/c	TestBlankAtRuntime
-codegen/c	TestBlankParamsExampleIsSanitizerClean
+codegen/c	TestBlankParamsExampleIsSanitizerClean	parent
 codegen/c	TestBlankParamsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestBlankParamsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestBlankParamsExampleIsSanitizerClean/-O2
-codegen/c	TestBoolLiteralsAtRuntime
+codegen/c	TestBoolLiteralsAtRuntime	parent
 codegen/c	TestBoolLiteralsAtRuntime/comparing_results_and_parameters
 codegen/c	TestBoolLiteralsAtRuntime/equal_bools
 codegen/c	TestBoolLiteralsAtRuntime/false_condition_takes_the_else
@@ -271,8 +271,8 @@ codegen/c	TestBoolLiteralsAtRuntime/returned_and_passed
 codegen/c	TestBoolLiteralsAtRuntime/true_condition_runs_the_branch
 codegen/c	TestBoolLiteralsAtRuntime/unequal_bools_take_the_else
 codegen/c	TestBoolLiteralsAtRuntime/variable_flipped
-codegen/c	TestBrokenPipeExampleIsSanitizerClean
-codegen/c	TestBrokenPipeExampleIsSanitizerClean/-O0
+codegen/c	TestBrokenPipeExampleIsSanitizerClean	parent
+codegen/c	TestBrokenPipeExampleIsSanitizerClean/-O0	parent
 codegen/c	TestBrokenPipeExampleIsSanitizerClean/-O0/big
 codegen/c	TestBrokenPipeExampleIsSanitizerClean/-O0/eprintf
 codegen/c	TestBrokenPipeExampleIsSanitizerClean/-O0/eprintln
@@ -284,7 +284,7 @@ codegen/c	TestBrokenPipeExampleIsSanitizerClean/-O0/println
 codegen/c	TestBrokenPipeExampleIsSanitizerClean/-O0/region
 codegen/c	TestBrokenPipeExampleIsSanitizerClean/-O0/return
 codegen/c	TestBrokenPipeExampleIsSanitizerClean/-O0/write
-codegen/c	TestBrokenPipeExampleIsSanitizerClean/-O1
+codegen/c	TestBrokenPipeExampleIsSanitizerClean/-O1	parent
 codegen/c	TestBrokenPipeExampleIsSanitizerClean/-O1/big
 codegen/c	TestBrokenPipeExampleIsSanitizerClean/-O1/eprintf
 codegen/c	TestBrokenPipeExampleIsSanitizerClean/-O1/eprintln
@@ -300,33 +300,33 @@ codegen/c	TestBuildCmdCompilesSourceToOutput
 codegen/c	TestBuildCmdLinksObjects
 codegen/c	TestBuildCmdStillReportsErrors
 codegen/c	TestBuiltinsCallTheirCNames
-codegen/c	TestBuiltinsIncludeNoHostedHeader
+codegen/c	TestBuiltinsIncludeNoHostedHeader	parent
 codegen/c	TestBuiltinsIncludeNoHostedHeader/both
 codegen/c	TestBuiltinsIncludeNoHostedHeader/exit
 codegen/c	TestBuiltinsIncludeNoHostedHeader/neither
 codegen/c	TestBuiltinsIncludeNoHostedHeader/print
 codegen/c	TestBuiltinsIncludeNoHostedHeader/print_in_a_defer
-codegen/c	TestBulkAppendLowering
+codegen/c	TestBulkAppendLowering	parent
 codegen/c	TestBulkAppendLowering/-O0
 codegen/c	TestBulkAppendLowering/-O1
-codegen/c	TestBytesExampleIsSanitizerClean
+codegen/c	TestBytesExampleIsSanitizerClean	parent
 codegen/c	TestBytesExampleIsSanitizerClean/-O0
 codegen/c	TestBytesExampleIsSanitizerClean/-O1
 codegen/c	TestCDepth
 codegen/c	TestCRLFProgramRuns
 codegen/c	TestCallInArgumentPositionIsACExpression
-codegen/c	TestCallSiteExampleIsSanitizerClean
+codegen/c	TestCallSiteExampleIsSanitizerClean	parent
 codegen/c	TestCallSiteExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestCallSiteExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestCallSiteExampleIsSanitizerClean/-O2
-codegen/c	TestCaseExitsExampleIsSanitizerClean
+codegen/c	TestCaseExitsExampleIsSanitizerClean	parent
 codegen/c	TestCaseExitsExampleIsSanitizerClean/-O0
 codegen/c	TestCaseExitsExampleIsSanitizerClean/-O1
-codegen/c	TestCaseLinesExampleRuns
+codegen/c	TestCaseLinesExampleRuns	parent
 codegen/c	TestCaseLinesExampleRuns/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestCaseLinesExampleRuns/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestCaseLinesExampleRuns/-O2
-codegen/c	TestCharLiteralsAtRuntime
+codegen/c	TestCharLiteralsAtRuntime	parent
 codegen/c	TestCharLiteralsAtRuntime/compare
 codegen/c	TestCharLiteralsAtRuntime/divides_by_a_known_difference
 codegen/c	TestCharLiteralsAtRuntime/double_quote
@@ -340,17 +340,17 @@ codegen/c	TestCharLiteralsAtRuntime/value
 codegen/c	TestCharLiteralsAtRuntime/widens_before_arithmetic
 codegen/c	TestCharLiteralsAtRuntime/wraps_above_at_run_time
 codegen/c	TestCharLiteralsAtRuntime/wraps_below_at_run_time
-codegen/c	TestCheckedArithmeticExampleIsSanitizerClean
+codegen/c	TestCheckedArithmeticExampleIsSanitizerClean	parent
 codegen/c	TestCheckedArithmeticExampleIsSanitizerClean/-O0
 codegen/c	TestCheckedArithmeticExampleIsSanitizerClean/-O1
-codegen/c	TestCheckedDivisionAtRuntime
+codegen/c	TestCheckedDivisionAtRuntime	parent
 codegen/c	TestCheckedDivisionAtRuntime/as_a_loop_post
 codegen/c	TestCheckedDivisionAtRuntime/both_operands_evaluated,_dividend_first,_even_when_the_divisor_is_zero
 codegen/c	TestCheckedDivisionAtRuntime/narrow_operands
 codegen/c	TestCheckedDivisionAtRuntime/non-zero_divisor_gives_the_result_and_true
 codegen/c	TestCheckedDivisionAtRuntime/smallest_value_by_-1_fails,_and_its_remainder_is_0
 codegen/c	TestCheckedDivisionAtRuntime/zero_divisor_gives_0_and_false
-codegen/c	TestCheckedIndexesAtRuntime
+codegen/c	TestCheckedIndexesAtRuntime	parent
 codegen/c	TestCheckedIndexesAtRuntime/array_before_index,_each_once,_even_out_of_range
 codegen/c	TestCheckedIndexesAtRuntime/checked_index_as_a_loop_post
 codegen/c	TestCheckedIndexesAtRuntime/in_range_gives_the_element_and_true
@@ -363,16 +363,16 @@ codegen/c	TestCheckedIndexesAtRuntime/zero_of_an_array_element
 codegen/c	TestCheckedSlicesAtTheEdges
 codegen/c	TestCheckedUint64IndexIsWarningFree
 codegen/c	TestClangFlagsKeepLoopsThatNeverEnd
-codegen/c	TestClosurePathsExampleIsSanitizerClean
+codegen/c	TestClosurePathsExampleIsSanitizerClean	parent
 codegen/c	TestClosurePathsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestClosurePathsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestClosurePathsExampleIsSanitizerClean/-O2
-codegen/c	TestClosuresExampleIsSanitizerClean
+codegen/c	TestClosuresExampleIsSanitizerClean	parent
 codegen/c	TestClosuresExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestClosuresExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestClosuresExampleIsSanitizerClean/-O2
 codegen/c	TestCollectionRangeLowering
-codegen/c	TestCollectionRangesAtRuntime
+codegen/c	TestCollectionRangesAtRuntime	parent
 codegen/c	TestCollectionRangesAtRuntime/array_of_arrays
 codegen/c	TestCollectionRangesAtRuntime/array_of_strings
 codegen/c	TestCollectionRangesAtRuntime/break,_continue_and_return
@@ -391,7 +391,7 @@ codegen/c	TestComparedTypesCoverEveryEdge
 codegen/c	TestCompileCmdIncludesTheHeader
 codegen/c	TestCompileCmdTakesAnOptionLikeNameAsAFile
 codegen/c	TestCompileStdCmdSearchesStdHeaders
-codegen/c	TestCompoundAssignmentAtRuntime
+codegen/c	TestCompoundAssignmentAtRuntime	parent
 codegen/c	TestCompoundAssignmentAtRuntime/%=_takes_the_dividend's_sign
 codegen/c	TestCompoundAssignmentAtRuntime/*=
 codegen/c	TestCompoundAssignmentAtRuntime/+=
@@ -401,7 +401,7 @@ codegen/c	TestCompoundAssignmentAtRuntime/global_from_a_function
 codegen/c	TestCompoundAssignmentAtRuntime/in_a_loop
 codegen/c	TestCompoundAssignmentAtRuntime/value_grouped_as_a_whole
 codegen/c	TestCompoundAssignmentAtRuntime/value_uses_the_target
-codegen/c	TestConvExampleIsSanitizerClean
+codegen/c	TestConvExampleIsSanitizerClean	parent
 codegen/c	TestConvExampleIsSanitizerClean/-O0
 codegen/c	TestConvExampleIsSanitizerClean/-O1
 codegen/c	TestConvExampleTablesMatchGo
@@ -409,7 +409,7 @@ codegen/c	TestConvMatchesGo
 codegen/c	TestDeepAndWideSwitchesAtRuntime
 codegen/c	TestDeepDefersUnwindInnermostFirst
 codegen/c	TestDeepExpressionsExampleIsGenerated
-codegen/c	TestDeepExpressionsExampleRuns
+codegen/c	TestDeepExpressionsExampleRuns	parent
 codegen/c	TestDeepExpressionsExampleRuns/-O0
 codegen/c	TestDeepExpressionsExampleRuns/-O0_-fsanitize=address,undefined_-fsanitize-address-use-after-return=always_-fno-sanitize-recover=all
 codegen/c	TestDeepExpressionsExampleRuns/-O1
@@ -418,28 +418,28 @@ codegen/c	TestDeepExpressionsExampleRuns/-O2
 codegen/c	TestDeepExpressionsExampleRuns/-O3
 codegen/c	TestDeepExpressionsExampleRuns/-Os
 codegen/c	TestDeepExpressionsExampleRuns/-Oz
-codegen/c	TestDeepExpressionsRun
+codegen/c	TestDeepExpressionsRun	parent
 codegen/c	TestDeepExpressionsRun/-O0
 codegen/c	TestDeepExpressionsRun/-O0_-fsanitize=address,undefined_-fsanitize-address-use-after-return=always_-fno-sanitize-recover=all
 codegen/c	TestDeepExpressionsRun/-O1_-fsanitize=address,undefined_-fsanitize-address-use-after-return=always_-fno-sanitize-recover=all
 codegen/c	TestDeepExpressionsRun/-O2
 codegen/c	TestDeepExpressionsStayShallow
-codegen/c	TestDeepLiteralsRun
+codegen/c	TestDeepLiteralsRun	parent
 codegen/c	TestDeepLiteralsRun/-O0
 codegen/c	TestDeepLiteralsRun/-O0_-fsanitize=address,undefined_-fsanitize-address-use-after-return=always_-fno-sanitize-recover=all
 codegen/c	TestDeepLiteralsStayShallow
 codegen/c	TestDeepNestingGeneratesInQuadraticSpace
 codegen/c	TestDeepNestingIndentsEachLevelOnce
-codegen/c	TestDeepestProgramsRun
+codegen/c	TestDeepestProgramsRun	parent
 codegen/c	TestDeepestProgramsRun/-O0
 codegen/c	TestDeepestProgramsRun/-O0_-fsanitize=address,undefined_-fsanitize-address-use-after-return=always_-fno-sanitize-recover=all
 codegen/c	TestDeeplyNestedStructsRun
-codegen/c	TestDeeplyNestedUnions
+codegen/c	TestDeeplyNestedUnions	parent
 codegen/c	TestDeeplyNestedUnions/-O0
 codegen/c	TestDeeplyNestedUnions/-O1
 codegen/c	TestDeferEmitsNoFlags
 codegen/c	TestDeferInADeferIsReported
-codegen/c	TestDefersAtRuntime
+codegen/c	TestDefersAtRuntime	parent
 codegen/c	TestDefersAtRuntime/a_bare_return_runs_the_defers
 codegen/c	TestDefersAtRuntime/a_closed_block's_defers_are_not_run_again
 codegen/c	TestDefersAtRuntime/a_continue_after_the_loop_was_left_by_break_before
@@ -461,18 +461,18 @@ codegen/c	TestDefersAtRuntime/exit_runs_no_defer
 codegen/c	TestDefersAtRuntime/main's_defers_run_when_it_ends
 codegen/c	TestDefersAtRuntime/range_over_a_string_with_a_deferred_index
 codegen/c	TestDefersAtRuntime/returns_from_both_branches_of_a_final_if
-codegen/c	TestDivisionOverflowExampleIsSanitizerClean
+codegen/c	TestDivisionOverflowExampleIsSanitizerClean	parent
 codegen/c	TestDivisionOverflowExampleIsSanitizerClean/-O0
 codegen/c	TestDivisionOverflowExampleIsSanitizerClean/-O1
 codegen/c	TestDriverFlagsLeaveNoLoopMustProgress
-codegen/c	TestDropExampleIsSanitizerClean
+codegen/c	TestDropExampleIsSanitizerClean	parent
 codegen/c	TestDropExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestDropExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestDropExampleIsSanitizerClean/-O2
 codegen/c	TestDropFreesStructFieldsLastFirst
 codegen/c	TestDropOfCopyableInstanceIsNothing
 codegen/c	TestEachInstanceIsDefinedOnce
-codegen/c	TestElementReadsDoNotCopyTheArray
+codegen/c	TestElementReadsDoNotCopyTheArray	parent
 codegen/c	TestElementReadsDoNotCopyTheArray/checked_index_as_a_loop_post
 codegen/c	TestElementReadsDoNotCopyTheArray/checked_index_assigned
 codegen/c	TestElementReadsDoNotCopyTheArray/checked_index_of_a_mut_parameter's_field
@@ -483,7 +483,7 @@ codegen/c	TestElementReadsDoNotCopyTheArray/range_over_a_variable_the_body_only_
 codegen/c	TestElseIfChainsRun
 codegen/c	TestElseIfChainsStayFlat
 codegen/c	TestEmitsBoolLiteralsAsCBools
-codegen/c	TestEmitsGlobalsAsStaticVariables
+codegen/c	TestEmitsGlobalsAsStaticVariables	parent
 codegen/c	TestEmitsGlobalsAsStaticVariables/mut_x_bool
 codegen/c	TestEmitsGlobalsAsStaticVariables/mut_x_int64
 codegen/c	TestEmitsGlobalsAsStaticVariables/mut_x_string
@@ -500,16 +500,16 @@ codegen/c	TestEmitsGlobalsAsStaticVariables/var_x_=_1_<_2
 codegen/c	TestEmitsGlobalsAsStaticVariables/var_x_=_40_+_2
 codegen/c	TestEmitsStringLiteralsAsByteArrays
 codegen/c	TestEmptyUnion
-codegen/c	TestEqualOperandsExampleIsSanitizerClean
+codegen/c	TestEqualOperandsExampleIsSanitizerClean	parent
 codegen/c	TestEqualOperandsExampleIsSanitizerClean/-O0
 codegen/c	TestEqualOperandsExampleIsSanitizerClean/-O1
-codegen/c	TestErrorsExampleIsSanitizerClean
+codegen/c	TestErrorsExampleIsSanitizerClean	parent
 codegen/c	TestErrorsExampleIsSanitizerClean/-O0
 codegen/c	TestErrorsExampleIsSanitizerClean/-O1
 codegen/c	TestEveryCompileAssumesNoLoopEnds
 codegen/c	TestEveryCompileTurnsOffLoopPredication
 codegen/c	TestExitAcceptsTheFullInt32Range
-codegen/c	TestExitEndsFunctionsWithResults
+codegen/c	TestExitEndsFunctionsWithResults	parent
 codegen/c	TestExitEndsFunctionsWithResults/a_body_ending_in_exit/-O0
 codegen/c	TestExitEndsFunctionsWithResults/a_body_ending_in_exit/-O2
 codegen/c	TestExitEndsFunctionsWithResults/a_move_in_a_branch_that_exits/-O0
@@ -520,7 +520,7 @@ codegen/c	TestExitEndsFunctionsWithResults/an_exit_in_a_loop_with_no_condition/-
 codegen/c	TestExitEndsFunctionsWithResults/an_exit_in_a_loop_with_no_condition/-O2
 codegen/c	TestExitEndsFunctionsWithResults/an_if_returning_and_exiting/-O0
 codegen/c	TestExitEndsFunctionsWithResults/an_if_returning_and_exiting/-O2
-codegen/c	TestExitFreesExampleIsSanitizerClean
+codegen/c	TestExitFreesExampleIsSanitizerClean	parent
 codegen/c	TestExitFreesExampleIsSanitizerClean/-O0
 codegen/c	TestExitFreesExampleIsSanitizerClean/-O1
 codegen/c	TestExitNarrowsInTheOpen
@@ -530,7 +530,7 @@ codegen/c	TestExternAnyExampleIsWarningFree
 codegen/c	TestExternErrorsExampleIsWarningFree
 codegen/c	TestExternFieldsNamedLikeFunctionMacros
 codegen/c	TestExternIntegersAndBoolsCrossToC
-codegen/c	TestExternListsExampleIsWarningFree
+codegen/c	TestExternListsExampleIsWarningFree	parent
 codegen/c	TestExternListsExampleIsWarningFree/-O0
 codegen/c	TestExternListsExampleIsWarningFree/-O1
 codegen/c	TestExternMutExampleIsWarningFree
@@ -540,27 +540,27 @@ codegen/c	TestExternStringsExampleIsWarningFree
 codegen/c	TestExternValuesExampleIsWarningFree
 codegen/c	TestExternVariadicsExampleIsWarningFree
 codegen/c	TestExternViewsExampleIsWarningFree
-codegen/c	TestFailureExampleIsSanitizerClean
+codegen/c	TestFailureExampleIsSanitizerClean	parent
 codegen/c	TestFailureExampleIsSanitizerClean/-O0
 codegen/c	TestFailureExampleIsSanitizerClean/-O1
-codegen/c	TestFallthroughExampleRuns
+codegen/c	TestFallthroughExampleRuns	parent
 codegen/c	TestFallthroughExampleRuns/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestFallthroughExampleRuns/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestFallthroughExampleRuns/-O2
-codegen/c	TestFallthroughFactsExampleRuns
+codegen/c	TestFallthroughFactsExampleRuns	parent
 codegen/c	TestFallthroughFactsExampleRuns/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestFallthroughFactsExampleRuns/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestFallthroughFactsExampleRuns/-O2
-codegen/c	TestFallthroughOwnedExampleIsSanitizerClean
+codegen/c	TestFallthroughOwnedExampleIsSanitizerClean	parent
 codegen/c	TestFallthroughOwnedExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestFallthroughOwnedExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestFallthroughOwnedExampleIsSanitizerClean/-O2
-codegen/c	TestFallthroughProofsExampleRuns
+codegen/c	TestFallthroughProofsExampleRuns	parent
 codegen/c	TestFallthroughProofsExampleRuns/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestFallthroughProofsExampleRuns/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestFallthroughProofsExampleRuns/-O2
 codegen/c	TestFieldsLoopLowering
-codegen/c	TestFloatExamplesAreSanitizerClean
+codegen/c	TestFloatExamplesAreSanitizerClean	parent
 codegen/c	TestFloatExamplesAreSanitizerClean/extern-floats-O0
 codegen/c	TestFloatExamplesAreSanitizerClean/extern-floats-O2
 codegen/c	TestFloatExamplesAreSanitizerClean/float-conversions-O0
@@ -569,32 +569,32 @@ codegen/c	TestFloatExamplesAreSanitizerClean/float-format-O0
 codegen/c	TestFloatExamplesAreSanitizerClean/float-format-O2
 codegen/c	TestFloatExamplesAreSanitizerClean/floats-O0
 codegen/c	TestFloatExamplesAreSanitizerClean/floats-O2
-codegen/c	TestFloatFormattingMatchesGo
+codegen/c	TestFloatFormattingMatchesGo	parent
 codegen/c	TestFloatFormattingMatchesGo/-O0
 codegen/c	TestFloatFormattingMatchesGo/-O1
-codegen/c	TestFloatPrecisionFailsPromptlyPastMemory
+codegen/c	TestFloatPrecisionFailsPromptlyPastMemory	parent
 codegen/c	TestFloatPrecisionFailsPromptlyPastMemory/plain-O2
 codegen/c	TestFloatPrecisionFailsPromptlyPastMemory/sanitized-O0
 codegen/c	TestFloatPrecisionFailsPromptlyPastMemory/sanitized-O1
-codegen/c	TestFloatToIntMatchesGo
-codegen/c	TestFloatToIntMatchesGo/float32
+codegen/c	TestFloatToIntMatchesGo	parent
+codegen/c	TestFloatToIntMatchesGo/float32	parent
 codegen/c	TestFloatToIntMatchesGo/float32/-O0
 codegen/c	TestFloatToIntMatchesGo/float32/-O1
-codegen/c	TestFloatToIntMatchesGo/float64
+codegen/c	TestFloatToIntMatchesGo/float64	parent
 codegen/c	TestFloatToIntMatchesGo/float64/-O0
 codegen/c	TestFloatToIntMatchesGo/float64/-O1
-codegen/c	TestFmtAppendfExampleIsSanitizerClean
+codegen/c	TestFmtAppendfExampleIsSanitizerClean	parent
 codegen/c	TestFmtAppendfExampleIsSanitizerClean/-O0
 codegen/c	TestFmtAppendfExampleIsSanitizerClean/-O1
-codegen/c	TestFmtStderrExampleIsSanitizerClean
+codegen/c	TestFmtStderrExampleIsSanitizerClean	parent
 codegen/c	TestFmtStderrExampleIsSanitizerClean/-O0
 codegen/c	TestFmtStderrExampleIsSanitizerClean/-O1
-codegen/c	TestFmtWriteExampleIsSanitizerClean
+codegen/c	TestFmtWriteExampleIsSanitizerClean	parent
 codegen/c	TestFmtWriteExampleIsSanitizerClean/-O0
 codegen/c	TestFmtWriteExampleIsSanitizerClean/-O1
 codegen/c	TestForwardDeclaresEveryFunctionBeforeAnyDefinition
 codegen/c	TestFuncValueReadBeforeArguments
-codegen/c	TestFuncValuesExampleIsSanitizerClean
+codegen/c	TestFuncValuesExampleIsSanitizerClean	parent
 codegen/c	TestFuncValuesExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestFuncValuesExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestFuncValuesExampleIsSanitizerClean/-O2
@@ -611,7 +611,7 @@ codegen/c	TestGeneratedProgramRuns
 codegen/c	TestGeneratedProgramTakesTheElseBranch
 codegen/c	TestGeneratedProgramThreadsAValueThroughSeveralCalls
 codegen/c	TestGeneratedSourceIncludesTackString
-codegen/c	TestGeneratesAnyArguments
+codegen/c	TestGeneratesAnyArguments	parent
 codegen/c	TestGeneratesAnyArguments/an_any_passed_on_as_itself
 codegen/c	TestGeneratesAnyArguments/any_parameter
 codegen/c	TestGeneratesAnyArguments/call_result,_copied
@@ -637,7 +637,7 @@ codegen/c	TestGeneratesIfElse
 codegen/c	TestGeneratesParameterisedSignature
 codegen/c	TestGeneratesResultTypeInSignature
 codegen/c	TestGeneratesReturnStatement
-codegen/c	TestGeneratesTypeAssertions
+codegen/c	TestGeneratesTypeAssertions	parent
 codegen/c	TestGeneratesTypeAssertions/assertion
 codegen/c	TestGeneratesTypeAssertions/bool_assertion_assigned
 codegen/c	TestGeneratesTypeAssertions/checked_element_of_anys,_zeroed_out_of_range
@@ -645,19 +645,19 @@ codegen/c	TestGeneratesTypeAssertions/string_assertion,_zero_value_pooled
 codegen/c	TestGeneratesTypeAssertions/type_switch
 codegen/c	TestGeneratesTypeAssertions/type_switch_with_no_cases
 codegen/c	TestGeneratesTypeAssertions/type_switch_without_a_binding
-codegen/c	TestGeneratesViewsAsAny
+codegen/c	TestGeneratesViewsAsAny	parent
 codegen/c	TestGeneratesViewsAsAny/slice_of_a_list,_its_buffer
 codegen/c	TestGeneratesViewsAsAny/slice_of_a_mutable_global_array,_of_a_copy
 codegen/c	TestGeneratesViewsAsAny/slice_of_an_array,_held_in_a_temporary
 codegen/c	TestGeneratesViewsAsAny/slice_of_an_array_passed_as_mut_in_the_call,_of_a_copy
 codegen/c	TestGeneratesViewsAsAny/view_parameter,_by_address
 codegen/c	TestGenericsBuildStrictlyAndRun
-codegen/c	TestGenericsOwnedExampleIsSanitizerClean
+codegen/c	TestGenericsOwnedExampleIsSanitizerClean	parent
 codegen/c	TestGenericsOwnedExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestGenericsOwnedExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestGenericsOwnedExampleIsSanitizerClean/-O2
 codegen/c	TestGlobalsAreDeclaredBeforeFunctions
-codegen/c	TestGlobalsAtRuntime
+codegen/c	TestGlobalsAtRuntime	parent
 codegen/c	TestGlobalsAtRuntime/bool
 codegen/c	TestGlobalsAtRuntime/declared_after_its_reader
 codegen/c	TestGlobalsAtRuntime/global_and_local_together
@@ -667,25 +667,25 @@ codegen/c	TestGlobalsAtRuntime/smallest_int64
 codegen/c	TestGlobalsAtRuntime/string
 codegen/c	TestGlobalsAtRuntime/updated_across_calls
 codegen/c	TestGlobalsAtRuntime/zero_string_reassigned
-codegen/c	TestHandlesCompare
+codegen/c	TestHandlesCompare	parent
 codegen/c	TestHandlesCompare/-O0
 codegen/c	TestHandlesCompare/-O2
 codegen/c	TestHeaderDeclaresAny
 codegen/c	TestHeaderDeclaresError
 codegen/c	TestHeaderDeclaresEveryExternFunc
 codegen/c	TestHeaderDeclaresMutParamsAsPointers
-codegen/c	TestHeaderDeclaresVariadics
+codegen/c	TestHeaderDeclaresVariadics	parent
 codegen/c	TestHeaderDeclaresVariadics/array_element
 codegen/c	TestHeaderDeclaresVariadics/prototype
 codegen/c	TestHeaderDeclaresVariadics/view_type
-codegen/c	TestHeaderDefinesViews
+codegen/c	TestHeaderDefinesViews	parent
 codegen/c	TestHeaderDefinesViews/array_element
 codegen/c	TestHeaderDefinesViews/basic_element
 codegen/c	TestHeaderDefinesViews/prototype
 codegen/c	TestHeaderDefinesViews/string_element
 codegen/c	TestHeaderDefinesViews/struct_element
 codegen/c	TestHeaderDefinesViews/target-width_element
-codegen/c	TestHeaderIncludesStddefForSizeT
+codegen/c	TestHeaderIncludesStddefForSizeT	parent
 codegen/c	TestHeaderIncludesStddefForSizeT/a_mut_parameter
 codegen/c	TestHeaderIncludesStddefForSizeT/a_parameter
 codegen/c	TestHeaderIncludesStddefForSizeT/a_result
@@ -696,7 +696,7 @@ codegen/c	TestHeaderIncludesStddefForSizeT/one_of_several_results
 codegen/c	TestHeaderIncludesStddefForSizeT/unsafe_uintptr_t_only
 codegen/c	TestHeaderNamesParamsInComments
 codegen/c	TestHeaderNamesTargetWidthTypes
-codegen/c	TestHeaderRejectsFieldsNamedLikeObjectMacros
+codegen/c	TestHeaderRejectsFieldsNamedLikeObjectMacros	parent
 codegen/c	TestHeaderRejectsFieldsNamedLikeObjectMacros/INT64_MAX
 codegen/c	TestHeaderRejectsFieldsNamedLikeObjectMacros/NULL
 codegen/c	TestHeaderRejectsFieldsNamedLikeObjectMacros/TACK_H
@@ -708,39 +708,39 @@ codegen/c	TestHeaderRejectsFieldsNamedLikeObjectMacros/__bool_true_false_are_def
 codegen/c	TestHeaderUsesTheGivenCName
 codegen/c	TestHeaderViewNameClash
 codegen/c	TestHelpersOnlyForLoweredCode
-codegen/c	TestHexExampleIsSanitizerClean
+codegen/c	TestHexExampleIsSanitizerClean	parent
 codegen/c	TestHexExampleIsSanitizerClean/-O0
 codegen/c	TestHexExampleIsSanitizerClean/-O1
 codegen/c	TestHexExampleStringsMatchGo
-codegen/c	TestHexMatchesGo
+codegen/c	TestHexMatchesGo	parent
 codegen/c	TestHexMatchesGo/-O0
 codegen/c	TestHexMatchesGo/-O1
-codegen/c	TestHoldsOperandsOnlyWhenOrderShows
+codegen/c	TestHoldsOperandsOnlyWhenOrderShows	parent
 codegen/c	TestHoldsOperandsOnlyWhenOrderShows/a_call_and_a_constant
 codegen/c	TestHoldsOperandsOnlyWhenOrderShows/a_call_and_a_local
 codegen/c	TestHoldsOperandsOnlyWhenOrderShows/a_call_and_a_mutable_global
 codegen/c	TestHoldsOperandsOnlyWhenOrderShows/one_call
 codegen/c	TestHoldsOperandsOnlyWhenOrderShows/two_calls
 codegen/c	TestHoldsOperandsOnlyWhenOrderShows/two_mutable_globals
-codegen/c	TestHoldsTargetIndexesOnlyWhenOrderShows
+codegen/c	TestHoldsTargetIndexesOnlyWhenOrderShows	parent
 codegen/c	TestHoldsTargetIndexesOnlyWhenOrderShows/a_compound_assignment
 codegen/c	TestHoldsTargetIndexesOnlyWhenOrderShows/a_constant_index_and_a_call
 codegen/c	TestHoldsTargetIndexesOnlyWhenOrderShows/a_global_index_and_a_call
 codegen/c	TestHoldsTargetIndexesOnlyWhenOrderShows/a_global_index_and_no_call
 codegen/c	TestHoldsTargetIndexesOnlyWhenOrderShows/a_local_index_and_a_call
 codegen/c	TestIfConditionHasOnePairOfParentheses
-codegen/c	TestIgnoredParamsCompileStrictly
+codegen/c	TestIgnoredParamsCompileStrictly	parent
 codegen/c	TestIgnoredParamsCompileStrictly/-O0
 codegen/c	TestIgnoredParamsCompileStrictly/-O2
 codegen/c	TestImmutableVariableIsAConstLocal
-codegen/c	TestIncDecAtRuntime
+codegen/c	TestIncDecAtRuntime	parent
 codegen/c	TestIncDecAtRuntime/++
 codegen/c	TestIncDecAtRuntime/--
 codegen/c	TestIncDecAtRuntime/counting_loop
 codegen/c	TestIncDecAtRuntime/global
 codegen/c	TestIncDecAtRuntime/through_zero
 codegen/c	TestInstanceNamesDoNotCollide
-codegen/c	TestIntegerWidthsAtRuntime
+codegen/c	TestIntegerWidthsAtRuntime	parent
 codegen/c	TestIntegerWidthsAtRuntime/checked_conversion_assigned_in_a_loop_post
 codegen/c	TestIntegerWidthsAtRuntime/checked_conversion_bounds
 codegen/c	TestIntegerWidthsAtRuntime/checked_conversion_from_unsigned
@@ -766,21 +766,21 @@ codegen/c	TestIntegerWidthsAtRuntime/uint8_divides
 codegen/c	TestIntegerWidthsAtRuntime/uint8_wraps
 codegen/c	TestIntegerWidthsAtRuntime/widening_keeps_values
 codegen/c	TestJSONDoesNotRecurse
-codegen/c	TestJSONExampleIsSanitizerClean
+codegen/c	TestJSONExampleIsSanitizerClean	parent
 codegen/c	TestJSONExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestJSONExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestJSONExampleIsSanitizerClean/-O2
-codegen/c	TestJSONScalarsMatchGo
+codegen/c	TestJSONScalarsMatchGo	parent
 codegen/c	TestJSONScalarsMatchGo/-O0
 codegen/c	TestJSONScalarsMatchGo/-O1
-codegen/c	TestJSONValuesMatchGo
+codegen/c	TestJSONValuesMatchGo	parent
 codegen/c	TestJSONValuesMatchGo/-O0
 codegen/c	TestJSONValuesMatchGo/-O1
-codegen/c	TestLengthProofsExampleIsSanitizerClean
+codegen/c	TestLengthProofsExampleIsSanitizerClean	parent
 codegen/c	TestLengthProofsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestLengthProofsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestLengthProofsExampleIsSanitizerClean/-O2
-codegen/c	TestLimitGlobalsZeroed
+codegen/c	TestLimitGlobalsZeroed	parent
 codegen/c	TestLimitGlobalsZeroed/a_struct/-O0
 codegen/c	TestLimitGlobalsZeroed/a_struct/-O2
 codegen/c	TestLimitGlobalsZeroed/an_array_of_arrays/-O0
@@ -788,24 +788,24 @@ codegen/c	TestLimitGlobalsZeroed/an_array_of_arrays/-O2
 codegen/c	TestLimitGlobalsZeroed/an_array_of_bytes/-O0
 codegen/c	TestLimitGlobalsZeroed/an_array_of_bytes/-O2
 codegen/c	TestLimitLocalsZeroed
-codegen/c	TestListBulkExampleIsSanitizerClean
+codegen/c	TestListBulkExampleIsSanitizerClean	parent
 codegen/c	TestListBulkExampleIsSanitizerClean/-O0
 codegen/c	TestListBulkExampleIsSanitizerClean/-O1
-codegen/c	TestListEqualityExampleIsSanitizerClean
+codegen/c	TestListEqualityExampleIsSanitizerClean	parent
 codegen/c	TestListEqualityExampleIsSanitizerClean/-O0
 codegen/c	TestListEqualityExampleIsSanitizerClean/-O1
-codegen/c	TestListGrowFunction
+codegen/c	TestListGrowFunction	parent
 codegen/c	TestListGrowFunction/-O0
 codegen/c	TestListGrowFunction/-O1
-codegen/c	TestListInDeferredCode
+codegen/c	TestListInDeferredCode	parent
 codegen/c	TestListInDeferredCode/-O0
 codegen/c	TestListInDeferredCode/-O1
 codegen/c	TestListLowering
 codegen/c	TestListsCompileFor32Bits
-codegen/c	TestListsExampleIsSanitizerClean
+codegen/c	TestListsExampleIsSanitizerClean	parent
 codegen/c	TestListsExampleIsSanitizerClean/-O0
 codegen/c	TestListsExampleIsSanitizerClean/-O1
-codegen/c	TestLogicalOperatorsAtRuntime
+codegen/c	TestLogicalOperatorsAtRuntime	parent
 codegen/c	TestLogicalOperatorsAtRuntime/&&_evaluates_its_right_side_after_true
 codegen/c	TestLogicalOperatorsAtRuntime/&&_guards_a_division
 codegen/c	TestLogicalOperatorsAtRuntime/&&_skips_its_right_side_after_false
@@ -816,10 +816,10 @@ codegen/c	TestLogicalOperatorsAtRuntime/stored_and_returned
 codegen/c	TestLogicalOperatorsAtRuntime/||_evaluates_its_right_side_after_false
 codegen/c	TestLogicalOperatorsAtRuntime/||_skips_its_right_side_after_true
 codegen/c	TestLongElseIfChainsAreFlat
-codegen/c	TestLongElseIfChainsRun
+codegen/c	TestLongElseIfChainsRun	parent
 codegen/c	TestLongElseIfChainsRun/10000_-O0
 codegen/c	TestLongElseIfChainsRun/10000_-O0_-fsanitize=address,undefined_-fsanitize-address-use-after-return=always_-fno-sanitize-recover=all
-codegen/c	TestLoopsAtRuntime
+codegen/c	TestLoopsAtRuntime	parent
 codegen/c	TestLoopsAtRuntime/break_leaves_forever
 codegen/c	TestLoopsAtRuntime/break_leaves_only_the_inner_loop
 codegen/c	TestLoopsAtRuntime/condition_re-evaluated_each_time
@@ -838,34 +838,34 @@ codegen/c	TestMakeDataLowering
 codegen/c	TestMangledNamesDecode
 codegen/c	TestManyCases
 codegen/c	TestManyDefersRunLastFirst
-codegen/c	TestMapCompositeKeysFindEqualKeys
+codegen/c	TestMapCompositeKeysFindEqualKeys	parent
 codegen/c	TestMapCompositeKeysFindEqualKeys/-O0
 codegen/c	TestMapCompositeKeysFindEqualKeys/-O1
-codegen/c	TestMapHasExampleIsSanitizerClean
+codegen/c	TestMapHasExampleIsSanitizerClean	parent
 codegen/c	TestMapHasExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestMapHasExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestMapHasExampleIsSanitizerClean/-O2
-codegen/c	TestMapZeroExampleIsSanitizerClean
+codegen/c	TestMapZeroExampleIsSanitizerClean	parent
 codegen/c	TestMapZeroExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestMapZeroExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestMapZeroExampleIsSanitizerClean/-O2
-codegen/c	TestMapsExampleIsSanitizerClean
+codegen/c	TestMapsExampleIsSanitizerClean	parent
 codegen/c	TestMapsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestMapsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestMapsExampleIsSanitizerClean/-O2
-codegen/c	TestMemberNamesExampleIsSanitizerClean
+codegen/c	TestMemberNamesExampleIsSanitizerClean	parent
 codegen/c	TestMemberNamesExampleIsSanitizerClean/-O0
 codegen/c	TestMemberNamesExampleIsSanitizerClean/-O2
-codegen/c	TestMethodExprsExampleIsSanitizerClean
+codegen/c	TestMethodExprsExampleIsSanitizerClean	parent
 codegen/c	TestMethodExprsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestMethodExprsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestMethodExprsExampleIsSanitizerClean/-O2
 codegen/c	TestMethodNamesDoNotCollide
 codegen/c	TestMethodsBuildStrictlyAndRun
-codegen/c	TestMixedCompareExampleIsSanitizerClean
+codegen/c	TestMixedCompareExampleIsSanitizerClean	parent
 codegen/c	TestMixedCompareExampleIsSanitizerClean/-O0
 codegen/c	TestMixedCompareExampleIsSanitizerClean/-O1
-codegen/c	TestMixedComparisonLowering
+codegen/c	TestMixedComparisonLowering	parent
 codegen/c	TestMixedComparisonLowering/calls_held_in_order
 codegen/c	TestMixedComparisonLowering/one_type
 codegen/c	TestMixedComparisonLowering/only_the_call_held
@@ -877,16 +877,16 @@ codegen/c	TestMixedComparisonLowering/two_target_widths
 codegen/c	TestMixedComparisonLowering/two_unsigned
 codegen/c	TestMixedComparisonLowering/uint64_above_signed
 codegen/c	TestMixedComparisonLowering/uintptr_at_least_signed
-codegen/c	TestMixedComparisonsCompareValues
+codegen/c	TestMixedComparisonsCompareValues	parent
 codegen/c	TestMixedComparisonsCompareValues/-O0
 codegen/c	TestMixedComparisonsCompareValues/-O2
 codegen/c	TestMixedSwitchLowering
-codegen/c	TestMultiAssignAtRuntime
+codegen/c	TestMultiAssignAtRuntime	parent
 codegen/c	TestMultiAssignAtRuntime/arguments_read_before_any_target_is_written
 codegen/c	TestMultiAssignAtRuntime/globals_and_strings
 codegen/c	TestMultiAssignAtRuntime/post_runs_the_call_once_per_iteration
 codegen/c	TestMultiAssignAtRuntime/post_with_continue
-codegen/c	TestMultipleResultsAtRuntime
+codegen/c	TestMultipleResultsAtRuntime	parent
 codegen/c	TestMultipleResultsAtRuntime/call_runs_once
 codegen/c	TestMultipleResultsAtRuntime/declared_after_its_caller
 codegen/c	TestMultipleResultsAtRuntime/discarded_call_still_runs
@@ -901,7 +901,7 @@ codegen/c	TestMultipleResultsAtRuntime/recursion
 codegen/c	TestMultipleResultsAtRuntime/string_results_from_both_branches
 codegen/c	TestMultipleResultsLowering
 codegen/c	TestMutableVariableIsAPlainLocal
-codegen/c	TestNegationAtRuntime
+codegen/c	TestNegationAtRuntime	parent
 codegen/c	TestNegationAtRuntime/double_negation
 codegen/c	TestNegationAtRuntime/global
 codegen/c	TestNegationAtRuntime/minus_a_negative
@@ -918,29 +918,29 @@ codegen/c	TestNestsStatementsInsideBranches
 codegen/c	TestNoBuiltinNeedsNoHostedHeader
 codegen/c	TestNoResultsStructWithoutMultipleResults
 codegen/c	TestNotPlace
-codegen/c	TestNothingLiveAtProcessEndOnEveryPath
-codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_after_every_list_is_freed
+codegen/c	TestNothingLiveAtProcessEndOnEveryPath	parent
+codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_after_every_list_is_freed	parent
 codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_after_every_list_is_freed/-O0
 codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_after_every_list_is_freed/-O1
-codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_from_main
+codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_from_main	parent
 codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_from_main/-O0
 codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_from_main/-O1
-codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_inside_a_range
+codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_inside_a_range	parent
 codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_inside_a_range/-O0
 codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_inside_a_range/-O1
-codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_while_refusing_every_request
+codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_while_refusing_every_request	parent
 codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_while_refusing_every_request/-O0
 codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_while_refusing_every_request/-O1
-codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_with_nothing_allocated
+codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_with_nothing_allocated	parent
 codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_with_nothing_allocated/-O0
 codegen/c	TestNothingLiveAtProcessEndOnEveryPath/exit_with_nothing_allocated/-O1
-codegen/c	TestNothingLiveAtProcessEndOnEveryPath/return_from_main
+codegen/c	TestNothingLiveAtProcessEndOnEveryPath/return_from_main	parent
 codegen/c	TestNothingLiveAtProcessEndOnEveryPath/return_from_main/-O0
 codegen/c	TestNothingLiveAtProcessEndOnEveryPath/return_from_main/-O1
 codegen/c	TestNullSlicesAreSanitizerClean
 codegen/c	TestOldSchemeCollisionsDoNotCollide
 codegen/c	TestOnlyStdDefinesTackString
-codegen/c	TestOperandsRunLeftToRight
+codegen/c	TestOperandsRunLeftToRight	parent
 codegen/c	TestOperandsRunLeftToRight/a_call_before_a_global_read
 codegen/c	TestOperandsRunLeftToRight/a_global_argument_before_a_call
 codegen/c	TestOperandsRunLeftToRight/a_global_read_before_a_call
@@ -955,26 +955,26 @@ codegen/c	TestOperandsRunLeftToRight/on_the_right_of_&&
 codegen/c	TestOperandsRunLeftToRight/results
 codegen/c	TestOperandsRunLeftToRight/struct_equality
 codegen/c	TestOperandsRunLeftToRight/struct_fields_as_written
-codegen/c	TestOsExampleIsSanitizerClean
+codegen/c	TestOsExampleIsSanitizerClean	parent
 codegen/c	TestOsExampleIsSanitizerClean/-O0
 codegen/c	TestOsExampleIsSanitizerClean/-O1
-codegen/c	TestOverflowFixesExampleIsSanitizerClean
+codegen/c	TestOverflowFixesExampleIsSanitizerClean	parent
 codegen/c	TestOverflowFixesExampleIsSanitizerClean/-O0
 codegen/c	TestOverflowFixesExampleIsSanitizerClean/-O1
-codegen/c	TestOwnExitExampleIsSanitizerClean
+codegen/c	TestOwnExitExampleIsSanitizerClean	parent
 codegen/c	TestOwnExitExampleIsSanitizerClean/-O0
 codegen/c	TestOwnExitExampleIsSanitizerClean/-O1
-codegen/c	TestOwnParamsExampleIsSanitizerClean
+codegen/c	TestOwnParamsExampleIsSanitizerClean	parent
 codegen/c	TestOwnParamsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestOwnParamsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestOwnParamsExampleIsSanitizerClean/-O2
-codegen/c	TestOwnedListLowering
+codegen/c	TestOwnedListLowering	parent
 codegen/c	TestOwnedListLowering/-O0
 codegen/c	TestOwnedListLowering/-O1
-codegen/c	TestOwnedListsExampleIsSanitizerClean
+codegen/c	TestOwnedListsExampleIsSanitizerClean	parent
 codegen/c	TestOwnedListsExampleIsSanitizerClean/-O0
 codegen/c	TestOwnedListsExampleIsSanitizerClean/-O1
-codegen/c	TestOwnedTypeParamShapes
+codegen/c	TestOwnedTypeParamShapes	parent
 codegen/c	TestOwnedTypeParamShapes/-O0
 codegen/c	TestOwnedTypeParamShapes/-O1
 codegen/c	TestParamSwitchInteractions
@@ -982,29 +982,29 @@ codegen/c	TestParamSwitchLowering
 codegen/c	TestParameterNamesCannotCollideWithGeneratedNames
 codegen/c	TestParameterSurvivesAnInterveningCall
 codegen/c	TestPassesArgumentsAtTheCallSite
-codegen/c	TestPathExampleIsSanitizerClean
+codegen/c	TestPathExampleIsSanitizerClean	parent
 codegen/c	TestPathExampleIsSanitizerClean/-O0
 codegen/c	TestPathExampleIsSanitizerClean/-O1
 codegen/c	TestPathMatchesGo
-codegen/c	TestPoolGenerationRetiresOnWrap
+codegen/c	TestPoolGenerationRetiresOnWrap	parent
 codegen/c	TestPoolGenerationRetiresOnWrap/-O0
 codegen/c	TestPoolGenerationRetiresOnWrap/-O2
-codegen/c	TestPoolLimit
+codegen/c	TestPoolLimit	parent
 codegen/c	TestPoolLimit/-O0
 codegen/c	TestPoolLimit/-O2
-codegen/c	TestPoolLinkedNodes
+codegen/c	TestPoolLinkedNodes	parent
 codegen/c	TestPoolLinkedNodes/-O0
 codegen/c	TestPoolLinkedNodes/-O2
-codegen/c	TestPoolTagWrapKeepsMake
+codegen/c	TestPoolTagWrapKeepsMake	parent
 codegen/c	TestPoolTagWrapKeepsMake/-O0
 codegen/c	TestPoolTagWrapKeepsMake/-O2
-codegen/c	TestPoolsExampleIsSanitizerClean
+codegen/c	TestPoolsExampleIsSanitizerClean	parent
 codegen/c	TestPoolsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestPoolsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestPoolsExampleIsSanitizerClean/-O2
 codegen/c	TestPoolsNothingWhenNoStringIsUsed
 codegen/c	TestPrintLowersToOneWrite
-codegen/c	TestPrintWritesExactlyItsArgument
+codegen/c	TestPrintWritesExactlyItsArgument	parent
 codegen/c	TestPrintWritesExactlyItsArgument/consecutive_prints_join
 codegen/c	TestPrintWritesExactlyItsArgument/empty_between_others
 codegen/c	TestPrintWritesExactlyItsArgument/empty_string
@@ -1014,40 +1014,40 @@ codegen/c	TestPrintWritesExactlyItsArgument/in_a_three-clause_post
 codegen/c	TestPrintWritesExactlyItsArgument/no_newline
 codegen/c	TestPrintWritesExactlyItsArgument/only_a_newline
 codegen/c	TestPrintWritesExactlyItsArgument/zero_value
-codegen/c	TestPrintfCHandlesWhatTackNeverPasses
+codegen/c	TestPrintfCHandlesWhatTackNeverPasses	parent
 codegen/c	TestPrintfCHandlesWhatTackNeverPasses/-O0
 codegen/c	TestPrintfCHandlesWhatTackNeverPasses/-O1
-codegen/c	TestPrintfExampleIsSanitizerClean
+codegen/c	TestPrintfExampleIsSanitizerClean	parent
 codegen/c	TestPrintfExampleIsSanitizerClean/-O0
 codegen/c	TestPrintfExampleIsSanitizerClean/-O1
 codegen/c	TestPrintfFormatsIntegersLikeGo
-codegen/c	TestPrintfMarkersMatchGo
+codegen/c	TestPrintfMarkersMatchGo	parent
 codegen/c	TestPrintfMarkersMatchGo/-O0
 codegen/c	TestPrintfMarkersMatchGo/-O1
-codegen/c	TestProofRulesExampleIsSanitizerClean
+codegen/c	TestProofRulesExampleIsSanitizerClean	parent
 codegen/c	TestProofRulesExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestProofRulesExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestProofRulesExampleIsSanitizerClean/-O2
-codegen/c	TestQuestionExampleIsSanitizerClean
+codegen/c	TestQuestionExampleIsSanitizerClean	parent
 codegen/c	TestQuestionExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestQuestionExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestQuestionExampleIsSanitizerClean/-O2
-codegen/c	TestQuestionFormsExampleIsSanitizerClean
+codegen/c	TestQuestionFormsExampleIsSanitizerClean	parent
 codegen/c	TestQuestionFormsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestQuestionFormsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestQuestionFormsExampleIsSanitizerClean/-O2
-codegen/c	TestQuestionOwnedExampleIsSanitizerClean
+codegen/c	TestQuestionOwnedExampleIsSanitizerClean	parent
 codegen/c	TestQuestionOwnedExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestQuestionOwnedExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestQuestionOwnedExampleIsSanitizerClean/-O2
-codegen/c	TestQuoteExampleIsSanitizerClean
+codegen/c	TestQuoteExampleIsSanitizerClean	parent
 codegen/c	TestQuoteExampleIsSanitizerClean/-O0
 codegen/c	TestQuoteExampleIsSanitizerClean/-O1
-codegen/c	TestQuoteMatchesGo
+codegen/c	TestQuoteMatchesGo	parent
 codegen/c	TestQuoteMatchesGo/-O0
 codegen/c	TestQuoteMatchesGo/-O1
 codegen/c	TestRangeBindsAfreshPerInstance
-codegen/c	TestRangeLoopsAtRuntime
+codegen/c	TestRangeLoopsAtRuntime	parent
 codegen/c	TestRangeLoopsAtRuntime/break_and_continue
 codegen/c	TestRangeLoopsAtRuntime/changing_the_count's_variable_changes_nothing
 codegen/c	TestRangeLoopsAtRuntime/count_evaluated_once
@@ -1059,76 +1059,76 @@ codegen/c	TestRangeLoopsAtRuntime/siblings_reuse_the_name
 codegen/c	TestRangeLoopsAtRuntime/zero_and_negative_counts
 codegen/c	TestRawStringDropsCarriageReturnsAtRuntime
 codegen/c	TestRawStringHoldsEveryByteAtRuntime
-codegen/c	TestReflectFieldsExampleIsSanitizerClean
+codegen/c	TestReflectFieldsExampleIsSanitizerClean	parent
 codegen/c	TestReflectFieldsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestReflectFieldsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestReflectFieldsExampleIsSanitizerClean/-O2
-codegen/c	TestReflectMakeExampleIsSanitizerClean
+codegen/c	TestReflectMakeExampleIsSanitizerClean	parent
 codegen/c	TestReflectMakeExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestReflectMakeExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestReflectMakeExampleIsSanitizerClean/-O2
-codegen/c	TestReflectSwitchExampleIsSanitizerClean
+codegen/c	TestReflectSwitchExampleIsSanitizerClean	parent
 codegen/c	TestReflectSwitchExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestReflectSwitchExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestReflectSwitchExampleIsSanitizerClean/-O2
-codegen/c	TestRefusesProgramsWithErrors
+codegen/c	TestRefusesProgramsWithErrors	parent
 codegen/c	TestRefusesProgramsWithErrors/errors_on_the_program
 codegen/c	TestRefusesProgramsWithErrors/errors_on_the_table
 codegen/c	TestRefusesProgramsWithErrors/nil
 codegen/c	TestRefusesProgramsWithErrors/unchecked
-codegen/c	TestRegionDepthsSaturate
+codegen/c	TestRegionDepthsSaturate	parent
 codegen/c	TestRegionDepthsSaturate/-O0
 codegen/c	TestRegionDepthsSaturate/-O1
-codegen/c	TestRegionEdgesAreSanitizerClean
+codegen/c	TestRegionEdgesAreSanitizerClean	parent
 codegen/c	TestRegionEdgesAreSanitizerClean/-O0
 codegen/c	TestRegionEdgesAreSanitizerClean/-O1
-codegen/c	TestRegionEndsGiveEveryChunkBackOnce
-codegen/c	TestRegionEndsGiveEveryChunkBackOnce/exit_inside_regions_nested_300_deep
+codegen/c	TestRegionEndsGiveEveryChunkBackOnce	parent
+codegen/c	TestRegionEndsGiveEveryChunkBackOnce/exit_inside_regions_nested_300_deep	parent
 codegen/c	TestRegionEndsGiveEveryChunkBackOnce/exit_inside_regions_nested_300_deep/-O0
 codegen/c	TestRegionEndsGiveEveryChunkBackOnce/exit_inside_regions_nested_300_deep/-O1
-codegen/c	TestRegionEndsGiveEveryChunkBackOnce/exit_with_dead_regions_open
+codegen/c	TestRegionEndsGiveEveryChunkBackOnce/exit_with_dead_regions_open	parent
 codegen/c	TestRegionEndsGiveEveryChunkBackOnce/exit_with_dead_regions_open/-O0
 codegen/c	TestRegionEndsGiveEveryChunkBackOnce/exit_with_dead_regions_open/-O1
-codegen/c	TestRegionEndsGiveEveryChunkBackOnce/return_from_main_after_a_failed_table_grow
+codegen/c	TestRegionEndsGiveEveryChunkBackOnce/return_from_main_after_a_failed_table_grow	parent
 codegen/c	TestRegionEndsGiveEveryChunkBackOnce/return_from_main_after_a_failed_table_grow/-O0
 codegen/c	TestRegionEndsGiveEveryChunkBackOnce/return_from_main_after_a_failed_table_grow/-O1
-codegen/c	TestRegionEndsGiveEveryChunkBackOnce/return_from_main_after_regions
+codegen/c	TestRegionEndsGiveEveryChunkBackOnce/return_from_main_after_regions	parent
 codegen/c	TestRegionEndsGiveEveryChunkBackOnce/return_from_main_after_regions/-O0
 codegen/c	TestRegionEndsGiveEveryChunkBackOnce/return_from_main_after_regions/-O1
-codegen/c	TestRegionFreedAtUnreachable
+codegen/c	TestRegionFreedAtUnreachable	parent
 codegen/c	TestRegionFreedAtUnreachable/-O0
 codegen/c	TestRegionFreedAtUnreachable/-O1
-codegen/c	TestRegionGenerationsSaturate
+codegen/c	TestRegionGenerationsSaturate	parent
 codegen/c	TestRegionGenerationsSaturate/-O0
 codegen/c	TestRegionGenerationsSaturate/-O1
-codegen/c	TestRegionKindsAndStdAreSanitizerClean
+codegen/c	TestRegionKindsAndStdAreSanitizerClean	parent
 codegen/c	TestRegionKindsAndStdAreSanitizerClean/-O0
 codegen/c	TestRegionKindsAndStdAreSanitizerClean/-O1
-codegen/c	TestRegionsExampleIsSanitizerClean
+codegen/c	TestRegionsExampleIsSanitizerClean	parent
 codegen/c	TestRegionsExampleIsSanitizerClean/-O0
 codegen/c	TestRegionsExampleIsSanitizerClean/-O1
 codegen/c	TestRegionsExampleIsSanitizerClean/-O2
 codegen/c	TestRejectsUnsupportedStatement
-codegen/c	TestReplaceExampleIsSanitizerClean
+codegen/c	TestReplaceExampleIsSanitizerClean	parent
 codegen/c	TestReplaceExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestReplaceExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestReplaceExampleIsSanitizerClean/-O2
 codegen/c	TestSHA256ExampleDigestsMatchGo
-codegen/c	TestSHA256ExampleIsSanitizerClean
+codegen/c	TestSHA256ExampleIsSanitizerClean	parent
 codegen/c	TestSHA256ExampleIsSanitizerClean/-O0
 codegen/c	TestSHA256ExampleIsSanitizerClean/-O1
-codegen/c	TestSHA256MatchesGo
+codegen/c	TestSHA256MatchesGo	parent
 codegen/c	TestSHA256MatchesGo/-O0
 codegen/c	TestSHA256MatchesGo/-O1
-codegen/c	TestSanitizersCatchIndexPastAnArray
+codegen/c	TestSanitizersCatchIndexPastAnArray	parent
 codegen/c	TestSanitizersCatchIndexPastAnArray/-O0
 codegen/c	TestSanitizersCatchIndexPastAnArray/-O1
-codegen/c	TestSanitizersCatchUseAfterReturn
+codegen/c	TestSanitizersCatchUseAfterReturn	parent
 codegen/c	TestSanitizersCatchUseAfterReturn/inlinable/-O0
 codegen/c	TestSanitizersCatchUseAfterReturn/out_of_line/-O0
 codegen/c	TestSanitizersCatchUseAfterReturn/out_of_line/-O1
 codegen/c	TestSanitizersCatchUseAfterReturn/out_of_line/-O2
-codegen/c	TestSiteReadsAsADiagnostic
+codegen/c	TestSiteReadsAsADiagnostic	parent
 codegen/c	TestSiteReadsAsADiagnostic/column_1
 codegen/c	TestSiteReadsAsADiagnostic/crlf
 codegen/c	TestSiteReadsAsADiagnostic/crlf_several_lines
@@ -1142,7 +1142,7 @@ codegen/c	TestSiteReadsAsADiagnostic/several_lines
 codegen/c	TestSiteReadsAsADiagnostic/tabs
 codegen/c	TestSizesMatchC
 codegen/c	TestSliceHelpersPerInstance
-codegen/c	TestSliceText
+codegen/c	TestSliceText	parent
 codegen/c	TestSliceText/array_viewed_whole
 codegen/c	TestSliceText/checked_form
 codegen/c	TestSliceText/from_helper
@@ -1150,17 +1150,17 @@ codegen/c	TestSliceText/low_bound_left_out
 codegen/c	TestSliceText/mutable_global_copied
 codegen/c	TestSliceText/string_call
 codegen/c	TestSliceText/string_helper
-codegen/c	TestSlicesExampleIsSanitizerClean
+codegen/c	TestSlicesExampleIsSanitizerClean	parent
 codegen/c	TestSlicesExampleIsSanitizerClean/-O0
 codegen/c	TestSlicesExampleIsSanitizerClean/-O1
-codegen/c	TestSortExampleIsSanitizerClean
+codegen/c	TestSortExampleIsSanitizerClean	parent
 codegen/c	TestSortExampleIsSanitizerClean/-O0
 codegen/c	TestSortExampleIsSanitizerClean/-O1
 codegen/c	TestSortMatchesGo
 codegen/c	TestStdHeaderDefinesError
 codegen/c	TestStdHeaderDefinesStringHelpers
 codegen/c	TestStdTackHDefinesAnyOnce
-codegen/c	TestStddefOnlyWhereSizeTIsUsed
+codegen/c	TestStddefOnlyWhereSizeTIsUsed	parent
 codegen/c	TestStddefOnlyWhereSizeTIsUsed/a_conversion
 codegen/c	TestStddefOnlyWhereSizeTIsUsed/a_parameter
 codegen/c	TestStddefOnlyWhereSizeTIsUsed/a_result
@@ -1168,20 +1168,20 @@ codegen/c	TestStddefOnlyWhereSizeTIsUsed/a_struct_field
 codegen/c	TestStddefOnlyWhereSizeTIsUsed/an_array_element
 codegen/c	TestStddefOnlyWhereSizeTIsUsed/no_target-width_type
 codegen/c	TestStddefOnlyWhereSizeTIsUsed/unsafe_uintptr_t_only
-codegen/c	TestStoredRelationsExampleIsSanitizerClean
+codegen/c	TestStoredRelationsExampleIsSanitizerClean	parent
 codegen/c	TestStoredRelationsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestStoredRelationsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestStoredRelationsExampleIsSanitizerClean/-O2
 codegen/c	TestStringCompareHelperOnlyWhenUsed
 codegen/c	TestStringComparisonLowering
-codegen/c	TestStringComparisonsAtRuntime
+codegen/c	TestStringComparisonsAtRuntime	parent
 codegen/c	TestStringComparisonsAtRuntime/array_of_structs_holding_arrays_of_strings
 codegen/c	TestStringComparisonsAtRuntime/compared_in_a_loop_condition
 codegen/c	TestStringComparisonsAtRuntime/struct_with_string_fields
 codegen/c	TestStringComparisonsAtRuntime/zero_elements_of_an_array_of_strings
 codegen/c	TestStringComparisonsAtRuntime/zero_string_equals_the_empty_literal
 codegen/c	TestStringComparisonsMatchGo
-codegen/c	TestStringHelperMisusesDoNotCompile
+codegen/c	TestStringHelperMisusesDoNotCompile	parent
 codegen/c	TestStringHelperMisusesDoNotCompile/TACK_ERROR_of_a_pointer,_whose_message_is_built_by_TACK_STR
 codegen/c	TestStringHelperMisusesDoNotCompile/TACK_STR_N_of_NULL
 codegen/c	TestStringHelperMisusesDoNotCompile/TACK_STR_N_of_a_char_pointer
@@ -1190,7 +1190,7 @@ codegen/c	TestStringHelperMisusesDoNotCompile/TACK_STR_N_of_an_int_pointer
 codegen/c	TestStringHelperMisusesDoNotCompile/TACK_STR_of_a_pointer
 codegen/c	TestStringHelperMisusesDoNotCompile/TACK_STR_of_an_array
 codegen/c	TestStringHelperMisusesDoNotCompile/length_of_a_pointer
-codegen/c	TestStringIndexesAtRuntime
+codegen/c	TestStringIndexesAtRuntime	parent
 codegen/c	TestStringIndexesAtRuntime/byte_widens
 codegen/c	TestStringIndexesAtRuntime/bytes_of_UTF-8
 codegen/c	TestStringIndexesAtRuntime/checked_at_every_boundary
@@ -1205,7 +1205,7 @@ codegen/c	TestStringIndexesAtRuntime/string_elements_of_an_array
 codegen/c	TestStringIndexesAtRuntime/sum_by_range
 codegen/c	TestStringLiteralBecomesAStringValue
 codegen/c	TestStructLowering
-codegen/c	TestStructsAtRuntime
+codegen/c	TestStructsAtRuntime	parent
 codegen/c	TestStructsAtRuntime/arrays_of_structs
 codegen/c	TestStructsAtRuntime/assignment_copies
 codegen/c	TestStructsAtRuntime/checked_division_of_fields
@@ -1226,7 +1226,7 @@ codegen/c	TestStructsAtRuntime/struct_declared_after_the_one_holding_it
 codegen/c	TestStructsAtRuntime/struct_of_arrays_and_strings
 codegen/c	TestStructsAtRuntime/zero_values
 codegen/c	TestSwitchLowersToIfs
-codegen/c	TestSwitchesAtRuntime
+codegen/c	TestSwitchesAtRuntime	parent
 codegen/c	TestSwitchesAtRuntime/a_single_string_case
 codegen/c	TestSwitchesAtRuntime/array_of_strings
 codegen/c	TestSwitchesAtRuntime/bool_conditions
@@ -1242,19 +1242,19 @@ codegen/c	TestSwitchesAtRuntime/struct_tag_no_case_compares
 codegen/c	TestSwitchesAtRuntime/struct_with_no_fields_always_equal
 codegen/c	TestSwitchesAtRuntime/tagless_only_a_default
 codegen/c	TestSwitchesAtRuntime/values_stop_at_the_first_match
-codegen/c	TestTakeMacros
+codegen/c	TestTakeMacros	parent
 codegen/c	TestTakeMacros/-O0
 codegen/c	TestTakeMacros/-O1
 codegen/c	TestTargetWidthIndexesRunStrictly
 codegen/c	TestTargetWidthsCompileFor32Bits
-codegen/c	TestTextExampleIsSanitizerClean
+codegen/c	TestTextExampleIsSanitizerClean	parent
 codegen/c	TestTextExampleIsSanitizerClean/-O0
 codegen/c	TestTextExampleIsSanitizerClean/-O1
 codegen/c	TestTextHashMatchesFNV1a
-codegen/c	TestThousandNestedTypes
+codegen/c	TestThousandNestedTypes	parent
 codegen/c	TestThousandNestedTypes/-O0
 codegen/c	TestThousandNestedTypes/-O0_-fsanitize=address,undefined_-fsanitize-address-use-after-return=always_-fno-sanitize-recover=all
-codegen/c	TestThreeClauseLoopsAtRuntime
+codegen/c	TestThreeClauseLoopsAtRuntime	parent
 codegen/c	TestThreeClauseLoopsAtRuntime/break_skips_the_post_statement
 codegen/c	TestThreeClauseLoopsAtRuntime/clauses_run_in_order
 codegen/c	TestThreeClauseLoopsAtRuntime/continue_runs_the_post_statement
@@ -1265,31 +1265,31 @@ codegen/c	TestThreeClauseLoopsAtRuntime/nothing_but_semicolons
 codegen/c	TestThreeClauseLoopsAtRuntime/post_that_prints
 codegen/c	TestThreeClauseLoopsAtRuntime/returns_from_a_loop_without_a_condition
 codegen/c	TestThreeClauseLoopsAtRuntime/sibling_loops_reuse_the_name
-codegen/c	TestTypeArgsExampleIsSanitizerClean
+codegen/c	TestTypeArgsExampleIsSanitizerClean	parent
 codegen/c	TestTypeArgsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestTypeArgsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
 codegen/c	TestTypeArgsExampleIsSanitizerClean/-O2
-codegen/c	TestTypeSwitchDefersRunUnderSanitizers
+codegen/c	TestTypeSwitchDefersRunUnderSanitizers	parent
 codegen/c	TestTypeSwitchDefersRunUnderSanitizers/-O0
 codegen/c	TestTypeSwitchDefersRunUnderSanitizers/-O1
-codegen/c	TestTypeSwitchesRunUnderSanitizers
+codegen/c	TestTypeSwitchesRunUnderSanitizers	parent
 codegen/c	TestTypeSwitchesRunUnderSanitizers/-O0
 codegen/c	TestTypeSwitchesRunUnderSanitizers/-O1
-codegen/c	TestUTF8DecodeMatchesGo
+codegen/c	TestUTF8DecodeMatchesGo	parent
 codegen/c	TestUTF8DecodeMatchesGo/-O0
 codegen/c	TestUTF8DecodeMatchesGo/-O1
-codegen/c	TestUTF8EncodeMatchesGo
+codegen/c	TestUTF8EncodeMatchesGo	parent
 codegen/c	TestUTF8EncodeMatchesGo/-O0
 codegen/c	TestUTF8EncodeMatchesGo/-O1
-codegen/c	TestUTF8ExampleIsSanitizerClean
+codegen/c	TestUTF8ExampleIsSanitizerClean	parent
 codegen/c	TestUTF8ExampleIsSanitizerClean/-O0
 codegen/c	TestUTF8ExampleIsSanitizerClean/-O1
-codegen/c	TestUncalledFunctionsCompileStrictly
+codegen/c	TestUncalledFunctionsCompileStrictly	parent
 codegen/c	TestUncalledFunctionsCompileStrictly/-O0
 codegen/c	TestUncalledFunctionsCompileStrictly/-O2
 codegen/c	TestUncalledGenericFunctionIsNotEmitted
 codegen/c	TestUncheckedMethodCallIsReported
-codegen/c	TestUnicodeClassesMatchGo
+codegen/c	TestUnicodeClassesMatchGo	parent
 codegen/c	TestUnicodeClassesMatchGo/-O0
 codegen/c	TestUnicodeClassesMatchGo/-O1
 codegen/c	TestUnionMethodsAreFunctions
@@ -1297,14 +1297,14 @@ codegen/c	TestUnionMethodsBuildStrictlyAndRun
 codegen/c	TestUnionNamesDoNotCollide
 codegen/c	TestUnionPayloadsOfEveryKind
 codegen/c	TestUnionSwitchPlaces
-codegen/c	TestUnionsAreSanitizerClean
+codegen/c	TestUnionsAreSanitizerClean	parent
 codegen/c	TestUnionsAreSanitizerClean/-O0
 codegen/c	TestUnionsAreSanitizerClean/-O1
 codegen/c	TestUnionsCompileWarningFree
-codegen/c	TestUnnamedHelpersCompileStrictly
+codegen/c	TestUnnamedHelpersCompileStrictly	parent
 codegen/c	TestUnnamedHelpersCompileStrictly/-O0
 codegen/c	TestUnnamedHelpersCompileStrictly/-O2
-codegen/c	TestUnneededOkAtRuntime
+codegen/c	TestUnneededOkAtRuntime	parent
 codegen/c	TestUnneededOkAtRuntime/constant_array_index
 codegen/c	TestUnneededOkAtRuntime/constant_conversion
 codegen/c	TestUnneededOkAtRuntime/constant_index_into_a_literal
@@ -1320,7 +1320,7 @@ codegen/c	TestUnneededOkAtRuntime/widening_conversion
 codegen/c	TestUnreachableAborts
 codegen/c	TestUsedParamsHaveNoCast
 codegen/c	TestVariableCopiesItsValue
-codegen/c	TestVariablesAtRuntime
+codegen/c	TestVariablesAtRuntime	parent
 codegen/c	TestVariablesAtRuntime/assigned_in_a_branch
 codegen/c	TestVariablesAtRuntime/bool_reassigned
 codegen/c	TestVariablesAtRuntime/bool_variable
@@ -1338,35 +1338,35 @@ codegen/c	TestVariablesAtRuntime/zero_bool
 codegen/c	TestVariablesAtRuntime/zero_int64
 codegen/c	TestVariablesAtRuntime/zero_string
 codegen/c	TestVariablesWithParametersAndCalls
-codegen/c	TestVariadicCallText
+codegen/c	TestVariadicCallText	parent
 codegen/c	TestVariadicCallText/alongside_mut
 codegen/c	TestVariadicCallText/no_values
 codegen/c	TestVariadicCallText/order
 codegen/c	TestVariadicCallText/spread
 codegen/c	TestVariadicCallText/strings
 codegen/c	TestVariadicCallText/values
-codegen/c	TestVariadicsExampleIsSanitizerClean
+codegen/c	TestVariadicsExampleIsSanitizerClean	parent
 codegen/c	TestVariadicsExampleIsSanitizerClean/-O0
 codegen/c	TestVariadicsExampleIsSanitizerClean/-O1
 codegen/c	TestVersionCmdIdentifiesClang
-codegen/c	TestViewBindingsExampleIsSanitizerClean
+codegen/c	TestViewBindingsExampleIsSanitizerClean	parent
 codegen/c	TestViewBindingsExampleIsSanitizerClean/-O0
 codegen/c	TestViewBindingsExampleIsSanitizerClean/-O2
 codegen/c	TestViewResultLowering
-codegen/c	TestViewResultsCallOnceAndRunClean
+codegen/c	TestViewResultsCallOnceAndRunClean	parent
 codegen/c	TestViewResultsCallOnceAndRunClean/-O0
 codegen/c	TestViewResultsCallOnceAndRunClean/-O1
-codegen/c	TestViewResultsExampleIsSanitizerClean
+codegen/c	TestViewResultsExampleIsSanitizerClean	parent
 codegen/c	TestViewResultsExampleIsSanitizerClean/-O0
 codegen/c	TestViewResultsExampleIsSanitizerClean/-O2
-codegen/c	TestViewsExampleIsSanitizerClean
+codegen/c	TestViewsExampleIsSanitizerClean	parent
 codegen/c	TestViewsExampleIsSanitizerClean/-O0
 codegen/c	TestViewsExampleIsSanitizerClean/-O1
 codegen/c	TestWithSteps
-codegen/c	TestWrappingArithmeticExampleIsSanitizerClean
+codegen/c	TestWrappingArithmeticExampleIsSanitizerClean	parent
 codegen/c	TestWrappingArithmeticExampleIsSanitizerClean/-O0
 codegen/c	TestWrappingArithmeticExampleIsSanitizerClean/-O1
-internal/progen	FuzzGenerated
+internal/progen	FuzzGenerated	parent
 internal/progen	FuzzGenerated/seed#0
 internal/progen	FuzzGenerated/seed#1
 internal/progen	FuzzGenerated/seed#2
@@ -1375,7 +1375,7 @@ internal/progen	FuzzGenerated/seed#4
 internal/progen	FuzzGenerated/seed#5
 internal/progen	FuzzGenerated/seed#6
 internal/progen	FuzzGenerated/seed#7
-internal/progen	FuzzGeneratedFrontEnd
+internal/progen	FuzzGeneratedFrontEnd	parent
 internal/progen	FuzzGeneratedFrontEnd/seed#0
 internal/progen	FuzzGeneratedFrontEnd/seed#1
 internal/progen	FuzzGeneratedFrontEnd/seed#2
@@ -1405,7 +1405,7 @@ internal/progen	TestRunBinReportsExitStatus
 internal/progen	TestRunToolKillsAHangingCompiler
 internal/progen	TestShowProgram
 internal/progen	TestTrace
-tack	FuzzRunCheck
+tack	FuzzRunCheck	parent
 tack	FuzzRunCheck/seed#0
 tack	FuzzRunCheck/seed#1
 tack	FuzzRunCheck/seed#10
@@ -4306,7 +4306,7 @@ tack	FuzzRunCheck/seed#996
 tack	FuzzRunCheck/seed#997
 tack	FuzzRunCheck/seed#998
 tack	FuzzRunCheck/seed#999
-tack	FuzzRunEmit
+tack	FuzzRunEmit	parent
 tack	FuzzRunEmit/13ce5b35c6fe0792
 tack	FuzzRunEmit/seed#0
 tack	FuzzRunEmit/seed#1
@@ -7214,14 +7214,14 @@ tack	TestBinaryWithoutPrintHasNoFwrite
 tack	TestBuildIncludesTheRuntimeHeader
 tack	TestBuildOverwritesExistingOutput
 tack	TestBuildPassesGeneratedCodeToToolchainAndCleansUp
-tack	TestBuiltAnySwitchWritesItsOutput
+tack	TestBuiltAnySwitchWritesItsOutput	parent
 tack	TestBuiltAnySwitchWritesItsOutput/0
 tack	TestBuiltAnySwitchWritesItsOutput/1
 tack	TestBuiltAnySwitchWritesItsOutput/2
 tack	TestBuiltAnySwitchWritesItsOutput/3
 tack	TestBuiltAnySwitchWritesItsOutput/s
 tack	TestBuiltAnySwitchWritesItsOutput/z
-tack	TestBuiltAnyViewsWritesItsOutput
+tack	TestBuiltAnyViewsWritesItsOutput	parent
 tack	TestBuiltAnyViewsWritesItsOutput/0
 tack	TestBuiltAnyViewsWritesItsOutput/1
 tack	TestBuiltAnyViewsWritesItsOutput/2
@@ -7230,7 +7230,7 @@ tack	TestBuiltAnyViewsWritesItsOutput/s
 tack	TestBuiltAnyViewsWritesItsOutput/z
 tack	TestBuiltArithmeticRangesPassesEveryCheck
 tack	TestBuiltArraysExits29
-tack	TestBuiltAtEveryOptLevel
+tack	TestBuiltAtEveryOptLevel	parent
 tack	TestBuiltAtEveryOptLevel/0
 tack	TestBuiltAtEveryOptLevel/1
 tack	TestBuiltAtEveryOptLevel/2
@@ -7240,8 +7240,8 @@ tack	TestBuiltAtEveryOptLevel/z
 tack	TestBuiltBlankExits62
 tack	TestBuiltBlockCommentsPassesEveryCheck
 tack	TestBuiltBoolsPrintsAndExits9
-tack	TestBuiltBrokenPipeEndsLikeExit
-tack	TestBuiltBrokenPipeEndsLikeExit/0
+tack	TestBuiltBrokenPipeEndsLikeExit	parent
+tack	TestBuiltBrokenPipeEndsLikeExit/0	parent
 tack	TestBuiltBrokenPipeEndsLikeExit/0/big
 tack	TestBuiltBrokenPipeEndsLikeExit/0/eprintf
 tack	TestBuiltBrokenPipeEndsLikeExit/0/eprintf_after_a_line
@@ -7261,7 +7261,7 @@ tack	TestBuiltBrokenPipeEndsLikeExit/0/region_after_a_line
 tack	TestBuiltBrokenPipeEndsLikeExit/0/return
 tack	TestBuiltBrokenPipeEndsLikeExit/0/write
 tack	TestBuiltBrokenPipeEndsLikeExit/0/write_after_a_line
-tack	TestBuiltBrokenPipeEndsLikeExit/1
+tack	TestBuiltBrokenPipeEndsLikeExit/1	parent
 tack	TestBuiltBrokenPipeEndsLikeExit/1/big
 tack	TestBuiltBrokenPipeEndsLikeExit/1/eprintf
 tack	TestBuiltBrokenPipeEndsLikeExit/1/eprintf_after_a_line
@@ -7281,7 +7281,7 @@ tack	TestBuiltBrokenPipeEndsLikeExit/1/region_after_a_line
 tack	TestBuiltBrokenPipeEndsLikeExit/1/return
 tack	TestBuiltBrokenPipeEndsLikeExit/1/write
 tack	TestBuiltBrokenPipeEndsLikeExit/1/write_after_a_line
-tack	TestBuiltBrokenPipeEndsLikeExit/2
+tack	TestBuiltBrokenPipeEndsLikeExit/2	parent
 tack	TestBuiltBrokenPipeEndsLikeExit/2/big
 tack	TestBuiltBrokenPipeEndsLikeExit/2/eprintf
 tack	TestBuiltBrokenPipeEndsLikeExit/2/eprintf_after_a_line
@@ -7301,7 +7301,7 @@ tack	TestBuiltBrokenPipeEndsLikeExit/2/region_after_a_line
 tack	TestBuiltBrokenPipeEndsLikeExit/2/return
 tack	TestBuiltBrokenPipeEndsLikeExit/2/write
 tack	TestBuiltBrokenPipeEndsLikeExit/2/write_after_a_line
-tack	TestBuiltBrokenPipeEndsLikeExit/3
+tack	TestBuiltBrokenPipeEndsLikeExit/3	parent
 tack	TestBuiltBrokenPipeEndsLikeExit/3/big
 tack	TestBuiltBrokenPipeEndsLikeExit/3/eprintf
 tack	TestBuiltBrokenPipeEndsLikeExit/3/eprintf_after_a_line
@@ -7321,7 +7321,7 @@ tack	TestBuiltBrokenPipeEndsLikeExit/3/region_after_a_line
 tack	TestBuiltBrokenPipeEndsLikeExit/3/return
 tack	TestBuiltBrokenPipeEndsLikeExit/3/write
 tack	TestBuiltBrokenPipeEndsLikeExit/3/write_after_a_line
-tack	TestBuiltBrokenPipeEndsLikeExit/s
+tack	TestBuiltBrokenPipeEndsLikeExit/s	parent
 tack	TestBuiltBrokenPipeEndsLikeExit/s/big
 tack	TestBuiltBrokenPipeEndsLikeExit/s/eprintf
 tack	TestBuiltBrokenPipeEndsLikeExit/s/eprintf_after_a_line
@@ -7341,7 +7341,7 @@ tack	TestBuiltBrokenPipeEndsLikeExit/s/region_after_a_line
 tack	TestBuiltBrokenPipeEndsLikeExit/s/return
 tack	TestBuiltBrokenPipeEndsLikeExit/s/write
 tack	TestBuiltBrokenPipeEndsLikeExit/s/write_after_a_line
-tack	TestBuiltBrokenPipeEndsLikeExit/z
+tack	TestBuiltBrokenPipeEndsLikeExit/z	parent
 tack	TestBuiltBrokenPipeEndsLikeExit/z/big
 tack	TestBuiltBrokenPipeEndsLikeExit/z/eprintf
 tack	TestBuiltBrokenPipeEndsLikeExit/z/eprintf_after_a_line
@@ -7361,32 +7361,32 @@ tack	TestBuiltBrokenPipeEndsLikeExit/z/region_after_a_line
 tack	TestBuiltBrokenPipeEndsLikeExit/z/return
 tack	TestBuiltBrokenPipeEndsLikeExit/z/write
 tack	TestBuiltBrokenPipeEndsLikeExit/z/write_after_a_line
-tack	TestBuiltBrokenPipeOtherDescriptors
-tack	TestBuiltBrokenPipeOtherDescriptors/0
+tack	TestBuiltBrokenPipeOtherDescriptors	parent
+tack	TestBuiltBrokenPipeOtherDescriptors/0	parent
 tack	TestBuiltBrokenPipeOtherDescriptors/0/child
 tack	TestBuiltBrokenPipeOtherDescriptors/0/wide
 tack	TestBuiltBrokenPipeOtherDescriptors/0/write-file
-tack	TestBuiltBrokenPipeOtherDescriptors/1
+tack	TestBuiltBrokenPipeOtherDescriptors/1	parent
 tack	TestBuiltBrokenPipeOtherDescriptors/1/child
 tack	TestBuiltBrokenPipeOtherDescriptors/1/wide
 tack	TestBuiltBrokenPipeOtherDescriptors/1/write-file
-tack	TestBuiltBrokenPipeOtherDescriptors/2
+tack	TestBuiltBrokenPipeOtherDescriptors/2	parent
 tack	TestBuiltBrokenPipeOtherDescriptors/2/child
 tack	TestBuiltBrokenPipeOtherDescriptors/2/wide
 tack	TestBuiltBrokenPipeOtherDescriptors/2/write-file
-tack	TestBuiltBrokenPipeOtherDescriptors/3
+tack	TestBuiltBrokenPipeOtherDescriptors/3	parent
 tack	TestBuiltBrokenPipeOtherDescriptors/3/child
 tack	TestBuiltBrokenPipeOtherDescriptors/3/wide
 tack	TestBuiltBrokenPipeOtherDescriptors/3/write-file
-tack	TestBuiltBrokenPipeOtherDescriptors/s
+tack	TestBuiltBrokenPipeOtherDescriptors/s	parent
 tack	TestBuiltBrokenPipeOtherDescriptors/s/child
 tack	TestBuiltBrokenPipeOtherDescriptors/s/wide
 tack	TestBuiltBrokenPipeOtherDescriptors/s/write-file
-tack	TestBuiltBrokenPipeOtherDescriptors/z
+tack	TestBuiltBrokenPipeOtherDescriptors/z	parent
 tack	TestBuiltBrokenPipeOtherDescriptors/z/child
 tack	TestBuiltBrokenPipeOtherDescriptors/z/wide
 tack	TestBuiltBrokenPipeOtherDescriptors/z/write-file
-tack	TestBuiltBytesPassesEveryCheck
+tack	TestBuiltBytesPassesEveryCheck	parent
 tack	TestBuiltBytesPassesEveryCheck/0
 tack	TestBuiltBytesPassesEveryCheck/1
 tack	TestBuiltBytesPassesEveryCheck/2
@@ -7398,7 +7398,7 @@ tack	TestBuiltCommentsExits37
 tack	TestBuiltCompoundExits14
 tack	TestBuiltComputedGlobalsExits42
 tack	TestBuiltConditionWritesPassesEveryCheck
-tack	TestBuiltConvPassesEveryCheck
+tack	TestBuiltConvPassesEveryCheck	parent
 tack	TestBuiltConvPassesEveryCheck/0
 tack	TestBuiltConvPassesEveryCheck/1
 tack	TestBuiltConvPassesEveryCheck/2
@@ -7406,13 +7406,13 @@ tack	TestBuiltConvPassesEveryCheck/3
 tack	TestBuiltConvPassesEveryCheck/s
 tack	TestBuiltConvPassesEveryCheck/z
 tack	TestBuiltConversionFactsPassesEveryCheck
-tack	TestBuiltCustomStd
+tack	TestBuiltCustomStd	parent
 tack	TestBuiltCustomStd/mod
 tack	TestBuiltCustomStd/one.tck
 tack	TestBuiltDeferLoopsExits42
 tack	TestBuiltDeferPrintsAndExits42
 tack	TestBuiltDivisionExits46
-tack	TestBuiltEndlessLoopsNeverEnd
+tack	TestBuiltEndlessLoopsNeverEnd	parent
 tack	TestBuiltEndlessLoopsNeverEnd/0
 tack	TestBuiltEndlessLoopsNeverEnd/1
 tack	TestBuiltEndlessLoopsNeverEnd/2
@@ -7422,7 +7422,7 @@ tack	TestBuiltEndlessLoopsNeverEnd/z
 tack	TestBuiltEnsuresModulePassesEveryCheck
 tack	TestBuiltEnsuresPassesEveryCheck
 tack	TestBuiltEqualOperandsExits23
-tack	TestBuiltErrorsPassesEveryCheck
+tack	TestBuiltErrorsPassesEveryCheck	parent
 tack	TestBuiltErrorsPassesEveryCheck/errors-module/0
 tack	TestBuiltErrorsPassesEveryCheck/errors-module/1
 tack	TestBuiltErrorsPassesEveryCheck/errors-module/2
@@ -7441,7 +7441,7 @@ tack	TestBuiltErrorsPassesEveryCheck/extern-errors/2
 tack	TestBuiltErrorsPassesEveryCheck/extern-errors/3
 tack	TestBuiltErrorsPassesEveryCheck/extern-errors/s
 tack	TestBuiltErrorsPassesEveryCheck/extern-errors/z
-tack	TestBuiltExitFreesWritesItsOutput
+tack	TestBuiltExitFreesWritesItsOutput	parent
 tack	TestBuiltExitFreesWritesItsOutput/0
 tack	TestBuiltExitFreesWritesItsOutput/1
 tack	TestBuiltExitFreesWritesItsOutput/2
@@ -7449,7 +7449,7 @@ tack	TestBuiltExitFreesWritesItsOutput/3
 tack	TestBuiltExitFreesWritesItsOutput/s
 tack	TestBuiltExitFreesWritesItsOutput/z
 tack	TestBuiltExitLeavesPassesEveryCheck
-tack	TestBuiltExternAnyPassesEveryCheck
+tack	TestBuiltExternAnyPassesEveryCheck	parent
 tack	TestBuiltExternAnyPassesEveryCheck/0
 tack	TestBuiltExternAnyPassesEveryCheck/1
 tack	TestBuiltExternAnyPassesEveryCheck/2
@@ -7457,7 +7457,7 @@ tack	TestBuiltExternAnyPassesEveryCheck/3
 tack	TestBuiltExternAnyPassesEveryCheck/s
 tack	TestBuiltExternAnyPassesEveryCheck/z
 tack	TestBuiltExternExits42
-tack	TestBuiltExternFloatsPassesEveryCheck
+tack	TestBuiltExternFloatsPassesEveryCheck	parent
 tack	TestBuiltExternFloatsPassesEveryCheck/0
 tack	TestBuiltExternFloatsPassesEveryCheck/1
 tack	TestBuiltExternFloatsPassesEveryCheck/2
@@ -7473,7 +7473,7 @@ tack	TestBuiltExternStringsPassesEveryCheck
 tack	TestBuiltExternValuesExits42
 tack	TestBuiltExternVariadicsPassesEveryCheck
 tack	TestBuiltExternViewsPassesEveryCheck
-tack	TestBuiltFailurePassesEveryCheck
+tack	TestBuiltFailurePassesEveryCheck	parent
 tack	TestBuiltFailurePassesEveryCheck/0
 tack	TestBuiltFailurePassesEveryCheck/1
 tack	TestBuiltFailurePassesEveryCheck/2
@@ -7484,190 +7484,190 @@ tack	TestBuiltFallthroughFactsExits42
 tack	TestBuiltFallthroughPrintsAndExits42
 tack	TestBuiltFibExits55
 tack	TestBuiltFieldFactsPassesEveryCheck
-tack	TestBuiltFloatConversionsPassesEveryCheck
+tack	TestBuiltFloatConversionsPassesEveryCheck	parent
 tack	TestBuiltFloatConversionsPassesEveryCheck/0
 tack	TestBuiltFloatConversionsPassesEveryCheck/1
 tack	TestBuiltFloatConversionsPassesEveryCheck/2
 tack	TestBuiltFloatConversionsPassesEveryCheck/3
 tack	TestBuiltFloatConversionsPassesEveryCheck/s
 tack	TestBuiltFloatConversionsPassesEveryCheck/z
-tack	TestBuiltFloatFormatPassesEveryCheck
+tack	TestBuiltFloatFormatPassesEveryCheck	parent
 tack	TestBuiltFloatFormatPassesEveryCheck/0
 tack	TestBuiltFloatFormatPassesEveryCheck/1
 tack	TestBuiltFloatFormatPassesEveryCheck/2
 tack	TestBuiltFloatFormatPassesEveryCheck/3
 tack	TestBuiltFloatFormatPassesEveryCheck/s
 tack	TestBuiltFloatFormatPassesEveryCheck/z
-tack	TestBuiltFloatsPassesEveryCheck
+tack	TestBuiltFloatsPassesEveryCheck	parent
 tack	TestBuiltFloatsPassesEveryCheck/0
 tack	TestBuiltFloatsPassesEveryCheck/1
 tack	TestBuiltFloatsPassesEveryCheck/2
 tack	TestBuiltFloatsPassesEveryCheck/3
 tack	TestBuiltFloatsPassesEveryCheck/s
 tack	TestBuiltFloatsPassesEveryCheck/z
-tack	TestBuiltFmtExitFlushesBothStreams
+tack	TestBuiltFmtExitFlushesBothStreams	parent
 tack	TestBuiltFmtExitFlushesBothStreams/0
 tack	TestBuiltFmtExitFlushesBothStreams/1
 tack	TestBuiltFmtExitFlushesBothStreams/2
 tack	TestBuiltFmtExitFlushesBothStreams/3
 tack	TestBuiltFmtExitFlushesBothStreams/s
 tack	TestBuiltFmtExitFlushesBothStreams/z
-tack	TestBuiltFmtStderrWritesBothStreams
+tack	TestBuiltFmtStderrWritesBothStreams	parent
 tack	TestBuiltFmtStderrWritesBothStreams/0
 tack	TestBuiltFmtStderrWritesBothStreams/1
 tack	TestBuiltFmtStderrWritesBothStreams/2
 tack	TestBuiltFmtStderrWritesBothStreams/3
 tack	TestBuiltFmtStderrWritesBothStreams/s
 tack	TestBuiltFmtStderrWritesBothStreams/z
-tack	TestBuiltFmtStreamsInOnePlaceKeepCallOrder
+tack	TestBuiltFmtStreamsInOnePlaceKeepCallOrder	parent
 tack	TestBuiltFmtStreamsInOnePlaceKeepCallOrder/0
 tack	TestBuiltFmtStreamsInOnePlaceKeepCallOrder/1
 tack	TestBuiltFmtStreamsInOnePlaceKeepCallOrder/2
 tack	TestBuiltFmtStreamsInOnePlaceKeepCallOrder/3
 tack	TestBuiltFmtStreamsInOnePlaceKeepCallOrder/s
 tack	TestBuiltFmtStreamsInOnePlaceKeepCallOrder/z
-tack	TestBuiltFmtStreamsInOneTerminalKeepCallOrder
+tack	TestBuiltFmtStreamsInOneTerminalKeepCallOrder	parent
 tack	TestBuiltFmtStreamsInOneTerminalKeepCallOrder/0
 tack	TestBuiltFmtStreamsInOneTerminalKeepCallOrder/1
 tack	TestBuiltFmtStreamsInOneTerminalKeepCallOrder/2
 tack	TestBuiltFmtStreamsInOneTerminalKeepCallOrder/3
 tack	TestBuiltFmtStreamsInOneTerminalKeepCallOrder/s
 tack	TestBuiltFmtStreamsInOneTerminalKeepCallOrder/z
-tack	TestBuiltFmtStreamsWhateverTheTarget
-tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/0
+tack	TestBuiltFmtStreamsWhateverTheTarget	parent
+tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/0	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/0/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/0/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/0/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/0/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/0/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/0/stdout_terminal
-tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/1
+tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/1	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/1/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/1/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/1/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/1/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/1/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/1/stdout_terminal
-tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/2
+tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/2	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/2/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/2/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/2/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/2/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/2/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/2/stdout_terminal
-tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/3
+tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/3	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/3/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/3/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/3/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/3/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/3/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/3/stdout_terminal
-tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/s
+tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/s	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/s/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/s/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/s/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/s/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/s/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/s/stdout_terminal
-tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/z
+tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/z	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/z/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/z/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/z/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/z/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/z/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-exit/z/stdout_terminal
-tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/0
+tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/0	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/0/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/0/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/0/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/0/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/0/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/0/stdout_terminal
-tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/1
+tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/1	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/1/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/1/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/1/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/1/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/1/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/1/stdout_terminal
-tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/2
+tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/2	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/2/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/2/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/2/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/2/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/2/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/2/stdout_terminal
-tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/3
+tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/3	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/3/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/3/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/3/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/3/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/3/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/3/stdout_terminal
-tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/s
+tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/s	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/s/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/s/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/s/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/s/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/s/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/s/stdout_terminal
-tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/z
+tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/z	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/z/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/z/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/z/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/z/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/z/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/fmt-stderr/z/stdout_terminal
-tack	TestBuiltFmtStreamsWhateverTheTarget/printf/0
+tack	TestBuiltFmtStreamsWhateverTheTarget/printf/0	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/0/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/0/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/0/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/0/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/0/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/0/stdout_terminal
-tack	TestBuiltFmtStreamsWhateverTheTarget/printf/1
+tack	TestBuiltFmtStreamsWhateverTheTarget/printf/1	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/1/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/1/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/1/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/1/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/1/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/1/stdout_terminal
-tack	TestBuiltFmtStreamsWhateverTheTarget/printf/2
+tack	TestBuiltFmtStreamsWhateverTheTarget/printf/2	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/2/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/2/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/2/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/2/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/2/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/2/stdout_terminal
-tack	TestBuiltFmtStreamsWhateverTheTarget/printf/3
+tack	TestBuiltFmtStreamsWhateverTheTarget/printf/3	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/3/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/3/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/3/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/3/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/3/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/3/stdout_terminal
-tack	TestBuiltFmtStreamsWhateverTheTarget/printf/s
+tack	TestBuiltFmtStreamsWhateverTheTarget/printf/s	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/s/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/s/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/s/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/s/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/s/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/s/stdout_terminal
-tack	TestBuiltFmtStreamsWhateverTheTarget/printf/z
+tack	TestBuiltFmtStreamsWhateverTheTarget/printf/z	parent
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/z/stderr_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/z/stderr_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/z/stderr_terminal
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/z/stdout_file
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/z/stdout_pipe
 tack	TestBuiltFmtStreamsWhateverTheTarget/printf/z/stdout_terminal
-tack	TestBuiltFmtWriteWritesItsOutput
+tack	TestBuiltFmtWriteWritesItsOutput	parent
 tack	TestBuiltFmtWriteWritesItsOutput/0
 tack	TestBuiltFmtWriteWritesItsOutput/1
 tack	TestBuiltFmtWriteWritesItsOutput/2
 tack	TestBuiltFmtWriteWritesItsOutput/3
 tack	TestBuiltFmtWriteWritesItsOutput/s
 tack	TestBuiltFmtWriteWritesItsOutput/z
-tack	TestBuiltGenericsPassesEveryCheck
+tack	TestBuiltGenericsPassesEveryCheck	parent
 tack	TestBuiltGenericsPassesEveryCheck/0
 tack	TestBuiltGenericsPassesEveryCheck/1
 tack	TestBuiltGenericsPassesEveryCheck/2
@@ -7677,7 +7677,7 @@ tack	TestBuiltGenericsPassesEveryCheck/z
 tack	TestBuiltHelloPrints
 tack	TestBuiltIndexingExits70
 tack	TestBuiltIntLiteralsPassesEveryCheck
-tack	TestBuiltInterfaceParamsPassesEveryCheck
+tack	TestBuiltInterfaceParamsPassesEveryCheck	parent
 tack	TestBuiltInterfaceParamsPassesEveryCheck/0
 tack	TestBuiltInterfaceParamsPassesEveryCheck/1
 tack	TestBuiltInterfaceParamsPassesEveryCheck/2
@@ -7685,14 +7685,14 @@ tack	TestBuiltInterfaceParamsPassesEveryCheck/3
 tack	TestBuiltInterfaceParamsPassesEveryCheck/s
 tack	TestBuiltInterfaceParamsPassesEveryCheck/z
 tack	TestBuiltLeavingWritesPassesEveryCheck
-tack	TestBuiltListEqualityPassesEveryCheck
+tack	TestBuiltListEqualityPassesEveryCheck	parent
 tack	TestBuiltListEqualityPassesEveryCheck/0
 tack	TestBuiltListEqualityPassesEveryCheck/1
 tack	TestBuiltListEqualityPassesEveryCheck/2
 tack	TestBuiltListEqualityPassesEveryCheck/3
 tack	TestBuiltListEqualityPassesEveryCheck/s
 tack	TestBuiltListEqualityPassesEveryCheck/z
-tack	TestBuiltListsPassesEveryCheck
+tack	TestBuiltListsPassesEveryCheck	parent
 tack	TestBuiltListsPassesEveryCheck/extern-lists/0
 tack	TestBuiltListsPassesEveryCheck/extern-lists/1
 tack	TestBuiltListsPassesEveryCheck/extern-lists/2
@@ -7714,21 +7714,21 @@ tack	TestBuiltListsPassesEveryCheck/lists/z
 tack	TestBuiltLogicalShortCircuitsAndExits13
 tack	TestBuiltLoopInvariantsPassesEveryCheck
 tack	TestBuiltLoopsTicksAndExits29
-tack	TestBuiltMethodsPassesEveryCheck
+tack	TestBuiltMethodsPassesEveryCheck	parent
 tack	TestBuiltMethodsPassesEveryCheck/0
 tack	TestBuiltMethodsPassesEveryCheck/1
 tack	TestBuiltMethodsPassesEveryCheck/2
 tack	TestBuiltMethodsPassesEveryCheck/3
 tack	TestBuiltMethodsPassesEveryCheck/s
 tack	TestBuiltMethodsPassesEveryCheck/z
-tack	TestBuiltMixedComparePassesEveryCheck
+tack	TestBuiltMixedComparePassesEveryCheck	parent
 tack	TestBuiltMixedComparePassesEveryCheck/0
 tack	TestBuiltMixedComparePassesEveryCheck/1
 tack	TestBuiltMixedComparePassesEveryCheck/2
 tack	TestBuiltMixedComparePassesEveryCheck/3
 tack	TestBuiltMixedComparePassesEveryCheck/s
 tack	TestBuiltMixedComparePassesEveryCheck/z
-tack	TestBuiltModuleMainsByDirectoryAndPath
+tack	TestBuiltModuleMainsByDirectoryAndPath	parent
 tack	TestBuiltModuleMainsByDirectoryAndPath/root_by_directory
 tack	TestBuiltModuleMainsByDirectoryAndPath/root_by_path
 tack	TestBuiltModuleMainsByDirectoryAndPath/root_by_relative_directory
@@ -7740,25 +7740,25 @@ tack	TestBuiltMutExclusivePassesEveryCheck
 tack	TestBuiltMutParamsPassesEveryCheck
 tack	TestBuiltNegateExits19
 tack	TestBuiltOrderIsLeftToRight
-tack	TestBuiltOsPassesEveryCheck
+tack	TestBuiltOsPassesEveryCheck	parent
 tack	TestBuiltOsPassesEveryCheck/0
 tack	TestBuiltOsPassesEveryCheck/1
 tack	TestBuiltOsPassesEveryCheck/2
 tack	TestBuiltOsPassesEveryCheck/3
 tack	TestBuiltOsPassesEveryCheck/s
 tack	TestBuiltOsPassesEveryCheck/z
-tack	TestBuiltOwnedListsWritesItsOutput
+tack	TestBuiltOwnedListsWritesItsOutput	parent
 tack	TestBuiltOwnedListsWritesItsOutput/0
 tack	TestBuiltOwnedListsWritesItsOutput/1
 tack	TestBuiltOwnedListsWritesItsOutput/2
 tack	TestBuiltOwnedListsWritesItsOutput/3
 tack	TestBuiltOwnedListsWritesItsOutput/s
 tack	TestBuiltOwnedListsWritesItsOutput/z
-tack	TestBuiltPackagesRunsBothMains
+tack	TestBuiltPackagesRunsBothMains	parent
 tack	TestBuiltPackagesRunsBothMains/calc
 tack	TestBuiltPackagesRunsBothMains/calc_by_path
 tack	TestBuiltPackagesRunsBothMains/count
-tack	TestBuiltPathPassesEveryCheck
+tack	TestBuiltPathPassesEveryCheck	parent
 tack	TestBuiltPathPassesEveryCheck/0
 tack	TestBuiltPathPassesEveryCheck/1
 tack	TestBuiltPathPassesEveryCheck/2
@@ -7766,7 +7766,7 @@ tack	TestBuiltPathPassesEveryCheck/3
 tack	TestBuiltPathPassesEveryCheck/s
 tack	TestBuiltPathPassesEveryCheck/z
 tack	TestBuiltPrintWritesNoNewlineOfItsOwn
-tack	TestBuiltPrintfWritesItsOutput
+tack	TestBuiltPrintfWritesItsOutput	parent
 tack	TestBuiltPrintfWritesItsOutput/0
 tack	TestBuiltPrintfWritesItsOutput/1
 tack	TestBuiltPrintfWritesItsOutput/2
@@ -7775,7 +7775,7 @@ tack	TestBuiltPrintfWritesItsOutput/s
 tack	TestBuiltPrintfWritesItsOutput/z
 tack	TestBuiltRangesExits42
 tack	TestBuiltRawStringsPrintsAndExits116
-tack	TestBuiltRelationsPassesEveryCheck
+tack	TestBuiltRelationsPassesEveryCheck	parent
 tack	TestBuiltRelationsPassesEveryCheck/0
 tack	TestBuiltRelationsPassesEveryCheck/1
 tack	TestBuiltRelationsPassesEveryCheck/2
@@ -7786,28 +7786,28 @@ tack	TestBuiltResultsAssignExits87
 tack	TestBuiltResultsBindsEveryResultAndExits48
 tack	TestBuiltSafetyPassesEveryCheck
 tack	TestBuiltSelfCompareIsSilentAndExits7
-tack	TestBuiltSizeLimitsWritesItsOutput
+tack	TestBuiltSizeLimitsWritesItsOutput	parent
 tack	TestBuiltSizeLimitsWritesItsOutput/0
 tack	TestBuiltSizeLimitsWritesItsOutput/1
 tack	TestBuiltSizeLimitsWritesItsOutput/2
 tack	TestBuiltSizeLimitsWritesItsOutput/3
 tack	TestBuiltSizeLimitsWritesItsOutput/s
 tack	TestBuiltSizeLimitsWritesItsOutput/z
-tack	TestBuiltSlicesPassesEveryCheck
+tack	TestBuiltSlicesPassesEveryCheck	parent
 tack	TestBuiltSlicesPassesEveryCheck/0
 tack	TestBuiltSlicesPassesEveryCheck/1
 tack	TestBuiltSlicesPassesEveryCheck/2
 tack	TestBuiltSlicesPassesEveryCheck/3
 tack	TestBuiltSlicesPassesEveryCheck/s
 tack	TestBuiltSlicesPassesEveryCheck/z
-tack	TestBuiltSortPassesEveryCheck
+tack	TestBuiltSortPassesEveryCheck	parent
 tack	TestBuiltSortPassesEveryCheck/0
 tack	TestBuiltSortPassesEveryCheck/1
 tack	TestBuiltSortPassesEveryCheck/2
 tack	TestBuiltSortPassesEveryCheck/3
 tack	TestBuiltSortPassesEveryCheck/s
 tack	TestBuiltSortPassesEveryCheck/z
-tack	TestBuiltStdImportAtEveryOptLevel
+tack	TestBuiltStdImportAtEveryOptLevel	parent
 tack	TestBuiltStdImportAtEveryOptLevel/module/O0
 tack	TestBuiltStdImportAtEveryOptLevel/module/O1
 tack	TestBuiltStdImportAtEveryOptLevel/module/O2
@@ -7825,7 +7825,7 @@ tack	TestBuiltStringGlobalsExits42
 tack	TestBuiltStringIndexExits5
 tack	TestBuiltStructsExits133
 tack	TestBuiltSwitchExits42
-tack	TestBuiltTackLexer
+tack	TestBuiltTackLexer	parent
 tack	TestBuiltTackLexer/empty
 tack	TestBuiltTackLexer/errors
 tack	TestBuiltTackLexer/exactly_full
@@ -7833,21 +7833,21 @@ tack	TestBuiltTackLexer/one_token_too_many
 tack	TestBuiltTackLexer/program
 tack	TestBuiltTackLexerAgreesWithTheCompiler
 tack	TestBuiltTestFilesExits42
-tack	TestBuiltTextPassesEveryCheck
+tack	TestBuiltTextPassesEveryCheck	parent
 tack	TestBuiltTextPassesEveryCheck/0
 tack	TestBuiltTextPassesEveryCheck/1
 tack	TestBuiltTextPassesEveryCheck/2
 tack	TestBuiltTextPassesEveryCheck/3
 tack	TestBuiltTextPassesEveryCheck/s
 tack	TestBuiltTextPassesEveryCheck/z
-tack	TestBuiltUnionMethodsPassesEveryCheck
+tack	TestBuiltUnionMethodsPassesEveryCheck	parent
 tack	TestBuiltUnionMethodsPassesEveryCheck/0
 tack	TestBuiltUnionMethodsPassesEveryCheck/1
 tack	TestBuiltUnionMethodsPassesEveryCheck/2
 tack	TestBuiltUnionMethodsPassesEveryCheck/3
 tack	TestBuiltUnionMethodsPassesEveryCheck/s
 tack	TestBuiltUnionMethodsPassesEveryCheck/z
-tack	TestBuiltUnionsPassesEveryCheck
+tack	TestBuiltUnionsPassesEveryCheck	parent
 tack	TestBuiltUnionsPassesEveryCheck/0
 tack	TestBuiltUnionsPassesEveryCheck/1
 tack	TestBuiltUnionsPassesEveryCheck/2
@@ -7858,21 +7858,21 @@ tack	TestBuiltUnreachableAssumedExits42
 tack	TestBuiltUnreachableExits42
 tack	TestBuiltUnsafeSizesPassesEveryCheck
 tack	TestBuiltUnusedWarningsRuns
-tack	TestBuiltVariadicsPassesEveryCheck
+tack	TestBuiltVariadicsPassesEveryCheck	parent
 tack	TestBuiltVariadicsPassesEveryCheck/0
 tack	TestBuiltVariadicsPassesEveryCheck/1
 tack	TestBuiltVariadicsPassesEveryCheck/2
 tack	TestBuiltVariadicsPassesEveryCheck/3
 tack	TestBuiltVariadicsPassesEveryCheck/s
 tack	TestBuiltVariadicsPassesEveryCheck/z
-tack	TestBuiltViewResultsWritesItsOutput
+tack	TestBuiltViewResultsWritesItsOutput	parent
 tack	TestBuiltViewResultsWritesItsOutput/0
 tack	TestBuiltViewResultsWritesItsOutput/1
 tack	TestBuiltViewResultsWritesItsOutput/2
 tack	TestBuiltViewResultsWritesItsOutput/3
 tack	TestBuiltViewResultsWritesItsOutput/s
 tack	TestBuiltViewResultsWritesItsOutput/z
-tack	TestBuiltViewsPassesEveryCheck
+tack	TestBuiltViewsPassesEveryCheck	parent
 tack	TestBuiltViewsPassesEveryCheck/0
 tack	TestBuiltViewsPassesEveryCheck/1
 tack	TestBuiltViewsPassesEveryCheck/2
@@ -7880,7 +7880,7 @@ tack	TestBuiltViewsPassesEveryCheck/3
 tack	TestBuiltViewsPassesEveryCheck/s
 tack	TestBuiltViewsPassesEveryCheck/z
 tack	TestBuiltWidthsExits54
-tack	TestBuiltinsAtEveryOptLevel
+tack	TestBuiltinsAtEveryOptLevel	parent
 tack	TestBuiltinsAtEveryOptLevel/-O0
 tack	TestBuiltinsAtEveryOptLevel/-O1
 tack	TestBuiltinsAtEveryOptLevel/-O2
@@ -7892,12 +7892,12 @@ tack	TestCFileWithoutTheHeaderIsStillChecked
 tack	TestCancelledBuildKillsToolchainAndCleansUp
 tack	TestCheckBuiltinDoc
 tack	TestCheckBuiltinDocThroughSymlinks
-tack	TestCheckDumpsOfLibrary
+tack	TestCheckDumpsOfLibrary	parent
 tack	TestCheckDumpsOfLibrary/ast
 tack	TestCheckDumpsOfLibrary/lex
 tack	TestCheckDumpsOfLibrary/res
 tack	TestCheckDumpsOfMainWithoutFunc
-tack	TestCheckDumpsOfValidProgram
+tack	TestCheckDumpsOfValidProgram	parent
 tack	TestCheckDumpsOfValidProgram/examples--ast
 tack	TestCheckDumpsOfValidProgram/examples--emit
 tack	TestCheckDumpsOfValidProgram/examples--lex
@@ -7906,7 +7906,7 @@ tack	TestCheckDumpsOfValidProgram/hello--ast
 tack	TestCheckDumpsOfValidProgram/hello--emit
 tack	TestCheckDumpsOfValidProgram/hello--lex
 tack	TestCheckDumpsOfValidProgram/hello--res
-tack	TestCheckDumpsWithErrors
+tack	TestCheckDumpsWithErrors	parent
 tack	TestCheckDumpsWithErrors/--ast
 tack	TestCheckDumpsWithErrors/--emit
 tack	TestCheckDumpsWithErrors/--emit-header
@@ -7914,20 +7914,20 @@ tack	TestCheckDumpsWithErrors/--lex
 tack	TestCheckDumpsWithErrors/--res
 tack	TestCheckDumpsWithParseError
 tack	TestCheckLibraryEmitWithDeepGlobal
-tack	TestCheckLibraryLoadProblems
+tack	TestCheckLibraryLoadProblems	parent
 tack	TestCheckLibraryLoadProblems/clause
 tack	TestCheckLibraryLoadProblems/cycle
 tack	TestCheckLibraryLoadProblems/import_fails_to_parse
 tack	TestCheckLibraryLoadProblems/imports_main
 tack	TestCheckLibraryLoadProblems/lex
-tack	TestCheckLibraryModule
+tack	TestCheckLibraryModule	parent
 tack	TestCheckLibraryModule/by_path
 tack	TestCheckLibraryModule/leaf_package
 tack	TestCheckLibraryModule/module_by_path
 tack	TestCheckLibraryModule/package
 tack	TestCheckLibraryModule/root
 tack	TestCheckLibraryModuleErrors
-tack	TestCheckLibraryWithSyntaxError
+tack	TestCheckLibraryWithSyntaxError	parent
 tack	TestCheckLibraryWithSyntaxError/lexical_error
 tack	TestCheckLibraryWithSyntaxError/stray_func_between_functions
 tack	TestCheckLibraryWithSyntaxError/stray_name_in_a_body
@@ -7948,7 +7948,7 @@ tack	TestCustomStdHidesLibAndPrivate
 tack	TestDeepDeferNestingReportsOnce
 tack	TestDirectoryDiagnosticsNameEachFile
 tack	TestDirectoryDumps
-tack	TestDirectoryFailures
+tack	TestDirectoryFailures	parent
 tack	TestDirectoryFailures/symbolic_link_loop
 tack	TestDirectoryFailures/tck_link_to_a_directory
 tack	TestDirectoryFailures/unreadable
@@ -7956,7 +7956,7 @@ tack	TestDirectoryOfOnlyTestFiles
 tack	TestDoubleDashAllowsFileNamesStartingWithDash
 tack	TestDumpStopsBeforeLaterStageErrors
 tack	TestDumpsWithWarnings
-tack	TestDumpsWriteOnlyContentToStdout
+tack	TestDumpsWriteOnlyContentToStdout	parent
 tack	TestDumpsWriteOnlyContentToStdout/--ast/complete
 tack	TestDumpsWriteOnlyContentToStdout/--ast/empty
 tack	TestDumpsWriteOnlyContentToStdout/--ast/hello
@@ -7988,7 +7988,7 @@ tack	TestEmitRedirectedToFileIsValidC
 tack	TestEmitUnreachableAborts
 tack	TestEmptyFileIsRejectedWithDiagnostics
 tack	TestErrorsSortedByPosition
-tack	TestEveryCompilePassesNoFiniteLoops
+tack	TestEveryCompilePassesNoFiniteLoops	parent
 tack	TestEveryCompilePassesNoFiniteLoops/O0
 tack	TestEveryCompilePassesNoFiniteLoops/O1
 tack	TestEveryCompilePassesNoFiniteLoops/O2
@@ -7998,18 +7998,18 @@ tack	TestEveryCompilePassesNoFiniteLoops/Oz
 tack	TestExternDocShowsTheGuide
 tack	TestFailingToolchainSurfacesStderrAndCleansUp
 tack	TestFormatTokensEmpty
-tack	TestHelpListsEveryFlagAndExitsZero
+tack	TestHelpListsEveryFlagAndExitsZero	parent
 tack	TestHelpListsEveryFlagAndExitsZero/--h
 tack	TestHelpListsEveryFlagAndExitsZero/--help
 tack	TestHelpListsEveryFlagAndExitsZero/-h
 tack	TestHelpListsEveryFlagAndExitsZero/-help
 tack	TestHelpWinsOverOtherArguments
 tack	TestHelperCFilesAndUnusedDefinitions
-tack	TestHostileFmtWriteSourceNeverPanics
+tack	TestHostileFmtWriteSourceNeverPanics	parent
 tack	TestHostileFmtWriteSourceNeverPanics/fmt.write_of_a_huge_string's_bytes
 tack	TestHostileFmtWriteSourceNeverPanics/many_fmt.writes
 tack	TestHostileFmtWriteSourceNeverPanics/truncated_fmt.write
-tack	TestHostileSourceNeverPanics
+tack	TestHostileSourceNeverPanics	parent
 tack	TestHostileSourceNeverPanics/BOM
 tack	TestHostileSourceNeverPanics/CRLF
 tack	TestHostileSourceNeverPanics/C_name_with_odd_bytes
@@ -8037,7 +8037,7 @@ tack	TestHostileSourceNeverPanics/truncated_defer
 tack	TestHostileSourceNeverPanics/truncated_extern
 tack	TestHostileSourceNeverPanics/truncated_range
 tack	TestHostileSourceNeverPanics/truncated_switch
-tack	TestHostileTypeSwitchSourceNeverPanics
+tack	TestHostileTypeSwitchSourceNeverPanics	parent
 tack	TestHostileTypeSwitchSourceNeverPanics/assertion_as_a_statement
 tack	TestHostileTypeSwitchSourceNeverPanics/assertion_of_a_call
 tack	TestHostileTypeSwitchSourceNeverPanics/assertion_of_a_literal
@@ -8055,13 +8055,13 @@ tack	TestHostileTypeSwitchSourceNeverPanics/truncated_case
 tack	TestHostileTypeSwitchSourceNeverPanics/truncated_type
 tack	TestHostileTypeSwitchSourceNeverPanics/type_keyword_alone
 tack	TestHostileTypeSwitchSourceNeverPanics/type_switch_in_a_defer_in_a_loop
-tack	TestHostileVariadicSourceNeverPanics
+tack	TestHostileVariadicSourceNeverPanics	parent
 tack	TestHostileVariadicSourceNeverPanics/deep_variadic_nesting
 tack	TestHostileVariadicSourceNeverPanics/ellipses_alone
 tack	TestHostileVariadicSourceNeverPanics/many_variadic_values
 tack	TestHostileVariadicSourceNeverPanics/truncated_spread
 tack	TestHostileVariadicSourceNeverPanics/truncated_variadic
-tack	TestImportPathTargetFailures
+tack	TestImportPathTargetFailures	parent
 tack	TestImportPathTargetFailures/calc//x
 tack	TestImportPathTargetFailures/calc/a/../x
 tack	TestImportPathTargetFailures/calc/bad
@@ -8072,13 +8072,13 @@ tack	TestImportPathTargetFailures/calc/lexer
 tack	TestImportPathTargetFailures/calc/nothing
 tack	TestImportPathTargetFailures/other/pkg
 tack	TestImportPathTargetWithoutModule
-tack	TestInputFileFailures
+tack	TestInputFileFailures	parent
 tack	TestInputFileFailures/directory_with_no_Tack_files
 tack	TestInputFileFailures/directory_with_no_tack.mod
 tack	TestInputFileFailures/file_as_directory
 tack	TestInputFileFailures/missing_directory
 tack	TestInputFileFailures/missing_file
-tack	TestInvalidC
+tack	TestInvalidC	parent
 tack	TestInvalidC/c-defines-main
 tack	TestInvalidC/c-redefines-type
 tack	TestInvalidC/c-syntax-error
@@ -8093,7 +8093,7 @@ tack	TestInvalidC/no-c-files
 tack	TestInvalidC/signature-mismatch
 tack	TestInvalidC/static-definition
 tack	TestInvalidC/struct-result-mismatch
-tack	TestInvalidProgramsReportToStderrOnly
+tack	TestInvalidProgramsReportToStderrOnly	parent
 tack	TestInvalidProgramsReportToStderrOnly/any-arithmetic
 tack	TestInvalidProgramsReportToStderrOnly/any-array-arg
 tack	TestInvalidProgramsReportToStderrOnly/any-array-elem
@@ -10798,7 +10798,7 @@ tack	TestLaterStagesRunAfterErrors
 tack	TestLexDumpOfEmptyFile
 tack	TestLexDumpPadsEveryOffsetToTheSameWidth
 tack	TestMaxDiags
-tack	TestMaxErrors
+tack	TestMaxErrors	parent
 tack	TestMaxErrors/#00
 tack	TestMaxErrors/--max-diags_0
 tack	TestMaxErrors/--max-diags_3
@@ -10807,7 +10807,7 @@ tack	TestMaxErrors/--max-errors_15
 tack	TestMaxErrors/--max-errors_16
 tack	TestMaxErrors/--max-errors_3
 tack	TestMaxErrorsCountsOnlyErrors
-tack	TestMissingStdFails
+tack	TestMissingStdFails	parent
 tack	TestMissingStdFails/--emit
 tack	TestMissingStdFails/--emit-header
 tack	TestMissingStdFails/--out
@@ -10816,7 +10816,7 @@ tack	TestMissingStdFails/--res#01
 tack	TestMissingToolchainFailsAndCleansUp
 tack	TestNonUTF8CSourceBuilds
 tack	TestNonUTF8IsRejectedWithDiagnostics
-tack	TestOptLevelReachesTheToolchain
+tack	TestOptLevelReachesTheToolchain	parent
 tack	TestOptLevelReachesTheToolchain/default
 tack	TestOptLevelReachesTheToolchain/default_--Oz
 tack	TestOptLevelReachesTheToolchain/default_-O0
@@ -10826,7 +10826,7 @@ tack	TestOptLevelReachesTheToolchain/default_-O3
 tack	TestOptLevelReachesTheToolchain/default_-Os
 tack	TestOutCannotOverwriteInput
 tack	TestOutNamedLikeAnOption
-tack	TestOutPathFailures
+tack	TestOutPathFailures	parent
 tack	TestOutPathFailures/nonexistent_directory
 tack	TestOutPathFailures/out_is_a_directory
 tack	TestOutPathFailures/parent_is_a_file
@@ -10837,7 +10837,7 @@ tack	TestResDumpReportsEveryFrontEndError
 tack	TestResOfRecursiveProgram
 tack	TestShimClangTwice
 tack	TestSpecBadInfoOpensBlock
-tack	TestSpecCheckDir
+tack	TestSpecCheckDir	parent
 tack	TestSpecCheckDir/a_chapter_with_only_parse_problems
 tack	TestSpecCheckDir/a_diagnostics_block_with_a_line_missing
 tack	TestSpecCheckDir/a_diagnostics_block_with_a_line_too_many
@@ -10855,7 +10855,7 @@ tack	TestSpecCheckDir/the_wrong_example_last
 tack	TestSpecCheckDirLogs
 tack	TestSpecCheckDirTimesOut
 tack	TestSpecCheckDirWithoutClang
-tack	TestSpecCheckerCatches
+tack	TestSpecCheckerCatches	parent
 tack	TestSpecCheckerCatches/a_check_example_that_does_not_compile
 tack	TestSpecCheckerCatches/a_check_example_that_warns
 tack	TestSpecCheckerCatches/a_parse_problem
@@ -10871,7 +10871,7 @@ tack	TestSpecCheckerCatches/an_error_example_that_compiles
 tack	TestSpecCheckerCatches/an_error_example_with_a_wrong_message
 tack	TestSpecCheckerCatches/an_error_example_with_its_notes_swapped
 tack	TestSpecCheckerLateOutput
-tack	TestSpecCheckerPasses
+tack	TestSpecCheckerPasses	parent
 tack	TestSpecCheckerPasses/a_check_example
 tack	TestSpecCheckerPasses/a_fragment
 tack	TestSpecCheckerPasses/a_run_example_with_its_output
@@ -10880,7 +10880,7 @@ tack	TestSpecCheckerPasses/an_error_example_with_a_note
 tack	TestSpecCheckerPasses/an_error_example_with_more_errors_than_the_default_limit
 tack	TestSpecCheckerTimesOut
 tack	TestSpecCheckerWithoutClang
-tack	TestSpecDialectAccepts
+tack	TestSpecDialectAccepts	parent
 tack	TestSpecDialectAccepts/a_block_with_an_empty_info_string
 tack	TestSpecDialectAccepts/a_dash_line_that_is_not_the_first
 tack	TestSpecDialectAccepts/a_dash_line_with_a_trailing_space_that_is_not_the_first
@@ -10893,7 +10893,7 @@ tack	TestSpecDialectAccepts/an_exit_status_of_255
 tack	TestSpecDialectAccepts/an_indented_line_of_other_text_inside_a_block_is_content
 tack	TestSpecDialectAccepts/an_indented_run_shorter_than_the_fence_inside_a_block_is_content
 tack	TestSpecDialectAccepts/every_kind,_and_a_longer_fence_quoting_a_tack_block
-tack	TestSpecDialectRejects
+tack	TestSpecDialectRejects	parent
 tack	TestSpecDialectRejects/a_DEL_byte
 tack	TestSpecDialectRejects/a_Tack_near_miss
 tack	TestSpecDialectRejects/a_bad_info_string_still_opens_a_block
@@ -10961,7 +10961,7 @@ tack	TestSpecHelperDiesFirst
 tack	TestSpecHelperLoop
 tack	TestSpecHelperSpacedDir
 tack	TestSpecIndex
-tack	TestSpecIndexLinks
+tack	TestSpecIndexLinks	parent
 tack	TestSpecIndexLinks/F10_reference-style_link
 tack	TestSpecIndexLinks/F11_link_with_a_title
 tack	TestSpecIndexLinks/F1_escaped_backtick_then_link_then_lone_backtick
@@ -11037,7 +11037,7 @@ tack	TestSpecIndexLinks/two_links,_the_form_second
 tack	TestSpecIndexLinks/two_links_on_one_line
 tack	TestSpecIndexLinks/two_spaces_after_the_dot
 tack	TestSpecIndexOutcome
-tack	TestSpecIndexProblems
+tack	TestSpecIndexProblems	parent
 tack	TestSpecIndexProblems/a_badly_named_chapter
 tack	TestSpecIndexProblems/a_chapter_not_linked
 tack	TestSpecIndexProblems/a_dangling_link
@@ -11046,7 +11046,7 @@ tack	TestSpecIndexProblems/a_file_not_.md
 tack	TestSpecIndexProblems/a_good_directory
 tack	TestSpecIndexProblems/a_stray_directory
 tack	TestSpecIndexTitles
-tack	TestSpecJudgeBuildAndRun
+tack	TestSpecJudgeBuildAndRun	parent
 tack	TestSpecJudgeBuildAndRun/a_carriage_return
 tack	TestSpecJudgeBuildAndRun/a_leading_space
 tack	TestSpecJudgeBuildAndRun/an_extra_newline
@@ -11056,7 +11056,7 @@ tack	TestSpecJudgeBuildAndRun/status
 tack	TestSpecJudgeBuildAndRun/stderr
 tack	TestSpecJudgeBuildAndRun/stdout
 tack	TestSpecJudgeBuildAndRun/timeout
-tack	TestSpecJudgeCheck
+tack	TestSpecJudgeCheck	parent
 tack	TestSpecJudgeCheck/a_clean_check
 tack	TestSpecJudgeCheck/a_clean_run
 tack	TestSpecJudgeCheck/a_failed_check
@@ -11077,7 +11077,7 @@ tack	TestSpecRunBinaryDeadline
 tack	TestSpecRunBinaryEscapedPipe
 tack	TestSpecRunBinaryHeldPipe
 tack	TestSpecRunBinaryKillsHard
-tack	TestSpecRunBinaryLateOutput
+tack	TestSpecRunBinaryLateOutput	parent
 tack	TestSpecRunBinaryLateOutput/exit_0
 tack	TestSpecRunBinaryLateOutput/exit_3
 tack	TestSpecRunBinaryLateOutput/past_the_deadline
@@ -11087,7 +11087,7 @@ tack	TestSpecRunBinaryNotRun
 tack	TestSpecRunBinaryReaped
 tack	TestSpecRunLimits
 tack	TestSpecScriptPaths
-tack	TestSpecTestDies
+tack	TestSpecTestDies	parent
 tack	TestSpecTestDies/a_child,_interrupt,_signals_only
 tack	TestSpecTestDies/ignoring_TERM_and_INT,_interrupt,_signals_only
 tack	TestSpecTestDies/ignoring_TERM_and_INT,_kill
@@ -11099,7 +11099,7 @@ tack	TestSpecTestDies/terminate,_signals_only
 tack	TestSpecTestDies/test_timeout
 tack	TestStaleHeaderBesideCFileIsIgnored
 tack	TestStdCacheConcurrentBuilds
-tack	TestStdCacheCorruptEntryIsRebuilt
+tack	TestStdCacheCorruptEntryIsRebuilt	parent
 tack	TestStdCacheCorruptEntryIsRebuilt/key_empty
 tack	TestStdCacheCorruptEntryIsRebuilt/key_garbage
 tack	TestStdCacheCorruptEntryIsRebuilt/key_in_upper_case
@@ -11111,11 +11111,11 @@ tack	TestStdCacheCorruptEntryIsRebuilt/object_empty
 tack	TestStdCacheCorruptEntryIsRebuilt/object_removed
 tack	TestStdCacheCorruptEntryIsRebuilt/object_truncated
 tack	TestStdCacheHit
-tack	TestStdCacheLocation
+tack	TestStdCacheLocation	parent
 tack	TestStdCacheLocation/TACK_CACHE
 tack	TestStdCacheLocation/default
 tack	TestStdCacheLocation/relative
-tack	TestStdCacheMisses
+tack	TestStdCacheMisses	parent
 tack	TestStdCacheMisses/header_in_std/builtin
 tack	TestStdCacheMisses/include_header
 tack	TestStdCacheMisses/new_include_header
@@ -11123,22 +11123,22 @@ tack	TestStdCacheMisses/opt_level
 tack	TestStdCacheMisses/planted_c_file
 tack	TestStdCacheMisses/std_moved
 tack	TestStdCacheMisses/toolchain_identity
-tack	TestStdCacheMissesWhenFlagsChange
+tack	TestStdCacheMissesWhenFlagsChange	parent
 tack	TestStdCacheMissesWhenFlagsChange/-fno-finite-loops
 tack	TestStdCacheMissesWhenFlagsChange/-mllvm_-indvars-predicate-loops=false
 tack	TestStdCacheObjectIsADirectory
 tack	TestStdCacheReadOnly
 tack	TestStdCacheToolchainIdentity
-tack	TestStdCacheUnusable
+tack	TestStdCacheUnusable	parent
 tack	TestStdCacheUnusable/a_file
 tack	TestStdCacheUnusable/beneath_a_file
 tack	TestStdCacheUnusable/unknown
 tack	TestStdFromHomeDirectory
 tack	TestStdImportWithoutStd
-tack	TestStdObjectsLinkedForProgramC
+tack	TestStdObjectsLinkedForProgramC	parent
 tack	TestStdObjectsLinkedForProgramC/calls_nothing
 tack	TestStdObjectsLinkedForProgramC/calls_std
-tack	TestStdObjectsLinkedOnlyWhenUsed
+tack	TestStdObjectsLinkedOnlyWhenUsed	parent
 tack	TestStdObjectsLinkedOnlyWhenUsed/a_list
 tack	TestStdObjectsLinkedOnlyWhenUsed/a_list_and_print
 tack	TestStdObjectsLinkedOnlyWhenUsed/both
@@ -11170,7 +11170,7 @@ tack	TestTackTestSignalDeath
 tack	TestTackTestSyntaxError
 tack	TestTackTestUsage
 tack	TestTempDirUnusableFails
-tack	TestTestFileTargetIsRejected
+tack	TestTestFileTargetIsRejected	parent
 tack	TestTestFileTargetIsRejected/_test.tck_ast
 tack	TestTestFileTargetIsRejected/_test.tck_build
 tack	TestTestFileTargetIsRejected/_test.tck_check
@@ -11192,7 +11192,7 @@ tack	TestTestFileTargetIsRejected/missing_test.tck_check_lex
 tack	TestTestFileTargetIsRejected/missing_test.tck_emit
 tack	TestTestFileTargetIsRejected/missing_test.tck_lex
 tack	TestTestFileTargetIsRejected/missing_test.tck_res
-tack	TestTestFilesLeftOutOfEveryMode
+tack	TestTestFilesLeftOutOfEveryMode	parent
 tack	TestTestFilesLeftOutOfEveryMode/--ast
 tack	TestTestFilesLeftOutOfEveryMode/--check_--ast
 tack	TestTestFilesLeftOutOfEveryMode/--check_--emit
@@ -11205,7 +11205,7 @@ tack	TestTestFilesLeftOutOfEveryMode/--lex
 tack	TestTestFilesLeftOutOfEveryMode/--res
 tack	TestToolchainVersion
 tack	TestUnreadableFile
-tack	TestUsageErrors
+tack	TestUsageErrors	parent
 tack	TestUsageErrors/--out_missing_value
 tack	TestUsageErrors/all_dumps
 tack	TestUsageErrors/backend_missing_value
@@ -11232,7 +11232,7 @@ tack	TestUsageErrors/unknown_level
 tack	TestUsageErrors/unknown_single-dash_flag
 tack	TestUsageErrorsAreCheckedBeforeReadingTheFile
 tack	TestUserCDefiningABuiltin
-test	FuzzBlankParamsFrontEnd
+test	FuzzBlankParamsFrontEnd	parent
 test	FuzzBlankParamsFrontEnd/seed#0
 test	FuzzBlankParamsFrontEnd/seed#1
 test	FuzzBlankParamsFrontEnd/seed#10
@@ -11261,7 +11261,7 @@ test	FuzzBlankParamsFrontEnd/seed#6
 test	FuzzBlankParamsFrontEnd/seed#7
 test	FuzzBlankParamsFrontEnd/seed#8
 test	FuzzBlankParamsFrontEnd/seed#9
-test	FuzzFileOrder
+test	FuzzFileOrder	parent
 test	FuzzFileOrder/seed#0
 test	FuzzFileOrder/seed#1
 test	FuzzFileOrder/seed#10
@@ -11417,7 +11417,7 @@ test	FuzzFileOrder/seed#96
 test	FuzzFileOrder/seed#97
 test	FuzzFileOrder/seed#98
 test	FuzzFileOrder/seed#99
-test	FuzzFrontEndAfterErrors
+test	FuzzFrontEndAfterErrors	parent
 test	FuzzFrontEndAfterErrors/seed#0
 test	FuzzFrontEndAfterErrors/seed#1
 test	FuzzFrontEndAfterErrors/seed#10
@@ -14140,7 +14140,7 @@ test	FuzzFrontEndAfterErrors/seed#996
 test	FuzzFrontEndAfterErrors/seed#997
 test	FuzzFrontEndAfterErrors/seed#998
 test	FuzzFrontEndAfterErrors/seed#999
-test	FuzzMakeDataFrontEnd
+test	FuzzMakeDataFrontEnd	parent
 test	FuzzMakeDataFrontEnd/seed#0
 test	FuzzMakeDataFrontEnd/seed#1
 test	FuzzMakeDataFrontEnd/seed#10
@@ -14164,7 +14164,7 @@ test	FuzzMakeDataFrontEnd/seed#6
 test	FuzzMakeDataFrontEnd/seed#7
 test	FuzzMakeDataFrontEnd/seed#8
 test	FuzzMakeDataFrontEnd/seed#9
-test	FuzzParamSwitchFrontEnd
+test	FuzzParamSwitchFrontEnd	parent
 test	FuzzParamSwitchFrontEnd/seed#0
 test	FuzzParamSwitchFrontEnd/seed#1
 test	FuzzParamSwitchFrontEnd/seed#10
@@ -14194,7 +14194,7 @@ test	FuzzParamSwitchFrontEnd/seed#6
 test	FuzzParamSwitchFrontEnd/seed#7
 test	FuzzParamSwitchFrontEnd/seed#8
 test	FuzzParamSwitchFrontEnd/seed#9
-test	FuzzTypeArgsFrontEnd
+test	FuzzTypeArgsFrontEnd	parent
 test	FuzzTypeArgsFrontEnd/seed#0
 test	FuzzTypeArgsFrontEnd/seed#1
 test	FuzzTypeArgsFrontEnd/seed#10
@@ -14238,12 +14238,12 @@ test	FuzzTypeArgsFrontEnd/seed#6
 test	FuzzTypeArgsFrontEnd/seed#7
 test	FuzzTypeArgsFrontEnd/seed#8
 test	FuzzTypeArgsFrontEnd/seed#9
-test	TestAcceptsValidPrograms
+test	TestAcceptsValidPrograms	parent
 test	TestAcceptsValidPrograms/blank_line_between_statements
 test	TestAcceptsValidPrograms/function_body_on_one_line
 test	TestAcceptsValidPrograms/no_trailing_newline_at_end_of_file
 test	TestAcceptsValidPrograms/two_top-level_functions
-test	TestCRLFMatchesLF
+test	TestCRLFMatchesLF	parent
 test	TestCRLFMatchesLF/any-arithmetic
 test	TestCRLFMatchesLF/any-array-arg
 test	TestCRLFMatchesLF/any-array-elem
@@ -17273,7 +17273,7 @@ test	TestCRLFMatchesLF/wrapping-mismatched-types
 test	TestCRLFMatchesLF/wrapping-negate-on-float
 test	TestCRLFMatchesLF/wrapping-on-float
 test	TestCRLFMatchesLF/wrapping-on-string
-test	TestClosureCasesRejectedWhereMarked
+test	TestClosureCasesRejectedWhereMarked	parent
 test	TestClosureCasesRejectedWhereMarked/closure-as-any
 test	TestClosureCasesRejectedWhereMarked/closure-assigned-to-mut-variable
 test	TestClosureCasesRejectedWhereMarked/closure-assigned-to-variable
@@ -17339,7 +17339,7 @@ test	TestClosureCasesRejectedWhereMarked/scope-param-to-plain-param
 test	TestClosureCasesRejectedWhereMarked/scope-result
 test	TestClosureCasesRejectedWhereMarked/scope-type-mismatch
 test	TestClosureCasesRejectedWhereMarked/scope-variadic
-test	TestCodegenRefusesEveryInvalidProgram
+test	TestCodegenRefusesEveryInvalidProgram	parent
 test	TestCodegenRefusesEveryInvalidProgram/any-arithmetic
 test	TestCodegenRefusesEveryInvalidProgram/any-array-arg
 test	TestCodegenRefusesEveryInvalidProgram/any-array-elem
@@ -20193,362 +20193,362 @@ test	TestCodegenRefusesEveryInvalidProgram/wrapping-negate-on-float
 test	TestCodegenRefusesEveryInvalidProgram/wrapping-on-float
 test	TestCodegenRefusesEveryInvalidProgram/wrapping-on-string
 test	TestFieldsLoopListsByMark
-test	TestGolden
-test	TestGolden/../examples/any-switch
+test	TestGolden	parent
+test	TestGolden/../examples/any-switch	parent
 test	TestGolden/../examples/any-switch/c
-test	TestGolden/../examples/any-views
+test	TestGolden/../examples/any-views	parent
 test	TestGolden/../examples/any-views/c
-test	TestGolden/../examples/arena-unions
+test	TestGolden/../examples/arena-unions	parent
 test	TestGolden/../examples/arena-unions/c
-test	TestGolden/../examples/arenas
+test	TestGolden/../examples/arenas	parent
 test	TestGolden/../examples/arenas/c
-test	TestGolden/../examples/arithmetic
-test	TestGolden/../examples/arithmetic-ranges
+test	TestGolden/../examples/arithmetic	parent
+test	TestGolden/../examples/arithmetic-ranges	parent
 test	TestGolden/../examples/arithmetic-ranges/c
 test	TestGolden/../examples/arithmetic/c
-test	TestGolden/../examples/arrays
+test	TestGolden/../examples/arrays	parent
 test	TestGolden/../examples/arrays/c
-test	TestGolden/../examples/assign-order
+test	TestGolden/../examples/assign-order	parent
 test	TestGolden/../examples/assign-order/c
-test	TestGolden/../examples/big
+test	TestGolden/../examples/big	parent
 test	TestGolden/../examples/big/c
-test	TestGolden/../examples/binary
+test	TestGolden/../examples/binary	parent
 test	TestGolden/../examples/binary/c
-test	TestGolden/../examples/bitwise
+test	TestGolden/../examples/bitwise	parent
 test	TestGolden/../examples/bitwise/c
-test	TestGolden/../examples/blank
-test	TestGolden/../examples/blank-params
+test	TestGolden/../examples/blank	parent
+test	TestGolden/../examples/blank-params	parent
 test	TestGolden/../examples/blank-params/c
 test	TestGolden/../examples/blank/c
-test	TestGolden/../examples/block-comments
+test	TestGolden/../examples/block-comments	parent
 test	TestGolden/../examples/block-comments/c
-test	TestGolden/../examples/bools
+test	TestGolden/../examples/bools	parent
 test	TestGolden/../examples/bools/c
-test	TestGolden/../examples/broken-pipe
+test	TestGolden/../examples/broken-pipe	parent
 test	TestGolden/../examples/broken-pipe/c
-test	TestGolden/../examples/bytes
+test	TestGolden/../examples/bytes	parent
 test	TestGolden/../examples/bytes/c
-test	TestGolden/../examples/call-site
+test	TestGolden/../examples/call-site	parent
 test	TestGolden/../examples/call-site/c
-test	TestGolden/../examples/case-exits
+test	TestGolden/../examples/case-exits	parent
 test	TestGolden/../examples/case-exits/c
-test	TestGolden/../examples/case-lines
+test	TestGolden/../examples/case-lines	parent
 test	TestGolden/../examples/case-lines/c
-test	TestGolden/../examples/chars
+test	TestGolden/../examples/chars	parent
 test	TestGolden/../examples/chars/c
-test	TestGolden/../examples/checked-arithmetic
+test	TestGolden/../examples/checked-arithmetic	parent
 test	TestGolden/../examples/checked-arithmetic/c
-test	TestGolden/../examples/closure-paths
+test	TestGolden/../examples/closure-paths	parent
 test	TestGolden/../examples/closure-paths/c
-test	TestGolden/../examples/closures
+test	TestGolden/../examples/closures	parent
 test	TestGolden/../examples/closures/c
-test	TestGolden/../examples/comments
+test	TestGolden/../examples/comments	parent
 test	TestGolden/../examples/comments/c
-test	TestGolden/../examples/complete
+test	TestGolden/../examples/complete	parent
 test	TestGolden/../examples/complete/c
-test	TestGolden/../examples/compound
+test	TestGolden/../examples/compound	parent
 test	TestGolden/../examples/compound/c
-test	TestGolden/../examples/computed-globals
+test	TestGolden/../examples/computed-globals	parent
 test	TestGolden/../examples/computed-globals/c
-test	TestGolden/../examples/condition-writes
+test	TestGolden/../examples/condition-writes	parent
 test	TestGolden/../examples/condition-writes/c
-test	TestGolden/../examples/conv
+test	TestGolden/../examples/conv	parent
 test	TestGolden/../examples/conv/c
-test	TestGolden/../examples/conversion-facts
+test	TestGolden/../examples/conversion-facts	parent
 test	TestGolden/../examples/conversion-facts/c
-test	TestGolden/../examples/deep-expressions
+test	TestGolden/../examples/deep-expressions	parent
 test	TestGolden/../examples/deep-expressions/c
-test	TestGolden/../examples/defer
-test	TestGolden/../examples/defer-loops
+test	TestGolden/../examples/defer	parent
+test	TestGolden/../examples/defer-loops	parent
 test	TestGolden/../examples/defer-loops/c
 test	TestGolden/../examples/defer/c
-test	TestGolden/../examples/division
-test	TestGolden/../examples/division-overflow
+test	TestGolden/../examples/division	parent
+test	TestGolden/../examples/division-overflow	parent
 test	TestGolden/../examples/division-overflow/c
 test	TestGolden/../examples/division/c
-test	TestGolden/../examples/drop
+test	TestGolden/../examples/drop	parent
 test	TestGolden/../examples/drop/c
-test	TestGolden/../examples/empty
+test	TestGolden/../examples/empty	parent
 test	TestGolden/../examples/empty/c
-test	TestGolden/../examples/endless-loops
+test	TestGolden/../examples/endless-loops	parent
 test	TestGolden/../examples/endless-loops/c
-test	TestGolden/../examples/ensures
-test	TestGolden/../examples/ensures-module
+test	TestGolden/../examples/ensures	parent
+test	TestGolden/../examples/ensures-module	parent
 test	TestGolden/../examples/ensures-module/c
 test	TestGolden/../examples/ensures/c
-test	TestGolden/../examples/equal-operands
+test	TestGolden/../examples/equal-operands	parent
 test	TestGolden/../examples/equal-operands/c
-test	TestGolden/../examples/errors
-test	TestGolden/../examples/errors-module
+test	TestGolden/../examples/errors	parent
+test	TestGolden/../examples/errors-module	parent
 test	TestGolden/../examples/errors-module/c
 test	TestGolden/../examples/errors/c
-test	TestGolden/../examples/exit
-test	TestGolden/../examples/exit-frees
+test	TestGolden/../examples/exit	parent
+test	TestGolden/../examples/exit-frees	parent
 test	TestGolden/../examples/exit-frees/c
-test	TestGolden/../examples/exit-leaves
+test	TestGolden/../examples/exit-leaves	parent
 test	TestGolden/../examples/exit-leaves/c
-test	TestGolden/../examples/exit-wide
+test	TestGolden/../examples/exit-wide	parent
 test	TestGolden/../examples/exit-wide/c
 test	TestGolden/../examples/exit/c
-test	TestGolden/../examples/extern
-test	TestGolden/../examples/extern-any
+test	TestGolden/../examples/extern	parent
+test	TestGolden/../examples/extern-any	parent
 test	TestGolden/../examples/extern-any/c
-test	TestGolden/../examples/extern-errors
+test	TestGolden/../examples/extern-errors	parent
 test	TestGolden/../examples/extern-errors/c
-test	TestGolden/../examples/extern-floats
+test	TestGolden/../examples/extern-floats	parent
 test	TestGolden/../examples/extern-floats/c
-test	TestGolden/../examples/extern-guide
+test	TestGolden/../examples/extern-guide	parent
 test	TestGolden/../examples/extern-guide/c
-test	TestGolden/../examples/extern-lists
+test	TestGolden/../examples/extern-lists	parent
 test	TestGolden/../examples/extern-lists/c
-test	TestGolden/../examples/extern-module
+test	TestGolden/../examples/extern-module	parent
 test	TestGolden/../examples/extern-module/c
-test	TestGolden/../examples/extern-mut
+test	TestGolden/../examples/extern-mut	parent
 test	TestGolden/../examples/extern-mut/c
-test	TestGolden/../examples/extern-sizes
+test	TestGolden/../examples/extern-sizes	parent
 test	TestGolden/../examples/extern-sizes/c
-test	TestGolden/../examples/extern-strings
+test	TestGolden/../examples/extern-strings	parent
 test	TestGolden/../examples/extern-strings/c
-test	TestGolden/../examples/extern-values
+test	TestGolden/../examples/extern-values	parent
 test	TestGolden/../examples/extern-values/c
-test	TestGolden/../examples/extern-variadics
+test	TestGolden/../examples/extern-variadics	parent
 test	TestGolden/../examples/extern-variadics/c
-test	TestGolden/../examples/extern-views
+test	TestGolden/../examples/extern-views	parent
 test	TestGolden/../examples/extern-views/c
 test	TestGolden/../examples/extern/c
-test	TestGolden/../examples/failure
+test	TestGolden/../examples/failure	parent
 test	TestGolden/../examples/failure/c
-test	TestGolden/../examples/fallthrough
-test	TestGolden/../examples/fallthrough-facts
+test	TestGolden/../examples/fallthrough	parent
+test	TestGolden/../examples/fallthrough-facts	parent
 test	TestGolden/../examples/fallthrough-facts/c
-test	TestGolden/../examples/fallthrough-owned
+test	TestGolden/../examples/fallthrough-owned	parent
 test	TestGolden/../examples/fallthrough-owned/c
-test	TestGolden/../examples/fallthrough-proofs
+test	TestGolden/../examples/fallthrough-proofs	parent
 test	TestGolden/../examples/fallthrough-proofs/c
 test	TestGolden/../examples/fallthrough/c
-test	TestGolden/../examples/fib
+test	TestGolden/../examples/fib	parent
 test	TestGolden/../examples/fib/c
-test	TestGolden/../examples/field-facts
+test	TestGolden/../examples/field-facts	parent
 test	TestGolden/../examples/field-facts/c
-test	TestGolden/../examples/float-conversions
+test	TestGolden/../examples/float-conversions	parent
 test	TestGolden/../examples/float-conversions/c
-test	TestGolden/../examples/float-format
+test	TestGolden/../examples/float-format	parent
 test	TestGolden/../examples/float-format/c
-test	TestGolden/../examples/floats
+test	TestGolden/../examples/floats	parent
 test	TestGolden/../examples/floats/c
-test	TestGolden/../examples/fmt-appendf
+test	TestGolden/../examples/fmt-appendf	parent
 test	TestGolden/../examples/fmt-appendf/c
-test	TestGolden/../examples/fmt-exit
+test	TestGolden/../examples/fmt-exit	parent
 test	TestGolden/../examples/fmt-exit/c
-test	TestGolden/../examples/fmt-interleave
+test	TestGolden/../examples/fmt-interleave	parent
 test	TestGolden/../examples/fmt-interleave/c
-test	TestGolden/../examples/fmt-stderr
+test	TestGolden/../examples/fmt-stderr	parent
 test	TestGolden/../examples/fmt-stderr/c
-test	TestGolden/../examples/fmt-write
+test	TestGolden/../examples/fmt-write	parent
 test	TestGolden/../examples/fmt-write/c
-test	TestGolden/../examples/func-decl
+test	TestGolden/../examples/func-decl	parent
 test	TestGolden/../examples/func-decl/c
-test	TestGolden/../examples/func-values
+test	TestGolden/../examples/func-values	parent
 test	TestGolden/../examples/func-values/c
-test	TestGolden/../examples/generics
-test	TestGolden/../examples/generics-owned
+test	TestGolden/../examples/generics	parent
+test	TestGolden/../examples/generics-owned	parent
 test	TestGolden/../examples/generics-owned/c
 test	TestGolden/../examples/generics/c
-test	TestGolden/../examples/globals
+test	TestGolden/../examples/globals	parent
 test	TestGolden/../examples/globals/c
-test	TestGolden/../examples/hello
+test	TestGolden/../examples/hello	parent
 test	TestGolden/../examples/hello/c
-test	TestGolden/../examples/hex
+test	TestGolden/../examples/hex	parent
 test	TestGolden/../examples/hex/c
-test	TestGolden/../examples/if-else
+test	TestGolden/../examples/if-else	parent
 test	TestGolden/../examples/if-else/c
-test	TestGolden/../examples/indexing
+test	TestGolden/../examples/indexing	parent
 test	TestGolden/../examples/indexing/c
-test	TestGolden/../examples/int-literals
+test	TestGolden/../examples/int-literals	parent
 test	TestGolden/../examples/int-literals/c
-test	TestGolden/../examples/interface-params
+test	TestGolden/../examples/interface-params	parent
 test	TestGolden/../examples/interface-params/c
-test	TestGolden/../examples/json
+test	TestGolden/../examples/json	parent
 test	TestGolden/../examples/json/c
-test	TestGolden/../examples/leaving-writes
+test	TestGolden/../examples/leaving-writes	parent
 test	TestGolden/../examples/leaving-writes/c
-test	TestGolden/../examples/length-proofs
+test	TestGolden/../examples/length-proofs	parent
 test	TestGolden/../examples/length-proofs/c
-test	TestGolden/../examples/list-bulk
+test	TestGolden/../examples/list-bulk	parent
 test	TestGolden/../examples/list-bulk/c
-test	TestGolden/../examples/list-equality
+test	TestGolden/../examples/list-equality	parent
 test	TestGolden/../examples/list-equality/c
-test	TestGolden/../examples/lists
+test	TestGolden/../examples/lists	parent
 test	TestGolden/../examples/lists/c
-test	TestGolden/../examples/logical
+test	TestGolden/../examples/logical	parent
 test	TestGolden/../examples/logical/c
-test	TestGolden/../examples/loop-invariants
+test	TestGolden/../examples/loop-invariants	parent
 test	TestGolden/../examples/loop-invariants/c
-test	TestGolden/../examples/loops
+test	TestGolden/../examples/loops	parent
 test	TestGolden/../examples/loops/c
-test	TestGolden/../examples/map-has
+test	TestGolden/../examples/map-has	parent
 test	TestGolden/../examples/map-has/c
-test	TestGolden/../examples/map-zero
+test	TestGolden/../examples/map-zero	parent
 test	TestGolden/../examples/map-zero/c
-test	TestGolden/../examples/maps
+test	TestGolden/../examples/maps	parent
 test	TestGolden/../examples/maps/c
-test	TestGolden/../examples/member-names
+test	TestGolden/../examples/member-names	parent
 test	TestGolden/../examples/member-names/c
-test	TestGolden/../examples/method-exprs
+test	TestGolden/../examples/method-exprs	parent
 test	TestGolden/../examples/method-exprs/c
-test	TestGolden/../examples/methods
+test	TestGolden/../examples/methods	parent
 test	TestGolden/../examples/methods/c
-test	TestGolden/../examples/mixed-compare
+test	TestGolden/../examples/mixed-compare	parent
 test	TestGolden/../examples/mixed-compare/c
-test	TestGolden/../examples/module-mains
+test	TestGolden/../examples/module-mains	parent
 test	TestGolden/../examples/module-mains/c
-test	TestGolden/../examples/module-mains/tools/hello-world
+test	TestGolden/../examples/module-mains/tools/hello-world	parent
 test	TestGolden/../examples/module-mains/tools/hello-world/c
-test	TestGolden/../examples/multi-file
+test	TestGolden/../examples/multi-file	parent
 test	TestGolden/../examples/multi-file/c
-test	TestGolden/../examples/mut-exclusive
+test	TestGolden/../examples/mut-exclusive	parent
 test	TestGolden/../examples/mut-exclusive/c
-test	TestGolden/../examples/mut-params
+test	TestGolden/../examples/mut-params	parent
 test	TestGolden/../examples/mut-params/c
-test	TestGolden/../examples/negate
+test	TestGolden/../examples/negate	parent
 test	TestGolden/../examples/negate/c
-test	TestGolden/../examples/nested-calls
+test	TestGolden/../examples/nested-calls	parent
 test	TestGolden/../examples/nested-calls/c
-test	TestGolden/../examples/no-trailing-newline
+test	TestGolden/../examples/no-trailing-newline	parent
 test	TestGolden/../examples/no-trailing-newline/c
-test	TestGolden/../examples/one-liner-func
+test	TestGolden/../examples/one-liner-func	parent
 test	TestGolden/../examples/one-liner-func/c
-test	TestGolden/../examples/order
+test	TestGolden/../examples/order	parent
 test	TestGolden/../examples/order/c
-test	TestGolden/../examples/os
+test	TestGolden/../examples/os	parent
 test	TestGolden/../examples/os/c
-test	TestGolden/../examples/overflow-fixes
+test	TestGolden/../examples/overflow-fixes	parent
 test	TestGolden/../examples/overflow-fixes/c
-test	TestGolden/../examples/own-exit
+test	TestGolden/../examples/own-exit	parent
 test	TestGolden/../examples/own-exit/c
-test	TestGolden/../examples/own-params
+test	TestGolden/../examples/own-params	parent
 test	TestGolden/../examples/own-params/c
-test	TestGolden/../examples/owned-lists
+test	TestGolden/../examples/owned-lists	parent
 test	TestGolden/../examples/owned-lists/c
-test	TestGolden/../examples/packages/cmd/calc
+test	TestGolden/../examples/packages/cmd/calc	parent
 test	TestGolden/../examples/packages/cmd/calc/c
-test	TestGolden/../examples/packages/cmd/count
+test	TestGolden/../examples/packages/cmd/count	parent
 test	TestGolden/../examples/packages/cmd/count/c
-test	TestGolden/../examples/param-forward
+test	TestGolden/../examples/param-forward	parent
 test	TestGolden/../examples/param-forward/c
-test	TestGolden/../examples/params
+test	TestGolden/../examples/params	parent
 test	TestGolden/../examples/params/c
-test	TestGolden/../examples/path
+test	TestGolden/../examples/path	parent
 test	TestGolden/../examples/path/c
-test	TestGolden/../examples/pools
+test	TestGolden/../examples/pools	parent
 test	TestGolden/../examples/pools/c
-test	TestGolden/../examples/print
+test	TestGolden/../examples/print	parent
 test	TestGolden/../examples/print/c
-test	TestGolden/../examples/printf
+test	TestGolden/../examples/printf	parent
 test	TestGolden/../examples/printf/c
-test	TestGolden/../examples/proof-rules
+test	TestGolden/../examples/proof-rules	parent
 test	TestGolden/../examples/proof-rules/c
-test	TestGolden/../examples/question
-test	TestGolden/../examples/question-forms
+test	TestGolden/../examples/question	parent
+test	TestGolden/../examples/question-forms	parent
 test	TestGolden/../examples/question-forms/c
-test	TestGolden/../examples/question-owned
+test	TestGolden/../examples/question-owned	parent
 test	TestGolden/../examples/question-owned/c
 test	TestGolden/../examples/question/c
-test	TestGolden/../examples/quote
+test	TestGolden/../examples/quote	parent
 test	TestGolden/../examples/quote/c
-test	TestGolden/../examples/ranges
+test	TestGolden/../examples/ranges	parent
 test	TestGolden/../examples/ranges/c
-test	TestGolden/../examples/raw-strings
+test	TestGolden/../examples/raw-strings	parent
 test	TestGolden/../examples/raw-strings/c
-test	TestGolden/../examples/reflect-fields
+test	TestGolden/../examples/reflect-fields	parent
 test	TestGolden/../examples/reflect-fields/c
-test	TestGolden/../examples/reflect-make
+test	TestGolden/../examples/reflect-make	parent
 test	TestGolden/../examples/reflect-make/c
-test	TestGolden/../examples/reflect-switch
+test	TestGolden/../examples/reflect-switch	parent
 test	TestGolden/../examples/reflect-switch/c
-test	TestGolden/../examples/regions
+test	TestGolden/../examples/regions	parent
 test	TestGolden/../examples/regions/c
-test	TestGolden/../examples/relations
+test	TestGolden/../examples/relations	parent
 test	TestGolden/../examples/relations/c
-test	TestGolden/../examples/replace
+test	TestGolden/../examples/replace	parent
 test	TestGolden/../examples/replace/c
-test	TestGolden/../examples/result
-test	TestGolden/../examples/result-string
+test	TestGolden/../examples/result	parent
+test	TestGolden/../examples/result-string	parent
 test	TestGolden/../examples/result-string/c
 test	TestGolden/../examples/result/c
-test	TestGolden/../examples/results
-test	TestGolden/../examples/results-assign
+test	TestGolden/../examples/results	parent
+test	TestGolden/../examples/results-assign	parent
 test	TestGolden/../examples/results-assign/c
 test	TestGolden/../examples/results/c
-test	TestGolden/../examples/safety
+test	TestGolden/../examples/safety	parent
 test	TestGolden/../examples/safety/c
-test	TestGolden/../examples/self-compare
+test	TestGolden/../examples/self-compare	parent
 test	TestGolden/../examples/self-compare/c
-test	TestGolden/../examples/sha256
+test	TestGolden/../examples/sha256	parent
 test	TestGolden/../examples/sha256/c
-test	TestGolden/../examples/size-limits
+test	TestGolden/../examples/size-limits	parent
 test	TestGolden/../examples/size-limits/c
-test	TestGolden/../examples/slices
+test	TestGolden/../examples/slices	parent
 test	TestGolden/../examples/slices/c
-test	TestGolden/../examples/sort
+test	TestGolden/../examples/sort	parent
 test	TestGolden/../examples/sort/c
-test	TestGolden/../examples/std-import
-test	TestGolden/../examples/std-import-file
+test	TestGolden/../examples/std-import	parent
+test	TestGolden/../examples/std-import-file	parent
 test	TestGolden/../examples/std-import-file/c
 test	TestGolden/../examples/std-import/c
-test	TestGolden/../examples/stored-relations
+test	TestGolden/../examples/stored-relations	parent
 test	TestGolden/../examples/stored-relations/c
-test	TestGolden/../examples/strcmp
+test	TestGolden/../examples/strcmp	parent
 test	TestGolden/../examples/strcmp/c
-test	TestGolden/../examples/string-globals
+test	TestGolden/../examples/string-globals	parent
 test	TestGolden/../examples/string-globals/c
-test	TestGolden/../examples/string-index
+test	TestGolden/../examples/string-index	parent
 test	TestGolden/../examples/string-index/c
-test	TestGolden/../examples/structs
+test	TestGolden/../examples/structs	parent
 test	TestGolden/../examples/structs/c
-test	TestGolden/../examples/switch
+test	TestGolden/../examples/switch	parent
 test	TestGolden/../examples/switch/c
-test	TestGolden/../examples/tack-lexer/cmd/lex
+test	TestGolden/../examples/tack-lexer/cmd/lex	parent
 test	TestGolden/../examples/tack-lexer/cmd/lex/c
-test	TestGolden/../examples/tack-test/withmain
+test	TestGolden/../examples/tack-test/withmain	parent
 test	TestGolden/../examples/tack-test/withmain/c
-test	TestGolden/../examples/test-files
+test	TestGolden/../examples/test-files	parent
 test	TestGolden/../examples/test-files/c
-test	TestGolden/../examples/text
+test	TestGolden/../examples/text	parent
 test	TestGolden/../examples/text/c
-test	TestGolden/../examples/two-top-level-funcs
+test	TestGolden/../examples/two-top-level-funcs	parent
 test	TestGolden/../examples/two-top-level-funcs/c
-test	TestGolden/../examples/type-args
+test	TestGolden/../examples/type-args	parent
 test	TestGolden/../examples/type-args/c
-test	TestGolden/../examples/union-methods
+test	TestGolden/../examples/union-methods	parent
 test	TestGolden/../examples/union-methods/c
-test	TestGolden/../examples/unions
+test	TestGolden/../examples/unions	parent
 test	TestGolden/../examples/unions/c
-test	TestGolden/../examples/unreachable
-test	TestGolden/../examples/unreachable-assumed
+test	TestGolden/../examples/unreachable	parent
+test	TestGolden/../examples/unreachable-assumed	parent
 test	TestGolden/../examples/unreachable-assumed/c
 test	TestGolden/../examples/unreachable/c
-test	TestGolden/../examples/unsafe-sizes
+test	TestGolden/../examples/unsafe-sizes	parent
 test	TestGolden/../examples/unsafe-sizes/c
-test	TestGolden/../examples/unused-warnings
+test	TestGolden/../examples/unused-warnings	parent
 test	TestGolden/../examples/unused-warnings/c
-test	TestGolden/../examples/utf8
+test	TestGolden/../examples/utf8	parent
 test	TestGolden/../examples/utf8/c
-test	TestGolden/../examples/variables
+test	TestGolden/../examples/variables	parent
 test	TestGolden/../examples/variables/c
-test	TestGolden/../examples/variadics
+test	TestGolden/../examples/variadics	parent
 test	TestGolden/../examples/variadics/c
-test	TestGolden/../examples/view-bindings
+test	TestGolden/../examples/view-bindings	parent
 test	TestGolden/../examples/view-bindings/c
-test	TestGolden/../examples/view-results
+test	TestGolden/../examples/view-results	parent
 test	TestGolden/../examples/view-results/c
-test	TestGolden/../examples/views
+test	TestGolden/../examples/views	parent
 test	TestGolden/../examples/views/c
-test	TestGolden/../examples/widths
+test	TestGolden/../examples/widths	parent
 test	TestGolden/../examples/widths/c
-test	TestGolden/../examples/wrapping-arithmetic
+test	TestGolden/../examples/wrapping-arithmetic	parent
 test	TestGolden/../examples/wrapping-arithmetic/c
-test	TestHeaders
+test	TestHeaders	parent
 test	TestHeaders/../examples/any-switch
 test	TestHeaders/../examples/any-views
 test	TestHeaders/../examples/arena-unions
@@ -20726,7 +20726,7 @@ test	TestHeaders/../examples/view-results
 test	TestHeaders/../examples/views
 test	TestHeaders/../examples/widths
 test	TestHeaders/../examples/wrapping-arithmetic
-test	TestInvalid
+test	TestInvalid	parent
 test	TestInvalid/any-arithmetic
 test	TestInvalid/any-array-arg
 test	TestInvalid/any-array-elem
@@ -23427,7 +23427,7 @@ test	TestInvalid/wrapping-mismatched-types
 test	TestInvalid/wrapping-negate-on-float
 test	TestInvalid/wrapping-on-float
 test	TestInvalid/wrapping-on-string
-test	TestInvalidPackages
+test	TestInvalidPackages	parent
 test	TestInvalidPackages/arena-exposes
 test	TestInvalidPackages/assign-imported-immutable
 test	TestInvalidPackages/clause-mismatch
@@ -23580,7 +23580,7 @@ test	TestInvalidPackages/vis-mut-exported
 test	TestInvalidPackages/vis-private-global-in-initializer
 test	TestInvalidPackages/vis-private-names
 test	TestInvalidPackages/vis-unused-private-global
-test	TestInvalidTests
+test	TestInvalidTests	parent
 test	TestInvalidTests/errorf-format
 test	TestInvalidTests/errorf-format-method-expr
 test	TestInvalidTests/fatalf-format
@@ -23609,7 +23609,7 @@ test	TestLibFieldIsNotVisibleFromAnotherModule
 test	TestLibIsNotVisibleFromAnotherModule
 test	TestMakeInstallStd
 test	TestMakeInstallStdWithoutTackHome
-test	TestRegionCasesAreRejectedWhereTheyShouldBe
+test	TestRegionCasesAreRejectedWhereTheyShouldBe	parent
 test	TestRegionCasesAreRejectedWhereTheyShouldBe/region-allocator-array
 test	TestRegionCasesAreRejectedWhereTheyShouldBe/region-allocator-callee-reported
 test	TestRegionCasesAreRejectedWhereTheyShouldBe/region-allocator-closure-plain-param
@@ -23668,7 +23668,7 @@ test	TestRegionCasesAreRejectedWhereTheyShouldBe/region-escape-std-result
 test	TestRegionCasesAreRejectedWhereTheyShouldBe/region-escape-union
 test	TestRegionCasesAreRejectedWhereTheyShouldBe/region-fallthrough-inside
 test	TestRegionCasesAreRejectedWhereTheyShouldBe/region-missing-return
-test	TestRegionNearMissesCompile
+test	TestRegionNearMissesCompile	parent
 test	TestRegionNearMissesCompile/?_and_return_inside_a_region
 test	TestRegionNearMissesCompile/c_allocator_list_made_inside_returned
 test	TestRegionNearMissesCompile/c_allocator_passed_to_a_scope_Allocator_parameter
@@ -23677,14 +23677,14 @@ test	TestRegionNearMissesCompile/copyable_result_assigned_outside
 test	TestRegionNearMissesCompile/outer_region_value_used_and_grown_in_an_inner_one
 test	TestRegionNearMissesCompile/region_allocator_passed_to_a_scope_parameter_and_a_closure
 test	TestRegionNearMissesCompile/region_list_crosses_to_C_as_mut_and_as_a_view
-test	TestRejectsInvalidPrograms
+test	TestRejectsInvalidPrograms	parent
 test	TestRejectsInvalidPrograms/invalid_character
 test	TestRejectsInvalidPrograms/missing_package_clause
 test	TestRejectsInvalidPrograms/unterminated_string_at_end_of_file
 test	TestRejectsInvalidPrograms/unterminated_string_mid-line
 test	TestSafetyDoc
 test	TestTestModeGolden
-test	TestUnusedFlag
+test	TestUnusedFlag	parent
 test	TestUnusedFlag/any-arithmetic
 test	TestUnusedFlag/any-array-arg
 test	TestUnusedFlag/any-array-elem
@@ -26563,7 +26563,7 @@ test	TestUnusedFlag/wrapping-negate-on-float
 test	TestUnusedFlag/wrapping-on-float
 test	TestUnusedFlag/wrapping-on-string
 test	TestVisibilityAllowsWhatIsVisible
-test	TestWarnings
+test	TestWarnings	parent
 test	TestWarnings/any-switch-unused-binding
 test	TestWarnings/fields-unused-var
 test	TestWarnings/func-value-hidden-unused
@@ -26586,7 +26586,7 @@ test	TestWarnings/unused-stmt-len
 test	TestWarnings/unused-stmt-len-kinds
 test	TestWarnings/unused-stmt-method
 test	TestWarnings/var-unused
-test	TestWarningsPackages
+test	TestWarningsPackages	parent
 test	TestWarningsPackages/import-unused
 test	TestWarningsPackages/unused-global-in-other-file
 test	TestWarningsPackages/unused-private-in-library
