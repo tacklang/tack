@@ -124,7 +124,9 @@ var must_fail_archive = "must-fail.txtar"
 // must each be rejected with their class, must-fail.txtar's, which must
 // hold at least one, must each fail with theirs, and every other
 // archive's records must hold. runs/ missing, a name in it that is no .txtar
-// archive, and a runs/ with no record to run, are failures.
+// archive, and a runs/ with no record to run, are failures. Last, the
+// strict-c check compiles the C of the runtime, std and the examples at
+// every flag set of a record with a strict-libs line (see strictc.tck).
 func check_runs(r Runner, mut t Tally) error {
     usable := timeout_usable(r)?
     if !usable {
@@ -142,6 +144,7 @@ func check_runs(r Runner, mut t Tally) error {
     mut n int64 = 0
     mut ran int64 = 0
     mut must_fails int64 = 0
+    mut sets := make(list[CaseFile], c_allocator)
     for _, name := range names {
         if !bytes.has_suffix(name.bytes(), []uint8(".txtar")) {
             mut why := make(list[uint8], c_allocator)
@@ -154,7 +157,7 @@ func check_runs(r Runner, mut t Tally) error {
             continue
         }
         before := t.cases
-        check_run_archive(r, dir.bytes(), name.bytes(), mut n, mut t)?
+        check_run_archive(r, dir.bytes(), name.bytes(), mut n, mut sets, mut t)?
         if name.equal([]uint8(must_fail_archive)) {
             must_fails = t.cases -% before
         } else {
@@ -167,7 +170,7 @@ func check_runs(r Runner, mut t Tally) error {
     if must_fails == 0 {
         fail([]uint8("runs"), []uint8("(dir)"), []uint8("runs/ holds no must-fail.txtar with a record in it"), mut t)
     }
-    return noerror
+    return check_strict_libs(r, sets[:], mut t)
 }
 
 // timeout_usable reports whether the timeout on PATH is coreutils', as
@@ -269,7 +272,9 @@ func check_invalid_archive(dir []uint8, name []uint8, mut t Tally) error {
 // each case in t; n numbers the cases of the whole run, so each has
 // directories of its own. With r.update it writes the archive back with
 // each record's expectations as its runs gave them, when that changes it.
-func check_run_archive(r Runner, dir []uint8, name []uint8, mut n int64, mut t Tally) error {
+// The flag sets of its records with a strict-libs line go into sets, for
+// check_strict_libs.
+func check_run_archive(r Runner, dir []uint8, name []uint8, mut n int64, mut sets list[CaseFile], mut t Tally) error {
     mut label := text.from_bytes([]uint8("runs/"), c_allocator)?
     mut label.append(name)?
     mut cases := make(list[RunCase], c_allocator)
@@ -300,6 +305,9 @@ func check_run_archive(r Runner, dir []uint8, name []uint8, mut n int64, mut t T
                 fail(label.bytes(), cases[i].name.bytes(), []uint8("only a record of must-fail.txtar has a must-fail line"), mut t)
             }
             continue
+        }
+        if rec.strict_libs {
+            add_strict_sets(rec, mut sets)?
         }
         mut c := Rec{
             label: text.from_bytes(label.bytes(), c_allocator)?,
@@ -1171,7 +1179,9 @@ func conv_quote(mut out list[uint8], s []uint8) error {
 // build_program builds the program of the case c at the level level, or
 // at the compiler's own when level is empty, into d.bin, as a user builds
 // one, which must succeed silently, and, unless its record opts out,
-// checks that the C its --emit gives is strict C (see strict_c). It
+// checks that the C its --emit gives is strict C (see strict_c), and, for
+// a record with a strict-libs line, that it passes its Go test's own
+// compile at level (see strict_program_c). It
 // reports whether both held, appending why not to trouble otherwise and
 // setting class to the failure class, build, or build-tmpdir when a
 // build left something in its TMPDIR.
@@ -1241,6 +1251,12 @@ func build_program(r Runner, c Rec, level []uint8, d Dirs, mut trouble list[uint
     if !strict {
         append(mut trouble, []uint8("the generated C is not strict C (see the lines above)")...)?
         return false, noerror
+    }
+    if c.rec.strict_libs {
+        took := strict_program_c(r, c.rec, level, emitted.out, mut trouble)?
+        if !took {
+            return false, noerror
+        }
     }
     return true, noerror
 }
@@ -1656,6 +1672,32 @@ func compare_outcome(r Runner, c Rec, level []uint8, o Outcome, report bool, mut
             return fc, noerror
         }
     }
+    for _, l := range c.rec.counts {
+        mut got := make(list[uint8], c_allocator)
+        if l.stream.equal([]uint8("stdout")) {
+            append(mut got, o.out...)?
+        } else if l.stream.equal([]uint8("stderr")) {
+            append(mut got, o.err...)?
+        } else if l.stream.equal([]uint8("fd3")) {
+            append(mut got, o.fd3...)?
+        } else {
+            append(mut got, o.fd4...)?
+        }
+        // The streams are compared with each $ doubled (see normalized).
+        needle := replace_all(l.bytes[:], []uint8("$"), []uint8("$$"))?
+        n := count_in(got[:], needle[:])
+        if n != l.n {
+            if report {
+                mut held := make(list[uint8], c_allocator)
+                fmt.appendf(mut held, "the run's %s holds ", l.stream.bytes())?
+                conv_quote(mut held, l.bytes[:])?
+                fmt.appendf(mut held, " %d times, not %d", n, l.n)?
+                fail_why(c, level, "%s", held[:], mut t)?
+            }
+            fc := failure_class("count")?
+            return fc, noerror
+        }
+    }
     mut files_why := make(list[uint8], c_allocator)
     for _, f := range o.changed {
         if len(files_why) > 0 {
@@ -1720,6 +1762,82 @@ func compare_outcome(r Runner, c Rec, level []uint8, o Outcome, report bool, mut
         return fc, noerror
     }
     return text.new(c_allocator), noerror
+}
+
+// lines_hold appends to why, when the run o fails one, the first lacks or
+// count line of rec that its output fails: a stream holding bytes a lacks
+// line rules out, or another number of a count line's.
+func lines_hold(rec Record, o Outcome, mut why list[uint8]) error {
+    for k := range 2 {
+        mut n := len(rec.lacks)
+        if k == 1 {
+            n = len(rec.counts)
+        }
+        for i := range n {
+            mut stream := text.new(c_allocator)
+            mut needle := make(list[uint8], c_allocator)
+            mut want int64 = 0
+            if k == 0 {
+                for j, l := range rec.lacks {
+                    if j == i {
+                        stream = text.from_bytes(l.path.bytes(), c_allocator)?
+                        append(mut needle, l.data...)?
+                    }
+                }
+            } else {
+                for j, l := range rec.counts {
+                    if j == i {
+                        stream = text.from_bytes(l.stream.bytes(), c_allocator)?
+                        append(mut needle, l.bytes[:]...)?
+                        want = l.n
+                    }
+                }
+            }
+            mut got := make(list[uint8], c_allocator)
+            if stream.equal([]uint8("stdout")) {
+                append(mut got, o.out...)?
+            } else if stream.equal([]uint8("stderr")) {
+                append(mut got, o.err...)?
+            } else if stream.equal([]uint8("fd3")) {
+                append(mut got, o.fd3...)?
+            } else {
+                append(mut got, o.fd4...)?
+            }
+            // The streams are compared with each $ doubled (see normalized).
+            doubled := replace_all(needle[:], []uint8("$"), []uint8("$$"))?
+            held := count_in(got[:], doubled[:])
+            if k == 0 && held > 0 {
+                fmt.appendf(mut why, "the run's %s holds ", stream.bytes())?
+                conv_quote(mut why, needle[:])?
+                append(mut why, []uint8(", which a lacks line rules out")...)?
+                return noerror
+            }
+            if k == 1 && held != want {
+                fmt.appendf(mut why, "the run's %s holds ", stream.bytes())?
+                conv_quote(mut why, needle[:])?
+                fmt.appendf(mut why, " %d times, which a count line says %d", held, want)?
+                return noerror
+            }
+        }
+    }
+    return noerror
+}
+
+// count_in returns how many times hay holds needle, which is not empty,
+// without overlap, as Go's strings.Count counts.
+func count_in(hay []uint8, needle []uint8) int64 {
+    mut n int64 = 0
+    mut at int64 = 0
+    for at >= 0 && at < len(hay) {
+        i := bytes.index(part(hay, at, len(hay)), needle)
+        if i < 0 {
+            break
+        }
+        n +%= 1
+        // i is an index of hay from at, and the needle fits from there.
+        at = at +% i +% len(needle)
+    }
+    return n
 }
 
 // names_below reports whether one of files is below the directory dir,
@@ -1803,9 +1921,23 @@ func append_file_lines(mut out list[uint8], p []uint8, data []uint8) error {
 // is_expectation names kept, in order, then the end, unless the record
 // says still-running, the standard output and error, unless a file holds
 // them, which must then hold what the run gave, the captured descriptors
-// and the files. A run that cannot be written so is a failure, which it
-// writes and counts in t, and returns an empty record for.
+// and the files, the end and the streams rewritten from the run. A run
+// that cannot be written so is a failure, which it writes and counts in
+// t, and returns an empty record for: one that ended against a
+// still-running line, or did not end against an exit or signal line, and
+// one whose output a lacks or count line rules out, which --update keeps
+// and so would write a record that fails.
 func render_record(r Runner, c Rec, record []uint8, o Outcome, mut t Tally) (list[uint8], error) {
+    mut ruled := make(list[uint8], c_allocator)
+    lines_hold(c.rec, o, mut ruled)?
+    if len(ruled) > 0 {
+        mut why := make(list[uint8], c_allocator)
+        append(mut why, []uint8("--update: ")...)?
+        append(mut why, ruled[:]...)?
+        append(mut why, []uint8(", so the record is not rewritten")...)?
+        fail_why(c, []uint8(""), "%s", why[:], mut t)?
+        return make(list[uint8], c_allocator), noerror
+    }
     mut out := make(list[uint8], c_allocator)
     mut start int64 = 0
     for start < len(record) {

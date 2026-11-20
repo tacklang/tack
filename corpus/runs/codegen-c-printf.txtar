@@ -1,0 +1,35 @@
+Run records of codegen/c/printf_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- any-views-example-is-sanitizer-clean/record --
+replaces codegen/c/printf_test.go TestAnyViewsExampleIsSanitizerClean/-O0
+replaces codegen/c/printf_test.go TestAnyViewsExampleIsSanitizerClean/-O1
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/any-views
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+stdout-file examples/any-views/output
+exit 0
+stderr ""
+-- bytes-example-is-sanitizer-clean/record --
+replaces codegen/c/printf_test.go TestBytesExampleIsSanitizerClean/-O0
+replaces codegen/c/printf_test.go TestBytesExampleIsSanitizerClean/-O1
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/bytes
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+env "ASAN_OPTIONS=allocator_may_return_null=1"
+lacks stdout "FAIL"
+stdout-file examples/bytes/output
+exit 0
+stderr ""
+-- printf-example-is-sanitizer-clean/record --
+replaces codegen/c/printf_test.go TestPrintfExampleIsSanitizerClean/-O0
+replaces codegen/c/printf_test.go TestPrintfExampleIsSanitizerClean/-O1
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/printf
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+stdout-file examples/printf/output
+exit 0
+stderr ""

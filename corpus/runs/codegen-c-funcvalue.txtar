@@ -1,0 +1,62 @@
+Run records of codegen/c/funcvalue_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- func-values-example-is-sanitizer-clean-1/record --
+replaces codegen/c/funcvalue_test.go TestFuncValuesExampleIsSanitizerClean/-O2
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/func-values
+opt 2
+cflags -fstrict-flex-arrays=3 -D_DEFAULT_SOURCE -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 19 " ok\n"
+exit 0
+stdout "passed, called and reassigned ok\n"
+stdout "returned functions ok\n"
+stdout "mut arguments and views ok\n"
+stdout "owned arguments and results ok\n"
+stdout "nothing left after passing and calling ok\n"
+stdout "a struct and an array ok\n"
+stdout "a list and a map ok\n"
+stdout "a struct holding a list of them ok\n"
+stdout "nothing left after storing ok\n"
+stdout "a union's payload ok\n"
+stdout "a struct holding a function of itself ok\n"
+stdout "a generic function and a struct holding one ok\n"
+stdout "deferred calls ok\n"
+stdout "a function calling itself through a value ok\n"
+stdout "several results and another package ok\n"
+stdout "another package's owned result ok\n"
+stdout "a function value returning an owned struct ok\n"
+stdout "nothing left after several results ok\n"
+stdout "appending functions that cannot grow changes nothing ok\n"
+stderr ""
+-- func-values-example-is-sanitizer-clean-2/record --
+replaces codegen/c/funcvalue_test.go TestFuncValuesExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+replaces codegen/c/funcvalue_test.go TestFuncValuesExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/func-values
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 19 " ok\n"
+exit 0
+stdout "passed, called and reassigned ok\n"
+stdout "returned functions ok\n"
+stdout "mut arguments and views ok\n"
+stdout "owned arguments and results ok\n"
+stdout "nothing left after passing and calling ok\n"
+stdout "a struct and an array ok\n"
+stdout "a list and a map ok\n"
+stdout "a struct holding a list of them ok\n"
+stdout "nothing left after storing ok\n"
+stdout "a union's payload ok\n"
+stdout "a struct holding a function of itself ok\n"
+stdout "a generic function and a struct holding one ok\n"
+stdout "deferred calls ok\n"
+stdout "a function calling itself through a value ok\n"
+stdout "several results and another package ok\n"
+stdout "another package's owned result ok\n"
+stdout "a function value returning an owned struct ok\n"
+stdout "nothing left after several results ok\n"
+stdout "appending functions that cannot grow changes nothing ok\n"
+stderr ""

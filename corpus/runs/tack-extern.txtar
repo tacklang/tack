@@ -10,7 +10,7 @@ replaces tack/extern_test.go TestBuiltAtEveryOptLevel/s
 replaces tack/extern_test.go TestBuiltAtEveryOptLevel/z
 dir examples/extern-strings
 opt 0 1 2 3 s z
-partial the test counts " ok\n" in standard output, 7 of them, which the whole standard output pinned here holds
+count stdout 7 " ok\n"
 exit 0
 stdout "literal ok\n"
 stdout "empty ok\n"

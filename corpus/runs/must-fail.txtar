@@ -16,6 +16,22 @@ must-fail build
 exit 0
 stdout ""
 stderr ""
+-- class-count/main.tck --
+package main
+
+import fmt from "std/fmt"
+
+// main prints a line.
+func main() {
+    fmt.printf("hi\n")
+}
+-- class-count/record --
+selfcheck the program prints one line, which its record pins and a count line counts twice
+must-fail count
+count stdout 2 "hi"
+exit 0
+stdout "hi\n"
+stderr ""
 -- class-cwd/main.tck --
 package main
 

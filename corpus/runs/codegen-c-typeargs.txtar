@@ -1,0 +1,92 @@
+Run records of codegen/c/typeargs_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- type-args-example-is-sanitizer-clean-1/record --
+replaces codegen/c/typeargs_test.go TestTypeArgsExampleIsSanitizerClean/-O2
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/type-args
+target .
+opt 2
+cflags -fstrict-flex-arrays=3 -D_DEFAULT_SOURCE -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 33 " ok\n"
+exit 0
+stdout "empty basic ok\n"
+stdout "empty struct ok\n"
+stdout "empty qualified type ok\n"
+stdout "empty list type ok\n"
+stdout "empty map and nested list types ok\n"
+stdout "constructors freed ok\n"
+stdout "lists.new ok\n"
+stdout "lists.filled through ? ok\n"
+stdout "sort.by from std ok\n"
+stdout "packages freed ok\n"
+stdout "partial list ok\n"
+stdout "full list agreeing with the arguments ok\n"
+stdout "interface parameter inferred beside a written one ok\n"
+stdout "partial freed ok\n"
+stdout "constant as a written type ok\n"
+stdout "int32 widens to a written int64 ok\n"
+stdout "constants freed ok\n"
+stdout "type parameter passed on ok\n"
+stdout "struct and literal for a written type ok\n"
+stdout "type parameter only in a fields loop ok\n"
+stdout "generic freed ok\n"
+stdout "written interface-constrained type ok\n"
+stdout "written type in a switch on it ok\n"
+stdout "interfaces freed ok\n"
+stdout "fields of an empty struct ok\n"
+stdout "fields after a change ok\n"
+stdout "reflection freed ok\n"
+stdout "written type arguments in a closure and a defer ok\n"
+stdout "closure for a written function type ok\n"
+stdout "written type arguments through a region ok\n"
+stdout "closures freed ok\n"
+stdout "lists.filled under failure ok\n"
+stdout "failing freed ok\n"
+stderr ""
+-- type-args-example-is-sanitizer-clean-2/record --
+replaces codegen/c/typeargs_test.go TestTypeArgsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+replaces codegen/c/typeargs_test.go TestTypeArgsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/type-args
+target .
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 33 " ok\n"
+exit 0
+stdout "empty basic ok\n"
+stdout "empty struct ok\n"
+stdout "empty qualified type ok\n"
+stdout "empty list type ok\n"
+stdout "empty map and nested list types ok\n"
+stdout "constructors freed ok\n"
+stdout "lists.new ok\n"
+stdout "lists.filled through ? ok\n"
+stdout "sort.by from std ok\n"
+stdout "packages freed ok\n"
+stdout "partial list ok\n"
+stdout "full list agreeing with the arguments ok\n"
+stdout "interface parameter inferred beside a written one ok\n"
+stdout "partial freed ok\n"
+stdout "constant as a written type ok\n"
+stdout "int32 widens to a written int64 ok\n"
+stdout "constants freed ok\n"
+stdout "type parameter passed on ok\n"
+stdout "struct and literal for a written type ok\n"
+stdout "type parameter only in a fields loop ok\n"
+stdout "generic freed ok\n"
+stdout "written interface-constrained type ok\n"
+stdout "written type in a switch on it ok\n"
+stdout "interfaces freed ok\n"
+stdout "fields of an empty struct ok\n"
+stdout "fields after a change ok\n"
+stdout "reflection freed ok\n"
+stdout "written type arguments in a closure and a defer ok\n"
+stdout "closure for a written function type ok\n"
+stdout "written type arguments through a region ok\n"
+stdout "closures freed ok\n"
+stdout "lists.filled under failure ok\n"
+stdout "failing freed ok\n"
+stderr ""

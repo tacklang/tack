@@ -1,0 +1,58 @@
+Run records of codegen/c/proof_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- proof-rules-example-is-sanitizer-clean-1/record --
+replaces codegen/c/proof_test.go TestProofRulesExampleIsSanitizerClean/-O2
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/proof-rules
+opt 2
+cflags -fstrict-flex-arrays=3 -D_DEFAULT_SOURCE -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 17 " ok\n"
+exit 0
+stdout "pop after a length check ok\n"
+stdout "pop after a length check, empty ok\n"
+stdout "remove after a range check ok\n"
+stdout "remove after a range check, out of range ok\n"
+stdout "divisor guarded by its own assignment ok\n"
+stdout "divisor guarded by its own assignment, zero ok\n"
+stdout "pop in its own length check ok\n"
+stdout "write after the use in a loop ok\n"
+stdout "pop after the use in a loop ok\n"
+stdout "append proves the length ok\n"
+stdout "append of an array proves the length ok\n"
+stdout "pop and remove as statements ok\n"
+stdout "remove as a statement after its index empties the list ok\n"
+stdout "owned elements dropped by statements ok\n"
+stdout "every dropped list freed ok\n"
+stdout "each value that writes an index computed before it is proven ok\n"
+stdout "every assigned list freed ok\n"
+stderr ""
+-- proof-rules-example-is-sanitizer-clean-2/record --
+replaces codegen/c/proof_test.go TestProofRulesExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+replaces codegen/c/proof_test.go TestProofRulesExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/proof-rules
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 17 " ok\n"
+exit 0
+stdout "pop after a length check ok\n"
+stdout "pop after a length check, empty ok\n"
+stdout "remove after a range check ok\n"
+stdout "remove after a range check, out of range ok\n"
+stdout "divisor guarded by its own assignment ok\n"
+stdout "divisor guarded by its own assignment, zero ok\n"
+stdout "pop in its own length check ok\n"
+stdout "write after the use in a loop ok\n"
+stdout "pop after the use in a loop ok\n"
+stdout "append proves the length ok\n"
+stdout "append of an array proves the length ok\n"
+stdout "pop and remove as statements ok\n"
+stdout "remove as a statement after its index empties the list ok\n"
+stdout "owned elements dropped by statements ok\n"
+stdout "every dropped list freed ok\n"
+stdout "each value that writes an index computed before it is proven ok\n"
+stdout "every assigned list freed ok\n"
+stderr ""

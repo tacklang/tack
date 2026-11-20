@@ -1,0 +1,24 @@
+Run records of codegen/c/stored_relations_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- stored-relations-example-is-sanitizer-clean-1/record --
+replaces codegen/c/stored_relations_test.go TestStoredRelationsExampleIsSanitizerClean/-O2
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/stored-relations
+opt 2
+cflags -fstrict-flex-arrays=3 -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+stdout-file examples/stored-relations/output
+exit 0
+stderr ""
+-- stored-relations-example-is-sanitizer-clean-2/record --
+replaces codegen/c/stored_relations_test.go TestStoredRelationsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+replaces codegen/c/stored_relations_test.go TestStoredRelationsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/stored-relations
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+stdout-file examples/stored-relations/output
+exit 0
+stderr ""

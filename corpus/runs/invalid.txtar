@@ -192,6 +192,108 @@ stderr ""
 exit 0
 stdout "WRONG\n"
 stdout-file examples/hello/main.tck
+-- conflict-strict-libs-with-invoke/class --
+conflict
+-- conflict-strict-libs-with-invoke/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+invoke "--version"
+strict-libs why
+exit 0
+-- conflict-strict-libs-without-strict-c/class --
+conflict
+-- conflict-strict-libs-without-strict-c/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+no-strict-c why
+strict-libs why
+exit 0
+-- count-bad-number/class --
+number
+-- count-bad-number/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+count stdout -1 "x"
+exit 0
+-- count-bad-stream/class --
+stream
+-- count-bad-stream/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+count stdin 1 "x"
+exit 0
+-- count-empty-bytes/class --
+empty
+-- count-empty-bytes/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+count stdout 1 ""
+exit 0
+-- count-fd4-not-captured/class --
+conflict
+-- count-fd4-not-captured/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+count fd4 1 "x"
+exit 0
+-- count-no-bytes/class --
+number
+-- count-no-bytes/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+count stdout 1
+exit 0
+-- count-no-number/class --
+number
+-- count-no-number/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+count stdout "x"
+exit 0
+-- count-repeated/class --
+repeated
+-- count-repeated/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+count stdout 1 "x"
+count stdout 2 "x"
+exit 0
+-- count-ten-digits/class --
+number
+-- count-ten-digits/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+count stdout 1234567890 "x"
+exit 0
+-- count-unquoted/class --
+quote
+-- count-unquoted/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+count stdout 1 x
+exit 0
 -- dir-dot/class --
 path
 -- dir-dot/record --
@@ -993,6 +1095,16 @@ stdout ""
 stderr ""
 stream stdout file
 stream stdout closed
+exit 0
+-- repeated-strict-libs/class --
+repeated
+-- repeated-strict-libs/record --
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+strict-libs one
+strict-libs two
 exit 0
 -- repeated-target/class --
 repeated

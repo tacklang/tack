@@ -1,0 +1,14 @@
+Run records of codegen/c/exit_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- exit-frees-example-is-sanitizer-clean/record --
+replaces codegen/c/exit_test.go TestExitFreesExampleIsSanitizerClean/-O0
+replaces codegen/c/exit_test.go TestExitFreesExampleIsSanitizerClean/-O1
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/exit-frees
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+stdout-file examples/exit-frees/output
+exit 3
+stderr ""

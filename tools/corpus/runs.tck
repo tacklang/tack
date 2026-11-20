@@ -64,6 +64,20 @@ import utf8 from "std/utf8"
 //     flags, or with none, left, and that cache is never written again;
 //   - cold-cache <why>: the record's builds start from an empty
 //     TACK_CACHE instead, and why;
+//   - strict-libs <why>: the record's Go test compiles the C of its
+//     build itself with -std=c11 -Wall -Wextra -Werror
+//     -fstrict-flex-arrays=3 and its level and flags, which the driver's
+//     -w turns off in a record's build, so the runner compiles it so: the
+//     program's own C, --emit's, to an object at each level of the
+//     record, with its cflags but the driver's own and -D_DEFAULT_SOURCE,
+//     as the test's buildProgram does (see strict_program_c), and, once
+//     for each flag set of the records that say strict-libs, the
+//     runtime's C, without -D_DEFAULT_SOURCE, every std package's,
+//     against one header for all of std, when the set holds
+//     -D_DEFAULT_SOURCE, as only the tests that compile std's C give it,
+//     and the C files below the dir of each record of the set, with the
+//     set as it is (see check_strict_libs); it takes no invoke or
+//     no-strict-c line;
 //   - no-strict-c <why>: the program's --emit output is not held to
 //     clang's -std=c11 -Wall -Wextra -Werror -fsyntax-only, which every
 //     other program record's is, and why;
@@ -90,7 +104,8 @@ import utf8 from "std/utf8"
 //     running when it was to end; stdout, stderr, fd3 and fd4, the
 //     stream differs, or a file stream's pipe got bytes; lacks, a
 //     stream, or what the record says it must hold, holds bytes a lacks
-//     line names; files, a file
+//     line names; count, a run's stream holds the bytes of a count line
+//     another number of times; files, a file
 //     line's file differs, is missing, a file not named changed or went,
 //     or a symbolic link no symlink line names is there; --update leaves such a record as it is;
 //   - cwd empty: the compiler of a record with invoke lines runs in an
@@ -149,6 +164,13 @@ import utf8 from "std/utf8"
 //     the record's own expectation, its quoted bytes or its file, as the
 //     Go tests' guard that an example's output file holds no FAIL; each
 //     line once, of a stream with bytes of its own, not a merged stderr;
+//   - count <stream> <n> <quoted>: the bytes the run's stdout, stderr,
+//     fd3 or fd4 holds exactly n times, n digits alone, counted as Go's
+//     strings.Count counts, without overlap, as the Go tests count their
+//     checks' " ok" lines; each stream and bytes once, of a stream as for
+//     lacks; --update keeps lacks and count lines as they are, rewriting
+//     the end and the streams from the run, and so writes no record whose
+//     run fails one of them, failing the case instead;
 //   - file <quoted> <quoted>, then file+ <quoted> lines, each appending to
 //     it: a file, by its path below the directory the program or compiler
 //     runs in, named once, and its bytes: the files of that directory that
@@ -226,6 +248,7 @@ type Record struct {
     has_stdout bool
     has_stderr bool
     cold bool
+    strict_libs bool
     lenient bool
     nofile int64
     out_mode text.Text
@@ -246,9 +269,18 @@ type Record struct {
     files list[CaseFile]
     links list[CaseFile]
     lacks list[CaseFile]
+    counts list[CountLine]
     open_path text.Text
     open_data list[uint8]
     has_open bool
+}
+
+// CountLine is one count line of a record: the stream, how many times the
+// run's stream holds the bytes, without overlap, and the bytes.
+type CountLine struct {
+    stream text.Text
+    n int64
+    bytes list[uint8]
 }
 
 // RunCase is one case of a run archive: its name, its files, in archive
@@ -285,6 +317,7 @@ func new_record() Record {
         has_stdout: false,
         has_stderr: false,
         cold: false,
+        strict_libs: false,
         lenient: false,
         nofile: 0,
         out_mode: text.new(c_allocator),
@@ -305,6 +338,7 @@ func new_record() Record {
         files: make(list[CaseFile], c_allocator),
         links: make(list[CaseFile], c_allocator),
         lacks: make(list[CaseFile], c_allocator),
+        counts: make(list[CountLine], c_allocator),
         open_path: text.new(c_allocator),
         open_data: make(list[uint8], c_allocator),
         has_open: false,
@@ -457,7 +491,7 @@ func is_flag(f []uint8) bool {
 // failure_classes are the classes of the ways a run can fail, in the
 // order the runner checks them, the first one found being the run's;
 // must-fail names one. A run the runner cannot set up has none.
-var failure_classes = [16]string{"build", "build-tmpdir", "outlived", "cwd", "src-changed", "run-root", "tmpdir", "exit", "still-running", "did-not-end", "stdout", "stderr", "fd3", "fd4", "lacks", "files"}
+var failure_classes = [17]string{"build", "build-tmpdir", "outlived", "cwd", "src-changed", "run-root", "tmpdir", "exit", "still-running", "did-not-end", "stdout", "stderr", "fd3", "fd4", "lacks", "count", "files"}
 
 // is_failure_class reports whether s is one of failure_classes.
 func is_failure_class(s []uint8) bool {
@@ -577,8 +611,13 @@ func record_line(name []uint8, key []uint8, rest []uint8, k int64, mut rec Recor
         rec.replaces +%= 1
         return noerror
     }
-    if is_word(key, "partial") || is_word(key, "selfcheck") || is_word(key, "no-strict-c") || is_word(key, "cold-cache") {
-        if is_word(key, "cold-cache") {
+    if is_word(key, "partial") || is_word(key, "selfcheck") || is_word(key, "no-strict-c") || is_word(key, "cold-cache") || is_word(key, "strict-libs") {
+        if is_word(key, "strict-libs") {
+            if rec.strict_libs {
+                return record_problem(mut problem, name, k, "repeated", "strict-libs is given once at most")
+            }
+            rec.strict_libs = true
+        } else if is_word(key, "cold-cache") {
             if rec.cold {
                 return record_problem(mut problem, name, k, "repeated", "cold-cache is given once at most")
             }
@@ -616,7 +655,7 @@ func record_line(name []uint8, key []uint8, rest []uint8, k int64, mut rec Recor
     }
     if is_word(key, "must-fail") {
         if !is_failure_class(rest) {
-            return record_problem(mut problem, name, k, "failure", "must-fail takes one of the failure classes: build, build-tmpdir, outlived, cwd, src-changed, run-root, tmpdir, exit, still-running, did-not-end, stdout, stderr, fd3, fd4, lacks and files")
+            return record_problem(mut problem, name, k, "failure", "must-fail takes one of the failure classes: build, build-tmpdir, outlived, cwd, src-changed, run-root, tmpdir, exit, still-running, did-not-end, stdout, stderr, fd3, fd4, lacks, count and files")
         }
         once := set_once(mut rec.must_fail, rest)?
         if !once {
@@ -642,6 +681,9 @@ func record_line(name []uint8, key []uint8, rest []uint8, k int64, mut rec Recor
     }
     if is_word(key, "lacks") {
         return lacks_line(name, rest, k, mut rec, mut problem)
+    }
+    if is_word(key, "count") {
+        return count_line(name, rest, k, mut rec, mut problem)
     }
     if is_word(key, "arg") || is_word(key, "env") || is_word(key, "invoke") {
         mut b := make(list[uint8], c_allocator)
@@ -887,6 +929,54 @@ func lacks_line(name []uint8, rest []uint8, k int64, mut rec Record, mut problem
     return append(mut rec.lacks, CaseFile{path: text.from_bytes(stream[:], c_allocator)?, data: b})
 }
 
+// count_line reads rest, the operands of the count line numbered k of the
+// record of the case named name, a stream, a count and quoted bytes,
+// into rec, or reports in problem why it cannot.
+func count_line(name []uint8, rest []uint8, k int64, mut rec Record, mut problem list[uint8]) error {
+    sp := bytes.index_byte(rest, ' ')
+    if sp <= 0 {
+        return record_problem(mut problem, name, k, "stream", "count takes a stream, a count and quoted bytes")
+    }
+    // sp is an index of rest.
+    mut stream := make(list[uint8], c_allocator)
+    append(mut stream, part(rest, 0, sp)...)?
+    if !(is_word(stream[:], "stdout") || is_word(stream[:], "stderr") || is_word(stream[:], "fd3") || is_word(stream[:], "fd4")) {
+        return record_problem(mut problem, name, k, "stream", "count takes stdout, stderr, fd3 or fd4")
+    }
+    mut after := make(list[uint8], c_allocator)
+    append(mut after, part(rest, sp +% 1, len(rest))...)?
+    sp2 := bytes.index_byte(after[:], ' ')
+    mut n int64 = 0
+    if sp2 <= 0 || !is_count(part(after[:], 0, sp2), mut n) {
+        return record_problem(mut problem, name, k, "number", "count takes a count, digits alone, after the stream")
+    }
+    mut b := make(list[uint8], c_allocator)
+    // sp2 is an index of after.
+    ok := quoted_operand(part(after[:], sp2 +% 1, len(after)), mut b)?
+    if !ok {
+        return record_problem(mut problem, name, k, "quote", "count takes a stream, a count and quoted bytes")
+    }
+    if len(b) == 0 {
+        return record_problem(mut problem, name, k, "empty", "count takes bytes, none of them missing")
+    }
+    for _, l := range rec.counts {
+        if l.stream.equal(stream[:]) && bytes.equal(l.bytes, b[:]) {
+            return record_problem(mut problem, name, k, "repeated", "a count line of a stream and bytes is given once at most")
+        }
+    }
+    return append(mut rec.counts, CountLine{stream: text.from_bytes(stream[:], c_allocator)?, n: n, bytes: b})
+}
+
+// count_stream reports whether a count line of rec names the stream s.
+func count_stream(rec Record, s string) bool {
+    for _, l := range rec.counts {
+        if l.stream.equal([]uint8(s)) {
+            return true
+        }
+    }
+    return false
+}
+
 // lacks_stream reports whether a lacks line of rec names the stream s.
 func lacks_stream(rec Record, s string) bool {
     for _, l := range rec.lacks {
@@ -958,11 +1048,17 @@ func record_whole(name []uint8, has_files bool, rec Record, mut problem list[uin
     if lacks_stream(rec, "fd3") && !rec.fd3_mode.equal([]uint8("capture")) || lacks_stream(rec, "fd4") && !rec.fd4_mode.equal([]uint8("capture")) || lacks_stream(rec, "stderr") && merged {
         return whole_problem(mut problem, name, "conflict", "a lacks line is of a stream the run captures and that holds bytes of its own")
     }
+    if count_stream(rec, "fd3") && !rec.fd3_mode.equal([]uint8("capture")) || count_stream(rec, "fd4") && !rec.fd4_mode.equal([]uint8("capture")) || count_stream(rec, "stderr") && merged {
+        return whole_problem(mut problem, name, "conflict", "a count line is of a stream the run captures and that holds bytes of its own")
+    }
     if rec.empty_cwd && len(rec.invoke) == 0 {
         return whole_problem(mut problem, name, "conflict", "cwd empty is for a record that invokes the compiler; a program always runs in an empty directory")
     }
+    if rec.strict_libs && !rec.strict {
+        return whole_problem(mut problem, name, "conflict", "strict-libs compiles the program's --emit output, which no-strict-c leaves unbuilt")
+    }
     if len(rec.invoke) > 0 {
-        if rec.target.len() > 0 || len(rec.opts) > 0 || len(rec.cflags) > 0 || !rec.strict || rec.cold || len(rec.args) > 0 || rec.has_stdin || rec.nofile > 0 || rec.out_mode.len() > 0 || rec.err_mode.len() > 0 || rec.fd3_mode.len() > 0 || rec.fd4_mode.len() > 0 || rec.signo > 0 || rec.running.len() > 0 {
+        if rec.target.len() > 0 || len(rec.opts) > 0 || len(rec.cflags) > 0 || !rec.strict || rec.cold || len(rec.args) > 0 || rec.strict_libs || rec.has_stdin || rec.nofile > 0 || rec.out_mode.len() > 0 || rec.err_mode.len() > 0 || rec.fd3_mode.len() > 0 || rec.fd4_mode.len() > 0 || rec.signo > 0 || rec.running.len() > 0 {
             return whole_problem(mut problem, name, "conflict", "a record that invokes the compiler builds and runs no program")
         }
     }

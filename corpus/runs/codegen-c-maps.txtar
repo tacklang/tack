@@ -1,0 +1,154 @@
+Run records of codegen/c/maps_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- map-has-example-is-sanitizer-clean-1/record --
+replaces codegen/c/maps_test.go TestMapHasExampleIsSanitizerClean/-O2
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/map-has
+opt 2
+cflags -fstrict-flex-arrays=3 -D_DEFAULT_SOURCE -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 16 " ok\n"
+exit 0
+stdout "read, assign and mut under has ok\n"
+stdout "has of a missing key and a present one ok\n"
+stdout "a constant key ok\n"
+stdout "an early exit, and the order kept ok\n"
+stdout "nothing left after plain values ok\n"
+stdout "list values in place ok\n"
+stdout "nothing left after owned values ok\n"
+stdout "a mut method and fields ok\n"
+stdout "nothing left after struct values ok\n"
+stdout "maps in maps ok\n"
+stdout "nothing left after nested maps ok\n"
+stdout "a proof in every pass of a loop ok\n"
+stdout "nothing left after a loop ok\n"
+stdout "a field, a payload and a range's value ok\n"
+stdout "nothing left after places ok\n"
+stdout "an append under has that cannot grow changes nothing ok\n"
+stderr ""
+-- map-has-example-is-sanitizer-clean-2/record --
+replaces codegen/c/maps_test.go TestMapHasExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+replaces codegen/c/maps_test.go TestMapHasExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/map-has
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 16 " ok\n"
+exit 0
+stdout "read, assign and mut under has ok\n"
+stdout "has of a missing key and a present one ok\n"
+stdout "a constant key ok\n"
+stdout "an early exit, and the order kept ok\n"
+stdout "nothing left after plain values ok\n"
+stdout "list values in place ok\n"
+stdout "nothing left after owned values ok\n"
+stdout "a mut method and fields ok\n"
+stdout "nothing left after struct values ok\n"
+stdout "maps in maps ok\n"
+stdout "nothing left after nested maps ok\n"
+stdout "a proof in every pass of a loop ok\n"
+stdout "nothing left after a loop ok\n"
+stdout "a field, a payload and a range's value ok\n"
+stdout "nothing left after places ok\n"
+stdout "an append under has that cannot grow changes nothing ok\n"
+stderr ""
+-- map-zero-example-is-sanitizer-clean-1/record --
+replaces codegen/c/maps_test.go TestMapZeroExampleIsSanitizerClean/-O2
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/map-zero
+opt 2
+cflags -fstrict-flex-arrays=3 -D_DEFAULT_SOURCE -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 9 " ok\n"
+exit 0
+stdout "a map built in a local and returned ok\n"
+stdout "one of two maps returned, the other freed ok\n"
+stdout "nothing left after returned ok\n"
+stdout "the checked pop of a list of maps ok\n"
+stdout "the checked pop of an empty list of maps of maps ok\n"
+stdout "nothing left after popped ok\n"
+stdout "the checked delete of a map of maps ok\n"
+stdout "nothing left after deleted ok\n"
+stdout "nothing left after every allocation refused in turn ok\n"
+stderr ""
+-- map-zero-example-is-sanitizer-clean-2/record --
+replaces codegen/c/maps_test.go TestMapZeroExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+replaces codegen/c/maps_test.go TestMapZeroExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/map-zero
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 9 " ok\n"
+exit 0
+stdout "a map built in a local and returned ok\n"
+stdout "one of two maps returned, the other freed ok\n"
+stdout "nothing left after returned ok\n"
+stdout "the checked pop of a list of maps ok\n"
+stdout "the checked pop of an empty list of maps of maps ok\n"
+stdout "nothing left after popped ok\n"
+stdout "the checked delete of a map of maps ok\n"
+stdout "nothing left after deleted ok\n"
+stdout "nothing left after every allocation refused in turn ok\n"
+stderr ""
+-- maps-example-is-sanitizer-clean-1/record --
+replaces codegen/c/maps_test.go TestMapsExampleIsSanitizerClean/-O2
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/maps
+opt 2
+cflags -fstrict-flex-arrays=3 -D_DEFAULT_SOURCE -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 19 " ok\n"
+exit 0
+stdout "a new map is empty ok\n"
+stdout "put and look up ok\n"
+stdout "a replace keeps the position ok\n"
+stdout "delete ok\n"
+stdout "a key put again goes last ok\n"
+stdout "a bare delete and every range form ok\n"
+stdout "nothing left after basics ok\n"
+stdout "string keys ok\n"
+stdout "nothing left after string keys ok\n"
+stdout "owned keys ok\n"
+stdout "nothing left after owned keys ok\n"
+stdout "list values ok\n"
+stdout "struct values holding lists ok\n"
+stdout "nothing left after owned values ok\n"
+stdout "nested maps ok\n"
+stdout "nothing left after nested maps ok\n"
+stdout "100000 entries ok\n"
+stdout "nothing left after many ok\n"
+stdout "a put that cannot grow changes nothing and frees what it was given ok\n"
+stderr ""
+-- maps-example-is-sanitizer-clean-2/record --
+replaces codegen/c/maps_test.go TestMapsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+replaces codegen/c/maps_test.go TestMapsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/maps
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 19 " ok\n"
+exit 0
+stdout "a new map is empty ok\n"
+stdout "put and look up ok\n"
+stdout "a replace keeps the position ok\n"
+stdout "delete ok\n"
+stdout "a key put again goes last ok\n"
+stdout "a bare delete and every range form ok\n"
+stdout "nothing left after basics ok\n"
+stdout "string keys ok\n"
+stdout "nothing left after string keys ok\n"
+stdout "owned keys ok\n"
+stdout "nothing left after owned keys ok\n"
+stdout "list values ok\n"
+stdout "struct values holding lists ok\n"
+stdout "nothing left after owned values ok\n"
+stdout "nested maps ok\n"
+stdout "nothing left after nested maps ok\n"
+stdout "100000 entries ok\n"
+stdout "nothing left after many ok\n"
+stdout "a put that cannot grow changes nothing and frees what it was given ok\n"
+stderr ""

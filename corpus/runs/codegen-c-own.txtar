@@ -1,0 +1,97 @@
+Run records of codegen/c/own_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- own-exit-example-is-sanitizer-clean/record --
+replaces codegen/c/own_test.go TestOwnExitExampleIsSanitizerClean/-O0
+replaces codegen/c/own_test.go TestOwnExitExampleIsSanitizerClean/-O1
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/own-exit
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+stdout-file examples/own-exit/output
+exit 3
+stderr ""
+-- own-params-example-is-sanitizer-clean-1/record --
+replaces codegen/c/own_test.go TestOwnParamsExampleIsSanitizerClean/-O2
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/own-params
+opt 2
+cflags -fstrict-flex-arrays=3 -D_DEFAULT_SOURCE -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 31 " ok\n"
+exit 0
+stdout "detail moved into a Failure ok\n"
+stdout "a temporary passed to own ok\n"
+stdout "failures free once ok\n"
+stdout "given back ok\n"
+stdout "kept in a list ok\n"
+stdout "kept in a map, replacing ok\n"
+stdout "freed at every exit ok\n"
+stdout "a defer reads it before it is freed ok\n"
+stdout "moved on ok\n"
+stdout "maybe moved on ok\n"
+stdout "rebound as mut and grown ok\n"
+stdout "borrowed, then returned ok\n"
+stdout "callee paths free once ok\n"
+stdout "moved on one path ok\n"
+stdout "moved in a loop, assigned again ok\n"
+stdout "moved on the right of && ok\n"
+stdout "caller flow frees once ok\n"
+stdout "a copyable T is copied ok\n"
+stdout "identity of an int64 ok\n"
+stdout "a list forwarded ok\n"
+stdout "identity of a temporary list ok\n"
+stdout "identity of a Text ok\n"
+stdout "an interface's own method ok\n"
+stdout "generics free once ok\n"
+stdout "through a function value ok\n"
+stdout "a function value called ok\n"
+stdout "function values free once ok\n"
+stdout "moved in a case value ok\n"
+stdout "a default written first, a later value moving another list ok\n"
+stdout "switches free once ok\n"
+stdout "nothing leaks when an allocation fails ok\n"
+stderr ""
+-- own-params-example-is-sanitizer-clean-2/record --
+replaces codegen/c/own_test.go TestOwnParamsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+replaces codegen/c/own_test.go TestOwnParamsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/own-params
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 31 " ok\n"
+exit 0
+stdout "detail moved into a Failure ok\n"
+stdout "a temporary passed to own ok\n"
+stdout "failures free once ok\n"
+stdout "given back ok\n"
+stdout "kept in a list ok\n"
+stdout "kept in a map, replacing ok\n"
+stdout "freed at every exit ok\n"
+stdout "a defer reads it before it is freed ok\n"
+stdout "moved on ok\n"
+stdout "maybe moved on ok\n"
+stdout "rebound as mut and grown ok\n"
+stdout "borrowed, then returned ok\n"
+stdout "callee paths free once ok\n"
+stdout "moved on one path ok\n"
+stdout "moved in a loop, assigned again ok\n"
+stdout "moved on the right of && ok\n"
+stdout "caller flow frees once ok\n"
+stdout "a copyable T is copied ok\n"
+stdout "identity of an int64 ok\n"
+stdout "a list forwarded ok\n"
+stdout "identity of a temporary list ok\n"
+stdout "identity of a Text ok\n"
+stdout "an interface's own method ok\n"
+stdout "generics free once ok\n"
+stdout "through a function value ok\n"
+stdout "a function value called ok\n"
+stdout "function values free once ok\n"
+stdout "moved in a case value ok\n"
+stdout "a default written first, a later value moving another list ok\n"
+stdout "switches free once ok\n"
+stdout "nothing leaks when an allocation fails ok\n"
+stderr ""

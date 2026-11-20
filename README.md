@@ -845,7 +845,13 @@ killing what is left at the deadline by the pids
 runner reads. Each run has a private root holding its `$SRC`, `$TMP`,
 `$RUN` and `$PROG`, which must hold exactly those afterwards, and every
 tree it checks is walked without following symbolic links, which a
-`symlink` line pins. The runner closes every
+`symlink` line pins. A record with a `strict-libs` line has the runner
+compile the C of its build as its Go test does, with `-std=c11 -Wall
+-Wextra -Werror -fstrict-flex-arrays=3` and its level and cflags, to
+objects, as the driver's `-w` turns warnings off in its builds: the
+program's own C at each of its levels, and the runtime's, std's (against
+one header for all of std, and only when the cflags hold
+`-D_DEFAULT_SOURCE`) and its example's once for each such flag set. The runner closes every
 descriptor it inherited, with a small C file of its own, so a program
 sees 0, 1, 2 and what its record opens alone, and it refuses to run the
 records with a `timeout` that is not coreutils', with `-v` and `-k`. The runner checks the
@@ -870,13 +876,13 @@ or `archive error`; then, for each case, `case` and its name, a line
 `file <path> <length>` for each of its files, and either `error
 <class>` or `record` and its fields, one line each in a fixed order:
 `replaces <count>`, `flags selfcheck=... partial=... cold=... strict=...
-cwd-empty=... stdin=... stdout=... stderr=...`, `dir`, `target`,
+strict-libs=... cwd-empty=... stdin=... stdout=... stderr=...`, `dir`, `target`,
 `stdout-file`, `stderr-file`, `must-fail`, a line per `opt`, `cflags`, `invoke`,
 `arg` and `env`, `stdin`, `nofile <n>`, `stream` and the four ways,
 `end exit=<n> signal=<n> running=<text> ends=<n>`, `stdout`, `stderr`,
 `fd3`, `fd4`, a `want <path> <bytes>` line per file line, a `lacks <stream>
-<bytes>` line per lacks line, and a `link <path> <target>` line per
-symlink line. Every
+<bytes>` line per lacks line, a `count <stream> <n> <bytes>` line per
+count line, and a `link <path> <target>` line per symlink line. Every
 string is quoted as Go's `strconv.Quote` quotes it, and every flag is
 `true` or `false`; `tools/corpus/dump.tck` defines it.
 

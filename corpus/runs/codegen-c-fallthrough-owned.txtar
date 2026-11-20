@@ -1,0 +1,48 @@
+Run records of codegen/c/fallthrough_owned_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- fallthrough-owned-example-is-sanitizer-clean-1/record --
+replaces codegen/c/fallthrough_owned_test.go TestFallthroughOwnedExampleIsSanitizerClean/-O2
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/fallthrough-owned
+opt 2
+cflags -fstrict-flex-arrays=3 -D_DEFAULT_SOURCE -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 12 " ok\n"
+exit 0
+stdout "nothing live at the start ok\n"
+stdout "a fallthrough frees its case's list before the next case ok\n"
+stdout "lists freed after a fallthrough ok\n"
+stdout "the next case matched alone ok\n"
+stdout "lists freed after the next case alone ok\n"
+stdout "a ? before a fallthrough ok\n"
+stdout "lists freed by a ? before a fallthrough ok\n"
+stdout "a ? in the case a fallthrough entered ok\n"
+stdout "a default falling into the case after it ok\n"
+stdout "lists freed by a ? after a fallthrough ok\n"
+stdout "a list moved and given anew before a fallthrough ok\n"
+stdout "nothing live at the end ok\n"
+stderr ""
+-- fallthrough-owned-example-is-sanitizer-clean-2/record --
+replaces codegen/c/fallthrough_owned_test.go TestFallthroughOwnedExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+replaces codegen/c/fallthrough_owned_test.go TestFallthroughOwnedExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/fallthrough-owned
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 12 " ok\n"
+exit 0
+stdout "nothing live at the start ok\n"
+stdout "a fallthrough frees its case's list before the next case ok\n"
+stdout "lists freed after a fallthrough ok\n"
+stdout "the next case matched alone ok\n"
+stdout "lists freed after the next case alone ok\n"
+stdout "a ? before a fallthrough ok\n"
+stdout "lists freed by a ? before a fallthrough ok\n"
+stdout "a ? in the case a fallthrough entered ok\n"
+stdout "a default falling into the case after it ok\n"
+stdout "lists freed by a ? after a fallthrough ok\n"
+stdout "a list moved and given anew before a fallthrough ok\n"
+stdout "nothing live at the end ok\n"
+stderr ""

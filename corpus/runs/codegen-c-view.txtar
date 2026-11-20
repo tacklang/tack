@@ -1,0 +1,39 @@
+Run records of codegen/c/view_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- views-example-is-sanitizer-clean/record --
+replaces codegen/c/view_test.go TestViewsExampleIsSanitizerClean/-O0
+replaces codegen/c/view_test.go TestViewsExampleIsSanitizerClean/-O1
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/views
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 25 " ok\n"
+exit 0
+stdout "arrays of two lengths ok\n"
+stdout "range loops ok\n"
+stdout "range without variables ok\n"
+stdout "zero length ok\n"
+stdout "last element ok\n"
+stdout "passed on ok\n"
+stdout "checked index ok\n"
+stdout "guard on len ok\n"
+stdout "guarded index ok\n"
+stdout "field of structs ok\n"
+stdout "element of a field ok\n"
+stdout "view of arrays ok\n"
+stdout "string variable ok\n"
+stdout "string literal ok\n"
+stdout "empty string ok\n"
+stdout "zero string field ok\n"
+stdout "mut parameter's array ok\n"
+stdout "view alongside mut of the same array ok\n"
+stdout "view before a later mut ok\n"
+stdout "view after the change ok\n"
+stdout "mutable global array ok\n"
+stdout "mutable global string ok\n"
+stdout "view of bools ok\n"
+stdout "view of strings ok\n"
+stdout "view of unsafe_size_t ok\n"
+stderr ""

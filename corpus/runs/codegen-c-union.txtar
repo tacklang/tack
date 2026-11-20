@@ -1,0 +1,209 @@
+Run records of codegen/c/union_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- unions-are-sanitizer-clean/main.tck --
+package main
+
+extern("unions_live") func live() int64
+
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+type Bag struct {
+    items list[int64]
+    n     int64
+}
+
+type V union {
+    num   int64
+    items list[int64]
+    bag   Bag
+    none
+}
+
+type Outer union {
+    v    V
+    pair [2]int64
+    leaf
+}
+
+type Holder struct {
+    v V
+    o Outer
+}
+
+type P union {
+    pair [2]int64
+    leaf
+}
+
+func listOf(n int64) list[int64] {
+    mut l := make(list[int64], c_allocator)
+    for i := range n {
+        err := append(mut l, i + 1)
+        if err.code != 0 {
+            exit(1)
+        }
+    }
+    return l
+}
+
+func sum(v V) int64 {
+    switch v {
+    case num(n):
+        return n
+    case items(l):
+        mut s := 0
+        for _, x := range l {
+            s +%= x
+        }
+        return s
+    case bag(b):
+        mut s := b.n
+        for i := range len(b.items) {
+            s +%= b.items[i]
+        }
+        return s
+    case none:
+        return 0
+    }
+}
+
+func outerSum(o Outer) int64 {
+    switch o {
+    case v(inner):
+        return sum(inner)
+    case pair(p):
+        return p[0] +% p[1]
+    case leaf:
+        return -1
+    }
+}
+
+func reassign() {
+    mut v := V.items(listOf(3))
+    for i := range 20 {
+        if i % 3 == 0 {
+            v = V.bag(Bag{items: listOf(i), n: i})
+        } else if i % 3 == 1 {
+            v = V.items(listOf(i))
+        } else {
+            v = V.num(i)
+        }
+        if sum(v) < 0 {
+            exit(2)
+        }
+    }
+    v = V.none
+    check(live() == 0, "reassigned in a loop")
+}
+
+func conditional(move bool) int64 {
+    v := V.items(listOf(5))
+    if move {
+        h := Holder{v: v, o: Outer.leaf}
+        return sum(h.v)
+    }
+    return 0
+}
+
+func nested() {
+    mut o := Outer.v(V.bag(Bag{items: listOf(4), n: 1}))
+    check(outerSum(o) == 11, "a union in a union")
+    o = Outer.v(V.items(listOf(2)))
+    check(outerSum(o) == 3 && live() == 1, "a union in a union reassigned")
+    h := Holder{v: V.items(listOf(1)), o: o}
+    check(sum(h.v) +% outerSum(h.o) == 4, "unions in a struct")
+}
+
+func deferred(mut out int64) {
+    v := V.items(listOf(4))
+    defer {
+        out = sum(v)
+    }
+    w := V.bag(Bag{items: listOf(2), n: 0})
+    defer {
+        out +%= sum(w)
+    }
+}
+
+func inList() {
+    mut vs := make(list[P], c_allocator)
+    for i := range 10 {
+        err := append(mut vs, P.pair([2]int64{i, i}))
+        if err.code != 0 {
+            exit(3)
+        }
+    }
+    mut s := 0
+    for i := range len(vs) {
+        switch vs[i] {
+        case pair(p):
+            s +%= p[0] +% p[1]
+        default:
+        }
+    }
+    check(s == 90, "a list of unions holding no list")
+}
+
+func ranging() int64 {
+    v := V.items(listOf(100))
+    mut s := 0
+    switch v {
+    case items(l):
+        for i, x := range l {
+            if l[i] != x {
+                exit(4)
+            }
+            s +%= x
+        }
+    default:
+    }
+    return s
+}
+
+func main() {
+    reassign()
+    check(conditional(true) == 15 && live() == 0, "moved on one path")
+    check(conditional(false) == 0 && live() == 0, "not moved")
+    nested()
+    check(live() == 0, "nested freed")
+    mut out := 0
+    deferred(mut out)
+    check(out == 10 && live() == 0, "read from defers, last first")
+    inList()
+    check(ranging() == 5050 && live() == 0, "ranging over a payload")
+}
+-- unions-are-sanitizer-clean/helpers.c --
+#include <tack/tack.h>
+
+int64_t unions_live(void) {
+    return tack_c_allocator_live_();
+}
+-- unions-are-sanitizer-clean/record --
+replaces codegen/c/union_test.go TestUnionsAreSanitizerClean/-O0
+replaces codegen/c/union_test.go TestUnionsAreSanitizerClean/-O1
+partial the test compiles the C it holds with -Wall -Wextra -Werror, which the driver's -w turns off and the runner's strict compile, of the program's C and the corpus's alone, does not hold
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 10 " ok\n"
+exit 0
+stdout "reassigned in a loop ok\n"
+stdout "moved on one path ok\n"
+stdout "not moved ok\n"
+stdout "a union in a union ok\n"
+stdout "a union in a union reassigned ok\n"
+stdout "unions in a struct ok\n"
+stdout "nested freed ok\n"
+stdout "read from defers, last first ok\n"
+stdout "a list of unions holding no list ok\n"
+stdout "ranging over a payload ok\n"
+stderr ""

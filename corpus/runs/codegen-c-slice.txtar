@@ -1,0 +1,70 @@
+Run records of codegen/c/slice_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- null-slices-are-sanitizer-clean/main.tck --
+package main
+
+type T struct {
+    s string
+}
+
+func n(b []uint8) int64 {
+    return len(b[0:0]) + len(b[:]) +% len(b[len(b):])
+}
+
+func main() {
+    mut z T
+    a := z.s[0:]
+    c := z.s[:0]
+    d, ok := z.s[0:0]
+    if len(a) +% len(c) +% len(d) +% n([]uint8(z.s)) != 0 || !ok {
+        exit(1)
+    }
+}
+-- null-slices-are-sanitizer-clean/record --
+replaces codegen/c/slice_test.go TestNullSlicesAreSanitizerClean
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+opt 0
+cflags -fstrict-flex-arrays=3 -fsanitize=undefined -fno-sanitize-recover=all -ffinite-loops -mllvm -indvars-predicate-loops=true
+exit 0
+stdout ""
+stderr ""
+-- slices-example-is-sanitizer-clean/record --
+replaces codegen/c/slice_test.go TestSlicesExampleIsSanitizerClean/-O0
+replaces codegen/c/slice_test.go TestSlicesExampleIsSanitizerClean/-O1
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/slices
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 28 " ok\n"
+exit 0
+stdout "string slices ok\n"
+stdout "omitted and empty bounds ok\n"
+stdout "slices of slices ok\n"
+stdout "stored in a field, an array and a variable ok\n"
+stdout "results ok\n"
+stdout "bytes through a multi-byte character ok\n"
+stdout "zero strings ok\n"
+stdout "zero string field checked ok\n"
+stdout "known slice of a known string ok\n"
+stdout "globals ok\n"
+stdout "bytes of a slice ok\n"
+stdout "guard on the high bound ok\n"
+stdout "guard on both bounds ok\n"
+stdout "checked in range ok\n"
+stdout "checked out of range ok\n"
+stdout "checked uint64 bounds ok\n"
+stdout "checked omitted bounds ok\n"
+stdout "array slices ok\n"
+stdout "array slice ends ok\n"
+stdout "slices proven by loops ok\n"
+stdout "slice of a view passed on ok\n"
+stdout "unsafe_size_t bound ok\n"
+stdout "len of a view slice ok\n"
+stdout "field and element arrays ok\n"
+stdout "mut parameter's array ok\n"
+stdout "slice alongside mut of the same array ok\n"
+stdout "mutable global array ok\n"
+stdout "evaluation order ok\n"
+stderr ""

@@ -1,0 +1,108 @@
+Run records of codegen/c/methodexpr_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- method-exprs-example-is-sanitizer-clean-1/record --
+replaces codegen/c/methodexpr_test.go TestMethodExprsExampleIsSanitizerClean/-O2
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/method-exprs
+target .
+opt 2
+cflags -fstrict-flex-arrays=3 -D_DEFAULT_SOURCE -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 41 " ok\n"
+exit 0
+stdout "nothing live at the start ok\n"
+stdout "a plain receiver's method through a local ok\n"
+stdout "a temporary receiver ok\n"
+stdout "passed as a parameter ok\n"
+stdout "returned beside a function of its type ok\n"
+stdout "assigned over a function of its type ok\n"
+stdout "named inside a method of its own type ok\n"
+stdout "a mut receiver through a local ok\n"
+stdout "a mut receiver taking no arguments ok\n"
+stdout "a mut receiver passed as a parameter ok\n"
+stdout "assigned to a function of its type ok\n"
+stdout "several results ok\n"
+stdout "a result beside an error ok\n"
+stdout "an error result ok\n"
+stdout "a mut receiver returning an error ok\n"
+stdout "held by a struct's fields ok\n"
+stdout "held by an array ok\n"
+stdout "held by a list ok\n"
+stdout "stored freed ok\n"
+stdout "a receiver owning a list ok\n"
+stdout "owned freed ok\n"
+stdout "a union's plain methods ok\n"
+stdout "a union's mut method ok\n"
+stdout "passed to a generic function ok\n"
+stdout "a func(T, T) bool ok\n"
+stdout "a pub method of another package ok\n"
+stdout "a pub mut method of another package ok\n"
+stdout "a lib method of the same module ok\n"
+stdout "another package's method returning an error ok\n"
+stdout "returned from the method's own package ok\n"
+stdout "another package's union ok\n"
+stdout "called through its type ok\n"
+stdout "a mut receiver called through its type ok\n"
+stdout "several results called through its type ok\n"
+stdout "an error result called through its type ok\n"
+stdout "its contract holds after the call ok\n"
+stdout "a union's and another package's methods called ok\n"
+stdout "passed on with ? ok\n"
+stdout "passed to a scope parameter ok\n"
+stdout "called in a closure ok\n"
+stdout "a scope parameter in its type ok\n"
+stderr ""
+-- method-exprs-example-is-sanitizer-clean-2/record --
+replaces codegen/c/methodexpr_test.go TestMethodExprsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+replaces codegen/c/methodexpr_test.go TestMethodExprsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/method-exprs
+target .
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 41 " ok\n"
+exit 0
+stdout "nothing live at the start ok\n"
+stdout "a plain receiver's method through a local ok\n"
+stdout "a temporary receiver ok\n"
+stdout "passed as a parameter ok\n"
+stdout "returned beside a function of its type ok\n"
+stdout "assigned over a function of its type ok\n"
+stdout "named inside a method of its own type ok\n"
+stdout "a mut receiver through a local ok\n"
+stdout "a mut receiver taking no arguments ok\n"
+stdout "a mut receiver passed as a parameter ok\n"
+stdout "assigned to a function of its type ok\n"
+stdout "several results ok\n"
+stdout "a result beside an error ok\n"
+stdout "an error result ok\n"
+stdout "a mut receiver returning an error ok\n"
+stdout "held by a struct's fields ok\n"
+stdout "held by an array ok\n"
+stdout "held by a list ok\n"
+stdout "stored freed ok\n"
+stdout "a receiver owning a list ok\n"
+stdout "owned freed ok\n"
+stdout "a union's plain methods ok\n"
+stdout "a union's mut method ok\n"
+stdout "passed to a generic function ok\n"
+stdout "a func(T, T) bool ok\n"
+stdout "a pub method of another package ok\n"
+stdout "a pub mut method of another package ok\n"
+stdout "a lib method of the same module ok\n"
+stdout "another package's method returning an error ok\n"
+stdout "returned from the method's own package ok\n"
+stdout "another package's union ok\n"
+stdout "called through its type ok\n"
+stdout "a mut receiver called through its type ok\n"
+stdout "several results called through its type ok\n"
+stdout "an error result called through its type ok\n"
+stdout "its contract holds after the call ok\n"
+stdout "a union's and another package's methods called ok\n"
+stdout "passed on with ? ok\n"
+stdout "passed to a scope parameter ok\n"
+stdout "called in a closure ok\n"
+stdout "a scope parameter in its type ok\n"
+stderr ""

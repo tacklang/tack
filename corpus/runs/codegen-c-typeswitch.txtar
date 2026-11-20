@@ -1,0 +1,167 @@
+Run records of codegen/c/typeswitch_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- type-switch-defers-run-under-sanitizers/main.tck --
+package main
+
+mut seen int64
+
+func note(n int64) {
+    seen = seen *% 10 +% n
+}
+
+func f(a any, xs ...any) int64 {
+    defer {
+        switch v := a.(type) {
+        case int64:
+            note(v)
+        }
+    }
+    for _, x := range xs {
+        switch v := x.(type) {
+        case int64:
+            defer {
+                note(v)
+            }
+            if v == 3 {
+                return v
+            }
+            continue
+        case string:
+            defer {
+                note(len(v))
+            }
+            break
+        }
+    }
+    return 0
+}
+
+func main() {
+    seen = 0
+    r := f(7, 1, 2, 3, 4)
+    if r != 3 || seen != 1237 {
+        exit(1)
+    }
+    seen = 0
+    r2 := f(5, 1, "ab", 9)
+    if r2 != 0 || seen != 125 {
+        exit(2)
+    }
+}
+-- type-switch-defers-run-under-sanitizers/record --
+replaces codegen/c/typeswitch_test.go TestTypeSwitchDefersRunUnderSanitizers/-O0
+replaces codegen/c/typeswitch_test.go TestTypeSwitchDefersRunUnderSanitizers/-O1
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+exit 0
+stdout ""
+stderr ""
+-- type-switches-run-under-sanitizers/main.tck --
+package main
+
+func kind(a any) int64 {
+    switch v := a.(type) {
+    case int8:
+        if v == -128 {
+            return 1
+        }
+    case int16:
+        if v == 32767 {
+            return 2
+        }
+    case int32:
+        if v == -2147483648 {
+            return 3
+        }
+    case int64:
+        if v == 9223372036854775807 {
+            return 4
+        }
+    case uint8:
+        if v == 255 {
+            return 5
+        }
+    case uint16:
+        if v == 65535 {
+            return 6
+        }
+    case uint32:
+        if v == 4294967295 {
+            return 7
+        }
+    case uint64:
+        if v == 18446744073709551615 {
+            return 8
+        }
+    case unsafe_size_t:
+        if v == 4294967295 {
+            return 9
+        }
+    case unsafe_uintptr_t:
+        if v == 0 {
+            return 10
+        }
+    case bool:
+        if v {
+            return 11
+        }
+    case string:
+        if len(v) == 3 && v[2] == 'c' {
+            return 12
+        }
+    default:
+        return 13
+    }
+    return 0
+}
+
+func empty(xs ...any) int64 {
+    e, ok := xs[len(xs)]
+    if ok {
+        return -1
+    }
+    n, isInt := e.(int64)
+    s, isString := e.(string)
+    if isInt || isString || n != 0 || len(s) != 0 {
+        return -2
+    }
+    return kind(e)
+}
+
+func main() {
+    var i8 int8 = -128
+    var i16 int16 = 32767
+    var i32 int32 = -2147483648
+    var u8 uint8 = 255
+    var u16 uint16 = 65535
+    var u32 uint32 = 4294967295
+    var u64 uint64 = 18446744073709551615
+    var sz unsafe_size_t = 4294967295
+    var up unsafe_uintptr_t = 0
+    if kind(i8) != 1 || kind(i16) != 2 || kind(i32) != 3 || kind(9223372036854775807) != 4 {
+        exit(1)
+    }
+    if kind(u8) != 5 || kind(u16) != 6 || kind(u32) != 7 || kind(u64) != 8 {
+        exit(2)
+    }
+    if kind(sz) != 9 || kind(up) != 10 || kind(true) != 11 || kind("abc") != 12 {
+        exit(3)
+    }
+    if kind(false) != 0 || kind("ab") != 0 || kind(int8(0)) != 0 {
+        exit(4)
+    }
+    if empty() != 13 || empty(1, "s") != 13 {
+        exit(5)
+    }
+}
+-- type-switches-run-under-sanitizers/record --
+replaces codegen/c/typeswitch_test.go TestTypeSwitchesRunUnderSanitizers/-O0
+replaces codegen/c/typeswitch_test.go TestTypeSwitchesRunUnderSanitizers/-O1
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+exit 0
+stdout ""
+stderr ""

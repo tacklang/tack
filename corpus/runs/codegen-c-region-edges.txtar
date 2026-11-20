@@ -1,0 +1,233 @@
+Run records of codegen/c/region_edges_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- region-kinds-and-std-are-sanitizer-clean/main.tck --
+package main
+
+import os from "std/os"
+import path from "std/path"
+import text from "std/text"
+import errors from "std/errors"
+
+extern("region_live") func live() int64
+extern("region_fail_after") func fail_after(n int64)
+
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+func kinds(mut inside int64) bool {
+    mut ok := true
+    region r {
+        mut a := make(arena[int64], -1, r)
+        mut p := make(pool[int64], r)
+        mut m := make(map[int64]int64, r)
+        mut l := make(list[list[int64]], r)
+        mut ids := make(list[id[int64]], r)
+        mut hs := make(list[handle[int64]], r)
+        for i := range 20000 {
+            x, e1 := add(mut a, i)
+            if e1.code != 0 {
+                return false
+            }
+            e1b := append(mut ids, x)
+            h, e2 := insert(mut p, i +% 1)
+            if e2.code != 0 {
+                return false
+            }
+            e2b := append(mut hs, h)
+            e3 := put(mut m, i, i +% 2)
+            mut inner := make(list[int64], r)
+            e4 := append(mut inner, i, i)
+            e5 := append(mut l, inner)
+            if e1b.code != 0 || e2b.code != 0 || e3.code != 0 || e4.code != 0 || e5.code != 0 {
+                return false
+            }
+            if i % 3 == 0 {
+                remove(mut p, h)
+            }
+        }
+        s, e6 := add_all(mut a, 1, 2, 3)
+        if e6.code != 0 {
+            return false
+        }
+        if len(a[s]) != 3 {
+            ok = false
+        }
+        for i, x := range ids {
+            if a[x] != i {
+                ok = false
+            }
+        }
+        for i, h := range hs {
+            v, found := p[h]
+            if i % 3 == 0 {
+                if found {
+                    ok = false
+                }
+            } else if !found || v != i +% 1 {
+                ok = false
+            }
+        }
+        for i := range 20000 {
+            v, found := m[i]
+            if !found || v != i +% 2 {
+                ok = false
+            }
+        }
+        for _, inner := range l {
+            if len(inner) != 2 {
+                ok = false
+            }
+        }
+        // A list dropped while the region is live, and the count of
+        // c_allocator's buffers there: the region's chunks.
+        inside = live()
+        mut d := make(list[int64], r)
+        e7 := append(mut d, 1, 2, 3)
+        if e7.code != 0 {
+            ok = false
+        }
+        drop(own d)
+    }
+    return ok
+}
+
+func stdThrough(mut inside int64) bool {
+    mut ok := true
+    region r {
+        j, e := path.join([]uint8("a/b"), []uint8("../c"), r)
+        if e.code != 0 {
+            return false
+        }
+        if j.len() != 3 {
+            ok = false
+        }
+        f := errors.from_bytes(error{code: 3, msg: "x"}, []uint8("detail"), r)
+        if f.err.code != 3 {
+            ok = false
+        }
+        mut t := text.new(r)
+        for i := range 70000 {
+            e3 := mut t.append([]uint8("abc"))
+            if e3.code != 0 {
+                return false
+            }
+            if i < 0 {
+                ok = false
+            }
+        }
+        if t.len() != 210000 {
+            ok = false
+        }
+        dir, e4 := os.make_temp_dir([]uint8("tk-"), r)
+        if e4.code != 0 {
+            return false
+        }
+        if dir.len() == 0 {
+            ok = false
+        }
+        fp, ej := path.join(dir.bytes(), []uint8("f"), r)
+        if ej.code != 0 {
+            e9 := os.remove_path(dir.bytes())
+            if e9.code != 0 {
+                print("")
+            }
+            return false
+        }
+        ef := os.write_file(fp.bytes(), []uint8("hello"))
+        names, e5 := os.list_dir(dir.bytes(), r)
+        if e5.code == 0 && len(names) != 1 {
+            ok = false
+        }
+        data, e6 := os.read_file(fp.bytes(), r)
+        if e6.code == 0 && len(data) != 5 {
+            ok = false
+        }
+        inside = live()
+        er1 := os.remove_path(fp.bytes())
+        er := os.remove_path(dir.bytes())
+        if er.code != 0 || ef.code != 0 || er1.code != 0 {
+            ok = false
+        }
+    }
+    return ok
+}
+
+func main() {
+    region w {
+        k := make(list[int64], w)
+        check(len(k) == 0, "a first region")
+    }
+    base := live()
+    mut inside int64 = 0
+    check(kinds(mut inside) && inside > base, "arenas, pools, maps and lists of lists through a live region")
+    check(live() == base, "what kinds made through a region is freed at its end")
+    inside = 0
+    check(stdThrough(mut inside) && inside > base,
+        "os.read_file, os.list_dir, os.make_temp_dir, path.join, errors.from_bytes and text through a region")
+    check(live() == base, "what std made through a region is freed at its end")
+    fail_after(3)
+    check(!kinds(mut inside), "kinds fail when c_allocator refuses a chunk")
+    fail_after(-1)
+    check(live() == base, "kinds refused a chunk free what they took")
+    for n := range 40 {
+        fail_after(n)
+        x := stdThrough(mut inside)
+        if x {
+            print("")
+        }
+        fail_after(-1)
+    }
+    check(live() == base, "std refused at every step frees what it took")
+}
+-- region-kinds-and-std-are-sanitizer-clean/helpers.c --
+#include <stdio.h>
+
+#include <tack/tack.h>
+
+#include "tack.h"
+
+int64_t region_live(void) {
+    return tack_c_allocator_live_();
+}
+
+void region_fail_after(int64_t n) {
+    tack_c_allocator_fail_after_(n);
+}
+
+__attribute__((destructor)) static void region_check_nothing_live(void) {
+    int64_t n = tack_c_allocator_live_();
+    if (n == 0) {
+        fputs("nothing live at process end ok\n", stdout);
+    } else {
+        fprintf(stdout, "nothing live at process end FAIL: %lld live\n", (long long)n);
+    }
+    fflush(stdout);
+}
+-- region-kinds-and-std-are-sanitizer-clean/record --
+replaces codegen/c/region_edges_test.go TestRegionKindsAndStdAreSanitizerClean/-O0
+replaces codegen/c/region_edges_test.go TestRegionKindsAndStdAreSanitizerClean/-O1
+partial the test compiles the C it holds with -Wall -Wextra -Werror, which the driver's -w turns off and the runner's strict compile, of the program's C and the corpus's alone, does not hold
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+env "ASAN_OPTIONS=detect_leaks=1"
+lacks stdout "FAIL"
+count stdout 9 " ok\n"
+exit 0
+stdout "a first region ok\n"
+stdout "arenas, pools, maps and lists of lists through a live region ok\n"
+stdout "what kinds made through a region is freed at its end ok\n"
+stdout "os.read_file, os.list_dir, os.make_temp_dir, path.join, errors.from_bytes and text through a region ok\n"
+stdout "what std made through a region is freed at its end ok\n"
+stdout "kinds fail when c_allocator refuses a chunk ok\n"
+stdout "kinds refused a chunk free what they took ok\n"
+stdout "std refused at every step frees what it took ok\n"
+stdout "nothing live at process end ok\n"
+stderr ""

@@ -240,15 +240,6 @@ arg "ends"
 exit 0
 stdout "ended\n"
 stderr ""
--- exit-frees-asan/record --
-replaces codegen/c/exit_test.go TestExitFreesExampleIsSanitizerClean/-O0
-replaces codegen/c/exit_test.go TestExitFreesExampleIsSanitizerClean/-O1
-dir examples/exit-frees
-opt 0 1
-cflags -g -fno-omit-frame-pointer -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -fno-sanitize-address-globals-dead-stripping
-stdout-file examples/exit-frees/output
-exit 3
-stderr ""
 -- extern-keyword-names-emit/extern-keyword-names/main.tck --
 package main
 

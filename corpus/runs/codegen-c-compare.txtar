@@ -1,0 +1,22 @@
+Run records of codegen/c/compare_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- mixed-compare-example-is-sanitizer-clean/record --
+replaces codegen/c/compare_test.go TestMixedCompareExampleIsSanitizerClean/-O0
+replaces codegen/c/compare_test.go TestMixedCompareExampleIsSanitizerClean/-O1
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/mixed-compare
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 8 " ok\n"
+exit 0
+stdout "int64 and uint64 ok\n"
+stdout "narrow pairs ok\n"
+stdout "target widths ok\n"
+stdout "known values ok\n"
+stdout "evaluation order ok\n"
+stdout "guard on len ok\n"
+stdout "facts ok\n"
+stdout "switches ok\n"
+stderr ""

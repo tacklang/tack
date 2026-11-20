@@ -1,0 +1,49 @@
+Run records of codegen/c/variadic_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- variadics-example-is-sanitizer-clean/record --
+replaces codegen/c/variadic_test.go TestVariadicsExampleIsSanitizerClean/-O0
+replaces codegen/c/variadic_test.go TestVariadicsExampleIsSanitizerClean/-O1
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/variadics
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 35 " ok\n"
+exit 0
+stdout "no values ok\n"
+stdout "one value ok\n"
+stdout "several values ok\n"
+stdout "many values ok\n"
+stdout "widened values ok\n"
+stdout "untyped constants ok\n"
+stdout "uint64 values ok\n"
+stdout "spread of an array ok\n"
+stdout "spread of a slice ok\n"
+stdout "spread of a variadic ok\n"
+stdout "spread passed on ok\n"
+stdout "spread of a variadic's slice ok\n"
+stdout "recursion ok\n"
+stdout "checked index ok\n"
+stdout "checked negative index ok\n"
+stdout "guard on len ok\n"
+stdout "range with index ok\n"
+stdout "strings ok\n"
+stdout "structs ok\n"
+stdout "arrays ok\n"
+stdout "bools ok\n"
+stdout "bytes ok\n"
+stdout "spread of a string's bytes ok\n"
+stdout "spread of the empty string's bytes ok\n"
+stdout "results ok\n"
+stdout "results with no values ok\n"
+stdout "evaluation order ok\n"
+stdout "reads between calls ok\n"
+stdout "nested calls ok\n"
+stdout "values alongside mut ok\n"
+stdout "spread alongside mut ok\n"
+stdout "spread of a mutable global ok\n"
+stdout "spread of a mut parameter's array ok\n"
+stdout "in a defer ok\n"
+stdout "in a loop condition ok\n"
+stderr ""

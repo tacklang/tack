@@ -1,0 +1,62 @@
+Run records of codegen/c/blankparam_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- blank-params-example-is-sanitizer-clean-1/record --
+replaces codegen/c/blankparam_test.go TestBlankParamsExampleIsSanitizerClean/-O2
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/blank-params
+target .
+opt 2
+cflags -fstrict-flex-arrays=3 -D_DEFAULT_SOURCE -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 18 " ok\n"
+exit 0
+stdout "evaluated in order ok\n"
+stdout "several and extern ok\n"
+stdout "variadic ok\n"
+stdout "view and any ok\n"
+stdout "receiver ok\n"
+stdout "interface ok\n"
+stdout "own returns and closure ok\n"
+stdout "own ok\n"
+stdout "own freed ok\n"
+stdout "mut ok\n"
+stdout "mut freed ok\n"
+stdout "functions ok\n"
+stdout "before reset ok\n"
+stdout "reset ok\n"
+stdout "reset again ok\n"
+stdout "reset nested ok\n"
+stdout "resets ok\n"
+stdout "resets freed ok\n"
+stderr ""
+-- blank-params-example-is-sanitizer-clean-2/record --
+replaces codegen/c/blankparam_test.go TestBlankParamsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+replaces codegen/c/blankparam_test.go TestBlankParamsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/blank-params
+target .
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 18 " ok\n"
+exit 0
+stdout "evaluated in order ok\n"
+stdout "several and extern ok\n"
+stdout "variadic ok\n"
+stdout "view and any ok\n"
+stdout "receiver ok\n"
+stdout "interface ok\n"
+stdout "own returns and closure ok\n"
+stdout "own ok\n"
+stdout "own freed ok\n"
+stdout "mut ok\n"
+stdout "mut freed ok\n"
+stdout "functions ok\n"
+stdout "before reset ok\n"
+stdout "reset ok\n"
+stdout "reset again ok\n"
+stdout "reset nested ok\n"
+stdout "resets ok\n"
+stdout "resets freed ok\n"
+stderr ""

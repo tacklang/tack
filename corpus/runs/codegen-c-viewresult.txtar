@@ -1,0 +1,115 @@
+Run records of codegen/c/viewresult_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- view-results-call-once-and-run-clean/main.tck --
+package main
+
+mut calls int64
+
+type Text struct {
+    b list[uint8]
+}
+
+func (t Text) bytes() []uint8 {
+    calls +%= 1
+    return t.b
+}
+
+func rest(v []uint8) []uint8 {
+    calls +%= 1
+    if len(v) == 0 {
+        return v
+    }
+    return v[1:]
+}
+
+func row(rows list[[2]uint8], none []uint8) []uint8 {
+    if len(rows) > 0 {
+        return rows[0]
+    }
+    return none
+}
+
+func all(xs ...uint8) []uint8 {
+    return xs
+}
+
+func first(v []uint8, mut a [3]uint8) []uint8 {
+    a[0] = 9
+    return v
+}
+
+func sum(v []uint8) int64 {
+    mut n := 0
+    for _, c := range v {
+        n +%= c
+    }
+    return n
+}
+
+func check(cond bool, name string) {
+    print(name)
+    if cond {
+        print(" ok\n")
+    } else {
+        print(" FAIL\n")
+    }
+}
+
+func main() {
+    mut t := Text{b: make(list[uint8], c_allocator)}
+    err := append(mut t.b, 1, 2, 3)
+    check(err.code == 0, "appended")
+    check(len(t.bytes()) == 3 && calls == 1, "len calls once")
+    c, ok := t.bytes()[2]
+    check(ok && c == 3 && calls == 2, "checked index calls once")
+    c2, ok2 := rest(t.bytes())[5]
+    check(!ok2 && c2 == 0 && calls == 4, "checked index past the end")
+    mut n := 0
+    for _, x := range rest(t.bytes()) {
+        n +%= x
+    }
+    check(n == 5 && calls == 6, "range calls once")
+    check(sum(t.bytes()[:]) == 6 && calls == 7, "slice calls once")
+    mut rows := make(list[[2]uint8], c_allocator)
+    err2 := append(mut rows, [2]uint8{4, 5})
+    check(err2.code == 0 && sum(row(rows, t.bytes())) == 9 && calls == 8, "array element of a list")
+    mut m := 0
+    for _, x := range all(1, 2, 3) {
+        m +%= x
+    }
+    check(m == 6 && sum(all()) == 0, "packed values ranged over")
+    mut a := [3]uint8{1, 2, 3}
+    check(sum(first(a, mut a)) == 6 && a[0] == 9, "a copy viewed and returned")
+}
+-- view-results-call-once-and-run-clean/record --
+replaces codegen/c/viewresult_test.go TestViewResultsCallOnceAndRunClean/-O0
+replaces codegen/c/viewresult_test.go TestViewResultsCallOnceAndRunClean/-O1
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 9 " ok\n"
+exit 0
+stdout "appended ok\n"
+stdout "len calls once ok\n"
+stdout "checked index calls once ok\n"
+stdout "checked index past the end ok\n"
+stdout "range calls once ok\n"
+stdout "slice calls once ok\n"
+stdout "array element of a list ok\n"
+stdout "packed values ranged over ok\n"
+stdout "a copy viewed and returned ok\n"
+stderr ""
+-- view-results-example-is-sanitizer-clean/record --
+replaces codegen/c/viewresult_test.go TestViewResultsExampleIsSanitizerClean/-O0
+replaces codegen/c/viewresult_test.go TestViewResultsExampleIsSanitizerClean/-O2
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/view-results
+target .
+opt 0 2
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+stdout-file examples/view-results/output
+exit 0
+stderr ""

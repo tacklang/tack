@@ -1,0 +1,41 @@
+Run records of codegen/c/order_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- assign-order-example-runs-at-every-level-1/record --
+replaces codegen/c/order_test.go TestAssignOrderExampleRunsAtEveryLevel/-O0
+replaces codegen/c/order_test.go TestAssignOrderExampleRunsAtEveryLevel/-O1
+replaces codegen/c/order_test.go TestAssignOrderExampleRunsAtEveryLevel/-O2
+replaces codegen/c/order_test.go TestAssignOrderExampleRunsAtEveryLevel/-O3
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/assign-order
+opt 0 1 2 3
+cflags -fstrict-flex-arrays=3 -D_DEFAULT_SOURCE -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 7 " ok\n"
+exit 0
+stdout "the index read before the value ok\n"
+stdout "a compound assignment's index read before the value ok\n"
+stdout "a local index read before a mut argument moves it ok\n"
+stdout "a compound assignment's local index read before a mut argument moves it ok\n"
+stdout "both indexes of a nested array read before the value ok\n"
+stdout "a field's element index read before the value ok\n"
+stdout "the index read before the value in a loop's post statement ok\n"
+stderr ""
+-- assign-order-example-runs-at-every-level-2/record --
+replaces codegen/c/order_test.go TestAssignOrderExampleRunsAtEveryLevel/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+replaces codegen/c/order_test.go TestAssignOrderExampleRunsAtEveryLevel/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/assign-order
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 7 " ok\n"
+exit 0
+stdout "the index read before the value ok\n"
+stdout "a compound assignment's index read before the value ok\n"
+stdout "a local index read before a mut argument moves it ok\n"
+stdout "a compound assignment's local index read before a mut argument moves it ok\n"
+stdout "both indexes of a nested array read before the value ok\n"
+stdout "a field's element index read before the value ok\n"
+stdout "the index read before the value in a loop's post statement ok\n"
+stderr ""

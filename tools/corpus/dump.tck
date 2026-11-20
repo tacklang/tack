@@ -20,7 +20,7 @@ import text from "std/text"
 //     own, or record and its fields:
 //
 //     replaces <count>
-//     flags selfcheck=<b> partial=<b> cold=<b> strict=<b> cwd-empty=<b> stdin=<b> stdout=<b> stderr=<b>
+//     flags selfcheck=<b> partial=<b> cold=<b> strict=<b> strict-libs=<b> cwd-empty=<b> stdin=<b> stdout=<b> stderr=<b>
 //     dir, target, stdout-file, stderr-file and must-fail, each quoted
 //     opt, cflags, invoke, arg and env, a line each, quoted, in order
 //     stdin, quoted
@@ -30,6 +30,7 @@ import text from "std/text"
 //     stdout, stderr, fd3 and fd4, each quoted
 //     want, a path and its bytes, each quoted, for each file line, in order
 //     lacks, a stream and its bytes, quoted, for each lacks line, in order
+//     count, a stream, its count and its bytes, quoted, for each count line, in order
 //     link, a path and its target, each quoted, for each symlink line, in order
 //
 // every quoted operand as std/conv's append_quote writes it, which is Go's
@@ -54,7 +55,7 @@ func bool_word(b bool) string {
 // dump_record writes rec's fields in the form of the comment above.
 func dump_record(rec Record) error {
     fmt.printf("record\nreplaces %d\n", rec.replaces)
-    fmt.printf("flags selfcheck=%s partial=%s cold=%s strict=%s cwd-empty=%s stdin=%s stdout=%s stderr=%s\n", bool_word(rec.selfcheck), bool_word(rec.partial), bool_word(rec.cold), bool_word(rec.strict), bool_word(rec.empty_cwd), bool_word(rec.has_stdin), bool_word(rec.has_stdout), bool_word(rec.has_stderr))
+    fmt.printf("flags selfcheck=%s partial=%s cold=%s strict=%s strict-libs=%s cwd-empty=%s stdin=%s stdout=%s stderr=%s\n", bool_word(rec.selfcheck), bool_word(rec.partial), bool_word(rec.cold), bool_word(rec.strict), bool_word(rec.strict_libs), bool_word(rec.empty_cwd), bool_word(rec.has_stdin), bool_word(rec.has_stdout), bool_word(rec.has_stderr))
     dump_line("dir", rec.dir.bytes())?
     dump_line("target", rec.target.bytes())?
     dump_line("stdout-file", rec.stdout_file.bytes())?
@@ -110,6 +111,11 @@ func dump_record(rec Record) error {
         mut w := make(list[uint8], c_allocator)
         conv.append_quote(mut w, f.data)?
         fmt.printf("lacks %s %s\n", f.path.bytes(), w[:])
+    }
+    for _, l := range rec.counts {
+        mut w := make(list[uint8], c_allocator)
+        conv.append_quote(mut w, l.bytes[:])?
+        fmt.printf("count %s %d %s\n", l.stream.bytes(), l.n, w[:])
     }
     for _, f := range rec.links {
         mut w := make(list[uint8], c_allocator)

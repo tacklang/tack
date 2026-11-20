@@ -1,0 +1,96 @@
+Run records of codegen/c/question_owned_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- question-owned-example-is-sanitizer-clean-1/record --
+replaces codegen/c/question_owned_test.go TestQuestionOwnedExampleIsSanitizerClean/-O2
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/question-owned
+opt 2
+cflags -fstrict-flex-arrays=3 -D_DEFAULT_SOURCE -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 36 " ok\n"
+exit 0
+stdout "nothing live at the start ok\n"
+stdout "an own argument before a failing ? ok\n"
+stdout "an own argument freed ok\n"
+stdout "two own arguments ok\n"
+stdout "the first own argument and the failing call's list freed ok\n"
+stdout "a list passed through a call that fails ok\n"
+stdout "a list a failing call gave back freed ok\n"
+stdout "a moved variable before a failing ? ok\n"
+stdout "a moved variable freed ok\n"
+stdout "arguments freed ok\n"
+stdout "append's values before a failing ? ok\n"
+stdout "append's values freed ok\n"
+stdout "put's key and value ok\n"
+stdout "put's value freed ok\n"
+stdout "builtins freed ok\n"
+stdout "a struct's field before a failing ? ok\n"
+stdout "a union's payload before a failing ? ok\n"
+stdout "a return's value before a failing ? ok\n"
+stdout "a local list returned before a failing ? ok\n"
+stdout "an own argument before a ? nested deep ok\n"
+stdout "built values freed ok\n"
+stdout "a ? in a loop's condition ok\n"
+stdout "a loop's lists freed by its condition's ? ok\n"
+stdout "a ? in a loop's post statement ok\n"
+stdout "a loop's lists freed by its post's ? ok\n"
+stdout "a ? on the right of && ok\n"
+stdout "a ? in a range over a list ok\n"
+stdout "a ? in a clause binding a payload ok\n"
+stdout "a list assigned over another ok\n"
+stdout "a list bound over another ok\n"
+stdout "a defer reads a list a ? frees after ok\n"
+stdout "a ? in a parenthesized statement ok\n"
+stdout "a parenthesized statement's list freed ok\n"
+stdout "a ? as a loop's init and post ok\n"
+stdout "a loop's clauses' list freed ok\n"
+stdout "nothing live at the end ok\n"
+stderr ""
+-- question-owned-example-is-sanitizer-clean-2/record --
+replaces codegen/c/question_owned_test.go TestQuestionOwnedExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+replaces codegen/c/question_owned_test.go TestQuestionOwnedExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/question-owned
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 36 " ok\n"
+exit 0
+stdout "nothing live at the start ok\n"
+stdout "an own argument before a failing ? ok\n"
+stdout "an own argument freed ok\n"
+stdout "two own arguments ok\n"
+stdout "the first own argument and the failing call's list freed ok\n"
+stdout "a list passed through a call that fails ok\n"
+stdout "a list a failing call gave back freed ok\n"
+stdout "a moved variable before a failing ? ok\n"
+stdout "a moved variable freed ok\n"
+stdout "arguments freed ok\n"
+stdout "append's values before a failing ? ok\n"
+stdout "append's values freed ok\n"
+stdout "put's key and value ok\n"
+stdout "put's value freed ok\n"
+stdout "builtins freed ok\n"
+stdout "a struct's field before a failing ? ok\n"
+stdout "a union's payload before a failing ? ok\n"
+stdout "a return's value before a failing ? ok\n"
+stdout "a local list returned before a failing ? ok\n"
+stdout "an own argument before a ? nested deep ok\n"
+stdout "built values freed ok\n"
+stdout "a ? in a loop's condition ok\n"
+stdout "a loop's lists freed by its condition's ? ok\n"
+stdout "a ? in a loop's post statement ok\n"
+stdout "a loop's lists freed by its post's ? ok\n"
+stdout "a ? on the right of && ok\n"
+stdout "a ? in a range over a list ok\n"
+stdout "a ? in a clause binding a payload ok\n"
+stdout "a list assigned over another ok\n"
+stdout "a list bound over another ok\n"
+stdout "a defer reads a list a ? frees after ok\n"
+stdout "a ? in a parenthesized statement ok\n"
+stdout "a parenthesized statement's list freed ok\n"
+stdout "a ? as a loop's init and post ok\n"
+stdout "a loop's clauses' list freed ok\n"
+stdout "nothing live at the end ok\n"
+stderr ""

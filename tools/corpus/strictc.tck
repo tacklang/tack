@@ -1,0 +1,413 @@
+package main
+
+import bytes from "std/bytes"
+import fmt from "std/fmt"
+import os from "std/os"
+import path from "std/path"
+import text from "std/text"
+
+// The strict C of the run records with a strict-libs line (see
+// strict-libs in runs.tck). The Go test such a record replaces compiles
+// the C of its build itself with clang's warnings as errors and full
+// code generation: the program's own C, the runtime's, the C of the std
+// packages and of the example, at its level and with its flags. A record
+// builds through the driver, whose -w turns every warning off, so the
+// runner compiles that C itself: the program's own C at each run of the
+// record (see strict_program_c), and the rest once for each flag set the
+// records name, not once per record (see check_strict_libs), each with
+// what the Go test compiles it with.
+
+// strict_c_skipped are the C files below std the check leaves out, each
+// with why.
+var strict_c_skipped = [1]string{
+    // std/testing's C is built by tack test alone, against the header of
+    // a test build, which no command writes; no record's test builds it.
+    "testing/testing.c",
+}
+
+// is_strict_c_skipped reports whether rel, a path below std, is one of
+// strict_c_skipped.
+func is_strict_c_skipped(rel []uint8) bool {
+    for _, s := range strict_c_skipped {
+        if is_word(rel, s) {
+            return true
+        }
+    }
+    return false
+}
+
+// strict_c_flags are the flags codegen/c's tests compile every C file
+// with, strictCFlags there.
+var strict_c_flags = [5]string{"-std=c11", "-Wall", "-Wextra", "-Werror", "-fstrict-flex-arrays=3"}
+
+// strict_define is the define codegen/c's buildProgram compiles std's and
+// the example's C with, and neither the runtime's nor the program's own:
+// a record whose test builds through it gives it in its cflags (see
+// sanDefine in tackc's rungen).
+var strict_define = "-D_DEFAULT_SOURCE"
+
+// is_driver_flag reports whether f is a flag a record gives for the
+// driver's sake alone, which no Go test compiles with, so the strict C
+// leaves it out: the address sanitizer's
+// -fno-sanitize-address-globals-dead-stripping, and the flags that undo
+// the driver's loop flags, -ffinite-loops, -mllvm and
+// -indvars-predicate-loops=true (see sanLoopFlags in tackc's rungen).
+func is_driver_flag(f []uint8) bool {
+    return is_word(f, "-fno-sanitize-address-globals-dead-stripping") || is_word(f, "-ffinite-loops") ||
+        is_word(f, "-mllvm") || is_word(f, "-indvars-predicate-loops=true")
+}
+
+// strict_set returns the flag set of rec at the level level, empty for
+// the compiler's own: -O<level> and rec's cflags but the driver's,
+// joined with spaces.
+func strict_set(rec Record, level []uint8) (text.Text, error) {
+    mut set := make(list[uint8], c_allocator)
+    if len(level) > 0 {
+        fmt.appendf(mut set, "-O%s", level)?
+    }
+    for _, f := range rec.cflags {
+        if is_driver_flag(f.bytes()) {
+            continue
+        }
+        if len(set) > 0 {
+            append(mut set, ' ')?
+        }
+        append(mut set, f.bytes()...)?
+    }
+    t := text.from_bytes(set[:], c_allocator)?
+    return t, noerror
+}
+
+// add_strict_sets appends to sets, once each, the flag sets of rec, a
+// record with a strict-libs line, at each of its levels, or at the
+// compiler's when it names none (see strict_set), each with rec's dir,
+// empty when its files are its own: a CaseFile, its path the set and its
+// data the dir.
+func add_strict_sets(rec Record, mut sets list[CaseFile]) error {
+    mut levels := make(list[text.Text], c_allocator)
+    for _, o := range rec.opts {
+        append(mut levels, text.from_bytes(o.bytes(), c_allocator)?)?
+    }
+    if len(levels) == 0 {
+        append(mut levels, text.new(c_allocator))?
+    }
+    for _, l := range levels {
+        set := strict_set(rec, l.bytes())?
+        mut known := false
+        for _, s := range sets {
+            if s.path.equal(set.bytes()) && bytes.equal(s.data, rec.dir.bytes()) {
+                known = true
+            }
+        }
+        if !known {
+            mut dir := make(list[uint8], c_allocator)
+            append(mut dir, rec.dir.bytes()...)?
+            append(mut sets, CaseFile{path: set, data: dir})?
+        }
+    }
+    return noerror
+}
+
+// has_define reports whether set holds strict_define as one of its flags.
+func has_define(set []uint8) bool {
+    mut at int64 = 0
+    for at <= len(set) {
+        sp := bytes.index_byte(part(set, at, len(set)), ' ')
+        mut end := len(set)
+        if sp >= 0 {
+            // sp is an index of set from at.
+            end = at +% sp
+        }
+        if is_word(part(set, at, end), strict_define) {
+            return true
+        }
+        // end is at most len(set).
+        at = end +% 1
+    }
+    return false
+}
+
+// strict_compile compiles file, with header included first when it is not
+// empty, with strict_c_flags and the flags of set, but strict_define
+// unless define says so, and std's include directory, to obj, and
+// appends to why the file and the first lines of clang's report when
+// clang rejects it.
+func strict_compile(r Runner, set []uint8, define bool, file []uint8, header []uint8, obj []uint8, mut why list[uint8]) error {
+    mut argv := make(list[text.Text], c_allocator)
+    append(mut argv, text.from_bytes([]uint8("env"), c_allocator)?)?
+    append(mut argv, text.from_bytes([]uint8("clang"), c_allocator)?)?
+    for _, s := range strict_c_flags {
+        append(mut argv, text.from_bytes([]uint8(s), c_allocator)?)?
+    }
+    mut words := make(list[text.Text], c_allocator)
+    append_words(mut words, set)?
+    for _, w := range words {
+        if define || !w.equal([]uint8(strict_define)) {
+            append(mut argv, text.from_bytes(w.bytes(), c_allocator)?)?
+        }
+    }
+    include := path.join(r.std.bytes(), []uint8("include"), c_allocator)?
+    append(mut argv, text.from_bytes([]uint8("-c"), c_allocator)?)?
+    append(mut argv, text.from_bytes([]uint8("-I"), c_allocator)?)?
+    append(mut argv, include)?
+    if len(header) > 0 {
+        hdir := path.dir(header, c_allocator)?
+        append(mut argv, text.from_bytes([]uint8("-I"), c_allocator)?)?
+        append(mut argv, hdir)?
+        append(mut argv, text.from_bytes([]uint8("-include"), c_allocator)?)?
+        append(mut argv, text.from_bytes(header, c_allocator)?)?
+    }
+    append(mut argv, text.from_bytes([]uint8("-o"), c_allocator)?)?
+    append(mut argv, text.from_bytes(obj, c_allocator)?)?
+    append(mut argv, text.from_bytes(file, c_allocator)?)?
+    ran := run_env(r.tmp.bytes(), argv)?
+    if ran.code != 0 || ran.signo != 0 || len(ran.err) > 0 {
+        fmt.appendf(mut why, "clang rejects %s: ", file)?
+        conv_quote(mut why, part(ran.err, 0, first_lines(ran.err, 4)))?
+        append(mut why, '\n')?
+    }
+    return noerror
+}
+
+// remove_obj removes obj, when it is there, appending to why when it
+// cannot.
+func remove_obj(obj []uint8, mut why list[uint8]) error {
+    _, se := os.stat(obj)
+    if se.code != 0 {
+        return noerror
+    }
+    re := os.remove_path(obj)
+    if re.code != 0 {
+        fmt.appendf(mut why, "cannot remove %s: %s\n", obj, re.msg)?
+    }
+    return noerror
+}
+
+// strict_program_c compiles c, the program's own C that --emit wrote, for
+// a record with a strict-libs line at the level level, as its Go test
+// compiles program.c: with strict_c_flags and the record's flag set at
+// level, but strict_define, which buildProgram gives the program's C
+// none of, to an object in r's temporary directory, removed after. It
+// reports whether clang took it, appending why to trouble otherwise.
+func strict_program_c(r Runner, rec Record, level []uint8, c []uint8, mut trouble list[uint8]) (bool, error) {
+    file := path.join(r.tmp.bytes(), []uint8("strict-program.c"), c_allocator)?
+    e := os.write_file(file.bytes(), c)
+    if e.code != 0 {
+        fmt.appendf(mut trouble, "cannot write %s: %s", file.bytes(), e.msg)?
+        return false, noerror
+    }
+    obj := path.join(r.tmp.bytes(), []uint8("strict-program.o"), c_allocator)?
+    set := strict_set(rec, level)?
+    mut why := make(list[uint8], c_allocator)
+    strict_compile(r, set.bytes(), false, file.bytes(), []uint8(""), obj.bytes(), mut why)?
+    remove_obj(obj.bytes(), mut why)?
+    if len(why) > 0 {
+        append(mut trouble, []uint8("the program's own C does not pass its Go test's strict compile: ")...)?
+        append(mut trouble, why[:]...)?
+        return false, noerror
+    }
+    return true, noerror
+}
+
+// check_strict_libs compiles, for each flag set of sets (see
+// add_strict_sets), each a case counted in t that fails with every file
+// clang rejects and the first lines of why: every .c of the runtime,
+// without strict_define; every .c of std but strict_c_skipped, against
+// std's header, when the set holds strict_define, as only the Go tests
+// that build through buildProgram compile std's C; and the .c files below
+// the dir of each record of the set, each against the tack.h nearest
+// above it within its example, as the Go test compiles the example's,
+// with the set as it is. Each compile is to an object in r's temporary
+// directory, removed after. No set is no case.
+func check_strict_libs(r Runner, sets []CaseFile, mut t Tally) error {
+    if len(sets) == 0 {
+        return noerror
+    }
+    std_header := strict_std_header(r, mut t)?
+    if std_header.len() == 0 {
+        return noerror
+    }
+    src_dir := path.dir(r.std.bytes(), c_allocator)?
+    root := path.dir(src_dir.bytes(), c_allocator)?
+    runtime := path.join(root.bytes(), []uint8("runtime"), c_allocator)?
+    examples := path.join(r.corpus.bytes(), []uint8("examples"), c_allocator)?
+    mut runtime_files := make(list[text.Text], c_allocator)
+    mut std_files := make(list[text.Text], c_allocator)
+    for k := range 2 {
+        mut dir := text.from_bytes(runtime.bytes(), c_allocator)?
+        if k == 1 {
+            dir = text.from_bytes(r.std.bytes(), c_allocator)?
+        }
+        mut names := make(list[text.Text], c_allocator)
+        ok := walk_files(dir.bytes(), mut names)?
+        if !ok {
+            fail([]uint8("runs"), []uint8("(strict-c)"), []uint8("cannot list the C files the check compiles"), mut t)
+            return noerror
+        }
+        for _, n := range names {
+            if !bytes.has_suffix(n.bytes(), []uint8(".c")) || k == 1 && is_strict_c_skipped(n.bytes()) {
+                continue
+            }
+            p := path.join(dir.bytes(), n.bytes(), c_allocator)?
+            if k == 0 {
+                append(mut runtime_files, p)?
+            } else {
+                append(mut std_files, p)?
+            }
+        }
+    }
+    obj := path.join(r.tmp.bytes(), []uint8("strict-c.o"), c_allocator)?
+    mut done := make(list[text.Text], c_allocator)
+    for _, s := range sets {
+        mut seen := false
+        for _, d := range done {
+            if d.equal(s.path.bytes()) {
+                seen = true
+            }
+        }
+        if seen {
+            continue
+        }
+        append(mut done, text.from_bytes(s.path.bytes(), c_allocator)?)?
+        t.cases +%= 1
+        mut why := make(list[uint8], c_allocator)
+        for _, f := range runtime_files {
+            strict_compile(r, s.path.bytes(), false, f.bytes(), []uint8(""), obj.bytes(), mut why)?
+        }
+        if has_define(s.path.bytes()) {
+            for _, f := range std_files {
+                strict_compile(r, s.path.bytes(), true, f.bytes(), std_header.bytes(), obj.bytes(), mut why)?
+            }
+        }
+        for _, d := range sets {
+            if !d.path.equal(s.path.bytes()) || len(d.data) == 0 {
+                continue
+            }
+            mut names := make(list[text.Text], c_allocator)
+            dir := path.join(r.corpus.bytes(), d.data, c_allocator)?
+            ok := walk_files(dir.bytes(), mut names)?
+            if !ok {
+                fmt.appendf(mut why, "cannot list %s\n", dir.bytes())?
+                continue
+            }
+            // d.data is examples/ and more, below which the header is
+            // looked for.
+            mut below := make(list[uint8], c_allocator)
+            append(mut below, part(d.data, 9, len(d.data))...)?
+            for _, n := range names {
+                if !bytes.has_suffix(n.bytes(), []uint8(".c")) {
+                    continue
+                }
+                rel := path.join(below[:], n.bytes(), c_allocator)?
+                header := example_header(examples.bytes(), rel.bytes())?
+                p := path.join(dir.bytes(), n.bytes(), c_allocator)?
+                strict_compile(r, s.path.bytes(), true, p.bytes(), header.bytes(), obj.bytes(), mut why)?
+            }
+        }
+        remove_obj(obj.bytes(), mut why)?
+        if len(why) > 0 {
+            mut label := text.from_bytes([]uint8("runs/(strict-c)"), c_allocator)?
+            mut name := text.from_bytes([]uint8("flags "), c_allocator)?
+            mut name.append(s.path.bytes())?
+            fail(label.bytes(), name.bytes(), why[:], mut t)
+        }
+    }
+    return noerror
+}
+
+// example_header returns the tack.h nearest above rel, a C file below the
+// directory of examples dir, within its example, examples/<first part>,
+// or an empty Text when there is none.
+func example_header(dir []uint8, rel []uint8) (text.Text, error) {
+    mut at := path.dir(rel, c_allocator)?
+    for {
+        h := path.join(dir, at.bytes(), c_allocator)?
+        hh := path.join(h.bytes(), []uint8("tack.h"), c_allocator)?
+        _, se := os.stat(hh.bytes())
+        if se.code == 0 {
+            return hh, noerror
+        }
+        if bytes.index_byte(at.bytes(), '/') < 0 {
+            return text.new(c_allocator), noerror
+        }
+        at = path.dir(at.bytes(), c_allocator)?
+    }
+}
+
+// strict_std_header returns the tack.h the compiler, r's, writes with
+// --emit-header for a program of r's temporary directory that imports
+// every package of std with a C file but those strict_c_skipped names:
+// what a program importing them includes, as the driver compiles a std
+// package's C against the program's header. It returns an empty Text,
+// having counted a failure in t, when it cannot write it.
+func strict_std_header(r Runner, mut t Tally) (text.Text, error) {
+    mut names := make(list[text.Text], c_allocator)
+    ok := walk_files(r.std.bytes(), mut names)?
+    if !ok {
+        fail([]uint8("runs"), []uint8("(strict-c)"), []uint8("cannot list std"), mut t)
+        return text.new(c_allocator), noerror
+    }
+    mut src := make(list[uint8], c_allocator)
+    append(mut src, []uint8("package main\n\n")...)?
+    mut pkgs := make(list[text.Text], c_allocator)
+    for _, n := range names {
+        if !bytes.has_suffix(n.bytes(), []uint8(".c")) || is_strict_c_skipped(n.bytes()) {
+            continue
+        }
+        pkg := path.dir(n.bytes(), c_allocator)?
+        mut seen := false
+        for _, p := range pkgs {
+            if p.equal(pkg.bytes()) {
+                seen = true
+            }
+        }
+        if !seen {
+            fmt.appendf(mut src, "import p%d from \"std/%s\"\n", len(pkgs), pkg.bytes())?
+            append(mut pkgs, pkg)?
+        }
+    }
+    append(mut src, []uint8("\n// main does nothing: the program is for its header.\nfunc main() {\n}\n")...)?
+    dir := path.join(r.tmp.bytes(), []uint8("strict-c-header"), c_allocator)?
+    made := make_dirs(dir.bytes())?
+    program := path.join(dir.bytes(), []uint8("main.tck"), c_allocator)?
+    we := os.write_file(program.bytes(), src[:])
+    if !made || we.code != 0 {
+        fail([]uint8("runs"), []uint8("(strict-c)"), []uint8("cannot write the program std's header is emitted for"), mut t)
+        return text.new(c_allocator), noerror
+    }
+    mut args := make(list[text.Text], c_allocator)
+    append(mut args, text.from_bytes([]uint8("--emit-header"), c_allocator)?)?
+    append(mut args, text.from_bytes([]uint8("main.tck"), c_allocator)?)?
+    mut extra := make(list[text.Text], c_allocator)
+    ran := run_compiler_in(r, dir.bytes(), extra[:], args[:])?
+    header := path.join(dir.bytes(), []uint8("tack.h"), c_allocator)?
+    _, se := os.stat(header.bytes())
+    if len(ran.trouble) > 0 || ran.code != 0 || se.code != 0 {
+        mut why := make(list[uint8], c_allocator)
+        fmt.appendf(mut why, "--emit-header of a program importing std's packages with C did not write tack.h: exit status %d, standard error ", ran.code)?
+        conv_quote(mut why, part(ran.err, 0, first_lines(ran.err, 5)))?
+        fail([]uint8("runs"), []uint8("(strict-c)"), why[:], mut t)
+        return text.new(c_allocator), noerror
+    }
+    return header, noerror
+}
+
+// append_words appends to argv each word of s, the words of a flag set,
+// one space between each.
+func append_words(mut argv list[text.Text], s []uint8) error {
+    mut at int64 = 0
+    for at < len(s) {
+        sp := bytes.index_byte(part(s, at, len(s)), ' ')
+        mut end := len(s)
+        if sp >= 0 {
+            // sp is an index of s from at.
+            end = at +% sp
+        }
+        if end > at {
+            append(mut argv, text.from_bytes(part(s, at, end), c_allocator)?)?
+        }
+        // end is at most len(s).
+        at = end +% 1
+    }
+    return noerror
+}

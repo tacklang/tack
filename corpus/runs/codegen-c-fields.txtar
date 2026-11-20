@@ -1,0 +1,74 @@
+Run records of codegen/c/fields_test.go's tests that build a program with clang flags
+of their own and run it, written by tackc's porttest/rungen and completed
+by tools/corpus --update; see tools/corpus/runs.tck for the format.
+-- reflect-fields-example-is-sanitizer-clean-1/record --
+replaces codegen/c/fields_test.go TestReflectFieldsExampleIsSanitizerClean/-O2
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/reflect-fields
+target .
+opt 2
+cflags -fstrict-flex-arrays=3 -D_DEFAULT_SOURCE -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 24 " ok\n"
+exit 0
+stdout "count own ok\n"
+stdout "count basic ok\n"
+stdout "count geo from main ok\n"
+stdout "count geo from geo ok\n"
+stdout "count main from geo ok\n"
+stdout "count marked from geo ok\n"
+stdout "count lib ok\n"
+stdout "text has no fields here ok\n"
+stdout "list and map have no fields ok\n"
+stdout "shape ok\n"
+stdout "outer deep ok\n"
+stdout "geo deep ok\n"
+stdout "touch ok\n"
+stdout "owned freed ok\n"
+stdout "names ok\n"
+stdout "indexes ok\n"
+stdout "find ok\n"
+stdout "pairs ok\n"
+stdout "defer ok\n"
+stdout "closures ok\n"
+stdout "concrete ok\n"
+stdout "listing freed ok\n"
+stdout "names under failure ok\n"
+stdout "failing freed ok\n"
+stderr ""
+-- reflect-fields-example-is-sanitizer-clean-2/record --
+replaces codegen/c/fields_test.go TestReflectFieldsExampleIsSanitizerClean/-O0/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+replaces codegen/c/fields_test.go TestReflectFieldsExampleIsSanitizerClean/-O1/-fsanitize=address,undefined/-fsanitize-address-use-after-return=always/-fno-sanitize-recover=all
+strict-libs the test compiles its build's C with -std=c11 -Wall -Wextra -Werror -fstrict-flex-arrays=3 at its level and flags itself, which the driver's -w turns off; the runner compiles it so
+dir examples/reflect-fields
+target .
+opt 0 1
+cflags -fstrict-flex-arrays=3 -fsanitize=address,undefined -fsanitize-address-use-after-return=always -fno-sanitize-recover=all -D_DEFAULT_SOURCE -fno-sanitize-address-globals-dead-stripping -ffinite-loops -mllvm -indvars-predicate-loops=true
+lacks stdout "FAIL"
+count stdout 24 " ok\n"
+exit 0
+stdout "count own ok\n"
+stdout "count basic ok\n"
+stdout "count geo from main ok\n"
+stdout "count geo from geo ok\n"
+stdout "count main from geo ok\n"
+stdout "count marked from geo ok\n"
+stdout "count lib ok\n"
+stdout "text has no fields here ok\n"
+stdout "list and map have no fields ok\n"
+stdout "shape ok\n"
+stdout "outer deep ok\n"
+stdout "geo deep ok\n"
+stdout "touch ok\n"
+stdout "owned freed ok\n"
+stdout "names ok\n"
+stdout "indexes ok\n"
+stdout "find ok\n"
+stdout "pairs ok\n"
+stdout "defer ok\n"
+stdout "closures ok\n"
+stdout "concrete ok\n"
+stdout "listing freed ok\n"
+stdout "names under failure ok\n"
+stdout "failing freed ok\n"
+stderr ""
