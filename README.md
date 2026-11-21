@@ -284,6 +284,18 @@ in place of `$TACK_HOME`'s, as a case of the corpus with a `.std`
 directory of its own needs; it is a usage error with any other flag,
 and with an empty name.
 
+`tack --version`, or `-version`, is the port's own too, which the Go
+compiler does not have, where it gives the usage error of a flag it does
+not define: it prints `tack`, a space and the version, `devel` for a
+build of this tree as committed and the tag for a release, which the
+release target stamps into `driver/version.tck` of the copy it builds
+from (see RELEASING.md), and exits 0, needing nothing else from the
+command line, as `--backends` needs nothing, and winning over it
+(decided 2026-11-21). The run records of `corpus/runs/port-only.txtar`
+check it, each a `port-only` record, which tackc's porttest runs with
+the Go compiler too, with an entry of its divergence list recording the
+port's output in place of Go's.
+
 ### Known divergences from the Go compiler
 
 The port does not copy the Go compiler's bugs. Where an accepted
@@ -434,7 +446,9 @@ These are known, and not fixed yet:
 
 ## Building
 
-The port is built with the reference Go compiler: tackc's compiler
+With no Go, a release's compiler builds the port: `make
+install-from-release` (see Installing). Otherwise the port is built
+with the reference Go compiler: tackc's compiler
 with this repository's `runtime/` embedded in place of its frozen one.
 With tackc checked out next to this repository, as `../tackc`, build
 it there with
@@ -479,6 +493,79 @@ builds stage 2 the same way and runs the whole of porttest with it as
 the port.
 
 ### Installing
+
+#### From a release
+
+Releases are on GitHub, at https://github.com/tacklang/tack/releases,
+one tarball for Linux on x86-64, `tack-vX.Y.Z-linux-x86_64.tar.xz`,
+built by the release workflow, `.github/workflows/release.yml`, from
+the tag `vX.Y.Z`. Each has `SHA256SUMS`, a minisign signature of the
+tarball and of `SHA256SUMS`, `<file>.minisig`, and GitHub's attestation
+of the workflow run that built them. The tarball holds one directory,
+`tack-vX.Y.Z-linux-x86_64`, which is a `TACK_HOME`: `bin/tack`, the
+compiler, and `src/std`, the standard library, with the license,
+`LICENSE` (BSD-3-Clause), a short `README` and what
+`tools/install.sh` needs to install it. The compiler needs glibc 2.34
+or newer, the floor `tools/release/glibc-floor` holds, which the
+release checks it against, and clang on `PATH` to build programs.
+Extracting it and setting
+
+    export TACK_HOME="$PWD/tack-vX.Y.Z-linux-x86_64"
+    export PATH="$TACK_HOME/bin:$PATH"
+
+is an install. `tools/get-tack.sh` downloads one, verifies it and
+installs it:
+
+    curl -fsSL https://raw.githubusercontent.com/tacklang/tack/main/tools/get-tack.sh | sh
+
+gets the latest release, and `sh -s -- --version vX.Y.Z` a given one.
+It checks the tarball's SHA-256 against `SHA256SUMS`; then, when
+`minisign` is on `PATH`, both signatures with the release public key
+below, and that each signature's trusted comment, which the signature
+covers, is `tack vX.Y.Z <file>`, so a file of another release cannot
+stand in; then, when `gh` is on `PATH`, GitHub's attestation that the
+release workflow built it, for that tag, on GitHub's own runners. That
+check needs `gh` logged in: a `gh` on `PATH` that is not logged in
+fails it, and with it the install, and taking `gh` off `PATH` skips it
+with a warning. It warns, saying what goes unchecked, of each check it
+cannot run, and fails on any check that does not pass. It then lists
+the tarball and fails unless every entry is a regular file or a
+directory inside its one top directory, before anything is extracted.
+It says which version it installs. The latest release is whatever
+GitHub serves as the latest: no check can tell an older release,
+served whole with its own valid signatures, from it, so pin a version
+with `--version` where that matters. It installs as `make install` does, with
+`tools/install.sh` from the tarball: the compiler to `~/.local/bin`,
+or `$BINDIR`, or `$PREFIX/bin`, and std to `~/.tack/src/std`, or
+`$TACK_HOME/src/std`, both or neither. It refuses a `TACK_HOME` inside
+a Tack source tree, a directory holding a `tack.mod` or below one.
+`--download DIR` extracts the verified release into `DIR` and installs
+nothing.
+
+To verify a release by hand, in the directory holding its files:
+
+    sha256sum --check SHA256SUMS
+    minisign -Vm SHA256SUMS -P RWTmnXMYKLo0PX3oG7Qy0y5ODyfM5aHeRVgvSTM9yIbdI/2ibij7Adxn
+    minisign -Vm tack-vX.Y.Z-linux-x86_64.tar.xz -P RWTmnXMYKLo0PX3oG7Qy0y5ODyfM5aHeRVgvSTM9yIbdI/2ibij7Adxn
+    gh attestation verify tack-vX.Y.Z-linux-x86_64.tar.xz -R tacklang/tack \
+        --signer-workflow tacklang/tack/.github/workflows/release.yml \
+        --source-ref refs/tags/vX.Y.Z --deny-self-hosted-runners
+
+The release public key above is the same here, in
+`tools/release/minisign.pub` and in `tools/get-tack.sh`, which `make
+test-release` checks. `tack --version` prints `tack vX.Y.Z` for a
+release, and `tack devel` for a compiler built from a checkout.
+
+Building from source with no Go and no compiler of one's own, from
+this repository's root,
+
+    make install-from-release
+
+gets the latest release with `tools/get-tack.sh --download`, into
+`bin/from-release/`, or the one `RELEASE_VERSION` names, and runs `make
+install` with its compiler as `TACK`.
+
+#### From source
 
 From this repository's root,
 
@@ -875,7 +962,7 @@ only reads a run archive and writes what it read, for tackc's
 or `archive error`; then, for each case, `case` and its name, a line
 `file <path> <length>` for each of its files, and either `error
 <class>` or `record` and its fields, one line each in a fixed order:
-`replaces <count>`, `flags selfcheck=... partial=... cold=... strict=...
+`replaces <count>`, `flags selfcheck=... port-only=... partial=... cold=... strict=...
 strict-libs=... cwd-empty=... stdin=... stdout=... stderr=...`, `dir`, `target`,
 `stdout-file`, `stderr-file`, `must-fail`, a line per `opt`, `cflags`, `invoke`,
 `arg` and `env`, `stdin`, `nofile <n>`, `stream` and the four ways,
@@ -885,6 +972,33 @@ strict-libs=... cwd-empty=... stdin=... stdout=... stderr=...`, `dir`, `target`,
 count line, and a `link <path> <target>` line per symlink line. Every
 string is quoted as Go's `strconv.Quote` quotes it, and every flag is
 `true` or `false`; `tools/corpus/dump.tck` defines it.
+
+    make test-release TACK=bin/tack
+
+checks the release scripts, `tools/release/`, and `tools/get-tack.sh`,
+with `TACK` a compiler built from this tree, in directories of its own
+below `$TMPDIR`, with throwaway minisign keys it makes there, one
+password-protected and one not, and releases it packages and serves
+from a `file://` directory: that a tarball is the same bytes made twice,
+in other directories and under other umasks, and holds the release's
+layout; that `stamp.sh` and `previous.sh` refuse what is no release
+tag; that `sign.sh` writes its key mode 600 and removes it, and fails on
+a wrong password; that `get-tack.sh` installs, warns of each check it
+cannot run, fails each with `--strict`, and refuses, installing
+nothing, a tampered tarball, a wrong checksum, a signature by another
+key or of another release, a failed attestation, a tarball holding a
+link, a device or a name outside its top directory, and a home inside
+a source tree; that the release gate, `gate.sh`, passes only a commit
+of main that ci passed on after a push, with the key set and the tag
+above every release; that the compiler needs no glibc above the floor
+and no library but libc.so.6; that the public key and the glibc floor
+are the same everywhere they are written; that the workflows pin their
+actions to commits; and that `make install-from-release` installs from
+a release. `gh` is always a stand-in there, so nothing reaches GitHub.
+`tools/release/test.sh` lists what it checks. It needs git, minisign,
+curl, GNU tar, xz, clang, `llvm-readelf` or binutils' `readelf` (or
+the one `READELF` names) and coreutils, and no Go. tackc's porttest `release` stage runs it with the
+port.
 
 ## Checking against the Go compiler
 

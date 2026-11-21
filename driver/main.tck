@@ -69,10 +69,20 @@ import typeck from "tack/typeck"
 // std/builtin, or its builtin.tck, reached through a symbolic link,
 // which Go resolves and the port cannot.
 //
+// --version is the port's own too, which the Go compiler does not have,
+// where it gives the usage error of a flag it does not define: it
+// writes tack, a space, the version, tack_version (see version.tck),
+// and a newline to standard output, exit status 0, as --backends lists
+// the backends, and needs nothing else from the command line: the
+// inputs and the other flags are left unread, but a flag the port does
+// not read, a malformed one, a value a flag cannot take and an error
+// limit below 0 are each reported as they are without it; with
+// --backends it wins (decided 2026-11-21).
+//
 // The command line is read as Go's flag package reads it: flags, each
 // starting with - or --, come first and stop at the first argument that
 // is not one, or after --, and the rest are the inputs. The flags read
-// are -lex, -ast, -res, -emit, -emit-header, -check, -backends and the
+// are -lex, -ast, -res, -emit, -emit-header, -check, -backends, -version and the
 // -O flags, -O0 to -O3, -Os and -Oz, with one dash or two, and the ones
 // that take a value, -max-errors and its old name -max-diags, an int as
 // Go's strconv.ParseInt reads it with base 0, -out, a path, and
@@ -330,7 +340,8 @@ var dump_flags = [14]string{"--lex", "--ast", "--res", "--emit", "--emit-header"
 
 // Flags holds what the flags of a command line set, Go's flagValues as
 // far as the port reads them: whether each of dump_flags was given,
-// --check, --backends, and each -O flag, in codegen.opts' order, whether
+// --check, --backends, --version, the port's own, and each -O flag, in
+// codegen.opts' order, whether
 // --out names a path, Go's outBin != "", the values of --max-errors and
 // --max-diags, and whether --max-diags was given, which makes its value
 // the limit, as Go's fs.Visit finds it, and where the values of the
@@ -340,6 +351,7 @@ type Flags struct {
     asked [14]bool
     check bool
     backends bool
+    version bool
     opt [6]bool
     has_out bool
     out_at int64
@@ -371,7 +383,7 @@ func run(a []text.Text) (int32, error) {
     mut rest := make(list[int64], c_allocator)
     mut asked [14]bool
     mut opt [6]bool
-    mut fl := Flags{asked: asked, check: false, backends: false, opt: opt, has_out: false, out_at: -1, out_from: 0, max_errors: default_max_errors, max_diags: default_max_errors, diags_set: false, backend_at: -1, backend_from: 0, std_at: -1, std_from: 0}
+    mut fl := Flags{asked: asked, check: false, backends: false, version: false, opt: opt, has_out: false, out_at: -1, out_from: 0, max_errors: default_max_errors, max_diags: default_max_errors, diags_set: false, backend_at: -1, backend_from: 0, std_at: -1, std_from: 0}
     mut flags_done := false
     // skip says the argument is the value of the flag before it.
     mut skip := false
@@ -424,6 +436,15 @@ func run(a []text.Text) (int32, error) {
         mut msg := make(list[uint8], c_allocator)
         fmt.appendf(mut msg, "%s must be 0 or more, got %d", limit_name, limit)?
         return usage(msg), noerror
+    }
+    if fl.version {
+        // --version, the port's own, needs nothing else from the command
+        // line either, as --backends needs nothing, and wins over it.
+        mut out := make(list[uint8], c_allocator)
+        append(mut out, []uint8("tack ")...)?
+        append(mut out, []uint8(tack_version)...)?
+        append(mut out, '\n')?
+        return write_output(out), noerror
     }
     if fl.backends {
         // Listing the backends needs nothing else from the command line,
@@ -563,6 +584,10 @@ func read_named(mut fl Flags, a []text.Text, i int64, arg []uint8, name []uint8,
     }
     if bytes.equal(name, []uint8("backends")) {
         fl.backends = true
+        return exit_ok, false, false, noerror
+    }
+    if bytes.equal(name, []uint8("version")) {
+        fl.version = true
         return exit_ok, false, false, noerror
     }
     for k, o := range codegen.opts {

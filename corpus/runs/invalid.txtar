@@ -173,6 +173,24 @@ stderr ""
 stream stderr merged
 exit 0
 stderr "x"
+-- conflict-port-only-replaces/class --
+conflict
+-- conflict-port-only-replaces/record --
+port-only a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+replaces tack/main_test.go TestBuiltHelloPrints
+exit 0
+-- conflict-port-only-selfcheck/class --
+conflict
+-- conflict-port-only-selfcheck/record --
+port-only a record every reader must reject
+selfcheck a record every reader must reject
+dir examples/hello
+stdout ""
+stderr ""
+exit 0
 -- conflict-selfcheck-replaces/class --
 conflict
 -- conflict-selfcheck-replaces/record --

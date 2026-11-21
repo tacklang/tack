@@ -28,11 +28,16 @@ import utf8 from "std/utf8"
 //   - replaces <file> <test>: the Go test, by its file below tackc's root,
 //     a clean path ending in _test.go, and its name, Test or Fuzz and
 //     more, with /<subtest> when it is one, the record stands for; a
-//     record has at least one, or a selfcheck line;
+//     record has at least one, or a selfcheck or port-only line;
 //   - partial <why>: the record holds only part of what the Go tests it
 //     replaces assert, and why; tackc's porttest never counts a test
 //     only partial records replace as covered;
 //   - selfcheck <why>: the record checks the runner itself, no Go test;
+//   - port-only <why>: the record checks what the port does that the Go
+//     compiler does not, such as a flag only the port has, so it stands
+//     for no Go test either, and tackc's porttest, which runs every
+//     record with the Go compiler too, needs an entry of its divergence
+//     list for it, recording what the port gives in place of Go's;
 //   - note <text>: what a reader should know; nothing reads it;
 //
 // what is built or run, and where:
@@ -225,7 +230,7 @@ import utf8 from "std/utf8"
 // level that is none or is repeated; env, no NAME= or a NAME that is
 // none; cflags, a flag of
 // other bytes; stream, no such descriptor or way; path, a path that is
-// no clean relative one, or a dir outside examples/; missing, no replaces or selfcheck, no end
+// no clean relative one, or a dir outside examples/; missing, no replaces, selfcheck or port-only, no end
 // line, or no dir and no files; conflict, lines that cannot go together.
 
 // Record is one record of a run archive, as parse_record reads it (see
@@ -233,6 +238,7 @@ import utf8 from "std/utf8"
 type Record struct {
     replaces int64
     selfcheck bool
+    port_only bool
     partial bool
     dir text.Text
     target text.Text
@@ -302,6 +308,7 @@ func new_record() Record {
     return Record{
         replaces: 0,
         selfcheck: false,
+        port_only: false,
         partial: false,
         dir: text.new(c_allocator),
         target: text.new(c_allocator),
@@ -611,7 +618,7 @@ func record_line(name []uint8, key []uint8, rest []uint8, k int64, mut rec Recor
         rec.replaces +%= 1
         return noerror
     }
-    if is_word(key, "partial") || is_word(key, "selfcheck") || is_word(key, "no-strict-c") || is_word(key, "cold-cache") || is_word(key, "strict-libs") {
+    if is_word(key, "partial") || is_word(key, "selfcheck") || is_word(key, "port-only") || is_word(key, "no-strict-c") || is_word(key, "cold-cache") || is_word(key, "strict-libs") {
         if is_word(key, "strict-libs") {
             if rec.strict_libs {
                 return record_problem(mut problem, name, k, "repeated", "strict-libs is given once at most")
@@ -626,6 +633,8 @@ func record_line(name []uint8, key []uint8, rest []uint8, k int64, mut rec Recor
             rec.partial = true
         } else if is_word(key, "selfcheck") {
             rec.selfcheck = true
+        } else if is_word(key, "port-only") {
+            rec.port_only = true
         } else {
             if !rec.strict {
                 return record_problem(mut problem, name, k, "repeated", "no-strict-c is given once at most")
@@ -1014,8 +1023,8 @@ func stream_mode(fd []uint8, how []uint8, mut rec Record) (bool, bool, error) {
 // named name, which has files of its own when has_files says so, lacks
 // or holds that cannot go together.
 func record_whole(name []uint8, has_files bool, rec Record, mut problem list[uint8]) error {
-    if rec.replaces == 0 && !rec.selfcheck {
-        return whole_problem(mut problem, name, "missing", "it names no Go test it replaces, and is no selfcheck")
+    if rec.replaces == 0 && !rec.selfcheck && !rec.port_only {
+        return whole_problem(mut problem, name, "missing", "it names no Go test it replaces, and is no selfcheck or port-only check")
     }
     if rec.ends == 0 {
         return whole_problem(mut problem, name, "missing", "it has no exit, signal or still-running line")
@@ -1028,6 +1037,9 @@ func record_whole(name []uint8, has_files bool, rec Record, mut problem list[uin
     }
     if rec.replaces > 0 && rec.selfcheck {
         return whole_problem(mut problem, name, "conflict", "a selfcheck replaces no Go test")
+    }
+    if rec.port_only && (rec.replaces > 0 || rec.selfcheck) {
+        return whole_problem(mut problem, name, "conflict", "a port-only check replaces no Go test and is no selfcheck")
     }
     if has_files && rec.dir.len() > 0 {
         return whole_problem(mut problem, name, "conflict", "a case has files of its own or a dir line, not both")

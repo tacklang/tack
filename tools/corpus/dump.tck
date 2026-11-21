@@ -20,7 +20,7 @@ import text from "std/text"
 //     own, or record and its fields:
 //
 //     replaces <count>
-//     flags selfcheck=<b> partial=<b> cold=<b> strict=<b> strict-libs=<b> cwd-empty=<b> stdin=<b> stdout=<b> stderr=<b>
+//     flags selfcheck=<b> port-only=<b> partial=<b> cold=<b> strict=<b> strict-libs=<b> cwd-empty=<b> stdin=<b> stdout=<b> stderr=<b>
 //     dir, target, stdout-file, stderr-file and must-fail, each quoted
 //     opt, cflags, invoke, arg and env, a line each, quoted, in order
 //     stdin, quoted
@@ -55,7 +55,7 @@ func bool_word(b bool) string {
 // dump_record writes rec's fields in the form of the comment above.
 func dump_record(rec Record) error {
     fmt.printf("record\nreplaces %d\n", rec.replaces)
-    fmt.printf("flags selfcheck=%s partial=%s cold=%s strict=%s strict-libs=%s cwd-empty=%s stdin=%s stdout=%s stderr=%s\n", bool_word(rec.selfcheck), bool_word(rec.partial), bool_word(rec.cold), bool_word(rec.strict), bool_word(rec.strict_libs), bool_word(rec.empty_cwd), bool_word(rec.has_stdin), bool_word(rec.has_stdout), bool_word(rec.has_stderr))
+    fmt.printf("flags selfcheck=%s port-only=%s partial=%s cold=%s strict=%s strict-libs=%s cwd-empty=%s stdin=%s stdout=%s stderr=%s\n", bool_word(rec.selfcheck), bool_word(rec.port_only), bool_word(rec.partial), bool_word(rec.cold), bool_word(rec.strict), bool_word(rec.strict_libs), bool_word(rec.empty_cwd), bool_word(rec.has_stdin), bool_word(rec.has_stdout), bool_word(rec.has_stderr))
     dump_line("dir", rec.dir.bytes())?
     dump_line("target", rec.target.bytes())?
     dump_line("stdout-file", rec.stdout_file.bytes())?

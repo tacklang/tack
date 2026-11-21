@@ -1,0 +1,10 @@
+package main
+
+// tack_version is the version tack --version prints, after "tack ": devel
+// in every build of this tree as it is committed. A release, and only a
+// release, rewrites this file in a copy of the tree before it builds the
+// compiler from that copy, with the release's tag, vMAJOR.MINOR.PATCH
+// (see tools/release/stamp.sh), so that every stage of its bootstrap is
+// built from the same source and stage 2 and stage 3 stay the same
+// bytes. The committed file is never stamped.
+var tack_version = "devel"

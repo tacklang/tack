@@ -334,3 +334,59 @@ fuzz:
 # stage runs it with the port. It needs clang with libFuzzer, and no Go.
 fuzz-regress: fuzz-build
 	sh tools/fuzz/fuzz.sh regress $(FUZZ_TARGETS)
+
+# RELEASE is where `make release` builds a release, under the ignored
+# bin/, and FROM_RELEASE where `make install-from-release` puts the
+# release it downloads.
+RELEASE := $(BIN)/release
+FROM_RELEASE := $(BIN)/from-release
+
+.PHONY: release test-release install-from-release
+
+# release builds the release VERSION, a tag vMAJOR.MINOR.PATCH, with
+# $(TACK) as stage 1's compiler, the previous release's, as make install
+# builds: a copy of this tree in $(RELEASE)/tree, stamped with VERSION so
+# that tack --version prints it, its ./driver built by $(TACK), and that
+# stage 1 running the copy's make bootstrap, which fails unless stage 2
+# and stage 3 are the same bytes; then the tarball,
+# $(RELEASE)/dist/tack-VERSION-linux-x86_64.tar.xz, with stage 3 as its
+# compiler, the same bytes from the same inputs wherever it is made, its
+# entries dated SOURCE_DATE_EPOCH, the time of the commit, which must be
+# set when git cannot give it (see tools/release/build.sh and
+# package.sh). VERSION and SOURCE_DATE_EPOCH are read from the
+# environment, where make puts them, by the scripts, never pasted into a
+# command. It needs clang, llvm-readelf or readelf, GNU tar, xz and
+# coreutils, and no Go.
+release:
+	@[ -n "$${SOURCE_DATE_EPOCH:-}" ] || SOURCE_DATE_EPOCH="$$(git log -1 --format=%ct 2>/dev/null)"; \
+		[ -n "$$SOURCE_DATE_EPOCH" ] || { echo "release: SOURCE_DATE_EPOCH is not set and git cannot give the commit's time" >&2; exit 1; }; \
+		export SOURCE_DATE_EPOCH; \
+		sh tools/release/build.sh "$(TACK)" $(RELEASE)
+
+# test-release runs tools/release/test.sh with $(TACK), a compiler built
+# from this tree: it checks the release scripts and tools/get-tack.sh in
+# directories of their own below $TMPDIR, with throwaway minisign keys it
+# makes there, a stand-in for gh and releases served from a file://
+# directory (see the script). It never writes to this tree, the real
+# home or the network. tackc's porttest release stage runs it with the
+# port. It needs git, minisign, curl, GNU tar, xz, clang, llvm-readelf
+# or readelf (READELF, read from the environment, names another) and
+# coreutils, and no Go.
+test-release:
+	sh tools/release/test.sh "$(TACK)"
+
+# install-from-release builds and installs the compiler with no Go and
+# no compiler of one's own: tools/get-tack.sh downloads the latest
+# release, or the one RELEASE_VERSION names, verifies it as it says, and
+# extracts it into $(FROM_RELEASE), and make install then runs with its
+# compiler as TACK, building this tree in three stages and installing it
+# where BINDIR, PREFIX, TACK_HOME and HOME say, after install.sh's
+# checks of those, before anything is downloaded. It needs curl, GNU tar,
+# xz, clang and coreutils, and minisign and gh to check all a release
+# offers.
+install-from-release:
+	@sh tools/install.sh check
+	rm -rf $(FROM_RELEASE)
+	mkdir -p $(BIN)
+	sh tools/get-tack.sh $${RELEASE_VERSION:+--version "$$RELEASE_VERSION"} --download $(FROM_RELEASE)
+	$(MAKE) install TACK="$(CURDIR)/$(FROM_RELEASE)/bin/tack"

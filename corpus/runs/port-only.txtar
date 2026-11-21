@@ -1,0 +1,35 @@
+Run records of what the port does that the Go compiler does not, each a
+port-only check, which stands for no Go test and has an entry in tackc's
+porttest/testdata/divergences.txtar; see tools/corpus/runs.tck for the
+format. A release rewrites every stdout "tack devel\n" line of
+this archive, in the copy of the tree it builds from, with its version, as
+it rewrites driver/version.tck (see tools/release/stamp.sh), so the
+release's compiler is held to its own version.
+-- version-flag-one-dash/record --
+port-only tack -version, the one-dash spelling every flag has (decided 2026-11-21)
+dir examples/hello
+cwd empty
+invoke "-version"
+exit 0
+stdout "tack devel\n"
+stderr ""
+-- version-ignores-the-rest/record --
+port-only tack --version needs nothing else from the command line, and wins over --backends (decided 2026-11-21)
+dir examples/hello
+cwd empty
+invoke "--backends"
+invoke "--version"
+invoke "--check"
+invoke "missing.tck"
+invoke "another.tck"
+exit 0
+stdout "tack devel\n"
+stderr ""
+-- version-prints-the-version/record --
+port-only tack --version, which the Go compiler does not have (decided 2026-11-21)
+dir examples/hello
+cwd empty
+invoke "--version"
+exit 0
+stdout "tack devel\n"
+stderr ""
