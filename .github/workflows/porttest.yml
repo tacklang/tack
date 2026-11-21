@@ -1,0 +1,73 @@
+# porttest checks the port, this branch, against the frozen Go compiler,
+# tackc on the go-impl branch, with tackc's full porttest and its own Go
+# tests. Go is used here only to test: nothing this workflow builds is
+# shipped. It runs in a Fedora container, the platform the suite is
+# developed on, as an unprivileged user, since several tests check that
+# an unwritable path is refused, which root would bypass.
+name: porttest
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: porttest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  porttest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    container:
+      image: fedora:45
+    steps:
+      - name: Install the tools
+        run: |
+          dnf -y install --setopt=install_weak_deps=False \
+            git make clang compiler-rt llvm diffutils findutils which \
+            xz tar gzip coreutils util-linux procps-ng minisign
+          clang --version
+
+      - name: Check out the port
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tack
+          persist-credentials: false
+
+      - name: Check out tackc
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: go-impl
+          path: tackc
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: tackc/go.mod
+          cache: false
+
+      - name: Make an unprivileged user
+        run: |
+          useradd -m ci
+          chown -R ci:ci "$GITHUB_WORKSPACE"
+          nproc; free -g; df -h "$GITHUB_WORKSPACE" /tmp
+
+      - name: tackc's Go tests
+        run: |
+          runuser -u ci -- env PATH="$PATH" HOME=/home/ci GOCACHE=/home/ci/.cache/go-build \
+            sh -c 'cd tackc && go vet ./... && go test -count=1 ./...'
+
+      - name: Build the reference compiler
+        run: |
+          runuser -u ci -- env PATH="$PATH" HOME=/home/ci GOCACHE=/home/ci/.cache/go-build \
+            sh -c 'cd tackc && make port-go-bin'
+
+      - name: porttest
+        run: |
+          runuser -u ci -- env PATH="$PATH" HOME=/home/ci GOCACHE=/home/ci/.cache/go-build \
+            sh -c 'cd tackc && TACK_PORT_TEST=1 go test -count=1 -timeout 200m ./porttest'
