@@ -411,6 +411,10 @@ func TestRunRecords(t *testing.T) {
 						entry = &divs[i]
 					}
 				}
+				if rec.portOnly && entry == nil {
+					t.Fatalf("a port-only record checks what the Go compiler does not do, so it needs an entry of suite %s in %s, naming %s",
+						runRecordsSuite, divergencesFile, key)
+				}
 				levels := rec.opts
 				if len(levels) == 0 {
 					levels = []string{""}

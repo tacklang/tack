@@ -32,6 +32,7 @@ type runRecord struct {
 	replaces   []string // "<file> <test>"
 	partial    bool
 	selfcheck  bool
+	portOnly   bool // a port-only line: the record checks what only the port does
 	cold       bool
 	strictLibs bool // the runner compiles the record's C as its Go test does (see runrecords_strict_test.go)
 	dir        string
@@ -112,7 +113,7 @@ var runRecordArchives = []string{
 	"codegen-c-text.txtar", "codegen-c-typeargs.txtar", "codegen-c-typeswitch.txtar", "codegen-c-union.txtar",
 	"codegen-c-utf8.txtar", "codegen-c-variadic.txtar", "codegen-c-view.txtar", "codegen-c-viewbinding.txtar",
 	"codegen-c-viewresult.txtar",
-	runInvalidArchive, runMustFailArchive, "prototype.txtar",
+	runInvalidArchive, runMustFailArchive, "port-only.txtar", "prototype.txtar",
 	"tack-errors.txtar", "tack-extern.txtar", "tack-fallthrough.txtar", "tack-generics.txtar", "tack-lists.txtar",
 	"tack-main.txtar", "tack-methods.txtar", "tack-std.txtar", "tack-stdimport.txtar", "tack-testfiles.txtar",
 	"tack-union-methods.txtar", "tack-unions.txtar", "tack-viewresults.txtar"}
@@ -477,6 +478,8 @@ func recordLine(r *runRecord, key, rest string, once map[string]bool, openFile *
 		r.partial = true
 	case "selfcheck":
 		r.selfcheck = true
+	case "port-only":
+		r.portOnly = true
 	case "no-strict-c", "cold-cache", "strict-libs":
 		if err := single(key); err != nil {
 			return err
@@ -719,8 +722,8 @@ func recordLine(r *runRecord, key, rest string, once map[string]bool, openFile *
 func wholeRecord(r runRecord, hasFiles bool) error {
 	merged := r.streams["stderr"] == "merged"
 	switch {
-	case len(r.replaces) == 0 && !r.selfcheck:
-		return bad("missing", "it names no Go test it replaces, and is no selfcheck")
+	case len(r.replaces) == 0 && !r.selfcheck && !r.portOnly:
+		return bad("missing", "it names no Go test it replaces, and is no selfcheck or port-only check")
 	case r.ends == 0:
 		return bad("missing", "it has no exit, signal or still-running line")
 	case !hasFiles && r.dir == "":
@@ -729,6 +732,8 @@ func wholeRecord(r runRecord, hasFiles bool) error {
 		return bad("repeated", "it has more than one exit, signal or still-running line")
 	case len(r.replaces) > 0 && r.selfcheck:
 		return bad("conflict", "a selfcheck replaces no Go test")
+	case r.portOnly && (len(r.replaces) > 0 || r.selfcheck):
+		return bad("conflict", "a port-only check replaces no Go test and is no selfcheck")
 	case hasFiles && r.dir != "":
 		return bad("conflict", "a case has files of its own or a dir line, not both")
 	case r.hasStdout && r.stdoutF != "" || r.hasStderr && r.stderrF != "":

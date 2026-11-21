@@ -49,5 +49,6 @@ unicode-tables
 check-tree
 lex-probes
 install
+release
 fuzz-regress
 spec

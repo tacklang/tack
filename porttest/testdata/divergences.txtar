@@ -26,6 +26,12 @@
 # The suite header-render is TestHeaderRender's: its entries record, as
 # stdout, the tack.h the port's --port-header must write.
 #
+# An entry of suite run-records naming a record of the port's
+# corpus/runs/port-only.txtar records no Go bug but a feature only the
+# port has, tack --version, which TestRunRecords runs with the Go
+# compiler too: each such record needs one (see the package doc,
+# Release).
+#
 # The port is compared with the recorded output in place of the Go
 # compiler's, and the case fails when the Go compiler gives the recorded
 # output, when the port declines it, and when its suite has no such case
@@ -4704,3 +4710,43 @@ same: exit, stdout
 -- unicode18-two-targets/stderr --
 tack test: expected one directory or import path, got 2 arguments: "p" "՘" (flags must come before it)
 Run 'tack test --help' for usage.
+-- version-flag-one-dash/divergence --
+suite: run-records
+case: port-only.txtar#version-flag-one-dash
+go: Go's driver defines no -version flag, so it gives the usage error
+  "flag provided but not defined: -version", exit status 2, for -version.
+why: The port's -version, the one-dash spelling of its --version, prints
+  tack and the version, decided 2026-11-21; a port-only record.
+same: none
+-- version-flag-one-dash/exit --
+0
+-- version-flag-one-dash/stdout --
+tack devel
+-- version-flag-one-dash/stderr --
+-- version-ignores-the-rest/divergence --
+suite: run-records
+case: port-only.txtar#version-ignores-the-rest
+go: Go's driver defines no -version flag, so it gives the usage error
+  "flag provided but not defined: -version", exit status 2, after --backends.
+why: The port's --version needs nothing else from the command line, and
+  wins over --backends, decided 2026-11-21; a port-only record.
+same: none
+-- version-ignores-the-rest/exit --
+0
+-- version-ignores-the-rest/stdout --
+tack devel
+-- version-ignores-the-rest/stderr --
+-- version-prints-the-version/divergence --
+suite: run-records
+case: port-only.txtar#version-prints-the-version
+go: Go's driver defines no -version flag, so it gives the usage error
+  "flag provided but not defined: -version", exit status 2, for --version.
+why: The port's --version prints tack, a space, the version, devel in a
+  build of the committed tree, and a newline, decided 2026-11-21; a
+  port-only record.
+same: none
+-- version-prints-the-version/exit --
+0
+-- version-prints-the-version/stdout --
+tack devel
+-- version-prints-the-version/stderr --

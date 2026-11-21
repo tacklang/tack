@@ -285,7 +285,9 @@
 // Go's, as the stage compares the two, and fails the case when Go gives
 // it, the entry having gone stale, as much as when the port does not; a
 // case the list holds that the port declines fails, required or not, so
-// an entry is never a skip.
+// an entry is never a skip. An entry of suite run-records may also
+// stand for a port-only record, a feature only the port has, which is no
+// Go bug (see Release).
 //
 // An entry applies to its suite's cases alone. TestPort marks each case
 // of a stage as that stage's, TestProbesPairStack the probes as the
@@ -1161,6 +1163,42 @@
 // that is not there, before anything is written. A port that is the Go
 // compiler, byte for byte, runs the case too: the install's stage 1 is
 // then the port, and its bootstrap compares stage 2 with stage 3 alone.
+//
+// # Release
+//
+// The port is released as prebuilt binaries on GitHub Releases, built by
+// its release workflow from the previous release with no Go, the first
+// release's stage 1 built with this module's reference compiler at the
+// tag go-bootstrap (decided 2026-11-21); its tools/release holds the
+// workflow's steps as scripts, and its tools/get-tack.sh downloads,
+// verifies and installs a release. The release stage, one case, runs the
+// port's make test-release in the port's source tree with the port as
+// TACK, as the install stage runs make test-install, and fails, showing
+// its output, unless it passes, or when it does not end within
+// releaseTimeouts times a compiler run's time limit. The port's
+// tools/release/test.sh packages releases with the port and serves them
+// from a file:// directory below TMPDIR, signed with throwaway minisign
+// keys it makes there, with a stand-in for gh, so it writes neither to
+// the tree nor to the real home and reaches no network; it checks that
+// the port's --version prints the tree's version, that a tarball is the
+// same bytes made twice, that the scripts refuse what is no release tag,
+// that a release key is written mode 600 and removed, that get-tack.sh
+// installs and refuses, installing nothing, a tampered tarball, a wrong
+// checksum or signature and a failed attestation, and that make
+// install-from-release installs from a release; and that the release's
+// gate, glibc check, artifact check and Go cross-check pass and refuse
+// what they should. It needs make, git, minisign and a readelf, the one
+// $READELF names, or llvm-readelf, or binutils' readelf. A port that is the Go compiler, byte for
+// byte, skips the case: Go has no --version.
+//
+// tack --version is the port's own, which the Go compiler does not have,
+// where it gives the usage error "flag provided but not defined:
+// -version". The port's corpus/runs/port-only.txtar holds its run
+// records, each a port-only record, which stands for no Go test (see the
+// port's tools/corpus/runs.tck); TestRunRecords runs every record with
+// the Go compiler too, so each port-only record must have an entry of
+// suite run-records in the divergence list, recording the port's output
+// in place of Go's, and fails without one.
 //
 // # Run records
 //
