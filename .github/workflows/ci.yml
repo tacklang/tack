@@ -31,6 +31,10 @@ jobs:
     timeout-minutes: 60
     container:
       image: fedora:45
+      # An init as PID 1 reaps the processes the checks orphan; the
+      # container's default PID 1 does not, so a killed process would stay
+      # a zombie and the checks that a run left nothing behind would fail.
+      options: --init
     steps:
       - name: Install the tools
         run: |
