@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     container:
-      image: fedora:45
+      image: fedora:45@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c
       # An init as PID 1 reaps the processes the checks orphan; the
       # container's default PID 1 does not, so a killed process would stay
       # a zombie and the checks that a run left nothing behind would fail.
